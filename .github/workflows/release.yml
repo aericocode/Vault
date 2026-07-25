@@ -59,6 +59,27 @@ jobs:
           "zip=$name" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+      # Guard the thing that actually matters: that the archive exists, is the
+      # right order of magnitude, and really contains Vault.exe. Compress-Archive
+      # succeeds happily on an empty glob, so without this a broken build would
+      # publish a tiny zip and nobody would notice until a user downloaded it.
+      - name: Verify package
+        shell: pwsh
+        run: |
+          $zip = '${{ steps.package.outputs.zip }}'
+          if (-not $zip) { throw 'Package step did not set an output name' }
+          if (-not (Test-Path $zip)) { throw "Package missing: $zip" }
+          $mb = (Get-Item $zip).Length / 1MB
+          Write-Host ("{0} = {1:N1} MB" -f $zip, $mb)
+          if ($mb -lt 40) { throw "Package is only $([math]::Round($mb,1)) MB - the exe is probably missing" }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $zip).Path)
+          try { $entries = $archive.Entries.FullName } finally { $archive.Dispose() }
+          if ($entries -notcontains 'Vault.exe') {
+            throw "Vault.exe is not inside $zip. Entries: $($entries -join ', ')"
+          }
+          Write-Host "Vault.exe confirmed inside the archive ($($entries.Count) entries)"
+
       # Manual runs stop here: the zip is downloadable from the run's summary
       # page for ~90 days. Useful for testing the pipeline before you tag.
       - name: Upload build artifact
