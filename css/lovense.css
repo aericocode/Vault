@@ -1,0 +1,83 @@
+/* ==========================================
+   LOVENSE — header chip, settings panel,
+   control-bar Vibe toggle (LOVENSE_SPEC §8)
+   ========================================== */
+
+/* Header chip (left of the Obsession Score) */
+.lovense-chip { display: flex; align-items: center; gap: 0.35rem; }
+.lovense-chip-name { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lovense-chip-batt { font-size: 0.68rem; color: var(--text-muted); font-family: monospace; }
+.lovense-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-muted); display: inline-block;
+}
+.lovense-dot-on { background: var(--success); box-shadow: 0 0 6px var(--success); }
+
+/* Settings panel (popover under the chip) */
+.lovense-panel {
+  position: fixed; z-index: 3200;
+  width: min(450px, 94vw);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.8rem 0.9rem;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
+  display: flex; flex-direction: column; gap: 0.55rem;
+  font-size: 0.82rem; color: var(--text-primary);
+}
+.lovense-row { display: flex; align-items: center; gap: 0.25rem;}
+.lovense-row input[type="range"] { accent-color: var(--brand, var(--accent)); }
+.lovense-status-row { justify-content: space-between; }
+.lovense-status { color: var(--text-secondary); font-size: 0.8rem; }
+.lovense-status.on { color: var(--success); }
+.lovense-x {
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; font-size: 0.9rem; padding: 0 0.2rem;
+}
+.lovense-x:hover { color: var(--text-primary); }
+.lovense-lbl {
+  font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted); min-width: 2.4em;
+}
+.lovense-num { font-family: monospace; font-size: 0.75rem; min-width: 2em; color: var(--text-secondary); }
+.lovense-input {
+  flex: 1; min-width: 110px; padding: 0.35rem 0.55rem;
+  background: var(--bg-primary); border: 1px solid var(--border);
+  border-radius: 7px; color: var(--text-primary); font-family: monospace; font-size: 0.8rem;
+}
+.lovense-input:focus { outline: none; border-color: var(--accent); }
+.lovense-btn {
+  padding: 0.32rem 0.7rem; border-radius: 7px; cursor: pointer; font-size: 0.78rem;
+  border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-primary);
+}
+.lovense-btn:hover:not(:disabled) { border-color: var(--accent); }
+.lovense-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.lovense-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.lovense-btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.lovense-btn-danger:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
+.lovense-radio { display: flex; align-items: center; gap: 0.3rem; cursor: pointer; font-size: 0.78rem; }
+.lovense-devices { gap: 0.7rem; }
+.lovense-devmeta { color: var(--text-muted); font-size: 0.7rem; }
+/* Per-device actuator toggles (multi-motor devices) */
+.lovense-actuators { gap: 0.7rem; flex-wrap: wrap; }
+.lovense-actuator { padding: 0.1rem 0.35rem; border: 1px solid var(--border); border-radius: 6px; }
+.lovense-actuator:hover { border-color: var(--accent); }
+.lovense-actions { justify-content: space-between; padding-top: 0.15rem; }
+.lovense-hint { font-size: 0.68rem; color: var(--text-muted); }
+
+/* Control-bar Vibe toggle (sits next to Loop; reuses .control-btn base) */
+.vibe-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.vibe-btn.vibe-warn {
+  background: var(--warning);
+  border-color: var(--warning);
+  color: #000;
+  font-weight: 600;
+}
+
+/* Mini-player Vibe toggle (reuses .mini-ctrl base) */
+.mini-vibe-btn.active { color: #fff; background: var(--accent); border-radius: 6px; }
+.mini-vibe-btn.vibe-warn { color: #000; background: var(--warning); border-radius: 6px; }

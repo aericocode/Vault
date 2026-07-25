@@ -1,0 +1,46 @@
+/* ==========================================
+   Load Database Section
+   ========================================== */
+
+.load-section {
+  max-width: 600px;
+  margin: 4rem auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.load-section h1 {
+  font-size: 1.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.load-section p {
+  color: var(--text-secondary);
+  margin-bottom: 2rem;
+}
+
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 3rem 2rem;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.drop-zone:hover,
+.drop-zone.dragover {
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.drop-zone input {
+  display: none;
+}
+
+.drop-zone-text {
+  color: var(--text-secondary);
+}
+
+.drop-zone-text strong {
+  color: var(--accent);
+}

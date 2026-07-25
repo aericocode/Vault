@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vault</title>
+  
+  <!-- Modular CSS -->
+  <link rel="stylesheet" href="./css/variables.css">
+  <link rel="stylesheet" href="./css/base.css">
+  <link rel="stylesheet" href="./css/header.css">
+  <link rel="stylesheet" href="./css/search.css">
+  <link rel="stylesheet" href="./css/cards.css">
+  <link rel="stylesheet" href="./css/modal.css">
+  <link rel="stylesheet" href="./css/pagination.css">
+  <link rel="stylesheet" href="./css/toast.css">
+  <link rel="stylesheet" href="./css/extensions.css">
+  <link rel="stylesheet" href="./css/notes.css">
+  <link rel="stylesheet" href="./css/saved-searches.css">
+  <link rel="stylesheet" href="./css/mini-player.css">
+  <link rel="stylesheet" href="./css/sidebar.css">
+  <link rel="stylesheet" href="./css/abloop.css">
+  <link rel="stylesheet" href="./css/duplicates.css">
+  <link rel="stylesheet" href="./css/tiles.css">
+  <link rel="stylesheet" href="./css/player/player-base.css">
+  <link rel="stylesheet" href="./css/player/player-controls.css">
+  <link rel="stylesheet" href="./css/player/player-video.css">
+  <link rel="stylesheet" href="./css/player/player-audio.css">
+  <link rel="stylesheet" href="./css/player/player-image.css">
+  <link rel="stylesheet" href="./css/player/player-document.css">
+  <link rel="stylesheet" href="./css/player/player-info.css">
+  <link rel="stylesheet" href="./css/player/subtitles.css">
+  <link rel="stylesheet" href="./css/gamify.css">
+  <link rel="stylesheet" href="./css/metadata-tools.css">
+  <link rel="stylesheet" href="./css/beatbar.css">
+  <link rel="stylesheet" href="./css/lovense.css">
+  <link rel="stylesheet" href="./css/vault.css">
+  <link rel="stylesheet" href="./css/import.css">
+  <link rel="stylesheet" href="./css/music.css">
+  <link rel="stylesheet" href="./css/editor.css">
+  <link rel="stylesheet" href="./css/pmv.css">
+  <link rel="stylesheet" href="./css/games.css">
+  <link rel="stylesheet" href="./css/settings.css">
+
+  <link rel="icon" type="image/svg+xml" href="./images/favicon.svg">
+</head>
+<body>
+  <!-- Main App (served by the local viewer server — library auto-loads) -->
+  <header class="header" id="appHeader">
+    <div class="header-content">
+      <div class="logo" id="vaultLogo" title="Vault">
+        <svg class="logo-lock" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path class="lock-shackle" d="M32 48 V38 C32 22 68 22 68 38 V48" fill="none" stroke="#1e1f22" stroke-width="11" stroke-linecap="round"/>
+          <path class="lock-shackle" d="M32 48 V38 C32 22 68 22 68 38 V48" fill="none" style="stroke: var(--brand);" stroke-width="8" stroke-linecap="round"/>
+          <rect x="22.5" y="44.5" width="55" height="45" rx="9" fill="#1e1f22"/>
+          <rect x="24" y="46" width="52" height="42" rx="8" style="fill: var(--brand);"/>
+          <path d="M36 58 L48 67 L36 76 Z" fill="#1e1f22"/>
+          <path d="M52 58 L64 67 L52 76 Z" fill="#1e1f22"/>
+        </svg>
+        Vault
+      </div>
+      <nav class="app-tabs" id="appTabs">
+        <button class="app-tab active" data-tab="library" onclick="switchTab('library')">📚 Library</button>
+        <button class="app-tab" data-tab="collections" onclick="switchTab('collections')">📁 Collections</button>
+        <button class="app-tab" data-tab="editor" onclick="switchTab('editor')">🎨 Editor<span class="app-tab-badge" id="editorTabBadge" style="display:none;"></span></button>
+        <button class="app-tab" data-tab="games" onclick="switchTab('games')">🎮 Games</button>
+      </nav>
+      <div class="db-info">
+        <strong id="totalCount">Loading…</strong>
+      </div>
+      <div class="header-buttons">
+        <button class="header-btn refresh-btn" id="refreshBtn" title="Reload library from server">
+          🔄 Refresh
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-container active" id="mainContainer">
+    <!-- Search Section -->
+    <section class="search-section">
+      <div class="search-row">
+        <div class="search-input-wrapper">
+          <span class="search-icon">🔍</span>
+          <input type="text" class="search-input" id="searchInput" placeholder="Search... (use AND/OR/NOT for boolean, /regex/i for regex)">
+          <button class="search-clear-btn" id="searchClearBtn" onclick="clearSearchInput()" title="Clear search" style="display:none;">✕</button>
+          <button class="search-save-star" id="searchSaveStar" onclick="saveSearchFromInput()" title="Save this search" style="display:none;">☆</button>
+        </div>
+        <div class="search-options">
+          <label class="metadata-toggle" title="Search only metadata (exclude filename and path)">
+            <input type="checkbox" id="metadataOnly">
+            Metadata only
+          </label>
+          <label class="metadata-toggle" title="Enable fuzzy (approximate) matching">
+            <input type="checkbox" id="fuzzySearch">
+            Fuzzy
+          </label>
+          <label class="metadata-toggle" title="Semantic search — find by meaning, not keywords (uses local embedding model)">
+            <input type="checkbox" id="semanticSearch">
+            🧠 Semantic
+          </label>
+          <label class="metadata-toggle" title="Also search English subtitle text (translations of foreign clips + English transcripts)">
+            <input type="checkbox" id="subtitleSearch">
+            💬 Subtitles
+          </label>
+        </div>
+        <button class="filters-toggle" id="filtersToggle">⚙️ Filters</button>
+        <button class="clear-filters-btn" id="clearFiltersBtn">Clear Filters</button>
+      </div>
+
+      <!-- Media-type bubbles (+ safe toggle) with the extension chips collapsed behind them -->
+      <div id="typeFilterContainer">
+        <div class="media-type-bar" id="mediaTypeBar"></div>
+        <div class="extension-bar" id="extensionBar" style="display:none;"></div>
+        <div class="ext-legend" id="extensionLegend" style="display:none;">
+          <span class="ext-playable">★</span> = playable in browser
+        </div>
+      </div>
+
+      <!-- Saved Searches Bar -->
+      <div class="saved-searches-bar" id="savedSearchesBar"></div>
+
+      <!-- Collections tab chrome: breadcrumb + New folder/collection + View all -->
+      <div class="coll-tabbar" id="collectionsTabBar" style="display:none;"></div>
+
+      <!-- Open-collection header strip (name, description, Play All / Shuffle) -->
+      <div class="collections-bar" id="collectionsBar" style="display:none;"></div>
+
+      <div class="filters-panel" id="filtersPanel">
+        <div class="filters-row filters-dropdowns">
+        <div class="filter-group">
+          <label>Content Type</label>
+          <select id="filterContent" data-searchable><option value="">All Content</option></select>
+        </div>
+        <div class="filter-group">
+          <label>Language</label>
+          <select id="filterLanguage" data-searchable><option value="">All Languages</option></select>
+        </div>
+        <div class="filter-group">
+          <label>Min Rating</label>
+          <select id="filterMinRating">
+            <option value="0">Any</option>
+            <option value="unrated">Unrated</option>
+            <option value="1">★ 1+</option>
+            <option value="2">★★ 2+</option>
+            <option value="3">★★★ 3+</option>
+            <option value="4">★★★★ 4+</option>
+            <option value="5">★★★★★ 5</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Theme</label>
+          <select id="filterTheme" data-searchable><option value="">All Themes</option></select>
+        </div>
+        <div class="filter-group">
+          <label>Quality</label>
+          <select id="filterQuality"><option value="">All Quality</option></select>
+        </div>
+        <div class="filter-group">
+          <label>🎵 Song</label>
+          <select id="filterSong" data-searchable><option value="">All Songs</option></select>
+        </div>
+        <div class="filter-group duration-group">
+          <label>Duration <span class="duration-label" id="durationLabel">0:00 – ∞</span></label>
+          <div class="duration-slider" id="durationSlider">
+            <div class="duration-track"><div class="duration-fill" id="durationFill"></div></div>
+            <input type="range" id="durMinSlider" min="0" max="120" step="1" value="0">
+            <input type="range" id="durMaxSlider" min="0" max="120" step="1" value="120">
+          </div>
+        </div>
+        </div>
+        <div class="filters-row filters-toggles">
+          <div class="tri-filter" data-filter="filterCollections">
+            <span class="tri-label">📁 Collections</span>
+            <div class="tri-buttons">
+              <button class="tri-btn active" data-value="">Include</button>
+              <button class="tri-btn" data-value="1">Only</button>
+              <button class="tri-btn" data-value="0">Hide</button>
+            </div>
+          </div>
+          <div class="tri-filter" data-filter="filterExplicit">
+            <span class="tri-label">🔞 Explicit</span>
+            <div class="tri-buttons">
+              <button class="tri-btn active" data-value="">All</button>
+              <button class="tri-btn" data-value="1">Yes</button>
+              <button class="tri-btn" data-value="0">No</button>
+            </div>
+          </div>
+          <div class="tri-filter" data-filter="filterStarred">
+            <span class="tri-label">❤ Fave</span>
+            <div class="tri-buttons">
+              <button class="tri-btn active" data-value="">All</button>
+              <button class="tri-btn" data-value="1">Only</button>
+              <button class="tri-btn" data-value="0">Not Faved</button>
+            </div>
+          </div>
+          <div class="tri-filter" data-filter="filterHasNotes">
+            <span class="tri-label">📝 Notes</span>
+            <div class="tri-buttons">
+              <button class="tri-btn active" data-value="">All</button>
+              <button class="tri-btn" data-value="1">Has</button>
+              <button class="tri-btn" data-value="0">None</button>
+            </div>
+          </div>
+          <div class="tri-filter" data-filter="filterDuplicates">
+            <span class="tri-label">⚠ Dupes</span>
+            <div class="tri-buttons">
+              <button class="tri-btn active" data-value="">All</button>
+              <button class="tri-btn" data-value="1">Yes</button>
+              <button class="tri-btn" data-value="0">No</button>
+            </div>
+          </div>
+          <div class="tri-filter" data-filter="filterFlagged">
+            <span class="tri-label">🚩 Flagged</span>
+            <div class="tri-buttons">
+              <button class="tri-btn active" data-value="">All</button>
+              <button class="tri-btn" data-value="1">Yes</button>
+              <button class="tri-btn" data-value="0">No</button>
+            </div>
+          </div>
+          <div class="tri-filter" data-filter="filterTrashed">
+            <span class="tri-label">🗑 Trashed</span>
+            <div class="tri-buttons">
+              <button class="tri-btn" data-value="">All</button>
+              <button class="tri-btn" data-value="1">Only</button>
+              <button class="tri-btn active" data-value="0">Hidden</button>
+            </div>
+            <label class="delete-mode-row" title="What the 🗑 delete action does. Soft is undoable; Recycle goes to the OS Recycle Bin; Hard erases from disk immediately.">
+              <span>Delete&nbsp;mode</span>
+              <select id="deleteModeSelect" class="delete-mode-select" onchange="setDeleteMode(this.value)">
+                <option value="soft">Soft — to trash folder (undoable)</option>
+                <option value="recycle">Recycle Bin (OS-recoverable)</option>
+                <option value="hard">Hard — permanent</option>
+              </select>
+            </label>
+            <button id="clearTrashBtn" class="clear-trash-btn" style="display:none"
+              onclick="clearTrash()" title="Permanently delete every file in the trash — irreversible">🗑 Empty trash</button>
+          </div>
+          <div class="tri-filter" data-filter="filterFailed">
+            <span class="tri-label">⚠ Unplayable</span>
+            <div class="tri-buttons">
+              <button class="tri-btn active" data-value="">All</button>
+              <button class="tri-btn" data-value="1">Only</button>
+              <button class="tri-btn" data-value="0">Hidden</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Results Info -->
+    <div class="results-info">
+      <div class="results-count">
+        <button class="search-collapse-btn" id="searchCollapseBtn" title="Show/hide search &amp; filters">▲ Search</button>
+        Showing <strong id="showingCount">0</strong> of <strong id="filteredCount">0</strong> results
+      </div>
+      <div class="results-controls">
+        <div class="sort-control">
+          <label>Sort:</label>
+          <select id="sortSelect">
+            <option value="processed">Date Processed</option>
+            <option value="name">Name</option>
+            <option value="size">Size</option>
+            <option value="duration">Duration</option>
+            <option value="rating">Rating</option>
+            <option value="views">Views</option>
+            <option value="done">Session Ends</option>
+          </select>
+          <button id="sortDirBtn" class="sort-dir-btn" title="Toggle most/least first">▼</button>
+          <button id="favesFirstBtn" class="faves-first-btn" title="Faves first (on top of any sort)">🤍</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="results-grid" id="resultsGrid"></div>
+
+    <!-- Pagination -->
+    <div class="pagination" id="pagination"></div>
+  </main>
+
+  <!-- Editor (stack/grid mixes, songs browser, exports) — rendered by editor.js -->
+  <main class="editor-container" id="editorContainer" style="display:none;"></main>
+
+  <!-- Games (video games over the library) — rendered by games.js -->
+  <main class="games-container" id="gamesContainer" style="display:none;"></main>
+
+  <!-- Detail Modal -->
+  <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h2 id="modalTitle">Filename</h2>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast">Path copied to clipboard!</div>
+
+  <!-- Media Player Overlay -->
+  <div class="media-player-overlay" id="mediaPlayerOverlay">
+    <div class="media-player-header">
+      <div class="media-player-title" id="mediaPlayerTitle">filename.mp4</div>
+      <div class="media-player-header-btns">
+        <button class="media-player-minimize" onclick="minimizePlayer()" title="Minimize (Q)">🗕</button>
+        <button class="media-player-close" onclick="closeMediaPlayer()">✕ Close</button>
+      </div>
+    </div>
+    <div class="media-player-body">
+      <div class="media-player-main">
+        <div class="media-player-content" id="mediaPlayerContent"></div>
+        <div class="media-player-controls" id="mediaPlayerControls"></div>
+      </div>
+      <div class="media-sidebar" id="mediaSidebar">
+        <div class="media-sidebar-header">
+          <h3 class="media-sidebar-title">Info & Notes</h3>
+          <button class="media-sidebar-close" onclick="toggleSidebar()" title="Close sidebar (I)">✕</button>
+        </div>
+        <div class="media-sidebar-body" id="mediaSidebarBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Media Info Overlay -->
+  <div class="media-info-overlay" id="mediaInfoOverlay" onclick="closeMediaInfo()">
+    <div class="media-info-content" id="mediaInfoContent" onclick="event.stopPropagation()"></div>
+  </div>
+
+  <!-- Mini Player -->
+  <div class="mini-player" id="miniPlayer">
+    <div class="mini-player-drag" id="miniPlayerDrag">
+      <span class="mini-player-title" id="miniPlayerTitle">filename.mp4</span>
+    </div>
+    <div class="mini-player-media" id="miniPlayerMedia"></div>
+    <div class="mini-player-controls">
+      <button class="mini-ctrl" id="miniPlayPause" onclick="miniTogglePlay()" title="Play/Pause">⏸</button>
+      <button class="mini-ctrl" onclick="maximizePlayer()" title="Maximize (Q)">⤢</button>
+      <button class="mini-ctrl mini-close" onclick="closeMiniPlayer()" title="Close">✕</button>
+    </div>
+  </div>
+
+  <script src="./player-lib/fuse.min.js"></script>
+  <script src="./player-lib/utils.js"></script>
+  <script src="./player-lib/state.js"></script>
+  <script src="./player-lib/search-engine.js"></script>
+  <script src="./player-lib/duplicates.js"></script>
+  <script src="./player-lib/database.js"></script>
+  <script src="./player-lib/filters.js"></script>
+  <script src="./player-lib/notes.js"></script>
+  <script src="./player-lib/metadata-edit.js"></script>
+  <script src="./player-lib/collections.js"></script>
+  <script src="./player-lib/music.js"></script>
+  <script src="./player-lib/selection.js"></script>
+  <script src="./player-lib/saved-searches.js"></script>
+  <script src="./player-lib/cards.js"></script>
+  <script src="./player-lib/modal.js"></script>
+  <script src="./player-lib/player/player-core.js"></script>
+  <script src="./player-lib/player/abloop.js"></script>
+  <script src="./player-lib/player/player-controls.js"></script>
+  <script src="./player-lib/player/player-video.js"></script>
+  <script src="./player-lib/player/player-subtitles.js"></script>
+  <script src="./player-lib/player/player-audio.js"></script>
+  <script src="./player-lib/player/player-image.js"></script>
+  <script src="./player-lib/player/player-document.js"></script>
+  <script src="./player-lib/player/player-mix.js"></script>
+  <script src="./player-lib/viewtracker.js"></script>
+  <script src="./player-lib/beatbar.js"></script>
+  <script src="./player-lib/lovense/lovense-api.js"></script>
+  <script src="./player-lib/lovense/lovense-sync.js"></script>
+  <script src="./player-lib/lovense/lovense-ui.js"></script>
+  <script src="./player-lib/gamify-ui.js"></script>
+  <script src="./player-lib/editor.js"></script>
+  <script src="./player-lib/pmv.js"></script>
+  <script src="./player-lib/games/elapsed.js"></script>
+  <script src="./player-lib/games/games.js"></script>
+  <script src="./player-lib/games/reelorder.js"></script>
+  <script src="./player-lib/games/framefit.js"></script>
+  <script src="./player-lib/games/games-sidebar.js"></script>
+  <script src="./player-lib/vault-ui.js"></script>
+  <script src="./player-lib/importer.js"></script>
+  <script src="./player-lib/tabs.js"></script>
+  <script src="./player-lib/settings.js"></script>
+  <script src="./player-lib/app.js"></script>
+</body>
+</html>

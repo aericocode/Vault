@@ -1,0 +1,172 @@
+/* ==========================================
+   Media Player Base Styles
+   ========================================== */
+
+/* Main Overlay */
+.media-player-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #000;
+  z-index: 300;
+  flex-direction: column;
+}
+
+.media-player-overlay.active {
+  display: flex;
+}
+
+/* VLC-style: hide the cursor along with the controls while a video plays.
+   Scoped to the VIDEO column ONLY (.media-player-main) — never the sidebar
+   or header — so moving onto the sidebar always keeps a normal cursor. The
+   class is toggled from player-core.js; !important + * overrides the video's
+   own cursor:pointer. */
+.media-player-overlay.cursor-hidden .media-player-main,
+.media-player-overlay.cursor-hidden .media-player-main * {
+  cursor: none !important;
+}
+
+/* Header */
+.media-player-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, transparent 100%);
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.3s, right 0.25s ease;
+}
+
+.media-player-overlay.controls-visible .media-player-header {
+  opacity: 1;
+}
+
+/* When the info sidebar is open, shrink the header to the VIDEO area so its
+   minimize/close buttons ride with the media controls instead of sitting on
+   top of the sidebar's own close button. Right offsets mirror the sidebar
+   widths in sidebar.css. */
+.media-player-overlay.sidebar-open .media-player-header {
+  right: 480px;
+}
+
+@media (max-width: 900px) {
+  .media-player-overlay.sidebar-open .media-player-header { right: 320px; }
+}
+
+@media (max-width: 600px) {
+  /* sidebar overlays the whole player here — no need to push */
+  .media-player-overlay.sidebar-open .media-player-header { right: 0; }
+}
+
+.media-player-title {
+  color: white;
+  font-size: 1rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 80%;
+}
+
+.media-player-close {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
+  color: white;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.2s;
+}
+
+.media-player-close:hover {
+  background: var(--danger);
+}
+
+/* Content Area */
+.media-player-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Common Media Element Styles */
+.media-player-content video {
+  max-width: 100%;
+  max-height: 100%;
+  cursor: pointer;
+}
+
+.media-player-content img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: transform 0.1s ease-out;
+  cursor: grab;
+}
+
+.media-player-content img:active {
+  cursor: grabbing;
+}
+
+.media-player-content img.zoomed {
+  cursor: grab;
+}
+
+.mediaPlayerTitle {
+  user-select: none;
+}
+
+/* ── Fill mode ─────────────────────────────────────────────────────────────
+   Cover-crop media to fill the whole content area — no letterbox bars, no OS
+   fullscreen. Tracks the flex content area, so it naturally shrinks when the
+   sidebar opens. Composes with fullscreen (crops in fullscreen too). The
+   video width uses !important so it beats toggleFullscreen's inline width. */
+.media-player-overlay.fill-mode .media-player-content video {
+  width: 100% !important;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: cover;
+}
+
+.media-player-overlay.fill-mode .media-player-content img {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: cover;
+}
+
+/* Audio has no croppable frame — let its visualization use the whole area. */
+.media-player-overlay.fill-mode .audio-visualization {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+
+/* Mix: stretch the stage to fill (its layered/tiled videos aren't
+   cover-cropped — grid tiles would misalign, so only the stage stretches). */
+.media-player-overlay.fill-mode .mix-player-stage {
+  width: 100%;
+  height: 100%;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .media-player-title {
+    font-size: 0.8rem;
+    max-width: 60%;
+  }
+}

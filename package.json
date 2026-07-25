@@ -1,0 +1,50 @@
+{
+  "name": "video-tagger",
+  "version": "3.3.0",
+  "description": "Local AI-powered media categorization - supports video, images, documents, and audio",
+  "main": "video-tagger.js",
+  "repository": "github:aericocode/Vault",
+  "bin": {
+    "video-tagger": "./video-tagger.js"
+  },
+  "scripts": {
+    "start": "node video-tagger.js",
+    "scan": "node video-tagger.js scan",
+    "status": "node video-tagger.js status",
+    "viewer": "node server/index.js",
+    "build:exe": "node tools/sea/build-app.js"
+  },
+  "keywords": [
+    "video",
+    "audio",
+    "document",
+    "ai",
+    "tagging",
+    "categorization",
+    "local",
+    "vision",
+    "whisper",
+    "transcription"
+  ],
+  "author": "",
+  "license": "AGPL-3.0-only",
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "prompts": "^2.4.2"
+  },
+  "optionalDependencies": {
+    "adm-zip": "^0.5.10",
+    "better-sqlite3-multiple-ciphers": "^11.0.0",
+    "mammoth": "^1.6.0",
+    "trash": "^10.1.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "postject": "^1.0.0-alpha.6"
+  }
+}

@@ -1,0 +1,44 @@
+/* ==========================================
+   CSS Custom Properties (Design Tokens)
+   ========================================== */
+
+:root {
+  /* Background colors */
+  --bg-primary: #0f0f0f;
+  --bg-secondary: #1a1a1a;
+  --bg-tertiary: #252525;
+  --bg-hover: #2a2a2a;
+  
+  /* Text colors */
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0a0;
+  --text-muted: #666;
+  
+  /* Accent colors */
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  /* Translucent accent wash — active breadcrumb chip, checkbox fills */
+  --accent-bg: rgba(99, 102, 241, 0.16);
+
+  /* Brand (Vault padlock + name). Follows the gamify theme when one is
+     applied (gamify-ui.js sets --gamify-a on :root), otherwise the accent. */
+  --brand: var(--gamify-a, var(--accent));
+  
+  /* Border */
+  --border: #333;
+  
+  /* Status colors */
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  
+  /* Component-specific */
+  --tag-bg: #333;
+  --boost-color: #f59e0b;
+  
+  /* Player */
+  --player-bg: rgba(0, 0, 0, 0.85);
+  --player-control-bg: rgba(255, 255, 255, 0.1);
+  --player-control-hover: rgba(255, 255, 255, 0.25);
+  --player-border: rgba(255, 255, 255, 0.1);
+}

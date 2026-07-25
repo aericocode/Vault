@@ -1,0 +1,248 @@
+/* ==========================================
+   Video Player Specific Styles
+   ========================================== */
+
+/* Progress Bar */
+.video-progress-wrapper {
+  width: 100%;
+  padding: 8px 0;
+  cursor: pointer;
+  position: relative;
+}
+
+/* Watch-activity curve — fades in above the seek bar on hover */
+.video-activity {
+  position: absolute;
+  bottom: calc(100% - 6px);
+  left: 0;
+  width: 100%;
+  height: 26px;
+  display: block;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.video-progress-wrapper:hover .video-activity {
+  opacity: 1;
+  pointer-events: auto;   /* clickable seek — an extension of the seek bar */
+  cursor: pointer;
+}
+
+.video-progress {
+  width: 100%;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  overflow: hidden;
+  transition: height 0.15s;
+}
+
+.video-progress-wrapper:hover .video-progress {
+  height: 8px;
+}
+
+.video-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  position: relative;
+  transition: width 0.1s linear;
+}
+
+.video-progress-bar::after {
+  content: '';
+  position: absolute;
+  right: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  background: white;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.15s;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.video-progress-wrapper:hover .video-progress-bar::after {
+  opacity: 1;
+}
+
+/* Playback row: time + skip/play cluster, centered */
+.video-playback-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-bottom: 0.3rem;
+}
+
+.video-playback-row .playback-controls { margin-bottom: 0; }
+
+/* Extras row between play controls and the nav bar:
+   [AB loop] · [speed + beatbar] · [Done] — center screen-centered, sides
+   mirrored at the edges. */
+.video-extras-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.pr-left { justify-self: start; }
+.pr-right { justify-self: end; }
+
+.pr-center {
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Done button — subtle, off in the corner so it isn't hit by accident */
+.done-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--player-border, rgba(255,255,255,0.15));
+  border-radius: 8px;
+  padding: 0.45rem 0.8rem;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.done-btn:hover {
+  background: rgba(122, 168, 255, 0.25);
+  color: #fff;
+}
+
+/* Hot 🔥 — same shape as Done, warm accent, sits to the left of it */
+.hot-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--player-border, rgba(255,255,255,0.15));
+  border-radius: 8px;
+  padding: 0.45rem 0.8rem;
+  margin-right: 0.4rem;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.hot-btn:hover {
+  background: rgba(249, 115, 22, 0.28);
+  border-color: rgba(249, 115, 22, 0.6);
+  color: #fff;
+}
+
+/* Time Display */
+.video-time {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.9);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.video-time-separator {
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0 0.25rem;
+}
+
+/* Volume Control */
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.volume-slider {
+  width: 160px;
+  height: 6px;
+  -webkit-appearance: none;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: white;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.volume-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: white;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  border: none;
+}
+
+/* Boosted Volume Styling */
+.volume-slider.boosted {
+  background: linear-gradient(to right, 
+    rgba(255,255,255,0.3) 66.67%, 
+    rgba(245,158,11,0.5) 66.67%
+  );
+}
+
+.volume-slider.boosted::-webkit-slider-thumb {
+  background: var(--boost-color);
+}
+
+.volume-slider.boosted::-moz-range-thumb {
+  background: var(--boost-color);
+}
+
+.volume-display {
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.7);
+  min-width: 35px;
+  text-align: center;
+}
+
+.volume-display.boosted {
+  color: var(--boost-color);
+  font-weight: 600;
+}
+
+/* Play/Pause Button */
+.play-pause-btn {
+  font-size: 1.25rem !important;
+  padding: 0.5rem 0.75rem !important;
+  min-width: 50px;  
+  cursor: pointer;
+}
+
+/* Seek Buttons */
+.seek-btn-label {
+  font-size: 0.7rem;
+  opacity: 0.8;
+}
+
+/* Video-specific inner controls layout */
+.video-inner-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .volume-slider {
+    width: 60px;
+  }
+  
+  .video-time {
+    font-size: 0.75rem;
+  }
+}

@@ -1,0 +1,88 @@
+/* ==========================================
+   Document Viewer Styles
+   ========================================== */
+
+.document-viewer {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-secondary);
+  overflow: auto;
+}
+
+.document-viewer.pdf-viewer {
+  border: none;
+}
+
+.document-viewer.text-viewer {
+  padding: 1.5rem;
+}
+
+.document-content {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  margin: 0;
+  tab-size: 2;
+}
+
+/* Markdown Rendering */
+.markdown-content {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.7;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+  color: var(--accent);
+  margin: 1em 0 0.5em;
+}
+
+.markdown-content code {
+  background: var(--bg-tertiary);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.markdown-content a {
+  color: var(--accent);
+}
+
+/* Syntax Highlighting */
+.code-keyword { color: #c792ea; }
+.code-string { color: #c3e88d; }
+.code-number { color: #f78c6c; }
+.code-comment { color: #676e95; font-style: italic; }
+.code-tag { color: #f07178; }
+.code-attr { color: #ffcb6b; }
+.code-key { color: #82aaff; }
+
+/* Loading/Error States */
+.document-loading,
+.document-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+}
+
+.document-error {
+  color: var(--danger);
+}
+
+/* Font Size Display */
+.font-size-display {
+  padding: 0.5rem 0.75rem;
+  color: rgba(255,255,255,0.8);
+  font-size: 0.85rem;
+  min-width: 50px;
+  text-align: center;
+  background: rgba(255,255,255,0.05);
+  border-radius: 6px;
+}

@@ -1,0 +1,865 @@
+/* ==========================================
+   EDITOR — app tabs, editor home, mix stage
+   ========================================== */
+
+/* ── Header tab bar ──────────────────────────────────────────────────── */
+
+.app-tabs {
+  display: flex;
+  gap: 0.25rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.app-tab {
+  position: relative;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 0.4rem 0.9rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.15s, color 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.app-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.app-tab.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.app-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--warning);
+  color: #000;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+/* ── Editor container / home layout ──────────────────────────────────── */
+
+.editor-container {
+  max-width: 1800px;
+  margin: 0 auto;
+  padding: 1rem 1.5rem 3rem;
+}
+
+.editor-home {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .editor-home { grid-template-columns: 1fr; }
+}
+
+.editor-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.9rem;
+}
+
+.editor-panel h2 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+
+.editor-panel h3 {
+  margin: 0 0 0.6rem 0;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.editor-side {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  position: sticky;
+  top: 84px;
+}
+
+.editor-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.editor-song-search {
+  flex: 1;
+  min-width: 160px;
+}
+
+.editor-select {
+  padding: 0.35rem 0.5rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+}
+
+.editor-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ── Song cards (collections-style mosaics of linked-video thumbs) ────── */
+
+.editor-song-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.75rem;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.editor-song-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  padding-bottom: 0.4rem;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.editor-song-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.editor-song-card.is-unknown {
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.editor-song-card .tile-name {
+  padding: 0.35rem 0.5rem 0;
+  font-size: 0.8rem;
+}
+
+.editor-song-card .tile-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  padding: 0.1rem 0.5rem 0;
+}
+
+.editor-song-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-refonly-hint {
+  margin-top: 0.6rem;
+}
+
+.editor-empty {
+  padding: 1.5rem 0.5rem;
+  text-align: center;
+}
+
+/* ── Open-song header + video picker ─────────────────────────────────── */
+
+.editor-song-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.6rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 0.6rem;
+}
+
+.editor-song-head-main {
+  flex: 1;
+  min-width: 160px;
+}
+
+.editor-song-head-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.editor-song-head-actions {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.editor-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.6rem;
+  max-height: calc(100vh - 320px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+/* Picker tiles piggyback on .media-tile styles; just tighten the meta row */
+.editor-pick-tile .tile-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+/* ── Status / mini lists ─────────────────────────────────────────────── */
+
+.editor-tools-ok {
+  color: var(--success);
+  font-size: 0.78rem;
+  margin-bottom: 0.4rem;
+}
+
+.editor-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.9rem;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.editor-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.editor-queue-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.74rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-queue-progress {
+  flex: 0 0 110px;
+  height: 14px;
+}
+
+.editor-mini-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.editor-mini-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.editor-mini-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.editor-mini-title {
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-mini-sub {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.editor-export-pct {
+  font-size: 0.72rem;
+  color: var(--warning);
+  font-family: monospace;
+}
+
+/* ── Mix view ────────────────────────────────────────────────────────── */
+
+.editor-mix {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.editor-mix-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.editor-mix-title {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-mix-artist {
+  color: var(--text-muted);
+  font-weight: normal;
+  font-size: 0.85rem;
+}
+
+.editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.2rem;
+  align-items: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+}
+
+.editor-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.editor-toolbar-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.editor-mix-time {
+  font-family: monospace;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  min-width: 52px;
+  text-align: center;
+}
+
+.editor-cols-input {
+  width: 48px;
+  flex: none;
+  min-width: 0;
+  text-align: center;
+}
+
+.tk-active {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #fff !important;
+}
+
+/* Stage */
+.editor-stage {
+  width: 100%;
+  border-radius: 10px;
+}
+
+.editor-stage[data-layout="grid"] {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 2), 1fr);
+  gap: 8px;
+}
+
+.editor-stage[data-layout="stack"] {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  max-height: 70vh;
+  margin: 0 auto;
+  width: min(100%, calc(70vh * 16 / 9));
+  background: #000;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.editor-tile {
+  position: relative;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+}
+
+.editor-stage[data-layout="stack"] .editor-tile {
+  position: absolute;
+  inset: 0;
+  aspect-ratio: auto;
+  border-radius: 0;
+  background: transparent;
+}
+
+.editor-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.editor-tile.is-master {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* Track outside its own content range (song started before this file, or the
+   file already ended) — blank instead of loop-repeating random slices. Grid
+   tiles show their black background; stacked layers contribute nothing. */
+.editor-tile.mix-tile-blank video {
+  visibility: hidden;
+}
+
+.editor-tile-label {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  max-width: calc(100% - 12px);
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 0.68rem;
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+
+.editor-stage[data-layout="grid"] .editor-tile:hover .editor-tile-label {
+  opacity: 1;
+}
+
+/* ── Mix inside the MAIN player (custom mix tiles) ─────────────────────── */
+/* .media-player-content flex-centers children; the mix stage fills it */
+.media-player-content .mix-player-stage {
+  width: 100%;
+  height: 100%;
+}
+
+.media-player-content .mix-player-stage[data-layout="stack"] {
+  aspect-ratio: auto;
+  max-height: none;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+}
+
+.media-player-content .mix-player-stage[data-layout="grid"] {
+  height: auto;
+  max-height: 100%;
+  align-content: center;
+  padding: 0.5rem;
+  overflow-y: auto;
+}
+
+.media-player-content .mix-player-stage video {
+  max-width: none;
+  max-height: none;
+}
+
+/* ── Mix control bar — the main player's bar, docked under the stage ──── */
+/* .video-controls is absolutely positioned + hidden until hover inside the
+   player overlay; in the Editor it's a static, always-visible panel. */
+.editor-mix-main .editor-mix-controls {
+  position: static;
+  transform: none;
+  opacity: 1;
+  width: 100%;
+  max-width: none;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.6rem 1rem 0.55rem;
+}
+
+.editor-mix-controls .video-extras-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.editor-mix-controls .pr-center {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.editor-mix-controls .controls-right {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.editor-export-done,
+.editor-export-fail,
+.editor-export-run {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+}
+
+.editor-export-done {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: var(--success);
+}
+
+.editor-export-fail {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: var(--danger);
+}
+
+.editor-export-run {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.editor-export-run .editor-queue-progress {
+  flex: 1;
+}
+
+/* ── Mixer sidebar (the Editor's "info sidebar" — 🎚 toggles it) ──────── */
+
+.editor-mix-body {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+  min-height: 0;
+}
+
+.editor-mix-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.editor-mixer-sidebar {
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  border: 0 solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 190px);
+  position: sticky;
+  top: 84px;
+  transition: width 0.25s ease, min-width 0.25s ease, border-width 0.25s ease;
+}
+
+.editor-mixer-sidebar.active {
+  width: 340px;
+  min-width: 340px;
+  border-width: 1px;
+}
+
+.editor-mixer-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.55rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.editor-mixer-sidebar-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.editor-mixer-sidebar-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.7rem 0.8rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  min-width: 300px; /* keep content laid out during the slide animation */
+}
+
+.mixer-section-label {
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.35rem;
+}
+
+.mixer-master-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.mixer-master-row .editor-select {
+  flex: 1;
+  min-width: 120px;
+}
+
+.mixer-master-row input[type="range"] {
+  width: 90px;
+}
+
+/* Per-layer block — compact vertical strip */
+.mixer-layer {
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.mixer-layer:last-of-type {
+  border-bottom: none;
+}
+
+.mixer-layer-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.editor-mixer-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-mixer-title.is-master {
+  color: var(--accent-hover);
+  font-weight: 600;
+}
+
+.editor-mixer-slider {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.editor-mixer-slider input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.editor-pct {
+  font-family: monospace;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  min-width: 26px;
+  text-align: right;
+}
+
+/* Effect select on its own row; params fill the whole sidebar width below */
+.mixer-layer-fx {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+}
+
+.mixer-layer-fx > .mix-effect-type {
+  width: 100%;
+}
+
+.editor-fx-params {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+.editor-fx-params:empty {
+  display: none;
+}
+
+.editor-fx-param {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.22rem 0.5rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  cursor: help;
+}
+
+.editor-fx-param > span:first-child {
+  flex-shrink: 0;
+  min-width: 46px;
+}
+
+.editor-fx-param input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.editor-fx-param select {
+  flex: 1;
+  min-width: 0;
+}
+
+.editor-fx-param-wide {
+  grid-column: 1 / -1;
+}
+
+.editor-mixer-sync {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.editor-mixer-sync .music-btn {
+  padding: 0.12rem 0.4rem;
+  font-size: 0.68rem;
+}
+
+.editor-offset {
+  font-family: monospace;
+  font-size: 0.72rem;
+  color: var(--accent);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.12rem 0.45rem;
+  min-width: 48px;
+  text-align: center;
+}
+
+/* Sync section head: label + hint left, ⚡ Snap all pushed right */
+.mixer-sync-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+.mixer-sync-head #mixSnapAll { margin-left: auto; }
+
+/* Out-of-range behavior toggle under the sync panel */
+.mix-range-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.3rem;
+  cursor: pointer;
+}
+
+/* Active spotlight star */
+.mix-spot-btn.tk-active { color: var(--accent); }
+
+/* Sync panel — one waveform row per track over a fixed window; the playhead
+   sweeps while the waveforms hold still. Drag a row sideways to align it. */
+#mixSyncPanel {
+  display: block;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: grab;
+  touch-action: none;   /* pointer drag owns horizontal movement */
+}
+#mixSyncPanel:active { cursor: grabbing; }
+
+.mix-save-hint {
+  min-width: 0;
+}
+
+.editor-mixer-foot {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.mixer-preset-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.mixer-preset-save {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.mixer-preset-save .music-input {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .editor-mix-body {
+    flex-direction: column;
+  }
+  .editor-mixer-sidebar,
+  .editor-mixer-sidebar.active {
+    width: 100%;
+    min-width: 0;
+    position: static;
+    max-height: none;
+  }
+}

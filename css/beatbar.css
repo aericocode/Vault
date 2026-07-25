@@ -1,0 +1,195 @@
+/* ==========================================
+   Beat Bar — beat visualization overlay
+   ========================================== */
+
+.beatbar-overlay {
+  position: fixed;
+  z-index: 400; /* above the player (300), below modals */
+  pointer-events: auto;   /* the whole bar is the vertical drag handle */
+  cursor: ns-resize;
+  touch-action: none;     /* let pointer drags own vertical movement */
+}
+
+/* The gear keeps a normal pointer; the settings panel isn't a drag surface */
+.beatbar-gear { cursor: pointer; }
+.beatbar-settings { cursor: auto; }
+
+.beatbar-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.beatbar-status {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+
+.beatbar-status:empty { display: none; }
+
+/* Settings gear (right edge of the bar) */
+.beatbar-gear {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.4);
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.beatbar-gear:hover { background: rgba(0, 0, 0, 0.65); color: #fff; }
+
+.beatbar-gear.gear-open {
+  background: rgba(122, 168, 255, 0.3);
+  color: #cfe0ff;
+}
+
+/* Settings popover — compact, opens ABOVE the bar so it never covers the
+   in-bar gear (which must stay clickable to close it) */
+.beatbar-settings {
+  position: absolute;
+  bottom: calc(100% + 8px);  
+  right: 4px;
+  width: 290px;
+  padding: 8px 10px;
+  background: rgba(18, 16, 28, 0.97);
+  border: 1px solid #3b2b57;
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  font-size: 0.7rem;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.beatbar-settings[hidden] { display: none; }
+
+/* One control per line: fixed label + flexible control(s) + optional value */
+.beatbar-settings .bb-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.beatbar-settings .bb-row:last-child { margin-bottom: 0; }
+
+.beatbar-settings .bb-lbl {
+  flex: none;
+  width: 56px;
+  color: var(--text-secondary, #a0a0a0);
+}
+
+.beatbar-settings input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  height: 3px;
+  accent-color: #7aa8ff;
+}
+
+.beatbar-settings .bb-num {
+  flex: none;
+  width: 28px;
+  text-align: right;
+  font-weight: 600;
+  color: #7aa8ff;
+}
+
+/* Themed chip buttons (playhead / icon / effect — replaces native selects) */
+.beatbar-settings .bb-chips {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.beatbar-settings .bb-chip {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 0;
+  border: 1px solid var(--border, #333);
+  border-radius: 5px;
+  background: var(--bg-tertiary, #252525);
+  color: var(--text-primary, #e0e0e0);
+  cursor: pointer;
+  font-size: 0.66rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.beatbar-settings .bb-chip:hover { border-color: #7aa8ff; }
+
+.beatbar-settings .bb-chip.active {
+  border-color: #7aa8ff;
+  background: rgba(122, 168, 255, 0.18);
+  color: #cfe0ff;
+}
+
+.beatbar-settings .bb-shape-btn { font-size: 0.8rem; }
+
+/* Colour swatches (replaces the native colour picker) */
+.beatbar-settings .bb-swatches {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.beatbar-settings .bb-swatch {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.beatbar-settings .bb-swatch:hover { transform: scale(1.15); }
+
+.beatbar-settings .bb-swatch.active {
+  outline: 2px solid #7aa8ff;
+}
+
+/* Toggle + settings buttons in the player controls */
+.beatbar-toggle,
+.beatbar-settings-btn { opacity: 0.8; }
+
+.beatbar-settings-btn:hover { opacity: 1; }
+
+.beatbar-settings-btn.gear-open {
+  opacity: 1;
+  border-color: #7aa8ff !important;
+  background: rgba(122, 168, 255, 0.18);
+}
+
+/* Unmistakable ON/OFF state on the toggle */
+.beatbar-toggle .beatbar-state {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-muted, #666);
+}
+
+.beatbar-toggle.beatbar-btn-on {
+  opacity: 1;
+  border-color: #7aa8ff !important;
+  background: linear-gradient(135deg, rgba(122, 168, 255, 0.25), rgba(168, 85, 247, 0.2));
+}
+
+.beatbar-toggle.beatbar-btn-on .beatbar-state {
+  background: #7aa8ff;
+  color: #0f1220;
+}

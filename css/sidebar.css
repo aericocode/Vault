@@ -1,0 +1,255 @@
+/* =========================================================================
+   SIDEBAR - Info & Notes panel inside the media player
+   ========================================================================= */
+
+/* ── Body wrapper (holds main + sidebar side by side) ────────────────── */
+
+.media-player-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.media-player-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  transition: flex 0.25s ease;
+  /* Anchor the absolutely-positioned control bar to the VIDEO area (this
+     column) instead of the whole overlay — so when the sidebar opens the
+     controls stay centered over the video and shrink with it, rather than
+     sitting under the sidebar. */
+  position: relative;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────── */
+
+.media-sidebar {
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg-secondary, #181825);
+  border-left: 0 solid var(--border, #333);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.25s ease, min-width 0.25s ease, border-width 0.25s ease;
+}
+
+.media-sidebar.active {
+  width: 480px;
+  min-width: 480px;
+  border-left-width: 1px;
+}
+
+/* ── Sidebar Header ──────────────────────────────────────────────────── */
+
+.media-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border, #333);
+  flex-shrink: 0;
+}
+
+.media-sidebar-title {
+  color: var(--text, #cdd6f4);
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.media-sidebar-close {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-secondary, #888);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: all 0.12s;
+}
+
+.media-sidebar-close:hover {
+  color: var(--text, #cdd6f4);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border, #444);
+}
+
+/* ── Sidebar Body (scrollable content) ───────────────────────────────── */
+
+.media-sidebar-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  min-height: 0;
+}
+
+/* Scrollbar styling */
+.media-sidebar-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.media-sidebar-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.media-sidebar-body::-webkit-scrollbar-thumb {
+  background: var(--border, #444);
+  border-radius: 3px;
+}
+
+.media-sidebar-body::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary, #666);
+}
+
+/* ── Sidebar content sections ────────────────────────────────────────── */
+
+.media-sidebar-body .detail-section {
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border, #333);
+}
+
+.media-sidebar-body .detail-section:last-child {
+  border-bottom: none;
+}
+
+.media-sidebar-body h3 {
+  color: var(--text, #cdd6f4);
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.media-sidebar-body .detail-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.35rem;
+}
+
+/* File Info: two columns to reclaim vertical space; the last (long) item
+   spans the full width so its value isn't cramped. */
+.media-sidebar-body .detail-grid--2col {
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3rem 0.6rem;
+}
+
+.media-sidebar-body .detail-grid--2col .detail-item--wide {
+  grid-column: 1 / -1;
+}
+
+.media-sidebar-body .detail-item {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+/* Fixed-width keys → every value starts at the same x (keys may wrap) */
+.media-sidebar-body .detail-item label {
+  color: var(--text-secondary, #888);
+  width: 72px;
+  flex: none;
+  overflow-wrap: anywhere;
+}
+
+.media-sidebar-body .detail-item span {
+  color: var(--text, #cdd6f4);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Themes / Locations / Tags: label + chips on one aligned row (compact) */
+.media-sidebar-body .detail-section--kv {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding-bottom: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.media-sidebar-body .detail-section--kv > h3 {
+  width: 80px;
+  flex: none;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.media-sidebar-body .detail-section--kv > .field-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.media-sidebar-body .card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.media-sidebar-body .tag {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+}
+
+/* ── Notes in sidebar — slightly more compact ────────────────────────── */
+
+.media-sidebar-body .notes-section {
+  padding: 0.75rem;
+}
+
+.media-sidebar-body .note-textarea {
+  font-size: 0.82rem;
+}
+
+.media-sidebar-body .notes-list {
+  max-height: 200px;
+}
+
+/* ── Sidebar navigation hint ─────────────────────────────────────────── */
+
+.sidebar-nav-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  margin-top: 0.5rem;
+  background: rgba(137, 180, 250, 0.06);
+  border: 1px solid rgba(137, 180, 250, 0.15);
+  border-radius: 8px;
+  font-size: 0.72rem;
+  color: var(--text-secondary, #888);
+}
+
+.sidebar-nav-hint kbd {
+  background: var(--surface, #313244);
+  border: 1px solid var(--border, #444);
+  border-radius: 3px;
+  padding: 0.1rem 0.35rem;
+  font-family: monospace;
+  font-size: 0.7rem;
+  color: var(--text, #cdd6f4);
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .media-sidebar.active {
+    width: 320px;
+    min-width: 320px;
+  }
+}
+
+@media (max-width: 600px) {
+  .media-sidebar.active {
+    width: 100%;
+    min-width: 100%;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+  }
+}

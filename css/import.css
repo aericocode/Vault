@@ -1,0 +1,196 @@
+/* ==========================================
+   IMPORT — folder-drop preview modal
+   Selection states follow the gamify theme (--brand); the import logo and
+   primary button stay --accent per design. No glows — house style is flat.
+   ========================================== */
+
+.import-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9100;                 /* above the player (9000-range editors) */
+  background: rgba(0, 0, 0, 0.6);
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+}
+
+.import-modal {
+  width: min(520px, 100%);
+  max-height: 92vh;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+}
+
+/* ── header ── */
+.imp-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+}
+.imp-ic {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--accent);     /* stays blue per design */
+  display: grid;
+  place-items: center;
+  font-size: 1.05rem;
+  flex: none;
+}
+.imp-titles { min-width: 0; }
+.imp-t1 { font-weight: 700; font-size: 0.98rem; }
+.imp-t2 {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.imp-x {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+}
+.imp-x:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+
+/* ── body ── */
+.imp-body {
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.imp-sect {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.45rem;
+}
+/* media-type cards — theme-accent selection */
+.imp-types { display: flex; flex-direction: column; gap: 0.5rem; }
+.imp-type {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 10px;
+  cursor: pointer;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  transition: border-color 0.15s, background 0.15s, opacity 0.15s;
+  user-select: none;
+}
+.imp-em { font-size: 1.15rem; width: 28px; text-align: center; flex: none; }
+.imp-tinfo { min-width: 0; }
+.imp-tname { font-weight: 600; font-size: 0.88rem; }
+.imp-texts {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.imp-count { margin-left: auto; text-align: right; flex: none; }
+.imp-n { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.imp-files { font-size: 0.68rem; color: var(--text-muted); }
+.imp-tick {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  flex: none;
+  margin-left: 0.55rem;
+  border: 1.5px solid var(--border);
+  display: grid;
+  place-items: center;
+  font-size: 0.7rem;
+  color: transparent;
+  transition: all 0.15s;
+}
+.imp-type.on { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, transparent); }
+.imp-type.on .imp-tick { background: var(--brand); border-color: var(--brand); color: #fff; }
+.imp-type.off { opacity: 0.55; }
+.imp-type.off .imp-n { color: var(--text-muted); }
+
+/* pill toggles — theme-accent, no glow (matches search pills) */
+.imp-pills { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.imp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.42rem 0.85rem;
+  border-radius: 999px;
+  cursor: pointer;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.imp-pill::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 0.15s;
+}
+.imp-pill.on {
+  background: color-mix(in srgb, var(--brand) 16%, transparent);
+  border-color: var(--brand);
+  color: var(--text-primary);
+}
+.imp-pill.on::before { background: var(--brand); }
+.imp-sub { font-size: 0.68rem; color: var(--text-muted); }
+
+/* Value pill, not a toggle — drop the on/off dot the toggling pills carry */
+.imp-pill-num { cursor: default; }
+.imp-pill-num::before { display: none; }
+.imp-num {
+  width: 46px;
+  padding: 0.1rem 0.25rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.78rem;
+  text-align: center;
+  cursor: text;
+}
+.imp-num:focus { outline: none; border-color: var(--brand); }
+
+.imp-note {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin-top: 0.45rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── footer ── */
+.imp-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.85rem 1.1rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+.imp-sum { font-size: 0.78rem; color: var(--text-secondary); }
+.imp-sum b { color: var(--text-primary); }
+.imp-foot .vault-btn { margin-left: auto; }
+.imp-foot .vault-btn + .vault-btn { margin-left: 0; }
+.imp-foot .vault-btn:disabled { opacity: 0.55; cursor: default; }

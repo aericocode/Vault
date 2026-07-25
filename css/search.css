@@ -1,0 +1,353 @@
+/* ==========================================
+   Search & Filters Section
+   ========================================== */
+
+/* Main Layout */
+.main-container {
+  display: none;
+  max-width: 1800px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.main-container.active {
+  display: block;
+}
+
+/* Search Section */
+.search-section {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.search-row {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.search-input-wrapper {
+  flex: 1;
+  min-width: 300px;
+  position: relative;
+}
+
+.search-input {
+  width: 100%;
+  padding: 0.75rem 1rem 0.75rem 2.5rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.search-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+}
+
+/* Metadata Toggle */
+.search-options {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Rounded pill toggles — the pill itself is the control; the native checkbox
+   is visually hidden (kept in the DOM for state, events and keyboard focus). */
+.metadata-toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.9rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  user-select: none;
+}
+
+/* small state dot: dim when off, accent when on */
+.metadata-toggle::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  flex: none;
+  transition: background 0.15s;
+}
+
+.metadata-toggle:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.metadata-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+/* keyboard focus lands on the hidden input — show it on the pill */
+.metadata-toggle:has(input:focus-visible) {
+  border-color: var(--accent-hover);
+}
+
+.metadata-toggle:has(input:checked) {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.metadata-toggle:has(input:checked)::before {
+  background: var(--accent-hover);
+}
+
+/* ── Reusable picker search options (editor / games / PMV pickers) ── */
+.picker-search-options {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.picker-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s;
+}
+.picker-opt:hover { border-color: var(--accent); color: var(--text-primary); }
+.picker-opt input { accent-color: var(--accent); cursor: pointer; width: 13px; height: 13px; margin: 0; }
+.picker-opt:has(input:checked) {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+.picker-mode-indicator {
+  display: none;
+  align-items: center;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  font-family: monospace;
+  font-size: 0.68rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.picker-mode-indicator.mode-regex { border-color: #f59e0b; color: #f59e0b; }
+.picker-mode-indicator.mode-boolean { border-color: #22d3ee; color: #22d3ee; }
+.picker-mode-indicator.mode-semantic { border-color: #a855f7; color: #c084fc; }
+
+/* Filters Toggle */
+.filters-toggle {
+  padding: 0.75rem 1rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+}
+
+.filters-toggle:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+/* Filters Panel */
+.filters-panel {
+  display: none;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.filters-panel.active {
+  display: block;
+}
+
+/* Row 1: all dropdowns · Row 2: all toggles */
+.filters-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+}
+
+.filters-row.filters-dropdowns { margin-bottom: 0.9rem; }
+
+.filters-dropdowns .filter-group { flex: 1 1 150px; min-width: 130px; }
+.filters-dropdowns .duration-group { flex: 1.4 1 200px; }
+
+.filters-row.filters-toggles {
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.filter-group label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.filter-group select,
+.filter-group input {
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.filter-group select:focus,
+.filter-group input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ── Searchable dropdown (combo over a hidden <select>) ─────────────── */
+.combo { position: relative; }
+
+.combo-input {
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.combo-panel {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  z-index: 500;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.combo-option {
+  padding: 0.45rem 0.7rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.combo-option:hover { background: var(--bg-hover); }
+
+.combo-option.selected {
+  background: rgba(99, 102, 241, 0.25);
+  color: #cfe0ff;
+}
+
+.combo-empty {
+  padding: 0.45rem 0.7rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Results Info */
+.results-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.results-count {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.results-count strong {
+  color: var(--text-primary);
+}
+
+.results-controls {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.sort-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.sort-control select {
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+/* Direction arrow + ❤ faves-first toggles beside the sort dropdown */
+.sort-dir-btn,
+.faves-first-btn {
+  padding: 0.5rem 0.6rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sort-dir-btn:hover,
+.faves-first-btn:hover {
+  border-color: var(--accent);
+}
+
+.faves-first-btn.active {
+  border-color: #ec4899;
+  background: rgba(236, 72, 153, 0.15);
+}

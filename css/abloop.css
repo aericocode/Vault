@@ -1,0 +1,115 @@
+/* =========================================================================
+   AB LOOP - Progress bar overlay and button styles
+   ========================================================================= */
+
+/* ── Ensure progress bars have relative positioning ──────────────────── */
+
+#videoProgress,
+#audioProgress {
+  position: relative;
+  overflow: visible;
+}
+
+/* ── Loop region overlay (pink highlight) ────────────────────────────── */
+
+.ab-loop-region {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  background: rgba(243, 139, 168, 0.35);
+  pointer-events: none;
+  z-index: 1;
+  border-radius: 2px;
+}
+
+/* ── A/B Markers (thick colored lines) ───────────────────────────────── */
+
+.ab-loop-marker {
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  width: 3px;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.ab-loop-marker.marker-a {
+  background: #a6e3a1;
+  border-radius: 2px;
+  box-shadow: 0 0 6px rgba(166, 227, 161, 0.5);
+}
+
+.ab-loop-marker.marker-b {
+  background: #f38ba8;
+  border-radius: 2px;
+  box-shadow: 0 0 6px rgba(243, 139, 168, 0.5);
+}
+
+/* Labels above markers */
+.ab-loop-marker::after {
+  content: attr(data-label);
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.65rem;
+  font-weight: 700;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.ab-loop-marker.marker-a::after {
+  color: #a6e3a1;
+}
+
+.ab-loop-marker.marker-b::after {
+  color: #f38ba8;
+}
+
+/* ── AB Loop Button ──────────────────────────────────────────────────── */
+
+.ab-loop-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.78rem;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.ab-loop-btn:hover {
+  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* State: A is set, waiting for B */
+.ab-loop-btn.has-a {
+  color: #a6e3a1;
+  border-color: #a6e3a1;
+  background: rgba(166, 227, 161, 0.12);
+}
+
+.ab-loop-btn.has-a:hover {
+  background: rgba(166, 227, 161, 0.2);
+}
+
+/* State: Both A and B set, loop active */
+.ab-loop-btn.has-ab {
+  color: #1e1e2e;
+  background: #f38ba8;
+  border-color: #f38ba8;
+}
+
+.ab-loop-btn.has-ab:hover {
+  background: #e06c8a;
+  border-color: #e06c8a;
+}

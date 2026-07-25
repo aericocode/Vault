@@ -1,0 +1,91 @@
+/* ==========================================
+   Pagination
+   ========================================== */
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 2rem;
+  flex-wrap: wrap;
+}
+
+.pagination button {
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+  min-width: 40px;
+}
+
+.pagination button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.pagination button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.pagination button.dots {
+  cursor: help; /* Or 'pointer' */
+  font-weight: bold;
+}
+
+/* Optional: a subtle cue that it's different from a page number */
+.pagination button.dots:hover {
+  background: var(--accent);
+  color: white;
+}
+
+.jump-modal {
+  position: absolute;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  padding: 8px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  display: flex;
+  gap: 5px;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.jump-modal input {
+  width: 60px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.jump-modal button {
+  padding: 4px 10px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+/* Hide spin buttons for Chrome/Safari */
+.jump-modal input::-webkit-outer-spin-button,
+.jump-modal input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

@@ -1,0 +1,790 @@
+/* ==========================================
+   Metadata tools — rescan / edit / remove-record
+   + saved note snippet chips
+   ========================================== */
+
+/* ── Toolbar in info panels ── */
+.meta-tools {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0;
+}
+
+.meta-tool-btn {
+  padding: 0.4rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.meta-tool-btn:hover { background: var(--bg-hover); }
+
+.meta-tool-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.meta-rescan-btn {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.meta-remove-btn:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* ── Inline field editing (no popups) ── */
+
+/* Corner pencil on editable sections — subtle until hover */
+.field-edit-btn {
+  float: right;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  cursor: pointer;
+}
+
+.field-edit-btn:hover {
+  color: var(--accent-hover);
+  border-color: var(--border);
+  background: var(--bg-tertiary);
+}
+
+.field-empty { color: var(--text-muted); }
+
+.inline-edit {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.inline-edit-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.5rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  box-sizing: border-box;
+  resize: vertical;
+}
+
+.inline-edit textarea.inline-edit-input { width: 100%; flex: 1 1 100%; }
+
+.inline-edit-actions {
+  display: inline-flex;
+  gap: 0.25rem;
+  flex: none;
+}
+
+.inline-edit-save,
+.inline-edit-cancel {
+  padding: 0.25rem 0.5rem;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.inline-edit-save { color: var(--success); border-color: var(--success); }
+.inline-edit-cancel { color: var(--text-secondary); }
+
+/* Grouped editor (File Info: language / content / quality / explicit) */
+.inline-edit-grid {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.inline-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.inline-edit-row .inline-edit-input { margin-left: auto; max-width: 70%; }
+
+.inline-edit-check { color: var(--text-primary); }
+
+/* ── Media Elements: aligned key/value rows (keys in a fixed 80px column,
+     values start at the same x for easy scanning) ── */
+.media-sidebar-body .elements-kv {
+  display: flex;
+  flex-direction: column; /* .elements-list (modal.css) defaults to column */
+  gap: 0.3rem;
+}
+
+.media-sidebar-body .elements-kv .element-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  max-width: none;
+  margin: 0;
+}
+
+.media-sidebar-body .elements-kv .element-type {
+  width: 80px;
+  flex: none;
+  color: var(--accent-hover);
+  font-size: 0.72rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;  /* long keys break to 2 lines instead of pushing values */
+}
+
+.media-sidebar-body .elements-kv .element-details {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.element-edit-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  cursor: pointer;
+  padding: 0 0.1rem;
+  flex: none;
+}
+
+.element-item:hover .element-edit-btn { color: var(--accent-hover); }
+
+.element-edit-input { font-size: 0.75rem; min-width: 160px; }
+
+/* ── Selection bar: remove records ── */
+.sel-btn.sel-remove:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* ── Note input: 🕐 insert-current-timestamp button (top-left) ── */
+.note-input-wrap {
+  position: relative;
+}
+
+.note-input-wrap .note-textarea {
+  /* clear the first line so typed text doesn't start under the clock */
+  text-indent: 1.7rem;
+}
+
+.note-ts-btn {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  z-index: 2;
+  padding: 0.05rem 0.3rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.3;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.note-ts-btn:hover {
+  opacity: 1;
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+/* ── Saved note snippet chips ── */
+.note-snippets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.5rem 0;
+}
+
+.note-snippet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  padding: 0.25rem 0.3rem 0.25rem 0.55rem;
+  background: var(--tag-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.1s, box-shadow 0.12s, opacity 0.12s;
+}
+
+/* Coloured chips already carry an inline tint/border — brighten on hover */
+.note-snippet-chip:hover {
+  filter: brightness(1.2);
+}
+
+/* Uncoloured chips keep the plain accent-hover treatment */
+.note-snippet-chip:not([style*="border-color"]):hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+  filter: none;
+}
+
+.note-snippet-chip.snippet-dragging {
+  opacity: 0.45;
+  transform: scale(0.96);
+}
+
+.note-snippet-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.note-snippet-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-snippet-del {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 0 0.15rem;
+}
+
+.note-snippet-del:hover { color: var(--danger); }
+
+/* ── Colour grid popover (shown on chip hover) ── */
+.snippet-color-popover {
+  position: fixed;
+  z-index: 4000;
+  display: none;
+  gap: 5px;
+  padding: 6px 7px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.snippet-color-popover.visible { display: flex; }
+
+.snippet-swatch {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.snippet-swatch:hover { transform: scale(1.18); }
+
+.snippet-swatch-clear {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.snippet-swatch-clear:hover { color: var(--danger); }
+
+.note-save-snippet-btn {
+  padding: 0.35rem 0.6rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--warning);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.note-save-snippet-btn:hover { border-color: var(--warning); }
+
+/* ── Collections: picker popover + chip extras ── */
+.coll-picker {
+  position: fixed;
+  z-index: 1700;
+  width: 240px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.6);
+  padding: 0.5rem;
+}
+
+.coll-picker-head {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  padding: 0.15rem 0.35rem 0.4rem;
+}
+
+.coll-picker-list { max-height: 220px; overflow-y: auto; }
+
+.coll-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.45rem;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.coll-picker-row:hover { background: var(--bg-hover); }
+.coll-picker-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.coll-picker-empty { padding: 0.4rem; color: var(--text-muted); font-size: 0.78rem; }
+
+.coll-picker-new input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.35rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--bg-primary);
+  border: 1px dashed var(--border);
+  border-radius: 7px;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+}
+
+.coll-count {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+/* ── Collection CARDS in the grid (2×2 thumbnail mosaic) ── */
+.collection-tile { cursor: pointer; }
+
+.collection-tile .tile-name { font-weight: 600; }
+
+.coll-mosaic {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 2px;
+  background: var(--bg-tertiary);
+  position: relative;
+}
+
+.coll-mosaic-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  min-height: 0;
+}
+
+.coll-mosaic-empty { background: var(--bg-hover); }
+
+.coll-tile-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  font-size: 0.95rem;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+}
+
+/* ── Open-collection header strip ── */
+.collections-bar {
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  margin-top: 0.5rem;
+}
+
+.coll-back {
+  flex: none;
+  padding: 0.4rem 0.7rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.coll-back:hover { border-color: var(--accent); }
+
+.coll-head-main { flex: 1; min-width: 0; }
+
+.coll-head-name {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.coll-head-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.coll-head-desc {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  cursor: text;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coll-head-input { max-width: 340px; }
+
+.coll-head-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex: none;
+}
+
+.coll-action {
+  padding: 0.45rem 0.8rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.coll-action:hover { border-color: var(--accent); }
+
+.coll-delete:hover { border-color: var(--danger); color: var(--danger); }
+
+.coll-delete.armed {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: var(--danger);
+  color: #fca5a5;
+}
+
+/* =========================================================================
+   HIERARCHICAL COLLECTIONS — flat, emoji-free surfaces (folders + tree picker)
+   ========================================================================= */
+
+/* ── Picker: filter, tree rows, square checkbox, footer ── */
+.coll-picker { width: 264px; }
+
+.coll-picker-filter {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 0.4rem;
+  padding: 0.4rem 0.55rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+}
+.coll-picker-filter:focus { outline: none; border-color: var(--accent); }
+
+.coll-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.45rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  transition: background 0.12s ease;
+}
+.coll-picker-row:hover { background: var(--bg-hover); }
+
+/* Folder row: chevron rotates 90° when open */
+.coll-chevron-wrap {
+  display: inline-flex;
+  color: var(--text-secondary);
+  transition: transform 0.12s ease;
+}
+.coll-chevron-wrap.open { transform: rotate(90deg); }
+.coll-folder-ic { display: inline-flex; color: var(--text-secondary); }
+
+/* Square checkbox (replaces the emoji tri-state) */
+.coll-check {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: #fff;
+  background: transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.coll-check[data-state="all"],
+.coll-check[data-state="some"] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.coll-picker-footer {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--border);
+}
+.coll-picker-add {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.4rem 0.3rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.76rem;
+}
+.coll-picker-add:hover { border-color: var(--accent); }
+
+/* Shared inline create/rename input (tab + picker + card) */
+.coll-create-input {
+  min-width: 160px;
+  padding: 0.35rem 0.5rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+}
+.coll-create-input:focus { outline: none; }
+
+.coll-path { color: var(--text-muted); }
+
+/* ── Collections TAB chrome: breadcrumb + New actions + View all ── */
+.coll-tabbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.55rem 0.75rem;
+  margin-top: 0.5rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.coll-crumbs { display: flex; align-items: center; gap: 0.3rem; flex: 1; min-width: 0; flex-wrap: wrap; }
+.coll-crumb {
+  padding: 0.25rem 0.55rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.coll-crumb:hover { background: var(--bg-hover); color: var(--text-primary); }
+.coll-crumb.current {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--text-primary);
+  cursor: default;
+}
+.coll-crumb-sep { color: var(--text-muted); }
+
+.coll-tabbar-actions { display: flex; align-items: center; gap: 0.4rem; flex: none; }
+.coll-newbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.7rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.coll-newbtn:hover { border-color: var(--accent); }
+.coll-viewall {
+  padding: 0.4rem 0.7rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.coll-viewall:hover { border-color: var(--accent); color: var(--text-primary); }
+
+/* ── Cards: folder card + restyled collection mosaic + ⋯ menu ── */
+.folder-tile, .collection-tile {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.12s ease;
+}
+.folder-tile:hover, .collection-tile:hover { border-color: var(--accent-hover); }
+
+.folder-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.coll-card-menu-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.55);
+  border: none;
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.folder-tile:hover .coll-card-menu-btn,
+.collection-tile:hover .coll-card-menu-btn { opacity: 1; }
+.coll-card-menu-btn:hover { background: rgba(0, 0, 0, 0.8); }
+
+.coll-card-menu {
+  position: fixed;
+  z-index: 1800;
+  min-width: 160px;
+  padding: 0.3rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+.coll-menu-head {
+  padding: 0.25rem 0.5rem 0.35rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+.coll-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.coll-menu-item:hover { background: var(--bg-hover); }
+.coll-menu-danger { color: var(--danger); }
+.coll-menu-danger.armed { background: rgba(239, 68, 68, 0.18); color: #fca5a5; }
+
+.coll-head-folder { display: inline-flex; vertical-align: -2px; margin-right: 0.3rem; color: var(--text-secondary); }
+
+/* ── Per-folder create icons in the picker (hover / keyboard focus) ── */
+.coll-folder-actions { display: none; align-items: center; gap: 0.15rem; flex: none; }
+.coll-picker-folder:hover .coll-count[data-fcount],
+.coll-picker-folder:focus-within .coll-count[data-fcount] { display: none; }
+.coll-picker-folder:hover .coll-folder-actions,
+.coll-picker-folder:focus-within .coll-folder-actions { display: inline-flex; }
+.coll-folder-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.coll-folder-act:hover { border-color: var(--accent); color: var(--text-primary); background: var(--accent-bg); }
+
+/* Inline create row injected under a folder in the picker */
+.coll-picker-createrow { padding-top: 0.15rem; padding-bottom: 0.15rem; cursor: default; }
+.coll-picker-createrow:hover { background: transparent; }
+
+/* ── Drag & drop: sources + drop targets (picker + Collections tab) ── */
+.coll-picker-row.dragging,
+.media-tile.dragging { opacity: 0.5; }
+.coll-picker-row.drop-target {
+  background: var(--accent-bg);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.folder-tile.drop-target,
+.coll-crumb.drop-target {
+  background: var(--accent-bg);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* Slim "Move to top level" drop bar — only while a picker drag is active */
+.coll-picker-topbar {
+  display: none;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+.coll-picker-topbar.drag-active { display: flex; }
+.coll-picker-topbar.drop-target {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  border-style: solid;
+  color: var(--text-primary);
+}
+
+/* ── Clickable note timestamps (YouTube-style) ── */
+.note-ts {
+  color: var(--accent-hover);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.note-ts:hover { text-decoration: underline; }
+
+/* Range links loop A→B — tint them like the AB-loop control */
+.note-ts-range {
+  color: var(--accent);
+  white-space: nowrap;
+}

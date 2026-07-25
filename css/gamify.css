@@ -1,0 +1,592 @@
+/* ==========================================
+   Gamify — opt-in Obsession Score tracker
+   (no UI renders unless server enables it)
+   ========================================== */
+
+/* ── Header chip ── */
+.gamify-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #2b1c46, #3d1830);
+  border: 1px solid #5b3a8c;
+}
+
+.gamify-chip:hover {
+  border-color: #a855f7;
+  background: linear-gradient(135deg, #37245a, #4d1f3d);
+}
+
+.gamify-chip-score {
+  font-weight: 700;
+  color: #f5f3ff;
+}
+
+.gamify-chip-streak {
+  font-size: 0.75em;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+  border-radius: 8px;
+  padding: 1px 6px;
+}
+
+.gamify-pulse {
+  animation: gamifyPulse 0.9s ease;
+}
+
+@keyframes gamifyPulse {
+  0%   { transform: scale(1);    box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.6); }
+  35%  { transform: scale(1.12); box-shadow: 0 0 0 8px rgba(168, 85, 247, 0); }
+  100% { transform: scale(1); }
+}
+
+/* ── Overlay + phone frame ── */
+.gamify-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(3px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1500;
+}
+
+.gamify-overlay.active { display: flex; }
+
+.gamify-phone {
+  position: relative;
+  /* Wider/square "tablet" so quests + achievements fit without scrolling */
+  width: min(940px, 94vw);
+  max-height: 92vh;
+  background: linear-gradient(160deg, #16131f, #1d1229);
+  border: 2px solid #3b2b57;
+  border-radius: 32px;
+  padding: 34px 0 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
+  display: flex;
+  flex-direction: column;
+  animation: gamifyPop 0.22s ease;
+}
+
+@keyframes gamifyPop {
+  from { transform: scale(0.92) translateY(14px); opacity: 0; }
+  to   { transform: scale(1) translateY(0);       opacity: 1; }
+}
+
+.gamify-phone-notch {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 110px;
+  height: 9px;
+  border-radius: 5px;
+  background: #0c0a12;
+}
+
+.gamify-close {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.gamify-close:hover { color: var(--text-primary); }
+
+.gamify-body {
+  overflow-y: auto;
+  padding: 3px 16px 10px;
+  scrollbar-width: thin;
+  /* Two/three-column card grid; the score hero + footer row span all */
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 0 14px;
+  align-items: start;
+}
+.gamify-body > .gamify-score-section,
+.gamify-body > .gamify-share-row { grid-column: 1 / -1; }
+
+/* Quest reroll (🔄, one per day) */
+.gamify-quest-reroll {
+  background: none;
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.72em;
+  padding: 1px 6px;
+  margin-left: 6px;
+  flex: none;
+}
+.gamify-quest-reroll:hover:not(:disabled) { border-color: var(--accent); color: var(--text-primary); }
+.gamify-quest-reroll:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.gamify-loading,
+.gamify-empty {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 14px 0;
+  font-size: 0.9em;
+}
+
+/* ── Score hero ── */
+.gamify-score-section {
+  text-align: center;
+  padding: 12px 0 18px;
+}
+
+.gamify-score-label {
+  font-size: 0.72em;
+  letter-spacing: 2.5px;
+  color: var(--text-secondary);
+}
+
+.gamify-score-value {
+  font-size: 3.1em;
+  font-weight: 800;
+  color: #f5f3ff;
+  line-height: 1.15;
+}
+
+.gamify-level-name {
+  font-weight: 600;
+  background: linear-gradient(90deg, var(--gamify-a, #a855f7), var(--gamify-b, #ec4899));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  margin-bottom: 10px;
+}
+
+.gamify-level-next {
+  font-size: 0.72em;
+  color: var(--text-muted);
+  margin-top: 5px;
+}
+
+/* ── Progress bars ── */
+.gamify-progressbar {
+  height: 9px;
+  border-radius: 5px;
+  background: #2a2438;
+  overflow: hidden;
+}
+
+.gamify-progressbar.small { height: 6px; }
+
+.gamify-progressbar-fill {
+  height: 100%;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--gamify-a, #a855f7), var(--gamify-b, #ec4899));
+  transition: width 0.5s ease;
+}
+
+/* ── Cards ── */
+.gamify-card {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid #2e2542;
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 6px;
+}
+
+.gamify-card-title {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--text-primary);  
+  margin-bottom: 3px;
+}
+
+/* ── Streak heatmap ── */
+.gamify-heatmap {
+  display: grid;
+  grid-template-columns: repeat(15, 1fr);
+  gap: 4px;
+}
+
+.gamify-heat-cell {
+  aspect-ratio: 1;
+  border-radius: 3px;
+  background: #262033;
+}
+
+.gamify-heat-cell.on {
+  background: linear-gradient(135deg, var(--gamify-a, #a855f7), var(--gamify-b, #ec4899));
+}
+
+.gamify-heat-cell.today {
+  outline: 1.5px solid #fbbf24;
+  outline-offset: 1px;
+}
+
+/* ── Quests ── */
+.gamify-quest {
+  padding: 9px 0;
+  border-top: 1px solid #2a2438;
+}
+
+.gamify-quest:first-of-type { border-top: none; padding-top: 2px; }
+
+.gamify-quest-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.gamify-quest-title {
+  font-weight: 600;
+  font-size: 0.9em;
+  color: var(--text-primary);
+}
+
+.gamify-quest-reward {
+  font-size: 0.8em;
+  font-weight: 700;
+  color: #fbbf24;
+}
+
+.gamify-quest-desc {
+  font-size: 0.78em;
+  color: var(--text-secondary);
+  margin: 3px 0 7px;
+}
+
+.gamify-quest-progress {
+  font-size: 0.72em;
+  color: var(--text-muted);
+  text-align: right;
+  margin-top: 4px;
+}
+
+/* ── Chart ── */
+.gamify-chart {
+  width: 100%;
+  height: 80px;
+  display: block;
+}
+
+/* ── Totals + themes ── */
+.gamify-totals {
+  display: flex;
+  justify-content: space-around;
+  text-align: center;
+  flex-wrap: wrap;
+  gap: 8px 4px;
+}
+
+.gamify-totals b {
+  display: block;
+  font-size: 1.25em;
+  color: var(--text-primary);
+}
+
+.gamify-totals span {
+  font-size: 0.72em;
+  color: var(--text-muted);
+}
+
+.gamify-themes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gamify-theme-tag {
+  font-size: 0.75em;
+  background: #2b1c46;
+  border: 1px solid #4a3370;
+  color: #d8c9f5;
+  border-radius: 10px;
+  padding: 3px 9px;
+}
+
+.gamify-theme-tag em {
+  font-style: normal;
+  color: var(--text-muted);
+}
+
+/* ── Share + full stats ── */
+.gamify-share-row {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0 8px;
+}
+
+.gamify-share-btn {
+  flex: 1;
+  padding: 11px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(90deg, var(--gamify-a, #a855f7), var(--gamify-b, #ec4899));
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.95em;
+  cursor: pointer;
+}
+
+.gamify-share-btn:hover { filter: brightness(1.12); }
+
+/* ── Achievements ── */
+.gamify-ach-count {
+  color: #fbbf24;
+  font-weight: 700;
+}
+
+.gamify-ach-recent { font-size: 1.15em; letter-spacing: 4px; }
+
+.gamify-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 12px 16px 0;
+}
+
+.gamify-tab {
+  flex: 1;
+  padding: 7px 0;
+  border: 1px solid #2e2542;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.82em;
+  cursor: pointer;
+}
+
+.gamify-tab.active {
+  border-color: var(--gamify-a, #a855f7);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.ach-row {
+  display: flex;
+  gap: 9px;
+  padding: 8px 0;
+  border-top: 1px solid #2a2438;
+  opacity: 0.75;
+}
+
+.ach-row:first-of-type { border-top: none; }
+.ach-row.unlocked { opacity: 1; }
+
+.ach-icon { font-size: 1.25em; flex: none; width: 26px; text-align: center; }
+.ach-main { flex: 1; min-width: 0; }
+
+.ach-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.ach-name { font-weight: 600; font-size: 0.86em; }
+.ach-desc { font-size: 0.74em; color: var(--text-secondary); margin: 2px 0 5px; }
+.ach-desc em { color: #fbbf24; font-style: normal; }
+
+.ach-pips { display: inline-flex; gap: 3px; }
+
+.ach-pip {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #2a2438;
+}
+
+.ach-pip.on {
+  background: linear-gradient(135deg, var(--gamify-a, #a855f7), var(--gamify-b, #ec4899));
+}
+
+.gamify-analytics-btn {
+  flex: 1;
+  padding: 11px;
+  border: 1px solid var(--gamify-a, #a855f7);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 0.95em;
+  cursor: pointer;
+}
+
+.gamify-analytics-btn:hover { background: rgba(255, 255, 255, 0.09); }
+
+/* ── Theme picker ── */
+.gamify-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+
+.gamify-theme-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 7px;
+  border: 1px solid #2e2542;
+  border-radius: 9px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.gamify-theme-pick:hover { border-color: var(--gamify-a, #a855f7); }
+
+.gamify-theme-pick.selected {
+  border-color: var(--gamify-a, #a855f7);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.gamify-theme-pick.locked {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.gamify-theme-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.gamify-theme-name {
+  font-size: 0.68em;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Full-stats analytics overlay ── */
+.gamify-analytics-panel {
+  position: relative;
+  width: 700px;
+  max-width: 94vw;
+  max-height: 88vh;
+  background: linear-gradient(160deg, #16131f, #1d1229);
+  border: 2px solid #3b2b57;
+  border-radius: 18px;
+  padding: 14px 4px 10px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
+  display: flex;
+  flex-direction: column;
+  animation: gamifyPop 0.22s ease;
+}
+
+.gamify-analytics-body {
+  overflow-y: auto;
+  padding: 0 16px 8px;
+  scrollbar-width: thin;
+}
+
+.gamify-analytics-title {
+  font-size: 1.05em;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 2px 0 10px;
+}
+
+.ga-chart {
+  width: 100%;
+  height: 92px;
+  display: block;
+}
+
+/* Heatmap */
+.ga-heatmap { display: flex; flex-direction: column; gap: 3px; }
+
+.ga-heat-row { display: flex; gap: 2px; align-items: center; }
+
+.ga-heat-day {
+  flex: none;
+  width: 28px;
+  font-size: 0.62em;
+  color: var(--text-muted);
+}
+
+.ga-heat-cell {
+  flex: 1;
+  aspect-ratio: 1.6;
+  min-width: 0;
+  border-radius: 2px;
+}
+
+.ga-heat-hours {
+  position: relative;
+  height: 14px;
+  margin-left: 30px;
+}
+
+.ga-heat-hours span {
+  position: absolute;
+  font-size: 0.6em;
+  color: var(--text-muted);
+}
+
+/* Legend */
+.ga-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.ga-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.68em;
+  color: var(--text-secondary);
+}
+
+.ga-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* ── Enriched stats: week delta, obsessed card, achievement teaser ── */
+.gamify-week-delta { font-size: 0.8em; font-weight: 600; margin-top: 2px; }
+.gamify-week-delta.up { color: #4ade80; }
+.gamify-week-delta.down { color: #f87171; }
+
+.gamify-obsessed-name {
+  font-size: 0.9em; font-weight: 600; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gamify-obsessed-stars { color: #fbbf24; font-size: 0.95em; letter-spacing: 1px; }
+.gamify-obsessed-sub { font-size: 0.78em; color: var(--text-muted); }
+
+.gamify-ach-next {
+  margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--border, #333);
+}
+.gamify-ach-next-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 0.82em; font-weight: 600; color: var(--text-primary);
+}
+.gamify-ach-next-val { font-family: monospace; font-size: 0.85em; color: var(--text-muted); }
+.gamify-ach-next-desc { font-size: 0.72em; color: var(--text-muted); margin: 2px 0 5px; }
+
+/* ── Full Stats: milestones, ratings, finishers, tags ── */
+.gamify-milestones { display: flex; justify-content: space-around; text-align: center; gap: 10px; flex-wrap: wrap; }
+.gamify-milestones b { display: block; font-size: 1.35em; color: var(--text-primary); }
+.gamify-milestones span { font-size: 0.72em; color: var(--text-muted); }
+
+.gamify-rating-hero { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.gamify-rating-hero b { font-size: 2em; color: #fbbf24; }
+.gamify-rating-hero span { font-size: 0.78em; color: var(--text-muted); }
+.gamify-rating-dist { display: flex; flex-direction: column; gap: 3px; }
+.gamify-rating-row { display: flex; align-items: center; gap: 7px; }
+.gamify-rating-star { font-size: 0.72em; color: var(--text-muted); min-width: 2em; }
+.gamify-rating-track { flex: 1; height: 8px; background: var(--bg-tertiary, #252525); border-radius: 4px; overflow: hidden; }
+.gamify-rating-fill { height: 100%; background: linear-gradient(90deg, #f59e0b, #fbbf24); border-radius: 4px; }
+.gamify-rating-n { font-size: 0.72em; color: var(--text-muted); min-width: 1.6em; text-align: right; }
+
+.gamify-finisher-rate { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.gamify-finisher-pct { font-size: 2.1em; font-weight: 800; color: var(--accent); }
+.gamify-finisher-sub { font-size: 0.8em; color: var(--text-secondary); }
+.gamify-finisher-sub em { color: var(--text-muted); font-style: normal; }
+
+.gamify-under-hint { font-size: 0.74em; color: var(--text-muted); margin-bottom: 6px; }

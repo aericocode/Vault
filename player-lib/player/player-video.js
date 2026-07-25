@@ -1,0 +1,463 @@
+// =========================================================================
+// PLAYER VIDEO - Video player rendering and controls
+// =========================================================================
+
+function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filename, hasPrev, hasNext) {
+  content.innerHTML = `
+    <video id="mediaVideo" src="${fileUrl}" onerror="handleMediaError('${filepath.replace(/'/g, "\\'")}')">
+      Your browser doesn't support video playback.
+    </video>
+  `;
+  
+  // Left controls: Volume
+  const leftControls = `
+    <div class="volume-control">
+      <button onclick="toggleMute()" id="muteBtn" class="control-btn" title="Mute (M)">🔊</button>
+      <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1.5" step="0.01" value="${savedVolume}" oninput="setVolume(this.value)">
+      <span class="volume-display" id="volumeDisplay">${Math.round(savedVolume * 100)}%</span>
+    </div>
+  `;
+  
+  // Right controls: Fullscreen only (speed moved down to the playback row so
+  // the center Prev/Random/Info/Next stays in a fixed spot across media types)
+  const rightControls = `
+    ${renderFillButton()}
+    <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)">⛶</button>
+  `;
+
+  const speedControls = `
+    <div class="speed-control">
+      <button onclick="cycleSpeed(-1)" class="control-btn speed-btn" title="Slower (<)">−</button>
+      <span class="speed-display" id="speedDisplay">1x</span>
+      <button onclick="cycleSpeed(1)" class="control-btn speed-btn" title="Faster (>)">+</button>
+    </div>
+  `;
+  
+  controlsContainer.innerHTML = `
+    <div class="player-controls-wrapper video-controls">
+      <div class="video-progress-wrapper" id="videoProgressWrapper" onmouseenter="drawActivityBar()">
+        <canvas class="video-activity" id="videoActivityBar" height="26" aria-hidden="true" onclick="seekVideo(event)"></canvas>
+        <div class="video-progress" id="videoProgress" onclick="seekVideo(event)">
+          <div class="video-progress-bar" id="videoProgressBar" style="width: 0%"></div>
+        </div>
+      </div>
+      <div class="video-playback-row">
+        <span class="video-time">
+          <span id="currentTime">0:00</span>
+          <span class="time-separator">/</span>
+          <span id="totalTime">0:00</span>
+        </span>
+        <div class="playback-controls">
+          <button onclick="skipVideo(-10)" class="control-btn" title="-10s (J)">
+            <span>⏪</span><span class="seek-label">10</span>
+          </button>
+          <button onclick="skipVideo(-5)" class="control-btn" title="-5s (←)">
+            <span>◀</span><span class="seek-label">5</span>
+          </button>
+          <button onclick="togglePlay()" id="playPauseBtn" class="play-pause-btn" title="Play/Pause (Space)">▶</button>
+          <button onclick="skipVideo(5)" class="control-btn" title="+5s (→)">
+            <span class="seek-label">5</span><span>▶</span>
+          </button>
+          <button onclick="skipVideo(10)" class="control-btn" title="+10s (L)">
+            <span class="seek-label">10</span><span>⏩</span>
+          </button>
+        </div>
+      </div>
+      <div class="video-extras-row">
+        <div class="pr-side pr-left">
+          ${typeof renderAbLoopButton === 'function' ? renderAbLoopButton() : ''}
+          ${typeof renderSubtitleButton === 'function' ? renderSubtitleButton() : ''}
+        </div>
+        <div class="pr-center">
+          ${typeof renderLoopButton === 'function' ? renderLoopButton() : ''}
+          ${speedControls}
+        </div>
+        <div class="pr-side pr-right">
+          ${typeof renderHotButton === 'function' ? renderHotButton() : ''}
+          ${renderDoneButton()}
+        </div>
+      </div>
+      ${generateUnifiedControlBar(leftControls, rightControls, hasPrev, hasNext)}
+    </div>
+  `;
+  
+  const video = document.getElementById('mediaVideo');
+  currentMediaState.element = video;
+
+  // Loop preference (A-B loop takes over while active)
+  video.loop = typeof isLoopEnabled === 'function' ? isLoopEnabled() : true;
+
+  // Subtitles (3-state CC toggle resolves which track, if any)
+  if (typeof applySubtitlesFor === 'function' && currentMediaState.currentMediaData) {
+    applySubtitlesFor(currentMediaState.currentMediaData);
+  }
+
+  // Setup Web Audio API for volume boost
+  setupAudioBoost(video);
+  
+  // Apply saved volume (savedVolume is slider position, needs curve)
+  const max = currentMediaState.gainNode ? 1.5 : 1;
+  applyVolume(sliderToVolume(savedVolume, max));
+  updateVolumeDisplay(savedVolume, max);
+  
+  video.addEventListener('loadedmetadata', () => {
+    const el = document.getElementById('totalTime');
+    if (el) el.textContent = formatDuration(video.duration);
+    // Init AB loop overlay (needed if loop was somehow preserved)
+    if (typeof updateAbLoopOverlay === 'function') updateAbLoopOverlay();
+  });
+  
+  video.addEventListener('timeupdate', () => {
+    const progressBar = document.getElementById('videoProgressBar');
+    const currentTimeEl = document.getElementById('currentTime');
+    if (progressBar) {
+      const progress = (video.currentTime / video.duration) * 100;
+      progressBar.style.width = progress + '%';
+    }
+    if (currentTimeEl) {
+      // formatDuration(0/NaN) returns '' — keep the label readable while
+      // the stream is still at 0:00 (or stalled)
+      currentTimeEl.textContent = formatDuration(video.currentTime) || '0:00';
+    }
+    // AB loop check
+    if (typeof checkAbLoop === 'function') {
+      checkAbLoop(video);
+    }
+  });
+  
+  video.addEventListener('play', () => {
+    const btn = document.getElementById('playPauseBtn');
+    if (btn) btn.textContent = '⏸';
+  });
+  
+  video.addEventListener('pause', () => {
+    const btn = document.getElementById('playPauseBtn');
+    if (btn) btn.textContent = '▶';
+  });
+  
+  video.addEventListener('ended', () => {
+    const btn = document.getElementById('playPauseBtn');
+    if (btn) btn.textContent = '▶';
+    if (typeof autoAdvanceOnEnded === 'function') autoAdvanceOnEnded();
+  });
+
+  video.addEventListener('click', handleVideoClick);
+  video.addEventListener('dblclick', handleVideoDoubleClick);
+
+  // Set volume slider max based on whether audio boost is available
+  const volumeSlider = document.getElementById('volumeSlider');
+  if (volumeSlider) {
+    volumeSlider.max = currentMediaState.gainNode ? 1.5 : 1;
+  }
+
+  video.play().catch(() => {});
+}
+
+/* ── Watch-activity curve (YouTube "most replayed" style) ──────────────────
+   Drawn over the seek bar on hover from the item's 100-bucket watch heatmap
+   (real watch-seconds per 1% of duration), plus 🔥/💦 marker heatmaps tinted
+   on top — denser clusters of marks glow more vibrantly. Re-drawn on each hover
+   so the current session's flushed activity shows up live. */
+function _activityHeat(str) {
+  try { const a = JSON.parse(str || 'null'); return Array.isArray(a) && a.length ? a : null; }
+  catch { return null; }
+}
+
+function drawActivityBar() {
+  const canvas = document.getElementById('videoActivityBar');
+  const media = currentMediaState.currentMediaData;
+  if (!canvas || !media) return;
+
+  const watch = _activityHeat(media.watch_heatmap);
+  const hot = _activityHeat(media.hot_heatmap);
+  const done = _activityHeat(media.done_heatmap);
+  const watchMax = watch ? Math.max(...watch) : 0;
+  const hotMax = hot ? Math.max(...hot) : 0;
+  const doneMax = done ? Math.max(...done) : 0;
+
+  const el = currentMediaState.element;
+  const dur = (el && ['VIDEO', 'AUDIO'].includes(el.tagName) && isFinite(el.duration) && el.duration > 0)
+    ? el.duration : (media.duration_seconds || 0);
+
+  // Fall back to the single last position when no per-event heatmap exists yet
+  // (pre-migration data), so those tints don't vanish.
+  const hasHot = hotMax > 0 || media.last_hot_position > 0;
+  const hasDone = doneMax > 0 || media.last_done_position > 0;
+  if (watchMax <= 0 && !hasHot && !hasDone) { canvas.style.display = 'none'; return; }
+  canvas.style.display = '';
+
+  const w = canvas.clientWidth || canvas.parentElement.clientWidth;
+  const h = canvas.height;
+  if (canvas.width !== w) canvas.width = w;
+
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+
+  // Watch curve (only when there's real watch activity). Kept as a Path2D of the
+  // area UNDER the line so the marker tints below can be clipped to it — coloring
+  // then only appears where activity exists, and re-follows the curve on every
+  // redraw as the activity line updates.
+  let curvePath = null;
+  if (watchMax > 0) {
+    const n = watch.length;
+    const smooth = watch.map((v, i) =>
+      ((watch[i - 1] || 0) + v + (watch[i + 1] || 0)) / ((i > 0 ? 1 : 0) + 1 + (i < n - 1 ? 1 : 0)));
+    const smax = Math.max(...smooth);
+    curvePath = new Path2D();
+    curvePath.moveTo(0, h);
+    for (let i = 0; i < n; i++) {
+      const x = (i / (n - 1)) * w;
+      const y = h - (smooth[i] / smax) * (h - 3);
+      curvePath.lineTo(x, y);
+    }
+    curvePath.lineTo(w, h);
+    curvePath.closePath();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+    ctx.fill(curvePath);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke(curvePath);
+  }
+
+  // 🔥 Hot (orange) / 💦 Done (blue) marker heatmaps — one soft band per bucket,
+  // alpha scaled by that bucket's event count vs. the item's peak. Clipped to the
+  // area under the activity line, so a marker where little was watched only tints
+  // the thin sliver beneath the curve (full height only when there's no curve).
+  if (curvePath) { ctx.save(); ctx.clip(curvePath); }
+  _drawMarkerHeat(ctx, done, doneMax, w, h, '80,150,255', dur, media.last_done_position);
+  _drawMarkerHeat(ctx, hot, hotMax, w, h, '255,140,0', dur, media.last_hot_position);
+  if (curvePath) ctx.restore();
+}
+
+function _paintBand(ctx, x, halfW, h, rgb, alpha) {
+  const g = ctx.createLinearGradient(x - halfW, 0, x + halfW, 0);
+  g.addColorStop(0, `rgba(${rgb},0)`);
+  g.addColorStop(0.5, `rgba(${rgb},${alpha})`);
+  g.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g;
+  ctx.fillRect(x - halfW, 0, halfW * 2, h);
+}
+
+function _drawMarkerHeat(ctx, heat, max, w, h, rgb, dur, lastPos) {
+  if (heat && max > 0) {
+    const n = heat.length;
+    const halfW = Math.max(4, (w / n) * 1.3);
+    for (let i = 0; i < n; i++) {
+      const c = heat[i];
+      if (!(c > 0)) continue;
+      const x = ((i + 0.5) / n) * w;
+      _paintBand(ctx, x, halfW, h, rgb, 0.2 + 0.6 * (c / max));  // vibrancy ∝ event count
+    }
+  } else if (lastPos > 0 && dur > 0) {
+    // Pre-migration item (only a single last position stored) — one band there
+    _paintBand(ctx, (Math.min(lastPos, dur) / dur) * w, Math.max(6, w * 0.02), h, rgb, 0.6);
+  }
+}
+
+// Video control functions
+function togglePlay() {
+  const video = currentMediaState.element;
+  if (!video) return;
+  
+  if (currentMediaState.audioContext && currentMediaState.audioContext.state === 'suspended') {
+    currentMediaState.audioContext.resume();
+  }
+  
+  if (video.paused) {
+    video.play().catch(() => {}); // rejected when a teardown aborts the load
+    scheduleHideControls();
+  } else {
+    video.pause();
+    showMediaControls();
+  }
+}
+
+function skipVideo(seconds) {
+  const video = currentMediaState.element;
+  // duration is NaN until metadata loads — assigning NaN to currentTime throws
+  if (!video || !isFinite(video.duration) || video.duration <= 0) return;
+
+  video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + seconds));
+  showMediaControls();
+}
+
+function seekVideo(event) {
+  const video = currentMediaState.element;
+  if (!video || !isFinite(video.duration) || video.duration <= 0) return;
+
+  const bar = event.currentTarget;
+  const rect = bar.getBoundingClientRect();
+  const percent = (event.clientX - rect.left) / rect.width;
+  video.currentTime = percent * video.duration;
+}
+
+function toggleMute() {
+  const video = currentMediaState.element;
+  if (!video) return;
+  
+  video.muted = !video.muted;
+  const muteBtn = document.getElementById('muteBtn');
+  if (muteBtn) muteBtn.textContent = video.muted ? '🔇' : '🔊';
+  
+  const slider = document.getElementById('volumeSlider');
+  const max = currentMediaState.gainNode ? 1.5 : 1;
+  if (video.muted) {
+    if (slider) slider.value = 0;
+    updateVolumeDisplay(0, max);
+  } else {
+    if (slider) slider.value = savedVolume;
+    updateVolumeDisplay(savedVolume, max);
+  }
+}
+
+function setVolume(value) {
+  const video = currentMediaState.element;
+  if (!video) return;
+  
+  value = parseFloat(value);
+  const max = currentMediaState.gainNode ? 1.5 : 1;
+  const actualVolume = sliderToVolume(value, max);
+  
+  savedVolume = value; // save the slider position, not the curved value
+  applyVolume(actualVolume);
+  updateVolumeDisplay(value, max);
+}
+
+function applyVolume(value) {
+  const video = currentMediaState.element;
+  if (!video) return;
+  
+  if (currentMediaState.gainNode) {
+    currentMediaState.gainNode.gain.value = value;
+    video.volume = 1;
+  } else {
+    video.volume = Math.min(1, value);
+  }
+  
+  video.muted = value == 0;
+  const muteBtn = document.getElementById('muteBtn');
+  if (muteBtn) muteBtn.textContent = value == 0 ? '🔇' : '🔊';
+}
+
+function updateVolumeDisplay(sliderValue, max) {
+  const display = document.getElementById('volumeDisplay');
+  const slider = document.getElementById('volumeSlider');
+  
+  if (display) {
+    const percent = Math.round(sliderValue * 100);
+    display.textContent = percent + '%';
+    
+    if (sliderValue > 1) {
+      display.classList.add('boosted');
+      if (slider) slider.classList.add('boosted');
+    } else {
+      display.classList.remove('boosted');
+      if (slider) slider.classList.remove('boosted');
+    }
+  }
+}
+
+// Handle single click on video
+function handleVideoClick(e) {
+  e.stopPropagation();
+  clearTimeout(currentMediaState.clickTimeout);
+  
+  currentMediaState.clickTimeout = setTimeout(() => {
+    if (!currentMediaState.isDoubleClick) {
+      togglePlay();
+    }
+    currentMediaState.isDoubleClick = false;
+  }, 250);
+}
+
+// Handle double-click on video
+function handleVideoDoubleClick(e) {
+  e.stopPropagation();
+  currentMediaState.isDoubleClick = true;
+  clearTimeout(currentMediaState.clickTimeout);
+  toggleFullscreen();
+}
+
+// Setup Web Audio API for volume boost beyond 100%
+function setupAudioBoost(video) {
+  if (window.location.protocol === 'file:' || video.src.startsWith('file://')) {
+    console.log('Using native audio (file:// protocol)');
+    currentMediaState.audioContext = null;
+    currentMediaState.gainNode = null;
+    currentMediaState.mediaSource = null;
+    return;
+  }
+  
+  try {
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    
+    const resumeAudio = () => {
+      if (audioContext.state === 'suspended') {
+        audioContext.resume().then(() => {
+          console.log('AudioContext resumed');
+        });
+      }
+    };
+    
+    resumeAudio();
+    video.addEventListener('play', resumeAudio, { once: true });
+    
+    const source = audioContext.createMediaElementSource(video);
+    const gainNode = audioContext.createGain();
+    
+    source.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    currentMediaState.audioContext = audioContext;
+    currentMediaState.gainNode = gainNode;
+    currentMediaState.mediaSource = source;
+    
+  } catch (e) {
+    console.warn('Web Audio API not available for volume boost:', e);
+    currentMediaState.audioContext = null;
+    currentMediaState.gainNode = null;
+    currentMediaState.mediaSource = null;
+  }
+}
+
+// =========================================================================
+// PLAYBACK SPEED - Shared between video and audio players
+// =========================================================================
+
+const SPEED_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 3];
+let currentSpeedIndex = 3; // default 1x
+
+/**
+ * Cycle playback speed up (+1) or down (-1).
+ */
+function cycleSpeed(direction) {
+  const element = currentMediaState.element;
+  if (!element) return;
+
+  currentSpeedIndex = Math.max(0, Math.min(SPEED_STEPS.length - 1, currentSpeedIndex + direction));
+  const speed = SPEED_STEPS[currentSpeedIndex];
+  element.playbackRate = speed;
+  updateSpeedDisplay();
+}
+
+/**
+ * Reset speed to 1x.
+ */
+function resetSpeed() {
+  const element = currentMediaState.element;
+  if (!element) return;
+  currentSpeedIndex = SPEED_STEPS.indexOf(1);
+  element.playbackRate = 1;
+  updateSpeedDisplay();
+}
+
+/**
+ * Update the speed display element.
+ */
+function updateSpeedDisplay() {
+  const display = document.getElementById('speedDisplay');
+  if (!display) return;
+  const speed = SPEED_STEPS[currentSpeedIndex];
+  display.textContent = speed + 'x';
+  display.classList.toggle('speed-modified', speed !== 1);
+}

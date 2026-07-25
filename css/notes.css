@@ -1,0 +1,513 @@
+/* =========================================================================
+   NOTES - Styles for user notes in modal + save indicator + browser warning
+   ========================================================================= */
+
+/* ── Firefox Warning Banner ──────────────────────────────────────────── */
+
+.browser-warning {
+  display: none; /* shown via JS */
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  background: rgba(249, 226, 175, 0.12);
+  border: 1px solid var(--warning, #f9e2af);
+  border-radius: 8px;
+  color: var(--warning, #f9e2af);
+  font-size: 0.85rem;
+  margin: 0.75rem 1rem;
+}
+
+.browser-warning-icon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.browser-warning-dismiss {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--warning, #f9e2af);
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 0 0.25rem;
+  opacity: 0.7;
+}
+
+.browser-warning-dismiss:hover {
+  opacity: 1;
+}
+
+/* ── Unsaved Changes Indicator (header) ──────────────────────────────── */
+
+.unsaved-indicator {
+  display: none; /* toggled via JS */
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.75rem;
+  background: rgba(249, 226, 175, 0.15);
+  border: 1px solid var(--warning, #f9e2af);
+  border-radius: 6px;
+  color: var(--warning, #f9e2af);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.unsaved-indicator:hover {
+  background: rgba(249, 226, 175, 0.25);
+}
+
+.unsaved-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning, #f9e2af);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ── Notes Section in Modal ──────────────────────────────────────────── */
+
+.notes-section {
+  border: 1px solid var(--border, #444);
+  border-radius: 10px;
+  padding: 1.25rem;
+  background: var(--bg-secondary, #181825);
+}
+
+.notes-section h3 {
+  margin-top: 0;
+}
+
+.notes-list {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-bottom: 0.75rem;
+}
+
+.notes-empty {
+  color: var(--text-secondary, #888);
+  font-style: italic;
+  font-size: 0.85rem;
+  padding: 0.5rem 0;
+}
+
+.note-entry {
+  position: relative;
+  padding: 0.6rem 2rem 0.6rem 0.75rem;
+  margin-bottom: 0.5rem;
+  background: var(--bg-tertiary, #1e1e2e);
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  transition: border-color 0.15s;
+}
+
+.note-entry:hover {
+  border-color: var(--border-hover, #555);
+}
+
+.note-timestamp {
+  font-size: 0.7rem;
+  color: var(--text-secondary, #888);
+  margin-bottom: 0.25rem;
+  font-family: monospace;
+}
+
+.note-text {
+  font-size: 0.88rem;
+  color: var(--text-primary, #cdd6f4);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.45;
+}
+
+.note-delete {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #666);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+  opacity: 0;
+  transition: all 0.15s;
+}
+
+.note-entry:hover .note-delete {
+  opacity: 1;
+}
+
+.note-delete:hover {
+  color: var(--danger, #f38ba8);
+  background: rgba(243, 139, 168, 0.1);
+}
+
+/* ── Note Input ──────────────────────────────────────────────────────── */
+
+.notes-add {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.note-textarea {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-tertiary, #1e1e2e);
+  border: 1px solid var(--border, #444);
+  border-radius: 8px;
+  color: var(--text-primary, #cdd6f4);
+  font-family: inherit;
+  font-size: 0.88rem;
+  resize: vertical;
+  min-height: 2.5rem;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.note-textarea:focus {
+  outline: none;
+  border-color: var(--accent, #89b4fa);
+}
+
+.note-textarea::placeholder {
+  color: var(--text-secondary, #666);
+}
+
+.notes-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.note-add-btn {
+  padding: 0.5rem 1rem;
+  background: var(--accent, #89b4fa);
+  color: var(--bg, #1e1e2e);
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.note-add-btn:hover {
+  background: var(--accent-hover, #74a8f7);
+}
+
+/* Clear — subtle, sits between ☆ and Add Note; margin-left pushes it +
+   Add Note to the right edge */
+.note-clear-btn {
+  padding: 0.5rem 0.9rem;
+  margin-left: auto;
+  background: var(--surface, #313244);
+  color: var(--text-secondary, #a6adc8);
+  border: 1px solid var(--border, #444);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.note-clear-btn:hover {
+  color: var(--text-primary, #cdd6f4);
+  border-color: var(--danger, #f38ba8);
+}
+
+.note-save-btn {
+  padding: 0.5rem 1rem;
+  background: var(--surface, #313244);
+  color: var(--text-primary, #cdd6f4);
+  border: 1px solid var(--border, #444);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-left: auto;
+}
+
+.note-save-btn:hover:not(:disabled) {
+  background: var(--surface-hover, #3a3a4e);
+  border-color: var(--accent, #89b4fa);
+}
+
+.note-save-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Save Authorization Banner (drag-and-drop) ───────────────────────── */
+
+.save-auth-banner {
+  display: none; /* shown via JS */
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 1.25rem;
+  background: rgba(137, 180, 250, 0.1);
+  border-bottom: 1px solid rgba(137, 180, 250, 0.25);
+  color: var(--text-secondary, #aaa);
+  font-size: 0.85rem;
+}
+
+.save-auth-btn {
+  padding: 0.35rem 0.85rem;
+  background: var(--accent, #89b4fa);
+  color: var(--bg, #1e1e2e);
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.save-auth-btn:hover {
+  background: var(--accent-hover, #74a8f7);
+}
+
+.save-auth-dismiss {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #888);
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 0 0.25rem;
+  opacity: 0.7;
+}
+
+.save-auth-dismiss:hover {
+  opacity: 1;
+}
+
+/* ── Star & Rating Controls ───────────────────────────────────────────── */
+
+.star-rating-section {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 0.75rem 0;
+  flex-wrap: wrap;
+}
+
+.duplicate-actions .star-rating-section{
+  margin: 0
+}
+
+.star-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.85rem;
+  border: 1px solid var(--border, #444);
+  border-radius: 8px;
+  background: var(--surface, #1e1e2e);
+  color: var(--text-secondary, #aaa);
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.star-btn:hover {
+  border-color: #f9e2af;
+  color: #f9e2af;
+}
+
+.star-btn.starred {
+  background: rgba(249, 226, 175, 0.15);
+  border-color: #f9e2af;
+  color: #f9e2af;
+}
+
+.star-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.rating-control {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.rating-label {
+  font-size: 0.82rem;
+  color: var(--text-secondary, #888);
+}
+
+.rating-stars {
+  display: inline-flex;
+  gap: 0.1rem;
+}
+
+.rating-star {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  color: var(--text-secondary, #555);
+  cursor: pointer;
+  padding: 0.1rem 0.15rem;
+  transition: color 0.1s, transform 0.1s;
+  line-height: 1;
+}
+
+.rating-star:hover {
+  transform: scale(1.2);
+}
+
+.rating-star.filled {
+  color: #f9e2af;
+}
+
+.rating-star:not(.filled):hover {
+  color: #f9e2af;
+  opacity: 0.6;
+}
+
+.rating-value {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #888);
+  margin-left: 0.25rem;
+}
+
+/* ── Star & Rating Card Badges ───────────────────────────────────────── */
+
+.meta-badge.starred-badge {
+  background: rgba(249, 226, 175, 0.15);
+  color: #f9e2af;
+  border: 1px solid rgba(249, 226, 175, 0.3);
+}
+
+.meta-badge.rating-badge {
+  background: rgba(249, 226, 175, 0.1);
+  color: #f9e2af;
+  border: 1px solid rgba(249, 226, 175, 0.2);
+  font-size: 0.7rem;
+  letter-spacing: -0.5px;
+}
+
+/* ── Card Highlight (after returning from player) ────────────────────── */
+
+.media-card.card-highlight,
+.media-tile.card-highlight {
+  animation: card-highlight-pulse 2s ease-out;
+}
+
+@keyframes card-highlight-pulse {
+  0% {
+    box-shadow: 0 0 0 3px var(--accent, #89b4fa);
+    border-color: var(--accent, #89b4fa);
+  }
+  70% {
+    box-shadow: 0 0 0 3px var(--accent, #89b4fa);
+    border-color: var(--accent, #89b4fa);
+  }
+  100% {
+    box-shadow: none;
+    border-color: var(--border, #444);
+  }
+}
+
+/* ── Notes Badge on Cards ────────────────────────────────────────────── */
+
+.meta-badge.has-notes {
+  background: rgba(137, 180, 250, 0.15);
+  color: var(--accent, #89b4fa);
+  border: 1px solid rgba(137, 180, 250, 0.3);
+}
+
+/* ── Card Quick Actions (inline star + rating) ───────────────────────── */
+
+.card-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  border-top: 1px solid var(--border, #333);
+  background: var(--bg-secondary, rgba(0, 0, 0, 0.15));
+}
+
+.card-star-btn {
+  background: none;
+  border: none;
+  font-size: 1.15rem;
+  cursor: pointer;
+  color: var(--text-secondary, #666);
+  padding: 0.1rem 0.2rem;
+  line-height: 1;
+  transition: all 0.12s;
+}
+
+.card-star-btn:hover {
+  color: #f9e2af;
+  transform: scale(1.15);
+}
+
+.card-star-btn.starred {
+  color: #f9e2af;
+}
+
+.card-rating-inline {
+  display: flex;
+  gap: 1px;
+  align-items: center;
+}
+
+.card-rating-star {
+  background: none;
+  border: none;
+  font-size: 0.95rem;
+  cursor: pointer;
+  color: var(--text-secondary, #555);
+  padding: 0.1rem 0.1rem;
+  line-height: 1;
+  transition: all 0.1s;
+}
+
+.card-rating-star:hover {
+  transform: scale(1.2);
+  color: #f9e2af;
+}
+
+.card-rating-star.filled {
+  color: #f9e2af;
+}
+
+/* ── Playback Speed Control ──────────────────────────────────────────── */
+
+.speed-control {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.speed-btn {
+  font-size: 0.85rem !important;
+  padding: 0.2rem 0.45rem !important;
+  min-width: unset !important;
+}
+
+.speed-display {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.78rem;
+  font-weight: 600;
+  min-width: 2.2rem;
+  text-align: center;
+  font-family: monospace;
+}
+
+.speed-display.speed-modified {
+  color: var(--accent, #89b4fa);
+}

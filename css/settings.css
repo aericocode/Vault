@@ -1,0 +1,483 @@
+/* =========================================================================
+   SETTINGS — gear button, modal, sections, and privacy-mode hiding rules
+   ========================================================================= */
+
+/* ── Header gear button (dim / low-key) ──────────────────────────────────── */
+
+.settings-gear {
+  position: relative;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 0.35rem;
+  margin-left: 0.15rem;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+
+.settings-gear:hover {
+  opacity: 1;
+}
+
+/* Colored dot badge when privacy mode is on */
+.settings-gear-badge {
+  display: none;
+  position: absolute;
+  top: 2px;
+  right: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warning);
+  box-shadow: 0 0 0 2px var(--bg-primary);
+}
+
+.settings-gear.privacy-on {
+  opacity: 0.85;
+}
+
+.settings-gear.privacy-on .settings-gear-badge {
+  display: block;
+}
+
+/* ── Modal shell ─────────────────────────────────────────────────────────── */
+
+.settings-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 300;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 2rem;
+  overflow-y: auto;
+}
+
+.settings-overlay.active {
+  display: flex;
+}
+
+.settings-modal {
+  background: var(--bg-secondary);
+  border-radius: 16px;
+  max-width: 780px;
+  width: 100%;
+  max-height: 88vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.1rem 1.4rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.settings-header h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.settings-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.75rem;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.settings-close:hover {
+  color: var(--danger);
+}
+
+.settings-layout {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+
+.settings-nav {
+  flex: 0 0 170px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.9rem 0.6rem;
+  border-right: 1px solid var(--border);
+  background: var(--bg-primary);
+  overflow-y: auto;
+}
+
+.settings-nav-item {
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.settings-nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.settings-nav-item.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.settings-body {
+  flex: 1;
+  min-width: 0;
+  padding: 1.3rem 1.5rem;
+  overflow-y: auto;
+}
+
+/* ── Section typography ──────────────────────────────────────────────────── */
+
+.settings-h {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin: 0 0 0.9rem;
+}
+
+.settings-h-planned {
+  margin-top: 1.8rem;
+}
+
+.settings-note {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin: -0.4rem 0 1rem;
+  line-height: 1.5;
+}
+
+.settings-body p {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0 0 0.8rem;
+}
+
+.settings-body code {
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.82em;
+  color: var(--text-primary);
+}
+
+.settings-body a {
+  color: var(--accent-hover);
+  text-decoration: none;
+}
+
+.settings-body a:hover {
+  text-decoration: underline;
+}
+
+/* ── Toggle rows ─────────────────────────────────────────────────────────── */
+
+.settings-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.settings-toggle:last-child {
+  border-bottom: none;
+}
+
+.settings-toggle-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-toggle-title {
+  display: block;
+  font-size: 0.92rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.settings-toggle-desc {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-top: 0.2rem;
+}
+
+.settings-toggle.is-disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* Hide the native checkbox; render a pill switch instead */
+.settings-toggle input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.settings-switch {
+  flex: 0 0 auto;
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 22px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  transition: background 0.18s;
+  margin-top: 0.1rem;
+}
+
+.settings-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: transform 0.18s, background 0.18s;
+}
+
+.settings-toggle input:checked + .settings-switch {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.settings-toggle input:checked + .settings-switch::after {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+/* Number control — same footprint as the switch so mixed rows stay aligned */
+.settings-num {
+  flex: 0 0 auto;
+  width: 58px;
+  margin-top: 0.1rem;
+  padding: 0.2rem 0.35rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: inherit;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-num:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.settings-tag {
+  display: inline-block;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 5px;
+  padding: 0.05rem 0.35rem;
+  vertical-align: middle;
+  margin-left: 0.35rem;
+}
+
+/* ── Accordion (Guides) ──────────────────────────────────────────────────── */
+
+.settings-acc {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 0.55rem;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+.settings-acc summary {
+  cursor: pointer;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  list-style: none;
+}
+
+.settings-acc summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-acc summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 0.5rem;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+}
+
+.settings-acc[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.settings-acc p {
+  padding: 0 0.9rem 0.8rem;
+  margin: 0;
+  font-size: 0.84rem;
+}
+
+/* ── Table (Models) ──────────────────────────────────────────────────────── */
+
+.settings-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 1rem;
+}
+
+.settings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.settings-table th,
+.settings-table td {
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.settings-table th {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+}
+
+.settings-table td:first-child {
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.settings-btn {
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 0.6rem 1.1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.settings-btn:hover {
+  background: var(--accent-hover);
+}
+
+/* ── About ───────────────────────────────────────────────────────────────── */
+
+.settings-about-name {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.settings-about-ver {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 0.9rem;
+}
+
+.settings-about-local {
+  color: var(--text-primary) !important;
+}
+
+.settings-links {
+  display: flex;
+  gap: 1.2rem;
+  margin-top: 0.6rem;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .settings-overlay { padding: 1rem; }
+  .settings-layout { flex-direction: column; }
+  .settings-nav {
+    flex: none;
+    flex-direction: row;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  .settings-nav-item { white-space: nowrap; }
+}
+
+/* =========================================================================
+   PRIVACY / STREAMING MODE
+
+   Applied via `body.privacy-mode`. NO hover-to-reveal anywhere — an accidental
+   hover on stream is the threat model. Path rows are removed outright
+   (display:none); text that must keep its layout is blurred and made inert.
+   Explicitly NOT hidden (owner's call): AI descriptions/tags/themes, semantic
+   search, song titles/artists, thumbnails, tile names.
+   ========================================================================= */
+
+/* Blurred, inert text — keeps layout, cannot be read or revealed */
+body.privacy-mode .note-text,
+body.privacy-mode .saved-search-chip,
+body.privacy-mode .imp-t2,
+body.privacy-mode .dq-name,
+body.privacy-mode .dq-file,
+body.privacy-mode .detail-path {
+  filter: blur(7px);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Path rows removed entirely */
+body.privacy-mode .pop-path {
+  display: none !important;
+}
+
+/* Detail modal "Full Path" row — hide the whole item.
+   (Tagged with .detail-path-item on the filepath detail-item.) */
+body.privacy-mode .detail-path-item {
+  display: none !important;
+}
+
+/* Trash "original path" line in the detail modal */
+body.privacy-mode .trash-original-path {
+  display: none !important;
+}

@@ -1,0 +1,59 @@
+/node_modules
+/SAMPLES
+/venv
+/thumbnails
+/temp_frames
+/temp_audio
+/exports
+PRODUCT_PLAN.md
+Music ID Readme.md
+FABLE5_WORKORDER.md
+COLLECTIONS_SPEC.md
+beatbar_userscript.js
+.claude/launch.json
+LOVENSE_SPEC.md
+FRAMEFIT_SPEC.md
+MUSICID_SECTIONS_SPEC.md
+PMV_STUDIO_SPEC.md
+SUBTITLES_SPEC.md
+MEDIA_CHAT_SPEC.md
+/models
+video_metadata.db
+
+# Local env overrides (may hold endpoints/paths — never commit). .env.example
+# is the committed, secret-free template.
+/.env
+
+# Per-install runtime state (scan-wizard history holds real local paths)
+/wizard-settings.json
+
+__pycache__/
+
+# License signing (private key NEVER ships; license.json is per-install)
+/keys
+/license.json
+
+tools/sea/spike/dist/
+/dist
+WORKORDER-import-fixes.md
+
+# Internal design docs — reference features that no longer exist. Not public.
+/old specs/
+
+# Runtime state the app writes INTO the repo root (config/index.js:161-172).
+# None of it exists in a clean checkout, which is exactly the trap: it
+# materializes the first time the app runs. trash/ receives the actual media
+# files you delete from the library, so a stray `git add -A` after deleting
+# one item would stage real content.
+/trash/
+/imports/
+/sorted_media/
+/secure_assets.db
+/bad_json_responses.log
+video_metadata.db-wal
+video_metadata.db-shm
+
+# Agent worktrees + local tool state. Until now this was only covered by
+# .git/info/exclude, which is repo-local and would NOT survive publishing by
+# copying the tree into a fresh directory.
+/.claude/

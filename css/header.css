@@ -1,0 +1,108 @@
+/* ==========================================
+   Header Styles
+   ========================================== */
+
+.header {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 1.5rem;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-content {
+  max-width: 1800px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.logo {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--brand, var(--accent));  /* follows the gamify theme when applied */
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  letter-spacing: 0.02em;
+}
+
+.logo-lock {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+
+.db-info {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.db-info strong {
+  color: var(--text-primary);
+}
+
+.header-buttons {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.header-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  transition: background 0.2s;
+}
+
+.header-btn:hover {
+  background: var(--bg-hover);
+}
+
+.header-btn.refresh-btn {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.header-btn.refresh-btn:hover {
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.header-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
+.clear-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--danger);
+  color: var(--text-primary);
+}
+
+.clear-btn:hover {
+  background: var(--danger);
+  color: white;
+}
+
+@media (max-width: 768px) {
+  .header-content {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .header-buttons {
+    margin-left: 0;
+    width: 100%;
+  }
+}

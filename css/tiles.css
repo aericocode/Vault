@@ -1,0 +1,740 @@
+/* ==========================================
+   TILES — compact thumbnail-first grid view
+   + hover popover + details sidebar restyle
+   ========================================== */
+
+/* Grid: exact column count is set by updateGridLayout() in cards.js so
+   pages are always complete rectangles (pageSize = columns × 5 rows).
+   The auto-fill here is only the pre-JS fallback. */
+.results-grid:not(.list-view) {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+
+/* ── Collapsible search section ── */
+.search-section.collapsed {
+  display: none;
+}
+
+.search-collapse-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+  margin-right: 0.6rem;
+  vertical-align: middle;
+}
+
+.search-collapse-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.tile-ind.ind-views { color: var(--text-secondary); }
+
+/* Resume progress sliver (bottom of the thumbnail, YouTube-style) */
+.tile-resume {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+/* Dupe trash/restore buttons in the details panel */
+.dup-action-btn.dup-trash-btn { border-color: var(--danger); color: #fca5a5; }
+.dup-action-btn.dup-restore-btn { border-color: var(--success); color: #86efac; }
+
+/* ── Tile ── */
+.media-tile {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.media-tile:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.media-tile.tile-flagged {
+  border-color: var(--danger);
+  opacity: 0.75;
+}
+
+/* Last file the user opened — soft theme-colour border so they keep their
+   place after closing the player. */
+.media-tile.tile-last-opened {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* A file that failed to play — deep red border so bad files are easy to spot
+   and skip. Wins over the last-opened marker if it's both. */
+.media-tile.tile-failed {
+  border-color: #7f1d1d;
+}
+
+.media-tile.tile-failed:hover {
+  border-color: #b91c1c;
+}
+
+/* Thumbnail area — fixed aspect so the grid stays even */
+.tile-thumb {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tile-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Type icon: hidden when a thumbnail rendered, shown as fallback */
+.tile-type-icon {
+  display: none;
+  font-size: 2.2rem;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.tile-thumb.thumb-fallback .tile-type-icon {
+  display: block;
+}
+
+.tile-duration {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 0.68rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+/* Hot 🔥 / Done 💦 markers — bottom-LEFT of the thumb, mirroring .tile-duration */
+.tile-hotdone {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  display: flex;
+  gap: 4px;
+  pointer-events: none;
+}
+.tile-hotdone > span {
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 0.68rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.tile-hotdone .hd-hot { color: #fb923c; }
+.tile-hotdone .hd-done { color: #9ef0df; }
+
+/* Quick actions — appear on hover over the thumbnail */
+.tile-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.media-tile:hover .tile-actions {
+  opacity: 1;
+}
+
+.tile-btn {
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ddd;
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tile-btn:hover {
+  background: rgba(0, 0, 0, 0.9);
+  border-color: var(--accent);
+}
+
+.tile-btn.active-star { color: #facc15; }
+.tile-btn.active-flag { border-color: var(--danger); }
+
+/* Name + meta strip */
+.tile-name {
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  padding: 6px 8px 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 7px;
+  min-height: 20px;
+}
+
+.tile-badge {
+  font-size: 0.62rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  text-transform: lowercase;
+  white-space: nowrap;
+}
+
+/* Reuse existing type colors loosely */
+.tile-badge.type-video { border-color: #6366f1; color: #a5b4fc; }
+.tile-badge.type-image { border-color: #22c55e; color: #86efac; }
+.tile-badge.type-gif   { border-color: #f59e0b; color: #fcd34d; }
+.tile-badge.type-audio { border-color: #ec4899; color: #f9a8d4; }
+
+.tile-indicators {
+  margin-left: auto;
+  display: flex;
+  gap: 3px;
+  font-size: 0.68rem;
+}
+
+.tile-ind { line-height: 1.2; }
+.tile-ind.ind-star { color: #facc15; }
+.tile-ind.ind-rating {
+  color: #facc15;
+  font-weight: 700;
+}
+.tile-ind.ind-error { color: var(--warning); }
+
+/* ── Hover popover ── */
+.tile-popover {
+  position: fixed;
+  z-index: 900;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  padding: 0.75rem 0.9rem;
+  display: none;
+  pointer-events: auto;
+}
+
+.tile-popover.visible {
+  display: block;
+}
+
+.pop-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.4rem;
+  word-break: break-all;
+}
+
+.pop-desc {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin-bottom: 0.5rem;
+  max-height: 9.5em;
+  overflow-y: auto;
+}
+
+.pop-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.pop-tags .tag {
+  font-size: 0.65rem;
+}
+
+.pop-meta {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.pop-flags {
+  margin-top: 0.4rem;
+  font-size: 0.72rem;
+  color: #facc15;
+}
+
+/* ── Selection (bulk actions) ── */
+.tile-select {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 2;
+}
+
+.media-tile:hover .tile-select,
+.tile-select:checked,
+.media-tile.tile-selected .tile-select {
+  opacity: 1;
+}
+
+.media-tile.tile-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* Anchored bottom-LEFT so it never covers the centered page numbers */
+.selection-bar {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  transform: translate(0, 80px);
+  z-index: 950;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 0.55rem 0.9rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  transition: transform 0.2s ease-out;
+}
+
+.selection-bar.visible {
+  transform: translate(0, 0);
+}
+
+.sel-count {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-right: 0.25rem;
+}
+
+.sel-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.sel-btn:hover { border-color: var(--accent); }
+.sel-btn.sel-trash { border-color: var(--danger); color: #fca5a5; }
+.sel-btn.sel-restore { border-color: var(--success); color: #86efac; }
+.sel-btn.sel-clear { color: var(--text-secondary); }
+
+/* ── Trashed tiles ── */
+.media-tile.tile-trashed {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.media-tile.tile-trashed .tile-thumb::after {
+  content: '🗑';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.trashed-banner {
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+/* ── Tile removal animation (live per-file trash progress) ── */
+.media-tile.tile-leaving {
+  transition: opacity 0.18s ease-out, transform 0.18s ease-out;
+  opacity: 0;
+  transform: scale(0.9);
+  pointer-events: none;
+}
+
+/* ── Busy tile (queued / being trashed) — greyed + non-interactive ── */
+.media-tile.tile-busy {
+  opacity: 0.45;
+  pointer-events: none;
+  filter: grayscale(0.6);
+  transition: opacity 0.15s ease-out;
+}
+.media-tile.tile-busy::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 22px; height: 22px;
+  margin: -11px 0 0 -11px;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: dq-rot 0.8s linear infinite;
+  z-index: 3;
+}
+
+/* ── Queue panel stack (#queueStack) ───────────────────────────────────────
+   One bottom-anchored column owns the geometry for every queue panel, so the
+   import / AI-scan / delete panels can't land on top of each other however far
+   their lists grow. `order` (not DOM order) decides the slots: importPanel()
+   re-appends its node on every run, so sibling order is not dependable. A panel
+   that isn't .visible leaves the flow entirely — an empty slot would otherwise
+   open a gap in the middle of the stack. */
+#queueStack {
+  position: fixed;
+  right: 18px;
+  bottom: 118px;
+  z-index: 955;
+  display: flex;
+  flex-direction: column-reverse;   /* lowest `order` sits at the bottom */
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+#queueStack > .delete-queue { position: static; }
+#queueStack > .delete-queue:not(.visible) { display: none; }
+#importQueuePanel { order: 0; }
+#deleteQueue { order: 1; }
+#scanQueuePanel { order: 2; }
+
+/* ── Delete / restore queue panel (bottom-right, stacks — never replaces) ── */
+.delete-queue {
+  position: fixed;
+  right: 18px;
+  left: auto;
+  bottom: 118px;
+  transform: translate(0, 16px);
+  z-index: 955;
+  width: 320px;
+  max-width: 90vw;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform 0.2s ease-out, opacity 0.2s ease-out, visibility 0.2s;
+}
+.delete-queue.visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translate(0, 0);
+}
+/* Library-view affordance: tuck the queues away behind the full player. The
+   stack is appended to <body> after the overlay, so `~` still reaches it. */
+#mediaPlayerOverlay.active ~ .delete-queue,
+#mediaPlayerOverlay.active ~ #queueStack {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+.dq-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.45rem;
+}
+.dq-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dq-x {
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; font-size: 0.85rem; padding: 0 0.2rem; flex: none;
+}
+.dq-x:hover { color: var(--text-primary); }
+/* ~5 rows visible, then scroll (a row is ~26px incl. gap) */
+.dq-list { display: flex; flex-direction: column; gap: 0.2rem; max-height: 132px; overflow-y: auto; scrollbar-width: thin; }
+.dq-row {
+  display: flex; align-items: center; gap: 0.45rem;
+  font-size: 0.75rem; color: var(--text-secondary);
+  padding: 0.15rem 0.1rem;
+}
+.dq-ico { flex: none; width: 14px; text-align: center; }
+.dq-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dq-row.dq-done .dq-ico { color: #9ef0df; }
+.dq-row.dq-done .dq-name { color: var(--text-muted); }
+.dq-row.dq-failed .dq-ico { color: var(--danger); }
+.dq-row.dq-failed .dq-name { color: var(--danger); }
+.dq-row.dq-active .dq-name { color: var(--text-primary); }
+.dq-cancel {
+  flex: none;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-muted); font-size: 0.75rem;
+  line-height: 1; padding: 0.1rem 0.25rem; border-radius: 4px;
+}
+.dq-cancel:hover { color: var(--danger); background: rgba(239, 68, 68, 0.12); }
+.dq-dot { color: var(--text-muted); }
+.dq-spin {
+  flex: none;
+  width: 12px; height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  display: inline-block;
+  animation: dq-rot 0.8s linear infinite;
+}
+@keyframes dq-rot { to { transform: rotate(360deg); } }
+
+/* ── AI scan queue panel (#scanQueuePanel) ──────────────────────────────
+   Sits one slot above the import/delete queues (see #queueStack above): the
+   fast "Adding" panel is still on screen when the slow scan panel appears. */
+.dq-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+  margin-bottom: 0.4rem;
+}
+.dq-bar-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.4s ease-out;
+}
+.dq-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 0.35rem;
+}
+.dq-workers { display: inline-flex; align-items: center; gap: 0.3rem; }
+.dq-num {
+  width: 42px;
+  padding: 0.1rem 0.2rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.72rem;
+  text-align: center;
+}
+.dq-num:focus { outline: none; border-color: var(--accent); }
+
+/* ── Delete-mode selector (in the Trashed filter) ── */
+.delete-mode-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.delete-mode-select {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.72rem;
+  padding: 0.22rem 0.35rem;
+  cursor: pointer;
+}
+.delete-mode-select:focus { outline: none; border-color: var(--accent); }
+
+/* Card 🗑 turns red when a destructive delete mode is active */
+.tile-btn.tile-btn-danger { color: var(--danger); }
+.tile-btn.tile-btn-danger:hover { background: rgba(239, 68, 68, 0.18); }
+
+/* ── Empty-trash button (in the Trashed filter) ── */
+.clear-trash-btn {
+  margin-top: 0.4rem;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.clear-trash-btn:hover:not(:disabled) { background: rgba(239, 68, 68, 0.22); }
+.clear-trash-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* ── (legacy) Trash progress bar — retained for any old references ── */
+.trash-progress {
+  position: fixed;
+  right: 18px;
+  left: auto;
+  bottom: 118px;
+  transform: translate(0, 16px);
+  z-index: 955;
+  min-width: 320px;
+  max-width: 90vw;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 0.6rem 0.9rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease-out, transform 0.2s ease-out, visibility 0.2s;
+}
+
+.trash-progress.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(0, 0);
+}
+
+.tp-label {
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  margin-bottom: 0.4rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tp-track {
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.tp-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.15s ease-out;
+}
+
+.tile-ind.ind-dupe { color: var(--accent-hover); }
+.tile-ind.ind-done { color: #9ef0df; }
+.tile-ind.ind-hot { color: #fb923c; }
+
+/* ── Undo toast ── */
+/* Anchored bottom-RIGHT so undo never covers the page numbers */
+.undo-toast {
+  position: fixed;
+  right: 18px;
+  left: auto;
+  bottom: 70px;
+  transform: translate(0, 16px);
+  z-index: 960;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.6rem 1rem;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  /* Hidden by default via opacity/visibility so removing .visible always
+     hides it, regardless of the transform value. */
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform 0.2s ease-out, opacity 0.2s ease-out, visibility 0.2s;
+}
+
+.undo-toast.visible {
+  transform: translate(0, 0);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.undo-btn {
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  border-radius: 6px;
+  padding: 0.3rem 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.undo-btn:hover { background: var(--accent-hover); }
+
+.undo-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+/* ── Details as right slide-out sidebar (restyles the existing modal) ── */
+.modal-overlay {
+  justify-content: flex-end !important;
+  align-items: stretch !important;
+}
+
+.modal-overlay .modal-content {
+  max-width: min(480px, 92vw) !important;
+  width: min(480px, 92vw);
+  height: 100vh;
+  max-height: 100vh !important;
+  border-radius: 0 !important;
+  margin: 0 !important;
+  transform: translateX(100%);
+  transition: transform 0.22s ease-out;
+}
+
+.modal-overlay.active .modal-content {
+  transform: translateX(0);
+}

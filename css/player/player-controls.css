@@ -1,0 +1,254 @@
+/* ==========================================
+   UNIFIED CONTROL BAR
+   
+   Layout: [LEFT] [CENTER: Prev | Info | Next] [RIGHT]
+   
+   The center navigation (Prev/Info/Next) stays in the 
+   exact same position across ALL media types. Only the 
+   left and right sections change based on media format.
+   ========================================== */
+
+.playback-controls {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 0.5rem;
+}
+
+/* Base control container for all media types */
+.video-controls,
+.audio-controls,
+.image-controls,
+.document-controls,
+.fallback-controls {
+  position: absolute;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--player-bg);
+  border: 1px solid var(--player-border);
+  border-radius: 16px;  
+  padding: 0.5rem 1rem;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.3s;
+  max-width: 95vw;
+  width: 80%;
+}
+
+.media-player-overlay.controls-visible .video-controls,
+.media-player-overlay.controls-visible .audio-controls,
+.media-player-overlay.controls-visible .image-controls,
+.media-player-overlay.controls-visible .document-controls,
+.media-player-overlay.controls-visible .fallback-controls {
+  opacity: 1;
+}
+
+/* ==========================================
+   UNIFIED CONTROL BAR LAYOUT
+   ========================================== */
+
+.unified-control-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+/* Left section - media-specific controls */
+.controls-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+/* CENTER SECTION - ALWAYS FIXED POSITION */
+.controls-center {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto; /* Don't grow or shrink */
+  justify-content: center;
+  padding: 0 0.5rem;
+  border-left: 1px solid rgba(255,255,255,0.1);
+  border-right: 1px solid rgba(255,255,255,0.1);
+}
+
+/* Right section - media-specific controls */
+.controls-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+/* ==========================================
+   NAVIGATION BUTTONS (Prev/Next)
+   ========================================== */
+
+.nav-btn {
+  background: rgba(99, 102, 241, 0.3) !important;
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  color: white;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.nav-btn:hover:not(:disabled) {
+  background: var(--accent) !important;
+}
+
+.nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.nav-btn .icon {
+  font-size: 0.9rem;
+}
+
+/* ==========================================
+   INFO BUTTON (Center)
+   ========================================== */
+
+.info-btn {
+  background: rgba(99, 102, 241, 0.5) !important;
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  color: white;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.2s;
+}
+
+.info-btn:hover {
+  background: var(--accent) !important;
+}
+
+/* ==========================================
+   GENERIC CONTROL BUTTONS
+   ========================================== */
+
+.control-btn {
+  background: var(--player-control-bg);
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  color: white;
+  cursor: pointer;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.control-btn:hover {
+  background: var(--player-control-hover);
+}
+
+.control-btn.active {
+  background: var(--accent);
+}
+
+.control-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ==========================================
+   DISPLAY ELEMENTS
+   ========================================== */
+
+.display-value {
+  padding: 0.5rem 0.75rem;
+  color: rgba(255,255,255,0.8);
+  font-size: 0.85rem;
+  min-width: 50px;
+  text-align: center;
+  background: rgba(255,255,255,0.05);
+  border-radius: 6px;
+}
+
+/* ==========================================
+   RESPONSIVE - Mobile Layout
+   ========================================== */
+
+@media (max-width: 768px) {
+  .unified-control-bar {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+  
+  /* Center stays first row, centered */
+  .controls-center {
+    order: 1;
+    flex: 0 0 100%;
+    justify-content: center;
+    border: none;
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+  }
+  
+  /* Left and Right share second row */
+  .controls-left {
+    order: 2;
+    flex: 1;
+    justify-content: flex-end;
+  }
+  
+  .controls-right {
+    order: 3;
+    flex: 1;
+    justify-content: flex-start;
+  }
+  
+  .nav-btn {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+  }
+  
+  .control-btn {
+    padding: 0.5rem 0.7rem;
+    font-size: 0.8rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .controls-left,
+  .controls-right {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .video-controls,
+  .audio-controls,
+  .image-controls,
+  .document-controls,
+  .fallback-controls {
+    width: calc(100% - 2rem);
+    max-width: none;
+  }
+}

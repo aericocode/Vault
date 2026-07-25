@@ -1,0 +1,88 @@
+# Builds the portable Windows exe and publishes it as a GitHub Release.
+#
+# Triggers:
+#   • pushing a tag like v3.3.0  → builds and publishes a release for that tag
+#   • the "Run workflow" button   → builds and uploads the zip as a build
+#     artifact only (no release), so the pipeline can be tested without tagging
+#
+# The exe is produced by tools/sea/build-app.js (Node SEA). That script copies
+# the *running* node binary and injects the bundle into it, so the Node version
+# selected below is literally the runtime that ships inside Vault.exe — keep it
+# in step with the esbuild target in build-app.js (currently node24).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write        # required for creating the release
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      # ci (not install) — installs exactly what package-lock.json pins, and
+      # fails loudly if the lockfile is out of sync. devDeps are needed: the
+      # build uses esbuild and postject.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build portable exe
+        run: npm run build:exe
+
+      # Fail early with a clear message rather than shipping an empty zip.
+      - name: Verify build output
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'dist/Vault/Vault.exe')) {
+            throw 'Build did not produce dist/Vault/Vault.exe'
+          }
+          Get-Item 'dist/Vault/Vault.exe' | Select-Object Name, Length
+
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $name = "Vault-v$version-win-x64.zip"
+          Compress-Archive -Path 'dist/Vault/*' -DestinationPath $name -CompressionLevel Optimal
+          "zip=$name" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      # Manual runs stop here: the zip is downloadable from the run's summary
+      # page for ~90 days. Useful for testing the pipeline before you tag.
+      - name: Upload build artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.zip }}
+          path: ${{ steps.package.outputs.zip }}
+          retention-days: 14
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.zip }}
+          draft: true          # review the notes, then hit Publish yourself
+          generate_release_notes: true
+          body: |
+            **Portable build — no installer.** Unzip anywhere and run `Vault.exe`.
+            Your library (database, thumbnails, models) is created next to the exe,
+            so the folder can be moved or copied wholesale.
+
+            The exe is unsigned, so Windows SmartScreen will warn on first run:
+            *More info → Run anyway*.
+
+            Requires a local AI endpoint (LM Studio / Ollama / vLLM) for scanning —
+            see SETUP.md.

@@ -1,0 +1,1212 @@
+/* =========================================================================
+   PLAYER CORE - Main media player functionality with unified control bar
+   
+   Layout: [LEFT: media-specific] [CENTER: Prev | Info | Next] [RIGHT: media-specific]
+   ========================================================================= */
+
+// Get current media index in filteredMedia
+function getCurrentMediaIndex(filepath) {
+  return filteredMedia.findIndex(m => m.filepath === filepath);
+}
+
+// Play next media
+function playNextMedia() {
+  if (currentMediaState.currentIndex < filteredMedia.length - 1) {
+    const nextMedia = filteredMedia[currentMediaState.currentIndex + 1];
+    playMedia({
+      filepath: nextMedia.filepath,
+      filename: nextMedia.filename,
+      media_type: nextMedia.media_type
+    });
+    refreshSidebarIfOpen();
+  }
+}
+
+// Play previous media
+function playPreviousMedia() {
+  if (currentMediaState.currentIndex > 0) {
+    const prevMedia = filteredMedia[currentMediaState.currentIndex - 1];
+    playMedia({
+      filepath: prevMedia.filepath,
+      filename: prevMedia.filename,
+      media_type: prevMedia.media_type
+    });
+    refreshSidebarIfOpen();
+  }
+}
+
+// Play random media from filtered list
+function playRandomMedia() {
+  if (filteredMedia.length < 2) return;
+  let randomIndex;
+  // Avoid picking the same file
+  do {
+    randomIndex = Math.floor(Math.random() * filteredMedia.length);
+  } while (randomIndex === currentMediaState.currentIndex && filteredMedia.length > 1);
+
+  const media = filteredMedia[randomIndex];
+  playMedia({
+    filepath: media.filepath,
+    filename: media.filename,
+    media_type: media.media_type
+  });
+  refreshSidebarIfOpen();
+}
+
+/**
+ * If sidebar is open, re-render it for the new media and autofocus notes.
+ */
+function refreshSidebarIfOpen() {
+  if (!sidebarOpen) return;
+  // The video is about to change — save any half-typed note before we wipe
+  // the sidebar and re-render it for the new file.
+  if (typeof flushPendingNotes === 'function') flushPendingNotes();
+  renderSidebar();
+  requestAnimationFrame(() => {
+    const sidebar = document.getElementById('mediaSidebar');
+    const textarea = sidebar?.querySelector('.note-input-field');
+    if (textarea) textarea.focus();
+    // Scroll sidebar to top
+    const body = document.getElementById('mediaSidebarBody');
+    if (body) body.scrollTop = 0;
+  });
+}
+
+/**
+ * Generate unified control bar with centered navigation
+ * @param {string} leftControls - HTML for left section (media-specific)
+ * @param {string} rightControls - HTML for right section (media-specific)
+ * @param {boolean} hasPrev - Whether previous media exists
+ * @param {boolean} hasNext - Whether next media exists
+ * @returns {string} Complete control bar HTML
+ */
+function generateUnifiedControlBar(leftControls, rightControls, hasPrev, hasNext) {
+  return `
+    <div class="player-controls-wrapper" onclick="event.stopPropagation()">
+      <div class="unified-control-bar">
+        <div class="controls-left">
+          ${leftControls}
+        </div>
+        <div class="controls-center">
+          <button onclick="playPreviousMedia()" class="nav-btn" title="Previous (P)" ${!hasPrev ? 'disabled' : ''}>
+            <span class="nav-icon">⏮</span>
+            <span class="nav-label">Prev</span>
+          </button>
+          <button onclick="playRandomMedia()" class="nav-btn random-btn" title="Random (R)">
+            <span class="nav-icon">🎲</span>
+          </button>
+          <button onclick="showMediaInfo()" class="info-btn" id="infoBtn" title="Show Info (I)">
+            <span>ℹ️</span>
+            <span>Info</span>
+          </button>
+          <button onclick="playNextMedia()" class="nav-btn" title="Next (N)" ${!hasNext ? 'disabled' : ''}>
+            <span class="nav-label">Next</span>
+            <span class="nav-icon">⏭</span>
+          </button>
+        </div>
+        <div class="controls-right">
+          ${rightControls}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// Main playMedia function
+function playMedia(mediaData) {
+  const { filepath, filename, media_type } = mediaData;
+
+  // Close mini player if active (stop its playback)
+  const miniPlayer = document.getElementById('miniPlayer');
+  if (miniPlayer && miniPlayer.classList.contains('active')) {
+    const miniMedia = document.getElementById('miniPlayerMedia');
+    const miniEl = miniMedia?.querySelector('video, audio');
+    stopMediaElement(miniEl);
+    miniMedia.innerHTML = '';
+    miniPlayer.classList.remove('active');
+    resetMiniPlayerPosition();
+    currentMediaState.miniMode = false;
+  }
+
+  // ABORT the previous media element's download before replacing it.
+  // Removing a <video> from the DOM does NOT stop its stream — the zombie
+  // connections pile up against the browser's ~6-per-host limit and after
+  // enough video-to-video jumps the NEXT video black-screens for minutes
+  // waiting for a free connection.
+  if (currentMediaState.element) stopMediaElement(currentMediaState.element);
+  if (typeof stopMixPlayer === 'function') stopMixPlayer(); // all mix tracks, not just master
+
+  const fileUrl = pathToFileUrl(filepath);
+
+  // Clear AB loop from previous media
+  if (typeof clearAbLoop === 'function') clearAbLoop();
+  // Reset playback speed
+  if (typeof resetSpeed === 'function') resetSpeed();
+  
+  // Find current index and store full media data
+  currentMediaState.currentIndex = getCurrentMediaIndex(filepath);
+  currentMediaState.currentMediaData = filteredMedia[currentMediaState.currentIndex] || null;
+  // Remember it so the library can mark this tile on close (keeps the user's place)
+  if (currentMediaState.currentMediaData) lastOpenedMediaId = currentMediaState.currentMediaData.id;
+  // Settings: record the last-opened media for the "Restore last session" option
+  if (typeof vaultRecordLastOpened === 'function' && currentMediaState.currentMediaData) {
+    vaultRecordLastOpened(currentMediaState.currentMediaData.id);
+  }
+  
+  document.getElementById('mediaPlayerTitle').textContent = filename;
+  const overlay = document.getElementById('mediaPlayerOverlay');
+  const content = document.getElementById('mediaPlayerContent');
+  const controls = document.getElementById('mediaPlayerControls');
+  
+  // Clean up previous audio context (may already be closed — don't throw)
+  if (currentMediaState.audioContext) {
+    try { currentMediaState.audioContext.close().catch(() => {}); } catch {}
+  }
+
+  // Reset state but preserve currentIndex and currentMediaData
+  const preservedIndex = currentMediaState.currentIndex;
+  const preservedMediaData = currentMediaState.currentMediaData;
+  
+  currentMediaState = {
+    type: media_type,
+    element: null,
+    zoom: 1,
+    rotation: 0,
+    panX: 0,
+    panY: 0,
+    isPanning: false,
+    startX: 0,
+    startY: 0,
+    hideControlsTimeout: null,
+    clickTimeout: null,
+    isDoubleClick: false,
+    currentIndex: preservedIndex,
+    audioContext: null,
+    gainNode: null,
+    mediaSource: null,
+    currentMediaData: preservedMediaData,
+    previousVolume: currentMediaState.previousVolume || 1,
+    fontSize: 14,
+    wordWrap: true,
+    loopA: null,
+    loopB: null
+  };
+
+  const hasPrev = currentMediaState.currentIndex > 0;
+  const hasNext = currentMediaState.currentIndex < filteredMedia.length - 1;
+
+  // Render based on media type
+  if (media_type === 'video') {
+    renderVideoPlayer(content, controls, fileUrl, filepath, filename, hasPrev, hasNext);
+  } else if (media_type === 'image') {
+    renderImagePlayer(content, controls, fileUrl, filepath, hasPrev, hasNext);
+  } else if (media_type === 'gif') {
+    renderGifPlayer(content, controls, fileUrl, filepath, hasPrev, hasNext);
+  } else if (media_type === 'audio') {
+    renderAudioPlayer(content, controls, fileUrl, filepath, filename, hasPrev, hasNext);
+  } else if (media_type === 'document') {
+    renderDocumentPlayer(content, controls, fileUrl, filepath, filename, hasPrev, hasNext);
+  } else if (media_type === 'mix' && typeof renderMixPlayer === 'function') {
+    renderMixPlayer(content, controls, filepath, filename, hasPrev, hasNext);
+  } else {
+    // Unknown type
+    content.innerHTML = `
+      <div class="unsupported-media">
+        <div class="unsupported-icon">❓</div>
+        <div class="unsupported-text">Unsupported media type: ${media_type}</div>
+        <div class="unsupported-filename">${filename}</div>
+      </div>
+    `;
+    controls.innerHTML = generateUnifiedControlBar('', '', hasPrev, hasNext);
+  }
+  
+  overlay.classList.add('active');
+  applyFillMode();
+  document.body.style.overflow = 'hidden';
+  // Full player open → tuck the selection bar away (selection is preserved)
+  if (typeof renderSelectionBar === 'function') renderSelectionBar();
+
+  // Setup control visibility
+  showMediaControls();
+
+  // Wake the controls only for movement over the video area (bound to
+  // .media-player-main, so the sidebar is excluded; the handler further
+  // filters out the side/top gutter). Stable ref → addEventListener dedups.
+  const main = document.querySelector('.media-player-main');
+  if (main) main.addEventListener('mousemove', handlePlayerPointerMove);
+
+  // Setup click handler on media player content
+  content.addEventListener('click', handleContentClick);
+}
+
+/* ── Loop / auto-advance ────────────────────────────────────────────────────
+   Loop ON (default): the current video/audio repeats when it ends.
+   Loop OFF: playback auto-advances to the next item in the queue.
+   The last manually-chosen state is remembered across sessions; playing a
+   collection turns loop off for that session without overwriting it. */
+
+let loopEnabled = localStorage.getItem('player_loop') !== '0';
+
+function isLoopEnabled() {
+  return loopEnabled;
+}
+
+function setLoopEnabled(on, { persist = true } = {}) {
+  loopEnabled = !!on;
+  if (persist) {
+    try { localStorage.setItem('player_loop', loopEnabled ? '1' : '0'); } catch {}
+  }
+  // Apply to whatever is playing right now (unless an A-B loop owns it)
+  const el = currentMediaState.element;
+  if (el && ['VIDEO', 'AUDIO'].includes(el.tagName) &&
+      !(typeof abLoopA !== 'undefined' && abLoopA !== null && abLoopB !== null)) {
+    el.loop = loopEnabled;
+  }
+  updateLoopButton();
+}
+
+function toggleLoop() {
+  setLoopEnabled(!loopEnabled); // manual toggle persists
+  showMediaControls();
+}
+
+function renderLoopButton() {
+  return `<button onclick="toggleLoop()" id="loopBtn" class="control-btn loop-btn ${loopEnabled ? 'active' : ''}" title="Loop this file when it ends — off auto-plays the next item">Loop: ${loopEnabled ? 'On' : 'Off'}</button>`;
+}
+
+function updateLoopButton() {
+  const btn = document.getElementById('loopBtn');
+  if (!btn) return;
+  btn.textContent = `Loop: ${loopEnabled ? 'On' : 'Off'}`;
+  btn.classList.toggle('active', loopEnabled);
+}
+
+/* ── Fill mode ───────────────────────────────────────────────────────────
+   Fill ON: media cover-crops to fill the player content area, eliminating
+   the letterbox bars — without entering OS fullscreen (distinct from the
+   ⛶ fullscreen button). Applies to every media type. Sticky across sessions,
+   and composes with fullscreen (fill while fullscreen crops in fullscreen). */
+
+let fillMode = localStorage.getItem('player_fill') === '1';
+
+function isFillMode() {
+  return fillMode;
+}
+
+/** Sync the fill-mode class onto the overlay to match the current pref. */
+function applyFillMode() {
+  const overlay = document.getElementById('mediaPlayerOverlay');
+  if (overlay) overlay.classList.toggle('fill-mode', fillMode);
+}
+
+function toggleFillMode() {
+  fillMode = !fillMode;
+  try { localStorage.setItem('player_fill', fillMode ? '1' : '0'); } catch {}
+  applyFillMode();
+  updateFillButton();
+}
+
+function renderFillButton() {
+  return `<button onclick="toggleFillMode()" class="control-btn fill-btn ${fillMode ? 'active' : ''}" title="Fill window (crop to fit)">⤢</button>`;
+}
+
+function updateFillButton() {
+  document.querySelectorAll('.fill-btn').forEach(btn => {
+    btn.classList.toggle('active', fillMode);
+  });
+}
+
+/** 'ended' fired with loop off → advance the queue (stops after the last). */
+function autoAdvanceOnEnded() {
+  if (loopEnabled) return;
+  if (currentMediaState.currentIndex < filteredMedia.length - 1) {
+    playNextMedia();
+  }
+}
+
+/**
+ * The 💦 Done button — placed on the video/audio playback row mirroring the
+ * AB-loop button (opposite corner) so it isn't clicked by accident from the
+ * center nav.
+ */
+function renderDoneButton() {
+  return `<button onclick="markSessionDone()" class="done-btn" title="Done — end the viewing session here (💦 tracked per item)">💦 Done</button>`;
+}
+
+/**
+ * The 🔥 Hot button — same mechanic as Done but a separate counter/metric,
+ * used to mark intense moments. Rendered to the LEFT of Done.
+ */
+function renderHotButton() {
+  return `<button onclick="markSessionHot()" class="hot-btn" title="Hot — mark an intense moment here (🔥 tracked per item)">🔥 Hot</button>`;
+}
+
+/**
+ * "Hot" — mark an intense moment on this item (count + timestamp, heatmap
+ * bonus at the spot). Mirrors markSessionDone; playback continues.
+ */
+async function markSessionHot() {
+  const media = currentMediaState.currentMediaData;
+  if (!media || !media.id) return;
+
+  const el = currentMediaState.element;
+  const position = (el && ['VIDEO', 'AUDIO'].includes(el.tagName) && isFinite(el.currentTime))
+    ? el.currentTime : 0;
+
+  // Flush pending watch-activity first so the server's Hot bonus lands on
+  // an up-to-date heatmap
+  if (typeof flushWatchHeat === 'function') flushWatchHeat();
+
+  try {
+    const resp = await fetch(`/api/media/${media.id}/hot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ position }),
+    });
+    if (resp.ok) {
+      const updated = await resp.json();
+      const item = getMediaById(media.id);
+      if (item) {
+        item.hot_count = updated.hot_count;
+        item.last_hot_at = updated.last_hot_at;
+        item.last_hot_position = updated.last_hot_position;
+        item.hot_heatmap = updated.hot_heatmap;
+        item.watch_heatmap = updated.watch_heatmap;
+      }
+    }
+  } catch {}
+
+  showToast(`🔥 Hot — marked on ${media.filename}`);
+  if (typeof drawActivityBar === 'function') drawActivityBar(); // tint the spot live
+  renderResults(); // refresh 🔥 badges on the grid behind the player
+}
+
+/**
+ * "Done" — mark that a viewing session ended on this item (count + timestamp
+ * for audio/video, heatmap bonus at the spot). Just the stat + a toast — the
+ * video keeps playing. Sortable via "Session ends".
+ */
+async function markSessionDone() {
+  const media = currentMediaState.currentMediaData;
+  if (!media || !media.id) return;
+
+  const el = currentMediaState.element;
+  const position = (el && ['VIDEO', 'AUDIO'].includes(el.tagName) && isFinite(el.currentTime))
+    ? el.currentTime : 0;
+
+  // Flush pending watch-activity first so the server's Done bonus lands on
+  // an up-to-date heatmap
+  if (typeof flushWatchHeat === 'function') flushWatchHeat();
+
+  try {
+    const resp = await fetch(`/api/media/${media.id}/done`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ position }),
+    });
+    if (resp.ok) {
+      const updated = await resp.json();
+      const item = getMediaById(media.id);
+      if (item) {
+        item.done_count = updated.done_count;
+        item.last_done_at = updated.last_done_at;
+        item.last_done_position = updated.last_done_position;
+        item.done_heatmap = updated.done_heatmap;
+        item.watch_heatmap = updated.watch_heatmap;
+      }
+    }
+  } catch {}
+
+  showToast(`💦 Done — marked on ${media.filename}`);
+  if (typeof drawActivityBar === 'function') drawActivityBar(); // tint the spot live
+  renderResults(); // refresh 💦 badges on the grid behind the player
+}
+
+// Handle clicks on media player content area — minimize instead of close
+function handleContentClick(event) {
+  const target = event.target;
+  const mediaElements = ['mediaVideo', 'mediaImage', 'mediaGif', 'mediaAudio', 'mediaDocument', 'audioCanvas'];
+  if (mediaElements.includes(target.id) || target.closest('.document-viewer') || target.closest('.audio-visualization')) {
+    return;
+  }
+  
+  if (document.fullscreenElement) {
+    return;
+  }
+
+  // Sidebar open → this click only dismisses it. Minimizing to the library on
+  // the same click meant "just close the sidebar" clicks lost the player; the
+  // second click (sidebar now closed) does the normal minimize/close.
+  if (sidebarOpen) {
+    toggleSidebar();
+    return;
+  }
+
+  // Only minimize for video/audio (types that benefit from continued playback)
+  const type = currentMediaState.type;
+  if (type === 'video' || type === 'audio') {
+    minimizePlayer();
+  } else {
+    closeMediaPlayer();
+  }
+}
+
+// ── Sidebar (replaces info overlay when in player) ──────────────────────
+
+// Track sidebar state
+let sidebarOpen = false;
+
+/**
+ * Toggle the sidebar. Called by I key or info button.
+ */
+function showMediaInfo() {
+  toggleSidebar();
+}
+
+function toggleSidebar() {
+  const sidebar = document.getElementById('mediaSidebar');
+  if (!sidebar) return;
+
+  // Closing the sidebar shouldn't drop a half-typed note — save it first.
+  if (sidebarOpen && typeof flushPendingNotes === 'function') flushPendingNotes();
+
+  sidebarOpen = !sidebarOpen;
+
+  // Mark the overlay so the header (minimize/close) can shrink to the video
+  // area instead of sitting on top of the sidebar's own close button.
+  document.getElementById('mediaPlayerOverlay')?.classList.toggle('sidebar-open', sidebarOpen);
+
+  if (sidebarOpen) {
+    renderSidebar();
+    sidebar.classList.add('active');
+    // Autofocus notes textarea after render
+    requestAnimationFrame(() => {
+      const textarea = sidebar.querySelector('.note-input-field');
+      if (textarea) textarea.focus();
+    });
+  } else {
+    sidebar.classList.remove('active');
+  }
+}
+
+/**
+ * Render sidebar content for the current media.
+ * Reusable — called on toggle and on next/prev navigation.
+ */
+function renderSidebar() {
+  const media = currentMediaState.currentMediaData;
+  const body = document.getElementById('mediaSidebarBody');
+  if (!media || !body) return;
+
+  const mediaElements = safeParseJSON(media.media_elements, []);
+  const transcribedText = safeParseJSON(media.transcribed_text, []);
+  const suggested_file_name = safeParseJSON(media.suggested_file_name, []);
+  const themes = safeParseJSON(media.themes, []);
+  const tags = safeParseJSON(media.tags, []);
+  const locations = safeParseJSON(media.locations, []);
+  const escapedPath = escapeHtml(media.filepath).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+  let renderDupeSection = renderDuplicateSection(media)
+
+  body.innerHTML = `
+    <div class="detail-section">
+      <div style="margin-bottom: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <button onclick="copyPath('${escapedPath}')" style="padding: 0.4rem 0.75rem; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); cursor: pointer; font-size: 0.8rem;">
+          Copy Path
+        </button>
+      </div>
+      
+      <div class="detail-path" style="margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; font-size: 0.85rem; word-break: break-all;">${media.filepath}</div>
+
+      ${typeof renderMetaTools === 'function' && media.media_type !== 'mix' ? renderMetaTools(media) : ''}
+      ${typeof renderStarRatingSection === 'function' ? renderStarRatingSection(media) : ''}
+
+      <div class="flag-for-deletion" style="margin-top: 1rem;">
+      Flag this file: <button onclick="toggleFlagDelete('${escapedPath}'); this.classList.toggle('active')" class="dup-action-btn flag-btn ${media.user_flagged_delete ? 'active' : ''}" title="Flag current file">🚩</button> | ${media.media_type !== 'mix' ? `
+        <button onclick="trashOrRestoreFromSidebar(${media.id})" style="padding: 0.5rem 0.9rem; background: ${media.user_trashed ? 'var(--success)' : 'var(--bg-tertiary)'}; border: 1px solid ${media.user_trashed ? 'var(--success)' : 'var(--danger)'}; border-radius: 6px; color: ${media.user_trashed ? '#fff' : 'var(--danger)'}; cursor: pointer; font-size: 0.8rem; font-weight: 600;">
+          ${media.user_trashed ? '♻ Restore from Trash' : '🗑 Move to Trash'}
+        </button>` : ``}
+      </div>
+
+      
+
+      ${media.media_type === 'mix' ? `
+      <div style="margin: 0.75rem 0;">
+        <button onclick="openMixInEditor(${media.id})" style="padding: 0.5rem 0.9rem; background: var(--accent); border: 1px solid var(--accent); border-radius: 6px; color: #fff; cursor: pointer; font-size: 0.8rem; font-weight: 600;" title="Tweak layers, effects, sync — or update the saved mix">
+          🎛 Open in Editor
+        </button>
+        <div style="margin-top: 0.4rem; font-size: 0.72rem; color: var(--text-muted);">Custom mix — a virtual file assembled from its source videos. Edit layers/effects (and the title/description) in the Editor.</div>
+      </div>` : ``}
+      
+
+      ${renderDupeSection ? renderDupeSection : ``}
+    </div>
+
+    <div class="detail-section">
+      <h3>Description ${typeof fieldEditBtn === 'function' ? fieldEditBtn(media.id, 'description') : ''}</h3>
+      <div class="field-content">
+        <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0;">${media.description ? escapeHtml(media.description) : '<span class="field-empty">—</span>'}</p>
+      </div>
+    </div>
+
+    ${typeof renderNotesSection === 'function' ? renderNotesSection(media) : ''}
+
+    ${typeof renderSubtitlesSidebarSection === 'function' ? renderSubtitlesSidebarSection(media) : ''}
+
+    ${typeof renderMusicSidebarSection === 'function' ? renderMusicSidebarSection(media) : ''}
+
+    ${typeof renderGamesSidebarSection === 'function' ? renderGamesSidebarSection(media) : ''}
+
+    <div class="sidebar-nav-hint">
+      <span><kbd>Alt</kbd>+<kbd>←</kbd> Prev</span>
+      <span><kbd>Alt</kbd>+<kbd>→</kbd> Next</span>
+      <span><kbd>I</kbd> Close</span>
+    </div>
+
+    <div class="detail-section">
+      <h3>File Info ${typeof fieldEditBtn === 'function' ? fieldEditBtn(media.id, 'info') : ''}</h3>
+      <div class="field-content">
+      <div class="detail-grid detail-grid--2col">
+        <div class="detail-item">
+          <label>Type</label>
+          <span>${media.media_type}</span>
+        </div>
+        <div class="detail-item">
+          <label>Duration</label>
+          <span>${media.duration_seconds ? formatDuration(media.duration_seconds) : 'N/A'}</span>
+        </div>
+        <div class="detail-item">
+          <label>Res</label>
+          <span>${media.width && media.height ? `${media.width}×${media.height}` : 'N/A'}</span>
+        </div>
+        <div class="detail-item">
+          <label>Size</label>
+          <span>${media.filesize_bytes ? formatFileSize(media.filesize_bytes) : 'N/A'}</span>
+        </div>
+        <div class="detail-item">
+          <label>Quality</label>
+          <span>${media.quality_flag || 'N/A'}</span>
+        </div>
+        <div class="detail-item">
+          <label>Lang</label>
+          <span>${media.language_name || 'Unknown'}</span>
+        </div>
+        <div class="detail-item">
+          <label>Content</label>
+          <span>${media.content_type || 'N/A'}</span>
+        </div>
+        <div class="detail-item">
+          <label>Explicit</label>
+          <span>${media.explicit ? 'Yes' : 'No'}</span>
+        </div>
+        <div class="detail-item detail-item--wide">
+          <label>Views</label>
+          <span>👁 ${media.view_count || 0} · 💦 ${media.done_count || 0}${media.last_done_position > 0 ? ` (last at ${formatDuration(media.last_done_position)})` : ''} · 🔥 ${media.hot_count || 0}${media.last_hot_position > 0 ? ` (last at ${formatDuration(media.last_hot_position)})` : ''}</span>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    ${media.processing_error ? `
+    <div class="detail-section">
+      <h3 style="color: var(--danger);">⚠ Error</h3>
+      <p style="color: var(--danger); background: rgba(239, 68, 68, 0.1); padding: 0.5rem; border-radius: 6px; border: 1px solid var(--danger); font-size: 0.8rem;">${escapeHtml(media.processing_error)}</p>
+    </div>
+    ` : ''}
+
+    <div class="detail-section detail-section--kv">
+      <h3>Themes ${typeof fieldEditBtn === 'function' ? fieldEditBtn(media.id, 'themes') : ''}</h3>
+      <div class="field-content">
+        <div class="card-tags">${themes.length ? themes.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('') : '<span class="field-empty">—</span>'}</div>
+      </div>
+    </div>
+
+    <div class="detail-section detail-section--kv">
+      <h3>Locations ${typeof fieldEditBtn === 'function' ? fieldEditBtn(media.id, 'locations') : ''}</h3>
+      <div class="field-content">
+        <div class="card-tags">${locations.length ? locations.map(l => `<span class="tag">${escapeHtml(l)}</span>`).join('') : '<span class="field-empty">—</span>'}</div>
+      </div>
+    </div>
+
+    <div class="detail-section detail-section--kv">
+      <h3>Tags ${typeof fieldEditBtn === 'function' ? fieldEditBtn(media.id, 'tags') : ''}</h3>
+      <div class="field-content">
+        <div class="card-tags">${tags.length ? tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('') : '<span class="field-empty">—</span>'}</div>
+      </div>
+    </div>
+
+    ${mediaElements.length > 0 ? `
+    <div class="detail-section">
+      <h3>Media Elements</h3>
+      <div class="elements-list elements-kv">
+        ${mediaElements.map((e, i) => `
+          <div class="element-item">
+            <div class="element-type">${escapeHtml(titleCaseKey(e.type))}</div>
+            <div class="element-details">${escapeHtml(e.details)}</div>
+            <button class="element-edit-btn" onclick="startElementEdit(this, ${media.id}, ${i})" title="Edit ${escapeHtml(titleCaseKey(e.type))}">✎</button>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    ` : ''}
+
+    ${suggested_file_name.length > 0 ? `
+    <div class="detail-section">
+      <h3>Suggested File Name</h3>
+      <div class="text-items">
+        ${suggested_file_name.map(s => `
+          <div class="text-item">
+            <q>${escapeHtml(s.text)}</q>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    ` : ''}
+
+    ${transcribedText.length > 0 ? `
+    <div class="detail-section">
+      <h3>Transcribed Text</h3>
+      <div class="text-items">
+        ${transcribedText.map(t => `
+          <div class="text-item">
+            <q>${escapeHtml(t.text)}</q>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    ` : ''}
+
+    <div class="detail-section">
+      <h3>Processing</h3>
+      <div class="detail-grid">
+        <div class="detail-item">
+          <label>Processed</label>
+          <span>${media.processed_at || 'N/A'}</span>
+        </div>
+        <div class="detail-item">
+          <label>Model</label>
+          <span>${media.model_used || 'N/A'}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function closeMediaInfo() {
+  // Close the old info overlay (if it was open)
+  document.getElementById('mediaInfoOverlay').classList.remove('active');
+  // Close sidebar
+  const sidebar = document.getElementById('mediaSidebar');
+  if (sidebar) {
+    sidebar.classList.remove('active');
+    sidebarOpen = false;
+  }
+  document.getElementById('mediaPlayerOverlay')?.classList.remove('sidebar-open');
+}
+
+// VLC-style: hide the controls AND the cursor this long after the pointer
+// last moved over the video (only while a video is actively playing).
+const CONTROLS_HIDE_MS = 1500;
+// A quick flick over the beat bar (to grab/drag it) shouldn't wake the
+// controls — treat a padded region around the beat bar as dead space.
+const BEATBAR_DEADZONE_PAD = 24;
+
+// Auto-hide the player chrome after the idle timeout. Only the video player
+// hides (images/docs/3D keep their controls). The bar hides whether the
+// video is playing OR paused; the cursor only disappears while actually
+// playing — when paused the user is likely about to click, so it stays.
+function hidePlayerChrome() {
+  const overlay = document.getElementById('mediaPlayerOverlay');
+  if (!overlay || !overlay.classList.contains('active')) return;
+
+  const el = currentMediaState.element;
+  if (currentMediaState.type !== 'video' || !el) return;
+
+  overlay.classList.remove('controls-visible');
+  if (!el.paused) overlay.classList.add('cursor-hidden');
+}
+
+// Show controls and schedule the hide
+function showMediaControls() {
+  const overlay = document.getElementById('mediaPlayerOverlay');
+
+  if (overlay.classList.contains('active')) {
+    overlay.classList.add('controls-visible');
+    overlay.classList.remove('cursor-hidden');
+
+    clearTimeout(currentMediaState.hideControlsTimeout);
+    currentMediaState.hideControlsTimeout = setTimeout(hidePlayerChrome, CONTROLS_HIDE_MS);
+  }
+}
+
+function scheduleHideControls() {
+  clearTimeout(currentMediaState.hideControlsTimeout);
+  currentMediaState.hideControlsTimeout = setTimeout(hidePlayerChrome, CONTROLS_HIDE_MS);
+}
+
+// Reveal the cursor WITHOUT popping the playback controls, and re-arm the
+// idle hide. Used for the beat bar dead space and the letterbox gutter — the
+// user should see their cursor there, just not the control bar.
+function revealCursorOnly() {
+  const overlay = document.getElementById('mediaPlayerOverlay');
+  if (!overlay || !overlay.classList.contains('active')) return;
+  overlay.classList.remove('cursor-hidden');
+  clearTimeout(currentMediaState.hideControlsTimeout);
+  currentMediaState.hideControlsTimeout = setTimeout(hidePlayerChrome, CONTROLS_HIDE_MS);
+}
+
+/**
+ * Passive pointer-move over the player.
+ * - Over the video or the bottom control strip → wake the controls (+ cursor).
+ * - Over the beat bar dead space or the side/top letterbox gutter → reveal the
+ *   CURSOR only, never the controls (VLC-style: you can see where you're
+ *   pointing without the bar flashing).
+ * The sidebar isn't handled here at all (listener is bound to .media-player-main).
+ */
+function handlePlayerPointerMove(e) {
+  const overlay = document.getElementById('mediaPlayerOverlay');
+  if (!overlay || !overlay.classList.contains('active')) return;
+
+  const x = e.clientX, y = e.clientY;
+  const inside = (rect, pad = 0) => rect &&
+    x >= rect.left - pad && x <= rect.right + pad &&
+    y >= rect.top - pad && y <= rect.bottom + pad;
+
+  // Beat-bar dead space — cursor is revealed below, but never the controls here
+  const beatbar = document.querySelector('.beatbar-overlay');
+  const overBeatbar = beatbar && beatbar.style.display !== 'none' &&
+    inside(beatbar.getBoundingClientRect(), BEATBAR_DEADZONE_PAD);
+
+  const el = currentMediaState.element;
+  const videoRect = (el && el.tagName === 'VIDEO') ? el.getBoundingClientRect() : null;
+  // The control bar keeps its layout box even while faded out (opacity 0),
+  // so hovering where it sits — including where it overhangs a small video —
+  // still counts as the "bottom area".
+  const controlBar = document.getElementById('mediaPlayerControls')?.firstElementChild;
+  const controlRect = controlBar ? controlBar.getBoundingClientRect() : null;
+
+  if (!overBeatbar && (inside(videoRect) || inside(controlRect, 14))) {
+    showMediaControls();
+  } else {
+    revealCursorOnly();
+  }
+}
+
+function handleMediaError(filepath) {
+  // Do NOT auto-copy the path to the clipboard (privacy). The capture-phase
+  // error listener flags the item as ⚠ unplayable so it's still findable;
+  // users can copy the path themselves from the details panel.
+  closeMediaPlayer();
+  showToast('Cannot play this file — marked as unplayable. Use “Copy Path” to locate it.');
+}
+
+/**
+ * Highlight a card by its index in filteredMedia.
+ * Scrolls it into view and applies a brief highlight animation.
+ */
+function highlightCard(filteredIndex) {
+  // Grid tiles carry data-id; match on it (robust to collection cards that
+  // get prepended, which would throw off a positional index).
+  const media = filteredMedia[filteredIndex];
+  const card = media
+    ? document.querySelector(`.media-tile[data-id="${media.id}"]`)
+    : document.querySelectorAll('.media-tile')[filteredIndex % pageSize];
+  if (!card) return;
+
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.classList.add('card-highlight');
+  setTimeout(() => {
+    card.classList.remove('card-highlight');
+  }, 2000);
+}
+
+// ── Mini Player ─────────────────────────────────────────────────────────
+
+/**
+ * Stop a media element for teardown WITHOUT triggering its error handler.
+ *
+ * The player markup gives every <video>/<audio> an inline
+ * onerror="handleMediaError(...)". Setting `.src = ''` asks the browser to
+ * load the empty URL, which fires an async `error` event — that used to run
+ * handleMediaError → closeMediaPlayer on a stale path, killing the file the
+ * user was actually trying to open next (the "play twice" miniplayer bug).
+ *
+ * Null the handler first, then detach the source via removeAttribute+load()
+ * (which sets networkState to EMPTY without firing error).
+ */
+function stopMediaElement(el) {
+  if (!el) return;
+  try { el.onerror = null; el.removeAttribute('onerror'); } catch {}
+  try { el.pause(); } catch {}
+  try { el.removeAttribute('src'); el.load(); } catch {}
+}
+
+/**
+ * Minimize the full player to a floating mini player.
+ * Moves the media element (video/audio) without reloading it.
+ */
+function minimizePlayer() {
+  // Leaving fullscreen must be explicit — the mini player lives in the normal
+  // page, and skipping this strands the browser in an empty fullscreen state.
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  }
+  // Minimizing hides the sidebar/notes — save a half-typed note first.
+  if (typeof flushPendingNotes === 'function') flushPendingNotes();
+  // The overlay stays behind in the (hidden) main player — drop it
+  if (typeof subtitlesDetach === 'function') subtitlesDetach();
+
+  const type = currentMediaState.type;
+  if (type !== 'video' && type !== 'audio') {
+    closeMediaPlayer();
+    return;
+  }
+
+  const element = currentMediaState.element;
+  if (!element) {
+    closeMediaPlayer();
+    return;
+  }
+
+  const overlay = document.getElementById('mediaPlayerOverlay');
+  const miniPlayer = document.getElementById('miniPlayer');
+  const miniMedia = document.getElementById('miniPlayerMedia');
+  const miniTitle = document.getElementById('miniPlayerTitle');
+
+  // Set title
+  miniTitle.textContent = currentMediaState.currentMediaData?.filename || 'Playing...';
+
+  // The inline onerror carries this file's path and calls closeMediaPlayer;
+  // it's meaningless once the media is loaded and only causes stale-path
+  // toasts if the element errors while minimized. Drop it — genuine errors
+  // are still caught by the capture-phase listener in selection.js.
+  element.onerror = null;
+  element.removeAttribute('onerror');
+
+  // Move the media element to the mini player (preserves playback state)
+  if (type === 'video') {
+    // Remove video click handlers to avoid conflicts
+    element.removeEventListener('click', handleVideoClick);
+    element.removeEventListener('dblclick', handleVideoDoubleClick);
+    element.style.width = '100%';
+    element.removeAttribute('id'); // avoid duplicate ID conflicts
+    miniMedia.innerHTML = '';
+    miniMedia.appendChild(element);
+  } else if (type === 'audio') {
+    // For audio, move the audio element and show a simple display
+    element.removeAttribute('id');
+    miniMedia.innerHTML = '<div class="audio-visualization" style="padding: 1rem; text-align: center;"><div class="audio-icon" style="font-size: 2rem;">🎵</div></div>';
+    miniMedia.appendChild(element);
+  }
+
+  // Update mini play/pause button
+  updateMiniPlayPause();
+
+  // Close the full overlay without destroying the element
+  clearTimeout(currentMediaState.hideControlsTimeout);
+  clearTimeout(currentMediaState.clickTimeout);
+  overlay.removeEventListener('mousemove', showMediaControls);
+
+  // Don't close media info — just the overlay
+  closeMediaInfo();
+
+  overlay.classList.remove('active', 'controls-visible', 'cursor-hidden');
+  document.getElementById('mediaPlayerContent').innerHTML = '';
+  document.getElementById('mediaPlayerControls').innerHTML = '';
+  document.body.style.overflow = '';
+
+  // Show mini player
+  currentMediaState.miniMode = true;
+  miniPlayer.classList.add('active');
+  // Mini player doesn't cover the grid → bring the selection bar back
+  if (typeof renderSelectionBar === 'function') renderSelectionBar();
+
+  // Initialize drag
+  initMiniPlayerDrag();
+}
+
+/**
+ * Maximize from mini player back to full player.
+ */
+function maximizePlayer() {
+  const miniPlayer = document.getElementById('miniPlayer');
+  const miniMedia = document.getElementById('miniPlayerMedia');
+
+  // Get the media element back
+  const element = miniMedia.querySelector('video, audio');
+  if (!element) {
+    closeMiniPlayer();
+    return;
+  }
+
+  // Hide mini player
+  miniPlayer.classList.remove('active');
+  currentMediaState.miniMode = false;
+
+  // Re-play in full mode using the current media data
+  const mediaData = currentMediaState.currentMediaData;
+  if (mediaData) {
+    // Store the current playback position and playing state
+    const wasPlaying = !element.paused;
+    const currentTime = element.currentTime;
+    const volume = element.volume;
+
+    // Clean up the moved element
+    miniMedia.innerHTML = '';
+
+    // Re-open the full player (this creates a fresh element)
+    playMedia({
+      filepath: mediaData.filepath,
+      filename: mediaData.filename,
+      media_type: mediaData.media_type
+    });
+
+    // Restore playback position after the new element loads
+    const newElement = currentMediaState.element;
+    if (newElement) {
+      newElement.currentTime = currentTime;
+      if (!wasPlaying) {
+        newElement.pause();
+      }
+    }
+  }
+}
+
+/**
+ * Fully close the mini player — stop playback and clean up.
+ */
+function closeMiniPlayer() {
+  const miniPlayer = document.getElementById('miniPlayer');
+  const miniMedia = document.getElementById('miniPlayerMedia');
+
+  // Stop any playing media (without tripping the inline error handler)
+  const element = miniMedia.querySelector('video, audio');
+  stopMediaElement(element);
+
+  // Clean up audio context if still around
+  if (currentMediaState.audioContext) {
+    currentMediaState.audioContext.close().catch(() => {});
+    currentMediaState.audioContext = null;
+  }
+
+  miniMedia.innerHTML = '';
+  miniPlayer.classList.remove('active');
+  currentMediaState.miniMode = false;
+
+  // Jump to page, re-render (applies the "last opened" tile border), highlight
+  const lastIndex = currentMediaState.currentIndex;
+  if (lastIndex >= 0 && lastIndex < filteredMedia.length) {
+    currentPage = Math.floor(lastIndex / pageSize) + 1;
+    renderResults();
+    requestAnimationFrame(() => {
+      highlightCard(lastIndex);
+    });
+  }
+}
+
+/**
+ * Toggle play/pause in the mini player.
+ */
+function miniTogglePlay() {
+  const miniMedia = document.getElementById('miniPlayerMedia');
+  const element = miniMedia?.querySelector('video, audio');
+  if (!element) return;
+
+  if (element.paused) {
+    element.play().catch(() => {});
+  } else {
+    element.pause();
+  }
+  updateMiniPlayPause();
+}
+
+/**
+ * Update the mini player play/pause button icon.
+ */
+function updateMiniPlayPause() {
+  const miniMedia = document.getElementById('miniPlayerMedia');
+  const btn = document.getElementById('miniPlayPause');
+  const element = miniMedia?.querySelector('video, audio');
+  if (!btn || !element) return;
+
+  // Update immediately and on state changes
+  const update = () => {
+    btn.textContent = element.paused ? '▶' : '⏸';
+  };
+  update();
+  element.addEventListener('play', update);
+  element.addEventListener('pause', update);
+  element.addEventListener('ended', update);
+}
+
+// ── Mini Player Drag ────────────────────────────────────────────────────
+
+function initMiniPlayerDrag() {
+  const miniPlayer = document.getElementById('miniPlayer');
+  const dragHandle = document.getElementById('miniPlayerDrag');
+  
+  let isDragging = false;
+  let startX, startY, startLeft, startTop;
+
+  const onMouseDown = (e) => {
+    isDragging = true;
+    const rect = miniPlayer.getBoundingClientRect();
+    startX = e.clientX;
+    startY = e.clientY;
+    startLeft = rect.left;
+    startTop = rect.top;
+
+    // Switch from bottom/right positioning to top/left for drag
+    miniPlayer.style.left = rect.left + 'px';
+    miniPlayer.style.top = rect.top + 'px';
+    miniPlayer.style.right = 'auto';
+    miniPlayer.style.bottom = 'auto';
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    e.preventDefault();
+  };
+
+  const onMouseMove = (e) => {
+    if (!isDragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    
+    const newLeft = Math.max(0, Math.min(window.innerWidth - miniPlayer.offsetWidth, startLeft + dx));
+    const newTop = Math.max(0, Math.min(window.innerHeight - miniPlayer.offsetHeight, startTop + dy));
+    
+    miniPlayer.style.left = newLeft + 'px';
+    miniPlayer.style.top = newTop + 'px';
+  };
+
+  const onMouseUp = () => {
+    isDragging = false;
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+  };
+
+  // Remove old listeners if re-initializing
+  dragHandle._onMouseDown && dragHandle.removeEventListener('mousedown', dragHandle._onMouseDown);
+  dragHandle._onMouseDown = onMouseDown;
+  dragHandle.addEventListener('mousedown', onMouseDown);
+}
+
+/**
+ * Reset mini player position (for next use).
+ */
+function resetMiniPlayerPosition() {
+  const miniPlayer = document.getElementById('miniPlayer');
+  if (!miniPlayer) return;
+  miniPlayer.style.left = '';
+  miniPlayer.style.top = '';
+  miniPlayer.style.right = '1.5rem';
+  miniPlayer.style.bottom = '1.5rem';
+}
+
+function closeMediaPlayer(event) {
+  if (event && event.target !== event.currentTarget) return;
+  
+  // Also close mini player if active
+  const miniPlayer = document.getElementById('miniPlayer');
+  if (miniPlayer && miniPlayer.classList.contains('active')) {
+    closeMiniPlayer();
+    return;
+  }
+
+  const overlay = document.getElementById('mediaPlayerOverlay');
+  const content = document.getElementById('mediaPlayerContent');
+  
+  // Exit fullscreen if active
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+      document.getElementById('mediaVideo').style.width = 'auto';
+  }
+  
+  // Stop video/audio AND abort its download (pause alone keeps the
+  // connection alive and starves the per-host connection limit)
+  if (currentMediaState.element) {
+    if (currentMediaState.type === 'video' || currentMediaState.type === 'audio') {
+      stopMediaElement(currentMediaState.element);
+      currentMediaState.element = null;
+    }
+  }
+
+  // Custom mix: stop EVERY track's stream, not just the master
+  if (currentMediaState.type === 'mix' && typeof stopMixPlayer === 'function') {
+    stopMixPlayer();
+    currentMediaState.element = null;
+  }
+
+  // Clean up audio context
+  if (currentMediaState.audioContext) {
+    currentMediaState.audioContext.close();
+    currentMediaState.audioContext = null;
+  }
+  
+  // Clear timeouts
+  clearTimeout(currentMediaState.hideControlsTimeout);
+  clearTimeout(currentMediaState.clickTimeout);
+  
+  // Remove event listeners
+  const main = document.querySelector('.media-player-main');
+  if (main) main.removeEventListener('mousemove', handlePlayerPointerMove);
+  content.removeEventListener('click', handleContentClick);
+  
+  // Save any half-typed note before the sidebar is torn down
+  if (typeof flushPendingNotes === 'function') flushPendingNotes();
+
+  // Drop the subtitle overlay + its timeupdate listener
+  if (typeof subtitlesDetach === 'function') subtitlesDetach();
+
+  // Close media info if open
+  closeMediaInfo();
+  
+  overlay.classList.remove('active', 'controls-visible', 'cursor-hidden');
+  document.getElementById('mediaPlayerContent').innerHTML = '';
+  document.getElementById('mediaPlayerControls').innerHTML = '';
+  document.body.style.overflow = '';
+  // Player closed → restore the selection bar if a selection is still active
+  if (typeof renderSelectionBar === 'function') renderSelectionBar();
+
+  // Reset mini player position for next use
+  resetMiniPlayerPosition();
+
+  // Jump to the page containing the last-played media and mark/highlight it.
+  // Always re-render so the persistent "last opened" tile border is applied
+  // even when the page didn't change.
+  const lastIndex = currentMediaState.currentIndex;
+  if (lastIndex >= 0 && lastIndex < filteredMedia.length) {
+    currentPage = Math.floor(lastIndex / pageSize) + 1;
+    renderResults();
+    requestAnimationFrame(() => {
+      highlightCard(lastIndex);
+    });
+  }
+}
+
+function toggleFullscreen() {
+  const overlay = document.getElementById('mediaPlayerOverlay');
+  
+  const video = document.getElementById('mediaVideo');
+
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+      if (video) video.style.width = 'auto';
+  } else {
+    if (video) video.style.width = '100%';
+
+    overlay.requestFullscreen().catch(() => {
+      if (overlay.webkitRequestFullscreen) {
+        overlay.webkitRequestFullscreen();
+      } else if (overlay.mozRequestFullScreen) {
+        overlay.mozRequestFullScreen();
+        overlay.mozRequestFullScreen();
+      }
+    });
+  }
+}
+
+// Listen for fullscreen changes
+document.addEventListener('fullscreenchange', () => {
+  showMediaControls();
+});

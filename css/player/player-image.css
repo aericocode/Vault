@@ -1,0 +1,39 @@
+/* ==========================================
+   Image/GIF Player Specific Styles
+   ========================================== */
+
+/* Zoom Display */
+.zoom-display {
+  padding: 0.5rem 0.75rem;
+  color: rgba(255,255,255,0.8);
+  font-size: 0.85rem;
+  min-width: 60px;
+  text-align: center;
+  background: rgba(255,255,255,0.05);
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Image element states */
+.media-player-content img {
+  transition: transform 0.1s ease-out;
+}
+
+.media-player-content img.zoomed {
+  cursor: grab;
+}
+
+.media-player-content img.zoomed:active {
+  cursor: grabbing;
+}
+
+/* GIF-specific styling */
+.gif-controls {
+  /* Uses same base as image-controls */
+}
+
+.gif-frame-info {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}

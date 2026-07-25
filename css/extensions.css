@@ -1,0 +1,303 @@
+/* =========================================================================
+   EXTENSION FILTER - Chip bar for file extension sub-filtering
+   ========================================================================= */
+
+.extension-bar {
+  display: none; /* shown via JS when extensions exist */
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.6rem 0 0.2rem;
+  align-items: center;
+}
+
+.ext-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border, #444);
+  border-radius: 999px;
+  background: var(--surface, #1e1e2e);
+  color: var(--text-secondary, #aaa);
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.ext-chip:hover {
+  border-color: var(--accent, #89b4fa);
+  color: var(--text, #cdd6f4);
+  background: var(--surface-hover, #2a2a3e);
+}
+
+.ext-chip.active {
+  background: var(--accent, #89b4fa);
+  color: var(--bg, #1e1e2e);
+  border-color: var(--accent, #89b4fa);
+  font-weight: 600;
+}
+
+.ext-chip.active:hover {
+  background: var(--accent-hover, #74a8f7);
+  border-color: var(--accent-hover, #74a8f7);
+}
+
+.ext-count {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+.ext-chip.active .ext-count {
+  opacity: 0.85;
+}
+
+/* ── Media-type bubble bar (always visible; extensions collapse behind it) ── */
+
+.media-type-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.6rem 0 0.2rem;
+  align-items: center;
+}
+
+.type-chip { font-size: 0.82rem; }
+
+.safe-chip { color: var(--success, #a6e3a1); }
+
+.safe-chip.active {
+  background: var(--success, #22c55e);
+  border-color: var(--success, #22c55e);
+  color: #0f1a12;
+}
+
+.ext-expander {
+  margin-left: auto;
+  border-style: dashed;
+}
+
+.ext-expander.open {
+  border-style: solid;
+  color: var(--text, #cdd6f4);
+}
+
+/* ── Duration range slider (dual thumb, minutes) ─────────────────────── */
+
+.duration-group { min-width: 220px; }
+
+.duration-label {
+  color: var(--accent-hover, #89b4fa);
+  font-weight: 600;
+  margin-left: 0.4rem;
+}
+
+.duration-slider {
+  position: relative;
+  height: 26px;
+}
+
+.duration-track {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 4px;
+  transform: translateY(-50%);
+  background: var(--bg-tertiary, #252525);
+  border-radius: 2px;
+}
+
+.duration-fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: var(--accent, #6366f1);
+  border-radius: 2px;
+}
+
+/* Fully unstyled range inputs — kill the generic .filter-group input chrome
+   (border/padding/background) so only the custom track + thumbs render,
+   edge to edge with no side gaps. */
+.duration-slider input[type="range"],
+.filter-group .duration-slider input[type="range"] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: none; /* thumbs re-enable below */
+}
+
+.duration-slider input[type="range"]:focus {
+  border: none;
+  outline: none;
+}
+
+.duration-slider input[type="range"]::-webkit-slider-runnable-track {
+  background: transparent;
+  border: none;
+  height: 26px;
+}
+
+.duration-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  width: 13px;
+  height: 13px;
+  margin-top: 6.5px; /* center in the 26px track area */
+  border-radius: 50%;
+  background: var(--accent-hover, #818cf8);
+  border: 2px solid #fff;
+  cursor: ew-resize;
+}
+
+.duration-slider input[type="range"]::-moz-range-track {
+  background: transparent;
+  border: none;
+  height: 26px;
+}
+
+.duration-slider input[type="range"]::-moz-range-thumb {
+  pointer-events: auto;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--accent-hover, #818cf8);
+  border: 2px solid #fff;
+  cursor: ew-resize;
+}
+
+/* ── Playable marker (★ = browser can play) ──────────────────────────── */
+
+.ext-playable {
+  color: var(--success, #a6e3a1);
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: help;
+}
+
+.ext-chip.active .ext-playable {
+  color: var(--bg, #1e1e2e);
+  opacity: 0.7;
+}
+
+/* ── Separator between media type groups ─────────────────────────────── */
+
+.ext-separator {
+  color: var(--border, #555);
+  font-size: 0.9rem;
+  padding: 0 0.1rem;
+  user-select: none;
+  line-height: 1;
+}
+
+/* ── Legend ───────────────────────────────────────────────────────────── */
+
+.ext-legend {
+  font-size: 0.72rem;
+  color: var(--text-secondary, #888);
+  padding-left: 0.3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.ext-legend .ext-playable {
+  font-size: 0.8rem;
+}
+
+/* ── Clear Filters Button ────────────────────────────────────────────── */
+
+.clear-filters-btn {
+  padding: 0.45rem 0.85rem;
+  background: var(--surface, #313244);
+  border: 1px solid var(--border, #444);
+  border-radius: 8px;
+  color: var(--text-secondary, #aaa);
+  font-size: 0.82rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.clear-filters-btn:hover {
+  background: var(--surface-hover, #3a3a4e);
+  color: var(--text, #cdd6f4);
+  border-color: var(--accent, #89b4fa);
+}
+
+/* ── Search Clear Button ─────────────────────────────────────────────── */
+
+.search-clear-btn {
+  display: none; /* shown via JS */
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  right: 2.4rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-secondary, #666);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0.2rem 0.3rem;
+  line-height: 1;
+  border-radius: 4px;
+  transition: all 0.12s;
+}
+
+.search-clear-btn:hover {
+  color: var(--text, #cdd6f4);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Adjust search input padding for both buttons */
+.search-input-wrapper .search-input {
+  padding-right: 3.8rem;
+}
+
+/* ── Search Mode Indicator ───────────────────────────────────────────── */
+
+.search-mode-indicator {
+  display: none; /* shown via JS */
+  align-items: center;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-family: monospace;
+  white-space: nowrap;
+}
+
+.search-mode-indicator.mode-fuzzy {
+  background: rgba(166, 227, 161, 0.15);
+  color: #a6e3a1;
+  border: 1px solid rgba(166, 227, 161, 0.3);
+}
+
+.search-mode-indicator.mode-regex {
+  background: rgba(243, 139, 168, 0.15);
+  color: #f38ba8;
+  border: 1px solid rgba(243, 139, 168, 0.3);
+}
+
+.search-mode-indicator.mode-boolean {
+  background: rgba(137, 180, 250, 0.15);
+  color: #89b4fa;
+  border: 1px solid rgba(137, 180, 250, 0.3);
+}

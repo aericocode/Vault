@@ -1,0 +1,138 @@
+/* ==========================================
+   VAULT — lock logo states, lock screen,
+   password modal, drag-drop import overlay
+   ========================================== */
+
+/* ── Header logo as the lock control ── */
+#vaultLogo { cursor: pointer; user-select: none; }
+#vaultLogo .logo-lock { overflow: visible; }
+#vaultLogo .lock-shackle {
+  transition: transform 0.35s ease;
+  transform-box: view-box;
+  transform-origin: 68px 46px;   /* hinge on the shackle's right leg */
+}
+/* Unlocked: shackle swings open */
+#vaultLogo.vault-open .lock-shackle {
+  transform: rotate(28deg) translate(5px, -4px);
+}
+/* Armed warning: locking now interrupts the running scan — click again */
+#vaultLogo.vault-warn {
+  --brand: var(--warning, #f59e0b);   /* body reads var(--brand) inline */
+  animation: vaultWarnPulse 0.8s ease-in-out infinite;
+}
+@keyframes vaultWarnPulse {
+  0%, 100% { filter: none; transform: scale(1); }
+  50% { filter: drop-shadow(0 0 6px var(--warning, #f59e0b)); transform: scale(1.06); }
+}
+
+/* ── Change-password affordance (🔑, beside the header logo) ── */
+.vault-key-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0.2rem 0.35rem;
+  margin-left: -0.25rem;
+  border-radius: 6px;
+  opacity: 0.55;
+  transition: opacity 0.15s, background 0.15s;
+}
+.vault-key-btn:hover {
+  opacity: 1;
+  background: var(--bg-tertiary, #252525);
+}
+
+/* ── Lock screen (opaque — nothing leaks through) ── */
+#vaultLockScreen {
+  position: fixed; inset: 0; z-index: 10000;
+  background: #0b0b10;
+  display: flex; align-items: center; justify-content: center;
+}
+.vault-lock-center { text-align: center; color: var(--text-primary, #e0e0e0); }
+.vault-lock-logo {
+  position: relative;
+  width: 120px; height: 120px;
+  margin: 0 auto 1rem;
+  cursor: pointer; user-select: none;
+  touch-action: none;
+}
+.vault-lock-logo > svg:first-child { width: 100px; height: 100px; margin: 10px; }
+.vault-hold-ring {
+  position: absolute; inset: 0;
+  transform: rotate(-90deg);        /* progress starts at 12 o'clock */
+  pointer-events: none;
+}
+.vault-hold-ring circle {
+  stroke: var(--brand, #7aa8ff);
+  stroke-dasharray: 339.3;          /* 2πr, r=54 */
+  stroke-dashoffset: 339.3;
+  stroke-linecap: round;
+}
+.vault-lock-logo.holding .vault-hold-ring circle {
+  transition: stroke-dashoffset 3s linear;
+  stroke-dashoffset: 0;
+}
+.vault-lock-title { font-size: 1.3rem; font-weight: 700; letter-spacing: 0.04em; }
+.vault-lock-hint { margin-top: 0.4rem; font-size: 0.85rem; color: var(--text-muted, #888); min-height: 1.2em; }
+.vault-unlock-form { margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: center; }
+
+/* ── Password modal (create/confirm) ── */
+.vault-modal-overlay {
+  position: fixed; inset: 0; z-index: 9500;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: center; justify-content: center;
+}
+.vault-modal {
+  width: min(420px, 92vw);
+  background: var(--bg-secondary, #1a1a22);
+  border: 1px solid var(--border, #333);
+  border-radius: 12px;
+  padding: 1.1rem 1.2rem;
+  display: flex; flex-direction: column; gap: 0.6rem;
+  color: var(--text-primary, #e0e0e0);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+}
+.vault-modal h3 { margin: 0; font-size: 1.05rem; }
+.vault-modal-hint { margin: 0; font-size: 0.78rem; color: var(--text-secondary, #a0a0a0); line-height: 1.45; }
+.vault-modal-err { min-height: 1.1em; font-size: 0.78rem; color: var(--danger, #ef4444); }
+.vault-modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+
+.vault-input {
+  padding: 0.5rem 0.65rem;
+  background: var(--bg-primary, #111);
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  color: var(--text-primary, #e0e0e0);
+  font-size: 0.9rem;
+}
+.vault-input:focus { outline: none; border-color: var(--accent, #7aa8ff); }
+.vault-input.vault-shake { animation: vaultShake 0.35s ease; border-color: var(--danger, #ef4444); }
+@keyframes vaultShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  75% { transform: translateX(6px); }
+}
+
+.vault-btn {
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px; cursor: pointer; font-size: 0.85rem;
+  border: 1px solid var(--border, #333);
+  background: var(--bg-tertiary, #252525);
+  color: var(--text-primary, #e0e0e0);
+}
+.vault-btn:hover:not(:disabled) { border-color: var(--accent, #7aa8ff); }
+.vault-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.vault-btn-primary { background: var(--accent, #7aa8ff); border-color: var(--accent, #7aa8ff); color: #fff; font-weight: 600; }
+
+/* ── Drag-drop import overlay ── */
+#vaultDropOverlay {
+  position: fixed; inset: 0; z-index: 9000;
+  background: rgba(20, 24, 40, 0.72);
+  border: 3px dashed var(--accent, #7aa8ff);
+  border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;             /* drops land on the window handlers */
+  font-size: 1.4rem; font-weight: 700; color: #fff;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
+}

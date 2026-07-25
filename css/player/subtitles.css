@@ -1,0 +1,277 @@
+/* =========================================================================
+   SUBTITLES — cue overlay + CC toggle (main video player only)
+   ========================================================================= */
+
+/* ── Cue overlay ── */
+.subtitle-overlay {
+  /* left / bottom / transform / max-width are set inline by player-subtitles.js
+     so the cues sit on the bottom of the VIDEO IMAGE (letterbox-aware) and can
+     be dragged. */
+  position: absolute;
+  left: 50%;
+  bottom: 56px;
+  transform: translateX(-50%);
+  max-width: min(82%, 900px);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;            /* empty area passes clicks through to video */
+  z-index: 30;                     /* above the video, below player chrome */
+}
+.subtitle-overlay.visible { display: flex; }
+.subtitle-overlay.dragging .subtitle-line { cursor: grabbing; }
+
+.subtitle-line {
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  padding: 0.25em 0.6em;
+  border-radius: 6px;
+  font-size: clamp(16px, 2.6vh, 28px);
+  line-height: 1.35;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  white-space: pre-wrap;
+  pointer-events: auto;            /* grab the text to reposition */
+  cursor: move;
+}
+
+/* ── Generation progress pill (top-center — proves it's working, streaming) ── */
+.subtitle-progress {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 31;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 80%;
+  padding: 0.4rem 0.8rem;
+  background: rgba(0, 0, 0, 0.78);
+  border: 1px solid var(--player-border, rgba(255, 255, 255, 0.18));
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.subtitle-progress b { color: var(--accent); font-variant-numeric: tabular-nums; }
+.sub-prog-spin {
+  width: 12px; height: 12px; flex: none;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: sub-prog-rot 0.8s linear infinite;
+}
+@keyframes sub-prog-rot { to { transform: rotate(360deg); } }
+#mediaPlayerOverlay.controls-visible .subtitle-progress { top: 60px; }
+
+/* ── CC toggle (extras row, styled like the AB/Done buttons) ── */
+.subtitle-ctl { display: inline-flex; align-items: center; gap: 0.3rem; }
+
+.subtitle-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--player-border, rgba(255,255,255,0.15));
+  border-radius: 8px;
+  padding: 0.45rem 0.7rem;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.subtitle-btn sup { font-size: 0.55em; font-weight: 600; margin-left: 1px; }
+
+.subtitle-btn.sub-mode-off { color: rgba(255, 255, 255, 0.45); }
+.subtitle-btn.sub-mode-on {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.subtitle-btn.sub-mode-auto {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(122, 168, 255, 0.12);
+}
+.subtitle-btn:hover { color: #fff; border-color: var(--accent); }
+
+/* Generate chip (only when the mode wants subs but the video has none) */
+.subtitle-gen-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px dashed var(--player-border, rgba(255,255,255,0.3));
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-family: monospace;
+  transition: all 0.2s;
+}
+.subtitle-gen-btn:hover:not(:disabled) { border-color: var(--accent); color: #fff; }
+.subtitle-gen-btn:disabled { cursor: default; opacity: 0.8; }
+
+/* ── Sidebar section (view / edit tracks + rescan) ── */
+.subtitles-sidebar-body { display: flex; flex-direction: column; gap: 0.5rem; }
+.subs-hint { color: var(--text-muted); font-size: 0.78rem; }
+.subs-status { display: flex; align-items: center; gap: 0.45rem; font-size: 0.8rem; color: var(--text-secondary); }
+.subs-status b { color: var(--accent); font-variant-numeric: tabular-nums; }
+
+.subs-tracks { display: flex; flex-direction: column; gap: 0.35rem; }
+.subs-track {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.subs-track-label { font-size: 0.82rem; color: var(--text-primary); }
+.subs-track-kind {
+  font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--text-muted); border: 1px solid var(--border);
+  border-radius: 4px; padding: 0.05rem 0.3rem; margin-left: 0.2rem;
+}
+.subs-track-btns { display: inline-flex; gap: 0.25rem; flex: none; }
+.subs-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.15rem; }
+
+.subs-btn {
+  display: inline-flex; align-items: center; gap: 0.2rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.55rem;
+  color: var(--text-primary);
+  cursor: pointer; font-size: 0.76rem; font-weight: 600;
+  text-decoration: none; white-space: nowrap;
+  transition: all 0.15s;
+}
+.subs-btn:hover { border-color: var(--accent); color: var(--accent); }
+.subs-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.subs-btn-primary:hover { color: #fff; filter: brightness(1.08); }
+.subs-btn-danger:hover { border-color: var(--danger); color: var(--danger); }
+
+/* ── VTT editor overlay ── */
+.subs-editor-overlay {
+  position: fixed; inset: 0; z-index: 9000;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 4vh 4vw;
+}
+.subs-editor {
+  display: flex; flex-direction: column;
+  width: min(760px, 100%); max-height: 92vh;
+  background: var(--bg-secondary, #1c1c22);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.subs-editor-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem; color: var(--text-primary);
+}
+.subs-editor-head b { color: var(--accent); }
+.subs-editor-x {
+  background: none; border: none; color: var(--text-muted);
+  font-size: 1rem; cursor: pointer; padding: 0.2rem 0.4rem; border-radius: 6px;
+}
+.subs-editor-x:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+.subs-editor-ta {
+  flex: 1; min-height: 40vh;
+  margin: 0; padding: 0.8rem 1rem;
+  background: var(--bg-primary, #131317);
+  border: none; outline: none; resize: none;
+  color: var(--text-primary);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.82rem; line-height: 1.5;
+  white-space: pre; overflow: auto; tab-size: 2;
+}
+.subs-editor-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.7rem 1rem;
+  border-top: 1px solid var(--border);
+}
+.subs-editor-hint { font-size: 0.72rem; color: var(--text-muted); }
+.subs-editor-hint code {
+  background: var(--bg-tertiary); padding: 0.05rem 0.3rem; border-radius: 4px;
+  font-size: 0.92em;
+}
+.subs-editor-actions { display: inline-flex; gap: 0.5rem; flex: none; }
+
+/* ── Rescan confirm modal (subs-editor-overlay backdrop + smaller panel) ── */
+.subs-rescan { width: min(440px, 100%); }
+.subs-rescan-body {
+  display: flex; flex-direction: column; gap: 0.6rem;
+  padding: 0.9rem 1rem;
+}
+.subs-rescan-warn {
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+.subs-rescan-label {
+  font-size: 0.74rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.subs-rescan-select {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  background: var(--bg-primary, #131317);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.subs-rescan-select:focus { outline: none; border-color: var(--accent); }
+
+/* ── Transcript view (sidebar ≡ button): click to seek, 📌 to pin ── */
+.subs-transcript {
+  max-height: 240px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  margin-top: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  padding: 0.25rem 0;
+}
+.subs-tr-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.18rem 0.55rem;
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+.subs-tr-line:hover { background: var(--bg-hover, rgba(255, 255, 255, 0.06)); }
+.subs-tr-time {
+  flex: none;
+  font-family: monospace;
+  font-size: 0.7rem;
+  color: var(--accent);
+  min-width: 2.6em;
+}
+.subs-tr-text { flex: 1; min-width: 0; color: var(--text-secondary); }
+.subs-tr-pin {
+  flex: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.75rem;
+  opacity: 0;
+  padding: 0 0.15rem;
+}
+.subs-tr-line:hover .subs-tr-pin { opacity: 0.75; }
+.subs-tr-pin:hover { opacity: 1 !important; transform: scale(1.15); }
