@@ -1,6 +1,6 @@
 {
   "name": "video-tagger",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "description": "Local AI-powered media categorization - supports video, images, documents, and audio",
   "main": "video-tagger.js",
   "repository": "github:aericocode/Vault",
