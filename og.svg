@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Vault In. Get Deeper Data.</title>
+  <desc id="desc">A dark Vault promotional card. Tagline: Vault In. Get Deeper Data. A private, local, AI-enhanced porn library you can then play — games, quests and achievements, PMV auto-cut, beat bars, music match and toy sync. Alongside is a mock app panel listing Vision AI scan, Music match, PMV auto-cut, Games and Quests at level 12, and encrypted metadata and previews.</desc>
+  <defs>
+    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#818cf8" stop-opacity=".25"/>
+      <stop offset="1" stop-color="#6366f1" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="20" stdDeviation="22" flood-color="#000" flood-opacity=".5"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="630" fill="#0f0f0f"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <g opacity=".11" stroke="#666" stroke-width="1">
+    <path d="M0 70H1200M0 140H1200M0 210H1200M0 280H1200M0 350H1200M0 420H1200M0 490H1200M0 560H1200"/>
+    <path d="M70 0V630M140 0V630M210 0V630M280 0V630M350 0V630M420 0V630M490 0V630M560 0V630M630 0V630M700 0V630M770 0V630M840 0V630M910 0V630M980 0V630M1050 0V630M1120 0V630"/>
+  </g>
+
+  <!-- Brand -->
+  <g transform="translate(74 65)">
+    <rect width="42" height="42" rx="10" fill="#6366f1"/>
+    <path d="M13 20v-5a8 8 0 0 1 16 0v5M11 20h20v14H11z" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="21" cy="27" r="2" fill="#fff"/>
+    <text x="56" y="30" fill="#e4e4e7" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="27" font-weight="700">Vault</text>
+  </g>
+
+  <!-- Copy -->
+  <g font-family="Inter,Segoe UI,Arial,sans-serif">
+    <text id="h1" x="74" y="244" fill="#f4f4f5" font-size="76" font-weight="750" letter-spacing="-3">Vault In.</text>
+    <text id="h2" x="74" y="331" fill="#818cf8" font-size="76" font-weight="750" letter-spacing="-3">Get Deeper Data.</text>
+    <text id="sub" x="78" y="389" fill="#a1a1aa" font-size="25">A private, local, AI-enhanced porn library.</text>
+    <text id="support" x="78" y="424" fill="#c4b5fd" font-size="21">Then play it — games, quests, achievements.</text>
+    <text id="support2" x="78" y="453" fill="#71717a" font-size="19">PMV auto-cut · beat bars · music id match · toy sync</text>
+  </g>
+
+  <!-- Local app preview -->
+  <g transform="translate(696 144)" filter="url(#shadow)">
+    <rect width="430" height="317" rx="17" fill="#1a1a1a" stroke="#3f3f46" stroke-width="2"/>
+    <path d="M0 55H430" stroke="#3f3f46" stroke-width="2"/>
+    <circle cx="28" cy="28" r="7" fill="#3f3f46"/><circle cx="52" cy="28" r="7" fill="#3f3f46"/><circle cx="76" cy="28" r="7" fill="#3f3f46"/>
+    <rect x="105" y="16" width="24" height="24" rx="6" fill="#6366f1"/>
+    <path d="M112 28v-3a5 5 0 0 1 10 0v3m-12 0h14v9h-14z" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/>
+    <text x="141" y="33" fill="#a1a1aa" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="15">Vault · Local Engine</text>
+    <circle cx="367" cy="28" r="5" fill="#22c55e"/>
+    <text x="378" y="33" fill="#4ade80" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="13">Ready</text>
+
+    <!-- Five feature rows, 50px pitch. Icons are drawn paths or basic Unicode
+         (♪ ★ ▶) rather than emoji: colour-emoji glyphs are the first thing to
+         fall over to tofu in an SVG rasterizer that lacks an emoji font. -->
+    <g font-family="Inter,Segoe UI,Arial,sans-serif">
+      <rect x="22" y="68" width="386" height="44" rx="8" fill="#242424" stroke="#353535"/>
+      <circle cx="43" cy="90" r="6" fill="#818cf8"/>
+      <text x="60" y="96" fill="#e4e4e7" font-size="17">Vision AI scan</text>
+      <text x="392" y="96" text-anchor="end" fill="#4ade80" font-size="16">8,214</text>
+
+      <rect x="22" y="118" width="386" height="44" rx="8" fill="#242424" stroke="#353535"/>
+      <text x="36" y="147" fill="#c4b5fd" font-size="20">♪</text>
+      <text x="60" y="146" fill="#e4e4e7" font-size="17">Music match</text>
+      <rect x="288" y="136" width="104" height="7" rx="4" fill="#111"/>
+      <rect x="288" y="136" width="73" height="7" rx="4" fill="#818cf8"/>
+
+      <rect x="22" y="168" width="386" height="44" rx="8" fill="#242424" stroke="#353535"/>
+      <text x="37" y="197" fill="#c4b5fd" font-size="15">▶</text>
+      <text x="60" y="196" fill="#e4e4e7" font-size="17">PMV auto-cut</text>
+      <text x="392" y="196" text-anchor="end" fill="#818cf8" font-size="16">Studio</text>
+
+      <rect x="22" y="218" width="386" height="44" rx="8" fill="#242424" stroke="#353535"/>
+      <text x="35" y="247" fill="#c4b5fd" font-size="17">★</text>
+      <text x="60" y="246" fill="#e4e4e7" font-size="17">Games · Quests</text>
+      <text x="392" y="246" text-anchor="end" fill="#4ade80" font-size="16">Lv 12</text>
+
+      <rect x="22" y="268" width="386" height="41" rx="8" fill="#151515" stroke="#353535"/>
+      <path d="M39 288v-4a6 6 0 0 1 12 0v4m-14 0h16v11H37z" fill="none" stroke="#c4b5fd" stroke-width="2" stroke-linejoin="round"/>
+      <text x="64" y="295" fill="#e4e4e7" font-size="16">Metadata + previews encrypted</text>
+    </g>
+  </g>
+
+  <text id="badge" x="74" y="566" fill="#71717a" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="16" letter-spacing="1.4">18+  ·  WINDOWS</text>
+</svg>
