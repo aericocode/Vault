@@ -1,4 +1,4 @@
-# Vault
+# Vault - Get deeper data.
 
 ### You don't remember the filename. You remember what was in it.
 
@@ -15,7 +15,9 @@ PMVs from your own library, and earn quests and achievements for curating it.
 
 100% local. No account, no cloud, no telemetry.
 
-[**⬇ Download for Windows**](../../releases/latest) · [Setup guide](SETUP.md)
+[**⬇ Download for Windows**](../../releases/latest) · [Setup guide](SETUP.md) · [Full Feature List](https://aericocode.github.io/Vault/)
+
+Made with 🌿 by [aericode](https://ko-fi.com/aericode)
 
 ![Vault](og.png)
 
