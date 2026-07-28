@@ -226,7 +226,10 @@ async function loadMusicSidebar(mediaId) {
     boxes.forEach(b => { b.innerHTML = '<span class="music-hint">Music ID unavailable</span>'; });
     return;
   }
-  if (!musicTools) await loadMusicStatus();
+  // Same rule as the server route: never trust a cached NEGATIVE. The setup
+  // banner can install fpcalc mid-session, and this sidebar's warning has to
+  // notice on its next open rather than after a reload.
+  if (!musicTools || !musicTools.ok) await loadMusicStatus();
   const html = musicSidebarHtml(mediaId, info);
   // Re-query: loadMusicStatus() awaited, so a surface may have opened or closed.
   musicBoxes(mediaId).forEach(b => { b.innerHTML = html; });

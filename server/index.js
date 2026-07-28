@@ -260,6 +260,28 @@ const FFMPEG_INSTALL = {
   url: 'https://www.gyan.dev/ffmpeg/builds/',
 };
 
+/* Everything the one-click downloader knows how to fetch. `entry` matches the
+   binary inside the zip by suffix, so a version bump in the archive's top-level
+   folder name doesn't break extraction; `files` are the fixed basenames WE
+   write into ROOT — zip entry names are untrusted input, never joined into a
+   path. `verify` must prove the extracted binary actually runs. */
+const DOWNLOADABLE_TOOLS = {
+  ffmpeg: {
+    url: 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip',
+    sizeMB: 90,
+    files: ['ffmpeg.exe', 'ffprobe.exe'],
+    entry: (name) => (e) => e.entryName.toLowerCase().endsWith(`/bin/${name}`),
+    verify: () => require('../lib/media-info').isAvailable(),
+  },
+  fpcalc: {
+    url: 'https://github.com/acoustid/chromaprint/releases/download/v1.5.1/chromaprint-fpcalc-1.5.1-windows-x86_64.zip',
+    sizeMB: 1,
+    files: ['fpcalc.exe'],
+    entry: (name) => (e) => e.entryName.toLowerCase().endsWith(`/${name}`),
+    verify: async () => (await require('../lib/musicid/fingerprint').checkTools()).fpcalcVersion !== null,
+  },
+};
+
 let _toolsCache = null;
 
 function checkTools({ refresh = false } = {}) {
@@ -271,6 +293,20 @@ function checkTools({ refresh = false } = {}) {
       label: 'ffmpeg / ffprobe',
       needed: 'scanning, thumbnails and duration — imports can\'t be processed without it',
       install: FFMPEG_INSTALL,
+      downloadable: true,
+      sizeMB: DOWNLOADABLE_TOOLS.ffmpeg.sizeMB,
+    },
+    fpcalc: {
+      // existsSync, not a spawn: this runs on every /api/setup-check and the
+      // full probe forks two processes. The download path re-verifies properly.
+      ok: fs.existsSync(path.join(ROOT, 'fpcalc.exe'))
+        || (() => { try { require('child_process').execSync('fpcalc -version', { windowsHide: true, stdio: 'ignore' }); return true; } catch { return false; } })(),
+      required: false,
+      label: 'fpcalc (Chromaprint)',
+      needed: 'Music ID — fingerprinting and song matching. Everything else works without it',
+      install: { winget: null, url: 'https://acoustid.org/chromaprint' },
+      downloadable: true,
+      sizeMB: DOWNLOADABLE_TOOLS.fpcalc.sizeMB,
     },
   };
   return _toolsCache;
@@ -280,93 +316,87 @@ app.get('/api/setup-check', (req, res) => {
   res.json(checkTools({ refresh: req.query.refresh === '1' }));
 });
 
-/* ── One-click ffmpeg download (the Stash onboarding model) ───────────────
-   Stash checks PATH, then beside its config, and offers to fetch ffmpeg there
-   when both miss — so Windows users never open a terminal. Same here: the
-   banner's button calls this, the zip lands in a temp file, ffmpeg.exe +
-   ffprobe.exe are extracted next to Vault.exe (ROOT — where ffmpeg-locate
-   looks), and every later spawn picks them up with NO restart, because file
-   resolution — unlike PATH — is re-checked per spawn.
+/* ── One-click tool downloads (the Stash onboarding model) ────────────────
+   Stash checks PATH, then beside its config, and offers to fetch missing
+   tools there — so Windows users never open a terminal. Same here: the
+   banner's button calls this, the zip lands in a temp file, the binaries are
+   extracted next to Vault.exe (ROOT — where ffmpeg-locate looks), and every
+   later spawn picks them up with NO restart, because file resolution —
+   unlike PATH — is re-checked per spawn.
 
    User-initiated only, which matters twice over: it keeps the no-silent-egress
    posture (purpose 'tool' in lib/net.js, same consent shape as the manual
    update check), and it keeps GPL ffmpeg out of the release zip — the USER
    fetches it from gyan.dev; Vault never distributes it.
 
-   The job is a singleton: two clicks share one download rather than racing to
-   write the same exe. State survives until the next click, so the client can
-   poll after the fact. */
+   One job per tool: two clicks share one download rather than racing to write
+   the same exe. State survives until the next click, so the client can poll
+   after the fact. */
 
-const FFMPEG_ZIP_URL = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip';
+const _toolJobs = new Map();  // tool -> { state: 'downloading'|'extracting'|'done'|'error', pct, error }
 
-let _ffdl = null;   // { state: 'downloading'|'extracting'|'done'|'error', pct, error }
-
-app.post('/api/setup/download-ffmpeg', (req, res) => {
+app.post('/api/setup/download/:tool', (req, res) => {
+  const tool = DOWNLOADABLE_TOOLS[req.params.tool];    // registry lookup — no path from input
+  if (!tool) return res.status(404).json({ error: 'unknown tool' });
   if (process.platform !== 'win32') {
-    return res.status(400).json({ error: 'Automatic download is Windows-only — install ffmpeg with your package manager.' });
+    return res.status(400).json({ error: 'Automatic download is Windows-only — install it with your package manager.' });
   }
-  if (_ffdl && ['downloading', 'extracting'].includes(_ffdl.state)) {
-    return res.json({ started: false, ..._ffdl });      // already in flight — attach
+  const live = _toolJobs.get(req.params.tool);
+  if (live && ['downloading', 'extracting'].includes(live.state)) {
+    return res.json({ started: false, ...live });       // already in flight — attach
   }
 
-  _ffdl = { state: 'downloading', pct: 0, error: null };
-  res.json({ started: true, ..._ffdl });
+  const job = { state: 'downloading', pct: 0, error: null };
+  _toolJobs.set(req.params.tool, job);
+  res.json({ started: true, ...job });
 
   (async () => {
     const os = require('os');
-    const tmp = path.join(os.tmpdir(), `vault-ffmpeg-${process.pid}.zip`);
+    const tmp = path.join(os.tmpdir(), `vault-${req.params.tool}-${process.pid}.zip`);
     try {
-      const resp = await netFetch(FFMPEG_ZIP_URL, { purpose: 'tool' });
+      const resp = await netFetch(tool.url, { purpose: 'tool' });
       if (!resp.ok) throw new Error(`download failed: HTTP ${resp.status}`);
 
-      // Stream to disk with progress — the zip is ~90 MB and adm-zip needs a
-      // file anyway; buffering it whole in memory first helps nobody.
+      // Stream to disk with progress — ffmpeg's zip is ~90 MB and adm-zip
+      // needs a file anyway; buffering it whole in memory helps nobody.
       const total = Number(resp.headers.get('content-length')) || 0;
       let got = 0;
       const out = fs.createWriteStream(tmp);
       for await (const chunk of resp.body) {
         out.write(chunk);
         got += chunk.length;
-        if (total) _ffdl.pct = Math.round((got / total) * 100);
+        if (total) job.pct = Math.round((got / total) * 100);
       }
       await new Promise((ok, bad) => out.end(err => err ? bad(err) : ok()));
 
-      _ffdl.state = 'extracting';
+      job.state = 'extracting';
       const AdmZip = require('adm-zip');
       const zip = new AdmZip(tmp);
-      // Path shape inside gyan.dev builds: ffmpeg-N.N-essentials_build/bin/*.exe.
-      // Match by basename so a layout change in the archive doesn't break us —
-      // but ONLY from bin/, and write the fixed basename ourselves: zip entry
-      // names are attacker-shaped input, never a path to join with.
-      const wanted = ['ffmpeg.exe', 'ffprobe.exe'];
-      const found = [];
-      for (const name of wanted) {
-        const entry = zip.getEntries().find(e =>
-          !e.isDirectory && e.entryName.toLowerCase().endsWith(`/bin/${name}`));
-        if (!entry) throw new Error(`archive layout unexpected — ${name} not found under bin/`);
+      for (const name of tool.files) {
+        const entry = zip.getEntries().find(e => !e.isDirectory && tool.entry(name)(e));
+        if (!entry) throw new Error(`archive layout unexpected — ${name} not found`);
         fs.writeFileSync(path.join(ROOT, name), entry.getData());
-        found.push(name);
       }
 
-      // Prove they actually run before declaring victory.
+      // Prove the binary actually runs before declaring victory.
       require('../lib/ffmpeg-locate').invalidate();
-      if (!require('../lib/media-info').isAvailable()) {
-        throw new Error('extracted ffprobe did not run — antivirus quarantine?');
+      if (!(await tool.verify())) {
+        throw new Error('extracted binary did not run — antivirus quarantine?');
       }
       checkTools({ refresh: true });
-      _ffdl = { state: 'done', pct: 100, error: null, files: found };
-      console.log(`[Setup] ffmpeg downloaded → ${found.map(f => path.join(ROOT, f)).join(', ')}`);
+      Object.assign(job, { state: 'done', pct: 100, files: tool.files });
+      console.log(`[Setup] ${req.params.tool} downloaded → ${tool.files.map(f => path.join(ROOT, f)).join(', ')}`);
     } catch (err) {
-      _ffdl = { state: 'error', pct: 0, error: String(err.message).slice(0, 300) };
-      console.warn(`[Setup] ffmpeg download failed: ${_ffdl.error}`);
+      Object.assign(job, { state: 'error', pct: 0, error: String(err.message).slice(0, 300) });
+      console.warn(`[Setup] ${req.params.tool} download failed: ${job.error}`);
     } finally {
       try { fs.unlinkSync(tmp); } catch {}
     }
   })();
 });
 
-app.get('/api/setup/download-ffmpeg', (req, res) => {
-  res.json(_ffdl || { state: 'idle' });
+app.get('/api/setup/download/:tool', (req, res) => {
+  res.json(_toolJobs.get(req.params.tool) || { state: 'idle' });
 });
 
 // App identity for the Settings → About section (name + version from package.json)

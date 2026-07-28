@@ -52,11 +52,24 @@
 .setup-banner-btn:hover { border-color: var(--accent); }
 .setup-banner-btn:disabled { opacity: 0.5; cursor: default; }
 .setup-banner-primary { border-color: var(--accent); color: var(--accent); font-weight: 600; }
-/* Post-download success state */
-.setup-banner-ok {
-  background: rgba(34, 197, 94, 0.12);
-  border-bottom-color: rgba(34, 197, 94, 0.45);
+/* Optional tools (Music ID's fpcalc): listed, but visually beneath the tool
+   that actually blocks scanning. */
+.setup-banner-row-optional { opacity: 0.85; padding-top: 0.4rem; }
+.setup-banner-row-optional .setup-banner-title { font-weight: 600; }
+.setup-banner-tag {
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+  vertical-align: middle;
 }
+/* Per-row success state after a download */
+.setup-banner-row.setup-banner-ok { background: rgba(34, 197, 94, 0.12); }
+/* The dismiss ✕ is now a sibling of the rows, top-right of the banner */
+.setup-banner { position: relative; }
+.setup-banner > .setup-banner-x { position: absolute; top: 0.6rem; right: 0.8rem; }
 .setup-banner-x {
   background: none;
   border: none;

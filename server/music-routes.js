@@ -35,7 +35,11 @@ function buildRouter() {
   // ── Status: tool availability + library-wide counts ─────────────────────
   let toolsCache = null;
   router.get('/status', async (req, res) => {
-    if (!toolsCache || req.query.recheck) toolsCache = await checkTools();
+    // Only a POSITIVE result is cached. A cached negative outlives its truth:
+    // the setup banner can drop fpcalc next to the exe mid-session, and this
+    // route would have kept answering "missing" until a restart. Re-probing
+    // while broken is cheap — a missing binary fails with ENOENT immediately.
+    if (!toolsCache?.ok || req.query.recheck) toolsCache = await checkTools();
     res.json({ tools: toolsCache, stats: repo.getStats(), queue: service.getQueueState() });
   });
 
