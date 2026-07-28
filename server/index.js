@@ -242,6 +242,133 @@ app.post('/api/settings/app', (req, res) => {
   res.json({ ...out, encrypted: vault.isEncrypted() });
 });
 
+/* ── Required external tools ──────────────────────────────────────────────
+   ffmpeg/ffprobe are spawned by name from PATH and are deliberately NOT
+   bundled in the portable build. The CLI scan has always refused to start
+   without them (commands/scan.js), but the double-click path — which is how
+   everyone running Vault.exe starts — never checked. A missing ffmpeg then
+   surfaced as a per-file "Could not read media info", on every file, with
+   nothing anywhere naming the actual cause.
+
+   Cached because the answer can't change while the process runs: the probe
+   spawns a child, which inherits the PATH this process was launched with, so
+   installing ffmpeg afterwards is invisible until Vault restarts. That's also
+   why the banner says to restart rather than pretending a re-check is enough. */
+
+const FFMPEG_INSTALL = {
+  winget: 'winget install ffmpeg',
+  url: 'https://www.gyan.dev/ffmpeg/builds/',
+};
+
+let _toolsCache = null;
+
+function checkTools({ refresh = false } = {}) {
+  if (_toolsCache && !refresh) return _toolsCache;
+  _toolsCache = {
+    ffmpeg: {
+      ok: require('../lib/media-info').isAvailable(),
+      required: true,
+      label: 'ffmpeg / ffprobe',
+      needed: 'scanning, thumbnails and duration — imports can\'t be processed without it',
+      install: FFMPEG_INSTALL,
+    },
+  };
+  return _toolsCache;
+}
+
+app.get('/api/setup-check', (req, res) => {
+  res.json(checkTools({ refresh: req.query.refresh === '1' }));
+});
+
+/* ── One-click ffmpeg download (the Stash onboarding model) ───────────────
+   Stash checks PATH, then beside its config, and offers to fetch ffmpeg there
+   when both miss — so Windows users never open a terminal. Same here: the
+   banner's button calls this, the zip lands in a temp file, ffmpeg.exe +
+   ffprobe.exe are extracted next to Vault.exe (ROOT — where ffmpeg-locate
+   looks), and every later spawn picks them up with NO restart, because file
+   resolution — unlike PATH — is re-checked per spawn.
+
+   User-initiated only, which matters twice over: it keeps the no-silent-egress
+   posture (purpose 'tool' in lib/net.js, same consent shape as the manual
+   update check), and it keeps GPL ffmpeg out of the release zip — the USER
+   fetches it from gyan.dev; Vault never distributes it.
+
+   The job is a singleton: two clicks share one download rather than racing to
+   write the same exe. State survives until the next click, so the client can
+   poll after the fact. */
+
+const FFMPEG_ZIP_URL = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip';
+
+let _ffdl = null;   // { state: 'downloading'|'extracting'|'done'|'error', pct, error }
+
+app.post('/api/setup/download-ffmpeg', (req, res) => {
+  if (process.platform !== 'win32') {
+    return res.status(400).json({ error: 'Automatic download is Windows-only — install ffmpeg with your package manager.' });
+  }
+  if (_ffdl && ['downloading', 'extracting'].includes(_ffdl.state)) {
+    return res.json({ started: false, ..._ffdl });      // already in flight — attach
+  }
+
+  _ffdl = { state: 'downloading', pct: 0, error: null };
+  res.json({ started: true, ..._ffdl });
+
+  (async () => {
+    const os = require('os');
+    const tmp = path.join(os.tmpdir(), `vault-ffmpeg-${process.pid}.zip`);
+    try {
+      const resp = await netFetch(FFMPEG_ZIP_URL, { purpose: 'tool' });
+      if (!resp.ok) throw new Error(`download failed: HTTP ${resp.status}`);
+
+      // Stream to disk with progress — the zip is ~90 MB and adm-zip needs a
+      // file anyway; buffering it whole in memory first helps nobody.
+      const total = Number(resp.headers.get('content-length')) || 0;
+      let got = 0;
+      const out = fs.createWriteStream(tmp);
+      for await (const chunk of resp.body) {
+        out.write(chunk);
+        got += chunk.length;
+        if (total) _ffdl.pct = Math.round((got / total) * 100);
+      }
+      await new Promise((ok, bad) => out.end(err => err ? bad(err) : ok()));
+
+      _ffdl.state = 'extracting';
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip(tmp);
+      // Path shape inside gyan.dev builds: ffmpeg-N.N-essentials_build/bin/*.exe.
+      // Match by basename so a layout change in the archive doesn't break us —
+      // but ONLY from bin/, and write the fixed basename ourselves: zip entry
+      // names are attacker-shaped input, never a path to join with.
+      const wanted = ['ffmpeg.exe', 'ffprobe.exe'];
+      const found = [];
+      for (const name of wanted) {
+        const entry = zip.getEntries().find(e =>
+          !e.isDirectory && e.entryName.toLowerCase().endsWith(`/bin/${name}`));
+        if (!entry) throw new Error(`archive layout unexpected — ${name} not found under bin/`);
+        fs.writeFileSync(path.join(ROOT, name), entry.getData());
+        found.push(name);
+      }
+
+      // Prove they actually run before declaring victory.
+      require('../lib/ffmpeg-locate').invalidate();
+      if (!require('../lib/media-info').isAvailable()) {
+        throw new Error('extracted ffprobe did not run — antivirus quarantine?');
+      }
+      checkTools({ refresh: true });
+      _ffdl = { state: 'done', pct: 100, error: null, files: found };
+      console.log(`[Setup] ffmpeg downloaded → ${found.map(f => path.join(ROOT, f)).join(', ')}`);
+    } catch (err) {
+      _ffdl = { state: 'error', pct: 0, error: String(err.message).slice(0, 300) };
+      console.warn(`[Setup] ffmpeg download failed: ${_ffdl.error}`);
+    } finally {
+      try { fs.unlinkSync(tmp); } catch {}
+    }
+  })();
+});
+
+app.get('/api/setup/download-ffmpeg', (req, res) => {
+  res.json(_ffdl || { state: 'idle' });
+});
+
 // App identity for the Settings → About section (name + version from package.json)
 app.get('/api/about', (req, res) => {
   res.json({ name: pkg.name, version: pkg.version });
@@ -1194,7 +1321,7 @@ const _adtsInflight = new Map();      // id → Promise<{ok, buf?}> (buf in vaul
 // rejects, so concurrent waiters can't leak an unhandled rejection.
 function spawnAdtsExtract(row, res) {
   const { spawn } = require('child_process');
-  const ff = spawn('ffmpeg', [
+  const ff = spawn(require('../lib/ffmpeg-locate').resolve('ffmpeg'), [
     '-v', 'error', '-i', row.filepath, '-vn',
     '-ac', '1', '-ar', '22050', '-c:a', 'aac', '-b:a', '48k',
     '-f', 'adts', 'pipe:1',
@@ -1957,6 +2084,23 @@ function start(args = process.argv.slice(2)) {
     console.log(`  Gamify:     ${gamifyEnabled ? 'ON (all data stays local — --no-gamify to disable)' : 'off (start with --gamify to enable)'}`);
     console.log('  Local-only (127.0.0.1). Ctrl+C to stop.');
     console.log('');
+
+    // Say it here, once, in the window the user is already looking at — rather
+    // than letting them find out one failed file at a time.
+    const tools = checkTools();
+    if (!tools.ffmpeg.ok) {
+      console.log('  ┌──────────────────────────────────────────────────────┐');
+      console.log('  │  ⚠  ffmpeg / ffprobe not found on PATH               │');
+      console.log('  └──────────────────────────────────────────────────────┘');
+      console.log('  Scanning, thumbnails and duration all need it. Install with:');
+      console.log('');
+      console.log(`      ${FFMPEG_INSTALL.winget}`);
+      console.log('');
+      console.log(`  …or grab a build from ${FFMPEG_INSTALL.url}`);
+      console.log('  Easiest: the viewer that just opened has a ⬇ Download button in the');
+      console.log('  banner at the top — it fetches ffmpeg next to Vault, no restart needed.');
+      console.log('');
+    }
   });
 }
 

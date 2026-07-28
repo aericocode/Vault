@@ -26,6 +26,16 @@ video_metadata.db
 
 # Per-install runtime state (scan-wizard history holds real local paths)
 /wizard-settings.json
+# ffmpeg fetched by the setup banner's download button lands next to the app
+# (lib/ffmpeg-locate.js) — never ships in the repo or the release zip (GPL).
+/ffmpeg.exe
+/ffprobe.exe
+
+# Per-install preferences written by the Settings modal. gamify-config.json was
+# tracked by accident, which shipped the Obsession tracker switched ON to every
+# clone — the opposite of the opt-in default the code documents.
+/gamify-config.json
+/vault-settings.json
 
 __pycache__/
 
