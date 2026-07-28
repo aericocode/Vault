@@ -1,12 +1,70 @@
-#  Vault
+# Vault - Get deeper data.
 
-## What is Vault?
+### You don't remember the filename. You remember what was in it.
 
-Vault is a local media categorization and viewer with dedup tools, and an entirely optional gamification layer. It is intended to be used with a small local AI with vision to extra tons of meta data about the media files, enabling search terms related to the **contents** of the files, not just title/path. Everything runs on your machine; nothing is ever sent anywhere except your local AI setup.
+Even a well-named file stops at a title — maybe a studio, maybe who's in it. It tells
+you nothing about the acts, the setting, or the scene you're actually trying to find
+again. So finding anything in a big library comes down to guesswork and scrubbing.
 
-## Feature List
+Vault runs a small vision model on your own machine that *watches* every file and
+writes down what's really in it — the action, who's on screen, the setting, the mood,
+even on-screen text and logos — so you can search the way you actually remember.
 
-### 🧠 AI Scanning & Tagging
+Then it goes further: find every clip sharing a song and play them in sync, auto-cut
+PMVs from your own library, and earn quests and achievements for curating it.
+
+100% local. No account, no cloud, no telemetry.
+
+[**⬇ Download for Windows**](../../releases/latest) · [Setup guide](SETUP.md) · [Full Feature List](https://aericocode.github.io/Vault/)
+
+Made with 🌿 by [aericode](https://ko-fi.com/aericode)
+
+![Vault](og.png)
+
+## Quick start
+
+1. Download `Vault-v*-win-x64.zip` from [Releases](../../releases/latest).
+2. Unzip it anywhere — it's portable, there is no installer.
+3. Run `Vault.exe`.
+
+The exe is unsigned, so Windows SmartScreen will warn you the first time:
+**More info → Run anyway**.
+
+All app data — database, thumbnails, models, trash — is created next to the exe, so
+the whole folder can be moved, copied, or backed up wholesale.
+
+## What you need
+
+**Nothing.** Browsing, playing, tagging and organizing your library work out of the box.
+
+Each of the following features adds one optional dependency:
+
+| Feature | Needs |
+|---|---|
+| AI scanning / semantic search | a local vision model via LM Studio, Ollama or vLLM |
+| Thumbnails, hover-scrub, beat bar | ffmpeg + ffprobe on PATH |
+| Subtitles / transcription | Python + faster-whisper |
+| Music ID | fpcalc (Chromaprint) on PATH |
+
+See [SETUP.md](SETUP.md) for install instructions and model recommendations by VRAM.
+
+## Features
+
+| | |
+|---|---|
+| **Understands your files** | A local vision model watches every video, image, GIF, audio file and document and writes structured metadata: scene, action, camera angle, lighting, expression, on-screen text |
+| **Search that works** | Boolean, regex, fuzzy, metadata-only, and 🧠 semantic search — "crimson" finds red images |
+| **Music ID** | Local audio fingerprints find every file sharing a song, then play them stacked in sync |
+| **PMV Studio** | Pick a soundtrack and sources — Vault cuts a beat-synced music video for you and renders it to MP4 |
+| **Stack & mix** | Stack up to 4 videos in sync or grid up to 8, with a mixer (opacity, masks, blends, presets) and MP4 export |
+| **Games & quests** | Play your own library, earn points, streaks, levels, themes and achievements — all opt-in |
+| **Encryption** | Password-locked database with auto-lock on idle |
+| **Trash with undo** | Real file moves, never silent deletes — one-click Undo and per-file Restore |
+| **Dedupe** | Filename+size matching at scan time plus perceptual hashing for visual duplicates |
+
+<details>
+<summary><b>🧠 AI scanning &amp; tagging</b></summary>
+
 - **Extended metadata schema** — positioning, action, camera angle, lighting, expression, etc,. Includes OCR style text transcription like logos, site names, studios, actress name, etc.
 - **All media types** — video, image, GIF, audio, documents 
 - **Audio transcription** — Extracts ~10mins of audio to give the AI more context of the scene
@@ -15,7 +73,11 @@ Vault is a local media categorization and viewer with dedup tools, and an entire
 - **Perceptual dedupe** (`phash`) — catches visual duplicates that filename/size matching misses (re-encodes, resizes, recompressions)
 - **Parallel, multi-GPU scanning** — auto-balances across multiple OpenAI-compatible endpoints (LM Studio, **Ollama**, vLLM — see [SETUP.md](SETUP.md))
 
-### 🖥️ Local Web Viewer
+</details>
+
+<details>
+<summary><b>🖥️ Local web viewer</b></summary>
+
 Start with `start.bat` to launch a full browser UI, works in any browser, media streams over HTTP with seeking.
 
 - **Instant library visibility** — new files appear in the viewer (⏳ "not scanned" badge) the moment a scan starts. Click "Scan now" backfills any file on demand from the sidebar
@@ -37,16 +99,26 @@ Start with `start.bat` to launch a full browser UI, works in any browser, media 
 - **Hot 🔥** — click 'Hot 🔥' to mark exciting and intense moments. Watch activity glows orange to mark the best moments that nearly finished you off.
 - **AB Looping Support** — Loop a section of a video with 2 clicks of the AB Loop button in the bottom left of playback controls, or with '[' and ']'.
 
-### 🥁 Beat Bar (optional, per-video)
+</details>
+
+<details>
+<summary><b>🥁 Beat bar (optional, per-video)</b></summary>
+
 A live beat-detection overlay for videos — analyzes the audio track client-side and renders a scrolling beat visualizer synced to playback.
+
 - Adjustable sensitivity (10 levels), playback speed, and playhead position, all with live preview
 - Five icon shapes (circle, heart, star, diamond, square) with configurable fill/border color, size, and opacity
 - Stackable visual effects (pulse, ripple, sparks — combine any number, with randomized spark variation)
 - Draggable positioning that's remembered per-video and preserved across fullscreen toggles
 - Fully local — no data leaves the machine, no cloud audio analysis
 
-### 🎵 Music ID + Editor (opt-in per file)
+</details>
+
+<details>
+<summary><b>🎵 Music ID + Editor (opt-in per file)</b></summary>
+
 Find every file containing a song, then play them **stacked in sync**. Powered by [Chromaprint](https://acoustid.org/chromaprint) fully local audio fingerprints.
+
 - **Fingerprint on demand** — select files in the Library → `🎵 Fingerprint (N)`, or use the button in the player sidebar. One-time per file (~5–15s per 5 min); chunks are silence-gated so dead air never causes false matches
 - **Automatic matching** — right after fingerprinting, the file is scanned against every known song AND every other fingerprinted file. Files sharing an unknown track get grouped under an `❓ Unknown Song` placeholder — manually rename it once and every linked file updates
 - **Teach it songs** — tag a segment by hand (artist + title + start/end with ⏱ position grab) and it becomes a reference fingerprint that hunts the song across the whole library
@@ -63,15 +135,41 @@ Find every file containing a song, then play them **stacked in sync**. Powered b
 - **Saved mixes & export** — save/load mix presets, and export the current stack to an MP4 (ffmpeg renders the same opacities/effects/volumes server-side, background queue with progress)
 - CLI: `node video-tagger.js music check-tools | fingerprint <id|all> | scan <id|all> | status`
 
-### 🎮 Games (play your library)
+</details>
+
+<details>
+<summary><b>🎬 PMV Studio (automatic beat-cut music videos)</b></summary>
+
+Pick a soundtrack and a set of source videos; Vault analyses the track's beats and
+energy, maps them onto segments of your sources to build an Edit Decision List, and
+renders the result to MP4 with ffmpeg. Entirely local.
+
+- **Beat-aligned cutting** — cuts land on the soundtrack's beats, with segment choice weighted by the track's energy at that moment
+- **Ordering modes** — `shuffle` (weighted-random among the strongest candidate segments) or `sequential` to keep source order
+- **Transitions** — configurable transition type and duration between segments
+- **GPU-accelerated render** — the encoder is detected automatically and falls back to CPU when no supported GPU is present
+- **Queued with live progress** — one pipeline runs at a time (like the Music ID exporter); progress is polled from the job row, and stale jobs are recovered on restart
+- **Cached analysis** — re-running against the same soundtrack or sources skips straight to the EDL and render step
+
+</details>
+
+<details>
+<summary><b>🎮 Games (play your library)</b></summary>
+
 A **Games** tab that turns library videos into games — pick videos in-tab (never a file dialog), with progress saved per game so you can leave, watch something, and come back.
+
 - **Reel Order** — a video is split into randomized clips; drag them onto a timeline in the correct order and timestamp. Scored on ordering + placement accuracy − time; per-difficulty high scores. Clips stream from the library (`/media/:id`), so no file uploads
 - **In-tab video picker** — the Games home is a searchable, video-only grid; inside a game a "🔀 Change video" button opens an overlay picker so you never leave the tab. A "🎮 Play in Reel Order" action also appears in the Library player sidebar
 - **Saved progress per game** — each game keeps one save slot (server `game_saves` table + a localStorage mirror for instant restore) holding the video, clip layout, placements and elapsed time; leaving the tab pauses the clock and playback, returning resumes exactly where you left off. Saves are auto-removed when their video's record is deleted
 - **Extensible host** — games mount behind a uniform interface (`mount/pause/resume/getState/destroy`); more games (a live-media jigsaw, timestamp/blur/rhythm games) slot in without touching the host
 
-### 🏆 Obsession Score (optional gamification, opt-in only)
+</details>
+
+<details>
+<summary><b>🏆 Obsession Score (optional gamification, opt-in only)</b></summary>
+
 Enable with `serve --gamify`. **Fully offline, fully optional** — disabled by default, and disabling deletes all tracked data.
+
 - **Points & streaks** — earn score for real engagement (rarity- and duration-weighted so a 2-second thumbnail flip earns far less than actually watching something), with daily streak tracking and decay for inactivity
 - **Quests** — dynamic objectives generated from your own library and habits (e.g. "watch 3 unrated horror videos")
 - **Levels & unlockable UI themes** — 9 levels from Casual Browser to Obsessed, unlocking 6 cosmetic color themes for the viewer as you level up
@@ -79,18 +177,11 @@ Enable with `serve --gamify`. **Fully offline, fully optional** — disabled by 
 - **Full analytics page** — watch-time heatmap (hour × day of week), 90-day activity chart, 12-week theme drift, library growth over time
 - **Shareable stats card** — generate a PNG snapshot of your stats/score to share
 
-## Performance Comparison
+</details>
 
-| Setting | v2 (Original) | v3 (Optimized) | Improvement |
-|---------|--------------|----------------|-------------|
-| Max frames | 60 | 25 | 58% fewer |
-| Frame width | 1280px | 640px | 75% smaller |
-| Workers | 1 | Auto (multi-GPU) | 2-4x faster |
-| Deduplication | No | Yes | ~20% fewer API calls |
+## Run from source
 
-**Estimated time reduction: 60-70%** (from 300h → ~100h with dual GPU)
-
-## Quick Start
+For developers, or anyone who'd rather run the Node app directly than the packaged exe.
 
 **No flags needed** — double-click `scan.bat` (or run `node video-tagger.js`
 with no arguments) for the interactive wizard: pick a directory (remembers
@@ -110,9 +201,9 @@ Windows: grab `chromaprint-fpcalc-*-windows-x86_64.zip` from
 https://github.com/acoustid/chromaprint/releases and drop `fpcalc.exe` somewhere
 on PATH. Verify with `node video-tagger.js music check-tools`.
 
-## AI Setup
+### AI setup
 
-### Step 1: Install and open LM Studio
+**Step 1: Install and open LM Studio**
 
 1. Open LM Studio
 2. Go to Local Server
@@ -120,13 +211,13 @@ on PATH. Verify with `node video-tagger.js music check-tools`.
 4. Load your vision model
 5. Start server
 
-### Step 2: Run with parallel workers(parallel slots)
+**Step 2: Run with parallel workers(parallel slots)**
 
 ```bash
 node video-tagger.js scan ./media --recursive --workers 2
 ```
 
-### Step 3: Launch the Viewer
+**Step 3: Launch the Viewer**
 
 Double-click **`start.bat`**, or run:
 
@@ -146,7 +237,38 @@ never a delete — with one-click Undo and per-file Restore (original paths are
 stored in the DB). Trashed items are hidden by default (🗑 filter). Files that
 fail to play are auto-marked ⚠ unplayable and can be filtered out.
 
-## Environment Variables
+## Privacy & Network
+
+**Local-first, by default silent on the wire.** Vault never makes a network
+request you didn't allow. There is **no telemetry, no analytics, no crash
+reporting, and no automatic update checks**. Gamification, scores, quests, and
+all stats live in your local database and never leave the machine.
+
+**Everything that can touch the network — the complete list:**
+
+| What | When | Controlled by |
+|------|------|---------------|
+| **One-time AI model downloads** — whisper, OPUS-MT translation packs, speaker-diarization models | First use of a model that isn't on disk yet | `SUB_ALLOW_DOWNLOADS` (default `1` = allowed with a warning; `0` = air-gapped: a missing model errors with pre-install instructions). Models already on disk always load offline |
+| **"Check for updates"** in Settings → About | Only when you click it | A single GET to `api.github.com` — nothing else is sent, and never automatic |
+| **Your AI backend endpoint** | Every scan / chat | Localhost LM Studio/Ollama by default. If **you** point it at a remote endpoint, frames and text go there — your call |
+| **Lovense device control** (if you use it) | User-initiated | Traffic stays on your LAN, but the HTTPS transport resolves `<ip>.lovense.club` via DNS, which discloses Lovense use to your DNS resolver |
+
+**`VAULT_OFFLINE=1` — the hard switch.** Set it and networking is loopback-only
+app-wide: model downloads, update checks, and remote AI endpoints all refuse,
+while localhost services keep working normally. It implies
+`SUB_ALLOW_DOWNLOADS=0` and sets `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` for the
+Python sidecars.
+
+**Auditable in one place.** Every Node-side network call routes through a single
+file — [`lib/net.js`](lib/net.js). Grep it yourself; there is no other egress
+path.
+
+**The viewer server binds `127.0.0.1` only** — it is never exposed to your LAN.
+
+## Reference
+
+<details>
+<summary><b>Environment variables</b></summary>
 
 ### Performance
 
@@ -173,7 +295,10 @@ fail to play are auto-marked ⚠ unplayable and can be filtered out.
 | `SUB_ALLOW_DOWNLOADS` | `1` | Governs the one-time fetch of AI models not yet on disk — whisper, OPUS-MT translation packs, and speaker-diarization models. `1` = allow (warned once); `0` = never touch the network (a missing model errors with pre-install instructions). Installed models always load offline |
 | `VAULT_OFFLINE` | `0` (unset) | Hard offline switch. `1` = loopback-only networking app-wide (model downloads, update checks, and remote AI endpoints all refuse); localhost services keep working. Implies `SUB_ALLOW_DOWNLOADS=0` and sets `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` for the Python sidecars |
 
-## Commands
+</details>
+
+<details>
+<summary><b>Commands</b></summary>
 
 ### scan
 
@@ -224,7 +349,10 @@ node video-tagger.js clean               # Rebuild normalized themes/tags/locati
 node video-tagger.js mark-executed       # Mark moves complete
 ```
 
-## Project Structure
+</details>
+
+<details>
+<summary><b>Project structure</b></summary>
 
 ```
 video-tagger/
@@ -278,8 +406,10 @@ video-tagger/
 └── css/                     # Viewer styles (incl. tiles.css, beatbar.css, music.css, editor.css)
 ```
 
+</details>
 
-## Metadata Schema
+<details>
+<summary><b>Metadata schema</b></summary>
 
 ### Core Fields
 | Field | Description |
@@ -326,7 +456,10 @@ node video-tagger.js query --lang Japanese --verbose
 #     - "Episode 5" (top left overlay)
 ```
 
-## Tuning
+</details>
+
+<details>
+<summary><b>Tuning</b></summary>
 
 Based on estimates:
 
@@ -400,7 +533,10 @@ weighted: {
 }
 ```
 
-## Usage Notes & Capabilities
+</details>
+
+<details>
+<summary><b>Usage notes &amp; capabilities</b></summary>
 
 ### Error Handling and Resumption
 The system tracks processing status in the database to allow flexible resumption:
@@ -476,7 +612,10 @@ a report). Tune via `DUPE_SKIP=false`, `DUPE_MIN_MB`, `DUPE_SIZE_TOLERANCE`.
   through the same persistent sidecar (model loads once per scan, not per file).
 - Transcriptions are stored in the `audio_transcription` column and shown in the viewer.
 
-## Troubleshooting
+</details>
+
+<details>
+<summary><b>Troubleshooting</b></summary>
 
 **"No LM Studio endpoints available"**
 - Start LM Studio and enable the server
@@ -485,46 +624,21 @@ a report). Tune via `DUPE_SKIP=false`, `DUPE_MIN_MB`, `DUPE_SIZE_TOLERANCE`.
 **Out of memory**
 - Reduce `maxFrames` in config
 - Reduce `--workers` count
-- Process one GPU at a time
 
 **High disk I/O**
 - Frame extraction is disk-heavy
 - Use SSD for temp directory: `VIDEO_TAGGER_TEMP=D:\temp`
 
-## Privacy & Network
-
-**Local-first, by default silent on the wire.** Vault never makes a network
-request you didn't allow. There is **no telemetry, no analytics, no crash
-reporting, and no automatic update checks**. Gamification, scores, quests, and
-all stats live in your local database and never leave the machine.
-
-**Everything that can touch the network — the complete list:**
-
-| What | When | Controlled by |
-|------|------|---------------|
-| **One-time AI model downloads** — whisper, OPUS-MT translation packs, speaker-diarization models | First use of a model that isn't on disk yet | `SUB_ALLOW_DOWNLOADS` (default `1` = allowed with a warning; `0` = air-gapped: a missing model errors with pre-install instructions). Models already on disk always load offline |
-| **"Check for updates"** in Settings → About | Only when you click it | A single GET to `api.github.com` — nothing else is sent, and never automatic |
-| **Your AI backend endpoint** | Every scan / chat | Localhost LM Studio/Ollama by default. If **you** point it at a remote endpoint, frames and text go there — your call |
-| **Lovense device control** (if you use it) | User-initiated | Traffic stays on your LAN, but the HTTPS transport resolves `<ip>.lovense.club` via DNS, which discloses Lovense use to your DNS resolver |
-
-**`VAULT_OFFLINE=1` — the hard switch.** Set it and networking is loopback-only
-app-wide: model downloads, update checks, and remote AI endpoints all refuse,
-while localhost services keep working normally. It implies
-`SUB_ALLOW_DOWNLOADS=0` and sets `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` for the
-Python sidecars.
-
-**Auditable in one place.** Every Node-side network call routes through a single
-file — [`lib/net.js`](lib/net.js). Grep it yourself; there is no other egress
-path.
-
-**The viewer server binds `127.0.0.1` only** — it is never exposed to your LAN.
+</details>
 
 ## Support & Donations
 
 Vault is free and open source. It's a personal project shared as-is —
 best-effort support through GitHub issues, no guarantees. If it saves your
 hoard some chaos and you want to say thanks, donations are appreciated but
-never required.
+never required. 
+
+Made with 🌿 by [aericode](https://ko-fi.com/aericode)
 
 ## License
 
