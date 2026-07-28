@@ -1,0 +1,103 @@
+/* =========================================================================
+   Detail view — the markup rendered by player-lib/detail-view.js into BOTH
+   the library modal and the player sidebar — both 480px slide-outs.
+
+   Only the shared component styles live here; the section layout is in
+   css/sidebar.css, keyed off .detail-body so it covers both. Anything that
+   must differ hangs off .detail-body--library / .detail-body--player, never
+   off a second copy of the markup.
+   ========================================================================= */
+
+.detail-action-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.detail-play-btn {
+  padding: 0.75rem 1.5rem;
+  background: var(--success, #22c55e);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.detail-copy-btn {
+  padding: 0.4rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.detail-path {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  word-break: break-all;
+  color: var(--text-secondary);
+}
+
+.detail-trash-btn {
+  padding: 0.5rem 0.9rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.detail-trash-btn.is-trashed {
+  background: var(--success);
+  border-color: var(--success);
+  color: #fff;
+}
+
+.detail-mix-btn {
+  padding: 0.5rem 0.9rem;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.detail-mix-hint {
+  margin-top: 0.4rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.detail-description {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.detail-error {
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.1);
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--danger);
+  font-size: 0.8rem;
+}
+
+/* ── Per-surface tweaks ──────────────────────────────────────────────────
+   Both surfaces are 480px slide-outs (css/tiles.css turns the library modal
+   into one), so the shared layout in css/sidebar.css fits each of them and
+   there is deliberately almost nothing here. Anything that ever does need to
+   differ hangs off these two classes — never off a second copy of the markup. */
+
+.detail-body.detail-body--library .detail-play-btn {
+  flex: 1;
+}

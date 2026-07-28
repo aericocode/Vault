@@ -198,21 +198,38 @@ function renderMusicSidebarSection(media) {
   return `
     <div class="detail-section music-section" data-media-id="${media.id}">
       <h3>🎵 Music ID</h3>
-      <div class="field-content music-sidebar-body" id="musicSidebar-${media.id}">
+      <div class="field-content music-sidebar-body" data-music-box="${media.id}">
         <span class="music-hint">Loading…</span>
       </div>
     </div>
   `;
 }
 
+/**
+ * A data attribute, not an id: the player sidebar and the library modal render
+ * the same section, and both can be in the DOM at once (trashing a duplicate
+ * from the sidebar opens the modal). Two nodes then shared one id, so
+ * getElementById picked whichever came first in document order — the modal —
+ * and the sidebar's box sat on "Loading…" for good. Filling every match instead
+ * makes the number of open surfaces irrelevant.
+ */
+function musicBoxes(mediaId) {
+  return document.querySelectorAll(`[data-music-box="${mediaId}"]`);
+}
+
 async function loadMusicSidebar(mediaId) {
-  const box = document.getElementById(`musicSidebar-${mediaId}`);
-  if (!box) return;
+  const boxes = musicBoxes(mediaId);
+  if (!boxes.length) return;
   let info;
   try { info = await fetch(`/api/music/media/${mediaId}`).then(r => r.json()); }
-  catch { box.innerHTML = '<span class="music-hint">Music ID unavailable</span>'; return; }
+  catch {
+    boxes.forEach(b => { b.innerHTML = '<span class="music-hint">Music ID unavailable</span>'; });
+    return;
+  }
   if (!musicTools) await loadMusicStatus();
-  box.innerHTML = musicSidebarHtml(mediaId, info);
+  const html = musicSidebarHtml(mediaId, info);
+  // Re-query: loadMusicStatus() awaited, so a surface may have opened or closed.
+  musicBoxes(mediaId).forEach(b => { b.innerHTML = html; });
 }
 
 function musicSidebarHtml(mediaId, info) {
@@ -257,7 +274,7 @@ function musicSidebarHtml(mediaId, info) {
         : `<span class="music-badge music-badge-auto" title="Auto-detected by fingerprint match — click ✎ to correct">auto${l.confidence ? ` ${Math.round(l.confidence * 100)}%` : ''}</span>`;
       return `
         <div class="music-song-row">
-          <button class="music-time" onclick="musicSeekTo(${l.start_sec ?? 0})" title="Jump to ${musicFmtTime(l.start_sec)}">${musicFmtTime(l.start_sec)}–${musicFmtTime(l.end_sec)}</button>
+          <button class="music-time" onclick="musicSeekTo(${l.start_sec ?? 0}, ${mediaId})" title="Jump to ${musicFmtTime(l.start_sec)}">${musicFmtTime(l.start_sec)}–${musicFmtTime(l.end_sec)}</button>
           <div class="music-song-info" title="${escapeHtml(l.artist)} – ${escapeHtml(l.title)}">
             <div class="music-song-title">${unknown ? '❓ ' : ''}${escapeHtml(l.title)}</div>
             <div class="music-song-artist">${escapeHtml(l.artist)}</div>
@@ -283,11 +300,11 @@ function musicSidebarHtml(mediaId, info) {
       <div class="music-form-row">
         <label class="music-time-field">start
           <input type="text" class="music-input music-input-time" id="musicAddStart-${mediaId}" placeholder="0:00">
-          <button class="music-icon-btn" onclick="musicGrabTime('musicAddStart-${mediaId}')" title="Use current player position">⏱</button>
+          <button class="music-icon-btn" onclick="musicGrabTime('musicAddStart-${mediaId}')" title="Use the current player position — needs the file playing">⏱</button>
         </label>
         <label class="music-time-field">end
           <input type="text" class="music-input music-input-time" id="musicAddEnd-${mediaId}" placeholder="3:45">
-          <button class="music-icon-btn" onclick="musicGrabTime('musicAddEnd-${mediaId}')" title="Use current player position">⏱</button>
+          <button class="music-icon-btn" onclick="musicGrabTime('musicAddEnd-${mediaId}')" title="Use the current player position — needs the file playing">⏱</button>
         </label>
         <button class="music-btn music-btn-primary" onclick="musicSaveManualTag(${mediaId}, this)">Save</button>
       </div>
@@ -300,7 +317,7 @@ function musicSidebarHtml(mediaId, info) {
 
 /** Refresh the section if the sidebar is showing this media. */
 function musicReloadSidebar(mediaId) {
-  if (document.getElementById(`musicSidebar-${mediaId}`)) loadMusicSidebar(mediaId);
+  if (musicBoxes(mediaId).length) loadMusicSidebar(mediaId);
 }
 
 /** Paint fingerprint progress into the sidebar while a job runs. */
@@ -373,7 +390,12 @@ async function musicRemoveLink(linkId, mediaId, btn) {
   if (typeof window.editorOnMusicData === 'function') window.editorOnMusicData();
 }
 
-function musicSeekTo(sec) {
+/** Jump to a song's start. From the library modal nothing is playing yet, so
+    detailSeekTo opens the file first (mediaId is optional for old callers). */
+function musicSeekTo(sec, mediaId) {
+  if (mediaId != null && typeof detailSeekTo === 'function') {
+    if (detailSeekTo(mediaId, sec)) return;
+  }
   const el = document.querySelector('#mediaPlayerContent video, #mediaPlayerContent audio');
   if (el && Number.isFinite(sec)) el.currentTime = Math.max(0, sec);
 }
@@ -385,7 +407,8 @@ function musicPlayerTime() {
 
 function musicGrabTime(inputId) {
   const t = musicPlayerTime();
-  if (t == null) { showToast('Open the file in the player to grab its position'); return; }
+  // No playhead to read from the library modal — refuse rather than stamp 0:00.
+  if (t == null) { showToast('⏱ Needs playback — play this file, then grab the position'); return; }
   const input = document.getElementById(inputId);
   if (input) input.value = musicFmtTime(t);
 }
@@ -923,11 +946,11 @@ async function musicEditLink(linkId, mediaId) {
     <div class="music-form-row">
       <label class="music-time-field">start
         <input type="text" class="music-input music-input-time" id="mel-start" value="${link.start_sec != null ? musicFmtTime(link.start_sec) : ''}">
-        <button class="music-icon-btn" id="mel-start-grab" title="Use current player position">⏱</button>
+        <button class="music-icon-btn" id="mel-start-grab" title="Use the current player position — needs the file playing">⏱</button>
       </label>
       <label class="music-time-field">end
         <input type="text" class="music-input music-input-time" id="mel-end" value="${link.end_sec != null ? musicFmtTime(link.end_sec) : ''}">
-        <button class="music-icon-btn" id="mel-end-grab" title="Use current player position">⏱</button>
+        <button class="music-icon-btn" id="mel-end-grab" title="Use the current player position — needs the file playing">⏱</button>
       </label>
     </div>
     <div class="music-hint">${link.method !== 'manual' ? 'Saving converts this auto match to a manual tag (trusted as a reference).' : ''}</div>

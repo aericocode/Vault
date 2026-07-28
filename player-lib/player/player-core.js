@@ -486,7 +486,26 @@ function toggleSidebar() {
     });
   } else {
     sidebar.classList.remove('active');
+    clearSidebarBody();
   }
+}
+
+/**
+ * Empty the closed sidebar. The Subtitles/Music sections fill themselves in
+ * async via getElementById, and the library modal now renders those same ids —
+ * leaving stale markup behind would give the modal's box an invisible twin and
+ * whichever one lost the id race would sit on "Loading…" forever.
+ */
+function clearSidebarBody() {
+  const body = document.getElementById('mediaSidebarBody');
+  if (!body) return;
+  // Flush HERE, not at the call sites. Escape runs closeMediaInfo() before
+  // closeMediaPlayer(), so by the time the player's own flush ran the
+  // .notes-section it looks for had already been wiped — a typed note went in
+  // the bin. Anything that empties this body has to save first, so the one
+  // function that empties it is the one that saves.
+  if (typeof flushPendingNotes === 'function') flushPendingNotes();
+  body.innerHTML = '';
 }
 
 /**
@@ -498,199 +517,9 @@ function renderSidebar() {
   const body = document.getElementById('mediaSidebarBody');
   if (!media || !body) return;
 
-  const mediaElements = safeParseJSON(media.media_elements, []);
-  const transcribedText = safeParseJSON(media.transcribed_text, []);
-  const suggested_file_name = safeParseJSON(media.suggested_file_name, []);
-  const themes = safeParseJSON(media.themes, []);
-  const tags = safeParseJSON(media.tags, []);
-  const locations = safeParseJSON(media.locations, []);
-  const escapedPath = escapeHtml(media.filepath).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-
-  let renderDupeSection = renderDuplicateSection(media)
-
-  body.innerHTML = `
-    <div class="detail-section">
-      <div style="margin-bottom: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-        <button onclick="copyPath('${escapedPath}')" style="padding: 0.4rem 0.75rem; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); cursor: pointer; font-size: 0.8rem;">
-          Copy Path
-        </button>
-      </div>
-      
-      <div class="detail-path" style="margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; font-size: 0.85rem; word-break: break-all;">${media.filepath}</div>
-
-      ${typeof renderMetaTools === 'function' && media.media_type !== 'mix' ? renderMetaTools(media) : ''}
-      ${typeof renderStarRatingSection === 'function' ? renderStarRatingSection(media) : ''}
-
-      <div class="flag-for-deletion" style="margin-top: 1rem;">
-      Flag this file: <button onclick="toggleFlagDelete('${escapedPath}'); this.classList.toggle('active')" class="dup-action-btn flag-btn ${media.user_flagged_delete ? 'active' : ''}" title="Flag current file">🚩</button> | ${media.media_type !== 'mix' ? `
-        <button onclick="trashOrRestoreFromSidebar(${media.id})" style="padding: 0.5rem 0.9rem; background: ${media.user_trashed ? 'var(--success)' : 'var(--bg-tertiary)'}; border: 1px solid ${media.user_trashed ? 'var(--success)' : 'var(--danger)'}; border-radius: 6px; color: ${media.user_trashed ? '#fff' : 'var(--danger)'}; cursor: pointer; font-size: 0.8rem; font-weight: 600;">
-          ${media.user_trashed ? '♻ Restore from Trash' : '🗑 Move to Trash'}
-        </button>` : ``}
-      </div>
-
-      
-
-      ${media.media_type === 'mix' ? `
-      <div style="margin: 0.75rem 0;">
-        <button onclick="openMixInEditor(${media.id})" style="padding: 0.5rem 0.9rem; background: var(--accent); border: 1px solid var(--accent); border-radius: 6px; color: #fff; cursor: pointer; font-size: 0.8rem; font-weight: 600;" title="Tweak layers, effects, sync — or update the saved mix">
-          🎛 Open in Editor
-        </button>
-        <div style="margin-top: 0.4rem; font-size: 0.72rem; color: var(--text-muted);">Custom mix — a virtual file assembled from its source videos. Edit layers/effects (and the title/description) in the Editor.</div>
-      </div>` : ``}
-      
-
-      ${renderDupeSection ? renderDupeSection : ``}
-    </div>
-
-    <div class="detail-section">
-      <h3>Description ${typeof fieldEditBtn === 'function' ? fieldEditBtn(media.id, 'description') : ''}</h3>
-      <div class="field-content">
-        <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0;">${media.description ? escapeHtml(media.description) : '<span class="field-empty">—</span>'}</p>
-      </div>
-    </div>
-
-    ${typeof renderNotesSection === 'function' ? renderNotesSection(media) : ''}
-
-    ${typeof renderSubtitlesSidebarSection === 'function' ? renderSubtitlesSidebarSection(media) : ''}
-
-    ${typeof renderMusicSidebarSection === 'function' ? renderMusicSidebarSection(media) : ''}
-
-    ${typeof renderGamesSidebarSection === 'function' ? renderGamesSidebarSection(media) : ''}
-
-    <div class="sidebar-nav-hint">
-      <span><kbd>Alt</kbd>+<kbd>←</kbd> Prev</span>
-      <span><kbd>Alt</kbd>+<kbd>→</kbd> Next</span>
-      <span><kbd>I</kbd> Close</span>
-    </div>
-
-    <div class="detail-section">
-      <h3>File Info ${typeof fieldEditBtn === 'function' ? fieldEditBtn(media.id, 'info') : ''}</h3>
-      <div class="field-content">
-      <div class="detail-grid detail-grid--2col">
-        <div class="detail-item">
-          <label>Type</label>
-          <span>${media.media_type}</span>
-        </div>
-        <div class="detail-item">
-          <label>Duration</label>
-          <span>${media.duration_seconds ? formatDuration(media.duration_seconds) : 'N/A'}</span>
-        </div>
-        <div class="detail-item">
-          <label>Res</label>
-          <span>${media.width && media.height ? `${media.width}×${media.height}` : 'N/A'}</span>
-        </div>
-        <div class="detail-item">
-          <label>Size</label>
-          <span>${media.filesize_bytes ? formatFileSize(media.filesize_bytes) : 'N/A'}</span>
-        </div>
-        <div class="detail-item">
-          <label>Quality</label>
-          <span>${media.quality_flag || 'N/A'}</span>
-        </div>
-        <div class="detail-item">
-          <label>Lang</label>
-          <span>${media.language_name || 'Unknown'}</span>
-        </div>
-        <div class="detail-item">
-          <label>Content</label>
-          <span>${media.content_type || 'N/A'}</span>
-        </div>
-        <div class="detail-item">
-          <label>Explicit</label>
-          <span>${media.explicit ? 'Yes' : 'No'}</span>
-        </div>
-        <div class="detail-item detail-item--wide">
-          <label>Views</label>
-          <span>👁 ${media.view_count || 0} · 💦 ${media.done_count || 0}${media.last_done_position > 0 ? ` (last at ${formatDuration(media.last_done_position)})` : ''} · 🔥 ${media.hot_count || 0}${media.last_hot_position > 0 ? ` (last at ${formatDuration(media.last_hot_position)})` : ''}</span>
-        </div>
-      </div>
-      </div>
-    </div>
-
-    ${media.processing_error ? `
-    <div class="detail-section">
-      <h3 style="color: var(--danger);">⚠ Error</h3>
-      <p style="color: var(--danger); background: rgba(239, 68, 68, 0.1); padding: 0.5rem; border-radius: 6px; border: 1px solid var(--danger); font-size: 0.8rem;">${escapeHtml(media.processing_error)}</p>
-    </div>
-    ` : ''}
-
-    <div class="detail-section detail-section--kv">
-      <h3>Themes ${typeof fieldEditBtn === 'function' ? fieldEditBtn(media.id, 'themes') : ''}</h3>
-      <div class="field-content">
-        <div class="card-tags">${themes.length ? themes.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('') : '<span class="field-empty">—</span>'}</div>
-      </div>
-    </div>
-
-    <div class="detail-section detail-section--kv">
-      <h3>Locations ${typeof fieldEditBtn === 'function' ? fieldEditBtn(media.id, 'locations') : ''}</h3>
-      <div class="field-content">
-        <div class="card-tags">${locations.length ? locations.map(l => `<span class="tag">${escapeHtml(l)}</span>`).join('') : '<span class="field-empty">—</span>'}</div>
-      </div>
-    </div>
-
-    <div class="detail-section detail-section--kv">
-      <h3>Tags ${typeof fieldEditBtn === 'function' ? fieldEditBtn(media.id, 'tags') : ''}</h3>
-      <div class="field-content">
-        <div class="card-tags">${tags.length ? tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('') : '<span class="field-empty">—</span>'}</div>
-      </div>
-    </div>
-
-    ${mediaElements.length > 0 ? `
-    <div class="detail-section">
-      <h3>Media Elements</h3>
-      <div class="elements-list elements-kv">
-        ${mediaElements.map((e, i) => `
-          <div class="element-item">
-            <div class="element-type">${escapeHtml(titleCaseKey(e.type))}</div>
-            <div class="element-details">${escapeHtml(e.details)}</div>
-            <button class="element-edit-btn" onclick="startElementEdit(this, ${media.id}, ${i})" title="Edit ${escapeHtml(titleCaseKey(e.type))}">✎</button>
-          </div>
-        `).join('')}
-      </div>
-    </div>
-    ` : ''}
-
-    ${suggested_file_name.length > 0 ? `
-    <div class="detail-section">
-      <h3>Suggested File Name</h3>
-      <div class="text-items">
-        ${suggested_file_name.map(s => `
-          <div class="text-item">
-            <q>${escapeHtml(s.text)}</q>
-          </div>
-        `).join('')}
-      </div>
-    </div>
-    ` : ''}
-
-    ${transcribedText.length > 0 ? `
-    <div class="detail-section">
-      <h3>Transcribed Text</h3>
-      <div class="text-items">
-        ${transcribedText.map(t => `
-          <div class="text-item">
-            <q>${escapeHtml(t.text)}</q>
-          </div>
-        `).join('')}
-      </div>
-    </div>
-    ` : ''}
-
-    <div class="detail-section">
-      <h3>Processing</h3>
-      <div class="detail-grid">
-        <div class="detail-item">
-          <label>Processed</label>
-          <span>${media.processed_at || 'N/A'}</span>
-        </div>
-        <div class="detail-item">
-          <label>Model</label>
-          <span>${media.model_used || 'N/A'}</span>
-        </div>
-      </div>
-    </div>
-  `;
+  body.innerHTML = renderDetailBody(media, { context: 'player' });
 }
+
 
 function closeMediaInfo() {
   // Close the old info overlay (if it was open)
@@ -700,6 +529,7 @@ function closeMediaInfo() {
   if (sidebar) {
     sidebar.classList.remove('active');
     sidebarOpen = false;
+    clearSidebarBody();
   }
   document.getElementById('mediaPlayerOverlay')?.classList.remove('sidebar-open');
 }

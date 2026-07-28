@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="./css/saved-searches.css">
   <link rel="stylesheet" href="./css/mini-player.css">
   <link rel="stylesheet" href="./css/sidebar.css">
+  <link rel="stylesheet" href="./css/detail-view.css">
   <link rel="stylesheet" href="./css/abloop.css">
   <link rel="stylesheet" href="./css/duplicates.css">
   <link rel="stylesheet" href="./css/tiles.css">
@@ -178,14 +179,6 @@
               <button class="tri-btn" data-value="0">Hide</button>
             </div>
           </div>
-          <div class="tri-filter" data-filter="filterExplicit">
-            <span class="tri-label">🔞 Explicit</span>
-            <div class="tri-buttons">
-              <button class="tri-btn active" data-value="">All</button>
-              <button class="tri-btn" data-value="1">Yes</button>
-              <button class="tri-btn" data-value="0">No</button>
-            </div>
-          </div>
           <div class="tri-filter" data-filter="filterStarred">
             <span class="tri-label">❤ Fave</span>
             <div class="tri-buttons">
@@ -253,6 +246,9 @@
       <div class="results-count">
         <button class="search-collapse-btn" id="searchCollapseBtn" title="Show/hide search &amp; filters">▲ Search</button>
         Showing <strong id="showingCount">0</strong> of <strong id="filteredCount">0</strong> results
+        <!-- Select page / Select all — they belong to the result count, not to
+             the action bar, and moving them here keeps that bar short. -->
+        <span class="results-select" id="resultsSelect"></span>
       </div>
       <div class="results-controls">
         <div class="sort-control">
@@ -355,6 +351,7 @@
   <script src="./player-lib/selection.js"></script>
   <script src="./player-lib/saved-searches.js"></script>
   <script src="./player-lib/cards.js"></script>
+  <script src="./player-lib/detail-view.js"></script>
   <script src="./player-lib/modal.js"></script>
   <script src="./player-lib/player/player-core.js"></script>
   <script src="./player-lib/player/abloop.js"></script>

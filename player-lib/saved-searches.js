@@ -40,7 +40,6 @@ function captureCurrentFilterState() {
     filterContent: document.getElementById('filterContent')?.value || '',
     filterLanguage: document.getElementById('filterLanguage')?.value || '',
     filterCollections: typeof getTriFilterValue === 'function' ? getTriFilterValue('filterCollections') : '',
-    filterExplicit: typeof getTriFilterValue === 'function' ? getTriFilterValue('filterExplicit') : '',
     filterStarred: typeof getTriFilterValue === 'function' ? getTriFilterValue('filterStarred') : '',
     filterHasNotes: typeof getTriFilterValue === 'function' ? getTriFilterValue('filterHasNotes') : '',
     filterDuplicates: typeof getTriFilterValue === 'function' ? getTriFilterValue('filterDuplicates') : '',
@@ -98,7 +97,6 @@ function restoreFilterState(state) {
   // Tri-state filters
   if (typeof setTriFilterValue === 'function') {
     setTriFilterValue('filterCollections', state.filterCollections || '');
-    setTriFilterValue('filterExplicit', state.filterExplicit || '');
     setTriFilterValue('filterStarred', state.filterStarred || '');
     setTriFilterValue('filterHasNotes', state.filterHasNotes || '');
     setTriFilterValue('filterDuplicates', state.filterDuplicates || '');

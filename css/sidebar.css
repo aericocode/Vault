@@ -105,26 +105,30 @@
   background: var(--text-secondary, #666);
 }
 
-/* ── Sidebar content sections ────────────────────────────────────────── */
+/* ── Detail content sections ─────────────────────────────────────────────
+   These are keyed off .detail-body, not .media-sidebar-body: the library
+   modal renders the very same markup (player-lib/detail-view.js) into an
+   equally-wide 480px slide-out (css/tiles.css), so both surfaces get one
+   set of rules and cannot drift visually either. */
 
-.media-sidebar-body .detail-section {
+.detail-body .detail-section {
   margin-bottom: 1rem;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--border, #333);
 }
 
-.media-sidebar-body .detail-section:last-child {
+.detail-body .detail-section:last-child {
   border-bottom: none;
 }
 
-.media-sidebar-body h3 {
+.detail-body h3 {
   color: var(--text, #cdd6f4);
   font-size: 0.85rem;
   font-weight: 600;
   margin: 0 0 0.5rem;
 }
 
-.media-sidebar-body .detail-grid {
+.detail-body .detail-grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: 0.35rem;
@@ -132,37 +136,41 @@
 
 /* File Info: two columns to reclaim vertical space; the last (long) item
    spans the full width so its value isn't cramped. */
-.media-sidebar-body .detail-grid--2col {
+.detail-body .detail-grid--2col {
   grid-template-columns: 1fr 1fr;
   gap: 0.3rem 0.6rem;
 }
 
-.media-sidebar-body .detail-grid--2col .detail-item--wide {
+.detail-body .detail-grid--2col .detail-item--wide {
   grid-column: 1 / -1;
 }
 
-.media-sidebar-body .detail-item {
+.detail-body .detail-item {
   display: flex;
   gap: 0.5rem;
   font-size: 0.8rem;
+  /* modal.css styles bare .detail-item as a bordered pill — too heavy at the
+     drawer's width, and it would make the two surfaces look different. */
+  border: none;
+  padding: 0;
 }
 
 /* Fixed-width keys → every value starts at the same x (keys may wrap) */
-.media-sidebar-body .detail-item label {
+.detail-body .detail-item label {
   color: var(--text-secondary, #888);
   width: 72px;
   flex: none;
   overflow-wrap: anywhere;
 }
 
-.media-sidebar-body .detail-item span {
+.detail-body .detail-item span {
   color: var(--text, #cdd6f4);
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 /* Themes / Locations / Tags: label + chips on one aligned row (compact) */
-.media-sidebar-body .detail-section--kv {
+.detail-body .detail-section--kv {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
@@ -170,40 +178,40 @@
   margin-bottom: 0.5rem;
 }
 
-.media-sidebar-body .detail-section--kv > h3 {
+.detail-body .detail-section--kv > h3 {
   width: 80px;
   flex: none;
   margin: 0;
   overflow-wrap: anywhere;
 }
 
-.media-sidebar-body .detail-section--kv > .field-content {
+.detail-body .detail-section--kv > .field-content {
   flex: 1;
   min-width: 0;
 }
 
-.media-sidebar-body .card-tags {
+.detail-body .card-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
 }
 
-.media-sidebar-body .tag {
+.detail-body .tag {
   font-size: 0.72rem;
   padding: 0.15rem 0.45rem;
 }
 
 /* ── Notes in sidebar — slightly more compact ────────────────────────── */
 
-.media-sidebar-body .notes-section {
+.detail-body .notes-section {
   padding: 0.75rem;
 }
 
-.media-sidebar-body .note-textarea {
+.detail-body .note-textarea {
   font-size: 0.82rem;
 }
 
-.media-sidebar-body .notes-list {
+.detail-body .notes-list {
   max-height: 200px;
 }
 

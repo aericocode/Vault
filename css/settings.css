@@ -298,6 +298,22 @@
   border-color: var(--accent);
 }
 
+/* Unit suffix (min / sec). Keeps the same footprint as a bare .settings-num so
+   rows with and without a unit still line their controls up. */
+.settings-num-wrap {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  margin-top: 0.1rem;
+}
+.settings-num-wrap .settings-num { margin-top: 0; }
+.settings-num-unit {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  min-width: 1.6rem;
+}
+
 .settings-tag {
   display: inline-block;
   font-size: 0.62rem;
@@ -459,25 +475,58 @@ body.privacy-mode .note-text,
 body.privacy-mode .saved-search-chip,
 body.privacy-mode .imp-t2,
 body.privacy-mode .dq-name,
-body.privacy-mode .dq-file,
-body.privacy-mode .detail-path {
+body.privacy-mode .dq-file {
   filter: blur(7px);
   pointer-events: none;
   user-select: none;
 }
 
-/* Path rows removed entirely */
-body.privacy-mode .pop-path {
-  display: none !important;
-}
-
-/* Detail modal "Full Path" row — hide the whole item.
-   (Tagged with .detail-path-item on the filepath detail-item.) */
-body.privacy-mode .detail-path-item {
+/* Path rows removed entirely.
+   .detail-path is the filepath row in the shared detail body (player sidebar
+   AND library modal — see player-lib/detail-view.js). It used to be blurred in
+   the sidebar and display:none in the modal; when the two surfaces merged, the
+   weaker of the two would have silently become the rule for both. A blurred
+   path is still on screen, and this section's whole premise is that a path row
+   must not be. Both surfaces now drop it outright. */
+body.privacy-mode .pop-path,
+body.privacy-mode .detail-path,
+/* Each duplicate in the dupe list prints its own path — same rule, and it is on
+   both detail surfaces, so leaving it visible undid the row above it. */
+body.privacy-mode .duplicate-path {
   display: none !important;
 }
 
 /* Trash "original path" line in the detail modal */
 body.privacy-mode .trash-original-path {
   display: none !important;
+}
+
+/* =========================================================================
+   BLURRED LIBRARY  (body.blur-thumbs)
+
+   Separate switch from privacy mode on purpose — that one hides YOUR data and
+   deliberately leaves thumbnails alone; this one hides the imagery and nothing
+   else. Both together is what makes a library screenshot publishable.
+
+   Hover reveals a single tile, which is what makes a blur usable day to day.
+   With privacy mode ALSO on that reveal is withdrawn, because this file's rule
+   is that nothing uncovers on hover — a cursor resting over a tile must not be
+   able to put a frame in the screenshot.
+   ========================================================================= */
+
+/* Only real thumbnails. The .thumb-fallback type glyph (🎵, 📄) is generic
+   chrome, not content — blurring it would just make the grid look broken. */
+body.blur-thumbs .tile-img {
+  filter: blur(14px);
+  transition: filter 0.12s ease-out;
+}
+
+/* Point at a tile to check what it is. */
+body.blur-thumbs .tile-thumb:hover .tile-img {
+  filter: none;
+}
+
+/* …but not while privacy mode is on. */
+body.blur-thumbs.privacy-mode .tile-thumb:hover .tile-img {
+  filter: blur(14px);
 }

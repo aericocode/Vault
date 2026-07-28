@@ -24,10 +24,42 @@
     resumePlayback: true,   // auto-seek to stored position on open (current behavior)
     restoreSession: false,  // reopen last media (paused) on launch, Stash-style
     scanWorkers: 2,         // files the vision model scans in parallel after an import
+    unlockHoldSeconds: 3,   // press-and-hold on the lock before the password box (0 = click)
+    blurThumbs: false,      // blur the grid's tiles (hover reveals — unless privacy mode is on)
     _lastMediaId: null,     // internal: id for restoreSession
   };
 
   let settings = { ...DEFAULTS };
+
+  /* ── Settings the SERVER owns ────────────────────────────────────────────
+     Two settings can't live in localStorage, because the server acts on them
+     with no browser involved: the Obsession tracker decides which routes exist,
+     and the autolock clock has to be right from process start. They persist
+     server-side (gamify-config.json / vault-settings.json) — which is also the
+     only way a Vault.exe user, who has nowhere to set an env var, can reach
+     them at all. Cached here so the modal can render synchronously. */
+
+  let server = { gamify: false, autolockMinutes: 30, encrypted: false, reachable: false };
+
+  async function loadServerSettings() {
+    try {
+      const resp = await fetch('/api/settings/app');
+      if (!resp.ok) return false;      // 423 while locked, or an older server
+      server = { ...server, ...(await resp.json()), reachable: true };
+      return true;
+    } catch { return false; }
+  }
+
+  async function pushServerSetting(patch) {
+    const resp = await fetch('/api/settings/app', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    server = { ...server, ...data };
+    return data;
+  }
 
   function load() {
     try {
@@ -122,10 +154,27 @@
     }
   }
 
-  // Apply the body class the instant this script runs (before first render),
-  // so a reload with privacy on never flashes personal data.
+  /* ── Blurred grid ────────────────────────────────────────────────────────
+     Independent of privacy mode, because they answer different questions:
+     privacy mode hides YOUR data (paths, notes, searches) while thumbnails are
+     deliberately left alone; this hides the imagery and nothing else. Wanting a
+     library screenshot that is safe to publish means wanting both.
+
+     Hover reveals a tile — that is the point of a blur rather than a hide, and
+     it keeps the grid usable. But privacy mode's rule is that nothing reveals
+     on hover, so with both on the blur stays put and the grid can be
+     screenshotted without a stray cursor uncovering a frame. css/settings.css
+     holds that combination. */
+
+  function applyBlurThumbs(on) {
+    document.body.classList.toggle('blur-thumbs', !!on);
+  }
+
+  // Apply the body classes the instant this script runs (before first render),
+  // so a reload with privacy or blur on never flashes the real thing.
   load();
   if (settings.privacyMode) document.body.classList.add('privacy-mode');
+  if (settings.blurThumbs) document.body.classList.add('blur-thumbs');
 
   /* ── Header gear button ──────────────────────────────────────────────────
      Appended to the END of .header-buttons (gamify prepends its chip; we
@@ -198,7 +247,13 @@
     if (!body) return;
     body.scrollTop = 0;
     body.innerHTML = RENDERERS[id] ? RENDERERS[id]() : '';
-    if (id === 'settings') wireSettingsSection();
+    if (id === 'settings') {
+      wireSettingsSection();
+      // The rows render from the cached server state so the modal opens
+      // instantly; refresh them once the server answers, in case it restarted
+      // or the vault was locked when we last asked.
+      loadServerSettings().then(ok => { if (ok) syncServerRows(); });
+    }
     if (id === 'seedpacks') wireSeedpacksSection();
     if (id === 'about') loadAbout();
   }
@@ -229,8 +284,10 @@
 
   /* ── Section: Settings (working toggles) ─────────────────────────────────── */
 
-  function toggleRow({ key, title, desc, planned = false, disabled = false }) {
-    const on = planned ? false : !!settings[key];
+  // `value` overrides the localStorage lookup — that's how the server-owned
+  // rows render from the cached server state instead.
+  function toggleRow({ key, title, desc, planned = false, disabled = false, value }) {
+    const on = planned ? false : (value !== undefined ? !!value : !!settings[key]);
     return `
       <label class="settings-toggle ${disabled || planned ? 'is-disabled' : ''}">
         <span class="settings-toggle-text">
@@ -244,20 +301,23 @@
 
   // Same skeleton as toggleRow, with a number input where the switch sits, so
   // the title/desc column keeps its alignment down the whole list.
-  function numberRow({ key, title, desc, min, max }) {
+  function numberRow({ key, title, desc, min, max, value, unit = '' }) {
+    const v = value !== undefined ? value : settings[key];
     return `
       <label class="settings-toggle">
         <span class="settings-toggle-text">
           <span class="settings-toggle-title">${title}</span>
           <span class="settings-toggle-desc">${desc}</span>
         </span>
-        <input class="settings-num" type="number" min="${min}" max="${max}" step="1"
-               data-setting-num="${key}" value="${settings[key]}">
+        <span class="settings-num-wrap">
+          <input class="settings-num" type="number" min="${min}" max="${max}" step="1"
+                 data-setting-num="${key}" value="${v}">
+          ${unit ? `<span class="settings-num-unit">${unit}</span>` : ''}
+        </span>
       </label>`;
   }
 
   const PLANNED = [
-    { key: 'p_blurThumbs',  title: 'Blur thumbnails until hover', desc: 'Keep the grid discreet until you point at a tile.' },
     { key: 'p_maskNames',   title: 'Mask filenames in privacy mode', desc: 'Replace tile names with neutral labels while privacy mode is on.' },
     { key: 'p_confirmTrash',title: 'Confirm before trash', desc: 'Ask before moving a file to the trash.' },
     { key: 'p_defaultSort', title: 'Default sort / filter on open', desc: 'Start every session with a saved sort and filter preset.' },
@@ -271,6 +331,11 @@
         key: 'privacyMode',
         title: 'Privacy / streaming mode',
         desc: 'Hide personal data (paths, notes, saved searches, import folders) for screen-sharing. Shortcut: Ctrl+Shift+H.',
+      })}
+      ${toggleRow({
+        key: 'blurThumbs',
+        title: 'Blur thumbnails in the library',
+        desc: 'Blur every tile in the grid. Point at one to see it — unless privacy mode is also on, in which case nothing reveals on hover and the grid is safe to screenshot.',
       })}
       ${toggleRow({
         key: 'resumePlayback',
@@ -288,6 +353,30 @@
         desc: 'How many files the local vision model scans at once after an import. Higher is faster but needs more VRAM — 1–8, default 2.',
         min: 1, max: 8,
       })}
+      ${toggleRow({
+        key: 'gamify',
+        value: server.gamify,
+        title: '🏆 Obsession Score',
+        desc: 'Opt-in local tracker — points, streaks, levels and quests. Entirely offline. Off by default, and it renders no UI at all while off. Reloads the page when changed.',
+      })}
+
+      <h3 class="settings-h">Vault security</h3>
+      <p class="settings-note" id="settingsSecNote">${server.encrypted
+        ? 'Your library is encrypted. These control how it locks itself and how you get back in.'
+        : 'No database password set yet — click the padlock in the header to create one. Auto-lock does nothing until then.'}</p>
+      ${numberRow({
+        key: 'autolockMinutes',
+        value: server.autolockMinutes,
+        title: 'Auto-lock after',
+        desc: 'Lock the vault after this many minutes with no activity. <b>0 = never</b>. A running AI scan keeps it awake rather than locking mid-file.',
+        min: 0, max: 1440, unit: 'min',
+      })}
+      ${numberRow({
+        key: 'unlockHoldSeconds',
+        title: 'Hold to unlock',
+        desc: 'How long to press and hold the padlock on the lock screen before the password box appears — a guard against a stray click revealing it. <b>0 = a single click</b>.',
+        min: 0, max: 10, unit: 'sec',
+      })}
 
       <h3 class="settings-h settings-h-planned">Planned</h3>
       <p class="settings-note">A visible roadmap — these are not wired up yet.</p>
@@ -300,10 +389,30 @@
     if (!body) return;
     body.querySelectorAll('input[data-setting]').forEach(input => {
       if (input.disabled) return;
-      input.addEventListener('change', () => {
+      input.addEventListener('change', async () => {
         const key = input.dataset.setting;
         if (key === 'privacyMode') {
           setPrivacyMode(input.checked);
+        } else if (key === 'blurThumbs') {
+          settings.blurThumbs = input.checked;
+          save();
+          applyBlurThumbs(settings.blurThumbs);
+          showToast?.(settings.blurThumbs ? '🫥 Library blurred' : 'Library blur off');
+        } else if (key === 'gamify') {
+          // Server-owned: the tracker's routes and its header chip both key off
+          // this. The server applies it live, but the chip and the Games UI are
+          // built at page load, so reload rather than leave a half-on interface.
+          const on = input.checked;
+          input.disabled = true;
+          try {
+            await pushServerSetting({ gamify: on });
+            showToast?.(on ? '🏆 Obsession Score on — reloading…' : 'Obsession Score off — reloading…');
+            setTimeout(() => location.reload(), 700);
+          } catch (err) {
+            input.checked = !on;                      // put the switch back
+            input.disabled = false;
+            showToast?.('⚠ ' + err.message);
+          }
         } else {
           settings[key] = input.checked;
           save();
@@ -313,12 +422,57 @@
     // Number rows: the input is free-typed, so re-read the clamped value back
     // into the field — a typed "99" or "" must visibly settle on what was saved.
     body.querySelectorAll('input[data-setting-num]').forEach(input => {
-      input.addEventListener('change', () => {
-        if (input.dataset.settingNum === 'scanWorkers') {
+      input.addEventListener('change', async () => {
+        const key = input.dataset.settingNum;
+        if (key === 'scanWorkers') {
           input.value = window.vaultSetScanWorkers(input.value);
+        } else if (key === 'autolockMinutes') {
+          const n = clampInt(input.value, 0, 1440, server.autolockMinutes);
+          try {
+            const r = await pushServerSetting({ autolockMinutes: n });
+            input.value = r.autolockMinutes;
+            showToast?.(r.autolockMinutes > 0
+              ? `🔒 Auto-lock after ${r.autolockMinutes} min`
+              : '🔓 Auto-lock off');
+          } catch (err) {
+            input.value = server.autolockMinutes;     // snap back to what's live
+            showToast?.('⚠ ' + err.message);
+          }
+        } else if (key === 'unlockHoldSeconds') {
+          const n = clampInt(input.value, 0, 10, settings.unlockHoldSeconds);
+          settings.unlockHoldSeconds = n;
+          save();
+          input.value = n;
+          showToast?.(n === 0 ? 'Unlock is now a single click' : `Hold the padlock for ${n}s to unlock`);
         }
       });
     });
+  }
+
+  // Shared clamp for the free-typed number rows: anything unreadable ('' from a
+  // blank field, letters) settles back on the value that's actually in force.
+  function clampInt(raw, min, max, fallback) {
+    if (raw === '' || raw == null) return fallback;
+    const n = Math.round(Number(raw));
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
+  }
+
+  // Patch the server-owned rows in place rather than re-rendering the section —
+  // a re-render mid-edit would yank the field out from under the cursor.
+  function syncServerRows() {
+    const body = document.getElementById('settingsBody');
+    if (!body) return;
+    const g = body.querySelector('input[data-setting="gamify"]');
+    if (g && document.activeElement !== g) g.checked = !!server.gamify;
+    const a = body.querySelector('input[data-setting-num="autolockMinutes"]');
+    if (a && document.activeElement !== a) a.value = String(server.autolockMinutes);
+    const note = document.getElementById('settingsSecNote');
+    if (note) {
+      note.innerHTML = server.encrypted
+        ? 'Your library is encrypted. These control how it locks itself and how you get back in.'
+        : 'No database password set yet — click the padlock in the header to create one. Auto-lock does nothing until then.';
+    }
   }
 
   // Keep the in-modal privacy checkbox + gear badge in sync when the toggle is
@@ -339,19 +493,19 @@
       <h3 class="settings-h">Guides</h3>
       <p class="settings-note">Short how-tos for the main features. See <code>README.md</code> / <code>SETUP.md</code> for the full docs.</p>
       ${guide('🔍 AI scanning',
-        'Vault describes, tags and titles your media with a local vision model. Point it at <b>LM Studio</b> or <b>Ollama</b> serving a vision model (see the Models section for picks by GPU size), then scan from the CLI or the in-app import queue. Nothing is uploaded — the model runs on your machine.')}
+        'Vault describes, tags and titles your media with a local vision model. Point it at <b>LM Studio(default)</b> or <b>Ollama</b> serving a vision model (see the Models section for picks by GPU size), then scan from the CLI or the in-app import queue. Nothing is uploaded - the model runs on your machine.')}
       ${guide('🧠 Semantic search',
-        'Tick <b>🧠 Semantic</b> next to the search box to find media by meaning instead of keywords ("crimson" finds red images). It uses a local embedding model. New scans embed automatically; run <code>node video-tagger.js embed</code> once to backfill vectors for rows scanned before you enabled it.')}
+        'Tick <b>🧠 Semantic</b> next to the search box to find media by meaning instead of keywords ("crimson" finds red images). It uses a local embedding model. New scans embed automatically.')}
       ${guide('🎵 Music ID',
-        'Fingerprint files (Chromaprint) to identify the songs inside them — select files in the Library then <b>🎵 Fingerprint</b>, or use the player sidebar. Right after fingerprinting, a file is auto-matched against every known song and every other fingerprinted file. You can teach it songs by tagging a segment, and import Seed packs to name tracks without needing the audio.')}
+        'Fingerprint files (Chromaprint) to identify the songs inside them — select files in the Library then <b>🎵 Music ID</b>, or use the info sidebar. Right after fingerprinting, a file is auto-matched against every known song and every other fingerprinted file. You can teach it songs by tagging a segment, and import Seed packs to name tracks without needing the audio. Seed packs are planned for future release to pre-load song databases.')}
       ${guide('🥁 Beat bar',
-        'A live beat-detection overlay for videos: the 🥁 control analyzes the audio track in-browser and renders a scrolling beat visualizer synced to playback. Sensitivity, playhead and icon styling are all adjustable, and its position is remembered per video. Fully local.')}
+        'A live beat-detection overlay for videos: the 🥁 control analyzes the audio track in-browser and renders a scrolling beat visualizer synced to playback. Sensitivity, playhead and icon styling are all adjustable, and its position is remembered per video.')}
       ${guide('💬 Subtitles',
-        'Generate subtitles/transcripts with a local <b>faster-whisper</b> sidecar (create the Python venv with <code>faster-whisper</code>, see SETUP.md). Works across scan modes, including foreign-clip translation. Tick <b>💬 Subtitles</b> in search to also match subtitle text.')}
+        'Generate subtitles/transcripts with a local transcription tool. Works across scan modes, including foreign-clip translation. Tick <b>💬 Subtitles</b> in search to also match subtitle text. Non-English languages are auto-detected and translated. First time translations of non-English languages will ask to download translation models. Falls back to AI translation.')}
       ${guide('🎮 Games',
-        'The Games tab turns library videos into games (e.g. <b>Reel Order</b> — reassemble randomized clips on a timeline). Pick videos in-tab (never a file dialog); progress is saved per game so you can leave and come back exactly where you were.')}
+        'The Games tab turns library videos into games. <b>Reel Order</b> - test your memory of your videos and reassemble randomized clips on a timeline. <b>Frame Fit</b> - turn and video into a jigsaw puzzle(<800 pieces).')}
       ${guide('🏆 Obsession Score',
-        'An optional, opt-in local gamification tracker (points, streaks, levels, quests). Enable it by starting the server with <code>--gamify</code>. Fully offline and disabled by default; turning it off deletes all tracked data. When off, it renders zero UI.')}
+        'An optional, opt-in local gamification tracker (points, streaks, levels, quests). Fully offline and disabled by default; turning it off deletes all tracked data. When off, it renders zero UI.')}
       ${guide('🔒 Encryption',
         'Set a database password (<code>VIDEO_TAGGER_DB_PASSWORD</code>) to encrypt the library. The padlock in the header locks/unlocks the vault, and it auto-locks after an idle timeout (<code>VAULT_AUTOLOCK_MINUTES</code>, 0 = off). While locked the library stays empty until you unlock.')}
     `;
@@ -362,17 +516,17 @@
   function RENDERERS_models() {
     return `
       <h3 class="settings-h">Model recommendations by GPU size</h3>
-      <p class="settings-note">Vision model = scan quality. Quantized (Q4) versions are the sweet spot.</p>
+      <p class="settings-note">Vision model = scan quality. Quantized (Q4) versions are the sweet spot. ~60k token context is required to handle vision reliably. </p>
       <div class="settings-table-wrap">
         <table class="settings-table">
           <thead>
             <tr><th>VRAM</th><th>Vision model (scanning)</th><th>Whisper (subtitles)</th></tr>
           </thead>
           <tbody>
-            <tr><td>6–8 GB</td><td>Qwen2.5-VL-3B Q4 · MiniCPM-V 2.6 Q4</td><td><code>WHISPER_MODEL=small</code></td></tr>
-            <tr><td>10–12 GB</td><td><b>Qwen2.5-VL-7B Q4</b> (recommended) · LLaVA-1.6-13B Q4</td><td><code>large-v3-turbo</code> @ int8 (default)</td></tr>
-            <tr><td>16 GB</td><td>Qwen2.5-VL-7B Q8 · Gemma-3-12B-IT Q4 (vision)</td><td>default</td></tr>
-            <tr><td>24 GB+</td><td>Qwen2.5-VL-32B Q4 · or 7B full precision + 2 workers</td><td>default</td></tr>
+            <tr><td>6–8 GB</td><td>MiniCPM V 4.6 Abliterated MAX</td><td><code>WHISPER_MODEL=small</code></td></tr>
+            <tr><td>10–12 GB</td><td>Qwen3.5-VL-4B Q4 Uncensored HauhauCS Aggressive</td><td><code>WHISPER_MODEL=small</code></td></tr>
+            <tr><td>16 GB</td><td>Qwen3.5-VL-4B Q8 Uncensored HauhauCS Aggressive + 2-4 workers</td><td>default</td></tr>
+            <tr><td>24 GB+</td><td>Qwen3.5-VL-9B Q4 Uncensored HauhauCS Aggressive + 2-4 workers</td><td>default</td></tr>
           </tbody>
         </table>
       </div>
@@ -385,7 +539,7 @@
   function RENDERERS_seedpacks() {
     return `
       <h3 class="settings-h">Song seed packs</h3>
-      <p>A seed pack (<code>vault-songseed.json</code>) is a portable bundle of song <b>reference fingerprints</b> — no audio inside. Importing one lands the songs and their fingerprints straight in your database without needing the MP3s on disk, and every already-fingerprinted file is rescanned against just the new references.</p>
+      <p>A seed pack (eg <code>vault-songseed.json</code>) is a portable bundle of song <b>reference fingerprints</b> — no audio inside. Importing one lands the songs and their fingerprints straight in your database without needing the MP3s on disk, and every already-fingerprinted file is rescanned against just the new references.</p>
       <p>It's strictly a manual pull: you download and pick the pack yourself, nothing auto-fetches. Re-importing is idempotent, so updated packs only add what's new.</p>
       <button class="settings-btn" id="settingsOpenSeedpacks">Open seed packs in Editor</button>
     `;
@@ -418,7 +572,7 @@
         <p>License: <a href="https://github.com/aericocode/Vault/blob/main/LICENSE" target="_blank" rel="noopener">AGPL-3.0</a></p>
         <div class="settings-links">
           <a href="https://github.com/aericocode/Vault" target="_blank" rel="noopener">GitHub repo ↗</a>
-          <a href="https://ko-fi.com/aericode" target="_blank" rel="noopener">Ko-fi ☕ ↗</a>
+          <a href="https://ko-fi.com/aericode" target="_blank" rel="noopener">Ko-fi 🌿 ↗</a>
         </div>
       </div>
     `;
@@ -537,6 +691,9 @@
     // is the source of truth, so hand it over on every page load. Fire-and-
     // forget: nothing in the UI depends on the answer.
     pushWorkers(clampWorkers(settings.scanWorkers));
+    // Warm the server-owned cache so the first modal open shows real values
+    // rather than the defaults. Best-effort — a locked vault answers 423.
+    loadServerSettings();
   }
 
   if (document.readyState === 'loading') {

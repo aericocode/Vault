@@ -70,7 +70,9 @@
   stroke-linecap: round;
 }
 .vault-lock-logo.holding .vault-hold-ring circle {
-  transition: stroke-dashoffset 3s linear;
+  /* Duration is set inline from the hold-to-unlock setting so the ring always
+     finishes exactly when the password box appears. */
+  transition: stroke-dashoffset var(--vault-hold-ms, 3000ms) linear;
   stroke-dashoffset: 0;
 }
 .vault-lock-title { font-size: 1.3rem; font-weight: 700; letter-spacing: 0.04em; }

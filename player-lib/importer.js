@@ -107,6 +107,7 @@
   const SCAN_POLL_MS = 1500;
   const SCAN_MAX_FAILS = 5;      // consecutive fetch errors → assume no route
   const SCAN_MAX_IDLE = 40;      // rounds with an empty queue → stop watching
+  const CANCEL_ARM_MS = 5000;    // armed Cancel disarms itself if left alone
 
   let _scanTimer = null;
   let _scanBusy = false;
@@ -115,6 +116,9 @@
   let _scanDismissed = false;    // user hid the panel; the scan keeps running
   let _scanFinishTimer = null;   // auto-dismiss of a finished panel
   let _scanLast = null;          // last readable status — what a paused poll shows
+  let _scanCmdBusy = false;      // a pause/resume POST is in flight
+  let _cancelArmTimer = null;    // the second half of the two-click Cancel
+  let _haltNotified = 0;         // halt.at already toasted — warn once per halt
 
   // Same buckets as lib/work-queue.js ProgressTracker.eta, so the CLI and the
   // panel never quote different numbers for the same queue.
@@ -136,10 +140,12 @@
     el = document.createElement('div');
     el.id = 'scanQueuePanel';
     el.className = 'delete-queue';
-    // The bar fill and the worker stepper live outside the re-rendered regions:
-    // rebuilding the fill every round would restart its CSS transition, and
-    // rebuilding the input would swallow half-typed digits (the element is gone
-    // before it can fire `change`).
+    // The bar fill, the worker stepper and the action buttons live outside the
+    // re-rendered regions: rebuilding the fill every round would restart its CSS
+    // transition, rebuilding the input would swallow half-typed digits (the
+    // element is gone before it can fire `change`), and rebuilding the buttons
+    // would wipe the armed half of the two-click Cancel every 1.5s — the poll
+    // would disarm it faster than anyone can click twice.
     el.innerHTML = `
       <div class="dq-head" id="scanHead"></div>
       <div class="dq-bar"><div class="dq-bar-fill" id="scanBarFill"></div></div>
@@ -149,14 +155,107 @@
           class="dq-num" id="scanWorkersNum" data-scan-workers
           title="Parallel vision jobs — changes take effect immediately"></span>
       </div>
-      <div class="dq-list" id="scanList"></div>`;
+      <div class="dq-warn" id="scanWarn" hidden></div>
+      <div class="dq-list" id="scanList"></div>
+      <div class="dq-actions" id="scanActions">
+        <button type="button" class="dq-btn dq-btn-quiet" id="scanHideBtn"
+          title="Hide this panel — the scan keeps running in the background">Hide</button>
+        <button type="button" class="dq-btn" id="scanPauseBtn"></button>
+        <button type="button" class="dq-btn dq-btn-danger" id="scanCancelBtn">Cancel</button>
+      </div>`;
     queuePanelStack().appendChild(el);
     el.querySelector('#scanWorkersNum').addEventListener('change', (e) => {
       if (typeof window.vaultSetScanWorkers === 'function') {
         e.target.value = window.vaultSetScanWorkers(e.target.value);
       }
     });
+    el.querySelector('#scanPauseBtn').addEventListener('click', onPauseClick);
+    el.querySelector('#scanCancelBtn').addEventListener('click', onCancelClick);
+    // The head's ✕ became Cancel, which would leave no way to get an hours-long
+    // run off the screen without killing it — so the harmless half of the old ✕
+    // lives on here. Keeps polling: a halt still toasts through a hidden panel.
+    el.querySelector('#scanHideBtn').addEventListener('click', () => {
+      _scanDismissed = true;
+      document.getElementById('scanQueuePanel')?.remove();
+    });
     return el;
+  }
+
+  /* ── ⏸ Pause / ▶ Resume ─────────────────────────────────────────────────
+     Pausing stops dispatch only — whatever is already mid-scan finishes, since
+     a vision call can't be torn down cleanly. Resuming a model halt asks the
+     server to probe the endpoint first, so "I loaded the wrong model" comes
+     back as a warning instead of an instant re-pause. */
+  async function onPauseClick(e) {
+    if (_scanCmdBusy) return;
+    const resuming = e.currentTarget.dataset.mode === 'resume';
+    _scanCmdBusy = true;
+    if (_scanLast) renderScanPanel(_scanLast);          // grey the button now
+    try {
+      const resp = await fetch(`/api/import/queue/${resuming ? 'resume' : 'pause'}`, { method: 'POST' });
+      const q = await resp.json().catch(() => null);
+      if (!resp.ok) { showToast('⚠ ' + ((q && q.error) || `HTTP ${resp.status}`)); return; }
+      if (q?.warning) showToast('⚠ ' + q.warning);
+      else showToast(resuming ? '▶ Scanning resumed' : '⏸ Scan paused — files already running will finish');
+      if (q) _scanLast = q;
+      // The watcher may have given up while the queue sat halted; a resume needs
+      // it back to follow the run.
+      if (resuming) watchScanQueue();
+    } catch (err) {
+      showToast('⚠ ' + err.message);
+    } finally {
+      _scanCmdBusy = false;
+      if (_scanLast && document.getElementById('scanQueuePanel')) renderScanPanel(_scanLast);
+    }
+  }
+
+  function disarmCancel() {
+    clearTimeout(_cancelArmTimer);
+    _cancelArmTimer = null;
+    const btn = document.getElementById('scanCancelBtn');
+    if (!btn) return;
+    btn.classList.remove('armed');
+    btn.textContent = 'Cancel';
+    btn.title = 'Stop the scan and drop everything still queued';
+  }
+
+  /* ── ✕ → two-click Cancel ───────────────────────────────────────────────
+     This genuinely throws work away (the queue is cleared), so one stray click
+     must not be enough. First click arms and relabels; the second commits.
+     Left alone it disarms itself after CANCEL_ARM_MS. */
+  async function onCancelClick(e) {
+    const btn = e.currentTarget;
+    if (!btn.classList.contains('armed')) {
+      btn.classList.add('armed');
+      btn.textContent = 'Click again to cancel';
+      btn.title = 'This drops every file still queued';
+      clearTimeout(_cancelArmTimer);
+      _cancelArmTimer = setTimeout(disarmCancel, CANCEL_ARM_MS);
+      return;
+    }
+    disarmCancel();
+    let stillRunning = 0;
+    try {
+      const resp = await fetch('/api/import/queue/cancel', { method: 'POST' });
+      const r = await resp.json().catch(() => ({}));
+      if (!resp.ok) { showToast('⚠ ' + (r.error || `HTTP ${resp.status}`)); return; }
+      stillRunning = r.active || 0;
+      const still = stillRunning ? `, ${stillRunning} still finishing` : '';
+      showToast(r.dropped
+        ? `✕ Scan cancelled — ${r.dropped} queued file${r.dropped === 1 ? '' : 's'} dropped${still}`
+        : '✕ Scan cancelled');
+    } catch (err) {
+      showToast('⚠ ' + err.message);
+    } finally {
+      // Cancelled means done watching: in-flight files finish on their own and
+      // their rows land normally, but there is no run left to report on. Keep
+      // the poller alive while any are still going, though — one of them can
+      // still halt the model, and that warning has to reach the user.
+      _scanDismissed = true;
+      _scanLast = null;
+      if (!stillRunning) stopScanWatch();
+      document.getElementById('scanQueuePanel')?.remove();
+    }
   }
 
   function renderScanPanel(q) {
@@ -164,20 +263,42 @@
     el.classList.add('visible');
 
     const done = q.done || 0, failed = q.failed || 0, total = q.total || 0;
-    const head = el.querySelector('#scanHead');
-    head.innerHTML = `
-      ${q.paused ? '<span class="dq-ico">⏸</span>' : '<span class="dq-spin"></span>'}
-      <span class="dq-title">🤖 AI scan ${done}/${total}${failed ? ` · ${failed} failed` : ''}${q.paused ? ' — paused (vault locked)' : ''}</span>
-      <button class="dq-x" title="Hide this panel — the scan keeps running in the background">✕</button>`;
-    head.querySelector('.dq-x').addEventListener('click', () => {
-      _scanDismissed = true;
-      stopScanWatch();
-      el.remove();
-    });
+    const by = q.paused ? (q.pausedBy || 'user') : null;
+    const note = { vault: ' — paused (vault locked)', user: ' — paused', model: ' — paused (model unavailable)' }[by] || '';
+    el.querySelector('#scanHead').innerHTML = `
+      ${q.paused ? `<span class="dq-ico">${by === 'model' ? '⚠' : '⏸'}</span>` : '<span class="dq-spin"></span>'}
+      <span class="dq-title">🤖 AI scan ${done}/${total}${failed ? ` · ${failed} failed` : ''}${note}</span>`;
 
     const pct = total ? Math.min(100, ((done + failed) / total) * 100) : 0;
     el.querySelector('#scanBarFill').style.width = `${pct}%`;
 
+    // Why it stopped, and what to do about it. Only the model halt needs
+    // explaining — a vault lock and a deliberate pause speak for themselves.
+    const warn = el.querySelector('#scanWarn');
+    if (by === 'model' && q.halt) {
+      warn.hidden = false;
+      warn.innerHTML = `⚠ <b>Model unavailable</b> — ${escapeHtml(q.halt.reason || '')}`
+        + (q.halt.filename ? `<div class="dq-warn-at">stopped at ${escapeHtml(q.halt.filename)}</div>` : '')
+        + `<div class="dq-warn-at">Nothing was lost — load the model, then press ▶ Resume.</div>`;
+    } else {
+      warn.hidden = true;
+      warn.innerHTML = '';
+    }
+
+    // Pause ↔ Resume. A vault lock isn't ours to clear, so the button steps
+    // aside rather than pretending it can.
+    const pauseBtn = el.querySelector('#scanPauseBtn');
+    const resuming = !!q.paused;
+    pauseBtn.dataset.mode = resuming ? 'resume' : 'pause';
+    pauseBtn.textContent = resuming ? '▶ Resume' : '⏸ Pause';
+    pauseBtn.classList.toggle('dq-btn-primary', resuming && by !== 'vault');
+    pauseBtn.disabled = _scanCmdBusy || by === 'vault';
+    pauseBtn.title = by === 'vault'
+      ? 'The vault is locked — unlock it to carry on scanning'
+      : resuming ? 'Start scanning again from where it stopped'
+        : 'Stop starting new files — anything mid-scan still finishes';
+
+    el.querySelector('#scanActions').hidden = false;
     el.querySelector('#scanMeta').style.display = '';
     el.querySelector('#scanEta').textContent = `ETA ${fmtEta(q.etaMs)}`;
     // Mid-edit is sacred: a poll landing between keystrokes must not rewrite
@@ -202,6 +323,10 @@
        <button class="dq-x" title="Dismiss">✕</button>`;
     el.querySelector('#scanMeta').style.display = 'none';   // keeps the stepper node alive
     el.querySelector('#scanList').innerHTML = '';
+    // Nothing left to pause or cancel — the head's ✕ is a plain dismiss here.
+    el.querySelector('#scanActions').hidden = true;
+    el.querySelector('#scanWarn').hidden = true;
+    disarmCancel();
     el.querySelector('.dq-x').addEventListener('click', () => el.remove());
     clearTimeout(_scanFinishTimer);
     if (!failed) _scanFinishTimer = setTimeout(() => el.remove(), 4000);
@@ -227,8 +352,11 @@
         if (_scanLast) {
           _scanIdle = 0;
           // etaMs is dropped: an estimate from before the lock is meaningless
-          // while nothing is running.
-          if (!_scanDismissed) renderScanPanel({ ..._scanLast, paused: true, etaMs: null });
+          // while nothing is running. pausedBy/halt are overridden too — the
+          // lock is the live reason now, whatever the last payload said.
+          if (!_scanDismissed) {
+            renderScanPanel({ ..._scanLast, paused: true, pausedBy: 'vault', halt: null, etaMs: null });
+          }
         } else if (++_scanIdle >= SCAN_MAX_IDLE) {
           stopScanWatch();          // locked with nothing known to report
         }
@@ -249,6 +377,14 @@
       _scanIdle = 0;
       _scanLast = q;
 
+      // Warn once per halt whether the panel is up or not: the queue has stopped
+      // and needs a person, and the whole stack hides behind the full player.
+      if (q.pausedBy === 'model' && q.halt && q.halt.at !== _haltNotified) {
+        _haltNotified = q.halt.at;
+        _scanDismissed = false;                 // a halt is worth un-hiding for
+        showToast(`⚠ AI scan paused — ${q.halt.reason}`);
+      }
+
       const complete = total > 0 && (q.done || 0) + (q.failed || 0) >= total && !working;
       if (complete) {
         _scanLast = null;
@@ -265,6 +401,10 @@
       _scanBusy = false;
     }
   }
+
+  // Exposed so other modules can raise the panel for work they queued
+  // themselves (selection.js's ↻ Retry errors).
+  window.vaultWatchScanQueue = (opts) => watchScanQueue(opts || {});
 
   function watchScanQueue({ fresh = false } = {}) {
     if (fresh) { _scanDismissed = false; _scanIdle = 0; _scanFails = 0; }

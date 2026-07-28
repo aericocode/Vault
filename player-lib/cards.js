@@ -96,7 +96,6 @@ function renderTile(media) {
     hasNotes ? '<span class="tile-ind ind-notes" title="Has notes">📝</span>' : '',
     hasError ? '<span class="tile-ind ind-error" title="Processing error">⚠</span>' : '',
     isUnscanned ? '<span class="tile-ind ind-unscanned" title="Not scanned yet — AI analysis pending">⏳</span>' : '',
-    media.explicit ? '<span class="tile-ind ind-explicit" title="Explicit">🔞</span>' : '',
     (typeof mediaSongIds === 'function' && mediaSongIds(media.id).length > 0)
       ? `<span class="tile-ind ind-music" title="${mediaSongIds(media.id).length} song(s) identified">🎵</span>` : '',
   ].filter(Boolean).join('');
@@ -220,7 +219,6 @@ function buildPopoverHtml(media) {
     media.dupe_group ? '⧉ Dupe (notes shared)' : '',
     media.user_trashed ? '🗑 In trash' : '',
     media.playback_failed ? '⚠ Failed to play' : '',
-    media.explicit ? '🔞 Explicit' : '',
   ].filter(Boolean);
 
   const escapedPath = escapeHtml(media.filepath).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -426,7 +424,6 @@ function renderCard(media) {
           <span class="meta-badge type-${media.media_type}">${media.media_type}</span>
           ${media.language_code && media.language_code !== 'none' ? `<span class="meta-badge language" title="${escapeHtml(media.language_name || '')}">${escapeHtml(media.language_code.toUpperCase())}</span>` : ''}
           ${media.content_type ? `<span class="meta-badge">${media.content_type}</span>` : ''}
-          ${media.explicit ? '<span class="meta-badge explicit">Explicit</span>' : ''}
           ${hasError ? `<span class="meta-badge error" data-error="${escapeHtml(media.processing_error)}">⚠ Error</span>` : ''}
           ${cardUnscanned ? '<span class="meta-badge unscanned-badge" title="AI analysis pending">⏳ Not scanned</span>' : ''}
           ${hasNotes ? '<span class="meta-badge has-notes">📝 Notes</span>' : ''}

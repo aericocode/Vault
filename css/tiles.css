@@ -319,14 +319,19 @@
   box-shadow: 0 0 0 1px var(--accent);
 }
 
-/* Anchored bottom-LEFT so it never covers the centered page numbers */
+/* Anchored bottom-LEFT so it never covers the centered page numbers. The
+   right edge is capped and the row wraps: with every conditional button showing
+   at once (Music ID + Stack + Grid + Retry + Trash + Restore + …) a single line
+   used to run out past the pagination instead of stopping at the viewport. */
 .selection-bar {
   position: fixed;
   left: 18px;
   bottom: 18px;
+  max-width: calc(100vw - 36px);
   transform: translate(0, 80px);
   z-index: 950;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   background: var(--bg-secondary);
@@ -361,7 +366,29 @@
 .sel-btn:hover { border-color: var(--accent); }
 .sel-btn.sel-trash { border-color: var(--danger); color: #fca5a5; }
 .sel-btn.sel-restore { border-color: var(--success); color: #86efac; }
-.sel-btn.sel-clear { color: var(--text-secondary); }
+.sel-btn.sel-clear { color: var(--text-secondary); padding: 0.35rem 0.55rem; }
+/* Flag is a toggle: lit means every selected file already carries the flag. */
+.sel-btn.sel-flagged { border-color: var(--danger); color: #fca5a5; }
+.sel-btn.sel-retry { border-color: #f0ad4e; color: #f0ad4e; }
+
+/* ── Select page / Select all, up by "Showing X of Y results" ── */
+.results-select {
+  display: inline-flex;
+  gap: 0.35rem;
+  margin-left: 0.7rem;
+  vertical-align: middle;
+}
+.rs-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 0.25rem 0.6rem;
+  font-family: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.rs-btn:hover { border-color: var(--accent); color: var(--text-primary); }
 
 /* ── Trashed tiles ── */
 .media-tile.tile-trashed {
@@ -566,6 +593,54 @@
   text-align: center;
 }
 .dq-num:focus { outline: none; border-color: var(--accent); }
+
+/* ── Scan-queue halt banner: why the run stopped and what fixes it ── */
+.dq-warn {
+  margin: 0.1rem 0 0.4rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid rgba(240, 173, 78, 0.45);
+  background: rgba(240, 173, 78, 0.12);
+  color: var(--text-primary);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+.dq-warn[hidden] { display: none; }
+.dq-warn-at { color: var(--text-muted); margin-top: 0.15rem; }
+
+/* ── Scan-queue actions (⏸ Pause · Cancel) ── */
+.dq-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+}
+.dq-actions[hidden] { display: none; }
+.dq-btn {
+  padding: 0.22rem 0.6rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.dq-btn:hover:not(:disabled) { border-color: var(--accent); }
+.dq-btn:disabled { opacity: 0.45; cursor: default; }
+.dq-btn-primary { border-color: var(--accent); color: var(--accent); }
+/* Hide sits apart from the two buttons that actually change the run. */
+.dq-btn-quiet { margin-right: auto; background: none; border-color: transparent; color: var(--text-muted); }
+.dq-btn-quiet:hover:not(:disabled) { color: var(--text-primary); border-color: var(--border); }
+.dq-btn-danger:hover:not(:disabled) { border-color: #e05260; color: #e05260; }
+/* Armed = one more click destroys the queue. It should look like it. */
+.dq-btn-danger.armed {
+  background: #e05260;
+  border-color: #e05260;
+  color: #fff;
+  font-weight: 600;
+}
 
 /* ── Delete-mode selector (in the Trashed filter) ── */
 .delete-mode-row {

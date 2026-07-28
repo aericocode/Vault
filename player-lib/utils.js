@@ -79,11 +79,27 @@ function safeParseJSON(str, fallback = []) {
   }
 }
 
+/**
+ * Escape text for interpolation into HTML.
+ *
+ * textContent→innerHTML handles & < > but leaves quotes alone, which is fine in
+ * a text node and not fine in an attribute: a value containing a double quote
+ * closed the attribute early and everything after it was parsed as real markup
+ * (`onclick=`, `onmouseover=`…). Every attribute in this codebase is
+ * double-quoted, so escaping " closes that.
+ *
+ * ' is deliberately NOT escaped. Several call sites build inline handlers as
+ * onclick="fn('${escapeHtml(p).replace(/'/g, "\\'")}')" — they rely on the
+ * apostrophe reaching them intact so they can backslash-escape it for the JS
+ * string. Turning it into &#39; here would have the HTML parser hand a bare
+ * quote back to the JS parser, which is the very injection this prevents.
+ */
 function escapeHtml(text) {
   if (!text) return '';
   const div = document.createElement('div');
   div.textContent = text;
-  return div.innerHTML;
+  // & is already escaped by the step above, so this can't double-encode.
+  return div.innerHTML.replace(/"/g, '&quot;');
 }
 
 /* ── Bottom-right queue stack ─────────────────────────────────────────────

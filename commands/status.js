@@ -18,7 +18,6 @@ function run() {
   console.log(`Total media files: ${stats.total}`);
   console.log(`Successfully processed: ${stats.success}`);
   console.log(`Errors: ${stats.errors}`);
-  console.log(`Explicit content: ${stats.explicit_count}`);
   console.log(`Pending operations: ${pending.count}`);
   
   console.log('\n--- By Content Type ---');

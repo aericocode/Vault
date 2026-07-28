@@ -524,19 +524,28 @@ function renderSubtitlesSidebarSection(media) {
   return `
     <div class="detail-section subtitles-section" data-media-id="${media.id}">
       <h3>💬 Subtitles</h3>
-      <div class="field-content subtitles-sidebar-body" id="subsSidebar-${media.id}">
+      <div class="field-content subtitles-sidebar-body" data-subs-box="${media.id}">
         <span class="subs-hint">Loading…</span>
       </div>
     </div>`;
 }
 
+/** Every open copy of this section — see musicBoxes() in music.js for why. */
+function subsBoxes(mediaId) {
+  return document.querySelectorAll(`[data-subs-box="${mediaId}"]`);
+}
+
 async function subtitlesLoadSidebar(mediaId) {
-  const box = document.getElementById(`subsSidebar-${mediaId}`);
-  if (!box) return;
+  const boxes = subsBoxes(mediaId);
+  if (!boxes.length) return;
   let info;
   try { info = await fetch(`/api/media/${mediaId}/subtitles/info`).then(r => r.json()); }
-  catch { box.innerHTML = '<span class="subs-hint">Subtitles unavailable</span>'; return; }
-  box.innerHTML = subtitlesSidebarHtml(mediaId, info);
+  catch {
+    boxes.forEach(b => { b.innerHTML = '<span class="subs-hint">Subtitles unavailable</span>'; });
+    return;
+  }
+  const html = subtitlesSidebarHtml(mediaId, info);
+  subsBoxes(mediaId).forEach(b => { b.innerHTML = html; });
 }
 
 function subtitlesSidebarHtml(mediaId, info) {
@@ -627,6 +636,10 @@ async function subtitlesToggleTranscript(mediaId, lang) {
     const el = currentMediaState.element;
     if (currentMediaState.currentMediaData?.id === mediaId && el && ['VIDEO', 'AUDIO'].includes(el.tagName)) {
       el.currentTime = Math.max(0, start - 0.3);
+      showToast(`⏪ Jumped to ${fmt(start)}`);
+      if (typeof gamifyEvent === 'function') gamifyEvent('transcript_seek');
+    } else if (typeof detailSeekTo === 'function' && detailSeekTo(mediaId, start - 0.3)) {
+      // Clicked from the library modal — open the file, then land on the line
       showToast(`⏪ Jumped to ${fmt(start)}`);
       if (typeof gamifyEvent === 'function') gamifyEvent('transcript_seek');
     } else {
@@ -746,7 +759,7 @@ async function subtitlesConfirmRescan(mediaId) {
 function _subsPollSidebarUntilDone(mediaId) {
   clearTimeout(_subs.sidebarPoll);
   const tick = async () => {
-    if (!document.getElementById(`subsSidebar-${mediaId}`)) return;   // sidebar closed/navigated
+    if (!subsBoxes(mediaId).length) return;   // every surface closed/navigated away
     let info;
     try { info = await fetch(`/api/media/${mediaId}/subtitles/info`).then(r => r.json()); }
     catch { _subs.sidebarPoll = setTimeout(tick, 2500); return; }

@@ -459,11 +459,16 @@ function gamesOverlayPick(mediaId) {
 /* ── Sidebar "Send to game" entry point ─────────────────────────────────── */
 
 function gamesSendToGame(key, mediaId) {
-  // The "Send to game" button lives in the player sidebar — close the player
-  // overlay (it's a fixed full-screen layer) before showing the Games tab.
+  // "Send to game" sits on both detail surfaces, and each is a fixed
+  // full-screen layer that would cover the Games tab — dismiss whichever
+  // one launched us. The game plays the file itself; nothing needs playback.
   if (typeof closeMediaPlayer === 'function' &&
       document.getElementById('mediaPlayerOverlay')?.classList.contains('active')) {
     closeMediaPlayer();
+  }
+  if (typeof closeModal === 'function' &&
+      document.getElementById('modalOverlay')?.classList.contains('active')) {
+    closeModal();
   }
   switchTab('games');
   gamesLaunch(key, mediaId);

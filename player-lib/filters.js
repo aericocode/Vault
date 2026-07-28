@@ -489,7 +489,6 @@ function applyFilters(opts) {
 
   // Tri-state filters ('' = all, '1' = only yes, '0' = only no)
   const triCollections = getTriFilterValue('filterCollections');
-  const triExplicit = getTriFilterValue('filterExplicit');
   const triStarred = getTriFilterValue('filterStarred');
   const triHasNotes = getTriFilterValue('filterHasNotes');
   const triDuplicates = getTriFilterValue('filterDuplicates');
@@ -539,9 +538,6 @@ function applyFilters(opts) {
     if (quality && m.quality_flag !== quality) return false;
 
     // Tri-state filters
-    if (triExplicit === '1' && !m.explicit) return false;
-    if (triExplicit === '0' && m.explicit) return false;
-
     if (triStarred === '1' && !m.user_starred) return false;
     if (triStarred === '0' && m.user_starred) return false;
 

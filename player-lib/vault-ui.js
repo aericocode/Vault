@@ -287,20 +287,37 @@
 
   /* ── Lock screen (opaque overlay + hold-3s to unlock) ────────────────── */
 
+  /**
+   * How long the lock must be held before the password box appears.
+   * Settings owns the value (0–10s); 0 means a plain click. Read at overlay
+   * build time so a change applies on the next lock without a reload.
+   */
+  function holdSeconds() {
+    const raw = typeof window.vaultSetting === 'function' ? window.vaultSetting('unlockHoldSeconds') : 3;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 3;
+    return Math.max(0, Math.min(10, Math.round(n)));
+  }
+
   function showLockOverlay() {
     if (document.getElementById('vaultLockScreen')) return;
+    const secs = holdSeconds();
+    const label = secs === 0
+      ? 'Click the lock to unlock'
+      : `Press and hold the lock for ${secs} second${secs === 1 ? '' : 's'}`;
     const ov = document.createElement('div');
     ov.id = 'vaultLockScreen';
     ov.innerHTML = `
       <div class="vault-lock-center">
-        <div class="vault-lock-logo" id="vaultHoldTarget" title="Press and hold for 3 seconds to unlock">
+        <div class="vault-lock-logo" id="vaultHoldTarget" title="${label}"
+             style="--vault-hold-ms:${secs * 1000}ms">
           ${LOCK_SVG}
           <svg class="vault-hold-ring" viewBox="0 0 120 120" aria-hidden="true">
             <circle cx="60" cy="60" r="54" fill="none" stroke-width="5"/>
           </svg>
         </div>
         <div class="vault-lock-title">Vault locked</div>
-        <div class="vault-lock-hint" id="vaultLockHint">Press and hold the lock for 3 seconds</div>
+        <div class="vault-lock-hint" id="vaultLockHint">${label}</div>
         <form id="vaultUnlockForm" class="vault-unlock-form" style="display:none">
           <input type="password" id="vaultUnlockPass" class="vault-input" placeholder="Password" autocomplete="current-password">
           <button class="vault-btn vault-btn-primary" type="submit">Unlock</button>
@@ -316,6 +333,14 @@
     const hint = ov.querySelector('#vaultLockHint');
     let holdTimer = null;
 
+    const secs = holdSeconds();
+
+    const reveal = () => {
+      target.classList.remove('holding');
+      form.style.display = '';
+      hint.textContent = 'Enter the vault password';
+      form.querySelector('#vaultUnlockPass').focus();
+    };
     const cancelHold = () => {
       clearTimeout(holdTimer);
       holdTimer = null;
@@ -324,13 +349,10 @@
     target.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       if (form.style.display !== 'none') return;      // prompt already revealed
-      target.classList.add('holding');                // CSS ring fills over 3s
-      holdTimer = setTimeout(() => {
-        target.classList.remove('holding');
-        form.style.display = '';
-        hint.textContent = 'Enter the vault password';
-        form.querySelector('#vaultUnlockPass').focus();
-      }, 3000);
+      // 0 = the deliberate-gesture guard is off; a click is enough.
+      if (secs === 0) { reveal(); return; }
+      target.classList.add('holding');                // CSS ring fills over `secs`
+      holdTimer = setTimeout(reveal, secs * 1000);
     });
     for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) {
       target.addEventListener(ev, cancelHold);

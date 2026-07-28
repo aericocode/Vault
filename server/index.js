@@ -29,6 +29,7 @@ const embeddings = require('../lib/embeddings');
 const vault = require('../lib/vault');
 const secureAssets = require('../lib/secure-assets');
 const importQueue = require('../lib/import-queue');
+const appSettings = require('../lib/app-settings');
 const ownedDir = require('../lib/owned-dir');
 const { netFetch } = require('../lib/net');
 const pkg = require('../package.json');
@@ -151,6 +152,35 @@ function resolveGamifyEnabled(args) {
 }
 
 let gamifyEnabled = false;
+let _gamifyRouter = null;
+
+/**
+ * Turn the tracker on/off at runtime and remember the choice.
+ *
+ * It used to be reachable only as a launch flag, which meant anyone who
+ * double-clicks Vault.exe had no way to find it at all. The router is mounted
+ * once, unconditionally, and gated on this flag (see below) — so flipping it
+ * takes effect without a restart, while `require`ing the gamify modules still
+ * only happens if the feature is actually used.
+ */
+function setGamifyEnabled(on) {
+  gamifyEnabled = !!on;
+  try {
+    if (gamifyEnabled) fs.writeFileSync(GAMIFY_CONFIG_PATH, JSON.stringify({ enabled: true }, null, 2));
+    else fs.unlinkSync(GAMIFY_CONFIG_PATH);
+  } catch { /* absent file on disable is the desired state anyway */ }
+  if (gamifyEnabled) {
+    // Same settle-on-boot the launch flag does, so the first UI read is current.
+    try {
+      require('../lib/gamify').settleDay();
+      require('../lib/quests').ensureQuests();
+    } catch (err) {
+      console.warn(`[Gamify] enable failed: ${err.message}`);
+    }
+  }
+  console.log(`[Gamify] ${gamifyEnabled ? 'enabled' : 'disabled'} from Settings`);
+  return gamifyEnabled;
+}
 
 // Always answer status (the viewer probes this on load to decide whether to
 // show any gamify UI at all); the real routes mount only when enabled.
@@ -158,6 +188,58 @@ app.get('/api/gamify/status', (req, res) => {
   if (!gamifyEnabled) return res.json({ enabled: false });
   const gamify = require('../lib/gamify');
   res.json({ enabled: true, stats: gamify.getPublicStats() });
+});
+
+// The tracker's real routes. Mounted ALWAYS but gated on the flag, so the
+// Settings toggle works without a restart; the router (and everything it pulls
+// in) is still only required the first time a request actually gets through.
+app.use('/api/gamify', (req, res, next) => {
+  if (!gamifyEnabled) return res.status(403).json({ error: 'gamification is off', code: 'GAMIFY_OFF' });
+  if (!_gamifyRouter) _gamifyRouter = require('./gamify-routes').buildRouter();
+  return _gamifyRouter(req, res, next);
+});
+
+/* ── Settings the SERVER owns ─────────────────────────────────────────────
+   Everything else the Settings modal offers is browser-side (localStorage).
+   These two aren't: the tracker decides which routes answer, and the autolock
+   clock has to be correct from process start — before anyone opens the viewer.
+   Both persist to disk so they survive a restart with no env vars set, which is
+   the only situation a Vault.exe user is ever in. */
+
+app.get('/api/settings/app', (req, res) => {
+  res.json({
+    gamify: gamifyEnabled,
+    autolockMinutes: vault.getAutolockMinutes(),
+    encrypted: vault.isEncrypted(),
+  });
+});
+
+app.post('/api/settings/app', (req, res) => {
+  const body = req.body || {};
+  const out = {};
+
+  if ('gamify' in body) {
+    if (typeof body.gamify !== 'boolean') {
+      return res.status(400).json({ error: 'gamify must be true or false' });
+    }
+    out.gamify = setGamifyEnabled(body.gamify);
+  }
+
+  if ('autolockMinutes' in body) {
+    const raw = body.autolockMinutes;
+    const n = typeof raw === 'number' ? raw
+      : (typeof raw === 'string' && /^\s*\d+\s*$/.test(raw) ? Number(raw) : NaN);
+    if (!Number.isInteger(n) || n < 0 || n > 1440) {
+      return res.status(400).json({ error: 'autolockMinutes must be an integer 0-1440 (0 = never)' });
+    }
+    out.autolockMinutes = vault.setAutolockMinutes(n);
+    appSettings.set({ autolockMinutes: out.autolockMinutes });
+  }
+
+  if (Object.keys(out).length === 0) {
+    return res.status(400).json({ error: 'nothing to change' });
+  }
+  res.json({ ...out, encrypted: vault.isEncrypted() });
 });
 
 // App identity for the Settings → About section (name + version from package.json)
@@ -456,6 +538,77 @@ app.post('/api/import/queue/concurrency', (req, res) => {
   }
   importQueue.setConcurrency(n);
   res.json({ concurrency: importQueue.getConcurrency() });
+});
+
+// ⏸ Stop dispatching. Files already in flight run to completion — there is no
+// clean way to abort a vision call, and killing one mid-write is how you get a
+// half-scanned row.
+app.post('/api/import/queue/pause', (req, res) => res.json(importQueue.pause()));
+
+// ▶ Resume, clearing a user pause or a model halt alike. When the halt WAS the
+// model, probe the endpoints first: resuming into a still-dead backend just
+// halts again on the next file, and saying so up front is kinder than watching
+// the panel bounce. Advisory only — the resume still happens, because a probe
+// that's wrong must never be able to trap the user in a paused queue.
+app.post('/api/import/queue/resume', async (req, res) => {
+  const wasModelHalt = importQueue.pausedBy() === 'model';
+  let warning = null;
+  if (wasModelHalt) {
+    try {
+      const up = await require('../lib/llm-client').isAvailable();
+      if (!up) warning = 'No LLM endpoint answered — load a model, or the scan will pause again on the next file.';
+    } catch {}
+  }
+  res.json({ ...importQueue.resume(), warning });
+});
+
+// Re-queue files whose AI scan never landed — the bulk bar's ↻ Retry errors.
+// Not a "rescan": rows that scanned fine are skipped, so sending the whole
+// selection is safe and only the failures move. Goes through the import queue
+// (not the blocking per-item /rescan route) so a thousand retries report in the
+// scan panel and inherit its pause / halt-on-dead-model behaviour.
+app.post('/api/media/retry-errors', (req, res) => {
+  const raw = req.body?.ids;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return res.status(400).json({ error: 'ids must be a non-empty array' });
+  }
+  // Select all can hand this the entire library, so ids arrive by the thousand.
+  const ids = [...new Set(raw.map(v => (typeof v === 'number' && Number.isInteger(v) ? v
+    : (typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? Number(v) : null))).filter(v => v !== null))];
+  if (ids.length === 0) return res.status(400).json({ error: 'no valid ids' });
+
+  // One statement per 500 ids, not one per id: getById in a loop cost ~100µs
+  // each, so a 20k retry blocked the event loop (no streaming, no thumbnails)
+  // for seconds. The WHERE clause does the "needs scanning" filter too.
+  const handle = db.get();
+  const rows = [];
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = ids.slice(i, i + 500);
+    rows.push(...handle.prepare(
+      `SELECT id, filepath, filename, media_type FROM media
+        WHERE id IN (${chunk.map(() => '?').join(',')})
+          AND processing_error IS NOT NULL AND processing_error != ''`
+    ).all(...chunk));
+  }
+
+  let queued = 0, alreadyQueued = 0, missing = 0;
+  for (const row of rows) {
+    if (!fs.existsSync(row.filepath)) { missing++; continue; }
+    // enqueue dedupes on filepath; counting its verdict rather than the loop
+    // keeps the toast honest when some of the selection is already in flight.
+    const { added } = importQueue.enqueue({
+      id: row.id, filepath: row.filepath, filename: row.filename, mediaType: row.media_type,
+    });
+    if (added) queued++; else alreadyQueued++;
+  }
+  res.json({ queued, alreadyQueued, missing, skipped: ids.length - rows.length });
+});
+
+// Cancel: drop everything still queued. Destructive (the panel makes it a
+// two-click confirm), so it never touches rows already scanned.
+app.post('/api/import/queue/cancel', (req, res) => {
+  const { dropped, active } = importQueue.cancel();
+  res.json({ dropped, active, status: importQueue.status() });
 });
 
 // ── Path-based import — Vault's ONLY import model: RECORD locations, never
@@ -1766,8 +1919,6 @@ function start(args = process.argv.slice(2)) {
 
   gamifyEnabled = resolveGamifyEnabled(args);
   if (gamifyEnabled) {
-    const gamifyRoutes = require('./gamify-routes');
-    app.use('/api/gamify', gamifyRoutes.buildRouter());
     // Settle decay/streak once at startup so the first UI read is current —
     // deferred to first unlock when the vault booted locked (needs the DB)
     let gamifyBooted = false;
@@ -1783,6 +1934,13 @@ function start(args = process.argv.slice(2)) {
 
   // A running scan blocks non-forced locks and keeps the autolock clock alive
   vault.registerScanProbe(() => importQueue.isActive() || _rescanning.size > 0);
+  // A saved autolock value overrides the config default. Env still wins the very
+  // first run (see lib/app-settings.js) — after that this file is the truth, so
+  // the exe user who has no env vars still gets the timeout they chose.
+  const savedAutolock = appSettings.all().autolockMinutes;
+  if (typeof savedAutolock === 'number' && Number.isFinite(savedAutolock)) {
+    config.security.autolockMinutes = Math.max(0, Math.min(1440, Math.trunc(savedAutolock)));
+  }
   vault.startAutolock();
 
   const { host, port } = config.server;

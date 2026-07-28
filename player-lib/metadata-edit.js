@@ -33,6 +33,11 @@ function renderMetaTools(media) {
 
 /** Re-render whichever info surfaces are currently showing this item. */
 function refreshInfoSurfaces(media) {
+  // A re-render replaces the note textarea, so half-typed text has to be banked
+  // first — otherwise saving a tag silently ate whatever was in the note box.
+  // flushPendingNotes() blanks each input before saving it, so the re-render
+  // this triggers can't double-add.
+  if (typeof flushPendingNotes === 'function') flushPendingNotes();
   renderResults();
   const modal = document.getElementById('modalOverlay');
   if (modal?.classList.contains('active')) showDetails(media);
@@ -117,6 +122,25 @@ async function saveMetaFields(id, fields, okMsg = '💾 Saved') {
   }
 }
 
+/**
+ * Discard an inline edit by re-rendering the surface it lives in. The editors
+ * now appear in the library modal as well as the player sidebar, so blindly
+ * calling renderSidebar() would repaint the wrong panel (or none) and leave
+ * the half-open editor on screen.
+ */
+function _cancelEdit(node) {
+  // Same reason as refreshInfoSurfaces: this repaints the surface, taking the
+  // note textarea with it. Cancelling a tag edit must not discard a note draft.
+  if (typeof flushPendingNotes === 'function') flushPendingNotes();
+  const body = node?.closest?.('.detail-body');
+  if (body?.classList.contains('detail-body--library')) {
+    const item = getMediaById(Number(body.dataset.mediaId));
+    if (item) showDetails(item);
+    return;
+  }
+  if (typeof renderSidebar === 'function') renderSidebar();
+}
+
 /** Build the ✓/✕ row used by every inline editor. */
 function _editActions(onSave) {
   const wrap = document.createElement('span');
@@ -130,7 +154,7 @@ function _editActions(onSave) {
   cancel.className = 'inline-edit-cancel';
   cancel.textContent = '✕';
   cancel.title = 'Cancel (Esc)';
-  cancel.onclick = () => renderSidebar();
+  cancel.onclick = () => _cancelEdit(cancel);
   wrap.append(save, cancel);
   return wrap;
 }
@@ -141,14 +165,14 @@ function _wireKeys(input, onSave) {
       e.preventDefault();
       onSave();
     }
-    if (e.key === 'Escape') renderSidebar();
+    if (e.key === 'Escape') _cancelEdit(input);
   });
 }
 
 /**
  * Inline editor for a simple field section.
  * key: 'description' (textarea) | 'themes'/'tags'/'locations' (csv input)
- *      | 'info' (language/content/quality/explicit group)
+ *      | 'info' (language/content/quality group)
  */
 function startFieldEdit(btn, id, key) {
   const media = getMediaById(id);
@@ -188,7 +212,7 @@ function startFieldEdit(btn, id, key) {
   input.focus();
 }
 
-/** Inline group editor for language / content type / quality / explicit. */
+/** Inline group editor for language / content type / quality. */
 function startInfoEdit(content, media) {
   content.innerHTML = '';
   const editor = document.createElement('div');
@@ -212,19 +236,10 @@ function startInfoEdit(content, media) {
     row.appendChild(input);
     editor.appendChild(row);
   }
-  const expRow = document.createElement('label');
-  expRow.className = 'inline-edit-row inline-edit-check';
-  const exp = document.createElement('input');
-  exp.type = 'checkbox';
-  exp.checked = !!media.explicit;
-  expRow.append(exp, document.createTextNode(' Explicit'));
-  editor.appendChild(expRow);
-
   const doSave = () => saveMetaFields(media.id, {
     language: inputs.language.value.trim(),
     content_type: inputs.content_type.value.trim(),
     quality_flag: inputs.quality_flag.value.trim(),
-    explicit: exp.checked ? 1 : 0,
   });
   Object.values(inputs).forEach(i => _wireKeys(i, doSave));
 

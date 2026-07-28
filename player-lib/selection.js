@@ -67,11 +67,71 @@ function toggleSelectPage() {
   renderSelectionBar();
 }
 
+/**
+ * Select the WHOLE filtered result set, not just the rendered page.
+ * filteredMedia is the same array pagination slices from, so this is exactly
+ * "everything the current search/filter matches" — across every page.
+ */
+function toggleSelectAllFiltered() {
+  const all = (typeof filteredMedia !== 'undefined' ? filteredMedia : []);
+  if (!all.length) return;
+  // size check first: with a 100k-row library the cheap comparison short-circuits
+  // the common "a handful selected" case before touching every id.
+  const allSelected = selectedIds.size >= all.length && all.every(m => selectedIds.has(m.id));
+  if (allSelected) all.forEach(m => selectedIds.delete(m.id));
+  else all.forEach(m => selectedIds.add(m.id));
+  lastSelectedId = null;                 // a cross-page range anchor is meaningless
+  syncTileCheckboxes();
+  renderSelectionBar();
+}
+
+/**
+ * The two select controls that live up by "Showing X of Y results".
+ * Rendered whether or not anything is selected — unlike the action bar, these
+ * are how you START a selection.
+ */
+function renderResultsSelect() {
+  const host = document.getElementById('resultsSelect');
+  if (!host) return;
+  const onLibrary = typeof currentTab === 'undefined' || currentTab === 'library';
+  const all = (typeof filteredMedia !== 'undefined' ? filteredMedia : []);
+  if (!onLibrary || !all.length) { host.innerHTML = ''; return; }
+
+  const pageIds = currentPageIds();
+  const pageAll = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
+  const allSelected = selectedIds.size >= all.length && all.every(m => selectedIds.has(m.id));
+
+  host.innerHTML = `
+    ${pageIds.length ? `<button class="rs-btn" onclick="toggleSelectPage()"
+      title="Select the ${pageIds.length} file(s) shown on this page">${pageAll ? 'Deselect page' : `Select page (${pageIds.length})`}</button>` : ''}
+    ${all.length > pageIds.length ? `<button class="rs-btn" onclick="toggleSelectAllFiltered()"
+      title="Select every file matching the current search &amp; filters, across all pages">${allSelected ? 'Deselect all' : `Select all ${all.length.toLocaleString()}`}</button>` : ''}`;
+}
+
 function clearSelection() {
   selectedIds.clear();
   lastSelectedId = null;
   syncTileCheckboxes();
   renderSelectionBar();
+}
+
+/**
+ * The selected rows, resolved in ONE pass over allMedia.
+ *
+ * The obvious `[...selectedIds].map(getMediaById)` is O(selected × library) —
+ * getMediaById is a linear .find() — which was harmless while the biggest
+ * reachable selection was a single page of ~45 tiles. Select all removed that
+ * ceiling: at 30k selected it made every subsequent click (untick one tile, turn
+ * a page, flag) a ~2.6s freeze, and ~28s at 100k. Walking the library once and
+ * testing Set membership is O(library) with O(1) lookups instead.
+ *
+ * Order follows allMedia rather than click order — every caller only counts.
+ */
+function selectedMedia() {
+  if (selectedIds.size === 0 || typeof allMedia === 'undefined') return [];
+  const out = [];
+  for (const m of allMedia) if (selectedIds.has(m.id)) out.push(m);
+  return out;
 }
 
 /* ── Selection action bar ──────────────────────────────────────────────── */
@@ -89,6 +149,9 @@ function ensureSelectionBar() {
 
 function renderSelectionBar() {
   const bar = ensureSelectionBar();
+  // Before the early-return below: the Select page / Select all controls are how
+  // a selection gets STARTED, so they have to render when nothing is selected.
+  renderResultsSelect();
 
   // Selection actions belong to the Library grid — hide elsewhere (the
   // selection itself survives tab switches).
@@ -102,7 +165,7 @@ function renderSelectionBar() {
     return;
   }
 
-  const items = [...selectedIds].map(getMediaById).filter(Boolean);
+  const items = selectedMedia();
   const trashedCount = items.filter(m => m.user_trashed).length;
   const activeCount = items.length - trashedCount;
 
@@ -114,7 +177,7 @@ function renderSelectionBar() {
   const musicReady = typeof fingerprintSelected === 'function';
   const many = vidCount > 4 ? ' (playback smoothness depends on drive speed)' : '';
   const musicBtns = !musicReady ? '' : `
-    ${avCount > 0 ? `<button class="sel-btn sel-music" onclick="fingerprintSelected()" title="Fingerprint audio — one-time per file; auto-matches songs across the library">🎵 Fingerprint (${avCount})</button>` : ''}
+    ${avCount > 0 ? `<button class="sel-btn sel-music" onclick="fingerprintSelected()" title="Fingerprint audio — one-time per file; auto-matches songs across the library">🎵 Music ID (${avCount})</button>` : ''}
     ${vidCount >= 2 ? `
       <button class="sel-btn sel-mix" onclick="openEditorWithSelection('stack')"
         title="Open in the Editor, layered in sync${many}">▤ Stack ${vidCount}</button>
@@ -122,26 +185,81 @@ function renderSelectionBar() {
         title="Open in the Editor, side by side in sync${many}">▦ Grid ${vidCount}</button>
     ` : ''}`;
 
-  // "Select all on page" toggle — label reflects whether the page is fully selected
-  const pageIds = currentPageIds();
-  const pageAllSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
-  const pageBtn = pageIds.length > 0
-    ? `<button class="sel-btn sel-page" onclick="toggleSelectPage()">${pageAllSelected ? 'Deselect page' : `Select page (${pageIds.length})`}</button>`
-    : '';
+  // Flag is one toggle rather than two buttons. A mixed selection reads as "not
+  // yet flagged", so the first click flags the stragglers and the second — once
+  // every item carries the flag — clears them all. bulkFlag() already skips
+  // items that are already at the target value, so both directions are cheap.
+  const flaggedCount = items.filter(m => m.user_flagged_delete).length;
+  const allFlagged = items.length > 0 && flaggedCount === items.length;
+  const flagBtn = `<button class="sel-btn${allFlagged ? ' sel-flagged' : ''}" onclick="bulkFlag(${allFlagged ? 0 : 1})"
+    title="${allFlagged
+      ? 'Clear the delete flag on all selected'
+      : `Flag for deletion${flaggedCount ? ` — ${flaggedCount} of ${items.length} already flagged` : ''}`}"
+    >${allFlagged ? '🏳 Unflag' : '🚩 Flag'}</button>`;
+
+  // Files whose AI scan never landed: a real error, or a stub that was never
+  // scanned (a cancelled queue leaves these). Only offered when the selection
+  // actually contains some, which keeps the bar short the rest of the time.
+  const errored = items.filter(m => m.processing_error && m.processing_error !== 'unscanned').length;
+  const unscanned = items.filter(m => m.processing_error === 'unscanned').length;
+  const retryable = errored + unscanned;
+  const retryBtn = retryable === 0 ? '' : `<button class="sel-btn sel-retry" onclick="retryErrorsSelected()"
+    title="Queue ${retryable} file(s) for another AI scan${errored ? ` — ${errored} errored` : ''}${unscanned ? `${errored ? ',' : ' —'} ${unscanned} never scanned` : ''}"
+    >↻ Retry errors (${retryable})</button>`;
 
   bar.innerHTML = `
     <span class="sel-count">${selectedIds.size} selected</span>
-    ${pageBtn}
     ${musicBtns}
+    ${retryBtn}
     ${activeCount > 0 ? `<button class="sel-btn sel-trash" onclick="trashSelected()">🗑 Trash (${activeCount})</button>` : ''}
     ${trashedCount > 0 ? `<button class="sel-btn sel-restore" onclick="restoreSelected()">♻ Restore (${trashedCount})</button>` : ''}
-    <button class="sel-btn" onclick="bulkFlag(1)">🚩 Flag</button>
-    <button class="sel-btn" onclick="bulkFlag(0)">Unflag</button>
-    <button class="sel-btn" onclick="addSelectionToCollection(this)" title="Add selection to a collection">📁 Collect (${selectedIds.size})</button>
-    <button class="sel-btn sel-remove" onclick="removeSelectedRecords()" title="Delete records from the library — files on disk are NOT touched">✂ Remove records</button>
-    <button class="sel-btn sel-clear" onclick="clearSelection()">✕ Clear</button>
+    ${flagBtn}
+    <button class="sel-btn" onclick="addSelectionToCollection(this)" title="Add selection to a collection">📁 Collect</button>
+    <!-- irreversible, and Select all can point it at the whole library — the
+         count stays so the blast radius is visible before the confirm dialog -->
+    <button class="sel-btn sel-remove" onclick="removeSelectedRecords()" title="Forget these files — the records leave the library, the files on disk are NOT touched">✂ Forget (${selectedIds.size})</button>
+    <button class="sel-btn sel-clear" onclick="clearSelection()" title="Clear selection">✕</button>
   `;
   bar.classList.add('visible');
+}
+
+/**
+ * Re-queue the selected files whose scan never landed. Deliberately NOT called
+ * "rescan": it doesn't force successfully-scanned files through the model again,
+ * it only picks up the ones that errored or were never scanned at all.
+ *
+ * Work goes through the same background import queue as a fresh drop, so it
+ * reports in the scan panel and inherits its pause / halt-on-dead-model
+ * handling — rather than blocking on one file at a time like the per-item
+ * rescan button in the sidebar.
+ */
+async function retryErrorsSelected() {
+  const ids = selectedMedia().filter(m => m.processing_error).map(m => m.id);
+  if (!ids.length) { showToast('Nothing to retry in this selection'); return; }
+  try {
+    const resp = await fetch('/api/media/retry-errors', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    const r = await resp.json().catch(() => ({}));
+    if (!resp.ok) { showToast('⚠ ' + (r.error || `HTTP ${resp.status}`)); return; }
+    // Report what actually moved. Files already in the queue, or gone from disk,
+    // are named rather than folded into a number that would overstate the work.
+    const notes = [];
+    if (r.alreadyQueued) notes.push(`${r.alreadyQueued} already queued`);
+    if (r.missing) notes.push(`${r.missing} missing from disk`);
+    if (!r.queued) {
+      showToast(notes.length ? `Nothing new to queue — ${notes.join(', ')}` : 'Nothing to retry');
+      return;
+    }
+    showToast(`↻ Queued ${r.queued} file(s) for another scan${notes.length ? ` · ${notes.join(', ')}` : ''}`);
+    // Surface the scan panel so the retry is visible, and pick up the new rows
+    // as they land.
+    if (typeof window.vaultWatchScanQueue === 'function') window.vaultWatchScanQueue({ fresh: true });
+    if (typeof watchUnscanned === 'function') watchUnscanned();
+  } catch (err) {
+    showToast('⚠ ' + err.message);
+  }
 }
 
 /* ── Trash / restore actions ───────────────────────────────────────────── */
@@ -630,7 +748,7 @@ async function trashDupeFromDetails(dupeId, currentId) {
 /* ── Bulk flag ─────────────────────────────────────────────────────────── */
 
 async function bulkFlag(value) {
-  const items = [...selectedIds].map(getMediaById).filter(m => m && (m.user_flagged_delete ? 1 : 0) !== value);
+  const items = selectedMedia().filter(m => (m.user_flagged_delete ? 1 : 0) !== value);
   for (const item of items) {
     item.user_flagged_delete = value;
     await postFlags(item, { user_flagged_delete: value });
@@ -681,16 +799,48 @@ function hideUndoToast() {
  * Media element errors inside the player bubble nowhere — catch them in the
  * capture phase and persist playback_failed so the item can be filtered.
  */
-document.addEventListener('error', (e) => {
-  const el = e.target;
-  if (!(el instanceof HTMLElement)) return;
-  if (!['VIDEO', 'AUDIO', 'IMG'].includes(el.tagName)) return;
-  if (!el.closest('#mediaPlayerContent') && !el.closest('#miniPlayerMedia')) return;
-
+/** Is this the media element the player is currently showing? */
+function _isCurrentPlayerMedia(el) {
+  if (!(el instanceof HTMLElement)) return null;
+  if (!['VIDEO', 'AUDIO', 'IMG'].includes(el.tagName)) return null;
+  if (!el.closest('#mediaPlayerContent') && !el.closest('#miniPlayerMedia')) return null;
   const media = (typeof currentMediaState !== 'undefined' && currentMediaState.currentMediaData) || null;
-  if (media && media.id && !media.playback_failed) {
+  return media && media.id ? media : null;
+}
+
+document.addEventListener('error', (e) => {
+  const media = _isCurrentPlayerMedia(e.target);
+  if (media && !media.playback_failed) {
     media.playback_failed = 1;
     postFlags(media, { playback_failed: 1 });
     showToast('⚠ File failed to play — marked as unplayable');
   }
 }, true);
+
+/**
+ * ...and the mirror image, which was missing: a file that plays is not a
+ * failed file.
+ *
+ * The usual way this flag gets set is an unplugged/offline drive — the file is
+ * fine, the path just isn't there right now. Reconnect the drive, play it, and
+ * the ⚠ and the red border used to stay forever, because nothing ever cleared
+ * the flag. Marking on failure without unmarking on success turns a transient
+ * condition into a permanent one.
+ *
+ * canplay (video/audio) and load (img) both mean the server served real bytes
+ * and the browser decoded them, which is exactly the condition that was false
+ * when the flag went on. Neither event bubbles, hence the capture phase — same
+ * as the error listener above.
+ */
+function _clearPlaybackFailed(e) {
+  const media = _isCurrentPlayerMedia(e.target);
+  if (!media || !media.playback_failed) return;
+  media.playback_failed = 0;
+  postFlags(media, { playback_failed: 0 });
+  showToast('✓ Plays fine now — unplayable flag cleared');
+  // Repaint so the ⚠ badge and the red tile border go without a manual refresh.
+  if (typeof refreshInfoSurfaces === 'function') refreshInfoSurfaces(media);
+  else if (typeof renderResults === 'function') renderResults();
+}
+document.addEventListener('canplay', _clearPlaybackFailed, true);
+document.addEventListener('load', _clearPlaybackFailed, true);

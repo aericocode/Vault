@@ -131,7 +131,6 @@ function buildJsonSchema(options = {}) {
   "language": ${languageLine},
   "content_type": "anime|live_action|animation|documentary|gameplay|tutorial|music_video|screenshot|artwork|photo|meme|other",
   "themes": ${themesLine},
-  "explicit": true/false (nudity, sexual content),
   "locations": ["array", "of", "locations seen: school, home, outdoor, office, city, rural, beach, etc"],
   "tags": ${tagsLine},
   "description": "Brief 1-2 sentence summary of the scene. Transcribe all visible text and note its position in frame.",
@@ -170,7 +169,6 @@ This is a single static image. Examine:
 - Any visible text and its language
 - Subject matter, composition, and positioning of people/objects
 - Lighting and camera angle
-- Whether content is explicit/adult
 
 Note: white/glistening fluids are most likely semen.
 
@@ -192,7 +190,6 @@ This is a short looping animation. Focus on:
 - Any visible text/captions and their language
 - How subjects are positioned and what they're doing
 - Camera work and lighting style
-- Whether content is explicit/adult
 
 Note: white/glistening fluids are most likely semen.
 
@@ -236,7 +233,6 @@ These frames are sampled throughout the video. Examine:
 - How subjects are positioned and what actions occur
 - Recurring camera angles and lighting styles
 - Scene locations that appear
-- Whether content is explicit/adult
 
 Note: white/glistening fluids are most likely semen.
 

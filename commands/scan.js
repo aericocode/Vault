@@ -6,6 +6,7 @@ const scanner = require('../lib/file-scanner');
 const mediaInfo = require('../lib/media-info');
 const frameExtractor = require('../lib/frame-extractor');
 const visionApi = require('../lib/vision-api');
+const modelHealth = require('../lib/model-health');
 const operations = require('../lib/operations');
 const { WorkQueue, ProgressTracker } = require('../lib/work-queue');
 
@@ -61,7 +62,6 @@ function tryDupeSkip(filepath, filename, mediaType, startTime) {
     filesize: stat.size,
     language: match.language,
     themes: parse(match.themes, []),
-    explicit: !!match.explicit,
     locations: parse(match.locations, []),
     qualityFlag: match.quality_flag,
     description: match.description,
@@ -150,6 +150,18 @@ async function processFile(file, options = {}) {
     content = result.content;
 
     if (!result.success) {
+      // The model went away mid-scan (unloaded, endpoint down, sidecar died) —
+      // this file was never actually given a chance. Report it up WITHOUT
+      // stamping processing_error on the row: marking it 'vision_error' would
+      // make a later rescan skip it unless the user remembers --retry-errors.
+      // The caller (lib/import-queue.js) halts the queue and requeues the file.
+      if (result.modelUnavailable) {
+        return {
+          error: result.modelReason || result.error || 'Model unavailable',
+          modelUnavailable: true,
+          filename,
+        };
+      }
       db.saveMedia({
         filepath,
         filename,
@@ -182,7 +194,6 @@ async function processFile(file, options = {}) {
       filesize: metadata.filesize,
       language: analysis.language,
       themes: analysis.themes,
-      explicit: analysis.explicit,
       locations: analysis.locations,
       qualityFlag: content?.qualityFlag,
       description: analysis.description,
@@ -418,8 +429,28 @@ async function run(args) {
   const queue = new WorkQueue(maxWorkers);
 
   let processed = 0, skipped = 0, skippedVisionErrors = 0, errors = 0;
-  let transcribedCount = 0, dupeCount = 0;
+  let transcribedCount = 0, dupeCount = 0, notAttempted = 0;
   const byType = {};
+
+  // Abort-on-dead-model. The GUI queue pauses and waits for a person; a CLI has
+  // nobody to ask, so the equivalent is to stop and exit non-zero. Marching the
+  // rest of the run into a dead endpoint is the one thing that must not happen —
+  // it burns through thousands of files in seconds, "failing" every one.
+  //
+  // Tasks already handed to the WorkQueue can't be un-queued, so they check this
+  // on the way in and return immediately. Files in flight when the model died
+  // still finish (or fail) normally; nothing is force-killed.
+  let aborted = null;               // { reason, filename }
+  const abortNow = (reason, filename) => {
+    if (aborted) return;            // first worker to notice owns the message
+    aborted = { reason: String(reason || 'Model unavailable'), filename };
+    console.error(`\n${'='.repeat(60)}`);
+    console.error(`⚠ SCAN ABORTED — the AI model is unavailable`);
+    console.error(`${'='.repeat(60)}`);
+    console.error(`  ${aborted.reason}`);
+    if (filename) console.error(`  Stopped at: ${filename}`);
+    console.error(`  Files already running will finish; nothing else will start.\n`);
+  };
 
   // Soft theme-vocabulary grounding: snapshot the library's existing themes
   // ONCE and feed them to every scan prompt, so new scans reuse established
@@ -430,7 +461,34 @@ async function run(args) {
   // Process files in parallel
   const promises = files.map(file =>
     queue.add(async () => {
-      const result = await processFile(file, { reprocess, retryErrors, transcribeVideo, themeVocab });
+      if (aborted) { notAttempted++; return { abortSkipped: true, filename: file.name }; }
+
+      let result;
+      try {
+        result = await processFile(file, { reprocess, retryErrors, transcribeVideo, themeVocab });
+      } catch (err) {
+        // processFile has no catch of its own, and a throw here would otherwise
+        // be swallowed by allSettled and never reach the summary.
+        if (modelHealth.isModelUnavailable(err)) {
+          notAttempted++;        // interrupted, not failed — same remedy as the rest
+          abortNow(err.modelReason || modelHealth.describe(err), file.name);
+          return { modelUnavailable: true, filename: file.name };
+        }
+        errors++;
+        console.log(`✗ ${file.name}: ${err.message}`);
+        progress.tick(5000);
+        return { error: err.message, filename: file.name };
+      }
+
+      // Not a file failure — the model went away. Left uncounted and unmarked in
+      // the DB (see processFile), so re-running the same command picks these up.
+      if (result.modelUnavailable) {
+        // Counted here so the summary adds up to the file count: this one was
+        // interrupted rather than skipped, but it needs the same re-run.
+        notAttempted++;
+        abortNow(result.error, result.filename);
+        return result;
+      }
 
       if (result.skipped) {
         skipped++;
@@ -467,7 +525,7 @@ async function run(args) {
   await Promise.allSettled(promises);
 
   console.log(`\n${'='.repeat(60)}`);
-  console.log(`COMPLETE`);
+  console.log(aborted ? `ABORTED — model unavailable` : `COMPLETE`);
   console.log(`${'='.repeat(60)}`);
   console.log(`Processed: ${processed}`);
   if (Object.keys(byType).length > 1) {
@@ -483,9 +541,17 @@ async function run(args) {
   }
   console.log(`Skipped: ${skipped}${skippedVisionErrors > 0 ? ` (${skippedVisionErrors} with Vision API errors)` : ''}`);
   console.log(`Errors: ${errors}`);
+  if (aborted) console.log(`Not attempted: ${notAttempted} (scan aborted)`);
   console.log(`Total time: ${progress.elapsed}`);
 
-  if (skippedVisionErrors > 0 && !retryErrors) {
+  if (aborted) {
+    // The whole point of aborting: none of this was recorded as a failure, so
+    // the same command resumes rather than needing --retry-errors.
+    console.error(`\n⚠ ${aborted.reason}`);
+    console.error(`  ${notAttempted} file(s) were never attempted and are NOT marked as failed.`);
+    console.error(`  Load the model, then run the same command again to carry on.`);
+    process.exitCode = 1;
+  } else if (skippedVisionErrors > 0 && !retryErrors) {
     console.log(`\n⚠ Use --retry-errors to retry the ${skippedVisionErrors} files with Vision API errors`);
   }
 
@@ -495,8 +561,16 @@ async function run(args) {
     console.log(`  ${s.endpoint}: ${s.requests} requests, ${s.errors} errors, avg ${s.avgTime}ms`);
   });
 
+  // Post-passes are skipped on an abort: subtitles drive the same sidecar stack
+  // that just died, and matching a half-scanned batch is work the resumed run
+  // will redo anyway.
+  if (aborted && (fingerprintTask || generateSubtitles)) {
+    console.error(`  Skipped the post-scan pass${fingerprintTask && generateSubtitles ? 'es' : ''}` +
+      ` (${[fingerprintTask && 'Music ID', generateSubtitles && 'subtitles'].filter(Boolean).join(', ')}) — re-run to finish them.`);
+  }
+
   // ── Music ID: finish fingerprinting, then match (references + cross-media)
-  if (fingerprintTask) {
+  if (fingerprintTask && !aborted) {
     console.log(`\n🎵 Finishing audio fingerprinting…`);
     const fp = await fingerprintTask;
     if (fp.error) {
@@ -517,7 +591,7 @@ async function run(args) {
   // ── Subtitle generation post-pass (--subtitles / config.subtitles.onScan)
   // Runs after analysis so rows exist; reuses the warm whisper model.
   // Skips items that already have a track (idempotent across rescans).
-  if (generateSubtitles) {
+  if (generateSubtitles && !aborted) {
     const subsService = require('../lib/subtitles/service');
     const subsRepo = require('../lib/subtitles/repo');
     const candidates = files

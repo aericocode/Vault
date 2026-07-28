@@ -101,7 +101,7 @@
 .inline-edit-save { color: var(--success); border-color: var(--success); }
 .inline-edit-cancel { color: var(--text-secondary); }
 
-/* Grouped editor (File Info: language / content / quality / explicit) */
+/* Grouped editor (File Info: language / content / quality) */
 .inline-edit-grid {
   flex-direction: column;
   align-items: stretch;
@@ -121,13 +121,13 @@
 
 /* ── Media Elements: aligned key/value rows (keys in a fixed 80px column,
      values start at the same x for easy scanning) ── */
-.media-sidebar-body .elements-kv {
+.detail-body .elements-kv {
   display: flex;
   flex-direction: column; /* .elements-list (modal.css) defaults to column */
   gap: 0.3rem;
 }
 
-.media-sidebar-body .elements-kv .element-item {
+.detail-body .elements-kv .element-item {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
@@ -139,7 +139,7 @@
   margin: 0;
 }
 
-.media-sidebar-body .elements-kv .element-type {
+.detail-body .elements-kv .element-type {
   width: 80px;
   flex: none;
   color: var(--accent-hover);
@@ -148,7 +148,7 @@
   overflow-wrap: anywhere;  /* long keys break to 2 lines instead of pushing values */
 }
 
-.media-sidebar-body .elements-kv .element-details {
+.detail-body .elements-kv .element-details {
   flex: 1;
   min-width: 0;
   color: var(--text-primary);
