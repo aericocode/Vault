@@ -26,6 +26,7 @@
     scanWorkers: 2,         // files the vision model scans in parallel after an import
     unlockHoldSeconds: 3,   // press-and-hold on the lock before the password box (0 = click)
     blurThumbs: false,      // blur the grid's tiles (hover reveals — unless privacy mode is on)
+    gamifyHidden: false,    // hide the Obsession chip + toasts (scoring continues)
     _lastMediaId: null,     // internal: id for restoreSession
   };
 
@@ -354,10 +355,9 @@
         min: 1, max: 8,
       })}
       ${toggleRow({
-        key: 'gamify',
-        value: server.gamify,
-        title: '🏆 Obsession Score',
-        desc: 'Opt-in local tracker — points, streaks, levels and quests. Entirely offline. Off by default, and it renders no UI at all while off. Reloads the page when changed.',
+        key: 'gamifyHidden',
+        title: 'Hide 🏆 Obsession Score',
+        desc: 'Removes the score chip and its point/level toasts from the library. Scoring carries on in the background, so unhiding shows your real history rather than a gap — nothing is deleted. Entirely offline either way.',
       })}
 
       <h3 class="settings-h">Vault security</h3>
@@ -398,21 +398,15 @@
           save();
           applyBlurThumbs(settings.blurThumbs);
           showToast?.(settings.blurThumbs ? '🫥 Library blurred' : 'Library blur off');
-        } else if (key === 'gamify') {
-          // Server-owned: the tracker's routes and its header chip both key off
-          // this. The server applies it live, but the chip and the Games UI are
-          // built at page load, so reload rather than leave a half-on interface.
-          const on = input.checked;
-          input.disabled = true;
-          try {
-            await pushServerSetting({ gamify: on });
-            showToast?.(on ? '🏆 Obsession Score on — reloading…' : 'Obsession Score off — reloading…');
-            setTimeout(() => location.reload(), 700);
-          } catch (err) {
-            input.checked = !on;                      // put the switch back
-            input.disabled = false;
-            showToast?.('⚠ ' + err.message);
-          }
+        } else if (key === 'gamifyHidden') {
+          // Purely presentational, so no server round-trip and no reload — the
+          // chip goes immediately and scoring never notices.
+          settings.gamifyHidden = input.checked;
+          save();
+          window.vaultApplyGamifyHidden?.(settings.gamifyHidden);
+          showToast?.(settings.gamifyHidden
+            ? 'Obsession Score hidden — still tracking'
+            : '🏆 Obsession Score shown');
         } else {
           settings[key] = input.checked;
           save();
@@ -463,8 +457,8 @@
   function syncServerRows() {
     const body = document.getElementById('settingsBody');
     if (!body) return;
-    const g = body.querySelector('input[data-setting="gamify"]');
-    if (g && document.activeElement !== g) g.checked = !!server.gamify;
+    // (Obsession Score is no longer here — its toggle only hides the UI now,
+    // which is a browser preference, so it needs no server sync.)
     const a = body.querySelector('input[data-setting-num="autolockMinutes"]');
     if (a && document.activeElement !== a) a.value = String(server.autolockMinutes);
     const note = document.getElementById('settingsSecNote');
@@ -493,11 +487,12 @@
       <h3 class="settings-h">Guides</h3>
       <p class="settings-note">Short how-tos for the main features. See <code>README.md</code> / <code>SETUP.md</code> for the full docs.</p>
       ${guide('🔍 AI scanning',
-        'Vault describes, tags and titles your media with a local vision model. Point it at <b>LM Studio(default)</b> or <b>Ollama</b> serving a vision model (see the Models section for picks by GPU size), then scan from the CLI or the in-app import queue. Nothing is uploaded - the model runs on your machine.')}
+        'Vault describes, tags and titles your media with a local vision model. Point it at <b>LM Studio (default)</b> or <b>Ollama</b> serving a vision model - see the Models section for picks by GPU size, then drag folders or files into the window to scan them. Nothing is uploaded - the model runs on your machine.',
+        `Getting LM Studio: <a href="https://lmstudio.ai/download#lm-studio-download-heading" target="_blank" rel="noopener">lmstudio.ai/download</a> - you want the classic <b>LM Studio</b> ("Chat interface and programmable API"), <b>not the new Bionic</b> agent listed above it. Download a vision model from <b>Model Search</b> in LM Studio's left sidebar, then open the <b>Developer</b> tab and load it there. Turn on the toggle for manually choosing load parameters, set <b>context length ≈ 60k</b> (the ~4k default is too small for vision), and load. Finally, make sure the local server shows <b>Status: Running</b>. SETUP.md has the click-by-click version.`)}
       ${guide('🧠 Semantic search',
         'Tick <b>🧠 Semantic</b> next to the search box to find media by meaning instead of keywords ("crimson" finds red images). It uses a local embedding model. New scans embed automatically.')}
       ${guide('🎵 Music ID',
-        'Fingerprint files (Chromaprint) to identify the songs inside them — select files in the Library then <b>🎵 Music ID</b>, or use the info sidebar. Right after fingerprinting, a file is auto-matched against every known song and every other fingerprinted file. You can teach it songs by tagging a segment, and import Seed packs to name tracks without needing the audio. Seed packs are planned for future release to pre-load song databases.')}
+        'Fingerprint files (Chromaprint) to identify the songs inside them - select files in the Library then <b>🎵 Music ID</b>, or use the info sidebar. Right after fingerprinting, a file is auto-matched against every known song and every other fingerprinted file. You can teach it songs by tagging a segment, and import Seed packs to name tracks without needing the audio. Seed packs are planned for future release to pre-load song databases.')}
       ${guide('🥁 Beat bar',
         'A live beat-detection overlay for videos: the 🥁 control analyzes the audio track in-browser and renders a scrolling beat visualizer synced to playback. Sensitivity, playhead and icon styling are all adjustable, and its position is remembered per video.')}
       ${guide('💬 Subtitles',
@@ -505,9 +500,10 @@
       ${guide('🎮 Games',
         'The Games tab turns library videos into games. <b>Reel Order</b> - test your memory of your videos and reassemble randomized clips on a timeline. <b>Frame Fit</b> - turn and video into a jigsaw puzzle(<800 pieces).')}
       ${guide('🏆 Obsession Score',
-        'An optional, opt-in local gamification tracker (points, streaks, levels, quests). Fully offline and disabled by default; turning it off deletes all tracked data. When off, it renders zero UI.')}
+        'A local gamification tracker - points, streaks, levels, quests and achievements, all scored from what you actually watch. Fully offline; it needs no AI model and no setup, so it works from the first launch.',
+        'Not keen on it? <b>Settings → Hide 🏆 Obsession Score</b> removes the chip and its toasts. Scoring keeps running underneath, so unhiding later shows your real history instead of a gap - nothing is deleted either way. To stop it entirely, start Vault with <code>--no-gamify</code>.')}
       ${guide('🔒 Encryption',
-        'Set a database password (<code>VIDEO_TAGGER_DB_PASSWORD</code>) to encrypt the library. The padlock in the header locks/unlocks the vault, and it auto-locks after an idle timeout (<code>VAULT_AUTOLOCK_MINUTES</code>, 0 = off). While locked the library stays empty until you unlock.')}
+        'Click the vault in the top left to set a database password and encrypt the library. Vault auto-locks after an idle timeout(default 30min) and requires the password to resume.')}
     `;
   }
 
@@ -530,7 +526,7 @@
           </tbody>
         </table>
       </div>
-      <p class="settings-note">Semantic search embeddings are tiny — <code>nomic-embed-text</code> (~0.5 GB) runs anywhere.</p>
+      <p class="settings-note">Semantic search embeddings are tiny - <code>nomic-embed-text</code> (~0.5 GB) runs anywhere.</p>
     `;
   };
 

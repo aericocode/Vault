@@ -130,24 +130,35 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Gamification opt-in (privacy-first: OFF unless enabled via CLI) ────────
-// --gamify persists {enabled:true} to gamify-config.json; --no-gamify (or
-// deleting the file) turns it off. Nothing gamify-related runs when off.
+/* ── Gamification: ON by default, with a hard CLI kill switch ──────────────
+   It used to be opt-in on privacy grounds, but that reasoning didn't survive
+   contact with the rest of the app: without a database password EVERYTHING is
+   already readable — AI descriptions, notes, view counts, finishes. Singling
+   out the score changed nothing except making a zero-setup feature invisible
+   to everyone. The real fix was to ask for a password on first launch (see
+   /api/settings/app passwordPromptSeen), which protects the whole library
+   rather than one table of it.
+
+   So the Settings toggle now HIDES the UI while tracking continues, and this
+   flag is only for someone who wants the subsystem genuinely inert:
+   `--no-gamify` persists {enabled:false}; `--gamify` clears the file, back to
+   the default. An absent file means ON, which also makes the stray
+   {enabled:true} that used to ship in the repo a harmless no-op. */
 const GAMIFY_CONFIG_PATH = path.join(ROOT, 'gamify-config.json');
 
 function resolveGamifyEnabled(args) {
   if (args.includes('--no-gamify')) {
-    try { fs.unlinkSync(GAMIFY_CONFIG_PATH); } catch {}
+    fs.writeFileSync(GAMIFY_CONFIG_PATH, JSON.stringify({ enabled: false }, null, 2));
     return false;
   }
   if (args.includes('--gamify')) {
-    fs.writeFileSync(GAMIFY_CONFIG_PATH, JSON.stringify({ enabled: true }, null, 2));
+    try { fs.unlinkSync(GAMIFY_CONFIG_PATH); } catch {}   // absent == default on
     return true;
   }
   try {
-    return JSON.parse(fs.readFileSync(GAMIFY_CONFIG_PATH, 'utf8')).enabled === true;
+    return JSON.parse(fs.readFileSync(GAMIFY_CONFIG_PATH, 'utf8')).enabled !== false;
   } catch {
-    return false;
+    return true;                                          // no file → on
   }
 }
 
@@ -166,9 +177,10 @@ let _gamifyRouter = null;
 function setGamifyEnabled(on) {
   gamifyEnabled = !!on;
   try {
-    if (gamifyEnabled) fs.writeFileSync(GAMIFY_CONFIG_PATH, JSON.stringify({ enabled: true }, null, 2));
-    else fs.unlinkSync(GAMIFY_CONFIG_PATH);
-  } catch { /* absent file on disable is the desired state anyway */ }
+    // Mirror resolveGamifyEnabled: the file only ever records an explicit OFF.
+    if (gamifyEnabled) fs.unlinkSync(GAMIFY_CONFIG_PATH);
+    else fs.writeFileSync(GAMIFY_CONFIG_PATH, JSON.stringify({ enabled: false }, null, 2));
+  } catch { /* an absent file when enabling is exactly the desired state */ }
   if (gamifyEnabled) {
     // Same settle-on-boot the launch flag does, so the first UI read is current.
     try {
@@ -211,6 +223,10 @@ app.get('/api/settings/app', (req, res) => {
     gamify: gamifyEnabled,
     autolockMinutes: vault.getAutolockMinutes(),
     encrypted: vault.isEncrypted(),
+    // Whether the first-launch "set a password" explainer has been answered.
+    // Server-side, not localStorage: it's setup state, and a new browser
+    // profile shouldn't re-nag someone who already decided.
+    passwordPromptSeen: appSettings.all().passwordPromptSeen === true,
   });
 });
 
@@ -234,6 +250,14 @@ app.post('/api/settings/app', (req, res) => {
     }
     out.autolockMinutes = vault.setAutolockMinutes(n);
     appSettings.set({ autolockMinutes: out.autolockMinutes });
+  }
+
+  if ('passwordPromptSeen' in body) {
+    if (typeof body.passwordPromptSeen !== 'boolean') {
+      return res.status(400).json({ error: 'passwordPromptSeen must be true or false' });
+    }
+    appSettings.set({ passwordPromptSeen: body.passwordPromptSeen });
+    out.passwordPromptSeen = body.passwordPromptSeen;
   }
 
   if (Object.keys(out).length === 0) {

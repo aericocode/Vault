@@ -20,10 +20,13 @@ That's a working library. Steps below add the AI features.
 
 | Tool | Needed for | Install |
 |---|---|---|
-| **ffmpeg + ffprobe** | thumbnails, duration probing, beat bar, subtitles, Music ID | `winget install ffmpeg` (must end up in PATH) |
-| **LM Studio** *or* **Ollama** | AI scanning, semantic search, chat-based translation fallback | see §2 |
-| **fpcalc** (Chromaprint) | Music ID fingerprinting | [acoustid.org/chromaprint](https://acoustid.org/chromaprint) → PATH |
+| **ffmpeg + ffprobe** | thumbnails, duration probing, beat bar, subtitles, Music ID | **one click** — Vault shows a ⬇ Download banner on first launch (or `winget install ffmpeg`) |
+| **LM Studio** *or* **Ollama** | AI scanning, semantic search, chat-based translation fallback | see §2 — step-by-step |
+| **fpcalc** (Chromaprint) | Music ID fingerprinting | **one click** — same banner (or [acoustid.org/chromaprint](https://acoustid.org/chromaprint) → PATH) |
 | **Python + faster-whisper** | transcription/subtitles | `python -m venv venv && venv\Scripts\pip install faster-whisper` |
+
+The ⬇ banner puts the downloaded tools next to `Vault.exe` and they work
+immediately — no PATH edits, no restart.
 
 ---
 
@@ -32,12 +35,47 @@ That's a working library. Steps below add the AI features.
 Vault talks to any **OpenAI-compatible** `/v1/chat/completions` server and
 load-balances across several (multi-GPU). Scanning needs a **vision** model.
 
-### Option A — LM Studio (default, zero config)
+### Option A — LM Studio (default, zero config) — full walkthrough
 
-1. Install [LM Studio](https://lmstudio.ai), download a vision model (see §3).
-2. Load the model, start the server (Developer tab → Start, port **1234**).
-3. Done — Vault's default endpoint is `http://localhost:1234/v1/chat/completions`.
-   LM Studio serves whatever model is loaded; no model name needed.
+**1. Install LM Studio — the classic app, not Bionic.**
+Download from **[lmstudio.ai/download](https://lmstudio.ai/download#lm-studio-download-heading)**.
+
+> ⚠ The download page lists **"LM Studio Bionic"** (their new agent product)
+> *above* the one you want. Scroll to the **"Download LM Studio"** section —
+> the one described as *"Chat interface and programmable API"*. Bionic does
+> not expose the local server Vault talks to.
+
+Run the installer; on first launch you can skip the onboarding suggestions —
+you'll pick your own model next.
+
+**2. Download a vision model.**
+1. Open **Model Search** in LM Studio's left sidebar.
+2. Search for a model from §3 that fits your VRAM (the in-app **Settings → Models**
+   table has the same list). Type its name, e.g. `Qwen2.5-VL-7B`.
+3. Pick the **Q4** quantization when offered and hit **Download**. Vision models
+   are 3–10 GB; wait for the download to finish.
+
+**3. Load it — with a bigger context window.** This is the step everyone misses:
+1. Open the **Developer** tab in the left sidebar and load the model from there.
+2. Turn on the toggle for **manually choosing load parameters** — without it you
+   get the defaults and no chance to change them.
+3. Set **Context Length** to **~60000** tokens. The default (~4k) is far too
+   small — every scan sends several frames plus the prompt, and a 4k context
+   silently truncates them into empty or garbage metadata.
+4. If there's a **Flash Attention** toggle, turn it on (faster, less VRAM).
+   Leave GPU offload at its default (max layers).
+5. **Load the model.**
+
+**4. Start the local server.**
+1. Still in the **Developer** tab, make sure **Status** reads **Running**.
+2. The port should be **1234** (LM Studio's default — leave it).
+3. That's it. Vault's default endpoint is already
+   `http://localhost:1234/v1/chat/completions`, and LM Studio serves whatever
+   model is loaded — no model name, no API key, nothing to configure in Vault.
+
+**5. Verify.** Back in Vault, drag a file in (or press ▶ Resume if a scan is
+paused waiting for the model). The scan panel should start moving; the file's
+description and tags appear when its scan lands.
 
 ### Option B — Ollama
 
@@ -114,9 +152,9 @@ nothing is duplicated elsewhere (`start.bat` asks the config for the port).
 |---|---|
 | `Node.js is required but was not found` | Install Node LTS from nodejs.org, reopen the terminal |
 | `No LM Studio endpoints available` / scan errors instantly | Start LM Studio's server (or Ollama) and check `LM_STUDIO_URLS`; for Ollama also set `AI_MODEL` |
-| Scans produce empty/garbage metadata | The loaded model isn't a **vision** model — load one from §3 |
+| Scans produce empty/garbage metadata | The loaded model isn't a **vision** model (load one from §3), or its **context length is at the ~4k default** — reload it at ~60k (§2, step 3) |
 | `database is encrypted — password required` at boot | The Vault is locked: open the viewer and hold the padlock 3s, or set `VIDEO_TAGGER_DB_PASSWORD` |
-| Thumbnails/duration missing on imports | ffmpeg/ffprobe not in PATH |
-| Music ID says tools missing | Install fpcalc (Chromaprint) into PATH |
+| Thumbnails/duration missing on imports | ffmpeg missing — use the ⬇ banner in the viewer, or install to PATH |
+| Music ID says tools missing | fpcalc missing — same ⬇ banner |
 | Subtitles fail to generate | Create the Python venv with `faster-whisper` (§1 table) |
 | Diarization/subtitles report that downloads are off | Either pre-install the models (`whisper` / OPUS-MT / `models/diarize` dirs) or set `SUB_ALLOW_DOWNLOADS=1` (and ensure `VAULT_OFFLINE` is unset) |

@@ -41,12 +41,12 @@ Each of the following features adds one optional dependency:
 
 | Feature | Needs |
 |---|---|
-| AI scanning / semantic search | a local vision model via LM Studio, Ollama or vLLM |
-| Thumbnails, hover-scrub, beat bar | ffmpeg + ffprobe on PATH |
+| AI scanning / semantic search | a local vision model via [LM Studio](https://lmstudio.ai/download#lm-studio-download-heading), Ollama or vLLM — [step-by-step guide](SETUP.md#2-ai-backend--lm-studio-or-ollama) |
+| Thumbnails, hover-scrub, beat bar | ffmpeg — **one click**: Vault offers to download it on first launch |
 | Subtitles / transcription | Python + faster-whisper |
-| Music ID | fpcalc (Chromaprint) on PATH |
+| Music ID | fpcalc — same one-click banner |
 
-See [SETUP.md](SETUP.md) for install instructions and model recommendations by VRAM.
+See [SETUP.md](SETUP.md) for the full walkthrough and model recommendations by VRAM.
 
 ## Features
 
@@ -166,9 +166,12 @@ A **Games** tab that turns library videos into games — pick videos in-tab (nev
 </details>
 
 <details>
-<summary><b>🏆 Obsession Score (optional gamification, opt-in only)</b></summary>
+<summary><b>🏆 Obsession Score (local gamification)</b></summary>
 
-Enable with `serve --gamify`. **Fully offline, fully optional** — disabled by default, and disabling deletes all tracked data.
+**Fully offline.** No AI model, no setup — it works from the first launch. Don't
+want to see it? **Settings → Hide 🏆 Obsession Score** drops the chip and its
+toasts while scoring continues underneath, so unhiding shows your real history
+rather than a gap. To stop it entirely, run with `--no-gamify`.
 
 - **Points & streaks** — earn score for real engagement (rarity- and duration-weighted so a 2-second thumbnail flip earns far less than actually watching something), with daily streak tracking and decay for inactivity
 - **Quests** — dynamic objectives generated from your own library and habits (e.g. "watch 3 unrated horror videos")
@@ -205,11 +208,19 @@ on PATH. Verify with `node video-tagger.js music check-tools`.
 
 **Step 1: Install and open LM Studio**
 
-1. Open LM Studio
-2. Go to Local Server
-3. Set port to `1234`
-4. Load your vision model
-5. Start server
+Get it from [lmstudio.ai/download](https://lmstudio.ai/download#lm-studio-download-heading) —
+scroll past **"LM Studio Bionic"** to the classic **"Download LM Studio"**
+section (*"Chat interface and programmable API"*); Bionic doesn't expose the
+local server Vault needs. Then:
+
+1. **Model Search** (left sidebar) → download a vision model that fits your VRAM
+   ([SETUP.md §3](SETUP.md#3-model-recommendations-by-gpu-size), Q4 quant)
+2. **Developer** tab → load it with the **manually choose load parameters**
+   toggle on and **Context Length ≈ 60000** — the ~4k default truncates the
+   frames and produces empty/garbage scans
+3. Same tab → **Status: Running** (port `1234`, the default)
+
+Full click-by-click walkthrough: [SETUP.md §2](SETUP.md#2-ai-backend--lm-studio-or-ollama).
 
 **Step 2: Run with parallel workers(parallel slots)**
 
@@ -332,9 +343,10 @@ Options:
 node video-tagger.js serve [options]     # same as start.bat
 
 Options:
-  --gamify        Opt in to the local Obsession Score tracker (opt-in,
-                  fully local, deletable at any time)
-  --no-gamify     Opt back out (also deletes gamify-config.json)
+  --gamify        Re-enable the local Obsession Score tracker (it is on by
+                  default; this only undoes a previous --no-gamify)
+  --no-gamify     Turn the tracker off entirely — no scoring, no routes.
+                  To just hide it, use Settings → Hide Obsession Score
 ```
 
 ### Other commands
@@ -365,7 +377,7 @@ video-tagger/
 ├── server/
 │   ├── index.js             # Local viewer server (API, media streaming, thumbnails)
 │   ├── music-routes.js      # Music ID API (fingerprints, songs, mixes, exports)
-│   └── gamify-routes.js     # Obsession Score API (mounted only when --gamify)
+│   └── gamify-routes.js     # Obsession Score API (gated on the --no-gamify kill switch)
 ├── lib/
 │   ├── llm-client.js        # Shared LM Studio client + load balancer + JSON repair
 │   ├── vision-api.js        # Thin vision wrapper

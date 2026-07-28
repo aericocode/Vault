@@ -428,6 +428,69 @@
     logo.insertAdjacentElement('afterend', btn);
   }
 
+  /* ── First-launch: offer to set a password ────────────────────────────────
+     Without one the database is a plain SQLite file — AI descriptions, notes,
+     view counts, finishes and the Obsession history are all readable by anyone
+     who opens the folder. That's the honest reason to ask, and asking once at
+     the start is far more effective than making individual features opt-in to
+     work around it.
+
+     Asked ONCE: the answer lives server-side (vault-settings.json via
+     /api/settings/app), so a different browser profile doesn't re-nag someone
+     who already said no. Declining is a real choice, not a deferral. */
+
+  async function maybeOfferPassword() {
+    let s;
+    try {
+      const resp = await fetch('/api/settings/app');
+      if (!resp.ok) return;                       // locked or older server
+      s = await resp.json();
+    } catch { return; }
+    if (s.encrypted || s.passwordPromptSeen) return;
+
+    const remember = () => fetch('/api/settings/app', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passwordPromptSeen: true }),
+    }).catch(() => {});
+
+    const ov = document.createElement('div');
+    ov.id = 'vaultFirstRunModal';
+    ov.className = 'vault-modal-overlay';
+    ov.innerHTML = `
+      <div class="vault-modal" role="dialog" aria-label="Protect your library">
+        <h3>🔐 Protect your library?</h3>
+        <p class="vault-modal-hint">
+          Vault stores everything in one database next to the app: AI descriptions
+          and tags, your notes, ratings, watch counts and history. <b>Without a
+          password that file is readable by anyone with access to this computer.</b>
+        </p>
+        <p class="vault-modal-hint">
+          Setting one encrypts the whole database at rest. You can still leave
+          auto-lock off (Settings → <b>Auto-lock after: 0</b>) so it never locks
+          while you're using it — the encryption applies either way.
+        </p>
+        <p class="vault-modal-hint">
+          <b>There is no recovery.</b> Lose the password and the library is gone,
+          so use something you'll remember or store it in a password manager.
+        </p>
+        <div class="vault-modal-actions">
+          <button class="vault-btn" id="vaultFirstRunSkip">Not now</button>
+          <button class="vault-btn vault-btn-primary" id="vaultFirstRunSet">Set a password</button>
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+
+    ov.querySelector('#vaultFirstRunSkip').addEventListener('click', () => {
+      remember();
+      ov.remove();
+    });
+    ov.querySelector('#vaultFirstRunSet').addEventListener('click', () => {
+      remember();
+      ov.remove();
+      openCreatePassModal();
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     $logo()?.addEventListener('click', onLogoClick);
     installKeyButton();
@@ -435,5 +498,7 @@
     document.addEventListener('keydown', touchActivity, true);
     refreshStatus();
     setInterval(refreshStatus, 45 * 1000);
+    // After the setup-tools banner has had its moment — one prompt at a time.
+    setTimeout(maybeOfferPassword, 1200);
   });
 })();

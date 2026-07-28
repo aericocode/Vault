@@ -19,22 +19,43 @@
 
   /* ── Bootstrap ──────────────────────────────────────────────────────────── */
 
+  /**
+   * "Hide Obsession Score" (Settings) is presentational ONLY — the chip and the
+   * point toasts go away, scoring carries on. That's deliberate: tracking lives
+   * server-side in /api/media/:id/viewed, so a user who unhides later finds
+   * their real history rather than a gap. `--no-gamify` is the actual off
+   * switch; see resolveGamifyEnabled in server/index.js.
+   */
+  const isHidden = () =>
+    typeof window.vaultSetting === 'function' && !!window.vaultSetting('gamifyHidden');
+
   async function init() {
     try {
       const resp = await fetch('/api/gamify/status');
       const status = await resp.json();
-      if (!status.enabled) return; // opted out — zero UI
+      if (!status.enabled) return; // hard off (--no-gamify) — zero UI
       _enabled = true;
       _stats = status.stats;
       applyTheme(_stats?.theme);
+      // Built either way so the Settings toggle can show/hide instantly instead
+      // of demanding a reload; applyHidden() decides what's on screen.
       buildHeaderChip();
       buildModalShell();
+      applyHidden(isHidden());
       installAchievementHooks();
       window.addEventListener('gamify:update', onGamifyUpdate);
     } catch {
       /* server unreachable or old server — stay silent */
     }
   }
+
+  /** Show/hide the chip. Called at boot and by the Settings toggle. */
+  function applyHidden(hidden) {
+    const chip = document.getElementById('gamifyChip');
+    if (chip) chip.style.display = hidden ? 'none' : '';
+    if (hidden) closeModal?.();          // don't strand an open modal behind a hide
+  }
+  window.vaultApplyGamifyHidden = applyHidden;
 
   /** Level-unlocked cosmetic theme → CSS vars used by all gamify gradients. */
   function applyTheme(theme) {
@@ -80,8 +101,11 @@
   function onGamifyUpdate(e) {
     const result = e.detail;
     if (!result) return;
+    // Stats still update while hidden — unhiding must show the real score, not
+    // whatever it was when the user hid it. Only the visible reactions stop.
     _stats = result.stats;
     renderChip();
+    if (isHidden()) return;
     pulseChip();
 
     showToast(`🔥 +${result.earned} pts`);
