@@ -85,6 +85,25 @@
 .settings-header h2 {
   font-size: 1.05rem;
   font-weight: 600;
+  margin-right: auto;   /* support link + close button sit together on the right */
+}
+
+/* Ko-fi nudge — quiet by default, warms on hover. Never a primary action. */
+.settings-support {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 0.25rem 0.6rem;
+  margin-right: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  white-space: nowrap;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.settings-support:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .settings-close {
@@ -439,10 +458,21 @@
   color: var(--text-primary) !important;
 }
 
+/* Shown only in the update-available branch, under the release link. */
+.settings-update-kofi {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--text-muted);
+}
+
+.settings-update {  
+  margin-bottom: 0.5rem;
+}
+
 .settings-links {
   display: flex;
   gap: 1.2rem;
-  margin-top: 0.6rem;
+  margin-top: 0.5rem;
 }
 
 /* ── Responsive ──────────────────────────────────────────────────────────── */

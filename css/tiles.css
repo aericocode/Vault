@@ -470,6 +470,16 @@
 #importQueuePanel { order: 0; }
 #deleteQueue { order: 1; }
 #scanQueuePanel { order: 2; }
+#kofiThanksPanel { order: 3; }
+
+/* One-time Ko-fi thank-you body (see maybeKofiNudge in player-lib/importer.js) */
+.kofi-note {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.kofi-note a { color: var(--accent); text-decoration: none; }
+.kofi-note a:hover { text-decoration: underline; }
 
 /* ── Delete / restore queue panel (bottom-right, stacks — never replaces) ── */
 .delete-queue {
