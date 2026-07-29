@@ -92,6 +92,11 @@
     // (0 = top edge, 1 = bottom). null = classic spot above the native
     // controls. A fraction survives fullscreen and carries video-to-video.
     posFrac: null,
+    // User-facing sync offset (seconds) for AV setups with a small
+    // audio/video delay. Positive = beats hit the playhead LATER
+    // (use if the bar currently feels early); negative = EARLIER.
+    // Independent of the fixed BEAT_NUDGE_SEC feel-tuning constant above.
+    nudgeSec: 0,
     // style
     shape: 'circle',       // circle | heart | square | diamond | star
     effects: { pulse: true, ripple: false, spark: false },
@@ -648,6 +653,9 @@
         <div class="bb-row"><span class="bb-lbl">Speed</span>
           <input type="range" class="bb-speed" min="2" max="10" step="0.5">
           <span class="bb-num bb-speed-val"></span></div>
+        <div class="bb-row"><span class="bb-lbl">Nudge</span>
+          <input type="range" class="bb-nudge" min="-500" max="500" step="10" title="Shift beat timing to match your audio/video delay">
+          <span class="bb-num bb-nudge-val"></span></div>
         <div class="bb-row"><span class="bb-lbl">Playhead</span>
           <span class="bb-chips bb-playhead-btns">
             <button class="bb-chip" data-frac="0.1">10%</button>
@@ -678,6 +686,7 @@
     const qa = (sel) => [...overlay.querySelectorAll(sel)];
     const sens = q('.bb-sens'), sensVal = q('.bb-sens-val');
     const speed = q('.bb-speed'), speedVal = q('.bb-speed-val');
+    const nudge = q('.bb-nudge'), nudgeVal = q('.bb-nudge-val');
     const fillSize = q('.bb-fill-size'), sizeVal = q('.bb-size-val');
     const fillOpacity = q('.bb-fill-opacity'), opacityVal = q('.bb-opacity-val');
     const borderWidth = q('.bb-border-width');
@@ -693,9 +702,12 @@
       qa('.bb-border-swatch').forEach(b => b.classList.toggle('active', b.dataset.color.toLowerCase() === config.borderColor.toLowerCase()));
     };
 
+    const fmtNudge = (ms) => ms === 0 ? '0ms' : (ms > 0 ? `+${ms}ms` : `${ms}ms`);
+
     // Seed controls from config
     sens.value = String(config.sensitivity); sensVal.textContent = Number(config.sensitivity).toFixed(1);
     speed.value = String(config.speed); speedVal.textContent = String(config.speed);
+    nudge.value = String(Math.round((config.nudgeSec || 0) * 1000)); nudgeVal.textContent = fmtNudge(Math.round((config.nudgeSec || 0) * 1000));
     fillSize.value = String(config.fillSize); sizeVal.textContent = String(config.fillSize);
     fillOpacity.value = String(config.fillOpacity); opacityVal.textContent = Number(config.fillOpacity).toFixed(2);
     borderWidth.value = String(config.borderWidth);
@@ -703,6 +715,10 @@
 
     // Live style / speed (drawBar reads config every frame)
     speed.addEventListener('input', () => { config.speed = parseFloat(speed.value); speedVal.textContent = speed.value; saveConfig(); });
+    nudge.addEventListener('input', () => {
+      const ms = parseFloat(nudge.value);
+      config.nudgeSec = ms / 1000; nudgeVal.textContent = fmtNudge(ms); saveConfig();
+    });
     fillSize.addEventListener('input', () => { config.fillSize = parseFloat(fillSize.value); sizeVal.textContent = fillSize.value; saveConfig(); });
     fillOpacity.addEventListener('input', () => { config.fillOpacity = parseFloat(fillOpacity.value); opacityVal.textContent = Number(fillOpacity.value).toFixed(2); saveConfig(); });
     borderWidth.addEventListener('input', () => { config.borderWidth = parseFloat(borderWidth.value); saveConfig(); });
@@ -892,14 +908,16 @@
     const borderColor = cfg.borderColor || '#ffffff';
     const baseR = Math.max(3, cfg.fillSize || 9);
     const pulseR = baseR + Math.max(8, baseR * 1.2);
+    const nudgeSec = cfg.nudgeSec || 0; // user AV-sync offset; +later / -earlier
 
     // Playhead
     ctx.strokeStyle = 'rgba(255,255,255,0.6)';
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(playheadX, 6); ctx.lineTo(playheadX, h - 6); ctx.stroke();
 
-    // First visible beat (binary search)
-    const firstT = t - lookbehind - 0.2;
+    // First visible beat (binary search). Search against raw beat times, so
+    // offset the window by -nudgeSec to account for the shift applied below.
+    const firstT = t - lookbehind - 0.2 - nudgeSec;
     let lo = 0, hi = beats.length;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
@@ -907,7 +925,7 @@
     }
 
     for (let i = lo; i < beats.length; i++) {
-      const dt = beats[i] - t;
+      const dt = (beats[i] + nudgeSec) - t;
       if (dt > lookahead + 0.2) break;
 
       const x = playheadX + dt * pxPerSec;
@@ -924,7 +942,7 @@
       // the line). One `k` drives icon size AND every effect, so they stay in
       // step. Speed-independent in time: the hit peaks at the same instant
       // regardless of scroll speed, it just travels fewer/more pixels.
-      const phase = t - (beats[i] - BEAT_NUDGE_SEC);
+      const phase = t - (beats[i] + nudgeSec - BEAT_NUDGE_SEC);
       const k = beatEnvelope(phase);
       let radius = baseR;
       // Only the pulse effect grows the icon itself; the others radiate around it
