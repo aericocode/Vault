@@ -531,6 +531,14 @@ body.privacy-mode .trash-original-path {
   display: none !important;
 }
 
+/* ✎ opens the note's saved text in a plain textarea, which would put the
+   blurred .note-text above back on screen in the clear. Withdraw the button
+   while privacy mode is on — turn it off to edit. (The composer box is left
+   alone: it starts empty, so it only ever shows what is being typed now.) */
+body.privacy-mode .note-edit {
+  display: none !important;
+}
+
 /* =========================================================================
    BLURRED LIBRARY  (body.blur-thumbs)
 

@@ -444,6 +444,27 @@ function seekToNoteTimestamp(filepath, ts) {
 }
 
 /**
+ * One saved note row. Shared by the initial render and every refresh so the
+ * two can't drift apart.
+ */
+function renderNoteEntry(note, i, escapedPath) {
+  return `
+    <div class="note-entry" data-index="${i}">
+      <div class="note-timestamp">${escapeHtml(note.timestamp)}${note.edited ? ' <span class="note-edited" title="Edited ' + escapeHtml(note.edited) + '">· edited</span>' : ''}</div>
+      <div class="note-text">${linkifyTimestamps(escapeHtml(note.text), escapedPath)}</div>
+      <button class="note-edit" onclick="startNoteEdit(this)" title="Edit this note">✎</button>
+      <button class="note-delete" onclick="deleteNote('${escapedPath}', ${i})" title="Delete this note">✕</button>
+    </div>
+  `;
+}
+
+function renderNotesList(notes, escapedPath) {
+  return notes.length
+    ? notes.map((note, i) => renderNoteEntry(note, i, escapedPath)).join('')
+    : '<div class="notes-empty">No notes yet</div>';
+}
+
+/**
  * Render the notes section HTML for the modal.
  * @param {object} media - The media record
  * @returns {string} HTML string
@@ -451,19 +472,7 @@ function seekToNoteTimestamp(filepath, ts) {
 function renderNotesSection(media) {
   const notes = getNotes(media.filepath);
   const escapedPath = escapeHtml(media.filepath).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-
-  let notesListHtml = '';
-  if (notes.length > 0) {
-    notesListHtml = notes.map((note, i) => `
-      <div class="note-entry" data-index="${i}">
-        <div class="note-timestamp">${escapeHtml(note.timestamp)}</div>
-        <div class="note-text">${linkifyTimestamps(escapeHtml(note.text), escapedPath)}</div>
-        <button class="note-delete" onclick="deleteNote('${escapedPath}', ${i})" title="Delete this note">✕</button>
-      </div>
-    `).join('');
-  } else {
-    notesListHtml = '<div class="notes-empty">No notes yet</div>';
-  }
+  const notesListHtml = renderNotesList(notes, escapedPath);
 
   return `
     <div class="detail-section notes-section" data-notes-for="${escapeHtml(media.filepath)}">
@@ -475,7 +484,7 @@ function renderNotesSection(media) {
       <div class="notes-add">
         <div class="note-input-wrap">
           <button class="note-ts-btn" onclick="insertCurrentTimestamp(this)" title="Insert the current playback time">🕐</button>
-          <textarea class="note-textarea note-input-field" placeholder="Add a note..." rows="2"></textarea>
+          <textarea class="note-textarea note-input-field" placeholder="Add a note… (Enter saves, Shift+Enter = new line)" rows="2"></textarea>
         </div>
         <div class="notes-actions">
           <button class="note-save-snippet-btn" onclick="saveNoteSnippet(this)" title="Save the typed text as a reusable quick note">☆</button>
@@ -516,6 +525,10 @@ function addNoteText(filepath, text) {
  * so an in-progress note is never silently lost. Empty inputs are skipped.
  */
 function flushPendingNotes() {
+  // An open ✎ editor is in-progress text too — commit it before the section
+  // it lives in is torn down.
+  document.querySelectorAll('.note-entry.note-editing .note-edit-field').forEach(ta => commitNoteEdit(ta));
+
   document.querySelectorAll('.notes-section').forEach(section => {
     const filepath = section.dataset.notesFor;
     const input = section.querySelector('.note-input-field');
@@ -551,24 +564,124 @@ function addNote(filepath, btnEl) {
   const text = input.value.trim();
   if (!text) return;
 
-  const notes = getNotes(filepath);
-  notes.push({
-    text: text,
-    timestamp: new Date().toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    })
-  });
+  input.value = '';               // clear first so a re-render race can't double-add
+  addNoteText(filepath, text);
+}
 
+/* ── Editing an existing note ───────────────────────────────────────────────
+   ✎ swaps the note's text for a textarea in place. Enter saves, Shift+Enter
+   adds a line, Escape cancels. The edit field is deliberately NOT a
+   .note-input-field so flushPendingNotes can tell "edit in progress" from
+   "new note half-typed" — it commits both, but they save differently. */
+
+/** Resolve the notes-section / entry / filepath / index around any element. */
+function _noteCtx(el) {
+  const entry = el?.closest('.note-entry');
+  const section = el?.closest('.notes-section');
+  return {
+    entry, section,
+    filepath: section?.dataset.notesFor || '',
+    index: entry ? Number(entry.dataset.index) : -1,
+  };
+}
+
+function _noteStamp() {
+  return new Date().toLocaleString('en-US', {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+}
+
+/** ✎ → open the inline editor on this note (no-op if already open). */
+function startNoteEdit(btnEl, presetText = null) {
+  const { entry, filepath, index } = _noteCtx(btnEl);
+  if (!entry || entry.classList.contains('note-editing')) return;
+  const note = getNotes(filepath)[index];
+  if (!note) return;
+
+  entry.classList.add('note-editing');
+  entry.querySelector('.note-text')?.insertAdjacentHTML('afterend', `
+    <div class="note-edit-wrap">
+      <textarea class="note-textarea note-edit-field" rows="2"></textarea>
+      <div class="note-edit-actions">
+        <button class="note-clear-btn" onclick="cancelNoteEdit(this)">Cancel</button>
+        <button class="note-add-btn" onclick="commitNoteEdit(this)">Save</button>
+      </div>
+    </div>`);
+
+  const ta = entry.querySelector('.note-edit-field');
+  if (!ta) return;
+  // Assign through .value — never through HTML — so note text containing
+  // quotes/markup round-trips exactly as typed.
+  ta.value = presetText == null ? note.text : presetText;
+  ta.rows = Math.min(8, Math.max(2, ta.value.split('\n').length));
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+
+/** Save the open editor on this note. Empty text is refused (✕ deletes). */
+function commitNoteEdit(el) {
+  const { entry, filepath, index } = _noteCtx(el);
+  const ta = entry?.querySelector('.note-edit-field');
+  if (!ta) return;
+
+  const text = ta.value.trim();
+  const notes = getNotes(filepath);
+  if (index < 0 || index >= notes.length) return;
+  if (!text) { showToast('Note is empty — use ✕ to delete it'); return; }
+  if (text === notes[index].text) { cancelNoteEdit(el); return; }
+
+  notes[index] = { ...notes[index], text, edited: _noteStamp() };
+  // Close BEFORE the refresh: it restores any editor still open in a section,
+  // which would otherwise re-open this one right after saving it.
+  cancelNoteEdit(el);
   if (saveNotesToDb(filepath, notes)) {
     refreshAllNotesSections(filepath);
-    showToast('Note added');
+    showToast('Note updated');
   }
 }
+
+/** Close the editor, discarding changes. */
+function cancelNoteEdit(el) {
+  const { entry } = _noteCtx(el);
+  if (!entry) return;
+  entry.querySelector('.note-edit-wrap')?.remove();
+  entry.classList.remove('note-editing');
+}
+
+/* ── Enter to submit, Shift+Enter for a new line ─────────────────────────────
+   One delegated capture-phase listener covers every notes box anywhere in the
+   app (modal, sidebar, info overlay) — including sections rendered later. */
+
+function handleNoteKeydown(e) {
+  const target = e.target;
+  if (!target?.classList) return;
+  const isAdd = target.classList.contains('note-input-field');
+  const isEdit = target.classList.contains('note-edit-field');
+  if (!isAdd && !isEdit) return;
+
+  if (e.key === 'Escape' && isEdit) {
+    e.preventDefault();
+    e.stopPropagation();
+    cancelNoteEdit(target);
+    return;
+  }
+  // isComposing: mid-IME Enter commits the candidate, it isn't a submit
+  if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+  if (isEdit) { commitNoteEdit(target); return; }
+
+  const { section, filepath } = _noteCtx(target);
+  if (!section || !filepath) return;
+  const text = target.value.trim();
+  if (!text) return;
+  target.value = '';               // clear first so a re-render race can't double-add
+  addNoteText(filepath, text);
+}
+
+document.addEventListener('keydown', handleNoteKeydown, true);
 
 /**
  * Delete a note by index.
@@ -600,21 +713,21 @@ function refreshAllNotesSections(filepath) {
     const notesList = section.querySelector('.notes-list');
     if (!notesList) return;
 
-    if (notes.length > 0) {
-      notesList.innerHTML = notes.map((note, i) => `
-        <div class="note-entry" data-index="${i}">
-          <div class="note-timestamp">${escapeHtml(note.timestamp)}</div>
-          <div class="note-text">${linkifyTimestamps(escapeHtml(note.text), escapedPath)}</div>
-          <button class="note-delete" onclick="deleteNote('${escapedPath}', ${i})" title="Delete this note">✕</button>
-        </div>
-      `).join('');
-    } else {
-      notesList.innerHTML = '<div class="notes-empty">No notes yet</div>';
-    }
+    // An editor open in THIS section survives the re-render (a save from a
+    // second notes pane on the same file must not silently eat it).
+    const openEdit = section.querySelector('.note-entry.note-editing');
+    const pending = openEdit
+      ? { index: Number(openEdit.dataset.index), text: openEdit.querySelector('.note-edit-field')?.value ?? '' }
+      : null;
 
-    // Clear input in this section
-    const input = section.querySelector('.note-input-field');
-    if (input) input.value = '';
+    notesList.innerHTML = renderNotesList(notes, escapedPath);
+
+    if (pending && pending.index >= 0 && pending.index < notes.length) {
+      const btn = notesList.querySelector(`.note-entry[data-index="${pending.index}"] .note-edit`);
+      if (btn) startNoteEdit(btn, pending.text);
+    }
+    // NOTE: the add-note box is deliberately left alone — the caller clears
+    // its own box, so a save here never wipes text half-typed in another pane.
   });
 }
 

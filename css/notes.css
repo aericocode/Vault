@@ -100,7 +100,7 @@
 
 .note-entry {
   position: relative;
-  padding: 0.6rem 2rem 0.6rem 0.75rem;
+  padding: 0.6rem 3.4rem 0.6rem 0.75rem;
   margin-bottom: 0.5rem;
   background: var(--bg-tertiary, #1e1e2e);
   border: 1px solid var(--border, #333);
@@ -149,6 +149,72 @@
 .note-delete:hover {
   color: var(--danger, #f38ba8);
   background: rgba(243, 139, 168, 0.1);
+}
+
+/* ✎ sits just left of ✕, same reveal-on-hover treatment */
+.note-edit {
+  position: absolute;
+  top: 0.5rem;
+  right: 2rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #666);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+  opacity: 0;
+  transition: all 0.15s;
+}
+
+.note-entry:hover .note-edit,
+.note-entry.note-editing .note-edit {
+  opacity: 1;
+}
+
+.note-edit:hover,
+.note-entry.note-editing .note-edit {
+  color: var(--accent, #89b4fa);
+  background: rgba(137, 180, 250, 0.12);
+}
+
+.note-edited {
+  color: var(--text-secondary, #888);
+  opacity: 0.75;
+  font-style: italic;
+}
+
+/* ── Inline note editor (✎) ──────────────────────────────────────────── */
+
+/* The rendered text hides while its editor is open */
+.note-entry.note-editing .note-text { display: none; }
+
+.note-entry.note-editing {
+  border-color: var(--accent, #89b4fa);
+}
+
+.note-edit-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.15rem;
+}
+
+.note-edit-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* Cancel reuses .note-clear-btn, whose margin-left:auto would shove it away
+   from Save inside this right-aligned row */
+.note-edit-actions .note-clear-btn { margin-left: 0; }
+
+.note-edit-actions .note-add-btn,
+.note-edit-actions .note-clear-btn {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
 }
 
 /* ── Note Input ──────────────────────────────────────────────────────── */
