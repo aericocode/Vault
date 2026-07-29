@@ -107,6 +107,21 @@ function renderDetailBody(media, opts = {}) {
     ? list.map(v => `<span class="tag">${escapeHtml(v)}</span>`).join('')
     : '<span class="field-empty">—</span>';
 
+  /* The ⚠ badge on a tile is the ONLY hint that something went wrong, and this
+     is where it sends you — so it goes directly under the actions, not two
+     screens down past Description/Notes/Subtitles/Music/File Info where it used
+     to sit (it did render; nobody scrolled that far to find it).
+
+     'unscanned' is excluded: it is the not-yet-scanned sentinel, not a failure,
+     and every freshly imported file was announcing itself here as
+     "⚠ Processing Error — unscanned". */
+  const errorSection = (media.processing_error && media.processing_error !== 'unscanned') ? `
+    <div class="detail-section detail-section--error">
+      <h3 style="color: var(--danger);">⚠ Processing Error</h3>
+      <p class="detail-error">${escapeHtml(media.processing_error)}</p>
+      <p class="detail-error-hint">The file itself is fine — it plays and can be tagged. Fix the cause above, then use 🔄 Rescan to try the AI analysis again.</p>
+    </div>` : '';
+
   return `
     <div class="detail-body detail-body--${isLibrary ? 'library' : 'player'}" data-media-id="${media.id}">
 
@@ -147,6 +162,8 @@ function renderDetailBody(media, opts = {}) {
 
       ${dupeSection || ''}
     </div>
+
+    ${errorSection}
 
     <div class="detail-section">
       <h3>Description ${editBtn('description')}</h3>
@@ -213,13 +230,6 @@ function renderDetailBody(media, opts = {}) {
       </div>
       </div>
     </div>
-
-    ${media.processing_error ? `
-    <div class="detail-section">
-      <h3 style="color: var(--danger);">⚠ Processing Error</h3>
-      <p class="detail-error">${escapeHtml(media.processing_error)}</p>
-    </div>
-    ` : ''}
 
     <div class="detail-section detail-section--kv">
       <h3>Themes ${editBtn('themes')}</h3>

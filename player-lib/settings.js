@@ -24,7 +24,7 @@
     resumePlayback: true,   // auto-seek to stored position on open (current behavior)
     restoreSession: false,  // reopen last media (paused) on launch, Stash-style
     scanWorkers: 2,         // files the vision model scans in parallel after an import
-    unlockHoldSeconds: 3,   // press-and-hold on the lock before the password box (0 = click)
+    unlockHoldSeconds: 0,   // press-and-hold on the lock before the password box (0 = single click)
     blurThumbs: false,      // blur the grid's tiles (hover reveals — unless privacy mode is on)
     gamifyHidden: false,    // hide the Obsession chip + toasts (scoring continues)
     _lastMediaId: null,     // internal: id for restoreSession
@@ -112,6 +112,15 @@
     const stored = settings.scanWorkers;
     settings.scanWorkers = DEFAULTS.scanWorkers;
     settings.scanWorkers = clampWorkers(stored);
+    // One-time migration: profiles from before unlock-became-a-click carry the
+    // old default of 3, which would silently keep hold-to-unlock with no UI
+    // left to change it. Exactly 3 → 0, once; any other value was set by hand
+    // (editing the stored JSON) and is honored as-is.
+    if (!settings._unlockHoldMigrated) {
+      if (settings.unlockHoldSeconds === 3) settings.unlockHoldSeconds = 0;
+      settings._unlockHoldMigrated = true;
+      save();
+    }
   }
 
   function save() {
@@ -415,12 +424,7 @@
         desc: 'Lock the vault after this many minutes with no activity. <b>0 = never</b>. A running AI scan keeps it awake rather than locking mid-file.',
         min: 0, max: 1440, unit: 'min',
       })}
-      ${numberRow({
-        key: 'unlockHoldSeconds',
-        title: 'Hold to unlock',
-        desc: 'How long to press and hold the padlock on the lock screen before the password box appears — a guard against a stray click revealing it. <b>0 = a single click</b>.',
-        min: 0, max: 10, unit: 'sec',
-      })}
+      <!-- "Hold to unlock" row removed deliberately (unlock is a single click now); the unlockHoldSeconds logic and its handler below stay, so a stored value still applies. -->
 
       <h3 class="settings-h settings-h-planned">Planned</h3>
       <p class="settings-note">A visible roadmap — these are not wired up yet.</p>
@@ -548,7 +552,7 @@
   function RENDERERS_guides() {
     return `
       <h3 class="settings-h">Guides</h3>
-      <p class="settings-note">Short how-tos for the main features. See <code>README.md</code> / <code>SETUP.md</code> for the full docs.</p>
+      <p class="settings-note">Short how-tos for the main features. See <code>SETUP.md</code> (next to the app, and on GitHub) for the full docs.</p>
       ${guide('🔍 AI scanning',
         'Vault describes, tags and titles your media with a local vision model. Point it at <b>LM Studio (default)</b> or <b>Ollama</b> serving a vision model - see the Models section for picks by GPU size, then drag folders or files into the window to scan them. Nothing is uploaded - the model runs on your machine.',
         `Getting LM Studio: <a href="https://lmstudio.ai/download#lm-studio-download-heading" target="_blank" rel="noopener">lmstudio.ai/download</a> - you want the classic <b>LM Studio</b> ("Chat interface and programmable API"), <b>not the new Bionic</b> agent listed above it. Download a vision model from <b>Model Search</b> in LM Studio's left sidebar, then open the <b>Developer</b> tab and load it there. Turn on the toggle for manually choosing load parameters, set <b>context length ≈ 60k</b> (the ~4k default is too small for vision), and load. Finally, make sure the local server shows <b>Status: Running</b>. SETUP.md has the click-by-click version.`)}

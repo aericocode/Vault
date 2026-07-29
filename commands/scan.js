@@ -159,6 +159,7 @@ async function processFile(file, options = {}) {
         return {
           error: result.modelReason || result.error || 'Model unavailable',
           modelUnavailable: true,
+          needsModelChoice: !!result.needsModelChoice,
           filename,
         };
       }

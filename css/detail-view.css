@@ -90,6 +90,16 @@
   border-radius: 6px;
   border: 1px solid var(--danger);
   font-size: 0.8rem;
+  /* Tool-install messages are long and contain no spaces in paths/commands */
+  overflow-wrap: anywhere;
+}
+
+/* What the tile's ⚠ actually means, kept next to the message so nobody reads
+   "Processing Error" as "this file is broken/unplayable". */
+.detail-error-hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.72rem;
+  color: var(--text-muted);
 }
 
 /* ── Per-surface tweaks ──────────────────────────────────────────────────

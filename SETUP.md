@@ -7,26 +7,53 @@ local AI server (LM Studio or Ollama).
 
 ## 1. Quick start (5 minutes)
 
-1. **Install [Node.js](https://nodejs.org)** (LTS). That's the only hard
-   requirement to browse, play, tag, and organize.
-2. Double-click **`start.bat`** — it installs dependencies on first run,
-   starts the local server, and opens the viewer in your browser.
-3. **Drag media files onto the window** to add them (playable immediately),
-   or run **`scan.bat`** for the interactive wizard that indexes whole folders.
+No installer, no dev tools, nothing to configure.
 
-That's a working library. Steps below add the AI features.
+1. **Download `Vault-v*-win-x64.zip`** from the
+   [Releases page](../../releases/latest).
+2. **Unzip it anywhere** — it's portable. Everything Vault creates (database,
+   thumbnails, trash, models) is written next to the exe, so the whole folder
+   can be moved, copied, or backed up wholesale.
+3. **Run `Vault.exe`.** The build is unsigned, so Windows SmartScreen warns the
+   first time — that's expected: **More info → Run anyway**.
+   <!-- TODO screenshot: the two SmartScreen dialogs (initial warn + "Run anyway"
+        after More info). Must be taken on a real machine — can't be automated. -->
+4. **A console window opens.** That's the server — leave it open; closing it
+   stops Vault. The viewer opens in your browser at
+   **http://127.0.0.1:8765**.
+5. **First launch offers a password.** Optional — it encrypts the library
+   database. There is **no recovery if you lose it**: nobody, including you,
+   can unlock the database without it. Skip it and everything else works the
+   same.
+
+   ![First launch: the password offer, with the tool-download banner at the top](images/setup/first-launch-password.png)
+
+6. **If ffmpeg or fpcalc are missing**, the viewer shows a **⬇ Download**
+   banner — one click fetches them next to `Vault.exe` and they work
+   immediately, no PATH edits and no restart. (`winget install ffmpeg` works
+   too if you'd rather install system-wide.)
+
+   ![The ⬇ Download banner above an empty library, with 📄 Add files / 📁 Add folder in the header](images/setup/tool-banner-empty-library.png)
+
+7. **Add your media** with **📁 Add folder** / **📄 Add files**, or drag files
+   onto the window. Files are referenced where they already are — Vault never
+   copies or moves them.
+
+That's a working library: browsing, playing, tagging and organizing all work
+now. The steps below add the AI features.
 
 ### Optional tools (feature-by-feature)
 
 | Tool | Needed for | Install |
 |---|---|---|
-| **ffmpeg + ffprobe** | thumbnails, duration probing, beat bar, subtitles, Music ID | **one click** — Vault shows a ⬇ Download banner on first launch (or `winget install ffmpeg`) |
+| **ffmpeg + ffprobe** | thumbnails, duration probing, beat bar, subtitles, Music ID | **one click** — the ⬇ Download banner in the viewer (or `winget install ffmpeg`) |
 | **LM Studio** *or* **Ollama** | AI scanning, semantic search, chat-based translation fallback | see §2 — step-by-step |
 | **fpcalc** (Chromaprint) | Music ID fingerprinting | **one click** — same banner (or [acoustid.org/chromaprint](https://acoustid.org/chromaprint) → PATH) |
 | **Python + faster-whisper** | transcription/subtitles | `pip install faster-whisper` — or into a venv, then set `PYTHON_PATH` to that interpreter (see below) |
 
 The ⬇ banner puts the downloaded tools next to `Vault.exe` and they work
-immediately — no PATH edits, no restart.
+immediately — no PATH edits, no restart. It applies to the source checkout
+too, where the tools land next to the repo.
 
 **Subtitles are the exception.** They need a Python interpreter plus a pip
 package, so there's no single file to drop next to the exe. Press **Generate**
@@ -44,6 +71,14 @@ Vault talks to any **OpenAI-compatible** `/v1/chat/completions` server and
 load-balances across several (multi-GPU). Scanning needs a **vision** model.
 
 ### Option A — LM Studio (default, zero config) — full walkthrough
+
+<!-- TODO screenshots (must be taken in the LM Studio desktop app, can't be
+     automated): 1) the download page showing Bionic ABOVE the classic
+     "Download LM Studio" section; 2) Model Search with a vision model result;
+     3) the Developer-tab load dialog with "manually choose load parameters" ON
+     and Context Length set to ~60000; 4) the Developer tab showing
+     Status: Running on port 1234. Drop them in images/setup/ and reference
+     them at the matching steps below. -->
 
 **1. Install LM Studio — the classic app, not Bionic.**
 Download from **[lmstudio.ai/download](https://lmstudio.ai/download#lm-studio-download-heading)**.
@@ -80,6 +115,11 @@ you'll pick your own model next.
 3. That's it. Vault's default endpoint is already
    `http://localhost:1234/v1/chat/completions`, and LM Studio serves whatever
    model is loaded — no model name, no API key, nothing to configure in Vault.
+4. **Loaded more than one model?** (For example the embedding model for
+   semantic search alongside the vision model.) LM Studio then needs to be
+   told which one scans should use — Vault pauses the scan and shows a picker
+   in the scan panel; choose your **vision** model and it resumes. The choice
+   lasts until you close Vault; set `AI_MODEL` to make it permanent.
 
 **5. Verify.** Back in Vault, drag a file in (or press ▶ Resume if a scan is
 paused waiting for the model). The scan panel should start moving; the file's
@@ -159,11 +199,49 @@ nothing is duplicated elsewhere (`start.bat` asks the config for the port).
 
 | Symptom | Fix |
 |---|---|
-| `Node.js is required but was not found` | Install Node LTS from nodejs.org, reopen the terminal |
+| Double-clicked `Vault.exe` and a window flashed open then vanished | Vault is probably already running — only one server per folder. Open http://127.0.0.1:8765 |
+| Windows SmartScreen blocked the app | **More info → Run anyway**. The build is unsigned; the warning is expected |
+| `Node.js is required but was not found` | Install Node LTS from nodejs.org, reopen the terminal (§6 — source checkout only) |
 | `No LM Studio endpoints available` / scan errors instantly | Start LM Studio's server (or Ollama) and check `LM_STUDIO_URLS`; for Ollama also set `AI_MODEL` |
 | Scans produce empty/garbage metadata | The loaded model isn't a **vision** model (load one from §3), or its **context length is at the ~4k default** — reload it at ~60k (§2, step 3) |
-| `database is encrypted — password required` at boot | The Vault is locked: open the viewer and hold the padlock 3s, or set `VIDEO_TAGGER_DB_PASSWORD` |
+| `database is encrypted — password required` at boot | The Vault is locked: open the viewer and click the padlock, or set `VIDEO_TAGGER_DB_PASSWORD` |
 | Thumbnails/duration missing on imports | ffmpeg missing — use the ⬇ banner in the viewer, or install to PATH |
 | Music ID says tools missing | fpcalc missing — same ⬇ banner |
 | Subtitles fail to generate | Press ▶ Generate — Vault says exactly what's missing. Usually `pip install faster-whisper`; if you used a venv, set `PYTHON_PATH` to its interpreter |
 | Diarization/subtitles report that downloads are off | Either pre-install the models (`whisper` / OPUS-MT / `models/diarize` dirs) or set `SUB_ALLOW_DOWNLOADS=1` (and ensure `VAULT_OFFLINE` is unset) |
+
+The lock screen, for reference — one click on the padlock reveals the password
+box:
+
+![The Vault lock screen](images/setup/lock-screen.png)
+
+---
+
+## 6. Run from source (CLI)
+
+For developers, or anyone who'd rather run the Node app directly than the
+packaged exe. **These files are in the repository, not in the release zip** —
+clone or download the repo first; the zip contains only `Vault.exe` and its
+runtime.
+
+1. **Install [Node.js](https://nodejs.org)** (LTS).
+2. In the repo folder, run **`npm install`** once.
+3. Double-click **`start.bat`** — it starts the local server and opens the
+   viewer in your browser (same UI, same `http://127.0.0.1:8765`).
+4. **Drag media files onto the window** to add them (playable immediately),
+   or run **`scan.bat`** for the interactive wizard that indexes whole folders:
+   pick a directory (it remembers your history), toggle options with the arrow
+   keys, go. It prints the equivalent flag command before each run.
+
+Flag-style usage works everywhere:
+
+```bash
+node video-tagger.js scan /path/to/media --recursive --all-types
+node video-tagger.js serve            # same as start.bat
+node video-tagger.js status           # library stats
+```
+
+Everything in §2–§5 applies unchanged — the source checkout and the exe read
+the same environment variables and talk to the same AI backends. The only
+difference is where app data lands: next to the repo instead of next to
+`Vault.exe`.

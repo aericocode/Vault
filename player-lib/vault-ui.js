@@ -3,13 +3,15 @@
 
    Unlocked: shackle drawn open; click → lock. If the DB has no password
    yet, the click first opens a create-password modal (with confirm) and
-   encrypts, then locks. If a scan is running, the first click arms an
-   orange warning state ("locking interrupts the scan") and only a second
-   click within 6s force-locks.
+   encrypts — the session then STAYS UNLOCKED (encryption at rest is already
+   in force; autolock handles locking later). If a scan is running, the first
+   click arms an orange warning state ("locking interrupts the scan") and only
+   a second click within 6s force-locks.
 
    Locked: an opaque full-screen lock covers the app (client data wiped);
-   press-and-hold the big padlock for 3 seconds to reveal the password
-   prompt. Unlock reloads the page fresh.
+   click the big padlock to reveal the password prompt — or press and hold it,
+   if unlockHoldSeconds is set above its 0 default. Unlock reloads the page
+   fresh.
 
    Autolock (server-side, config.security.autolockMinutes) is detected by a
    status poll + a fetch wrapper that watches for 423 responses. Real user
@@ -155,7 +157,7 @@
         <div class="vault-modal-err" id="vaultPassErr"></div>
         <div class="vault-modal-actions">
           <button class="vault-btn" id="vaultPassCancel" type="button">Cancel</button>
-          <button class="vault-btn vault-btn-primary" id="vaultPassOk" type="button">Encrypt &amp; lock</button>
+          <button class="vault-btn vault-btn-primary" id="vaultPassOk" type="button">Encrypt library</button>
         </div>
       </div>`;
     document.body.appendChild(ov);
@@ -183,17 +185,21 @@
         const data = await resp.json();
         if (!resp.ok) {
           err(data.error || 'encryption failed');
-          btn.disabled = false; btn.textContent = 'Encrypt & lock';
+          btn.disabled = false; btn.textContent = 'Encrypt library';
           return;
         }
         ov.remove();
-        showToast('🔐 Vault password set — database encrypted');
-        _status = data;
-        renderLogo();
-        doLock(false);        // the click's intent was to lock
+        // Deliberately NO lock here. Setting the password encrypts the file in
+        // place; the session that just created it carries on unlocked (the
+        // server never locked either — setPassword only rekeys). Sending the
+        // user to the lock screen to retype a password they typed twice a
+        // second ago was the old behaviour and it read as a bug.
+        _status = data;                 // {encrypted:true, locked:false}
+        renderLogo();                   // padlock → open + 🔑 appears, no reload
+        showToast('🔐 Library encrypted — it stays open while you use it');
       } catch (e2) {
         err(e2.message);
-        btn.disabled = false; btn.textContent = 'Encrypt & lock';
+        btn.disabled = false; btn.textContent = 'Encrypt library';
       }
     }
     q('#vaultPassOk').onclick = submit;
@@ -285,17 +291,18 @@
     q('#vaultCur').focus();
   }
 
-  /* ── Lock screen (opaque overlay + hold-3s to unlock) ────────────────── */
+  /* ── Lock screen (opaque overlay + click / optional hold to unlock) ──── */
 
   /**
    * How long the lock must be held before the password box appears.
-   * Settings owns the value (0–10s); 0 means a plain click. Read at overlay
-   * build time so a change applies on the next lock without a reload.
+   * Default 0 = a plain click. The hold gesture itself is still fully wired
+   * (0–10s) and honours a stored unlockHoldSeconds, but no Settings row
+   * renders for it any more — see player-lib/settings.js.
    */
   function holdSeconds() {
-    const raw = typeof window.vaultSetting === 'function' ? window.vaultSetting('unlockHoldSeconds') : 3;
+    const raw = typeof window.vaultSetting === 'function' ? window.vaultSetting('unlockHoldSeconds') : 0;
     const n = Number(raw);
-    if (!Number.isFinite(n)) return 3;
+    if (!Number.isFinite(n)) return 0;
     return Math.max(0, Math.min(10, Math.round(n)));
   }
 

@@ -14,7 +14,7 @@
  *   diarize_service.py, opus_translate.py     python sidecars (spawned by
  *                            path.join(__dirname,…) which inside a SEA exe
  *                            resolves to the exe's own directory)
- *   README.txt
+ *   README.txt, SETUP.md, LICENSE
  *
  * All app data (video_metadata.db, thumbnails/, trash/, models/, …) is created
  * NEXT TO THE EXE on first run (lib/approot.js anchors every path there when
@@ -46,6 +46,9 @@ const CLIENT_ASSETS = ['db-viewer.html', 'css', 'player-lib', 'images'];
 
 // Python sidecars spawned from disk (see lib/subtitles/{diarizer,translator}.js).
 const PY_SIDECARS = ['lib/subtitles/diarize_service.py', 'lib/subtitles/opus_translate.py'];
+
+// Docs shipped loose in the folder so a zip user can read them without GitHub.
+const DOCS = ['SETUP.md', 'LICENSE'];
 
 const step = (m) => console.log('\n### ' + m);
 const die = (m, e) => { console.error('BUILD FAILED: ' + m + (e ? ' — ' + (e.message || e) : '')); process.exit(1); };
@@ -178,7 +181,16 @@ try {
   }
 } catch (e) { die('sidecars', e); }
 
-/* 8 ── README */
+/* 8 ── docs + license (readable next to the exe) */
+step('docs (SETUP.md, LICENSE)');
+try {
+  for (const d of DOCS) {
+    fs.copyFileSync(path.join(REPO, d), path.join(OUT, d));
+    console.log('  ' + d);
+  }
+} catch (e) { die('docs', e); }
+
+/* 9 ── README */
 step('README.txt');
 const version = require(path.join(REPO, 'package.json')).version;
 fs.writeFileSync(path.join(OUT, 'README.txt'), `Vault v${version} — portable build
@@ -192,22 +204,31 @@ Everything Vault creates (library database, thumbnails, trash, models, …)
 lives HERE, next to Vault.exe. Move or copy this whole folder anywhere —
 nothing is installed elsewhere on the system.
 
-Optional flags:  Vault.exe --gamify     enable the local Obsession tracker
+On first launch Vault offers to set a password. It's optional and it
+encrypts the library database — there is NO recovery if you lose it.
+
+Optional flags:  Vault.exe --no-gamify  turn the Obsession tracker off
+                                        entirely (it is on by default)
                  Vault.exe --no-browser start the server without opening a tab
                  Vault.exe wizard       interactive scan setup
                  Vault.exe status       library stats in the console
 
-External tools (install separately, must be on PATH):
-  - ffmpeg / ffprobe  — required for scanning, thumbnails, playback extras
-  - LM Studio         — required for AI scanning & semantic search
-  - python + faster-whisper — optional, for transcription & subtitles
-  - fpcalc (Chromaprint)    — optional, for Music ID
+External tools:
+  - ffmpeg / ffprobe        — thumbnails, duration, beat bar, subtitles,
+                              Music ID. When missing, the viewer shows a
+                              ⬇ Download banner: one click puts them next to
+                              Vault.exe, no restart. A PATH install works too
+  - fpcalc (Chromaprint)    — Music ID fingerprinting. Same ⬇ banner
+  - LM Studio (or Ollama)   — AI scanning & semantic search. Separate install
+  - python + faster-whisper — transcription & subtitles. Separate install
+
+Full guide, model recommendations and every setting: SETUP.md (in this folder).
 
 This build is unsigned; Windows SmartScreen may warn on first run
 ("More info" → "Run anyway").
 `);
 
-/* 9 ── summary */
+/* 10 ── summary */
 step('done');
 const size = (fs.statSync(EXE).size / (1024 * 1024)).toFixed(1);
 console.log(`dist/Vault/Vault.exe — ${size} MB, built in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

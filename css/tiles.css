@@ -607,6 +607,21 @@
 }
 .dq-warn[hidden] { display: none; }
 .dq-warn-at { color: var(--text-muted); margin-top: 0.15rem; }
+/* "Which model?" halt: a picker inside the banner. .dq-num is 42px wide (built
+   for the worker stepper), so the select needs its own width — everything else
+   borrows the existing banner/button styling. */
+.dq-pick { display: flex; align-items: center; gap: 0.4rem; margin: 0.4rem 0 0.1rem; }
+.dq-pick-sel {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.18rem 0.3rem;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+}
+.dq-pick-sel:focus { outline: none; border-color: var(--accent); }
 
 /* ── Scan-queue actions (⏸ Pause · Cancel) ── */
 .dq-actions {

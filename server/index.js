@@ -440,6 +440,11 @@ app.post('/api/setup/download/:tool', (req, res) => {
         throw new Error('extracted binary did not run — antivirus quarantine?');
       }
       checkTools({ refresh: true });
+      // Files that failed only because this tool was missing are now fixable —
+      // and the user is standing right here, having just clicked the button
+      // that fixed them. Don't make them find the per-file rescan.
+      require('../lib/self-heal').run({ reason: `${req.params.tool} download` })
+        .catch(err => console.warn(`[Self-heal] skipped: ${err.message}`));
       Object.assign(job, { state: 'done', pct: 100, files: tool.files });
       console.log(`[Setup] ${req.params.tool} downloaded → ${tool.files.map(f => path.join(ROOT, f)).join(', ')}`);
     } catch (err) {
@@ -773,6 +778,50 @@ app.post('/api/import/queue/resume', async (req, res) => {
     } catch {}
   }
   res.json({ ...importQueue.resume(), warning });
+});
+
+// ── "Which model?" — answering LM Studio's multiple-models 400 ──────────────
+// LM Studio only ignores the `model` field while exactly one model is loaded.
+// Load a second (Vault's own setup guide causes this — semantic search wants an
+// embedding model too) and every scan request is rejected 400 until one is
+// named. lib/model-health.js classifies that, the import queue halts on it with
+// pausedBy() === 'model-choice', and these two routes let the panel resolve it.
+//
+// The choice lives in llm-client process memory only — deliberately NOT in
+// vault-settings.json. It describes what happens to be loaded right now, and a
+// stale saved value would silently pin scans to a model that has since gone.
+app.get('/api/ai/models', async (req, res) => {
+  const llm = require('../lib/llm-client');
+  try {
+    const { models, error } = await llm.listModels();
+    res.json({
+      models,
+      // What a request would carry today: the session pick, unless AI_MODEL
+      // (which outranks it) is set.
+      current: config.lmStudio.model || llm.getSessionModel() || null,
+      error: error || null,
+    });
+  } catch (err) {
+    // A backend that is down must not turn into a broken picker.
+    res.json({ models: [], current: null, error: err.message });
+  }
+});
+
+app.post('/api/ai/model-choice', (req, res) => {
+  const raw = req.body?.model;
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return res.status(400).json({ error: 'model must be a non-empty string' });
+  }
+  const llm = require('../lib/llm-client');
+  const model = llm.setSessionModel(raw);
+  // The halt this answers should clear itself — making the user press ▶ Resume
+  // straight after picking would be asking the same question twice.
+  let resumed = false;
+  if (importQueue.pausedBy() === 'model-choice') {
+    importQueue.resume();
+    resumed = true;
+  }
+  res.json({ ok: true, model, resumed });
 });
 
 // Re-queue files whose AI scan never landed — the bulk bar's ↻ Retry errors.
@@ -1377,11 +1426,24 @@ app.post('/api/media/:id/rescan', async (req, res) => {
     );
 
     embeddings.invalidateCache();
-    const updated = db.getById(id);
     if (result.error) {
+      // A model-availability failure is reported up WITHOUT stamping the row
+      // (commands/scan.js) so a queued retry isn't skipped later. That is right
+      // for the queue, but this path has no queue and no picker of its own: the
+      // row would be left with whatever stale error it had, and the user would
+      // never learn that LM Studio simply wants a model named. So record the
+      // real reason here — the scan panel's picker is where it gets fixed.
+      if (result.needsModelChoice) {
+        try {
+          db.get().prepare('UPDATE media SET processing_error = ? WHERE id = ?')
+            .run(String(result.error).slice(0, 300), id);
+        } catch {}
+        return res.json({ ok: false, error: result.error, needsModelChoice: true, row: db.getById(id) });
+      }
       // Analysis failed again — row now carries the fresh error
-      return res.json({ ok: false, error: result.error, row: updated });
+      return res.json({ ok: false, error: result.error, row: db.getById(id) });
     }
+    const updated = db.getById(id);
     res.json({ ok: true, elapsed: result.elapsed, frames: result.frames, row: updated });
   } catch (err) {
     res.status(500).json({ error: err.message, row: db.getById(id) });
@@ -2165,11 +2227,27 @@ function start(args = process.argv.slice(2)) {
     console.log('  └──────────────────────────────────────────────┘');
     console.log('');
     console.log(`  Database:   ${path.resolve(config.paths.database)}`);
-    console.log(`  Vault:      ${vault.isLocked() ? 'LOCKED — unlock from the viewer (hold the logo)' : vault.isEncrypted() ? `unlocked (autolock ${config.security.autolockMinutes || 'off'} min)` : 'no password set (click the logo to create one)'}`);
+    console.log(`  Vault:      ${vault.isLocked() ? 'LOCKED — unlock from the viewer (click the logo)' : vault.isEncrypted() ? `unlocked (autolock ${config.security.autolockMinutes || 'off'} min)` : 'no password set (click the logo to create one)'}`);
     console.log(`  Thumbnails: ${path.resolve(config.paths.thumbnailDir)}`);
     console.log(`  Gamify:     ${gamifyEnabled ? 'ON (all data stays local — --no-gamify to disable)' : 'off (start with --gamify to enable)'}`);
     console.log('  Local-only (127.0.0.1). Ctrl+C to stop.');
     console.log('');
+
+    // "Install ffmpeg, then restart Vault" is what those rows' error messages
+    // told the user to do — so this is the restart, and nothing was healing.
+    // Off the listen path entirely (it re-probes files and may fork pip) and
+    // deferred to first unlock when the vault booted locked, since it reads the
+    // main DB. Failure here is never fatal.
+    let selfHealed = false;
+    const selfHeal = () => {
+      if (selfHealed) return;
+      selfHealed = true;
+      setImmediate(() => require('../lib/self-heal')
+        .run({ reason: 'startup' })
+        .catch(err => console.warn(`[Self-heal] skipped: ${err.message}`)));
+    };
+    if (bootedLocked) vault.onChange((e) => { if (e === 'unlocked') selfHeal(); });
+    else selfHeal();
 
     // Say it here, once, in the window the user is already looking at — rather
     // than letting them find out one failed file at a time.

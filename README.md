@@ -30,6 +30,8 @@ Made with 🌿 by [aericode](https://ko-fi.com/aericode)
 The exe is unsigned, so Windows SmartScreen will warn you the first time:
 **More info → Run anyway**.
 
+The unzipped folder also contains `SETUP.md` (the full guide) and `LICENSE`.
+
 All app data — database, thumbnails, models, trash — is created next to the exe, so
 the whole folder can be moved, copied, or backed up wholesale.
 
@@ -185,6 +187,8 @@ rather than a gap. To stop it entirely, run with `--no-gamify`.
 ## Run from source
 
 For developers, or anyone who'd rather run the Node app directly than the packaged exe.
+These files and commands come with a repository checkout (clone or download the repo) —
+they are not in the release zip, which ships only the exe and its runtime.
 
 **No flags needed** — double-click `scan.bat` (or run `node video-tagger.js`
 with no arguments) for the interactive wizard: pick a directory (remembers

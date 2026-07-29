@@ -16,6 +16,25 @@ const TILE_TYPE_ICONS = {
   mix: '🎛',
 };
 
+/**
+ * Tooltip for the ⚠ tile badge. The badge used to read "Processing error" and
+ * nothing else, so the one piece of information the user needed — WHICH error,
+ * and therefore what to install — was reachable only by opening the details
+ * modal, which nothing on the tile suggested. Truncated: a title attribute is a
+ * glance, not a log; the modal shows the whole thing.
+ * @param {string} msg - stored processing_error
+ * @returns {string} plain text (the caller escapes it)
+ */
+const ERROR_TOOLTIP_MAX = 160;
+function errorTooltip(msg) {
+  const text = String(msg || '').trim();
+  if (!text) return 'Processing error';
+  const short = text.length > ERROR_TOOLTIP_MAX
+    ? text.slice(0, ERROR_TOOLTIP_MAX - 1).trimEnd() + '…'
+    : text;
+  return `Processing error: ${short}`;
+}
+
 /* ── Adaptive grid: exact columns for the viewport, complete rows only ── */
 
 const TILE_MIN_WIDTH = 170;  // px — matches the old minmax() minimum
@@ -94,7 +113,7 @@ function renderTile(media) {
     isTrashed ? '<span class="tile-ind ind-trashed" title="In trash">🗑</span>' : '',
     media.playback_failed ? '<span class="tile-ind ind-error" title="Failed to play">⚠</span>' : '',
     hasNotes ? '<span class="tile-ind ind-notes" title="Has notes">📝</span>' : '',
-    hasError ? '<span class="tile-ind ind-error" title="Processing error">⚠</span>' : '',
+    hasError ? `<span class="tile-ind ind-error" title="${escapeHtml(errorTooltip(media.processing_error))}">⚠</span>` : '',
     isUnscanned ? '<span class="tile-ind ind-unscanned" title="Not scanned yet — AI analysis pending">⏳</span>' : '',
     (typeof mediaSongIds === 'function' && mediaSongIds(media.id).length > 0)
       ? `<span class="tile-ind ind-music" title="${mediaSongIds(media.id).length} song(s) identified">🎵</span>` : '',
@@ -424,7 +443,7 @@ function renderCard(media) {
           <span class="meta-badge type-${media.media_type}">${media.media_type}</span>
           ${media.language_code && media.language_code !== 'none' ? `<span class="meta-badge language" title="${escapeHtml(media.language_name || '')}">${escapeHtml(media.language_code.toUpperCase())}</span>` : ''}
           ${media.content_type ? `<span class="meta-badge">${media.content_type}</span>` : ''}
-          ${hasError ? `<span class="meta-badge error" data-error="${escapeHtml(media.processing_error)}">⚠ Error</span>` : ''}
+          ${hasError ? `<span class="meta-badge error" title="${escapeHtml(errorTooltip(media.processing_error))}" data-error="${escapeHtml(media.processing_error)}">⚠ Error</span>` : ''}
           ${cardUnscanned ? '<span class="meta-badge unscanned-badge" title="AI analysis pending">⏳ Not scanned</span>' : ''}
           ${hasNotes ? '<span class="meta-badge has-notes">📝 Notes</span>' : ''}
           ${isFlagged ? '<span class="meta-badge flagged-badge">🚩 Flagged</span>' : ''}

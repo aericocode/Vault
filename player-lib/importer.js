@@ -258,15 +258,95 @@
     }
   }
 
+  /* ── "Which model?" halt → inline picker ────────────────────────────────
+     LM Studio only ignores the `model` field while ONE model is loaded; load a
+     second (the setup guide's embedding model does it) and every scan request
+     comes back 400 until one is named. The queue halts with pausedBy ===
+     'model-choice' — a question, not a breakage — so instead of "load the model
+     and press Resume" the panel asks it directly.
+
+     Built ONCE per halt (keyed on halt.at): the 1.5s poll re-renders this panel
+     constantly, and rebuilding a <select> under the user's cursor would reset
+     their choice every round — the same reason the worker stepper lives outside
+     the re-rendered regions. */
+  function renderModelChoice(warn, q) {
+    const at = String(q.halt?.at || 0);
+    if (warn.dataset.pickerAt === at) return;
+    warn.dataset.pickerAt = at;
+    warn.hidden = false;
+    warn.innerHTML = `⚠ <b>Which model?</b> — LM Studio has several models loaded — pick the vision model Vault should use:
+      <div class="dq-pick">
+        <select class="dq-pick-sel" id="scanModelSelect" disabled><option>Loading…</option></select>
+        <button type="button" class="dq-btn dq-btn-primary" id="scanModelGo" disabled>Use this model</button>
+      </div>`
+      + (q.halt.filename ? `<div class="dq-warn-at">stopped at ${escapeHtml(q.halt.filename)}</div>` : '')
+      + `<div class="dq-warn-at">Nothing was lost — the scan carries on from here. Set AI_MODEL to skip this next time.</div>`;
+
+    const sel = warn.querySelector('#scanModelSelect');
+    const go = warn.querySelector('#scanModelGo');
+
+    (async () => {
+      let data = null;
+      try {
+        const resp = await fetch('/api/ai/models');
+        if (resp.ok) data = await resp.json();
+      } catch {}
+      // The panel may have been rebuilt (or the halt cleared) while this was in
+      // flight — bail rather than writing into a detached node.
+      if (!sel.isConnected) return;
+      const models = (data && data.models) || [];
+      if (!models.length) {
+        sel.innerHTML = `<option>${escapeHtml(data?.error || 'No models reported')}</option>`;
+        return;
+      }
+      sel.innerHTML = models.map(m =>
+        `<option value="${escapeHtml(m.id)}"${m.id === data.current ? ' selected' : ''}>${escapeHtml(m.id)}</option>`
+      ).join('');
+      sel.disabled = false;
+      go.disabled = false;
+    })();
+
+    go.addEventListener('click', async () => {
+      const model = sel.value;
+      if (!model) return;
+      go.disabled = true;
+      sel.disabled = true;
+      try {
+        const resp = await fetch('/api/ai/model-choice', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model }),
+        });
+        const r = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          showToast('⚠ ' + (r.error || `HTTP ${resp.status}`));
+          go.disabled = false; sel.disabled = false;
+          return;
+        }
+        showToast(`▶ Scanning with ${model}`);
+        delete warn.dataset.pickerAt;      // next halt gets a fresh picker
+        watchScanQueue();                  // the watcher may have given up while halted
+      } catch (err) {
+        showToast('⚠ ' + err.message);
+        go.disabled = false; sel.disabled = false;
+      }
+    });
+  }
+
   function renderScanPanel(q) {
     const el = scanPanelEl();
     el.classList.add('visible');
 
     const done = q.done || 0, failed = q.failed || 0, total = q.total || 0;
     const by = q.paused ? (q.pausedBy || 'user') : null;
-    const note = { vault: ' — paused (vault locked)', user: ' — paused', model: ' — paused (model unavailable)' }[by] || '';
+    const modelHalt = by === 'model' || by === 'model-choice';
+    const note = {
+      vault: ' — paused (vault locked)',
+      user: ' — paused',
+      model: ' — paused (model unavailable)',
+      'model-choice': ' — paused (pick a model)',
+    }[by] || '';
     el.querySelector('#scanHead').innerHTML = `
-      ${q.paused ? `<span class="dq-ico">${by === 'model' ? '⚠' : '⏸'}</span>` : '<span class="dq-spin"></span>'}
+      ${q.paused ? `<span class="dq-ico">${modelHalt ? '⚠' : '⏸'}</span>` : '<span class="dq-spin"></span>'}
       <span class="dq-title">🤖 AI scan ${done}/${total}${failed ? ` · ${failed} failed` : ''}${note}</span>`;
 
     const pct = total ? Math.min(100, ((done + failed) / total) * 100) : 0;
@@ -275,12 +355,16 @@
     // Why it stopped, and what to do about it. Only the model halt needs
     // explaining — a vault lock and a deliberate pause speak for themselves.
     const warn = el.querySelector('#scanWarn');
-    if (by === 'model' && q.halt) {
+    if (by === 'model-choice' && q.halt) {
+      renderModelChoice(warn, q);
+    } else if (by === 'model' && q.halt) {
+      delete warn.dataset.pickerAt;
       warn.hidden = false;
       warn.innerHTML = `⚠ <b>Model unavailable</b> — ${escapeHtml(q.halt.reason || '')}`
         + (q.halt.filename ? `<div class="dq-warn-at">stopped at ${escapeHtml(q.halt.filename)}</div>` : '')
         + `<div class="dq-warn-at">Nothing was lost — load the model, then press ▶ Resume.</div>`;
     } else {
+      delete warn.dataset.pickerAt;
       warn.hidden = true;
       warn.innerHTML = '';
     }
@@ -379,7 +463,7 @@
 
       // Warn once per halt whether the panel is up or not: the queue has stopped
       // and needs a person, and the whole stack hides behind the full player.
-      if (q.pausedBy === 'model' && q.halt && q.halt.at !== _haltNotified) {
+      if ((q.pausedBy === 'model' || q.pausedBy === 'model-choice') && q.halt && q.halt.at !== _haltNotified) {
         _haltNotified = q.halt.at;
         _scanDismissed = false;                 // a halt is worth un-hiding for
         showToast(`⚠ AI scan paused — ${q.halt.reason}`);
