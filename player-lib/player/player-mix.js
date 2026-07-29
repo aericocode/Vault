@@ -193,8 +193,14 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
     if (btn) btn.textContent = '▶';
     if (typeof autoAdvanceOnEnded === 'function') autoAdvanceOnEnded();
   });
-  master.addEventListener('click', handleVideoClick);
-  master.addEventListener('dblclick', handleVideoDoubleClick);
+  // Bound to the STAGE, not the master. Only the master carries id="mediaVideo",
+  // so with the handlers on it alone a click was play/pause on whichever mix
+  // happened to put the master under the pointer, and "close the player" on
+  // every other one — the same gesture doing two different things depending on
+  // the layout. Clicks bubble from any layer to here, and handleVideoClick
+  // stops propagation, so the gutter outside the stage still minimizes.
+  stage.addEventListener('click', handleVideoClick);
+  stage.addEventListener('dblclick', handleVideoDoubleClick);
 
   /* ── Follower sync engine (drift correction + range blanking + self-heal) ──
      Range mode comes from the saved config (`b`, default blank): blank mode

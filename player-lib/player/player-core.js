@@ -442,9 +442,11 @@ function handleContentClick(event) {
     return;
   }
 
-  // Only minimize for video/audio (types that benefit from continued playback)
+  // Only minimize for the types that benefit from continued playback. Mixes
+  // count: they used to fall through to closeMediaPlayer(), so a stray click
+  // anywhere off the master layer threw the viewer back to the library.
   const type = currentMediaState.type;
-  if (type === 'video' || type === 'audio') {
+  if (isVideoLike(type) || type === 'audio') {
     minimizePlayer();
   } else {
     closeMediaPlayer();
@@ -537,6 +539,18 @@ function closeMediaInfo() {
 // VLC-style: hide the controls AND the cursor this long after the pointer
 // last moved over the video (only while a video is actively playing).
 const CONTROLS_HIDE_MS = 1500;
+
+/**
+ * Types that behave like a video player: real videos and mixes.
+ *
+ * A mix is a stack/grid of <video> layers driven by one master, so every
+ * video-shaped behaviour — auto-hiding chrome, click-to-minimize, the mini
+ * player — should treat it the same. Each of those had its own
+ * `type === 'video'` test, and a mix passed none of them.
+ */
+function isVideoLike(type) {
+  return type === 'video' || type === 'mix';
+}
 // A quick flick over the beat bar (to grab/drag it) shouldn't wake the
 // controls — treat a padded region around the beat bar as dead space.
 const BEATBAR_DEADZONE_PAD = 24;
@@ -550,7 +564,11 @@ function hidePlayerChrome() {
   if (!overlay || !overlay.classList.contains('active')) return;
 
   const el = currentMediaState.element;
-  if (currentMediaState.type !== 'video' || !el) return;
+  // A mix is a video as far as the chrome is concerned — its master layer IS a
+  // <video>. Excluding it left mixes with the control bar permanently on screen
+  // and, because .media-player-content video carries cursor:pointer, a pointer
+  // cursor that never went away either.
+  if (!isVideoLike(currentMediaState.type) || !el) return;
 
   overlay.classList.remove('controls-visible');
   if (!el.paused) overlay.classList.add('cursor-hidden');
@@ -687,7 +705,7 @@ function minimizePlayer() {
   if (typeof subtitlesDetach === 'function') subtitlesDetach();
 
   const type = currentMediaState.type;
-  if (type !== 'video' && type !== 'audio') {
+  if (!isVideoLike(type) && type !== 'audio') {
     closeMediaPlayer();
     return;
   }
@@ -714,7 +732,20 @@ function minimizePlayer() {
   element.removeAttribute('onerror');
 
   // Move the media element to the mini player (preserves playback state)
-  if (type === 'video') {
+  if (type === 'mix') {
+    // Move the whole stage, not just the master: a mix IS its layers, and the
+    // sync engine holds direct references to them, so relocating the subtree
+    // keeps it running. Tag the master first — minimize strips ids to avoid
+    // duplicates, and maximize needs to know whose currentTime to restore.
+    const stage = document.querySelector('.mix-player-stage');
+    if (!stage) { closeMediaPlayer(); return; }
+    stage.removeEventListener('click', handleVideoClick);
+    stage.removeEventListener('dblclick', handleVideoDoubleClick);
+    element.dataset.mixMaster = '1';
+    element.removeAttribute('id');
+    miniMedia.innerHTML = '';
+    miniMedia.appendChild(stage);
+  } else if (type === 'video') {
     // Remove video click handlers to avoid conflicts
     element.removeEventListener('click', handleVideoClick);
     element.removeEventListener('dblclick', handleVideoDoubleClick);
@@ -762,8 +793,10 @@ function maximizePlayer() {
   const miniPlayer = document.getElementById('miniPlayer');
   const miniMedia = document.getElementById('miniPlayerMedia');
 
-  // Get the media element back
-  const element = miniMedia.querySelector('video, audio');
+  // Get the media element back. For a mix the box holds the whole stage, so
+  // prefer the tagged master — its clock is the one the mix is synced to, and
+  // querySelector would otherwise grab whichever layer is first in the DOM.
+  const element = miniMedia.querySelector('[data-mix-master], video, audio');
   if (!element) {
     closeMiniPlayer();
     return;
@@ -809,9 +842,14 @@ function closeMiniPlayer() {
   const miniPlayer = document.getElementById('miniPlayer');
   const miniMedia = document.getElementById('miniPlayerMedia');
 
-  // Stop any playing media (without tripping the inline error handler)
-  const element = miniMedia.querySelector('video, audio');
-  stopMediaElement(element);
+  // Stop any playing media (without tripping the inline error handler). A mix
+  // has several layers plus a drift-correction interval, so hand it to its own
+  // teardown or the followers keep decoding behind a closed mini player.
+  if (currentMediaState.type === 'mix' && typeof stopMixPlayer === 'function') {
+    stopMixPlayer();
+  } else {
+    stopMediaElement(miniMedia.querySelector('video, audio'));
+  }
 
   // Clean up audio context if still around
   if (currentMediaState.audioContext) {

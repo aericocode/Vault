@@ -60,9 +60,50 @@ function buildRouter() {
   // re-run re-detects language/speakers from scratch instead of overwriting.
   // Generation/transcription is paid; viewing, editing, downloading and
   // deleting EXISTING tracks stays free (the data belongs to the user).
+  /* Can this machine transcribe at all? Unlike ffmpeg and fpcalc there's no
+     single binary to drop next to the exe — it needs a Python interpreter plus
+     a pip package — so the UI explains it instead of offering a download. */
+  router.get('/subtitles/preflight', (req, res) => {
+    res.json(require('../lib/video-transcriber').checkTranscriber());
+  });
+
   router.post('/media/:id/subtitles/generate', (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'bad id' });
+
+    /* Refuse up front rather than queueing a job that can only fail. Before
+       this the request was accepted, the job died inside the sidecar, and the
+       only trace was a status the UI never surfaced — the user saw nothing at
+       all. 412 + a machine-readable code so every caller can show the same
+       explainer instead of inventing its own wording. */
+    const tr = require('../lib/video-transcriber').checkTranscriber();
+    if (!tr.ok) {
+      return res.status(412).json({
+        error: tr.python
+          ? 'faster-whisper is not installed for the Python Vault is using'
+          : 'Python was not found',
+        code: 'WHISPER_MISSING',
+        ...tr,
+      });
+    }
+
+    /* The model itself is a ~1.5 GB fetch from HuggingFace the first time.
+       Ask before it happens rather than announcing it mid-download — asked
+       once, then remembered. If the model is already on disk nothing is
+       downloaded and the answer simply never comes up again. */
+    const consent = require('../lib/model-consent');
+    const whisperModel = process.env.WHISPER_MODEL || require('../config').subtitles.model || 'large-v3-turbo';
+    const whisperKey = `whisper:${whisperModel}`;
+    if (!consent.isAllowed(whisperKey)) {
+      return res.status(412).json({
+        error: consent.ENV_ALLOWS
+          ? 'Vault needs permission to download the transcription model'
+          : 'Model downloads are turned off (SUB_ALLOW_DOWNLOADS=0 / VAULT_OFFLINE=1)',
+        code: consent.ENV_ALLOWS ? 'MODEL_DOWNLOAD_CONSENT' : 'DOWNLOADS_OFF_BY_ENV',
+        ...consent.describe(whisperKey),
+        key: whisperKey,
+      });
+    }
     const row = db.getById(id);
     if (!row) return res.status(404).json({ error: 'not found' });
     if (!['video', 'audio'].includes(row.media_type)) {

@@ -23,10 +23,18 @@ That's a working library. Steps below add the AI features.
 | **ffmpeg + ffprobe** | thumbnails, duration probing, beat bar, subtitles, Music ID | **one click** — Vault shows a ⬇ Download banner on first launch (or `winget install ffmpeg`) |
 | **LM Studio** *or* **Ollama** | AI scanning, semantic search, chat-based translation fallback | see §2 — step-by-step |
 | **fpcalc** (Chromaprint) | Music ID fingerprinting | **one click** — same banner (or [acoustid.org/chromaprint](https://acoustid.org/chromaprint) → PATH) |
-| **Python + faster-whisper** | transcription/subtitles | `python -m venv venv && venv\Scripts\pip install faster-whisper` |
+| **Python + faster-whisper** | transcription/subtitles | `pip install faster-whisper` — or into a venv, then set `PYTHON_PATH` to that interpreter (see below) |
 
 The ⬇ banner puts the downloaded tools next to `Vault.exe` and they work
 immediately — no PATH edits, no restart.
+
+**Subtitles are the exception.** They need a Python interpreter plus a pip
+package, so there's no single file to drop next to the exe. Press **Generate**
+without them and Vault explains exactly what's missing and how to install it.
+Vault looks for `faster-whisper` in whichever Python `PYTHON_PATH` names, or
+plain `python` from PATH if that's unset — so if you install into a **virtual
+environment**, point `PYTHON_PATH` at `…\venv\Scripts\python.exe` or Vault won't
+find it.
 
 ---
 
@@ -133,11 +141,12 @@ nothing is duplicated elsewhere (`start.bat` asks the config for the port).
 | `LM_STUDIO_URLS` | `http://localhost:1234/v1/chat/completions` | AI endpoint(s), comma-separated |
 | `AI_MODEL` | *(unset)* | Model name per request — **required for Ollama**, ignored by LM Studio |
 | `EMBEDDING_MODEL` | `text-embedding-nomic-embed-text-v1.5` | Semantic-search embedding model |
+| `PYTHON_PATH` | `python` (from PATH) | Which Python runs the transcription / translation / diarization sidecars — point it at `…\venv\Scripts\python.exe` if you installed `faster-whisper` into a virtual environment |
 | `WHISPER_MODEL` | `large-v3-turbo` | Transcription model (`small` for low VRAM) |
 | `WHISPER_IDLE_MINUTES` | `5` | `0` = once loaded, Whisper stays loaded; `N` = unload the sidecars after N idle minutes (low-VRAM boxes) |
 | `WHISPER_VAD` | `1` | Voice-activity filter — only decode speech, skip music/silence (faster transcription on padded content). `0` to disable |
 | `WHISPER_VAD_MIN_SILENCE_MS` | `500` | Minimum silence gap (ms) the VAD treats as a break — raise it if speech gets clipped |
-| `SUB_ALLOW_DOWNLOADS` | `1` | AI models (whisper + translation packs + speaker-diarization models) already on disk **always** load offline. This flag governs the one-time fetch of a model that isn't installed yet: `1` = allow (warned once), `0` = never touch the network (missing model errors with instructions — air-gapped / strict mode). `VAULT_OFFLINE=1` forces this off |
+| `SUB_ALLOW_DOWNLOADS` | *(ask per model)* | AI models (whisper + translation packs + speaker-diarization models) already on disk **always** load offline. This governs the one-time fetch of a model that isn't installed yet. Unset, Vault **asks before each individual model** and remembers each answer separately — approving the transcription model does not approve a Japanese translation pack later (Settings → *AI model downloads* lists every model it has needed). `1` = pre-approve everything, no prompts. `0` = never touch the network (missing model errors with instructions — air-gapped / strict mode). `VAULT_OFFLINE=1` forces this off, and the environment always beats the in-app switches |
 | `VAULT_OFFLINE` | `0` (unset) | Hard offline switch: `1` = loopback-only networking app-wide (model downloads, update checks, remote AI endpoints all refuse; localhost services keep working). Implies `SUB_ALLOW_DOWNLOADS=0` and sets `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` for the Python sidecars |
 | `VAULT_AUTOLOCK_MINUTES` | `30` | Auto-lock idle timeout (0 = off) |
 | `VIDEO_TAGGER_TRASH` | `./trash` | Trash folder (opaque filenames) |
@@ -156,5 +165,5 @@ nothing is duplicated elsewhere (`start.bat` asks the config for the port).
 | `database is encrypted — password required` at boot | The Vault is locked: open the viewer and hold the padlock 3s, or set `VIDEO_TAGGER_DB_PASSWORD` |
 | Thumbnails/duration missing on imports | ffmpeg missing — use the ⬇ banner in the viewer, or install to PATH |
 | Music ID says tools missing | fpcalc missing — same ⬇ banner |
-| Subtitles fail to generate | Create the Python venv with `faster-whisper` (§1 table) |
+| Subtitles fail to generate | Press ▶ Generate — Vault says exactly what's missing. Usually `pip install faster-whisper`; if you used a venv, set `PYTHON_PATH` to its interpreter |
 | Diarization/subtitles report that downloads are off | Either pre-install the models (`whisper` / OPUS-MT / `models/diarize` dirs) or set `SUB_ALLOW_DOWNLOADS=1` (and ensure `VAULT_OFFLINE` is unset) |

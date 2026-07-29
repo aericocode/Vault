@@ -764,9 +764,38 @@
       if (jobs.subtitles) {
         const av = imported.filter(r => ['video', 'audio'].includes(r.mediaType));
         if (av.length) {
-          showToast(`💬 Queueing subtitles for ${av.length} file${av.length === 1 ? '' : 's'}…`);
-          await Promise.allSettled(av.map(r =>
-            fetch(`/api/media/${r.id}/subtitles/generate`, { method: 'POST' })));
+          // Ask once before firing N requests: if Python/faster-whisper is
+          // missing every one of them fails identically, and the user deserves
+          // the explainer rather than a toast claiming work was queued.
+          let ready = true;
+          try {
+            const pre = await (await fetch('/api/subtitles/preflight')).json();
+            ready = !!pre.ok;
+            if (!ready && typeof subtitlesShowPrereqModal === 'function') subtitlesShowPrereqModal(pre);
+            // …and the model download needs consent before N jobs start
+            // fetching 1.5 GB between them.
+            // The transcription model is the one this batch definitely needs;
+            // translation packs are asked for later, per language, if it turns
+            // out any of these files aren't English.
+            if (ready) {
+              const md = await (await fetch('/api/settings/model-downloads')).json();
+              const whisperKey = Object.keys(md.consents || {}).find(k => k.startsWith('whisper:'));
+              const approved = md.explicit || (whisperKey && md.consents[whisperKey] === true);
+              if (!approved) {
+                ready = false;
+                if (md.envAllows && typeof subtitlesShowModelConsent === 'function') {
+                  subtitlesShowModelConsent(md.pending?.find(p => p.kind === 'whisper') || {});
+                } else if (!md.envAllows) {
+                  showToast('⚠ Model downloads are off — subtitles skipped');
+                }
+              }
+            }
+          } catch { /* no route (older server) — fall through and try anyway */ }
+          if (ready) {
+            showToast(`💬 Queueing subtitles for ${av.length} file${av.length === 1 ? '' : 's'}…`);
+            await Promise.allSettled(av.map(r =>
+              fetch(`/api/media/${r.id}/subtitles/generate`, { method: 'POST' })));
+          }
         }
       }
       if (jobs.fingerprint) {

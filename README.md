@@ -259,7 +259,7 @@ all stats live in your local database and never leave the machine.
 
 | What | When | Controlled by |
 |------|------|---------------|
-| **One-time AI model downloads** — whisper, OPUS-MT translation packs, speaker-diarization models | First use of a model that isn't on disk yet | `SUB_ALLOW_DOWNLOADS` (default `1` = allowed with a warning; `0` = air-gapped: a missing model errors with pre-install instructions). Models already on disk always load offline |
+| **One-time AI model downloads** — whisper, OPUS-MT translation packs, speaker-diarization models | First use of a model that isn't on disk yet, **and only after you agree to that specific model** | Vault asks **per model**, naming it and its size — approving the transcription model does not approve a translation pack. Answers are remembered per model (Settings → *AI model downloads*). `SUB_ALLOW_DOWNLOADS=1` pre-approves everything, `0` refuses everything. Models already on disk always load offline |
 | **"Check for updates"** in Settings → About | Only when you click it | A single GET to `api.github.com` — nothing else is sent, and never automatic |
 | **Your AI backend endpoint** | Every scan / chat | Localhost LM Studio/Ollama by default. If **you** point it at a remote endpoint, frames and text go there — your call |
 | **Lovense device control** (if you use it) | User-initiated | Traffic stays on your LAN, but the HTTPS transport resolves `<ip>.lovense.club` via DNS, which discloses Lovense use to your DNS resolver |
@@ -304,6 +304,7 @@ path.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SUB_ALLOW_DOWNLOADS` | `1` | Governs the one-time fetch of AI models not yet on disk — whisper, OPUS-MT translation packs, and speaker-diarization models. `1` = allow (warned once); `0` = never touch the network (a missing model errors with pre-install instructions). Installed models always load offline |
+| `SUB_ALLOW_DOWNLOADS` | *(ask per model)* | One-time AI model fetches. Unset, Vault prompts before **each** model it needs and remembers that answer separately. `1` = pre-approve everything, `0` = never. The environment always overrides the in-app switches |
 | `VAULT_OFFLINE` | `0` (unset) | Hard offline switch. `1` = loopback-only networking app-wide (model downloads, update checks, and remote AI endpoints all refuse); localhost services keep working. Implies `SUB_ALLOW_DOWNLOADS=0` and sets `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` for the Python sidecars |
 
 </details>

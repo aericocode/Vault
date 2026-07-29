@@ -41,12 +41,48 @@
      them at all. Cached here so the modal can render synchronously. */
 
   let server = { gamify: false, autolockMinutes: 30, encrypted: false, reachable: false };
+  // Consent for the one-time AI model fetches (whisper / translation /
+  // diarization). Separate endpoint because the env vars are a hard ceiling
+  // over it — see server/index.js applyModelDownloadConsent().
+  let modelDl = { envAllows: true, explicit: false, consents: {}, pending: [] };
+
+  /* One row per model Vault has actually needed — approved ones so they can be
+     revoked, plus anything still waiting. Nothing is listed speculatively: a
+     user who never touches subtitles never sees a translation-pack row. */
+  function modelConsentRows() {
+    const seen = new Map();
+    for (const [key, allowed] of Object.entries(modelDl.consents || {})) {
+      seen.set(key, { key, allowed: allowed === true });
+    }
+    for (const p of modelDl.pending || []) {
+      if (!seen.has(p.key)) seen.set(p.key, { key: p.key, allowed: false, ...p });
+    }
+    if (!seen.size) {
+      return '<p class="settings-note">Nothing needed yet — Vault will ask the first time a feature wants one.</p>';
+    }
+    const label = (k) => k.startsWith('whisper:') ? `Transcription model (${k.slice(8)})`
+      : k.startsWith('opus:') ? `Translation pack (${k.slice(5)}→en)`
+      : k === 'diarize' ? 'Speaker-detection models' : k;
+    return [...seen.values()].map(r => toggleRow({
+      key: `modelConsent:${r.key}`,
+      value: r.allowed,
+      disabled: !modelDl.envAllows || modelDl.explicit,
+      title: label(r.key),
+      desc: r.allowed
+        ? 'Approved — downloaded on first use, then loaded from disk.'
+        : `Not approved${r.sizeHint ? ` · ${r.sizeHint}` : ''} — Vault will ask again when it needs this.`,
+    })).join('');
+  }
 
   async function loadServerSettings() {
     try {
       const resp = await fetch('/api/settings/app');
       if (!resp.ok) return false;      // 423 while locked, or an older server
       server = { ...server, ...(await resp.json()), reachable: true };
+      try {
+        const md = await fetch('/api/settings/model-downloads');
+        if (md.ok) modelDl = { ...modelDl, ...(await md.json()) };
+      } catch {}
       return true;
     } catch { return false; }
   }
@@ -360,6 +396,14 @@
         desc: 'Removes the score chip and its point/level toasts from the library. Scoring carries on in the background, so unhiding shows your real history rather than a gap — nothing is deleted. Entirely offline either way.',
       })}
 
+      <h3 class="settings-h">AI model downloads</h3>
+      <p class="settings-note">${modelDl.envAllows
+        ? (modelDl.explicit
+          ? 'Pre-approved by <code>SUB_ALLOW_DOWNLOADS=1</code> in your environment — unset it to be asked per model instead.'
+          : 'Subtitles, translation and speaker detection each need a model fetched once from Hugging Face. Vault asks before <b>each one</b> — approving the transcription model doesn\'t approve a translation pack. Nothing about your media is ever uploaded.')
+        : 'Turned off by <code>SUB_ALLOW_DOWNLOADS=0</code> or <code>VAULT_OFFLINE=1</code> — the environment overrides anything set here.'}</p>
+      ${modelConsentRows()}
+
       <h3 class="settings-h">Vault security</h3>
       <p class="settings-note" id="settingsSecNote">${server.encrypted
         ? 'Your library is encrypted. These control how it locks itself and how you get back in.'
@@ -398,6 +442,25 @@
           save();
           applyBlurThumbs(settings.blurThumbs);
           showToast?.(settings.blurThumbs ? '🫥 Library blurred' : 'Library blur off');
+        } else if (key.startsWith('modelConsent:')) {
+          const modelKey = key.slice('modelConsent:'.length);
+          const allow = input.checked;
+          input.disabled = true;
+          try {
+            const r = await fetch('/api/settings/model-downloads', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ key: modelKey, allow }),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+            modelDl = { ...modelDl, ...d };
+            showToast?.(allow ? '⬇ Approved for download' : 'Not approved — nothing will be fetched');
+          } catch (err) {
+            input.checked = !allow;
+            showToast?.('⚠ ' + err.message);
+          } finally {
+            input.disabled = !modelDl.envAllows || modelDl.explicit;
+          }
         } else if (key === 'gamifyHidden') {
           // Purely presentational, so no server round-trip and no reload — the
           // chip goes immediately and scoring never notices.

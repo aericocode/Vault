@@ -60,6 +60,12 @@ const config = {
     //                     instructions instead (air-gapped / strict local mode)
     // VAULT_OFFLINE=1 (the app-wide hard offline switch) also forces this off.
     allowModelDownload: process.env.SUB_ALLOW_DOWNLOADS !== '0' && process.env.VAULT_OFFLINE !== '1',
+    // Did the user set SUB_ALLOW_DOWNLOADS=1 by hand? That IS consent, so the
+    // server skips its one-time "may I fetch this model?" prompt. Leaving the
+    // variable unset is not the same as saying yes — see server/index.js
+    // applyModelDownloadConsent(), which is what turns the flag above into the
+    // effective permission everything else reads.
+    downloadConsentExplicit: process.env.SUB_ALLOW_DOWNLOADS === '1',
     // Where converted OPUS-MT models live (one dir per language pair)
     opusModelDir: process.env.OPUS_MODEL_DIR || path.join(ROOT, 'models', 'opus-mt'),
     // Speaker diarization → <v Speaker N> cue tags (player colors voices).

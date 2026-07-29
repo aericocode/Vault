@@ -275,3 +275,25 @@
 }
 .subs-tr-line:hover .subs-tr-pin { opacity: 0.75; }
 .subs-tr-pin:hover { opacity: 1 !important; transform: scale(1.15); }
+
+/* ── Missing-prerequisites modal (player-subtitles.js) ───────────────────
+   Rides the .vault-modal shell so it matches the first-launch password
+   explainer; only the command rows and step list need styling. */
+.subs-prereq-steps { margin: 0.6rem 0 0.6rem 1.1rem; padding: 0; line-height: 1.6; }
+.subs-prereq-steps li { margin-bottom: 0.5rem; }
+.subs-prereq-cmd {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.3rem 0;
+  flex-wrap: wrap;
+}
+.subs-prereq-cmd code {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.8rem;
+  user-select: all;              /* one click selects the whole command */
+}
+.subs-prereq-copy { padding: 0.15rem 0.5rem; font-size: 0.72rem; }

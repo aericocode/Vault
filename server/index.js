@@ -218,6 +218,38 @@ app.use('/api/gamify', (req, res, next) => {
    Both persist to disk so they survive a restart with no env vars set, which is
    the only situation a Vault.exe user is ever in. */
 
+/* ── Per-model download consent ───────────────────────────────────────────
+   allowModelDownload defaulted to TRUE, so the first Generate press started a
+   ~1.5 GB HuggingFace pull and only announced it afterwards, in a console line
+   an exe user never sees. That isn't consent.
+
+   Nor is one blanket yes: approving Whisper today must not silently approve a
+   Japanese translation pack next month. lib/model-consent.js keys the answer
+   per artifact and the env var stays the hard ceiling over all of it. */
+
+const modelConsent = require('../lib/model-consent');
+
+/** Everything the UI needs: the env ceiling, what's approved, what's waiting. */
+app.get('/api/settings/model-downloads', (req, res) => res.json(modelConsent.state()));
+
+/** Approve or refuse ONE artifact — see lib/model-consent.js for why per-key. */
+app.post('/api/settings/model-downloads', (req, res) => {
+  const key = typeof req.body?.key === 'string' ? req.body.key.trim() : '';
+  if (!key) return res.status(400).json({ error: 'key required' });
+  if (typeof req.body?.allow !== 'boolean') {
+    return res.status(400).json({ error: 'allow must be true or false' });
+  }
+  const r = modelConsent.grant(key, req.body.allow);
+  if (!r.ok) {
+    return res.status(409).json({
+      error: 'Model downloads are disabled by SUB_ALLOW_DOWNLOADS=0 or VAULT_OFFLINE=1',
+      code: r.code,
+    });
+  }
+  console.log(`[Models] ${key} download ${r.allowed ? 'ALLOWED' : 'declined'} by the user`);
+  res.json({ ...modelConsent.state(), ...r });
+});
+
 app.get('/api/settings/app', (req, res) => {
   res.json({
     gamify: gamifyEnabled,

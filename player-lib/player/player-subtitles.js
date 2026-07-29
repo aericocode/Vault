@@ -455,7 +455,12 @@ async function subtitlesGenerate() {
   try {
     const resp = await fetch(`/api/media/${media.id}/subtitles/generate`, { method: 'POST' });
     const data = await resp.json();
-    if (!resp.ok) { showToast('⚠ ' + (data.error || 'failed to start')); return; }
+    if (!resp.ok) {
+      if (!subtitlesHandleGenerateError(resp, data, subtitlesGenerate)) {
+        showToast('⚠ ' + (data.error || 'failed to start'));
+      }
+      return;
+    }
     showToast('📝 Generating subtitles — first lines appear in seconds');
     if (genBtn) genBtn.style.display = 'none';   // the progress pill takes over
     // Streaming: cues stream into the VTT; the growth poll shows them + progress
@@ -648,12 +653,192 @@ async function subtitlesToggleTranscript(mediaId, lang) {
   };
 }
 
+/* ── Missing prerequisites explainer ──────────────────────────────────────
+   Subtitles are the one feature Vault can't install for you: not a single
+   binary to drop next to the exe like ffmpeg and fpcalc, but a Python
+   interpreter plus a pip package. Asking for it on the setup banner would nag
+   every user about something most never touch, so the explanation arrives at
+   the moment someone actually presses Generate — the same shape as the
+   first-launch password modal.
+
+   Returns true when it handled a failed response, so callers can bail. */
+function subtitlesHandleGenerateError(resp, data, retry) {
+  if (data?.code === 'WHISPER_MISSING') { subtitlesShowPrereqModal(data); return true; }
+  if (data?.code === 'MODEL_DOWNLOAD_CONSENT') { subtitlesShowModelConsent(data, retry); return true; }
+  if (data?.code === 'DOWNLOADS_OFF_BY_ENV') {
+    showToast('⚠ Model downloads are off (SUB_ALLOW_DOWNLOADS=0 / VAULT_OFFLINE=1)');
+    return true;
+  }
+  return false;
+}
+
+/* ── Consent before the model download ───────────────────────────────────
+   The transcription model is a ~1.5 GB fetch from HuggingFace on first use.
+   It used to start on its own and announce itself afterwards in a console
+   line no exe user sees — which isn't consent. Asked once here; the answer
+   persists server-side and covers the translation and diarization models too,
+   since they're the same class of one-time fetch. */
+function subtitlesShowModelConsent(info = {}, retry) {
+  document.getElementById('subsModelConsent')?.remove();
+  const key = info.key || 'whisper:large-v3-turbo';
+  const kind = info.kind || (key.split(':')[0]);
+  const detail = info.detail || key.split(':')[1] || '';
+  const size = info.sizeHint || '';
+
+  // One artifact, one decision — the copy names exactly what would be fetched
+  // and what happens if you decline, because for two of the three there IS a
+  // working fallback and the user should know that before choosing.
+  const COPY = {
+    whisper: {
+      title: '⬇ Download the transcription model?',
+      what: `the speech-to-text model <b>${escapeHtml(detail)}</b>${size ? ` (<b>${escapeHtml(size)}</b>)` : ''}`,
+      decline: 'Without it, subtitles can\'t be generated at all — everything else in Vault keeps working.',
+    },
+    opus: {
+      title: '⬇ Download the offline translation model?',
+      what: `the <b>${escapeHtml(detail)}→en</b> translation pack${size ? ` (<b>${escapeHtml(size)}</b>)` : ''}`,
+      decline: 'Decline and Vault keeps translating with your local LM Studio model instead — slower, but nothing is downloaded.',
+    },
+    diarize: {
+      title: '⬇ Download the speaker-detection models?',
+      what: `the speaker-detection models${size ? ` (<b>${escapeHtml(size)}</b>)` : ''}`,
+      decline: 'Decline and subtitles are still generated, just without per-speaker labels.',
+    },
+  };
+  const c = COPY[kind] || {
+    title: '⬇ Download a model?',
+    what: `<b>${escapeHtml(key)}</b>`,
+    decline: 'Nothing is downloaded if you decline.',
+  };
+
+  const ov = document.createElement('div');
+  ov.id = 'subsModelConsent';
+  ov.className = 'vault-modal-overlay';
+  ov.innerHTML = `
+    <div class="vault-modal" role="dialog" aria-label="Download a model">
+      <h3>${c.title}</h3>
+      <p class="vault-modal-hint">
+        Vault would fetch ${c.what} from <b>huggingface.co</b>. It runs entirely
+        on your machine afterwards — your media is never uploaded, and nothing
+        else is downloaded with it.
+      </p>
+      <p class="vault-modal-hint">${c.decline}</p>
+      <p class="vault-modal-hint">
+        This asks separately for every model, so approving this one doesn't
+        approve any other. Change your mind any time in Settings.
+      </p>
+      <div class="vault-modal-actions">
+        <button class="vault-btn" id="subsModelNo">Not now</button>
+        <button class="vault-btn vault-btn-primary" id="subsModelYes">Download it</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+
+  const answer = async (allow) => {
+    ov.remove();
+    try {
+      const r = await fetch('/api/settings/model-downloads', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, allow }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { showToast('⚠ ' + (d.error || `HTTP ${r.status}`)); return; }
+    } catch (err) { showToast('⚠ ' + err.message); return; }
+    if (!allow) { showToast('Nothing downloaded — Vault will ask again if it needs it'); return; }
+    showToast('⬇ Approved — fetching on next use');
+    if (typeof retry === 'function') retry();      // resume what they clicked
+  };
+  ov.querySelector('#subsModelYes').addEventListener('click', () => answer(true));
+  ov.querySelector('#subsModelNo').addEventListener('click', () => answer(false));
+  ov.addEventListener('mousedown', (e) => { if (e.target === ov) ov.remove(); });
+}
+
+/**
+ * Offer anything a running job wanted but wasn't allowed to fetch.
+ *
+ * Translation packs and the diarization models are needed MID-job, long after
+ * the button press — whisper has to run before we know the language. Both fall
+ * back gracefully (LLM translation, unlabelled cues), so nothing is blocked;
+ * this just surfaces the choice at the point it became relevant, one artifact
+ * at a time.
+ */
+async function subtitlesOfferPendingConsent() {
+  if (document.getElementById('subsModelConsent')) return;   // one ask at a time
+  let st;
+  try { st = await (await fetch('/api/settings/model-downloads')).json(); }
+  catch { return; }
+  if (!st.envAllows || !st.pending?.length) return;
+  subtitlesShowModelConsent(st.pending[0]);
+}
+
+function subtitlesShowPrereqModal(info = {}) {
+  document.getElementById('subsPrereqModal')?.remove();
+  const noPython = !info.python;
+  const pyCmd = info.pythonCmd || 'python';
+
+  // Two different problems, two different fixes — saying "subtitles
+  // unavailable" for both sends half the users to the wrong place.
+  const steps = noPython
+    ? `<li>Install <b>Python 3.9+</b> — tick <b>“Add python.exe to PATH”</b> in the installer:
+         <div class="subs-prereq-cmd"><code>winget install Python.Python.3.12</code>
+           <button class="vault-btn subs-prereq-copy" data-copy="winget install Python.Python.3.12">Copy</button></div>
+         …or from <a href="https://www.python.org/downloads/" target="_blank" rel="noopener">python.org/downloads</a>.</li>
+       <li>Then install the transcription package:
+         <div class="subs-prereq-cmd"><code>pip install faster-whisper</code>
+           <button class="vault-btn subs-prereq-copy" data-copy="pip install faster-whisper">Copy</button></div></li>
+       <li><b>Restart Vault</b> — a running app keeps the PATH it started with, so it can't see a brand-new Python until then.</li>`
+    : `<li>Install the transcription package into the Python Vault is using
+         (<code>${escapeHtml(pyCmd)}</code>):
+         <div class="subs-prereq-cmd"><code>${escapeHtml(pyCmd)} -m pip install faster-whisper</code>
+           <button class="vault-btn subs-prereq-copy" data-copy="${escapeHtml(pyCmd)} -m pip install faster-whisper">Copy</button></div></li>
+       <li>Press <b>Generate</b> again — no restart needed, Vault re-checks each time.</li>`;
+
+  const ov = document.createElement('div');
+  ov.id = 'subsPrereqModal';
+  ov.className = 'vault-modal-overlay';
+  ov.innerHTML = `
+    <div class="vault-modal" role="dialog" aria-label="Subtitles need Python">
+      <h3>💬 Subtitles need one more thing</h3>
+      <p class="vault-modal-hint">
+        ${noPython
+          ? 'Transcription runs locally through <b>faster-whisper</b>, which needs Python. Vault couldn\'t find a Python installation.'
+          : 'Transcription runs locally through <b>faster-whisper</b>. Python is installed, but the package isn\'t.'}
+        It's the one dependency Vault can't fetch for you — everything else it installs itself.
+      </p>
+      <ol class="vault-modal-hint subs-prereq-steps">${steps}</ol>
+      <p class="vault-modal-hint">
+        Already using a virtual environment? Point Vault at it by setting
+        <code>PYTHON_PATH</code> to that interpreter. Full details in SETUP.md.
+      </p>
+      <div class="vault-modal-actions">
+        <button class="vault-btn vault-btn-primary" id="subsPrereqClose">Got it</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+
+  ov.querySelectorAll('.subs-prereq-copy').forEach(btn => btn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(btn.dataset.copy);
+      btn.textContent = 'Copied';
+      setTimeout(() => { if (btn.isConnected) btn.textContent = 'Copy'; }, 1500);
+    } catch { /* clipboard blocked — the text is selectable anyway */ }
+  }));
+  const close = () => ov.remove();
+  ov.querySelector('#subsPrereqClose').addEventListener('click', close);
+  ov.addEventListener('mousedown', (e) => { if (e.target === ov) close(); });
+}
+
 /** Generate for a specific media id from the sidebar (player may not be on it). */
 async function subtitlesGenerateFor(mediaId) {
   try {
     const resp = await fetch(`/api/media/${mediaId}/subtitles/generate`, { method: 'POST' });
     const data = await resp.json();
-    if (!resp.ok) { showToast('⚠ ' + (data.error || 'failed to start')); return; }
+    if (!resp.ok) {
+      if (!subtitlesHandleGenerateError(resp, data, () => subtitlesGenerateFor(mediaId))) {
+        showToast('⚠ ' + (data.error || 'failed to start'));
+      }
+      return;
+    }
     showToast('📝 Generating subtitles…');
     subtitlesLoadSidebar(mediaId);
     // If we're watching this item, let the player's poller pick up the cues too
@@ -735,7 +920,11 @@ async function subtitlesConfirmRescan(mediaId) {
       body: JSON.stringify({ fresh: true, ...(lang ? { lang } : {}) }),
     });
     const data = await resp.json();
-    if (!resp.ok) { showToast('⚠ ' + (data.error || 'failed to start')); return; }
+    if (!resp.ok) {
+      if (subtitlesHandleGenerateError(resp, data, () => subtitlesConfirmRescan(mediaId))) subtitlesCloseRescan();
+      else showToast('⚠ ' + (data.error || 'failed to start'));
+      return;
+    }
     subtitlesCloseRescan();
     showToast(lang ? `🔄 Rescanning as ${subLangName(lang)}…` : '🔄 Rescanning from scratch…');
     // Drop what's on screen now — the old cues are being deleted
@@ -766,6 +955,11 @@ function _subsPollSidebarUntilDone(mediaId) {
     subtitlesLoadSidebar(mediaId);
     if (['queued', 'transcribing', 'translating'].includes(info.status)) {
       _subs.sidebarPoll = setTimeout(tick, 2000);
+    } else {
+      // Job settled — a translation pack or the diarization models may have
+      // been wanted along the way and skipped for lack of permission. Offer
+      // them now, when the user can see what it was for.
+      subtitlesOfferPendingConsent();
     }
   };
   _subs.sidebarPoll = setTimeout(tick, 2000);
