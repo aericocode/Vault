@@ -203,7 +203,7 @@ nothing is duplicated elsewhere (`start.bat` asks the config for the port).
 | Windows SmartScreen blocked the app | **More info → Run anyway**. The build is unsigned; the warning is expected |
 | `Node.js is required but was not found` | Install Node LTS from nodejs.org, reopen the terminal (§6 — source checkout only) |
 | `No LM Studio endpoints available` / scan errors instantly | Start LM Studio's server (or Ollama) and check `LM_STUDIO_URLS`; for Ollama also set `AI_MODEL` |
-| Scans produce empty/garbage metadata | The loaded model isn't a **vision** model (load one from §3), or its **context length is at the ~4k default** — reload it at ~60k (§2, step 3) |
+| Scans produce empty/garbage metadata | The loaded model isn't a **vision** model (load one from §3), or its **context length is at the ~4k default** — reload it at ~64k (§2, step 3) |
 | `database is encrypted — password required` at boot | The Vault is locked: open the viewer and click the padlock, or set `VIDEO_TAGGER_DB_PASSWORD` |
 | Thumbnails/duration missing on imports | ffmpeg missing — use the ⬇ banner in the viewer, or install to PATH |
 | Music ID says tools missing | fpcalc missing — same ⬇ banner |

@@ -177,7 +177,7 @@ rather than a gap. To stop it entirely, run with `--no-gamify`.
 
 - **Points & streaks** — earn score for real engagement (rarity- and duration-weighted so a 2-second thumbnail flip earns far less than actually watching something), with daily streak tracking and decay for inactivity
 - **Quests** — dynamic objectives generated from your own library and habits (e.g. "watch 3 unrated horror videos")
-- **Levels & unlockable UI themes** — 9 levels from Casual Browser to Obsessed, unlocking 6 cosmetic color themes for the viewer as you level up
+- **Levels & unlockable UI themes** — 11 levels from Casual Browser to Send Help, unlocking 6 cosmetic color themes for the viewer as you level up
 - **Achievements** — Challenging visible and secret achievements for you to earn.
 - **Full analytics page** — watch-time heatmap (hour × day of week), 90-day activity chart, 12-week theme drift, library growth over time
 - **Shareable stats card** — generate a PNG snapshot of your stats/score to share
