@@ -27,7 +27,7 @@
     "transcription"
   ],
   "author": "",
-  "license": "AGPL-3.0-only",
+  "license": "SEE LICENSE IN LICENSE",
   "dependencies": {
     "better-sqlite3": "^11.0.0",
     "dotenv": "^17.4.2",

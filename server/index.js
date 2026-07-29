@@ -509,7 +509,7 @@ app.get('/api/update-check', async (req, res) => {
       signal: AbortSignal.timeout(8000),
     });
     if (resp.status === 404) {
-      return res.json({ current, error: 'No releases found — repository may not be published yet' });
+      return res.json({ current, error: 'No releases found - repository may not be published yet' });
     }
     if (!resp.ok) {
       return res.json({ current, error: `GitHub returned HTTP ${resp.status}` });

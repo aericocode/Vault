@@ -650,15 +650,18 @@ a report). Tune via `DUPE_SKIP=false`, `DUPE_MIN_MB`, `DUPE_SIZE_TOLERANCE`.
 
 ## Support & Donations
 
-Vault is free and open source. It's a personal project shared as-is —
-best-effort support through GitHub issues, no guarantees. If it saves your
-hoard some chaos and you want to say thanks, donations are appreciated but
-never required. 
+Vault is free to use — every feature, no tiers, no license key. It's a personal
+project shared as-is, so there's no guaranteed support.
+
+If it saved your hoard some chaos and you want to say thanks, donations at
+[ko-fi.com/aericode](https://ko-fi.com/aericode) are appreciated but never
+required (suggested $10 — anything helps).
 
 Made with 🌿 by [aericode](https://ko-fi.com/aericode)
 
 ## License
 
-[AGPL-3.0](LICENSE) — free to use, modify, and share. If you distribute a
-modified version (including running it as a network service for others), your
-changes must be shared under the same license.
+Proprietary and source-available — **not** open source — but **free for personal
+use**. You may read and modify the source for your own use. No redistribution:
+share the download link instead of the files. See [LICENSE](LICENSE) for the
+full terms.

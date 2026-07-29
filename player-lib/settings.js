@@ -267,6 +267,8 @@
       <div class="settings-modal" role="dialog" aria-label="Settings" onclick="event.stopPropagation()">
         <div class="settings-header">
           <h2>Settings</h2>
+          <a class="settings-support" href="https://ko-fi.com/aericode" target="_blank" rel="noopener"
+             title="Free forever — donations keep updates coming. Suggested $10, anything helps.">🌿 Support Vault</a>
           <button class="settings-close" id="settingsCloseBtn" title="Close" aria-label="Close">&times;</button>
         </div>
         <div class="settings-layout">
@@ -626,13 +628,13 @@
       <div class="settings-about">
         <div class="settings-about-name" id="settingsAboutName">Vault</div>
         <div class="settings-about-ver" id="settingsAboutVer"></div>
-        <p class="settings-about-local">🔒 Local-first — no telemetry, no auto-updates. The network is only touched when you allow it (model downloads, manual update checks).</p>
+        <p class="settings-about-local">🔒 Local-first - no telemetry, no auto-updates. The network is only touched when you allow it (model downloads, manual update checks).</p>
         <div class="settings-update">
           <button class="settings-btn" id="settingsAboutUpdateBtn">Check for updates</button>
           <span class="settings-note settings-update-msg" id="settingsAboutUpdateMsg"></span>
         </div>
-        <p class="settings-note">Clicking makes a single request to api.github.com to compare versions — nothing else is sent.</p>
-        <p>License: <a href="https://github.com/aericocode/Vault/blob/main/LICENSE" target="_blank" rel="noopener">AGPL-3.0</a></p>
+        <p class="settings-note">Clicking makes a single request to api.github.com to compare versions - nothing else is sent.</p>
+        <p>Free for personal use - proprietary, source-available. See the LICENSE file next to the app.</p>
         <div class="settings-links">
           <a href="https://github.com/aericocode/Vault" target="_blank" rel="noopener">GitHub repo ↗</a>
           <a href="https://ko-fi.com/aericode" target="_blank" rel="noopener">Ko-fi 🌿 ↗</a>
@@ -650,7 +652,7 @@
       const verEl = document.getElementById('settingsAboutVer');
       if (nameEl && info.name) nameEl.textContent = info.name;
       if (verEl && info.version) verEl.textContent = `v${info.version}`;
-    } catch { /* server unreachable — leave the static fallback */ }
+    } catch { /* server unreachable - leave the static fallback */ }
     wireUpdateCheck();
   }
 
@@ -670,7 +672,10 @@
         if (info.error) {
           msg.textContent = info.error;
         } else if (info.updateAvailable) {
-          msg.innerHTML = `v${info.latest} available — <a href="${info.url}" target="_blank" rel="noopener">View release ↗</a>`;
+          // Updates ship free; the only nudge is this one line, next to the link.
+          msg.innerHTML = `v${info.latest} available - <a href="${info.url}" target="_blank" rel="noopener">View release ↗</a>`
+            + `<span class="settings-update-kofi">Updates are free - if Vault earns it,`
+            + ` <a href="https://ko-fi.com/aericode" target="_blank" rel="noopener">$10 says thanks</a>.</span>`;
         } else {
           msg.textContent = `Up to date (v${info.current})`;
         }

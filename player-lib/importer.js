@@ -421,6 +421,38 @@
     _scanTimer = null;
   }
 
+  /* ── One-time Ko-fi thank-you after a big first scan ────────────────────
+     Vault is free; this is the only unprompted mention of donations in the
+     library UI. It fires at most ONCE ever (localStorage flag), only after a
+     batch of ≥50 files finishes, and it is a dismissible panel in the usual
+     bottom-right queue stack — nothing modal, nothing that steals focus. */
+  const LS_KOFI_NUDGED = 'vault_kofi_nudged';
+  const KOFI_MIN_FILES = 50;
+
+  function kofiNudged() {
+    try { return localStorage.getItem(LS_KOFI_NUDGED) === '1'; } catch { return true; }
+  }
+
+  function maybeKofiNudge(total) {
+    if (total < KOFI_MIN_FILES || kofiNudged()) return;
+    // Write the flag FIRST: if storage is unavailable the nudge is skipped
+    // entirely rather than repeating on every big scan.
+    try { localStorage.setItem(LS_KOFI_NUDGED, '1'); } catch { return; }
+    const el = document.createElement('div');
+    el.id = 'kofiThanksPanel';
+    el.className = 'delete-queue visible';
+    el.innerHTML = `
+      <div class="dq-head">
+        <span class="dq-title">☕ Thanks for using Vault</span>
+        <button class="dq-x" title="Dismiss">✕</button>
+      </div>
+      <div class="kofi-note">Vault just tagged ${total} files for you. If it saved you a
+        weekend, <a href="https://ko-fi.com/aericode" target="_blank" rel="noopener">☕ $10 on
+        Ko-fi</a> says thanks — never required.</div>`;
+    queuePanelStack().appendChild(el);
+    el.querySelector('.dq-x').addEventListener('click', () => el.remove());
+  }
+
   async function scanTick() {
     if (_scanBusy) return;                  // a slow round must not stack
     _scanBusy = true;
@@ -474,6 +506,7 @@
         _scanLast = null;
         if (document.getElementById('scanQueuePanel')) { renderScanPanel(q); finishScanPanel(q); }
         stopScanWatch();
+        maybeKofiNudge(total);
         return;
       }
       if (!_scanDismissed) renderScanPanel(q);
