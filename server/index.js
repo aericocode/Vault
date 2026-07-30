@@ -306,10 +306,23 @@ app.post('/api/settings/app', (req, res) => {
    surfaced as a per-file "Could not read media info", on every file, with
    nothing anywhere naming the actual cause.
 
-   Cached because the answer can't change while the process runs: the probe
-   spawns a child, which inherits the PATH this process was launched with, so
-   installing ffmpeg afterwards is invisible until Vault restarts. That's also
-   why the banner says to restart rather than pretending a re-check is enough. */
+   Probing costs child processes (isAvailable forks ffprobe; the fpcalc fallback
+   forks too), so the answer is cached — but it must not be cached FOREVER. This
+   cache predates lib/ffmpeg-locate.js and was justified by "the answer can't
+   change while the process runs", which stopped being true the moment tools
+   could also be resolved from ROOT: a binary dropped next to Vault is picked up
+   by the very next spawn, PATH untouched. A permanent cache turned that into a
+   lie the user could only escape by restarting — install ffmpeg out of band,
+   reload the page, and the banner still insists it is missing, because the
+   first probe of the process said so and nothing ever asked again.
+
+   So: serve the cache only while everything in it is ok. If anything is still
+   reported missing, re-probe. That is exactly the state in which the user is
+   off installing something, and the only state in which the banner is on
+   screen to be wrong; once every tool is ok the cache is served untouched and
+   the healthy path costs nothing. (A PATH install is still invisible until a
+   restart — a running process can never see a new PATH entry — which is why
+   the winget row keeps its "then restart Vault".) */
 
 const FFMPEG_INSTALL = {
   winget: 'winget install ffmpeg',
@@ -341,7 +354,9 @@ const DOWNLOADABLE_TOOLS = {
 let _toolsCache = null;
 
 function checkTools({ refresh = false } = {}) {
-  if (_toolsCache && !refresh) return _toolsCache;
+  // A cache with a missing tool in it is a cache that has to be re-earned.
+  const allOk = !!_toolsCache && Object.values(_toolsCache).every((t) => t.ok);
+  if (_toolsCache && !refresh && allOk) return _toolsCache;
   _toolsCache = {
     ffmpeg: {
       ok: require('../lib/media-info').isAvailable(),

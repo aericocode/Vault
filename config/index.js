@@ -19,7 +19,7 @@ const config = {
     // Ollama example: AI_MODEL=qwen2.5vl:7b (a vision model — scans need one)
     model: process.env.AI_MODEL || null,
     temperature: 0.3,
-    maxTokens: 6000,
+    maxTokens: 8000,
   },
 
   Global_options: {

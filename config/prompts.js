@@ -43,7 +43,7 @@ const MEDIA_ELEMENT_FIELDS = [
   },
   {
     type: 'fluids_present',
-    details: 'Describe fluids present — color, consistency, volume, and location (e.g., sperm on thighs, clear lubricant inside vagina, blood from cut, etc.)'
+    details: 'Describe fluids(if present) — color, consistency, volume, and location (e.g., sperm on thighs, clear lubricant inside vagina, blood from cut, etc.)'
   },
   {
     type: 'objects_used',
@@ -170,7 +170,7 @@ This is a single static image. Examine:
 - Subject matter, composition, and positioning of people/objects
 - Lighting and camera angle
 
-Note: white/glistening fluids are most likely semen.
+Note: noticable white/glistening fluids are most likely semen. Only callout if detected in multiple frames.
 
 ${JSON_ONLY}
 ${buildJsonSchema()}
@@ -191,7 +191,7 @@ This is a short looping animation. Focus on:
 - How subjects are positioned and what they're doing
 - Camera work and lighting style
 
-Note: white/glistening fluids are most likely semen.
+Note: noticable white/glistening fluids are most likely semen. Only callout if detected in multiple frames.
 
 ${JSON_ONLY}
 ${buildJsonSchema()}
@@ -234,7 +234,7 @@ These frames are sampled throughout the video. Examine:
 - Recurring camera angles and lighting styles
 - Scene locations that appear
 
-Note: white/glistening fluids are most likely semen.
+Note: noticable white/glistening fluids are most likely semen. Only callout if detected in multiple frames.
 
 ${JSON_ONLY}
 ${buildJsonSchema(options)}
