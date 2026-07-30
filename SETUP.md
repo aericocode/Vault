@@ -94,7 +94,7 @@ you'll pick your own model next.
 **2. Download a vision model.**
 1. Open **Model Search** in LM Studio's left sidebar.
 2. Search for a model from §3 that fits your VRAM (the in-app **Settings → Models**
-   table has the same list). Type its name, e.g. `Qwen2.5-VL-7B`.
+   table has the same list). Type its name, e.g. `Qwen3.5-VL-4B Q4 Uncensored HauhauCS Aggressive`.
 3. Pick the **Q4** quantization when offered and hit **Download**. Vision models
    are 3–10 GB; wait for the download to finish.
    
