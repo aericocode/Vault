@@ -97,17 +97,19 @@ you'll pick your own model next.
    table has the same list). Type its name, e.g. `Qwen2.5-VL-7B`.
 3. Pick the **Q4** quantization when offered and hit **Download**. Vision models
    are 3–10 GB; wait for the download to finish.
+   
+![Setup Part 1](https://github.com/aericocode/vault-assets/blob/main/LM%20Studio/2.%20LM%20Studio%20setup.gif?raw=true)
 
 **3. Load it — with a bigger context window.** This is the step everyone misses:
 1. Open the **Developer** tab in the left sidebar and load the model from there.
 2. Turn on the toggle for **manually choosing load parameters** — without it you
    get the defaults and no chance to change them.
-3. Set **Context Length** to **~60000** tokens. The default (~4k) is far too
+3. Set **Context Length** to **~64000** tokens. The default (~4k) is far too
    small — every scan sends several frames plus the prompt, and a 4k context
    silently truncates them into empty or garbage metadata.
-4. If there's a **Flash Attention** toggle, turn it on (faster, less VRAM).
-   Leave GPU offload at its default (max layers).
 5. **Load the model.**
+
+![Setup Part 2](https://raw.githubusercontent.com/aericocode/vault-assets/refs/heads/main/LM%20Studio/3.%20LM%20Studio%20Model%20Load.gif)
 
 **4. Start the local server.**
 1. Still in the **Developer** tab, make sure **Status** reads **Running**.
@@ -120,6 +122,7 @@ you'll pick your own model next.
    told which one scans should use — Vault pauses the scan and shows a picker
    in the scan panel; choose your **vision** model and it resumes. The choice
    lasts until you close Vault; set `AI_MODEL` to make it permanent.
+   
 
 **5. Verify.** Back in Vault, drag a file in (or press ▶ Resume if a scan is
 paused waiting for the model). The scan panel should start moving; the file's
@@ -130,11 +133,11 @@ description and tags appear when its scan lands.
 Ollama **requires the model name in each request**, so set two env vars:
 
 ```bat
-ollama pull qwen2.5vl:7b          &rem vision model for scanning (see §3)
+ollama pull qwen3.5vl:7b          &rem vision model for scanning (see §3)
 ollama pull nomic-embed-text      &rem embeddings for semantic search
 
 set LM_STUDIO_URLS=http://localhost:11434/v1/chat/completions
-set AI_MODEL=qwen2.5vl:7b
+set AI_MODEL=qwen3.5vl:7b
 set EMBEDDING_MODEL=nomic-embed-text
 start.bat
 ```
@@ -157,10 +160,10 @@ Vision model = scan quality. Quantized (Q4) versions are the sweet spot.
 
 | VRAM | Vision model (scanning) | Whisper (subtitles) | Notes |
 |---|---|---|---|
-| **6–8 GB** | Qwen2.5-VL-3B Q4 · MiniCPM-V 2.6 Q4 | `WHISPER_MODEL=small` | Lower `VISION_WORKERS=1`; scans are slower but fine |
-| **10–12 GB** | **Qwen2.5-VL-7B Q4** (recommended) · LLaVA-1.6-13B Q4 | `large-v3-turbo` @ `int8_float16` (default) | The defaults target this class |
-| **16 GB** | Qwen2.5-VL-7B Q8 · Gemma-3-12B-IT Q4 (vision) | default | Room for `PIPELINE_DEPTH=3` |
-| **24 GB+** | Qwen2.5-VL-32B Q4 · or 7B at full precision + 2 workers | default | Multi-worker scanning shines: `VISION_WORKERS=2` |
+| **6–8 GB** | MiniCPM V 4.6 Abliterated MAX | `WHISPER_MODEL=small` | Lower `VISION_WORKERS=1`; scans are slower but fine |
+| **10–12 GB** | Qwen3.5-VL-4B Q4 Uncensored HauhauCS Aggressive (Recommended) | `large-v3-turbo` @ `int8_float16` (default) | The defaults target this class |
+| **16 GB** | Qwen3.5-VL-4B Q8 Uncensored HauhauCS Aggressive + 2-4 workers | default | Room for `PIPELINE_DEPTH=3` |
+| **24 GB+** | Qwen3.5-VL-9B Q4 Uncensored HauhauCS Aggressive + 2-4 workers | default | Multi-worker scanning shines: `VISION_WORKERS=2` |
 
 - **Embeddings** (semantic search) are tiny — `nomic-embed-text` (~0.5 GB) runs anywhere.
 - **Whisper** sizes: `small` ≈ 1 GB, `large-v3-turbo` int8 ≈ 1.5 GB VRAM; it
