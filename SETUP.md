@@ -173,11 +173,14 @@ Vision model = scan quality. Quantized (Q4) versions are the sweet spot.
 All settings live in `config/index.js` and read environment variables —
 nothing is duplicated elsewhere (`start.bat` asks the config for the port).
 
+The `VAULT_*` names are current — the former `VIDEO_TAGGER_*` names are still read
+as a fallback, so an existing `.env` keeps working.
+
 | Env var | Default | What it does |
 |---|---|---|
 | `MEDIA_TAGGER_PORT` | `8765` | Viewer port |
-| `VIDEO_TAGGER_DB` | `./video_metadata.db` | Library database file |
-| `VIDEO_TAGGER_DB_PASSWORD` | — | Auto-unlock an encrypted Vault at boot |
+| `VAULT_DB` | `./vault.db` | Library database file |
+| `VAULT_DB_PASSWORD` | — | Auto-unlock an encrypted Vault at boot |
 | `LM_STUDIO_URLS` | `http://localhost:1234/v1/chat/completions` | AI endpoint(s), comma-separated |
 | `AI_MODEL` | *(unset)* | Model name per request — **required for Ollama**, ignored by LM Studio |
 | `EMBEDDING_MODEL` | `text-embedding-nomic-embed-text-v1.5` | Semantic-search embedding model |
@@ -189,8 +192,8 @@ nothing is duplicated elsewhere (`start.bat` asks the config for the port).
 | `SUB_ALLOW_DOWNLOADS` | *(ask per model)* | AI models (whisper + translation packs + speaker-diarization models) already on disk **always** load offline. This governs the one-time fetch of a model that isn't installed yet. Unset, Vault **asks before each individual model** and remembers each answer separately — approving the transcription model does not approve a Japanese translation pack later (Settings → *AI model downloads* lists every model it has needed). `1` = pre-approve everything, no prompts. `0` = never touch the network (missing model errors with instructions — air-gapped / strict mode). `VAULT_OFFLINE=1` forces this off, and the environment always beats the in-app switches |
 | `VAULT_OFFLINE` | `0` (unset) | Hard offline switch: `1` = loopback-only networking app-wide (model downloads, update checks, remote AI endpoints all refuse; localhost services keep working). Implies `SUB_ALLOW_DOWNLOADS=0` and sets `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` for the Python sidecars |
 | `VAULT_AUTOLOCK_MINUTES` | `30` | Auto-lock idle timeout (0 = off) |
-| `VIDEO_TAGGER_TRASH` | `./trash` | Trash folder (opaque filenames) |
-| `VIDEO_TAGGER_THUMBS` | `./thumbnails` | Thumbnail/cache folder |
+| `VAULT_TRASH` | `./trash` | Trash folder (opaque filenames) |
+| `VAULT_THUMBS` | `./thumbnails` | Thumbnail/cache folder |
 | `FRAME_WORKERS` / `VISION_WORKERS` / `PIPELINE_DEPTH` | `4` / `1` / `2` | Scan parallelism (see §3) |
 
 ---
@@ -204,7 +207,7 @@ nothing is duplicated elsewhere (`start.bat` asks the config for the port).
 | `Node.js is required but was not found` | Install Node LTS from nodejs.org, reopen the terminal (§6 — source checkout only) |
 | `No LM Studio endpoints available` / scan errors instantly | Start LM Studio's server (or Ollama) and check `LM_STUDIO_URLS`; for Ollama also set `AI_MODEL` |
 | Scans produce empty/garbage metadata | The loaded model isn't a **vision** model (load one from §3), or its **context length is at the ~4k default** — reload it at ~64k (§2, step 3) |
-| `database is encrypted — password required` at boot | The Vault is locked: open the viewer and click the padlock, or set `VIDEO_TAGGER_DB_PASSWORD` |
+| `database is encrypted — password required` at boot | The Vault is locked: open the viewer and click the padlock, or set `VAULT_DB_PASSWORD` |
 | Thumbnails/duration missing on imports | ffmpeg missing — use the ⬇ banner in the viewer, or install to PATH |
 | Music ID says tools missing | fpcalc missing — same ⬇ banner |
 | Subtitles fail to generate | Press ▶ Generate — Vault says exactly what's missing. Usually `pip install faster-whisper`; if you used a venv, set `PYTHON_PATH` to its interpreter |
@@ -236,9 +239,9 @@ runtime.
 Flag-style usage works everywhere:
 
 ```bash
-node video-tagger.js scan /path/to/media --recursive --all-types
-node video-tagger.js serve            # same as start.bat
-node video-tagger.js status           # library stats
+node vault.js scan /path/to/media --recursive --all-types
+node vault.js serve            # same as start.bat
+node vault.js status           # library stats
 ```
 
 Everything in §2–§5 applies unchanged — the source checkout and the exe read
