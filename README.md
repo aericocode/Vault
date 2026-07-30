@@ -37,16 +37,12 @@ the whole folder can be moved, copied, or backed up wholesale.
 
 ## What you need
 
-**Nothing.** Browsing, playing, tagging and organizing your library work out of the box.
-
-Each of the following features adds one optional dependency:
-
 | Feature | Needs |
 |---|---|
 | AI scanning / semantic search | a local vision model via [LM Studio](https://lmstudio.ai/download#lm-studio-download-heading), Ollama or vLLM — [step-by-step guide](SETUP.md#2-ai-backend--lm-studio-or-ollama) |
-| Thumbnails, hover-scrub, beat bar | ffmpeg — **one click**: Vault offers to download it on first launch |
+| Thumbnails, hover-scrub, beat bar | ffmpeg - **one click**: Vault offers to download it on first launch |
+| Music ID | fpcalc - same one-click banner |
 | Subtitles / transcription | Python + faster-whisper |
-| Music ID | fpcalc — same one-click banner |
 
 See [SETUP.md](SETUP.md) for the full walkthrough and model recommendations by VRAM.
 
