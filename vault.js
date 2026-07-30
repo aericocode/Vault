@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Video Tagger v3 - Optimized parallel processing
+ * Vault - Optimized parallel processing
  */
 
 // Load .env over config defaults before any command (which pull in config).
@@ -25,9 +25,9 @@ const commands = {
 
 function showHelp() {
   console.log(`
-Video Tagger v3 - Optimized parallel processing
+Vault - Optimized parallel processing
 
-Usage: node video-tagger.js <command> [options]
+Usage: node vault.js <command> [options]
 
 Run with NO command for the interactive wizard (menus instead of flags).
 
@@ -74,21 +74,21 @@ Performance Environment Variables:
   DEDUPE_FRAMES       Enable frame deduplication (default: true)
 
 Other Environment Variables:
-  VIDEO_TAGGER_DB             Database path
-  VIDEO_TAGGER_OUTPUT         Output base path
-  VIDEO_TAGGER_TEMP           Temp frames path
+  VAULT_DB              Database path
+  VAULT_OUTPUT          Output base path
+  VAULT_TEMP            Temp frames path
 
 Multi-GPU Setup:
   1. Start LM Studio instance 1 on port 1234 (GPU 0)
   2. Start LM Studio instance 2 on port 1235 (GPU 1)
   3. Set: LM_STUDIO_URLS=http://localhost:1234/v1/chat/completions,http://localhost:1235/v1/chat/completions
-  4. Run: node video-tagger.js scan ./media -r
+  4. Run: node vault.js scan ./media -r
 
 Examples:
-  node video-tagger.js scan ./videos --recursive
-  node video-tagger.js scan ./videos -r --workers 4
-  node video-tagger.js status
-  node video-tagger.js query --language Japanese --content anime
+  node vault.js scan ./videos --recursive
+  node vault.js scan ./videos -r --workers 4
+  node vault.js status
+  node vault.js query --language Japanese --content anime
 `);
 }
 

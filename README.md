@@ -135,7 +135,7 @@ Find every file containing a song, then play them **stacked in sync**. Powered b
 - **Song picker with seed catalog** — the tag form and edit modal suggest from your songs (🔗 = fingerprinted, auto-matchable) plus an offline artist/title seed catalog (📇, auto-imported from seed.json) — names for ~90% of tracks even before you have their audio
 - **Beat bar rides the mix** — the 🥁 overlay attaches to the master track on the top layer, same settings as the main player
 - **Saved mixes & export** — save/load mix presets, and export the current stack to an MP4 (ffmpeg renders the same opacities/effects/volumes server-side, background queue with progress)
-- CLI: `node video-tagger.js music check-tools | fingerprint <id|all> | scan <id|all> | status`
+- CLI: `node vault.js music check-tools | fingerprint <id|all> | scan <id|all> | status`
 
 </details>
 
@@ -190,7 +190,7 @@ For developers, or anyone who'd rather run the Node app directly than the packag
 These files and commands come with a repository checkout (clone or download the repo) —
 they are not in the release zip, which ships only the exe and its runtime.
 
-**No flags needed** — double-click `scan.bat` (or run `node video-tagger.js`
+**No flags needed** — double-click `scan.bat` (or run `node vault.js`
 with no arguments) for the interactive wizard: pick a directory (remembers
 your history), toggle options with arrow keys, and go. It prints the
 equivalent flag command before each run.
@@ -199,14 +199,14 @@ Flag-style usage still works everywhere:
 
 ```bash
 npm install
-node video-tagger scan /path/to/media --recursive --all-types
-node video-tagger scan /path/to/media --recursive --transcribe-video --type video
+node vault scan /path/to/media --recursive --all-types
+node vault scan /path/to/media --recursive --transcribe-video --type video
 ```
 
 **Music ID (optional):** needs `fpcalc` (Chromaprint CLI) on PATH or `FPCALC_PATH`.
 Windows: grab `chromaprint-fpcalc-*-windows-x86_64.zip` from
 https://github.com/acoustid/chromaprint/releases and drop `fpcalc.exe` somewhere
-on PATH. Verify with `node video-tagger.js music check-tools`.
+on PATH. Verify with `node vault.js music check-tools`.
 
 ### AI setup
 
@@ -229,7 +229,7 @@ Full click-by-click walkthrough: [SETUP.md §2](SETUP.md#2-ai-backend--lm-studio
 **Step 2: Run with parallel workers(parallel slots)**
 
 ```bash
-node video-tagger.js scan ./media --recursive --workers 2
+node vault.js scan ./media --recursive --workers 2
 ```
 
 **Step 3: Launch the Viewer**
@@ -247,7 +247,7 @@ view (cached in `./thumbnails`).
 
 **File management:** select tiles (checkbox on hover, shift-click for ranges)
 and use the selection bar to bulk move files to the trash folder (`./trash`
-by default, `VIDEO_TAGGER_TRASH` to change). Trash is a real move on disk —
+by default, `VAULT_TRASH` to change). Trash is a real move on disk —
 never a delete — with one-click Undo and per-file Restore (original paths are
 stored in the DB). Trashed items are hidden by default (🗑 filter). Files that
 fail to play are auto-marked ⚠ unplayable and can be filtered out.
@@ -285,6 +285,9 @@ path.
 <details>
 <summary><b>Environment variables</b></summary>
 
+The `VAULT_*` names are current — the former `VIDEO_TAGGER_*` names are still read
+as a fallback, so an existing `.env` keeps working.
+
 ### Performance
 
 | Variable | Default | Description |
@@ -298,10 +301,10 @@ path.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VIDEO_TAGGER_DB` | `./video_metadata.db` | Database path |
-| `VIDEO_TAGGER_DB_PASSWORD` | none | Encryption password |
-| `VIDEO_TAGGER_OUTPUT` | `./sorted_media` | Output directory |
-| `VIDEO_TAGGER_TEMP` | `./temp_frames` | Temp directory |
+| `VAULT_DB` | `./vault.db` | Database path |
+| `VAULT_DB_PASSWORD` | none | Encryption password |
+| `VAULT_OUTPUT` | `./sorted_media` | Output directory |
+| `VAULT_TEMP` | `./temp_frames` | Temp directory |
 
 ### Network
 
@@ -319,7 +322,7 @@ path.
 ### scan
 
 ```bash
-node video-tagger.js scan <directory> [options]
+node vault.js scan <directory> [options]
 
 Options:
   --recursive, -r      Scan subdirectories
@@ -334,7 +337,7 @@ Options:
 ### phash — perceptual duplicate detection
 
 ```bash
-node video-tagger.js phash [options]
+node vault.js phash [options]
 
 Options:
   --threshold N   Max hash distance to match (default: 8, lower = stricter)
@@ -345,7 +348,7 @@ Options:
 ### serve — launch the local web viewer
 
 ```bash
-node video-tagger.js serve [options]     # same as start.bat
+node vault.js serve [options]     # same as start.bat
 
 Options:
   --gamify        Re-enable the local Obsession Score tracker (it is on by
@@ -357,13 +360,13 @@ Options:
 ### Other commands
 
 ```bash
-node video-tagger.js status              # Database stats
-node video-tagger.js query --lang Jap    # Search
-node video-tagger.js export              # Generate move script
-node video-tagger.js json                # Export to JSON
-node video-tagger.js embed                # Backfill semantic-search embeddings
-node video-tagger.js clean               # Rebuild normalized themes/tags/locations (no AI)
-node video-tagger.js mark-executed       # Mark moves complete
+node vault.js status              # Database stats
+node vault.js query --lang Jap    # Search
+node vault.js export              # Generate move script
+node vault.js json                # Export to JSON
+node vault.js embed                # Backfill semantic-search embeddings
+node vault.js clean               # Rebuild normalized themes/tags/locations (no AI)
+node vault.js mark-executed       # Mark moves complete
 ```
 
 </details>
@@ -372,8 +375,8 @@ node video-tagger.js mark-executed       # Mark moves complete
 <summary><b>Project structure</b></summary>
 
 ```
-video-tagger/
-├── video-tagger.js          # CLI entry
+Vault/
+├── vault.js                 # CLI entry
 ├── start.bat                # One-click viewer launcher
 ├── db-viewer.html           # Viewer UI shell
 ├── config/
@@ -456,7 +459,7 @@ video-tagger/
 ### Example Query with Verbose
 
 ```bash
-node video-tagger.js query --lang Japanese --verbose
+node vault.js query --lang Japanese --verbose
 
 # Output:
 # example.mp4
@@ -563,10 +566,10 @@ The system tracks processing status in the database to allow flexible resumption
 
 ```bash
 # Example: Retry only failed vision files
-node video-tagger.js scan ./media -r --retry-errors
+node vault.js scan ./media -r --retry-errors
 
 # Example: Full reprocess of all media
-node video-tagger.js scan ./media -r --reprocess
+node vault.js scan ./media -r --reprocess
 ```
 
 ### Semantic Search (v3.3)
@@ -575,7 +578,7 @@ box ("crimson picture" finds red images). Vectors are built from the metadata
 the tagger already extracted — **no media rescan**. One-time backfill:
 
 ```bash
-node video-tagger.js embed        # embeds rows that don't have vectors yet
+node vault.js embed        # embeds rows that don't have vectors yet
 ```
 
 New scans embed automatically (dupes copy their match's vector for free).
@@ -597,7 +600,7 @@ anything**:
   touched**, so the clean copy can be rebuilt any time the rules improve:
 
   ```bash
-  node video-tagger.js clean     # rebuild media_clean from existing metadata (no AI, no rescan)
+  node vault.js clean     # rebuild media_clean from existing metadata (no AI, no rescan)
   ```
 
   New scans populate it automatically and feed the library's existing themes
@@ -644,7 +647,7 @@ a report). Tune via `DUPE_SKIP=false`, `DUPE_MIN_MB`, `DUPE_SIZE_TOLERANCE`.
 
 **High disk I/O**
 - Frame extraction is disk-heavy
-- Use SSD for temp directory: `VIDEO_TAGGER_TEMP=D:\temp`
+- Use SSD for temp directory: `VAULT_TEMP=D:\temp`
 
 </details>
 

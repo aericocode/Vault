@@ -1,5 +1,10 @@
 const path = require('path');
 const { ROOT } = require('../lib/approot');
+// Branded overrides (paths, port, passphrase) read VAULT_* first and fall back
+// to the pre-rename VIDEO_TAGGER_* / MEDIA_TAGGER_PORT names — see lib/env-var.js.
+// Generic/domain vars (WHISPER_*, SUB_*, DUPE_*, …) were never branded and are
+// read straight from process.env below.
+const { envVar } = require('../lib/env-var');
 
 const isWindows = process.platform === 'win32';
 
@@ -163,19 +168,19 @@ const config = {
 
   // Paths
   paths: {
-    tempDir: process.env.VIDEO_TAGGER_TEMP || path.join(ROOT, 'temp_frames'),
-    database: process.env.VIDEO_TAGGER_DB || path.join(ROOT, 'video_metadata.db'),
+    tempDir: envVar('TEMP') || path.join(ROOT, 'temp_frames'),
+    database: envVar('DB') || path.join(ROOT, 'vault.db'),
     // Encrypted derived-artifact store (thumbs/scrub/beat-audio/subtitles) used
     // only in vault mode. Lives next to the main DB so a scratch/test DB gets
     // its own isolated store; env override for explicit placement.
     get secureAssets() {
-      return process.env.VIDEO_TAGGER_SECURE_ASSETS
+      return envVar('SECURE_ASSETS')
         || path.join(path.dirname(path.resolve(this.database)), 'secure_assets.db');
     },
-    outputBase: process.env.VIDEO_TAGGER_OUTPUT || path.join(ROOT, 'sorted_media'),
-    debugLog: process.env.VIDEO_TAGGER_DEBUG_LOG || path.join(ROOT, 'bad_json_responses.log'),
-    thumbnailDir: process.env.VIDEO_TAGGER_THUMBS || path.join(ROOT, 'thumbnails'),
-    trashDir: process.env.VIDEO_TAGGER_TRASH || path.join(ROOT, 'trash'),
+    outputBase: envVar('OUTPUT') || path.join(ROOT, 'sorted_media'),
+    debugLog: envVar('DEBUG_LOG') || path.join(ROOT, 'bad_json_responses.log'),
+    thumbnailDir: envVar('THUMBS') || path.join(ROOT, 'thumbnails'),
+    trashDir: envVar('TRASH') || path.join(ROOT, 'trash'),
     // NOTE: there is deliberately NO importDir. Vault never copies source media
     // onto local disk — everything is referenced in place (see the native
     // pickers + /api/import/add-paths). The former imports/ folder is gone.
@@ -278,6 +283,8 @@ config.getProcessorMediaType = (ext) => {
   }
 };
 
-config.getDbPassword = () => process.env.VIDEO_TAGGER_DB_PASSWORD || null;
+// Vault passphrase. Read from the real environment only — lib/load-env.js
+// refuses a value that came from the .env file, under EITHER name.
+config.getDbPassword = () => envVar('DB_PASSWORD') || null;
 
 module.exports = config;

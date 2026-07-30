@@ -1,8 +1,8 @@
 /**
  * wizard — interactive, flag-free scan management.
  *
- * Launched by running `node video-tagger.js` with no command (or explicitly
- * via `node video-tagger.js wizard`). Arrow-key menus and toggles replace
+ * Launched by running `node vault.js` with no command (or explicitly
+ * via `node vault.js wizard`). Arrow-key menus and toggles replace
  * remembering CLI flags; the equivalent flag command is printed before each
  * run so the flags stay learnable.
  *
@@ -76,7 +76,7 @@ function buildScanArgs(a) {
 
 function formatCommand(args) {
   const quoted = args.map(x => /[\s()&]/.test(x) ? `"${x}"` : x);
-  return `node video-tagger.js scan ${quoted.join(' ')}`;
+  return `node vault.js scan ${quoted.join(' ')}`;
 }
 
 /* ── Prompts ──────────────────────────────────────────────────────────── */
@@ -224,8 +224,8 @@ async function scanWizard(settings) {
 
 async function run(args) {
   console.log('');
-  console.log('  🔎 Video Tagger — interactive mode');
-  console.log('     (power users: run `node video-tagger.js --help` for flags)');
+  console.log('  🔎 Vault — interactive mode');
+  console.log('     (power users: run `node vault.js --help` for flags)');
 
   const settings = loadSettings();
 

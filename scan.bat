@@ -12,5 +12,5 @@ if errorlevel 1 (
   exit /b 1
 )
 
-node video-tagger.js
+node vault.js
 pause

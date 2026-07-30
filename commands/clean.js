@@ -3,7 +3,7 @@
  * raw AI output already in the DB. Pure string normalization, NO AI, no media
  * touched — safe to run any time, especially after the cleaning rules improve.
  *
- *   node video-tagger.js clean
+ *   node vault.js clean
  */
 
 const db = require('../lib/database');

@@ -475,9 +475,12 @@ app.get('/api/setup/download/:tool', (req, res) => {
   res.json(_toolJobs.get(req.params.tool) || { state: 'idle' });
 });
 
-// App identity for the Settings → About section (name + version from package.json)
+// App identity for the Settings → About section. The name is the PRODUCT name,
+// deliberately not pkg.name — that is the npm package id (lowercase `vault`) and
+// rendering it would put "vault" in the panel instead of "Vault". Version still
+// tracks package.json so a release bump shows up here for free.
 app.get('/api/about', (req, res) => {
-  res.json({ name: pkg.name, version: pkg.version });
+  res.json({ name: 'Vault', version: pkg.version });
 });
 
 // Manual update check — MANUAL ONLY. This makes exactly ONE request to
@@ -1709,7 +1712,7 @@ app.get('/api/search/semantic', async (req, res) => {
     const results = await embeddings.search(q, Number(req.query.limit) || 500);
     if (results.length === 0) {
       return res.status(503).json({
-        error: 'no embeddings yet — run: node video-tagger.js embed',
+        error: 'no embeddings yet — run: node vault.js embed',
       });
     }
     res.json({ results });
@@ -2110,7 +2113,7 @@ function repairMisclassifiedMediaTypes() {
 }
 
 function start(args = process.argv.slice(2)) {
-  // Encrypted DB + no/wrong VIDEO_TAGGER_DB_PASSWORD → boot LOCKED (the
+  // Encrypted DB + no/wrong VAULT_DB_PASSWORD → boot LOCKED (the
   // viewer shows the lock screen and unlocks with the passphrase) instead
   // of crashing. Any other init failure is still fatal.
   let bootedLocked = false;
@@ -2144,7 +2147,7 @@ function start(args = process.argv.slice(2)) {
   try {
     ownedDir.adoptOnStartup(require('../lib/video-transcriber').TEMP_AUDIO_DIR, 'tempaudio', 'temp-audio');
   } catch { /* transcriber optional at boot */ }
-  // A REDIRECTED subtitles root (VIDEO_TAGGER_SUBS outside thumbnailDir) is not
+  // A REDIRECTED subtitles root (VAULT_SUBS outside thumbnailDir) is not
   // covered by the thumbnailDir marker; adopt it on its own so migrateFromDisk's
   // VTT sweep is gated on THIS root's ownership (default {thumbnailDir}/subtitles
   // stays governed by the parent marker and needs no separate pass).

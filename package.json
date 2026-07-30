@@ -1,16 +1,16 @@
 {
-  "name": "video-tagger",
+  "name": "vault",
   "version": "3.5.0",
   "description": "Local AI-powered media categorization - supports video, images, documents, and audio",
-  "main": "video-tagger.js",
+  "main": "vault.js",
   "repository": "github:aericocode/Vault",
   "bin": {
-    "video-tagger": "./video-tagger.js"
+    "vault": "./vault.js"
   },
   "scripts": {
-    "start": "node video-tagger.js",
-    "scan": "node video-tagger.js scan",
-    "status": "node video-tagger.js status",
+    "start": "node vault.js",
+    "scan": "node vault.js scan",
+    "status": "node vault.js status",
     "viewer": "node server/index.js",
     "build:exe": "node tools/sea/build-app.js"
   },

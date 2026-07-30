@@ -226,7 +226,7 @@ async function processFile(file, options = {}) {
     }
 
     // Embed the fresh metadata for semantic search (non-fatal on failure —
-    // `node video-tagger.js embed` backfills anything missed)
+    // `node vault.js embed` backfills anything missed)
     if (config.embeddings.enabled) {
       await require('../lib/embeddings').embedOne(mediaId);
     }
@@ -257,7 +257,7 @@ async function run(args) {
   const dirPath = args[0];
 
   if (!dirPath) {
-    console.error('Usage: video-tagger scan <directory> [options]');
+    console.error('Usage: vault scan <directory> [options]');
     console.error('');
     console.error('Options:');
     console.error('  -r, --recursive      Scan subdirectories');

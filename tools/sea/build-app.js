@@ -16,7 +16,7 @@
  *                            resolves to the exe's own directory)
  *   README.txt, SETUP.md, LICENSE
  *
- * All app data (video_metadata.db, thumbnails/, trash/, models/, …) is created
+ * All app data (vault.db, thumbnails/, trash/, models/, …) is created
  * NEXT TO THE EXE on first run (lib/approot.js anchors every path there when
  * sea.isSea()), so the folder can be cut-pasted anywhere.
  *
@@ -65,12 +65,12 @@ try {
 } catch (e) { die('clean (is a previous Vault.exe still running?)', e); }
 
 /* 2 ── bundle the whole app into one script */
-step('esbuild bundle (video-tagger.js → bundle.js)');
+step('esbuild bundle (vault.js → bundle.js)');
 try {
   const esbuild = require(path.join(NM, 'esbuild'));
   const r = esbuild.buildSync({
     absWorkingDir: REPO,
-    entryPoints: ['video-tagger.js'],
+    entryPoints: ['vault.js'],
     bundle: true,
     platform: 'node',
     format: 'cjs',

@@ -1,10 +1,10 @@
 /**
  * Music ID CLI — fingerprint + scan without the viewer.
  *
- *   node video-tagger.js music check-tools
- *   node video-tagger.js music fingerprint <id|all> [--force]
- *   node video-tagger.js music scan <id|all>
- *   node video-tagger.js music status
+ *   node vault.js music check-tools
+ *   node vault.js music fingerprint <id|all> [--force]
+ *   node vault.js music scan <id|all>
+ *   node vault.js music status
  *
  * Same pipeline as the viewer buttons (lib/musicid/service.js): fingerprint,
  * then match against song references and other fingerprinted files.
@@ -22,7 +22,7 @@ async function run(args) {
   const force = args.includes('--force');
 
   if (!sub || sub === 'help') {
-    console.log('Usage: node video-tagger.js music <check-tools|fingerprint|scan|status|import-seed|export-seedpack|import-seedpack> [id|all|file] [--force]');
+    console.log('Usage: node vault.js music <check-tools|fingerprint|scan|status|import-seed|export-seedpack|import-seedpack> [id|all|file] [--force]');
     return;
   }
 

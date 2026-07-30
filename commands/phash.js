@@ -1,11 +1,11 @@
 /**
  * Visual duplicate detection via perceptual hashing.
  *
- *   node video-tagger.js phash                 hash new items + report groups
- *   node video-tagger.js phash --threshold 6   stricter matching (default 8)
- *   node video-tagger.js phash --link          ALSO link groups as dupes
- *                                              (shared notes, ⧉ badge in viewer)
- *   node video-tagger.js phash --force         re-hash everything
+ *   node vault.js phash                 hash new items + report groups
+ *   node vault.js phash --threshold 6   stricter matching (default 8)
+ *   node vault.js phash --link          ALSO link groups as dupes
+ *                                       (shared notes, ⧉ badge in viewer)
+ *   node vault.js phash --force         re-hash everything
  *
  * Hashing is one-time per file (stored in media.phash). Images/gifs hash the
  * original file; videos hash their thumbnail frame (generated on demand via

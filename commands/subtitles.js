@@ -2,10 +2,10 @@
  * Subtitles CLI — manage OPUS-MT translation language packs and generate
  * subtitles without the viewer.
  *
- *   node video-tagger.js subtitles langs                 list installed packs
- *   node video-tagger.js subtitles install <ja[,ko,fr]>  pre-fetch pack(s)
- *   node video-tagger.js subtitles remove <ja>           delete a pack
- *   node video-tagger.js subtitles gen <id|all>          generate for media
+ *   node vault.js subtitles langs                 list installed packs
+ *   node vault.js subtitles install <ja[,ko,fr]>  pre-fetch pack(s)
+ *   node vault.js subtitles remove <ja>           delete a pack
+ *   node vault.js subtitles gen <id|all>          generate for media
  *
  * Packs auto-install on first use (a Japanese video translates → ja-en is
  * fetched automatically). These commands are for pre-fetching, auditing disk
@@ -25,7 +25,7 @@ async function run(args) {
   const [sub, target] = args;
 
   if (!sub || sub === 'help') {
-    console.log('Usage: node video-tagger.js subtitles <langs|install|remove|gen> [ja[,ko] | id|all]');
+    console.log('Usage: node vault.js subtitles <langs|install|remove|gen> [ja[,ko] | id|all]');
     console.log('  langs                list installed translation packs + disk use');
     console.log('  install <ja[,ko,…]>  pre-fetch OPUS-MT pack(s) (else they auto-install on first use)');
     console.log('  remove <ja>          delete a pack to reclaim disk');
