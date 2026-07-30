@@ -508,9 +508,22 @@
   transform: translate(0, 0);
 }
 /* Library-view affordance: tuck the queues away behind the full player. The
-   stack is appended to <body> after the overlay, so `~` still reaches it. */
+   stack is appended to <body> after the overlay, so `~` still reaches it.
+
+   `display: none` is the load-bearing property, and the other three cannot
+   replace it. The stack only ever CONTAINS the panels, so hiding the stack has
+   to hide them by inheritance — and `visibility` and `pointer-events` are both
+   properties a descendant can inherit and then override. `.delete-queue.visible`
+   sets `visibility: visible; pointer-events: auto`, which is exactly that
+   override, so with opacity/visibility/pointer-events alone the panel went
+   invisible (opacity multiplies down and can't be undone) while still hit-
+   testing: an unseeable panel at z-index 955 sat on top of the player overlay
+   (z-index 300) and ate clicks meant for the notes sidebar's buttons, which is
+   the whole bug. Nothing inside a `display: none` subtree is laid out or
+   hit-tested at all, and no descendant rule can bring it back. */
 #mediaPlayerOverlay.active ~ .delete-queue,
 #mediaPlayerOverlay.active ~ #queueStack {
+  display: none !important;
   opacity: 0 !important;
   visibility: hidden !important;
   pointer-events: none !important;
@@ -659,8 +672,12 @@
 .dq-btn-quiet { margin-right: auto; background: none; border-color: transparent; color: var(--text-muted); }
 .dq-btn-quiet:hover:not(:disabled) { color: var(--text-primary); border-color: var(--border); }
 .dq-btn-danger:hover:not(:disabled) { border-color: #e05260; color: #e05260; }
-/* Armed = one more click destroys the queue. It should look like it. */
-.dq-btn-danger.armed {
+/* Armed = one more click destroys the queue. It should look like it. The :hover
+   variant is listed explicitly: the plain danger hover rule above scores higher
+   than a two-class selector, so without it the armed label goes red-on-red while
+   the cursor is still resting on the button from the first click. */
+.dq-btn-danger.armed,
+.dq-btn-danger.armed:hover:not(:disabled) {
   background: #e05260;
   border-color: #e05260;
   color: #fff;
