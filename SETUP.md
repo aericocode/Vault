@@ -99,7 +99,7 @@ you'll pick your own model next.
 |---|---|
 | 6–8 GB | minicpm-v-4.6-abliterated-max  |
 | 10–12 GB | qwen3.5-4b-uncensored-hauhaucs-aggressive@q4_k_m |
-| 16 GB | qwen3.5-9b-uncensored-hauhaucs-aggressive@q8_0 |
+| 16 GB | qwen3.5-4b-uncensored-hauhaucs-aggressive@q8_0 |
 | 24 GB+ | qwen3.5-9b-uncensored-hauhaucs-aggressive@q4_k_m |
 
 4. Pick the appropriate model when offered then hit **Download** and wait for the download to finish.
@@ -168,7 +168,7 @@ Vision model = scan quality. Quantized (Q4) versions are the sweet spot.
 |---|---|---|---|
 | **6–8 GB** | minicpm-v-4.6-abliterated-max | `WHISPER_MODEL=small` | Lower `VISION_WORKERS=1`; scans are slower but fine |
 | **10–12 GB** | qwen3.5-4b-uncensored-hauhaucs-aggressive@q4_k_m | `large-v3-turbo` @ `int8_float16` (default) | The defaults target this class |
-| **16 GB** | qwen3.5-9b-uncensored-hauhaucs-aggressive@q8_0 + 2-4 workers | default | Room for `PIPELINE_DEPTH=3` |
+| **16 GB** | qwen3.5-4b-uncensored-hauhaucs-aggressive@q8_0 + 2-4 workers | default | Room for `PIPELINE_DEPTH=3` |
 | **24 GB+** | qwen3.5-9b-uncensored-hauhaucs-aggressive@q4_k_m + 2-4 workers | default | Multi-worker scanning shines: `VISION_WORKERS=2` |
 
 - **Embeddings** (semantic search) are tiny — `nomic-embed-text` (~0.5 GB) runs anywhere.
