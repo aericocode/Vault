@@ -166,10 +166,10 @@ Vision model = scan quality. Quantized (Q4) versions are the sweet spot.
 
 | VRAM | Vision model (scanning) | Whisper (subtitles) | Notes |
 |---|---|---|---|
-| **6–8 GB** | MiniCPM V 4.6 Abliterated MAX | `WHISPER_MODEL=small` | Lower `VISION_WORKERS=1`; scans are slower but fine |
-| **10–12 GB** | Qwen3.5-VL-4B Q4 Uncensored HauhauCS Aggressive (Recommended) | `large-v3-turbo` @ `int8_float16` (default) | The defaults target this class |
-| **16 GB** | Qwen3.5-VL-4B Q8 Uncensored HauhauCS Aggressive + 2-4 workers | default | Room for `PIPELINE_DEPTH=3` |
-| **24 GB+** | Qwen3.5-VL-9B Q4 Uncensored HauhauCS Aggressive + 2-4 workers | default | Multi-worker scanning shines: `VISION_WORKERS=2` |
+| **6–8 GB** | minicpm-v-4.6-abliterated-max | `WHISPER_MODEL=small` | Lower `VISION_WORKERS=1`; scans are slower but fine |
+| **10–12 GB** | qwen3.5-4b-uncensored-hauhaucs-aggressive@q4_k_m | `large-v3-turbo` @ `int8_float16` (default) | The defaults target this class |
+| **16 GB** | qwen3.5-9b-uncensored-hauhaucs-aggressive@q8_0 + 2-4 workers | default | Room for `PIPELINE_DEPTH=3` |
+| **24 GB+** | qwen3.5-9b-uncensored-hauhaucs-aggressive@q4_k_m + 2-4 workers | default | Multi-worker scanning shines: `VISION_WORKERS=2` |
 
 - **Embeddings** (semantic search) are tiny — `nomic-embed-text` (~0.5 GB) runs anywhere.
 - **Whisper** sizes: `small` ≈ 1 GB, `large-v3-turbo` int8 ≈ 1.5 GB VRAM; it
@@ -177,7 +177,8 @@ Vision model = scan quality. Quantized (Q4) versions are the sweet spot.
 
 ---
 
-## 4. Every user-editable setting (defined ONCE, in `config/index.js`)
+## 4. Every advanced user-editable setting (defined ONCE, in `config/index.js`)
+**Only modify if you know what you are doing.**
 
 All settings live in `config/index.js` and read environment variables —
 nothing is duplicated elsewhere (`start.bat` asks the config for the port).
