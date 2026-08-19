@@ -2113,6 +2113,31 @@ function repairMisclassifiedMediaTypes() {
 }
 
 function start(args = process.argv.slice(2)) {
+  // Boot-phase timing. Off by default (keeps the exe user's console clean);
+  // set VAULT_BOOT_TIMING=1 to print a one-line breakdown of where startup
+  // spends its wall-clock — the fast way to tell a slow readdir from a slow
+  // tool-probe when someone reports a laggy launch.
+  const _bootT0 = process.hrtime.bigint();
+  const _bootMarks = [];
+  let _bootReported = false;
+  const _bootMark = (name) => {
+    if (!process.env.VAULT_BOOT_TIMING) return;
+    const ms = Number(process.hrtime.bigint() - _bootT0) / 1e6;
+    // Marks landing after the report (async passes finishing post-listen)
+    // print standalone with their absolute offset from process start.
+    if (_bootReported) console.log(`[boot-timing] ${name} done @ ${ms.toFixed(0)}ms`);
+    else _bootMarks.push([name, ms]);
+  };
+  const _bootReport = () => {
+    _bootReported = true;
+    if (!process.env.VAULT_BOOT_TIMING || !_bootMarks.length) return;
+    let prev = 0;
+    const parts = _bootMarks.map(([n, ms]) => {
+      const d = ms - prev; prev = ms; return `${n} ${d.toFixed(0)}ms`;
+    });
+    console.log(`[boot-timing] ${parts.join('  ·  ')}  ·  total ${prev.toFixed(0)}ms`);
+  };
+
   // Encrypted DB + no/wrong VAULT_DB_PASSWORD → boot LOCKED (the
   // viewer shows the lock screen and unlocks with the passphrase) instead
   // of crashing. Any other init failure is still fatal.
@@ -2136,28 +2161,39 @@ function start(args = process.argv.slice(2)) {
     }
   }
 
+  _bootMark('db.init');
+
   // App-owned-directory adoption (audit findings A/B/C): before ANY sweep, mark
   // the managed roots the app created. A pre-existing markerless dir is adopted
   // only when empty / all-app-pattern; a dir holding unrecognized user files is
   // left unmarked and every sweep on it is skipped + warned. Runs before
   // wipeTempDir and migrateFromDisk so a legit older-version cache is adopted
   // and its sweeps proceed as before.
-  ownedDir.adoptOnStartup(config.paths.thumbnailDir, 'thumbs', 'thumbnails');
   ownedDir.adoptOnStartup(config.paths.tempDir, 'temp', 'temp-frames');
   try {
     ownedDir.adoptOnStartup(require('../lib/video-transcriber').TEMP_AUDIO_DIR, 'tempaudio', 'temp-audio');
   } catch { /* transcriber optional at boot */ }
-  // A REDIRECTED subtitles root (VAULT_SUBS outside thumbnailDir) is not
-  // covered by the thumbnailDir marker; adopt it on its own so migrateFromDisk's
-  // VTT sweep is gated on THIS root's ownership (default {thumbnailDir}/subtitles
-  // stays governed by the parent marker and needs no separate pass).
-  if (secureAssets.subtitlesRedirected()) {
-    ownedDir.adoptOnStartup(secureAssets.subtitlesDir(), 'subs', 'subtitles');
-  }
+  // thumbnailDir — and a REDIRECTED subtitles root (VAULT_SUBS outside
+  // thumbnailDir, which the parent marker doesn't cover) — can hold the whole
+  // library's artifacts on a slow/cold disk, and adoption reads EVERY directory
+  // entry. Async, off the boot path: a 100k-file cold readdir never stands
+  // between double-click and a reachable UI, and requests are served while it
+  // runs. migrateFromDisk (both boot modes) awaits this promise so its sweep
+  // still sees the marker adoption just wrote; a per-request sweep (delete
+  // cleanup) that raced it would skip-and-warn, never delete.
+  const slowDirsAdopted = (async () => {
+    await ownedDir.adoptOnStartupAsync(config.paths.thumbnailDir, 'thumbs', 'thumbnails');
+    if (secureAssets.subtitlesRedirected()) {
+      await ownedDir.adoptOnStartupAsync(secureAssets.subtitlesDir(), 'subs', 'subtitles');
+    }
+    _bootMark('adopt-slow-dirs');
+  })();
 
   // Temp hygiene: clear stale/plaintext temp artifacts on every startup.
+  _bootMark('adopt-temp-dirs');
   wipeTempDir();
   _installShutdownHooks();
+  _bootMark('wipe-temp');
 
   if (bootedLocked) {
     // Route mounts skipped their boot-time DB cleanup — run it on first unlock
@@ -2176,7 +2212,9 @@ function start(args = process.argv.slice(2)) {
     vault.onChange((e) => {
       if (e !== 'unlocked' || migrated) return;
       migrated = true;
-      try { secureAssets.migrateFromDisk(); } catch (err) { console.warn(`[SecureAssets] migration skipped: ${err.message}`); }
+      slowDirsAdopted.then(() => {
+        try { secureAssets.migrateFromDisk(); } catch (err) { console.warn(`[SecureAssets] migration skipped: ${err.message}`); }
+      });
     });
     // Vault-status line (booted locked → encrypted, key not yet available).
     console.log('Vault: LOCKED — encrypted; unlock in the viewer to open the encrypted secure_assets store');
@@ -2200,7 +2238,12 @@ function start(args = process.argv.slice(2)) {
     // Exactly one vault-status line stating the mode (B1).
     if (secureAssets.enabled()) {
       console.log(`Vault: ON — derived artifacts encrypted in secure_assets.db at ${path.resolve(secureAssets.storePath())}`);
-      try { secureAssets.migrateFromDisk(); } catch (err) { console.warn(`[SecureAssets] migration skipped: ${err.message}`); }
+      // After the async adoption pass — the migration sweep is gated on the
+      // marker that pass may have just written (and is itself a full-directory
+      // walk that has no business on the boot path).
+      slowDirsAdopted.then(() => {
+        try { secureAssets.migrateFromDisk(); } catch (err) { console.warn(`[SecureAssets] migration skipped: ${err.message}`); }
+      });
     } else {
       console.log('Vault: OFF — no password set; derived artifacts stored as plain files');
     }
@@ -2235,9 +2278,12 @@ function start(args = process.argv.slice(2)) {
     config.security.autolockMinutes = Math.max(0, Math.min(1440, Math.trunc(savedAutolock)));
   }
   vault.startAutolock();
+  _bootMark('db-open-housekeeping');
 
   const { host, port } = config.server;
   app.listen(port, host, () => {
+    _bootMark('listen-ready');
+    _bootReport();
     console.log('');
     console.log('  ┌──────────────────────────────────────────────┐');
     console.log('  │  Vault                                       │');
@@ -2268,7 +2314,11 @@ function start(args = process.argv.slice(2)) {
     else selfHeal();
 
     // Say it here, once, in the window the user is already looking at — rather
-    // than letting them find out one failed file at a time.
+    // than letting them find out one failed file at a time. Deferred off the
+    // listen callback: checkTools() spawns ffprobe/fpcalc synchronously, and on
+    // a fresh unsigned exe Defender can hold that first child-process spawn for
+    // seconds — the UI should be reachable while that probe runs.
+    setImmediate(() => {
     const tools = checkTools();
     if (!tools.ffmpeg.ok) {
       console.log('  ┌──────────────────────────────────────────────────────┐');
@@ -2283,6 +2333,7 @@ function start(args = process.argv.slice(2)) {
       console.log('  banner at the top — it fetches ffmpeg next to Vault, no restart needed.');
       console.log('');
     }
+    });
   });
 }
 
