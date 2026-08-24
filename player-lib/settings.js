@@ -251,6 +251,7 @@
 
   const SECTIONS = [
     { id: 'settings',  label: '⚙ Settings' },
+    { id: 'library',   label: '🗂 Library' },
     { id: 'guides',    label: '📖 Guides' },
     { id: 'models',    label: '🧠 Models' },
     { id: 'seedpacks', label: '📦 Seed packs' },
@@ -302,17 +303,23 @@
       // or the vault was locked when we last asked.
       loadServerSettings().then(ok => { if (ok) syncServerRows(); });
     }
+    if (id === 'library') wireLibrarySection();
     if (id === 'seedpacks') wireSeedpacksSection();
     if (id === 'about') loadAbout();
   }
 
-  function openModal() {
+  function openModal(section) {
     buildModalShell();
     const overlay = document.getElementById('settingsOverlay');
     overlay.classList.add('active');
     document.body.style.overflow = 'hidden';
-    selectSection('settings');
+    selectSection(SECTIONS.some(s => s.id === section) ? section : 'settings');
   }
+
+  // Deep link for anything outside this module that needs a specific section —
+  // today the "files missing from disk" banner, which is only useful if it
+  // lands the user on the panel that fixes it.
+  window.vaultOpenSettings = openModal;
 
   function closeModal() {
     const overlay = document.getElementById('settingsOverlay');
@@ -588,15 +595,664 @@
             <tr><th>VRAM</th><th>Vision model (scanning)</th><th>Whisper (subtitles)</th></tr>
           </thead>
           <tbody>
-            <tr><td>6–8 GB</td><td>MiniCPM V 4.6 Abliterated MAX</td><td><code>WHISPER_MODEL=small</code></td></tr>
-            <tr><td>10–12 GB</td><td>Qwen3.5-VL-4B Q4 Uncensored HauhauCS Aggressive</td><td><code>WHISPER_MODEL=small</code></td></tr>
-            <tr><td>16 GB</td><td>Qwen3.5-VL-4B Q8 Uncensored HauhauCS Aggressive + 2-4 workers</td><td>default</td></tr>
-            <tr><td>24 GB+</td><td>Qwen3.5-VL-9B Q4 Uncensored HauhauCS Aggressive + 2-4 workers</td><td>default</td></tr>
+            <tr><td>6–8 GB</td><td>minicpm-v-4.6-abliterated-max</td><td><code>WHISPER_MODEL=small</code></td></tr>
+            <tr><td>10–12 GB</td><td>qwen3.5-4b-uncensored-hauhaucs-aggressive@q4_k_m</td><td><code>WHISPER_MODEL=small</code></td></tr>
+            <tr><td>16 GB</td><td>qwen3.5-9b-uncensored-hauhaucs-aggressive@q8_0 + 2-4 workers</td><td>default</td></tr>
+            <tr><td>24 GB+</td><td>qwen3.5-9b-uncensored-hauhaucs-aggressive@q4_k_m + 2-4 workers</td><td>default</td></tr>
           </tbody>
         </table>
       </div>
       <p class="settings-note">Semantic search embeddings are tiny - <code>nomic-embed-text</code> (~0.5 GB) runs anywhere.</p>
     `;
+  };
+
+  /* ── Section: Library (move / relink) ─────────────────────────────────────
+     The viewer's front end for `node vault.js migrate`. A library's file
+     identity is its path, so moving it to another drive makes every record
+     point at nothing — and a rescan to rebuild metadata that already exists
+     can cost days of GPU time. This repoints the paths instead.
+
+     Two-step on purpose. Nothing here is destructive in the "files are gone"
+     sense, but absorbing a stub DELETES a row, and a mis-typed prefix over a
+     100k library is not something to discover after the fact. So: Preview
+     runs the planner and shows exactly what would happen, Apply re-runs it
+     server-side and writes it, and editing an input invalidates the preview
+     so you can never apply a plan you did not look at. */
+
+  const esc = (s) => (typeof escapeHtml === 'function'
+    ? escapeHtml(String(s ?? ''))
+    : String(s ?? '').replace(/[&<>"']/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])));
+
+  // Per-form: the inputs a report was produced from, so a later edit can
+  // disable Apply. null = no valid preview.
+  const migState = { prefix: null, relink: null };
+
+  function migInputs(mode) {
+    return mode === 'relink'
+      ? { mode, newRoot: (document.getElementById('migNewRoot')?.value || '').trim() }
+      : {
+          mode,
+          oldPrefix: (document.getElementById('migOldPrefix')?.value || '').trim(),
+          newPrefix: (document.getElementById('migNewPrefix')?.value || '').trim(),
+        };
+  }
+
+  function RENDERERS_library() {
+    return `
+      <h3 class="settings-h">Move / relink library</h3>
+      <p>Vault identifies a file by its full path. Move your library to another
+      drive and every record points at nothing — the files look brand new and a
+      full rescan would rebuild metadata you already have. These two tools edit
+      the stored paths instead: <b>nothing is re-analyzed</b>, and notes, stars,
+      ratings, view counts and collections are all kept.</p>
+      <p class="settings-note">Records in the trash are never touched, and a
+      record only moves when the file really is at the destination. If you
+      already dragged the new folders in, the placeholder rows that created
+      (⏳ unscanned) are deleted and the real record takes their place.</p>
+
+      ${migCard({
+        mode: 'prefix',
+        title: 'The whole library moved',
+        blurb: 'The drive letter or parent folder changed but the tree below it is the same.',
+        fields: `
+          ${migField('migOldPrefix', 'Old path prefix', 'C:\\Media')}
+          ${migField('migNewPrefix', 'New path prefix', 'D:\\Media')}`,
+      })}
+
+      ${migCard({
+        mode: 'relink',
+        title: 'Folders were renamed, or you copied everything across',
+        blurb: 'Searches a folder and all its subfolders and matches your records to what it finds — by filename and size first, then by an exact byte size for files that were <b>renamed</b>. The old drive can stay connected: records still pointing at it are matched too. Every match is <b>byte-verified</b> (the first and last 64KB of both files must agree), so a same-size look-alike is reported instead of adopted. Anything it cannot decide is left completely untouched.',
+        fields: migField('migNewRoot', 'Search this folder', 'D:\\Media'),
+      })}
+    `;
+  }
+
+  function migField(id, label, placeholder) {
+    return `
+      <label class="mig-field">
+        <span class="mig-field-label">${label}</span>
+        <input type="text" id="${id}" class="mig-input" spellcheck="false"
+               autocomplete="off" placeholder="${esc(placeholder)}">
+      </label>`;
+  }
+
+  function migCard({ mode, title, blurb, fields }) {
+    return `
+      <div class="mig-card" data-mig-mode="${mode}">
+        <div class="mig-card-title">${title}</div>
+        <p class="settings-note">${blurb}</p>
+        ${fields}
+        <div class="mig-actions">
+          <button class="settings-btn" data-mig-act="preview">Preview</button>
+          <button class="settings-btn mig-apply" data-mig-act="apply" disabled>Apply</button>
+          <span class="mig-status"></span>
+        </div>
+        <div class="mig-confirm" style="display:none"></div>
+        <div class="mig-report"></div>
+      </div>`;
+  }
+
+  function wireLibrarySection() {
+    // Fresh render means the report area is empty again — drop any saved
+    // preview so retyping the same paths can't re-arm Apply against a report
+    // that is no longer on screen. migAttach() below then puts back whatever
+    // the SERVER says is true, report and all, so the invariant holds: Apply
+    // is only ever armed alongside the report it was armed against.
+    Object.keys(migState).forEach(k => { migState[k] = null; });
+    migStopPolling();
+    document.querySelectorAll('.mig-card').forEach(card => {
+      const mode = card.dataset.migMode;
+      // Any edit locks Apply again — it must never write a plan the user has
+      // not seen. The report is KEPT rather than dropped: typing a character
+      // and deleting it should not cost a re-preview, and Apply re-checks the
+      // signature (and the server re-plans) before anything is written.
+      card.querySelectorAll('.mig-input').forEach(inp => {
+        inp.addEventListener('input', () => {
+          const saved = migState[mode];
+          if (!saved) return;
+          const matches = JSON.stringify(migInputs(mode)) === saved.signature;
+          // An open confirm bar describes the OLD inputs — retract it.
+          if (!matches && card.querySelector('.mig-confirm').style.display !== 'none') {
+            migHideConfirmBar(card, mode);
+          }
+          card.querySelector('.mig-apply').disabled = !matches;
+          migSetStatus(card, matches ? saved.status : 'Inputs changed — preview again.');
+        });
+      });
+      card.querySelector('[data-mig-act="preview"]')
+        .addEventListener('click', () => migRun(card, mode, false));
+      card.querySelector('[data-mig-act="apply"]')
+        .addEventListener('click', () => migRequestApply(card, mode));
+    });
+    migAttach();
+  }
+
+  /* ── Jobs: progress that survives you closing the panel ───────────────────
+     A migrate runs server-side as a single-slot job, so this panel is a VIEW
+     of it rather than its owner. Closing the modal, switching sections, or
+     reloading the page cannot cancel anything — and a run that finished while
+     nobody was looking still has its report waiting. On every render of this
+     section we ask the server what is true and rebuild from that. */
+
+  let migPollTimer = null;
+
+  function migCardFor(mode) {
+    return document.querySelector(`.mig-card[data-mig-mode="${mode}"]`);
+  }
+
+  /** "1m 12s" / "3h 04m" / "8s" — mirrors migrate.js humanDuration. */
+  function migHuman(ms) {
+    if (ms == null || !isFinite(ms) || ms < 0) return '';
+    const s = Math.round(ms / 1000);
+    if (s < 1) return '<1s';
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`;
+    const h = Math.floor(m / 60);
+    return `${h}h ${String(m % 60).padStart(2, '0')}m`;
+  }
+
+  const MIG_PHASES = {
+    starting: 'Starting', walking: 'Indexing folder',
+    matching: 'Matching records', writing: 'Writing changes', done: 'Finishing up',
+  };
+
+  /**
+   * Freeze a card while its job runs.
+   *
+   * The INPUTS are frozen too, not just the buttons. Leaving them editable let
+   * you retype the path mid-run, and since the finished report is armed
+   * against whatever the boxes say when it lands, Apply could end up pointing
+   * at a plan that was computed for somewhere else entirely.
+   */
+  function migLock(card, locked) {
+    card.querySelectorAll('.mig-actions .settings-btn').forEach(b => { b.disabled = locked; });
+    card.querySelectorAll('.mig-input').forEach(i => { i.disabled = locked; });
+  }
+
+  /** Re-derive Apply from the saved preview + the inputs as they stand now. */
+  function migSyncApply(card, mode) {
+    card.querySelector('.mig-apply').disabled =
+      !migState[mode] || migState[mode].signature !== JSON.stringify(migInputs(mode));
+  }
+
+  /**
+   * First sighting of this finished job? Claims it if so.
+   * A job with no id (shouldn't happen) is treated as new but never latched,
+   * so a missing id can't wedge the notification off permanently.
+   */
+  const SS_MIG_NOTIFIED = 'vault_migrate_notified_job';
+  function migClaimNotify(jobId) {
+    if (!jobId) return true;
+    try {
+      if (sessionStorage.getItem(SS_MIG_NOTIFIED) === jobId) return false;
+      sessionStorage.setItem(SS_MIG_NOTIFIED, jobId);
+    } catch { /* private mode — notify every time rather than never */ }
+    return true;
+  }
+
+  function migRenderProgress(card, s) {
+    const bits = [MIG_PHASES[s.phase] || s.phase];
+    // The folder walk has no total until it ends — show what it has found so
+    // far rather than a fraction of an unknown.
+    if (s.total > 0) bits.push(`${s.processed.toLocaleString()} / ${s.total.toLocaleString()}`);
+    else if (s.processed > 0) bits.push(`${s.processed.toLocaleString()} found`);
+    bits.push(`elapsed ${migHuman(s.elapsedMs)}`);
+    // ETA stays hidden until the server has enough of a sample to mean it.
+    if (s.etaMs != null) bits.push(`~${migHuman(s.etaMs)} left`);
+    migSetStatus(card, bits.join(' · '));
+  }
+
+  /** Put the job's own inputs back into the card — this tab may never have typed them. */
+  function migRestoreInputs(s) {
+    const set = (id, v) => { const e = document.getElementById(id); if (e && v != null) e.value = v; };
+    if (s.mode === 'relink') set('migNewRoot', s.inputs.newRoot);
+    else { set('migOldPrefix', s.inputs.oldPrefix); set('migNewPrefix', s.inputs.newPrefix); }
+  }
+
+  function migStartPolling() {
+    if (migPollTimer) return;
+    migPollTimer = setInterval(migPollOnce, 1000);
+  }
+
+  function migStopPolling() {
+    if (migPollTimer) { clearInterval(migPollTimer); migPollTimer = null; }
+  }
+
+  async function migFetchJob() {
+    try {
+      const resp = await fetch('/api/migrate/job');
+      if (!resp.ok) return null;
+      return await resp.json();
+    } catch { return null; }
+  }
+
+  async function migPollOnce() {
+    const s = await migFetchJob();
+    if (!s || s.idle) { migStopPolling(); return; }
+    const card = migCardFor(s.mode);
+    // Panel closed or re-rendered — stop polling; the job keeps going and the
+    // next render re-attaches to it.
+    if (!card) { migStopPolling(); return; }
+    if (s.running) { migLock(card, true); migRenderProgress(card, s); return; }
+    migStopPolling();
+    migFinish(card, s.mode, s);
+  }
+
+  /** Rebuild this card from whatever the server currently holds. */
+  async function migAttach() {
+    const s = await migFetchJob();
+    if (!s || s.idle) return;
+    const card = migCardFor(s.mode);
+    if (!card) return;
+    migRestoreInputs(s);
+    if (s.running) {
+      migLock(card, true);
+      migRenderProgress(card, s);
+      migStartPolling();
+    } else {
+      migFinish(card, s.mode, s);
+    }
+  }
+
+  /**
+   * A job has landed — render its outcome. Shared by the inline fast path,
+   * the poller, and re-attach, so all three produce the identical UI.
+   */
+  function migFinish(card, mode, s) {
+    // Re-assert the inputs the job actually ran with BEFORE anything reads
+    // them. The signature below is computed from these boxes, so if they and
+    // the plan ever disagreed, Apply would be armed against the wrong report.
+    // Locking the inputs during the run makes that hard; this makes it
+    // impossible, and costs one assignment.
+    if (s.inputs) migRestoreInputs({ mode, inputs: s.inputs });
+    migLock(card, false);
+
+    if (s.error) {
+      migSetStatus(card, s.error, 'mig-bad');
+      migState[mode] = null;
+      card.querySelector('.mig-apply').disabled = true;
+      return;
+    }
+
+    card.querySelector('.mig-report').innerHTML = migReportHtml(s.report, s.kind === 'apply');
+    migWireReport(card);
+
+    if (s.kind === 'apply') {
+      migState[mode] = null;
+      const n = (s.applied || 0).toLocaleString();
+      migSetStatus(card, `Done — ${n} record(s) repointed in ${migHuman(s.elapsedMs)}.`, 'mig-good');
+      card.querySelector('.mig-apply').disabled = true;
+
+      // The finished summary stays parked server-side for an hour, and this
+      // function runs on EVERY render of the section — so without a latch,
+      // revisiting the panel re-toasted and re-reloaded the whole library each
+      // time. Reloading 16k rows to celebrate a migration that finished twenty
+      // minutes ago is pure waste. Latch on the job id (sessionStorage, so it
+      // survives the reload the apply itself triggers); the report below still
+      // renders every visit, because that is the part worth seeing again.
+      if (migClaimNotify(s.jobId)) {
+        if (typeof showToast === 'function') showToast(`🗂 ${n} record(s) repointed`);
+        // Every path in memory is now wrong — reload rather than patch.
+        if (typeof loadDatabase === 'function') loadDatabase();
+        if (typeof window.vaultRefreshMissingBanner === 'function') window.vaultRefreshMissingBanner();
+      }
+      return;
+    }
+
+    const willChange = s.report.counts.rewrite + s.report.counts.absorb;
+    const status = willChange > 0
+      ? `Preview only — nothing written. ${willChange.toLocaleString()} record(s) would move (took ${migHuman(s.elapsedMs)}).`
+      : 'Nothing would change.';
+    // The signature is taken from the inputs as they now stand, which
+    // migRestoreInputs has just set to the ones the job actually ran with.
+    migState[mode] = willChange > 0
+      ? { signature: JSON.stringify(migInputs(mode)), report: s.report, status } : null;
+    migSyncApply(card, mode);
+    migSetStatus(card, status, willChange > 0 ? '' : 'mig-bad');
+  }
+
+  /* ── The confirm step ─────────────────────────────────────────────────────
+     Prefix rewrite keeps the native confirm(): the mapping is mechanical
+     (old prefix in, new prefix out), the user typed both halves, and every
+     destination has to already hold the file.
+
+     Relink does not get off that lightly. Its destinations are GUESSED — from
+     a filename, or in the rename-rescue tier from a byte count and nothing
+     else — and applying forgets the old paths. A native dialog is one keypress
+     from accepted and appears under the cursor, which is exactly where a
+     double-click on Apply is already heading. So relink confirms inline: the
+     bar appears with its button on the OPPOSITE side of the card, and that
+     button is dead for a second and a half. You cannot reach it by accident. */
+
+  const CONFIRM_DELAY_MS = 1500;
+
+  function migRequestApply(card, mode) {
+    const saved = migState[mode];
+    if (!saved || saved.signature !== JSON.stringify(migInputs(mode))) {
+      migSetStatus(card, 'Preview first.', 'mig-bad');
+      return;
+    }
+    if (mode !== 'relink') {
+      if (!confirm(migConfirmText(saved.report))) return;
+      migRun(card, mode, true);
+      return;
+    }
+    migShowConfirmBar(card, mode, saved.report);
+  }
+
+  function migShowConfirmBar(card, mode, report) {
+    const bar = card.querySelector('.mig-confirm');
+    const c = report.counts;
+    const moving = c.rewrite + c.absorb;
+    const asides = [];
+    if (c.absorb) asides.push(`${c.absorb.toLocaleString()} placeholder row(s) deleted`);
+    if (c.mismatch) asides.push(`${c.mismatch.toLocaleString()} rejected — content differs`);
+    if (c.dupesLinked) asides.push(`${c.dupesLinked.toLocaleString()} look-alike(s) grouped as dupes`);
+    if (c.ambiguous) asides.push(`${c.ambiguous.toLocaleString()} ambiguous, left alone`);
+    if (c.unmatched) asides.push(`${c.unmatched.toLocaleString()} unmatched, left alone`);
+
+    bar.innerHTML = `
+      <div class="mig-confirm-text">
+        <b>Repoint ${moving.toLocaleString()} record(s)</b> to
+        <code>${esc(report.newRoot)}</code> — their old paths will be forgotten.
+        ${asides.length ? `<span class="mig-confirm-aside">${asides.join(' · ')}</span>` : ''}
+      </div>
+      <div class="mig-confirm-btns">
+        <button class="settings-btn mig-confirm-cancel" type="button">Cancel</button>
+        <button class="settings-btn mig-confirm-go" type="button" disabled></button>
+      </div>`;
+    bar.style.display = 'flex';
+
+    // Apply is dead while the bar is up, so a second click on it lands on a
+    // disabled control instead of re-opening (or accepting) anything.
+    card.querySelector('.mig-apply').disabled = true;
+
+    const go = bar.querySelector('.mig-confirm-go');
+    // Enablement runs off a wall-clock deadline and its OWN timeout, not off
+    // counting interval ticks: a browser that has throttled this tab (any
+    // background tab does) would otherwise stretch 1.5 seconds into fifteen.
+    // The interval only paints the countdown, so throttling it is harmless.
+    const deadline = Date.now() + CONFIRM_DELAY_MS;
+    const label = () => {
+      const left = Math.max(0, deadline - Date.now());
+      go.textContent = left > 0 ? `Confirm (${(left / 1000).toFixed(1)}s)` : 'Confirm — repoint them';
+    };
+    label();
+    const tick = setInterval(() => {
+      label();
+      if (Date.now() >= deadline) { clearInterval(tick); bar._migTick = null; }
+    }, 100);
+    bar._migTick = tick;
+    bar._migArm = setTimeout(() => { go.disabled = false; label(); }, CONFIRM_DELAY_MS);
+
+    bar.querySelector('.mig-confirm-cancel').addEventListener('click', () => {
+      migHideConfirmBar(card, mode);
+      migSetStatus(card, migState[mode] ? migState[mode].status : '');
+    });
+    go.addEventListener('click', () => {
+      if (go.disabled) return;
+      migHideConfirmBar(card, mode);
+      migRun(card, mode, true);
+    });
+  }
+
+  function migHideConfirmBar(card, mode) {
+    const bar = card.querySelector('.mig-confirm');
+    if (!bar) return;
+    if (bar._migTick) { clearInterval(bar._migTick); bar._migTick = null; }
+    if (bar._migArm) { clearTimeout(bar._migArm); bar._migArm = null; }
+    bar.style.display = 'none';
+    bar.innerHTML = '';
+    // Re-derive rather than blanket-enabling: the inputs may have changed.
+    card.querySelector('.mig-apply').disabled =
+      !migState[mode] || migState[mode].signature !== JSON.stringify(migInputs(mode));
+  }
+
+  function migSetStatus(card, text, kind = '') {
+    const el = card.querySelector('.mig-status');
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = `mig-status${kind ? ' ' + kind : ''}`;
+  }
+
+  async function migRun(card, mode, isApply) {
+    const inputs = migInputs(mode);
+    const signature = JSON.stringify(inputs);
+
+    // The confirm step happens in migRequestApply; this is the last line of
+    // defence in case anything reaches here without one.
+    if (isApply) {
+      const saved = migState[mode];
+      if (!saved || saved.signature !== signature) {
+        migSetStatus(card, 'Preview first.', 'mig-bad');
+        return;
+      }
+    } else {
+      migHideConfirmBar(card, mode);
+    }
+
+    migLock(card, true);
+    migSetStatus(card, isApply ? 'Applying…' : 'Scanning…');
+
+    try {
+      const resp = await fetch(isApply ? '/api/migrate/apply' : '/api/migrate/preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(inputs),
+      });
+      const data = await resp.json().catch(() => ({}));
+
+      // Another tab (or an earlier click) already owns the slot. Refusing and
+      // stopping there would leave this tab blind to a run it can perfectly
+      // well watch — so say so, then attach to it.
+      if (resp.status === 409 && data.jobId) {
+        migSetStatus(card, `${data.error || 'A migrate is already running'} — progress is shown here.`);
+        migAttach();
+        return;
+      }
+
+      if (!resp.ok) {
+        migSetStatus(card, data.error || `HTTP ${resp.status}`, 'mig-bad');
+        migState[mode] = null;
+        migLock(card, false);
+        card.querySelector('.mig-apply').disabled = true;
+        return;
+      }
+
+      // Small library: the server finished inside its grace window and handed
+      // back the report directly. Same rendering path as everything else.
+      if (data.done) {
+        migFinish(card, mode, {
+          kind: isApply ? 'apply' : 'preview', inputs, jobId: data.jobId,
+          report: data.report, applied: data.applied,
+          elapsedMs: data.elapsedMs || 0, error: null,
+        });
+        return;
+      }
+
+      // Still going — the poller owns the card from here.
+      migRenderProgress(card, { phase: 'starting', processed: 0, total: 0, elapsedMs: 0, etaMs: null });
+      migStartPolling();
+    } catch (err) {
+      migSetStatus(card, err.message, 'mig-bad');
+      migLock(card, false);
+      migSyncApply(card, mode);
+    }
+  }
+
+  /** "Show in library" — hand the leftover ids to the grid and get out of the way. */
+  function migWireReport(card) {
+    const btn = card.querySelector('.mig-show-left');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      let ids = [];
+      try { ids = JSON.parse(btn.dataset.ids || '[]'); } catch {}
+      if (typeof window.vaultShowMediaIds !== 'function') {
+        if (typeof showToast === 'function') showToast('⚠ Library view unavailable');
+        return;
+      }
+      closeModal();
+      window.vaultShowMediaIds(ids, btn.dataset.label);
+    });
+  }
+
+  function migConfirmText(report) {
+    const c = report.counts;
+    const lines = [
+      `Repoint ${(c.rewrite + c.absorb).toLocaleString()} record(s)?`,
+      '',
+      `• ${c.rewrite.toLocaleString()} record(s) get a new path`,
+    ];
+    if (c.absorb) {
+      lines.push(
+        `• ${c.absorb.toLocaleString()} placeholder row(s) at the destination will be DELETED`,
+        '  and the real record takes their path (the placeholders hold no',
+        '  metadata — but any collection membership or notes added to them',
+        '  since the import go with them)');
+    }
+    lines.push('',
+      'No files on disk are touched, and nothing is re-analyzed.',
+      'Records left alone: ' +
+      `${c.missing.toLocaleString()} missing at destination, ` +
+      `${c.conflict.toLocaleString()} conflicts` +
+      (report.mode === 'relink'
+        ? `, ${c.ambiguous.toLocaleString()} ambiguous, ${c.unmatched.toLocaleString()} unmatched`
+        : '') + '.');
+    return lines.join('\n');
+  }
+
+  function migReportHtml(report, applied) {
+    const c = report.counts;
+    const tile = (label, n, cls = '') =>
+      `<div class="mig-stat ${cls}${n ? '' : ' is-zero'}">
+         <span class="mig-stat-n">${n.toLocaleString()}</span>
+         <span class="mig-stat-l">${label}</span>
+       </div>`;
+
+    const stats = [
+      tile(applied ? 'repointed' : 'would repoint', c.rewrite, 'mig-good-stat'),
+      tile('stubs absorbed', c.absorb, 'mig-good-stat'),
+      tile(report.mode === 'relink' ? 'vanished' : 'missing at destination', c.missing, 'mig-warn-stat'),
+      tile('conflicts', c.conflict, 'mig-warn-stat'),
+      ...(report.mode === 'relink' ? [
+        tile('content mismatch', c.mismatch || 0, 'mig-warn-stat'),
+        tile('ambiguous', c.ambiguous, 'mig-warn-stat'),
+        tile('no match', c.unmatched, 'mig-warn-stat'),
+        tile(applied ? 'look-alikes grouped' : 'look-alikes to group', c.dupesLinked || 0, 'mig-good-stat'),
+      ] : []),
+    ].join('');
+
+    // The set that did NOT move is the one the user has to deal with by hand,
+    // and no search term describes it — so hand the grid the ids directly.
+    const left = report.notMigrated;
+    const notMigrated = (left && left.total) ? `
+      <div class="mig-leftovers">
+        <span>${left.total.toLocaleString()} record(s) ${applied ? 'did not migrate' : 'would not migrate'} — they keep everything and were not touched.</span>
+        <button class="settings-btn mig-show-left" type="button"
+          data-ids="${esc(JSON.stringify(left.ids))}"
+          data-label="record(s) that did not migrate">Show in library</button>
+        ${left.capped ? `<span class="settings-note">Only the first ${left.ids.length.toLocaleString()} can be listed.</span>` : ''}
+      </div>` : '';
+
+    // Only the problem buckets get a detail list — "here are 40,000 paths that
+    // worked" is noise, and the ones left behind are what needs a decision.
+    const detail = (title, bucket, fmt) => {
+      if (!bucket || !bucket.total) return '';
+      return `
+        <details class="mig-details">
+          <summary>${title} (${bucket.total.toLocaleString()})</summary>
+          <ul class="mig-list">
+            ${bucket.shown.map(fmt).join('')}
+            ${bucket.more ? `<li class="mig-more">… and ${bucket.more.toLocaleString()} more</li>` : ''}
+          </ul>
+        </details>`;
+    };
+
+    const arrow = (it) => `<li><code>${esc(it.from)}</code><span class="mig-arrow">→</span><code>${esc(it.to)}</code></li>`;
+
+    return `
+      <div class="mig-stats">${stats}</div>
+      ${notMigrated}
+      ${detail('Rejected — same name or size, different content', report.mismatch, (it) => `
+        <li><code>${esc(it.from)}</code><span class="mig-arrow">≠</span><code>${esc(it.to)}</code>
+          <span class="mig-why">${esc(it.reason)}</span></li>`)}
+      ${detail(report.mode === 'relink' ? 'Vanished between scan and check' : 'No file at the destination',
+        report.missing, arrow)}
+      ${detail('Conflicts — another record already owns that path', report.conflict, (it) => `
+        <li><code>${esc(it.from)}</code><span class="mig-arrow">→</span><code>${esc(it.to)}</code>
+          <span class="mig-why">held by record #${esc(it.occupantId ?? '?')} — ${esc(it.reason)}</span></li>`)}
+      ${detail('Ambiguous — more than one file matches', report.ambiguous, (it) => `
+        <li><code>${esc(it.from)}</code>
+          <span class="mig-why">${it.candidateCount} candidates: ${it.candidates.map(p => `<code>${esc(p)}</code>`).join(', ')}</span></li>`)}
+      ${detail('No match found under that folder', report.unmatched, (it) => `<li><code>${esc(it.from)}</code></li>`)}
+      ${detail(applied ? 'Repointed' : 'Would be repointed', report.rewrite, arrow)}
+      ${detail(applied ? 'Placeholders absorbed' : 'Placeholders that would be absorbed', report.absorb, arrow)}
+    `;
+  }
+
+  /* ── "N files missing from disk" banner ───────────────────────────────────
+     Lives here rather than with the library loader because everything it does
+     is point at the panel above. The count comes from a cached, chunked
+     server-side check (GET /api/library/missing-count) so a big library never
+     stalls the viewer for it; the first answer usually says "computing", hence
+     the short poll. Dismissal is per-session — a user who moved their library
+     and hasn't fixed it yet should be reminded next launch. */
+
+  const MISSING_THRESHOLD = 10;
+  const SS_DISMISSED = 'vault_missing_banner_dismissed';
+
+  function missingBannerDismissed() {
+    try { return sessionStorage.getItem(SS_DISMISSED) === '1'; } catch { return false; }
+  }
+
+  function renderMissingBanner(count, total) {
+    const host = document.getElementById('missingFilesBanner');
+    if (!host) return;
+    if (count < MISSING_THRESHOLD || missingBannerDismissed()) {
+      host.style.display = 'none';
+      host.innerHTML = '';
+      return;
+    }
+    host.style.display = '';
+    host.innerHTML = `
+      <span class="missing-banner-text">
+        <b>${count.toLocaleString()}</b> of ${total.toLocaleString()} files are missing from disk — did your library move?
+      </span>
+      <button class="missing-banner-fix" id="missingBannerFix">Fix paths…</button>
+      <button class="missing-banner-close" id="missingBannerClose" title="Dismiss for this session" aria-label="Dismiss">&times;</button>`;
+    host.querySelector('#missingBannerFix').addEventListener('click', () => openModal('library'));
+    host.querySelector('#missingBannerClose').addEventListener('click', () => {
+      try { sessionStorage.setItem(SS_DISMISSED, '1'); } catch {}
+      host.style.display = 'none';
+      host.innerHTML = '';
+    });
+  }
+
+  let _missingPolls = 0;
+  async function checkMissingFiles(refresh) {
+    if (missingBannerDismissed()) return;
+    try {
+      const resp = await fetch('/api/library/missing-count' + (refresh ? '?refresh=1' : ''));
+      if (!resp.ok) return;                       // 423 locked, or an older server
+      const info = await resp.json();
+      // A stale count is one taken before something just moved the files —
+      // wait for the fresh walk instead of flashing a wrong number.
+      if (info.count !== null && !info.stale) renderMissingBanner(info.count, info.total);
+      // The first request only kicks the walk off; give it a few seconds to
+      // land rather than making the user reload. Bounded so a huge library
+      // that is still counting doesn't poll forever.
+      if (info.computing && _missingPolls < 20) {
+        _missingPolls++;
+        setTimeout(() => checkMissingFiles(false), 1500);
+      }
+    } catch { /* server unreachable — no banner, no noise */ }
+  }
+
+  window.vaultRefreshMissingBanner = function () {
+    _missingPolls = 0;
+    checkMissingFiles(true);
   };
 
   /* ── Section: Seed packs ─────────────────────────────────────────────────── */
@@ -691,6 +1347,7 @@
   // its wiring; collect them here).
   const RENDERERS = {
     settings:  RENDERERS_settings,
+    library:   RENDERERS_library,
     guides:    RENDERERS_guides,
     models:    RENDERERS_models,
     seedpacks: RENDERERS_seedpacks,
@@ -773,4 +1430,8 @@
   // The library finishes its first load asynchronously; database.js fires this
   // once. Restore the last session only after the rows are available.
   window.addEventListener('vault:library-loaded', maybeRestoreSession, { once: true });
+
+  // Same signal, different job: only ask about missing files once there IS a
+  // library, so a locked vault or a failed load never shows the banner.
+  window.addEventListener('vault:library-loaded', () => checkMissingFiles(false), { once: true });
 })();

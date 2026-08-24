@@ -2147,13 +2147,25 @@ function start(args = process.argv.slice(2)) {
   try {
     ownedDir.adoptOnStartup(require('../lib/video-transcriber').TEMP_AUDIO_DIR, 'tempaudio', 'temp-audio');
   } catch { /* transcriber optional at boot */ }
-  // A REDIRECTED subtitles root (VAULT_SUBS outside thumbnailDir) is not
-  // covered by the thumbnailDir marker; adopt it on its own so migrateFromDisk's
-  // VTT sweep is gated on THIS root's ownership (default {thumbnailDir}/subtitles
-  // stays governed by the parent marker and needs no separate pass).
-  if (secureAssets.subtitlesRedirected()) {
-    ownedDir.adoptOnStartup(secureAssets.subtitlesDir(), 'subs', 'subtitles');
-  }
+  // thumbnailDir — and a REDIRECTED subtitles root (VAULT_SUBS outside
+  // thumbnailDir, which the parent marker doesn't cover) — can hold the whole
+  // library's artifacts on a slow/cold disk, and adoption reads EVERY directory
+  // entry. Async, off the boot path: a 100k-file cold readdir never stands
+  // between double-click and a reachable UI, and requests are served while it
+  // runs. migrateFromDisk (both boot modes) awaits this promise so its sweep
+  // still sees the marker adoption just wrote; a per-request sweep (delete
+  // cleanup) that raced it would skip-and-warn, never delete.
+  const slowDirsAdopted = (async () => {
+    await ownedDir.adoptOnStartupAsync(config.paths.thumbnailDir, 'thumbs', 'thumbnails');
+    if (secureAssets.subtitlesRedirected()) {
+      await ownedDir.adoptOnStartupAsync(secureAssets.subtitlesDir(), 'subs', 'subtitles');
+    }
+    _bootMark('adopt-slow-dirs');
+  })().catch((err) => {
+    // Nothing in the pass should reject (every callee self-catches), but the
+    // two .then() chains below must never become unhandled rejections.
+    console.warn(`[owned-dir] startup adoption pass failed: ${err.message}`);
+  });
 
   // Temp hygiene: clear stale/plaintext temp artifacts on every startup.
   wipeTempDir();
@@ -2268,21 +2280,26 @@ function start(args = process.argv.slice(2)) {
     else selfHeal();
 
     // Say it here, once, in the window the user is already looking at — rather
-    // than letting them find out one failed file at a time.
-    const tools = checkTools();
-    if (!tools.ffmpeg.ok) {
-      console.log('  ┌──────────────────────────────────────────────────────┐');
-      console.log('  │  ⚠  ffmpeg / ffprobe not found on PATH               │');
-      console.log('  └──────────────────────────────────────────────────────┘');
-      console.log('  Scanning, thumbnails and duration all need it. Install with:');
-      console.log('');
-      console.log(`      ${FFMPEG_INSTALL.winget}`);
-      console.log('');
-      console.log(`  …or grab a build from ${FFMPEG_INSTALL.url}`);
-      console.log('  Easiest: the viewer that just opened has a ⬇ Download button in the');
-      console.log('  banner at the top — it fetches ffmpeg next to Vault, no restart needed.');
-      console.log('');
-    }
+    // than letting them find out one failed file at a time. Deferred off the
+    // listen callback: checkTools() spawns ffprobe/fpcalc synchronously, and on
+    // a fresh unsigned exe Defender can hold that first child-process spawn for
+    // seconds — the UI should be reachable while that probe runs.
+    setImmediate(() => {
+      const tools = checkTools();
+      if (!tools.ffmpeg.ok) {
+        console.log('  ┌──────────────────────────────────────────────────────┐');
+        console.log('  │  ⚠  ffmpeg / ffprobe not found on PATH               │');
+        console.log('  └──────────────────────────────────────────────────────┘');
+        console.log('  Scanning, thumbnails and duration all need it. Install with:');
+        console.log('');
+        console.log(`      ${FFMPEG_INSTALL.winget}`);
+        console.log('');
+        console.log(`  …or grab a build from ${FFMPEG_INSTALL.url}`);
+        console.log('  Easiest: the viewer that just opened has a ⬇ Download button in the');
+        console.log('  banner at the top — it fetches ffmpeg next to Vault, no restart needed.');
+        console.log('');
+      }
+    });
   });
 }
 

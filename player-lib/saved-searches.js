@@ -44,6 +44,7 @@ function captureCurrentFilterState() {
     filterHasNotes: typeof getTriFilterValue === 'function' ? getTriFilterValue('filterHasNotes') : '',
     filterDuplicates: typeof getTriFilterValue === 'function' ? getTriFilterValue('filterDuplicates') : '',
     filterFlagged: typeof getTriFilterValue === 'function' ? getTriFilterValue('filterFlagged') : '',
+    filterScanStatus: typeof getTriFilterValue === 'function' ? getTriFilterValue('filterScanStatus') : '',
     filterMinRating: document.getElementById('filterMinRating')?.value || '0',
     filterTheme: document.getElementById('filterTheme')?.value || '',
     filterQuality: document.getElementById('filterQuality')?.value || '',
@@ -101,6 +102,7 @@ function restoreFilterState(state) {
     setTriFilterValue('filterHasNotes', state.filterHasNotes || '');
     setTriFilterValue('filterDuplicates', state.filterDuplicates || '');
     setTriFilterValue('filterFlagged', state.filterFlagged || '');
+    setTriFilterValue('filterScanStatus', state.filterScanStatus || '');
   }
 
   // Duration range — stored in MINUTES, sliders run on the weighted 0–100
