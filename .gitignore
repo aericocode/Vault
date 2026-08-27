@@ -1,70 +1,56 @@
+# deps
 /node_modules
-/SAMPLES
 /venv
+__pycache__/
+
+# library data
+vault.db
+vault.db-wal
+vault.db-shm
+video_metadata.db
+video_metadata.db-wal
+video_metadata.db-shm
+/secure_assets.db
 /thumbnails
+/models
+/SAMPLES
+
+# runtime state
+/trash/
+/imports/
+/sorted_media/
 /temp_frames
 /temp_audio
 /exports
-PRODUCT_PLAN.md
-Music ID Readme.md
-FABLE5_WORKORDER.md
-COLLECTIONS_SPEC.md
-beatbar_userscript.js
-.claude/launch.json
-LOVENSE_SPEC.md
-FRAMEFIT_SPEC.md
-MUSICID_SECTIONS_SPEC.md
-PMV_STUDIO_SPEC.md
-SUBTITLES_SPEC.md
-MEDIA_CHAT_SPEC.md
-/models
-video_metadata.db
-
-# Local env overrides (may hold endpoints/paths — never commit). .env.example
-# is the committed, secret-free template.
+/bad_json_responses.log
+/wizard-settings.json
+/gamify-config.json
+/vault-settings.json
 /.env
 
-# Per-install runtime state (scan-wizard history holds real local paths)
-/wizard-settings.json
-# Tools fetched by the setup banner's download buttons land next to the app
-# (lib/ffmpeg-locate.js) — never ship in the repo or the release zip (GPL).
+# downloaded tools (GPL)
 /ffmpeg.exe
 /ffprobe.exe
 /fpcalc.exe
 
-# Per-install preferences written by the Settings modal. gamify-config.json was
-# tracked by accident, which shipped the Obsession tracker switched ON to every
-# clone — the opposite of the opt-in default the code documents.
-/gamify-config.json
-/vault-settings.json
-
-__pycache__/
-
-# License signing (private key NEVER ships; license.json is per-install)
+# licensing
 /keys
 /license.json
 
-tools/sea/spike/dist/
+# build artifacts
 /dist
-WORKORDER-import-fixes.md
+/dist.7z
+tools/sea/spike/dist/
 
-# Internal design docs — reference features that no longer exist. Not public.
+# internal notes and specs
+/.notes/
+*SPEC.md
+PRODUCT_PLAN.md
+FABLE5_WORKORDER.md
+WORKORDER-import-fixes.md
+Music ID Readme.md
+beatbar_userscript.js
 /old specs/
 
-# Runtime state the app writes INTO the repo root (config/index.js:161-172).
-# None of it exists in a clean checkout, which is exactly the trap: it
-# materializes the first time the app runs. trash/ receives the actual media
-# files you delete from the library, so a stray `git add -A` after deleting
-# one item would stage real content.
-/trash/
-/imports/
-/sorted_media/
-/secure_assets.db
-/bad_json_responses.log
-video_metadata.db-wal
-video_metadata.db-shm
-
-# Agent worktrees + local tool state. Until now this was only covered by
-# .git/info/exclude, which is repo-local and would NOT survive publishing by
-# copying the tree into a fresh directory.
+# agent state
 /.claude/

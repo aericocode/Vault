@@ -21,7 +21,7 @@ const config = {
       .map(url => url.trim()),
     // Model name sent with each request. LM Studio ignores it (uses whatever
     // is loaded), so null is fine there — but Ollama/vLLM REQUIRE it.
-    // Ollama example: AI_MODEL=qwen2.5vl:7b (a vision model — scans need one)
+    // Ollama example: AI_MODEL=qwen3.5-4b-uncensored-hauhaucs-aggressive@q4_k_m (a vision model — scans need one)
     model: process.env.AI_MODEL || null,
     temperature: 0.3,
     maxTokens: 8000,
