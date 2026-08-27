@@ -237,9 +237,31 @@
               <button class="tri-btn" data-value="0">Hidden</button>
             </div>
           </div>
+          <!-- AI scan outcome, derived from processing_error (see scanStatusOf).
+               Four states rather than three, but the tri-filter markup is a
+               generic "one active data-value" group, so it needs no new JS. -->
+          <div class="tri-filter" data-filter="filterScanStatus">
+            <span class="tri-label">🔍 Scan</span>
+            <div class="tri-buttons">
+              <button class="tri-btn active" data-value="">All</button>
+              <button class="tri-btn" data-value="success" title="AI analysis completed">Done</button>
+              <button class="tri-btn" data-value="failed" title="AI analysis errored — hover a tile's ⚠ for the reason">Failed</button>
+              <button class="tri-btn" data-value="unscanned" title="Imported but never analyzed">Unscanned</button>
+            </div>
+            <button id="rescanFilteredBtn" class="rescan-filtered-btn" style="display:none"
+              onclick="rescanFiltered()"></button>
+          </div>
         </div>
       </div>
     </section>
+
+    <!-- "N files missing from disk" — filled by settings.js when the cached
+         server-side check comes back high; dismissible for the session. -->
+    <div class="missing-banner" id="missingFilesBanner" style="display:none"></div>
+
+    <!-- "Showing exactly these N records" — filters.js focus set, used by the
+         migration report's "Show not migrated" button. -->
+    <div class="focus-banner" id="focusFilterBar" style="display:none"></div>
 
     <!-- Results Info -->
     <div class="results-info">

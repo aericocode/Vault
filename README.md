@@ -37,12 +37,16 @@ the whole folder can be moved, copied, or backed up wholesale.
 
 ## What you need
 
+**Nothing.** Browsing, playing, tagging and organizing your library work out of the box.
+
+Each of the following features adds one optional dependency:
+
 | Feature | Needs |
 |---|---|
 | AI scanning / semantic search | a local vision model via [LM Studio](https://lmstudio.ai/download#lm-studio-download-heading), Ollama or vLLM — [step-by-step guide](SETUP.md#2-ai-backend--lm-studio-or-ollama) |
-| Thumbnails, hover-scrub, beat bar | ffmpeg - **one click**: Vault offers to download it on first launch |
-| Music ID | fpcalc - same one-click banner |
+| Thumbnails, hover-scrub, beat bar | ffmpeg — **one click**: Vault offers to download it on first launch |
 | Subtitles / transcription | Python + faster-whisper |
+| Music ID | fpcalc — same one-click banner |
 
 See [SETUP.md](SETUP.md) for the full walkthrough and model recommendations by VRAM.
 
@@ -502,8 +506,8 @@ Based on estimates:
    ```
 
 2. **Use a faster model:**
-   - Qwen2-VL-2B is ~3x faster than 8B
-   - LLaVA-1.5-7B is faster than Qwen3-VL
+   - `minicpm-v-4.6-abliterated-max` (6–8 GB tier) is faster than the larger 9B variants
+   - A lower quant (`@q4_k_m`) runs faster than `@q8_0`
 
 3. **Skip small files or images:**
    Add to scan logic to skip files < certain size

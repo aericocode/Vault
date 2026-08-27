@@ -18,9 +18,11 @@ if not exist node_modules (
   call npm install || (echo   npm install failed - see errors above & pause & exit /b 1)
 )
 
-rem Port is defined ONCE in config\index.js (MEDIA_TAGGER_PORT env overrides it);
-rem this just asks the config so the browser opens the right URL.
-for /f %%p in ('node -p "require('./config').server.port"') do set PORT=%%p
+rem Port is defined ONCE in config\index.js (MEDIA_TAGGER_PORT overrides it,
+rem from the shell or from .env). Load .env exactly like the server does before
+rem asking, or a port customized in .env opens the wrong URL here while the
+rem server itself listens on the custom one.
+for /f %%p in ('node -p "require('./lib/load-env')();require('./config').server.port"') do set PORT=%%p
 
 rem Pass flags through (e.g. start.bat --gamify enables the opt-in tracker)
 start "" "http://127.0.0.1:%PORT%"

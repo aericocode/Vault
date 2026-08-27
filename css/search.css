@@ -350,3 +350,42 @@
   border-color: #ec4899;
   background: rgba(236, 72, 153, 0.15);
 }
+
+/* ── 🔍 Scan-status filter (AI analysis outcome) ──────────────────────────
+   Colour the active state by what it means — the neutral accent reads as
+   "a filter is on" but not as "these are the broken ones". */
+.tri-filter[data-filter="filterScanStatus"] .tri-btn.active[data-value="success"] {
+  background: #10b981;
+  color: #04150f;
+}
+.tri-filter[data-filter="filterScanStatus"] .tri-btn.active[data-value="failed"] {
+  background: var(--danger, #ef4444);
+  color: #fff;
+}
+.tri-filter[data-filter="filterScanStatus"] .tri-btn.active[data-value="unscanned"] {
+  background: #f59e0b;
+  color: #1b1204;
+}
+
+/* "Rescan these (N)" — acts on the filtered set, not the selection. Turns
+   amber in force mode, where it would re-analyze files that scanned fine. */
+.rescan-filtered-btn {
+  background: rgba(137, 180, 250, 0.12);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.72rem;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.rescan-filtered-btn:hover { background: rgba(137, 180, 250, 0.24); }
+.rescan-filtered-btn.force {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+.rescan-filtered-btn.force:hover { background: rgba(245, 158, 11, 0.24); }

@@ -44,6 +44,77 @@ function initTriFilters() {
   });
 }
 
+// ── Scan status ───────────────────────────────────────────────────────────
+
+/**
+ * AI-scan outcome for one row, derived from processing_error the same way the
+ * server's db.getProcessingStatus() does it:
+ *   'success'   analysis landed (no error recorded)
+ *   'unscanned' a stub — imported and playable, never analyzed
+ *   'failed'    anything else, vision errors and hard errors alike
+ *
+ * Derived rather than shipped as its own column: the raw error text is already
+ * in the payload (the tiles show it in a tooltip) and one more field per row
+ * would be dead weight on a 100k-item library.
+ */
+function scanStatusOf(media) {
+  if (!media.processing_error) return 'success';
+  if (media.processing_error === 'unscanned') return 'unscanned';
+  return 'failed';
+}
+
+// ── Focus set: "show exactly these records" ───────────────────────────────
+//
+// A one-shot override the rest of the app can hand a list of ids to. Built for
+// the migration report's "Show not migrated" button: after repointing 40,000
+// records, the ones LEFT BEHIND are the interesting set, and there is no
+// search term that describes them. While a focus is active it REPLACES the
+// other filters rather than intersecting with them — the user asked for this
+// exact list, and silently dropping half of it because a chip was still set
+// would be a lie. A dismiss chip renders above the grid.
+
+let focusIds = null;      // Set<number> | null
+let focusLabel = '';
+
+function setFocusIds(ids, label) {
+  const list = Array.isArray(ids) ? ids : [...(ids || [])];
+  if (!list.length) {
+    if (typeof showToast === 'function') showToast('Nothing to show');
+    return;
+  }
+  focusIds = new Set(list);
+  focusLabel = label || 'selected records';
+  // A leftover search term would filter the focus set down again.
+  const search = document.getElementById('searchInput');
+  if (search) search.value = '';
+  renderFocusBar();
+  applyFilters();
+  if (typeof switchTab === 'function' && typeof currentTab !== 'undefined' && currentTab !== 'library') {
+    switchTab('library');
+  }
+}
+
+function clearFocusIds() {
+  focusIds = null;
+  focusLabel = '';
+  renderFocusBar();
+  applyFilters();
+}
+
+function renderFocusBar() {
+  const bar = document.getElementById('focusFilterBar');
+  if (!bar) return;
+  if (!focusIds) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+  bar.style.display = '';
+  bar.innerHTML = `
+    <span class="focus-banner-text">Showing <b>${focusIds.size.toLocaleString()}</b> ${escapeHtml(focusLabel)}. Other filters are paused.</span>
+    <button class="focus-banner-close" id="focusBarClear">Show everything</button>`;
+  bar.querySelector('#focusBarClear').addEventListener('click', clearFocusIds);
+}
+
+// Handed to the settings modal, which has no other way to reach the grid.
+window.vaultShowMediaIds = setFocusIds;
+
 // Extensions that browsers can natively play/render (no plugin needed)
 const BROWSER_PLAYABLE_EXTENSIONS = new Set([
   // Video
@@ -495,9 +566,14 @@ function applyFilters(opts) {
   const triFlagged = getTriFilterValue('filterFlagged');
   const triTrashed = getTriFilterValue('filterTrashed');   // default '0' = hidden
   const triFailed = getTriFilterValue('filterFailed');
+  // '' = all, else one of 'success' | 'failed' | 'unscanned'
+  const scanStatus = getTriFilterValue('filterScanStatus');
 
   // First pass: apply all non-search filters
   let candidates = allMedia.filter(m => {
+    // An active focus set answers for the whole chain — see setFocusIds.
+    if (focusIds) return focusIds.has(m.id);
+
     // Only show media files: video, audio, image, gif + custom mixes
     // (exclude document)
     const allowedMediaTypes = ['video', 'audio', 'image', 'gif', 'mix'];
@@ -555,6 +631,8 @@ function applyFilters(opts) {
 
     if (triFailed === '1' && !m.playback_failed) return false;
     if (triFailed === '0' && m.playback_failed) return false;
+
+    if (scanStatus && scanStatusOf(m) !== scanStatus) return false;
 
     if (triDuplicates === '1' && typeof isDuplicate === 'function' && !isDuplicate(m.filepath)) return false;
     if (triDuplicates === '0' && typeof isDuplicate === 'function' && isDuplicate(m.filepath)) return false;
@@ -654,6 +732,10 @@ function applyFilters(opts) {
 
   // Keep the "Empty trash" button's count/visibility in sync with the library
   if (typeof updateClearTrashUi === 'function') updateClearTrashUi();
+
+  // …and the 🔍 Scan filter's "Rescan these (N)" button, which acts on
+  // whatever the filters just produced
+  if (typeof updateRescanFilteredButton === 'function') updateRescanFilteredButton();
 
   // Remember the full search state so the next launch restores it
   persistSearchState();

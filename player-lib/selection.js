@@ -262,6 +262,73 @@ async function retryErrorsSelected() {
   }
 }
 
+/* ── Rescan the filtered set (🔍 Scan filter) ──────────────────────────── */
+//
+// The bulk bar above works on a SELECTION; this one works on whatever the
+// filters currently show, which is the natural follow-up to picking "Failed"
+// or "Unscanned" — nobody wants to select 4,000 tiles first.
+
+/** What the button would act on right now. */
+function rescanFilteredTargets() {
+  const items = (typeof filteredMedia !== 'undefined' ? filteredMedia : [])
+    .filter(m => !m.user_trashed);
+  const needy = items.filter(m => m.processing_error);       // failed + unscanned
+  const done = items.length - needy.length;
+  // With nothing broken in view the button is a deliberate force-rescan of the
+  // whole filtered set; otherwise it targets just the rows that need one.
+  return needy.length > 0 && done === 0
+    ? { ids: needy.map(m => m.id), force: false, done: 0 }
+    : { ids: items.map(m => m.id), force: done > 0, done };
+}
+
+/** Show/label the button under the 🔍 Scan filter. Called from applyFilters. */
+function updateRescanFilteredButton() {
+  const btn = document.getElementById('rescanFilteredBtn');
+  if (!btn) return;
+  const { ids, force, done } = rescanFilteredTargets();
+  if (ids.length === 0) { btn.style.display = 'none'; return; }
+  btn.style.display = '';
+  btn.textContent = `↻ Rescan these (${ids.length.toLocaleString()})`;
+  btn.classList.toggle('force', force);
+  btn.title = force
+    ? `Re-run AI analysis on all ${ids.length.toLocaleString()} filtered file(s) — ${done.toLocaleString()} of them already scanned successfully. Your notes, stars, ratings and flags are kept.`
+    : `Queue ${ids.length.toLocaleString()} file(s) whose scan failed or never ran`;
+}
+
+async function rescanFiltered() {
+  const { ids, force, done } = rescanFilteredTargets();
+  if (!ids.length) { showToast('Nothing in view to rescan'); return; }
+
+  // Only the force path costs anything the user might not want: it burns real
+  // GPU time re-analyzing files that are already fine.
+  if (force && !confirm(
+    `Re-run AI analysis on ${ids.length.toLocaleString()} file(s)?\n\n` +
+    `${done.toLocaleString()} of them already scanned successfully and will be tagged again ` +
+    `from scratch — this can take a long time.\n\n` +
+    `Your notes, stars, ratings and flags are NOT affected.`)) return;
+
+  try {
+    const resp = await fetch('/api/media/batch-rescan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, force }),
+    });
+    const r = await resp.json().catch(() => ({}));
+    if (!resp.ok) { showToast('⚠ ' + (r.error || `HTTP ${resp.status}`)); return; }
+    const notes = [];
+    if (r.alreadyQueued) notes.push(`${r.alreadyQueued} already queued`);
+    if (r.missing) notes.push(`${r.missing} missing from disk`);
+    if (!r.queued) {
+      showToast(notes.length ? `Nothing new to queue — ${notes.join(', ')}` : 'Nothing to rescan');
+      return;
+    }
+    showToast(`↻ Queued ${r.queued} file(s) for scanning${notes.length ? ` · ${notes.join(', ')}` : ''}`);
+    if (typeof window.vaultWatchScanQueue === 'function') window.vaultWatchScanQueue({ fresh: true });
+    if (typeof watchUnscanned === 'function') watchUnscanned();
+  } catch (err) {
+    showToast('⚠ ' + err.message);
+  }
+}
+
 /* ── Trash / restore actions ───────────────────────────────────────────── */
 
 /**
