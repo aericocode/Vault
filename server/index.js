@@ -130,6 +130,46 @@ app.use((req, res, next) => {
   next();
 });
 
+/* ── Gate: no scanning or importing while a migrate job is running ─────────
+   The other half of the mutual exclusion. /api/migrate/* already refuses to
+   start while a scan is in flight; this refuses the reverse.
+
+   It was not needed while the planners were synchronous — they seized the
+   event loop, so no request could be served mid-migrate. Making them yield
+   (so the UI stays alive) opened a real window, and the consequence is nasty:
+   the scan pipeline writes rows via saveMedia, which UPSERTs on the filepath
+   captured when the file was ENQUEUED. Repoint that row mid-scan and the
+   UPSERT no longer matches it — it INSERTS a ghost row at the dead path
+   carrying the fresh AI metadata, while the real row keeps the stale copy.
+
+   So every route that queues scan work or creates rows by path is closed for
+   the duration. Read-only routes stay open: the point is to keep the viewer
+   usable during a long migrate, not to take it offline. */
+const MIGRATE_BLOCKED_ROUTES = [
+  /^\/api\/media\/batch-rescan$/,
+  /^\/api\/media\/retry-errors$/,
+  /^\/api\/media\/\d+\/rescan$/,
+  /^\/api\/import\/add-paths$/,
+  /^\/api\/import\/scan-folder$/,
+  // PMV render → importToLibrary → insertStubs (lib/pmv/service.js)
+  /^\/api\/pmv\/jobs\/[^/]+\/import$/,
+  // A PAUSED queue with banked work reads as idle to _scanBusy — deliberately,
+  // so pausing a scan is exactly how you make room to run a migrate. That only
+  // holds if un-pausing is refused until the migrate is done.
+  /^\/api\/import\/queue\/resume$/,
+];
+
+app.use((req, res, next) => {
+  if (req.method !== 'POST') return next();
+  if (!_migrateJob.isRunning()) return next();
+  if (!MIGRATE_BLOCKED_ROUTES.some(re => re.test(req.path))) return next();
+  res.status(409).json({
+    error: 'a library migration is running. Wait for it to finish.',
+    code: 'MIGRATE_RUNNING',
+    jobId: _migrateJob.currentId(),
+  });
+});
+
 /* ── Gamification: ON by default, with a hard CLI kill switch ──────────────
    It used to be opt-in on privacy grounds, but that reasoning didn't survive
    contact with the rest of the app: without a database password EVERYTHING is
@@ -842,36 +882,45 @@ app.post('/api/ai/model-choice', (req, res) => {
   res.json({ ok: true, model, resumed });
 });
 
-// Re-queue files whose AI scan never landed — the bulk bar's ↻ Retry errors.
-// Not a "rescan": rows that scanned fine are skipped, so sending the whole
-// selection is safe and only the failures move. Goes through the import queue
-// (not the blocking per-item /rescan route) so a thousand retries report in the
-// scan panel and inherit its pause / halt-on-dead-model behaviour.
-app.post('/api/media/retry-errors', (req, res) => {
-  const raw = req.body?.ids;
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return res.status(400).json({ error: 'ids must be a non-empty array' });
+/**
+ * Shared body of the two bulk-scan routes below.
+ *
+ * Both hand work to the import queue rather than scanning inline: the blocking
+ * per-item /rescan route holds a request open for the whole AI call, which is
+ * fine for one file and hopeless for a thousand. The queue reports in the scan
+ * panel and inherits its pause / halt-on-dead-model behaviour for free.
+ *
+ * @param {boolean} force  include rows that already scanned successfully.
+ *   Off, only rows carrying a processing_error (a real failure or the
+ *   'unscanned' stub marker) move — so sending an entire selection is safe.
+ * @returns {object|{status:number, error:string}} the response body
+ */
+function _queueBulkScan(rawIds, { force = false } = {}) {
+  if (!Array.isArray(rawIds) || rawIds.length === 0) {
+    return { status: 400, error: 'ids must be a non-empty array' };
   }
   // Select all can hand this the entire library, so ids arrive by the thousand.
-  const ids = [...new Set(raw.map(v => (typeof v === 'number' && Number.isInteger(v) ? v
+  const ids = [...new Set(rawIds.map(v => (typeof v === 'number' && Number.isInteger(v) ? v
     : (typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? Number(v) : null))).filter(v => v !== null))];
-  if (ids.length === 0) return res.status(400).json({ error: 'no valid ids' });
+  if (ids.length === 0) return { status: 400, error: 'no valid ids' };
 
   // One statement per 500 ids, not one per id: getById in a loop cost ~100µs
   // each, so a 20k retry blocked the event loop (no streaming, no thumbnails)
   // for seconds. The WHERE clause does the "needs scanning" filter too.
+  const needsScan = force ? '' :
+    'AND processing_error IS NOT NULL AND processing_error != \'\'';
   const handle = db.get();
   const rows = [];
   for (let i = 0; i < ids.length; i += 500) {
     const chunk = ids.slice(i, i + 500);
     rows.push(...handle.prepare(
-      `SELECT id, filepath, filename, media_type FROM media
+      `SELECT id, filepath, filename, media_type, processing_error FROM media
         WHERE id IN (${chunk.map(() => '?').join(',')})
-          AND processing_error IS NOT NULL AND processing_error != ''`
+          AND user_trashed = 0 ${needsScan}`
     ).all(...chunk));
   }
 
-  let queued = 0, alreadyQueued = 0, missing = 0;
+  let queued = 0, alreadyQueued = 0, missing = 0, reprocessed = 0;
   for (const row of rows) {
     if (!fs.existsSync(row.filepath)) { missing++; continue; }
     // enqueue dedupes on filepath; counting its verdict rather than the loop
@@ -879,9 +928,316 @@ app.post('/api/media/retry-errors', (req, res) => {
     const { added } = importQueue.enqueue({
       id: row.id, filepath: row.filepath, filename: row.filename, mediaType: row.media_type,
     });
-    if (added) queued++; else alreadyQueued++;
+    if (added) {
+      queued++;
+      if (!row.processing_error) reprocessed++;
+    } else {
+      alreadyQueued++;
+    }
   }
-  res.json({ queued, alreadyQueued, missing, skipped: ids.length - rows.length });
+  return { queued, alreadyQueued, missing, reprocessed, skipped: ids.length - rows.length };
+}
+
+// Re-queue files whose AI scan never landed — the bulk bar's ↻ Retry errors.
+// Not a "rescan": rows that scanned fine are skipped, so sending the whole
+// selection is safe and only the failures move.
+app.post('/api/media/retry-errors', (req, res) => {
+  const out = _queueBulkScan(req.body?.ids, { force: false });
+  if (out.status) return res.status(out.status).json({ error: out.error });
+  res.json(out);
+});
+
+// Bulk rescan — the scan-status filter's "Rescan these (N)" button.
+//
+// Same queue, one extra switch: force also re-runs files that scanned FINE.
+// That is a real cost (full AI analysis per file) but not a destructive one —
+// the queue drives the same processFile({reprocess, retryErrors}) the per-file
+// rescan uses, and db.saveMedia UPSERTs only the AI-derived columns, so notes,
+// stars, ratings, flags, view counts and thumbnails all survive. The client
+// still confirms before sending force, because the GPU time is the user's.
+app.post('/api/media/batch-rescan', (req, res) => {
+  const out = _queueBulkScan(req.body?.ids, { force: req.body?.force === true });
+  if (out.status) return res.status(out.status).json({ error: out.error });
+  res.json(out);
+});
+
+/* ── Library migration (Settings › Library) ────────────────────────────────
+   The viewer's front end for `node vault.js migrate`. Both routes run the
+   SAME planner the CLI does (commands/migrate.js) — it prints nothing and
+   throws instead of exiting, precisely so it can be shared.
+
+   /preview plans and returns the report. /apply RE-PLANS from the same inputs
+   and writes that: the client never submits a plan. A plan is a list of row
+   ids and destination paths, and honouring one from the browser would let a
+   crafted request repoint arbitrary records at arbitrary paths — and even an
+   honest one goes stale the moment a scan finishes or a file moves between
+   the two clicks. Re-planning costs one pass over the library and removes the
+   whole class of problem.
+
+   Neither runs while files are being scanned: processFile writes rows by
+   filepath, so repointing underneath a live scan is how you get a row pointing
+   at one file with another file's metadata. */
+
+/** Shared input parsing — the two routes must agree on what a request means. */
+function _migrateParams(body) {
+  const raw = body?.mode;
+  const mode = raw === 'relink' ? 'relink' : (raw === 'auto' ? 'auto' : 'prefix');
+  const str = (v) => (typeof v === 'string' ? v.trim() : '');
+  if (mode === 'relink' || mode === 'auto') {
+    const newRoot = str(body?.newRoot);
+    if (!newRoot) return { error: 'newRoot is required' };
+    return { mode, newRoot };
+  }
+  const oldPrefix = str(body?.oldPrefix);
+  const newPrefix = str(body?.newPrefix);
+  if (!oldPrefix || !newPrefix) return { error: 'oldPrefix and newPrefix are required' };
+  if (oldPrefix === newPrefix) return { error: 'the two prefixes are identical' };
+  return { mode, oldPrefix, newPrefix };
+}
+
+/** True while anything is mid-scan — migration has to wait for it. */
+function _scanBusy() {
+  return importQueue.isActive() || _rescanning.size > 0;
+}
+
+/* ── The migrate job runner ────────────────────────────────────────────────
+   A migrate over a real library is minutes of work, so it cannot be "whatever
+   the request happens to be doing". It is a JOB: one slot, owned by the
+   server, outliving the request that started it.
+
+   That buys three things the user actually asked for. Progress (the planners
+   tick as they go). Survival — closing the modal, switching sections or
+   reloading the page cannot cancel anything, because nothing is tied to the
+   request lifecycle. And a result that waits: the summary stays parked until
+   the next job starts or the TTL expires, so a client that wandered off gets
+   the full report when it comes back rather than being told to run it again.
+
+   One slot, not a queue: two concurrent migrates would race for the same rows
+   and the same destination paths. A second start gets 409 and the jobId, so
+   the other tab can attach to the run already going instead. */
+const _migrateJob = (() => {
+  const RESULT_TTL_MS = 60 * 60 * 1000;   // how long a finished report waits
+  // Don't call a rate meaningful until the sample is worth something.
+  const ETA_MIN_MS = 2000;
+  const ETA_MIN_FRACTION = 0.05;
+
+  let job = null;
+  let seq = 0;
+
+  /** Rebaseline whenever the phase or the size of the work changes — a rate
+   *  measured while walking a folder says nothing about matching rows. */
+  function tick(j, processed, total, phase) {
+    if (!j.base || j.base.phase !== phase || j.base.total !== total) {
+      j.base = { phase, total, processed, at: Date.now() };
+    }
+    j.phase = phase;
+    j.processed = processed;
+    j.total = total;
+  }
+
+  function etaMs(j) {
+    if (j.done || !j.base || !j.total) return null;
+    const dp = j.processed - j.base.processed;
+    const dt = Date.now() - j.base.at;
+    if (dp <= 0) return null;
+    if (dt < ETA_MIN_MS && (dp / j.total) < ETA_MIN_FRACTION) return null;
+    return Math.round((j.total - j.processed) * dt / dp);
+  }
+
+  async function execute(j) {
+    const migrate = require('../commands/migrate');
+    const onTick = (p, t, phase) => tick(j, p, t, phase);
+    try {
+      const report = j.mode === 'auto'
+        ? await migrate.planAuto(j.inputs.newRoot, { onTick })
+        : j.mode === 'relink'
+          ? await migrate.planRelink(j.inputs.newRoot, { onTick })
+          : await migrate.planPrefix(j.inputs.oldPrefix, j.inputs.newPrefix, { onTick });
+
+      if (j.kind === 'apply') {
+        // Announce 'writing', then HOLD before the transaction starts.
+        // apply() is one synchronous block, so without a pause here the phase
+        // is set and the loop is seized in the same tick: no poll could
+        // observe it, and the UI would jump from "matching" straight to
+        // "done" with an unexplained freeze in between. A single setImmediate
+        // is too narrow to be reliable — it only helps if a request happens to
+        // be queued at that exact instant — so wait long enough that the
+        // 1s-interval poller is certain to see it. Negligible next to the
+        // write it precedes, and it buys an honest progress line.
+        const planned = report.rewrite.length + report.absorb.length;
+        tick(j, 0, planned, 'writing');
+        await new Promise(r => setTimeout(r, 120));
+        j.applied = migrate.apply(report, { onTick });
+        // Paths moved, so the cached "missing from disk" tally is meaningless.
+        _missingCount.invalidate();
+        embeddings.invalidateCache();
+      }
+      j.summary = migrate.summarize(report);
+    } catch (err) {
+      j.error = err && err.message ? err.message : String(err);
+      j.errorCode = err && err.code ? err.code : null;
+    } finally {
+      j.done = true;
+      j.finishedAt = Date.now();
+      j.phase = 'done';
+    }
+  }
+
+  function expired(j) {
+    return j && j.done && (Date.now() - j.finishedAt) > RESULT_TTL_MS;
+  }
+
+  return {
+    isRunning() { return !!(job && !job.done); },
+    currentId() { return job ? job.id : null; },
+
+    /** @returns {{job}|{status,error}} */
+    start(kind, params) {
+      if (job && !job.done) {
+        return { status: 409, error: 'a migrate is already running', jobId: job.id };
+      }
+      job = {
+        id: `mig-${++seq}-${Date.now()}`,
+        kind, mode: params.mode, inputs: params,
+        startedAt: Date.now(), finishedAt: null,
+        phase: 'starting', processed: 0, total: 0, base: null,
+        done: false, error: null, errorCode: null, summary: null, applied: null,
+      };
+      // Deliberately NOT awaited and NOT attached to the request: the run has
+      // to outlive whatever HTTP call kicked it off.
+      job.promise = execute(job);
+      return { job };
+    },
+
+    /** Resolve early if the job finishes inside `ms` — the small-library path. */
+    async settleWithin(ms) {
+      if (!job || job.done) return true;
+      const mine = job;
+      await Promise.race([mine.promise, new Promise(r => setTimeout(r, ms))]);
+      return mine.done;
+    },
+
+    /** Serializable snapshot. null once a finished result has aged out. */
+    status() {
+      if (!job || expired(job)) return null;
+      return {
+        jobId: job.id,
+        running: !job.done,
+        kind: job.kind,
+        mode: job.mode,
+        inputs: job.inputs,
+        phase: job.phase,
+        processed: job.processed,
+        total: job.total,
+        elapsedMs: (job.finishedAt || Date.now()) - job.startedAt,
+        etaMs: etaMs(job),
+        done: job.done,
+        error: job.error,
+        errorCode: job.errorCode,
+        applied: job.applied,
+        report: job.summary,
+      };
+    },
+  };
+})();
+
+/** Shared start path for both routes — they differ only in `kind`. */
+async function _migrateStart(kind, req, res) {
+  const p = _migrateParams(req.body);
+  if (p.error) return res.status(400).json({ error: p.error });
+  if (_scanBusy()) {
+    return res.status(409).json({ error: 'a scan is running. Pause it or let it finish first.' });
+  }
+
+  const started = _migrateJob.start(kind, p);
+  if (started.error) {
+    // Hand back the jobId so the caller can attach to the run in progress
+    // rather than just being refused.
+    return res.status(409).json({ error: started.error, jobId: started.jobId, running: true });
+  }
+
+  // Hybrid: a small library finishes before anyone can blink, and making that
+  // case round-trip through a poll would be a downgrade. Give it a second.
+  const finished = await _migrateJob.settleWithin(1000);
+  const s = _migrateJob.status();
+  if (finished && s) {
+    if (s.error) {
+      return res.status(s.errorCode === 'EMIGRATEROOT' ? 400 : 500).json({ error: s.error });
+    }
+    return res.json({
+      ok: true, done: true, jobId: s.jobId, elapsedMs: s.elapsedMs,
+      dryRun: kind === 'preview', applied: s.applied, report: s.report,
+    });
+  }
+  res.status(202).json({ ok: true, done: false, jobId: started.job.id });
+}
+
+app.post('/api/migrate/preview', (req, res) => { _migrateStart('preview', req, res); });
+app.post('/api/migrate/apply', (req, res) => { _migrateStart('apply', req, res); });
+
+// Current or last migrate — progress while it runs, the report once it lands.
+// No per-client state: any tab, any reload, same answer.
+app.get('/api/migrate/job', (req, res) => {
+  res.json(_migrateJob.status() || { running: false, idle: true });
+});
+
+/* ── "N files missing from disk" — the banner's source ─────────────────────
+   One existsSync per live row. On a 100k library that is 100k syscalls, which
+   is milliseconds of real work but seconds of a BLOCKED event loop — no
+   streaming, no thumbnails, a frozen viewer on every page load. So the walk
+   runs in 500-row slices with a setImmediate between them (other requests
+   interleave), the result is cached, and the route answers from cache
+   immediately rather than waiting.
+
+   First call returns {computing:true, count:null} and the client polls. The
+   TTL is generous because the answer only changes when files move, and the
+   two things that move them — a migrate apply and a library reload — invalidate
+   it explicitly. */
+const _missingCount = (() => {
+  const TTL_MS = 5 * 60 * 1000;
+  const SLICE = 500;
+  let value = null;         // { count, total, at }
+  let running = null;       // in-flight promise
+  let gen = 0;              // bumped by invalidate(); a walk started under an
+                            // older gen must not publish its snapshot — it was
+                            // taken before whatever just moved the files.
+
+  async function compute() {
+    const myGen = gen;
+    const rows = db.get().prepare(
+      'SELECT filepath FROM media WHERE user_trashed = 0'
+    ).all();
+    let count = 0;
+    for (let i = 0; i < rows.length; i += SLICE) {
+      for (const r of rows.slice(i, i + SLICE)) {
+        try { if (!fs.existsSync(r.filepath)) count++; } catch { count++; }
+      }
+      // Yield: the whole point of this dance.
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    if (myGen !== gen) return null; // invalidated mid-walk; discard
+    value = { count, total: rows.length, at: Date.now() };
+    return value;
+  }
+
+  return {
+    invalidate() { value = null; gen++; },
+    /** Cached answer, kicking off a recompute when there isn't a fresh one. */
+    get() {
+      const fresh = value && (Date.now() - value.at) < TTL_MS;
+      if (!fresh && !running) {
+        running = compute().catch(() => null).finally(() => { running = null; });
+      }
+      if (fresh) return { ...value, computing: false };
+      return { count: value ? value.count : null, total: value ? value.total : null,
+               at: value ? value.at : null, computing: true, stale: !!value };
+    },
+  };
+})();
+
+app.get('/api/library/missing-count', (req, res) => {
+  if (req.query.refresh === '1') _missingCount.invalidate();
+  res.json(_missingCount.get());
 });
 
 // Cancel: drop everything still queued. Destructive (the panel makes it a
@@ -2113,6 +2469,31 @@ function repairMisclassifiedMediaTypes() {
 }
 
 function start(args = process.argv.slice(2)) {
+  // Boot-phase timing. Off by default (keeps the exe user's console clean);
+  // set VAULT_BOOT_TIMING=1 to print a one-line breakdown of where startup
+  // spends its wall-clock — the fast way to tell a slow readdir from a slow
+  // tool-probe when someone reports a laggy launch.
+  const _bootT0 = process.hrtime.bigint();
+  const _bootMarks = [];
+  let _bootReported = false;
+  const _bootMark = (name) => {
+    if (!process.env.VAULT_BOOT_TIMING) return;
+    const ms = Number(process.hrtime.bigint() - _bootT0) / 1e6;
+    // Marks landing after the report (async passes finishing post-listen)
+    // print standalone with their absolute offset from process start.
+    if (_bootReported) console.log(`[boot-timing] ${name} done @ ${ms.toFixed(0)}ms`);
+    else _bootMarks.push([name, ms]);
+  };
+  const _bootReport = () => {
+    _bootReported = true;
+    if (!process.env.VAULT_BOOT_TIMING || !_bootMarks.length) return;
+    let prev = 0;
+    const parts = _bootMarks.map(([n, ms]) => {
+      const d = ms - prev; prev = ms; return `${n} ${d.toFixed(0)}ms`;
+    });
+    console.log(`[boot-timing] ${parts.join('  ·  ')}  ·  total ${prev.toFixed(0)}ms`);
+  };
+
   // Encrypted DB + no/wrong VAULT_DB_PASSWORD → boot LOCKED (the
   // viewer shows the lock screen and unlocks with the passphrase) instead
   // of crashing. Any other init failure is still fatal.
@@ -2136,13 +2517,14 @@ function start(args = process.argv.slice(2)) {
     }
   }
 
+  _bootMark('db.init');
+
   // App-owned-directory adoption (audit findings A/B/C): before ANY sweep, mark
   // the managed roots the app created. A pre-existing markerless dir is adopted
   // only when empty / all-app-pattern; a dir holding unrecognized user files is
   // left unmarked and every sweep on it is skipped + warned. Runs before
   // wipeTempDir and migrateFromDisk so a legit older-version cache is adopted
   // and its sweeps proceed as before.
-  ownedDir.adoptOnStartup(config.paths.thumbnailDir, 'thumbs', 'thumbnails');
   ownedDir.adoptOnStartup(config.paths.tempDir, 'temp', 'temp-frames');
   try {
     ownedDir.adoptOnStartup(require('../lib/video-transcriber').TEMP_AUDIO_DIR, 'tempaudio', 'temp-audio');
@@ -2168,8 +2550,10 @@ function start(args = process.argv.slice(2)) {
   });
 
   // Temp hygiene: clear stale/plaintext temp artifacts on every startup.
+  _bootMark('adopt-temp-dirs');
   wipeTempDir();
   _installShutdownHooks();
+  _bootMark('wipe-temp');
 
   if (bootedLocked) {
     // Route mounts skipped their boot-time DB cleanup — run it on first unlock
@@ -2188,7 +2572,9 @@ function start(args = process.argv.slice(2)) {
     vault.onChange((e) => {
       if (e !== 'unlocked' || migrated) return;
       migrated = true;
-      try { secureAssets.migrateFromDisk(); } catch (err) { console.warn(`[SecureAssets] migration skipped: ${err.message}`); }
+      slowDirsAdopted.then(() => {
+        try { secureAssets.migrateFromDisk(); } catch (err) { console.warn(`[SecureAssets] migration skipped: ${err.message}`); }
+      });
     });
     // Vault-status line (booted locked → encrypted, key not yet available).
     console.log('Vault: LOCKED — encrypted; unlock in the viewer to open the encrypted secure_assets store');
@@ -2212,7 +2598,12 @@ function start(args = process.argv.slice(2)) {
     // Exactly one vault-status line stating the mode (B1).
     if (secureAssets.enabled()) {
       console.log(`Vault: ON — derived artifacts encrypted in secure_assets.db at ${path.resolve(secureAssets.storePath())}`);
-      try { secureAssets.migrateFromDisk(); } catch (err) { console.warn(`[SecureAssets] migration skipped: ${err.message}`); }
+      // After the async adoption pass — the migration sweep is gated on the
+      // marker that pass may have just written (and is itself a full-directory
+      // walk that has no business on the boot path).
+      slowDirsAdopted.then(() => {
+        try { secureAssets.migrateFromDisk(); } catch (err) { console.warn(`[SecureAssets] migration skipped: ${err.message}`); }
+      });
     } else {
       console.log('Vault: OFF — no password set; derived artifacts stored as plain files');
     }
@@ -2247,9 +2638,12 @@ function start(args = process.argv.slice(2)) {
     config.security.autolockMinutes = Math.max(0, Math.min(1440, Math.trunc(savedAutolock)));
   }
   vault.startAutolock();
+  _bootMark('db-open-housekeeping');
 
   const { host, port } = config.server;
   app.listen(port, host, () => {
+    _bootMark('listen-ready');
+    _bootReport();
     console.log('');
     console.log('  ┌──────────────────────────────────────────────┐');
     console.log('  │  Vault                                       │');

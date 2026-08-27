@@ -862,3 +862,97 @@ body.blur-thumbs.privacy-mode .tile-thumb:hover .tile-img {
   cursor: pointer;
 }
 .focus-banner-close:hover { background: rgba(99, 102, 241, 0.18); }
+
+/* ── Auto mode: the whole-folder moves it worked out for itself ── */
+.mig-moves {
+  margin: 0 0 0.6rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #10b981;
+  border-radius: 8px;
+  background: rgba(16, 185, 129, 0.08);
+}
+.mig-moves-title {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.4rem;
+}
+.mig-move {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.35rem;
+  overflow-wrap: anywhere;
+}
+.mig-move:last-child { margin-bottom: 0; }
+.mig-move code {
+  font-size: 0.72rem;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  padding: 0.05rem 0.25rem;
+  border-radius: 4px;
+}
+
+/* ── Deep-search expander (quiet by design: quick move is the headline) ── */
+.mig-expander {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  margin: -0.3rem 0 0.8rem;
+  padding: 0.4rem 0.2rem;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.mig-expander:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.03); }
+.mig-expander.is-open { color: var(--text-secondary); }
+.mig-chev { font-size: 0.7rem; line-height: 1; }
+
+.mig-deep { margin-bottom: 0.4rem; }
+.mig-deep[hidden] { display: none; }
+
+/* ── Progress bar + throughput line ── */
+.mig-progress { margin: 0.5rem 0 0.2rem; }
+
+.mig-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+.mig-bar-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.35s ease-out;
+}
+
+/* No total yet (the folder walk): a travelling sliver instead of a fraction. */
+.mig-progress.is-indeterminate .mig-bar-fill {
+  width: 32%;
+  transition: none;
+  animation: mig-bar-slide 1.15s ease-in-out infinite;
+}
+@keyframes mig-bar-slide {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(320%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mig-progress.is-indeterminate .mig-bar-fill { animation: none; width: 100%; opacity: 0.45; }
+}
+
+.mig-bar-stats {
+  margin-top: 0.3rem;
+  text-align: right;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}

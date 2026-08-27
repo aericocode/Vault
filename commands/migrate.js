@@ -206,20 +206,28 @@ function usage() {
 Vault - migrate: move the library's file paths without rescanning
 
 Usage:
+  node vault.js migrate --auto <newRoot> [--dry-run]
+      The one to reach for. Point it at the folder your files live in now.
+      It searches there (subfolders included), works out for itself which
+      folders moved where, and applies each move in one fast step after
+      byte-checking a sample of the files it covers. Anything the moves do
+      not explain falls back to the full per-file search below, including
+      files that were renamed. The old drive can stay plugged in.
+
   node vault.js migrate <oldPrefix> <newPrefix> [--dry-run]
       Rewrite every live record under <oldPrefix> to sit under <newPrefix>.
       Example: node vault.js migrate "K:\\Media" "M:\\Media"
 
   node vault.js migrate --relink <newRoot> [--dry-run]
-      For renamed or reorganized folders — and for a COPY-style move, where
+      For renamed or reorganized folders, and for a COPY-style move where
       the originals are still on the old drive. Every record not already
       under <newRoot> is matched against the files there (subfolders
       included), in tiers:
         1. normalized filename + media type + size within ±1%
         2. if that finds nothing: a UNIQUE exact-byte-size match of the same
            type, whatever it is called (finds renamed files)
-      Every match is then byte-verified — 64KB from each end of both files
-      must be identical — so a same-size look-alike is reported, not adopted.
+      Every match is then byte-verified: 64KB from each end of both files
+      must be identical, so a same-size look-alike is reported, not adopted.
       When the old file is unreadable (drive disconnected) there is nothing
       to compare, so the match stands on name + size alone.
       Several equally good candidates are decided by the longest matching
@@ -313,6 +321,7 @@ function emptyReport(mode) {
     unmatched: [],   // { row }
     mismatch: [],    // { row, newPath, reason }  matched, but the bytes differ
     dupeLink: [],    // { rowId, stubIds }        rejected look-alikes to group
+    rules: [],       // auto mode: the moves it worked out for itself
     unchanged: 0,
   };
 }
@@ -378,24 +387,150 @@ async function planPrefix(oldPrefixRaw, newPrefixRaw, { onTick = () => {} } = {}
   const claimed = new Set();
   const pace = makePacer(onTick);
 
-  let seen = 0;
-  onTick(0, rows.length, 'matching');
+  // Select the rows under oldPrefix FIRST — pure string tests, milliseconds
+  // even at 100k rows — so the progress total is the folder being moved, not
+  // the whole library. "0 / 30,000" on a 25-file move reads as a full-library
+  // scan; the per-row disk work below only ever runs for the matches anyway.
+  const matches = [];
   for (const row of rows) {
-    seen++;
-    await pace(seen, rows.length, 'matching');
     if (!key(row.filepath).startsWith(oldKey)) continue;
     const rest = row.filepath.slice(oldPrefix.length);
     // "K:\Media" must not swallow "K:\MediaBackup\x.mp4" — what follows the
     // prefix has to start at a path boundary (or be nothing, for the prefix
     // itself, which only happens if a file is literally named that).
     if (rest && !/^[\\/]/.test(rest)) continue;
+    matches.push({ row, rest });
+  }
 
+  let seen = 0;
+  onTick(0, matches.length, 'matching');
+  for (const { row, rest } of matches) {
+    seen++;
+    await pace(seen, matches.length, 'matching');
     report.considered++;
     classify(row, newPrefix + rest, report, claimed, 'prefix');
   }
-  onTick(rows.length, rows.length, 'matching');
+  onTick(matches.length, matches.length, 'matching');
 
   return report;
+}
+
+/**
+ * The relink matcher: the tiered, per-file-verified path.
+ *
+ * Extracted so --auto can run it over the leftovers rather than reimplementing
+ * it. --relink hands it every candidate row; --auto hands it only the rows no
+ * prefix rule accounted for. Behaviour is identical either way.
+ *
+ * TWO PASSES, and the order is the whole point. Tier 2 is a guess from a byte
+ * count alone; tier 1 is a name match. Resolving row by row let a tier-2 guess
+ * CLAIM a file that a later row would have matched by name, so which record won
+ * came down to row id: the lowest id got the file and the rightful owner was
+ * reported unmatched. Settling every tier-1 match first makes strong matches
+ * beat weak ones no matter what order the rows come in.
+ *
+ * @param {object} prog shared {processed, total} so a caller running several
+ *   stages can present one progress scale. Mutated as rows are consumed.
+ */
+async function matchRows(candidateRows, ctx, report, claimed, pace, prog) {
+  const { byKey, bySize, byPhash } = ctx;
+  const free = (c) => !claimed.has(key(c.path));
+
+  /**
+   * Verify, plan, and group the rejected look-alikes.
+   * @returns {boolean} false when the bytes disagreed (row already reported)
+   */
+  const adopt = (row, chosen, tier, losers) => {
+    const verdict = spotCheck(row.filepath, chosen.path);
+    if (verdict === 'mismatch') {
+      report.mismatch.push({ row, newPath: chosen.path, reason: `matched by ${tier}, content differs` });
+      return false;
+    }
+
+    const before = report.rewrite.length + report.absorb.length;
+    classify(row, chosen.path, report, claimed,
+      verdict === 'skipped' ? `${tier}, unverified` : tier);
+
+    // Only group the losers if the winner actually got planned. A conflict or
+    // a vanished destination means nothing was adopted.
+    if (losers.length && report.rewrite.length + report.absorb.length > before) {
+      const stubIds = [];
+      for (const l of losers) {
+        const occ = db.findByPathInsensitive(l.path);
+        if (occ && occ.processing_error === db.UNSCANNED_MARKER) stubIds.push(occ.id);
+      }
+      if (stubIds.length) report.dupeLink.push({ rowId: row.id, stubIds });
+    }
+    return true;
+  };
+
+  const pending = [];
+
+  // ── Pass 1: normalized name + media type + size ±1% ──
+  for (const row of candidateRows) {
+    prog.processed++;
+    await pace(prog.processed, prog.total, 'matching');
+    const nameKey = row.name_key || dupes.nameKey(row.filename);
+    let pool = (byKey.get(`${row.media_type}|${nameKey}`) || []).filter(free);
+    if (row.filesize_bytes) {
+      pool = pool.filter(c => dupes.sizesMatch(c.size, row.filesize_bytes));
+    }
+
+    if (pool.length === 0) { pending.push(row); continue; }
+
+    let chosen = pool[0];
+    let losers = [];
+    if (pool.length > 1) {
+      // Byte-exact copies outrank merely-close ones (the same preference
+      // findDupeCandidate encodes as ORDER BY ABS(size difference)); the
+      // path-shape tiebreak then runs inside whichever set survives.
+      let narrowed = pool;
+      if (row.filesize_bytes) {
+        const exact = pool.filter(c => c.size === row.filesize_bytes);
+        if (exact.length > 0) narrowed = exact;
+      }
+      chosen = narrowed.length === 1 ? narrowed[0] : pickBest(row.filepath, narrowed);
+      if (!chosen) {
+        report.ambiguous.push({ row, candidates: pool.map(c => c.path) });
+        continue;
+      }
+      losers = pool.filter(c => c !== chosen);
+    }
+
+    adopt(row, chosen, 'name+size', losers);
+  }
+
+  // ── Pass 2: the rename rescue, over whatever is still unclaimed ──
+  prog.total += pending.length;
+  await pace(prog.processed, prog.total, 'matching', true);
+  for (const row of pending) {
+    prog.processed++;
+    await pace(prog.processed, prog.total, 'matching');
+    let chosen = null;
+    let tier = null;
+
+    // Unique exact byte size, same media type, any name. Uniqueness is
+    // required outright: two files of one size is not a rename, it is a
+    // coin flip.
+    if (row.filesize_bytes) {
+      const sized = (bySize.get(`${row.media_type}|${row.filesize_bytes}`) || []).filter(free);
+      if (sized.length === 1) { chosen = sized[0]; tier = 'exact size'; }
+    }
+
+    // Last resort: a phash already on record under the new root.
+    if (!chosen && row.phash) {
+      const hits = (byPhash.get(row.phash) || [])
+        .filter(p => key(p) !== key(row.filepath) && !claimed.has(key(p)));
+      if (hits.length === 1) { chosen = { path: hits[0], size: null }; tier = 'phash'; }
+      else if (hits.length > 1) {
+        report.ambiguous.push({ row, candidates: hits });
+        continue;
+      }
+    }
+
+    if (!chosen) { report.unmatched.push({ row }); continue; }
+    adopt(row, chosen, tier, []);
+  }
 }
 
 /**
@@ -480,118 +615,248 @@ async function planRelink(newRootRaw, { onProgress = () => {}, onTick = () => {}
   }
 
   const claimed = new Set();
-  const free = (c) => !claimed.has(key(c.path));
+  const ctx = { byKey, bySize, byPhash };
+  const prog = { processed: 0, total: candidateRows.length };
+  onTick(0, prog.total, 'matching');
+  await matchRows(candidateRows, ctx, report, claimed, pace, prog);
+  onTick(prog.total, prog.total, 'matching');
 
-  /**
-   * Verify, plan, and group the rejected look-alikes.
-   * @returns {boolean} false when the bytes disagreed (row already reported)
-   */
-  const adopt = (row, chosen, tier, losers) => {
-    const verdict = spotCheck(row.filepath, chosen.path);
-    if (verdict === 'mismatch') {
-      report.mismatch.push({ row, newPath: chosen.path, reason: `matched by ${tier}, content differs` });
-      return false;
-    }
+  return report;
+}
 
-    const before = report.rewrite.length + report.absorb.length;
-    classify(row, chosen.path, report, claimed,
-      verdict === 'skipped' ? `${tier}, unverified` : tier);
+/* ── Mode C: --auto <newRoot> ──────────────────────────────────────────────
+   One folder in, no prefixes typed. The observation it is built on: when a
+   library moves, it usually moves as a BLOCK. Ten thousand records did not
+   each take an independent journey; one folder was dragged somewhere and
+   everything under it came along. Relink can find every one of those files,
+   but it pays a spot check per file to do it, and on a big library that is
+   the slow part.
 
-    // Only group the losers if the winner actually got planned — a conflict or
-    // a vanished destination means nothing was adopted.
-    if (losers.length && report.rewrite.length + report.absorb.length > before) {
-      const stubIds = [];
-      for (const l of losers) {
-        const occ = db.findByPathInsensitive(l.path);
-        if (occ && occ.processing_error === db.UNSCANNED_MARKER) stubIds.push(occ.id);
-      }
-      if (stubIds.length) report.dupeLink.push({ rowId: row.id, stubIds });
-    }
-    return true;
-  };
+   So --auto looks for the block first. It asks the cheap tier-1 index which
+   records have exactly one plausible match, reads the implied
+   "old head -> new head" rewrite off each one, and counts votes. A rewrite
+   with real support is a MOVE, and a move can be applied to every record
+   under it by string surgery plus one existsSync, no reading of file bytes at
+   all.
 
-  /* TWO PASSES, and the order is the whole point. Tier 2 is a guess from a
-     byte count alone; tier 1 is a name match. Resolving row by row let a
-     tier-2 guess CLAIM a file that a later row would have matched by name,
-     so which record won came down to row id — the lowest id got the file and
-     the rightful owner was reported unmatched. Settling every tier-1 match
-     first makes strong matches beat weak ones no matter what order the rows
-     come in. */
+   The trust for those rows comes from a SAMPLE: up to fifty of the rule's own
+   voters get the full 64KB head-and-tail comparison, and a single mismatch
+   throws the whole rule out. That is strictly stronger than prefix mode, which
+   verifies nothing beyond "a file is there", and it costs fifty reads instead
+   of fifty thousand.
 
-  const pending = [];
+   Whatever the rules do not explain (a rule that failed its sample, a mapped
+   path with no file, a record that never voted) falls through to the full
+   relink matcher, unchanged, with its per-file verification intact. */
 
-  // One progress scale across both passes. `total` grows once, when pass 2's
-  // workload becomes known — the job runner rebaselines its ETA on that.
-  let processed = 0;
-  let total = candidateRows.length;
-  onTick(0, total, 'matching');
+/** A rewrite needs this many voting records before it counts as a real move. */
+const MIN_RULE_SUPPORT = 10;
+/** Ceiling on how many of a rule's rows get the full byte comparison. */
+const MAX_RULE_SAMPLE = 50;
 
-  // ── Pass 1: normalized name + media type + size ±1% ──
+/**
+ * Where does the common trailing part of `p` begin, counting back `nSegs`
+ * path segments? Returns a character index, so the caller can slice the
+ * ORIGINAL string. Working on indices rather than split/join is what keeps
+ * drive letters and UNC roots (\\server\share) intact.
+ */
+function headLengthBefore(p, nSegs) {
+  let i = p.length, seen = 0;
+  while (i > 0 && seen < nSegs) {
+    while (i > 0 && (p[i - 1] === '\\' || p[i - 1] === '/')) i--;
+    while (i > 0 && p[i - 1] !== '\\' && p[i - 1] !== '/') i--;
+    seen++;
+  }
+  return i;
+}
+
+/**
+ * Read the prefix rewrite implied by one record moving to one file: strip the
+ * longest common run of trailing path segments, and whatever heads remain are
+ * the rule.
+ *
+ *   C:\Media\Shows\ep1.mp4  ->  D:\Media\Shows\ep1.mp4
+ *   shares "Media\Shows\ep1.mp4", so the rule is  C: -> D:
+ *
+ * @returns {{oldPrefix,newPrefix}|null} null when the paths share nothing, or
+ *   when stripping the common tail leaves no head to rewrite.
+ */
+function deriveRule(oldPath, newPath) {
+  const A = oldPath.split(/[\\/]+/).filter(Boolean);
+  const B = newPath.split(/[\\/]+/).filter(Boolean);
+  let n = 0;
+  while (n < A.length && n < B.length &&
+         key(A[A.length - 1 - n]) === key(B[B.length - 1 - n])) n++;
+  if (n === 0) return null;                       // nothing in common at all
+
+  const oldPrefix = stripTrailing(oldPath.slice(0, headLengthBefore(oldPath, n)));
+  const newPrefix = stripTrailing(newPath.slice(0, headLengthBefore(newPath, n)));
+  if (!oldPrefix && !newPrefix) return null;      // identical paths
+  if (key(oldPrefix) === key(newPrefix)) return null;   // not a move
+  return { oldPrefix, newPrefix };
+}
+
+/** Does `p` sit under `prefix`, at a path boundary? */
+function underPrefix(p, prefix) {
+  const pk = key(p), qk = key(prefix);
+  if (!pk.startsWith(qk)) return false;
+  const rest = p.slice(prefix.length);
+  return rest === '' || /^[\\/]/.test(rest);
+}
+
+/**
+ * Mode C: --auto <newRoot>. See the block comment above.
+ * @throws {Error} code 'EMIGRATEROOT' when newRoot is not a directory
+ */
+async function planAuto(newRootRaw, { onProgress = () => {}, onTick = () => {} } = {}) {
+  const newRoot = stripTrailing(normalize(newRootRaw));
+  const report = emptyReport('auto');
+  report.newRoot = newRoot;
+
+  if (!scanner.isDirectory(newRoot)) {
+    throw Object.assign(new Error(`not a directory: ${newRoot}`),
+      { code: 'EMIGRATEROOT', root: newRoot });
+  }
+
+  const rootPrefix = key(newRoot) + SEP;
+  const underRoot = (p) => key(p) === key(newRoot) || key(p).startsWith(rootPrefix);
+
+  const rows = db.getMigrationRows();
+  report.liveRows = rows.length;
+  // Same candidate rule and same stub-last ordering as relink: a stub must
+  // never claim a file away from the record carrying the metadata.
+  const isStub = (r) => r.processing_error === db.UNSCANNED_MARKER;
+  const candidateRows = rows.filter(r => !underRoot(r.filepath))
+    .sort((a, b) => isStub(a) - isStub(b));
+  report.considered = candidateRows.length;
+
+  if (candidateRows.length === 0) {
+    onProgress(`  0 of ${rows.length} live records sit outside ${newRoot}`);
+    return report;
+  }
+  onProgress(`  ${candidateRows.length} of ${rows.length} live records sit outside ${newRoot}`);
+
+  const pace = makePacer(onTick);
+
+  // ── Walk + index, exactly as relink does ──
+  onTick(0, 0, 'walking');
+  const files = await pacedWalk(newRoot, pace);
+  onProgress(`  ${files.length} media files under ${newRoot}`);
+  const byKey = new Map();
+  const bySize = new Map();
+  const push = (map, k, v) => { if (!map.has(k)) map.set(k, []); map.get(k).push(v); };
+  let walked = 0;
+  for (const f of files) {
+    walked++;
+    await pace(walked, files.length, 'walking');
+    const st = scanner.getStats(f.path);
+    if (!st) continue;
+    const entry = { path: f.path, size: st.size };
+    push(byKey, `${f.mediaType}|${dupes.nameKey(f.name)}`, entry);
+    push(bySize, `${f.mediaType}|${st.size}`, entry);
+  }
+  const byPhash = new Map();
+  for (const r of rows) {
+    if (!r.phash || !underRoot(r.filepath) || !exists(r.filepath)) continue;
+    push(byPhash, r.phash, r.filepath);
+  }
+
+  // ── R1: infer candidate rules. Index lookups only, no file I/O. ──
+  const prog = { processed: 0, total: candidateRows.length };
+  onTick(0, prog.total, 'matching');
+  const tally = new Map();
   for (const row of candidateRows) {
-    processed++;
-    await pace(processed, total, 'matching');
+    prog.processed++;
+    await pace(prog.processed, prog.total, 'matching');
     const nameKey = row.name_key || dupes.nameKey(row.filename);
-    let pool = (byKey.get(`${row.media_type}|${nameKey}`) || []).filter(free);
+    let pool = byKey.get(`${row.media_type}|${nameKey}`) || [];
     if (row.filesize_bytes) {
       pool = pool.filter(c => dupes.sizesMatch(c.size, row.filesize_bytes));
     }
-
-    if (pool.length === 0) { pending.push(row); continue; }
-
-    let chosen = pool[0];
-    let losers = [];
-    if (pool.length > 1) {
-      // Byte-exact copies outrank merely-close ones (the same preference
-      // findDupeCandidate encodes as ORDER BY ABS(size difference)); the
-      // path-shape tiebreak then runs inside whichever set survives.
-      let narrowed = pool;
-      if (row.filesize_bytes) {
-        const exact = pool.filter(c => c.size === row.filesize_bytes);
-        if (exact.length > 0) narrowed = exact;
-      }
-      chosen = narrowed.length === 1 ? narrowed[0] : pickBest(row.filepath, narrowed);
-      if (!chosen) {
-        report.ambiguous.push({ row, candidates: pool.map(c => c.path) });
-        continue;
-      }
-      losers = pool.filter(c => c !== chosen);
-    }
-
-    adopt(row, chosen, 'name+size', losers);
+    // Only an unambiguous match gets a vote. An ambiguous one has no single
+    // implied rewrite to read off, and guessing here would poison the tally.
+    if (pool.length !== 1) continue;
+    const rule = deriveRule(row.filepath, pool[0].path);
+    if (!rule) continue;
+    const k = `${key(rule.oldPrefix)}\u0000${key(rule.newPrefix)}`;
+    if (!tally.has(k)) tally.set(k, { ...rule, voters: [] });
+    tally.get(k).voters.push({ row, matched: pool[0].path });
   }
 
-  // ── Pass 2: the rename rescue, over whatever is still unclaimed ──
-  total += pending.length;
-  onTick(processed, total, 'matching');
-  for (const row of pending) {
-    processed++;
-    await pace(processed, total, 'matching');
-    let chosen = null;
-    let tier = null;
+  // ── Verify each well-supported rule against a sample of its own voters ──
+  // Longest oldPrefix first, so the most specific rule claims a row before a
+  // broader one does.
+  const supported = [...tally.values()]
+    .filter(r => r.voters.length >= MIN_RULE_SUPPORT)
+    .sort((a, b) => b.oldPrefix.length - a.oldPrefix.length);
 
-    // Unique exact byte size, same media type, any name. Uniqueness is
-    // required outright: two files of one size is not a rename, it is a
-    // coin flip.
-    if (row.filesize_bytes) {
-      const sized = (bySize.get(`${row.media_type}|${row.filesize_bytes}`) || []).filter(free);
-      if (sized.length === 1) { chosen = sized[0]; tier = 'exact size'; }
+  const accepted = [];
+  for (const rule of supported) {
+    const step = Math.max(1, Math.floor(rule.voters.length / MAX_RULE_SAMPLE));
+    let sampled = 0, verified = 0, poisoned = null;
+    for (let i = 0; i < rule.voters.length && sampled < MAX_RULE_SAMPLE; i += step) {
+      const v = rule.voters[i];
+      sampled++;
+      await pace(prog.processed, prog.total, 'matching');
+      const verdict = spotCheck(v.row.filepath, v.matched);
+      // 'skipped' means the old file is gone, so there is nothing to compare
+      // against. That is the disconnected-drive case, and it is exactly the
+      // trust level prefix mode has always run on: not evidence for the rule,
+      // but not evidence against it either.
+      if (verdict === 'mismatch') { poisoned = v; break; }
+      if (verdict === 'ok') verified++;
     }
-
-    // Last resort: a phash already on record under the new root.
-    if (!chosen && row.phash) {
-      const hits = (byPhash.get(row.phash) || [])
-        .filter(p => key(p) !== key(row.filepath) && !claimed.has(key(p)));
-      if (hits.length === 1) { chosen = { path: hits[0], size: null }; tier = 'phash'; }
-      else if (hits.length > 1) {
-        report.ambiguous.push({ row, candidates: hits });
-        continue;
-      }
+    if (poisoned) {
+      onProgress(`  rule ${rule.oldPrefix} -> ${rule.newPrefix} rejected: ` +
+        `${path.basename(poisoned.row.filepath)} does not match its destination`);
+      continue;                       // its rows fall through to the matcher
     }
-
-    if (!chosen) { report.unmatched.push({ row }); continue; }
-    adopt(row, chosen, tier, []);
+    accepted.push({ ...rule, sampled, verified });
   }
-  onTick(total, total, 'matching');
+
+  // ── R2: apply accepted rules by string surgery + one existsSync ──
+  const claimed = new Set();
+  const leftovers = [];
+  prog.total += candidateRows.length;
+  await pace(prog.processed, prog.total, 'matching', true);
+
+  const applied = new Map(accepted.map(r => [r, 0]));
+  for (const row of candidateRows) {
+    prog.processed++;
+    await pace(prog.processed, prog.total, 'matching');
+
+    const rule = accepted.find(r => underPrefix(row.filepath, r.oldPrefix));
+    if (!rule) { leftovers.push(row); continue; }
+
+    const mapped = rule.newPrefix + row.filepath.slice(rule.oldPrefix.length);
+    if (!exists(mapped)) { leftovers.push(row); continue; }
+
+    // A conflict here is REPORTED, not retried: the destination is genuinely
+    // occupied by another record, and the matcher would only reach the same
+    // conclusion more slowly.
+    const before = report.rewrite.length + report.absorb.length;
+    classify(row, mapped, report, claimed, `rule ${rule.oldPrefix} -> ${rule.newPrefix}`);
+    if (report.rewrite.length + report.absorb.length > before) {
+      applied.set(rule, applied.get(rule) + 1);
+    }
+  }
+
+  report.rules = accepted.map(r => ({
+    oldPrefix: r.oldPrefix, newPrefix: r.newPrefix,
+    rows: applied.get(r) || 0, support: r.voters.length,
+    sampled: r.sampled, verified: r.verified,
+  })).filter(r => r.rows > 0);
+
+  for (const r of report.rules) {
+    onProgress(`  rule ${r.oldPrefix} -> ${r.newPrefix}: ${r.rows} record(s), ` +
+      `${r.verified}/${r.sampled} sampled files byte-verified`);
+  }
+
+  // ── R3: everything the rules did not explain gets the full treatment ──
+  prog.total += leftovers.length;
+  await pace(prog.processed, prog.total, 'matching', true);
+  await matchRows(leftovers, { byKey, bySize, byPhash }, report, claimed, pace, prog);
+  onTick(prog.total, prog.total, 'matching');
 
   return report;
 }
@@ -743,6 +1008,12 @@ function summarize(report, limit = 25) {
 
   return {
     notMigrated,
+    // Auto mode only: the moves it worked out for itself, each with how many
+    // records it covered and how much of it was byte-checked.
+    rules: (report.rules || []).map(r => ({
+      oldPrefix: r.oldPrefix, newPrefix: r.newPrefix,
+      rows: r.rows, sampled: r.sampled, verified: r.verified,
+    })),
     mode: report.mode,
     oldPrefix: report.oldPrefix,
     newPrefix: report.newPrefix,
@@ -778,8 +1049,17 @@ function summarize(report, limit = 25) {
 function printReport(report, { dryRun, limit }) {
   const head = report.mode === 'prefix'
     ? `Prefix rewrite\n  old: ${report.oldPrefix}\n  new: ${report.newPrefix}`
-    : `Relink\n  root: ${report.newRoot}`;
-  console.log(`\n${head}${dryRun ? '\n  (DRY RUN — nothing written)' : ''}\n`);
+    : `${report.mode === 'auto' ? 'Auto' : 'Relink'}\n  root: ${report.newRoot}`;
+  console.log(`\n${head}${dryRun ? '\n  (DRY RUN, nothing written)' : ''}\n`);
+
+  if (report.rules && report.rules.length) {
+    console.log('  moves detected:');
+    for (const r of report.rules) {
+      console.log(`    ${r.oldPrefix} -> ${r.newPrefix}`);
+      console.log(`      ${r.rows.toLocaleString()} record(s), ${r.verified}/${r.sampled} sampled files byte-verified`);
+    }
+    console.log('');
+  }
 
   const n = (v) => String(v).padStart(7);
   console.log(`  live records         ${n(report.liveRows)}`);
@@ -788,7 +1068,7 @@ function printReport(report, { dryRun, limit }) {
   console.log(`  stubs absorbed       ${n(report.absorb.length)}`);
   if (report.mode === 'prefix') {
     console.log(`  missing at dest      ${n(report.missing.length)}`);
-  } else {
+  } else if (report.mode === 'auto' || report.mode === 'relink') {
     console.log(`  no match             ${n(report.unmatched.length)}`);
     console.log(`  ambiguous            ${n(report.ambiguous.length)}`);
     console.log(`  content mismatch     ${n(report.mismatch.length)}`);
@@ -808,7 +1088,7 @@ function printReport(report, { dryRun, limit }) {
 
   list('missing at destination', report.missing, it => `${it.row.filepath}  ->  ${it.newPath}`);
   list('conflicts (left untouched)', report.conflict, it =>
-    `${it.row.filepath}\n      wanted ${it.newPath}\n      held by #${it.occupant ? it.occupant.id : '?'} — ${it.reason}`);
+    `${it.row.filepath}\n      wanted ${it.newPath}\n      held by #${it.occupant ? it.occupant.id : '?'}, ${it.reason}`);
   list('ambiguous', report.ambiguous, it =>
     `${it.row.filepath}\n      ${it.candidates.length} candidates: ${it.candidates.slice(0, 3).join(', ')}`);
   list('content mismatch (matched, but the bytes differ)', report.mismatch, it =>
@@ -839,33 +1119,37 @@ async function run(args) {
     positional.push(a);
   }
 
+  const autoIdx = args.indexOf('--auto');
   const relinkIdx = args.indexOf('--relink');
-  const relink = relinkIdx >= 0;
+  const rootIdx = autoIdx >= 0 ? autoIdx : relinkIdx;
 
-  if (relink) {
-    // --relink <newRoot>: the root may be given after the flag or anywhere else.
-    const explicit = args[relinkIdx + 1] && !args[relinkIdx + 1].startsWith('--')
-      ? args[relinkIdx + 1] : positional[0];
+  if (rootIdx >= 0) {
+    const flag = autoIdx >= 0 ? '--auto' : '--relink';
+    // The root may be given after the flag or anywhere else.
+    const explicit = args[rootIdx + 1] && !args[rootIdx + 1].startsWith('--')
+      ? args[rootIdx + 1] : positional[0];
     if (!explicit) {
-      console.error('migrate --relink needs a root directory\n');
+      console.error(`migrate ${flag} needs a root directory\n`);
       usage();
       process.exit(1);
     }
     db.init();
-    console.log(`\nRelinking against ${normalize(explicit)}…`);
+    const verb = autoIdx >= 0 ? 'Searching' : 'Relinking against';
+    console.log(`\n${verb} ${normalize(explicit)}…`);
     const progress = makeCliProgress();
+    const plan = autoIdx >= 0 ? planAuto : planRelink;
     let report;
     try {
-      report = await planRelink(explicit, {
+      report = await plan(explicit, {
         onProgress: (line) => { progress.done(); console.log(line); },
         onTick: progress.tick,
       });
     } catch (err) {
       progress.done();
-      // A bad root is a usage mistake, not a crash — same wording as before
-      // the planner was shared with the HTTP route.
+      // A bad root is a usage mistake, not a crash, and the wording predates
+      // the planner being shared with the HTTP route.
       if (err.code !== 'EMIGRATEROOT') throw err;
-      console.error(`migrate --relink: ${err.message}\n`);
+      console.error(`migrate ${flag}: ${err.message}\n`);
       usage();
       process.exit(1);
     }
@@ -900,6 +1184,6 @@ async function run(args) {
 }
 
 module.exports = {
-  run, planPrefix, planRelink, apply, summarize,
-  normalize, stripTrailing, humanDuration,
+  run, planPrefix, planRelink, planAuto, apply, summarize,
+  normalize, stripTrailing, humanDuration, deriveRule,
 };

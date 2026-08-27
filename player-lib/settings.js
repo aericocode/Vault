@@ -27,6 +27,7 @@
     unlockHoldSeconds: 0,   // press-and-hold on the lock before the password box (0 = single click)
     blurThumbs: false,      // blur the grid's tiles (hover reveals — unless privacy mode is on)
     gamifyHidden: false,    // hide the Obsession chip + toasts (scoring continues)
+    libraryDeepOpen: false, // Settings > Library: is the deep-search section expanded
     _lastMediaId: null,     // internal: id for restoreSession
   };
 
@@ -624,12 +625,15 @@
     : String(s ?? '').replace(/[&<>"']/g, c =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])));
 
-  // Per-form: the inputs a report was produced from, so a later edit can
-  // disable Apply. null = no valid preview.
-  const migState = { prefix: null, relink: null };
+  // Per-card: the inputs a report was produced from, so a later edit can
+  // disable Apply. null = no valid preview. The panel shows one card ('auto');
+  // the other two keys are the modes the planner still exposes, kept so
+  // restoring the two-card layout (see MIGRATE-TWO-CARD-SPEC.md) is a UI edit
+  // and nothing more.
+  const migState = { auto: null, prefix: null, relink: null };
 
   function migInputs(mode) {
-    return mode === 'relink'
+    return (mode === 'relink' || mode === 'auto')
       ? { mode, newRoot: (document.getElementById('migNewRoot')?.value || '').trim() }
       : {
           mode,
@@ -641,32 +645,62 @@
   function RENDERERS_library() {
     return `
       <h3 class="settings-h">Move / relink library</h3>
-      <p>Vault identifies a file by its full path. Move your library to another
-      drive and every record points at nothing — the files look brand new and a
-      full rescan would rebuild metadata you already have. These two tools edit
-      the stored paths instead: <b>nothing is re-analyzed</b>, and notes, stars,
-      ratings, view counts and collections are all kept.</p>
-      <p class="settings-note">Records in the trash are never touched, and a
-      record only moves when the file really is at the destination. If you
-      already dragged the new folders in, the placeholder rows that created
-      (⏳ unscanned) are deleted and the real record takes their place.</p>
+      <p>Moved your collection? Don't re-scan it. Tell Vault where the files
+      went and it updates its records to match. Every tag, note, star and view
+      count carries over untouched.</p>
+      <p class="settings-note">Nothing is moved, copied or deleted on your
+      drives. Only Vault's own records change. A record updates only when the
+      file is verified at its new home, and anything Vault isn't sure about is
+      left as-is for you to review. Already dragged the new folder in? The empty
+      ⏳ placeholder entries are merged away automatically.</p>
 
       ${migCard({
         mode: 'prefix',
-        title: 'The whole library moved',
-        blurb: 'The drive letter or parent folder changed but the tree below it is the same.',
+        title: 'Quick move',
+        blurb: 'Same folders, new place. Use this when only the start of the path changed. Instant.',
         fields: `
           ${migField('migOldPrefix', 'Old path prefix', 'C:\\Media')}
           ${migField('migNewPrefix', 'New path prefix', 'D:\\Media')}`,
       })}
 
-      ${migCard({
-        mode: 'relink',
-        title: 'Folders were renamed, or you copied everything across',
-        blurb: 'Searches a folder and all its subfolders and matches your records to what it finds — by filename and size first, then by an exact byte size for files that were <b>renamed</b>. The old drive can stay connected: records still pointing at it are matched too. Every match is <b>byte-verified</b> (the first and last 64KB of both files must agree), so a same-size look-alike is reported instead of adopted. Anything it cannot decide is left completely untouched.',
-        fields: migField('migNewRoot', 'Search this folder', 'D:\\Media'),
-      })}
+      <button class="mig-expander" id="migDeepToggle" type="button" aria-expanded="false"
+              aria-controls="migDeepSection">
+        <span class="mig-chev" aria-hidden="true">&#9656;</span>
+        <span>Can't use quick move? Deep search finds renamed and shuffled files</span>
+      </button>
+      <div class="mig-deep" id="migDeepSection" hidden>
+        ${migCard({
+          mode: 'auto',
+          title: 'Deep search',
+          blurb: 'Point this at your new main folder. Vault scans every file in it (subfolders included) and matches your records to what it finds, even renamed files. Every match is checked against the file contents. Slow on big drives.',
+          fields: migField('migNewRoot', 'Search this folder', 'D:\\Media'),
+        })}
+      </div>
     `;
+  }
+
+  /* ── The deep-search expander ─────────────────────────────────────────────
+     Quick move is first and always visible because it is the common case and
+     it is instant: it rewrites paths by string surgery and never reads a byte.
+     Deep search walks the whole drive, which on a 60k library over a slow disk
+     is minutes of work, so it does not get to be the thing you reach for by
+     default. It stays one click away, and remembers whether you left it open. */
+
+  function migDeepIsOpen() {
+    const sec = document.getElementById('migDeepSection');
+    return !!(sec && !sec.hidden);
+  }
+
+  function migSetDeepOpen(open, { persist = true } = {}) {
+    const sec = document.getElementById('migDeepSection');
+    const btn = document.getElementById('migDeepToggle');
+    if (!sec || !btn) return;
+    sec.hidden = !open;
+    btn.setAttribute('aria-expanded', String(!!open));
+    btn.classList.toggle('is-open', !!open);
+    const chev = btn.querySelector('.mig-chev');
+    if (chev) chev.innerHTML = open ? '&#9662;' : '&#9656;';
+    if (persist) { settings.libraryDeepOpen = !!open; save(); }
   }
 
   function migField(id, label, placeholder) {
@@ -688,6 +722,10 @@
           <button class="settings-btn" data-mig-act="preview">Preview</button>
           <button class="settings-btn mig-apply" data-mig-act="apply" disabled>Apply</button>
           <span class="mig-status"></span>
+        </div>
+        <div class="mig-progress" style="display:none">
+          <div class="mig-bar"><div class="mig-bar-fill"></div></div>
+          <div class="mig-bar-stats"></div>
         </div>
         <div class="mig-confirm" style="display:none"></div>
         <div class="mig-report"></div>
@@ -718,14 +756,22 @@
             migHideConfirmBar(card, mode);
           }
           card.querySelector('.mig-apply').disabled = !matches;
-          migSetStatus(card, matches ? saved.status : 'Inputs changed — preview again.');
+          migSetStatus(card, matches ? saved.status : 'Inputs changed. Preview again.');
         });
       });
       card.querySelector('[data-mig-act="preview"]')
         .addEventListener('click', () => migRun(card, mode, false));
       card.querySelector('[data-mig-act="apply"]')
         .addEventListener('click', () => migRequestApply(card, mode));
+      migHideProgress(card);
     });
+
+    // Restore the expander to however it was left, then wire it.
+    migSetDeepOpen(!!settings.libraryDeepOpen, { persist: false });
+    const toggle = document.getElementById('migDeepToggle');
+    if (toggle) toggle.addEventListener('click', () => migSetDeepOpen(!migDeepIsOpen()));
+
+    migResetRate();
     migAttach();
   }
 
@@ -756,7 +802,7 @@
 
   const MIG_PHASES = {
     starting: 'Starting', walking: 'Indexing folder',
-    matching: 'Matching records', writing: 'Writing changes', done: 'Finishing up',
+    matching: 'Matching records', writing: 'Moving records', done: 'Finishing up',
   };
 
   /**
@@ -793,22 +839,101 @@
     return true;
   }
 
+  /* ── Throughput ───────────────────────────────────────────────────────────
+     Rate is computed here rather than server-side: the server would have to
+     keep a window per client for no benefit, and the poll interval already
+     gives a natural sampling rate.
+
+     A rolling window rather than processed/elapsed: the instant rate swings
+     wildly (a run of cached files then a run of cold ones), and a number that
+     jumps between 200 and 4,000 every second reads as broken. Averaging the
+     whole run instead would be stable but wrong, still quoting the fast start
+     long after the run has slowed down. Five samples is about five seconds of
+     history, which settles the jitter without lying about the present.
+
+     The window resets on a phase change because `processed` counts different
+     things in each phase (files while walking, records while matching), so
+     carrying samples across the boundary would produce a garbage delta. */
+
+  const MIG_RATE_SAMPLES = 5;
+  let migRateWindow = [];
+  let migRatePhase = null;
+
+  function migResetRate() { migRateWindow = []; migRatePhase = null; }
+
+  /** @returns {number|null} files per second, or null until it means something */
+  function migRate(s) {
+    if (s.phase !== migRatePhase) { migRateWindow = []; migRatePhase = s.phase; }
+    const now = Date.now();
+    const last = migRateWindow[migRateWindow.length - 1];
+    if (!last || last.processed !== s.processed) {
+      migRateWindow.push({ processed: s.processed, at: now });
+      if (migRateWindow.length > MIG_RATE_SAMPLES) migRateWindow.shift();
+    }
+    if (migRateWindow.length < 2) return null;      // one sample is not a rate
+    const a = migRateWindow[0];
+    const b = migRateWindow[migRateWindow.length - 1];
+    const dt = (b.at - a.at) / 1000;
+    const dp = b.processed - a.processed;
+    if (dt <= 0 || dp <= 0) return null;
+    return Math.round(dp / dt);
+  }
+
   function migRenderProgress(card, s) {
-    const bits = [MIG_PHASES[s.phase] || s.phase];
-    // The folder walk has no total until it ends — show what it has found so
-    // far rather than a fraction of an unknown.
-    if (s.total > 0) bits.push(`${s.processed.toLocaleString()} / ${s.total.toLocaleString()}`);
-    else if (s.processed > 0) bits.push(`${s.processed.toLocaleString()} found`);
-    bits.push(`elapsed ${migHuman(s.elapsedMs)}`);
+    // An APPLY re-verifies the whole plan server-side before writing, and that
+    // re-check walks every candidate again. Showing its count as the move
+    // ("checking 600" when only 25 records will change) reads as the wrong
+    // thing happening, so before the writing phase an apply shows a quiet
+    // preparing state with no counts. The writing phase then counts only the
+    // records actually changing.
+    const preparing = s.kind === 'apply' && s.phase !== 'writing' && s.phase !== 'done';
+    migSetStatus(card, preparing ? 'Preparing the move' : (MIG_PHASES[s.phase] || s.phase));
+
+    const box = card.querySelector('.mig-progress');
+    const fill = card.querySelector('.mig-bar-fill');
+    const stats = card.querySelector('.mig-bar-stats');
+    if (!box || !fill || !stats) return;
+    box.style.display = '';
+
+    if (preparing) {
+      box.classList.add('is-indeterminate');
+      fill.style.width = '';
+      stats.textContent = `${migHuman(s.elapsedMs)} elapsed`;
+      return;
+    }
+
+    const rate = migRate(s);
+    const determinate = s.total > 0;
+    // The folder walk cannot know its own size until it ends, so it gets a
+    // moving bar rather than a fraction of an unknown.
+    box.classList.toggle('is-indeterminate', !determinate);
+    fill.style.width = determinate
+      ? `${Math.max(0, Math.min(100, (s.processed / s.total) * 100)).toFixed(1)}%`
+      : '';
+
+    const bits = [];
+    if (determinate) bits.push(`${s.processed.toLocaleString()} / ${s.total.toLocaleString()}`);
+    else if (s.processed > 0) bits.push(`${s.processed.toLocaleString()} files found`);
+    if (rate != null) bits.push(`${rate.toLocaleString()} files/s`);
+    bits.push(`${migHuman(s.elapsedMs)} elapsed`);
     // ETA stays hidden until the server has enough of a sample to mean it.
-    if (s.etaMs != null) bits.push(`~${migHuman(s.etaMs)} left`);
-    migSetStatus(card, bits.join(' · '));
+    if (s.etaMs != null) bits.push(`about ${migHuman(s.etaMs)} left`);
+    stats.textContent = bits.join(' · ');
+  }
+
+  function migHideProgress(card) {
+    const box = card.querySelector('.mig-progress');
+    if (!box) return;
+    box.style.display = 'none';
+    box.classList.remove('is-indeterminate');
+    const stats = card.querySelector('.mig-bar-stats');
+    if (stats) stats.textContent = '';
   }
 
   /** Put the job's own inputs back into the card — this tab may never have typed them. */
   function migRestoreInputs(s) {
     const set = (id, v) => { const e = document.getElementById(id); if (e && v != null) e.value = v; };
-    if (s.mode === 'relink') set('migNewRoot', s.inputs.newRoot);
+    if (s.mode === 'relink' || s.mode === 'auto') set('migNewRoot', s.inputs.newRoot);
     else { set('migOldPrefix', s.inputs.oldPrefix); set('migNewPrefix', s.inputs.newPrefix); }
   }
 
@@ -847,6 +972,10 @@
     if (!s || s.idle) return;
     const card = migCardFor(s.mode);
     if (!card) return;
+    // A deep-search job has to be visible to be watched. Expanding is not a
+    // preference the user expressed, so it is not persisted: collapsing again
+    // is one click, and a hidden running job would be worse than an open panel.
+    if (s.mode === 'auto') migSetDeepOpen(true, { persist: false });
     migRestoreInputs(s);
     if (s.running) {
       migLock(card, true);
@@ -869,6 +998,8 @@
     // impossible, and costs one assignment.
     if (s.inputs) migRestoreInputs({ mode, inputs: s.inputs });
     migLock(card, false);
+    migHideProgress(card);
+    migResetRate();
 
     if (s.error) {
       migSetStatus(card, s.error, 'mig-bad');
@@ -883,7 +1014,7 @@
     if (s.kind === 'apply') {
       migState[mode] = null;
       const n = (s.applied || 0).toLocaleString();
-      migSetStatus(card, `Done — ${n} record(s) repointed in ${migHuman(s.elapsedMs)}.`, 'mig-good');
+      migSetStatus(card, `Done: ${n} record(s) repointed in ${migHuman(s.elapsedMs)}.`, 'mig-good');
       card.querySelector('.mig-apply').disabled = true;
 
       // The finished summary stays parked server-side for an hour, and this
@@ -904,7 +1035,7 @@
 
     const willChange = s.report.counts.rewrite + s.report.counts.absorb;
     const status = willChange > 0
-      ? `Preview only — nothing written. ${willChange.toLocaleString()} record(s) would move (took ${migHuman(s.elapsedMs)}).`
+      ? `Preview only, nothing written. ${willChange.toLocaleString()} record(s) would move (took ${migHuman(s.elapsedMs)}).`
       : 'Nothing would change.';
     // The signature is taken from the inputs as they now stand, which
     // migRestoreInputs has just set to the ones the job actually ran with.
@@ -915,17 +1046,15 @@
   }
 
   /* ── The confirm step ─────────────────────────────────────────────────────
-     Prefix rewrite keeps the native confirm(): the mapping is mechanical
-     (old prefix in, new prefix out), the user typed both halves, and every
-     destination has to already hold the file.
-
-     Relink does not get off that lightly. Its destinations are GUESSED — from
-     a filename, or in the rename-rescue tier from a byte count and nothing
-     else — and applying forgets the old paths. A native dialog is one keypress
-     from accepted and appears under the cursor, which is exactly where a
-     double-click on Apply is already heading. So relink confirms inline: the
-     bar appears with its button on the OPPOSITE side of the card, and that
-     button is dead for a second and a half. You cannot reach it by accident. */
+     EVERY mode confirms with the inline bar, never the browser's native
+     confirm() (which looks foreign, appears under the cursor, and is one
+     keypress from accepted). The deep modes earn the full treatment because
+     their destinations are GUESSED — from a filename, or in the rename-rescue
+     tier from a byte count and nothing else — and applying forgets the old
+     paths: the bar's button sits on the OPPOSITE side of the card and is dead
+     for a second and a half, so it cannot be reached by accident. Quick move's
+     mapping is mechanical (the user typed both halves and every destination
+     must already hold the file), so its bar arms instantly. */
 
   const CONFIRM_DELAY_MS = 1500;
 
@@ -933,11 +1062,6 @@
     const saved = migState[mode];
     if (!saved || saved.signature !== JSON.stringify(migInputs(mode))) {
       migSetStatus(card, 'Preview first.', 'mig-bad');
-      return;
-    }
-    if (mode !== 'relink') {
-      if (!confirm(migConfirmText(saved.report))) return;
-      migRun(card, mode, true);
       return;
     }
     migShowConfirmBar(card, mode, saved.report);
@@ -948,16 +1072,24 @@
     const c = report.counts;
     const moving = c.rewrite + c.absorb;
     const asides = [];
+    const rules = report.rules || [];
+    if (rules.length) {
+      asides.push(`${rules.length} whole-folder move(s) detected, covering ` +
+        `${rules.reduce((n, r) => n + r.rows, 0).toLocaleString()} record(s)`);
+    }
     if (c.absorb) asides.push(`${c.absorb.toLocaleString()} placeholder row(s) deleted`);
-    if (c.mismatch) asides.push(`${c.mismatch.toLocaleString()} rejected — content differs`);
+    if (c.mismatch) asides.push(`${c.mismatch.toLocaleString()} rejected, content differs`);
     if (c.dupesLinked) asides.push(`${c.dupesLinked.toLocaleString()} look-alike(s) grouped as dupes`);
     if (c.ambiguous) asides.push(`${c.ambiguous.toLocaleString()} ambiguous, left alone`);
     if (c.unmatched) asides.push(`${c.unmatched.toLocaleString()} unmatched, left alone`);
 
+    const dest = mode === 'prefix'
+      ? `<code>${esc(report.oldPrefix)}</code> to <code>${esc(report.newPrefix)}</code>`
+      : `<code>${esc(report.newRoot)}</code>`;
     bar.innerHTML = `
       <div class="mig-confirm-text">
-        <b>Repoint ${moving.toLocaleString()} record(s)</b> to
-        <code>${esc(report.newRoot)}</code> — their old paths will be forgotten.
+        <b>Repoint ${moving.toLocaleString()} record(s)</b> ${mode === 'prefix' ? 'from' : 'to'}
+        ${dest}. Their old paths will be forgotten.
         ${asides.length ? `<span class="mig-confirm-aside">${asides.join(' · ')}</span>` : ''}
       </div>
       <div class="mig-confirm-btns">
@@ -971,14 +1103,17 @@
     card.querySelector('.mig-apply').disabled = true;
 
     const go = bar.querySelector('.mig-confirm-go');
+    // Quick move's destinations were typed, not guessed, so its bar arms
+    // immediately; the guessing modes keep the accident-proof delay.
+    const delayMs = mode === 'prefix' ? 0 : CONFIRM_DELAY_MS;
     // Enablement runs off a wall-clock deadline and its OWN timeout, not off
     // counting interval ticks: a browser that has throttled this tab (any
     // background tab does) would otherwise stretch 1.5 seconds into fifteen.
     // The interval only paints the countdown, so throttling it is harmless.
-    const deadline = Date.now() + CONFIRM_DELAY_MS;
+    const deadline = Date.now() + delayMs;
     const label = () => {
       const left = Math.max(0, deadline - Date.now());
-      go.textContent = left > 0 ? `Confirm (${(left / 1000).toFixed(1)}s)` : 'Confirm — repoint them';
+      go.textContent = left > 0 ? `Confirm (${(left / 1000).toFixed(1)}s)` : 'Confirm, repoint them';
     };
     label();
     const tick = setInterval(() => {
@@ -986,7 +1121,7 @@
       if (Date.now() >= deadline) { clearInterval(tick); bar._migTick = null; }
     }, 100);
     bar._migTick = tick;
-    bar._migArm = setTimeout(() => { go.disabled = false; label(); }, CONFIRM_DELAY_MS);
+    bar._migArm = setTimeout(() => { go.disabled = false; label(); }, delayMs);
 
     bar.querySelector('.mig-confirm-cancel').addEventListener('click', () => {
       migHideConfirmBar(card, mode);
@@ -1048,7 +1183,7 @@
       // stopping there would leave this tab blind to a run it can perfectly
       // well watch — so say so, then attach to it.
       if (resp.status === 409 && data.jobId) {
-        migSetStatus(card, `${data.error || 'A migrate is already running'} — progress is shown here.`);
+        migSetStatus(card, `${data.error || 'A migrate is already running'}. Progress is shown here.`);
         migAttach();
         return;
       }
@@ -1073,7 +1208,8 @@
       }
 
       // Still going — the poller owns the card from here.
-      migRenderProgress(card, { phase: 'starting', processed: 0, total: 0, elapsedMs: 0, etaMs: null });
+      migResetRate();
+      migRenderProgress(card, { kind: isApply ? 'apply' : 'preview', phase: 'starting', processed: 0, total: 0, elapsedMs: 0, etaMs: null });
       migStartPolling();
     } catch (err) {
       migSetStatus(card, err.message, 'mig-bad');
@@ -1098,31 +1234,6 @@
     });
   }
 
-  function migConfirmText(report) {
-    const c = report.counts;
-    const lines = [
-      `Repoint ${(c.rewrite + c.absorb).toLocaleString()} record(s)?`,
-      '',
-      `• ${c.rewrite.toLocaleString()} record(s) get a new path`,
-    ];
-    if (c.absorb) {
-      lines.push(
-        `• ${c.absorb.toLocaleString()} placeholder row(s) at the destination will be DELETED`,
-        '  and the real record takes their path (the placeholders hold no',
-        '  metadata — but any collection membership or notes added to them',
-        '  since the import go with them)');
-    }
-    lines.push('',
-      'No files on disk are touched, and nothing is re-analyzed.',
-      'Records left alone: ' +
-      `${c.missing.toLocaleString()} missing at destination, ` +
-      `${c.conflict.toLocaleString()} conflicts` +
-      (report.mode === 'relink'
-        ? `, ${c.ambiguous.toLocaleString()} ambiguous, ${c.unmatched.toLocaleString()} unmatched`
-        : '') + '.');
-    return lines.join('\n');
-  }
-
   function migReportHtml(report, applied) {
     const c = report.counts;
     const tile = (label, n, cls = '') =>
@@ -1136,7 +1247,7 @@
       tile('stubs absorbed', c.absorb, 'mig-good-stat'),
       tile(report.mode === 'relink' ? 'vanished' : 'missing at destination', c.missing, 'mig-warn-stat'),
       tile('conflicts', c.conflict, 'mig-warn-stat'),
-      ...(report.mode === 'relink' ? [
+      ...(report.mode !== 'prefix' ? [
         tile('content mismatch', c.mismatch || 0, 'mig-warn-stat'),
         tile('ambiguous', c.ambiguous, 'mig-warn-stat'),
         tile('no match', c.unmatched, 'mig-warn-stat'),
@@ -1144,12 +1255,28 @@
       ] : []),
     ].join('');
 
+    // Auto mode works out whole-folder moves for itself. Showing them is the
+    // difference between "trust me, 40,000 things happened" and "this folder
+    // is now that folder, here is how many records that covers".
+    const rules = report.rules || [];
+    const moves = rules.length ? `
+      <div class="mig-moves">
+        <div class="mig-moves-title">${applied ? 'Moves applied' : 'Moves discovered'}</div>
+        ${rules.map(r => `
+          <div class="mig-move">
+            <code>${esc(r.oldPrefix)}</code>
+            <span class="mig-arrow">-&gt;</span>
+            <code>${esc(r.newPrefix)}</code>
+            <span class="mig-why">${r.rows.toLocaleString()} record(s), ${r.verified.toLocaleString()} of ${r.sampled.toLocaleString()} sampled files checked against their contents</span>
+          </div>`).join('')}
+      </div>` : '';
+
     // The set that did NOT move is the one the user has to deal with by hand,
-    // and no search term describes it — so hand the grid the ids directly.
+    // and no search term describes it, so hand the grid the ids directly.
     const left = report.notMigrated;
     const notMigrated = (left && left.total) ? `
       <div class="mig-leftovers">
-        <span>${left.total.toLocaleString()} record(s) ${applied ? 'did not migrate' : 'would not migrate'} — they keep everything and were not touched.</span>
+        <span>${left.total.toLocaleString()} record(s) ${applied ? 'did not migrate' : 'would not migrate'}. They keep everything and were not touched.</span>
         <button class="settings-btn mig-show-left" type="button"
           data-ids="${esc(JSON.stringify(left.ids))}"
           data-label="record(s) that did not migrate">Show in library</button>
@@ -1174,16 +1301,17 @@
 
     return `
       <div class="mig-stats">${stats}</div>
+      ${moves}
       ${notMigrated}
-      ${detail('Rejected — same name or size, different content', report.mismatch, (it) => `
+      ${detail('Rejected: same name or size, different content', report.mismatch, (it) => `
         <li><code>${esc(it.from)}</code><span class="mig-arrow">≠</span><code>${esc(it.to)}</code>
           <span class="mig-why">${esc(it.reason)}</span></li>`)}
       ${detail(report.mode === 'relink' ? 'Vanished between scan and check' : 'No file at the destination',
         report.missing, arrow)}
-      ${detail('Conflicts — another record already owns that path', report.conflict, (it) => `
+      ${detail('Conflicts: another record already owns that path', report.conflict, (it) => `
         <li><code>${esc(it.from)}</code><span class="mig-arrow">→</span><code>${esc(it.to)}</code>
-          <span class="mig-why">held by record #${esc(it.occupantId ?? '?')} — ${esc(it.reason)}</span></li>`)}
-      ${detail('Ambiguous — more than one file matches', report.ambiguous, (it) => `
+          <span class="mig-why">held by record #${esc(it.occupantId ?? '?')}, ${esc(it.reason)}</span></li>`)}
+      ${detail('Ambiguous: more than one file matches', report.ambiguous, (it) => `
         <li><code>${esc(it.from)}</code>
           <span class="mig-why">${it.candidateCount} candidates: ${it.candidates.map(p => `<code>${esc(p)}</code>`).join(', ')}</span></li>`)}
       ${detail('No match found under that folder', report.unmatched, (it) => `<li><code>${esc(it.from)}</code></li>`)}
@@ -1218,7 +1346,7 @@
     host.style.display = '';
     host.innerHTML = `
       <span class="missing-banner-text">
-        <b>${count.toLocaleString()}</b> of ${total.toLocaleString()} files are missing from disk — did your library move?
+        <b>${count.toLocaleString()}</b> of ${total.toLocaleString()} files are missing from disk. Did your library move?
       </span>
       <button class="missing-banner-fix" id="missingBannerFix">Fix paths…</button>
       <button class="missing-banner-close" id="missingBannerClose" title="Dismiss for this session" aria-label="Dismiss">&times;</button>`;

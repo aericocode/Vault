@@ -260,7 +260,7 @@ async function run(args) {
         break;
       case 'viewer':
         console.log('\n  Double-click start.bat, or run: npm run viewer');
-        console.log('  Then open http://127.0.0.1:8765');
+        console.log(`  Then open http://127.0.0.1:${require('../config').server.port}`);
         break;
     }
 

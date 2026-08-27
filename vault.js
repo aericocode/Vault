@@ -15,6 +15,7 @@ const commands = {
   json: () => require('./commands/json'),
   embed: () => require('./commands/embed'),
   clean: () => require('./commands/clean'),
+  migrate: () => require('./commands/migrate'),
   phash: () => require('./commands/phash'),
   wizard: () => require('./commands/wizard'),
   'mark-executed': () => require('./commands/mark-executed'),
@@ -52,6 +53,17 @@ Commands:
         --threshold N       Max hash distance to match (default: 8, lower = stricter)
         --link              Join found groups as dupes (shared notes, ⧉ badge)
         --force             Re-hash every file
+
+  migrate <old> <new> [--dry-run]
+      Repoint the library at moved files — no rescan. Rewrites every live
+      record under <old> to sit under <new> (only where the file is really
+      there), absorbing any 'unscanned' stub already at the destination.
+
+      node vault.js migrate --relink <newRoot> [--dry-run]
+        For renamed/reorganized folders, and for copy-style moves where the
+        old drive is still connected. Matches every record not already under
+        <newRoot> against the files there by name + size, falling back to a
+        unique exact size for renamed files. Every match is byte-verified.
 
   music <sub>         Music ID: check-tools | fingerprint <id|all> [--force] |
                       scan <id|all> | status  (fingerprint = one-time per file,
@@ -133,4 +145,10 @@ if (!commands[command]) {
 }
 
 const cmd = commands[command]();
-cmd.run(args);
+// Several commands are async. An unhandled rejection would print a bare stack
+// (and, on newer Node, exit non-zero with no explanation) — say what failed.
+Promise.resolve(cmd.run(args)).catch(err => {
+  console.error(`\n${command} failed: ${err && err.message ? err.message : err}`);
+  if (process.env.VAULT_DEBUG) console.error(err);
+  process.exit(1);
+});

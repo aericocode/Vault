@@ -107,7 +107,7 @@ function renderFocusBar() {
   if (!focusIds) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
   bar.style.display = '';
   bar.innerHTML = `
-    <span class="focus-banner-text">Showing <b>${focusIds.size.toLocaleString()}</b> ${escapeHtml(focusLabel)} — other filters are paused.</span>
+    <span class="focus-banner-text">Showing <b>${focusIds.size.toLocaleString()}</b> ${escapeHtml(focusLabel)}. Other filters are paused.</span>
     <button class="focus-banner-close" id="focusBarClear">Show everything</button>`;
   bar.querySelector('#focusBarClear').addEventListener('click', clearFocusIds);
 }
