@@ -63,6 +63,7 @@ See [SETUP.md](SETUP.md) for the full walkthrough and model recommendations by V
 | **Encryption** | Password-locked database with auto-lock on idle |
 | **Trash with undo** | Real file moves, never silent deletes — one-click Undo and per-file Restore |
 | **Dedupe** | Filename+size matching at scan time plus perceptual hashing for visual duplicates |
+| **Survives moves** | Moved your library to a new drive or reorganized folders? Vault repoints its records — every tag, note and view count follows, nothing is rescanned |
 
 <details>
 <summary><b>🧠 AI scanning &amp; tagging</b></summary>
@@ -92,6 +93,8 @@ Start with `start.bat` to launch a full browser UI, works in any browser, media 
 - **Remove records without deleting files** — drop a bad/duplicate entry from the library while leaving the file untouched on disk (re-scan the folder to bring it back)
 - **Hand-edit AI metadata** — correct description, themes, tags, language, content type, or quality flag directly from the sidebar when the AI got it wrong
 - **Rescan from the UI** — re-run AI analysis on a single file (fixes failed/bad scans) without a full CLI rescan
+- **Scan-status filter & bulk rescan** — filter by Done / Failed / Unscanned and rescan the whole filtered set in one click; force mode re-runs AI tagging while keeping your notes, stars and ratings
+- **Library migration** — moved your collection? Settings → Library repoints records instead of rescanning: Quick move for a drive/prefix swap, Deep search to find renamed and reshuffled files (content-verified matches, full preview before anything is written, progress with files/s and ETA)
 - **Note snippets** — reusable quick-notes ("Watch again", timestamps) with one-click, and clickable `MM:SS` timestamps that seek the player
 - **Resume playback** — remembers your position per file; view counts track real engagement (requires ≥75% watched for video/audio)
 - **Mini-player** — pop out and keep browsing while something plays
