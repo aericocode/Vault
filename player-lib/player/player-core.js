@@ -538,7 +538,7 @@ function closeMediaInfo() {
 
 // VLC-style: hide the controls AND the cursor this long after the pointer
 // last moved over the video (only while a video is actively playing).
-const CONTROLS_HIDE_MS = 1500;
+const CONTROLS_HIDE_MS = 2500;
 
 /**
  * Types that behave like a video player: real videos and mixes.
@@ -556,9 +556,9 @@ function isVideoLike(type) {
 const BEATBAR_DEADZONE_PAD = 24;
 
 // Auto-hide the player chrome after the idle timeout. Only the video player
-// hides (images/docs/3D keep their controls). The bar hides whether the
-// video is playing OR paused; the cursor only disappears while actually
-// playing — when paused the user is likely about to click, so it stays.
+// hides (images/docs/3D keep their controls). Nothing hides while the video is
+// paused — a paused video means the user is about to click something, so the
+// bar and the cursor both stay put until playback resumes.
 function hidePlayerChrome() {
   const overlay = document.getElementById('mediaPlayerOverlay');
   if (!overlay || !overlay.classList.contains('active')) return;
@@ -569,9 +569,10 @@ function hidePlayerChrome() {
   // and, because .media-player-content video carries cursor:pointer, a pointer
   // cursor that never went away either.
   if (!isVideoLike(currentMediaState.type) || !el) return;
+  if (el.paused) return;
 
   overlay.classList.remove('controls-visible');
-  if (!el.paused) overlay.classList.add('cursor-hidden');
+  overlay.classList.add('cursor-hidden');
 }
 
 // Show controls and schedule the hide

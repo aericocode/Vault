@@ -36,8 +36,8 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
   controlsContainer.innerHTML = `
     <div class="player-controls-wrapper video-controls">
       <div class="video-progress-wrapper" id="videoProgressWrapper" onmouseenter="drawActivityBar()">
-        <canvas class="video-activity" id="videoActivityBar" height="26" aria-hidden="true" onclick="seekVideo(event)"></canvas>
-        <div class="video-progress" id="videoProgress" onclick="seekVideo(event)">
+        <canvas class="video-activity" id="videoActivityBar" height="26" aria-hidden="true"></canvas>
+        <div class="video-progress" id="videoProgress">
           <div class="video-progress-bar" id="videoProgressBar" style="width: 0%"></div>
         </div>
       </div>
@@ -128,6 +128,10 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
   video.addEventListener('play', () => {
     const btn = document.getElementById('playPauseBtn');
     if (btn) btn.textContent = '⏸';
+    // Playback resuming has to re-arm the idle hide: the chrome now stays put
+    // while paused, so without this a pause-then-play from the native element
+    // or from autoplay would leave the bar up for good.
+    if (typeof scheduleHideControls === 'function') scheduleHideControls();
   });
   
   video.addEventListener('pause', () => {
@@ -143,6 +147,12 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
 
   video.addEventListener('click', handleVideoClick);
   video.addEventListener('dblclick', handleVideoDoubleClick);
+
+  attachSeekScrubbing(
+    document.getElementById('videoProgressWrapper'),
+    document.getElementById('videoProgress'),
+    () => currentMediaState.element
+  );
 
   // Set volume slider max based on whether audio boost is available
   const volumeSlider = document.getElementById('volumeSlider');
@@ -289,6 +299,109 @@ function seekVideo(event) {
   const rect = bar.getBoundingClientRect();
   const percent = (event.clientX - rect.left) / rect.width;
   video.currentTime = percent * video.duration;
+}
+
+/* ── Seek bar scrubbing + hover time ──────────────────────────────────────
+   Shared by the video and audio players (this file loads first, so audio can
+   call it). Click-only seeking made you guess and re-click; here the bar
+   follows the pointer while the button is held, and hovering shows the time
+   under the cursor before you commit to it.
+
+   Everything is bound to the WRAPPER, not the bar, so the activity canvas on
+   top of it and the wrapper's own padding all seek too. Pointer capture keeps
+   the drag alive when the pointer wanders off the bar mid-scrub.
+
+   @param {HTMLElement} wrapper - .video-progress-wrapper
+   @param {HTMLElement} progress - the .video-progress bar (defines the geometry)
+   @param {Function} getMediaEl - returns the <video>/<audio> to drive */
+function attachSeekScrubbing(wrapper, progress, getMediaEl) {
+  if (!wrapper || !progress) return;
+
+  const label = document.createElement('div');
+  label.className = 'seek-hover-time';
+  wrapper.appendChild(label);
+
+  let scrubbing = false;
+  let pendingX = null;
+  let frame = null;
+
+  // Fraction 0..1 of the way along the bar for a client x
+  const fractionAt = (clientX) => {
+    const rect = progress.getBoundingClientRect();
+    if (!rect.width) return 0;
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  };
+
+  // Same guard as the click-seek had: duration is NaN until metadata lands,
+  // and assigning NaN to currentTime throws.
+  const playable = () => {
+    const el = getMediaEl();
+    return (el && isFinite(el.duration) && el.duration > 0) ? el : null;
+  };
+
+  const showLabel = (clientX) => {
+    const el = playable();
+    if (!el) { label.classList.remove('visible'); return; }
+    const rect = progress.getBoundingClientRect();
+    const f = fractionAt(clientX);
+    label.textContent = formatDuration(f * el.duration) || '0:00';
+    // Clamp so the pill never hangs off either end of the bar
+    const half = label.offsetWidth / 2;
+    const x = Math.max(half, Math.min(rect.width - half, f * rect.width));
+    label.style.left = x + 'px';
+    label.classList.add('visible');
+  };
+
+  const seekTo = (clientX) => {
+    const el = playable();
+    if (!el) return;
+    const f = fractionAt(clientX);
+    el.currentTime = f * el.duration;
+    // Paint the bar from the pointer straight away — waiting for timeupdate
+    // makes the bar lag a fast drag by a visible amount.
+    const bar = progress.firstElementChild;
+    if (bar) bar.style.width = (f * 100) + '%';
+    if (typeof showMediaControls === 'function') showMediaControls();
+  };
+
+  wrapper.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    scrubbing = true;
+    wrapper.classList.add('scrubbing');
+    try { wrapper.setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+    seekTo(e.clientX);
+    showLabel(e.clientX);
+  });
+
+  wrapper.addEventListener('pointermove', (e) => {
+    showLabel(e.clientX);
+    if (!scrubbing) return;
+    // Coalesce moves onto animation frames — a drag fires far more pointermove
+    // events than the media element can usefully seek to.
+    pendingX = e.clientX;
+    if (frame !== null) return;
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      if (scrubbing && pendingX !== null) seekTo(pendingX);
+    });
+  });
+
+  const endScrub = (e) => {
+    if (!scrubbing) return;
+    scrubbing = false;
+    pendingX = null;
+    if (frame !== null) { cancelAnimationFrame(frame); frame = null; }
+    wrapper.classList.remove('scrubbing');
+    try { wrapper.releasePointerCapture(e.pointerId); } catch {}
+  };
+
+  wrapper.addEventListener('pointerup', endScrub);
+  wrapper.addEventListener('pointercancel', endScrub);
+
+  wrapper.addEventListener('pointerleave', () => {
+    label.classList.remove('visible');
+  });
 }
 
 function toggleMute() {

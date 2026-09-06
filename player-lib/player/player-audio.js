@@ -42,7 +42,7 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
   controlsContainer.innerHTML = `
     <div class="player-controls-wrapper audio-controls">
       <div class="video-progress-wrapper" id="audioProgressWrapper">
-        <div class="video-progress" id="audioProgress" onclick="seekAudio(event)">
+        <div class="video-progress" id="audioProgress">
           <div class="video-progress-bar" id="audioProgressBar" style="width: 0%"></div>
         </div>
       </div>
@@ -130,6 +130,16 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
     if (btn) btn.textContent = '▶';
     if (typeof autoAdvanceOnEnded === 'function') autoAdvanceOnEnded();
   });
+
+  // Pointer scrubbing + hover time on the seek bar (helper lives in
+  // player-video.js, which loads before this file)
+  if (typeof attachSeekScrubbing === 'function') {
+    attachSeekScrubbing(
+      document.getElementById('audioProgressWrapper'),
+      document.getElementById('audioProgress'),
+      () => document.getElementById('mediaAudio')
+    );
+  }
 
   audio.play().catch(() => {});
 }

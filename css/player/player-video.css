@@ -8,6 +8,29 @@
   padding: 8px 0;
   cursor: pointer;
   position: relative;
+  touch-action: none;   /* dragging the bar scrubs, it doesn't scroll the page */
+}
+
+/* Floating time under the pointer while hovering/scrubbing the seek bar */
+.seek-hover-time {
+  position: absolute;
+  bottom: calc(100% - 2px);
+  transform: translateX(-50%);
+  padding: 2px 7px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  z-index: 3;
+}
+
+.seek-hover-time.visible {
+  opacity: 1;
 }
 
 /* Watch-activity curve — fades in above the seek bar on hover */
@@ -48,6 +71,12 @@
   border-radius: 3px;
   position: relative;
   transition: width 0.1s linear;
+}
+
+/* While dragging, the bar has to sit exactly under the pointer — the smoothing
+   transition reads as lag when you are the one moving it. */
+.video-progress-wrapper.scrubbing .video-progress-bar {
+  transition: none;
 }
 
 .video-progress-bar::after {
