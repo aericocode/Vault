@@ -190,11 +190,16 @@
   display: grid;
 }
 
+/* !important because the browser writes a user resize as INLINE width/height
+   on the element, and a video mini that had been resized would otherwise hand
+   its box to this card. player-core.js clears that inline size on the way in;
+   these are the belt to its braces. */
 .mini-player.mini-audio {
-  width: 380px;
-  height: auto;
+  width: 380px !important;
+  height: auto !important;
   min-height: 0;
   min-width: 0;
+  max-height: none;
   resize: none;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:

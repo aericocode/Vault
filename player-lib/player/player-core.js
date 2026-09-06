@@ -22,6 +22,37 @@ function playNextMedia() {
   }
 }
 
+/**
+ * Advance the queue, wrapping to the top if "Start over after the last file"
+ * is on.
+ *
+ * Separate from playNextMedia() because the two answer different questions.
+ * playNextMedia is the Next button: at the end of the list it does nothing,
+ * and it should keep doing nothing. This is the automatic path — a file ended,
+ * or failed to play at all — where stopping dead is what drops someone back to
+ * their library mid-stream.
+ *
+ * @returns {boolean} true if it moved to another file.
+ */
+function playNextMediaOrWrap() {
+  if (currentMediaState.currentIndex < filteredMedia.length - 1) {
+    playNextMedia();
+    return true;
+  }
+  const wrap = typeof window.vaultQueueLoop === 'function' ? window.vaultQueueLoop() : false;
+  // A one-item list would "wrap" onto itself, which is the per-file Loop
+  // button's job, not this one's.
+  if (!wrap || filteredMedia.length < 2) return false;
+  const first = filteredMedia[0];
+  playMedia({
+    filepath: first.filepath,
+    filename: first.filename,
+    media_type: first.media_type
+  });
+  refreshSidebarIfOpen();
+  return true;
+}
+
 // Play previous media
 function playPreviousMedia() {
   if (currentMediaState.currentIndex > 0) {
@@ -318,12 +349,10 @@ function updateFillButton() {
   });
 }
 
-/** 'ended' fired with loop off → advance the queue (stops after the last). */
+/** 'ended' fired with loop off → advance the queue (or start over, if set). */
 function autoAdvanceOnEnded() {
   if (loopEnabled) return;
-  if (currentMediaState.currentIndex < filteredMedia.length - 1) {
-    playNextMedia();
-  }
+  playNextMediaOrWrap();
 }
 
 /**
@@ -643,10 +672,46 @@ function handlePlayerPointerMove(e) {
   }
 }
 
+/* ── Unplayable files while streaming ───────────────────────────────────────
+   Closing the player is the right answer when someone is sitting in front of
+   it: they see the toast and go fix the file. It is the wrong answer while
+   privacy / streaming mode is on, because that person is usually away from the
+   keyboard and the player closing puts their whole library on screen — the one
+   thing privacy mode exists to prevent. So in that mode a dead file is skipped
+   instead.
+
+   The counter stops a list where nothing plays (an unplugged drive) from
+   spinning through every file forever. Any file that actually starts resets it,
+   so a scattering of bad files never adds up to a false stop. */
+
+let consecutivePlayFailures = 0;
+
+// canplay/loadeddata fire on the media element and do not bubble, hence the
+// capture phase — same reason as the listeners in selection.js. Scoped to the
+// player's own element so a hover-scrub preview loading in the grid behind it
+// cannot quietly reset the count.
+function _noteMediaPlayable(e) {
+  const el = e.target;
+  if (!(el instanceof HTMLElement)) return;
+  if (!el.closest('#mediaPlayerContent') && !el.closest('#miniPlayerMedia')) return;
+  consecutivePlayFailures = 0;
+}
+document.addEventListener('canplay', _noteMediaPlayable, true);
+document.addEventListener('loadeddata', _noteMediaPlayable, true);
+
 function handleMediaError(filepath) {
   // Do NOT auto-copy the path to the clipboard (privacy). The capture-phase
   // error listener flags the item as ⚠ unplayable so it's still findable;
   // users can copy the path themselves from the details panel.
+  consecutivePlayFailures++;
+  const queueLength = (typeof filteredMedia !== 'undefined' && filteredMedia.length) || 1;
+  if (document.body.classList.contains('privacy-mode')
+      && consecutivePlayFailures < queueLength
+      && playNextMediaOrWrap()) {
+    showToast('Skipped a file that cannot play');
+    return;
+  }
+  consecutivePlayFailures = 0;
   closeMediaPlayer();
   showToast('Cannot play this file — marked as unplayable. Use “Copy Path” to locate it.');
 }
@@ -769,6 +834,10 @@ function minimizePlayer() {
     setupMiniAudioCard(element);
   }
 
+  // Give this mode its own box before the card is shown, so the first paint is
+  // already the right shape.
+  applyMiniPlayerSize(miniPlayer, type === 'audio');
+
   // Update mini play/pause button
   updateMiniPlayPause();
 
@@ -788,6 +857,9 @@ function minimizePlayer() {
   // Show mini player
   currentMediaState.miniMode = true;
   miniPlayer.classList.add('active');
+  // Now that it has a layout, pull it back on-screen if a previous drag left
+  // it somewhere that only fit the old (bigger) box.
+  clampMiniPlayerToViewport(miniPlayer);
   // Mini player doesn't cover the grid → bring the selection bar back
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
 
@@ -950,7 +1022,9 @@ function setupMiniAudioCard(element) {
     attachSeekScrubbing(strip, strip, () => {
       const box = document.getElementById('miniPlayerMedia');
       return box ? box.querySelector('audio, video') : null;
-    });
+    // The strip is a 4px hairline inside a card with overflow:hidden — a pill
+    // left hanging after a click reads as a glitch, so hide it on release.
+    }, { hideLabelOnRelease: true });
   }
 }
 
@@ -963,6 +1037,52 @@ function teardownMiniAudioCard() {
     element.removeEventListener('loadedmetadata', element._miniAudioUpdate);
     delete element._miniAudioUpdate;
   }
+}
+
+/**
+ * Size the mini player for the mode it is about to show.
+ *
+ * The mini player is user-resizable (CSS `resize: both`), and the browser
+ * records a resize as INLINE width/height on #miniPlayer. Inline styles beat
+ * every stylesheet rule, so once a video mini had been dragged out to, say,
+ * 770x900, minimizing an audio file handed the compact card that same box —
+ * art/title/controls floating in the middle of a huge empty rectangle with the
+ * seek strip stranded at the bottom.
+ *
+ * So: park the inline size while audio is showing (audio sizes itself from
+ * CSS, 380px wide and only as tall as its one row), and give the video box
+ * back the size the user chose the next time a video or mix is minimized.
+ */
+function applyMiniPlayerSize(miniPlayer, isAudio) {
+  if (!miniPlayer) return;
+  if (isAudio) {
+    if (miniPlayer.style.width) miniPlayer.dataset.savedW = miniPlayer.style.width;
+    if (miniPlayer.style.height) miniPlayer.dataset.savedH = miniPlayer.style.height;
+    miniPlayer.style.width = '';
+    miniPlayer.style.height = '';
+  } else {
+    if (miniPlayer.dataset.savedW) miniPlayer.style.width = miniPlayer.dataset.savedW;
+    if (miniPlayer.dataset.savedH) miniPlayer.style.height = miniPlayer.dataset.savedH;
+  }
+}
+
+/**
+ * Snap the card back inside the viewport.
+ *
+ * Dragging switches the mini player to inline left/top, and that position
+ * sticks across minimizes. A spot that fit a 640x400 video box can push a
+ * different-sized card (or the same card after the window shrank) off the
+ * right or bottom edge. Untouched, it is still anchored bottom/right by CSS
+ * and there is nothing to clamp.
+ */
+function clampMiniPlayerToViewport(miniPlayer) {
+  if (!miniPlayer || !miniPlayer.style.left) return;
+  const w = miniPlayer.offsetWidth;
+  const h = miniPlayer.offsetHeight;
+  const left = parseFloat(miniPlayer.style.left) || 0;
+  const top = parseFloat(miniPlayer.style.top) || 0;
+  miniPlayer.style.left = Math.max(0, Math.min(Math.max(0, window.innerWidth - w), left)) + 'px';
+  miniPlayer.style.top = Math.max(0, Math.min(Math.max(0, window.innerHeight - h), top)) + 'px';
 }
 
 // ── Mini Player Drag ────────────────────────────────────────────────────

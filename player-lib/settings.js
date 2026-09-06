@@ -21,8 +21,19 @@
 
   const DEFAULTS = {
     privacyMode: false,     // hide personal data on screen for screen-sharing
+    // Which categories privacy mode actually hides. Each key maps to a body
+    // class (PRIVACY_CLASS below) that css/settings.css hangs its rules on.
+    privacyHide: {
+      paths: true,
+      notes: true,
+      savedSearches: true,
+      importFolders: true,
+      thumbnails: false,
+      fileNames: false,
+    },
     resumePlayback: true,   // auto-seek to stored position on open (current behavior)
     restoreSession: false,  // reopen last media (paused) on launch, Stash-style
+    queueLoop: false,       // after the last file in the list, start over at the first
     scanWorkers: 2,         // files the vision model scans in parallel after an import
     unlockHoldSeconds: 0,   // press-and-hold on the lock before the password box (0 = single click)
     blurThumbs: false,      // blur the grid's tiles (hover reveals — unless privacy mode is on)
@@ -106,6 +117,15 @@
     } catch {
       settings = { ...DEFAULTS };
     }
+    // privacyHide is a nested object, so the spread above replaces it wholesale
+    // rather than merging it. Merge the stored keys OVER the defaults, so a
+    // profile saved before this setting existed (or one saved before a new
+    // category was added) still gets every default it never chose.
+    const storedHide = settings.privacyHide;
+    settings.privacyHide = {
+      ...DEFAULTS.privacyHide,
+      ...(storedHide && typeof storedHide === 'object' ? storedHide : {}),
+    };
     // Stored JSON is user-editable — run the one numeric setting through the
     // same clamp every other surface uses. That clamp falls back to the current
     // value for anything unreadable, so seed the default first: a null or a
@@ -130,6 +150,10 @@
 
   // Read a setting from anywhere in the app.
   window.vaultSetting = (key) => settings[key];
+
+  // The player asks this when a file ends (or fails) on the last item in the
+  // list: start over at the first, or stop here?
+  window.vaultQueueLoop = () => !!settings.queueLoop;
 
   /* ── AI scan workers ─────────────────────────────────────────────────────
      One number, three surfaces (this modal, the import modal, the live scan
@@ -181,8 +205,40 @@
      (display:none for path rows, blur for text that must keep its layout).
      No hover-to-reveal anywhere — accidental hovers on stream are the threat. */
 
+  /* One category per body class. `privacy-mode` stays the master switch for
+     anything generic; these say WHICH kinds of data go, so someone streaming a
+     tagging session can keep their thumbnails and still lose their paths. */
+  const PRIVACY_CLASS = {
+    paths:         'pm-paths',
+    notes:         'pm-notes',
+    savedSearches: 'pm-searches',
+    importFolders: 'pm-imports',
+    thumbnails:    'pm-thumbs',
+    fileNames:     'pm-names',
+  };
+
+  // Order is the order they appear in the dropdown and in its summary line.
+  const PRIVACY_HIDE_ITEMS = [
+    { key: 'paths',         label: 'File paths',                            short: 'Paths' },
+    { key: 'notes',         label: 'Notes',                                 short: 'Notes' },
+    { key: 'savedSearches', label: 'Saved searches',                        short: 'Saved searches' },
+    { key: 'importFolders', label: 'Import folders',                        short: 'Import folders' },
+    { key: 'thumbnails',    label: 'Thumbnails (blurred, no hover reveal)', short: 'Thumbnails' },
+    { key: 'fileNames',     label: 'File names',                            short: 'File names' },
+  ];
+
+  // A category class is on only when privacy mode is on AND that box is ticked,
+  // so turning privacy mode off clears all six in one go.
+  function applyPrivacyHideClasses(on) {
+    const hide = settings.privacyHide || {};
+    for (const key of Object.keys(PRIVACY_CLASS)) {
+      document.body.classList.toggle(PRIVACY_CLASS[key], !!on && !!hide[key]);
+    }
+  }
+
   function applyPrivacyMode(on) {
     document.body.classList.toggle('privacy-mode', !!on);
+    applyPrivacyHideClasses(!!on);
     updateGearBadge();
     // Repaint tiles so the filename `title=` tooltip (unstylable by CSS) is
     // added/removed — cards.js reads the body class when it builds each tile.
@@ -221,6 +277,7 @@
   // so a reload with privacy or blur on never flashes the real thing.
   load();
   if (settings.privacyMode) document.body.classList.add('privacy-mode');
+  applyPrivacyHideClasses(settings.privacyMode);
   if (settings.blurThumbs) document.body.classList.add('blur-thumbs');
 
   /* ── Header gear button ──────────────────────────────────────────────────
@@ -374,11 +431,38 @@
   }
 
   const PLANNED = [
-    { key: 'p_maskNames',   title: 'Mask filenames in privacy mode', desc: 'Replace tile names with neutral labels while privacy mode is on.' },
     { key: 'p_confirmTrash',title: 'Confirm before trash', desc: 'Ask before moving a file to the trash.' },
     { key: 'p_defaultSort', title: 'Default sort / filter on open', desc: 'Start every session with a saved sort and filter preset.' },
     { key: 'p_perPage',     title: 'Items per page', desc: 'Choose how many tiles load per page.' },
   ];
+
+  /* The "Hide while on" dropdown that sits under the privacy toggle. A
+     <details> rather than a stack of six more toggle rows: the list is only
+     interesting while you are setting streaming up, and six extra rows would
+     bury everything else in Preferences. The summary carries the answer, so it
+     never has to be opened just to check what is covered. */
+
+  function privacyHideSummary() {
+    const on = PRIVACY_HIDE_ITEMS.filter(i => settings.privacyHide?.[i.key]).map(i => i.short);
+    return on.length ? on.join(', ') : 'Nothing';
+  }
+
+  function privacyHideRow() {
+    return `
+      <details class="settings-dd">
+        <summary>
+          <span class="settings-dd-caret" aria-hidden="true">▾</span>
+          <span>Hide while on: <b id="privacyHideSummary">${esc(privacyHideSummary())}</b></span>
+        </summary>
+        <div class="settings-dd-body">
+          ${PRIVACY_HIDE_ITEMS.map(i => `
+            <label class="settings-dd-item">
+              <input type="checkbox" data-privacy-hide="${i.key}" ${settings.privacyHide?.[i.key] ? 'checked' : ''}>
+              <span>${i.label}</span>
+            </label>`).join('')}
+        </div>
+      </details>`;
+  }
 
   function RENDERERS_settings() {
     return `
@@ -386,8 +470,9 @@
       ${toggleRow({
         key: 'privacyMode',
         title: 'Privacy / streaming mode',
-        desc: 'Hide personal data (paths, notes, saved searches, import folders) for screen-sharing. Shortcut: Ctrl+Shift+H.',
+        desc: 'Hide personal data for screen-sharing. Pick what to hide below. Shortcut: Ctrl+Shift+H.',
       })}
+      ${privacyHideRow()}
       ${toggleRow({
         key: 'blurThumbs',
         title: 'Blur thumbnails in the library',
@@ -402,6 +487,11 @@
         key: 'restoreSession',
         title: 'Restore last session on open',
         desc: 'When the app launches, reopen the last media you played — paused.',
+      })}
+      ${toggleRow({
+        key: 'queueLoop',
+        title: 'Start over after the last file',
+        desc: 'When the last file in the list ends, go back to the first one instead of stopping. Applies when the per-file Loop button is off.',
       })}
       ${numberRow({
         key: 'scanWorkers',
@@ -456,6 +546,12 @@
           save();
           applyBlurThumbs(settings.blurThumbs);
           showToast?.(settings.blurThumbs ? '🫥 Library blurred' : 'Library blur off');
+        } else if (key === 'queueLoop') {
+          settings.queueLoop = input.checked;
+          save();
+          showToast?.(settings.queueLoop
+            ? '🔁 The list starts over after the last file'
+            : 'The list stops after the last file');
         } else if (key.startsWith('modelConsent:')) {
           const modelKey = key.slice('modelConsent:'.length);
           const allow = input.checked;
@@ -488,6 +584,21 @@
           settings[key] = input.checked;
           save();
         }
+      });
+    });
+    // The "Hide while on" checkboxes. Re-applying the body classes on every
+    // change means a tick lands live on the page behind the modal — which is
+    // the whole point: you are setting this up while looking at what leaks.
+    body.querySelectorAll('input[data-privacy-hide]').forEach(input => {
+      input.addEventListener('change', () => {
+        settings.privacyHide = {
+          ...settings.privacyHide,
+          [input.dataset.privacyHide]: input.checked,
+        };
+        save();
+        applyPrivacyMode(settings.privacyMode);
+        const sum = document.getElementById('privacyHideSummary');
+        if (sum) sum.textContent = privacyHideSummary();
       });
     });
     // Number rows: the input is free-typed, so re-read the clamped value back

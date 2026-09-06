@@ -85,7 +85,14 @@ function renderResults() {
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
 }
 
-/* ── Compact tile (grid view) ──────────────────────────────────────────── */
+/* ── Compact tile (grid view) ──────────────────────────────────────────────
+   The filename `title=` tooltip below is written conditionally: a native
+   tooltip cannot be blurred by CSS, so the only way to stop a hover printing
+   the name in the clear is to not write the attribute at all. It is dropped
+   when privacy mode is hiding FILE NAMES specifically (body.pm-names) rather
+   than for privacy mode as a whole — with names left visible the tooltip leaks
+   nothing the tile is not already showing. settings.js repaints the grid when
+   either the mode or that choice changes. */
 
 function renderTile(media) {
   const isFlagged = !!media.user_flagged_delete;
@@ -172,7 +179,7 @@ function renderTile(media) {
           <button class="tile-btn" onclick="showDetailsById(${media.id})" title="Details">ⓘ</button>
         </div>
       </div>
-      <div class="tile-name"${document.body.classList.contains('privacy-mode') ? '' : ` title="${escapeHtml(media.filename)}"`}>${escapeHtml(media.filename)}</div>
+      <div class="tile-name"${document.body.classList.contains('pm-names') ? '' : ` title="${escapeHtml(media.filename)}"`}>${escapeHtml(media.filename)}</div>
       <div class="tile-meta">
         <span class="tile-badge type-${media.media_type}">${media.media_type}</span>
         ${simChip}

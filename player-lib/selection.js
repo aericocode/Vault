@@ -880,7 +880,13 @@ document.addEventListener('error', (e) => {
   if (media && !media.playback_failed) {
     media.playback_failed = 1;
     postFlags(media, { playback_failed: 1 });
-    showToast('⚠ File failed to play — marked as unplayable');
+    // Privacy / streaming mode handles the same failure by skipping to the next
+    // file (handleMediaError in player-core.js) and says so itself. Two toasts
+    // for one dead file reads as two separate problems, so only the flag is
+    // set here and the message is left to the handler that acted on it.
+    if (!document.body.classList.contains('privacy-mode')) {
+      showToast('⚠ File failed to play — marked as unplayable');
+    }
   }
 }, true);
 

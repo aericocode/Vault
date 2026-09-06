@@ -303,8 +303,12 @@ function seekVideo(event) {
 
    @param {HTMLElement} wrapper - .video-progress-wrapper
    @param {HTMLElement} progress - the .video-progress bar (defines the geometry)
-   @param {Function} getMediaEl - returns the <video>/<audio> to drive */
-function attachSeekScrubbing(wrapper, progress, getMediaEl) {
+   @param {Function} getMediaEl - returns the <video>/<audio> to drive
+   @param {Object} [opts] - { hideLabelOnRelease } drops the time pill as soon
+     as the button comes back up instead of waiting for the pointer to leave.
+     For a bar only a few pixels tall the pointer often never leaves, so the
+     pill would just sit there after a click. */
+function attachSeekScrubbing(wrapper, progress, getMediaEl, opts) {
   if (!wrapper || !progress) return;
 
   const label = document.createElement('div');
@@ -384,6 +388,7 @@ function attachSeekScrubbing(wrapper, progress, getMediaEl) {
     if (frame !== null) { cancelAnimationFrame(frame); frame = null; }
     wrapper.classList.remove('scrubbing');
     try { wrapper.releasePointerCapture(e.pointerId); } catch {}
+    if (opts && opts.hideLabelOnRelease) label.classList.remove('visible');
   };
 
   wrapper.addEventListener('pointerup', endScrub);

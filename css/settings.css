@@ -333,6 +333,80 @@
   min-width: 1.6rem;
 }
 
+/* ── Sub-options dropdown (the privacy "Hide while on" list) ────────────────
+   A <details> parked under the toggle row it belongs to, indented so it reads
+   as that row's detail rather than a setting of its own. Collapsed by default:
+   the summary already names what is covered, so it only has to be opened to
+   CHANGE the answer, not to read it. */
+
+.settings-dd {
+  margin: -0.35rem 0 0.85rem 0;
+  padding-left: 1rem;
+}
+
+.settings-dd > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.3rem 0.6rem;
+}
+
+.settings-dd > summary::-webkit-details-marker { display: none; }
+
+.settings-dd > summary:hover { color: var(--text-primary); }
+
+.settings-dd > summary b {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.settings-dd-caret {
+  font-size: 0.7rem;
+  transition: transform 0.15s ease-out;
+}
+
+.settings-dd[open] > summary .settings-dd-caret {
+  transform: rotate(180deg);
+}
+
+.settings-dd-body {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.settings-dd-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+/* Plain native checkboxes here on purpose — the pill switches are for the
+   top-level settings, and six of them stacked would out-shout the row that
+   owns them. */
+.settings-dd-item input[type="checkbox"] {
+  width: auto;
+  height: auto;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
 .settings-tag {
   display: inline-block;
   font-size: 0.62rem;
@@ -493,50 +567,104 @@
 /* =========================================================================
    PRIVACY / STREAMING MODE
 
-   Applied via `body.privacy-mode`. NO hover-to-reveal anywhere — an accidental
-   hover on stream is the threat model. Path rows are removed outright
-   (display:none); text that must keep its layout is blurred and made inert.
-   Explicitly NOT hidden (owner's call): AI descriptions/tags/themes, semantic
-   search, song titles/artists, thumbnails, tile names.
+   `body.privacy-mode` is the master switch; the six `pm-*` classes below say
+   WHICH kinds of data it takes away. settings.js puts a category class on only
+   when privacy mode is on AND that box is ticked in Settings > "Hide while on",
+   so every rule here can be written against the category alone.
+
+   Why split it at all: "privacy" is not one thing. Someone streaming a tagging
+   session needs their paths and notes gone but their thumbnails and filenames
+   present, or they cannot do the thing they are streaming. Someone capturing a
+   screenshot for a bug report needs the opposite. One switch could only ever
+   serve one of them.
+
+   NO hover-to-reveal anywhere — an accidental hover on stream is the threat
+   model. Path rows are removed outright (display:none); text that must keep its
+   layout is blurred and made inert.
+
+   Never hidden by any of these (owner's call): AI descriptions/tags/themes,
+   semantic search, song titles/artists.
    ========================================================================= */
 
+/* ── File paths (body.pm-paths) ─────────────────────────────────────────────
+   Removed entirely rather than blurred.
+   .detail-path is the filepath row in the shared detail body (player sidebar
+   AND library modal — see player-lib/detail-view.js). It used to be blurred in
+   the sidebar and display:none in the modal; when the two surfaces merged, the
+   weaker of the two would have silently become the rule for both. A blurred
+   path is still on screen, and this category's whole premise is that a path row
+   must not be. Both surfaces now drop it outright. */
+body.pm-paths .pop-path,
+body.pm-paths .detail-path,
+/* Each duplicate in the dupe list prints its own path — same rule, and it is on
+   both detail surfaces, so leaving it visible undid the row above it. */
+body.pm-paths .duplicate-path,
+/* Trash "original path" line in the detail modal */
+body.pm-paths .trash-original-path {
+  display: none !important;
+}
+
+/* ── Notes (body.pm-notes) ──────────────────────────────────────────────── */
+
 /* Blurred, inert text — keeps layout, cannot be read or revealed */
-body.privacy-mode .note-text,
-body.privacy-mode .saved-search-chip,
-body.privacy-mode .imp-t2,
-body.privacy-mode .dq-name,
-body.privacy-mode .dq-file {
+body.pm-notes .note-text {
   filter: blur(7px);
   pointer-events: none;
   user-select: none;
 }
 
-/* Path rows removed entirely.
-   .detail-path is the filepath row in the shared detail body (player sidebar
-   AND library modal — see player-lib/detail-view.js). It used to be blurred in
-   the sidebar and display:none in the modal; when the two surfaces merged, the
-   weaker of the two would have silently become the rule for both. A blurred
-   path is still on screen, and this section's whole premise is that a path row
-   must not be. Both surfaces now drop it outright. */
-body.privacy-mode .pop-path,
-body.privacy-mode .detail-path,
-/* Each duplicate in the dupe list prints its own path — same rule, and it is on
-   both detail surfaces, so leaving it visible undid the row above it. */
-body.privacy-mode .duplicate-path {
-  display: none !important;
-}
-
-/* Trash "original path" line in the detail modal */
-body.privacy-mode .trash-original-path {
-  display: none !important;
-}
-
 /* ✎ opens the note's saved text in a plain textarea, which would put the
    blurred .note-text above back on screen in the clear. Withdraw the button
-   while privacy mode is on — turn it off to edit. (The composer box is left
-   alone: it starts empty, so it only ever shows what is being typed now.) */
-body.privacy-mode .note-edit {
+   while notes are hidden — untick it (or leave privacy mode) to edit. (The
+   composer box is left alone: it starts empty, so it only ever shows what is
+   being typed now.) */
+body.pm-notes .note-edit {
   display: none !important;
+}
+
+/* ── Saved searches (body.pm-searches) ──────────────────────────────────── */
+
+body.pm-searches .saved-search-chip {
+  filter: blur(7px);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── Import folders and queue progress (body.pm-imports) ────────────────────
+   .imp-t2 is the folder path on an import card. .dq-name / .dq-file are the
+   filenames scrolling past in the import and delete queues (player-lib/
+   importer.js, player-lib/selection.js) — they are part of the same "what is
+   this person moving around right now" leak as the folder itself, so they ride
+   with imports rather than with the file-names category. */
+body.pm-imports .imp-t2,
+body.pm-imports .dq-name,
+body.pm-imports .dq-file {
+  filter: blur(7px);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── Thumbnails (body.pm-thumbs) ────────────────────────────────────────────
+   Mirrors the blur-thumbs rule below, minus the hover reveal — this category
+   exists for a screenshot that has to be safe with a cursor sitting on a tile.
+   Same 14px so switching between the two is not a visible change. */
+body.pm-thumbs .tile-img {
+  filter: blur(14px);
+}
+
+/* ── File names (body.pm-names) ─────────────────────────────────────────────
+   Tile names, the player and mini-player titles, and the filename heading on
+   the library detail modal. Blurred rather than removed: these are headings and
+   layout anchors, and a grid of nameless tiles is unusable to navigate.
+   The tile `title=` tooltip is a native one and cannot be styled, so cards.js
+   omits the attribute outright while this class is on. */
+body.pm-names .tile-name,
+body.pm-names #mediaPlayerTitle,
+body.pm-names #miniPlayerTitle,
+body.pm-names #modalTitle {
+  filter: blur(7px);
+  pointer-events: none;
+  user-select: none;
 }
 
 /* =========================================================================
