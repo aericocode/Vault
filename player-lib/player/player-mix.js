@@ -98,33 +98,26 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
     ${renderFillButton()}
     <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)">⛶</button>
   `;
-  const speedControls = `
-    <div class="speed-control">
-      <button onclick="cycleSpeed(-1)" class="control-btn speed-btn" title="Slower (<)">−</button>
-      <span class="speed-display" id="speedDisplay">1x</span>
-      <button onclick="cycleSpeed(1)" class="control-btn speed-btn" title="Faster (>)">+</button>
-    </div>
-  `;
+  const speedControls = renderSpeedControls();
 
   controlsContainer.innerHTML = `
     <div class="player-controls-wrapper video-controls">
-      <div class="video-progress-wrapper" id="videoProgressWrapper">
-        <div class="video-progress" id="videoProgress" onclick="seekVideo(event); mixPlayerResync();">
-          <div class="video-progress-bar" id="videoProgressBar" style="width: 0%"></div>
+      <div class="video-progress-row">
+        ${renderProgressTimes('start')}
+        <div class="video-progress-wrapper" id="videoProgressWrapper">
+          <div class="video-progress" id="videoProgress" onclick="seekVideo(event); mixPlayerResync();">
+            <div class="video-progress-bar" id="videoProgressBar" style="width: 0%"></div>
+          </div>
         </div>
+        ${renderProgressTimes('end')}
       </div>
       <div class="video-playback-row">
-        <span class="video-time">
-          <span id="currentTime">0:00</span>
-          <span class="time-separator">/</span>
-          <span id="totalTime">0:00</span>
-        </span>
         <div class="playback-controls">
-          <button onclick="skipVideo(-10); mixPlayerResync();" class="control-btn" title="-10s (J)"><span>⏪</span><span class="seek-label">10</span></button>
-          <button onclick="skipVideo(-5); mixPlayerResync();" class="control-btn" title="-5s (←)"><span>◀</span><span class="seek-label">5</span></button>
+          ${renderSkipButton(-10, 'skipVideo(-10); mixPlayerResync();', '-10s (J)')}
+          ${renderSkipButton(-5, 'skipVideo(-5); mixPlayerResync();', '-5s (←)')}
           <button onclick="togglePlay()" id="playPauseBtn" class="play-pause-btn" title="Play/Pause (Space)">▶</button>
-          <button onclick="skipVideo(5); mixPlayerResync();" class="control-btn" title="+5s (→)"><span class="seek-label">5</span><span>▶</span></button>
-          <button onclick="skipVideo(10); mixPlayerResync();" class="control-btn" title="+10s (L)"><span class="seek-label">10</span><span>⏩</span></button>
+          ${renderSkipButton(5, 'skipVideo(5); mixPlayerResync();', '+5s (→)')}
+          ${renderSkipButton(10, 'skipVideo(10); mixPlayerResync();', '+10s (L)')}
         </div>
       </div>
       <div class="video-extras-row">
@@ -156,10 +149,15 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
   const volumeSlider = document.getElementById('volumeSlider');
   if (volumeSlider) volumeSlider.max = max;
 
+  // Session playback speed (the followers pick it up from the sync timer)
+  if (typeof SPEED_STEPS !== 'undefined') {
+    master.playbackRate = SPEED_STEPS[currentSpeedIndex];
+    if (typeof updateSpeedDisplay === 'function') updateSpeedDisplay();
+  }
+
   /* ── Master listeners (progress/time/AB — same as the video player) ──── */
   master.addEventListener('loadedmetadata', () => {
-    const el = document.getElementById('totalTime');
-    if (el) el.textContent = formatDuration(master.duration);
+    if (typeof updateTotalTimeLabel === 'function') updateTotalTimeLabel();
     if (master.currentTime < starts[masterIdx]) master.currentTime = starts[masterIdx];
     syncAll();
     if (typeof updateAbLoopOverlay === 'function') updateAbLoopOverlay();
@@ -170,6 +168,7 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
     const cur = document.getElementById('currentTime');
     if (bar && master.duration) bar.style.width = `${(master.currentTime / master.duration) * 100}%`;
     if (cur) cur.textContent = formatDuration(master.currentTime) || '0:00';
+    if (typeof updateTotalTimeLabel === 'function') updateTotalTimeLabel();
     if (typeof checkAbLoop === 'function') checkAbLoop(master);
   });
 

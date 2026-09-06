@@ -121,9 +121,10 @@ function playMedia(mediaData) {
   if (miniPlayer && miniPlayer.classList.contains('active')) {
     const miniMedia = document.getElementById('miniPlayerMedia');
     const miniEl = miniMedia?.querySelector('video, audio');
+    teardownMiniAudioCard();
     stopMediaElement(miniEl);
     miniMedia.innerHTML = '';
-    miniPlayer.classList.remove('active');
+    miniPlayer.classList.remove('active', 'mini-audio');
     resetMiniPlayerPosition();
     currentMediaState.miniMode = false;
   }
@@ -140,9 +141,10 @@ function playMedia(mediaData) {
 
   // Clear AB loop from previous media
   if (typeof clearAbLoop === 'function') clearAbLoop();
-  // Reset playback speed
-  if (typeof resetSpeed === 'function') resetSpeed();
-  
+  // Playback speed is deliberately NOT reset here — it's a session setting, so
+  // Next/Prev/Random/maximize keep whatever you set. Each renderer re-applies it
+  // to its new element.
+
   // Find current index and store full media data
   currentMediaState.currentIndex = getCurrentMediaIndex(filepath);
   currentMediaState.currentMediaData = filteredMedia[currentMediaState.currentIndex] || null;
@@ -724,6 +726,8 @@ function minimizePlayer() {
 
   // Set title
   miniTitle.textContent = currentMediaState.currentMediaData?.filename || 'Playing...';
+  // Audio gets the compact card layout; everything else the plain video box
+  miniPlayer.classList.remove('mini-audio');
 
   // The inline onerror carries this file's path and calls closeMediaPlayer;
   // it's meaningless once the media is loaded and only causes stale-path
@@ -755,10 +759,14 @@ function minimizePlayer() {
     miniMedia.innerHTML = '';
     miniMedia.appendChild(element);
   } else if (type === 'audio') {
-    // For audio, move the audio element and show a simple display
+    // Audio has nothing to show, so the mini player becomes a compact card:
+    // art tile + title/time + controls on one row, hairline progress under it.
+    // The <audio> itself just rides along, hidden.
     element.removeAttribute('id');
-    miniMedia.innerHTML = '<div class="audio-visualization" style="padding: 1rem; text-align: center;"><div class="audio-icon" style="font-size: 2rem;">🎵</div></div>';
+    miniMedia.innerHTML = '';
     miniMedia.appendChild(element);
+    miniPlayer.classList.add('mini-audio');
+    setupMiniAudioCard(element);
   }
 
   // Update mini play/pause button
@@ -804,7 +812,8 @@ function maximizePlayer() {
   }
 
   // Hide mini player
-  miniPlayer.classList.remove('active');
+  teardownMiniAudioCard();
+  miniPlayer.classList.remove('active', 'mini-audio');
   currentMediaState.miniMode = false;
 
   // Re-play in full mode using the current media data
@@ -846,6 +855,7 @@ function closeMiniPlayer() {
   // Stop any playing media (without tripping the inline error handler). A mix
   // has several layers plus a drift-correction interval, so hand it to its own
   // teardown or the followers keep decoding behind a closed mini player.
+  teardownMiniAudioCard();
   if (currentMediaState.type === 'mix' && typeof stopMixPlayer === 'function') {
     stopMixPlayer();
   } else {
@@ -859,7 +869,7 @@ function closeMiniPlayer() {
   }
 
   miniMedia.innerHTML = '';
-  miniPlayer.classList.remove('active');
+  miniPlayer.classList.remove('active', 'mini-audio');
   currentMediaState.miniMode = false;
 
   // Jump to page, re-render (applies the "last opened" tile border), highlight
@@ -906,6 +916,53 @@ function updateMiniPlayPause() {
   element.addEventListener('play', update);
   element.addEventListener('pause', update);
   element.addEventListener('ended', update);
+}
+
+/**
+ * Wire the compact audio card: the "0:14 / 0:40 · 1x" line and the hairline
+ * progress strip. The listener is parked on the element itself so maximize and
+ * close can take it back off again.
+ */
+function setupMiniAudioCard(element) {
+  const timeEl = document.getElementById('miniAudioTime');
+  const speedEl = document.getElementById('miniAudioSpeed');
+  const fill = document.getElementById('miniAudioProgressFill');
+  const strip = document.getElementById('miniAudioProgress');
+
+  const update = () => {
+    const dur = (isFinite(element.duration) && element.duration > 0) ? element.duration : 0;
+    if (fill) fill.style.width = dur ? ((element.currentTime / dur) * 100) + '%' : '0%';
+    if (timeEl) {
+      timeEl.textContent = `${formatDuration(element.currentTime) || '0:00'} / ${formatDuration(dur) || '0:00'}`;
+    }
+    if (speedEl) speedEl.textContent = (element.playbackRate || 1) + 'x';
+  };
+
+  update();
+  element.addEventListener('timeupdate', update);
+  element.addEventListener('loadedmetadata', update);
+  element._miniAudioUpdate = update;
+
+  // Click/drag the strip to seek. Bound once — the card markup lives in the
+  // page, so re-binding on every minimize would stack handlers.
+  if (strip && !strip._seekBound && typeof attachSeekScrubbing === 'function') {
+    strip._seekBound = true;
+    attachSeekScrubbing(strip, strip, () => {
+      const box = document.getElementById('miniPlayerMedia');
+      return box ? box.querySelector('audio, video') : null;
+    });
+  }
+}
+
+/** Drop the mini audio card's timeupdate listener (maximize / close / replace). */
+function teardownMiniAudioCard() {
+  const miniMedia = document.getElementById('miniPlayerMedia');
+  const element = miniMedia ? miniMedia.querySelector('video, audio') : null;
+  if (element && element._miniAudioUpdate) {
+    element.removeEventListener('timeupdate', element._miniAudioUpdate);
+    element.removeEventListener('loadedmetadata', element._miniAudioUpdate);
+    delete element._miniAudioUpdate;
+  }
 }
 
 // ── Mini Player Drag ────────────────────────────────────────────────────

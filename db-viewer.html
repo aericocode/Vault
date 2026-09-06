@@ -349,13 +349,20 @@
   <!-- Mini Player -->
   <div class="mini-player" id="miniPlayer">
     <div class="mini-player-drag" id="miniPlayerDrag">
-      <span class="mini-player-title" id="miniPlayerTitle">filename.mp4</span>
+      <div class="mini-audio-art" aria-hidden="true">🎵</div>
+      <div class="mini-audio-meta">
+        <span class="mini-player-title" id="miniPlayerTitle">filename.mp4</span>
+        <span class="mini-audio-sub"><span id="miniAudioTime">0:00 / 0:00</span> · <span id="miniAudioSpeed">1x</span></span>
+      </div>
     </div>
     <div class="mini-player-media" id="miniPlayerMedia"></div>
     <div class="mini-player-controls">
       <button class="mini-ctrl" id="miniPlayPause" onclick="miniTogglePlay()" title="Play/Pause">⏸</button>
       <button class="mini-ctrl" onclick="maximizePlayer()" title="Maximize (Q)">⤢</button>
       <button class="mini-ctrl mini-close" onclick="closeMiniPlayer()" title="Close">✕</button>
+    </div>
+    <div class="mini-audio-progress" id="miniAudioProgress" title="Click to seek">
+      <div class="mini-audio-progress-fill" id="miniAudioProgressFill"></div>
     </div>
   </div>
 

@@ -25,42 +25,27 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
     <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)">⛶</button>
   `;
 
-  const speedControls = `
-    <div class="speed-control">
-      <button onclick="cycleSpeed(-1)" class="control-btn speed-btn" title="Slower (<)">−</button>
-      <span class="speed-display" id="speedDisplay">1x</span>
-      <button onclick="cycleSpeed(1)" class="control-btn speed-btn" title="Faster (>)">+</button>
-    </div>
-  `;
-  
+  const speedControls = renderSpeedControls();
+
   controlsContainer.innerHTML = `
     <div class="player-controls-wrapper video-controls">
-      <div class="video-progress-wrapper" id="videoProgressWrapper" onmouseenter="drawActivityBar()">
-        <canvas class="video-activity" id="videoActivityBar" height="26" aria-hidden="true"></canvas>
-        <div class="video-progress" id="videoProgress">
-          <div class="video-progress-bar" id="videoProgressBar" style="width: 0%"></div>
+      <div class="video-progress-row">
+        ${renderProgressTimes('start')}
+        <div class="video-progress-wrapper" id="videoProgressWrapper" onmouseenter="drawActivityBar()">
+          <canvas class="video-activity" id="videoActivityBar" height="26" aria-hidden="true"></canvas>
+          <div class="video-progress" id="videoProgress">
+            <div class="video-progress-bar" id="videoProgressBar" style="width: 0%"></div>
+          </div>
         </div>
+        ${renderProgressTimes('end')}
       </div>
       <div class="video-playback-row">
-        <span class="video-time">
-          <span id="currentTime">0:00</span>
-          <span class="time-separator">/</span>
-          <span id="totalTime">0:00</span>
-        </span>
         <div class="playback-controls">
-          <button onclick="skipVideo(-10)" class="control-btn" title="-10s (J)">
-            <span>⏪</span><span class="seek-label">10</span>
-          </button>
-          <button onclick="skipVideo(-5)" class="control-btn" title="-5s (←)">
-            <span>◀</span><span class="seek-label">5</span>
-          </button>
+          ${renderSkipButton(-10, 'skipVideo(-10)', '-10s (J)')}
+          ${renderSkipButton(-5, 'skipVideo(-5)', '-5s (←)')}
           <button onclick="togglePlay()" id="playPauseBtn" class="play-pause-btn" title="Play/Pause (Space)">▶</button>
-          <button onclick="skipVideo(5)" class="control-btn" title="+5s (→)">
-            <span class="seek-label">5</span><span>▶</span>
-          </button>
-          <button onclick="skipVideo(10)" class="control-btn" title="+10s (L)">
-            <span class="seek-label">10</span><span>⏩</span>
-          </button>
+          ${renderSkipButton(5, 'skipVideo(5)', '+5s (→)')}
+          ${renderSkipButton(10, 'skipVideo(10)', '+10s (L)')}
         </div>
       </div>
       <div class="video-extras-row">
@@ -100,9 +85,13 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
   applyVolume(sliderToVolume(savedVolume, max));
   updateVolumeDisplay(savedVolume, max);
   
+  // Playback speed is a session preference, not a per-file one — the freshly
+  // rendered chrome always says "1x", so re-apply and re-label it here.
+  video.playbackRate = SPEED_STEPS[currentSpeedIndex];
+  updateSpeedDisplay();
+
   video.addEventListener('loadedmetadata', () => {
-    const el = document.getElementById('totalTime');
-    if (el) el.textContent = formatDuration(video.duration);
+    updateTotalTimeLabel();
     // Init AB loop overlay (needed if loop was somehow preserved)
     if (typeof updateAbLoopOverlay === 'function') updateAbLoopOverlay();
   });
@@ -119,6 +108,7 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
       // the stream is still at 0:00 (or stalled)
       currentTimeEl.textContent = formatDuration(video.currentTime) || '0:00';
     }
+    updateTotalTimeLabel();
     // AB loop check
     if (typeof checkAbLoop === 'function') {
       checkAbLoop(video);
@@ -534,34 +524,135 @@ function setupAudioBoost(video) {
 }
 
 // =========================================================================
+// SKIP BUTTONS - Shared markup for video / audio / mix players
+// =========================================================================
+
+/**
+ * One skip button: a rotate arrow with the seconds printed inside it.
+ * Negative seconds draw the counter-clockwise (rewind) arrow.
+ *
+ * @param {number} seconds - signed skip amount, e.g. -10 or 5
+ * @param {string} onclickExpr - inline handler body, e.g. "skipVideo(-10)"
+ * @param {string} title - tooltip, e.g. "-10s (J)"
+ */
+function renderSkipButton(seconds, onclickExpr, title) {
+  const back = seconds < 0;
+  const arrow = back
+    ? '<path d="M4 12a8 8 0 1 0 2.5-5.8"/><path d="M4 4v5h5"/>'
+    : '<path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20 4v5h-5"/>';
+  return `<button onclick="${onclickExpr}" class="control-btn skip-btn" title="${title}">
+            <span class="skip-icon">
+              <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
+                   stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${arrow}</svg>
+              <span class="skip-num">${Math.abs(seconds)}</span>
+            </span>
+          </button>`;
+}
+
+// =========================================================================
+// PROGRESS TIMES - elapsed on the left of the bar, total/remaining on the right
+// =========================================================================
+
+/* Persisted per browser, not per file: whichever way you last read the right
+   hand number is the way you want to read the next one too. */
+let showRemainingTime = (() => {
+  try { return localStorage.getItem('vault.player.showRemaining') === '1'; } catch { return false; }
+})();
+
+/**
+ * The time label that sits at one end of the seek bar.
+ * @param {'start'|'end'} side
+ */
+function renderProgressTimes(side) {
+  if (side === 'start') {
+    return '<span class="progress-time" id="currentTime">0:00</span>';
+  }
+  return `<span class="progress-time progress-time-total" id="totalTime"
+                onclick="toggleTotalTimeMode()"
+                title="Click to switch between total and remaining">0:00</span>`;
+}
+
+/** Flip the right hand label between total duration and time remaining. */
+function toggleTotalTimeMode() {
+  showRemainingTime = !showRemainingTime;
+  try { localStorage.setItem('vault.player.showRemaining', showRemainingTime ? '1' : '0'); } catch {}
+  updateTotalTimeLabel();
+}
+
+/**
+ * Repaint the right hand time label. Called from loadedmetadata and from every
+ * timeupdate (remaining has to tick down), shared by video, audio and mix.
+ */
+function updateTotalTimeLabel(el) {
+  el = el || document.getElementById('totalTime');
+  if (!el) return;
+  const media = currentMediaState.element;
+  const dur = (media && isFinite(media.duration) && media.duration > 0) ? media.duration : 0;
+  if (!dur) { el.textContent = '0:00'; return; }
+  if (showRemainingTime) {
+    const remaining = Math.max(0, dur - (media.currentTime || 0));
+    el.textContent = '-' + (formatDuration(remaining) || '0:00');
+  } else {
+    el.textContent = formatDuration(dur) || '0:00';
+  }
+}
+
+// =========================================================================
 // PLAYBACK SPEED - Shared between video and audio players
 // =========================================================================
 
 const SPEED_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 3];
 let currentSpeedIndex = 3; // default 1x
 
+/** The stepper plus the readout, identical in every player. */
+function renderSpeedControls() {
+  return `
+    <div class="speed-control">
+      <button onclick="cycleSpeed(-1)" class="control-btn speed-btn" title="Slower (<)">−</button>
+      <span class="speed-display" id="speedDisplay"
+            onclick="resetSpeed()"
+            oncontextmenu="openSpeedMenu(event); return false;"
+            title="Click to reset to 1x. Right-click for all speeds">1x</span>
+      <button onclick="cycleSpeed(1)" class="control-btn speed-btn" title="Faster (>)">+</button>
+    </div>
+  `;
+}
+
+/**
+ * Apply the speed at currentSpeedIndex to the playing element and relabel.
+ */
+function applyCurrentSpeed() {
+  const element = currentMediaState.element;
+  if (element) element.playbackRate = SPEED_STEPS[currentSpeedIndex];
+  updateSpeedDisplay();
+}
+
 /**
  * Cycle playback speed up (+1) or down (-1).
  */
 function cycleSpeed(direction) {
-  const element = currentMediaState.element;
-  if (!element) return;
-
+  if (!currentMediaState.element) return;
   currentSpeedIndex = Math.max(0, Math.min(SPEED_STEPS.length - 1, currentSpeedIndex + direction));
-  const speed = SPEED_STEPS[currentSpeedIndex];
-  element.playbackRate = speed;
-  updateSpeedDisplay();
+  applyCurrentSpeed();
+}
+
+/**
+ * Jump straight to one of the SPEED_STEPS (the right-click menu).
+ */
+function setSpeedIndex(index) {
+  if (index < 0 || index >= SPEED_STEPS.length) return;
+  currentSpeedIndex = index;
+  applyCurrentSpeed();
+  closeSpeedMenu();
 }
 
 /**
  * Reset speed to 1x.
  */
 function resetSpeed() {
-  const element = currentMediaState.element;
-  if (!element) return;
   currentSpeedIndex = SPEED_STEPS.indexOf(1);
-  element.playbackRate = 1;
-  updateSpeedDisplay();
+  applyCurrentSpeed();
+  closeSpeedMenu();
 }
 
 /**
@@ -573,4 +664,48 @@ function updateSpeedDisplay() {
   const speed = SPEED_STEPS[currentSpeedIndex];
   display.textContent = speed + 'x';
   display.classList.toggle('speed-modified', speed !== 1);
+  // Mini player carries the same readout when it shows an audio card
+  const mini = document.getElementById('miniAudioSpeed');
+  if (mini) mini.textContent = speed + 'x';
+}
+
+/* ── Speed menu (right-click the readout) ────────────────────────────────
+   Built on demand rather than once at startup: the control bar is thrown away
+   and re-rendered on every media change, so a cached node would end up
+   orphaned. */
+function _speedMenuOutside(e) {
+  const menu = document.getElementById('speedMenu');
+  if (menu && !menu.contains(e.target)) closeSpeedMenu();
+}
+
+function _speedMenuKey(e) {
+  if (e.key === 'Escape') { e.stopPropagation(); closeSpeedMenu(); }
+}
+
+function closeSpeedMenu() {
+  const menu = document.getElementById('speedMenu');
+  if (menu) menu.remove();
+  document.removeEventListener('mousedown', _speedMenuOutside, true);
+  document.removeEventListener('keydown', _speedMenuKey, true);
+}
+
+function openSpeedMenu(event) {
+  if (event) event.preventDefault();
+  const display = document.getElementById('speedDisplay');
+  if (!display || !display.parentElement) return;
+  closeSpeedMenu();
+
+  const menu = document.createElement('div');
+  menu.className = 'speed-menu';
+  menu.id = 'speedMenu';
+  menu.innerHTML = SPEED_STEPS.map((s, i) =>
+    `<button type="button" class="speed-menu-item${i === currentSpeedIndex ? ' selected' : ''}"
+             onclick="setSpeedIndex(${i})">${s}x</button>`).join('');
+  display.parentElement.appendChild(menu);
+
+  // Deferred so the click/contextmenu that opened it doesn't immediately close it
+  setTimeout(() => {
+    document.addEventListener('mousedown', _speedMenuOutside, true);
+    document.addEventListener('keydown', _speedMenuKey, true);
+  }, 0);
 }

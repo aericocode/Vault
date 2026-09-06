@@ -31,41 +31,26 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
     ${renderFillButton()}
   `;
 
-  const speedControls = `
-    <div class="speed-control">
-      <button onclick="cycleSpeed(-1)" class="control-btn speed-btn" title="Slower (<)">−</button>
-      <span class="speed-display" id="speedDisplay">1x</span>
-      <button onclick="cycleSpeed(1)" class="control-btn speed-btn" title="Faster (>)">+</button>
-    </div>
-  `;
-  
+  const speedControls = renderSpeedControls();
+
   controlsContainer.innerHTML = `
     <div class="player-controls-wrapper audio-controls">
-      <div class="video-progress-wrapper" id="audioProgressWrapper">
-        <div class="video-progress" id="audioProgress">
-          <div class="video-progress-bar" id="audioProgressBar" style="width: 0%"></div>
+      <div class="video-progress-row">
+        ${renderProgressTimes('start')}
+        <div class="video-progress-wrapper" id="audioProgressWrapper">
+          <div class="video-progress" id="audioProgress">
+            <div class="video-progress-bar" id="audioProgressBar" style="width: 0%"></div>
+          </div>
         </div>
+        ${renderProgressTimes('end')}
       </div>
       <div class="video-playback-row">
-        <span class="video-time">
-          <span id="currentTime">0:00</span>
-          <span class="time-separator">/</span>
-          <span id="totalTime">0:00</span>
-        </span>
         <div class="playback-controls">
-          <button onclick="skipAudio(-10)" class="control-btn" title="-10s (J)">
-            <span>⏪</span><span class="seek-label">10</span>
-          </button>
-          <button onclick="skipAudio(-5)" class="control-btn" title="-5s (←)">
-            <span>◀</span><span class="seek-label">5</span>
-          </button>
+          ${renderSkipButton(-10, 'skipAudio(-10)', '-10s (J)')}
+          ${renderSkipButton(-5, 'skipAudio(-5)', '-5s (←)')}
           <button onclick="toggleAudioPlay()" id="playPauseBtn" class="play-pause-btn" title="Play/Pause (Space)">▶</button>
-          <button onclick="skipAudio(5)" class="control-btn" title="+5s (→)">
-            <span class="seek-label">5</span><span>▶</span>
-          </button>
-          <button onclick="skipAudio(10)" class="control-btn" title="+10s (L)">
-            <span class="seek-label">10</span><span>⏩</span>
-          </button>
+          ${renderSkipButton(5, 'skipAudio(5)', '+5s (→)')}
+          ${renderSkipButton(10, 'skipAudio(10)', '+10s (L)')}
         </div>
       </div>
       <div class="video-extras-row">
@@ -93,9 +78,12 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
 
   audio.volume = sliderToVolume(initialVolume, 1);
   
+  // Speed is a session preference and the chrome was just re-rendered as "1x"
+  audio.playbackRate = SPEED_STEPS[currentSpeedIndex];
+  updateSpeedDisplay();
+
   audio.addEventListener('loadedmetadata', () => {
-    const el = document.getElementById('totalTime');
-    if (el) el.textContent = formatDuration(audio.duration);
+    updateTotalTimeLabel();
     if (typeof updateAbLoopOverlay === 'function') updateAbLoopOverlay();
   });
   
@@ -107,8 +95,9 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
       progressBar.style.width = progress + '%';
     }
     if (currentTimeEl) {
-      currentTimeEl.textContent = formatDuration(audio.currentTime);
+      currentTimeEl.textContent = formatDuration(audio.currentTime) || '0:00';
     }
+    updateTotalTimeLabel();
     // AB loop check
     if (typeof checkAbLoop === 'function') {
       checkAbLoop(audio);

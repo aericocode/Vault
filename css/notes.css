@@ -557,6 +557,7 @@
   display: flex;
   align-items: center;
   gap: 0.2rem;
+  position: relative;   /* anchors the right-click speed menu */
 }
 
 .speed-btn {
@@ -572,8 +573,64 @@
   min-width: 2.2rem;
   text-align: center;
   font-family: monospace;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  padding: 0.2rem 0.45rem;
 }
 
+.speed-display:hover {
+  color: #fff;
+}
+
+/* Off 1x the readout becomes a chip rather than just tinted text — it has to be
+   obvious at a glance that playback is not at normal speed. */
 .speed-display.speed-modified {
-  color: var(--accent, #89b4fa);
+  background: var(--accent-bg);
+  color: var(--accent-hover);
+}
+
+.speed-display.speed-modified:hover {
+  color: var(--accent-hover);
+}
+
+/* ── Speed menu (right-click the readout) ────────────────────────────── */
+
+.speed-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.9);
+  border: 1px solid var(--player-border);
+  border-radius: 8px;
+  padding: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  z-index: 30;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.speed-menu-item {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-family: monospace;
+  font-size: 0.78rem;
+  padding: 0.3rem 0.9rem;
+  border-radius: 5px;
+  cursor: pointer;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.speed-menu-item:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.speed-menu-item.selected {
+  background: var(--accent);
+  color: #fff;
 }

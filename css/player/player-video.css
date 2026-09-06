@@ -2,6 +2,35 @@
    Video Player Specific Styles
    ========================================== */
 
+/* Progress row: [elapsed] [seek bar] [total / remaining] */
+.video-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* Times sit at the ends of the bar. Tabular figures so the bar doesn't shuffle
+   sideways every time a digit changes. */
+.progress-time {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.9);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 2.6rem;
+  text-align: center;
+}
+
+.progress-time-total {
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.progress-time-total:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
 /* Progress Bar */
 .video-progress-wrapper {
   width: 100%;
@@ -9,6 +38,14 @@
   cursor: pointer;
   position: relative;
   touch-action: none;   /* dragging the bar scrubs, it doesn't scroll the page */
+}
+
+/* Inside the progress row the bar takes whatever the two times leave over.
+   min-width:0 or a long time label would push the bar past the card edge. */
+.video-progress-row > .video-progress-wrapper {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
 }
 
 /* Floating time under the pointer while hovering/scrubbing the seek bar */
@@ -245,12 +282,57 @@
   font-weight: 600;
 }
 
-/* Play/Pause Button */
+/* Play/Pause Button — fixed height so it lines up with the skip buttons */
 .play-pause-btn {
   font-size: 1.25rem !important;
-  padding: 0.5rem 0.75rem !important;
-  min-width: 50px;  
+  padding: 0 0.75rem !important;
+  min-width: 50px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
+}
+
+/* Skip Buttons — rotate arrow with the seconds printed inside it.
+   Same 40px height as play/pause; the vertical padding has to go or the 26px
+   icon pushes the button taller than the play button next to it. */
+.playback-controls .control-btn {
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Padding is only stripped on the SVG skip buttons — the Editor's mix bar
+   reuses .playback-controls with plain emoji buttons and still wants it. */
+.playback-controls .skip-btn {
+  min-width: 44px;
+  padding: 0 0.35rem;
+}
+
+.skip-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+}
+
+.skip-icon svg {
+  display: block;
+}
+
+.skip-num {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
 }
 
 /* Seek Buttons */
@@ -271,7 +353,8 @@
     width: 60px;
   }
   
-  .video-time {
+  .video-time,
+  .progress-time {
     font-size: 0.75rem;
   }
 }
