@@ -1770,6 +1770,12 @@ app.post('/api/import/add-paths', (req, res) => {
           if (info) db.saveStreamInfo(a.id, info);
         } catch { /* per-file probe failure is fine */ }
       }
+      // Thumbnails for everything just added, whatever type. The scan pass
+      // makes them too, but the import queue may be paused or hours behind,
+      // and a new tile should not sit on a placeholder until then.
+      for (const a of added) {
+        try { thumbnails.enqueueThumbnail(db.getById(a.id)); } catch {}
+      }
     } catch { /* probe loop is best-effort */ }
   });
 });
@@ -2347,6 +2353,23 @@ app.get('/media/:id', (req, res) => {
 
 // ── Thumbnails ─────────────────────────────────────────────────────────────
 
+/**
+ * How long the browser may keep a derived image.
+ *
+ * Vault mode: never. The disk cache would otherwise hold a decrypted copy of
+ * something the user locked, which is the whole point of the vault. The viewer
+ * keeps blobs in memory instead, and they go when the vault locks.
+ *
+ * Plain mode: a year, immutable, but only when the URL carries the ?v= the
+ * viewer reads off media.thumb_version. Regenerating a thumbnail bumps that
+ * number, so the URL changes with the bytes and "immutable" stays true. A URL
+ * with no version gets no-cache, because nothing would ever bust it.
+ */
+function imageCacheControl(req) {
+  if (secureAssets.enabled()) return 'no-store';
+  return req.query.v ? 'private, max-age=31536000, immutable' : 'no-cache';
+}
+
 // Hover-scrub preview frames (videos only): /scrub/:id/0 … /scrub/:id/4
 app.get('/scrub/:id/:idx', async (req, res) => {
   const id = parseId(req.params.id);
@@ -2355,25 +2378,29 @@ app.get('/scrub/:id/:idx', async (req, res) => {
   const row = db.getById(id);
   if (!row) return res.status(404).end();
 
-  // no-store in ALL modes: the browser's disk cache would otherwise persist a
-  // decrypted copy, and localhost latency makes caching pointless anyway.
-  res.set('Cache-Control', 'no-store');
+  res.set('Cache-Control', imageCacheControl(req));
   try {
     if (secureAssets.enabled()) {
       const buf = await thumbnails.getScrubFrameBuffer(row, idx);
-      if (!buf) return res.status(404).end();
+      if (!buf) return notCached(res).status(404).end();
       res.set('Content-Type', 'image/jpeg');
       return res.end(buf);
     }
     const framePath = await thumbnails.getScrubFrame(row, idx);
-    if (!framePath) return res.status(404).end();
+    if (!framePath) return notCached(res).status(404).end();
     res.sendFile(framePath, (err) => {
       if (err && !res.headersSent) res.status(err.status || 500).end();
     });
   } catch (err) {
-    res.status(500).end();
+    notCached(res).status(500).end();
   }
 });
+
+/** A miss must never be the thing the browser keeps for a year. */
+function notCached(res) {
+  res.set('Cache-Control', 'no-store');
+  return res;
+}
 
 app.get('/thumb/:id', async (req, res) => {
   const id = parseId(req.params.id);
@@ -2392,24 +2419,39 @@ app.get('/thumb/:id', async (req, res) => {
     } catch { return res.status(404).end(); }
   }
 
-  // no-store in ALL modes (see /scrub) — never leave a decrypted copy in cache.
-  res.set('Cache-Control', 'no-store');
+  // This route answers a browser that is holding an <img> open, so it only
+  // ever LOOKS. Nothing here runs ffmpeg: a thumbnail that does not exist yet
+  // is queued in the background and answered with 404 + X-Thumb: pending, and
+  // the tile keeps its placeholder until a retry finds the image there.
+  res.set('Cache-Control', imageCacheControl(req));
   try {
     if (secureAssets.enabled()) {
-      const buf = await thumbnails.getThumbnailBuffer(row);
-      if (!buf) return res.status(404).end();
+      const buf = thumbnails.peekThumbnailBuffer(row);
+      if (!buf) return sendThumbPending(res, row);
       res.set('Content-Type', 'image/jpeg');
       return res.end(buf);
     }
-    const thumbPath = await thumbnails.getThumbnail(row);
-    if (!thumbPath) return res.status(404).end();
+    const thumbPath = thumbnails.peekThumbnail(row);
+    if (!thumbPath) return sendThumbPending(res, row);
     res.sendFile(thumbPath, (err) => {
-      if (err && !res.headersSent) res.status(err.status || 500).end();
+      if (err && !res.headersSent) notCached(res).status(err.status || 500).end();
     });
   } catch (err) {
-    res.status(500).end();
+    notCached(res).status(500).end();
   }
 });
+
+/**
+ * No thumbnail yet: queue one and say so. X-Thumb is "pending" when the work
+ * was accepted and "missing" when it never can be (the media file is gone, or
+ * the render has failed too often) — the viewer stops retrying on "missing"
+ * instead of spending its whole backoff on a file that is not there.
+ */
+function sendThumbPending(res, row) {
+  const state = thumbnails.enqueueThumbnail(row);
+  notCached(res).set('X-Thumb', state === 'skipped' ? 'missing' : 'pending');
+  return res.status(404).end();
+}
 
 // ── Startup ────────────────────────────────────────────────────────────────
 
