@@ -503,6 +503,18 @@
     installKeyButton();
     document.addEventListener('pointerdown', touchActivity, true);
     document.addEventListener('keydown', touchActivity, true);
+    // Watching counts as being there: a video or audio file playing in the
+    // main player or the mini player keeps the vault open, hands off the
+    // keyboard or not. Paused, ended, or still loading does not count, so a
+    // player left on a paused frame still locks on schedule. Native playback
+    // of a fully buffered file makes no requests at all, which is why this
+    // cannot rely on data traffic the way scans and remux segments do.
+    setInterval(() => {
+      const playing = [...document.querySelectorAll(
+        '#mediaPlayerContent video, #mediaPlayerContent audio, #miniPlayerMedia video, #miniPlayerMedia audio'
+      )].some(el => !el.paused && !el.ended && el.readyState >= 2);
+      if (playing) touchActivity();
+    }, 30 * 1000);
     refreshStatus();
     setInterval(refreshStatus, 45 * 1000);
     // After the setup-tools banner has had its moment — one prompt at a time.

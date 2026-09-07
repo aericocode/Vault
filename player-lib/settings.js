@@ -452,8 +452,8 @@
       <h3 class="settings-h">Preferences</h3>
       ${toggleRow({
         key: 'privacyMode',
-        title: 'Privacy / streaming mode',
-        desc: 'Hide personal data for screen-sharing. Choose what to hide with the chips below. Shortcut: Ctrl+Shift+H.',
+        title: 'Privacy mode',
+        desc: 'Hide personal data on screen. Pick what to hide below. Ctrl+Shift+H.',
       })}
       ${privacyHideRow()}
       ${toggleRow({
