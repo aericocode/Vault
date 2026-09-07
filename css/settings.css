@@ -344,14 +344,25 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
-  margin: -0.25rem 0 0.85rem 0;
-  padding-left: 1rem;
+  margin: 0;
+  padding: 0.1rem 0 0.85rem 1rem;
+  border-bottom: 1px solid var(--border);
   transition: opacity 0.15s ease-out;
 }
 
+/* The chips belong to the toggle row above them, so that row gives up its own
+   divider and the chips carry it instead; otherwise the line runs straight
+   through the chips. */
+.settings-toggle:has(+ .settings-chips) {
+  border-bottom: 0;
+  padding-bottom: 0.4rem;
+}
+
 .settings-chips.is-off {
-  opacity: 0.45;
   pointer-events: none;
+}
+.settings-chips.is-off .settings-chip {
+  opacity: 0.45;
 }
 
 .settings-chip {
@@ -628,9 +639,9 @@ body.pm-imports .dq-file {
 }
 
 /* ── Thumbnails (body.pm-thumbs) ────────────────────────────────────────────
-   Mirrors the blur-thumbs rule below, minus the hover reveal — this category
-   exists for a screenshot that has to be safe with a cursor sitting on a tile.
-   Same 14px so switching between the two is not a visible change. */
+   No hover reveal on purpose: this category exists for a screenshot that has
+   to be safe with a cursor sitting on a tile. Only real thumbnails are blurred;
+   the .thumb-fallback type glyph (🎵, 📄) is generic chrome, not content. */
 body.pm-thumbs .tile-img {
   filter: blur(14px);
 }
@@ -648,36 +659,6 @@ body.pm-names #modalTitle {
   filter: blur(7px);
   pointer-events: none;
   user-select: none;
-}
-
-/* =========================================================================
-   BLURRED LIBRARY  (body.blur-thumbs)
-
-   Separate switch from privacy mode on purpose — that one hides YOUR data and
-   deliberately leaves thumbnails alone; this one hides the imagery and nothing
-   else. Both together is what makes a library screenshot publishable.
-
-   Hover reveals a single tile, which is what makes a blur usable day to day.
-   With privacy mode ALSO on that reveal is withdrawn, because this file's rule
-   is that nothing uncovers on hover — a cursor resting over a tile must not be
-   able to put a frame in the screenshot.
-   ========================================================================= */
-
-/* Only real thumbnails. The .thumb-fallback type glyph (🎵, 📄) is generic
-   chrome, not content — blurring it would just make the grid look broken. */
-body.blur-thumbs .tile-img {
-  filter: blur(14px);
-  transition: filter 0.12s ease-out;
-}
-
-/* Point at a tile to check what it is. */
-body.blur-thumbs .tile-thumb:hover .tile-img {
-  filter: none;
-}
-
-/* …but not while privacy mode is on. */
-body.blur-thumbs.privacy-mode .tile-thumb:hover .tile-img {
-  filter: blur(14px);
 }
 
 /* ── Library section: move / relink ──────────────────────────────────────── */

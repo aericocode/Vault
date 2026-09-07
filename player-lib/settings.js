@@ -36,7 +36,6 @@
     queueLoop: false,       // after the last file in the list, start over at the first
     scanWorkers: 2,         // files the vision model scans in parallel after an import
     unlockHoldSeconds: 0,   // press-and-hold on the lock before the password box (0 = single click)
-    blurThumbs: false,      // blur the grid's tiles (hover reveals — unless privacy mode is on)
     gamifyHidden: false,    // hide the Obsession chip + toasts (scoring continues)
     libraryDeepOpen: false, // Settings > Library: is the deep-search section expanded
     _lastMediaId: null,     // internal: id for restoreSession
@@ -257,28 +256,13 @@
     }
   }
 
-  /* ── Blurred grid ────────────────────────────────────────────────────────
-     Independent of privacy mode, because they answer different questions:
-     privacy mode hides YOUR data (paths, notes, searches) while thumbnails are
-     deliberately left alone; this hides the imagery and nothing else. Wanting a
-     library screenshot that is safe to publish means wanting both.
-
-     Hover reveals a tile — that is the point of a blur rather than a hide, and
-     it keeps the grid usable. But privacy mode's rule is that nothing reveals
-     on hover, so with both on the blur stays put and the grid can be
-     screenshotted without a stray cursor uncovering a frame. css/settings.css
-     holds that combination. */
-
-  function applyBlurThumbs(on) {
-    document.body.classList.toggle('blur-thumbs', !!on);
-  }
-
   // Apply the body classes the instant this script runs (before first render),
-  // so a reload with privacy or blur on never flashes the real thing.
+  // so a reload with privacy mode on never flashes the real thing.
+  // (The separate "blur thumbnails" switch was folded into the Thumbnails chip
+  // of privacy mode; an old stored blurThumbs value is simply ignored.)
   load();
   if (settings.privacyMode) document.body.classList.add('privacy-mode');
   applyPrivacyHideClasses(settings.privacyMode);
-  if (settings.blurThumbs) document.body.classList.add('blur-thumbs');
 
   /* ── Header gear button ──────────────────────────────────────────────────
      Appended to the END of .header-buttons (gamify prepends its chip; we
@@ -448,7 +432,7 @@
       <div class="settings-chips${off}" id="privacyHideChips" role="group" aria-label="Hide while on">
         ${PRIVACY_HIDE_ITEMS.map(i => `
           <button type="button" class="settings-chip" aria-pressed="${settings.privacyHide?.[i.key] ? 'true' : 'false'}"
-                  data-privacy-hide="${i.key}" title="${esc(i.label)}">${esc(i.short)}</button>`).join('')}
+                  data-privacy-hide="${i.key}">${esc(i.short)}</button>`).join('')}
       </div>`;
   }
 
@@ -472,11 +456,6 @@
         desc: 'Hide personal data for screen-sharing. Choose what to hide with the chips below. Shortcut: Ctrl+Shift+H.',
       })}
       ${privacyHideRow()}
-      ${toggleRow({
-        key: 'blurThumbs',
-        title: 'Blur thumbnails in the library',
-        desc: 'Blur every tile in the grid. Point at one to see it — unless privacy mode is also on, in which case nothing reveals on hover and the grid is safe to screenshot.',
-      })}
       ${toggleRow({
         key: 'resumePlayback',
         title: 'Resume playback positions',
@@ -540,11 +519,6 @@
         const key = input.dataset.setting;
         if (key === 'privacyMode') {
           setPrivacyMode(input.checked);
-        } else if (key === 'blurThumbs') {
-          settings.blurThumbs = input.checked;
-          save();
-          applyBlurThumbs(settings.blurThumbs);
-          showToast?.(settings.blurThumbs ? '🫥 Library blurred' : 'Library blur off');
         } else if (key === 'queueLoop') {
           settings.queueLoop = input.checked;
           save();
