@@ -11,6 +11,9 @@
  */
 async function loadDatabase() {
   try {
+    // Before the first tile renders: vault mode decides whether the browser
+    // may cache a thumbnail at all, and that changes the <img> markup.
+    await initThumbMode();
     const resp = await fetch('/api/media');
     if (resp.status === 423) {
       // Vault locked — the lock screen (vault-ui.js) owns the UI; keep the

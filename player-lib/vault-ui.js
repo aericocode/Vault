@@ -42,6 +42,9 @@
       const s = await fetch('/api/vault/status').then(r => r.json());
       const wasLocked = _status.locked;
       _status = s;
+      // The browser may only cache thumbnails while the library is plaintext;
+      // see player-lib/thumbs.js.
+      if (typeof setThumbsEncrypted === 'function') setThumbsEncrypted(!!s.encrypted && !s.locked);
       renderLogo();
       if (s.locked && !wasLocked) enterLockedUi();   // autolock fired while idle
       else if (s.locked) showLockOverlay();          // booted locked
@@ -127,6 +130,9 @@
   function enterLockedUi() {
     _status.locked = true;
     haltAllPlayback();
+    // Decrypted thumbnails are held as object URLs in this tab. Locking the
+    // vault has to take them with it, not just hide the grid.
+    try { if (typeof revokeThumbBlobs === 'function') revokeThumbBlobs(); } catch {}
     try {
       allMedia = [];
       filteredMedia = [];
@@ -195,6 +201,9 @@
         // user to the lock screen to retype a password they typed twice a
         // second ago was the old behaviour and it read as a bug.
         _status = data;                 // {encrypted:true, locked:false}
+        // Thumbnails become uncacheable the moment the library is encrypted.
+        if (typeof setThumbsEncrypted === 'function') setThumbsEncrypted(true);
+        if (typeof renderResults === 'function') renderResults();
         renderLogo();                   // padlock → open + 🔑 appears, no reload
         showToast('🔐 Library encrypted — it stays open while you use it');
       } catch (e2) {

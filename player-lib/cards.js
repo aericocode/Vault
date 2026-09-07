@@ -197,6 +197,7 @@ function renderResults() {
   const resultsGrid = document.getElementById('resultsGrid');
   const collCards = typeof renderCollectionCards === 'function' ? renderCollectionCards() : '';
   resultsGrid.innerHTML = collCards + pageItems.map(m => renderTile(m)).join('');
+  hydrateThumbs(resultsGrid);
   renderPagination();
 
   // Keep the selection bar's "Select page" count/state in sync after paging
@@ -213,7 +214,37 @@ function renderResults() {
     } finally {
       _inRenderCorrection = false;
     }
+    prefetchAdjacentPages();
   }
+}
+
+/* ── Prefetch ─────────────────────────────────────────────────────────────
+   Whatever the user asks for next is almost always one page away, so warm
+   the two pages either side of this one. After a new search there is no
+   previous page worth having and the page after next is the better guess. */
+
+let _prefetchWide = false;
+
+function prefetchAdjacentPages() {
+  if (typeof scheduleThumbPrefetch !== 'function') return;
+  const size = Math.max(1, pageSize);
+  const next = filteredMedia.slice(pageAnchor + size, pageAnchor + size * 2);
+  const second = _prefetchWide
+    ? filteredMedia.slice(pageAnchor + size * 2, pageAnchor + size * 3)
+    : filteredMedia.slice(Math.max(0, pageAnchor - size), pageAnchor);
+  _prefetchWide = false;
+  scheduleThumbPrefetch([next, second]);
+}
+
+function prefetchContinuousRows() {
+  if (typeof scheduleThumbPrefetch !== 'function') return;
+  const { cols, first, last } = contState;
+  if (!cols || last < 0) return;
+  const rowsBelow = _prefetchWide ? 6 : 3;
+  _prefetchWide = false;
+  const below = filteredMedia.slice((last + 1) * cols, (last + 1 + rowsBelow) * cols);
+  const above = first > 0 ? filteredMedia.slice((first - 1) * cols, first * cols) : [];
+  scheduleThumbPrefetch([below, above]);
 }
 
 /* ── Where the page starts ────────────────────────────────────────────────
@@ -235,6 +266,7 @@ function movePage(delta) {
 /** Back to the first tile — a new search or filter has no place to hold. */
 function resetPageAnchor() {
   pageAnchor = 0;
+  _prefetchWide = true;   // nothing behind us: warm what is ahead instead
   if (libraryLayoutMode() === 'continuous') scrollLibraryToTop();
 }
 
@@ -342,6 +374,8 @@ function renderContinuousWindow() {
       + items.map(item => renderTile(item)).join('') + '</div>';
   }
   virt.innerHTML = html;
+  hydrateThumbs(virt);
+  prefetchContinuousRows();
 
   // The anchor still means "first tile on screen", which here is the first
   // tile of the first row the viewport actually shows.
@@ -500,7 +534,11 @@ function renderTile(media) {
   const rating = media.user_rating || 0;
   const duration = media.duration_seconds ? formatDuration(media.duration_seconds) : '';
   const icon = TILE_TYPE_ICONS[media.media_type] || '📁';
-  const canThumb = ['image', 'gif', 'video', 'mix'].includes(media.media_type);
+  // A file we already know has no picture (its source is gone, or the render
+  // failed) renders as the type icon straight away. Otherwise every re-render
+  // would ask the server again for something it has already said is not there.
+  const canThumb = ['image', 'gif', 'video', 'mix'].includes(media.media_type)
+    && !thumbKnownMissing(media.id);
   const isMix = media.media_type === 'mix';
   const isSelected = typeof selectedIds !== 'undefined' && selectedIds.has(media.id);
 
@@ -540,8 +578,10 @@ function renderTile(media) {
     doneCount > 0 ? `<span class="hd-done" title="Finishers: sessions ended here ${doneCount}×">💦${doneCount > 1 ? doneCount : ''}</span>` : '',
   ].filter(Boolean).join('');
 
+  // thumbImgAttrs() decides between a plain src and the vault's blob cache;
+  // the onerror is the last resort, after thumbs.js has run out of retries.
   const thumb = canThumb
-    ? `<img class="tile-img" loading="lazy" src="/thumb/${media.id}" alt=""
+    ? `<img class="tile-img" loading="lazy" ${thumbImgAttrs(media)} alt=""
          onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">`
     : '';
 
@@ -731,8 +771,8 @@ function startScrub(tile, media) {
   _scrub.timer = setInterval(() => {
     if (!img.isConnected) { stopScrub(); return; }
     // onerror: fall back to the static thumb (e.g. scrub frame unavailable)
-    img.onerror = () => { img.onerror = null; img.src = `/thumb/${media.id}`; };
-    img.src = `/scrub/${media.id}/${_scrub.idx}`;
+    img.onerror = () => { img.onerror = null; img.src = staticThumbSrc(media.id); };
+    img.src = scrubUrl(media.id, _scrub.idx);
     _scrub.idx = (_scrub.idx + 1) % SCRUB_FRAMES;
   }, SCRUB_INTERVAL_MS);
 }
@@ -741,7 +781,7 @@ function stopScrub() {
   if (_scrub.timer) clearInterval(_scrub.timer);
   if (_scrub.img && _scrub.img.isConnected && _scrub.id != null) {
     _scrub.img.onerror = null;
-    _scrub.img.src = `/thumb/${_scrub.id}`; // restore the static thumb
+    _scrub.img.src = staticThumbSrc(_scrub.id); // restore the static thumb
   }
   _scrub = { id: null, timer: null, idx: 0, img: null };
 }
