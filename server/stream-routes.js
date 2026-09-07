@@ -246,13 +246,22 @@ function buildRouter() {
   // One tab closing must not take the file away from another tab still playing
   // it, so the beacon only retires the closing client's window; the producer and
   // the buffers go when the last one leaves.
+  //
+  // "The last one leaves" means a token the ring actually knew about leaving. A
+  // beacon with an unknown token reports "nobody left" too: a stray request, a
+  // ring that no longer exists, or a client already pruned after CLIENT_TTL_MS
+  // of quiet, which is what a paused player with a full buffer looks like.
+  // Ending the session on that would tear down a producer somebody else is
+  // still reading, so teardown needs both halves: the token was a known client,
+  // and it was the last one. Everything else is a no-op, and the idle sweeper
+  // stays the guarantee for sessions that really were abandoned.
   router.post('/stream/:id/close', async (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).end();
     res.status(204).end();
     try {
       const left = ring.dropClient(id, clientToken(req));
-      if (left.remaining > 0) return;
+      if (!left.removed || left.remaining > 0) return;
       await session.end(id);
     } catch { /* the idle sweeper is the backstop */ }
   });

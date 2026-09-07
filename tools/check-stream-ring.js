@@ -211,10 +211,56 @@ console.log('client expiry');
   // The close beacon path: one tab leaving must not free the other tab's ring.
   const left = ring.dropClient(ID, 'here');
   check('dropping the last client reports nobody left', left.remaining === 0);
+  check('and reports that it really removed one', left.removed === true);
   ring.note(ID, 5, 'one');
   ring.note(ID, 6, 'two');
   check('dropping one of two clients reports the other still there',
     ring.dropClient(ID, 'one').remaining === 1);
+
+  // A beacon for a token nobody knows looks like "nobody left" too, which is why
+  // the route needs `removed` before it tears the session down. Same for a
+  // client that was already pruned for going quiet.
+  const stranger = ring.dropClient(ID, 'never-seen');
+  check('an unknown token reports removed false', stranger.removed === false);
+  ring.peek(ID).clients.get('two').lastRequest = Date.now() - ring.CLIENT_TTL_MS - 1000;
+  const pruned = ring.dropClient(ID, 'two');
+  check('a pruned client reports removed false, not a teardown',
+    pruned.removed === false && pruned.remaining === 0);
+  check('a beacon for a ring that does not exist reports removed false',
+    ring.dropClient(9999, 'anything').removed === false);
+  ring.forget(ID);
+}
+
+console.log('client cap');
+{
+  const ID = 13;
+  for (let i = 0; i < 100; i++) ring.note(ID, i, `flood-${i}`);
+  const r = ring.peek(ID);
+  check('the client map stops at MAX_CLIENTS',
+    r.clients.size === ring.MAX_CLIENTS, `size=${r.clients.size} cap=${ring.MAX_CLIENTS}`);
+  const kept = [...r.clients.keys()].sort();
+  const wanted = [];
+  for (let i = 100 - ring.MAX_CLIENTS; i < 100; i++) wanted.push(`flood-${i}`);
+  check('the newest tokens are the ones kept',
+    JSON.stringify(kept) === JSON.stringify(wanted.sort()), `kept=${kept}`);
+  const heads = r.playheads();
+  check('playheads still report one per kept client, in order',
+    heads.length === ring.MAX_CLIENTS
+      && heads[0] === 100 - ring.MAX_CLIENTS
+      && heads[heads.length - 1] === 99, `heads=${heads}`);
+  check('the ring playhead is still the highest live one', r.playhead === 99);
+
+  // Eviction is by age, not arrival order, so a player that keeps asking is
+  // never the one a flood of one-shot tokens pushes out.
+  ring.note(ID, 500, 'real-player');
+  for (let i = 100; i < 200; i++) {
+    ring.note(ID, i, `flood-${i}`);
+    ring.note(ID, 500, 'real-player');
+  }
+  check('a client that keeps asking survives a flood', r.clients.has('real-player'));
+  check('the cap holds through the flood',
+    r.clients.size === ring.MAX_CLIENTS, `size=${r.clients.size}`);
+  check('its window is still kept', r.playheads().includes(500), `heads=${r.playheads()}`);
   ring.forget(ID);
 }
 
