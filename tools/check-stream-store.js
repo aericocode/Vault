@@ -34,8 +34,18 @@ function check(name, cond, detail = '') {
 db.init(process.env.VAULT_DB);
 
 const ID = 4242;
+const GONE = 4343;                 // an id with no media row, ever
 const TOTAL = 8;
 const seg = (n, size) => Buffer.alloc(size, n);
+
+// put() refuses to write for an id the media table does not carry, so the
+// checks below need a real row behind ID.
+function addMediaRow(id) {
+  db.get().prepare(
+    'INSERT OR REPLACE INTO media (id, filepath, filename, media_type) VALUES (?, ?, ?, ?)'
+  ).run(id, `C:/nowhere/${id}.mkv`, `${id}.mkv`, 'video');
+}
+addMediaRow(ID);
 
 console.log('stream_cache.bytes');
 
@@ -73,6 +83,20 @@ check('bytes equals what is on disk', complete.bytes === store.bytesOf(ID),
 check('bytes equals the sum of the writes', complete.bytes === 1000 + 500 + 6 * 100,
   `bytes=${complete.bytes}`);
 
+console.log('writes for a record that is gone');
+
+// The belt-and-braces guard behind the delete paths: a producer killed a beat
+// too late must not be able to recreate the cache row (and the directory) for a
+// record that no longer exists.
+check('put refuses an id with no media row', store.put(GONE, 0, seg(0, 100), TOTAL) === false);
+check('no bookkeeping row was created', db.getStreamCache(GONE) === null);
+check('no cache directory was created', fs.existsSync(store.dirFor(GONE)) === false);
+
+addMediaRow(GONE);
+db.get().prepare('UPDATE media SET user_trashed = 1 WHERE id = ?').run(GONE);
+check('put refuses a trashed id', store.put(GONE, 0, seg(0, 100), TOTAL) === false);
+check('a trashed id gains no row', db.getStreamCache(GONE) === null);
+
 console.log('refused sweeps');
 
 // A cache root without the .vault-owned marker must not lose its rows.
@@ -80,6 +104,12 @@ fs.rmSync(path.join(store.root(), require('../lib/owned-dir').MARKER_NAME), { fo
 const refused = store.deleteAll(ID);
 check('deleteAll reports the refusal', refused.ok === false && !!refused.error);
 check('the bookkeeping row survives a refused delete', !!db.getStreamCache(ID));
+// The guard runs BEFORE anything is removed, and it only speaks for the
+// plaintext directory. An id with nothing on disk (every id, in vault mode) is
+// therefore never refused — the old order deleted the encrypted rows first and
+// then reported a refusal, leaving bookkeeping for segments that were gone.
+check('an id with nothing on disk is not refused', store.deleteAll(GONE).ok === true);
+
 const cleared = store.clearAll();
 check('clearAll reports the refusal', cleared.ok === false && !!cleared.error);
 check('rows survive a refused clear', !!db.getStreamCache(ID));
