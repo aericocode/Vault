@@ -37,6 +37,8 @@
     scanWorkers: 2,         // files the vision model scans in parallel after an import
     unlockHoldSeconds: 0,   // press-and-hold on the lock before the password box (0 = single click)
     gamifyHidden: false,    // hide the Obsession chip + toasts (scoring continues)
+    libraryLayout: 'pages', // 'pages' (whole rows, one screenful) | 'continuous' (free scroll)
+    cardSize: 'M',          // 'S' | 'M' | 'L' — minimum tile width, mapped in cards.js
     libraryDeepOpen: false, // Settings > Library: is the deep-search section expanded
     _lastMediaId: null,     // internal: id for restoreSession
   };
@@ -149,6 +151,20 @@
 
   // Read a setting from anywhere in the app.
   window.vaultSetting = (key) => settings[key];
+
+  /* ── Library layout / card size ──────────────────────────────────────
+     cards.js reads these on every layout pass, so changing one only has to
+     save and ask for a re-lay — no reload. Both are validated here rather than
+     at the read site, because a hand-edited localStorage blob must not be able
+     to hand cards.js a size it has no width for. */
+
+  const LAYOUTS = ['pages', 'continuous'];
+  const CARD_SIZES = ['S', 'M', 'L'];
+
+  window.vaultLibraryLayout = () =>
+    LAYOUTS.includes(settings.libraryLayout) ? settings.libraryLayout : 'pages';
+  window.vaultCardSize = () =>
+    CARD_SIZES.includes(settings.cardSize) ? settings.cardSize : 'M';
 
   // The player asks this when a file ends (or fails) on the last item in the
   // list: start over at the first, or stop here?
@@ -417,8 +433,29 @@
   const PLANNED = [
     { key: 'p_confirmTrash',title: 'Confirm before trash', desc: 'Ask before moving a file to the trash.' },
     { key: 'p_defaultSort', title: 'Default sort / filter on open', desc: 'Start every session with a saved sort and filter preset.' },
-    { key: 'p_perPage',     title: 'Items per page', desc: 'Choose how many tiles load per page.' },
   ];
+
+  /* A segmented control for the settings that are a short list of choices
+     rather than on/off. It reuses the toggle row's title/desc column so the
+     whole list keeps one left edge, and the buttons carry aria-pressed like
+     the privacy chips already do. */
+
+  function segRow({ key, title, desc, options }) {
+    const current = settings[key];
+    return `
+      <div class="settings-toggle settings-seg-row">
+        <span class="settings-toggle-text">
+          <span class="settings-toggle-title" id="segLabel_${key}">${title}</span>
+          <span class="settings-toggle-desc">${desc}</span>
+        </span>
+        <span class="settings-seg" role="group" aria-labelledby="segLabel_${key}">
+          ${options.map(o => `
+            <button type="button" class="settings-seg-btn" data-setting-seg="${key}"
+                    data-seg-value="${esc(o.value)}"
+                    aria-pressed="${current === o.value ? 'true' : 'false'}">${esc(o.label)}</button>`).join('')}
+        </span>
+      </div>`;
+  }
 
   /* The "Hide while on" chips that sit under the privacy toggle. Inline chips
      rather than a collapsed list: what is covered and what is not is the thing
@@ -476,6 +513,18 @@
         title: 'AI scan workers',
         desc: 'How many files the local vision model scans at once after an import. Higher is faster but needs more VRAM — 1–8, default 2.',
         min: 1, max: 8,
+      })}
+      ${segRow({
+        key: 'libraryLayout',
+        title: 'Library layout',
+        desc: 'Pages fill the screen with whole rows. Continuous scrolls freely.',
+        options: [{ value: 'pages', label: 'Pages' }, { value: 'continuous', label: 'Continuous' }],
+      })}
+      ${segRow({
+        key: 'cardSize',
+        title: 'Card size',
+        desc: 'How big each tile is. Columns and rows follow from the window.',
+        options: [{ value: 'S', label: 'Small' }, { value: 'M', label: 'Medium' }, { value: 'L', label: 'Large' }],
       })}
       ${toggleRow({
         key: 'gamifyHidden',
@@ -573,6 +622,22 @@
       save();
       applyPrivacyMode(settings.privacyMode);
     };
+    // Segmented controls (library layout, card size). The grid re-lays itself
+    // from the saved value, so there is nothing to reload.
+    const pickSeg = (btn) => {
+      const key = btn.dataset.settingSeg;
+      const value = btn.dataset.segValue;
+      if (settings[key] === value) return;
+      settings[key] = value;
+      save();
+      btn.closest('.settings-seg').querySelectorAll('button[data-setting-seg]').forEach(b => {
+        b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+      });
+      window.vaultRelayoutLibrary?.({ reason: key });
+    };
+    body.querySelectorAll('button[data-setting-seg]').forEach(btn => {
+      btn.addEventListener('click', () => pickSeg(btn));
+    });
     body.querySelectorAll('button[data-privacy-hide]').forEach(btn => {
       btn.addEventListener('click', () => togglePrivacyChip(btn));
       btn.addEventListener('keydown', e => {

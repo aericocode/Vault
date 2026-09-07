@@ -1062,3 +1062,51 @@ body.pm-names #modalTitle {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Segmented control (library layout, card size) ──────────────────────
+   A short list of choices where a switch would not do. It sits where the
+   toggle switch sits so the title/desc column keeps one left edge down the
+   whole list. */
+
+.settings-seg-row { cursor: default; align-items: center; }
+
+.settings-seg {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+}
+
+.settings-seg-btn {
+  padding: 0.22rem 0.7rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.settings-seg-btn:hover {
+  color: var(--text-primary);
+}
+
+.settings-seg-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settings-seg-btn[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-seg-btn { transition: none; }
+}
