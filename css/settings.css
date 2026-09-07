@@ -333,78 +333,61 @@
   min-width: 1.6rem;
 }
 
-/* ── Sub-options dropdown (the privacy "Hide while on" list) ────────────────
-   A <details> parked under the toggle row it belongs to, indented so it reads
-   as that row's detail rather than a setting of its own. Collapsed by default:
-   the summary already names what is covered, so it only has to be opened to
-   CHANGE the answer, not to read it. */
+/* ── Sub-option chips (the privacy "Hide while on" row) ────────────────────
+   Inline chips parked under the toggle row they belong to, indented so they
+   read as that row's detail rather than settings of their own. Shaped like the
+   library extension chips, because they answer the same kind of question: what
+   is included right now. The row dims and stops taking clicks while privacy
+   mode is off, since none of them do anything until it is on. */
 
-.settings-dd {
-  margin: -0.35rem 0 0.85rem 0;
+.settings-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: -0.25rem 0 0.85rem 0;
   padding-left: 1rem;
+  transition: opacity 0.15s ease-out;
 }
 
-.settings-dd > summary {
+.settings-chips.is-off {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.settings-chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  cursor: pointer;
-  list-style: none;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
   font-size: 0.78rem;
-  color: var(--text-muted);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.3rem 0.6rem;
-}
-
-.settings-dd > summary::-webkit-details-marker { display: none; }
-
-.settings-dd > summary:hover { color: var(--text-primary); }
-
-.settings-dd > summary b {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.settings-dd-caret {
-  font-size: 0.7rem;
-  transition: transform 0.15s ease-out;
-}
-
-.settings-dd[open] > summary .settings-dd-caret {
-  transform: rotate(180deg);
-}
-
-.settings-dd-body {
-  margin-top: 0.5rem;
-  padding: 0.5rem 0.7rem;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.settings-dd-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.8rem;
-  color: var(--text-primary);
+  font-family: inherit;
   cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
-/* Plain native checkboxes here on purpose — the pill switches are for the
-   top-level settings, and six of them stacked would out-shout the row that
-   owns them. */
-.settings-dd-item input[type="checkbox"] {
-  width: auto;
-  height: auto;
-  margin: 0;
-  cursor: pointer;
-  accent-color: var(--accent);
+.settings-chip:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.settings-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settings-chip[aria-pressed="true"] {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-chips, .settings-chip { transition: none; }
 }
 
 .settings-tag {

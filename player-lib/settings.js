@@ -436,32 +436,31 @@
     { key: 'p_perPage',     title: 'Items per page', desc: 'Choose how many tiles load per page.' },
   ];
 
-  /* The "Hide while on" dropdown that sits under the privacy toggle. A
-     <details> rather than a stack of six more toggle rows: the list is only
-     interesting while you are setting streaming up, and six extra rows would
-     bury everything else in Preferences. The summary carries the answer, so it
-     never has to be opened just to check what is covered. */
-
-  function privacyHideSummary() {
-    const on = PRIVACY_HIDE_ITEMS.filter(i => settings.privacyHide?.[i.key]).map(i => i.short);
-    return on.length ? on.join(', ') : 'Nothing';
-  }
+  /* The "Hide while on" chips that sit under the privacy toggle. Inline chips
+     rather than a collapsed list: what is covered and what is not is the thing
+     you check most often, and a chip row answers it without a click. The row
+     dims while privacy mode is off, because the chips do nothing until it is
+     on. */
 
   function privacyHideRow() {
+    const off = settings.privacyMode ? '' : ' is-off';
     return `
-      <details class="settings-dd">
-        <summary>
-          <span class="settings-dd-caret" aria-hidden="true">▾</span>
-          <span>Hide while on: <b id="privacyHideSummary">${esc(privacyHideSummary())}</b></span>
-        </summary>
-        <div class="settings-dd-body">
-          ${PRIVACY_HIDE_ITEMS.map(i => `
-            <label class="settings-dd-item">
-              <input type="checkbox" data-privacy-hide="${i.key}" ${settings.privacyHide?.[i.key] ? 'checked' : ''}>
-              <span>${i.label}</span>
-            </label>`).join('')}
-        </div>
-      </details>`;
+      <div class="settings-chips${off}" id="privacyHideChips" role="group" aria-label="Hide while on">
+        ${PRIVACY_HIDE_ITEMS.map(i => `
+          <button type="button" class="settings-chip" aria-pressed="${settings.privacyHide?.[i.key] ? 'true' : 'false'}"
+                  data-privacy-hide="${i.key}" title="${esc(i.label)}">${esc(i.short)}</button>`).join('')}
+      </div>`;
+  }
+
+  // The chip row is dead weight while privacy mode is off, so it dims and stops
+  // taking clicks. Called from the privacy toggle and the keyboard shortcut.
+  function syncPrivacyChipsUI() {
+    const row = document.getElementById('privacyHideChips');
+    if (!row) return;
+    row.classList.toggle('is-off', !settings.privacyMode);
+    row.querySelectorAll('button[data-privacy-hide]').forEach(b => {
+      b.setAttribute('aria-pressed', settings.privacyHide?.[b.dataset.privacyHide] ? 'true' : 'false');
+    });
   }
 
   function RENDERERS_settings() {
@@ -470,7 +469,7 @@
       ${toggleRow({
         key: 'privacyMode',
         title: 'Privacy / streaming mode',
-        desc: 'Hide personal data for screen-sharing. Pick what to hide below. Shortcut: Ctrl+Shift+H.',
+        desc: 'Hide personal data for screen-sharing. Choose what to hide with the chips below. Shortcut: Ctrl+Shift+H.',
       })}
       ${privacyHideRow()}
       ${toggleRow({
@@ -586,19 +585,29 @@
         }
       });
     });
-    // The "Hide while on" checkboxes. Re-applying the body classes on every
-    // change means a tick lands live on the page behind the modal — which is
-    // the whole point: you are setting this up while looking at what leaks.
-    body.querySelectorAll('input[data-privacy-hide]').forEach(input => {
-      input.addEventListener('change', () => {
-        settings.privacyHide = {
-          ...settings.privacyHide,
-          [input.dataset.privacyHide]: input.checked,
-        };
-        save();
-        applyPrivacyMode(settings.privacyMode);
-        const sum = document.getElementById('privacyHideSummary');
-        if (sum) sum.textContent = privacyHideSummary();
+    // The "Hide while on" chips. Re-applying the body classes on every change
+    // means a chip lands live on the page behind the modal — which is the whole
+    // point: you are setting this up while looking at what leaks.
+    // Space and Enter are handled here rather than left to the browser: the
+    // page's global shortcut handler eats Space (play/pause), which kills the
+    // native activation a <button> would otherwise get.
+    const togglePrivacyChip = btn => {
+      const key = btn.dataset.privacyHide;
+      const next = btn.getAttribute('aria-pressed') !== 'true';
+      btn.setAttribute('aria-pressed', next ? 'true' : 'false');
+      settings.privacyHide = { ...settings.privacyHide, [key]: next };
+      save();
+      applyPrivacyMode(settings.privacyMode);
+    };
+    body.querySelectorAll('button[data-privacy-hide]').forEach(btn => {
+      btn.addEventListener('click', () => togglePrivacyChip(btn));
+      btn.addEventListener('keydown', e => {
+        const activates = e.key === ' ' || e.key === 'Spacebar' || e.key === 'Enter'
+          || e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter';
+        if (!activates) return;
+        e.preventDefault();
+        e.stopPropagation();
+        togglePrivacyChip(btn);
       });
     });
     // Number rows: the input is free-typed, so re-read the clamped value back
@@ -662,6 +671,7 @@
   function syncPrivacyToggleUI() {
     const cb = document.querySelector('#settingsBody input[data-setting="privacyMode"]');
     if (cb) cb.checked = !!settings.privacyMode;
+    syncPrivacyChipsUI();
   }
 
   /* ── Section: Guides ─────────────────────────────────────────────────────── */
