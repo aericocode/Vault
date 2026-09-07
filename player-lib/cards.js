@@ -52,6 +52,13 @@ const TILE_ASPECT = 16 / 10;  // .tile-thumb aspect-ratio (css/tiles.css)
 const BOTTOM_RESERVE = 16;    // .main-container bottom padding
 const PAGER_MARGIN = 16;      // .pagination margin-top
 const MIN_ROW_H = 90;
+// A tile never shrinks below this share of its natural height. Squeezing a row
+// to whatever was left over made tiles unreadable on short windows (53% of
+// natural at 900x600). When even a single row at this floor does not fit, we
+// keep the row at the floor and let the document scroll for the remainder --
+// an explicit, rare fallback for very small windows, and the one case where
+// pages mode gives up on "never scroll".
+const MIN_ROW_RATIO = 0.70;
 
 // The tile's name + meta strip. Content-sized, so it measures the same whether
 // or not the tile height is pinned; read off the first rendered tile and kept.
@@ -111,8 +118,17 @@ function updateGridLayout() {
   // the row is the graceful answer where insisting on the natural height would
   // just hand the document a scrollbar.
   const availH = Math.max(MIN_ROW_H, window.innerHeight - gridTop - pagerH - PAGER_MARGIN - BOTTOM_RESERVE);
-  const rows = Math.max(1, Math.round((availH + GRID_GAP) / (natH + GRID_GAP)));
-  const rowH = Math.max(MIN_ROW_H, (availH - (rows - 1) * GRID_GAP) / rows);
+  const floorH = Math.max(MIN_ROW_H, natH * MIN_ROW_RATIO);
+  let rows = Math.max(1, Math.round((availH + GRID_GAP) / (natH + GRID_GAP)));
+  let rowH = (availH - (rows - 1) * GRID_GAP) / rows;
+  // Drop a row rather than crush the tiles: fewer, readable rows beat more
+  // rows of slivers. With one row left there is nothing further to drop, so
+  // the floor wins and the document scrolls a little.
+  while (rows > 1 && rowH < floorH) {
+    rows--;
+    rowH = (availH - (rows - 1) * GRID_GAP) / rows;
+  }
+  if (rowH < floorH) rowH = floorH;
 
   grid.classList.add('grid-pages');
   grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
@@ -155,7 +171,9 @@ function fitRowHeight() {
   if (!gridMetrics.rows) return;
   const over = document.documentElement.scrollHeight - window.innerHeight;
   if (over <= 1) return;
-  const rowH = Math.max(MIN_ROW_H, gridMetrics.rowH - over / gridMetrics.rows);
+  // Shave only down to the floor -- past it we accept the scrollbar.
+  const floorH = Math.max(MIN_ROW_H, gridMetrics.natH * MIN_ROW_RATIO);
+  const rowH = Math.max(floorH, gridMetrics.rowH - over / gridMetrics.rows);
   gridMetrics.rowH = rowH;
   document.getElementById('resultsGrid')?.style.setProperty('--tile-h', `${rowH.toFixed(1)}px`);
 }
