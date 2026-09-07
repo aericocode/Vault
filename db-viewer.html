@@ -369,6 +369,9 @@
   <script src="./player-lib/fuse.min.js"></script>
   <!-- hls.js 1.7.2, Apache-2.0 — see player-lib/THIRD-PARTY.txt -->
   <script src="./player-lib/hls.min.js"></script>
+  <!-- Shared with the server (lib/stream/decide.js): must load before
+       filters.js and cards.js, which ask it whether a file can play. -->
+  <script src="./player-lib/playback-decide.js"></script>
   <script src="./player-lib/utils.js"></script>
   <script src="./player-lib/state.js"></script>
   <script src="./player-lib/search-engine.js"></script>

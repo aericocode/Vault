@@ -15,7 +15,7 @@
 /* ── What can this browser decode? ────────────────────────────────────────── */
 
 // Fixed probe list, in the order the server expects. The tags are the contract
-// between this file and lib/stream/decide.js — do not rename them.
+// between this file and player-lib/playback-decide.js — do not rename them.
 const CODEC_PROBES = [
   ['h264', 'video/mp4; codecs="avc1.640028"'],
   ['h264hi10', 'video/mp4; codecs="avc1.6E0028"'],
