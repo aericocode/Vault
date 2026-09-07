@@ -6,7 +6,9 @@
  *   GET  /stream/:id/seg/:n.ts      one MPEG-TS segment, produced on demand
  *   POST /stream/:id/close          the player went away: stop now, do not wait
  *   GET  /api/stream/status         what is playing and what it holds in memory
- *   POST|GET /api/playback/backfill codec probe + index prebuild over the library
+ *   POST|GET /api/playback/backfill codec probe + index prebuild over the library,
+ *                                   reporting how many files play directly,
+ *                                   play via conversion, or cannot play
  *
  * The vault lock gate in server/index.js already answers 423 for /api/ and
  * /stream/ while locked, so nothing here has to re-check it.
@@ -49,10 +51,21 @@ const backfillJob = (() => {
           db.saveStreamInfo(row.id, info);
           j.probed++;
 
+          const fresh = db.getById(row.id);
+          const verdict = fresh ? decide(fresh, new Set(DEFAULT_CAPS)) : null;
+
+          // The three counts the Settings row reports. Only video and audio
+          // are decided on: a gif is drawn as an image, so calling its codec
+          // undecodable would be a lie the summary line then repeats.
+          if (verdict && (fresh.media_type === 'video' || fresh.media_type === 'audio')) {
+            if (verdict.mode === 'native') j.plays++;
+            else if (verdict.mode === 'remux') j.converts++;
+            else j.cannot++;
+          }
+
           // Prebuild the keyframe index for anything a default client would
           // have to remux, so the first play does not pay for the scan.
-          const fresh = db.getById(row.id);
-          if (fresh && decide(fresh, new Set(DEFAULT_CAPS)).mode === 'remux') {
+          if (verdict && verdict.mode === 'remux') {
             try {
               await service.ensureIndex(fresh);
               j.indexed++;
@@ -88,6 +101,7 @@ const backfillJob = (() => {
         all, startedAt: Date.now(), finishedAt: null,
         phase: 'starting', processed: 0, total: 0,
         probed: 0, indexed: 0, skipped: 0, failed: 0,
+        plays: 0, converts: 0, cannot: 0,
         done: false, cancelled: false, error: null,
       };
       job.promise = execute(job);
@@ -107,6 +121,11 @@ const backfillJob = (() => {
         total: job.total,
         probed: job.probed,
         indexed: job.indexed,
+        // What the check found, for the Settings result line.
+        checked: job.plays + job.converts + job.cannot,
+        plays: job.plays,
+        converts: job.converts,
+        cannot: job.cannot,
         skipped: job.skipped,
         failed: job.failed,
         elapsedMs: (job.finishedAt || Date.now()) - job.startedAt,

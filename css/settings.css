@@ -776,6 +776,20 @@ body.blur-thumbs.privacy-mode .tile-thumb:hover .tile-img {
 .mig-status.mig-bad { color: var(--danger); }
 .mig-status.mig-good { color: #10b981; }
 
+/* A button that reads as a link, for an action offered inside a sentence
+   (the playback check's "Show them"). */
+.settings-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-left: 0.35rem;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.settings-link:hover { color: var(--accent-hover, var(--accent)); }
+
 /* ── Report ── */
 
 .mig-stats {

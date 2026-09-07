@@ -787,7 +787,196 @@
           fields: migField('migNewRoot', 'Search this folder', 'D:\\Media'),
         })}
       </div>
+
+      <h3 class="settings-h">Playback support</h3>
+      <div class="mig-card" id="pbCard">
+        <div class="mig-card-title">Check playback support for all files</div>
+        <p class="settings-note">Reads the video and audio format of files
+        scanned before this version, so Vault knows which ones play directly,
+        which need converting, and which cannot play.</p>
+        <div class="mig-actions">
+          <button class="settings-btn" id="pbCheckBtn" type="button">Check now</button>
+          <span class="mig-status"></span>
+        </div>
+        <div class="mig-progress" style="display:none">
+          <div class="mig-bar"><div class="mig-bar-fill"></div></div>
+          <div class="mig-bar-stats"></div>
+        </div>
+        <div class="mig-report" id="pbResult"></div>
+      </div>
     `;
+  }
+
+  /* ── The playback check ─────────────────────────────────────────────────
+     One button over POST /api/playback/backfill, which reads each old file's
+     video and audio format with ffprobe. Same job shape as the migrate job,
+     so the same progress bar reads it. Two things happen when it finishes:
+     the three counts go on screen, and the library is reloaded, so every
+     extension chip and every tile answers from the codecs instead of from the
+     file extension without the user reaching for F5. */
+
+  let pbPollTimer = null;
+  let pbRateWindow = [];
+
+  function pbCardEl() { return document.getElementById('pbCard'); }
+
+  async function pbFetchJob() {
+    try {
+      const resp = await fetch('/api/playback/backfill');
+      if (!resp.ok) return null;
+      return await resp.json();
+    } catch { return null; }
+  }
+
+  function pbStopPolling() {
+    if (pbPollTimer) { clearInterval(pbPollTimer); pbPollTimer = null; }
+  }
+
+  function pbStartPolling() {
+    if (pbPollTimer) return;
+    pbPollTimer = setInterval(pbPollOnce, 1000);
+  }
+
+  /** Files per second over a short window, or null until it means something. */
+  function pbRate(s) {
+    const last = pbRateWindow[pbRateWindow.length - 1];
+    if (!last || last.processed !== s.processed) {
+      pbRateWindow.push({ processed: s.processed, at: Date.now() });
+      if (pbRateWindow.length > MIG_RATE_SAMPLES) pbRateWindow.shift();
+    }
+    if (pbRateWindow.length < 2) return null;
+    const a = pbRateWindow[0];
+    const b = pbRateWindow[pbRateWindow.length - 1];
+    const dt = (b.at - a.at) / 1000;
+    const dp = b.processed - a.processed;
+    if (dt <= 0 || dp <= 0) return null;
+    return Math.round(dp / dt);
+  }
+
+  function pbRenderProgress(card, s) {
+    migSetStatus(card, 'Checking files');
+    const box = card.querySelector('.mig-progress');
+    const fill = card.querySelector('.mig-bar-fill');
+    const stats = card.querySelector('.mig-bar-stats');
+    if (!box || !fill || !stats) return;
+    box.style.display = '';
+
+    // The row count is only known once the job has asked the database for it,
+    // so the first tick gets a moving bar rather than a fraction of nothing.
+    const determinate = s.total > 0;
+    box.classList.toggle('is-indeterminate', !determinate);
+    fill.style.width = determinate
+      ? `${Math.max(0, Math.min(100, (s.processed / s.total) * 100)).toFixed(1)}%`
+      : '';
+
+    const rate = pbRate(s);
+    const bits = [];
+    if (determinate) bits.push(`${s.processed.toLocaleString()} / ${s.total.toLocaleString()}`);
+    if (rate != null) bits.push(`${rate.toLocaleString()} files/s`);
+    bits.push(`${migHuman(s.elapsedMs)} elapsed`);
+    if (s.etaMs != null) bits.push(`about ${migHuman(s.etaMs)} left`);
+    stats.textContent = bits.join(' · ');
+  }
+
+  function pbLock(card, busy) {
+    const btn = card.querySelector('#pbCheckBtn');
+    if (btn) btn.disabled = !!busy;
+  }
+
+  function pbRenderResult(card, s) {
+    pbLock(card, false);
+    migSetStatus(card, s.error ? 'Check failed' : 'Done', s.error ? 'mig-bad' : 'mig-good');
+    const box = card.querySelector('.mig-progress');
+    if (box) { box.style.display = 'none'; box.classList.remove('is-indeterminate'); }
+
+    const out = card.querySelector('#pbResult');
+    if (!out) return;
+    if (s.error) {
+      out.innerHTML = `<p class="settings-note">${esc(s.error)}</p>`;
+      return;
+    }
+    if (!s.checked) {
+      out.innerHTML = '<p class="settings-note">Every file had already been checked.</p>';
+      return;
+    }
+    const line = `${s.checked.toLocaleString()} checked: `
+      + `${s.plays.toLocaleString()} play directly, `
+      + `${s.converts.toLocaleString()} play via conversion, `
+      + `${s.cannot.toLocaleString()} cannot play.`;
+    // The library grid can already focus an arbitrary set of ids, so this is a
+    // real filter rather than a search box guess.
+    const showThem = s.cannot > 0
+      ? ' <button class="settings-link" id="pbShowFailed" type="button">Show them</button>'
+      : '';
+    out.innerHTML = `<p class="settings-note">${esc(line)}${showThem}</p>`;
+    out.querySelector('#pbShowFailed')?.addEventListener('click', pbShowUnplayable);
+  }
+
+  /** Focus the library grid on the files this browser cannot play. */
+  function pbShowUnplayable() {
+    if (typeof allMedia === 'undefined' || typeof mediaPlaybackState !== 'function') return;
+    const ids = allMedia.filter(m => mediaPlaybackState(m).state === 'no').map(m => m.id);
+    if (!ids.length) {
+      if (typeof showToast === 'function') showToast('Nothing to show');
+      return;
+    }
+    closeModal();
+    window.vaultShowMediaIds(ids, 'files that cannot play');
+  }
+
+  async function pbPollOnce() {
+    const s = await pbFetchJob();
+    const card = pbCardEl();
+    // Panel closed or re-rendered: the job keeps going, and the next render of
+    // this section re-attaches to it.
+    if (!card) { pbStopPolling(); return; }
+    if (!s || s.idle) { pbStopPolling(); return; }
+    if (s.running) { pbLock(card, true); pbRenderProgress(card, s); return; }
+    pbStopPolling();
+    pbRenderResult(card, s);
+    // The codec columns just changed for potentially every row, and the chips
+    // and the tiles are computed from them.
+    if (typeof loadDatabase === 'function') {
+      loadDatabase().then(() => { if (typeof applyFilters === 'function') applyFilters(); });
+    }
+  }
+
+  function wirePlaybackCheck() {
+    pbStopPolling();
+    pbRateWindow = [];
+    const card = pbCardEl();
+    if (!card) return;
+    card.querySelector('#pbCheckBtn')?.addEventListener('click', async () => {
+      pbLock(card, true);
+      pbRateWindow = [];
+      const out = card.querySelector('#pbResult');
+      if (out) out.innerHTML = '';
+      migSetStatus(card, 'Starting');
+      try {
+        const resp = await fetch('/api/playback/backfill', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        if (!resp.ok && resp.status !== 409) throw new Error(`Server returned ${resp.status}`);
+      } catch {
+        pbLock(card, false);
+        migSetStatus(card, 'Could not start the check', 'mig-bad');
+        return;
+      }
+      pbStartPolling();
+      pbPollOnce();
+    });
+
+    // A check started before this panel was opened, or from another tab, is
+    // still the same one-slot job: pick it up rather than pretend it is idle.
+    pbFetchJob().then(s => {
+      if (!s || s.idle) return;
+      const c = pbCardEl();
+      if (!c) return;
+      if (s.running) { pbLock(c, true); pbRenderProgress(c, s); pbStartPolling(); }
+      else pbRenderResult(c, s);
+    });
   }
 
   /* ── The deep-search expander ─────────────────────────────────────────────
@@ -851,6 +1040,7 @@
     // is only ever armed alongside the report it was armed against.
     Object.keys(migState).forEach(k => { migState[k] = null; });
     migStopPolling();
+    wirePlaybackCheck();
     document.querySelectorAll('.mig-card').forEach(card => {
       const mode = card.dataset.migMode;
       // Any edit locks Apply again — it must never write a plan the user has
