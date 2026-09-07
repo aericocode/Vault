@@ -123,7 +123,8 @@ app.post('/api/vault/touch', (req, res) => { vault.touch(); res.json({ ok: true 
 // lock screen itself can render.
 app.use((req, res, next) => {
   const dataPath = req.path.startsWith('/api/') || req.path.startsWith('/media/')
-    || req.path.startsWith('/thumb/') || req.path.startsWith('/frame/');
+    || req.path.startsWith('/thumb/') || req.path.startsWith('/frame/')
+    || req.path.startsWith('/stream/');
   if (!dataPath) return next();
   if (vault.isLocked()) return res.status(423).json({ error: 'vault is locked', code: 'VAULT_LOCKED' });
   vault.touch();
@@ -299,6 +300,8 @@ app.get('/api/settings/app', (req, res) => {
     // Server-side, not localStorage: it's setup state, and a new browser
     // profile shouldn't re-nag someone who already decided.
     passwordPromptSeen: appSettings.all().passwordPromptSeen === true,
+    // Size cap for the HLS remux segment cache, in MB. 0 = unlimited.
+    streamCacheMaxMB: appSettings.getInt('streamCacheMaxMB', 10240, { min: 0, max: 4 * 1024 * 1024 }),
   });
 });
 
@@ -330,6 +333,21 @@ app.post('/api/settings/app', (req, res) => {
     }
     appSettings.set({ passwordPromptSeen: body.passwordPromptSeen });
     out.passwordPromptSeen = body.passwordPromptSeen;
+  }
+
+  if ('streamCacheMaxMB' in body) {
+    const raw = body.streamCacheMaxMB;
+    const n = typeof raw === 'number' ? raw
+      : (typeof raw === 'string' && /^\s*\d+\s*$/.test(raw) ? Number(raw) : NaN);
+    if (!Number.isInteger(n) || n < 0 || n > 4 * 1024 * 1024) {
+      return res.status(400).json({ error: 'streamCacheMaxMB must be an integer 0-4194304 (0 = unlimited)' });
+    }
+    appSettings.set({ streamCacheMaxMB: n });
+    out.streamCacheMaxMB = n;
+    // Apply the new cap right away rather than at the next segment write.
+    try {
+      require('../lib/stream/store').evictToCap(require('../lib/stream/session').activeIds());
+    } catch { /* an eviction failure must not fail the settings write */ }
   }
 
   if (Object.keys(out).length === 0) {
@@ -1759,12 +1777,14 @@ app.post('/api/import/add-paths', (req, res) => {
     try {
       const mediaInfo = require('../lib/media-info');
       if (!mediaInfo.isAvailable()) return;
-      const upd = db.get().prepare('UPDATE media SET duration_seconds = ?, width = ?, height = ? WHERE id = ?');
       for (const a of added) {
         if (!['video', 'audio', 'gif'].includes(a.mediaType)) continue;
         try {
-          const info = await mediaInfo.getInfo(a.row.filepath);
-          if (info) upd.run(info.duration || null, info.width || null, info.height || null, a.id);
+          // One ffprobe now covers the tile (duration/size) AND the playback
+          // decision (codecs), so a freshly imported file never has to be
+          // probed again on its first play.
+          const info = await mediaInfo.getStreamInfo(a.row.filepath);
+          if (info) db.saveStreamInfo(a.id, info);
         } catch { /* per-file probe failure is fine */ }
       }
     } catch { /* probe loop is best-effort */ }
@@ -2288,6 +2308,10 @@ app.use('/api/pmv', require('./pmv-routes').buildRouter());
 // ── Subtitles (whisper transcription + OPUS-MT translation — lib/subtitles/)
 app.use('/api', require('./subtitle-routes').buildRouter());
 
+// ── Playback decision + HLS remux streaming (mounted at the root: it owns
+//    both /api/playback|/api/stream and the /stream/:id/* media URLs) ────────
+app.use(require('./stream-routes').buildRouter());
+
 // ── Saved searches ─────────────────────────────────────────────────────────
 
 app.get('/api/searches', (req, res) => {
@@ -2428,6 +2452,10 @@ function _installShutdownHooks() {
   if (_shutdownHooked) return;
   _shutdownHooked = true;
   const onExit = (signal) => {
+    // Producers first: each owns an FFmpeg child and a temp dir under tempDir,
+    // and killing them before the wipe is what stops an orphan from writing
+    // into the directory we are clearing (or outliving the server entirely).
+    try { require('../lib/stream/session').stopAll(); } catch {}
     try { wipeTempDir(); } catch {}
     try { secureAssets.close(); } catch {}
     process.exit(signal === 'SIGTERM' ? 143 : 130);
@@ -2526,6 +2554,10 @@ function start(args = process.argv.slice(2)) {
   // wipeTempDir and migrateFromDisk so a legit older-version cache is adopted
   // and its sweeps proceed as before.
   ownedDir.adoptOnStartup(config.paths.tempDir, 'temp', 'temp-frames');
+  // The HLS segment cache is swept on clear/evict/password-set, so it needs the
+  // same marker. Its top level is only ever {mediaId}/ directories, which makes
+  // adopting an existing one safe and refusing a user folder easy.
+  ownedDir.adoptOnStartup(config.paths.streamCacheDir, 'streamcache', 'stream-cache');
   try {
     ownedDir.adoptOnStartup(require('../lib/video-transcriber').TEMP_AUDIO_DIR, 'tempaudio', 'temp-audio');
   } catch { /* transcriber optional at boot */ }

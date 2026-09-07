@@ -171,6 +171,7 @@ async function processFile(file, options = {}) {
         width: result.metadata?.width,
         height: result.metadata?.height,
         filesize: result.metadata?.filesize,
+        streamInfo: result.metadata?.streamInfo,
         error: result.error || 'Processing failed'
       });
       return { error: result.error || 'Processing failed', filename };
@@ -193,6 +194,7 @@ async function processFile(file, options = {}) {
       width: metadata.width,
       height: metadata.height,
       filesize: metadata.filesize,
+      streamInfo: metadata.streamInfo,
       language: analysis.language,
       themes: analysis.themes,
       locations: analysis.locations,
