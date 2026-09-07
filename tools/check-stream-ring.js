@@ -9,6 +9,11 @@
  * bound: a retention window behind the playhead, 48 segments per session, and
  * 256 MB across every session in the process.
  *
+ * The two-client block guards the Round 3 follow-up: two players on one media
+ * id each get their own playhead, the ring keeps the union of their windows,
+ * a segment somebody is blocked on is never evicted, and a client that stops
+ * asking stops holding its window open.
+ *
  * Pure synthetic buffers. No database, no ffmpeg, no files.
  */
 
@@ -120,6 +125,107 @@ console.log('global cap');
   check('forget frees the bytes it held', ring.totalBytes === ring.peek(B).bytes);
   ring.clearAll();
   check('clearAll empties everything', ring.totalBytes === 0 && ring.size === 0);
+}
+
+/* ── Two clients on one media id ──────────────────────────────────────────── */
+
+console.log('two clients');
+{
+  const ID = 8;
+  const A = 'tab-a', B = 'tab-b';
+
+  // A is deep into the file, B has just seeked back to 60.
+  ring.note(ID, 144, A);
+  ring.note(ID, 60, B);
+  const heads = ring.peek(ID).playheads();
+  check('each client keeps its own playhead',
+    JSON.stringify(heads) === JSON.stringify([60, 144]), `heads=${heads}`);
+
+  // The exact defect: B's segment arrives while A's playhead is at 144.
+  ring.put(ID, 60, seg(60, 1024));
+  check('a segment inside another client\'s window is not trimmed away',
+    ring.has(ID, 60), `held=${nums(ID)}`);
+
+  // A's own segments coexist with B's.
+  for (const n of [144, 145]) ring.put(ID, n, seg(n, 1024));
+  check('both clients keep their own segments',
+    ring.has(ID, 60) && ring.has(ID, 144) && ring.has(ID, 145), `held=${nums(ID)}`);
+
+  // Below the lowest playhead minus BEHIND is still nobody's business.
+  ring.put(ID, 60 - ring.BEHIND - 1, seg(1, 1024));
+  check('below the union window is still dropped',
+    !ring.has(ID, 60 - ring.BEHIND - 1), `held=${nums(ID)}`);
+  ring.forget(ID);
+}
+
+console.log('waiter pins');
+{
+  const ID = 9;
+  const A = 'tab-a', B = 'tab-b';
+
+  // B is blocked on 60 while A is at 144 and the producer floods the ring.
+  ring.note(ID, 60, B);
+  ring.hold(ID, 60);
+  ring.note(ID, 144, A);
+  ring.put(ID, 60, seg(60, 1024));
+  for (let n = 144; n < 144 + 80; n++) ring.put(ID, n, seg(n, 1024));
+
+  check('the pinned segment survives every cap', ring.has(ID, 60), `held=${nums(ID)}`);
+  check('the pinned segment survives an explicit eviction sweep',
+    (() => { const r = ring.peek(ID); for (let i = 0; i < 200; i++) r.evictOne(); return ring.has(ID, 60); })());
+  check('a pinned-only ring stops evicting rather than dropping the pin',
+    ring.peek(ID).evictOne() === false, `held=${nums(ID)}`);
+
+  ring.release(ID, 60);
+  check('release lets the ring shed the segment again',
+    ring.peek(ID).evictOne() && !ring.has(ID, 60), `held=${nums(ID)}`);
+  ring.forget(ID);
+}
+
+console.log('per-session cap with two clients');
+{
+  const ID = 10;
+  ring.note(ID, 60, 'tab-b');
+  ring.note(ID, 144, 'tab-a');
+  for (let n = 45; n < 200; n++) ring.put(ID, n, seg(n, 1024));
+  const held = nums(ID);
+  check('the union window still respects MAX_SEGMENTS',
+    held.length <= ring.MAX_SEGMENTS, `held=${held.length}`);
+  check('what is kept clusters around both playheads, not the middle of the gap',
+    held.includes(60) && held.includes(144), `held=${held}`);
+  ring.forget(ID);
+}
+
+console.log('client expiry');
+{
+  const ID = 11;
+  ring.note(ID, 10, 'gone');
+  ring.note(ID, 100, 'here');
+  check('two live clients', ring.peek(ID).clientCount() === 2);
+  ring.peek(ID).clients.get('gone').lastRequest = Date.now() - ring.CLIENT_TTL_MS - 1000;
+  check('a client that stopped asking stops counting',
+    ring.peek(ID).clientCount() === 1);
+  check('and stops holding its window open',
+    JSON.stringify(ring.peek(ID).playheads()) === JSON.stringify([100]));
+
+  // The close beacon path: one tab leaving must not free the other tab's ring.
+  const left = ring.dropClient(ID, 'here');
+  check('dropping the last client reports nobody left', left.remaining === 0);
+  ring.note(ID, 5, 'one');
+  ring.note(ID, 6, 'two');
+  check('dropping one of two clients reports the other still there',
+    ring.dropClient(ID, 'one').remaining === 1);
+  ring.forget(ID);
+}
+
+console.log('single client is unchanged');
+{
+  const ID = 12;
+  for (let n = 0; n <= 40; n++) { ring.note(ID, n, 'solo'); ring.put(ID, n, seg(n, 1024)); }
+  const held = nums(ID);
+  check('one named client behaves exactly like the anonymous one',
+    held.length === ring.BEHIND + 1 && held[0] === 40 - ring.BEHIND, `held=${held}`);
+  ring.forget(ID);
 }
 
 /* ── Idle bookkeeping ─────────────────────────────────────────────────────── */

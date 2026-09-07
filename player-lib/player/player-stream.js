@@ -70,35 +70,59 @@ let _hls = null;
 let _streamId = null;
 
 /**
+ * A token for THIS player instance, sent as `c` on the playlist and therefore
+ * on every segment URI inside it.
+ *
+ * The server keeps one retention window per client. Without a token it can only
+ * tell clients apart by address and user agent, which makes two tabs of the
+ * same browser look like one seeking player: the second tab's seek drags the
+ * first tab's window off the segments it is about to need, and its requests
+ * time out. Minted per player instance, so opening the same file twice is two
+ * clients, and it is also what stops one tab's close beacon ending the other
+ * tab's stream.
+ */
+let _clientToken = null;
+
+function _newClientToken() {
+  try {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID().replace(/-/g, '');
+  } catch {}
+  return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
  * Tell the server the player is done with this stream. Segments are only ever
  * held in memory while a file plays, so this is what frees them (and stops
  * FFmpeg) the moment someone closes the player instead of a minute later, when
  * the server's idle timeout would have done it anyway. Best effort: a beacon
  * that never arrives costs nothing but that minute.
  */
-function _closeStream(id) {
+function _closeStream(id, token) {
   if (!id) return;
+  const url = `/stream/${id}/close${token ? `?c=${encodeURIComponent(token)}` : ''}`;
   try {
-    if (navigator.sendBeacon) navigator.sendBeacon(`/stream/${id}/close`, new Blob([], { type: 'text/plain' }));
-    else fetch(`/stream/${id}/close`, { method: 'POST', keepalive: true }).catch(() => {});
+    if (navigator.sendBeacon) navigator.sendBeacon(url, new Blob([], { type: 'text/plain' }));
+    else fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
   } catch {}
 }
 
 /** Tear down the live hls.js instance, if any. Safe to call at any time. */
 function destroyStream() {
   const id = _streamId;
+  const token = _clientToken;
   _streamId = null;
+  _clientToken = null;
   if (_hls) {
     try { _hls.destroy(); } catch {}
     _hls = null;
   }
-  _closeStream(id);
+  _closeStream(id, token);
 }
 
 // A closed tab never reaches destroyStream(); the beacon is the only thing that
 // can still be sent from here.
 try {
-  window.addEventListener('pagehide', () => { _closeStream(_streamId); });
+  window.addEventListener('pagehide', () => { _closeStream(_streamId, _clientToken); });
 } catch {}
 
 function _supportsHls() {
@@ -164,11 +188,15 @@ function _attachRemux(el, mediaId, filepath, info, opts) {
   el.dataset.playbackFallback = '';
   el.dataset.playbackMediaId = String(mediaId);
 
+  const token = _newClientToken();
+  const url = `${info.url}?c=${encodeURIComponent(token)}`;
+
   // Safari plays HLS natively and does it better than MSE would.
   if (!_supportsHls()) {
     if (el.canPlayType('application/vnd.apple.mpegurl')) {
       _streamId = mediaId;                       // native HLS: the beacon still applies
-      el.src = info.url;
+      _clientToken = token;
+      el.src = url;
       if (opts.autoplay !== false) el.play().catch(() => {});
       return { mode: 'remux', info };
     }
@@ -182,13 +210,14 @@ function _attachRemux(el, mediaId, filepath, info, opts) {
   const hls = new Hls({ maxBufferLength: 60, enableWorker: true });
   _hls = hls;
   _streamId = mediaId;
+  _clientToken = token;
   hls.on(Hls.Events.ERROR, (evt, data) => {
     if (!data || !data.fatal) return;
     if (_hls !== hls) return;
     destroyStream();
     if (typeof handleMediaError === 'function') handleMediaError(filepath);
   });
-  hls.loadSource(info.url);
+  hls.loadSource(url);
   hls.attachMedia(el);
   if (opts.autoplay !== false) {
     hls.on(Hls.Events.MANIFEST_PARSED, () => { el.play().catch(() => {}); });

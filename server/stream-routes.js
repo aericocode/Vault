@@ -15,10 +15,12 @@
  */
 
 const express = require('express');
+const crypto = require('crypto');
 const fs = require('fs');
 const db = require('../lib/database');
 const service = require('../lib/stream/service');
 const session = require('../lib/stream/session');
+const ring = require('../lib/stream/ring');
 const secureAssets = require('../lib/secure-assets');
 const streamIndex = require('../lib/stream/index');
 const { decide, DEFAULT_CAPS } = require('../lib/stream/decide');
@@ -27,6 +29,22 @@ const mediaInfo = require('../lib/media-info');
 function parseId(value) {
   const id = Number(value);
   return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/**
+ * Who is asking? Two players on one file need separate playheads, or a seek in
+ * one drags the other's retention window off the segments it is about to play.
+ *
+ * The player mints a `c` per player instance, so two tabs in the same browser
+ * are two clients. Anything else (curl, a script, an old page) gets a stable
+ * token derived from where it is connecting from, which at least separates two
+ * different fetchers and never grows without bound.
+ */
+function clientToken(req) {
+  const raw = String(req.query.c || '');
+  if (/^[A-Za-z0-9_-]{1,64}$/.test(raw)) return raw;
+  const who = `${req.ip || req.socket.remoteAddress || ''}|${req.get('user-agent') || ''}`;
+  return 'a' + crypto.createHash('sha1').update(who).digest('hex').slice(0, 16);
 }
 
 /* ── Backfill job (same shape as the migrate job: one slot, outlives the request) ── */
@@ -184,7 +202,7 @@ function buildRouter() {
     if (!row) return res.status(404).end();
     if (!fs.existsSync(row.filepath)) return res.status(404).end();
     try {
-      const { text } = await service.playlistFor(row);
+      const { text } = await service.playlistFor(row, clientToken(req));
       res.set('Cache-Control', 'no-store');
       res.set('Content-Type', 'application/vnd.apple.mpegurl');
       res.end(text);
@@ -205,7 +223,7 @@ function buildRouter() {
 
     let result;
     try {
-      result = await service.segmentFor(row, n);
+      result = await service.segmentFor(row, n, clientToken(req));
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -224,11 +242,19 @@ function buildRouter() {
 
   // The player's teardown beacon. Best effort only: a crashed tab sends
   // nothing, which is why the session also ends itself after an idle minute.
+  //
+  // One tab closing must not take the file away from another tab still playing
+  // it, so the beacon only retires the closing client's window; the producer and
+  // the buffers go when the last one leaves.
   router.post('/stream/:id/close', async (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).end();
     res.status(204).end();
-    try { await session.end(id); } catch { /* the idle sweeper is the backstop */ }
+    try {
+      const left = ring.dropClient(id, clientToken(req));
+      if (left.remaining > 0) return;
+      await session.end(id);
+    } catch { /* the idle sweeper is the backstop */ }
   });
 
   return router;
