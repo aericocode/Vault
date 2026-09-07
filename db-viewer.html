@@ -106,7 +106,9 @@
             💬 Subtitles
           </label>
         </div>
-        <button class="filters-toggle" id="filtersToggle">⚙️ Filters</button>
+        <button class="filters-toggle" id="filtersToggle" aria-expanded="false" aria-controls="filtersPanel">⚙️ Filters</button>
+        <!-- What is filtering the grid right now, while the panel is closed -->
+        <div class="filter-chips" id="activeFilterChips"></div>
         <button class="clear-filters-btn" id="clearFiltersBtn">Clear Filters</button>
       </div>
 
@@ -131,6 +133,8 @@
       <!-- Open-collection header strip (name, description, Play All / Shuffle) -->
       <div class="collections-bar" id="collectionsBar" style="display:none;"></div>
 
+      <!-- Floats over the grid rather than sitting in the flow, so opening it
+           never moves a single tile. -->
       <div class="filters-panel" id="filtersPanel">
         <div class="filters-row filters-dropdowns">
         <div class="filter-group">

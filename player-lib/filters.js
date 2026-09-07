@@ -831,6 +831,9 @@ function applyFilters(opts) {
   if (typeof clampPageAnchor === 'function') clampPageAnchor();
   renderResults();
 
+  // Keep the chips beside the Filters button telling the truth
+  if (typeof renderActiveFilterChips === 'function') renderActiveFilterChips();
+
   // Update saved searches bar (show/hide save button based on active filters)
   if (typeof renderSavedSearches === 'function') {
     renderSavedSearches();
@@ -926,4 +929,128 @@ function sortFilteredMedia() {
   if (typeof favesFirst !== 'undefined' && favesFirst) {
     filteredMedia.sort((a, b) => (b.user_starred ? 1 : 0) - (a.user_starred ? 1 : 0));
   }
+}
+
+/* ── Active filter chips ──────────────────────────────────────────────────
+   With the filters panel floating over the grid, it spends most of its life
+   closed — so what is narrowing the list has to be readable without opening
+   it. Each chip is one filter with its value, and its × clears that one thing
+   rather than everything. Four at most, then a count, because the row shares a
+   line with the search box. */
+
+const TRI_CHIP_LABELS = {
+  filterCollections: { '1': 'In a collection', '0': 'Not in a collection' },
+  filterStarred:     { '1': 'Faved only', '0': 'Not faved' },
+  filterHasNotes:    { '1': 'Has notes', '0': 'No notes' },
+  filterDuplicates:  { '1': 'Dupes only', '0': 'No dupes' },
+  filterFlagged:     { '1': 'Flagged only', '0': 'Not flagged' },
+  filterTrashed:     { '': 'Trash included', '1': 'Trash only' },
+  filterFailed:      { '1': 'Unplayable only', '0': 'Unplayable hidden' },
+  filterScanStatus:  { success: 'Scan done', failed: 'Scan failed', unscanned: 'Not scanned' },
+};
+
+// What each tri-filter goes back to when its chip is cleared. Trash is the odd
+// one out: hidden is the default, not "all".
+const TRI_CHIP_DEFAULTS = {
+  filterCollections: '', filterStarred: '', filterHasNotes: '', filterDuplicates: '',
+  filterFlagged: '', filterTrashed: '0', filterFailed: '', filterScanStatus: '',
+};
+
+const MAX_FILTER_CHIPS = 4;
+
+/** Every filter currently narrowing the grid, as {kind, value, label}. */
+function activeFilterChips() {
+  const chips = [];
+  const selectText = (id) => {
+    const el = document.getElementById(id);
+    if (!el || !el.value) return null;
+    return el.options[el.selectedIndex]?.text || el.value;
+  };
+
+  (typeof selectedMediaTypes !== 'undefined' ? selectedMediaTypes : []).forEach(t =>
+    chips.push({ kind: 'mediaType', value: t, label: t }));
+  (typeof selectedExtensions !== 'undefined' ? selectedExtensions : []).forEach(x =>
+    chips.push({ kind: 'extension', value: x, label: x }));
+  if (typeof safeOnly !== 'undefined' && safeOnly) {
+    chips.push({ kind: 'safeOnly', value: '', label: 'Formats that play' });
+  }
+
+  ['filterContent', 'filterLanguage', 'filterTheme', 'filterQuality', 'filterSong'].forEach(id => {
+    const text = selectText(id);
+    if (text) chips.push({ kind: 'select', value: id, label: text });
+  });
+
+  const rating = document.getElementById('filterMinRating')?.value || '0';
+  if (rating === 'unrated') chips.push({ kind: 'rating', value: '', label: 'Unrated' });
+  else if (rating !== '0') chips.push({ kind: 'rating', value: '', label: `★ ${rating}+` });
+
+  Object.keys(TRI_CHIP_LABELS).forEach(name => {
+    const value = getTriFilterValue(name);
+    if (value === TRI_CHIP_DEFAULTS[name]) return;
+    const label = TRI_CHIP_LABELS[name][value];
+    if (label) chips.push({ kind: 'tri', value: name, label });
+  });
+
+  const durMin = document.getElementById('durMinSlider');
+  const durMax = document.getElementById('durMaxSlider');
+  if (durMin && durMax && (durMin.value !== durMin.min || durMax.value !== durMax.max)) {
+    const label = document.getElementById('durationLabel')?.textContent?.trim();
+    chips.push({ kind: 'duration', value: '', label: label ? `Length ${label}` : 'Length limited' });
+  }
+
+  return chips;
+}
+
+/** Undo exactly one chip, then re-run the filters. */
+function clearFilterChip(kind, value) {
+  if (kind === 'mediaType' && typeof selectedMediaTypes !== 'undefined') {
+    selectedMediaTypes = selectedMediaTypes.filter(t => t !== value);
+    if (typeof renderMediaTypeBar === 'function') renderMediaTypeBar();
+    if (typeof renderTypeExtensionFilter === 'function') renderTypeExtensionFilter();
+  } else if (kind === 'extension' && typeof selectedExtensions !== 'undefined') {
+    selectedExtensions = selectedExtensions.filter(x => x !== value);
+    if (typeof renderTypeExtensionFilter === 'function') renderTypeExtensionFilter();
+  } else if (kind === 'safeOnly' && typeof safeOnly !== 'undefined') {
+    safeOnly = false;
+    if (typeof renderMediaTypeBar === 'function') renderMediaTypeBar();
+  } else if (kind === 'select') {
+    const el = document.getElementById(value);
+    if (el) el.value = '';
+  } else if (kind === 'rating') {
+    const el = document.getElementById('filterMinRating');
+    if (el) el.value = '0';
+  } else if (kind === 'tri') {
+    setTriFilterValue(value, TRI_CHIP_DEFAULTS[value] ?? '');
+  } else if (kind === 'duration') {
+    const min = document.getElementById('durMinSlider');
+    const max = document.getElementById('durMaxSlider');
+    if (min && max) {
+      min.value = min.min;
+      max.value = max.max;
+      if (typeof updateDurationUI === 'function') updateDurationUI();
+    }
+  }
+  applyFilters();
+}
+
+function renderActiveFilterChips() {
+  const host = document.getElementById('activeFilterChips');
+  if (!host) return;
+  const chips = activeFilterChips();
+  const shown = chips.slice(0, MAX_FILTER_CHIPS);
+  const extra = chips.length - shown.length;
+
+  host.innerHTML = shown.map(c => `
+    <span class="filter-chip">${escapeHtml(c.label)}<button type="button" class="filter-chip-x"
+      data-chip-kind="${escapeHtml(c.kind)}" data-chip-value="${escapeHtml(String(c.value))}"
+      title="Clear this filter" aria-label="Clear filter: ${escapeHtml(c.label)}">×</button></span>`).join('')
+    + (extra > 0 ? `<button type="button" class="filter-chip filter-chip-more" id="filterChipsMore"
+        title="Open the filters panel">+${extra} more</button>` : '');
+
+  host.querySelectorAll('.filter-chip-x').forEach(btn => {
+    btn.addEventListener('click', () => clearFilterChip(btn.dataset.chipKind, btn.dataset.chipValue));
+  });
+  host.querySelector('#filterChipsMore')?.addEventListener('click', () => {
+    if (typeof setFiltersOpen === 'function') setFiltersOpen(true);
+  });
 }

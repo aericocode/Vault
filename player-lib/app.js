@@ -80,9 +80,81 @@ document.getElementById('favesFirstBtn').addEventListener('click', () => {
   renderResults();
 });
 
-// Filters toggle
+/* ── Filters panel ────────────────────────────────────────────────────────
+   The panel floats over the grid instead of pushing it down, so opening and
+   closing it leaves every tile exactly where it was. While it is open a
+   translucent backdrop covers the grid: it dims what the filters are about to
+   change, and it means a click anywhere on the library closes the panel. */
+
+function filtersBackdrop() {
+  let bd = document.getElementById('filtersBackdrop');
+  if (!bd) {
+    bd = document.createElement('div');
+    bd.id = 'filtersBackdrop';
+    bd.className = 'filters-backdrop';
+    bd.addEventListener('click', () => setFiltersOpen(false));
+    document.body.appendChild(bd);
+  }
+  return bd;
+}
+
+function filtersAreOpen() {
+  return document.getElementById('filtersPanel')?.classList.contains('active') === true;
+}
+
+/* The panel is position: fixed, not absolute. An absolutely positioned panel
+   hanging below the search box still counts towards the document's scroll
+   height, so opening it grew the page, brought in a scrollbar and narrowed the
+   grid by its width — which is exactly the movement this was meant to stop. */
+function positionFiltersPanel() {
+  const panel = document.getElementById('filtersPanel');
+  const section = document.querySelector('.search-section');
+  if (!panel || !section) return;
+  const r = section.getBoundingClientRect();
+  panel.style.left = `${Math.round(r.left)}px`;
+  panel.style.width = `${Math.round(r.width)}px`;
+  panel.style.top = `${Math.round(r.bottom)}px`;
+  panel.style.maxHeight = `${Math.max(120, Math.round(window.innerHeight - r.bottom - 12))}px`;
+  const bd = document.getElementById('filtersBackdrop');
+  if (bd) bd.style.top = `${Math.max(0, Math.round(panel.getBoundingClientRect().bottom))}px`;
+}
+
+function setFiltersOpen(open) {
+  const panel = document.getElementById('filtersPanel');
+  const toggle = document.getElementById('filtersToggle');
+  if (!panel) return;
+  panel.classList.toggle('active', open);
+  toggle?.setAttribute('aria-expanded', open ? 'true' : 'false');
+  const bd = filtersBackdrop();
+  if (open) {
+    positionFiltersPanel();
+    bd.classList.add('active');
+  } else {
+    bd.classList.remove('active');
+    if (document.activeElement && panel.contains(document.activeElement)) toggle?.focus();
+  }
+}
+
+// The panel follows the search box if the window resizes or the page scrolls
+// under it (continuous mode).
+['resize', 'scroll'].forEach(evt => {
+  window.addEventListener(evt, () => { if (filtersAreOpen()) positionFiltersPanel(); }, { passive: true });
+});
+
 document.getElementById('filtersToggle').addEventListener('click', () => {
-  document.getElementById('filtersPanel').classList.toggle('active');
+  setFiltersOpen(!filtersAreOpen());
+});
+
+// Escape closes the panel before anything else gets to act on it
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !filtersAreOpen()) return;
+  setFiltersOpen(false);
+  e.stopPropagation();
+}, true);
+
+// Clicking a tile is a decision about the library, so the panel steps aside
+document.getElementById('resultsGrid')?.addEventListener('click', () => {
+  if (filtersAreOpen()) setFiltersOpen(false);
 });
 
 // Search input handler — adaptive debounce: the search itself is synchronous

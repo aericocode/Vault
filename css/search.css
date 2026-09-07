@@ -18,8 +18,10 @@
 .search-section {
   background: var(--bg-secondary);
   border-radius: 12px;
-  padding: 1rem;  
+  padding: 1rem;
   margin-bottom: 0.5rem;
+  /* The filters panel hangs off the bottom of this box */
+  position: relative;
 }
 
 .search-row {
@@ -186,14 +188,103 @@
   border-color: var(--accent);
 }
 
-/* Filters Panel */
+/* Filters Panel — floats over the grid instead of pushing it down, so
+   opening or closing it never moves a tile. */
 .filters-panel {
   display: none;
-  padding-top: 1rem;
+  /* fixed, not absolute: an absolute panel still counts towards the page's
+     scroll height, and the scrollbar that brought in narrowed the grid */
+  position: fixed;
+  z-index: 890;
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-bottom: 2px solid var(--accent);
+  border-radius: 0 0 12px 12px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  /* On a short window the panel is taller than the room below the search box,
+     so it scrolls itself rather than running off the screen. app.js sets the
+     exact max-height from where the search box ends. */
+  overflow-y: auto;
 }
 
 .filters-panel.active {
   display: block;
+}
+
+/* Dims the library while the panel is open, and takes the click that closes
+   it. It starts below the panel so the search box stays reachable. */
+.filters-backdrop {
+  display: none;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: 0;
+  z-index: 880;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.filters-backdrop.active {
+  display: block;
+}
+
+/* What is filtering the grid right now, shown while the panel is closed */
+.filter-chips {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.filter-chip-x {
+  border: 0;
+  padding: 0 1px;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.filter-chip-x:hover {
+  color: var(--danger, #ef4444);
+}
+
+.filter-chip-x:focus-visible,
+.filter-chip-more:focus-visible,
+.filters-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.filter-chip-more {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.filter-chip-more:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .filters-toggle { transition: none; }
 }
 
 /* Row 1: all dropdowns · Row 2: all toggles */
