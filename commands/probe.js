@@ -29,12 +29,12 @@ async function run(args = []) {
 
   const rows = db.rowsNeedingProbe(all);
   if (!rows.length) {
-    console.log('Nothing to probe — every file already has its codec info.');
+    console.log('Nothing to probe: every file already has its codec info.');
     db.close();
     return;
   }
 
-  console.log(`Probing ${rows.length} file(s)${all ? ' (--all: re-probing everything)' : ''}…`);
+  console.log(`Probing ${rows.length} file(s)${all ? ' (--all: re-probing everything)' : ''}...`);
   const service = require('../lib/stream/service');
   const startTime = Date.now();
   let probed = 0, indexed = 0, missing = 0, failed = 0;
