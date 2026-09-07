@@ -152,7 +152,7 @@ function buildRouter() {
   /* ── The cache ────────────────────────────────────────────────────────── */
 
   router.get('/api/stream/cache', (req, res) => {
-    res.json({ ...store.stats(), ...session.status() });
+    res.json({ ...store.stats(), ...session.status(), indexBuilds: service.indexBuilds });
   });
 
   router.post('/api/stream/cache/clear', async (req, res) => {
