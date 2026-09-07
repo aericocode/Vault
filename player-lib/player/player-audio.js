@@ -9,7 +9,7 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
       <div class="audio-filename">${escapeHtml(filename)}</div>
       <canvas id="audioCanvas" width="400" height="100"></canvas>
     </div>
-    <audio id="mediaAudio" src="${fileUrl}" onerror="handleMediaError('${filepath.replace(/'/g, "\\'")}')">
+    <audio id="mediaAudio" onerror="handleMediaError('${filepath.replace(/'/g, "\\'")}')">
       Your browser doesn't support audio playback.
     </audio>
   `;
@@ -130,7 +130,15 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
     );
   }
 
-  audio.play().catch(() => {});
+  // Source comes from the server's playback decision, same as video: audio a
+  // browser cannot open (AC-3 inside an MKA, say) is remuxed to AAC in
+  // MPEG-TS instead of just failing. See player-stream.js.
+  attachPlaybackSource(
+    audio,
+    currentMediaState.currentMediaData?.id || null,
+    filepath,
+    fileUrl,
+  );
 }
 
 // Audio control functions

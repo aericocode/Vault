@@ -4,7 +4,7 @@
 
 function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filename, hasPrev, hasNext) {
   content.innerHTML = `
-    <video id="mediaVideo" src="${fileUrl}" onerror="handleMediaError('${filepath.replace(/'/g, "\\'")}')">
+    <video id="mediaVideo" onerror="handleMediaError('${filepath.replace(/'/g, "\\'")}')">
       Your browser doesn't support video playback.
     </video>
   `;
@@ -150,7 +150,16 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
     volumeSlider.max = currentMediaState.gainNode ? 1.5 : 1;
   }
 
-  video.play().catch(() => {});
+  // The source comes from the server's playback decision (native file, or an
+  // HLS playlist FFmpeg fills in on demand), so it is set asynchronously —
+  // hence no src attribute above. Everything else about the element was set up
+  // before this point and does not care where the bytes come from.
+  attachPlaybackSource(
+    video,
+    currentMediaState.currentMediaData?.id || null,
+    filepath,
+    fileUrl,
+  );
 }
 
 /* ── Watch-activity curve (YouTube "most replayed" style) ──────────────────

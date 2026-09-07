@@ -1,0 +1,209 @@
+// =========================================================================
+// PLAYER STREAM - route playback through /api/playback (native or HLS remux)
+//
+// The player used to point <video src> straight at the file and hope. Now the
+// server decides: the page tells it which codecs THIS browser can actually
+// decode, and gets back either the original file (native, Range seeking, no
+// change from before) or an HLS playlist that FFmpeg fills in on demand.
+//
+// Everything downstream of the media element is untouched on purpose. The
+// playlist is a VOD playlist, so video.duration is right from the first frame
+// and scrubbing, the beat bar, the bar-end times, resume position and A/B loop
+// all keep working exactly as they do on a native file.
+// =========================================================================
+
+/* ── What can this browser decode? ────────────────────────────────────────── */
+
+// Fixed probe list, in the order the server expects. The tags are the contract
+// between this file and lib/stream/decide.js — do not rename them.
+const CODEC_PROBES = [
+  ['h264', 'video/mp4; codecs="avc1.640028"'],
+  ['h264hi10', 'video/mp4; codecs="avc1.6E0028"'],
+  ['hevc', 'video/mp4; codecs="hvc1.1.6.L120.B0"'],
+  ['hevc10', 'video/mp4; codecs="hvc1.2.4.L120.B0"'],
+  ['av1', 'video/mp4; codecs="av01.0.08M.08"'],
+  ['vp9', 'video/webm; codecs="vp09.00.10.08"'],
+  ['vp8', 'video/webm; codecs="vp8"'],
+  ['aac', 'audio/mp4; codecs="mp4a.40.2"'],
+  ['mp3', 'audio/mpeg'],
+  ['opus', 'audio/webm; codecs="opus"'],
+  ['flac', 'audio/mp4; codecs="flac"'],
+  ['ac3', 'audio/mp4; codecs="ac-3"'],
+  ['eac3', 'audio/mp4; codecs="ec-3"'],
+];
+
+const CAPS_KEY = 'vaultCodecCaps';
+let _capsCache = null;
+
+/**
+ * Comma-separated capability string for the playback request. Computed once
+ * per browser session: the answers cannot change while the tab is open, and
+ * MediaSource.isTypeSupported is slow enough to be worth not repeating.
+ */
+function codecCaps() {
+  if (_capsCache !== null) return _capsCache;
+  try {
+    const stored = sessionStorage.getItem(CAPS_KEY);
+    if (stored) { _capsCache = stored; return _capsCache; }
+  } catch { /* private mode — just recompute */ }
+
+  const probe = document.createElement('video');
+  const tags = [];
+  for (const [tag, type] of CODEC_PROBES) {
+    let ok = false;
+    try {
+      if (window.MediaSource && MediaSource.isTypeSupported) ok = MediaSource.isTypeSupported(type);
+      if (!ok) ok = probe.canPlayType(type) === 'probably';
+    } catch { ok = false; }
+    if (ok) tags.push(tag);
+  }
+  _capsCache = tags.join(',');
+  try { sessionStorage.setItem(CAPS_KEY, _capsCache); } catch {}
+  return _capsCache;
+}
+
+/* ── The hls.js instance, one at a time ───────────────────────────────────── */
+
+let _hls = null;
+
+/** Tear down the live hls.js instance, if any. Safe to call at any time. */
+function destroyStream() {
+  if (!_hls) return;
+  try { _hls.destroy(); } catch {}
+  _hls = null;
+}
+
+function _supportsHls() {
+  return typeof Hls !== 'undefined' && Hls.isSupported();
+}
+
+/* ── Attaching a source ───────────────────────────────────────────────────── */
+
+/**
+ * Point a media element at whatever the server says will play.
+ *
+ * @param {HTMLMediaElement} el      the <video> or <audio>
+ * @param {number|null} mediaId      the library row id (null falls back to the URL)
+ * @param {string} filepath          used only for the existing error path
+ * @param {string} fallbackUrl       the by-path URL used before this existed
+ * @param {{autoplay?: boolean}} opts
+ */
+async function attachPlaybackSource(el, mediaId, filepath, fallbackUrl, opts = {}) {
+  destroyStream();
+
+  // No id (a mix, a stub, anything not in the library): behave exactly as the
+  // player did before this feature existed.
+  if (!mediaId) {
+    el.src = fallbackUrl;
+    if (opts.autoplay !== false) el.play().catch(() => {});
+    return { mode: 'native' };
+  }
+
+  let info = null;
+  try {
+    const res = await fetch(`/api/playback/${mediaId}?caps=${encodeURIComponent(codecCaps())}`);
+    if (res.ok) info = await res.json();
+  } catch { /* server unreachable — fall through to the old behaviour */ }
+
+  // The player may have moved on while the request was in flight.
+  if (!el.isConnected) return { mode: 'stale' };
+
+  if (!info) {
+    el.src = fallbackUrl;
+    if (opts.autoplay !== false) el.play().catch(() => {});
+    return { mode: 'native' };
+  }
+
+  if (info.mode === 'unsupported') {
+    _reportUnplayable(el, mediaId, filepath, info);
+    return { mode: 'unsupported', info };
+  }
+
+  if (info.mode === 'remux') {
+    return _attachRemux(el, mediaId, filepath, info, opts);
+  }
+
+  // Native. Remember the server's offer of a remux retry so a media error can
+  // take it up once before giving up (rule 4.2.4 is deliberately optimistic).
+  el.dataset.playbackFallback = info.fallback || '';
+  el.dataset.playbackMediaId = String(mediaId);
+  el.src = info.url || fallbackUrl;
+  if (opts.autoplay !== false) el.play().catch(() => {});
+  return { mode: 'native', info };
+}
+
+function _attachRemux(el, mediaId, filepath, info, opts) {
+  el.dataset.playbackFallback = '';
+  el.dataset.playbackMediaId = String(mediaId);
+
+  // Safari plays HLS natively and does it better than MSE would.
+  if (!_supportsHls()) {
+    if (el.canPlayType('application/vnd.apple.mpegurl')) {
+      el.src = info.url;
+      if (opts.autoplay !== false) el.play().catch(() => {});
+      return { mode: 'remux', info };
+    }
+    _reportUnplayable(el, mediaId, filepath, {
+      reason: 'This browser cannot play the converted stream Vault produced.',
+      hint: null,
+    });
+    return { mode: 'unsupported', info };
+  }
+
+  const hls = new Hls({ maxBufferLength: 60, enableWorker: true });
+  _hls = hls;
+  hls.on(Hls.Events.ERROR, (evt, data) => {
+    if (!data || !data.fatal) return;
+    if (_hls !== hls) return;
+    destroyStream();
+    if (typeof handleMediaError === 'function') handleMediaError(filepath);
+  });
+  hls.loadSource(info.url);
+  hls.attachMedia(el);
+  if (opts.autoplay !== false) {
+    hls.on(Hls.Events.MANIFEST_PARSED, () => { el.play().catch(() => {}); });
+  }
+  return { mode: 'remux', info };
+}
+
+/**
+ * A file the server says nothing can play. There is no media error to catch
+ * here (we never gave the element a source), so mark the row the way the
+ * capture-phase error listener would and then hand off to the player's normal
+ * failure path — which closes the player, or skips the file in streaming mode.
+ */
+function _reportUnplayable(el, mediaId, filepath, info) {
+  destroyStream();
+  try { el.removeAttribute('src'); el.load(); } catch {}
+
+  const media = typeof getMediaById === 'function' ? getMediaById(mediaId) : null;
+  if (media && !media.playback_failed) {
+    media.playback_failed = 1;
+    if (typeof postFlags === 'function') postFlags(media, { playback_failed: 1 });
+  }
+
+  const msg = info.hint ? `${info.reason}\n${info.hint}` : info.reason;
+  if (typeof handleMediaError === 'function') handleMediaError(filepath, msg);
+  else if (typeof showToast === 'function') showToast(msg);
+}
+
+/**
+ * The native path failed and the server said a remux was available. Retry
+ * through HLS once; returns true when a retry was started.
+ */
+function retryThroughRemux(el, filepath) {
+  if (!el || el.dataset.playbackFallback !== 'remux') return false;
+  const mediaId = Number(el.dataset.playbackMediaId);
+  if (!mediaId) return false;
+  el.dataset.playbackFallback = '';                 // one attempt only
+  const wasAt = el.currentTime || 0;
+  _attachRemux(el, mediaId, filepath, { url: `/stream/${mediaId}/index.m3u8` }, { autoplay: true });
+  if (wasAt > 0 && _hls) {
+    _hls.on(Hls.Events.MANIFEST_PARSED, () => { try { el.currentTime = wasAt; } catch {} });
+  }
+  return true;
+}
+
+// A file that plays after all is un-marked by the existing capture-phase
+// `canplay` listener in selection.js, which fires for a remuxed stream exactly
+// as it does for a native one — so nothing extra is needed here.

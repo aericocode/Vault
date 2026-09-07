@@ -699,7 +699,20 @@ function _noteMediaPlayable(e) {
 document.addEventListener('canplay', _noteMediaPlayable, true);
 document.addEventListener('loadeddata', _noteMediaPlayable, true);
 
-function handleMediaError(filepath) {
+/**
+ * @param {string} filepath
+ * @param {string} [reason] a specific sentence to show instead of the generic
+ *        message — the codec explanation from /api/playback, for example.
+ */
+function handleMediaError(filepath, reason) {
+  // A native attempt the server also offered to remux (an MKV that this
+  // browser turned out not to open after all): take that offer once before
+  // treating the file as dead. A successful retry leaves no other trace.
+  if (!reason && typeof retryThroughRemux === 'function'
+      && retryThroughRemux(currentMediaState.element, filepath)) {
+    return;
+  }
+
   // Do NOT auto-copy the path to the clipboard (privacy). The capture-phase
   // error listener flags the item as ⚠ unplayable so it's still findable;
   // users can copy the path themselves from the details panel.
@@ -713,7 +726,7 @@ function handleMediaError(filepath) {
   }
   consecutivePlayFailures = 0;
   closeMediaPlayer();
-  showToast('Cannot play this file — marked as unplayable. Use “Copy Path” to locate it.');
+  showToast(reason || 'Cannot play this file — marked as unplayable. Use “Copy Path” to locate it.');
 }
 
 /**
@@ -752,6 +765,10 @@ function highlightCard(filteredIndex) {
  */
 function stopMediaElement(el) {
   if (!el) return;
+  // An hls.js instance holds its own loaders and a worker; detaching the
+  // element alone would leave them fetching segments for a file nobody is
+  // watching any more.
+  if (typeof destroyStream === 'function') destroyStream();
   try { el.onerror = null; el.removeAttribute('onerror'); } catch {}
   try { el.pause(); } catch {}
   try { el.removeAttribute('src'); el.load(); } catch {}
