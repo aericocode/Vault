@@ -215,6 +215,13 @@ function resetPageAnchor() {
   pageAnchor = 0;
 }
 
+/** Put the page containing this index on screen. Used at boot only. */
+function revealMediaIndex(index) {
+  if (index < 0 || index >= filteredMedia.length) return;
+  const size = Math.max(1, pageSize);
+  setPageAnchor(Math.floor(index / size) * size);
+}
+
 /* ── Re-layout triggers ───────────────────────────────────────────────────
    The grid is re-laid only when something that feeds the maths actually
    moved: its width, its distance from the top of the document (a bar above it

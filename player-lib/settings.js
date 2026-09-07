@@ -1859,6 +1859,10 @@
       return;
     }
     if (typeof playMedia !== 'function') return;
+    // Closing the player leaves the grid alone, with this one exception: the
+    // user did not pick a page before this file opened itself, so the first
+    // close may put the grid where the file is. player-core reads the flag.
+    window.vaultRevealOnNextClose = true;
     playMedia({ filepath: media.filepath, filename: media.filename, media_type: media.media_type });
     // Open paused: playMedia's setup ends with a synchronous play() call, so
     // pausing here supersedes it (the superseded play() promise rejection is

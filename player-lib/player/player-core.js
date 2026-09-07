@@ -830,7 +830,7 @@ function highlightCard(filteredIndex) {
   const media = filteredMedia[filteredIndex];
   const card = media
     ? document.querySelector(`.media-tile[data-id="${media.id}"]`)
-    : document.querySelectorAll('.media-tile')[filteredIndex % pageSize];
+    : document.querySelectorAll('.media-tile')[filteredIndex - pageAnchor];
   if (!card) return;
 
   card.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -838,6 +838,18 @@ function highlightCard(filteredIndex) {
   setTimeout(() => {
     card.classList.remove('card-highlight');
   }, 2000);
+}
+
+/* Closing the player no longer moves the library. The single exception is the
+   file "Restore last session" reopened at launch: the user never chose a page
+   in that case, so the first close is allowed to put the grid where that file
+   is. settings.js arms this flag just before it reopens the file. */
+function revealLastPlayedIfBooting() {
+  if (!window.vaultRevealOnNextClose) return;
+  window.vaultRevealOnNextClose = false;
+  const lastIndex = currentMediaState.currentIndex;
+  if (lastIndex < 0 || lastIndex >= filteredMedia.length) return;
+  if (typeof revealMediaIndex === 'function') revealMediaIndex(lastIndex);
 }
 
 // ── Mini Player ─────────────────────────────────────────────────────────
@@ -1052,15 +1064,11 @@ function closeMiniPlayer() {
   miniPlayer.classList.remove('active', 'mini-audio');
   currentMediaState.miniMode = false;
 
-  // Jump to page, re-render (applies the "last opened" tile border), highlight
-  const lastIndex = currentMediaState.currentIndex;
-  if (lastIndex >= 0 && lastIndex < filteredMedia.length) {
-    currentPage = Math.floor(lastIndex / pageSize) + 1;
-    renderResults();
-    requestAnimationFrame(() => {
-      highlightCard(lastIndex);
-    });
-  }
+  // Re-render so the "last opened" tile border lands, but leave the grid where
+  // it was: closing the player used to yank the library to whatever the queue
+  // had wandered onto, which lost the place the user actually chose.
+  revealLastPlayedIfBooting();
+  renderResults();
 }
 
 /**
@@ -1325,17 +1333,10 @@ function closeMediaPlayer(event) {
   // Reset mini player position for next use
   resetMiniPlayerPosition();
 
-  // Jump to the page containing the last-played media and mark/highlight it.
-  // Always re-render so the persistent "last opened" tile border is applied
-  // even when the page didn't change.
-  const lastIndex = currentMediaState.currentIndex;
-  if (lastIndex >= 0 && lastIndex < filteredMedia.length) {
-    currentPage = Math.floor(lastIndex / pageSize) + 1;
-    renderResults();
-    requestAnimationFrame(() => {
-      highlightCard(lastIndex);
-    });
-  }
+  // Mark the last-opened tile, and otherwise leave the grid exactly where it
+  // was — see revealLastPlayedIfBooting for the one exception.
+  revealLastPlayedIfBooting();
+  renderResults();
 }
 
 function toggleFullscreen() {
