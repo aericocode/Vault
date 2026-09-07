@@ -70,9 +70,9 @@ app.use(express.json({ limit: '2mb' }));
 app.get('/api/vault/status', (req, res) => res.json(vault.status()));
 
 // Create (or change) the vault password — encrypts the DB in place
-app.post('/api/vault/setpass', (req, res) => {
+app.post('/api/vault/setpass', async (req, res) => {
   try {
-    res.json(vault.setPassword(String(req.body?.pass ?? '')));
+    res.json(await vault.setPassword(String(req.body?.pass ?? '')));
   } catch (err) {
     res.status(err.code === 'VAULT_SCAN_ACTIVE' ? 409 : 400).json({ error: err.message, code: err.code });
   }
@@ -82,9 +82,9 @@ app.post('/api/vault/setpass', (req, res) => {
 // current password 401s; enough wrong tries force-lock the vault (the client
 // then flips to the lock screen off the 423 / locked flag). The lockout
 // threshold is deliberately not surfaced to the client.
-app.post('/api/vault/changepass', (req, res) => {
+app.post('/api/vault/changepass', async (req, res) => {
   try {
-    res.json(vault.changePassword(String(req.body?.current ?? ''), String(req.body?.next ?? '')));
+    res.json(await vault.changePassword(String(req.body?.current ?? ''), String(req.body?.next ?? '')));
   } catch (err) {
     if (err.code === 'VAULT_LOCKED_OUT') {
       return res.status(423).json({ error: err.message, code: err.code, locked: true });
@@ -99,9 +99,9 @@ app.post('/api/vault/changepass', (req, res) => {
 
 // Lock: 409 + {code:'VAULT_SCAN_ACTIVE'} when a scan runs and force isn't set,
 // so the client can show the "click again to interrupt" warning state
-app.post('/api/vault/lock', (req, res) => {
+app.post('/api/vault/lock', async (req, res) => {
   try {
-    res.json(vault.lock({ force: !!req.body?.force }));
+    res.json(await vault.lock({ force: !!req.body?.force }));
   } catch (err) {
     res.status(err.code === 'VAULT_SCAN_ACTIVE' ? 409 : 400).json({ error: err.message, code: err.code });
   }
@@ -2451,11 +2451,11 @@ let _shutdownHooked = false;
 function _installShutdownHooks() {
   if (_shutdownHooked) return;
   _shutdownHooked = true;
-  const onExit = (signal) => {
-    // Producers first: each owns an FFmpeg child and a temp dir under tempDir,
-    // and killing them before the wipe is what stops an orphan from writing
-    // into the directory we are clearing (or outliving the server entirely).
-    try { require('../lib/stream/session').stopAll(); } catch {}
+  const onExit = async (signal) => {
+    // Producers first, and WAITED FOR: each owns an FFmpeg child and a temp dir
+    // under tempDir, and the children have to be gone before the wipe, or one
+    // still writes into the directory being cleared (or outlives the server).
+    try { await require('../lib/stream/session').stopAll(); } catch {}
     try { wipeTempDir(); } catch {}
     try { secureAssets.close(); } catch {}
     process.exit(signal === 'SIGTERM' ? 143 : 130);
