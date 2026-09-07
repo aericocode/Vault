@@ -824,11 +824,11 @@ function applyFilters(opts) {
   // Apply sorting
   sortFilteredMedia();
 
-  if (!keepPage) currentPage = 1;
-  // Clamp: a mutation (trash/remove) can shrink the list below the current
-  // page — never strand the view on a now-empty page
-  const totalPages = Math.max(1, Math.ceil(filteredMedia.length / pageSize));
-  if (currentPage > totalPages) currentPage = totalPages;
+  // A new search or filter has no place to hold, so it starts at the top.
+  if (!keepPage && typeof resetPageAnchor === 'function') resetPageAnchor();
+  // Clamp: a mutation (trash/remove) can shrink the list under the anchor —
+  // never strand the view past the end
+  if (typeof clampPageAnchor === 'function') clampPageAnchor();
   renderResults();
 
   // Update saved searches bar (show/hide save button based on active filters)

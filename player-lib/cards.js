@@ -35,43 +35,139 @@ function errorTooltip(msg) {
   return `Processing error: ${short}`;
 }
 
-/* ── Adaptive grid: exact columns for the viewport, complete rows only ── */
+/* ── Adaptive grid ────────────────────────────────────────────────────────
+   A page is one screenful of whole rows. The column count comes from the card
+   size, the row count from the height actually left under the bars, and every
+   tile is pinned to that row height, so the last row lands on the bottom edge
+   instead of half off it and the document never has to scroll.
 
-const TILE_MIN_WIDTH = 170;  // px — matches the old minmax() minimum
-const GRID_GAP = 12;         // px — 0.75rem
-const TARGET_ROWS = 5;       // rows per page (9 cols × 5 = 45 on a 4K screen)
+   The first tile on screen is the anchor (an index into filteredMedia), not a
+   page number. Anything that changes how many tiles fit — a resize, a card-size
+   change, a bar above the grid appearing — re-slices from the same anchor, so
+   the tile the user was looking at stays where it was. */
 
-/**
- * Compute the column count that fits, pin the grid to exactly that many
- * columns, and set pageSize = columns × TARGET_ROWS so the last row is
- * never ragged. Returns true if pageSize changed.
- */
-function updateGridLayout() {
+const CARD_MIN_WIDTHS = { S: 130, M: 170, L: 230 };
+const GRID_GAP = 12;          // px — 0.75rem, the grid's own gap
+const TILE_ASPECT = 16 / 10;  // .tile-thumb aspect-ratio (css/tiles.css)
+const BOTTOM_RESERVE = 16;    // .main-container bottom padding
+const PAGER_MARGIN = 16;      // .pagination margin-top
+const MIN_ROW_H = 90;
+
+// The tile's name + meta strip. Content-sized, so it measures the same whether
+// or not the tile height is pinned; read off the first rendered tile and kept.
+// The constant is only the guess used before anything has rendered.
+let tileChromeH = 56;
+let pagerH = 44;              // likewise, measured off the rendered pager
+let gridMetrics = { cols: 0, rows: 0, tileW: 0, natH: 0, rowH: 0 };
+
+function libraryLayoutMode() {
+  return typeof window.vaultLibraryLayout === 'function' ? window.vaultLibraryLayout() : 'pages';
+}
+
+function tileMinWidth() {
+  const size = typeof window.vaultCardSize === 'function' ? window.vaultCardSize() : 'M';
+  return CARD_MIN_WIDTHS[size] || CARD_MIN_WIDTHS.M;
+}
+
+/** Column count, tile width and natural tile height for the grid's width. */
+function measureGrid() {
   const grid = document.getElementById('resultsGrid');
-  if (!grid) return false;
-
+  if (!grid) return null;
   const width = grid.clientWidth;
-  if (!width) return false;
+  if (!width) return null;
+  const min = tileMinWidth();
+  const cols = Math.max(2, Math.floor((width + GRID_GAP) / (min + GRID_GAP)));
+  const tileW = (width - (cols - 1) * GRID_GAP) / cols;
+  return { grid, width, cols, tileW, natH: tileW / TILE_ASPECT + tileChromeH };
+}
 
-  const cols = Math.max(2, Math.floor((width + GRID_GAP) / (TILE_MIN_WIDTH + GRID_GAP)));
-  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+/** Index of the first tile of the last page. */
+function lastPageAnchor() {
+  const size = Math.max(1, pageSize);
+  return Math.max(0, (Math.ceil(filteredMedia.length / size) - 1) * size);
+}
 
-  const newSize = cols * TARGET_ROWS;
-  if (newSize === pageSize) return false;
-
-  pageSize = newSize;
-  // Clamp the current page so a resize can't strand us past the end
-  const totalPages = Math.max(1, Math.ceil(filteredMedia.length / pageSize));
-  if (currentPage > totalPages) currentPage = totalPages;
+/** Never strand the view past the end of a list that shrank under it. */
+function clampPageAnchor() {
+  const next = Math.min(Math.max(0, pageAnchor), lastPageAnchor());
+  if (next === pageAnchor) return false;
+  pageAnchor = next;
   return true;
 }
 
+/**
+ * Pin the column count and the row height so one page is exactly one screenful
+ * of whole rows. Sets pageSize; returns true if pageSize changed.
+ */
+function updateGridLayout() {
+  const m = measureGrid();
+  if (!m) return false;
+  const { grid, cols, natH } = m;
+
+  // Document offset, so it reads the same whether or not the page is scrolled
+  const gridTop = grid.getBoundingClientRect().top + window.scrollY;
+  // Floor at one minimum row rather than at one natural row: on a short window
+  // with a lot of bars there may be less room than a tile wants, and shrinking
+  // the row is the graceful answer where insisting on the natural height would
+  // just hand the document a scrollbar.
+  const availH = Math.max(MIN_ROW_H, window.innerHeight - gridTop - pagerH - PAGER_MARGIN - BOTTOM_RESERVE);
+  const rows = Math.max(1, Math.round((availH + GRID_GAP) / (natH + GRID_GAP)));
+  const rowH = Math.max(MIN_ROW_H, (availH - (rows - 1) * GRID_GAP) / rows);
+
+  grid.classList.add('grid-pages');
+  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  grid.style.setProperty('--tile-h', `${rowH.toFixed(1)}px`);
+  gridMetrics = { cols, rows, tileW: m.tileW, natH, rowH };
+
+  const newSize = cols * rows;
+  if (newSize === pageSize) return false;
+  pageSize = newSize;
+  clampPageAnchor();
+  return true;
+}
+
+/**
+ * Re-read the two heights the layout can only learn from rendered DOM.
+ * Returns true if either moved, i.e. the layout should be redone.
+ */
+function remeasureGridChrome() {
+  let changed = false;
+  const tile = document.querySelector('#resultsGrid .media-tile');
+  const thumb = tile && tile.querySelector('.tile-thumb');
+  if (thumb && thumb.offsetHeight > 0) {
+    const chrome = tile.offsetHeight - thumb.offsetHeight;
+    if (chrome > 8 && Math.abs(chrome - tileChromeH) > 1) { tileChromeH = chrome; changed = true; }
+  }
+  const pager = document.getElementById('pagination');
+  if (pager && pager.offsetHeight > 0 && Math.abs(pager.offsetHeight - pagerH) > 1) {
+    pagerH = pager.offsetHeight;
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * Belt and braces. If anything above the grid measured a pixel or two off, the
+ * document would scroll — and a page that scrolls is not a page. Shave the row
+ * height by the overflow rather than leave a scrollbar.
+ */
+function fitRowHeight() {
+  if (!gridMetrics.rows) return;
+  const over = document.documentElement.scrollHeight - window.innerHeight;
+  if (over <= 1) return;
+  const rowH = Math.max(MIN_ROW_H, gridMetrics.rowH - over / gridMetrics.rows);
+  gridMetrics.rowH = rowH;
+  document.getElementById('resultsGrid')?.style.setProperty('--tile-h', `${rowH.toFixed(1)}px`);
+}
+
+let _inRenderCorrection = false;
+
 function renderResults() {
   updateGridLayout();
+  clampPageAnchor();
 
-  const start = (currentPage - 1) * pageSize;
-  const end = start + pageSize;
-  const pageItems = filteredMedia.slice(start, end);
+  const pageItems = filteredMedia.slice(pageAnchor, pageAnchor + pageSize);
+  currentPage = Math.floor(pageAnchor / Math.max(1, pageSize)) + 1;
 
   document.getElementById('filteredCount').textContent = filteredMedia.length.toLocaleString();
   document.getElementById('showingCount').textContent = pageItems.length.toLocaleString();
@@ -83,6 +179,131 @@ function renderResults() {
 
   // Keep the selection bar's "Select page" count/state in sync after paging
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
+
+  // One correction pass: this render is the only chance to measure the real
+  // name-strip and pager heights, and being wrong about them is the difference
+  // between the last row fitting and the document scrolling.
+  if (!_inRenderCorrection) {
+    _inRenderCorrection = true;
+    try {
+      if (remeasureGridChrome()) renderResults();
+      fitRowHeight();
+    } finally {
+      _inRenderCorrection = false;
+    }
+  }
+}
+
+/* ── Where the page starts ────────────────────────────────────────────────
+   Every jump goes through here so the anchor stays the single source of
+   truth; goToPage() survives as a thin wrapper for older callers. */
+
+function setPageAnchor(index) {
+  const next = Math.min(Math.max(0, Math.round(index)), lastPageAnchor());
+  if (next === pageAnchor) return false;
+  pageAnchor = next;
+  renderResults();
+  return true;
+}
+
+function movePage(delta) {
+  return setPageAnchor(pageAnchor + delta * Math.max(1, pageSize));
+}
+
+/** Back to the first tile — a new search or filter has no place to hold. */
+function resetPageAnchor() {
+  pageAnchor = 0;
+}
+
+/* ── Re-layout triggers ───────────────────────────────────────────────────
+   The grid is re-laid only when something that feeds the maths actually
+   moved: its width, its distance from the top of the document (a bar above it
+   appearing or disappearing), the window height, or the card size. Gating on
+   that key matters — fitRowHeight() changes the grid's HEIGHT, which the
+   observer would otherwise read as a reason to lay out again, forever. */
+
+let _lastLayoutKey = '';
+
+function libraryLayoutKey() {
+  const grid = document.getElementById('resultsGrid');
+  if (!grid) return '';
+  const top = Math.round(grid.getBoundingClientRect().top + window.scrollY);
+  return [grid.clientWidth, top, window.innerHeight, tileMinWidth(), libraryLayoutMode()].join('|');
+}
+
+function relayoutLibrary(force) {
+  const key = libraryLayoutKey();
+  if (!key) return;
+  if (!force && key === _lastLayoutKey) return;
+  _lastLayoutKey = key;
+  renderResults();
+  _lastLayoutKey = libraryLayoutKey();
+}
+
+// Settings calls this when the layout mode or card size changes.
+window.vaultRelayoutLibrary = () => relayoutLibrary(true);
+
+function initGridObservers() {
+  const grid = document.getElementById('resultsGrid');
+  if (!grid) return;
+  let timer = null;
+  const nudge = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => relayoutLibrary(false), 80);
+  };
+  if (typeof ResizeObserver === 'function') {
+    const ro = new ResizeObserver(nudge);
+    ro.observe(grid);
+    // The bars above the grid: showing or hiding one moves the grid's top edge
+    ['.search-section', '.results-info', '#missingFilesBanner', '#focusFilterBar']
+      .forEach(sel => { const el = document.querySelector(sel); if (el) ro.observe(el); });
+  }
+  window.addEventListener('resize', nudge);
+
+  // One wheel notch is one page. Debounced, because a trackpad fling arrives
+  // as a burst of small deltas and would otherwise flip through several.
+  let wheelBlockedUntil = 0;
+  grid.addEventListener('wheel', (e) => {
+    if (libraryLayoutMode() !== 'pages') return;
+    if (!e.deltaY) return;
+    const now = Date.now();
+    if (now < wheelBlockedUntil) return;
+    wheelBlockedUntil = now + 250;
+    movePage(e.deltaY > 0 ? 1 : -1);
+  }, { passive: true });
+}
+
+/** Typing somewhere? Then Page Down belongs to that field, not to the grid. */
+function isTypingTarget(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
+
+document.addEventListener('keydown', (e) => {
+  if (libraryLayoutMode() !== 'pages') return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (isTypingTarget(e.target)) return;
+  // The player, the mini player and any open modal own these keys first
+  if (document.getElementById('mediaPlayerOverlay')?.classList.contains('active')) return;
+  if (document.getElementById('miniPlayer')?.classList.contains('active')) return;
+  if (document.querySelector('.modal-overlay.active, .settings-overlay.active')) return;
+  if (document.getElementById('mainContainer')?.classList.contains('active') !== true) return;
+
+  if (e.key === 'PageDown') { movePage(1); }
+  else if (e.key === 'PageUp') { movePage(-1); }
+  else if (e.key === 'Home') { setPageAnchor(0); }
+  else if (e.key === 'End') { setPageAnchor(lastPageAnchor()); }
+  else return;
+  e.preventDefault();
+});
+
+// player-lib scripts are loaded after the document is parsed, so waiting on
+// DOMContentLoaded here would wait for an event that already fired.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initGridObservers);
+} else {
+  initGridObservers();
 }
 
 /* ── Compact tile (grid view) ──────────────────────────────────────────────
@@ -518,103 +739,62 @@ function quickRate(filepath, rating, btnEl) {
   }
 }
 
-/* ── Pagination ────────────────────────────────────────────────────────── */
+/* ── Pagination ───────────────────────────────────────────────────────────
+   Prev, where you are, a slider for long jumps, Next. The numbered buttons and
+   the "..." jump box are gone: with the page size following the window, a page
+   number is a moving target, and the slider covers the one thing the numbers
+   were really for, which is getting a long way in one gesture.
+
+   The bar renders even on a single page so its height never changes under the
+   grid — the row maths reserves that height, and a bar that came and went
+   would re-lay the grid every time a filter narrowed the list to one page. */
 
 function renderPagination() {
-  const totalPages = Math.ceil(filteredMedia.length / pageSize);
-  const pagination = document.getElementById('pagination');
-  if (totalPages <= 1) { pagination.innerHTML = ''; return; }
+  const pager = document.getElementById('pagination');
+  if (!pager) return;
 
-  let html = `<button ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1})">← Prev</button>`;
+  const total = filteredMedia.length;
+  const size = Math.max(1, pageSize);
+  const lastAnchor = lastPageAnchor();
+  const from = total ? pageAnchor + 1 : 0;
+  const to = Math.min(total, pageAnchor + size);
+  const focusedId = document.activeElement && pager.contains(document.activeElement)
+    ? document.activeElement.id : null;
 
-  const range = getPageRange(currentPage, totalPages);
-  range.forEach((p, index) => {
-    if (p === '...') {
-      // Pass 'this' (the button element) so we can position the modal relative to it
-      html += `<button class="dots" onclick="openJumpModal(event, ${totalPages})">...</button>`;
-    } else {
-      html += `<button class="${p === currentPage ? 'active' : ''}" onclick="goToPage(${p})">${p}</button>`;
+  pager.innerHTML = `
+    <button class="pager-btn" id="pagerPrev" ${pageAnchor <= 0 ? 'disabled' : ''}
+      title="Previous page (Page Up)">← Prev</button>
+    <span class="pager-pos" id="pagerPos" aria-live="polite">${from.toLocaleString()} to ${to.toLocaleString()} of ${total.toLocaleString()}</span>
+    <input type="range" class="pager-range" id="pagerRange" min="0" max="${lastAnchor}" step="${size}"
+      value="${Math.min(pageAnchor, lastAnchor)}" ${lastAnchor === 0 ? 'disabled' : ''}
+      aria-label="Jump through the list" title="Drag to jump">
+    <button class="pager-btn" id="pagerNext" ${pageAnchor >= lastAnchor ? 'disabled' : ''}
+      title="Next page (Page Down)">Next →</button>`;
+
+  pager.querySelector('#pagerPrev').addEventListener('click', () => movePage(-1));
+  pager.querySelector('#pagerNext').addEventListener('click', () => movePage(1));
+
+  const range = pager.querySelector('#pagerRange');
+  // While dragging, only the label moves: re-rendering the grid mid-drag would
+  // replace the slider under the pointer and drop the drag.
+  range.addEventListener('input', () => {
+    const start = Number(range.value);
+    const pos = pager.querySelector('#pagerPos');
+    if (pos) {
+      pos.textContent = `${(start + 1).toLocaleString()} to ${Math.min(total, start + size).toLocaleString()} of ${total.toLocaleString()}`;
     }
   });
+  range.addEventListener('change', () => setPageAnchor(Number(range.value)));
 
-  html += `<button ${currentPage === totalPages ? 'disabled' : ''} onclick="goToPage(${currentPage + 1})">Next →</button>`;
-  pagination.innerHTML = html;
-}
-
-function openJumpModal(event, max) {
-  event.stopPropagation(); // Prevent immediate closing
-
-  // Remove existing modal if any
-  const existing = document.getElementById('jump-modal');
-  if (existing) existing.remove();
-
-  const btn = event.currentTarget;
-  const rect = btn.getBoundingClientRect();
-
-  const modal = document.createElement('div');
-  modal.id = 'jump-modal';
-  modal.className = 'jump-modal';
-  modal.innerHTML = `
-    <input type="number" id="jump-input" min="1" max="${max}" placeholder="..." />
-    <button onclick="executeJump(${max})">Go</button>
-  `;
-
-  document.body.appendChild(modal);
-
-  // Position it above the clicked button
-  modal.style.left = `${rect.left + (rect.width / 2) - (modal.offsetWidth / 2)}px`;
-  modal.style.top = `${rect.top - modal.offsetHeight - 10 + window.scrollY}px`;
-
-  const input = document.getElementById('jump-input');
-  input.focus();
-
-  // Handle Enter key
-  input.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') executeJump(max);
-  });
-}
-
-function executeJump(max) {
-  const val = parseInt(document.getElementById('jump-input').value);
-  if (val >= 1 && val <= max) {
-    goToPage(val);
-    closeJumpModal();
+  // Re-rendering the bar throws away the focused control; put focus back so
+  // clicking Next with the keyboard can be repeated.
+  if (focusedId) {
+    const again = pager.querySelector(`#${focusedId}`);
+    if (again && !again.disabled) again.focus();
   }
 }
 
-function closeJumpModal() {
-  const modal = document.getElementById('jump-modal');
-  if (modal) modal.remove();
-}
-
-// Close modal when clicking anywhere outside
-document.addEventListener('click', (e) => {
-  const modal = document.getElementById('jump-modal');
-  if (modal && !modal.contains(e.target)) {
-    closeJumpModal();
-  }
-});
-
-function getPageRange(current, total) {
-  // If total pages are low, just show them all
-  if (total <= 9) return Array.from({length: total}, (_, i) => i + 1);
-
-  // Near the start: [1, 2, 3, 4, 5, 6, '...', total]
-  if (current <= 5) {
-    return [1, 2, 3, 4, 5, 6, '...', total];
-  }
-
-  // Near the end: [1, '...', 420, 421, 422, 423, 424, 425]
-  if (current >= total - 4) {
-    return [1, '...', total-5, total-4, total-3, total-2, total-1, total];
-  }
-
-  // In the middle: [1, '...', 20, 21, 22, 23, 24, 25, 26, '...', 425]
-  return [1, '...', current-3, current-2, current-1, current, current+1, current+2, current+3, '...', total];
-}
-
+/** Kept for callers that still think in page numbers. */
 function goToPage(page) {
-  currentPage = page;
-  renderResults();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  setPageAnchor((Math.max(1, page) - 1) * Math.max(1, pageSize));
 }

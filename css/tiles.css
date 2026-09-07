@@ -3,9 +3,9 @@
    + hover popover + details sidebar restyle
    ========================================== */
 
-/* Grid: exact column count is set by updateGridLayout() in cards.js so
-   pages are always complete rectangles (pageSize = columns × 5 rows).
-   The auto-fill here is only the pre-JS fallback. */
+/* Grid: the exact column count, and in pages mode the exact row height, are
+   set by updateGridLayout() in cards.js so a page is one screenful of whole
+   rows. The auto-fill here is only the pre-JS fallback. */
 .results-grid:not(.list-view) {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
@@ -854,4 +854,31 @@
 
 .modal-overlay.active .modal-content {
   transform: translateX(0);
+}
+
+/* ── Pages mode: every tile is exactly one row tall ────────────────────
+   --tile-h is the row height cards.js worked out for this window. The name and
+   meta strips keep their natural height and the thumbnail takes the rest,
+   cropping with object-fit: cover, so tiles land within a few percent of their
+   natural shape and the bottom row still ends where the window does. */
+
+.results-grid.grid-pages {
+  grid-auto-rows: var(--tile-h, auto);
+}
+
+.grid-pages .media-tile {
+  height: var(--tile-h, auto);
+  display: flex;
+  flex-direction: column;
+}
+
+.grid-pages .tile-thumb {
+  flex: 1 1 auto;
+  aspect-ratio: auto;
+  min-height: 0;
+}
+
+.grid-pages .tile-name,
+.grid-pages .tile-meta {
+  flex: none;
 }

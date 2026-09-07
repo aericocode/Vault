@@ -248,11 +248,8 @@ document.getElementById('mediaInfoOverlay').addEventListener('click', (e) => {
 });
 
 // Re-fit the grid on window resize (columns + complete-row page size)
-window.addEventListener('resize', debounce(() => {
-  if (typeof updateGridLayout === 'function' && updateGridLayout()) {
-    renderResults();
-  }
-}, 150));
+// The grid watches its own size (cards.js initGridObservers), which covers
+// window resizes and any bar above it showing or hiding.
 
 // ── Collapsible search section ──────────────────────────────────────────
 function setSearchCollapsed(collapsed) {

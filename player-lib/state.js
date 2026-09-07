@@ -6,8 +6,13 @@
 let allMedia = [];
 let filteredMedia = [];
 
-// Pagination state — pageSize is dynamic: columns × TARGET_ROWS, computed
-// from the viewport so every page is a complete rectangle (no ragged rows)
+// Pagination state. pageAnchor is the source of truth: the index in
+// filteredMedia of the first tile on screen. pageSize is dynamic (columns ×
+// rows, both computed from the window in cards.js), so a page NUMBER changes
+// meaning whenever the window does, while the anchor keeps the tile the user
+// was looking at exactly where it was. currentPage is derived from the two and
+// kept only for the code that still asks for a number.
+let pageAnchor = 0;
 let currentPage = 1;
 let pageSize = 45;
 
