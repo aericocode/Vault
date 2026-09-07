@@ -163,6 +163,10 @@ function fitRowHeight() {
 let _inRenderCorrection = false;
 
 function renderResults() {
+  if (libraryLayoutMode() === 'continuous') return renderContinuous();
+
+  const grid = document.getElementById('resultsGrid');
+  if (grid) grid.classList.remove('grid-continuous');
   updateGridLayout();
   clampPageAnchor();
 
@@ -213,13 +217,143 @@ function movePage(delta) {
 /** Back to the first tile — a new search or filter has no place to hold. */
 function resetPageAnchor() {
   pageAnchor = 0;
+  if (libraryLayoutMode() === 'continuous') scrollLibraryToTop();
 }
 
-/** Put the page containing this index on screen. Used at boot only. */
+/** Bring the top of the grid back into view without disturbing a short page. */
+function scrollLibraryToTop() {
+  const grid = document.getElementById('resultsGrid');
+  if (!grid) return;
+  const top = grid.getBoundingClientRect().top + window.scrollY;
+  if (window.scrollY > top) window.scrollTo({ top: Math.max(0, top) });
+}
+
+/** Put the tile at this index on screen. Used at boot only. */
 function revealMediaIndex(index) {
   if (index < 0 || index >= filteredMedia.length) return;
+  if (libraryLayoutMode() === 'continuous') {
+    const cols = Math.max(1, contState.cols);
+    const virt = document.querySelector('#resultsGrid .grid-virt');
+    if (!virt || !contState.stride) return;
+    const virtTop = virt.getBoundingClientRect().top + window.scrollY;
+    window.scrollTo({ top: Math.max(0, virtTop + Math.floor(index / cols) * contState.stride) });
+    renderContinuousWindow();
+    return;
+  }
   const size = Math.max(1, pageSize);
   setPageAnchor(Math.floor(index / size) * size);
+}
+
+/* ── Continuous mode ──────────────────────────────────────────────────────
+   The document scrolls as it always did; what changes is that only the rows
+   near the viewport exist. The grid becomes a plain block holding one spacer
+   the height of the whole list, with a handful of absolutely positioned rows
+   inside it. Tiles keep their natural height and nothing snaps — the scroll
+   position is whatever the user left it at, to the pixel. */
+
+let contState = { cols: 0, stride: 0, totalRows: 0, first: -1, last: -1 };
+
+/** Which rows to keep in the DOM: the visible ones plus a small buffer. */
+function continuousRange(stride, totalRows) {
+  const virt = document.querySelector('#resultsGrid .grid-virt');
+  if (!virt || !stride) return { first: 0, last: Math.min(totalRows - 1, 5), y: 0 };
+  const virtTop = virt.getBoundingClientRect().top + window.scrollY;
+  const y = window.scrollY - virtTop;
+  const first = Math.max(0, Math.floor(y / stride) - 2);
+  const last = Math.min(totalRows - 1, Math.floor((y + window.innerHeight) / stride) + 3);
+  return { first, last, y };
+}
+
+function renderContinuous() {
+  const m = measureGrid();
+  if (!m) return;
+  const { grid, cols, natH } = m;
+  const stride = natH + GRID_GAP;
+  const total = filteredMedia.length;
+  const totalRows = Math.ceil(total / cols);
+
+  grid.classList.remove('grid-pages');
+  grid.classList.add('grid-continuous');
+  grid.style.removeProperty('--tile-h');
+  grid.style.removeProperty('grid-template-columns');
+
+  const collCards = typeof renderCollectionCards === 'function' ? renderCollectionCards() : '';
+
+  // Rebuild the skeleton only when its shape changed; scrolling replaces the
+  // rows inside it and nothing else, which is the whole point of the spacer.
+  const shape = `${cols}|${totalRows}|${Math.round(stride)}|${collCards.length}`;
+  let virt = grid.querySelector('.grid-virt');
+  if (!virt || grid.dataset.gridShape !== shape) {
+    grid.innerHTML =
+      (collCards ? `<div class="grid-colls" style="grid-template-columns:repeat(${cols},1fr)">${collCards}</div>` : '') +
+      '<div class="grid-virt"></div>';
+    grid.dataset.gridShape = shape;
+    virt = grid.querySelector('.grid-virt');
+  }
+  virt.style.height = `${Math.max(0, totalRows * stride - GRID_GAP)}px`;
+
+  contState = { cols, stride, totalRows, first: -1, last: -1 };
+  renderContinuousWindow();
+
+  document.getElementById('filteredCount').textContent = total.toLocaleString();
+  document.getElementById('showingCount').textContent = total.toLocaleString();
+  renderPagination();
+
+  // The name strip is the one height only rendered DOM can tell us; a wrong
+  // guess would put every row's top a few pixels out.
+  if (!_inRenderCorrection) {
+    _inRenderCorrection = true;
+    try { if (remeasureGridChrome()) renderContinuous(); } finally { _inRenderCorrection = false; }
+  }
+}
+
+/** Swap in the rows for the current scroll position. */
+function renderContinuousWindow() {
+  const virt = document.querySelector('#resultsGrid .grid-virt');
+  if (!virt) return;
+  const { cols, stride, totalRows } = contState;
+  const r = continuousRange(stride, totalRows);
+  contState.first = r.first;
+  contState.last = r.last;
+
+  let html = '';
+  for (let row = r.first; row <= r.last; row++) {
+    const items = filteredMedia.slice(row * cols, row * cols + cols);
+    if (!items.length) continue;
+    html += `<div class="grid-row" style="top:${(row * stride).toFixed(1)}px;grid-template-columns:repeat(${cols},1fr)">`
+      + items.map(item => renderTile(item)).join('') + '</div>';
+  }
+  virt.innerHTML = html;
+
+  // The anchor still means "first tile on screen", which here is the first
+  // tile of the first row the viewport actually shows.
+  pageAnchor = Math.max(0, Math.min(
+    Math.max(0, filteredMedia.length - 1),
+    Math.max(0, Math.floor(Math.max(0, r.y) / (stride || 1))) * cols));
+  currentPage = Math.floor(pageAnchor / Math.max(1, pageSize)) + 1;
+
+  if (typeof renderSelectionBar === 'function') renderSelectionBar();
+}
+
+/** Where the viewport sits, expressed as a tile plus a pixel offset. */
+function continuousAnchorOffset() {
+  const virt = document.querySelector('#resultsGrid .grid-virt');
+  if (!virt || !contState.stride) return null;
+  const virtTop = virt.getBoundingClientRect().top + window.scrollY;
+  const y = window.scrollY - virtTop;
+  if (y < 0) return null;                     // still above the grid: nothing to hold
+  const row = Math.floor(y / contState.stride);
+  return { index: row * contState.cols, offset: y - row * contState.stride };
+}
+
+/** Put that tile back at the same place in the viewport after a re-lay. */
+function restoreContinuousAnchor(keep) {
+  const virt = document.querySelector('#resultsGrid .grid-virt');
+  if (!keep || !virt || !contState.stride) return;
+  const virtTop = virt.getBoundingClientRect().top + window.scrollY;
+  const row = Math.floor(keep.index / Math.max(1, contState.cols));
+  window.scrollTo({ top: Math.max(0, virtTop + row * contState.stride + keep.offset) });
+  renderContinuousWindow();
 }
 
 /* ── Re-layout triggers ───────────────────────────────────────────────────
@@ -243,7 +377,11 @@ function relayoutLibrary(force) {
   if (!key) return;
   if (!force && key === _lastLayoutKey) return;
   _lastLayoutKey = key;
+  // A bar above the grid changing height moves every row; hold the tile the
+  // user was looking at rather than let the list slide under them.
+  const keep = libraryLayoutMode() === 'continuous' ? continuousAnchorOffset() : null;
   renderResults();
+  if (keep) restoreContinuousAnchor(keep);
   _lastLayoutKey = libraryLayoutKey();
 }
 
@@ -266,6 +404,19 @@ function initGridObservers() {
       .forEach(sel => { const el = document.querySelector(sel); if (el) ro.observe(el); });
   }
   window.addEventListener('resize', nudge);
+
+  // Continuous mode: rows come and go as the page scrolls, one pass per frame.
+  let scrollQueued = false;
+  window.addEventListener('scroll', () => {
+    if (libraryLayoutMode() !== 'continuous' || scrollQueued) return;
+    scrollQueued = true;
+    requestAnimationFrame(() => {
+      scrollQueued = false;
+      const r = continuousRange(contState.stride, contState.totalRows);
+      if (r.first === contState.first && r.last === contState.last) return;
+      renderContinuousWindow();
+    });
+  }, { passive: true });
 
   // One wheel notch is one page. Debounced, because a trackpad fling arrives
   // as a burst of small deltas and would otherwise flip through several.
@@ -759,6 +910,13 @@ function quickRate(filepath, rating, btnEl) {
 function renderPagination() {
   const pager = document.getElementById('pagination');
   if (!pager) return;
+
+  // Continuous mode has no pages to step through, and the header already says
+  // how many files matched, so the bar goes away entirely.
+  if (libraryLayoutMode() === 'continuous') {
+    pager.innerHTML = '';
+    return;
+  }
 
   const total = filteredMedia.length;
   const size = Math.max(1, pageSize);

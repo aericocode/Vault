@@ -882,3 +882,34 @@
 .grid-pages .tile-meta {
   flex: none;
 }
+
+/* ── Continuous mode: only the rows near the viewport exist ────────────
+   The grid becomes a plain block holding a spacer as tall as the whole list,
+   with the visible rows positioned inside it. Tiles keep their natural height
+   and the document scrolls exactly as far as the user takes it — nothing
+   snaps to a row. */
+
+.results-grid.grid-continuous {
+  display: block;
+  position: relative;
+}
+
+.grid-continuous .grid-colls {
+  display: grid;
+  gap: 0.75rem;
+  align-items: start;
+  margin-bottom: 0.75rem;
+}
+
+.grid-continuous .grid-virt {
+  position: relative;
+}
+
+.grid-continuous .grid-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: grid;
+  gap: 0.75rem;
+  align-items: start;
+}
