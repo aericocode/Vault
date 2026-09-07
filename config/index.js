@@ -181,14 +181,10 @@ const config = {
     debugLog: envVar('DEBUG_LOG') || path.join(ROOT, 'bad_json_responses.log'),
     thumbnailDir: envVar('THUMBS') || path.join(ROOT, 'thumbnails'),
     trashDir: envVar('TRASH') || path.join(ROOT, 'trash'),
-    // Cached HLS segments for files that must be remuxed to play in a browser
-    // (see lib/stream/). Plaintext mode only: in vault mode the segments go
-    // into secure_assets.db instead, exactly like thumbnails. Lives next to the
-    // database so a scratch/test DB gets its own cache.
-    get streamCacheDir() {
-      return envVar('STREAM_CACHE')
-        || path.join(path.dirname(path.resolve(this.database)), 'stream-cache');
-    },
+    // NOTE: there is deliberately NO stream cache directory. Remuxed HLS
+    // segments are never written anywhere but the producer's temp dir, and only
+    // for the moment between FFmpeg closing one and Vault reading it into
+    // memory (see lib/stream/ring.js).
     // NOTE: there is deliberately NO importDir. Vault never copies source media
     // onto local disk — everything is referenced in place (see the native
     // pickers + /api/import/add-paths). The former imports/ folder is gone.

@@ -66,12 +66,40 @@ function codecCaps() {
 
 let _hls = null;
 
+/** The media id currently being streamed, for the close beacon below. */
+let _streamId = null;
+
+/**
+ * Tell the server the player is done with this stream. Segments are only ever
+ * held in memory while a file plays, so this is what frees them (and stops
+ * FFmpeg) the moment someone closes the player instead of a minute later, when
+ * the server's idle timeout would have done it anyway. Best effort: a beacon
+ * that never arrives costs nothing but that minute.
+ */
+function _closeStream(id) {
+  if (!id) return;
+  try {
+    if (navigator.sendBeacon) navigator.sendBeacon(`/stream/${id}/close`, new Blob([], { type: 'text/plain' }));
+    else fetch(`/stream/${id}/close`, { method: 'POST', keepalive: true }).catch(() => {});
+  } catch {}
+}
+
 /** Tear down the live hls.js instance, if any. Safe to call at any time. */
 function destroyStream() {
-  if (!_hls) return;
-  try { _hls.destroy(); } catch {}
-  _hls = null;
+  const id = _streamId;
+  _streamId = null;
+  if (_hls) {
+    try { _hls.destroy(); } catch {}
+    _hls = null;
+  }
+  _closeStream(id);
 }
+
+// A closed tab never reaches destroyStream(); the beacon is the only thing that
+// can still be sent from here.
+try {
+  window.addEventListener('pagehide', () => { _closeStream(_streamId); });
+} catch {}
 
 function _supportsHls() {
   return typeof Hls !== 'undefined' && Hls.isSupported();
@@ -139,6 +167,7 @@ function _attachRemux(el, mediaId, filepath, info, opts) {
   // Safari plays HLS natively and does it better than MSE would.
   if (!_supportsHls()) {
     if (el.canPlayType('application/vnd.apple.mpegurl')) {
+      _streamId = mediaId;                       // native HLS: the beacon still applies
       el.src = info.url;
       if (opts.autoplay !== false) el.play().catch(() => {});
       return { mode: 'remux', info };
@@ -152,6 +181,7 @@ function _attachRemux(el, mediaId, filepath, info, opts) {
 
   const hls = new Hls({ maxBufferLength: 60, enableWorker: true });
   _hls = hls;
+  _streamId = mediaId;
   hls.on(Hls.Events.ERROR, (evt, data) => {
     if (!data || !data.fatal) return;
     if (_hls !== hls) return;

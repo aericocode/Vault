@@ -300,8 +300,6 @@ app.get('/api/settings/app', (req, res) => {
     // Server-side, not localStorage: it's setup state, and a new browser
     // profile shouldn't re-nag someone who already decided.
     passwordPromptSeen: appSettings.all().passwordPromptSeen === true,
-    // Size cap for the HLS remux segment cache, in MB. 0 = unlimited.
-    streamCacheMaxMB: appSettings.getInt('streamCacheMaxMB', 10240, { min: 0, max: 4 * 1024 * 1024 }),
   });
 });
 
@@ -333,21 +331,6 @@ app.post('/api/settings/app', (req, res) => {
     }
     appSettings.set({ passwordPromptSeen: body.passwordPromptSeen });
     out.passwordPromptSeen = body.passwordPromptSeen;
-  }
-
-  if ('streamCacheMaxMB' in body) {
-    const raw = body.streamCacheMaxMB;
-    const n = typeof raw === 'number' ? raw
-      : (typeof raw === 'string' && /^\s*\d+\s*$/.test(raw) ? Number(raw) : NaN);
-    if (!Number.isInteger(n) || n < 0 || n > 4 * 1024 * 1024) {
-      return res.status(400).json({ error: 'streamCacheMaxMB must be an integer 0-4194304 (0 = unlimited)' });
-    }
-    appSettings.set({ streamCacheMaxMB: n });
-    out.streamCacheMaxMB = n;
-    // Apply the new cap right away rather than at the next segment write.
-    try {
-      require('../lib/stream/store').evictToCap(require('../lib/stream/session').activeIds());
-    } catch { /* an eviction failure must not fail the settings write */ }
   }
 
   if (Object.keys(out).length === 0) {
@@ -2554,10 +2537,6 @@ function start(args = process.argv.slice(2)) {
   // wipeTempDir and migrateFromDisk so a legit older-version cache is adopted
   // and its sweeps proceed as before.
   ownedDir.adoptOnStartup(config.paths.tempDir, 'temp', 'temp-frames');
-  // The HLS segment cache is swept on clear/evict/password-set, so it needs the
-  // same marker. Its top level is only ever {mediaId}/ directories, which makes
-  // adopting an existing one safe and refusing a user folder easy.
-  ownedDir.adoptOnStartup(config.paths.streamCacheDir, 'streamcache', 'stream-cache');
   try {
     ownedDir.adoptOnStartup(require('../lib/video-transcriber').TEMP_AUDIO_DIR, 'tempaudio', 'temp-audio');
   } catch { /* transcriber optional at boot */ }

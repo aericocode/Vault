@@ -4,8 +4,8 @@
  *   GET  /api/playback/:id?caps=…   how should this file be played?
  *   GET  /stream/:id/index.m3u8     VOD playlist (builds the keyframe index once)
  *   GET  /stream/:id/seg/:n.ts      one MPEG-TS segment, produced on demand
- *   GET  /api/stream/cache          size / cap / encrypted
- *   POST /api/stream/cache/clear    kill producers, drop everything
+ *   POST /stream/:id/close          the player went away: stop now, do not wait
+ *   GET  /api/stream/status         what is playing and what it holds in memory
  *   POST|GET /api/playback/backfill codec probe + index prebuild over the library
  *
  * The vault lock gate in server/index.js already answers 423 for /api/ and
@@ -16,8 +16,8 @@ const express = require('express');
 const fs = require('fs');
 const db = require('../lib/database');
 const service = require('../lib/stream/service');
-const store = require('../lib/stream/store');
 const session = require('../lib/stream/session');
+const secureAssets = require('../lib/secure-assets');
 const streamIndex = require('../lib/stream/index');
 const { decide, DEFAULT_CAPS } = require('../lib/stream/decide');
 const mediaInfo = require('../lib/media-info');
@@ -149,21 +149,11 @@ function buildRouter() {
     }
   });
 
-  /* ── The cache ────────────────────────────────────────────────────────── */
+  /* ── What is playing ──────────────────────────────────────────────────── */
 
-  router.get('/api/stream/cache', (req, res) => {
-    res.json({ ...store.stats(), ...session.status(), indexBuilds: service.indexBuilds });
-  });
-
-  router.post('/api/stream/cache/clear', async (req, res) => {
-    await session.stopAll();
-    const result = store.clearAll();
-    // A refused sweep is a real failure, not a quiet no-op: the rows are still
-    // there, the segments are still on disk, and the caller has to be told.
-    if (!result.ok) {
-      return res.status(409).json({ ok: false, error: result.error, ...store.stats() });
-    }
-    res.json({ ok: true, cleared: result.cleared, ...store.stats() });
+  router.get('/api/stream/status', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ ...session.status(), indexBuilds: service.indexBuilds });
   });
 
   /* ── The stream ───────────────────────────────────────────────────────── */
@@ -205,14 +195,21 @@ function buildRouter() {
     }
 
     // Segments are immutable for a given media id + index version (the version
-    // rides along in the playlist URI), so they may be cached — except in vault
-    // mode, where a decrypted copy must never sit in the browser's disk cache.
+    // rides along in the playlist URI), so the browser may keep one — except in
+    // vault mode, where a decrypted copy must never sit in its disk cache.
+    // Vault itself keeps nothing: the buffer is dropped as the player moves on.
     res.set('Content-Type', 'video/mp2t');
-    res.set('Cache-Control', store.stats().encrypted ? 'no-store' : 'max-age=3600');
-    if (result.seg.buffer) return res.end(result.seg.buffer);
-    res.sendFile(result.seg.path, (err) => {
-      if (err && !res.headersSent) res.status(err.status || 500).end();
-    });
+    res.set('Cache-Control', secureAssets.enabled() ? 'no-store' : 'max-age=3600');
+    res.end(result.seg.buffer);
+  });
+
+  // The player's teardown beacon. Best effort only: a crashed tab sends
+  // nothing, which is why the session also ends itself after an idle minute.
+  router.post('/stream/:id/close', async (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).end();
+    res.status(204).end();
+    try { await session.end(id); } catch { /* the idle sweeper is the backstop */ }
   });
 
   return router;
