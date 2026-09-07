@@ -1041,7 +1041,9 @@
     Object.keys(migState).forEach(k => { migState[k] = null; });
     migStopPolling();
     wirePlaybackCheck();
-    document.querySelectorAll('.mig-card').forEach(card => {
+    // Only the move/relink cards: the playback-check card below shares the
+    // .mig-card look and nothing else, and has no preview/apply pair to wire.
+    document.querySelectorAll('.mig-card[data-mig-mode]').forEach(card => {
       const mode = card.dataset.migMode;
       // Any edit locks Apply again — it must never write a plan the user has
       // not seen. The report is KEPT rather than dropped: typing a character
