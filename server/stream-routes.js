@@ -157,8 +157,13 @@ function buildRouter() {
 
   router.post('/api/stream/cache/clear', async (req, res) => {
     await session.stopAll();
-    const files = store.clearAll();
-    res.json({ ok: true, cleared: files, ...store.stats() });
+    const result = store.clearAll();
+    // A refused sweep is a real failure, not a quiet no-op: the rows are still
+    // there, the segments are still on disk, and the caller has to be told.
+    if (!result.ok) {
+      return res.status(409).json({ ok: false, error: result.error, ...store.stats() });
+    }
+    res.json({ ok: true, cleared: result.cleared, ...store.stats() });
   });
 
   /* ── The stream ───────────────────────────────────────────────────────── */
