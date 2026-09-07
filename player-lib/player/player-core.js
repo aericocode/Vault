@@ -9,17 +9,56 @@ function getCurrentMediaIndex(filepath) {
   return filteredMedia.findIndex(m => m.filepath === filepath);
 }
 
+/* ── Known-bad files and hands-free navigation ─────────────────────────────
+   A file is known-bad when the shared codec matrix says nothing here can play
+   it, or when a previous attempt already failed. Nothing that moves the queue
+   on its own (Next, Prev, Random, auto-advance, the queue wrap) should land on
+   one: the person is usually not watching, and a dead file that only announces
+   itself when the error arrives makes them watch nothing at all.
+
+   Skipping a known-bad file is silent. It was never attempted, so there is
+   nothing to report, and the tile's ⚠ and the extension star already say which
+   files those are. Only a file that FAILS while playing earns a toast and a
+   line in the session tally. */
+
+function isKnownBadMedia(row) {
+  if (!row) return false;
+  if (typeof mediaPlaybackState !== 'function') return false;
+  try {
+    return mediaPlaybackState(row).state === 'no';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The next index in filteredMedia that is not known-bad, walking `step` at a
+ * time from `from` (exclusive). -1 when there is none.
+ */
+function nextPlayableIndex(from, step) {
+  for (let i = from + step; i >= 0 && i < filteredMedia.length; i += step) {
+    if (!isKnownBadMedia(filteredMedia[i])) return i;
+  }
+  return -1;
+}
+
+/** Open the file at this index in filteredMedia as a hands-free move. */
+function playIndexHandsFree(i) {
+  const media = filteredMedia[i];
+  if (!media) return false;
+  playMedia({
+    filepath: media.filepath,
+    filename: media.filename,
+    media_type: media.media_type
+  }, { source: 'auto' });
+  refreshSidebarIfOpen();
+  return true;
+}
+
 // Play next media
 function playNextMedia() {
-  if (currentMediaState.currentIndex < filteredMedia.length - 1) {
-    const nextMedia = filteredMedia[currentMediaState.currentIndex + 1];
-    playMedia({
-      filepath: nextMedia.filepath,
-      filename: nextMedia.filename,
-      media_type: nextMedia.media_type
-    });
-    refreshSidebarIfOpen();
-  }
+  const i = nextPlayableIndex(currentMediaState.currentIndex, 1);
+  if (i !== -1) playIndexHandsFree(i);
 }
 
 /**
@@ -35,53 +74,40 @@ function playNextMedia() {
  * @returns {boolean} true if it moved to another file.
  */
 function playNextMediaOrWrap() {
-  if (currentMediaState.currentIndex < filteredMedia.length - 1) {
-    playNextMedia();
-    return true;
-  }
+  const i = nextPlayableIndex(currentMediaState.currentIndex, 1);
+  if (i !== -1) return playIndexHandsFree(i);
+
   const wrap = typeof window.vaultQueueLoop === 'function' ? window.vaultQueueLoop() : false;
   // A one-item list would "wrap" onto itself, which is the per-file Loop
   // button's job, not this one's.
   if (!wrap || filteredMedia.length < 2) return false;
-  const first = filteredMedia[0];
-  playMedia({
-    filepath: first.filepath,
-    filename: first.filename,
-    media_type: first.media_type
-  });
-  refreshSidebarIfOpen();
-  return true;
+  // Wrapping starts at the top of the list, skipping any known-bad files there
+  // just as the forward walk does. Landing back on the file that just ended is
+  // the per-file Loop button's job, so that one does not count as a wrap.
+  const first = nextPlayableIndex(-1, 1);
+  if (first === -1 || first === currentMediaState.currentIndex) return false;
+  return playIndexHandsFree(first);
 }
 
 // Play previous media
 function playPreviousMedia() {
-  if (currentMediaState.currentIndex > 0) {
-    const prevMedia = filteredMedia[currentMediaState.currentIndex - 1];
-    playMedia({
-      filepath: prevMedia.filepath,
-      filename: prevMedia.filename,
-      media_type: prevMedia.media_type
-    });
-    refreshSidebarIfOpen();
-  }
+  const i = nextPlayableIndex(currentMediaState.currentIndex, -1);
+  if (i !== -1) playIndexHandsFree(i);
 }
 
 // Play random media from filtered list
 function playRandomMedia() {
   if (filteredMedia.length < 2) return;
-  let randomIndex;
-  // Avoid picking the same file
-  do {
-    randomIndex = Math.floor(Math.random() * filteredMedia.length);
-  } while (randomIndex === currentMediaState.currentIndex && filteredMedia.length > 1);
-
-  const media = filteredMedia[randomIndex];
-  playMedia({
-    filepath: media.filepath,
-    filename: media.filename,
-    media_type: media.media_type
-  });
-  refreshSidebarIfOpen();
+  // Draw from the files that can actually play, minus the one on screen. A
+  // reservoir walk rather than a retry loop: with most of a list known-bad,
+  // "pick one and try again" can spin for a long time.
+  const pool = [];
+  for (let i = 0; i < filteredMedia.length; i++) {
+    if (i === currentMediaState.currentIndex) continue;
+    if (!isKnownBadMedia(filteredMedia[i])) pool.push(i);
+  }
+  if (!pool.length) return;
+  playIndexHandsFree(pool[Math.floor(Math.random() * pool.length)]);
 }
 
 /**
@@ -143,9 +169,16 @@ function generateUnifiedControlBar(leftControls, rightControls, hasPrev, hasNext
   `;
 }
 
+/* How the file on screen was opened. 'auto' means nothing but the queue asked
+   for it (Next, Prev, Random, auto-advance, the wrap), which is what decides
+   whether a failure skips on quietly or stops and explains itself. Every call
+   site that does not say otherwise is a deliberate open. */
+let lastPlaySource = 'user';
+
 // Main playMedia function
-function playMedia(mediaData) {
+function playMedia(mediaData, { source = 'user' } = {}) {
   const { filepath, filename, media_type } = mediaData;
+  lastPlaySource = source === 'auto' ? 'auto' : 'user';
 
   // Close mini player if active (stop its playback)
   const miniPlayer = document.getElementById('miniPlayer');
@@ -550,7 +583,11 @@ function renderSidebar() {
   const body = document.getElementById('mediaSidebarBody');
   if (!media || !body) return;
 
-  body.innerHTML = renderDetailBody(media, { context: 'player' });
+  // The skipped tally is appended here rather than built into
+  // renderDetailBody, because it is about the session, not about this file,
+  // and the library modal shares that renderer.
+  body.innerHTML = renderDetailBody(media, { context: 'player' })
+    + (typeof renderSkippedSection === 'function' ? renderSkippedSection() : '');
 }
 
 
@@ -672,19 +709,69 @@ function handlePlayerPointerMove(e) {
   }
 }
 
-/* ── Unplayable files while streaming ───────────────────────────────────────
-   Closing the player is the right answer when someone is sitting in front of
-   it: they see the toast and go fix the file. It is the wrong answer while
-   privacy / streaming mode is on, because that person is usually away from the
-   keyboard and the player closing puts their whole library on screen — the one
-   thing privacy mode exists to prevent. So in that mode a dead file is skipped
-   instead.
+/* ── Unplayable files ───────────────────────────────────────────────────────
+   Closing the player is the right answer when someone chose this file: they
+   see the toast and go fix it. It is the wrong answer when nothing but the
+   queue asked for it, because the person is usually away from the keyboard and
+   the player closing puts their whole library on screen. So a file that dies
+   during a hands-free move is skipped instead, with a toast naming it, and the
+   Info panel keeps the running list.
 
    The counter stops a list where nothing plays (an unplugged drive) from
    spinning through every file forever. Any file that actually starts resets it,
    so a scattering of bad files never adds up to a false stop. */
 
 let consecutivePlayFailures = 0;
+
+/* Files that were tried and failed during this session. Known-bad files are
+   never in here: they are skipped without being opened, so there is nothing to
+   report about them. Memory only, cleared by a reload. */
+const skippedThisSession = [];
+
+/** Privacy mode with file names hidden must not leak one through a toast. */
+function skippedDisplayName(media) {
+  if (document.body.classList.contains('pm-names')) return 'a file';
+  return (media && media.filename) || 'a file';
+}
+
+function noteSkippedThisSession(media, reason) {
+  if (!media) return;
+  skippedThisSession.push({
+    id: media.id,
+    filename: media.filename,
+    reason: reason || 'it cannot play',
+    at: Date.now(),
+  });
+}
+
+/** The Info panel's "Show them" link: focus the grid on what was skipped. */
+function showSkippedThisSession() {
+  const ids = skippedThisSession.map(s => s.id).filter(Boolean);
+  if (!ids.length || typeof window.vaultShowMediaIds !== 'function') return;
+  if (typeof closeMediaPlayer === 'function') closeMediaPlayer();
+  const unique = [...new Set(ids)];
+  // The focus banner reads "Showing N <label>", so the label carries the
+  // singular itself.
+  window.vaultShowMediaIds(unique,
+    unique.length === 1 ? 'file skipped this session' : 'files skipped this session');
+}
+
+/** The "Skipped this session" block appended to the player's Info sidebar. */
+function renderSkippedSection() {
+  if (!skippedThisSession.length) return '';
+  const esc = typeof escapeHtml === 'function' ? escapeHtml : (s => s);
+  const rows = skippedThisSession.map(s => `
+    <li class="skipped-item">
+      <span class="skipped-name">${esc(skippedDisplayName(s))}</span>
+      <span class="skipped-why">${esc(s.reason)}</span>
+    </li>`).join('');
+  return `
+    <div class="skipped-section">
+      <h3 class="skipped-h">Skipped this session (${skippedThisSession.length})</h3>
+      <ul class="skipped-list">${rows}</ul>
+      <button type="button" class="skipped-show" onclick="showSkippedThisSession()">Show them</button>
+    </div>`;
+}
 
 // canplay/loadeddata fire on the media element and do not bubble, hence the
 // capture phase — same reason as the listeners in selection.js. Scoped to the
@@ -718,11 +805,15 @@ function handleMediaError(filepath, reason) {
   // users can copy the path themselves from the details panel.
   consecutivePlayFailures++;
   const queueLength = (typeof filteredMedia !== 'undefined' && filteredMedia.length) || 1;
-  if (document.body.classList.contains('privacy-mode')
-      && consecutivePlayFailures < queueLength
-      && playNextMediaOrWrap()) {
-    showToast('Skipped a file that cannot play');
-    return;
+  if (lastPlaySource === 'auto' && consecutivePlayFailures < queueLength) {
+    // Capture the file that just died before the queue moves off it.
+    const dead = currentMediaState.currentMediaData;
+    const why = reason || 'it cannot play';
+    if (playNextMediaOrWrap()) {
+      noteSkippedThisSession(dead, why);
+      showToast(`Skipped ${skippedDisplayName(dead)}: ${why}`);
+      return;
+    }
   }
   consecutivePlayFailures = 0;
   closeMediaPlayer();

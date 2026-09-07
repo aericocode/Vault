@@ -261,3 +261,67 @@
     z-index: 20;
   }
 }
+
+/* ── "Skipped this session" ───────────────────────────────────────────────
+   Appended to the player's Info sidebar under the detail body. It is about
+   the session rather than the file on screen, so it sits outside
+   .detail-body and carries its own rules. */
+
+.skipped-section {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border, #333);
+}
+
+.skipped-h {
+  color: var(--text, #cdd6f4);
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.skipped-list {
+  list-style: none;
+  margin: 0 0 0.6rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.skipped-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.78rem;
+}
+
+.skipped-name {
+  color: var(--text-primary, #cdd6f4);
+  word-break: break-all;
+}
+
+.skipped-why {
+  color: var(--text-muted, #888);
+}
+
+.skipped-show {
+  background: transparent;
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  color: var(--text-secondary, #aaa);
+  font-family: inherit;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+}
+
+.skipped-show:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.skipped-show:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

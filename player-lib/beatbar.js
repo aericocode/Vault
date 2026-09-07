@@ -1197,8 +1197,9 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     const orig = playMedia;
-    playMedia = function (mediaData) {
-      orig(mediaData);
+    playMedia = function (mediaData, ...rest) {
+      // ...rest forwards playMedia's options (the hands-free source flag).
+      orig(mediaData, ...rest);
       detach();
       if (mediaData?.media_type === 'video') {
         injectButtons();

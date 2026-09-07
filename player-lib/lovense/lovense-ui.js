@@ -348,8 +348,10 @@
     // the Vibe button (which retries the saved IP itself).
 
     const orig = playMedia;
-    playMedia = function (mediaData) {
-      orig(mediaData);
+    playMedia = function (mediaData, ...rest) {
+      // ...rest forwards playMedia's options (the hands-free source flag) —
+      // a wrapper that swallows them makes every skip look deliberate.
+      orig(mediaData, ...rest);
       LovenseSync.detach();           // media changed → stop device immediately
       if (mediaData && ['video', 'audio'].includes(mediaData.media_type)) {
         setTimeout(() => {            // controls render async — inject after
