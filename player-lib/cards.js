@@ -107,6 +107,16 @@ function renderTile(media) {
   const isMix = media.media_type === 'mix';
   const isSelected = typeof selectedIds !== 'undefined' && selectedIds.has(media.id);
 
+  // Can this file play at all? The chips ask the same question (filters.js);
+  // here the answer only ever adds the ⚠ that playback_failed used to add on
+  // its own, now also for files whose codecs this browser has no decoder for
+  // and no remux path to.
+  const playState = typeof mediaPlaybackState === 'function'
+    ? mediaPlaybackState(media)
+    : { state: media.playback_failed ? 'no' : 'unknown', reason: 'Failed to play' };
+  const cannotPlay = playState.state === 'no';
+  const cannotPlayWhy = playState.reason || 'Failed to play';
+
   // Small indicator row: only what matters at a glance
   const views = media.view_count || 0;
   const doneCount = media.done_count || 0;
@@ -118,7 +128,7 @@ function renderTile(media) {
     isFlagged ? '<span class="tile-ind ind-flag" title="Flagged">🚩</span>' : '',
     media.dupe_group ? '<span class="tile-ind ind-dupe" title="Confirmed duplicate — notes shared">⧉</span>' : '',
     isTrashed ? '<span class="tile-ind ind-trashed" title="In trash">🗑</span>' : '',
-    media.playback_failed ? '<span class="tile-ind ind-error" title="Failed to play">⚠</span>' : '',
+    cannotPlay ? `<span class="tile-ind ind-error" title="${escapeHtml(cannotPlayWhy)}">⚠</span>` : '',
     hasNotes ? '<span class="tile-ind ind-notes" title="Has notes">📝</span>' : '',
     hasError ? `<span class="tile-ind ind-error" title="${escapeHtml(errorTooltip(media.processing_error))}">⚠</span>` : '',
     isUnscanned ? '<span class="tile-ind ind-unscanned" title="Not scanned yet — AI analysis pending">⏳</span>' : '',
@@ -163,7 +173,7 @@ function renderTile(media) {
   }
 
   return `
-    <div class="media-tile ${isFlagged ? 'tile-flagged' : ''} ${isTrashed ? 'tile-trashed' : ''} ${isSelected ? 'tile-selected' : ''} ${media.playback_failed ? 'tile-failed' : ''} ${media.id === lastOpenedMediaId ? 'tile-last-opened' : ''} ${(typeof isCardBusy === 'function' && isCardBusy(media.id)) ? 'tile-busy' : ''}" data-id="${media.id}">
+    <div class="media-tile ${isFlagged ? 'tile-flagged' : ''} ${isTrashed ? 'tile-trashed' : ''} ${isSelected ? 'tile-selected' : ''} ${cannotPlay ? 'tile-failed' : ''} ${media.id === lastOpenedMediaId ? 'tile-last-opened' : ''} ${(typeof isCardBusy === 'function' && isCardBusy(media.id)) ? 'tile-busy' : ''}" data-id="${media.id}">
       <div class="tile-thumb ${canThumb ? '' : 'thumb-fallback'}" onclick="playMediaById(${media.id})">
         ${thumb}
         <span class="tile-type-icon">${icon}</span>
