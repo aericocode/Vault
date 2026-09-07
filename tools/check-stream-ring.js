@@ -75,6 +75,21 @@ console.log('eviction order');
   ring.forget(ID);
 }
 
+/* ── Seeking ──────────────────────────────────────────────────────────────── */
+
+console.log('seeking');
+{
+  const ID = 7;
+  ring.note(ID, 40);
+  ring.note(ID, 38);
+  check('a small step back does not move the window', ring.peek(ID).playhead === 40);
+  ring.note(ID, 2);
+  check('a seek out of the window moves it', ring.peek(ID).playhead === 2);
+  ring.put(ID, 2, seg(2, 1024));
+  check('the segment the seek asked for survives being stored', ring.has(ID, 2));
+  ring.forget(ID);
+}
+
 /* ── Global cap across sessions ───────────────────────────────────────────── */
 
 console.log('global cap');
