@@ -523,6 +523,10 @@ function initGridObservers() {
 function ownsItsScroll(target, root) {
   for (let n = target; n && n !== root; n = n.parentElement) {
     if (!(n instanceof Element)) break;
+    // The pager's own slider is an input, but it is also the middle of the
+    // pager: a wheel there means the same thing as a wheel next to it, and a
+    // range slider does nothing with the wheel of its own accord.
+    if (n.tagName === 'INPUT' && n.type === 'range') continue;
     if (isTypingTarget(n)) return true;
     const oy = getComputedStyle(n).overflowY;
     if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 1) return true;
