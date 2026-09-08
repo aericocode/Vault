@@ -89,7 +89,6 @@ function renderSongFilterOptions() {
       `<option value="${s.id}">${escapeHtml(musicSongLabel(s))} (${s.media_count})</option>`
     ).join('');
   if (cur && sel.querySelector(`option[value="${cur}"]`)) sel.value = cur;
-  sel._syncCombo?.();
 }
 
 /* ── Fingerprint queue ─────────────────────────────────────────────────── */

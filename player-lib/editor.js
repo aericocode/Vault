@@ -439,7 +439,6 @@ function editorShowSongInLibrary(songId) {
   const sel = document.getElementById('filterSong');
   if (sel) {
     sel.value = String(songId);
-    sel._syncCombo?.();
   }
   switchTab('library');
   applyFilters();

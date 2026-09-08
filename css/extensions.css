@@ -86,8 +86,6 @@
 
 /* ── Duration range slider (dual thumb, minutes) ─────────────────────── */
 
-.duration-group { min-width: 220px; }
-
 .duration-label {
   color: var(--accent-hover, #89b4fa);
   font-weight: 600;
@@ -118,11 +116,9 @@
   border-radius: 2px;
 }
 
-/* Fully unstyled range inputs — kill the generic .filter-group input chrome
-   (border/padding/background) so only the custom track + thumbs render,
+/* Fully unstyled range inputs, so only the custom track + thumbs render,
    edge to edge with no side gaps. */
-.duration-slider input[type="range"],
-.filter-group .duration-slider input[type="range"] {
+.duration-slider input[type="range"] {
   position: absolute;
   top: 0;
   left: 0;

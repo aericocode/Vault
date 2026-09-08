@@ -683,49 +683,6 @@
   font-weight: 600;
 }
 
-/* ── Delete-mode selector (in the Trashed filter) ── */
-.delete-mode-row {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin-top: 0.4rem;
-  font-size: 0.72rem;
-  color: var(--text-muted);
-}
-.delete-mode-select {
-  flex: 1;
-  min-width: 0;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 0.72rem;
-  padding: 0.22rem 0.35rem;
-  cursor: pointer;
-}
-.delete-mode-select:focus { outline: none; border-color: var(--accent); }
-
-/* Card 🗑 turns red when a destructive delete mode is active */
-.tile-btn.tile-btn-danger { color: var(--danger); }
-.tile-btn.tile-btn-danger:hover { background: rgba(239, 68, 68, 0.18); }
-
-/* ── Empty-trash button (in the Trashed filter) ── */
-.clear-trash-btn {
-  margin-top: 0.4rem;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid var(--danger);
-  color: var(--danger);
-  border-radius: 6px;
-  padding: 0.3rem 0.6rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s;
-}
-.clear-trash-btn:hover:not(:disabled) { background: rgba(239, 68, 68, 0.22); }
-.clear-trash-btn:disabled { opacity: 0.6; cursor: default; }
-
 /* ── (legacy) Trash progress bar — retained for any old references ── */
 .trash-progress {
   position: fixed;

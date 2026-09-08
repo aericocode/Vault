@@ -224,9 +224,8 @@ function populateFilters() {
   populateSelect('filterQuality', qualities);
   populateSelect('filterTheme', [...themes].sort());
 
-  // Theme / content / language get a type-to-search combo over the select
-  if (typeof initSearchableSelects === 'function') initSearchableSelects();
-  if (typeof syncSearchableSelects === 'function') syncSearchableSelects();
+  // The chip popovers read their lists straight off these selects.
+  if (typeof renderFilterChipRow === 'function') renderFilterChipRow();
 }
 
 function populateSelect(id, options) {
