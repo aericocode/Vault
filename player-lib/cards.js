@@ -496,15 +496,38 @@ function initGridObservers() {
 
   // One wheel notch is one page. Debounced, because a trackpad fling arrives
   // as a burst of small deltas and would otherwise flip through several.
+  // The whole results region answers to it, not only the tiles: a wheel over
+  // the sort row or over the pager is still a wheel over the library.
   let wheelBlockedUntil = 0;
-  grid.addEventListener('wheel', (e) => {
+  const onWheel = (e) => {
     if (libraryLayoutMode() !== 'pages') return;
     if (!e.deltaY) return;
+    // The filters panel floats over the grid and scrolls itself.
+    if (document.getElementById('filtersPanel')?.classList.contains('active')) return;
+    if (ownsItsScroll(e.target, e.currentTarget)) return;
     const now = Date.now();
     if (now < wheelBlockedUntil) return;
     wheelBlockedUntil = now + 250;
     movePage(e.deltaY > 0 ? 1 : -1);
-  }, { passive: true });
+  };
+  ['.results-info', '#resultsGrid', '#pagination'].forEach((sel) => {
+    document.querySelector(sel)?.addEventListener('wheel', onWheel, { passive: true });
+  });
+}
+
+/**
+ * True if the wheel belongs to something inside the region rather than to the
+ * page: a select, a text field, or any box with its own scrollbar. Paging the
+ * library out from under one of those would be the wrong answer.
+ */
+function ownsItsScroll(target, root) {
+  for (let n = target; n && n !== root; n = n.parentElement) {
+    if (!(n instanceof Element)) break;
+    if (isTypingTarget(n)) return true;
+    const oy = getComputedStyle(n).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 1) return true;
+  }
+  return false;
 }
 
 /** Typing somewhere? Then Page Down belongs to that field, not to the grid. */
