@@ -176,7 +176,17 @@
   color: #cfe0ff;
   background: rgba(99, 102, 241, 0.25);
 }
-.fpop-opt-count { font-size: 0.72rem; color: var(--text-muted, #888); }
+.fpop-opt-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* How many files carry this value. Tabular figures so the column of numbers
+   lines up, muted so the value stays the thing you read first. */
+.fpop-opt-count {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  color: var(--text-muted, #888);
+}
 
 .fpop-empty {
   padding: 0.45rem 0.55rem;

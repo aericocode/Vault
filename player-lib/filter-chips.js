@@ -127,20 +127,114 @@ function fchipValueLabel(key) {
   return opt ? opt.textContent.trim() : v;
 }
 
+/* ── Counts ───────────────────────────────────────────────────────────────
+   Every option row carries how many files in the library carry that value.
+   Counted over allMedia rather than the current result set, so the numbers
+   are stable while you type in the search box and a value with 0 next to it
+   is honestly empty rather than "empty given what else you set".
+
+   One pass fills every filter's tally at once and the result is cached
+   against the allMedia snapshot, so opening five popovers in a row costs one
+   pass. Collections is deliberately left out: mediaInAnyCollection() walks
+   every collection's member array per row, which is the one test that would
+   turn this pass into real work on a large library. Song is left out too,
+   because music.js already bakes "(N)" into those option labels. */
+
+const FCHIP_COUNT_TYPES = new Set(['video', 'audio', 'image', 'gif', 'mix']);
+
+let _fchipCounts = null;     // { src, len, maps, ms }
+
+function fchipCountMaps() {
+  if (typeof allMedia === 'undefined' || !Array.isArray(allMedia)) return null;
+  if (_fchipCounts && _fchipCounts.src === allMedia && _fchipCounts.len === allMedia.length) {
+    return _fchipCounts.maps;
+  }
+  const t0 = performance.now();
+  const bump = (map, key) => {
+    if (key == null || key === '') return;
+    map.set(key, (map.get(key) || 0) + 1);
+  };
+  const maps = {
+    total: 0,
+    content: new Map(), language: new Map(), quality: new Map(), theme: new Map(),
+    rating: { unrated: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    fave: 0, notes: 0, flagged: 0, trashed: 0, unplayable: 0, dupes: 0,
+    scan: { success: 0, failed: 0, unscanned: 0 },
+  };
+  const dupes = typeof isDuplicate === 'function';
+  const scan = typeof scanStatusOf === 'function';
+  for (const m of allMedia) {
+    // The grid never shows anything else, so nothing else should be counted.
+    if (!FCHIP_COUNT_TYPES.has(m.media_type)) continue;
+    maps.total++;
+    bump(maps.content, m.content_type);
+    bump(maps.language, m.language_name);
+    bump(maps.quality, m.quality_flag);
+    try {
+      // Same source the theme dropdown is built from: clean copy, raw as the
+      // fallback for rows the backfill has not reached.
+      for (const t of new Set(JSON.parse(m.themes_clean || m.themes || '[]'))) bump(maps.theme, t);
+    } catch {}
+    // Rating rows read "3+", so a 4-star file counts towards 1+ through 4+.
+    const r = m.user_rating || 0;
+    if (r === 0) maps.rating.unrated++;
+    for (let i = 1; i <= r && i <= 5; i++) maps.rating[i]++;
+    if (m.user_starred) maps.fave++;
+    if (m.user_notes && m.user_notes !== '' && m.user_notes !== '[]') maps.notes++;
+    if (m.user_flagged_delete) maps.flagged++;
+    if (m.user_trashed) maps.trashed++;
+    if (m.playback_failed) maps.unplayable++;
+    if (dupes && isDuplicate(m.filepath)) maps.dupes++;
+    if (scan) maps.scan[scanStatusOf(m)]++;
+  }
+  _fchipCounts = { src: allMedia, len: allMedia.length, maps, ms: performance.now() - t0 };
+  return maps;
+}
+
+/** { optionValue: count } for one filter, or null when it does not do counts. */
+function fchipCountsFor(key) {
+  const c = fchipCountMaps();
+  if (!c) return null;
+  const fromMap = (map) => ({ '': c.total, ...Object.fromEntries(map) });
+  const tri = (n) => ({ '': c.total, '1': n, '0': c.total - n });
+  switch (key) {
+    case 'content':    return fromMap(c.content);
+    case 'language':   return fromMap(c.language);
+    case 'quality':    return fromMap(c.quality);
+    case 'theme':      return fromMap(c.theme);
+    case 'rating':     return { '0': c.total, unrated: c.rating.unrated, 1: c.rating[1],
+                                2: c.rating[2], 3: c.rating[3], 4: c.rating[4], 5: c.rating[5] };
+    case 'fave':       return tri(c.fave);
+    case 'notes':      return tri(c.notes);
+    case 'flagged':    return tri(c.flagged);
+    case 'trashed':    return tri(c.trashed);
+    case 'unplayable': return tri(c.unplayable);
+    case 'dupes':      return tri(c.dupes);
+    case 'scan':       return { '': c.total, success: c.scan.success,
+                                failed: c.scan.failed, unscanned: c.scan.unscanned };
+    default:           return null;   // collections, song
+  }
+}
+
 /** The list a chip's popover offers. "Any" is always first. */
 function fchipItems(key) {
   const d = FCHIP_DEFS[key];
-  if (d.type === 'tri') return d.options.slice();
+  const counts = fchipCountsFor(key);
+  const tally = (list) => counts
+    ? list.map(it => ({ ...it, count: counts[it.value] != null ? counts[it.value] : 0 }))
+    : list;
+
+  if (d.type === 'tri') return tally(d.options.slice());
   const sel = document.getElementById(d.el);
   if (!sel) return [];
   const opts = [...sel.options];
   if (key === 'rating') {
     // This select's own labels are already the ones the mock asks for.
-    return opts.map(o => ({ value: o.value, label: o.textContent.trim() }));
+    return tally(opts.map(o => ({ value: o.value, label: o.textContent.trim() })));
   }
   // Option 0 is the "All Languages" placeholder — it becomes plain "Any".
-  return [{ value: d.def, label: d.anyLabel || 'Any' }]
-    .concat(opts.slice(1).map(o => ({ value: o.value, label: o.textContent.trim() })));
+  return tally([{ value: d.def, label: d.anyLabel || 'Any' }]
+    .concat(opts.slice(1).map(o => ({ value: o.value, label: o.textContent.trim() }))));
 }
 
 /** Write one filter, then let the existing plumbing re-run the filters. */
