@@ -476,15 +476,20 @@ function fsegHtml(key) {
   </div>`;
 }
 
+/* The three groups sit side by side in a grid that falls to two columns and
+   then to one as the sheet narrows (css/filter-chips.css), so a sheet that
+   was eight full-width lines tall is now about one group tall with the other
+   two beside it. Tab still walks one column at a time, because the DOM order
+   is still group by group. */
 function renderMoreSheet() {
   const sheet = document.getElementById('moreFiltersSheet');
   if (!sheet) return;
-  sheet.innerHTML = FCHIP_SHEET.map(g => `
+  sheet.innerHTML = `<div class="fsheet-cols">${FCHIP_SHEET.map(g => `
     <div class="fsheet-group">
       <h4 class="fsheet-h">${escapeHtml(g.title)}</h4>
       ${g.chips ? `<div class="fsheet-chips">${g.chips.map(fchipHtml).join('')}</div>` : ''}
-      ${g.segs ? g.segs.map(fsegHtml).join('') : ''}
-    </div>`).join('');
+      ${g.segs ? `<div class="fsheet-rows">${g.segs.map(fsegHtml).join('')}</div>` : ''}
+    </div>`).join('')}</div>`;
 }
 
 /** Repaint the sheet's pressed states and chip labels without rebuilding it. */

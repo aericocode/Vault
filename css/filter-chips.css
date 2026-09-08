@@ -258,12 +258,21 @@
 .fpop-check-desc { font-size: 0.72rem; color: var(--text-muted, #888); line-height: 1.3; }
 .fpop-check:has(input:focus-visible) { outline: 2px solid var(--accent, #6366f1); }
 
-/* ── The More sheet ────────────────────────────────────────────────────── */
-.fsheet-group { margin-bottom: 1rem; }
-.fsheet-group:last-child { margin-bottom: 0; }
+/* ── The More sheet ──────────────────────────────────────────────────────
+   Three groups side by side. Every control used to sit on a full-width line
+   of its own, which left the right 80% of the sheet empty and made it about
+   440 px tall; as columns the whole thing is roughly one group tall. auto-fit
+   drops it to two columns and then to one as the sheet narrows, so nothing
+   has to be hidden on a small window. */
+.fsheet-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.9rem 1.6rem;
+  align-items: start;
+}
 
 .fsheet-h {
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.4rem;
   font-size: 0.72rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -273,21 +282,29 @@
 
 .fsheet-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 
-.fseg-row {
-  display: flex;
+/* Label column sized to the longest label in THIS group, segments right of
+   it, 6 px between rows. */
+.fsheet-rows {
+  display: grid;
+  grid-template-columns: max-content auto;
+  gap: 6px 0.75rem;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.25rem 0;
 }
 
+/* The row is a wrapper the script still reads (data-fseg-row) but not a box:
+   display:contents hands its label and its segment straight to the grid
+   above, so every group's labels line up in one column. */
+.fseg-row { display: contents; }
+
 .fseg-label {
-  flex: 0 0 8rem;
   font-size: 0.82rem;
   color: var(--text-secondary, #aaa);
 }
 
 .fseg {
   display: inline-flex;
+  /* A grid item stretches by default; the segment is sized by its buttons. */
+  justify-self: start;
   border: 1px solid var(--border, #444);
   border-radius: 6px;
   overflow: hidden;
