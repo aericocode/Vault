@@ -150,7 +150,7 @@ function renderPmvSetup() {
         <section class="editor-panel">
           <div class="editor-panel-head">
             <h2>🎬 Source videos <span class="pmv-count" id="pmvVideoCount">${pmvState.videoIds.length} selected</span></h2>
-            <input type="text" class="music-input pmv-search" id="pmvVideoSearch" placeholder="Search… (AND/OR/NOT, /regex/)" value="${escapeHtml(pmvState.videoQ)}" autocomplete="off">
+            <input type="text" class="music-input pmv-search" id="pmvVideoSearch" placeholder="Search (AND/OR/NOT)" value="${escapeHtml(pmvState.videoQ)}" autocomplete="off">
             ${typeof pickerSearchOptionsHtml === 'function' ? pickerSearchOptionsHtml('pmvVid', pmvState.videoOpts) : ''}
           </div>
           <div class="pmv-selected-videos" id="pmvSelectedVideos"></div>
@@ -160,7 +160,7 @@ function renderPmvSetup() {
         <section class="editor-panel">
           <div class="editor-panel-head">
             <h2>🎵 Soundtrack <span class="pmv-count">${pmvState.audioIds.length ? pmvState.audioIds.length + ' track(s)' : 'pick one'}</span></h2>
-            <input type="text" class="music-input pmv-search" id="pmvAudioSearch" placeholder="Search… (AND/OR/NOT, /regex/)" value="${escapeHtml(pmvState.audioQ)}" autocomplete="off">
+            <input type="text" class="music-input pmv-search" id="pmvAudioSearch" placeholder="Search (AND/OR/NOT)" value="${escapeHtml(pmvState.audioQ)}" autocomplete="off">
             ${typeof pickerSearchOptionsHtml === 'function' ? pickerSearchOptionsHtml('pmvAud', pmvState.audioOpts) : ''}
           </div>
           <div class="pmv-audio-selected" id="pmvAudioSelected"></div>

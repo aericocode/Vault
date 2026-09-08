@@ -406,7 +406,7 @@ function renderGamePicker(key) {
       <div class="games-picker-head">
         <button class="games-btn" onclick="renderGamesHome()">⬅ Games</button>
         <h2 class="games-home-title">${def.icon} ${escapeHtml(def.label)} — pick a video</h2>
-        <input type="text" class="games-search" id="gamesPickerSearch" placeholder="Search… (AND/OR/NOT, /regex/)" autocomplete="off">
+        <input type="text" class="games-search" id="gamesPickerSearch" placeholder="Search (AND/OR/NOT)" autocomplete="off">
         ${typeof pickerSearchOptionsHtml === 'function' ? pickerSearchOptionsHtml('gamesPick', _pickerState) : ''}
       </div>
       <div id="gamesPickerBody">${gamesPickerGridHtml(key, 'gamesPickAndLaunch')}</div>
@@ -432,7 +432,7 @@ function openGamePickerOverlay(key) {
     <div class="games-picker-panel">
       <div class="games-picker-head">
         <h3>Change video</h3>
-        <input type="text" class="games-search" id="gamesOverlaySearch" placeholder="Search… (AND/OR/NOT, /regex/)" autocomplete="off">
+        <input type="text" class="games-search" id="gamesOverlaySearch" placeholder="Search (AND/OR/NOT)" autocomplete="off">
         ${typeof pickerSearchOptionsHtml === 'function' ? pickerSearchOptionsHtml('gamesPick', _pickerState) : ''}
         <button class="games-btn" onclick="closeGamePickerOverlay()">✕</button>
       </div>

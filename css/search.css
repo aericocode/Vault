@@ -167,7 +167,6 @@
   border: 1px solid var(--accent);
   color: var(--accent);
 }
-.picker-mode-indicator.mode-regex { border-color: #f59e0b; color: #f59e0b; }
 .picker-mode-indicator.mode-boolean { border-color: #22d3ee; color: #22d3ee; }
 .picker-mode-indicator.mode-semantic { border-color: #a855f7; color: #c084fc; }
 

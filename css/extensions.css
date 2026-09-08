@@ -309,12 +309,6 @@
   border: 1px solid rgba(166, 227, 161, 0.3);
 }
 
-.search-mode-indicator.mode-regex {
-  background: rgba(243, 139, 168, 0.15);
-  color: #f38ba8;
-  border: 1px solid rgba(243, 139, 168, 0.3);
-}
-
 .search-mode-indicator.mode-boolean {
   background: rgba(137, 180, 250, 0.15);
   color: #89b4fa;
