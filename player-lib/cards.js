@@ -502,8 +502,10 @@ function initGridObservers() {
   const onWheel = (e) => {
     if (libraryLayoutMode() !== 'pages') return;
     if (!e.deltaY) return;
-    // The More sheet floats over the grid and scrolls itself.
+    // Anything floating over the grid owns the wheel while it is open: the
+    // More sheet, and any chip or Options popover (they share one component).
     if (document.getElementById('moreFiltersSheet')?.classList.contains('active')) return;
+    if (typeof filterPopoverIsOpen === 'function' && filterPopoverIsOpen()) return;
     if (ownsItsScroll(e.target, e.currentTarget)) return;
     const now = Date.now();
     if (now < wheelBlockedUntil) return;
