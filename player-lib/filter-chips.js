@@ -290,6 +290,8 @@ function fchipHtml(key) {
 
 const FCHIP_MORE_LABEL = 'More ▾';
 
+let _fchipRowObserver = null;
+
 function fchipMoreLabel(folded) {
   return folded > 0 ? `More (${folded}) ▾` : FCHIP_MORE_LABEL;
 }
@@ -613,10 +615,12 @@ document.addEventListener('DOMContentLoaded', () => {
   updateSearchOptionsButton();
 
   // The row's width moves with the window and with the search section opening
-  // and closing, and what fits moves with it.
+  // and closing, and what fits moves with it. Kept in a variable rather than
+  // left anonymous, so nothing can collect the observer out from under us.
   const host = document.getElementById('filterChipRow');
   if (host && typeof ResizeObserver === 'function') {
-    new ResizeObserver(() => fchipFitRow(host)).observe(host);
+    _fchipRowObserver = new ResizeObserver(() => fchipFitRow(host));
+    _fchipRowObserver.observe(host);
   }
   window.addEventListener('resize', () => fchipFitRow());
 });
