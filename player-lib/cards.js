@@ -496,34 +496,65 @@ function initGridObservers() {
 
   // One wheel notch is one page. Debounced, because a trackpad fling arrives
   // as a burst of small deltas and would otherwise flip through several.
-  // The whole results region answers to it, not only the tiles: a wheel over
-  // the sort row or over the pager is still a wheel over the library.
+  // The listener is on the document, not on the results region: in pages mode
+  // the whole screen is the library, so a notch over the header, the search
+  // row, the type bar, the chip row, the empty margin beside the grid or the
+  // pager means the same thing as a notch over a tile. Everything that is NOT
+  // the library says so through the guards below.
   let wheelBlockedUntil = 0;
   const onWheel = (e) => {
     if (libraryLayoutMode() !== 'pages') return;
     if (!e.deltaY) return;
-    // Anything floating over the grid owns the wheel while it is open: the
-    // More sheet, and any chip or Options popover (they share one component).
-    if (document.getElementById('moreFiltersSheet')?.classList.contains('active')) return;
-    if (typeof filterPopoverIsOpen === 'function' && filterPopoverIsOpen()) return;
-    if (ownsItsScroll(e.target, e.currentTarget)) return;
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;   // sideways is not paging
+    if (libraryWheelIsSpokenFor(e.target)) return;
     const now = Date.now();
     if (now < wheelBlockedUntil) return;
     wheelBlockedUntil = now + 250;
     movePage(e.deltaY > 0 ? 1 : -1);
   };
-  ['.results-info', '#resultsGrid', '#pagination'].forEach((sel) => {
-    document.querySelector(sel)?.addEventListener('wheel', onWheel, { passive: true });
-  });
+  document.addEventListener('wheel', onWheel, { passive: true });
+}
+
+/* Everything that floats over the library, or replaces it. Each one either has
+   its own wheel behaviour (the player zooms an image, the settings modal
+   scrolls its own body) or is a card the user is reading, and paging the grid
+   out from under any of them would be the wrong answer. */
+const WHEEL_BLOCKING_OVERLAYS = [
+  '.filters-panel.active',           // the More sheet, and anything on its mechanics
+  '.modal-overlay.active',           // the detail modal
+  '.settings-overlay.active',        // Settings
+  '.media-player-overlay.active',    // the player (image zoom lives on its wheel)
+  '.media-info-overlay.active',
+].join(', ');
+
+/**
+ * True if this wheel belongs to something other than the library page.
+ *
+ * Four ways that happens: the library is not the tab on screen; an overlay or
+ * a filter popover is open over it; the window is short enough that the page
+ * itself scrolls; or the thing under the pointer scrolls itself.
+ */
+function libraryWheelIsSpokenFor(target) {
+  // The library tab has to be the one showing — the editor and the games have
+  // their own wheel meanings.
+  if (document.getElementById('mainContainer')?.classList.contains('active') !== true) return true;
+  if (document.querySelector(WHEEL_BLOCKING_OVERLAYS)) return true;
+  if (typeof filterPopoverIsOpen === 'function' && filterPopoverIsOpen()) return true;
+  // A short window scrolls the page itself; the wheel is that scrollbar's.
+  const doc = document.documentElement;
+  if (doc.scrollHeight > doc.clientHeight + 1) return true;
+  return ownsItsScroll(target);
 }
 
 /**
- * True if the wheel belongs to something inside the region rather than to the
- * page: a select, a text field, or any box with its own scrollbar. Paging the
- * library out from under one of those would be the wrong answer.
+ * True if the wheel belongs to something under the pointer rather than to the
+ * page: a select, a text field, a contenteditable, or any box with its own
+ * scrollbar (a popover list, the settings body). Paging the library out from
+ * under one of those would be the wrong answer.
  */
 function ownsItsScroll(target, root) {
-  for (let n = target; n && n !== root; n = n.parentElement) {
+  const stop = root || document.body;
+  for (let n = target; n && n !== stop && n !== document.documentElement; n = n.parentElement) {
     if (!(n instanceof Element)) break;
     // The pager's own slider is an input, but it is also the middle of the
     // pager: a wheel there means the same thing as a wheel next to it, and a
