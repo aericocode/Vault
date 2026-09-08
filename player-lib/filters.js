@@ -769,7 +769,7 @@ function applyFilters(opts) {
     return true;
   });
 
-  // Second pass: apply text search (fuzzy/boolean/regex — or semantic)
+  // Second pass: apply text search (fuzzy/boolean, or semantic)
   semanticOrdered = false;
   if (search) {
     if (semanticEnabled()) {
@@ -831,8 +831,8 @@ function applyFilters(opts) {
   if (typeof clampPageAnchor === 'function') clampPageAnchor();
   renderResults();
 
-  // Keep the chips beside the Filters button telling the truth
-  if (typeof renderActiveFilterChips === 'function') renderActiveFilterChips();
+  // Keep the chip row telling the truth about what is narrowing the grid
+  if (typeof renderFilterChipRow === 'function') renderFilterChipRow();
 
   // Update saved searches bar (show/hide save button based on active filters)
   if (typeof renderSavedSearches === 'function') {

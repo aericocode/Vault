@@ -80,11 +80,13 @@ document.getElementById('favesFirstBtn').addEventListener('click', () => {
   renderResults();
 });
 
-/* ── Filters panel ────────────────────────────────────────────────────────
-   The panel floats over the grid instead of pushing it down, so opening and
+/* ── The More sheet ────────────────────────────────────────────────────────
+   The sheet floats over the grid instead of pushing it down, so opening and
    closing it leaves every tile exactly where it was. While it is open a
    translucent backdrop covers the grid: it dims what the filters are about to
-   change, and it means a click anywhere on the library closes the panel. */
+   change, and it means a click anywhere on the library closes the sheet.
+   Round 5 built this for the filters panel; round 6 kept the mechanics and
+   changed what sits inside. */
 
 function filtersBackdrop() {
   let bd = document.getElementById('filtersBackdrop');
@@ -99,7 +101,7 @@ function filtersBackdrop() {
 }
 
 function filtersAreOpen() {
-  return document.getElementById('filtersPanel')?.classList.contains('active') === true;
+  return document.getElementById('moreFiltersSheet')?.classList.contains('active') === true;
 }
 
 /* The panel is position: fixed, not absolute. An absolutely positioned panel
@@ -109,18 +111,18 @@ function filtersAreOpen() {
 const FILTERS_PANEL_GAP = 8;   // px of air between the sort row and the panel
 
 function positionFiltersPanel() {
-  const panel = document.getElementById('filtersPanel');
+  const panel = document.getElementById('moreFiltersSheet');
   const section = document.querySelector('.search-section');
   if (!panel || !section) return;
   // Line the panel up with the grid, not with the search box: it floats over
   // the tiles, so it reads as part of that column.
   const grid = document.getElementById('resultsGrid');
   const r = (grid && grid.clientWidth ? grid : section).getBoundingClientRect();
-  // Open below the sort / select row, not over it: those controls are the
-  // ones you reach for while filtering. Fall back to the search section's
-  // bottom edge if that row is not on the page.
-  const info = document.querySelector('.results-info');
-  const rowBottom = info ? info.getBoundingClientRect().bottom : section.getBoundingClientRect().bottom;
+  // Open right under the chip row the More chip lives in, so the sheet reads
+  // as that row unfolding. Falls back to the search section's bottom edge if
+  // the chip row is not on the page.
+  const chipRow = document.getElementById('filterChipRow');
+  const rowBottom = chipRow ? chipRow.getBoundingClientRect().bottom : section.getBoundingClientRect().bottom;
   const topEdge = Math.round(rowBottom) + FILTERS_PANEL_GAP;
   panel.style.left = `${Math.round(r.left)}px`;
   panel.style.width = `${Math.round(r.width)}px`;
@@ -133,9 +135,10 @@ function positionFiltersPanel() {
 }
 
 function setFiltersOpen(open) {
-  const panel = document.getElementById('filtersPanel');
-  const toggle = document.getElementById('filtersToggle');
+  const panel = document.getElementById('moreFiltersSheet');
+  const toggle = document.getElementById('moreFiltersChip');
   if (!panel) return;
+  if (open && typeof renderMoreSheet === 'function') renderMoreSheet();
   panel.classList.toggle('active', open);
   toggle?.setAttribute('aria-expanded', open ? 'true' : 'false');
   const bd = filtersBackdrop();
@@ -154,18 +157,26 @@ function setFiltersOpen(open) {
   window.addEventListener(evt, () => { if (filtersAreOpen()) positionFiltersPanel(); }, { passive: true });
 });
 
-document.getElementById('filtersToggle').addEventListener('click', () => {
-  setFiltersOpen(!filtersAreOpen());
+// The More chip is re-rendered with the row, so the click is delegated.
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#moreFiltersChip')) setFiltersOpen(!filtersAreOpen());
 });
 
-// Escape closes the panel before anything else gets to act on it
+// Escape closes the open popover first, then the sheet, before anything else
+// gets to act on it.
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || !filtersAreOpen()) return;
+  if (e.key !== 'Escape') return;
+  if (typeof filterPopoverIsOpen === 'function' && filterPopoverIsOpen()) {
+    closeFilterPopover();
+    e.stopPropagation();
+    return;
+  }
+  if (!filtersAreOpen()) return;
   setFiltersOpen(false);
   e.stopPropagation();
 }, true);
 
-// Clicking a tile is a decision about the library, so the panel steps aside
+// Clicking a tile is a decision about the library, so the sheet steps aside
 document.getElementById('resultsGrid')?.addEventListener('click', () => {
   if (filtersAreOpen()) setFiltersOpen(false);
 });
@@ -227,8 +238,9 @@ if (typeof initTriFilters === 'function') initTriFilters();
 // (List view removed — the viewer is grid-only now)
 
 // Clear filters button
+// Clear filters clears the FILTERS. The search text is a separate thing the
+// user typed, and wiping it here was the round-5 behaviour people tripped on.
 document.getElementById('clearFiltersBtn').addEventListener('click', () => {
-  searchInput.value = '';
   // Reset dropdowns
   document.querySelectorAll('select[id^="filter"]').forEach(select => {
     select.value = '';

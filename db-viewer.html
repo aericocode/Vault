@@ -43,6 +43,7 @@
   <link rel="stylesheet" href="./css/games.css">
   <link rel="stylesheet" href="./css/settings.css">
   <link rel="stylesheet" href="./css/tooltip.css">
+  <link rel="stylesheet" href="./css/filter-chips.css">
 
   <link rel="icon" type="image/svg+xml" href="./images/favicon.svg">
 </head>
@@ -84,32 +85,16 @@
       <div class="search-row">
         <div class="search-input-wrapper">
           <span class="search-icon">🔍</span>
-          <input type="text" class="search-input" id="searchInput" placeholder="Search... (use AND/OR/NOT for boolean, /regex/i for regex)">
+          <input type="text" class="search-input" id="searchInput" placeholder="Search files, tags, notes">
           <button class="search-clear-btn" id="searchClearBtn" onclick="clearSearchInput()" title="Clear search" style="display:none;">✕</button>
           <button class="search-save-star" id="searchSaveStar" onclick="saveSearchFromInput()" title="Save this search" style="display:none;">☆</button>
         </div>
-        <div class="search-options">
-          <label class="metadata-toggle" title="Search only metadata (exclude filename and path)">
-            <input type="checkbox" id="metadataOnly">
-            Metadata only
-          </label>
-          <label class="metadata-toggle" title="Enable fuzzy (approximate) matching">
-            <input type="checkbox" id="fuzzySearch">
-            Fuzzy
-          </label>
-          <label class="metadata-toggle" title="Semantic search — find by meaning, not keywords (uses local embedding model)">
-            <input type="checkbox" id="semanticSearch">
-            🧠 Semantic
-          </label>
-          <label class="metadata-toggle" title="Also search English subtitle text (translations of foreign clips + English transcripts)">
-            <input type="checkbox" id="subtitleSearch">
-            💬 Subtitles
-          </label>
-        </div>
-        <button class="filters-toggle" id="filtersToggle" aria-expanded="false" aria-controls="filtersPanel">⚙️ Filters</button>
-        <!-- What is filtering the grid right now, while the panel is closed -->
-        <div class="filter-chips" id="activeFilterChips"></div>
-        <button class="clear-filters-btn" id="clearFiltersBtn">Clear Filters</button>
+        <!-- The four search modifiers live behind one button now (their
+             checkboxes are still in #filterState, so every listener, saved
+             search and session restore keeps working unchanged). -->
+        <button type="button" class="fchip-btn" id="searchOptionsBtn"
+                aria-haspopup="true" aria-expanded="false">Options ▾</button>
+        <button class="clear-filters-btn" id="clearFiltersBtn" disabled>Clear filters</button>
       </div>
 
       <!-- Media-type bubbles (+ safe toggle) with the extension chips collapsed behind them -->
@@ -124,6 +109,11 @@
         </div>
       </div>
 
+      <!-- Filter chips: Rating / Duration / Language / Theme always, then one
+           chip per other filter that is set, then More. Fixed min-height so
+           setting or clearing a filter never moves the grid. -->
+      <div class="filter-chip-row" id="filterChipRow"></div>
+
       <!-- Saved Searches Bar -->
       <div class="saved-searches-bar" id="savedSearchesBar"></div>
 
@@ -133,131 +123,103 @@
       <!-- Open-collection header strip (name, description, Play All / Shuffle) -->
       <div class="collections-bar" id="collectionsBar" style="display:none;"></div>
 
-      <!-- Floats over the grid rather than sitting in the flow, so opening it
-           never moves a single tile. -->
-      <div class="filters-panel" id="filtersPanel">
-        <div class="filters-row filters-dropdowns">
-        <div class="filter-group">
-          <label>Content Type</label>
-          <select id="filterContent" data-searchable><option value="">All Content</option></select>
+      <!-- The "More" sheet. Floats over the grid rather than sitting in the
+           flow, so opening it never moves a single tile. Filled by
+           player-lib/filter-chips.js. -->
+      <div class="filters-panel" id="moreFiltersSheet" role="dialog" aria-label="More filters"></div>
+
+      <!-- ── Filter state store ────────────────────────────────────────────
+           Every control below is the SOURCE OF TRUTH for one filter, exactly
+           as it was before round 6: applyFilters() reads these elements and
+           saved searches serialize them. Round 6 only changed what the user
+           sees. The chips and the More sheet write here and dispatch the same
+           change events, so nothing downstream had to learn a new shape. -->
+      <div id="filterState" hidden>
+        <label><input type="checkbox" id="metadataOnly"> Metadata only</label>
+        <label><input type="checkbox" id="fuzzySearch"> Fuzzy</label>
+        <label><input type="checkbox" id="semanticSearch"> Semantic</label>
+        <label><input type="checkbox" id="subtitleSearch"> Subtitles</label>
+
+        <select id="filterContent"><option value="">All Content</option></select>
+        <select id="filterLanguage"><option value="">All Languages</option></select>
+        <select id="filterMinRating">
+          <option value="0">Any</option>
+          <option value="unrated">Unrated</option>
+          <option value="1">★ 1+</option>
+          <option value="2">★★ 2+</option>
+          <option value="3">★★★ 3+</option>
+          <option value="4">★★★★ 4+</option>
+          <option value="5">★★★★★ 5</option>
+        </select>
+        <select id="filterTheme"><option value="">All Themes</option></select>
+        <select id="filterQuality"><option value="">All Quality</option></select>
+        <select id="filterSong"><option value="">All Songs</option></select>
+
+        <span class="duration-label" id="durationLabel">0:00 – ∞</span>
+        <div class="duration-slider" id="durationSlider">
+          <div class="duration-track"><div class="duration-fill" id="durationFill"></div></div>
+          <input type="range" id="durMinSlider" min="0" max="120" step="1" value="0">
+          <input type="range" id="durMaxSlider" min="0" max="120" step="1" value="120">
         </div>
-        <div class="filter-group">
-          <label>Language</label>
-          <select id="filterLanguage" data-searchable><option value="">All Languages</option></select>
-        </div>
-        <div class="filter-group">
-          <label>Min Rating</label>
-          <select id="filterMinRating">
-            <option value="0">Any</option>
-            <option value="unrated">Unrated</option>
-            <option value="1">★ 1+</option>
-            <option value="2">★★ 2+</option>
-            <option value="3">★★★ 3+</option>
-            <option value="4">★★★★ 4+</option>
-            <option value="5">★★★★★ 5</option>
-          </select>
-        </div>
-        <div class="filter-group">
-          <label>Theme</label>
-          <select id="filterTheme" data-searchable><option value="">All Themes</option></select>
-        </div>
-        <div class="filter-group">
-          <label>Quality</label>
-          <select id="filterQuality"><option value="">All Quality</option></select>
-        </div>
-        <div class="filter-group">
-          <label>🎵 Song</label>
-          <select id="filterSong" data-searchable><option value="">All Songs</option></select>
-        </div>
-        <div class="filter-group duration-group">
-          <label>Duration <span class="duration-label" id="durationLabel">0:00 – ∞</span></label>
-          <div class="duration-slider" id="durationSlider">
-            <div class="duration-track"><div class="duration-fill" id="durationFill"></div></div>
-            <input type="range" id="durMinSlider" min="0" max="120" step="1" value="0">
-            <input type="range" id="durMaxSlider" min="0" max="120" step="1" value="120">
+
+        <div class="tri-filter" data-filter="filterCollections">
+          <div class="tri-buttons">
+            <button class="tri-btn active" data-value="">Include</button>
+            <button class="tri-btn" data-value="1">Only</button>
+            <button class="tri-btn" data-value="0">Hide</button>
           </div>
         </div>
+        <div class="tri-filter" data-filter="filterStarred">
+          <div class="tri-buttons">
+            <button class="tri-btn active" data-value="">All</button>
+            <button class="tri-btn" data-value="1">Only</button>
+            <button class="tri-btn" data-value="0">Not Faved</button>
+          </div>
         </div>
-        <div class="filters-row filters-toggles">
-          <div class="tri-filter" data-filter="filterCollections">
-            <span class="tri-label">📁 Collections</span>
-            <div class="tri-buttons">
-              <button class="tri-btn active" data-value="">Include</button>
-              <button class="tri-btn" data-value="1">Only</button>
-              <button class="tri-btn" data-value="0">Hide</button>
-            </div>
+        <div class="tri-filter" data-filter="filterHasNotes">
+          <div class="tri-buttons">
+            <button class="tri-btn active" data-value="">All</button>
+            <button class="tri-btn" data-value="1">Has</button>
+            <button class="tri-btn" data-value="0">None</button>
           </div>
-          <div class="tri-filter" data-filter="filterStarred">
-            <span class="tri-label">❤ Fave</span>
-            <div class="tri-buttons">
-              <button class="tri-btn active" data-value="">All</button>
-              <button class="tri-btn" data-value="1">Only</button>
-              <button class="tri-btn" data-value="0">Not Faved</button>
-            </div>
+        </div>
+        <div class="tri-filter" data-filter="filterDuplicates">
+          <div class="tri-buttons">
+            <button class="tri-btn active" data-value="">All</button>
+            <button class="tri-btn" data-value="1">Yes</button>
+            <button class="tri-btn" data-value="0">No</button>
           </div>
-          <div class="tri-filter" data-filter="filterHasNotes">
-            <span class="tri-label">📝 Notes</span>
-            <div class="tri-buttons">
-              <button class="tri-btn active" data-value="">All</button>
-              <button class="tri-btn" data-value="1">Has</button>
-              <button class="tri-btn" data-value="0">None</button>
-            </div>
+        </div>
+        <div class="tri-filter" data-filter="filterFlagged">
+          <div class="tri-buttons">
+            <button class="tri-btn active" data-value="">All</button>
+            <button class="tri-btn" data-value="1">Yes</button>
+            <button class="tri-btn" data-value="0">No</button>
           </div>
-          <div class="tri-filter" data-filter="filterDuplicates">
-            <span class="tri-label">⚠ Dupes</span>
-            <div class="tri-buttons">
-              <button class="tri-btn active" data-value="">All</button>
-              <button class="tri-btn" data-value="1">Yes</button>
-              <button class="tri-btn" data-value="0">No</button>
-            </div>
+        </div>
+        <div class="tri-filter" data-filter="filterTrashed">
+          <div class="tri-buttons">
+            <button class="tri-btn" data-value="">All</button>
+            <button class="tri-btn" data-value="1">Only</button>
+            <button class="tri-btn active" data-value="0">Hidden</button>
           </div>
-          <div class="tri-filter" data-filter="filterFlagged">
-            <span class="tri-label">🚩 Flagged</span>
-            <div class="tri-buttons">
-              <button class="tri-btn active" data-value="">All</button>
-              <button class="tri-btn" data-value="1">Yes</button>
-              <button class="tri-btn" data-value="0">No</button>
-            </div>
+        </div>
+        <div class="tri-filter" data-filter="filterFailed">
+          <div class="tri-buttons">
+            <button class="tri-btn active" data-value="">All</button>
+            <button class="tri-btn" data-value="1">Only</button>
+            <button class="tri-btn" data-value="0">Hidden</button>
           </div>
-          <div class="tri-filter" data-filter="filterTrashed">
-            <span class="tri-label">🗑 Trashed</span>
-            <div class="tri-buttons">
-              <button class="tri-btn" data-value="">All</button>
-              <button class="tri-btn" data-value="1">Only</button>
-              <button class="tri-btn active" data-value="0">Hidden</button>
-            </div>
-            <label class="delete-mode-row" title="What the 🗑 delete action does. Soft is undoable; Recycle goes to the OS Recycle Bin; Hard erases from disk immediately.">
-              <span>Delete&nbsp;mode</span>
-              <select id="deleteModeSelect" class="delete-mode-select" onchange="setDeleteMode(this.value)">
-                <option value="soft">Soft — to trash folder (undoable)</option>
-                <option value="recycle">Recycle Bin (OS-recoverable)</option>
-                <option value="hard">Hard — permanent</option>
-              </select>
-            </label>
-            <button id="clearTrashBtn" class="clear-trash-btn" style="display:none"
-              onclick="clearTrash()" title="Permanently delete every file in the trash — irreversible">🗑 Empty trash</button>
-          </div>
-          <div class="tri-filter" data-filter="filterFailed">
-            <span class="tri-label">⚠ Unplayable</span>
-            <div class="tri-buttons">
-              <button class="tri-btn active" data-value="">All</button>
-              <button class="tri-btn" data-value="1">Only</button>
-              <button class="tri-btn" data-value="0">Hidden</button>
-            </div>
-          </div>
-          <!-- AI scan outcome, derived from processing_error (see scanStatusOf).
-               Four states rather than three, but the tri-filter markup is a
-               generic "one active data-value" group, so it needs no new JS. -->
-          <div class="tri-filter" data-filter="filterScanStatus">
-            <span class="tri-label">🔍 Scan</span>
-            <div class="tri-buttons">
-              <button class="tri-btn active" data-value="">All</button>
-              <button class="tri-btn" data-value="success" title="AI analysis completed">Done</button>
-              <button class="tri-btn" data-value="failed" title="AI analysis errored — hover a tile's ⚠ for the reason">Failed</button>
-              <button class="tri-btn" data-value="unscanned" title="Imported but never analyzed">Unscanned</button>
-            </div>
-            <button id="rescanFilteredBtn" class="rescan-filtered-btn" style="display:none"
-              onclick="rescanFiltered()"></button>
+        </div>
+        <!-- AI scan outcome, derived from processing_error (see scanStatusOf).
+             Four states rather than three, but the tri-filter markup is a
+             generic "one active data-value" group, so it needs no new JS. -->
+        <div class="tri-filter" data-filter="filterScanStatus">
+          <div class="tri-buttons">
+            <button class="tri-btn active" data-value="">All</button>
+            <button class="tri-btn" data-value="success">Done</button>
+            <button class="tri-btn" data-value="failed">Failed</button>
+            <button class="tri-btn" data-value="unscanned">Unscanned</button>
           </div>
         </div>
       </div>
@@ -278,6 +240,14 @@
         <!-- Select page / Select all already carry the counts, so no separate
              "Showing N of M results" line: it said the same thing twice. -->
         <span class="results-select" id="resultsSelect"></span>
+        <!-- Contextual actions: each shows only while the filter it belongs to
+             is set (Trashed = Only, Scan = Failed/Unscanned). They sit in the
+             same row as Select page / Select all and share its button height,
+             so appearing never changes the row height. -->
+        <button id="clearTrashBtn" class="rs-btn rs-btn-danger" style="display:none"
+          onclick="clearTrash()" title="Permanently delete every file in the trash. This cannot be undone.">🗑 Empty trash</button>
+        <button id="rescanFilteredBtn" class="rs-btn rs-btn-accent" style="display:none"
+          onclick="rescanFiltered()"></button>
       </div>
       <div class="results-controls">
         <div class="sort-control">
@@ -386,6 +356,8 @@
   <script src="./player-lib/duplicates.js"></script>
   <script src="./player-lib/database.js"></script>
   <script src="./player-lib/filters.js"></script>
+  <script src="./player-lib/filter-popover.js"></script>
+  <script src="./player-lib/filter-chips.js"></script>
   <script src="./player-lib/notes.js"></script>
   <script src="./player-lib/metadata-edit.js"></script>
   <script src="./player-lib/collections.js"></script>

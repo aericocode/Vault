@@ -502,8 +502,8 @@ function initGridObservers() {
   const onWheel = (e) => {
     if (libraryLayoutMode() !== 'pages') return;
     if (!e.deltaY) return;
-    // The filters panel floats over the grid and scrolls itself.
-    if (document.getElementById('filtersPanel')?.classList.contains('active')) return;
+    // The More sheet floats over the grid and scrolls itself.
+    if (document.getElementById('moreFiltersSheet')?.classList.contains('active')) return;
     if (ownsItsScroll(e.target, e.currentTarget)) return;
     const now = Date.now();
     if (now < wheelBlockedUntil) return;

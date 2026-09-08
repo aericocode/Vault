@@ -1,0 +1,318 @@
+/* ==========================================
+   Filter chips, popovers and the More sheet (round 6)
+   ========================================== */
+
+/* The row keeps its height whether or not anything is set, so setting or
+   clearing a filter never moves the grid below it. */
+.filter-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0 0.2rem;
+  min-height: 2.2rem;
+}
+
+/* ── One chip ───────────────────────────────────────────────────────────
+   A pill built from a <span> wrapper so the × can be a control of its own:
+   a button inside a button is not valid HTML. */
+.fchip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border, #444);
+  border-radius: 999px;
+  background: var(--bg-tertiary, #1e1e2e);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.fchip:hover {
+  border-color: var(--accent, #6366f1);
+}
+
+.fchip.is-set {
+  background: rgba(99, 102, 241, 0.16);
+  border-color: var(--accent, #6366f1);
+}
+
+.fchip-main,
+.fchip-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.3rem 0.7rem;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--text-secondary, #aaa);
+  cursor: pointer;
+}
+
+/* An unset chip is all label. A set one reads "Language: Japanese" with the
+   label muted and the value in the primary colour, so the VALUE is the word
+   your eye lands on. */
+.fchip-name { color: var(--text-secondary, #aaa); }
+.fchip.is-set .fchip-name { color: var(--text-muted, #888); }
+.fchip-value { color: var(--text-primary, #eee); font-weight: 600; }
+.fchip-caret { opacity: 0.6; font-size: 0.7rem; }
+
+.fchip-x {
+  border: 0;
+  padding: 0 0.55rem 0 0.15rem;
+  margin-left: -0.2rem;
+  background: none;
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+  align-self: stretch;
+}
+
+.fchip-x:hover { color: var(--danger, #ef4444); }
+
+/* More is a chip in its own right (a plain button, it has no value) */
+.fchip-more {
+  border: 1px solid var(--border, #444);
+  color: var(--text-secondary, #aaa);
+}
+.fchip-more:hover {
+  border-color: var(--accent, #6366f1);
+  color: var(--text-primary, #eee);
+}
+
+/* Options, beside the search box: the same pill, sized to the search row */
+.fchip-btn {
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--border, #444);
+  border-radius: 999px;
+  background: var(--bg-tertiary, #1e1e2e);
+  color: var(--text-secondary, #aaa);
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.fchip-btn:hover { border-color: var(--accent, #6366f1); color: var(--text-primary, #eee); }
+.fchip-btn.is-set {
+  background: rgba(99, 102, 241, 0.16);
+  border-color: var(--accent, #6366f1);
+  color: var(--text-primary, #eee);
+}
+
+.fchip-main:focus-visible,
+.fchip-x:focus-visible,
+.fchip-more:focus-visible,
+.fchip-btn:focus-visible,
+.fseg-btn:focus-visible,
+.fpop-pill:focus-visible,
+.fpop-use:focus-visible {
+  outline: 2px solid var(--accent, #6366f1);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fchip, .fchip-btn { transition: none; }
+}
+
+/* ── The popover ───────────────────────────────────────────────────────── */
+.fpop {
+  position: fixed;
+  z-index: 950;                     /* above the More sheet (890) */
+  min-width: 200px;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.6rem;
+  background: var(--bg-secondary, #181825);
+  border: 1px solid var(--border, #444);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  overflow-y: auto;
+}
+
+.fpop-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted, #888);
+}
+
+.fpop-search {
+  padding: 0.4rem 0.6rem;
+  background: var(--bg-tertiary, #1e1e2e);
+  border: 1px solid var(--border, #444);
+  border-radius: 6px;
+  color: var(--text-primary, #eee);
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+.fpop-search:focus { outline: none; border-color: var(--accent, #6366f1); }
+
+.fpop-list {
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.fpop-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--text-primary, #eee);
+  cursor: pointer;
+}
+.fpop-opt.active { background: var(--bg-hover, #2a2a3e); }
+.fpop-opt[aria-selected="true"] {
+  color: #cfe0ff;
+  background: rgba(99, 102, 241, 0.25);
+}
+.fpop-opt-count { font-size: 0.72rem; color: var(--text-muted, #888); }
+
+.fpop-empty {
+  padding: 0.45rem 0.55rem;
+  font-size: 0.8rem;
+  color: var(--text-muted, #888);
+}
+
+/* Duration picker */
+.fpop-pills { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.fpop-pill {
+  padding: 0.28rem 0.6rem;
+  border: 1px solid var(--border, #444);
+  border-radius: 999px;
+  background: var(--bg-tertiary, #1e1e2e);
+  color: var(--text-secondary, #aaa);
+  font-family: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+.fpop-pill:hover { border-color: var(--accent, #6366f1); color: var(--text-primary, #eee); }
+.fpop-pill.is-on {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: var(--accent, #6366f1);
+  color: var(--text-primary, #eee);
+}
+
+.fpop-range { display: flex; flex-direction: column; gap: 0.3rem; }
+.fpop-range-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent-hover, #89b4fa);
+}
+.fpop-use {
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--accent, #6366f1);
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.18);
+  color: var(--text-primary, #eee);
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.fpop-use:hover { background: rgba(99, 102, 241, 0.3); }
+
+/* Search options */
+.fpop-checks { display: flex; flex-direction: column; gap: 0.15rem; }
+.fpop-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.4rem 0.45rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.fpop-check:hover { background: var(--bg-hover, #2a2a3e); }
+.fpop-check input { margin-top: 0.15rem; accent-color: var(--accent, #6366f1); }
+.fpop-check-text { display: flex; flex-direction: column; gap: 0.1rem; }
+.fpop-check-label { font-size: 0.85rem; color: var(--text-primary, #eee); }
+.fpop-check-desc { font-size: 0.72rem; color: var(--text-muted, #888); line-height: 1.3; }
+.fpop-check:has(input:focus-visible) { outline: 2px solid var(--accent, #6366f1); }
+
+/* ── The More sheet ────────────────────────────────────────────────────── */
+.fsheet-group { margin-bottom: 1rem; }
+.fsheet-group:last-child { margin-bottom: 0; }
+
+.fsheet-h {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #888);
+}
+
+.fsheet-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+.fseg-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+}
+
+.fseg-label {
+  flex: 0 0 8rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary, #aaa);
+}
+
+.fseg {
+  display: inline-flex;
+  border: 1px solid var(--border, #444);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.fseg-btn {
+  padding: 0.28rem 0.7rem;
+  border: 0;
+  border-right: 1px solid var(--border, #444);
+  background: var(--bg-tertiary, #1e1e2e);
+  color: var(--text-secondary, #aaa);
+  font-family: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+.fseg-btn:last-child { border-right: 0; }
+.fseg-btn:hover:not([aria-pressed="true"]) { background: var(--bg-hover, #2a2a3e); }
+.fseg-btn[aria-pressed="true"] {
+  background: var(--accent, #6366f1);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ── Contextual actions in the results row ─────────────────────────────
+   Empty trash and Rescan these moved out of the filters. They share the
+   Select page / Select all button box exactly, so a filter that brings one
+   of them on screen does not change the row's height. */
+.rs-btn-danger { border-color: rgba(239, 68, 68, 0.55); color: #fca5a5; }
+.rs-btn-danger:hover { border-color: var(--danger, #ef4444); color: #fecaca; }
+.rs-btn-accent { border-color: rgba(137, 180, 250, 0.55); color: #89b4fa; }
+.rs-btn-accent:hover { border-color: var(--accent, #6366f1); color: var(--text-primary, #eee); }
+/* The forced whole-set rescan is the one that costs GPU time — say so. */
+.rs-btn-accent.force { border-color: rgba(245, 158, 11, 0.6); color: #f59e0b; }
+
+/* Nothing set means nothing to clear. */
+.clear-filters-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.clear-filters-btn:disabled:hover {
+  background: var(--surface, #313244);
+  color: var(--text-secondary, #aaa);
+  border-color: var(--border, #444);
+}
+.clear-filters-btn:focus-visible {
+  outline: 2px solid var(--accent, #6366f1);
+  outline-offset: 2px;
+}
