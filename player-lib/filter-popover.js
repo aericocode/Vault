@@ -59,6 +59,43 @@ function _fpopReposition() {
   el.style.maxHeight = `${Math.max(140, Math.round(window.innerHeight - top - 12))}px`;
 }
 
+/* ── Option order ────────────────────────────────────────────────────────
+   A long list answers two different questions: "where is the value I have in
+   mind" (alphabetical) and "what does this library actually have a lot of"
+   (count). The popover offers both and the caller remembers which one the
+   user picked for that filter.
+
+   "Any" is not a value, it is the way out of the filter, so it stays at the
+   top in either order. It is always items[0] as the caller builds the list. */
+
+const FPOP_SORTS = [
+  { mode: 'az',    label: 'A to Z' },
+  { mode: 'count', label: 'Count' },
+];
+
+/** Numbers inside a name sort the way a person reads them: 2 before 10. */
+function _fpopByName(a, b) {
+  return a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+/* Song labels carry their tally in the text ("Title (12)") rather than in a
+   count field, because music.js has always written them that way. Reading it
+   back out is what lets Count mean something on that list too. */
+function _fpopCount(it) {
+  if (it.count != null) return it.count;
+  const m = /\((\d+)\)\s*$/.exec(it.label || '');
+  return m ? Number(m[1]) : 0;
+}
+
+function _fpopSortItems(items, mode) {
+  if (items.length < 2) return items.slice();
+  const [any, ...rest] = items;
+  rest.sort(mode === 'count'
+    ? (a, b) => (_fpopCount(b) - _fpopCount(a)) || _fpopByName(a, b)
+    : _fpopByName);
+  return [any, ...rest];
+}
+
 /* ── Options list ────────────────────────────────────────────────────────
    role="listbox" over role="option" rows. The rows are divs rather than
    buttons so arrow-key navigation can move a single "active" marker without
@@ -88,6 +125,7 @@ function _fpopRenderList(host, items, query, selectedValue) {
  *   items          [{ value, label, count }] — rendered as a listbox
  *   selected       the currently set value, marked aria-selected
  *   searchable     force the "type to filter" box on/off (default: by length)
+ *   sort           { mode, onChange(mode) } — adds the A to Z / Count toggle
  *   onPick(value)  called when a row is chosen; the popover closes first
  *   body           extra HTML appended under the list (the duration picker)
  *   wireBody(el)   called with the popover element once it is in the DOM
@@ -103,13 +141,28 @@ function openFilterPopover(anchor, opts) {
   el.setAttribute('role', 'dialog');
   el.setAttribute('aria-label', opts.title || 'Filter');
 
-  const items = opts.items || [];
-  const searchable = opts.searchable != null ? opts.searchable : items.length >= FPOP_SEARCH_MIN;
+  const rawItems = opts.items || [];
+  const searchable = opts.searchable != null ? opts.searchable : rawItems.length >= FPOP_SEARCH_MIN;
+  const sortable = !!opts.sort;
+  let sortMode = sortable && opts.sort.mode === 'count' ? 'count' : 'az';
+  let items = sortable ? _fpopSortItems(rawItems, sortMode) : rawItems;
+
+  // The search box and the order toggle share one row above the list, so the
+  // card stays as short as it was. With no search box the toggle sits alone.
+  const topRow = (searchable || sortable) ? `
+    <div class="fpop-toprow">
+      ${searchable ? '<input type="text" class="fpop-search" placeholder="Type to filter" autocomplete="off" aria-label="Type to filter the list">' : ''}
+      ${sortable ? `<div class="fpop-sort" role="group" aria-label="Order the list">
+        ${FPOP_SORTS.map(s => `
+          <button type="button" class="fpop-sort-btn" data-fpop-sort="${s.mode}"
+                  aria-pressed="${s.mode === sortMode ? 'true' : 'false'}">${s.label}</button>`).join('')}
+      </div>` : ''}
+    </div>` : '';
 
   el.innerHTML = `
     <div class="fpop-title">${escapeHtml(opts.title || '')}</div>
-    ${searchable ? '<input type="text" class="fpop-search" placeholder="Type to filter" autocomplete="off" aria-label="Type to filter the list">' : ''}
-    ${items.length ? `<div class="fpop-list" role="listbox" aria-label="${escapeHtml(opts.title || 'Options')}"></div>` : ''}
+    ${topRow}
+    ${rawItems.length ? `<div class="fpop-list" role="listbox" aria-label="${escapeHtml(opts.title || 'Options')}"></div>` : ''}
     ${opts.body || ''}`;
   document.body.appendChild(el);
 
@@ -159,6 +212,23 @@ function openFilterPopover(anchor, opts) {
     });
   }
 
+  // Re-sorting reuses the list already in hand: the popover stays open, and
+  // whatever is typed in the search box keeps filtering the new order.
+  if (sortable && list) {
+    el.querySelectorAll('[data-fpop-sort]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        sortMode = btn.dataset.fpopSort;
+        el.querySelectorAll('[data-fpop-sort]').forEach(b =>
+          b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'));
+        items = _fpopSortItems(rawItems, sortMode);
+        shown = _fpopRenderList(list, items, search ? search.value : '', opts.selected);
+        setActive(Math.max(0, shown.findIndex(i => i.value === opts.selected)));
+        list.scrollTop = 0;
+        opts.sort.onChange?.(sortMode);
+      });
+    });
+  }
+
   _fpop = { el, anchor, opts };
   anchor.setAttribute('aria-expanded', 'true');
 
@@ -169,6 +239,9 @@ function openFilterPopover(anchor, opts) {
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(active - 1); }
     else if (e.key === 'Home') { e.preventDefault(); setActive(0); }
     else if (e.key === 'End') { e.preventDefault(); setActive(shown.length - 1); }
+    // Enter on the order toggle presses that button; it does not choose the
+    // active row out from under the user.
+    else if (e.key === 'Enter' && e.target.closest?.('[data-fpop-sort]')) { /* the button's own */ }
     else if (e.key === 'Enter') { e.preventDefault(); pick(active); }
   });
 

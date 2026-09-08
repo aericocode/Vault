@@ -379,15 +379,30 @@ function renderFilterChipRow() {
 
 /* ── Popovers ─────────────────────────────────────────────────────────── */
 
+/* The list filters: an open set of values read off the library, where "in
+   which order" is a real question. Rating and Duration are scales the user
+   already knows the order of, and the tri and scan filters are three or four
+   fixed options, so neither gets a toggle that could only make them worse. */
+const FCHIP_SORTABLE = ['content', 'language', 'theme', 'song', 'quality'];
+
+function fchipPopSort(key) {
+  return typeof window.vaultPopSort === 'function' ? window.vaultPopSort(key) : 'az';
+}
+
 function openChipPopover(key, anchor) {
   const d = FCHIP_DEFS[key];
   if (!d) return;
   if (d.type === 'duration') return openDurationPopover(anchor);
+  const sortable = FCHIP_SORTABLE.includes(key);
   openFilterPopover(anchor, {
     title: d.label,
     items: fchipItems(key),
     selected: fchipValue(key),
     searchable: !!d.search,
+    sort: sortable ? {
+      mode: fchipPopSort(key),
+      onChange: (mode) => window.vaultSetPopSort?.(key, mode),
+    } : null,
     onPick: (v) => fchipSet(key, v),
   });
 }

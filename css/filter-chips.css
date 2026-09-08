@@ -163,6 +163,45 @@
 }
 .fpop-search:focus { outline: none; border-color: var(--accent, #6366f1); }
 
+/* The search box and the order toggle on one line, so adding the toggle did
+   not make every list popover a row taller. */
+.fpop-toprow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.fpop-toprow .fpop-search { flex: 1 1 auto; min-width: 0; }
+
+/* Two ways to read the same list: by name, or by how many files carry each
+   value. The same segmented look as the More sheet, one size down. */
+.fpop-sort {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border: 1px solid var(--border, #444);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.fpop-sort-btn {
+  padding: 0.26rem 0.5rem;
+  border: 0;
+  border-right: 1px solid var(--border, #444);
+  background: var(--bg-tertiary, #1e1e2e);
+  color: var(--text-secondary, #aaa);
+  font-family: inherit;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.fpop-sort-btn:last-child { border-right: 0; }
+.fpop-sort-btn:hover:not([aria-pressed="true"]) { background: var(--bg-hover, #2a2a3e); }
+.fpop-sort-btn[aria-pressed="true"] {
+  background: var(--accent, #6366f1);
+  color: #fff;
+  font-weight: 600;
+}
+.fpop-sort-btn:focus-visible { outline: 2px solid var(--accent, #6366f1); outline-offset: -2px; }
+
 .fpop-list {
   max-height: 260px;
   overflow-y: auto;

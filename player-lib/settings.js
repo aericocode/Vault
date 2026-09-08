@@ -12,12 +12,15 @@
    Public globals used by other modules (all guarded at their call sites):
    - window.vaultSetting(key)          → current value of a setting
    - window.vaultRecordLastOpened(id)  → remember last-opened media (restore session)
+   - window.vaultPopSort(key)          → 'az' | 'count' for one filter popover
+   - window.vaultSetPopSort(key, mode) → remember the order the user picked
    - window.vaultScanWorkers()         → AI scan concurrency (int)
    - window.vaultSetScanWorkers(n)     → clamp + persist + push it to the server
    ========================================================================= */
 
 (function () {
   const LS_KEY = 'vault_settings';
+  const POP_SORTS = ['az', 'count'];   // filter popover option order
 
   const DEFAULTS = {
     privacyMode: false,     // hide personal data on screen for screen-sharing
@@ -40,6 +43,10 @@
     libraryLayout: 'pages', // 'pages' (whole rows, one screenful) | 'continuous' (free scroll)
     cardSize: 'M',          // 'S' | 'M' | 'L' — minimum tile width, mapped in cards.js
     libraryDeepOpen: false, // Settings > Library: is the deep-search section expanded
+    // How each list filter's popover orders its options: 'az' or 'count', one
+    // entry per filter key (popSort.language, popSort.theme...). Not in the
+    // Settings modal: it is set by the toggle in the popover itself.
+    popSort: {},
     _lastMediaId: null,     // internal: id for restoreSession
   };
 
@@ -127,6 +134,15 @@
       ...DEFAULTS.privacyHide,
       ...(storedHide && typeof storedHide === 'object' ? storedHide : {}),
     };
+    // Same nested-object story, and a hand-edited blob must not be able to hand
+    // the popover an order it has no sort for.
+    const storedSort = settings.popSort;
+    settings.popSort = {};
+    if (storedSort && typeof storedSort === 'object') {
+      for (const [k, v] of Object.entries(storedSort)) {
+        if (POP_SORTS.includes(v)) settings.popSort[k] = v;
+      }
+    }
     // Stored JSON is user-editable — run the one numeric setting through the
     // same clamp every other surface uses. That clamp falls back to the current
     // value for anything unreadable, so seed the default first: a null or a
@@ -165,6 +181,23 @@
     LAYOUTS.includes(settings.libraryLayout) ? settings.libraryLayout : 'pages';
   window.vaultCardSize = () =>
     CARD_SIZES.includes(settings.cardSize) ? settings.cardSize : 'M';
+
+  /* ── Popover option order ────────────────────────────────────────────
+     Which way a list filter's popover sorts its options, one answer per
+     filter. The toggle lives in the popover, not in this modal, so the pair
+     below is the whole surface: read it while building the list, write it
+     when the user picks the other order. 'az' is the default because a name
+     you are looking for is easier to find in alphabetical order; 'count'
+     answers the other question, which values the library actually has a lot
+     of. */
+  window.vaultPopSort = (key) =>
+    POP_SORTS.includes(settings.popSort?.[key]) ? settings.popSort[key] : 'az';
+
+  window.vaultSetPopSort = function (key, mode) {
+    if (!key || !POP_SORTS.includes(mode)) return;
+    settings.popSort = { ...settings.popSort, [key]: mode };
+    save();
+  };
 
   // The player asks this when a file ends (or fails) on the last item in the
   // list: start over at the first, or stop here?
