@@ -111,10 +111,15 @@ function positionFiltersPanel() {
   const section = document.querySelector('.search-section');
   if (!panel || !section) return;
   const r = section.getBoundingClientRect();
+  // Open below the sort / select row, not over it: those controls are the
+  // ones you reach for while filtering. Fall back to the search section's
+  // bottom edge if that row is not on the page.
+  const info = document.querySelector('.results-info');
+  const topEdge = info ? info.getBoundingClientRect().bottom : r.bottom;
   panel.style.left = `${Math.round(r.left)}px`;
   panel.style.width = `${Math.round(r.width)}px`;
-  panel.style.top = `${Math.round(r.bottom)}px`;
-  panel.style.maxHeight = `${Math.max(120, Math.round(window.innerHeight - r.bottom - 12))}px`;
+  panel.style.top = `${Math.round(topEdge)}px`;
+  panel.style.maxHeight = `${Math.max(120, Math.round(window.innerHeight - topEdge - 12))}px`;
   const bd = document.getElementById('filtersBackdrop');
   if (bd) bd.style.top = `${Math.max(0, Math.round(panel.getBoundingClientRect().bottom))}px`;
 }
