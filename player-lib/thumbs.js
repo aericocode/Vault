@@ -358,11 +358,15 @@ function prefetchThumbImg(media, run) {
     const im = new Image();
     im.setAttribute('fetchpriority', 'low');
     im.decoding = 'async';
-    // A prefetch is a guess. It must never turn into a retry loop or steal
-    // the placeholder from a real tile, so its error is swallowed here.
-    im.addEventListener('error', (e) => e.stopPropagation(), true);
-    im.addEventListener('load', () => resolve());
-    im.addEventListener('error', () => resolve());
+    // One listener does both jobs, and the error one captures. A prefetch is a
+    // guess: it must never turn into a retry loop or steal the placeholder
+    // from a real tile, so the error stops here. It cannot be two listeners --
+    // Chrome runs a capture listener on the target during the capture phase,
+    // and the stopPropagation in it then skips every later listener on the
+    // same image, which left this promise pending until its batch timed out.
+    const done = (e) => { if (e && e.type === 'error') e.stopPropagation(); resolve(); };
+    im.addEventListener('load', done);
+    im.addEventListener('error', done, true);
     im.src = thumbUrl(media);
     _prefetchImgs.push(im);
   });
