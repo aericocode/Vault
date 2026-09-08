@@ -191,7 +191,13 @@
 /* Filters Panel — floats over the grid instead of pushing it down, so
    opening or closing it never moves a tile. */
 .filters-panel {
-  display: none;
+  /* Hidden with visibility rather than display so opening and closing can be
+     animated: display cannot be transitioned. It is fixed and pointer-inert
+     while closed, so it takes no space and catches no clicks. */
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
   /* fixed, not absolute: an absolute panel still counts towards the page's
      scroll height, and the scrollbar that brought in narrowed the grid */
   position: fixed;
@@ -199,18 +205,27 @@
   padding: 1rem;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-top: 0;
+  border-radius: 12px;
   border-bottom: 2px solid var(--accent);
-  border-radius: 0 0 12px 12px;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
   /* On a short window the panel is taller than the room below the search box,
      so it scrolls itself rather than running off the screen. app.js sets the
      exact max-height from where the search box ends. */
   overflow-y: auto;
+  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0s linear 0.14s;
 }
 
 .filters-panel.active {
-  display: block;
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0s linear 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .filters-panel { transition: none; }
+  .filters-panel.active { transition: none; }
 }
 
 /* Dims the library while the panel is open, and takes the click that closes
@@ -388,12 +403,10 @@
 }
 
 .results-count {
+  display: flex;
+  align-items: center;
   color: var(--text-secondary);
   font-size: 0.875rem;
-}
-
-.results-count strong {
-  color: var(--text-primary);
 }
 
 .results-controls {

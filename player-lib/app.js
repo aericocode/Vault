@@ -106,22 +106,30 @@ function filtersAreOpen() {
    hanging below the search box still counts towards the document's scroll
    height, so opening it grew the page, brought in a scrollbar and narrowed the
    grid by its width — which is exactly the movement this was meant to stop. */
+const FILTERS_PANEL_GAP = 8;   // px of air between the sort row and the panel
+
 function positionFiltersPanel() {
   const panel = document.getElementById('filtersPanel');
   const section = document.querySelector('.search-section');
   if (!panel || !section) return;
-  const r = section.getBoundingClientRect();
+  // Line the panel up with the grid, not with the search box: it floats over
+  // the tiles, so it reads as part of that column.
+  const grid = document.getElementById('resultsGrid');
+  const r = (grid && grid.clientWidth ? grid : section).getBoundingClientRect();
   // Open below the sort / select row, not over it: those controls are the
   // ones you reach for while filtering. Fall back to the search section's
   // bottom edge if that row is not on the page.
   const info = document.querySelector('.results-info');
-  const topEdge = info ? info.getBoundingClientRect().bottom : r.bottom;
+  const rowBottom = info ? info.getBoundingClientRect().bottom : section.getBoundingClientRect().bottom;
+  const topEdge = Math.round(rowBottom) + FILTERS_PANEL_GAP;
   panel.style.left = `${Math.round(r.left)}px`;
   panel.style.width = `${Math.round(r.width)}px`;
-  panel.style.top = `${Math.round(topEdge)}px`;
+  panel.style.top = `${topEdge}px`;
   panel.style.maxHeight = `${Math.max(120, Math.round(window.innerHeight - topEdge - 12))}px`;
   const bd = document.getElementById('filtersBackdrop');
-  if (bd) bd.style.top = `${Math.max(0, Math.round(panel.getBoundingClientRect().bottom))}px`;
+  // Measured from the panel's own laid-out height, not its rect: while the
+  // open transition is running the rect is still 4 px above where it lands.
+  if (bd) bd.style.top = `${Math.max(0, topEdge + panel.offsetHeight)}px`;
 }
 
 function setFiltersOpen(open) {
