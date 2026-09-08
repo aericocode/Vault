@@ -27,7 +27,19 @@ const THUMB_BACKOFF_MS = [1000, 2000, 4000, 8000];
 const THUMB_BLOB_MAX_ENTRIES = 1500;
 const THUMB_BLOB_MAX_BYTES = 150 * 1024 * 1024;
 const THUMB_PREFETCH_QUIET_MS = 150;
-const THUMB_PREFETCH_MAX_BATCHES = 2;
+
+/* ── How far ahead thumbnails are warmed ──────────────────────────────────
+   Deep enough that flipping through pages stays ahead of the reader, and
+   ordered so the nearest guess is fetched first: the batches run one at a
+   time, next page before the page after it, and everything ahead before the
+   one page behind. Any page change cancels whatever is left. Costs nothing
+   but bandwidth the user was about to spend anyway. */
+const PREFETCH_PAGES_AHEAD = 4;    // pages after the one on screen
+const PREFETCH_PAGES_BEHIND = 1;   // pages before it, which is where Back goes
+const PREFETCH_ROWS_AHEAD = 10;    // continuous mode: rows below the rendered window
+const PREFETCH_ROWS_BEHIND = 2;    // rows above it
+const THUMB_PREFETCH_MAX_BATCHES = PREFETCH_PAGES_AHEAD + PREFETCH_PAGES_BEHIND;
+const PREFETCH_BATCH_TIMEOUT_MS = 10000;  // a wedged request must not stall the queue
 const THUMBABLE_MEDIA = new Set(['video', 'image', 'gif', 'mix']);
 
 let _thumbsEncrypted = false;
@@ -269,8 +281,10 @@ async function retryThumbImg(img, id, url) {
 let _prefetchTimer = null;
 let _prefetchAbort = null;
 let _prefetchImgs = [];
+let _prefetchRun = 0;     // bumped on every cancel; in-flight batches check it
 
 function cancelThumbPrefetch() {
+  _prefetchRun++;
   clearTimeout(_prefetchTimer);
   _prefetchTimer = null;
   if (_prefetchAbort) { _prefetchAbort.abort(); _prefetchAbort = null; }
@@ -279,20 +293,22 @@ function cancelThumbPrefetch() {
 }
 
 /**
- * @param {Array<Array<object>>} batches - up to two groups of media rows.
- *   Anything past the second is dropped rather than queued.
+ * @param {Array<Array<object>>} batches - groups of media rows, most wanted
+ *   first. They are fetched one group at a time, in order; anything past
+ *   THUMB_PREFETCH_MAX_BATCHES is dropped rather than queued.
  */
 function scheduleThumbPrefetch(batches) {
   cancelThumbPrefetch();
   const groups = (batches || []).filter(b => b && b.length).slice(0, THUMB_PREFETCH_MAX_BATCHES);
   if (!groups.length) return;
-  _prefetchTimer = setTimeout(() => runPrefetch(groups, 0), THUMB_PREFETCH_QUIET_MS);
+  const run = _prefetchRun;
+  _prefetchTimer = setTimeout(() => runPrefetch(groups, 0, run), THUMB_PREFETCH_QUIET_MS);
 }
 
 /**
  * Prefetching is for the page after this one, so it must never slow this one
  * down. On localhost the browser opens six connections and serves them in
- * order, which means a low fetch priority buys nothing: two pages of guesses
+ * order, which means a low fetch priority buys nothing: pages of guesses
  * queued ahead of the tiles the user is looking at would leave those tiles
  * blank. So wait until every visible tile has settled, one way or the other.
  */
@@ -300,29 +316,51 @@ function gridStillLoading() {
   return [...document.querySelectorAll('#resultsGrid .tile-img')].some(img => !img.complete);
 }
 
-function runPrefetch(groups, waited) {
+function runPrefetch(groups, waited, run) {
   _prefetchTimer = null;
+  if (run !== _prefetchRun) return;
   if (gridStillLoading() && waited < 4000) {
-    _prefetchTimer = setTimeout(() => runPrefetch(groups, waited + 120), 120);
+    _prefetchTimer = setTimeout(() => runPrefetch(groups, waited + 120, run), 120);
     return;
   }
-  if (_thumbsEncrypted) {
-    _prefetchAbort = new AbortController();
-    const signal = _prefetchAbort.signal;
-    for (const g of groups) for (const m of g) prefetchThumbBlob(m, signal);
-    return;
+  if (_thumbsEncrypted) _prefetchAbort = new AbortController();
+  prefetchGroups(groups, run);
+}
+
+/** One batch at a time, in the order given, until something cancels us. */
+async function prefetchGroups(groups, run) {
+  for (const g of groups) {
+    if (run !== _prefetchRun) return;
+    await prefetchBatch(g, run);
   }
-  for (const g of groups) for (const m of g) {
-    if (!thumbable(m) || _thumbDead.has(m.id)) continue;
+}
+
+function prefetchBatch(group, run) {
+  const signal = _prefetchAbort && _prefetchAbort.signal;
+  const work = _thumbsEncrypted
+    ? group.map(m => prefetchThumbBlob(m, signal))
+    : group.map(m => prefetchThumbImg(m, run));
+  // A request that never settles must not hold up the batches behind it.
+  return Promise.race([
+    Promise.all(work),
+    new Promise(resolve => setTimeout(resolve, PREFETCH_BATCH_TIMEOUT_MS)),
+  ]);
+}
+
+function prefetchThumbImg(media, run) {
+  return new Promise((resolve) => {
+    if (!thumbable(media) || _thumbDead.has(media.id) || run !== _prefetchRun) { resolve(); return; }
     const im = new Image();
     im.setAttribute('fetchpriority', 'low');
     im.decoding = 'async';
     // A prefetch is a guess. It must never turn into a retry loop or steal
-    // the placeholder from a real tile, so it gets no error handling at all.
+    // the placeholder from a real tile, so its error is swallowed here.
     im.addEventListener('error', (e) => e.stopPropagation(), true);
-    im.src = thumbUrl(m);
+    im.addEventListener('load', () => resolve());
+    im.addEventListener('error', () => resolve());
+    im.src = thumbUrl(media);
     _prefetchImgs.push(im);
-  }
+  });
 }
 
 async function prefetchThumbBlob(media, signal) {
@@ -332,7 +370,7 @@ async function prefetchThumbBlob(media, signal) {
     const res = await fetch(thumbUrl(media), { cache: 'no-store', signal, priority: 'low' });
     if (!res.ok) return;
     putThumbBlob(media.id, await res.blob());
-  } catch { /* aborted or offline — a prefetch has nothing to report */ }
+  } catch { /* aborted or offline - a prefetch has nothing to report */ }
 }
 
 initThumbRetry();

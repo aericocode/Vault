@@ -216,31 +216,41 @@ function renderResults() {
 }
 
 /* ── Prefetch ─────────────────────────────────────────────────────────────
-   Whatever the user asks for next is almost always one page away, so warm
-   the two pages either side of this one. After a new search there is no
-   previous page worth having and the page after next is the better guess. */
+   Whatever the user asks for next is almost always a page away, so warm the
+   pages either side of this one, nearest first. The depths live in thumbs.js
+   (PREFETCH_PAGES_AHEAD / _BEHIND) next to the code that spends them. After a
+   new search there is no previous page worth having, so it takes the pages
+   ahead and nothing else. */
 
 let _prefetchWide = false;
 
 function prefetchAdjacentPages() {
   if (typeof scheduleThumbPrefetch !== 'function') return;
   const size = Math.max(1, pageSize);
-  const next = filteredMedia.slice(pageAnchor + size, pageAnchor + size * 2);
-  const second = _prefetchWide
-    ? filteredMedia.slice(pageAnchor + size * 2, pageAnchor + size * 3)
-    : filteredMedia.slice(Math.max(0, pageAnchor - size), pageAnchor);
+  const behind = _prefetchWide ? 0 : PREFETCH_PAGES_BEHIND;
   _prefetchWide = false;
-  scheduleThumbPrefetch([next, second]);
+
+  const batches = [];
+  for (let i = 1; i <= PREFETCH_PAGES_AHEAD; i++) {
+    batches.push(filteredMedia.slice(pageAnchor + i * size, pageAnchor + (i + 1) * size));
+  }
+  for (let i = 1; i <= behind; i++) {
+    const from = Math.max(0, pageAnchor - i * size);
+    const to = Math.max(0, pageAnchor - (i - 1) * size);
+    batches.push(filteredMedia.slice(from, to));
+  }
+  scheduleThumbPrefetch(batches);
 }
 
 function prefetchContinuousRows() {
   if (typeof scheduleThumbPrefetch !== 'function') return;
   const { cols, first, last } = contState;
   if (!cols || last < 0) return;
-  const rowsBelow = _prefetchWide ? 6 : 3;
+  const above = (_prefetchWide || first <= 0)
+    ? []
+    : filteredMedia.slice(Math.max(0, first - PREFETCH_ROWS_BEHIND) * cols, first * cols);
   _prefetchWide = false;
-  const below = filteredMedia.slice((last + 1) * cols, (last + 1 + rowsBelow) * cols);
-  const above = first > 0 ? filteredMedia.slice((first - 1) * cols, first * cols) : [];
+  const below = filteredMedia.slice((last + 1) * cols, (last + 1 + PREFETCH_ROWS_AHEAD) * cols);
   scheduleThumbPrefetch([below, above]);
 }
 
