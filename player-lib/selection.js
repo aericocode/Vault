@@ -291,10 +291,14 @@ function rescanFilteredTargets() {
     : { ids: items.map(m => m.id), force: done > 0, done };
 }
 
-/** Show/label the button under the 🔍 Scan filter. Called from applyFilters. */
+/** Show/label the Rescan button in the results row. Called from applyFilters.
+    It belongs to the Scan filter, so it only appears while that filter is
+    asking about broken rows: Failed or Unscanned. */
 function updateRescanFilteredButton() {
   const btn = document.getElementById('rescanFilteredBtn');
   if (!btn) return;
+  const scan = typeof getTriFilterValue === 'function' ? getTriFilterValue('filterScanStatus') : '';
+  if (scan !== 'failed' && scan !== 'unscanned') { btn.style.display = 'none'; return; }
   const { ids, force, done } = rescanFilteredTargets();
   if (ids.length === 0) { btn.style.display = 'none'; return; }
   btn.style.display = '';
@@ -379,8 +383,10 @@ function getDeleteMode() {
 }
 function setDeleteMode(mode) {
   try { localStorage.setItem('vault_delete_mode', mode); } catch {}
-  const sel = document.getElementById('deleteModeSelect');
-  if (sel) sel.value = mode;
+  // The control lives in Settings > Library now; keep its segments in step
+  // whether the change came from there or from anywhere else.
+  document.querySelectorAll('[data-delete-mode]').forEach(b =>
+    b.setAttribute('aria-pressed', b.dataset.deleteMode === mode ? 'true' : 'false'));
   if (typeof renderResults === 'function') renderResults();   // card 🗑 tooltips reflect the mode
 }
 
@@ -732,12 +738,16 @@ async function clearTrash() {
   }
 }
 
-/** Show/label the Empty-trash button from the current trashed count. */
+/** Show/label the Empty-trash button from the current trashed count. It sits
+    in the results row and belongs to the Trashed filter, so it only appears
+    while that filter is set to Only: emptying the trash is a decision you make
+    while looking at the trash. */
 function updateClearTrashUi() {
   const btn = document.getElementById('clearTrashBtn');
   if (!btn) return;
+  const trashOnly = typeof getTriFilterValue === 'function' && getTriFilterValue('filterTrashed') === '1';
   const n = (typeof allMedia !== 'undefined' ? allMedia : []).filter(m => m.user_trashed).length;
-  btn.style.display = n ? '' : 'none';
+  btn.style.display = (trashOnly && n) ? '' : 'none';
   btn.textContent = `🗑 Empty trash (${n})`;
 }
 

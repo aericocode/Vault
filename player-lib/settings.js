@@ -802,8 +802,35 @@
         };
   }
 
+  /* Delete mode used to sit inside the filters panel, which is not where you
+     look for a preference. It is a viewer-wide setting (localStorage, read by
+     every delete entry point), so it belongs here. */
+  function deleteModeRow() {
+    const cur = typeof getDeleteMode === 'function' ? getDeleteMode() : 'soft';
+    const opts = [
+      { value: 'soft',    label: 'Soft to trash folder' },
+      { value: 'recycle', label: 'Recycle Bin' },
+      { value: 'hard',    label: 'Permanent' },
+    ];
+    return `
+      <div class="settings-toggle settings-seg-row">
+        <span class="settings-toggle-text">
+          <span class="settings-toggle-title" id="segLabel_deleteMode">Delete mode</span>
+          <span class="settings-toggle-desc">What the 🗑 button does. Soft can be undone from the trash. Recycle Bin can be recovered by Windows. Permanent erases the file from disk straight away.</span>
+        </span>
+        <span class="settings-seg" role="group" aria-labelledby="segLabel_deleteMode">
+          ${opts.map(o => `
+            <button type="button" class="settings-seg-btn" data-delete-mode="${o.value}"
+                    aria-pressed="${cur === o.value ? 'true' : 'false'}">${esc(o.label)}</button>`).join('')}
+        </span>
+      </div>`;
+  }
+
   function RENDERERS_library() {
     return `
+      <h3 class="settings-h">Deleting files</h3>
+      ${deleteModeRow()}
+
       <h3 class="settings-h">Move / relink library</h3>
       <p>Moved your collection? Don't re-scan it. Tell Vault where the files
       went and it updates its records to match. Every tag, note, star and view
@@ -1082,6 +1109,12 @@
   }
 
   function wireLibrarySection() {
+    document.querySelectorAll('[data-delete-mode]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (typeof setDeleteMode === 'function') setDeleteMode(btn.dataset.deleteMode);
+      });
+    });
+
     // Fresh render means the report area is empty again — drop any saved
     // preview so retyping the same paths can't re-arm Apply against a report
     // that is no longer on screen. migAttach() below then puts back whatever
