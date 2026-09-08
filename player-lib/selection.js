@@ -86,7 +86,7 @@ function toggleSelectAllFiltered() {
 }
 
 /**
- * The two select controls that live up by "Showing X of Y results".
+ * The two select controls that live in the results row.
  * Rendered whether or not anything is selected — unlike the action bar, these
  * are how you START a selection.
  */

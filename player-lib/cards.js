@@ -191,9 +191,6 @@ function renderResults() {
   const pageItems = filteredMedia.slice(pageAnchor, pageAnchor + pageSize);
   currentPage = Math.floor(pageAnchor / Math.max(1, pageSize)) + 1;
 
-  document.getElementById('filteredCount').textContent = filteredMedia.length.toLocaleString();
-  document.getElementById('showingCount').textContent = pageItems.length.toLocaleString();
-
   const resultsGrid = document.getElementById('resultsGrid');
   const collCards = typeof renderCollectionCards === 'function' ? renderCollectionCards() : '';
   resultsGrid.innerHTML = collCards + pageItems.map(m => renderTile(m)).join('');
@@ -345,8 +342,6 @@ function renderContinuous() {
   contState = { cols, stride, totalRows, first: -1, last: -1 };
   renderContinuousWindow();
 
-  document.getElementById('filteredCount').textContent = total.toLocaleString();
-  document.getElementById('showingCount').textContent = total.toLocaleString();
   renderPagination();
 
   // The name strip is the one height only rendered DOM can tell us; a wrong

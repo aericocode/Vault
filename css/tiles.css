@@ -375,7 +375,6 @@
 .results-select {
   display: inline-flex;
   gap: 0.35rem;
-  margin-left: 0.7rem;
   vertical-align: middle;
 }
 .rs-btn {
