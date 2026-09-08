@@ -280,6 +280,59 @@ function fchipHtml(key) {
   </span>`;
 }
 
+/* Repaint one chip where it stands, instead of building a new one over the
+   top of it. A chip whose value changed is still the same chip, and throwing
+   its button away takes with it the popover anchored to it, the focus ring on
+   it, and any click still being delivered through it. Only what changed is
+   touched, and the button element itself is never replaced. */
+function fchipPatch(wrap) {
+  const key = wrap?.dataset?.fchipWrap;
+  const d = FCHIP_DEFS[key];
+  const main = wrap?.querySelector('.fchip-main');
+  if (!d || !main) return;
+
+  const set = fchipIsSet(key);
+  wrap.classList.toggle('is-set', set);
+
+  const name = main.querySelector('.fchip-name');
+  if (name) name.textContent = d.label + (set ? ':' : '');
+
+  let value = main.querySelector('.fchip-value');
+  let caret = main.querySelector('.fchip-caret');
+  if (set) {
+    if (caret) { caret.remove(); caret = null; }
+    if (!value) {
+      value = document.createElement('span');
+      value.className = 'fchip-value';
+      main.appendChild(value);
+    }
+    value.textContent = String(fchipValueLabel(key));
+  } else {
+    if (value) { value.remove(); value = null; }
+    if (!caret) {
+      caret = document.createElement('span');
+      caret.className = 'fchip-caret';
+      caret.setAttribute('aria-hidden', 'true');
+      caret.textContent = '▾';
+      main.appendChild(caret);
+    }
+  }
+
+  const x = wrap.querySelector('.fchip-x');
+  if (set && !x) {
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'fchip-x';
+    clear.dataset.fchipClear = key;
+    clear.title = 'Clear this filter';
+    clear.setAttribute('aria-label', `Clear the ${d.label} filter`);
+    clear.textContent = '×';
+    wrap.appendChild(clear);
+  } else if (!set && x) {
+    x.remove();
+  }
+}
+
 /* ── Keeping the row to one line ──────────────────────────────────────────
    The chip row is a single line whose height never changes, because the grid
    sits directly under it and a row that grew a second line would push every
@@ -344,27 +397,39 @@ function renderFilterChipRow() {
   const host = document.getElementById('filterChipRow');
   if (!host) return;
 
-  // Keep keyboard focus where it was: a chip that is re-rendered because its
-  // own value changed should not drop the user back to the top of the page.
-  const focused = document.activeElement?.closest?.('[data-fchip-wrap]')?.dataset.fchipWrap;
-  const focusedX = document.activeElement?.hasAttribute?.('data-fchip-clear');
+  const keys = fchipRowKeys();
+  const here = [...host.querySelectorAll('[data-fchip-wrap]')].map(el => el.dataset.fchipWrap);
+  const sameChips = host.querySelector('#moreFiltersChip') &&
+    here.length === keys.length && here.every((k, i) => k === keys[i]);
 
-  host.innerHTML = fchipRowKeys().map(fchipHtml).join('') +
-    `<button type="button" class="fchip fchip-more" id="moreFiltersChip"
-       aria-haspopup="true" aria-expanded="false"
-       title="Every other filter, in one sheet">${FCHIP_MORE_LABEL}</button>`;
+  if (sameChips) {
+    // The same chips with new values on them: repaint them in place. Setting
+    // a filter used to rebuild this row from scratch, which pulled the chip
+    // the user was working with out of the page mid-click.
+    host.querySelectorAll('[data-fchip-wrap]').forEach(fchipPatch);
+  } else {
+    // Keep keyboard focus where it was: a chip that is re-rendered because its
+    // own value changed should not drop the user back to the top of the page.
+    const focused = document.activeElement?.closest?.('[data-fchip-wrap]')?.dataset.fchipWrap;
+    const focusedX = document.activeElement?.hasAttribute?.('data-fchip-clear');
 
-  if (focused) {
-    const wrap = host.querySelector(`[data-fchip-wrap="${focused}"]`);
-    const target = (focusedX && wrap?.querySelector('.fchip-x')) || wrap?.querySelector('.fchip-main');
-    target?.focus();
+    host.innerHTML = keys.map(fchipHtml).join('') +
+      `<button type="button" class="fchip fchip-more" id="moreFiltersChip"
+         aria-haspopup="true" aria-expanded="false"
+         title="Every other filter, in one sheet">${FCHIP_MORE_LABEL}</button>`;
+
+    if (focused) {
+      const wrap = host.querySelector(`[data-fchip-wrap="${focused}"]`);
+      const target = (focusedX && wrap?.querySelector('.fchip-x')) || wrap?.querySelector('.fchip-main');
+      target?.focus();
+    }
   }
 
   // Fold whatever does not fit BEFORE anything measures the row.
   fchipFitRow(host);
 
-  // The More chip is part of the markup above, so it comes back with
-  // aria-expanded="false" every time. Put the truth back.
+  // A rebuild writes the More chip out fresh, so it comes back with
+  // aria-expanded="false". Put the truth back.
   if (moreSheetIsOpen()) {
     host.querySelector('#moreFiltersChip')?.setAttribute('aria-expanded', 'true');
     syncMoreSheet();
@@ -516,17 +581,10 @@ function syncMoreSheet() {
     row.querySelectorAll('.fseg-btn').forEach(b =>
       b.setAttribute('aria-pressed', b.dataset.fsegValue === v ? 'true' : 'false'));
   });
-  sheet.querySelectorAll('[data-fchip-wrap]').forEach(wrap => {
-    const key = wrap.dataset.fchipWrap;
-    const html = fchipHtml(key);
-    const tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    if (tmp.firstElementChild.outerHTML !== wrap.outerHTML) {
-      const hadFocus = wrap.contains(document.activeElement);
-      wrap.replaceWith(tmp.firstElementChild);
-      if (hadFocus) tmp.firstElementChild.querySelector('.fchip-main')?.focus();
-    }
-  });
+  // Repainted, not rebuilt. Swapping a chip for a fresh copy of itself used
+  // to detach the button an open popover was anchored to — and the popover
+  // then closed itself the next time anything scrolled or resized.
+  sheet.querySelectorAll('[data-fchip-wrap]').forEach(fchipPatch);
 }
 
 function moreSheetIsOpen() {
@@ -604,17 +662,21 @@ function updateClearFiltersButton() {
 
 /* ── Wiring ───────────────────────────────────────────────────────────── */
 
+/* Read off the event's path rather than off e.target. These listeners sit on
+   the document next to others that re-render the row and the sheet, and a
+   control that has been replaced since the click was dispatched has nothing
+   above it any more for closest() to walk. */
 document.addEventListener('click', (e) => {
-  const chip = e.target.closest('[data-fchip]');
+  const chip = eventPathTarget(e, '[data-fchip]');
   if (chip) { openChipPopover(chip.dataset.fchip, chip); return; }
 
-  const x = e.target.closest('[data-fchip-clear]');
+  const x = eventPathTarget(e, '[data-fchip-clear]');
   if (x) { e.stopPropagation(); fchipClear(x.dataset.fchipClear); return; }
 
-  const seg = e.target.closest('[data-fseg]');
+  const seg = eventPathTarget(e, '[data-fseg]');
   if (seg) { fchipSet(seg.dataset.fseg, seg.dataset.fsegValue); return; }
 
-  const opts = e.target.closest('#searchOptionsBtn');
+  const opts = eventPathTarget(e, '#searchOptionsBtn');
   if (opts) { openSearchOptionsPopover(opts); return; }
 });
 
@@ -624,7 +686,7 @@ document.addEventListener('click', (e) => {
    the browser's own synthesized click, so nothing fires twice. */
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
-  const t = e.target.closest?.('[data-fchip], [data-fchip-clear], [data-fseg], #searchOptionsBtn, #moreFiltersChip');
+  const t = eventPathTarget(e, '[data-fchip], [data-fchip-clear], [data-fseg], #searchOptionsBtn, #moreFiltersChip');
   if (!t) return;
   e.preventDefault();
   t.click();

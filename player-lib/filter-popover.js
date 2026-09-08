@@ -21,14 +21,51 @@ function filterPopoverIsOpen() {
   return _fpop !== null;
 }
 
+/* ── Staying attached to the chip ────────────────────────────────────────
+   The chip a popover hangs off can be repainted while the popover is open —
+   a filter changes, a scan reports progress, the row refits — and if that
+   repaint replaces the button, the popover is left holding a node that is no
+   longer on the page. Everything after that goes wrong quietly: the popover
+   thinks a click on its own chip is an outside click, the next scroll decides
+   its anchor is gone and closes it, and focus has nowhere to go back to. So
+   the anchor is remembered by a key as well, and looked up again whenever the
+   node it holds has left the page. */
+
+function _fpopAnchorKey(el) {
+  if (!el) return null;
+  if (el.id) return `#${CSS.escape(el.id)}`;
+  if (el.dataset && el.dataset.fchip) return `[data-fchip="${CSS.escape(el.dataset.fchip)}"]`;
+  return null;
+}
+
+/** The live element the popover belongs to, re-found if it was replaced. */
+function _fpopAnchor() {
+  if (!_fpop) return null;
+  const held = _fpop.anchor;
+  if (held && held.isConnected) return held;
+  if (_fpop.anchorKey) {
+    // Look inside whichever of the row or the sheet it came from: the same
+    // filter can have a chip in both places.
+    const root = _fpop.anchorRoot && _fpop.anchorRoot.isConnected ? _fpop.anchorRoot : document;
+    const fresh = root.querySelector(_fpop.anchorKey);
+    if (fresh) {
+      fresh.setAttribute('aria-expanded', 'true');
+      _fpop.anchor = fresh;
+      return fresh;
+    }
+  }
+  return held;
+}
+
 /** Which chip (or button) the open popover belongs to, or null. */
 function filterPopoverAnchor() {
-  return _fpop ? _fpop.anchor : null;
+  return _fpopAnchor();
 }
 
 function closeFilterPopover({ restoreFocus = true } = {}) {
   if (!_fpop) return;
-  const { el, anchor } = _fpop;
+  const el = _fpop.el;
+  const anchor = _fpopAnchor();
   const hadFocus = el.contains(document.activeElement);
   anchor?.setAttribute('aria-expanded', 'false');
   el.remove();
@@ -36,20 +73,25 @@ function closeFilterPopover({ restoreFocus = true } = {}) {
   document.removeEventListener('mousedown', _fpopOutside, true);
   window.removeEventListener('resize', _fpopReposition, true);
   window.removeEventListener('scroll', _fpopReposition, true);
-  if (restoreFocus && hadFocus && anchor && document.contains(anchor)) anchor.focus();
+  if (restoreFocus && hadFocus && anchor && anchor.isConnected) anchor.focus();
 }
 
 function _fpopOutside(e) {
   if (!_fpop) return;
-  if (_fpop.el.contains(e.target)) return;
-  if (_fpop.anchor && _fpop.anchor.contains(e.target)) return;   // the chip toggles itself
+  const anchor = _fpopAnchor();
+  // Read the path the event travelled when it was dispatched: the node it
+  // points at may already have been replaced by a re-render, and a node that
+  // has left the page reads as "outside" however plainly inside it was.
+  const inside = eventPathHasNode(e, _fpop.el) || eventPathHasNode(e, anchor);
+  if (inside) return;                              // the chip toggles itself
   closeFilterPopover({ restoreFocus: false });
 }
 
 function _fpopReposition() {
   if (!_fpop) return;
-  const { el, anchor } = _fpop;
-  if (!document.contains(anchor)) { closeFilterPopover({ restoreFocus: false }); return; }
+  const el = _fpop.el;
+  const anchor = _fpopAnchor();
+  if (!anchor || !anchor.isConnected) { closeFilterPopover({ restoreFocus: false }); return; }
   const r = anchor.getBoundingClientRect();
   const w = el.offsetWidth;
   const left = Math.max(8, Math.min(Math.round(r.left), window.innerWidth - w - 8));
@@ -131,7 +173,7 @@ function _fpopRenderList(host, items, query, selectedValue) {
  *   wireBody(el)   called with the popover element once it is in the DOM
  */
 function openFilterPopover(anchor, opts) {
-  const reopeningSame = _fpop && _fpop.anchor === anchor;
+  const reopeningSame = _fpop && _fpopAnchor() === anchor;
   closeFilterPopover({ restoreFocus: false });
   if (reopeningSame) return;                       // clicking the chip again closes it
 
@@ -229,7 +271,11 @@ function openFilterPopover(anchor, opts) {
     });
   }
 
-  _fpop = { el, anchor, opts };
+  _fpop = {
+    el, anchor, opts,
+    anchorKey: _fpopAnchorKey(anchor),
+    anchorRoot: anchor.closest?.('#moreFiltersSheet, #filterChipRow') || document,
+  };
   anchor.setAttribute('aria-expanded', 'true');
 
   el.addEventListener('keydown', (e) => {

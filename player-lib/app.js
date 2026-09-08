@@ -94,7 +94,13 @@ function filtersBackdrop() {
     bd = document.createElement('div');
     bd.id = 'filtersBackdrop';
     bd.className = 'filters-backdrop';
-    bd.addEventListener('click', () => setFiltersOpen(false));
+    // Only a click that really was outside the sheet closes it. Asked from
+    // the event's own path rather than from the node the click ended on,
+    // because a control inside the sheet can be re-rendered mid-click.
+    bd.addEventListener('click', (e) => {
+      if (clickWasInsideTheSheet(e)) return;
+      setFiltersOpen(false);
+    });
     document.body.appendChild(bd);
   }
   return bd;
@@ -102,6 +108,20 @@ function filtersBackdrop() {
 
 function filtersAreOpen() {
   return document.getElementById('moreFiltersSheet')?.classList.contains('active') === true;
+}
+
+/* Every rule that closes the sheet is a rule about clicking somewhere else,
+   so all of them go through this one question. It reads the path the event
+   travelled when it was dispatched, not the node it happens to point at now:
+   pressing a filter inside the sheet re-renders the chip row underneath it,
+   and a control that has been replaced in the meantime has no ancestors left
+   to walk, so `closest()` would call an obviously-inside click "outside" and
+   shut the sheet in the user's face. */
+function clickWasInsideTheSheet(e) {
+  const sheet = document.getElementById('moreFiltersSheet');
+  if (!sheet) return false;
+  if (typeof eventPathHasNode === 'function') return eventPathHasNode(e, sheet);
+  return sheet.contains(e.target);
 }
 
 /* The panel is position: fixed, not absolute. An absolutely positioned panel
@@ -157,9 +177,11 @@ function setFiltersOpen(open) {
   window.addEventListener(evt, () => { if (filtersAreOpen()) positionFiltersPanel(); }, { passive: true });
 });
 
-// The More chip is re-rendered with the row, so the click is delegated.
+// The More chip is re-rendered with the row, so the click is delegated — and
+// asked of the event's path, because by the time this listener runs the chip
+// row may already have been rebuilt by a listener ahead of it.
 document.addEventListener('click', (e) => {
-  if (e.target.closest('#moreFiltersChip')) setFiltersOpen(!filtersAreOpen());
+  if (eventPathTarget(e, '#moreFiltersChip')) setFiltersOpen(!filtersAreOpen());
 });
 
 // Escape closes the open popover first, then the sheet, before anything else
@@ -177,7 +199,8 @@ document.addEventListener('keydown', (e) => {
 }, true);
 
 // Clicking a tile is a decision about the library, so the sheet steps aside
-document.getElementById('resultsGrid')?.addEventListener('click', () => {
+document.getElementById('resultsGrid')?.addEventListener('click', (e) => {
+  if (clickWasInsideTheSheet(e)) return;
   if (filtersAreOpen()) setFiltersOpen(false);
 });
 
