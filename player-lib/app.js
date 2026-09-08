@@ -171,11 +171,19 @@ function setFiltersOpen(open) {
   }
 }
 
-// The panel follows the search box if the window resizes or the page scrolls
-// under it (continuous mode).
-['resize', 'scroll'].forEach(evt => {
-  window.addEventListener(evt, () => { if (filtersAreOpen()) positionFiltersPanel(); }, { passive: true });
-});
+// The sheet follows the chip row when the window resizes. It deliberately does
+// NOT follow page scroll: in continuous mode a filter set from inside the sheet
+// can shrink the document, the browser clamps scrollY, the chip row moves, and
+// a sheet that tracked it would jump under the cursor between two clicks.
+// While it is open the sheet stays where it opened; a deliberate wheel outside
+// it means the user is leaving the filters, so that closes it instead.
+window.addEventListener('resize', () => { if (filtersAreOpen()) positionFiltersPanel(); }, { passive: true });
+window.addEventListener('wheel', (e) => {
+  if (!filtersAreOpen()) return;
+  if (eventPathTarget(e, '#moreFiltersSheet')) return;
+  if (typeof filterPopoverIsOpen === 'function' && filterPopoverIsOpen()) return;
+  setFiltersOpen(false);
+}, { passive: true });
 
 // The More chip is re-rendered with the row, so the click is delegated — and
 // asked of the event's path, because by the time this listener runs the chip
