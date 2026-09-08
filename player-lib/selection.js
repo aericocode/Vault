@@ -90,22 +90,32 @@ function toggleSelectAllFiltered() {
  * Rendered whether or not anything is selected — unlike the action bar, these
  * are how you START a selection.
  */
+let _resultsSelectHtml = null;   // last markup written, so a repaint that says
+                                 // the same thing does not touch the DOM
+
+/** Write the row only when its content actually changed. */
+function writeResultsSelect(host, html) {
+  if (html === _resultsSelectHtml) return;
+  _resultsSelectHtml = html;
+  host.innerHTML = html;
+}
+
 function renderResultsSelect() {
   const host = document.getElementById('resultsSelect');
   if (!host) return;
   const onLibrary = typeof currentTab === 'undefined' || currentTab === 'library';
   const all = (typeof filteredMedia !== 'undefined' ? filteredMedia : []);
-  if (!onLibrary || !all.length) { host.innerHTML = ''; return; }
+  if (!onLibrary || !all.length) { writeResultsSelect(host, ''); return; }
 
   const pageIds = currentPageIds();
   const pageAll = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
   const allSelected = selectedIds.size >= all.length && all.every(m => selectedIds.has(m.id));
 
-  host.innerHTML = `
+  writeResultsSelect(host, `
     ${pageIds.length ? `<button class="rs-btn" onclick="toggleSelectPage()"
       title="Select the ${pageIds.length} file(s) shown on this page">${pageAll ? 'Deselect page' : `Select page (${pageIds.length})`}</button>` : ''}
     ${all.length > pageIds.length ? `<button class="rs-btn" onclick="toggleSelectAllFiltered()"
-      title="Select every file matching the current search &amp; filters, across all pages">${allSelected ? 'Deselect all' : `Select all ${all.length.toLocaleString()}`}</button>` : ''}`;
+      title="Select every file matching the current search &amp; filters, across all pages">${allSelected ? 'Deselect all' : `Select all ${all.length.toLocaleString()}`}</button>` : ''}`);
 }
 
 function clearSelection() {
