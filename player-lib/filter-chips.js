@@ -280,6 +280,59 @@ function fchipHtml(key) {
   </span>`;
 }
 
+/* ── Keeping the row to one line ──────────────────────────────────────────
+   The chip row is a single line whose height never changes, because the grid
+   sits directly under it and a row that grew a second line would push every
+   tile down. Rating, Duration, Language, Theme and More always show. The set
+   chips from the More group show only while they fit; the ones that do not
+   are folded away and counted on the More chip ("More (3) ▾"). A folded
+   filter is still set, and still visible and editable inside the sheet. */
+
+const FCHIP_MORE_LABEL = 'More ▾';
+
+function fchipMoreLabel(folded) {
+  return folded > 0 ? `More (${folded}) ▾` : FCHIP_MORE_LABEL;
+}
+
+function fchipFitRow(host) {
+  host = host || document.getElementById('filterChipRow');
+  const more = host?.querySelector('#moreFiltersChip');
+  if (!more) return;
+
+  // Start from everything shown, so shrinking and growing both work from the
+  // same baseline rather than from whatever the last pass decided.
+  const extras = [...host.querySelectorAll('[data-fchip-wrap]')]
+    .filter(el => FCHIP_EXTRA.includes(el.dataset.fchipWrap));
+  extras.forEach(el => el.classList.remove('fchip-folded'));
+  more.textContent = fchipMoreLabel(0);
+
+  const avail = host.clientWidth;
+  if (!avail) return;          // collapsed or not laid out yet; the observer refits
+
+  const gap = parseFloat(getComputedStyle(host).columnGap) || 0;
+  const width = (el) => el.getBoundingClientRect().width;
+  // n items need n-1 gaps: one gap per item, minus the one More does not need.
+  const fixed = [...host.children]
+    .filter(el => el !== more && !extras.includes(el))
+    .reduce((n, el) => n + width(el) + gap, 0);
+
+  let folded = 0;
+  while (folded < extras.length) {
+    const shown = extras.slice(0, extras.length - folded);
+    const used = fixed + shown.reduce((n, el) => n + width(el) + gap, 0) + width(more);
+    if (used <= avail) break;
+    folded++;
+    extras[extras.length - folded].classList.add('fchip-folded');
+    // Re-measured next round on purpose: "More (3) ▾" is wider than "More ▾".
+    more.textContent = fchipMoreLabel(folded);
+  }
+
+  more.classList.toggle('is-set', folded > 0);
+  more.title = folded === 0
+    ? 'Every other filter, in one sheet'
+    : `Every other filter, in one sheet. ${folded} set filter${folded === 1 ? '' : 's'} did not fit up here.`;
+}
+
 /** Every chip the row shows right now, in order. */
 function fchipRowKeys() {
   return FCHIP_FIXED.concat(FCHIP_EXTRA.filter(fchipIsSet));
@@ -297,13 +350,16 @@ function renderFilterChipRow() {
   host.innerHTML = fchipRowKeys().map(fchipHtml).join('') +
     `<button type="button" class="fchip fchip-more" id="moreFiltersChip"
        aria-haspopup="true" aria-expanded="false"
-       title="Every other filter, in one sheet">More ▾</button>`;
+       title="Every other filter, in one sheet">${FCHIP_MORE_LABEL}</button>`;
 
   if (focused) {
     const wrap = host.querySelector(`[data-fchip-wrap="${focused}"]`);
     const target = (focusedX && wrap?.querySelector('.fchip-x')) || wrap?.querySelector('.fchip-main');
     target?.focus();
   }
+
+  // Fold whatever does not fit BEFORE anything measures the row.
+  fchipFitRow(host);
 
   // The More chip is part of the markup above, so it comes back with
   // aria-expanded="false" every time. Put the truth back.
@@ -555,4 +611,12 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('DOMContentLoaded', () => {
   renderFilterChipRow();
   updateSearchOptionsButton();
+
+  // The row's width moves with the window and with the search section opening
+  // and closing, and what fits moves with it.
+  const host = document.getElementById('filterChipRow');
+  if (host && typeof ResizeObserver === 'function') {
+    new ResizeObserver(() => fchipFitRow(host)).observe(host);
+  }
+  window.addEventListener('resize', () => fchipFitRow());
 });

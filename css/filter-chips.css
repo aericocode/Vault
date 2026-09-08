@@ -2,16 +2,26 @@
    Filter chips, popovers and the More sheet (round 6)
    ========================================== */
 
-/* The row keeps its height whether or not anything is set, so setting or
-   clearing a filter never moves the grid below it. */
+/* One line, always. The row never wraps and never scrolls sideways, so its
+   height is the same whether nothing is set or everything is and the grid
+   below it never moves. Chips that do not fit are folded away by
+   fchipFitRow() and counted on the More chip instead. */
 .filter-chip-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.4rem;
   padding: 0.5rem 0 0.2rem;
   min-height: 2.2rem;
+  overflow: hidden;
 }
+
+/* No shrinking: a squeezed chip would clip its own text. Chips come out of
+   the row whole or not at all. */
+.filter-chip-row > * { flex: 0 0 auto; }
+
+/* Set, still editable in the More sheet, just not on screen up here. */
+.filter-chip-row .fchip-folded { display: none; }
 
 /* ── One chip ───────────────────────────────────────────────────────────
    A pill built from a <span> wrapper so the × can be a control of its own:
