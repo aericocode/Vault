@@ -88,6 +88,20 @@ function measureGrid() {
   return { grid, width, cols, tileW, natH: tileW / TILE_ASPECT + tileChromeH };
 }
 
+/* ── Pages, counted ───────────────────────────────────────────────────────
+   The anchor is still the source of truth, but what the pager SHOWS is a page
+   number: "Page 22 of 28" survives a resize in a way "449 to 469" does not.
+   A resize can leave the anchor part-way into a page; the page number is then
+   the page that contains it, and the next step lands on a page boundary. */
+
+function pageCount() {
+  return Math.max(1, Math.ceil(filteredMedia.length / Math.max(1, pageSize)));
+}
+
+function pageNumber() {
+  return Math.min(pageCount(), Math.floor(pageAnchor / Math.max(1, pageSize)) + 1);
+}
+
 /** Index of the first tile of the last page. */
 function lastPageAnchor() {
   const size = Math.max(1, pageSize);
@@ -266,8 +280,13 @@ function setPageAnchor(index) {
   return true;
 }
 
+/**
+ * One step is one page, and it lands on a page start: from a part-way anchor
+ * (left behind by a resize) Next goes to the top of the following page rather
+ * than a screenful further into the middle of nowhere.
+ */
 function movePage(delta) {
-  return setPageAnchor(pageAnchor + delta * Math.max(1, pageSize));
+  return setPageAnchor((pageNumber() - 1 + delta) * Math.max(1, pageSize));
 }
 
 /** Back to the first tile — a new search or filter has no place to hold. */
@@ -970,6 +989,8 @@ function quickRate(filepath, rating, btnEl) {
    grid — the row maths reserves that height, and a bar that came and went
    would re-lay the grid every time a filter narrowed the list to one page. */
 
+let _pagerPages = -1;   // page count the bar was last built for
+
 function renderPagination() {
   const pager = document.getElementById('pagination');
   if (!pager) return;
@@ -977,27 +998,30 @@ function renderPagination() {
   // Continuous mode has no pages to step through, and the header already says
   // how many files matched, so the bar goes away entirely.
   if (libraryLayoutMode() === 'continuous') {
-    pager.innerHTML = '';
+    if (pager.firstChild) { pager.innerHTML = ''; _pagerPages = -1; }
     return;
   }
 
-  const total = filteredMedia.length;
-  const size = Math.max(1, pageSize);
-  const lastAnchor = lastPageAnchor();
-  const from = total ? pageAnchor + 1 : 0;
-  const to = Math.min(total, pageAnchor + size);
-  const focusedId = document.activeElement && pager.contains(document.activeElement)
-    ? document.activeElement.id : null;
+  const count = pageCount();
+  // Rebuilding the bar on every page flip made the row blink and dropped the
+  // focus and the slider's drag with it. The markup only depends on the page
+  // COUNT, so build it when that changes and otherwise just move the label
+  // and the slider.
+  if (_pagerPages !== count || !pager.querySelector('#pagerRange')) {
+    buildPager(count);
+    _pagerPages = count;
+  }
+  updatePagerState();
+}
 
+function buildPager(count) {
+  const pager = document.getElementById('pagination');
   pager.innerHTML = `
-    <button class="pager-btn" id="pagerPrev" ${pageAnchor <= 0 ? 'disabled' : ''}
-      title="Previous page (Page Up)">← Prev</button>
-    <span class="pager-pos" id="pagerPos" aria-live="polite">${from.toLocaleString()} to ${to.toLocaleString()} of ${total.toLocaleString()}</span>
-    <input type="range" class="pager-range" id="pagerRange" min="0" max="${lastAnchor}" step="${size}"
-      value="${Math.min(pageAnchor, lastAnchor)}" ${lastAnchor === 0 ? 'disabled' : ''}
-      aria-label="Jump through the list" title="Drag to jump">
-    <button class="pager-btn" id="pagerNext" ${pageAnchor >= lastAnchor ? 'disabled' : ''}
-      title="Next page (Page Down)">Next →</button>`;
+    <button class="pager-btn" id="pagerPrev" title="Previous page (Page Up)">← Prev</button>
+    <span class="pager-pos" id="pagerPos" aria-live="polite"></span>
+    <input type="range" class="pager-range" id="pagerRange" min="1" max="${count}" step="1"
+      value="1" aria-label="Jump to a page" title="Drag to jump">
+    <button class="pager-btn" id="pagerNext" title="Next page (Page Down)">Next →</button>`;
 
   pager.querySelector('#pagerPrev').addEventListener('click', () => movePage(-1));
   pager.querySelector('#pagerNext').addEventListener('click', () => movePage(1));
@@ -1006,20 +1030,32 @@ function renderPagination() {
   // While dragging, only the label moves: re-rendering the grid mid-drag would
   // replace the slider under the pointer and drop the drag.
   range.addEventListener('input', () => {
-    const start = Number(range.value);
-    const pos = pager.querySelector('#pagerPos');
-    if (pos) {
-      pos.textContent = `${(start + 1).toLocaleString()} to ${Math.min(total, start + size).toLocaleString()} of ${total.toLocaleString()}`;
-    }
+    setPagerLabel(Number(range.value), pageCount());
   });
-  range.addEventListener('change', () => setPageAnchor(Number(range.value)));
+  range.addEventListener('change', () => {
+    setPageAnchor((Number(range.value) - 1) * Math.max(1, pageSize));
+  });
+}
 
-  // Re-rendering the bar throws away the focused control; put focus back so
-  // clicking Next with the keyboard can be repeated.
-  if (focusedId) {
-    const again = pager.querySelector(`#${focusedId}`);
-    if (again && !again.disabled) again.focus();
+function setPagerLabel(page, count) {
+  const pos = document.getElementById('pagerPos');
+  if (pos) pos.textContent = `Page ${page.toLocaleString()} of ${count.toLocaleString()}`;
+}
+
+/** Everything about the bar that changes when the page does. */
+function updatePagerState() {
+  const count = pageCount();
+  const page = pageNumber();
+  setPagerLabel(page, count);
+  const range = document.getElementById('pagerRange');
+  if (range) {
+    if (String(range.value) !== String(page)) range.value = String(page);
+    range.disabled = count <= 1;
   }
+  const prev = document.getElementById('pagerPrev');
+  const next = document.getElementById('pagerNext');
+  if (prev) prev.disabled = page <= 1;
+  if (next) next.disabled = page >= count;
 }
 
 /** Kept for callers that still think in page numbers. */
