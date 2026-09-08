@@ -40,6 +40,7 @@ const PREFETCH_ROWS_AHEAD = 10;    // continuous mode: rows below the rendered w
 const PREFETCH_ROWS_BEHIND = 2;    // rows above it
 const THUMB_PREFETCH_MAX_BATCHES = PREFETCH_PAGES_AHEAD + PREFETCH_PAGES_BEHIND;
 const PREFETCH_BATCH_TIMEOUT_MS = 10000;  // a wedged request must not stall the queue
+const PREFETCH_GATE_MAX_MS = 4000;        // how long to wait for the visible tiles
 const THUMBABLE_MEDIA = new Set(['video', 'image', 'gif', 'mix']);
 
 let _thumbsEncrypted = false;
@@ -302,7 +303,8 @@ function scheduleThumbPrefetch(batches) {
   const groups = (batches || []).filter(b => b && b.length).slice(0, THUMB_PREFETCH_MAX_BATCHES);
   if (!groups.length) return;
   const run = _prefetchRun;
-  _prefetchTimer = setTimeout(() => runPrefetch(groups, 0, run), THUMB_PREFETCH_QUIET_MS);
+  const deadline = Date.now() + THUMB_PREFETCH_QUIET_MS + PREFETCH_GATE_MAX_MS;
+  _prefetchTimer = setTimeout(() => runPrefetch(groups, deadline, run), THUMB_PREFETCH_QUIET_MS);
 }
 
 /**
@@ -316,11 +318,14 @@ function gridStillLoading() {
   return [...document.querySelectorAll('#resultsGrid .tile-img')].some(img => !img.complete);
 }
 
-function runPrefetch(groups, waited, run) {
+function runPrefetch(groups, deadline, run) {
   _prefetchTimer = null;
   if (run !== _prefetchRun) return;
-  if (gridStillLoading() && waited < 4000) {
-    _prefetchTimer = setTimeout(() => runPrefetch(groups, waited + 120, run), 120);
+  // Wall clock, not a tick count: a background tab throttles timers to about
+  // one a second, and counting 120 ms per tick would have made this wait half
+  // a minute rather than four seconds.
+  if (gridStillLoading() && Date.now() < deadline) {
+    _prefetchTimer = setTimeout(() => runPrefetch(groups, deadline, run), 120);
     return;
   }
   if (_thumbsEncrypted) _prefetchAbort = new AbortController();
