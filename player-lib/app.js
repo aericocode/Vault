@@ -371,9 +371,6 @@ document.addEventListener('DOMContentLoaded', () => {
   try {
     if (localStorage.getItem('searchCollapsed') === '1') setSearchCollapsed(true);
   } catch {}
-  // Reflect the saved delete mode in its selector
-  const dm = document.getElementById('deleteModeSelect');
-  if (dm && typeof getDeleteMode === 'function') dm.value = getDeleteMode();
   loadDatabase();
 });
 
