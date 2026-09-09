@@ -32,6 +32,7 @@
     privacyHide: {
       paths: true,
       notes: true,
+      noteChips: true,
       savedSearches: true,
       importFolders: true,
       thumbnails: false,
@@ -297,6 +298,7 @@
   const PRIVACY_CLASS = {
     paths:         'pm-paths',
     notes:         'pm-notes',
+    noteChips:     'pm-notechips',
     savedSearches: 'pm-searches',
     importFolders: 'pm-imports',
     thumbnails:    'pm-thumbs',
@@ -307,6 +309,7 @@
   const PRIVACY_HIDE_ITEMS = [
     { key: 'paths',         label: 'File paths',                            short: 'Paths' },
     { key: 'notes',         label: 'Notes',                                 short: 'Notes' },
+    { key: 'noteChips',     label: 'Note chips (blurred, not clickable)',   short: 'Note chips' },
     { key: 'savedSearches', label: 'Saved searches',                        short: 'Saved searches' },
     { key: 'importFolders', label: 'Import folders',                        short: 'Import folders' },
     { key: 'thumbnails',    label: 'Thumbnails (blurred, no hover reveal)', short: 'Thumbnails' },

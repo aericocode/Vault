@@ -616,6 +616,19 @@ body.pm-notes .note-edit {
   display: none !important;
 }
 
+/* ── Note chips (body.pm-notechips) ─────────────────────────────────────── */
+
+/* The reusable snippet chips above the note box carry the same kind of text
+   as the notes themselves, so they get the same treatment, a little heavier
+   because the chips are short and a light blur still leaves them legible.
+   Inert as well: no click to insert, no drag, no hover colour picker. Typed
+   notes are a separate switch and keep working. */
+body.pm-notechips .note-snippet-chip {
+  filter: blur(9px);
+  pointer-events: none;
+  user-select: none;
+}
+
 /* ── Saved searches (body.pm-searches) ──────────────────────────────────── */
 
 body.pm-searches .saved-search-chip {
