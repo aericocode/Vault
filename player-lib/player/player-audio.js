@@ -80,7 +80,7 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
   applySavedMute(audio);   // mute rides across files, same as the level
 
   // Speed is a session preference and the chrome was just re-rendered as "1x"
-  audio.playbackRate = SPEED_STEPS[currentSpeedIndex];
+  applySpeedTo(audio);
   updateSpeedDisplay();
 
   audio.addEventListener('loadedmetadata', () => {

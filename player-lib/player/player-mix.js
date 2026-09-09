@@ -150,8 +150,8 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
   if (volumeSlider) volumeSlider.max = max;
 
   // Session playback speed (the followers pick it up from the sync timer)
-  if (typeof SPEED_STEPS !== 'undefined') {
-    master.playbackRate = SPEED_STEPS[currentSpeedIndex];
+  if (typeof applySpeedTo === 'function') {
+    applySpeedTo(master);
     if (typeof updateSpeedDisplay === 'function') updateSpeedDisplay();
   }
 
@@ -276,7 +276,11 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
     const T = masterT();
     videos.forEach((v, i) => {
       if (i === masterIdx) return;
-      v.playbackRate = master.playbackRate; // speed control covers all tracks
+      // Speed control covers all tracks. defaultPlaybackRate too: a follower
+      // that reloads its source would otherwise drop back to 1x and fight the
+      // drift correction until the next tick.
+      v.defaultPlaybackRate = master.playbackRate;
+      v.playbackRate = master.playbackRate;
       syncTrack(v, i, T, 0.18);
     });
   }, 400);

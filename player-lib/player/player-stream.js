@@ -132,6 +132,18 @@ function _supportsHls() {
 /* ── Attaching a source ───────────────────────────────────────────────────── */
 
 /**
+ * Re-state the session playback speed on this element.
+ *
+ * Loading a source resets playbackRate to defaultPlaybackRate, so every place
+ * below that hands the element a new source has to say the speed again. The
+ * helper in player-video.js sets defaultPlaybackRate too, which is what makes
+ * the reset itself land on the right number.
+ */
+function _keepSessionSpeed(el) {
+  if (typeof applySpeedTo === 'function') applySpeedTo(el);
+}
+
+/**
  * Point a media element at whatever the server says will play.
  *
  * @param {HTMLMediaElement} el      the <video> or <audio>
@@ -142,11 +154,13 @@ function _supportsHls() {
  */
 async function attachPlaybackSource(el, mediaId, filepath, fallbackUrl, opts = {}) {
   destroyStream();
+  _keepSessionSpeed(el);
 
   // No id (a mix, a stub, anything not in the library): behave exactly as the
   // player did before this feature existed.
   if (!mediaId) {
     el.src = fallbackUrl;
+    _keepSessionSpeed(el);
     if (opts.autoplay !== false) el.play().catch(() => {});
     return { mode: 'native' };
   }
@@ -162,6 +176,7 @@ async function attachPlaybackSource(el, mediaId, filepath, fallbackUrl, opts = {
 
   if (!info) {
     el.src = fallbackUrl;
+    _keepSessionSpeed(el);
     if (opts.autoplay !== false) el.play().catch(() => {});
     return { mode: 'native' };
   }
@@ -180,6 +195,7 @@ async function attachPlaybackSource(el, mediaId, filepath, fallbackUrl, opts = {
   el.dataset.playbackFallback = info.fallback || '';
   el.dataset.playbackMediaId = String(mediaId);
   el.src = info.url || fallbackUrl;
+  _keepSessionSpeed(el);
   if (opts.autoplay !== false) el.play().catch(() => {});
   return { mode: 'native', info };
 }
@@ -197,6 +213,7 @@ function _attachRemux(el, mediaId, filepath, info, opts) {
       _streamId = mediaId;                       // native HLS: the beacon still applies
       _clientToken = token;
       el.src = url;
+      _keepSessionSpeed(el);
       if (opts.autoplay !== false) el.play().catch(() => {});
       return { mode: 'remux', info };
     }
@@ -217,6 +234,11 @@ function _attachRemux(el, mediaId, filepath, info, opts) {
     destroyStream();
     if (typeof handleMediaError === 'function') handleMediaError(filepath);
   });
+  // MSE attach runs the media load algorithm, which resets playbackRate — so
+  // the session speed has to be re-stated on the far side of it, not just once
+  // before the element ever had a source.
+  hls.on(Hls.Events.MEDIA_ATTACHED, () => _keepSessionSpeed(el));
+  hls.on(Hls.Events.MANIFEST_PARSED, () => _keepSessionSpeed(el));
   hls.loadSource(url);
   hls.attachMedia(el);
   if (opts.autoplay !== false) {

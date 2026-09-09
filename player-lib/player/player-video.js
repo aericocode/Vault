@@ -87,7 +87,7 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
 
   // Playback speed is a session preference, not a per-file one — the freshly
   // rendered chrome always says "1x", so re-apply and re-label it here.
-  video.playbackRate = SPEED_STEPS[currentSpeedIndex];
+  applySpeedTo(video);
   updateSpeedDisplay();
 
   video.addEventListener('loadedmetadata', () => {
@@ -634,12 +634,41 @@ function renderSpeedControls() {
   `;
 }
 
+/** The speed the session is set to right now. */
+function currentSpeed() {
+  return SPEED_STEPS[currentSpeedIndex];
+}
+
+/**
+ * Put the session speed on a media element, and make it stick.
+ *
+ * playbackRate alone does not survive a source change: the HTML media load
+ * algorithm resets playbackRate to defaultPlaybackRate every time a source is
+ * loaded, and that covers both `el.src = ...` and hls.js attaching MSE. So a
+ * rate applied while the player renders (which happens before the server has
+ * even said whether the file is native or remuxed) was thrown away a moment
+ * later, leaving the file at 1x while the readout still said 2x.
+ *
+ * Setting defaultPlaybackRate as well makes that reset land on the chosen speed
+ * instead of 1x, and the loadedmetadata re-apply covers any path that reaches a
+ * fresh source another way.
+ */
+function applySpeedTo(element) {
+  if (!element || typeof element.playbackRate !== 'number') return;
+  const rate = currentSpeed();
+  try { element.defaultPlaybackRate = rate; } catch {}
+  try { element.playbackRate = rate; } catch {}
+  if (!element._speedBound) {
+    element._speedBound = true;
+    element.addEventListener('loadedmetadata', () => applySpeedTo(element));
+  }
+}
+
 /**
  * Apply the speed at currentSpeedIndex to the playing element and relabel.
  */
 function applyCurrentSpeed() {
-  const element = currentMediaState.element;
-  if (element) element.playbackRate = SPEED_STEPS[currentSpeedIndex];
+  applySpeedTo(currentMediaState.element);
   updateSpeedDisplay();
 }
 
@@ -677,7 +706,12 @@ function resetSpeed() {
 function updateSpeedDisplay() {
   const display = document.getElementById('speedDisplay');
   if (!display) return;
-  const speed = SPEED_STEPS[currentSpeedIndex];
+  // The element's own rate is the truth: if anything ever resets it behind our
+  // back the readout says so instead of quietly lying about the speed.
+  const el = currentMediaState.element;
+  const live = (el && typeof el.playbackRate === 'number' && el.playbackRate > 0)
+    ? Math.round(el.playbackRate * 100) / 100 : null;
+  const speed = live === null ? currentSpeed() : live;
   display.textContent = speed + 'x';
   display.classList.toggle('speed-modified', speed !== 1);
   // Mini player carries the same readout when it shows an audio card
