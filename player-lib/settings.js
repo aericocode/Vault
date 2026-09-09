@@ -122,9 +122,15 @@
   }
 
   function load() {
+    // Kept around for the migration below: the merged object cannot tell a key
+    // the profile actually stored from one the defaults supplied.
+    let storedRaw = null;
     try {
       const raw = localStorage.getItem(LS_KEY);
-      if (raw) settings = { ...DEFAULTS, ...JSON.parse(raw) };
+      if (raw) {
+        storedRaw = JSON.parse(raw);
+        settings = { ...DEFAULTS, ...storedRaw };
+      }
     } catch {
       settings = { ...DEFAULTS };
     }
@@ -157,21 +163,28 @@
     // old default of 3, which would silently keep hold-to-unlock with no UI
     // left to change it. Exactly 3 → 0, once; any other value was set by hand
     // (editing the stored JSON) and is honored as-is.
-    // One-time migration: the old "Start over after the last file" switch is now
-    // the 'all' state of the player's repeat button. Carry a stored yes over,
-    // then drop the dead key so it cannot come back.
-    if (!REPEAT_MODES.includes(settings.repeatMode)) {
-      settings.repeatMode = settings.queueLoop === true ? 'all' : DEFAULTS.repeatMode;
-    }
-    if ('queueLoop' in settings) {
-      delete settings.queueLoop;
-      save();
-    }
     if (!settings._unlockHoldMigrated) {
       if (settings.unlockHoldSeconds === 3) settings.unlockHoldSeconds = 0;
       settings._unlockHoldMigrated = true;
       save();
     }
+    // One-time migration: the old "start over after the last file" switch is
+    // now the 'all' state of the player's repeat button. A profile that said
+    // yes carries over; then the dead key goes, so it cannot come back.
+    let repeatChanged = false;
+    if (storedRaw && !('repeatMode' in storedRaw)) {
+      settings.repeatMode = storedRaw.queueLoop === true ? 'all' : DEFAULTS.repeatMode;
+      repeatChanged = true;
+    }
+    if (!REPEAT_MODES.includes(settings.repeatMode)) {
+      settings.repeatMode = DEFAULTS.repeatMode;
+      repeatChanged = true;
+    }
+    if ('queueLoop' in settings) {
+      delete settings.queueLoop;
+      repeatChanged = true;
+    }
+    if (repeatChanged) save();
   }
 
   function save() {
