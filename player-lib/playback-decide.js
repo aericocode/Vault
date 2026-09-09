@@ -61,7 +61,7 @@
   };
 
   const HEVC_HINT =
-    'Chrome and Edge on Windows can play HEVC after installing the free HEVC Video Extensions from the Microsoft Store.';
+    'This browser has no HEVC decoder. A converted copy is planned for a later version.';
   const TENBIT_HINT =
     '10-bit video needs a converted copy. That is planned for a later version.';
 
