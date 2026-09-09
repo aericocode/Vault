@@ -52,9 +52,9 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
         <div class="pr-side pr-left">
           ${typeof renderAbLoopButton === 'function' ? renderAbLoopButton() : ''}
           ${typeof renderSubtitleButton === 'function' ? renderSubtitleButton() : ''}
+          ${typeof renderRepeatButton === 'function' ? renderRepeatButton() : ''}
         </div>
         <div class="pr-center">
-          ${typeof renderLoopButton === 'function' ? renderLoopButton() : ''}
           ${speedControls}
         </div>
         <div class="pr-side pr-right">
@@ -69,8 +69,8 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
   const video = document.getElementById('mediaVideo');
   currentMediaState.element = video;
 
-  // Loop preference (A-B loop takes over while active)
-  video.loop = typeof isLoopEnabled === 'function' ? isLoopEnabled() : true;
+  // Repeat preference (A-B loop takes over while active)
+  video.loop = typeof isRepeatOne === 'function' ? isRepeatOne() : false;
 
   // Subtitles (3-state CC toggle resolves which track, if any)
   if (typeof applySubtitlesFor === 'function' && currentMediaState.currentMediaData) {

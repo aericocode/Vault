@@ -525,9 +525,13 @@ async function deleteCollectionTwoStep(id, btn) {
 async function playCollection(id, shuffle) {
   if (activeCollectionId !== id) await openCollection(id);
   if (filteredMedia.length === 0) { showToast('Collection is empty'); return; }
-  // Collections default to LOOP OFF so the queue advances (session-only —
-  // doesn't overwrite the remembered preference)
-  if (typeof setLoopEnabled === 'function') setLoopEnabled(false, { persist: false });
+  // A collection is a queue, so repeat-one would sit on the first file forever.
+  // Step it down to off for this session only, leaving the remembered mode (and
+  // repeat-all, which still advances) alone.
+  if (typeof repeatMode === 'function' && repeatMode() === 'one' &&
+      typeof setRepeatMode === 'function') {
+    setRepeatMode('off', { persist: false });
+  }
   if (shuffle) {
     for (let i = filteredMedia.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));

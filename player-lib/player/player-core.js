@@ -62,8 +62,8 @@ function playNextMedia() {
 }
 
 /**
- * Advance the queue, wrapping to the top if "Start over after the last file"
- * is on.
+ * Advance the queue, wrapping to the top if the repeat button says "Repeat
+ * all".
  *
  * Separate from playNextMedia() because the two answer different questions.
  * playNextMedia is the Next button: at the end of the list it does nothing,
@@ -77,13 +77,12 @@ function playNextMediaOrWrap() {
   const i = nextPlayableIndex(currentMediaState.currentIndex, 1);
   if (i !== -1) return playIndexHandsFree(i);
 
-  const wrap = typeof window.vaultQueueLoop === 'function' ? window.vaultQueueLoop() : false;
-  // A one-item list would "wrap" onto itself, which is the per-file Loop
-  // button's job, not this one's.
-  if (!wrap || filteredMedia.length < 2) return false;
+  // A one-item list would "wrap" onto itself, which is repeat-one's job, not
+  // this one's.
+  if (repeatMode() !== 'all' || filteredMedia.length < 2) return false;
   // Wrapping starts at the top of the list, skipping any known-bad files there
   // just as the forward walk does. Landing back on the file that just ended is
-  // the per-file Loop button's job, so that one does not count as a wrap.
+  // repeat-one's job, so that one does not count as a wrap.
   const first = nextPlayableIndex(-1, 1);
   if (first === -1 || first === currentMediaState.currentIndex) return false;
   return playIndexHandsFree(first);
@@ -305,46 +304,82 @@ function playMedia(mediaData, { source = 'user' } = {}) {
   content.addEventListener('click', handleContentClick);
 }
 
-/* ── Loop / auto-advance ────────────────────────────────────────────────────
-   Loop ON (default): the current video/audio repeats when it ends.
-   Loop OFF: playback auto-advances to the next item in the queue.
-   The last manually-chosen state is remembered across sessions; playing a
-   collection turns loop off for that session without overwriting it. */
+/* ── Repeat / auto-advance ────────────────────────────────────────
+   One button in the control bar answers "what happens when a file ends":
+     off  → play the next file, stop at the end of the list
+     all  → play the next file, start over at the first at the end of the list
+     one  → replay the file that just ended
+   The mode lives in the settings store (shared by every player and remembered
+   across sessions). A session-only override exists for collections, which want
+   the queue to advance without rewriting what the user picked. */
 
-let loopEnabled = localStorage.getItem('player_loop') !== '0';
+const REPEAT_MODES = ['off', 'all', 'one'];
+let repeatOverride = null;   // session-only, cleared the moment the user picks
 
-function isLoopEnabled() {
-  return loopEnabled;
+function repeatMode() {
+  if (REPEAT_MODES.includes(repeatOverride)) return repeatOverride;
+  const m = typeof window.vaultRepeatMode === 'function' ? window.vaultRepeatMode() : 'off';
+  return REPEAT_MODES.includes(m) ? m : 'off';
 }
 
-function setLoopEnabled(on, { persist = true } = {}) {
-  loopEnabled = !!on;
+/** Does the element itself repeat? ('one' is the media element's own loop.) */
+function isRepeatOne() {
+  return repeatMode() === 'one';
+}
+
+function setRepeatMode(mode, { persist = true } = {}) {
+  if (!REPEAT_MODES.includes(mode)) return;
   if (persist) {
-    try { localStorage.setItem('player_loop', loopEnabled ? '1' : '0'); } catch {}
+    repeatOverride = null;
+    if (typeof window.vaultSetRepeatMode === 'function') window.vaultSetRepeatMode(mode);
+  } else {
+    repeatOverride = mode;
   }
   // Apply to whatever is playing right now (unless an A-B loop owns it)
   const el = currentMediaState.element;
   if (el && ['VIDEO', 'AUDIO'].includes(el.tagName) &&
       !(typeof abLoopA !== 'undefined' && abLoopA !== null && abLoopB !== null)) {
-    el.loop = loopEnabled;
+    el.loop = isRepeatOne();
   }
-  updateLoopButton();
+  updateRepeatButton();
 }
 
-function toggleLoop() {
-  setLoopEnabled(!loopEnabled); // manual toggle persists
+function cycleRepeatMode() {
+  const next = REPEAT_MODES[(REPEAT_MODES.indexOf(repeatMode()) + 1) % REPEAT_MODES.length];
+  setRepeatMode(next); // a manual pick persists
   showMediaControls();
 }
 
-function renderLoopButton() {
-  return `<button onclick="toggleLoop()" id="loopBtn" class="control-btn loop-btn ${loopEnabled ? 'active' : ''}" title="Loop this file when it ends — off auto-plays the next item">Loop: ${loopEnabled ? 'On' : 'Off'}</button>`;
+const REPEAT_LABELS = { off: 'Repeat: off', all: 'Repeat all', one: 'Repeat this file' };
+
+/** Two arrows in a loop; the "1" badge rides bottom-right in the 'one' state. */
+function repeatButtonInner(mode) {
+  const badge = mode === 'one'
+    ? '<span class="repeat-badge" aria-hidden="true">1</span>'
+    : '';
+  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+      <path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+    </svg>${badge}`;
 }
 
-function updateLoopButton() {
-  const btn = document.getElementById('loopBtn');
-  if (!btn) return;
-  btn.textContent = `Loop: ${loopEnabled ? 'On' : 'Off'}`;
-  btn.classList.toggle('active', loopEnabled);
+function renderRepeatButton() {
+  const mode = repeatMode();
+  return `<button onclick="cycleRepeatMode()" id="repeatBtn" class="repeat-btn rep-${mode}"
+    data-mode="${mode}" title="${REPEAT_LABELS[mode]}" aria-label="${REPEAT_LABELS[mode]}"
+    >${repeatButtonInner(mode)}</button>`;
+}
+
+function updateRepeatButton() {
+  const mode = repeatMode();
+  document.querySelectorAll('.repeat-btn').forEach(btn => {
+    btn.className = `repeat-btn rep-${mode}`;
+    btn.dataset.mode = mode;
+    btn.title = REPEAT_LABELS[mode];
+    btn.setAttribute('aria-label', REPEAT_LABELS[mode]);
+    btn.innerHTML = repeatButtonInner(mode);
+  });
 }
 
 /* ── Fill mode ───────────────────────────────────────────────────────────
@@ -382,9 +417,11 @@ function updateFillButton() {
   });
 }
 
-/** 'ended' fired with loop off → advance the queue (or start over, if set). */
+/** 'ended' fired → advance the queue (or start over, in repeat-all). */
 function autoAdvanceOnEnded() {
-  if (loopEnabled) return;
+  // 'one' repeats through the element's own loop flag, which means no 'ended'
+  // at all — but a stale listener must not advance past the file either.
+  if (isRepeatOne()) return;
   playNextMediaOrWrap();
 }
 

@@ -56,9 +56,9 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
       <div class="video-extras-row">
         <div class="pr-side pr-left">
           ${typeof renderAbLoopButton === 'function' ? renderAbLoopButton() : ''}
+          ${typeof renderRepeatButton === 'function' ? renderRepeatButton() : ''}
         </div>
         <div class="pr-center">
-          ${typeof renderLoopButton === 'function' ? renderLoopButton() : ''}
           ${speedControls}
         </div>
         <div class="pr-side pr-right">
@@ -73,8 +73,8 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
   const audio = document.getElementById('mediaAudio');
   currentMediaState.element = audio;
 
-  // Loop preference (A-B loop takes over while active)
-  audio.loop = typeof isLoopEnabled === 'function' ? isLoopEnabled() : true;
+  // Repeat preference (A-B loop takes over while active)
+  audio.loop = typeof isRepeatOne === 'function' ? isRepeatOne() : false;
 
   audio.volume = sliderToVolume(initialVolume, 1);
   

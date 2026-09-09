@@ -123,9 +123,9 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
       <div class="video-extras-row">
         <div class="pr-side pr-left">
           ${typeof renderAbLoopButton === 'function' ? renderAbLoopButton() : ''}
+          ${typeof renderRepeatButton === 'function' ? renderRepeatButton() : ''}
         </div>
         <div class="pr-center">
-          ${typeof renderLoopButton === 'function' ? renderLoopButton() : ''}
           ${speedControls}
         </div>
         <div class="pr-side pr-right">
@@ -137,9 +137,9 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
     </div>
   `;
 
-  // Loop preference on the master; followers always loop natively (the sync
+  // Repeat preference on the master; followers always loop natively (the sync
   // loop re-aligns them across their own wraps)
-  master.loop = typeof isLoopEnabled === 'function' ? isLoopEnabled() : true;
+  master.loop = typeof isRepeatOne === 'function' ? isRepeatOne() : false;
 
   // Volume boost + saved volume, exactly like the video player
   setupAudioBoost(master);
