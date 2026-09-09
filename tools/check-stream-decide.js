@@ -38,7 +38,7 @@ const cases = [
     null, 'remux', d => d.audioPlan === 'copy'],
   ['rx-hevc-aac.mp4 (default caps: no hevc)',
     { video_codec: 'hevc', audio_codec: 'aac', pix_fmt: 'yuv420p', codec_profile: 'Main', container: MP4 },
-    null, 'unsupported', d => /Microsoft Store/.test(d.hint || '')],
+    null, 'unsupported', d => /HEVC decoder/.test(d.hint || '')],
   ['rx-hevc-aac.mp4 (caps has hevc)',
     { video_codec: 'hevc', audio_codec: 'aac', pix_fmt: 'yuv420p', codec_profile: 'Main', container: MP4 },
     FULL, 'native'],
