@@ -20,8 +20,8 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
   const leftControls = `
     <div class="volume-control">
       <button onclick="toggleAudioMute()" id="muteBtn" class="control-btn" title="Mute (M)">🔊</button>
-      <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.05" value="${initialVolume}" oninput="setAudioVolume(this.value)">
-      <span class="volume-display" id="volumeDisplay">${Math.round(initialVolume * 100)}%</span>
+      <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.05" value="${playerIsSilent() ? 0 : initialVolume}" oninput="setAudioVolume(this.value)">
+      <span class="volume-display" id="volumeDisplay">${Math.round((playerIsSilent() ? 0 : initialVolume) * 100)}%</span>
     </div>
   `;
   
@@ -77,7 +77,8 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
   audio.loop = typeof isRepeatOne === 'function' ? isRepeatOne() : false;
 
   audio.volume = sliderToVolume(initialVolume, 1);
-  
+  applySavedMute(audio);   // mute rides across files, same as the level
+
   // Speed is a session preference and the chrome was just re-rendered as "1x"
   audio.playbackRate = SPEED_STEPS[currentSpeedIndex];
   updateSpeedDisplay();
@@ -174,18 +175,20 @@ function seekAudio(event) {
 function setAudioVolume(value) {
   const audio = document.getElementById('mediaAudio');
   if (!audio) return;
-  
+
   value = parseFloat(value);
-  const actualVolume = sliderToVolume(value, 1);
-  
-  audio.volume = actualVolume;
+  audio.volume = sliderToVolume(value, 1);
   savedVolume = value; // save slider position
-  
-  const muteBtn = document.getElementById('muteBtn');
-  if (muteBtn) {
-    muteBtn.textContent = value === 0 ? '🔇' : value < 0.5 ? '🔉' : '🔊';
+  // Reaching for the slider is how you unmute without finding the button.
+  if (value > 0) {
+    currentMediaState.previousVolume = value;
+    savedMuted = false;
   }
-  
+  saveVolumePrefs();
+
+  audio.muted = playerIsSilent();
+  updateMuteButton();
+
   const display = document.getElementById('volumeDisplay');
   if (display) {
     display.textContent = Math.round(value * 100) + '%';
@@ -193,17 +196,19 @@ function setAudioVolume(value) {
 }
 
 function toggleAudioMute() {
-  const audio = document.getElementById('mediaAudio');
-  const slider = document.getElementById('volumeSlider');
+  const audio = document.getElementById('mediaAudio') || currentMediaState.element;
   if (!audio) return;
-  
-  if (audio.volume > 0) {
-    currentMediaState.previousVolume = savedVolume; // save slider position
-    setAudioVolume(0);
-    if (slider) slider.value = 0;
-  } else {
-    const vol = currentMediaState.previousVolume || 1;
-    setAudioVolume(vol);
-    if (slider) slider.value = vol;
-  }
+
+  togglePlayerMute();   // owns savedMuted/savedVolume and the store
+
+  audio.volume = sliderToVolume(savedVolume, 1);
+  audio.muted = playerIsSilent();
+  updateMuteButton();
+
+  // While muted the slider reads zero, which is what the ear is getting.
+  const shown = playerIsSilent() ? 0 : savedVolume;
+  const slider = document.getElementById('volumeSlider');
+  if (slider) slider.value = shown;
+  const display = document.getElementById('volumeDisplay');
+  if (display) display.textContent = Math.round(shown * 100) + '%';
 }

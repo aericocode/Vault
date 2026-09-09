@@ -90,8 +90,8 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
   const leftControls = `
     <div class="volume-control">
       <button onclick="toggleMute()" id="muteBtn" class="control-btn" title="Mute (M)">🔊</button>
-      <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1.5" step="0.01" value="${savedVolume}" oninput="setVolume(this.value)">
-      <span class="volume-display" id="volumeDisplay">${Math.round(savedVolume * 100)}%</span>
+      <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1.5" step="0.01" value="${playerIsSilent() ? 0 : savedVolume}" oninput="setVolume(this.value)">
+      <span class="volume-display" id="volumeDisplay">${Math.round((playerIsSilent() ? 0 : savedVolume) * 100)}%</span>
     </div>
   `;
   const rightControls = `
@@ -144,8 +144,8 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
   // Volume boost + saved volume, exactly like the video player
   setupAudioBoost(master);
   const max = currentMediaState.gainNode ? 1.5 : 1;
-  applyVolume(sliderToVolume(savedVolume, max));
-  updateVolumeDisplay(savedVolume, max);
+  applyVolume(sliderToVolume(savedVolume, max));   // also carries the mute flag over
+  updateVolumeDisplay(playerIsSilent() ? 0 : savedVolume, max);
   const volumeSlider = document.getElementById('volumeSlider');
   if (volumeSlider) volumeSlider.max = max;
 

@@ -13,8 +13,8 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
   const leftControls = `
     <div class="volume-control">
       <button onclick="toggleMute()" id="muteBtn" class="control-btn" title="Mute (M)">🔊</button>
-      <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1.5" step="0.01" value="${savedVolume}" oninput="setVolume(this.value)">
-      <span class="volume-display" id="volumeDisplay">${Math.round(savedVolume * 100)}%</span>
+      <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1.5" step="0.01" value="${playerIsSilent() ? 0 : savedVolume}" oninput="setVolume(this.value)">
+      <span class="volume-display" id="volumeDisplay">${Math.round((playerIsSilent() ? 0 : savedVolume) * 100)}%</span>
     </div>
   `;
   
@@ -82,9 +82,9 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
   
   // Apply saved volume (savedVolume is slider position, needs curve)
   const max = currentMediaState.gainNode ? 1.5 : 1;
-  applyVolume(sliderToVolume(savedVolume, max));
-  updateVolumeDisplay(savedVolume, max);
-  
+  applyVolume(sliderToVolume(savedVolume, max));   // also carries the mute flag over
+  updateVolumeDisplay(playerIsSilent() ? 0 : savedVolume, max);
+
   // Playback speed is a session preference, not a per-file one — the freshly
   // rendered chrome always says "1x", so re-apply and re-label it here.
   video.playbackRate = SPEED_STEPS[currentSpeedIndex];
@@ -411,31 +411,34 @@ function attachSeekScrubbing(wrapper, progress, getMediaEl, opts) {
 function toggleMute() {
   const video = currentMediaState.element;
   if (!video) return;
-  
-  video.muted = !video.muted;
-  const muteBtn = document.getElementById('muteBtn');
-  if (muteBtn) muteBtn.textContent = video.muted ? '🔇' : '🔊';
-  
-  const slider = document.getElementById('volumeSlider');
+
+  togglePlayerMute();   // owns savedMuted/savedVolume and the store
+
   const max = currentMediaState.gainNode ? 1.5 : 1;
-  if (video.muted) {
-    if (slider) slider.value = 0;
-    updateVolumeDisplay(0, max);
-  } else {
-    if (slider) slider.value = savedVolume;
-    updateVolumeDisplay(savedVolume, max);
-  }
+  applyVolume(sliderToVolume(savedVolume, max));   // sets .muted and the button
+
+  // While muted the slider reads zero, which is what the ear is getting.
+  const shown = playerIsSilent() ? 0 : savedVolume;
+  const slider = document.getElementById('volumeSlider');
+  if (slider) slider.value = shown;
+  updateVolumeDisplay(shown, max);
 }
 
 function setVolume(value) {
   const video = currentMediaState.element;
   if (!video) return;
-  
+
   value = parseFloat(value);
   const max = currentMediaState.gainNode ? 1.5 : 1;
   const actualVolume = sliderToVolume(value, max);
-  
+
   savedVolume = value; // save the slider position, not the curved value
+  // Reaching for the slider is how you unmute without finding the button.
+  if (value > 0) {
+    currentMediaState.previousVolume = value;
+    savedMuted = false;
+  }
+  saveVolumePrefs();
   applyVolume(actualVolume);
   updateVolumeDisplay(value, max);
 }
@@ -443,17 +446,16 @@ function setVolume(value) {
 function applyVolume(value) {
   const video = currentMediaState.element;
   if (!video) return;
-  
+
   if (currentMediaState.gainNode) {
     currentMediaState.gainNode.gain.value = value;
     video.volume = 1;
   } else {
     video.volume = Math.min(1, value);
   }
-  
-  video.muted = value == 0;
-  const muteBtn = document.getElementById('muteBtn');
-  if (muteBtn) muteBtn.textContent = value == 0 ? '🔇' : '🔊';
+
+  video.muted = playerIsSilent();
+  updateMuteButton();
 }
 
 function updateVolumeDisplay(sliderValue, max) {
