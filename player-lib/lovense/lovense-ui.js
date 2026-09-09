@@ -227,16 +227,16 @@
       cb.addEventListener('change', () => LovenseApi.setActuatorOn(d, cb.dataset.verb, cb.checked)));
   }
 
-  /* ── Control-bar Vibe toggle (next to Loop) ────────────────────────────── */
+  /* ── Control-bar Vibe toggle (next to the repeat button) ───────────────── */
 
   function injectVibeButton() {
-    const loopBtn = document.getElementById('loopBtn');
-    if (!loopBtn || document.getElementById('vibeBtn')) return;
+    const anchor = document.getElementById('repeatBtn');
+    if (!anchor || document.getElementById('vibeBtn')) return;
     const btn = document.createElement('button');
     btn.id = 'vibeBtn';
     btn.className = 'control-btn vibe-btn';
     btn.onclick = toggleVibe;
-    loopBtn.insertAdjacentElement('afterend', btn);
+    anchor.insertAdjacentElement('afterend', btn);
     syncVibeButton();
   }
 

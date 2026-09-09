@@ -65,7 +65,7 @@
 .lovense-actions { justify-content: space-between; padding-top: 0.15rem; }
 .lovense-hint { font-size: 0.68rem; color: var(--text-muted); }
 
-/* Control-bar Vibe toggle (sits next to Loop; reuses .control-btn base) */
+/* Control-bar Vibe toggle (sits next to the repeat button; reuses .control-btn base) */
 .vibe-btn.active {
   background: var(--accent);
   border-color: var(--accent);
