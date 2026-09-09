@@ -154,6 +154,7 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
     applySpeedTo(master);
     if (typeof updateSpeedDisplay === 'function') updateSpeedDisplay();
   }
+  if (typeof attachTailWatchdog === 'function') attachTailWatchdog(master);
 
   /* ── Master listeners (progress/time/AB — same as the video player) ──── */
   master.addEventListener('loadedmetadata', () => {

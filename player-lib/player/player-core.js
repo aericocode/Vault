@@ -433,6 +433,87 @@ function updateFillButton() {
   });
 }
 
+/* ── Tail watchdog ───────────────────────────────────────────────────────
+   A file that reaches its last frame and never fires 'ended' hangs hands-free
+   playback for good: the element sits unpaused at the end of the timeline, the
+   queue never advances, and the only way out is a click. A remuxed stream can
+   land there when the buffer stops a fraction short of the playlist duration,
+   and that is not the only way to get stuck, so this treats a stalled tail as
+   the end regardless of the reason.
+
+   Deliberately narrow: playing, inside TAIL_EPSILON of the end, and not one
+   millisecond of progress for TAIL_STALL_MS. Normal playback at any speed keeps
+   moving, so it can only fire on a file that really is not going anywhere. */
+
+/** How close to duration counts as "at the end". */
+const TAIL_EPSILON = 0.3;
+
+/** No progress for this long at the end and the file is treated as finished. */
+const TAIL_STALL_MS = 1500;
+
+/** Is an A-B loop armed? It owns the tail while it is, so the watchdog stays out. */
+function _abLoopArmed() {
+  return typeof abLoopA !== 'undefined' && abLoopA !== null
+    && typeof abLoopB !== 'undefined' && abLoopB !== null;
+}
+
+/**
+ * Watch one media element for a stall at the very end of the file.
+ * Idempotent, and the interval clears itself once the element leaves the page.
+ */
+function attachTailWatchdog(element) {
+  if (!element || element._tailWatchdog) return;
+  let lastTime = -1;
+  let stillSince = 0;
+
+  const timer = setInterval(() => {
+    if (!element.isConnected) {
+      clearInterval(timer);
+      delete element._tailWatchdog;
+      return;
+    }
+    const dur = element.duration;
+    if (element.paused || element.ended || !isFinite(dur) || dur <= 0 || _abLoopArmed()) {
+      stillSince = 0;
+      lastTime = -1;
+      return;
+    }
+    const t = element.currentTime;
+    if (Math.abs(t - lastTime) > 0.001) { lastTime = t; stillSince = 0; return; }
+    if (dur - t > TAIL_EPSILON) { stillSince = 0; return; }
+    if (!stillSince) { stillSince = Date.now(); return; }
+    if (Date.now() - stillSince < TAIL_STALL_MS) return;
+    stillSince = 0;
+    finishStalledTail(element);
+  }, 250);
+
+  element._tailWatchdog = timer;
+}
+
+/** Stop watching (the element is being torn down). */
+function clearTailWatchdog(element) {
+  if (element && element._tailWatchdog) {
+    clearInterval(element._tailWatchdog);
+    delete element._tailWatchdog;
+  }
+}
+
+/**
+ * The tail stalled — take exactly the path 'ended' would have taken, so repeat
+ * one still replays and everything else advances the queue.
+ */
+function finishStalledTail(element) {
+  if (element.loop) {
+    try { element.currentTime = 0; } catch {}
+    element.play().catch(() => {});
+    return;
+  }
+  try { element.pause(); } catch {}
+  const btn = document.getElementById('playPauseBtn');
+  if (btn) btn.textContent = '▶';
+  autoAdvanceOnEnded();
+}
+
 /** 'ended' fired → advance the queue (or start over, in repeat-all). */
 function autoAdvanceOnEnded() {
   // 'one' repeats through the element's own loop flag, which means no 'ended'
@@ -921,6 +1002,7 @@ function revealLastPlayedIfBooting() {
  */
 function stopMediaElement(el) {
   if (!el) return;
+  clearTailWatchdog(el);
   // An hls.js instance holds its own loaders and a worker; detaching the
   // element alone would leave them fetching segments for a file nobody is
   // watching any more.

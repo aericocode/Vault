@@ -89,6 +89,7 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
   // rendered chrome always says "1x", so re-apply and re-label it here.
   applySpeedTo(video);
   updateSpeedDisplay();
+  attachTailWatchdog(video);
 
   video.addEventListener('loadedmetadata', () => {
     updateTotalTimeLabel();

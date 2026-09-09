@@ -82,6 +82,7 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
   // Speed is a session preference and the chrome was just re-rendered as "1x"
   applySpeedTo(audio);
   updateSpeedDisplay();
+  if (typeof attachTailWatchdog === 'function') attachTailWatchdog(audio);
 
   audio.addEventListener('loadedmetadata', () => {
     updateTotalTimeLabel();
