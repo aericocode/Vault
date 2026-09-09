@@ -123,10 +123,10 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
       <div class="video-extras-row">
         <div class="pr-side pr-left">
           ${typeof renderAbLoopButton === 'function' ? renderAbLoopButton() : ''}
-          ${typeof renderRepeatButton === 'function' ? renderRepeatButton() : ''}
         </div>
         <div class="pr-center">
           ${speedControls}
+          ${typeof renderRepeatButton === 'function' ? renderRepeatButton() : ''}
         </div>
         <div class="pr-side pr-right">
           ${typeof renderHotButton === 'function' ? renderHotButton() : ''}
