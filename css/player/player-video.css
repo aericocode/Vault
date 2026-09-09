@@ -147,8 +147,8 @@
 .video-playback-row .playback-controls { margin-bottom: 0; }
 
 /* Extras row between play controls and the nav bar:
-   [AB loop] · [speed + beatbar] · [Done] — center screen-centered, sides
-   mirrored at the edges. */
+   [AB loop · CC · repeat] · [speed + beatbar] · [Done] — center
+   screen-centered, sides mirrored at the edges. */
 .video-extras-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -157,7 +157,14 @@
   margin-bottom: 0.4rem;
 }
 
-.pr-left { justify-self: start; }
+.pr-left {
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
 .pr-right { justify-self: end; }
 
 .pr-center {
