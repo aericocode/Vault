@@ -17,6 +17,19 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   
+  // Escape inside the sidebar has to work even though focus sits in a field —
+  // the sidebar autofocuses its note textarea, so the input early-return below
+  // would otherwise swallow the key and leave no keyboard way back out.
+  // Empty field: step straight out of the sidebar. Half-typed note: just blur,
+  // so a second Escape closes the sidebar without the first one losing text.
+  if (e.key === 'Escape' && e.target.closest && e.target.closest('#mediaSidebar')) {
+    e.preventDefault();
+    const empty = !String(e.target.value || '').trim();
+    e.target.blur();
+    if (empty) toggleSidebar();
+    return;
+  }
+
   // Don't capture keys when focused on inputs
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   
@@ -120,8 +133,11 @@ document.addEventListener('keydown', (e) => {
       break;
       
     case 'Escape':
+      // Peel one layer at a time: fullscreen, then the sidebar, then the player.
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
+      } else if (typeof sidebarOpen !== 'undefined' && sidebarOpen) {
+        toggleSidebar();
       } else {
         closeMediaInfo();
         closeMediaPlayer();

@@ -11,6 +11,9 @@
  */
 async function loadDatabase() {
   try {
+    // Before the first tile renders: vault mode decides whether the browser
+    // may cache a thumbnail at all, and that changes the <img> markup.
+    await initThumbMode();
     const resp = await fetch('/api/media');
     if (resp.status === 423) {
       // Vault locked — the lock screen (vault-ui.js) owns the UI; keep the
@@ -140,8 +143,11 @@ async function _scanWatchTick() {
   try {
     let rows = [];
     try {
+      // This round fires every 5 s on its own, so it must not count as the
+      // user being here: the server skips the autolock idle reset for
+      // requests carrying this header (see the gate in server/index.js).
       const resp = await fetch('/api/media/rows', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Vault-Background': '1' },
         body: JSON.stringify({ ids: pending.slice(0, 2000) }),
       });
       if (!resp.ok) return;                            // locked/busy — next round
@@ -221,9 +227,8 @@ function populateFilters() {
   populateSelect('filterQuality', qualities);
   populateSelect('filterTheme', [...themes].sort());
 
-  // Theme / content / language get a type-to-search combo over the select
-  if (typeof initSearchableSelects === 'function') initSearchableSelects();
-  if (typeof syncSearchableSelects === 'function') syncSearchableSelects();
+  // The chip popovers read their lists straight off these selects.
+  if (typeof renderFilterChipRow === 'function') renderFilterChipRow();
 }
 
 function populateSelect(id, options) {

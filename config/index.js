@@ -181,6 +181,10 @@ const config = {
     debugLog: envVar('DEBUG_LOG') || path.join(ROOT, 'bad_json_responses.log'),
     thumbnailDir: envVar('THUMBS') || path.join(ROOT, 'thumbnails'),
     trashDir: envVar('TRASH') || path.join(ROOT, 'trash'),
+    // NOTE: there is deliberately NO stream cache directory. Remuxed HLS
+    // segments are never written anywhere but the producer's temp dir, and only
+    // for the moment between FFmpeg closing one and Vault reading it into
+    // memory (see lib/stream/ring.js).
     // NOTE: there is deliberately NO importDir. Vault never copies source media
     // onto local disk — everything is referenced in place (see the native
     // pickers + /api/import/add-paths). The former imports/ folder is gone.

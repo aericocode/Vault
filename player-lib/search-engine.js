@@ -1,26 +1,26 @@
 /* =========================================================================
-   SEARCH ENGINE - Fuzzy, boolean, and regex search support
+   SEARCH ENGINE - Fuzzy and boolean search support
    ========================================================================= */
 
 // Fuse.js instance (lazy-initialized)
 let fuseInstance = null;
 let fuseDataStale = true;
 
-// Search mode: 'default' | 'fuzzy' | 'regex' | 'boolean'
+// Search mode: 'default' | 'fuzzy' | 'boolean'
 let searchMode = 'default';
 
 /**
  * Detect search mode from the query string.
- *   /pattern/flags  → regex
  *   contains AND/OR/NOT → boolean
  *   fuzzy toggle on  → fuzzy
  *   otherwise        → default (substring)
+ *
+ * Round 6 dropped regex mode. A query like /foo/i is now searched literally:
+ * a search box that silently reinterprets slashes is a trap for anyone who
+ * has a slash in a filename, and boolean already covers the real need.
  */
 function detectSearchMode(query) {
   if (!query) return 'default';
-
-  // Regex: /pattern/ or /pattern/gi etc.
-  if (/^\/(.+)\/([gimsuy]*)$/.test(query)) return 'regex';
 
   // Boolean: contains AND, OR, NOT as whole words (uppercase only to avoid false positives)
   if (/\b(AND|OR|NOT)\b/.test(query)) return 'boolean';
@@ -79,23 +79,6 @@ function _searchEntry(m, metadataOnly) {
 function searchDefault(query, media, metadataOnly) {
   const q = query.toLowerCase();
   return media.filter(m => _searchEntry(m, metadataOnly).low.includes(q));
-}
-
-// ── Regex search ────────────────────────────────────────────────────────
-
-function searchRegex(query, media, metadataOnly) {
-  const match = query.match(/^\/(.+)\/([gimsuy]*)$/);
-  if (!match) return media;
-
-  let regex;
-  try {
-    regex = new RegExp(match[1], match[2] || 'i');
-  } catch (e) {
-    console.warn('[Search] Invalid regex:', e.message);
-    return media; // invalid regex — return all
-  }
-
-  return media.filter(m => regex.test(_searchEntry(m, metadataOnly).raw));
 }
 
 // ── Boolean search ──────────────────────────────────────────────────────
@@ -304,7 +287,6 @@ function executeSearch(query, media, metadataOnly) {
   if (typeof updateSearchModeIndicator === 'function') updateSearchModeIndicator(mode);
 
   switch (mode) {
-    case 'regex': return searchRegex(query, media, metadataOnly);
     case 'boolean': return searchBoolean(query, media, metadataOnly);
     case 'fuzzy': return searchFuzzy(query, media, metadataOnly);
     default: return searchDefault(query, media, metadataOnly);
@@ -312,8 +294,8 @@ function executeSearch(query, media, metadataOnly) {
 }
 
 /* =========================================================================
-   REUSABLE PICKER SEARCH — the library search bar's power (boolean / regex /
-   quoted phrases / all-field matching + Metadata-only, Fuzzy, Semantic) for
+   REUSABLE PICKER SEARCH — the library search bar's power (boolean / quoted
+   phrases / all-field matching + Metadata-only, Fuzzy, Semantic) for
    the editor / games / PMV media pickers. Side-effect-free: it never touches
    the main library's shared Fuse instance, mode indicator, or globals.
    ========================================================================= */
@@ -332,20 +314,18 @@ function _pickerFuzzy(query, media, metadataOnly) {
 /** Detect mode from the query + an explicit fuzzy flag (no DOM reads). */
 function pickerSearchMode(query, fuzzy) {
   if (!query) return 'default';
-  if (/^\/(.+)\/([gimsuy]*)$/.test(query)) return 'regex';
   if (/\b(AND|OR|NOT)\b/.test(query)) return 'boolean';
   if (fuzzy) return 'fuzzy';
   return 'default';
 }
 
-/** Synchronous text search (default/regex/boolean/fuzzy). → { items, mode } */
+/** Synchronous text search (default/boolean/fuzzy). → { items, mode } */
 function pickerSearchSync(query, media, { metadataOnly = false, fuzzy = false } = {}) {
   const q = (query || '').trim();
   if (!q) return { items: media, mode: 'default' };
   const mode = pickerSearchMode(q, fuzzy);
   let items;
   switch (mode) {
-    case 'regex': items = searchRegex(q, media, metadataOnly); break;
     case 'boolean': items = searchBoolean(q, media, metadataOnly); break;
     case 'fuzzy': items = _pickerFuzzy(q, media, metadataOnly); break;
     default: items = searchDefault(q, media, metadataOnly);
@@ -418,7 +398,7 @@ function pickerSearchOptionsHtml(prefix, opts = {}) {
 function pickerSetModeIndicator(prefix, mode, pending) {
   const el = document.getElementById(prefix + 'Mode');
   if (!el) return;
-  const labels = { default: '', fuzzy: '~ fuzzy', regex: '/regex/', boolean: 'AND/OR', semantic: pending ? '🧠 …' : '🧠' };
+  const labels = { default: '', fuzzy: '~ fuzzy', boolean: 'AND/OR', semantic: pending ? '🧠 …' : '🧠' };
   const t = labels[mode] || '';
   el.textContent = t;
   el.style.display = t ? 'inline-flex' : 'none';

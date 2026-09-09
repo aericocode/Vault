@@ -14,6 +14,7 @@ const commands = {
   query: () => require('./commands/query'),
   json: () => require('./commands/json'),
   embed: () => require('./commands/embed'),
+  probe: () => require('./commands/probe'),
   clean: () => require('./commands/clean'),
   migrate: () => require('./commands/migrate'),
   phash: () => require('./commands/phash'),
@@ -47,6 +48,13 @@ Commands:
   query [filters]     Query the database
   json [filename]     Export all metadata to JSON
   embed [--all]       Backfill semantic-search embeddings (existing metadata, no rescan)
+  probe [--all]       Backfill codec info so the viewer knows how to play each
+                      file (native or remuxed), and pre-build the keyframe
+                      index for the files that need remuxing.
+
+      Options:
+        --all               Re-probe every file, not just the unprobed ones
+        --no-index          Skip the keyframe pre-build (probe only)
   phash [options]     Visual duplicate detection (catches re-encodes/resizes)
 
       Options:

@@ -48,8 +48,9 @@ let _dwellTimer = null;
 // Wrap the global playMedia (defined in player-core.js, loaded before us).
 // Every entry point — tiles, cards, details, next/prev — routes through it.
 const _origPlayMedia = playMedia;
-playMedia = function (mediaData) {
-  _origPlayMedia(mediaData);
+playMedia = function (mediaData, ...rest) {
+  // ...rest forwards playMedia's options (the hands-free source flag).
+  _origPlayMedia(mediaData, ...rest);
 
   clearTimeout(_dwellTimer);
   if (mediaData && INSTANT_VIEW_TYPES.includes(mediaData.media_type)) {

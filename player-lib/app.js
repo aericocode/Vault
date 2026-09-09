@@ -80,9 +80,136 @@ document.getElementById('favesFirstBtn').addEventListener('click', () => {
   renderResults();
 });
 
-// Filters toggle
-document.getElementById('filtersToggle').addEventListener('click', () => {
-  document.getElementById('filtersPanel').classList.toggle('active');
+/* ── The More sheet ────────────────────────────────────────────────────────
+   The sheet floats over the grid instead of pushing it down, so opening and
+   closing it leaves every tile exactly where it was. While it is open a
+   translucent backdrop covers the grid: it dims what the filters are about to
+   change, and it means a click anywhere on the library closes the sheet.
+   Round 5 built this for the filters panel; round 6 kept the mechanics and
+   changed what sits inside. */
+
+function filtersBackdrop() {
+  let bd = document.getElementById('filtersBackdrop');
+  if (!bd) {
+    bd = document.createElement('div');
+    bd.id = 'filtersBackdrop';
+    bd.className = 'filters-backdrop';
+    // Only a click that really was outside the sheet closes it. Asked from
+    // the event's own path rather than from the node the click ended on,
+    // because a control inside the sheet can be re-rendered mid-click.
+    bd.addEventListener('click', (e) => {
+      if (clickWasInsideTheSheet(e)) return;
+      setFiltersOpen(false);
+    });
+    document.body.appendChild(bd);
+  }
+  return bd;
+}
+
+function filtersAreOpen() {
+  return document.getElementById('moreFiltersSheet')?.classList.contains('active') === true;
+}
+
+/* Every rule that closes the sheet is a rule about clicking somewhere else,
+   so all of them go through this one question. It reads the path the event
+   travelled when it was dispatched, not the node it happens to point at now:
+   pressing a filter inside the sheet re-renders the chip row underneath it,
+   and a control that has been replaced in the meantime has no ancestors left
+   to walk, so `closest()` would call an obviously-inside click "outside" and
+   shut the sheet in the user's face. */
+function clickWasInsideTheSheet(e) {
+  const sheet = document.getElementById('moreFiltersSheet');
+  if (!sheet) return false;
+  if (typeof eventPathHasNode === 'function') return eventPathHasNode(e, sheet);
+  return sheet.contains(e.target);
+}
+
+/* The panel is position: fixed, not absolute. An absolutely positioned panel
+   hanging below the search box still counts towards the document's scroll
+   height, so opening it grew the page, brought in a scrollbar and narrowed the
+   grid by its width — which is exactly the movement this was meant to stop. */
+const FILTERS_PANEL_GAP = 8;   // px of air between the sort row and the panel
+
+function positionFiltersPanel() {
+  const panel = document.getElementById('moreFiltersSheet');
+  const section = document.querySelector('.search-section');
+  if (!panel || !section) return;
+  // Line the panel up with the grid, not with the search box: it floats over
+  // the tiles, so it reads as part of that column.
+  const grid = document.getElementById('resultsGrid');
+  const r = (grid && grid.clientWidth ? grid : section).getBoundingClientRect();
+  // Open right under the chip row the More chip lives in, so the sheet reads
+  // as that row unfolding. Falls back to the search section's bottom edge if
+  // the chip row is not on the page.
+  const chipRow = document.getElementById('filterChipRow');
+  const rowBottom = chipRow ? chipRow.getBoundingClientRect().bottom : section.getBoundingClientRect().bottom;
+  const topEdge = Math.round(rowBottom) + FILTERS_PANEL_GAP;
+  panel.style.left = `${Math.round(r.left)}px`;
+  panel.style.width = `${Math.round(r.width)}px`;
+  panel.style.top = `${topEdge}px`;
+  panel.style.maxHeight = `${Math.max(120, Math.round(window.innerHeight - topEdge - 12))}px`;
+  const bd = document.getElementById('filtersBackdrop');
+  // Measured from the panel's own laid-out height, not its rect: while the
+  // open transition is running the rect is still 4 px above where it lands.
+  if (bd) bd.style.top = `${Math.max(0, topEdge + panel.offsetHeight)}px`;
+}
+
+function setFiltersOpen(open) {
+  const panel = document.getElementById('moreFiltersSheet');
+  const toggle = document.getElementById('moreFiltersChip');
+  if (!panel) return;
+  if (open && typeof renderMoreSheet === 'function') renderMoreSheet();
+  panel.classList.toggle('active', open);
+  toggle?.setAttribute('aria-expanded', open ? 'true' : 'false');
+  const bd = filtersBackdrop();
+  if (open) {
+    positionFiltersPanel();
+    bd.classList.add('active');
+  } else {
+    bd.classList.remove('active');
+    if (document.activeElement && panel.contains(document.activeElement)) toggle?.focus();
+  }
+}
+
+// The sheet follows the chip row when the window resizes. It deliberately does
+// NOT follow page scroll: in continuous mode a filter set from inside the sheet
+// can shrink the document, the browser clamps scrollY, the chip row moves, and
+// a sheet that tracked it would jump under the cursor between two clicks.
+// While it is open the sheet stays where it opened; a deliberate wheel outside
+// it means the user is leaving the filters, so that closes it instead.
+window.addEventListener('resize', () => { if (filtersAreOpen()) positionFiltersPanel(); }, { passive: true });
+window.addEventListener('wheel', (e) => {
+  if (!filtersAreOpen()) return;
+  if (eventPathTarget(e, '#moreFiltersSheet')) return;
+  if (typeof filterPopoverIsOpen === 'function' && filterPopoverIsOpen()) return;
+  setFiltersOpen(false);
+}, { passive: true });
+
+// The More chip is re-rendered with the row, so the click is delegated — and
+// asked of the event's path, because by the time this listener runs the chip
+// row may already have been rebuilt by a listener ahead of it.
+document.addEventListener('click', (e) => {
+  if (eventPathTarget(e, '#moreFiltersChip')) setFiltersOpen(!filtersAreOpen());
+});
+
+// Escape closes the open popover first, then the sheet, before anything else
+// gets to act on it.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (typeof filterPopoverIsOpen === 'function' && filterPopoverIsOpen()) {
+    closeFilterPopover();
+    e.stopPropagation();
+    return;
+  }
+  if (!filtersAreOpen()) return;
+  setFiltersOpen(false);
+  e.stopPropagation();
+}, true);
+
+// Clicking a tile is a decision about the library, so the sheet steps aside
+document.getElementById('resultsGrid')?.addEventListener('click', (e) => {
+  if (clickWasInsideTheSheet(e)) return;
+  if (filtersAreOpen()) setFiltersOpen(false);
 });
 
 // Search input handler — adaptive debounce: the search itself is synchronous
@@ -142,8 +269,9 @@ if (typeof initTriFilters === 'function') initTriFilters();
 // (List view removed — the viewer is grid-only now)
 
 // Clear filters button
+// Clear filters clears the FILTERS. The search text is a separate thing the
+// user typed, and wiping it here was the round-5 behaviour people tripped on.
 document.getElementById('clearFiltersBtn').addEventListener('click', () => {
-  searchInput.value = '';
   // Reset dropdowns
   document.querySelectorAll('select[id^="filter"]').forEach(select => {
     select.value = '';
@@ -248,11 +376,8 @@ document.getElementById('mediaInfoOverlay').addEventListener('click', (e) => {
 });
 
 // Re-fit the grid on window resize (columns + complete-row page size)
-window.addEventListener('resize', debounce(() => {
-  if (typeof updateGridLayout === 'function' && updateGridLayout()) {
-    renderResults();
-  }
-}, 150));
+// The grid watches its own size (cards.js initGridObservers), which covers
+// window resizes and any bar above it showing or hiding.
 
 // ── Collapsible search section ──────────────────────────────────────────
 function setSearchCollapsed(collapsed) {
@@ -277,9 +402,6 @@ document.addEventListener('DOMContentLoaded', () => {
   try {
     if (localStorage.getItem('searchCollapsed') === '1') setSearchCollapsed(true);
   } catch {}
-  // Reflect the saved delete mode in its selector
-  const dm = document.getElementById('deleteModeSelect');
-  if (dm && typeof getDeleteMode === 'function') dm.value = getDeleteMode();
   loadDatabase();
 });
 
@@ -302,6 +424,21 @@ document.addEventListener('keydown', (e) => {
     if (e.key === ' ') {
       e.preventDefault();
       miniTogglePlay();
+      return;
+    }
+    // The same queue keys as the full player. Minimizing changes the size of
+    // the window, not the queue, and the file these land on now opens in the
+    // mini player rather than throwing the full overlay back up.
+    if (e.key === 'n' || e.key === 'N') {
+      playNextMedia();
+      return;
+    }
+    if (e.key === 'p' || e.key === 'P') {
+      playPreviousMedia();
+      return;
+    }
+    if (e.key === 'r' || e.key === 'R') {
+      playRandomMedia();
       return;
     }
     return;

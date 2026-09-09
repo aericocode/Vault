@@ -9,48 +9,104 @@ function getCurrentMediaIndex(filepath) {
   return filteredMedia.findIndex(m => m.filepath === filepath);
 }
 
+/* ── Known-bad files and hands-free navigation ─────────────────────────────
+   A file is known-bad when the shared codec matrix says nothing here can play
+   it, or when a previous attempt already failed. Nothing that moves the queue
+   on its own (Next, Prev, Random, auto-advance, the queue wrap) should land on
+   one: the person is usually not watching, and a dead file that only announces
+   itself when the error arrives makes them watch nothing at all.
+
+   Skipping a known-bad file is silent. It was never attempted, so there is
+   nothing to report, and the tile's ⚠ and the extension star already say which
+   files those are. Only a file that FAILS while playing earns a toast and a
+   line in the session tally. */
+
+function isKnownBadMedia(row) {
+  if (!row) return false;
+  if (typeof mediaPlaybackState !== 'function') return false;
+  try {
+    return mediaPlaybackState(row).state === 'no';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The next index in filteredMedia that is not known-bad, walking `step` at a
+ * time from `from` (exclusive). -1 when there is none.
+ */
+function nextPlayableIndex(from, step) {
+  for (let i = from + step; i >= 0 && i < filteredMedia.length; i += step) {
+    if (!isKnownBadMedia(filteredMedia[i])) return i;
+  }
+  return -1;
+}
+
+/** Open the file at this index in filteredMedia as a hands-free move. */
+function playIndexHandsFree(i) {
+  const media = filteredMedia[i];
+  if (!media) return false;
+  playMedia({
+    filepath: media.filepath,
+    filename: media.filename,
+    media_type: media.media_type
+  }, { source: 'auto' });
+  refreshSidebarIfOpen();
+  return true;
+}
+
 // Play next media
 function playNextMedia() {
-  if (currentMediaState.currentIndex < filteredMedia.length - 1) {
-    const nextMedia = filteredMedia[currentMediaState.currentIndex + 1];
-    playMedia({
-      filepath: nextMedia.filepath,
-      filename: nextMedia.filename,
-      media_type: nextMedia.media_type
-    });
-    refreshSidebarIfOpen();
-  }
+  const i = nextPlayableIndex(currentMediaState.currentIndex, 1);
+  if (i !== -1) playIndexHandsFree(i);
+}
+
+/**
+ * Advance the queue, wrapping to the top if the repeat button says "Repeat
+ * all".
+ *
+ * Separate from playNextMedia() because the two answer different questions.
+ * playNextMedia is the Next button: at the end of the list it does nothing,
+ * and it should keep doing nothing. This is the automatic path — a file ended,
+ * or failed to play at all — where stopping dead is what drops someone back to
+ * their library mid-stream.
+ *
+ * @returns {boolean} true if it moved to another file.
+ */
+function playNextMediaOrWrap() {
+  const i = nextPlayableIndex(currentMediaState.currentIndex, 1);
+  if (i !== -1) return playIndexHandsFree(i);
+
+  // A one-item list would "wrap" onto itself, which is repeat-one's job, not
+  // this one's.
+  if (repeatMode() !== 'all' || filteredMedia.length < 2) return false;
+  // Wrapping starts at the top of the list, skipping any known-bad files there
+  // just as the forward walk does. Landing back on the file that just ended is
+  // repeat-one's job, so that one does not count as a wrap.
+  const first = nextPlayableIndex(-1, 1);
+  if (first === -1 || first === currentMediaState.currentIndex) return false;
+  return playIndexHandsFree(first);
 }
 
 // Play previous media
 function playPreviousMedia() {
-  if (currentMediaState.currentIndex > 0) {
-    const prevMedia = filteredMedia[currentMediaState.currentIndex - 1];
-    playMedia({
-      filepath: prevMedia.filepath,
-      filename: prevMedia.filename,
-      media_type: prevMedia.media_type
-    });
-    refreshSidebarIfOpen();
-  }
+  const i = nextPlayableIndex(currentMediaState.currentIndex, -1);
+  if (i !== -1) playIndexHandsFree(i);
 }
 
 // Play random media from filtered list
 function playRandomMedia() {
   if (filteredMedia.length < 2) return;
-  let randomIndex;
-  // Avoid picking the same file
-  do {
-    randomIndex = Math.floor(Math.random() * filteredMedia.length);
-  } while (randomIndex === currentMediaState.currentIndex && filteredMedia.length > 1);
-
-  const media = filteredMedia[randomIndex];
-  playMedia({
-    filepath: media.filepath,
-    filename: media.filename,
-    media_type: media.media_type
-  });
-  refreshSidebarIfOpen();
+  // Draw from the files that can actually play, minus the one on screen. A
+  // reservoir walk rather than a retry loop: with most of a list known-bad,
+  // "pick one and try again" can spin for a long time.
+  const pool = [];
+  for (let i = 0; i < filteredMedia.length; i++) {
+    if (i === currentMediaState.currentIndex) continue;
+    if (!isKnownBadMedia(filteredMedia[i])) pool.push(i);
+  }
+  if (!pool.length) return;
+  playIndexHandsFree(pool[Math.floor(Math.random() * pool.length)]);
 }
 
 /**
@@ -112,19 +168,39 @@ function generateUnifiedControlBar(leftControls, rightControls, hasPrev, hasNext
   `;
 }
 
+/* How the file on screen was opened. 'auto' means nothing but the queue asked
+   for it (Next, Prev, Random, auto-advance, the wrap), which is what decides
+   whether a failure skips on quietly or stops and explains itself. Every call
+   site that does not say otherwise is a deliberate open. */
+let lastPlaySource = 'user';
+
 // Main playMedia function
-function playMedia(mediaData) {
+function playMedia(mediaData, { source = 'user' } = {}) {
   const { filepath, filename, media_type } = mediaData;
+  lastPlaySource = source === 'auto' ? 'auto' : 'user';
+
+  /* Minimized is a mode, not a property of one file. A move the queue made on
+     its own — Next, Prev, Random, auto-advance, the wrap, a skip past a file
+     that failed — should land in the mini player too; throwing the full
+     overlay back over the library mid-stream is exactly what minimizing said
+     no to. Only a deliberate open (a tile in the library) or Maximize brings
+     the full player back, and only the types the mini player can show. */
+  const wasMini = currentMediaState.miniMode === true;
+  const keepMini = wasMini && lastPlaySource === 'auto'
+    && (isVideoLike(media_type) || media_type === 'audio');
 
   // Close mini player if active (stop its playback)
   const miniPlayer = document.getElementById('miniPlayer');
   if (miniPlayer && miniPlayer.classList.contains('active')) {
     const miniMedia = document.getElementById('miniPlayerMedia');
     const miniEl = miniMedia?.querySelector('video, audio');
+    teardownMiniAudioCard();
     stopMediaElement(miniEl);
     miniMedia.innerHTML = '';
-    miniPlayer.classList.remove('active');
-    resetMiniPlayerPosition();
+    miniPlayer.classList.remove('active', 'mini-audio');
+    // Where the user dragged the box is theirs to keep while it stays open;
+    // only leaving mini mode altogether puts it back in the corner.
+    if (!keepMini) resetMiniPlayerPosition();
     currentMediaState.miniMode = false;
   }
 
@@ -140,9 +216,10 @@ function playMedia(mediaData) {
 
   // Clear AB loop from previous media
   if (typeof clearAbLoop === 'function') clearAbLoop();
-  // Reset playback speed
-  if (typeof resetSpeed === 'function') resetSpeed();
-  
+  // Playback speed is deliberately NOT reset here — it's a session setting, so
+  // Next/Prev/Random/maximize keep whatever you set. Each renderer re-applies it
+  // to its new element.
+
   // Find current index and store full media data
   currentMediaState.currentIndex = getCurrentMediaIndex(filepath);
   currentMediaState.currentMediaData = filteredMedia[currentMediaState.currentIndex] || null;
@@ -237,48 +314,88 @@ function playMedia(mediaData) {
 
   // Setup click handler on media player content
   content.addEventListener('click', handleContentClick);
+
+  // Straight back down to the mini player. Same tick as the build above, so
+  // the full overlay never gets a frame to paint in.
+  if (keepMini) minimizePlayer();
 }
 
-/* ── Loop / auto-advance ────────────────────────────────────────────────────
-   Loop ON (default): the current video/audio repeats when it ends.
-   Loop OFF: playback auto-advances to the next item in the queue.
-   The last manually-chosen state is remembered across sessions; playing a
-   collection turns loop off for that session without overwriting it. */
+/* ── Repeat / auto-advance ────────────────────────────────────────
+   One button in the control bar answers "what happens when a file ends":
+     off  → play the next file, stop at the end of the list
+     all  → play the next file, start over at the first at the end of the list
+     one  → replay the file that just ended
+   The mode lives in the settings store (shared by every player and remembered
+   across sessions). A session-only override exists for collections, which want
+   the queue to advance without rewriting what the user picked. */
 
-let loopEnabled = localStorage.getItem('player_loop') !== '0';
+const REPEAT_MODES = ['off', 'all', 'one'];
+let repeatOverride = null;   // session-only, cleared the moment the user picks
 
-function isLoopEnabled() {
-  return loopEnabled;
+function repeatMode() {
+  if (REPEAT_MODES.includes(repeatOverride)) return repeatOverride;
+  const m = typeof window.vaultRepeatMode === 'function' ? window.vaultRepeatMode() : 'off';
+  return REPEAT_MODES.includes(m) ? m : 'off';
 }
 
-function setLoopEnabled(on, { persist = true } = {}) {
-  loopEnabled = !!on;
+/** Does the element itself repeat? ('one' is the media element's own loop.) */
+function isRepeatOne() {
+  return repeatMode() === 'one';
+}
+
+function setRepeatMode(mode, { persist = true } = {}) {
+  if (!REPEAT_MODES.includes(mode)) return;
   if (persist) {
-    try { localStorage.setItem('player_loop', loopEnabled ? '1' : '0'); } catch {}
+    repeatOverride = null;
+    if (typeof window.vaultSetRepeatMode === 'function') window.vaultSetRepeatMode(mode);
+  } else {
+    repeatOverride = mode;
   }
   // Apply to whatever is playing right now (unless an A-B loop owns it)
   const el = currentMediaState.element;
   if (el && ['VIDEO', 'AUDIO'].includes(el.tagName) &&
       !(typeof abLoopA !== 'undefined' && abLoopA !== null && abLoopB !== null)) {
-    el.loop = loopEnabled;
+    el.loop = isRepeatOne();
   }
-  updateLoopButton();
+  updateRepeatButton();
 }
 
-function toggleLoop() {
-  setLoopEnabled(!loopEnabled); // manual toggle persists
+function cycleRepeatMode() {
+  const next = REPEAT_MODES[(REPEAT_MODES.indexOf(repeatMode()) + 1) % REPEAT_MODES.length];
+  setRepeatMode(next); // a manual pick persists
   showMediaControls();
 }
 
-function renderLoopButton() {
-  return `<button onclick="toggleLoop()" id="loopBtn" class="control-btn loop-btn ${loopEnabled ? 'active' : ''}" title="Loop this file when it ends — off auto-plays the next item">Loop: ${loopEnabled ? 'On' : 'Off'}</button>`;
+const REPEAT_LABELS = { off: 'Repeat: off', all: 'Repeat all', one: 'Repeat this file' };
+
+/** Two arrows in a loop; the "1" badge rides bottom-right in the 'one' state. */
+function repeatButtonInner(mode) {
+  const badge = mode === 'one'
+    ? '<span class="repeat-badge" aria-hidden="true">1</span>'
+    : '';
+  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+      <path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+    </svg>${badge}`;
 }
 
-function updateLoopButton() {
-  const btn = document.getElementById('loopBtn');
-  if (!btn) return;
-  btn.textContent = `Loop: ${loopEnabled ? 'On' : 'Off'}`;
-  btn.classList.toggle('active', loopEnabled);
+function renderRepeatButton() {
+  const mode = repeatMode();
+  return `<button onclick="cycleRepeatMode()" id="repeatBtn" class="repeat-btn rep-${mode}"
+    data-mode="${mode}" title="${REPEAT_LABELS[mode]}" aria-label="${REPEAT_LABELS[mode]}"
+    >${repeatButtonInner(mode)}</button>`;
+}
+
+function updateRepeatButton() {
+  const mode = repeatMode();
+  document.querySelectorAll('.repeat-btn').forEach(btn => {
+    btn.className = `repeat-btn rep-${mode}`;
+    btn.dataset.mode = mode;
+    btn.title = REPEAT_LABELS[mode];
+    btn.setAttribute('aria-label', REPEAT_LABELS[mode]);
+    btn.innerHTML = repeatButtonInner(mode);
+  });
 }
 
 /* ── Fill mode ───────────────────────────────────────────────────────────
@@ -316,12 +433,93 @@ function updateFillButton() {
   });
 }
 
-/** 'ended' fired with loop off → advance the queue (stops after the last). */
-function autoAdvanceOnEnded() {
-  if (loopEnabled) return;
-  if (currentMediaState.currentIndex < filteredMedia.length - 1) {
-    playNextMedia();
+/* ── Tail watchdog ───────────────────────────────────────────────────────
+   A file that reaches its last frame and never fires 'ended' hangs hands-free
+   playback for good: the element sits unpaused at the end of the timeline, the
+   queue never advances, and the only way out is a click. A remuxed stream can
+   land there when the buffer stops a fraction short of the playlist duration,
+   and that is not the only way to get stuck, so this treats a stalled tail as
+   the end regardless of the reason.
+
+   Deliberately narrow: playing, inside TAIL_EPSILON of the end, and not one
+   millisecond of progress for TAIL_STALL_MS. Normal playback at any speed keeps
+   moving, so it can only fire on a file that really is not going anywhere. */
+
+/** How close to duration counts as "at the end". */
+const TAIL_EPSILON = 0.3;
+
+/** No progress for this long at the end and the file is treated as finished. */
+const TAIL_STALL_MS = 1500;
+
+/** Is an A-B loop armed? It owns the tail while it is, so the watchdog stays out. */
+function _abLoopArmed() {
+  return typeof abLoopA !== 'undefined' && abLoopA !== null
+    && typeof abLoopB !== 'undefined' && abLoopB !== null;
+}
+
+/**
+ * Watch one media element for a stall at the very end of the file.
+ * Idempotent, and the interval clears itself once the element leaves the page.
+ */
+function attachTailWatchdog(element) {
+  if (!element || element._tailWatchdog) return;
+  let lastTime = -1;
+  let stillSince = 0;
+
+  const timer = setInterval(() => {
+    if (!element.isConnected) {
+      clearInterval(timer);
+      delete element._tailWatchdog;
+      return;
+    }
+    const dur = element.duration;
+    if (element.paused || element.ended || !isFinite(dur) || dur <= 0 || _abLoopArmed()) {
+      stillSince = 0;
+      lastTime = -1;
+      return;
+    }
+    const t = element.currentTime;
+    if (Math.abs(t - lastTime) > 0.001) { lastTime = t; stillSince = 0; return; }
+    if (dur - t > TAIL_EPSILON) { stillSince = 0; return; }
+    if (!stillSince) { stillSince = Date.now(); return; }
+    if (Date.now() - stillSince < TAIL_STALL_MS) return;
+    stillSince = 0;
+    finishStalledTail(element);
+  }, 250);
+
+  element._tailWatchdog = timer;
+}
+
+/** Stop watching (the element is being torn down). */
+function clearTailWatchdog(element) {
+  if (element && element._tailWatchdog) {
+    clearInterval(element._tailWatchdog);
+    delete element._tailWatchdog;
   }
+}
+
+/**
+ * The tail stalled — take exactly the path 'ended' would have taken, so repeat
+ * one still replays and everything else advances the queue.
+ */
+function finishStalledTail(element) {
+  if (element.loop) {
+    try { element.currentTime = 0; } catch {}
+    element.play().catch(() => {});
+    return;
+  }
+  try { element.pause(); } catch {}
+  const btn = document.getElementById('playPauseBtn');
+  if (btn) btn.textContent = '▶';
+  autoAdvanceOnEnded();
+}
+
+/** 'ended' fired → advance the queue (or start over, in repeat-all). */
+function autoAdvanceOnEnded() {
+  // 'one' repeats through the element's own loop flag, which means no 'ended'
+  // at all — but a stale listener must not advance past the file either.
+  if (isRepeatOne()) return;
+  playNextMediaOrWrap();
 }
 
 /**
@@ -519,7 +717,11 @@ function renderSidebar() {
   const body = document.getElementById('mediaSidebarBody');
   if (!media || !body) return;
 
-  body.innerHTML = renderDetailBody(media, { context: 'player' });
+  // The skipped tally is appended here rather than built into
+  // renderDetailBody, because it is about the session, not about this file,
+  // and the library modal shares that renderer.
+  body.innerHTML = renderDetailBody(media, { context: 'player' })
+    + (typeof renderSkippedSection === 'function' ? renderSkippedSection() : '');
 }
 
 
@@ -538,7 +740,7 @@ function closeMediaInfo() {
 
 // VLC-style: hide the controls AND the cursor this long after the pointer
 // last moved over the video (only while a video is actively playing).
-const CONTROLS_HIDE_MS = 1500;
+const CONTROLS_HIDE_MS = 2500;
 
 /**
  * Types that behave like a video player: real videos and mixes.
@@ -556,9 +758,9 @@ function isVideoLike(type) {
 const BEATBAR_DEADZONE_PAD = 24;
 
 // Auto-hide the player chrome after the idle timeout. Only the video player
-// hides (images/docs/3D keep their controls). The bar hides whether the
-// video is playing OR paused; the cursor only disappears while actually
-// playing — when paused the user is likely about to click, so it stays.
+// hides (images/docs/3D keep their controls). Nothing hides while the video is
+// paused — a paused video means the user is about to click something, so the
+// bar and the cursor both stay put until playback resumes.
 function hidePlayerChrome() {
   const overlay = document.getElementById('mediaPlayerOverlay');
   if (!overlay || !overlay.classList.contains('active')) return;
@@ -569,9 +771,10 @@ function hidePlayerChrome() {
   // and, because .media-player-content video carries cursor:pointer, a pointer
   // cursor that never went away either.
   if (!isVideoLike(currentMediaState.type) || !el) return;
+  if (el.paused) return;
 
   overlay.classList.remove('controls-visible');
-  if (!el.paused) overlay.classList.add('cursor-hidden');
+  overlay.classList.add('cursor-hidden');
 }
 
 // Show controls and schedule the hide
@@ -640,12 +843,115 @@ function handlePlayerPointerMove(e) {
   }
 }
 
-function handleMediaError(filepath) {
+/* ── Unplayable files ───────────────────────────────────────────────────────
+   Closing the player is the right answer when someone chose this file: they
+   see the toast and go fix it. It is the wrong answer when nothing but the
+   queue asked for it, because the person is usually away from the keyboard and
+   the player closing puts their whole library on screen. So a file that dies
+   during a hands-free move is skipped instead, with a toast naming it, and the
+   Info panel keeps the running list.
+
+   The counter stops a list where nothing plays (an unplugged drive) from
+   spinning through every file forever. Any file that actually starts resets it,
+   so a scattering of bad files never adds up to a false stop. */
+
+let consecutivePlayFailures = 0;
+
+/* Files that were tried and failed during this session. Known-bad files are
+   never in here: they are skipped without being opened, so there is nothing to
+   report about them. Memory only, cleared by a reload. */
+const skippedThisSession = [];
+
+/** Privacy mode with file names hidden must not leak one through a toast. */
+function skippedDisplayName(media) {
+  if (document.body.classList.contains('pm-names')) return 'a file';
+  return (media && media.filename) || 'a file';
+}
+
+function noteSkippedThisSession(media, reason) {
+  if (!media) return;
+  skippedThisSession.push({
+    id: media.id,
+    filename: media.filename,
+    reason: reason || 'it cannot play',
+    at: Date.now(),
+  });
+}
+
+/** The Info panel's "Show them" link: focus the grid on what was skipped. */
+function showSkippedThisSession() {
+  const ids = skippedThisSession.map(s => s.id).filter(Boolean);
+  if (!ids.length || typeof window.vaultShowMediaIds !== 'function') return;
+  if (typeof closeMediaPlayer === 'function') closeMediaPlayer();
+  const unique = [...new Set(ids)];
+  // The focus banner reads "Showing N <label>", so the label carries the
+  // singular itself.
+  window.vaultShowMediaIds(unique,
+    unique.length === 1 ? 'file skipped this session' : 'files skipped this session');
+}
+
+/** The "Skipped this session" block appended to the player's Info sidebar. */
+function renderSkippedSection() {
+  if (!skippedThisSession.length) return '';
+  const esc = typeof escapeHtml === 'function' ? escapeHtml : (s => s);
+  const rows = skippedThisSession.map(s => `
+    <li class="skipped-item">
+      <span class="skipped-name">${esc(skippedDisplayName(s))}</span>
+      <span class="skipped-why">${esc(s.reason)}</span>
+    </li>`).join('');
+  return `
+    <div class="skipped-section">
+      <h3 class="skipped-h">Skipped this session (${skippedThisSession.length})</h3>
+      <ul class="skipped-list">${rows}</ul>
+      <button type="button" class="skipped-show" onclick="showSkippedThisSession()">Show them</button>
+    </div>`;
+}
+
+// canplay/loadeddata fire on the media element and do not bubble, hence the
+// capture phase — same reason as the listeners in selection.js. Scoped to the
+// player's own element so a hover-scrub preview loading in the grid behind it
+// cannot quietly reset the count.
+function _noteMediaPlayable(e) {
+  const el = e.target;
+  if (!(el instanceof HTMLElement)) return;
+  if (!el.closest('#mediaPlayerContent') && !el.closest('#miniPlayerMedia')) return;
+  consecutivePlayFailures = 0;
+}
+document.addEventListener('canplay', _noteMediaPlayable, true);
+document.addEventListener('loadeddata', _noteMediaPlayable, true);
+
+/**
+ * @param {string} filepath
+ * @param {string} [reason] a specific sentence to show instead of the generic
+ *        message — the codec explanation from /api/playback, for example.
+ */
+function handleMediaError(filepath, reason) {
+  // A native attempt the server also offered to remux (an MKV that this
+  // browser turned out not to open after all): take that offer once before
+  // treating the file as dead. A successful retry leaves no other trace.
+  if (!reason && typeof retryThroughRemux === 'function'
+      && retryThroughRemux(currentMediaState.element, filepath)) {
+    return;
+  }
+
   // Do NOT auto-copy the path to the clipboard (privacy). The capture-phase
   // error listener flags the item as ⚠ unplayable so it's still findable;
   // users can copy the path themselves from the details panel.
+  consecutivePlayFailures++;
+  const queueLength = (typeof filteredMedia !== 'undefined' && filteredMedia.length) || 1;
+  if (lastPlaySource === 'auto' && consecutivePlayFailures < queueLength) {
+    // Capture the file that just died before the queue moves off it.
+    const dead = currentMediaState.currentMediaData;
+    const why = reason || 'it cannot play';
+    if (playNextMediaOrWrap()) {
+      noteSkippedThisSession(dead, why);
+      showToast(`Skipped ${skippedDisplayName(dead)}: ${why}`);
+      return;
+    }
+  }
+  consecutivePlayFailures = 0;
   closeMediaPlayer();
-  showToast('Cannot play this file — marked as unplayable. Use “Copy Path” to locate it.');
+  showToast(reason || 'Cannot play this file — marked as unplayable. Use “Copy Path” to locate it.');
 }
 
 /**
@@ -658,7 +964,7 @@ function highlightCard(filteredIndex) {
   const media = filteredMedia[filteredIndex];
   const card = media
     ? document.querySelector(`.media-tile[data-id="${media.id}"]`)
-    : document.querySelectorAll('.media-tile')[filteredIndex % pageSize];
+    : document.querySelectorAll('.media-tile')[filteredIndex - pageAnchor];
   if (!card) return;
 
   card.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -666,6 +972,18 @@ function highlightCard(filteredIndex) {
   setTimeout(() => {
     card.classList.remove('card-highlight');
   }, 2000);
+}
+
+/* Closing the player no longer moves the library. The single exception is the
+   file "Restore last session" reopened at launch: the user never chose a page
+   in that case, so the first close is allowed to put the grid where that file
+   is. settings.js arms this flag just before it reopens the file. */
+function revealLastPlayedIfBooting() {
+  if (!window.vaultRevealOnNextClose) return;
+  window.vaultRevealOnNextClose = false;
+  const lastIndex = currentMediaState.currentIndex;
+  if (lastIndex < 0 || lastIndex >= filteredMedia.length) return;
+  if (typeof revealMediaIndex === 'function') revealMediaIndex(lastIndex);
 }
 
 // ── Mini Player ─────────────────────────────────────────────────────────
@@ -684,9 +1002,27 @@ function highlightCard(filteredIndex) {
  */
 function stopMediaElement(el) {
   if (!el) return;
+  clearTailWatchdog(el);
+  // An hls.js instance holds its own loaders and a worker; detaching the
+  // element alone would leave them fetching segments for a file nobody is
+  // watching any more.
+  if (typeof destroyStream === 'function') destroyStream();
   try { el.onerror = null; el.removeAttribute('onerror'); } catch {}
   try { el.pause(); } catch {}
   try { el.removeAttribute('src'); el.load(); } catch {}
+}
+
+/**
+ * A media element inside the mini player failed. Report it against whatever
+ * the player is on right now rather than a path baked in when the element was
+ * built, and only while the element is still the one on screen — a detached
+ * element firing its error late must not move the queue.
+ */
+function handleMiniMediaError(e) {
+  const el = e.currentTarget;
+  if (!el || !el.closest('#miniPlayerMedia')) return;
+  const filepath = currentMediaState.currentMediaData?.filepath;
+  if (filepath) handleMediaError(filepath);
 }
 
 /**
@@ -723,6 +1059,8 @@ function minimizePlayer() {
 
   // Set title
   miniTitle.textContent = currentMediaState.currentMediaData?.filename || 'Playing...';
+  // Audio gets the compact card layout; everything else the plain video box
+  miniPlayer.classList.remove('mini-audio');
 
   // The inline onerror carries this file's path and calls closeMediaPlayer;
   // it's meaningless once the media is loaded and only causes stale-path
@@ -730,6 +1068,10 @@ function minimizePlayer() {
   // are still caught by the capture-phase listener in selection.js.
   element.onerror = null;
   element.removeAttribute('onerror');
+  // ...but hands-free playback still has to notice a file that dies while
+  // minimized, or a bad file in the queue silently stops the stream. This
+  // listener reads the path at the moment it fires, so it can never be stale.
+  element.addEventListener('error', handleMiniMediaError);
 
   // Move the media element to the mini player (preserves playback state)
   if (type === 'mix') {
@@ -754,11 +1096,19 @@ function minimizePlayer() {
     miniMedia.innerHTML = '';
     miniMedia.appendChild(element);
   } else if (type === 'audio') {
-    // For audio, move the audio element and show a simple display
+    // Audio has nothing to show, so the mini player becomes a compact card:
+    // art tile + title/time + controls on one row, hairline progress under it.
+    // The <audio> itself just rides along, hidden.
     element.removeAttribute('id');
-    miniMedia.innerHTML = '<div class="audio-visualization" style="padding: 1rem; text-align: center;"><div class="audio-icon" style="font-size: 2rem;">🎵</div></div>';
+    miniMedia.innerHTML = '';
     miniMedia.appendChild(element);
+    miniPlayer.classList.add('mini-audio');
+    setupMiniAudioCard(element);
   }
+
+  // Give this mode its own box before the card is shown, so the first paint is
+  // already the right shape.
+  applyMiniPlayerSize(miniPlayer, type === 'audio');
 
   // Update mini play/pause button
   updateMiniPlayPause();
@@ -779,6 +1129,9 @@ function minimizePlayer() {
   // Show mini player
   currentMediaState.miniMode = true;
   miniPlayer.classList.add('active');
+  // Now that it has a layout, pull it back on-screen if a previous drag left
+  // it somewhere that only fit the old (bigger) box.
+  clampMiniPlayerToViewport(miniPlayer);
   // Mini player doesn't cover the grid → bring the selection bar back
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
 
@@ -803,7 +1156,8 @@ function maximizePlayer() {
   }
 
   // Hide mini player
-  miniPlayer.classList.remove('active');
+  teardownMiniAudioCard();
+  miniPlayer.classList.remove('active', 'mini-audio');
   currentMediaState.miniMode = false;
 
   // Re-play in full mode using the current media data
@@ -845,6 +1199,7 @@ function closeMiniPlayer() {
   // Stop any playing media (without tripping the inline error handler). A mix
   // has several layers plus a drift-correction interval, so hand it to its own
   // teardown or the followers keep decoding behind a closed mini player.
+  teardownMiniAudioCard();
   if (currentMediaState.type === 'mix' && typeof stopMixPlayer === 'function') {
     stopMixPlayer();
   } else {
@@ -858,18 +1213,14 @@ function closeMiniPlayer() {
   }
 
   miniMedia.innerHTML = '';
-  miniPlayer.classList.remove('active');
+  miniPlayer.classList.remove('active', 'mini-audio');
   currentMediaState.miniMode = false;
 
-  // Jump to page, re-render (applies the "last opened" tile border), highlight
-  const lastIndex = currentMediaState.currentIndex;
-  if (lastIndex >= 0 && lastIndex < filteredMedia.length) {
-    currentPage = Math.floor(lastIndex / pageSize) + 1;
-    renderResults();
-    requestAnimationFrame(() => {
-      highlightCard(lastIndex);
-    });
-  }
+  // Re-render so the "last opened" tile border lands, but leave the grid where
+  // it was: closing the player used to yank the library to whatever the queue
+  // had wandered onto, which lost the place the user actually chose.
+  revealLastPlayedIfBooting();
+  renderResults();
 }
 
 /**
@@ -905,6 +1256,101 @@ function updateMiniPlayPause() {
   element.addEventListener('play', update);
   element.addEventListener('pause', update);
   element.addEventListener('ended', update);
+}
+
+/**
+ * Wire the compact audio card: the "0:14 / 0:40 · 1x" line and the hairline
+ * progress strip. The listener is parked on the element itself so maximize and
+ * close can take it back off again.
+ */
+function setupMiniAudioCard(element) {
+  const timeEl = document.getElementById('miniAudioTime');
+  const speedEl = document.getElementById('miniAudioSpeed');
+  const fill = document.getElementById('miniAudioProgressFill');
+  const strip = document.getElementById('miniAudioProgress');
+
+  const update = () => {
+    const dur = (isFinite(element.duration) && element.duration > 0) ? element.duration : 0;
+    if (fill) fill.style.width = dur ? ((element.currentTime / dur) * 100) + '%' : '0%';
+    if (timeEl) {
+      timeEl.textContent = `${formatDuration(element.currentTime) || '0:00'} / ${formatDuration(dur) || '0:00'}`;
+    }
+    if (speedEl) speedEl.textContent = (element.playbackRate || 1) + 'x';
+  };
+
+  update();
+  element.addEventListener('timeupdate', update);
+  element.addEventListener('loadedmetadata', update);
+  element._miniAudioUpdate = update;
+
+  // Click/drag the strip to seek. Bound once — the card markup lives in the
+  // page, so re-binding on every minimize would stack handlers.
+  if (strip && !strip._seekBound && typeof attachSeekScrubbing === 'function') {
+    strip._seekBound = true;
+    attachSeekScrubbing(strip, strip, () => {
+      const box = document.getElementById('miniPlayerMedia');
+      return box ? box.querySelector('audio, video') : null;
+    // The strip is a 4px hairline inside a card with overflow:hidden — a pill
+    // left hanging after a click reads as a glitch, so hide it on release.
+    }, { hideLabelOnRelease: true });
+  }
+}
+
+/** Drop the mini audio card's timeupdate listener (maximize / close / replace). */
+function teardownMiniAudioCard() {
+  const miniMedia = document.getElementById('miniPlayerMedia');
+  const element = miniMedia ? miniMedia.querySelector('video, audio') : null;
+  if (element && element._miniAudioUpdate) {
+    element.removeEventListener('timeupdate', element._miniAudioUpdate);
+    element.removeEventListener('loadedmetadata', element._miniAudioUpdate);
+    delete element._miniAudioUpdate;
+  }
+}
+
+/**
+ * Size the mini player for the mode it is about to show.
+ *
+ * The mini player is user-resizable (CSS `resize: both`), and the browser
+ * records a resize as INLINE width/height on #miniPlayer. Inline styles beat
+ * every stylesheet rule, so once a video mini had been dragged out to, say,
+ * 770x900, minimizing an audio file handed the compact card that same box —
+ * art/title/controls floating in the middle of a huge empty rectangle with the
+ * seek strip stranded at the bottom.
+ *
+ * So: park the inline size while audio is showing (audio sizes itself from
+ * CSS, 380px wide and only as tall as its one row), and give the video box
+ * back the size the user chose the next time a video or mix is minimized.
+ */
+function applyMiniPlayerSize(miniPlayer, isAudio) {
+  if (!miniPlayer) return;
+  if (isAudio) {
+    if (miniPlayer.style.width) miniPlayer.dataset.savedW = miniPlayer.style.width;
+    if (miniPlayer.style.height) miniPlayer.dataset.savedH = miniPlayer.style.height;
+    miniPlayer.style.width = '';
+    miniPlayer.style.height = '';
+  } else {
+    if (miniPlayer.dataset.savedW) miniPlayer.style.width = miniPlayer.dataset.savedW;
+    if (miniPlayer.dataset.savedH) miniPlayer.style.height = miniPlayer.dataset.savedH;
+  }
+}
+
+/**
+ * Snap the card back inside the viewport.
+ *
+ * Dragging switches the mini player to inline left/top, and that position
+ * sticks across minimizes. A spot that fit a 640x400 video box can push a
+ * different-sized card (or the same card after the window shrank) off the
+ * right or bottom edge. Untouched, it is still anchored bottom/right by CSS
+ * and there is nothing to clamp.
+ */
+function clampMiniPlayerToViewport(miniPlayer) {
+  if (!miniPlayer || !miniPlayer.style.left) return;
+  const w = miniPlayer.offsetWidth;
+  const h = miniPlayer.offsetHeight;
+  const left = parseFloat(miniPlayer.style.left) || 0;
+  const top = parseFloat(miniPlayer.style.top) || 0;
+  miniPlayer.style.left = Math.max(0, Math.min(Math.max(0, window.innerWidth - w), left)) + 'px';
+  miniPlayer.style.top = Math.max(0, Math.min(Math.max(0, window.innerHeight - h), top)) + 'px';
 }
 
 // ── Mini Player Drag ────────────────────────────────────────────────────
@@ -1039,17 +1485,10 @@ function closeMediaPlayer(event) {
   // Reset mini player position for next use
   resetMiniPlayerPosition();
 
-  // Jump to the page containing the last-played media and mark/highlight it.
-  // Always re-render so the persistent "last opened" tile border is applied
-  // even when the page didn't change.
-  const lastIndex = currentMediaState.currentIndex;
-  if (lastIndex >= 0 && lastIndex < filteredMedia.length) {
-    currentPage = Math.floor(lastIndex / pageSize) + 1;
-    renderResults();
-    requestAnimationFrame(() => {
-      highlightCard(lastIndex);
-    });
-  }
+  // Mark the last-opened tile, and otherwise leave the grid exactly where it
+  // was — see revealLastPlayedIfBooting for the one exception.
+  revealLastPlayedIfBooting();
+  renderResults();
 }
 
 function toggleFullscreen() {

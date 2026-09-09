@@ -4,7 +4,7 @@
 
 function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filename, hasPrev, hasNext) {
   content.innerHTML = `
-    <video id="mediaVideo" src="${fileUrl}" onerror="handleMediaError('${filepath.replace(/'/g, "\\'")}')">
+    <video id="mediaVideo" onerror="handleMediaError('${filepath.replace(/'/g, "\\'")}')">
       Your browser doesn't support video playback.
     </video>
   `;
@@ -13,8 +13,8 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
   const leftControls = `
     <div class="volume-control">
       <button onclick="toggleMute()" id="muteBtn" class="control-btn" title="Mute (M)">🔊</button>
-      <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1.5" step="0.01" value="${savedVolume}" oninput="setVolume(this.value)">
-      <span class="volume-display" id="volumeDisplay">${Math.round(savedVolume * 100)}%</span>
+      <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1.5" step="0.01" value="${playerIsSilent() ? 0 : savedVolume}" oninput="setVolume(this.value)">
+      <span class="volume-display" id="volumeDisplay">${Math.round((playerIsSilent() ? 0 : savedVolume) * 100)}%</span>
     </div>
   `;
   
@@ -25,42 +25,27 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
     <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)">⛶</button>
   `;
 
-  const speedControls = `
-    <div class="speed-control">
-      <button onclick="cycleSpeed(-1)" class="control-btn speed-btn" title="Slower (<)">−</button>
-      <span class="speed-display" id="speedDisplay">1x</span>
-      <button onclick="cycleSpeed(1)" class="control-btn speed-btn" title="Faster (>)">+</button>
-    </div>
-  `;
-  
+  const speedControls = renderSpeedControls();
+
   controlsContainer.innerHTML = `
     <div class="player-controls-wrapper video-controls">
-      <div class="video-progress-wrapper" id="videoProgressWrapper" onmouseenter="drawActivityBar()">
-        <canvas class="video-activity" id="videoActivityBar" height="26" aria-hidden="true" onclick="seekVideo(event)"></canvas>
-        <div class="video-progress" id="videoProgress" onclick="seekVideo(event)">
-          <div class="video-progress-bar" id="videoProgressBar" style="width: 0%"></div>
+      <div class="video-progress-row">
+        ${renderProgressTimes('start')}
+        <div class="video-progress-wrapper" id="videoProgressWrapper" onmouseenter="drawActivityBar()">
+          <canvas class="video-activity" id="videoActivityBar" height="26" aria-hidden="true"></canvas>
+          <div class="video-progress" id="videoProgress">
+            <div class="video-progress-bar" id="videoProgressBar" style="width: 0%"></div>
+          </div>
         </div>
+        ${renderProgressTimes('end')}
       </div>
       <div class="video-playback-row">
-        <span class="video-time">
-          <span id="currentTime">0:00</span>
-          <span class="time-separator">/</span>
-          <span id="totalTime">0:00</span>
-        </span>
         <div class="playback-controls">
-          <button onclick="skipVideo(-10)" class="control-btn" title="-10s (J)">
-            <span>⏪</span><span class="seek-label">10</span>
-          </button>
-          <button onclick="skipVideo(-5)" class="control-btn" title="-5s (←)">
-            <span>◀</span><span class="seek-label">5</span>
-          </button>
+          ${renderSkipButton(-10, 'skipVideo(-10)', '-10s (J)')}
+          ${renderSkipButton(-5, 'skipVideo(-5)', '-5s (←)')}
           <button onclick="togglePlay()" id="playPauseBtn" class="play-pause-btn" title="Play/Pause (Space)">▶</button>
-          <button onclick="skipVideo(5)" class="control-btn" title="+5s (→)">
-            <span class="seek-label">5</span><span>▶</span>
-          </button>
-          <button onclick="skipVideo(10)" class="control-btn" title="+10s (L)">
-            <span class="seek-label">10</span><span>⏩</span>
-          </button>
+          ${renderSkipButton(5, 'skipVideo(5)', '+5s (→)')}
+          ${renderSkipButton(10, 'skipVideo(10)', '+10s (L)')}
         </div>
       </div>
       <div class="video-extras-row">
@@ -69,8 +54,10 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
           ${typeof renderSubtitleButton === 'function' ? renderSubtitleButton() : ''}
         </div>
         <div class="pr-center">
-          ${typeof renderLoopButton === 'function' ? renderLoopButton() : ''}
           ${speedControls}
+          ${typeof renderRepeatButton === 'function' ? renderRepeatButton() : ''}
+          ${typeof renderVibeButton === 'function' ? renderVibeButton() : ''}
+          ${typeof renderBeatBarButtons === 'function' ? renderBeatBarButtons() : ''}
         </div>
         <div class="pr-side pr-right">
           ${typeof renderHotButton === 'function' ? renderHotButton() : ''}
@@ -84,8 +71,8 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
   const video = document.getElementById('mediaVideo');
   currentMediaState.element = video;
 
-  // Loop preference (A-B loop takes over while active)
-  video.loop = typeof isLoopEnabled === 'function' ? isLoopEnabled() : true;
+  // Repeat preference (A-B loop takes over while active)
+  video.loop = typeof isRepeatOne === 'function' ? isRepeatOne() : false;
 
   // Subtitles (3-state CC toggle resolves which track, if any)
   if (typeof applySubtitlesFor === 'function' && currentMediaState.currentMediaData) {
@@ -97,12 +84,17 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
   
   // Apply saved volume (savedVolume is slider position, needs curve)
   const max = currentMediaState.gainNode ? 1.5 : 1;
-  applyVolume(sliderToVolume(savedVolume, max));
-  updateVolumeDisplay(savedVolume, max);
-  
+  applyVolume(sliderToVolume(savedVolume, max));   // also carries the mute flag over
+  updateVolumeDisplay(playerIsSilent() ? 0 : savedVolume, max);
+
+  // Playback speed is a session preference, not a per-file one — the freshly
+  // rendered chrome always says "1x", so re-apply and re-label it here.
+  applySpeedTo(video);
+  updateSpeedDisplay();
+  attachTailWatchdog(video);
+
   video.addEventListener('loadedmetadata', () => {
-    const el = document.getElementById('totalTime');
-    if (el) el.textContent = formatDuration(video.duration);
+    updateTotalTimeLabel();
     // Init AB loop overlay (needed if loop was somehow preserved)
     if (typeof updateAbLoopOverlay === 'function') updateAbLoopOverlay();
   });
@@ -119,6 +111,7 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
       // the stream is still at 0:00 (or stalled)
       currentTimeEl.textContent = formatDuration(video.currentTime) || '0:00';
     }
+    updateTotalTimeLabel();
     // AB loop check
     if (typeof checkAbLoop === 'function') {
       checkAbLoop(video);
@@ -128,6 +121,10 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
   video.addEventListener('play', () => {
     const btn = document.getElementById('playPauseBtn');
     if (btn) btn.textContent = '⏸';
+    // Playback resuming has to re-arm the idle hide: the chrome now stays put
+    // while paused, so without this a pause-then-play from the native element
+    // or from autoplay would leave the bar up for good.
+    if (typeof scheduleHideControls === 'function') scheduleHideControls();
   });
   
   video.addEventListener('pause', () => {
@@ -144,13 +141,28 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
   video.addEventListener('click', handleVideoClick);
   video.addEventListener('dblclick', handleVideoDoubleClick);
 
+  attachSeekScrubbing(
+    document.getElementById('videoProgressWrapper'),
+    document.getElementById('videoProgress'),
+    () => currentMediaState.element
+  );
+
   // Set volume slider max based on whether audio boost is available
   const volumeSlider = document.getElementById('volumeSlider');
   if (volumeSlider) {
     volumeSlider.max = currentMediaState.gainNode ? 1.5 : 1;
   }
 
-  video.play().catch(() => {});
+  // The source comes from the server's playback decision (native file, or an
+  // HLS playlist FFmpeg fills in on demand), so it is set asynchronously —
+  // hence no src attribute above. Everything else about the element was set up
+  // before this point and does not care where the bytes come from.
+  attachPlaybackSource(
+    video,
+    currentMediaState.currentMediaData?.id || null,
+    filepath,
+    fileUrl,
+  );
 }
 
 /* ── Watch-activity curve (YouTube "most replayed" style) ──────────────────
@@ -291,34 +303,145 @@ function seekVideo(event) {
   video.currentTime = percent * video.duration;
 }
 
+/* ── Seek bar scrubbing + hover time ──────────────────────────────────────
+   Shared by the video and audio players (this file loads first, so audio can
+   call it). Click-only seeking made you guess and re-click; here the bar
+   follows the pointer while the button is held, and hovering shows the time
+   under the cursor before you commit to it.
+
+   Everything is bound to the WRAPPER, not the bar, so the activity canvas on
+   top of it and the wrapper's own padding all seek too. Pointer capture keeps
+   the drag alive when the pointer wanders off the bar mid-scrub.
+
+   @param {HTMLElement} wrapper - .video-progress-wrapper
+   @param {HTMLElement} progress - the .video-progress bar (defines the geometry)
+   @param {Function} getMediaEl - returns the <video>/<audio> to drive
+   @param {Object} [opts] - { hideLabelOnRelease } drops the time pill as soon
+     as the button comes back up instead of waiting for the pointer to leave.
+     For a bar only a few pixels tall the pointer often never leaves, so the
+     pill would just sit there after a click. */
+function attachSeekScrubbing(wrapper, progress, getMediaEl, opts) {
+  if (!wrapper || !progress) return;
+
+  const label = document.createElement('div');
+  label.className = 'seek-hover-time';
+  wrapper.appendChild(label);
+
+  let scrubbing = false;
+  let pendingX = null;
+  let frame = null;
+
+  // Fraction 0..1 of the way along the bar for a client x
+  const fractionAt = (clientX) => {
+    const rect = progress.getBoundingClientRect();
+    if (!rect.width) return 0;
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  };
+
+  // Same guard as the click-seek had: duration is NaN until metadata lands,
+  // and assigning NaN to currentTime throws.
+  const playable = () => {
+    const el = getMediaEl();
+    return (el && isFinite(el.duration) && el.duration > 0) ? el : null;
+  };
+
+  const showLabel = (clientX) => {
+    const el = playable();
+    if (!el) { label.classList.remove('visible'); return; }
+    const rect = progress.getBoundingClientRect();
+    const f = fractionAt(clientX);
+    label.textContent = formatDuration(f * el.duration) || '0:00';
+    // Clamp so the pill never hangs off either end of the bar
+    const half = label.offsetWidth / 2;
+    const x = Math.max(half, Math.min(rect.width - half, f * rect.width));
+    label.style.left = x + 'px';
+    label.classList.add('visible');
+  };
+
+  const seekTo = (clientX) => {
+    const el = playable();
+    if (!el) return;
+    const f = fractionAt(clientX);
+    el.currentTime = f * el.duration;
+    // Paint the bar from the pointer straight away — waiting for timeupdate
+    // makes the bar lag a fast drag by a visible amount.
+    const bar = progress.firstElementChild;
+    if (bar) bar.style.width = (f * 100) + '%';
+    if (typeof showMediaControls === 'function') showMediaControls();
+  };
+
+  wrapper.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    scrubbing = true;
+    wrapper.classList.add('scrubbing');
+    try { wrapper.setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+    seekTo(e.clientX);
+    showLabel(e.clientX);
+  });
+
+  wrapper.addEventListener('pointermove', (e) => {
+    showLabel(e.clientX);
+    if (!scrubbing) return;
+    // Coalesce moves onto animation frames — a drag fires far more pointermove
+    // events than the media element can usefully seek to.
+    pendingX = e.clientX;
+    if (frame !== null) return;
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      if (scrubbing && pendingX !== null) seekTo(pendingX);
+    });
+  });
+
+  const endScrub = (e) => {
+    if (!scrubbing) return;
+    scrubbing = false;
+    pendingX = null;
+    if (frame !== null) { cancelAnimationFrame(frame); frame = null; }
+    wrapper.classList.remove('scrubbing');
+    try { wrapper.releasePointerCapture(e.pointerId); } catch {}
+    if (opts && opts.hideLabelOnRelease) label.classList.remove('visible');
+  };
+
+  wrapper.addEventListener('pointerup', endScrub);
+  wrapper.addEventListener('pointercancel', endScrub);
+
+  wrapper.addEventListener('pointerleave', () => {
+    label.classList.remove('visible');
+  });
+}
+
 function toggleMute() {
   const video = currentMediaState.element;
   if (!video) return;
-  
-  video.muted = !video.muted;
-  const muteBtn = document.getElementById('muteBtn');
-  if (muteBtn) muteBtn.textContent = video.muted ? '🔇' : '🔊';
-  
-  const slider = document.getElementById('volumeSlider');
+
+  togglePlayerMute();   // owns savedMuted/savedVolume and the store
+
   const max = currentMediaState.gainNode ? 1.5 : 1;
-  if (video.muted) {
-    if (slider) slider.value = 0;
-    updateVolumeDisplay(0, max);
-  } else {
-    if (slider) slider.value = savedVolume;
-    updateVolumeDisplay(savedVolume, max);
-  }
+  applyVolume(sliderToVolume(savedVolume, max));   // sets .muted and the button
+
+  // While muted the slider reads zero, which is what the ear is getting.
+  const shown = playerIsSilent() ? 0 : savedVolume;
+  const slider = document.getElementById('volumeSlider');
+  if (slider) slider.value = shown;
+  updateVolumeDisplay(shown, max);
 }
 
 function setVolume(value) {
   const video = currentMediaState.element;
   if (!video) return;
-  
+
   value = parseFloat(value);
   const max = currentMediaState.gainNode ? 1.5 : 1;
   const actualVolume = sliderToVolume(value, max);
-  
+
   savedVolume = value; // save the slider position, not the curved value
+  // Reaching for the slider is how you unmute without finding the button.
+  if (value > 0) {
+    currentMediaState.previousVolume = value;
+    savedMuted = false;
+  }
+  saveVolumePrefs();
   applyVolume(actualVolume);
   updateVolumeDisplay(value, max);
 }
@@ -326,17 +449,16 @@ function setVolume(value) {
 function applyVolume(value) {
   const video = currentMediaState.element;
   if (!video) return;
-  
+
   if (currentMediaState.gainNode) {
     currentMediaState.gainNode.gain.value = value;
     video.volume = 1;
   } else {
     video.volume = Math.min(1, value);
   }
-  
-  video.muted = value == 0;
-  const muteBtn = document.getElementById('muteBtn');
-  if (muteBtn) muteBtn.textContent = value == 0 ? '🔇' : '🔊';
+
+  video.muted = playerIsSilent();
+  updateMuteButton();
 }
 
 function updateVolumeDisplay(sliderValue, max) {
@@ -421,34 +543,164 @@ function setupAudioBoost(video) {
 }
 
 // =========================================================================
+// SKIP BUTTONS - Shared markup for video / audio / mix players
+// =========================================================================
+
+/**
+ * One skip button: a rotate arrow with the seconds printed inside it.
+ * Negative seconds draw the counter-clockwise (rewind) arrow.
+ *
+ * @param {number} seconds - signed skip amount, e.g. -10 or 5
+ * @param {string} onclickExpr - inline handler body, e.g. "skipVideo(-10)"
+ * @param {string} title - tooltip, e.g. "-10s (J)"
+ */
+function renderSkipButton(seconds, onclickExpr, title) {
+  const back = seconds < 0;
+  const arrow = back
+    ? '<path d="M4 12a8 8 0 1 0 2.5-5.8"/><path d="M4 4v5h5"/>'
+    : '<path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20 4v5h-5"/>';
+  return `<button onclick="${onclickExpr}" class="control-btn skip-btn" title="${title}">
+            <span class="skip-icon">
+              <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
+                   stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${arrow}</svg>
+              <span class="skip-num">${Math.abs(seconds)}</span>
+            </span>
+          </button>`;
+}
+
+// =========================================================================
+// PROGRESS TIMES - elapsed on the left of the bar, total/remaining on the right
+// =========================================================================
+
+/* Persisted per browser, not per file: whichever way you last read the right
+   hand number is the way you want to read the next one too. */
+let showRemainingTime = (() => {
+  try { return localStorage.getItem('vault.player.showRemaining') === '1'; } catch { return false; }
+})();
+
+/**
+ * The time label that sits at one end of the seek bar.
+ * @param {'start'|'end'} side
+ */
+function renderProgressTimes(side) {
+  if (side === 'start') {
+    return '<span class="progress-time" id="currentTime">0:00</span>';
+  }
+  return `<span class="progress-time progress-time-total" id="totalTime"
+                onclick="toggleTotalTimeMode()"
+                title="Click to switch between total and remaining">0:00</span>`;
+}
+
+/** Flip the right hand label between total duration and time remaining. */
+function toggleTotalTimeMode() {
+  showRemainingTime = !showRemainingTime;
+  try { localStorage.setItem('vault.player.showRemaining', showRemainingTime ? '1' : '0'); } catch {}
+  updateTotalTimeLabel();
+}
+
+/**
+ * Repaint the right hand time label. Called from loadedmetadata and from every
+ * timeupdate (remaining has to tick down), shared by video, audio and mix.
+ */
+function updateTotalTimeLabel(el) {
+  el = el || document.getElementById('totalTime');
+  if (!el) return;
+  const media = currentMediaState.element;
+  const dur = (media && isFinite(media.duration) && media.duration > 0) ? media.duration : 0;
+  if (!dur) { el.textContent = '0:00'; return; }
+  if (showRemainingTime) {
+    const remaining = Math.max(0, dur - (media.currentTime || 0));
+    el.textContent = '-' + (formatDuration(remaining) || '0:00');
+  } else {
+    el.textContent = formatDuration(dur) || '0:00';
+  }
+}
+
+// =========================================================================
 // PLAYBACK SPEED - Shared between video and audio players
 // =========================================================================
 
 const SPEED_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 3];
 let currentSpeedIndex = 3; // default 1x
 
+/** The stepper plus the readout, identical in every player. */
+function renderSpeedControls() {
+  return `
+    <div class="speed-control">
+      <button onclick="cycleSpeed(-1)" class="control-btn speed-btn" title="Slower (<)">−</button>
+      <span class="speed-display" id="speedDisplay"
+            onclick="resetSpeed()"
+            oncontextmenu="openSpeedMenu(event); return false;"
+            title="Click to reset to 1x. Right-click for all speeds">1x</span>
+      <button onclick="cycleSpeed(1)" class="control-btn speed-btn" title="Faster (>)">+</button>
+    </div>
+  `;
+}
+
+/** The speed the session is set to right now. */
+function currentSpeed() {
+  return SPEED_STEPS[currentSpeedIndex];
+}
+
+/**
+ * Put the session speed on a media element, and make it stick.
+ *
+ * playbackRate alone does not survive a source change: the HTML media load
+ * algorithm resets playbackRate to defaultPlaybackRate every time a source is
+ * loaded, and that covers both `el.src = ...` and hls.js attaching MSE. So a
+ * rate applied while the player renders (which happens before the server has
+ * even said whether the file is native or remuxed) was thrown away a moment
+ * later, leaving the file at 1x while the readout still said 2x.
+ *
+ * Setting defaultPlaybackRate as well makes that reset land on the chosen speed
+ * instead of 1x, and the loadedmetadata re-apply covers any path that reaches a
+ * fresh source another way.
+ */
+function applySpeedTo(element) {
+  if (!element || typeof element.playbackRate !== 'number') return;
+  const rate = currentSpeed();
+  try { element.defaultPlaybackRate = rate; } catch {}
+  try { element.playbackRate = rate; } catch {}
+  if (!element._speedBound) {
+    element._speedBound = true;
+    element.addEventListener('loadedmetadata', () => applySpeedTo(element));
+  }
+}
+
+/**
+ * Apply the speed at currentSpeedIndex to the playing element and relabel.
+ */
+function applyCurrentSpeed() {
+  applySpeedTo(currentMediaState.element);
+  updateSpeedDisplay();
+}
+
 /**
  * Cycle playback speed up (+1) or down (-1).
  */
 function cycleSpeed(direction) {
-  const element = currentMediaState.element;
-  if (!element) return;
-
+  if (!currentMediaState.element) return;
   currentSpeedIndex = Math.max(0, Math.min(SPEED_STEPS.length - 1, currentSpeedIndex + direction));
-  const speed = SPEED_STEPS[currentSpeedIndex];
-  element.playbackRate = speed;
-  updateSpeedDisplay();
+  applyCurrentSpeed();
+}
+
+/**
+ * Jump straight to one of the SPEED_STEPS (the right-click menu).
+ */
+function setSpeedIndex(index) {
+  if (index < 0 || index >= SPEED_STEPS.length) return;
+  currentSpeedIndex = index;
+  applyCurrentSpeed();
+  closeSpeedMenu();
 }
 
 /**
  * Reset speed to 1x.
  */
 function resetSpeed() {
-  const element = currentMediaState.element;
-  if (!element) return;
   currentSpeedIndex = SPEED_STEPS.indexOf(1);
-  element.playbackRate = 1;
-  updateSpeedDisplay();
+  applyCurrentSpeed();
+  closeSpeedMenu();
 }
 
 /**
@@ -457,7 +709,56 @@ function resetSpeed() {
 function updateSpeedDisplay() {
   const display = document.getElementById('speedDisplay');
   if (!display) return;
-  const speed = SPEED_STEPS[currentSpeedIndex];
+  // The element's own rate is the truth: if anything ever resets it behind our
+  // back the readout says so instead of quietly lying about the speed.
+  const el = currentMediaState.element;
+  const live = (el && typeof el.playbackRate === 'number' && el.playbackRate > 0)
+    ? Math.round(el.playbackRate * 100) / 100 : null;
+  const speed = live === null ? currentSpeed() : live;
   display.textContent = speed + 'x';
   display.classList.toggle('speed-modified', speed !== 1);
+  // Mini player carries the same readout when it shows an audio card
+  const mini = document.getElementById('miniAudioSpeed');
+  if (mini) mini.textContent = speed + 'x';
+}
+
+/* ── Speed menu (right-click the readout) ────────────────────────────────
+   Built on demand rather than once at startup: the control bar is thrown away
+   and re-rendered on every media change, so a cached node would end up
+   orphaned. */
+function _speedMenuOutside(e) {
+  const menu = document.getElementById('speedMenu');
+  if (menu && !menu.contains(e.target)) closeSpeedMenu();
+}
+
+function _speedMenuKey(e) {
+  if (e.key === 'Escape') { e.stopPropagation(); closeSpeedMenu(); }
+}
+
+function closeSpeedMenu() {
+  const menu = document.getElementById('speedMenu');
+  if (menu) menu.remove();
+  document.removeEventListener('mousedown', _speedMenuOutside, true);
+  document.removeEventListener('keydown', _speedMenuKey, true);
+}
+
+function openSpeedMenu(event) {
+  if (event) event.preventDefault();
+  const display = document.getElementById('speedDisplay');
+  if (!display || !display.parentElement) return;
+  closeSpeedMenu();
+
+  const menu = document.createElement('div');
+  menu.className = 'speed-menu';
+  menu.id = 'speedMenu';
+  menu.innerHTML = SPEED_STEPS.map((s, i) =>
+    `<button type="button" class="speed-menu-item${i === currentSpeedIndex ? ' selected' : ''}"
+             onclick="setSpeedIndex(${i})">${s}x</button>`).join('');
+  display.parentElement.appendChild(menu);
+
+  // Deferred so the click/contextmenu that opened it doesn't immediately close it
+  setTimeout(() => {
+    document.addEventListener('mousedown', _speedMenuOutside, true);
+    document.addEventListener('keydown', _speedMenuKey, true);
+  }, 0);
 }

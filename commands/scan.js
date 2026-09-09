@@ -99,6 +99,14 @@ function tryDupeSkip(filepath, filename, mediaType, startTime) {
   };
 }
 
+/** Render the thumbnail for a freshly saved row. Never fatal to a scan. */
+async function ensureThumbFor(filepath) {
+  try {
+    const row = db.getByPath(filepath);
+    if (row) await require('../lib/thumbnails').ensureThumbnail(row);
+  } catch { /* a missing thumbnail is cosmetic; the scan still succeeded */ }
+}
+
 /**
  * Process a single file using the appropriate processor.
  *
@@ -131,7 +139,10 @@ async function processFile(file, options = {}) {
   // copy its analysis instead of burning GPU time re-scanning it.
   if (config.dupes.enabled && status === 'new') {
     const dupeResult = tryDupeSkip(filepath, filename, mediaType, startTime);
-    if (dupeResult) return dupeResult;
+    if (dupeResult) {
+      await ensureThumbFor(filepath);
+      return dupeResult;
+    }
   }
 
   // Get processor for this file type
@@ -171,6 +182,7 @@ async function processFile(file, options = {}) {
         width: result.metadata?.width,
         height: result.metadata?.height,
         filesize: result.metadata?.filesize,
+        streamInfo: result.metadata?.streamInfo,
         error: result.error || 'Processing failed'
       });
       return { error: result.error || 'Processing failed', filename };
@@ -193,6 +205,7 @@ async function processFile(file, options = {}) {
       width: metadata.width,
       height: metadata.height,
       filesize: metadata.filesize,
+      streamInfo: metadata.streamInfo,
       language: analysis.language,
       themes: analysis.themes,
       locations: analysis.locations,
@@ -218,6 +231,12 @@ async function processFile(file, options = {}) {
       model: 'lm-studio',
       error: null
     });
+
+    // Build the thumbnail here rather than leave it to the first grid that
+    // shows the file: the viewer's /thumb route never runs ffmpeg, so a file
+    // that is scanned but not thumbnailed shows a placeholder until a
+    // background job catches up. Cheap next to the AI pass we just ran.
+    await ensureThumbFor(filepath);
 
     // Generate move operation (if applicable)
     const mediaId = db.getMediaId(filepath);

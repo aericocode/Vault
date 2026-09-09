@@ -227,16 +227,43 @@
       cb.addEventListener('change', () => LovenseApi.setActuatorOn(d, cb.dataset.verb, cb.checked)));
   }
 
-  /* ── Control-bar Vibe toggle (next to Loop) ────────────────────────────── */
+  /* ── Control-bar Vibe toggle (next to the repeat button) ───────────────── */
 
+  /** The three things the button can say, in one place so the rendered markup
+   *  and the live sync can never disagree about its size or its wording. */
+  function vibeState() {
+    const on = LovenseSync.enabled;
+    const disconnected = on && !LovenseApi.isConnected;
+    return {
+      on, disconnected,
+      label: `Vibe: ${on ? (disconnected ? 'No device' : 'On') : 'Off'}`,
+      title: disconnected
+        ? 'Vibe is on but no device is connected — click to open settings'
+        : on ? 'Device syncs to the beat — click to stop'
+             : 'Sync a Lovense device to this video’s beat (persists across videos)'
+    };
+  }
+
+  /* Markup in its final state, rendered with the player's own chrome. Injecting
+     it a tick after the controls exist made the whole centre cluster jump
+     sideways on every Next/Prev; the width is pinned in CSS so the label can
+     change without moving anything either. */
+  function renderVibeButton() {
+    const s = vibeState();
+    const cls = 'control-btn vibe-btn'
+      + (s.on && !s.disconnected ? ' active' : '')
+      + (s.disconnected ? ' vibe-warn' : '');
+    return `<button id="vibeBtn" class="${cls}" onclick="toggleVibe()" title="${escapeHtml(s.title)}"
+      >${escapeHtml(s.label)}</button>`;
+  }
+  window.renderVibeButton = renderVibeButton;
+
+  /* Safety net for players that don't render the button themselves (audio),
+     and for any re-render that drops it. */
   function injectVibeButton() {
-    const loopBtn = document.getElementById('loopBtn');
-    if (!loopBtn || document.getElementById('vibeBtn')) return;
-    const btn = document.createElement('button');
-    btn.id = 'vibeBtn';
-    btn.className = 'control-btn vibe-btn';
-    btn.onclick = toggleVibe;
-    loopBtn.insertAdjacentElement('afterend', btn);
+    const anchor = document.getElementById('repeatBtn');
+    if (!anchor) return;
+    if (!document.getElementById('vibeBtn')) anchor.insertAdjacentHTML('afterend', renderVibeButton());
     syncVibeButton();
   }
 
@@ -261,13 +288,11 @@
 
     const full = document.getElementById('vibeBtn');
     if (full) {
-      full.classList.toggle('active', on && !disconnected);
-      full.classList.toggle('vibe-warn', disconnected);
-      full.textContent = `Vibe: ${on ? (disconnected ? 'No device' : 'On') : 'Off'}`;
-      full.title = disconnected
-        ? 'Vibe is on but no device is connected — click to open settings'
-        : on ? 'Device syncs to the beat — click to stop'
-             : 'Sync a Lovense device to this video’s beat (persists across videos)';
+      const s = vibeState();
+      full.classList.toggle('active', s.on && !s.disconnected);
+      full.classList.toggle('vibe-warn', s.disconnected);
+      full.textContent = s.label;
+      full.title = s.title;
     }
 
     const mini = document.getElementById('miniVibeBtn');
@@ -314,6 +339,7 @@
     }
     syncVibeButton();
   }
+  window.toggleVibe = toggleVibe;   // the rendered button uses an inline onclick
 
   /** Point the sync engine at whatever the player is showing right now —
    *  the full player content OR the mini player (they share the media element
@@ -348,14 +374,17 @@
     // the Vibe button (which retries the saved IP itself).
 
     const orig = playMedia;
-    playMedia = function (mediaData) {
-      orig(mediaData);
+    playMedia = function (mediaData, ...rest) {
+      // ...rest forwards playMedia's options (the hands-free source flag) —
+      // a wrapper that swallows them makes every skip look deliberate.
+      orig(mediaData, ...rest);
       LovenseSync.detach();           // media changed → stop device immediately
       if (mediaData && ['video', 'audio'].includes(mediaData.media_type)) {
-        setTimeout(() => {            // controls render async — inject after
-          injectVibeButton();
-          if (LovenseSync.enabled) attachCurrent();
-        }, 50);
+        // Same tick as the render: a deferred inject reflowed the control row
+        // on every file change. The video player already carries the button in
+        // its markup, so this just re-syncs it there.
+        injectVibeButton();
+        if (LovenseSync.enabled) attachCurrent();
       }
     };
 

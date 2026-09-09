@@ -35,57 +35,648 @@ function errorTooltip(msg) {
   return `Processing error: ${short}`;
 }
 
-/* ── Adaptive grid: exact columns for the viewport, complete rows only ── */
+/* ── Adaptive grid ────────────────────────────────────────────────────────
+   A page is one screenful of whole rows. The column count comes from the card
+   size, the row count from the height actually left under the bars, and every
+   tile is pinned to that row height, so the last row lands on the bottom edge
+   instead of half off it and the document never has to scroll.
 
-const TILE_MIN_WIDTH = 170;  // px — matches the old minmax() minimum
-const GRID_GAP = 12;         // px — 0.75rem
-const TARGET_ROWS = 5;       // rows per page (9 cols × 5 = 45 on a 4K screen)
+   The first tile on screen is the anchor (an index into filteredMedia), not a
+   page number. Anything that changes how many tiles fit — a resize, a card-size
+   change, a bar above the grid appearing — re-slices from the same anchor, so
+   the tile the user was looking at stays where it was. */
 
-/**
- * Compute the column count that fits, pin the grid to exactly that many
- * columns, and set pageSize = columns × TARGET_ROWS so the last row is
- * never ragged. Returns true if pageSize changed.
- */
-function updateGridLayout() {
+const CARD_MIN_WIDTHS = { S: 130, M: 170, L: 230 };
+const GRID_GAP = 12;          // px — 0.75rem, the grid's own gap
+const TILE_ASPECT = 16 / 10;  // .tile-thumb aspect-ratio (css/tiles.css)
+const BOTTOM_RESERVE = 16;    // .main-container bottom padding
+const PAGER_MARGIN = 16;      // .pagination margin-top
+const MIN_ROW_H = 90;
+// A tile never shrinks below this share of its natural height. Squeezing a row
+// to whatever was left over made tiles unreadable on short windows (53% of
+// natural at 900x600). When even a single row at this floor does not fit, we
+// keep the row at the floor and let the document scroll for the remainder --
+// an explicit, rare fallback for very small windows, and the one case where
+// pages mode gives up on "never scroll".
+const MIN_ROW_RATIO = 0.70;
+
+// The tile's name + meta strip. Content-sized, so it measures the same whether
+// or not the tile height is pinned; read off the first rendered tile and kept.
+// The constant is only the guess used before anything has rendered.
+let tileChromeH = 56;
+let pagerH = 44;              // likewise, measured off the rendered pager
+let gridMetrics = { cols: 0, rows: 0, tileW: 0, natH: 0, rowH: 0 };
+
+function libraryLayoutMode() {
+  return typeof window.vaultLibraryLayout === 'function' ? window.vaultLibraryLayout() : 'pages';
+}
+
+function tileMinWidth() {
+  const size = typeof window.vaultCardSize === 'function' ? window.vaultCardSize() : 'M';
+  return CARD_MIN_WIDTHS[size] || CARD_MIN_WIDTHS.M;
+}
+
+/** Column count, tile width and natural tile height for the grid's width. */
+function measureGrid() {
   const grid = document.getElementById('resultsGrid');
-  if (!grid) return false;
-
+  if (!grid) return null;
   const width = grid.clientWidth;
-  if (!width) return false;
+  if (!width) return null;
+  const min = tileMinWidth();
+  const cols = Math.max(2, Math.floor((width + GRID_GAP) / (min + GRID_GAP)));
+  const tileW = (width - (cols - 1) * GRID_GAP) / cols;
+  return { grid, width, cols, tileW, natH: tileW / TILE_ASPECT + tileChromeH };
+}
 
-  const cols = Math.max(2, Math.floor((width + GRID_GAP) / (TILE_MIN_WIDTH + GRID_GAP)));
-  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+/* ── Pages, counted ───────────────────────────────────────────────────────
+   The anchor is still the source of truth, but what the pager SHOWS is a page
+   number: "Page 22 of 28" survives a resize in a way "449 to 469" does not.
+   A resize can leave the anchor part-way into a page; the page number is then
+   the page that contains it, and the next step lands on a page boundary. */
 
-  const newSize = cols * TARGET_ROWS;
-  if (newSize === pageSize) return false;
+function pageCount() {
+  return Math.max(1, Math.ceil(filteredMedia.length / Math.max(1, pageSize)));
+}
 
-  pageSize = newSize;
-  // Clamp the current page so a resize can't strand us past the end
-  const totalPages = Math.max(1, Math.ceil(filteredMedia.length / pageSize));
-  if (currentPage > totalPages) currentPage = totalPages;
+function pageNumber() {
+  return Math.min(pageCount(), Math.floor(pageAnchor / Math.max(1, pageSize)) + 1);
+}
+
+/** Index of the first tile of the last page. */
+function lastPageAnchor() {
+  const size = Math.max(1, pageSize);
+  return Math.max(0, (Math.ceil(filteredMedia.length / size) - 1) * size);
+}
+
+/** Never strand the view past the end of a list that shrank under it. */
+function clampPageAnchor() {
+  const next = Math.min(Math.max(0, pageAnchor), lastPageAnchor());
+  if (next === pageAnchor) return false;
+  pageAnchor = next;
   return true;
 }
 
+/**
+ * Pin the column count and the row height so one page is exactly one screenful
+ * of whole rows. Sets pageSize; returns true if pageSize changed.
+ */
+function updateGridLayout() {
+  const m = measureGrid();
+  if (!m) return false;
+  const { grid, cols, natH } = m;
+
+  // Document offset, so it reads the same whether or not the page is scrolled
+  const gridTop = grid.getBoundingClientRect().top + window.scrollY;
+  // Floor at one minimum row rather than at one natural row: on a short window
+  // with a lot of bars there may be less room than a tile wants, and shrinking
+  // the row is the graceful answer where insisting on the natural height would
+  // just hand the document a scrollbar.
+  const availH = Math.max(MIN_ROW_H, window.innerHeight - gridTop - pagerH - PAGER_MARGIN - BOTTOM_RESERVE);
+  const floorH = Math.max(MIN_ROW_H, natH * MIN_ROW_RATIO);
+  let rows = Math.max(1, Math.round((availH + GRID_GAP) / (natH + GRID_GAP)));
+  let rowH = (availH - (rows - 1) * GRID_GAP) / rows;
+  // Drop a row rather than crush the tiles: fewer, readable rows beat more
+  // rows of slivers. With one row left there is nothing further to drop, so
+  // the floor wins and the document scrolls a little.
+  while (rows > 1 && rowH < floorH) {
+    rows--;
+    rowH = (availH - (rows - 1) * GRID_GAP) / rows;
+  }
+  if (rowH < floorH) rowH = floorH;
+
+  grid.classList.add('grid-pages');
+  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  grid.style.setProperty('--tile-h', `${rowH.toFixed(1)}px`);
+  gridMetrics = { cols, rows, tileW: m.tileW, natH, rowH };
+
+  const newSize = cols * rows;
+  if (newSize === pageSize) return false;
+  pageSize = newSize;
+  clampPageAnchor();
+  return true;
+}
+
+/**
+ * Re-read the two heights the layout can only learn from rendered DOM.
+ * Returns true if either moved, i.e. the layout should be redone.
+ */
+function remeasureGridChrome() {
+  let changed = false;
+  const tile = document.querySelector('#resultsGrid .media-tile');
+  const thumb = tile && tile.querySelector('.tile-thumb');
+  if (thumb && thumb.offsetHeight > 0) {
+    const chrome = tile.offsetHeight - thumb.offsetHeight;
+    if (chrome > 8 && Math.abs(chrome - tileChromeH) > 1) { tileChromeH = chrome; changed = true; }
+  }
+  const pager = document.getElementById('pagination');
+  if (pager && pager.offsetHeight > 0 && Math.abs(pager.offsetHeight - pagerH) > 1) {
+    pagerH = pager.offsetHeight;
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * Belt and braces. If anything above the grid measured a pixel or two off, the
+ * document would scroll — and a page that scrolls is not a page. Shave the row
+ * height by the overflow rather than leave a scrollbar.
+ */
+function fitRowHeight() {
+  if (!gridMetrics.rows) return;
+  const over = document.documentElement.scrollHeight - window.innerHeight;
+  if (over <= 1) return;
+  // Shave only down to the floor -- past it we accept the scrollbar.
+  const floorH = Math.max(MIN_ROW_H, gridMetrics.natH * MIN_ROW_RATIO);
+  const rowH = Math.max(floorH, gridMetrics.rowH - over / gridMetrics.rows);
+  gridMetrics.rowH = rowH;
+  document.getElementById('resultsGrid')?.style.setProperty('--tile-h', `${rowH.toFixed(1)}px`);
+}
+
+let _inRenderCorrection = false;
+
 function renderResults() {
+  if (libraryLayoutMode() === 'continuous') return renderContinuous();
+
+  const grid = document.getElementById('resultsGrid');
+  if (grid) grid.classList.remove('grid-continuous');
   updateGridLayout();
+  clampPageAnchor();
 
-  const start = (currentPage - 1) * pageSize;
-  const end = start + pageSize;
-  const pageItems = filteredMedia.slice(start, end);
-
-  document.getElementById('filteredCount').textContent = filteredMedia.length.toLocaleString();
-  document.getElementById('showingCount').textContent = pageItems.length.toLocaleString();
+  const pageItems = filteredMedia.slice(pageAnchor, pageAnchor + pageSize);
+  currentPage = Math.floor(pageAnchor / Math.max(1, pageSize)) + 1;
 
   const resultsGrid = document.getElementById('resultsGrid');
   const collCards = typeof renderCollectionCards === 'function' ? renderCollectionCards() : '';
   resultsGrid.innerHTML = collCards + pageItems.map(m => renderTile(m)).join('');
+  hydrateThumbs(resultsGrid);
   renderPagination();
 
   // Keep the selection bar's "Select page" count/state in sync after paging
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
+
+  // One correction pass: this render is the only chance to measure the real
+  // name-strip and pager heights, and being wrong about them is the difference
+  // between the last row fitting and the document scrolling.
+  if (!_inRenderCorrection) {
+    _inRenderCorrection = true;
+    try {
+      if (remeasureGridChrome()) renderResults();
+      fitRowHeight();
+    } finally {
+      _inRenderCorrection = false;
+    }
+    prefetchAdjacentPages();
+  }
 }
 
-/* ── Compact tile (grid view) ──────────────────────────────────────────── */
+/* ── Prefetch ─────────────────────────────────────────────────────────────
+   Whatever the user asks for next is almost always a page away, so warm the
+   pages either side of this one, nearest first. The depths live in thumbs.js
+   (PREFETCH_PAGES_AHEAD / _BEHIND) next to the code that spends them. After a
+   new search there is no previous page worth having, so it takes the pages
+   ahead and nothing else. */
+
+let _prefetchWide = false;
+
+function prefetchAdjacentPages() {
+  if (typeof scheduleThumbPrefetch !== 'function') return;
+  const size = Math.max(1, pageSize);
+  const behind = _prefetchWide ? 0 : PREFETCH_PAGES_BEHIND;
+  _prefetchWide = false;
+
+  const batches = [];
+  for (let i = 1; i <= PREFETCH_PAGES_AHEAD; i++) {
+    batches.push(filteredMedia.slice(pageAnchor + i * size, pageAnchor + (i + 1) * size));
+  }
+  for (let i = 1; i <= behind; i++) {
+    const from = Math.max(0, pageAnchor - i * size);
+    const to = Math.max(0, pageAnchor - (i - 1) * size);
+    batches.push(filteredMedia.slice(from, to));
+  }
+  scheduleThumbPrefetch(batches);
+}
+
+function prefetchContinuousRows() {
+  if (typeof scheduleThumbPrefetch !== 'function') return;
+  const { cols, first, last } = contState;
+  if (!cols || last < 0) return;
+  const above = (_prefetchWide || first <= 0)
+    ? []
+    : filteredMedia.slice(Math.max(0, first - PREFETCH_ROWS_BEHIND) * cols, first * cols);
+  _prefetchWide = false;
+  const below = filteredMedia.slice((last + 1) * cols, (last + 1 + PREFETCH_ROWS_AHEAD) * cols);
+  scheduleThumbPrefetch([below, above]);
+}
+
+/* ── Where the page starts ────────────────────────────────────────────────
+   Every jump goes through here so the anchor stays the single source of
+   truth; goToPage() survives as a thin wrapper for older callers. */
+
+function setPageAnchor(index) {
+  const next = Math.min(Math.max(0, Math.round(index)), lastPageAnchor());
+  if (next === pageAnchor) return false;
+  pageAnchor = next;
+  renderResults();
+  return true;
+}
+
+/**
+ * One step is one page, and it lands on a page start: from a part-way anchor
+ * (left behind by a resize) Next goes to the top of the following page rather
+ * than a screenful further into the middle of nowhere.
+ */
+function movePage(delta) {
+  return setPageAnchor((pageNumber() - 1 + delta) * Math.max(1, pageSize));
+}
+
+/** Back to the first tile — a new search or filter has no place to hold. */
+function resetPageAnchor() {
+  pageAnchor = 0;
+  _prefetchWide = true;   // nothing behind us: warm what is ahead instead
+  if (libraryLayoutMode() === 'continuous') scrollLibraryToTop();
+}
+
+/**
+ * Bring the top of the grid back into view without disturbing a short page.
+ * @param {{smooth?: boolean}} [opts] smooth: glide there rather than jump
+ *        (ignored when the system asks for reduced motion).
+ */
+function scrollLibraryToTop(opts) {
+  const grid = document.getElementById('resultsGrid');
+  if (!grid) return;
+  const top = grid.getBoundingClientRect().top + window.scrollY;
+  if (window.scrollY <= top) return;
+  const smooth = !!(opts && opts.smooth) && !prefersReducedMotion();
+  window.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' });
+}
+
+/* ── Back to top ──────────────────────────────────────────────────────────
+   Only continuous mode needs it: pages mode never scrolls, and its pager
+   already has a way back to the first page. The pill earns its place once the
+   grid top is a full screen behind — sooner than that, the way back is one
+   flick of the wheel and a button would just be in the way.
+
+   Which of the two states it is in lives in JS; whether it is allowed to show
+   at all (no player, no modal over the top) is CSS, so nothing has to be
+   notified when one of those opens. */
+
+function scrollTopPillShouldShow() {
+  if (libraryLayoutMode() !== 'continuous') return false;
+  const grid = document.getElementById('resultsGrid');
+  if (!grid) return false;
+  const top = grid.getBoundingClientRect().top + window.scrollY;
+  return window.scrollY - top > window.innerHeight;
+}
+
+/**
+ * Lift the pill clear of the mini player when the two would sit on each other.
+ * The mini player is draggable and resizable, so this asks the rectangles
+ * rather than assuming it is still parked in the bottom-right corner.
+ */
+function liftScrollTopPill(pill) {
+  pill.style.bottom = '';
+  const mini = document.getElementById('miniPlayer');
+  if (!mini || !mini.classList.contains('active')) return;
+  const m = mini.getBoundingClientRect();
+  const p = pill.getBoundingClientRect();
+  const clear = m.right < p.left || m.left > p.right || m.bottom < p.top || m.top > p.bottom;
+  if (clear) return;
+  const lift = window.innerHeight - m.top + 12;
+  const ceiling = window.innerHeight - p.height - 8;
+  pill.style.bottom = `${Math.max(0, Math.min(lift, ceiling))}px`;
+}
+
+function updateScrollTopPill() {
+  const pill = document.getElementById('scrollTopPill');
+  if (!pill) return;
+  const show = scrollTopPillShouldShow();
+  pill.classList.toggle('visible', show);
+  // The fade takes 140ms to put `visibility` back; the tab order should not
+  // wait for it, and should not depend on a frame being painted at all.
+  pill.tabIndex = show ? 0 : -1;
+  if (show) liftScrollTopPill(pill);
+}
+
+// The player calls this when it minimizes, maximizes or closes.
+window.vaultUpdateScrollTopPill = updateScrollTopPill;
+
+/** Put the tile at this index on screen. Used at boot only. */
+function revealMediaIndex(index) {
+  if (index < 0 || index >= filteredMedia.length) return;
+  if (libraryLayoutMode() === 'continuous') {
+    const cols = Math.max(1, contState.cols);
+    const virt = document.querySelector('#resultsGrid .grid-virt');
+    if (!virt || !contState.stride) return;
+    const virtTop = virt.getBoundingClientRect().top + window.scrollY;
+    window.scrollTo({ top: Math.max(0, virtTop + Math.floor(index / cols) * contState.stride) });
+    renderContinuousWindow();
+    return;
+  }
+  const size = Math.max(1, pageSize);
+  setPageAnchor(Math.floor(index / size) * size);
+}
+
+/* ── Continuous mode ──────────────────────────────────────────────────────
+   The document scrolls as it always did; what changes is that only the rows
+   near the viewport exist. The grid becomes a plain block holding one spacer
+   the height of the whole list, with a handful of absolutely positioned rows
+   inside it. Tiles keep their natural height and nothing snaps — the scroll
+   position is whatever the user left it at, to the pixel. */
+
+let contState = { cols: 0, stride: 0, totalRows: 0, first: -1, last: -1 };
+
+/** Which rows to keep in the DOM: the visible ones plus a small buffer. */
+function continuousRange(stride, totalRows) {
+  const virt = document.querySelector('#resultsGrid .grid-virt');
+  if (!virt || !stride) return { first: 0, last: Math.min(totalRows - 1, 5), y: 0 };
+  const virtTop = virt.getBoundingClientRect().top + window.scrollY;
+  const y = window.scrollY - virtTop;
+  const first = Math.max(0, Math.floor(y / stride) - 2);
+  const last = Math.min(totalRows - 1, Math.floor((y + window.innerHeight) / stride) + 3);
+  return { first, last, y };
+}
+
+function renderContinuous() {
+  const m = measureGrid();
+  if (!m) return;
+  const { grid, cols, natH } = m;
+  const stride = natH + GRID_GAP;
+  const total = filteredMedia.length;
+  const totalRows = Math.ceil(total / cols);
+
+  grid.classList.remove('grid-pages');
+  grid.classList.add('grid-continuous');
+  grid.style.removeProperty('--tile-h');
+  grid.style.removeProperty('grid-template-columns');
+
+  const collCards = typeof renderCollectionCards === 'function' ? renderCollectionCards() : '';
+
+  // Rebuild the skeleton only when its shape changed; scrolling replaces the
+  // rows inside it and nothing else, which is the whole point of the spacer.
+  const shape = `${cols}|${totalRows}|${Math.round(stride)}|${collCards.length}`;
+  let virt = grid.querySelector('.grid-virt');
+  if (!virt || grid.dataset.gridShape !== shape) {
+    grid.innerHTML =
+      (collCards ? `<div class="grid-colls" style="grid-template-columns:repeat(${cols},1fr)">${collCards}</div>` : '') +
+      '<div class="grid-virt"></div>';
+    grid.dataset.gridShape = shape;
+    virt = grid.querySelector('.grid-virt');
+  }
+  virt.style.height = `${Math.max(0, totalRows * stride - GRID_GAP)}px`;
+
+  contState = { cols, stride, totalRows, first: -1, last: -1 };
+  renderContinuousWindow();
+
+  renderPagination();
+
+  // The name strip is the one height only rendered DOM can tell us; a wrong
+  // guess would put every row's top a few pixels out.
+  if (!_inRenderCorrection) {
+    _inRenderCorrection = true;
+    try { if (remeasureGridChrome()) renderContinuous(); } finally { _inRenderCorrection = false; }
+  }
+}
+
+/** Swap in the rows for the current scroll position. */
+function renderContinuousWindow() {
+  const virt = document.querySelector('#resultsGrid .grid-virt');
+  if (!virt) return;
+  const { cols, stride, totalRows } = contState;
+  const r = continuousRange(stride, totalRows);
+  contState.first = r.first;
+  contState.last = r.last;
+
+  let html = '';
+  for (let row = r.first; row <= r.last; row++) {
+    const items = filteredMedia.slice(row * cols, row * cols + cols);
+    if (!items.length) continue;
+    html += `<div class="grid-row" style="top:${(row * stride).toFixed(1)}px;grid-template-columns:repeat(${cols},1fr)">`
+      + items.map(item => renderTile(item)).join('') + '</div>';
+  }
+  virt.innerHTML = html;
+  hydrateThumbs(virt);
+  prefetchContinuousRows();
+  updateScrollTopPill();
+
+  // The anchor still means "first tile on screen", which here is the first
+  // tile of the first row the viewport actually shows.
+  pageAnchor = Math.max(0, Math.min(
+    Math.max(0, filteredMedia.length - 1),
+    Math.max(0, Math.floor(Math.max(0, r.y) / (stride || 1))) * cols));
+  currentPage = Math.floor(pageAnchor / Math.max(1, pageSize)) + 1;
+
+  if (typeof renderSelectionBar === 'function') renderSelectionBar();
+}
+
+/** Where the viewport sits, expressed as a tile plus a pixel offset. */
+function continuousAnchorOffset() {
+  const virt = document.querySelector('#resultsGrid .grid-virt');
+  if (!virt || !contState.stride) return null;
+  const virtTop = virt.getBoundingClientRect().top + window.scrollY;
+  const y = window.scrollY - virtTop;
+  if (y < 0) return null;                     // still above the grid: nothing to hold
+  const row = Math.floor(y / contState.stride);
+  return { index: row * contState.cols, offset: y - row * contState.stride };
+}
+
+/** Put that tile back at the same place in the viewport after a re-lay. */
+function restoreContinuousAnchor(keep) {
+  const virt = document.querySelector('#resultsGrid .grid-virt');
+  if (!keep || !virt || !contState.stride) return;
+  const virtTop = virt.getBoundingClientRect().top + window.scrollY;
+  const row = Math.floor(keep.index / Math.max(1, contState.cols));
+  window.scrollTo({ top: Math.max(0, virtTop + row * contState.stride + keep.offset) });
+  renderContinuousWindow();
+}
+
+/* ── Re-layout triggers ───────────────────────────────────────────────────
+   The grid is re-laid only when something that feeds the maths actually
+   moved: its width, its distance from the top of the document (a bar above it
+   appearing or disappearing), the window height, or the card size. Gating on
+   that key matters — fitRowHeight() changes the grid's HEIGHT, which the
+   observer would otherwise read as a reason to lay out again, forever. */
+
+let _lastLayoutKey = '';
+
+function libraryLayoutKey() {
+  const grid = document.getElementById('resultsGrid');
+  if (!grid) return '';
+  const top = Math.round(grid.getBoundingClientRect().top + window.scrollY);
+  return [grid.clientWidth, top, window.innerHeight, tileMinWidth(), libraryLayoutMode()].join('|');
+}
+
+function relayoutLibrary(force) {
+  const key = libraryLayoutKey();
+  if (!key) return;
+  if (!force && key === _lastLayoutKey) return;
+  _lastLayoutKey = key;
+  // A bar above the grid changing height moves every row; hold the tile the
+  // user was looking at rather than let the list slide under them.
+  const keep = libraryLayoutMode() === 'continuous' ? continuousAnchorOffset() : null;
+  renderResults();
+  if (keep) restoreContinuousAnchor(keep);
+  _lastLayoutKey = libraryLayoutKey();
+  updateScrollTopPill();   // a mode switch decides whether the pill exists at all
+}
+
+// Settings calls this when the layout mode or card size changes.
+window.vaultRelayoutLibrary = () => relayoutLibrary(true);
+
+function initGridObservers() {
+  const grid = document.getElementById('resultsGrid');
+  if (!grid) return;
+  let timer = null;
+  const nudge = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => relayoutLibrary(false), 80);
+  };
+  if (typeof ResizeObserver === 'function') {
+    const ro = new ResizeObserver(nudge);
+    ro.observe(grid);
+    // The bars above the grid: showing or hiding one moves the grid's top edge
+    ['.search-section', '.results-info', '#missingFilesBanner', '#focusFilterBar']
+      .forEach(sel => { const el = document.querySelector(sel); if (el) ro.observe(el); });
+  }
+  window.addEventListener('resize', nudge);
+
+  // Continuous mode: rows come and go as the page scrolls, one pass per frame.
+  let scrollQueued = false;
+  window.addEventListener('scroll', () => {
+    if (scrollQueued) return;
+    scrollQueued = true;
+    requestAnimationFrame(() => {
+      scrollQueued = false;
+      updateScrollTopPill();
+      if (libraryLayoutMode() !== 'continuous') return;
+      const r = continuousRange(contState.stride, contState.totalRows);
+      if (r.first === contState.first && r.last === contState.last) return;
+      renderContinuousWindow();
+    });
+  }, { passive: true });
+
+  // The mini player moves and resizes under the user's hand, and it shows and
+  // hides without going through a render — the pill has to keep clear of
+  // wherever it ends up.
+  const mini = document.getElementById('miniPlayer');
+  if (mini && typeof MutationObserver === 'function') {
+    new MutationObserver(updateScrollTopPill)
+      .observe(mini, { attributes: true, attributeFilter: ['class', 'style'] });
+  }
+
+  // One wheel notch is one page. Debounced, because a trackpad fling arrives
+  // as a burst of small deltas and would otherwise flip through several.
+  // The listener is on the document, not on the results region: in pages mode
+  // the whole screen is the library, so a notch over the header, the search
+  // row, the type bar, the chip row, the empty margin beside the grid or the
+  // pager means the same thing as a notch over a tile. Everything that is NOT
+  // the library says so through the guards below.
+  let wheelBlockedUntil = 0;
+  const onWheel = (e) => {
+    if (libraryLayoutMode() !== 'pages') return;
+    if (!e.deltaY) return;
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;   // sideways is not paging
+    if (libraryWheelIsSpokenFor(e.target)) return;
+    const now = Date.now();
+    if (now < wheelBlockedUntil) return;
+    wheelBlockedUntil = now + 250;
+    movePage(e.deltaY > 0 ? 1 : -1);
+  };
+  document.addEventListener('wheel', onWheel, { passive: true });
+}
+
+/* Everything that floats over the library, or replaces it. Each one either has
+   its own wheel behaviour (the player zooms an image, the settings modal
+   scrolls its own body) or is a card the user is reading, and paging the grid
+   out from under any of them would be the wrong answer. */
+const WHEEL_BLOCKING_OVERLAYS = [
+  '.filters-panel.active',           // the More sheet, and anything on its mechanics
+  '.modal-overlay.active',           // the detail modal
+  '.settings-overlay.active',        // Settings
+  '.media-player-overlay.active',    // the player (image zoom lives on its wheel)
+  '.media-info-overlay.active',
+].join(', ');
+
+/**
+ * True if this wheel belongs to something other than the library page.
+ *
+ * Four ways that happens: the library is not the tab on screen; an overlay or
+ * a filter popover is open over it; the window is short enough that the page
+ * itself scrolls; or the thing under the pointer scrolls itself.
+ */
+function libraryWheelIsSpokenFor(target) {
+  // The library tab has to be the one showing — the editor and the games have
+  // their own wheel meanings.
+  if (document.getElementById('mainContainer')?.classList.contains('active') !== true) return true;
+  if (document.querySelector(WHEEL_BLOCKING_OVERLAYS)) return true;
+  if (typeof filterPopoverIsOpen === 'function' && filterPopoverIsOpen()) return true;
+  // A short window scrolls the page itself; the wheel is that scrollbar's.
+  const doc = document.documentElement;
+  if (doc.scrollHeight > doc.clientHeight + 1) return true;
+  return ownsItsScroll(target);
+}
+
+/**
+ * True if the wheel belongs to something under the pointer rather than to the
+ * page: a select, a text field, a contenteditable, or any box with its own
+ * scrollbar (a popover list, the settings body). Paging the library out from
+ * under one of those would be the wrong answer.
+ */
+function ownsItsScroll(target, root) {
+  const stop = root || document.body;
+  for (let n = target; n && n !== stop && n !== document.documentElement; n = n.parentElement) {
+    if (!(n instanceof Element)) break;
+    // The pager's own slider is an input, but it is also the middle of the
+    // pager: a wheel there means the same thing as a wheel next to it, and a
+    // range slider does nothing with the wheel of its own accord.
+    if (n.tagName === 'INPUT' && n.type === 'range') continue;
+    if (isTypingTarget(n)) return true;
+    const oy = getComputedStyle(n).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 1) return true;
+  }
+  return false;
+}
+
+/** Typing somewhere? Then Page Down belongs to that field, not to the grid. */
+function isTypingTarget(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
+
+document.addEventListener('keydown', (e) => {
+  if (libraryLayoutMode() !== 'pages') return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (isTypingTarget(e.target)) return;
+  // The player, the mini player and any open modal own these keys first
+  if (document.getElementById('mediaPlayerOverlay')?.classList.contains('active')) return;
+  if (document.getElementById('miniPlayer')?.classList.contains('active')) return;
+  if (document.querySelector('.modal-overlay.active, .settings-overlay.active')) return;
+  if (document.getElementById('mainContainer')?.classList.contains('active') !== true) return;
+
+  if (e.key === 'PageDown') { movePage(1); }
+  else if (e.key === 'PageUp') { movePage(-1); }
+  else if (e.key === 'Home') { setPageAnchor(0); }
+  else if (e.key === 'End') { setPageAnchor(lastPageAnchor()); }
+  else return;
+  e.preventDefault();
+});
+
+// player-lib scripts are loaded after the document is parsed, so waiting on
+// DOMContentLoaded here would wait for an event that already fired.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initGridObservers);
+} else {
+  initGridObservers();
+}
+
+/* ── Compact tile (grid view) ──────────────────────────────────────────────
+   The filename `title=` tooltip below is written conditionally: a native
+   tooltip cannot be blurred by CSS, so the only way to stop a hover printing
+   the name in the clear is to not write the attribute at all. It is dropped
+   when privacy mode is hiding FILE NAMES specifically (body.pm-names) rather
+   than for privacy mode as a whole — with names left visible the tooltip leaks
+   nothing the tile is not already showing. settings.js repaints the grid when
+   either the mode or that choice changes. */
 
 function renderTile(media) {
   const isFlagged = !!media.user_flagged_delete;
@@ -96,9 +687,23 @@ function renderTile(media) {
   const rating = media.user_rating || 0;
   const duration = media.duration_seconds ? formatDuration(media.duration_seconds) : '';
   const icon = TILE_TYPE_ICONS[media.media_type] || '📁';
-  const canThumb = ['image', 'gif', 'video', 'mix'].includes(media.media_type);
+  // A file we already know has no picture (its source is gone, or the render
+  // failed) renders as the type icon straight away. Otherwise every re-render
+  // would ask the server again for something it has already said is not there.
+  const canThumb = ['image', 'gif', 'video', 'mix'].includes(media.media_type)
+    && !thumbKnownMissing(media.id);
   const isMix = media.media_type === 'mix';
   const isSelected = typeof selectedIds !== 'undefined' && selectedIds.has(media.id);
+
+  // Can this file play at all? The chips ask the same question (filters.js);
+  // here the answer only ever adds the ⚠ that playback_failed used to add on
+  // its own, now also for files whose codecs this browser has no decoder for
+  // and no remux path to.
+  const playState = typeof mediaPlaybackState === 'function'
+    ? mediaPlaybackState(media)
+    : { state: media.playback_failed ? 'no' : 'unknown', reason: 'Failed to play' };
+  const cannotPlay = playState.state === 'no';
+  const cannotPlayWhy = playState.reason || 'Failed to play';
 
   // Small indicator row: only what matters at a glance
   const views = media.view_count || 0;
@@ -111,7 +716,7 @@ function renderTile(media) {
     isFlagged ? '<span class="tile-ind ind-flag" title="Flagged">🚩</span>' : '',
     media.dupe_group ? '<span class="tile-ind ind-dupe" title="Confirmed duplicate — notes shared">⧉</span>' : '',
     isTrashed ? '<span class="tile-ind ind-trashed" title="In trash">🗑</span>' : '',
-    media.playback_failed ? '<span class="tile-ind ind-error" title="Failed to play">⚠</span>' : '',
+    cannotPlay ? `<span class="tile-ind ind-error" title="${escapeHtml(cannotPlayWhy)}">⚠</span>` : '',
     hasNotes ? '<span class="tile-ind ind-notes" title="Has notes">📝</span>' : '',
     hasError ? `<span class="tile-ind ind-error" title="${escapeHtml(errorTooltip(media.processing_error))}">⚠</span>` : '',
     isUnscanned ? '<span class="tile-ind ind-unscanned" title="Not scanned yet — AI analysis pending">⏳</span>' : '',
@@ -126,8 +731,10 @@ function renderTile(media) {
     doneCount > 0 ? `<span class="hd-done" title="Finishers: sessions ended here ${doneCount}×">💦${doneCount > 1 ? doneCount : ''}</span>` : '',
   ].filter(Boolean).join('');
 
+  // thumbImgAttrs() decides between a plain src and the vault's blob cache;
+  // the onerror is the last resort, after thumbs.js has run out of retries.
   const thumb = canThumb
-    ? `<img class="tile-img" loading="lazy" src="/thumb/${media.id}" alt=""
+    ? `<img class="tile-img" loading="lazy" ${thumbImgAttrs(media)} alt=""
          onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">`
     : '';
 
@@ -156,7 +763,7 @@ function renderTile(media) {
   }
 
   return `
-    <div class="media-tile ${isFlagged ? 'tile-flagged' : ''} ${isTrashed ? 'tile-trashed' : ''} ${isSelected ? 'tile-selected' : ''} ${media.playback_failed ? 'tile-failed' : ''} ${media.id === lastOpenedMediaId ? 'tile-last-opened' : ''} ${(typeof isCardBusy === 'function' && isCardBusy(media.id)) ? 'tile-busy' : ''}" data-id="${media.id}">
+    <div class="media-tile ${isFlagged ? 'tile-flagged' : ''} ${isTrashed ? 'tile-trashed' : ''} ${isSelected ? 'tile-selected' : ''} ${cannotPlay ? 'tile-failed' : ''} ${media.id === lastOpenedMediaId ? 'tile-last-opened' : ''} ${(typeof isCardBusy === 'function' && isCardBusy(media.id)) ? 'tile-busy' : ''}" data-id="${media.id}">
       <div class="tile-thumb ${canThumb ? '' : 'thumb-fallback'}" onclick="playMediaById(${media.id})">
         ${thumb}
         <span class="tile-type-icon">${icon}</span>
@@ -172,7 +779,7 @@ function renderTile(media) {
           <button class="tile-btn" onclick="showDetailsById(${media.id})" title="Details">ⓘ</button>
         </div>
       </div>
-      <div class="tile-name"${document.body.classList.contains('privacy-mode') ? '' : ` title="${escapeHtml(media.filename)}"`}>${escapeHtml(media.filename)}</div>
+      <div class="tile-name"${document.body.classList.contains('pm-names') ? '' : ` title="${escapeHtml(media.filename)}"`}>${escapeHtml(media.filename)}</div>
       <div class="tile-meta">
         <span class="tile-badge type-${media.media_type}">${media.media_type}</span>
         ${simChip}
@@ -317,8 +924,8 @@ function startScrub(tile, media) {
   _scrub.timer = setInterval(() => {
     if (!img.isConnected) { stopScrub(); return; }
     // onerror: fall back to the static thumb (e.g. scrub frame unavailable)
-    img.onerror = () => { img.onerror = null; img.src = `/thumb/${media.id}`; };
-    img.src = `/scrub/${media.id}/${_scrub.idx}`;
+    img.onerror = () => { img.onerror = null; img.src = staticThumbSrc(media.id); };
+    img.src = scrubUrl(media.id, _scrub.idx);
     _scrub.idx = (_scrub.idx + 1) % SCRUB_FRAMES;
   }, SCRUB_INTERVAL_MS);
 }
@@ -327,7 +934,7 @@ function stopScrub() {
   if (_scrub.timer) clearInterval(_scrub.timer);
   if (_scrub.img && _scrub.img.isConnected && _scrub.id != null) {
     _scrub.img.onerror = null;
-    _scrub.img.src = `/thumb/${_scrub.id}`; // restore the static thumb
+    _scrub.img.src = staticThumbSrc(_scrub.id); // restore the static thumb
   }
   _scrub = { id: null, timer: null, idx: 0, img: null };
 }
@@ -501,103 +1108,86 @@ function quickRate(filepath, rating, btnEl) {
   }
 }
 
-/* ── Pagination ────────────────────────────────────────────────────────── */
+/* ── Pagination ───────────────────────────────────────────────────────────
+   Prev, where you are, a slider for long jumps, Next. The numbered buttons and
+   the "..." jump box are gone: with the page size following the window, a page
+   number is a moving target, and the slider covers the one thing the numbers
+   were really for, which is getting a long way in one gesture.
+
+   The bar renders even on a single page so its height never changes under the
+   grid — the row maths reserves that height, and a bar that came and went
+   would re-lay the grid every time a filter narrowed the list to one page. */
+
+let _pagerPages = -1;   // page count the bar was last built for
 
 function renderPagination() {
-  const totalPages = Math.ceil(filteredMedia.length / pageSize);
-  const pagination = document.getElementById('pagination');
-  if (totalPages <= 1) { pagination.innerHTML = ''; return; }
+  const pager = document.getElementById('pagination');
+  if (!pager) return;
 
-  let html = `<button ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1})">← Prev</button>`;
+  // Continuous mode has no pages to step through, and the header already says
+  // how many files matched, so the bar goes away entirely.
+  if (libraryLayoutMode() === 'continuous') {
+    if (pager.firstChild) { pager.innerHTML = ''; _pagerPages = -1; }
+    return;
+  }
 
-  const range = getPageRange(currentPage, totalPages);
-  range.forEach((p, index) => {
-    if (p === '...') {
-      // Pass 'this' (the button element) so we can position the modal relative to it
-      html += `<button class="dots" onclick="openJumpModal(event, ${totalPages})">...</button>`;
-    } else {
-      html += `<button class="${p === currentPage ? 'active' : ''}" onclick="goToPage(${p})">${p}</button>`;
-    }
-  });
-
-  html += `<button ${currentPage === totalPages ? 'disabled' : ''} onclick="goToPage(${currentPage + 1})">Next →</button>`;
-  pagination.innerHTML = html;
+  const count = pageCount();
+  // Rebuilding the bar on every page flip made the row blink and dropped the
+  // focus and the slider's drag with it. The markup only depends on the page
+  // COUNT, so build it when that changes and otherwise just move the label
+  // and the slider.
+  if (_pagerPages !== count || !pager.querySelector('#pagerRange')) {
+    buildPager(count);
+    _pagerPages = count;
+  }
+  updatePagerState();
 }
 
-function openJumpModal(event, max) {
-  event.stopPropagation(); // Prevent immediate closing
+function buildPager(count) {
+  const pager = document.getElementById('pagination');
+  pager.innerHTML = `
+    <button class="pager-btn" id="pagerPrev" title="Previous page (Page Up)">← Prev</button>
+    <span class="pager-pos" id="pagerPos" aria-live="polite"></span>
+    <input type="range" class="pager-range" id="pagerRange" min="1" max="${count}" step="1"
+      value="1" aria-label="Jump to a page" title="Drag to jump">
+    <button class="pager-btn" id="pagerNext" title="Next page (Page Down)">Next →</button>`;
 
-  // Remove existing modal if any
-  const existing = document.getElementById('jump-modal');
-  if (existing) existing.remove();
+  pager.querySelector('#pagerPrev').addEventListener('click', () => movePage(-1));
+  pager.querySelector('#pagerNext').addEventListener('click', () => movePage(1));
 
-  const btn = event.currentTarget;
-  const rect = btn.getBoundingClientRect();
-
-  const modal = document.createElement('div');
-  modal.id = 'jump-modal';
-  modal.className = 'jump-modal';
-  modal.innerHTML = `
-    <input type="number" id="jump-input" min="1" max="${max}" placeholder="..." />
-    <button onclick="executeJump(${max})">Go</button>
-  `;
-
-  document.body.appendChild(modal);
-
-  // Position it above the clicked button
-  modal.style.left = `${rect.left + (rect.width / 2) - (modal.offsetWidth / 2)}px`;
-  modal.style.top = `${rect.top - modal.offsetHeight - 10 + window.scrollY}px`;
-
-  const input = document.getElementById('jump-input');
-  input.focus();
-
-  // Handle Enter key
-  input.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') executeJump(max);
+  const range = pager.querySelector('#pagerRange');
+  // While dragging, only the label moves: re-rendering the grid mid-drag would
+  // replace the slider under the pointer and drop the drag.
+  range.addEventListener('input', () => {
+    setPagerLabel(Number(range.value), pageCount());
+  });
+  range.addEventListener('change', () => {
+    setPageAnchor((Number(range.value) - 1) * Math.max(1, pageSize));
   });
 }
 
-function executeJump(max) {
-  const val = parseInt(document.getElementById('jump-input').value);
-  if (val >= 1 && val <= max) {
-    goToPage(val);
-    closeJumpModal();
-  }
+function setPagerLabel(page, count) {
+  const pos = document.getElementById('pagerPos');
+  if (pos) pos.textContent = `Page ${page.toLocaleString()} of ${count.toLocaleString()}`;
 }
 
-function closeJumpModal() {
-  const modal = document.getElementById('jump-modal');
-  if (modal) modal.remove();
+/** Everything about the bar that changes when the page does. */
+function updatePagerState() {
+  const count = pageCount();
+  const page = pageNumber();
+  setPagerLabel(page, count);
+  const range = document.getElementById('pagerRange');
+  if (range) {
+    if (String(range.value) !== String(page)) range.value = String(page);
+    range.disabled = count <= 1;
+  }
+  const prev = document.getElementById('pagerPrev');
+  const next = document.getElementById('pagerNext');
+  if (prev) prev.disabled = page <= 1;
+  if (next) next.disabled = page >= count;
 }
 
-// Close modal when clicking anywhere outside
-document.addEventListener('click', (e) => {
-  const modal = document.getElementById('jump-modal');
-  if (modal && !modal.contains(e.target)) {
-    closeJumpModal();
-  }
-});
-
-function getPageRange(current, total) {
-  // If total pages are low, just show them all
-  if (total <= 9) return Array.from({length: total}, (_, i) => i + 1);
-
-  // Near the start: [1, 2, 3, 4, 5, 6, '...', total]
-  if (current <= 5) {
-    return [1, 2, 3, 4, 5, 6, '...', total];
-  }
-
-  // Near the end: [1, '...', 420, 421, 422, 423, 424, 425]
-  if (current >= total - 4) {
-    return [1, '...', total-5, total-4, total-3, total-2, total-1, total];
-  }
-
-  // In the middle: [1, '...', 20, 21, 22, 23, 24, 25, 26, '...', 425]
-  return [1, '...', current-3, current-2, current-1, current, current+1, current+2, current+3, '...', total];
-}
-
+/** Kept for callers that still think in page numbers. */
 function goToPage(page) {
-  currentPage = page;
-  renderResults();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  setPageAnchor((Math.max(1, page) - 1) * Math.max(1, pageSize));
 }

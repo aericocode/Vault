@@ -85,7 +85,7 @@ function clearAbLoop() {
   // Restore the user's Loop preference (video AND audio)
   const element = currentMediaState.element;
   if (element && ['VIDEO', 'AUDIO'].includes(element.tagName)) {
-    element.loop = typeof isLoopEnabled === 'function' ? isLoopEnabled() : true;
+    element.loop = typeof isRepeatOne === 'function' ? isRepeatOne() : false;
   }
   updateAbLoopButton();
   updateAbLoopOverlay();

@@ -90,41 +90,34 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
   const leftControls = `
     <div class="volume-control">
       <button onclick="toggleMute()" id="muteBtn" class="control-btn" title="Mute (M)">🔊</button>
-      <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1.5" step="0.01" value="${savedVolume}" oninput="setVolume(this.value)">
-      <span class="volume-display" id="volumeDisplay">${Math.round(savedVolume * 100)}%</span>
+      <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1.5" step="0.01" value="${playerIsSilent() ? 0 : savedVolume}" oninput="setVolume(this.value)">
+      <span class="volume-display" id="volumeDisplay">${Math.round((playerIsSilent() ? 0 : savedVolume) * 100)}%</span>
     </div>
   `;
   const rightControls = `
     ${renderFillButton()}
     <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)">⛶</button>
   `;
-  const speedControls = `
-    <div class="speed-control">
-      <button onclick="cycleSpeed(-1)" class="control-btn speed-btn" title="Slower (<)">−</button>
-      <span class="speed-display" id="speedDisplay">1x</span>
-      <button onclick="cycleSpeed(1)" class="control-btn speed-btn" title="Faster (>)">+</button>
-    </div>
-  `;
+  const speedControls = renderSpeedControls();
 
   controlsContainer.innerHTML = `
     <div class="player-controls-wrapper video-controls">
-      <div class="video-progress-wrapper" id="videoProgressWrapper">
-        <div class="video-progress" id="videoProgress" onclick="seekVideo(event); mixPlayerResync();">
-          <div class="video-progress-bar" id="videoProgressBar" style="width: 0%"></div>
+      <div class="video-progress-row">
+        ${renderProgressTimes('start')}
+        <div class="video-progress-wrapper" id="videoProgressWrapper">
+          <div class="video-progress" id="videoProgress" onclick="seekVideo(event); mixPlayerResync();">
+            <div class="video-progress-bar" id="videoProgressBar" style="width: 0%"></div>
+          </div>
         </div>
+        ${renderProgressTimes('end')}
       </div>
       <div class="video-playback-row">
-        <span class="video-time">
-          <span id="currentTime">0:00</span>
-          <span class="time-separator">/</span>
-          <span id="totalTime">0:00</span>
-        </span>
         <div class="playback-controls">
-          <button onclick="skipVideo(-10); mixPlayerResync();" class="control-btn" title="-10s (J)"><span>⏪</span><span class="seek-label">10</span></button>
-          <button onclick="skipVideo(-5); mixPlayerResync();" class="control-btn" title="-5s (←)"><span>◀</span><span class="seek-label">5</span></button>
+          ${renderSkipButton(-10, 'skipVideo(-10); mixPlayerResync();', '-10s (J)')}
+          ${renderSkipButton(-5, 'skipVideo(-5); mixPlayerResync();', '-5s (←)')}
           <button onclick="togglePlay()" id="playPauseBtn" class="play-pause-btn" title="Play/Pause (Space)">▶</button>
-          <button onclick="skipVideo(5); mixPlayerResync();" class="control-btn" title="+5s (→)"><span class="seek-label">5</span><span>▶</span></button>
-          <button onclick="skipVideo(10); mixPlayerResync();" class="control-btn" title="+10s (L)"><span class="seek-label">10</span><span>⏩</span></button>
+          ${renderSkipButton(5, 'skipVideo(5); mixPlayerResync();', '+5s (→)')}
+          ${renderSkipButton(10, 'skipVideo(10); mixPlayerResync();', '+10s (L)')}
         </div>
       </div>
       <div class="video-extras-row">
@@ -132,8 +125,8 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
           ${typeof renderAbLoopButton === 'function' ? renderAbLoopButton() : ''}
         </div>
         <div class="pr-center">
-          ${typeof renderLoopButton === 'function' ? renderLoopButton() : ''}
           ${speedControls}
+          ${typeof renderRepeatButton === 'function' ? renderRepeatButton() : ''}
         </div>
         <div class="pr-side pr-right">
           ${typeof renderHotButton === 'function' ? renderHotButton() : ''}
@@ -144,22 +137,28 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
     </div>
   `;
 
-  // Loop preference on the master; followers always loop natively (the sync
+  // Repeat preference on the master; followers always loop natively (the sync
   // loop re-aligns them across their own wraps)
-  master.loop = typeof isLoopEnabled === 'function' ? isLoopEnabled() : true;
+  master.loop = typeof isRepeatOne === 'function' ? isRepeatOne() : false;
 
   // Volume boost + saved volume, exactly like the video player
   setupAudioBoost(master);
   const max = currentMediaState.gainNode ? 1.5 : 1;
-  applyVolume(sliderToVolume(savedVolume, max));
-  updateVolumeDisplay(savedVolume, max);
+  applyVolume(sliderToVolume(savedVolume, max));   // also carries the mute flag over
+  updateVolumeDisplay(playerIsSilent() ? 0 : savedVolume, max);
   const volumeSlider = document.getElementById('volumeSlider');
   if (volumeSlider) volumeSlider.max = max;
 
+  // Session playback speed (the followers pick it up from the sync timer)
+  if (typeof applySpeedTo === 'function') {
+    applySpeedTo(master);
+    if (typeof updateSpeedDisplay === 'function') updateSpeedDisplay();
+  }
+  if (typeof attachTailWatchdog === 'function') attachTailWatchdog(master);
+
   /* ── Master listeners (progress/time/AB — same as the video player) ──── */
   master.addEventListener('loadedmetadata', () => {
-    const el = document.getElementById('totalTime');
-    if (el) el.textContent = formatDuration(master.duration);
+    if (typeof updateTotalTimeLabel === 'function') updateTotalTimeLabel();
     if (master.currentTime < starts[masterIdx]) master.currentTime = starts[masterIdx];
     syncAll();
     if (typeof updateAbLoopOverlay === 'function') updateAbLoopOverlay();
@@ -170,6 +169,7 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
     const cur = document.getElementById('currentTime');
     if (bar && master.duration) bar.style.width = `${(master.currentTime / master.duration) * 100}%`;
     if (cur) cur.textContent = formatDuration(master.currentTime) || '0:00';
+    if (typeof updateTotalTimeLabel === 'function') updateTotalTimeLabel();
     if (typeof checkAbLoop === 'function') checkAbLoop(master);
   });
 
@@ -277,7 +277,11 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
     const T = masterT();
     videos.forEach((v, i) => {
       if (i === masterIdx) return;
-      v.playbackRate = master.playbackRate; // speed control covers all tracks
+      // Speed control covers all tracks. defaultPlaybackRate too: a follower
+      // that reloads its source would otherwise drop back to 1x and fight the
+      // drift correction until the next tick.
+      v.defaultPlaybackRate = master.playbackRate;
+      v.playbackRate = master.playbackRate;
       syncTrack(v, i, T, 0.18);
     });
   }, 400);

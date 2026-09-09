@@ -86,26 +86,36 @@ function toggleSelectAllFiltered() {
 }
 
 /**
- * The two select controls that live up by "Showing X of Y results".
+ * The two select controls that live in the results row.
  * Rendered whether or not anything is selected — unlike the action bar, these
  * are how you START a selection.
  */
+let _resultsSelectHtml = null;   // last markup written, so a repaint that says
+                                 // the same thing does not touch the DOM
+
+/** Write the row only when its content actually changed. */
+function writeResultsSelect(host, html) {
+  if (html === _resultsSelectHtml) return;
+  _resultsSelectHtml = html;
+  host.innerHTML = html;
+}
+
 function renderResultsSelect() {
   const host = document.getElementById('resultsSelect');
   if (!host) return;
   const onLibrary = typeof currentTab === 'undefined' || currentTab === 'library';
   const all = (typeof filteredMedia !== 'undefined' ? filteredMedia : []);
-  if (!onLibrary || !all.length) { host.innerHTML = ''; return; }
+  if (!onLibrary || !all.length) { writeResultsSelect(host, ''); return; }
 
   const pageIds = currentPageIds();
   const pageAll = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
   const allSelected = selectedIds.size >= all.length && all.every(m => selectedIds.has(m.id));
 
-  host.innerHTML = `
+  writeResultsSelect(host, `
     ${pageIds.length ? `<button class="rs-btn" onclick="toggleSelectPage()"
       title="Select the ${pageIds.length} file(s) shown on this page">${pageAll ? 'Deselect page' : `Select page (${pageIds.length})`}</button>` : ''}
     ${all.length > pageIds.length ? `<button class="rs-btn" onclick="toggleSelectAllFiltered()"
-      title="Select every file matching the current search &amp; filters, across all pages">${allSelected ? 'Deselect all' : `Select all ${all.length.toLocaleString()}`}</button>` : ''}`;
+      title="Select every file matching the current search &amp; filters, across all pages">${allSelected ? 'Deselect all' : `Select all ${all.length.toLocaleString()}`}</button>` : ''}`);
 }
 
 function clearSelection() {
@@ -281,10 +291,14 @@ function rescanFilteredTargets() {
     : { ids: items.map(m => m.id), force: done > 0, done };
 }
 
-/** Show/label the button under the 🔍 Scan filter. Called from applyFilters. */
+/** Show/label the Rescan button in the results row. Called from applyFilters.
+    It belongs to the Scan filter, so it only appears while that filter is
+    asking about broken rows: Failed or Unscanned. */
 function updateRescanFilteredButton() {
   const btn = document.getElementById('rescanFilteredBtn');
   if (!btn) return;
+  const scan = typeof getTriFilterValue === 'function' ? getTriFilterValue('filterScanStatus') : '';
+  if (scan !== 'failed' && scan !== 'unscanned') { btn.style.display = 'none'; return; }
   const { ids, force, done } = rescanFilteredTargets();
   if (ids.length === 0) { btn.style.display = 'none'; return; }
   btn.style.display = '';
@@ -369,8 +383,10 @@ function getDeleteMode() {
 }
 function setDeleteMode(mode) {
   try { localStorage.setItem('vault_delete_mode', mode); } catch {}
-  const sel = document.getElementById('deleteModeSelect');
-  if (sel) sel.value = mode;
+  // The control lives in Settings > Library now; keep its segments in step
+  // whether the change came from there or from anywhere else.
+  document.querySelectorAll('[data-delete-mode]').forEach(b =>
+    b.setAttribute('aria-pressed', b.dataset.deleteMode === mode ? 'true' : 'false'));
   if (typeof renderResults === 'function') renderResults();   // card 🗑 tooltips reflect the mode
 }
 
@@ -722,12 +738,16 @@ async function clearTrash() {
   }
 }
 
-/** Show/label the Empty-trash button from the current trashed count. */
+/** Show/label the Empty-trash button from the current trashed count. It sits
+    in the results row and belongs to the Trashed filter, so it only appears
+    while that filter is set to Only: emptying the trash is a decision you make
+    while looking at the trash. */
 function updateClearTrashUi() {
   const btn = document.getElementById('clearTrashBtn');
   if (!btn) return;
+  const trashOnly = typeof getTriFilterValue === 'function' && getTriFilterValue('filterTrashed') === '1';
   const n = (typeof allMedia !== 'undefined' ? allMedia : []).filter(m => m.user_trashed).length;
-  btn.style.display = n ? '' : 'none';
+  btn.style.display = (trashOnly && n) ? '' : 'none';
   btn.textContent = `🗑 Empty trash (${n})`;
 }
 
@@ -880,7 +900,13 @@ document.addEventListener('error', (e) => {
   if (media && !media.playback_failed) {
     media.playback_failed = 1;
     postFlags(media, { playback_failed: 1 });
-    showToast('⚠ File failed to play — marked as unplayable');
+    // Privacy / streaming mode handles the same failure by skipping to the next
+    // file (handleMediaError in player-core.js) and says so itself. Two toasts
+    // for one dead file reads as two separate problems, so only the flag is
+    // set here and the message is left to the handler that acted on it.
+    if (!document.body.classList.contains('privacy-mode')) {
+      showToast('⚠ File failed to play — marked as unplayable');
+    }
   }
 }, true);
 

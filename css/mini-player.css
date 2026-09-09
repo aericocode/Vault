@@ -58,6 +58,21 @@
   flex: 1;
 }
 
+.mini-audio-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Art tile, the second text line and the progress strip only exist for audio */
+.mini-player:not(.mini-audio) .mini-audio-art,
+.mini-player:not(.mini-audio) .mini-audio-sub,
+.mini-player:not(.mini-audio) .mini-audio-progress {
+  display: none;
+}
+
 /* ── Media Container ─────────────────────────────────────────────────── */
 
 .mini-player-media {
@@ -160,4 +175,110 @@
   color: #fff;
   border-color: rgba(255, 255, 255, 0.4);
   background: rgba(255, 255, 255, 0.08);
+}
+
+/* =========================================================================
+   AUDIO MINI PLAYER - compact card
+
+   Audio has nothing to look at, so the 640x400 video box is wasted space. In
+   this mode the mini player is one small card: art tile + title/time + the
+   controls on a single row, with a hairline seek strip underneath. The whole
+   top row is the drag handle, so it reads as one card rather than two bars.
+   ========================================================================= */
+
+.mini-player.mini-audio.active {
+  display: grid;
+}
+
+/* !important because the browser writes a user resize as INLINE width/height
+   on the element, and a video mini that had been resized would otherwise hand
+   its box to this card. player-core.js clears that inline size on the way in;
+   these are the belt to its braces. */
+.mini-player.mini-audio {
+  width: 380px !important;
+  height: auto !important;
+  min-height: 0;
+  min-width: 0;
+  max-height: none;
+  resize: none;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "head controls"
+    "progress progress";
+  align-items: center;
+}
+
+/* The <audio> rides along hidden — no visual box for it */
+.mini-player.mini-audio .mini-player-media {
+  display: none;
+}
+
+.mini-player.mini-audio .mini-player-drag {
+  grid-area: head;
+  gap: 10px;
+  padding: 10px;
+  background: none;
+  border-bottom: none;
+  min-width: 0;
+}
+
+.mini-player.mini-audio .mini-audio-art {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.mini-player.mini-audio .mini-player-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text, #e6e6e6);
+  flex: 0 0 auto;
+}
+
+.mini-audio-sub {
+  font-size: 0.72rem;
+  color: var(--text-secondary, #aaa);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini-player.mini-audio .mini-player-controls {
+  grid-area: controls;
+  flex-direction: row;
+  background: none;
+  border-top: none;
+  padding: 10px 10px 10px 0;
+  gap: 0.1rem;
+}
+
+/* ── Hairline seek strip ──────────────────────────────────────────────── */
+
+.mini-audio-progress {
+  grid-area: progress;
+  position: relative;      /* the shared scrub helper drops a time pill in here */
+  height: 4px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.mini-audio-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.1s linear;
+}
+
+.mini-audio-progress.scrubbing .mini-audio-progress-fill {
+  transition: none;
 }

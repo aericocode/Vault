@@ -64,7 +64,7 @@
 .settings-modal {
   background: var(--bg-secondary);
   border-radius: 16px;
-  max-width: 780px;
+  max-width: 800px;
   width: 100%;
   max-height: 88vh;
   overflow: hidden;
@@ -163,7 +163,7 @@
 .settings-body {
   flex: 1;
   min-width: 0;
-  padding: 1.3rem 1.5rem;
+  padding: 1.3rem;
   overflow-y: auto;
 }
 
@@ -333,6 +333,74 @@
   min-width: 1.6rem;
 }
 
+/* ── Sub-option chips (the privacy "Hide while on" row) ────────────────────
+   Inline chips parked under the toggle row they belong to, indented so they
+   read as that row's detail rather than settings of their own. Shaped like the
+   library extension chips, because they answer the same kind of question: what
+   is included right now. The row dims and stops taking clicks while privacy
+   mode is off, since none of them do anything until it is on. */
+
+.settings-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.1rem 0 0.85rem 0rem;
+  border-bottom: 1px solid var(--border);
+  transition: opacity 0.15s ease-out;
+}
+
+/* The chips belong to the toggle row above them, so that row gives up its own
+   divider and the chips carry it instead; otherwise the line runs straight
+   through the chips. */
+.settings-toggle:has(+ .settings-chips) {
+  border-bottom: 0;
+  padding-bottom: 0.4rem;
+}
+
+.settings-chips.is-off {
+  pointer-events: none;
+}
+.settings-chips.is-off .settings-chip {
+  opacity: 0.45;
+}
+
+.settings-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.settings-chip:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.settings-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settings-chip[aria-pressed="true"] {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-chips, .settings-chip { transition: none; }
+}
+
 .settings-tag {
   display: inline-block;
   font-size: 0.62rem;
@@ -493,80 +561,117 @@
 /* =========================================================================
    PRIVACY / STREAMING MODE
 
-   Applied via `body.privacy-mode`. NO hover-to-reveal anywhere — an accidental
-   hover on stream is the threat model. Path rows are removed outright
-   (display:none); text that must keep its layout is blurred and made inert.
-   Explicitly NOT hidden (owner's call): AI descriptions/tags/themes, semantic
-   search, song titles/artists, thumbnails, tile names.
+   `body.privacy-mode` is the master switch; the six `pm-*` classes below say
+   WHICH kinds of data it takes away. settings.js puts a category class on only
+   when privacy mode is on AND that box is ticked in Settings > "Hide while on",
+   so every rule here can be written against the category alone.
+
+   Why split it at all: "privacy" is not one thing. Someone streaming a tagging
+   session needs their paths and notes gone but their thumbnails and filenames
+   present, or they cannot do the thing they are streaming. Someone capturing a
+   screenshot for a bug report needs the opposite. One switch could only ever
+   serve one of them.
+
+   NO hover-to-reveal anywhere — an accidental hover on stream is the threat
+   model. Path rows are removed outright (display:none); text that must keep its
+   layout is blurred and made inert.
+
+   Never hidden by any of these (owner's call): AI descriptions/tags/themes,
+   semantic search, song titles/artists.
    ========================================================================= */
 
+/* ── File paths (body.pm-paths) ─────────────────────────────────────────────
+   Removed entirely rather than blurred.
+   .detail-path is the filepath row in the shared detail body (player sidebar
+   AND library modal — see player-lib/detail-view.js). It used to be blurred in
+   the sidebar and display:none in the modal; when the two surfaces merged, the
+   weaker of the two would have silently become the rule for both. A blurred
+   path is still on screen, and this category's whole premise is that a path row
+   must not be. Both surfaces now drop it outright. */
+body.pm-paths .pop-path,
+body.pm-paths .detail-path,
+/* Each duplicate in the dupe list prints its own path — same rule, and it is on
+   both detail surfaces, so leaving it visible undid the row above it. */
+body.pm-paths .duplicate-path,
+/* Trash "original path" line in the detail modal */
+body.pm-paths .trash-original-path {
+  display: none !important;
+}
+
+/* ── Notes (body.pm-notes) ──────────────────────────────────────────────── */
+
 /* Blurred, inert text — keeps layout, cannot be read or revealed */
-body.privacy-mode .note-text,
-body.privacy-mode .saved-search-chip,
-body.privacy-mode .imp-t2,
-body.privacy-mode .dq-name,
-body.privacy-mode .dq-file {
+body.pm-notes .note-text {
   filter: blur(7px);
   pointer-events: none;
   user-select: none;
 }
 
-/* Path rows removed entirely.
-   .detail-path is the filepath row in the shared detail body (player sidebar
-   AND library modal — see player-lib/detail-view.js). It used to be blurred in
-   the sidebar and display:none in the modal; when the two surfaces merged, the
-   weaker of the two would have silently become the rule for both. A blurred
-   path is still on screen, and this section's whole premise is that a path row
-   must not be. Both surfaces now drop it outright. */
-body.privacy-mode .pop-path,
-body.privacy-mode .detail-path,
-/* Each duplicate in the dupe list prints its own path — same rule, and it is on
-   both detail surfaces, so leaving it visible undid the row above it. */
-body.privacy-mode .duplicate-path {
-  display: none !important;
-}
-
-/* Trash "original path" line in the detail modal */
-body.privacy-mode .trash-original-path {
-  display: none !important;
-}
-
 /* ✎ opens the note's saved text in a plain textarea, which would put the
    blurred .note-text above back on screen in the clear. Withdraw the button
-   while privacy mode is on — turn it off to edit. (The composer box is left
-   alone: it starts empty, so it only ever shows what is being typed now.) */
-body.privacy-mode .note-edit {
+   while notes are hidden — untick it (or leave privacy mode) to edit. (The
+   composer box is left alone: it starts empty, so it only ever shows what is
+   being typed now.) */
+body.pm-notes .note-edit {
   display: none !important;
 }
 
-/* =========================================================================
-   BLURRED LIBRARY  (body.blur-thumbs)
+/* ── Note chips (body.pm-notechips) ─────────────────────────────────────── */
 
-   Separate switch from privacy mode on purpose — that one hides YOUR data and
-   deliberately leaves thumbnails alone; this one hides the imagery and nothing
-   else. Both together is what makes a library screenshot publishable.
-
-   Hover reveals a single tile, which is what makes a blur usable day to day.
-   With privacy mode ALSO on that reveal is withdrawn, because this file's rule
-   is that nothing uncovers on hover — a cursor resting over a tile must not be
-   able to put a frame in the screenshot.
-   ========================================================================= */
-
-/* Only real thumbnails. The .thumb-fallback type glyph (🎵, 📄) is generic
-   chrome, not content — blurring it would just make the grid look broken. */
-body.blur-thumbs .tile-img {
-  filter: blur(14px);
-  transition: filter 0.12s ease-out;
+/* The reusable snippet chips above the note box carry the same kind of text
+   as the notes themselves, so they get the same treatment, a little heavier
+   because the chips are short and a light blur still leaves them legible.
+   Inert as well: no click to insert, no drag, no hover colour picker. Typed
+   notes are a separate switch and keep working. */
+body.pm-notechips .note-snippet-chip {
+  filter: blur(9px);
+  pointer-events: none;
+  user-select: none;
 }
 
-/* Point at a tile to check what it is. */
-body.blur-thumbs .tile-thumb:hover .tile-img {
-  filter: none;
+/* ── Saved searches (body.pm-searches) ──────────────────────────────────── */
+
+body.pm-searches .saved-search-chip {
+  filter: blur(7px);
+  pointer-events: none;
+  user-select: none;
 }
 
-/* …but not while privacy mode is on. */
-body.blur-thumbs.privacy-mode .tile-thumb:hover .tile-img {
+/* ── Import folders and queue progress (body.pm-imports) ────────────────────
+   .imp-t2 is the folder path on an import card. .dq-name / .dq-file are the
+   filenames scrolling past in the import and delete queues (player-lib/
+   importer.js, player-lib/selection.js) — they are part of the same "what is
+   this person moving around right now" leak as the folder itself, so they ride
+   with imports rather than with the file-names category. */
+body.pm-imports .imp-t2,
+body.pm-imports .dq-name,
+body.pm-imports .dq-file {
+  filter: blur(7px);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── Thumbnails (body.pm-thumbs) ────────────────────────────────────────────
+   No hover reveal on purpose: this category exists for a screenshot that has
+   to be safe with a cursor sitting on a tile. Only real thumbnails are blurred;
+   the .thumb-fallback type glyph (🎵, 📄) is generic chrome, not content. */
+body.pm-thumbs .tile-img {
   filter: blur(14px);
+}
+
+/* ── File names (body.pm-names) ─────────────────────────────────────────────
+   Tile names, the player and mini-player titles, and the filename heading on
+   the library detail modal. Blurred rather than removed: these are headings and
+   layout anchors, and a grid of nameless tiles is unusable to navigate.
+   The tile `title=` tooltip is a native one and cannot be styled, so cards.js
+   omits the attribute outright while this class is on. */
+body.pm-names .tile-name,
+body.pm-names #mediaPlayerTitle,
+body.pm-names #miniPlayerTitle,
+body.pm-names #modalTitle {
+  filter: blur(7px);
+  pointer-events: none;
+  user-select: none;
 }
 
 /* ── Library section: move / relink ──────────────────────────────────────── */
@@ -647,6 +752,20 @@ body.blur-thumbs.privacy-mode .tile-thumb:hover .tile-img {
 }
 .mig-status.mig-bad { color: var(--danger); }
 .mig-status.mig-good { color: #10b981; }
+
+/* A button that reads as a link, for an action offered inside a sentence
+   (the playback check's "Show them"). */
+.settings-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-left: 0.35rem;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.settings-link:hover { color: var(--accent-hover, var(--accent)); }
 
 /* ── Report ── */
 
@@ -955,4 +1074,52 @@ body.blur-thumbs.privacy-mode .tile-thumb:hover .tile-img {
   font-size: 0.72rem;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Segmented control (library layout, card size) ──────────────────────
+   A short list of choices where a switch would not do. It sits where the
+   toggle switch sits so the title/desc column keeps one left edge down the
+   whole list. */
+
+.settings-seg-row { cursor: default; align-items: center; }
+
+.settings-seg {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+}
+
+.settings-seg-btn {
+  padding: 0.22rem 0.7rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.settings-seg-btn:hover {
+  color: var(--text-primary);
+}
+
+.settings-seg-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settings-seg-btn[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-seg-btn { transition: none; }
 }

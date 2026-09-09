@@ -3,9 +3,9 @@
    + hover popover + details sidebar restyle
    ========================================== */
 
-/* Grid: exact column count is set by updateGridLayout() in cards.js so
-   pages are always complete rectangles (pageSize = columns × 5 rows).
-   The auto-fill here is only the pre-JS fallback. */
+/* Grid: the exact column count, and in pages mode the exact row height, are
+   set by updateGridLayout() in cards.js so a page is one screenful of whole
+   rows. The auto-fill here is only the pre-JS fallback. */
 .results-grid:not(.list-view) {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
@@ -375,7 +375,6 @@
 .results-select {
   display: inline-flex;
   gap: 0.35rem;
-  margin-left: 0.7rem;
   vertical-align: middle;
 }
 .rs-btn {
@@ -684,49 +683,6 @@
   font-weight: 600;
 }
 
-/* ── Delete-mode selector (in the Trashed filter) ── */
-.delete-mode-row {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin-top: 0.4rem;
-  font-size: 0.72rem;
-  color: var(--text-muted);
-}
-.delete-mode-select {
-  flex: 1;
-  min-width: 0;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 0.72rem;
-  padding: 0.22rem 0.35rem;
-  cursor: pointer;
-}
-.delete-mode-select:focus { outline: none; border-color: var(--accent); }
-
-/* Card 🗑 turns red when a destructive delete mode is active */
-.tile-btn.tile-btn-danger { color: var(--danger); }
-.tile-btn.tile-btn-danger:hover { background: rgba(239, 68, 68, 0.18); }
-
-/* ── Empty-trash button (in the Trashed filter) ── */
-.clear-trash-btn {
-  margin-top: 0.4rem;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid var(--danger);
-  color: var(--danger);
-  border-radius: 6px;
-  padding: 0.3rem 0.6rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s;
-}
-.clear-trash-btn:hover:not(:disabled) { background: rgba(239, 68, 68, 0.22); }
-.clear-trash-btn:disabled { opacity: 0.6; cursor: default; }
-
 /* ── (legacy) Trash progress bar — retained for any old references ── */
 .trash-progress {
   position: fixed;
@@ -854,4 +810,62 @@
 
 .modal-overlay.active .modal-content {
   transform: translateX(0);
+}
+
+/* ── Pages mode: every tile is exactly one row tall ────────────────────
+   --tile-h is the row height cards.js worked out for this window. The name and
+   meta strips keep their natural height and the thumbnail takes the rest,
+   cropping with object-fit: cover, so tiles land within a few percent of their
+   natural shape and the bottom row still ends where the window does. */
+
+.results-grid.grid-pages {
+  grid-auto-rows: var(--tile-h, auto);
+}
+
+.grid-pages .media-tile {
+  height: var(--tile-h, auto);
+  display: flex;
+  flex-direction: column;
+}
+
+.grid-pages .tile-thumb {
+  flex: 1 1 auto;
+  aspect-ratio: auto;
+  min-height: 0;
+}
+
+.grid-pages .tile-name,
+.grid-pages .tile-meta {
+  flex: none;
+}
+
+/* ── Continuous mode: only the rows near the viewport exist ────────────
+   The grid becomes a plain block holding a spacer as tall as the whole list,
+   with the visible rows positioned inside it. Tiles keep their natural height
+   and the document scrolls exactly as far as the user takes it — nothing
+   snaps to a row. */
+
+.results-grid.grid-continuous {
+  display: block;
+  position: relative;
+}
+
+.grid-continuous .grid-colls {
+  display: grid;
+  gap: 0.75rem;
+  align-items: start;
+  margin-bottom: 0.75rem;
+}
+
+.grid-continuous .grid-virt {
+  position: relative;
+}
+
+.grid-continuous .grid-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: grid;
+  gap: 0.75rem;
+  align-items: start;
 }

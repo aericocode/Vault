@@ -70,9 +70,9 @@ app.use(express.json({ limit: '2mb' }));
 app.get('/api/vault/status', (req, res) => res.json(vault.status()));
 
 // Create (or change) the vault password — encrypts the DB in place
-app.post('/api/vault/setpass', (req, res) => {
+app.post('/api/vault/setpass', async (req, res) => {
   try {
-    res.json(vault.setPassword(String(req.body?.pass ?? '')));
+    res.json(await vault.setPassword(String(req.body?.pass ?? '')));
   } catch (err) {
     res.status(err.code === 'VAULT_SCAN_ACTIVE' ? 409 : 400).json({ error: err.message, code: err.code });
   }
@@ -82,9 +82,9 @@ app.post('/api/vault/setpass', (req, res) => {
 // current password 401s; enough wrong tries force-lock the vault (the client
 // then flips to the lock screen off the 423 / locked flag). The lockout
 // threshold is deliberately not surfaced to the client.
-app.post('/api/vault/changepass', (req, res) => {
+app.post('/api/vault/changepass', async (req, res) => {
   try {
-    res.json(vault.changePassword(String(req.body?.current ?? ''), String(req.body?.next ?? '')));
+    res.json(await vault.changePassword(String(req.body?.current ?? ''), String(req.body?.next ?? '')));
   } catch (err) {
     if (err.code === 'VAULT_LOCKED_OUT') {
       return res.status(423).json({ error: err.message, code: err.code, locked: true });
@@ -99,9 +99,9 @@ app.post('/api/vault/changepass', (req, res) => {
 
 // Lock: 409 + {code:'VAULT_SCAN_ACTIVE'} when a scan runs and force isn't set,
 // so the client can show the "click again to interrupt" warning state
-app.post('/api/vault/lock', (req, res) => {
+app.post('/api/vault/lock', async (req, res) => {
   try {
-    res.json(vault.lock({ force: !!req.body?.force }));
+    res.json(await vault.lock({ force: !!req.body?.force }));
   } catch (err) {
     res.status(err.code === 'VAULT_SCAN_ACTIVE' ? 409 : 400).json({ error: err.message, code: err.code });
   }
@@ -123,10 +123,14 @@ app.post('/api/vault/touch', (req, res) => { vault.touch(); res.json({ ok: true 
 // lock screen itself can render.
 app.use((req, res, next) => {
   const dataPath = req.path.startsWith('/api/') || req.path.startsWith('/media/')
-    || req.path.startsWith('/thumb/') || req.path.startsWith('/frame/');
+    || req.path.startsWith('/thumb/') || req.path.startsWith('/frame/')
+    || req.path.startsWith('/stream/');
   if (!dataPath) return next();
   if (vault.isLocked()) return res.status(423).json({ error: 'vault is locked', code: 'VAULT_LOCKED' });
-  vault.touch();
+  // Timed background polls (the unscanned-row watcher, for one) mark
+  // themselves so they do not count as the user being present; otherwise a
+  // library with a single unscanned file could never auto-lock.
+  if (req.get('X-Vault-Background') !== '1') vault.touch();
   next();
 });
 
@@ -1759,13 +1763,21 @@ app.post('/api/import/add-paths', (req, res) => {
     try {
       const mediaInfo = require('../lib/media-info');
       if (!mediaInfo.isAvailable()) return;
-      const upd = db.get().prepare('UPDATE media SET duration_seconds = ?, width = ?, height = ? WHERE id = ?');
       for (const a of added) {
         if (!['video', 'audio', 'gif'].includes(a.mediaType)) continue;
         try {
-          const info = await mediaInfo.getInfo(a.row.filepath);
-          if (info) upd.run(info.duration || null, info.width || null, info.height || null, a.id);
+          // One ffprobe now covers the tile (duration/size) AND the playback
+          // decision (codecs), so a freshly imported file never has to be
+          // probed again on its first play.
+          const info = await mediaInfo.getStreamInfo(a.row.filepath);
+          if (info) db.saveStreamInfo(a.id, info);
         } catch { /* per-file probe failure is fine */ }
+      }
+      // Thumbnails for everything just added, whatever type. The scan pass
+      // makes them too, but the import queue may be paused or hours behind,
+      // and a new tile should not sit on a placeholder until then.
+      for (const a of added) {
+        try { thumbnails.enqueueThumbnail(db.getById(a.id)); } catch {}
       }
     } catch { /* probe loop is best-effort */ }
   });
@@ -2288,6 +2300,10 @@ app.use('/api/pmv', require('./pmv-routes').buildRouter());
 // ── Subtitles (whisper transcription + OPUS-MT translation — lib/subtitles/)
 app.use('/api', require('./subtitle-routes').buildRouter());
 
+// ── Playback decision + HLS remux streaming (mounted at the root: it owns
+//    both /api/playback|/api/stream and the /stream/:id/* media URLs) ────────
+app.use(require('./stream-routes').buildRouter());
+
 // ── Saved searches ─────────────────────────────────────────────────────────
 
 app.get('/api/searches', (req, res) => {
@@ -2340,6 +2356,23 @@ app.get('/media/:id', (req, res) => {
 
 // ── Thumbnails ─────────────────────────────────────────────────────────────
 
+/**
+ * How long the browser may keep a derived image.
+ *
+ * Vault mode: never. The disk cache would otherwise hold a decrypted copy of
+ * something the user locked, which is the whole point of the vault. The viewer
+ * keeps blobs in memory instead, and they go when the vault locks.
+ *
+ * Plain mode: a year, immutable, but only when the URL carries the ?v= the
+ * viewer reads off media.thumb_version. Regenerating a thumbnail bumps that
+ * number, so the URL changes with the bytes and "immutable" stays true. A URL
+ * with no version gets no-cache, because nothing would ever bust it.
+ */
+function imageCacheControl(req) {
+  if (secureAssets.enabled()) return 'no-store';
+  return req.query.v ? 'private, max-age=31536000, immutable' : 'no-cache';
+}
+
 // Hover-scrub preview frames (videos only): /scrub/:id/0 … /scrub/:id/4
 app.get('/scrub/:id/:idx', async (req, res) => {
   const id = parseId(req.params.id);
@@ -2348,25 +2381,29 @@ app.get('/scrub/:id/:idx', async (req, res) => {
   const row = db.getById(id);
   if (!row) return res.status(404).end();
 
-  // no-store in ALL modes: the browser's disk cache would otherwise persist a
-  // decrypted copy, and localhost latency makes caching pointless anyway.
-  res.set('Cache-Control', 'no-store');
+  res.set('Cache-Control', imageCacheControl(req));
   try {
     if (secureAssets.enabled()) {
       const buf = await thumbnails.getScrubFrameBuffer(row, idx);
-      if (!buf) return res.status(404).end();
+      if (!buf) return notCached(res).status(404).end();
       res.set('Content-Type', 'image/jpeg');
       return res.end(buf);
     }
     const framePath = await thumbnails.getScrubFrame(row, idx);
-    if (!framePath) return res.status(404).end();
+    if (!framePath) return notCached(res).status(404).end();
     res.sendFile(framePath, (err) => {
       if (err && !res.headersSent) res.status(err.status || 500).end();
     });
   } catch (err) {
-    res.status(500).end();
+    notCached(res).status(500).end();
   }
 });
+
+/** A miss must never be the thing the browser keeps for a year. */
+function notCached(res) {
+  res.set('Cache-Control', 'no-store');
+  return res;
+}
 
 app.get('/thumb/:id', async (req, res) => {
   const id = parseId(req.params.id);
@@ -2385,24 +2422,39 @@ app.get('/thumb/:id', async (req, res) => {
     } catch { return res.status(404).end(); }
   }
 
-  // no-store in ALL modes (see /scrub) — never leave a decrypted copy in cache.
-  res.set('Cache-Control', 'no-store');
+  // This route answers a browser that is holding an <img> open, so it only
+  // ever LOOKS. Nothing here runs ffmpeg: a thumbnail that does not exist yet
+  // is queued in the background and answered with 404 + X-Thumb: pending, and
+  // the tile keeps its placeholder until a retry finds the image there.
+  res.set('Cache-Control', imageCacheControl(req));
   try {
     if (secureAssets.enabled()) {
-      const buf = await thumbnails.getThumbnailBuffer(row);
-      if (!buf) return res.status(404).end();
+      const buf = thumbnails.peekThumbnailBuffer(row);
+      if (!buf) return sendThumbPending(res, row);
       res.set('Content-Type', 'image/jpeg');
       return res.end(buf);
     }
-    const thumbPath = await thumbnails.getThumbnail(row);
-    if (!thumbPath) return res.status(404).end();
+    const thumbPath = thumbnails.peekThumbnail(row);
+    if (!thumbPath) return sendThumbPending(res, row);
     res.sendFile(thumbPath, (err) => {
-      if (err && !res.headersSent) res.status(err.status || 500).end();
+      if (err && !res.headersSent) notCached(res).status(err.status || 500).end();
     });
   } catch (err) {
-    res.status(500).end();
+    notCached(res).status(500).end();
   }
 });
+
+/**
+ * No thumbnail yet: queue one and say so. X-Thumb is "pending" when the work
+ * was accepted and "missing" when it never can be (the media file is gone, or
+ * the render has failed too often) — the viewer stops retrying on "missing"
+ * instead of spending its whole backoff on a file that is not there.
+ */
+function sendThumbPending(res, row) {
+  const state = thumbnails.enqueueThumbnail(row);
+  notCached(res).set('X-Thumb', state === 'skipped' ? 'missing' : 'pending');
+  return res.status(404).end();
+}
 
 // ── Startup ────────────────────────────────────────────────────────────────
 
@@ -2427,7 +2479,11 @@ let _shutdownHooked = false;
 function _installShutdownHooks() {
   if (_shutdownHooked) return;
   _shutdownHooked = true;
-  const onExit = (signal) => {
+  const onExit = async (signal) => {
+    // Producers first, and WAITED FOR: each owns an FFmpeg child and a temp dir
+    // under tempDir, and the children have to be gone before the wipe, or one
+    // still writes into the directory being cleared (or outlives the server).
+    try { await require('../lib/stream/session').stopAll(); } catch {}
     try { wipeTempDir(); } catch {}
     try { secureAssets.close(); } catch {}
     process.exit(signal === 'SIGTERM' ? 143 : 130);

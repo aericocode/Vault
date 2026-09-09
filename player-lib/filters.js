@@ -127,8 +127,63 @@ const BROWSER_PLAYABLE_EXTENSIONS = new Set([
   'pdf', 'txt', 'html', 'htm', 'json', 'xml', 'csv', 'md',
 ]);
 
+/* ── Can this file play? ───────────────────────────────────────────────────
+   The same question the server answers on /api/playback, asked here so the
+   grid and the extension chips can say it without a request per file.
+   player-lib/playback-decide.js is literally the server's own matrix, and
+   codecCaps() (player-lib/player/player-stream.js) is the same capability
+   string the player sends. Three answers:
+
+     play     native or remux, this browser will get pixels
+     no       no decoder and no remux, or a play that already failed
+     unknown  never probed, and the extension is not a safe bet
+
+   Rows scanned before this feature have probe_version 0. For those the old
+   extension list is used as a hint: a .mp4 plays, a .mkv is a real unknown
+   until the codec check in Settings has run. */
+
+// Only these two carry codec columns worth deciding on. A gif renders as an
+// image and a document is not decoded at all, so their probe rows (gifs get
+// one) must not be read as "no decoder".
+const PLAYBACK_CODEC_TYPES = new Set(['video', 'audio']);
+
+let _playbackCaps = null;
+
+/** The codec tags this browser reports, as a Set, computed once. */
+function playbackCapsSet() {
+  if (_playbackCaps) return _playbackCaps;
+  let tags = [];
+  try {
+    if (typeof codecCaps === 'function') tags = codecCaps().split(',').filter(Boolean);
+  } catch { /* probe unavailable — fall through to the server default */ }
+  if (!tags.length && window.VaultPlaybackDecide) tags = window.VaultPlaybackDecide.DEFAULT_CAPS;
+  _playbackCaps = new Set(tags);
+  return _playbackCaps;
+}
+
+/**
+ * @returns {{state:'play'|'no'|'unknown', reason:?string}}
+ */
+function mediaPlaybackState(m) {
+  if (!m) return { state: 'unknown', reason: null };
+  const api = window.VaultPlaybackDecide;
+  const probed = !!api && PLAYBACK_CODEC_TYPES.has(m.media_type) && (m.probe_version || 0) >= 1;
+  const verdict = probed ? api.decide(m, playbackCapsSet()) : null;
+
+  if (verdict && verdict.mode === 'unsupported') return { state: 'no', reason: verdict.reason };
+  // A play that failed for a reason the codec columns cannot explain: a
+  // corrupt file, a missing track. The old message is still the true one.
+  if (m.playback_failed) return { state: 'no', reason: 'Failed to play' };
+  if (verdict) return { state: 'play', reason: null };
+
+  return BROWSER_PLAYABLE_EXTENSIONS.has(getExtension(m.filename))
+    ? { state: 'play', reason: null }
+    : { state: 'unknown', reason: null };
+}
+
 // State for extension filter
-let extensionMap = {};       // { mediaType: { ext: count, ... }, ... }
+// { mediaType: { ext: {total, play, no, unknown}, ... }, ... }
+let extensionMap = {};
 let selectedExtensions = []; // currently selected extensions (empty = all)
 
 // Media-type bubbles (replaces the old Media Type dropdown; empty = all)
@@ -153,7 +208,10 @@ function buildExtensionMap() {
     const ext = getExtension(m.filename);
     if (!ext) return;
     if (!extensionMap[type]) extensionMap[type] = {};
-    extensionMap[type][ext] = (extensionMap[type][ext] || 0) + 1;
+    const bucket = extensionMap[type][ext]
+      || (extensionMap[type][ext] = { total: 0, play: 0, no: 0, unknown: 0 });
+    bucket.total++;
+    bucket[mediaPlaybackState(m).state]++;
   });
 }
 
@@ -269,21 +327,56 @@ function renderTypeExtensionFilter() {
   const allExts = [];
   grouped.forEach((group, i) => {
     if (i > 0) allExts.push({ separator: true });
-    group.exts.forEach(([ext, count]) => allExts.push({ ext, count }));
+    group.exts.forEach(([ext, counts]) => allExts.push({ ext, counts }));
   });
 
   renderExtChips(extBar, null, allExts);
 }
 
+/* ── The three-state star ──────────────────────────────────────────────────
+   One glance per extension: green means every file behind this chip plays,
+   amber means some do, red means none can. No star at all is the honest
+   answer for an extension nothing has ever been checked for, which is what
+   .mkv looks like on a library scanned before the codec check existed. In the
+   amber case the count turns into "play/total", because "84" next to an amber
+   star raises exactly the question the fraction answers. */
+
+function extStar(c) {
+  if (!c || !c.total) return null;
+  if (c.no === 0 && c.unknown === 0) {
+    return {
+      kind: 'all', cls: '',
+      title: c.total === 1 ? 'This file plays' : `All ${c.total.toLocaleString()} files play`,
+    };
+  }
+  if (c.play > 0) {
+    const tail = [];
+    if (c.no > 0) tail.push(`${c.no.toLocaleString()} cannot play`);
+    if (c.unknown > 0) tail.push(`${c.unknown.toLocaleString()} not checked yet`);
+    return {
+      kind: 'part', cls: ' part',
+      title: `${c.play.toLocaleString()} of ${c.total.toLocaleString()} play. ${tail.join(', ')}`,
+    };
+  }
+  if (c.no === c.total) {
+    return {
+      kind: 'none', cls: ' none',
+      title: c.total === 1 ? 'This file cannot play' : 'None of these files can play',
+    };
+  }
+  // Nothing plays and nothing is certain: say nothing rather than guess.
+  return null;
+}
+
 /**
  * Render extension chips.
  * @param {HTMLElement} extBar
- * @param {Array|null} simpleList - [[ext, count], ...] for single-type mode
- * @param {Array|null} groupedList - [{ext, count} | {separator}] for all-types mode
+ * @param {Array|null} simpleList - [[ext, counts], ...] for single-type mode
+ * @param {Array|null} groupedList - [{ext, counts} | {separator}] for all-types mode
  */
 function renderExtChips(extBar, simpleList, groupedList) {
   const items = simpleList
-    ? simpleList.map(([ext, count]) => ({ ext, count }))
+    ? simpleList.map(([ext, counts]) => ({ ext, counts }))
     : groupedList || [];
 
   if (items.filter(i => !i.separator).length === 0) {
@@ -294,10 +387,15 @@ function renderExtChips(extBar, simpleList, groupedList) {
 
   extBar.style.display = 'flex';
 
-  // Show/hide legend
+  // The legend only earns its space once a chip is something other than a
+  // plain green star.
   const legend = document.getElementById('extensionLegend');
-  const hasNonPlayable = items.some(i => i.ext && !BROWSER_PLAYABLE_EXTENSIONS.has(i.ext));
-  if (legend) legend.style.display = hasNonPlayable ? 'flex' : 'none';
+  const mixed = items.some(i => {
+    if (!i.ext) return false;
+    const star = extStar(i.counts);
+    return !star || star.kind !== 'all';
+  });
+  if (legend) legend.style.display = mixed ? 'flex' : 'none';
 
   const allActive = selectedExtensions.length === 0;
 
@@ -308,11 +406,19 @@ function renderExtChips(extBar, simpleList, groupedList) {
       html += '<span class="ext-separator">|</span>';
       return;
     }
-    const { ext, count } = item;
-    const playable = BROWSER_PLAYABLE_EXTENSIONS.has(ext);
+    const { ext, counts } = item;
     const isActive = selectedExtensions.includes(ext);
-    const marker = playable ? '<span class="ext-playable" title="Playable in browser">★</span>' : '';
-    html += `<button class="ext-chip ${isActive ? 'active' : ''}" data-ext="${escapeHtml(ext)}">.${escapeHtml(ext)}${marker} <span class="ext-count">${count.toLocaleString()}</span></button>`;
+    const star = extStar(counts);
+    const marker = star
+      ? `<span class="ext-playable${star.cls}" title="${escapeHtml(star.title)}">★</span>`
+      : '';
+    // No star means no hover target, so the chip itself carries the sentence.
+    const chipTitle = star ? '' :
+      ' title="Not checked yet. Run Check playback support in Settings"';
+    const countText = (star && star.kind === 'part')
+      ? `${counts.play.toLocaleString()}/${counts.total.toLocaleString()}`
+      : counts.total.toLocaleString();
+    html += `<button class="ext-chip ${isActive ? 'active' : ''}" data-ext="${escapeHtml(ext)}"${chipTitle}>.${escapeHtml(ext)}${marker} <span class="ext-count">${countText}</span></button>`;
   });
 
   extBar.innerHTML = html;
@@ -424,84 +530,6 @@ function initDurationSlider() {
     });
   }
   updateDurationUI();
-}
-
-// ── Searchable dropdowns (theme / content type / language) ────────────────
-// The native <select> stays in the DOM (hidden) as the value store, so all
-// existing `#filterTheme.value` reads and 'change' listeners keep working.
-// A text input + filtered option panel renders in its place.
-
-function makeSearchable(select) {
-  if (!select || select._searchable) return;
-  select._searchable = true;
-  select.style.display = 'none';
-
-  const wrap = document.createElement('div');
-  wrap.className = 'combo';
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'combo-input';
-  input.autocomplete = 'off';
-  const panel = document.createElement('div');
-  panel.className = 'combo-panel';
-  panel.hidden = true;
-  wrap.append(input, panel);
-  select.after(wrap);
-
-  const labelFor = (v) => [...select.options].find(o => o.value === v)?.textContent || '';
-  const syncLabel = () => {
-    input.value = select.value ? labelFor(select.value) : '';
-    input.placeholder = select.options[0]?.textContent || 'All';
-  };
-  select._syncCombo = syncLabel;
-  syncLabel();
-
-  const renderPanel = (query) => {
-    const q = (query || '').toLowerCase();
-    const opts = [...select.options].filter(o =>
-      !q || o.textContent.toLowerCase().includes(q));
-    panel.innerHTML = opts.map(o =>
-      `<div class="combo-option ${o.value === select.value ? 'selected' : ''}" data-value="${escapeHtml(o.value)}">${escapeHtml(o.textContent)}</div>`
-    ).join('') || '<div class="combo-empty">No matches</div>';
-  };
-
-  const open = () => { panel.hidden = false; renderPanel(''); input.select(); };
-  const close = () => { panel.hidden = true; syncLabel(); };
-
-  input.addEventListener('focus', open);
-  input.addEventListener('input', () => { panel.hidden = false; renderPanel(input.value); });
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { close(); input.blur(); }
-    if (e.key === 'Enter') {
-      const first = panel.querySelector('.combo-option');
-      if (first) {
-        select.value = first.dataset.value;
-        select.dispatchEvent(new Event('change'));
-      }
-      close();
-      input.blur();
-    }
-  });
-  panel.addEventListener('mousedown', (e) => {
-    const opt = e.target.closest('.combo-option');
-    if (!opt) return;
-    e.preventDefault();
-    select.value = opt.dataset.value;
-    select.dispatchEvent(new Event('change'));
-    close();
-    input.blur();
-  });
-  input.addEventListener('blur', () => setTimeout(close, 120));
-  select.addEventListener('change', syncLabel);
-}
-
-function initSearchableSelects() {
-  document.querySelectorAll('select[data-searchable]').forEach(makeSearchable);
-}
-
-/** Refresh combo labels after programmatic select.value changes (restore). */
-function syncSearchableSelects() {
-  document.querySelectorAll('select[data-searchable]').forEach(s => s._syncCombo?.());
 }
 
 // ── Semantic search (embeddings) ────────────────────────────────────────
@@ -663,7 +691,7 @@ function applyFilters(opts) {
     return true;
   });
 
-  // Second pass: apply text search (fuzzy/boolean/regex — or semantic)
+  // Second pass: apply text search (fuzzy/boolean, or semantic)
   semanticOrdered = false;
   if (search) {
     if (semanticEnabled()) {
@@ -718,12 +746,15 @@ function applyFilters(opts) {
   // Apply sorting
   sortFilteredMedia();
 
-  if (!keepPage) currentPage = 1;
-  // Clamp: a mutation (trash/remove) can shrink the list below the current
-  // page — never strand the view on a now-empty page
-  const totalPages = Math.max(1, Math.ceil(filteredMedia.length / pageSize));
-  if (currentPage > totalPages) currentPage = totalPages;
+  // A new search or filter has no place to hold, so it starts at the top.
+  if (!keepPage && typeof resetPageAnchor === 'function') resetPageAnchor();
+  // Clamp: a mutation (trash/remove) can shrink the list under the anchor —
+  // never strand the view past the end
+  if (typeof clampPageAnchor === 'function') clampPageAnchor();
   renderResults();
+
+  // Keep the chip row telling the truth about what is narrowing the grid
+  if (typeof renderFilterChipRow === 'function') renderFilterChipRow();
 
   // Update saved searches bar (show/hide save button based on active filters)
   if (typeof renderSavedSearches === 'function') {
@@ -752,7 +783,7 @@ function persistSearchState() {
   } catch {}
 }
 
-/** Called once at startup (after filters/sliders/combos are initialized). */
+/** Called once at startup (after the filters and sliders are initialized). */
 function restoreLastSearchState() {
   let state;
   try { state = JSON.parse(localStorage.getItem(LS_SEARCH_STATE)); } catch {}

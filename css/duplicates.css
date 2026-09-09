@@ -161,13 +161,6 @@
   gap: 0.4rem;
 }
 
-.tri-label {
-  font-size: 0.75rem;
-  color: var(--text-secondary, #888);
-  white-space: nowrap;
-  min-width: max-content;
-}
-
 .tri-buttons {
   display: flex;
   border-radius: 5px;

@@ -1,0 +1,59 @@
+/* =========================================================================
+   TOOLTIP  (player-lib/tooltip.js)
+
+   One shared box for every `title` in the app. Positioned in script, so the
+   only geometry here is the arrow and the box itself.
+
+   z-index sits above everything the app puts on screen (the vault lock screen
+   is the highest at 10000): a tooltip that is drawn behind the panel that owns
+   it is worse than no tooltip, and it never takes a click, so nothing can hide
+   behind it.
+   ========================================================================= */
+
+.vtip {
+  position: fixed;
+  z-index: 10050;
+  max-width: 320px;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  background: var(--bg-tertiary, #232334);
+  color: var(--text-primary, #cdd6f4);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  /* Several titles are written as two lines (a reason plus a hint). */
+  white-space: pre-line;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease-out;
+}
+
+.vtip.is-on {
+  opacity: 1;
+}
+
+/* The arrow. --vtip-arrow is the target's centre, measured from the box's
+   left edge, so a tooltip pushed sideways still points at its element. */
+.vtip::after {
+  content: '';
+  position: absolute;
+  left: var(--vtip-arrow, 50%);
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-bottom-color: var(--border, #333);
+  top: -10px;
+}
+
+.vtip.vtip-above::after {
+  top: auto;
+  bottom: -10px;
+  border-bottom-color: transparent;
+  border-top-color: var(--border, #333);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vtip {
+    transition: none;
+  }
+}

@@ -55,7 +55,7 @@ See [SETUP.md](SETUP.md) for the full walkthrough and model recommendations by V
 | | |
 |---|---|
 | **Understands your files** | A local vision model watches every video, image, GIF, audio file and document and writes structured metadata: scene, action, camera angle, lighting, expression, on-screen text |
-| **Search that works** | Boolean, regex, fuzzy, metadata-only, and 🧠 semantic search — "crimson" finds red images |
+| **Search that works** | Boolean, fuzzy, metadata-only, and 🧠 semantic search — "crimson" finds red images |
 | **Music ID** | Local audio fingerprints find every file sharing a song, then play them stacked in sync |
 | **PMV Studio** | Pick a soundtrack and sources — Vault cuts a beat-synced music video for you and renders it to MP4 |
 | **Stack & mix** | Stack up to 4 videos in sync or grid up to 8, with a mixer (opacity, masks, blends, presets) and MP4 export |
@@ -84,7 +84,7 @@ See [SETUP.md](SETUP.md) for the full walkthrough and model recommendations by V
 Start with `start.bat` to launch a full browser UI, works in any browser, media streams over HTTP with seeking.
 
 - **Instant library visibility** — new files appear in the viewer (⏳ "not scanned" badge) the moment a scan starts. Click "Scan now" backfills any file on demand from the sidebar
-- **Powerful Search** — boolean (AND/OR/NOT), regex, fuzzy matching, metadata-only mode, and 🧠 semantic ("crimson" finds red images)
+- **Powerful Search** — boolean (AND/OR/NOT), fuzzy matching, metadata-only mode, and 🧠 semantic ("crimson" finds red images)
 - **Saved searches** — one-click chips for your fave filter combinations. Drag to reorder, hover to assign a custom color.
 - **Collections & folders** — group media into playlists, then nest collections inside folders (any depth); a folder plays as one deduped playlist, with breadcrumb navigation and a tree picker for filing items fast
 - **Rich filtering** — media type, content type, language, rating, theme, quality, explicit, starred/❤ fave, has-notes, duplicate, flagged, trashed, unplayable

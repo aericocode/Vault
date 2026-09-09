@@ -12,22 +12,45 @@
    Public globals used by other modules (all guarded at their call sites):
    - window.vaultSetting(key)          → current value of a setting
    - window.vaultRecordLastOpened(id)  → remember last-opened media (restore session)
+   - window.vaultPopSort(key)          → 'az' | 'count' for one filter popover
+   - window.vaultSetPopSort(key, mode) → remember the order the user picked
+   - window.vaultRepeatMode()          → 'off' | 'all' | 'one' (player repeat button)
+   - window.vaultSetRepeatMode(mode)   → persist the mode the user picked
    - window.vaultScanWorkers()         → AI scan concurrency (int)
    - window.vaultSetScanWorkers(n)     → clamp + persist + push it to the server
    ========================================================================= */
 
 (function () {
   const LS_KEY = 'vault_settings';
+  const POP_SORTS = ['az', 'count'];   // filter popover option order
+  const REPEAT_MODES = ['off', 'all', 'one'];  // player repeat button, in cycle order
 
   const DEFAULTS = {
     privacyMode: false,     // hide personal data on screen for screen-sharing
+    // Which categories privacy mode actually hides. Each key maps to a body
+    // class (PRIVACY_CLASS below) that css/settings.css hangs its rules on.
+    privacyHide: {
+      paths: true,
+      notes: true,
+      noteChips: true,
+      savedSearches: true,
+      importFolders: true,
+      thumbnails: false,
+      fileNames: false,
+    },
     resumePlayback: true,   // auto-seek to stored position on open (current behavior)
     restoreSession: false,  // reopen last media (paused) on launch, Stash-style
+    repeatMode: 'off',      // 'off' | 'all' (start over after the last file) | 'one' (repeat this file)
     scanWorkers: 2,         // files the vision model scans in parallel after an import
     unlockHoldSeconds: 0,   // press-and-hold on the lock before the password box (0 = single click)
-    blurThumbs: false,      // blur the grid's tiles (hover reveals — unless privacy mode is on)
     gamifyHidden: false,    // hide the Obsession chip + toasts (scoring continues)
+    libraryLayout: 'pages', // 'pages' (whole rows, one screenful) | 'continuous' (free scroll)
+    cardSize: 'M',          // 'S' | 'M' | 'L' — minimum tile width, mapped in cards.js
     libraryDeepOpen: false, // Settings > Library: is the deep-search section expanded
+    // How each list filter's popover orders its options: 'az' or 'count', one
+    // entry per filter key (popSort.language, popSort.theme...). Not in the
+    // Settings modal: it is set by the toggle in the popover itself.
+    popSort: {},
     _lastMediaId: null,     // internal: id for restoreSession
   };
 
@@ -100,11 +123,35 @@
   }
 
   function load() {
+    // Kept around for the migration below: the merged object cannot tell a key
+    // the profile actually stored from one the defaults supplied.
+    let storedRaw = null;
     try {
       const raw = localStorage.getItem(LS_KEY);
-      if (raw) settings = { ...DEFAULTS, ...JSON.parse(raw) };
+      if (raw) {
+        storedRaw = JSON.parse(raw);
+        settings = { ...DEFAULTS, ...storedRaw };
+      }
     } catch {
       settings = { ...DEFAULTS };
+    }
+    // privacyHide is a nested object, so the spread above replaces it wholesale
+    // rather than merging it. Merge the stored keys OVER the defaults, so a
+    // profile saved before this setting existed (or one saved before a new
+    // category was added) still gets every default it never chose.
+    const storedHide = settings.privacyHide;
+    settings.privacyHide = {
+      ...DEFAULTS.privacyHide,
+      ...(storedHide && typeof storedHide === 'object' ? storedHide : {}),
+    };
+    // Same nested-object story, and a hand-edited blob must not be able to hand
+    // the popover an order it has no sort for.
+    const storedSort = settings.popSort;
+    settings.popSort = {};
+    if (storedSort && typeof storedSort === 'object') {
+      for (const [k, v] of Object.entries(storedSort)) {
+        if (POP_SORTS.includes(v)) settings.popSort[k] = v;
+      }
     }
     // Stored JSON is user-editable — run the one numeric setting through the
     // same clamp every other surface uses. That clamp falls back to the current
@@ -122,6 +169,23 @@
       settings._unlockHoldMigrated = true;
       save();
     }
+    // One-time migration: the old "start over after the last file" switch is
+    // now the 'all' state of the player's repeat button. A profile that said
+    // yes carries over; then the dead key goes, so it cannot come back.
+    let repeatChanged = false;
+    if (storedRaw && !('repeatMode' in storedRaw)) {
+      settings.repeatMode = storedRaw.queueLoop === true ? 'all' : DEFAULTS.repeatMode;
+      repeatChanged = true;
+    }
+    if (!REPEAT_MODES.includes(settings.repeatMode)) {
+      settings.repeatMode = DEFAULTS.repeatMode;
+      repeatChanged = true;
+    }
+    if ('queueLoop' in settings) {
+      delete settings.queueLoop;
+      repeatChanged = true;
+    }
+    if (repeatChanged) save();
   }
 
   function save() {
@@ -130,6 +194,53 @@
 
   // Read a setting from anywhere in the app.
   window.vaultSetting = (key) => settings[key];
+
+  /* ── Library layout / card size ──────────────────────────────────────
+     cards.js reads these on every layout pass, so changing one only has to
+     save and ask for a re-lay — no reload. Both are validated here rather than
+     at the read site, because a hand-edited localStorage blob must not be able
+     to hand cards.js a size it has no width for. */
+
+  const LAYOUTS = ['pages', 'continuous'];
+  const CARD_SIZES = ['S', 'M', 'L'];
+
+  window.vaultLibraryLayout = () =>
+    LAYOUTS.includes(settings.libraryLayout) ? settings.libraryLayout : 'pages';
+  window.vaultCardSize = () =>
+    CARD_SIZES.includes(settings.cardSize) ? settings.cardSize : 'M';
+
+  /* ── Popover option order ────────────────────────────────────────────
+     Which way a list filter's popover sorts its options, one answer per
+     filter. The toggle lives in the popover, not in this modal, so the pair
+     below is the whole surface: read it while building the list, write it
+     when the user picks the other order. 'az' is the default because a name
+     you are looking for is easier to find in alphabetical order; 'count'
+     answers the other question, which values the library actually has a lot
+     of. */
+  window.vaultPopSort = (key) =>
+    POP_SORTS.includes(settings.popSort?.[key]) ? settings.popSort[key] : 'az';
+
+  window.vaultSetPopSort = function (key, mode) {
+    if (!key || !POP_SORTS.includes(mode)) return;
+    settings.popSort = { ...settings.popSort, [key]: mode };
+    save();
+  };
+
+  /* ── Repeat mode ───────────────────────────────────────────
+     One answer to "what happens when a file ends", set by the repeat button in
+     the player's control bar. 'off' plays the next file and stops at the end of
+     the list, 'all' starts over at the first file instead of stopping, 'one'
+     replays the file that just ended. Validated here so a hand-edited blob
+     cannot hand the player a mode it has no behaviour for. */
+
+  window.vaultRepeatMode = () =>
+    REPEAT_MODES.includes(settings.repeatMode) ? settings.repeatMode : 'off';
+
+  window.vaultSetRepeatMode = function (mode) {
+    if (!REPEAT_MODES.includes(mode)) return;
+    settings.repeatMode = mode;
+    save();
+  };
 
   /* ── AI scan workers ─────────────────────────────────────────────────────
      One number, three surfaces (this modal, the import modal, the live scan
@@ -181,8 +292,42 @@
      (display:none for path rows, blur for text that must keep its layout).
      No hover-to-reveal anywhere — accidental hovers on stream are the threat. */
 
+  /* One category per body class. `privacy-mode` stays the master switch for
+     anything generic; these say WHICH kinds of data go, so someone streaming a
+     tagging session can keep their thumbnails and still lose their paths. */
+  const PRIVACY_CLASS = {
+    paths:         'pm-paths',
+    notes:         'pm-notes',
+    noteChips:     'pm-notechips',
+    savedSearches: 'pm-searches',
+    importFolders: 'pm-imports',
+    thumbnails:    'pm-thumbs',
+    fileNames:     'pm-names',
+  };
+
+  // Order is the order they appear in the dropdown and in its summary line.
+  const PRIVACY_HIDE_ITEMS = [
+    { key: 'paths',         label: 'File paths',                            short: 'Paths' },
+    { key: 'notes',         label: 'Notes',                                 short: 'Notes' },
+    { key: 'noteChips',     label: 'Note chips (blurred, not clickable)',   short: 'Note chips' },
+    { key: 'savedSearches', label: 'Saved searches',                        short: 'Saved searches' },
+    { key: 'importFolders', label: 'Import folders',                        short: 'Import folders' },
+    { key: 'thumbnails',    label: 'Thumbnails (blurred, no hover reveal)', short: 'Thumbnails' },
+    { key: 'fileNames',     label: 'File names',                            short: 'File names' },
+  ];
+
+  // A category class is on only when privacy mode is on AND that box is ticked,
+  // so turning privacy mode off clears all six in one go.
+  function applyPrivacyHideClasses(on) {
+    const hide = settings.privacyHide || {};
+    for (const key of Object.keys(PRIVACY_CLASS)) {
+      document.body.classList.toggle(PRIVACY_CLASS[key], !!on && !!hide[key]);
+    }
+  }
+
   function applyPrivacyMode(on) {
     document.body.classList.toggle('privacy-mode', !!on);
+    applyPrivacyHideClasses(!!on);
     updateGearBadge();
     // Repaint tiles so the filename `title=` tooltip (unstylable by CSS) is
     // added/removed — cards.js reads the body class when it builds each tile.
@@ -201,27 +346,13 @@
     }
   }
 
-  /* ── Blurred grid ────────────────────────────────────────────────────────
-     Independent of privacy mode, because they answer different questions:
-     privacy mode hides YOUR data (paths, notes, searches) while thumbnails are
-     deliberately left alone; this hides the imagery and nothing else. Wanting a
-     library screenshot that is safe to publish means wanting both.
-
-     Hover reveals a tile — that is the point of a blur rather than a hide, and
-     it keeps the grid usable. But privacy mode's rule is that nothing reveals
-     on hover, so with both on the blur stays put and the grid can be
-     screenshotted without a stray cursor uncovering a frame. css/settings.css
-     holds that combination. */
-
-  function applyBlurThumbs(on) {
-    document.body.classList.toggle('blur-thumbs', !!on);
-  }
-
   // Apply the body classes the instant this script runs (before first render),
-  // so a reload with privacy or blur on never flashes the real thing.
+  // so a reload with privacy mode on never flashes the real thing.
+  // (The separate "blur thumbnails" switch was folded into the Thumbnails chip
+  // of privacy mode; an old stored blurThumbs value is simply ignored.)
   load();
   if (settings.privacyMode) document.body.classList.add('privacy-mode');
-  if (settings.blurThumbs) document.body.classList.add('blur-thumbs');
+  applyPrivacyHideClasses(settings.privacyMode);
 
   /* ── Header gear button ──────────────────────────────────────────────────
      Appended to the END of .header-buttons (gamify prepends its chip; we
@@ -374,25 +505,68 @@
   }
 
   const PLANNED = [
-    { key: 'p_maskNames',   title: 'Mask filenames in privacy mode', desc: 'Replace tile names with neutral labels while privacy mode is on.' },
     { key: 'p_confirmTrash',title: 'Confirm before trash', desc: 'Ask before moving a file to the trash.' },
     { key: 'p_defaultSort', title: 'Default sort / filter on open', desc: 'Start every session with a saved sort and filter preset.' },
-    { key: 'p_perPage',     title: 'Items per page', desc: 'Choose how many tiles load per page.' },
   ];
+
+  /* A segmented control for the settings that are a short list of choices
+     rather than on/off. It reuses the toggle row's title/desc column so the
+     whole list keeps one left edge, and the buttons carry aria-pressed like
+     the privacy chips already do. */
+
+  function segRow({ key, title, desc, options }) {
+    const current = settings[key];
+    return `
+      <div class="settings-toggle settings-seg-row">
+        <span class="settings-toggle-text">
+          <span class="settings-toggle-title" id="segLabel_${key}">${title}</span>
+          <span class="settings-toggle-desc">${desc}</span>
+        </span>
+        <span class="settings-seg" role="group" aria-labelledby="segLabel_${key}">
+          ${options.map(o => `
+            <button type="button" class="settings-seg-btn" data-setting-seg="${key}"
+                    data-seg-value="${esc(o.value)}"
+                    aria-pressed="${current === o.value ? 'true' : 'false'}">${esc(o.label)}</button>`).join('')}
+        </span>
+      </div>`;
+  }
+
+  /* The "Hide while on" chips that sit under the privacy toggle. Inline chips
+     rather than a collapsed list: what is covered and what is not is the thing
+     you check most often, and a chip row answers it without a click. The row
+     dims while privacy mode is off, because the chips do nothing until it is
+     on. */
+
+  function privacyHideRow() {
+    const off = settings.privacyMode ? '' : ' is-off';
+    return `
+      <div class="settings-chips${off}" id="privacyHideChips" role="group" aria-label="Hide while on">
+        ${PRIVACY_HIDE_ITEMS.map(i => `
+          <button type="button" class="settings-chip" aria-pressed="${settings.privacyHide?.[i.key] ? 'true' : 'false'}"
+                  data-privacy-hide="${i.key}">${esc(i.short)}</button>`).join('')}
+      </div>`;
+  }
+
+  // The chip row is dead weight while privacy mode is off, so it dims and stops
+  // taking clicks. Called from the privacy toggle and the keyboard shortcut.
+  function syncPrivacyChipsUI() {
+    const row = document.getElementById('privacyHideChips');
+    if (!row) return;
+    row.classList.toggle('is-off', !settings.privacyMode);
+    row.querySelectorAll('button[data-privacy-hide]').forEach(b => {
+      b.setAttribute('aria-pressed', settings.privacyHide?.[b.dataset.privacyHide] ? 'true' : 'false');
+    });
+  }
 
   function RENDERERS_settings() {
     return `
       <h3 class="settings-h">Preferences</h3>
       ${toggleRow({
         key: 'privacyMode',
-        title: 'Privacy / streaming mode',
-        desc: 'Hide personal data (paths, notes, saved searches, import folders) for screen-sharing. Shortcut: Ctrl+Shift+H.',
+        title: 'Privacy mode',
+        desc: 'Hide personal data on screen. Pick what to hide below. Ctrl+Shift+H.',
       })}
-      ${toggleRow({
-        key: 'blurThumbs',
-        title: 'Blur thumbnails in the library',
-        desc: 'Blur every tile in the grid. Point at one to see it — unless privacy mode is also on, in which case nothing reveals on hover and the grid is safe to screenshot.',
-      })}
+      ${privacyHideRow()}
       ${toggleRow({
         key: 'resumePlayback',
         title: 'Resume playback positions',
@@ -408,6 +582,18 @@
         title: 'AI scan workers',
         desc: 'How many files the local vision model scans at once after an import. Higher is faster but needs more VRAM — 1–8, default 2.',
         min: 1, max: 8,
+      })}
+      ${segRow({
+        key: 'libraryLayout',
+        title: 'Library layout',
+        desc: 'Pages fill the screen with whole rows. Continuous scrolls freely.',
+        options: [{ value: 'pages', label: 'Pages' }, { value: 'continuous', label: 'Continuous' }],
+      })}
+      ${segRow({
+        key: 'cardSize',
+        title: 'Card size',
+        desc: 'How big each tile is. Columns and rows follow from the window.',
+        options: [{ value: 'S', label: 'Small' }, { value: 'M', label: 'Medium' }, { value: 'L', label: 'Large' }],
       })}
       ${toggleRow({
         key: 'gamifyHidden',
@@ -451,11 +637,6 @@
         const key = input.dataset.setting;
         if (key === 'privacyMode') {
           setPrivacyMode(input.checked);
-        } else if (key === 'blurThumbs') {
-          settings.blurThumbs = input.checked;
-          save();
-          applyBlurThumbs(settings.blurThumbs);
-          showToast?.(settings.blurThumbs ? '🫥 Library blurred' : 'Library blur off');
         } else if (key.startsWith('modelConsent:')) {
           const modelKey = key.slice('modelConsent:'.length);
           const allow = input.checked;
@@ -488,6 +669,47 @@
           settings[key] = input.checked;
           save();
         }
+      });
+    });
+    // The "Hide while on" chips. Re-applying the body classes on every change
+    // means a chip lands live on the page behind the modal — which is the whole
+    // point: you are setting this up while looking at what leaks.
+    // Space and Enter are handled here rather than left to the browser: the
+    // page's global shortcut handler eats Space (play/pause), which kills the
+    // native activation a <button> would otherwise get.
+    const togglePrivacyChip = btn => {
+      const key = btn.dataset.privacyHide;
+      const next = btn.getAttribute('aria-pressed') !== 'true';
+      btn.setAttribute('aria-pressed', next ? 'true' : 'false');
+      settings.privacyHide = { ...settings.privacyHide, [key]: next };
+      save();
+      applyPrivacyMode(settings.privacyMode);
+    };
+    // Segmented controls (library layout, card size). The grid re-lays itself
+    // from the saved value, so there is nothing to reload.
+    const pickSeg = (btn) => {
+      const key = btn.dataset.settingSeg;
+      const value = btn.dataset.segValue;
+      if (settings[key] === value) return;
+      settings[key] = value;
+      save();
+      btn.closest('.settings-seg').querySelectorAll('button[data-setting-seg]').forEach(b => {
+        b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+      });
+      window.vaultRelayoutLibrary?.({ reason: key });
+    };
+    body.querySelectorAll('button[data-setting-seg]').forEach(btn => {
+      btn.addEventListener('click', () => pickSeg(btn));
+    });
+    body.querySelectorAll('button[data-privacy-hide]').forEach(btn => {
+      btn.addEventListener('click', () => togglePrivacyChip(btn));
+      btn.addEventListener('keydown', e => {
+        const activates = e.key === ' ' || e.key === 'Spacebar' || e.key === 'Enter'
+          || e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter';
+        if (!activates) return;
+        e.preventDefault();
+        e.stopPropagation();
+        togglePrivacyChip(btn);
       });
     });
     // Number rows: the input is free-typed, so re-read the clamped value back
@@ -551,6 +773,7 @@
   function syncPrivacyToggleUI() {
     const cb = document.querySelector('#settingsBody input[data-setting="privacyMode"]');
     if (cb) cb.checked = !!settings.privacyMode;
+    syncPrivacyChipsUI();
   }
 
   /* ── Section: Guides ─────────────────────────────────────────────────────── */
@@ -642,8 +865,35 @@
         };
   }
 
+  /* Delete mode used to sit inside the filters panel, which is not where you
+     look for a preference. It is a viewer-wide setting (localStorage, read by
+     every delete entry point), so it belongs here. */
+  function deleteModeRow() {
+    const cur = typeof getDeleteMode === 'function' ? getDeleteMode() : 'soft';
+    const opts = [
+      { value: 'soft',    label: 'Soft to trash folder' },
+      { value: 'recycle', label: 'Recycle Bin' },
+      { value: 'hard',    label: 'Permanent' },
+    ];
+    return `
+      <div class="settings-toggle settings-seg-row">
+        <span class="settings-toggle-text">
+          <span class="settings-toggle-title" id="segLabel_deleteMode">Delete mode</span>
+          <span class="settings-toggle-desc">What the 🗑 button does. Soft can be undone from the trash. Recycle Bin can be recovered by Windows. Permanent erases the file from disk straight away.</span>
+        </span>
+        <span class="settings-seg" role="group" aria-labelledby="segLabel_deleteMode">
+          ${opts.map(o => `
+            <button type="button" class="settings-seg-btn" data-delete-mode="${o.value}"
+                    aria-pressed="${cur === o.value ? 'true' : 'false'}">${esc(o.label)}</button>`).join('')}
+        </span>
+      </div>`;
+  }
+
   function RENDERERS_library() {
     return `
+      <h3 class="settings-h">Deleting files</h3>
+      ${deleteModeRow()}
+
       <h3 class="settings-h">Move / relink library</h3>
       <p>Moved your collection? Don't re-scan it. Tell Vault where the files
       went and it updates its records to match. Every tag, note, star and view
@@ -676,7 +926,196 @@
           fields: migField('migNewRoot', 'Search this folder', 'D:\\Media'),
         })}
       </div>
+
+      <h3 class="settings-h">Playback support</h3>
+      <div class="mig-card" id="pbCard">
+        <div class="mig-card-title">Check playback support for all files</div>
+        <p class="settings-note">Reads the video and audio format of files
+        scanned before this version, so Vault knows which ones play directly,
+        which need converting, and which cannot play.</p>
+        <div class="mig-actions">
+          <button class="settings-btn" id="pbCheckBtn" type="button">Check now</button>
+          <span class="mig-status"></span>
+        </div>
+        <div class="mig-progress" style="display:none">
+          <div class="mig-bar"><div class="mig-bar-fill"></div></div>
+          <div class="mig-bar-stats"></div>
+        </div>
+        <div class="mig-report" id="pbResult"></div>
+      </div>
     `;
+  }
+
+  /* ── The playback check ─────────────────────────────────────────────────
+     One button over POST /api/playback/backfill, which reads each old file's
+     video and audio format with ffprobe. Same job shape as the migrate job,
+     so the same progress bar reads it. Two things happen when it finishes:
+     the three counts go on screen, and the library is reloaded, so every
+     extension chip and every tile answers from the codecs instead of from the
+     file extension without the user reaching for F5. */
+
+  let pbPollTimer = null;
+  let pbRateWindow = [];
+
+  function pbCardEl() { return document.getElementById('pbCard'); }
+
+  async function pbFetchJob() {
+    try {
+      const resp = await fetch('/api/playback/backfill');
+      if (!resp.ok) return null;
+      return await resp.json();
+    } catch { return null; }
+  }
+
+  function pbStopPolling() {
+    if (pbPollTimer) { clearInterval(pbPollTimer); pbPollTimer = null; }
+  }
+
+  function pbStartPolling() {
+    if (pbPollTimer) return;
+    pbPollTimer = setInterval(pbPollOnce, 1000);
+  }
+
+  /** Files per second over a short window, or null until it means something. */
+  function pbRate(s) {
+    const last = pbRateWindow[pbRateWindow.length - 1];
+    if (!last || last.processed !== s.processed) {
+      pbRateWindow.push({ processed: s.processed, at: Date.now() });
+      if (pbRateWindow.length > MIG_RATE_SAMPLES) pbRateWindow.shift();
+    }
+    if (pbRateWindow.length < 2) return null;
+    const a = pbRateWindow[0];
+    const b = pbRateWindow[pbRateWindow.length - 1];
+    const dt = (b.at - a.at) / 1000;
+    const dp = b.processed - a.processed;
+    if (dt <= 0 || dp <= 0) return null;
+    return Math.round(dp / dt);
+  }
+
+  function pbRenderProgress(card, s) {
+    migSetStatus(card, 'Checking files');
+    const box = card.querySelector('.mig-progress');
+    const fill = card.querySelector('.mig-bar-fill');
+    const stats = card.querySelector('.mig-bar-stats');
+    if (!box || !fill || !stats) return;
+    box.style.display = '';
+
+    // The row count is only known once the job has asked the database for it,
+    // so the first tick gets a moving bar rather than a fraction of nothing.
+    const determinate = s.total > 0;
+    box.classList.toggle('is-indeterminate', !determinate);
+    fill.style.width = determinate
+      ? `${Math.max(0, Math.min(100, (s.processed / s.total) * 100)).toFixed(1)}%`
+      : '';
+
+    const rate = pbRate(s);
+    const bits = [];
+    if (determinate) bits.push(`${s.processed.toLocaleString()} / ${s.total.toLocaleString()}`);
+    if (rate != null) bits.push(`${rate.toLocaleString()} files/s`);
+    bits.push(`${migHuman(s.elapsedMs)} elapsed`);
+    if (s.etaMs != null) bits.push(`about ${migHuman(s.etaMs)} left`);
+    stats.textContent = bits.join(' · ');
+  }
+
+  function pbLock(card, busy) {
+    const btn = card.querySelector('#pbCheckBtn');
+    if (btn) btn.disabled = !!busy;
+  }
+
+  function pbRenderResult(card, s) {
+    pbLock(card, false);
+    migSetStatus(card, s.error ? 'Check failed' : 'Done', s.error ? 'mig-bad' : 'mig-good');
+    const box = card.querySelector('.mig-progress');
+    if (box) { box.style.display = 'none'; box.classList.remove('is-indeterminate'); }
+
+    const out = card.querySelector('#pbResult');
+    if (!out) return;
+    if (s.error) {
+      out.innerHTML = `<p class="settings-note">${esc(s.error)}</p>`;
+      return;
+    }
+    if (!s.checked) {
+      out.innerHTML = '<p class="settings-note">Every file had already been checked.</p>';
+      return;
+    }
+    const line = `${s.checked.toLocaleString()} checked: `
+      + `${s.plays.toLocaleString()} play directly, `
+      + `${s.converts.toLocaleString()} play via conversion, `
+      + `${s.cannot.toLocaleString()} cannot play.`;
+    // The library grid can already focus an arbitrary set of ids, so this is a
+    // real filter rather than a search box guess.
+    const showThem = s.cannot > 0
+      ? ' <button class="settings-link" id="pbShowFailed" type="button">Show them</button>'
+      : '';
+    out.innerHTML = `<p class="settings-note">${esc(line)}${showThem}</p>`;
+    out.querySelector('#pbShowFailed')?.addEventListener('click', pbShowUnplayable);
+  }
+
+  /** Focus the library grid on the files this browser cannot play. */
+  function pbShowUnplayable() {
+    if (typeof allMedia === 'undefined' || typeof mediaPlaybackState !== 'function') return;
+    const ids = allMedia.filter(m => mediaPlaybackState(m).state === 'no').map(m => m.id);
+    if (!ids.length) {
+      if (typeof showToast === 'function') showToast('Nothing to show');
+      return;
+    }
+    closeModal();
+    window.vaultShowMediaIds(ids, 'files that cannot play');
+  }
+
+  async function pbPollOnce() {
+    const s = await pbFetchJob();
+    const card = pbCardEl();
+    // Panel closed or re-rendered: the job keeps going, and the next render of
+    // this section re-attaches to it.
+    if (!card) { pbStopPolling(); return; }
+    if (!s || s.idle) { pbStopPolling(); return; }
+    if (s.running) { pbLock(card, true); pbRenderProgress(card, s); return; }
+    pbStopPolling();
+    pbRenderResult(card, s);
+    // The codec columns just changed for potentially every row, and the chips
+    // and the tiles are computed from them.
+    if (typeof loadDatabase === 'function') {
+      loadDatabase().then(() => { if (typeof applyFilters === 'function') applyFilters(); });
+    }
+  }
+
+  function wirePlaybackCheck() {
+    pbStopPolling();
+    pbRateWindow = [];
+    const card = pbCardEl();
+    if (!card) return;
+    card.querySelector('#pbCheckBtn')?.addEventListener('click', async () => {
+      pbLock(card, true);
+      pbRateWindow = [];
+      const out = card.querySelector('#pbResult');
+      if (out) out.innerHTML = '';
+      migSetStatus(card, 'Starting');
+      try {
+        const resp = await fetch('/api/playback/backfill', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        if (!resp.ok && resp.status !== 409) throw new Error(`Server returned ${resp.status}`);
+      } catch {
+        pbLock(card, false);
+        migSetStatus(card, 'Could not start the check', 'mig-bad');
+        return;
+      }
+      pbStartPolling();
+      pbPollOnce();
+    });
+
+    // A check started before this panel was opened, or from another tab, is
+    // still the same one-slot job: pick it up rather than pretend it is idle.
+    pbFetchJob().then(s => {
+      if (!s || s.idle) return;
+      const c = pbCardEl();
+      if (!c) return;
+      if (s.running) { pbLock(c, true); pbRenderProgress(c, s); pbStartPolling(); }
+      else pbRenderResult(c, s);
+    });
   }
 
   /* ── The deep-search expander ─────────────────────────────────────────────
@@ -733,6 +1172,12 @@
   }
 
   function wireLibrarySection() {
+    document.querySelectorAll('[data-delete-mode]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (typeof setDeleteMode === 'function') setDeleteMode(btn.dataset.deleteMode);
+      });
+    });
+
     // Fresh render means the report area is empty again — drop any saved
     // preview so retyping the same paths can't re-arm Apply against a report
     // that is no longer on screen. migAttach() below then puts back whatever
@@ -740,7 +1185,10 @@
     // is only ever armed alongside the report it was armed against.
     Object.keys(migState).forEach(k => { migState[k] = null; });
     migStopPolling();
-    document.querySelectorAll('.mig-card').forEach(card => {
+    wirePlaybackCheck();
+    // Only the move/relink cards: the playback-check card below shares the
+    // .mig-card look and nothing else, and has no preview/apply pair to wire.
+    document.querySelectorAll('.mig-card[data-mig-mode]').forEach(card => {
       const mode = card.dataset.migMode;
       // Any edit locks Apply again — it must never write a plan the user has
       // not seen. The report is KEPT rather than dropped: typing a character
@@ -1507,6 +1955,10 @@
       return;
     }
     if (typeof playMedia !== 'function') return;
+    // Closing the player leaves the grid alone, with this one exception: the
+    // user did not pick a page before this file opened itself, so the first
+    // close may put the grid where the file is. player-core reads the flag.
+    window.vaultRevealOnNextClose = true;
     playMedia({ filepath: media.filepath, filename: media.filename, media_type: media.media_type });
     // Open paused: playMedia's setup ends with a synchronous play() call, so
     // pausing here supersedes it (the superseded play() promise rejection is

@@ -1150,6 +1150,29 @@
   }
   window.openBeatBarSettings = openBeatBarSettings;
 
+  function buttonTitle(on) {
+    return on
+      ? 'Beat bar is ON — click to turn off'
+      : 'Beat bar is OFF — click to turn on (stays on for future videos)';
+  }
+
+  /* Markup for the two extras-row buttons, already in their final state.
+     The player renders this with the rest of its chrome so the row has its
+     final geometry in the very first frame after a file change — buttons that
+     arrive a tick later shove the whole control row sideways, which is
+     miserable to watch on a stream. Only classes and label text ever change
+     afterwards; CSS pins the widths so those can't move anything either. */
+  function renderButtons() {
+    const on = isEnabled();
+    return `<button id="beatbarBtn" class="nav-btn beatbar-toggle${on ? ' beatbar-btn-on' : ''}"
+        onclick="toggleBeatBar()" title="${buttonTitle(on)}"
+      ><span class="nav-icon">🥁</span><span class="beatbar-state">${on ? 'ON' : 'OFF'}</span></button>
+      <button id="beatbarSettingsBtn" class="nav-btn beatbar-settings-btn"
+        onclick="openBeatBarSettings()" title="Beat bar settings"
+      ><span class="nav-icon">⚙</span></button>`;
+  }
+  window.renderBeatBarButtons = renderButtons;
+
   function syncButton() {
     const btn = document.getElementById('beatbarBtn');
     if (!btn) return;
@@ -1157,33 +1180,18 @@
     btn.classList.toggle('beatbar-btn-on', on);
     const stateEl = btn.querySelector('.beatbar-state');
     if (stateEl) stateEl.textContent = on ? 'ON' : 'OFF';
-    btn.title = on
-      ? 'Beat bar is ON — click to turn off'
-      : 'Beat bar is OFF — click to turn on (stays on for future videos)';
+    btn.title = buttonTitle(on);
   }
 
+  /* Safety net for players that don't render the buttons themselves (and for
+     any re-render that drops them). The video player supplies them up front,
+     so this normally finds them already in place and only syncs the state. */
   function injectButtons() {
     // Live in the extras row (next to speed, between play row and nav bar) —
     // keeps Prev/Random/Info/Next in a fixed spot across media types
     const center = document.querySelector('.video-extras-row .pr-center');
     if (!center) return;
-    if (!document.getElementById('beatbarBtn')) {
-      const btn = document.createElement('button');
-      btn.id = 'beatbarBtn';
-      btn.className = 'nav-btn beatbar-toggle';
-      btn.innerHTML = '<span class="nav-icon">🥁</span><span class="beatbar-state">OFF</span>';
-      btn.onclick = toggleBeatBar;
-      center.appendChild(btn);
-    }
-    if (!document.getElementById('beatbarSettingsBtn')) {
-      const gear = document.createElement('button');
-      gear.id = 'beatbarSettingsBtn';
-      gear.className = 'nav-btn beatbar-settings-btn';
-      gear.title = 'Beat bar settings';
-      gear.innerHTML = '<span class="nav-icon">⚙</span>';
-      gear.onclick = openBeatBarSettings;
-      center.appendChild(gear);
-    }
+    if (!document.getElementById('beatbarBtn')) center.insertAdjacentHTML('beforeend', renderButtons());
     syncButton();
   }
 
@@ -1197,8 +1205,9 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     const orig = playMedia;
-    playMedia = function (mediaData) {
-      orig(mediaData);
+    playMedia = function (mediaData, ...rest) {
+      // ...rest forwards playMedia's options (the hands-free source flag).
+      orig(mediaData, ...rest);
       detach();
       if (mediaData?.media_type === 'video') {
         injectButtons();

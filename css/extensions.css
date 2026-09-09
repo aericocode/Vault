@@ -86,8 +86,6 @@
 
 /* ── Duration range slider (dual thumb, minutes) ─────────────────────── */
 
-.duration-group { min-width: 220px; }
-
 .duration-label {
   color: var(--accent-hover, #89b4fa);
   font-weight: 600;
@@ -118,11 +116,9 @@
   border-radius: 2px;
 }
 
-/* Fully unstyled range inputs — kill the generic .filter-group input chrome
-   (border/padding/background) so only the custom track + thumbs render,
+/* Fully unstyled range inputs, so only the custom track + thumbs render,
    edge to edge with no side gaps. */
-.duration-slider input[type="range"],
-.filter-group .duration-slider input[type="range"] {
+.duration-slider input[type="range"] {
   position: absolute;
   top: 0;
   left: 0;
@@ -180,7 +176,10 @@
   cursor: ew-resize;
 }
 
-/* ── Playable marker (★ = browser can play) ──────────────────────────── */
+/* ── Playable marker ──────────────────────────────────────────────────────
+   Three states: green = every file behind this chip plays, amber = some do
+   (the chip's count then reads "play/total"), red = none can. No star means
+   nothing behind the chip has been checked yet. */
 
 .ext-playable {
   color: var(--success, #a6e3a1);
@@ -189,6 +188,16 @@
   cursor: help;
 }
 
+.ext-playable.part {
+  color: var(--warning, #f59e0b);
+}
+
+.ext-playable.none {
+  color: var(--danger, #ef4444);
+}
+
+/* An active chip inverts its background, so the star has to come with it or
+   it disappears into the fill. */
 .ext-chip.active .ext-playable {
   color: var(--bg, #1e1e2e);
   opacity: 0.7;
@@ -217,6 +226,12 @@
 
 .ext-legend .ext-playable {
   font-size: 0.8rem;
+}
+
+/* The legend's fourth entry has no star to show, so it names itself. */
+.ext-legend-none {
+  color: var(--text-secondary, #888);
+  font-style: italic;
 }
 
 /* ── Clear Filters Button ────────────────────────────────────────────── */
@@ -288,12 +303,6 @@
   background: rgba(166, 227, 161, 0.15);
   color: #a6e3a1;
   border: 1px solid rgba(166, 227, 161, 0.3);
-}
-
-.search-mode-indicator.mode-regex {
-  background: rgba(243, 139, 168, 0.15);
-  color: #f38ba8;
-  border: 1px solid rgba(243, 139, 168, 0.3);
 }
 
 .search-mode-indicator.mode-boolean {

@@ -29,6 +29,16 @@ function volumeToSlider(volume, max = 1) {
   return linear * max;
 }
 
+/** True when the system asks for less movement. Read fresh — the OS setting
+ *  can change while the app is open. */
+function prefersReducedMotion() {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
+}
+
 function debounce(fn, ms) {
   let timeout;
   return (...args) => {
@@ -100,6 +110,38 @@ function escapeHtml(text) {
   div.textContent = text;
   // & is already escaped by the step above, so this can't double-encode.
   return div.innerHTML.replace(/"/g, '&quot;');
+}
+
+/* ── Where a click actually happened ──────────────────────────────────────
+   Delegated listeners on the document run one after another, and an earlier
+   one is free to re-render the page. By the time a later one asks "was this
+   click inside my thing?", the node that was clicked may already have been
+   thrown away and replaced, and `e.target.closest(...)` on a node that has
+   left the page walks a stub with no ancestors and answers "no" for a click
+   that plainly was inside. The event's composed path is fixed at the moment
+   the event is dispatched, so it still says where the click landed no matter
+   what the handlers before us did to the page. */
+
+/** The element matching `selector` that this event passed through, or null. */
+function eventPathTarget(e, selector) {
+  const path = typeof e.composedPath === 'function' ? e.composedPath() : null;
+  if (path && path.length) {
+    for (const node of path) {
+      if (node === document || node === window) break;
+      if (node && node.nodeType === 1 && node.matches && node.matches(selector)) return node;
+    }
+    return null;
+  }
+  // No path to read: the old question is better than no question at all.
+  return e.target && e.target.closest ? e.target.closest(selector) : null;
+}
+
+/** Did this event pass through `node`, or anything inside it? */
+function eventPathHasNode(e, node) {
+  if (!node) return false;
+  const path = typeof e.composedPath === 'function' ? e.composedPath() : null;
+  if (path && path.length) return path.includes(node);
+  return node.contains ? node.contains(e.target) : false;
 }
 
 /* ── Bottom-right queue stack ─────────────────────────────────────────────

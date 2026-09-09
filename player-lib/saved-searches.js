@@ -85,7 +85,6 @@ function restoreFilterState(state) {
     const el = document.getElementById(id);
     if (el) el.value = value;
   });
-  if (typeof syncSearchableSelects === 'function') syncSearchableSelects();
 
   // Media-type bubbles + safe toggle (legacy saves stored filterType single)
   if (typeof selectedMediaTypes !== 'undefined') {
