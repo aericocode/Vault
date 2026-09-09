@@ -426,6 +426,21 @@ document.addEventListener('keydown', (e) => {
       miniTogglePlay();
       return;
     }
+    // The same queue keys as the full player. Minimizing changes the size of
+    // the window, not the queue, and the file these land on now opens in the
+    // mini player rather than throwing the full overlay back up.
+    if (e.key === 'n' || e.key === 'N') {
+      playNextMedia();
+      return;
+    }
+    if (e.key === 'p' || e.key === 'P') {
+      playPreviousMedia();
+      return;
+    }
+    if (e.key === 'r' || e.key === 'R') {
+      playRandomMedia();
+      return;
+    }
     return;
   }
 

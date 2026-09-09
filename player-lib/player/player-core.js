@@ -179,6 +179,16 @@ function playMedia(mediaData, { source = 'user' } = {}) {
   const { filepath, filename, media_type } = mediaData;
   lastPlaySource = source === 'auto' ? 'auto' : 'user';
 
+  /* Minimized is a mode, not a property of one file. A move the queue made on
+     its own — Next, Prev, Random, auto-advance, the wrap, a skip past a file
+     that failed — should land in the mini player too; throwing the full
+     overlay back over the library mid-stream is exactly what minimizing said
+     no to. Only a deliberate open (a tile in the library) or Maximize brings
+     the full player back, and only the types the mini player can show. */
+  const wasMini = currentMediaState.miniMode === true;
+  const keepMini = wasMini && lastPlaySource === 'auto'
+    && (isVideoLike(media_type) || media_type === 'audio');
+
   // Close mini player if active (stop its playback)
   const miniPlayer = document.getElementById('miniPlayer');
   if (miniPlayer && miniPlayer.classList.contains('active')) {
@@ -188,7 +198,9 @@ function playMedia(mediaData, { source = 'user' } = {}) {
     stopMediaElement(miniEl);
     miniMedia.innerHTML = '';
     miniPlayer.classList.remove('active', 'mini-audio');
-    resetMiniPlayerPosition();
+    // Where the user dragged the box is theirs to keep while it stays open;
+    // only leaving mini mode altogether puts it back in the corner.
+    if (!keepMini) resetMiniPlayerPosition();
     currentMediaState.miniMode = false;
   }
 
@@ -302,6 +314,10 @@ function playMedia(mediaData, { source = 'user' } = {}) {
 
   // Setup click handler on media player content
   content.addEventListener('click', handleContentClick);
+
+  // Straight back down to the mini player. Same tick as the build above, so
+  // the full overlay never gets a frame to paint in.
+  if (keepMini) minimizePlayer();
 }
 
 /* ── Repeat / auto-advance ────────────────────────────────────────
@@ -915,6 +931,19 @@ function stopMediaElement(el) {
 }
 
 /**
+ * A media element inside the mini player failed. Report it against whatever
+ * the player is on right now rather than a path baked in when the element was
+ * built, and only while the element is still the one on screen — a detached
+ * element firing its error late must not move the queue.
+ */
+function handleMiniMediaError(e) {
+  const el = e.currentTarget;
+  if (!el || !el.closest('#miniPlayerMedia')) return;
+  const filepath = currentMediaState.currentMediaData?.filepath;
+  if (filepath) handleMediaError(filepath);
+}
+
+/**
  * Minimize the full player to a floating mini player.
  * Moves the media element (video/audio) without reloading it.
  */
@@ -957,6 +986,10 @@ function minimizePlayer() {
   // are still caught by the capture-phase listener in selection.js.
   element.onerror = null;
   element.removeAttribute('onerror');
+  // ...but hands-free playback still has to notice a file that dies while
+  // minimized, or a bad file in the queue silently stops the stream. This
+  // listener reads the path at the moment it fires, so it can never be stale.
+  element.addEventListener('error', handleMiniMediaError);
 
   // Move the media element to the mini player (preserves playback state)
   if (type === 'mix') {
