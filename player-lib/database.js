@@ -143,8 +143,11 @@ async function _scanWatchTick() {
   try {
     let rows = [];
     try {
+      // This round fires every 5 s on its own, so it must not count as the
+      // user being here: the server skips the autolock idle reset for
+      // requests carrying this header (see the gate in server/index.js).
       const resp = await fetch('/api/media/rows', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Vault-Background': '1' },
         body: JSON.stringify({ ids: pending.slice(0, 2000) }),
       });
       if (!resp.ok) return;                            // locked/busy — next round

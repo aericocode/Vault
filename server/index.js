@@ -127,7 +127,10 @@ app.use((req, res, next) => {
     || req.path.startsWith('/stream/');
   if (!dataPath) return next();
   if (vault.isLocked()) return res.status(423).json({ error: 'vault is locked', code: 'VAULT_LOCKED' });
-  vault.touch();
+  // Timed background polls (the unscanned-row watcher, for one) mark
+  // themselves so they do not count as the user being present; otherwise a
+  // library with a single unscanned file could never auto-lock.
+  if (req.get('X-Vault-Background') !== '1') vault.touch();
   next();
 });
 
