@@ -14,6 +14,8 @@
    - window.vaultRecordLastOpened(id)  → remember last-opened media (restore session)
    - window.vaultPopSort(key)          → 'az' | 'count' for one filter popover
    - window.vaultSetPopSort(key, mode) → remember the order the user picked
+   - window.vaultRepeatMode()          → 'off' | 'all' | 'one' (player repeat button)
+   - window.vaultSetRepeatMode(mode)   → persist the mode the user picked
    - window.vaultScanWorkers()         → AI scan concurrency (int)
    - window.vaultSetScanWorkers(n)     → clamp + persist + push it to the server
    ========================================================================= */
@@ -21,6 +23,7 @@
 (function () {
   const LS_KEY = 'vault_settings';
   const POP_SORTS = ['az', 'count'];   // filter popover option order
+  const REPEAT_MODES = ['off', 'all', 'one'];  // player repeat button, in cycle order
 
   const DEFAULTS = {
     privacyMode: false,     // hide personal data on screen for screen-sharing
@@ -36,7 +39,7 @@
     },
     resumePlayback: true,   // auto-seek to stored position on open (current behavior)
     restoreSession: false,  // reopen last media (paused) on launch, Stash-style
-    queueLoop: false,       // after the last file in the list, start over at the first
+    repeatMode: 'off',      // 'off' | 'all' (start over after the last file) | 'one' (repeat this file)
     scanWorkers: 2,         // files the vision model scans in parallel after an import
     unlockHoldSeconds: 0,   // press-and-hold on the lock before the password box (0 = single click)
     gamifyHidden: false,    // hide the Obsession chip + toasts (scoring continues)
@@ -154,6 +157,16 @@
     // old default of 3, which would silently keep hold-to-unlock with no UI
     // left to change it. Exactly 3 → 0, once; any other value was set by hand
     // (editing the stored JSON) and is honored as-is.
+    // One-time migration: the old "Start over after the last file" switch is now
+    // the 'all' state of the player's repeat button. Carry a stored yes over,
+    // then drop the dead key so it cannot come back.
+    if (!REPEAT_MODES.includes(settings.repeatMode)) {
+      settings.repeatMode = settings.queueLoop === true ? 'all' : DEFAULTS.repeatMode;
+    }
+    if ('queueLoop' in settings) {
+      delete settings.queueLoop;
+      save();
+    }
     if (!settings._unlockHoldMigrated) {
       if (settings.unlockHoldSeconds === 3) settings.unlockHoldSeconds = 0;
       settings._unlockHoldMigrated = true;
@@ -199,9 +212,21 @@
     save();
   };
 
-  // The player asks this when a file ends (or fails) on the last item in the
-  // list: start over at the first, or stop here?
-  window.vaultQueueLoop = () => !!settings.queueLoop;
+  /* ── Repeat mode ───────────────────────────────────────────
+     One answer to "what happens when a file ends", set by the repeat button in
+     the player's control bar. 'off' plays the next file and stops at the end of
+     the list, 'all' starts over at the first file instead of stopping, 'one'
+     replays the file that just ended. Validated here so a hand-edited blob
+     cannot hand the player a mode it has no behaviour for. */
+
+  window.vaultRepeatMode = () =>
+    REPEAT_MODES.includes(settings.repeatMode) ? settings.repeatMode : 'off';
+
+  window.vaultSetRepeatMode = function (mode) {
+    if (!REPEAT_MODES.includes(mode)) return;
+    settings.repeatMode = mode;
+    save();
+  };
 
   /* ── AI scan workers ─────────────────────────────────────────────────────
      One number, three surfaces (this modal, the import modal, the live scan
@@ -536,11 +561,6 @@
         title: 'Restore last session on open',
         desc: 'When the app launches, reopen the last media you played — paused.',
       })}
-      ${toggleRow({
-        key: 'queueLoop',
-        title: 'Start over after the last file',
-        desc: 'When the last file in the list ends, go back to the first one instead of stopping. Applies when the per-file Loop button is off.',
-      })}
       ${numberRow({
         key: 'scanWorkers',
         title: 'AI scan workers',
@@ -601,12 +621,6 @@
         const key = input.dataset.setting;
         if (key === 'privacyMode') {
           setPrivacyMode(input.checked);
-        } else if (key === 'queueLoop') {
-          settings.queueLoop = input.checked;
-          save();
-          showToast?.(settings.queueLoop
-            ? '🔁 The list starts over after the last file'
-            : 'The list stops after the last file');
         } else if (key.startsWith('modelConsent:')) {
           const modelKey = key.slice('modelConsent:'.length);
           const allow = input.checked;
