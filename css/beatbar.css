@@ -172,8 +172,12 @@
   background: rgba(122, 168, 255, 0.18);
 }
 
-/* Unmistakable ON/OFF state on the toggle */
+/* Unmistakable ON/OFF state on the toggle. Fixed footprint: ON and OFF take
+   exactly the same space, so flipping the state can never nudge the row. */
 .beatbar-toggle .beatbar-state {
+  display: inline-block;
+  min-width: 3.4em;
+  text-align: center;
   font-size: 0.6rem;
   font-weight: 700;
   letter-spacing: 0.5px;

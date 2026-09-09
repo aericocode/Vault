@@ -56,6 +56,8 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
         <div class="pr-center">
           ${speedControls}
           ${typeof renderRepeatButton === 'function' ? renderRepeatButton() : ''}
+          ${typeof renderVibeButton === 'function' ? renderVibeButton() : ''}
+          ${typeof renderBeatBarButtons === 'function' ? renderBeatBarButtons() : ''}
         </div>
         <div class="pr-side pr-right">
           ${typeof renderHotButton === 'function' ? renderHotButton() : ''}

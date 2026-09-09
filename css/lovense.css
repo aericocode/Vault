@@ -66,6 +66,12 @@
 .lovense-hint { font-size: 0.68rem; color: var(--text-muted); }
 
 /* Control-bar Vibe toggle (sits next to the repeat button; reuses .control-btn base) */
+/* Fixed footprint: "Vibe: Off", "Vibe: On" and "Vibe: No device" all occupy the
+   same width, so the control row never shifts when the state changes. */
+.vibe-btn {
+  min-width: 9.1em;
+  justify-content: center;
+}
 .vibe-btn.active {
   background: var(--accent);
   border-color: var(--accent);
