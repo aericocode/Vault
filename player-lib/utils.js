@@ -29,6 +29,16 @@ function volumeToSlider(volume, max = 1) {
   return linear * max;
 }
 
+/** True when the system asks for less movement. Read fresh — the OS setting
+ *  can change while the app is open. */
+function prefersReducedMotion() {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
+}
+
 function debounce(fn, ms) {
   let timeout;
   return (...args) => {

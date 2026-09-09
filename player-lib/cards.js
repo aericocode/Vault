@@ -296,13 +296,69 @@ function resetPageAnchor() {
   if (libraryLayoutMode() === 'continuous') scrollLibraryToTop();
 }
 
-/** Bring the top of the grid back into view without disturbing a short page. */
-function scrollLibraryToTop() {
+/**
+ * Bring the top of the grid back into view without disturbing a short page.
+ * @param {{smooth?: boolean}} [opts] smooth: glide there rather than jump
+ *        (ignored when the system asks for reduced motion).
+ */
+function scrollLibraryToTop(opts) {
   const grid = document.getElementById('resultsGrid');
   if (!grid) return;
   const top = grid.getBoundingClientRect().top + window.scrollY;
-  if (window.scrollY > top) window.scrollTo({ top: Math.max(0, top) });
+  if (window.scrollY <= top) return;
+  const smooth = !!(opts && opts.smooth) && !prefersReducedMotion();
+  window.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' });
 }
+
+/* ── Back to top ──────────────────────────────────────────────────────────
+   Only continuous mode needs it: pages mode never scrolls, and its pager
+   already has a way back to the first page. The pill earns its place once the
+   grid top is a full screen behind — sooner than that, the way back is one
+   flick of the wheel and a button would just be in the way.
+
+   Which of the two states it is in lives in JS; whether it is allowed to show
+   at all (no player, no modal over the top) is CSS, so nothing has to be
+   notified when one of those opens. */
+
+function scrollTopPillShouldShow() {
+  if (libraryLayoutMode() !== 'continuous') return false;
+  const grid = document.getElementById('resultsGrid');
+  if (!grid) return false;
+  const top = grid.getBoundingClientRect().top + window.scrollY;
+  return window.scrollY - top > window.innerHeight;
+}
+
+/**
+ * Lift the pill clear of the mini player when the two would sit on each other.
+ * The mini player is draggable and resizable, so this asks the rectangles
+ * rather than assuming it is still parked in the bottom-right corner.
+ */
+function liftScrollTopPill(pill) {
+  pill.style.bottom = '';
+  const mini = document.getElementById('miniPlayer');
+  if (!mini || !mini.classList.contains('active')) return;
+  const m = mini.getBoundingClientRect();
+  const p = pill.getBoundingClientRect();
+  const clear = m.right < p.left || m.left > p.right || m.bottom < p.top || m.top > p.bottom;
+  if (clear) return;
+  const lift = window.innerHeight - m.top + 12;
+  const ceiling = window.innerHeight - p.height - 8;
+  pill.style.bottom = `${Math.max(0, Math.min(lift, ceiling))}px`;
+}
+
+function updateScrollTopPill() {
+  const pill = document.getElementById('scrollTopPill');
+  if (!pill) return;
+  const show = scrollTopPillShouldShow();
+  pill.classList.toggle('visible', show);
+  // The fade takes 140ms to put `visibility` back; the tab order should not
+  // wait for it, and should not depend on a frame being painted at all.
+  pill.tabIndex = show ? 0 : -1;
+  if (show) liftScrollTopPill(pill);
+}
+
+// The player calls this when it minimizes, maximizes or closes.
+window.vaultUpdateScrollTopPill = updateScrollTopPill;
 
 /** Put the tile at this index on screen. Used at boot only. */
 function revealMediaIndex(index) {
@@ -400,6 +456,7 @@ function renderContinuousWindow() {
   virt.innerHTML = html;
   hydrateThumbs(virt);
   prefetchContinuousRows();
+  updateScrollTopPill();
 
   // The anchor still means "first tile on screen", which here is the first
   // tile of the first row the viewport actually shows.
@@ -459,6 +516,7 @@ function relayoutLibrary(force) {
   renderResults();
   if (keep) restoreContinuousAnchor(keep);
   _lastLayoutKey = libraryLayoutKey();
+  updateScrollTopPill();   // a mode switch decides whether the pill exists at all
 }
 
 // Settings calls this when the layout mode or card size changes.
@@ -484,15 +542,26 @@ function initGridObservers() {
   // Continuous mode: rows come and go as the page scrolls, one pass per frame.
   let scrollQueued = false;
   window.addEventListener('scroll', () => {
-    if (libraryLayoutMode() !== 'continuous' || scrollQueued) return;
+    if (scrollQueued) return;
     scrollQueued = true;
     requestAnimationFrame(() => {
       scrollQueued = false;
+      updateScrollTopPill();
+      if (libraryLayoutMode() !== 'continuous') return;
       const r = continuousRange(contState.stride, contState.totalRows);
       if (r.first === contState.first && r.last === contState.last) return;
       renderContinuousWindow();
     });
   }, { passive: true });
+
+  // The mini player moves and resizes under the user's hand, and it shows and
+  // hides without going through a render — the pill has to keep clear of
+  // wherever it ends up.
+  const mini = document.getElementById('miniPlayer');
+  if (mini && typeof MutationObserver === 'function') {
+    new MutationObserver(updateScrollTopPill)
+      .observe(mini, { attributes: true, attributeFilter: ['class', 'style'] });
+  }
 
   // One wheel notch is one page. Debounced, because a trackpad fling arrives
   // as a burst of small deltas and would otherwise flip through several.

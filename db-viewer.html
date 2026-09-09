@@ -343,6 +343,14 @@
     </div>
   </div>
 
+  <!-- Jump back to the top of the grid (continuous layout only) -->
+  <button type="button" class="scroll-top-pill" id="scrollTopPill" tabindex="-1"
+          onclick="scrollLibraryToTop({ smooth: true })"
+          title="Back to the top of the library"
+          aria-label="Back to the top of the library">
+    <span class="stp-text">Top</span><span class="stp-icon" aria-hidden="true">↑</span>
+  </button>
+
   <script src="./player-lib/fuse.min.js"></script>
   <!-- hls.js 1.7.2, Apache-2.0 — see player-lib/THIRD-PARTY.txt -->
   <script src="./player-lib/hls.min.js"></script>
