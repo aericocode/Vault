@@ -49,7 +49,7 @@
       if (ov) return;
       ov = document.createElement('div');
       ov.id = 'vaultDropOverlay';
-      ov.textContent = '⬇ Drop to add in place — nothing is copied';
+      ov.textContent = '⬇ Drop to add in place. Nothing is copied';
       document.body.appendChild(ov);
     } else {
       ov?.remove();
@@ -75,7 +75,7 @@
         el.innerHTML = `
           <div class="dq-head">
             <span class="dq-spin"></span>
-            <span class="dq-title">${verb} ${done}/${total}${name ? ` — <span class="dq-file">${escapeHtml(name)}</span>` : ''}</span>
+            <span class="dq-title">${verb} ${done}/${total}${name ? ` · <span class="dq-file">${escapeHtml(name)}</span>` : ''}</span>
           </div>
           ${failures.length ? `<div class="dq-list">${failRows()}</div>` : ''}`;
       },
@@ -84,7 +84,7 @@
         clearTimeout(hideTimer);
         el.innerHTML = `
           <div class="dq-head">
-            <span class="dq-title">${ok ? '✓' : '⚠'} ${ok ? 'Added' : 'Import'} ${ok}/${total}${failures.length ? ` · ${failures.length} failed` : ''}${extra ? ` — ${escapeHtml(extra)}` : ''}</span>
+            <span class="dq-title">${ok ? '✓' : '⚠'} ${ok ? 'Added' : 'Import'} ${ok}/${total}${failures.length ? ` · ${failures.length} failed` : ''}${extra ? ` · ${escapeHtml(extra)}` : ''}</span>
             <button class="dq-x" title="Dismiss">✕</button>
           </div>
           ${failures.length ? `<div class="dq-list">${failRows()}</div>` : ''}`;
@@ -123,7 +123,7 @@
   // Same buckets as lib/work-queue.js ProgressTracker.eta, so the CLI and the
   // panel never quote different numbers for the same queue.
   function fmtEta(ms) {
-    if (ms == null || !Number.isFinite(ms)) return '—';
+    if (ms == null || !Number.isFinite(ms)) return '–';
     if (ms < 60000) return `${Math.round(ms / 1000)}s`;
     if (ms < 3600000) return `${Math.round(ms / 60000)}m`;
     return `${(ms / 3600000).toFixed(1)}h`;
@@ -153,13 +153,13 @@
         <span class="dq-eta" id="scanEta"></span>
         <span class="dq-workers">🤖 <input type="number" min="1" max="8" step="1"
           class="dq-num" id="scanWorkersNum" data-scan-workers
-          title="Parallel vision jobs — changes take effect immediately"></span>
+          title="Parallel vision jobs. Changes take effect immediately"></span>
       </div>
       <div class="dq-warn" id="scanWarn" hidden></div>
       <div class="dq-list" id="scanList"></div>
       <div class="dq-actions" id="scanActions">
         <button type="button" class="dq-btn dq-btn-quiet" id="scanHideBtn"
-          title="Hide this panel — the scan keeps running in the background">Hide</button>
+          title="Hide this panel. The scan keeps running in the background">Hide</button>
         <button type="button" class="dq-btn" id="scanPauseBtn"></button>
         <button type="button" class="dq-btn dq-btn-danger" id="scanCancelBtn">Cancel</button>
       </div>`;
@@ -196,7 +196,7 @@
       const q = await resp.json().catch(() => null);
       if (!resp.ok) { showToast('⚠ ' + ((q && q.error) || `HTTP ${resp.status}`)); return; }
       if (q?.warning) showToast('⚠ ' + q.warning);
-      else showToast(resuming ? '▶ Scanning resumed' : '⏸ Scan paused — files already running will finish');
+      else showToast(resuming ? '▶ Scanning resumed' : '⏸ Scan paused. Files already running will finish');
       if (q) _scanLast = q;
       // The watcher may have given up while the queue sat halted; a resume needs
       // it back to follow the run.
@@ -242,7 +242,7 @@
       stillRunning = r.active || 0;
       const still = stillRunning ? `, ${stillRunning} still finishing` : '';
       showToast(r.dropped
-        ? `✕ Scan cancelled — ${r.dropped} queued file${r.dropped === 1 ? '' : 's'} dropped${still}`
+        ? `✕ Scan cancelled: ${r.dropped} queued file${r.dropped === 1 ? '' : 's'} dropped${still}`
         : '✕ Scan cancelled');
     } catch (err) {
       showToast('⚠ ' + err.message);
@@ -274,13 +274,13 @@
     if (warn.dataset.pickerAt === at) return;
     warn.dataset.pickerAt = at;
     warn.hidden = false;
-    warn.innerHTML = `⚠ <b>Which model?</b> — LM Studio has several models loaded — pick the vision model Vault should use:
+    warn.innerHTML = `⚠ <b>Which model?</b> LM Studio has several models loaded. Pick the vision model Vault should use:
       <div class="dq-pick">
         <select class="dq-pick-sel" id="scanModelSelect" disabled><option>Loading…</option></select>
         <button type="button" class="dq-btn dq-btn-primary" id="scanModelGo" disabled>Use this model</button>
       </div>`
       + (q.halt.filename ? `<div class="dq-warn-at">stopped at ${escapeHtml(q.halt.filename)}</div>` : '')
-      + `<div class="dq-warn-at">Nothing was lost — the scan carries on from here. Set AI_MODEL to skip this next time.</div>`;
+      + `<div class="dq-warn-at">Nothing was lost. The scan carries on from here. Set AI_MODEL to skip this next time.</div>`;
 
     const sel = warn.querySelector('#scanModelSelect');
     const go = warn.querySelector('#scanModelGo');
@@ -340,10 +340,10 @@
     const by = q.paused ? (q.pausedBy || 'user') : null;
     const modelHalt = by === 'model' || by === 'model-choice';
     const note = {
-      vault: ' — paused (vault locked)',
-      user: ' — paused',
-      model: ' — paused (model unavailable)',
-      'model-choice': ' — paused (pick a model)',
+      vault: ' · paused (vault locked)',
+      user: ' · paused',
+      model: ' · paused (model unavailable)',
+      'model-choice': ' · paused (pick a model)',
     }[by] || '';
     el.querySelector('#scanHead').innerHTML = `
       ${q.paused ? `<span class="dq-ico">${modelHalt ? '⚠' : '⏸'}</span>` : '<span class="dq-spin"></span>'}
@@ -360,9 +360,9 @@
     } else if (by === 'model' && q.halt) {
       delete warn.dataset.pickerAt;
       warn.hidden = false;
-      warn.innerHTML = `⚠ <b>Model unavailable</b> — ${escapeHtml(q.halt.reason || '')}`
+      warn.innerHTML = `⚠ <b>Model unavailable</b>: ${escapeHtml(q.halt.reason || '')}`
         + (q.halt.filename ? `<div class="dq-warn-at">stopped at ${escapeHtml(q.halt.filename)}</div>` : '')
-        + `<div class="dq-warn-at">Nothing was lost — load the model, then press ▶ Resume.</div>`;
+        + `<div class="dq-warn-at">Nothing was lost. Load the model, then press ▶ Resume.</div>`;
     } else {
       delete warn.dataset.pickerAt;
       warn.hidden = true;
@@ -378,9 +378,9 @@
     pauseBtn.classList.toggle('dq-btn-primary', resuming && by !== 'vault');
     pauseBtn.disabled = _scanCmdBusy || by === 'vault';
     pauseBtn.title = by === 'vault'
-      ? 'The vault is locked — unlock it to carry on scanning'
+      ? 'The vault is locked. Unlock it to carry on scanning'
       : resuming ? 'Start scanning again from where it stopped'
-        : 'Stop starting new files — anything mid-scan still finishes';
+        : 'Stop starting new files. Anything mid-scan still finishes';
 
     el.querySelector('#scanActions').hidden = false;
     el.querySelector('#scanMeta').style.display = '';
@@ -448,7 +448,7 @@
       </div>
       <div class="kofi-note">Vault just tagged ${total} files for you. If it saved you a
         weekend, <a href="https://ko-fi.com/aericode" target="_blank" rel="noopener">☕ $10 on
-        Ko-fi</a> says thanks — never required.</div>`;
+        Ko-fi</a> says thanks, never required.</div>`;
     queuePanelStack().appendChild(el);
     el.querySelector('.dq-x').addEventListener('click', () => el.remove());
   }
@@ -498,7 +498,7 @@
       if ((q.pausedBy === 'model' || q.pausedBy === 'model-choice') && q.halt && q.halt.at !== _haltNotified) {
         _haltNotified = q.halt.at;
         _scanDismissed = false;                 // a halt is worth un-hiding for
-        showToast(`⚠ AI scan paused — ${q.halt.reason}`);
+        showToast(`⚠ AI scan paused: ${q.halt.reason}`);
       }
 
       const complete = total > 0 && (q.done || 0) + (q.failed || 0) >= total && !working;
@@ -625,7 +625,7 @@
     if (skipped.unsupported) skips.push(`${skipped.unsupported} unsupported`);
     if (skipped.missing) skips.push(`${skipped.missing} missing`);
     panel.finish(imported.length,
-      (imported.length ? (queued ? 'referenced in place, AI scan queued' : 'referenced in place — no AI scan (is an endpoint configured?)') : '')
+      (imported.length ? (queued ? 'referenced in place, AI scan queued' : 'referenced in place, no AI scan (is an endpoint configured?)') : '')
       + (skips.length ? ` · ${skips.join(', ')}` : ''));
     // Durations arrive from the background probe after this response — watch
     // for them so fresh video tiles hover-scrub without a reload.
@@ -675,7 +675,7 @@
       const scan = await resp.json().catch(() => ({}));
       if (!resp.ok) { showToast('⚠ ' + (scan.error || 'could not read folder')); return; }
       if (!scan.files.length) { showToast('⚠ Folder appears to be empty'); return; }
-      if (scan.truncated) showToast(`⚠ Huge folder — preview capped at ${scan.files.length.toLocaleString()} files`);
+      if (scan.truncated) showToast(`⚠ Huge folder, preview capped at ${scan.files.length.toLocaleString()} files`);
       openImportModal({
         mode: 'paths',
         roots: [scan.name],
@@ -702,7 +702,7 @@
       } catch (err) { showToast('⚠ ' + err.message); return; }
       if (picked.canceled) return;                 // real cancel — stay quiet
       if (!picked.paths?.length) {                 // OK'd but nothing usable came back
-        showToast('⚠ The file picker returned no files — nothing was added');
+        showToast('⚠ The file picker returned no files. Nothing was added');
         return;
       }
 
@@ -739,7 +739,7 @@
   function extLine(exts) {
     const sorted = Object.entries(exts).sort((a, b) => b[1] - a[1]);
     const shown = sorted.slice(0, 3).map(([e, n]) => `${e} (${n})`).join(' · ');
-    return sorted.length > 3 ? `${shown} · +${sorted.length - 3} more` : (shown || '—');
+    return sorted.length > 3 ? `${shown} · +${sorted.length - 3} more` : (shown || '–');
   }
 
   const fmtSize = (b) => b >= 1e9 ? `~${(b / 1e9).toFixed(1)} GB`
@@ -759,7 +759,7 @@
 
     const headPath = pathMode
       ? collected.path
-      : (collected.roots?.length > 1 ? `${collected.roots.length} folders — ${collected.roots.join(', ')}` : (collected.roots?.[0] || 'Dropped files'));
+      : (collected.roots?.length > 1 ? `${collected.roots.length} folders: ${collected.roots.join(', ')}` : (collected.roots?.[0] || 'Dropped files'));
 
     const ov = document.createElement('div');
     ov.id = 'importModal';
@@ -798,9 +798,9 @@
               <span class="imp-pill" id="impSubsJob">💬 Generate subtitles</span>
               <span class="imp-pill" id="impFpJob">🎵 Fingerprint audio <span class="imp-sub">(Music ID)</span></span>
             </div>
-            <div class="imp-note">Runs in the background — the library stays usable. New files are AI-scanned automatically.</div>
+            <div class="imp-note">Runs in the background. The library stays usable. New files are AI-scanned automatically.</div>
           </div>
-          <div class="imp-note">🔒 Files are referenced in place — nothing is copied or moved.</div>
+          <div class="imp-note">🔒 Files are referenced in place. Nothing is copied or moved.</div>
         </div>
         <div class="imp-foot">
           <span class="imp-sum" id="impSummary"></span>
@@ -833,7 +833,7 @@
       q('#impTypes').querySelectorAll('.imp-type').forEach(el =>
         el.addEventListener('click', () => { state.types[el.dataset.type] = !state.types[el.dataset.type]; render(); }));
       q('#impIgnored').textContent = preview.ignored.n
-        ? `Ignored: ${extLine(preview.ignored.exts)} — ${preview.ignored.n} file${preview.ignored.n === 1 ? '' : 's'}`
+        ? `Ignored: ${preview.ignored.n} file${preview.ignored.n === 1 ? '' : 's'} (${extLine(preview.ignored.exts)})`
         : '';
       const files = selectedEntries();
       const bytes = files.reduce((a, f) => a + (f.size || f.file?.size || 0), 0);
@@ -903,7 +903,7 @@
                 if (md.envAllows && typeof subtitlesShowModelConsent === 'function') {
                   subtitlesShowModelConsent(md.pending?.find(p => p.kind === 'whisper') || {});
                 } else if (!md.envAllows) {
-                  showToast('⚠ Model downloads are off — subtitles skipped');
+                  showToast('⚠ Model downloads are off, subtitles skipped');
                 }
               }
             }
@@ -941,7 +941,7 @@
     folderBtn.id = 'addFolderBtn';
     folderBtn.className = 'header-btn';
     folderBtn.textContent = '📁 Add folder';
-    folderBtn.title = 'Add a folder to the library — files are referenced in place, never copied';
+    folderBtn.title = 'Add a folder to the library. Files are referenced in place, never copied';
     folderBtn.addEventListener('click', pickAndAddFolder);
     btns.insertBefore(folderBtn, btns.firstChild);
 
@@ -949,7 +949,7 @@
     filesBtn.id = 'addFilesBtn';
     filesBtn.className = 'header-btn';
     filesBtn.textContent = '📄 Add files';
-    filesBtn.title = 'Add individual files to the library — referenced in place, never copied';
+    filesBtn.title = 'Add individual files to the library. They are referenced in place, never copied';
     filesBtn.addEventListener('click', pickAndAddFiles);
     btns.insertBefore(filesBtn, btns.firstChild);
   });
@@ -1052,11 +1052,11 @@
     // Couldn't trace the drop (exotic source app, ambiguous match…) — fall
     // back to the native pickers, which always see real paths.
     if (dirs.length) {
-      showToast('📁 Couldn\'t trace the dropped folder — confirm it in the picker');
+      showToast('📁 Couldn\'t trace the dropped folder. Confirm it in the picker');
       pickAndAddFolder();
       return;
     }
-    showToast('📄 Couldn\'t trace the dropped files — pick them in the file picker');
+    showToast('📄 Couldn\'t trace the dropped files. Pick them in the file picker');
     pickAndAddFiles();
   });
 })();

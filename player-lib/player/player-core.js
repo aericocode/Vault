@@ -399,10 +399,12 @@ function updateRepeatButton() {
 }
 
 /* ── Fill mode ───────────────────────────────────────────────────────────
-   Fill ON: media cover-crops to fill the player content area, eliminating
-   the letterbox bars — without entering OS fullscreen (distinct from the
-   ⛶ fullscreen button). Applies to every media type. Sticky across sessions,
-   and composes with fullscreen (fill while fullscreen crops in fullscreen). */
+   Fill ON: the media grows until it touches the player content area's width
+   or its height, whichever comes first — as big as it goes without losing a
+   single edge, and without entering OS fullscreen (distinct from the ⛶
+   fullscreen button). It used to crop to the area instead, which took the top
+   and bottom off a portrait video on a landscape screen. Applies to every
+   media type, sticky across files and across sessions. */
 
 let fillMode = localStorage.getItem('player_fill') === '1';
 
@@ -423,13 +425,22 @@ function toggleFillMode() {
   updateFillButton();
 }
 
+const FILL_TITLE = {
+  on: 'Fit to window: on. Click for the file’s own size',
+  off: 'Fit to window (grow to the edges, nothing cropped)',
+};
+
 function renderFillButton() {
-  return `<button onclick="toggleFillMode()" class="control-btn fill-btn ${fillMode ? 'active' : ''}" title="Fill window (crop to fit)">⤢</button>`;
+  const t = fillMode ? FILL_TITLE.on : FILL_TITLE.off;
+  return `<button onclick="toggleFillMode()" class="control-btn fill-btn ${fillMode ? 'active' : ''}"
+    title="${t}" aria-label="Fit to window" aria-pressed="${fillMode ? 'true' : 'false'}">⤢</button>`;
 }
 
 function updateFillButton() {
   document.querySelectorAll('.fill-btn').forEach(btn => {
     btn.classList.toggle('active', fillMode);
+    btn.title = fillMode ? FILL_TITLE.on : FILL_TITLE.off;
+    btn.setAttribute('aria-pressed', fillMode ? 'true' : 'false');
   });
 }
 
@@ -528,7 +539,7 @@ function autoAdvanceOnEnded() {
  * center nav.
  */
 function renderDoneButton() {
-  return `<button onclick="markSessionDone()" class="done-btn" title="Done — end the viewing session here (💦 tracked per item)">💦 Done</button>`;
+  return `<button onclick="markSessionDone()" class="done-btn" title="Done. End the viewing session here (💦 tracked per item)">💦 Done</button>`;
 }
 
 /**
@@ -536,7 +547,7 @@ function renderDoneButton() {
  * used to mark intense moments. Rendered to the LEFT of Done.
  */
 function renderHotButton() {
-  return `<button onclick="markSessionHot()" class="hot-btn" title="Hot — mark an intense moment here (🔥 tracked per item)">🔥 Hot</button>`;
+  return `<button onclick="markSessionHot()" class="hot-btn" title="Hot. Mark an intense moment here (🔥 tracked per item)">🔥 Hot</button>`;
 }
 
 /**
@@ -574,7 +585,7 @@ async function markSessionHot() {
     }
   } catch {}
 
-  showToast(`🔥 Hot — marked on ${media.filename}`);
+  showToast(`🔥 Hot, marked on ${media.filename}`);
   if (typeof drawActivityBar === 'function') drawActivityBar(); // tint the spot live
   renderResults(); // refresh 🔥 badges on the grid behind the player
 }
@@ -615,7 +626,7 @@ async function markSessionDone() {
     }
   } catch {}
 
-  showToast(`💦 Done — marked on ${media.filename}`);
+  showToast(`💦 Done, marked on ${media.filename}`);
   if (typeof drawActivityBar === 'function') drawActivityBar(); // tint the spot live
   renderResults(); // refresh 💦 badges on the grid behind the player
 }
@@ -951,7 +962,7 @@ function handleMediaError(filepath, reason) {
   }
   consecutivePlayFailures = 0;
   closeMediaPlayer();
-  showToast(reason || 'Cannot play this file — marked as unplayable. Use “Copy Path” to locate it.');
+  showToast(reason || 'Cannot play this file, marked as unplayable. Use “Copy Path” to locate it.');
 }
 
 /**
@@ -1430,10 +1441,11 @@ function closeMediaPlayer(event) {
   const overlay = document.getElementById('mediaPlayerOverlay');
   const content = document.getElementById('mediaPlayerContent');
   
-  // Exit fullscreen if active
+  // Exit fullscreen if active. Nothing to undo on the media element itself —
+  // fullscreen size comes from CSS now, not an inline width (and reaching for
+  // #mediaVideo here threw outright when the file in fullscreen was an image).
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {});
-      document.getElementById('mediaVideo').style.width = 'auto';
   }
   
   // Stop video/audio AND abort its download (pause alone keeps the
@@ -1491,22 +1503,30 @@ function closeMediaPlayer(event) {
   renderResults();
 }
 
+/**
+ * Fullscreen, on the overlay and only ever on the overlay.
+ *
+ * The overlay is the one part of the player that outlives every file, so
+ * fullscreen rides through Next, Prev, auto-advance and a jump between media
+ * types by itself: the browser never sees its fullscreen element leave the
+ * page. Re-entering would need a fresh click, which the queue does not have,
+ * so the rule here is simply never to leave.
+ *
+ * How big the media draws in fullscreen is CSS's job (`:fullscreen` in
+ * player-base.css). It used to be an inline width written onto the video
+ * element, which meant only the file that was on screen when the button was
+ * pressed ever filled the screen.
+ */
 function toggleFullscreen() {
   const overlay = document.getElementById('mediaPlayerOverlay');
-  
-  const video = document.getElementById('mediaVideo');
 
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {});
-      if (video) video.style.width = 'auto';
   } else {
-    if (video) video.style.width = '100%';
-
     overlay.requestFullscreen().catch(() => {
       if (overlay.webkitRequestFullscreen) {
         overlay.webkitRequestFullscreen();
       } else if (overlay.mozRequestFullScreen) {
-        overlay.mozRequestFullScreen();
         overlay.mozRequestFullScreen();
       }
     });

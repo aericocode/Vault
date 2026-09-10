@@ -51,7 +51,7 @@ function syncSortControls() {
   if (select) select.value = currentSortField();
   if (dirBtn) {
     dirBtn.textContent = currentSortDir() === 'asc' ? '▲' : '▼';
-    dirBtn.title = currentSortDir() === 'asc' ? 'Least first — click for most first' : 'Most first — click for least first';
+    dirBtn.title = currentSortDir() === 'asc' ? 'Least first. Click for most first' : 'Most first. Click for least first';
   }
   if (favBtn) {
     favBtn.textContent = favesFirst ? '❤' : '🤍';

@@ -105,7 +105,7 @@ function renderDetailBody(media, opts = {}) {
 
   const chips = (list) => list.length
     ? list.map(v => `<span class="tag">${escapeHtml(v)}</span>`).join('')
-    : '<span class="field-empty">—</span>';
+    : '<span class="field-empty">–</span>';
 
   /* The ⚠ badge on a tile is the ONLY hint that something went wrong, and this
      is where it sends you — so it goes directly under the actions, not two
@@ -119,7 +119,7 @@ function renderDetailBody(media, opts = {}) {
     <div class="detail-section detail-section--error">
       <h3 style="color: var(--danger);">⚠ Processing Error</h3>
       <p class="detail-error">${escapeHtml(media.processing_error)}</p>
-      <p class="detail-error-hint">The file itself is fine — it plays and can be tagged. Fix the cause above, then use 🔄 Rescan to try the AI analysis again.</p>
+      <p class="detail-error-hint">The file itself is fine. It plays and can be tagged. Fix the cause above, then use 🔄 Rescan to try the AI analysis again.</p>
     </div>` : '';
 
   return `
@@ -154,10 +154,10 @@ function renderDetailBody(media, opts = {}) {
 
       ${media.media_type === 'mix' ? `
       <div style="margin: 0.75rem 0;">
-        <button onclick="openMixInEditor(${media.id})" class="detail-mix-btn" title="Tweak layers, effects, sync — or update the saved mix">
+        <button onclick="openMixInEditor(${media.id})" class="detail-mix-btn" title="Tweak layers, effects, sync, or update the saved mix">
           🎛 Open in Editor
         </button>
-        <div class="detail-mix-hint">Custom mix — a virtual file assembled from its source videos. Edit layers/effects (and the title/description) in the Editor.</div>
+        <div class="detail-mix-hint">Custom mix: a virtual file assembled from its source videos. Edit layers/effects (and the title/description) in the Editor.</div>
       </div>` : ''}
 
       ${dupeSection || ''}
@@ -168,7 +168,7 @@ function renderDetailBody(media, opts = {}) {
     <div class="detail-section">
       <h3>Description ${editBtn('description')}</h3>
       <div class="field-content">
-        <p class="detail-description">${media.description ? escapeHtml(media.description) : '<span class="field-empty">—</span>'}</p>
+        <p class="detail-description">${media.description ? escapeHtml(media.description) : '<span class="field-empty">–</span>'}</p>
       </div>
     </div>
 

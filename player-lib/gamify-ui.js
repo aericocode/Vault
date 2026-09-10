@@ -73,7 +73,7 @@
     const chip = document.createElement('button');
     chip.className = 'header-btn gamify-chip';
     chip.id = 'gamifyChip';
-    chip.title = 'Obsession Score — click for your stats';
+    chip.title = 'Obsession Score. Click for your stats';
     chip.onclick = openModal;
     btns.insertBefore(chip, btns.firstChild);
     renderChip();
@@ -209,7 +209,7 @@
       <div class="gamify-score-label">OBSESSION SCORE</div>
       <div class="gamify-score-value">${Math.round(s.score).toLocaleString()}</div>
       ${deltaHtml}
-      <div class="gamify-level-name">Lv ${s.level} — ${escapeHtml(s.name)}</div>
+      <div class="gamify-level-name">Lv ${s.level}: ${escapeHtml(s.name)}</div>
       <div class="gamify-progressbar"><div class="gamify-progressbar-fill" style="width:${pct}%"></div></div>
       <div class="gamify-level-next">${nextLabel}</div>
     </div>`;
@@ -256,7 +256,7 @@
       const pct = Math.min(100, Math.round((q.progress / q.target) * 100));
       const reroll = refreshesLeft > 0
         ? `<button class="gamify-quest-reroll" data-quest="${q.id}" title="Swap for a different quest (1 reroll per day; progress is lost)">🔄</button>`
-        : `<button class="gamify-quest-reroll" disabled title="Daily reroll used — next one at midnight">🔄</button>`;
+        : `<button class="gamify-quest-reroll" disabled title="Daily reroll used. Next one at midnight">🔄</button>`;
       return `<div class="gamify-quest">
         <div class="gamify-quest-head">
           <span class="gamify-quest-title">${escapeHtml(q.title)}</span>
@@ -286,7 +286,7 @@
 
   function sectionChart(history) {
     if (history.length < 2) {
-      return `<div class="gamify-card"><div class="gamify-card-title">📈 Score — 30 days</div>
+      return `<div class="gamify-card"><div class="gamify-card-title">📈 Score, last 30 days</div>
         <div class="gamify-empty">Chart unlocks after two active days.</div></div>`;
     }
     const W = 300, H = 80, PAD = 4;
@@ -298,7 +298,7 @@
       const y = PAD + (H - PAD * 2) * (1 - (r.score - min) / range);
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     }).join(' ');
-    return `<div class="gamify-card"><div class="gamify-card-title">📈 Score — 30 days</div>
+    return `<div class="gamify-card"><div class="gamify-card-title">📈 Score, last 30 days</div>
       <svg class="gamify-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
         <polyline points="${pts}" fill="none" stroke="url(#gamifyGrad)" stroke-width="2.5"
           stroke-linejoin="round" stroke-linecap="round"/>
@@ -374,7 +374,7 @@
       </div>` : '';
     return `<div class="gamify-card gamify-ach-card" id="gamifyAchCard" title="Open all achievements" style="cursor:pointer">
       <div class="gamify-card-title">🏅 Achievements <span class="gamify-ach-count">${ach.earned}/${ach.total}</span></div>
-      <div class="gamify-ach-recent">${recent || '<span class="gamify-empty">None yet — go watch something!</span>'}</div>
+      <div class="gamify-ach-recent">${recent || '<span class="gamify-empty">None yet. Go watch something!</span>'}</div>
       ${teaser}
     </div>`;
   }
@@ -421,7 +421,7 @@
     try {
       if (tab === 'achievements') {
         const resp = await fetch('/api/gamify/achievements');
-        if (!resp.ok) throw new Error(`server error ${resp.status} — restart the server if it's an older build`);
+        if (!resp.ok) throw new Error(`server error ${resp.status}. Restart the server if it's an older build`);
         body.innerHTML = renderAchievementsTab(await resp.json());
         return;
       }
@@ -429,7 +429,7 @@
       if (resp.status === 404) {
         // Old server process without the analytics route — the UI files are
         // served fresh on reload but server routes need a restart
-        throw new Error('the server is running an older build — restart it (close the window / re-run start.bat) to enable Full Stats');
+        throw new Error('the server is running an older build. Restart it (close the window / re-run start.bat) to enable Full Stats');
       }
       if (!resp.ok) {
         let msg = `server error ${resp.status}`;
@@ -551,7 +551,7 @@
     let rows = '';
     for (let d = 0; d < 7; d++) {
       const cells = hourDow[d].map((n, h) =>
-        `<div class="ga-heat-cell" title="${days[d]} ${String(h).padStart(2, '0')}:00 — ${n} view${n === 1 ? '' : 's'}"
+        `<div class="ga-heat-cell" title="${days[d]} ${String(h).padStart(2, '0')}:00, ${n} view${n === 1 ? '' : 's'}"
           style="background:rgba(${rgb},${n === 0 ? 0.06 : 0.15 + 0.85 * (n / max)})"></div>`).join('');
       rows += `<div class="ga-heat-row"><span class="ga-heat-day">${days[d]}</span>${cells}</div>`;
     }
@@ -572,7 +572,7 @@
       const bh = Math.max(1.5, (r.points_earned / max) * (H - 14));
       return `<rect x="${(i * bw).toFixed(1)}" y="${(H - bh).toFixed(1)}" width="${Math.max(1, bw - 1.5).toFixed(1)}" height="${bh.toFixed(1)}" rx="1.5" fill="url(#gaGrad)"><title>${r.day}: ${Math.round(r.points_earned)} pts, ${r.views} views</title></rect>`;
     }).join('');
-    return `<div class="gamify-card"><div class="gamify-card-title">📊 Daily points — last ${daily.length} active day${daily.length === 1 ? '' : 's'}</div>
+    return `<div class="gamify-card"><div class="gamify-card-title">📊 Daily points, last ${daily.length} active day${daily.length === 1 ? '' : 's'}</div>
       <svg class="ga-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
         ${_gaGradDef()}${bars}</svg></div>`;
   }
@@ -580,7 +580,7 @@
   /** Weekly theme mix over 12 weeks — one line per top theme. */
   function analyticsThemeDrift(drift) {
     if (!drift.weeks.length || !drift.themes.length) {
-      return _emptyCard('🎭 Theme drift', 'Watch more — theme trends appear after a few days.');
+      return _emptyCard('🎭 Theme drift', 'Watch more. Theme trends appear after a few days.');
     }
     const W = 600, H = 110, PAD = 6;
     const palette = [_theme.a, _theme.b, '#38bdf8', '#4ade80', '#fbbf24'];
@@ -593,7 +593,7 @@
     }).join('');
     const legend = drift.themes.map((t, ti) =>
       `<span class="ga-legend-item"><span class="ga-legend-dot" style="background:${palette[ti % palette.length]}"></span>${escapeHtml(t.theme)}</span>`).join('');
-    return `<div class="gamify-card"><div class="gamify-card-title">🎭 Theme drift — 12 weeks</div>
+    return `<div class="gamify-card"><div class="gamify-card-title">🎭 Theme drift, 12 weeks</div>
       <svg class="ga-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${lines}</svg>
       <div class="ga-legend">${legend}</div></div>`;
   }
@@ -607,7 +607,7 @@
     const ys = (v) => H - PAD - (v / max) * (H - PAD * 2);
     const pts = growth.map((r, i) => `${xs(i).toFixed(1)},${ys(r.total).toFixed(1)}`).join(' ');
     const area = `${PAD},${H - PAD} ${pts} ${W - PAD},${H - PAD}`;
-    return `<div class="gamify-card"><div class="gamify-card-title">📚 Library growth — ${max.toLocaleString()} items</div>
+    return `<div class="gamify-card"><div class="gamify-card-title">📚 Library growth, ${max.toLocaleString()} items</div>
       <svg class="ga-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
         ${_gaGradDef()}
         <polygon points="${area}" fill="url(#gaGrad)" opacity="0.25"/>
@@ -691,11 +691,11 @@
 
   /** Tags with only 1–2 items — "haven't really explored these". */
   function analyticsUnderTags(u) {
-    if (!u.total) return _emptyCard('🏷️ Underexplored tags', 'Every tag is well-explored — nice.');
+    if (!u.total) return _emptyCard('🏷️ Underexplored tags', 'Every tag is well-explored. Nice.');
     const chips = u.sample.map(t =>
       `<span class="gamify-theme-tag">${escapeHtml(t.tag)} <em>${t.n}</em></span>`).join('');
     return `<div class="gamify-card"><div class="gamify-card-title">🏷️ Underexplored tags <span class="gamify-ach-count">${u.total}</span></div>
-      <div class="gamify-under-hint">Only 1–2 items each — barely touched:</div>
+      <div class="gamify-under-hint">Only 1–2 items each, barely touched:</div>
       <div class="gamify-themes">${chips}</div></div>`;
   }
 

@@ -118,7 +118,7 @@ async function fingerprintSelected() {
   const r = await musicEnqueue(ids);
   if (r) {
     showToast(`🎵 ${r.queued} queued for fingerprinting` +
-      (r.skipped ? ` (${r.skipped} skipped — already done or not A/V)` : ''));
+      (r.skipped ? ` (${r.skipped} skipped, already done or not A/V)` : ''));
   }
 }
 
@@ -139,7 +139,7 @@ function startMusicQueuePolling() {
       if (j.state === 'done') {
         const foundTxt = j.found?.length
           ? ` → ${j.found.map(f => `${f.artist} – ${f.title}`).join('; ')}`
-          : ' — no known songs matched yet';
+          : ': no known songs matched yet';
         showToast(`🎵 ${j.filename}: ${j.chunks} chunks${foundTxt}`);
       } else if (j.state === 'error') {
         showToast(`⚠ Fingerprint failed for ${j.filename}: ${j.error}`);
@@ -245,7 +245,7 @@ function musicSidebarHtml(mediaId, info) {
       parts.push(`
         <div class="music-fp-cta">
           <button class="music-btn music-btn-primary" onclick="musicFingerprintOne(${mediaId})">🎵 Fingerprint &amp; scan</button>
-          <span class="music-hint">One-time (~5–15s per 5 min) — then this file auto-matches songs across the library</span>
+          <span class="music-hint">One-time (~5–15s per 5 min). After that this file auto-matches songs across the library</span>
         </div>
         <div class="music-progress" id="musicProgress-${mediaId}" style="display:none;">
           <div class="music-progress-fill"></div><span class="music-progress-label">queued…</span>
@@ -256,7 +256,7 @@ function musicSidebarHtml(mediaId, info) {
     parts.push(`
       <div class="music-fp-status">
         <span class="music-chunkcount" title="Fingerprint chunks stored (30s windows, silence skipped)">${info.chunks} chunks</span>
-        <button class="music-btn" onclick="musicOpenSections(${mediaId})" title="Chunk-level timeline — see which sections matched what, drag-select to tag songs">🧬 Sections</button>
+        <button class="music-btn" onclick="musicOpenSections(${mediaId})" title="Chunk-level timeline. See which sections matched what, drag-select to tag songs">🧬 Sections</button>
         <button class="music-btn" onclick="musicRescanOne(${mediaId}, this)" title="Re-match against known songs and other fingerprinted files">🔄 Rescan</button>
         ${info.songs.length ? `<button class="music-btn" onclick="startAudioSimilarity(${mediaId})" title="Rank the library by songs shared with this file">≈ Similar</button>` : ''}
         <button class="music-btn music-btn-danger" onclick="musicRemoveFingerprints(${mediaId}, this)" title="Delete this file's fingerprints and auto-detected songs (manual tags survive)">✕ Remove</button>
@@ -272,8 +272,8 @@ function musicSidebarHtml(mediaId, info) {
     parts.push(`<div class="music-song-list">` + info.songs.map(l => {
       const unknown = l.source === 'auto-cluster' && l.title.startsWith('Unknown Song');
       const badge = l.method === 'manual'
-        ? '<span class="music-badge music-badge-manual" title="Tagged by hand — used as a reference">manual</span>'
-        : `<span class="music-badge music-badge-auto" title="Auto-detected by fingerprint match — click ✎ to correct">auto${l.confidence ? ` ${Math.round(l.confidence * 100)}%` : ''}</span>`;
+        ? '<span class="music-badge music-badge-manual" title="Tagged by hand, used as a reference">manual</span>'
+        : `<span class="music-badge music-badge-auto" title="Auto-detected by fingerprint match. Click ✎ to correct">auto${l.confidence ? ` ${Math.round(l.confidence * 100)}%` : ''}</span>`;
       return `
         <div class="music-song-row">
           <button class="music-time" onclick="musicSeekTo(${l.start_sec ?? 0}, ${mediaId})" title="Jump to ${musicFmtTime(l.start_sec)}">${musicFmtTime(l.start_sec)}–${musicFmtTime(l.end_sec)}</button>
@@ -282,12 +282,12 @@ function musicSidebarHtml(mediaId, info) {
             <div class="music-song-artist">${escapeHtml(l.artist)}</div>
           </div>
           ${badge}
-          <button class="music-icon-btn" onclick="musicEditLink(${l.link_id}, ${mediaId})" title="Edit — swap song or adjust times">✎</button>
+          <button class="music-icon-btn" onclick="musicEditLink(${l.link_id}, ${mediaId})" title="Edit: swap song or adjust times">✎</button>
           <button class="music-icon-btn music-icon-danger" onclick="musicRemoveLink(${l.link_id}, ${mediaId}, this)" title="Remove this song from the file">×</button>
         </div>`;
     }).join('') + `</div>`);
   } else if (info.fingerprinted) {
-    parts.push('<div class="music-hint">No songs matched yet — tag one below to teach the matcher.</div>');
+    parts.push('<div class="music-hint">No songs matched yet. Tag one below to teach the matcher.</div>');
   }
 
   // Manual tag form (collapsed)
@@ -302,15 +302,15 @@ function musicSidebarHtml(mediaId, info) {
       <div class="music-form-row">
         <label class="music-time-field">start
           <input type="text" class="music-input music-input-time" id="musicAddStart-${mediaId}" placeholder="0:00">
-          <button class="music-icon-btn" onclick="musicGrabTime('musicAddStart-${mediaId}')" title="Use the current player position — needs the file playing">⏱</button>
+          <button class="music-icon-btn" onclick="musicGrabTime('musicAddStart-${mediaId}')" title="Use the current player position. Needs the file playing">⏱</button>
         </label>
         <label class="music-time-field">end
           <input type="text" class="music-input music-input-time" id="musicAddEnd-${mediaId}" placeholder="3:45">
-          <button class="music-icon-btn" onclick="musicGrabTime('musicAddEnd-${mediaId}')" title="Use the current player position — needs the file playing">⏱</button>
+          <button class="music-icon-btn" onclick="musicGrabTime('musicAddEnd-${mediaId}')" title="Use the current player position. Needs the file playing">⏱</button>
         </label>
         <button class="music-btn music-btn-primary" onclick="musicSaveManualTag(${mediaId}, this)">Save</button>
       </div>
-      <div class="music-hint">Give it a start AND end (≥ 8s) — the segment becomes a reference that finds this song in every other fingerprinted file.</div>
+      <div class="music-hint">Give it a start AND end (≥ 8s). The segment becomes a reference that finds this song in every other fingerprinted file.</div>
     </div>
   `);
 
@@ -373,7 +373,7 @@ async function musicRemoveFingerprints(mediaId, btn) {
     return;
   }
   await fetch(`/api/music/media/${mediaId}/fingerprints`, { method: 'DELETE' });
-  showToast('Fingerprints removed — manual tags kept');
+  showToast('Fingerprints removed. Manual tags kept');
   loadMusicData();
   musicReloadSidebar(mediaId);
 }
@@ -410,7 +410,7 @@ function musicPlayerTime() {
 function musicGrabTime(inputId) {
   const t = musicPlayerTime();
   // No playhead to read from the library modal — refuse rather than stamp 0:00.
-  if (t == null) { showToast('⏱ Needs playback — play this file, then grab the position'); return; }
+  if (t == null) { showToast('⏱ Needs playback. Play this file, then grab the position'); return; }
   const input = document.getElementById(inputId);
   if (input) input.value = musicFmtTime(t);
 }
@@ -444,8 +444,8 @@ function musicWireSuggest(artistInput, titleInput, panel) {
     panel.style.display = '';
     panel.innerHTML = items.map(it => {
       const icon = it.kind === 'seed' ? '📇' : (it.fingerprinted ? '🔗' : (it.unknown ? '❓' : '🎵'));
-      const iconTitle = it.kind === 'seed' ? 'From the seed catalog — no fingerprint yet'
-        : it.fingerprinted ? 'Fingerprinted — videos auto-match this song'
+      const iconTitle = it.kind === 'seed' ? 'From the seed catalog, no fingerprint yet'
+        : it.fingerprinted ? 'Fingerprinted. Videos auto-match this song'
         : it.unknown ? 'Unnamed cluster' : 'Known song (no reference fingerprint yet)';
       const meta = it.kind === 'seed'
         ? '<span class="music-ac-count">seed</span>'
@@ -520,8 +520,8 @@ async function musicSaveManualTag(mediaId, btn) {
       const r = await fetch(`/api/music/links/${linkId}/reference`, { method: 'POST' }).then(x => x.json());
       if (r.error) showToast('⚠ Reference: ' + r.error);
       else showToast(r.matched?.length
-        ? `🎵 Tagged — also found in ${r.matched.length} other file(s)!`
-        : '🎵 Tagged — reference saved for future scans');
+        ? `🎵 Tagged. Also found in ${r.matched.length} other file(s)!`
+        : '🎵 Tagged. Reference saved for future scans');
     } else {
       showToast('🎵 Tagged (add an end time ≥ 8s after start to enable auto-matching)');
     }
@@ -566,16 +566,16 @@ async function musicOpenSections(mediaId) {
 
   const m = getMediaById(mediaId);
   const { overlay, body } = musicModal(
-    `🧬 Sections — ${escapeHtml(m?.filename || `#${mediaId}`)} · ${musicFmtTime(data.duration_seconds)} · ${data.chunks.length} chunks`,
+    `🧬 Sections: ${escapeHtml(m?.filename || `#${mediaId}`)} · ${musicFmtTime(data.duration_seconds)} · ${data.chunks.length} chunks`,
     `
     <div class="msec-wrap">
-      <div class="msec-links" id="msecLinks" title="Existing song spans — click to select & pre-fill"></div>
+      <div class="msec-links" id="msecLinks" title="Existing song spans. Click to select & pre-fill"></div>
       <div class="msec-track" id="msecTrack">
         <div id="msecChunks"></div>
         <div class="msec-sel" id="msecSel" style="display:none;"></div>
       </div>
       <div class="msec-ruler" id="msecRuler"></div>
-      <div class="msec-info" id="msecInfo">Drag across the timeline to select a section — chunks fully inside it teach the matcher. Click a chunk to preview.</div>
+      <div class="msec-info" id="msecInfo">Drag across the timeline to select a section. Chunks fully inside it teach the matcher. Click a chunk to preview.</div>
       <div class="msec-form">
         <div class="music-form-row">
           <input type="text" class="music-input" id="msecArtist" placeholder="Artist" autocomplete="off">
@@ -583,7 +583,7 @@ async function musicOpenSections(mediaId) {
         </div>
         <div class="music-ac-panel" id="msecAc" style="display:none;"></div>
         <div class="music-form-row">
-          <label class="msec-check" title="Auto-detected spans of OTHER songs overlapping the selection are removed/trimmed/split — manual tags are never touched">
+          <label class="msec-check" title="Auto-detected spans of OTHER songs overlapping the selection are removed/trimmed/split. Manual tags are never touched">
             <input type="checkbox" id="msecReplace" checked> replace overlapping auto-detections
           </label>
           <button class="music-btn" id="msecPlay" title="Play / pause the player behind this modal">▶</button>
@@ -735,7 +735,7 @@ function msecSetSelection(startSec, endSec) {
   sel.style.width = ((e - s) / dur * 100) + '%';
   const n = msecContained().length;
   info.innerHTML = `<strong>${musicFmtTime(s)} – ${musicFmtTime(e)}</strong> · ${n} chunk${n === 1 ? '' : 's'} contained`
-    + (n ? ` → ≈ ${msecRefCount(n)} reference${msecRefCount(n) === 1 ? '' : 's'}` : ' — too short to teach from chunks (will fingerprint the segment instead)')
+    + (n ? ` → ≈ ${msecRefCount(n)} reference${msecRefCount(n) === 1 ? '' : 's'}` : ' · too short to teach from chunks (will fingerprint the segment instead)')
     + (canTag ? '' : ' · <em>selection must be ≥ 8s</em>');
 }
 
@@ -799,11 +799,11 @@ async function msecSubmit() {
     }).then(x => x.json());
     if (r.error) { showToast('⚠ ' + r.error); return; }
 
-    let msg = `🧬 Tagged — ${r.refs_created} reference${r.refs_created === 1 ? '' : 's'}`;
+    let msg = `🧬 Tagged: ${r.refs_created} reference${r.refs_created === 1 ? '' : 's'}`;
     if (r.matched?.length) msg += `, found in ${r.matched.length} other file${r.matched.length === 1 ? '' : 's'}!`;
     showToast(msg);
     if (r.conflicts?.length) {
-      setTimeout(() => showToast(`⚠ Overlaps ${r.conflicts.length} manual tag(s) — left untouched`), 1200);
+      setTimeout(() => showToast(`⚠ Overlaps ${r.conflicts.length} manual tag(s), left untouched`), 1200);
     }
     await msecRefresh();
     loadMusicData();
@@ -860,7 +860,7 @@ function computeAudioSimilarity(anchorId) {
 function startAudioSimilarity(anchorId) {
   const scores = computeAudioSimilarity(anchorId);
   if (!scores || scores.size === 0) {
-    showToast('No other file shares a song with this one yet — fingerprint more files');
+    showToast('No other file shares a song with this one yet. Fingerprint more files');
     return;
   }
   audioSimAnchorId = anchorId;
@@ -903,7 +903,7 @@ function renderAudioSimBar() {
   const m = getMediaById(audioSimAnchorId);
   bar.style.display = 'flex';
   bar.innerHTML = `
-    <span class="audiosim-label">≈ <strong>Audio similarity</strong> — ranked by songs shared with
+    <span class="audiosim-label">≈ <strong>Audio similarity</strong>, ranked by songs shared with
       <strong>${escapeHtml(m?.filename || `#${audioSimAnchorId}`)}</strong>
       · ${audioSimScores.size} match${audioSimScores.size === 1 ? '' : 'es'}</span>
     <button class="music-btn" onclick="clearAudioSimilarity()">✕ Clear</button>
@@ -948,11 +948,11 @@ async function musicEditLink(linkId, mediaId) {
     <div class="music-form-row">
       <label class="music-time-field">start
         <input type="text" class="music-input music-input-time" id="mel-start" value="${link.start_sec != null ? musicFmtTime(link.start_sec) : ''}">
-        <button class="music-icon-btn" id="mel-start-grab" title="Use the current player position — needs the file playing">⏱</button>
+        <button class="music-icon-btn" id="mel-start-grab" title="Use the current player position. Needs the file playing">⏱</button>
       </label>
       <label class="music-time-field">end
         <input type="text" class="music-input music-input-time" id="mel-end" value="${link.end_sec != null ? musicFmtTime(link.end_sec) : ''}">
-        <button class="music-icon-btn" id="mel-end-grab" title="Use the current player position — needs the file playing">⏱</button>
+        <button class="music-icon-btn" id="mel-end-grab" title="Use the current player position. Needs the file playing">⏱</button>
       </label>
     </div>
     <div class="music-hint">${link.method !== 'manual' ? 'Saving converts this auto match to a manual tag (trusted as a reference).' : ''}</div>
@@ -1017,7 +1017,7 @@ function musicEditSong(songId, onDone) {
     <div class="music-form-row">
       <input type="text" class="music-input" id="mes-remix" placeholder="Remix label (optional)" value="${escapeHtml(s.remix_label || '')}">
     </div>
-    ${s.source === 'auto-cluster' ? '<div class="music-hint">❓ Auto-clustered placeholder — naming it identifies the track in every linked file.</div>' : ''}
+    ${s.source === 'auto-cluster' ? '<div class="music-hint">❓ Auto-clustered placeholder. Naming it identifies the track in every linked file.</div>' : ''}
     <div class="music-form-row music-form-actions">
       <button class="music-btn music-btn-primary" id="mes-save">Save</button>
       <button class="music-btn" id="mes-cancel">Cancel</button>

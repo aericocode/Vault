@@ -2,6 +2,58 @@
 // PLAYER DOCUMENT - Document viewer rendering and controls
 // =========================================================================
 
+/* ── How the reader is set up ─────────────────────────────────────────────
+   Text size and word wrap are how this person reads, not facts about one
+   file, so they belong to the session the way volume and speed do. They used
+   to snap back to 14px and wrapped on every single document. */
+
+const DOC_VIEW_KEY = 'player_doc_view';
+
+let docFontSize = 14;
+let docWordWrap = true;
+
+(function loadDocViewPrefs() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(DOC_VIEW_KEY) || 'null');
+    if (!stored || typeof stored !== 'object') return;
+    const size = Number(stored.fontSize);
+    if (isFinite(size) && size >= 8 && size <= 32) docFontSize = size;
+    if (typeof stored.wordWrap === 'boolean') docWordWrap = stored.wordWrap;
+  } catch {}
+})();
+
+function saveDocViewPrefs() {
+  try {
+    localStorage.setItem(DOC_VIEW_KEY,
+      JSON.stringify({ fontSize: docFontSize, wordWrap: docWordWrap }));
+  } catch {}
+}
+
+/**
+ * Put the session's reading settings on whatever document is on screen, and
+ * on the controls that report them. Called on render and again once the text
+ * has actually loaded, which is when the element they apply to exists.
+ */
+function applyDocViewPrefs() {
+  currentMediaState.fontSize = docFontSize;
+  currentMediaState.wordWrap = docWordWrap;
+
+  const content = document.querySelector('.document-content');
+  if (content) {
+    content.style.fontSize = docFontSize + 'px';
+    content.style.whiteSpace = docWordWrap ? 'pre-wrap' : 'pre';
+  }
+
+  const display = document.getElementById('fontSizeDisplay');
+  if (display) display.textContent = docFontSize + 'px';
+
+  const btn = document.getElementById('wordWrapBtn');
+  if (btn) {
+    btn.classList.toggle('active', docWordWrap);
+    btn.setAttribute('aria-pressed', docWordWrap ? 'true' : 'false');
+  }
+}
+
 function renderDocumentPlayer(content, controlsContainer, fileUrl, filepath, filename, hasPrev, hasNext) {
   const ext = filename.split('.').pop().toLowerCase();
   
@@ -21,7 +73,7 @@ function renderDocumentPlayer(content, controlsContainer, fileUrl, filepath, fil
   // Left controls: Font size
   const leftControls = `
     <button onclick="adjustDocFontSize(-2)" class="control-btn" title="Decrease Font Size (-)">A-</button>
-    <span class="font-size-display" id="fontSizeDisplay">14px</span>
+    <span class="font-size-display" id="fontSizeDisplay">${docFontSize}px</span>
     <button onclick="adjustDocFontSize(2)" class="control-btn" title="Increase Font Size (+)">A+</button>
     <button onclick="toggleDocWordWrap()" id="wordWrapBtn" class="control-btn" title="Toggle Word Wrap">↔ Wrap</button>
   `;
@@ -40,8 +92,7 @@ function renderDocumentPlayer(content, controlsContainer, fileUrl, filepath, fil
   `;
   
   currentMediaState.element = document.getElementById('mediaDocument');
-  currentMediaState.fontSize = 14;
-  currentMediaState.wordWrap = true;
+  applyDocViewPrefs();
 }
 
 async function loadTextDocument(fileUrl, ext) {
@@ -63,7 +114,7 @@ async function loadTextDocument(fileUrl, ext) {
     }
     
     docEl.innerHTML = `<pre class="document-content" id="documentContent">${formattedContent}</pre>`;
-    docEl.querySelector('.document-content').style.fontSize = '14px';
+    applyDocViewPrefs();
   } catch (err) {
     docEl.innerHTML = `<div class="document-error">Error loading document: ${err.message}</div>`;
   }
@@ -110,32 +161,15 @@ function renderMarkdown(text) {
 }
 
 function adjustDocFontSize(delta) {
-  if (!currentMediaState.fontSize) currentMediaState.fontSize = 14;
-  currentMediaState.fontSize = Math.max(8, Math.min(32, currentMediaState.fontSize + delta));
-  
-  const content = document.querySelector('.document-content') || document.getElementById('mediaDocument');
-  if (content) {
-    content.style.fontSize = currentMediaState.fontSize + 'px';
-  }
-  
-  const display = document.getElementById('fontSizeDisplay');
-  if (display) {
-    display.textContent = currentMediaState.fontSize + 'px';
-  }
+  docFontSize = Math.max(8, Math.min(32, docFontSize + delta));
+  saveDocViewPrefs();
+  applyDocViewPrefs();
 }
 
 function toggleDocWordWrap() {
-  currentMediaState.wordWrap = !currentMediaState.wordWrap;
-  
-  const content = document.querySelector('.document-content');
-  if (content) {
-    content.style.whiteSpace = currentMediaState.wordWrap ? 'pre-wrap' : 'pre';
-  }
-  
-  const btn = document.getElementById('wordWrapBtn');
-  if (btn) {
-    btn.classList.toggle('active', currentMediaState.wordWrap);
-  }
+  docWordWrap = !docWordWrap;
+  saveDocViewPrefs();
+  applyDocViewPrefs();
 }
 
 function copyDocContent() {

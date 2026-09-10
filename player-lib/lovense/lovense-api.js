@@ -225,7 +225,7 @@
           const devices = await this._tryBase(`http://${ip}:${HTTP_PORT}`, 450);
           if (devices) return await this.connect(ip);
         }
-        throw new Error('Scan found no device — enter the IP from the Lovense app');
+        throw new Error('Scan found no device. Enter the IP from the Lovense app');
       };
       return { promise: run(), controller };
     },

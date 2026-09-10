@@ -129,24 +129,41 @@
 }
 
 /* ── Fill mode ─────────────────────────────────────────────────────────────
-   Cover-crop media to fill the whole content area — no letterbox bars, no OS
-   fullscreen. Tracks the flex content area, so it naturally shrinks when the
-   sidebar opens. Composes with fullscreen (crops in fullscreen too). The
-   video width uses !important so it beats toggleFullscreen's inline width. */
-.media-player-overlay.fill-mode .media-player-content video {
-  width: 100% !important;
-  height: 100%;
-  max-width: none;
-  max-height: none;
-  object-fit: cover;
-}
+   Grow the media until it touches the content area's width or its height,
+   whichever comes first — no letterbox bars beyond what the shape needs, no
+   cropping, no OS fullscreen. Tracks the flex content area, so it naturally
+   shrinks when the sidebar opens. It used to cover-crop, which ate the top and
+   bottom of a portrait video on a landscape screen.
 
-.media-player-overlay.fill-mode .media-player-content img {
+   Scoped to the content box's own media (`>`) so a mix's tiled layers, which
+   live inside their own stage, keep their grid. object-fit does the fitting:
+   the element takes the whole area and the picture inside it grows until one
+   pair of edges lands, keeping its shape. `contain` has to be spelled out for
+   images, whose default is to stretch. */
+.media-player-overlay.fill-mode .media-player-content > video,
+.media-player-overlay.fill-mode .media-player-content > img {
   width: 100%;
   height: 100%;
   max-width: none;
   max-height: none;
-  object-fit: cover;
+  object-fit: contain;
+}
+
+/* ── Fullscreen sizing ─────────────────────────────────────────────────────
+   The overlay is what goes fullscreen, and it outlives every file, so the
+   media has to be sized by a rule that applies to whatever is in the content
+   box right now. It used to be an inline width the fullscreen button wrote
+   onto the video element itself: the next file in the queue arrived without
+   it and drew at its own pixel size, a small picture marooned on a black
+   screen — fullscreen in name only. Same rule as fill: touch one edge, crop
+   nothing. */
+.media-player-overlay:fullscreen .media-player-content > video,
+.media-player-overlay:fullscreen .media-player-content > img {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
 }
 
 /* Audio has no croppable frame — let its visualization use the whole area. */

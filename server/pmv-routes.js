@@ -190,7 +190,7 @@ function buildRouter() {
     }
     const out = job.result?.outputPath;
     if (out && fs.existsSync(out)) return res.download(out, name);
-    res.status(404).json({ error: 'expired — renders are held in memory until saved; re-render it' });
+    res.status(404).json({ error: 'expired. Renders are held in memory until saved, re-render it' });
   });
 
   /* ── Recipes ── */

@@ -65,7 +65,7 @@ function buildShareCardSvg() {
 
   <text x="40" y="52" font-family="Segoe UI, Arial, sans-serif" font-size="17" fill="#8b87a0">OBSESSION SCORE</text>
   <text x="40" y="118" font-family="Segoe UI, Arial, sans-serif" font-size="58" font-weight="bold" fill="#f5f3ff">${esc(Math.round(s.score).toLocaleString())}</text>
-  <text x="40" y="150" font-family="Segoe UI, Arial, sans-serif" font-size="19" fill="url(#accent)" font-weight="600">Lv ${s.level} — ${esc(s.name)}</text>
+  <text x="40" y="150" font-family="Segoe UI, Arial, sans-serif" font-size="19" fill="url(#accent)" font-weight="600">Lv ${s.level}: ${esc(s.name)}</text>
 
   <text x="560" y="52" text-anchor="end" font-family="Segoe UI, Arial, sans-serif" font-size="30" fill="#fbbf24">🔥 ${s.streakDays}</text>
   <text x="560" y="74" text-anchor="end" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#8b87a0">day streak</text>

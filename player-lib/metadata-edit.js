@@ -24,7 +24,7 @@ function renderMetaTools(media) {
       <button class="meta-tool-btn" onclick="openCollectionPicker([${media.id}], this)" title="Add/remove this item in your collections">
         📁 Collections
       </button>
-      <button class="meta-tool-btn meta-remove-btn" onclick="removeRecords([${media.id}])" title="Delete this record from the library — the file on disk is NOT touched">
+      <button class="meta-tool-btn meta-remove-btn" onclick="removeRecords([${media.id}])" title="Delete this record from the library. The file on disk is NOT touched">
         ✂ Remove record
       </button>
     </div>
@@ -314,7 +314,7 @@ async function removeRecords(ids) {
 
     applyFilters({ keepPage: true }); // stay on the current page after removal
     if (typeof renderSelectionBar === 'function') renderSelectionBar();
-    showToast(`✂ Removed ${deleted} record(s) — files kept on disk`);
+    showToast(`✂ Removed ${deleted} record(s), files kept on disk`);
   } catch (err) {
     showToast('⚠ Remove failed: ' + err.message);
   }

@@ -389,7 +389,7 @@ function pickerSearchOptionsHtml(prefix, opts = {}) {
     <div class="picker-search-options" data-picker="${prefix}">
       <label class="picker-opt" title="Search only metadata (exclude filename & path)"><input type="checkbox" id="${prefix}MetaOnly" ${opts.metadataOnly ? 'checked' : ''}> Metadata</label>
       <label class="picker-opt" title="Approximate (fuzzy) matching"><input type="checkbox" id="${prefix}Fuzzy" ${opts.fuzzy ? 'checked' : ''}> Fuzzy</label>
-      <label class="picker-opt" title="Semantic search — find by meaning (local embeddings)"><input type="checkbox" id="${prefix}Semantic" ${opts.semantic ? 'checked' : ''}> 🧠</label>
+      <label class="picker-opt" title="Semantic search. Find by meaning (local embeddings)"><input type="checkbox" id="${prefix}Semantic" ${opts.semantic ? 'checked' : ''}> 🧠</label>
       <span class="picker-mode-indicator" id="${prefix}Mode" style="display:none"></span>
     </div>`;
 }

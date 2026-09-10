@@ -642,7 +642,7 @@
     const shapeBtns = SHAPES.map(s =>
       `<button class="bb-chip bb-shape-btn" data-shape="${s.id}" title="${s.id}">${s.glyph}</button>`).join('');
     const effectBtns = EFFECTS.map(e =>
-      `<button class="bb-chip bb-effect-btn" data-effect="${e.id}" title="Toggle — effects stack">${e.label}</button>`).join('') +
+      `<button class="bb-chip bb-effect-btn" data-effect="${e.id}" title="Toggle. Effects stack">${e.label}</button>`).join('') +
       `<button class="bb-chip bb-effect-off" title="Disable all effects">Off</button>`;
 
     return `
@@ -1126,7 +1126,7 @@
     if (on && media?.media_type === 'video') {
       const item = allMedia.find(m => m.filepath === media.filepath);
       attach(item || media);
-      showToast('🥁 Beat bar ON — stays on for future videos');
+      showToast('🥁 Beat bar ON, stays on for future videos');
     } else {
       detach();
       if (!on) showToast('Beat bar off');
@@ -1152,8 +1152,8 @@
 
   function buttonTitle(on) {
     return on
-      ? 'Beat bar is ON — click to turn off'
-      : 'Beat bar is OFF — click to turn on (stays on for future videos)';
+      ? 'Beat bar is ON. Click to turn off'
+      : 'Beat bar is OFF. Click to turn on (stays on for future videos)';
   }
 
   /* Markup for the two extras-row buttons, already in their final state.

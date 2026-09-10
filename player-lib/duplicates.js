@@ -124,7 +124,7 @@ function renderDuplicateSection(media) {
           <button onclick="toggleFlagDelete('${escapedPath}'); this.classList.toggle('active')" class="dup-action-btn flag-btn ${other.user_flagged_delete ? 'active' : ''}" title="Flag">🚩</button>
           ${other.user_trashed
             ? `<button onclick="trashDupeFromDetails(${other.id}, ${media.id})" class="dup-action-btn dup-restore-btn" title="Restore this duplicate from trash">♻ Restore</button>`
-            : `<button onclick="trashDupeFromDetails(${other.id}, ${media.id})" class="dup-action-btn dup-trash-btn" title="Move this duplicate to trash (notes are shared — nothing is lost)">🗑 Trash</button>`}
+            : `<button onclick="trashDupeFromDetails(${other.id}, ${media.id})" class="dup-action-btn dup-trash-btn" title="Move this duplicate to trash (notes are shared, nothing is lost)">🗑 Trash</button>`}
           ${typeof renderStarRatingSection === 'function' ? renderStarRatingSection(other) : ''}
         </div>
       </div>`;

@@ -59,7 +59,7 @@ app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin === undefined) return next();            // no Origin → not a browser cross-site write
   if (_allowedOrigins().has(origin)) return next();   // same-origin
-  console.warn(`[csrf] rejected ${req.method} ${req.path} — cross-origin Origin: ${origin}`);
+  console.warn(`[csrf] rejected ${req.method} ${req.path}, cross-origin Origin: ${origin}`);
   return res.status(403).json({ error: 'cross-origin request forbidden', code: 'CSRF_ORIGIN' });
 });
 
@@ -406,7 +406,7 @@ function checkTools({ refresh = false } = {}) {
       ok: require('../lib/media-info').isAvailable(),
       required: true,
       label: 'ffmpeg / ffprobe',
-      needed: 'scanning, thumbnails and duration — imports can\'t be processed without it',
+      needed: 'scanning, thumbnails and duration. Imports can\'t be processed without it',
       install: FFMPEG_INSTALL,
       downloadable: true,
       sizeMB: DOWNLOADABLE_TOOLS.ffmpeg.sizeMB,
@@ -418,7 +418,7 @@ function checkTools({ refresh = false } = {}) {
         || (() => { try { require('child_process').execSync('fpcalc -version', { windowsHide: true, stdio: 'ignore' }); return true; } catch { return false; } })(),
       required: false,
       label: 'fpcalc (Chromaprint)',
-      needed: 'Music ID — fingerprinting and song matching. Everything else works without it',
+      needed: 'Music ID: fingerprinting and song matching. Everything else works without it',
       install: { winget: null, url: 'https://acoustid.org/chromaprint' },
       downloadable: true,
       sizeMB: DOWNLOADABLE_TOOLS.fpcalc.sizeMB,
@@ -454,7 +454,7 @@ app.post('/api/setup/download/:tool', (req, res) => {
   const tool = DOWNLOADABLE_TOOLS[req.params.tool];    // registry lookup — no path from input
   if (!tool) return res.status(404).json({ error: 'unknown tool' });
   if (process.platform !== 'win32') {
-    return res.status(400).json({ error: 'Automatic download is Windows-only — install it with your package manager.' });
+    return res.status(400).json({ error: 'Automatic download is Windows-only. Install it with your package manager.' });
   }
   const live = _toolJobs.get(req.params.tool);
   if (live && ['downloading', 'extracting'].includes(live.state)) {
@@ -489,14 +489,14 @@ app.post('/api/setup/download/:tool', (req, res) => {
       const zip = new AdmZip(tmp);
       for (const name of tool.files) {
         const entry = zip.getEntries().find(e => !e.isDirectory && tool.entry(name)(e));
-        if (!entry) throw new Error(`archive layout unexpected — ${name} not found`);
+        if (!entry) throw new Error(`archive layout unexpected: ${name} not found`);
         fs.writeFileSync(path.join(ROOT, name), entry.getData());
       }
 
       // Prove the binary actually runs before declaring victory.
       require('../lib/ffmpeg-locate').invalidate();
       if (!(await tool.verify())) {
-        throw new Error('extracted binary did not run — antivirus quarantine?');
+        throw new Error('extracted binary did not run. Antivirus quarantine?');
       }
       checkTools({ refresh: true });
       // Files that failed only because this tool was missing are now fixable —
@@ -836,7 +836,7 @@ app.post('/api/import/queue/resume', async (req, res) => {
   if (wasModelHalt) {
     try {
       const up = await require('../lib/llm-client').isAvailable();
-      if (!up) warning = 'No LLM endpoint answered — load a model, or the scan will pause again on the next file.';
+      if (!up) warning = 'No LLM endpoint answered. Load a model, or the scan will pause again on the next file.';
     } catch {}
   }
   res.json({ ...importQueue.resume(), warning });
@@ -1453,12 +1453,12 @@ const PICKER_FILES_PS1 = PICKER_CS_TOP + PICKER_BODY_FILES + PICKER_CS_BOTTOM;
 let _picker = null;          // live child process, or null
 function spawnPicker(res, script, kind, onClose) {
   if (process.platform !== 'win32') {
-    return res.status(501).json({ error: `native ${kind} picker is Windows-only for now — type the path instead` });
+    return res.status(501).json({ error: `native ${kind} picker is Windows-only for now. Type the path instead` });
   }
   // Busy only when the child is genuinely alive — a crashed/killed picker can
   // never wedge the button again.
   if (_picker && _picker.exitCode === null) {
-    return res.status(409).json({ error: 'a picker is already open — check for its window (it stays on top)' });
+    return res.status(409).json({ error: 'a picker is already open. Check for its window (it stays on top)' });
   }
 
   const { spawn } = require('child_process');
@@ -1501,7 +1501,7 @@ app.post('/api/import/pick-folder', (req, res) => {
     if (raw === PICK_CANCEL) return finish(200, { canceled: true });
     if (raw) return finish(200, { path: raw });
     console.warn('[Import] folder picker failed:', (errOut.trim() || `exit ${code}, no output`).split('\n')[0]);
-    finish(500, { error: 'folder picker failed — see server log' });
+    finish(500, { error: 'folder picker failed, see server log' });
   });
 });
 
@@ -1517,7 +1517,7 @@ app.post('/api/import/pick-files', (req, res) => {
     if (paths.length) return finish(200, { paths });
     if (code === 0 && !errOut.trim()) return finish(200, { paths: [] });
     console.warn('[Import] file picker failed:', (errOut.trim() || `exit ${code}, no output`).split('\n')[0]);
-    finish(500, { error: 'file picker failed — see server log' });
+    finish(500, { error: 'file picker failed, see server log' });
   });
 });
 
@@ -2080,7 +2080,7 @@ app.get('/api/search/semantic', async (req, res) => {
     const results = await embeddings.search(q, Number(req.query.limit) || 500);
     if (results.length === 0) {
       return res.status(503).json({
-        error: 'no embeddings yet — run: node vault.js embed',
+        error: 'no embeddings yet. Run: node vault.js embed',
       });
     }
     res.json({ results });
@@ -2564,7 +2564,7 @@ function start(args = process.argv.slice(2)) {
       // Password set but no cipher module — the main DB would be plaintext.
       // Same hard refusal as the secure-assets handler below.
       console.error('');
-      console.error('  ✖ Vault misconfiguration — REFUSING TO START');
+      console.error('  ✖ Vault misconfiguration. REFUSING TO START');
       console.error('  ' + err.message);
       console.error('');
       process.exit(1);
@@ -2633,7 +2633,7 @@ function start(args = process.argv.slice(2)) {
       });
     });
     // Vault-status line (booted locked → encrypted, key not yet available).
-    console.log('Vault: LOCKED — encrypted; unlock in the viewer to open the encrypted secure_assets store');
+    console.log('Vault: LOCKED (encrypted). Unlock in the viewer to open the encrypted secure_assets store');
   } else {
     // Main DB opened cleanly. Open the derived-artifact store with the same
     // password (no-op when vault mode is off). A password set WITHOUT the cipher
@@ -2644,7 +2644,7 @@ function start(args = process.argv.slice(2)) {
     } catch (err) {
       if (err.code === 'VAULT_NO_CIPHER') {
         console.error('');
-        console.error('  ✖ Vault misconfiguration — REFUSING TO START');
+        console.error('  ✖ Vault misconfiguration. REFUSING TO START');
         console.error('  ' + err.message);
         console.error('');
         process.exit(1);
@@ -2653,7 +2653,7 @@ function start(args = process.argv.slice(2)) {
     }
     // Exactly one vault-status line stating the mode (B1).
     if (secureAssets.enabled()) {
-      console.log(`Vault: ON — derived artifacts encrypted in secure_assets.db at ${path.resolve(secureAssets.storePath())}`);
+      console.log(`Vault: ON. Derived artifacts encrypted in secure_assets.db at ${path.resolve(secureAssets.storePath())}`);
       // After the async adoption pass — the migration sweep is gated on the
       // marker that pass may have just written (and is itself a full-directory
       // walk that has no business on the boot path).
@@ -2661,7 +2661,7 @@ function start(args = process.argv.slice(2)) {
         try { secureAssets.migrateFromDisk(); } catch (err) { console.warn(`[SecureAssets] migration skipped: ${err.message}`); }
       });
     } else {
-      console.log('Vault: OFF — no password set; derived artifacts stored as plain files');
+      console.log('Vault: OFF. No password set, derived artifacts stored as plain files');
     }
   }
 
@@ -2707,9 +2707,9 @@ function start(args = process.argv.slice(2)) {
     console.log('  └──────────────────────────────────────────────┘');
     console.log('');
     console.log(`  Database:   ${path.resolve(config.paths.database)}`);
-    console.log(`  Vault:      ${vault.isLocked() ? 'LOCKED — unlock from the viewer (click the logo)' : vault.isEncrypted() ? `unlocked (autolock ${config.security.autolockMinutes || 'off'} min)` : 'no password set (click the logo to create one)'}`);
+    console.log(`  Vault:      ${vault.isLocked() ? 'LOCKED. Unlock from the viewer (click the logo)' : vault.isEncrypted() ? `unlocked (autolock ${config.security.autolockMinutes || 'off'} min)` : 'no password set (click the logo to create one)'}`);
     console.log(`  Thumbnails: ${path.resolve(config.paths.thumbnailDir)}`);
-    console.log(`  Gamify:     ${gamifyEnabled ? 'ON (all data stays local — --no-gamify to disable)' : 'off (start with --gamify to enable)'}`);
+    console.log(`  Gamify:     ${gamifyEnabled ? 'ON (all data stays local, --no-gamify to disable)' : 'off (start with --gamify to enable)'}`);
     console.log('  Local-only (127.0.0.1). Ctrl+C to stop.');
     console.log('');
 
@@ -2746,7 +2746,7 @@ function start(args = process.argv.slice(2)) {
         console.log('');
         console.log(`  …or grab a build from ${FFMPEG_INSTALL.url}`);
         console.log('  Easiest: the viewer that just opened has a ⬇ Download button in the');
-        console.log('  banner at the top — it fetches ffmpeg next to Vault, no restart needed.');
+        console.log('  banner at the top. It fetches ffmpeg next to Vault, no restart needed.');
         console.log('');
       }
     });

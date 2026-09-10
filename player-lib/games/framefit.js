@@ -980,7 +980,7 @@
       this._root.innerHTML = `
         <div class="ff-setup">
           <h2 class="ff-setup-title">${kind} ${esc(this._media?.filename || 'Media')}</h2>
-          <p class="ff-setup-sub">Slice it into a jigsaw — it keeps playing while you solve.</p>
+          <p class="ff-setup-sub">Slice it into a jigsaw. It keeps playing while you solve.</p>
           <div class="ff-setup-slider">
             <span class="ff-lbl">Pieces</span>
             <input type="range" id="ff-setup-pieces" min="0" max="${PIECE_STEPS.length - 1}" step="1" value="${this._pieceStep}">
@@ -1448,7 +1448,7 @@
   window.gamesRegister('framefit', {
     label: 'Frame Fit',
     icon: '🧩',
-    desc: 'Slice a video, gif, or image into a jigsaw — solve it while it plays.',
+    desc: 'Slice a video, gif, or image into a jigsaw, then solve it while it plays.',
     acceptTypes: ['video', 'gif', 'image'],
     factory: () => new FrameFitGame(),
   });

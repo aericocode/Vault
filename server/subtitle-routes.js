@@ -142,7 +142,7 @@ function buildRouter() {
     let vtt = typeof req.body?.vtt === 'string' ? req.body.vtt : '';
     if (!/^﻿?WEBVTT/.test(vtt)) vtt = 'WEBVTT\n\n' + vtt;   // tolerate a header-less paste
     const cues = generator.parseVTT(vtt);
-    if (!cues.length) return res.status(400).json({ error: 'no valid cues found — check the timestamps' });
+    if (!cues.length) return res.status(400).json({ error: 'no valid cues found. Check the timestamps' });
 
     repo.putTrack(id, lang, existing.kind, vtt);
     if (existing.kind === 'original') {
@@ -167,7 +167,7 @@ function buildRouter() {
     if (!id) return res.status(400).json({ error: 'bad id' });
     const row = db.getById(id);
     if (!row) return res.status(404).json({ error: 'not found' });
-    if (service.isActive(id)) return res.status(409).json({ error: 'subtitles still generating — try again shortly' });
+    if (service.isActive(id)) return res.status(409).json({ error: 'subtitles still generating. Try again shortly' });
     const at = Number(req.body?.at);
     if (!Number.isFinite(at) || at < 0) return res.status(400).json({ error: 'at (seconds) required' });
     const window = Math.min(300, Math.max(10, Number(req.body?.window) || 60));

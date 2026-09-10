@@ -82,7 +82,7 @@
       if (!seen.has(p.key)) seen.set(p.key, { key: p.key, allowed: false, ...p });
     }
     if (!seen.size) {
-      return '<p class="settings-note">Nothing needed yet — Vault will ask the first time a feature wants one.</p>';
+      return '<p class="settings-note">Nothing needed yet. Vault will ask the first time a feature wants one.</p>';
     }
     const label = (k) => k.startsWith('whisper:') ? `Transcription model (${k.slice(8)})`
       : k.startsWith('opus:') ? `Translation pack (${k.slice(5)}→en)`
@@ -93,8 +93,8 @@
       disabled: !modelDl.envAllows || modelDl.explicit,
       title: label(r.key),
       desc: r.allowed
-        ? 'Approved — downloaded on first use, then loaded from disk.'
-        : `Not approved${r.sizeHint ? ` · ${r.sizeHint}` : ''} — Vault will ask again when it needs this.`,
+        ? 'Approved. Downloaded on first use, then loaded from disk.'
+        : `Not approved${r.sizeHint ? ` · ${r.sizeHint}` : ''}. Vault will ask again when it needs this.`,
     })).join('');
   }
 
@@ -401,7 +401,7 @@
         <div class="settings-header">
           <h2>Settings</h2>
           <a class="settings-support" href="https://ko-fi.com/aericode" target="_blank" rel="noopener"
-             title="Free forever — donations keep updates coming. Suggested $10, anything helps.">🌿 Support Vault</a>
+             title="Free forever. Donations keep updates coming. Suggested $10, anything helps.">🌿 Support Vault</a>
           <button class="settings-close" id="settingsCloseBtn" title="Close" aria-label="Close">&times;</button>
         </div>
         <div class="settings-layout">
@@ -575,12 +575,12 @@
       ${toggleRow({
         key: 'restoreSession',
         title: 'Restore last session on open',
-        desc: 'When the app launches, reopen the last media you played — paused.',
+        desc: 'When the app launches, reopen the last media you played, paused.',
       })}
       ${numberRow({
         key: 'scanWorkers',
         title: 'AI scan workers',
-        desc: 'How many files the local vision model scans at once after an import. Higher is faster but needs more VRAM — 1–8, default 2.',
+        desc: 'How many files the local vision model scans at once after an import. Higher is faster but needs more VRAM. 1–8, default 2.',
         min: 1, max: 8,
       })}
       ${segRow({
@@ -598,21 +598,21 @@
       ${toggleRow({
         key: 'gamifyHidden',
         title: 'Hide 🏆 Obsession Score',
-        desc: 'Removes the score chip and its point/level toasts from the library. Scoring carries on in the background, so unhiding shows your real history rather than a gap — nothing is deleted. Entirely offline either way.',
+        desc: 'Removes the score chip and its point/level toasts from the library. Scoring carries on in the background, so unhiding shows your real history rather than a gap. Nothing is deleted. Entirely offline either way.',
       })}
 
       <h3 class="settings-h">AI model downloads</h3>
       <p class="settings-note">${modelDl.envAllows
         ? (modelDl.explicit
-          ? 'Pre-approved by <code>SUB_ALLOW_DOWNLOADS=1</code> in your environment — unset it to be asked per model instead.'
-          : 'Subtitles, translation and speaker detection each need a model fetched once from Hugging Face. Vault asks before <b>each one</b> — approving the transcription model doesn\'t approve a translation pack. Nothing about your media is ever uploaded.')
-        : 'Turned off by <code>SUB_ALLOW_DOWNLOADS=0</code> or <code>VAULT_OFFLINE=1</code> — the environment overrides anything set here.'}</p>
+          ? 'Pre-approved by <code>SUB_ALLOW_DOWNLOADS=1</code> in your environment. Unset it to be asked per model instead.'
+          : 'Subtitles, translation and speaker detection each need a model fetched once from Hugging Face. Vault asks before <b>each one</b>. Approving the transcription model doesn\'t approve a translation pack. Nothing about your media is ever uploaded.')
+        : 'Turned off by <code>SUB_ALLOW_DOWNLOADS=0</code> or <code>VAULT_OFFLINE=1</code>. The environment overrides anything set here.'}</p>
       ${modelConsentRows()}
 
       <h3 class="settings-h">Vault security</h3>
       <p class="settings-note" id="settingsSecNote">${server.encrypted
         ? 'Your library is encrypted. These control how it locks itself and how you get back in.'
-        : 'No database password set yet — click the padlock in the header to create one. Auto-lock does nothing until then.'}</p>
+        : 'No database password set yet. Click the padlock in the header to create one. Auto-lock does nothing until then.'}</p>
       ${numberRow({
         key: 'autolockMinutes',
         value: server.autolockMinutes,
@@ -623,7 +623,7 @@
       <!-- "Hold to unlock" row removed deliberately (unlock is a single click now); the unlockHoldSeconds logic and its handler below stay, so a stored value still applies. -->
 
       <h3 class="settings-h settings-h-planned">Planned</h3>
-      <p class="settings-note">A visible roadmap — these are not wired up yet.</p>
+      <p class="settings-note">A visible roadmap. These are not wired up yet.</p>
       ${PLANNED.map(p => toggleRow({ ...p, planned: true })).join('')}
     `;
   }
@@ -649,7 +649,7 @@
             const d = await r.json().catch(() => ({}));
             if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
             modelDl = { ...modelDl, ...d };
-            showToast?.(allow ? '⬇ Approved for download' : 'Not approved — nothing will be fetched');
+            showToast?.(allow ? '⬇ Approved for download' : 'Not approved, nothing will be fetched');
           } catch (err) {
             input.checked = !allow;
             showToast?.('⚠ ' + err.message);
@@ -663,7 +663,7 @@
           save();
           window.vaultApplyGamifyHidden?.(settings.gamifyHidden);
           showToast?.(settings.gamifyHidden
-            ? 'Obsession Score hidden — still tracking'
+            ? 'Obsession Score hidden, still tracking'
             : '🏆 Obsession Score shown');
         } else {
           settings[key] = input.checked;
@@ -764,7 +764,7 @@
     if (note) {
       note.innerHTML = server.encrypted
         ? 'Your library is encrypted. These control how it locks itself and how you get back in.'
-        : 'No database password set yet — click the padlock in the header to create one. Auto-lock does nothing until then.';
+        : 'No database password set yet. Click the padlock in the header to create one. Auto-lock does nothing until then.';
     }
   }
 
@@ -1836,7 +1836,7 @@
   function RENDERERS_seedpacks() {
     return `
       <h3 class="settings-h">Song seed packs</h3>
-      <p>A seed pack (eg <code>vault-songseed.json</code>) is a portable bundle of song <b>reference fingerprints</b> — no audio inside. Importing one lands the songs and their fingerprints straight in your database without needing the MP3s on disk, and every already-fingerprinted file is rescanned against just the new references.</p>
+      <p>A seed pack (eg <code>vault-songseed.json</code>) is a portable bundle of song <b>reference fingerprints</b>, no audio inside. Importing one lands the songs and their fingerprints straight in your database without needing the MP3s on disk, and every already-fingerprinted file is rescanned against just the new references.</p>
       <p>It's strictly a manual pull: you download and pick the pack yourself, nothing auto-fetches. Re-importing is idempotent, so updated packs only add what's new.</p>
       <button class="settings-btn" id="settingsOpenSeedpacks">Open seed packs in Editor</button>
     `;

@@ -101,7 +101,7 @@ async function loadDatabase() {
     console.error('Failed to load library:', err);
     const totalCountElement = document.getElementById('totalCount');
     if (totalCountElement) {
-      totalCountElement.textContent = '⚠ Could not load library — is the server running?';
+      totalCountElement.textContent = '⚠ Could not load library. Is the server running?';
     }
     showToast('Failed to load library: ' + err.message);
   }

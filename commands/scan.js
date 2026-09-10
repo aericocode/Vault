@@ -428,7 +428,7 @@ async function run(args) {
       const { checkTools } = require('../lib/musicid/fingerprint');
       const tools = await checkTools();
       if (!tools.ok) {
-        console.log(`⚠ Music ID fingerprinting skipped — ${tools.errors[0]}\n`);
+        console.log(`⚠ Music ID fingerprinting skipped: ${tools.errors[0]}\n`);
       } else {
         musicSvc = require('../lib/musicid/service');
         console.log(`🎵 Fingerprinting ${audioIds.length} audio file(s) for Music ID alongside the scan…\n`);
@@ -437,8 +437,8 @@ async function run(args) {
           autoLabel: true, // "Artist - Title.mp3" → named song reference
           onProgress: (p) => {
             if (p.error) console.log(`  🎵 ✗ ${p.filename}: ${p.error}`);
-            else if (!p.skipped) console.log(`  🎵 ${p.filename} — ${p.chunks} chunks${p.skippedSilent ? ` (${p.skippedSilent} silent skipped)` : ''}${p.labeled ? ` → 📛 ${p.labeled.artist} – ${p.labeled.title}` : ''}`);
-            else if (p.labeled) console.log(`  🎵 ${p.filename} — already fingerprinted → 📛 ${p.labeled.artist} – ${p.labeled.title}`);
+            else if (!p.skipped) console.log(`  🎵 ${p.filename}: ${p.chunks} chunks${p.skippedSilent ? ` (${p.skippedSilent} silent skipped)` : ''}${p.labeled ? ` → 📛 ${p.labeled.artist} – ${p.labeled.title}` : ''}`);
+            else if (p.labeled) console.log(`  🎵 ${p.filename}: already fingerprinted → 📛 ${p.labeled.artist} – ${p.labeled.title}`);
           },
         }).catch(e => ({ error: e.message, stats: null, readyIds: [] }));
       }
@@ -465,7 +465,7 @@ async function run(args) {
     if (aborted) return;            // first worker to notice owns the message
     aborted = { reason: String(reason || 'Model unavailable'), filename };
     console.error(`\n${'='.repeat(60)}`);
-    console.error(`⚠ SCAN ABORTED — the AI model is unavailable`);
+    console.error(`⚠ SCAN ABORTED: the AI model is unavailable`);
     console.error(`${'='.repeat(60)}`);
     console.error(`  ${aborted.reason}`);
     if (filename) console.error(`  Stopped at: ${filename}`);
@@ -545,7 +545,7 @@ async function run(args) {
   await Promise.allSettled(promises);
 
   console.log(`\n${'='.repeat(60)}`);
-  console.log(aborted ? `ABORTED — model unavailable` : `COMPLETE`);
+  console.log(aborted ? `ABORTED (model unavailable)` : `COMPLETE`);
   console.log(`${'='.repeat(60)}`);
   console.log(`Processed: ${processed}`);
   if (Object.keys(byType).length > 1) {
@@ -586,7 +586,7 @@ async function run(args) {
   // will redo anyway.
   if (aborted && (fingerprintTask || generateSubtitles)) {
     console.error(`  Skipped the post-scan pass${fingerprintTask && generateSubtitles ? 'es' : ''}` +
-      ` (${[fingerprintTask && 'Music ID', generateSubtitles && 'subtitles'].filter(Boolean).join(', ')}) — re-run to finish them.`);
+      ` (${[fingerprintTask && 'Music ID', generateSubtitles && 'subtitles'].filter(Boolean).join(', ')}). Re-run to finish them.`);
   }
 
   // ── Music ID: finish fingerprinting, then match (references + cross-media)
@@ -604,7 +604,7 @@ async function run(args) {
         },
       });
       console.log(`🎵 ${matched} song link(s) created.` +
-        (matched === 0 ? ' (references are stored — videos will match these when fingerprinted)' : ''));
+        (matched === 0 ? ' (references are stored, so videos will match these when fingerprinted)' : ''));
     }
   }
 

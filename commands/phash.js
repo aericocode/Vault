@@ -100,7 +100,7 @@ async function run(args) {
       if (noteSets.length === 1) db.setGroupNotes(groupId, noteSets[0]);
       linked += ids.length;
     }
-    console.log(`\nLinked ${linked} files into ${groups.length} dupe group(s) — notes now shared, ⧉ badge in the viewer.`);
+    console.log(`\nLinked ${linked} files into ${groups.length} dupe group(s). Notes now shared, ⧉ badge in the viewer.`);
   } else {
     console.log('\nRe-run with --link to join these into dupe groups (shared notes, ⧉ badge).');
   }

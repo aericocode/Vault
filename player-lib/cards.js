@@ -714,12 +714,12 @@ function renderTile(media) {
     media.user_starred ? '<span class="tile-ind ind-star" title="Fave">❤</span>' : '',
     rating > 0 ? `<span class="tile-ind ind-rating" title="Rated ${rating}/5">${rating}</span>` : '',
     isFlagged ? '<span class="tile-ind ind-flag" title="Flagged">🚩</span>' : '',
-    media.dupe_group ? '<span class="tile-ind ind-dupe" title="Confirmed duplicate — notes shared">⧉</span>' : '',
+    media.dupe_group ? '<span class="tile-ind ind-dupe" title="Confirmed duplicate, notes shared">⧉</span>' : '',
     isTrashed ? '<span class="tile-ind ind-trashed" title="In trash">🗑</span>' : '',
     cannotPlay ? `<span class="tile-ind ind-error" title="${escapeHtml(cannotPlayWhy)}">⚠</span>` : '',
     hasNotes ? '<span class="tile-ind ind-notes" title="Has notes">📝</span>' : '',
     hasError ? `<span class="tile-ind ind-error" title="${escapeHtml(errorTooltip(media.processing_error))}">⚠</span>` : '',
-    isUnscanned ? '<span class="tile-ind ind-unscanned" title="Not scanned yet — AI analysis pending">⏳</span>' : '',
+    isUnscanned ? '<span class="tile-ind ind-unscanned" title="Not scanned yet, AI analysis pending">⏳</span>' : '',
     (typeof mediaSongIds === 'function' && mediaSongIds(media.id).length > 0)
       ? `<span class="tile-ind ind-music" title="${mediaSongIds(media.id).length} song(s) identified">🎵</span>` : '',
   ].filter(Boolean).join('');
@@ -756,7 +756,7 @@ function renderTile(media) {
   let simChip = '';
   if (typeof audioSimScores !== 'undefined' && audioSimScores) {
     if (media.id === audioSimAnchorId) {
-      simChip = '<span class="tile-badge sim-badge sim-anchor" title="Similarity anchor — other files are ranked against this one">≈ anchor</span>';
+      simChip = '<span class="tile-badge sim-badge sim-anchor" title="Similarity anchor. Other files are ranked against this one">≈ anchor</span>';
     } else if (audioSimScores.has(media.id)) {
       simChip = `<span class="tile-badge sim-badge" title="Audio similarity: rarity-weighted share of songs in common with the anchor">≈${Math.round(audioSimScores.get(media.id) * 100)}%</span>`;
     }

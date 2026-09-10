@@ -37,7 +37,7 @@ async function run(args) {
     const packs = translator.listInstalled();
     console.log(`OPUS-MT translation packs  (${translator.OPUS_MODEL_DIR})`);
     if (!packs.length) {
-      console.log('  (none installed — they auto-install the first time a foreign-language file is translated)');
+      console.log('  (none installed, they auto-install the first time a foreign-language file is translated)');
       return;
     }
     let total = 0;
@@ -58,7 +58,7 @@ async function run(args) {
         await translator.provision(lang, () => {});
         console.log('done');
       } catch (err) {
-        console.log(`FAILED — ${err.message.split('\n')[0]}`);
+        console.log(`FAILED: ${err.message.split('\n')[0]}`);
       }
     }
     translator.shutdownSidecar();
