@@ -399,10 +399,12 @@ function updateRepeatButton() {
 }
 
 /* ── Fill mode ───────────────────────────────────────────────────────────
-   Fill ON: media cover-crops to fill the player content area, eliminating
-   the letterbox bars — without entering OS fullscreen (distinct from the
-   ⛶ fullscreen button). Applies to every media type. Sticky across sessions,
-   and composes with fullscreen (fill while fullscreen crops in fullscreen). */
+   Fill ON: the media grows until it touches the player content area's width
+   or its height, whichever comes first — as big as it goes without losing a
+   single edge, and without entering OS fullscreen (distinct from the ⛶
+   fullscreen button). It used to crop to the area instead, which took the top
+   and bottom off a portrait video on a landscape screen. Applies to every
+   media type, sticky across files and across sessions. */
 
 let fillMode = localStorage.getItem('player_fill') === '1';
 
@@ -423,13 +425,22 @@ function toggleFillMode() {
   updateFillButton();
 }
 
+const FILL_TITLE = {
+  on: 'Fit to window: on. Click for the file’s own size',
+  off: 'Fit to window (grow to the edges, nothing cropped)',
+};
+
 function renderFillButton() {
-  return `<button onclick="toggleFillMode()" class="control-btn fill-btn ${fillMode ? 'active' : ''}" title="Fill window (crop to fit)">⤢</button>`;
+  const t = fillMode ? FILL_TITLE.on : FILL_TITLE.off;
+  return `<button onclick="toggleFillMode()" class="control-btn fill-btn ${fillMode ? 'active' : ''}"
+    title="${t}" aria-label="Fit to window" aria-pressed="${fillMode ? 'true' : 'false'}">⤢</button>`;
 }
 
 function updateFillButton() {
   document.querySelectorAll('.fill-btn').forEach(btn => {
     btn.classList.toggle('active', fillMode);
+    btn.title = fillMode ? FILL_TITLE.on : FILL_TITLE.off;
+    btn.setAttribute('aria-pressed', fillMode ? 'true' : 'false');
   });
 }
 

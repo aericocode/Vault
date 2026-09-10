@@ -128,24 +128,25 @@
   user-select: none;
 }
 
-/* ── Fill mode ────────────────────────────────────────────────────────
-   Cover-crop media to fill the whole content area — no letterbox bars, no OS
-   fullscreen. Tracks the flex content area, so it naturally shrinks when the
-   sidebar opens. Composes with fullscreen (crops in fullscreen too). */
-.media-player-overlay.fill-mode .media-player-content video {
-  width: 100%;
-  height: 100%;
-  max-width: none;
-  max-height: none;
-  object-fit: cover;
-}
+/* ── Fill mode ─────────────────────────────────────────────────────────────
+   Grow the media until it touches the content area's width or its height,
+   whichever comes first — no letterbox bars beyond what the shape needs, no
+   cropping, no OS fullscreen. Tracks the flex content area, so it naturally
+   shrinks when the sidebar opens. It used to cover-crop, which ate the top and
+   bottom of a portrait video on a landscape screen.
 
-.media-player-overlay.fill-mode .media-player-content img {
+   Scoped to the content box's own media (`>`) so a mix's tiled layers, which
+   live inside their own stage, keep their grid. object-fit does the fitting:
+   the element takes the whole area and the picture inside it grows until one
+   pair of edges lands, keeping its shape. `contain` has to be spelled out for
+   images, whose default is to stretch. */
+.media-player-overlay.fill-mode .media-player-content > video,
+.media-player-overlay.fill-mode .media-player-content > img {
   width: 100%;
   height: 100%;
   max-width: none;
   max-height: none;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 /* ── Fullscreen sizing ─────────────────────────────────────────────────────
