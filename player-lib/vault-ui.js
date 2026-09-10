@@ -57,8 +57,8 @@
     el.classList.toggle('vault-open', !_status.locked);
     el.classList.toggle('vault-warn', _armedInterrupt);
     el.title = _status.locked ? 'Vault locked'
-      : _armedInterrupt ? 'A scan is running — locking now interrupts it. Click again to lock anyway.'
-      : _status.encrypted ? 'Vault unlocked — click to lock'
+      : _armedInterrupt ? 'A scan is running. Locking now interrupts it. Click again to lock anyway.'
+      : _status.encrypted ? 'Vault unlocked. Click to lock'
       : 'Click to create a vault password (encrypts the library database)';
     // The 🔑 change-password affordance only makes sense on an encrypted,
     // unlocked vault — hidden while plaintext or locked.
@@ -85,7 +85,7 @@
         // First click while scanning: arm the warning, require a second click
         _armedInterrupt = true;
         renderLogo();
-        showToast('⚠ A scan is running — click the lock again to interrupt it and lock');
+        showToast('⚠ A scan is running. Click the lock again to interrupt it and lock');
         clearTimeout(_armTimer);
         _armTimer = setTimeout(() => { _armedInterrupt = false; renderLogo(); }, 6000);
         return;
@@ -154,9 +154,9 @@
       <div class="vault-modal" role="dialog" aria-label="Create vault password">
         <h3>🔐 Create vault password</h3>
         <p class="vault-modal-hint">
-          Encrypts the library database in place (ChaCha20-Poly1305 — AES-256-class).
+          Encrypts the library database in place (ChaCha20-Poly1305, AES-256-class).
           Protects all metadata, notes, transcripts and history. Media files themselves
-          stay as-is on disk. <b>No recovery exists — a lost password loses the data.</b>
+          stay as-is on disk. <b>No recovery exists. A lost password loses the data.</b>
         </p>
         <input type="password" id="vaultPass1" class="vault-input" placeholder="Password (min 4 characters)" autocomplete="new-password">
         <input type="password" id="vaultPass2" class="vault-input" placeholder="Confirm password" autocomplete="new-password">
@@ -205,7 +205,7 @@
         if (typeof setThumbsEncrypted === 'function') setThumbsEncrypted(true);
         if (typeof renderResults === 'function') renderResults();
         renderLogo();                   // padlock → open + 🔑 appears, no reload
-        showToast('🔐 Library encrypted — it stays open while you use it');
+        showToast('🔐 Library encrypted. It stays open while you use it');
       } catch (e2) {
         err(e2.message);
         btn.disabled = false; btn.textContent = 'Encrypt library';
@@ -228,8 +228,8 @@
         <h3>🔑 Change vault password</h3>
         <p class="vault-modal-hint">
           Confirm your current password, then set a new one. The library is re-encrypted
-          in place — nothing is exported or re-scanned.
-          <b>No recovery exists — a lost password loses the data.</b>
+          in place. Nothing is exported or re-scanned.
+          <b>No recovery exists. A lost password loses the data.</b>
         </p>
         <input type="password" id="vaultCur" class="vault-input" placeholder="Current password" autocomplete="current-password">
         <input type="password" id="vaultNew1" class="vault-input" placeholder="New password (min 4 characters)" autocomplete="new-password">
@@ -385,7 +385,7 @@
           body: JSON.stringify({ pass: input.value }),
         });
         if (resp.ok) {
-          hint.textContent = 'Unlocked — loading…';
+          hint.textContent = 'Unlocked, loading…';
           location.reload();                          // fresh boot with data
           return;
         }
@@ -483,7 +483,7 @@
         <p class="vault-modal-hint">
           Setting one encrypts the whole database at rest. You can still leave
           auto-lock off (Settings → <b>Auto-lock after: 0</b>) so it never locks
-          while you're using it — the encryption applies either way.
+          while you're using it. The encryption applies either way.
         </p>
         <p class="vault-modal-hint">
           <b>There is no recovery.</b> Lose the password and the library is gone,

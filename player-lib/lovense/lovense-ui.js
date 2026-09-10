@@ -20,7 +20,7 @@
     const chip = document.createElement('button');
     chip.id = 'lovenseChip';
     chip.className = 'header-btn lovense-chip';
-    chip.title = 'Lovense device — click for connection & sync settings';
+    chip.title = 'Lovense device. Click for connection & sync settings';
     chip.onclick = togglePanel;
     const gamify = document.getElementById('gamifyChip');
     if (gamify) btns.insertBefore(chip, gamify);
@@ -78,7 +78,7 @@
         <span class="lovense-num" id="lovMaxV">${cfg.max}</span>
       </div>
       <div class="lovense-row">
-        <span class="lovense-lbl" title="Commands are sent this far ahead so they land on the beat — Test measures it">Lead</span>
+        <span class="lovense-lbl" title="Commands are sent this far ahead so they land on the beat. Test measures it">Lead</span>
         <input type="range" id="lovLead" min="0" max="400" step="10" value="${cfg.leadMs}">
         <span class="lovense-num" id="lovLeadV">${cfg.leadMs}ms</span>
       </div>
@@ -88,10 +88,10 @@
         <label class="lovense-radio"><input type="radio" name="lovMode" value="pulse" ${cfg.mode === 'pulse' ? 'checked' : ''}> Beat pulses</label>
       </div>
       <div class="lovense-row lovense-actions">
-        <button class="lovense-btn lovense-btn-primary" id="lovTest" title="Short 1.5s ramp on the device — also calibrates the latency lead">▶ Test device</button>
+        <button class="lovense-btn lovense-btn-primary" id="lovTest" title="Short 1.5s ramp on the device. Also calibrates the latency lead">▶ Test device</button>
         <button class="lovense-btn lovense-btn-danger" id="lovDisconnect">Disconnect</button>
       </div>
-      <div class="lovense-hint">Local network only — nothing leaves your LAN. Esc while syncing = instant stop.</div>
+      <div class="lovense-hint">Local network only. Nothing leaves your LAN. Esc while syncing = instant stop.</div>
     `;
     document.body.appendChild(panel);
 
@@ -153,7 +153,7 @@
         LovenseSync.saveCfg({ leadMs: lead });
         const slider = q('#lovLead');
         if (slider) { slider.value = lead; q('#lovLeadV').textContent = lead + 'ms'; }
-        setStatus(`test ok — ack ${rttMs}ms, lead set to ${lead}ms`);
+        setStatus(`test ok: ack ${rttMs}ms, lead set to ${lead}ms`);
       } catch (e) {
         setStatus('⚠ ' + e.message);
       } finally {
@@ -175,7 +175,7 @@
     setStatus('connecting…');
     try {
       const { devices, transport } = await LovenseApi.connect(ip);
-      setStatus(`connected (${transport}) — ${devices.length} device${devices.length === 1 ? '' : 's'}`);
+      setStatus(`connected (${transport}), ${devices.length} device${devices.length === 1 ? '' : 's'}`);
     } catch (e) {
       setStatus('⚠ ' + e.message);
     }
@@ -187,7 +187,7 @@
     if (text != null) { el.textContent = text; return; }
     const d = LovenseApi.getActiveDevice();
     el.textContent = LovenseApi.isConnected && d
-      ? `● Connected — ${d.nickname} (${LovenseApi.transport})`
+      ? `● Connected: ${d.nickname} (${LovenseApi.transport})`
       : '○ Not connected';
     el.classList.toggle('on', LovenseApi.isConnected);
   }
@@ -238,8 +238,8 @@
       on, disconnected,
       label: `Vibe: ${on ? (disconnected ? 'No device' : 'On') : 'Off'}`,
       title: disconnected
-        ? 'Vibe is on but no device is connected — click to open settings'
-        : on ? 'Device syncs to the beat — click to stop'
+        ? 'Vibe is on but no device is connected. Click to open settings'
+        : on ? 'Device syncs to the beat. Click to stop'
              : 'Sync a Lovense device to this video’s beat (persists across videos)'
     };
   }
@@ -302,7 +302,7 @@
       mini.textContent = '💟';
       mini.title = disconnected
         ? 'Vibe on but no device connected'
-        : on ? 'Vibe on — synced to the beat (click to stop)'
+        : on ? 'Vibe on, synced to the beat (click to stop)'
              : 'Sync a Lovense device to the beat';
     }
   }
@@ -333,7 +333,7 @@
     LovenseSync.setEnabled(on);
     if (on) {
       attachCurrent();
-      showToast('💟 Vibe ON — synced to the beat (stays on for future videos)');
+      showToast('💟 Vibe ON, synced to the beat (stays on for future videos)');
     } else {
       showToast('Vibe off');
     }

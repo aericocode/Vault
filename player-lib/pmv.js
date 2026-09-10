@@ -219,7 +219,7 @@ function renderPmvSetup() {
             </label>
           </div>
           <button class="pmv-generate-btn" id="pmvGenerate" ${pmvState.videoIds.length && pmvState.audioIds.length ? '' : 'disabled'}>▶ Generate PMV</button>
-          <div class="pmv-hint">Runs on the server — you can keep browsing the library while it works.</div>
+          <div class="pmv-hint">Runs on the server. You can keep browsing the library while it works.</div>
         </section>
 
         <section class="editor-panel">
@@ -323,7 +323,7 @@ function renderPmvAudio() {
           <button class="pmv-mini-btn" onclick="pmvMoveAudio(${i}, 1)" ${i === pmvState.audioIds.length - 1 ? 'disabled' : ''} title="Move down">↓</button>
           <button class="pmv-mini-btn pmv-mini-del" onclick="pmvRemoveAudio(${i})" title="Remove">✕</button>
         </div>`;
-    }).join('') : '<div class="pmv-hint">No soundtrack picked — tracks play (and concatenate) in this order.</div>';
+    }).join('') : '<div class="pmv-hint">No soundtrack picked. Tracks play (and concatenate) in this order.</div>';
   }
 
   // Compact wide rows (no cover art) with a preview button + scrub bar
@@ -655,7 +655,7 @@ function renderPmvJobView() {
       <div class="pmv-progress-wrap" id="pmvProgressWrap">
         <div class="pmv-progress-bar"><div class="pmv-progress-fill" id="pmvProgressFill"></div></div>
         <div class="pmv-progress-stage" id="pmvProgressStage">Starting…</div>
-        <div class="pmv-hint">Runs server-side — feel free to browse the library; come back any time.</div>
+        <div class="pmv-hint">Runs server-side. Feel free to browse the library and come back any time.</div>
       </div>
       <div id="pmvReviewBody"></div>
     </div>`;
@@ -741,7 +741,7 @@ function renderPmvReview(job) {
       <span>${Math.round((e.coverage || 0) * 100)}% coverage</span>
       <span>${e.uniqueSegments}/${e.totalSegments} segments</span>
       <span>🎲 seed ${e.seed}</span>
-      ${pmvState.edlDirty ? '<span class="pmv-dirty">edited — re-render to apply</span>' : ''}
+      ${pmvState.edlDirty ? '<span class="pmv-dirty">edited, re-render to apply</span>' : ''}
     </div>
     <div class="pmv-edl-strip" id="pmvEdlStrip">${entriesHtml}</div>
     <div class="pmv-review-actions">
@@ -750,7 +750,7 @@ function renderPmvReview(job) {
       <button class="games-btn" onclick="pmvSaveRecipe()">💾 Save recipe</button>
       <span class="pmv-flex"></span>
       ${done && !expired ? `
-        <a class="games-btn" href="/api/pmv/jobs/${job.id}/download" download title="Held in memory — download to save it anywhere">⬇ Download</a>
+        <a class="games-btn" href="/api/pmv/jobs/${job.id}/download" download title="Held in memory. Download to save it anywhere">⬇ Download</a>
         <button class="games-btn games-btn-primary" onclick="pmvImport()" ${imported ? 'disabled title="Already in the library"' : ''}>
           ${imported ? '✓ In library' : '➕ Add to library'}
         </button>` : ''}
@@ -762,7 +762,7 @@ function renderPmvReview(job) {
           ${escapeHtml(job.result.filename)} · ${(job.result.fileSize / 1e6).toFixed(1)} MB · ${job.result.clips} clips · ${escapeHtml(job.result.encoder)}${imported ? '' : ' · in memory until you ⬇ save or ➕ add it'}
         </div>
       </div>` : ''}
-    ${expired ? `<div class="pmv-error">⏳ Render expired — finished PMVs are held in memory only, and a restart or vault lock drops them. Hit 🎬 Re-render to regenerate, then ⬇ Download or ➕ Add to library.</div>` : ''}
+    ${expired ? `<div class="pmv-error">⏳ Render expired. Finished PMVs are held in memory only, and a restart or vault lock drops them. Hit 🎬 Re-render to regenerate, then ⬇ Download or ➕ Add to library.</div>` : ''}
     ${failed ? `<div class="pmv-error">⚠ ${escapeHtml(job.error || job.status)}</div>` : ''}
   `;
 }
@@ -822,7 +822,7 @@ async function pmvImport() {
     const resp = await fetch(`/api/pmv/jobs/${job.id}/import`, { method: 'POST' });
     const data = await resp.json();
     if (!resp.ok) { showToast('⚠ ' + (data.error || 'import failed')); return; }
-    showToast('➕ Added to library (unscanned — rescan for AI metadata)');
+    showToast('➕ Added to library (unscanned, rescan for AI metadata)');
     if (typeof loadDatabase === 'function') loadDatabase();
     pmvPollJob();
   } catch (err) { showToast('⚠ ' + err.message); }

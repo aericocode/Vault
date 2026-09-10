@@ -539,7 +539,7 @@ function autoAdvanceOnEnded() {
  * center nav.
  */
 function renderDoneButton() {
-  return `<button onclick="markSessionDone()" class="done-btn" title="Done — end the viewing session here (💦 tracked per item)">💦 Done</button>`;
+  return `<button onclick="markSessionDone()" class="done-btn" title="Done. End the viewing session here (💦 tracked per item)">💦 Done</button>`;
 }
 
 /**
@@ -547,7 +547,7 @@ function renderDoneButton() {
  * used to mark intense moments. Rendered to the LEFT of Done.
  */
 function renderHotButton() {
-  return `<button onclick="markSessionHot()" class="hot-btn" title="Hot — mark an intense moment here (🔥 tracked per item)">🔥 Hot</button>`;
+  return `<button onclick="markSessionHot()" class="hot-btn" title="Hot. Mark an intense moment here (🔥 tracked per item)">🔥 Hot</button>`;
 }
 
 /**
@@ -585,7 +585,7 @@ async function markSessionHot() {
     }
   } catch {}
 
-  showToast(`🔥 Hot — marked on ${media.filename}`);
+  showToast(`🔥 Hot, marked on ${media.filename}`);
   if (typeof drawActivityBar === 'function') drawActivityBar(); // tint the spot live
   renderResults(); // refresh 🔥 badges on the grid behind the player
 }
@@ -626,7 +626,7 @@ async function markSessionDone() {
     }
   } catch {}
 
-  showToast(`💦 Done — marked on ${media.filename}`);
+  showToast(`💦 Done, marked on ${media.filename}`);
   if (typeof drawActivityBar === 'function') drawActivityBar(); // tint the spot live
   renderResults(); // refresh 💦 badges on the grid behind the player
 }
@@ -962,7 +962,7 @@ function handleMediaError(filepath, reason) {
   }
   consecutivePlayFailures = 0;
   closeMediaPlayer();
-  showToast(reason || 'Cannot play this file — marked as unplayable. Use “Copy Path” to locate it.');
+  showToast(reason || 'Cannot play this file, marked as unplayable. Use “Copy Path” to locate it.');
 }
 
 /**

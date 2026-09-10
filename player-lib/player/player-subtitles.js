@@ -51,9 +51,9 @@ function renderSubtitleButton() {
     <button onclick="cycleSubtitleMode()" id="subtitleBtn" class="subtitle-btn sub-mode-${subtitleMode}"
       title="Subtitles: Off → On → Auto (English only for foreign audio)">CC${subtitleMode === 'auto' ? '<sup>AUTO</sup>' : ''}</button>
     <button onclick="subtitlesGenerate()" id="subtitleGenBtn" class="subtitle-gen-btn" style="display:none"
-      title="No subtitles yet — generate them now (Whisper, runs in the background)">＋</button>
+      title="No subtitles yet. Generate them now (Whisper, runs in the background)">＋</button>
     <button onclick="subtitlesFixHere()" id="subtitleFixBtn" class="subtitle-gen-btn" style="display:none"
-      title="Re-scan the subtitles around the current spot (±1 min) — for gaps or wrong lines">⟳ Fix</button>
+      title="Re-scan the subtitles around the current spot (±1 min), for gaps or wrong lines">⟳ Fix</button>
   </span>`;
 }
 
@@ -461,7 +461,7 @@ async function subtitlesGenerate() {
       }
       return;
     }
-    showToast('📝 Generating subtitles — first lines appear in seconds');
+    showToast('📝 Generating subtitles. First lines appear in seconds');
     if (genBtn) genBtn.style.display = 'none';   // the progress pill takes over
     // Streaming: cues stream into the VTT; the growth poll shows them + progress
     _subsShowProgress({ progress: 0, stage: 'Starting…', status: 'queued' });
@@ -492,7 +492,7 @@ async function subtitlesFixHere() {
     const data = await resp.json();
     if (!resp.ok) { _subsCancelTrickle(); _subsHideProgress(); showToast('⚠ ' + (data.error || 'failed')); return; }
     _subsCancelTrickle();
-    showToast(`✓ Re-scanned — ${data.patched} line${data.patched === 1 ? '' : 's'} updated${data.speakers ? ' · speakers re-tagged' : ''}`);
+    showToast(`✓ Re-scanned: ${data.patched} line${data.patched === 1 ? '' : 's'} updated${data.speakers ? ' · speakers re-tagged' : ''}`);
     if (currentMediaState.currentMediaData?.id === media.id) {
       _subs.lang = null;                 // force a re-fetch of the rewritten VTT
       await applySubtitlesFor(media);    // detaches → clears the pill, reloads cues
@@ -560,7 +560,7 @@ function subtitlesSidebarHtml(mediaId, info) {
   if (running) {
     return `
       <div class="subs-status"><span class="sub-prog-spin"></span> ${escapeHtml(info.stage || 'Generating…')} <b>${Math.round(info.progress || 0)}%</b></div>
-      <div class="subs-hint">Lines stream in as they're transcribed — this panel updates when done.</div>
+      <div class="subs-hint">Lines stream in as they're transcribed. This panel updates when done.</div>
       <div class="subs-actions"><button class="subs-btn" onclick="subtitlesLoadSidebar(${mediaId})">↻ Refresh</button></div>`;
   }
 
@@ -570,7 +570,7 @@ function subtitlesSidebarHtml(mediaId, info) {
       <div class="subs-track">
         <span class="subs-track-label">${escapeHtml(subLangName(t.lang))} <span class="subs-track-kind">${kindLabel}</span></span>
         <span class="subs-track-btns">
-          <button class="subs-btn" title="Transcript — click a line to jump there, 📌 to save it as a note snippet" onclick="subtitlesToggleTranscript(${mediaId}, '${escapeHtml(t.lang)}')">≡</button>
+          <button class="subs-btn" title="Transcript. Click a line to jump there, 📌 to save it as a note snippet" onclick="subtitlesToggleTranscript(${mediaId}, '${escapeHtml(t.lang)}')">≡</button>
           <button class="subs-btn" title="View & edit the VTT cues" onclick="subtitlesOpenEditor(${mediaId}, '${escapeHtml(t.lang)}')">✎ Edit</button>
           <a class="subs-btn" title="Download as SRT" href="/api/media/${mediaId}/subtitles?lang=${encodeURIComponent(t.lang)}&format=srt">⤓ SRT</a>
           <button class="subs-btn subs-btn-danger" title="Delete this track" onclick="subtitlesDeleteTrack(${mediaId}, '${escapeHtml(t.lang)}')">✕</button>
@@ -692,12 +692,12 @@ function subtitlesShowModelConsent(info = {}, retry) {
     whisper: {
       title: '⬇ Download the transcription model?',
       what: `the speech-to-text model <b>${escapeHtml(detail)}</b>${size ? ` (<b>${escapeHtml(size)}</b>)` : ''}`,
-      decline: 'Without it, subtitles can\'t be generated at all — everything else in Vault keeps working.',
+      decline: 'Without it, subtitles can\'t be generated at all. Everything else in Vault keeps working.',
     },
     opus: {
       title: '⬇ Download the offline translation model?',
       what: `the <b>${escapeHtml(detail)}→en</b> translation pack${size ? ` (<b>${escapeHtml(size)}</b>)` : ''}`,
-      decline: 'Decline and Vault keeps translating with your local LM Studio model instead — slower, but nothing is downloaded.',
+      decline: 'Decline and Vault keeps translating with your local LM Studio model instead, which is slower but nothing is downloaded.',
     },
     diarize: {
       title: '⬇ Download the speaker-detection models?',
@@ -719,7 +719,7 @@ function subtitlesShowModelConsent(info = {}, retry) {
       <h3>${c.title}</h3>
       <p class="vault-modal-hint">
         Vault would fetch ${c.what} from <b>huggingface.co</b>. It runs entirely
-        on your machine afterwards — your media is never uploaded, and nothing
+        on your machine afterwards. Your media is never uploaded, and nothing
         else is downloaded with it.
       </p>
       <p class="vault-modal-hint">${c.decline}</p>
@@ -744,8 +744,8 @@ function subtitlesShowModelConsent(info = {}, retry) {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { showToast('⚠ ' + (d.error || `HTTP ${r.status}`)); return; }
     } catch (err) { showToast('⚠ ' + err.message); return; }
-    if (!allow) { showToast('Nothing downloaded — Vault will ask again if it needs it'); return; }
-    showToast('⬇ Approved — fetching on next use');
+    if (!allow) { showToast('Nothing downloaded. Vault will ask again if it needs it'); return; }
+    showToast('⬇ Approved, fetching on next use');
     if (typeof retry === 'function') retry();      // resume what they clicked
   };
   ov.querySelector('#subsModelYes').addEventListener('click', () => answer(true));
@@ -779,19 +779,19 @@ function subtitlesShowPrereqModal(info = {}) {
   // Two different problems, two different fixes — saying "subtitles
   // unavailable" for both sends half the users to the wrong place.
   const steps = noPython
-    ? `<li>Install <b>Python 3.9+</b> — tick <b>“Add python.exe to PATH”</b> in the installer:
+    ? `<li>Install <b>Python 3.9+</b> and tick <b>“Add python.exe to PATH”</b> in the installer:
          <div class="subs-prereq-cmd"><code>winget install Python.Python.3.12</code>
            <button class="vault-btn subs-prereq-copy" data-copy="winget install Python.Python.3.12">Copy</button></div>
          …or from <a href="https://www.python.org/downloads/" target="_blank" rel="noopener">python.org/downloads</a>.</li>
        <li>Then install the transcription package:
          <div class="subs-prereq-cmd"><code>pip install faster-whisper</code>
            <button class="vault-btn subs-prereq-copy" data-copy="pip install faster-whisper">Copy</button></div></li>
-       <li><b>Restart Vault</b> — a running app keeps the PATH it started with, so it can't see a brand-new Python until then.</li>`
+       <li><b>Restart Vault</b>. A running app keeps the PATH it started with, so it can't see a brand-new Python until then.</li>`
     : `<li>Install the transcription package into the Python Vault is using
          (<code>${escapeHtml(pyCmd)}</code>):
          <div class="subs-prereq-cmd"><code>${escapeHtml(pyCmd)} -m pip install faster-whisper</code>
            <button class="vault-btn subs-prereq-copy" data-copy="${escapeHtml(pyCmd)} -m pip install faster-whisper">Copy</button></div></li>
-       <li>Press <b>Generate</b> again — no restart needed, Vault re-checks each time.</li>`;
+       <li>Press <b>Generate</b> again. No restart needed, Vault re-checks each time.</li>`;
 
   const ov = document.createElement('div');
   ov.id = 'subsPrereqModal';
@@ -803,7 +803,7 @@ function subtitlesShowPrereqModal(info = {}) {
         ${noPython
           ? 'Transcription runs locally through <b>faster-whisper</b>, which needs Python. Vault couldn\'t find a Python installation.'
           : 'Transcription runs locally through <b>faster-whisper</b>. Python is installed, but the package isn\'t.'}
-        It's the one dependency Vault can't fetch for you — everything else it installs itself.
+        It's the one dependency Vault can't fetch for you. Everything else it installs itself.
       </p>
       <ol class="vault-modal-hint subs-prereq-steps">${steps}</ol>
       <p class="vault-modal-hint">
@@ -866,7 +866,7 @@ async function subtitlesRescanAll(mediaId) {
   const byName = (a, b) => subLangName(a).localeCompare(subLangName(b));
   const packLangs = installed.filter(l => SUB_LANG_NAMES[l] || l).sort(byName);
   const otherLangs = Object.keys(SUB_LANG_NAMES).filter(l => !packLangs.includes(l)).sort(byName);
-  const opt = (l, note) => `<option value="${escapeHtml(l)}">${escapeHtml(subLangName(l))}${note ? ` — ${note}` : ''}</option>`;
+  const opt = (l, note) => `<option value="${escapeHtml(l)}">${escapeHtml(subLangName(l))}${note ? ` (${note})` : ''}</option>`;
 
   document.getElementById('subsRescanOverlay')?.remove();
   const ov = document.createElement('div');
@@ -875,7 +875,7 @@ async function subtitlesRescanAll(mediaId) {
   ov.innerHTML = `
     <div class="subs-editor subs-rescan" role="dialog" aria-label="Rescan subtitles">
       <div class="subs-editor-head">
-        <span>🔄 Rescan — <b>re-transcribe from scratch</b></span>
+        <span>🔄 Rescan: <b>re-transcribe from scratch</b></span>
         <button class="subs-editor-x" title="Close (Esc)" onclick="subtitlesCloseRescan()">✕</button>
       </div>
       <div class="subs-rescan-body">
@@ -995,12 +995,12 @@ async function subtitlesOpenEditor(mediaId, lang) {
   ov.innerHTML = `
     <div class="subs-editor" role="dialog" aria-label="Edit subtitles">
       <div class="subs-editor-head">
-        <span>✎ Edit subtitles — <b>${escapeHtml(subLangName(lang))}</b></span>
+        <span>✎ Edit subtitles: <b>${escapeHtml(subLangName(lang))}</b></span>
         <button class="subs-editor-x" title="Close (Esc)" onclick="subtitlesCloseEditor()">✕</button>
       </div>
       <textarea class="subs-editor-ta" spellcheck="false" wrap="off">${escapeHtml(vtt)}</textarea>
       <div class="subs-editor-foot">
-        <span class="subs-editor-hint">WebVTT — <code>00:00:01.000 --&gt; 00:00:03.000</code>, then the line. Speaker tags: <code>&lt;v Speaker 1&gt;…&lt;/v&gt;</code>.</span>
+        <span class="subs-editor-hint">WebVTT: <code>00:00:01.000 --&gt; 00:00:03.000</code>, then the line. Speaker tags: <code>&lt;v Speaker 1&gt;…&lt;/v&gt;</code>.</span>
         <span class="subs-editor-actions">
           <button class="subs-btn" onclick="subtitlesCloseEditor()">Cancel</button>
           <button class="subs-btn subs-btn-primary" id="subsEditorSave" onclick="subtitlesSaveEditor(${mediaId}, '${escapeHtml(lang)}')">Save</button>
@@ -1033,7 +1033,7 @@ async function subtitlesSaveEditor(mediaId, lang) {
     });
     const data = await resp.json();
     if (!resp.ok) { showToast('⚠ ' + (data.error || 'save failed')); return; }
-    showToast(`✓ Saved — ${data.cues} line${data.cues === 1 ? '' : 's'}`);
+    showToast(`✓ Saved: ${data.cues} line${data.cues === 1 ? '' : 's'}`);
     subtitlesCloseEditor();
     // Reload the on-screen cues if this track is showing
     if (currentMediaState.currentMediaData?.id === mediaId && _subs.lang === lang) {

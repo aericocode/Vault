@@ -156,7 +156,7 @@ function renderEditorHome() {
             <option value="identified" ${_editorHomeSource === 'identified' ? 'selected' : ''}>Identified</option>
           </select>
           <button class="music-btn" onclick="editorOpenSeedPacks()"
-            title="Import/export song seed packs — reference fingerprints that identify songs without needing the audio files">📦 Seed packs</button>
+            title="Import/export song seed packs: reference fingerprints that identify songs without needing the audio files">📦 Seed packs</button>
         </div>
         <div id="editorSongsBody"><span class="music-hint">Loading…</span></div>
       </section>
@@ -200,7 +200,7 @@ function renderEditorHome() {
 
 function editorOpenSeedPacks() {
   const { body, close } = musicModal('📦 Song seed packs', `
-    <div class="music-hint">A seed pack (<b>vault-songseed.json</b>) carries song <b>reference fingerprints</b> —
+    <div class="music-hint">A seed pack (<b>vault-songseed.json</b>) carries song <b>reference fingerprints</b>,
       no audio files. Import one and your fingerprinted library is rescanned for matches,
       so new songs can identify themselves in videos you already have.
       Nothing is ever downloaded automatically: you pick the file.</div>
@@ -248,13 +248,13 @@ async function editorImportSeedPack(file, statusEl, btn) {
       let s;
       try { s = await fetch('/api/music/seedpack/rematch-status').then(x => x.json()); } catch { return; }
       if (s.running) {
-        say(`✓ ${added}.<br>Rescanning… ${Math.round((s.done / Math.max(1, s.total)) * 100)}% — ${s.new_links} match(es) so far`);
+        say(`✓ ${added}.<br>Rescanning… ${Math.round((s.done / Math.max(1, s.total)) * 100)}%, ${s.new_links} match(es) so far`);
         return;
       }
       clearInterval(poll);
       btn.disabled = false;
-      say(`✓ ${added}.<br>${s.error ? '⚠ ' + escapeHtml(s.error) + ' — ' : ''}Rescan done: <b>${s.new_links}</b> new match(es) across your library.`);
-      showToast(`📦 Seed pack imported — ${s.new_links} new song match(es)`);
+      say(`✓ ${added}.<br>${s.error ? '⚠ ' + escapeHtml(s.error) + '. ' : ''}Rescan done: <b>${s.new_links}</b> new match(es) across your library.`);
+      showToast(`📦 Seed pack imported: ${s.new_links} new song match(es)`);
       renderEditorSongList();
       if (typeof loadDatabase === 'function') loadDatabase();   // 🎵 tile badges
     }, 1000);
@@ -307,7 +307,7 @@ async function renderEditorSongCards() {
           : '<div class="coll-mosaic-empty"></div>').join('');
         return `
           <div class="editor-song-card ${unknown ? 'is-unknown' : ''}" onclick="editorOpenSong(${s.id})"
-            title="${escapeHtml(s.artist)} – ${escapeHtml(s.title)} — ${s.video_count} video${s.video_count === 1 ? '' : 's'}">
+            title="${escapeHtml(s.artist)} – ${escapeHtml(s.title)}, ${s.video_count} video${s.video_count === 1 ? '' : 's'}">
             <div class="tile-thumb coll-mosaic">${cells}
               <span class="coll-tile-badge">${unknown ? '❓' : '🎵'}</span>
             </div>
@@ -319,7 +319,7 @@ async function renderEditorSongCards() {
           </div>`;
       }).join('')}
     </div>
-    ${refOnly ? `<div class="music-hint editor-refonly-hint">${refOnly} audio-only reference song${refOnly === 1 ? '' : 's'} hidden — they appear once a video matches them.</div>` : ''}
+    ${refOnly ? `<div class="music-hint editor-refonly-hint">${refOnly} audio-only reference song${refOnly === 1 ? '' : 's'} hidden. They appear once a video matches them.</div>` : ''}
   `;
 }
 
@@ -367,7 +367,7 @@ async function renderEditorOpenSong(songId) {
       </div>
       <div class="editor-song-head-actions" id="editorOpenSongBtns"></div>
     </div>
-    ${unknown ? '<div class="music-hint">❓ Unlabeled cluster — ✎ name it once and every linked file updates.</div>' : ''}
+    ${unknown ? '<div class="music-hint">❓ Unlabeled cluster. ✎ name it once and every linked file updates.</div>' : ''}
     ${videos.length ? '' : '<div class="music-hint editor-empty">No videos link to this song yet.</div>'}
     <div class="editor-picker-grid">
       ${videos.map(l => {
@@ -429,7 +429,7 @@ async function editorDeleteSong(songId, btn) {
     return;
   }
   await fetch(`/api/music/songs/${songId}`, { method: 'DELETE' });
-  showToast('Song deleted — files and fingerprints untouched');
+  showToast('Song deleted. Files and fingerprints untouched');
   loadMusicData();
   if (_editorOpenSongId === songId) _editorOpenSongId = null;
   renderEditorSongList();
@@ -474,7 +474,7 @@ function editorRenderQueue(q) {
   const box = document.getElementById('editorQueueBox');
   if (!box || !q) return;
   if (!q.active && !q.queued.length) {
-    box.innerHTML = '<div class="music-hint">Queue idle — select files in the Library and hit 🎵 Fingerprint.</div>';
+    box.innerHTML = '<div class="music-hint">Queue idle. Select files in the Library and hit 🎵 Fingerprint.</div>';
     return;
   }
   const rows = [];
@@ -556,7 +556,7 @@ async function renderEditorExportList() {
   let jobs = [];
   try { jobs = await fetch('/api/music/exports').then(r => r.json()); } catch {}
   if (!jobs.length) {
-    box.innerHTML = '<span class="music-hint">Stack-mix exports land here — held in memory only until you ⬇ download them (never auto-saved to disk).</span>';
+    box.innerHTML = '<span class="music-hint">Stack-mix exports land here. They are held in memory only until you ⬇ download them (never auto-saved to disk).</span>';
     clearInterval(_editorExportPoll); _editorExportPoll = null;
     return;
   }
@@ -564,8 +564,8 @@ async function renderEditorExportList() {
     const pct = Math.round((j.progress || 0) * 100);
     const status =
       j.status === 'done' ? (j.available === false
-        ? `<span class="music-badge music-badge-auto" title="Exports stay in memory until downloaded — this one is gone (restart or vault lock). Render it again if you still need it.">expired</span>`
-        : `<a class="music-btn" href="/api/music/exports/${j.id}/download" download title="Held in memory — download to save it">⬇</a>`) :
+        ? `<span class="music-badge music-badge-auto" title="Exports stay in memory until downloaded, and this one is gone (restart or vault lock). Render it again if you still need it.">expired</span>`
+        : `<a class="music-btn" href="/api/music/exports/${j.id}/download" download title="Held in memory. Download to save it">⬇</a>`) :
       j.status === 'failed' ? `<span class="music-badge music-badge-auto" title="${escapeHtml(j.error || '')}">failed</span>` :
       `<span class="editor-export-pct">${j.status === 'running' ? pct + '%' : 'queued'}</span>`;
     return `
@@ -665,12 +665,12 @@ async function editorOpenMix(mediaIds, layout = 'stack', songId = null, opts = {
 async function editorPlayLibraryMix(mediaId) {
   let mix;
   try { mix = await fetch(`/api/music/mixes/${mediaId}`).then(r => r.json()); } catch {}
-  if (!mix || mix.error) { showToast('⚠ Mix config missing — was it saved with an older version?'); return; }
+  if (!mix || mix.error) { showToast('⚠ Mix config missing. Was it saved with an older version?'); return; }
 
   const ids = (mix.media_ids || []).filter(id => getMediaById(id));
   if (ids.length < 2) { showToast('⚠ This mix\'s source videos are no longer in the library'); return; }
   if (ids.length < (mix.media_ids || []).length) {
-    showToast(`⚠ ${mix.media_ids.length - ids.length} source video(s) missing — playing the rest`);
+    showToast(`⚠ ${mix.media_ids.length - ids.length} source video(s) missing. Playing the rest`);
   }
 
   switchTab('editor');
@@ -749,10 +749,10 @@ function buildMixUi(ctx) {
   const fmtStart = (s) => (s < 0 ? '-' : '') + musicFmtTime(Math.abs(s));
 
   const mixTitle = ctx.libTitle
-    ? `🎛 ${escapeHtml(ctx.libTitle)} <span class="editor-mix-artist">— library mix${song ? ` · ${escapeHtml(song.artist)} – ${escapeHtml(song.title)}` : ''}</span>`
+    ? `🎛 ${escapeHtml(ctx.libTitle)} <span class="editor-mix-artist">(library mix${song ? ` · ${escapeHtml(song.artist)} – ${escapeHtml(song.title)}` : ''})</span>`
     : song
-      ? `${escapeHtml(song.title)} <span class="editor-mix-artist">— ${escapeHtml(song.artist)}</span>`
-      : `Custom mix <span class="editor-mix-artist">— ${tracks.length} files (no shared song; use sync nudges)</span>`;
+      ? `${escapeHtml(song.title)} <span class="editor-mix-artist">by ${escapeHtml(song.artist)}</span>`
+      : `Custom mix <span class="editor-mix-artist">(${tracks.length} files, no shared song; use sync nudges)</span>`;
 
   root.innerHTML = `
     <div class="editor-mix">
@@ -805,7 +805,7 @@ function buildMixUi(ctx) {
                   <span class="speed-display" id="mixSpeedDisplay">1x</span>
                   <button id="mixSpeedUp" class="control-btn speed-btn" title="Faster">+</button>
                 </div>
-                <button id="mixBeatbar" class="nav-btn beatbar-toggle" title="Beat bar on the master video — always rides the top layer">
+                <button id="mixBeatbar" class="nav-btn beatbar-toggle" title="Beat bar on the master video. It always rides the top layer">
                   <span class="nav-icon">🥁</span><span class="beatbar-state" id="mixBeatbarState">OFF</span>
                 </button>
               </div>
@@ -879,7 +879,7 @@ function buildMixUi(ctx) {
                   <div class="mixer-layer-head">
                     <span class="editor-mixer-title ${i === 0 ? 'is-master' : ''}" data-idx="${i}" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</span>
                     <button class="music-icon-btn mix-master-btn" data-idx="${i}" title="Make this the audio master">🔊</button>
-                    <button class="music-icon-btn mix-spot-btn" data-idx="${i}" title="Spotlight this layer (dim the others) — click again to restore the previous opacities">★</button>
+                    <button class="music-icon-btn mix-spot-btn" data-idx="${i}" title="Spotlight this layer (dim the others). Click again to restore the previous opacities">★</button>
                     <button class="music-icon-btn music-icon-danger mix-remove-btn" data-idx="${i}" title="Remove this video from the mix">✕</button>
                   </div>
                   <label class="editor-mixer-slider" title="Layer opacity">op
@@ -918,7 +918,7 @@ function buildMixUi(ctx) {
             <div class="mixer-section">
               <div class="mixer-section-label">Mix presets</div>
               <div class="mixer-preset-rows">
-                <select class="editor-select" id="mixPresetLoad"><option value="">— load —</option></select>
+                <select class="editor-select" id="mixPresetLoad"><option value="">load preset</option></select>
                 <div class="mixer-preset-save">
                   <input type="text" class="music-input" id="mixPresetName" placeholder="Mix name…" value="${escapeHtml(ctx.presetName || '')}">
                   <button class="music-btn" id="mixPresetSave">💾 Save</button>
@@ -934,7 +934,7 @@ function buildMixUi(ctx) {
                 <textarea class="music-input mixer-desc-input" id="mixLibDesc" rows="2"
                   placeholder="Description (optional)">${escapeHtml(ctx.libDescription || '')}</textarea>
                 <button class="music-btn music-btn-primary" id="mixLibSave">${ctx.libraryMediaId ? '⟳ Update library mix' : '💾 Save to Library'}</button>
-                <span class="music-hint">Playable 🎛 tile in the Library — layout, effects &amp; volumes included, no export needed. Ratings/notes work like any file.</span>
+                <span class="music-hint">Playable 🎛 tile in the Library, with layout, effects &amp; volumes included, no export needed. Ratings/notes work like any file.</span>
               </div>
             </div>
 
@@ -1202,7 +1202,7 @@ function buildMixUi(ctx) {
   async function playAll() {
     syncAllToMaster();
     try { await masterVideo().play(); }
-    catch { showToast('⚠ Browser blocked autoplay — click a tile first'); return; }
+    catch { showToast('⚠ Browser blocked autoplay. Click a tile first'); return; }
     for (let i = 0; i < videos.length; i++) {
       // blank tiles stay paused — syncTrack resumes them when back in range
       if (i !== masterIdx && !tiles[i]?.classList.contains('mix-tile-blank')) {
@@ -1262,11 +1262,11 @@ function buildMixUi(ctx) {
     'alpha0': 'Opacity at the START of the gradient (0 = fully transparent, 100 = fully visible)',
     'alpha1': 'Opacity at the END of the gradient',
     'stop0': 'Where along the direction the fade BEGINS (% across the frame)',
-    'stop1': 'Where along the direction the fade ENDS — between the stops the opacity ramps',
+    'stop1': 'Where along the direction the fade ENDS. Between the stops the opacity ramps',
     'cx': 'Horizontal position of the circle center (% from the left edge)',
     'cy': 'Vertical position of the circle center (% from the top edge)',
     'inner': 'Radius where the center opacity starts fading out (% of frame size)',
-    'outer': 'Radius where the fade finishes (% of frame size) — between inner and outer it ramps',
+    'outer': 'Radius where the fade finishes (% of frame size). Between inner and outer it ramps',
     'alpha_in': 'Opacity INSIDE the circle center (100 = layer fully visible in the middle)',
     'alpha_out': 'Opacity OUTSIDE the circle edge (0 = layer disappears at the edges)',
     'position': 'Where the hard split line sits along the direction (% across the frame)',
@@ -1440,7 +1440,7 @@ function buildMixUi(ctx) {
   document.getElementById('mixBeatbar').addEventListener('click', () => {
     localStorage.setItem('beatbar_enabled', beatbarOn() ? '0' : '1');
     refreshBeatbar();
-    showToast(beatbarOn() ? '🥁 Beat bar ON — riding the master track' : 'Beat bar off');
+    showToast(beatbarOn() ? '🥁 Beat bar ON, riding the master track' : 'Beat bar off');
   });
 
   /* ---- Wire controls ---- */
@@ -1649,7 +1649,7 @@ function buildMixUi(ctx) {
     }
     syncAllToMaster();
     if (btn) { btn.disabled = false; btn.textContent = '⚡ Snap all'; }
-    showToast(`⚡ Snapped ${ok} track${ok === 1 ? '' : 's'} to the master${fail ? ` — ${fail} had no audio match` : ''}`);
+    showToast(`⚡ Snapped ${ok} track${ok === 1 ? '' : 's'} to the master${fail ? `, ${fail} had no audio match` : ''}`);
   }
   document.getElementById('mixSnapAll').addEventListener('click', snapAll);
 
@@ -1657,7 +1657,7 @@ function buildMixUi(ctx) {
   document.querySelectorAll('.mix-autoalign').forEach(b => {
     b.addEventListener('click', async () => {
       const idx = Number(b.dataset.idx);
-      if (idx === masterIdx) { showToast('This is the master — align the other tracks to it'); return; }
+      if (idx === masterIdx) { showToast('This is the master. Align the other tracks to it'); return; }
       b.disabled = true;
       const data = await snapTrack(idx);
       if (data) {
@@ -1681,7 +1681,7 @@ function buildMixUi(ctx) {
   document.querySelectorAll('.mix-remove-btn').forEach(b =>
     b.addEventListener('click', () => removeTrack(Number(b.dataset.idx))));
   function removeTrack(idx) {
-    if (tracks.length <= 2) { showToast('A mix needs at least 2 videos — close the mix instead'); return; }
+    if (tracks.length <= 2) { showToast('A mix needs at least 2 videos. Close the mix instead'); return; }
     const T = masterSongTime();
     const wasPlaying = !masterVideo().paused;
     const cfg = currentConfig();
@@ -1810,7 +1810,7 @@ function buildMixUi(ctx) {
       try { ids = JSON.parse(p.media_ids); } catch {}
       return ids.length === mediaIds.length && ids.every((v, i) => Number(v) === Number(mediaIds[i]));
     });
-    presetSel.innerHTML = '<option value="">— load —</option>' +
+    presetSel.innerHTML = '<option value="">load preset</option>' +
       matching.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
   }
   refreshPresetOptions();
@@ -1861,7 +1861,7 @@ function buildMixUi(ctx) {
         if (r.error) { showToast('⚠ ' + r.error); return; }
         libraryMediaId = r.media_id;
         this.textContent = '⟳ Update library mix';
-        showToast(`💾 Saved to Library: ${title} — find the 🎛 tile in the grid`);
+        showToast(`💾 Saved to Library: ${title}. Find the 🎛 tile in the grid`);
       }
       if (typeof loadDatabase === 'function') loadDatabase();
     } catch (e) {
@@ -1891,7 +1891,7 @@ function buildMixUi(ctx) {
     // Beatbar bake is offered only while the bar actually rides this mix
     const bbAttached = !!(window.BeatBar && BeatBar.isAttached());
     const { body, close } = musicModal('📤 Export current mix', `
-      <div class="music-hint">Encodes ${tracks.length} track(s) with the current opacities, effects and volumes (ffmpeg, runs in the background). The finished MP4 is held in memory only — nothing touches disk until you hit ⬇ Download.</div>
+      <div class="music-hint">Encodes ${tracks.length} track(s) with the current opacities, effects and volumes (ffmpeg, runs in the background). The finished MP4 is held in memory only, so nothing touches disk until you hit ⬇ Download.</div>
       <div class="music-form-row">
         <label class="music-time-field">start
           <input type="text" class="music-input music-input-time" id="mex-start" value="0:00">
@@ -1912,7 +1912,7 @@ function buildMixUi(ctx) {
       <div class="music-form-row">
         <label class="music-hint" style="display:flex;align-items:center;gap:.45rem;cursor:pointer;margin:0">
           <input type="checkbox" id="mex-beatbar" checked style="accent-color:var(--accent)">
-          🥁 Bake the beat bar into the video — uses its settings as they are at submit (changes after won't affect this render)
+          🥁 Bake the beat bar into the video. Uses its settings as they are at submit (changes after won't affect this render)
         </label>
       </div>` : ''}
       <div class="music-form-row music-form-actions">
@@ -1935,7 +1935,7 @@ function buildMixUi(ctx) {
       let beatbar = null;
       if (bbAttached && body.querySelector('#mex-beatbar')?.checked) {
         const snap = BeatBar.exportSnapshot();
-        if (!snap) { showToast('⚠ Beat bar has no beats yet — wait for the analysis or untick the bake option'); return; }
+        if (!snap) { showToast('⚠ Beat bar has no beats yet. Wait for the analysis or untick the bake option'); return; }
         goBtn.disabled = true;
         try {
           // Beats live in the ridden video's time base; export t=0 is that
@@ -1999,7 +1999,7 @@ function buildMixUi(ctx) {
         return;
       }
       close();
-      showToast(beatbar ? '📤 Export queued — beat bar baked in' : '📤 Export queued');
+      showToast(beatbar ? '📤 Export queued, beat bar baked in' : '📤 Export queued');
       pollExport(job.id);
     });
   });
@@ -2016,19 +2016,19 @@ function buildMixUi(ctx) {
       if (job.status === 'done') {
         // Finished MP4s live in memory only — Download is the save action
         box.innerHTML = job.available === false
-          ? `<div class="editor-export-fail">✓ ${escapeHtml(job.filename)} — expired (exports stay in memory until downloaded; render again)
+          ? `<div class="editor-export-fail">✓ ${escapeHtml(job.filename)} expired (exports stay in memory until downloaded; render again)
             <button class="music-btn" onclick="this.closest('#mixExportStatus').style.display='none'">✕</button></div>`
-          : `<div class="editor-export-done">✓ ${escapeHtml(job.filename)} — in memory, not on disk
+          : `<div class="editor-export-done">✓ ${escapeHtml(job.filename)} is in memory, not on disk
             <a class="music-btn" href="/api/music/exports/${job.id}/download" download>⬇ Download</a>
             <button class="music-btn" onclick="this.closest('#mixExportStatus').style.display='none'">✕</button></div>`;
         stopExportPoll();
-        showToast(`✓ Export ready: ${job.filename} — hit ⬇ to save it`);
+        showToast(`✓ Export ready: ${job.filename}. Hit ⬇ to save it`);
       } else if (job.status === 'failed') {
         box.innerHTML = `<div class="editor-export-fail">⚠ Export failed: ${escapeHtml((job.error || '').slice(0, 200))}
           <button class="music-btn" onclick="this.closest('#mixExportStatus').style.display='none'">✕</button></div>`;
         stopExportPoll();
       } else {
-        box.innerHTML = `<div class="editor-export-run">Encoding ${escapeHtml(job.filename)} — ${pct}%
+        box.innerHTML = `<div class="editor-export-run">Encoding ${escapeHtml(job.filename)}: ${pct}%
           <div class="music-progress editor-queue-progress"><div class="music-progress-fill" style="width:${pct}%"></div></div></div>`;
       }
     };
@@ -2087,7 +2087,7 @@ function buildMixUi(ctx) {
 
   // No hard track cap anymore — but many concurrent decodes are drive-bound
   if (tracks.length > 4) {
-    showToast(`⚠ ${tracks.length} videos decode at once — smooth playback depends on drive read speed`);
+    showToast(`⚠ ${tracks.length} videos decode at once. Smooth playback depends on drive read speed`);
   }
 
   // Mixer sidebar: remembered open/closed (open on first use — discoverable)

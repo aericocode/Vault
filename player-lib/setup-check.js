@@ -39,10 +39,10 @@
           <div class="setup-banner-desc">Needed for ${escapeHtml(t.needed)}.</div>
           <div class="setup-banner-cmd">
             ${t.downloadable ? `<button class="setup-banner-btn setup-banner-primary" data-dl="${key}"
-              title="Fetches it and puts it next to Vault — nothing else is installed">⬇ Download for me (~${t.sizeMB} MB)</button>
+              title="Fetches it and puts it next to Vault. Nothing else is installed">⬇ Download for me (~${t.sizeMB} MB)</button>
             <span class="setup-banner-desc" data-dl-status="${key}"></span>` : ''}
           </div>
-          <div class="setup-banner-desc">Or install it yourself — ${manual}</div>
+          <div class="setup-banner-desc">Or install it yourself: ${manual}</div>
         </div>
       </div>`;
   }
@@ -100,7 +100,7 @@
           row.classList.add('setup-banner-ok');
           row.querySelector('.setup-banner-ic').textContent = '✓';
           row.querySelector('.setup-banner-text').innerHTML =
-            `<div class="setup-banner-title">Installed next to Vault — ready, no restart needed.</div>`;
+            `<div class="setup-banner-title">Installed next to Vault. Ready, no restart needed.</div>`;
           showToast?.('✓ ' + key + ' ready');
           setTimeout(() => {
             row.remove();
@@ -109,7 +109,7 @@
           }, 6000);
         } else if (s.state === 'error') {
           clearInterval(poll);
-          status.textContent = `⚠ ${s.error || 'download failed'} — try the manual install below`;
+          status.textContent = `⚠ ${s.error || 'download failed'}. Try the manual install below`;
           btn.disabled = false;
         }
       }, 700);

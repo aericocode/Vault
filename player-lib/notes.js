@@ -628,7 +628,7 @@ function commitNoteEdit(el) {
   const text = ta.value.trim();
   const notes = getNotes(filepath);
   if (index < 0 || index >= notes.length) return;
-  if (!text) { showToast('Note is empty — use ✕ to delete it'); return; }
+  if (!text) { showToast('Note is empty. Use ✕ to delete it'); return; }
   if (text === notes[index].text) { cancelNoteEdit(el); return; }
 
   notes[index] = { ...notes[index], text, edited: _noteStamp() };

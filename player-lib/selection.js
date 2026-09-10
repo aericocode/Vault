@@ -187,7 +187,7 @@ function renderSelectionBar() {
   const musicReady = typeof fingerprintSelected === 'function';
   const many = vidCount > 4 ? ' (playback smoothness depends on drive speed)' : '';
   const musicBtns = !musicReady ? '' : `
-    ${avCount > 0 ? `<button class="sel-btn sel-music" onclick="fingerprintSelected()" title="Fingerprint audio — one-time per file; auto-matches songs across the library">🎵 Music ID (${avCount})</button>` : ''}
+    ${avCount > 0 ? `<button class="sel-btn sel-music" onclick="fingerprintSelected()" title="Fingerprint audio, one-time per file. Auto-matches songs across the library">🎵 Music ID (${avCount})</button>` : ''}
     ${vidCount >= 2 ? `
       <button class="sel-btn sel-mix" onclick="openEditorWithSelection('stack')"
         title="Open in the Editor, layered in sync${many}">▤ Stack ${vidCount}</button>
@@ -204,7 +204,7 @@ function renderSelectionBar() {
   const flagBtn = `<button class="sel-btn${allFlagged ? ' sel-flagged' : ''}" onclick="bulkFlag(${allFlagged ? 0 : 1})"
     title="${allFlagged
       ? 'Clear the delete flag on all selected'
-      : `Flag for deletion${flaggedCount ? ` — ${flaggedCount} of ${items.length} already flagged` : ''}`}"
+      : `Flag for deletion${flaggedCount ? ` (${flaggedCount} of ${items.length} already flagged)` : ''}`}"
     >${allFlagged ? '🏳 Unflag' : '🚩 Flag'}</button>`;
 
   // Files whose AI scan never landed: a real error, or a stub that was never
@@ -214,7 +214,7 @@ function renderSelectionBar() {
   const unscanned = items.filter(m => m.processing_error === 'unscanned').length;
   const retryable = errored + unscanned;
   const retryBtn = retryable === 0 ? '' : `<button class="sel-btn sel-retry" onclick="retryErrorsSelected()"
-    title="Queue ${retryable} file(s) for another AI scan${errored ? ` — ${errored} errored` : ''}${unscanned ? `${errored ? ',' : ' —'} ${unscanned} never scanned` : ''}"
+    title="Queue ${retryable} file(s) for another AI scan${errored ? `: ${errored} errored` : ''}${unscanned ? `${errored ? ',' : ':'} ${unscanned} never scanned` : ''}"
     >↻ Retry errors (${retryable})</button>`;
 
   bar.innerHTML = `
@@ -227,7 +227,7 @@ function renderSelectionBar() {
     <button class="sel-btn" onclick="addSelectionToCollection(this)" title="Add selection to a collection">📁 Collect</button>
     <!-- irreversible, and Select all can point it at the whole library — the
          count stays so the blast radius is visible before the confirm dialog -->
-    <button class="sel-btn sel-remove" onclick="removeSelectedRecords()" title="Forget these files — the records leave the library, the files on disk are NOT touched">✂ Forget (${selectedIds.size})</button>
+    <button class="sel-btn sel-remove" onclick="removeSelectedRecords()" title="Forget these files. The records leave the library, the files on disk are NOT touched">✂ Forget (${selectedIds.size})</button>
     <button class="sel-btn sel-clear" onclick="clearSelection()" title="Clear selection">✕</button>
   `;
   bar.classList.add('visible');
@@ -259,7 +259,7 @@ async function retryErrorsSelected() {
     if (r.alreadyQueued) notes.push(`${r.alreadyQueued} already queued`);
     if (r.missing) notes.push(`${r.missing} missing from disk`);
     if (!r.queued) {
-      showToast(notes.length ? `Nothing new to queue — ${notes.join(', ')}` : 'Nothing to retry');
+      showToast(notes.length ? `Nothing new to queue: ${notes.join(', ')}` : 'Nothing to retry');
       return;
     }
     showToast(`↻ Queued ${r.queued} file(s) for another scan${notes.length ? ` · ${notes.join(', ')}` : ''}`);
@@ -305,7 +305,7 @@ function updateRescanFilteredButton() {
   btn.textContent = `↻ Rescan these (${ids.length.toLocaleString()})`;
   btn.classList.toggle('force', force);
   btn.title = force
-    ? `Re-run AI analysis on all ${ids.length.toLocaleString()} filtered file(s) — ${done.toLocaleString()} of them already scanned successfully. Your notes, stars, ratings and flags are kept.`
+    ? `Re-run AI analysis on all ${ids.length.toLocaleString()} filtered file(s). ${done.toLocaleString()} of them already scanned successfully. Your notes, stars, ratings and flags are kept.`
     : `Queue ${ids.length.toLocaleString()} file(s) whose scan failed or never ran`;
 }
 
@@ -318,7 +318,7 @@ async function rescanFiltered() {
   if (force && !confirm(
     `Re-run AI analysis on ${ids.length.toLocaleString()} file(s)?\n\n` +
     `${done.toLocaleString()} of them already scanned successfully and will be tagged again ` +
-    `from scratch — this can take a long time.\n\n` +
+    `from scratch, which can take a long time.\n\n` +
     `Your notes, stars, ratings and flags are NOT affected.`)) return;
 
   try {
@@ -332,7 +332,7 @@ async function rescanFiltered() {
     if (r.alreadyQueued) notes.push(`${r.alreadyQueued} already queued`);
     if (r.missing) notes.push(`${r.missing} missing from disk`);
     if (!r.queued) {
-      showToast(notes.length ? `Nothing new to queue — ${notes.join(', ')}` : 'Nothing to rescan');
+      showToast(notes.length ? `Nothing new to queue: ${notes.join(', ')}` : 'Nothing to rescan');
       return;
     }
     showToast(`↻ Queued ${r.queued} file(s) for scanning${notes.length ? ` · ${notes.join(', ')}` : ''}`);
@@ -714,7 +714,7 @@ async function clearTrash() {
   const size = typeof formatFileSize === 'function' ? formatFileSize(bytes) : `${Math.round(bytes / 1e6)} MB`;
   if (!confirm(`⚠ PERMANENTLY delete ${trashed.length} file(s) in the trash (${size})?\n\n` +
     `This erases the files from disk AND every record, note, rating, subtitle and view-history trace. It CANNOT be undone.`)) return;
-  if (!confirm(`Last chance — really delete ${trashed.length} file(s) forever?`)) return;
+  if (!confirm(`Last chance. Really delete ${trashed.length} file(s) forever?`)) return;
 
   const btn = document.getElementById('clearTrashBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Emptying…'; }
@@ -905,7 +905,7 @@ document.addEventListener('error', (e) => {
     // for one dead file reads as two separate problems, so only the flag is
     // set here and the message is left to the handler that acted on it.
     if (!document.body.classList.contains('privacy-mode')) {
-      showToast('⚠ File failed to play — marked as unplayable');
+      showToast('⚠ File failed to play, marked as unplayable');
     }
   }
 }, true);
@@ -930,7 +930,7 @@ function _clearPlaybackFailed(e) {
   if (!media || !media.playback_failed) return;
   media.playback_failed = 0;
   postFlags(media, { playback_failed: 0 });
-  showToast('✓ Plays fine now — unplayable flag cleared');
+  showToast('✓ Plays fine now, unplayable flag cleared');
   // Repaint so the ⚠ badge and the red tile border go without a manual refresh.
   if (typeof refreshInfoSurfaces === 'function') refreshInfoSurfaces(media);
   else if (typeof renderResults === 'function') renderResults();

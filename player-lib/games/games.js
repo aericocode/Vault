@@ -214,7 +214,7 @@ async function gamesLaunch(key, mediaId, { savedState = null, saveId = null } = 
   }
   // A brand-new game (no saveId) needs room under the per-game cap
   if (!saveId && gamesSavesFor(key).length >= GAMES_MAX_SAVES) {
-    showToast(`Max ${GAMES_MAX_SAVES} saved ${def.label} games — delete one first`);
+    showToast(`Max ${GAMES_MAX_SAVES} saved ${def.label} games. Delete one first`);
     return;
   }
 
@@ -228,7 +228,7 @@ async function gamesLaunch(key, mediaId, { savedState = null, saveId = null } = 
       <div class="games-topbar">
         <button class="games-btn" id="gamesBackBtn" title="Back to games">⬅ Library</button>
         <span class="games-topbar-title">${def.icon} ${escapeHtml(def.label)}
-          <span class="games-topbar-media" title="${escapeHtml(media.filename)}">— ${escapeHtml(media.filename)}</span></span>
+          <span class="games-topbar-media" title="${escapeHtml(media.filename)}">· ${escapeHtml(media.filename)}</span></span>
         <button class="games-btn" id="gamesChangeBtn" title="Pick a different video (stays in the Games tab)">🔀 Change video</button>
       </div>
       <div class="game-root" id="gameRoot"></div>
@@ -293,7 +293,7 @@ function renderGameRow(def) {
           ${atMax ? 'disabled title="Delete a saved game to start a new one"' : ''}>＋ New game</button>
       </div>
       <div class="games-saves-grid">
-        ${cards || '<div class="games-hint games-saves-empty">No saved games yet — start one with “＋ New game”.</div>'}
+        ${cards || '<div class="games-hint games-saves-empty">No saved games yet. Start one with “＋ New game”.</div>'}
       </div>
     </div>`;
 }
@@ -405,7 +405,7 @@ function renderGamePicker(key) {
     <div class="games-view games-home">
       <div class="games-picker-head">
         <button class="games-btn" onclick="renderGamesHome()">⬅ Games</button>
-        <h2 class="games-home-title">${def.icon} ${escapeHtml(def.label)} — pick a video</h2>
+        <h2 class="games-home-title">${def.icon} ${escapeHtml(def.label)}: pick a video</h2>
         <input type="text" class="games-search" id="gamesPickerSearch" placeholder="Search (AND/OR/NOT)" autocomplete="off">
         ${typeof pickerSearchOptionsHtml === 'function' ? pickerSearchOptionsHtml('gamesPick', _pickerState) : ''}
       </div>

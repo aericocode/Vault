@@ -256,7 +256,7 @@ function collectionCardHtml(c, showPath) {
     : '<div class="coll-mosaic-empty"></div>').join('');
   const prefix = showPath ? _pathPrefix(c) : '';
   return `
-    <div class="media-tile collection-tile" data-coll-id="${c.id}" data-drag-id="${c.id}" data-drag-kind="collection" draggable="true" onclick="openCollection(${c.id})" title="${escapeHtml(c.name)}${c.description ? ' — ' + escapeHtml(c.description) : ''}">
+    <div class="media-tile collection-tile" data-coll-id="${c.id}" data-drag-id="${c.id}" data-drag-kind="collection" draggable="true" onclick="openCollection(${c.id})" title="${escapeHtml(c.name)}${c.description ? ': ' + escapeHtml(c.description) : ''}">
       <div class="tile-thumb coll-mosaic">${cells}</div>
       <div class="tile-name">${prefix}${escapeHtml(c.name)}</div>
       <div class="tile-meta"><span class="coll-count">${c.item_count} item${c.item_count === 1 ? '' : 's'}</span></div>
@@ -367,7 +367,7 @@ async function cardDelete(id, btn) {
   const c = getCollectionById(id);
   if (!btn.dataset.armed) {
     btn.dataset.armed = '1';
-    btn.textContent = c && c.kind === 'folder' ? 'Delete folder — contents move up?' : 'Really delete?';
+    btn.textContent = c && c.kind === 'folder' ? 'Delete folder? Contents move up.' : 'Really delete?';
     btn.classList.add('armed');
     return;
   }
@@ -377,7 +377,7 @@ async function cardDelete(id, btn) {
   if (activeCollectionId === id) activeCollectionId = null;
   renderResults();
   renderCollectionsTabBar();
-  showToast(c && c.kind === 'folder' ? 'Folder deleted — contents moved up a level' : 'Collection deleted — files and records untouched');
+  showToast(c && c.kind === 'folder' ? 'Folder deleted, contents moved up a level' : 'Collection deleted, files and records untouched');
 }
 
 /* ── Open / close a collection or folder ───────────────────────────────── */
@@ -497,7 +497,7 @@ async function deleteCollectionTwoStep(id, btn) {
   const c = getCollectionById(id);
   if (!btn.dataset.armed) {
     btn.dataset.armed = '1';
-    btn.textContent = c && c.kind === 'folder' ? 'Delete folder — contents move up?' : 'Really delete?';
+    btn.textContent = c && c.kind === 'folder' ? 'Delete folder? Contents move up.' : 'Really delete?';
     btn.classList.add('armed');
     setTimeout(() => {
       if (btn.isConnected) {
@@ -516,8 +516,8 @@ async function deleteCollectionTwoStep(id, btn) {
   renderCollectionsTabBar();
   applyFilters();
   showToast(c && c.kind === 'folder'
-    ? 'Folder deleted — contents moved up a level'
-    : '📁 Collection deleted — files and records untouched');
+    ? 'Folder deleted, contents moved up a level'
+    : '📁 Collection deleted, files and records untouched');
 }
 
 /* ── Playback ──────────────────────────────────────────────────────────── */

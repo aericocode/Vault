@@ -572,10 +572,10 @@
               min="${TL.Config.ui.minTileWidth}" max="${TL.Config.ui.maxTileWidth}" step="${TL.Config.ui.tileStep}">
           </div>
           <div class="top-stats">
-            <div class="hud-stat"><span class="hud-label">Clip Length</span><span class="hud-value" id="hud-clip-dur">—</span></div>
+            <div class="hud-stat"><span class="hud-label">Clip Length</span><span class="hud-value" id="hud-clip-dur">–</span></div>
             <div class="hud-stat"><span class="hud-label">Placed</span><span class="hud-value" id="hud-placed">0 / 0</span></div>
             <div class="hud-stat"><span class="hud-label">Time</span><span class="hud-value" id="hud-timer">0:00.0</span></div>
-            <div class="hud-stat"><span class="hud-label">Best</span><span class="hud-value" id="hud-best">—</span></div>
+            <div class="hud-stat"><span class="hud-label">Best</span><span class="hud-value" id="hud-best">–</span></div>
           </div>
           <div class="top-buttons">
             <button class="new-game-btn" id="btn-new-game">New Game</button>
@@ -746,7 +746,7 @@
         const best = TL.HighScores.get(key);
         return `
           <button class="ro-diff-btn ${tooShort ? 'disabled' : ''}" data-key="${key}" ${tooShort ? 'disabled' : ''}
-            title="${tooShort ? `Video too short — needs ${TL.ScoreKeeper.formatMMSS(minDuration)}+` : ''}">
+            title="${tooShort ? `Video too short, needs ${TL.ScoreKeeper.formatMMSS(minDuration)}+` : ''}">
             <strong>${val.label}</strong>
             <small>${Math.round(val.coveragePercent * 100)}% coverage</small>
             <small class="ro-diff-best">${best > 0 ? 'Best: ' + best.toLocaleString() : ''}</small>
@@ -755,7 +755,7 @@
       this._root.innerHTML = `
         <div class="ro-setup">
           <h2 class="ro-setup-title">🎬 ${esc(this._media?.filename || 'Video')}</h2>
-          <p class="ro-setup-sub">Pick a difficulty — more coverage = easier.</p>
+          <p class="ro-setup-sub">Pick a difficulty. More coverage = easier.</p>
           <div class="ro-diff-grid">${cards}</div>
         </div>`;
       this._root.querySelectorAll('.ro-diff-btn:not(.disabled)').forEach(btn => {
@@ -853,7 +853,7 @@
         hudClipDur.textContent = (totalClipTime / this._segments.length).toFixed(1) + 's';
       }
       const hudBest = document.getElementById('hud-best');
-      if (hudBest) { const best = TL.HighScores.get(this._difficulty); hudBest.textContent = best > 0 ? best.toLocaleString() : '—'; }
+      if (hudBest) { const best = TL.HighScores.get(this._difficulty); hudBest.textContent = best > 0 ? best.toLocaleString() : '–'; }
 
       this._scorer = new TL.ScoreKeeper(this._timer);
       this._scorer.start((elapsed) => {
@@ -1150,7 +1150,7 @@
   window.gamesRegister('reelorder', {
     label: 'Reel Order',
     icon: '🎬',
-    desc: 'Split a video into clips — drag them into the correct timeline order.',
+    desc: 'Split a video into clips, then drag them into the correct timeline order.',
     acceptTypes: ['video'],
     factory: () => new ReelOrderGame(),
   });
