@@ -217,7 +217,7 @@ as a fallback, so an existing `.env` keeps working.
 | `Node.js is required but was not found` | Install Node LTS from nodejs.org, reopen the terminal (§6, source checkout only) |
 | `No LM Studio endpoints available` / scan errors instantly | Start LM Studio's server (or Ollama) and check `LM_STUDIO_URLS`; for Ollama also set `AI_MODEL` |
 | Scans produce empty/garbage metadata | The loaded model isn't a **vision** model (load one from §3), or its **context length is at the ~4k default**: reload it at ~64k (§2, step 3) |
-| `database is encrypted — password required` at boot | The Vault is locked: open the viewer and click the padlock, or set `VAULT_DB_PASSWORD` |
+| `database is encrypted: password required` at boot | The Vault is locked: open the viewer and click the padlock, or set `VAULT_DB_PASSWORD` |
 | Thumbnails/duration missing on imports | ffmpeg missing: use the ⬇ banner in the viewer, or install to PATH |
 | Music ID says tools missing | fpcalc missing, same ⬇ banner |
 | Subtitles fail to generate | Press ▶ Generate. Vault says exactly what's missing. Usually `pip install faster-whisper`; if you used a venv, set `PYTHON_PATH` to its interpreter |
