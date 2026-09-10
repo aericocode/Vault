@@ -25,10 +25,14 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
     </div>
   `;
   
-  // Right controls: Fill (speed moved to the playback row; keeps the center
-  // Prev/Random/Info/Next in the same spot as video/image)
+  // Right controls: Fill and Fullscreen (speed moved to the playback row; keeps
+  // the center Prev/Random/Info/Next in the same spot as video/image).
+  // Fullscreen earns its place here even without a picture: a queue that runs
+  // from a video into a track stays fullscreen, and without the button the only
+  // way back out was the keyboard.
   const rightControls = `
     ${renderFillButton()}
+    <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)">⛶</button>
   `;
 
   const speedControls = renderSpeedControls();
