@@ -56,7 +56,7 @@ async function run(args) {
     console.log(`Songs: ${r.songs_added} added, ${r.songs_existing} already known.`);
     console.log(`Fingerprints: ${r.fps_added} added, ${r.fps_skipped} duplicates skipped` +
       (r.fps_invalid ? `, ${r.fps_invalid} invalid` : '') + '.');
-    if (!r.new_ref_ids.length) { console.log('Nothing new — no rescan needed.'); return; }
+    if (!r.new_ref_ids.length) { console.log('Nothing new. No rescan needed.'); return; }
 
     // CLI rescans inline (the viewer does this in the background)
     const rows = db.get().prepare('SELECT DISTINCT media_id FROM media_fingerprints').all();

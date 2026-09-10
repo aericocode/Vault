@@ -34,7 +34,7 @@ Usage: node vault.js <command> [options]
 Run with NO command for the interactive wizard (menus instead of flags).
 
 Commands:
-  wizard              Interactive mode — pick options with arrow keys
+  wizard              Interactive mode: pick options with arrow keys
   scan <directory> [options]
       Scan and analyze media files (parallel processing)
       
@@ -63,7 +63,7 @@ Commands:
         --force             Re-hash every file
 
   migrate <old> <new> [--dry-run]
-      Repoint the library at moved files — no rescan. Rewrites every live
+      Repoint the library at moved files, no rescan. Rewrites every live
       record under <old> to sit under <new> (only where the file is really
       there), absorbing any 'unscanned' stub already at the destination.
 
@@ -81,7 +81,7 @@ Commands:
 
       Options:
         --gamify            Opt in to the local gamification tracker
-                            (Obsession Score, quests, streaks — all data
+                            (Obsession Score, quests, streaks. All data
                             stays in the local DB, nothing leaves your machine)
         --no-gamify         Opt back out (also deletes gamify-config.json)
 

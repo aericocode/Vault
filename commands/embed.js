@@ -28,7 +28,7 @@ async function run(args) {
     : handle.prepare('SELECT * FROM media WHERE embedding IS NULL AND processing_error IS NULL').all();
 
   if (rows.length === 0) {
-    console.log('Nothing to embed — all rows are up to date.');
+    console.log('Nothing to embed. All rows are up to date.');
     db.close();
     return;
   }
@@ -44,7 +44,7 @@ async function run(args) {
       saved += await embeddings.embedRows(batch);
     } catch (err) {
       failed += batch.length;
-      console.warn(`  batch failed (${err.message}) — continuing`);
+      console.warn(`  batch failed (${err.message}), continuing`);
     }
     done += batch.length;
 

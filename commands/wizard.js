@@ -125,7 +125,7 @@ async function askDirectory(settings) {
     if (dir && fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
       return dir;
     }
-    console.log(`  ✗ Not a directory: ${dir || '(empty)'} — try again`);
+    console.log(`  ✗ Not a directory: ${dir || '(empty)'}. Try again`);
   }
 }
 
@@ -202,7 +202,7 @@ async function scanWizard(settings) {
     type: 'confirm',
     name: 'go',
     message: full.mode === 'reprocess'
-      ? '⚠ Reprocess re-analyzes every file — start scan?'
+      ? '⚠ Reprocess re-analyzes every file. Start scan?'
       : 'Start scan?',
     initial: true,
   }, { onCancel });
@@ -224,7 +224,7 @@ async function scanWizard(settings) {
 
 async function run(args) {
   console.log('');
-  console.log('  🔎 Vault — interactive mode');
+  console.log('  🔎 Vault: interactive mode');
   console.log('     (power users: run `node vault.js --help` for flags)');
 
   const settings = loadSettings();
@@ -267,7 +267,7 @@ async function run(args) {
     console.log('\n' + '─'.repeat(52));
   }
 
-  console.log('\n  Done — bye.\n');
+  console.log('\n  Done. Bye.\n');
 }
 
 module.exports = { run, buildScanArgs, formatCommand };
