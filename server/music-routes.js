@@ -345,7 +345,7 @@ function buildRouter() {
     const a = parseId(req.query.a), b = parseId(req.query.b);
     if (!a || !b || a === b) return res.status(400).json({ error: 'need distinct a & b media ids' });
     const r = service.fineAlignPair(a, b);
-    if (!r) return res.status(404).json({ error: 'no shared audio found — fingerprint both files first' });
+    if (!r) return res.status(404).json({ error: 'no shared audio found. Fingerprint both files first' });
     res.json(r);
   });
 
@@ -531,7 +531,7 @@ function buildRouter() {
     if (e.output_path && fs.existsSync(e.output_path)) {
       return res.download(e.output_path, e.filename);
     }
-    res.status(404).json({ error: 'expired — exports are held in memory until downloaded; render it again' });
+    res.status(404).json({ error: 'expired. Exports are held in memory until downloaded, render it again' });
   });
 
   return router;
