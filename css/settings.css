@@ -490,6 +490,52 @@
   color: var(--text-primary);
 }
 
+/* Model name and its copy button. The name is the whole string you paste into
+   LM Studio, so it wraps rather than being cut off, and the button keeps its
+   width when the label changes to "Copied" so the column does not jump. */
+.settings-model {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.settings-model-name {
+  word-break: break-all;
+}
+
+.settings-copy-btn {
+  flex: 0 0 auto;
+  min-width: 3.8rem;
+  padding: 0.15rem 0.45rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.settings-copy-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.settings-copy-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settings-quant-na {
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-copy-btn { transition: none; }
+}
+
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 
 .settings-btn {

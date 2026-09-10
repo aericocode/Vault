@@ -95,12 +95,14 @@ you'll pick your own model next.
 1. Open **Model Search** in LM Studio's left sidebar.
 2. Search for a model from that fits your VRAM:
 
-| VRAM | Model |
-|---|---|
-| 6–8 GB | minicpm-v-4.6-abliterated-max  |
-| 10–12 GB | qwen3.5-4b-uncensored-hauhaucs-aggressive@q4_k_m |
-| 16 GB | qwen3.5-9b-uncensored-hauhaucs-aggressive@q8_0 |
-| 24 GB+ | qwen3.5-9b-uncensored-hauhaucs-aggressive@q4_k_m |
+| VRAM | Model | Quant |
+|---|---|---|
+| 6–8 GB | `minicpm-v-4.6-abliterated-max` | NA |
+| 10–12 GB | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q4_k_m` |
+| 16 GB | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q8_0` |
+| 24 GB+ | `qwen3.5-9b-uncensored-hauhaucs-aggressive` | `q4_k_m` |
+
+Paste the model name into the search box, then pick the quant from the list on the right when you download it.
 
 4. Pick the appropriate model when offered then hit **Download** and wait for the download to finish.
    
@@ -164,12 +166,12 @@ LM_STUDIO_URLS=http://localhost:1234/v1/chat/completions,http://localhost:1235/v
 
 Vision model = scan quality. Quantized (Q4) versions are the sweet spot.
 
-| VRAM | Vision model (scanning) | Whisper (subtitles) | Notes |
-|---|---|---|---|
-| **6–8 GB** | minicpm-v-4.6-abliterated-max | `WHISPER_MODEL=small` | Lower `VISION_WORKERS=1`; scans are slower but fine |
-| **10–12 GB** | qwen3.5-4b-uncensored-hauhaucs-aggressive@q4_k_m | `large-v3-turbo` @ `int8_float16` (default) | The defaults target this class |
-| **16 GB** | qwen3.5-9b-uncensored-hauhaucs-aggressive@q8_0 + 2-4 workers | default | Room for `PIPELINE_DEPTH=3` |
-| **24 GB+** | qwen3.5-9b-uncensored-hauhaucs-aggressive@q4_k_m + 2-4 workers | default | Multi-worker scanning shines: `VISION_WORKERS=2` |
+| VRAM | Vision model (scanning) | Quant | Whisper (subtitles) | Notes |
+|---|---|---|---|---|
+| **6–8 GB** | `minicpm-v-4.6-abliterated-max` | NA | `WHISPER_MODEL=small` | Lower `VISION_WORKERS=1`. Scans are slower but fine. |
+| **10–12 GB** | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q4_k_m` | `large-v3-turbo` at `int8_float16` (default) | The defaults target this class. |
+| **16 GB** | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q8_0` | default | Room for 2 to 4 workers. |
+| **24 GB+** | `qwen3.5-9b-uncensored-hauhaucs-aggressive` | `q4_k_m` | default | Room for 2 to 4 workers. |
 
 - **Embeddings** (semantic search) are tiny: `nomic-embed-text` (~0.5 GB) runs anywhere.
 - **Whisper** sizes: `small` ≈ 1 GB, `large-v3-turbo` int8 ≈ 1.5 GB VRAM; it
