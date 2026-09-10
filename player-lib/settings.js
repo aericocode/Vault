@@ -435,6 +435,7 @@
       // or the vault was locked when we last asked.
       loadServerSettings().then(ok => { if (ok) syncServerRows(); });
     }
+    if (id === 'models') wireModelsSection();
     if (id === 'library') wireLibrarySection();
     if (id === 'seedpacks') wireSeedpacksSection();
     if (id === 'about') loadAbout();
@@ -807,7 +808,34 @@
     `;
   }
 
-  /* ── Section: Models ─────────────────────────────────────────────────────── */
+  /* ── Section: Models ─────────────────────────────────────────────────────
+     The quant is its own column so the model name on its own is what you
+     paste into LM Studio's search box; the copy button hands you exactly
+     that string. Keep this table in step with the one in SETUP.md. */
+
+  const MODEL_TIERS = [
+    { vram: '6–8 GB',   model: 'minicpm-v-4.6-abliterated-max',
+      quant: 'NA',     whisper: '<code>WHISPER_MODEL=small</code>',
+      notes: 'Lower <code>VISION_WORKERS=1</code>. Scans are slower but fine.' },
+    { vram: '10–12 GB', model: 'qwen3.5-4b-uncensored-hauhaucs-aggressive',
+      quant: 'q4_k_m', whisper: '<code>large-v3-turbo</code> at <code>int8_float16</code> (default)',
+      notes: 'The defaults target this class.' },
+    { vram: '16 GB',    model: 'qwen3.5-4b-uncensored-hauhaucs-aggressive',
+      quant: 'q8_0',   whisper: 'default',
+      notes: 'Room for 2 to 4 workers.' },
+    { vram: '24 GB+',   model: 'qwen3.5-9b-uncensored-hauhaucs-aggressive',
+      quant: 'q4_k_m', whisper: 'default',
+      notes: 'Room for 2 to 4 workers.' },
+  ];
+
+  /** Model name plus a button that copies just the name. */
+  function modelNameCell(model) {
+    return `<span class="settings-model">
+        <code class="settings-model-name">${esc(model)}</code>
+        <button type="button" class="settings-copy-btn" data-copy-model="${esc(model)}"
+                title="Copy the model name">Copy</button>
+      </span>`;
+  }
 
   function RENDERERS_models() {
     return `
@@ -816,19 +844,48 @@
       <div class="settings-table-wrap">
         <table class="settings-table">
           <thead>
-            <tr><th>VRAM</th><th>Vision model (scanning)</th><th>Whisper (subtitles)</th></tr>
+            <tr><th>VRAM</th><th>Vision model (scanning)</th><th>Quant</th><th>Whisper (subtitles)</th><th>Notes</th></tr>
           </thead>
           <tbody>
-            <tr><td>6–8 GB</td><td>minicpm-v-4.6-abliterated-max</td><td><code>WHISPER_MODEL=small</code></td></tr>
-            <tr><td>10–12 GB</td><td>qwen3.5-4b-uncensored-hauhaucs-aggressive@q4_k_m</td><td><code>WHISPER_MODEL=small</code></td></tr>
-            <tr><td>16 GB</td><td>qwen3.5-9b-uncensored-hauhaucs-aggressive@q8_0 + 2-4 workers</td><td>default</td></tr>
-            <tr><td>24 GB+</td><td>qwen3.5-9b-uncensored-hauhaucs-aggressive@q4_k_m + 2-4 workers</td><td>default</td></tr>
+            ${MODEL_TIERS.map(t => `
+            <tr>
+              <td>${t.vram}</td>
+              <td>${modelNameCell(t.model)}</td>
+              <td>${t.quant === 'NA' ? '<span class="settings-quant-na">NA</span>' : `<code>${t.quant}</code>`}</td>
+              <td>${t.whisper}</td>
+              <td>${t.notes}</td>
+            </tr>`).join('')}
           </tbody>
         </table>
       </div>
       <p class="settings-note">Semantic search embeddings are tiny - <code>nomic-embed-text</code> (~0.5 GB) runs anywhere.</p>
     `;
   };
+
+  /* Copy buttons in the model table. Same shape as the setup banner's: the
+     label confirms, then goes back. If the clipboard is blocked, select the
+     name instead so Ctrl+C still works. */
+  function wireModelsSection() {
+    const body = document.getElementById('settingsBody');
+    if (!body) return;
+    body.querySelectorAll('[data-copy-model]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(btn.dataset.copyModel);
+          btn.textContent = 'Copied';
+          setTimeout(() => { if (btn.isConnected) btn.textContent = 'Copy'; }, 1500);
+        } catch {
+          const name = btn.parentElement?.querySelector('.settings-model-name');
+          if (!name) return;
+          const range = document.createRange();
+          range.selectNodeContents(name);
+          const sel = getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      });
+    });
+  }
 
   /* ── Section: Library (move / relink) ─────────────────────────────────────
      The viewer's front end for `node vault.js migrate`. A library's file
