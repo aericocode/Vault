@@ -128,13 +128,12 @@
   user-select: none;
 }
 
-/* ── Fill mode ─────────────────────────────────────────────────────────────
+/* ── Fill mode ────────────────────────────────────────────────────────
    Cover-crop media to fill the whole content area — no letterbox bars, no OS
    fullscreen. Tracks the flex content area, so it naturally shrinks when the
-   sidebar opens. Composes with fullscreen (crops in fullscreen too). The
-   video width uses !important so it beats toggleFullscreen's inline width. */
+   sidebar opens. Composes with fullscreen (crops in fullscreen too). */
 .media-player-overlay.fill-mode .media-player-content video {
-  width: 100% !important;
+  width: 100%;
   height: 100%;
   max-width: none;
   max-height: none;
@@ -147,6 +146,23 @@
   max-width: none;
   max-height: none;
   object-fit: cover;
+}
+
+/* ── Fullscreen sizing ─────────────────────────────────────────────────────
+   The overlay is what goes fullscreen, and it outlives every file, so the
+   media has to be sized by a rule that applies to whatever is in the content
+   box right now. It used to be an inline width the fullscreen button wrote
+   onto the video element itself: the next file in the queue arrived without
+   it and drew at its own pixel size, a small picture marooned on a black
+   screen — fullscreen in name only. Same rule as fill: touch one edge, crop
+   nothing. */
+.media-player-overlay:fullscreen .media-player-content > video,
+.media-player-overlay:fullscreen .media-player-content > img {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
 }
 
 /* Audio has no croppable frame — let its visualization use the whole area. */

@@ -1430,10 +1430,11 @@ function closeMediaPlayer(event) {
   const overlay = document.getElementById('mediaPlayerOverlay');
   const content = document.getElementById('mediaPlayerContent');
   
-  // Exit fullscreen if active
+  // Exit fullscreen if active. Nothing to undo on the media element itself —
+  // fullscreen size comes from CSS now, not an inline width (and reaching for
+  // #mediaVideo here threw outright when the file in fullscreen was an image).
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {});
-      document.getElementById('mediaVideo').style.width = 'auto';
   }
   
   // Stop video/audio AND abort its download (pause alone keeps the
@@ -1491,22 +1492,30 @@ function closeMediaPlayer(event) {
   renderResults();
 }
 
+/**
+ * Fullscreen, on the overlay and only ever on the overlay.
+ *
+ * The overlay is the one part of the player that outlives every file, so
+ * fullscreen rides through Next, Prev, auto-advance and a jump between media
+ * types by itself: the browser never sees its fullscreen element leave the
+ * page. Re-entering would need a fresh click, which the queue does not have,
+ * so the rule here is simply never to leave.
+ *
+ * How big the media draws in fullscreen is CSS's job (`:fullscreen` in
+ * player-base.css). It used to be an inline width written onto the video
+ * element, which meant only the file that was on screen when the button was
+ * pressed ever filled the screen.
+ */
 function toggleFullscreen() {
   const overlay = document.getElementById('mediaPlayerOverlay');
-  
-  const video = document.getElementById('mediaVideo');
 
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {});
-      if (video) video.style.width = 'auto';
   } else {
-    if (video) video.style.width = '100%';
-
     overlay.requestFullscreen().catch(() => {
       if (overlay.webkitRequestFullscreen) {
         overlay.webkitRequestFullscreen();
       } else if (overlay.mozRequestFullScreen) {
-        overlay.mozRequestFullScreen();
         overlay.mozRequestFullScreen();
       }
     });
