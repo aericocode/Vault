@@ -1,21 +1,22 @@
-# Vault - Get deeper data.
+# Vault
 
-### You don't remember the filename. You remember what was in it.
+**You don't remember the filename. You remember what was in it.**
 
-Even a well-named file stops at a title — maybe a studio, maybe who's in it. It tells
-you nothing about the acts, the setting, or the scene you're actually trying to find
-again. So finding anything in a big library comes down to guesswork and scrubbing.
+A title tells you a studio, maybe who's in it. It says nothing about the act, the setting, or the scene you are trying to find again, so a big library comes down to guesswork and scrubbing.
 
-Vault runs a small vision model on your own machine that *watches* every file and
-writes down what's really in it — the action, who's on screen, the setting, the mood,
-even on-screen text and logos — so you can search the way you actually remember.
+Vault fixes that on your own machine. A small local vision model watches every video, image and audio file and writes down what is actually there: the action, who is on screen, the setting, the mood, even on-screen text and logos. Then you search the way you remember.
 
-Then it goes further: find every clip sharing a song and play them in sync, auto-cut
-PMVs from your own library, and earn quests and achievements for curating it.
+Around that search is a library built for collectors:
+
+- **A player that plays your files.** MKV, AVI, TS, AC3 audio and more are converted on the fly, with a beat bar, A/B loops, hover previews and Lovense support.
+- **Your library, your rules.** Duplicate detection, a mover for when a drive changes, playlists and collections, and a privacy mode for screen sharing.
+- **Locked when you want it.** One password encrypts the whole library, and it locks itself when you walk away.
+
+For PMV fans there is more: find every clip that shares a song and play them in sync, cut mixes from your own library, and earn quests and achievements for curating it.
 
 100% local. No account, no cloud, no telemetry.
 
-[**⬇ Download for Windows**](../../releases/latest) · [Setup guide](SETUP.md) · [Full Feature List](https://aericocode.github.io/Vault/)
+[**⬇ Download for Windows**](../../releases/latest) · [Setup guide](SETUP.md) · [Full feature list](https://aericocode.github.io/Vault/)
 
 Made with 🌿 by [aericode](https://ko-fi.com/aericode)
 
