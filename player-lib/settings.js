@@ -815,7 +815,7 @@
 
   const MODEL_TIERS = [
     { vram: '6–8 GB',   model: 'minicpm-v-4.6-abliterated-max',
-      quant: 'NA',     whisper: '<code>WHISPER_MODEL=small</code>',
+      quant: 'q8_0',     whisper: '<code>WHISPER_MODEL=small</code>',
       notes: 'Lower <code>VISION_WORKERS=1</code>. Scans are slower but fine.' },
     { vram: '10–12 GB', model: 'qwen3.5-4b-uncensored-hauhaucs-aggressive',
       quant: 'q4_k_m', whisper: '<code>large-v3-turbo</code> at <code>int8_float16</code> (default)',

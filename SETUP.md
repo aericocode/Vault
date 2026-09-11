@@ -97,7 +97,7 @@ you'll pick your own model next.
 
 | VRAM | Model | Quant |
 |---|---|---|
-| 6–8 GB | `minicpm-v-4.6-abliterated-max` | NA |
+| 6–8 GB | `minicpm-v-4.6-abliterated-max` | `q8_0` |
 | 10–12 GB | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q4_k_m` |
 | 16 GB | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q8_0` |
 | 24 GB+ | `qwen3.5-9b-uncensored-hauhaucs-aggressive` | `q4_k_m` |
@@ -168,7 +168,7 @@ Vision model = scan quality. Quantized (Q4) versions are the sweet spot.
 
 | VRAM | Vision model (scanning) | Quant | Whisper (subtitles) | Notes |
 |---|---|---|---|---|
-| **6–8 GB** | `minicpm-v-4.6-abliterated-max` | NA | `WHISPER_MODEL=small` | Lower `VISION_WORKERS=1`. Scans are slower but fine. |
+| **6–8 GB** | `minicpm-v-4.6-abliterated-max` | `q8_0` | `WHISPER_MODEL=small` | Lower `VISION_WORKERS=1`. Scans are slower but fine. |
 | **10–12 GB** | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q4_k_m` | `large-v3-turbo` at `int8_float16` (default) | The defaults target this class. |
 | **16 GB** | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q8_0` | default | Room for 2 to 4 workers. |
 | **24 GB+** | `qwen3.5-9b-uncensored-hauhaucs-aggressive` | `q4_k_m` | default | Room for 2 to 4 workers. |

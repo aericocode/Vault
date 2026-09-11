@@ -507,13 +507,10 @@ Based on estimates:
    ```
 
 2. **Use a faster model:**
-   - `minicpm-v-4.6-abliterated-max` (6–8 GB tier) is faster than the larger 9B variants
-   - A lower quant (`@q4_k_m`) runs faster than `@q8_0`
+   - `minicpm-v-4.6-abliterated-max` (6–8 GB tier) is faster than the larger 4B/9B models
+   - A lower quant (`@q4_k_m`) runs faster than `@q8_0` 
 
-3. **Skip small files or images:**
-   Add to scan logic to skip files < certain size
-
-4. **Run overnight:**
+3. **Run overnight:**
    With resume support, you can stop and continue anytime
 
 ### Weighted Frame Extraction
