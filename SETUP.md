@@ -95,12 +95,14 @@ you'll pick your own model next.
 1. Open **Model Search** in LM Studio's left sidebar.
 2. Search for a model from that fits your VRAM:
 
-| VRAM | Model |
-|---|---|
-| 6–8 GB | minicpm-v-4.6-abliterated-max  |
-| 10–12 GB | qwen3.5-4b-uncensored-hauhaucs-aggressive@q4_k_m |
-| 16 GB | qwen3.5-9b-uncensored-hauhaucs-aggressive@q8_0 |
-| 24 GB+ | qwen3.5-9b-uncensored-hauhaucs-aggressive@q4_k_m |
+| VRAM | Model | Quant |
+|---|---|---|
+| 6–8 GB | `minicpm-v-4.6-abliterated-max` | NA |
+| 10–12 GB | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q4_k_m` |
+| 16 GB | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q8_0` |
+| 24 GB+ | `qwen3.5-9b-uncensored-hauhaucs-aggressive` | `q4_k_m` |
+
+Paste the model name into the search box, then pick the quant from the list on the right when you download it.
 
 4. Pick the appropriate model when offered then hit **Download** and wait for the download to finish.
    
@@ -164,12 +166,12 @@ LM_STUDIO_URLS=http://localhost:1234/v1/chat/completions,http://localhost:1235/v
 
 Vision model = scan quality. Quantized (Q4) versions are the sweet spot.
 
-| VRAM | Vision model (scanning) | Whisper (subtitles) | Notes |
-|---|---|---|---|
-| **6–8 GB** | minicpm-v-4.6-abliterated-max | `WHISPER_MODEL=small` | Lower `VISION_WORKERS=1`; scans are slower but fine |
-| **10–12 GB** | qwen3.5-4b-uncensored-hauhaucs-aggressive@q4_k_m | `large-v3-turbo` @ `int8_float16` (default) | The defaults target this class |
-| **16 GB** | qwen3.5-9b-uncensored-hauhaucs-aggressive@q8_0 + 2-4 workers | default | Room for `PIPELINE_DEPTH=3` |
-| **24 GB+** | qwen3.5-9b-uncensored-hauhaucs-aggressive@q4_k_m + 2-4 workers | default | Multi-worker scanning shines: `VISION_WORKERS=2` |
+| VRAM | Vision model (scanning) | Quant | Whisper (subtitles) | Notes |
+|---|---|---|---|---|
+| **6–8 GB** | `minicpm-v-4.6-abliterated-max` | NA | `WHISPER_MODEL=small` | Lower `VISION_WORKERS=1`. Scans are slower but fine. |
+| **10–12 GB** | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q4_k_m` | `large-v3-turbo` at `int8_float16` (default) | The defaults target this class. |
+| **16 GB** | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q8_0` | default | Room for 2 to 4 workers. |
+| **24 GB+** | `qwen3.5-9b-uncensored-hauhaucs-aggressive` | `q4_k_m` | default | Room for 2 to 4 workers. |
 
 - **Embeddings** (semantic search) are tiny: `nomic-embed-text` (~0.5 GB) runs anywhere.
 - **Whisper** sizes: `small` ≈ 1 GB, `large-v3-turbo` int8 ≈ 1.5 GB VRAM; it
@@ -222,6 +224,32 @@ as a fallback, so an existing `.env` keeps working.
 | Music ID says tools missing | fpcalc missing, same ⬇ banner |
 | Subtitles fail to generate | Press ▶ Generate. Vault says exactly what's missing. Usually `pip install faster-whisper`; if you used a venv, set `PYTHON_PATH` to its interpreter |
 | Diarization/subtitles report that downloads are off | Either pre-install the models (`whisper` / OPUS-MT / `models/diarize` dirs) or set `SUB_ALLOW_DOWNLOADS=1` (and ensure `VAULT_OFFLINE` is unset) |
+| Upgraded from v3.5.0 or earlier and the library looks empty | Your old library is still there under its old name. See "Upgrading from v3.5.0 or earlier" just below |
+
+### Upgrading from v3.5.0 or earlier
+
+Vault was called video-tagger up to v3.5.0 and kept its library in a file named
+`video_metadata.db`. From v3.6.0 that file is called `vault.db`. Nothing is lost
+in an upgrade, but Vault looks for the new name, so an older library looks empty
+until the file is renamed. This applies only if your first Vault version was
+v3.5.0 or earlier.
+
+With Vault closed, in the folder that holds `Vault.exe`:
+
+1. If a `vault.db` is there, it is the empty one Vault just made. Rename it to
+   `vault-empty.db` to get it out of the way. Do not delete it yet.
+2. Rename `video_metadata.db` to `vault.db`.
+3. If files named `video_metadata.db-journal`, `video_metadata.db-wal` or
+   `video_metadata.db-shm` are there too, rename each the same way, so
+   `video_metadata.db-journal` becomes `vault.db-journal` and so on. They belong
+   with the library file and can hold recent changes.
+4. Start Vault. Your files, tags and notes are back.
+
+Everything else keeps its name, so `thumbnails`, `trash` and `secure_assets.db`
+need no changes. Once you are happy, `vault-empty.db` can be deleted.
+
+If you pointed `VIDEO_TAGGER_DB` at a database somewhere else yourself, that
+still works and there is nothing to rename.
 
 The lock screen, for reference: one click on the padlock reveals the password
 box:
