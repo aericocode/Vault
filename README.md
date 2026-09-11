@@ -1,21 +1,22 @@
-# Vault - Get deeper data.
+# Vault
 
-### You don't remember the filename. You remember what was in it.
+**You don't remember the filename. You remember what was in it.**
 
-Even a well-named file stops at a title — maybe a studio, maybe who's in it. It tells
-you nothing about the acts, the setting, or the scene you're actually trying to find
-again. So finding anything in a big library comes down to guesswork and scrubbing.
+A title tells you a studio, maybe who's in it. It says nothing about the act, the setting, or the scene you are trying to find again, so a big library comes down to guesswork and scrubbing.
 
-Vault runs a small vision model on your own machine that *watches* every file and
-writes down what's really in it — the action, who's on screen, the setting, the mood,
-even on-screen text and logos — so you can search the way you actually remember.
+Vault fixes that on your own machine. A small local vision model watches every video, image and audio file and writes down what is actually there: the action, who is on screen, the setting, the mood, even on-screen text and logos. Then you search the way you remember.
 
-Then it goes further: find every clip sharing a song and play them in sync, auto-cut
-PMVs from your own library, and earn quests and achievements for curating it.
+Around that search is a library built for collectors:
+
+- **A player that plays your files.** MKV, AVI, TS, AC3 audio and more are converted on the fly, with a beat bar, A/B loops, hover previews and Lovense support.
+- **Your library, your rules.** Duplicate detection, a mover for when a drive changes, playlists and collections, and a privacy mode for screen sharing.
+- **Locked when you want it.** One password encrypts the whole library, and it locks itself when you walk away.
+
+For PMV fans there is more: find every clip that shares a song and play them in sync, cut mixes from your own library, and earn quests and achievements for curating it.
 
 100% local. No account, no cloud, no telemetry.
 
-[**⬇ Download for Windows**](../../releases/latest) · [Setup guide](SETUP.md) · [Full Feature List](https://aericocode.github.io/Vault/)
+[**⬇ Download for Windows**](../../releases/latest) · [Setup guide](SETUP.md) · [Full feature list](https://aericocode.github.io/Vault/)
 
 Made with 🌿 by [aericode](https://ko-fi.com/aericode)
 
@@ -24,7 +25,7 @@ Made with 🌿 by [aericode](https://ko-fi.com/aericode)
 ## Quick start
 
 1. Download `Vault-v*-win-x64.zip` from [Releases](../../releases/latest).
-2. Unzip it anywhere — it's portable, there is no installer.
+2. Unzip it anywhere. It's portable, there is no installer.
 3. Run `Vault.exe`.
 
 The exe is unsigned, so Windows SmartScreen will warn you the first time:
@@ -32,7 +33,7 @@ The exe is unsigned, so Windows SmartScreen will warn you the first time:
 
 The unzipped folder also contains `SETUP.md` (the full guide) and `LICENSE`.
 
-All app data — database, thumbnails, models, trash — is created next to the exe, so
+All app data (database, thumbnails, models, trash) is created next to the exe, so
 the whole folder can be moved, copied, or backed up wholesale.
 
 ## What you need
@@ -43,10 +44,10 @@ Each of the following features adds one optional dependency:
 
 | Feature | Needs |
 |---|---|
-| AI scanning / semantic search | a local vision model via [LM Studio](https://lmstudio.ai/download#lm-studio-download-heading), Ollama or vLLM — [step-by-step guide](SETUP.md#2-ai-backend--lm-studio-or-ollama) |
-| Thumbnails, hover-scrub, beat bar | ffmpeg — **one click**: Vault offers to download it on first launch |
+| AI scanning / semantic search | a local vision model via [LM Studio](https://lmstudio.ai/download#lm-studio-download-heading), Ollama or vLLM: [step-by-step guide](SETUP.md#2-ai-backend-lm-studio-or-ollama) |
+| Thumbnails, hover-scrub, beat bar | ffmpeg, **one click**: Vault offers to download it on first launch |
 | Subtitles / transcription | Python + faster-whisper |
-| Music ID | fpcalc — same one-click banner |
+| Music ID | fpcalc, same one-click banner |
 
 See [SETUP.md](SETUP.md) for the full walkthrough and model recommendations by VRAM.
 
@@ -55,26 +56,25 @@ See [SETUP.md](SETUP.md) for the full walkthrough and model recommendations by V
 | | |
 |---|---|
 | **Understands your files** | A local vision model watches every video, image, GIF, audio file and document and writes structured metadata: scene, action, camera angle, lighting, expression, on-screen text |
-| **Search that works** | Boolean, fuzzy, metadata-only, and 🧠 semantic search — "crimson" finds red images |
+| **Search that works** | Boolean, fuzzy, metadata-only, and 🧠 semantic search ("crimson" finds red images) |
 | **Music ID** | Local audio fingerprints find every file sharing a song, then play them stacked in sync |
-| **PMV Studio** | Pick a soundtrack and sources — Vault cuts a beat-synced music video for you and renders it to MP4 |
+| **PMV Studio** | Pick a soundtrack and sources: Vault cuts a beat-synced music video for you and renders it to MP4 |
 | **Stack & mix** | Stack up to 4 videos in sync or grid up to 8, with a mixer (opacity, masks, blends, presets) and MP4 export |
-| **Games & quests** | Play your own library, earn points, streaks, levels, themes and achievements — all opt-in |
+| **Games & quests** | Play your own library, earn points, streaks, levels, themes and achievements (all opt-in) |
 | **Encryption** | Password-locked database with auto-lock on idle |
-| **Trash with undo** | Real file moves, never silent deletes — one-click Undo and per-file Restore |
+| **Trash with undo** | Real file moves, never silent deletes, with one-click Undo and per-file Restore |
 | **Dedupe** | Filename+size matching at scan time plus perceptual hashing for visual duplicates |
-| **Survives moves** | Moved your library to a new drive or reorganized folders? Vault repoints its records — every tag, note and view count follows, nothing is rescanned |
 
 <details>
 <summary><b>🧠 AI scanning &amp; tagging</b></summary>
 
-- **Extended metadata schema** — positioning, action, camera angle, lighting, expression, etc,. Includes OCR style text transcription like logos, site names, studios, actress name, etc.
-- **All media types** — video, image, GIF, audio, documents 
-- **Audio transcription** — Extracts ~10mins of audio to give the AI more context of the scene
-- **Robust resume** — automatic skip of already-processed files 
-- **Semantic search**  — build meaning-based search
-- **Perceptual dedupe** (`phash`) — catches visual duplicates that filename/size matching misses (re-encodes, resizes, recompressions)
-- **Parallel, multi-GPU scanning** — auto-balances across multiple OpenAI-compatible endpoints (LM Studio, **Ollama**, vLLM — see [SETUP.md](SETUP.md))
+- **Extended metadata schema**: positioning, action, camera angle, lighting, expression, etc,. Includes OCR style text transcription like logos, site names, studios, actress name, etc.
+- **All media types**: video, image, GIF, audio, documents 
+- **Audio transcription**: Extracts ~10mins of audio to give the AI more context of the scene
+- **Robust resume**: automatic skip of already-processed files 
+- **Semantic search**: build meaning-based search
+- **Perceptual dedupe** (`phash`): catches visual duplicates that filename/size matching misses (re-encodes, resizes, recompressions)
+- **Parallel, multi-GPU scanning**: auto-balances across multiple OpenAI-compatible endpoints (LM Studio, **Ollama**, vLLM; see [SETUP.md](SETUP.md))
 
 </details>
 
@@ -83,39 +83,37 @@ See [SETUP.md](SETUP.md) for the full walkthrough and model recommendations by V
 
 Start with `start.bat` to launch a full browser UI, works in any browser, media streams over HTTP with seeking.
 
-- **Instant library visibility** — new files appear in the viewer (⏳ "not scanned" badge) the moment a scan starts. Click "Scan now" backfills any file on demand from the sidebar
-- **Powerful Search** — boolean (AND/OR/NOT), fuzzy matching, metadata-only mode, and 🧠 semantic ("crimson" finds red images)
-- **Saved searches** — one-click chips for your fave filter combinations. Drag to reorder, hover to assign a custom color.
-- **Collections & folders** — group media into playlists, then nest collections inside folders (any depth); a folder plays as one deduped playlist, with breadcrumb navigation and a tree picker for filing items fast
-- **Rich filtering** — media type, content type, language, rating, theme, quality, explicit, starred/❤ fave, has-notes, duplicate, flagged, trashed, unplayable
-- **Duplicate detection** — filename+size matching at scan time (shares AI analysis, skips re-scanning) plus perceptual-hash matching for visual dupes; confirmed dupes share notes across copies
-- **Trash with undo** — real file moves (never silent deletes), one-click Undo, per-file Restore, original paths preserved
-- **Remove records without deleting files** — drop a bad/duplicate entry from the library while leaving the file untouched on disk (re-scan the folder to bring it back)
-- **Hand-edit AI metadata** — correct description, themes, tags, language, content type, or quality flag directly from the sidebar when the AI got it wrong
-- **Rescan from the UI** — re-run AI analysis on a single file (fixes failed/bad scans) without a full CLI rescan
-- **Scan-status filter & bulk rescan** — filter by Done / Failed / Unscanned and rescan the whole filtered set in one click; force mode re-runs AI tagging while keeping your notes, stars and ratings
-- **Library migration** — moved your collection? Settings → Library repoints records instead of rescanning: Quick move for a drive/prefix swap, Deep search to find renamed and reshuffled files (content-verified matches, full preview before anything is written, progress with files/s and ETA)
-- **Note snippets** — reusable quick-notes ("Watch again", timestamps) with one-click, and clickable `MM:SS` timestamps that seek the player
-- **Resume playback** — remembers your position per file; view counts track real engagement (requires ≥75% watched for video/audio)
-- **Mini-player** — pop out and keep browsing while something plays
-- **VLC-style playback UX** — controls and cursor auto-hide while playing, region-aware (won't hide over the sidebar or interrupt while paused), fullscreen support
-- **Watch activity on hover** — hover the seek bar to show view activity per video. Bonus activity for finishers.
-- **Finishers 💦** — click 'Done 💦' to mark what you last saw and sort by Finishers later. Watch activity glows blue to mark the moment.
-- **Hot 🔥** — click 'Hot 🔥' to mark exciting and intense moments. Watch activity glows orange to mark the best moments that nearly finished you off.
-- **AB Looping Support** — Loop a section of a video with 2 clicks of the AB Loop button in the bottom left of playback controls, or with '[' and ']'.
+- **Instant library visibility**: new files appear in the viewer (⏳ "not scanned" badge) the moment a scan starts. Click "Scan now" backfills any file on demand from the sidebar
+- **Powerful Search**: boolean (AND/OR/NOT), fuzzy matching, metadata-only mode, and 🧠 semantic ("crimson" finds red images)
+- **Saved searches**: one-click chips for your fave filter combinations. Drag to reorder, hover to assign a custom color.
+- **Collections & folders**: group media into playlists, then nest collections inside folders (any depth); a folder plays as one deduped playlist, with breadcrumb navigation and a tree picker for filing items fast
+- **Rich filtering**: media type, content type, language, rating, theme, quality, explicit, starred/❤ fave, has-notes, duplicate, flagged, trashed, unplayable
+- **Duplicate detection**: filename+size matching at scan time (shares AI analysis, skips re-scanning) plus perceptual-hash matching for visual dupes; confirmed dupes share notes across copies
+- **Trash with undo**: real file moves (never silent deletes), one-click Undo, per-file Restore, original paths preserved
+- **Remove records without deleting files**: drop a bad/duplicate entry from the library while leaving the file untouched on disk (re-scan the folder to bring it back)
+- **Hand-edit AI metadata**: correct description, themes, tags, language, content type, or quality flag directly from the sidebar when the AI got it wrong
+- **Rescan from the UI**: re-run AI analysis on a single file (fixes failed/bad scans) without a full CLI rescan
+- **Note snippets**: reusable quick-notes ("Watch again", timestamps) with one-click, and clickable `MM:SS` timestamps that seek the player
+- **Resume playback**: remembers your position per file; view counts track real engagement (requires ≥75% watched for video/audio)
+- **Mini-player**: pop out and keep browsing while something plays
+- **VLC-style playback UX**: controls and cursor auto-hide while playing, region-aware (won't hide over the sidebar or interrupt while paused), fullscreen support
+- **Watch activity on hover**: hover the seek bar to show view activity per video. Bonus activity for finishers.
+- **Finishers 💦**: click 'Done 💦' to mark what you last saw and sort by Finishers later. Watch activity glows blue to mark the moment.
+- **Hot 🔥**: click 'Hot 🔥' to mark exciting and intense moments. Watch activity glows orange to mark the best moments that nearly finished you off.
+- **AB Looping Support**: Loop a section of a video with 2 clicks of the AB Loop button in the bottom left of playback controls, or with '[' and ']'.
 
 </details>
 
 <details>
 <summary><b>🥁 Beat bar (optional, per-video)</b></summary>
 
-A live beat-detection overlay for videos — analyzes the audio track client-side and renders a scrolling beat visualizer synced to playback.
+A live beat-detection overlay for videos: analyzes the audio track client-side and renders a scrolling beat visualizer synced to playback.
 
 - Adjustable sensitivity (10 levels), playback speed, and playhead position, all with live preview
 - Five icon shapes (circle, heart, star, diamond, square) with configurable fill/border color, size, and opacity
-- Stackable visual effects (pulse, ripple, sparks — combine any number, with randomized spark variation)
+- Stackable visual effects (pulse, ripple, sparks; combine any number, with randomized spark variation)
 - Draggable positioning that's remembered per-video and preserved across fullscreen toggles
-- Fully local — no data leaves the machine, no cloud audio analysis
+- Fully local: no data leaves the machine, no cloud audio analysis
 
 </details>
 
@@ -124,20 +122,20 @@ A live beat-detection overlay for videos — analyzes the audio track client-sid
 
 Find every file containing a song, then play them **stacked in sync**. Powered by [Chromaprint](https://acoustid.org/chromaprint) fully local audio fingerprints.
 
-- **Fingerprint on demand** — select files in the Library → `🎵 Fingerprint (N)`, or use the button in the player sidebar. One-time per file (~5–15s per 5 min); chunks are silence-gated so dead air never causes false matches
-- **Automatic matching** — right after fingerprinting, the file is scanned against every known song AND every other fingerprinted file. Files sharing an unknown track get grouped under an `❓ Unknown Song` placeholder — manually rename it once and every linked file updates
-- **Teach it songs** — tag a segment by hand (artist + title + start/end with ⏱ position grab) and it becomes a reference fingerprint that hunts the song across the whole library
+- **Fingerprint on demand**: select files in the Library → `🎵 Fingerprint (N)`, or use the button in the player sidebar. One-time per file (~5–15s per 5 min); chunks are silence-gated so dead air never causes false matches
+- **Automatic matching**: right after fingerprinting, the file is scanned against every known song AND every other fingerprinted file. Files sharing an unknown track get grouped under an `❓ Unknown Song` placeholder; manually rename it once and every linked file updates
+- **Teach it songs**: tag a segment by hand (artist + title + start/end with ⏱ position grab) and it becomes a reference fingerprint that hunts the song across the whole library
   - Or use the 'Section' view to label already identified song sections for unknown tracks.
-- **MP3s become named references automatically** — scan a music folder (wizard: Audio only → "fingerprint audio") and a strict `Artist - Title.mp3` filename format to auto-create labeled songs + whole-file reference fingerprints, running alongside the AI scan. Every video containing those tracks then labels itself on fingerprint — zero manual tagging
-- **Seed packs — song fingerprints without the audio** — export your references as a portable `vault-songseed.json` (📦 Seed packs in the Editor, or `music export-seedpack`), and import packs from anywhere: songs + fingerprints land in the DB (no MP3s needed on disk) and every fingerprinted file is rescanned against just the new references. Strictly pull — you download and pick the file yourself, nothing auto-fetches. Re-importing is idempotent, so updated packs only add what's new
-- **≈ Audio similarity** — "Similar audio" (tile hover or player sidebar) ranks the library by songs shared with a file, rarity-weighted, with `≈NN%` badges on the results — a sorting metric no filename search can fake
-- **Search by song** — song cards in the Editor tab (search artist/title; each card is a 2×2 mosaic of its videos) plus a `🎵 Song` filter in the Library filter panel
-- **Editor tab (Library | Collections | *Editor* | Games)** — songs are reference points: open a card to pick among the VIDEOS sharing that song (hover a video for full details incl. its path). Stack up to **4** layered in sync, or Grid up to **8** side by side in a wall view. Audio tracks auto-align on the shared song using the matcher's offsets; sync nudge buttons persist corrections. Use the visual waveforms to visualize alignment and drag files to align(best when paused).
-- **🎚 Mixer sidebar** — per-track opacity, volume, audio master, spotlight, mask effects (gradients, radial, wipe, blend modes), balanced-blend, presets and export in a toggleable sidebar (M key) that keeps the video centered. The mix uses the main player's control bar: seek bar, ⏪◀▶▶⏩, **A-B looping**, speed (applied to every track), volume — with 🎚 Mixer in the Info slot
-- **🎛 Custom mixes in the Library** — save a mix (title + description) as a playable Library tile: no ffmpeg export needed, it replays through the Editor with layout/effects/volumes restored. Never AI-scanned; ratings, notes and faves work like any file; title/description editable on reopen
-- **Song picker with seed catalog** — the tag form and edit modal suggest from your songs (🔗 = fingerprinted, auto-matchable) plus an offline artist/title seed catalog (📇, auto-imported from seed.json) — names for ~90% of tracks even before you have their audio
-- **Beat bar rides the mix** — the 🥁 overlay attaches to the master track on the top layer, same settings as the main player
-- **Saved mixes & export** — save/load mix presets, and export the current stack to an MP4 (ffmpeg renders the same opacities/effects/volumes server-side, background queue with progress)
+- **MP3s become named references automatically**: scan a music folder (wizard: Audio only → "fingerprint audio") and a strict `Artist - Title.mp3` filename format to auto-create labeled songs + whole-file reference fingerprints, running alongside the AI scan. Every video containing those tracks then labels itself on fingerprint, with zero manual tagging
+- **Seed packs (song fingerprints without the audio)**: export your references as a portable `vault-songseed.json` (📦 Seed packs in the Editor, or `music export-seedpack`), and import packs from anywhere: songs + fingerprints land in the DB (no MP3s needed on disk) and every fingerprinted file is rescanned against just the new references. Strictly pull: you download and pick the file yourself, nothing auto-fetches. Re-importing is idempotent, so updated packs only add what's new
+- **≈ Audio similarity**: "Similar audio" (tile hover or player sidebar) ranks the library by songs shared with a file, rarity-weighted, with `≈NN%` badges on the results: a sorting metric no filename search can fake
+- **Search by song**: song cards in the Editor tab (search artist/title; each card is a 2×2 mosaic of its videos) plus a `🎵 Song` filter in the Library filter panel
+- **Editor tab (Library | Collections | *Editor* | Games)**: songs are reference points. Open a card to pick among the VIDEOS sharing that song (hover a video for full details incl. its path). Stack up to **4** layered in sync, or Grid up to **8** side by side in a wall view. Audio tracks auto-align on the shared song using the matcher's offsets; sync nudge buttons persist corrections. Use the visual waveforms to visualize alignment and drag files to align(best when paused).
+- **🎚 Mixer sidebar**: per-track opacity, volume, audio master, spotlight, mask effects (gradients, radial, wipe, blend modes), balanced-blend, presets and export in a toggleable sidebar (M key) that keeps the video centered. The mix uses the main player's control bar: seek bar, ⏪◀▶▶⏩, **A-B looping**, speed (applied to every track), volume, with 🎚 Mixer in the Info slot
+- **🎛 Custom mixes in the Library**: save a mix (title + description) as a playable Library tile: no ffmpeg export needed, it replays through the Editor with layout/effects/volumes restored. Never AI-scanned; ratings, notes and faves work like any file; title/description editable on reopen
+- **Song picker with seed catalog**: the tag form and edit modal suggest from your songs (🔗 = fingerprinted, auto-matchable) plus an offline artist/title seed catalog (📇, auto-imported from seed.json); names for ~90% of tracks even before you have their audio
+- **Beat bar rides the mix**: the 🥁 overlay attaches to the master track on the top layer, same settings as the main player
+- **Saved mixes & export**: save/load mix presets, and export the current stack to an MP4 (ffmpeg renders the same opacities/effects/volumes server-side, background queue with progress)
 - CLI: `node vault.js music check-tools | fingerprint <id|all> | scan <id|all> | status`
 
 </details>
@@ -149,51 +147,51 @@ Pick a soundtrack and a set of source videos; Vault analyses the track's beats a
 energy, maps them onto segments of your sources to build an Edit Decision List, and
 renders the result to MP4 with ffmpeg. Entirely local.
 
-- **Beat-aligned cutting** — cuts land on the soundtrack's beats, with segment choice weighted by the track's energy at that moment
-- **Ordering modes** — `shuffle` (weighted-random among the strongest candidate segments) or `sequential` to keep source order
-- **Transitions** — configurable transition type and duration between segments
-- **GPU-accelerated render** — the encoder is detected automatically and falls back to CPU when no supported GPU is present
-- **Queued with live progress** — one pipeline runs at a time (like the Music ID exporter); progress is polled from the job row, and stale jobs are recovered on restart
-- **Cached analysis** — re-running against the same soundtrack or sources skips straight to the EDL and render step
+- **Beat-aligned cutting**: cuts land on the soundtrack's beats, with segment choice weighted by the track's energy at that moment
+- **Ordering modes**: `shuffle` (weighted-random among the strongest candidate segments) or `sequential` to keep source order
+- **Transitions**: configurable transition type and duration between segments
+- **GPU-accelerated render**: the encoder is detected automatically and falls back to CPU when no supported GPU is present
+- **Queued with live progress**: one pipeline runs at a time (like the Music ID exporter); progress is polled from the job row, and stale jobs are recovered on restart
+- **Cached analysis**: re-running against the same soundtrack or sources skips straight to the EDL and render step
 
 </details>
 
 <details>
 <summary><b>🎮 Games (play your library)</b></summary>
 
-A **Games** tab that turns library videos into games — pick videos in-tab (never a file dialog), with progress saved per game so you can leave, watch something, and come back.
+A **Games** tab that turns library videos into games, picking videos in-tab (never a file dialog), with progress saved per game so you can leave, watch something, and come back.
 
-- **Reel Order** — a video is split into randomized clips; drag them onto a timeline in the correct order and timestamp. Scored on ordering + placement accuracy − time; per-difficulty high scores. Clips stream from the library (`/media/:id`), so no file uploads
-- **In-tab video picker** — the Games home is a searchable, video-only grid; inside a game a "🔀 Change video" button opens an overlay picker so you never leave the tab. A "🎮 Play in Reel Order" action also appears in the Library player sidebar
-- **Saved progress per game** — each game keeps one save slot (server `game_saves` table + a localStorage mirror for instant restore) holding the video, clip layout, placements and elapsed time; leaving the tab pauses the clock and playback, returning resumes exactly where you left off. Saves are auto-removed when their video's record is deleted
-- **Extensible host** — games mount behind a uniform interface (`mount/pause/resume/getState/destroy`); more games (a live-media jigsaw, timestamp/blur/rhythm games) slot in without touching the host
+- **Reel Order**: a video is split into randomized clips; drag them onto a timeline in the correct order and timestamp. Scored on ordering + placement accuracy − time; per-difficulty high scores. Clips stream from the library (`/media/:id`), so no file uploads
+- **In-tab video picker**: the Games home is a searchable, video-only grid; inside a game a "🔀 Change video" button opens an overlay picker so you never leave the tab. A "🎮 Play in Reel Order" action also appears in the Library player sidebar
+- **Saved progress per game**: each game keeps one save slot (server `game_saves` table + a localStorage mirror for instant restore) holding the video, clip layout, placements and elapsed time; leaving the tab pauses the clock and playback, returning resumes exactly where you left off. Saves are auto-removed when their video's record is deleted
+- **Extensible host**: games mount behind a uniform interface (`mount/pause/resume/getState/destroy`); more games (a live-media jigsaw, timestamp/blur/rhythm games) slot in without touching the host
 
 </details>
 
 <details>
 <summary><b>🏆 Obsession Score (local gamification)</b></summary>
 
-**Fully offline.** No AI model, no setup — it works from the first launch. Don't
+**Fully offline.** No AI model, no setup: it works from the first launch. Don't
 want to see it? **Settings → Hide 🏆 Obsession Score** drops the chip and its
 toasts while scoring continues underneath, so unhiding shows your real history
 rather than a gap. To stop it entirely, run with `--no-gamify`.
 
-- **Points & streaks** — earn score for real engagement (rarity- and duration-weighted so a 2-second thumbnail flip earns far less than actually watching something), with daily streak tracking and decay for inactivity
-- **Quests** — dynamic objectives generated from your own library and habits (e.g. "watch 3 unrated horror videos")
-- **Levels & unlockable UI themes** — 11 levels from Casual Browser to Send Help, unlocking 6 cosmetic color themes for the viewer as you level up
-- **Achievements** — Challenging visible and secret achievements for you to earn.
-- **Full analytics page** — watch-time heatmap (hour × day of week), 90-day activity chart, 12-week theme drift, library growth over time
-- **Shareable stats card** — generate a PNG snapshot of your stats/score to share
+- **Points & streaks**: earn score for real engagement (rarity- and duration-weighted so a 2-second thumbnail flip earns far less than actually watching something), with daily streak tracking and decay for inactivity
+- **Quests**: dynamic objectives generated from your own library and habits (e.g. "watch 3 unrated horror videos")
+- **Levels & unlockable UI themes**: 11 levels from Casual Browser to Send Help, unlocking 6 cosmetic color themes for the viewer as you level up
+- **Achievements**: Challenging visible and secret achievements for you to earn.
+- **Full analytics page**: watch-time heatmap (hour × day of week), 90-day activity chart, 12-week theme drift, library growth over time
+- **Shareable stats card**: generate a PNG snapshot of your stats/score to share
 
 </details>
 
 ## Run from source
 
 For developers, or anyone who'd rather run the Node app directly than the packaged exe.
-These files and commands come with a repository checkout (clone or download the repo) —
+These files and commands come with a repository checkout (clone or download the repo);
 they are not in the release zip, which ships only the exe and its runtime.
 
-**No flags needed** — double-click `scan.bat` (or run `node vault.js`
+**No flags needed.** Double-click `scan.bat` (or run `node vault.js`
 with no arguments) for the interactive wizard: pick a directory (remembers
 your history), toggle options with arrow keys, and go. It prints the
 equivalent flag command before each run.
@@ -215,7 +213,7 @@ on PATH. Verify with `node vault.js music check-tools`.
 
 **Step 1: Install and open LM Studio**
 
-Get it from [lmstudio.ai/download](https://lmstudio.ai/download#lm-studio-download-heading) —
+Get it from [lmstudio.ai/download](https://lmstudio.ai/download#lm-studio-download-heading), then
 scroll past **"LM Studio Bionic"** to the classic **"Download LM Studio"**
 section (*"Chat interface and programmable API"*); Bionic doesn't expose the
 local server Vault needs. Then:
@@ -223,11 +221,11 @@ local server Vault needs. Then:
 1. **Model Search** (left sidebar) → download a vision model that fits your VRAM
    ([SETUP.md §3](SETUP.md#3-model-recommendations-by-gpu-size), Q4 quant)
 2. **Developer** tab → load it with the **manually choose load parameters**
-   toggle on and **Context Length ≈ 60000** — the ~4k default truncates the
-   frames and produces empty/garbage scans
+   toggle on and **Context Length ≈ 60000** (the ~4k default truncates the
+   frames and produces empty/garbage scans)
 3. Same tab → **Status: Running** (port `1234`, the default)
 
-Full click-by-click walkthrough: [SETUP.md §2](SETUP.md#2-ai-backend--lm-studio-or-ollama).
+Full click-by-click walkthrough: [SETUP.md §2](SETUP.md#2-ai-backend-lm-studio-or-ollama).
 
 **Step 2: Run with parallel workers(parallel slots)**
 
@@ -250,8 +248,8 @@ view (cached in `./thumbnails`).
 
 **File management:** select tiles (checkbox on hover, shift-click for ranges)
 and use the selection bar to bulk move files to the trash folder (`./trash`
-by default, `VAULT_TRASH` to change). Trash is a real move on disk —
-never a delete — with one-click Undo and per-file Restore (original paths are
+by default, `VAULT_TRASH` to change). Trash is a real move on disk,
+never a delete, with one-click Undo and per-file Restore (original paths are
 stored in the DB). Trashed items are hidden by default (🗑 filter). Files that
 fail to play are auto-marked ⚠ unplayable and can be filtered out.
 
@@ -262,33 +260,33 @@ request you didn't allow. There is **no telemetry, no analytics, no crash
 reporting, and no automatic update checks**. Gamification, scores, quests, and
 all stats live in your local database and never leave the machine.
 
-**Everything that can touch the network — the complete list:**
+**Everything that can touch the network: the complete list.**
 
 | What | When | Controlled by |
 |------|------|---------------|
-| **One-time AI model downloads** — whisper, OPUS-MT translation packs, speaker-diarization models | First use of a model that isn't on disk yet, **and only after you agree to that specific model** | Vault asks **per model**, naming it and its size — approving the transcription model does not approve a translation pack. Answers are remembered per model (Settings → *AI model downloads*). `SUB_ALLOW_DOWNLOADS=1` pre-approves everything, `0` refuses everything. Models already on disk always load offline |
-| **"Check for updates"** in Settings → About | Only when you click it | A single GET to `api.github.com` — nothing else is sent, and never automatic |
-| **Your AI backend endpoint** | Every scan / chat | Localhost LM Studio/Ollama by default. If **you** point it at a remote endpoint, frames and text go there — your call |
+| **One-time AI model downloads** (whisper, OPUS-MT translation packs, speaker-diarization models) | First use of a model that isn't on disk yet, **and only after you agree to that specific model** | Vault asks **per model**, naming it and its size. Approving the transcription model does not approve a translation pack. Answers are remembered per model (Settings → *AI model downloads*). `SUB_ALLOW_DOWNLOADS=1` pre-approves everything, `0` refuses everything. Models already on disk always load offline |
+| **"Check for updates"** in Settings → About | Only when you click it | A single GET to `api.github.com`. Nothing else is sent, and never automatic |
+| **Your AI backend endpoint** | Every scan / chat | Localhost LM Studio/Ollama by default. If **you** point it at a remote endpoint, frames and text go there: your call |
 | **Lovense device control** (if you use it) | User-initiated | Traffic stays on your LAN, but the HTTPS transport resolves `<ip>.lovense.club` via DNS, which discloses Lovense use to your DNS resolver |
 
-**`VAULT_OFFLINE=1` — the hard switch.** Set it and networking is loopback-only
+**`VAULT_OFFLINE=1`: the hard switch.** Set it and networking is loopback-only
 app-wide: model downloads, update checks, and remote AI endpoints all refuse,
 while localhost services keep working normally. It implies
 `SUB_ALLOW_DOWNLOADS=0` and sets `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` for the
 Python sidecars.
 
 **Auditable in one place.** Every Node-side network call routes through a single
-file — [`lib/net.js`](lib/net.js). Grep it yourself; there is no other egress
+file: [`lib/net.js`](lib/net.js). Grep it yourself; there is no other egress
 path.
 
-**The viewer server binds `127.0.0.1` only** — it is never exposed to your LAN.
+**The viewer server binds `127.0.0.1` only**: it is never exposed to your LAN.
 
 ## Reference
 
 <details>
 <summary><b>Environment variables</b></summary>
 
-The `VAULT_*` names are current — the former `VIDEO_TAGGER_*` names are still read
+The `VAULT_*` names are current. The former `VIDEO_TAGGER_*` names are still read
 as a fallback, so an existing `.env` keeps working.
 
 ### Performance
@@ -313,7 +311,7 @@ as a fallback, so an existing `.env` keeps working.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SUB_ALLOW_DOWNLOADS` | `1` | Governs the one-time fetch of AI models not yet on disk — whisper, OPUS-MT translation packs, and speaker-diarization models. `1` = allow (warned once); `0` = never touch the network (a missing model errors with pre-install instructions). Installed models always load offline |
+| `SUB_ALLOW_DOWNLOADS` | `1` | Governs the one-time fetch of AI models not yet on disk: whisper, OPUS-MT translation packs, and speaker-diarization models. `1` = allow (warned once); `0` = never touch the network (a missing model errors with pre-install instructions). Installed models always load offline |
 | `SUB_ALLOW_DOWNLOADS` | *(ask per model)* | One-time AI model fetches. Unset, Vault prompts before **each** model it needs and remembers that answer separately. `1` = pre-approve everything, `0` = never. The environment always overrides the in-app switches |
 | `VAULT_OFFLINE` | `0` (unset) | Hard offline switch. `1` = loopback-only networking app-wide (model downloads, update checks, and remote AI endpoints all refuse); localhost services keep working. Implies `SUB_ALLOW_DOWNLOADS=0` and sets `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` for the Python sidecars |
 
@@ -337,7 +335,7 @@ Options:
   --transcribe-video   Transcribe video audio via faster-whisper (works with --all-types)
 ```
 
-### phash — perceptual duplicate detection
+### phash: perceptual duplicate detection
 
 ```bash
 node vault.js phash [options]
@@ -348,7 +346,7 @@ Options:
   --force         Re-hash every file
 ```
 
-### serve — launch the local web viewer
+### serve: launch the local web viewer
 
 ```bash
 node vault.js serve [options]     # same as start.bat
@@ -356,7 +354,7 @@ node vault.js serve [options]     # same as start.bat
 Options:
   --gamify        Re-enable the local Obsession Score tracker (it is on by
                   default; this only undoes a previous --no-gamify)
-  --no-gamify     Turn the tracker off entirely — no scoring, no routes.
+  --no-gamify     Turn the tracker off entirely: no scoring, no routes.
                   To just hide it, use Settings → Hide Obsession Score
 ```
 
@@ -578,7 +576,7 @@ node vault.js scan ./media -r --reprocess
 ### Semantic Search (v3.3)
 Search by **meaning** instead of keywords: tick 🧠 Semantic next to the search
 box ("crimson picture" finds red images). Vectors are built from the metadata
-the tagger already extracted — **no media rescan**. One-time backfill:
+the tagger already extracted (**no media rescan**). One-time backfill:
 
 ```bash
 node vault.js embed        # embeds rows that don't have vectors yet
@@ -594,13 +592,13 @@ The AI writes free-form metadata, so the same idea shows up spelled many ways
 filtering/search consistent **without losing the model's freedom to describe
 anything**:
 
-- **Language** is canonicalized on read — the raw value is kept untouched, but
+- **Language** is canonicalized on read: the raw value is kept untouched, but
   the UI (sidebar, search filter, gamification) shows one human-readable name
   per language (`en`/`EN`/`English` → **English**; unmappable → **Unknown**).
   See `lib/lang.js`.
 - **themes / tags / locations** get a normalized copy (lowercased, trimmed,
-  de-duped) in a separate `media_clean` table — **raw columns are never
-  touched**, so the clean copy can be rebuilt any time the rules improve:
+  de-duped) in a separate `media_clean` table (**raw columns are never
+  touched**), so the clean copy can be rebuilt any time the rules improve:
 
   ```bash
   node vault.js clean     # rebuild media_clean from existing metadata (no AI, no rescan)
@@ -610,7 +608,7 @@ anything**:
   back into the prompt as **soft guidance** (reuse an existing theme when it
   fits; coin a new one only when nothing does), so tagging converges over time.
 
-**Future idea — semantic theme/tag unification:** use the embedding model to
+**Future idea: semantic theme/tag unification.** Use the embedding model to
 surface near-duplicate theme/tag strings (`sci-fi` / `scifi` /
 `science fiction`) as *merge candidates* for one-click consolidation, instead
 of relying only on exact-string normalization.
@@ -622,7 +620,7 @@ the scan **copies the existing analysis instead of re-running the AI** (tagged
 `dupe`, `model_used = dupe-of-<id>`), which skips vision + whisper entirely.
 Filename normalization handles dots/underscores/`[group tags]`/`(2020)`-style
 variants. Confirmed dupes are linked into a group and their **notes are
-shared** — add a note on any copy and every copy has it, so deleting a dupe
+shared**: add a note on any copy and every copy has it, so deleting a dupe
 never loses notes. Each scan starts with an idempotent backfill that links
 pre-existing dupes and merges their notes (first run over a big library prints
 a report). Tune via `DUPE_SKIP=false`, `DUPE_MIN_MB`, `DUPE_SIZE_TOLERANCE`.
@@ -630,7 +628,7 @@ a report). Tune via `DUPE_SKIP=false`, `DUPE_MIN_MB`, `DUPE_SIZE_TOLERANCE`.
 ### Transcription Behavior
 - **Video:** pass `--transcribe-video` to transcribe audio via the persistent
   faster-whisper sidecar. Works in every scan mode, **including `--all-types`**
-  (this used to be silently dropped — fixed in v3.3).
+  (this used to be silently dropped, fixed in v3.3).
 - **Audio files** (with `--all-types` or `--type audio`) are always transcribed
   through the same persistent sidecar (model loads once per scan, not per file).
 - Transcriptions are stored in the `audio_transcription` column and shown in the viewer.
@@ -656,18 +654,18 @@ a report). Tune via `DUPE_SKIP=false`, `DUPE_MIN_MB`, `DUPE_SIZE_TOLERANCE`.
 
 ## Support & Donations
 
-Vault is free to use — every feature, no tiers, no license key. It's a personal
+Vault is free to use: every feature, no tiers, no license key. It's a personal
 project shared as-is, so there's no guaranteed support.
 
 If it saved your hoard some chaos and you want to say thanks, donations at
 [ko-fi.com/aericode](https://ko-fi.com/aericode) are appreciated but never
-required (suggested $10 — anything helps).
+required (suggested $10, anything helps).
 
 Made with 🌿 by [aericode](https://ko-fi.com/aericode)
 
 ## License
 
-Proprietary and source-available — **not** open source — but **free for personal
+Proprietary and source-available (**not** open source), but **free for personal
 use**. You may read and modify the source for your own use. No redistribution:
 share the download link instead of the files. See [LICENSE](LICENSE) for the
 full terms.
