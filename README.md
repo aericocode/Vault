@@ -17,7 +17,7 @@ PMVs from your own library, and earn quests and achievements for curating it.
 
 [**⬇ Download for Windows**](../../releases/latest) · [Setup guide](SETUP.md) · [Full Feature List](https://aericocode.github.io/Vault/)
 
-Made with 🌿 by [aericode](https://ko-fi.com/aericode)
+Made with 🌿 by [aericocode](https://ko-fi.com/aericocode)
 
 ![Vault](og.png)
 
