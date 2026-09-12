@@ -18,7 +18,7 @@ For PMV fans there is more: find every clip that shares a song and play them in 
 
 [**⬇ Download for Windows**](../../releases/latest) · [Setup guide](SETUP.md) · [Full feature list](https://aericocode.github.io/Vault/)
 
-Made with 🌿 by [aericode](https://ko-fi.com/aericode)
+Made with 🌿 by [aericocode](https://ko-fi.com/aericocode)
 
 ![Vault](og.png)
 
