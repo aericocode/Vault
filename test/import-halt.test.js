@@ -123,7 +123,7 @@ test('carrying on names the copy that went and how many are left', async () => {
   const n = queue.notice();
   assert.ok(n && n.at > 0, 'the panel gets a timestamped line');
   assert.ok(n.id, 'and an id, so the panel can remember a dismissal');
-  assert.strictEqual(n.text, 'Copy :3 was unloaded in LM Studio. Continuing on 2 copies.');
+  assert.strictEqual(n.text, 'Copy :3 was unloaded. Continuing on 2 copies.');
   assert.strictEqual(queue.status().notice.text, n.text, 'and it rides on the queue status');
   assert.strictEqual(queue.status().pausedBy, null, 'the run never stopped');
 });
@@ -143,7 +143,7 @@ test('a second event gets a new id, and the line expires on its own', async () =
   queue._retryOnSurvivingInstance({ ...ITEM, filepath: 'K:/scratch/b.mp4' }, 'unloaded');
   const second = queue.notice();
   assert.notStrictEqual(second.id, first.id, 'a fresh event is a fresh id');
-  assert.strictEqual(second.text, 'Copy :2 was unloaded in LM Studio. Continuing on 1 copy.');
+  assert.strictEqual(second.text, 'Copy :2 was unloaded. Continuing on 1 copy.');
 
   // Ninety seconds on it is gone, whether or not anyone closed it. Backdating
   // `at` beats waiting them out.
