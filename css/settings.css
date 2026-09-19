@@ -1474,3 +1474,21 @@ body.pm-names #modalTitle {
   margin-bottom: 0.6rem;
   line-height: 1.5;
 }
+
+/* Clone / unload links inside the instances table. They sit in cells that set
+   a mono face and their own colour (the family name, the :N suffix), so both
+   are reset here rather than inherited into something unreadable. */
+.settings-inst-table .inst-clone,
+.settings-inst-table .inst-unload {
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.settings-inst-table .inst-clone[disabled],
+.settings-inst-table .inst-unload[disabled] {
+  color: var(--text-muted);
+  text-decoration: none;
+  cursor: not-allowed;
+}

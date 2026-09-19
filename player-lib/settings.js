@@ -404,10 +404,11 @@
     { id: 'guides',    label: '📖 Guides' },
     { id: 'models',    label: '🧠 Models' },
     { id: 'seedpacks', label: '📦 Seed packs' },
-    { id: 'about',     label: 'ℹ About' },
-    // Last on purpose: everything in here is about the machine, not the
-    // library, and most people never need to open it.
+    // Near the bottom on purpose: everything in here is about the machine, not
+    // the library, and most people never need to open it. About stays last so
+    // the nav always ends on the same entry.
     { id: 'backend',   label: '🔌 Backend' },
+    { id: 'about',     label: 'ℹ About' },
   ];
 
   function buildModalShell() {
@@ -420,7 +421,7 @@
       <div class="settings-modal" role="dialog" aria-label="Settings" onclick="event.stopPropagation()">
         <div class="settings-header">
           <h2>Settings</h2>
-          <a class="settings-support" href="https://ko-fi.com/aericode" target="_blank" rel="noopener"
+          <a class="settings-support" href="https://ko-fi.com/aericocode" target="_blank" rel="noopener"
              title="Free forever. Donations keep updates coming. Suggested $10, anything helps.">🌿 Support Vault</a>
           <button class="settings-close" id="settingsCloseBtn" title="Close" aria-label="Close">&times;</button>
         </div>
@@ -2068,7 +2069,7 @@
         <p>Free for personal use - proprietary, source-available. See the LICENSE file next to the app.</p>
         <div class="settings-links">
           <a href="https://github.com/aericocode/Vault" target="_blank" rel="noopener">GitHub repo ↗</a>
-          <a href="https://ko-fi.com/aericode" target="_blank" rel="noopener">Ko-fi 🌿 ↗</a>
+          <a href="https://ko-fi.com/aericocode" target="_blank" rel="noopener">Ko-fi 🌿 ↗</a>
         </div>
       </div>
     `;
@@ -2106,7 +2107,7 @@
           // Updates ship free; the only nudge is this one line, next to the link.
           msg.innerHTML = `v${info.latest} available - <a href="${info.url}" target="_blank" rel="noopener">View release ↗</a>`
             + `<span class="settings-update-kofi">Updates are free - if Vault earns it,`
-            + ` <a href="https://ko-fi.com/aericode" target="_blank" rel="noopener">$10 says thanks</a>.</span>`;
+            + ` <a href="https://ko-fi.com/aericocode" target="_blank" rel="noopener">$10 says thanks</a>.</span>`;
         } else {
           msg.textContent = `Up to date (v${info.current})`;
         }
@@ -2276,17 +2277,36 @@
   function renderModelSel() {
     const sel = document.getElementById('backendModelSel');
     if (!sel) return;
+    // Rebuilding a select the user has open closes it and throws away the
+    // keyboard position, so a poll that lands mid-choice is skipped instead.
+    if (document.activeElement === sel) return;
     const fams = backend.models?.families || [];
     const current = backend.models?.current || '';
+    // A family that has been unloaded since the choice was made falls back to
+    // Auto on screen only. Posting the change would be Vault quietly undoing a
+    // pin the user set, for a copy that may come back a second later.
+    const keep = fams.some(f => f.family === current) ? current : '';
     const opts = [`<option value="">Auto (whatever is loaded)</option>`].concat(
       fams.map(f => {
         const n = Number(f.count) || 0;
-        return `<option value="${esc(f.family)}"${f.family === current ? ' selected' : ''}>`
+        return `<option value="${esc(f.family)}"${f.family === keep ? ' selected' : ''}>`
           + `${esc(f.family)} · ${n} instance${n === 1 ? '' : 's'}</option>`;
       })
     );
     sel.innerHTML = opts.join('');
+    sel.value = keep;
     if (!fams.length) sel.title = 'No models reported yet. Load one in your AI server.';
+  }
+
+  /* Refresh means "tell me what is loaded right now", and the model list is
+     part of that: loading a second copy changes the count beside the family,
+     and loading a new model adds an option. Riding along with the instance
+     load keeps the table and the picker from disagreeing on screen. */
+  async function refreshModelSel() {
+    const d = await beGet('/api/ai/models');
+    if (!d) return;                       // a failed poll keeps the last good list
+    backend.models = d;
+    renderModelSel();
   }
 
   function instStatusHtml(inst) {
@@ -2301,6 +2321,65 @@
 
   const secs1 = (ms) => `${((Number(ms) || 0) / 1000).toFixed(1)} s`;
 
+  /* ── Copies via the lms CLI ───────────────────────────────────────────────
+     "Load another copy" is the one action this whole tab is arguing for, so it
+     sits in the family row rather than behind a fold. It is only offered when
+     the server is the LM Studio on this PC and the lms command is installed;
+     the rest of the time the button stays visible but disabled, with the reason
+     in its tooltip, because a missing button reads as a missing feature. */
+
+  function cloneWhyNot(fam) {
+    const src = cloneSource(fam);
+    if (!src) return 'Nothing of this model is loaded to copy.';
+    if (!/^https?:\/\/(localhost|127\.0\.0\.1|\[?::1\]?)(:|\/)/i.test(src.endpoint)) {
+      return 'That AI server is on another machine, so Vault cannot load copies on it.';
+    }
+    if (backend.instances && backend.instances.lmsAvailable === false) {
+      return 'The lms command was not found. In LM Studio open the Developer tab and install the '
+        + 'lms CLI, or run: npx lmstudio install-cli';
+    }
+    return '';
+  }
+
+  /** The instance a copy is modelled on: the original if it is up, else any live one. */
+  function cloneSource(fam) {
+    const list = fam.instances || [];
+    return list.find(i => i.alive && i.suffix === ':1') || list.find(i => i.alive) || null;
+  }
+
+  function cloneBtnHtml(fam) {
+    const src = cloneSource(fam);
+    const why = cloneWhyNot(fam);
+    const loading = (backend.instances?.jobs || []).some(j => j.family === fam.family && j.state === 'loading');
+    const title = loading ? 'A copy is loading already.' : (why || 'Load a second copy of this model in LM Studio');
+    return `<button type="button" class="settings-link inst-clone"
+      data-clone-fam="${esc(fam.family)}" data-clone-ep="${esc(src?.endpoint || '')}"
+      data-clone-id="${esc(src?.id || '')}"${(why || loading) ? ' disabled' : ''}
+      title="${esc(title)}">+ Load another copy</button>`;
+  }
+
+  /** Placeholder rows for copies that have been asked for but are not up yet. */
+  function jobRowsHtml(family) {
+    return (backend.instances?.jobs || []).filter(j => j.family === family).map(j => {
+      const sfx = esc(String(j.identifier || '').slice(String(family).length) || ':?');
+      if (j.state === 'failed') {
+        return `
+      <tr class="sub dead">
+        <td></td>
+        <td><span class="mid"><span class="sfx">${sfx}</span></span></td>
+        <td colspan="3"><span class="settings-st"><span class="settings-dot bad"></span>could not load:
+          ${esc(j.error || 'LM Studio did not say why')}</span></td>
+      </tr>`;
+      }
+      return `
+      <tr class="sub">
+        <td></td>
+        <td><span class="mid"><span class="sfx">${sfx}</span></span></td>
+        <td colspan="3"><span class="settings-st"><span class="settings-dot busy"></span>loading in LM Studio</span></td>
+      </tr>`;
+    }).join('');
+  }
+
   function familyRowsHtml(fam) {
     const list = fam.instances || [];
     const inUse = list.filter(i => i.enabled && i.alive).length;
@@ -2310,7 +2389,7 @@
     const maxDone = Math.max(1, ...list.map(i => Number(i.done) || 0));
     const head = `
       <tr class="fam">
-        <td colspan="2"><span class="fam-name">${esc(fam.family)}</span></td>
+        <td colspan="2"><span class="fam-name">${esc(fam.family)}</span> ${cloneBtnHtml(fam)}</td>
         <td class="num">${fam.selected ? `${inUse} of ${list.length} in use` : 'not selected'}</td>
         <td class="num">${done}</td>
         <td class="num">${avg}</td>
@@ -2319,7 +2398,8 @@
     // per-instance row would be five empty cells under its own name. It still
     // expands when it has several copies, because "which copy do I park" is a
     // question people ask before they have picked the family.
-    if (!fam.selected && list.length < 2) return head;
+    const jobs = jobRowsHtml(fam.family);
+    if (!fam.selected && list.length < 2 && !jobs) return head;
     return head + list.map(i => {
       const pct = Math.round(((Number(i.done) || 0) / maxDone) * 100);
       return `
@@ -2330,12 +2410,22 @@
                  aria-label="Use instance ${esc(i.suffix || '')}">
           <span class="settings-switch" aria-hidden="true"></span>
         </label></td>
-        <td><span class="mid"><span class="sfx">${esc(i.suffix || ':1')}</span></span></td>
+        <td><span class="mid"><span class="sfx">${esc(i.suffix || ':1')}</span>${unloadBtnHtml(fam, i)}</span></td>
         <td>${instStatusHtml(i)}</td>
         <td class="num"><span class="settings-inst-bar"><i style="width:${pct}%"></i></span> ${Number(i.done) || 0}</td>
         <td class="num">${Number(i.avgMs) > 0 ? secs1(i.avgMs) : '-'}</td>
       </tr>`;
-    }).join('');
+    }).join('') + jobs;
+  }
+
+  /** Unload is offered on copies only. The original is LM Studio's to manage. */
+  function unloadBtnHtml(fam, inst) {
+    if (!inst.alive || inst.id === fam.family) return '';
+    const why = cloneWhyNot(fam);
+    if (why) return '';
+    return ` <button type="button" class="settings-link inst-unload"
+      data-unload-ep="${esc(inst.endpoint)}" data-unload-id="${esc(inst.id)}"
+      title="Free the VRAM this copy is using">Unload</button>`;
   }
 
   function instanceFootHtml() {
@@ -2409,7 +2499,10 @@
       : `<p class="settings-note">${backend.instances
         ? 'Nothing loaded yet. Load a model in your AI server, then press Refresh.'
         : 'Could not reach the local server for the instance list. Press Refresh to try again.'}</p>`;
-    host.innerHTML = table + `<div class="settings-inst-foot" id="backendInstFoot">${instanceFootHtml()}</div>`
+    host.innerHTML = table
+      + `<p class="settings-note">Copies use the same context length, parallel setting and TTL as the
+        original. GPU placement is LM Studio's choice.</p>`
+      + `<div class="settings-inst-foot" id="backendInstFoot">${instanceFootHtml()}</div>`
       + `<div class="settings-why"><span class="k">Want it faster?</span> ${BACKEND_WHY}`
       + `<br><span class="k">Rule of thumb</span> workers 2 per instance, then as many instances as your VRAM holds.</div>`;
     wireInstanceFoot();
@@ -2429,20 +2522,81 @@
         renderInstances();
       });
     });
+
+    host.querySelectorAll('.inst-clone').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const { ok, data } = await bePost('/api/ai/instances/clone', {
+          endpoint: btn.dataset.cloneEp, id: btn.dataset.cloneId,
+        });
+        if (!ok) {
+          btn.disabled = false;
+          showToast?.('⚠ ' + (data.error || 'could not load another copy'));
+          return;
+        }
+        showToast?.(`Loading ${data.identifier}. It joins the scans when LM Studio is done.`);
+        // The copy needs a moment to appear, so paint the "loading" row now and
+        // let the 5 s poll (or the user's Refresh) replace it with the real one.
+        loadInstances({ refresh: true });
+      });
+    });
+
+    host.querySelectorAll('.inst-unload').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const { ok, data } = await bePost('/api/ai/instances/unload', {
+          endpoint: btn.dataset.unloadEp, id: btn.dataset.unloadId,
+        });
+        if (!ok) {
+          btn.disabled = false;
+          showToast?.('⚠ ' + (data.error || 'could not unload that copy'));
+          return;
+        }
+        showToast?.(`Unloaded ${btn.dataset.unloadId}`);
+        backend.instances = data;
+        renderInstances();
+        // The picker counts instances beside the family name, so it is wrong
+        // the moment a copy goes.
+        refreshModelSel();
+      });
+    });
   }
 
   async function loadInstances({ refresh = false } = {}) {
+    const models = refreshModelSel();
     const d = await beGet(`/api/ai/instances${refresh ? '?refresh=1' : ''}`);
     // A failed poll keeps the last good snapshot on screen rather than
     // blanking a table the user is reading.
     if (d) backend.instances = d;
     else if (!backend.instances) backend.instances = null;
     renderInstances();
+    await models;
   }
 
+  /* Order is deliberate and was changed after the first build: what people came
+     here for is the instance table, so it goes first. The model picker sits
+     under it because picking a family is the thing you do about what you just
+     read there, and the server address is at the bottom because on almost every
+     machine it is correct and never touched again. */
   function RENDERERS_backend() {
     return `
-      <h3 class="settings-h">AI server</h3>
+      <h3 class="settings-h">Loaded instances</h3>
+      <p class="settings-note">Every copy of a model your server reports. Load the same model again in
+        LM Studio to add one; Vault picks it up within a few seconds and spreads scans across all of them.</p>
+      <div id="backendInstHost"></div>
+
+      <div class="settings-toggle">
+        <span class="settings-toggle-text">
+          <span class="settings-toggle-title">Model for scans</span>
+          <span class="settings-toggle-desc"><b>Auto</b> uses whatever is loaded and only asks when more
+            than one family is. Picking a family uses every loaded copy of it.</span>
+        </span>
+        <select class="settings-sel" id="backendModelSel" aria-label="Model for scans">
+          <option value="">Auto (whatever is loaded)</option>
+        </select>
+      </div>
+
+      <h3 class="settings-h settings-h-mt">AI server</h3>
       <p class="settings-note" id="backendAiNote">Checking the AI server.</p>
 
       <details class="settings-acc" id="backendAdv">
@@ -2458,29 +2612,13 @@
               <button type="button" class="settings-link" id="backendEpAdd">+ Add another server</button>
               <span class="settings-ep-why">Only for a second machine on your network, or a different
                 program such as Ollama running beside LM Studio. More VRAM on this PC? Load more
-                instances below instead.</span>
+                instances above instead.</span>
             </div>
             <div class="settings-env-veil"><span>Set by <code>LM_STUDIO_URLS</code> in your .env.
               Remove it there to edit here.</span></div>
           </div>
         </div>
-      </details>
-
-      <div class="settings-toggle">
-        <span class="settings-toggle-text">
-          <span class="settings-toggle-title">Model for scans</span>
-          <span class="settings-toggle-desc"><b>Auto</b> uses whatever is loaded and only asks when more
-            than one family is. Picking a family uses every loaded copy of it.</span>
-        </span>
-        <select class="settings-sel" id="backendModelSel" aria-label="Model for scans">
-          <option value="">Auto (whatever is loaded)</option>
-        </select>
-      </div>
-
-      <h3 class="settings-h settings-h-mt">Loaded instances</h3>
-      <p class="settings-note">Every copy of a model your server reports. Load the same model again in
-        LM Studio to add one; Vault picks it up within a few seconds and spreads scans across all of them.</p>
-      <div id="backendInstHost"></div>`;
+      </details>`;
   }
 
   function wireBackendSection() {
@@ -2513,7 +2651,8 @@
     });
 
     beGet('/api/ai/endpoints').then(d => { if (d) backend.status = d; renderAiNote(); renderEpRows(); });
-    beGet('/api/ai/models').then(d => { if (d) backend.models = d; renderModelSel(); });
+    // loadInstances pulls /api/ai/models too, so the picker is filled from the
+    // same round trip that fills the table.
     loadInstances({ refresh: true });
     startBackendPoll();
   }
@@ -2526,8 +2665,11 @@
     stopBackendPoll();
     _backendPoll = setInterval(() => {
       if (!isOpen() || !document.getElementById('backendInstHost')) { stopBackendPoll(); return; }
-      if (!document.getElementById('scanQueuePanel')) return;
-      loadInstances();
+      // A copy that is loading moves too: its row has to turn into a real
+      // instance (or an error) on its own, without the user pressing Refresh.
+      const loading = (backend.instances?.jobs || []).some(j => j.state === 'loading');
+      if (!loading && !document.getElementById('scanQueuePanel')) return;
+      loadInstances({ refresh: loading });
     }, 5000);
   }
 

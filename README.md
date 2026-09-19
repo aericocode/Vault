@@ -671,10 +671,10 @@ Vault is free to use — every feature, no tiers, no license key. It's a persona
 project shared as-is, so there's no guaranteed support.
 
 If it saved your hoard some chaos and you want to say thanks, donations at
-[ko-fi.com/aericode](https://ko-fi.com/aericode) are appreciated but never
+[ko-fi.com/aericocode](https://ko-fi.com/aericocode) are appreciated but never
 required (suggested $10 — anything helps).
 
-Made with 🌿 by [aericode](https://ko-fi.com/aericode)
+Made with 🌿 by [aericocode](https://ko-fi.com/aericocode)
 
 ## License
 
