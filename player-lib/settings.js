@@ -65,6 +65,12 @@
      them at all. Cached here so the modal can render synchronously. */
 
   let server = { gamify: false, autolockMinutes: 30, encrypted: false, reachable: false };
+
+  /* The 🔌 Backend tab's three server-side views, cached so a re-render (or a
+     poll landing) never has to rebuild the whole tab from scratch. Each one is
+     null until its route has answered at least once, which is also the "no
+     data yet" signal the empty states read. */
+  let backend = { status: null, models: null, instances: null };
   // Consent for the one-time AI model fetches (whisper / translation /
   // diarization). Separate endpoint because the env vars are a hard ceiling
   // over it — see server/index.js applyModelDownloadConsent().
@@ -250,7 +256,10 @@
      why boot re-pushes it below. The POST is best-effort — an older server
      without the route (or none at all) must not lose the stored preference. */
 
-  const WORKERS_MIN = 1, WORKERS_MAX = 8;
+  // 1-4, not 1-8: the number now means workers PER INSTANCE. The server
+  // multiplies it by the count of active model instances to get the queue's
+  // real concurrency, so 8 across three instances would be 24 files in flight.
+  const WORKERS_MIN = 1, WORKERS_MAX = 4;
 
   // A number input hands back '' for anything it can't parse (letters, blank),
   // so garbage snaps back to the stored value rather than to the minimum.
@@ -265,6 +274,14 @@
     fetch('/api/import/queue/concurrency', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ n }),
+    }).then(r => (r.ok ? r.json() : null)).then(d => {
+      // The answer carries the derived numbers (active slots, real
+      // concurrency); the Backend tab's footer line reads straight off them
+      // rather than recomputing what the server just decided.
+      if (d && typeof d.activeSlots === 'number') {
+        backend.instances = { ...(backend.instances || {}), ...d };
+        renderInstanceFoot();
+      }
     }).catch(() => {});
   }
 
@@ -388,6 +405,9 @@
     { id: 'models',    label: '🧠 Models' },
     { id: 'seedpacks', label: '📦 Seed packs' },
     { id: 'about',     label: 'ℹ About' },
+    // Last on purpose: everything in here is about the machine, not the
+    // library, and most people never need to open it.
+    { id: 'backend',   label: '🔌 Backend' },
   ];
 
   function buildModalShell() {
@@ -439,6 +459,9 @@
     if (id === 'library') wireLibrarySection();
     if (id === 'seedpacks') wireSeedpacksSection();
     if (id === 'about') loadAbout();
+    // The Backend tab polls; leaving it (or closing the modal) has to stop
+    // that, or a modal opened once keeps asking the server forever.
+    if (id === 'backend') wireBackendSection(); else stopBackendPoll();
   }
 
   function openModal(section) {
@@ -458,6 +481,7 @@
     const overlay = document.getElementById('settingsOverlay');
     if (!overlay || !overlay.classList.contains('active')) return false;
     overlay.classList.remove('active');
+    stopBackendPoll();
     // Only release the scroll lock if no other overlay still needs it.
     if (!document.querySelector('.modal-overlay.active, .media-player-overlay.active')) {
       document.body.style.overflow = '';
@@ -559,6 +583,125 @@
     });
   }
 
+  /* ── Instance name + port ────────────────────────────────────────────────
+     Two fields on one row because they answer one question: which Vault is
+     this? Someone running a second copy for a second library sets both at
+     once. Both are server-owned (vault-settings.json): the name has to reach
+     the lock screen before unlock, and the port has to be readable by
+     start.bat and the exe before any browser exists.
+
+     Fallbacks matter here. An older server, or a locked vault answering 423,
+     leaves `server` without these keys — the row then shows the address bar's
+     own port and an empty name rather than NaN and "undefined". */
+
+  const instName = () => String(server.instanceName || '');
+  const livePort = () => Number(server.port) || Number(location.port) || 8765;
+  const storedPort = () => Number(server.savedPort) || livePort();
+  const portIsEnv = () => server.portSource === 'env';
+
+  function instanceRow() {
+    return `
+      <div class="settings-inst-row" id="settingsInstRow">
+        <div class="settings-inst-field">
+          <label for="settingsInstName">Instance name</label>
+          <input class="settings-text" type="text" id="settingsInstName" maxlength="40"
+                 spellcheck="false" autocomplete="off" placeholder="Vault" value="${esc(instName())}">
+          <span class="settings-hint">Page title and the word in the top left. Applies now.</span>
+        </div>
+        <div class="settings-inst-field">
+          <label for="settingsPort">Port
+            <span class="settings-tag warn" id="settingsPortTag" hidden>restart to apply</span>
+            <span class="settings-tag env" id="settingsPortEnvTag" hidden>set by MEDIA_TAGGER_PORT</span>
+          </label>
+          <input class="settings-num" type="number" min="1024" max="65535" step="1"
+                 id="settingsPort" value="${storedPort()}">
+          <span class="settings-hint">Running on <b id="settingsPortNow">${livePort()}</b>. Takes effect at next launch.</span>
+        </div>
+        <div class="settings-restart-note" id="settingsRestartNote" hidden>Saved. Next launch opens
+          <code id="settingsRestartUrl">http://127.0.0.1:${storedPort()}</code>. The launcher and the exe
+          both read this value, so your shortcut keeps working.</div>
+        <span class="settings-toggle-desc">Run a second Vault for another library by giving it a different
+          port and a name, so the two are easy to tell apart even while locked.</span>
+      </div>`;
+  }
+
+  /** Repaint everything the port row derives from `server`. Called after every
+   *  save and whenever the cached server state refreshes. */
+  function syncPortRow() {
+    const input = document.getElementById('settingsPort');
+    if (!input) return;
+    const env = portIsEnv();
+    input.disabled = env;
+    document.getElementById('settingsPortEnvTag').hidden = !env;
+    document.getElementById('settingsPortTag').hidden = env || !server.restartNeeded;
+    const now = document.getElementById('settingsPortNow');
+    if (now) now.textContent = String(livePort());
+    const note = document.getElementById('settingsRestartNote');
+    const url = document.getElementById('settingsRestartUrl');
+    if (url) url.textContent = `http://127.0.0.1:${storedPort()}`;
+    if (note) note.hidden = env || !server.restartNeeded;
+    if (document.activeElement !== input) input.value = String(storedPort());
+  }
+
+  function wireInstanceRow() {
+    const name = document.getElementById('settingsInstName');
+    const port = document.getElementById('settingsPort');
+    if (!name || !port) return;
+    syncPortRow();
+
+    // Typing settles into a save 300 ms after the last keystroke, so a rename
+    // lands on the tab title as you finish the word rather than per character.
+    // Blur and Enter flush immediately, because those are people who are done.
+    let nameTimer = null;
+    let lastSaved = instName();
+    const saveName = async () => {
+      clearTimeout(nameTimer);
+      const value = name.value.trim().slice(0, 40);
+      if (value === lastSaved) return;
+      lastSaved = value;
+      try {
+        const r = await pushServerSetting({ instanceName: value });
+        const applied = typeof r.instanceName === 'string' ? r.instanceName : value;
+        lastSaved = applied;
+        if (document.activeElement !== name) name.value = applied;
+        window.vaultApplyInstanceName?.(applied);
+        showToast?.('Name applied');
+      } catch (err) {
+        lastSaved = instName();
+        name.value = lastSaved;
+        showToast?.('⚠ ' + err.message);
+      }
+    };
+    name.addEventListener('input', () => {
+      clearTimeout(nameTimer);
+      nameTimer = setTimeout(saveName, 300);
+    });
+    name.addEventListener('blur', saveName);
+    name.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); saveName(); }
+    });
+
+    port.addEventListener('change', async () => {
+      if (port.disabled) return;
+      const n = clampInt(port.value, 1024, 65535, storedPort());
+      port.value = n;
+      if (n === storedPort()) { syncPortRow(); return; }
+      try {
+        const r = await pushServerSetting({ serverPort: n });
+        syncPortRow();
+        showToast?.(r.restartNeeded
+          ? `Port saved. Restart Vault to move to ${r.savedPort}`
+          : 'Port saved');
+      } catch (err) {
+        // 409 means MEDIA_TAGGER_PORT owns it; the message says so and the
+        // re-sync disables the field once the server state catches up.
+        port.value = storedPort();
+        showToast?.('⚠ ' + err.message);
+        loadServerSettings().then(ok => { if (ok) syncPortRow(); });
+      }
+    });
+  }
+
   function RENDERERS_settings() {
     return `
       <h3 class="settings-h">Preferences</h3>
@@ -578,12 +721,6 @@
         title: 'Restore last session on open',
         desc: 'When the app launches, reopen the last media you played, paused.',
       })}
-      ${numberRow({
-        key: 'scanWorkers',
-        title: 'AI scan workers',
-        desc: 'How many files the local vision model scans at once after an import. Higher is faster but needs more VRAM. 1–8, default 2.',
-        min: 1, max: 8,
-      })}
       ${segRow({
         key: 'libraryLayout',
         title: 'Library layout',
@@ -601,6 +738,7 @@
         title: 'Hide 🏆 Obsession Score',
         desc: 'Removes the score chip and its point/level toasts from the library. Scoring carries on in the background, so unhiding shows your real history rather than a gap. Nothing is deleted. Entirely offline either way.',
       })}
+      ${instanceRow()}
 
       <h3 class="settings-h">AI model downloads</h3>
       <p class="settings-note">${modelDl.envAllows
@@ -632,6 +770,7 @@
   function wireSettingsSection() {
     const body = document.getElementById('settingsBody');
     if (!body) return;
+    wireInstanceRow();
     body.querySelectorAll('input[data-setting]').forEach(input => {
       if (input.disabled) return;
       input.addEventListener('change', async () => {
@@ -761,6 +900,9 @@
     // which is a browser preference, so it needs no server sync.)
     const a = body.querySelector('input[data-setting-num="autolockMinutes"]');
     if (a && document.activeElement !== a) a.value = String(server.autolockMinutes);
+    const n = body.querySelector('#settingsInstName');
+    if (n && document.activeElement !== n) n.value = instName();
+    syncPortRow();
     const note = document.getElementById('settingsSecNote');
     if (note) {
       note.innerHTML = server.encrypted
@@ -1976,6 +2118,424 @@
     });
   }
 
+  /* ── Section: Backend ─────────────────────────────────────────────────────
+     Everything about the machine doing the scanning: which AI server answers,
+     which model family scans, and how many loaded copies of it are in play.
+
+     It is last in the nav and mostly folded away because almost nobody needs
+     it: the people who do are the ones with spare VRAM who have loaded the
+     same model three times in LM Studio and want Vault to use all three.
+
+     Every fetch here fails soft. The routes are new, so an older server (or
+     one that is mid-restart, or a locked vault) answers 404/423 and the tab
+     has to render an honest empty state instead of throwing. */
+
+  // Said in full under the table, and again as a tooltip on both steppers,
+  // because "more workers = faster" is the wrong instinct and it costs VRAM.
+  const BACKEND_WHY = '<b>Workers</b> keep an instance busy while the next file\'s frames are still being '
+    + 'extracted. They cut idle time and use almost no extra VRAM, but one instance can still only answer '
+    + 'one request at a time. <b>Instances</b> are extra copies of the model loaded in LM Studio. Each one '
+    + 'answers in parallel, so three instances is roughly three times the throughput.';
+  const WORKERS_TIP = 'Workers keep an instance busy between files. They do not add throughput; instances do.';
+
+  let _backendPoll = null;
+
+  async function beGet(url) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) return null;
+      return await r.json();
+    } catch { return null; }
+  }
+
+  async function bePost(url, body) {
+    try {
+      const r = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json().catch(() => ({}));
+      return { ok: r.ok, data };
+    } catch (err) { return { ok: false, data: { error: err.message } }; }
+  }
+
+  // One shape for "is this server answering", used by the summary line and by
+  // every row in the servers card.
+  function epStatusHtml(ep) {
+    if (!ep || ep.reachable == null) return '<span class="settings-dot"></span>not tested';
+    if (ep.reachable) {
+      const n = Number(ep.loaded) || 0;
+      return `<span class="settings-dot ok"></span>reachable · ${n} loaded`;
+    }
+    return `<span class="settings-dot bad"></span>no answer`;
+  }
+
+  function hostOf(url) {
+    try { return new URL(url).host; } catch { return String(url || ''); }
+  }
+
+  function renderAiNote() {
+    const note = document.getElementById('backendAiNote');
+    if (!note) return;
+    const eps = backend.status?.endpoints || [];
+    if (!eps.length) {
+      note.innerHTML = 'Scans go to the LM Studio, Ollama or vLLM running on this PC. '
+        + 'No server is set up yet. Change it under Advanced.';
+      return;
+    }
+    const first = eps[0];
+    note.innerHTML = 'Scans go to the LM Studio, Ollama or vLLM running on this PC: '
+      + `<code>${esc(hostOf(first.url))}</code>, `
+      + `<span class="settings-st">${epStatusHtml(first)}</span>. Change it under Advanced.`;
+  }
+
+  function epRowHtml(ep, only) {
+    return `
+      <div class="settings-ep-row">
+        <input class="mig-input settings-ep-url" type="text" spellcheck="false" autocomplete="off"
+               aria-label="AI server address" placeholder="http://localhost:1234/v1/chat/completions"
+               value="${esc(ep?.url || '')}">
+        <span class="settings-ep-status settings-st">${epStatusHtml(ep)}</span>
+        <span class="settings-ep-act">
+          <button type="button" class="settings-btn settings-ep-test">Test</button>
+          <button type="button" class="settings-ep-x" title="Remove this server"
+                  aria-label="Remove this server"${only ? ' hidden' : ''}>&times;</button>
+        </span>
+      </div>`;
+  }
+
+  function renderEpRows() {
+    const list = document.getElementById('backendEpList');
+    if (!list) return;
+    const eps = backend.status?.endpoints || [];
+    const rows = eps.length ? eps : [{ url: '', reachable: null }];
+    list.innerHTML = rows.map(ep => epRowHtml(ep, rows.length < 2)).join('');
+    const env = backend.status?.source === 'env';
+    const card = document.getElementById('backendEpCard');
+    if (card) {
+      card.classList.toggle('is-env', env);
+      // Disabled rather than merely veiled: a veil can be scrolled past, and a
+      // field that takes typing it will never save is worse than no field.
+      card.querySelectorAll('input, button').forEach(el => { el.disabled = env; });
+    }
+    const tag = document.getElementById('backendEpEnvTag');
+    if (tag) tag.hidden = !env;
+    wireEpRows();
+  }
+
+  function epUrls() {
+    return [...document.querySelectorAll('#backendEpList .settings-ep-url')]
+      .map(i => i.value.trim()).filter(Boolean);
+  }
+
+  async function saveEndpoints() {
+    const endpoints = epUrls();
+    if (!endpoints.length) return;            // an empty list is a 400; nothing to save yet
+    const { ok, data } = await bePost('/api/ai/endpoints', { endpoints });
+    if (!ok) { showToast?.('⚠ ' + (data.error || 'could not save the server list')); return; }
+    backend.status = data;
+    renderAiNote();
+    renderEpRows();
+    showToast?.('Servers saved');
+  }
+
+  function wireEpRows() {
+    const list = document.getElementById('backendEpList');
+    if (!list) return;
+    list.querySelectorAll('.settings-ep-row').forEach(row => {
+      const input = row.querySelector('.settings-ep-url');
+      const status = row.querySelector('.settings-ep-status');
+      // Saving on blur rather than on a Save button: there is one field and
+      // the server normalises whatever is typed, so a button would only add a
+      // step people forget.
+      input.addEventListener('blur', () => {
+        const before = (backend.status?.endpoints || []).map(e => e.url).join('|');
+        if (epUrls().join('|') === before) return;
+        saveEndpoints();
+      });
+      row.querySelector('.settings-ep-test').addEventListener('click', async () => {
+        const url = input.value.trim();
+        if (!url) return;
+        status.innerHTML = '<span class="settings-dot busy"></span>testing';
+        const { ok, data } = await bePost('/api/ai/endpoints/test', { url });
+        if (!status.isConnected) return;
+        status.innerHTML = ok ? epStatusHtml(data)
+          : `<span class="settings-dot bad"></span>${esc(data.error || 'no answer')}`;
+        // A row that was just proved to work is worth keeping, so a successful
+        // test on a newly typed address saves the list for the user.
+        const known = (backend.status?.endpoints || []).some(e => e.url === url);
+        if (ok && data.reachable && !known) saveEndpoints();
+      });
+      row.querySelector('.settings-ep-x').addEventListener('click', () => {
+        row.remove();
+        saveEndpoints();
+      });
+    });
+  }
+
+  function renderModelSel() {
+    const sel = document.getElementById('backendModelSel');
+    if (!sel) return;
+    const fams = backend.models?.families || [];
+    const current = backend.models?.current || '';
+    const opts = [`<option value="">Auto (whatever is loaded)</option>`].concat(
+      fams.map(f => {
+        const n = Number(f.count) || 0;
+        return `<option value="${esc(f.family)}"${f.family === current ? ' selected' : ''}>`
+          + `${esc(f.family)} · ${n} instance${n === 1 ? '' : 's'}</option>`;
+      })
+    );
+    sel.innerHTML = opts.join('');
+    if (!fams.length) sel.title = 'No models reported yet. Load one in your AI server.';
+  }
+
+  function instStatusHtml(inst) {
+    if (!inst.alive) {
+      const secs = inst.goneAt ? Math.max(0, Math.round((Date.now() - inst.goneAt) / 1000)) : null;
+      return `<span class="settings-st"><span class="settings-dot bad"></span>`
+        + (secs == null ? 'unloaded' : `unloaded ${secs} s ago`) + '</span>';
+    }
+    if (!inst.enabled) return '<span class="settings-st"><span class="settings-dot"></span>parked</span>';
+    return `<span class="settings-st"><span class="settings-dot ok"></span>${Number(inst.inFlight) || 0} in flight</span>`;
+  }
+
+  const secs1 = (ms) => `${((Number(ms) || 0) / 1000).toFixed(1)} s`;
+
+  function familyRowsHtml(fam) {
+    const list = fam.instances || [];
+    const inUse = list.filter(i => i.enabled && i.alive).length;
+    const done = list.reduce((s, i) => s + (Number(i.done) || 0), 0);
+    const timed = list.filter(i => Number(i.avgMs) > 0);
+    const avg = timed.length ? secs1(timed.reduce((s, i) => s + i.avgMs, 0) / timed.length) : '-';
+    const maxDone = Math.max(1, ...list.map(i => Number(i.done) || 0));
+    const head = `
+      <tr class="fam">
+        <td colspan="2"><span class="fam-name">${esc(fam.family)}</span></td>
+        <td class="num">${fam.selected ? `${inUse} of ${list.length} in use` : 'not selected'}</td>
+        <td class="num">${done}</td>
+        <td class="num">${avg}</td>
+      </tr>`;
+    // A non-selected family with a single copy is listed for context only: its
+    // per-instance row would be five empty cells under its own name. It still
+    // expands when it has several copies, because "which copy do I park" is a
+    // question people ask before they have picked the family.
+    if (!fam.selected && list.length < 2) return head;
+    return head + list.map(i => {
+      const pct = Math.round(((Number(i.done) || 0) / maxDone) * 100);
+      return `
+      <tr class="sub ${i.enabled ? '' : 'off'} ${i.alive ? '' : 'dead'}">
+        <td><label class="settings-sw-inline" title="${i.enabled ? 'Stop sending scans here' : 'Use this instance'}">
+          <input type="checkbox" data-inst-id="${esc(i.id)}" data-inst-ep="${esc(i.endpoint)}"
+                 ${i.enabled ? 'checked' : ''} ${i.alive ? '' : 'disabled'}
+                 aria-label="Use instance ${esc(i.suffix || '')}">
+          <span class="settings-switch" aria-hidden="true"></span>
+        </label></td>
+        <td><span class="mid"><span class="sfx">${esc(i.suffix || ':1')}</span></span></td>
+        <td>${instStatusHtml(i)}</td>
+        <td class="num"><span class="settings-inst-bar"><i style="width:${pct}%"></i></span> ${Number(i.done) || 0}</td>
+        <td class="num">${Number(i.avgMs) > 0 ? secs1(i.avgMs) : '-'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function instanceFootHtml() {
+    const d = backend.instances || {};
+    const active = Number(d.activeSlots) || 0;
+    const w = Number(d.workersPerInstance) || window.vaultScanWorkers?.() || settings.scanWorkers;
+    const product = active * w;
+    // The server caps the queue, so the honest sum and the number it will
+    // actually run can differ. Show both rather than an equation that does not
+    // add up on a machine with a lot of models loaded.
+    const real = Number(d.inFlightMax) || Number(d.concurrency) || product;
+    const capped = real < product ? ` <b>${real}</b> at once is the ceiling.` : '';
+    // No active slots is not "0 instances": with several families loaded and
+    // no pick made, the server cannot tell which copies scans should go to.
+    // Saying so is useful; printing 0 × 2 = 0 is not.
+    const anyFamily = (backend.instances?.families || []).length > 0;
+    const sum = active > 0
+      ? `<b>${active}</b> instance${active === 1 ? '' : 's'} × <b>${w}</b> workers =
+         <b>${product}</b> scans in flight.${capped}`
+      : anyFamily
+        ? 'No model picked yet. Choose one above and Vault will use every loaded copy of it.'
+        : 'Nothing loaded to scan with yet.';
+    return `
+      <span class="settings-kv">${sum}</span>
+      <span class="settings-wk">Workers per instance
+        <input class="settings-num" type="number" min="${WORKERS_MIN}" max="${WORKERS_MAX}" step="1"
+               data-setting-num="scanWorkers" value="${w}" title="${WORKERS_TIP}"
+               aria-label="Workers per instance"></span>
+      <button type="button" class="settings-btn" id="backendInstRefresh">Refresh</button>`;
+  }
+
+  // The footer is repainted on its own after a workers push, so it does not
+  // take the whole table (and the user's place in it) with it.
+  function renderInstanceFoot() {
+    const foot = document.getElementById('backendInstFoot');
+    if (!foot) return;
+    const num = foot.querySelector('[data-setting-num="scanWorkers"]');
+    if (num && document.activeElement === num) return;   // mid-edit is sacred
+    foot.innerHTML = instanceFootHtml();
+    wireInstanceFoot();
+  }
+
+  function wireInstanceFoot() {
+    const foot = document.getElementById('backendInstFoot');
+    if (!foot) return;
+    foot.querySelector('[data-setting-num="scanWorkers"]')?.addEventListener('change', (e) => {
+      // Goes through the shared setter so the scan panel's stepper follows.
+      e.target.value = window.vaultSetScanWorkers(e.target.value);
+    });
+    foot.querySelector('#backendInstRefresh')?.addEventListener('click', (e) => {
+      e.currentTarget.disabled = true;
+      loadInstances({ refresh: true }).finally(() => {
+        const b = document.getElementById('backendInstRefresh');
+        if (b) b.disabled = false;
+      });
+    });
+  }
+
+  function renderInstances() {
+    const host = document.getElementById('backendInstHost');
+    if (!host) return;
+    const fams = backend.instances?.families || [];
+    const table = fams.length ? `
+      <table class="settings-inst-table">
+        <thead><tr>
+          <th colspan="2">Family / instance</th><th>Status</th>
+          <th class="num">Done this run</th><th class="num">Avg / file</th>
+        </tr></thead>
+        <tbody>${fams.map(familyRowsHtml).join('')}</tbody>
+      </table>`
+      : `<p class="settings-note">${backend.instances
+        ? 'Nothing loaded yet. Load a model in your AI server, then press Refresh.'
+        : 'Could not reach the local server for the instance list. Press Refresh to try again.'}</p>`;
+    host.innerHTML = table + `<div class="settings-inst-foot" id="backendInstFoot">${instanceFootHtml()}</div>`
+      + `<div class="settings-why"><span class="k">Want it faster?</span> ${BACKEND_WHY}`
+      + `<br><span class="k">Rule of thumb</span> workers 2 per instance, then as many instances as your VRAM holds.</div>`;
+    wireInstanceFoot();
+    host.querySelectorAll('input[data-inst-id]').forEach(cb => {
+      cb.addEventListener('change', async () => {
+        cb.disabled = true;
+        const { ok, data } = await bePost('/api/ai/instances/enabled', {
+          id: cb.dataset.instId, endpoint: cb.dataset.instEp, enabled: cb.checked,
+        });
+        if (!ok) {
+          cb.checked = !cb.checked;
+          cb.disabled = false;
+          showToast?.('⚠ ' + (data.error || 'could not change that instance'));
+          return;
+        }
+        backend.instances = data;
+        renderInstances();
+      });
+    });
+  }
+
+  async function loadInstances({ refresh = false } = {}) {
+    const d = await beGet(`/api/ai/instances${refresh ? '?refresh=1' : ''}`);
+    // A failed poll keeps the last good snapshot on screen rather than
+    // blanking a table the user is reading.
+    if (d) backend.instances = d;
+    else if (!backend.instances) backend.instances = null;
+    renderInstances();
+  }
+
+  function RENDERERS_backend() {
+    return `
+      <h3 class="settings-h">AI server</h3>
+      <p class="settings-note" id="backendAiNote">Checking the AI server.</p>
+
+      <details class="settings-acc" id="backendAdv">
+        <summary>Advanced: AI servers</summary>
+        <div class="settings-acc-body">
+          <div class="mig-card" id="backendEpCard">
+            <div class="mig-card-title">Servers
+              <span class="settings-tag env" id="backendEpEnvTag" hidden>set by LM_STUDIO_URLS</span></div>
+            <div class="mig-card-blurb">Test checks the server answers and lists what it has loaded.
+              Changes apply to the next file scanned; nothing in flight is interrupted.</div>
+            <div id="backendEpList"></div>
+            <div class="mig-actions">
+              <button type="button" class="settings-link" id="backendEpAdd">+ Add another server</button>
+              <span class="settings-ep-why">Only for a second machine on your network, or a different
+                program such as Ollama running beside LM Studio. More VRAM on this PC? Load more
+                instances below instead.</span>
+            </div>
+            <div class="settings-env-veil"><span>Set by <code>LM_STUDIO_URLS</code> in your .env.
+              Remove it there to edit here.</span></div>
+          </div>
+        </div>
+      </details>
+
+      <div class="settings-toggle">
+        <span class="settings-toggle-text">
+          <span class="settings-toggle-title">Model for scans</span>
+          <span class="settings-toggle-desc"><b>Auto</b> uses whatever is loaded and only asks when more
+            than one family is. Picking a family uses every loaded copy of it.</span>
+        </span>
+        <select class="settings-sel" id="backendModelSel" aria-label="Model for scans">
+          <option value="">Auto (whatever is loaded)</option>
+        </select>
+      </div>
+
+      <h3 class="settings-h settings-h-mt">Loaded instances</h3>
+      <p class="settings-note">Every copy of a model your server reports. Load the same model again in
+        LM Studio to add one; Vault picks it up within a few seconds and spreads scans across all of them.</p>
+      <div id="backendInstHost"></div>`;
+  }
+
+  function wireBackendSection() {
+    // Render from whatever is already cached so the tab is never blank, then
+    // refresh each region as its route answers.
+    renderAiNote();
+    renderEpRows();
+    renderModelSel();
+    renderInstances();
+
+    document.getElementById('backendEpAdd')?.addEventListener('click', () => {
+      const list = document.getElementById('backendEpList');
+      if (!list) return;
+      list.insertAdjacentHTML('beforeend', epRowHtml(null, false));
+      list.querySelectorAll('.settings-ep-x').forEach(x => { x.hidden = false; });
+      wireEpRows();
+      list.querySelector('.settings-ep-row:last-child .settings-ep-url')?.focus();
+    });
+
+    document.getElementById('backendModelSel')?.addEventListener('change', async (e) => {
+      const sel = e.target;
+      const value = sel.value || null;          // "" means Auto, which clears the choice
+      sel.disabled = true;
+      const { ok, data } = await bePost('/api/ai/model-choice', { model: value });
+      sel.disabled = false;
+      if (!ok) { showToast?.('⚠ ' + (data.error || 'could not set the model')); return; }
+      if (backend.models) backend.models.current = data.family || data.model || value || '';
+      showToast?.(value ? `Scanning with ${value}` : 'Using whatever is loaded');
+      loadInstances({ refresh: true });
+    });
+
+    beGet('/api/ai/endpoints').then(d => { if (d) backend.status = d; renderAiNote(); renderEpRows(); });
+    beGet('/api/ai/models').then(d => { if (d) backend.models = d; renderModelSel(); });
+    loadInstances({ refresh: true });
+    startBackendPoll();
+  }
+
+  /* Poll only while there is something to watch. The in-flight counts and the
+     done totals move during a scan and are frozen the rest of the time, so the
+     tick skips the request unless the scan panel is on screen (importer.js
+     puts it there for exactly as long as the import queue is running). */
+  function startBackendPoll() {
+    stopBackendPoll();
+    _backendPoll = setInterval(() => {
+      if (!isOpen() || !document.getElementById('backendInstHost')) { stopBackendPoll(); return; }
+      if (!document.getElementById('scanQueuePanel')) return;
+      loadInstances();
+    }, 5000);
+  }
+
+  function stopBackendPoll() {
+    clearInterval(_backendPoll);
+    _backendPoll = null;
+  }
+
   // Renderer table (assigned above as bare globals to keep each section near
   // its wiring; collect them here).
   const RENDERERS = {
@@ -1985,6 +2545,7 @@
     models:    RENDERERS_models,
     seedpacks: RENDERERS_seedpacks,
     about:     RENDERERS_about,
+    backend:   RENDERERS_backend,
   };
 
   /* ── Restore last session ────────────────────────────────────────────────── */

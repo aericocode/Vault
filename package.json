@@ -12,7 +12,8 @@
     "scan": "node vault.js scan",
     "status": "node vault.js status",
     "viewer": "node server/index.js",
-    "build:exe": "node tools/sea/build-app.js"
+    "build:exe": "node tools/sea/build-app.js",
+    "test": "node --test \"test/*.test.js\""
   },
   "keywords": [
     "video",

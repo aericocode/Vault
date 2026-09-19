@@ -5,8 +5,45 @@ const { ROOT } = require('../lib/approot');
 // Generic/domain vars (WHISPER_*, SUB_*, DUPE_*, …) were never branded and are
 // read straight from process.env below.
 const { envVar } = require('../lib/env-var');
+// Two settings now have an in-app home as well as an env var, because the
+// people who need them most (double-click Vault.exe, no shell, no .env) have
+// nowhere to set one: the viewer port and the AI server list. Env still wins
+// so a scripted/CI launch is never overridden by a stale saved value.
+// lib/app-settings.js depends only on lib/approot.js, which depends on nothing
+// here, so reading it at config load introduces no require cycle.
+const appSettings = require('../lib/app-settings');
 
 const isWindows = process.platform === 'win32';
+
+/** MEDIA_TAGGER_PORT > stored serverPort > 8765, and which of the three it was. */
+function _resolvePort() {
+  const fromEnv = parseInt(process.env.MEDIA_TAGGER_PORT, 10);
+  if (Number.isInteger(fromEnv) && fromEnv >= 1 && fromEnv <= 65535) {
+    return { port: fromEnv, source: 'env' };
+  }
+  const stored = appSettings.getInt('serverPort', 0, { min: 0, max: 65535 });
+  if (stored >= 1024 && stored <= 65535) return { port: stored, source: 'settings' };
+  return { port: 8765, source: 'default' };
+}
+
+/** LM_STUDIO_URLS > stored aiEndpoints > the LM Studio default. */
+function _resolveEndpoints() {
+  const fromEnv = String(process.env.LM_STUDIO_URLS || '').trim();
+  if (fromEnv) {
+    return { endpoints: fromEnv.split(',').map(u => u.trim()).filter(Boolean), source: 'env' };
+  }
+  const stored = appSettings.all().aiEndpoints;
+  if (Array.isArray(stored)) {
+    // Saved values were normalised by POST /api/ai/endpoints, so only obvious
+    // junk needs filtering here.
+    const list = stored.filter(u => typeof u === 'string' && u.trim()).map(u => u.trim());
+    if (list.length) return { endpoints: list, source: 'settings' };
+  }
+  return { endpoints: ['http://localhost:1234/v1/chat/completions'], source: 'default' };
+}
+
+const _port = _resolvePort();
+const _endpoints = _resolveEndpoints();
 
 const config = {
   // AI backend — any OpenAI-compatible /v1/chat/completions server works:
@@ -16,9 +53,10 @@ const config = {
     // LM Studio:  http://localhost:1234/v1/chat/completions   (default)
     // Ollama:     http://localhost:11434/v1/chat/completions  (also set AI_MODEL)
     // Example multi-GPU: LM_STUDIO_URLS=http://localhost:1234/...,http://localhost:1235/...
-    endpoints: (process.env.LM_STUDIO_URLS || 'http://localhost:1234/v1/chat/completions')
-      .split(',')
-      .map(url => url.trim()),
+    endpoints: _endpoints.endpoints,
+    // 'env' | 'settings' | 'default' — the Backend tab greys the editor out
+    // and says so when LM_STUDIO_URLS is what is in charge.
+    endpointSource: _endpoints.source,
     // Model name sent with each request. LM Studio ignores it (uses whatever
     // is loaded), so null is fine there — but Ollama/vLLM REQUIRE it.
     // Ollama example: AI_MODEL=qwen3.5-4b-uncensored-hauhaucs-aggressive@q4_k_m (a vision model — scans need one)
@@ -201,7 +239,11 @@ const config = {
   // Viewer server (local-only — this app moves/deletes real files)
   server: {
     host: '127.0.0.1',
-    port: parseInt(process.env.MEDIA_TAGGER_PORT) || 8765,
+    port: _port.port,
+    // 'env' | 'settings' | 'default'. start.bat and tools/sea both read
+    // config.server.port, so a port saved in Settings moves the launcher with
+    // it; portSource is what tells the UI whether it may be edited.
+    portSource: _port.source,
   },
 
   // Network policy — the app-wide hard offline switch. VAULT_OFFLINE=1 makes

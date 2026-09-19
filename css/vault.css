@@ -75,8 +75,27 @@
   transition: stroke-dashoffset var(--vault-hold-ms, 3000ms) linear;
   stroke-dashoffset: 0;
 }
+/* Whose Vault is this? The name has to be readable BEFORE unlock, which is the
+   one place it cannot come from a browser preference. The address underneath
+   answers "which port is this tab?" without unlocking anything it should not. */
+.vault-lock-eyebrow {
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brand, var(--accent));
+  font-weight: 600;
+  margin-top: 0.4rem;
+  margin-bottom: 0.15rem;
+}
+.vault-lock-eyebrow[hidden] { display: none; }
 .vault-lock-title { font-size: 1.3rem; font-weight: 700; letter-spacing: 0.04em; }
 .vault-lock-hint { margin-top: 0.4rem; font-size: 0.85rem; color: var(--text-muted, #888); min-height: 1.2em; }
+.vault-lock-addr {
+  margin-top: 0.7rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
 .vault-unlock-form { margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: center; }
 
 /* ── Password modal (create/confirm) ── */
