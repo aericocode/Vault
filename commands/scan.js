@@ -330,12 +330,27 @@ async function run(args) {
   availableEndpoints.forEach(e => console.log(`  ✓ ${e.endpoint}`));
   endpoints.filter(e => !e.available).forEach(e => console.log(`  ✗ ${e.endpoint}`));
 
-  // Default workers: endpoints × vision workers × pipeline depth, so frame
+  // Ask what is actually loaded. Several copies of one model on one endpoint
+  // answer in parallel, so the endpoint count alone would size the pool at a
+  // third of the machine on a three-instance setup.
+  const aiSlots = require('../lib/ai-slots');
+  aiSlots.boot({ activeProbe: () => true });
+  try { await aiSlots.refresh({ force: true }); } catch {}
+  const scanFamily = require('../lib/llm-client').currentFamily();
+  const slots = aiSlots.instancesOf(scanFamily).filter(s => s.alive && s.enabled);
+  if (slots.length) {
+    console.log(`Loaded instances: ${slots.length} of ${scanFamily}`);
+    slots.forEach(s => console.log(`  • ${s.id} (${s.endpoint})`));
+  }
+
+  // Default workers: instances × vision workers × pipeline depth, so frame
   // extraction (CPU) for the next file overlaps vision inference (GPU) on
-  // the current one instead of leaving the GPU idle.
+  // the current one instead of leaving the GPU idle. An endpoint that does not
+  // list its models contributes one instance, which is the old arithmetic.
+  const activeSlots = slots.length || availableEndpoints.length;
   const maxWorkers = workersIdx >= 0 && args[workersIdx + 1]
     ? parseInt(args[workersIdx + 1])
-    : availableEndpoints.length
+    : activeSlots
       * config.performance.maxVisionWorkersPerEndpoint
       * config.performance.pipelineDepth;
 

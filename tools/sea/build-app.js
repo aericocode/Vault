@@ -198,7 +198,7 @@ fs.writeFileSync(path.join(OUT, 'README.txt'), `Vault v${version} — portable b
 
 Double-click Vault.exe to start. A console window opens (that's the server —
 closing it stops Vault and locks the library), and the viewer opens in your
-default browser at http://127.0.0.1:8765.
+default browser at http://127.0.0.1:8765, or whatever port you set in Settings.
 
 Everything Vault creates (library database, thumbnails, trash, models, …)
 lives HERE, next to Vault.exe. Move or copy this whole folder anywhere —

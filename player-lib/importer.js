@@ -122,6 +122,17 @@
 
   // Same buckets as lib/work-queue.js ProgressTracker.eta, so the CLI and the
   // panel never quote different numbers for the same queue.
+  /* ── Instances in the scan panel ─────────────────────────────────────────
+     Several copies of one model can be loaded in LM Studio, and the server
+     spreads scans over all of them. The panel says how many are actually
+     pulling, because the answer to "why is this slow" is usually a copy that
+     quietly unloaded, not the worker count. The strip only appears when there
+     is something to say: two or more instances, or one that has gone. */
+
+  // Same sentence as the Backend tab's stepper (player-lib/settings.js), for
+  // the same reason: more workers is the wrong instinct.
+  const WORKERS_TIP = 'Workers keep an instance busy between files. They do not add throughput; instances do.';
+
   function fmtEta(ms) {
     if (ms == null || !Number.isFinite(ms)) return '–';
     if (ms < 60000) return `${Math.round(ms / 1000)}s`;
@@ -151,10 +162,11 @@
       <div class="dq-bar"><div class="dq-bar-fill" id="scanBarFill"></div></div>
       <div class="dq-meta" id="scanMeta">
         <span class="dq-eta" id="scanEta"></span>
-        <span class="dq-workers">🤖 <input type="number" min="1" max="8" step="1"
+        <span class="dq-workers">🤖 <input type="number" min="1" max="4" step="1"
           class="dq-num" id="scanWorkersNum" data-scan-workers
-          title="Parallel vision jobs. Changes take effect immediately"></span>
+          title="${WORKERS_TIP}"></span>
       </div>
+      <div class="dq-inst" id="scanInst" hidden></div>
       <div class="dq-warn" id="scanWarn" hidden></div>
       <div class="dq-list" id="scanList"></div>
       <div class="dq-actions" id="scanActions">
@@ -279,6 +291,7 @@
         <select class="dq-pick-sel" id="scanModelSelect" disabled><option>Loading…</option></select>
         <button type="button" class="dq-btn dq-btn-primary" id="scanModelGo" disabled>Use this model</button>
       </div>`
+      + `<div class="dq-warn-at">Copies of the same model are one choice. Vault uses all of them.</div>`
       + (q.halt.filename ? `<div class="dq-warn-at">stopped at ${escapeHtml(q.halt.filename)}</div>` : '')
       + `<div class="dq-warn-at">Nothing was lost. The scan carries on from here. Set AI_MODEL to skip this next time.</div>`;
 
@@ -294,14 +307,25 @@
       // The panel may have been rebuilt (or the halt cleared) while this was in
       // flight — bail rather than writing into a detached node.
       if (!sel.isConnected) return;
+      // Families, not raw ids: three loaded copies of one model are ONE
+      // choice, and listing them separately would show three near-identical
+      // rows for what is really a single decision. Older servers send no
+      // `families`, so the flat model list stays the fallback.
+      const families = (data && data.families) || [];
       const models = (data && data.models) || [];
-      if (!models.length) {
+      if (!families.length && !models.length) {
         sel.innerHTML = `<option>${escapeHtml(data?.error || 'No models reported')}</option>`;
         return;
       }
-      sel.innerHTML = models.map(m =>
-        `<option value="${escapeHtml(m.id)}"${m.id === data.current ? ' selected' : ''}>${escapeHtml(m.id)}</option>`
-      ).join('');
+      sel.innerHTML = families.length
+        ? families.map(f => {
+          const n = Number(f.count) || 1;
+          return `<option value="${escapeHtml(f.family)}"${f.family === data.current ? ' selected' : ''}>`
+            + `${escapeHtml(f.family)} · ${n} instance${n === 1 ? '' : 's'}</option>`;
+        }).join('')
+        : models.map(m =>
+          `<option value="${escapeHtml(m.id)}"${m.id === data.current ? ' selected' : ''}>${escapeHtml(m.id)}</option>`
+        ).join('');
       sel.disabled = false;
       go.disabled = false;
     })();
@@ -345,9 +369,19 @@
       model: ' · paused (model unavailable)',
       'model-choice': ' · paused (pick a model)',
     }[by] || '';
+    // Instance counts, if the server reports them. An older server sends no
+    // `instances` array and everything below collapses to today's panel.
+    const insts = Array.isArray(q.instances) ? q.instances : [];
+    const liveInsts = insts.filter(i => i.alive && i.enabled);
+    const goneInsts = insts.filter(i => !i.alive);
+    const instBit = liveInsts.length >= 2
+      ? ` · ${liveInsts.length} instances` : '';
+    const goneBit = goneInsts.length
+      ? ` · ${goneInsts.length} unloaded` : '';
+
     el.querySelector('#scanHead').innerHTML = `
       ${q.paused ? `<span class="dq-ico">${modelHalt ? '⚠' : '⏸'}</span>` : '<span class="dq-spin"></span>'}
-      <span class="dq-title">🤖 AI scan ${done}/${total}${failed ? ` · ${failed} failed` : ''}${note}</span>`;
+      <span class="dq-title">🤖 AI scan ${done}/${total}${instBit}${goneBit}${failed ? ` · ${failed} failed` : ''}${note}</span>`;
 
     const pct = total ? Math.min(100, ((done + failed) / total) * 100) : 0;
     el.querySelector('#scanBarFill').style.width = `${pct}%`;
@@ -384,17 +418,49 @@
 
     el.querySelector('#scanActions').hidden = false;
     el.querySelector('#scanMeta').style.display = '';
-    el.querySelector('#scanEta').textContent = `ETA ${fmtEta(q.etaMs)}`;
+    // With one instance the worker count IS the concurrency, so the old line
+    // still says everything. With several, the sum is the interesting number.
+    const wpi = Number(q.workersPerInstance) || Number(q.concurrency) || 0;
+    el.querySelector('#scanEta').textContent = liveInsts.length >= 2 && wpi
+      ? `${liveInsts.length} × ${wpi} = ${liveInsts.length * wpi} in flight · ~${fmtEta(q.etaMs)} left`
+      : `ETA ${fmtEta(q.etaMs)}`;
+
+    // The per-instance strip: one line each, only when it earns its space.
+    const strip = el.querySelector('#scanInst');
+    const showStrip = liveInsts.length >= 2 || goneInsts.length > 0;
+    strip.hidden = !showStrip;
+    strip.innerHTML = !showStrip ? '' : insts.map(i => {
+      const ico = !i.alive ? '✕' : (i.enabled ? '●' : '○');
+      const text = !i.alive ? 'unloaded, skipping'
+        : i.enabled ? `${Number(i.inFlight) || 0} in flight · ${Number(i.done) || 0} done`
+        : 'parked';
+      return `<div class="dq-inst-row${i.alive ? '' : ' dq-dead'}">`
+        + `<span class="dq-ico">${ico}</span>`
+        + `<span class="dq-inst-id">${escapeHtml(i.suffix || ':1')}</span>`
+        + `<span>${text}</span></div>`;
+    }).join('');
     // Mid-edit is sacred: a poll landing between keystrokes must not rewrite
     // what the user is typing.
+    // Workers PER INSTANCE, which is what this stepper sets. `concurrency` is
+    // instances × workers, so reading it put a 4 in a control whose range stops
+    // at 4, and every poll tick undid whatever syncScanWorkersUI had just made
+    // the two steppers agree on.
     const num = el.querySelector('#scanWorkersNum');
-    const workers = String(q.concurrency || (window.vaultScanWorkers ? window.vaultScanWorkers() : 2));
+    const workers = String(q.workersPerInstance
+      || (window.vaultScanWorkers ? window.vaultScanWorkers() : 2));
     if (document.activeElement !== num && num.value !== workers) num.value = workers;
 
     // .dq-name is already blurred under body.privacy-mode (css/settings.css).
-    el.querySelector('#scanList').innerHTML = (q.active || []).map(a =>
-      `<div class="dq-row dq-active"><span class="dq-ico">⏳</span><span class="dq-name">${escapeHtml(a.filename || '')}</span></div>`
-    ).join('');
+    // The slot suffix says WHICH copy of the model has this file, so a stalled
+    // row can be traced to the instance above. Absent on older servers, and
+    // the row then looks exactly as it does today.
+    el.querySelector('#scanList').innerHTML = (q.active || []).map(a => {
+      const slot = a.suffix || a.slot || '';
+      return `<div class="dq-row dq-active"><span class="dq-ico">⏳</span>`
+        + `<span class="dq-name">${escapeHtml(a.filename || '')}</span>`
+        + (slot ? `<span class="dq-slot">${escapeHtml(slot)}</span>` : '')
+        + `</div>`;
+    }).join('');
   }
 
   function finishScanPanel(q) {
@@ -410,6 +476,7 @@
     // Nothing left to pause or cancel — the head's ✕ is a plain dismiss here.
     el.querySelector('#scanActions').hidden = true;
     el.querySelector('#scanWarn').hidden = true;
+    el.querySelector('#scanInst').hidden = true;     // nothing in flight to report on
     disarmCancel();
     el.querySelector('.dq-x').addEventListener('click', () => el.remove());
     clearTimeout(_scanFinishTimer);
@@ -784,11 +851,11 @@
             <div class="imp-sect">Options</div>
             <div class="imp-pills">
               <span class="imp-pill on" id="impSubdirs">📂 Include subfolders <span class="imp-sub">(${collected.subdirs} found)</span></span>
-              <span class="imp-pill imp-pill-num">🤖 AI scan workers
-                <input type="number" min="1" max="8" step="1" class="imp-num" id="impWorkers"
+              <span class="imp-pill imp-pill-num">🤖 Workers per instance
+                <input type="number" min="1" max="4" step="1" class="imp-num" id="impWorkers"
                        data-scan-workers value="${window.vaultScanWorkers ? window.vaultScanWorkers() : 2}"
-                       title="How many files the vision model scans at once">
-                <span class="imp-sub">parallel vision jobs</span>
+                       title="${WORKERS_TIP}">
+                <span class="imp-sub">files in flight per loaded model</span>
               </span>
             </div>
           </div>

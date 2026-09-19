@@ -869,3 +869,46 @@
   gap: 0.75rem;
   align-items: start;
 }
+
+/* ── Scan panel: which model instance is doing what ─────────────────────
+   One line per loaded copy of the scan model, under the meta row. It only
+   renders when there are two or more instances, or when one has gone, so a
+   single-model setup sees exactly the panel it sees today. The whole point
+   is that a copy quietly unloading mid-run is visible instead of just slow. */
+.dq-inst {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0.2rem 0 0.4rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border);
+}
+.dq-inst[hidden] { display: none; }
+.dq-inst-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.dq-inst-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dq-inst-row.dq-dead,
+.dq-inst-row.dq-dead .dq-inst-id { color: var(--danger); }
+
+/* The instance a file is currently being scanned on, parked at the end of its
+   row so a stalled file can be traced to the instance in the strip above. */
+.dq-slot {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}

@@ -30,6 +30,7 @@ const vault = require('../lib/vault');
 const secureAssets = require('../lib/secure-assets');
 const importQueue = require('../lib/import-queue');
 const appSettings = require('../lib/app-settings');
+const aiSlots = require('../lib/ai-slots');
 const ownedDir = require('../lib/owned-dir');
 const { netFetch } = require('../lib/net');
 const pkg = require('../package.json');
@@ -67,7 +68,17 @@ app.use(express.json({ limit: '2mb' }));
 
 // ── Vault lock (routes stay reachable while locked; everything below gates) ──
 
-app.get('/api/vault/status', (req, res) => res.json(vault.status()));
+/**
+ * The instance name: what this running Vault calls itself. Free text, or "" for
+ * plain "Vault". It lives server-side rather than in localStorage because the
+ * LOCK SCREEN has to show it, and that renders before anything has been
+ * unlocked or loaded. Held in memory as well as on disk so the status route,
+ * which the viewer polls, never reads a file per request.
+ */
+const INSTANCE_NAME_MAX = 40;
+let instanceName = appSettings.getString('instanceName', '', { max: INSTANCE_NAME_MAX });
+
+app.get('/api/vault/status', (req, res) => res.json({ ...vault.status(), instanceName }));
 
 // Create (or change) the vault password — encrypts the DB in place
 app.post('/api/vault/setpass', async (req, res) => {
@@ -294,6 +305,12 @@ app.post('/api/settings/model-downloads', (req, res) => {
   res.json({ ...modelConsent.state(), ...r });
 });
 
+/** The stored port, or the built-in default when nothing is stored. */
+function _savedPort() {
+  const stored = appSettings.getInt('serverPort', 0, { min: 0, max: 65535 });
+  return (stored >= 1024 && stored <= 65535) ? stored : 8765;
+}
+
 app.get('/api/settings/app', (req, res) => {
   res.json({
     gamify: gamifyEnabled,
@@ -303,6 +320,15 @@ app.get('/api/settings/app', (req, res) => {
     // Server-side, not localStorage: it's setup state, and a new browser
     // profile shouldn't re-nag someone who already decided.
     passwordPromptSeen: appSettings.all().passwordPromptSeen === true,
+    instanceName,
+    // The port in three parts, because they can legitimately disagree: `port`
+    // is what we are listening on right now, `savedPort` is what the next
+    // launch will use, and `portSource` says whether the field is even
+    // editable (MEDIA_TAGGER_PORT outranks the saved value).
+    port: config.server.port,
+    savedPort: _savedPort(),
+    portSource: config.server.portSource,
+    restartNeeded: _savedPort() !== config.server.port,
   });
 });
 
@@ -334,6 +360,34 @@ app.post('/api/settings/app', (req, res) => {
     }
     appSettings.set({ passwordPromptSeen: body.passwordPromptSeen });
     out.passwordPromptSeen = body.passwordPromptSeen;
+  }
+
+  if ('instanceName' in body) {
+    if (typeof body.instanceName !== 'string') {
+      return res.status(400).json({ error: 'instanceName must be text' });
+    }
+    const name = body.instanceName.trim().slice(0, INSTANCE_NAME_MAX);
+    instanceName = name;
+    appSettings.set({ instanceName: name });
+    out.instanceName = name;
+  }
+
+  if ('serverPort' in body) {
+    // A port set in the environment is not ours to overwrite: silently saving a
+    // value that the next launch would ignore is worse than refusing.
+    if (config.server.portSource === 'env') {
+      return res.status(409).json({ error: 'port is set by MEDIA_TAGGER_PORT' });
+    }
+    const raw = body.serverPort;
+    const n = typeof raw === 'number' ? raw
+      : (typeof raw === 'string' && /^\s*\d+\s*$/.test(raw) ? Number(raw) : NaN);
+    if (!Number.isInteger(n) || n < 1024 || n > 65535) {
+      return res.status(400).json({ error: 'serverPort must be a whole number from 1024 to 65535' });
+    }
+    appSettings.set({ serverPort: n });
+    out.savedPort = n;
+    out.port = config.server.port;
+    out.restartNeeded = n !== config.server.port;
   }
 
   if (Object.keys(out).length === 0) {
@@ -804,20 +858,25 @@ app.post('/api/media/:id/metadata', (req, res) => {
 
 app.get('/api/import/queue', (req, res) => res.json(importQueue.status()));
 
-// How many import scans run in parallel (IMPORT_WORKERS sets the boot default).
-// Applied live — raising it starts more workers immediately, lowering it lets
-// the surplus workers retire once their current file finishes.
+// Workers PER INSTANCE (IMPORT_WORKERS sets the boot default). The real worker
+// count is instances × this, recomputed whenever a model copy is loaded or
+// unloaded. Applied live: raising it starts more workers immediately, lowering
+// it lets the surplus retire once their current file finishes.
 app.post('/api/import/queue/concurrency', (req, res) => {
   // Number() would happily read true as 1 and [4] as 4 — take a real number or
   // a plainly-written integer string (form posts), nothing else.
   const raw = req.body?.n;
   const n = typeof raw === 'number' ? raw
     : (typeof raw === 'string' && /^\s*[+-]?\d+\s*$/.test(raw) ? Number(raw) : NaN);
-  if (!Number.isInteger(n) || n < 1 || n > 8) {
-    return res.status(400).json({ error: 'n must be an integer 1-8' });
+  if (!Number.isInteger(n) || n < 1 || n > 4) {
+    return res.status(400).json({ error: 'n must be an integer 1-4' });
   }
-  importQueue.setConcurrency(n);
-  res.json({ concurrency: importQueue.getConcurrency() });
+  importQueue.setWorkersPerInstance(n);
+  res.json({
+    workersPerInstance: importQueue.getWorkersPerInstance(),
+    activeSlots: importQueue.activeSlots(),
+    concurrency: importQueue.getConcurrency(),
+  });
 });
 
 // ⏸ Stop dispatching. Files already in flight run to completion — there is no
@@ -855,27 +914,43 @@ app.post('/api/import/queue/resume', async (req, res) => {
 app.get('/api/ai/models', async (req, res) => {
   const llm = require('../lib/llm-client');
   try {
-    const { models, error } = await llm.listModels();
+    await aiSlots.refresh({ force: true });
+    const states = aiSlots.endpointStates();
+    const fams = aiSlots.families(llm.currentFamily());
+    const models = [];
+    for (const f of fams) for (const i of f.instances) if (i.alive) models.push({ id: i.id });
+    const errors = states.filter(s => s.error).map(s => `${s.url}: ${s.error}`);
     res.json({
       models,
+      // Copies of one model are ONE choice for the picker: naming the family
+      // uses all of them, which is the whole point of loading extras.
+      families: fams.map(f => ({
+        family: f.family,
+        count: f.instances.filter(i => i.alive).length,
+        endpoints: new Set(f.instances.filter(i => i.alive).map(i => i.endpoint)).size,
+      })),
       // What a request would carry today: the session pick, unless AI_MODEL
       // (which outranks it) is set.
       current: config.lmStudio.model || llm.getSessionModel() || null,
-      error: error || null,
+      error: (models.length === 0 && errors.length) ? errors.join('; ') : null,
     });
   } catch (err) {
     // A backend that is down must not turn into a broken picker.
-    res.json({ models: [], current: null, error: err.message });
+    res.json({ models: [], families: [], current: null, error: err.message });
   }
 });
 
 app.post('/api/ai/model-choice', (req, res) => {
   const raw = req.body?.model;
-  if (typeof raw !== 'string' || !raw.trim()) {
-    return res.status(400).json({ error: 'model must be a non-empty string' });
-  }
   const llm = require('../lib/llm-client');
-  const model = llm.setSessionModel(raw);
+  // null / 'auto' means "stop pinning anything" — the way back out of a choice
+  // made for a model that has since been unloaded.
+  const clearing = raw === null || raw === undefined
+    || (typeof raw === 'string' && (raw.trim() === '' || raw.trim().toLowerCase() === 'auto'));
+  if (!clearing && typeof raw !== 'string') {
+    return res.status(400).json({ error: 'model must be text, or null for auto' });
+  }
+  const model = llm.setSessionModel(clearing ? null : raw);
   // The halt this answers should clear itself — making the user press ▶ Resume
   // straight after picking would be asking the same question twice.
   let resumed = false;
@@ -883,7 +958,90 @@ app.post('/api/ai/model-choice', (req, res) => {
     importQueue.resume();
     resumed = true;
   }
-  res.json({ ok: true, model, resumed });
+  res.json({ ok: true, model, family: llm.currentFamily(), resumed });
+});
+
+/* ── AI servers and loaded instances ──────────────────────────────────────
+   Two different things share this space and are easy to confuse, so the UI
+   copy separates them and so does this code: an ENDPOINT is another program or
+   another machine, while an INSTANCE is one more copy of a model loaded inside
+   an endpoint that is already there. Nearly everyone wants the second. */
+
+function _endpointsPayload() {
+  return { source: config.lmStudio.endpointSource, endpoints: aiSlots.endpointStates() };
+}
+
+app.get('/api/ai/endpoints', (req, res) => res.json(_endpointsPayload()));
+
+app.post('/api/ai/endpoints', async (req, res) => {
+  if (config.lmStudio.endpointSource === 'env') {
+    return res.status(409).json({ error: 'servers are set by LM_STUDIO_URLS' });
+  }
+  const { urls, error } = aiSlots.normalizeEndpoints(req.body?.endpoints);
+  if (error) return res.status(400).json({ error });
+  appSettings.set({ aiEndpoints: urls });
+  config.lmStudio.endpointSource = 'settings';
+  try {
+    await require('../lib/llm-client').setEndpoints(urls);
+  } catch { /* the probe failing is reported per endpoint, not as a save failure */ }
+  res.json(_endpointsPayload());
+});
+
+app.post('/api/ai/endpoints/test', async (req, res) => {
+  const { url, error } = aiSlots.normalizeEndpoint(req.body?.url);
+  if (error) return res.status(400).json({ error });
+  // The registry's own probe, so "N loaded" here means what it means in the
+  // servers list: models in VRAM, not models sitting on disk.
+  try {
+    const probed = await aiSlots.probe(url);
+    if (probed.ids === null) {
+      return res.json({ url, reachable: false, loaded: null, error: probed.error });
+    }
+    res.json({ url, reachable: true, loaded: probed.ids.length, error: null });
+  } catch (err) {
+    res.json({ url, reachable: false, loaded: null, error: err.message || 'no answer' });
+  }
+});
+
+function _instancesPayload() {
+  const llm = require('../lib/llm-client');
+  const current = llm.currentFamily();
+  const activeSlots = importQueue.activeSlots();
+  const workersPerInstance = importQueue.getWorkersPerInstance();
+  return {
+    current,
+    // Set when the choice names ONE copy (AI_MODEL=m:2, or a picker that sent
+    // an exact id) rather than a family. The family's other rows are still
+    // listed so the user can see them, but only this one is being used, and
+    // activeSlots counts only this one.
+    pinnedId: llm.currentPin(),
+    workersPerInstance,
+    activeSlots,
+    // The real pool size. It equals activeSlots × workersPerInstance whenever
+    // any instance is known, and stays at the pre-slot default when none is, so
+    // the footer line never claims the queue is running zero files at a time.
+    inFlightMax: importQueue.getConcurrency(),
+    families: aiSlots.families(current),
+  };
+}
+
+app.get('/api/ai/instances', async (req, res) => {
+  // Unforced reads answer from the cache, so the Backend tab can poll every
+  // five seconds without turning into a probe every five seconds.
+  try { await aiSlots.refresh({ force: req.query.refresh === '1' }); } catch {}
+  res.json(_instancesPayload());
+});
+
+app.post('/api/ai/instances/enabled', (req, res) => {
+  const { id, endpoint, enabled } = req.body || {};
+  if (typeof id !== 'string' || !id.trim() || typeof endpoint !== 'string' || !endpoint.trim()) {
+    return res.status(400).json({ error: 'id and endpoint are required' });
+  }
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be true or false' });
+  }
+  aiSlots.setEnabled(endpoint.trim(), id.trim(), enabled);
+  res.json(_instancesPayload());
 });
 
 /**
@@ -2694,6 +2852,9 @@ function start(args = process.argv.slice(2)) {
     config.security.autolockMinutes = Math.max(0, Math.min(1440, Math.trunc(savedAutolock)));
   }
   vault.startAutolock();
+  // Non-blocking: boot must not wait on an LM Studio that is not running. The
+  // ticker only spends a request while a scan is actually going.
+  aiSlots.boot({ activeProbe: () => importQueue.isActive() || _rescanning.size > 0 });
   _bootMark('db-open-housekeeping');
 
   const { host, port } = config.server;

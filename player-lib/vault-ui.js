@@ -35,6 +35,58 @@
   const $logo = () => document.getElementById('vaultLogo');
   const $keyBtn = () => document.getElementById('vaultChangePass');
 
+  /* ── Instance name ──────────────────────────────────────────────────────
+     A free-text name for THIS running Vault, so two copies on two ports are
+     tellable apart from the browser tab strip alone. It is server-owned
+     (vault-settings.json) rather than a browser preference, because the lock
+     screen has to show it before anyone has unlocked anything — which is also
+     why it rides on /api/vault/status, the one route that answers while
+     locked. Blank means "Vault" everywhere, which is today's behaviour. */
+
+  let _instanceName = '';
+
+  const displayName = () => (_instanceName || 'Vault');
+
+  /** The header logo is an SVG followed by a bare text node ("Vault") in
+   *  db-viewer.html. Rewriting that node leaves the SVG, the click-to-lock
+   *  handler, the open-shackle class and the gamify brand colour alone, which
+   *  is the whole reason for not re-rendering the element. */
+  function logoTextNode() {
+    const el = $logo();
+    if (!el) return null;
+    for (const n of el.childNodes) {
+      if (n.nodeType === 3 && n.textContent.trim()) return n;
+    }
+    // No text node (a future header rebuild): add one after the SVG.
+    const node = document.createTextNode(displayName());
+    el.appendChild(node);
+    return node;
+  }
+
+  /** Title, header word and lock-screen eyebrow, from one string. Safe to call
+   *  before the lock overlay exists; showLockOverlay() re-applies it. */
+  function applyInstanceName(name) {
+    _instanceName = String(name == null ? '' : name).trim().slice(0, 40);
+    applyTitle();
+    const node = logoTextNode();
+    if (node) node.textContent = displayName();
+    const eyebrow = document.getElementById('vaultLockEyebrow');
+    if (eyebrow) {
+      eyebrow.textContent = _instanceName;
+      eyebrow.hidden = !_instanceName;
+    }
+  }
+
+  // Locked adds a padlock prefix, so the lock state reads from the tab strip
+  // too — the case this whole feature exists for is a second Vault sitting
+  // locked and unfocused in another tab.
+  function applyTitle() {
+    document.title = (_status.locked ? '🔒 ' : '') + displayName();
+  }
+
+  // Settings applies a rename live, with no reload, through this.
+  window.vaultApplyInstanceName = applyInstanceName;
+
   /* ── Status + logo rendering ─────────────────────────────────────────── */
 
   async function refreshStatus() {
@@ -42,6 +94,9 @@
       const s = await fetch('/api/vault/status').then(r => r.json());
       const wasLocked = _status.locked;
       _status = s;
+      // Older servers (and Part A before it lands) simply omit the field; the
+      // name stays blank and everything reads "Vault", as it does today.
+      applyInstanceName(s.instanceName || '');
       // The browser may only cache thumbnails while the library is plaintext;
       // see player-lib/thumbs.js.
       if (typeof setThumbsEncrypted === 'function') setThumbsEncrypted(!!s.encrypted && !s.locked);
@@ -129,6 +184,7 @@
   /** Wipe client-side state and cover the app with the lock screen. */
   function enterLockedUi() {
     _status.locked = true;
+    applyTitle();                 // 🔒 prefix the moment it locks
     haltAllPlayback();
     // Decrypted thumbnails are held as object URLs in this tab. Locking the
     // vault has to take them with it, not just hide the grid.
@@ -332,15 +388,27 @@
             <circle cx="60" cy="60" r="54" fill="none" stroke-width="5"/>
           </svg>
         </div>
+        <div class="vault-lock-eyebrow" id="vaultLockEyebrow"></div>
         <div class="vault-lock-title">Vault locked</div>
         <div class="vault-lock-hint" id="vaultLockHint">${label}</div>
+        <div class="vault-lock-addr">${escAttr(location.host)}</div>
         <form id="vaultUnlockForm" class="vault-unlock-form" style="display:none">
           <input type="password" id="vaultUnlockPass" class="vault-input" placeholder="Password" autocomplete="current-password">
           <button class="vault-btn vault-btn-primary" type="submit">Unlock</button>
         </form>
       </div>`;
     document.body.appendChild(ov);
+    // The overlay is built after boot, so the eyebrow is filled in here rather
+    // than baked into the template above.
+    applyInstanceName(_instanceName);
     bindHoldToUnlock(ov);
+  }
+
+  // location.host is the user's own address bar, not remote content, but it
+  // reaches the DOM as a string — escape it like anything else.
+  function escAttr(s) {
+    return String(s).replace(/[&<>"']/g, c =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
   function bindHoldToUnlock(ov) {

@@ -93,6 +93,8 @@ Start with `start.bat` to launch a full browser UI, works in any browser, media 
 - **Remove records without deleting files**: drop a bad/duplicate entry from the library while leaving the file untouched on disk (re-scan the folder to bring it back)
 - **Hand-edit AI metadata**: correct description, themes, tags, language, content type, or quality flag directly from the sidebar when the AI got it wrong
 - **Rescan from the UI**: re-run AI analysis on a single file (fixes failed/bad scans) without a full CLI rescan
+- **Run two Vaults**: give each library its own port and instance name in Settings; the name replaces "Vault" in the title and header, and shows on the lock screen too, so two windows on different ports are easy to tell apart even while locked
+- **🔌 Backend tab**: see your AI server at a glance, pick which model scans use, and load the same vision model more than once in LM Studio so Vault spreads scans across every loaded copy in parallel
 - **Note snippets**: reusable quick-notes ("Watch again", timestamps) with one-click, and clickable `MM:SS` timestamps that seek the player
 - **Resume playback**: remembers your position per file; view counts track real engagement (requires ≥75% watched for video/audio)
 - **Mini-player**: pop out and keep browsing while something plays
@@ -225,6 +227,14 @@ local server Vault needs. Then:
    frames and produces empty/garbage scans)
 3. Same tab → **Status: Running** (port `1234`, the default)
 
+**More speed: load the model more than once.** LM Studio can load extra
+copies of the same vision model (they show up as `model`, `model:2`,
+`model:3`); Vault groups the copies and spreads scan requests across all of
+them, so more loaded copies means more scans running in parallel. Workers per
+instance just keep one instance busy between files and do not add extra
+throughput on their own, so the fastest setup is about 2 workers per
+instance, then as many instances as your VRAM can hold.
+
 Full click-by-click walkthrough: [SETUP.md §2](SETUP.md#2-ai-backend-lm-studio-or-ollama).
 
 **Step 2: Run with parallel workers(parallel slots)**
@@ -293,7 +303,8 @@ as a fallback, so an existing `.env` keeps working.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LM_STUDIO_URLS` | `http://localhost:1234/v1/chat/completions` | Comma-separated endpoints |
+| `LM_STUDIO_URLS` | `http://localhost:1234/v1/chat/completions` | Comma-separated endpoints. Settings > Backend can set servers too, when this variable is unset |
+| `MEDIA_TAGGER_PORT` | `8765` | Viewer port; Settings can set it too |
 | `FRAME_WORKERS` | `4` | Parallel ffmpeg processes |
 | `VISION_WORKERS` | `1` | API workers per endpoint |
 | `DEDUPE_FRAMES` | `true` | Skip duplicate frames |
