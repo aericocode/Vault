@@ -414,6 +414,9 @@
   vertical-align: middle;
   margin-left: 0.35rem;
 }
+/* display above beats the browser's own [hidden] rule, so a tag hidden from
+   JS stayed on screen. Every tag needs this, not just the port ones. */
+.settings-tag[hidden] { display: none; }
 
 /* ── Accordion (Guides) ──────────────────────────────────────────────────── */
 
@@ -1184,33 +1187,50 @@ body.pm-names #modalTitle {
 
 /* ── Settings: the one row that holds two fields ────────────────────────
    Name and port are one decision ("which Vault is this?"), so they share a
-   row instead of taking a settings-toggle each. Wraps to one column on a
+   row instead of taking a settings-toggle each. Two lines only: the fields on
+   one baseline, then a single hint under them. Wraps to one column on a
    narrow modal. */
 .settings-inst-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem 1.4rem;
-  align-items: flex-end;
+  flex-direction: column;
+  gap: 0.35rem;
   padding: 0.85rem 0;
   border-bottom: 1px solid var(--border);
 }
+.settings-inst-line {
+  display: flex;
+  /* nowrap so the name input gives up width first; a wrapping line would
+     break before it ever shrank. The narrow-modal rule below stacks it. */
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 0.5rem 1.4rem;
+}
 .settings-inst-field {
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.5rem;
 }
+/* The name field is the elastic one: its input gives up width so the port and
+   its tags stay on the same line on a narrow modal, instead of wrapping. */
+.settings-inst-line > .settings-inst-field:first-child { flex: 0 1 auto; min-width: 0; }
+.settings-inst-line > .settings-inst-field + .settings-inst-field { flex: 0 0 auto; }
 .settings-inst-field > label {
+  flex: 0 0 auto;
   font-size: 0.92rem;
   color: var(--text-primary);
   font-weight: 500;
+  white-space: nowrap;
 }
-.settings-inst-field .settings-hint {
+.settings-inst-hint {
   font-size: 0.74rem;
+  line-height: 1.5;
   color: var(--text-muted);
 }
-.settings-inst-field .settings-num,
-.settings-inst-field .settings-text { margin-top: 0; }
-.settings-inst-row .settings-toggle-desc { flex: 1 1 100%; margin-top: 0; }
+.settings-inst-hint b { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+/* 58px fits three digits and the spinner, so a five-digit port was clipped. */
+.settings-inst-field .settings-num { margin-top: 0; width: 6.5rem; }
+.settings-inst-field .settings-text { margin-top: 0; flex: 0 1 12rem; width: 12rem; min-width: 6rem; }
 .settings-text {
   width: 200px;
   padding: 0.2rem 0.4rem;
@@ -1448,17 +1468,26 @@ body.pm-names #modalTitle {
   line-height: 1.55;
 }
 .settings-why b { color: var(--text-primary); }
-.settings-why .k {
-  display: inline-block;
-  min-width: 6.5rem;
-  color: var(--text-primary);
-  font-weight: 600;
+.settings-why-title {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
 }
+/* Fixed label column so the three sentences start at one left edge. */
+.settings-why-grid {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: 0.25rem 0.6rem;
+}
+.settings-why-grid .k { color: var(--text-primary); font-weight: 600; }
+.settings-why-grid .v { color: var(--text-secondary); }
 
 @media (max-width: 640px) {
   .settings-ep-row { grid-template-columns: 1fr; }
-  .settings-inst-row { flex-direction: column; align-items: stretch; }
+  .settings-inst-line { flex-wrap: wrap; flex-direction: column; align-items: stretch; }
+  .settings-inst-field { flex-direction: column; align-items: stretch; gap: 0.25rem; }
   .settings-text { width: 100%; }
+  .settings-inst-field .settings-text { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
