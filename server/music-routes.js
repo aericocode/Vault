@@ -398,8 +398,8 @@ function buildRouter() {
 
   // Import a pack the user picked themselves (strictly pull — the server
   // never fetches packs). Raw body: packs with fingerprints outgrow the
-  // global 2 MB JSON limit fast. After the upsert, every fingerprinted file
-  // is re-scanned against ONLY the new references, in the background.
+  // global 2 MB JSON limit fast. The pack is validated here, then imported
+  // and rescanned as a background job the client polls via /seedpack/status.
   router.post('/seedpack/import',
     express.raw({ type: () => true, limit: '200mb' }),
     (req, res) => {
@@ -409,17 +409,18 @@ function buildRouter() {
       let pack;
       try { pack = JSON.parse(req.body.toString('utf8')); }
       catch { return res.status(400).json({ error: 'not valid JSON' }); }
-      let result;
-      try { result = seedpack.importSeedPack(pack); }
-      catch (err) {
-        return res.status(err.code?.startsWith('SEED_') ? 400 : 500).json({ error: err.message });
+      try {
+        res.status(202).json(seedpack.startImportJob(pack));
+      } catch (err) {
+        const status = err.code === 'SEED_BUSY' ? 409 : err.code?.startsWith('SEED_') ? 400 : 500;
+        res.status(status).json({ error: err.message });
       }
-      const rescanning = seedpack.startRematch(result.new_ref_ids);
-      res.json({ ...result, new_ref_ids: undefined, rescan_files: rescanning });
     });
 
-  router.get('/seedpack/rematch-status', (req, res) => {
-    res.json(seedpack.getRematchState());
+  // Progress of the current (or last finished) import job
+  router.get('/seedpack/status', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(seedpack.getJobState());
   });
 
   // ── Exports ──────────────────────────────────────────────────────────────

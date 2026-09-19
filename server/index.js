@@ -689,7 +689,9 @@ app.use('/player-lib', express.static(path.join(ROOT, 'player-lib')));
 app.use('/images', express.static(path.join(ROOT, 'images')));
 
 app.get('/', (req, res) => {
-  res.sendFile(path.join(ROOT, 'db-viewer.html'));
+  // root: option, so a dotted folder above ROOT (e.g. ~/.local/…) is not
+  // treated as a dotfile and refused with a 404
+  res.sendFile('db-viewer.html', { root: ROOT });
 });
 
 // ── Library API ────────────────────────────────────────────────────────────

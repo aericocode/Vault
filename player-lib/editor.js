@@ -197,11 +197,23 @@ function renderEditorHome() {
 }
 
 /* ── Seed packs: song fingerprints without the audio files ─────────────── */
+/*
+ * The import runs server-side as a single-slot job (import the songs, then
+ * check every fingerprinted file against just the new references), so this
+ * modal is a VIEW of it rather than its owner: closing it cancels nothing,
+ * reopening it re-attaches to whatever is running, and one page-wide poller
+ * drives the display. Polls are chained (the next starts only after the last
+ * answered) so a busy server can't pile up responses that each see "done"
+ * and each fire the finished toast; the toast is also latched per job id.
+ */
+
+let _seedPolling = false;
+const SS_SEED_NOTIFIED = 'vault_seedpack_notified_job';
 
 function editorOpenSeedPacks() {
   const { body, close } = musicModal('📦 Song seed packs', `
     <div class="music-hint">A seed pack (<b>vault-songseed.json</b>) carries song <b>reference fingerprints</b>,
-      no audio files. Import one and your fingerprinted library is rescanned for matches,
+      no audio files. Import one and your fingerprinted library is checked for those songs,
       so new songs can identify themselves in videos you already have.
       Nothing is ever downloaded automatically: you pick the file.</div>
     <div class="music-form-row music-form-actions">
@@ -210,58 +222,183 @@ function editorOpenSeedPacks() {
       <button class="music-btn" id="seedpack-close">Close</button>
     </div>
     <div class="music-hint" id="seedpack-status" style="display:none"></div>
+    <div class="mig-progress" id="seedpack-progress" style="display:none">
+      <div class="mig-bar"><div class="mig-bar-fill"></div></div>
+      <div class="mig-bar-stats"></div>
+    </div>
     <input type="file" id="seedpack-file" accept=".json,application/json" style="display:none">
   `);
-  const status = body.querySelector('#seedpack-status');
   const fileInput = body.querySelector('#seedpack-file');
   body.querySelector('#seedpack-close').addEventListener('click', close);
   body.querySelector('#seedpack-import').addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', () => {
-    if (fileInput.files?.[0]) editorImportSeedPack(fileInput.files[0], status, body.querySelector('#seedpack-import'));
+    if (fileInput.files?.[0]) editorImportSeedPack(fileInput.files[0]);
+    fileInput.value = '';                 // picking the same file again still fires change
   });
+  seedAttach();
 }
 
-async function editorImportSeedPack(file, statusEl, btn) {
-  const say = (msg) => { statusEl.style.display = ''; statusEl.innerHTML = msg; };
-  btn.disabled = true;
+/** Show whatever the server says is true: a running job, or the last result. */
+async function seedAttach() {
+  if (_seedPolling) return;               // the live poller paints the modal itself
+  let s;
+  try { s = await fetch('/api/music/seedpack/status').then(r => r.json()); } catch { return; }
+  if (_seedPolling || !s?.job_id || s.error || !s.import) return;   // an import started meanwhile, or no job yet
+  seedRender(s);
+  if (s.running) seedPollStart();
+}
+
+async function editorImportSeedPack(file) {
+  seedLock(true);
+  seedSay(`Reading ${escapeHtml(file.name)}…`);
   try {
-    say(`Reading ${escapeHtml(file.name)}…`);
     const text = await file.text();
-    say('Importing…');
+    seedSay(`Uploading ${escapeHtml(file.name)}…`);
+    seedBar({ indeterminate: true, stats: '' });
     const r = await fetch('/api/music/seedpack/import', {
       method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: text,
     }).then(resp => resp.json());
     if (r.error) throw new Error(r.error);
+    seedPollStart();
+  } catch (e) {
+    seedLock(false);
+    seedBar(null);
+    seedSay('⚠ Import failed: ' + escapeHtml(e.message));
+  }
+}
 
-    const added = `${r.songs_added} new song(s), ${r.fps_added} fingerprint(s)` +
-      (r.fps_skipped ? ` (${r.fps_skipped} already known)` : '') +
-      (r.fps_invalid ? `, ${r.fps_invalid} invalid` : '');
-    if (!r.rescan_files) {
-      say(`✓ ${added}. Nothing new to rescan.`);
-      btn.disabled = false;
+/* The modal may be closed (or re-created) while the job runs, so every
+   update looks its elements up fresh and quietly does nothing if they're gone. */
+function seedSay(html) {
+  const el = document.getElementById('seedpack-status');
+  if (!el) return;
+  el.style.display = '';
+  el.innerHTML = html;
+}
+
+function seedLock(locked) {
+  const btn = document.getElementById('seedpack-import');
+  if (btn) btn.disabled = locked;
+}
+
+/** @param state null hides the bar; { indeterminate } slides; { frac, stats } fills */
+function seedBar(state) {
+  const box = document.getElementById('seedpack-progress');
+  if (!box) return;
+  if (!state) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  box.classList.toggle('is-indeterminate', !!state.indeterminate);
+  box.querySelector('.mig-bar-fill').style.width =
+    state.indeterminate ? '' : `${Math.round(100 * Math.min(1, state.frac || 0))}%`;
+  box.querySelector('.mig-bar-stats').textContent = state.stats || '';
+}
+
+function seedPollStart() {
+  if (_seedPolling) return;
+  _seedPolling = true;
+  let misses = 0;
+  const tick = async () => {
+    let s = null;
+    try { s = await fetch('/api/music/seedpack/status').then(r => r.json()); } catch { s = null; }
+    // No answer, or an error body instead of a job (the vault-lock gate answers
+    // 423 while locked): keep trying for a while, then stop cleanly. The
+    // poller must never wedge, or no later import could ever report.
+    if (!s || s.error || !s.import) {
+      if (++misses < 60) { setTimeout(tick, 2000); return; }
+      _seedPolling = false;
+      seedLock(false);
+      seedBar(null);
+      seedSay('⚠ Lost contact with the import' + (s?.error ? ': ' + escapeHtml(String(s.error)) : '')
+        + '. Reopen this window to check on it.');
       return;
     }
+    misses = 0;
+    try {
+      seedRender(s);
+      if (s.running) { setTimeout(tick, 1000); return; }
+      _seedPolling = false;
+      seedFinished(s);
+    } catch (e) {
+      _seedPolling = false;                 // a render bug surfaces instead of wedging
+      seedLock(false);
+      throw e;
+    }
+  };
+  tick();
+}
 
-    // Background rematch: poll until the sweep finishes
-    say(`✓ ${added}.<br>Rescanning ${r.rescan_files} fingerprinted file(s)… 0%`);
-    const poll = setInterval(async () => {
-      let s;
-      try { s = await fetch('/api/music/seedpack/rematch-status').then(x => x.json()); } catch { return; }
-      if (s.running) {
-        say(`✓ ${added}.<br>Rescanning… ${Math.round((s.done / Math.max(1, s.total)) * 100)}%, ${s.new_links} match(es) so far`);
-        return;
-      }
-      clearInterval(poll);
-      btn.disabled = false;
-      say(`✓ ${added}.<br>${s.error ? '⚠ ' + escapeHtml(s.error) + '. ' : ''}Rescan done: <b>${s.new_links}</b> new match(es) across your library.`);
-      showToast(`📦 Seed pack imported: ${s.new_links} new song match(es)`);
-      renderEditorSongList();
-      if (typeof loadDatabase === 'function') loadDatabase();   // 🎵 tile badges
-    }, 1000);
-  } catch (e) {
-    btn.disabled = false;
-    say('⚠ Import failed: ' + escapeHtml(e.message));
+const seedN = (n, one, many) => `${Number(n || 0).toLocaleString()} ${n === 1 ? one : many}`;
+
+function seedSummary(im) {
+  let t = `${seedN(im.songs_added, 'new song', 'new songs')}, ${seedN(im.fps_added, 'fingerprint', 'fingerprints')}`;
+  if (im.fps_skipped) t += ` (${im.fps_skipped.toLocaleString()} already known)`;
+  if (im.fps_invalid) t += `, ${im.fps_invalid.toLocaleString()} invalid`;
+  return t;
+}
+
+/** "about 2 min left" from the average pace so far; blank until it means something. */
+function seedEta(s) {
+  const rs = s.rescan;
+  if (!rs.started_at || rs.done < 3 || !rs.total) return '';
+  const elapsed = Date.now() - Date.parse(rs.started_at);
+  const left = (elapsed / rs.done) * (rs.total - rs.done);
+  if (!isFinite(left) || left < 0) return '';
+  if (left < 60000) return 'under a minute left';
+  return `about ${Math.ceil(left / 60000)} min left`;
+}
+
+function seedRender(s) {
+  seedLock(s.running);
+  const im = s.import, rs = s.rescan;
+  const n = (v) => Number(v || 0).toLocaleString();
+
+  if (s.phase === 'import') {
+    seedSay(`Importing songs…`);
+    seedBar({
+      frac: im.done_songs / Math.max(1, im.total_songs),
+      indeterminate: !im.done_songs,
+      stats: `${n(im.done_songs)} of ${n(im.total_songs)} songs`,
+    });
+    return;
   }
+  if (s.phase === 'rescan') {
+    seedSay(`✓ ${seedSummary(im)}.<br>Checking your library for the new songs…`);
+    const eta = seedEta(s);
+    seedBar({
+      frac: rs.done / Math.max(1, rs.total),
+      indeterminate: !rs.total,
+      stats: `${n(rs.done)} of ${n(rs.total)} files · ${seedN(rs.new_links, 'match', 'matches')} so far`
+        + (eta ? ` · ${eta}` : ''),
+    });
+    return;
+  }
+
+  // done (or stopped)
+  seedBar(null);
+  const summary = `✓ ${seedSummary(im)}.`;
+  if (s.error) {
+    seedSay(`⚠ Import stopped: ${escapeHtml(s.error)}.<br>${summary} `
+      + `Library check reached ${n(rs.done)} of ${n(rs.total)} files, ${seedN(rs.new_links, 'new match', 'new matches')}.`);
+  } else if (!im.fps_added) {
+    seedSay(`${summary} Nothing new to check.`);
+  } else if (!rs.total) {
+    seedSay(`${summary} No fingerprinted files to check yet.`);
+  } else {
+    seedSay(`${summary}<br>Library check done: <b>${seedN(rs.new_links, 'new song match', 'new song matches')}</b> across ${n(rs.total)} files.`);
+  }
+}
+
+/** Runs once per finished job, whichever poll (or page reload) sees it first. */
+function seedFinished(s) {
+  try {
+    if (sessionStorage.getItem(SS_SEED_NOTIFIED) === s.job_id) return;
+    sessionStorage.setItem(SS_SEED_NOTIFIED, s.job_id);
+  } catch { /* private mode: notify every time rather than never */ }
+  showToast(s.error ? `📦 Seed pack import stopped: ${s.error}`
+    : !s.import.fps_added ? '📦 Seed pack imported: nothing new to add'
+    : `📦 Seed pack imported: ${seedN(s.rescan.new_links, 'new song match', 'new song matches')}`);
+  if (document.getElementById('editorSongsBody')) renderEditorSongList();
+  if (typeof loadDatabase === 'function') loadDatabase();   // 🎵 tile badges
 }
 
 /* ── Songs area: card grid or open-song picker ─────────────────────────── */
