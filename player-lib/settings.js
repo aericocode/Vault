@@ -603,27 +603,50 @@
   function instanceRow() {
     return `
       <div class="settings-inst-row" id="settingsInstRow">
-        <div class="settings-inst-field">
-          <label for="settingsInstName">Instance name</label>
-          <input class="settings-text" type="text" id="settingsInstName" maxlength="40"
-                 spellcheck="false" autocomplete="off" placeholder="Vault" value="${esc(instName())}">
-          <span class="settings-hint">Page title and the word in the top left. Applies now.</span>
+        <div class="settings-inst-line">
+          <div class="settings-inst-field">
+            <label for="settingsInstName">Instance name</label>
+            <input class="settings-text" type="text" id="settingsInstName" maxlength="40"
+                   spellcheck="false" autocomplete="off" placeholder="Vault" value="${esc(instName())}">
+          </div>
+          <div class="settings-inst-field">
+            <label for="settingsPort">Port
+              <span class="settings-tag warn" id="settingsPortTag" hidden>restart to apply</span>
+              <span class="settings-tag env" id="settingsPortEnvTag" hidden>set by MEDIA_TAGGER_PORT</span>
+            </label>
+            <input class="settings-num" type="number" min="1024" max="65535" step="1"
+                   id="settingsPort" value="${storedPort()}">
+          </div>
         </div>
-        <div class="settings-inst-field">
-          <label for="settingsPort">Port
-            <span class="settings-tag warn" id="settingsPortTag" hidden>restart to apply</span>
-            <span class="settings-tag env" id="settingsPortEnvTag" hidden>set by MEDIA_TAGGER_PORT</span>
-          </label>
-          <input class="settings-num" type="number" min="1024" max="65535" step="1"
-                 id="settingsPort" value="${storedPort()}">
-          <span class="settings-hint">Running on <b id="settingsPortNow">${livePort()}</b>. Takes effect at next launch.</span>
-        </div>
+        <span class="settings-hint settings-inst-hint">Name is the page title and the top-left word,
+          applied now. Port takes effect at next launch (running on
+          <b id="settingsPortNow">${livePort()}</b>). Give a second Vault a different port and name so
+          the two are easy to tell apart, even while locked.</span>
         <div class="settings-restart-note" id="settingsRestartNote" hidden>Saved. Next launch opens
           <code id="settingsRestartUrl">http://127.0.0.1:${storedPort()}</code>. The launcher and the exe
           both read this value, so your shortcut keeps working.</div>
-        <span class="settings-toggle-desc">Run a second Vault for another library by giving it a different
-          port and a name, so the two are easy to tell apart even while locked.</span>
       </div>`;
+  }
+
+  /* One source of truth for "may this port be edited, and what do we warn
+     about". An env-pinned port can never be changed from the UI, so it must
+     never show the restart tag or the restart note no matter which path
+     repainted the row. Everything that touches those three elements goes
+     through here; `hidden` alone is not enough, because .settings-tag sets a
+     display, so css/settings.css carries a matching [hidden] rule. */
+  function portState() {
+    const env = portIsEnv();
+    return { env, restart: !env && !!server.restartNeeded };
+  }
+
+  function paintPortTags() {
+    const { env, restart } = portState();
+    const envTag = document.getElementById('settingsPortEnvTag');
+    const warnTag = document.getElementById('settingsPortTag');
+    const note = document.getElementById('settingsRestartNote');
+    if (envTag) envTag.hidden = !env;
+    if (warnTag) warnTag.hidden = !restart;
+    if (note) note.hidden = !restart;
   }
 
   /** Repaint everything the port row derives from `server`. Called after every
@@ -631,16 +654,12 @@
   function syncPortRow() {
     const input = document.getElementById('settingsPort');
     if (!input) return;
-    const env = portIsEnv();
-    input.disabled = env;
-    document.getElementById('settingsPortEnvTag').hidden = !env;
-    document.getElementById('settingsPortTag').hidden = env || !server.restartNeeded;
+    input.disabled = portState().env;
+    paintPortTags();
     const now = document.getElementById('settingsPortNow');
     if (now) now.textContent = String(livePort());
-    const note = document.getElementById('settingsRestartNote');
     const url = document.getElementById('settingsRestartUrl');
     if (url) url.textContent = `http://127.0.0.1:${storedPort()}`;
-    if (note) note.hidden = env || !server.restartNeeded;
     if (document.activeElement !== input) input.value = String(storedPort());
   }
 
@@ -959,16 +978,16 @@
   const MODEL_TIERS = [
     { vram: '6–8 GB',   model: 'minicpm-v-4.6-abliterated-max',
       quant: 'NA',     whisper: '<code>WHISPER_MODEL=small</code>',
-      notes: 'Lower <code>VISION_WORKERS=1</code>. Scans are slower but fine.' },
+      notes: 'One instance with 1 worker (CLI: <code>VISION_WORKERS=1</code>). Slower but fine.' },
     { vram: '10–12 GB', model: 'qwen3.5-4b-uncensored-hauhaucs-aggressive',
       quant: 'q4_k_m', whisper: '<code>large-v3-turbo</code> at <code>int8_float16</code> (default)',
-      notes: 'The defaults target this class.' },
+      notes: 'One instance with 2 workers. The defaults target this class.' },
     { vram: '16 GB',    model: 'qwen3.5-4b-uncensored-hauhaucs-aggressive',
       quant: 'q8_0',   whisper: 'default',
-      notes: 'Room for 2 to 4 workers.' },
+      notes: 'Room for 2 to 4 instances at 2 workers each.' },
     { vram: '24 GB+',   model: 'qwen3.5-9b-uncensored-hauhaucs-aggressive',
       quant: 'q4_k_m', whisper: 'default',
-      notes: 'Room for 2 to 4 workers.' },
+      notes: 'Room for 2 to 4 instances at 2 workers each.' },
   ];
 
   /** Model name plus a button that copies just the name. */
@@ -2133,11 +2152,19 @@
 
   // Said in full under the table, and again as a tooltip on both steppers,
   // because "more workers = faster" is the wrong instinct and it costs VRAM.
-  const BACKEND_WHY = '<b>Workers</b> keep an instance busy while the next file\'s frames are still being '
-    + 'extracted. They cut idle time and use almost no extra VRAM, but one instance can still only answer '
-    + 'one request at a time. <b>Instances</b> are extra copies of the model loaded in LM Studio. Each one '
-    + 'answers in parallel, so three instances is roughly three times the throughput.';
-  const WORKERS_TIP = 'Workers keep an instance busy between files. They do not add throughput; instances do.';
+  // Three labelled rows rather than a paragraph: the two words people mix up
+  // sit in their own column, so the difference is visible before it is read.
+  const BACKEND_WHY_ROWS = [
+    ['Workers', 'keep one instance busy between files. Almost no extra VRAM, no extra throughput.'],
+    ['Instances', 'extra copies of the model in LM Studio. Each answers in parallel: three copies, about three times the speed.'],
+    ['Rule of thumb', '2 workers per instance, then as many instances as your VRAM holds (2 to 4 on 16 GB and up).'],
+  ];
+  const BACKEND_WHY = '<div class="settings-why-title">Want it faster?</div>'
+    + '<div class="settings-why-grid">'
+    + BACKEND_WHY_ROWS.map(([k, v]) => `<span class="k">${k}</span><span class="v">${v}</span>`).join('')
+    + '</div>';
+  const WORKERS_TIP = 'Workers keep one instance busy between files. They add no throughput; instances do. '
+    + 'About 2 workers per instance.';
 
   let _backendPoll = null;
 
@@ -2181,13 +2208,13 @@
     const eps = backend.status?.endpoints || [];
     if (!eps.length) {
       note.innerHTML = 'Scans go to the LM Studio, Ollama or vLLM running on this PC. '
-        + 'No server is set up yet. Change it under Advanced.';
+        + 'No server is set up yet.';
       return;
     }
     const first = eps[0];
     note.innerHTML = 'Scans go to the LM Studio, Ollama or vLLM running on this PC: '
       + `<code>${esc(hostOf(first.url))}</code>, `
-      + `<span class="settings-st">${epStatusHtml(first)}</span>. Change it under Advanced.`;
+      + `<span class="settings-st">${epStatusHtml(first)}</span>.`;
   }
 
   function epRowHtml(ep, only) {
@@ -2503,8 +2530,7 @@
       + `<p class="settings-note">Copies use the same context length, parallel setting and TTL as the
         original. GPU placement is LM Studio's choice.</p>`
       + `<div class="settings-inst-foot" id="backendInstFoot">${instanceFootHtml()}</div>`
-      + `<div class="settings-why"><span class="k">Want it faster?</span> ${BACKEND_WHY}`
-      + `<br><span class="k">Rule of thumb</span> workers 2 per instance, then as many instances as your VRAM holds.</div>`;
+      + `<div class="settings-why">${BACKEND_WHY}</div>`;
     wireInstanceFoot();
     host.querySelectorAll('input[data-inst-id]').forEach(cb => {
       cb.addEventListener('change', async () => {

@@ -157,17 +157,15 @@ Studio on this PC, not one on another machine.
 
 Two settings control speed here, and they do different things:
 
-- **Workers per instance** keep one instance busy between files, so frame
-  extraction for the next file overlaps the AI call for this one. They use
-  almost no extra VRAM, but a single instance still only answers one request
-  at a time, so workers alone do not add throughput.
-- **Instances** are extra copies of the model loaded in LM Studio. Each one
-  answers in parallel, so three instances gives roughly three times the
-  throughput.
+- **Workers** keep one instance busy between files. Almost no extra VRAM, no
+  extra throughput.
+- **Instances** are extra copies of the model in LM Studio. Each answers in
+  parallel: three copies, about three times the speed.
+- **Rule of thumb:** 2 workers per instance, then as many instances as your
+  VRAM holds (2 to 4 on 16 GB and up).
 
-Rule of thumb: 2 workers per instance, then as many instances as your VRAM
-holds. If you also loaded the embedding model for semantic search, Vault
-ignores it here: only vision models are grouped into instances.
+If you also loaded the embedding model for semantic search, Vault ignores it
+here: only vision models are grouped into instances.
 
 ### Option B: Ollama
 
@@ -201,10 +199,10 @@ Vision model = scan quality. Quantized (Q4) versions are the sweet spot.
 
 | VRAM | Vision model (scanning) | Quant | Whisper (subtitles) | Notes |
 |---|---|---|---|---|
-| **6–8 GB** | `minicpm-v-4.6-abliterated-max` | NA | `WHISPER_MODEL=small` | Lower `VISION_WORKERS=1`. Scans are slower but fine. |
-| **10–12 GB** | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q4_k_m` | `large-v3-turbo` at `int8_float16` (default) | The defaults target this class. |
-| **16 GB** | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q8_0` | default | Room for 2 to 4 workers. |
-| **24 GB+** | `qwen3.5-9b-uncensored-hauhaucs-aggressive` | `q4_k_m` | default | Room for 2 to 4 workers. |
+| **6–8 GB** | `minicpm-v-4.6-abliterated-max` | NA | `WHISPER_MODEL=small` | One instance with 1 worker (CLI: `VISION_WORKERS=1`). Slower but fine. |
+| **10–12 GB** | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q4_k_m` | `large-v3-turbo` at `int8_float16` (default) | One instance with 2 workers. The defaults target this class. |
+| **16 GB** | `qwen3.5-4b-uncensored-hauhaucs-aggressive` | `q8_0` | default | Room for 2 to 4 instances at 2 workers each. |
+| **24 GB+** | `qwen3.5-9b-uncensored-hauhaucs-aggressive` | `q4_k_m` | default | Room for 2 to 4 instances at 2 workers each. |
 
 - **Embeddings** (semantic search) are tiny: `nomic-embed-text` (~0.5 GB) runs anywhere.
 - **Whisper** sizes: `small` ≈ 1 GB, `large-v3-turbo` int8 ≈ 1.5 GB VRAM; it

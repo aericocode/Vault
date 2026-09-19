@@ -231,11 +231,11 @@ local server Vault needs. Then:
 
 **More speed: load the model more than once.** LM Studio can load extra
 copies of the same vision model (they show up as `model`, `model:2`,
-`model:3`); Vault groups the copies and spreads scan requests across all of
-them, so more loaded copies means more scans running in parallel. Workers per
-instance just keep one instance busy between files and do not add extra
-throughput on their own, so the fastest setup is about 2 workers per
-instance, then as many instances as your VRAM can hold.
+`model:3`), and Vault spreads scan requests across all of them: three copies,
+about three times the speed. Workers only keep one instance busy between
+files, so they add almost no extra VRAM and no extra throughput. Rule of
+thumb: 2 workers per instance, then as many instances as your VRAM holds
+(2 to 4 on 16 GB and up).
 
 Full click-by-click walkthrough: [SETUP.md §2](SETUP.md#2-ai-backend--lm-studio-or-ollama).
 
