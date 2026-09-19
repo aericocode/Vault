@@ -2972,7 +2972,7 @@ function start(args = process.argv.slice(2)) {
     console.log('');
     console.log('  ┌──────────────────────────────────────────────┐');
     console.log('  │  Vault                                       │');
-    console.log(`  │  http://${host}:${port}                      │`);
+    console.log(`  │  http://${host}:${port}                       │`);
     console.log('  └──────────────────────────────────────────────┘');
     console.log('');
     console.log(`  Database:   ${path.resolve(config.paths.database)}`);
