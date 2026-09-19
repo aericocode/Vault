@@ -31,6 +31,7 @@ const secureAssets = require('../lib/secure-assets');
 const importQueue = require('../lib/import-queue');
 const appSettings = require('../lib/app-settings');
 const aiSlots = require('../lib/ai-slots');
+const lmsCli = require('../lib/lms-cli');
 const ownedDir = require('../lib/owned-dir');
 const { netFetch } = require('../lib/net');
 const pkg = require('../package.json');
@@ -1022,6 +1023,14 @@ function _instancesPayload() {
     // the footer line never claims the queue is running zero files at a time.
     inFlightMax: importQueue.getConcurrency(),
     families: aiSlots.families(current),
+    // Copies that have been asked for but are not loaded yet. They are not
+    // slots and never will be under this id, so they live beside the families
+    // rather than inside one: the table draws a placeholder row from them so a
+    // 40 s load does not look like a button that did nothing.
+    jobs: lmsCli.jobs(),
+    // So the table can disable "+ Load another copy" with a reason instead of
+    // offering a button that always answers with the same error.
+    lmsAvailable: !!lmsCli.findLms(),
   };
 }
 
@@ -1041,6 +1050,86 @@ app.post('/api/ai/instances/enabled', (req, res) => {
     return res.status(400).json({ error: 'enabled must be true or false' });
   }
   aiSlots.setEnabled(endpoint.trim(), id.trim(), enabled);
+  res.json(_instancesPayload());
+});
+
+/* ── Loading and unloading copies through the lms CLI ─────────────────────
+   Both routes share the same gate: the endpoint has to be the LM Studio on
+   this PC and the CLI has to be installed, because `lms` only ever talks to
+   its own local instance. Every failure answers with a plain sentence in
+   `error`, which the Backend tab shows verbatim. */
+
+/**
+ * @returns {{ endpoint: string, id: string }|{ status: number, error: string }}
+ */
+function _cloneGate(body) {
+  const endpoint = typeof body?.endpoint === 'string' ? body.endpoint.trim() : '';
+  const id = typeof body?.id === 'string' ? body.id.trim() : '';
+  if (!endpoint || !id) return { status: 400, error: 'id and endpoint are required' };
+  if (!lmsCli.isLocalEndpoint(endpoint)) {
+    return { status: 400, error: 'That AI server is on another machine, so Vault cannot load copies on it.' };
+  }
+  if (!lmsCli.findLms()) return { status: 400, error: lmsCli.NO_LMS };
+  return { endpoint, id };
+}
+
+app.post('/api/ai/instances/clone', async (req, res) => {
+  const gate = _cloneGate(req.body);
+  if (gate.error) return res.status(gate.status).json({ error: gate.error });
+
+  const rows = await lmsCli.psRows();
+  const row = lmsCli.findPsRow(rows, gate.id);
+  if (!row) {
+    return res.status(404).json({ error: 'LM Studio is not reporting that instance any more.' });
+  }
+  // The family is worked out from what LM Studio itself lists, so an Ollama
+  // style tag (`llava:13b`) is its own family and never mistaken for a copy.
+  const siblings = new Set(lmsCli.psIdentifiers(rows));
+  const family = aiSlots.familyOf(gate.id, siblings);
+  if (lmsCli.activeJob(family)) {
+    return res.status(409).json({ error: 'A copy of that model is already loading.' });
+  }
+  // Everything that could own a `:N` for this family: what is loaded now, what
+  // the registry still remembers, and what another clone has already claimed.
+  const taken = [
+    ...siblings,
+    // Alive only: the registry keeps a copy's row for a minute after it is
+    // unloaded so its stats survive a blink, and letting that block its number
+    // would walk the suffixes up to :5 over an afternoon of experimenting. The
+    // row is revived intact if the same id comes back, which is what we want.
+    ...[...aiSlots._slots.values()].filter(s => s.family === family && s.alive).map(s => s.modelId),
+    ...lmsCli.pendingIdentifiers(),
+  ];
+  const identifier = lmsCli.nextIdentifier(family, taken);
+  const job = lmsCli.startClone({ family, row, identifier });
+  // 202: the load runs on past this response and the registry picks the copy up
+  // on its next forced refresh. Holding the request for 40 s would time out in
+  // the browser long before LM Studio was done.
+  res.status(202).json({
+    ok: true,
+    identifier,
+    job: { family: job.family, identifier: job.identifier, startedAt: job.startedAt, state: job.state, error: job.error },
+  });
+});
+
+app.post('/api/ai/instances/unload', async (req, res) => {
+  const gate = _cloneGate(req.body);
+  if (gate.error) return res.status(gate.status).json({ error: gate.error });
+
+  const rows = await lmsCli.psRows();
+  const siblings = new Set(lmsCli.psIdentifiers(rows));
+  // The only guard that matters: never the original. familyOf returns the id
+  // itself for a base instance (and for a lone `foo:2` with no `foo`), so this
+  // one comparison covers both without a second rule.
+  if (aiSlots.familyOf(gate.id, siblings) === gate.id) {
+    return res.status(400).json({ error: 'That is the original instance. Vault only unloads extra copies.' });
+  }
+  if (!siblings.has(gate.id)) {
+    return res.status(404).json({ error: 'LM Studio is not reporting that copy any more.' });
+  }
+  const { ok, error } = await lmsCli.unloadInstance(gate.id);
+  if (!ok) return res.status(500).json({ error });
+  try { await aiSlots.refresh({ force: true }); } catch {}
   res.json(_instancesPayload());
 });
 

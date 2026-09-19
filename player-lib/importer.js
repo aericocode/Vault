@@ -514,7 +514,7 @@
         <button class="dq-x" title="Dismiss">✕</button>
       </div>
       <div class="kofi-note">Vault just tagged ${total} files for you. If it saved you a
-        weekend, <a href="https://ko-fi.com/aericode" target="_blank" rel="noopener">☕ $10 on
+        weekend, <a href="https://ko-fi.com/aericocode" target="_blank" rel="noopener">☕ $10 on
         Ko-fi</a> says thanks, never required.</div>`;
     queuePanelStack().appendChild(el);
     el.querySelector('.dq-x').addEventListener('click', () => el.remove());

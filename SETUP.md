@@ -148,6 +148,13 @@ scan throughput:
 3. Check **Settings > Backend > Loaded instances** to see both copies
    listed under the same model family, each with its own switch.
 
+Or let Vault do the loading: in that same table, press **+ Load another
+copy** on the family row. The copy gets the same context length, parallel
+setting and TTL as the original, and an **Unload** link removes it again.
+This needs LM Studio's `lms` command, which LM Studio installs from its
+Developer tab (or run `npx lmstudio install-cli`). It only works for the LM
+Studio on this PC, not one on another machine.
+
 Two settings control speed here, and they do different things:
 
 - **Workers per instance** keep one instance busy between files, so frame

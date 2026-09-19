@@ -19,16 +19,19 @@ process.env.VAULT_SETTINGS_FILE = path.join(os.tmpdir(), `vault-test-slots-${pro
 
 let served = [];        // what /v1/models lists (everything downloaded)
 let servedV0 = null;    // rows for /api/v0/models, or null to 404 that route
+let v0Status = 404;     // the code that route answers with when servedV0 is null
+let v1Down = false;     // /v1/models answers 500, as when the whole server is gone
 let server;
 let base;
 
 test.before(async () => {
   server = http.createServer((req, res) => {
     if (req.url.startsWith('/api/v0/models')) {
-      if (!servedV0) { res.writeHead(404); return res.end('{}'); }
+      if (!servedV0) { res.writeHead(v0Status); return res.end('{}'); }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ data: servedV0 }));
     }
+    if (v1Down) { res.writeHead(500); return res.end('{}'); }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ data: served.map(id => ({ id })) }));
   });
@@ -53,7 +56,7 @@ function live() {
     .sort();
 }
 
-test.beforeEach(() => { servedV0 = null; });
+test.beforeEach(() => { servedV0 = null; v0Status = 404; v1Down = false; });
 
 /* ── What counts as loaded ────────────────────────────────────────────────
    /v1/models lists everything DOWNLOADED, which on a real library is dozens
@@ -434,3 +437,94 @@ test('postChat attributes the file it was called for, unaided', async () => {
 });
 
 test.after(() => { slots.stop(); });
+
+/* ── A v0 route that goes quiet mid-load ──────────────────────────────────
+   Verified live: while `lms load` runs, LM Studio stops answering
+   /api/v0/models for a few seconds while /v1/models keeps listing every
+   DOWNLOADED model. Falling back there invented 34 instances out of this
+   user's library, which then sat in the model picker for a minute.
+
+   The skip that fixes it is bounded twice over, because "report nothing" must
+   never let a dead server look alive: /v1/models has to still answer in the
+   same probe, and only V0_SKIP_PROBES (4) failures in a row are tolerated. */
+
+async function seeV0() {
+  served = ['m', 'big-model-nobody-loaded', 'another-download'];
+  servedV0 = [
+    { id: 'm', type: 'llm', state: 'loaded' },
+    { id: 'big-model-nobody-loaded', type: 'llm', state: 'not-loaded' },
+    { id: 'another-download', type: 'llm', state: 'not-loaded' },
+  ];
+  await reset();
+  assert.deepStrictEqual(live(), ['m'], 'setup: only the loaded one counts');
+}
+
+test('a v0 route that stops answering leaves the picture alone', async () => {
+  await seeV0();
+
+  servedV0 = null;                  // 404, as during a load
+  await slots.refresh({ force: true });
+  assert.deepStrictEqual(live(), ['m'], 'downloads must not become instances');
+  assert.strictEqual(slots.endpointStates()[0].reachable, true, 'the server is still there');
+
+  servedV0 = [
+    { id: 'm', type: 'llm', state: 'loaded' },
+    { id: 'm:2', type: 'llm', state: 'loaded' },
+    { id: 'big-model-nobody-loaded', type: 'llm', state: 'not-loaded' },
+    { id: 'another-download', type: 'llm', state: 'not-loaded' },
+  ];
+  served = ['m', 'm:2', 'big-model-nobody-loaded', 'another-download'];
+  await slots.refresh({ force: true });
+  assert.deepStrictEqual(live(), ['m', 'm:2'], 'the copy is picked up once v0 is back');
+});
+
+test('both routes failing is a dead server, not a quiet v0', async () => {
+  await seeV0();
+
+  // LM Studio closed or crashed. Nothing answers, so the endpoint has to go
+  // unreachable and take its slots with it, exactly as it did before the skip
+  // existed. Anything else keeps the balancer dispatching to a dead socket.
+  servedV0 = null;
+  v0Status = 500;
+  v1Down = true;
+  await slots.refresh({ force: true });
+
+  const state = slots.endpointStates()[0];
+  assert.strictEqual(state.reachable, false, 'endpoint is down');
+  assert.ok(state.error, 'and says why');
+  assert.deepStrictEqual(live(), [], 'no slot survives a dead server');
+  assert.strictEqual(slots.activeCount('m'), 0);
+});
+
+test('a permanently broken v0 falls through after the cap', async () => {
+  await seeV0();
+
+  // v0 is 500ing for good while the server itself answers. Four probes in a
+  // row are tolerated; the fifth gives up and uses the old /v1/models
+  // behaviour, so a broken v0 cannot freeze the picture for ever.
+  servedV0 = null;
+  v0Status = 500;
+  for (let i = 0; i < 4; i++) {
+    await slots.refresh({ force: true });
+    assert.deepStrictEqual(live(), ['m'], `probe ${i + 1} still skips`);
+  }
+  await slots.refresh({ force: true });
+  assert.deepStrictEqual(
+    live(),
+    ['another-download', 'big-model-nobody-loaded', 'm'],
+    'the fifth falls back to the whole /v1/models list',
+  );
+
+  // One good answer and the streak is forgotten, so the next hiccup gets the
+  // full allowance again.
+  servedV0 = [
+    { id: 'm', type: 'llm', state: 'loaded' },
+    { id: 'big-model-nobody-loaded', type: 'llm', state: 'not-loaded' },
+    { id: 'another-download', type: 'llm', state: 'not-loaded' },
+  ];
+  await slots.refresh({ force: true });
+  assert.deepStrictEqual(live(), ['m']);
+  servedV0 = null;
+  await slots.refresh({ force: true });
+  assert.deepStrictEqual(live(), ['m'], 'the allowance reset with the v0 success');
+});
