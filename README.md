@@ -230,7 +230,10 @@ local server Vault needs. Then:
 **More speed: load the model more than once.** LM Studio can load extra
 copies of the same vision model (they show up as `model`, `model:2`,
 `model:3`); Vault groups the copies and spreads scan requests across all of
-them, so more loaded copies means more scans running in parallel. Workers per
+them, so more loaded copies means more scans running in parallel. Vault checks
+what LM Studio has loaded when you open Settings > Backend, when you press
+Refresh there, and once a minute while a scan is running, so load or eject
+copies whenever you like. Workers per
 instance just keep one instance busy between files and do not add extra
 throughput on their own, so the fastest setup is about 2 workers per
 instance, then as many instances as your VRAM can hold.
@@ -305,6 +308,7 @@ as a fallback, so an existing `.env` keeps working.
 |----------|---------|-------------|
 | `LM_STUDIO_URLS` | `http://localhost:1234/v1/chat/completions` | Comma-separated endpoints. Settings > Backend can set servers too, when this variable is unset |
 | `MEDIA_TAGGER_PORT` | `8765` | Viewer port; Settings can set it too |
+| `AI_DISCOVERY_MS` | `60000` | How often Vault re-checks what your AI server has loaded, while a scan is running. `0` turns it off and leaves Refresh in Settings > Backend |
 | `FRAME_WORKERS` | `4` | Parallel ffmpeg processes |
 | `VISION_WORKERS` | `1` | API workers per endpoint |
 | `DEDUPE_FRAMES` | `true` | Skip duplicate frames |

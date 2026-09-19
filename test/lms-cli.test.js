@@ -38,6 +38,19 @@ test('nextIdentifier ignores other families and unrelated suffixes', () => {
   assert.strictEqual(lms.nextIdentifier('m', ['m', 'other:2', 'm-extra:2', 'm:x']), 'm:2');
 });
 
+/* The base id is a candidate like any other. Before, numbering started at :2
+   unconditionally, so a family whose original had been ejected got another
+   suffix stacked on a suffixed id and ended up as `…max:2:2`. */
+test('nextIdentifier takes the bare base id when nothing holds it', () => {
+  const fam = 'mradermacher/minicpm-v-4.6-abliterated-max';
+  assert.strictEqual(lms.nextIdentifier(fam, []), fam, 'nothing loaded: the copy is the original');
+  assert.strictEqual(lms.nextIdentifier(fam, [`${fam}:2`, `${fam}:3`]), fam,
+    'the base was ejected, so the next copy takes it back rather than becoming :4');
+  assert.strictEqual(lms.nextIdentifier(fam, [`${fam}:3`]), fam);
+  // And it is still skipped when it IS loaded.
+  assert.strictEqual(lms.nextIdentifier(fam, [fam, `${fam}:3`]), `${fam}:2`);
+});
+
 test('nextIdentifier treats regex characters in a model name as text', () => {
   // Real model keys carry dots and slashes; a naive pattern would match
   // "publisher/model-v1.5:2" against "publisher/modelXv1X5".
@@ -194,22 +207,26 @@ test('findLms answers null when the CLI is nowhere', () => {
   assert.strictEqual(lms._findLmsIn({ env, platform: 'linux', exists: () => false }), null);
 });
 
-/* ── The never-unload-the-base guard ─────────────────────────────────────── */
+/* ── The never-unload-the-last-copy guard ────────────────────────────────── */
 
-/* The route decides this with aiSlots.familyOf over the identifiers `lms ps`
-   reports: an id whose family is itself is an original, so the guard is one
-   comparison. These cases are what that has to get right. */
-test('the unload guard lets copies through and stops originals', () => {
-  const guarded = (id, siblings) => aiSlots.familyOf(id, new Set(siblings)) === id;
+/* The route counts how many of the identifiers `lms ps` reports share the
+   family and refuses only when unloading would empty it. Which copy is the
+   "original" is no longer part of the question: after ejecting the base in LM
+   Studio the remaining copies still have to be unloadable from Vault. */
+test('the unload guard refuses only the last copy of a family', () => {
+  const guarded = (id, siblings) =>
+    siblings.filter(s => aiSlots.familyOf(s) === aiSlots.familyOf(id)).length < 2;
 
-  assert.strictEqual(guarded('m', ['m', 'm:2']), true, 'the original is protected');
+  assert.strictEqual(guarded('m', ['m', 'm:2']), false, 'the base goes while :2 remains');
   assert.strictEqual(guarded('m:2', ['m', 'm:2']), false, 'a copy can be unloaded');
   assert.strictEqual(guarded('m:3', ['m', 'm:2', 'm:3']), false);
-  // An Ollama style tag is a model in its own right, not a third copy of
-  // something called llava, so it must never be unloadable as one.
+  // The base was ejected in LM Studio: :2 and :3 are still one family, and
+  // either may go while the other is holding the model.
+  assert.strictEqual(guarded('m:2', ['m:2', 'm:3']), false);
+  assert.strictEqual(guarded('m:3', ['m:3']), true, 'the last copy is refused');
+  assert.strictEqual(guarded('m', ['m']), true);
+  // An Ollama style tag is a model in its own right, never a copy of anything.
   assert.strictEqual(guarded('llava:13b', ['llava:13b']), true);
-  // A lone numbered id with no base is its own family, and protected too.
-  assert.strictEqual(guarded('foo:2', ['foo:2']), true);
 });
 
 /* ── Job list ────────────────────────────────────────────────────────────── */

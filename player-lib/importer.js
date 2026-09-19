@@ -167,6 +167,7 @@
           title="${WORKERS_TIP}"></span>
       </div>
       <div class="dq-inst" id="scanInst" hidden></div>
+      <div class="dq-notice" id="scanNotice" hidden></div>
       <div class="dq-warn" id="scanWarn" hidden></div>
       <div class="dq-list" id="scanList"></div>
       <div class="dq-actions" id="scanActions">
@@ -356,6 +357,43 @@
     });
   }
 
+  /* Notices the user has closed, by id. In memory only: it is about one run in
+     one tab, and a dismissal worth remembering past a reload would be a
+     dismissal worth not showing at all. */
+  const _noticeClosed = new Set();
+
+  /**
+   * A copy went away and the run carried on. Not a halt and no picker, but it
+   * explains why the strip is one line shorter and the ETA just moved, so it
+   * gets a line of its own, with a ✕ because the same panel repaints every
+   * 1.5 s and a line you cannot get rid of wears out fast.
+   *
+   * Rebuilt only when the id changes: re-running innerHTML every tick would
+   * throw away the ✕ the user is reaching for.
+   */
+  function renderScanNotice(el, notice) {
+    const line = el.querySelector('#scanNotice');
+    if (!line) return;
+    const id = notice && notice.id ? String(notice.id) : '';
+    const text = notice && notice.text ? String(notice.text) : '';
+    if (!text || (id && _noticeClosed.has(id))) {
+      line.hidden = true;
+      line.innerHTML = '';
+      delete line.dataset.noticeId;
+      return;
+    }
+    if (line.dataset.noticeId === id && !line.hidden) return;
+    line.dataset.noticeId = id;
+    line.hidden = false;
+    line.innerHTML = `<span class="dq-notice-text">${escapeHtml(text)}</span>`
+      + `<button type="button" class="dq-x dq-notice-x" title="Dismiss">✕</button>`;
+    line.querySelector('.dq-notice-x').addEventListener('click', () => {
+      if (id) _noticeClosed.add(id);
+      line.hidden = true;
+      line.innerHTML = '';
+    });
+  }
+
   function renderScanPanel(q) {
     const el = scanPanelEl();
     el.classList.add('visible');
@@ -371,17 +409,17 @@
     }[by] || '';
     // Instance counts, if the server reports them. An older server sends no
     // `instances` array and everything below collapses to today's panel.
+    // The server only reports copies that are loaded, so there is no "unloaded"
+    // count to carry here any more — a copy that goes simply leaves the strip,
+    // and the notice line below says it happened.
     const insts = Array.isArray(q.instances) ? q.instances : [];
-    const liveInsts = insts.filter(i => i.alive && i.enabled);
-    const goneInsts = insts.filter(i => !i.alive);
+    const liveInsts = insts.filter(i => i.enabled);
     const instBit = liveInsts.length >= 2
       ? ` · ${liveInsts.length} instances` : '';
-    const goneBit = goneInsts.length
-      ? ` · ${goneInsts.length} unloaded` : '';
 
     el.querySelector('#scanHead').innerHTML = `
       ${q.paused ? `<span class="dq-ico">${modelHalt ? '⚠' : '⏸'}</span>` : '<span class="dq-spin"></span>'}
-      <span class="dq-title">🤖 AI scan ${done}/${total}${instBit}${goneBit}${failed ? ` · ${failed} failed` : ''}${note}</span>`;
+      <span class="dq-title">🤖 AI scan ${done}/${total}${instBit}${failed ? ` · ${failed} failed` : ''}${note}</span>`;
 
     const pct = total ? Math.min(100, ((done + failed) / total) * 100) : 0;
     el.querySelector('#scanBarFill').style.width = `${pct}%`;
@@ -427,18 +465,19 @@
 
     // The per-instance strip: one line each, only when it earns its space.
     const strip = el.querySelector('#scanInst');
-    const showStrip = liveInsts.length >= 2 || goneInsts.length > 0;
+    const showStrip = liveInsts.length >= 2;
     strip.hidden = !showStrip;
     strip.innerHTML = !showStrip ? '' : insts.map(i => {
-      const ico = !i.alive ? '✕' : (i.enabled ? '●' : '○');
-      const text = !i.alive ? 'unloaded, skipping'
-        : i.enabled ? `${Number(i.inFlight) || 0} in flight · ${Number(i.done) || 0} done`
+      const text = i.enabled
+        ? `${Number(i.inFlight) || 0} in flight · ${Number(i.done) || 0} done`
         : 'parked';
-      return `<div class="dq-inst-row${i.alive ? '' : ' dq-dead'}">`
-        + `<span class="dq-ico">${ico}</span>`
+      return `<div class="dq-inst-row">`
+        + `<span class="dq-ico">${i.enabled ? '●' : '○'}</span>`
         + `<span class="dq-inst-id">${escapeHtml(i.suffix || ':1')}</span>`
         + `<span>${text}</span></div>`;
     }).join('');
+
+    renderScanNotice(el, q.notice);
     // Mid-edit is sacred: a poll landing between keystrokes must not rewrite
     // what the user is typing.
     // Workers PER INSTANCE, which is what this stepper sets. `concurrency` is
@@ -476,6 +515,7 @@
     // Nothing left to pause or cancel — the head's ✕ is a plain dismiss here.
     el.querySelector('#scanActions').hidden = true;
     el.querySelector('#scanWarn').hidden = true;
+    el.querySelector('#scanNotice').hidden = true;
     el.querySelector('#scanInst').hidden = true;     // nothing in flight to report on
     disarmCancel();
     el.querySelector('.dq-x').addEventListener('click', () => el.remove());

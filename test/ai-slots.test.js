@@ -21,11 +21,13 @@ let served = [];        // what /v1/models lists (everything downloaded)
 let servedV0 = null;    // rows for /api/v0/models, or null to 404 that route
 let v0Status = 404;     // the code that route answers with when servedV0 is null
 let v1Down = false;     // /v1/models answers 500, as when the whole server is gone
+let hits = 0;           // every request the stub has answered, for the probe-count tests
 let server;
 let base;
 
 test.before(async () => {
   server = http.createServer((req, res) => {
+    hits++;
     if (req.url.startsWith('/api/v0/models')) {
       if (!servedV0) { res.writeHead(v0Status); return res.end('{}'); }
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -135,15 +137,38 @@ test('groups numbered copies into one family', async () => {
   served = ['m', 'm:2', 'm:3', 'llava:13b', 'foo:2'];
   await reset();
   const names = slots.families().map(f => f.family).sort();
-  assert.deepStrictEqual(names, ['foo:2', 'llava:13b', 'm']);
+  assert.deepStrictEqual(names, ['foo', 'llava:13b', 'm']);
 
   const m = slots.families().find(f => f.family === 'm');
   assert.deepStrictEqual(m.instances.map(i => i.id), ['m', 'm:2', 'm:3']);
   assert.deepStrictEqual(m.instances.map(i => i.suffix), [':1', ':2', ':3']);
 
-  // A lone numbered id and an Ollama tag are each their own family.
-  assert.strictEqual(slots.families().find(f => f.family === 'foo:2').instances.length, 1);
+  // An Ollama tag keeps its own family: `13b` is not an integer >= 2.
   assert.strictEqual(slots.families().find(f => f.family === 'llava:13b').instances[0].suffix, ':1');
+});
+
+/* ── The family rule (8.1) ────────────────────────────────────────────────
+   `:N` is stripped whether or not the base is loaded. The old rule needed the
+   base present, so ejecting it in LM Studio split three copies of one model
+   into two families: the Backend tab showed two models where there was one,
+   the next clone was numbered off a suffixed id (`…max:2:2`), and a mid-scan
+   ejection looked like the chosen model disappearing rather than one copy. */
+
+test('a copy stays in its family after the base is ejected', async () => {
+  served = ['m:2', 'm:3'];
+  await reset();
+  const fams = slots.families();
+  assert.deepStrictEqual(fams.map(f => f.family), ['m'], 'one family, not two');
+  assert.deepStrictEqual(fams[0].instances.map(i => i.suffix), [':2', ':3']);
+  assert.strictEqual(slots.activeCount('m'), 2, 'both copies are lanes of the family');
+});
+
+test('familyOf strips a numeric suffix with no sibling condition', () => {
+  assert.strictEqual(slots.familyOf('m:2'), 'm');
+  assert.strictEqual(slots.familyOf('m'), 'm');
+  assert.strictEqual(slots.familyOf('pub/model-v1.5:7'), 'pub/model-v1.5');
+  assert.strictEqual(slots.familyOf('llava:13b'), 'llava:13b', 'an Ollama tag is not a copy');
+  assert.strictEqual(slots.familyOf('m:1'), 'm:1', 'numbering starts at 2');
 });
 
 test('pick spreads over the family: least in flight, round robin on ties', async () => {
@@ -208,7 +233,12 @@ test('an unknown family picks nothing, so callers fall back', async () => {
   assert.strictEqual(slots.pick(null), null);
 });
 
-test('a vanished copy keeps its stats for the TTL, then is dropped', async () => {
+/* ── Mirroring the server (8.2) ───────────────────────────────────────────
+   A copy that is not in the latest probe is not listed anywhere. Only its
+   counters are banked, so a copy that comes back is the same copy to the user
+   without an ejected one lingering in the table for a minute. */
+
+test('a vanished copy leaves at once but its stats come back with it', async () => {
   served = ['m', 'm:2'];
   await reset();
   const s = slots.pick('m:2');
@@ -217,28 +247,38 @@ test('a vanished copy keeps its stats for the TTL, then is dropped', async () =>
 
   served = ['m'];
   await slots.refresh({ force: true });
-  let gone = slots.families()[0].instances.find(i => i.id === 'm:2');
-  assert.strictEqual(gone.alive, false);
-  assert.ok(gone.goneAt > 0, 'goneAt is stamped');
-  assert.strictEqual(gone.done, 1, 'stats survive the disappearance');
+  assert.strictEqual(slots.families()[0].instances.find(i => i.id === 'm:2'), undefined,
+    'not listed, not even as a dead row');
+  assert.deepStrictEqual(slots.instancesOf('m').map(i => i.id), ['m'],
+    'the scan panel strip does not list it either');
   assert.strictEqual(slots.activeCount('m'), 1, 'it no longer counts as a lane');
+  assert.ok(slots.registry().slots.every(i => i.id !== 'm:2'), 'and not in the registry payload');
+  assert.ok(slots.registry().slots.every(i => i.goneAt === undefined), 'goneAt is gone');
 
-  // Back within the window: same slot, same counters.
+  // Loaded again: the same copy, with the history it had.
   served = ['m', 'm:2'];
   await slots.refresh({ force: true });
   const back = slots.families()[0].instances.find(i => i.id === 'm:2');
   assert.strictEqual(back.alive, true);
-  assert.strictEqual(back.goneAt, null);
   assert.strictEqual(back.done, 1, 'revived with its history intact');
 
-  // Past the window it is forgotten. Backdating goneAt beats waiting 60 s.
+  // Past the stats window there is nothing left to revive.
   served = ['m'];
   await slots.refresh({ force: true });
-  for (const slot of slots._slots.values()) {
-    if (slot.modelId === 'm:2') slot.goneAt = Date.now() - slots.GONE_TTL_MS - 1;
-  }
+  for (const kept of slots._stats.values()) kept.at = Date.now() - slots.STATS_TTL_MS - 1;
   await slots.refresh({ force: true });
-  assert.strictEqual(slots.families()[0].instances.find(i => i.id === 'm:2'), undefined);
+  served = ['m', 'm:2'];
+  await slots.refresh({ force: true });
+  assert.strictEqual(
+    slots.families()[0].instances.find(i => i.id === 'm:2').done, 0, 'counters started over');
+});
+
+test('every payload carries when the picture was last checked', async () => {
+  served = ['m'];
+  await reset();
+  const at = slots.lastCheckedAt();
+  assert.ok(at > 0 && at <= Date.now(), 'lastCheckedAt is the probe time');
+  assert.strictEqual(slots.registry().lastCheckedAt, at);
 });
 
 test('an endpoint that stops answering takes all of its slots with it', async () => {
@@ -275,6 +315,95 @@ test('reportUnavailable retires just the one copy', async () => {
   const s = slots.pick('m:2');
   slots.reportUnavailable(s);
   assert.strictEqual(slots.activeCount('m'), 1, 'the sibling is still a lane');
+  assert.strictEqual(slots.families()[0].instances.length, 1, 'and it is not listed');
+  assert.strictEqual(slots.lastGone().suffix, ':2', 'the panel can name the copy that went');
+});
+
+/* ── Probing is event-driven (8.6) ────────────────────────────────────────
+   Everything that reads the registry often — the Backend tab's 5 s poll, the
+   model dropdown, the scan panel — must cost nothing. An idle Vault with the
+   tab open made a /v1/models request every few seconds before this. */
+
+test('an unforced refresh makes no network call', async () => {
+  served = ['m', 'm:2'];
+  await reset();
+  const before = hits;
+  const r1 = await slots.refresh();
+  const r2 = await slots.refresh({ force: false });
+  assert.strictEqual(hits, before, 'nothing was asked of the server');
+  assert.strictEqual(r1.slots.length, 2, 'it still answers, from the registry');
+  assert.strictEqual(r2.lastCheckedAt, slots.lastCheckedAt());
+
+  // Forced is the only thing that costs a request.
+  await slots.refresh({ force: true });
+  assert.ok(hits > before, 'Refresh really looks');
+});
+
+test('a slot error retires the copy without a probe, then confirms once', async () => {
+  served = ['m', 'm:2', 'm:3'];
+  await reset();
+  const before = hits;
+  slots.reportUnavailable(slots.pick('m:2'));
+  slots.reportUnavailable(slots.pick('m:3'));
+  assert.strictEqual(hits, before, 'the error is the evidence: nothing is asked');
+  assert.strictEqual(slots.activeCount('m'), 1, 'the survivor keeps its lane');
+
+  // One confirming probe, shared by both errors, a moment later.
+  served = ['m'];
+  await new Promise(r => setTimeout(r, slots.ERROR_PROBE_MS + 400));
+  assert.strictEqual(hits - before, 2, 'one probe (its two routes), not one per error');
+});
+
+/* The discovery sweep is the one periodic call left, and it only runs while a
+   scan is working. AI_DISCOVERY_MS is read once at require time, so the cadence
+   is measured in a child process with its own stub server. */
+async function bootProbes(discoveryMs, waitMs) {
+  const { spawnSync } = require('node:child_process');
+  const modulePath = path.join(__dirname, '..', 'lib', 'ai-slots.js');
+  const script = `
+    const http = require('http');
+    let hits = 0;
+    const s = http.createServer((req, res) => {
+      hits++;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'm', type: 'llm', state: 'loaded' }] }));
+    });
+    s.listen(0, '127.0.0.1', () => {
+      const url = 'http://127.0.0.1:' + s.address().port + '/v1/chat/completions';
+      const slots = require(${JSON.stringify(modulePath)});
+      slots._reset([url]);
+      slots.boot({ activeProbe: () => true });     // pretend a scan is running
+      setTimeout(() => {
+        console.log(JSON.stringify({ discovery: slots.DISCOVERY_MS, probes: hits / 2 }));
+        process.exit(0);
+      }, ${waitMs});
+    });`;
+  const r = spawnSync(process.execPath, ['-e', script], {
+    encoding: 'utf8',
+    env: { ...process.env, AI_DISCOVERY_MS: String(discoveryMs) },
+  });
+  return JSON.parse(String(r.stdout).trim().split('\n').pop());
+}
+
+test('AI_DISCOVERY_MS sets the sweep, and 0 leaves only the boot probe', async () => {
+  const off = await bootProbes(0, 400);
+  assert.strictEqual(off.discovery, 0);
+  assert.strictEqual(off.probes, 1, 'boot looked once and nothing ticked after it');
+
+  const on = await bootProbes(100, 400);
+  assert.strictEqual(on.discovery, 100);
+  assert.ok(on.probes >= 3, `the sweep ran while the queue was active (saw ${on.probes})`);
+});
+
+test('a success puts a copy the registry had written off back', async () => {
+  served = ['m', 'm:2'];
+  await reset();
+  const s = slots.pick('m:2');
+  slots.reportUnavailable(s);
+  assert.strictEqual(slots.activeCount('m'), 1);
+  slots.acquire(s);
+  slots.release(s, { ok: true, ms: 10 });
+  assert.strictEqual(slots.activeCount('m'), 2, 'an answer is proof it is loaded');
 });
 
 test('onChange fires when the set of live slots moves', async () => {
@@ -359,15 +488,19 @@ test('a pinned copy offers one lane, not the whole family', async () => {
   llm.setSessionModel(null);
 });
 
-test('a lone numbered id is its own family, not a pin', async () => {
+/* A lone `foo:2` now belongs to family `foo` (8.1), so naming it exactly is a
+   PIN on the one copy, the same as it would be with `foo` also loaded. That is
+   the point: ejecting the base must not change what `foo:2` means. */
+test('a lone numbered id belongs to its base family and pins one copy', async () => {
   const llm = require('../lib/llm-client');
   served = ['foo:2'];
   servedV0 = [{ id: 'foo:2', type: 'llm', state: 'loaded' }];
   await reset();
   llm.setSessionModel('foo:2');
-  assert.strictEqual(llm.currentFamily(), 'foo:2');
-  assert.strictEqual(llm.currentPin(), null);
-  assert.strictEqual(slots.activeCount('foo:2'), 1);
+  assert.strictEqual(llm.currentFamily(), 'foo');
+  assert.strictEqual(llm.currentPin(), 'foo:2');
+  assert.strictEqual(slots.activeCount('foo'), 1);
+  assert.strictEqual(slots.activeCountForId('foo:2'), 1, 'one lane, not the whole family');
   llm.setSessionModel(null);
 });
 

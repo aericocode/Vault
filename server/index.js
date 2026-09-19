@@ -917,7 +917,11 @@ app.post('/api/import/queue/resume', async (req, res) => {
 app.get('/api/ai/models', async (req, res) => {
   const llm = require('../lib/llm-client');
   try {
-    await aiSlots.refresh({ force: true });
+    // Reads the registry unless asked to check. This route used to probe on
+    // every call, and it is called by the Backend tab's 5 s poll and by every
+    // scan-panel picker rebuild, which is most of why LM Studio's log was full
+    // of Vault. Refresh in Settings > Backend sends ?refresh=1.
+    await aiSlots.refresh({ force: req.query.refresh === '1' });
     const states = aiSlots.endpointStates();
     const fams = aiSlots.families(llm.currentFamily());
     const models = [];
@@ -1025,6 +1029,10 @@ function _instancesPayload() {
     // the footer line never claims the queue is running zero files at a time.
     inFlightMax: importQueue.getConcurrency(),
     families: aiSlots.families(current),
+    // When the picture below was last checked against the server. The tab shows
+    // it beside Refresh, because a mirror is only as good as its last look and
+    // Vault no longer takes one every few seconds.
+    lastCheckedAt: aiSlots.lastCheckedAt(),
     // Copies that have been asked for but are not loaded yet. They are not
     // slots and never will be under this id, so they live beside the families
     // rather than inside one: the table draws a placeholder row from them so a
@@ -1084,24 +1092,20 @@ app.post('/api/ai/instances/clone', async (req, res) => {
   if (!row) {
     return res.status(404).json({ error: 'LM Studio is not reporting that instance any more.' });
   }
-  // The family is worked out from what LM Studio itself lists, so an Ollama
-  // style tag (`llava:13b`) is its own family and never mistaken for a copy.
   const siblings = new Set(lmsCli.psIdentifiers(rows));
-  const family = aiSlots.familyOf(gate.id, siblings);
+  const family = aiSlots.familyOf(gate.id);
   if (lmsCli.activeJob(family)) {
     return res.status(409).json({ error: 'A copy of that model is already loading.' });
   }
-  // Everything that could own a `:N` for this family: what is loaded now, what
-  // the registry still remembers, and what another clone has already claimed.
-  const taken = [
-    ...siblings,
-    // Alive only: the registry keeps a copy's row for a minute after it is
-    // unloaded so its stats survive a blink, and letting that block its number
-    // would walk the suffixes up to :5 over an afternoon of experimenting. The
-    // row is revived intact if the same id comes back, which is what we want.
-    ...[...aiSlots._slots.values()].filter(s => s.family === family && s.alive).map(s => s.modelId),
-    ...lmsCli.pendingIdentifiers(),
-  ];
+  // Every identifier in this family that is spoken for: loaded right now
+  // according to `lms ps`, or claimed by a clone still loading. The bare family
+  // id is a candidate like any other, so ejecting the original makes the next
+  // copy the original again rather than stacking another suffix on a suffixed
+  // id. The registry deliberately does NOT get a say: it is only as fresh as
+  // the last probe, and a copy ejected in LM Studio since then would hold its
+  // number for nothing. `lms ps` was just read, and for a local LM Studio it is
+  // the authority.
+  const taken = [...siblings, ...lmsCli.pendingIdentifiers()];
   const identifier = lmsCli.nextIdentifier(family, taken);
   const job = lmsCli.startClone({ family, row, identifier });
   // 202: the load runs on past this response and the registry picks the copy up
@@ -1119,16 +1123,29 @@ app.post('/api/ai/instances/unload', async (req, res) => {
   if (gate.error) return res.status(gate.status).json({ error: gate.error });
 
   const rows = await lmsCli.psRows();
-  const siblings = new Set(lmsCli.psIdentifiers(rows));
-  // The only guard that matters: never the original. familyOf returns the id
-  // itself for a base instance (and for a lone `foo:2` with no `foo`), so this
-  // one comparison covers both without a second rule.
-  if (aiSlots.familyOf(gate.id, siblings) === gate.id) {
-    return res.status(400).json({ error: 'That is the original instance. Vault only unloads extra copies.' });
-  }
-  if (!siblings.has(gate.id)) {
+  const siblings = lmsCli.psIdentifiers(rows);
+  if (!siblings.includes(gate.id)) {
     return res.status(404).json({ error: 'LM Studio is not reporting that copy any more.' });
   }
+  // The guard is about the FAMILY, not about which copy is the original. It
+  // used to refuse the base id, which meant that after ejecting `:1` in LM
+  // Studio the remaining copies could not be unloaded from here at all, and
+  // that one copy is as good as another: what matters is that the model the
+  // user picked for scans does not vanish out from under them by accident.
+  const family = aiSlots.familyOf(gate.id);
+  const alive = siblings.filter(id => aiSlots.familyOf(id) === family).length;
+  if (alive < 2) {
+    return res.status(400).json({
+      error: 'Vault keeps one copy loaded. Unload it in LM Studio if you want the model gone.',
+    });
+  }
+  // Verified live: `lms unload <id>` takes a positional identifier and has no
+  // way to disambiguate further, and the BASE copy's identifier is also the
+  // model key, so asking it to unload the base of a family with copies loaded
+  // makes LM Studio pick one of them itself (it took `:2` here when asked for
+  // the base). Every copy of a family is interchangeable to Vault, so the
+  // outcome is the one the user asked for — one copy freed — and the table is
+  // refreshed from `lms ps` straight after, so it never claims otherwise.
   const { ok, error } = await lmsCli.unloadInstance(gate.id);
   if (!ok) return res.status(500).json({ error });
   try { await aiSlots.refresh({ force: true }); } catch {}

@@ -2309,12 +2309,9 @@
     renderModelSel();
   }
 
+  /* Every listed copy is loaded: the table mirrors the server, so an ejected
+     copy is simply not here any more rather than sitting in a red row. */
   function instStatusHtml(inst) {
-    if (!inst.alive) {
-      const secs = inst.goneAt ? Math.max(0, Math.round((Date.now() - inst.goneAt) / 1000)) : null;
-      return `<span class="settings-st"><span class="settings-dot bad"></span>`
-        + (secs == null ? 'unloaded' : `unloaded ${secs} s ago`) + '</span>';
-    }
     if (!inst.enabled) return '<span class="settings-st"><span class="settings-dot"></span>parked</span>';
     return `<span class="settings-st"><span class="settings-dot ok"></span>${Number(inst.inFlight) || 0} in flight</span>`;
   }
@@ -2341,10 +2338,10 @@
     return '';
   }
 
-  /** The instance a copy is modelled on: the original if it is up, else any live one. */
+  /** The instance a copy is modelled on: the original if it is up, else any of them. */
   function cloneSource(fam) {
     const list = fam.instances || [];
-    return list.find(i => i.alive && i.suffix === ':1') || list.find(i => i.alive) || null;
+    return list.find(i => i.suffix === ':1') || list[0] || null;
   }
 
   function cloneBtnHtml(fam) {
@@ -2382,7 +2379,7 @@
 
   function familyRowsHtml(fam) {
     const list = fam.instances || [];
-    const inUse = list.filter(i => i.enabled && i.alive).length;
+    const inUse = list.filter(i => i.enabled).length;
     const done = list.reduce((s, i) => s + (Number(i.done) || 0), 0);
     const timed = list.filter(i => Number(i.avgMs) > 0);
     const avg = timed.length ? secs1(timed.reduce((s, i) => s + i.avgMs, 0) / timed.length) : '-';
@@ -2403,10 +2400,10 @@
     return head + list.map(i => {
       const pct = Math.round(((Number(i.done) || 0) / maxDone) * 100);
       return `
-      <tr class="sub ${i.enabled ? '' : 'off'} ${i.alive ? '' : 'dead'}">
+      <tr class="sub ${i.enabled ? '' : 'off'}">
         <td><label class="settings-sw-inline" title="${i.enabled ? 'Stop sending scans here' : 'Use this instance'}">
           <input type="checkbox" data-inst-id="${esc(i.id)}" data-inst-ep="${esc(i.endpoint)}"
-                 ${i.enabled ? 'checked' : ''} ${i.alive ? '' : 'disabled'}
+                 ${i.enabled ? 'checked' : ''}
                  aria-label="Use instance ${esc(i.suffix || '')}">
           <span class="settings-switch" aria-hidden="true"></span>
         </label></td>
@@ -2418,9 +2415,13 @@
     }).join('') + jobs;
   }
 
-  /** Unload is offered on copies only. The original is LM Studio's to manage. */
+  /**
+   * Unload is offered on any copy while a sibling would be left. The last one
+   * is LM Studio's to manage, so the link is simply absent rather than being
+   * offered and then refused by the server.
+   */
   function unloadBtnHtml(fam, inst) {
-    if (!inst.alive || inst.id === fam.family) return '';
+    if ((fam.instances || []).length < 2) return '';
     const why = cloneWhyNot(fam);
     if (why) return '';
     return ` <button type="button" class="settings-link inst-unload"
@@ -2454,7 +2455,25 @@
         <input class="settings-num" type="number" min="${WORKERS_MIN}" max="${WORKERS_MAX}" step="1"
                data-setting-num="scanWorkers" value="${w}" title="${WORKERS_TIP}"
                aria-label="Workers per instance"></span>
+      <span class="settings-checked" id="backendChecked">${checkedAgoText()}</span>
       <button type="button" class="settings-btn" id="backendInstRefresh">Refresh</button>`;
+  }
+
+  /* How old the mirror is. Vault only looks when something asks it to, so
+     without this the table could be an hour stale and look authoritative. */
+  function checkedAgoText() {
+    const at = Number(backend.instances?.lastCheckedAt) || 0;
+    if (!at) return 'Not checked yet';
+    const secs = Math.max(0, Math.round((Date.now() - at) / 1000));
+    if (secs < 60) return `Checked ${secs} s ago`;
+    const mins = Math.round(secs / 60);
+    return `Checked ${mins} min ago`;
+  }
+
+  /** Tick the label without asking the server anything. */
+  function renderCheckedAgo() {
+    const el = document.getElementById('backendChecked');
+    if (el) el.textContent = checkedAgoText();
   }
 
   // The footer is repainted on its own after a workers push, so it does not
@@ -2536,8 +2555,10 @@
         }
         showToast?.(`Loading ${data.identifier}. It joins the scans when LM Studio is done.`);
         // The copy needs a moment to appear, so paint the "loading" row now and
-        // let the 5 s poll (or the user's Refresh) replace it with the real one.
-        loadInstances({ refresh: true });
+        // let the 5 s poll replace it with the real one. No probe here: the
+        // copy cannot possibly be up yet, and the job refreshes the registry
+        // itself the moment it is.
+        loadInstances();
       });
     });
 
@@ -2581,8 +2602,8 @@
   function RENDERERS_backend() {
     return `
       <h3 class="settings-h">Loaded instances</h3>
-      <p class="settings-note">Every copy of a model your server reports. Load the same model again in
-        LM Studio to add one; Vault picks it up within a few seconds and spreads scans across all of them.</p>
+      <p class="settings-note">Mirrors what LM Studio has loaded right now. Press Refresh after loading
+        or ejecting a model there; during a scan Vault also checks once a minute.</p>
       <div id="backendInstHost"></div>
 
       <div class="settings-toggle">
@@ -2647,7 +2668,8 @@
       if (!ok) { showToast?.('⚠ ' + (data.error || 'could not set the model')); return; }
       if (backend.models) backend.models.current = data.family || data.model || value || '';
       showToast?.(value ? `Scanning with ${value}` : 'Using whatever is loaded');
-      loadInstances({ refresh: true });
+      // Which copies are loaded did not change, only which ones scans use.
+      loadInstances();
     });
 
     beGet('/api/ai/endpoints').then(d => { if (d) backend.status = d; renderAiNote(); renderEpRows(); });
@@ -2665,11 +2687,16 @@
     stopBackendPoll();
     _backendPoll = setInterval(() => {
       if (!isOpen() || !document.getElementById('backendInstHost')) { stopBackendPoll(); return; }
+      // Costs nothing and keeps the age honest even when the tick below skips.
+      renderCheckedAgo();
       // A copy that is loading moves too: its row has to turn into a real
       // instance (or an error) on its own, without the user pressing Refresh.
       const loading = (backend.instances?.jobs || []).some(j => j.state === 'loading');
       if (!loading && !document.getElementById('scanQueuePanel')) return;
-      loadInstances({ refresh: loading });
+      // Always the cached registry, never a probe. The clone job watches `lms
+      // ps` itself and refreshes the registry the moment its copy is up, so
+      // this poll sees the new row without asking LM Studio anything.
+      loadInstances();
     }, 5000);
   }
 

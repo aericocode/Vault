@@ -901,8 +901,24 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.dq-inst-row.dq-dead,
-.dq-inst-row.dq-dead .dq-inst-id { color: var(--danger); }
+/* "A copy was unloaded, carrying on with the rest". The warning colour, but a
+   plain line rather than the .dq-warn banner: the banner means the run stopped
+   and needs the user, and this run never stopped. */
+.dq-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--warning, #f0ad4e);
+}
+.dq-notice[hidden] { display: none; }
+.dq-notice-text { flex: 1; min-width: 0; }
+/* Borrows .dq-x wholesale; only the colour has to follow the warning text so
+   the ✕ does not read as a brighter, more important control than the line. */
+.dq-notice-x { color: inherit; opacity: 0.7; line-height: 1.35; }
+.dq-notice-x:hover { color: inherit; opacity: 1; }
 
 /* The instance a file is currently being scanned on, parked at the end of its
    row so a stalled file can be traced to the instance in the strip above. */

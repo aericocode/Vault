@@ -143,10 +143,12 @@ scan throughput:
 
 1. In LM Studio, load the model a second time (Developer tab, same steps as
    before). The second copy appears in the model list as `name:2`.
-2. Back in Vault, no restart needed: it picks up the new copy within a few
-   seconds.
+2. Back in Vault, no restart needed: press **Refresh** in Settings > Backend,
+   or wait up to a minute during a scan.
 3. Check **Settings > Backend > Loaded instances** to see both copies
-   listed under the same model family, each with its own switch.
+   listed under the same model family, each with its own switch. The table
+   mirrors LM Studio: eject a copy there and it leaves the table on the next
+   Refresh.
 
 Or let Vault do the loading: in that same table, press **+ Load another
 copy** on the family row. The copy gets the same context length, parallel
