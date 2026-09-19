@@ -395,6 +395,11 @@ test('AI_DISCOVERY_MS sets the sweep, and 0 leaves only the boot probe', async (
   assert.ok(on.probes >= 3, `the sweep ran while the queue was active (saw ${on.probes})`);
 });
 
+test("an empty AI_DISCOVERY_MS is unset, not zero", async () => {
+  const blank = await bootProbes("", 300);
+  assert.strictEqual(blank.discovery, 60_000, "a bare AI_DISCOVERY_MS= line keeps the default sweep");
+});
+
 test('a success puts a copy the registry had written off back', async () => {
   served = ['m', 'm:2'];
   await reset();
