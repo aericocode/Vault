@@ -136,6 +136,32 @@ Paste the model name into the search box, then pick the quant from the list on t
 paused waiting for the model). The scan panel should start moving; the file's
 description and tags appear when its scan lands.
 
+### Loading more than one copy of a model
+
+More VRAM than one copy needs? Load the same vision model again for more
+scan throughput:
+
+1. In LM Studio, load the model a second time (Developer tab, same steps as
+   before). The second copy appears in the model list as `name:2`.
+2. Back in Vault, no restart needed: it picks up the new copy within a few
+   seconds.
+3. Check **Settings > Backend > Loaded instances** to see both copies
+   listed under the same model family, each with its own switch.
+
+Two settings control speed here, and they do different things:
+
+- **Workers per instance** keep one instance busy between files, so frame
+  extraction for the next file overlaps the AI call for this one. They use
+  almost no extra VRAM, but a single instance still only answers one request
+  at a time, so workers alone do not add throughput.
+- **Instances** are extra copies of the model loaded in LM Studio. Each one
+  answers in parallel, so three instances gives roughly three times the
+  throughput.
+
+Rule of thumb: 2 workers per instance, then as many instances as your VRAM
+holds. If you also loaded the embedding model for semantic search, Vault
+ignores it here: only vision models are grouped into instances.
+
 ### Option B: Ollama
 
 Ollama **requires the model name in each request**, so set two env vars:
@@ -207,6 +233,15 @@ as a fallback, so an existing `.env` keeps working.
 | `VAULT_TRASH` | `./trash` | Trash folder (opaque filenames) |
 | `VAULT_THUMBS` | `./thumbnails` | Thumbnail/cache folder |
 | `FRAME_WORKERS` / `VISION_WORKERS` / `PIPELINE_DEPTH` | `4` / `1` / `2` | Scan parallelism (see §3) |
+
+### Running two Vaults
+
+Point a second copy of Vault at a different library and tell the two apart
+even while locked: open **Settings > Settings**, set a **port** and an
+**instance name**, then restart Vault. The second window's tab and header
+show its name, and the lock screen shows it too, before you unlock. The
+`MEDIA_TAGGER_PORT` environment variable still wins over the Settings port
+when it is set.
 
 ---
 
