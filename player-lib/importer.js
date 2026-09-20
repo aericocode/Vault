@@ -131,7 +131,8 @@
 
   // Same sentence as the Backend tab's stepper (player-lib/settings.js), for
   // the same reason: more workers is the wrong instinct.
-  const WORKERS_TIP = 'Workers keep one instance busy between files. They add no throughput; instances do. About 2 workers per instance.';
+  const WORKERS_TIP = 'A second worker removes the idle gap between files. '
+    + 'More than 2 adds little; extra instances are what multiply throughput.';
 
   function fmtEta(ms) {
     if (ms == null || !Number.isFinite(ms)) return '–';
