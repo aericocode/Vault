@@ -1469,18 +1469,19 @@ body.pm-names #modalTitle {
 }
 .settings-why b { color: var(--text-primary); }
 .settings-why-title {
-  font-size: 0.74rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--text-muted);
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.4rem;
 }
-/* Fixed label column so the three sentences start at one left edge. */
-.settings-why-grid {
-  display: grid;
-  grid-template-columns: 7rem 1fr;
-  gap: 0.25rem 0.6rem;
+.settings-why p {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
 }
-.settings-why-grid .k { color: var(--text-primary); font-weight: 600; }
-.settings-why-grid .v { color: var(--text-secondary); }
+.settings-why p:last-child { margin-bottom: 0; }
 
 @media (max-width: 640px) {
   .settings-ep-row { grid-template-columns: 1fr; }

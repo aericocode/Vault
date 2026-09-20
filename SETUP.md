@@ -157,14 +157,16 @@ This needs LM Studio's `lms` command, which LM Studio installs from its
 Developer tab (or run `npx lmstudio install-cli`). It only works for the LM
 Studio on this PC, not one on another machine.
 
-Two settings control speed here, and they do different things:
+Two settings control speed here, and they do different things.
 
-- **Workers** keep one instance busy between files. Almost no extra VRAM, no
-  extra throughput.
-- **Instances** are extra copies of the model in LM Studio. Each answers in
-  parallel: three copies, about three times the speed.
-- **Rule of thumb:** 2 workers per instance, then as many instances as your
-  VRAM holds (2 to 4 on 16 GB and up).
+A second **worker** keeps each instance busy while the next file's frames are
+extracted, so scans stop waiting between files. That is a real gain from 1 to 2,
+and little beyond that: an instance still answers one request at a time.
+
+Extra **instances** are more copies of the model loaded in LM Studio, and each
+one answers in parallel: three copies, about three times the throughput. Start
+with 2 workers per instance, then add as many instances as your VRAM holds,
+usually 2 to 4 from 16 GB up.
 
 If you also loaded the embedding model for semantic search, Vault ignores it
 here: only vision models are grouped into instances.

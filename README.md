@@ -233,10 +233,11 @@ copies of the same vision model (they show up as `model`, `model:2`,
 about three times the speed. Vault checks what LM
 Studio has loaded when you open Settings > Backend, when you press Refresh
 there, and once a minute while a scan is running, so load or eject copies
-whenever you like. Workers only keep one instance busy between
-files, so they add almost no extra VRAM and no extra throughput. Rule of
-thumb: 2 workers per instance, then as many instances as your VRAM holds
-(2 to 4 on 16 GB and up).
+whenever you like. A second worker keeps each instance busy while the next
+file's frames are extracted, so scans stop waiting between files: a real gain
+from 1 to 2, and little beyond that, since an instance still answers one
+request at a time. Rule of thumb: 2 workers per instance, then as many
+instances as your VRAM holds, usually 2 to 4 from 16 GB up.
 
 Full click-by-click walkthrough: [SETUP.md §2](SETUP.md#2-ai-backend-lm-studio-or-ollama).
 
