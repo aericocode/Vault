@@ -62,8 +62,9 @@ async function run(args) {
     const rows = db.get().prepare('SELECT DISTINCT media_id FROM media_fingerprints').all();
     console.log(`\nRescanning ${rows.length} fingerprinted file(s) against the new references…`);
     let links = 0;
+    const references = service.loadReferences({ onlyRefIds: r.new_ref_ids });   // decoded once for the sweep
     for (const { media_id } of rows) {
-      const found = service.scanAgainstReferences(media_id, { onlyRefIds: r.new_ref_ids });
+      const found = service.scanAgainstReferences(media_id, { references });
       for (const f of found) {
         const m = db.getById(media_id);
         console.log(`  [${media_id}] ${(m?.filename || '').slice(0, 60)} → 🎵 ${f.artist} - ${f.title}`);
