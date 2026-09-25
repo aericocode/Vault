@@ -55,6 +55,34 @@ const die = (m, e) => { console.error('BUILD FAILED: ' + m + (e ? ' — ' + (e.m
 
 const t0 = Date.now();
 
+/* 0 ── native addon check (nodejs/node#65446) */
+// Node 24.19.0+ HEADERS compile a RemoveEnvironmentCleanupHook call into every
+// node::ObjectWrap destructor, but no 24.x runtime can serve it outside a JS
+// context: the addon aborts with "Assertion failed: (env) != nullptr" whenever
+// GC frees a better-sqlite3 Statement/Database. It follows the headers the addon
+// was compiled against, not the runtime. v3.7.2 shipped like that (CI built with
+// 24.20.0). A good build imports only AddEnvironmentCleanupHook. CI pins the
+// headers via npm_config_target in release.yml; drop this check once a 24.x
+// release carries the fix. Runs first so a bad addon never touches dist/.
+step('native addon check (nodejs/node#65446)');
+for (const pkg of ['better-sqlite3', 'better-sqlite3-multiple-ciphers']) {
+  let bin;
+  try { bin = fs.readFileSync(path.join(NM, pkg, 'build', 'Release', 'better_sqlite3.node')); }
+  catch (e) { die(pkg + ' native addon missing (npm ci first)', e); }
+  let headers = 'unknown';   // prebuilt downloads carry no config.gypi
+  try {
+    const gypi = fs.readFileSync(path.join(NM, pkg, 'build', 'config.gypi'), 'utf8');
+    headers = (gypi.match(/"nodedir":\s*"[^"]*?(\d+\.\d+\.\d+)"/) || [])[1] || headers;
+  } catch { /* keep 'unknown' */ }
+  if (bin.includes('RemoveEnvironmentCleanupHook')) {
+    die(pkg + ' was compiled against Node ' + headers + ' headers and would crash on garbage ' +
+      'collection (nodejs/node#65446). Rebuild it against 24.18.1 headers: ' +
+      'set npm_config_target=24.18.1 and npm_config_disturl=https://nodejs.org/dist, ' +
+      'then npm rebuild better-sqlite3 better-sqlite3-multiple-ciphers');
+  }
+  console.log('  ' + pkg + ': ok (Node ' + headers + ' headers)');
+}
+
 /* 1 ── clean output */
 step('clean dist/');
 try {

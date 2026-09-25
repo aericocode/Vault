@@ -34,8 +34,24 @@ jobs:
       # ci (not install) — installs exactly what package-lock.json pins, and
       # fails loudly if the lockfile is out of sync. devDeps are needed: the
       # build uses esbuild and postject.
+      #
+      # npm_config_target compiles the native SQLite addons against Node
+      # 24.18.1 HEADERS; the runtime shipped in Vault.exe stays on the newest
+      # 24.x picked above. Headers from 24.19.0 on make every node::ObjectWrap
+      # destructor call RemoveEnvironmentCleanupHook, which no 24.x runtime can
+      # serve, so better-sqlite3 aborts during garbage collection
+      # (nodejs/node#65446). v3.7.2 shipped with that crash. build-app.js
+      # refuses to package an affected addon. Remove this pin (and that check)
+      # once a 24.x release carries the fix.
+      # npm_config_disturl is the default URL, but setting it makes node-gyp
+      # use the target headers' own config.gypi instead of the running Node's
+      # (without it, a runtime older than the target fails with "name
+      # 'enable_thin_lto' is not defined").
       - name: Install dependencies
         run: npm ci
+        env:
+          npm_config_target: '24.18.1'
+          npm_config_disturl: 'https://nodejs.org/dist'
 
       - name: Build portable exe
         run: npm run build:exe
