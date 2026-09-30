@@ -698,9 +698,12 @@ app.get('/', (req, res) => {
 
 // Full library dump. The viewer keeps its rich client-side filter/search
 // pipeline (fuse fuzzy, tri-filters, dupes, saved searches) and just sources
-// the rows from here instead of parsing the .db in the browser.
+// the rows from here instead of parsing the .db in the browser. The *ForViewer
+// reads leave out the embedding BLOB and audio_transcription: the browser never
+// reads them, and with them the dump outgrew V8's max string length (HTTP 500)
+// at ~35k embedded files.
 app.get('/api/media', (req, res) => {
-  res.json(db.getAll());
+  res.json(db.getAllForViewer());
 });
 
 // Express 5 dropped regex params (:id(\d+)) — validate ids in-handler
@@ -724,7 +727,7 @@ app.post('/api/media/rows', (req, res) => {
   const ids = Array.isArray(req.body?.ids)
     ? req.body.ids.slice(0, 2000).map(parseId).filter(Boolean) : [];
   if (!ids.length) return res.status(400).json({ error: 'ids required' });
-  res.json({ rows: ids.map((id) => db.getById(id)).filter(Boolean) });
+  res.json({ rows: ids.map((id) => db.getByIdForViewer(id)).filter(Boolean) });
 });
 
 // Update user-editable fields (star, rating, notes, delete-flag,
