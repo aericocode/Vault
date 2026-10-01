@@ -2,12 +2,11 @@
    Application State
    ========================================== */
 
-// Library state (loaded from the viewer server API)
-let allMedia = [];
-let filteredMedia = [];
+// The library itself lives on the server; player-lib/library.js holds the
+// current results (ids, rows on demand) and the library-wide counts.
 
-// Pagination state. pageAnchor is the source of truth: the index in
-// filteredMedia of the first tile on screen. pageSize is dynamic (columns ×
+// Pagination state. pageAnchor is the source of truth: the position in
+// the results of the first tile on screen. pageSize is dynamic (columns ×
 // rows, both computed from the window in cards.js), so a page NUMBER changes
 // meaning whenever the window does, while the anchor keeps the tile the user
 // was looking at exactly where it was. currentPage is derived from the two and

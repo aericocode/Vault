@@ -7,8 +7,9 @@
  * player-lib/duplicates.js (buildDuplicateIndex / isDuplicate) and
  * player-lib/collections.js (mediaInAnyCollection, inActiveCollection,
  * applyCollectionOrder) at 13c23ec, with DOM reads replaced by a state
- * object. It runs over db.getAllForViewer(), the rows the old viewer
- * downloaded, on a generated library of a few thousand rows full of ties,
+ * object. It runs over every viewer row in filepath order (what the old
+ * viewer downloaded from GET /api/media, since removed), on a generated
+ * library of a few thousand rows full of ties,
  * NULLs, empty strings and malformed values. No text search here: that
  * follows the new A3 rules on purpose (test/library-query.test.js).
  *
@@ -160,7 +161,10 @@ function scanStatusOf(media) {
 }
 
 function browserContext() {
-  const allMedia = db.getAllForViewer();
+  // Every viewer row in filepath order: what GET /api/media sent the old
+  // viewer (that route and getAllForViewer are gone now).
+  const order = db.get().prepare('SELECT id FROM media ORDER BY filepath').pluck().all();
+  const allMedia = db.getManyForViewer(order);
   // duplicates.js buildDuplicateIndex
   const duplicateFilepaths = new Set();
   const sizeMap = {};

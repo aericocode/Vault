@@ -392,3 +392,9 @@
   outline: 2px solid var(--accent, #6366f1);
   outline-offset: 2px;
 }
+
+/* The Theme chip waits while the search index builds (it reads that index).
+   The title on the chip says so: "Available when search is ready." */
+.fchip.is-waiting { opacity: 0.45; }
+.fchip.is-waiting:hover { border-color: var(--border, #444); }
+.fchip.is-waiting .fchip-main { cursor: not-allowed; }

@@ -225,3 +225,78 @@
   border-color: #ec4899;
   background: rgba(236, 72, 153, 0.15);
 }
+
+/* ── The line under the search box (filters.js renderSearchNote) ─────────
+   Hidden unless it has something to say: a search the server refused, the
+   first-launch index build, or the close names and tags a fuzzy search also
+   matched, one chip each. */
+.search-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  margin: -0.5rem 0 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.search-note.err { color: #f87171; }
+
+.search-note-tag {
+  background: var(--accent-bg);
+  border: 1px solid rgba(99, 102, 241, 0.5);
+  color: var(--accent-hover);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+/* ── After an unlock: the one-time preparing step (database.js) ─────────── */
+.preparing-screen {
+  grid-column: 1 / -1;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 8px;
+  min-height: 260px;
+  padding: 2rem 1rem;
+  text-align: center;
+}
+
+.preparing-lock { width: 54px; height: 54px; }
+
+.preparing-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.preparing-hint {
+  margin: 0;
+  max-width: 36ch;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.preparing-bar {
+  width: min(260px, 80%);
+  height: 6px;
+  margin: 10px 0 4px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+
+.preparing-bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.4s;
+}
+
+.preparing-step {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}

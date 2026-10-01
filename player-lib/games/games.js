@@ -206,7 +206,10 @@ async function teardownActive() {
 async function gamesLaunch(key, mediaId, { savedState = null, saveId = null } = {}) {
   const def = GAMES[key];
   if (!def) { showToast('Unknown game'); return; }
-  const media = getMediaById(mediaId);
+  // A saved game can point at a file nothing on screen has loaded yet.
+  let media;
+  try { [media] = await Library.fetchRows([mediaId], { strict: true }); }
+  catch (err) { showToast('⚠ ' + err.message); return; }
   if (!media) { showToast('Video not found'); return; }
   if (!def.acceptTypes.includes(media.media_type)) {
     showToast(`${def.label} needs: ${def.acceptTypes.join(', ')}`);
@@ -265,6 +268,9 @@ async function renderGamesHome() {
   if (!container) return;
   container.classList.remove('games-playing');
   if (!gamesState.savesLoaded) await gamesLoadSaves();
+  // The save cards name their files: make sure those rows are here.
+  const saveIds = Object.values(GAMES).flatMap(def => gamesSavesFor(def.key).map(s => s.media_id));
+  if (saveIds.length) await Library.fetchRows(saveIds);
 
   const rows = Object.values(GAMES).map(renderGameRow).join('');
   container.innerHTML = `
@@ -344,30 +350,35 @@ async function gamesResumeSave(key, saveId) {
 function _gamesPickerState(key) { return { key, q: '', metadataOnly: false, fuzzy: false, semantic: false }; }
 let _pickerState = _gamesPickerState(null);
 
-function gamesPickableMedia(key) {
+/** The picker's list, asked of the server (first 200 matches; typing narrows). */
+async function gamesPickableMedia(key) {
   const def = GAMES[key];
-  const base = allMedia.filter(m => def.acceptTypes.includes(m.media_type) && !m.user_trashed);
-  if (typeof pickerApplySearch !== 'function') {   // search engine not loaded — fall back
-    const q = _pickerState.q.trim().toLowerCase();
-    return q ? base.filter(m => (m.filename || '').toLowerCase().includes(q)) : base;
-  }
-  const res = pickerApplySearch(_pickerState.q, base, _pickerState, gamesRefreshPickerBody);
-  if (typeof pickerSetModeIndicator === 'function') pickerSetModeIndicator('gamesPick', res.mode, res.pending);
+  const res = await pickerQuery(_pickerState.q, def.acceptTypes, _pickerState);
+  if (typeof pickerSetModeIndicator === 'function') pickerSetModeIndicator('gamesPick', res.mode, false);
   return res.items;
 }
 
-/** Re-render whichever games picker body is currently open (semantic callback). */
-function gamesRefreshPickerBody() {
-  const overlay = document.getElementById('gamesOverlayBody');
-  const home = document.getElementById('gamesPickerBody');
-  if (overlay) overlay.innerHTML = gamesPickerGridHtml(_pickerState.key, 'gamesOverlayPick');
-  else if (home) home.innerHTML = gamesPickerGridHtml(_pickerState.key, 'gamesPickAndLaunch');
+let _gamesPickSeq = 0;
+
+/** Fill a picker body with the current matches. Resolves once painted. */
+async function gamesFillPickerBody(bodyId, onClickFn) {
+  const seq = ++_gamesPickSeq;
+  let items = [];
+  try { items = await gamesPickableMedia(_pickerState.key); } catch (err) {
+    if (seq !== _gamesPickSeq) return;
+    const b = document.getElementById(bodyId);
+    if (b) b.innerHTML = `<div class="games-hint games-picker-empty">${escapeHtml(err.message || 'Search failed')}</div>`;
+    return;
+  }
+  if (seq !== _gamesPickSeq) return;
+  const b = document.getElementById(bodyId);
+  if (b) b.innerHTML = gamesPickerGridHtml(items, onClickFn);
 }
 
 /** Wire a picker's search input + option toggles to re-render its body. */
 function gamesWirePickerSearch(searchId, bodyId, onClickFn) {
   const search = document.getElementById(searchId);
-  const rerender = () => { const b = document.getElementById(bodyId); if (b) b.innerHTML = gamesPickerGridHtml(_pickerState.key, onClickFn); };
+  const rerender = () => gamesFillPickerBody(bodyId, onClickFn);
   let t = null;
   search?.addEventListener('input', () => {
     clearTimeout(t);
@@ -376,8 +387,7 @@ function gamesWirePickerSearch(searchId, bodyId, onClickFn) {
   if (typeof bindPickerSearchOptions === 'function') bindPickerSearchOptions('gamesPick', _pickerState, rerender);
 }
 
-function gamesPickerGridHtml(key, onClickFn) {
-  const items = gamesPickableMedia(key);
+function gamesPickerGridHtml(items, onClickFn) {
   if (!items.length) {
     return `<div class="games-hint games-picker-empty">${_pickerState.q ? 'No videos match.' : 'No compatible videos in the library.'}</div>`;
   }
@@ -409,10 +419,12 @@ function renderGamePicker(key) {
         <input type="text" class="games-search" id="gamesPickerSearch" placeholder="Search (AND/OR/NOT)" autocomplete="off">
         ${typeof pickerSearchOptionsHtml === 'function' ? pickerSearchOptionsHtml('gamesPick', _pickerState) : ''}
       </div>
-      <div id="gamesPickerBody">${gamesPickerGridHtml(key, 'gamesPickAndLaunch')}</div>
+      <div id="gamesPickerBody"></div>
     </div>`;
   const pickerBody = document.getElementById('gamesPickerBody');
-  gamesLoadingUntilReady(pickerBody, 'Loading library…');
+  gamesShowLoading(pickerBody, 'Loading library…');
+  gamesFillPickerBody('gamesPickerBody', 'gamesPickAndLaunch')
+    .then(() => gamesLoadingUntilReady(pickerBody, 'Loading library…'));
   if (typeof attachHoverScrub === 'function') attachHoverScrub(pickerBody);
   gamesWirePickerSearch('gamesPickerSearch', 'gamesPickerBody', 'gamesPickAndLaunch');
 }
@@ -436,12 +448,14 @@ function openGamePickerOverlay(key) {
         ${typeof pickerSearchOptionsHtml === 'function' ? pickerSearchOptionsHtml('gamesPick', _pickerState) : ''}
         <button class="games-btn" onclick="closeGamePickerOverlay()">✕</button>
       </div>
-      <div id="gamesOverlayBody">${gamesPickerGridHtml(key, 'gamesOverlayPick')}</div>
+      <div id="gamesOverlayBody"></div>
     </div>`;
   ov.addEventListener('click', (e) => { if (e.target === ov) closeGamePickerOverlay(); });
   document.body.appendChild(ov);
   const overlayBody = document.getElementById('gamesOverlayBody');
-  gamesLoadingUntilReady(overlayBody, 'Loading library…');
+  gamesShowLoading(overlayBody, 'Loading library…');
+  gamesFillPickerBody('gamesOverlayBody', 'gamesOverlayPick')
+    .then(() => gamesLoadingUntilReady(overlayBody, 'Loading library…'));
   if (typeof attachHoverScrub === 'function') attachHoverScrub(overlayBody);
   gamesWirePickerSearch('gamesOverlaySearch', 'gamesOverlayBody', 'gamesOverlayPick');
 }

@@ -97,6 +97,12 @@
         <button class="clear-filters-btn" id="clearFiltersBtn" disabled>Clear filters</button>
       </div>
 
+      <!-- One line under the search box, shown only when it has something to
+           say: a search the server refused, the first-launch index build, or
+           the close names and tags a fuzzy search also matched (filters.js
+           renderSearchNote). -->
+      <div class="search-note" id="searchNote" aria-live="polite" style="display:none;"></div>
+
       <!-- Media-type bubbles (+ safe toggle) with the extension chips collapsed behind them -->
       <div id="typeFilterContainer">
         <div class="media-type-bar" id="mediaTypeBar"></div>
@@ -351,7 +357,6 @@
     <span class="stp-text">Top</span><span class="stp-icon" aria-hidden="true">↑</span>
   </button>
 
-  <script src="./player-lib/fuse.min.js"></script>
   <!-- hls.js 1.7.2, Apache-2.0 — see player-lib/THIRD-PARTY.txt -->
   <script src="./player-lib/hls.min.js"></script>
   <!-- Shared with the server (lib/stream/decide.js): must load before
@@ -359,6 +364,8 @@
   <script src="./player-lib/playback-decide.js"></script>
   <script src="./player-lib/utils.js"></script>
   <script src="./player-lib/state.js"></script>
+  <!-- The results and the row cache (server-side search, SERVER_SEARCH_SPEC 7.1) -->
+  <script src="./player-lib/library.js"></script>
   <script src="./player-lib/thumbs.js"></script>
   <script src="./player-lib/search-engine.js"></script>
   <script src="./player-lib/duplicates.js"></script>

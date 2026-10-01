@@ -1,9 +1,9 @@
 // =========================================================================
 // APP - Main application initialization and event handlers
 //
-// The viewer is served by the local Node server (server/index.js) and loads
-// the library from /api/media on startup — no drag-and-drop, no sql.js,
-// no File System Access API.
+// The viewer is served by the local Node server (server/index.js) and asks
+// it for one page of results at a time (player-lib/library.js) — no
+// drag-and-drop, no sql.js, no File System Access API.
 // =========================================================================
 
 // Load external script
@@ -59,25 +59,23 @@ function syncSortControls() {
   }
 }
 
+// A new order keeps the page the grid is on, as re-sorting in place did.
 document.getElementById('sortSelect').addEventListener('change', (e) => {
   currentSort = `${e.target.value}_${SORT_DEFAULT_DIR[e.target.value] || 'desc'}`;
   syncSortControls();
-  sortFilteredMedia();
-  renderResults();
+  applyFilters({ keepPage: true });
 });
 
 document.getElementById('sortDirBtn').addEventListener('click', () => {
   currentSort = `${currentSortField()}_${currentSortDir() === 'asc' ? 'desc' : 'asc'}`;
   syncSortControls();
-  sortFilteredMedia();
-  renderResults();
+  applyFilters({ keepPage: true });
 });
 
 document.getElementById('favesFirstBtn').addEventListener('click', () => {
   favesFirst = !favesFirst;
   syncSortControls();
-  sortFilteredMedia();
-  renderResults();
+  applyFilters({ keepPage: true });
 });
 
 /* ── The More sheet ────────────────────────────────────────────────────────
@@ -212,26 +210,32 @@ document.getElementById('resultsGrid')?.addEventListener('click', (e) => {
   if (filtersAreOpen()) setFiltersOpen(false);
 });
 
-// Search input handler — adaptive debounce: the search itself is synchronous
-// (it blocks typing while it runs), so wait for a real pause before running,
-// scaled up for big libraries and for fuzzy mode (the heavy one). The rAF +
-// setTimeout(0) hop lets the just-typed character PAINT before the search
-// blocks the thread, so the input always feels instant.
+// Search input handler — wait for a pause in the typing before asking the
+// server, scaled up for big libraries and for fuzzy mode (the heavy one), so
+// a fast typist sends one search rather than one per letter.
 const searchInput = document.getElementById('searchInput');
 let _searchTimer = null;
 
 function searchDebounceMs() {
-  const n = (typeof allMedia !== 'undefined' && allMedia.length) || 0;
+  const n = (typeof Library !== 'undefined' && Library.facets && Library.facets.total) || 0;
   const base = n > 4000 ? 350 : n > 1000 ? 250 : 150;
   const fuzzy = document.getElementById('fuzzySearch')?.checked;
   return fuzzy ? base + 150 : base;
 }
 
+/** Run a search still waiting out its debounce now, so an action taken right
+ *  after typing (Select all) applies to what was typed. Resolves when that
+ *  search has landed; a no-op when nothing is pending. */
+function flushPendingSearch() {
+  if (!_searchTimer) return Promise.resolve();
+  clearTimeout(_searchTimer);
+  _searchTimer = null;
+  return Promise.resolve(applyFilters()).catch(() => {});
+}
+
 searchInput.addEventListener('input', () => {
   clearTimeout(_searchTimer);
-  _searchTimer = setTimeout(() => {
-    requestAnimationFrame(() => setTimeout(() => applyFilters(), 0));
-  }, searchDebounceMs());
+  _searchTimer = setTimeout(() => { _searchTimer = null; applyFilters(); }, searchDebounceMs());
   // Update star button and clear button visibility immediately
   if (typeof updateSearchStarButton === 'function') {
     updateSearchStarButton();
@@ -322,13 +326,11 @@ document.getElementById('clearFiltersBtn').addEventListener('click', () => {
 
 // Metadata search toggle
 document.getElementById('metadataOnly').addEventListener('change', () => {
-  if (typeof invalidateFuse === 'function') invalidateFuse();
   applyFilters();
 });
 
 // Fuzzy search toggle
 document.getElementById('fuzzySearch').addEventListener('change', () => {
-  if (typeof invalidateFuse === 'function') invalidateFuse();
   applyFilters();
 });
 
@@ -339,7 +341,6 @@ document.getElementById('semanticSearch')?.addEventListener('change', () => {
 
 // Subtitle-text search toggle (English subtitles/translations into the corpus)
 document.getElementById('subtitleSearch')?.addEventListener('change', () => {
-  if (typeof invalidateFuse === 'function') invalidateFuse();
   applyFilters();
 });
 
@@ -395,15 +396,16 @@ document.getElementById('searchCollapseBtn')?.addEventListener('click', () => {
   setSearchCollapsed(!section.classList.contains('collapsed'));
 });
 
-// Initialize page — load the library immediately
-document.addEventListener('DOMContentLoaded', () => {
-  console.log('DB Viewer initialized (server mode)');
-  // Restore collapsed state before first render
-  try {
-    if (localStorage.getItem('searchCollapsed') === '1') setSearchCollapsed(true);
-  } catch {}
-  loadDatabase();
-});
+// Initialize page — load the library immediately. Not on DOMContentLoaded:
+// this script is the last one on the page, so everything it needs is here,
+// and starting now puts the first page's requests ahead of every other
+// module's startup requests at the server.
+console.log('DB Viewer initialized (server mode)');
+// Restore collapsed state before first render
+try {
+  if (localStorage.getItem('searchCollapsed') === '1') setSearchCollapsed(true);
+} catch {}
+loadDatabase();
 
 // Global keyboard shortcuts (when not in media player)
 document.addEventListener('keydown', (e) => {

@@ -61,8 +61,10 @@ test('the viewer rows leave out exactly the embedding and the audio transcriptio
   assert.strictEqual(viewer.description, 'A beach at dusk');
 });
 
-test('the full viewer list matches the per-id rows, in filepath order', () => {
-  const rows = db.getAllForViewer();
+test('the batch viewer read matches the per-id rows, in the order asked', () => {
+  // The whole-library list (getAllForViewer, GET /api/media) is gone: the
+  // viewer reads pages of rows by id (getManyForViewer, POST /api/media/rows).
+  const rows = db.getManyForViewer([2, 999, 1]);
   assert.deepStrictEqual(rows.map(r => r.filepath), ['/lib/a.mp4', '/lib/b.mp4']);
   assert.deepStrictEqual(rows[1], db.getByIdForViewer(1));
   assert.strictEqual(db.getByIdForViewer(999), undefined);

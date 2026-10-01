@@ -651,7 +651,6 @@
       if (!force && now - last < 500) return;    // final flush catches stragglers
       last = now;
       try {
-        if (typeof invalidateFuse === 'function') invalidateFuse();
         if (typeof applyFilters === 'function') applyFilters({ keepPage: true });
       } catch {}
     };
@@ -661,7 +660,7 @@
      add-paths returns rows BEFORE ffprobe fills duration/width/height, and
      hover-scrub (cards.js) is gated on duration_seconds — so freshly added
      videos wouldn't scrub until a full page reload. Poll the new ids and
-     patch the live allMedia rows in place (getMediaById hands back the same
+     patch the cached rows in place (Library.patchRow merges into the same
      object the grid reads) until every duration lands, progress stalls for
      ~30s, or the overall cap hits. Cosmetic-only: on any failure the tiles
      simply stay scrub-less until the next reload. */
@@ -686,8 +685,7 @@
         if (row.duration_seconds == null) continue;
         pending.delete(row.id);
         progressed = true;
-        const local = typeof getMediaById === 'function' ? getMediaById(row.id) : null;
-        if (local) Object.assign(local, row);
+        if (getMediaById(row.id)) Library.patchRow(row);
       }
       stalled = progressed ? 0 : stalled + 1;
       if (progressed) refreshGrid(!pending.size);   // forced flush on the last row
@@ -717,9 +715,7 @@
         for (const k of Object.keys(skipped)) skipped[k] += data.skipped?.[k] || 0;
         for (const a of (data.added || [])) {
           imported.push({ id: a.id, mediaType: a.mediaType });
-          if (a.row && typeof allMedia !== 'undefined' && !allMedia.some(m => m.id === a.row.id)) {
-            allMedia.push(a.row);
-          }
+          if (a.row) Library.putRow(a.row);
         }
         refreshGrid();
       } catch (err) {
@@ -740,9 +736,9 @@
     watchDurationProbe(imported
       .filter(r => ['video', 'audio', 'gif'].includes(r.mediaType))
       .map(r => r.id));
-    // …and the AI scan results land later still — watch the new ⏳ rows so
-    // descriptions/themes appear on hover + sidebar without 🔄 Refresh
-    if (typeof watchUnscanned === 'function') watchUnscanned();
+    // …and the AI scan results land later still: each one changes the
+    // library version, and Library's polling re-reads the rows on screen, so
+    // descriptions/themes appear on hover + sidebar without 🔄 Refresh.
     // …and the scan itself now has a queue to report on. Called here rather
     // than in the modal so loose-file drops (which skip the modal) are covered.
     watchScanQueue({ fresh: true });

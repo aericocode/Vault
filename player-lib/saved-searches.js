@@ -83,6 +83,9 @@ function restoreFilterState(state) {
 
   Object.entries(selects).forEach(([id, value]) => {
     const el = document.getElementById(id);
+    // The lists fill from the library-wide counts, which may not be here yet
+    // (or, for themes, carry only the most used): keep the saved value.
+    if (el && typeof ensureSelectOption === 'function') ensureSelectOption(el, value);
     if (el) el.value = value;
   });
 
@@ -134,7 +137,7 @@ function restoreFilterState(state) {
   if (typeof state.favesFirst === 'boolean') favesFirst = state.favesFirst;
   if (typeof syncSortControls === 'function') syncSortControls();
 
-  applyFilters();
+  return applyFilters();
 }
 
 // ── Save / Delete / Activate ────────────────────────────────────────────

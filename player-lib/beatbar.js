@@ -1124,7 +1124,7 @@
     syncButton();
     const media = (typeof currentMediaState !== 'undefined') && currentMediaState.currentMediaData;
     if (on && media?.media_type === 'video') {
-      const item = allMedia.find(m => m.filepath === media.filepath);
+      const item = Library.rowByPath(media.filepath);
       attach(item || media);
       showToast('🥁 Beat bar ON, stays on for future videos');
     } else {
@@ -1141,7 +1141,7 @@
       if (!isEnabled()) localStorage.setItem(LS_ENABLED, '1');
       syncButton();
       const media = (typeof currentMediaState !== 'undefined') && currentMediaState.currentMediaData;
-      const item = media && allMedia.find(m => m.filepath === media.filepath);
+      const item = media && (Library.rowByPath(media.filepath) || media);
       if (item) attach(item);
       setSettingsOpen(true);
       return;
@@ -1212,7 +1212,7 @@
       if (mediaData?.media_type === 'video') {
         injectButtons();
         if (isEnabled()) {
-          const item = allMedia.find(m => m.filepath === mediaData.filepath);
+          const item = Library.rowByPath(mediaData.filepath);
           if (item) attach(item);
         }
       }

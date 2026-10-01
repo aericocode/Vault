@@ -120,6 +120,15 @@ function buildRouter() {
     }
   });
 
+  // 6.10 What Empty trash will delete: every trashed row, documents too.
+  router.get('/trash-summary', async (req, res) => {
+    try {
+      res.json(await libraryFacets.trashSummary());
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
   return router;
 }
 

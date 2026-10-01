@@ -56,7 +56,7 @@ playMedia = function (mediaData, ...rest) {
   if (mediaData && INSTANT_VIEW_TYPES.includes(mediaData.media_type)) {
     const filepath = mediaData.filepath;
     _dwellTimer = setTimeout(() => {
-      const item = allMedia.find(m => m.filepath === filepath);
+      const item = Library.rowByPath(filepath);
       // Only count if the player is still showing (not closed mid-dwell)
       const overlay = document.getElementById('mediaPlayerOverlay');
       if (item && overlay && overlay.classList.contains('active')) {
@@ -148,7 +148,7 @@ function _mediaItemFromSrc(src) {
   try {
     const u = new URL(src, location.origin);
     const p = u.searchParams.get('p');
-    if (p) return allMedia.find(m => m.filepath === p) || null;
+    if (p) return Library.rowByPath(p);
     const m = u.pathname.match(/^\/media\/(\d+)/);
     if (m) return getMediaById(Number(m[1]));
   } catch {}

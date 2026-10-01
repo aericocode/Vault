@@ -4,9 +4,21 @@
    Layout: [LEFT: media-specific] [CENTER: Prev | Info | Next] [RIGHT: media-specific]
    ========================================================================= */
 
-// Get current media index in filteredMedia
+// Get the current media's position in the results (Library), or -1
 function getCurrentMediaIndex(filepath) {
-  return filteredMedia.findIndex(m => m.filepath === filepath);
+  const row = Library.rowByPath(filepath);
+  return row ? Library.indexOf(row.id) : -1;
+}
+
+/**
+ * Where the file on screen sits in the results right now. The results can
+ * be re-run under an open player (a trash, a restore), so the stored index
+ * is only the fallback for a file that has left them.
+ */
+function currentQueueIndex() {
+  const id = currentMediaState.currentMediaData?.id;
+  const i = id ? Library.indexOf(id) : -1;
+  return i !== -1 ? i : currentMediaState.currentIndex;
 }
 
 /* ── Known-bad files and hands-free navigation ─────────────────────────────
@@ -31,20 +43,45 @@ function isKnownBadMedia(row) {
   }
 }
 
+/* The queue is the results (Library): positions and ids, with rows fetched on
+   demand. Walking it therefore waits for rows a window at a time, and every
+   move goes through one chain so pressing Next twice moves twice. */
+
+const NAV_WINDOW = 40;          // rows fetched per step of a walk
+let _navChain = Promise.resolve();
+
+/** Run queue moves one after another, never two at once. */
+function queueNav(fn) {
+  const run = _navChain.then(fn, fn);
+  _navChain = run.catch(() => {});
+  return run;
+}
+
 /**
- * The next index in filteredMedia that is not known-bad, walking `step` at a
- * time from `from` (exclusive). -1 when there is none.
+ * The next index in the results that is not known-bad, walking `step` at a
+ * time from `from` (exclusive). Resolves -1 when there is none.
  */
-function nextPlayableIndex(from, step) {
-  for (let i = from + step; i >= 0 && i < filteredMedia.length; i += step) {
-    if (!isKnownBadMedia(filteredMedia[i])) return i;
+async function nextPlayableIndex(from, step) {
+  // Past the first page the walk needs the id list.
+  if (!Library.known() && from + step >= Library.firstPageIds.length) await Library.waitIds();
+  const n = Library.length();
+  for (let i = from + step; i >= 0 && i < n; i += step) {
+    const type = Library.typeAt(i);
+    if (type === 'document' || (Library.types && !type)) continue;   // not media
+    let row = Library.rowAt(i);
+    if (!row) {
+      const a = step > 0 ? i : Math.max(0, i - NAV_WINDOW + 1);
+      await Library.rowsForRange(a, a + NAV_WINDOW);
+      row = Library.rowAt(i);
+    }
+    if (row && !isKnownBadMedia(row)) return i;
   }
   return -1;
 }
 
-/** Open the file at this index in filteredMedia as a hands-free move. */
-function playIndexHandsFree(i) {
-  const media = filteredMedia[i];
+/** Open the file at this result position as a hands-free move. */
+async function playIndexHandsFree(i) {
+  const [media] = await Library.rowsForRange(i, i + 1);
   if (!media) return false;
   playMedia({
     filepath: media.filepath,
@@ -57,8 +94,10 @@ function playIndexHandsFree(i) {
 
 // Play next media
 function playNextMedia() {
-  const i = nextPlayableIndex(currentMediaState.currentIndex, 1);
-  if (i !== -1) playIndexHandsFree(i);
+  return queueNav(async () => {
+    const i = await nextPlayableIndex(currentQueueIndex(), 1);
+    if (i !== -1) await playIndexHandsFree(i);
+  });
 }
 
 /**
@@ -71,43 +110,91 @@ function playNextMedia() {
  * or failed to play at all — where stopping dead is what drops someone back to
  * their library mid-stream.
  *
- * @returns {boolean} true if it moved to another file.
+ * @returns {Promise<boolean>} true if it moved to another file.
  */
 function playNextMediaOrWrap() {
-  const i = nextPlayableIndex(currentMediaState.currentIndex, 1);
-  if (i !== -1) return playIndexHandsFree(i);
+  return queueNav(async () => {
+    const cur = currentQueueIndex();
+    const i = await nextPlayableIndex(cur, 1);
+    if (i !== -1) return playIndexHandsFree(i);
 
-  // A one-item list would "wrap" onto itself, which is repeat-one's job, not
-  // this one's.
-  if (repeatMode() !== 'all' || filteredMedia.length < 2) return false;
-  // Wrapping starts at the top of the list, skipping any known-bad files there
-  // just as the forward walk does. Landing back on the file that just ended is
-  // repeat-one's job, so that one does not count as a wrap.
-  const first = nextPlayableIndex(-1, 1);
-  if (first === -1 || first === currentMediaState.currentIndex) return false;
-  return playIndexHandsFree(first);
+    // A one-item list would "wrap" onto itself, which is repeat-one's job, not
+    // this one's.
+    if (repeatMode() !== 'all' || Library.length() < 2) return false;
+    // Wrapping starts at the top of the list, skipping any known-bad files there
+    // just as the forward walk does. Landing back on the file that just ended is
+    // repeat-one's job, so that one does not count as a wrap.
+    const first = await nextPlayableIndex(-1, 1);
+    if (first === -1 || first === cur) return false;
+    return playIndexHandsFree(first);
+  });
 }
 
 // Play previous media
 function playPreviousMedia() {
-  const i = nextPlayableIndex(currentMediaState.currentIndex, -1);
-  if (i !== -1) playIndexHandsFree(i);
+  return queueNav(async () => {
+    const i = await nextPlayableIndex(currentQueueIndex(), -1);
+    if (i !== -1) await playIndexHandsFree(i);
+  });
 }
+
+const RANDOM_TRIES = 24;
 
 // Play random media from filtered list
 function playRandomMedia() {
-  if (filteredMedia.length < 2) return;
-  // Draw from the files that can actually play, minus the one on screen. A
-  // reservoir walk rather than a retry loop: with most of a list known-bad,
-  // "pick one and try again" can spin for a long time.
-  const pool = [];
-  for (let i = 0; i < filteredMedia.length; i++) {
-    if (i === currentMediaState.currentIndex) continue;
-    if (!isKnownBadMedia(filteredMedia[i])) pool.push(i);
-  }
-  if (!pool.length) return;
-  playIndexHandsFree(pool[Math.floor(Math.random() * pool.length)]);
+  return queueNav(async () => {
+    await Library.waitIds();
+    const n = Library.length();
+    if (n < 2) return;
+    const cur = currentQueueIndex();
+    // Draw from the files that can actually play, minus the one on screen.
+    // The rows are fetched for a handful of random picks at once; with most
+    // of a list known-bad, a walk from a random spot takes over.
+    const picks = [];
+    for (let k = 0; k < RANDOM_TRIES; k++) {
+      const i = Math.floor(Math.random() * n);
+      if (i !== cur && !picks.includes(i)) picks.push(i);
+    }
+    await Library.fetchRows(picks.map(i => Library.idAt(i)));
+    for (const i of picks) {
+      const row = Library.rowAt(i);
+      const type = Library.typeAt(i);
+      if (row && type !== 'document' && !isKnownBadMedia(row)) { await playIndexHandsFree(i); return; }
+    }
+    const start = Math.floor(Math.random() * n);
+    let i = await nextPlayableIndex(start - 1, 1);
+    if (i === cur) i = await nextPlayableIndex(i, 1);
+    if (i === -1) i = await nextPlayableIndex(-1, 1);
+    if (i !== -1 && i !== cur) await playIndexHandsFree(i);
+  });
 }
+
+/** Keep the file on screen and its neighbours cached (and never evicted). */
+function pinPlayerNeighbours(index) {
+  const ids = [];
+  if (index >= 0) {
+    for (let i = Math.max(0, index - 3); i <= index + 3 && i < Library.length(); i++) {
+      const id = Library.idAt(i);
+      if (id) ids.push(id);
+    }
+  }
+  const cur = currentMediaState.currentMediaData?.id;
+  if (cur && !ids.includes(cur)) ids.push(cur);
+  Library.pin('player', ids);
+  if (ids.length) Library.fetchRows(ids).catch(() => {});
+}
+
+/* A scan that lands on the open file while the player is up (the library
+   waits to re-run its search until the player closes, but the open file's
+   row is still re-read): show its new description and tags in the sidebar,
+   as the old ⏳ watcher did. */
+window.addEventListener('vault:row-updated', (e) => {
+  const d = e.detail || {};
+  if (!d.scanLanded || !sidebarOpen) return;
+  if (currentMediaState?.currentMediaData?.id !== d.id) return;
+  if (typeof flushPendingNotes === 'function') flushPendingNotes();
+  renderSidebar();
+});
 
 /**
  * If sidebar is open, re-render it for the new media and autofocus notes.
@@ -222,7 +309,9 @@ function playMedia(mediaData, { source = 'user' } = {}) {
 
   // Find current index and store full media data
   currentMediaState.currentIndex = getCurrentMediaIndex(filepath);
-  currentMediaState.currentMediaData = filteredMedia[currentMediaState.currentIndex] || null;
+  currentMediaState.currentMediaData = currentMediaState.currentIndex >= 0
+    ? Library.rowByPath(filepath) : null;
+  pinPlayerNeighbours(currentMediaState.currentIndex);
   // Remember it so the library can mark this tile on close (keeps the user's place)
   if (currentMediaState.currentMediaData) lastOpenedMediaId = currentMediaState.currentMediaData.id;
   // Settings: record the last-opened media for the "Restore last session" option
@@ -270,7 +359,8 @@ function playMedia(mediaData, { source = 'user' } = {}) {
   };
 
   const hasPrev = currentMediaState.currentIndex > 0;
-  const hasNext = currentMediaState.currentIndex < filteredMedia.length - 1;
+  // Before the exact count is in there is always more to come.
+  const hasNext = !Library.known() || currentMediaState.currentIndex < Library.length() - 1;
 
   // Render based on media type
   if (media_type === 'video') {
@@ -932,6 +1022,18 @@ document.addEventListener('canplay', _noteMediaPlayable, true);
 document.addEventListener('loadeddata', _noteMediaPlayable, true);
 
 /**
+ * Give a freshly rendered player element its error handler. Set in JS, not
+ * as an inline onerror="handleMediaError('…')": a JS string literal built
+ * from a Windows path breaks on `\u` ("Invalid Unicode escape sequence") and
+ * quietly turns other backslash pairs into different characters. Still the
+ * element's onerror property, so stopMediaElement() and minimizePlayer()
+ * clear it exactly as they cleared the attribute.
+ */
+function bindMediaError(el, filepath) {
+  if (el) el.onerror = () => handleMediaError(filepath);
+}
+
+/**
  * @param {string} filepath
  * @param {string} [reason] a specific sentence to show instead of the generic
  *        message — the codec explanation from /api/playback, for example.
@@ -949,32 +1051,39 @@ function handleMediaError(filepath, reason) {
   // error listener flags the item as ⚠ unplayable so it's still findable;
   // users can copy the path themselves from the details panel.
   consecutivePlayFailures++;
-  const queueLength = (typeof filteredMedia !== 'undefined' && filteredMedia.length) || 1;
+  const queueLength = Library.length() || 1;
+  const giveUp = () => {
+    consecutivePlayFailures = 0;
+    closeMediaPlayer();
+    showToast(reason || 'Cannot play this file, marked as unplayable. Use “Copy Path” to locate it.');
+  };
   if (lastPlaySource === 'auto' && consecutivePlayFailures < queueLength) {
     // Capture the file that just died before the queue moves off it.
     const dead = currentMediaState.currentMediaData;
     const why = reason || 'it cannot play';
-    if (playNextMediaOrWrap()) {
-      noteSkippedThisSession(dead, why);
-      showToast(`Skipped ${skippedDisplayName(dead)}: ${why}`);
-      return;
-    }
+    playNextMediaOrWrap().then((moved) => {
+      if (moved) {
+        noteSkippedThisSession(dead, why);
+        showToast(`Skipped ${skippedDisplayName(dead)}: ${why}`);
+      } else {
+        giveUp();
+      }
+    }, giveUp);
+    return;
   }
-  consecutivePlayFailures = 0;
-  closeMediaPlayer();
-  showToast(reason || 'Cannot play this file, marked as unplayable. Use “Copy Path” to locate it.');
+  giveUp();
 }
 
 /**
- * Highlight a card by its index in filteredMedia.
+ * Highlight a card by its position in the results.
  * Scrolls it into view and applies a brief highlight animation.
  */
 function highlightCard(filteredIndex) {
   // Grid tiles carry data-id; match on it (robust to collection cards that
   // get prepended, which would throw off a positional index).
-  const media = filteredMedia[filteredIndex];
-  const card = media
-    ? document.querySelector(`.media-tile[data-id="${media.id}"]`)
+  const id = Library.idAt(filteredIndex);
+  const card = id
+    ? document.querySelector(`.media-tile[data-id="${id}"]`)
     : document.querySelectorAll('.media-tile')[filteredIndex - pageAnchor];
   if (!card) return;
 
@@ -992,8 +1101,8 @@ function highlightCard(filteredIndex) {
 function revealLastPlayedIfBooting() {
   if (!window.vaultRevealOnNextClose) return;
   window.vaultRevealOnNextClose = false;
-  const lastIndex = currentMediaState.currentIndex;
-  if (lastIndex < 0 || lastIndex >= filteredMedia.length) return;
+  const lastIndex = currentQueueIndex();
+  if (lastIndex < 0 || lastIndex >= Library.length()) return;
   if (typeof revealMediaIndex === 'function') revealMediaIndex(lastIndex);
 }
 
@@ -1226,12 +1335,15 @@ function closeMiniPlayer() {
   miniMedia.innerHTML = '';
   miniPlayer.classList.remove('active', 'mini-audio');
   currentMediaState.miniMode = false;
+  Library.pin('player', null);
 
   // Re-render so the "last opened" tile border lands, but leave the grid where
   // it was: closing the player used to yank the library to whatever the queue
   // had wandered onto, which lost the place the user actually chose.
   revealLastPlayedIfBooting();
   renderResults();
+  // A library change that waited for the player runs now.
+  Library.resumeDeferred();
 }
 
 /**
@@ -1499,8 +1611,11 @@ function closeMediaPlayer(event) {
 
   // Mark the last-opened tile, and otherwise leave the grid exactly where it
   // was — see revealLastPlayedIfBooting for the one exception.
+  Library.pin('player', null);
   revealLastPlayedIfBooting();
   renderResults();
+  // A library change that waited for the player runs now.
+  Library.resumeDeferred();
 }
 
 /**

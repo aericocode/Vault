@@ -1,8 +1,7 @@
 /**
  * /api/library/* over HTTP against the real Express app (server/index.js):
  * response shapes, the binary id list, 404 / 400 / 423, the 64 MB body limit
- * on the query route (and only there), and the old GET /api/media still
- * answering for the current viewer.
+ * on the query route (and only there), and the old GET /api/media gone.
  */
 
 const test = require('node:test');
@@ -148,12 +147,35 @@ test('version, facets, ids-summary and duplicates answer their shapes', async ()
   assert.strictEqual((await fetch(`${base}/api/library/duplicates?limit=0`)).status, 400);
 });
 
+test('trash-summary counts every trashed row, documents too, as Empty trash deletes them', async () => {
+  const d = db.get();
+  d.prepare('UPDATE media SET user_trashed = 1 WHERE id = ?').run(ids['e.pdf']);
+  // An id outside the searchable range (search leaves these out) is still
+  // deleted by Empty trash, so it is still counted here.
+  // (Negative: an id above the range would push AUTOINCREMENT past it for
+  // every later insert in this file.)
+  const OUT_OF_RANGE = -7;
+  d.prepare("INSERT INTO media (id, filepath, filename, media_type, filesize_bytes, user_trashed) VALUES (?, '/r/out-of-range.mp4', 'out-of-range.mp4', 'video', 1000, 1)").run(OUT_OF_RANGE);
+  try {
+    const res = await fetch(`${base}/api/library/trash-summary`);
+    assert.strictEqual(res.status, 200);
+    // c.jpg (5 bytes), the document e.pdf (100 bytes) and out-of-range.mp4 (1000);
+    // the facets' `trashed` would say 1 (grid types, searchable ids only).
+    assert.deepStrictEqual(await res.json(), { count: 3, bytes: 1105 });
+    const deleted = d.prepare('SELECT count(*) FROM media WHERE user_trashed = 1').pluck().get();
+    assert.strictEqual(deleted, 3, 'the same rows /api/trash/empty selects');
+  } finally {
+    d.prepare('UPDATE media SET user_trashed = 0 WHERE id = ?').run(ids['e.pdf']);
+    d.prepare('DELETE FROM media WHERE id = ?').run(OUT_OF_RANGE);
+  }
+});
+
 test('every library route is 423 while the vault is locked', async () => {
   vault.bootLocked();
   try {
     for (const [method, p] of [['POST', '/api/library/query'], ['GET', '/api/library/query/x/ids'],
       ['GET', '/api/library/facets'], ['GET', '/api/library/version'], ['POST', '/api/library/ids-summary'],
-      ['GET', '/api/library/duplicates']]) {
+      ['GET', '/api/library/duplicates'], ['GET', '/api/library/trash-summary']]) {
       const res = method === 'POST' ? await post(p, {}) : await fetch(base + p);
       assert.strictEqual(res.status, 423, `${method} ${p}`);
     }
@@ -162,12 +184,10 @@ test('every library route is 423 while the vault is locked', async () => {
   }
 });
 
-test('the old viewer path still works: GET /api/media returns every row', async () => {
+test('the whole-library dump is gone: GET /api/media is not a route any more', async () => {
+  // The viewer reads pages (POST /api/library/query, POST /api/media/rows).
   const res = await fetch(`${base}/api/media`);
-  assert.strictEqual(res.status, 200);
-  const rows = await res.json();
-  assert.strictEqual(rows.length, 5);
-  assert.ok(!('ext' in rows[0]) && !('embedding' in rows[0]));
+  assert.strictEqual(res.status, 404);
 });
 
 test('facets: one cached body with an ETag, theme top 1,000, and theme search', async () => {

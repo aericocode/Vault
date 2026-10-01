@@ -703,15 +703,10 @@ app.get('/', (req, res) => {
 
 // ── Library API ────────────────────────────────────────────────────────────
 
-// Full library dump. The viewer keeps its rich client-side filter/search
-// pipeline (fuse fuzzy, tri-filters, dupes, saved searches) and just sources
-// the rows from here instead of parsing the .db in the browser. The *ForViewer
-// reads leave out the embedding BLOB and audio_transcription: the browser never
-// reads them, and with them the dump outgrew V8's max string length (HTTP 500)
-// at ~35k embedded files.
-app.get('/api/media', (req, res) => {
-  res.json(db.getAllForViewer());
-});
+// The viewer never downloads the whole library: it asks /api/library/* (server/
+// library-routes.js) for one page and the ordered id list, and fetches rows on
+// demand from POST /api/media/rows below. The *ForViewer reads leave out the
+// embedding BLOB and audio_transcription, which the browser never reads.
 
 // Express 5 dropped regex params (:id(\d+)) — validate ids in-handler
 function parseId(value) {
@@ -2376,7 +2371,9 @@ app.post('/api/trash', async (req, res) => {
   const ids = parseIdList(req.body);
   if (ids.length === 0) return res.status(400).json({ error: 'ids required' });
   try {
-    const results = await trash.trashItems(ids);
+    // skipUnchanged (the viewer's queue sends it): an item already in the
+    // trash is reported as skipped, not as an error.
+    const results = await trash.trashItems(ids, { skipUnchanged: req.body?.skipUnchanged === true });
     embeddings.invalidateCache(); // trashed items leave semantic results
     res.json({ results });
   } catch (err) {
@@ -2388,7 +2385,7 @@ app.post('/api/untrash', async (req, res) => {
   const ids = parseIdList(req.body);
   if (ids.length === 0) return res.status(400).json({ error: 'ids required' });
   try {
-    const results = await trash.untrashItems(ids);
+    const results = await trash.untrashItems(ids, { skipUnchanged: req.body?.skipUnchanged === true });
     embeddings.invalidateCache();
     res.json({ results });
   } catch (err) {
@@ -2400,12 +2397,15 @@ app.post('/api/untrash', async (req, res) => {
 // soft trash): mode 'recycle' → OS Recycle Bin, mode 'hard' → gone from disk.
 // Both purge the record for whichever files were removed. Same result shape as
 // /api/trash so the client's queue handles all three ops uniformly.
+// skipTrashed (the viewer's queue always sends it): a row in the trash is
+// refused and reported as skipped, so a file trashed after the viewer's
+// confirm stays in the trash. Without it, trashed rows are deleted as before.
 app.post('/api/delete', async (req, res) => {
   const ids = parseIdList(req.body);
   const mode = req.body?.mode === 'hard' ? 'hard' : 'recycle';
   if (ids.length === 0) return res.status(400).json({ error: 'ids required' });
   try {
-    const results = await trash.deleteItems(ids, mode);
+    const results = await trash.deleteItems(ids, mode, { skipTrashed: req.body?.skipTrashed === true });
     const okIds = results.filter(r => r.ok).map(r => r.id);
     if (ownedDir.guardSweep(config.paths.thumbnailDir, 'delete thumbnail cleanup')) {
       for (const id of okIds) {

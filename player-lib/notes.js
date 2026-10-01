@@ -14,24 +14,33 @@
  * POST user-editable fields for a media item.
  * @param {object} item - the in-memory media row (must have .id)
  * @param {object} fields - e.g. { user_starred: 1 }
+ * @param {{quiet?: boolean}} [opts] quiet: no toast on failure (a bulk
+ *   action reports once, for all of them)
+ * @returns {Promise<boolean>} whether the server saved it
  */
-async function postFlags(item, fields) {
+async function postFlags(item, fields, { quiet = false } = {}) {
   try {
-    const resp = await fetch(`/api/media/${item.id}/flags`, {
+    // An edit of ours bumps the library version like any other change; the
+    // grid does not re-run its search for it (Library.ownWrite), as before.
+    const resp = await Library.ownWrite(fetch(`/api/media/${item.id}/flags`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(fields),
-    });
+    }));
     if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
     // Sync canonical values back (cheap safety net for races) — but never
     // clobber last_position unless this request actually wrote it (it
     // changes continuously during playback)
     const updated = await resp.json();
     if (!('last_position' in fields)) delete updated.last_position;
+    for (const k of ['embedding', 'audio_transcription']) delete updated[k];
     Object.assign(item, updated);
+    Library.patchRow(item);
+    return true;
   } catch (err) {
     console.error('[Flags] Save failed:', err);
-    showToast('⚠ Save failed: ' + err.message);
+    if (!quiet) showToast('⚠ Save failed: ' + err.message);
+    return false;
   }
 }
 
@@ -40,7 +49,7 @@ async function postFlags(item, fields) {
  * Returns parsed array of {text, timestamp} or empty array.
  */
 function getNotes(filepath) {
-  const item = allMedia.find(m => m.filepath === filepath);
+  const item = Library.rowByPath(filepath);
   return item ? safeParseJSON(item.user_notes || '', []) : [];
 }
 
@@ -50,20 +59,17 @@ function getNotes(filepath) {
  * propagates the write to the whole group, so mirror it locally too.
  */
 function saveNotesToDb(filepath, notesArray) {
-  const item = allMedia.find(m => m.filepath === filepath);
+  const item = Library.rowByPath(filepath);
   if (!item) return false;
 
   const json = JSON.stringify(notesArray);
   item.user_notes = json;
 
   if (item.dupe_group) {
-    allMedia.forEach(m => {
+    Library.eachCachedRow(m => {
       if (m.dupe_group === item.dupe_group) m.user_notes = json;
     });
   }
-
-  // Notes are searchable — drop the cached search text / fuzzy index
-  if (typeof invalidateFuse === 'function') invalidateFuse();
 
   postFlags(item, { user_notes: json });
   return true;
@@ -387,7 +393,7 @@ function linkifyTimestamps(escapedText, escapedPath) {
 function loopNoteRange(filepath, aTs, bTs) {
   const a = _parseTs(aTs), b = _parseTs(bTs);
   if (a == null || b == null) return;
-  const item = allMedia.find(m => m.filepath === filepath);
+  const item = Library.rowByPath(filepath);
   if (!item || typeof setAbLoop !== 'function') return;
 
   const current = (typeof currentMediaState !== 'undefined') && currentMediaState.currentMediaData;
@@ -415,7 +421,7 @@ function loopNoteRange(filepath, aTs, bTs) {
 
 function seekToNoteTimestamp(filepath, ts) {
   const secs = ts.split(':').map(Number).reduce((acc, p) => acc * 60 + p, 0);
-  const item = allMedia.find(m => m.filepath === filepath);
+  const item = Library.rowByPath(filepath);
   if (!item) return;
 
   const current = (typeof currentMediaState !== 'undefined') && currentMediaState.currentMediaData;
@@ -737,7 +743,7 @@ function refreshAllNotesSections(filepath) {
  * Toggle starred state for a media item.
  */
 function toggleStar(filepath) {
-  const item = allMedia.find(m => m.filepath === filepath);
+  const item = Library.rowByPath(filepath);
   if (!item) return;
 
   const newValue = item.user_starred ? 0 : 1;
@@ -752,7 +758,7 @@ function toggleStar(filepath) {
  * Set rating for a media item (0-5, 0 = unrated).
  */
 function setRating(filepath, rating) {
-  const item = allMedia.find(m => m.filepath === filepath);
+  const item = Library.rowByPath(filepath);
   if (!item) return;
 
   rating = Math.max(0, Math.min(5, parseInt(rating) || 0));
@@ -767,7 +773,7 @@ function setRating(filepath, rating) {
  * Toggle the flagged-for-deletion state for a media item.
  */
 function toggleFlagDelete(filepath) {
-  const item = allMedia.find(m => m.filepath === filepath);
+  const item = Library.rowByPath(filepath);
   if (!item) return;
 
   const newValue = item.user_flagged_delete ? 0 : 1;
@@ -832,7 +838,7 @@ function renderCardStarRating(media) {
  * Refresh all visible star/rating sections for a filepath.
  */
 function refreshAllStarRatingSections(filepath) {
-  const media = allMedia.find(m => m.filepath === filepath);
+  const media = Library.rowByPath(filepath);
   if (!media) return;
 
   const sections = document.querySelectorAll(`.star-rating-section[data-star-rating-for="${CSS.escape(filepath)}"]`);

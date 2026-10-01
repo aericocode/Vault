@@ -29,8 +29,25 @@
   const isHidden = () =>
     typeof window.vaultSetting === 'function' && !!window.vaultSetting('gamifyHidden');
 
+  /* The status answer walks the whole library (quests), which holds the
+     server for seconds on a very large one, and the server answers in order.
+     So it is asked once the library's first page and its count are in (or
+     after a few seconds), never ahead of them. */
+  function afterFirstResults() {
+    return new Promise((resolve) => {
+      const ready = () => typeof Library === 'undefined' || (Library.known() && !Library.isEmptyResult);
+      if (ready()) { resolve(); return; }
+      const check = () => { if (ready()) resolve(); };
+      window.addEventListener('vault:results-changed', check);
+      window.addEventListener('vault:results-counted', check);
+      window.addEventListener('vault:library-loaded', resolve, { once: true });
+      setTimeout(resolve, 5000);
+    });
+  }
+
   async function init() {
     try {
+      await afterFirstResults();
       const resp = await fetch('/api/gamify/status');
       const status = await resp.json();
       if (!status.enabled) return; // hard off (--no-gamify) — zero UI
@@ -493,17 +510,13 @@
   /** Hook fun actions for hidden achievements — all in one place. */
   function installAchievementHooks() {
     // 🎧 Eavesdropper: first search with the 💬 Subtitles corpus enabled
-    if (typeof executeSearch === 'function') {
-      const origSearch = executeSearch;
-      let eavesdropped = false;
-      executeSearch = function (query, ...rest) {
-        if (!eavesdropped && query && typeof subtitleSearchOn === 'function' && subtitleSearchOn()) {
-          eavesdropped = true;                    // once per session is plenty
-          gamifyEvent('transcript_search');
-        }
-        return origSearch.apply(this, arguments);
-      };
-    }
+    // (applyFilters announces every search it sends to the server)
+    let eavesdropped = false;
+    window.addEventListener('vault:search-run', (e) => {
+      if (eavesdropped || !e.detail || !e.detail.text || !e.detail.subtitles) return;
+      eavesdropped = true;                        // once per session is plenty
+      gamifyEvent('transcript_search');
+    });
     if (typeof playRandomMedia === 'function') {
       const orig = playRandomMedia;
       playRandomMedia = function (...a) { gamifyEvent('random_uses'); return orig.apply(this, a); };

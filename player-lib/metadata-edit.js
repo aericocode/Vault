@@ -104,15 +104,17 @@ async function saveMetaFields(id, fields, okMsg = '💾 Saved') {
   const item = getMediaById(id);
   if (!item) return false;
   try {
-    const resp = await fetch(`/api/media/${id}/metadata`, {
+    // An edit of ours: the grid does not re-run its search for it (as before).
+    const resp = await Library.ownWrite(fetch(`/api/media/${id}/metadata`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(fields),
-    });
+    }));
     if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
-    Object.assign(item, await resp.json());
-    // Edited fields are searchable — drop the cached search text / fuzzy index
-    if (typeof invalidateFuse === 'function') invalidateFuse();
+    const updated = await resp.json();
+    for (const k of ['embedding', 'audio_transcription']) delete updated[k];
+    Object.assign(item, updated);
+    Library.patchRow(item);
     refreshInfoSurfaces(item);
     showToast(okMsg);
     return true;
@@ -278,11 +280,19 @@ function startElementEdit(btn, id, index) {
 
 /* ── Remove records (library only — files untouched) ───────────────────── */
 
-async function removeRecords(ids) {
-  const items = ids.map(getMediaById).filter(Boolean);
-  if (items.length === 0) return;
+// Ids per /api/records/delete request: well under the 2 MB JSON body limit.
+const REMOVE_ID_CHUNK = 50000;
 
-  const label = items.length === 1 ? `"${items[0].filename}"` : `${items.length} records`;
+async function removeRecords(ids) {
+  if (ids.length === 0) return;
+  // One record is named; a selection is counted (Select all can hand this a
+  // whole library, whose rows the tab never loads).
+  let label = `${ids.length} records`;
+  if (ids.length === 1) {
+    const [only] = await Library.fetchRows(ids);
+    if (!only) return;
+    label = `"${only.filename}"`;
+  }
   const ok = confirm(
     `Remove ${label} from the library?\n\n` +
     `• The file(s) on disk are NOT touched\n` +
@@ -291,32 +301,56 @@ async function removeRecords(ids) {
   );
   if (!ok) return;
 
-  try {
-    const resp = await fetch('/api/records/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-    });
-    if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
-    const { deleted } = await resp.json();
-
-    // Drop from the in-memory library + close any surface showing them
-    const idSet = new Set(ids);
-    for (let i = allMedia.length - 1; i >= 0; i--) {
-      if (idSet.has(allMedia[i].id)) allMedia.splice(i, 1);
+  // Chunked (body limit); each chunk deletes its own records outright, so
+  // splitting changes nothing but the number of requests. A chunk that fails
+  // stops the run: the chunks before it are gone, and everything below says
+  // exactly that rather than "failed".
+  let deleted = 0;
+  let sent = 0;            // ids in the chunks the server confirmed
+  let error = null;
+  for (let i = 0; i < ids.length; i += REMOVE_ID_CHUNK) {
+    const chunk = ids.slice(i, i + REMOVE_ID_CHUNK);
+    try {
+      const resp = await fetch('/api/records/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: chunk }),
+      });
+      if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+      deleted += (await resp.json()).deleted || 0;
+      sent += chunk.length;
+    } catch (err) {
+      error = err;
+      break;
     }
-    if (typeof selectedIds !== 'undefined') ids.forEach(id => selectedIds.delete(id));
+  }
+
+  // Drop what is gone from the row cache and the selection, close any
+  // surface showing it, and re-run the query.
+  const removed = ids.slice(0, sent);
+  if (removed.length) {
+    const idSet = new Set(removed);
+    Library.forget(removed);
+    if (typeof selectedIds !== 'undefined') {
+      removed.forEach(id => selectedIds.delete(id));
+      if (typeof selectionChanged === 'function') selectionChanged();
+    }
     closeModal?.();
     if (typeof closeMediaPlayer === 'function' &&
         idSet.has(currentMediaState?.currentMediaData?.id)) {
       closeMediaPlayer();
     }
-
     applyFilters({ keepPage: true }); // stay on the current page after removal
-    if (typeof renderSelectionBar === 'function') renderSelectionBar();
+  }
+  if (typeof renderSelectionBar === 'function') renderSelectionBar();
+
+  if (!error) {
     showToast(`✂ Removed ${deleted} record(s), files kept on disk`);
-  } catch (err) {
-    showToast('⚠ Remove failed: ' + err.message);
+  } else if (!removed.length) {
+    showToast('⚠ Remove failed: ' + error.message);
+  } else {
+    showToast(`⚠ Removed ${deleted.toLocaleString()} of ${ids.length.toLocaleString()}. ` +
+      `${(ids.length - sent).toLocaleString()} could not be removed (${error.message}). Files kept on disk.`);
   }
 }
 

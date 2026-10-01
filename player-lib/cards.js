@@ -41,7 +41,7 @@ function errorTooltip(msg) {
    tile is pinned to that row height, so the last row lands on the bottom edge
    instead of half off it and the document never has to scroll.
 
-   The first tile on screen is the anchor (an index into filteredMedia), not a
+   The first tile on screen is the anchor (an index into the results), not a
    page number. Anything that changes how many tiles fit — a resize, a card-size
    change, a bar above the grid appearing — re-slices from the same anchor, so
    the tile the user was looking at stays where it was. */
@@ -95,7 +95,7 @@ function measureGrid() {
    the page that contains it, and the next step lands on a page boundary. */
 
 function pageCount() {
-  return Math.max(1, Math.ceil(filteredMedia.length / Math.max(1, pageSize)));
+  return Math.max(1, Math.ceil(Library.length() / Math.max(1, pageSize)));
 }
 
 function pageNumber() {
@@ -105,11 +105,13 @@ function pageNumber() {
 /** Index of the first tile of the last page. */
 function lastPageAnchor() {
   const size = Math.max(1, pageSize);
-  return Math.max(0, (Math.ceil(filteredMedia.length / size) - 1) * size);
+  return Math.max(0, (Math.ceil(Library.length() / size) - 1) * size);
 }
 
 /** Never strand the view past the end of a list that shrank under it. */
 function clampPageAnchor() {
+  // Before the exact count is in, the end of the list is not known yet.
+  if (!Library.known()) return false;
   const next = Math.min(Math.max(0, pageAnchor), lastPageAnchor());
   if (next === pageAnchor) return false;
   pageAnchor = next;
@@ -162,7 +164,7 @@ function updateGridLayout() {
  */
 function remeasureGridChrome() {
   let changed = false;
-  const tile = document.querySelector('#resultsGrid .media-tile');
+  const tile = document.querySelector('#resultsGrid .media-tile:not(.tile-skel)');
   const thumb = tile && tile.querySelector('.tile-thumb');
   if (thumb && thumb.offsetHeight > 0) {
     const chrome = tile.offsetHeight - thumb.offsetHeight;
@@ -202,14 +204,24 @@ function renderResults() {
   updateGridLayout();
   clampPageAnchor();
 
-  const pageItems = filteredMedia.slice(pageAnchor, pageAnchor + pageSize);
+  const end = Math.min(pageAnchor + pageSize, Library.length());
   currentPage = Math.floor(pageAnchor / Math.max(1, pageSize)) + 1;
 
   const resultsGrid = document.getElementById('resultsGrid');
   const collCards = typeof renderCollectionCards === 'function' ? renderCollectionCards() : '';
-  resultsGrid.innerHTML = collCards + pageItems.map(m => renderTile(m)).join('');
+  const tiles = tilesHtml(pageAnchor, end);
+  resultsGrid.innerHTML = collCards + tiles.html;
   hydrateThumbs(resultsGrid);
   renderPagination();
+  Library.pin('grid', tiles.ids);
+  // Rows not fetched yet render as placeholders and fill in as they arrive.
+  // A page past what the first answer covered needs the id list first.
+  const pastFirst = !Library.known() && pageAnchor + pageSize > Library.firstPageIds.length;
+  if (tiles.missing || pastFirst) fillRowsThen(pageAnchor, pageAnchor + pageSize, renderResults);
+  else {
+    markFirstTiles(tiles.ids.length);
+    Library.firstPageShown();
+  }
 
   // Keep the selection bar's "Select page" count/state in sync after paging
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
@@ -225,9 +237,101 @@ function renderResults() {
     } finally {
       _inRenderCorrection = false;
     }
-    prefetchAdjacentPages();
+    if (!tiles.missing) prefetchAdjacentPages();
   }
 }
+
+/* ── Rows on demand ───────────────────────────────────────────────────────
+   The grid knows the result as positions and ids (player-lib/library.js);
+   the rows themselves arrive per page. A position whose row is not here yet
+   gets a placeholder tile of the same size, and the page re-renders once
+   when the rows land. */
+
+/** Tile markup for result positions [start, end), with placeholders. */
+function tilesHtml(start, end) {
+  let html = '';
+  let missing = 0;
+  const ids = [];
+  for (let i = start; i < end; i++) {
+    const id = Library.idAt(i);
+    const row = id ? Library.row(id) : null;
+    if (id) ids.push(id);
+    if (row) {
+      html += renderTile(row);
+      if (Library.needsFetch(id)) missing++;
+    } else {
+      html += skeletonTileHtml();
+      if (!id || Library.needsFetch(id)) missing++;
+    }
+  }
+  return { html, missing, ids };
+}
+
+function skeletonTileHtml() {
+  return `<div class="media-tile tile-skel" aria-hidden="true">
+      <div class="tile-thumb"></div>
+      <div class="tile-name">&nbsp;</div>
+      <div class="tile-meta">&nbsp;</div>
+    </div>`;
+}
+
+/* The moment the first real tiles were on screen, as a performance mark
+   ("vault-first-tiles"), so a slow start can be measured, not guessed. */
+let _firstTilesMarked = false;
+function markFirstTiles(n) {
+  if (_firstTilesMarked || !n) return;
+  _firstTilesMarked = true;
+  try { performance.mark('vault-first-tiles'); } catch {}
+}
+
+let _fillToken = 0;
+
+/** What is still missing in [start, end): changes whenever a fill helped. */
+function fillState(start, end) {
+  let pending = 0;
+  const stop = Math.min(end, Library.length());
+  for (let i = start; i < stop; i++) {
+    const id = Library.idAt(i);
+    if (!id || Library.needsFetch(id)) pending++;
+  }
+  return `${Library.known()}|${Library.length()}|${pending}`;
+}
+
+const FILL_RETRY_MAX_MS = 15000;
+
+/**
+ * Fetch the rows for [start, end), then run `then` once, unless the view
+ * moved on in the meantime (another render asked for something else), or
+ * the fetch changed nothing: re-rendering then would only ask again. When
+ * the server could not be asked (restarting, a network error), the same
+ * fetch is tried again with a growing pause while these tiles stay on screen.
+ */
+function fillRowsThen(start, end, then, attempt = 0) {
+  const token = ++_fillToken;
+  const before = fillState(start, end);
+  const retry = () => {
+    const wait = Math.min(FILL_RETRY_MAX_MS, 1000 * 2 ** attempt);
+    setTimeout(() => { if (token === _fillToken) fillRowsThen(start, end, then, attempt + 1); }, wait);
+  };
+  Library.rowsForRange(start, end).then((rows) => {
+    if (token !== _fillToken) return;
+    if (fillState(start, end) !== before) { then(); return; }
+    if (rows && rows.failed) retry();
+  }, () => { if (token === _fillToken) retry(); });
+}
+
+window.addEventListener('vault:results-counted', (e) => {
+  // The exact count is in: the pager and Select all can say it now. If the
+  // list was computed against newer data, the tiles on screen re-read too.
+  if (libraryLayoutMode() === 'continuous') renderContinuous();
+  else if (e.detail && e.detail.versionChanged) renderResults();
+  else renderPagination();
+  if (typeof renderSelectionBar === 'function') renderSelectionBar();
+});
+window.addEventListener('vault:counting', () => {
+  renderPagination();
+  if (typeof renderSelectionBar === 'function') renderSelectionBar();
+});
 
 /* ── Prefetch ─────────────────────────────────────────────────────────────
    Whatever the user asks for next is almost always a page away, so warm the
@@ -238,34 +342,57 @@ function renderResults() {
 
 let _prefetchWide = false;
 
-function prefetchAdjacentPages() {
+/* Each range is now two fetches: the rows first (one request for the whole
+   span), then the thumbnails, nearest page first. Both start only once the
+   page on screen has every row it needs. */
+let _prefetchToken = 0;
+
+function prefetchRanges(ranges) {
   if (typeof scheduleThumbPrefetch !== 'function') return;
+  const token = ++_prefetchToken;
+  const spans = ranges.map(([a, b]) => [Math.max(0, a), Math.max(0, b)]).filter(([a, b]) => b > a);
+  if (!spans.length) { scheduleThumbPrefetch([]); return; }
+  const batches = () => spans.map(([a, b]) => {
+    const out = [];
+    for (let i = a; i < b && i < Library.length(); i++) {
+      const row = Library.row(Library.idAt(i));
+      if (row) out.push(row);
+    }
+    return out;
+  });
+  const lo = Math.min(...spans.map(s => s[0]));
+  const hi = Math.max(...spans.map(s => s[1]));
+  // Before the id list is in, warm only what the first answer carried.
+  if (!Library.known() && hi > Library.firstPageIds.length) { scheduleThumbPrefetch(batches()); return; }
+  Library.rowsForRange(lo, hi).then(() => {
+    if (token === _prefetchToken) scheduleThumbPrefetch(batches());
+  }).catch(() => {});
+}
+
+function prefetchAdjacentPages() {
   const size = Math.max(1, pageSize);
   const behind = _prefetchWide ? 0 : PREFETCH_PAGES_BEHIND;
   _prefetchWide = false;
 
-  const batches = [];
+  const ranges = [];
   for (let i = 1; i <= PREFETCH_PAGES_AHEAD; i++) {
-    batches.push(filteredMedia.slice(pageAnchor + i * size, pageAnchor + (i + 1) * size));
+    ranges.push([pageAnchor + i * size, pageAnchor + (i + 1) * size]);
   }
   for (let i = 1; i <= behind; i++) {
-    const from = Math.max(0, pageAnchor - i * size);
-    const to = Math.max(0, pageAnchor - (i - 1) * size);
-    batches.push(filteredMedia.slice(from, to));
+    ranges.push([Math.max(0, pageAnchor - i * size), Math.max(0, pageAnchor - (i - 1) * size)]);
   }
-  scheduleThumbPrefetch(batches);
+  prefetchRanges(ranges);
 }
 
 function prefetchContinuousRows() {
-  if (typeof scheduleThumbPrefetch !== 'function') return;
   const { cols, first, last } = contState;
   if (!cols || last < 0) return;
   const above = (_prefetchWide || first <= 0)
-    ? []
-    : filteredMedia.slice(Math.max(0, first - PREFETCH_ROWS_BEHIND) * cols, first * cols);
+    ? [0, 0]
+    : [Math.max(0, first - PREFETCH_ROWS_BEHIND) * cols, first * cols];
   _prefetchWide = false;
-  const below = filteredMedia.slice((last + 1) * cols, (last + 1 + PREFETCH_ROWS_AHEAD) * cols);
-  scheduleThumbPrefetch([below, above]);
+  const below = [(last + 1) * cols, (last + 1 + PREFETCH_ROWS_AHEAD) * cols];
+  prefetchRanges([below, above]);
 }
 
 /* ── Where the page starts ────────────────────────────────────────────────
@@ -273,6 +400,13 @@ function prefetchContinuousRows() {
    truth; goToPage() survives as a thin wrapper for older callers. */
 
 function setPageAnchor(index) {
+  // Past the first page with the count still coming: wait for the id list,
+  // then go (Next stays allowed while the pager says "Page 1 of …").
+  if (!Library.known() && index >= Library.firstPageIds.length) {
+    const want = index;
+    Library.waitIds().then((ids) => { if (ids) setPageAnchor(want); });
+    return false;
+  }
   const next = Math.min(Math.max(0, Math.round(index)), lastPageAnchor());
   if (next === pageAnchor) return false;
   pageAnchor = next;
@@ -362,7 +496,7 @@ window.vaultUpdateScrollTopPill = updateScrollTopPill;
 
 /** Put the tile at this index on screen. Used at boot only. */
 function revealMediaIndex(index) {
-  if (index < 0 || index >= filteredMedia.length) return;
+  if (index < 0 || index >= Library.length()) return;
   if (libraryLayoutMode() === 'continuous') {
     const cols = Math.max(1, contState.cols);
     const virt = document.querySelector('#resultsGrid .grid-virt');
@@ -401,7 +535,7 @@ function renderContinuous() {
   if (!m) return;
   const { grid, cols, natH } = m;
   const stride = natH + GRID_GAP;
-  const total = filteredMedia.length;
+  const total = Library.length();
   const totalRows = Math.ceil(total / cols);
 
   grid.classList.remove('grid-pages');
@@ -447,21 +581,34 @@ function renderContinuousWindow() {
   contState.last = r.last;
 
   let html = '';
+  let missing = 0;
+  const shownIds = [];
+  const total = Library.length();
   for (let row = r.first; row <= r.last; row++) {
-    const items = filteredMedia.slice(row * cols, row * cols + cols);
-    if (!items.length) continue;
+    const start = row * cols;
+    const end = Math.min(start + cols, total);
+    if (end <= start) continue;
+    const tiles = tilesHtml(start, end);
+    missing += tiles.missing;
+    shownIds.push(...tiles.ids);
     html += `<div class="grid-row" style="top:${(row * stride).toFixed(1)}px;grid-template-columns:repeat(${cols},1fr)">`
-      + items.map(item => renderTile(item)).join('') + '</div>';
+      + tiles.html + '</div>';
   }
   virt.innerHTML = html;
   hydrateThumbs(virt);
-  prefetchContinuousRows();
+  Library.pin('grid', shownIds);
+  if (missing) fillRowsThen(Math.max(0, r.first) * cols, (r.last + 1) * cols, renderContinuousWindow);
+  else {
+    markFirstTiles(shownIds.length);
+    Library.firstPageShown();
+    prefetchContinuousRows();
+  }
   updateScrollTopPill();
 
   // The anchor still means "first tile on screen", which here is the first
   // tile of the first row the viewport actually shows.
   pageAnchor = Math.max(0, Math.min(
-    Math.max(0, filteredMedia.length - 1),
+    Math.max(0, Library.length() - 1),
     Math.max(0, Math.floor(Math.max(0, r.y) / (stride || 1))) * cols));
   currentPage = Math.floor(pageAnchor / Math.max(1, pageSize)) + 1;
 
@@ -1100,7 +1247,7 @@ function quickRate(filepath, rating, btnEl) {
   // Re-render the rating stars in this card
   const container = btnEl.closest('.card-rating-inline');
   if (container) {
-    const media = allMedia.find(m => m.filepath === filepath);
+    const media = Library.rowByPath(filepath);
     if (media) {
       const escapedPath = escapeHtml(filepath).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
       container.innerHTML = renderCardInlineRating(media, escapedPath);
@@ -1166,25 +1313,33 @@ function buildPager(count) {
   });
 }
 
+/* While the count is still coming the label never shows the previous
+   search's total: "Page 1" alone, then "Page 1 of …" once the wait passes
+   400 ms (Library.counting), then the exact total. */
 function setPagerLabel(page, count) {
   const pos = document.getElementById('pagerPos');
-  if (pos) pos.textContent = `Page ${page.toLocaleString()} of ${count.toLocaleString()}`;
+  if (!pos) return;
+  pos.textContent = Library.known()
+    ? `Page ${page.toLocaleString()} of ${count.toLocaleString()}`
+    : Library.counting ? `Page ${page.toLocaleString()} of …` : `Page ${page.toLocaleString()}`;
 }
 
 /** Everything about the bar that changes when the page does. */
 function updatePagerState() {
+  const known = Library.known();
   const count = pageCount();
-  const page = pageNumber();
+  const page = known ? pageNumber() : Math.floor(pageAnchor / Math.max(1, pageSize)) + 1;
   setPagerLabel(page, count);
   const range = document.getElementById('pagerRange');
   if (range) {
     if (String(range.value) !== String(page)) range.value = String(page);
-    range.disabled = count <= 1;
+    range.disabled = !known || count <= 1;
   }
   const prev = document.getElementById('pagerPrev');
   const next = document.getElementById('pagerNext');
   if (prev) prev.disabled = page <= 1;
-  if (next) next.disabled = page >= count;
+  // Before the count is in, Next stays on (the first answer was not all).
+  if (next) next.disabled = known ? page >= count : false;
 }
 
 /** Kept for callers that still think in page numbers. */

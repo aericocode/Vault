@@ -4,10 +4,11 @@
 
 function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filename, hasPrev, hasNext) {
   content.innerHTML = `
-    <video id="mediaVideo" onerror="handleMediaError('${filepath.replace(/'/g, "\\'")}')">
+    <video id="mediaVideo">
       Your browser doesn't support video playback.
     </video>
   `;
+  bindMediaError(document.getElementById('mediaVideo'), filepath);
   
   // Left controls: Volume
   const leftControls = `

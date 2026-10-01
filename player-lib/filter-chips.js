@@ -129,66 +129,53 @@ function fchipValueLabel(key) {
 
 /* ── Counts ───────────────────────────────────────────────────────────────
    Every option row carries how many files in the library carry that value.
-   Counted over allMedia rather than the current result set, so the numbers
-   are stable while you type in the search box and a value with 0 next to it
-   is honestly empty rather than "empty given what else you set".
+   Counted over the whole library rather than the current result set, so the
+   numbers are stable while you type in the search box and a value with 0
+   next to it is honestly empty rather than "empty given what else you set".
 
-   One pass fills every filter's tally at once and the result is cached
-   against the allMedia snapshot, so opening five popovers in a row costs one
-   pass. Collections is deliberately left out: mediaInAnyCollection() walks
-   every collection's member array per row, which is the one test that would
-   turn this pass into real work on a large library. Song is left out too,
-   because music.js already bakes "(N)" into those option labels. */
+   The server keeps these (GET /api/library/facets, held in Library.facets)
+   and the popovers read them as they are. Collections is deliberately left
+   out, and Song too, because music.js already bakes "(N)" into those option
+   labels. Theme carries the most used 1,000; a theme found through the
+   popover's search box brings its own count. */
 
-const FCHIP_COUNT_TYPES = new Set(['video', 'audio', 'image', 'gif', 'mix']);
-
-let _fchipCounts = null;     // { src, len, maps, ms }
+let _fchipCounts = null;     // { src, maps }
 
 function fchipCountMaps() {
-  if (typeof allMedia === 'undefined' || !Array.isArray(allMedia)) return null;
-  if (_fchipCounts && _fchipCounts.src === allMedia && _fchipCounts.len === allMedia.length) {
-    return _fchipCounts.maps;
-  }
-  const t0 = performance.now();
-  const bump = (map, key) => {
-    if (key == null || key === '') return;
-    map.set(key, (map.get(key) || 0) + 1);
-  };
+  const f = typeof Library !== 'undefined' ? Library.facets : null;
+  if (!f) return null;
+  if (_fchipCounts && _fchipCounts.src === f) return _fchipCounts.maps;
+  const toMap = (obj) => new Map(Object.entries(obj || {}));
   const maps = {
-    total: 0,
-    content: new Map(), language: new Map(), quality: new Map(), theme: new Map(),
-    rating: { unrated: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-    fave: 0, notes: 0, flagged: 0, trashed: 0, unplayable: 0, dupes: 0,
-    scan: { success: 0, failed: 0, unscanned: 0 },
+    total: f.total || 0,
+    content: toMap(f.content), language: toMap(f.language), quality: toMap(f.quality),
+    theme: toMap(f.theme),
+    rating: { unrated: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, ...(f.rating || {}) },
+    fave: f.fave || 0, notes: f.notes || 0, flagged: f.flagged || 0, trashed: f.trashed || 0,
+    unplayable: f.unplayable || 0, dupes: f.dupes || 0,
+    scan: { success: 0, failed: 0, unscanned: 0, ...(f.scan || {}) },
   };
-  const dupes = typeof isDuplicate === 'function';
-  const scan = typeof scanStatusOf === 'function';
-  for (const m of allMedia) {
-    // The grid never shows anything else, so nothing else should be counted.
-    if (!FCHIP_COUNT_TYPES.has(m.media_type)) continue;
-    maps.total++;
-    bump(maps.content, m.content_type);
-    bump(maps.language, m.language_name);
-    bump(maps.quality, m.quality_flag);
-    try {
-      // Same source the theme dropdown is built from: clean copy, raw as the
-      // fallback for rows the backfill has not reached.
-      for (const t of new Set(JSON.parse(m.themes_clean || m.themes || '[]'))) bump(maps.theme, t);
-    } catch {}
-    // Rating rows read "3+", so a 4-star file counts towards 1+ through 4+.
-    const r = m.user_rating || 0;
-    if (r === 0) maps.rating.unrated++;
-    for (let i = 1; i <= r && i <= 5; i++) maps.rating[i]++;
-    if (m.user_starred) maps.fave++;
-    if (m.user_notes && m.user_notes !== '' && m.user_notes !== '[]') maps.notes++;
-    if (m.user_flagged_delete) maps.flagged++;
-    if (m.user_trashed) maps.trashed++;
-    if (m.playback_failed) maps.unplayable++;
-    if (dupes && isDuplicate(m.filepath)) maps.dupes++;
-    if (scan) maps.scan[scanStatusOf(m)]++;
-  }
-  _fchipCounts = { src: allMedia, len: allMedia.length, maps, ms: performance.now() - t0 };
+  _fchipCounts = { src: f, maps };
   return maps;
+}
+
+/** Themes beyond the facets' top 1,000 come from the server as you type (6.9). */
+function themeSearchIsRemote() {
+  const f = typeof Library !== 'undefined' ? Library.facets : null;
+  if (!f || !f.theme || f.themeTotal == null) return false;
+  return f.themeTotal > Object.keys(f.theme).length;
+}
+
+async function fetchThemeMatches(q) {
+  const resp = await fetch(`/api/library/themes?q=${encodeURIComponent(q)}&limit=200`);
+  if (!resp.ok) return null;
+  const data = await resp.json();
+  return Array.isArray(data.themes) ? data.themes.map(t => ({ value: t.value, label: t.value, count: t.count })) : null;
+}
+
+/** While the search index builds, the Theme filter waits with it. */
+function themeChipWaiting() {
+  return typeof Library !== 'undefined' && Library.index && Library.index.state !== 'ready';
 }
 
 /** { optionValue: count } for one filter, or null when it does not do counts. */
@@ -268,9 +255,10 @@ function fchipHtml(key) {
   const d = FCHIP_DEFS[key];
   const set = fchipIsSet(key);
   const value = set ? fchipValueLabel(key) : '';
-  return `<span class="fchip${set ? ' is-set' : ''}" data-fchip-wrap="${key}">
+  const waiting = key === 'theme' && themeChipWaiting();
+  return `<span class="fchip${set ? ' is-set' : ''}${waiting ? ' is-waiting' : ''}" data-fchip-wrap="${key}"${waiting ? ' title="Available when search is ready."' : ''}>
     <button type="button" class="fchip-main" data-fchip="${key}"
-            aria-haspopup="true" aria-expanded="false">
+            aria-haspopup="true" aria-expanded="false"${waiting ? ' aria-disabled="true"' : ''}>
       <span class="fchip-name">${escapeHtml(d.label)}${set ? ':' : ''}</span>
       ${set ? `<span class="fchip-value">${escapeHtml(String(value))}</span>`
             : '<span class="fchip-caret" aria-hidden="true">▾</span>'}
@@ -293,6 +281,17 @@ function fchipPatch(wrap) {
 
   const set = fchipIsSet(key);
   wrap.classList.toggle('is-set', set);
+  if (key === 'theme') {
+    const waiting = themeChipWaiting();
+    wrap.classList.toggle('is-waiting', waiting);
+    if (waiting) {
+      wrap.title = 'Available when search is ready.';
+      main.setAttribute('aria-disabled', 'true');
+    } else {
+      wrap.removeAttribute('title');
+      main.removeAttribute('aria-disabled');
+    }
+  }
 
   const name = main.querySelector('.fchip-name');
   if (name) name.textContent = d.label + (set ? ':' : '');
@@ -458,17 +457,26 @@ function openChipPopover(key, anchor) {
   const d = FCHIP_DEFS[key];
   if (!d) return;
   if (d.type === 'duration') return openDurationPopover(anchor);
+  if (key === 'theme' && themeChipWaiting()) return;
   const sortable = FCHIP_SORTABLE.includes(key);
   openFilterPopover(anchor, {
     title: d.label,
     items: fchipItems(key),
     selected: fchipValue(key),
     searchable: !!d.search,
+    // A big library has more themes than the list carries: typing asks the
+    // server, so every theme can still be found.
+    remoteSearch: key === 'theme' && themeSearchIsRemote() ? fetchThemeMatches : null,
     sort: sortable ? {
       mode: fchipPopSort(key),
       onChange: (mode) => window.vaultSetPopSort?.(key, mode),
     } : null,
-    onPick: (v) => fchipSet(key, v),
+    onPick: (v) => {
+      if (key === 'theme' && typeof ensureSelectOption === 'function') {
+        ensureSelectOption(document.getElementById(d.el), v);
+      }
+      fchipSet(key, v);
+    },
   });
 }
 
@@ -595,7 +603,7 @@ function moreSheetIsOpen() {
 
 const FCHIP_SEARCH_OPTIONS = [
   { id: 'metadataOnly',   label: 'Metadata only', desc: 'Search tags, notes and descriptions only, not the file name or path.' },
-  { id: 'fuzzySearch',    label: 'Fuzzy',         desc: 'Match near-misses and typos as well as exact words.' },
+  { id: 'fuzzySearch',    label: 'Fuzzy',         desc: 'Match file names and tags that are spelled almost the same.' },
   { id: 'semanticSearch', label: 'Semantic',      desc: 'Find by meaning rather than keywords, using a local model.' },
   { id: 'subtitleSearch', label: 'Subtitles',     desc: 'Also search English subtitle text and transcripts.' },
 ];

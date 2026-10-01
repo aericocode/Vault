@@ -1270,16 +1270,52 @@
     out.querySelector('#pbShowFailed')?.addEventListener('click', pbShowUnplayable);
   }
 
-  /** Focus the library grid on the files this browser cannot play. */
-  function pbShowUnplayable() {
-    if (typeof allMedia === 'undefined' || typeof mediaPlaybackState !== 'function') return;
-    const ids = allMedia.filter(m => mediaPlaybackState(m).state === 'no').map(m => m.id);
-    if (!ids.length) {
+  /**
+   * Focus the library grid on the files this browser cannot play.
+   *
+   * The library-wide counts say which kinds of file cannot play here (one
+   * verdict per playback group), so only those are asked for: every file
+   * whose play already failed, plus the files of each extension a codec
+   * verdict ruled out, whose rows are then checked one by one.
+   */
+  async function pbShowUnplayable() {
+    if (typeof mediaPlaybackState !== 'function' || typeof playbackGroupRow !== 'function') return;
+    const f = Library.facets;
+    if (!f) return;
+    const suspects = new Map();   // media_type → Set(ext)
+    for (const g of f.playbackGroups || []) {
+      if (g.playback_failed || !g.media_type) continue;
+      if (mediaPlaybackState(playbackGroupRow(g)).state !== 'no') continue;
+      if (!suspects.has(g.media_type)) suspects.set(g.media_type, new Set());
+      suspects.get(g.media_type).add(g.ext || '');
+    }
+    const ids = new Set();
+    const every = async (filters) => {
+      const out = await Library.queryOnce({ filters: { trashed: '', ...filters } }, { pageSize: 1, allIds: true });
+      return Array.from(out.ids || []);
+    };
+    try {
+      for (const id of await every({ failed: '1' })) ids.add(id);
+      for (const [type, extSet] of suspects) {
+        const exts = [...extSet].filter(Boolean);
+        for (let i = 0; i < exts.length; i += 200) {
+          const list = await every({ mediaTypes: [type], extensions: exts.slice(i, i + 200), failed: '0' });
+          for (let j = 0; j < list.length; j += 2000) {
+            const rows = await Library.fetchRows(list.slice(j, j + 2000), { strict: true });
+            for (const r of rows) if (r && mediaPlaybackState(r).state === 'no') ids.add(r.id);
+          }
+        }
+      }
+    } catch (err) {
+      if (typeof showToast === 'function') showToast('⚠ ' + err.message);
+      return;
+    }
+    if (!ids.size) {
       if (typeof showToast === 'function') showToast('Nothing to show');
       return;
     }
     closeModal();
-    window.vaultShowMediaIds(ids, 'files that cannot play');
+    window.vaultShowMediaIds([...ids], 'files that cannot play');
   }
 
   async function pbPollOnce() {
@@ -2752,13 +2788,14 @@
   };
 
   let _sessionRestored = false;
-  function maybeRestoreSession() {
+  async function maybeRestoreSession() {
     if (_sessionRestored) return;
     _sessionRestored = true;
     if (!settings.restoreSession) return;
     const id = settings._lastMediaId;
     if (!id) return;
-    const media = typeof getMediaById === 'function' ? getMediaById(id) : null;
+    // The last file may sit on any page: fetch its row rather than assume.
+    const media = (await Library.fetchRows([id]))[0] || null;
     if (!media) {
       // Row is gone — clear silently so we don't keep trying.
       settings._lastMediaId = null;
@@ -2766,6 +2803,8 @@
       return;
     }
     if (typeof playMedia !== 'function') return;
+    // Its place in the queue (Next/Prev) needs the whole result list.
+    await Library.waitIds();
     // Closing the player leaves the grid alone, with this one exception: the
     // user did not pick a page before this file opened itself, so the first
     // close may put the grid where the file is. player-core reads the flag.
