@@ -46,8 +46,11 @@ test('the viewer rows leave out exactly the embedding and the audio transcriptio
   const viewer = db.getByIdForViewer(1);
   assert.ok(Buffer.isBuffer(full.embedding), 'getById still returns the full row');
 
+  // `ext` is the generated column the server's filters use. SELECT * returns
+  // it, PRAGMA table_info (which builds the viewer projection) does not, and
+  // the browser computes the extension itself.
   const dropped = Object.keys(full).filter(k => !(k in viewer)).sort();
-  assert.deepStrictEqual(dropped, ['audio_transcription', 'embedding']);
+  assert.deepStrictEqual(dropped, ['audio_transcription', 'embedding', 'ext']);
   assert.deepStrictEqual(Object.keys(viewer).filter(k => !(k in full)), []);
 
   // A column added by a late migration still reaches the browser, as do the

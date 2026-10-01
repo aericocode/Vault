@@ -65,7 +65,14 @@ app.use((req, res, next) => {
   return res.status(403).json({ error: 'cross-origin request forbidden', code: 'CSRF_ORIGIN' });
 });
 
-app.use(express.json({ limit: '2mb' }));
+// POST /api/library/query carries focus-set and audio-sim id lists, so that one
+// path gets its own 64 MB parser (server/library-routes.js); everything else
+// keeps the 2 MB default.
+const libraryRoutes = require('./library-routes');
+const _jsonDefault = express.json({ limit: '2mb' });
+app.use((req, res, next) => (req.path === '/api/library/query'
+  ? libraryRoutes.queryJsonParser : _jsonDefault)(req, res, next));
+app.use('/api/library', libraryRoutes.bodyErrorHandler);
 
 // ── Vault lock (routes stay reachable while locked; everything below gates) ──
 
@@ -2573,6 +2580,10 @@ app.use('/api', require('./subtitle-routes').buildRouter());
 //    both /api/playback|/api/stream and the /stream/:id/* media URLs) ────────
 app.use(require('./stream-routes').buildRouter());
 
+// ── Library search (server-side query, facets, id lists — see
+//    lib/library-query.js and SERVER_SEARCH_SPEC) ─────────────────────────
+app.use('/api/library', libraryRoutes.buildRouter());
+
 // ── Saved searches ─────────────────────────────────────────────────────────
 
 app.get('/api/searches', (req, res) => {
@@ -2963,6 +2974,11 @@ function start(args = process.argv.slice(2)) {
     config.security.autolockMinutes = Math.max(0, Math.min(1440, Math.trunc(savedAutolock)));
   }
   vault.startAutolock();
+  // Library search: plain sort/filter indexes now, before listening (one
+  // time, minutes at 2M files); the search tables then build in the
+  // background, stop on lock and resume on unlock.
+  if (!bootedLocked) libraryRoutes.prepareIndexes();
+  libraryRoutes.startIndexing(vault);
   // Non-blocking: boot must not wait on an LM Studio that is not running. The
   // ticker only spends a request while a scan is actually going.
   aiSlots.boot({ activeProbe: () => importQueue.isActive() || _rescanning.size > 0 });
