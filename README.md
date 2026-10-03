@@ -384,6 +384,7 @@ node vault.js json                # Export to JSON
 node vault.js embed                # Backfill semantic-search embeddings
 node vault.js clean               # Rebuild normalized themes/tags/locations (no AI)
 node vault.js mark-executed       # Mark moves complete
+node vault.js export-cove --cove http://127.0.0.1:5073   # Copy your library's metadata into Cove (see SETUP.md, "Moving to Cove")
 ```
 
 </details>

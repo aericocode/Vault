@@ -330,3 +330,48 @@ Everything in §2–§5 applies unchanged: the source checkout and the exe read
 the same environment variables and talk to the same AI backends. The only
 difference is where app data lands: next to the repo instead of next to
 `Vault.exe`.
+
+
+---
+
+## 7. Moving to Cove
+
+`export-cove` copies what Vault knows about your files into
+[Cove](https://github.com/yourcove/cove): AI tags (under a "Vault AI" parent
+tag), descriptions, the other AI details as custom fields, notes, star
+ratings, favorites and collections (as Cove groups). Vault itself is only
+read, never changed, and nothing in Cove is deleted or overwritten: a
+description, rating or field you already set in Cove stays as it is.
+
+1. **Let Cove scan the same files first.** Items are matched by file path,
+   then by name and size when the path differs.
+2. **Only if Cove has login turned on:** create an API token in Cove under
+   Settings > Security & access > API tokens, signed in as the owner, and set
+   it in the same terminal (it is read from the environment so it never lands
+   in your shell history):
+   ```bash
+   set COVE_TOKEN=paste-your-token-here        # Windows cmd
+   $env:COVE_TOKEN = "paste-your-token-here"   # PowerShell
+   ```
+   With login off (Cove's default) no token is needed. If you limit the
+   token's scope, it needs to read file paths, tags, groups and system
+   settings, and to make the changes, write access to videos, images, audio,
+   tags, groups and settings (for the new custom fields).
+3. **Encrypted Vault?** Set `VAULT_DB_PASSWORD` too. Cove keeps what is
+   copied over without encryption.
+4. **Dry run.** Close Vault, then:
+   ```bash
+   node vault.js export-cove --cove http://127.0.0.1:5073
+   ```
+   (or `Vault.exe export-cove ...`). Nothing in Cove changes. It prints what
+   it would do and writes a report (`cove-export-report-<time>.json`) listing
+   anything it could not find in Cove. If Cove sees your files under another
+   path (Docker, another machine), add `--map "D:\Media=/media"` once per
+   folder. `--limit 20` tries just the first 20 items.
+5. **Apply.** Run the same command with `--apply`. Running it again later is
+   safe: it only adds what is still missing.
+
+Resume points are left out unless you add `--resume` (each one adds a
+playback session to Cove's history). Saved searches, semantic-search data,
+view counts, watch heatmaps, game saves, subtitles and song matches are not
+carried over.

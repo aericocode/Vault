@@ -22,6 +22,7 @@ const commands = {
   'mark-executed': () => require('./commands/mark-executed'),
   music: () => require('./commands/music'),
   subtitles: () => require('./commands/subtitles'),
+  'export-cove': () => require('./commands/export-cove'),
   serve: () => require('./server/index'),
 };
 
@@ -77,6 +78,18 @@ Commands:
                       scan <id|all> | status  (fingerprint = one-time per file,
                       then auto-matches songs across the library)
   mark-executed       Mark pending operations as complete
+  export-cove --cove <url> [options]
+      Copy tags, descriptions, AI details, notes, ratings, favorites and
+      collections into Cove (matched by file path). Dry run unless --apply.
+      COVE_TOKEN only when Cove has login on. Nothing in Vault changes.
+
+      Options:
+        --apply             Make the changes (default: dry run, Cove untouched)
+        --map "<from>=<to>" Cove sees the files under another path (repeatable)
+        --resume            Also copy resume points (adds playback history)
+        --report <file>     JSON report path (default: cove-export-report-<time>.json)
+        --limit N           Only handle the first N matched items
+
   serve [options]     Start the viewer server (same as start.bat)
 
       Options:
