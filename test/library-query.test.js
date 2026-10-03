@@ -64,6 +64,10 @@ const FIXTURE = [
   ['rated5', { filepath: '/lib/ten/r5.mp4', filename: 'r5.mp4', user_rating: 5, view_count: 5 }],
   ['gif', { filepath: '/lib/ten/anim.GIF', filename: 'anim.GIF', media_type: 'gif' }],
   ['mkv', { filepath: '/lib/ten/movie.mkv', filename: 'movie.mkv' }],
+  // 3.3 fuzzy: a swapped-letter typo (tets) must still find test
+  ['testName', { filepath: '/lib/eleven/speed_test.mp4', filename: 'speed_test.mp4' }],
+  ['testTag', { filepath: '/lib/eleven/run.jpg', filename: 'run.jpg', media_type: 'image', tags: '["Test"]' }],
+  ['testDesc', { filepath: '/lib/eleven/walk.jpg', filename: 'walk.jpg', media_type: 'image', description: 'a test shot' }],
 ];
 
 function insert(row) {
@@ -188,6 +192,14 @@ test('fuzzy: a typo finds names and tags spelled almost the same, and says which
   assert.deepStrictEqual(await has(search('sunsat', { fuzzy: true }), 'beach', 'dusk'), [true, false],
     'names only: the description-only sunset stays out');
   assert.deepStrictEqual(await has(search('vacasion', { fuzzy: true }), 'vacTag', 'vacDesc'), [true, false]);
+});
+
+test('fuzzy: a swapped-letter typo finds the names and tags it was meant for', async () => {
+  const r = await q.query(q.normalizeSpec(search('tets', { fuzzy: true })));
+  assert.strictEqual(r.search.closeTerms[0], 'test', JSON.stringify(r.search.closeTerms));
+  assert.deepStrictEqual(await has(search('tets', { fuzzy: true }), 'testName', 'testTag', 'testDesc'), [true, true, false]);
+  assert.deepStrictEqual(await has(search('tets'), 'testName', 'testTag'), [false, false], 'only with Fuzzy on');
+  assert.deepStrictEqual(await has(search('tets', { fuzzy: true, metadataOnly: true }), 'testName', 'testTag'), [false, true]);
 });
 
 test('fuzzy: words with digits and short words are never expanded', async () => {

@@ -1,7 +1,7 @@
 /**
- * Fuzzy vocabulary (lib/name-fuzzy.js): pg_trgm similarity, which words are
- * expanded, which columns feed the vocabulary, and that reading it in small
- * slices gives the same answers as one big read.
+ * Fuzzy vocabulary (lib/name-fuzzy.js): edit distance, which words are
+ * expanded and to what, which columns feed the vocabulary, and that reading
+ * it in small slices gives the same answers as one big read.
  */
 
 const test = require('node:test');
@@ -25,18 +25,27 @@ test.before(() => {
   ins.run('/a/Sunset_Beach.mp4', 'Sunset_Beach.mp4', '["vacation", "Café"]', '["golden"]', 'sunsets everywhere');
   ins.run('/b/sunset2.mp4', 'sunset2.mp4', '[]', '["sunrise"]', 'nothing');
   ins.run('/folderword/x.mp4', 'x.mp4', '[]', '[]', 'descriptiononly vacatoin');
+  // A realistic vocabulary for the typo table, one file per entry: test and
+  // beach name more files than their neighbours.
+  const words = ['test', 'test', 'test', 'tests', 'testing', 'sets', 'pets', 'jets', 'teta', 'beach', 'beach',
+    'bench', 'beaches', 'birthday', 'birthdays', 'sunstone', 'sunsets', 'kitten', 'kittens', 'mitten',
+    'holiday', 'holidays', 'harbor', 'harbour'];
+  words.forEach((w, i) => ins.run(`/v/${w} ${i}.jpg`, `${w} ${i}.jpg`, '[]', '[]', ''));
 });
 test.after(() => {
   db.close();
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
 });
 
-test('similarity is pg_trgm\'s (padded trigrams, Jaccard)', () => {
-  assert.strictEqual(fuzzy.similarity('word', 'word'), 1);
-  assert.deepStrictEqual([...fuzzy.trigrams('cat')].sort(), ['  c', ' ca', 'at ', 'cat']);
-  // pg_trgm: similarity('vacation', 'vacasion') = 0.5
-  assert.strictEqual(fuzzy.similarity('vacation', 'vacasion'), 0.5);
-  assert.ok(fuzzy.similarity('vacation', 'vacatoin') < 0.4, 'a swap costs more than one change');
+test('distance is Damerau-Levenshtein (optimal string alignment)', () => {
+  assert.strictEqual(fuzzy.distance('test', 'test'), 0);
+  assert.strictEqual(fuzzy.distance('tets', 'test'), 1, 'a swap of two adjacent letters costs 1');
+  assert.strictEqual(fuzzy.distance('sunst', 'sunset'), 1);
+  assert.strictEqual(fuzzy.distance('vacasion', 'vacation'), 1);
+  assert.strictEqual(fuzzy.distance('kiten', 'mitten'), 2);
+  assert.strictEqual(fuzzy.distance('ca', 'abc'), 3, 'optimal string alignment: no edit after a swap');
+  assert.strictEqual(fuzzy.maxDistance('harbr'), 1);
+  assert.strictEqual(fuzzy.maxDistance('holidya'), 2);
 });
 
 test('only words of 4+ characters without digits are expanded', () => {
@@ -46,12 +55,42 @@ test('only words of 4+ characters without digits are expanded', () => {
   assert.strictEqual(fuzzy.isFuzzable('2019'), false);
 });
 
+test('typos find the words they were meant to be', async () => {
+  fuzzy.reset();
+  await fuzzy.ensure(db.get());
+  const d = db.get();
+  const close = (w) => fuzzy.closeTerms(d, w);
+  const table = {
+    tets: ['test', 'tests', 'teta'],   // the swap first; sets, pets, jets start with another letter
+    beahc: ['beach'],
+    bech: ['beach', 'bench'],          // one letter missing either way; beach names more files
+    brithday: ['birthday', 'birthdays'],
+    birthdya: ['birthday', 'birthdays'],
+    kiten: ['kitten'],                 // mitten is two changes away and starts with another letter
+    sunst: ['sunset'],
+    holidya: ['holiday', 'holidays'],
+    harbr: ['harbor'],                 // harbour is two letters away: too far for a 5-letter word
+  };
+  for (const [typo, want] of Object.entries(table)) assert.deepStrictEqual(close(typo), want, typo);
+  // Up to 5 letters the first letter must match; from 6 on another one may
+  // (ranked after the same one at equal distance).
+  assert.deepStrictEqual(close('gest'), [], 'test, one change away, starts with another letter');
+  assert.deepStrictEqual(close('mittens'), ['mitten', 'kittens', 'kitten']);
+  // Real words are not typos (the query skips them); short words and words
+  // with digits never expand.
+  assert.ok(fuzzy.isTerm(d, 'test') && fuzzy.isTerm(d, 'Beach'));
+  assert.ok(!fuzzy.isTerm(d, 'tets'));
+  assert.deepStrictEqual(close('tet'), []);
+  assert.deepStrictEqual(close('tets2'), []);
+});
+
 test('the vocabulary is file names, tags and themes; not paths or descriptions', async () => {
   fuzzy.reset();
   await fuzzy.ensure(db.get());
   const d = db.get();
   assert.ok(fuzzy.closeTerms(d, 'sunsat').includes('sunset'));
   assert.ok(fuzzy.closeTerms(d, 'vacasion').includes('vacation'));
+  assert.ok(fuzzy.closeTerms(d, 'vacatoin').includes('vacation'), 'a swap is one change');
   assert.ok(fuzzy.closeTerms(d, 'cafe').length === 0, 'the word itself is excluded (café folds to cafe)');
   assert.deepStrictEqual(fuzzy.closeTerms(d, 'foldrword'), [], 'folder names are not in the vocabulary');
   assert.deepStrictEqual(fuzzy.closeTerms(d, 'descriptionnly'), [], 'descriptions are not either');
@@ -64,7 +103,7 @@ test('reading the vocabulary in tiny slices gives the same result', async () => 
   fuzzy.reset();
   await fuzzy.ensure(db.get());
   const big = fuzzy.stats();
-  const words = ['sunsat', 'vacasion', 'goldan', 'sunrize', 'beech'];
+  const words = ['sunsat', 'vacasion', 'goldan', 'sunrize', 'beech', 'tets', 'holidya'];
   const before = words.map(w => fuzzy.closeTerms(db.get(), w));
   fuzzy.reset();
   fuzzy._tuning.vocabChunk = 2;
