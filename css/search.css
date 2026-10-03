@@ -56,6 +56,15 @@
   color: var(--text-muted);
 }
 
+/* Locked while the search index is built (once per library): the placeholder
+   is the progress message, so it reads in the brighter secondary tone. */
+.search-input:disabled {
+  cursor: not-allowed;
+}
+.search-input:disabled::placeholder {
+  color: var(--text-secondary);
+}
+
 .search-icon {
   position: absolute;
   left: 0.75rem;

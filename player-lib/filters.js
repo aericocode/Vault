@@ -631,6 +631,9 @@ function applyFilters(opts) {
   // Event, not an options object) still resets to page 1 as before.
   const keepPage = !!(opts && opts.keepPage === true);
   const seq = ++_applySeq;
+  // Search bar locked for the first-launch index build: text set meanwhile
+  // (a saved search clicked) waits in the hold instead of searching.
+  if (_searchLock) _holdLockedSearchText(document.getElementById('searchInput'));
   const spec = currentQuerySpec();
 
   if (spec.search.text) {
@@ -728,11 +731,65 @@ function afterResults(keepPage) {
   if (typeof updateRescanFilteredButton === 'function') updateRescanFilteredButton();
 }
 
+/* ── First-launch index build: the search bar says so and waits ──────────
+   The server builds the search index once per library. Until it is done a
+   search cannot run, so the bar is locked and carries the progress as its
+   placeholder instead of taking typing that would go nowhere. A search that
+   was already there (restored from last time, or a saved search clicked
+   meanwhile) is held, kept in the saved session, and runs as soon as the
+   index is ready. */
+
+let _searchLock = null;   // { text, placeholder } while the bar is locked
+
+function _searchLockPlaceholder() {
+  const idx = Library.index;
+  const pct = idx.state === 'building' && idx.progress != null
+    ? ` (${Math.max(0, Math.min(99, Math.round(idx.progress * 100)))}%)` : '';
+  return `Setting up search, one time only${pct}. Filters and sorting work now.`;
+}
+
+/** Move any text in the locked bar into the hold (it would only return an empty page). */
+function _holdLockedSearchText(input) {
+  if (!_searchLock || !input || !input.value) return;
+  _searchLock.text = input.value;
+  input.value = '';
+  if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
+  if (typeof updateSearchStarButton === 'function') updateSearchStarButton();
+}
+
+function syncSearchLock() {
+  const input = document.getElementById('searchInput');
+  if (!input) return;
+  const st = Library.index.state;
+  if (st === 'building' || st === 'preparing') {
+    if (!_searchLock) {
+      _searchLock = { text: '', placeholder: input.placeholder };
+      input.disabled = true;
+      const had = !!input.value;
+      _holdLockedSearchText(input);
+      // Show the library without the held search until the index is ready.
+      if (had) applyFilters({ keepPage: true });
+    }
+    input.placeholder = _searchLockPlaceholder();
+  } else if (_searchLock) {
+    const { text, placeholder } = _searchLock;
+    _searchLock = null;
+    input.disabled = false;
+    input.placeholder = placeholder;
+    if (text && !input.value) {
+      input.value = text;
+      if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
+      if (typeof updateSearchStarButton === 'function') updateSearchStarButton();
+      applyFilters();
+    }
+  }
+}
+
 /* ── The line under the search box ───────────────────────────────────────
-   One line, three jobs, most important first: a search the server refused
-   (its own plain sentence), the first-launch index build, and the close
-   names and tags a fuzzy search also matched. Hidden when there is nothing
-   to say. */
+   One line, two jobs, most important first: a search the server refused
+   (its own plain sentence), and the close names and tags a fuzzy search
+   also matched. Hidden when there is nothing to say. (The first-launch
+   index build is shown in the search bar itself: syncSearchLock above.) */
 
 function renderSearchNote() {
   const el = document.getElementById('searchNote');
@@ -744,10 +801,6 @@ function renderSearchNote() {
   if (_searchError) {
     cls = 'err';
     html = escapeHtml(_searchError);
-  } else if (idx.state === 'building') {
-    cls = 'info';
-    const pct = Math.max(0, Math.min(99, Math.round((idx.progress || 0) * 100)));
-    html = escapeHtml(`Search is getting ready (${pct}%). Filters and sorting already work.`);
   } else if (terms.length) {
     html = '<span>Close names and tags:</span>' +
       terms.map(t => `<span class="search-note-tag">${escapeHtml(t)}</span>`).join('');
@@ -757,8 +810,12 @@ function renderSearchNote() {
   el.style.display = html ? '' : 'none';
 }
 
-window.addEventListener('vault:index-progress', renderSearchNote);
+window.addEventListener('vault:index-progress', () => {
+  syncSearchLock();
+  renderSearchNote();
+});
 window.addEventListener('vault:index-state', () => {
+  syncSearchLock();
   renderSearchNote();
   if (typeof renderFilterChipRow === 'function') renderFilterChipRow();
 });
@@ -774,7 +831,10 @@ const LS_SEARCH_STATE = 'viewer_last_search_state';
 function persistSearchState() {
   if (typeof captureCurrentFilterState !== 'function') return;
   try {
-    localStorage.setItem(LS_SEARCH_STATE, JSON.stringify(captureCurrentFilterState()));
+    const state = captureCurrentFilterState();
+    // Closing during the index build must not forget the held search
+    if (_searchLock && _searchLock.text && !state.searchText) state.searchText = _searchLock.text;
+    localStorage.setItem(LS_SEARCH_STATE, JSON.stringify(state));
   } catch {}
 }
 
