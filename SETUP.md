@@ -330,3 +330,128 @@ Everything in §2–§5 applies unchanged: the source checkout and the exe read
 the same environment variables and talk to the same AI backends. The only
 difference is where app data lands: next to the repo instead of next to
 `Vault.exe`.
+
+---
+
+## 7. Keyboard shortcuts
+
+Most keys do nothing while you are typing in a box (search, notes, a name), so
+typing never sets anything off by accident. A few still work there on purpose:
+Esc, Alt+Left and Alt+Right in the player, and Ctrl+Shift+H. Letter keys work
+in upper or lower case.
+
+The number keys work on the top row and on the number pad (with Num Lock on).
+Holding Ctrl or Alt leaves them to the browser, so Ctrl+0 still resets the
+page zoom (on an image it also resets the image).
+
+### Video and audio
+
+| Key | What it does |
+|---|---|
+| <kbd>Space</kbd> | Play or pause |
+| <kbd>←</kbd> or <kbd>→</kbd> | Back or forward 5 seconds |
+| <kbd>J</kbd> or <kbd>L</kbd> | Back or forward 10 seconds |
+| <kbd>0</kbd> to <kbd>9</kbd> | Jump to a point in the file: 0 is the start, 1 is 10%, 5 is halfway, 9 is 90% |
+| <kbd>↑</kbd> or <kbd>↓</kbd> | Volume up or down |
+| <kbd>M</kbd> | Mute or unmute |
+| <kbd>[</kbd> | Set the loop start (A) |
+| <kbd>]</kbd> | Set the loop end (B) and start looping |
+| <kbd>&#92;</kbd> | Clear the A-B loop |
+| <kbd>,</kbd> or <kbd>&lt;</kbd> | Slower |
+| <kbd>.</kbd> or <kbd>&gt;</kbd> | Faster |
+| <kbd>Q</kbd> | Shrink to the mini player |
+
+### Images and GIFs
+
+| Key | What it does |
+|---|---|
+| <kbd>↑</kbd> or <kbd>+</kbd> | Zoom in |
+| <kbd>↓</kbd> or <kbd>-</kbd> | Zoom out |
+| <kbd>R</kbd> | Rotate right |
+| <kbd>0</kbd> | Reset zoom and rotation |
+
+### Documents
+
+| Key | What it does |
+|---|---|
+| <kbd>+</kbd> or <kbd>-</kbd> | Bigger or smaller text |
+
+### Any file in the player
+
+| Key | What it does |
+|---|---|
+| <kbd>F</kbd> | Fullscreen on or off |
+| <kbd>I</kbd> | Show or hide the info sidebar |
+| <kbd>N</kbd> or <kbd>Alt+→</kbd> | Next file |
+| <kbd>P</kbd> or <kbd>Alt+←</kbd> | Previous file |
+| <kbd>R</kbd> | Random file (on images and GIFs, R rotates instead) |
+| <kbd>Esc</kbd> | Step back one layer: leave fullscreen, then close the sidebar, then close the player |
+
+### Mixes in the player
+
+A mix plays with the video controls, but only some video keys reach it so far. Use the on-screen buttons for play, skip, volume, loop and speed.
+
+| Key | What it does |
+|---|---|
+| <kbd>0</kbd> to <kbd>9</kbd> | Jump to 0%, 10% … 90% of the mix |
+| <kbd>F</kbd>, <kbd>I</kbd>, <kbd>N</kbd>, <kbd>P</kbd>, <kbd>R</kbd>, <kbd>Esc</kbd> | Same as for any file in the player |
+
+### Mini player
+
+| Key | What it does |
+|---|---|
+| <kbd>Space</kbd> | Play or pause |
+| <kbd>0</kbd> to <kbd>9</kbd> | Jump to 0%, 10% … 90% of the file |
+| <kbd>N</kbd> or <kbd>P</kbd> | Next or previous file |
+| <kbd>R</kbd> | Random file |
+| <kbd>Q</kbd> | Back to the full player |
+| <kbd>Esc</kbd> | Close the mini player |
+
+### Library
+
+| Key | What it does |
+|---|---|
+| <kbd>Page Down</kbd> or <kbd>Page Up</kbd> | Next or previous page (Pages layout) |
+| <kbd>Home</kbd> or <kbd>End</kbd> | First or last page (Pages layout) |
+| <kbd>Esc</kbd> | Close the open filter list, then the filter panel, then the file details window |
+| <kbd>Ctrl+Shift+H</kbd> | Privacy mode on or off (works everywhere) |
+
+### Filters
+
+| Key | What it does |
+|---|---|
+| <kbd>Enter</kbd> or <kbd>Space</kbd> | Open the focused filter chip |
+| <kbd>↑</kbd> or <kbd>↓</kbd> | Move through a filter list |
+| <kbd>Home</kbd> or <kbd>End</kbd> | First or last entry in a filter list |
+| <kbd>Enter</kbd> | Choose the highlighted entry |
+| <kbd>Esc</kbd> | Close the filter list |
+
+### Mix editor
+
+| Key | What it does |
+|---|---|
+| <kbd>Space</kbd> | Play or pause the mix |
+| <kbd>←</kbd> or <kbd>→</kbd> | Back or forward 5 seconds |
+| <kbd>Shift+←</kbd> or <kbd>Shift+→</kbd> | Back or forward 10 seconds |
+| <kbd>M</kbd> | Show or hide the mixer |
+| <kbd>[</kbd> or <kbd>]</kbd> | Loop: first press sets the start, second sets the end, third clears it |
+| <kbd>&#92;</kbd> | Clear the loop |
+
+### Notes and editing
+
+| Key | What it does |
+|---|---|
+| <kbd>Enter</kbd> | Add the note you typed |
+| <kbd>Shift+Enter</kbd> | New line in a note |
+| <kbd>Esc</kbd> | Cancel editing a note |
+| <kbd>Enter</kbd> | Save an edited field, name or collection |
+| <kbd>Ctrl+Enter</kbd> | Save a multi-line field |
+| <kbd>Esc</kbd> | Cancel editing a field, name or collection |
+
+### Everywhere else
+
+| Key | What it does |
+|---|---|
+| <kbd>Esc</kbd> | Close Settings, the speed menu, the subtitle editor, the import window, the Obsession Score stats and password dialogs |
+| <kbd>Esc</kbd> | Stop Vibe sync right away while it is running |
+| <kbd>Space</kbd> | Frame Fit game: hold and drag to move around the board |

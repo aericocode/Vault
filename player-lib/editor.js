@@ -931,11 +931,11 @@ function buildMixUi(ctx) {
                 <span id="mixTotalTime">0:00</span>
               </span>
               <div class="playback-controls">
-                <button id="mixBack10" class="control-btn" title="-10s (J)"><span>⏪</span><span class="seek-label">10</span></button>
+                <button id="mixBack10" class="control-btn" title="-10s (Shift+←)"><span>⏪</span><span class="seek-label">10</span></button>
                 <button id="mixBack5" class="control-btn" title="-5s (←)"><span>◀</span><span class="seek-label">5</span></button>
                 <button id="mixPlayPause" class="play-pause-btn" title="Play/Pause (Space)">▶</button>
                 <button id="mixFwd5" class="control-btn" title="+5s (→)"><span class="seek-label">5</span><span>▶</span></button>
-                <button id="mixFwd10" class="control-btn" title="+10s (L)"><span class="seek-label">10</span><span>⏩</span></button>
+                <button id="mixFwd10" class="control-btn" title="+10s (Shift+→)"><span class="seek-label">10</span><span>⏩</span></button>
               </div>
             </div>
             <div class="video-extras-row">

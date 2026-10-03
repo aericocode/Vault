@@ -443,6 +443,11 @@ document.addEventListener('keydown', (e) => {
       playRandomMedia();
       return;
     }
+    // Number keys seek to 0%..90%, as in the full player
+    if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      seekToPercentKey(e.key);
+      return;
+    }
     return;
   }
 
