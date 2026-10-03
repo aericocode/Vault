@@ -169,6 +169,8 @@ function _fpopRenderList(host, items, query, selectedValue) {
  *   searchable     force the "type to filter" box on/off (default: by length)
  *   sort           { mode, onChange(mode) } — adds the A to Z / Count toggle
  *   onPick(value)  called when a row is chosen; the popover closes first
+ *   remoteSearch(q) optional: resolves [{ value, label, count }] for what is
+ *                  typed, for a list too long to carry whole (themes)
  *   body           extra HTML appended under the list (the duration picker)
  *   wireBody(el)   called with the popover element once it is in the DOM
  */
@@ -248,9 +250,27 @@ function openFilterPopover(anchor, opts) {
   }
 
   if (search && list) {
+    let remoteTimer = null;
+    let remoteSeq = 0;
     search.addEventListener('input', () => {
       shown = _fpopRenderList(list, items, search.value, opts.selected);
       setActive(0);                                   // first match is the Enter target
+      if (!opts.remoteSearch) return;
+      // The list in hand is only part of it: ask the server for the rest of
+      // what matches, and show that in the same order the toggle says.
+      clearTimeout(remoteTimer);
+      const q = search.value.trim();
+      if (!q) return;
+      const mine = ++remoteSeq;
+      remoteTimer = setTimeout(async () => {
+        let found = null;
+        try { found = await opts.remoteSearch(q); } catch {}
+        if (!found || mine !== remoteSeq || !_fpop || _fpop.el !== el) return;
+        const ordered = sortMode === 'count' ? found
+          : found.slice().sort(_fpopByName);
+        shown = _fpopRenderList(list, ordered, '', opts.selected);
+        setActive(0);
+      }, 150);
     });
   }
 

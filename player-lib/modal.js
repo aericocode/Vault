@@ -7,6 +7,8 @@
    ========================================================================= */
 
 function showDetails(media) {
+  // The open item's row stays cached and fresh while the panel shows it.
+  if (typeof Library !== 'undefined') Library.pin('detail', [media.id]);
   document.getElementById('modalTitle').textContent = media.filename;
   document.getElementById('modalBody').innerHTML = renderDetailBody(media, { context: 'library' });
   document.getElementById('modalOverlay').classList.add('active');
@@ -22,4 +24,9 @@ function closeModal(event) {
   // the same ids — a hidden leftover copy would shadow the live one.
   if (typeof flushPendingNotes === 'function') flushPendingNotes();
   document.getElementById('modalBody').innerHTML = '';
+  if (typeof Library !== 'undefined') {
+    Library.pin('detail', null);
+    // A library change that waited for the panel runs now.
+    Library.resumeDeferred();
+  }
 }

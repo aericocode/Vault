@@ -4,8 +4,9 @@
 
 function renderImagePlayer(content, controlsContainer, fileUrl, filepath, hasPrev, hasNext) {
   content.innerHTML = `
-    <img id="mediaImage" src="${fileUrl}" onerror="handleMediaError('${filepath.replace(/'/g, "\\'")}')">
+    <img id="mediaImage" src="${fileUrl}">
   `;
+  bindMediaError(document.getElementById('mediaImage'), filepath);
   
   // Left controls: Zoom
   const leftControls = `
@@ -38,8 +39,9 @@ function renderImagePlayer(content, controlsContainer, fileUrl, filepath, hasPre
 
 function renderGifPlayer(content, controlsContainer, fileUrl, filepath, hasPrev, hasNext) {
   content.innerHTML = `
-    <img id="mediaGif" src="${fileUrl}" onerror="handleMediaError('${filepath.replace(/'/g, "\\'")}')">
+    <img id="mediaGif" src="${fileUrl}">
   `;
+  bindMediaError(document.getElementById('mediaGif'), filepath);
   
   // Left controls: Zoom
   const leftControls = `

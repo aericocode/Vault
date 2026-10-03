@@ -25,7 +25,7 @@ function stopMixPlayer() {
 
 async function renderMixPlayer(content, controlsContainer, filepath, filename, hasPrev, hasNext) {
   stopMixPlayer();
-  const row = allMedia.find(m => m.filepath === filepath);
+  const row = Library.rowByPath(filepath) || currentMediaState.currentMediaData;
   content.innerHTML = '<div class="unsupported-media"><div class="unsupported-icon">🎛</div><div class="unsupported-text">Loading mix…</div></div>';
   controlsContainer.innerHTML = '';
 
@@ -33,6 +33,9 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
   if (row) {
     try { mix = await fetch(`/api/music/mixes/${row.id}`).then(r => r.json()); } catch {}
   }
+  // The source videos are rarely on screen: fetch their rows first.
+  let rowsFailed = false;
+  if (mix?.media_ids?.length) rowsFailed = (await Library.fetchRows(mix.media_ids)).failed > 0;
   const ids = (mix?.media_ids || []).filter(id => getMediaById(id));
 
   // The user may have navigated away while the config loaded
@@ -42,7 +45,7 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
     content.innerHTML = `
       <div class="unsupported-media">
         <div class="unsupported-icon">🎛</div>
-        <div class="unsupported-text">${!mix || mix.error ? 'Mix config missing' : 'Source videos are no longer in the library'}</div>
+        <div class="unsupported-text">${!mix || mix.error ? 'Mix config missing' : rowsFailed ? 'Could not load the source videos from the server. Try again.' : 'Source videos are no longer in the library'}</div>
         <div class="unsupported-filename">${escapeHtml(filename)}</div>
       </div>`;
     controlsContainer.innerHTML = generateUnifiedControlBar('', '', hasPrev, hasNext);

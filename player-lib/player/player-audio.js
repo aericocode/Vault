@@ -9,10 +9,11 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
       <div class="audio-filename">${escapeHtml(filename)}</div>
       <canvas id="audioCanvas" width="400" height="100"></canvas>
     </div>
-    <audio id="mediaAudio" onerror="handleMediaError('${filepath.replace(/'/g, "\\'")}')">
+    <audio id="mediaAudio">
       Your browser doesn't support audio playback.
     </audio>
   `;
+  bindMediaError(document.getElementById('mediaAudio'), filepath);
   
   const initialVolume = savedVolume > 1 ? 1 : savedVolume;
   

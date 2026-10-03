@@ -65,7 +65,14 @@ app.use((req, res, next) => {
   return res.status(403).json({ error: 'cross-origin request forbidden', code: 'CSRF_ORIGIN' });
 });
 
-app.use(express.json({ limit: '2mb' }));
+// POST /api/library/query carries focus-set and audio-sim id lists, so that one
+// path gets its own 64 MB parser (server/library-routes.js); everything else
+// keeps the 2 MB default.
+const libraryRoutes = require('./library-routes');
+const _jsonDefault = express.json({ limit: '2mb' });
+app.use((req, res, next) => (req.path === '/api/library/query'
+  ? libraryRoutes.queryJsonParser : _jsonDefault)(req, res, next));
+app.use('/api/library', libraryRoutes.bodyErrorHandler);
 
 // ── Vault lock (routes stay reachable while locked; everything below gates) ──
 
@@ -696,15 +703,10 @@ app.get('/', (req, res) => {
 
 // ── Library API ────────────────────────────────────────────────────────────
 
-// Full library dump. The viewer keeps its rich client-side filter/search
-// pipeline (fuse fuzzy, tri-filters, dupes, saved searches) and just sources
-// the rows from here instead of parsing the .db in the browser. The *ForViewer
-// reads leave out the embedding BLOB and audio_transcription: the browser never
-// reads them, and with them the dump outgrew V8's max string length (HTTP 500)
-// at ~35k embedded files.
-app.get('/api/media', (req, res) => {
-  res.json(db.getAllForViewer());
-});
+// The viewer never downloads the whole library: it asks /api/library/* (server/
+// library-routes.js) for one page and the ordered id list, and fetches rows on
+// demand from POST /api/media/rows below. The *ForViewer reads leave out the
+// embedding BLOB and audio_transcription, which the browser never reads.
 
 // Express 5 dropped regex params (:id(\d+)) — validate ids in-handler
 function parseId(value) {
@@ -2369,7 +2371,9 @@ app.post('/api/trash', async (req, res) => {
   const ids = parseIdList(req.body);
   if (ids.length === 0) return res.status(400).json({ error: 'ids required' });
   try {
-    const results = await trash.trashItems(ids);
+    // skipUnchanged (the viewer's queue sends it): an item already in the
+    // trash is reported as skipped, not as an error.
+    const results = await trash.trashItems(ids, { skipUnchanged: req.body?.skipUnchanged === true });
     embeddings.invalidateCache(); // trashed items leave semantic results
     res.json({ results });
   } catch (err) {
@@ -2381,7 +2385,7 @@ app.post('/api/untrash', async (req, res) => {
   const ids = parseIdList(req.body);
   if (ids.length === 0) return res.status(400).json({ error: 'ids required' });
   try {
-    const results = await trash.untrashItems(ids);
+    const results = await trash.untrashItems(ids, { skipUnchanged: req.body?.skipUnchanged === true });
     embeddings.invalidateCache();
     res.json({ results });
   } catch (err) {
@@ -2393,12 +2397,15 @@ app.post('/api/untrash', async (req, res) => {
 // soft trash): mode 'recycle' → OS Recycle Bin, mode 'hard' → gone from disk.
 // Both purge the record for whichever files were removed. Same result shape as
 // /api/trash so the client's queue handles all three ops uniformly.
+// skipTrashed (the viewer's queue always sends it): a row in the trash is
+// refused and reported as skipped, so a file trashed after the viewer's
+// confirm stays in the trash. Without it, trashed rows are deleted as before.
 app.post('/api/delete', async (req, res) => {
   const ids = parseIdList(req.body);
   const mode = req.body?.mode === 'hard' ? 'hard' : 'recycle';
   if (ids.length === 0) return res.status(400).json({ error: 'ids required' });
   try {
-    const results = await trash.deleteItems(ids, mode);
+    const results = await trash.deleteItems(ids, mode, { skipTrashed: req.body?.skipTrashed === true });
     const okIds = results.filter(r => r.ok).map(r => r.id);
     if (ownedDir.guardSweep(config.paths.thumbnailDir, 'delete thumbnail cleanup')) {
       for (const id of okIds) {
@@ -2572,6 +2579,10 @@ app.use('/api', require('./subtitle-routes').buildRouter());
 // ── Playback decision + HLS remux streaming (mounted at the root: it owns
 //    both /api/playback|/api/stream and the /stream/:id/* media URLs) ────────
 app.use(require('./stream-routes').buildRouter());
+
+// ── Library search (server-side query, facets, id lists — see
+//    lib/library-query.js and SERVER_SEARCH_SPEC) ─────────────────────────
+app.use('/api/library', libraryRoutes.buildRouter());
 
 // ── Saved searches ─────────────────────────────────────────────────────────
 
@@ -2963,6 +2974,11 @@ function start(args = process.argv.slice(2)) {
     config.security.autolockMinutes = Math.max(0, Math.min(1440, Math.trunc(savedAutolock)));
   }
   vault.startAutolock();
+  // Library search: plain sort/filter indexes now, before listening (one
+  // time, minutes at 2M files); the search tables then build in the
+  // background, stop on lock and resume on unlock.
+  if (!bootedLocked) libraryRoutes.prepareIndexes();
+  libraryRoutes.startIndexing(vault);
   // Non-blocking: boot must not wait on an LM Studio that is not running. The
   // ticker only spends a request while a scan is actually going.
   aiSlots.boot({ activeProbe: () => importQueue.isActive() || _rescanning.size > 0 });

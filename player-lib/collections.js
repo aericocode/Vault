@@ -14,7 +14,7 @@
    ========================================================================= */
 
 let collectionsList = [];                 // [{id, name, description, parent_id, kind, item_count, child_count, first_ids}]
-let collectionMembers = new Map();        // collection id → ordered media_id array (LOAD-BEARING cache for filters.js)
+let collectionMembers = new Map();        // collection id → ordered media_id array (the picker's all/some/none)
 let activeCollectionId = null;            // an OPEN collection/folder filters the grid
 let currentFolderId = null;               // Collections-tab drill-in context (null = root)
 
@@ -34,7 +34,8 @@ async function loadCollections() {
   try {
     collectionsList = await fetch('/api/collections').then(r => r.json());
     // Prefetch memberships for COLLECTIONS only (folders resolve on open) — the
-    // id sets power filters.js (mediaInAnyCollection / active-collection view).
+    // add-to-collection picker reads them for its all/some/none boxes. The
+    // grid's collection filters run on the server.
     await Promise.all(
       collectionsList.filter(c => c.kind !== 'folder').map(c => fetchCollectionMembers(c.id, true))
     );
@@ -46,12 +47,6 @@ async function loadCollections() {
   if (typeof renderResults === 'function') renderResults();
 }
 
-/** Media ids that passed the current filters (published by applyFilters). */
-let lastMatchedIds = new Set();
-
-function setMatchedMediaIds(list) {
-  lastMatchedIds = new Set(list.map(m => m.id));
-}
 
 async function fetchCollectionMembers(id, force = false) {
   if (!force && collectionMembers.has(id)) return collectionMembers.get(id);
@@ -387,7 +382,7 @@ async function openCollection(id) {
   activeCollectionId = id;
   renderCollectionHeader();
   renderCollectionsTabBar();
-  applyFilters();
+  return applyFilters();
 }
 
 function closeCollection() {
@@ -524,7 +519,7 @@ async function deleteCollectionTwoStep(id, btn) {
 
 async function playCollection(id, shuffle) {
   if (activeCollectionId !== id) await openCollection(id);
-  if (filteredMedia.length === 0) { showToast('Collection is empty'); return; }
+  if (Library.length() === 0) { showToast('Collection is empty'); return; }
   // A collection is a queue, so repeat-one would sit on the first file forever.
   // Step it down to off for this session only, leaving the remembered mode (and
   // repeat-all, which still advances) alone.
@@ -533,52 +528,19 @@ async function playCollection(id, shuffle) {
     setRepeatMode('off', { persist: false });
   }
   if (shuffle) {
-    for (let i = filteredMedia.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [filteredMedia[i], filteredMedia[j]] = [filteredMedia[j], filteredMedia[i]];
-    }
-    renderResults();
+    // The grid shows the shuffled order too, as it always did.
+    if (await Library.shuffle()) renderResults();
   }
-  const first = filteredMedia[0];
+  const [first] = await Library.rowsForRange(0, 1);
+  if (!first) return;
   playMedia({ filepath: first.filepath, filename: first.filename, media_type: first.media_type });
-}
-
-/* ── Filter-layer hooks (called from filters.js) ───────────────────────── */
-
-/** Is this media id in ANY collection? (📁 tri-filter on the Library tab.)
- *  Folders are aggregates of collections, so they're skipped — a media item's
- *  membership is fully captured by the leaf collections' caches. */
-function mediaInAnyCollection(id) {
-  for (const c of collectionsList) {
-    if (c.kind === 'folder') continue;
-    const ids = collectionMembers.get(c.id);
-    if (ids && ids.includes(id)) return true;
-  }
-  return false;
-}
-
-/** Membership test for applyFilters (works for an open collection OR folder —
- *  a folder's cache holds its aggregate union, set on open). */
-function inActiveCollection(m) {
-  if (activeCollectionId == null) return true;
-  const ids = collectionMembers.get(activeCollectionId);
-  return ids ? ids.includes(m.id) : true;
-}
-
-/** Playlist-order comparator hook for sortFilteredMedia. */
-function applyCollectionOrder(list) {
-  if (activeCollectionId == null) return false;
-  const ids = collectionMembers.get(activeCollectionId);
-  if (!ids) return false;
-  const pos = new Map(ids.map((id, i) => [id, i]));
-  list.sort((a, b) => (pos.get(a.id) ?? 1e9) - (pos.get(b.id) ?? 1e9));
-  return true;
 }
 
 /* ── Add-to-collection PICKER (shared: single item + multi-select) ─────── */
 
 let _pickerIds = [];
 let _pickerFilter = '';
+const COLL_ID_CHUNK = 50000;   // ids per request: well under the 2 MB JSON limit
 const PICKER_EXPANDED_KEY = 'collPickerExpanded';
 
 function _pickerExpanded() {
@@ -626,8 +588,9 @@ function closeCollectionPicker() {
 
 /** all | some | none for the selected ids against a collection's cache. */
 function _collectionState(c) {
-  const members = collectionMembers.get(c.id) || [];
-  const inCount = _pickerIds.filter(id => members.includes(id)).length;
+  const members = new Set(collectionMembers.get(c.id) || []);
+  let inCount = 0;
+  for (const id of _pickerIds) if (members.has(id)) inCount++;
   return inCount === 0 ? 'none' : (inCount === _pickerIds.length ? 'all' : 'some');
 }
 
@@ -746,19 +709,26 @@ function _patchAncestorCounts(collId) {
 
 /** POST membership for _pickerIds; correct any drifted row display. */
 async function refreshPickerMembership() {
-  let rows;
+  // Select all can hand the picker a whole library: send the ids in chunks
+  // the server's 2 MB body limit takes, and add the counts up.
+  const counts = new Map();
   try {
-    rows = await fetch('/api/collections/membership', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids: _pickerIds }),
-    }).then(r => r.json());
+    for (let i = 0; i < _pickerIds.length; i += COLL_ID_CHUNK) {
+      const rows = await fetch('/api/collections/membership', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: _pickerIds.slice(i, i + COLL_ID_CHUNK) }),
+      }).then(r => r.json());
+      if (!Array.isArray(rows)) return;
+      for (const r of rows) counts.set(r.id, (counts.get(r.id) || 0) + r.member_count);
+    }
   } catch { return; }
-  if (!document.getElementById('collectionPicker') || !Array.isArray(rows)) return;
-  const counts = new Map(rows.map(r => [r.id, r.member_count]));
+  if (!document.getElementById('collectionPicker')) return;
   for (const c of collectionsList) {
     if (c.kind === 'folder') continue;
     const serverIn = counts.get(c.id) || 0;
-    const cacheIn = _pickerIds.filter(id => (collectionMembers.get(c.id) || []).includes(id)).length;
+    const members = new Set(collectionMembers.get(c.id) || []);
+    let cacheIn = 0;
+    for (const id of _pickerIds) if (members.has(id)) cacheIn++;
     if (serverIn !== cacheIn) {
       // Cache drifted — trust the server for the picker's tri-state. Re-fetch
       // the true id list so the cache (and filters) heal too.
@@ -796,9 +766,11 @@ async function togglePickerCollection(id) {
   const prevFirst = c.first_ids;
 
   // Optimistic cache + card state update
+  const prevSet = new Set(prevMembers);
+  const pickSet = new Set(_pickerIds);
   const next = adding
-    ? prevMembers.concat(_pickerIds.filter(x => !prevMembers.includes(x)))
-    : prevMembers.filter(x => !_pickerIds.includes(x));
+    ? prevMembers.concat(_pickerIds.filter(x => !prevSet.has(x)))
+    : prevMembers.filter(x => !pickSet.has(x));
   collectionMembers.set(id, next);
   c.item_count = next.length;
   c.first_ids = next.slice(0, 4);
@@ -807,13 +779,19 @@ async function togglePickerCollection(id) {
   _applyToggleSideEffects(id);
 
   try {
-    const resp = await fetch(`/api/collections/${id}/items`, {
-      method: adding ? 'POST' : 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids: _pickerIds }),
-    });
-    if (!resp.ok) throw new Error('request failed');
-    const data = await resp.json();
+    // Chunked like the membership check (2 MB body limit); adding and
+    // removing are both safe to split: each chunk is its own idempotent set
+    // change, and the last answer carries the final count and mosaic.
+    let data = null;
+    for (let i = 0; i < _pickerIds.length; i += COLL_ID_CHUNK) {
+      const resp = await fetch(`/api/collections/${id}/items`, {
+        method: adding ? 'POST' : 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: _pickerIds.slice(i, i + COLL_ID_CHUNK) }),
+      });
+      if (!resp.ok) throw new Error('request failed');
+      data = await resp.json();
+    }
     // True-up authoritative count + mosaic from the response (no follow-up GET).
     c.item_count = data.item_count;
     if (Array.isArray(data.first_ids)) c.first_ids = data.first_ids;
@@ -828,6 +806,10 @@ async function togglePickerCollection(id) {
     _patchAncestorCounts(id);
     _applyToggleSideEffects(id);
     showToast('⚠ Collection update failed');
+    // A chunked change can fail part-way: read back what the server kept.
+    if (_pickerIds.length > COLL_ID_CHUNK) {
+      fetchCollectionMembers(id, true).then(() => { _patchPickerRow(id); _patchAncestorCounts(id); }).catch(() => {});
+    }
   }
 }
 

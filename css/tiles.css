@@ -556,6 +556,21 @@
 .dq-row.dq-failed .dq-ico { color: var(--danger); }
 .dq-row.dq-failed .dq-name { color: var(--danger); }
 .dq-row.dq-active .dq-name { color: var(--text-primary); }
+/* Left alone by the server (already where the op would put it). */
+.dq-row.dq-skipped .dq-ico,
+.dq-row.dq-skipped .dq-name { color: var(--text-muted); }
+/* Paused: the server stopped answering; the user chooses what happens next. */
+.dq-paused {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem;
+  font-size: 0.75rem; color: var(--warning);
+  margin-bottom: 0.45rem;
+}
+.dq-paused span { flex: 1 1 100%; }
+.dq-act {
+  background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text-primary); font-size: 0.75rem; padding: 0.2rem 0.6rem; cursor: pointer;
+}
+.dq-act:hover { border-color: var(--accent); }
 .dq-cancel {
   flex: none;
   background: none; border: none; cursor: pointer;
@@ -927,4 +942,21 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.66rem;
   color: var(--text-muted);
+}
+
+/* ── A tile whose row has not arrived yet ─────────────────────────────────
+   Same box as a real tile, so the grid never shifts when the rows land
+   (cards.js tilesHtml). The thumbnail area shimmers; the name and meta
+   strips keep their height and say nothing. */
+.media-tile.tile-skel .tile-thumb {
+  cursor: default;
+  background: linear-gradient(90deg, var(--bg-tertiary) 0%, var(--bg-hover) 50%, var(--bg-tertiary) 100%);
+  background-size: 200% 100%;
+  animation: tile-skel-shimmer 1.2s linear infinite;
+}
+
+@keyframes tile-skel-shimmer { to { background-position: -200% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .media-tile.tile-skel .tile-thumb { animation: none; }
 }

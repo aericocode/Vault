@@ -487,6 +487,9 @@ async function renderEditorOpenSong(songId) {
     ]);
   } catch {}
   if (!song || song.error) { editorCloseSong(); return; }
+  // The linked files are rarely on screen in the library: fetch their rows.
+  try { await Library.fetchRows(links.map(l => l.media_id), { strict: true }); }
+  catch (err) { box.innerHTML = `<span class="music-hint">⚠ ${escapeHtml(err.message)}</span>`; return; }
 
   const videos = links.filter(l => l.media_type === 'video' && getMediaById(l.media_id));
   const audioRefs = links.filter(l => l.media_type !== 'video').length;
@@ -671,6 +674,7 @@ async function editorLoadPreset(id) {
   let ids = [], cfg = {};
   try { ids = JSON.parse(p.media_ids); } catch {}
   try { cfg = JSON.parse(p.config_json); } catch {}
+  try { await Library.fetchRows(ids, { strict: true }); } catch (err) { showToast('⚠ ' + err.message); return; }
   ids = ids.filter(mid => getMediaById(mid));
   if (ids.length < 2) { showToast('⚠ This mix\'s files are no longer in the library'); return; }
   await editorOpenMix(ids, cfg.l === 'grid' ? 'grid' : 'stack', p.song_id || null, { presetCfg: cfg, presetId: p.id, presetName: p.name });
@@ -744,6 +748,7 @@ async function editorDeleteExport(id, btn) {
    ========================================================================= */
 
 async function editorOpenMix(mediaIds, layout = 'stack', songId = null, opts = {}) {
+  try { await Library.fetchRows(mediaIds || [], { strict: true }); } catch (err) { showToast('⚠ ' + err.message); return; }
   mediaIds = (mediaIds || []).filter(id => getMediaById(id));
   // No hard track cap — concurrent decode is bounded by drive speed, and
   // buildMixUi warns above 4. (Stack rendering itself has no real limit.)
@@ -804,6 +809,7 @@ async function editorPlayLibraryMix(mediaId) {
   try { mix = await fetch(`/api/music/mixes/${mediaId}`).then(r => r.json()); } catch {}
   if (!mix || mix.error) { showToast('⚠ Mix config missing. Was it saved with an older version?'); return; }
 
+  try { await Library.fetchRows(mix.media_ids || [], { strict: true }); } catch (err) { showToast('⚠ ' + err.message); return; }
   const ids = (mix.media_ids || []).filter(id => getMediaById(id));
   if (ids.length < 2) { showToast('⚠ This mix\'s source videos are no longer in the library'); return; }
   if (ids.length < (mix.media_ids || []).length) {

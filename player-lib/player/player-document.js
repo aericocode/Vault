@@ -59,8 +59,9 @@ function renderDocumentPlayer(content, controlsContainer, fileUrl, filepath, fil
   
   if (ext === 'pdf') {
     content.innerHTML = `
-      <iframe id="mediaDocument" class="document-viewer pdf-viewer" src="${fileUrl}" onerror="handleMediaError('${filepath.replace(/'/g, "\\'")}')"></iframe>
+      <iframe id="mediaDocument" class="document-viewer pdf-viewer" src="${fileUrl}"></iframe>
     `;
+    bindMediaError(document.getElementById('mediaDocument'), filepath);
   } else {
     content.innerHTML = `
       <div class="document-viewer text-viewer" id="mediaDocument">

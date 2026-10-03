@@ -349,7 +349,7 @@
     if (!media || !['video', 'audio'].includes(media.media_type)) return;
     const el = document.querySelector('#mediaPlayerContent video, #mediaPlayerContent audio')
             || document.querySelector('#miniPlayerMedia video, #miniPlayerMedia audio');
-    const item = allMedia.find(m => m.filepath === media.filepath) || media;
+    const item = Library.rowByPath(media.filepath) || media;
     if (el && item?.id) LovenseSync.setMedia(el, item);
   }
 

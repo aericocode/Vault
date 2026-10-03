@@ -1,55 +1,59 @@
 /* ==========================================
    Library loading — from the viewer server API
 
-   Replaces the old sql.js/WASM path where the .db was parsed in the
-   browser. All reads come from GET /api/media; writes go through the
+   The browser never downloads the library. On load it asks for the
+   library-wide counts (GET /api/library/facets) and the first page of the
+   current search (POST /api/library/query, player-lib/library.js) in
+   parallel, and the grid paints from that first page. Writes go through the
    flag/search endpoints (see notes.js / saved-searches.js).
    ========================================== */
 
 /**
- * Load (or reload) the media library from the server.
+ * Load (or reload) the library view from the server.
  */
 async function loadDatabase() {
   try {
-    // Before the first tile renders: vault mode decides whether the browser
-    // may cache a thumbnail at all, and that changes the <img> markup.
-    await initThumbMode();
-    const resp = await fetch('/api/media');
-    if (resp.status === 423) {
+    // A reload (🔄 Refresh) re-reads every row it shows.
+    Library.invalidateRows();
+
+    // The server answers one request at a time, so the three the first page
+    // needs go out before anything else on the page asks for something:
+    //  - vault mode decides whether the browser may cache a thumbnail at all,
+    //    and that changes the <img> markup, so the first render waits for it;
+    //  - a library unlocked for the first time after the update may still be
+    //    building its sort indexes ("preparing"): say so instead of a grid
+    //    that never fills, and paint once it is done;
+    //  - the first page itself.
+    const thumbMode = initThumbMode();
+    const boot = Library.boot(showPreparingScreen);
+    Library.renderGate = Promise.all([thumbMode, boot]);
+
+    // First load only: restore the last session's search/toggles/term so
+    // the app relaunches right where it was left. Either way this runs the
+    // first query.
+    let first = null;
+    if (!window._searchStateRestored) {
+      window._searchStateRestored = true;
+      if (typeof restoreLastSearchState === 'function') first = restoreLastSearchState() || null;
+    }
+    if (!first) first = applyFilters();
+
+    const state = await boot;
+    hidePreparingScreen();
+    if (state === 'locked') {
       // Vault locked — the lock screen (vault-ui.js) owns the UI; keep the
       // library empty rather than surfacing an error toast.
-      allMedia = [];
       const el = document.getElementById('totalCount');
       if (el) el.textContent = '🔒 Vault locked';
       return;
     }
-    if (!resp.ok) {
-      throw new Error(`Server returned ${resp.status}`);
-    }
-    allMedia = await resp.json();
 
-    // Populate filters
-    populateFilters();
-
-    // Invalidate fuse search index (data changed)
-    if (typeof invalidateFuse === 'function') invalidateFuse();
-
-    // Build duplicate detection index
-    if (typeof buildDuplicateIndex === 'function') buildDuplicateIndex();
-
-    // Build extension map + render the type bubbles / extension chips /
-    // duration slider (sized to the library's longest item)
-    buildExtensionMap();
-    renderMediaTypeBar();
-    renderTypeExtensionFilter();
-    if (typeof initDurationSlider === 'function') initDurationSlider();
-
-    // First load only: restore the last session's search/toggles/term so
-    // the app relaunches right where it was left
-    if (!window._searchStateRestored) {
-      window._searchStateRestored = true;
-      if (typeof restoreLastSearchState === 'function') restoreLastSearchState();
-    }
+    // Then the library-wide counts and the saved searches, once the first
+    // page is on screen and its id list has been asked for: the server takes
+    // requests in order, and a cold count of a big library takes seconds.
+    await first;
+    const facets = Library.refreshFacets();
+    const saved = loadSavedSearches().then(() => renderSavedSearches());
 
     // Show WHICH database file this server is serving (catches accidentally
     // launching against a test/other DB — the count alone can't tell you)
@@ -62,39 +66,9 @@ async function loadDatabase() {
       }
     }).catch(() => {});
 
-    // Load and render saved searches
-    await loadSavedSearches();
-    renderSavedSearches();
+    await Promise.all([first, facets, saved]);
 
-    // Count only media files (exclude document)
-    const allowedMediaTypes = ['video', 'audio', 'image', 'gif'];
-    const mediaCount = allMedia.filter(m => allowedMediaTypes.includes(m.media_type)).length;
-    const hiddenCount = allMedia.length - mediaCount;
-
-    // Get hidden media types for tooltip
-    const hiddenTypes = [...new Set(
-      allMedia
-        .filter(m => !allowedMediaTypes.includes(m.media_type))
-        .map(m => m.media_type)
-    )].sort();
-
-    const totalCountElement = document.getElementById('totalCount');
-    if (hiddenCount > 0) {
-      totalCountElement.textContent = `${mediaCount.toLocaleString()} media files loaded (${hiddenCount.toLocaleString()} hidden)`;
-      totalCountElement.title = `Hidden file types: ${hiddenTypes.join(', ')}`;
-    } else {
-      totalCountElement.textContent = `${mediaCount.toLocaleString()} media files loaded`;
-      totalCountElement.title = '';
-    }
-
-    // Initial render
-    applyFilters();
-
-    // Any ⏳ rows (scan running now, or resumed later — even a CLI scan) get
-    // watched so their AI data pops in without a manual 🔄 Refresh
-    watchUnscanned();
-
-    // Signal that the library rows are loaded (settings.js listens once, to
+    // Signal that the library is ready (settings.js listens once, to
     // restore the last session after the data it needs is available).
     window.dispatchEvent(new CustomEvent('vault:library-loaded'));
   } catch (err) {
@@ -107,125 +81,114 @@ async function loadDatabase() {
   }
 }
 
+/* ── After an unlock: the one-time "preparing" step ───────────────────────
+   Only an encrypted library unlocked for the first time after the update
+   gets here (the server builds its sort indexes after the unlock, not before
+   it listens). Each step can hold the server for half a minute at 2M files,
+   so Library.boot() polls with no timeout and the screen just says where it
+   is. */
+
+function showPreparingScreen(index) {
+  const grid = document.getElementById('resultsGrid');
+  if (!grid) return;
+  let box = document.getElementById('preparingScreen');
+  if (!box) {
+    grid.innerHTML = `
+      <div class="preparing-screen" id="preparingScreen" role="status" aria-live="polite">
+        <svg class="preparing-lock" viewBox="0 0 100 100" aria-hidden="true">
+          <path d="M32 48 V38 C32 22 68 22 68 38 V48" fill="none" style="stroke: var(--brand);" stroke-width="8" stroke-linecap="round"/>
+          <rect x="24" y="46" width="52" height="42" rx="8" style="fill: var(--brand);"/>
+          <path d="M44 58 L56 67 L44 76 Z" fill="#1e1f22"/>
+        </svg>
+        <div class="preparing-title">Getting the library ready for faster search.</div>
+        <p class="preparing-hint">This happens once and can take a few minutes on very large libraries.</p>
+        <div class="preparing-bar"><span id="preparingFill"></span></div>
+        <div class="preparing-step" id="preparingStep"></div>
+      </div>`;
+    box = document.getElementById('preparingScreen');
+    const el = document.getElementById('totalCount');
+    if (el) el.textContent = 'Loading…';
+  }
+  const steps = Number(index && index.steps) || 0;
+  const step = Math.min(steps, Number(index && index.step) || 0);
+  const fill = document.getElementById('preparingFill');
+  const label = document.getElementById('preparingStep');
+  if (fill) fill.style.width = steps ? `${Math.round((step / steps) * 100)}%` : '0%';
+  if (label) label.textContent = steps ? `Step ${Math.max(1, step)} of ${steps}` : '';
+}
+
+function hidePreparingScreen() {
+  document.getElementById('preparingScreen')?.remove();
+}
+
 /**
- * Find a media item by id (rows come from the server with ids).
+ * Find a media row by id. Rows live in Library's cache: anything on screen,
+ * playing, or fetched for a picker is there. A miss returns null; callers
+ * that may ask about ids nothing has shown yet await Library.fetchRows first.
  */
 function getMediaById(id) {
-  return allMedia.find(m => m.id === id) || null;
+  return Library.row(id);
 }
 
-/* ── Auto-refresh for AI scan results ──────────────────────────────────────
-   New files appear instantly with ⏳ (processing_error 'unscanned') while a
-   scan — the in-app import queue OR an external CLI run — fills the AI
-   fields in the background. Watch those rows and patch them in place the
-   moment a scan lands (or fails: ⏳ → ⚠), so tile hovers and the open
-   sidebar show the data without hitting 🔄 Refresh. Same poll-and-patch
-   pattern as the importer's duration watcher, sharing POST /api/media/rows.
-   Self-stopping: the interval clears itself once nothing is pending. */
+/* ── Library-wide counts → the header, the dropdowns, the type bubbles ─── */
 
-let _scanWatchTimer = null;
-let _scanWatchBusy = false;
-const SCAN_WATCH_MS = 5000;
+function onFacetsChanged() {
+  populateFilters();
+  buildExtensionMap();
+  renderMediaTypeBar();
+  renderTypeExtensionFilter();
+  if (typeof initDurationSlider === 'function') initDurationSlider();
+  renderLibraryCount();
+}
+window.addEventListener('vault:facets-changed', onFacetsChanged);
 
-/** One poll round: fetch fresh rows for the ⏳ ids, patch the ones whose scan
- *  finished, repaint. Self-clears the interval when nothing is pending. */
-async function _scanWatchTick() {
-  if (_scanWatchBusy) return;                          // a slow round is still in flight
-  const pending = allMedia
-    .filter(m => m.processing_error === 'unscanned')
-    .map(m => m.id);
-  if (!pending.length) {
-    if (_scanWatchTimer) { clearInterval(_scanWatchTimer); _scanWatchTimer = null; }
-    return;
+/** "N media files loaded (M hidden)": the same sentence, from the counts. */
+function renderLibraryCount() {
+  const f = Library.facets;
+  const el = document.getElementById('totalCount');
+  if (!f || !el) return;
+  // Count only media files (exclude document)
+  const allowedMediaTypes = ['video', 'audio', 'image', 'gif'];
+  const mediaCount = allowedMediaTypes.reduce((n, t) => n + ((f.types && f.types[t]) || 0), 0);
+  let all = 0;
+  const hiddenTypes = new Set();
+  for (const g of f.playbackGroups || []) {
+    all += g.count;
+    if (!allowedMediaTypes.includes(g.media_type) && g.count > 0) hiddenTypes.add(g.media_type);
   }
-
-  _scanWatchBusy = true;
-  try {
-    let rows = [];
-    try {
-      // This round fires every 5 s on its own, so it must not count as the
-      // user being here: the server skips the autolock idle reset for
-      // requests carrying this header (see the gate in server/index.js).
-      const resp = await fetch('/api/media/rows', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Vault-Background': '1' },
-        body: JSON.stringify({ ids: pending.slice(0, 2000) }),
-      });
-      if (!resp.ok) return;                            // locked/busy — next round
-      rows = (await resp.json()).rows || [];
-    } catch { return; }
-
-    const done = rows.filter(r => r && r.processing_error !== 'unscanned');
-    if (!done.length) return;
-
-    let sidebarItem = null;
-    for (const row of done) {
-      const local = getMediaById(row.id);
-      if (!local) continue;
-      Object.assign(local, row);                       // grid/popovers read this object
-      if (typeof currentMediaState !== 'undefined' &&
-          currentMediaState?.currentMediaData?.id === row.id) {
-        sidebarItem = local;
-      }
-    }
-
-    // One repaint per batch; fresh themes/languages join the filter dropdowns
-    try {
-      populateFilters();
-      if (typeof invalidateFuse === 'function') invalidateFuse();
-      if (typeof applyFilters === 'function') applyFilters({ keepPage: true });
-      else if (typeof renderResults === 'function') renderResults();
-      if (sidebarItem && typeof sidebarOpen !== 'undefined' && sidebarOpen &&
-          typeof renderSidebar === 'function') {
-        currentMediaState.currentMediaData = sidebarItem;
-        renderSidebar();                               // live update mid-watch
-      }
-    } catch { /* a repaint hiccup never kills the watcher */ }
-  } finally {
-    _scanWatchBusy = false;
+  const hiddenCount = Math.max(0, all - mediaCount);
+  if (hiddenCount > 0) {
+    el.textContent = `${mediaCount.toLocaleString()} media files loaded (${hiddenCount.toLocaleString()} hidden)`;
+    el.title = `Hidden file types: ${[...hiddenTypes].sort().join(', ')}`;
+  } else {
+    el.textContent = `${mediaCount.toLocaleString()} media files loaded`;
+    el.title = '';
   }
 }
-
-function watchUnscanned() {
-  if (_scanWatchTimer) return;   // already watching — pending set is re-read each round
-  if (!allMedia.some(m => m.processing_error === 'unscanned')) return;
-  // Rounds are skipped while the tab is hidden (no point painting a page
-  // nobody sees); the visibilitychange listener below catches up instantly.
-  _scanWatchTimer = setInterval(() => { if (!document.hidden) _scanWatchTick(); }, SCAN_WATCH_MS);
-}
-
-// Returning to the tab after the scan worked in the background → immediate
-// round instead of waiting out the interval.
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && _scanWatchTimer) _scanWatchTick();
-});
 
 // Populate filter dropdowns
 function populateFilters() {
-  const contentTypes = [...new Set(allMedia.map(m => m.content_type).filter(Boolean))].sort();
+  const f = Library.facets;
+  if (!f) return;
+  const keys = (map) => Object.keys(map || {}).filter(Boolean);
+  const contentTypes = keys(f.content).sort();
   // Languages: canonical display names (server-provided language_name), so
   // "en"/"EN"/"English" collapse to one "English" option. English pinned first,
   // "Unknown" pushed last, the rest alphabetical.
-  let languages = [...new Set(allMedia.map(m => m.language_name).filter(Boolean))].sort();
+  let languages = keys(f.language).sort();
   const en = languages.filter(l => l === 'English');
   const rest = languages.filter(l => l !== 'English' && l !== 'Unknown');
   const unk = languages.filter(l => l === 'Unknown');
   languages = [...en, ...rest, ...unk];
-  const qualities = [...new Set(allMedia.map(m => m.quality_flag).filter(Boolean))].sort();
-
-  // Collect all themes from the CLEAN copy (falls back to raw when a row hasn't
-  // been normalized yet — e.g. before the first `clean` backfill)
-  const themes = new Set();
-  allMedia.forEach(m => {
-    try {
-      const t = JSON.parse(m.themes_clean || m.themes || '[]');
-      t.forEach(theme => themes.add(theme));
-    } catch {}
-  });
+  const qualities = keys(f.quality).sort();
 
   populateSelect('filterContent', contentTypes);
   populateSelect('filterLanguage', languages);
   populateSelect('filterQuality', qualities);
-  populateSelect('filterTheme', [...themes].sort());
+  // Themes: the most used 1,000 (a 2M library has hundreds of thousands);
+  // the Theme popover's search box asks the server for the rest. Null while
+  // the search index builds: keep whatever list is there.
+  if (f.theme) populateSelect('filterTheme', keys(f.theme).sort());
 
   // The chip popovers read their lists straight off these selects.
   if (typeof renderFilterChipRow === 'function') renderFilterChipRow();
@@ -241,5 +204,18 @@ function populateSelect(id, options) {
     option.textContent = opt;
     select.appendChild(option);
   });
+  // A value set from a saved search, or picked from the theme search, can be
+  // one this list does not carry: keep it rather than silently dropping it.
+  ensureSelectOption(select, currentValue);
   select.value = currentValue;
+}
+
+/** Give a select an option for this value if it has none, so .value sticks. */
+function ensureSelectOption(select, value) {
+  if (!select || value == null || value === '') return;
+  if ([...select.options].some(o => o.value === value)) return;
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = value;
+  select.appendChild(option);
 }

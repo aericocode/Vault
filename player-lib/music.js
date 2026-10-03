@@ -111,11 +111,21 @@ async function musicEnqueue(ids, { force = false } = {}) {
 
 /** Selection-bar action: queue every selected video/audio file. */
 async function fingerprintSelected() {
-  const ids = [...selectedIds].map(getMediaById)
-    .filter(m => m && ['video', 'audio'].includes(m.media_type))
-    .map(m => m.id);
+  // A small selection is narrowed to video/audio from its rows; a big one
+  // goes whole, in chunks, and the server skips what is not A/V.
+  let ids;
+  try {
+    ids = selectedIds.size <= SMALL_SELECTION
+      ? (await selectedRows()).filter(m => ['video', 'audio'].includes(m.media_type)).map(m => m.id)
+      : [...selectedIds];
+  } catch (err) { bulkLoadFailed(err); return; }
   if (!ids.length) { showToast('Select video or audio files first'); return; }
-  const r = await musicEnqueue(ids);
+  let r = null;
+  for (let i = 0; i < ids.length; i += BULK_ID_CHUNK) {
+    const part = await musicEnqueue(ids.slice(i, i + BULK_ID_CHUNK));
+    if (!part) break;
+    r = r ? { queued: r.queued + part.queued, skipped: r.skipped + part.skipped } : part;
+  }
   if (r) {
     showToast(`🎵 ${r.queued} queued for fingerprinting` +
       (r.skipped ? ` (${r.skipped} skipped, already done or not A/V)` : ''));
@@ -173,14 +183,23 @@ function updateEditorTabBadge(n) {
 
 /* ── Selection bar → Editor ────────────────────────────────────────────── */
 
-function selectedVideoIds() {
-  return [...selectedIds].map(getMediaById)
-    .filter(m => m && m.media_type === 'video')
-    .map(m => m.id);
+async function selectedVideoIds() {
+  if (selectedIds.size <= SMALL_SELECTION) {
+    return (await selectedRows()).filter(m => m.media_type === 'video').map(m => m.id);
+  }
+  // A big selection: the result's own type codes say which are videos.
+  const ids = Library.ids;
+  const out = [];
+  if (!ids) return out;
+  for (let i = 0; i < ids.length; i++) {
+    if (Library.TYPE_NAMES[Library.types[i]] === 'video' && selectedIds.has(ids[i])) out.push(ids[i]);
+  }
+  return out;
 }
 
-function openEditorWithSelection(layout) {
-  const ids = selectedVideoIds();
+async function openEditorWithSelection(layout) {
+  let ids;
+  try { ids = await selectedVideoIds(); } catch (err) { bulkLoadFailed(err); return; }
   // No hard cap — the Editor warns above 4 (concurrent decode is drive-bound)
   if (ids.length < 2) { showToast('Select at least 2 videos'); return; }
   switchTab('editor');

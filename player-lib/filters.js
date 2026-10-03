@@ -197,22 +197,43 @@ let durMinM = 0;
 let durMaxM = null;
 
 /**
- * Build the extension map from allMedia.
+ * Build the extension map from the library-wide counts (Library.facets).
  * Groups extensions under their media_type with counts.
+ *
+ * Whether a file plays depends on this browser's decoders, which the server
+ * cannot know, so the facets carry "playback groups": row counts grouped by
+ * every field mediaPlaybackState() reads. One decision per group, added up
+ * per extension, gives the same stars the per-row pass used to.
  */
 function buildExtensionMap() {
   extensionMap = {};
-  allMedia.forEach(m => {
-    const type = m.media_type;
-    if (!type) return;
-    const ext = getExtension(m.filename);
-    if (!ext) return;
+  const groups = (typeof Library !== 'undefined' && Library.facets && Library.facets.playbackGroups) || [];
+  for (const g of groups) {
+    const type = g.media_type;
+    if (!type) continue;
+    const ext = g.ext;
+    if (!ext) continue;
     if (!extensionMap[type]) extensionMap[type] = {};
     const bucket = extensionMap[type][ext]
       || (extensionMap[type][ext] = { total: 0, play: 0, no: 0, unknown: 0 });
-    bucket.total++;
-    bucket[mediaPlaybackState(m).state]++;
-  });
+    bucket.total += g.count;
+    bucket[mediaPlaybackState(playbackGroupRow(g)).state] += g.count;
+  }
+}
+
+/** A stand-in row carrying exactly the fields mediaPlaybackState() reads. */
+function playbackGroupRow(g) {
+  return {
+    media_type: g.media_type,
+    filename: `x.${g.ext || ''}`,
+    probe_version: g.probed ? 1 : 0,
+    playback_failed: g.playback_failed,
+    video_codec: g.video_codec,
+    audio_codec: g.audio_codec,
+    pix_fmt: g.pix_fmt,
+    codec_profile: g.codec_profile,
+    container: g.container,
+  };
 }
 
 /**
@@ -233,12 +254,7 @@ function renderMediaTypeBar() {
   const bar = document.getElementById('mediaTypeBar');
   if (!bar) return;
 
-  const typeCounts = {};
-  allMedia.forEach(m => {
-    if (['video', 'image', 'gif', 'audio', 'mix'].includes(m.media_type)) {
-      typeCounts[m.media_type] = (typeCounts[m.media_type] || 0) + 1;
-    }
-  });
+  const typeCounts = (typeof Library !== 'undefined' && Library.facets && Library.facets.types) || {};
 
   const labels = { video: '🎬 Video', image: '🖼 Image', gif: '🎞 GIF', audio: '🎵 Audio', mix: '🎛 Mix' };
   const allActive = selectedMediaTypes.length === 0;
@@ -532,43 +548,80 @@ function initDurationSlider() {
   updateDurationUI();
 }
 
-// ── Semantic search (embeddings) ────────────────────────────────────────
-
-// Cache of the last semantic query → Map(id → score)
-let semanticCache = { query: null, scores: null };
-let semanticPending = null;
-let semanticOrdered = false; // when true, skip sortFilteredMedia (relevance order)
-const SEMANTIC_MIN_SCORE = 0.4;
+// ── Running the search (on the server) ──────────────────────────────────
+//
+// Search, filters, sort and counts run on the server against SQLite indexes
+// (SERVER_SEARCH_SPEC 3 and 4). applyFilters() reads the same controls it
+// always did, describes them as a query spec, and lets Library fetch the
+// first page; the grid paints from that and fills in as rows arrive.
 
 function semanticEnabled() {
   return document.getElementById('semanticSearch')?.checked || false;
 }
 
-async function fetchSemantic(query) {
-  if (semanticPending === query) return;
-  semanticPending = query;
-  try {
-    const resp = await fetch('/api/search/semantic?q=' + encodeURIComponent(query));
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      showToast('🧠 ' + (err.error || 'Semantic search unavailable'));
-      return;
-    }
-    const { results } = await resp.json();
-    semanticCache = {
-      query,
-      scores: new Map(results.filter(r => r.score >= SEMANTIC_MIN_SCORE).map(r => [r.id, r.score])),
-    };
-    // Re-render if the user hasn't typed something else meanwhile
-    if (document.getElementById('searchInput').value.trim() === query) {
-      applyFilters();
-    }
-  } catch (err) {
-    console.warn('[Semantic] failed:', err);
-  } finally {
-    if (semanticPending === query) semanticPending = null;
+const QUERY_SORT_FIELDS = ['processed', 'name', 'size', 'duration', 'rating', 'views', 'done'];
+
+/** The 6.1 query spec for what the controls say right now. */
+function currentQuerySpec() {
+  const [field, dir] = String(currentSort || 'processed_desc').split('_');
+  const collectionOpen = typeof activeCollectionId !== 'undefined' && activeCollectionId != null;
+  const spec = {
+    search: {
+      text: document.getElementById('searchInput').value.trim(),
+      metadataOnly: document.getElementById('metadataOnly')?.checked || false,
+      fuzzy: document.getElementById('fuzzySearch')?.checked || false,
+      semantic: semanticEnabled(),
+      subtitles: typeof subtitleSearchOn === 'function' ? subtitleSearchOn() : false,
+    },
+    filters: {
+      mediaTypes: [...selectedMediaTypes],
+      safeOnly: !!safeOnly,
+      extensions: [...selectedExtensions],
+      content: document.getElementById('filterContent').value,
+      language: document.getElementById('filterLanguage').value,
+      quality: document.getElementById('filterQuality').value,
+      theme: document.getElementById('filterTheme').value,
+      minRating: document.getElementById('filterMinRating')?.value || '0',
+      durMin: durMinM || 0,
+      durMax: durMaxM == null ? null : durMaxM,
+      // The 📁 tri-filter only applies with no collection open (as before).
+      collections: collectionOpen ? '' : getTriFilterValue('filterCollections'),
+      song: Number(document.getElementById('filterSong')?.value || 0),
+      starred: getTriFilterValue('filterStarred'),
+      hasNotes: getTriFilterValue('filterHasNotes'),
+      flagged: getTriFilterValue('filterFlagged'),
+      trashed: getTriFilterValue('filterTrashed'),
+      failed: getTriFilterValue('filterFailed'),
+      duplicates: getTriFilterValue('filterDuplicates'),
+      scanStatus: getTriFilterValue('filterScanStatus'),
+    },
+    collectionId: collectionOpen ? activeCollectionId : null,
+    sort: {
+      field: QUERY_SORT_FIELDS.includes(field) ? field : 'processed',
+      dir: dir === 'asc' ? 'asc' : 'desc',
+      favesFirst: typeof favesFirst !== 'undefined' && !!favesFirst,
+    },
+    // An active focus set answers for the whole chain (see setFocusIds).
+    onlyIds: focusIds ? [...focusIds] : null,
+    // ≈ Audio-similarity: files sharing songs with the anchor (plus the
+    // anchor itself), ranked most-similar first; filters still apply.
+    rankedIds: null,
+  };
+  if (typeof audioSimScores !== 'undefined' && audioSimScores) {
+    spec.rankedIds = [{ id: audioSimAnchorId, score: 2 }];
+    for (const [id, score] of audioSimScores) if (id !== audioSimAnchorId) spec.rankedIds.push({ id, score });
   }
+  return spec;
 }
+
+/** True on the Collections tab with no collection open: cards only, no media. */
+function collectionsHomeShowing() {
+  return typeof currentTab !== 'undefined' && currentTab === 'collections' &&
+    (typeof activeCollectionId === 'undefined' || activeCollectionId == null);
+}
+
+let _applySeq = 0;
+let _searchError = null;   // a 400 from the server, said under the search box
 
 function applyFilters(opts) {
   // keepPage: stay on the current page instead of jumping to page 1. Passed
@@ -577,189 +630,95 @@ function applyFilters(opts) {
   // applyFilters being wired directly as an event handler (first arg is an
   // Event, not an options object) still resets to page 1 as before.
   const keepPage = !!(opts && opts.keepPage === true);
-  const search = document.getElementById('searchInput').value.trim();
-  const contentType = document.getElementById('filterContent').value;
-  const language = document.getElementById('filterLanguage').value;
-  const theme = document.getElementById('filterTheme').value;
-  const quality = document.getElementById('filterQuality').value;
-  const songFilter = Number(document.getElementById('filterSong')?.value || 0);
-  const metadataOnly = document.getElementById('metadataOnly')?.checked || false;
-  const minRatingValue = document.getElementById('filterMinRating')?.value || '0';
+  const seq = ++_applySeq;
+  const spec = currentQuerySpec();
 
-  // Tri-state filters ('' = all, '1' = only yes, '0' = only no)
-  const triCollections = getTriFilterValue('filterCollections');
-  const triStarred = getTriFilterValue('filterStarred');
-  const triHasNotes = getTriFilterValue('filterHasNotes');
-  const triDuplicates = getTriFilterValue('filterDuplicates');
-  const triFlagged = getTriFilterValue('filterFlagged');
-  const triTrashed = getTriFilterValue('filterTrashed');   // default '0' = hidden
-  const triFailed = getTriFilterValue('filterFailed');
-  // '' = all, else one of 'success' | 'failed' | 'unscanned'
-  const scanStatus = getTriFilterValue('filterScanStatus');
-
-  // First pass: apply all non-search filters
-  let candidates = allMedia.filter(m => {
-    // An active focus set answers for the whole chain — see setFocusIds.
-    if (focusIds) return focusIds.has(m.id);
-
-    // Only show media files: video, audio, image, gif + custom mixes
-    // (exclude document)
-    const allowedMediaTypes = ['video', 'audio', 'image', 'gif', 'mix'];
-    if (!allowedMediaTypes.includes(m.media_type)) return false;
-
-    // Active collection filters the whole grid to its members
-    if (typeof inActiveCollection === 'function' && !inActiveCollection(m)) return false;
-
-    // 📁 Collections tri-filter: files that belong to any collection
-    // (collection CARDS live on their own tab now)
-    if (triCollections && typeof mediaInAnyCollection === 'function' &&
-        (typeof activeCollectionId === 'undefined' || activeCollectionId == null)) {
-      if (triCollections === '1' && !mediaInAnyCollection(m.id)) return false;
-      if (triCollections === '0' && mediaInAnyCollection(m.id)) return false;
-    }
-
-    // 🎵 Song filter: only files containing the selected song
-    if (songFilter && typeof mediaSongIds === 'function' &&
-        !mediaSongIds(m.id).includes(songFilter)) return false;
-
-    // Media-type bubbles (multi-select; empty = all)
-    if (selectedMediaTypes.length > 0 && !selectedMediaTypes.includes(m.media_type)) return false;
-
-    // (safe) toggle — only formats known to play in this tool
-    if (safeOnly && !BROWSER_PLAYABLE_EXTENSIONS.has(getExtension(m.filename))) return false;
-
-    // Extension filter
-    if (selectedExtensions.length > 0) {
-      const ext = getExtension(m.filename);
-      if (!selectedExtensions.includes(ext)) return false;
-    }
-
-    // Other filters
-    if (contentType && m.content_type !== contentType) return false;
-    // Language matches on the canonical display name (dropdown carries names),
-    // so selecting "English" catches rows stored as "en"/"EN"/"English".
-    if (language && (m.language_name || 'Unknown') !== language) return false;
-    if (quality && m.quality_flag !== quality) return false;
-
-    // Tri-state filters
-    if (triStarred === '1' && !m.user_starred) return false;
-    if (triStarred === '0' && m.user_starred) return false;
-
-    if (triHasNotes) {
-      const hasNotes = m.user_notes && m.user_notes !== '[]' && m.user_notes !== '';
-      if (triHasNotes === '1' && !hasNotes) return false;
-      if (triHasNotes === '0' && hasNotes) return false;
-    }
-
-    if (triFlagged === '1' && !m.user_flagged_delete) return false;
-    if (triFlagged === '0' && m.user_flagged_delete) return false;
-
-    if (triTrashed === '1' && !m.user_trashed) return false;
-    if (triTrashed === '0' && m.user_trashed) return false;
-
-    if (triFailed === '1' && !m.playback_failed) return false;
-    if (triFailed === '0' && m.playback_failed) return false;
-
-    if (scanStatus && scanStatusOf(m) !== scanStatus) return false;
-
-    if (triDuplicates === '1' && typeof isDuplicate === 'function' && !isDuplicate(m.filepath)) return false;
-    if (triDuplicates === '0' && typeof isDuplicate === 'function' && isDuplicate(m.filepath)) return false;
-
-    // Min rating filter
-    if (minRatingValue === 'unrated' && (m.user_rating || 0) > 0) return false;
-    if (minRatingValue !== '0' && minRatingValue !== 'unrated') {
-      const minRating = parseInt(minRatingValue) || 0;
-      if (minRating > 0 && (m.user_rating || 0) < minRating) return false;
-    }
-
-    // Duration range (minutes; null max = no cap)
-    const duration = m.duration_seconds || 0;
-    if (durMinM > 0 && duration < durMinM * 60) return false;
-    if (durMaxM != null && duration > durMaxM * 60) return false;
-
-    // Theme — matches the CLEAN copy (dropdown carries cleaned values); falls
-    // back to raw for rows not yet normalized
-    if (theme) {
-      try {
-        const themes = JSON.parse(m.themes_clean || m.themes || '[]');
-        if (!themes.includes(theme)) return false;
-      } catch {
-        return false;
-      }
-    }
-
-    return true;
-  });
-
-  // Second pass: apply text search (fuzzy/boolean, or semantic)
-  semanticOrdered = false;
-  if (search) {
-    if (semanticEnabled()) {
-      if (semanticCache.query === search && semanticCache.scores) {
-        // Semantic hit: keep matches, ordered by relevance
-        const scores = semanticCache.scores;
-        candidates = candidates.filter(m => scores.has(m.id));
-        candidates.sort((a, b) => scores.get(b.id) - scores.get(a.id));
-        semanticOrdered = true;
-      } else {
-        // Not cached yet — fire the async query, show text results meanwhile
-        fetchSemantic(search);
-        if (typeof executeSearch === 'function') {
-          candidates = executeSearch(search, candidates, metadataOnly);
-        }
-      }
-    } else if (typeof executeSearch === 'function') {
-      candidates = executeSearch(search, candidates, metadataOnly);
-    } else {
-      // Fallback: simple substring
-      const q = search.toLowerCase();
-      candidates = candidates.filter(m => {
-        const text = getSearchText ? getSearchText(m, metadataOnly) : '';
-        return text.toLowerCase().includes(q);
-      });
-    }
+  if (spec.search.text) {
+    window.dispatchEvent(new CustomEvent('vault:search-run', {
+      detail: { text: spec.search.text, subtitles: spec.search.subtitles },
+    }));
   }
 
-  // ≈ Audio-similarity mode: keep only files sharing songs with the anchor
-  // (plus the anchor itself), ranked most-similar first. Reuses the
-  // relevance-order flag so sortFilteredMedia doesn't re-sort.
-  if (typeof audioSimScores !== 'undefined' && audioSimScores) {
-    candidates = candidates.filter(m => m.id === audioSimAnchorId || audioSimScores.has(m.id));
-    const score = (m) => m.id === audioSimAnchorId ? 2 : (audioSimScores.get(m.id) || 0);
-    candidates.sort((a, b) => score(b) - score(a));
-    semanticOrdered = true;
-  }
-
-  // Publish which media matched (BEFORE the only-collections suppression) —
-  // collection cards only list collections with ≥1 matching member
-  if (typeof setMatchedMediaIds === 'function') setMatchedMediaIds(candidates);
+  // Keep the chip row telling the truth about what is narrowing the grid
+  if (typeof renderFilterChipRow === 'function') renderFilterChipRow();
+  // Update saved searches bar (show/hide save button based on active filters)
+  if (typeof renderSavedSearches === 'function') renderSavedSearches();
+  // Remember the full search state so the next launch restores it
+  persistSearchState();
 
   // Collections tab home shows ONLY collection cards — loose media hides
   // until a collection is opened (then its members fill the grid)
-  if (typeof currentTab !== 'undefined' && currentTab === 'collections' &&
-      (typeof activeCollectionId === 'undefined' || activeCollectionId == null)) {
-    candidates = [];
+  if (collectionsHomeShowing()) {
+    _searchError = null;
+    Library.setEmpty();
+    afterResults(keepPage);
+    return Promise.resolve();
   }
 
-  filteredMedia = candidates;
+  const needIds = keepPage && pageAnchor > 0;
+  const install = (ok) => {
+    if (!ok || seq !== _applySeq) return null;
+    _searchError = null;
+    _rerunFromTop = false;
+    // Holding a place past the first page needs the id list first.
+    if (keepPage && pageAnchor >= Library.firstPageIds.length && !Library.known()) {
+      return Library.waitIds().then(() => { if (seq === _applySeq) afterResults(keepPage); });
+    }
+    afterResults(keepPage);
+    return null;
+  };
+  return Library.query(spec, { needIds }).then(install, (err) => {
+    if (seq !== _applySeq) return null;
+    if (err && err.code === 'SEMANTIC_UNAVAILABLE') {
+      // As before: say why, and show the text results instead.
+      showToast('🧠 ' + (err.message || 'Semantic search unavailable'));
+      const textOnly = { ...spec, search: { ...spec.search, semantic: false } };
+      return Library.query(textOnly, { needIds }).then(install, (e2) => failed(e2));
+    }
+    return failed(err);
+  });
 
-  // Apply sorting
-  sortFilteredMedia();
+  function failed(err) {
+    if (seq !== _applySeq) return null;
+    if (err && err.status === 400) {
+      // The server's sentence is meant for people ("Search is too long. Use
+      // 16 words or fewer."): it goes under the search box, not in a toast.
+      _searchError = err.message;
+      Library.setEmpty();
+      afterResults(false);
+      return null;
+    }
+    console.warn('[Search] failed:', err);
+    if (err && err.status) {
+      // The server answered with an error (a 500): asking again every few
+      // seconds would only repeat it. Say so once; the next change the user
+      // makes tries again.
+      showToast('Search failed: ' + (err.message || `Server returned ${err.status}`));
+      return null;
+    }
+    showToast('Search failed: ' + ((err && err.message) || 'server unreachable'));
+    // No answer at all (restarting, offline): the box now says something the
+    // grid does not show, so run it again as soon as the server answers
+    // (Library's polling). A new search lands on page 1 when it does; only a
+    // re-run of the same search holds the place.
+    if (!keepPage) _rerunFromTop = true;
+    Library.noteServerLost();
+    return null;
+  }
+}
 
+// A new search that could not reach the server: its re-run starts at the top.
+let _rerunFromTop = false;
+
+/** The UI work that follows a new result. */
+function afterResults(keepPage) {
   // A new search or filter has no place to hold, so it starts at the top.
   if (!keepPage && typeof resetPageAnchor === 'function') resetPageAnchor();
   // Clamp: a mutation (trash/remove) can shrink the list under the anchor —
   // never strand the view past the end
   if (typeof clampPageAnchor === 'function') clampPageAnchor();
+  renderSearchNote();
   renderResults();
-
-  // Keep the chip row telling the truth about what is narrowing the grid
-  if (typeof renderFilterChipRow === 'function') renderFilterChipRow();
-
-  // Update saved searches bar (show/hide save button based on active filters)
-  if (typeof renderSavedSearches === 'function') {
-    renderSavedSearches();
-  }
 
   // Keep the "Empty trash" button's count/visibility in sync with the library
   if (typeof updateClearTrashUi === 'function') updateClearTrashUi();
@@ -767,10 +726,46 @@ function applyFilters(opts) {
   // …and the 🔍 Scan filter's "Rescan these (N)" button, which acts on
   // whatever the filters just produced
   if (typeof updateRescanFilteredButton === 'function') updateRescanFilteredButton();
-
-  // Remember the full search state so the next launch restores it
-  persistSearchState();
 }
+
+/* ── The line under the search box ───────────────────────────────────────
+   One line, three jobs, most important first: a search the server refused
+   (its own plain sentence), the first-launch index build, and the close
+   names and tags a fuzzy search also matched. Hidden when there is nothing
+   to say. */
+
+function renderSearchNote() {
+  const el = document.getElementById('searchNote');
+  if (!el) return;
+  let html = '';
+  let cls = '';
+  const idx = Library.index;
+  const terms = (Library.search && Library.search.mode === 'fuzzy' && Library.search.closeTerms) || [];
+  if (_searchError) {
+    cls = 'err';
+    html = escapeHtml(_searchError);
+  } else if (idx.state === 'building') {
+    cls = 'info';
+    const pct = Math.max(0, Math.min(99, Math.round((idx.progress || 0) * 100)));
+    html = escapeHtml(`Search is getting ready (${pct}%). Filters and sorting already work.`);
+  } else if (terms.length) {
+    html = '<span>Close names and tags:</span>' +
+      terms.map(t => `<span class="search-note-tag">${escapeHtml(t)}</span>`).join('');
+  }
+  el.className = `search-note${cls ? ' ' + cls : ''}`;
+  el.innerHTML = html;
+  el.style.display = html ? '' : 'none';
+}
+
+window.addEventListener('vault:index-progress', renderSearchNote);
+window.addEventListener('vault:index-state', () => {
+  renderSearchNote();
+  if (typeof renderFilterChipRow === 'function') renderFilterChipRow();
+});
+
+// Something changed the library elsewhere (a scan, another window, the CLI):
+// run the same query again and keep the user's place.
+Library.onLibraryChanged = () => applyFilters({ keepPage: !_rerunFromTop });
 
 // ── Session persistence: relaunch with the last search/toggles intact ─────
 
@@ -788,67 +783,8 @@ function restoreLastSearchState() {
   let state;
   try { state = JSON.parse(localStorage.getItem(LS_SEARCH_STATE)); } catch {}
   if (!state || typeof restoreFilterState !== 'function') return false;
-  restoreFilterState(state); // sets every control + calls applyFilters
+  const run = restoreFilterState(state); // sets every control + calls applyFilters
   if (typeof updateSearchStarButton === 'function') updateSearchStarButton();
   if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
-  return true;
-}
-
-function sortFilteredMedia() {
-  // Semantic results are already relevance-ordered — don't re-sort them
-  if (semanticOrdered) return;
-
-  // An active collection plays in its manual (playlist) order
-  if (typeof applyCollectionOrder === 'function' && applyCollectionOrder(filteredMedia)) return;
-
-  const [field, direction] = currentSort.split('_');
-  const asc = direction === 'asc';
-
-  filteredMedia.sort((a, b) => {
-    let valA, valB;
-
-    switch (field) {
-      case 'processed':
-        valA = a.processed_at || '';
-        valB = b.processed_at || '';
-        break;
-      case 'name':
-        valA = (a.filename || '').toLowerCase();
-        valB = (b.filename || '').toLowerCase();
-        break;
-      case 'size':
-        valA = a.filesize_bytes || 0;
-        valB = b.filesize_bytes || 0;
-        break;
-      case 'duration':
-        valA = a.duration_seconds || 0;
-        valB = b.duration_seconds || 0;
-        break;
-      case 'rating':
-        valA = a.user_rating || 0;
-        valB = b.user_rating || 0;
-        break;
-      case 'views':
-        valA = a.view_count || 0;
-        valB = b.view_count || 0;
-        break;
-      case 'done':
-        // Times a viewing session ended on this item (🏁 Done button)
-        valA = a.done_count || 0;
-        valB = b.done_count || 0;
-        break;
-      default:
-        return 0;
-    }
-
-    if (valA < valB) return asc ? -1 : 1;
-    if (valA > valB) return asc ? 1 : -1;
-    return 0;
-  });
-
-  // ❤ Faves-first toggle: a second STABLE sort floats faves to the
-  // top while preserving the primary order inside each group
-  if (typeof favesFirst !== 'undefined' && favesFirst) {
-    filteredMedia.sort((a, b) => (b.user_starred ? 1 : 0) - (a.user_starred ? 1 : 0));
-  }
+  return run || true;
 }

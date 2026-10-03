@@ -46,8 +46,11 @@ test('the viewer rows leave out exactly the embedding and the audio transcriptio
   const viewer = db.getByIdForViewer(1);
   assert.ok(Buffer.isBuffer(full.embedding), 'getById still returns the full row');
 
+  // `ext` is the generated column the server's filters use. SELECT * returns
+  // it, PRAGMA table_info (which builds the viewer projection) does not, and
+  // the browser computes the extension itself.
   const dropped = Object.keys(full).filter(k => !(k in viewer)).sort();
-  assert.deepStrictEqual(dropped, ['audio_transcription', 'embedding']);
+  assert.deepStrictEqual(dropped, ['audio_transcription', 'embedding', 'ext']);
   assert.deepStrictEqual(Object.keys(viewer).filter(k => !(k in full)), []);
 
   // A column added by a late migration still reaches the browser, as do the
@@ -58,8 +61,10 @@ test('the viewer rows leave out exactly the embedding and the audio transcriptio
   assert.strictEqual(viewer.description, 'A beach at dusk');
 });
 
-test('the full viewer list matches the per-id rows, in filepath order', () => {
-  const rows = db.getAllForViewer();
+test('the batch viewer read matches the per-id rows, in the order asked', () => {
+  // The whole-library list (getAllForViewer, GET /api/media) is gone: the
+  // viewer reads pages of rows by id (getManyForViewer, POST /api/media/rows).
+  const rows = db.getManyForViewer([2, 999, 1]);
   assert.deepStrictEqual(rows.map(r => r.filepath), ['/lib/a.mp4', '/lib/b.mp4']);
   assert.deepStrictEqual(rows[1], db.getByIdForViewer(1));
   assert.strictEqual(db.getByIdForViewer(999), undefined);

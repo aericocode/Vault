@@ -1,63 +1,74 @@
 /* =========================================================================
    DUPLICATES - Detect duplicate files by type + filesize + duration
+
+   The rule is unchanged: two or more files with the same media_type and the
+   same non-zero filesize_bytes form a group. The server keeps the groups now
+   (GET /api/library/duplicates, paged), and the Dupes filter runs there too.
+   The detail panel asks for them the first time it needs them and again
+   after the library has changed; the group's rows come from Library.
    ========================================================================= */
 
-// Map of duplicate group key → array of media items
-let duplicateGroups = {};
+const DUPE_PAGE = 1000;              // groups per request (the route's cap)
+const DUPE_REFRESH_MS = 60 * 1000;   // a changing library re-reads at most this often
 
-// Set of filepaths that are in a duplicate group
-let duplicateFilepaths = new Set();
+// `${media_type}:${filesize_bytes}` → [id, ...] in the server's order
+let duplicateGroups = new Map();
+let _dupeLoaded = { version: null, at: 0, promise: null };
 
-/**
- * Scan allMedia and build duplicate groups.
- * Called after DB load and after any data changes.
- *
- * Groups by media_type + filesize_bytes.
- * Within each group, flags duration match as "exact" vs "likely".
- */
-function buildDuplicateIndex() {
-  duplicateGroups = {};
-  duplicateFilepaths = new Set();
+/** Are the groups in hand current enough to show? */
+function duplicateGroupsFresh() {
+  return _dupeLoaded.version != null &&
+    (_dupeLoaded.version === Library.version || Date.now() - _dupeLoaded.at < DUPE_REFRESH_MS);
+}
 
-  // Group by type + filesize
-  const sizeMap = {};
-  allMedia.forEach(m => {
-    if (!m.filesize_bytes || !m.media_type) return;
-    const key = `${m.media_type}:${m.filesize_bytes}`;
-    if (!sizeMap[key]) sizeMap[key] = [];
-    sizeMap[key].push(m);
+/** Every duplicate group, keyed by type and size. Cached per library version. */
+function loadDuplicateGroups() {
+  const v = Library.version;
+  if (duplicateGroupsFresh()) return Promise.resolve(duplicateGroups);
+  if (_dupeLoaded.promise) return _dupeLoaded.promise;
+  _dupeLoaded.promise = (async () => {
+    const next = new Map();
+    for (let offset = 0; ; offset += DUPE_PAGE) {
+      const resp = await fetch(`/api/library/duplicates?offset=${offset}&limit=${DUPE_PAGE}`);
+      if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+      const data = await resp.json();
+      for (const g of data.groups || []) next.set(`${g.media_type}:${g.filesize_bytes}`, g.ids);
+      if (offset + DUPE_PAGE >= (data.totalGroups || 0)) break;
+    }
+    duplicateGroups = next;
+    _dupeLoaded = { version: v, at: Date.now(), promise: null };
+    return duplicateGroups;
+  })().catch((err) => {
+    _dupeLoaded.promise = null;
+    throw err;
   });
+  return _dupeLoaded.promise;
+}
 
-  // Only keep groups with 2+ files
-  Object.entries(sizeMap).forEach(([key, items]) => {
-    if (items.length < 2) return;
-    duplicateGroups[key] = items;
-    items.forEach(m => duplicateFilepaths.add(m.filepath));
-  });
-
-  const groupCount = Object.keys(duplicateGroups).length;
-  const fileCount = duplicateFilepaths.size;
-  if (groupCount > 0) {
-    console.log(`[Duplicates] Found ${groupCount} groups, ${fileCount} files`);
-  }
+/** The ids in this row's duplicate group (itself included), or null. */
+function duplicateGroupIds(media) {
+  if (!media || !media.filesize_bytes || !media.media_type) return null;
+  const ids = duplicateGroups.get(`${media.media_type}:${media.filesize_bytes}`);
+  return ids && ids.length > 1 ? ids : null;
 }
 
 /**
- * Check if a media item is in a duplicate group.
+ * Check if a media item is in a duplicate group (from the groups loaded so
+ * far; the Dupes filter itself runs on the server).
  */
-function isDuplicate(filepath) {
-  return duplicateFilepaths.has(filepath);
+function isDuplicate(media) {
+  return !!duplicateGroupIds(media);
 }
 
 /**
  * Get the duplicate group for a media item.
- * Returns array of media objects in the same group, or null.
+ * Returns array of media objects in the same group (cached rows), or null.
  */
 function getDuplicateGroup(media) {
-  if (!media.filesize_bytes || !media.media_type) return null;
-  const key = `${media.media_type}:${media.filesize_bytes}`;
-  const group = duplicateGroups[key];
-  return (group && group.length > 1) ? group : null;
+  const ids = duplicateGroupIds(media);
+  if (!ids) return null;
+  const rows = ids.map(id => Library.row(id)).filter(Boolean);
+  return rows.length > 1 ? rows : null;
 }
 
 /**
@@ -73,7 +84,7 @@ function isExactDuplicate(a, b) {
  * Render a duplicate badge for a card.
  */
 function renderDuplicateBadge(media) {
-  if (!isDuplicate(media.filepath)) return '';
+  if (!isDuplicate(media)) return '';
   const group = getDuplicateGroup(media);
   if (!group) return '';
 
@@ -90,18 +101,46 @@ function renderDuplicateBadge(media) {
 }
 
 /**
- * Render duplicate details for the modal/sidebar.
+ * Render duplicate details for the modal/sidebar. The groups and the other
+ * files' rows may still be on their way, so this returns a slot that fills
+ * itself in (empty when the file has no duplicates).
  */
 function renderDuplicateSection(media) {
+  if (!media || !media.filesize_bytes || !media.media_type) return '';
+  const html = duplicateSectionHtml(media);
+  if (html !== null) return `<div class="dupe-slot" data-dupe-for="${media.id}">${html}</div>`;
+  fillDuplicateSection(media);
+  return `<div class="dupe-slot" data-dupe-for="${media.id}"></div>`;
+}
+
+/** The section's markup, or null while the groups or rows are not here. */
+function duplicateSectionHtml(media) {
+  if (!duplicateGroupsFresh()) return null;
+  const ids = duplicateGroupIds(media);
+  if (!ids) return '';
+  if (ids.some(id => !Library.row(id))) return null;
+  return duplicateSectionMarkup(media, getDuplicateGroup(media));
+}
+
+async function fillDuplicateSection(media) {
+  try {
+    await loadDuplicateGroups();
+    const ids = duplicateGroupIds(media);
+    if (ids) await Library.fetchRows(ids);
+  } catch { return; }
   const group = getDuplicateGroup(media);
+  const html = group ? duplicateSectionMarkup(media, group) : '';
+  document.querySelectorAll(`.dupe-slot[data-dupe-for="${media.id}"]`).forEach(el => { el.innerHTML = html; });
+}
+
+function duplicateSectionMarkup(media, group) {
   if (!group || group.length < 2) return '';
 
-  const escapedCurrentPath = escapeHtml(media.filepath);
   const others = group.filter(m => m.filepath !== media.filepath);
 
   let html = `<div class="detail-section duplicate-section">
     <h3>⚠ Duplicate Files (${group.length -1} matches)</h3>
-    
+
     <div class="duplicate-list">`;
 
   others.forEach(other => {

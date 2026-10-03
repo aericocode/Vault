@@ -190,9 +190,7 @@
     // vault has to take them with it, not just hide the grid.
     try { if (typeof revokeThumbBlobs === 'function') revokeThumbBlobs(); } catch {}
     try {
-      allMedia = [];
-      filteredMedia = [];
-      if (typeof invalidateFuse === 'function') invalidateFuse();
+      if (typeof Library !== 'undefined') Library.clear();
       if (typeof renderResults === 'function') renderResults();
     } catch {}
     renderLogo();

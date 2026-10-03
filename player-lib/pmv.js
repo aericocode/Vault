@@ -118,25 +118,22 @@ async function pmvPollJob() {
 
 /* ── SETUP phase ────────────────────────────────────────────────────────── */
 
-function pmvPickableVideos() {
-  const base = allMedia.filter(m => m.media_type === 'video' && !m.user_trashed);
-  if (typeof pickerApplySearch !== 'function') {
-    const q = pmvState.videoQ.trim().toLowerCase();
-    return q ? base.filter(m => (m.filename || '').toLowerCase().includes(q)) : base;
-  }
-  const res = pickerApplySearch(pmvState.videoQ, base, pmvState.videoOpts, renderPmvVideoGrid);
-  if (typeof pickerSetModeIndicator === 'function') pickerSetModeIndicator('pmvVid', res.mode, res.pending);
+/* Both pickers ask the server (first 200 matches; typing narrows). A list
+   that is still loading keeps showing the last answer rather than blanking. */
+let _pmvVidSeq = 0;
+let _pmvAudSeq = 0;
+let _pmvVidItems = [];
+let _pmvAudItems = [];
+
+async function pmvPickableVideos() {
+  const res = await pickerQuery(pmvState.videoQ, ['video'], pmvState.videoOpts);
+  if (typeof pickerSetModeIndicator === 'function') pickerSetModeIndicator('pmvVid', res.mode, false);
   return res.items;
 }
 
-function pmvPickableAudio() {
-  const base = allMedia.filter(m => ['audio', 'video'].includes(m.media_type) && !m.user_trashed);
-  if (typeof pickerApplySearch !== 'function') {
-    const q = pmvState.audioQ.trim().toLowerCase();
-    return q ? base.filter(m => (m.filename || '').toLowerCase().includes(q)) : base;
-  }
-  const res = pickerApplySearch(pmvState.audioQ, base, pmvState.audioOpts, renderPmvAudio);
-  if (typeof pickerSetModeIndicator === 'function') pickerSetModeIndicator('pmvAud', res.mode, res.pending);
+async function pmvPickableAudio() {
+  const res = await pickerQuery(pmvState.audioQ, ['audio', 'video'], pmvState.audioOpts);
+  if (typeof pickerSetModeIndicator === 'function') pickerSetModeIndicator('pmvAud', res.mode, false);
   return res.items;
 }
 
@@ -242,10 +239,21 @@ function renderPmvSetup() {
   bindPmvSetup();
 }
 
+/** Ask for the matches, then paint them (a selection change just repaints). */
 function renderPmvVideoGrid() {
+  const seq = ++_pmvVidSeq;
+  paintPmvVideoGrid();
+  pmvPickableVideos().then((items) => {
+    if (seq !== _pmvVidSeq) return;
+    _pmvVidItems = items;
+    paintPmvVideoGrid();
+  }).catch(() => {});
+}
+
+function paintPmvVideoGrid() {
   const grid = document.getElementById('pmvVideoGrid');
   if (!grid) return;
-  const items = pmvPickableVideos().slice(0, 400);
+  const items = _pmvVidItems.slice(0, 400);
   if (!items.length) { grid.innerHTML = '<div class="games-hint">No videos match.</div>'; return; }
   grid.innerHTML = items.map(m => {
     const sel = pmvState.videoIds.includes(m.id);
@@ -291,7 +299,7 @@ function renderPmvSelectedVideos() {
 function pmvClearVideos() {
   pmvState.videoIds = [];
   renderPmvSelectedVideos();
-  renderPmvVideoGrid();
+  paintPmvVideoGrid();
   const c = document.getElementById('pmvVideoCount');
   if (c) c.textContent = '0 selected';
   pmvSyncGenerateBtn();
@@ -302,13 +310,14 @@ function pmvToggleVideo(id) {
   if (i >= 0) pmvState.videoIds.splice(i, 1);
   else pmvState.videoIds.push(id);
   renderPmvSelectedVideos();
-  renderPmvVideoGrid();
+  paintPmvVideoGrid();
   const count = document.getElementById('pmvVideoCount');
   if (count) count.textContent = `${pmvState.videoIds.length} selected`;
   pmvSyncGenerateBtn();
 }
 
-function renderPmvAudio() {
+/** Repaint the soundtrack panel; requery: also ask for fresh matches. */
+function renderPmvAudio({ requery = true } = {}) {
   // Selected tracks (ordered — this is the concatenation order)
   const sel = document.getElementById('pmvAudioSelected');
   if (sel) {
@@ -326,10 +335,21 @@ function renderPmvAudio() {
     }).join('') : '<div class="pmv-hint">No soundtrack picked. Tracks play (and concatenate) in this order.</div>';
   }
 
+  paintPmvAudioGrid();
+  if (!requery) return;
+  const seq = ++_pmvAudSeq;
+  pmvPickableAudio().then((items) => {
+    if (seq !== _pmvAudSeq) return;
+    _pmvAudItems = items;
+    paintPmvAudioGrid();
+  }).catch(() => {});
+}
+
+function paintPmvAudioGrid() {
   // Compact wide rows (no cover art) with a preview button + scrub bar
   const grid = document.getElementById('pmvAudioGrid');
   if (grid) {
-    const items = pmvPickableAudio().slice(0, 200);
+    const items = _pmvAudItems.slice(0, 200);
     grid.innerHTML = items.length ? items.map(m => {
       const picked = pmvState.audioIds.includes(m.id);
       const dur = m.duration_seconds ? formatDuration(m.duration_seconds) : '';
@@ -428,13 +448,13 @@ function pmvAddAudio(id) {
   const i = pmvState.audioIds.indexOf(id);
   if (i >= 0) pmvState.audioIds.splice(i, 1);
   else pmvState.audioIds.push(id);
-  renderPmvAudio();
+  renderPmvAudio({ requery: false });
   pmvSyncGenerateBtn();
 }
 
 function pmvRemoveAudio(i) {
   pmvState.audioIds.splice(i, 1);
-  renderPmvAudio();
+  renderPmvAudio({ requery: false });
   pmvSyncGenerateBtn();
 }
 
@@ -442,7 +462,7 @@ function pmvMoveAudio(i, dir) {
   const j = i + dir;
   if (j < 0 || j >= pmvState.audioIds.length) return;
   [pmvState.audioIds[i], pmvState.audioIds[j]] = [pmvState.audioIds[j], pmvState.audioIds[i]];
-  renderPmvAudio();
+  renderPmvAudio({ requery: false });
 }
 
 function pmvSyncGenerateBtn() {
@@ -488,7 +508,7 @@ function bindPmvSetup() {
   // Search-option toggles (Metadata / Fuzzy / Semantic) for each picker
   if (typeof bindPickerSearchOptions === 'function') {
     bindPickerSearchOptions('pmvVid', pmvState.videoOpts, renderPmvVideoGrid);
-    bindPickerSearchOptions('pmvAud', pmvState.audioOpts, renderPmvAudio);
+    bindPickerSearchOptions('pmvAud', pmvState.audioOpts, () => renderPmvAudio());
   }
 
   bindPmvClipRange();
@@ -569,6 +589,10 @@ async function pmvLoadRecipe(id) {
   const el = document.getElementById('pmvRecipeList');
   const recipe = (el?._recipes || []).find(r => r.id === id);
   if (!recipe) return;
+  // The recipe's files may be ones no picker has shown yet.
+  try {
+    await Library.fetchRows([...(recipe.media_ids || []), ...(recipe.config?.audio_ids || [])], { strict: true });
+  } catch (err) { showToast('⚠ ' + err.message); return; }
   pmvState.videoIds = (recipe.media_ids || []).filter(mid => getMediaById(mid));
   pmvState.audioIds = (recipe.config?.audio_ids || []).filter(mid => getMediaById(mid));
   pmvState.options = { ...PMV_DEFAULT_OPTIONS, ...(recipe.config?.options || {}) };
@@ -711,6 +735,13 @@ function renderPmvReview(job) {
   if (!job.edl) {
     body.innerHTML = job.error ? `<div class="pmv-error">⚠ ${escapeHtml(job.error)}</div>` : '';
     return;
+  }
+
+  // The cut strip names its source files: fetch any row not loaded yet once.
+  const want = (job.edl.videoInfos || []).map(v => v.media_id).filter(id => id && !getMediaById(id));
+  if (want.length && !job._rowsAsked) {
+    job._rowsAsked = true;
+    Library.fetchRows(want).then(() => renderPmvReview(job));
   }
 
   const e = job.edl;
