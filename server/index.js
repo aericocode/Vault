@@ -2567,6 +2567,9 @@ app.get('/api/media/:id/collections', (req, res) => {
 // ── Music ID (fingerprinting, songs, stack mixes — see lib/musicid/) ──────
 app.use('/api/music', require('./music-routes').buildRouter());
 
+// ── Move to Cove (Settings tab background job, see lib/cove/) ─────────────
+app.use('/api/cove', require('./cove-routes').buildRouter());
+
 // ── Games (per-game save slots — see lib/games/) ──────────────────────────
 app.use('/api/games', require('./games-routes').buildRouter());
 

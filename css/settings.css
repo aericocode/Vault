@@ -1530,3 +1530,110 @@ body.pm-names #modalTitle {
   text-decoration: none;
   cursor: not-allowed;
 }
+
+/* ── Move to Cove tab ───────────────────────────────────────────────────────
+   Built from the Library tab's card pieces (mig-card, mig-input, mig-actions,
+   mig-progress, mig-expander). Every class here that sets display has its
+   own [hidden] rule: a class display beats the browser's [hidden] rule. */
+
+.cove-fold { margin: -0.4rem 0 0.4rem; }
+.cove-fold[hidden] { display: none; }
+
+.cove-token-state {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  margin: -0.2rem 0 0.4rem;
+}
+.cove-token-state[hidden] { display: none; }
+
+.cove-map-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.45rem;
+}
+.cove-map-row[hidden] { display: none; }
+.settings-link.cove-add { margin-left: 0; font-size: 0.8rem; }
+.settings-link:disabled { color: var(--text-muted); cursor: default; text-decoration: none; }
+
+.cove-notice {
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.08);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  margin: 0.2rem 0 0.4rem;
+  font-size: 0.8rem;
+  color: #f5c470;
+}
+.cove-notice[hidden] { display: none; }
+
+.mig-actions .settings-btn.cove-stop { border-color: var(--border); color: var(--text-secondary); }
+.mig-actions .settings-btn.cove-stop[hidden] { display: none; }
+
+.cove-conn { display: inline-flex; align-items: center; gap: 8px; color: var(--text-primary); font-size: 0.8rem; }
+.cove-conn[hidden] { display: none; }
+.cove-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+}
+
+.mig-status.cove-warn, .cove-warn { color: #f59e0b; }
+
+.mig-bar-stats.cove-stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  text-align: left;
+}
+.mig-bar-stats.cove-stats[hidden] { display: none; }
+.cove-hint { font-size: 0.76rem; color: var(--text-secondary); margin: 0.4rem 0 0; }
+
+.cove-result { display: grid; gap: 0.5rem; margin-top: 0.7rem; }
+.cove-result[hidden] { display: none; }
+.cove-result .mig-status { flex: none; }
+
+.cove-sum {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px 18px;
+  font-size: 0.8rem;
+}
+.cove-sum[hidden] { display: none; }
+.cove-sum > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px dashed var(--border);
+  padding: 3px 0;
+}
+.cove-sum b { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.cove-sum b.cove-warn { color: #f59e0b; }
+.cove-k { color: var(--text-secondary); }
+
+.settings-link.cove-show { margin-left: 0; justify-self: start; font-size: 0.8rem; }
+
+.cove-list {
+  display: grid;
+  gap: 2px;
+  max-height: 15rem;
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+}
+.cove-list[hidden] { display: none; }
+.cove-list span { overflow-wrap: anywhere; }
+.cove-more { color: var(--text-muted); font-style: italic; }
+
+.mig-actions.cove-links { margin-top: 0; gap: 1rem; }
+.cove-links .settings-link { margin-left: 0; font-size: 0.8rem; }

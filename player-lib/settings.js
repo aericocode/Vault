@@ -2,7 +2,7 @@
    SETTINGS — the app's info + preferences hub (replaces the old license UI)
 
    A dim ⚙ button at the end of .header-buttons opens a house-style modal with
-   left-nav sections: Settings · Guides · Models · Seed packs · About.
+   left-nav sections: Settings · Guides · Models · Seed packs · Move to Cove · About.
 
    All preferences persist to localStorage under one JSON blob (vault_settings)
    and are applied at boot (the privacy-mode body class is applied the moment
@@ -404,6 +404,7 @@
     { id: 'guides',    label: '📖 Guides' },
     { id: 'models',    label: '🧠 Models' },
     { id: 'seedpacks', label: '📦 Seed packs' },
+    { id: 'cove',      label: '⛵ Move to Cove' },
     // Near the bottom on purpose: everything in here is about the machine, not
     // the library, and most people never need to open it. About stays last so
     // the nav always ends on the same entry.
@@ -460,6 +461,8 @@
     if (id === 'library') wireLibrarySection();
     if (id === 'seedpacks') wireSeedpacksSection();
     if (id === 'about') loadAbout();
+    // The Move to Cove tab polls too, and only while it is on screen.
+    if (id === 'cove') wireCoveSection(); else leaveCoveSection();
     // The Backend tab polls; leaving it (or closing the modal) has to stop
     // that, or a modal opened once keeps asking the server forever.
     if (id === 'backend') wireBackendSection(); else stopBackendPoll();
@@ -483,6 +486,7 @@
     if (!overlay || !overlay.classList.contains('active')) return false;
     overlay.classList.remove('active');
     stopBackendPoll();
+    leaveCoveSection();
     // Only release the scroll lock if no other overlay still needs it.
     if (!document.querySelector('.modal-overlay.active, .media-player-overlay.active')) {
       document.body.style.overflow = '';
@@ -2107,6 +2111,561 @@
     });
   }
 
+  /* ── Section: Move to Cove ───────────────────────────────────────────────
+     Three cards walked in order: connect, preview, move. The work runs on
+     the server as one background job (server/cove-routes.js), so closing
+     Settings does not stop it; reopening the tab picks the job up again.
+
+     Preview is the dry run and stays disabled until Check connection
+     succeeded; Move stays disabled until the server says a preview with the
+     current address, folders and token finished. The server enforces that
+     too; the buttons only mirror it.
+
+     The token is sent once and kept in the server's memory only. The page
+     never gets it back: the field is emptied after saving and only "a token
+     is set" is shown. */
+
+  const COVE_PHASES = {
+    'reading Cove': 'Reading Cove', matching: 'Matching', 'updating items': 'Updating items', collections: 'Collections',
+  };
+  const SS_COVE_NOTIFIED = 'vault_cove_notified_job';
+
+  let covePollTimer = null;
+  let coveWatchTimer = null;
+  // The last Check connection answer, kept for this page session so a tab
+  // switch does not ask again. Cleared when the address or token changes.
+  let coveCheck = null;
+  let coveSettings = null;
+  let coveLastStatus = null;
+  let coveRateWindow = [];
+
+  const nf = (n) => (Number(n) || 0).toLocaleString();
+
+  function RENDERERS_cove() {
+    return `
+      <h3 class="settings-h">Move to Cove</h3>
+      <p class="settings-note">Copies your tags, AI details, ratings, favorites, notes and collections into Cove. Your files stay where they are, and nothing in Vault changes.</p>
+
+      <div class="mig-card" id="coveConnectCard">
+        <div class="mig-card-title">1. Connect to Cove</div>
+        <p class="settings-note">Start Cove and let it finish scanning the same folders Vault uses. Then check the connection.</p>
+        <label class="mig-field">
+          <span class="mig-field-label">Cove address</span>
+          <input type="text" id="coveUrl" class="mig-input" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:5073">
+        </label>
+        <button type="button" class="mig-expander" id="coveLoginToggle" aria-expanded="false" aria-controls="coveLoginBody">
+          <span class="mig-chev">&#9656;</span><span>Cove has login turned on</span>
+        </button>
+        <div class="cove-fold" id="coveLoginBody" hidden>
+          <label class="mig-field">
+            <span class="mig-field-label">API token (Cove: Settings, Security &amp; access, API tokens)</span>
+            <input type="password" id="coveToken" class="mig-input" spellcheck="false" autocomplete="off" placeholder="Paste the token here">
+          </label>
+          <p class="cove-token-state" id="coveTokenState" hidden>A token is set for this session. It is never saved to disk.
+            <button type="button" class="settings-link" id="coveTokenForget">Forget it</button></p>
+        </div>
+        <div class="mig-actions">
+          <button class="settings-btn" type="button" id="coveCheckBtn">Check connection</button>
+          <span class="mig-status" id="coveCheckStatus">Not checked yet</span>
+        </div>
+      </div>
+
+      <div class="mig-card" id="covePreviewCard">
+        <div class="mig-card-title">2. Preview</div>
+        <p class="settings-note">Checks which Vault items Cove can find and what would change. Nothing is written yet.</p>
+        <button type="button" class="mig-expander" id="coveMapToggle" aria-expanded="false" aria-controls="coveMapBody">
+          <span class="mig-chev">&#9656;</span><span>Cove sees my folders under a different path</span>
+        </button>
+        <div class="cove-fold" id="coveMapBody" hidden>
+          <div id="coveMapRows"></div>
+          <button type="button" class="settings-link cove-add" id="coveMapAdd">+ add another folder</button>
+        </div>
+        <div class="cove-notice" id="coveEncNotice" hidden>Your Vault library is password protected. Cove stores this information without encryption.</div>
+        <div class="mig-actions">
+          <button class="settings-btn" type="button" id="covePreviewBtn" disabled>Preview</button>
+          <button class="settings-btn mig-apply cove-stop" type="button" data-cove-stop="preview" hidden>Stop</button>
+          <span class="mig-status" id="covePreviewStatus">Connect first</span>
+        </div>
+        <div class="mig-progress" data-cove-progress="preview" hidden>
+          <div class="mig-bar"><div class="mig-bar-fill"></div></div>
+          <div class="mig-bar-stats cove-stats"><span></span><span></span></div>
+        </div>
+        <div id="covePreviewResult"></div>
+      </div>
+
+      <div class="mig-card" id="coveMoveCard">
+        <div class="mig-card-title">3. Move</div>
+        <p class="settings-note">Adds to Cove only. It never deletes or overwrites what you already set in Cove, and running it again is safe.</p>
+        <div class="mig-actions">
+          <button class="settings-btn mig-apply" type="button" id="coveMoveBtn" disabled>Move to Cove</button>
+          <button class="settings-btn mig-apply cove-stop" type="button" data-cove-stop="move" hidden>Stop</button>
+          <span class="mig-status" id="coveMoveStatus">Run a preview first</span>
+        </div>
+        <div class="mig-progress" data-cove-progress="move" hidden>
+          <div class="mig-bar"><div class="mig-bar-fill"></div></div>
+          <div class="mig-bar-stats cove-stats"><span></span><span></span></div>
+          <p class="cove-hint">You can close Settings. The move keeps running and a notice shows when it finishes.</p>
+        </div>
+        <div id="coveMoveResult"></div>
+      </div>
+    `;
+  }
+
+  async function coveFetch(method, url, body, { background = false } = {}) {
+    try {
+      const headers = {};
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      if (background) headers['X-Vault-Background'] = '1';
+      const r = await fetch(url, { method, headers, cache: 'no-store', body: body === undefined ? undefined : JSON.stringify(body) });
+      const data = await r.json().catch(() => ({}));
+      return { ok: r.ok, status: r.status, data };
+    } catch {
+      return { ok: false, status: 0, data: { error: 'Vault did not answer. Is it still running?' } };
+    }
+  }
+
+  function coveEl(id) { return document.getElementById(id); }
+
+  function coveSetFold(toggleId, bodyId, open) {
+    const t = coveEl(toggleId);
+    const b = coveEl(bodyId);
+    if (!t || !b) return;
+    b.hidden = !open;
+    t.setAttribute('aria-expanded', String(!!open));
+    t.classList.toggle('is-open', !!open);
+    const chev = t.querySelector('.mig-chev');
+    if (chev) chev.innerHTML = open ? '&#9662;' : '&#9656;';
+  }
+
+  function coveStatusLine(id, text, kind = '') {
+    const el = coveEl(id);
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = `mig-status${kind ? ' ' + kind : ''}`;
+  }
+
+  function coveMapRowHtml(m) {
+    return `
+      <div class="cove-map-row">
+        <input type="text" class="mig-input" data-cove-map="from" aria-label="Vault folder" placeholder="Vault folder, for example D:\\Media"
+               spellcheck="false" autocomplete="off" value="${esc(m.from)}">
+        <span class="mig-field-label">is</span>
+        <input type="text" class="mig-input" data-cove-map="to" aria-label="Cove folder" placeholder="Cove folder, for example /media"
+               spellcheck="false" autocomplete="off" value="${esc(m.to)}">
+      </div>`;
+  }
+
+  function coveRenderMaps(maps) {
+    const host = coveEl('coveMapRows');
+    if (!host) return;
+    const rows = maps.length ? maps : [{ from: '', to: '' }];
+    host.innerHTML = rows.map(coveMapRowHtml).join('');
+  }
+
+  function coveReadMaps() {
+    return [...document.querySelectorAll('#coveMapRows .cove-map-row')].map(row => ({
+      from: row.querySelector('[data-cove-map="from"]').value.trim(),
+      to: row.querySelector('[data-cove-map="to"]').value.trim(),
+    })).filter(m => m.from || m.to);
+  }
+
+  function coveRenderTokenState() {
+    const has = !!(coveSettings && coveSettings.hasToken);
+    const st = coveEl('coveTokenState');
+    if (st) st.hidden = !has;
+    const input = coveEl('coveToken');
+    if (input) input.placeholder = has ? 'Paste a new token to replace it' : 'Paste the token here';
+  }
+
+  function coveRenderSettings() {
+    if (!coveSettings) return;
+    const url = coveEl('coveUrl');
+    if (url) url.value = coveSettings.url;
+    coveRenderMaps(coveSettings.maps || []);
+    if ((coveSettings.maps || []).length) coveSetFold('coveMapToggle', 'coveMapBody', true);
+    if (coveSettings.hasToken) coveSetFold('coveLoginToggle', 'coveLoginBody', true);
+    coveRenderTokenState();
+    const enc = coveEl('coveEncNotice');
+    if (enc) enc.hidden = !coveSettings.encrypted;
+  }
+
+  /** Save the settings. Returns false (and says why) when the server refused. */
+  async function coveSave(patch, statusId) {
+    const r = await coveFetch('PUT', '/api/cove/settings', patch);
+    if (!r.ok) {
+      coveStatusLine(statusId, r.data.error || 'Could not save that.', 'mig-bad');
+      return false;
+    }
+    coveSettings = r.data;
+    return true;
+  }
+
+  function coveRenderCheck() {
+    const st = coveEl('coveCheckStatus');
+    if (!st) return;
+    if (!coveCheck) { coveStatusLine('coveCheckStatus', 'Not checked yet'); return; }
+    if (!coveCheck.ok) { coveStatusLine('coveCheckStatus', `⚠ ${coveCheck.error}`, 'mig-bad'); return; }
+    const c = coveCheck.counts || {};
+    const bits = [['videos', c.videos], ['images', c.images], ['audio', c.audios]]
+      .filter(([, n]) => n != null).map(([l, n]) => `${nf(n)} ${l}`);
+    st.className = 'mig-status';
+    st.innerHTML = `<span class="cove-conn"><span class="cove-dot"></span><span>${esc(
+      `Connected to Cove${coveCheck.version ? ' ' + coveCheck.version : ''}${bits.length ? ' · ' + bits.join(', ') : ''}`)}</span></span>`;
+  }
+
+  async function coveRunCheck() {
+    const btn = coveEl('coveCheckBtn');
+    if (btn) btn.disabled = true;
+    coveStatusLine('coveCheckStatus', 'Checking…');
+    const r = await coveFetch('POST', '/api/cove/check');
+    if (btn) btn.disabled = false;
+    coveCheck = r.ok ? r.data : { ok: false, error: r.data.error || 'Could not check the connection.' };
+    // Login is on and no token yet: open the token field so the next step is in view.
+    if (!r.ok && r.data.authEnabled) coveSetFold('coveLoginToggle', 'coveLoginBody', true);
+    coveRenderCheck();
+    coveSyncButtons();
+  }
+
+  function coveRunning(s) { return !!(s && s.state === 'running'); }
+
+  function coveSyncButtons() {
+    const s = coveLastStatus;
+    const running = coveRunning(s);
+    const prev = coveEl('covePreviewBtn');
+    const move = coveEl('coveMoveBtn');
+    if (prev) prev.disabled = running || !(coveCheck && coveCheck.ok);
+    if (move) move.disabled = running || !(s && s.canMove);
+    document.querySelectorAll('[data-cove-stop]').forEach(b => { b.hidden = !(running && s.mode === b.dataset.coveStop); });
+    // Inputs are frozen while a job runs: the server refuses changes then anyway.
+    document.querySelectorAll('#coveConnectCard .mig-input, #coveMapBody .mig-input').forEach(i => { i.disabled = running; });
+    const add = coveEl('coveMapAdd');
+    if (add) add.disabled = running;
+    const check = coveEl('coveCheckBtn');
+    if (check) check.disabled = running;
+    if (running) return;
+    const prevLine = coveEl('covePreviewStatus');
+    if (prevLine && !(coveCheck && coveCheck.ok) && !(s && s.mode === 'preview' && s.state !== 'idle')) {
+      coveStatusLine('covePreviewStatus', 'Connect first');
+    } else if (prevLine && prevLine.textContent === 'Connect first') {
+      coveStatusLine('covePreviewStatus', '');
+    }
+    const moveLine = coveEl('coveMoveStatus');
+    if (moveLine && !(s && s.canMove) && !(s && s.mode === 'move' && s.state !== 'idle')) {
+      coveStatusLine('coveMoveStatus', 'Run a preview first');
+    } else if (moveLine && moveLine.textContent === 'Run a preview first') {
+      coveStatusLine('coveMoveStatus', '');
+    }
+  }
+
+  function coveRate(s) {
+    if (s.phase !== 'updating items') { coveRateWindow = []; return null; }
+    const last = coveRateWindow[coveRateWindow.length - 1];
+    if (!last || last.done !== s.done) {
+      coveRateWindow.push({ done: s.done, at: Date.now() });
+      if (coveRateWindow.length > MIG_RATE_SAMPLES) coveRateWindow.shift();
+    }
+    if (coveRateWindow.length < 2) return null;
+    const a = coveRateWindow[0];
+    const b = coveRateWindow[coveRateWindow.length - 1];
+    const dt = (b.at - a.at) / 1000;
+    const dp = b.done - a.done;
+    if (dt <= 0 || dp <= 0) return null;
+    return dp / dt;
+  }
+
+  function coveRenderProgress(s) {
+    document.querySelectorAll('[data-cove-progress]').forEach(box => {
+      const mine = coveRunning(s) && box.dataset.coveProgress === s.mode;
+      box.hidden = !mine;
+      if (!mine) { box.classList.remove('is-indeterminate'); return; }
+      const determinate = s.total > 0;
+      box.classList.toggle('is-indeterminate', !determinate);
+      const fill = box.querySelector('.mig-bar-fill');
+      if (fill) fill.style.width = determinate ? `${Math.max(0, Math.min(100, (s.done / s.total) * 100)).toFixed(1)}%` : '';
+      const [left, right] = box.querySelectorAll('.cove-stats span');
+      const label = COVE_PHASES[s.phase] || 'Starting';
+      if (left) left.textContent = determinate ? `${label} · ${nf(s.done)} of ${nf(s.total)}` : label;
+      const rate = coveRate(s);
+      const bits = [];
+      if (rate != null) {
+        bits.push(`${nf(Math.round(rate))} items/s`);
+        if (determinate && s.total > s.done) bits.push(`about ${migHuman(((s.total - s.done) / rate) * 1000)} left`);
+      } else {
+        bits.push(`${migHuman(s.elapsedMs)} elapsed`);
+      }
+      if (right) right.textContent = bits.join(' · ');
+    });
+    if (coveRunning(s)) {
+      coveStatusLine(s.mode === 'move' ? 'coveMoveStatus' : 'covePreviewStatus', s.mode === 'move' ? 'Moving…' : 'Previewing…');
+    }
+  }
+
+  function coveSummaryHtml(sum, st) {
+    const eligible = sum.vault.byKind.video + sum.vault.byKind.image + sum.vault.byKind.audio;
+    const matched = sum.matched.byKind.video + sum.matched.byKind.image + sum.matched.byKind.audio;
+    const cell = (k, v, cls = '') => `<div><span class="cove-k">${esc(k)}</span><b class="${cls}">${esc(v)}</b></div>`;
+    const cells = [
+      cell('Found in Cove', `${nf(matched)} of ${nf(eligible)}`),
+      cell('Not found', nf(sum.unmatched), sum.unmatched ? 'cove-warn' : ''),
+      cell('Unclear, left alone', nf(sum.ambiguous)),
+      cell('Skipped (trash, docs)', nf(sum.vault.trashed + sum.vault.unsupported)),
+      cell('Items to update', nf(sum.items.changed)),
+      cell('New tags under "Vault AI"', nf(sum.tagsCreated)),
+      cell('AI detail fields', nf(sum.fieldsCreated)),
+      cell('Ratings · favorites', `${nf(sum.ratingsSet)} · ${nf(sum.favoritesSet)}`),
+      cell('Collections', nf(st.plannedGroups != null ? st.plannedGroups : sum.groupsCreated)),
+    ];
+    return `<div class="cove-sum">${cells.join('')}</div>`;
+  }
+
+  function coveNotFoundHtml(s) {
+    if (!s.notFoundTotal) return '';
+    const more = s.notFoundTotal > s.notFound.length
+      ? `<span class="cove-more">and ${nf(s.notFoundTotal - s.notFound.length)} more in the full report</span>` : '';
+    return `
+      <button type="button" class="settings-link cove-show" data-cove-toggle-list>Show the ${nf(s.notFoundTotal)} not found</button>
+      <div class="cove-list" hidden>${s.notFound.map(p => `<span>${esc(p)}</span>`).join('')}${more}</div>`;
+  }
+
+  function coveExtraLines(s) {
+    const lines = [];
+    for (const w of s.warnings || []) lines.push(`<span class="mig-status cove-warn">${esc(w)}</span>`);
+    if (s.mode === 'preview' && (s.missingPermissionsForApply || []).length) {
+      lines.push(`<span class="mig-status cove-warn">${esc(`To move, ${coveSettings && coveSettings.hasToken ? 'the Cove token' : 'Cove'} also needs to allow: ${s.missingPermissionsForApply.join(', ')}.`)}</span>`);
+    }
+    return lines.join('');
+  }
+
+  function coveProblemsHtml(s) {
+    const lines = [];
+    const shown = (s.notFound || []).slice(0, 10);
+    for (const p of shown) lines.push(`<span>${esc(p)} (not found)</span>`);
+    for (const e of s.problems || []) lines.push(`<span>${esc(`${e.path ? e.path + ' ' : ''}(Cove error: ${e.message})`)}</span>`);
+    const hidden = (s.notFoundTotal || 0) - shown.length;
+    if (hidden > 0) lines.push(`<span class="cove-more">and ${nf(hidden)} more not found, see the full report</span>`);
+    return lines.length ? `<div class="cove-list">${lines.join('')}</div>` : '';
+  }
+
+  const coveReportLinks = () => `
+    <div class="mig-actions cove-links">
+      <a class="settings-link" href="/api/cove/report" download>Save full report</a>
+      <button type="button" class="settings-link" data-cove-again>Run again</button>
+    </div>`;
+
+  function coveRenderResult(s) {
+    const prevOut = coveEl('covePreviewResult');
+    const moveOut = coveEl('coveMoveResult');
+    if (!prevOut || !moveOut) return;
+    if (!s || s.state === 'idle') return;
+    if (coveRunning(s)) {
+      (s.mode === 'move' ? moveOut : prevOut).innerHTML = '';
+      return;
+    }
+    const out = s.mode === 'move' ? moveOut : prevOut;
+    const statusId = s.mode === 'move' ? 'coveMoveStatus' : 'covePreviewStatus';
+
+    if (s.state === 'error') {
+      coveStatusLine(statusId, `⚠ ${s.error}`, 'mig-bad');
+      out.innerHTML = '';
+      return;
+    }
+    if (s.state === 'stopped') coveStatusLine(statusId, s.error || 'Stopped.', 'cove-warn');
+
+    const sum = s.summary;
+    if (!sum) { out.innerHTML = ''; return; }
+    if (s.mode === 'preview') {
+      if (s.state === 'done') {
+        coveStatusLine(statusId, sum.items.changed
+          ? `Preview done in ${migHuman(s.elapsedMs)}. Nothing was written yet.`
+          : 'Preview done. Everything Cove has is already up to date.', 'mig-good');
+      }
+      out.innerHTML = `<div class="cove-result">${coveSummaryHtml(sum, s)}${coveNotFoundHtml(s)}${coveExtraLines(s)}</div>`;
+      out.querySelector('[data-cove-toggle-list]')?.addEventListener('click', (e) => {
+        const list = out.querySelector('.cove-list');
+        if (!list) return;
+        list.hidden = !list.hidden;
+        e.currentTarget.textContent = `${list.hidden ? 'Show' : 'Hide'} the ${nf(s.notFoundTotal)} not found`;
+      });
+      return;
+    }
+
+    // A finished (or stopped) move.
+    const lines = [];
+    const groups = sum.groupsCreated;
+    const groupLine = groups ? ` ${nf(groups)} collection${groups === 1 ? ' is' : 's are'} now Cove groups.` : '';
+    if (s.state === 'done') {
+      coveStatusLine(statusId, '');
+      lines.push(`<span class="mig-status mig-good">${esc(sum.items.changed
+        ? `✓ Moved ${nf(sum.items.changed)} item${sum.items.changed === 1 ? '' : 's'} to Cove.${groupLine}`
+        : `✓ Done. Everything was already up to date in Cove.${groupLine}`)}</span>`);
+    }
+    if (sum.unmatched || sum.errors) {
+      const bits = [];
+      if (sum.unmatched) bits.push(`${nf(sum.unmatched)} item${sum.unmatched === 1 ? ' was' : 's were'} not found in Cove`);
+      if (sum.errors) bits.push(`${nf(sum.errors)} could not be updated`);
+      lines.push(`<span class="mig-status cove-warn">${esc(bits.join(' and ') + '.')}</span>`);
+    }
+    out.innerHTML = `<div class="cove-result">${lines.join('')}${coveExtraLines(s)}${coveProblemsHtml(s)}${coveReportLinks()}</div>`;
+    out.querySelector('[data-cove-again]')?.addEventListener('click', () => {
+      out.innerHTML = '';
+      coveStart('preview');
+    });
+  }
+
+  function coveClaimNotify(jobId) {
+    if (!jobId) return true;
+    try {
+      if (sessionStorage.getItem(SS_COVE_NOTIFIED) === jobId) return false;
+      sessionStorage.setItem(SS_COVE_NOTIFIED, jobId);
+    } catch { /* private mode: notify every time rather than never */ }
+    return true;
+  }
+
+  function coveApply(s) {
+    coveLastStatus = s;
+    coveRenderProgress(s);
+    coveRenderResult(s);
+    coveSyncButtons();
+  }
+
+  function coveStopPoll() {
+    if (covePollTimer) { clearInterval(covePollTimer); covePollTimer = null; }
+  }
+
+  async function covePollOnce() {
+    if (!isOpen() || !coveEl('coveMoveCard')) { leaveCoveSection(); return; }
+    const r = await coveFetch('GET', '/api/cove/status');
+    if (!r.ok || !coveEl('coveMoveCard')) return;
+    coveApply(r.data);
+    if (!coveRunning(r.data)) {
+      coveStopPoll();
+      coveClaimNotify(r.data.jobId);   // seen on screen: no toast for this one later
+    }
+  }
+
+  function coveStartPoll() {
+    stopCoveWatch();
+    if (covePollTimer) return;
+    covePollTimer = setInterval(covePollOnce, 1000);
+  }
+
+  /* While Settings is closed (or on another tab) a running job is watched
+     quietly so its end can be announced once. Marked as background so the
+     watch alone never keeps the vault from auto-locking. */
+  function coveWatchIfRunning() {
+    if (!coveRunning(coveLastStatus) || coveWatchTimer) return;
+    coveWatchTimer = setInterval(async () => {
+      if (isOpen() && coveEl('coveMoveCard')) { stopCoveWatch(); return; }
+      const r = await coveFetch('GET', '/api/cove/status', undefined, { background: true });
+      if (!r.ok) return;
+      coveLastStatus = r.data;
+      if (coveRunning(r.data)) return;
+      stopCoveWatch();
+      if (!coveClaimNotify(r.data.jobId) || typeof showToast !== 'function') return;
+      const sum = r.data.summary;
+      if (r.data.state === 'done' && r.data.mode === 'move') {
+        showToast(`⛵ Moved to Cove: ${nf(sum.items.changed)} item(s) updated${sum.errors ? `, ${nf(sum.errors)} problem(s)` : ''}`);
+      } else if (r.data.state === 'done') {
+        showToast('⛵ The Cove preview is ready in Settings');
+      } else {
+        showToast(`⛵ ${r.data.error || 'Move to Cove did not finish'}`);
+      }
+    }, 3000);
+  }
+
+  function stopCoveWatch() {
+    if (coveWatchTimer) { clearInterval(coveWatchTimer); coveWatchTimer = null; }
+  }
+
+  /** Leaving the tab or closing Settings: stop the 1 s poll, keep a quiet watch on a running job. */
+  function leaveCoveSection() {
+    coveStopPoll();
+    coveWatchIfRunning();
+  }
+
+  async function coveStart(mode) {
+    const statusId = mode === 'move' ? 'coveMoveStatus' : 'covePreviewStatus';
+    coveStatusLine(statusId, 'Starting…');
+    coveRateWindow = [];
+    const r = await coveFetch('POST', `/api/cove/${mode}`);
+    const st = await coveFetch('GET', '/api/cove/status');
+    if (st.ok) coveApply(st.data);
+    if (!r.ok) coveStatusLine(statusId, `⚠ ${r.data.error || 'Could not start.'}`, 'mig-bad');
+    if (coveRunning(coveLastStatus)) coveStartPoll();
+  }
+
+  async function coveRefreshStatus() {
+    const r = await coveFetch('GET', '/api/cove/status');
+    if (!r.ok || !coveEl('coveMoveCard')) return;
+    coveApply(r.data);
+    if (coveRunning(r.data)) coveStartPoll();
+    else coveClaimNotify(r.data.jobId);
+  }
+
+  /** After a settings change: the check may no longer hold, and Move needs a new preview. */
+  async function coveSettingsChanged({ recheck }) {
+    if (recheck) { coveCheck = null; coveRenderCheck(); }
+    coveRenderTokenState();
+    await coveRefreshStatus();
+  }
+
+  async function wireCoveSection() {
+    coveStopPoll();
+    stopCoveWatch();
+    coveRateWindow = [];
+
+    coveEl('coveLoginToggle')?.addEventListener('click', () =>
+      coveSetFold('coveLoginToggle', 'coveLoginBody', coveEl('coveLoginBody').hidden));
+    coveEl('coveMapToggle')?.addEventListener('click', () =>
+      coveSetFold('coveMapToggle', 'coveMapBody', coveEl('coveMapBody').hidden));
+
+    coveEl('coveUrl')?.addEventListener('change', async (e) => {
+      const hadToken = !!(coveSettings && coveSettings.hasToken);
+      if (!(await coveSave({ url: e.target.value }, 'coveCheckStatus'))) return;
+      e.target.value = coveSettings.url;
+      await coveSettingsChanged({ recheck: true });
+      // The server drops the token when the address points at a different server.
+      if (hadToken && !coveSettings.hasToken) {
+        coveSetFold('coveLoginToggle', 'coveLoginBody', true);
+        coveStatusLine('coveCheckStatus', 'The token was cleared because the address now points at a different server. Paste the token again if it belongs there.');
+      }
+    });
+    coveEl('coveToken')?.addEventListener('change', async (e) => {
+      const value = e.target.value;
+      e.target.value = '';                 // never kept on the page
+      if (!value.trim()) return;
+      if (await coveSave({ token: value }, 'coveCheckStatus')) await coveSettingsChanged({ recheck: true });
+    });
+    coveEl('coveTokenForget')?.addEventListener('click', async () => {
+      if (await coveSave({ token: '' }, 'coveCheckStatus')) await coveSettingsChanged({ recheck: true });
+    });
+    coveEl('coveMapRows')?.addEventListener('change', async () => {
+      if (!(await coveSave({ maps: coveReadMaps() }, 'covePreviewStatus'))) return;
+      coveStatusLine('covePreviewStatus', '');
+      await coveSettingsChanged({ recheck: false });
+    });
+    coveEl('coveMapAdd')?.addEventListener('click', () => {
+      const host = coveEl('coveMapRows');
+      if (!host) return;
+      host.insertAdjacentHTML('beforeend', coveMapRowHtml({ from: '', to: '' }));
+      host.querySelector('.cove-map-row:last-child .mig-input')?.focus();
+    });
+    coveEl('coveCheckBtn')?.addEventListener('click', coveRunCheck);
+    coveEl('covePreviewBtn')?.addEventListener('click', () => coveStart('preview'));
+    coveEl('coveMoveBtn')?.addEventListener('click', () => coveStart('move'));
+    document.querySelectorAll('[data-cove-stop]').forEach(b => b.addEventListener('click', async () => {
+      b.disabled = true;
+      await coveFetch('POST', '/api/cove/stop');
+      b.disabled = false;
+    }));
+
+    coveRenderCheck();
+    const s = await coveFetch('GET', '/api/cove/settings');
+    if (!coveEl('coveMoveCard')) return;
+    if (s.ok) { coveSettings = s.data; coveRenderSettings(); }
+    await coveRefreshStatus();
+  }
+
   /* ── Section: About ──────────────────────────────────────────────────────── */
 
   function RENDERERS_about() {
@@ -2773,6 +3332,7 @@
     guides:    RENDERERS_guides,
     models:    RENDERERS_models,
     seedpacks: RENDERERS_seedpacks,
+    cove:      RENDERERS_cove,
     about:     RENDERERS_about,
     backend:   RENDERERS_backend,
   };
