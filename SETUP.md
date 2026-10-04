@@ -343,8 +343,29 @@ ratings, favorites and collections (as Cove groups). Vault itself is only
 read, never changed, and nothing in Cove is deleted or overwritten: a
 description, rating or field you already set in Cove stays as it is.
 
+**The easy way: ⚙ Settings > ⛵ Move to Cove.**
+
 1. **Let Cove scan the same files first.** Items are matched by file path,
    then by name and size when the path differs.
+2. **Connect.** Enter Cove's address (shown in Cove's window, usually
+   `http://127.0.0.1:5073`) and click **Check connection**. If Cove has login
+   turned on, open "Cove has login turned on" and paste an API token from
+   Cove (Settings > Security & access > API tokens). The token is only kept
+   until Vault closes.
+3. **Preview.** Shows how many items Cove found, which it could not find, and
+   what would change. Nothing is written yet. If Cove sees your files under
+   another path (Docker, another machine), open "Cove sees my folders under a
+   different path" and add each folder pair.
+4. **Move to Cove.** Runs in the background; you can close Settings. Running
+   it again later is safe: it only adds what is still missing. **Save full
+   report** downloads the details.
+
+An encrypted library only needs to be unlocked, as usual. Cove keeps what is
+copied over without encryption.
+
+**From the command line** (same result, for scripting):
+
+1. **Let Cove scan the same files first.**
 2. **Only if Cove has login turned on:** create an API token in Cove under
    Settings > Security & access > API tokens, signed in as the owner, and set
    it in the same terminal (it is read from the environment so it never lands
