@@ -101,6 +101,26 @@ function createStub({ loginOff = false } = {}) {
     engagement: new Map(),
     groups: [{ id: 1, name: 'Existing', kind: 'static', customFields: {},
       items: [{ id: 1, hostType: 'video', hostId: 101, orderIndex: 0 }] }],
+    // Cove's whole config (a slice of the real shape is enough: PUT replaces all of it).
+    config: {
+      covePaths: [{ path: '/other', excludeVideo: false, excludeImage: true, excludeAudio: false, excludeText: false }],
+      generatedPath: '/data/generated', host: '0.0.0.0', port: 5073, maxParallelTasks: 3,
+      downloaderSiteCredentials: [{ id: 'c1', site: 'example.com', username: 'me', password: 'stored-secret', hasPassword: true }],
+      videoExtensions: ['.mp4', '.mkv'], imageExtensions: ['.gif', '.jpg'], audioExtensions: ['.mp3'],
+      excludePatterns: ['*.tmp'], ui: { title: 'My Cove', keybindingOverrides: { play: 'k' } },
+      security: { enabled: true, username: 'owner', knownProxies: [], trustedHosts: [] },
+      pluginConfigurations: { p1: { a: 1 } }, disabledPlugins: ['x'],
+    },
+    // Scans: POST /api/metadata/scan bodies, and Cove jobs by id. A job completes after
+    // scanPolls GETs (or ends as scanOutcome); onScanComplete(body) can add the files it "found".
+    scans: [],
+    jobs: new Map(),
+    scanPolls: 2,
+    scanOutcome: 'completed',
+    onScanComplete: null,
+    scanStaysPending: false,      // jobs never leave Cove's queue
+    jobsForgotten: false,         // GET/DELETE /api/jobs/{id} answer 404
+    cancelFails: false,           // DELETE /api/jobs/{id} is refused
   };
   const media = (kind, o) => s.media[kind].set(o.id, { details: null, tagIds: [], customFields: {}, parentVideoId: null, ...o });
   media('video', { id: 101, files: [{ path: '/media/clip one.mp4', size: 1000 }], tagIds: [1] });
@@ -154,6 +174,52 @@ function createStub({ loginOff = false } = {}) {
     let m;
     if (method === 'GET' && p === '/api/auth/me') return [200, { user: { id: '1', username: 'owner', kind: 'user' }, permissions: s.permissions || ['*'] }];
     if (method === 'GET' && p === '/api/system/status') return [200, { version: '1.5.0-test', databasePath: 'x', authEnabled: !loginOff }];
+    // Like SystemController: GET never returns downloader passwords; PUT replaces the whole
+    // config, keeping a stored password (by credential id) when the save leaves it out.
+    if (p === '/api/system/config' && method === 'GET') {
+      const c = JSON.parse(JSON.stringify(s.config));
+      c.downloaderSiteCredentials = c.downloaderSiteCredentials.map(x => ({ ...x, password: null }));
+      return [200, c];
+    }
+    if (p === '/api/system/config' && method === 'PUT') {
+      const stored = new Map(s.config.downloaderSiteCredentials.map(x => [x.id, x.password]));
+      const next = JSON.parse(JSON.stringify(body));
+      next.downloaderSiteCredentials = (next.downloaderSiteCredentials || []).map(x => ({ ...x, password: x.password || stored.get(x.id) || '' }));
+      s.config = next;
+      return route('GET', p, q, null);
+    }
+    if (method === 'POST' && p === '/api/metadata/scan') {
+      const id = `job-${s.nextId++}`;
+      s.scans.push(body);
+      s.jobs.set(id, { id, type: 'scan', status: 'pending', progress: 0, polls: 0, body, unitsTotal: 10, unitsCompleted: 0 });
+      return [200, { jobId: id }];
+    }
+    if ((m = p.match(/^\/api\/jobs\/([^/]+)$/))) {
+      const j = s.jobs.get(decodeURIComponent(m[1]));
+      if (!j || s.jobsForgotten) return [404, null];
+      if (method === 'DELETE') {
+        if (s.permissions && !s.permissions.includes('*') && !s.permissions.includes('jobs.cancel')) return [403, { error: 'forbidden' }];
+        if (s.cancelFails) return [409, { error: 'job cannot be cancelled now' }];
+        j.status = 'cancelled';
+        return [200, null];
+      }
+      if (method === 'GET') {
+        if (s.scanStaysPending && j.status === 'pending') return [200, { id: j.id, type: 'scan', status: 'pending', progress: 0 }];
+        if (j.status === 'pending' || j.status === 'running') {
+          j.polls++;
+          j.status = 'running';
+          j.unitsCompleted = Math.min(10, j.polls * 4);
+          j.progress = j.unitsCompleted / 10;
+          if (j.polls >= s.scanPolls) {
+            j.status = s.scanOutcome;
+            if (j.status === 'failed') j.error = 'disk on fire';
+            if (j.status === 'completed' && s.onScanComplete) s.onScanComplete(j.body);
+          }
+        }
+        const { polls, body: _b, ...dto } = j;
+        return [200, { ...dto, etaSeconds: j.status === 'running' ? 3 : null }];
+      }
+    }
     if ((m = p.match(/^\/api\/(video|image|audio)s$/)) && method === 'GET') {
       const kind = m[1];
       const all = [...s.media[kind].values()].map(x => mediaDto(kind, x, { list: true }));

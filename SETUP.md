@@ -345,17 +345,25 @@ description, rating or field you already set in Cove stays as it is.
 
 **The easy way: ⚙ Settings > ⛵ Move to Cove.**
 
-1. **Let Cove scan the same files first.** Items are matched by file path,
-   then by name and size when the path differs.
-2. **Connect.** Enter Cove's address (shown in Cove's window, usually
+Start Cove, then work down the page:
+
+1. **Connect.** Enter Cove's address (shown in Cove's window, usually
    `http://127.0.0.1:5073`) and click **Check connection**. If Cove has login
    turned on, open "Cove has login turned on" and paste an API token from
    Cove (Settings > Security & access > API tokens). The token is only kept
    until Vault closes.
-3. **Preview.** Shows how many items Cove found, which it could not find, and
-   what would change. Nothing is written yet. If Cove sees your files under
-   another path (Docker, another machine), open "Cove sees my folders under a
-   different path" and add each folder pair.
+2. **Get your files into Cove.** Vault lists the folders its media lives in
+   and marks the ones Cove's library doesn't have yet. **Add N folders and
+   scan** adds them to Cove and has Cove scan them (covers only by default,
+   which is quick; Cove can make previews and sprites later from its Tasks
+   page). If you already added the folders in Cove yourself, use **Only
+   scan**. If Cove sees your files under another path (Docker, another
+   machine), open "Cove sees my folders under a different path" and add each
+   folder pair. Vault never adds a whole drive: files sitting directly on a
+   drive have to go into a folder first.
+3. **Preview.** Starts by itself when the scan is done. Shows how many items
+   Cove found, which it could not find (with the reason), and what would
+   change. Nothing is copied yet.
 4. **Move to Cove.** Runs in the background; you can close Settings. Running
    it again later is safe: it only adds what is still missing. **Save full
    report** downloads the details.

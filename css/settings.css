@@ -1637,3 +1637,55 @@ body.pm-names #modalTitle {
 
 .mig-actions.cove-links { margin-top: 0; gap: 1rem; }
 .cove-links .settings-link { margin-left: 0; font-size: 0.8rem; }
+
+/* ── Move to Cove: step 2, getting the files into Cove ── */
+.mig-card.cove-dim { opacity: 0.5; }
+.cove-step-done { font-size: 0.8rem; color: #22c55e; margin: -0.2rem 0 0.6rem; }
+.cove-step-done[hidden] { display: none; }
+
+.cove-folders {
+  display: grid;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+.cove-folders[hidden] { display: none; }
+.cove-frow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 4px 10px;
+  align-items: center;
+  padding: 0.4rem 0.6rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+.cove-frow:first-child { border-top: 0; }
+.cove-frow[hidden] { display: none; }
+.cove-fpath { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.76rem; overflow-wrap: anywhere; min-width: 0; color: var(--text-primary); }
+.cove-fcount { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cove-fnote { grid-column: 2 / -1; font-size: 0.74rem; color: #f59e0b; }
+.cove-pill { font-size: 0.68rem; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.cove-pill.in { color: #22c55e; background: rgba(34, 197, 94, 0.12); }
+.cove-pill.add { color: var(--accent-hover, var(--accent)); background: rgba(99, 102, 241, 0.16); }
+.cove-pill.see { color: #f59e0b; background: rgba(245, 158, 11, 0.12); }
+
+.cove-choices { display: grid; gap: 6px; margin: 0.3rem 0 0.2rem; }
+.cove-choices[hidden] { display: none; }
+.cove-choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: start;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.cove-choice[hidden] { display: none; }
+.cove-choice input { margin-top: 3px; accent-color: var(--accent); }
+.cove-choice b { color: var(--text-primary); font-weight: 600; }
+
+.mig-actions[hidden], .mig-status[hidden] { display: none; }
+.settings-link.cove-only { margin-left: 0; font-size: 0.8rem; }
+.mig-actions .settings-btn[hidden], .settings-link[hidden] { display: none; }
