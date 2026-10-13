@@ -11,7 +11,9 @@
  *   o1, o2, o3   person 0 ("Barack")
  *   mix          person 0 and person 1 in one photo
  *   b1, b2       person 1 ("Joe")
- *   m1           cosine 0.47 to person 0: its own person, a "maybe"
+ *   m1           cosine 0.47 to person 0: its own person, too far to be offered
+ *   y1           cosine 0.53 to person 0, w1 between person 0 and n1: moved
+ *                into their own people, both "maybe" (w1 is closer to n1)
  *   l1 h1 d1 r1 n1  cosine 0.65 to 0.7 to person 0: sorted into Barack, then
  *                moved by the test into their own people (a "likely", a
  *                hidden one, a 'different' answer, a reject, a named one)
@@ -106,6 +108,7 @@ test.before(async () => {
     'mix.jpg': [like(0, 0.95, 103), like(1, 0.95, 104)],
     'b1.jpg': [person(1)], 'b2.jpg': [like(1, 0.9, 105)],
     'm1.jpg': [like(0, 0.47, 106)],
+    'y1.jpg': [like(0, 0.53, 117)], 'w1.jpg': [(() => { const v = new Float32Array(128); v[0] = 0.6; v[111] = 0.8; return v; })()],
     'l1.jpg': [like(0, 0.7, 107)], 'h1.jpg': [like(0, 0.7, 108)], 'd1.jpg': [like(0, 0.68, 109)],
     'r1.jpg': [like(0, 0.66, 110)], 'n1.jpg': [like(0, 0.65, 111)],
     's1.jpg': [person(2)],
@@ -121,7 +124,7 @@ test.before(async () => {
   assert.strictEqual((await post('/api/faces/settings', { enabled: true })).status, 200);
   // Barack's files first, so the near faces join his person when sorted.
   await index(['o1.jpg', 'o2.jpg', 'o3.jpg', 'mix.jpg', 'b1.jpg', 'b2.jpg']);
-  await index(['m1.jpg', 'l1.jpg', 'h1.jpg', 'd1.jpg', 'r1.jpg', 'n1.jpg', 's1.jpg', 't1.jpg', 't2.jpg', 't3.jpg', 't4.jpg',
+  await index(['m1.jpg', 'y1.jpg', 'w1.jpg', 'l1.jpg', 'h1.jpg', 'd1.jpg', 'r1.jpg', 'n1.jpg', 's1.jpg', 't1.jpg', 't2.jpg', 't3.jpg', 't4.jpg',
     'a1.jpg', 'a2.jpg', 'a3.jpg', 'a4.jpg']);
   P.barack = pidOf('o1.jpg');
   P.joe = pidOf('b1.jpg');
@@ -212,6 +215,8 @@ test('E4 candidates: unnamed people ranked by the rule, hidden / different / rej
   P.r = solo('r1.jpg');
   P.n = solo('n1.jpg', { pname: 'Other' });
   P.m = pidOf('m1.jpg');
+  P.y = solo('y1.jpg');
+  P.w = solo('w1.jpg');
   db.get().prepare("INSERT INTO face_pair_decisions (a, b, decision, created_at) VALUES (?, ?, 'different', 'x')")
     .run(Math.min(P.barack, P.d), Math.max(P.barack, P.d));
   db.get().prepare('INSERT INTO face_person_rejects (person_id, group_id) VALUES (?, ?)').run(P.barack, gid('r1.jpg'));
@@ -219,16 +224,18 @@ test('E4 candidates: unnamed people ranked by the rule, hidden / different / rej
 
   const r = await get(`/api/faces/people/${P.barack}/candidates`);
   assert.strictEqual(r.status, 200, JSON.stringify(r.body));
-  assert.deepStrictEqual(r.body.items.map(i => [i.personId, i.tier]), [[P.l, 'likely'], [P.m, 'maybe']]);
-  assert.strictEqual(r.body.total, 2);
+  // person centroids: l1 0.68 with a wide margin over 'Other' = likely; w1
+  // 0.59 but closer to 'Other' = maybe; y1 0.52 = maybe; m1 0.46 not listed
+  assert.deepStrictEqual(r.body.items.map(i => [i.personId, i.tier]), [[P.l, 'likely'], [P.w, 'maybe'], [P.y, 'maybe']]);
+  assert.strictEqual(r.body.total, 3);
   const [it] = r.body.items;
   assert.deepStrictEqual(Object.keys(it).sort(), ['cropUrl', 'filename', 'files', 'groupId', 'mediaId', 'personId', 'score', 'tier']);
   assert.deepStrictEqual([it.groupId, it.mediaId, it.filename, it.files, it.cropUrl],
     [gid('l1.jpg'), ids['l1.jpg'], 'l1.jpg', 1, `/api/faces/crop/${gid('l1.jpg')}`]);
-  assert.ok(it.score >= 0.5 && r.body.items[1].score >= 0.42 && r.body.items[1].score < 0.5);
+  assert.ok(it.score >= 0.56 && r.body.items[1].score >= 0.56 && r.body.items[2].score >= 0.48 && r.body.items[2].score < 0.56);
 
   const page = await get(`/api/faces/people/${P.barack}/candidates?limit=1&offset=1`);
-  assert.deepStrictEqual([page.body.total, page.body.items.map(i => i.personId)], [2, [P.m]]);
+  assert.deepStrictEqual([page.body.total, page.body.items.map(i => i.personId)], [3, [P.w]]);
   assert.strictEqual((await get(`/api/faces/people/${P.barack}/candidates?limit=0`)).status, 400);
   assert.strictEqual((await get(`/api/faces/people/${P.barack}/candidates?offset=-1`)).status, 400);
   assert.strictEqual((await get('/api/faces/people/987654/candidates')).status, 404);
@@ -236,9 +243,9 @@ test('E4 candidates: unnamed people ranked by the rule, hidden / different / rej
 
   // D1: trashing / restoring a file (no face counter moves) refreshes the cached list
   db.get().prepare('UPDATE media SET user_trashed = 1 WHERE id = ?').run(ids['l1.jpg']);
-  assert.deepStrictEqual((await get(`/api/faces/people/${P.barack}/candidates`)).body.items.map(i => i.personId), [P.m]);
+  assert.deepStrictEqual((await get(`/api/faces/people/${P.barack}/candidates`)).body.items.map(i => i.personId), [P.w, P.y]);
   db.get().prepare('UPDATE media SET user_trashed = 0 WHERE id = ?').run(ids['l1.jpg']);
-  assert.deepStrictEqual((await get(`/api/faces/people/${P.barack}/candidates`)).body.items.map(i => i.personId), [P.l, P.m]);
+  assert.deepStrictEqual((await get(`/api/faces/people/${P.barack}/candidates`)).body.items.map(i => i.personId), [P.l, P.w, P.y]);
 });
 
 test('E4 the scoring rule is one swappable function', async () => {
@@ -262,15 +269,15 @@ test('E4 answers: accept merges (locked), reject records different; both leave t
   }
   assert.strictEqual((await post('/api/faces/people/987654/candidates', { accept: [P.l] })).status, 404);
 
-  const r = await post(`/api/faces/people/${P.barack}/candidates`, { accept: [P.l, P.n, 987654], reject: [P.m] });
+  const r = await post(`/api/faces/people/${P.barack}/candidates`, { accept: [P.l, P.n, 987654], reject: [P.w, P.y] });
   assert.strictEqual(r.status, 200, JSON.stringify(r.body));
-  assert.deepStrictEqual([r.body.merged, r.body.rejected], [[P.l], [P.m]]);
+  assert.deepStrictEqual([r.body.merged, r.body.rejected], [[P.l], [P.w, P.y]]);
   assert.deepStrictEqual(r.body.skipped, [{ personId: P.n, reason: 'named' }, { personId: 987654, reason: 'gone' }]);
   assert.strictEqual(r.body.person.id, P.barack);
   assert.strictEqual(r.body.person.name, 'Barack');
   assert.deepStrictEqual(one('SELECT cluster_id, person_locked FROM face_groups WHERE id = ?', gid('l1.jpg')), { cluster_id: P.barack, person_locked: 1 });
   assert.strictEqual(one('SELECT 1 AS x FROM face_people WHERE id = ?', P.l), undefined);
-  assert.strictEqual(one('SELECT decision FROM face_pair_decisions WHERE a = ? AND b = ?', Math.min(P.barack, P.m), Math.max(P.barack, P.m)).decision, 'different');
+  assert.strictEqual(one('SELECT decision FROM face_pair_decisions WHERE a = ? AND b = ?', Math.min(P.barack, P.y), Math.max(P.barack, P.y)).decision, 'different');
   assert.strictEqual(pidOf('n1.jpg'), P.n, 'a named person is never merged from here');
   const after = await get(`/api/faces/people/${P.barack}/candidates`);
   assert.deepStrictEqual(after.body, { total: 0, items: [] });
@@ -530,6 +537,110 @@ test('E5 vault lock forgets the recent list (file names)', () => {
   svc.onVaultLocked();
   assert.deepStrictEqual(svc.queueStatus().recent, []);
   svc.onVaultUnlocked();
+});
+
+/* ── E7: detection and joining defaults (quality experiment 2) ───────────── */
+
+test('E7 detection: score floor 0.80, faces with an SFace norm under 7 dropped, norm reported', async () => {
+  const { createStubEngine, stubFrame } = require('../lib/faces/stub');
+  const analyze = require('../lib/faces/analyze');
+  assert.strictEqual(analyze.MIN_SCORE, 0.8);
+  assert.strictEqual(require('../lib/faces/engine').DEFAULT_MIN_SCORE, 0.8);
+  const eng = createStubEngine();
+  const f = await analyze.analyzeFrame(eng, stubFrame([{ person: 1 }, { person: 2, variant: 150 }, { person: 3, variant: 200 }]));
+  assert.deepStrictEqual(f.map(x => x.norm).sort(), [12, 8], 'the norm-5 face is dropped, the others carry their norm');
+  const r = await analyze.analyzeFile(eng, { filepath: 'p1_p2v150_p3v200.jpg', kind: 'image' });
+  assert.deepStrictEqual(r.groups.map(g => g.exemplars[0].norm).sort(), [12, 8]);
+  // minNorm can be lowered per call (calibration harness)
+  assert.strictEqual((await analyze.analyzeFrame(eng, stubFrame([{ person: 3, variant: 200 }]), { minNorm: 0 })).length, 1);
+  // an engine without embedWithNorm (older fakes) keeps every face, norm null
+  const old = { modelId: 'stub-v1', detect: eng.detect, embed: eng.embed };
+  assert.deepStrictEqual((await analyze.analyzeFrame(old, stubFrame([{ person: 3, variant: 200 }]))).map(x => x.norm), [null]);
+});
+
+test('E7 storage: norm per vector and per group (the clearest exemplar); none on record = NULL', async () => {
+  addFile('nv1.mp4', 'video');
+  fk.fileScripts.set(files['nv1.mp4'], { groups: [group([person(60), like(60, 0.7, 118)], { norm: [11.5, 9.25] })] });
+  addFile('nv2.jpg');
+  fk.fileScripts.set(files['nv2.jpg'], { groups: [group(person(61))] });
+  await index(['nv1.mp4', 'nv2.jpg']);
+  assert.deepStrictEqual(q('SELECT norm FROM face_vectors WHERE media_id = ? ORDER BY id', ids['nv1.mp4']).map(r => r.norm), [11.5, 9.25]);
+  assert.strictEqual(one('SELECT norm FROM face_groups WHERE media_id = ?', ids['nv1.mp4']).norm, 11.5);
+  assert.strictEqual(one('SELECT norm FROM face_groups WHERE media_id = ?', ids['nv2.jpg']).norm, null);
+});
+
+test('E7 sorting: an unclear face (norm < 9) joins a person but never starts one; held faces join a person that appears later', async () => {
+  // joins: close to an existing person
+  addFile('lo-join.jpg');
+  fk.fileScripts.set(files['lo-join.jpg'], { groups: [group(like(0, 0.9, 119), { norm: 8 })] });
+  // a stranger, unclear: stays unsorted (held), searchable, shown on its file, not in the grid
+  addFile('lo-alone.jpg');
+  fk.fileScripts.set(files['lo-alone.jpg'], { groups: [group(person(62), { norm: 8 })] });
+  // the same stranger with no norm on record (old data) starts a person as before
+  addFile('old-alone.jpg');
+  fk.fileScripts.set(files['old-alone.jpg'], { groups: [group(person(63))] });
+  const peopleBefore = (await get('/api/faces/people?limit=500')).body.counts.all;
+  await index(['lo-join.jpg', 'lo-alone.jpg', 'old-alone.jpg']);
+  assert.strictEqual(pidOf('lo-join.jpg'), P.barack);
+  assert.deepStrictEqual(one('SELECT cluster_id, sort_held FROM face_groups WHERE id = ?', gid('lo-alone.jpg')), { cluster_id: null, sort_held: 1 });
+  assert.notStrictEqual(pidOf('old-alone.jpg'), null);
+  assert.strictEqual((await get('/api/faces/people?limit=500')).body.counts.all, peopleBefore + 1, 'only old-alone made a person');
+  assert.strictEqual((await get('/api/faces/status')).body.people.pending, 0, 'held faces are not pending work');
+  const chips = (await get(`/api/media/${ids['lo-alone.jpg']}/faces`)).body.groups;
+  assert.deepStrictEqual(chips.map(c => [c.id, c.personId]), [[gid('lo-alone.jpg'), null]]);
+  const s = await post(`/api/faces/groups/${gid('lo-alone.jpg')}/similar`, {});
+  assert.deepStrictEqual([s.body.ids, s.body.match[ids['lo-alone.jpg']].personId], [[ids['lo-alone.jpg']], null]);
+  // a clear face of that stranger arrives: it starts a person, and the held face joins it
+  addFile('hi-alone.jpg');
+  fk.fileScripts.set(files['hi-alone.jpg'], { groups: [group(like(62, 0.9, 120), { norm: 12 })] });
+  await index(['hi-alone.jpg']);
+  assert.notStrictEqual(pidOf('hi-alone.jpg'), null);
+  assert.deepStrictEqual(one('SELECT cluster_id, sort_held FROM face_groups WHERE id = ?', gid('lo-alone.jpg')), { cluster_id: pidOf('hi-alone.jpg'), sort_held: 0 });
+  // a held face also gets its chance when the user makes a person from faces
+  addFile('lo2.jpg'); addFile('lo3.jpg');
+  fk.fileScripts.set(files['lo2.jpg'], { groups: [group(person(64), { norm: 8.5 })] });
+  fk.fileScripts.set(files['lo3.jpg'], { groups: [group(like(64, 0.9, 121), { norm: 8.5 })] });
+  await index(['lo2.jpg', 'lo3.jpg']);
+  assert.deepStrictEqual([pidOf('lo2.jpg'), pidOf('lo3.jpg')], [null, null]);
+  const made = await post('/api/faces/people', { name: 'Unclear', groupIds: [gid('lo2.jpg')] });
+  assert.strictEqual(made.status, 200);
+  await svc.sortPeopleNow();
+  assert.strictEqual(pidOf('lo3.jpg'), made.body.id);
+});
+
+test('E7 sorting: a held face is retried against a person a user action changed (merge)', async () => {
+  // two looks of one person, 0.48 apart (two people); an unclear third look, 0.48 to each: held
+  for (const [n, noise, nrm] of [['g1.jpg', 122, 12], ['g2.jpg', 123, 12], ['g3.jpg', 124, 8]]) {
+    addFile(n);
+    fk.fileScripts.set(files[n], { groups: [group(like(70, 0.69, noise), { norm: nrm })] });
+    await index([n]);
+  }
+  const p1 = pidOf('g1.jpg'), p2 = pidOf('g2.jpg');
+  assert.ok(p1 && p2 && p1 !== p2);
+  assert.deepStrictEqual(one('SELECT cluster_id, sort_held FROM face_groups WHERE id = ?', gid('g3.jpg')), { cluster_id: null, sort_held: 1 });
+  // merged, the person's centroid sits at 0.55 to the held face: it joins on the next run
+  assert.strictEqual((await post('/api/faces/people/merge', { ids: [p1, p2], into: p1 })).status, 200);
+  await svc.sortPeopleNow();
+  assert.deepStrictEqual(one('SELECT cluster_id, sort_held FROM face_groups WHERE id = ?', gid('g3.jpg')), { cluster_id: p1, sort_held: 0 });
+});
+
+test('E7 might also be: a person-level score needs a margin over the next named person for "likely"', () => {
+  const { CENTROID_RULE } = candidates;
+  const th = require('../lib/faces/thresholds').peopleThresholds('stub-v1');
+  const p = (vec, id = 1) => ({ groups: [{ id, model: 'm', vec }], centroids: new Map([['m', vec]]) });
+  const unit = (pairs) => { const v = new Float32Array(128); let n = 0; for (const [i, x] of pairs) { v[i] = x; n += x * x; } for (const [i] of pairs) v[i] /= Math.sqrt(n); return v; };
+  const target = p(unit([[0, 1]]));
+  const other = p(unit([[1, 1]]));
+  const at = (s, o = 0) => p(unit([[0, s], [1, o], [2, Math.sqrt(Math.max(0, 1 - s * s - o * o))]]), 9);
+  const tierOf = (cand) => CENTROID_RULE.tier(CENTROID_RULE.score(target, cand, [other]), th);
+  assert.strictEqual(tierOf(at(0.6)), 'likely');
+  assert.strictEqual(tierOf(at(0.6, 0.57)), 'maybe', 'margin 0.03 < 0.05');
+  assert.strictEqual(tierOf(at(0.6, 0.54)), 'likely', 'margin 0.06');
+  assert.strictEqual(tierOf(at(0.5)), 'maybe');
+  assert.strictEqual(tierOf(at(0.47)), null);
+  const r = CENTROID_RULE.score(target, at(0.6, 0.2), [other]);
+  assert.strictEqual(r.groupId, 9);
+  assert.ok(Math.abs(r.margin - 0.4) < 1e-6);
 });
 
 test('E5 delete-all forgets recent files and lastRun', async () => {
