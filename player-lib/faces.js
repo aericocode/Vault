@@ -431,7 +431,7 @@ function facesRenderBanner(bar) {
     if (!f.others) text = `No other files look like this person at this setting.${canName && !(T && T.name) ? addName : ''}`;
     else if (T && T.name) {
       text = `${lead} <span class="faces-bname"><span class="faces-bname-in"><span class="faces-bname-text ft-pm-name" data-faces-name>${escapeHtml(T.name)}</span><button type="button" class="faces-pen" data-faces-name aria-label="Rename" title="Rename">${FACES_PEN}</button></span></span>${allIn ? ` ${allAre(whoT, 'already ')}` : ''}`;
-    } else text = `${lead} this person.${sameUnnamed}${addName}`;
+    } else text = `${lead} this person.${addName}`;
   } else {
     text = `${lead} this face.`;
     if (allIn && T.name) text += ` ${allAre(`<b>${facesPmName(T.name)}</b>`, '')}`;
@@ -482,8 +482,11 @@ function facesRenderBanner(bar) {
   });
   bar.querySelectorAll('[data-faces-width]').forEach(b => b.addEventListener('click', async () => {
     const w = b.dataset.facesWidth;
+    if (!facesFocus) return;
+    // The width already showing, clicked again: search again (people may have changed).
+    if (w === facesFocus.wanted && w === facesFocus.width) { facesRefreshFocus(); return; }
     // Compare with the last width ASKED for: quick clicks must end on the last one.
-    if (!facesFocus || w === facesFocus.wanted) return;
+    if (w === facesFocus.wanted) return;
     facesFocus.wanted = w;
     bar.querySelectorAll('[data-faces-width]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
     if (w === facesFocus.width) {

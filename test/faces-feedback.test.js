@@ -666,6 +666,32 @@ test('E7 re-check: a carried-over automatic person whose faces are all unclear i
   assert.strictEqual(pidOf('uc4.jpg'), pU4);
 });
 
+test('held faces join a person a user makes or grows before the request answers (no background run needed)', async () => {
+  for (const [n, v] of [['hd1.jpg', person(95)], ['hd2.jpg', like(95, 0.9, 132)], ['hd3.jpg', person(96)], ['hd4.jpg', like(96, 0.9, 133)], ['hd5.jpg', like(96, 0.3, 134)]]) {
+    addFile(n);
+    fk.fileScripts.set(files[n], { groups: [group(v, { norm: n === 'hd5.jpg' ? 12 : 8.5 })] });
+  }
+  await index(['hd1.jpg', 'hd2.jpg', 'hd3.jpg', 'hd4.jpg']);
+  for (const n of ['hd1.jpg', 'hd2.jpg', 'hd3.jpg', 'hd4.jpg']) {
+    assert.deepStrictEqual(one('SELECT cluster_id, sort_held FROM face_groups WHERE id = ?', gid(n)), { cluster_id: null, sort_held: 1 }, n);
+  }
+  // E3 from one held face: the other held face is in the answer and the search at once
+  const made = await post('/api/faces/people', { name: 'Held Pair', groupIds: [gid('hd1.jpg')] });
+  assert.strictEqual(made.status, 200);
+  assert.strictEqual(pidOf('hd2.jpg'), made.body.id, 'joined inside the request');
+  assert.strictEqual(made.body.files, 2);
+  const s = await post(`/api/faces/groups/${gid('hd1.jpg')}/similar`, {});
+  assert.strictEqual(s.body.match[ids['hd2.jpg']].personId, made.body.id);
+  // E2 add: a clear person far from them (0.3); adding one held face moves its centroid within reach of the other
+  await index(['hd5.jpg']);
+  const p5 = pidOf('hd5.jpg');
+  assert.ok(p5);
+  const added = await post(`/api/faces/people/${p5}/add`, { groupIds: [gid('hd3.jpg')] });
+  assert.strictEqual(added.status, 200);
+  assert.strictEqual(pidOf('hd4.jpg'), p5);
+  assert.strictEqual(added.body.person.files, 3);
+});
+
 test('Undo: unhide puts a not-a-face face back (into its person, or sorted again); unreject takes back a "different"', async () => {
   for (const [n, v] of [['nf1.jpg', person(90)], ['nf2.jpg', like(90, 0.9, 131)], ['nf3.jpg', person(91)]]) {
     addFile(n);

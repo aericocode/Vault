@@ -1162,11 +1162,23 @@ async function ftNotAFace(list) {
     buttons: [{ label: 'Cancel', value: false }, { label: 'Not a face', value: true, danger: true }],
   });
   if (!ok) return false;
-  try {
-    for (const p of list) await ftApi(`/api/faces/people/${p.id}/not-a-face`, { method: 'POST' });
-  } catch (err) { facesToastError(err); ftLoadPeople(); return false; }
-  list.forEach(p => FT.faces.delete(p.id));
-  showToast(n === 1 ? 'Took 1 person out of Faces (not a face).' : `Took ${n.toLocaleString()} people out of Faces (not faces).`);
+  // One person gone meanwhile (merged, emptied) does not stop the rest.
+  let done = 0, gone = 0;
+  for (const p of list) {
+    try {
+      await ftApi(`/api/faces/people/${p.id}/not-a-face`, { method: 'POST' });
+      done++;
+    } catch (err) {
+      if (err.status === 404) { gone++; continue; }
+      facesToastError(err);
+      ftLoadPeople();
+      return done + gone > 0;
+    }
+    FT.faces.delete(p.id);
+  }
+  const took = done === 1 ? 'Took 1 person out of Faces (not a face).' : `Took ${done.toLocaleString()} people out of Faces (not faces).`;
+  const lost = gone ? ` ${gone.toLocaleString()} ${gone === 1 ? 'was' : 'were'} no longer in Faces.` : '';
+  showToast(done ? took + lost : `${gone === 1 ? 'That person is' : 'Those people are'} no longer in Faces.`);
   return true;
 }
 
