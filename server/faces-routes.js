@@ -126,6 +126,7 @@ function buildRouter() {
     h((req) => svc().similarToGroup(req.faceId, req.body?.width)));
 
   router.post('/faces/groups/:groupId/hide', on, idParam('groupId'), h((req) => svc().hideGroup(req.faceId)));
+  router.post('/faces/groups/:groupId/unhide', on, idParam('groupId'), h((req) => svc().unhideGroup(req.faceId)));
   router.post('/faces/groups/:groupId/not-a-face', on, idParam('groupId'), h((req) => svc().notFaceGroup(req.faceId)));
 
   // Raw image body (Content-Type image/*, 25 MB max) or JSON { mediaId, timeS }.

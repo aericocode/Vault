@@ -295,15 +295,19 @@ function ftPaintStrip() {
   const eligible = c.eligible || 0;
   const indexed = Math.min(c.indexed || 0, eligible);
   const left = Math.max(0, eligible - indexed);
-  const ofText = `<b>${indexed.toLocaleString()} of ${eligible.toLocaleString()}</b>`;
+  // While a run goes, its own progress: the same numbers as the scan panel.
+  const runDone = (q.done || 0) + (q.failed || 0);
+  const runTotal = q.total || 0;
+  const ofText = `<b>${runDone.toLocaleString()} of ${runTotal.toLocaleString()}</b>`;
+  const runBar = `<span class="ft-bar"><span class="ft-fill" style="width:${runTotal ? Math.min(100, (runDone / runTotal) * 100) : 0}%"></span></span>`;
   let html = '';
   if (q.running && q.paused) {
-    html = `<span>Checking is paused: ${ofText} photos and videos checked.</span>
-      <span class="ft-bar"><span class="ft-fill" style="width:${eligible ? (indexed / eligible) * 100 : 0}%"></span></span>
+    html = `<span>Checking is paused: ${ofText} files checked.</span>
+      ${runBar}
       <button type="button" class="ft-link" data-ft-queue="resume">Resume</button>`;
   } else if (q.running) {
-    html = `<span>Still checking your library: ${ofText} photos and videos. More people will show up as they are found.</span>
-      <span class="ft-bar"><span class="ft-fill" style="width:${eligible ? (indexed / eligible) * 100 : 0}%"></span></span>
+    html = `<span>Still checking: ${ofText} files. More people will show up as they are found.</span>
+      ${runBar}
       <button type="button" class="ft-link" data-ft-queue="pause">Pause</button>`;
   } else if (s.people && s.people.sorting) {
     html = '<span>Sorting faces into people. More people will show up in a moment.</span>';
@@ -607,9 +611,10 @@ function ftFlipStop() {
  * not be anyone yet: `id` is then null (no one to leave out of the
  * suggestions), `me` is the face shown in the same-person question, and
  * `save(name, mergeIfTaken)` does the saving (it answers the person, or
- * throws NAME_TAKEN with data.other, like the people route does).
+ * throws NAME_TAKEN with data.other, like the people route does). onClose()
+ * runs whenever the field closes (saved, cancelled or clicked away from).
  */
-function ftStartNaming({ host, anchor, id, initial = '', inGrid = false, onDone, save = null, me = null }) {
+function ftStartNaming({ host, anchor, id, initial = '', inGrid = false, onDone, save = null, me = null, onClose = null }) {
   ftCloseNaming();
   const input = document.createElement('input');
   input.type = 'text';
@@ -627,7 +632,7 @@ function ftStartNaming({ host, anchor, id, initial = '', inGrid = false, onDone,
   anchor.replaceWith(input);
   host.appendChild(drop);
   host.classList.add('ft-naming');
-  const nm = { id, host, input, drop, replaced, opts: [], hi: 0, seq: 0, inGrid, onDone, note: '', initial, save, me };
+  const nm = { id, host, input, drop, replaced, opts: [], hi: 0, seq: 0, inGrid, onDone, note: '', initial, save, me, onClose };
   FT.naming = nm;
 
   const refresh = debounce(() => ftNameOptions(nm), 120);
@@ -765,6 +770,7 @@ function ftCloseNaming() {
   nm.host.classList.remove('ft-naming');
   if (nm.input.isConnected) nm.input.replaceWith(nm.replaced);
   if (nm.inGrid && FT.gridDirty) ftPaintGrid();
+  if (nm.onClose) nm.onClose();
 }
 
 /* ── Selection, merge, hide ────────────────────────────────────────────── */
@@ -1160,7 +1166,7 @@ async function ftNotAFace(list) {
     for (const p of list) await ftApi(`/api/faces/people/${p.id}/not-a-face`, { method: 'POST' });
   } catch (err) { facesToastError(err); ftLoadPeople(); return false; }
   list.forEach(p => FT.faces.delete(p.id));
-  showToast(n === 1 ? 'Marked as not a face.' : `Marked ${n.toLocaleString()} people as not a face.`);
+  showToast(n === 1 ? 'Took 1 person out of Faces (not a face).' : `Took ${n.toLocaleString()} people out of Faces (not faces).`);
   return true;
 }
 
@@ -1225,7 +1231,7 @@ function ftPaintMight() {
       <h2>Might also be ${who}</h2>
       <span>${ftPlural(m.total, 'face', 'faces')} ${m.total === 1 ? 'from another file looks' : 'from other files look'} a lot like ${p.name ? 'them' : 'this person'}. Tick the right ones.</span>
       <div class="ft-might-acts">
-        <button class="ft-btn ft-btn-md" type="button" data-ft-might="add"${k ? '' : ' disabled'}>Add the ${k.toLocaleString()} ticked to ${who}</button>
+        <button class="ft-btn ft-btn-md" type="button" data-ft-might="add"${k ? '' : ' disabled'}>${k ? `Add the ${k.toLocaleString()} ticked to ${who}` : 'Tick faces to add'}</button>
         <button class="ft-btn ghost ft-btn-md" type="button" data-ft-might="${k ? 'untick' : 'tick'}">${k ? 'Untick all' : 'Tick all'}</button>
       </div>
     </div>
@@ -1253,6 +1259,12 @@ async function ftMightCard(pid, act, btn) {
   ftPaintMight();
   // Keep the list topped up when the ✕ emptied what was loaded.
   if (!m.items.length && m.total) ftLoadMight();
+  const forId = m.personId;
+  showUndoToast('Got it. That face will not be suggested for this person again.', async () => {
+    try { await ftApi(`/api/faces/people/${forId}/candidates`, { method: 'POST', json: { unreject: [pid] } }); }
+    catch (err) { facesToastError(err); return; }
+    if (FT.personId === forId) { FT.might = null; ftLoadMight(); }
+  }, 8000);
 }
 
 async function ftMightAction(act, btn) {
@@ -1275,11 +1287,15 @@ async function ftMightAction(act, btn) {
   let r;
   try { r = await ftApi(`/api/faces/people/${m.personId}/candidates`, { method: 'POST', json: { accept, reject: [] } }); }
   catch (err) { facesToastError(err); btn.disabled = false; return; }
-  const n = r && Array.isArray(r.merged) ? r.merged.length : accept.length;
+  const merged = r && Array.isArray(r.merged) ? r.merged : accept;
   const left = r && Array.isArray(r.skipped) ? r.skipped.length : 0;
   FT.faces.delete(m.personId);
   const name = ftPrivate() ? '' : ftName(r && r.person ? r.person : p);
-  showToast((n ? (name ? `Added ${n.toLocaleString()} to ${name}.` : `Added ${n.toLocaleString()} to this person.`) : 'Nothing was added.')
+  // Files the person gained (a merged face can sit in a file they were already in).
+  const gained = r && r.person ? (r.person.files || 0) - (p.files || 0) : 0;
+  const files = gained > 0 ? gained : m.items.filter(i => merged.includes(i.personId)).reduce((s, i) => s + (i.files || 1), 0);
+  const what = ftPlural(files, 'file', 'files');
+  showToast((merged.length ? (name ? `Added ${what} to ${name}.` : `Added ${what} to this person.`) : 'Nothing was added.')
     + (left ? ` ${left.toLocaleString()} could not be added because ${left === 1 ? 'it has' : 'they have'} changed.` : ''));
   FT.might = null;       // reloaded fresh with the person
   if (FT.personId === m.personId) ftLoadPerson();

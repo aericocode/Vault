@@ -643,6 +643,65 @@ test('E7 might also be: a person-level score needs a margin over the next named 
   assert.ok(Math.abs(r.margin - 0.4) < 1e-6);
 });
 
+test('E7 re-check: a carried-over automatic person whose faces are all unclear is dissolved (held), like a fresh index', async () => {
+  const at = (name) => one('SELECT cluster_id, sort_held FROM face_groups WHERE id = ?', gid(name));
+  const files3 = { 'uc1.jpg': [person(80)], 'uc3a.jpg': [person(82)], 'uc3b.jpg': [like(82, 0.9, 130)], 'uc4.jpg': [person(83)] };
+  for (const [n, vecs] of Object.entries(files3)) { addFile(n); fk.fileScripts.set(files[n], { groups: vecs.map(v => group(v)) }); }
+  await index(Object.keys(files3));   // no norm on record: each starts (or joins) a person
+  const pU1 = pidOf('uc1.jpg'), pU3 = pidOf('uc3a.jpg'), pU4 = pidOf('uc4.jpg');
+  assert.ok(pU1 && pU3 && pU4 && pidOf('uc3b.jpg') === pU3);
+  assert.strictEqual((await post(`/api/faces/people/${pU4}`, { name: 'Kept' })).status, 200);
+  // The same faces measured unclear on a re-check.
+  for (const n of ['uc1.jpg', 'uc3b.jpg', 'uc4.jpg']) fk.fileScripts.set(files[n], { groups: files3[n].map(v => group(v, { norm: 8 })) });
+  await index(['uc1.jpg', 'uc3b.jpg', 'uc4.jpg'], { force: true });
+  // u1: its person is gone and the face is held, the state a fresh index of an unclear stranger gives
+  assert.strictEqual(one('SELECT id FROM face_people WHERE id = ?', pU1), undefined);
+  assert.deepStrictEqual(at('uc1.jpg'), { cluster_id: null, sort_held: 1 });
+  addFile('uc5.jpg');
+  fk.fileScripts.set(files['uc5.jpg'], { groups: [group(person(84), { norm: 8 })] });
+  await index(['uc5.jpg']);
+  assert.deepStrictEqual(at('uc5.jpg'), at('uc1.jpg'));
+  // a person with one clear face (no norm on record) keeps the unclear one; a named person is the user's
+  assert.deepStrictEqual([pidOf('uc3a.jpg'), pidOf('uc3b.jpg')], [pU3, pU3]);
+  assert.strictEqual(pidOf('uc4.jpg'), pU4);
+});
+
+test('Undo: unhide puts a not-a-face face back (into its person, or sorted again); unreject takes back a "different"', async () => {
+  for (const [n, v] of [['nf1.jpg', person(90)], ['nf2.jpg', like(90, 0.9, 131)], ['nf3.jpg', person(91)]]) {
+    addFile(n);
+    fk.fileScripts.set(files[n], { groups: [group(v)] });
+  }
+  await index(['nf1.jpg', 'nf2.jpg', 'nf3.jpg']);
+  const p = pidOf('nf1.jpg');
+  assert.ok(p && pidOf('nf2.jpg') === p);
+  const g1 = gid('nf1.jpg');
+  assert.strictEqual((await post(`/api/faces/groups/${g1}/not-a-face`)).status, 200);
+  assert.deepStrictEqual(one('SELECT hidden, not_face FROM face_groups WHERE id = ?', g1), { hidden: 1, not_face: 1 });
+  let r = await post(`/api/faces/groups/${g1}/unhide`);
+  assert.deepStrictEqual([r.status, r.body.personId], [200, p]);
+  assert.deepStrictEqual(one('SELECT hidden, not_face, cluster_id FROM face_groups WHERE id = ?', g1), { hidden: 0, not_face: 0, cluster_id: p });
+  assert.deepStrictEqual((await get(`/api/media/${ids['nf1.jpg']}/faces`)).body.groups.map(x => [x.id, x.personId]), [[g1, p]]);
+  // alone: its unnamed person was pruned with it; back, it is sorted into a person again
+  const g3 = gid('nf3.jpg');
+  await post(`/api/faces/groups/${g3}/not-a-face`);
+  assert.strictEqual(pidOf('nf3.jpg'), null);
+  assert.strictEqual((await post(`/api/faces/groups/${g3}/unhide`)).status, 200);
+  await svc.sortPeopleNow();
+  const p3 = pidOf('nf3.jpg');
+  assert.ok(p3 && p3 !== p);
+  assert.strictEqual((await post('/api/faces/groups/999999/unhide')).status, 404);
+  // unreject
+  r = await post(`/api/faces/people/${p}/candidates`, { reject: [p3] });
+  assert.deepStrictEqual(r.body.rejected, [p3]);
+  const pair = [Math.min(p, p3), Math.max(p, p3)];
+  assert.ok(one('SELECT 1 AS x FROM face_pair_decisions WHERE a = ? AND b = ?', ...pair));
+  r = await post(`/api/faces/people/${p}/candidates`, { unreject: [p3] });
+  assert.deepStrictEqual([r.status, r.body.unrejected, r.body.merged, r.body.rejected], [200, [p3], [], []]);
+  assert.strictEqual(one('SELECT 1 AS x FROM face_pair_decisions WHERE a = ? AND b = ?', ...pair), undefined);
+  assert.strictEqual((await post(`/api/faces/people/${p}/candidates`, { unreject: [p] })).status, 400);
+  assert.strictEqual((await post(`/api/faces/people/${p}/candidates`, { reject: [p3], unreject: [p3] })).status, 400);
+});
+
 test('E5 delete-all forgets recent files and lastRun', async () => {
   assert.notStrictEqual((await get('/api/faces/status')).body.queue.lastRun, null);
   assert.strictEqual((await post('/api/faces/delete-all')).status, 200);

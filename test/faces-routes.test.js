@@ -96,7 +96,7 @@ test('feature off: status answers, everything else but settings/delete-all is FA
   assert.strictEqual(s.body.autoIndex, false);
   assert.strictEqual(s.body.intervalS, 3.5);
   assert.deepStrictEqual(Object.keys(s.body.queue).sort(),
-    ['current', 'done', 'etaS', 'failed', 'lastRun', 'paused', 'recent', 'running', 'startedAt', 'total', 'withPeople'].sort());
+    ['current', 'done', 'etaS', 'failed', 'lastRun', 'paused', 'planned', 'recent', 'running', 'startedAt', 'total', 'withPeople'].sort());
   for (const [method, p] of [
     ['POST', '/api/faces/index'], ['POST', '/api/faces/queue/pause'], ['POST', '/api/faces/queue/resume'],
     ['POST', '/api/faces/queue/cancel'], ['GET', `/api/media/${ids['img1.jpg']}/faces`],

@@ -245,3 +245,18 @@ test('regression: a queue file a click joined goes back to the queue on suspend 
   q.cancel();
   await q.settled();
 });
+
+test('Stop keeps the planned size of the run: total shrinks to what was checked, planned does not', async () => {
+  const { q, release } = harness({ workers: 1 });
+  q.enqueue(items(1, 2, 3, 4));
+  assert.deepStrictEqual([q.status().total, q.status().planned], [4, 4]);
+  await release(1);
+  q.cancel();
+  await q.settled();
+  const last = q.status().lastRun;
+  assert.deepStrictEqual([last.done, last.total, last.planned], [1, 1, 4]);
+  assert.strictEqual(q.status().planned, 0, 'the next run starts from nothing');
+  q.enqueue(items(5));
+  await release(5);
+  assert.deepStrictEqual([q.status().lastRun.total, q.status().lastRun.planned], [1, 1]);
+});

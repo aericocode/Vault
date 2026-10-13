@@ -256,13 +256,15 @@ body.pm-names .faces-qname {
   font: inherit; font-size: 0.8rem; color: var(--text-secondary); text-decoration: underline;
 }
 .faces-blink:hover { color: var(--text-primary); }
+/* The name is an inline-block (privacy blur): it carries its own underline so the link reads as one. */
+.faces-blink .ft-pm-name { text-decoration: underline; }
 
 /* The name in the banner: click it (or the pen) to rename, or "Add a name".
    The name field and its suggestions are the Faces tab's (.ft-field, .ft-drop). */
 .faces-bname { position: relative; display: inline-block; vertical-align: middle; }
 .faces-bname-in { display: inline-flex; align-items: center; gap: 4px; }
 .faces-bname-text {
-  padding: 1px 8px; border-radius: 6px; border: 1px dashed transparent;
+  padding: 1px 6px; margin-left: -4px; border-radius: 6px; border: 1px dashed transparent;
   font-weight: 600; cursor: text;
 }
 .faces-bname-text:hover { border-color: #555; }
@@ -300,15 +302,18 @@ body.faces-picking .faces-tag { left: 30px; max-width: calc(100% - 36px); }
 .media-tile:has(.faces-tag.is-new):hover,
 .media-tile.tile-selected:has(.faces-tag.is-new) { border-color: var(--accent); }
 .faces-tag-add {
-  position: absolute; top: 6px; right: 6px; z-index: 3;
-  max-width: calc(100% - 40px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  /* bottom left: the tag row stays clear (the quick actions move under it) */
+  position: absolute; bottom: 6px; left: 6px; z-index: 3;
+  max-width: calc(100% - 64px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font: inherit; font-size: 0.75rem; font-weight: 600; padding: 3px 9px; border-radius: 6px;
   border: 0; background: var(--accent); color: #fff; cursor: pointer;
   opacity: 0; transition: opacity 0.15s;
 }
 .media-tile:hover .faces-tag-add, .faces-tag-add:focus-visible { opacity: 1; }
+.tile-thumb:not(:has(.tile-duration)) .faces-tag-add { max-width: calc(100% - 12px); }
+/* The tag row belongs to the checkbox and the tag: the quick actions sit one row down. */
+.tile-thumb:has(.faces-tag) .tile-actions { top: 30px; }
 .faces-tag-add:hover { background: var(--accent-hover); }
-.tile-thumb:has(.faces-tag-add) .tile-actions { top: 36px; }
 /* Pick which: every checkbox shows, so unticked files can be ticked too. */
 body.faces-picking .tile-select { opacity: 1; }
 
