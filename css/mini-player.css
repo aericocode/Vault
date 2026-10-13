@@ -73,6 +73,43 @@
   display: none;
 }
 
+/* ── Top-left resize grip ────────────────────────────────────────────── */
+/* The browser's own grip is bottom-right, the corner the player sits in, so
+   it could only be reached after dragging the box away. This one grows the box
+   up and to the left with the bottom-right corner held still (player-core.js
+   initMiniPlayerResize). It sits over the title bar's left end, so the title
+   starts a little further in to keep clear of it. */
+.mini-resize-tl {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 18px;
+  z-index: 2;
+  cursor: nwse-resize;
+  touch-action: none;
+  opacity: 0.7;
+  background: linear-gradient(135deg,
+    transparent 0 7px,
+    var(--text-secondary, #aaa) 7px 8.2px,
+    transparent 8.2px 10.5px,
+    var(--text-secondary, #aaa) 10.5px 11.7px,
+    transparent 11.7px);
+}
+
+.mini-resize-tl:hover {
+  opacity: 1;
+}
+
+.mini-player:not(.mini-audio) .mini-player-drag {
+  padding-left: 1.2rem;
+}
+
+/* The audio card has a fixed size (no bottom-right grip either) */
+.mini-player.mini-audio .mini-resize-tl {
+  display: none;
+}
+
 /* ── Media Container ─────────────────────────────────────────────────── */
 
 .mini-player-media {

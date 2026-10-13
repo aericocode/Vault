@@ -47,6 +47,7 @@ const FT = {
   fileIds: null, fileInfo: {}, filesSeq: 0, filesReady: null,
   faces: new Map(),          // personId -> [{ groupId, mediaId, cropUrl }]
   naming: null,              // the open name editor
+  pin: null,                 // a person kept in the grid after a merge or name (ftRevealTile)
   lastCounts: null,
   pollTimer: null,
 };
@@ -134,6 +135,7 @@ function facesTabEnter() {
 
 function facesTabLeave() {
   ftCloseNaming();
+  ftUnpin();
   ftClosePops();
   document.getElementById('mainContainer')?.classList.remove('faces-on', 'faces-home', 'faces-person');
   const view = ftView();
@@ -342,6 +344,10 @@ async function ftLoadPeople() {
   FT.loaded = true;
   // Selected people keep their latest numbers (the merge label reads them).
   for (const p of FT.people) if (FT.sel.has(p.id)) FT.sel.set(p.id, p);
+  // A kept person the list has again needs no keeping; one it lacks may have
+  // been merged away, hidden or emptied meanwhile.
+  if (FT.pin && FT.people.some(p => p.id === FT.pin.id)) FT.pin = null;
+  else if (FT.pin) ftCheckPin();
   ftPaintChips();
   ftPaintGrid();
   ftPaintSelBar();
@@ -404,7 +410,8 @@ function ftPaintGrid() {
   const size = typeof window.vaultCardSize === 'function' ? window.vaultCardSize() : 'M';
   grid.style.setProperty('--ft-min', `${FT_CARD_MIN[size] || 170}px`);
   if (!FT.loaded) { grid.innerHTML = ''; return; }
-  grid.innerHTML = FT.people.length ? FT.people.map(ftTileHtml).join('')
+  const list = FT.pin && !FT.people.some(p => p.id === FT.pin.id) ? [FT.pin, ...FT.people] : FT.people;
+  grid.innerHTML = list.length ? list.map(ftTileHtml).join('')
     : `<div class="ft-none">${ftEmptyText()}</div>`;
   const more = document.getElementById('ftMoreRow');
   if (more) more.hidden = FT.people.length >= FT.total;
@@ -778,6 +785,7 @@ function ftCloseNaming() {
 function ftToggleSel(id, { range = false } = {}) {
   const ids = FT.people.map(p => p.id);
   const byId = new Map(FT.people.map(p => [p.id, p]));
+  if (FT.pin && !byId.has(FT.pin.id)) byId.set(FT.pin.id, FT.pin);
   if (range && FT.anchor != null && ids.includes(FT.anchor) && ids.includes(id)) {
     const [a, b] = [ids.indexOf(FT.anchor), ids.indexOf(id)].sort((x, y) => x - y);
     for (let i = a; i <= b; i++) FT.sel.set(ids[i], byId.get(ids[i]));
@@ -837,6 +845,7 @@ async function ftSelBarClick(e) {
   if (act === 'notface') {
     if (!await ftNotAFace(list)) return;
     FT.sel.clear();
+    ftUnpin();
     ftPaintSelBar();
     ftLoadPeople();
     ftLoadReview();
@@ -854,14 +863,27 @@ async function ftSelBarClick(e) {
     FT.sel.clear();
     showToast(ftTogether(merged));
     ftPaintSelBar();
-    ftLoadPeople();
     ftLoadReview();
+    ftUnpin();
+    await ftLoadPeople();
+    const id = merged && merged.id != null ? merged.id : target.id;
+    const tile = ftRevealTile(id, merged);
+    // No one had a name: ask for one now, while the person is in front of
+    // them, rather than leaving a new "Not named yet" somewhere in the grid.
+    if (!target.name && tile && !FT.naming) {
+      ftAskName({
+        box: tile, crop: tile.querySelector('.ft-thumb'), id, me: merged, inGrid: true,
+        onDone: (p, how) => ftNamedAfterMerge(p || merged, how),
+        focusBack: () => document.querySelector(`#ftGrid .ft-tile[data-person="${id}"]`),
+      });
+    }
     return;
   }
   const hidden = act === 'hide';
   const ids = list.map(p => p.id);
   if (!await ftSetHidden(ids, hidden)) return;
   FT.sel.clear();
+  ftUnpin();
   ftPaintSelBar();
   ftLoadPeople();
   if (hidden) {
@@ -879,11 +901,127 @@ async function ftSetHidden(ids, hidden) {
   } catch (err) { facesToastError(err); ftLoadPeople(); return false; }
 }
 
+/* ── After a merge: keep the person in view, ask who it is ────────────── */
+
+/**
+ * Scroll person `id`'s tile into view and flash it. A person the list no
+ * longer has (the filter hides them now, or they sit past the loaded page)
+ * stays pinned at the front of the grid until the view changes (filter, sort,
+ * search, leaving the tab), so what was just done never seems to vanish.
+ * @returns {Element|null} the tile
+ */
+function ftRevealTile(id, person) {
+  const grid = document.getElementById('ftGrid');
+  if (!grid) return null;
+  if (!FT.people.some(p => p.id === id)) {
+    if (person && person.id === id) { FT.pin = person; ftPaintGrid(); }
+  } else if (FT.pin && FT.pin.id === id) {
+    FT.pin = null;
+    ftPaintGrid();
+  }
+  const tile = grid.querySelector(`.ft-tile[data-person="${id}"]`);
+  if (!tile) return null;
+  tile.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  tile.classList.remove('ft-flash');
+  void tile.offsetWidth;   // restart the animation
+  tile.classList.add('ft-flash');
+  return tile;
+}
+
+/** The view changed: a pinned person goes back to following the filter. */
+function ftUnpin() {
+  FT.pin = null;
+}
+
+/**
+ * Is the kept person still someone to show? Gone (merged away, Not a face,
+ * emptied) or hidden outside the Hidden view: let go of them. Otherwise
+ * refresh their numbers.
+ */
+async function ftCheckPin() {
+  const id = FT.pin && FT.pin.id;
+  if (id == null) return;
+  let p = null;
+  try { p = await ftApi(`/api/faces/people/${id}`, { background: true }); } catch { p = null; }
+  if (!FT.pin || FT.pin.id !== id) return;
+  FT.pin = p && (!p.hidden || FT.filter === 'hidden') ? { ...FT.pin, ...p } : null;
+  ftPaintGrid();
+}
+
+/** Put the focus back on `el` unless the person has already moved it elsewhere. */
+function ftRefocus(el) {
+  const a = document.activeElement;
+  if (el && el.isConnected && (!a || a === document.body)) el.focus({ preventScroll: true });
+}
+
+/**
+ * "Who is this?": a small dialog beside a face crop, holding the usual name
+ * field (suggestions, "already in Faces. Same person?") and Skip for now.
+ * Skip, Esc or a click elsewhere leaves the person unnamed. `box` is the
+ * positioned element the dialog lives in (a tile, the person header).
+ */
+function ftAskName({ box, crop, id, me, inGrid = false, onDone, focusBack }) {
+  if (!box || !crop) return;
+  const pop = document.createElement('div');
+  pop.className = 'ft-whois';
+  pop.setAttribute('role', 'dialog');
+  pop.setAttribute('aria-label', 'Who is this?');
+  pop.innerHTML = `
+    <div class="ft-whois-title">Who is this?</div>
+    <span class="ft-whois-slot"></span>
+    <div class="ft-whois-acts"><button class="ft-btn ghost" type="button" data-whois-skip>Skip for now</button></div>`;
+  box.appendChild(pop);
+  box.classList.add('ft-asking');
+
+  // Beside the crop where there is room, else on its other side, else under it.
+  const b = box.getBoundingClientRect();
+  const c = crop.getBoundingClientRect();
+  const w = pop.offsetWidth;
+  let left = c.right + 8;
+  let top = c.top;
+  if (left + w > innerWidth - 8) left = c.left - 8 - w;
+  if (left < 8) { left = c.left; top = c.bottom + 8; }
+  left = Math.max(8, Math.min(left, innerWidth - w - 8));
+  pop.style.left = `${left - b.left}px`;
+  pop.style.top = `${top - b.top}px`;
+
+  // Clicks in here are not clicks on the tile (which would open the person).
+  pop.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (e.target.closest('[data-whois-skip]')) ftCloseNaming();
+  });
+  pop.addEventListener('contextmenu', (e) => e.stopPropagation());
+  pop.addEventListener('keydown', (e) => e.stopPropagation());
+
+  ftStartNaming({
+    host: pop, anchor: pop.querySelector('.ft-whois-slot'), id, me, inGrid, onDone,
+    onClose: () => {
+      pop.remove();
+      box.classList.remove('ft-asking');
+      if (focusBack) ftRefocus(focusBack());
+    },
+  });
+}
+
+/** A merged person just got a name in the grid: show where they are now. */
+async function ftNamedAfterMerge(p, how = {}) {
+  ftLoadReview();
+  await ftLoadPeople();
+  if (!p || p.id == null) return;
+  const shown = FT.people.some(x => x.id === p.id);
+  ftRefocus(ftRevealTile(p.id, p));
+  if (how.merged || !p.name) return;   // "Put together under ..." already said it
+  let msg = ftPrivate() ? 'Name saved.' : `Saved as ${p.name}.`;
+  if (!shown) msg += FT.filter === 'unnamed' ? ' They now show under Named.' : ' They stay here until you change the view.';
+  showToast(msg);
+}
+
 /* ── Person page ───────────────────────────────────────────────────────── */
 
 /** Open a person's page (from a tile, a chip menu, "Often seen with"). */
 function facesOpenPerson(id) {
   ftCloseNaming();
+  ftUnpin();
   ftClosePops();
   ftFlipStop();
   FT.personId = Number(id);
@@ -1139,6 +1277,22 @@ function ftMergeWith(anchor) {
     FT.faces.delete(me.id); FT.faces.delete(other.id);
     showToast(ftTogether(merged));
     facesOpenPerson(into.id);
+    if (into.name) return;
+    // Neither had a name: ask for one on the merged person's page.
+    await FT.filesReady;
+    const head = document.querySelector('#ftPerson .ft-head');
+    if (FT.personId !== into.id || !FT.person || !head || FT.naming) return;
+    ftAskName({
+      box: head, crop: head.querySelector('.ft-cover'), id: into.id, me: FT.person,
+      focusBack: () => document.querySelector('#ftPerson [data-ft-more]'),
+      onDone: (p, how = {}) => {
+        if (p && p.id !== FT.personId) { facesOpenPerson(p.id); return; }
+        if (p && FT.person) Object.assign(FT.person, p, { oftenWith: FT.person.oftenWith });
+        ftPaintPerson();
+        ftRefocus(document.querySelector('#ftPerson [data-ft-more]'));
+        if (p && p.name && !how.merged) showToast(ftPrivate() ? 'Name saved.' : `Saved as ${p.name}.`);
+      },
+    });
   });
   input.focus();
   load();
@@ -1405,6 +1559,7 @@ function ftWire() {
     if (filter) {
       FT.filter = filter.dataset.ftFilter;
       FT.limit = FT_PAGE;
+      ftUnpin();
       ftPaintChips();
       ftLoadPeople();
       return;
@@ -1414,7 +1569,7 @@ function ftWire() {
       const r = sortBtn.getBoundingClientRect();
       facesMenu(r.left, r.bottom + 4, FT_SORTS.map(s => ({
         label: `${s.value === FT.sort ? '✓ ' : ''}${s.label}`,
-        run: () => { FT.sort = s.value; ftPaintSort(); ftLoadPeople(); },
+        run: () => { FT.sort = s.value; ftUnpin(); ftPaintSort(); ftLoadPeople(); },
       })));
       return;
     }
@@ -1438,7 +1593,7 @@ function ftWire() {
     // People tiles
     const tile = t.closest('.ft-tile');
     if (tile) {
-      if (t.closest('.ft-naming .ft-field, .ft-drop, .ft-ask')) return;
+      if (t.closest('.ft-naming .ft-field, .ft-drop, .ft-ask, .ft-whois')) return;
       const id = Number(tile.dataset.person);
       if (t.closest('.ft-check')) { e.preventDefault(); ftToggleSel(id, { range: e.shiftKey }); return; }
       const add = t.closest('[data-ft-addname]');
@@ -1501,7 +1656,7 @@ function ftWire() {
     const tile = e.target instanceof Element && e.target.closest('.ft-tile');
     if (!tile || tile.classList.contains('ft-naming')) return;
     const id = Number(tile.dataset.person);
-    const p = FT.people.find(x => x.id === id);
+    const p = FT.people.find(x => x.id === id) || (FT.pin && FT.pin.id === id ? FT.pin : null);
     if (!p) return;
     e.preventDefault();
     facesMenu(e.clientX, e.clientY, [
@@ -1509,6 +1664,7 @@ function ftWire() {
       { label: 'Not a face', run: async () => {
         if (!await ftNotAFace([p])) return;
         FT.sel.delete(id);
+        if (FT.pin && FT.pin.id === id) ftUnpin();
         ftPaintSelBar();
         ftLoadPeople();
         ftLoadReview();
@@ -1538,6 +1694,7 @@ function ftWire() {
 const ftSearchInput = debounce((v) => {
   FT.q = v.trim();
   FT.limit = FT_PAGE;
+  ftUnpin();
   ftLoadPeople();
 }, 200);
 

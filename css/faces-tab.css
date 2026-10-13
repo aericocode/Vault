@@ -457,3 +457,28 @@ body.pm-names .ft-field:not(.ft-pop-search) { filter: blur(7px); }
 }
 .ft-might .ft-link { font-size: 0.8125rem; }
 body.pm-names .ft-cmeta { filter: blur(7px); }
+
+/* ── "Who is this?" after a merge (faces-tab.js ftAskName) ── */
+.ft-tile.ft-asking { z-index: 7; transform: none; border-color: var(--accent); cursor: default; }
+.ft-tile.ft-asking .ft-check { opacity: 0; pointer-events: none; }
+.ft-head { position: relative; }
+.ft-whois {
+  position: absolute; z-index: 8; width: min(260px, calc(100vw - 16px)); box-sizing: border-box;
+  background: var(--bg-secondary); border: 1px solid var(--accent); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6); padding: 12px;
+  display: flex; flex-direction: column; gap: 10px; cursor: default; text-align: left;
+}
+.ft-whois-title { font-size: 0.875rem; font-weight: 600; color: var(--text-primary); }
+.ft-whois .ft-field, .ft-tile .ft-whois .ft-field { margin: 0; width: 100%; height: auto; padding: 6px 10px; font-size: 0.875rem; }
+.ft-whois .ft-drop, .ft-whois .ft-ask { left: 0; top: calc(100% + 4px); width: 100%; }
+.ft-whois-acts { display: flex; justify-content: flex-end; }
+
+/* The person a merge or a name just landed on: a short pulse so the eye finds it. */
+@keyframes ft-flash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+  25%, 60% { box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.75); }
+}
+.ft-tile.ft-flash { animation: ft-flash 1.6s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .ft-tile.ft-flash { animation: none; border-color: var(--accent); }
+}

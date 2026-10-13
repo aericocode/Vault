@@ -187,3 +187,22 @@
     max-width: 60%;
   }
 }
+
+/* ── Held frame ────────────────────────────────────────────────────────────
+   The outgoing picture, kept over the stage while the next file loads so a
+   move never shows a blank or black box (player-core.js showHoldFrame). Opaque
+   like the stage behind it, and never in the way of a click. */
+.player-hold-frame {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 1;
+  transition: opacity 0.15s ease-out;
+}
+
+.player-hold-frame.releasing {
+  opacity: 0;
+}

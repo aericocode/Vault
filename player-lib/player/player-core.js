@@ -255,6 +255,100 @@ function generateUnifiedControlBar(leftControls, rightControls, hasPrev, hasNext
   `;
 }
 
+/* ── Hold the last frame across a move ─────────────────────────────────────
+   Every move to another file rebuilds the media element. The new <video> has
+   no source until the playback decision comes back, so for a few frames (a
+   second or more for a remux stream) it is a blank 300x150 box, then a black
+   one, before its first frame lands. Images do the same while they decode.
+   That gap is the flash.
+
+   So the outgoing picture is copied to a canvas before the old element is
+   torn down, and laid over the stage on top of the new element until that
+   one has actually painted a frame. Then it fades out. The canvas copies the
+   old element's own layout box, object-fit and transform, so the still sits
+   exactly where the picture was. Drawing a video into a canvas that is only
+   shown, never read back, works for any source. */
+
+const HOLD_MAX_MS = 3000;    // never freeze on a still longer than this
+
+/** A still of what `el` shows right now, or null if it shows nothing yet. */
+function captureHoldFrame(el, box) {
+  if (!el || !box || !box.contains(el)) return null;
+  let w = 0, h = 0;
+  if (el.tagName === 'VIDEO' && el.readyState >= 2) {
+    w = el.videoWidth; h = el.videoHeight;
+  } else if (el.tagName === 'IMG' && el.complete) {
+    w = el.naturalWidth; h = el.naturalHeight;
+  }
+  if (!w || !h || !el.offsetWidth || !el.offsetHeight) {
+    // Next pressed again before the last move painted: keep the still that
+    // is already up rather than flashing the blank element under it.
+    return box.querySelector(':scope > .player-hold-frame canvas');
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  try { canvas.getContext('2d').drawImage(el, 0, 0, w, h); } catch { return null; }
+  const cs = getComputedStyle(el);
+  Object.assign(canvas.style, {
+    position: 'absolute',
+    left: el.offsetLeft + 'px',
+    top: el.offsetTop + 'px',
+    width: el.offsetWidth + 'px',
+    height: el.offsetHeight + 'px',
+    objectFit: cs.objectFit || 'contain',
+    transform: cs.transform === 'none' ? '' : cs.transform,
+    transformOrigin: cs.transformOrigin,
+  });
+  return canvas;
+}
+
+/**
+ * Lay `still` over `box` until `el` (the new media element) has painted, then
+ * fade it away. A later move replaces the whole box, which takes the still
+ * with it, so nothing here needs cancelling.
+ */
+function showHoldFrame(box, still, el) {
+  if (!box || !still || !el || !box.contains(el)) return;
+  const hold = document.createElement('div');
+  hold.className = 'player-hold-frame';
+  hold.setAttribute('aria-hidden', 'true');
+  hold.appendChild(still);
+  box.appendChild(hold);
+
+  let done = false;
+  const release = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    hold.classList.add('releasing');
+    setTimeout(() => hold.remove(), 160);
+  };
+  const timer = setTimeout(release, HOLD_MAX_MS);
+  // One more frame after "ready" so the new picture is on screen under the
+  // still before the still starts to fade.
+  const afterPaint = () => requestAnimationFrame(() => requestAnimationFrame(release));
+
+  if (el.tagName === 'VIDEO') {
+    const painted = () => {
+      // The frame callback is the precise signal; the timer covers a paused
+      // element, which may never present another frame to call back on.
+      if (typeof el.requestVideoFrameCallback === 'function') el.requestVideoFrameCallback(release);
+      setTimeout(afterPaint, 250);
+    };
+    if (el.readyState >= 2) painted();
+    else el.addEventListener('loadeddata', painted, { once: true });
+    el.addEventListener('error', release, { once: true });
+  } else if (el.tagName === 'IMG') {
+    const ready = () => (el.decode ? el.decode().catch(() => {}) : Promise.resolve()).then(afterPaint);
+    if (el.complete) ready();
+    else el.addEventListener('load', ready, { once: true });
+    el.addEventListener('error', release, { once: true });
+  } else {
+    release();
+  }
+}
+
 /* How the file on screen was opened. 'auto' means nothing but the queue asked
    for it (Next, Prev, Random, auto-advance, the wrap), which is what decides
    whether a failure skips on quietly or stops and explains itself. Every call
@@ -275,6 +369,16 @@ function playMedia(mediaData, { source = 'user' } = {}) {
   const wasMini = currentMediaState.miniMode === true;
   const keepMini = wasMini && lastPlaySource === 'auto'
     && (isVideoLike(media_type) || media_type === 'audio');
+
+  // Moving from one picture to the next in the same box (full player to full
+  // player, mini to mini): keep the outgoing picture up until the new one has
+  // painted. Opening from the library, or changing box, has nothing to hold.
+  const holdBox = wasMini
+    ? (keepMini ? document.getElementById('miniPlayerMedia') : null)
+    : (document.getElementById('mediaPlayerOverlay')?.classList.contains('active')
+      ? document.getElementById('mediaPlayerContent') : null);
+  const holdStill = holdBox && ['video', 'image', 'gif'].includes(media_type)
+    ? captureHoldFrame(currentMediaState.element, holdBox) : null;
 
   // Close mini player if active (stop its playback)
   const miniPlayer = document.getElementById('miniPlayer');
@@ -408,6 +512,8 @@ function playMedia(mediaData, { source = 'user' } = {}) {
   // Straight back down to the mini player. Same tick as the build above, so
   // the full overlay never gets a frame to paint in.
   if (keepMini) minimizePlayer();
+
+  if (holdStill) showHoldFrame(holdBox, holdStill, currentMediaState.element);
 }
 
 /* ── Repeat / auto-advance ────────────────────────────────────────
@@ -1446,14 +1552,26 @@ function teardownMiniAudioCard() {
  */
 function applyMiniPlayerSize(miniPlayer, isAudio) {
   if (!miniPlayer) return;
+  const d = miniPlayer.dataset;
   if (isAudio) {
-    if (miniPlayer.style.width) miniPlayer.dataset.savedW = miniPlayer.style.width;
-    if (miniPlayer.style.height) miniPlayer.dataset.savedH = miniPlayer.style.height;
+    // Only the switch from the video box saves: the size it has now (from
+    // either grip, or none) IS the video size. A second audio file in a row
+    // must not overwrite that with the card's empty one.
+    if (!d.audioCard) {
+      d.savedW = miniPlayer.style.width;
+      d.savedH = miniPlayer.style.height;
+      d.audioCard = '1';
+    }
     miniPlayer.style.width = '';
     miniPlayer.style.height = '';
-  } else {
-    if (miniPlayer.dataset.savedW) miniPlayer.style.width = miniPlayer.dataset.savedW;
-    if (miniPlayer.dataset.savedH) miniPlayer.style.height = miniPlayer.dataset.savedH;
+  } else if (d.audioCard) {
+    // Back from the card: the video size it parked. Video to video leaves the
+    // box alone, so a resize made since is never undone by an old saved size.
+    miniPlayer.style.width = d.savedW || '';
+    miniPlayer.style.height = d.savedH || '';
+    delete d.savedW;
+    delete d.savedH;
+    delete d.audioCard;
   }
 }
 
@@ -1526,7 +1644,92 @@ function initMiniPlayerDrag() {
   dragHandle._onMouseDown && dragHandle.removeEventListener('mousedown', dragHandle._onMouseDown);
   dragHandle._onMouseDown = onMouseDown;
   dragHandle.addEventListener('mousedown', onMouseDown);
+
+  initMiniPlayerResize();
 }
+
+/**
+ * The top-left resize grip. The browser's own grip (CSS `resize: both`) is
+ * bottom-right, the corner the player starts in, so it was out of reach until
+ * the box had been dragged away. This one moves the top-left corner and holds
+ * the bottom-right one still. It writes the same inline width/height the
+ * browser's grip does, so applyMiniPlayerSize keeps the size across audio and
+ * video, and it honours the same CSS min/max. Pointer events, so touch and pen
+ * work too. Bound once.
+ */
+function initMiniPlayerResize() {
+  const miniPlayer = document.getElementById('miniPlayer');
+  const grip = document.getElementById('miniResizeTL');
+  if (!miniPlayer || !grip || grip._bound) return;
+  grip._bound = true;
+
+  let start = null;
+  const px = (v, fallback) => {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+
+  grip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    const rect = miniPlayer.getBoundingClientRect();
+    const cs = getComputedStyle(miniPlayer);
+    start = {
+      x: e.clientX,
+      y: e.clientY,
+      w: rect.width,
+      h: rect.height,
+      right: rect.right,
+      bottom: rect.bottom,
+      minW: px(cs.minWidth, 0),
+      minH: px(cs.minHeight, 0),
+      maxW: px(cs.maxWidth, Infinity),
+      maxH: px(cs.maxHeight, Infinity),
+    };
+    // Same switch the drag makes: position by top/left from here on.
+    miniPlayer.style.left = rect.left + 'px';
+    miniPlayer.style.top = rect.top + 'px';
+    miniPlayer.style.right = 'auto';
+    miniPlayer.style.bottom = 'auto';
+    grip.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  grip.addEventListener('pointermove', (e) => {
+    if (!start) return;
+    // Growing stops at the viewport's top and left edges, since the bottom
+    // right corner does not move.
+    const w = Math.max(start.minW, Math.min(start.maxW, start.right, start.w - (e.clientX - start.x)));
+    const h = Math.max(start.minH, Math.min(start.maxH, start.bottom, start.h - (e.clientY - start.y)));
+    miniPlayer.style.width = w + 'px';
+    miniPlayer.style.height = h + 'px';
+    miniPlayer.style.left = (start.right - w) + 'px';
+    miniPlayer.style.top = (start.bottom - h) + 'px';
+  });
+
+  const end = (e) => {
+    if (!start) return;
+    start = null;
+    try { grip.releasePointerCapture(e.pointerId); } catch {}
+    clampMiniPlayerToViewport(miniPlayer);
+  };
+  grip.addEventListener('pointerup', end);
+  grip.addEventListener('pointercancel', end);
+  // A click on the grip is not a click on the player.
+  grip.addEventListener('click', (e) => e.stopPropagation());
+}
+
+// A window made smaller can leave a dragged or resized mini player partly off
+// screen (its inline left/top no longer fit). Pull it back once the resize
+// settles. One left anchored bottom/right by CSS follows the window anyway.
+let _miniClampTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_miniClampTimer);
+  _miniClampTimer = setTimeout(() => {
+    const mini = document.getElementById('miniPlayer');
+    if (mini && mini.classList.contains('active')) clampMiniPlayerToViewport(mini);
+  }, 150);
+});
 
 /**
  * Reset mini player position (for next use).
