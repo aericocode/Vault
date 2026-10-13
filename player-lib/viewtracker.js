@@ -118,6 +118,10 @@ document.addEventListener('loadedmetadata', (e) => {
   if (!['VIDEO', 'AUDIO'].includes(el.tagName)) return;
   if (!el.closest('#mediaPlayerContent') && !el.closest('#miniPlayerMedia')) return;
 
+  // Played from a person's page in the Faces tab: start where they first
+  // show up, instead of the resume point (player-lib/faces-tab.js).
+  if (typeof facesStartAt === 'function' && facesStartAt(el)) return;
+
   // Settings: "Resume playback positions" gates ONLY the auto-seek. Positions
   // are still saved (pause handler below), so re-enabling restores behavior.
   if (typeof vaultSetting === 'function' && vaultSetting('resumePlayback') === false) return;

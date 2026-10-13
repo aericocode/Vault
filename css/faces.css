@@ -221,3 +221,9 @@ body.pm-names .faces-qname {
   pointer-events: none;
   user-select: none;
 }
+
+/* Checking: "Custom" interval field, under the segmented picks */
+.faces-settings .faces-custom { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-secondary); cursor: default; }
+.faces-settings .faces-custom[hidden] { display: none; }
+.faces-settings .faces-custom .settings-num { margin-top: 0; width: 5rem; }
+.faces-settings .faces-maxframes { width: 6.5rem; }

@@ -146,6 +146,8 @@ window.addEventListener('vault:facets-changed', onFacetsChanged);
 function renderLibraryCount() {
   const f = Library.facets;
   const el = document.getElementById('totalCount');
+  // The 👤 Faces tab counts people instead (player-lib/faces-tab.js).
+  if (typeof facesHeaderCount === 'function' && facesHeaderCount()) return;
   if (!f || !el) return;
   // Count only media files (exclude document)
   const allowedMediaTypes = ['video', 'audio', 'image', 'gif'];

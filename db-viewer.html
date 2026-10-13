@@ -45,6 +45,7 @@
   <link rel="stylesheet" href="./css/tooltip.css">
   <link rel="stylesheet" href="./css/filter-chips.css">
   <link rel="stylesheet" href="./css/faces.css">
+  <link rel="stylesheet" href="./css/faces-tab.css">
 
   <link rel="icon" type="image/svg+xml" href="./images/favicon.svg">
 </head>
@@ -66,6 +67,7 @@
       <nav class="app-tabs" id="appTabs">
         <button class="app-tab active" data-tab="library" onclick="switchTab('library')">📚 Library</button>
         <button class="app-tab" data-tab="collections" onclick="switchTab('collections')">📁 Collections</button>
+        <button class="app-tab" data-tab="faces" onclick="switchTab('faces')">👤 Faces</button>
         <button class="app-tab" data-tab="editor" onclick="switchTab('editor')">🎨 Editor<span class="app-tab-badge" id="editorTabBadge" style="display:none;"></span></button>
         <button class="app-tab" data-tab="games" onclick="switchTab('games')">🎮 Games</button>
       </nav>
@@ -231,6 +233,10 @@
         </div>
       </div>
     </section>
+
+    <!-- 👤 Faces tab: the people home, or a person's header over their
+         files (player-lib/faces-tab.js). -->
+    <div class="faces-view" id="facesView" hidden></div>
 
     <!-- "N files missing from disk" — filled by settings.js when the cached
          server-side check comes back high; dismissible for the session. -->
@@ -414,7 +420,10 @@
   <script src="./player-lib/tooltip.js"></script>
   <!-- Face search (FACES_BUILD_SPEC 8). Hooks: detail-view, filters,
        filter-chips, selection, settings, the video controls. -->
+  <!-- TEMPORARY dev mock of the people API (localStorage.vaultFacesMock = '1'). REMOVE before merging. -->
+  <script>try { if (localStorage.getItem('vaultFacesMock') === '1') document.write('<script src="./player-lib/faces-mock.js"><\/script>'); } catch {}</script>
   <script src="./player-lib/faces.js"></script>
+  <script src="./player-lib/faces-tab.js"></script>
   <script src="./player-lib/app.js"></script>
 </body>
 </html>

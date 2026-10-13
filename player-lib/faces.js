@@ -9,6 +9,7 @@
      player-video.js  renderFacesFrameButton()  "Find people in this frame"
      settings.js      facesSettingsHtml() / facesWireSettings()  Face search section
      importer.js      [data-no-import-drop]     the photo box keeps its drops
+     faces-tab.js     the 👤 Faces tab (people); facesTabStatusChanged, facesOpenPerson
 
    Feature off (or models missing) means none of it renders: every hook
    answers '' and the tile right-click stays the browser's own. The server is
@@ -18,6 +19,8 @@
 
 const FACES_KINDS = ['image', 'gif', 'video'];
 const FACES_CHIPS_SHOWN = 8;
+const FACES_INTERVALS = [2, 3.5, 10];        // the quick picks; "Custom" takes 0.5 to 120
+const FACES_MAX_FRAMES_DEFAULT = 2000;
 const FACES_WIDTHS = [
   { value: 'close', label: 'Close matches' },
   { value: 'normal', label: 'Normal' },
@@ -73,7 +76,7 @@ async function facesApi(url, { method = 'GET', json, body, type, background } = 
     // The feature changed under us: bring every surface back in line.
     if (data.code === 'FACES_OFF' || data.code === 'FACE_MODELS_MISSING') facesRefreshStatus();
     const msg = resp.status === 423 ? '' : (FACES_MSG[data.code] ?? 'Face search ran into a problem. Try again.');
-    throw Object.assign(new Error(msg), { code: data.code, status: resp.status, keys: data.keys });
+    throw Object.assign(new Error(msg), { code: data.code, status: resp.status, keys: data.keys, data });
   }
   return data;
 }
@@ -96,8 +99,10 @@ function facesSetStatus(s) {
   const prev = facesStatus;
   facesStatus = s;
   if (prev && prev.download && prev.download.running && s.modelsReady) showToast('Face search is ready.');
-  if (was !== facesReady()) facesApplyState();
+  const flipped = was !== facesReady();
+  if (flipped) facesApplyState();
   facesSettingsPaint();
+  if (typeof facesTabStatusChanged === 'function') facesTabStatusChanged(flipped);
 }
 
 /** Show or remove every face surface after the feature turns on or off. */
@@ -177,9 +182,12 @@ function facesPaint(mediaId) {
 }
 
 function facesTip(g) {
-  if (g.firstTimeS == null) return '';     // photos: nothing worth saying
+  // The person's name, unless names are private (a native tooltip cannot blur).
+  const name = g.personName && !document.body.classList.contains('pm-names') ? g.personName : '';
+  if (g.firstTimeS == null) return name;   // photos: nothing else worth saying
   const n = g.appearances || 1;
-  return `Seen in ${n} spot${n === 1 ? '' : 's'}, first at ${formatDuration(g.firstTimeS) || '0:00'}`;
+  const seen = `Seen in ${n} spot${n === 1 ? '' : 's'}, first at ${formatDuration(g.firstTimeS) || '0:00'}`;
+  return name ? `${name}. ${seen}` : seen;
 }
 
 function facesBoxHtml(mediaId, info) {
@@ -267,6 +275,13 @@ async function facesChipFocus(chip) {
   if (!ok) return;
   if (inPlayer) { if (typeof minimizePlayer === 'function') minimizePlayer(); }
   else if (typeof closeModal === 'function') closeModal();
+}
+
+/** Chip menu: the person's page in the Faces tab, with the surface out of the way. */
+function facesOpenInFaces(chip, personId) {
+  if (chip.closest('#mediaSidebarBody')) { if (typeof minimizePlayer === 'function') minimizePlayer(); }
+  else if (typeof closeModal === 'function') closeModal();
+  facesOpenPerson(personId);
 }
 
 /* ── Person focus (filters.js focus set) ───────────────────────────────── */
@@ -672,10 +687,23 @@ function facesSettingsHtml() {
             <span class="settings-toggle-desc">Closer checks find more faces but take longer. Applies to files checked from now on.</span>
           </span>
           <span class="settings-seg" role="group" aria-labelledby="facesIntervalLabel">
-            ${[2, 3.5, 10].map(v => `<button type="button" class="settings-seg-btn" data-faces-interval="${v}"
+            ${FACES_INTERVALS.map(v => `<button type="button" class="settings-seg-btn" data-faces-interval="${v}"
               aria-pressed="false">Every ${v} seconds</button>`).join('')}
+            <button type="button" class="settings-seg-btn" data-faces-interval="custom" aria-pressed="false">Custom</button>
           </span>
+          <label class="faces-custom" id="facesCustomRow" hidden>Every
+            <input class="settings-num" type="number" id="facesCustomInterval" min="0.5" max="120" step="0.5"
+              aria-label="Seconds between checked frames"> seconds</label>
         </div>
+        <label class="settings-toggle">
+          <span class="settings-toggle-text">
+            <span class="settings-toggle-title">Most frames per video</span>
+            <span class="settings-toggle-desc">Longer videos spread these frames evenly. More frames find more faces but take longer.</span>
+          </span>
+          <span class="settings-num-wrap">
+            <input class="settings-num faces-maxframes" type="number" id="facesMaxFrames" min="100" max="20000" step="1">
+          </span>
+        </label>
       </div>
 
       <!-- Its own section, outside facesOnRows: the privacy line promises
@@ -696,6 +724,7 @@ function facesSettingsHtml() {
 
 let facesPollTimer = null;
 let facesDeleteArm = null;
+let facesCustomOpen = false;   // "Custom" picked, field showing before a value is saved
 
 // Decimal megabytes, whole numbers, the same unit as "about 39 MB".
 const facesMB = (b) => Math.round(Number(b || 0) / 1e6).toLocaleString();
@@ -754,6 +783,8 @@ function facesSettingsPaint() {
     eligible === 1 ? 'photo or video checked' : 'photos and videos checked');
   stat('facesStatPeople', withFaces.toLocaleString(), withFaces === 1 ? 'file with people in it' : 'files with people in them');
   stat('facesStatLeft', left.toLocaleString(), 'still to check');
+  // Nothing to check: "0 of 0" says nothing the line below does not say better.
+  root.querySelector('.faces-stats').hidden = !eligible;
 
   // Idle, the bar is the share of the library checked; while a run is going
   // (or paused) it is that run's progress, with "N of M" under it.
@@ -795,8 +826,28 @@ function facesSettingsPaint() {
     : `Every photo and video has been checked.${s.autoIndex ? ' New imports are checked automatically.' : ''}`;
 
   root.querySelector('[data-faces-setting="autoIndex"]').checked = !!s.autoIndex;
-  root.querySelectorAll('[data-faces-interval]').forEach(b =>
-    b.setAttribute('aria-pressed', String(Number(b.dataset.facesInterval) === s.intervalS)));
+  const custom = facesCustomOpen || !FACES_INTERVALS.includes(s.intervalS);
+  root.querySelectorAll('[data-faces-interval]').forEach(b => b.setAttribute('aria-pressed',
+    String(b.dataset.facesInterval === 'custom' ? custom : !custom && Number(b.dataset.facesInterval) === s.intervalS)));
+  $('facesCustomRow').hidden = !custom;
+  const ci = $('facesCustomInterval');
+  if (document.activeElement !== ci && s.intervalS != null) ci.value = s.intervalS;
+  const mf = $('facesMaxFrames');
+  if (document.activeElement !== mf) mf.value = s.maxFrames ?? FACES_MAX_FRAMES_DEFAULT;
+}
+
+/** Commit a number field: in range and on the step, or put the saved value back. */
+async function facesSettingsNumber(input, key, { min, max, step }) {
+  const raw = Number(input.value);
+  const v = Math.round(raw / step) * step;
+  const saved = key === 'maxFrames' ? (facesStatus?.maxFrames ?? FACES_MAX_FRAMES_DEFAULT) : facesStatus?.intervalS;
+  if (input.value === '' || !Number.isFinite(raw) || v < min || v > max) {
+    showToast(`Pick a number from ${min.toLocaleString()} to ${max.toLocaleString()}.`);
+    if (saved != null) input.value = saved;
+    return;
+  }
+  if (v === saved) { input.value = v; return; }
+  await facesSettingsPost({ [key]: v });
 }
 
 /** Poll every 1.5 s while the block is on screen and something is moving. */
@@ -925,8 +976,25 @@ function facesWireSettings() {
   if (!root) return;
   root.querySelector('[data-faces-setting="enabled"]').addEventListener('change', (e) => facesToggleEnabled(e.target));
   root.querySelector('[data-faces-setting="autoIndex"]').addEventListener('change', (e) => facesSettingsPost({ autoIndex: e.target.checked }));
-  root.querySelectorAll('[data-faces-interval]').forEach(b =>
-    b.addEventListener('click', () => facesSettingsPost({ intervalS: Number(b.dataset.facesInterval) })));
+  facesCustomOpen = false;
+  root.querySelectorAll('[data-faces-interval]').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.facesInterval === 'custom') {
+      facesCustomOpen = true;
+      facesSettingsPaint();
+      const ci = document.getElementById('facesCustomInterval');
+      ci.focus();
+      ci.select();
+      return;
+    }
+    facesCustomOpen = false;
+    facesSettingsPost({ intervalS: Number(b.dataset.facesInterval) });
+  }));
+  const ci = root.querySelector('#facesCustomInterval');
+  ci.addEventListener('change', () => facesSettingsNumber(ci, 'intervalS', { min: 0.5, max: 120, step: 0.5 }));
+  ci.addEventListener('keydown', (e) => { if (e.key === 'Enter') ci.blur(); });
+  const mf = root.querySelector('#facesMaxFrames');
+  mf.addEventListener('change', () => facesSettingsNumber(mf, 'maxFrames', { min: 100, max: 20000, step: 1 }));
+  mf.addEventListener('keydown', (e) => { if (e.key === 'Enter') mf.blur(); });
   root.querySelector('#facesDlBtn').addEventListener('click', () => facesStartDownload());
   root.querySelector('#facesAllBtn').addEventListener('click', async () => {
     try { facesSetStatus({ ...facesStatus, queue: await facesApi('/api/faces/index', { method: 'POST', json: { all: true } }) }); }
@@ -937,6 +1005,8 @@ function facesWireSettings() {
     const act = facesStatus?.queue?.paused ? 'resume' : 'pause';
     try { facesSetStatus({ ...facesStatus, queue: await facesApi(`/api/faces/queue/${act}`, { method: 'POST' }) }); }
     catch (err) { facesToastError(err); }
+    // The counts moved while it ran: ask for them now, not on the next poll.
+    await facesRefreshStatus();
     facesSettingsPoll();
   });
   root.querySelector('#facesStopBtn').addEventListener('click', async () => {
@@ -991,8 +1061,11 @@ document.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     const mediaId = Number(chip.dataset.faceMedia);
     const groupId = Number(chip.dataset.faceGroup);
+    const g = ((facesInfo.get(mediaId) || {}).groups || []).find(x => x.id === groupId);
     facesMenu(e.clientX, e.clientY, [
       { label: 'Find this person', run: () => facesChipFocus(chip) },
+      ...(g && g.personId && typeof facesOpenPerson === 'function'
+        ? [{ label: 'Open in Faces', run: () => facesOpenInFaces(chip, g.personId) }] : []),
       { label: 'Hide this face', run: () => { facesConfirm = { mediaId, groupId }; facesPaint(mediaId); } },
     ]);
     return;

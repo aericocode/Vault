@@ -640,6 +640,15 @@ function currentQuerySpec() {
   }
   // A ranked focus (a person search) orders the grid by its own scores.
   if (focusIds && focusRanked) spec.rankedIds = focusRanked;
+  // A person open in the Faces tab: exactly their files, in their order. The
+  // library's search box and filters are out of sight there, so they stay out.
+  const person = typeof facesPersonQuery === 'function' ? facesPersonQuery() : null;
+  if (person) {
+    spec.search = { ...spec.search, text: '', metadataOnly: false, fuzzy: false, semantic: false, subtitles: false };
+    spec.collectionId = null;
+    spec.onlyIds = person.onlyIds;
+    spec.rankedIds = person.rankedIds;
+  }
   return spec;
 }
 
@@ -680,7 +689,7 @@ function applyFilters(opts) {
 
   // Collections tab home shows ONLY collection cards — loose media hides
   // until a collection is opened (then its members fill the grid)
-  if (collectionsHomeShowing()) {
+  if (collectionsHomeShowing() || (typeof facesHomeShowing === 'function' && facesHomeShowing())) {
     _searchError = null;
     Library.setEmpty();
     afterResults(keepPage);
