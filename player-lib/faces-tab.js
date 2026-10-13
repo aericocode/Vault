@@ -881,6 +881,7 @@ function facesOpenPerson(id) {
   ftClosePops();
   ftFlipStop();
   FT.personId = Number(id);
+  FT.might = null;          // a fresh look every time the page opens
   FT.person = null;
   FT.kind = 'all';
   FT.fileIds = [];
@@ -1222,7 +1223,7 @@ function ftPaintMight() {
   el.innerHTML = `
     <div class="ft-might-h">
       <h2>Might also be ${who}</h2>
-      <span>${ftPlural(m.total, 'face', 'faces')} from other files ${m.total === 1 ? 'looks' : 'look'} a lot like ${p.name ? 'them' : 'this person'}. Tick the right ones.</span>
+      <span>${ftPlural(m.total, 'face', 'faces')} ${m.total === 1 ? 'from another file looks' : 'from other files look'} a lot like ${p.name ? 'them' : 'this person'}. Tick the right ones.</span>
       <div class="ft-might-acts">
         <button class="ft-btn ft-btn-md" type="button" data-ft-might="add"${k ? '' : ' disabled'}>Add the ${k.toLocaleString()} ticked to ${who}</button>
         <button class="ft-btn ghost ft-btn-md" type="button" data-ft-might="${k ? 'untick' : 'tick'}">${k ? 'Untick all' : 'Tick all'}</button>
@@ -1274,10 +1275,12 @@ async function ftMightAction(act, btn) {
   let r;
   try { r = await ftApi(`/api/faces/people/${m.personId}/candidates`, { method: 'POST', json: { accept, reject: [] } }); }
   catch (err) { facesToastError(err); btn.disabled = false; return; }
-  const n = (r && r.merged ? r.merged.length : 0) || accept.length;
+  const n = r && Array.isArray(r.merged) ? r.merged.length : accept.length;
+  const left = r && Array.isArray(r.skipped) ? r.skipped.length : 0;
   FT.faces.delete(m.personId);
   const name = ftPrivate() ? '' : ftName(r && r.person ? r.person : p);
-  showToast(name ? `Added ${n.toLocaleString()} to ${name}.` : `Added ${n.toLocaleString()} to this person.`);
+  showToast((n ? (name ? `Added ${n.toLocaleString()} to ${name}.` : `Added ${n.toLocaleString()} to this person.`) : 'Nothing was added.')
+    + (left ? ` ${left.toLocaleString()} could not be added because ${left === 1 ? 'it has' : 'they have'} changed.` : ''));
   FT.might = null;       // reloaded fresh with the person
   if (FT.personId === m.personId) ftLoadPerson();
 }

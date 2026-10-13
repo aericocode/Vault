@@ -200,6 +200,7 @@
       const pane = document.getElementById(id);
       if (pane) pane.hidden = !_panes.has(n) || n !== _paneOn;
     }
+    el.classList.toggle('dq-has-tabs', many);
   }
 
   /**

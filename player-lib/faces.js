@@ -54,6 +54,7 @@ const FACES_MSG = {
   BAD_KIND: 'Faces could not do that. Refresh and try again.',
   BAD_ANSWER: 'Faces could not do that. Refresh and try again.',
   BAD_REQUEST: 'Faces could not do that. Refresh and try again.',
+  NO_FACES: 'None of those faces can be added. They may belong to someone else now.',
 };
 
 let facesStatus = null;          // last GET /api/faces/status
@@ -507,14 +508,13 @@ function facesBannerName(bar) {
       method: 'POST', json: mergeIfTaken ? { name, groupIds, mergeIfTaken: true } : { name, groupIds },
     });
   }
-  const count = fromQuery && !T ? b.addable.length : 0;
   ftStartNaming({
     host, anchor: host.firstElementChild, id, initial: (T && T.name) || '', me: { coverUrl: f.cropUrl }, save,
     onDone: (p, how = {}) => {
       // A new person from a photo's results: say what moved (a merge already said so).
-      if (p && count && p.name && !how.merged) {
-        const files = `${count.toLocaleString()} ${count === 1 ? 'file' : 'files'}`;
-        showToast(facesNames() ? `Added ${files} to a new person.` : `Added ${files} to ${p.name}.`);
+      const count = save && p && Array.isArray(p.moved) ? p.moved.length : 0;
+      if (fromQuery && count && p.name && !how.merged) {
+        showToast(facesNames() ? `Added ${facesFiles(count)} to a new person.` : `Added ${facesFiles(count)} to ${p.name}.`);
       }
       facesRefreshFocus();
     },
@@ -532,7 +532,7 @@ const facesFiles = (k) => `${k.toLocaleString()} ${k === 1 ? 'file' : 'files'}`;
 async function facesAddToTarget(groupIds, { takeFromNamed = false } = {}) {
   const T = facesFocusTarget();
   if (!T || !groupIds.length) { renderFocusBar(); return false; }
-  let moved = 0;
+  let moved = 0, already = 0;
   const skipped = [];
   try {
     for (let i = 0; i < groupIds.length; i += 2000) {
@@ -540,12 +540,15 @@ async function facesAddToTarget(groupIds, { takeFromNamed = false } = {}) {
       if (takeFromNamed) json.takeFromNamed = true;
       const r = await facesApi(`/api/faces/people/${T.id}/add`, { method: 'POST', json });
       moved += (r.moved || []).length;
+      already += (r.already || []).length;
       skipped.push(...(r.skipped || []));
     }
   } catch (err) { facesToastError(err); renderFocusBar(); return false; }
   if (typeof FT !== 'undefined') FT.faces.delete(T.id);
-  let msg = !moved ? 'Nothing was added.'
-    : T.name && !facesNames() ? `Added ${facesFiles(moved)} to ${T.name}.` : `Added ${facesFiles(moved)}.`;
+  const named = T.name && !facesNames();
+  let msg = moved ? (named ? `Added ${facesFiles(moved)} to ${T.name}.` : `Added ${facesFiles(moved)}.`)
+    : already ? (named ? `Already in ${T.name}.` : 'Already in this person.')
+    : 'Nothing was added.';
   const other = skipped.filter(s => s.reason === 'other-named').length;
   const lost = skipped.length - other;
   if (other) msg += ` ${other.toLocaleString()} ${other === 1 ? 'was' : 'were'} left out because ${other === 1 ? 'it belongs' : 'they belong'} to someone else.`;
@@ -795,7 +798,7 @@ function facesScanBuild(pane) {
     <div class="dq-head fsq-head"><span class="fsq-ico"></span><span class="dq-title fsq-title"></span>
       <button type="button" class="dq-x fsq-x" title="Dismiss" hidden>✕</button></div>
     <div class="dq-bar"><div class="dq-bar-fill fsq-fill"></div></div>
-    <div class="dq-meta"><span class="fsq-meta"></span><span class="fsq-workers"></span></div>
+    <div class="dq-meta"><span class="fsq-meta"></span></div>
     <div class="dq-list fsq-list"></div>
     <div class="fsq-sum" hidden><span class="fsq-sum-text"></span><button type="button" class="fsq-open">Open Faces</button></div>
     <div class="dq-actions fsq-actions">
@@ -894,12 +897,11 @@ function facesScanPaint() {
   facesScan.focus = false;
   facesScanBuild(pane);
   const $ = (sel) => pane.querySelector(sel);
-  const alone = api.count() === 1;
 
   const ico = $('.fsq-ico');
   if (q.running && !q.paused) { if (!ico.querySelector('.dq-spin')) ico.innerHTML = '<span class="dq-spin"></span>'; }
   else ico.innerHTML = `<span class="dq-ico">${q.running ? '⏸' : run.failed || stopped ? '⚠' : '✓'}</span>`;
-  $('.fsq-title').textContent = `${alone ? '👤 ' : ''}${q.running
+  $('.fsq-title').textContent = `${q.running
     ? `${q.paused ? 'Paused: finding' : 'Finding'} faces in ${facesFiles(total)}`
     : stopped ? `Stopped after checking ${facesFiles(finished)}`
     : `Finished looking for faces in ${facesFiles(total)}`}`;
@@ -908,7 +910,6 @@ function facesScanPaint() {
   $('.fsq-meta').textContent = `${finished.toLocaleString()} of ${total.toLocaleString()}`
     + (q.running && !q.paused && q.etaS ? ` · ${facesAbout(q.etaS)} left` : '')
     + (run.failed ? ` · ${run.failed.toLocaleString()} could not be read` : '');
-  $('.fsq-workers').textContent = q.running && q.workers ? `${q.workers} at a time` : '';
 
   const active = q.running ? (q.current || []).map(c => `<div class="dq-row dq-active"><span class="dq-ico">⏳</span>`
     + `<span class="dq-name">${escapeHtml(c.filename || `File ${c.id}`)}</span>`

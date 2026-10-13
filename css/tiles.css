@@ -971,6 +971,9 @@
 .fsq-ico { display: inline-flex; flex: none; }
 .fsq-ico:empty { display: none; }
 .fsq-res { flex: none; font-size: 0.72rem; color: var(--text-secondary); }
+/* Alone, the pane says what it is; with tabs, the tab does. */
+#scanQueuePanel:not(.dq-has-tabs) .fsq-title::before { content: '👤 '; }
+.fsq-list { padding-right: 4px; }   /* the scrollbar never sits on the results */
 .dq-row.fsq-none .dq-ico { color: var(--text-muted); }
 .fsq-sum {
   display: flex; align-items: center; gap: 0.5rem;
