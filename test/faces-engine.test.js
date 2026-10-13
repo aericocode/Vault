@@ -519,3 +519,22 @@ test('real engine: worker and in-process backends agree; frames switch correctly
   assert.deepStrictEqual(await w.detect(a), fa);   // a closed engine reloads lazily on next use
   w.close();
 });
+
+test('real engine: close() is safe mid-request and mid-analysis', { skip: noModels || noFfmpeg }, async () => {
+  const e = createEngine({ backend: 'onnx', modelPaths: realPaths, threads: 1 });
+  const blank = { width: 640, height: 480, data: new Uint8Array(640 * 480 * 3) };
+  await e.load();
+  assert.deepStrictEqual(await (() => { const q = e.detect(blank); e.close(); return q; })(), [],
+    'closed before the call was sent: it reloads and answers');
+  const inflight = e.detect(blank);
+  while (e._pending.size === 0) await new Promise((r) => setImmediate(r));   // message posted to the worker
+  e.close();                                            // worker terminated under a running call
+  await assert.rejects(inflight, /closed/);
+  // between calls (as the pool's idle close would be): the analysis carries on, reloading lazily
+  let n = 0;
+  const r = await analyzeFile(e, { filepath: makeClip(), kind: 'video' }, {
+    intervalS: 1, onProgress: () => { if (++n === 2) e.close(); },
+  });
+  assert.strictEqual(r.framesChecked, 10);
+  e.close();
+});

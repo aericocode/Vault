@@ -11,6 +11,8 @@
  *                            assets — served from memory, nothing readable
  *                            ships on disk (server/index.js embedded layer)
  *   runtime/node_modules/    the native SQLite addons (can't live in the blob)
+ *                            and onnxruntime-node (face search), trimmed to
+ *                            this platform's CPU runtime (see ONNX_FILES)
  *   diarize_service.py, opus_translate.py     python sidecars (spawned by
  *                            path.join(__dirname,…) which inside a SEA exe
  *                            resolves to the exe's own directory)
@@ -39,6 +41,17 @@ const SENTINEL = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
 // Native addons + their runtime deps (flat closure, verified by the Phase 0
 // spike incl. an isolation test with repo node_modules hidden).
 const RUNTIME_PKGS = ['better-sqlite3', 'better-sqlite3-multiple-ciphers', 'bindings', 'file-uri-to-path'];
+
+// onnxruntime-node (face search, lib/faces/engine.js) ships 288 MB of binaries
+// for every platform plus DirectML/DXC DLLs we never load (CPU provider only).
+// Copy just what this platform's CPU runtime needs; the worker thread loads it
+// from runtime/node_modules via createRequire like the SQLite addons.
+const ORT_BIN = `bin/napi-v6/${process.platform}/${process.arch}`;
+const ONNX_FILES = {
+  'onnxruntime-node': ['package.json', 'dist', `${ORT_BIN}/onnxruntime_binding.node`,
+    `${ORT_BIN}/${process.platform === 'win32' ? 'onnxruntime.dll' : process.platform === 'darwin' ? 'libonnxruntime.1.dylib' : 'libonnxruntime.so.1'}`],
+  'onnxruntime-common': ['package.json', 'dist/cjs'],
+};
 
 // Client assets served to the browser — minified and EMBEDDED in the exe as
 // SEA assets (served from memory by server/index.js); nothing ships loose.
@@ -82,6 +95,17 @@ for (const pkg of ['better-sqlite3', 'better-sqlite3-multiple-ciphers']) {
   }
   console.log('  ' + pkg + ': ok (Node ' + headers + ' headers)');
 }
+{
+  // onnxruntime-node is N-API (no ObjectWrap from node.h), so it should never
+  // import the hook; checked anyway because the crash would be the same.
+  const ort = path.join(NM, 'onnxruntime-node', 'bin', 'napi-v6', process.platform, process.arch, 'onnxruntime_binding.node');
+  let bin;
+  try { bin = fs.readFileSync(ort); } catch (e) { die('onnxruntime-node native addon missing (npm ci first)', e); }
+  if (bin.includes('RemoveEnvironmentCleanupHook')) {
+    die('onnxruntime_binding.node imports RemoveEnvironmentCleanupHook (nodejs/node#65446): pick an onnxruntime-node build made against <= 24.18.1 headers');
+  }
+  console.log('  onnxruntime-node: ok (N-API, no RemoveEnvironmentCleanupHook)');
+}
 
 /* 1 ── clean output */
 step('clean dist/');
@@ -105,7 +129,7 @@ try {
     target: 'node24',
     outfile: path.join(BUILD, 'bundle.js'),
     // Loaded at runtime via createRequire from runtime/node_modules (native)
-    external: ['better-sqlite3', 'better-sqlite3-multiple-ciphers'],
+    external: ['better-sqlite3', 'better-sqlite3-multiple-ciphers', 'onnxruntime-node', 'onnxruntime-common'],
     // minify obscures the embedded server code further + shrinks the blob.
     // Trade-off: customer stack traces are unreadable — acceptable for now.
     minify: true,
@@ -198,6 +222,19 @@ try {
     fs.cpSync(path.join(NM, pkg), path.join(OUT, 'runtime', 'node_modules', pkg), { recursive: true });
   }
   console.log('copied: ' + RUNTIME_PKGS.join(', '));
+  let bytes = 0;
+  for (const [pkg, files] of Object.entries(ONNX_FILES)) {
+    for (const rel of files) {
+      const src = path.join(NM, pkg, rel);
+      const dst = path.join(OUT, 'runtime', 'node_modules', pkg, rel);
+      fs.mkdirSync(path.dirname(dst), { recursive: true });
+      fs.cpSync(src, dst, { recursive: true, filter: (f) => !/\.(map|d\.ts)$/.test(f) });
+    }
+  }
+  const du = (d) => fs.readdirSync(d, { withFileTypes: true })
+    .reduce((n, e) => n + (e.isDirectory() ? du(path.join(d, e.name)) : fs.statSync(path.join(d, e.name)).size), 0);
+  for (const pkg of Object.keys(ONNX_FILES)) bytes += du(path.join(OUT, 'runtime', 'node_modules', pkg));
+  console.log('copied (trimmed): ' + Object.keys(ONNX_FILES).join(', ') + ' = ' + (bytes / 1048576).toFixed(1) + ' MB');
 } catch (e) { die('runtime sidecar', e); }
 
 /* 7 ── python sidecars (client assets are embedded — nothing loose to copy) */

@@ -311,6 +311,10 @@ runtime.
 
 1. **Install [Node.js](https://nodejs.org)** (LTS).
 2. In the repo folder, run **`npm install`** once.
+   On **Linux x64**, run it as `ONNXRUNTIME_NODE_INSTALL=skip npm install`
+   (same for `npm ci`). Otherwise the face-search runtime (onnxruntime-node)
+   also downloads its NVIDIA CUDA add-ons, several hundred MB that Vault never
+   uses (face search runs on the CPU). Windows and macOS skip this by themselves.
 3. Double-click **`start.bat`**: it starts the local server and opens the
    viewer in your browser (same UI, same `http://127.0.0.1:8765`).
 4. **Drag media files onto the window** to add them (playable immediately),
