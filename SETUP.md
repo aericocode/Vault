@@ -417,7 +417,8 @@ carried over.
 
 Click a face in a file's info and Vault shows every file that person is in.
 You can also search with a photo of someone, or with a paused video frame.
-Everything runs on your computer, and face search is off until you turn it on.
+The 👤 Faces tab sorts everyone Vault finds into people you can name, merge
+and play. Everything runs on your computer, and face search is off until you turn it on.
 
 ### Turn it on
 
@@ -444,11 +445,21 @@ found. Pick whichever way suits you:
 - **New files:** turn on **Find faces in new imports automatically**. New
   photos and videos are checked after their normal AI scan.
 
-Videos are checked at regular spots. **How closely to check videos** sets the
-spacing: **Every 2 seconds**, **Every 3.5 seconds** (the default) or **Every 10
-seconds**. Closer checks find more faces but take longer. A change applies to
-files checked from then on. To recheck a file, right-click its tile and choose
-**Look for faces again**.
+Videos are checked at regular spots. Two settings in Settings > Face search
+control how:
+
+- **How closely to check videos** sets the spacing: **Every 2 seconds**,
+  **Every 3.5 seconds** (the default) or **Every 10 seconds**. Pick **Custom**
+  to type your own, from 0.5 to 120 seconds. Closer checks find more faces,
+  including people who are only on screen briefly, but take longer.
+- **Most frames per video** caps how many spots one video gets (100 to
+  20,000, default 2,000). Longer videos spread these frames evenly, so a very
+  long video is checked more loosely than the spacing above. More frames find
+  more faces but take longer.
+
+A change applies to files checked from then on. Files already checked keep
+their results. To recheck a file, right-click its tile and choose **Look for
+faces again**.
 
 ### Search for a person
 
@@ -472,6 +483,49 @@ files checked from then on. To recheck a file, right-click its tile and choose
   the player controls. Vault pauses and looks for faces at that moment. The
   video does not need to be checked first.
 
+### The Faces tab
+
+Click **👤 Faces** at the top of Vault to see everyone in your library. If
+face search is off, the tab shows **Turn on face search** instead.
+
+- **People appear on their own.** As files are checked, Vault sorts the faces
+  into people. Each person gets a tile with their photo, how many files they
+  are in and, for videos, about how long they are on screen.
+- **Find and sort.** Search by name, or use the chips: **Everyone**,
+  **Named**, **Not named yet**, **★ Favorites**, **In only one file** and
+  **Hidden**. Sort by **Most files**, **Most time on screen**, **Recently
+  added** or **Name A to Z**.
+- **Name someone.** Click **Add a name** under their tile. If you pick a name
+  someone else already has, Vault asks if they are the same person. Choose
+  **Yes, put them together** or **No, someone else**.
+- **Same person?** When Vault is not sure two people are the same, it asks in
+  a strip at the top. Click **Yes** or **No**, or **Review all** to go through
+  them one by one. Your answers are remembered.
+- **Merge and hide.** Select tiles (a checkbox shows when you hover) to
+  **Merge into** one person, or to **Hide** people you don't care about.
+  Hidden people stay out of Everyone, and their new faces stay hidden too.
+  Find them under **Hidden** and click **Unhide** to bring them back.
+- **In only one file** shows people Vault has seen just once. These are often
+  extras or strangers, which makes them quick to hide.
+
+Click a tile to open that person's page:
+
+- **▶ Play all** or **Shuffle** plays their files. Videos start where the
+  person first shows up, and their tiles show a badge like **▶ from 0:21**.
+- **★ Favorite** adds them to ★ Favorites and puts them first when sorting
+  by Most files.
+- **Find more that might be them** runs a wider face search to catch files
+  Vault missed.
+- **Change photo** picks the face shown on their tile. **More** has **Hide
+  this person** and **Merge with...**.
+- **Often seen with** shows the people who share the most files with them.
+- **All**, **Videos** and **Photos** narrow the files shown.
+- Wrong file? Hover its tile and click **✕ Not this person**. Click **Undo**
+  in the message that appears if you change your mind.
+
+Your fixes always stick. Vault never undoes a name, merge or "Not this
+person", even when a file is checked again.
+
 ### Privacy
 
 - Face search runs entirely on this computer. Nothing is uploaded. The only
@@ -479,11 +533,13 @@ files checked from then on. To recheck a file, right-click its tile and choose
 - Faces are stored in your library. If your library has a password, they are
   encrypted with it like everything else.
 - **Delete all face data** (the **Delete** button under Face data in
-  Settings > Face search) removes every face Vault found. Click it a second
-  time to confirm. Your files are not touched.
+  Settings > Face search) removes every face and person Vault found,
+  including names. Click it a second time to confirm. Your files are not
+  touched.
 - **Hide this face** (right-click a face picture) removes that face from
   search. In this version it cannot be undone, other than by deleting all face
-  data.
+  data. Hiding a whole person in the Faces tab is different: **Unhide** brings
+  them back.
 
 ### Limits
 
