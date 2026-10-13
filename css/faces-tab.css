@@ -242,7 +242,7 @@
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6); padding: 10px 14px;
-  max-width: calc(100vw - 32px); box-sizing: border-box;
+  width: max-content; max-width: calc(100% - 32px); box-sizing: border-box;
   transition: transform 0.2s ease-out, visibility 0s linear 0.2s;
 }
 .ft-selbar.visible { transform: translate(-50%, 0); visibility: visible; pointer-events: auto; transition: transform 0.2s ease-out; }
@@ -398,3 +398,21 @@ body.pm-names .ft-crumb-name { pointer-events: none; user-select: none; }
   .ft-bar { flex-basis: 100%; }
   .ft-pairs { grid-template-columns: 1fr; }
 }
+
+/* Named and unnamed tiles keep the same height: one fixed name row. */
+.ft-name { height: 22px; line-height: 22px; padding: 0 9px; margin: 7px 0 2px; box-sizing: border-box; }
+.ft-addname { height: 22px; line-height: 18px; padding: 0 8px; }
+.ft-tile .ft-field { height: 22px; padding: 0 8px; }
+
+/* "✕ Not this person" folds to "✕" on narrow tiles (Small cards), so it never
+   reaches the checkbox at the other corner. */
+.tile-thumb:has(.ft-notme) { container-type: inline-size; }
+@container (max-width: 200px) {
+  .ft-notme { padding: 2px 7px; }
+  .ft-notme-text { display: none; }
+}
+
+/* Names in labels, hints and fields follow privacy mode too. */
+.ft-pm-name { display: inline-block; }
+body.pm-names .ft-pm-name,
+body.pm-names .ft-field:not(.ft-pop-search) { filter: blur(7px); }
