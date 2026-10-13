@@ -46,6 +46,7 @@ function sendError(res, err) {
     if (err.missing) body.missing = err.missing;
     if (err.keys) body.keys = err.keys;
     if (err.otherId !== undefined) { body.otherId = err.otherId; body.other = err.other; }
+    if (err.skipped) body.skipped = err.skipped;
     return res.status(err.status).json(body);
   }
   console.error(`[faces] ${err && err.stack ? err.stack : err}`);
@@ -125,6 +126,7 @@ function buildRouter() {
     h((req) => svc().similarToGroup(req.faceId, req.body?.width)));
 
   router.post('/faces/groups/:groupId/hide', on, idParam('groupId'), h((req) => svc().hideGroup(req.faceId)));
+  router.post('/faces/groups/:groupId/not-a-face', on, idParam('groupId'), h((req) => svc().notFaceGroup(req.faceId)));
 
   // Raw image body (Content-Type image/*, 25 MB max) or JSON { mediaId, timeS }.
   // The global JSON parser has already handled the JSON form; the raw parser
@@ -156,6 +158,7 @@ function buildRouter() {
   // People across the library (FACES_PEOPLE_SPEC section 3). Pure database
   // work: the feature must be on, the models need not be present.
   router.get('/faces/people', on, h((req) => svc().listPeople(req.query || {})));
+  router.post('/faces/people', on, h((req) => svc().createPerson(req.body || {})));
   router.post('/faces/people/merge', on, h((req) => svc().mergePeople(req.body || {})));
   router.get('/faces/people/:id', on, idParam('id'), h((req) => svc().getPerson(req.faceId)));
   router.get('/faces/people/:id/files', on, idParam('id'), h((req) => svc().personFiles(req.faceId, req.query.kind)));
@@ -163,6 +166,11 @@ function buildRouter() {
   router.post('/faces/people/:id', on, idParam('id'), h((req) => svc().updatePerson(req.faceId, req.body || {})));
   router.post('/faces/people/:id/not-in', on, idParam('id'), h((req) => svc().notInPerson(req.faceId, req.body || {})));
   router.post('/faces/people/:id/restore', on, idParam('id'), h((req) => svc().restorePerson(req.faceId, req.body || {})));
+  // Round 3 (FACES_FEEDBACK_SPEC E2, E4, E6).
+  router.post('/faces/people/:id/add', on, idParam('id'), h((req) => svc().addToPerson(req.faceId, req.body || {})));
+  router.get('/faces/people/:id/candidates', on, idParam('id'), h((req) => svc().personCandidates(req.faceId, req.query || {})));
+  router.post('/faces/people/:id/candidates', on, idParam('id'), h((req) => svc().answerCandidates(req.faceId, req.body || {})));
+  router.post('/faces/people/:id/not-a-face', on, idParam('id'), h((req) => svc().notFacePerson(req.faceId)));
   router.get('/faces/review', on, h((req) => svc().reviewPairs(req.query || {})));
   router.post('/faces/review', on, h((req) => svc().answerReview(req.body || {})));
 

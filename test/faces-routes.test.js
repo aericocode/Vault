@@ -96,13 +96,15 @@ test('feature off: status answers, everything else but settings/delete-all is FA
   assert.strictEqual(s.body.autoIndex, false);
   assert.strictEqual(s.body.intervalS, 3.5);
   assert.deepStrictEqual(Object.keys(s.body.queue).sort(),
-    ['current', 'done', 'etaS', 'failed', 'lastRun', 'paused', 'running', 'startedAt', 'total'].sort());
+    ['current', 'done', 'etaS', 'failed', 'lastRun', 'paused', 'recent', 'running', 'startedAt', 'total', 'withPeople'].sort());
   for (const [method, p] of [
     ['POST', '/api/faces/index'], ['POST', '/api/faces/queue/pause'], ['POST', '/api/faces/queue/resume'],
     ['POST', '/api/faces/queue/cancel'], ['GET', `/api/media/${ids['img1.jpg']}/faces`],
     ['POST', `/api/media/${ids['img1.jpg']}/find-faces`], ['GET', '/api/faces/crop/1'],
     ['POST', '/api/faces/groups/1/similar'], ['POST', '/api/faces/groups/1/hide'],
     ['POST', '/api/faces/search-image'], ['GET', '/api/faces/query/abc/crop'], ['POST', '/api/faces/query/abc/similar'],
+    ['POST', '/api/faces/groups/1/not-a-face'], ['POST', '/api/faces/people'], ['POST', '/api/faces/people/1/add'],
+    ['GET', '/api/faces/people/1/candidates'], ['POST', '/api/faces/people/1/candidates'], ['POST', '/api/faces/people/1/not-a-face'],
   ]) {
     const r = await fetch(base + p, method === 'POST' ? json({}) : {});
     assert.strictEqual(r.status, 409, p);
@@ -252,7 +254,7 @@ test('similar: same person across files, widths, bad width, other people exclude
   const [g] = (await get(`/api/media/${ids['img1.jpg']}/faces`)).body.groups;
   const r = await post(`/api/faces/groups/${g.id}/similar`, { width: 'normal' });
   assert.strictEqual(r.status, 200);
-  assert.deepStrictEqual(Object.keys(r.body).sort(), ['capped', 'ids', 'scores', 'total']);
+  assert.deepStrictEqual(Object.keys(r.body).sort(), ['capped', 'ids', 'match', 'scores', 'source', 'total']);
   assert.deepStrictEqual(r.body.ids, [ids['img1.jpg'], ids['video3.mp4']]);
   assert.strictEqual(r.body.total, 2);
   assert.strictEqual(r.body.capped, false);
