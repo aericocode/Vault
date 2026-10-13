@@ -140,11 +140,26 @@ app.post('/api/vault/touch', (req, res) => { vault.touch(); res.json({ ok: true 
 // Gate: while locked, every data endpoint answers 423 (the client swaps to the
 // lock screen). Static assets and the vault routes above stay reachable so the
 // lock screen itself can render.
+//
+// The prefix test has to be at least as forgiving as Express's own routing, or
+// a request can reach a data handler without ever looking like a data path.
+// Express matches route paths case-insensitively (/API/settings/app runs the
+// /api/settings/app handler) and ignores a trailing slash, so the check is done
+// on a lowercased path. It also checks a percent-decoded, slash-collapsed form
+// (//api/..., /%61pi/...). Express does not route those today, so this only
+// ever closes MORE requests, never fewer: a path counts as data when ANY form
+// of it carries a data prefix.
+const LOCK_GATED_PREFIXES = ['/api', '/media', '/thumb', '/frame', '/stream', '/scrub'];
+function isLockGatedPath(rawPath) {
+  const forms = [rawPath];
+  try { forms.push(decodeURIComponent(rawPath)); } catch { /* malformed %: raw form only */ }
+  return forms.some((f) => {
+    const p = f.toLowerCase().replace(/\/{2,}/g, '/');
+    return LOCK_GATED_PREFIXES.some(pre => p === pre || p.startsWith(pre + '/'));
+  });
+}
 app.use((req, res, next) => {
-  const dataPath = req.path.startsWith('/api/') || req.path.startsWith('/media/')
-    || req.path.startsWith('/thumb/') || req.path.startsWith('/frame/')
-    || req.path.startsWith('/stream/');
-  if (!dataPath) return next();
+  if (!isLockGatedPath(req.path)) return next();
   if (vault.isLocked()) return res.status(423).json({ error: 'vault is locked', code: 'VAULT_LOCKED' });
   // Timed background polls (the unscanned-row watcher, for one) mark
   // themselves so they do not count as the user being present; otherwise a
@@ -3048,4 +3063,4 @@ if (require.main === module) {
   start();
 }
 
-module.exports = { app, start, run: start };
+module.exports = { app, start, run: start, isLockGatedPath };
