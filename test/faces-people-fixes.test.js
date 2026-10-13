@@ -305,3 +305,58 @@ test('suggestions: never with a hidden person; capped at MAX_SUGGESTIONS even wh
 test('schema: face_people.cover_group_id is indexed', () => {
   assert.ok(q('PRAGMA index_list(face_people)').some(i => i.name === 'idx_face_people_cover'));
 });
+
+test('screen time for faces checked before screen_s existed: appearances x stored spacing, else the spacing the file would get now', async () => {
+  const d = db.get();
+  const video = (dur, stored = null) => Number(d.prepare("INSERT INTO media (filepath, filename, media_type, duration_seconds) VALUES (?, ?, 'video', ?)")
+    .run(path.join(tmp, `v${++n}.mp4`), `v${n}.mp4`, dur).lastInsertRowid);
+  const short = video(100), long = video(10000), known = video(100);
+  for (const mid of [short, long, known]) {
+    store.saveFileResult(mid, 'stub-v1', { groups: [group(person(60), { appearances: 10, firstTimeS: 1 })] }, { isVideo: true });
+  }
+  const pic = file([group(like(60, 0.9, 111))]);
+  // as an older library has them: screen_s NULL; one file knows its spacing
+  d.exec('UPDATE face_groups SET screen_s = NULL');
+  d.prepare('UPDATE media SET faces_interval_s = 7 WHERE id = ?').run(known);
+  await sort();
+  const p = pidsOf(short)[0];
+  assert.deepStrictEqual([short, long, known, pic].map(m => pidsOf(m)[0]), [p, p, p, p]);
+  people.resetCaches();
+  const r = (await get(`/api/faces/people/${p}`)).body;
+  // 10 x max(3.5, 100/2000) + 10 x max(3.5, 10000/2000) + 10 x 7; the photo adds nothing
+  assert.strictEqual(r.screenS, 35 + 50 + 70);
+  assert.deepStrictEqual((await get(`/api/faces/people/${p}/files`)).body.ids, [known, long, short, pic]);
+  // a different interval setting moves the files that don't know their spacing
+  await post('/api/faces/settings', { intervalS: 10 });
+  assert.strictEqual((await get(`/api/faces/people/${p}`)).body.screenS, 100 + 100 + 70);
+  await post('/api/faces/settings', { intervalS: 3.5 });
+
+  // from now on the spacing used is stored with the file (videos only)
+  store.saveFileResult(short, 'stub-v1', { groups: [group(person(60), { appearances: 4 })] }, { isVideo: true, screenIntervalS: 2.5 });
+  assert.strictEqual(one('SELECT faces_interval_s AS s FROM media WHERE id = ?', short).s, 2.5);
+  assert.strictEqual(one('SELECT screen_s FROM face_groups WHERE media_id = ?', short).screen_s, 10);
+  assert.strictEqual(one('SELECT faces_interval_s AS s FROM media WHERE id = ?', pic).s, null);
+});
+
+test('queue: pause with nothing queued or running stays idle; resume after it is harmless', async () => {
+  let r = await post('/api/faces/queue/pause', {});
+  assert.strictEqual(r.status, 200);
+  assert.deepStrictEqual([r.body.running, r.body.paused], [false, false]);
+  r = await post('/api/faces/queue/resume', {});
+  assert.strictEqual(r.status, 200);
+  assert.deepStrictEqual([r.body.running, r.body.paused], [false, false]);
+  // with work queued, pause still pauses
+  const { createQueue } = require('../lib/faces/queue');
+  let release;
+  const gate = new Promise(res => { release = res; });
+  const qq = createQueue({ runFile: () => gate, workers: 1 });
+  assert.strictEqual(qq.pause().paused, false);
+  qq.enqueue([{ id: 1 }, { id: 2 }]);
+  assert.strictEqual(qq.pause().paused, true);
+  release(true);
+  await qq.settled();
+  assert.deepStrictEqual([qq.status().running, qq.status().paused], [true, true], 'the queued file waits for Resume');
+  qq.resume();
+  await qq.settled();
+  assert.strictEqual(qq.status().running, false);
+});
