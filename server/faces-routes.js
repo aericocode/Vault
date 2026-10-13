@@ -129,13 +129,16 @@ function buildRouter() {
   // The global JSON parser has already handled the JSON form; the raw parser
   // only claims image/* bodies and only on this route.
   router.post('/faces/search-image', ...ready,
+    // Snapshot the vault-lock generation BEFORE the body is read: an upload
+    // still arriving when the vault locks must not be searched (or cached).
+    (req, res, next) => { req.faceLockGen = svc().lockGeneration(); next(); },
     express.raw({ type: 'image/*', limit: SEARCH_IMAGE_LIMIT }),
     h((req) => {
       if (Buffer.isBuffer(req.body)) {
-        return svc().searchImage({ buffer: req.body, contentType: req.get('Content-Type') });
+        return svc().searchImage({ buffer: req.body, contentType: req.get('Content-Type'), lockGen: req.faceLockGen });
       }
       if (req.body && typeof req.body === 'object' && req.body.mediaId !== undefined) {
-        return svc().searchImage({ mediaId: req.body.mediaId, timeS: req.body.timeS });
+        return svc().searchImage({ mediaId: req.body.mediaId, timeS: req.body.timeS, lockGen: req.faceLockGen });
       }
       const e = new Error('send an image (Content-Type image/*) or JSON { mediaId, timeS }');
       e.status = 400; e.code = 'BAD_REQUEST';

@@ -211,3 +211,37 @@ test('cancel leaves click runs alone; cancel({ includeDirect }) stops them too',
   assert.strictEqual(await click2, 'aborted');
   await q.settled();
 });
+
+test('a click joining a running queue file takes it over: Stop leaves it, tallies drop it', async () => {
+  const { q, started, aborted, release } = harness({ workers: 1 });
+  q.enqueue(items(1, 2));
+  assert.deepStrictEqual(started, [1]);
+  const click = q.runNow({ id: 1, filename: '1.jpg' });      // joins the running queue run
+  assert.deepStrictEqual(started, [1, 2], 'its worker slot went back to the queue');
+  assert.strictEqual(q.status().total, 1);
+  q.cancel();                                                   // the Stop button
+  assert.deepStrictEqual(aborted, [2], 'the joined click run kept going');
+  await release(1);
+  assert.strictEqual(await click, 'done');
+  await q.settled();
+  assert.strictEqual(q.status().lastRun.done, 0, 'the joined run never counts as queue work');
+});
+
+test('regression: a queue file a click joined goes back to the queue on suspend (vault lock)', async () => {
+  const { q, started, aborted } = harness({ workers: 1 });
+  q.enqueue(items(1, 2));
+  const click = q.runNow({ id: 1, filename: '1.jpg' });        // joins the running queue file
+  assert.deepStrictEqual(started, [1, 2]);
+  assert.strictEqual(q.status().total, 1);
+  q.suspend();
+  assert.strictEqual(await click, 'aborted');
+  await tick();
+  assert.deepStrictEqual(aborted.sort(), [1, 2]);
+  assert.ok(q.isQueued(1), 'file 1 is queued again');
+  assert.strictEqual(q.status().total, 2, 'and counted in the batch again');
+  q.unsuspend();
+  assert.strictEqual(started.length, 3, 'the queue resumes');
+  assert.ok(started[2] === 1 || q.isQueued(1), 'file 1 runs or waits as queue work');
+  q.cancel();
+  await q.settled();
+});

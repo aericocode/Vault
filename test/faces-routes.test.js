@@ -568,3 +568,31 @@ test('regression: a request that hits the locked DB answers 423 VAULT_LOCKED, no
   assert.deepStrictEqual([r.status, r.body.code], [423, 'VAULT_LOCKED']);
   assert.ok(!/encrypted/.test(r.body.error));
 });
+
+test('regression: an upload still arriving when the vault locks answers 423 and stores nothing', async () => {
+  await setEnabled(true);
+  const http = require('node:http');
+  const body = Buffer.from('slow-upload-face'.repeat(200));
+  fk.frameScripts.set(body.toString('utf8'), [{ embedding: person(3), bbox: [0.1, 0.1, 0.2, 0.2], crop: Buffer.from('q') }]);
+  const before = svc._queries.size;
+  const { port } = server.address();
+  const res = new Promise((ok, fail) => {
+    const req = http.request({ host: '127.0.0.1', port, path: '/api/faces/search-image', method: 'POST',
+      headers: { 'Content-Type': 'image/jpeg', 'Content-Length': body.length } }, (r) => {
+      let d = ''; r.on('data', (c) => { d += c; }); r.on('end', () => ok({ status: r.statusCode, body: JSON.parse(d) }));
+    });
+    req.on('error', fail);
+    req.write(body.subarray(0, 1000));
+    setTimeout(() => {
+      svc.onVaultLocked();                      // the lock lands while the body is still arriving
+      req.end(body.subarray(1000));
+    }, 100);
+  });
+  const r = await res;
+  svc.onVaultUnlocked();
+  assert.deepStrictEqual([r.status, r.body.code], [423, 'VAULT_LOCKED']);
+  assert.strictEqual(svc._queries.size, before, 'no query face was cached');
+  // the same upload sent in one go after unlock works
+  const ok = await fetch(base + '/api/faces/search-image', { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body });
+  assert.strictEqual(ok.status, 200);
+});

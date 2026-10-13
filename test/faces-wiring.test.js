@@ -335,3 +335,79 @@ test("the queue's Stop leaves a click alone; turning the feature off stops it", 
   assert.ok(fk.calls.aborted.includes(path.join(tmp, 'lib', 'click-off.mp4')));
   require('../lib/app-settings').set({ facesEnabled: true });
 });
+
+function gatedService() {
+  const { createFakes, person, group } = require('./helpers/faces-fakes');
+  const fk = createFakes();
+  const gates = [];
+  const hold = () => new Promise((r) => gates.push(r));
+  // analyze that ignores abort signals, so only the lock checks can stop a write
+  const analyze = {
+    async analyzeFile() { await hold(); return { framesChecked: 1, groups: [group(person(4))] }; },
+    async analyzeFrame() { await hold(); return [{ embedding: person(4), bbox: [0.1, 0.1, 0.2, 0.2], detScore: 0.9, crop: Buffer.from('c') }]; },
+  };
+  const svc = faces.createService({ modelStore: fk.modelStore, engineFactory: fk.engineFactory, analyze, frames: fk.frames, fileExists: () => true });
+  const openAll = () => { while (gates.length) gates.shift()(); };
+  const until = async () => { while (!gates.length) await new Promise((r) => setImmediate(r)); };
+  return { svc, openAll, until };
+}
+
+test('regression: a search in flight when the vault locks stores nothing and answers 423', async () => {
+  const { svc, openAll, until } = gatedService();
+  const id = addMedia('lockleak.jpg', 'image');
+  const p = svc.searchImage({ mediaId: id, timeS: 0 });
+  await until();
+  svc.onVaultLocked();
+  openAll();
+  await assert.rejects(p, (e) => e.status === 423 && e.code === 'VAULT_LOCKED');
+  assert.strictEqual(svc._queries.size, 0, 'no query face was cached after the lock');
+  const up = svc.searchImage({ buffer: Buffer.from('photo'), contentType: 'image/pjpeg' });
+  await until();
+  svc.onVaultLocked();
+  openAll();
+  await assert.rejects(up, (e) => e.status === 423);
+  assert.strictEqual(svc._queries.size, 0);
+  svc.onVaultUnlocked();
+});
+
+test('regression: a click whose analysis ends after a lock writes nothing and answers 423', async () => {
+  const { svc, openAll, until } = gatedService();
+  const id = addMedia('lockclick.mp4', 'video', 60);
+  const p = svc.findFacesNow(id, { force: true });
+  await until();
+  svc.onVaultLocked();
+  openAll();
+  await assert.rejects(p, (e) => e.status === 423);
+  const row = db.get().prepare('SELECT faces_indexed_at FROM media WHERE id = ?').get(id);
+  assert.strictEqual(row.faces_indexed_at, null, 'nothing saved after the lock');
+  svc.onVaultUnlocked();
+});
+
+test('regression: a click answering during delete-all reports the post-delete state', async () => {
+  const { svc, openAll, until } = gatedService();
+  const id = addMedia('delall.jpg', 'image');
+  const first = svc.findFacesNow(id);
+  await until(); openAll();
+  assert.strictEqual((await first).indexed, true);
+  const click = svc.findFacesNow(id, { force: true });
+  await until();
+  const del = svc.deleteAll();
+  openAll();
+  const [r] = await Promise.all([click, del]);
+  assert.deepStrictEqual([r.indexed, r.groups.length], [false, 0]);
+});
+
+test('regression: a search still waiting for the frame lane when the vault locks stores nothing', async () => {
+  const { svc, openAll, until } = gatedService();
+  const id = addMedia('lockwait.jpg', 'image');
+  const first = svc.searchImage({ mediaId: id, timeS: 0 }).catch((e) => e);   // holds the frame lane
+  await until();
+  const waiting = svc.searchImage({ buffer: Buffer.from('photo'), contentType: 'image/jpeg' }).catch((e) => e);
+  await new Promise((r) => setImmediate(r));
+  svc.onVaultLocked();
+  for (let i = 0; i < 5; i++) { openAll(); await new Promise((r) => setImmediate(r)); }
+  assert.strictEqual((await first).status, 423);
+  assert.strictEqual((await waiting).status, 423, 'the waiting request was admitted before the lock');
+  assert.strictEqual(svc._queries.size, 0);
+  svc.onVaultUnlocked();
+});
