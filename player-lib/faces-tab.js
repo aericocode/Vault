@@ -46,7 +46,6 @@ const FT = {
   fileIds: null, fileInfo: {}, filesSeq: 0, filesReady: null,
   faces: new Map(),          // personId -> [{ groupId, mediaId, cropUrl }]
   naming: null,              // the open name editor
-  pending: [],               // "Not this person" waiting out its undo
   lastCounts: null,
   pollTimer: null,
 };
@@ -83,18 +82,17 @@ function ftName(p) { return p && p.name ? p.name : ''; }
 
 /** Same call shape as facesApi; 409 bodies ride along on err.data. */
 async function ftApi(url, opts) {
-  return facesApi(url, opts);
+  try { return await facesApi(url, opts); }
+  catch (err) {
+    // People routes answer 404 for a person merged away or emptied meanwhile.
+    if (err.status === 404 && /\/api\/faces\/(people|review)/.test(url)) err.message = 'That person is no longer in Faces. Refresh to see the latest.';
+    throw err;
+  }
 }
 
 function ftCropImg(url, cls = '') {
   return url ? `<img class="face-crop ${cls}" src="${ftEsc(url)}" alt="" loading="lazy" draggable="false">`
     : `<span class="ft-blank ${cls}" aria-hidden="true">👤</span>`;
-}
-
-/** The group id inside a crop URL (/api/faces/crop/:groupId). */
-function ftGroupFromUrl(url) {
-  const m = String(url || '').match(/\/crop\/(\d+)/);
-  return m ? Number(m[1]) : null;
 }
 
 /* ── Tab hooks ─────────────────────────────────────────────────────────── */
@@ -124,7 +122,6 @@ function facesTabEnter() {
 }
 
 function facesTabLeave() {
-  ftFlushNotIn();
   ftCloseNaming();
   ftClosePops();
   document.getElementById('mainContainer')?.classList.remove('faces-on', 'faces-home', 'faces-person');
@@ -770,6 +767,7 @@ async function ftSelBarClick(e) {
   if (act === 'clear') { ftClearSel(); return; }
   const list = [...FT.sel.values()].filter(Boolean);
   if (act === 'merge') {
+    if (list.length > 50) { showToast('Merge up to 50 people at a time.'); return; }
     const target = ftMergeTarget(list);
     b.disabled = true;
     let merged;
@@ -809,7 +807,6 @@ async function ftSetHidden(ids, hidden) {
 
 /** Open a person's page (from a tile, a chip menu, "Often seen with"). */
 function facesOpenPerson(id) {
-  ftFlushNotIn();
   ftCloseNaming();
   ftClosePops();
   ftFlipStop();
@@ -827,7 +824,6 @@ function facesOpenPerson(id) {
 }
 
 function ftClosePerson() {
-  ftFlushNotIn();
   ftCloseNaming();
   ftClosePops();
   FT.personId = null;
@@ -867,9 +863,7 @@ async function ftLoadPerson() {
     if (seq !== FT.filesSeq || FT.personId !== id) return;
     FT.person = person;
     if (!FT.counts) ftLoadPeople();   // the header's people count (opened straight into a person)
-    // Not-this-person removals still waiting out their undo stay out.
-    const out = new Set(FT.pending.filter(x => x.personId === id).map(x => x.mediaId));
-    FT.fileIds = (files.ids || []).filter(m => !out.has(m));
+    FT.fileIds = (files.ids || []);
     FT.fileInfo = files.files || {};
     ftPaintPerson();
     await applyFilters();
@@ -885,8 +879,7 @@ async function ftLoadFiles() {
     try { files = await ftApi(`/api/faces/people/${id}/files?kind=${FT.kind}`); }
     catch (err) { facesToastError(err); return; }
     if (seq !== FT.filesSeq || FT.personId !== id) return;
-    const out = new Set(FT.pending.filter(x => x.personId === id).map(x => x.mediaId));
-    FT.fileIds = (files.ids || []).filter(m => !out.has(m));
+    FT.fileIds = (files.ids || []);
     FT.fileInfo = files.files || {};
     await applyFilters();
   })();
@@ -959,7 +952,7 @@ async function ftFindMore() {
   const p = FT.person;
   if (!p) return;
   const faces = await ftFacesOf(p.id);
-  const gid = ftGroupFromUrl(p.coverUrl) || (faces && faces[0] && faces[0].groupId);
+  const gid = p.coverGroupId || (faces && faces[0] && faces[0].groupId);
   if (!gid) { showToast('No face to search with.'); return; }
   const f = (faces || []).find(x => x.groupId === gid);
   await facesOpenFocus({ kind: 'group', id: gid, mediaId: f ? f.mediaId : undefined }, p.coverUrl, 'wide');
@@ -993,7 +986,7 @@ async function ftChangePhoto(anchor) {
   let faces;
   try { faces = await ftApi(`/api/faces/people/${p.id}/faces?limit=24`); } catch (err) { facesToastError(err); return; }
   if (FT.person !== p) return;
-  const current = ftGroupFromUrl(p.coverUrl);
+  const current = p.coverGroupId;
   const pop = ftPop(anchor, `
     <div class="fpop-title">Choose a photo</div>
     <div class="ft-pick">${faces.map(f => `<button type="button" class="ft-pick-btn${f.groupId === current ? ' on' : ''}" data-cover="${f.groupId}"
@@ -1082,64 +1075,40 @@ function facesTileExtrasHtml(media) {
     title="This file does not show this person">✕ Not this person</button>`;
 }
 
-/** Hide the file now; tell the server once the undo has had its 8 s. */
-function facesNotThisPerson(mediaId) {
+/**
+ * The file's faces leave this person now. Undo puts them back with a merge
+ * (it also clears the reject the split recorded).
+ */
+async function facesNotThisPerson(mediaId) {
   const personId = FT.personId;
-  if (personId == null) return;
-  ftFlushNotIn();   // the previous toast's Undo is about to be replaced
-  const at = FT.fileIds.indexOf(mediaId);
-  if (at < 0) return;
-  const item = { personId, mediaId, at, info: FT.fileInfo[mediaId], timer: null };
-  item.timer = setTimeout(() => ftCommitNotIn(item), 8000);
-  FT.pending.push(item);
-  FT.fileIds.splice(at, 1);
-  ftAdjustCounts(mediaId, -1);
-  applyFilters({ keepPage: true });
-  const name = ftName(FT.person);
-  showUndoToast(name ? `Removed this file from ${ftEsc(name)}.` : 'Removed this file from this person.', () => {
-    clearTimeout(item.timer);
-    FT.pending = FT.pending.filter(x => x !== item);
-    if (FT.personId !== item.personId) return;
-    FT.fileIds.splice(Math.min(item.at, FT.fileIds.length), 0, item.mediaId);
-    ftAdjustCounts(mediaId, 1);
+  if (personId == null || !FT.fileIds.includes(mediaId)) return;
+  let r;
+  try {
+    r = await ftApi(`/api/faces/people/${personId}/not-in`, { method: 'POST', json: { mediaId } });
+  } catch (err) {
+    facesToastError(err);
+    if (FT.personId === personId) ftLoadPerson();
+    return;
+  }
+  FT.faces.delete(personId);
+  const moved = [...new Set((r.moved || []).map(m => m.personId))];
+  if (FT.personId === personId) {
+    const at = FT.fileIds.indexOf(mediaId);
+    if (at >= 0) FT.fileIds.splice(at, 1);
+    if (r.person && FT.person) Object.assign(FT.person, r.person, { oftenWith: FT.person.oftenWith });
+    ftPaintPerson();
     applyFilters({ keepPage: true });
+  }
+  if (!moved.length) return;
+  const name = ftName(r.person || FT.person);
+  showUndoToast(name ? `Removed this file from ${ftEsc(name)}.` : 'Removed this file from this person.', async () => {
+    try {
+      await ftApi('/api/faces/people/merge', { method: 'POST', json: { ids: [...moved, personId], into: personId } });
+    } catch (err) { facesToastError(err); return; }
+    FT.faces.delete(personId);
+    if (FT.personId === personId) ftLoadPerson();
   }, 8000);
 }
-
-function ftAdjustCounts(mediaId, d) {
-  const p = FT.person;
-  if (!p) return;
-  const m = typeof getMediaById === 'function' ? getMediaById(mediaId) : null;
-  p.files = Math.max(0, (p.files || 0) + d);
-  if (m && m.media_type === 'video') p.videos = Math.max(0, (p.videos || 0) + d);
-  else if (m) p.photos = Math.max(0, (p.photos || 0) + d);
-  ftPaintPerson();
-}
-
-async function ftCommitNotIn(item, { keepalive = false } = {}) {
-  clearTimeout(item.timer);
-  FT.pending = FT.pending.filter(x => x !== item);
-  const url = `/api/faces/people/${item.personId}/not-in`;
-  if (keepalive) {
-    try { fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mediaId: item.mediaId }), keepalive: true }); } catch {}
-    return;
-  }
-  try { await ftApi(url, { method: 'POST', json: { mediaId: item.mediaId } }); }
-  catch (err) {
-    facesToastError(err);
-    if (FT.personId === item.personId) ftLoadPerson();
-    return;
-  }
-  FT.faces.delete(item.personId);
-}
-
-function ftFlushNotIn(opts) {
-  const list = FT.pending.slice();
-  if (list.length && typeof hideUndoToast === 'function') hideUndoToast();
-  list.forEach(item => ftCommitNotIn(item, opts));
-}
-
-window.addEventListener('pagehide', () => ftFlushNotIn({ keepalive: true }));
 
 /* ── Playing from the person page: start at the first appearance ───────── */
 
@@ -1253,7 +1222,6 @@ function ftWire() {
     }
     const kind = t.closest('[data-ft-kind]');
     if (kind && kind.dataset.ftKind !== FT.kind) {
-      ftFlushNotIn();
       FT.kind = kind.dataset.ftKind;
       ftPaintPerson();
       ftLoadFiles();

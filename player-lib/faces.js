@@ -43,6 +43,16 @@ const FACES_MSG = {
   FILE_MISSING: 'The file is missing from disk.',
   NOT_ELIGIBLE: 'Only photos, GIFs and videos can be checked for faces.',
   NOT_FOUND: 'That face is no longer there.',
+  // The Faces tab (people). Most of these mean the page is out of date.
+  NAME_TAKEN: 'Someone else in Faces already has that name.',
+  BAD_NAME: 'Names can be up to 120 characters.',
+  BAD_COVER: 'That photo is no longer one of this person\'s faces. Try another.',
+  BAD_IDS: 'Some of these people have changed. Refresh and try again.',
+  BAD_FILTER: 'Faces could not do that. Refresh and try again.',
+  BAD_SORT: 'Faces could not do that. Refresh and try again.',
+  BAD_KIND: 'Faces could not do that. Refresh and try again.',
+  BAD_ANSWER: 'Faces could not do that. Refresh and try again.',
+  BAD_REQUEST: 'Faces could not do that. Refresh and try again.',
 };
 
 let facesStatus = null;          // last GET /api/faces/status
