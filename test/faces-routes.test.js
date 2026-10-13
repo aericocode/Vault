@@ -89,7 +89,9 @@ test('feature off: status answers, everything else but settings/delete-all is FA
   const s = await get('/api/faces/status');
   assert.strictEqual(s.status, 200);
   assert.deepStrictEqual(Object.keys(s.body).sort(),
-    ['autoIndex', 'counts', 'download', 'enabled', 'intervalS', 'missing', 'missingReasons', 'modelsReady', 'queue'].sort());
+    ['autoIndex', 'counts', 'download', 'enabled', 'intervalS', 'maxFrames', 'missing', 'missingReasons', 'modelsReady', 'people', 'queue'].sort());
+  assert.deepStrictEqual(Object.keys(s.body.people).sort(), ['pending', 'sorting', 'total']);
+  assert.strictEqual(s.body.maxFrames, 2000);
   assert.strictEqual(s.body.enabled, false);
   assert.strictEqual(s.body.autoIndex, false);
   assert.strictEqual(s.body.intervalS, 3.5);
@@ -109,8 +111,8 @@ test('feature off: status answers, everything else but settings/delete-all is FA
   assert.strictEqual((await post('/api/faces/delete-all')).status, 200);
 });
 
-test('settings: enable, auto-index, interval (only 2 / 3.5 / 10)', async () => {
-  let r = await post('/api/faces/settings', { intervalS: 5 });
+test('settings: enable, auto-index, interval (0.5 to 120 in steps of 0.5)', async () => {
+  let r = await post('/api/faces/settings', { intervalS: 5.2 });
   assert.strictEqual(r.status, 400);
   assert.strictEqual(r.body.code, 'BAD_SETTING');
   r = await post('/api/faces/settings', { enabled: true, intervalS: 10 });
@@ -219,7 +221,7 @@ test('index everything: statuses, groups and errors persisted; ineligible files 
   assert.strictEqual(v.body.indexed, true);
   assert.strictEqual(v.body.error, null);
   assert.deepStrictEqual(v.body.groups.map(g => [g.appearances, g.firstTimeS]), [[9, 7], [2, 70]]);
-  assert.deepStrictEqual(Object.keys(v.body.groups[0]).sort(), ['appearances', 'bestTimeS', 'cropUrl', 'firstTimeS', 'id']);
+  assert.deepStrictEqual(Object.keys(v.body.groups[0]).sort(), ['appearances', 'bestTimeS', 'cropUrl', 'firstTimeS', 'id', 'personId', 'personName']);
 
   const e = (await get(`/api/media/${ids['err.jpg']}/faces`)).body;
   assert.deepStrictEqual([e.indexed, e.error, e.groups.length], [false, 'ffmpeg exploded', 0]);
@@ -488,7 +490,7 @@ test('the CSRF guard covers the raw-image upload like every other write', async 
 });
 
 test('regression: settings and search-image inputs are strict', async () => {
-  for (const v of ['3.5', [3.5], 3, null]) {
+  for (const v of ['3.5', [3.5], 3.25, null]) {
     const r = await post('/api/faces/settings', { intervalS: v });
     assert.strictEqual(r.status, 400, JSON.stringify(v));
   }

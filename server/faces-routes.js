@@ -45,6 +45,7 @@ function sendError(res, err) {
     const body = { error: err.message, code: err.code };
     if (err.missing) body.missing = err.missing;
     if (err.keys) body.keys = err.keys;
+    if (err.otherId !== undefined) { body.otherId = err.otherId; body.other = err.other; }
     return res.status(err.status).json(body);
   }
   console.error(`[faces] ${err && err.stack ? err.stack : err}`);
@@ -151,6 +152,18 @@ function buildRouter() {
 
   router.post('/faces/query/:queryId/similar', ...ready,
     h((req) => svc().similarToQuery(String(req.params.queryId), req.body?.width)));
+
+  // People across the library (FACES_PEOPLE_SPEC section 3). Pure database
+  // work: the feature must be on, the models need not be present.
+  router.get('/faces/people', on, h((req) => svc().listPeople(req.query || {})));
+  router.post('/faces/people/merge', on, h((req) => svc().mergePeople(req.body || {})));
+  router.get('/faces/people/:id', on, idParam('id'), h((req) => svc().getPerson(req.faceId)));
+  router.get('/faces/people/:id/files', on, idParam('id'), h((req) => svc().personFiles(req.faceId, req.query.kind)));
+  router.get('/faces/people/:id/faces', on, idParam('id'), h((req) => svc().personFaces(req.faceId, req.query.limit)));
+  router.post('/faces/people/:id', on, idParam('id'), h((req) => svc().updatePerson(req.faceId, req.body || {})));
+  router.post('/faces/people/:id/not-in', on, idParam('id'), h((req) => svc().notInPerson(req.faceId, req.body || {})));
+  router.get('/faces/review', on, h((req) => svc().reviewPairs(req.query || {})));
+  router.post('/faces/review', on, h((req) => svc().answerReview(req.body || {})));
 
   router.post('/faces/delete-all', h(() => svc().deleteAll()));
 
