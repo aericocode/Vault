@@ -227,3 +227,90 @@ body.pm-names .faces-qname {
 .faces-settings .faces-custom[hidden] { display: none; }
 .faces-settings .faces-custom .settings-num { margin-top: 0; width: 5rem; }
 .faces-settings .faces-maxframes { width: 6.5rem; }
+
+/* ── Face results banner, round 3 (faces.js facesRenderBanner) ──
+   Two rows: the search itself, then who the results already are and the add. */
+.focus-banner.faces-banner { display: block; padding: 0; }
+.faces-brow { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; padding: 0.5rem 0.8rem; }
+.faces-brow2 {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  padding: 0.44rem 0.8rem; border-top: 1px solid rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.06); border-radius: 0 0 8px 8px;
+  font-size: 0.8125rem; color: #c8c8c8;
+}
+.faces-bsum b { color: var(--text-primary); }
+.faces-badd {
+  font-family: Arial, sans-serif; font-size: 0.8rem; font-weight: 600;
+  padding: 0.34rem 0.75rem; border-radius: 7px; cursor: pointer;
+  background: var(--accent); color: #fff; border: 1px solid var(--accent);
+}
+.faces-badd:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.faces-badd:disabled { opacity: 0.5; cursor: default; }
+.faces-bghost {
+  font: inherit; font-size: 0.8rem; padding: 0.31rem 0.7rem; border-radius: 7px; cursor: pointer;
+  border: 1px solid #444; background: var(--bg-tertiary); color: var(--text-primary);
+}
+.faces-bghost:hover { border-color: var(--accent); }
+.faces-blink {
+  margin-left: auto; background: none; border: 0; padding: 0; cursor: pointer;
+  font: inherit; font-size: 0.8rem; color: var(--text-secondary); text-decoration: underline;
+}
+.faces-blink:hover { color: var(--text-primary); }
+
+/* The name in the banner: click it (or the pen) to rename, or "Add a name".
+   The name field and its suggestions are the Faces tab's (.ft-field, .ft-drop). */
+.faces-bname { position: relative; display: inline-block; vertical-align: middle; }
+.faces-bname-in { display: inline-flex; align-items: center; gap: 4px; }
+.faces-bname-text {
+  padding: 1px 8px; border-radius: 6px; border: 1px dashed transparent;
+  font-weight: 600; cursor: text;
+}
+.faces-bname-text:hover { border-color: #555; }
+.faces-pen {
+  width: 22px; height: 22px; border-radius: 6px; border: 1px solid #444; background: var(--bg-tertiary);
+  display: inline-flex; align-items: center; justify-content: center; padding: 0; cursor: pointer;
+}
+.faces-pen:hover { border-color: var(--accent); }
+.faces-addname {
+  margin-left: 6px; padding: 2px 10px; border-radius: 6px; border: 1px dashed #777;
+  background: transparent; color: var(--text-primary); font: inherit; font-size: 0.8rem; cursor: text;
+}
+.faces-addname:hover { border-color: var(--accent); }
+.faces-bname .ft-field {
+  display: inline-block; width: 180px; margin: 0 0 0 4px; padding: 3px 8px; font-size: 0.8125rem;
+}
+.faces-bname .ft-drop,
+.faces-bname .ft-ask { left: 0; top: calc(100% + 6px); width: 300px; z-index: 20; }
+.faces-bname .ft-ask { width: 340px; }
+
+/* Result tiles (cards.js via facesTileExtrasHtml): who the matched face is. */
+.faces-tag {
+  position: absolute; left: 6px; top: 6px; z-index: 1; pointer-events: none;
+  max-width: calc(100% - 12px); box-sizing: border-box;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 0.6875rem; padding: 1px 7px; border-radius: 4px;
+  background: rgba(0, 0, 0, 0.75); color: #c8c8c8; transition: left 0.15s;
+}
+.faces-tag.is-new { background: rgba(245, 158, 11, 0.9); color: #111; font-weight: 600; }
+/* The selection checkbox owns the corner while it shows. */
+.media-tile:hover .faces-tag,
+.media-tile.tile-selected .faces-tag,
+body.faces-picking .faces-tag { left: 30px; max-width: calc(100% - 36px); }
+.media-tile:has(.faces-tag.is-new) { border-color: rgba(245, 158, 11, 0.6); }
+.media-tile:has(.faces-tag.is-new):hover,
+.media-tile.tile-selected:has(.faces-tag.is-new) { border-color: var(--accent); }
+.faces-tag-add {
+  position: absolute; top: 6px; right: 6px; z-index: 3;
+  max-width: calc(100% - 40px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font: inherit; font-size: 0.75rem; font-weight: 600; padding: 3px 9px; border-radius: 6px;
+  border: 0; background: var(--accent); color: #fff; cursor: pointer;
+  opacity: 0; transition: opacity 0.15s;
+}
+.media-tile:hover .faces-tag-add, .faces-tag-add:focus-visible { opacity: 1; }
+.faces-tag-add:hover { background: var(--accent-hover); }
+.tile-thumb:has(.faces-tag-add) .tile-actions { top: 36px; }
+/* Pick which: every checkbox shows, so unticked files can be ticked too. */
+body.faces-picking .tile-select { opacity: 1; }
+
+/* facesAsk: the destructive answer */
+.vault-btn.faces-ask-danger { background: var(--danger); border-color: var(--danger); color: #fff; }

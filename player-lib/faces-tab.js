@@ -12,7 +12,8 @@
    Hooks into other files:
      tabs.js        facesTabEnter() / facesTabLeave()
      filters.js     facesHomeShowing(), facesPersonQuery()
-     cards.js       facesTileExtrasHtml(media)   "▶ from 0:04", "✕ Not this person"
+     cards.js       facesTileExtrasHtml(media)   "▶ from 0:04", "✕ Not this person";
+                                                 in the library, the face results' tags (faces.js)
      viewtracker.js facesStartAt(el)             play from the first appearance
      faces.js       facesTabStatusChanged()      status polls repaint the strip
    Server: /api/faces/people*, /api/faces/review (server/faces-routes.js).
@@ -319,7 +320,8 @@ async function ftQueue(act) {
     if (act === 'all') await ftApi('/api/faces/index', { method: 'POST', json: { all: true } });
     else await ftApi(`/api/faces/queue/${act}`, { method: 'POST' });
   } catch (err) { facesToastError(err); }
-  await facesRefreshStatus();
+  if (act === 'all') facesScanStarted();
+  else await facesRefreshStatus();
 }
 
 async function ftLoadPeople() {
@@ -600,8 +602,14 @@ function ftFlipStop() {
  * Open a name field in `host` for person `id`. Suggests existing names;
  * picking one asks "X is already in Faces. Same person?".
  * onDone(person|null) runs after a save (null = cancelled).
+ *
+ * The face results banner (faces.js) uses the same field for a face that may
+ * not be anyone yet: `id` is then null (no one to leave out of the
+ * suggestions), `me` is the face shown in the same-person question, and
+ * `save(name, mergeIfTaken)` does the saving (it answers the person, or
+ * throws NAME_TAKEN with data.other, like the people route does).
  */
-function ftStartNaming({ host, anchor, id, initial = '', inGrid = false, onDone }) {
+function ftStartNaming({ host, anchor, id, initial = '', inGrid = false, onDone, save = null, me = null }) {
   ftCloseNaming();
   const input = document.createElement('input');
   input.type = 'text';
@@ -619,7 +627,7 @@ function ftStartNaming({ host, anchor, id, initial = '', inGrid = false, onDone 
   anchor.replaceWith(input);
   host.appendChild(drop);
   host.classList.add('ft-naming');
-  const nm = { id, host, input, drop, replaced, opts: [], hi: 0, seq: 0, inGrid, onDone, note: '', initial };
+  const nm = { id, host, input, drop, replaced, opts: [], hi: 0, seq: 0, inGrid, onDone, note: '', initial, save, me };
   FT.naming = nm;
 
   const refresh = debounce(() => ftNameOptions(nm), 120);
@@ -693,7 +701,7 @@ async function ftNameOptions(nm) {
 function ftPaintDrop(nm) {
   const d = nm.drop;
   if (nm.ask) {
-    const me = (FT.person && FT.person.id === nm.id ? FT.person : FT.people.find(p => p.id === nm.id)) || {};
+    const me = nm.me || (FT.person && FT.person.id === nm.id ? FT.person : FT.people.find(p => p.id === nm.id)) || {};
     d.className = 'ft-ask';
     d.setAttribute('role', 'dialog');
     d.setAttribute('aria-label', 'Same person?');
@@ -727,7 +735,8 @@ async function ftSaveName(nm, name, mergeIfTaken = false) {
   nm.saving = true;
   let p;
   try {
-    p = await ftApi(`/api/faces/people/${nm.id}`, { method: 'POST', json: mergeIfTaken ? { name, mergeIfTaken: true } : { name } });
+    p = nm.save ? await nm.save(name, mergeIfTaken)
+      : await ftApi(`/api/faces/people/${nm.id}`, { method: 'POST', json: mergeIfTaken ? { name, mergeIfTaken: true } : { name } });
   } catch (err) {
     nm.saving = false;
     if (err.code === 'NAME_TAKEN' && err.data && err.data.other) {
@@ -742,9 +751,10 @@ async function ftSaveName(nm, name, mergeIfTaken = false) {
   }
   if (FT.naming !== nm) return;
   ftCloseNaming();
-  FT.faces.delete(nm.id);
+  if (nm.id != null) FT.faces.delete(nm.id);
+  if (p && p.id != null) FT.faces.delete(p.id);
   if (mergeIfTaken) showToast(ftTogether(p));
-  if (nm.onDone) nm.onDone(p);
+  if (nm.onDone) nm.onDone(p, { merged: mergeIfTaken });
 }
 
 function ftCloseNaming() {
@@ -807,6 +817,7 @@ function ftPaintSelBar() {
     <b>${ftPlural(n, 'person', 'people')} selected</b>
     ${n >= 2 ? `<button class="ft-sbtn primary" type="button" data-ft-sel="merge">${target && target.name ? `Merge into <span class="ft-pm-name">${ftEsc(target.name)}</span>` : 'Merge into one person'}</button>` : ''}
     <button class="ft-sbtn" type="button" data-ft-sel="${allHidden ? 'unhide' : 'hide'}">${allHidden ? 'Unhide' : 'Hide'}</button>
+    <button class="ft-sbtn" type="button" data-ft-sel="notface">Not a face</button>
     <button class="ft-sbtn quiet" type="button" data-ft-sel="clear">Clear</button>`;
   bar.classList.add('visible');
 }
@@ -817,6 +828,14 @@ async function ftSelBarClick(e) {
   const act = b.dataset.ftSel;
   if (act === 'clear') { ftClearSel(); return; }
   const list = [...FT.sel.values()].filter(Boolean);
+  if (act === 'notface') {
+    if (!await ftNotAFace(list)) return;
+    FT.sel.clear();
+    ftPaintSelBar();
+    ftLoadPeople();
+    ftLoadReview();
+    return;
+  }
   if (act === 'merge') {
     if (list.length > 50) { showToast('Merge up to 50 people at a time.'); return; }
     const target = ftMergeTarget(list);
@@ -914,6 +933,7 @@ async function ftLoadPerson() {
     if (seq !== FT.filesSeq || FT.personId !== id) return;
     FT.person = person;
     if (!FT.counts) ftLoadPeople();   // the header's people count (opened straight into a person)
+    if (!FT.might || FT.might.personId !== id) ftLoadMight();
     FT.fileIds = (files.ids || []);
     FT.fileInfo = files.files || {};
     ftPaintPerson();
@@ -974,8 +994,10 @@ function ftPaintPerson() {
         ${withChips ? `<div class="ft-with">Often seen with ${withChips}</div>` : ''}
       </div>
     </section>
+    <section class="ft-might" id="ftMight" aria-label="Might also be" hidden></section>
     <div class="ft-seg" role="group" aria-label="Show">${seg.map(([k, label, n]) =>
       `<button type="button" class="${FT.kind === k ? 'on' : ''}" data-ft-kind="${k}" aria-pressed="${FT.kind === k}">${label} ${Number(n || 0).toLocaleString()}</button>`).join('')}</div>`;
+  ftPaintMight();
 }
 
 async function ftPostPerson(patch) {
@@ -1059,6 +1081,7 @@ function ftMoreMenu(anchor) {
   facesMenu(r.left, r.bottom + 4, [
     { label: p.hidden ? 'Unhide this person' : 'Hide this person', run: () => ftHidePerson(!p.hidden) },
     { label: 'Merge with…', run: () => ftMergeWith(anchor) },
+    { label: 'Not a face', run: async () => { if (await ftNotAFace([p])) ftClosePerson(); } },
   ]);
 }
 
@@ -1114,10 +1137,157 @@ function ftMergeWith(anchor) {
   load();
 }
 
+/* ── Not a face (tile menu, selection bar, More menu) ─────────────────── */
+
+/**
+ * Every face of these people leaves Faces and face search (things that were
+ * picked up by mistake). Asks first: there is no undo.
+ * @returns {Promise<boolean>} whether it was done
+ */
+async function ftNotAFace(list) {
+  list = list.filter(Boolean);
+  const n = list.length;
+  if (!n) return false;
+  const ok = await facesAsk({
+    title: 'Not a face?',
+    html: `<p class="vault-modal-hint">${n === 1 ? 'Every face Vault found for this person' : `Every face Vault found for these ${n.toLocaleString()} people`}
+      will be taken out of Faces and face search. Use this for things Vault picked up by mistake, like a pattern or a shadow.</p>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Not a face', value: true, danger: true }],
+  });
+  if (!ok) return false;
+  try {
+    for (const p of list) await ftApi(`/api/faces/people/${p.id}/not-a-face`, { method: 'POST' });
+  } catch (err) { facesToastError(err); ftLoadPeople(); return false; }
+  list.forEach(p => FT.faces.delete(p.id));
+  showToast(n === 1 ? 'Marked as not a face.' : `Marked ${n.toLocaleString()} people as not a face.`);
+  return true;
+}
+
+/* ── Might also be (person page) ───────────────────────────────────────── */
+
+const FT_MIGHT_PAGE = 24;
+const FT_MIGHT_LESS = 6;     // less likely faces shown before "Show N more"
+
+/** Other unnamed people that look like this one (GET .../candidates). Likely ones start ticked. */
+async function ftLoadMight({ more = false } = {}) {
+  const id = FT.personId;
+  if (id == null) return;
+  if (!FT.might || FT.might.personId !== id) {
+    FT.might = { personId: id, total: 0, items: [], ticked: new Set(), lessShown: FT_MIGHT_LESS, seq: 0 };
+  }
+  const m = FT.might;
+  const seq = ++m.seq;
+  const qs = new URLSearchParams({ limit: String(FT_MIGHT_PAGE), offset: String(more ? m.items.length : 0) });
+  let r;
+  try { r = await ftApi(`/api/faces/people/${id}/candidates?${qs}`, { background: true }); }
+  catch { return; }
+  if (seq !== m.seq || FT.might !== m || FT.personId !== id) return;
+  const items = r.items || [];
+  if (!more) { m.items = []; m.ticked = new Set(); }
+  const have = new Set(m.items.map(i => i.personId));
+  for (const it of items) {
+    if (have.has(it.personId)) continue;
+    m.items.push(it);
+    if (it.tier === 'likely') m.ticked.add(it.personId);
+  }
+  m.total = Math.max(r.total || 0, m.items.length);
+  ftPaintMight();
+}
+
+function ftMightCardHtml(it, ticked) {
+  const meta = `${ftEsc(it.filename || '')}${it.files > 1 ? ` · ${ftPlural(it.files, 'file', 'files')}` : ''}`;
+  return `
+    <div class="ft-cand${ticked ? ' on' : ''}" data-cand="${it.personId}">
+      <button class="ft-cand-pick" type="button" data-ft-cand="tick" aria-pressed="${ticked}" aria-label="${ticked ? 'Ticked' : 'Not ticked'}">${ftCropImg(it.cropUrl)}</button>
+      <span class="ft-cand-chk" aria-hidden="true">${ticked ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M5 12l5 5 9-10"></path></svg>' : ''}</span>
+      <button class="ft-cand-no" type="button" data-ft-cand="no" aria-label="Not this person" title="Not this person">✕</button>
+      <div class="ft-cmeta">${meta}</div>
+    </div>`;
+}
+
+function ftPaintMight() {
+  const el = document.getElementById('ftMight');
+  if (!el) return;
+  const m = FT.might;
+  const p = FT.person;
+  if (!m || !p || m.personId !== FT.personId || !m.items.length) { el.hidden = true; el.innerHTML = ''; return; }
+  const likely = m.items.filter(i => i.tier === 'likely');
+  const maybe = m.items.filter(i => i.tier !== 'likely');
+  const shown = maybe.slice(0, m.lessShown);
+  const rest = Math.max(0, m.total - likely.length - shown.length);
+  const k = m.items.filter(i => m.ticked.has(i.personId)).length;
+  const who = p.name ? `<span class="ft-pm-name">${ftEsc(p.name)}</span>` : 'this person';
+  el.hidden = false;
+  el.setAttribute('aria-label', p.name && !ftPrivate() ? `Might also be ${p.name}` : 'Might also be this person');
+  el.innerHTML = `
+    <div class="ft-might-h">
+      <h2>Might also be ${who}</h2>
+      <span>${ftPlural(m.total, 'face', 'faces')} from other files ${m.total === 1 ? 'looks' : 'look'} a lot like ${p.name ? 'them' : 'this person'}. Tick the right ones.</span>
+      <div class="ft-might-acts">
+        <button class="ft-btn ft-btn-md" type="button" data-ft-might="add"${k ? '' : ' disabled'}>Add the ${k.toLocaleString()} ticked to ${who}</button>
+        <button class="ft-btn ghost ft-btn-md" type="button" data-ft-might="${k ? 'untick' : 'tick'}">${k ? 'Untick all' : 'Tick all'}</button>
+      </div>
+    </div>
+    ${likely.length ? `<div class="ft-might-sub">Very likely</div><div class="ft-cands">${likely.map(i => ftMightCardHtml(i, m.ticked.has(i.personId))).join('')}</div>` : ''}
+    ${shown.length ? `<div class="ft-might-sub">Less likely</div><div class="ft-cands">${shown.map(i => ftMightCardHtml(i, m.ticked.has(i.personId))).join('')}</div>` : ''}
+    ${rest ? `<button class="ft-link" type="button" data-ft-might="more">Show ${rest.toLocaleString()} more that ${rest === 1 ? 'is' : 'are'} less likely</button>` : ''}`;
+}
+
+/** A card's tick, or its ✕ ("not this person": recorded, and it does not come back). */
+async function ftMightCard(pid, act, btn) {
+  const m = FT.might;
+  if (!m || m.personId !== FT.personId) return;
+  if (act === 'tick') {
+    if (m.ticked.has(pid)) m.ticked.delete(pid); else m.ticked.add(pid);
+    ftPaintMight();
+    document.querySelector(`#ftMight [data-cand="${pid}"] .ft-cand-pick`)?.focus();
+    return;
+  }
+  btn.disabled = true;
+  try { await ftApi(`/api/faces/people/${m.personId}/candidates`, { method: 'POST', json: { accept: [], reject: [pid] } }); }
+  catch (err) { facesToastError(err); btn.disabled = false; return; }
+  m.items = m.items.filter(i => i.personId !== pid);
+  m.ticked.delete(pid);
+  m.total = Math.max(0, m.total - 1);
+  ftPaintMight();
+  // Keep the list topped up when the ✕ emptied what was loaded.
+  if (!m.items.length && m.total) ftLoadMight();
+}
+
+async function ftMightAction(act, btn) {
+  const m = FT.might;
+  const p = FT.person;
+  if (!m || !p || m.personId !== FT.personId) return;
+  if (act === 'untick') { m.ticked.clear(); ftPaintMight(); return; }
+  if (act === 'tick') { m.items.forEach(i => m.ticked.add(i.personId)); ftPaintMight(); return; }
+  if (act === 'more') {
+    m.lessShown += FT_MIGHT_PAGE;
+    const maybe = m.items.filter(i => i.tier !== 'likely').length;
+    if (maybe < m.lessShown && m.items.length < m.total) ftLoadMight({ more: true });
+    else ftPaintMight();
+    return;
+  }
+  if (act !== 'add') return;
+  const accept = m.items.filter(i => m.ticked.has(i.personId)).map(i => i.personId);
+  if (!accept.length) return;
+  btn.disabled = true;
+  let r;
+  try { r = await ftApi(`/api/faces/people/${m.personId}/candidates`, { method: 'POST', json: { accept, reject: [] } }); }
+  catch (err) { facesToastError(err); btn.disabled = false; return; }
+  const n = (r && r.merged ? r.merged.length : 0) || accept.length;
+  FT.faces.delete(m.personId);
+  const name = ftPrivate() ? '' : ftName(r && r.person ? r.person : p);
+  showToast(name ? `Added ${n.toLocaleString()} to ${name}.` : `Added ${n.toLocaleString()} to this person.`);
+  FT.might = null;       // reloaded fresh with the person
+  if (FT.personId === m.personId) ftLoadPerson();
+}
+
 /* ── Person grid tiles: "▶ from 0:04", "✕ Not this person" ────────────── */
 
 function facesTileExtrasHtml(media) {
-  if (!ftOnTab() || FT.personId == null || !media) return '';
+  // Library: the face results' tags (faces.js).
+  if (!ftOnTab()) return typeof facesResultTagHtml === 'function' ? facesResultTagHtml(media) : '';
+  if (FT.personId == null || !media) return '';
   const info = FT.fileInfo[media.id];
   if (!info) return '';
   // Same rule as facesStartAt: under a second is just the start of the file.
@@ -1250,6 +1420,12 @@ function ftWire() {
       return;
     }
 
+    // Person page: Might also be
+    const mightBtn = t.closest('[data-ft-might]');
+    if (mightBtn) { ftMightAction(mightBtn.dataset.ftMight, mightBtn); return; }
+    const cand = t.closest('[data-ft-cand]');
+    if (cand) { ftMightCard(Number(cand.closest('[data-cand]').dataset.cand), cand.dataset.ftCand, cand); return; }
+
     // Person page
     if (t.closest('[data-ft-home]')) { ftClosePerson(); return; }
     const open = t.closest('[data-ft-open]');
@@ -1287,6 +1463,26 @@ function ftWire() {
       ftPaintPerson();
       ftLoadFiles();
     }
+  });
+
+  // People tiles: right-click for Open / Not a face.
+  view.addEventListener('contextmenu', (e) => {
+    const tile = e.target instanceof Element && e.target.closest('.ft-tile');
+    if (!tile || tile.classList.contains('ft-naming')) return;
+    const id = Number(tile.dataset.person);
+    const p = FT.people.find(x => x.id === id);
+    if (!p) return;
+    e.preventDefault();
+    facesMenu(e.clientX, e.clientY, [
+      { label: 'Open', run: () => facesOpenPerson(id) },
+      { label: 'Not a face', run: async () => {
+        if (!await ftNotAFace([p])) return;
+        FT.sel.delete(id);
+        ftPaintSelBar();
+        ftLoadPeople();
+        ftLoadReview();
+      } },
+    ]);
   });
 
   view.addEventListener('keydown', (e) => {

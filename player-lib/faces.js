@@ -8,7 +8,8 @@
      selection.js     facesSelectionButton(n)   "Find faces (N)"
      player-video.js  renderFacesFrameButton()  "Find people in this frame"
      settings.js      facesSettingsHtml() / facesWireSettings()  Face search section
-     importer.js      [data-no-import-drop]     the photo box keeps its drops
+     importer.js      [data-no-import-drop]     the photo box keeps its drops;
+                      window.vaultScanPane      the Faces view of the scan panel
      faces-tab.js     the 👤 Faces tab (people); facesTabStatusChanged, facesOpenPerson
 
    Feature off (or models missing) means none of it renders: every hook
@@ -113,6 +114,7 @@ function facesSetStatus(s) {
   if (flipped) facesApplyState();
   facesSettingsPaint();
   if (typeof facesTabStatusChanged === 'function') facesTabStatusChanged(flipped);
+  facesScanPaint();
 }
 
 /** Show or remove every face surface after the feature turns on or off. */
@@ -296,16 +298,18 @@ function facesOpenInFaces(chip, personId) {
 
 /* ── Person focus (filters.js focus set) ───────────────────────────────── */
 
-let facesFocus = null;   // { src: {kind, id}, cropUrl, width, count, total, capped, opts }
+let facesFocus = null;   // { src: {kind, id}, cropUrl, width, count, total, capped, opts, ids, match, source, likelyPerson }
 let facesFocusSeq = 0;
 
 /**
  * Search for one face (a stored group or a query face from a photo/frame)
  * and show the matches, best first. Called again with a new width, it
- * updates the same banner in place.
+ * updates the same banner in place. `refresh` re-asks with the same width
+ * after the results' people changed (an add, a name): the grid stays on its
+ * page when the files did not change.
  * @returns {Promise<boolean>} whether the focus is showing
  */
-async function facesOpenFocus(src, cropUrl, width = 'normal') {
+async function facesOpenFocus(src, cropUrl, width = 'normal', { refresh = false } = {}) {
   const seq = ++facesFocusSeq;
   const url = src.kind === 'group' ? `/api/faces/groups/${src.id}/similar` : `/api/faces/query/${encodeURIComponent(src.id)}/similar`;
   let r;
@@ -319,37 +323,154 @@ async function facesOpenFocus(src, cropUrl, width = 'normal') {
     return false;
   }
   if (seq !== facesFocusSeq) return false;   // a newer request (another width) wins
-  const same = facesFocus && facesFocus.src.kind === src.kind && facesFocus.src.id === src.id;
-  const opts = same ? facesFocus.opts : {
+  const prev = facesFocus;
+  const same = prev && prev.src.kind === src.kind && prev.src.id === src.id;
+  if (refresh && !same) return false;        // the focus ended while this was asked
+  const opts = same ? prev.opts : {
     renderBanner: facesRenderBanner,
     // Exited, or replaced by another focus: forget this one.
-    onClear: () => { if (facesFocus && facesFocus.opts === opts) facesFocus = null; },
+    onClear: () => {
+      if (facesFocus && facesFocus.opts === opts) facesFocus = null;
+      if (typeof renderSelectionBar === 'function') renderSelectionBar();
+    },
   };
   opts.rankedScores = r.ids.map((id, i) => ({ id, score: r.scores[i] }));
   // A chip's own file always matches itself; it stays in the grid but does
   // not count as "another file that looks like this person".
   const others = src.mediaId ? r.ids.filter(id => id !== src.mediaId).length : r.ids.length;
-  facesFocus = { src, cropUrl, width, wanted: width, count: r.ids.length, others, total: r.total, capped: !!r.capped, opts };
-  setFocusIds(r.ids, 'files that look like this person', opts);
+  facesFocus = {
+    src, cropUrl, width, wanted: width, count: r.ids.length, others, total: r.total, capped: !!r.capped, opts,
+    ids: r.ids, match: r.match || {}, source: r.source || null, likelyPerson: r.likelyPerson || null,
+  };
+  if (refresh && prev.ids && prev.ids.length === r.ids.length && prev.ids.every((id, i) => id === r.ids[i])) {
+    renderFocusBar();
+    if (typeof applyFilters === 'function') applyFilters({ keepPage: true });
+  } else {
+    setFocusIds(r.ids, 'files that look like this person', opts);
+  }
+  if (typeof renderSelectionBar === 'function') renderSelectionBar();
   return true;
 }
+
+/** Ask the showing focus again (its people changed). */
+function facesRefreshFocus() {
+  const f = facesFocus;
+  if (!f) return Promise.resolve(false);
+  return facesOpenFocus(f.src, f.cropUrl, f.width, { refresh: true });
+}
+
+/**
+ * The person the results are measured against: the clicked face's person,
+ * or for a photo or frame, the person most of the results belong to.
+ * @returns {{ id, name } | null}
+ */
+function facesFocusTarget(f = facesFocus) {
+  if (!f) return null;
+  if (f.src.kind === 'group') return f.source && f.source.personId ? { id: f.source.personId, name: f.source.personName || null } : null;
+  return f.likelyPerson && f.likelyPerson.id ? { id: f.likelyPerson.id, name: f.likelyPerson.name || null } : null;
+}
+
+/**
+ * Sort the results by who their matched face belongs to.
+ * inT: already the target. others: Map personId -> { name, ids } of other
+ * NAMED people (never moved without Pick which + a confirm). addable:
+ * [{ mediaId, groupId }] that are in no one, or in someone not named yet.
+ */
+function facesBreakdown(f = facesFocus) {
+  const T = facesFocusTarget(f);
+  const out = { T, inT: [], others: new Map(), addable: [] };
+  if (!f) return out;
+  for (const id of f.ids || []) {
+    const m = f.match[id];
+    if (!m) continue;
+    if (T && m.personId === T.id) out.inT.push(id);
+    else if (m.personId && m.personName) {
+      const o = out.others.get(m.personId) || { name: m.personName, ids: [] };
+      o.ids.push(id);
+      out.others.set(m.personId, o);
+    } else out.addable.push({ mediaId: id, groupId: m.groupId });
+  }
+  return out;
+}
+
+const facesPmName = (name) => `<span class="ft-pm-name">${escapeHtml(name)}</span>`;
+const facesNames = () => document.body.classList.contains('pm-names');
+/** "Barack Obama", or "this person" for someone without a name. */
+const facesWho = (T) => (T && T.name ? facesPmName(T.name) : 'this person');
+
+const FACES_PEN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a0a0a0" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg>';
 
 function facesRenderBanner(bar) {
   const f = facesFocus;
   if (!f) return;
+  // A repaint under an open name field would leave it typing into nothing.
+  if (typeof FT !== 'undefined' && FT.naming && bar.contains(FT.naming.host)) ftCloseNaming();
   const n = f.count;
-  const text = !f.others ? 'No other files look like this person at this setting.'
-    : f.capped ? `Showing the closest <b>${n.toLocaleString()}</b> of ${Number(f.total).toLocaleString()} files that look like this person.`
-    : `Showing <b>${n.toLocaleString()}</b> ${n === 1 ? 'file that looks' : 'files that look'} like this person.`;
+  const b = facesBreakdown(f);
+  const T = b.T;
+  const lead = f.capped
+    ? `Showing the closest <b>${n.toLocaleString()}</b> of ${Number(f.total).toLocaleString()} ${f.total === 1 ? 'file that looks' : 'files that look'} like`
+    : `Showing <b>${n.toLocaleString()}</b> ${n === 1 ? 'file that looks' : 'files that look'} like`;
+  // Naming: the clicked face's person (rename or a first name), a photo's
+  // likely person while it has no name, or for a photo with no clear person
+  // a new person from the results that are not in anyone yet.
+  const whoT = T && T.name ? facesPmName(T.name) : f.src.kind === 'query' ? 'that person' : 'this person';
+  const canName = f.src.kind === 'group' || (T ? !T.name : b.addable.length > 0);
+  const addName = '<span class="faces-bname"><button type="button" class="faces-addname" data-faces-name>Add a name</button></span>';
+  let text;
+  if (f.src.kind === 'group') {
+    const who = T && T.name
+      ? `<span class="faces-bname"><span class="faces-bname-in"><span class="faces-bname-text ft-pm-name" data-faces-name>${escapeHtml(T.name)}</span><button type="button" class="faces-pen" data-faces-name aria-label="Rename" title="Rename">${FACES_PEN}</button></span></span>`
+      : `this person.${addName}`;
+    text = !f.others ? `No other files look like this person at this setting.${canName && !(T && T.name) ? addName : ''}` : `${lead} ${who}`;
+  } else {
+    text = `${lead} this face.`;
+    if (T) text += ` Most of them are ${T.name ? `<b>${facesPmName(T.name)}</b>` : 'someone with no name yet'}.`;
+  }
+  const allIn = T && f.others && !b.addable.length && !b.others.size && b.inT.length === n;
+  if (allIn) text += n === 1 ? ` It is already ${whoT}.` : ` All ${n.toLocaleString()} are already ${whoT}.`;
+  if (f.src.kind === 'query' && canName) text += addName;
+
+  // Second row: who the results already are, and the add.
+  let row2 = '';
+  if (T && f.others && (b.addable.length || b.others.size)) {
+    const parts = [];
+    const be = (k) => (k === 1 ? 'is' : 'are');
+    if (b.inT.length) parts.push(`<b>${b.inT.length.toLocaleString()}</b> ${be(b.inT.length)} ${b.others.size ? '' : 'already '}${whoT}.`);
+    for (const o of b.others.values()) parts.push(`<b>${o.ids.length.toLocaleString()}</b> ${be(o.ids.length)} ${facesPmName(o.name)}.`);
+    const notIn = b.others.size || f.src.kind === 'query' ? 'not in anyone yet' : 'not yet';
+    if (b.addable.length) parts.push(`<b>${b.addable.length.toLocaleString()}</b> ${be(b.addable.length)} ${notIn}.`);
+    const k = b.addable.length;
+    row2 = `
+      <div class="faces-brow2">
+        <span class="faces-bsum">${parts.join(' ')}</span>
+        ${k ? `<button type="button" class="faces-badd" data-faces-add>Add ${k === 1 ? 'it' : `the ${k.toLocaleString()}`} to ${whoT}</button>` : ''}
+        <button type="button" class="faces-bghost" data-faces-pick>Pick which</button>
+        <button type="button" class="faces-blink" data-faces-open>Open ${whoT} in Faces</button>
+      </div>`;
+  }
+  bar.classList.add('faces-banner');
   bar.innerHTML = `
-    ${f.cropUrl ? `<span class="faces-banner-crop"><img class="face-crop" src="${escapeHtml(f.cropUrl)}" alt=""></span>` : ''}
-    <span class="focus-banner-text">${text}</span>
-    <span class="settings-seg faces-width" role="group" aria-label="How close a match">
-      ${FACES_WIDTHS.map(w => `<button type="button" class="settings-seg-btn" data-faces-width="${w.value}"
-        aria-pressed="${w.value === f.wanted ? 'true' : 'false'}">${w.label}</button>`).join('')}
-    </span>
-    <button class="focus-banner-close" id="focusBarClear">Show everything</button>`;
+    <div class="faces-brow">
+      ${f.cropUrl ? `<span class="faces-banner-crop"><img class="face-crop" src="${escapeHtml(f.cropUrl)}" alt=""></span>` : ''}
+      <span class="focus-banner-text">${text}</span>
+      <span class="settings-seg faces-width" role="group" aria-label="How close a match">
+        ${FACES_WIDTHS.map(w => `<button type="button" class="settings-seg-btn" data-faces-width="${w.value}"
+          aria-pressed="${w.value === f.wanted ? 'true' : 'false'}">${w.label}</button>`).join('')}
+      </span>
+      <button class="focus-banner-close" id="focusBarClear">Clear results</button>
+    </div>${row2}`;
   bar.querySelector('#focusBarClear').addEventListener('click', clearFocusIds);
+  bar.querySelectorAll('[data-faces-name]').forEach(el => el.addEventListener('click', () => facesBannerName(bar)));
+  bar.querySelector('[data-faces-add]')?.addEventListener('click', (e) => {
+    e.currentTarget.disabled = true;
+    facesAddToTarget(facesBreakdown().addable.map(a => a.groupId));
+  });
+  bar.querySelector('[data-faces-pick]')?.addEventListener('click', facesPickWhich);
+  bar.querySelector('[data-faces-open]')?.addEventListener('click', () => {
+    const t = facesFocusTarget();
+    if (t && typeof facesOpenPerson === 'function') facesOpenPerson(t.id);
+  });
   bar.querySelectorAll('[data-faces-width]').forEach(b => b.addEventListener('click', async () => {
     const w = b.dataset.facesWidth;
     // Compare with the last width ASKED for: quick clicks must end on the last one.
@@ -363,6 +484,199 @@ function facesRenderBanner(bar) {
     await facesOpenFocus(facesFocus.src, facesFocus.cropUrl, w);
     bar.querySelector(`[data-faces-width="${facesFocus?.wanted}"]`)?.focus();
   }));
+}
+
+/**
+ * The banner's name field (faces-tab.js ftStartNaming, the same field as the
+ * Faces tab). A face with a person names that person; a face in no one, or a
+ * photo with no clear person, starts a new person from it.
+ */
+function facesBannerName(bar) {
+  const f = facesFocus;
+  if (!f || typeof ftStartNaming !== 'function') return;
+  const host = bar.querySelector('.faces-bname');
+  if (!host || host.classList.contains('ft-naming')) return;
+  const b = facesBreakdown(f);
+  const T = b.T;
+  const fromQuery = f.src.kind === 'query';
+  let id = null, save = null;
+  if (T && (!fromQuery || !T.name)) id = T.id;
+  else {
+    const groupIds = fromQuery ? b.addable.map(a => a.groupId) : [f.src.id];
+    save = (name, mergeIfTaken) => facesApi('/api/faces/people', {
+      method: 'POST', json: mergeIfTaken ? { name, groupIds, mergeIfTaken: true } : { name, groupIds },
+    });
+  }
+  const count = fromQuery && !T ? b.addable.length : 0;
+  ftStartNaming({
+    host, anchor: host.firstElementChild, id, initial: (T && T.name) || '', me: { coverUrl: f.cropUrl }, save,
+    onDone: (p, how = {}) => {
+      // A new person from a photo's results: say what moved (a merge already said so).
+      if (p && count && p.name && !how.merged) {
+        const files = `${count.toLocaleString()} ${count === 1 ? 'file' : 'files'}`;
+        showToast(facesNames() ? `Added ${files} to a new person.` : `Added ${files} to ${p.name}.`);
+      }
+      facesRefreshFocus();
+    },
+  });
+}
+
+const facesFiles = (k) => `${k.toLocaleString()} ${k === 1 ? 'file' : 'files'}`;
+
+/**
+ * Add faces to the banner's person (POST /api/faces/people/:id/add). Faces
+ * of another named person are only taken with `takeFromNamed`, which only
+ * Pick which + its confirm ever sends.
+ * @returns {Promise<boolean>} whether the call went through
+ */
+async function facesAddToTarget(groupIds, { takeFromNamed = false } = {}) {
+  const T = facesFocusTarget();
+  if (!T || !groupIds.length) { renderFocusBar(); return false; }
+  let moved = 0;
+  const skipped = [];
+  try {
+    for (let i = 0; i < groupIds.length; i += 2000) {
+      const json = { groupIds: groupIds.slice(i, i + 2000) };
+      if (takeFromNamed) json.takeFromNamed = true;
+      const r = await facesApi(`/api/faces/people/${T.id}/add`, { method: 'POST', json });
+      moved += (r.moved || []).length;
+      skipped.push(...(r.skipped || []));
+    }
+  } catch (err) { facesToastError(err); renderFocusBar(); return false; }
+  if (typeof FT !== 'undefined') FT.faces.delete(T.id);
+  let msg = !moved ? 'Nothing was added.'
+    : T.name && !facesNames() ? `Added ${facesFiles(moved)} to ${T.name}.` : `Added ${facesFiles(moved)}.`;
+  const other = skipped.filter(s => s.reason === 'other-named').length;
+  const lost = skipped.length - other;
+  if (other) msg += ` ${other.toLocaleString()} ${other === 1 ? 'was' : 'were'} left out because ${other === 1 ? 'it belongs' : 'they belong'} to someone else.`;
+  if (lost) msg += ` ${lost.toLocaleString()} could not be added.`;
+  showToast(msg);
+  await facesRefreshFocus();
+  return true;
+}
+
+function facesAddOne(mediaId) {
+  const m = facesFocus && facesFocus.match[mediaId];
+  if (m) facesAddToTarget([m.groupId]);
+}
+
+/** Pick which: tick the results that are not in the person yet; the selection bar adds them. */
+function facesPickWhich() {
+  const f = facesFocus;
+  if (!f || typeof selectedIds === 'undefined') return;
+  const b = facesBreakdown(f);
+  f.picking = true;
+  selectedIds.clear();
+  for (const a of b.addable) selectedIds.add(a.mediaId);
+  selectionChanged();
+  lastSelectedId = null;
+  syncTileCheckboxes();
+  renderSelectionBar();
+  showToast(b.addable.length
+    ? 'Ticked the files that are not in this person yet. Untick any that are wrong, then click Add at the bottom.'
+    : 'Tick the files to add, then click Add at the bottom.');
+}
+
+/** Selected results whose face is not the banner's person yet. */
+function facesPicked() {
+  const f = facesFocus;
+  const T = facesFocusTarget(f);
+  if (!T || typeof selectedIds === 'undefined') return [];
+  return [...selectedIds].map(id => ({ mediaId: id, m: f.match[id] })).filter(x => x.m && x.m.personId !== T.id);
+}
+
+/** "👤 Add N to X" in the selection bar while face results with a person are showing. */
+function facesPickedButton() {
+  const f = facesFocus;
+  document.body.classList.toggle('faces-picking', !!(f && f.picking && selectedIds.size));
+  const T = facesFocusTarget(f);
+  const k = facesPicked().length;
+  if (!T || !k) return '';
+  return `<button class="sel-btn sel-faces-add" onclick="facesAddPicked()"
+    title="Add the matching face in each selected file to this person">👤 Add ${k.toLocaleString()} to ${facesWho(T)}</button>`;
+}
+
+async function facesAddPicked() {
+  const T = facesFocusTarget();
+  if (!T) return;
+  const picked = facesPicked();
+  const named = picked.filter(x => x.m.personId && x.m.personName);
+  let list = picked, take = false;
+  if (named.length) {
+    const byName = new Map();
+    for (const x of named) byName.set(x.m.personName, (byName.get(x.m.personName) || 0) + 1);
+    const who = [...byName].map(([name, k]) => `<b>${k.toLocaleString()}</b> ${k === 1 ? 'is' : 'are'} <b>${facesPmName(name)}</b>`).join(', ');
+    const rest = picked.length - named.length;
+    const it = named.length === 1 ? 'it' : 'them';
+    const choice = await facesAsk({
+      title: 'Move from someone else?',
+      html: `<p class="vault-modal-hint">Of the ${facesFiles(picked.length)} you picked, ${who}.
+        Adding ${it} moves ${named.length === 1 ? 'that face' : 'those faces'} to ${facesWho(T)}.</p>`,
+      buttons: [
+        { label: 'Cancel', value: null },
+        ...(rest ? [{ label: `Add only the other ${rest.toLocaleString()}`, value: 'skip' }] : []),
+        { label: `Move ${it} too`, value: 'move', primary: true },
+      ],
+    });
+    if (!choice) return;
+    if (choice === 'skip') list = picked.filter(x => !(x.m.personId && x.m.personName));
+    else take = true;
+  }
+  if (!list.length) return;
+  if (await facesAddToTarget(list.map(x => x.m.groupId), { takeFromNamed: take })) {
+    if (facesFocus) facesFocus.picking = false;
+    clearSelection();
+  }
+}
+
+/**
+ * A small question in the app's modal style.
+ * @returns {Promise<any>} the value of the button clicked; null for Cancel, Esc or a click outside
+ */
+function facesAsk({ title, html, buttons }) {
+  return new Promise((resolve) => {
+    document.getElementById('facesAsk')?._close();
+    const ov = document.createElement('div');
+    ov.id = 'facesAsk';
+    ov.className = 'vault-modal-overlay';
+    ov.innerHTML = `
+      <div class="vault-modal" role="dialog" aria-label="${escapeHtml(title)}">
+        <h3>${escapeHtml(title)}</h3>
+        ${html}
+        <div class="vault-modal-actions">${buttons.map((b, i) => `<button class="vault-btn${b.primary ? ' vault-btn-primary' : ''}${b.danger ? ' faces-ask-danger' : ''}" data-ask="${i}">${escapeHtml(b.label)}</button>`).join('')}</div>
+      </div>`;
+    document.body.appendChild(ov);
+    const done = (v) => { ov.remove(); resolve(v); };
+    ov._close = () => done(null);
+    ov.addEventListener('mousedown', (e) => { if (e.target === ov) done(null); });
+    ov.querySelectorAll('[data-ask]').forEach(b => b.addEventListener('click', () => done(buttons[Number(b.dataset.ask)].value)));
+    (ov.querySelector('.vault-btn-primary, .faces-ask-danger') || ov.querySelector('[data-ask]'))?.focus();
+  });
+}
+
+/** Result tiles: "✓ Barack Obama", another person's name, or "Not yet" + "+ Add to X" (cards.js via facesTileExtrasHtml). */
+function facesResultTagHtml(media) {
+  const f = facesFocus;
+  const m = f && media && f.match && f.match[media.id];
+  if (!m) return '';
+  const T = facesFocusTarget(f);
+  if (T && m.personId === T.id) return `<span class="faces-tag">✓ ${T.name ? facesPmName(T.name) : 'This person'}</span>`;
+  if (m.personId && m.personName) return `<span class="faces-tag">${facesPmName(m.personName)}</span>`;
+  if (!T) return '';
+  return `<span class="faces-tag is-new">Not yet</span><button type="button" class="faces-tag-add"
+    onclick="event.stopPropagation(); facesAddOne(${media.id})">+ Add to ${facesWho(T)}</button>`;
+}
+
+/** Chip menu: this face is not a face (a pattern, a shadow). Gone from everything. */
+async function facesNotAFace(mediaId, groupId) {
+  facesConfirm = null;
+  try {
+    await facesApi(`/api/faces/groups/${groupId}/not-a-face`, { method: 'POST' });
+  } catch (err) { facesToastError(err); facesPaint(mediaId); return; }
+  const info = facesInfo.get(mediaId);
+  if (info) info.groups = (info.groups || []).filter(g => g.id !== groupId);
+  facesPaint(mediaId);
+  showToast('Marked as not a face. It will not show up in face search.');
 }
 
 /* ── Small menu (chip right-click, tile right-click) ───────────────────── */
@@ -393,16 +707,21 @@ function facesCloseMenu() { document.getElementById('facesMenu')?.remove(); }
 
 /* ── Tile right-click + selection bar ──────────────────────────────────── */
 
-/** "Faces (N)" in the selection bar (short, so the bar stays one line); '' while off. */
+/**
+ * "Faces (N)" in the selection bar (short, so the bar stays one line), and
+ * "Add N to X" while face results with a person are showing; '' while off.
+ */
 function facesSelectionButton(n) {
-  if (!facesReady() || !n) return '';
-  return `<button class="sel-btn sel-faces" onclick="facesIndexSelection()"
+  if (!facesReady()) { document.body.classList.remove('faces-picking'); return ''; }
+  const add = facesPickedButton();
+  if (!n) return add;
+  return `${add}<button class="sel-btn sel-faces" onclick="facesIndexSelection()"
     title="Find faces in the selected files">👤 Faces (${n})</button>`;
 }
 
-let facesWatchTimer = null;
+let facesWatching = false;
 
-/** Queue the selection; one toast when it is done (spec 8.8). */
+/** Queue the selection; the scan panel shows how it goes. */
 async function facesIndexSelection() {
   const ids = [...selectedIds];
   const chunk = typeof BULK_ID_CHUNK === 'number' ? BULK_ID_CHUNK : 5000;
@@ -414,22 +733,197 @@ async function facesIndexSelection() {
     }
   } catch (err) { facesToastError(err); return; }
   if (!added) { showToast('These files have already been checked for faces.'); return; }
-  showToast(`Looking for faces in ${added} file${added === 1 ? '' : 's'}. Progress is in Settings > Face search.`);
-  facesWatchQueue();
+  showToast(`Looking for faces in ${added} file${added === 1 ? '' : 's'}.`);
+  facesScanStarted();
 }
 
-/** Background watch for a user-started job: one "finished" toast. */
+/* ── Scan panel: the Faces view (importer.js window.vaultScanPane) ─────── */
+
+// shown: the pane is up for the current (or just finished) run. hidden: the
+// user pressed Hide for this run. runKey: which run that was (startedAt).
+const facesScan = { shown: false, hidden: false, focus: false, running: false, runKey: null, stopArm: null, stopped: false };
+const FACES_SCAN_POLL_MS = 1500;
+
+/** A run the user just started (selection, Find faces in everything): show it, in front. */
+function facesScanStarted() {
+  facesScan.hidden = false;
+  facesScan.focus = true;
+  facesRefreshStatus().then(() => facesWatchQueue());
+}
+
+/**
+ * Poll while the queue runs, and only then: every status answer repaints the
+ * panel (facesSetStatus -> facesScanPaint), and the last one paints it finished.
+ */
 function facesWatchQueue() {
-  if (facesWatchTimer) return;
+  if (facesWatching) return;
+  facesWatching = true;
   const tick = async () => {
+    if (document.hidden) { setTimeout(tick, FACES_SCAN_POLL_MS); return; }
     const s = await facesRefreshStatus();
-    if (s && s.queue && s.queue.running) { facesWatchTimer = setTimeout(tick, 3000); return; }
-    facesWatchTimer = null;
-    const last = s && s.queue && s.queue.lastRun;
-    if (last && last.total) showToast(`Finished looking for faces in ${last.total} file${last.total === 1 ? '' : 's'}.`);
-    facesReloadOpenBoxes();
+    if (s && s.queue && s.queue.running && facesReady()) { setTimeout(tick, FACES_SCAN_POLL_MS); return; }
+    facesWatching = false;
   };
-  facesWatchTimer = setTimeout(tick, 3000);
+  setTimeout(tick, FACES_SCAN_POLL_MS);
+}
+
+/** "about 4 min" / "about 20 s", the same rounding as the Faces tab's screen time. */
+function facesAbout(s) {
+  if (s < 60) return `about ${Math.max(5, Math.round(s / 5) * 5)} s`;
+  const min = Math.round(s / 60);
+  if (min < 60) return `about ${min} min`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return `about ${h} h${m ? ` ${m} min` : ''}`;
+}
+
+function facesScanRow(r) {
+  const name = `<span class="dq-name">${escapeHtml(r.filename || `File ${r.mediaId}`)}</span>`;
+  if (!r.ok) return `<div class="dq-row dq-failed"><span class="dq-ico">✕</span>${name}<span class="fsq-res">could not be read</span></div>`;
+  if (!r.faces) return `<div class="dq-row dq-done fsq-none"><span class="dq-ico">–</span>${name}<span class="fsq-res">no faces</span></div>`;
+  const names = r.names || [];
+  const people = r.people || 0;
+  const res = people === 1 && names.length === 1 ? facesPmName(names[0])
+    : people ? `${people.toLocaleString()} ${people === 1 ? 'person' : 'people'}`
+    : `${r.faces.toLocaleString()} ${r.faces === 1 ? 'face' : 'faces'}`;
+  return `<div class="dq-row dq-done"><span class="dq-ico">✓</span>${name}<span class="fsq-res">${res}</span></div>`;
+}
+
+/** Build the pane's fixed parts once: the buttons keep their armed state across polls. */
+function facesScanBuild(pane) {
+  if (pane.querySelector('.fsq-head')) return;
+  pane.innerHTML = `
+    <div class="dq-head fsq-head"><span class="fsq-ico"></span><span class="dq-title fsq-title"></span>
+      <button type="button" class="dq-x fsq-x" title="Dismiss" hidden>✕</button></div>
+    <div class="dq-bar"><div class="dq-bar-fill fsq-fill"></div></div>
+    <div class="dq-meta"><span class="fsq-meta"></span><span class="fsq-workers"></span></div>
+    <div class="dq-list fsq-list"></div>
+    <div class="fsq-sum" hidden><span class="fsq-sum-text"></span><button type="button" class="fsq-open">Open Faces</button></div>
+    <div class="dq-actions fsq-actions">
+      <button type="button" class="dq-btn dq-btn-quiet fsq-hide" title="Hide this panel. Faces are still found in the background">Hide</button>
+      <button type="button" class="dq-btn fsq-pause"></button>
+      <button type="button" class="dq-btn dq-btn-danger fsq-stop">Stop</button>
+    </div>`;
+  pane.querySelector('.fsq-x').addEventListener('click', () => { facesScan.shown = false; window.vaultScanPane.drop('faces'); });
+  pane.querySelector('.fsq-hide').addEventListener('click', () => {
+    facesScan.hidden = true;
+    facesScan.shown = false;
+    window.vaultScanPane.drop('faces');
+  });
+  pane.querySelector('.fsq-open').addEventListener('click', () => {
+    if (typeof ftOnTab === 'function' && ftOnTab()) { if (FT.personId != null) ftClosePerson(); }
+    else if (typeof switchTab === 'function') switchTab('faces');
+  });
+  pane.querySelector('.fsq-pause').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const act = facesStatus?.queue?.paused ? 'resume' : 'pause';
+    btn.disabled = true;
+    try { await facesApi(`/api/faces/queue/${act}`, { method: 'POST' }); }
+    catch (err) { facesToastError(err); }
+    btn.disabled = false;
+    await facesRefreshStatus();
+    facesWatchQueue();
+  });
+  pane.querySelector('.fsq-stop').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    if (!btn.classList.contains('armed')) {
+      btn.classList.add('armed');
+      btn.textContent = 'Click again to stop';
+      clearTimeout(facesScan.stopArm);
+      facesScan.stopArm = setTimeout(() => facesScanDisarm(btn), 5000);
+      return;
+    }
+    facesScanDisarm(btn);
+    facesScan.stopped = true;
+    try { await facesApi('/api/faces/queue/cancel', { method: 'POST' }); }
+    catch (err) { facesToastError(err); }
+    await facesRefreshStatus();
+  });
+}
+
+function facesScanDisarm(btn) {
+  clearTimeout(facesScan.stopArm);
+  facesScan.stopArm = null;
+  btn.classList.remove('armed');
+  btn.textContent = 'Stop';
+}
+
+/**
+ * The run as the panel shows it: running from the queue, finished from
+ * lastRun. `recent` (newest first) holds this run's files at its front; a
+ * click's file (direct) is not part of the run.
+ */
+function facesScanPaint() {
+  const api = window.vaultScanPane;
+  if (!api) return;
+  const s = facesStatus;
+  const q = s && s.queue;
+  if (!facesReady() || !q) {
+    if (api.has('faces')) api.drop('faces');
+    facesScan.shown = false;
+    facesScan.running = false;
+    return;
+  }
+  const wasRunning = facesScan.running;
+  facesScan.running = !!q.running;
+  if (q.running) {
+    const key = q.startedAt || 'run';
+    // A new run shows again, even after the last one was hidden.
+    if (key !== facesScan.runKey) { facesScan.runKey = key; facesScan.hidden = false; facesScan.stopped = false; }
+    if (!facesWatching) facesWatchQueue();
+    if (facesScan.hidden) return;
+    facesScan.shown = true;
+  } else if (wasRunning) {
+    // Just finished. A hidden panel says so in a toast instead.
+    facesReloadOpenBoxes();
+    const last = q.lastRun;
+    if (!facesScan.shown && last && last.total) showToast(`Finished looking for faces in ${facesFiles(last.total)}.`);
+  }
+  if (!facesScan.shown) return;
+
+  const run = q.running ? q : (q.lastRun || {});
+  const total = run.total || 0;
+  const finished = (run.done || 0) + (run.failed || 0);
+  const recent = (q.recent || []).filter(r => !r.direct).slice(0, Math.min(finished, 50));
+  const withPeople = run.withPeople != null ? run.withPeople : recent.filter(r => r.ok && r.faces > 0).length;
+  const stopped = !q.running && (facesScan.stopped || finished < total);
+  const pane = api.open('faces', {
+    tab: '👤 Faces',
+    sub: q.running ? `${Math.max(0, total - finished).toLocaleString()} left` : 'done',
+    focus: facesScan.focus,
+  });
+  facesScan.focus = false;
+  facesScanBuild(pane);
+  const $ = (sel) => pane.querySelector(sel);
+  const alone = api.count() === 1;
+
+  const ico = $('.fsq-ico');
+  if (q.running && !q.paused) { if (!ico.querySelector('.dq-spin')) ico.innerHTML = '<span class="dq-spin"></span>'; }
+  else ico.innerHTML = `<span class="dq-ico">${q.running ? '⏸' : run.failed || stopped ? '⚠' : '✓'}</span>`;
+  $('.fsq-title').textContent = `${alone ? '👤 ' : ''}${q.running
+    ? `${q.paused ? 'Paused: finding' : 'Finding'} faces in ${facesFiles(total)}`
+    : stopped ? `Stopped after checking ${facesFiles(finished)}`
+    : `Finished looking for faces in ${facesFiles(total)}`}`;
+  $('.fsq-x').hidden = !!q.running;
+  $('.fsq-fill').style.width = `${total ? Math.min(100, (finished / total) * 100) : 0}%`;
+  $('.fsq-meta').textContent = `${finished.toLocaleString()} of ${total.toLocaleString()}`
+    + (q.running && !q.paused && q.etaS ? ` · ${facesAbout(q.etaS)} left` : '')
+    + (run.failed ? ` · ${run.failed.toLocaleString()} could not be read` : '');
+  $('.fsq-workers').textContent = q.running && q.workers ? `${q.workers} at a time` : '';
+
+  const active = q.running ? (q.current || []).map(c => `<div class="dq-row dq-active"><span class="dq-ico">⏳</span>`
+    + `<span class="dq-name">${escapeHtml(c.filename || `File ${c.id}`)}</span>`
+    + `<span class="fsq-res">${c.progress > 0 && c.progress < 1 ? `${Math.round(c.progress * 100)}%` : ''}</span></div>`).join('') : '';
+  const html = active + recent.map(facesScanRow).join('');
+  const list = $('.fsq-list');
+  if (list.dataset.html !== html) { list.dataset.html = html; list.innerHTML = html; }
+
+  $('.fsq-sum').hidden = !finished;
+  $('.fsq-sum-text').textContent = `${q.running ? 'So far: people' : 'People'} found in ${withPeople.toLocaleString()} of ${facesFiles(finished)}.`;
+
+  $('.fsq-actions').hidden = !q.running;
+  const pause = $('.fsq-pause');
+  pause.textContent = q.paused ? 'Resume' : 'Pause';
+  pause.classList.toggle('dq-btn-primary', !!q.paused);
 }
 
 /** Refresh every People row on screen (after a queue run or delete-all). */
@@ -1009,6 +1503,7 @@ function facesWireSettings() {
   root.querySelector('#facesAllBtn').addEventListener('click', async () => {
     try { facesSetStatus({ ...facesStatus, queue: await facesApi('/api/faces/index', { method: 'POST', json: { all: true } }) }); }
     catch (err) { facesToastError(err); return; }
+    facesScanStarted();
     facesSettingsPoll();
   });
   root.querySelector('#facesPauseBtn').addEventListener('click', async () => {
@@ -1077,6 +1572,7 @@ document.addEventListener('contextmenu', (e) => {
       ...(g && g.personId && typeof facesOpenPerson === 'function'
         ? [{ label: 'Open in Faces', run: () => facesOpenInFaces(chip, g.personId) }] : []),
       { label: 'Hide this face', run: () => { facesConfirm = { mediaId, groupId }; facesPaint(mediaId); } },
+      { label: 'Not a face', run: () => facesNotAFace(mediaId, groupId) },
     ]);
     return;
   }
@@ -1088,7 +1584,7 @@ document.addEventListener('contextmenu', (e) => {
 // handling (the player, the detail modal) sees it.
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  const modal = document.getElementById('facesConsent') || document.getElementById('facesPicker');
+  const modal = document.getElementById('facesAsk') || document.getElementById('facesConsent') || document.getElementById('facesPicker');
   if (modal) modal._close();
   else if (document.getElementById('facesMenu')) facesCloseMenu();
   else if (document.getElementById('facesPop')) {
@@ -1110,6 +1606,11 @@ document.addEventListener('paste', (e) => {
 });
 
 window.addEventListener('resize', () => { facesCloseMenu(); facesClosePopover(); });
+
+// Back from another tab while face checks run: catch up now, not on the next poll.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && facesWatching) facesRefreshStatus();
+});
 
 // Boot: learn whether the feature is on. A locked vault answers 423 and the
 // feature simply stays dark until the unlock reloads the page.

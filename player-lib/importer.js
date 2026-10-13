@@ -141,17 +141,115 @@
     return `${(ms / 3600000).toFixed(1)}h`;
   }
 
+  /* ── One panel, two jobs ────────────────────────────────────────────────
+     #scanQueuePanel also carries the face checks (player-lib/faces.js). Each
+     job owns a pane; with both running a tab row picks which one shows, with
+     one the tab row goes away and that pane is the whole panel. The panel
+     itself goes when its last pane does. faces.js reaches this through
+     window.vaultScanPane. */
+  const PANES = { ai: 'scanAiPane', faces: 'scanFacesPane' };
+  const _panes = new Map();      // name -> { tab, sub }
+  let _paneOn = null;
+
+  function scanShell() {
+    let el = document.getElementById('scanQueuePanel');
+    if (el) return el;
+    el = document.createElement('div');
+    el.id = 'scanQueuePanel';
+    el.className = 'delete-queue';
+    el.innerHTML = `
+      <div class="dq-tabs" role="tablist" aria-label="Running scans" hidden></div>
+      <div class="dq-pane" id="scanAiPane" role="tabpanel" hidden></div>
+      <div class="dq-pane" id="scanFacesPane" role="tabpanel" hidden></div>`;
+    el.querySelector('.dq-tabs').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-pane]');
+      if (!b) return;
+      _paneOn = b.dataset.pane;
+      paintShell();
+    });
+    queuePanelStack().appendChild(el);
+    return el;
+  }
+
+  /** Tabs and pane visibility. The tab buttons are rebuilt only when the set of panes changes. */
+  function paintShell() {
+    const el = document.getElementById('scanQueuePanel');
+    if (!el) return;
+    const names = Object.keys(PANES).filter(n => _panes.has(n));
+    if (!_panes.has(_paneOn)) _paneOn = names[0] || null;
+    const tabs = el.querySelector('.dq-tabs');
+    const many = names.length > 1;
+    tabs.hidden = !many;
+    if (!many) { tabs.innerHTML = ''; delete tabs.dataset.names; }
+    else {
+      if (tabs.dataset.names !== names.join()) {
+        tabs.dataset.names = names.join();
+        tabs.innerHTML = names.map(n => `<button type="button" class="dq-tab" role="tab" data-pane="${n}">`
+          + '<span class="dq-tab-name"></span><span class="dq-tab-sub"></span></button>').join('');
+      }
+      tabs.querySelectorAll('[data-pane]').forEach(b => {
+        const p = _panes.get(b.dataset.pane);
+        const on = b.dataset.pane === _paneOn;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-selected', String(on));
+        b.querySelector('.dq-tab-name').textContent = p.tab || '';
+        b.querySelector('.dq-tab-sub').textContent = p.sub || '';
+      });
+    }
+    for (const [n, id] of Object.entries(PANES)) {
+      const pane = document.getElementById(id);
+      if (pane) pane.hidden = !_panes.has(n) || n !== _paneOn;
+    }
+  }
+
+  /**
+   * Show a pane (creating the panel if needed) and set its tab label.
+   * `focus` brings it to the front: a job the user just started.
+   * @returns the pane element
+   */
+  function openPane(name, { tab = '', sub = '', focus = false } = {}) {
+    const el = scanShell();
+    _panes.set(name, { tab, sub });
+    if (focus) _paneOn = name;
+    paintShell();
+    el.classList.add('visible');
+    return document.getElementById(PANES[name]);
+  }
+
+  /** Take a pane away; the panel goes with its last pane. */
+  function dropPane(name) {
+    _panes.delete(name);
+    const pane = document.getElementById(PANES[name]);
+    if (pane) { pane.innerHTML = ''; pane.hidden = true; }
+    if (!_panes.size) {
+      document.getElementById('scanQueuePanel')?.remove();
+      _paneOn = null;
+      return;
+    }
+    paintShell();
+  }
+
+  window.vaultScanPane = {
+    open: openPane,
+    drop: dropPane,
+    has: (name) => _panes.has(name),
+    count: () => _panes.size,
+  };
+
+  /** The AI scan's pane while it is showing, else null. */
+  function scanAiPane() {
+    return _panes.has('ai') ? document.getElementById('scanAiPane') : null;
+  }
+
   function scanPanelEl() {
     // A new run inside the auto-dismiss window reuses this element — drop the
     // pending removal or it yanks the panel out from under the live run.
     clearTimeout(_scanFinishTimer);
     _scanFinishTimer = null;
 
-    let el = document.getElementById('scanQueuePanel');
-    if (el) return el;
-    el = document.createElement('div');
-    el.id = 'scanQueuePanel';
-    el.className = 'delete-queue';
+    let el = scanAiPane();
+    if (el && el.querySelector('#scanHead')) return el;
+    el = openPane('ai', { tab: '🤖 AI scan' });
     // The bar fill, the worker stepper and the action buttons live outside the
     // re-rendered regions: rebuilding the fill every round would restart its CSS
     // transition, rebuilding the input would swallow half-typed digits (the
@@ -177,7 +275,6 @@
         <button type="button" class="dq-btn" id="scanPauseBtn"></button>
         <button type="button" class="dq-btn dq-btn-danger" id="scanCancelBtn">Cancel</button>
       </div>`;
-    queuePanelStack().appendChild(el);
     el.querySelector('#scanWorkersNum').addEventListener('change', (e) => {
       if (typeof window.vaultSetScanWorkers === 'function') {
         e.target.value = window.vaultSetScanWorkers(e.target.value);
@@ -190,7 +287,7 @@
     // lives on here. Keeps polling: a halt still toasts through a hidden panel.
     el.querySelector('#scanHideBtn').addEventListener('click', () => {
       _scanDismissed = true;
-      document.getElementById('scanQueuePanel')?.remove();
+      dropPane('ai');
     });
     return el;
   }
@@ -219,7 +316,7 @@
       showToast('⚠ ' + err.message);
     } finally {
       _scanCmdBusy = false;
-      if (_scanLast && document.getElementById('scanQueuePanel')) renderScanPanel(_scanLast);
+      if (_scanLast && scanAiPane()) renderScanPanel(_scanLast);
     }
   }
 
@@ -268,7 +365,7 @@
       _scanDismissed = true;
       _scanLast = null;
       if (!stillRunning) stopScanWatch();
-      document.getElementById('scanQueuePanel')?.remove();
+      dropPane('ai');
     }
   }
 
@@ -397,9 +494,9 @@
 
   function renderScanPanel(q) {
     const el = scanPanelEl();
-    el.classList.add('visible');
 
     const done = q.done || 0, failed = q.failed || 0, total = q.total || 0;
+    openPane('ai', { tab: '🤖 AI scan', sub: `${Math.max(0, total - done - failed).toLocaleString()} left` });
     const by = q.paused ? (q.pausedBy || 'user') : null;
     const modelHalt = by === 'model' || by === 'model-choice';
     const note = {
@@ -504,10 +601,11 @@
   }
 
   function finishScanPanel(q) {
-    const el = document.getElementById('scanQueuePanel');
+    const el = scanAiPane();
     if (!el) return;
     const done = q.done || 0, failed = q.failed || 0, total = q.total || 0;
     el.querySelector('#scanBarFill').style.width = '100%';
+    openPane('ai', { tab: '🤖 AI scan', sub: 'done' });
     el.querySelector('#scanHead').innerHTML =
       `<span class="dq-title">${failed ? '⚠' : '✓'} AI scan ${done}/${total}${failed ? ` · ${failed} failed` : ''}</span>
        <button class="dq-x" title="Dismiss">✕</button>`;
@@ -519,9 +617,9 @@
     el.querySelector('#scanNotice').hidden = true;
     el.querySelector('#scanInst').hidden = true;     // nothing in flight to report on
     disarmCancel();
-    el.querySelector('.dq-x').addEventListener('click', () => el.remove());
+    el.querySelector('.dq-x').addEventListener('click', () => dropPane('ai'));
     clearTimeout(_scanFinishTimer);
-    if (!failed) _scanFinishTimer = setTimeout(() => el.remove(), 4000);
+    if (!failed) _scanFinishTimer = setTimeout(() => dropPane('ai'), 4000);
   }
 
   function stopScanWatch() {
@@ -612,7 +710,7 @@
       const complete = total > 0 && (q.done || 0) + (q.failed || 0) >= total && !working;
       if (complete) {
         _scanLast = null;
-        if (document.getElementById('scanQueuePanel')) { renderScanPanel(q); finishScanPanel(q); }
+        if (scanAiPane()) { renderScanPanel(q); finishScanPanel(q); }
         stopScanWatch();
         maybeKofiNudge(total);
         return;

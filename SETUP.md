@@ -474,7 +474,7 @@ faces again**.
   - **Cast a wider net**: finds more, including blurry or turned faces, but
     also shows more of the wrong people.
 
-  Click **Show everything** to go back to your whole library.
+  Click **Clear results** to go back to your whole library.
 - **👤 Find a person** (at the end of the filter row): drop a photo in the box,
   choose one, or paste one with Ctrl+V. If the photo has more than one face,
   Vault asks **Which person?**. The photo is only used for this search and is

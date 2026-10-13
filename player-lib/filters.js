@@ -132,10 +132,11 @@ function renderFocusBar() {
   if (!bar) return;
   if (!focusIds) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
   bar.style.display = '';
+  bar.className = 'focus-banner';   // a custom banner may have added its own class
   if (focusOpts && typeof focusOpts.renderBanner === 'function') { focusOpts.renderBanner(bar); return; }
   bar.innerHTML = `
     <span class="focus-banner-text">Showing <b>${focusIds.size.toLocaleString()}</b> ${escapeHtml(focusLabel)}. Other filters are paused.</span>
-    <button class="focus-banner-close" id="focusBarClear">Show everything</button>`;
+    <button class="focus-banner-close" id="focusBarClear">Clear results</button>`;
   bar.querySelector('#focusBarClear').addEventListener('click', clearFocusIds);
 }
 
