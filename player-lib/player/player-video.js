@@ -22,6 +22,7 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
   // Right controls: Fullscreen only (speed moved down to the playback row so
   // the center Prev/Random/Info/Next stays in a fixed spot across media types)
   const rightControls = `
+    ${typeof renderFacesFrameButton === 'function' ? renderFacesFrameButton() : ''}
     ${renderFillButton()}
     <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)">⛶</button>
   `;

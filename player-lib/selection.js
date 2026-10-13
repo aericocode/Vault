@@ -207,7 +207,7 @@ function bulkLoadFailed(err) {
 let _selCounts = { key: '', data: null, busy: false };
 
 function countRows(rows) {
-  const c = { trashed: 0, flagged: 0, errored: 0, unscanned: 0, av: 0, video: 0 };
+  const c = { trashed: 0, flagged: 0, errored: 0, unscanned: 0, av: 0, video: 0, faceable: 0 };
   for (const m of rows) {
     if (m.user_trashed) c.trashed++;
     if (m.user_flagged_delete) c.flagged++;
@@ -215,6 +215,8 @@ function countRows(rows) {
     else if (m.processing_error) c.errored++;
     if (m.media_type === 'video' || m.media_type === 'audio') c.av++;
     if (m.media_type === 'video') c.video++;
+    // Photos, GIFs and videos: what face search can check
+    if (m.media_type === 'image' || m.media_type === 'gif' || m.media_type === 'video') c.faceable++;
   }
   c.count = rows.length;
   return c;
@@ -253,12 +255,13 @@ function selectionCounts() {
           count: s.count, trashed: s.trashed, flagged: s.flagged,
           errored: s.scan.failed, unscanned: s.scan.unscanned,
           av: (s.types.video || 0) + (s.types.audio || 0), video: s.types.video || 0,
+          faceable: (s.types.image || 0) + (s.types.gif || 0) + (s.types.video || 0),
         },
       };
       renderSelectionBar();
     }, () => { _selCounts.busy = false; });
   }
-  return _selCounts.data || { count: selectedIds.size, trashed: 0, flagged: 0, errored: 0, unscanned: 0, av: 0, video: 0 };
+  return _selCounts.data || { count: selectedIds.size, trashed: 0, flagged: 0, errored: 0, unscanned: 0, av: 0, video: 0, faceable: 0 };
 }
 
 /** POST ids to a bulk endpoint in chunks the body limit takes; sum the answers. */
@@ -354,6 +357,7 @@ function renderSelectionBar() {
   bar.innerHTML = `
     <span class="sel-count">${selectedIds.size} selected</span>
     ${musicBtns}
+    ${typeof facesSelectionButton === 'function' ? facesSelectionButton(counts.faceable) : ''}
     ${retryBtn}
     ${activeCount > 0 ? `<button class="sel-btn sel-trash" onclick="trashSelected()">🗑 Trash (${activeCount})</button>` : ''}
     ${trashedCount > 0 ? `<button class="sel-btn sel-restore" onclick="restoreSelected()">♻ Restore (${trashedCount})</button>` : ''}

@@ -75,17 +75,34 @@ function scanStatusOf(media) {
 
 let focusIds = null;      // Set<number> | null
 let focusLabel = '';
+// Optional extras a focus can carry (face search, player-lib/faces.js):
+//   rankedScores  Map<id, score> | [{id, score}]: the grid runs best match first
+//   renderBanner  (bar) => void: draws the banner instead of the plain one
+//   onClear       () => void: this focus has ended (exited or replaced)
+// A focus with opts may be empty (its banner says why), and exiting it puts
+// back the search text it had to clear. Callers without opts are unchanged.
+let focusOpts = null;
+let focusRanked = null;        // rankedScores as [{id, score}]
+let focusPriorSearch = null;
 
-function setFocusIds(ids, label) {
+function setFocusIds(ids, label, opts) {
   const list = Array.isArray(ids) ? ids : [...(ids || [])];
-  if (!list.length) {
+  if (!list.length && !opts) {
     if (typeof showToast === 'function') showToast('Nothing to show');
     return;
   }
+  const search = document.getElementById('searchInput');
+  // Re-setting the same opts (a new match width) keeps the search text saved
+  // when the focus began; anything else ends the focus that was showing.
+  if (focusOpts && focusOpts !== opts && typeof focusOpts.onClear === 'function') focusOpts.onClear();
+  if (!opts) focusPriorSearch = null;
+  else if (!focusIds) focusPriorSearch = search ? search.value : null;
   focusIds = new Set(list);
   focusLabel = label || 'selected records';
+  focusOpts = opts || null;
+  const r = opts && opts.rankedScores;
+  focusRanked = !r ? null : (r instanceof Map ? [...r].map(([id, score]) => ({ id, score })) : r);
   // A leftover search term would filter the focus set down again.
-  const search = document.getElementById('searchInput');
   if (search) search.value = '';
   renderFocusBar();
   applyFilters();
@@ -95,10 +112,19 @@ function setFocusIds(ids, label) {
 }
 
 function clearFocusIds() {
+  const opts = focusOpts;
   focusIds = null;
   focusLabel = '';
+  focusOpts = null;
+  focusRanked = null;
+  if (opts && focusPriorSearch != null) {
+    const search = document.getElementById('searchInput');
+    if (search) search.value = focusPriorSearch;
+  }
+  focusPriorSearch = null;
   renderFocusBar();
   applyFilters();
+  if (opts && typeof opts.onClear === 'function') opts.onClear();
 }
 
 function renderFocusBar() {
@@ -106,6 +132,7 @@ function renderFocusBar() {
   if (!bar) return;
   if (!focusIds) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
   bar.style.display = '';
+  if (focusOpts && typeof focusOpts.renderBanner === 'function') { focusOpts.renderBanner(bar); return; }
   bar.innerHTML = `
     <span class="focus-banner-text">Showing <b>${focusIds.size.toLocaleString()}</b> ${escapeHtml(focusLabel)}. Other filters are paused.</span>
     <button class="focus-banner-close" id="focusBarClear">Show everything</button>`;
@@ -611,6 +638,8 @@ function currentQuerySpec() {
     spec.rankedIds = [{ id: audioSimAnchorId, score: 2 }];
     for (const [id, score] of audioSimScores) if (id !== audioSimAnchorId) spec.rankedIds.push({ id, score });
   }
+  // A ranked focus (a person search) orders the grid by its own scores.
+  if (focusIds && focusRanked) spec.rankedIds = focusRanked;
   return spec;
 }
 

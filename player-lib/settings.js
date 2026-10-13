@@ -92,7 +92,9 @@
     }
     const label = (k) => k.startsWith('whisper:') ? `Transcription model (${k.slice(8)})`
       : k.startsWith('opus:') ? `Translation pack (${k.slice(5)}→en)`
-      : k === 'diarize' ? 'Speaker-detection models' : k;
+      : k === 'diarize' ? 'Speaker-detection models'
+      : k === 'face:detect' ? 'Face search: finding faces'
+      : k === 'face:embed' ? 'Face search: telling people apart' : k;
     return [...seen.values()].map(r => toggleRow({
       key: `modelConsent:${r.key}`,
       value: r.allowed,
@@ -1166,6 +1168,8 @@
         </div>
         <div class="mig-report" id="pbResult"></div>
       </div>
+
+      ${typeof facesSettingsHtml === 'function' ? facesSettingsHtml() : ''}
     `;
   }
 
@@ -1436,6 +1440,8 @@
         if (typeof setDeleteMode === 'function') setDeleteMode(btn.dataset.deleteMode);
       });
     });
+    // The Face search block wires and polls itself (player-lib/faces.js).
+    if (typeof facesWireSettings === 'function') facesWireSettings();
 
     // Fresh render means the report area is empty again — drop any saved
     // preview so retyping the same paths can't re-arm Apply against a report

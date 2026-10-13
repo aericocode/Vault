@@ -1123,6 +1123,8 @@
     e.preventDefault();
     _depth = 0;
     showDropOverlay(false);
+    // A drop target of its own (face search's photo box) already took it.
+    if (e.target instanceof Element && e.target.closest('[data-no-import-drop]')) return;
 
     // Snapshot names/sizes NOW — the DataTransfer is neutered after this tick.
     // The browser hides real paths, but the drag source's window still has the

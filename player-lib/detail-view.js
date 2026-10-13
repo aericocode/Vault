@@ -178,6 +178,8 @@ function renderDetailBody(media, opts = {}) {
 
     ${typeof renderMusicSidebarSection === 'function' ? renderMusicSidebarSection(media) : ''}
 
+    ${typeof renderFacesSection === 'function' ? renderFacesSection(media, opts) : ''}
+
     ${typeof renderGamesSidebarSection === 'function' ? renderGamesSidebarSection(media) : ''}
 
     ${isLibrary ? '' : `

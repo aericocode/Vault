@@ -399,7 +399,9 @@ function renderFilterChipRow() {
   const keys = fchipRowKeys();
   const here = [...host.querySelectorAll('[data-fchip-wrap]')].map(el => el.dataset.fchipWrap);
   const sameChips = host.querySelector('#moreFiltersChip') &&
-    here.length === keys.length && here.every((k, i) => k === keys[i]);
+    here.length === keys.length && here.every((k, i) => k === keys[i]) &&
+    // Face search's "Find a person" button sits before More (player-lib/faces.js)
+    !!host.querySelector('#findPersonChip') === !!(typeof facesFindChipHtml === 'function' && facesFindChipHtml());
 
   if (sameChips) {
     // The same chips with new values on them: repaint them in place. Setting
@@ -413,6 +415,7 @@ function renderFilterChipRow() {
     const focusedX = document.activeElement?.hasAttribute?.('data-fchip-clear');
 
     host.innerHTML = keys.map(fchipHtml).join('') +
+      (typeof facesFindChipHtml === 'function' ? facesFindChipHtml() : '') +
       `<button type="button" class="fchip fchip-more" id="moreFiltersChip"
          aria-haspopup="true" aria-expanded="false"
          title="Every other filter, in one sheet">${FCHIP_MORE_LABEL}</button>`;
