@@ -7,7 +7,7 @@
      filter-chips.js  facesFindChipHtml()       "Find a person" before More
      selection.js     facesSelectionButton(n)   "Find faces (N)"
      player-video.js  renderFacesFrameButton()  "Find people in this frame"
-     settings.js      facesSettingsHtml() / facesWireSettings()  Library block
+     settings.js      facesSettingsHtml() / facesWireSettings()  Face search section
      importer.js      [data-no-import-drop]     the photo box keeps its drops
 
    Feature off (or models missing) means none of it renders: every hook
@@ -27,10 +27,10 @@ const FACES_WIDTHS = [
 // Plain words for the server's refusal codes (server/faces-routes.js).
 const FACES_MSG = {
   FACES_OFF: 'Face search is turned off.',
-  FACE_MODELS_MISSING: 'Face search is not set up yet. Finish it in Settings > Library.',
+  FACE_MODELS_MISSING: 'Face search is not set up yet. Finish it in Settings > Face search.',
   MIGRATE_RUNNING: 'A library move is running. Try again when it has finished.',
   QUERY_EXPIRED: 'That search has expired. Try it again.',
-  FACE_ENGINE_FAILED: 'Face search could not start. Try again, or download the models again in Settings > Library.',
+  FACE_ENGINE_FAILED: 'Face search could not start. Try again, or download the models again in Settings > Face search.',
   // The app's lock screen (vault-ui.js fetch wrapper) answers this one.
   VAULT_LOCKED: '',
   FACE_MODEL_CHANGED: 'This face was found by an older version of face search. Look for faces in the file again.',
@@ -389,7 +389,7 @@ async function facesIndexSelection() {
     }
   } catch (err) { facesToastError(err); return; }
   if (!added) { showToast('These files have already been checked for faces.'); return; }
-  showToast(`Looking for faces in ${added} file${added === 1 ? '' : 's'}. Progress is in Settings > Library.`);
+  showToast(`Looking for faces in ${added} file${added === 1 ? '' : 's'}. Progress is in Settings > Face search.`);
   facesWatchQueue();
 }
 
@@ -590,13 +590,13 @@ async function facesFindInFrame() {
   if (await facesPickAndFocus(r.faces) && typeof minimizePlayer === 'function') minimizePlayer();
 }
 
-/* ── Settings > Library > Face search ──────────────────────────────────── */
+/* ── Settings > Face search ────────────────────────────────────────────── */
 
 // Same markup as settings.js toggleRow / segRow, with this block's own
 // data attributes so the Settings tab's generic wiring never picks them up.
-function facesToggleRow(key, title, desc) {
+function facesToggleRow(key, title, desc, extraClass = '') {
   return `
-    <label class="settings-toggle">
+    <label class="settings-toggle${extraClass ? ` ${extraClass}` : ''}">
       <span class="settings-toggle-text">
         <span class="settings-toggle-title">${title}</span>
         <span class="settings-toggle-desc">${desc}</span>
@@ -606,41 +606,67 @@ function facesToggleRow(key, title, desc) {
     </label>`;
 }
 
+function facesStatHtml(id) {
+  return `<div><span class="faces-stat-num" id="${id}Num"></span><span class="faces-stat-label" id="${id}Label"></span></div>`;
+}
+
+/** The whole Settings > Face search section (settings.js RENDERERS.faces). */
 function facesSettingsHtml() {
   return `
-    <h3 class="settings-h settings-h-mt">Face search</h3>
     <div class="faces-settings" id="facesSettings">
       ${facesToggleRow('enabled', 'Face search',
-        'Click a face in a file\'s info to see every file that person is in, or search with a photo.')}
+        'Click a face in a file\'s info to see every file that person is in, or search with a photo.', 'faces-main-toggle')}
       <p class="settings-note faces-privacy">Face search runs entirely on this computer. Nothing is
       uploaded. Faces are stored in your library and can be deleted here at any time.</p>
 
-      <div class="mig-card" id="facesSetup" hidden>
-        <p class="settings-note faces-card-note" id="facesSetupText"></p>
-        <div class="mig-progress" id="facesDlBar" hidden>
-          <div class="mig-bar"><div class="mig-bar-fill"></div></div>
-          <div class="mig-bar-stats"></div>
-        </div>
-        <div class="mig-actions"><button class="settings-btn" id="facesDlBtn" type="button">Download the models</button></div>
+      <div class="mig-card" id="facesOffCard" hidden>
+        <div class="mig-card-title">What you can do with it</div>
+        <ul class="faces-list">
+          <li>Click a face in a file's info to see every file that person is in.</li>
+          <li>Drop a photo on 👤 Find a person to search with it.</li>
+          <li>Pause a video and find the people in that frame.</li>
+        </ul>
+        <p class="faces-card-foot">The first time, Vault downloads two small models (about 39 MB).
+        Nothing else is set up until you turn it on.</p>
       </div>
 
-      <div id="facesOnRows" hidden>
-        <div class="mig-card">
-          <div class="faces-status-line" id="facesStatusLine"></div>
-          <div class="mig-progress" id="facesQueueBar" hidden>
+      <div id="facesSetup" hidden>
+        <h3 class="settings-h faces-h">Setting up</h3>
+        <div class="mig-card" id="facesSetupCard">
+          <div class="faces-status-line" id="facesSetupText"></div>
+          <div class="mig-progress" id="facesDlBar" hidden>
             <div class="mig-bar"><div class="mig-bar-fill"></div></div>
             <div class="mig-bar-stats"></div>
           </div>
-          <div class="mig-actions">
-            <button class="settings-btn" id="facesAllBtn" type="button" hidden></button>
-            <button class="settings-btn mig-apply" id="facesPauseBtn" type="button" hidden>Pause</button>
-            <button class="settings-btn mig-apply" id="facesStopBtn" type="button" hidden>Stop</button>
-            <span class="mig-status" id="facesQueueText"></span>
-          </div>
+          <div class="mig-actions"><button class="settings-btn" id="facesDlBtn" type="button">Download the models</button></div>
         </div>
+      </div>
+
+      <div id="facesOnRows" hidden>
+        <h3 class="settings-h faces-h">Your library</h3>
+        <div class="mig-card">
+          <div class="faces-stats">
+            ${facesStatHtml('facesStatChecked')}
+            ${facesStatHtml('facesStatPeople')}
+            ${facesStatHtml('facesStatLeft')}
+          </div>
+          <div class="mig-progress" id="facesQueueBar">
+            <div class="mig-bar"><div class="mig-bar-fill"></div></div>
+            <div class="mig-bar-stats" hidden></div>
+          </div>
+          <div class="mig-actions" id="facesActions">
+            <button class="settings-btn" id="facesAllBtn" type="button" hidden></button>
+            <button class="settings-btn" id="facesPauseBtn" type="button" hidden>Pause</button>
+            <button class="settings-btn faces-ghost" id="facesStopBtn" type="button" hidden>Stop</button>
+            <span class="faces-qstatus" id="facesQueueText"></span>
+          </div>
+          <p class="faces-done" id="facesDoneText" hidden></p>
+        </div>
+
+        <h3 class="settings-h faces-h">Checking</h3>
         ${facesToggleRow('autoIndex', 'Find faces in new imports automatically',
           'New photos and videos are checked for faces after they are added.')}
-        <div class="settings-toggle settings-seg-row">
+        <div class="settings-toggle settings-seg-row faces-stack">
           <span class="settings-toggle-text">
             <span class="settings-toggle-title" id="facesIntervalLabel">How closely to check videos</span>
             <span class="settings-toggle-desc">Closer checks find more faces but take longer. Applies to files checked from now on.</span>
@@ -651,10 +677,19 @@ function facesSettingsHtml() {
           </span>
         </div>
       </div>
-      <!-- Outside facesOnRows: the privacy line promises deletion at any
-           time, so this shows whenever face data exists, on or off. -->
-      <div class="mig-actions faces-delete-row" id="facesDeleteRow" hidden>
-        <button class="settings-btn mig-apply faces-danger" id="facesDeleteBtn" type="button">Delete all face data</button>
+
+      <!-- Its own section, outside facesOnRows: the privacy line promises
+           deletion at any time, so this shows whenever face data exists,
+           on or off. -->
+      <div id="facesDeleteRow" hidden>
+        <h3 class="settings-h faces-h">Face data</h3>
+        <div class="settings-toggle faces-delete-row">
+          <span class="settings-toggle-text">
+            <span class="settings-toggle-title">Delete all face data</span>
+            <span class="settings-toggle-desc">Removes every face Vault has found. Your photos and videos are not touched.</span>
+          </span>
+          <button class="settings-btn faces-danger" id="facesDeleteBtn" type="button">Delete</button>
+        </div>
       </div>
     </div>`;
 }
@@ -664,10 +699,9 @@ let facesDeleteArm = null;
 
 // Decimal megabytes, whole numbers, the same unit as "about 39 MB".
 const facesMB = (b) => Math.round(Number(b || 0) / 1e6).toLocaleString();
-// "photos and videos", or the singular for exactly one.
-const facesPV = (n) => (n === 1 ? 'photo or video' : 'photos and videos');
+const facesPct = (part, whole) => (whole ? `${Math.min(100, (part / whole) * 100).toFixed(1)}%` : '0%');
 
-/** Paint the block from facesStatus. Cheap; called after every poll. */
+/** Paint the section from facesStatus. Cheap; called after every poll. */
 function facesSettingsPaint() {
   const root = document.getElementById('facesSettings');
   const s = facesStatus;
@@ -676,9 +710,14 @@ function facesSettingsPaint() {
   const toggle = root.querySelector('[data-faces-setting="enabled"]');
   if (toggle && !toggle.dataset.busy) toggle.checked = !!s.enabled;
 
-  // Turned on, models not here yet: the download card.
   const dl = s.download;
   const c = s.counts || {};
+
+  // Off: what the feature does. Hidden while the download question is open,
+  // so the dialog sits over just the switch.
+  $('facesOffCard').hidden = !!s.enabled || !!(toggle && toggle.dataset.busy);
+
+  // Turned on, models not here yet: the download card.
   const setup = s.enabled && !s.modelsReady;
   $('facesSetup').hidden = !setup;
   if (setup) {
@@ -689,9 +728,10 @@ function facesSettingsPaint() {
       : dl && dl.error ? 'The download did not finish. Check your connection and try again.'
       : damaged ? 'A face search model is damaged. Download it again to fix it.'
       : 'Face search needs two small models (about 39 MB) before it can work.';
+    $('facesSetupCard').classList.toggle('faces-warn', !running && !!(damaged || (dl && dl.error)));
     $('facesDlBar').hidden = !running;
     if (running) {
-      $('facesDlBar').querySelector('.mig-bar-fill').style.width = dl.total ? `${Math.min(100, (dl.received / dl.total) * 100).toFixed(1)}%` : '0%';
+      $('facesDlBar').querySelector('.mig-bar-fill').style.width = facesPct(dl.received, dl.total);
       $('facesDlBar').querySelector('.mig-bar-stats').textContent = `${facesMB(dl.received)} of ${facesMB(dl.total)} MB`;
     }
     $('facesDlBtn').hidden = running;
@@ -705,30 +745,55 @@ function facesSettingsPaint() {
   $('facesOnRows').hidden = !on;
   if (!on) return;
   const q = s.queue || {};
-  $('facesStatusLine').textContent = !c.eligible ? 'There are no photos or videos to check yet.'
-    : !c.indexed ? (c.eligible === 1 ? 'Your 1 photo or video has not been checked yet.'
-      : `None of your ${c.eligible.toLocaleString()} photos and videos have been checked yet.`)
-    : `Checked ${c.indexed.toLocaleString()} of ${c.eligible.toLocaleString()} ${facesPV(c.eligible)}. Found people in ${c.withFaces.toLocaleString()}.`;
-  const all = $('facesAllBtn');
-  all.hidden = !!q.running || !c.eligible || c.indexed >= c.eligible;
-  all.textContent = c.indexed ? 'Find faces in the rest' : 'Find faces in everything';
+  const eligible = c.eligible || 0;
+  const indexed = Math.min(c.indexed || 0, eligible);
+  const withFaces = c.withFaces || 0;
+  const left = Math.max(0, eligible - indexed);
+  const stat = (id, num, label) => { $(`${id}Num`).textContent = num; $(`${id}Label`).textContent = label; };
+  stat('facesStatChecked', `${indexed.toLocaleString()} of ${eligible.toLocaleString()}`,
+    eligible === 1 ? 'photo or video checked' : 'photos and videos checked');
+  stat('facesStatPeople', withFaces.toLocaleString(), withFaces === 1 ? 'file with people in it' : 'files with people in them');
+  stat('facesStatLeft', left.toLocaleString(), 'still to check');
 
-  $('facesQueueBar').hidden = !q.running;
-  $('facesPauseBtn').hidden = !q.running;
+  // Idle, the bar is the share of the library checked; while a run is going
+  // (or paused) it is that run's progress, with "N of M" under it.
+  const bar = $('facesQueueBar');
+  const barStats = bar.querySelector('.mig-bar-stats');
+  bar.classList.toggle('faces-paused', !!(q.running && q.paused));
+  if (q.running) {
+    const finished = (q.done || 0) + (q.failed || 0);
+    bar.querySelector('.mig-bar-fill').style.width = facesPct(finished, q.total || 0);
+    barStats.textContent =
+      `${finished.toLocaleString()} of ${(q.total || 0).toLocaleString()}${q.failed ? `, ${q.failed} could not be checked` : ''}`;
+  } else {
+    bar.querySelector('.mig-bar-fill').style.width = eligible ? facesPct(indexed, eligible) : '0%';
+  }
+  barStats.hidden = !q.running;
+
+  const all = $('facesAllBtn');
+  all.hidden = !!q.running || !left;
+  all.textContent = indexed ? 'Find faces in the rest' : 'Find faces in everything';
+  const pause = $('facesPauseBtn');
+  pause.hidden = !q.running;
+  pause.textContent = q.paused ? 'Resume' : 'Pause';
+  // Resume is the thing to do next; Pause is the quiet one.
+  pause.classList.toggle('faces-ghost', !q.paused);
   $('facesStopBtn').hidden = !q.running;
   const text = $('facesQueueText');
   if (q.running) {
-    const finished = (q.done || 0) + (q.failed || 0);
-    $('facesQueueBar').querySelector('.mig-bar-fill').style.width = q.total ? `${((finished / q.total) * 100).toFixed(1)}%` : '0%';
-    $('facesQueueBar').querySelector('.mig-bar-stats').textContent =
-      `${finished.toLocaleString()} of ${(q.total || 0).toLocaleString()}${q.failed ? `, ${q.failed} could not be checked` : ''}`;
-    $('facesPauseBtn').textContent = q.paused ? 'Resume' : 'Pause';
     const cur = (q.current || [])[0];
     text.innerHTML = q.paused ? 'Paused.'
       : cur ? `Checking <span class="faces-qname">${escapeHtml(cur.filename || '')}</span>` : 'Starting…';
   } else {
     text.textContent = '';
   }
+  $('facesActions').hidden = !q.running && !left;
+
+  const done = $('facesDoneText');
+  done.hidden = !!q.running || !!left;
+  done.textContent = !eligible ? 'There are no photos or videos to check yet.'
+    : `Every photo and video has been checked.${s.autoIndex ? ' New imports are checked automatically.' : ''}`;
+
   root.querySelector('[data-faces-setting="autoIndex"]').checked = !!s.autoIndex;
   root.querySelectorAll('[data-faces-interval]').forEach(b =>
     b.setAttribute('aria-pressed', String(Number(b.dataset.facesInterval) === s.intervalS)));
@@ -814,6 +879,7 @@ async function facesToggleEnabled(cb) {
   // Models missing: the switch stays off until the user agrees to the download.
   cb.checked = false;
   cb.dataset.busy = '1';
+  facesSettingsPaint();   // the Off card steps aside while the question is open
   let started = false;
   try {
     const md = await fetch('/api/settings/model-downloads').then(r => r.json()).catch(() => ({}));
@@ -828,13 +894,13 @@ function facesDisarmDelete() {
   clearTimeout(facesDeleteArm);
   facesDeleteArm = null;
   const b = document.getElementById('facesDeleteBtn');
-  if (b) { b.classList.remove('armed'); b.textContent = 'Delete all face data'; }
+  if (b) { b.classList.remove('armed'); b.textContent = 'Delete'; }
 }
 
 async function facesDeleteAll(btn) {
   if (!btn.classList.contains('armed')) {
     btn.classList.add('armed');
-    btn.textContent = 'Click again to delete all face data';
+    btn.textContent = 'Click again to delete';
     btn.dataset.armedAt = String(Date.now());
     facesDeleteArm = setTimeout(facesDisarmDelete, 4000);
     return;
@@ -853,7 +919,7 @@ async function facesDeleteAll(btn) {
   facesReloadOpenBoxes();
 }
 
-/** Called by settings.js wireLibrarySection after every render of the tab. */
+/** Called by settings.js selectSection after every render of the Face search section. */
 function facesWireSettings() {
   const root = document.getElementById('facesSettings');
   if (!root) return;

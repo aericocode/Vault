@@ -403,6 +403,8 @@
   const SECTIONS = [
     { id: 'settings',  label: '⚙ Settings' },
     { id: 'library',   label: '🗂 Library' },
+    // Always listed: this is where face search is turned on (player-lib/faces.js).
+    { id: 'faces',     label: '👤 Face search' },
     { id: 'guides',    label: '📖 Guides' },
     { id: 'models',    label: '🧠 Models' },
     { id: 'seedpacks', label: '📦 Seed packs' },
@@ -461,6 +463,8 @@
     }
     if (id === 'models') wireModelsSection();
     if (id === 'library') wireLibrarySection();
+    // The Face search section wires and polls itself (player-lib/faces.js).
+    if (id === 'faces' && typeof facesWireSettings === 'function') facesWireSettings();
     if (id === 'seedpacks') wireSeedpacksSection();
     if (id === 'about') loadAbout();
     // The Move to Cove tab polls too, and only while it is on screen.
@@ -1168,8 +1172,6 @@
         </div>
         <div class="mig-report" id="pbResult"></div>
       </div>
-
-      ${typeof facesSettingsHtml === 'function' ? facesSettingsHtml() : ''}
     `;
   }
 
@@ -1440,8 +1442,6 @@
         if (typeof setDeleteMode === 'function') setDeleteMode(btn.dataset.deleteMode);
       });
     });
-    // The Face search block wires and polls itself (player-lib/faces.js).
-    if (typeof facesWireSettings === 'function') facesWireSettings();
 
     // Fresh render means the report area is empty again — drop any saved
     // preview so retyping the same paths can't re-arm Apply against a report
@@ -3556,6 +3556,7 @@
   const RENDERERS = {
     settings:  RENDERERS_settings,
     library:   RENDERERS_library,
+    faces:     () => (typeof facesSettingsHtml === 'function' ? facesSettingsHtml() : ''),
     guides:    RENDERERS_guides,
     models:    RENDERERS_models,
     seedpacks: RENDERERS_seedpacks,

@@ -421,7 +421,7 @@ Everything runs on your computer, and face search is off until you turn it on.
 
 ### Turn it on
 
-1. Open **⚙ Settings > Library** and switch on **Face search**.
+1. Open **⚙ Settings > Face search** and switch on **Face search**.
 2. Vault asks to download two small models (about 39 MB) from
    **huggingface.co**. Click **Download them**. This happens once, and face
    search works offline after that.
@@ -438,7 +438,7 @@ found. Pick whichever way suits you:
   👤 People, or right-click its tile and choose **Find faces in this file**.
 - **Some files:** select them and click **👤 Find faces (N)** in the selection
   bar, or right-click one of the selected tiles.
-- **Everything:** click **Find faces in everything** in Settings > Library.
+- **Everything:** click **Find faces in everything** in Settings > Face search.
   Once some files are checked, the button reads **Find faces in the rest**.
   Progress shows there, with **Pause** and **Stop**.
 - **New files:** turn on **Find faces in new imports automatically**. New
@@ -478,8 +478,9 @@ files checked from then on. To recheck a file, right-click its tile and choose
   download is the two models, once.
 - Faces are stored in your library. If your library has a password, they are
   encrypted with it like everything else.
-- **Delete all face data** in Settings > Library removes every face Vault
-  found. Click it a second time to confirm. Your files are not touched.
+- **Delete all face data** (the **Delete** button under Face data in
+  Settings > Face search) removes every face Vault found. Click it a second
+  time to confirm. Your files are not touched.
 - **Hide this face** (right-click a face picture) removes that face from
   search. In this version it cannot be undone, other than by deleting all face
   data.
