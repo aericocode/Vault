@@ -162,6 +162,7 @@ function buildRouter() {
   router.get('/faces/people/:id/faces', on, idParam('id'), h((req) => svc().personFaces(req.faceId, req.query.limit)));
   router.post('/faces/people/:id', on, idParam('id'), h((req) => svc().updatePerson(req.faceId, req.body || {})));
   router.post('/faces/people/:id/not-in', on, idParam('id'), h((req) => svc().notInPerson(req.faceId, req.body || {})));
+  router.post('/faces/people/:id/restore', on, idParam('id'), h((req) => svc().restorePerson(req.faceId, req.body || {})));
   router.get('/faces/review', on, h((req) => svc().reviewPairs(req.query || {})));
   router.post('/faces/review', on, h((req) => svc().answerReview(req.body || {})));
 
