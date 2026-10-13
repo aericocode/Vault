@@ -49,6 +49,7 @@ now. The steps below add the AI features.
 | **ffmpeg + ffprobe** | thumbnails, duration probing, beat bar, subtitles, Music ID | **one click**: the ⬇ Download banner in the viewer (or `winget install ffmpeg`) |
 | **LM Studio** *or* **Ollama** | AI scanning, semantic search, chat-based translation fallback | see §2, step-by-step |
 | **fpcalc** (Chromaprint) | Music ID fingerprinting | **one click**: same banner (or [acoustid.org/chromaprint](https://acoustid.org/chromaprint) → PATH) |
+| **Face search models** | face search | **one click**: Vault offers them when you turn face search on (see §8) |
 | **Python + faster-whisper** | transcription/subtitles | `pip install faster-whisper`, or into a venv, then set `PYTHON_PATH` to that interpreter (see below) |
 
 The ⬇ banner puts the downloaded tools next to `Vault.exe` and they work
@@ -314,7 +315,8 @@ runtime.
    On **Linux x64**, run it as `ONNXRUNTIME_NODE_INSTALL=skip npm install`
    (same for `npm ci`). Otherwise the face-search runtime (onnxruntime-node)
    also downloads its NVIDIA CUDA add-ons, several hundred MB that Vault never
-   uses (face search runs on the CPU). Windows and macOS skip this by themselves.
+   uses (face search runs on the CPU, see §8). Windows and macOS skip this by
+   themselves.
 3. Double-click **`start.bat`**: it starts the local server and opens the
    viewer in your browser (same UI, same `http://127.0.0.1:8765`).
 4. **Drag media files onto the window** to add them (playable immediately),
@@ -408,3 +410,86 @@ Resume points are left out unless you add `--resume` (each one adds a
 playback session to Cove's history). Saved searches, semantic-search data,
 view counts, watch heatmaps, game saves, subtitles and song matches are not
 carried over.
+
+---
+
+## 8. Face search
+
+Click a face in a file's info and Vault shows every file that person is in.
+You can also search with a photo of someone, or with a paused video frame.
+Everything runs on your computer, and face search is off until you turn it on.
+
+### Turn it on
+
+1. Open **⚙ Settings > Library** and switch on **Face search**.
+2. Vault asks to download two small models (about 39 MB) from
+   **huggingface.co**. Click **Download them**. This happens once, and face
+   search works offline after that.
+
+The models are YuNet (finds faces) and SFace (tells people apart) from the
+OpenCV model zoo, released under the MIT and Apache-2.0 licenses.
+
+### Check your files for faces
+
+Vault looks through each photo, GIF or video once, then remembers the faces it
+found. Pick whichever way suits you:
+
+- **One file:** open its info and click **Find faces in this file** under
+  👤 People, or right-click its tile and choose **Find faces in this file**.
+- **Some files:** select them and click **👤 Find faces (N)** in the selection
+  bar, or right-click one of the selected tiles.
+- **Everything:** click **Find faces in everything** in Settings > Library.
+  Once some files are checked, the button reads **Find faces in the rest**.
+  Progress shows there, with **Pause** and **Stop**.
+- **New files:** turn on **Find faces in new imports automatically**. New
+  photos and videos are checked after their normal AI scan.
+
+Videos are checked at regular spots. **How closely to check videos** sets the
+spacing: **Every 2 seconds**, **Every 3.5 seconds** (the default) or **Every 10
+seconds**. Closer checks find more faces but take longer. A change applies to
+files checked from then on. To recheck a file, right-click its tile and choose
+**Look for faces again**.
+
+### Search for a person
+
+- **Click a face.** The people found in a file show as small face pictures
+  under 👤 People in its info. Click one to see every file that person is in,
+  best match first. In the player, the video shrinks to the mini player so
+  you can see the results.
+- **Choose how strict.** The bar above the results has three buttons:
+  - **Close matches**: only files that are very likely the same person. Some
+    real matches may be left out.
+  - **Normal** (the default): a good balance.
+  - **Cast a wider net**: finds more, including blurry or turned faces, but
+    also shows more of the wrong people.
+
+  Click **Show everything** to go back to your whole library.
+- **👤 Find a person** (at the end of the filter row): drop a photo in the box,
+  choose one, or paste one with Ctrl+V. If the photo has more than one face,
+  Vault asks **Which person?**. The photo is only used for this search and is
+  not kept.
+- **Find people in this frame**: while a video plays, click the 👤 button in
+  the player controls. Vault pauses and looks for faces at that moment. The
+  video does not need to be checked first.
+
+### Privacy
+
+- Face search runs entirely on this computer. Nothing is uploaded. The only
+  download is the two models, once.
+- Faces are stored in your library. If your library has a password, they are
+  encrypted with it like everything else.
+- **Delete all face data** in Settings > Library removes every face Vault
+  found. Click it a second time to confirm. Your files are not touched.
+- **Hide this face** (right-click a face picture) removes that face from
+  search. In this version it cannot be undone, other than by deleting all face
+  data.
+
+### Limits
+
+- Very small or far-away faces, and faces turned to the side, may be missed.
+- About 20 photos are checked per second. A 2-hour video takes roughly 1 to 2
+  minutes.
+- The first check of a big library can take hours. It runs in the background
+  and you can pause it at any time. If you close Vault part way, click **Find
+  faces in the rest** next time to carry on.
+- Running from source on Linux? See the `npm install` note in §6.

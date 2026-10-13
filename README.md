@@ -48,6 +48,7 @@ Each of the following features adds one optional dependency:
 | Thumbnails, hover-scrub, beat bar | ffmpeg, **one click**: Vault offers to download it on first launch |
 | Subtitles / transcription | Python + faster-whisper |
 | Music ID | fpcalc, same one-click banner |
+| Face search | two small models (about 39 MB), one click when you turn it on: [guide](SETUP.md#8-face-search) |
 
 See [SETUP.md](SETUP.md) for the full walkthrough and model recommendations by VRAM.
 
@@ -58,6 +59,7 @@ See [SETUP.md](SETUP.md) for the full walkthrough and model recommendations by V
 | **Understands your files** | A local vision model watches every video, image, GIF, audio file and document and writes structured metadata: scene, action, camera angle, lighting, expression, on-screen text |
 | **Search that works** | Boolean, fuzzy, metadata-only, and 🧠 semantic search ("crimson" finds red images) |
 | **Music ID** | Local audio fingerprints find every file sharing a song, then play them stacked in sync |
+| **Face search** | Click a face to see every file that person is in, or search with a photo or a paused video frame. Runs on your computer, off until you turn it on |
 | **PMV Studio** | Pick a soundtrack and sources: Vault cuts a beat-synced music video for you and renders it to MP4 |
 | **Stack & mix** | Stack up to 4 videos in sync or grid up to 8, with a mixer (opacity, masks, blends, presets) and MP4 export |
 | **Games & quests** | Play your own library, earn points, streaks, levels, themes and achievements (all opt-in) |
