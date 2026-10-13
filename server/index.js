@@ -29,6 +29,7 @@ const embeddings = require('../lib/embeddings');
 const vault = require('../lib/vault');
 const secureAssets = require('../lib/secure-assets');
 const importQueue = require('../lib/import-queue');
+const facesService = require('../lib/faces/service');
 const appSettings = require('../lib/app-settings');
 const aiSlots = require('../lib/ai-slots');
 const lmsCli = require('../lib/lms-cli');
@@ -180,12 +181,26 @@ const MIGRATE_BLOCKED_ROUTES = [
   // so pausing a scan is exactly how you make room to run a migrate. That only
   // holds if un-pausing is refused until the migrate is done.
   /^\/api\/import\/queue\/resume$/,
+  // Face indexing reads files by path (lib/faces/). Same paused-queue rule.
+  /^\/api\/faces\/index$/,
+  /^\/api\/faces\/queue\/resume$/,
+  /^\/api\/media\/\d+\/find-faces$/,
 ];
+
+/** Lowercased, percent-decoded, trailing slashes removed: how routing sees it. */
+function _normalizeGuardPath(p) {
+  let out = String(p || '');
+  try { out = decodeURIComponent(out); } catch { /* malformed escape: match as sent */ }
+  out = out.toLowerCase().replace(/\/+$/, '');
+  return out || '/';
+}
 
 app.use((req, res, next) => {
   if (req.method !== 'POST') return next();
   if (!_migrateJob.isRunning()) return next();
-  if (!MIGRATE_BLOCKED_ROUTES.some(re => re.test(req.path))) return next();
+  // Express routing ignores case and a trailing slash, so /api/Faces/index/
+  // reaches the same handler as /api/faces/index. Match the same way.
+  if (!MIGRATE_BLOCKED_ROUTES.some(re => re.test(_normalizeGuardPath(req.path)))) return next();
   res.status(409).json({
     error: 'a library migration is running. Wait for it to finish.',
     code: 'MIGRATE_RUNNING',
@@ -1272,7 +1287,7 @@ function _migrateParams(body) {
 
 /** True while anything is mid-scan — migration has to wait for it. */
 function _scanBusy() {
-  return importQueue.isActive() || _rescanning.size > 0;
+  return importQueue.isActive() || _rescanning.size > 0 || facesService.instance().isBusy();
 }
 
 /* ── The migrate job runner ────────────────────────────────────────────────
@@ -1415,6 +1430,27 @@ const _migrateJob = (() => {
     },
   };
 })();
+
+// Face auto-indexing must never enqueue while a migrate runs (the route half
+// of that rule is MIGRATE_BLOCKED_ROUTES).
+facesService.setMigrateProbe(() => _migrateJob.isRunning());
+
+/* Auto-index hook: the import queue finished a file that add-paths created
+   (item.fresh). Fires whether the AI scan succeeded or not: faces do not
+   depend on it. The service decides the rest (feature on, auto-index on,
+   models ready, no migrate running, eligible kind). */
+importQueue.onItemDone((item) => {
+  if (!item || !item.fresh) return;
+  try { facesService.instance().autoEnqueue(item.id); } catch (err) {
+    console.warn(`[Faces] auto-index hook failed for ${item.id}: ${err.message}`);
+  }
+});
+
+// Locking stops face work and drops every face vector held in memory.
+vault.onChange((e) => {
+  if (e === 'locked') facesService.instance().onVaultLocked();
+  else if (e === 'unlocked') facesService.instance().onVaultUnlocked();
+});
 
 /** Shared start path for both routes — they differ only in `kind`. */
 async function _migrateStart(kind, req, res) {
@@ -2023,7 +2059,8 @@ app.post('/api/import/add-paths', (req, res) => {
     const row = db.getByPath(s.path);
     if (!row) continue;
     added.push({ id: row.id, mediaType: s.mediaType, row });
-    importQueue.enqueue({ id: row.id, filepath: s.path, filename: row.filename, mediaType: s.mediaType });
+    // fresh: a brand-new row, which the face auto-index hook acts on
+    importQueue.enqueue({ id: row.id, filepath: s.path, filename: row.filename, mediaType: s.mediaType, fresh: true });
   }
 
   res.json({ added, skipped: { unsupported, existing, missing }, queued: true });
@@ -2576,6 +2613,9 @@ app.use('/api/games', require('./games-routes').buildRouter());
 // ── PMV Studio (beat-cut music videos — see lib/pmv/) ─────────────────────
 app.use('/api/pmv', require('./pmv-routes').buildRouter());
 
+// ── Face search (chips, person focus, search by photo — see lib/faces/) ───
+app.use('/api', require('./faces-routes').buildRouter());
+
 // ── Subtitles (whisper transcription + OPUS-MT translation — lib/subtitles/)
 app.use('/api', require('./subtitle-routes').buildRouter());
 
@@ -2968,7 +3008,8 @@ function start(args = process.argv.slice(2)) {
   }
 
   // A running scan blocks non-forced locks and keeps the autolock clock alive
-  vault.registerScanProbe(() => importQueue.isActive() || _rescanning.size > 0);
+  vault.registerScanProbe(() => importQueue.isActive() || _rescanning.size > 0
+    || facesService.instance().isBusy());
   // A saved autolock value overrides the config default. Env still wins the very
   // first run (see lib/app-settings.js) — after that this file is the truth, so
   // the exe user who has no env vars still gets the timeout they chose.
