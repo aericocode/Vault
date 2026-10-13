@@ -359,27 +359,40 @@ function fchipFitRow(host) {
     .filter(el => FCHIP_EXTRA.includes(el.dataset.fchipWrap));
   extras.forEach(el => el.classList.remove('fchip-folded'));
   more.textContent = fchipMoreLabel(0);
+  // Face search's "Find a person" (player-lib/faces.js) gives way in steps:
+  // full label, then the icon alone, then into the More sheet. It is a tool,
+  // not a filter, so it never counts on the More chip.
+  const face = host.querySelector('#findPersonChip');
+  const setFace = (step) => {
+    if (!face) return;
+    face.classList.toggle('fchip-folded', step === 'folded');
+    face.textContent = step === 'full' ? face.dataset.full : face.dataset.compact;
+    host.classList.toggle('faces-chip-folded', step === 'folded');
+  };
+  setFace('full');
 
   const avail = host.clientWidth;
   if (!avail) return;          // collapsed or not laid out yet; the observer refits
 
   const gap = parseFloat(getComputedStyle(host).columnGap) || 0;
-  const width = (el) => el.getBoundingClientRect().width;
+  const width = (el) => (el.classList.contains('fchip-folded') ? -gap : el.getBoundingClientRect().width);
   // n items need n-1 gaps: one gap per item, minus the one More does not need.
   const fixed = [...host.children]
-    .filter(el => el !== more && !extras.includes(el))
+    .filter(el => el !== more && el !== face && !extras.includes(el))
     .reduce((n, el) => n + width(el) + gap, 0);
+  const used = (shown) => fixed + (face ? width(face) + gap : 0)
+    + shown.reduce((n, el) => n + width(el) + gap, 0) + width(more);
 
+  if (face && used(extras) > avail) setFace('compact');
   let folded = 0;
   while (folded < extras.length) {
-    const shown = extras.slice(0, extras.length - folded);
-    const used = fixed + shown.reduce((n, el) => n + width(el) + gap, 0) + width(more);
-    if (used <= avail) break;
+    if (used(extras.slice(0, extras.length - folded)) <= avail) break;
     folded++;
     extras[extras.length - folded].classList.add('fchip-folded');
     // Re-measured next round on purpose: "More (3) ▾" is wider than "More ▾".
     more.textContent = fchipMoreLabel(folded);
   }
+  if (face && used([]) > avail) setFace('folded');
 
   more.classList.toggle('is-set', folded > 0);
   more.title = folded === 0
@@ -580,7 +593,8 @@ function renderMoreSheet() {
       <h4 class="fsheet-h">${escapeHtml(g.title)}</h4>
       ${g.chips ? `<div class="fsheet-chips">${g.chips.map(fchipHtml).join('')}</div>` : ''}
       ${g.segs ? `<div class="fsheet-rows">${g.segs.map(fsegHtml).join('')}</div>` : ''}
-    </div>`).join('')}</div>`;
+    </div>`).join('')}</div>
+    ${typeof facesSheetHtml === 'function' ? facesSheetHtml() : ''}`;
 }
 
 /** Repaint the sheet's pressed states and chip labels without rebuilding it. */

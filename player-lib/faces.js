@@ -29,7 +29,10 @@ const FACES_MSG = {
   FACES_OFF: 'Face search is turned off.',
   FACE_MODELS_MISSING: 'Face search is not set up yet. Finish it in Settings > Library.',
   MIGRATE_RUNNING: 'A library move is running. Try again when it has finished.',
-  QUERY_EXPIRED: 'That search photo has expired. Add it again.',
+  QUERY_EXPIRED: 'That search has expired. Try it again.',
+  FACE_ENGINE_FAILED: 'Face search could not start. Try again, or download the models again in Settings > Library.',
+  // The app's lock screen (vault-ui.js fetch wrapper) answers this one.
+  VAULT_LOCKED: '',
   FACE_MODEL_CHANGED: 'This face was found by an older version of face search. Look for faces in the file again.',
   TOO_LARGE: 'That photo is too big. The limit is 25 MB.',
   BAD_IMAGE: 'That file could not be read as a photo.',
@@ -69,10 +72,15 @@ async function facesApi(url, { method = 'GET', json, body, type, background } = 
   if (!resp.ok) {
     // The feature changed under us: bring every surface back in line.
     if (data.code === 'FACES_OFF' || data.code === 'FACE_MODELS_MISSING') facesRefreshStatus();
-    const msg = FACES_MSG[data.code] || 'Face search ran into a problem. Try again.';
+    const msg = resp.status === 423 ? '' : (FACES_MSG[data.code] ?? 'Face search ran into a problem. Try again.');
     throw Object.assign(new Error(msg), { code: data.code, status: resp.status, keys: data.keys });
   }
   return data;
+}
+
+/** Toast a failed call, unless there is nothing to say (the vault locked). */
+function facesToastError(err) {
+  if (err && err.message) showToast(err.message);
 }
 
 async function facesRefreshStatus({ background = true } = {}) {
@@ -103,6 +111,7 @@ function facesApplyState() {
     if (facesFocus && typeof clearFocusIds === 'function') clearFocusIds();
     facesInfo.clear();
   }
+  if (on) facesAddToOpenSurfaces();
   const btn = document.getElementById('facesFrameBtn');
   if (btn) btn.hidden = !on;
   if (typeof renderFilterChipRow === 'function') renderFilterChipRow();
@@ -118,12 +127,35 @@ function facesApplyState() {
  */
 function renderFacesSection(media) {
   if (!facesReady() || !media || !FACES_KINDS.includes(media.media_type)) return '';
+  // A fresh surface (opened, re-rendered, next file) drops any half-asked hide.
+  facesConfirm = null;
   setTimeout(() => facesLoad(media.id), 0);
   return `
     <div class="detail-section faces-section" data-faces-section="${media.id}" hidden>
       <h3>👤 People</h3>
       <div class="field-content" data-faces-box="${media.id}"></div>
     </div>`;
+}
+
+/**
+ * Turned on while a detail surface is open: slot the People row into it
+ * where renderDetailBody would have (after Music, before Games / the rest),
+ * without re-rendering the surface and losing a half-typed note.
+ */
+function facesAddToOpenSurfaces() {
+  document.querySelectorAll('#modalBody .detail-body, #mediaSidebarBody .detail-body').forEach(body => {
+    const id = Number(body.dataset.mediaId);
+    if (!id || body.querySelector('.faces-section')) return;
+    const media = (typeof getMediaById === 'function' && getMediaById(id))
+      || (currentMediaState?.currentMediaData?.id === id ? currentMediaState.currentMediaData : null);
+    const html = media ? renderFacesSection(media) : '';
+    if (!html) return;
+    const music = body.querySelector('.music-section');
+    if (music) { music.insertAdjacentHTML('afterend', html); return; }
+    const next = body.querySelector('.games-section, .sidebar-nav-hint')
+      || [...body.querySelectorAll('.detail-section')].find(s => /^File Info/.test(s.querySelector('h3')?.textContent || ''));
+    if (next) next.insertAdjacentHTML('beforebegin', html);
+  });
 }
 
 async function facesLoad(mediaId) {
@@ -178,8 +210,8 @@ function facesBoxHtml(mediaId, info) {
   const more = all ? '' : `<button type="button" class="face-more" data-faces-more="${mediaId}">+${groups.length - shown.length} more</button>`;
   const confirm = pending == null ? '' : `
     <div class="faces-confirm">Hide this face from search?
-      <button type="button" class="faces-confirm-btn is-danger" data-faces-hide="${pending}">Hide</button>
-      <button type="button" class="faces-confirm-btn" data-faces-hide-cancel>Cancel</button>
+      <button type="button" class="faces-confirm-btn is-danger" data-faces-hide="${pending}" data-face-media="${mediaId}">Hide</button>
+      <button type="button" class="faces-confirm-btn" data-faces-hide-cancel data-face-media="${mediaId}">Cancel</button>
     </div>`;
   return `<div class="face-chips">${chips}${more}</div>${confirm}`;
 }
@@ -199,7 +231,7 @@ async function facesFindNow(mediaId, { force = false, toast = false } = {}) {
   } catch (err) {
     facesBusy.delete(mediaId);
     facesPaint(mediaId);
-    showToast(err.message);
+    facesToastError(err);
     return;
   }
   facesBusy.delete(mediaId);
@@ -220,7 +252,7 @@ async function facesHide(mediaId, groupId) {
   facesConfirm = null;
   try {
     await facesApi(`/api/faces/groups/${groupId}/hide`, { method: 'POST' });
-  } catch (err) { showToast(err.message); facesPaint(mediaId); return; }
+  } catch (err) { facesToastError(err); facesPaint(mediaId); return; }
   const info = facesInfo.get(mediaId);
   if (info) info.groups = (info.groups || []).filter(g => g.id !== groupId);
   facesPaint(mediaId);
@@ -230,7 +262,8 @@ async function facesHide(mediaId, groupId) {
 async function facesChipFocus(chip) {
   const inPlayer = !!chip.closest('#mediaSidebarBody');
   const img = chip.querySelector('img');
-  const ok = await facesOpenFocus({ kind: 'group', id: Number(chip.dataset.faceGroup) }, img ? img.getAttribute('src') : '');
+  const ok = await facesOpenFocus({ kind: 'group', id: Number(chip.dataset.faceGroup), mediaId: Number(chip.dataset.faceMedia) },
+    img ? img.getAttribute('src') : '');
   if (!ok) return;
   if (inPlayer) { if (typeof minimizePlayer === 'function') minimizePlayer(); }
   else if (typeof closeModal === 'function') closeModal();
@@ -254,10 +287,13 @@ async function facesOpenFocus(src, cropUrl, width = 'normal') {
   try {
     r = await facesApi(url, { method: 'POST', json: { width } });
   } catch (err) {
-    if (seq === facesFocusSeq) { showToast(err.message); if (facesFocus) renderFocusBar(); }
+    if (seq === facesFocusSeq) {
+      facesToastError(err);
+      if (facesFocus) { facesFocus.wanted = facesFocus.width; renderFocusBar(); }
+    }
     return false;
   }
-  if (seq !== facesFocusSeq) return false;
+  if (seq !== facesFocusSeq) return false;   // a newer request (another width) wins
   const same = facesFocus && facesFocus.src.kind === src.kind && facesFocus.src.id === src.id;
   const opts = same ? facesFocus.opts : {
     renderBanner: facesRenderBanner,
@@ -265,7 +301,10 @@ async function facesOpenFocus(src, cropUrl, width = 'normal') {
     onClear: () => { if (facesFocus && facesFocus.opts === opts) facesFocus = null; },
   };
   opts.rankedScores = r.ids.map((id, i) => ({ id, score: r.scores[i] }));
-  facesFocus = { src, cropUrl, width, count: r.ids.length, total: r.total, capped: !!r.capped, opts };
+  // A chip's own file always matches itself; it stays in the grid but does
+  // not count as "another file that looks like this person".
+  const others = src.mediaId ? r.ids.filter(id => id !== src.mediaId).length : r.ids.length;
+  facesFocus = { src, cropUrl, width, wanted: width, count: r.ids.length, others, total: r.total, capped: !!r.capped, opts };
   setFocusIds(r.ids, 'files that look like this person', opts);
   return true;
 }
@@ -274,23 +313,30 @@ function facesRenderBanner(bar) {
   const f = facesFocus;
   if (!f) return;
   const n = f.count;
-  const text = !n ? 'No other files look like this person at this setting.'
+  const text = !f.others ? 'No other files look like this person at this setting.'
     : f.capped ? `Showing the closest <b>${n.toLocaleString()}</b> of ${Number(f.total).toLocaleString()} files that look like this person.`
     : `Showing <b>${n.toLocaleString()}</b> ${n === 1 ? 'file that looks' : 'files that look'} like this person.`;
   bar.innerHTML = `
-    ${f.cropUrl ? `<img class="face-crop faces-banner-crop" src="${escapeHtml(f.cropUrl)}" alt="">` : ''}
+    ${f.cropUrl ? `<span class="faces-banner-crop"><img class="face-crop" src="${escapeHtml(f.cropUrl)}" alt=""></span>` : ''}
     <span class="focus-banner-text">${text}</span>
     <span class="settings-seg faces-width" role="group" aria-label="How close a match">
       ${FACES_WIDTHS.map(w => `<button type="button" class="settings-seg-btn" data-faces-width="${w.value}"
-        aria-pressed="${w.value === f.width ? 'true' : 'false'}">${w.label}</button>`).join('')}
+        aria-pressed="${w.value === f.wanted ? 'true' : 'false'}">${w.label}</button>`).join('')}
     </span>
     <button class="focus-banner-close" id="focusBarClear">Show everything</button>`;
   bar.querySelector('#focusBarClear').addEventListener('click', clearFocusIds);
   bar.querySelectorAll('[data-faces-width]').forEach(b => b.addEventListener('click', async () => {
-    if (!facesFocus || b.dataset.facesWidth === facesFocus.width) return;
+    const w = b.dataset.facesWidth;
+    // Compare with the last width ASKED for: quick clicks must end on the last one.
+    if (!facesFocus || w === facesFocus.wanted) return;
+    facesFocus.wanted = w;
     bar.querySelectorAll('[data-faces-width]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-    await facesOpenFocus(facesFocus.src, facesFocus.cropUrl, b.dataset.facesWidth);
-    bar.querySelector(`[data-faces-width="${facesFocus?.width}"]`)?.focus();
+    if (w === facesFocus.width) {
+      facesFocusSeq++;            // back to what is showing: drop the request in flight
+      return;
+    }
+    await facesOpenFocus(facesFocus.src, facesFocus.cropUrl, w);
+    bar.querySelector(`[data-faces-width="${facesFocus?.wanted}"]`)?.focus();
   }));
 }
 
@@ -322,11 +368,11 @@ function facesCloseMenu() { document.getElementById('facesMenu')?.remove(); }
 
 /* ── Tile right-click + selection bar ──────────────────────────────────── */
 
-/** "Find faces (N)" in the selection bar; '' while the feature is off. */
+/** "Faces (N)" in the selection bar (short, so the bar stays one line); '' while off. */
 function facesSelectionButton(n) {
   if (!facesReady() || !n) return '';
   return `<button class="sel-btn sel-faces" onclick="facesIndexSelection()"
-    title="Look for faces in the selected photos and videos">👤 Find faces (${n})</button>`;
+    title="Find faces in the selected files">👤 Faces (${n})</button>`;
 }
 
 let facesWatchTimer = null;
@@ -341,7 +387,7 @@ async function facesIndexSelection() {
       const r = await facesApi('/api/faces/index', { method: 'POST', json: { ids: ids.slice(i, i + chunk) } });
       added += r.added || 0;
     }
-  } catch (err) { showToast(err.message); return; }
+  } catch (err) { facesToastError(err); return; }
   if (!added) { showToast('These files have already been checked for faces.'); return; }
   showToast(`Looking for faces in ${added} file${added === 1 ? '' : 's'}. Progress is in Settings > Library.`);
   facesWatchQueue();
@@ -399,8 +445,17 @@ async function facesTileMenu(e, tile) {
 /** The filter-row button; '' while the feature is off (also read by fchipFitRow). */
 function facesFindChipHtml() {
   if (!facesReady()) return '';
+  // fchipFitRow swaps in the icon alone when the row is short of room.
   return `<button type="button" class="fchip fchip-more faces-find-chip" id="findPersonChip"
-    aria-haspopup="dialog" aria-expanded="false" title="Search your library with a photo of someone">👤 Find a person</button>`;
+    aria-haspopup="dialog" aria-expanded="false" aria-label="Find a person" data-tip="Find a person"
+    data-full="👤 Find a person" data-compact="👤">👤 Find a person</button>`;
+}
+
+/** The same button inside the More sheet, shown only while the row has folded it away. */
+function facesSheetHtml() {
+  if (!facesReady()) return '';
+  return `<div class="faces-sheet-row"><button type="button" class="fchip fchip-more faces-sheet-find"
+    aria-haspopup="dialog">👤 Find a person</button></div>`;
 }
 
 function facesOpenPopover(anchor) {
@@ -505,22 +560,30 @@ function facesPickAndFocus(faces) {
 
 /* ── Player: find people in this frame ─────────────────────────────────── */
 
-function renderFacesFrameButton() {
+let facesPlayerPath = null;   // the file the video player was built for
+
+/** Called from renderVideoPlayer with the file it is about to play. */
+function renderFacesFrameButton(filepath) {
+  facesPlayerPath = filepath || null;
   return `<button onclick="facesFindInFrame()" class="control-btn faces-frame-btn" id="facesFrameBtn"
     title="Find people in this frame"${facesReady() ? '' : ' hidden'}>👤</button>`;
 }
 
 async function facesFindInFrame() {
   const el = currentMediaState && currentMediaState.element;
-  const media = currentMediaState && currentMediaState.currentMediaData;
-  if (!el || !media || media.media_type !== 'video') return;
+  if (!el) return;
   el.pause();
+  // currentMediaData is null when the file is not in the current results
+  // (opened from elsewhere); the row cache still knows it by path.
+  const media = currentMediaState.currentMediaData
+    || (facesPlayerPath && typeof Library !== 'undefined' ? Library.rowByPath(facesPlayerPath) : null);
+  if (!media || !media.id) { showToast('Could not tell which video is playing.'); return; }
   const btn = document.getElementById('facesFrameBtn');
   if (btn) btn.disabled = true;
   let r;
   try {
     r = await facesApi('/api/faces/search-image', { method: 'POST', json: { mediaId: media.id, timeS: el.currentTime || 0 } });
-  } catch (err) { showToast(err.message); return; }
+  } catch (err) { facesToastError(err); return; }
   finally { if (btn) btn.disabled = false; }
   if (!r.faces.length) { showToast('No face found in this frame.'); return; }
   // Results show in the grid, so the player steps aside for them.
@@ -587,9 +650,11 @@ function facesSettingsHtml() {
               aria-pressed="false">Every ${v} seconds</button>`).join('')}
           </span>
         </div>
-        <div class="mig-actions faces-delete-row">
-          <button class="settings-btn mig-apply faces-danger" id="facesDeleteBtn" type="button">Delete all face data</button>
-        </div>
+      </div>
+      <!-- Outside facesOnRows: the privacy line promises deletion at any
+           time, so this shows whenever face data exists, on or off. -->
+      <div class="mig-actions faces-delete-row" id="facesDeleteRow" hidden>
+        <button class="settings-btn mig-apply faces-danger" id="facesDeleteBtn" type="button">Delete all face data</button>
       </div>
     </div>`;
 }
@@ -597,8 +662,10 @@ function facesSettingsHtml() {
 let facesPollTimer = null;
 let facesDeleteArm = null;
 
-// Megabytes, whole numbers once the total is past 10 MB.
-const facesMB = (b, total) => (Number(b || 0) / 1048576).toFixed(total > 10485760 ? 0 : 1);
+// Decimal megabytes, whole numbers, the same unit as "about 39 MB".
+const facesMB = (b) => Math.round(Number(b || 0) / 1e6).toLocaleString();
+// "photos and videos", or the singular for exactly one.
+const facesPV = (n) => (n === 1 ? 'photo or video' : 'photos and videos');
 
 /** Paint the block from facesStatus. Cheap; called after every poll. */
 function facesSettingsPaint() {
@@ -611,31 +678,37 @@ function facesSettingsPaint() {
 
   // Turned on, models not here yet: the download card.
   const dl = s.download;
+  const c = s.counts || {};
   const setup = s.enabled && !s.modelsReady;
   $('facesSetup').hidden = !setup;
   if (setup) {
     const running = !!(dl && dl.running);
+    const damaged = Object.values(s.missingReasons || {}).includes('corrupt');
     $('facesSetupText').textContent = running
       ? 'Downloading the face search models from huggingface.co.'
       : dl && dl.error ? 'The download did not finish. Check your connection and try again.'
+      : damaged ? 'A face search model is damaged. Download it again to fix it.'
       : 'Face search needs two small models (about 39 MB) before it can work.';
     $('facesDlBar').hidden = !running;
     if (running) {
       $('facesDlBar').querySelector('.mig-bar-fill').style.width = dl.total ? `${Math.min(100, (dl.received / dl.total) * 100).toFixed(1)}%` : '0%';
-      $('facesDlBar').querySelector('.mig-bar-stats').textContent = `${facesMB(dl.received, dl.total)} of ${facesMB(dl.total, dl.total)} MB`;
+      $('facesDlBar').querySelector('.mig-bar-stats').textContent = `${facesMB(dl.received)} of ${facesMB(dl.total)} MB`;
     }
     $('facesDlBtn').hidden = running;
-    $('facesDlBtn').textContent = dl && dl.error ? 'Try again' : 'Download the models';
+    $('facesDlBtn').textContent = dl && dl.error ? 'Try again' : damaged ? 'Download again' : 'Download the models';
   }
+
+  // Face data can outlive the switch; deleting it must always be possible.
+  $('facesDeleteRow').hidden = !(c.indexed || c.people || c.withFaces);
 
   const on = s.enabled && s.modelsReady;
   $('facesOnRows').hidden = !on;
   if (!on) return;
-  const c = s.counts || {};
   const q = s.queue || {};
   $('facesStatusLine').textContent = !c.eligible ? 'There are no photos or videos to check yet.'
-    : !c.indexed ? `None of your ${c.eligible.toLocaleString()} photos and videos have been checked yet.`
-    : `Checked ${c.indexed.toLocaleString()} of ${c.eligible.toLocaleString()} photos and videos. Found people in ${c.withFaces.toLocaleString()}.`;
+    : !c.indexed ? (c.eligible === 1 ? 'Your 1 photo or video has not been checked yet.'
+      : `None of your ${c.eligible.toLocaleString()} photos and videos have been checked yet.`)
+    : `Checked ${c.indexed.toLocaleString()} of ${c.eligible.toLocaleString()} ${facesPV(c.eligible)}. Found people in ${c.withFaces.toLocaleString()}.`;
   const all = $('facesAllBtn');
   all.hidden = !!q.running || !c.eligible || c.indexed >= c.eligible;
   all.textContent = c.indexed ? 'Find faces in the rest' : 'Find faces in everything';
@@ -678,7 +751,7 @@ async function facesSettingsPost(patch) {
   try {
     facesSetStatus(await facesApi('/api/faces/settings', { method: 'POST', json: patch }));
     return true;
-  } catch (err) { showToast(err.message); facesSettingsPaint(); return false; }
+  } catch (err) { facesToastError(err); facesSettingsPaint(); return false; }
 }
 
 /** Download the models; asks first when the two keys are not approved yet. */
@@ -689,7 +762,7 @@ async function facesStartDownload() {
     return true;
   } catch (err) {
     if (err.code === 'CONSENT_NEEDED') return facesAskConsent();
-    showToast(err.code ? err.message : 'Could not start the download. Try again.');
+    if (err.code) facesToastError(err); else showToast('Could not start the download. Try again.');
     return false;
   }
 }
@@ -707,7 +780,7 @@ function facesAskConsent() {
         <p class="vault-modal-hint">Face search needs two small models (about 39 MB) from
           <b>huggingface.co</b>. They run on this computer only.</p>
         <p class="vault-modal-hint">Your photos and videos are never uploaded. If you say no,
-          nothing is downloaded and face search stays off.</p>
+          nothing is downloaded, and face search cannot be used until the models are here.</p>
         <div class="vault-modal-actions">
           <button class="vault-btn" data-consent="no">Not now</button>
           <button class="vault-btn vault-btn-primary" data-consent="yes">Download them</button>
@@ -724,7 +797,7 @@ function facesAskConsent() {
           });
           if (!r.ok) throw new Error('Downloads are turned off for this copy of Vault.');
         }
-      } catch (err) { showToast(err.message); resolve(false); return; }
+      } catch (err) { facesToastError(err); resolve(false); return; }
       resolve(await facesStartDownload());
     };
     ov._close = () => answer(false);
@@ -771,7 +844,7 @@ async function facesDeleteAll(btn) {
   facesDisarmDelete();
   btn.disabled = true;
   try { await facesApi('/api/faces/delete-all', { method: 'POST' }); }
-  catch (err) { showToast(err.message); btn.disabled = false; return; }
+  catch (err) { facesToastError(err); btn.disabled = false; return; }
   btn.disabled = false;
   showToast('All face data was deleted.');
   if (facesFocus) clearFocusIds();
@@ -791,18 +864,18 @@ function facesWireSettings() {
   root.querySelector('#facesDlBtn').addEventListener('click', () => facesStartDownload());
   root.querySelector('#facesAllBtn').addEventListener('click', async () => {
     try { facesSetStatus({ ...facesStatus, queue: await facesApi('/api/faces/index', { method: 'POST', json: { all: true } }) }); }
-    catch (err) { showToast(err.message); return; }
+    catch (err) { facesToastError(err); return; }
     facesSettingsPoll();
   });
   root.querySelector('#facesPauseBtn').addEventListener('click', async () => {
     const act = facesStatus?.queue?.paused ? 'resume' : 'pause';
     try { facesSetStatus({ ...facesStatus, queue: await facesApi(`/api/faces/queue/${act}`, { method: 'POST' }) }); }
-    catch (err) { showToast(err.message); }
+    catch (err) { facesToastError(err); }
     facesSettingsPoll();
   });
   root.querySelector('#facesStopBtn').addEventListener('click', async () => {
     try { facesSetStatus({ ...facesStatus, queue: await facesApi('/api/faces/queue/cancel', { method: 'POST' }) }); }
-    catch (err) { showToast(err.message); }
+    catch (err) { facesToastError(err); }
     facesRefreshStatus();
   });
   root.querySelector('#facesDeleteBtn').addEventListener('click', (e) => facesDeleteAll(e.currentTarget));
@@ -819,21 +892,28 @@ document.addEventListener('click', (e) => {
   if (!t.closest('#facesMenu')) facesCloseMenu();
   if (!t.closest('#facesPop, #findPersonChip')) facesClosePopover();
 
-  const findChip = t.closest('#findPersonChip');
+  const findChip = t.closest('#findPersonChip, .faces-sheet-find');
   if (findChip) { if (document.getElementById('facesPop')) facesClosePopover(); else facesOpenPopover(findChip); return; }
   const chip = t.closest('.face-chip[data-face-group]');
   if (chip) { facesChipFocus(chip); return; }
   const find = t.closest('[data-faces-find]');
   if (find) { facesFindNow(Number(find.dataset.facesFind)); return; }
   const more = t.closest('[data-faces-more]');
-  if (more) { facesExpanded.add(Number(more.dataset.facesMore)); facesPaint(Number(more.dataset.facesMore)); return; }
-  const hide = t.closest('[data-faces-hide]');
-  if (hide && facesConfirm) { facesHide(facesConfirm.mediaId, Number(hide.dataset.facesHide)); return; }
-  if (t.closest('[data-faces-hide-cancel]') && facesConfirm) {
-    const id = facesConfirm.mediaId;
-    facesConfirm = null;
+  if (more) {
+    const id = Number(more.dataset.facesMore);
+    const box = more.closest('[data-faces-box]');
+    facesExpanded.add(id);
     facesPaint(id);
+    // Keyboard users land on the first chip that just appeared.
+    box?.querySelectorAll('.face-chip')[FACES_CHIPS_SHOWN]?.focus();
+    return;
   }
+  // The confirm line carries its own file and face, so a line left on
+  // another open surface still acts on what it shows.
+  const hide = t.closest('[data-faces-hide]');
+  if (hide) { facesHide(Number(hide.dataset.faceMedia), Number(hide.dataset.facesHide)); return; }
+  const cancel = t.closest('[data-faces-hide-cancel]');
+  if (cancel) { facesConfirm = null; facesPaint(Number(cancel.dataset.faceMedia)); }
 }, true);
 
 // Right-click: a face chip gets its menu; a tile gets "Find faces" only

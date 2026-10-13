@@ -328,7 +328,11 @@
   left: 18px;
   bottom: 18px;
   max-width: calc(100vw - 36px);
-  transform: translate(0, 80px);
+  /* Hidden: below the viewport edge whatever the bar's height (it wraps on
+     narrow windows), and out of reach, so no sliver can ever take a click. */
+  transform: translate(0, calc(100% + 24px));
+  visibility: hidden;
+  pointer-events: none;
   z-index: 950;
   display: flex;
   flex-wrap: wrap;
@@ -339,11 +343,15 @@
   border-radius: 12px;
   padding: 0.55rem 0.9rem;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
-  transition: transform 0.2s ease-out;
+  /* visibility flips after the slide-out, so the bar still animates away */
+  transition: transform 0.2s ease-out, visibility 0s linear 0.2s;
 }
 
 .selection-bar.visible {
   transform: translate(0, 0);
+  visibility: visible;
+  pointer-events: auto;
+  transition: transform 0.2s ease-out;
 }
 
 .sel-count {

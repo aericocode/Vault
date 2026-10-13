@@ -8,6 +8,7 @@
 .faces-frame-btn[hidden],
 #facesSetup[hidden],
 #facesOnRows[hidden],
+#facesDeleteRow[hidden],
 .faces-settings .mig-progress[hidden],
 .faces-settings .settings-btn[hidden] { display: none; }
 
@@ -106,13 +107,20 @@
 
 /* ── Person focus banner (filters.js focus set) ── */
 .faces-banner-crop {
+  display: block;
   width: 34px;
   height: 34px;
   border-radius: 8px;
   border: 1px solid var(--accent);
+  overflow: hidden;            /* keeps the privacy blur inside the frame */
   flex: none;
 }
 .focus-banner .faces-width { flex: none; }
+
+/* Find a person, folded into the More sheet when the chip row is too narrow
+   (filter-chips.js fchipFitRow). Shown only while the row chip is folded. */
+.faces-sheet-row { margin-top: 0.8rem; }
+#filterChipRow:not(.faces-chip-folded) ~ #moreFiltersSheet .faces-sheet-row { display: none; }
 
 /* ── Menus and the Find a person popover (built on .fpop) ── */
 .faces-menu { min-width: 180px; padding: 0.3rem; gap: 0; z-index: 9100; }
