@@ -24,12 +24,22 @@ function parseId(v) {
   return Number.isInteger(n) && n > 0 && n <= 0xFFFFFFFF && /^\d+$/.test(String(v)) ? n : null;
 }
 
+function vaultLocked() {
+  try { return require('../lib/vault').isLocked(); } catch { return false; }
+}
+
 function sendError(res, err) {
   if (err && err.type === 'entity.too.large') {
     return res.status(413).json({ error: 'That photo is too big (25 MB at most).', code: 'TOO_LARGE' });
   }
   if (err && err.type) {   // other body-parser failures (bad JSON, bad encoding)
     return res.status(err.status || 400).json({ error: err.message, code: 'BAD_BODY' });
+  }
+  // The vault locked while this request was awaiting work (indexing, ffmpeg,
+  // inference): the DB closed under it. Answer like the lock gate does, not
+  // with a 500 and a stack.
+  if (err && (err.code === 'DB_ENCRYPTED' || err.code === 'VAULT_LOCKED' || (!err.status && vaultLocked()))) {
+    return res.status(423).json({ error: 'vault is locked', code: 'VAULT_LOCKED' });
   }
   if (err && err.status) {
     const body = { error: err.message, code: err.code };

@@ -538,3 +538,36 @@ test('real engine: close() is safe mid-request and mid-analysis', { skip: noMode
   assert.strictEqual(r.framesChecked, 10);
   e.close();
 });
+
+test('decodeImage finds JPEGs by magic bytes: EXIF applied whatever the file is called', { skip: noFfmpeg }, async () => {
+  const W = 64, H = 32, data = new Uint8Array(W * H * 3);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W / 2; x++) data.fill(255, (y * W + x) * 3, (y * W + x) * 3 + 3);
+  const odd = path.join(tmp, 'upload-from-browser.img');           // what an image/pjpeg upload is saved as
+  fs.writeFileSync(odd, jpegWithOrientation(encodeJpeg({ width: W, height: H, data }, 95), 6));
+  assert.deepStrictEqual(frames.sniffJpeg(odd), { isJpeg: true, orientation: 6 });
+  const r = await frames.decodeImage(odd);
+  assert.deepStrictEqual([r.width, r.height], [32, 64]);
+  assert.ok(r.data[(5 * 32 + 16) * 3] > 200 && r.data[(58 * 32 + 16) * 3] < 50);
+  // a PNG is not sniffed as JPEG (ffmpeg keeps its own orientation handling)
+  const png = path.join(tmp, 'blue.png');
+  ff(['-f', 'lavfi', '-i', 'color=c=blue:s=20x10', '-frames:v', '1', png]);
+  assert.deepStrictEqual(frames.sniffJpeg(png), { isJpeg: false, orientation: 1 });
+  assert.deepStrictEqual(await frames.decodeImage(png).then((f) => [f.width, f.height]), [20, 10]);
+});
+
+test('real engine: a rotated JPEG uploaded as image/pjpeg (saved as .img) still finds its face', { skip: noLfw }, async () => {
+  const src = await frames.decodeImage(path.join(LFW_DIR, 'George_W_Bush', 'George_W_Bush_0001.jpg'));
+  // store the pixels turned 90 degrees counter-clockwise, tagged EXIF 6 (display: turn clockwise)
+  const { width: W, height: H } = src;
+  const rot = new Uint8Array(W * H * 3);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const nx = y, ny = W - 1 - x;                                  // CCW: (x,y) -> (y, W-1-x) in an H-wide image
+    rot.set(src.data.subarray((y * W + x) * 3, (y * W + x) * 3 + 3), (ny * H + nx) * 3);
+  }
+  const file = path.join(tmp, 'query.img');
+  fs.writeFileSync(file, jpegWithOrientation(encodeJpeg({ width: H, height: W, data: rot }, 92), 6));
+  const e = createEngine({ backend: 'onnx', modelPaths: realPaths, threads: 1 });
+  const faces = await e.detect(await frames.decodeImage(file));
+  assert.ok(faces.length >= 1 && faces[0].score > 0.9, `faces ${faces.length}`);
+  e.close();
+});

@@ -9,7 +9,7 @@ const assert = require('node:assert');
 const { createQueue, progressOf } = require('../lib/faces/queue');
 
 /** runFile whose calls wait until released; records starts and aborts. */
-function harness({ workers = 2 } = {}) {
+function harness({ workers = 2, now } = {}) {
   const started = [];
   const aborted = [];
   const gates = new Map();
@@ -22,7 +22,7 @@ function harness({ workers = 2 } = {}) {
       signal.addEventListener('abort', () => { aborted.push(item.id); reject(new Error('aborted')); }, { once: true });
     });
   };
-  const q = createQueue({ runFile, workers });
+  const q = createQueue({ runFile, workers, ...(now ? { now } : {}) });
   const release = async (id) => { gates.get(id)(); await tick(); };
   return { q, started, aborted, release, fail };
 }
@@ -112,10 +112,11 @@ test('runNow jumps the queue, ignores the worker limit and pause, and joins a ru
   await release(3);
   assert.strictEqual(await p3, 'done');
   assert.strictEqual(await again, 'done');
-  assert.strictEqual(q.status().total, 3, 'pulled from pending, not counted twice');
+  assert.strictEqual(q.status().total, 2, 'pulled from pending; a click is not queue work');
+  assert.deepStrictEqual(q.status().current.map(c => c.id), [1], 'the click is not listed as queue work');
   q.resume();
   await release(1); await release(2);
-  assert.strictEqual(q.status().lastRun.done, 3);
+  assert.deepStrictEqual([q.status().lastRun.done, q.status().lastRun.total], [2, 2]);
 });
 
 test('regression: a file re-queued right after cancel is really queued and runs', async () => {
@@ -161,4 +162,52 @@ test('progressOf normalizes the shapes analyzeFile may report', () => {
   assert.strictEqual(progressOf({ done: 1, total: 4 }, 0), 0.25);
   assert.strictEqual(progressOf({ framesChecked: 3, totalFrames: 6 }, 0), 0.5);
   assert.strictEqual(progressOf({ junk: true }, 0.3), 0.3);
+});
+
+test('a click never counts toward queue totals, lastRun or the running flag', async () => {
+  const { q, release } = harness({ workers: 1 });
+  const p = q.runNow({ id: 9, filename: '9.jpg' });
+  let s = q.status();
+  assert.deepStrictEqual([s.running, s.total, s.startedAt, s.current.length], [false, 0, null, 0]);
+  assert.ok(q.isBusy(), 'still busy for the migrate guard');
+  await release(9);
+  assert.strictEqual(await p, 'done');
+  s = q.status();
+  assert.deepStrictEqual([s.done, s.total, s.lastRun], [0, 0, null]);
+  // with a queue run going, a click on another file leaves the tally alone
+  q.enqueue(items(1));
+  const c = q.runNow({ id: 5, filename: '5.jpg' });
+  await release(5); await c;
+  await release(1);
+  s = q.status();
+  assert.deepStrictEqual([s.lastRun.total, s.lastRun.done], [1, 1]);
+});
+
+test('ETA is in work units and null when a remaining video has no known length', async () => {
+  let t = 0;
+  const { q, release } = harness({ workers: 1, now: () => t });
+  q.enqueue([{ id: 1, filename: 'a.jpg', units: 1 }, { id: 2, filename: 'v.mp4', units: 1000 }, { id: 3, filename: 'b.jpg', units: 1 }]);
+  assert.strictEqual(q.status().etaS, null, 'nothing finished yet');
+  t = 2000; await release(1);                       // 1 unit took 2 s
+  const s = q.status();
+  // the video is a quarter done (harness reports 0.25): 750 + 1 units left at 2 s each
+  assert.ok(s.etaS >= 1495 && s.etaS <= 1510, `about 751 units x 2 s, got ${s.etaS}`);
+  q.enqueue([{ id: 4, filename: 'x.mp4' }]);        // unknown length
+  assert.strictEqual(q.status().etaS, null);
+  q.cancel();
+  await q.settled();
+});
+
+test('cancel leaves click runs alone; cancel({ includeDirect }) stops them too', async () => {
+  const { q, aborted, release } = harness({ workers: 1 });
+  q.enqueue(items(1));
+  const click = q.runNow({ id: 2, filename: '2.jpg' });
+  q.cancel();
+  assert.deepStrictEqual(aborted, [1], 'only the queue file was aborted');
+  await release(2);
+  assert.strictEqual(await click, 'done');
+  const click2 = q.runNow({ id: 3, filename: '3.jpg' });
+  q.cancel({ includeDirect: true });
+  assert.strictEqual(await click2, 'aborted');
+  await q.settled();
 });

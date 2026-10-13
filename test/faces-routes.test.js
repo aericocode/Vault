@@ -89,7 +89,7 @@ test('feature off: status answers, everything else but settings/delete-all is FA
   const s = await get('/api/faces/status');
   assert.strictEqual(s.status, 200);
   assert.deepStrictEqual(Object.keys(s.body).sort(),
-    ['autoIndex', 'counts', 'download', 'enabled', 'intervalS', 'missing', 'modelsReady', 'queue'].sort());
+    ['autoIndex', 'counts', 'download', 'enabled', 'intervalS', 'missing', 'missingReasons', 'modelsReady', 'queue'].sort());
   assert.strictEqual(s.body.enabled, false);
   assert.strictEqual(s.body.autoIndex, false);
   assert.strictEqual(s.body.intervalS, 3.5);
@@ -526,4 +526,45 @@ test('regression: off-then-on and an immediate re-index really indexes the file'
   await svc.settled();
   const f = (await get(`/api/media/${a}/faces`)).body;
   assert.deepStrictEqual([f.indexed, f.groups.length], [true, 1]);
+});
+
+test('regression: a hidden face stays hidden through a forced re-check and a forced re-index', async () => {
+  await setEnabled(true);
+  const a = addFile('hideme.jpg', 'image');
+  fk.fileScripts.set(files['hideme.jpg'], { groups: [group(person(7)), group(person(8))] });
+  let f = (await post(`/api/media/${a}/find-faces`)).body;
+  assert.strictEqual(f.groups.length, 2);
+  // hide the person(7) group (inserted first)
+  const db7 = db.get().prepare(`SELECT g.id FROM face_groups g JOIN face_vectors v ON v.group_id = g.id
+    WHERE g.media_id = ? ORDER BY g.id`).all(a).map(r => r.id);
+  assert.strictEqual(db7.length, 2);
+  const hiddenId = db7[0];
+  assert.strictEqual((await post(`/api/faces/groups/${hiddenId}/hide`)).status, 200);
+  // same person seen a bit differently, plus a new person
+  fk.fileScripts.set(files['hideme.jpg'], { groups: [group(like(7, 0.8, 110)), group(person(8)), group(person(9))] });
+  f = (await post(`/api/media/${a}/find-faces`, { force: true })).body;
+  assert.strictEqual(f.groups.length, 2, 'person 7 is still hidden after a re-check');
+  let hidden = db.get().prepare('SELECT COUNT(*) n FROM face_groups WHERE media_id = ? AND hidden = 1').get(a).n;
+  assert.strictEqual(hidden, 1);
+  // a probe for person 7 must not find this file
+  const probe = addFile('probe7.jpg', 'image');
+  fk.fileScripts.set(files['probe7.jpg'], { groups: [group(person(7))] });
+  const pf = (await post(`/api/media/${probe}/find-faces`)).body;
+  assert.ok(!(await post(`/api/faces/groups/${pf.groups[0].id}/similar`, { width: 'wide' })).body.ids.includes(a));
+  // queue path (force) too
+  await post('/api/faces/index', { ids: [a], force: true });
+  await svc.settled();
+  hidden = db.get().prepare('SELECT COUNT(*) n FROM face_groups WHERE media_id = ? AND hidden = 1').get(a).n;
+  assert.strictEqual(hidden, 1, 'still hidden after a forced queue re-index');
+  assert.strictEqual((await get(`/api/media/${a}/faces`)).body.groups.length, 2);
+});
+
+test('regression: a request that hits the locked DB answers 423 VAULT_LOCKED, not 500', async (t) => {
+  await setEnabled(true);
+  const orig = svc.fileFaces;
+  svc.fileFaces = () => { throw Object.assign(new Error('database is encrypted: password required'), { code: 'DB_ENCRYPTED' }); };
+  t.after(() => { svc.fileFaces = orig; });
+  const r = await get(`/api/media/${ids['img1.jpg']}/faces`);
+  assert.deepStrictEqual([r.status, r.body.code], [423, 'VAULT_LOCKED']);
+  assert.ok(!/encrypted/.test(r.body.error));
 });

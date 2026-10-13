@@ -158,9 +158,31 @@ test('createFileModelStore reports ready, missing and paths from the files on di
   const list = entries(dir);
   const ms = createFileModelStore(() => list);
   assert.deepStrictEqual(ms.status(), { ready: false, missing: ['face:detect', 'face:embed'],
-    paths: { 'face:detect': list[0].dest, 'face:embed': list[1].dest } });
+    reasons: { 'face:detect': 'absent', 'face:embed': 'absent' }, paths: { 'face:detect': list[0].dest, 'face:embed': list[1].dest } });
   fs.writeFileSync(list[0].dest, DET);
   fs.writeFileSync(list[1].dest, EMB);
   assert.strictEqual(ms.status().ready, true);
   assert.strictEqual(createFileModelStore(() => []).status().ready, false);
+});
+
+test('a right-sized but corrupt model reads as missing (corrupt) and a download replaces it', async (t) => {
+  online(t);
+  const dir = dirOf('corrupt');
+  const list = entries(dir);
+  const store = createFileModelStore(() => list);
+  fs.writeFileSync(list[0].dest, DET);
+  const bad = Buffer.from(EMB); bad[100] ^= 0x40;                    // one flipped bit, same size
+  fs.writeFileSync(list[1].dest, bad);
+  let st = store.status();
+  assert.deepStrictEqual([st.ready, st.missing, st.reasons], [false, ['face:embed'], { 'face:embed': 'corrupt' }]);
+  fs.writeFileSync(list[0].dest, Buffer.alloc(10));                  // truncated
+  assert.strictEqual(store.status().reasons['face:detect'], 'size');
+  fs.rmSync(list[0].dest);
+  assert.strictEqual(store.status().reasons['face:detect'], 'absent');
+  const calls = [];
+  await downloadModels(list, { consent: allow(['face:detect', 'face:embed']), fetchImpl: fakeFetch({ [list[0].url]: DET, [list[1].url]: EMB }, calls) });
+  assert.strictEqual(calls.length, 2, 'the corrupt file is downloaded again');
+  st = store.status();
+  assert.deepStrictEqual([st.ready, st.missing], [true, []]);
+  assert.ok(fs.readFileSync(list[1].dest).equals(EMB), 'overwritten with the good bytes');
 });
