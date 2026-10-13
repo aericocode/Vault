@@ -3023,6 +3023,10 @@ function start(args = process.argv.slice(2)) {
   // background, stop on lock and resume on unlock.
   if (!bootedLocked) libraryRoutes.prepareIndexes();
   libraryRoutes.startIndexing(vault);
+  // People across the library: sort faces that were found before the Faces
+  // tab existed (or since the last run). Background, stops on lock, resumes
+  // on unlock (onVaultUnlocked), defers while a migrate runs.
+  try { facesService.instance().schedulePeople(); } catch (err) { console.warn(`[Faces] people sorting not started: ${err.message}`); }
   // Non-blocking: boot must not wait on an LM Studio that is not running. The
   // ticker only spends a request while a scan is actually going.
   aiSlots.boot({ activeProbe: () => importQueue.isActive() || _rescanning.size > 0 });
