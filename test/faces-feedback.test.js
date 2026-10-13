@@ -233,6 +233,12 @@ test('E4 candidates: unnamed people ranked by the rule, hidden / different / rej
   assert.strictEqual((await get(`/api/faces/people/${P.barack}/candidates?offset=-1`)).status, 400);
   assert.strictEqual((await get('/api/faces/people/987654/candidates')).status, 404);
   assert.strictEqual((await get('/api/faces/people/abc/candidates')).body.code, 'BAD_ID');
+
+  // D1: trashing / restoring a file (no face counter moves) refreshes the cached list
+  db.get().prepare('UPDATE media SET user_trashed = 1 WHERE id = ?').run(ids['l1.jpg']);
+  assert.deepStrictEqual((await get(`/api/faces/people/${P.barack}/candidates`)).body.items.map(i => i.personId), [P.m]);
+  db.get().prepare('UPDATE media SET user_trashed = 0 WHERE id = ?').run(ids['l1.jpg']);
+  assert.deepStrictEqual((await get(`/api/faces/people/${P.barack}/candidates`)).body.items.map(i => i.personId), [P.l, P.m]);
 });
 
 test('E4 the scoring rule is one swappable function', async () => {
@@ -273,6 +279,23 @@ test('E4 answers: accept merges (locked), reject records different; both leave t
   assert.strictEqual(pidOf('l1.jpg'), P.barack);
 });
 
+test('E4 accept never merges hidden people or a pair answered different', async () => {
+  addFile('k1.jpg'); addFile('k2.jpg');
+  fk.fileScripts.set(files['k1.jpg'], { groups: [group(person(10))] });
+  fk.fileScripts.set(files['k2.jpg'], { groups: [group(person(11))] });
+  await index(['k1.jpg', 'k2.jpg']);
+  const hid = pidOf('k1.jpg'), diff = pidOf('k2.jpg');
+  db.get().prepare('UPDATE face_people SET hidden = 1 WHERE id = ?').run(hid);
+  db.get().prepare("INSERT INTO face_pair_decisions (a, b, decision, created_at) VALUES (?, ?, 'different', 'x')")
+    .run(Math.min(P.barack, diff), Math.max(P.barack, diff));
+  store.bumpPeople();
+  const r = await post(`/api/faces/people/${P.barack}/candidates`, { accept: [hid, diff] });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+  assert.deepStrictEqual(r.body.merged, []);
+  assert.deepStrictEqual(r.body.skipped, [{ personId: hid, reason: 'hidden' }, { personId: diff, reason: 'different' }]);
+  assert.deepStrictEqual([pidOf('k1.jpg'), pidOf('k2.jpg')], [hid, diff]);
+});
+
 /* ── E2 ─────────────────────────────────────────────────────────────────── */
 
 test('E2 add: moves and locks, clears rejects, prunes emptied unnamed people, skips named / hidden / gone', async () => {
@@ -283,8 +306,8 @@ test('E2 add: moves and locks, clears rejects, prunes emptied unnamed people, sk
   const ga2 = gid('a2.jpg');
   const r = await post(`/api/faces/people/${P.barack}/add`, { groupIds: [ga1, gb2, ga2, 987654] });
   assert.strictEqual(r.status, 200, JSON.stringify(r.body));
-  assert.deepStrictEqual(Object.keys(r.body).sort(), ['moved', 'person', 'skipped']);
-  assert.deepStrictEqual(r.body.moved, [ga1]);
+  assert.deepStrictEqual(Object.keys(r.body).sort(), ['already', 'moved', 'person', 'skipped']);
+  assert.deepStrictEqual([r.body.moved, r.body.already], [[ga1], []]);
   assert.deepStrictEqual(r.body.skipped, [
     { groupId: gb2, reason: 'other-named' }, { groupId: ga2, reason: 'hidden' }, { groupId: 987654, reason: 'gone' }]);
   assert.strictEqual(r.body.person.id, P.barack);
@@ -298,8 +321,13 @@ test('E2 add: moves and locks, clears rejects, prunes emptied unnamed people, sk
   assert.deepStrictEqual(t.body.moved, [gb2, gs1]);
   assert.strictEqual(pidOf('b2.jpg'), P.barack);
   assert.strictEqual((await get(`/api/faces/people/${P.joe}`)).body.files, 2);
-  // already in: counts as moved (stays, locked)
-  assert.deepStrictEqual((await post(`/api/faces/people/${P.barack}/add`, { groupIds: [gb2] })).body.moved, [gb2]);
+  // already in: listed apart, and nothing changes (no user counter moves; the
+  // background job may move peopleVersion on its own, so that one is not compared)
+  await svc.peopleSettled();
+  const v = [store.peopleUserVersion(), store.version()];
+  const again = await post(`/api/faces/people/${P.barack}/add`, { groupIds: [gb2] });
+  assert.deepStrictEqual([again.body.moved, again.body.already], [[], [gb2]]);
+  assert.deepStrictEqual([store.peopleUserVersion(), store.version()], v);
   // give b2 back to Joe for the rest of the suite
   assert.deepStrictEqual((await post(`/api/faces/people/${P.joe}/add`, { groupIds: [gb2], takeFromNamed: true })).body.moved, [gb2]);
 });
@@ -315,8 +343,18 @@ test('E2 add: validation, 404, migrate guard', async () => {
   assert.strictEqual((await post('/api/faces/people/987654/add', { groupIds: [gid('a3.jpg')] })).status, 404);
   migrating = true;
   try {
-    const r = await post(`/api/faces/people/${P.barack}/add`, { groupIds: [gid('a3.jpg')] });
-    assert.deepStrictEqual([r.status, r.body.code], [409, 'MIGRATE_RUNNING']);
+    for (const [p, body] of [
+      [`/api/faces/people/${P.barack}/add`, { groupIds: [gid('a3.jpg')] }],
+      ['/api/faces/people', { name: 'Someone', groupIds: [gid('a3.jpg')] }],
+      [`/api/faces/people/${P.barack}/candidates`, { reject: [P.joe] }],
+      [`/api/faces/groups/${gid('a3.jpg')}/not-a-face`, {}],
+      [`/api/faces/people/${pidOf('a3.jpg')}/not-a-face`, {}],
+    ]) {
+      const r = await post(p, body);
+      assert.deepStrictEqual([r.status, r.body.code], [409, 'MIGRATE_RUNNING'], p);
+    }
+    assert.deepStrictEqual(one('SELECT hidden, not_face FROM face_groups WHERE id = ?', gid('a3.jpg')), { hidden: 0, not_face: 0 }, 'nothing written');
+    assert.strictEqual(one('SELECT 1 AS x FROM face_people WHERE name_key = ?', 'someone'), undefined);
   } finally { migrating = false; }
 });
 
@@ -327,6 +365,7 @@ test('E3 new person from faces: named, NAME_TAKEN, mergeIfTaken, unnamed, nothin
   let r = await post('/api/faces/people', { name: '  New  Guy ', groupIds: [gid('a3.jpg')] });
   assert.strictEqual(r.status, 200, JSON.stringify(r.body));
   assert.strictEqual(r.body.name, 'New Guy');
+  assert.strictEqual(r.body.mergedInto, null);
   assert.deepStrictEqual([r.body.files, r.body.moved, r.body.skipped], [1, [gid('a3.jpg')], []]);
   assert.ok(r.body.id !== pa3 && Array.isArray(r.body.oftenWith));
   assert.strictEqual(one('SELECT 1 AS x FROM face_people WHERE id = ?', pa3), undefined, 'the old unnamed person was pruned');
@@ -338,8 +377,9 @@ test('E3 new person from faces: named, NAME_TAKEN, mergeIfTaken, unnamed, nothin
   assert.ok(!/barack/i.test(r.body.error), 'no name inside the error text');
   assert.strictEqual(pidOf('a4.jpg') !== P.barack, true, 'nothing moved');
 
+  assert.strictEqual(r.body.mergedInto, undefined);
   r = await post('/api/faces/people', { name: 'Barack', groupIds: [gid('a4.jpg')], mergeIfTaken: true });
-  assert.deepStrictEqual([r.status, r.body.id, r.body.moved], [200, P.barack, [gid('a4.jpg')]]);
+  assert.deepStrictEqual([r.status, r.body.id, r.body.moved, r.body.mergedInto], [200, P.barack, [gid('a4.jpg')], P.barack]);
   assert.strictEqual(pidOf('a4.jpg'), P.barack);
 
   // unnamed; a face of a named person needs takeFromNamed
@@ -432,6 +472,11 @@ test('E5 status: recent files newest first with faces, people, names, direct fla
   const bad = byId.get(ids['bad.jpg']);
   assert.deepStrictEqual([bad.ok, bad.error, bad.faces], [false, 'ffmpeg exploded', 0]);
   assert.deepStrictEqual([byId.get(ids['empty.jpg']).faces, byId.get(ids['empty.jpg']).names], [0, []]);
+  // a hidden person is neither named nor counted
+  db.get().prepare('UPDATE face_people SET hidden = 1 WHERE id = ?').run(P.joe);
+  const mixH = (await get('/api/faces/status')).body.queue.recent.find(r => r.mediaId === ids['mix.jpg']);
+  assert.deepStrictEqual([mixH.faces, mixH.people, mixH.names], [2, 1, ['Barack']]);
+  db.get().prepare('UPDATE face_people SET hidden = 0 WHERE id = ?').run(P.joe);
   assert.ok(recent.every((r, i) => i === 0 || r.finishedAt <= recent[i - 1].finishedAt), 'newest first');
   assert.deepStrictEqual([s.lastRun.total, s.lastRun.done, s.lastRun.failed, s.lastRun.withPeople], [3, 2, 1, 1]);
 });
@@ -466,9 +511,30 @@ test('E5 queue: recent capped at 50, newest first, clicks flagged direct and out
   assert.deepStrictEqual(q2.status().recent, []);
 });
 
+test('E1 likelyPerson tie: the person whose first result ranks higher', async () => {
+  for (const [n, v] of [['u1.jpg', person(8)], ['u2.jpg', like(8, 0.8, 115)], ['v1.jpg', person(9)], ['v2.jpg', like(9, 0.98, 116)]]) {
+    addFile(n);
+    fk.fileScripts.set(files[n], { groups: [group(v)] });
+  }
+  await index(['u1.jpg', 'u2.jpg', 'v1.jpg', 'v2.jpg']);
+  const a = pidOf('u1.jpg'), b = pidOf('v1.jpg');
+  assert.ok(a !== b && pidOf('u2.jpg') === a && pidOf('v2.jpg') === b);
+  const v = new Float32Array(128); v[8] = 0.75; v[9] = 0.66;
+  const r = await querySearch('q-tie', v);
+  assert.deepStrictEqual(r.body.ids, [ids['u1.jpg'], ids['v1.jpg'], ids['v2.jpg'], ids['u2.jpg']], 'ranks A, B, B, A');
+  assert.deepStrictEqual(r.body.likelyPerson, { id: a, name: null });
+});
+
 test('E5 vault lock forgets the recent list (file names)', () => {
   assert.ok(svc.queueStatus().recent.length > 0);
   svc.onVaultLocked();
   assert.deepStrictEqual(svc.queueStatus().recent, []);
   svc.onVaultUnlocked();
+});
+
+test('E5 delete-all forgets recent files and lastRun', async () => {
+  assert.notStrictEqual((await get('/api/faces/status')).body.queue.lastRun, null);
+  assert.strictEqual((await post('/api/faces/delete-all')).status, 200);
+  const s = (await get('/api/faces/status')).body.queue;
+  assert.deepStrictEqual([s.lastRun, s.recent], [null, []]);
 });
