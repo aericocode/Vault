@@ -272,7 +272,7 @@ test('suggestions: never with a hidden person; capped at MAX_SUGGESTIONS even wh
   await sort();
   const ph = pidsOf(h)[0];
   await post(`/api/faces/people/${ph}`, { hidden: true });
-  const near = file([group(like(50, 0.46, 108))]);
+  const near = file([group(like(50, 0.48, 108))]);
   await sort();
   assert.notStrictEqual(pidsOf(near)[0], ph);
   assert.strictEqual(one('SELECT COUNT(*) AS n FROM face_person_suggestions WHERE a = ? OR b = ?', ph, ph).n, 0);
@@ -280,7 +280,7 @@ test('suggestions: never with a hidden person; capped at MAX_SUGGESTIONS even wh
   const v1 = file([group(person(51))]);
   await sort();
   const pv = pidsOf(v1)[0];
-  const v2 = file([group(like(51, 0.46, 109))]);
+  const v2 = file([group(like(51, 0.48, 109))]);
   await sort();
   assert.strictEqual(one('SELECT COUNT(*) AS n FROM face_person_suggestions WHERE a = ? OR b = ?', pv, pv).n, 1);
   await post(`/api/faces/people/${pv}`, { hidden: true });

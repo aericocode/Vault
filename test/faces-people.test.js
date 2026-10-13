@@ -11,7 +11,7 @@
  *   ab.jpg   person 0 and person 1
  *   v1.mp4   person 0 (10 appearances from 4 s) and person 2 (3 appearances), 100 s
  *   v2.mp4   person 2 (4 appearances), 60 s
- *   near.jpg a face at cosine 0.46 to person 0 (a "Same person?" suggestion)
+ *   near.jpg a face at cosine 0.49 to person 0 (a "Same person?" suggestion)
  *   c1.jpg   person 3
  */
 
@@ -116,7 +116,7 @@ test.before(async () => {
     group(person(2), { appearances: 3, firstTimeS: 50 }),
   ] });
   fk.fileScripts.set(files['v2.mp4'], { groups: [group(like(2, 0.9, 105), { appearances: 4, firstTimeS: 1 })] });
-  fk.fileScripts.set(files['near.jpg'], { groups: [group(like(0, 0.46, 106))] });
+  fk.fileScripts.set(files['near.jpg'], { groups: [group(like(0, 0.49, 106))] });
   fk.fileScripts.set(files['c1.jpg'], { groups: [group(person(3))] });
   await new Promise((resolve) => { server = app.listen(0, '127.0.0.1', resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
@@ -131,11 +131,12 @@ test.after(async () => {
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
 });
 
-test('thresholds: people 0.50 and the 0.42 suggestion floor live with the search widths', () => {
+test('thresholds: people 0.50, the 0.46 suggestion floor, norm and might-be bands live with the search widths', () => {
   assert.strictEqual(THRESHOLDS.people, 0.5);
-  assert.strictEqual(THRESHOLDS.suggest, 0.42);
-  assert.deepStrictEqual(peopleThresholds('sface-2021dec'), { people: 0.5, suggest: 0.42 });
-  assert.deepStrictEqual(peopleThresholds('unknown-model'), { people: 0.5, suggest: 0.42 });
+  assert.strictEqual(THRESHOLDS.suggest, 0.46);
+  const all = { people: 0.5, suggest: 0.46, dropNorm: 7, startNorm: 9, mightLikely: 0.56, mightMargin: 0.05, mightMaybe: 0.48 };
+  assert.deepStrictEqual(peopleThresholds('sface-2021dec'), all);
+  assert.deepStrictEqual(peopleThresholds('unknown-model'), all);
 });
 
 test('feature off: every people route is FACES_OFF', async () => {
@@ -210,7 +211,7 @@ test('sorting: same person across files joins, strangers start new people, photo
   assert.deepStrictEqual(fileNamesOf(alice), ['a1.jpg', 'ab.jpg', 'v1.mp4']);
   assert.deepStrictEqual(fileNamesOf(personIn('b1.jpg', 1)), ['ab.jpg', 'b1.jpg']);
   assert.deepStrictEqual(fileNamesOf(personIn('v1.mp4', 2)), ['v1.mp4', 'v2.mp4']);
-  assert.deepStrictEqual(fileNamesOf(personIn('near.jpg', 0)), ['near.jpg']);   // 0.46: not joined
+  assert.deepStrictEqual(fileNamesOf(personIn('near.jpg', 0)), ['near.jpg']);   // 0.49: not joined
   assert.deepStrictEqual(fileNamesOf(personIn('c1.jpg', 3)), ['c1.jpg']);
   assert.strictEqual(one('SELECT screen_s FROM face_groups WHERE media_id = ?', ids['a1.jpg']).screen_s, null);
   assert.deepStrictEqual(q('SELECT screen_s FROM face_groups WHERE media_id = ? ORDER BY appearances DESC', ids['v1.mp4']).map(r => r.screen_s), [35, 10.5]);

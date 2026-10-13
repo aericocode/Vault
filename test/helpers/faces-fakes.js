@@ -28,13 +28,15 @@ function like(i, c, noise = 100) {
 }
 
 /** A group in analyzeFile's result shape. */
-function group(embeddings, { appearances = 1, firstTimeS = 0, bbox = [0.1, 0.1, 0.2, 0.2], crop } = {}) {
+/** norm: SFace norm before L2 for every exemplar (undefined = not measured, like old data). */
+function group(embeddings, { appearances = 1, firstTimeS = 0, bbox = [0.1, 0.1, 0.2, 0.2], crop, norm } = {}) {
   const list = Array.isArray(embeddings) ? embeddings : [embeddings];
   return {
     appearances,
     firstTimeS,
     best: { bbox, frameTimeS: firstTimeS, detScore: 0.9, crop: crop || Buffer.from(`crop-${Math.random()}`) },
-    exemplars: list.map((embedding, k) => ({ embedding, bbox, frameTimeS: firstTimeS + k, detScore: 0.9 - k * 0.1 })),
+    exemplars: list.map((embedding, k) => ({ embedding, bbox, frameTimeS: firstTimeS + k, detScore: 0.9 - k * 0.1,
+      ...(norm === undefined ? {} : { norm: Array.isArray(norm) ? norm[k] : norm }) })),
   };
 }
 
