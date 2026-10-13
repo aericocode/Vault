@@ -1146,7 +1146,7 @@ async function facesNotThisPerson(mediaId) {
   // The last file of an unnamed person: the person is gone, nothing to undo into.
   if (!r.person) {
     if (typeof hideUndoToast === 'function') hideUndoToast();   // an earlier Undo would aim at a person that is gone
-    showToast('Removed this file. Nothing else was in this person.');
+    showToast('That was their last file, so they are no longer in Faces.');
     if (FT.personId === personId) ftClosePerson();
     return;
   }
