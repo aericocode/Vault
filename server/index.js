@@ -199,6 +199,7 @@ const MIGRATE_BLOCKED_ROUTES = [
   // Face indexing reads files by path (lib/faces/). Same paused-queue rule.
   /^\/api\/faces\/index$/,
   /^\/api\/faces\/queue\/resume$/,
+  /^\/api\/faces\/model-switch\/resume$/,
   /^\/api\/media\/\d+\/find-faces$/,
   // Studios (lib/studios.js): the writes that move files in or out of
   // studios. The folder match reads the paths a migrate is rewriting.
@@ -3057,6 +3058,10 @@ function start(args = process.argv.slice(2)) {
   // tab existed (or since the last run). Background, stops on lock, resumes
   // on unlock (onVaultUnlocked), defers while a migrate runs.
   try { facesService.instance().schedulePeople(); } catch (err) { console.warn(`[Faces] people sorting not started: ${err.message}`); }
+  // Face model switch (FACE_MODELS_SPEC): files in another model than the
+  // active keeper are re-read in the background (also resumes a switch a
+  // restart interrupted; stops on lock, defers while a migrate runs).
+  try { facesService.instance().scheduleModelSwitch(); } catch (err) { console.warn(`[Faces] model switch not started: ${err.message}`); }
   // Non-blocking: boot must not wait on an LM Studio that is not running. The
   // ticker only spends a request while a scan is actually going.
   aiSlots.boot({ activeProbe: () => importQueue.isActive() || _rescanning.size > 0 });

@@ -98,7 +98,12 @@ function buildRouter() {
 
   router.post('/faces/settings', h((req) => svc().updateSettings(req.body || {})));
 
-  router.post('/faces/models/download', h(() => svc().startDownload()));
+  // { model?: 'ir50' | 'ir101' }: the grunt models plus that keeper (default: the chosen one).
+  router.post('/faces/models/download', h((req) => svc().startDownload(req.body || {})));
+
+  // The background face model switch (status: GET /faces/status -> modelSwitch).
+  router.post('/faces/model-switch/pause', on, h(() => svc().pauseModelSwitch()));
+  router.post('/faces/model-switch/resume', ...ready, h(() => svc().resumeModelSwitch()));
 
   router.post('/faces/index', ...ready, h((req) => {
     const b = req.body || {};

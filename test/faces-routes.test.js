@@ -89,14 +89,15 @@ test('feature off: status answers, everything else but settings/delete-all is FA
   const s = await get('/api/faces/status');
   assert.strictEqual(s.status, 200);
   assert.deepStrictEqual(Object.keys(s.body).sort(),
-    ['autoIndex', 'counts', 'download', 'enabled', 'intervalS', 'maxFrames', 'missing', 'missingReasons', 'modelsReady', 'people', 'queue'].sort());
+    ['activeModel', 'autoIndex', 'counts', 'download', 'enabled', 'faceModels', 'facesModel', 'intervalS', 'lastModelSwitch', 'maxFrames',
+      'missing', 'missingReasons', 'modelSwitch', 'modelsReady', 'needsModel', 'people', 'queue'].sort());
   assert.deepStrictEqual(Object.keys(s.body.people).sort(), ['pending', 'sorting', 'suggestions', 'total']);
   assert.strictEqual(s.body.maxFrames, 2000);
   assert.strictEqual(s.body.enabled, false);
   assert.strictEqual(s.body.autoIndex, false);
   assert.strictEqual(s.body.intervalS, 3.5);
   assert.deepStrictEqual(Object.keys(s.body.queue).sort(),
-    ['current', 'done', 'etaS', 'failed', 'lastRun', 'paused', 'planned', 'recent', 'running', 'startedAt', 'total', 'withPeople'].sort());
+    ['current', 'done', 'etaS', 'failed', 'lastRun', 'modelSwitch', 'paused', 'planned', 'recent', 'running', 'startedAt', 'total', 'withPeople'].sort());
   for (const [method, p] of [
     ['POST', '/api/faces/index'], ['POST', '/api/faces/queue/pause'], ['POST', '/api/faces/queue/resume'],
     ['POST', '/api/faces/queue/cancel'], ['GET', `/api/media/${ids['img1.jpg']}/faces`],
@@ -191,7 +192,7 @@ test('model download: offline is refused, consent is per key, then it downloads 
   await dsvc.downloadSettled();
   const s = await get('/api/faces/status');
   assert.strictEqual(s.body.modelsReady, true);
-  assert.deepStrictEqual(s.body.download, { running: false, received: 6, total: 6, error: null });
+  assert.deepStrictEqual(s.body.download, { running: false, model: 'ir50', received: 6, total: 6, error: null });
   assert.deepStrictEqual(fetched.map(f => f[1]), ['model', 'model']);
 });
 
