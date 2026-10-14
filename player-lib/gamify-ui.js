@@ -29,10 +29,9 @@
   const isHidden = () =>
     typeof window.vaultSetting === 'function' && !!window.vaultSetting('gamifyHidden');
 
-  /* The status answer walks the whole library (quests), which holds the
-     server for seconds on a very large one, and the server answers in order.
-     So it is asked once the library's first page and its count are in (or
-     after a few seconds), never ahead of them. */
+  /* Status is cheap now (tallies and index reads, a few ms at 2M files), but
+     it is still not needed before the library: asked once the first page and
+     its count are in (or after a few seconds), so it never competes with them. */
   function afterFirstResults() {
     return new Promise((resolve) => {
       const ready = () => typeof Library === 'undefined' || (Library.known() && !Library.isEmptyResult);
@@ -186,6 +185,7 @@
       // { quests, refreshesLeft } (tolerate the old bare-array shape too)
       const quests = Array.isArray(questsResp) ? questsResp : (questsResp.quests || []);
       const refreshesLeft = Array.isArray(questsResp) ? 0 : (questsResp.refreshesLeft || 0);
+      const questsPending = !Array.isArray(questsResp) && !!questsResp.pending;
       _stats = stats;
       applyTheme(stats.theme);
       renderChip();
@@ -204,11 +204,41 @@
       body.querySelector('#gamifyAchCard')?.addEventListener('click', () => openAnalytics('achievements'));
       body.querySelectorAll('.gamify-theme-pick').forEach(el =>
         el.addEventListener('click', () => selectTheme(el.dataset.theme)));
-      body.querySelectorAll('.gamify-quest-reroll').forEach(btn =>
-        btn.addEventListener('click', () => rerollQuest(Number(btn.dataset.quest))));
+      bindQuestRerolls(body);
+      watchPendingQuests(questsPending || !quests.length);
     } catch (err) {
       body.innerHTML = `<div class="gamify-loading">Couldn't load stats: ${err.message}</div>`;
     }
+  }
+
+  function bindQuestRerolls(root) {
+    root.querySelectorAll('.gamify-quest-reroll').forEach(btn =>
+      btn.addEventListener('click', () => rerollQuest(Number(btn.dataset.quest))));
+  }
+
+  /* A large library's first quest board is filled in the background (the
+     server is still reading the library). While the modal is open on a board
+     that is waiting, re-ask every few seconds and swap in the quest card
+     alone, for up to about three minutes. */
+  let _questPoll = null;
+  function watchPendingQuests(pending, tries = 0) {
+    clearTimeout(_questPoll);
+    _questPoll = null;
+    if (!pending || tries >= 45) return;
+    _questPoll = setTimeout(async () => {
+      if (!document.getElementById('gamifyModal')?.classList.contains('active')) return;
+      try {
+        const r = await (await fetch('/api/gamify/quests')).json();
+        const card = document.getElementById('gamifyQuestCard');
+        if (!card || Array.isArray(r)) return;
+        const tmp = document.createElement('div');
+        tmp.innerHTML = sectionQuests(r.quests || [], r.refreshesLeft || 0);
+        const fresh = tmp.firstElementChild;
+        card.replaceWith(fresh);
+        bindQuestRerolls(fresh);
+        watchPendingQuests(!!r.pending || !(r.quests || []).length, tries + 1);
+      } catch { watchPendingQuests(true, tries + 1); }
+    }, 4000);
   }
 
   /* ── Sections ───────────────────────────────────────────────────────────── */
@@ -266,7 +296,7 @@
 
   function sectionQuests(quests, refreshesLeft = 0) {
     if (!quests.length) {
-      return `<div class="gamify-card"><div class="gamify-card-title">🗺️ Quests</div>
+      return `<div class="gamify-card" id="gamifyQuestCard"><div class="gamify-card-title">🗺️ Quests</div>
         <div class="gamify-empty">New quests arriving soon…</div></div>`;
     }
     const items = quests.map(q => {
@@ -286,7 +316,7 @@
       </div>`;
     }).join('');
     const hint = refreshesLeft > 0 ? ` <span class="gamify-ach-count" title="Daily quest reroll available">1×🔄</span>` : '';
-    return `<div class="gamify-card"><div class="gamify-card-title">🗺️ Active Quests${hint}</div>${items}</div>`;
+    return `<div class="gamify-card" id="gamifyQuestCard"><div class="gamify-card-title">🗺️ Active Quests${hint}</div>${items}</div>`;
   }
 
   async function rerollQuest(questId) {

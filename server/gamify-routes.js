@@ -101,7 +101,10 @@ function buildRouter() {
 
   // Active quests (tops up to the level-scaled slot count, rotates daily)
   router.get('/quests', (req, res) => {
-    res.json({ quests: quests.ensureQuests(), refreshesLeft: quests.refreshesLeftToday() });
+    // pending: the board is still waiting on the library profile (the viewer
+    // re-asks while its quest card shows that)
+    const list = quests.ensureQuests();
+    res.json({ quests: list, refreshesLeft: quests.refreshesLeftToday(), pending: quests.awaitingLibrary() });
   });
 
   // Swap one quest for a fresh roll (1/day)
@@ -147,9 +150,16 @@ function buildRouter() {
   // waits (without blocking the server) the first time a large library has
   // none yet, and a profile older than an hour is refreshed for next time.
   router.get('/analytics', async (req, res) => {
+    let lib;
     try {
-      const lib = await library.whenReady({ refreshAfterMs: ANALYTICS_REFRESH_MS });
-      if (!lib) return res.status(503).json({ error: 'library is not available' });
+      lib = await library.whenReady({ refreshAfterMs: ANALYTICS_REFRESH_MS });
+    } catch (err) {
+      // The pass failed; the next request starts a new one
+      return res.status(500).json({ error: `the library could not be read for these charts (${err.message}). Try again` });
+    }
+    // null: the vault was locked while the charts were being prepared
+    if (!lib) return res.status(423).json({ error: 'the vault was locked while the charts were being prepared. Unlock and try again' });
+    try {
       res.json(gamify.getAnalytics(lib));
     } catch (err) {
       res.status(500).json({ error: err.message });

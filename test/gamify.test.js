@@ -198,6 +198,7 @@ function expectedTally() {
   const c = raw();
   const out = {};
   const put = (kind, k, n) => { if (n) out[`${kind}|${k}`] = n; };
+  put('files', 'all', c.prepare('SELECT COUNT(*) AS n FROM media').get().n);
   for (const r of c.prepare('SELECT COALESCE(view_count, 0) AS k, COUNT(*) AS n FROM media WHERE user_trashed = 0 GROUP BY 1').all()) put('views', r.k, r.n);
   put('done', 'all', c.prepare('SELECT COALESCE(SUM(done_count), 0) AS n FROM media WHERE done_count > 0').get().n);
   put('done', 'kept', c.prepare('SELECT COALESCE(SUM(done_count), 0) AS n FROM media WHERE done_count > 0 AND COALESCE(user_trashed, 0) = 0').get().n);
@@ -452,13 +453,40 @@ test('quests: watches advance and complete quests and award their points', () =>
   assert.strictEqual(st(q2), 'completed');
   assert.strictEqual(st(q3), 'completed');
 
+  // A completed slot is topped up with a random template, and a later watch in
+  // this test may complete that one too: count only the three seeded quests.
   const after = c.prepare('SELECT score, quests_completed FROM gamify_stats WHERE id = 1').get();
-  assert.strictEqual(after.quests_completed, before.quests_completed + 3);
+  assert.ok(after.quests_completed >= before.quests_completed + 3);
+  const seeded = c.prepare("SELECT COUNT(*) FROM gamify_quests WHERE id IN (?, ?, ?) AND status = 'completed' AND progress = target").pluck().get(q1, q2, q3);
+  assert.strictEqual(seeded, 3);
   const rewards = c.prepare("SELECT COALESCE(SUM(points), 0) FROM gamify_events WHERE event_type = 'quest_complete' AND detail IN ('Q type_views', 'Q unseen_views', 'Q rate_items')").pluck().get();
   assert.strictEqual(rewards, 160);
   assert.ok(after.score >= before.score + 160);
   // Completed slots were topped back up
   assert.ok(quests.activeQuests().length >= 3);
+});
+
+test('quests: time capsule keeps the original NULL-date behaviour', () => {
+  const c = raw();
+  const q = () => { c.prepare("UPDATE gamify_quests SET status = 'expired'").run(); return insertQuest('time_capsule', 1, { timeCapsule: true }, 70); };
+  const st = (id) => c.prepare('SELECT status FROM gamify_quests WHERE id = ?').pluck().get(id);
+  const av = c.prepare("SELECT id FROM media WHERE media_type IN ('video','audio') AND user_trashed = 0 ORDER BY id").pluck().all();
+  assert.ok(av.length >= 22);
+  for (const id of av) set(id, { view_count: 0, processed_at: '2024-06-01 00:00:00' });
+  // 20+ never-scanned (NULL date) unwatched files: the old cutoff was NULL,
+  // compared as 'null', so ANY unwatched file qualified
+  for (const id of av.slice(0, 20)) set(id, { processed_at: null });
+  const late = av[av.length - 1];
+  set(late, { processed_at: '2026-01-01 00:00:00' });
+  let id = q();
+  db.incrementViewCount(late); gamify.recordView(late, 200);
+  assert.strictEqual(st(id), 'completed');
+  // 19 NULL + one '' at the 20th: the cutoff is '', a dated file does not qualify
+  set(av[0], { processed_at: '' });
+  set(late, { view_count: 0 });
+  id = q();
+  db.incrementViewCount(late); gamify.recordView(late, 200);
+  assert.strictEqual(st(id), 'active');
 });
 
 test('quests: time capsule only for the 20 oldest still-unwatched files', () => {
@@ -476,6 +504,55 @@ test('quests: time capsule only for the 20 oldest still-unwatched files', () => 
   db.incrementViewCount(oldest);
   gamify.recordView(oldest, 200);
   assert.strictEqual(c.prepare('SELECT status FROM gamify_quests WHERE id = ?').pluck().get(q), 'completed');
+});
+
+test('tally drift (a REPLACE that skipped the delete trigger) is caught and repaired', () => {
+  const c = raw();
+  assert.ok(tally.install(c) >= 0);
+  assert.strictEqual(tally.verify(c, { log() {} }), true);
+  const row = c.prepare("SELECT filepath FROM media WHERE media_type = 'video' LIMIT 1").get();
+  c.prepare("INSERT OR REPLACE INTO media (filepath, filename, media_type, view_count) VALUES (?, 'r.mp4', 'video', 9)").run(row.filepath);
+  assert.notDeepStrictEqual(actualTally(), expectedTally(), 'the replaced row is still counted');
+  const logs = [];
+  assert.strictEqual(tally.verify(c, { log: (m) => logs.push(m) }), false);
+  assert.match(logs[0], /drifted/);
+  assert.strictEqual(tally.isReady(c), false);
+  checkStats('drift fallback');   // readers answer from media meanwhile
+  tally.installWhenIndexed(c, { log() {} });   // what the next start / unlock does
+  assert.strictEqual(tally.isReady(c), true);
+  assert.deepStrictEqual(actualTally(), expectedTally());
+});
+
+test('tally install retries after a failure (e.g. the file is busy)', async () => {
+  const c = raw();
+  c.exec("DROP TRIGGER gamify_tally_au; UPDATE gamify_cache SET value = '0' WHERE key = 'tally_schema'");
+  db.close(); db.init();
+  const conn = raw();
+  const realTx = conn.transaction.bind(conn);
+  let fail = 2;
+  conn.transaction = (fn) => (fail-- > 0 ? Object.assign(() => { throw new Error('database is locked'); }, { immediate() { throw new Error('database is locked'); } }) : realTx(fn));
+  const logs = [];
+  tally.installWhenIndexed(conn, { log: (m) => logs.push(m), pollMs: 5 });
+  await new Promise(r => setTimeout(r, 100));
+  conn.transaction = realTx;
+  assert.strictEqual(tally.isReady(conn), true, logs.join(' | '));
+  assert.strictEqual(logs.filter(m => /will retry/.test(m)).length, 2);
+  assert.deepStrictEqual(actualTally(), expectedTally());
+});
+
+test('a failed library pass is reported, and the next call starts a fresh one', async () => {
+  const c = raw();
+  library.reset();
+  library.setSyncBudget(0);
+  try {
+    c.exec('ALTER TABLE media_clean RENAME TO media_clean_away');
+    await assert.rejects(Promise.resolve().then(() => library.whenReady()));
+    c.exec('ALTER TABLE media_clean_away RENAME TO media_clean');
+    assert.ok(await library.whenReady(), 'retried');
+  } finally {
+    try { c.exec('ALTER TABLE media_clean_away RENAME TO media_clean'); } catch {}
+    library.setSyncBudget(80);
+  }
 });
 
 test('status reads stay cheap: no statement scans media', () => {

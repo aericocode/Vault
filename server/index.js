@@ -3048,7 +3048,9 @@ function start(args = process.argv.slice(2)) {
     // After prepareIndexes: gamify's reads walk the sort indexes. A large
     // library's quest profile then builds in the background (gamify-library).
     // The view tallies (lib/gamify-tally.js) install once per library, as
-    // soon as the sort indexes exist (polled after an unlock that creates them).
+    // soon as the sort indexes exist (polled after an unlock that creates
+    // them), and are checked again after every unlock (idempotent: a
+    // drift check, or a retry of an install that failed).
     let gamifyBooted = false;
     const bootGamify = () => {
       require('../lib/gamify-tally').installWhenIndexed(db.get());
@@ -3057,8 +3059,8 @@ function start(args = process.argv.slice(2)) {
       require('../lib/gamify').settleDay();
       require('../lib/quests').ensureQuests();
     };
-    if (bootedLocked) vault.onChange((e) => { if (e === 'unlocked') bootGamify(); });
-    else bootGamify();
+    vault.onChange((e) => { if (e === 'unlocked' && gamifyEnabled) bootGamify(); });
+    if (!bootedLocked) bootGamify();
   }
   // People across the library: sort faces that were found before the Faces
   // tab existed (or since the last run). Background, stops on lock, resumes
