@@ -626,7 +626,7 @@ function stReadLinks(text) {
   return ok ? { list } : { error: 'Each link needs to start with http:// or https://, one per line, with no spaces.' };
 }
 function stLinksField(id, urls, label) {
-  return `<div><label class="st-lbl" for="${id}">${label}</label><textarea class="st-in st-in-short" id="${id}" rows="2" placeholder="https://">${stEsc(String(urls || '').split(/\s*\n\s*/).filter(Boolean).join('\n'))}</textarea><div class="st-hint">One per line.</div></div>`;
+  return `<div><label class="st-lbl" for="${id}">${label}</label><textarea class="st-in st-in-short st-pm-field" id="${id}" rows="2" placeholder="https://">${stEsc(String(urls || '').split(/\s*\n\s*/).filter(Boolean).join('\n'))}</textarea><div class="st-hint">One per line.</div></div>`;
 }
 
 function stTextTooLong(fields) {
@@ -1022,6 +1022,8 @@ function studiosTileTagHtml(media) {
 /* ── Put files in studios by folder name (S3) ─────────────────────────── */
 
 async function stAutoMatch() {
+  // One dialog at a time: opening it again replaces the one already up.
+  document.getElementById('stAutoDlg')?._close();
   const ov = stOverlay(`
     <div class="ft-dlg st-dlg st-auto" role="dialog" aria-modal="true" aria-labelledby="stAutoTitle">
       <h2 id="stAutoTitle">Put files in studios by folder name</h2>
@@ -1030,11 +1032,30 @@ async function stAutoMatch() {
       <div class="st-dacts"><button class="ft-btn ghost ft-btn-md" type="button" data-st-a="cancel">Cancel</button>
         <button class="ft-btn ft-btn-md" type="button" data-st-a="apply" disabled>Put files in studios</button></div>
     </div>`);
+  ov.id = 'stAutoDlg';
   const p = ov.querySelector('.st-auto-p');
   const tbl = ov.querySelector('.st-tbl');
   const apply = ov.querySelector('[data-st-a="apply"]');
   ov.querySelector('[data-st-a="cancel"]').focus();
   let matches = [];
+  // Wired before anything can fail: Cancel works in every state (loading, no match, error).
+  ov.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-st-a]');
+    if (!b) return;
+    if (b.dataset.stA === 'cancel') { ov._close(); return; }
+    const pairs = matches.filter((m, i) => tbl.querySelector(`[data-m="${i}"]`)?.checked).map(m => ({ folder: m.folder, studioId: m.studioId }));
+    if (!pairs.length) return;
+    apply.disabled = true;
+    let r;
+    try { r = await stApi('/api/studios/auto/apply', { method: 'POST', json: { pairs } }); }
+    catch (err) { stToastError(err); apply.disabled = false; return; }
+    ov._close();
+    const n = Number(r.changed || 0);
+    showToast(n ? `Put ${stPlural(n, 'file', 'files')} in studios.` : 'Nothing changed. Those files are already in a studio.');
+    // Any cached row may have changed studio: fetch again when next shown.
+    if (typeof Library !== 'undefined' && typeof Library.invalidateRows === 'function') Library.invalidateRows();
+    if (stInStudios()) { if (ST.studioId != null) stLoadStudio(); else stLoadList(); }
+  });
   try { matches = ((await stApi('/api/studios/auto/preview', { method: 'POST', json: {} })).matches || []).filter(m => m.files > 0); }
   catch (err) { p.textContent = err.message || 'Could not look through your folders. Try again.'; return; }
   if (!ov.isConnected) return;
@@ -1056,23 +1077,6 @@ async function stAutoMatch() {
   };
   tbl.addEventListener('change', count);
   count();
-  ov.addEventListener('click', async (e) => {
-    const b = e.target.closest('[data-st-a]');
-    if (!b) return;
-    if (b.dataset.stA === 'cancel') { ov._close(); return; }
-    const pairs = matches.filter((m, i) => tbl.querySelector(`[data-m="${i}"]`).checked).map(m => ({ folder: m.folder, studioId: m.studioId }));
-    if (!pairs.length) return;
-    apply.disabled = true;
-    let r;
-    try { r = await stApi('/api/studios/auto/apply', { method: 'POST', json: { pairs } }); }
-    catch (err) { stToastError(err); apply.disabled = false; return; }
-    ov._close();
-    const n = Number(r.changed || 0);
-    showToast(n ? `Put ${stPlural(n, 'file', 'files')} in studios.` : 'Nothing changed. Those files are already in a studio.');
-    // Any cached row may have changed studio: fetch again when next shown.
-    if (typeof Library !== 'undefined' && typeof Library.invalidateRows === 'function') Library.invalidateRows();
-    if (stInStudios()) { if (ST.studioId != null) stLoadStudio(); else stLoadList(); }
-  });
 }
 
 /* ── Popover (one at a time) ───────────────────────────────────────────── */
