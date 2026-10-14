@@ -1203,7 +1203,7 @@ function ftPaintPerson() {
 
 /** S5: "Also known as", then Active / Born / links, under the name. */
 function ftDetailsTopHtml(p) {
-  const aka = String(p.aliases || '').split(',').map(x => x.trim()).filter(Boolean).join(', ');
+  const aka = typeof stAliasList === 'function' ? stAliasList(p).join(', ') : '';
   const years = typeof stYears === 'function' ? stYears(p.yearStart, p.yearEnd) : '';
   const born = p.born && typeof stBorn === 'function' ? stBorn(p.born) : '';
   const links = typeof stLinksHtml === 'function' ? stLinksHtml(p.urls) : '';
@@ -1241,10 +1241,10 @@ function ftEditDetails() {
     <form class="ft-dlg st-dlg st-form st-form-narrow" role="dialog" aria-modal="true" aria-label="Edit details" novalidate>
       <h2>Edit details</h2>
       <div><label class="st-lbl" for="pdName">Name</label><input class="st-in st-pm-field" id="pdName" type="text" maxlength="200" value="${v(p.name)}" placeholder="Not named yet"></div>
-      <div><label class="st-lbl" for="pdAka">Other names</label><input class="st-in st-pm-field" id="pdAka" type="text" value="${v(p.aliases)}" placeholder="Separate them with commas"><div class="st-hint">Search finds them by any of these.</div></div>
+      ${stAliasField('pdAka', p, 'Search finds them by any of these.')}
       ${stYearsInputs('pdY1', 'pdY2', p.yearStart, p.yearEnd)}
       <div><label class="st-lbl" for="pdBorn">Born (optional)</label><input class="st-in" id="pdBorn" type="text" maxlength="10" value="${v(p.born)}" placeholder="1961-08-04, 1961-08 or 1961"></div>
-      <div><label class="st-lbl" for="pdLinks">Links</label><textarea class="st-in st-in-links" id="pdLinks" rows="2" placeholder="https://">${v(stUrlList(p.urls).join('\n') || p.urls)}</textarea><div class="st-hint">One per line.</div></div>
+      ${stLinksField('pdLinks', p.urls, 'Links')}
       <div><label class="st-lbl" for="pdDesc">Description</label><textarea class="st-in" id="pdDesc">${v(p.description)}</textarea></div>
       <div><label class="st-lbl" for="pdNotes">Notes (only for you)</label><textarea class="st-in" id="pdNotes">${v(p.notes)}</textarea></div>
       <div class="st-err" role="alert" hidden></div>
@@ -1265,13 +1265,13 @@ function ftEditDetails() {
     const bornOk = !born || (bm && Number(bm[1]) >= 1800 && Number(bm[1]) <= 2100 && (!bm[2] || (Number(bm[2]) >= 1 && Number(bm[2]) <= 12))
       && (!bm[3] || (Number(bm[3]) >= 1 && Number(bm[3]) <= new Date(Number(bm[1]), Number(bm[2]), 0).getDate())));
     if (!bornOk) { say('Born needs to look like 1961, 1961-08 or 1961-08-04.'); return; }
-    const linkLines = val('pdLinks').split(/\n+/).map(x => x.trim()).filter(Boolean);
-    if (linkLines.some(l => !/^https?:\/\/\S+$/i.test(l))) { say('Each link needs to start with http:// or https://, one per line.'); return; }
+    const links = stReadLinks(val('pdLinks'));
+    if (links.error) { say(links.error); return; }
     const long = stTextTooLong([val('pdAka'), val('pdDesc'), val('pdNotes'), val('pdLinks')]);
     if (long) { say(long); return; }
     const patch = {
-      aliases: val('pdAka').split(',').map(x => x.trim()).filter(Boolean).join(', '),
-      urls: linkLines.join('\n'), description: val('pdDesc').trim(), notes: val('pdNotes').trim(),
+      aliases: stReadAliases(val('pdAka')),
+      urls: links.list, description: val('pdDesc').trim(), notes: val('pdNotes').trim(),
       yearStart: yrs.a, yearEnd: yrs.b, born: born || null,
     };
     if (name !== (p.name || '')) patch.name = name;
@@ -1282,7 +1282,8 @@ function ftEditDetails() {
     catch (ex) {
       btn.disabled = false;
       if (ex.code === 'NAME_TAKEN') say('Someone else in Faces already has that name. To put them together, use the pencil next to the name.');
-      else say(ex.message || 'Could not save. Try again.');
+      // The detail checks (BAD_YEARS, BAD_BORN, BAD_URL, BAD_NAME) answer in plain sentences.
+      else say((/^BAD_/.test(ex.code || '') && ex.data && ex.data.error) || ex.message || 'Could not save. Try again.');
       return;
     }
     ov._close();

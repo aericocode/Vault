@@ -366,9 +366,6 @@
     <span class="stp-text">Top</span><span class="stp-icon" aria-hidden="true">↑</span>
   </button>
 
-  <!-- REMOVE before release: dev-only Studios mock, loaded only when localStorage.vaultStudiosMock === '1' (stands in for server/studios-routes.js until it is merged) -->
-  <script>try { if (localStorage.getItem('vaultStudiosMock') === '1') document.write('<script src="./player-lib/studios-mock.js"><\/script>'); } catch {}</script>
-
   <!-- hls.js 1.7.2, Apache-2.0 — see player-lib/THIRD-PARTY.txt -->
   <script src="./player-lib/hls.min.js"></script>
   <!-- Shared with the server (lib/stream/decide.js): must load before

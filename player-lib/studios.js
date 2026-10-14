@@ -41,6 +41,11 @@ const ST_MSG = {
   NOT_FOUND: 'That studio is no longer there. Refresh to see the latest.',
   TOO_LARGE: 'That photo is too big (15 MB at most).',
   BAD_IMAGE: 'That file is not a photo Vault can use. Try a JPG, PNG or WebP.',
+  FACES_OFF: 'Turn on face search to add people to studios.',
+  NOT_IN_STUDIO: 'That file is not in this studio any more.',
+  FRAME_FAILED: 'Vault could not read that frame. Try another one.',
+  FILE_MISSING: 'That file is missing on disk.',
+  NOT_ELIGIBLE: 'Only photos, GIFs and videos have a picture to use.',
 };
 
 const ST = {
@@ -82,7 +87,8 @@ function stBorn(v) {
 
 /** Only real web links become links. */
 function stUrlList(urls) {
-  return String(urls || '').split(/[\s,]+/).map(u => u.trim()).filter(u => /^https?:\/\/[^\s]+$/i.test(u));
+  const list = Array.isArray(urls) ? urls : String(urls || '').split(/\s+/);
+  return list.map(u => String(u).trim()).filter(u => /^https?:\/\/[^\s"'<>`]+$/i.test(u));
 }
 function stLinksHtml(urls) {
   return stUrlList(urls).map(u => {
@@ -117,7 +123,9 @@ async function stApi(url, { method = 'GET', json, body, type, background } = {})
   if (!resp.ok) {
     let msg = ST_MSG[data.code] || '';
     if (!msg && resp.status === 404 && /\/api\/studios\/\d+/.test(url)) msg = ST_MSG.NOT_FOUND;
-    if (!msg && resp.status === 400 && data.error) msg = String(data.error);
+    // These checks answer in plain sentences; other 400s are for developers.
+    if (!msg && ['BAD_YEARS', 'BAD_BORN', 'BAD_URL', 'BAD_NAME'].includes(data.code) && data.error) msg = String(data.error);
+    if (!msg && resp.status === 400) msg = 'Vault could not do that. Try again.';
     if (!msg) msg = resp.status === 423 ? '' : 'Studios ran into a problem. Try again.';
     throw Object.assign(new Error(msg), { code: data.code, status: resp.status, data });
   }
@@ -594,8 +602,31 @@ function stReadYears(aText, bText) {
   if (Number.isNaN(a) || Number.isNaN(b) || (a != null && (a < 1800 || a > 2100)) || (b != null && (b < 1800 || b > 2100))) {
     return { error: 'Years need to be four digits between 1800 and 2100.' };
   }
+  if (a == null && b != null) return { error: 'Set the first year too.' };
   if (a != null && b != null && b < a) return { error: 'The second year cannot be before the first.' };
   return { a, b };
+}
+
+/** Other names as a list: aliasList when the server sends it (names may hold commas). */
+function stAliasList(x) {
+  if (x && Array.isArray(x.aliasList)) return x.aliasList.filter(Boolean);
+  return String((x && x.aliases) || '').split(',').map(v => v.trim()).filter(Boolean);
+}
+/** One name per line in the box; saved as an array. */
+const stReadAliases = (text) => String(text || '').split(/\r?\n/).map(v => v.trim()).filter(Boolean);
+function stAliasField(id, x, hint) {
+  return `<div><label class="st-lbl" for="${id}">Other names</label><textarea class="st-in st-in-short st-pm-field" id="${id}" rows="2" placeholder="One name per line">${stEsc(stAliasList(x).join('\n'))}</textarea><div class="st-hint">One per line. ${hint}</div></div>`;
+}
+
+const ST_URL_RE = /^https?:\/\/[^\s"'<>`]+$/i;
+/** Links, one per line. @returns {{list:string[]}|{error:string}} */
+function stReadLinks(text) {
+  const list = String(text || '').split(/\r?\n/).map(v => v.trim()).filter(Boolean);
+  const ok = list.every(u => { if (!ST_URL_RE.test(u)) return false; try { new URL(u); return true; } catch { return false; } });
+  return ok ? { list } : { error: 'Each link needs to start with http:// or https://, one per line, with no spaces.' };
+}
+function stLinksField(id, urls, label) {
+  return `<div><label class="st-lbl" for="${id}">${label}</label><textarea class="st-in st-in-short" id="${id}" rows="2" placeholder="https://">${stEsc(String(urls || '').split(/\s*\n\s*/).filter(Boolean).join('\n'))}</textarea><div class="st-hint">One per line.</div></div>`;
 }
 
 function stTextTooLong(fields) {
@@ -625,9 +656,9 @@ function stEditStudio(s) {
         </div>
       </div>
       <div><label class="st-lbl" for="stfName">Name</label><input class="st-in st-pm-field" id="stfName" type="text" maxlength="200" value="${stEsc(s.name)}"></div>
-      <div><label class="st-lbl" for="stfAka">Other names</label><input class="st-in st-pm-field" id="stfAka" type="text" value="${stEsc(s.aliases || '')}" placeholder="Separate them with commas"><div class="st-hint">Used when matching folder names.</div></div>
+      ${stAliasField('stfAka', s, 'Used when matching folder names.')}
       ${stYearsInputs('stfY1', 'stfY2', s.yearStart, s.yearEnd)}
-      <div><label class="st-lbl" for="stfUrl">Website</label><input class="st-in" id="stfUrl" type="text" value="${stEsc(stUrlList(s.urls).join(' ') || s.urls || '')}" placeholder="https://"></div>
+      ${stLinksField('stfUrl', s.urls, 'Website')}
       <div><label class="st-lbl" for="stfDesc">Description</label><textarea class="st-in" id="stfDesc">${stEsc(s.description || '')}</textarea></div>
       <div><label class="st-lbl" for="stfNotes">Notes (only for you)</label><textarea class="st-in" id="stfNotes">${stEsc(s.notes || '')}</textarea></div>
       <button class="st-tog" type="button" role="switch" aria-checked="${!!s.favorite}" data-st-f="fav"><span class="st-sw" aria-hidden="true"><i></i></span>Favorite</button>
@@ -655,15 +686,13 @@ function stEditStudio(s) {
     const v = (id) => form.querySelector(`#${id}`).value;
     const name = v('stfName').trim();
     const yrs = stReadYears(v('stfY1'), v('stfY2'));
-    const urlText = v('stfUrl').trim();
-    const urls = stUrlList(urlText);
+    const links = stReadLinks(v('stfUrl'));
     const problem = !name ? 'A studio needs a name.'
-      : yrs.error || (urlText && urls.length !== urlText.split(/[\s,]+/).filter(Boolean).length ? 'Websites need to start with http:// or https://.' : '')
-      || stTextTooLong([v('stfAka'), v('stfDesc'), v('stfNotes'), urlText]);
+      : yrs.error || links.error || stTextTooLong([v('stfAka'), v('stfDesc'), v('stfNotes'), v('stfUrl')]);
     if (problem) { err.textContent = problem; err.hidden = false; return; }
     const patch = {
-      name, aliases: v('stfAka').split(',').map(x => x.trim()).filter(Boolean).join(', '),
-      urls: urls.join('\n'), description: v('stfDesc').trim(), notes: v('stfNotes').trim(),
+      name, aliases: stReadAliases(v('stfAka')),
+      urls: links.list, description: v('stfDesc').trim(), notes: v('stfNotes').trim(),
       yearStart: yrs.a, yearEnd: yrs.b, favorite: fav.getAttribute('aria-checked') === 'true',
     };
     const btn = form.querySelector('[type="submit"]');

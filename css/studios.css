@@ -281,3 +281,4 @@ body.pm-names .st-desc { filter: blur(7px); }
 }
 .st-detail .st-detail-link span { color: #818cf8; }
 .st-detail .st-detail-link:hover span { color: #a5b4fc; }
+textarea.st-in.st-in-short { min-height: 40px; }
