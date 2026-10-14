@@ -359,3 +359,18 @@ body.faces-picking .tile-select { opacity: 1; }
 @media (max-width: 560px) {
   .faces-models { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Face model: files the switch could not re-read (faces.js facesStuckPaint) */
+.settings-body .faces-stuck { margin: 0.6rem 0 0; font-size: 0.78rem; color: var(--text-secondary); line-height: 1.5; }
+.faces-stuck[hidden], .faces-stuck-list[hidden] { display: none; }
+.faces-settings .faces-link {
+  background: none; border: 0; padding: 0 0 0 0.4rem; font: inherit;
+  color: var(--accent-hover); cursor: pointer;
+}
+.faces-settings .faces-link:hover { text-decoration: underline; }
+.faces-settings .faces-link:disabled { opacity: 0.5; cursor: default; }
+.faces-stuck-list { margin: 0.4rem 0 0; padding-left: 1.1rem; }
+.faces-stuck-list li { display: flex; flex-wrap: wrap; gap: 0 0.5rem; }
+.faces-stuck-name { color: var(--text-primary); overflow-wrap: anywhere; }
+.faces-stuck-why { color: var(--text-muted); }
+body.pm-names .faces-stuck-name { filter: blur(7px); pointer-events: none; user-select: none; }

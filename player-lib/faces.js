@@ -994,12 +994,16 @@ function facesScanPaint() {
 // running: the last status had one, so its end can be told apart.
 const facesSwitchPane = { key: null, hidden: false, shown: false, focus: false, running: false, label: '', to: null };
 let facesSwitchWatching = false;
+let facesSwitchExpectUntil = 0;
+const facesSwitchExpected = () => Date.now() < facesSwitchExpectUntil && !facesActiveSwitch(facesStatus);
 
 /** A switch the user just started in Settings: show it, in front. */
 function facesSwitchStarted() {
+  facesSwitchExpectUntil = Date.now() + 6000;
   facesSwitchPane.hidden = false;
   facesSwitchPane.focus = true;
   facesScanPaint();
+  facesWatchSwitch();
 }
 
 /** Poll while a switch moves and the panel shows it (Settings polls on its own). */
@@ -1009,15 +1013,15 @@ function facesWatchSwitch() {
   const tick = async () => {
     if (document.hidden || facesPollTimer || facesWatching) { setTimeout(tick, FACES_SCAN_POLL_MS); return; }
     const s = await facesRefreshStatus();
-    const sw = s && s.modelSwitch;
-    if (sw && !sw.paused && facesSwitchPane.shown && facesReady()) { setTimeout(tick, FACES_SCAN_POLL_MS); return; }
+    const sw = facesActiveSwitch(s);
+    if ((sw && !sw.paused && facesSwitchPane.shown && facesReady()) || facesSwitchExpected()) { setTimeout(tick, FACES_SCAN_POLL_MS); return; }
     facesSwitchWatching = false;
   };
   setTimeout(tick, FACES_SCAN_POLL_MS);
 }
 
 async function facesSwitchPause(btn) {
-  const act = facesStatus?.modelSwitch?.paused ? 'resume' : 'pause';
+  const act = facesActiveSwitch(facesStatus)?.paused ? 'resume' : 'pause';
   btn.disabled = true;
   try { facesSetStatus(await facesApi(`/api/faces/model-switch/${act}`, { method: 'POST' })); }
   catch (err) { facesToastError(err); }
@@ -1048,7 +1052,7 @@ function facesSwitchPanePaint() {
   const api = window.vaultScanPane;
   const st = facesSwitchPane;
   const s = facesStatus;
-  const sw = s && s.modelSwitch;
+  const sw = facesActiveSwitch(s);
   if (sw) {
     const key = `${sw.from}>${sw.to}>${sw.startedAt || ''}`;
     if (key !== st.key) { st.key = key; st.hidden = false; }
@@ -1083,7 +1087,10 @@ function facesSwitchPanePaint() {
     : `Re-reading faces with the ${st.label} model`;
   $('.fsw-x').hidden = !!sw;
   $('.fsw-fill').style.width = sw ? facesPct(sw.done || 0, sw.total || 0) : '100%';
-  $('.fsw-meta').textContent = sw ? facesSwitchCount(sw) : 'Names and fixes stayed. People were sorted again with the new model.';
+  const stuck = !sw && s && s.lastModelSwitch ? s.lastModelSwitch.stuck || 0 : 0;
+  $('.fsw-meta').textContent = sw ? facesSwitchCount(sw)
+    : 'Names and fixes stayed. People were sorted again with the new model.'
+      + (stuck ? ` ${facesFiles(stuck)} could not be re-read; see Settings > Face search.` : '');
   const named = $('.fsw-named');
   named.hidden = !(sw && sw.namedTotal);
   if (!named.hidden) named.textContent = facesSwitchNamed(sw);
@@ -1354,6 +1361,12 @@ function facesSettingsHtml() {
         <div id="facesModelRows" hidden>
           <h3 class="settings-h faces-h">Face model</h3>
           <div class="faces-models">${Object.keys(FACES_KEEPERS).map(facesModelCardHtml).join('')}</div>
+          <div class="faces-stuck" id="facesStuck" hidden>
+            <span id="facesStuckText"></span>
+            <button class="faces-link" id="facesStuckShow" type="button">Show which</button>
+            <button class="faces-link" id="facesStuckRetry" type="button">Try again</button>
+            <ul class="faces-stuck-list" id="facesStuckList" hidden></ul>
+          </div>
           <div class="mig-card faces-switch-card" id="facesSwitchCard" hidden>
             <div class="faces-status-line" id="facesSwitchText"></div>
             <div class="mig-progress" id="facesSwitchBar">
@@ -1553,7 +1566,7 @@ function facesSettingsPoll() {
     const s = await facesRefreshStatus();
     if (wasRunning && !s?.queue?.running) facesReloadOpenBoxes();
     if (s && ((s.queue && s.queue.running) || (s.download && s.download.running)
-      || (s.modelSwitch && !s.modelSwitch.paused))) facesSettingsPoll();
+      || (facesActiveSwitch(s) && !facesActiveSwitch(s).paused) || facesSwitchExpected())) facesSettingsPoll();
   }, 1500);
 }
 
@@ -1677,9 +1690,15 @@ function facesModelCardHtml(name) {
  * yet), 'switch' (faces are being re-read with it), or null. target is the
  * model being moved to, old the one still answering searches meanwhile.
  */
+/** The switch in progress, or null. { idle: true } only reports stuck files. */
+function facesActiveSwitch(s) {
+  const sw = s && s.modelSwitch;
+  return sw && !sw.idle ? sw : null;
+}
+
 function facesModelPhase(s) {
   const needs = FACES_KEEPERS[s.needsModel] ? s.needsModel : null;
-  const sw = s.modelSwitch || null;
+  const sw = facesActiveSwitch(s);
   if (needs) return { phase: 'download', target: needs, old: facesKeeperName(s.activeModel), sw };
   if (sw) return { phase: 'switch', target: facesKeeperName(sw.to), old: facesKeeperName(sw.from), sw };
   return { phase: null, target: null, old: null, sw: null };
@@ -1723,6 +1742,8 @@ function facesModelPaint() {
     card.querySelector('.faces-model-meta').hidden = !!phase;
     card.querySelector('.faces-model-btn').hidden = !!phase || n === chosen;
   });
+
+  facesStuckPaint(phase ? 0 : (s.modelSwitch && s.modelSwitch.stuck) || 0);
 
   const card = $('facesSwitchCard');
   card.hidden = !phase;
@@ -1774,6 +1795,50 @@ function facesModelPaint() {
   const to = old && old !== target ? old : null;
   back.hidden = !to;
   if (to) { back.textContent = `Go back to ${FACES_KEEPERS[to].label}`; back.dataset.model = to; }
+}
+
+/* Files the switch could not re-read: they stay in the old model. */
+let facesStuckOpen = false;
+
+// The server's reasons (lib/faces/model-switch.js) in plain words; anything
+// else is a raw error, which is not shown.
+const FACES_STUCK_WHY = {
+  'file not found': 'The file is missing from disk.',
+  'not a photo, GIF or video any more': 'It is no longer a photo, GIF or video.',
+};
+
+function facesStuckPaint(n) {
+  const $ = (id) => document.getElementById(id);
+  const box = $('facesStuck');
+  box.hidden = !n;
+  if (!n) { facesStuckOpen = false; $('facesStuckList').hidden = true; return; }
+  $('facesStuckText').textContent = n === 1
+    ? '1 file could not be re-read with the new model. It still works with the old one.'
+    : `${n.toLocaleString()} files could not be re-read with the new model. They still work with the old one.`;
+  $('facesStuckShow').textContent = facesStuckOpen ? 'Hide the list' : 'Show which';
+  $('facesStuckList').hidden = !facesStuckOpen;
+  // The list follows the count: reload it when the count changed.
+  if (facesStuckOpen && Number($('facesStuckList').dataset.n) !== n) facesStuckLoad();
+}
+
+async function facesStuckLoad() {
+  const list = document.getElementById('facesStuckList');
+  list.dataset.n = String(facesActiveSwitch(facesStatus) ? 0 : (facesStatus?.modelSwitch?.stuck || 0));
+  let files = [];
+  try { files = (await facesApi('/api/faces/model-switch/stuck', { background: true })).files || []; }
+  catch (err) { facesToastError(err); return; }
+  list.innerHTML = files.map(f => `<li><span class="faces-stuck-name">${escapeHtml(f.filename || `File ${f.mediaId}`)}</span>`
+    + `<span class="faces-stuck-why">${FACES_STUCK_WHY[f.reason] || 'It could not be read.'}</span></li>`).join('');
+}
+
+async function facesStuckRetry(btn) {
+  btn.disabled = true;
+  try { facesSetStatus(await facesApi('/api/faces/model-switch/retry', { method: 'POST' })); }
+  catch (err) { facesToastError(err); btn.disabled = false; return; }
+  btn.disabled = false;
+  facesStuckOpen = false;
+  facesSwitchStarted();
+  facesSettingsPoll();
 }
 
 /** "1,240 of 4,300 files · about 6 min left" (the switch counts files). */
@@ -1945,6 +2010,13 @@ function facesWireSettings() {
   root.querySelectorAll('[data-faces-switch]').forEach(b => b.addEventListener('click', () => facesSwitchModel(b.dataset.facesSwitch, b)));
   root.querySelector('#facesSwitchDlBtn').addEventListener('click', (e) => facesDownloadKeeper(e.currentTarget.dataset.model));
   root.querySelector('#facesSwitchPauseBtn').addEventListener('click', (e) => facesSwitchPause(e.currentTarget));
+  facesStuckOpen = false;
+  root.querySelector('#facesStuckShow').addEventListener('click', () => {
+    facesStuckOpen = !facesStuckOpen;
+    if (facesStuckOpen) facesStuckLoad();
+    facesSettingsPaint();
+  });
+  root.querySelector('#facesStuckRetry').addEventListener('click', (e) => facesStuckRetry(e.currentTarget));
   root.querySelector('#facesSwitchBackBtn').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     btn.disabled = true;
