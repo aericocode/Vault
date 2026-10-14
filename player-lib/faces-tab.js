@@ -181,6 +181,7 @@ function ftSetMode(mode) {
   ftFlipStop();
   if (typeof studiosReset === 'function') studiosReset();
   FT.mode = mode;
+  FT.fromStudio = null;
   try { localStorage.setItem('vaultFacesMode', mode); } catch {}
   FT.personId = null; FT.person = null; FT.fileIds = null; FT.fileInfo = {};
   ftPaintSelBar();
@@ -1063,8 +1064,12 @@ async function ftNamedAfterMerge(p, how = {}) {
 
 /* ── Person page ───────────────────────────────────────────────────────── */
 
-/** Open a person's page (from a tile, a chip menu, "Often seen with"). */
-function facesOpenPerson(id) {
+/**
+ * Open a person's page (from a tile, a chip menu, "Often seen with").
+ * fromStudio {id, name}: opened from that studio's page; the breadcrumb goes back there.
+ */
+function facesOpenPerson(id, { fromStudio = null } = {}) {
+  FT.fromStudio = fromStudio;
   ftCloseNaming();
   ftUnpin();
   ftClosePops();
@@ -1092,6 +1097,7 @@ function facesOpenPerson(id) {
 function ftClosePerson() {
   ftCloseNaming();
   ftClosePops();
+  FT.fromStudio = null;
   FT.personId = null;
   FT.person = null;
   FT.fileIds = null;
@@ -1153,12 +1159,21 @@ async function ftLoadFiles() {
   return FT.filesReady;
 }
 
+/** "← Faces", or "← <studio>" when the page was opened from a studio's page. */
+function ftBackBtnHtml() {
+  const s = FT.fromStudio;
+  if (s && s.id != null) {
+    return `<button class="ft-back" type="button" data-ft-backstudio="${Number(s.id)}" title="Back to this studio">← <span class="ft-pm-name">${ftEsc(s.name)}</span></button>`;
+  }
+  return '<button class="ft-back" type="button" data-ft-home>← Faces</button>';
+}
+
 function ftPaintPerson() {
   const host = document.getElementById('ftPerson');
   if (!host) return;
   const p = FT.person;
   if (!p) {
-    host.innerHTML = `<div class="ft-crumb"><button class="ft-back" type="button" data-ft-home>← Faces</button></div>`;
+    host.innerHTML = `<div class="ft-crumb">${ftBackBtnHtml()}</div>`;
     return;
   }
   const name = ftName(p);
@@ -1170,7 +1185,7 @@ function ftPaintPerson() {
   const withChips = (p.oftenWith || []).map(o => `<button class="ft-mini" type="button" data-ft-open="${o.id}">${ftCropImg(o.coverUrl)}<span class="${o.name ? 'ft-mini-name' : 'ft-mini-name ft-muted'}">${o.name ? ftEsc(o.name) : 'Not named yet'}</span> · ${Number(o.shared).toLocaleString()}</button>`).join('');
   const seg = [['all', 'All', p.files], ['video', 'Videos', p.videos], ['photo', 'Photos', p.photos]];
   host.innerHTML = `
-    <div class="ft-crumb"><button class="ft-back" type="button" data-ft-home>← Faces</button><span class="ft-sep">/</span>
+    <div class="ft-crumb">${ftBackBtnHtml()}<span class="ft-sep">/</span>
       <b class="ft-crumb-name${name ? '' : ' ft-muted'}">${name ? ftEsc(name) : 'Not named yet'}</b>${p.hidden ? '<span class="ft-tag">Hidden</span>' : ''}</div>
     <section class="ft-head">
       <button class="ft-cover" type="button" data-ft-cover aria-haspopup="dialog" aria-label="Change photo">${ftCropImg(p.coverUrl)}<span class="ft-cover-cap">Change photo</span></button>
@@ -1203,7 +1218,8 @@ function ftPaintPerson() {
 
 /** S5: "Also known as", then Active / Born / links, under the name. */
 function ftDetailsTopHtml(p) {
-  const aka = typeof stAliasList === 'function' ? stAliasList(p).join(', ') : '';
+  // " · " between names: a name can hold a comma.
+  const aka = typeof stAliasList === 'function' ? stAliasList(p).join(' · ') : '';
   const years = typeof stYears === 'function' ? stYears(p.yearStart, p.yearEnd) : '';
   const born = p.born && typeof stBorn === 'function' ? stBorn(p.born) : '';
   const links = typeof stLinksHtml === 'function' ? stLinksHtml(p.urls) : '';
@@ -1245,8 +1261,8 @@ function ftEditDetails() {
       ${stYearsInputs('pdY1', 'pdY2', p.yearStart, p.yearEnd)}
       <div><label class="st-lbl" for="pdBorn">Born (optional)</label><input class="st-in" id="pdBorn" type="text" maxlength="10" value="${v(p.born)}" placeholder="1961-08-04, 1961-08 or 1961"></div>
       ${stLinksField('pdLinks', p.urls, 'Links')}
-      <div><label class="st-lbl" for="pdDesc">Description</label><textarea class="st-in" id="pdDesc">${v(p.description)}</textarea></div>
-      <div><label class="st-lbl" for="pdNotes">Notes (only for you)</label><textarea class="st-in" id="pdNotes">${v(p.notes)}</textarea></div>
+      <div><label class="st-lbl" for="pdDesc">Description</label><textarea class="st-in st-pm-field" id="pdDesc">${v(p.description)}</textarea></div>
+      <div><label class="st-lbl" for="pdNotes">Notes (only for you)</label><textarea class="st-in st-pm-field" id="pdNotes">${v(p.notes)}</textarea></div>
       <div class="st-err" role="alert" hidden></div>
       <div class="st-dacts st-dacts-end"><button class="ft-btn ghost ft-btn-md" type="button" data-pd-cancel>Cancel</button><button class="ft-btn ft-btn-md" type="submit">Save</button></div>
     </form>`);
@@ -1275,6 +1291,14 @@ function ftEditDetails() {
       yearStart: yrs.a, yearEnd: yrs.b, born: born || null,
     };
     if (name !== (p.name || '')) patch.name = name;
+    if (p.name && !name) {
+      const ok = await facesAsk({
+        title: 'Remove this person\'s name?',
+        html: '<p class="vault-modal-hint">They go back to Not named yet.</p>',
+        buttons: [{ label: 'Cancel', value: false }, { label: 'Yes', value: true, primary: true }],
+      });
+      if (!ok) { form.querySelector('#pdName').focus(); return; }
+    }
     const btn = form.querySelector('[type="submit"]');
     btn.disabled = true;
     let r;
@@ -1763,6 +1787,8 @@ function ftWire() {
     if (cand) { ftMightCard(Number(cand.closest('[data-cand]').dataset.cand), cand.dataset.ftCand, cand); return; }
 
     // Person page
+    const backStudio = t.closest('[data-ft-backstudio]');
+    if (backStudio) { const sid = Number(backStudio.dataset.ftBackstudio); FT.fromStudio = null; stOpenStudio(sid); return; }
     if (t.closest('[data-ft-home]')) { ftClosePerson(); return; }
     const open = t.closest('[data-ft-open]');
     if (open) { facesOpenPerson(Number(open.dataset.ftOpen)); return; }

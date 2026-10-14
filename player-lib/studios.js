@@ -29,7 +29,7 @@ const ST_SORTS = [
 const ST_FILTERS = [
   { value: 'all', label: 'All' },
   { value: 'favorites', label: '★ Favorites' },
-  { value: 'nophoto', label: 'No photo yet' },
+  { value: 'nophoto', label: 'No cover picked' },
 ];
 const ST_PAGE = 200;
 const ST_CARD_MIN = { S: 200, M: 260, L: 330 };
@@ -234,7 +234,7 @@ function stEmptyText() {
   if (ST.q) return `No studio called "${stEsc(ST.q)}".`;
   switch (ST.filter) {
     case 'favorites': return 'No favorites yet. Open a studio and click ★ Favorite.';
-    case 'nophoto': return 'Every studio has a photo.';
+    case 'nophoto': return 'Every studio has a cover picked.';
     default: return 'No studios yet. A studio groups files by where they come from, like a channel, a site or a maker.';
   }
 }
@@ -659,8 +659,8 @@ function stEditStudio(s) {
       ${stAliasField('stfAka', s, 'Used when matching folder names.')}
       ${stYearsInputs('stfY1', 'stfY2', s.yearStart, s.yearEnd)}
       ${stLinksField('stfUrl', s.urls, 'Website')}
-      <div><label class="st-lbl" for="stfDesc">Description</label><textarea class="st-in" id="stfDesc">${stEsc(s.description || '')}</textarea></div>
-      <div><label class="st-lbl" for="stfNotes">Notes (only for you)</label><textarea class="st-in" id="stfNotes">${stEsc(s.notes || '')}</textarea></div>
+      <div><label class="st-lbl" for="stfDesc">Description</label><textarea class="st-in st-pm-field" id="stfDesc">${stEsc(s.description || '')}</textarea></div>
+      <div><label class="st-lbl" for="stfNotes">Notes (only for you)</label><textarea class="st-in st-pm-field" id="stfNotes">${stEsc(s.notes || '')}</textarea></div>
       <button class="st-tog" type="button" role="switch" aria-checked="${!!s.favorite}" data-st-f="fav"><span class="st-sw" aria-hidden="true"><i></i></span>Favorite</button>
       <div class="st-err" role="alert" hidden></div>
       <div class="st-dacts"><button class="st-del" type="button" data-st-f="delete">Delete studio</button>
@@ -748,7 +748,7 @@ function stYearsPop(anchor, { studio, person, from }) {
     if (act === 'save') { save(); return; }
     if (act === 'open') {
       stClosePops();
-      if (from === 'studio') facesOpenPerson(person.id); else stOpenStudio(studio.id);
+      if (from === 'studio') facesOpenPerson(person.id, { fromStudio: { id: studio.id, name: studio.name } }); else stOpenStudio(studio.id);
       return;
     }
     if (act === 'remove') {
@@ -812,9 +812,10 @@ function stAddPerson(anchor) {
 
 /** Person page: "+ Add to a studio". */
 function stAddPersonToStudio(anchor, person) {
-  const have = new Set((person.studios || []).filter(x => x.explicit).map(x => x.id));
+  // Every studio on their chips (added, or found in its files): its chip sets the years.
+  const have = new Set((person.studios || []).map(x => x.id));
   stPicker(anchor, {
-    title: 'Add to a studio', exclude: have,
+    title: 'Add to a studio', already: have,
     onPick: async (s) => {
       try { await stApi(`/api/studios/${s.id}/people`, { method: 'POST', json: { personId: person.id } }); }
       catch (err) { stToastError(err); return; }
@@ -840,10 +841,11 @@ function stPersonChipsHtml(p) {
 
 /**
  * Search studios and pick one; "New studio called X" makes one first.
- * opts: title, placeholder, allowNew, exclude (id or Set), clear (label of the
- * red "take out" row), above (open above the anchor), onPick(studio), onClear()
+ * opts: title, placeholder, allowNew, exclude (id or Set), already (Set of ids
+ * shown as "Already in X", not pickable), clear (label of the red "take out"
+ * row), above (open above the anchor), onPick(studio), onClear()
  */
-function stPicker(anchor, { title = '', placeholder = 'Find or make a studio', allowNew = true, exclude = null, clear = '', above = false, onPick, onClear } = {}) {
+function stPicker(anchor, { title = '', placeholder = 'Find or make a studio', allowNew = true, exclude = null, already = null, clear = '', above = false, onPick, onClear } = {}) {
   const pop = stPop(anchor, `
     ${title ? `<div class="fpop-title">${stEsc(title)}</div>` : ''}
     <input type="text" class="ft-field ft-pop-search st-pop-input" placeholder="${stEsc(placeholder)}" aria-label="${stEsc(placeholder)}" autocomplete="off">
@@ -855,6 +857,7 @@ function stPicker(anchor, { title = '', placeholder = 'Find or make a studio', a
   const paint = () => {
     listEl.innerHTML = opts.map((o, i) => {
       const cls = `ft-opt st-opt${i === hi ? ' hi' : ''}${o.clear ? ' st-rm' : ''}`;
+      if (o.already) return `<button class="ft-opt st-opt st-already" type="button" role="option" aria-disabled="true" disabled>${stCoverHtml(o.already, 'st-opt-img')}<div class="st-newtext">Already in <i class="st-pm st-newname">${stEsc(o.already.name)}</i></div></button>`;
       if (o.studio) return `<button class="${cls}" type="button" role="option" aria-selected="${i === hi}" data-i="${i}">${stCoverHtml(o.studio, 'st-opt-img')}<span class="st-pm">${stEsc(o.studio.name)}</span><span class="st-opt-n">${stPlural(o.studio.files, 'file', 'files')}</span></button>`;
       if (o.name) return `<button class="${cls}" type="button" role="option" aria-selected="${i === hi}" data-i="${i}"><span class="st-plus" aria-hidden="true">+</span><div class="st-newtext">New studio called "<i class="st-pm st-newname">${stEsc(o.name)}</i>"</div></button>`;
       return `<button class="${cls}" type="button" role="option" aria-selected="${i === hi}" data-i="${i}">${stEsc(clear)}</button>`;
@@ -863,22 +866,24 @@ function stPicker(anchor, { title = '', placeholder = 'Find or make a studio', a
   const load = async () => {
     const q = ++seq;
     const v = input.value.trim();
-    const qs = new URLSearchParams({ q: v, sort: v ? 'name' : 'files', filter: 'all', limit: '9' });
+    const qs = new URLSearchParams({ q: v, sort: v ? 'name' : 'files', filter: 'all', limit: '50' });
     let list = [];
     try { list = (await stApi(`/api/studios?${qs}`, { background: true })).studios || []; }
     catch (err) { if (q === seq) { listEl.innerHTML = `<div class="ft-drop-note">${stEsc(err.message)}</div>`; } return; }
     if (q !== seq) return;
     stRemember(list);
+    // An exact name (case and spaces aside) never offers a new studio, even one left out below.
+    const key = (x) => String(x || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    const exact = list.some(s => key(s.name) === key(v));
     list = list.filter(s => !skip(s.id)).slice(0, 8);
-    const exact = list.some(s => s.name.trim().toLowerCase() === v.toLowerCase());
-    opts = list.map(s => ({ studio: s }));
+    opts = list.map(s => (already && already.has(s.id) ? { already: s } : { studio: s }));
     if (allowNew && v && !exact) opts.push({ name: v });
     if (clear) opts.push({ clear: true });
-    hi = 0;
+    hi = Math.max(0, opts.findIndex(o => !o.already));
     paint();
   };
   const choose = async (o) => {
-    if (!o) return;
+    if (!o || o.already) return;
     stClosePops();
     if (o.clear) { if (onClear) onClear(); return; }
     if (o.studio) { onPick(o.studio); return; }
@@ -897,7 +902,8 @@ function stPicker(anchor, { title = '', placeholder = 'Find or make a studio', a
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (!opts.length) return;
-      hi = (hi + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length;
+      const step = e.key === 'ArrowDown' ? 1 : -1;
+      for (let n = 0; n < opts.length; n++) { hi = (hi + step + opts.length) % opts.length; if (!opts[hi].already) break; }
       paint();
     } else if (e.key === 'Enter') { e.preventDefault(); choose(opts[hi]); }
   });

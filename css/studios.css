@@ -282,3 +282,14 @@ body.pm-names .st-desc { filter: blur(7px); }
 .st-detail .st-detail-link span { color: #818cf8; }
 .st-detail .st-detail-link:hover span { color: #a5b4fc; }
 textarea.st-in.st-in-short { min-height: 40px; }
+
+/* Privacy, round 2: folder paths ride with file paths (and names), web
+   hostnames with names. */
+body.pm-paths .st-tf,
+body.pm-names .st-tf,
+body.pm-names .st-facts .st-link,
+body.pm-names .st-meta .st-link { filter: blur(7px); }
+body.pm-names .st-facts .st-link,
+body.pm-names .st-meta .st-link { pointer-events: none; user-select: none; }
+.st-already { opacity: 0.6; cursor: default; }
+.st-already:hover { background: transparent; }
