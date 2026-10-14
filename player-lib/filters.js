@@ -650,6 +650,17 @@ function currentQuerySpec() {
     spec.onlyIds = person.onlyIds;
     spec.rankedIds = person.rankedIds;
   }
+  // A studio open in the Faces tab: its files through the normal grid, with
+  // its own All / Videos / Photos switch (the library's filters are out of sight).
+  const studio = typeof studiosQuery === 'function' ? studiosQuery() : null;
+  if (studio) {
+    spec.search = { ...spec.search, text: '', metadataOnly: false, fuzzy: false, semantic: false, subtitles: false };
+    spec.filters = { ...spec.filters, mediaTypes: studio.mediaTypes };
+    spec.collectionId = null;
+    spec.studioId = studio.studioId;
+    spec.onlyIds = null;
+    spec.rankedIds = null;
+  }
   return spec;
 }
 

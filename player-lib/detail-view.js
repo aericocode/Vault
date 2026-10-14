@@ -225,6 +225,7 @@ function renderDetailBody(media, opts = {}) {
           <label>Frames</label>
           <span>${escapeHtml(String(media.frames_analyzed || 'N/A'))}</span>
         </div>
+        ${typeof studiosDetailItemHtml === 'function' ? studiosDetailItemHtml(media) : ''}
         <div class="detail-item detail-item--wide">
           <label>Views</label>
           <span>👁 ${media.view_count || 0}${media.last_viewed_at ? ` (last: ${escapeHtml(media.last_viewed_at)})` : ''} · 💦 ${media.done_count || 0}${media.last_done_position > 0 ? ` (last at ${formatDuration(media.last_done_position)})` : ''} · 🔥 ${media.hot_count || 0}${media.last_hot_position > 0 ? ` (last at ${formatDuration(media.last_hot_position)})` : ''}</span>

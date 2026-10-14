@@ -357,6 +357,7 @@ function renderSelectionBar() {
   bar.innerHTML = `
     <span class="sel-count">${selectedIds.size} selected</span>
     ${musicBtns}
+    ${typeof studiosSelectionButton === 'function' ? studiosSelectionButton() : ''}
     ${typeof facesSelectionButton === 'function' ? facesSelectionButton(counts.faceable) : ''}
     ${retryBtn}
     ${activeCount > 0 ? `<button class="sel-btn sel-trash" onclick="trashSelected()">🗑 Trash (${activeCount})</button>` : ''}

@@ -916,6 +916,7 @@ function renderTile(media) {
         <span class="tile-type-icon">${icon}</span>
         ${duration ? `<span class="tile-duration">${duration}</span>` : ''}
         ${hotDone ? `<span class="tile-hotdone">${hotDone}</span>` : ''}
+        ${typeof studiosTileTagHtml === 'function' ? studiosTileTagHtml(media) : ''}
         ${typeof facesTileExtrasHtml === 'function' ? facesTileExtrasHtml(media) : ''}
         ${resumePct > 2 ? `<div class="tile-resume" style="width:${resumePct.toFixed(1)}%" title="Resume at ${formatDuration(media.last_position)}"></div>` : ''}
         <input type="checkbox" class="tile-select" ${isSelected ? 'checked' : ''}

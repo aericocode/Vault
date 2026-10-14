@@ -9,6 +9,10 @@
              below shows the person's files (filters.js currentQuerySpec ->
              facesPersonQuery: onlyIds + rankedIds in the person's order).
 
+   A People | Studios switch (FT.mode, remembered) sits at the start of the
+   top row; in Studios mode studios.js draws #facesView instead (studiosRender),
+   with or without face search.
+
    Hooks into other files:
      tabs.js        facesTabEnter() / facesTabLeave()
      filters.js     facesHomeShowing(), facesPersonQuery()
@@ -50,7 +54,9 @@ const FT = {
   pin: null,                 // a person kept in the grid after a merge or name (ftRevealTile)
   lastCounts: null,
   pollTimer: null,
+  mode: 'people',            // the People | Studios switch (studios.js draws Studios)
 };
+try { if (localStorage.getItem('vaultFacesMode') === 'studios') FT.mode = 'studios'; } catch {}
 
 /* ── Small helpers ─────────────────────────────────────────────────────── */
 
@@ -109,12 +115,14 @@ function ftCropImg(url, cls = '') {
 /* ── Tab hooks ─────────────────────────────────────────────────────────── */
 
 function facesHomeShowing() {
-  return ftOnTab() && FT.personId == null;
+  if (!ftOnTab()) return false;
+  if (FT.mode === 'studios') return typeof studiosOpenId !== 'function' || studiosOpenId() == null;
+  return FT.personId == null;
 }
 
 /** onlyIds + rankedIds for an open person, or null. */
 function facesPersonQuery() {
-  if (!ftOnTab() || FT.personId == null) return null;
+  if (!ftOnTab() || FT.mode !== 'people' || FT.personId == null) return null;
   const ids = FT.fileIds || [];
   const n = ids.length;
   return { onlyIds: ids.slice(), rankedIds: ids.map((id, i) => ({ id, score: n - i })) };
@@ -137,7 +145,8 @@ function facesTabLeave() {
   ftCloseNaming();
   ftUnpin();
   ftClosePops();
-  document.getElementById('mainContainer')?.classList.remove('faces-on', 'faces-home', 'faces-person');
+  if (typeof stClosePops === 'function') stClosePops();
+  document.getElementById('mainContainer')?.classList.remove('faces-on', 'faces-home', 'faces-person', 'faces-studio');
   const view = ftView();
   if (view) view.hidden = true;
   ftPaintSelBar();
@@ -149,14 +158,42 @@ function facesTabLeave() {
 function ftApplyMode() {
   const main = document.getElementById('mainContainer');
   if (!main) return;
-  const person = FT.personId != null && facesReady();
-  main.classList.toggle('faces-home', !person);
+  const studios = FT.mode === 'studios';
+  const studio = studios && typeof studiosOpenId === 'function' && studiosOpenId() != null;
+  const person = !studios && FT.personId != null && facesReady();
+  main.classList.toggle('faces-home', !person && !studio);
   main.classList.toggle('faces-person', person);
+  main.classList.toggle('faces-studio', studio);
+}
+
+/** People | Studios, at the start of both views' top row. */
+function ftModeSegHtml() {
+  const b = (m, label) => `<button type="button" class="${FT.mode === m ? 'on' : ''}" data-ft-mode="${m}" aria-pressed="${FT.mode === m}">${label}</button>`;
+  return `<span class="ft-mode" role="group" aria-label="Show">${b('people', 'People')}${b('studios', 'Studios')}</span>`;
+}
+
+/** Flip the switch: nothing stays open on either side. */
+function ftSetMode(mode) {
+  if (FT.mode === mode) return;
+  ftCloseNaming();
+  ftClosePops();
+  ftUnpin();
+  ftFlipStop();
+  if (typeof studiosReset === 'function') studiosReset();
+  FT.mode = mode;
+  try { localStorage.setItem('vaultFacesMode', mode); } catch {}
+  FT.personId = null; FT.person = null; FT.fileIds = null; FT.fileInfo = {};
+  ftPaintSelBar();
+  ftRenderHome();
+  applyFilters();
+  if (!facesHeaderCount() && typeof renderLibraryCount === 'function') renderLibraryCount();
+  ftPoll();
+  document.querySelector(`#facesView [data-ft-mode="${mode}"]`)?.focus();
 }
 
 /** faces.js calls this after every status answer. */
 function facesTabStatusChanged(readyFlipped) {
-  if (!ftOnTab()) return;
+  if (!ftOnTab() || FT.mode === 'studios') return;   // Studios do not need face search
   if (readyFlipped) {
     ftApplyMode();
     if (FT.personId != null && facesReady()) ftRenderPerson();
@@ -167,7 +204,7 @@ function facesTabStatusChanged(readyFlipped) {
   if (!facesReady()) {
     // Off (or still setting up): the intro card follows the switch.
     const view = ftView();
-    if (view) view.innerHTML = ftOffHtml();
+    if (view) view.innerHTML = ftOffViewHtml();
     return;
   }
   if (FT.personId == null) {
@@ -191,7 +228,7 @@ function ftReloadSoon() {
 function ftPoll() {
   clearTimeout(FT.pollTimer);
   FT.pollTimer = null;
-  if (!ftOnTab() || FT.personId != null || !facesReady()) return;
+  if (!ftOnTab() || FT.mode !== 'people' || FT.personId != null || !facesReady()) return;
   const s = facesStatus || {};
   const moving = (s.queue && s.queue.running) || (s.people && s.people.sorting);
   if (!moving) return;
@@ -222,6 +259,11 @@ function ftOffHtml() {
     </div>`;
 }
 
+/** The Off card with the People | Studios switch above it. */
+function ftOffViewHtml() {
+  return `<div class="ft-mode-row">${ftModeSegHtml()}</div>${ftOffHtml()}`;
+}
+
 /** Settings > Face search, then the same switch + consent flow as the toggle. */
 async function ftTurnOn() {
   if (typeof window.vaultOpenSettings !== 'function') return;
@@ -240,8 +282,9 @@ function ftRenderHome() {
   const view = ftView();
   if (!view) return;
   ftApplyMode();
+  if (FT.mode === 'studios') { studiosRender(); ftPaintSelBar(); return; }
   if (!facesReady()) {
-    view.innerHTML = ftOffHtml();
+    view.innerHTML = ftOffViewHtml();
     ftPaintSelBar();
     return;
   }
@@ -250,6 +293,7 @@ function ftRenderHome() {
       <div class="ft-home">
         <section class="ft-panel">
           <div class="ft-row">
+            ${ftModeSegHtml()}
             <label class="ft-search">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
               <input type="text" id="ftSearch" placeholder="Search people by name" aria-label="Search people by name" autocomplete="off">
@@ -356,6 +400,7 @@ async function ftLoadPeople() {
 
 /** "18 people" in the header while the tab is showing; database.js asks first. */
 function facesHeaderCount() {
+  if (ftOnTab() && FT.mode === 'studios') return typeof studiosHeaderCount === 'function' && studiosHeaderCount();
   if (!ftOnTab() || !facesReady() || !FT.counts) return false;
   const el = document.getElementById('totalCount');
   if (el) el.textContent = ftPlural(Number(FT.counts.all || 0), 'person', 'people');
@@ -812,7 +857,7 @@ function ftMergeTarget(list) {
 
 function ftPaintSelBar() {
   let bar = document.getElementById('ftSelBar');
-  const show = ftOnTab() && FT.personId == null && facesReady() && FT.sel.size > 0;
+  const show = ftOnTab() && FT.mode === 'people' && FT.personId == null && facesReady() && FT.sel.size > 0;
   if (!show) { if (bar) bar.classList.remove('visible'); return; }
   if (!bar) {
     bar = document.createElement('div');
@@ -1024,6 +1069,12 @@ function facesOpenPerson(id) {
   ftUnpin();
   ftClosePops();
   ftFlipStop();
+  if (FT.mode !== 'people') {
+    // A person opened from a studio: the switch follows.
+    if (typeof studiosReset === 'function') studiosReset();
+    FT.mode = 'people';
+    try { localStorage.setItem('vaultFacesMode', 'people'); } catch {}
+  }
   FT.personId = Number(id);
   FT.might = null;          // a fresh look every time the page opens
   FT.person = null;
@@ -1128,14 +1179,19 @@ function ftPaintPerson() {
           ${name ? `<h1>${ftEsc(name)}</h1>` : '<h1 class="ft-muted">Not named yet</h1>'}
           <button class="ft-icon-btn" type="button" data-ft-rename aria-label="${name ? 'Rename' : 'Add a name'}" title="${name ? 'Rename' : 'Add a name'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a0a0a0" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg></button>
         </div>
+        ${ftDetailsTopHtml(p)}
         <div class="ft-stats">${badges.map(b => `<span class="ft-pbadge">${ftEsc(b)}</span>`).join('')}</div>
+        ${typeof stPersonChipsHtml === 'function' ? stPersonChipsHtml(p) : ''}
         <div class="ft-acts">
           <button class="ft-btn ft-btn-md" type="button" data-ft-play="0">▶ Play all</button>
           <button class="ft-btn ghost ft-btn-md" type="button" data-ft-play="1">Shuffle</button>
           <button class="ft-btn ghost ft-btn-md${p.favorite ? ' on' : ''}" type="button" data-ft-fav aria-pressed="${!!p.favorite}">★ Favorite</button>
+          <button class="ft-btn ghost ft-btn-md" type="button" data-ft-details aria-haspopup="dialog">Edit details</button>
           <button class="ft-btn ghost ft-btn-md" type="button" data-ft-findmore>Find more that might be them</button>
           <button class="ft-btn ghost ft-btn-md" type="button" data-ft-more aria-haspopup="menu">More ▾</button>
         </div>
+        ${p.description ? `<p class="st-desc">${ftEsc(p.description)}</p>` : ''}
+        ${p.notes ? `<div class="st-notes"><b>Notes:</b> ${ftEsc(p.notes)}</div>` : ''}
         ${withChips ? `<div class="ft-with">Often seen with ${withChips}</div>` : ''}
       </div>
     </section>
@@ -1145,17 +1201,108 @@ function ftPaintPerson() {
   ftPaintMight();
 }
 
+/** S5: "Also known as", then Active / Born / links, under the name. */
+function ftDetailsTopHtml(p) {
+  const aka = String(p.aliases || '').split(',').map(x => x.trim()).filter(Boolean).join(', ');
+  const years = typeof stYears === 'function' ? stYears(p.yearStart, p.yearEnd) : '';
+  const born = p.born && typeof stBorn === 'function' ? stBorn(p.born) : '';
+  const links = typeof stLinksHtml === 'function' ? stLinksHtml(p.urls) : '';
+  const facts = `${years ? `<span><b>Active</b> ${years}</span>` : ''}${born ? `<span><b>Born</b> ${ftEsc(born)}</span>` : ''}${links}`;
+  return `${aka ? `<div class="st-aka">Also known as: <span class="ft-pm-name">${ftEsc(aka)}</span></div>` : ''}
+    ${facts ? `<div class="st-facts">${facts}</div>` : ''}`;
+}
+
+/** A person answer lands on the open page; the extras it may not carry stay. */
+function ftMergePerson(p) {
+  if (!p || !FT.person) return;
+  Object.assign(FT.person, p, {
+    oftenWith: p.oftenWith || FT.person.oftenWith,
+    studios: p.studios || FT.person.studios,
+  });
+}
+
+/** Studio chips changed: the person again (details and studios), not their files. */
+async function ftReloadPersonDetails() {
+  const id = FT.personId;
+  if (id == null) return;
+  let p;
+  try { p = await ftApi(`/api/faces/people/${id}`, { background: true }); } catch (err) { facesToastError(err); return; }
+  if (FT.personId !== id || !FT.person) return;
+  ftMergePerson(p);
+  ftPaintPerson();
+}
+
+/** S5: Edit details (name, other names, years, born, links, description, notes). */
+function ftEditDetails() {
+  const p = FT.person;
+  if (!p || typeof stOverlay !== 'function') return;
+  const v = (x) => ftEsc(x == null ? '' : x);
+  const ov = stOverlay(`
+    <form class="ft-dlg st-dlg st-form st-form-narrow" role="dialog" aria-modal="true" aria-label="Edit details" novalidate>
+      <h2>Edit details</h2>
+      <div><label class="st-lbl" for="pdName">Name</label><input class="st-in st-pm-field" id="pdName" type="text" maxlength="200" value="${v(p.name)}" placeholder="Not named yet"></div>
+      <div><label class="st-lbl" for="pdAka">Other names</label><input class="st-in st-pm-field" id="pdAka" type="text" value="${v(p.aliases)}" placeholder="Separate them with commas"><div class="st-hint">Search finds them by any of these.</div></div>
+      ${stYearsInputs('pdY1', 'pdY2', p.yearStart, p.yearEnd)}
+      <div><label class="st-lbl" for="pdBorn">Born (optional)</label><input class="st-in" id="pdBorn" type="text" maxlength="10" value="${v(p.born)}" placeholder="1961-08-04, 1961-08 or 1961"></div>
+      <div><label class="st-lbl" for="pdLinks">Links</label><textarea class="st-in st-in-links" id="pdLinks" rows="2" placeholder="https://">${v(stUrlList(p.urls).join('\n') || p.urls)}</textarea><div class="st-hint">One per line.</div></div>
+      <div><label class="st-lbl" for="pdDesc">Description</label><textarea class="st-in" id="pdDesc">${v(p.description)}</textarea></div>
+      <div><label class="st-lbl" for="pdNotes">Notes (only for you)</label><textarea class="st-in" id="pdNotes">${v(p.notes)}</textarea></div>
+      <div class="st-err" role="alert" hidden></div>
+      <div class="st-dacts st-dacts-end"><button class="ft-btn ghost ft-btn-md" type="button" data-pd-cancel>Cancel</button><button class="ft-btn ft-btn-md" type="submit">Save</button></div>
+    </form>`);
+  const form = ov.querySelector('form');
+  const err = form.querySelector('.st-err');
+  const say = (msg) => { err.textContent = msg; err.hidden = false; };
+  form.querySelector('[data-pd-cancel]').addEventListener('click', () => ov._close());
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const val = (id) => form.querySelector(`#${id}`).value;
+    const name = val('pdName').trim();
+    const yrs = stReadYears(val('pdY1'), val('pdY2'));
+    if (yrs.error) { say(yrs.error); return; }
+    const born = val('pdBorn').trim();
+    const bm = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/.exec(born);
+    const bornOk = !born || (bm && Number(bm[1]) >= 1800 && Number(bm[1]) <= 2100 && (!bm[2] || (Number(bm[2]) >= 1 && Number(bm[2]) <= 12))
+      && (!bm[3] || (Number(bm[3]) >= 1 && Number(bm[3]) <= new Date(Number(bm[1]), Number(bm[2]), 0).getDate())));
+    if (!bornOk) { say('Born needs to look like 1961, 1961-08 or 1961-08-04.'); return; }
+    const linkLines = val('pdLinks').split(/\n+/).map(x => x.trim()).filter(Boolean);
+    if (linkLines.some(l => !/^https?:\/\/\S+$/i.test(l))) { say('Each link needs to start with http:// or https://, one per line.'); return; }
+    const long = stTextTooLong([val('pdAka'), val('pdDesc'), val('pdNotes'), val('pdLinks')]);
+    if (long) { say(long); return; }
+    const patch = {
+      aliases: val('pdAka').split(',').map(x => x.trim()).filter(Boolean).join(', '),
+      urls: linkLines.join('\n'), description: val('pdDesc').trim(), notes: val('pdNotes').trim(),
+      yearStart: yrs.a, yearEnd: yrs.b, born: born || null,
+    };
+    if (name !== (p.name || '')) patch.name = name;
+    const btn = form.querySelector('[type="submit"]');
+    btn.disabled = true;
+    let r;
+    try { r = await ftApi(`/api/faces/people/${p.id}`, { method: 'POST', json: patch }); }
+    catch (ex) {
+      btn.disabled = false;
+      if (ex.code === 'NAME_TAKEN') say('Someone else in Faces already has that name. To put them together, use the pencil next to the name.');
+      else say(ex.message || 'Could not save. Try again.');
+      return;
+    }
+    ov._close();
+    if (FT.personId === p.id && FT.person) { ftMergePerson(r); ftPaintPerson(); }
+    showToast('Saved.');
+  });
+  form.querySelector('#pdName').focus();
+}
+
 async function ftPostPerson(patch) {
   const id = FT.personId;
   try {
     const p = await ftApi(`/api/faces/people/${id}`, { method: 'POST', json: patch });
-    if (FT.personId === id && FT.person) Object.assign(FT.person, p, { oftenWith: FT.person.oftenWith });
+    if (FT.personId === id && FT.person) ftMergePerson(p);
     return p;
   } catch (err) { facesToastError(err); return null; }
 }
 
-async function ftPlay(shuffle) {
-  if (FT.filesReady) await FT.filesReady;
+async function ftPlay(shuffle, ready = FT.filesReady) {
+  if (ready) await ready;
   if (typeof Library === 'undefined' || Library.length() === 0) { showToast('There are no files to play.'); return; }
   // A person's files are a queue: repeat-one would sit on the first file.
   if (typeof repeatMode === 'function' && repeatMode() === 'one' && typeof setRepeatMode === 'function') {
@@ -1287,7 +1434,7 @@ function ftMergeWith(anchor) {
       focusBack: () => document.querySelector('#ftPerson [data-ft-more]'),
       onDone: (p, how = {}) => {
         if (p && p.id !== FT.personId) { facesOpenPerson(p.id); return; }
-        if (p && FT.person) Object.assign(FT.person, p, { oftenWith: FT.person.oftenWith });
+        if (p && FT.person) ftMergePerson(p);
         ftPaintPerson();
         ftRefocus(document.querySelector('#ftPerson [data-ft-more]'));
         if (p && p.name && !how.merged) showToast(ftPrivate() ? 'Name saved.' : `Saved as ${p.name}.`);
@@ -1472,7 +1619,7 @@ async function ftMightAction(act, btn) {
 function facesTileExtrasHtml(media) {
   // Library: the face results' tags (faces.js).
   if (!ftOnTab()) return typeof facesResultTagHtml === 'function' ? facesResultTagHtml(media) : '';
-  if (FT.personId == null || !media) return '';
+  if (FT.mode !== 'people' || FT.personId == null || !media) return '';
   const info = FT.fileInfo[media.id];
   if (!info) return '';
   // Same rule as facesStartAt: under a second is just the start of the file.
@@ -1508,7 +1655,7 @@ async function facesNotThisPerson(mediaId) {
   if (FT.personId === personId) {
     const at = FT.fileIds.indexOf(mediaId);
     if (at >= 0) FT.fileIds.splice(at, 1);
-    if (FT.person) Object.assign(FT.person, r.person, { oftenWith: FT.person.oftenWith });
+    if (FT.person) ftMergePerson(r.person);
     ftPaintPerson();
     applyFilters({ keepPage: true });
   }
@@ -1528,7 +1675,7 @@ async function facesNotThisPerson(mediaId) {
 
 /** viewtracker.js asks this before its resume seek; true = handled. */
 function facesStartAt(el) {
-  if (!ftOnTab() || FT.personId == null || !el) return false;
+  if (!ftOnTab() || FT.mode !== 'people' || FT.personId == null || !el) return false;
   if (el.currentTime > 0.5) return false;   // maximize / mini handover keeps its place
   const m = typeof currentMediaState !== 'undefined' && currentMediaState.currentMediaData;
   const info = m && FT.fileInfo[m.id];
@@ -1554,6 +1701,8 @@ function ftWire() {
   view.addEventListener('click', async (e) => {
     const t = e.target instanceof Element ? e.target : null;
     if (!t) return;
+    const mode = t.closest('[data-ft-mode]');
+    if (mode) { ftSetMode(mode.dataset.ftMode); return; }
     if (t.closest('[data-ft-turnon]')) { ftTurnOn(); return; }
     const filter = t.closest('[data-ft-filter]');
     if (filter) {
@@ -1624,6 +1773,7 @@ function ftWire() {
       return;
     }
     if (t.closest('[data-ft-findmore]')) { ftFindMore(); return; }
+    if (t.closest('[data-ft-details]')) { ftEditDetails(); return; }
     const more = t.closest('[data-ft-more]');
     if (more) { e.stopPropagation(); ftMoreMenu(more); return; }
     const cover = t.closest('[data-ft-cover]');
@@ -1637,7 +1787,7 @@ function ftWire() {
         host: title, anchor: h1, id: FT.person.id, initial: FT.person.name || '',
         onDone: (p) => {
           if (p && p.id !== FT.personId) { facesOpenPerson(p.id); return; }
-          if (p && FT.person) Object.assign(FT.person, p, { oftenWith: FT.person.oftenWith });
+          if (p && FT.person) ftMergePerson(p);
           ftPaintPerson();
         },
       });
@@ -1711,7 +1861,7 @@ window.addEventListener('keydown', (e) => {
   if (document.getElementById('ftReviewDlg')) ftCloseReview();
   else if (document.getElementById('ftPop')) ftClosePops();
   else if (FT.naming) ftCloseNaming();
-  else if (ftOnTab() && FT.personId == null && FT.sel.size && !document.querySelector('.modal-overlay.active, .media-player-overlay.active, .settings-overlay.active')) ftClearSel();
+  else if (ftOnTab() && FT.mode === 'people' && FT.personId == null && FT.sel.size && !document.querySelector('.modal-overlay.active, .media-player-overlay.active, .settings-overlay.active')) ftClearSel();
   else return;
   e.preventDefault();
   e.stopImmediatePropagation();
