@@ -290,6 +290,7 @@ function setGamifyEnabled(on) {
   if (gamifyEnabled) {
     // Same settle-on-boot the launch flag does, so the first UI read is current.
     try {
+      require('../lib/gamify-tally').installWhenIndexed(db.get());
       require('../lib/gamify').settleDay();
       require('../lib/quests').ensureQuests();
     } catch (err) {
@@ -3024,21 +3025,6 @@ function start(args = process.argv.slice(2)) {
   // first unlock, wired into the stale-job cleanup above.)
   if (!bootedLocked) repairMisclassifiedMediaTypes();
 
-  gamifyEnabled = resolveGamifyEnabled(args);
-  if (gamifyEnabled) {
-    // Settle decay/streak once at startup so the first UI read is current —
-    // deferred to first unlock when the vault booted locked (needs the DB)
-    let gamifyBooted = false;
-    const bootGamify = () => {
-      if (gamifyBooted) return;
-      gamifyBooted = true;
-      require('../lib/gamify').settleDay();
-      require('../lib/quests').ensureQuests();
-    };
-    if (bootedLocked) vault.onChange((e) => { if (e === 'unlocked') bootGamify(); });
-    else bootGamify();
-  }
-
   // A running scan blocks non-forced locks and keeps the autolock clock alive
   vault.registerScanProbe(() => importQueue.isActive() || _rescanning.size > 0
     || facesService.instance().isBusy());
@@ -3055,6 +3041,25 @@ function start(args = process.argv.slice(2)) {
   // background, stop on lock and resume on unlock.
   if (!bootedLocked) libraryRoutes.prepareIndexes();
   libraryRoutes.startIndexing(vault);
+  gamifyEnabled = resolveGamifyEnabled(args);
+  if (gamifyEnabled) {
+    // Settle decay/streak once at startup so the first UI read is current —
+    // deferred to first unlock when the vault booted locked (needs the DB).
+    // After prepareIndexes: gamify's reads walk the sort indexes. A large
+    // library's quest profile then builds in the background (gamify-library).
+    // The view tallies (lib/gamify-tally.js) install once per library, as
+    // soon as the sort indexes exist (polled after an unlock that creates them).
+    let gamifyBooted = false;
+    const bootGamify = () => {
+      require('../lib/gamify-tally').installWhenIndexed(db.get());
+      if (gamifyBooted) return;
+      gamifyBooted = true;
+      require('../lib/gamify').settleDay();
+      require('../lib/quests').ensureQuests();
+    };
+    if (bootedLocked) vault.onChange((e) => { if (e === 'unlocked') bootGamify(); });
+    else bootGamify();
+  }
   // People across the library: sort faces that were found before the Faces
   // tab existed (or since the last run). Background, stops on lock, resumes
   // on unlock (onVaultUnlocked), defers while a migrate runs.

@@ -9,6 +9,9 @@
 const express = require('express');
 const gamify = require('../lib/gamify');
 const quests = require('../lib/quests');
+const library = require('../lib/gamify-library');
+
+const ANALYTICS_REFRESH_MS = 3600 * 1000;
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({
@@ -140,9 +143,14 @@ function buildRouter() {
   // Always answer JSON — a thrown error must not fall through to Express's
   // HTML error page (the client JSON.parses the response).
   // Computed entirely from the local DB — nothing is uploaded or phoned home.
-  router.get('/analytics', (req, res) => {
+  // The library-shape charts come from the library profile: the request
+  // waits (without blocking the server) the first time a large library has
+  // none yet, and a profile older than an hour is refreshed for next time.
+  router.get('/analytics', async (req, res) => {
     try {
-      res.json(gamify.getAnalytics());
+      const lib = await library.whenReady({ refreshAfterMs: ANALYTICS_REFRESH_MS });
+      if (!lib) return res.status(503).json({ error: 'library is not available' });
+      res.json(gamify.getAnalytics(lib));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
