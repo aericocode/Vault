@@ -99,7 +99,7 @@ function partition() {
 
 const ITEM_KEYS = ['addedAt', 'coverUrl', 'favorite', 'files', 'hidden', 'id', 'name', 'photos', 'screenS', 'videos'];
 // GET /api/faces/people/:id adds these to the list item (STUDIOS_SPEC section 2: person details, studios).
-const PERSON_KEYS = ['coverGroupId', 'oftenWith', 'aliases', 'urls', 'description', 'notes', 'yearStart', 'yearEnd', 'born', 'studios'];
+const PERSON_KEYS = ['coverGroupId', 'oftenWith', 'aliases', 'aliasList', 'urls', 'description', 'notes', 'yearStart', 'yearEnd', 'born', 'studios'];
 
 test.before(async () => {
   db.init();
