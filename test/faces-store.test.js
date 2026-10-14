@@ -48,7 +48,7 @@ test('schema migration adds the faces columns and tables to an existing database
   db.init();
   const id = addMedia('image', 'old.jpg');
   const d = db.get();
-  d.exec('DROP TABLE face_vectors; DROP TABLE face_groups;');
+  d.exec('DROP TABLE face_vectors; DROP TABLE face_groups; DROP TABLE face_vectors_prev; DROP INDEX idx_media_faces_model;');
   for (const c of ['faces_indexed_at', 'faces_model', 'faces_error']) d.exec(`ALTER TABLE media DROP COLUMN ${c}`);
   db.close();
 

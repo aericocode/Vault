@@ -411,11 +411,23 @@ test('grabFrame returns the frame at a timestamp', { skip: noFfmpeg }, async () 
 
 test('model registry: keys, hashes, consent metadata, presence check', () => {
   assert.deepStrictEqual(models.FACE_MODEL_KEYS, ['face:detect', 'face:embed']);
-  for (const m of Object.values(models.FACE_MODELS)) {
+  for (const key of models.FACE_MODEL_KEYS) {
+    const m = models.FACE_MODELS[key];
     assert.match(m.sha256, /^[0-9a-f]{64}$/);
     assert.match(m.url, /^https:\/\/huggingface\.co\/opencv\/.+\/resolve\/[0-9a-f]{40}\//);
     assert.ok(['MIT', 'Apache-2.0'].includes(m.license));
   }
+  // Keepers: pinned to a revision, one url constant each, consent metadata.
+  assert.deepStrictEqual(models.KEEPER_KEYS, ['face:keeper-ir50', 'face:keeper-ir101']);
+  for (const key of models.KEEPER_KEYS) {
+    const m = models.FACE_MODELS[key];
+    assert.match(m.sha256, /^[0-9a-f]{64}$/);
+    assert.match(m.url, /^https:\/\/huggingface\.co\/.+\/resolve\/[0-9a-f]{40}\/.+\.onnx$/);
+    assert.ok(m.bytes > 1e8);
+    assert.strictEqual(require('../lib/model-consent').describe(key).kind, 'face');
+  }
+  assert.strictEqual(models.FACE_MODELS['face:keeper-ir50'].url, models.IR50_URL);
+  assert.strictEqual(models.FACE_MODELS['face:keeper-ir101'].url, models.IR101_URL);
   const t = models.matchThresholds('sface-2021dec');
   assert.ok(t.close > t.normal && t.normal > t.wide);
   assert.deepStrictEqual(models.matchThresholds('stub-v1'), t);

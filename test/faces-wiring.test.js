@@ -131,21 +131,23 @@ test('thresholds come from the model registry', () => {
 test('production model store: registry entries, size and sha256 readiness', () => {
   const svc = faces.createService();            // no injected model store
   const entries = models.downloadEntries();
-  assert.deepStrictEqual(entries.map((e) => e.key), ['face:detect', 'face:embed']);
+  assert.deepStrictEqual(entries.map((e) => e.key), ['face:detect', 'face:embed', 'face:keeper-ir50', 'face:keeper-ir101']);
   for (const e of entries) {
     assert.strictEqual(e.dest, path.join(process.env.FACE_MODEL_DIR, models.FACE_MODELS[e.key].file));
     assert.strictEqual(e.size, models.FACE_MODELS[e.key].bytes);
     assert.match(e.sha256, /^[0-9a-f]{64}$/);
   }
-  assert.deepStrictEqual(svc.models().missing, ['face:detect', 'face:embed']);
+  // The grunt models and the chosen keeper (IR-50 by default); IR-101 only when chosen.
+  assert.deepStrictEqual(svc.models().missing, ['face:detect', 'face:embed', 'face:keeper-ir50']);
   fs.mkdirSync(process.env.FACE_MODEL_DIR, { recursive: true });
   fs.writeFileSync(entries[0].dest, Buffer.alloc(entries[0].size));
   fs.writeFileSync(entries[1].dest, Buffer.alloc(100));       // truncated
-  assert.deepStrictEqual(svc.models().reasons, { 'face:detect': 'corrupt', 'face:embed': 'size' });
+  assert.deepStrictEqual(svc.models().reasons, { 'face:detect': 'corrupt', 'face:embed': 'size', 'face:keeper-ir50': 'absent' });
   fs.writeFileSync(entries[1].dest, Buffer.alloc(entries[1].size));
   // right sizes but zeroed: the sha256 check calls them corrupt, never ready
-  assert.deepStrictEqual([svc.models().ready, svc.models().reasons], [false, { 'face:detect': 'corrupt', 'face:embed': 'corrupt' }]);
-  assert.deepStrictEqual(svc.status().missingReasons, { 'face:detect': 'corrupt', 'face:embed': 'corrupt' });
+  assert.deepStrictEqual([svc.models().ready, svc.models().reasons], [false, { 'face:detect': 'corrupt', 'face:embed': 'corrupt', 'face:keeper-ir50': 'absent' }]);
+  assert.deepStrictEqual(svc.status().missingReasons, { 'face:detect': 'corrupt', 'face:embed': 'corrupt', 'face:keeper-ir50': 'absent' });
+  assert.deepStrictEqual([svc.status().faceModels.ir50.present, svc.status().faceModels.ir101.reason], [false, 'absent']);
   fs.rmSync(process.env.FACE_MODEL_DIR, { recursive: true, force: true });
   assert.strictEqual(svc.models().ready, false);
 });
