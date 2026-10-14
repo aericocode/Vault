@@ -205,7 +205,7 @@
       body.querySelectorAll('.gamify-theme-pick').forEach(el =>
         el.addEventListener('click', () => selectTheme(el.dataset.theme)));
       bindQuestRerolls(body);
-      watchPendingQuests(questsPending || !quests.length);
+      watchPendingQuests(questsPending);
     } catch (err) {
       body.innerHTML = `<div class="gamify-loading">Couldn't load stats: ${err.message}</div>`;
     }
@@ -217,9 +217,9 @@
   }
 
   /* A large library's first quest board is filled in the background (the
-     server is still reading the library). While the modal is open on a board
-     that is waiting, re-ask every few seconds and swap in the quest card
-     alone, for up to about three minutes. */
+     server is still reading the library). While the modal is open and the
+     server says the board is waiting (pending), re-ask every few seconds and
+     swap in the quest card alone, for up to about three minutes. */
   let _questPoll = null;
   function watchPendingQuests(pending, tries = 0) {
     clearTimeout(_questPoll);
@@ -236,7 +236,9 @@
         const fresh = tmp.firstElementChild;
         card.replaceWith(fresh);
         bindQuestRerolls(fresh);
-        watchPendingQuests(!!r.pending || !(r.quests || []).length, tries + 1);
+        // pending false: the server is not building anything, so an empty
+        // board stays empty for now (this library offers no quest); stop
+        watchPendingQuests(!!r.pending, tries + 1);
       } catch { watchPendingQuests(true, tries + 1); }
     }, 4000);
   }

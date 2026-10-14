@@ -3042,7 +3042,7 @@ function start(args = process.argv.slice(2)) {
   if (!bootedLocked) libraryRoutes.prepareIndexes();
   libraryRoutes.startIndexing(vault);
   gamifyEnabled = resolveGamifyEnabled(args);
-  if (gamifyEnabled) {
+  {
     // Settle decay/streak once at startup so the first UI read is current —
     // deferred to first unlock when the vault booted locked (needs the DB).
     // After prepareIndexes: gamify's reads walk the sort indexes. A large
@@ -3050,7 +3050,9 @@ function start(args = process.argv.slice(2)) {
     // The view tallies (lib/gamify-tally.js) install once per library, as
     // soon as the sort indexes exist (polled after an unlock that creates
     // them), and are checked again after every unlock (idempotent: a
-    // drift check, or a retry of an install that failed).
+    // drift check, or a retry of an install that failed). The unlock hook is
+    // registered even with gamify off: Settings can turn it on later
+    // (setGamifyEnabled installs the tallies right then).
     let gamifyBooted = false;
     const bootGamify = () => {
       require('../lib/gamify-tally').installWhenIndexed(db.get());
@@ -3060,7 +3062,7 @@ function start(args = process.argv.slice(2)) {
       require('../lib/quests').ensureQuests();
     };
     vault.onChange((e) => { if (e === 'unlocked' && gamifyEnabled) bootGamify(); });
-    if (!bootedLocked) bootGamify();
+    if (gamifyEnabled && !bootedLocked) bootGamify();
   }
   // People across the library: sort faces that were found before the Faces
   // tab existed (or since the last run). Background, stops on lock, resumes

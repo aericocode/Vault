@@ -506,7 +506,7 @@ test('quests: time capsule only for the 20 oldest still-unwatched files', () => 
   assert.strictEqual(c.prepare('SELECT status FROM gamify_quests WHERE id = ?').pluck().get(q), 'completed');
 });
 
-test('tally drift (a REPLACE that skipped the delete trigger) is caught and repaired', () => {
+test('tally drift (a REPLACE that skipped the delete trigger) is caught and rebuilt on its own', async () => {
   const c = raw();
   assert.ok(tally.install(c) >= 0);
   assert.strictEqual(tally.verify(c, { log() {} }), true);
@@ -514,13 +514,15 @@ test('tally drift (a REPLACE that skipped the delete trigger) is caught and repa
   c.prepare("INSERT OR REPLACE INTO media (filepath, filename, media_type, view_count) VALUES (?, 'r.mp4', 'video', 9)").run(row.filepath);
   assert.notDeepStrictEqual(actualTally(), expectedTally(), 'the replaced row is still counted');
   const logs = [];
-  assert.strictEqual(tally.verify(c, { log: (m) => logs.push(m) }), false);
-  assert.match(logs[0], /drifted/);
+  assert.strictEqual(tally.verify(c, { log: (m) => logs.push(m), rebuildDelayMs: 20 }), false);
+  assert.match(logs[0], /drifted.*rebuilding/);
   assert.strictEqual(tally.isReady(c), false);
-  checkStats('drift fallback');   // readers answer from media meanwhile
-  tally.installWhenIndexed(c, { log() {} });   // what the next start / unlock does
-  assert.strictEqual(tally.isReady(c), true);
+  checkStats('drift fallback');   // readers answer from media meanwhile (no request rebuilds)
+  await new Promise(r => setTimeout(r, 200));
+  assert.strictEqual(tally.isReady(c), true, 'rebuilt shortly after, outside the caller');
+  assert.ok(logs.some(m => /tallies rebuilt/.test(m)), logs.join(' | '));
   assert.deepStrictEqual(actualTally(), expectedTally());
+  checkStats('after rebuild');
 });
 
 test('tally install retries after a failure (e.g. the file is busy)', async () => {
