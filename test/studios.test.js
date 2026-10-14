@@ -113,7 +113,7 @@ test('create, get, list shapes; NAME_TAKEN; name and field validation', async ()
     [2009, 2017, true, 0, [], 0, null, null], 'writes answer with the full studio');
   const full = await get(`/api/studios/${s.id}`);
   assert.strictEqual(full.status, 200);
-  assert.deepStrictEqual(Object.keys(full.body).sort(), ['aliases', 'coverKind', 'coverRef', 'coverUrl', 'createdAt', 'description', 'favorite',
+  assert.deepStrictEqual(Object.keys(full.body).sort(), ['aliases', 'aliasList', 'coverKind', 'coverRef', 'coverUrl', 'createdAt', 'description', 'favorite',
     'files', 'id', 'name', 'notes', 'people', 'peopleCount', 'peoplePreview', 'photos', 'updatedAt', 'urls', 'videos', 'yearEnd', 'yearStart'].sort());
   assert.deepStrictEqual(full.body.people, []);
   const l = await get('/api/studios');
@@ -295,7 +295,8 @@ test('list: counts, filters, search by name and other names, sorts, paging', asy
   assert.deepStrictEqual(r.body.studios.map(s => s.name), ['Bravo', 'Charlie', 'Alpha'], 'default: most files');
   assert.deepStrictEqual((await get('/api/studios?sort=name')).body.studios.map(s => s.name), ['Alpha', 'Bravo', 'Charlie']);
   assert.deepStrictEqual((await get('/api/studios?sort=recent')).body.studios.map(s => s.name), ['Charlie', 'Bravo', 'Alpha']);
-  assert.deepStrictEqual((await get('/api/studios?sort=years')).body.studios.map(s => s.name), ['Bravo', 'Alpha', 'Charlie']);
+  assert.deepStrictEqual((await get('/api/studios?sort=years')).body.studios.map(s => s.name), ['Alpha', 'Bravo', 'Charlie'],
+    'newest first: 2010 to now, then 2001 to 2005, then no years');
   r = await get('/api/studios?filter=favorites');
   assert.deepStrictEqual([r.body.total, r.body.studios.map(s => s.name), r.body.counts.all], [1, ['Alpha'], 3]);
   assert.deepStrictEqual((await get('/api/studios?filter=nophoto&sort=name')).body.studios.map(s => s.name), ['Alpha', 'Bravo']);
@@ -591,4 +592,67 @@ test('merge moves a chosen cover when the survivor has none; a pruned person lea
   db.deleteRecords([f]);
   assert.strictEqual(sql().prepare('SELECT COUNT(*) AS n FROM face_people WHERE id = ?').get(anon).n, 0);
   assert.strictEqual(sql().prepare('SELECT COUNT(*) AS n FROM studio_people WHERE person_id = ?').get(anon).n, 0);
+});
+
+test('fix round 1: names with commas stay whole (aliasList), merges append exact names, people too', async () => {
+  const x = await mkStudio('Comma Target');
+  const foo = await mkStudio('Foo, Inc', { aliases: ['Bar, LLC', 'Baz'] });
+  assert.deepStrictEqual(foo.aliasList, ['Bar, LLC', 'Baz']);
+  assert.strictEqual(foo.aliases, 'Bar, LLC, Baz', 'display text');
+  let r = await post(`/api/studios/${foo.id}`, { aliases: 'One, Two\nThree' });
+  assert.deepStrictEqual(r.body.aliasList, ['One', 'Two', 'Three'], 'text splits on commas and new lines');
+  await post(`/api/studios/${foo.id}`, { aliases: ['Bar, LLC'] });
+  r = await post(`/api/studios/${foo.id}/merge`, { into: x.id });
+  assert.deepStrictEqual(r.body.aliasList, ['Bar, LLC', 'Foo, Inc']);
+  // Folders "foo" and "Inc" alone do not name the studio; "Foo Inc" does.
+  sql().prepare('UPDATE media SET studio_id = NULL').run();
+  const rel = (m) => m.map(e => [e.studioName, path.basename(e.folder)]);
+  addFile('commas/foo/a.mp4'); addFile('commas/Inc/b.mp4'); addFile('commas/Foo Inc/c.mp4');
+  const m = (await post('/api/studios/auto/preview')).body.matches.filter(e => e.studioId === x.id);
+  assert.deepStrictEqual(rel(m), [['Comma Target', 'Foo Inc']]);
+
+  const p = addPerson('Comma Person');
+  r = await post(`/api/faces/people/${p}`, { aliases: ['Smith, John', 'J.S.'] });
+  assert.deepStrictEqual([r.body.aliasList, r.body.aliases], [['Smith, John', 'J.S.'], 'Smith, John, J.S.']);
+});
+
+test('fix round 1: folder ties, separators, invisible characters, NFKC, links', async () => {
+  const t = (sid, name, isName) => ({ sid, name, isName, words: studios.wordsOf(name) });
+  // An exact name beats an alias, even a longer alias or an older studio's.
+  let terms = [t(1, 'Space Agency Films', false), t(2, 'Space', true)];
+  assert.strictEqual(studios.matchFolderName('space agency films 2020', terms).sid, 2);
+  terms = [t(1, 'Space', false), t(2, 'Space', true)];
+  assert.strictEqual(studios.matchFolderName('space', terms).sid, 2);
+  // Then the longer match, then the older studio.
+  terms = [t(1, 'White', true), t(2, 'The White House', true), t(3, 'White', true)];
+  assert.strictEqual(studios.matchFolderName('the white house', terms).sid, 2);
+  assert.strictEqual(studios.matchFolderName('white castle', terms).sid, 1);
+  // Any non-letter, non-digit separates; still whole words.
+  terms = [t(1, 'NASA', true)];
+  for (const seg of ['(NASA)', '[NASA]', 'NASA!', 'nasa+esa', 'nasa·2024', 'NASA’s']) assert.strictEqual(studios.matchFolderName(seg, terms)?.sid, 1, seg);
+  for (const seg of ['NASAL', 'Nasal spray', 'xnasa']) assert.strictEqual(studios.matchFolderName(seg, terms), null, seg);
+  terms = [t(1, 'Café (Paris)', true)];
+  assert.strictEqual(studios.matchFolderName('café_paris_2020', terms)?.sid, 1, 'decomposed accent');
+  assert.strictEqual(studios.matchFolderName('ＮＡＳＡ', [t(1, 'NASA', true)])?.sid, 1, 'NFKC: full-width letters');
+
+  // Invisible characters are dropped; a name of only those is no name.
+  let r = await post('/api/studios', { name: 'Zero​Width‮ Co' });
+  assert.strictEqual(r.body.name, 'Zero Width Co');
+  for (const name of ['​‍', '‮⁦', '\u0000\u0007 ']) {
+    r = await post('/api/studios', { name });
+    assert.deepStrictEqual([r.status, r.body.code], [400, 'BAD_NAME'], JSON.stringify(name));
+  }
+  r = await post('/api/studios', { name: 'Clean Aliases', aliases: ['A​b', '​'] });
+  assert.deepStrictEqual(r.body.aliasList, ['A b']);
+  r = await post('/api/studios', { name: 'ＷＩＤＥ Studio' });
+  assert.strictEqual(r.status, 200);
+  r = await post('/api/studios', { name: 'wide studio' });
+  assert.deepStrictEqual([r.status, r.body.code], [409, 'NAME_TAKEN'], 'NFKC name keys');
+
+  for (const u of ['https://ok.example/a?b=1#c', 'http://localhost:8080/x']) assert.strictEqual((await post('/api/studios', { name: `L ${u}`, urls: u })).status, 200, u);
+  for (const u of ['http://', 'https://a b.example', 'https://x.example/"onmouseover', "https://x.example/'a", 'https://x.example/<b>',
+    'javascript:alert(1)', 'ftp://x.example', 'https:/x.example', 'https://x.example/‮']) {
+    r = await post('/api/studios', { name: 'Bad Link', urls: [u] });
+    assert.deepStrictEqual([r.status, r.body.code], [400, 'BAD_URL'], u);
+  }
 });
