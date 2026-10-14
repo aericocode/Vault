@@ -104,6 +104,9 @@ function buildRouter() {
   // The background face model switch (status: GET /faces/status -> modelSwitch).
   router.post('/faces/model-switch/pause', on, h(() => svc().pauseModelSwitch()));
   router.post('/faces/model-switch/resume', ...ready, h(() => svc().resumeModelSwitch()));
+  // Files it could not read (they stay in their old model): list, and try again.
+  router.get('/faces/model-switch/stuck', on, h(() => svc().modelSwitchStuck()));
+  router.post('/faces/model-switch/retry', ...ready, h(() => svc().retryModelSwitch()));
 
   router.post('/faces/index', ...ready, h((req) => {
     const b = req.body || {};

@@ -200,6 +200,7 @@ const MIGRATE_BLOCKED_ROUTES = [
   /^\/api\/faces\/index$/,
   /^\/api\/faces\/queue\/resume$/,
   /^\/api\/faces\/model-switch\/resume$/,
+  /^\/api\/faces\/model-switch\/retry$/,
   /^\/api\/media\/\d+\/find-faces$/,
   // Studios (lib/studios.js): the writes that move files in or out of
   // studios. The folder match reads the paths a migrate is rewriting.

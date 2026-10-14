@@ -553,19 +553,134 @@ test('switch: a file that cannot be read stays in its old model, still served; t
   const present = new Set(['face:detect', 'face:embed']);
   const ms = keyedStore(present);
   const eng = engineMaker();
-  let missing = null;
-  const svc = faces.createService({ modelStore: ms, engineFactory: eng.factory, fileExists: (p) => p !== missing,
+  let missing = null, gone = true;
+  // The unreadable file has no stat while gone; when it comes back it has one (it changed).
+  const make = () => faces.createService({ modelStore: ms, engineFactory: eng.factory,
+    fileExists: (p) => !(p === missing && gone), fileStat: (p) => (p === missing && gone ? null : { size: 10, mtimeMs: 1 }),
     isVaultLocked: () => false, isMigrateRunning: () => false, peopleDebounceMs: 60000, switchWorkers: 2 });
+  const svc = make();
   const { files } = await legacyLibrary(svc);
   missing = one('SELECT filepath FROM media WHERE id = ?', files.plain).filepath;
   present.add('face:keeper-ir50');
   svc.scheduleModelSwitch();
   await svc.modelSwitchSettled();
   assert.strictEqual(one('SELECT faces_model AS m FROM media WHERE id = ?', files.plain).m, 'stub-v1');
-  const s = svc.status();
-  assert.deepStrictEqual([s.modelSwitch, s.lastModelSwitch.failed], [null, 1]);
+  let s = svc.status();
+  assert.deepStrictEqual([s.modelSwitch.idle, s.modelSwitch.stuck, s.lastModelSwitch.failed, s.lastModelSwitch.stuck, s.lastModelSwitch.resorted],
+    [true, 1, 1, 1, true]);
   assert.strictEqual(svc.fileFaces(files.plain).indexed, true, 'still listed in its old model');
   assert.strictEqual(s.counts.indexed, 9);
+  assert.deepStrictEqual(svc.modelSwitchStuck().files.map(f => [f.mediaId, f.reason]), [[files.plain, 'file not found']]);
+  // p10 is in plain (stuck, old model) and plain2 (new model): a search from plain still works there.
+  const plainG = q('SELECT id FROM face_groups WHERE media_id = ?', files.plain)[0].id;
+  assert.ok(svc.similarToGroup(plainG, 'normal').ids.includes(files.plain));
+
+  // Restarts, unlocks, enabling: no new switch for the stuck file alone, no re-sort, people ids stable.
+  await svc.sortPeopleNow();
+  const peopleBefore = JSON.stringify(q('SELECT id, name FROM face_people ORDER BY id'));
+  const lastBefore = JSON.stringify(svc.status().lastModelSwitch);
+  const keeperBefore = eng.keeperCalls();
+  for (let i = 0; i < 3; i++) {
+    const again = make();
+    again.scheduleModelSwitch();
+    again.onVaultUnlocked();
+    again.updateSettings({ enabled: true });
+    await again.modelSwitchSettled();
+    await again.sortPeopleNow();
+  }
+  assert.strictEqual(JSON.stringify(q('SELECT id, name FROM face_people ORDER BY id')), peopleBefore, 'nobody dissolved or re-created');
+  assert.strictEqual(JSON.stringify(svc.status().lastModelSwitch), lastBefore, 'no new switch ran');
+  assert.strictEqual(eng.keeperCalls(), keeperBefore);
+  assert.strictEqual(one("SELECT value FROM face_meta WHERE key = 'model_switch'"), undefined);
+
+  // The file comes back (it changed on disk): the next start re-reads it.
+  gone = false;
+  const back = make();
+  back.scheduleModelSwitch();
+  await back.modelSwitchSettled();
+  s = back.status();
+  assert.strictEqual(one('SELECT faces_model AS m FROM media WHERE id = ?', files.plain).m, 'stub-ir50');
+  assert.deepStrictEqual([s.modelSwitch, s.lastModelSwitch.files, s.lastModelSwitch.reembedded, s.lastModelSwitch.stuck], [null, 1, 1, 0]);
+});
+
+test('switch: an explicit retry tries a stuck file again; a finish interrupted midway is completed; counters survive a restart', async () => {
+  resetLibrary();
+  const present = new Set(['face:detect', 'face:embed']);
+  const ms = keyedStore(present);
+  const eng = engineMaker();
+  let readable = false, path0 = null;
+  const make = () => faces.createService({ modelStore: ms, engineFactory: eng.factory,
+    fileExists: (p) => p !== path0 || readable, fileStat: () => ({ size: 1, mtimeMs: 1 }),
+    isVaultLocked: () => false, isMigrateRunning: () => false, peopleDebounceMs: 60000, switchWorkers: 1, switchRetryMs: 20 });
+  const svc = make();
+  const a = addMedia('a_p1.jpg'), b = addMedia('b_p2.jpg'), c = addMedia('c_p3.jpg');
+  for (const id of [a, b, c]) await indexLegacy(id);
+  path0 = one('SELECT filepath FROM media WHERE id = ?', c).filepath;
+  // Pause after the first file, then restart: the counters come back from face_meta.
+  const orig = store.switchFileModel;
+  store.switchFileModel = (...x) => { const r = orig(...x); store.switchFileModel = orig; svc.pauseModelSwitch(); return r; };
+  present.add('face:keeper-ir50');
+  svc.scheduleModelSwitch();
+  await svc.modelSwitchSettled();
+  store.switchFileModel = orig;
+  assert.deepStrictEqual(JSON.parse(one("SELECT value FROM face_meta WHERE key = 'model_switch'").value).counts.reembedded, 1);
+  const svc2 = make();
+  svc2.resumeModelSwitch();
+  await svc2.modelSwitchSettled();
+  let last = svc2.status().lastModelSwitch;
+  assert.deepStrictEqual([last.files, last.reembedded, last.failed, last.stuck], [3, 2, 1, 1], 'counts from before the restart kept');
+  // The file is readable again but unchanged on disk: only an explicit retry tries it.
+  readable = true;
+  svc2.scheduleModelSwitch();
+  await svc2.modelSwitchSettled();
+  assert.strictEqual(one('SELECT faces_model AS m FROM media WHERE id = ?', c).m, 'stub-v1');
+  svc2.retryModelSwitch();
+  await svc2.modelSwitchSettled();
+  assert.strictEqual(one('SELECT faces_model AS m FROM media WHERE id = ?', c).m, 'stub-ir50');
+  assert.strictEqual(svc2.status().modelSwitch, null);
+
+  // A finish interrupted after its first step (old vectors dropped, state still "finishing"):
+  // the next start completes it (re-sort + summary + state cleared).
+  appSettings.set({ facesModel: 'ir101' });
+  present.add('face:keeper-ir101');
+  const svc3 = make();
+  const origResort = svc3._modelSwitch.resort;
+  const meta = store.setMeta;
+  let crashed = false;
+  store.setMeta = (k, v) => {
+    if (!crashed && k === 'model_switch' && v && JSON.parse(v).finishing) { meta(k, v); crashed = true; throw new Error('crash during finish'); }
+    return meta(k, v);
+  };
+  try {
+    svc3.scheduleModelSwitch();
+    await svc3.modelSwitchSettled();
+  } finally { store.setMeta = meta; }
+  assert.ok(crashed);
+  assert.strictEqual(JSON.parse(one("SELECT value FROM face_meta WHERE key = 'model_switch'").value).finishing, true);
+  const svc4 = make();
+  svc4.scheduleModelSwitch();
+  await svc4.modelSwitchSettled();
+  last = svc4.status().lastModelSwitch;
+  assert.deepStrictEqual([last.to, last.files, last.reembedded, last.resorted], ['stub-ir101', 3, 3, true]);
+  assert.strictEqual(one("SELECT value FROM face_meta WHERE key = 'model_switch'"), undefined);
+  assert.strictEqual(one('SELECT COUNT(*) AS n FROM face_vectors_prev').n, 0);
+  assert.ok(typeof origResort === 'function');
+});
+
+test('search scores never exceed 1; candidates refuse to compare vectors of two models', () => {
+  resetLibrary();
+  const a = addMedia('a.jpg');
+  const v = stubKeeperEmbedding('stub-ir50', 9);
+  store.saveFileResult(a, 'stub-ir50', { groups: [{ appearances: 1, best: { bbox: [0, 0, 0.5, 0.5] }, exemplars: [{ embedding: v, bbox: [0, 0, 0.5, 0.5] }] }] });
+  const r = createIndex().query([v], 0.3, 'stub-ir50');
+  assert.deepStrictEqual(r.ids, [a]);
+  assert.ok(r.scores[0] <= 1);
+  // A person whose centroid claims one model but holds the other's length: an error, not a silent partial dot.
+  const { CENTROID_RULE } = require('../lib/faces/candidates');
+  const p512 = { groups: [{ id: 1, model: 'm', vec: stubKeeperEmbedding('stub-ir50', 1) }], centroids: new Map([['m', stubKeeperEmbedding('stub-ir50', 1)]]) };
+  const p128 = { groups: [{ id: 2, model: 'm', vec: stubEmbedding(1) }], centroids: new Map([['m', stubEmbedding(1)]]) };
+  assert.throws(() => CENTROID_RULE.score(p512, p128, []), /different lengths/);
+  assert.ok(CENTROID_RULE.score(p512, p512, []).score > 0.99);
 });
 
 test('switch IR-50 -> IR-101 and back before it ends: the way back swaps vectors without the engine', async () => {
