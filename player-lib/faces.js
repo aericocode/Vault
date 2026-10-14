@@ -28,6 +28,18 @@ const FACES_WIDTHS = [
   { value: 'wide', label: 'Cast a wider net' },
 ];
 
+// The face models a user picks between (settings facesModel, FACE_MODELS_SPEC).
+// Sizes are the download in decimal MB; the two grunt models (YuNet, SFace)
+// add FACES_GRUNT_MB on the first setup.
+const FACES_KEEPERS = {
+  ir50: { label: 'Standard', mb: 174, recommended: true,
+    desc: 'Recognises people well, including blurry and small faces in videos.' },
+  ir101: { label: 'Best', mb: 261,
+    desc: 'Fewest mix-ups between people. A little slower on photos and uses more memory while checking.' },
+};
+const FACES_DEFAULT_KEEPER = 'ir50';
+const FACES_GRUNT_MB = 39;
+
 // Plain words for the server's refusal codes (server/faces-routes.js).
 const FACES_MSG = {
   FACES_OFF: 'Face search is turned off.',
@@ -110,7 +122,8 @@ function facesSetStatus(s) {
   const was = facesReady();
   const prev = facesStatus;
   facesStatus = s;
-  if (prev && prev.download && prev.download.running && s.modelsReady) showToast('Face search is ready.');
+  // Only the first setup: a face model download later runs with modelsReady already true.
+  if (prev && !prev.modelsReady && prev.download && prev.download.running && s.modelsReady) showToast('Face search is ready.');
   const flipped = was !== facesReady();
   if (flipped) facesApplyState();
   facesSettingsPaint();
@@ -908,6 +921,8 @@ function facesScanPaint() {
     if (api.has('faces')) api.drop('faces');
     facesScan.shown = false;
     facesScan.running = false;
+    facesSwitchPane.shown = false;
+    facesSwitchPane.running = false;
     return;
   }
   const wasRunning = facesScan.running;
@@ -925,7 +940,8 @@ function facesScanPaint() {
     const last = q.lastRun;
     if (!facesScan.shown && last && last.total) showToast(`Finished looking for faces in ${facesFiles(last.total)}.`);
   }
-  if (!facesScan.shown) return;
+  // No run owns the pane: it may show a face model switch instead.
+  if (!facesScan.shown) { facesSwitchPanePaint(); return; }
 
   const run = q.running ? q : (q.lastRun || {});
   // Stop shrinks total to what was checked; planned is what the run set out to do.
@@ -970,6 +986,113 @@ function facesScanPaint() {
   const pause = $('.fsq-pause');
   pause.textContent = q.paused ? 'Resume' : 'Pause';
   pause.classList.toggle('dq-btn-primary', !!q.paused);
+}
+
+/* ── Scan panel: the face model switch (same Faces pane, when no run shows) ── */
+
+// key: which switch (from, to, start); hidden: the user pressed Hide for it;
+// running: the last status had one, so its end can be told apart.
+const facesSwitchPane = { key: null, hidden: false, shown: false, focus: false, running: false, label: '', to: null };
+let facesSwitchWatching = false;
+
+/** A switch the user just started in Settings: show it, in front. */
+function facesSwitchStarted() {
+  facesSwitchPane.hidden = false;
+  facesSwitchPane.focus = true;
+  facesScanPaint();
+}
+
+/** Poll while a switch moves and the panel shows it (Settings polls on its own). */
+function facesWatchSwitch() {
+  if (facesSwitchWatching) return;
+  facesSwitchWatching = true;
+  const tick = async () => {
+    if (document.hidden || facesPollTimer || facesWatching) { setTimeout(tick, FACES_SCAN_POLL_MS); return; }
+    const s = await facesRefreshStatus();
+    const sw = s && s.modelSwitch;
+    if (sw && !sw.paused && facesSwitchPane.shown && facesReady()) { setTimeout(tick, FACES_SCAN_POLL_MS); return; }
+    facesSwitchWatching = false;
+  };
+  setTimeout(tick, FACES_SCAN_POLL_MS);
+}
+
+async function facesSwitchPause(btn) {
+  const act = facesStatus?.modelSwitch?.paused ? 'resume' : 'pause';
+  btn.disabled = true;
+  try { facesSetStatus(await facesApi(`/api/faces/model-switch/${act}`, { method: 'POST' })); }
+  catch (err) { facesToastError(err); }
+  btn.disabled = false;
+  facesSettingsPoll();
+}
+
+function facesSwitchPaneBuild(pane) {
+  if (pane.querySelector('.fsw-head')) return;
+  pane.innerHTML = `
+    <div class="dq-head fsw-head"><span class="fsw-ico"></span><span class="dq-title fsw-title"></span>
+      <button type="button" class="dq-x fsw-x" title="Dismiss" hidden>✕</button></div>
+    <div class="dq-bar"><div class="dq-bar-fill fsw-fill"></div></div>
+    <div class="dq-meta"><span class="fsw-meta"></span></div>
+    <div class="dq-meta fsw-named" hidden></div>
+    <div class="dq-actions fsw-actions">
+      <button type="button" class="dq-btn dq-btn-quiet fsw-hide" title="Hide this panel. Faces are still re-read in the background">Hide</button>
+      <button type="button" class="dq-btn fsw-pause"></button>
+    </div>`;
+  const drop = () => { facesSwitchPane.shown = false; window.vaultScanPane.drop('faces'); };
+  pane.querySelector('.fsw-x').addEventListener('click', drop);
+  pane.querySelector('.fsw-hide').addEventListener('click', () => { facesSwitchPane.hidden = true; drop(); });
+  pane.querySelector('.fsw-pause').addEventListener('click', (e) => facesSwitchPause(e.currentTarget));
+}
+
+/** Called by facesScanPaint whenever no face check run owns the pane. */
+function facesSwitchPanePaint() {
+  const api = window.vaultScanPane;
+  const st = facesSwitchPane;
+  const s = facesStatus;
+  const sw = s && s.modelSwitch;
+  if (sw) {
+    const key = `${sw.from}>${sw.to}>${sw.startedAt || ''}`;
+    if (key !== st.key) { st.key = key; st.hidden = false; }
+    st.running = true;
+    st.to = sw.to;
+    st.label = FACES_KEEPERS[facesKeeperName(sw.to)]?.label || 'new';
+    if (st.hidden) return;
+    st.shown = true;
+    if (!sw.paused) facesWatchSwitch();
+  } else if (st.running) {
+    // Ended: finished (lastModelSwitch is this one) or called off (gone back).
+    st.running = false;
+    const finished = !!(s && s.lastModelSwitch && s.lastModelSwitch.to === st.to);
+    if (!finished) { if (st.shown) { st.shown = false; api?.drop('faces'); } return; }
+    if (!st.shown) { showToast(`Faces were re-read with the ${st.label} model.`); return; }
+  }
+  if (!st.shown || !api) return;
+
+  const pane = api.open('faces', {
+    tab: '👤 Faces',
+    sub: sw ? `${Math.max(0, (sw.total || 0) - (sw.done || 0)).toLocaleString()} left` : 'done',
+    focus: st.focus,
+  });
+  st.focus = false;
+  facesSwitchPaneBuild(pane);
+  const $ = (sel) => pane.querySelector(sel);
+  const ico = $('.fsw-ico');
+  if (sw && !sw.paused) { if (!ico.querySelector('.dq-spin')) ico.innerHTML = '<span class="dq-spin"></span>'; }
+  else ico.innerHTML = `<span class="dq-ico">${sw ? '⏸' : '✓'}</span>`;
+  $('.fsw-title').textContent = !sw ? `Finished re-reading faces with the ${st.label} model`
+    : sw.paused ? `Paused: re-reading faces with the ${st.label} model`
+    : `Re-reading faces with the ${st.label} model`;
+  $('.fsw-x').hidden = !!sw;
+  $('.fsw-fill').style.width = sw ? facesPct(sw.done || 0, sw.total || 0) : '100%';
+  $('.fsw-meta').textContent = sw ? facesSwitchCount(sw) : 'Names and fixes stayed. People were sorted again with the new model.';
+  const named = $('.fsw-named');
+  named.hidden = !(sw && sw.namedTotal);
+  if (!named.hidden) named.textContent = facesSwitchNamed(sw);
+  $('.fsw-actions').hidden = !sw;
+  if (sw) {
+    const pause = $('.fsw-pause');
+    pause.textContent = sw.paused ? 'Resume' : 'Pause';
+    pause.classList.toggle('dq-btn-primary', !!sw.paused);
+  }
 }
 
 /** Refresh every People row on screen (after a queue run or delete-all). */
@@ -1191,7 +1314,7 @@ function facesSettingsHtml() {
           <li>Drop a photo on 👤 Find a person to search with it.</li>
           <li>Pause a video and find the people in that frame.</li>
         </ul>
-        <p class="faces-card-foot">The first time, Vault downloads two small models (about 39 MB).
+        <p class="faces-card-foot">The first time, Vault downloads three models (about ${facesSetupMB()} MB).
         Nothing else is set up until you turn it on.</p>
       </div>
 
@@ -1226,6 +1349,25 @@ function facesSettingsHtml() {
             <span class="faces-qstatus" id="facesQueueText"></span>
           </div>
           <p class="faces-done" id="facesDoneText" hidden></p>
+        </div>
+
+        <div id="facesModelRows" hidden>
+          <h3 class="settings-h faces-h">Face model</h3>
+          <div class="faces-models">${Object.keys(FACES_KEEPERS).map(facesModelCardHtml).join('')}</div>
+          <div class="mig-card faces-switch-card" id="facesSwitchCard" hidden>
+            <div class="faces-status-line" id="facesSwitchText"></div>
+            <div class="mig-progress" id="facesSwitchBar">
+              <div class="mig-bar"><div class="mig-bar-fill"></div></div>
+              <div class="mig-bar-stats"></div>
+            </div>
+            <p class="faces-switch-named" id="facesSwitchNamed" hidden></p>
+            <div class="mig-actions">
+              <button class="settings-btn" id="facesSwitchDlBtn" type="button" hidden></button>
+              <button class="settings-btn faces-ghost" id="facesSwitchPauseBtn" type="button" hidden>Pause</button>
+              <button class="settings-btn faces-ghost" id="facesSwitchBackBtn" type="button" hidden></button>
+            </div>
+          </div>
+          <p class="faces-model-hint" id="facesModelHint"></p>
         </div>
 
         <h3 class="settings-h faces-h">Checking</h3>
@@ -1306,7 +1448,7 @@ function facesSettingsPaint() {
       ? 'Downloading the face search models from huggingface.co.'
       : dl && dl.error ? 'The download did not finish. Check your connection and try again.'
       : damaged ? 'A face search model is damaged. Download it again to fix it.'
-      : 'Face search needs two small models (about 39 MB) before it can work.';
+      : `Face search needs three models (about ${facesSetupMB()} MB) before it can work.`;
     $('facesSetupCard').classList.toggle('faces-warn', !running && !!(damaged || (dl && dl.error)));
     $('facesDlBar').hidden = !running;
     if (running) {
@@ -1323,6 +1465,7 @@ function facesSettingsPaint() {
   const on = s.enabled && s.modelsReady;
   $('facesOnRows').hidden = !on;
   if (!on) return;
+  facesModelPaint();
   const q = s.queue || {};
   const eligible = c.eligible || 0;
   const indexed = Math.min(c.indexed || 0, eligible);
@@ -1409,7 +1552,8 @@ function facesSettingsPoll() {
     const wasRunning = facesStatus?.queue?.running;
     const s = await facesRefreshStatus();
     if (wasRunning && !s?.queue?.running) facesReloadOpenBoxes();
-    if (s && ((s.queue && s.queue.running) || (s.download && s.download.running))) facesSettingsPoll();
+    if (s && ((s.queue && s.queue.running) || (s.download && s.download.running)
+      || (s.modelSwitch && !s.modelSwitch.paused))) facesSettingsPoll();
   }, 1500);
 }
 
@@ -1420,7 +1564,55 @@ async function facesSettingsPost(patch) {
   } catch (err) { facesToastError(err); facesSettingsPaint(); return false; }
 }
 
-/** Download the models; asks first when the two keys are not approved yet. */
+/** The face model the first setup downloads: the choice, Standard unless changed. */
+function facesSetupKeeper() {
+  const m = facesStatus && facesStatus.facesModel;
+  return FACES_KEEPERS[m] ? m : FACES_DEFAULT_KEEPER;
+}
+function facesSetupMB() { return FACES_GRUNT_MB + FACES_KEEPERS[facesSetupKeeper()].mb; }
+
+/** Approve the download of each key (lib/model-consent.js). Throws a toast-ready Error. */
+async function facesAllowKeys(keys) {
+  for (const key of keys) {
+    const r = await fetch('/api/settings/model-downloads', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, allow: true }),
+    });
+    if (!r.ok) throw new Error('Downloads are turned off for this copy of Vault.');
+  }
+}
+
+/**
+ * A download question in the style of subtitlesShowModelConsent. Resolves
+ * true on the yes button. Shares the #facesConsent id with the Escape handler.
+ */
+function facesConsentModal({ label, title, body, yes }) {
+  return new Promise((resolve) => {
+    document.getElementById('facesConsent')?.remove();
+    const ov = document.createElement('div');
+    ov.id = 'facesConsent';
+    ov.className = 'vault-modal-overlay';
+    ov.innerHTML = `
+      <div class="vault-modal" role="dialog" aria-label="${label}">
+        <h3>⬇ ${title}</h3>
+        ${body}
+        <div class="vault-modal-actions">
+          <button class="vault-btn" data-consent="no">Not now</button>
+          <button class="vault-btn vault-btn-primary" data-consent="yes">${yes}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+    const answer = (ok) => { ov.remove(); resolve(ok); };
+    ov._close = () => answer(false);
+    ov.querySelector('[data-consent="yes"]').addEventListener('click', () => answer(true));
+    ov.querySelector('[data-consent="no"]').addEventListener('click', () => answer(false));
+    ov.addEventListener('mousedown', (e) => { if (e.target === ov) answer(false); });
+    ov.querySelector('[data-consent="yes"]').focus();
+  });
+}
+
+const FACES_RESEARCH_NOTE = 'was made by researchers from photos collected for research. Vault uses it only on your own library.';
+
+/** Download the models; asks first when the keys are not approved yet. */
 async function facesStartDownload() {
   try {
     facesSetStatus(await facesApi('/api/faces/models/download', { method: 'POST' }));
@@ -1433,46 +1625,230 @@ async function facesStartDownload() {
   }
 }
 
-/** Consent modal, in the style of subtitlesShowModelConsent. Resolves true once approved and started. */
-function facesAskConsent() {
-  return new Promise((resolve) => {
-    document.getElementById('facesConsent')?.remove();
-    const ov = document.createElement('div');
-    ov.id = 'facesConsent';
-    ov.className = 'vault-modal-overlay';
-    ov.innerHTML = `
-      <div class="vault-modal" role="dialog" aria-label="Download the face search models">
-        <h3>⬇ Download the face search models?</h3>
-        <p class="vault-modal-hint">Face search needs two small models (about 39 MB) from
-          <b>huggingface.co</b>. They run on this computer only.</p>
-        <p class="vault-modal-hint">Your photos and videos are never uploaded. If you say no,
-          nothing is downloaded, and face search cannot be used until the models are here.</p>
-        <div class="vault-modal-actions">
-          <button class="vault-btn" data-consent="no">Not now</button>
-          <button class="vault-btn vault-btn-primary" data-consent="yes">Download them</button>
-        </div>
-      </div>`;
-    document.body.appendChild(ov);
-    const answer = async (yes) => {
-      ov.remove();
-      if (!yes) { resolve(false); return; }
-      try {
-        for (const key of ['face:detect', 'face:embed']) {
-          const r = await fetch('/api/settings/model-downloads', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, allow: true }),
-          });
-          if (!r.ok) throw new Error('Downloads are turned off for this copy of Vault.');
-        }
-      } catch (err) { facesToastError(err); resolve(false); return; }
-      resolve(await facesStartDownload());
-    };
-    ov._close = () => answer(false);
-    ov.querySelector('[data-consent="yes"]').addEventListener('click', () => answer(true));
-    ov.querySelector('[data-consent="no"]').addEventListener('click', () => answer(false));
-    ov.addEventListener('mousedown', (e) => { if (e.target === ov) answer(false); });
-    ov.querySelector('[data-consent="yes"]').focus();
+/** The first-time question: all three models in one prompt. Resolves true once approved and started. */
+async function facesAskConsent() {
+  const name = facesSetupKeeper();
+  const k = FACES_KEEPERS[name];
+  const ok = await facesConsentModal({
+    label: 'Download the face search models',
+    title: 'Download the face search models?',
+    body: `
+      <p class="vault-modal-hint">Face search needs three models from <b>huggingface.co</b>,
+        about ${facesSetupMB()} MB in all:</p>
+      <ul class="vault-modal-hint faces-consent-list">
+        <li>one that finds faces in photos and video frames (under 1 MB)</li>
+        <li>one that groups the faces found in each file (about ${FACES_GRUNT_MB} MB)</li>
+        <li>the ${k.label} face model, which tells people apart (about ${k.mb} MB)</li>
+      </ul>
+      <p class="vault-modal-hint">They run on this computer only. Your photos and videos are never
+        uploaded. If you say no, nothing is downloaded, and face search cannot be used until the
+        models are here.</p>
+      <p class="vault-modal-hint">The ${k.label} face model ${FACES_RESEARCH_NOTE}</p>`,
+    yes: 'Download them',
   });
+  if (!ok) return false;
+  try { await facesAllowKeys(['face:detect', 'face:embed', `face:keeper-${name}`]); }
+  catch (err) { facesToastError(err); return false; }
+  return facesStartDownload();
 }
+
+/* ── Settings > Face search: the face model (Standard / Best) ──────────── */
+
+/** 'ir50' | 'ir101' for a settings name or a model id, else null (SFace, unknown). */
+function facesKeeperName(id) {
+  if (FACES_KEEPERS[id]) return id;
+  const fm = (facesStatus && facesStatus.faceModels) || {};
+  return Object.keys(fm).find(n => fm[n] && fm[n].modelId === id) || null;
+}
+
+function facesModelCardHtml(name) {
+  const k = FACES_KEEPERS[name];
+  return `
+    <div class="faces-model" data-faces-model="${name}">
+      <div class="faces-model-top"><b>${k.label}</b><span class="faces-model-tag" hidden></span></div>
+      <p class="faces-model-desc"></p>
+      <span class="faces-model-meta">${k.mb} MB download${k.recommended ? ' · Recommended' : ''}</span>
+      <button class="settings-btn faces-model-btn" type="button" data-faces-switch="${name}" hidden>Switch to ${k.label}</button>
+    </div>`;
+}
+
+/**
+ * Where the face model stands. phase: 'download' (the choice is not on disk
+ * yet), 'switch' (faces are being re-read with it), or null. target is the
+ * model being moved to, old the one still answering searches meanwhile.
+ */
+function facesModelPhase(s) {
+  const needs = FACES_KEEPERS[s.needsModel] ? s.needsModel : null;
+  const sw = s.modelSwitch || null;
+  if (needs) return { phase: 'download', target: needs, old: facesKeeperName(s.activeModel), sw };
+  if (sw) return { phase: 'switch', target: facesKeeperName(sw.to), old: facesKeeperName(sw.from), sw };
+  return { phase: null, target: null, old: null, sw: null };
+}
+
+function facesModelPaint() {
+  const $ = (id) => document.getElementById(id);
+  const s = facesStatus;
+  const fm = s.faceModels;
+  $('facesModelRows').hidden = !fm;   // a server without the choice
+  if (!fm) return;
+  const chosen = FACES_KEEPERS[s.facesModel] ? s.facesModel : FACES_DEFAULT_KEEPER;
+  const { phase, target, old, sw } = facesModelPhase(s);
+  const dl = phase === 'download' && s.download && s.download.model === target ? s.download : null;
+  const loading = !!(dl && dl.running);
+
+  document.querySelectorAll('#facesModelRows [data-faces-model]').forEach(card => {
+    const n = card.dataset.facesModel;
+    const k = FACES_KEEPERS[n];
+    const m = fm[n] || {};
+    let tag = '', kind = '', desc = k.desc;
+    if (phase && n === target) {
+      if (phase === 'switch') { tag = 'Switching'; kind = 'go'; desc = 'Downloaded.'; }
+      else if (loading) { tag = 'Downloading'; kind = 'go'; desc = 'Downloading now.'; }
+      else { tag = 'Not downloaded'; desc = 'Not downloaded yet.'; }
+    } else if (phase && n === old) {
+      tag = 'Still used until the switch is done';
+      desc = 'Face search keeps working the whole time.';
+    } else if (!phase && n === chosen) {
+      tag = 'In use'; kind = 'use';
+    } else {
+      tag = m.present === true ? 'Downloaded' : m.present === false ? 'Not downloaded' : '';
+    }
+    card.classList.toggle('on', n === (phase ? target : chosen));
+    const t = card.querySelector('.faces-model-tag');
+    t.textContent = tag;
+    t.hidden = !tag;
+    t.classList.toggle('faces-tag-use', kind === 'use');
+    t.classList.toggle('faces-tag-go', kind === 'go');
+    card.querySelector('.faces-model-desc').textContent = desc;
+    card.querySelector('.faces-model-meta').hidden = !!phase;
+    card.querySelector('.faces-model-btn').hidden = !!phase || n === chosen;
+  });
+
+  const card = $('facesSwitchCard');
+  card.hidden = !phase;
+  $('facesModelHint').textContent = phase
+    ? 'Names, merges and hidden faces carry over. When it finishes, people are sorted again with the new model and "Same person?" may have new suggestions.'
+    : 'Switching re-reads only the faces Vault already found, so it is much quicker than checking everything again. Names and fixes stay.';
+  if (!phase) return;
+  const label = FACES_KEEPERS[target]?.label || 'new';
+  const bar = $('facesSwitchBar');
+  const stats = bar.querySelector('.mig-bar-stats');
+  const named = $('facesSwitchNamed');
+  const dlBtn = $('facesSwitchDlBtn');
+  const pause = $('facesSwitchPauseBtn');
+  if (phase === 'download') {
+    const failed = !loading && !!(dl && dl.error);
+    $('facesSwitchText').textContent = loading ? `Downloading the ${label} model from huggingface.co.`
+      : failed ? `The ${label} model did not finish downloading. Check your connection and try again.`
+      : `The ${label} model is not downloaded yet.`;
+    card.classList.toggle('faces-warn', failed);
+    bar.hidden = !loading;
+    bar.classList.remove('faces-paused');
+    if (loading) {
+      bar.querySelector('.mig-bar-fill').style.width = facesPct(dl.received, dl.total);
+      stats.textContent = `${facesMB(dl.received)} of ${facesMB(dl.total)} MB`;
+    }
+    named.hidden = true;
+    dlBtn.hidden = loading;
+    dlBtn.textContent = failed ? 'Try again' : 'Download it';
+    dlBtn.dataset.model = target;
+    pause.hidden = true;
+  } else {
+    card.classList.remove('faces-warn');
+    $('facesSwitchText').textContent = sw.paused
+      ? `Paused: re-reading faces with the ${label} model.` : `Re-reading faces with the ${label} model.`;
+    bar.hidden = false;
+    bar.classList.toggle('faces-paused', !!sw.paused);
+    bar.querySelector('.mig-bar-fill').style.width = facesPct(sw.done || 0, sw.total || 0);
+    stats.textContent = facesSwitchCount(sw);
+    named.hidden = !sw.namedTotal;
+    if (sw.namedTotal) named.textContent = facesSwitchNamed(sw);
+    dlBtn.hidden = true;
+    pause.hidden = false;
+    pause.textContent = sw.paused ? 'Resume' : 'Pause';
+    pause.classList.toggle('faces-ghost', !sw.paused);
+  }
+  // Back to the model still in use. None when that is the model from before
+  // the choice existed (an old library's): it cannot be picked.
+  const back = $('facesSwitchBackBtn');
+  const to = old && old !== target ? old : null;
+  back.hidden = !to;
+  if (to) { back.textContent = `Go back to ${FACES_KEEPERS[to].label}`; back.dataset.model = to; }
+}
+
+/** "1,240 of 4,300 files · about 6 min left" (the switch counts files). */
+function facesSwitchCount(sw) {
+  const total = sw.total || 0;
+  return `${(sw.done || 0).toLocaleString()} of ${total.toLocaleString()} ${total === 1 ? 'file' : 'files'}`
+    + (!sw.paused && sw.etaS ? ` · ${facesAbout(sw.etaS)} left` : '');
+}
+
+/** Named people's files are re-read first. */
+function facesSwitchNamed(sw) {
+  const done = sw.namedDone || 0;
+  return done >= sw.namedTotal
+    ? `Named people are done (${sw.namedTotal.toLocaleString()}).`
+    : `Named people go first: ${done.toLocaleString()} of ${sw.namedTotal.toLocaleString()} done.`;
+}
+
+/** Download the chosen face model; asks again when its key is not approved. */
+async function facesDownloadKeeper(name, { asked = false } = {}) {
+  try {
+    facesSetStatus(await facesApi('/api/faces/models/download', { method: 'POST', json: { model: name } }));
+    facesSettingsPoll();
+    return true;
+  } catch (err) {
+    if (err.code === 'CONSENT_NEEDED' && !asked) {
+      if (!await facesAskModelConsent(name)) return false;
+      return facesDownloadKeeper(name, { asked: true });
+    }
+    if (err.code) facesToastError(err); else showToast('Could not start the download. Try again.');
+    return false;
+  }
+}
+
+/** M2: download a face model that is not here yet. Resolves true once approved. */
+async function facesAskModelConsent(name) {
+  const k = FACES_KEEPERS[name];
+  const ok = await facesConsentModal({
+    label: `Download the ${k.label} face model`,
+    title: `Switch to the ${k.label} face model?`,
+    body: `
+      <p class="vault-modal-hint">Vault downloads it once (about ${k.mb} MB) from <b>huggingface.co</b>.
+        It runs on this computer only, and your photos and videos are never uploaded.</p>
+      <p class="vault-modal-hint">Then Vault re-reads the faces it already found with the new model.
+        It runs in the background, your names and fixes stay, and you can keep using Vault.</p>
+      <p class="vault-modal-hint">This model ${FACES_RESEARCH_NOTE}</p>`,
+    yes: 'Download and switch',
+  });
+  if (!ok) return false;
+  try { await facesAllowKeys([`face:keeper-${name}`]); }
+  catch (err) { facesToastError(err); return false; }
+  return true;
+}
+
+/**
+ * Pick a face model. One that is here: the switch starts at once. One that
+ * is not: ask (M2), choose it, then download it; the server starts the
+ * switch when the file is in. Choosing first means the switch still happens
+ * if Settings is closed during the download.
+ */
+async function facesSwitchModel(name, btn) {
+  const s = facesStatus;
+  if (!s || !FACES_KEEPERS[name]) return;
+  const m = (s.faceModels || {})[name] || {};
+  if (btn) btn.disabled = true;
+  try {
+    if (m.present === false) {
+      if (!await facesAskModelConsent(name)) return;
+      if (!await facesSettingsPost({ model: name })) return;
+      await facesDownloadKeeper(name, { asked: true });
+    } else if (!await facesSettingsPost({ model: name })) return;
+    facesSettingsPoll();
+    facesSwitchStarted();
+  } finally { if (btn) btn.disabled = false; }
+}
+
 
 async function facesToggleEnabled(cb) {
   if (!cb.checked) { await facesSettingsPost({ enabled: false }); return; }
@@ -1484,7 +1860,7 @@ async function facesToggleEnabled(cb) {
   let started = false;
   try {
     const md = await fetch('/api/settings/model-downloads').then(r => r.json()).catch(() => ({}));
-    const ok = md.consents && md.consents['face:detect'] === true && md.consents['face:embed'] === true;
+    const ok = md.consents && ['face:detect', 'face:embed', 'face:keeper-' + facesSetupKeeper()].every(k => md.consents[k] === true);
     started = ok ? await facesStartDownload() : await facesAskConsent();
   } finally { delete cb.dataset.busy; }
   if (started) await facesSettingsPost({ enabled: true });
@@ -1566,6 +1942,16 @@ function facesWireSettings() {
     facesRefreshStatus();
   });
   root.querySelector('#facesDeleteBtn').addEventListener('click', (e) => facesDeleteAll(e.currentTarget));
+  root.querySelectorAll('[data-faces-switch]').forEach(b => b.addEventListener('click', () => facesSwitchModel(b.dataset.facesSwitch, b)));
+  root.querySelector('#facesSwitchDlBtn').addEventListener('click', (e) => facesDownloadKeeper(e.currentTarget.dataset.model));
+  root.querySelector('#facesSwitchPauseBtn').addEventListener('click', (e) => facesSwitchPause(e.currentTarget));
+  root.querySelector('#facesSwitchBackBtn').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    await facesSettingsPost({ model: btn.dataset.model });
+    btn.disabled = false;
+    facesSettingsPoll();
+  });
   facesSettingsPaint();
   facesRefreshStatus({ background: false }).then(facesSettingsPoll);
 }
