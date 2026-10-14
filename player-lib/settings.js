@@ -94,7 +94,9 @@
       : k.startsWith('opus:') ? `Translation pack (${k.slice(5)}→en)`
       : k === 'diarize' ? 'Speaker-detection models'
       : k === 'face:detect' ? 'Face search: finding faces'
-      : k === 'face:embed' ? 'Face search: telling people apart' : k;
+      : k === 'face:embed' ? 'Face search: grouping faces in a file'
+      : k === 'face:keeper-ir50' ? 'Face search: Standard face model'
+      : k === 'face:keeper-ir101' ? 'Face search: Best face model' : k;
     return [...seen.values()].map(r => toggleRow({
       key: `modelConsent:${r.key}`,
       value: r.allowed,

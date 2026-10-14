@@ -433,7 +433,7 @@ test('model registry: keys, hashes, consent metadata, presence check', () => {
   assert.deepStrictEqual(models.matchThresholds('stub-v1'), t);
   assert.throws(() => models.matchThresholds('arcface'), /no match thresholds/);
   const consent = require('../lib/model-consent');
-  assert.strictEqual(consent.describe('face:embed').sizeHint, '~37 MB');
+  assert.strictEqual(consent.describe('face:embed').sizeHint, '~39 MB');
   assert.strictEqual(consent.describe('face:detect').kind, 'face');
 
   const dir = path.join(tmp, 'models');

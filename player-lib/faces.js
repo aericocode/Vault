@@ -1739,7 +1739,9 @@ function facesModelPaint() {
     t.classList.toggle('faces-tag-use', kind === 'use');
     t.classList.toggle('faces-tag-go', kind === 'go');
     card.querySelector('.faces-model-desc').textContent = desc;
-    card.querySelector('.faces-model-meta').hidden = !!phase;
+    const meta = card.querySelector('.faces-model-meta');
+    meta.hidden = !!phase;
+    meta.textContent = (m.present === true ? 'Downloaded' : `${k.mb} MB download`) + (k.recommended ? ' · Recommended' : '');
     card.querySelector('.faces-model-btn').hidden = !!phase || n === chosen;
   });
 
@@ -2020,7 +2022,8 @@ function facesWireSettings() {
   root.querySelector('#facesSwitchBackBtn').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     btn.disabled = true;
-    await facesSettingsPost({ model: btn.dataset.model });
+    const to = btn.dataset.model;
+    if (await facesSettingsPost({ model: to })) showToast(`Back on the ${FACES_KEEPERS[to].label} model.`);
     btn.disabled = false;
     facesSettingsPoll();
   });
