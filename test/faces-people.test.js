@@ -98,6 +98,8 @@ function partition() {
 }
 
 const ITEM_KEYS = ['addedAt', 'coverUrl', 'favorite', 'files', 'hidden', 'id', 'name', 'photos', 'screenS', 'videos'];
+// GET /api/faces/people/:id adds these to the list item (STUDIOS_SPEC section 2: person details, studios).
+const PERSON_KEYS = ['coverGroupId', 'oftenWith', 'aliases', 'urls', 'description', 'notes', 'yearStart', 'yearEnd', 'born', 'studios'];
 
 test.before(async () => {
   db.init();
@@ -288,7 +290,7 @@ test('POST /api/faces/people/:id: rename (locks members), favorite, hide, cover,
   const bob = personIn('b1.jpg', 1);
   let r = await post(`/api/faces/people/${alice}`, { name: '  Alice   Smith ' });
   assert.strictEqual(r.status, 200);
-  assert.deepStrictEqual(Object.keys(r.body).sort(), [...ITEM_KEYS, 'coverGroupId', 'oftenWith'].sort());
+  assert.deepStrictEqual(Object.keys(r.body).sort(), [...ITEM_KEYS, ...PERSON_KEYS].sort());
   assert.strictEqual(r.body.name, 'Alice Smith');
   assert.strictEqual(one('SELECT name_key FROM face_people WHERE id = ?', alice).name_key, 'alice smith');
   assert.deepStrictEqual(q('SELECT DISTINCT person_locked AS l FROM face_groups WHERE cluster_id = ?', alice).map(x => x.l), [1]);
@@ -516,7 +518,7 @@ test('merge: validation, union of files, locks, rejects follow, and it survives 
 
   const r = await post('/api/faces/people/merge', { ids: [c, p2], into: p2 });
   assert.strictEqual(r.status, 200);
-  assert.deepStrictEqual(Object.keys(r.body).sort(), [...ITEM_KEYS, 'coverGroupId', 'oftenWith'].sort());
+  assert.deepStrictEqual(Object.keys(r.body).sort(), [...ITEM_KEYS, ...PERSON_KEYS].sort());
   assert.strictEqual(r.body.id, p2);
   assert.strictEqual(r.body.files, 3);
   assert.deepStrictEqual(fileNamesOf(p2), ['c1.jpg', 'v1.mp4', 'v2.mp4']);

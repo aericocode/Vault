@@ -200,6 +200,16 @@ const MIGRATE_BLOCKED_ROUTES = [
   /^\/api\/faces\/index$/,
   /^\/api\/faces\/queue\/resume$/,
   /^\/api\/media\/\d+\/find-faces$/,
+  // Studios (lib/studios.js): the writes that move files in or out of
+  // studios. The folder match reads the paths a migrate is rewriting.
+  /^\/api\/media\/studio$/,
+  /^\/api\/studios\/auto\/apply$/,
+  /^\/api\/studios\/\d+\/merge$/,
+  /^\/api\/studios\/\d+\/delete$/,
+];
+/** Same rule for DELETE requests. */
+const MIGRATE_BLOCKED_DELETE_ROUTES = [
+  /^\/api\/studios\/\d+$/,
 ];
 
 /** Lowercased, percent-decoded, trailing slashes removed: how routing sees it. */
@@ -211,11 +221,12 @@ function _normalizeGuardPath(p) {
 }
 
 app.use((req, res, next) => {
-  if (req.method !== 'POST') return next();
+  const list = req.method === 'POST' ? MIGRATE_BLOCKED_ROUTES : req.method === 'DELETE' ? MIGRATE_BLOCKED_DELETE_ROUTES : null;
+  if (!list) return next();
   if (!_migrateJob.isRunning()) return next();
   // Express routing ignores case and a trailing slash, so /api/Faces/index/
   // reaches the same handler as /api/faces/index. Match the same way.
-  if (!MIGRATE_BLOCKED_ROUTES.some(re => re.test(_normalizeGuardPath(req.path)))) return next();
+  if (!list.some(re => re.test(_normalizeGuardPath(req.path)))) return next();
   res.status(409).json({
     error: 'a library migration is running. Wait for it to finish.',
     code: 'MIGRATE_RUNNING',
@@ -749,7 +760,8 @@ app.get('/api/media/:id', (req, res) => {
   if (!id) return res.status(400).json({ error: 'bad id' });
   const row = db.getById(id);
   if (!row) return res.status(404).json({ error: 'not found' });
-  res.json(row);
+  // File info: the studio it is in ({ id, name } or null).
+  res.json({ ...row, studio: require('../lib/studios').studioOfMedia(id) });
 });
 
 // Batch row refetch — fresh values for a set of ids in one request. The
@@ -2630,6 +2642,9 @@ app.use('/api/pmv', require('./pmv-routes').buildRouter());
 
 // ── Face search (chips, person focus, search by photo — see lib/faces/) ───
 app.use('/api', require('./faces-routes').buildRouter());
+
+// ── Studios (files and people grouped by studio — see lib/studios.js) ──────
+app.use('/api', require('./studios-routes').buildRouter());
 
 // ── Subtitles (whisper transcription + OPUS-MT translation — lib/subtitles/)
 app.use('/api', require('./subtitle-routes').buildRouter());
