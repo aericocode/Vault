@@ -12,8 +12,9 @@
  *   mix          person 0 and person 1 in one photo
  *   b1, b2       person 1 ("Joe")
  *   m1           cosine 0.47 to person 0: its own person, too far to be offered
- *   y1           cosine 0.53 to person 0, w1 between person 0 and n1: moved
- *                into their own people, both "maybe" (w1 is closer to n1)
+ *   y1           cosine 0.55 to person 0, w1 between person 0 and n1: moved
+ *                into their own people; y1 is a "maybe", w1 is not offered
+ *                (too close to n1: no margin)
  *   l1 h1 d1 r1 n1  cosine 0.65 to 0.7 to person 0: sorted into Barack, then
  *                moved by the test into their own people (a "likely", a
  *                hidden one, a 'different' answer, a reject, a named one)
@@ -108,7 +109,7 @@ test.before(async () => {
     'mix.jpg': [like(0, 0.95, 103), like(1, 0.95, 104)],
     'b1.jpg': [person(1)], 'b2.jpg': [like(1, 0.9, 105)],
     'm1.jpg': [like(0, 0.47, 106)],
-    'y1.jpg': [like(0, 0.53, 117)], 'w1.jpg': [(() => { const v = new Float32Array(128); v[0] = 0.6; v[111] = 0.8; return v; })()],
+    'y1.jpg': [like(0, 0.55, 117)], 'w1.jpg': [(() => { const v = new Float32Array(128); v[0] = 0.6; v[111] = 0.8; return v; })()],
     'l1.jpg': [like(0, 0.7, 107)], 'h1.jpg': [like(0, 0.7, 108)], 'd1.jpg': [like(0, 0.68, 109)],
     'r1.jpg': [like(0, 0.66, 110)], 'n1.jpg': [like(0, 0.65, 111)],
     's1.jpg': [person(2)],
@@ -225,17 +226,18 @@ test('E4 candidates: unnamed people ranked by the rule, hidden / different / rej
   const r = await get(`/api/faces/people/${P.barack}/candidates`);
   assert.strictEqual(r.status, 200, JSON.stringify(r.body));
   // person centroids: l1 0.68 with a wide margin over 'Other' = likely; w1
-  // 0.59 but closer to 'Other' = maybe; y1 0.52 = maybe; m1 0.46 not listed
-  assert.deepStrictEqual(r.body.items.map(i => [i.personId, i.tier]), [[P.l, 'likely'], [P.w, 'maybe'], [P.y, 'maybe']]);
-  assert.strictEqual(r.body.total, 3);
+  // 0.59 but closer to 'Other' = not listed (no margin); y1 0.54 = maybe;
+  // m1 0.46 not listed
+  assert.deepStrictEqual(r.body.items.map(i => [i.personId, i.tier]), [[P.l, 'likely'], [P.y, 'maybe']]);
+  assert.strictEqual(r.body.total, 2);
   const [it] = r.body.items;
   assert.deepStrictEqual(Object.keys(it).sort(), ['cropUrl', 'filename', 'files', 'groupId', 'mediaId', 'personId', 'score', 'tier']);
   assert.deepStrictEqual([it.groupId, it.mediaId, it.filename, it.files, it.cropUrl],
     [gid('l1.jpg'), ids['l1.jpg'], 'l1.jpg', 1, `/api/faces/crop/${gid('l1.jpg')}`]);
-  assert.ok(it.score >= 0.56 && r.body.items[1].score >= 0.56 && r.body.items[2].score >= 0.48 && r.body.items[2].score < 0.56);
+  assert.ok(it.score >= 0.56 && r.body.items[1].score >= 0.52 && r.body.items[1].score < 0.56);
 
   const page = await get(`/api/faces/people/${P.barack}/candidates?limit=1&offset=1`);
-  assert.deepStrictEqual([page.body.total, page.body.items.map(i => i.personId)], [3, [P.w]]);
+  assert.deepStrictEqual([page.body.total, page.body.items.map(i => i.personId)], [2, [P.y]]);
   assert.strictEqual((await get(`/api/faces/people/${P.barack}/candidates?limit=0`)).status, 400);
   assert.strictEqual((await get(`/api/faces/people/${P.barack}/candidates?offset=-1`)).status, 400);
   assert.strictEqual((await get('/api/faces/people/987654/candidates')).status, 404);
@@ -243,9 +245,9 @@ test('E4 candidates: unnamed people ranked by the rule, hidden / different / rej
 
   // D1: trashing / restoring a file (no face counter moves) refreshes the cached list
   db.get().prepare('UPDATE media SET user_trashed = 1 WHERE id = ?').run(ids['l1.jpg']);
-  assert.deepStrictEqual((await get(`/api/faces/people/${P.barack}/candidates`)).body.items.map(i => i.personId), [P.w, P.y]);
+  assert.deepStrictEqual((await get(`/api/faces/people/${P.barack}/candidates`)).body.items.map(i => i.personId), [P.y]);
   db.get().prepare('UPDATE media SET user_trashed = 0 WHERE id = ?').run(ids['l1.jpg']);
-  assert.deepStrictEqual((await get(`/api/faces/people/${P.barack}/candidates`)).body.items.map(i => i.personId), [P.l, P.w, P.y]);
+  assert.deepStrictEqual((await get(`/api/faces/people/${P.barack}/candidates`)).body.items.map(i => i.personId), [P.l, P.y]);
 });
 
 test('E4 the scoring rule is one swappable function', async () => {
@@ -258,6 +260,28 @@ test('E4 the scoring rule is one swappable function', async () => {
   } finally {
     candidates.setRule(null);
   }
+});
+
+test('E4 "None of these": every shown candidate answered different in one call, and the Undo brings them all back', async () => {
+  const url = `/api/faces/people/${P.barack}/candidates`;
+  const shown = (await get(url)).body.items.map(i => i.personId);
+  assert.deepStrictEqual(shown, [P.l, P.y]);
+  let r = await post(url, { reject: shown });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+  assert.deepStrictEqual([r.body.merged, r.body.rejected, r.body.skipped], [[], shown, []]);
+  for (const pid of shown) {
+    assert.strictEqual(one('SELECT decision FROM face_pair_decisions WHERE a = ? AND b = ?', Math.min(P.barack, pid), Math.max(P.barack, pid)).decision, 'different');
+  }
+  assert.deepStrictEqual((await get(url)).body, { total: 0, items: [] }, 'never offered for this person again');
+  await svc.sortPeopleNow();
+  assert.deepStrictEqual((await get(url)).body.total, 0, 'a re-sort does not bring them back');
+  // Undo
+  r = await post(url, { unreject: shown });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+  assert.deepStrictEqual(r.body.unrejected, shown);
+  assert.deepStrictEqual((await get(url)).body.items.map(i => [i.personId, i.tier]), [[P.l, 'likely'], [P.y, 'maybe']]);
+  assert.strictEqual(one('SELECT COUNT(*) AS n FROM face_pair_decisions WHERE (a = ? OR b = ?) AND (a IN (?, ?) OR b IN (?, ?))',
+    P.barack, P.barack, ...shown, ...shown).n, 0);
 });
 
 test('E4 answers: accept merges (locked), reject records different; both leave the list', async () => {
@@ -624,7 +648,7 @@ test('E7 sorting: a held face is retried against a person a user action changed 
   assert.deepStrictEqual(one('SELECT cluster_id, sort_held FROM face_groups WHERE id = ?', gid('g3.jpg')), { cluster_id: p1, sort_held: 0 });
 });
 
-test('E7 might also be: a person-level score needs a margin over the next named person for "likely"', () => {
+test('E7 might also be: a person-level score needs a margin over the next named person; likely >= 0.56, maybe >= 0.52', () => {
   const { CENTROID_RULE } = candidates;
   const th = require('../lib/faces/thresholds').peopleThresholds('stub-v1');
   const p = (vec, id = 1) => ({ groups: [{ id, model: 'm', vec }], centroids: new Map([['m', vec]]) });
@@ -634,10 +658,11 @@ test('E7 might also be: a person-level score needs a margin over the next named 
   const at = (s, o = 0) => p(unit([[0, s], [1, o], [2, Math.sqrt(Math.max(0, 1 - s * s - o * o))]]), 9);
   const tierOf = (cand) => CENTROID_RULE.tier(CENTROID_RULE.score(target, cand, [other]), th);
   assert.strictEqual(tierOf(at(0.6)), 'likely');
-  assert.strictEqual(tierOf(at(0.6, 0.57)), 'maybe', 'margin 0.03 < 0.05');
+  assert.strictEqual(tierOf(at(0.6, 0.57)), null, 'margin 0.03 < 0.05');
   assert.strictEqual(tierOf(at(0.6, 0.54)), 'likely', 'margin 0.06');
-  assert.strictEqual(tierOf(at(0.5)), 'maybe');
-  assert.strictEqual(tierOf(at(0.47)), null);
+  assert.strictEqual(tierOf(at(0.53)), 'maybe');
+  assert.strictEqual(tierOf(at(0.53, 0.5)), null, 'a maybe needs the margin too');
+  assert.strictEqual(tierOf(at(0.5)), null, 'below the 0.52 floor');
   const r = CENTROID_RULE.score(target, at(0.6, 0.2), [other]);
   assert.strictEqual(r.groupId, 9);
   assert.ok(Math.abs(r.margin - 0.4) < 1e-6);

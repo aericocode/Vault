@@ -90,7 +90,7 @@ test('feature off: status answers, everything else but settings/delete-all is FA
   assert.strictEqual(s.status, 200);
   assert.deepStrictEqual(Object.keys(s.body).sort(),
     ['autoIndex', 'counts', 'download', 'enabled', 'intervalS', 'maxFrames', 'missing', 'missingReasons', 'modelsReady', 'people', 'queue'].sort());
-  assert.deepStrictEqual(Object.keys(s.body.people).sort(), ['pending', 'sorting', 'total']);
+  assert.deepStrictEqual(Object.keys(s.body.people).sort(), ['pending', 'sorting', 'suggestions', 'total']);
   assert.strictEqual(s.body.maxFrames, 2000);
   assert.strictEqual(s.body.enabled, false);
   assert.strictEqual(s.body.autoIndex, false);

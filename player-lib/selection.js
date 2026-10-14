@@ -1292,7 +1292,8 @@ async function bulkFlag(value) {
 
 let _undoTimer = null;
 
-function showUndoToast(message, onUndo, ms = 8000) {
+/** A toast with one action button (Undo unless `label` says otherwise). `message` is HTML. */
+function showUndoToast(message, onUndo, ms = 8000, label = 'Undo') {
   let el = document.getElementById('undoToast');
   if (!el) {
     el = document.createElement('div');
@@ -1303,7 +1304,7 @@ function showUndoToast(message, onUndo, ms = 8000) {
 
   el.innerHTML = `
     <span>${message}</span>
-    <button class="undo-btn">Undo</button>
+    <button class="undo-btn">${label}</button>
     <button class="undo-dismiss" title="Dismiss">✕</button>
   `;
   el.querySelector('.undo-btn').addEventListener('click', () => {
