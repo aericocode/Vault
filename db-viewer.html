@@ -47,6 +47,7 @@
   <link rel="stylesheet" href="./css/faces.css">
   <link rel="stylesheet" href="./css/faces-tab.css">
   <link rel="stylesheet" href="./css/studios.css">
+  <link rel="stylesheet" href="./css/wall.css">
 
   <link rel="icon" type="image/svg+xml" href="./images/favicon.svg">
 </head>
@@ -71,6 +72,7 @@
         <button class="app-tab" data-tab="faces" onclick="switchTab('faces')">👤 Faces</button>
         <button class="app-tab" data-tab="editor" onclick="switchTab('editor')">🎨 Editor<span class="app-tab-badge" id="editorTabBadge" style="display:none;"></span></button>
         <button class="app-tab" data-tab="games" onclick="switchTab('games')">🎮 Games</button>
+        <button class="app-tab" data-tab="wall" onclick="switchTab('wall')">🧱 Wall</button>
       </nav>
       <div class="db-info">
         <strong id="totalCount">Loading…</strong>
@@ -294,6 +296,9 @@
   <!-- Games (video games over the library) — rendered by games.js -->
   <main class="games-container" id="gamesContainer" style="display:none;"></main>
 
+  <!-- Wall (full-bleed collage of the library) — rendered by wall.js -->
+  <main class="wall-root" id="wallContainer" style="display:none;"></main>
+
   <!-- Detail Modal -->
   <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
     <div class="modal-content" onclick="event.stopPropagation()">
@@ -416,6 +421,7 @@
   <script src="./player-lib/games/games-sidebar.js"></script>
   <script src="./player-lib/vault-ui.js"></script>
   <script src="./player-lib/importer.js"></script>
+  <script src="./player-lib/wall.js"></script>
   <script src="./player-lib/tabs.js"></script>
   <script src="./player-lib/settings.js"></script>
   <script src="./player-lib/setup-check.js"></script>

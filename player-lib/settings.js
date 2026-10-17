@@ -51,6 +51,7 @@
     // entry per filter key (popSort.language, popSort.theme...). Not in the
     // Settings modal: it is set by the toggle in the popover itself.
     popSort: {},
+    wall: {},               // Wall tab controls (validated in wall.js)
     _lastMediaId: null,     // internal: id for restoreSession
   };
 
@@ -233,6 +234,16 @@
   window.vaultSetPopSort = function (key, mode) {
     if (!key || !POP_SORTS.includes(mode)) return;
     settings.popSort = { ...settings.popSort, [key]: mode };
+    save();
+  };
+
+  /* ── Wall tab ───────────────────────────────────────────
+     The Wall's toolbar (sliders, source, mix...) as one object. wall.js
+     clamps every value on read, so a hand-edited blob cannot break it. */
+  window.vaultWallSettings = () =>
+    (settings.wall && typeof settings.wall === 'object') ? { ...settings.wall } : {};
+  window.vaultSetWallSettings = function (obj) {
+    settings.wall = { ...(obj || {}) };
     save();
   };
 

@@ -32,13 +32,18 @@ function switchTab(tab) {
   if (prev === 'editor' && typeof editorPauseIfActive === 'function') editorPauseIfActive();
   if (prev === 'games' && typeof gamesPauseIfActive === 'function') gamesPauseIfActive();
   if (prev === 'faces' && typeof facesTabLeave === 'function') facesTabLeave();
+  if (prev === 'wall' && typeof wallLeave === 'function') wallLeave();
 
   // Show exactly one container
-  if (main) main.style.display = (tab === 'editor' || tab === 'games') ? 'none' : '';
+  const wall = document.getElementById('wallContainer');
+  if (main) main.style.display = (tab === 'editor' || tab === 'games' || tab === 'wall') ? 'none' : '';
   if (editor) editor.style.display = tab === 'editor' ? '' : 'none';
   if (games) games.style.display = tab === 'games' ? '' : 'none';
+  if (wall) wall.style.display = tab === 'wall' ? '' : 'none';
 
-  if (tab === 'editor') {
+  if (tab === 'wall') {
+    if (typeof wallEnter === 'function') wallEnter();
+  } else if (tab === 'editor') {
     if (typeof renderEditor === 'function') renderEditor();
   } else if (tab === 'games') {
     if (typeof renderGames === 'function') renderGames();
