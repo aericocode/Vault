@@ -799,6 +799,8 @@ document.addEventListener('keydown', (e) => {
   if (document.getElementById('miniPlayer')?.classList.contains('active')) return;
   if (document.querySelector('.modal-overlay.active, .settings-overlay.active')) return;
   if (document.getElementById('mainContainer')?.classList.contains('active') !== true) return;
+  // Wall, Editor and Games hide the grid: it must not page underneath them
+  if (document.getElementById('mainContainer')?.style.display === 'none') return;
 
   if (e.key === 'PageDown') { movePage(1); }
   else if (e.key === 'PageUp') { movePage(-1); }

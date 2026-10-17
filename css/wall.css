@@ -148,7 +148,9 @@ body.wall-active { overflow: hidden; }
   display: flex;
   gap: var(--wall-gap);
   contain: strict;                    /* a re-fit stays inside its row */
-  transition: flex-grow 0.5s ease;    /* flex-grow = the row's natural height */
+  /* No transition on flex-grow (here or on blocks): a block that changes shape
+     snaps to it under the cross-fade, instead of visibly stretching for half a
+     second while the row re-fits. */
 }
 
 .wall-block {
@@ -159,7 +161,6 @@ body.wall-active { overflow: hidden; }
   background: #111;
   cursor: pointer;
   contain: strict;
-  transition: flex-grow 0.5s ease;
 }
 
 .wall-layer {
