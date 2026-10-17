@@ -220,10 +220,15 @@ function buildRouter() {
     if (!id || !Number.isInteger(n) || n < 0) return res.status(400).end();
     const row = db.getById(id);
     if (!row) return res.status(404).end();
+    const client = clientToken(req);
+    // Closed before it ever asked for anything: a player torn down while its
+    // first request was still on the way. Serving it would register the token
+    // and start a producer for a reader that is already gone.
+    if (ring.closedUnseen(id, client)) return res.status(410).end();
 
     let result;
     try {
-      result = await service.segmentFor(row, n, clientToken(req));
+      result = await service.segmentFor(row, n, client);
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -255,12 +260,22 @@ function buildRouter() {
   // still reading, so teardown needs both halves: the token was a known client,
   // and it was the last one. Everything else is a no-op, and the idle sweeper
   // stays the guarantee for sessions that really were abandoned.
+  //
+  // A player's own token (an explicit `c`) is also remembered as closed for a
+  // minute (ring.closeClient), because the beacon can overtake that player's
+  // last requests: a first segment request arriving after the close is refused
+  // instead of starting a producer, and one already waiting does not restart
+  // it. Derived tokens are not remembered: they stand for a whole address, not
+  // one player instance, and the same fetcher may well come back.
   router.post('/stream/:id/close', async (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).end();
     res.status(204).end();
     try {
-      const left = ring.dropClient(id, clientToken(req));
+      const token = clientToken(req);
+      const left = token === String(req.query.c || '')
+        ? ring.closeClient(id, token)
+        : ring.dropClient(id, token);
       if (!left.removed || left.remaining > 0) return;
       await session.end(id);
     } catch { /* the idle sweeper is the backstop */ }
