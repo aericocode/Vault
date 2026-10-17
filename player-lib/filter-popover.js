@@ -294,7 +294,7 @@ function openFilterPopover(anchor, opts) {
   _fpop = {
     el, anchor, opts,
     anchorKey: _fpopAnchorKey(anchor),
-    anchorRoot: anchor.closest?.('#moreFiltersSheet, #filterChipRow') || document,
+    anchorRoot: anchor.closest?.('#moreFiltersSheet, #filterChipRow, #filterRail') || document,
   };
   anchor.setAttribute('aria-expanded', 'true');
 

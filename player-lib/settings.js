@@ -55,6 +55,7 @@
     popSort: {},
     dockOpen: false,        // Modern: is the docked preview pane open (player-lib/dock.js)
     dockWidth: 380,         // Modern: its width in px, clamped to 300..50% of the window
+    railOpen: null,         // Modern: left filter rail open (true/false); null = by window width
     _lastMediaId: null,     // internal: id for restoreSession
   };
 
@@ -295,6 +296,15 @@
     const n = Math.round(Number(px));
     if (!Number.isFinite(n) || n <= 0) return;
     settings.dockWidth = n;
+    save();
+  };
+
+  /* ── Left filter rail (Modern) ────────────────────────────────────────
+     Set from the rail's own toggle (player-lib/filter-rail.js). null means
+     the user has never chosen, and the rail then follows the window width. */
+  window.vaultRailOpen = () => (settings.railOpen === true || settings.railOpen === false ? settings.railOpen : null);
+  window.vaultSetRailOpen = function (open) {
+    settings.railOpen = !!open;
     save();
   };
 

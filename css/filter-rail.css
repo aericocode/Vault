@@ -1,0 +1,307 @@
+/* ==========================================
+   LEFT FILTER RAIL (Modern look, player-lib/filter-rail.js)
+
+   Fixed to the left edge under the sticky header. While it shows, body has
+   .rail-shown and #mainContainer gets a left margin of the same width, so the
+   grid re-measures narrower and nothing sits under the rail. The chip row,
+   type bar, saved-search bar and Options button hide meanwhile: the rail
+   carries all of them. --rail-top is set on :root by filter-rail.js.
+   ========================================== */
+
+:root { --rail-w: 260px; }
+
+.filter-rail {
+  position: fixed;
+  top: var(--rail-top, 0px);
+  left: 0;
+  bottom: 0;
+  width: var(--rail-w);
+  z-index: 150;                 /* same layer as the dock: over the grid, under modals */
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+}
+.filter-rail[hidden] { display: none; }
+
+body.rail-shown #mainContainer { margin-left: var(--rail-w); }
+
+/* What the rail replaces. !important: the saved-search bar and the extension
+   bar set their display inline. */
+body.rail-shown #filterChipRow,
+body.rail-shown #typeFilterContainer,
+body.rail-shown #savedSearchesBar,
+body.rail-shown #searchOptionsBtn { display: none !important; }
+
+/* Things pinned bottom-left move clear of the rail. */
+body.rail-shown .selection-bar {
+  left: calc(var(--rail-w) + 18px);
+  max-width: calc(100vw - var(--rail-w) - 36px);
+}
+body.rail-shown.dock-shown .selection-bar {
+  max-width: calc(100vw - var(--rail-w) - var(--dock-w, 380px) - 36px);
+}
+
+.rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rail-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  cursor: pointer;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+}
+.rail-close:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+
+.rail-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.5rem 0 1.5rem;
+  font-size: 0.85rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.rail-list { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+
+/* ── Filters in use (top of the rail) ── */
+.rail-active-sec {
+  padding: 0.35rem 0.9rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+.rail-active-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.rail-active-title { font-size: 0.78rem; color: var(--text-muted); }
+.rail-clear-all {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+}
+.rail-clear-all:hover:not(:disabled) { border-color: var(--danger); color: var(--text-primary); }
+.rail-clear-all:disabled { opacity: 0.4; cursor: default; }
+.rail-active,
+.rail-xchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.rail-xchips:empty { display: none; }
+/* Long values wrap instead of running out of the rail. */
+.rail-active .fchip { max-width: 100%; white-space: normal; }
+.rail-xchip .fchip-main { cursor: default; padding-right: 0.4rem; }
+
+/* ── Sections ── */
+.rail-sec { border-bottom: 1px solid var(--border); }
+.rail-sec[hidden] { display: none; }
+.rail-sec-h {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.rail-sec-h::-webkit-details-marker { display: none; }
+.rail-sec-h::before {
+  content: '▸';
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  transition: transform 0.12s;
+}
+.rail-sec[open] > .rail-sec-h::before { transform: rotate(90deg); }
+.rail-sec-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rail-sec-val {
+  margin-left: auto;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: var(--accent-hover);
+}
+.rail-sec-h:hover .rail-sec-title { color: var(--text-primary); }
+.rail-sec-body { padding: 0 0.9rem 0.75rem; }
+
+.rail-sub {
+  margin: 0.5rem 0 0.2rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rail-sub:first-child { margin-top: 0; }
+
+/* A list of pickable rows with counts on the right. */
+.rail-list,
+.rail-colls,
+.rail-saved {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.rail-list { max-height: 320px; overflow-y: auto; }
+.rail-opt {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.83rem;
+  text-align: left;
+  cursor: pointer;
+}
+.rail-opt:hover { background: var(--bg-tertiary); }
+.rail-opt.is-on { background: var(--accent-bg); color: #fff; }
+.rail-opt-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-count {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.rail-opt.is-on .rail-count { color: var(--text-secondary); }
+
+/* Pills: types, duration presets, extensions. */
+.rail-pills { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.rail-pill {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.rail-pill:hover { border-color: var(--accent); color: var(--text-primary); }
+.rail-pill.is-on {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+.rail-pill .rail-count { margin-left: 0.15rem; }
+
+.rail-search {
+  width: 100%;
+  margin-bottom: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.82rem;
+}
+.rail-search:focus { outline: none; border-color: var(--accent); }
+.rail-search:disabled { opacity: 0.5; }
+
+.rail-check {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.3rem 0;
+  cursor: pointer;
+}
+.rail-check input { margin-top: 0.15rem; accent-color: var(--accent); }
+.rail-check-label { display: block; color: var(--text-primary); font-size: 0.83rem; }
+.rail-check-desc { display: block; color: var(--text-muted); font-size: 0.74rem; line-height: 1.35; }
+
+.rail-saved-row { display: flex; align-items: center; }
+.rail-saved-row .rail-opt { flex: 1; min-width: 0; }
+.rail-saved-row.is-on .rail-opt { background: var(--accent-bg); }
+.rail-saved-x {
+  background: none;
+  border: 0;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  padding: 0.2rem 0.45rem;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.rail-saved-x:hover { color: var(--danger); background: var(--bg-tertiary); }
+/* Privacy mode's "saved searches" category blurs these as it does the chips. */
+body.pm-searches .rail-saved-row { filter: blur(7px); pointer-events: none; user-select: none; }
+
+.rail-empty,
+.rail-note {
+  margin: 0.25rem 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* The More sheet's tri rows, stacked: label over its segment. */
+.filter-rail .fsheet-rows { grid-template-columns: 1fr; gap: 0.2rem; }
+.filter-rail .fseg-row { display: contents; }
+.filter-rail .fseg-label { margin-top: 0.35rem; font-size: 0.78rem; }
+.filter-rail .fseg-btn { padding: 0.26rem 0.5rem; }
+
+.rail-opt:focus-visible,
+.rail-pill:focus-visible,
+.rail-sec-h:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* ── Toolbar toggle (Modern only; .modern-only hides it in Classic) ── */
+.rail-toggle-btn {
+  padding: 0.25rem 0.6rem;
+  margin-right: 0.6rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.rail-toggle-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+.rail-toggle-btn[aria-pressed="true"] {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+/* No rail on Faces (its pages hide the filters), and none below the width
+   filter-rail.js RAIL_MIN_WINDOW allows. */
+#mainContainer.faces-on .rail-toggle-btn { display: none; }
+@media (max-width: 899px) {
+  .rail-toggle-btn { display: none; }
+}

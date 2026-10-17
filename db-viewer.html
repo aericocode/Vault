@@ -21,6 +21,8 @@
   <link rel="stylesheet" href="./css/sidebar.css">
   <!-- Docked preview pane (Modern look), scoped under body.dock-shown -->
   <link rel="stylesheet" href="./css/dock.css">
+  <!-- Left filter rail (Modern look), scoped under body.rail-shown -->
+  <link rel="stylesheet" href="./css/filter-rail.css">
   <link rel="stylesheet" href="./css/detail-view.css">
   <link rel="stylesheet" href="./css/abloop.css">
   <link rel="stylesheet" href="./css/duplicates.css">
@@ -254,6 +256,9 @@
     <!-- Results Info -->
     <div class="results-info">
       <div class="results-count">
+        <!-- Modern look only: open / close the left filter rail (player-lib/filter-rail.js) -->
+        <button type="button" class="rail-toggle-btn modern-only" id="railToggleBtn" aria-pressed="false"
+                aria-controls="filterRail" title="Show or hide the filter panel">☰ Filters</button>
         <button class="search-collapse-btn" id="searchCollapseBtn" title="Show/hide search &amp; filters">▲ Search</button>
         <!-- Select page / Select all already carry the counts, so no separate
              "Showing N of M results" line: it said the same thing twice. -->
@@ -313,6 +318,18 @@
       <button type="button" class="dock-close" id="dockCloseBtn" title="Close the preview pane">✕</button>
     </div>
     <div class="dock-body" id="dockBody"></div>
+  </aside>
+
+  <!-- Left filter rail (Modern look only, player-lib/filter-rail.js). Fixed to
+       the left edge under the header; #mainContainer gets a matching left
+       margin while it shows. It is another view over #filterState: every
+       control here writes the same elements the chips and the More sheet do. -->
+  <aside class="filter-rail" id="filterRail" aria-label="Filters" hidden>
+    <div class="rail-head">
+      <span class="rail-head-title">Filters</span>
+      <button type="button" class="rail-close" id="railCloseBtn" title="Hide the filter panel">✕</button>
+    </div>
+    <div class="rail-body" id="filterRailBody"></div>
   </aside>
 
   <!-- Editor (stack/grid mixes, songs browser, exports) — rendered by editor.js -->
@@ -457,6 +474,8 @@
   <script src="./player-lib/studios.js"></script>
   <!-- Docked preview pane (Modern look). After settings.js, before app.js. -->
   <script src="./player-lib/dock.js"></script>
+  <!-- Left filter rail (Modern look). Hooks: filter-chips, saved-searches, collections. -->
+  <script src="./player-lib/filter-rail.js"></script>
   <script src="./player-lib/app.js"></script>
 </body>
 </html>

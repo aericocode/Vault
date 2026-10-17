@@ -115,6 +115,8 @@ function _isAncestorFolder(folderId, id) {
 function renderCollectionsTabBar() {
   const bar = document.getElementById('collectionsTabBar');
   if (!bar) return;
+  // The Modern look's left rail lists the collections too (player-lib/filter-rail.js).
+  if (typeof renderFilterRail === 'function') renderFilterRail();
   const show = (typeof currentTab !== 'undefined' && currentTab === 'collections') && activeCollectionId == null;
   if (!show) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
   bar.style.display = 'flex';
