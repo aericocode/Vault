@@ -94,6 +94,10 @@ const Wall = (() => {
   let tickTimer = null;
   let built = false;
   let buildGen = 0;
+  let layoutGen = 0;           // bumped by every layout, so a waiting relayout knows it is stale
+  // Layout work asked for while the tab was hidden (the board has no size
+  // then): 'keep' or 'fresh', done on the way back in. Never laid out hidden.
+  let dirty = false;
 
   let rows = [];               // [{ el, blocks: [] }]
   let blocks = [];
@@ -567,6 +571,13 @@ const Wall = (() => {
     // keeps the same number of rows needs nothing: flexbox re-fits the rows.
     new ResizeObserver(debounce(() => { if (active && built) refitBoard(); }, 200)).observe(els.board);
     window.addEventListener('resize', () => { if (active) placeRoot(); });
+    // The header can change height without the window resizing (its rows wrap).
+    const header = document.getElementById('appHeader');
+    if (header) new ResizeObserver(() => { if (active) placeRoot(); }).observe(header, { box: 'border-box' });
+
+    // A closing or reloading page never reaches leave(): release every clip so
+    // each remux stream sends its close beacon (the player does the same).
+    window.addEventListener('pagehide', () => { if (liveCost > 0) releaseAllVideos(); });
 
     // The player (full or mini) opening over the wall pauses it; closing resumes.
     const ov = document.getElementById('mediaPlayerOverlay');
@@ -693,10 +704,13 @@ const Wall = (() => {
    * when adding anything would overshoot more than stretching would.
    */
   function layout() {
-    teardownBlocks();
+    layoutGen++;
     const W = els.board.clientWidth;
     const H = els.board.clientHeight;
-    if (!W || !H) return;
+    // A hidden board has no size: leave what is there alone (the caller marks
+    // the board dirty and it is laid out on the way back in).
+    if (!W || !H) return false;
+    teardownBlocks();
     const g = cfg.gap;
     const R = rowCountFor(H);
     const rh = (H - g * (R - 1)) / R;
@@ -745,20 +759,39 @@ const Wall = (() => {
     }
     pinOnScreen();
     updateStatus();
+    return true;
   }
 
-  /** Lay out again, keeping what is on screen now at the front of the queue. */
-  function relayout(keep) {
+  function markDirty(keep) {
+    if (dirty !== 'fresh') dirty = keep ? 'keep' : 'fresh';
+  }
+
+  /**
+   * Lay out again, keeping what is on screen now at the front of the queue.
+   *
+   * The new layout must come out as full as a fresh build: the queue is first
+   * topped up for the new board (a smaller block size needs far more items),
+   * and nothing in it is dropped, so a small source repeats items exactly the
+   * way a fresh build of it does. Hidden, nothing is done but marking the
+   * board dirty; entering the tab does the work.
+   */
+  async function relayout(keep) {
     if (!built || !els) return;
-    if (keep) {
-      const seen = new Set();
-      const back = [];
-      for (const b of blocks) {
-        if (b.item && !seen.has(b.item.id)) { seen.add(b.item.id); back.push(b.item); }
-      }
-      ready = back.concat(ready.filter(r => !seen.has(r.id)));
+    if (!active) { markDirty(keep); return; }
+    const gen = ++layoutGen;
+    const pg = poolGen;
+    for (let i = 0; i < 3 && ready.length < readyTarget(); i++) {
+      await fill();
+      if (gen !== layoutGen || pg !== poolGen || !built) return;
     }
-    layout();
+    if (!active) { markDirty(keep); return; }
+    if (keep) {
+      const back = [];
+      for (const b of blocks) if (b.item && !b.dead) back.push(b.item);
+      ready = back.concat(ready);
+    }
+    if (!layout()) { markDirty(keep); return; }
+    dirty = false;
     if (running) fillSlots();
   }
 
@@ -1024,9 +1057,7 @@ const Wall = (() => {
       v.play().catch(() => {});
       return;
     }
-    rec.token = (window.crypto && crypto.randomUUID)
-      ? crypto.randomUUID().replace(/-/g, '')
-      : `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+    rec.token = wallToken();
     const url = `${info.url}?c=${encodeURIComponent(rec.token)}`;
     if (!(typeof Hls !== 'undefined' && Hls.isSupported())) {
       v.src = url;                                // Safari: native HLS
@@ -1040,6 +1071,25 @@ const Wall = (() => {
     hls.on(Hls.Events.MANIFEST_PARSED, () => { if (!rec.released) v.play().catch(() => {}); });
     hls.loadSource(url);
     hls.attachMedia(v);
+  }
+
+  /**
+   * A stream token only the Wall mints: "wall-" + a lowercase UUID. The server
+   * remembers closed tokens (and refuses their late requests) only in exactly
+   * this shape, so the main player's tokens never take that path.
+   * crypto.randomUUID needs a secure context, which plain-http LAN access is
+   * not, so the same shape is built from getRandomValues there.
+   */
+  function wallToken() {
+    const c = window.crypto;
+    if (c && typeof c.randomUUID === 'function') return `wall-${c.randomUUID().toLowerCase()}`;
+    const b = new Uint8Array(16);
+    if (c && typeof c.getRandomValues === 'function') c.getRandomValues(b);
+    else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const h = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+    return `wall-${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
   }
 
   /** Free a video for good: decoder, buffers, connection, stream session. */
@@ -1251,7 +1301,7 @@ const Wall = (() => {
     }
     showMsg('');
     if (!active) return;            // left while loading: lay out on the way back in
-    layout();
+    dirty = layout() ? false : 'fresh';
     built = true;
     evaluate();
   }
@@ -1263,9 +1313,11 @@ const Wall = (() => {
     shuffleInPlace(poolIds);
     poolCursor = 0;
     ready = [];
+    const gen = poolGen;
     fill().then(() => {
-      if (!active) return;
-      layout();
+      if (gen !== poolGen) return;
+      if (!active || !layout()) { markDirty(false); return; }
+      dirty = false;
       built = true;
       evaluate();
       if (running) fillSlots();
@@ -1301,7 +1353,14 @@ const Wall = (() => {
     populateSources();
     syncControls();
     if (!built || computePoolKey() !== poolKey) rebuild();
-    else {
+    else if (dirty || !blocks.length) {
+      // Something asked for a layout while the tab was hidden, or the board
+      // is empty: lay it out now that it has a size.
+      const keep = dirty !== 'fresh';
+      dirty = false;
+      relayout(keep);
+      evaluate();
+    } else {
       // Back on the tab with the same source: re-fit if the window changed.
       refitBoard();
       evaluate();
@@ -1319,7 +1378,9 @@ const Wall = (() => {
   function lockStop() {
     if (!els) return;
     active = false;
+    document.body.classList.remove('wall-active');
     built = false;
+    dirty = false;
     buildGen++;
     poolGen++;
     setRunning(false);
