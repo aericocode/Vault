@@ -182,14 +182,14 @@ function dockBodyHtml(m) {
   const flagged = !!m.user_flagged_delete;
 
   return `
-    <div class="dock-thumb tile-thumb ${canThumb ? '' : 'thumb-fallback'}" ondblclick="playMediaById(${m.id})"
+    <div class="dock-thumb tile-thumb ${canThumb ? '' : 'thumb-fallback'}" ondblclick="dockPlayPick(${m.id})"
          title="Double click to play">
       ${thumb}
       <span class="tile-type-icon">${icon}</span>
     </div>
     <div class="dock-name">${escapeHtml(m.filename)}</div>
     <div class="dock-actions">
-      <button class="dock-btn dock-btn-primary" onclick="playMediaById(${m.id})">▶ Play</button>
+      <button class="dock-btn dock-btn-primary" onclick="dockPlayPick(${m.id})">▶ Play</button>
       <button class="dock-btn" onclick="showDetailsById(${m.id})">Details</button>
       <button class="dock-btn ${flagged ? 'is-on' : ''}" onclick="toggleFlagDelete(mediaPathById(${m.id}))"
               title="${flagged ? 'Unflag' : 'Flag this file'}">🚩</button>
@@ -239,13 +239,40 @@ function dockForget() {
   dockRender();
 }
 
+/** Is the pick one of the current results? Only a yes/no once the answer is
+ *  certain: null while just the first page's ids are here and it is not
+ *  among them (the full id list will tell). */
+function dockPickInResults(id) {
+  if (id == null) return false;
+  if (Library.indexOf(id) >= 0) return true;
+  // indexOf searched the full list, or the first page is the whole result.
+  if (Library.ids || (Library.known() && Library.length() <= Library.firstPageIds.length)) return false;
+  return null;
+}
+
 function dockDropIfGone() {
   const id = _dockSelectedId;
-  if (id == null || !Library.known() || Library.indexOf(id) >= 0) return;
-  // Only the first page's ids may be here yet: decide once the list is in.
-  if (Library.length() <= Library.firstPageIds.length) { _dockSelectedId = null; Library.pin('dock', null); return; }
+  const inResults = dockPickInResults(id);
+  if (id == null || inResults === true) return;
+  if (inResults === false) { dockForget(); return; }
+  // Only the first page's ids are here yet: decide once the list is in.
+  // (vault:results-counted below asks again too, as a second chance.)
   Library.waitIds().then((ids) => {
     if (ids && id === _dockSelectedId && !ids.includes(id)) dockForget();
+  }).catch(() => {});
+}
+
+/** Play the pick, but never a file a search or filter has taken out of the
+ *  results: the pane may not have caught up yet. */
+function dockPlayPick(id) {
+  if (id == null) return;
+  const inResults = dockPickInResults(id);
+  if (inResults === true) { playMediaById(id); return; }
+  if (inResults === false) { dockDropIfGone(); return; }
+  // Past the first page with the full list still coming: ask it first.
+  Library.waitIds().then((ids) => {
+    if (!ids || id !== _dockSelectedId) return;
+    if (ids.includes(id)) playMediaById(id); else dockForget();
   }).catch(() => {});
 }
 
@@ -307,14 +334,26 @@ function dockModalLayerOpen() {
   return false;
 }
 
+const DOCK_CONTROL_SEL = 'button, a, input, select, textarea, summary, [contenteditable]:not([contenteditable="false"]), '
+  + '[role="button"], [role="checkbox"], [role="tab"], [role="menuitem"], [role="separator"]';
+
+/** The focused interactive element the key belongs to, if any (not a tile). */
+function dockFocusedControl(el) {
+  if (!el || !el.closest || el === document.body) return null;
+  const ctl = el.closest(DOCK_CONTROL_SEL);
+  if (!ctl || ctl.matches('.media-tile')) return null;
+  return ctl;
+}
+
 function dockKeyBlocked(e) {
   if (!_dockShown) return true;
   if (e.ctrlKey || e.metaKey || e.altKey) return true;
   if (typeof isTypingTarget === 'function' && isTypingTarget(e.target)) return true;
-  // Enter on a control keeps that control's own meaning; the resize handle
-  // (role=separator) has none for Enter, but must not play either.
-  if (e.key === 'Enter' && e.target && e.target.closest
-      && e.target.closest('button, a, [role="button"], [role="separator"]')) return true;
+  // Enter on a focused control keeps that control's own meaning (a rail
+  // section header opens and closes, a button presses). The resize handle
+  // (role=separator) has none for Enter, but must not play either. A tile
+  // itself is not such a control.
+  if (e.key === 'Enter' && dockFocusedControl(e.target)) return true;
   if (document.getElementById('mediaPlayerOverlay')?.classList.contains('active')) return true;
   if (document.getElementById('miniPlayer')?.classList.contains('active')) return true;
   if (document.querySelector('.modal-overlay.active, .settings-overlay.active, .media-info-overlay.active, .filters-panel.active')) return true;
@@ -330,7 +369,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     if (_dockSelectedId == null) return;
     e.preventDefault();
-    playMediaById(_dockSelectedId);
+    dockPlayPick(_dockSelectedId);
     return;
   }
   let step = DOCK_STEPS[e.key];
@@ -420,10 +459,20 @@ function dockInit() {
     const id = Number(tile.dataset.id);
     if (id) dockSelect(id);
   });
+  // A mouse click on a tile's select box leaves focus in it, where the arrows
+  // and Enter belong to the box, not the grid: hand focus back, as above.
+  // Capture phase: the box's own handler stops the click from bubbling.
+  document.getElementById('resultsGrid')?.addEventListener('click', (e) => {
+    if (!_dockShown || !e.detail || !e.target.matches?.('input.tile-select')) return;
+    const box = e.target;
+    queueMicrotask(() => box.blur());
+  }, true);
   document.getElementById('resultsGrid')?.addEventListener('dblclick', (e) => {
     if (!_dockShown) return;
     const tile = e.target.closest('.media-tile:not(.tile-skel)');
-    if (!tile || e.target.closest('button, input, a, .tile-thumb')) return;
+    // Anything with its own double click (a tile's picture, a table row's
+    // picture and title) already played it.
+    if (!tile || e.target.closest('button, input, a, .tile-thumb, [ondblclick]')) return;
     const id = Number(tile.dataset.id);
     if (id) playMediaById(id);
   });
@@ -434,6 +483,9 @@ function dockInit() {
     new MutationObserver(() => dockSync()).observe(main, { attributes: true, attributeFilter: ['style', 'class'] });
   }
   window.addEventListener('vault:layout-style', () => dockSync());
+  // The full id list arrived: a pick that only looked possibly-gone against
+  // the first page can be decided now.
+  window.addEventListener('vault:results-counted', () => { if (_dockShown) dockDropIfGone(); });
   window.addEventListener('vault:row-updated', (e) => {
     if (_dockShown && e.detail && e.detail.id === _dockSelectedId) dockRender();
   });
