@@ -47,6 +47,8 @@
   <link rel="stylesheet" href="./css/faces.css">
   <link rel="stylesheet" href="./css/faces-tab.css">
   <link rel="stylesheet" href="./css/studios.css">
+  <!-- Modern library look: every rule is scoped under body.layout-modern -->
+  <link rel="stylesheet" href="./css/layout-modern.css">
 
   <link rel="icon" type="image/svg+xml" href="./images/favicon.svg">
 </head>
@@ -264,6 +266,13 @@
           onclick="rescanFiltered()"></button>
       </div>
       <div class="results-controls">
+        <!-- Modern look only: card size as a slider (player-lib/layout-modern.js).
+             Classic keeps Small / Medium / Large in Settings. -->
+        <div class="card-size-control modern-only">
+          <label for="cardSizeRange">Size</label>
+          <input type="range" id="cardSizeRange" min="120" max="480" step="10" value="170"
+                 title="Card size: drag for smaller or bigger tiles">
+        </div>
         <div class="sort-control">
           <label>Sort:</label>
           <select id="sortSelect">
@@ -418,6 +427,7 @@
   <script src="./player-lib/importer.js"></script>
   <script src="./player-lib/tabs.js"></script>
   <script src="./player-lib/settings.js"></script>
+  <script src="./player-lib/layout-modern.js"></script>
   <script src="./player-lib/setup-check.js"></script>
   <script src="./player-lib/tooltip.js"></script>
   <!-- Face search (FACES_BUILD_SPEC 8). Hooks: detail-view, filters,

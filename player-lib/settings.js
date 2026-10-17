@@ -46,6 +46,8 @@
     gamifyHidden: false,    // hide the Obsession chip + toasts (scoring continues)
     libraryLayout: 'pages', // 'pages' (whole rows, one screenful) | 'continuous' (free scroll)
     cardSize: 'M',          // 'S' | 'M' | 'L' — minimum tile width, mapped in cards.js
+    layoutStyle: 'classic', // 'classic' (today's look) | 'modern' (full width, size slider)
+    cardMinWidth: 0,        // Modern's size slider, px (120-480); 0 = follow cardSize
     libraryDeepOpen: false, // Settings > Library: is the deep-search section expanded
     // How each list filter's popover orders its options: 'az' or 'count', one
     // entry per filter key (popSort.language, popSort.theme...). Not in the
@@ -219,6 +221,44 @@
   window.vaultCardSize = () =>
     CARD_SIZES.includes(settings.cardSize) ? settings.cardSize : 'M';
 
+  /* ── Library look (Classic / Modern) ─────────────────────────────────
+     One body class, layout-modern, carries the whole Modern look: every
+     Modern CSS rule hangs off it and every Modern JS path asks
+     isModernLayout(). Classic is the default and is exactly today's layout,
+     so switching back is always safe. Applied the moment this script parses
+     (below, next to the privacy classes) so a reload never flashes the other
+     look. */
+
+  const LAYOUT_STYLES = ['classic', 'modern'];
+  const CARD_MIN_W = 120, CARD_MAX_W = 480, CARD_STEP_W = 10;
+  // What the slider starts on before it has ever been moved: the S / M / L
+  // width the user already had, so switching to Modern changes nothing at first.
+  const CARD_SIZE_WIDTHS = { S: 130, M: 170, L: 230 };
+
+  const layoutStyle = () =>
+    LAYOUT_STYLES.includes(settings.layoutStyle) ? settings.layoutStyle : 'classic';
+  window.vaultLayoutStyle = layoutStyle;
+  window.isModernLayout = () => layoutStyle() === 'modern';
+
+  function clampCardWidth(n) {
+    n = Math.round(Number(n) / CARD_STEP_W) * CARD_STEP_W;
+    if (!Number.isFinite(n) || n <= 0) return CARD_SIZE_WIDTHS[window.vaultCardSize()];
+    return Math.min(CARD_MAX_W, Math.max(CARD_MIN_W, n));
+  }
+  window.vaultCardMinWidth = () => clampCardWidth(settings.cardMinWidth);
+  window.vaultCardWidthRange = { min: CARD_MIN_W, max: CARD_MAX_W, step: CARD_STEP_W };
+  window.vaultSetCardMinWidth = function (n) {
+    settings.cardMinWidth = clampCardWidth(n);
+    save();
+    return settings.cardMinWidth;
+  };
+
+  function applyLayoutStyle() {
+    document.body.classList.toggle('layout-modern', layoutStyle() === 'modern');
+    try { window.dispatchEvent(new CustomEvent('vault:layout-style', { detail: { style: layoutStyle() } })); } catch {}
+  }
+  window.vaultApplyLayoutStyle = applyLayoutStyle;
+
   /* ── Popover option order ────────────────────────────────────────────
      Which way a list filter's popover sorts its options, one answer per
      filter. The toggle lives in the popover, not in this modal, so the pair
@@ -374,6 +414,7 @@
   load();
   if (settings.privacyMode) document.body.classList.add('privacy-mode');
   applyPrivacyHideClasses(settings.privacyMode);
+  applyLayoutStyle();
 
   /* ── Header gear button ──────────────────────────────────────────────────
      Appended to the END of .header-buttons (gamify prepends its chip; we
@@ -552,10 +593,10 @@
      whole list keeps one left edge, and the buttons carry aria-pressed like
      the privacy chips already do. */
 
-  function segRow({ key, title, desc, options }) {
+  function segRow({ key, title, desc, options, cls = '' }) {
     const current = settings[key];
     return `
-      <div class="settings-toggle settings-seg-row">
+      <div class="settings-toggle settings-seg-row${cls ? ` ${cls}` : ''}">
         <span class="settings-toggle-text">
           <span class="settings-toggle-title" id="segLabel_${key}">${title}</span>
           <span class="settings-toggle-desc">${desc}</span>
@@ -760,10 +801,18 @@
         options: [{ value: 'pages', label: 'Pages' }, { value: 'continuous', label: 'Continuous' }],
       })}
       ${segRow({
+        key: 'layoutStyle',
+        title: 'Library look',
+        desc: 'Classic is the layout you know. Modern uses the full width of the screen and sets card size with a slider above the grid.',
+        options: [{ value: 'classic', label: 'Classic' }, { value: 'modern', label: 'Modern' }],
+      })}
+      ${segRow({
         key: 'cardSize',
         title: 'Card size',
         desc: 'How big each tile is. Columns and rows follow from the window.',
         options: [{ value: 'S', label: 'Small' }, { value: 'M', label: 'Medium' }, { value: 'L', label: 'Large' }],
+        // Modern sets the size with the slider in the library toolbar instead.
+        cls: 'classic-only',
       })}
       ${toggleRow({
         key: 'gamifyHidden',
@@ -868,6 +917,7 @@
       btn.closest('.settings-seg').querySelectorAll('button[data-setting-seg]').forEach(b => {
         b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
       });
+      if (key === 'layoutStyle') applyLayoutStyle();
       window.vaultRelayoutLibrary?.({ reason: key });
     };
     body.querySelectorAll('button[data-setting-seg]').forEach(btn => {

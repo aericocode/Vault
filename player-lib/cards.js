@@ -72,6 +72,9 @@ function libraryLayoutMode() {
 }
 
 function tileMinWidth() {
+  // Modern sets the width directly with the toolbar slider; Classic keeps S/M/L.
+  if (typeof isModernLayout === 'function' && isModernLayout()
+      && typeof window.vaultCardMinWidth === 'function') return window.vaultCardMinWidth();
   const size = typeof window.vaultCardSize === 'function' ? window.vaultCardSize() : 'M';
   return CARD_MIN_WIDTHS[size] || CARD_MIN_WIDTHS.M;
 }

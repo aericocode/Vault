@@ -1,0 +1,52 @@
+/* ==========================================
+   MODERN LIBRARY LOOK (Settings > Library look)
+
+   Every rule here is scoped under body.layout-modern, except the two
+   visibility helpers, so Classic renders exactly as it did before this file
+   existed. settings.js puts the class on <body> before the first render.
+   ========================================== */
+
+/* Pieces that belong to one look only. !important because the elements they
+   sit on set their own display. */
+body:not(.layout-modern) .modern-only { display: none !important; }
+body.layout-modern .classic-only { display: none !important; }
+
+/* ── Full width ─────────────────────────────────────────────────────────
+   The 1800px caps go; the side gutter stays (16px, 24px on wide screens).
+   Text-heavy pieces (Settings, modals, the load section) keep their own
+   readable caps: none of them are touched here. */
+body.layout-modern .header-content,
+body.layout-modern .setup-banner-row,
+body.layout-modern .main-container,
+body.layout-modern .editor-container,
+body.layout-modern .games-container {
+  max-width: none;
+}
+
+@media (min-width: 1600px) {
+  body.layout-modern .main-container {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+}
+
+/* ── Card size slider (library toolbar) ───────────────────────────────── */
+.card-size-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.card-size-control input[type="range"] {
+  width: 140px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* A person's files on the Faces tab run in their own order, so Classic hides
+   the whole sort row there. Modern keeps the row for the slider (and the
+   dock button) and hides only the sort itself. */
+body.layout-modern #mainContainer.faces-person .results-controls { display: flex; }
+body.layout-modern #mainContainer.faces-person .sort-control { display: none; }
