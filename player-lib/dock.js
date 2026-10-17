@@ -225,7 +225,28 @@ function dockRender() {
  *  anywhere repaints the grid, and the pane follows when its file changed. */
 function dockAfterGridRender() {
   if (!_dockShown) return;
+  dockDropIfGone();
   dockRender();
+}
+
+/* A new search or filter can take the picked file out of the results. Then
+   the pane lets it go (and says "click a tile"), so the arrow keys start
+   again from the first tile on screen instead of from a file not listed. */
+function dockForget() {
+  _dockSelectedId = null;
+  Library.pin('dock', null);
+  dockPaintSelection();
+  dockRender();
+}
+
+function dockDropIfGone() {
+  const id = _dockSelectedId;
+  if (id == null || !Library.known() || Library.indexOf(id) >= 0) return;
+  // Only the first page's ids may be here yet: decide once the list is in.
+  if (Library.length() <= Library.firstPageIds.length) { _dockSelectedId = null; Library.pin('dock', null); return; }
+  Library.waitIds().then((ids) => {
+    if (ids && id === _dockSelectedId && !ids.includes(id)) dockForget();
+  }).catch(() => {});
 }
 
 /* ── Keyboard: arrows walk the grid, Enter plays ─────────────────────────── */
@@ -259,15 +280,42 @@ function dockReveal(index) {
   }
 }
 
+/** On screen and not faded out (display:none anywhere above it has no rects). */
+function dockLayerVisible(el) {
+  if (!el.getClientRects().length) return false;
+  const cs = getComputedStyle(el);
+  return cs.visibility !== 'hidden' && Number(cs.opacity) > 0;
+}
+
+/* Is anything modal over the library? Asked generically rather than from a
+   list: any visible layer with a class ending in "-overlay" (the player, the
+   detail modal, gamify, the vault password and "Protect your library?"
+   dialogs, import, faces, music, subtitles, games...) or any visible dialog
+   (role=dialog, aria-modal, an open <dialog>). A dialog added later is
+   covered without anyone remembering to list it here. */
+function dockModalLayerOpen() {
+  const els = document.querySelectorAll('[class*="-overlay"], [role="dialog"], [aria-modal="true"], dialog[open]');
+  for (const el of els) {
+    const dialog = el.matches('[role="dialog"], [aria-modal="true"], dialog');
+    if (!dialog && ![...el.classList].some(c => c.endsWith('-overlay'))) continue;
+    if (dockLayerVisible(el)) return true;
+  }
+  return false;
+}
+
 function dockKeyBlocked(e) {
   if (!_dockShown) return true;
   if (e.ctrlKey || e.metaKey || e.altKey) return true;
   if (typeof isTypingTarget === 'function' && isTypingTarget(e.target)) return true;
-  if (e.target && e.target.closest && e.target.closest('button, a, [role="button"]') && e.key === 'Enter') return true;
+  // Enter on a control keeps that control's own meaning; the resize handle
+  // (role=separator) has none for Enter, but must not play either.
+  if (e.key === 'Enter' && e.target && e.target.closest
+      && e.target.closest('button, a, [role="button"], [role="separator"]')) return true;
   if (document.getElementById('mediaPlayerOverlay')?.classList.contains('active')) return true;
   if (document.getElementById('miniPlayer')?.classList.contains('active')) return true;
   if (document.querySelector('.modal-overlay.active, .settings-overlay.active, .media-info-overlay.active, .filters-panel.active')) return true;
   if (typeof filterPopoverIsOpen === 'function' && filterPopoverIsOpen()) return true;
+  if (dockModalLayerOpen()) return true;
   return false;
 }
 
@@ -346,6 +394,18 @@ function dockInit() {
   document.getElementById('dockToggleBtn')?.addEventListener('click', dockToggle);
   document.getElementById('dockCloseBtn')?.addEventListener('click', () => dockSetOpen(false));
   dockInitResizer();
+
+  // A mouse click on the Preview toggle or a button in the pane (fave, flag,
+  // stars...) leaves focus on that button, and Enter would then press it
+  // again instead of playing the picked tile. Hand focus back after a pointer
+  // click (detail > 0); a keyboard press keeps focus where the user put it.
+  const giveFocusBack = (e) => {
+    if (!e.detail) return;
+    const ctl = e.target.closest?.('button, [role="button"]');
+    if (ctl && typeof ctl.blur === 'function') ctl.blur();
+  };
+  document.getElementById('dockToggleBtn')?.addEventListener('click', giveFocusBack);
+  document.getElementById('libraryDock')?.addEventListener('click', giveFocusBack);
 
   // A click on the name / meta strip of a tile selects it too (the picture's
   // own click goes through cards.js tileThumbClick).
