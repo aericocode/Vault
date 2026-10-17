@@ -80,15 +80,32 @@ function tileMinWidth() {
 }
 
 /** Column count, tile width and natural tile height for the grid's width. */
-function measureGrid() {
+function measureGrid(opts) {
   const grid = document.getElementById('resultsGrid');
   if (!grid) return null;
-  const width = grid.clientWidth;
+  const width = opts && opts.noScrollbar ? gridWidthWithoutScrollbar(grid) : grid.clientWidth;
   if (!width) return null;
   const min = tileMinWidth();
   const cols = Math.max(2, Math.floor((width + GRID_GAP) / (min + GRID_GAP)));
   const tileW = (width - (cols - 1) * GRID_GAP) / cols;
   return { grid, width, cols, tileW, natH: tileW / TILE_ASPECT + tileChromeH };
+}
+
+/**
+ * The grid's width as it will be once a page is on screen. Pages mode fits
+ * the page to the window, so the document ends up with no scrollbar; but the
+ * content being replaced (the boot skeleton, a page laid for another size)
+ * can be showing one right now, and measuring under it lost a column that a
+ * later re-layout then found. Measure as if it were gone.
+ */
+function gridWidthWithoutScrollbar(grid) {
+  const html = document.documentElement;
+  if (window.innerWidth - html.clientWidth <= 0) return grid.clientWidth;
+  const prev = html.style.overflowY;
+  html.style.overflowY = 'hidden';
+  const width = grid.clientWidth;
+  html.style.overflowY = prev;
+  return width;
 }
 
 /* ── Pages, counted ───────────────────────────────────────────────────────
@@ -126,7 +143,7 @@ function clampPageAnchor() {
  * of whole rows. Sets pageSize; returns true if pageSize changed.
  */
 function updateGridLayout() {
-  const m = measureGrid();
+  const m = measureGrid({ noScrollbar: true });
   if (!m) return false;
   const { grid, cols, natH } = m;
 
@@ -661,10 +678,19 @@ function libraryLayoutKey() {
   return [grid.clientWidth, top, window.innerHeight, tileMinWidth(), libraryLayoutMode()].join('|');
 }
 
+let _relayoutWhenShown = false;
+
 function relayoutLibrary(force) {
+  // Another tab (Editor, Games, Wall) is showing: nothing can be measured,
+  // so lay out when the library is back (the grid's resize observer fires).
+  if (document.getElementById('mainContainer')?.style.display === 'none') {
+    _relayoutWhenShown = true;
+    return;
+  }
   const key = libraryLayoutKey();
   if (!key) return;
-  if (!force && key === _lastLayoutKey) return;
+  if (!force && !_relayoutWhenShown && key === _lastLayoutKey) return;
+  _relayoutWhenShown = false;
   _lastLayoutKey = key;
   // A bar above the grid changing height moves every row; hold the tile the
   // user was looking at rather than let the list slide under them.

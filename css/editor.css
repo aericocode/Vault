@@ -28,6 +28,15 @@
   gap: 0.35rem;
 }
 
+/* Six tabs since the Wall joined. Below 1700px the header would otherwise
+   wrap to a second line at widths where five tabs fitted on one, so the tabs
+   get a little tighter there: the bar ends up no wider than the five-tab bar
+   was. Wide windows keep the roomier tabs. */
+@media (max-width: 1699px) {
+  .app-tabs { gap: 0.1rem; }
+  .app-tab { padding-left: 0.5rem; padding-right: 0.5rem; }
+}
+
 .app-tab:hover {
   color: var(--text-primary);
   background: var(--bg-hover);
