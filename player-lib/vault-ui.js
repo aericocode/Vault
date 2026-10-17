@@ -164,6 +164,8 @@
     try { window.LovenseSync?.lockStop?.(); } catch {}
     // Active game → pause (also persists its save).
     try { if (typeof gamesPauseIfActive === 'function') gamesPauseIfActive(); } catch {}
+    // Wall tab: release every clip and clear the board.
+    try { if (typeof wallLockStop === 'function') wallLockStop(); } catch {}
     // Editor mix preview (the stack/grid stage) — lock never closes the editor,
     // so its videos play on unless we tear the mix down explicitly.
     try { if (typeof editorCloseMix === 'function') editorCloseMix({ silent: true }); } catch {}

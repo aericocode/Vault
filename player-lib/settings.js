@@ -58,6 +58,7 @@
     dockOpen: false,        // Modern: is the docked preview pane open (player-lib/dock.js)
     dockWidth: 380,         // Modern: its width in px, clamped to 300..50% of the window
     railOpen: null,         // Modern: left filter rail open (true/false); null = by window width
+    wall: {},               // Wall tab controls (validated in wall.js)
     _lastMediaId: null,     // internal: id for restoreSession
   };
 
@@ -326,6 +327,16 @@
   window.vaultRailOpen = () => (settings.railOpen === true || settings.railOpen === false ? settings.railOpen : null);
   window.vaultSetRailOpen = function (open) {
     settings.railOpen = !!open;
+    save();
+  };
+
+  /* ── Wall tab ───────────────────────────────────────────
+     The Wall's toolbar (sliders, source, mix...) as one object. wall.js
+     clamps every value on read, so a hand-edited blob cannot break it. */
+  window.vaultWallSettings = () =>
+    (settings.wall && typeof settings.wall === 'object') ? { ...settings.wall } : {};
+  window.vaultSetWallSettings = function (obj) {
+    settings.wall = { ...(obj || {}) };
     save();
   };
 
