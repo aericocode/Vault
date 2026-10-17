@@ -1,16 +1,17 @@
 /**
  * The stream close beacon racing the player's own requests (server/stream-routes.js,
- * lib/stream/ring.js closeClient, lib/stream/service.js segmentFor).
+ * lib/stream/ring.js closeWallClient, lib/stream/service.js segmentFor).
  *
- * A player torn down a moment after it started (the Wall swaps clips that way)
- * can have its close beacon arrive before its first segment request, or while a
- * request is still waiting on the producer. Before the fix the close removed
- * nothing and the late request started (or restarted) FFmpeg for a reader that
- * was already gone, which then ran with clients:0 until the idle sweep.
+ * A Wall clip torn down a moment after it started (the Wall swaps clips that
+ * way) can have its close beacon arrive before its first segment request, or
+ * while a request is still waiting on the producer. Before the fix the close
+ * removed nothing and the late request started (or restarted) FFmpeg for a
+ * reader that was already gone, which then ran with clients:0 until the idle
+ * sweep.
  *
- * The main player's flow must not change: its token closing after it was seen
- * and then coming back (a page restored from the back/forward cache) is served,
- * and a request without an explicit token is never remembered as closed.
+ * Only tokens the Wall mints ("wall-" + UUID) take that path. Every other token
+ * (the main player, the mini player, a tokenless request's derived token) must
+ * behave exactly as before: never remembered as closed, never refused.
  *
  * Ring segments are planted directly, so no FFmpeg is ever started.
  */
@@ -20,6 +21,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-test-stream-close-'));
 process.env.VAULT_DB = path.join(tmp, 'library.db');
@@ -57,6 +59,10 @@ const seg = (n) => Buffer.alloc(188, n & 0xff);
 const close = (id, c) => fetch(`${base}/stream/${id}/close${c ? `?c=${c}` : ''}`, { method: 'POST' });
 const getSeg = (id, n, c) => fetch(`${base}/stream/${id}/seg/${n}.ts${c ? `?c=${c}` : ''}`);
 const tick = () => new Promise(r => setTimeout(r, 50));   // the close route works after its 204
+/** Make a client look quiet for longer than CLIENT_TTL_MS, as a paused player does. */
+const age = (id, c) => { ring.peek(id).clients.get(c).lastRequest -= ring.CLIENT_TTL_MS + 2000; };
+/** A token in the shape player-lib/wall.js mints. */
+const W = () => `wall-${crypto.randomUUID()}`;
 const clientsOf = (id) => (ring.peek(id) ? [...ring.peek(id).clients.keys()] : []);
 
 test.before(async () => {
@@ -73,17 +79,20 @@ test.after(async () => {
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
 });
 
-test('a close that arrives before the first segment request: the late request is refused', async () => {
+/* -- Wall tokens ---------------------------------------------------------- */
+
+test('a Wall close that arrives before the first segment request: the late request is refused', async () => {
   const id = addRow();
+  const wall = W();
   // Another player is watching this file, so there is a ring with a segment in it.
   ring.note(id, 0, 'mainplayer');
   ring.put(id, 0, seg(0));
 
-  assert.strictEqual((await close(id, 'wallclip')).status, 204);
+  assert.strictEqual((await close(id, wall)).status, 204);
   await tick();
   assert.deepStrictEqual(clientsOf(id), ['mainplayer'], 'the close removed nothing and touched nobody else');
 
-  const res = await getSeg(id, 0, 'wallclip');
+  const res = await getSeg(id, 0, wall);
   assert.strictEqual(res.status, 410);
   assert.deepStrictEqual(clientsOf(id), ['mainplayer'], 'the closed token never registered');
   assert.strictEqual(session.activeIds().has(id), false, 'no producer was started for it');
@@ -93,21 +102,67 @@ test('a close that arrives before the first segment request: the late request is
   ring.forget(id);
 });
 
-test('a close while a request waits on the producer: the request does not restart it', async () => {
+test('a Wall close while a request waits on the producer: the request does not restart it', async () => {
   const id = addRow();
   const row = db.getById(id);
+  const wall = W();
   // Segment 2 is not in the ring, so this request has to go to the producer.
-  const pending = service.segmentFor(row, 2, 'wallclip2');
+  const pending = service.segmentFor(row, 2, wall);
   // The close lands while it is still on its way there (it awaits the probe
   // and index first), and finds the token it just registered.
-  const left = ring.closeClient(id, 'wallclip2');
-  assert.deepStrictEqual(left, { removed: true, remaining: 0 });
+  const left = ring.closeWallClient(id, wall);
+  assert.deepStrictEqual(left, { removed: true, remaining: 0, known: true });
   const out = await pending;
   assert.strictEqual(out.ok, false);
   assert.strictEqual(out.status, 410);
   assert.strictEqual(session.activeIds().has(id), false, 'no producer was started');
   ring.forget(id);
 });
+
+test('a Wall token the ring pruned is still known: its close is not "unseen" and ends the emptied session', async () => {
+  const id = addRow();
+  const wall = W();
+  ring.put(id, 0, seg(0));
+  assert.strictEqual((await getSeg(id, 0, wall)).status, 200);
+  age(id, wall);
+  assert.strictEqual(ring.peek(id).clientCount(), 0, 'the ring pruned the quiet clip');
+
+  assert.strictEqual((await close(id, wall)).status, 204);
+  await tick();
+  assert.strictEqual(ring.peek(id), null, 'the close still ended the session and freed the ring');
+  assert.strictEqual(ring.closedUnseen(id, wall), false);
+
+  ring.put(id, 1, seg(1));
+  assert.strictEqual((await getSeg(id, 1, wall)).status, 200, 'a seen token is never refused outright');
+  ring.forget(id);
+});
+
+test('Wall closed tokens are per media id and expire', async () => {
+  const t0 = Date.now();
+  const wall = W();
+  ring.closeWallClient(9001, wall);
+  assert.strictEqual(ring.closedUnseen(9001, wall), true);
+  assert.strictEqual(ring.closedUnseen(9002, wall), false, 'another file is not affected');
+  assert.strictEqual(ring.closedSince(9001, wall, t0), true);
+  assert.strictEqual(ring.closedSince(9001, wall, Date.now() + 1), false, 'a request started after the close is not moot');
+
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + ring.CLOSED_TTL_MS + 1000;
+    assert.strictEqual(ring.closedUnseen(9001, wall), false, 'forgotten after CLOSED_TTL_MS');
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test('only the exact Wall shape counts as a Wall token', () => {
+  assert.strictEqual(ring.isWallToken(W()), true);
+  const others = ['wallclip', 'wall-', 'wall-xyz', W().toUpperCase(), `${W()}0`, crypto.randomUUID(),
+    crypto.randomUUID().replace(/-/g, ''), 'a0123456789abcdef', '-', '', undefined];
+  for (const t of others) assert.strictEqual(ring.isWallToken(t), false, String(t));
+});
+
+/* -- Every other token: exactly the old behaviour ------------------------- */
 
 test('the main player: a seen token closed on pagehide and then back (bfcache) is still served', async () => {
   const id = addRow();
@@ -126,6 +181,33 @@ test('the main player: a seen token closed on pagehide and then back (bfcache) i
   ring.forget(id);
 });
 
+test('the main player: paused past CLIENT_TTL_MS, closed, then back (bfcache) is still served', async () => {
+  const id = addRow();
+  ring.put(id, 0, seg(0));
+  ring.put(id, 3, seg(3));
+  assert.strictEqual((await getSeg(id, 0, 'probeidle1')).status, 200);
+  age(id, 'probeidle1');
+
+  assert.strictEqual((await close(id, 'probeidle1')).status, 204);
+  await tick();
+  assert.strictEqual((await getSeg(id, 3, 'probeidle1')).status, 200);
+  assert.deepStrictEqual(clientsOf(id), ['probeidle1']);
+  ring.forget(id);
+});
+
+test('a non-Wall token closed before it was ever seen is still served', async () => {
+  const id = addRow();
+  ring.put(id, 0, seg(0));
+  const tokens = ['player2', crypto.randomUUID().replace(/-/g, ''), 'wall-notauuid'];
+  for (const t of tokens) {
+    assert.strictEqual((await close(id, t)).status, 204);
+    await tick();
+    assert.strictEqual((await getSeg(id, 0, t)).status, 200, t);
+  }
+  assert.strictEqual(ring.peek(id).clientCount(), tokens.length);
+  ring.forget(id);
+});
+
 test('a request without an explicit token is never remembered as closed', async () => {
   const id = addRow();
   ring.put(id, 0, seg(0));
@@ -136,19 +218,22 @@ test('a request without an explicit token is never remembered as closed', async 
   ring.forget(id);
 });
 
-test('closed tokens are per media id and expire', async () => {
-  const t0 = Date.now();
-  ring.closeClient(9001, 'x');
-  assert.strictEqual(ring.closedUnseen(9001, 'x'), true);
-  assert.strictEqual(ring.closedUnseen(9002, 'x'), false, 'another file is not affected');
-  assert.strictEqual(ring.closedSince(9001, 'x', t0), true);
-  assert.strictEqual(ring.closedSince(9001, 'x', Date.now() + 1), false, 'a request started after the close is not moot');
+test('closing a tokenless client\'s derived token by name does not lock that client out', async () => {
+  const id = addRow();
+  ring.put(id, 0, seg(0));
+  ring.put(id, 1, seg(1));
+  ring.note(id, 0, 'otherplayer');     // keeps the session alive across the close
+  assert.strictEqual((await getSeg(id, 0)).status, 200);
+  const derived = clientsOf(id).find(t => t !== 'otherplayer');
+  assert.match(derived, /^a[0-9a-f]{16}$/);
+  // Quiet long enough to be pruned, so the ring no longer knows it when someone
+  // else names its derived token in a close.
+  age(id, derived);
 
-  const realNow = Date.now;
-  try {
-    Date.now = () => realNow() + ring.CLOSED_TTL_MS + 1000;
-    assert.strictEqual(ring.closedUnseen(9001, 'x'), false, 'forgotten after CLOSED_TTL_MS');
-  } finally {
-    Date.now = realNow;
-  }
+  assert.strictEqual((await close(id, derived)).status, 204);
+  await tick();
+  assert.deepStrictEqual(clientsOf(id), ['otherplayer']);
+  assert.strictEqual((await getSeg(id, 1)).status, 200, 'the tokenless client is still served');
+  assert.strictEqual(ring.peek(id).clientCount(), 2);
+  ring.forget(id);
 });

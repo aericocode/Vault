@@ -1057,9 +1057,7 @@ const Wall = (() => {
       v.play().catch(() => {});
       return;
     }
-    rec.token = (window.crypto && crypto.randomUUID)
-      ? crypto.randomUUID().replace(/-/g, '')
-      : `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+    rec.token = wallToken();
     const url = `${info.url}?c=${encodeURIComponent(rec.token)}`;
     if (!(typeof Hls !== 'undefined' && Hls.isSupported())) {
       v.src = url;                                // Safari: native HLS
@@ -1073,6 +1071,25 @@ const Wall = (() => {
     hls.on(Hls.Events.MANIFEST_PARSED, () => { if (!rec.released) v.play().catch(() => {}); });
     hls.loadSource(url);
     hls.attachMedia(v);
+  }
+
+  /**
+   * A stream token only the Wall mints: "wall-" + a lowercase UUID. The server
+   * remembers closed tokens (and refuses their late requests) only in exactly
+   * this shape, so the main player's tokens never take that path.
+   * crypto.randomUUID needs a secure context, which plain-http LAN access is
+   * not, so the same shape is built from getRandomValues there.
+   */
+  function wallToken() {
+    const c = window.crypto;
+    if (c && typeof c.randomUUID === 'function') return `wall-${c.randomUUID().toLowerCase()}`;
+    const b = new Uint8Array(16);
+    if (c && typeof c.getRandomValues === 'function') c.getRandomValues(b);
+    else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const h = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+    return `wall-${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
   }
 
   /** Free a video for good: decoder, buffers, connection, stream session. */
