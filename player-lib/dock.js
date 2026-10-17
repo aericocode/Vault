@@ -266,9 +266,13 @@ function dockReveal(index) {
     const cols = Math.max(1, contState.cols);
     const virtTop = virt.getBoundingClientRect().top + window.scrollY;
     const top = virtTop + Math.floor(index / cols) * contState.stride;
-    const bottom = top + contState.stride - GRID_GAP;
+    // Table rows (table-view.js) have no gap, and a sticky column header
+    // sits under the app header.
+    const table = typeof tableViewActive === 'function' && tableViewActive();
+    const bottom = top + contState.stride - (table ? 0 : GRID_GAP);
     const header = document.getElementById('appHeader');
-    const viewTop = window.scrollY + (header ? header.getBoundingClientRect().bottom : 0) + 8;
+    const stickyHead = table ? (document.querySelector('#resultsGrid .tv-head')?.offsetHeight || 0) : 0;
+    const viewTop = window.scrollY + (header ? header.getBoundingClientRect().bottom : 0) + stickyHead + 8;
     const viewBottom = window.scrollY + window.innerHeight - 8;
     if (top < viewTop) window.scrollTo({ top: Math.max(0, top - (viewTop - window.scrollY)) });
     else if (bottom > viewBottom) window.scrollTo({ top: bottom - window.innerHeight + 8 });

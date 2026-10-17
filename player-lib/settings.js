@@ -44,6 +44,8 @@
     scanWorkers: 2,         // files the vision model scans in parallel after an import
     unlockHoldSeconds: 0,   // press-and-hold on the lock before the password box (0 = single click)
     gamifyHidden: false,    // hide the Obsession chip + toasts (scoring continues)
+    libraryView: 'grid',    // Modern: 'grid' (tiles) | 'table' (rows, player-lib/table-view.js)
+    tableColumns: null,     // Modern table: visible column keys; null = the default set
     libraryLayout: 'pages', // 'pages' (whole rows, one screenful) | 'continuous' (free scroll)
     cardSize: 'M',          // 'S' | 'M' | 'L' — minimum tile width, mapped in cards.js
     layoutStyle: 'classic', // 'classic' (today's look) | 'modern' (full width, size slider)
@@ -261,6 +263,25 @@
     try { window.dispatchEvent(new CustomEvent('vault:layout-style', { detail: { style: layoutStyle() } })); } catch {}
   }
   window.vaultApplyLayoutStyle = applyLayoutStyle;
+
+  /* ── Table view (Modern) ──────────────────────────────────────────────
+     Grid or table, and which table columns show. Both are set from the
+     library toolbar (player-lib/table-view.js), which owns the column list;
+     here a stored list only has to be an array of strings. */
+  const LIBRARY_VIEWS = ['grid', 'table'];
+  window.vaultLibraryView = () =>
+    LIBRARY_VIEWS.includes(settings.libraryView) ? settings.libraryView : 'grid';
+  window.vaultSetLibraryView = function (view) {
+    if (!LIBRARY_VIEWS.includes(view)) return;
+    settings.libraryView = view;
+    save();
+  };
+  window.vaultTableColumns = () =>
+    (Array.isArray(settings.tableColumns) ? settings.tableColumns.filter(k => typeof k === 'string') : null);
+  window.vaultSetTableColumns = function (keys) {
+    settings.tableColumns = Array.isArray(keys) ? keys.filter(k => typeof k === 'string') : null;
+    save();
+  };
 
   /* ── Popover option order ────────────────────────────────────────────
      Which way a list filter's popover sorts its options, one answer per

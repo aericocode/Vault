@@ -53,6 +53,8 @@
   <link rel="stylesheet" href="./css/studios.css">
   <!-- Modern library look: every rule is scoped under body.layout-modern -->
   <link rel="stylesheet" href="./css/layout-modern.css">
+  <!-- Table view (Modern look), scoped under .results-grid.grid-table -->
+  <link rel="stylesheet" href="./css/table-view.css">
 
   <link rel="icon" type="image/svg+xml" href="./images/favicon.svg">
 </head>
@@ -280,6 +282,13 @@
           <input type="range" id="cardSizeRange" min="120" max="480" step="10" value="170"
                  title="Card size: drag for smaller or bigger tiles">
         </div>
+        <!-- Modern look only: tiles or a table (player-lib/table-view.js) -->
+        <div class="view-switch modern-only" id="viewSwitch" role="group" aria-label="Show as">
+          <button type="button" class="view-switch-btn" data-view="grid" aria-pressed="true" title="Show as tiles">▦ Grid</button>
+          <button type="button" class="view-switch-btn" data-view="table" aria-pressed="false" title="Show as a table">☰ Table</button>
+        </div>
+        <button type="button" class="tv-columns-btn modern-only" id="tableColumnsBtn" hidden
+                aria-haspopup="true" aria-expanded="false" title="Choose which columns the table shows">Columns ▾</button>
         <div class="sort-control">
           <label>Sort:</label>
           <select id="sortSelect">
@@ -433,6 +442,8 @@
   <script src="./player-lib/selection.js"></script>
   <script src="./player-lib/saved-searches.js"></script>
   <script src="./player-lib/cards.js"></script>
+  <!-- Table view (Modern look). Hooks: cards.js renderResults / renderContinuousWindow. -->
+  <script src="./player-lib/table-view.js"></script>
   <script src="./player-lib/detail-view.js"></script>
   <script src="./player-lib/modal.js"></script>
   <script src="./player-lib/player/player-stream.js"></script>

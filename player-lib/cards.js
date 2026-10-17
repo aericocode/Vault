@@ -200,6 +200,8 @@ function fitRowHeight() {
 let _inRenderCorrection = false;
 
 function renderResults() {
+  // Modern's table view draws rows with this same machinery (player-lib/table-view.js).
+  if (typeof tableViewRender === 'function' && tableViewRender()) return;
   if (libraryLayoutMode() === 'continuous') return renderContinuous();
 
   const grid = document.getElementById('resultsGrid');
@@ -535,6 +537,7 @@ function continuousRange(stride, totalRows) {
 }
 
 function renderContinuous() {
+  if (typeof tableViewRender === 'function' && tableViewRender()) return;
   const m = measureGrid();
   if (!m) return;
   const { grid, cols, natH } = m;
@@ -577,6 +580,7 @@ function renderContinuous() {
 
 /** Swap in the rows for the current scroll position. */
 function renderContinuousWindow() {
+  if (typeof tableViewActive === 'function' && tableViewActive()) return tvRenderWindow();
   const virt = document.querySelector('#resultsGrid .grid-virt');
   if (!virt) return;
   const { cols, stride, totalRows } = contState;
@@ -1150,6 +1154,8 @@ function attachHoverScrub(container) {
     }
 
     if (id === _popoverForId) return;
+    // A table row already shows its details in its columns (table-view.js).
+    if (tile.classList.contains('tv-row')) return;
 
     clearTimeout(_popoverTimer);
     _popoverTimer = setTimeout(() => {
