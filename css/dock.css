@@ -1,0 +1,175 @@
+/* ==========================================
+   DOCKED PREVIEW PANE (Modern look, player-lib/dock.js)
+
+   Fixed to the right edge under the sticky header. While it shows, body has
+   .dock-shown and #mainContainer gets a right margin of the same width, so
+   the grid re-measures narrower and nothing sits under the pane.
+   --dock-w and --dock-top are set on :root by dock.js.
+   ========================================== */
+
+.library-dock {
+  position: fixed;
+  top: var(--dock-top, 0px);
+  right: 0;
+  bottom: 0;
+  width: var(--dock-w, 380px);
+  z-index: 150;                 /* over the grid, under modals (200+) and the player (300) */
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+}
+.library-dock[hidden] { display: none; }
+
+body.dock-shown #mainContainer { margin-right: var(--dock-w, 380px); }
+
+/* Things pinned to the bottom-right / full width move clear of the pane. */
+body.dock-shown .scroll-top-pill { right: calc(var(--dock-w, 380px) + 18px); }
+body.dock-shown .selection-bar { max-width: calc(100vw - var(--dock-w, 380px) - 36px); }
+
+/* Left edge: the drag handle. Wider than it looks so it is easy to grab. */
+.dock-resizer {
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 1;
+}
+.dock-resizer:hover,
+.dock-resizer:focus-visible,
+body.dock-resizing .dock-resizer {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  outline: none;
+}
+/* While dragging: no text selection, and the col-resize cursor everywhere. */
+body.dock-resizing { user-select: none; cursor: col-resize; }
+
+.dock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.dock-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  cursor: pointer;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+}
+.dock-close:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+
+.dock-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dock-empty {
+  margin: auto 0;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+.dock-empty p { margin: 0.35rem 0; }
+.dock-empty-icon { font-size: 2rem; opacity: 0.5; }
+.dock-empty-hint { font-size: 0.78rem; color: var(--text-muted); }
+
+/* The picture reuses the tile thumb (aspect, fallback icon, privacy blur). */
+.dock-thumb {
+  border-radius: 8px;
+  flex: none;
+  cursor: zoom-in;
+}
+.dock-thumb .tile-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.dock-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+body.pm-names .dock-name { filter: blur(7px); pointer-events: none; user-select: none; }
+
+.dock-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.dock-btn {
+  padding: 0.4rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.dock-btn:hover { border-color: var(--accent); }
+.dock-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.dock-btn-primary:hover { background: var(--accent-hover); }
+.dock-btn.is-on { border-color: var(--danger); }
+
+.dock-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 0.5rem 0.9rem;
+  margin: 0;
+}
+.dock-facts dt { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.dock-facts dd { margin: 0.1rem 0 0; font-size: 0.85rem; color: var(--text-primary); }
+
+.dock-desc {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.dock-tags { margin: 0; }
+.dock-path {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+/* The tile the pane is showing. */
+body.dock-shown .media-tile.tile-docked {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* Toolbar toggle (Modern only; .modern-only hides it in Classic). */
+.dock-toggle-btn {
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.dock-toggle-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+.dock-toggle-btn[aria-pressed="true"] {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+/* Under this width Modern has no dock (dock.js DOCK_MIN_WINDOW), so no button. */
+@media (max-width: 1099px) {
+  .dock-toggle-btn { display: none; }
+}

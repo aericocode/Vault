@@ -19,6 +19,8 @@
   <link rel="stylesheet" href="./css/saved-searches.css">
   <link rel="stylesheet" href="./css/mini-player.css">
   <link rel="stylesheet" href="./css/sidebar.css">
+  <!-- Docked preview pane (Modern look), scoped under body.dock-shown -->
+  <link rel="stylesheet" href="./css/dock.css">
   <link rel="stylesheet" href="./css/detail-view.css">
   <link rel="stylesheet" href="./css/abloop.css">
   <link rel="stylesheet" href="./css/duplicates.css">
@@ -287,6 +289,9 @@
           <button id="sortDirBtn" class="sort-dir-btn" title="Toggle most/least first">▼</button>
           <button id="favesFirstBtn" class="faves-first-btn" title="Faves first (on top of any sort)">🤍</button>
         </div>
+        <!-- Modern look only: open / close the docked preview pane (player-lib/dock.js) -->
+        <button type="button" class="dock-toggle-btn modern-only" id="dockToggleBtn" aria-pressed="false"
+                title="Show or hide the preview pane">▣ Preview</button>
       </div>
     </div>
 
@@ -296,6 +301,19 @@
     <!-- Pagination -->
     <div class="pagination" id="pagination"></div>
   </main>
+
+  <!-- Docked preview pane (Modern look only, player-lib/dock.js). Fixed to the
+       right edge under the header; #mainContainer gets a matching right margin
+       while it shows, so the grid shrinks instead of being covered. -->
+  <aside class="library-dock" id="libraryDock" aria-label="Preview" hidden>
+    <div class="dock-resizer" id="dockResizer" tabindex="0" role="separator" aria-orientation="vertical"
+         aria-label="Resize the preview pane" title="Drag to resize"></div>
+    <div class="dock-head">
+      <span class="dock-head-title">Preview</span>
+      <button type="button" class="dock-close" id="dockCloseBtn" title="Close the preview pane">✕</button>
+    </div>
+    <div class="dock-body" id="dockBody"></div>
+  </aside>
 
   <!-- Editor (stack/grid mixes, songs browser, exports) — rendered by editor.js -->
   <main class="editor-container" id="editorContainer" style="display:none;"></main>
@@ -437,6 +455,8 @@
   <!-- Studios (STUDIOS_SPEC 3): the Studios half of the Faces tab. Hooks:
        faces-tab, filters, selection, detail-view, cards. -->
   <script src="./player-lib/studios.js"></script>
+  <!-- Docked preview pane (Modern look). After settings.js, before app.js. -->
+  <script src="./player-lib/dock.js"></script>
   <script src="./player-lib/app.js"></script>
 </body>
 </html>

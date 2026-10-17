@@ -1,0 +1,401 @@
+/* =========================================================================
+   DOCK - the docked preview pane (Modern library look only).
+
+   In Classic a tile click plays the file and the details live in the modal
+   and the player's slide-over sidebar. In Modern the user can dock a preview
+   column on the right of the library: the grid shrinks to make room (nothing
+   is covered), a single click on a tile shows it here, a double click or
+   Enter plays it, and the arrow keys walk the grid with the pane following.
+
+   The pane is deliberately a PREVIEW, not a third copy of the full detail
+   view: renderDetailBody's Subtitles / Music / Faces sections and inline
+   editors find their markup by element id and repaint the modal or the
+   player sidebar, so a live second copy would fight them. Everything editable
+   that does not use ids (fave, rating, flag) works here; "Details" opens the
+   full view.
+
+   Shown only when all of these hold: Modern look, pane open (toggle button,
+   persisted), window at least DOCK_MIN_WINDOW wide (narrower windows keep
+   today's behaviour), and a tab whose content is the media grid.
+
+   Hooks other modules call (all guarded with typeof at the call site):
+   - dockIsShown()             is the pane on screen right now
+   - dockSelectFromClick(id)   cards.js tile click; true = handled here
+   - dockTileClass(id)         cards.js renderTile: the selected-tile class
+   - dockAfterGridRender()     cards.js after each grid render
+   ========================================================================= */
+
+const DOCK_MIN_WINDOW = 1100;   // below this, Modern falls back to no dock
+const DOCK_MIN_WIDTH = 300;
+const DOCK_MAX_SHARE = 0.5;     // of the window width
+
+let _dockShown = false;
+let _dockSelectedId = null;
+let _dockSig = '';              // what the pane last painted, to skip no-op repaints
+
+function dockIsShown() { return _dockShown; }
+
+function dockClampWidth(px) {
+  const max = Math.max(DOCK_MIN_WIDTH, Math.floor(window.innerWidth * DOCK_MAX_SHARE));
+  return Math.min(max, Math.max(DOCK_MIN_WIDTH, Math.round(Number(px) || 0)));
+}
+
+/** Is the media grid the thing on screen (Library, Collections, a person on Faces)? */
+function dockGridTabVisible() {
+  const main = document.getElementById('mainContainer');
+  if (!main || main.style.display === 'none') return false;
+  if (!main.classList.contains('active')) return false;
+  // The Faces home is a page of people, not files: nothing to preview.
+  if (main.classList.contains('faces-home')) return false;
+  return true;
+}
+
+function dockShouldShow() {
+  return typeof isModernLayout === 'function' && isModernLayout()
+    && typeof window.vaultDockOpen === 'function' && window.vaultDockOpen()
+    && window.innerWidth >= DOCK_MIN_WINDOW
+    && dockGridTabVisible();
+}
+
+function dockApplyWidth(px) {
+  const w = dockClampWidth(px);
+  document.documentElement.style.setProperty('--dock-w', `${w}px`);
+  return w;
+}
+
+/** The pane sits under the sticky header; follow its bottom edge. */
+function dockUpdateTop() {
+  const header = document.getElementById('appHeader');
+  const bottom = header ? Math.max(0, header.getBoundingClientRect().bottom) : 0;
+  document.documentElement.style.setProperty('--dock-top', `${Math.round(bottom)}px`);
+}
+
+/** Put the pane on or off screen to match the settings, the window and the tab. */
+function dockSync(opts) {
+  const dock = document.getElementById('libraryDock');
+  const btn = document.getElementById('dockToggleBtn');
+  const open = typeof window.vaultDockOpen === 'function' && window.vaultDockOpen();
+  if (btn) btn.setAttribute('aria-pressed', open ? 'true' : 'false');
+  const show = dockShouldShow();
+  if (show) {
+    dockApplyWidth(window.vaultDockWidth?.());
+    dockUpdateTop();
+  }
+  if (show === _dockShown) return;
+  _dockShown = show;
+  document.body.classList.toggle('dock-shown', show);
+  if (dock) dock.hidden = !show;
+  if (show) {
+    // Opening with nothing picked: start from the file the user last played,
+    // if it is in the results, so the pane has something to say straight away.
+    if (_dockSelectedId == null && typeof lastOpenedMediaId !== 'undefined' && lastOpenedMediaId != null
+        && Library.indexOf(lastOpenedMediaId) >= 0) {
+      _dockSelectedId = lastOpenedMediaId;
+    }
+    _dockSig = '';
+    dockRender();
+  } else {
+    Library.pin('dock', null);
+  }
+  dockPaintSelection();
+  // The grid's width just changed: re-lay it now rather than wait for the
+  // resize observer, so the columns never flash at the old count. (Not at
+  // boot: the library has not loaded yet, and its first render lays out.)
+  if (!(opts && opts.boot)) window.vaultRelayoutLibrary?.();
+}
+
+function dockSetOpen(open) {
+  window.vaultSetDockOpen?.(open);
+  dockSync();
+}
+
+function dockToggle() {
+  dockSetOpen(!(typeof window.vaultDockOpen === 'function' && window.vaultDockOpen()));
+}
+
+/* ── Selection ─────────────────────────────────────────────────────────── */
+
+function dockTileClass(id) {
+  return _dockShown && id === _dockSelectedId ? ' tile-docked' : '';
+}
+
+/** Mark the selected tile without re-rendering the grid. */
+function dockPaintSelection() {
+  const grid = document.getElementById('resultsGrid');
+  if (!grid) return;
+  grid.querySelectorAll('.media-tile.tile-docked').forEach(t => {
+    if (!_dockShown || Number(t.dataset.id) !== _dockSelectedId) t.classList.remove('tile-docked');
+  });
+  if (_dockShown && _dockSelectedId != null) {
+    grid.querySelector(`.media-tile[data-id="${_dockSelectedId}"]`)?.classList.add('tile-docked');
+  }
+}
+
+function dockSelect(id) {
+  _dockSelectedId = id;
+  Library.pin('dock', [id]);
+  dockPaintSelection();
+  dockRender();
+}
+
+function dockSelectFromClick(id) {
+  if (!_dockShown) return false;
+  if (typeof hideTilePopover === 'function') hideTilePopover();
+  dockSelect(id);
+  return true;
+}
+
+/* ── Rendering ─────────────────────────────────────────────────────────── */
+
+function dockFieldSig(m) {
+  return m ? [m.id, m.filename, m.filepath, m.user_rating, m.user_starred, m.user_flagged_delete,
+    m.user_trashed, m.view_count, m.description, m.tags, m.themes, m.duration_seconds,
+    m.width, m.height, m.filesize_bytes, m.processed_at].join('\u0001') : 'none';
+}
+
+function dockEmptyHtml() {
+  return `<div class="dock-empty">
+      <div class="dock-empty-icon" aria-hidden="true">🖼️</div>
+      <p>Click a tile to preview it here.</p>
+      <p class="dock-empty-hint">Double click or press Enter to play. Arrow keys move between tiles.</p>
+    </div>`;
+}
+
+function dockBodyHtml(m) {
+  const icon = (typeof TILE_TYPE_ICONS !== 'undefined' && TILE_TYPE_ICONS[m.media_type]) || '📁';
+  const canThumb = ['image', 'gif', 'video', 'mix'].includes(m.media_type)
+    && !(typeof thumbKnownMissing === 'function' && thumbKnownMissing(m.id));
+  const thumb = canThumb
+    ? `<img class="tile-img dock-img" ${thumbImgAttrs(m)} alt=""
+         onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">`
+    : '';
+  const tags = [...safeParseJSON(m.themes, []), ...safeParseJSON(m.tags, [])].slice(0, 24);
+  const facts = [
+    ['Type', m.media_type || ''],
+    ['Length', m.duration_seconds ? formatDuration(m.duration_seconds) : ''],
+    ['Size', m.width && m.height ? `${m.width}×${m.height}` : ''],
+    ['File', m.filesize_bytes ? formatFileSize(m.filesize_bytes) : ''],
+    ['Views', String(m.view_count || 0)],
+    ['Added', m.processed_at ? String(m.processed_at).slice(0, 10) : ''],
+  ].filter(([, v]) => v);
+  const escapedPath = escapeHtml(m.filepath).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const flagged = !!m.user_flagged_delete;
+
+  return `
+    <div class="dock-thumb tile-thumb ${canThumb ? '' : 'thumb-fallback'}" ondblclick="playMediaById(${m.id})"
+         title="Double click to play">
+      ${thumb}
+      <span class="tile-type-icon">${icon}</span>
+    </div>
+    <div class="dock-name">${escapeHtml(m.filename)}</div>
+    <div class="dock-actions">
+      <button class="dock-btn dock-btn-primary" onclick="playMediaById(${m.id})">▶ Play</button>
+      <button class="dock-btn" onclick="showDetailsById(${m.id})">Details</button>
+      <button class="dock-btn ${flagged ? 'is-on' : ''}" onclick="toggleFlagDelete(mediaPathById(${m.id}))"
+              title="${flagged ? 'Unflag' : 'Flag this file'}">🚩</button>
+      <button class="dock-btn" onclick="copyPath('${escapedPath}')" title="Copy the full path">Copy path</button>
+    </div>
+    ${typeof renderStarRatingSection === 'function' ? renderStarRatingSection(m) : ''}
+    <dl class="dock-facts">
+      ${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}
+    </dl>
+    ${m.description ? `<p class="dock-desc">${escapeHtml(m.description)}</p>` : ''}
+    ${tags.length ? `<div class="card-tags dock-tags">${tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+    <div class="detail-path dock-path">${escapeHtml(m.filepath)}</div>`;
+}
+
+function dockRender() {
+  const body = document.getElementById('dockBody');
+  if (!body || !_dockShown) return;
+  const m = _dockSelectedId != null ? Library.row(_dockSelectedId) : null;
+  if (_dockSelectedId != null && !m) {
+    // Not cached yet (arrowed onto a tile whose row has not arrived): fetch it.
+    const want = _dockSelectedId;
+    Library.fetchRows?.([want])?.then?.(() => { if (want === _dockSelectedId) dockRender(); }).catch?.(() => {});
+  }
+  const sig = dockFieldSig(m);
+  if (sig === _dockSig) return;
+  _dockSig = sig;
+  body.innerHTML = m ? dockBodyHtml(m) : dockEmptyHtml();
+  body.scrollTop = 0;
+  if (typeof hydrateThumbs === 'function') hydrateThumbs(body);
+}
+
+/** cards.js calls this after every grid render: a fave, rating or flag set
+ *  anywhere repaints the grid, and the pane follows when its file changed. */
+function dockAfterGridRender() {
+  if (!_dockShown) return;
+  dockRender();
+}
+
+/* ── Keyboard: arrows walk the grid, Enter plays ─────────────────────────── */
+
+function dockGridCols() {
+  if (typeof libraryLayoutMode === 'function' && libraryLayoutMode() === 'continuous') {
+    return Math.max(1, contState.cols || 1);
+  }
+  return Math.max(1, gridMetrics.cols || 1);
+}
+
+/** Bring the tile at this result index on screen. */
+function dockReveal(index) {
+  if (libraryLayoutMode() === 'continuous') {
+    const virt = document.querySelector('#resultsGrid .grid-virt');
+    if (!virt || !contState.stride) return;
+    const cols = Math.max(1, contState.cols);
+    const virtTop = virt.getBoundingClientRect().top + window.scrollY;
+    const top = virtTop + Math.floor(index / cols) * contState.stride;
+    const bottom = top + contState.stride - GRID_GAP;
+    const header = document.getElementById('appHeader');
+    const viewTop = window.scrollY + (header ? header.getBoundingClientRect().bottom : 0) + 8;
+    const viewBottom = window.scrollY + window.innerHeight - 8;
+    if (top < viewTop) window.scrollTo({ top: Math.max(0, top - (viewTop - window.scrollY)) });
+    else if (bottom > viewBottom) window.scrollTo({ top: bottom - window.innerHeight + 8 });
+    return;
+  }
+  const size = Math.max(1, pageSize);
+  if (index < pageAnchor || index >= pageAnchor + size) {
+    setPageAnchor(Math.floor(index / size) * size);
+  }
+}
+
+function dockKeyBlocked(e) {
+  if (!_dockShown) return true;
+  if (e.ctrlKey || e.metaKey || e.altKey) return true;
+  if (typeof isTypingTarget === 'function' && isTypingTarget(e.target)) return true;
+  if (e.target && e.target.closest && e.target.closest('button, a, [role="button"]') && e.key === 'Enter') return true;
+  if (document.getElementById('mediaPlayerOverlay')?.classList.contains('active')) return true;
+  if (document.getElementById('miniPlayer')?.classList.contains('active')) return true;
+  if (document.querySelector('.modal-overlay.active, .settings-overlay.active, .media-info-overlay.active, .filters-panel.active')) return true;
+  if (typeof filterPopoverIsOpen === 'function' && filterPopoverIsOpen()) return true;
+  return false;
+}
+
+const DOCK_STEPS = { ArrowLeft: -1, ArrowRight: 1 };
+
+document.addEventListener('keydown', (e) => {
+  if (dockKeyBlocked(e)) return;
+  if (e.key === 'Enter') {
+    if (_dockSelectedId == null) return;
+    e.preventDefault();
+    playMediaById(_dockSelectedId);
+    return;
+  }
+  let step = DOCK_STEPS[e.key];
+  if (e.key === 'ArrowUp') step = -dockGridCols();
+  if (e.key === 'ArrowDown') step = dockGridCols();
+  if (!step) return;
+  e.preventDefault();
+  const total = Library.length();
+  if (!total) return;
+  const cur = _dockSelectedId != null ? Library.indexOf(_dockSelectedId) : -1;
+  // Nothing picked (or the pick left the results): start at the first tile on screen.
+  let next = cur < 0 ? pageAnchor : cur + step;
+  if (next < 0 || next >= total) {
+    // Up from the top row / down from the last row: stay put.
+    if (cur >= 0) return;
+    next = Math.min(Math.max(0, next), total - 1);
+  }
+  const id = Library.idAt(next);
+  if (!id) return;
+  dockReveal(next);
+  dockSelect(id);
+});
+
+/* ── Resizing: drag the pane's left edge ────────────────────────────────── */
+
+function dockInitResizer() {
+  const handle = document.getElementById('dockResizer');
+  if (!handle) return;
+  let dragging = false;
+  let width = 0;
+  handle.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    dragging = true;
+    try { handle.setPointerCapture(e.pointerId); } catch {}
+    document.body.classList.add('dock-resizing');
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    width = dockApplyWidth(window.innerWidth - e.clientX);
+  });
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove('dock-resizing');
+    if (width) window.vaultSetDockWidth?.(width);
+    window.vaultRelayoutLibrary?.();
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+  // Keyboard: the handle is focusable, arrows widen / narrow it.
+  handle.addEventListener('keydown', (e) => {
+    const d = e.key === 'ArrowLeft' ? 20 : e.key === 'ArrowRight' ? -20 : 0;
+    if (!d) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const w = dockApplyWidth((window.vaultDockWidth?.() || 380) + d);
+    window.vaultSetDockWidth?.(w);
+  });
+}
+
+/* ── Wiring ────────────────────────────────────────────────────────────── */
+
+function dockInit() {
+  document.getElementById('dockToggleBtn')?.addEventListener('click', dockToggle);
+  document.getElementById('dockCloseBtn')?.addEventListener('click', () => dockSetOpen(false));
+  dockInitResizer();
+
+  // A click on the name / meta strip of a tile selects it too (the picture's
+  // own click goes through cards.js tileThumbClick).
+  document.getElementById('resultsGrid')?.addEventListener('click', (e) => {
+    if (!_dockShown) return;
+    const tile = e.target.closest('.media-tile:not(.tile-skel)');
+    if (!tile || e.target.closest('button, input, a, .tile-thumb')) return;
+    const id = Number(tile.dataset.id);
+    if (id) dockSelect(id);
+  });
+  document.getElementById('resultsGrid')?.addEventListener('dblclick', (e) => {
+    if (!_dockShown) return;
+    const tile = e.target.closest('.media-tile:not(.tile-skel)');
+    if (!tile || e.target.closest('button, input, a, .tile-thumb')) return;
+    const id = Number(tile.dataset.id);
+    if (id) playMediaById(id);
+  });
+
+  // Tab switches show and hide #mainContainer; Faces toggles its classes.
+  const main = document.getElementById('mainContainer');
+  if (main && typeof MutationObserver === 'function') {
+    new MutationObserver(() => dockSync()).observe(main, { attributes: true, attributeFilter: ['style', 'class'] });
+  }
+  window.addEventListener('vault:layout-style', () => dockSync());
+  window.addEventListener('vault:row-updated', (e) => {
+    if (_dockShown && e.detail && e.detail.id === _dockSelectedId) dockRender();
+  });
+
+  let queued = false;
+  const onResizeOrScroll = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      dockSync();
+      if (_dockShown) { dockUpdateTop(); dockApplyWidth(window.vaultDockWidth?.()); }
+    });
+  };
+  window.addEventListener('resize', onResizeOrScroll);
+  window.addEventListener('scroll', () => { if (_dockShown) onResizeOrScroll(); }, { passive: true });
+  const header = document.getElementById('appHeader');
+  if (header && typeof ResizeObserver === 'function') new ResizeObserver(onResizeOrScroll).observe(header);
+
+  dockSync({ boot: true });
+}
+
+// Runs before app.js starts the library, so a reload with the pane open lays
+// the grid out at its docked width from the first render.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', dockInit);
+} else {
+  dockInit();
+}

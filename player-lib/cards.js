@@ -228,6 +228,7 @@ function renderResults() {
 
   // Keep the selection bar's "Select page" count/state in sync after paging
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
+  if (typeof dockAfterGridRender === 'function') dockAfterGridRender();
 
   // One correction pass: this render is the only chance to measure the real
   // name-strip and pager heights, and being wrong about them is the difference
@@ -616,6 +617,7 @@ function renderContinuousWindow() {
   currentPage = Math.floor(pageAnchor / Math.max(1, pageSize)) + 1;
 
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
+  if (typeof dockAfterGridRender === 'function') dockAfterGridRender();
 }
 
 /** Where the viewport sits, expressed as a tile plus a pixel offset. */
@@ -913,8 +915,8 @@ function renderTile(media) {
   }
 
   return `
-    <div class="media-tile ${isFlagged ? 'tile-flagged' : ''} ${isTrashed ? 'tile-trashed' : ''} ${isSelected ? 'tile-selected' : ''} ${cannotPlay ? 'tile-failed' : ''} ${media.id === lastOpenedMediaId ? 'tile-last-opened' : ''} ${(typeof isCardBusy === 'function' && isCardBusy(media.id)) ? 'tile-busy' : ''}" data-id="${media.id}">
-      <div class="tile-thumb ${canThumb ? '' : 'thumb-fallback'}" onclick="playMediaById(${media.id})">
+    <div class="media-tile ${isFlagged ? 'tile-flagged' : ''} ${isTrashed ? 'tile-trashed' : ''} ${isSelected ? 'tile-selected' : ''} ${cannotPlay ? 'tile-failed' : ''} ${media.id === lastOpenedMediaId ? 'tile-last-opened' : ''} ${(typeof isCardBusy === 'function' && isCardBusy(media.id)) ? 'tile-busy' : ''}${typeof dockTileClass === 'function' ? dockTileClass(media.id) : ''}" data-id="${media.id}">
+      <div class="tile-thumb ${canThumb ? '' : 'thumb-fallback'}" onclick="tileThumbClick(${media.id})" ondblclick="tileThumbDblClick(${media.id})">
         ${thumb}
         <span class="tile-type-icon">${icon}</span>
         ${duration ? `<span class="tile-duration">${duration}</span>` : ''}
@@ -955,6 +957,18 @@ function playMediaById(id) {
   // Mixes play in the main player too (renderMixPlayer); the sidebar's
   // "🎛 Open in Editor" button covers tweaking
   playMedia({ filepath: m.filepath, filename: m.filename, media_type: m.media_type });
+}
+
+/* A click on a tile's picture plays it, except in the Modern look with the
+   preview pane docked: there a click picks the tile for the pane and a double
+   click plays it (player-lib/dock.js). */
+function tileThumbClick(id) {
+  if (typeof dockSelectFromClick === 'function' && dockSelectFromClick(id)) return;
+  playMediaById(id);
+}
+
+function tileThumbDblClick(id) {
+  if (typeof dockIsShown === 'function' && dockIsShown()) playMediaById(id);
 }
 
 function showDetailsById(id) {

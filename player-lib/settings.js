@@ -53,6 +53,8 @@
     // entry per filter key (popSort.language, popSort.theme...). Not in the
     // Settings modal: it is set by the toggle in the popover itself.
     popSort: {},
+    dockOpen: false,        // Modern: is the docked preview pane open (player-lib/dock.js)
+    dockWidth: 380,         // Modern: its width in px, clamped to 300..50% of the window
     _lastMediaId: null,     // internal: id for restoreSession
   };
 
@@ -273,6 +275,26 @@
   window.vaultSetPopSort = function (key, mode) {
     if (!key || !POP_SORTS.includes(mode)) return;
     settings.popSort = { ...settings.popSort, [key]: mode };
+    save();
+  };
+
+  /* ── Docked preview pane (Modern) ─────────────────────────────────────
+     Open state and width, both set from the pane itself (player-lib/dock.js).
+     The width is clamped there against the live window; here it only has to
+     be a sane number. */
+  window.vaultDockOpen = () => settings.dockOpen === true;
+  window.vaultSetDockOpen = function (open) {
+    settings.dockOpen = !!open;
+    save();
+  };
+  window.vaultDockWidth = () => {
+    const n = Number(settings.dockWidth);
+    return Number.isFinite(n) && n > 0 ? n : DEFAULTS.dockWidth;
+  };
+  window.vaultSetDockWidth = function (px) {
+    const n = Math.round(Number(px));
+    if (!Number.isFinite(n) || n <= 0) return;
+    settings.dockWidth = n;
     save();
   };
 
