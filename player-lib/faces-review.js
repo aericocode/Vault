@@ -44,6 +44,7 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('scroll', frSyncViewport);
 }
 window.addEventListener('resize', frSyncViewport);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) frSyncViewport(); });
 frSyncViewport();
 const frVw = () => (window.visualViewport && window.visualViewport.width > 0 ? window.visualViewport.width : window.innerWidth);
 
@@ -160,6 +161,7 @@ function frKeys(root, { answer, frame }) {
 /** it: { mediaId, mediaType, timeS, bbox [x, y, w, h] as fractions, filename } */
 function frShowFrame(it, opener) {
   document.getElementById('frFrame')?._close();
+  frSyncViewport();
   if (!it || it.mediaId == null) return;
   const ov = document.createElement('div');
   ov.id = 'frFrame';
@@ -281,6 +283,7 @@ function facesReviewOpen(opener) {
   if (!f) return;
   facesCompareClose();
   facesReviewClose();
+  frSyncViewport();
   const back = document.createElement('div');
   back.id = 'frBackdrop';
   back.className = 'fr-backdrop';
@@ -498,6 +501,7 @@ function facesCompareOpen(opener) {
   if (!others.size) return;
   facesReviewClose();
   facesCompareClose();
+  frSyncViewport();
   const el = document.createElement('div');
   el.className = 'fr-cmp-ov';
   el.innerHTML = '<section class="fr-cmp" role="dialog" aria-modal="true" aria-labelledby="fcTitle"></section>';

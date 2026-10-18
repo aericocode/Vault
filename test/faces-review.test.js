@@ -277,7 +277,7 @@ test('hidden people: adds and moves never take their faces; results never name t
   assert.strictEqual(pidOf('z2.jpg'), pz);
 });
 
-test('a forced re-check of a file never silently drops a named person\'s face: same box = kept and asked; else offered back', async () => {
+test('a forced re-check of a file never silently drops a named person\'s face: kept (asked) while the file has a face left', async () => {
   for (const [n, v] of [['kf.jpg', like(20, 0.9, 105)], ['kg.jpg', like(20, 0.9, 106)]]) {
     addFile(n);
     fk.fileScripts.set(files[n], { groups: [group(v, { bbox: [0.1, 0.1, 0.2, 0.2] })] });
@@ -292,15 +292,10 @@ test('a forced re-check of a file never silently drops a named person\'s face: s
   await svc.sortPeopleNow();
   // Same box (a face Xena got automatically): still Xena's, and Xena is asked about it.
   assert.deepStrictEqual(one('SELECT cluster_id, recheck_ask, confirmed FROM face_groups WHERE id = ?', gid('kf.jpg')), { cluster_id: P.x, recheck_ask: P.x, confirmed: 0 });
-  // Nothing qualifies: both new faces are sorted on their own and offered back to Xena ("Is this Xena?").
-  for (const g of all('SELECT id FROM face_groups WHERE media_id = ?', ids['kg.jpg'])) {
-    assert.strictEqual(one('SELECT recheck_from FROM face_groups WHERE id = ?', g.id).recheck_from, P.x);
-  }
-  const kg = groupRow('kg.jpg');
-  assert.notStrictEqual(kg.cluster_id, P.x);
-  assert.strictEqual(kg.recheck_from, P.x);
-  const c = await get(`/api/faces/people/${P.x}/candidates?limit=100`);
-  assert.ok(c.body.items.some(i => i.personId === kg.cluster_id), 'offered back to Xena');
+  // Nothing scores or sits in place: Xena still keeps one of the file's faces, and asks.
+  const kgRows = all('SELECT cluster_id, recheck_ask, confirmed FROM face_groups WHERE media_id = ? ORDER BY id', ids['kg.jpg']);
+  assert.deepStrictEqual(kgRows.filter(r => r.cluster_id === P.x), [{ cluster_id: P.x, recheck_ask: P.x, confirmed: 0 }]);
+  assert.strictEqual(kgRows.length, 2);
   // A face of an unnamed person is not kept that way (its person simply goes, as before).
   addFile('kh.jpg');
   fk.fileScripts.set(files['kh.jpg'], { groups: [group(person(49))] });
@@ -328,8 +323,9 @@ test('check faces: GET lists the asked faces; Yes keeps (confirmed, never asked 
   const g8 = gid('r8.jpg'), g9 = gid('r9.jpg');
   const l = await get(`/api/faces/people/${P.x}/to-check`);
   assert.strictEqual(l.status, 200);
-  assert.strictEqual(l.body.total, 5);
-  assert.deepStrictEqual(l.body.items.map(i => i.groupId), [gid('r1.jpg'), g8, g9, gid('r7.jpg'), gid('kf.jpg')]);
+  const kgAsked = one('SELECT id FROM face_groups WHERE media_id = ? AND recheck_ask = ?', ids['kg.jpg'], P.x).id;
+  assert.strictEqual(l.body.total, 6);
+  assert.deepStrictEqual(l.body.items.map(i => i.groupId), [gid('r1.jpg'), g8, g9, gid('r7.jpg'), gid('kf.jpg'), kgAsked]);
   assert.strictEqual(l.body.items[1].filename, 'r8.jpg');
   for (const b of [{}, { keep: [g8], remove: [g8] }, { keep: 'x' }]) {
     assert.strictEqual((await post(`/api/faces/people/${P.x}/to-check`, b)).status, 400, JSON.stringify(b));
@@ -347,8 +343,8 @@ test('check faces: GET lists the asked faces; Yes keeps (confirmed, never asked 
   assert.deepStrictEqual([out.person_locked, out.recheck_ask], [0, null]);
   assert.strictEqual(one('SELECT name FROM face_people WHERE id = ?', out.cluster_id).name, null);
   assert.ok(one('SELECT 1 FROM face_person_rejects WHERE person_id = ? AND group_id = ?', P.x, g9), 'recorded as not Xena');
-  assert.strictEqual(r.body.person.toCheck, 3);
-  assert.strictEqual((await get(`/api/faces/people/${P.x}/to-check`)).body.total, 3);
+  assert.strictEqual(r.body.person.toCheck, 4);
+  assert.strictEqual((await get(`/api/faces/people/${P.x}/to-check`)).body.total, 4);
   // Another re-check (a new rule, a model switch) never asks about the kept face again.
   forgetRule();
   await svc.sortPeopleNow();
@@ -532,7 +528,7 @@ test('feature off: the round 4 routes are FACES_OFF', async () => {
   }
 });
 
-test('a re-read that drifts keeps the user\'s faces: same box a frame later, same box, the only face left (verifier probe2)', async () => {
+test('a re-read that drifts keeps the faces; only a strong score keeps the confirmation (verifier probe2)', async () => {
   const mk = (n, v, t, type) => { addFile(n, type); fk.fileScripts.set(files[n], { groups: [group(v, { firstTimeS: t, bbox: [0.1, 0.1, 0.2, 0.2] })] }); };
   mk('c1.mp4', like(21, 0.9, 60), 4, 'video');
   mk('c2.mp4', like(21, 0.9, 61), 4, 'video');
@@ -550,11 +546,49 @@ test('a re-read that drifts keeps the user\'s faces: same box a frame later, sam
   for (const n of ['c1.mp4', 'c2.mp4', 'c3.jpg']) assert.strictEqual((await post(`/api/media/${ids[n]}/find-faces`, { force: true })).status, 200);
   await svc.sortPeopleNow();
   const st = (n) => one('SELECT cluster_id, person_locked, confirmed, recheck_ask FROM face_groups WHERE id = ?', gid(n));
-  // Matched by place: the user's decision stands.
-  assert.deepStrictEqual(st('c1.mp4'), { cluster_id: P.y, person_locked: 1, confirmed: 1, recheck_ask: null });
-  assert.deepStrictEqual(st('c2.mp4'), { cluster_id: P.y, person_locked: 1, confirmed: 1, recheck_ask: null });
+  // Weak (0.35 < join): kept by place, but no longer confirmed: asked about.
+  assert.deepStrictEqual(st('c1.mp4'), { cluster_id: P.y, person_locked: 1, confirmed: 0, recheck_ask: P.y });
+  assert.deepStrictEqual(st('c2.mp4'), { cluster_id: P.y, person_locked: 1, confirmed: 0, recheck_ask: P.y });
   // The photo's only face, read elsewhere and weak: still Yuri's, but asked about.
   assert.deepStrictEqual(st('c3.jpg'), { cluster_id: P.y, person_locked: 1, confirmed: 0, recheck_ask: P.y });
+});
+
+test('re-read claims: by score across named people, never confirmed by place, never dropped while a face is left (verifier probe3)', async () => {
+  const A = [0.1, 0.1, 0.2, 0.2], B = [0.6, 0.6, 0.2, 0.2];
+  const mk = (n, gs) => { addFile(n, n.endsWith('.mp4') ? 'video' : 'image'); fk.fileScripts.set(files[n], { groups: gs }); };
+  mk('d1.mp4', [group(like(21, 0.9, 70), { firstTimeS: 4, bbox: A })]);
+  mk('d2.mp4', [group(like(21, 0.9, 71), { firstTimeS: 4, bbox: A })]);
+  mk('d3.mp4', [group(like(21, 0.9, 72), { firstTimeS: 4, bbox: A }), group(person(37), { firstTimeS: 4, bbox: B })]);
+  mk('d4.mp4', [group(like(21, 0.9, 73), { firstTimeS: 4, bbox: A })]);
+  mk('d5.jpg', [group(like(21, 0.9, 74), { bbox: A })]);
+  await index(['d1.mp4', 'd2.mp4', 'd3.mp4', 'd4.mp4', 'd5.jpg']);
+  const inBox = (n, box) => one('SELECT id FROM face_groups WHERE media_id = ? AND best_bbox = ?', ids[n], JSON.stringify(box)).id;
+  const cleo = (await post('/api/faces/people', { name: 'Cleo', groupIds: [inBox('d3.mp4', B)] })).body.id;
+  for (const n of ['d1.mp4', 'd2.mp4', 'd3.mp4', 'd4.mp4', 'd5.jpg']) {
+    assert.strictEqual((await post(`/api/faces/people/${P.y}/review-faces`, { add: [inBox(n, A)] })).status, 200);
+  }
+  fk.fileScripts.set(files['d1.mp4'], { groups: [group(person(51), { firstTimeS: 5, bbox: A })] });                       // a stranger, same box 1 s later
+  fk.fileScripts.set(files['d2.mp4'], { groups: [group(like(21, 0.3, 75), { firstTimeS: 6, bbox: B }),                   // Yuri, weak, elsewhere
+    group(person(52), { firstTimeS: 6, bbox: [0.35, 0.35, 0.2, 0.2] })] });                                                 // and a stranger
+  fk.fileScripts.set(files['d3.mp4'], { groups: [group(like(37, 0.4, 76), { firstTimeS: 5, bbox: A }),                   // Cleo where Yuri was
+    group(like(21, 0.4, 77), { firstTimeS: 5, bbox: B })] });                                                               // Yuri where Cleo was
+  fk.fileScripts.set(files['d4.mp4'], { groups: [group(person(53), { firstTimeS: 7, bbox: A })] });                       // a stranger, 3 s later
+  fk.fileScripts.set(files['d5.jpg'], { groups: [group(like(21, 0.9, 78), { bbox: [0.4, 0.1, 0.2, 0.2] })] });            // Yuri, strong, moved
+  for (const n of ['d1.mp4', 'd2.mp4', 'd3.mp4', 'd4.mp4', 'd5.jpg']) assert.strictEqual((await post(`/api/media/${ids[n]}/find-faces`, { force: true })).status, 200);
+  await svc.sortPeopleNow();
+  const rows = (n) => all('SELECT cluster_id AS p, confirmed AS c, recheck_ask AS a, best_bbox AS b FROM face_groups WHERE media_id = ? ORDER BY id', ids[n]);
+  // d1 / d4: a stranger in Yuri's place: kept (the file is not lost), never confirmed, asked.
+  for (const n of ['d1.mp4', 'd4.mp4']) assert.deepStrictEqual(rows(n).map(r => [r.p, r.c, r.a]), [[P.y, 0, P.y]], n);
+  // d2: Yuri keeps the face that scores better for him (the weak re-read), asked; the stranger is not his.
+  const d2 = rows('d2.mp4');
+  assert.deepStrictEqual(d2.filter(r => r.p === P.y).map(r => [r.b, r.c, r.a]), [[JSON.stringify(B), 0, P.y]]);
+  assert.strictEqual(d2.length, 2);
+  // d3: each face goes to the person it scores for (not by place), asked (0.4 < join).
+  const d3 = rows('d3.mp4');
+  assert.deepStrictEqual(d3.find(r => r.b === JSON.stringify(A)), { p: cleo, c: 0, a: cleo, b: JSON.stringify(A) });
+  assert.deepStrictEqual(d3.find(r => r.b === JSON.stringify(B)), { p: P.y, c: 0, a: P.y, b: JSON.stringify(B) });
+  // d5: a strong re-read (>= join) keeps the user's confirmation, wherever it sits.
+  assert.deepStrictEqual(rows('d5.jpg').map(r => [r.p, r.c, r.a]), [[P.y, 1, null]]);
 });
 
 /* ── Older versions ────────────────────────────────────────────────────── */

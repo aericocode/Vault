@@ -727,6 +727,7 @@ function facesPickStop() {
 function facesPickRepaint() {
   const on = !!(facesFocus && facesFocus.picking);
   document.body.classList.toggle('faces-picking', on);
+  if (on && typeof frSyncViewport === 'function') frSyncViewport();
   if (typeof facesPersonPickerClose === 'function') facesPersonPickerClose();
   renderFocusBar();
   if (typeof applyFilters === 'function') applyFilters({ keepPage: true });
