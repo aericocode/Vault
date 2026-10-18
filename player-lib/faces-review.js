@@ -31,7 +31,8 @@ const FR_X_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" st
  * panel or bar sized to the page would end past the screen's edge.
  */
 function frSyncViewport() {
-  const v = window.visualViewport;
+  // Some browsers (and a hidden pane) report a 0-sized visual viewport: then the window's size.
+  const v = window.visualViewport && window.visualViewport.width > 0 && window.visualViewport.height > 0 ? window.visualViewport : null;
   const st = document.documentElement.style;
   st.setProperty('--fr-vw', `${Math.round(v ? v.width : window.innerWidth)}px`);
   st.setProperty('--fr-vh', `${Math.round(v ? v.height : window.innerHeight)}px`);
@@ -44,7 +45,7 @@ if (window.visualViewport) {
 }
 window.addEventListener('resize', frSyncViewport);
 frSyncViewport();
-const frVw = () => (window.visualViewport ? window.visualViewport.width : window.innerWidth);
+const frVw = () => (window.visualViewport && window.visualViewport.width > 0 ? window.visualViewport.width : window.innerWidth);
 
 const frEsc = (s) => escapeHtml(String(s ?? ''));
 const frName = (name) => `<span class="ft-pm-name">${frEsc(name)}</span>`;

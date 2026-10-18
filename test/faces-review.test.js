@@ -286,12 +286,16 @@ test('a forced re-check of a file never silently drops a named person\'s face: s
   assert.deepStrictEqual([pidOf('kf.jpg'), pidOf('kg.jpg')], [P.x, P.x]);
   // The re-check reads both faces quite differently (cosine < 0.45 to the old ones).
   fk.fileScripts.set(files['kf.jpg'], { groups: [group(person(47), { bbox: [0.11, 0.1, 0.2, 0.2] })] });   // same place
-  fk.fileScripts.set(files['kg.jpg'], { groups: [group(person(48), { bbox: [0.6, 0.6, 0.2, 0.2] })] });   // elsewhere in the photo
+  // kg: two strangers elsewhere in the photo (nothing in place, nothing like Xena).
+  fk.fileScripts.set(files['kg.jpg'], { groups: [group(person(48), { bbox: [0.6, 0.6, 0.2, 0.2] }), group(person(36), { bbox: [0.6, 0.1, 0.2, 0.2] })] });
   for (const n of ['kf.jpg', 'kg.jpg']) assert.strictEqual((await post(`/api/media/${ids[n]}/find-faces`, { force: true })).status, 200);
   await svc.sortPeopleNow();
-  // Same box: still Xena's, and Xena is asked about it.
+  // Same box (a face Xena got automatically): still Xena's, and Xena is asked about it.
   assert.deepStrictEqual(one('SELECT cluster_id, recheck_ask, confirmed FROM face_groups WHERE id = ?', gid('kf.jpg')), { cluster_id: P.x, recheck_ask: P.x, confirmed: 0 });
-  // Elsewhere: sorted on its own, and offered back to Xena ("Is this Xena?").
+  // Nothing qualifies: both new faces are sorted on their own and offered back to Xena ("Is this Xena?").
+  for (const g of all('SELECT id FROM face_groups WHERE media_id = ?', ids['kg.jpg'])) {
+    assert.strictEqual(one('SELECT recheck_from FROM face_groups WHERE id = ?', g.id).recheck_from, P.x);
+  }
   const kg = groupRow('kg.jpg');
   assert.notStrictEqual(kg.cluster_id, P.x);
   assert.strictEqual(kg.recheck_from, P.x);
@@ -526,6 +530,31 @@ test('feature off: the round 4 routes are FACES_OFF', async () => {
   } finally {
     assert.strictEqual((await post('/api/faces/settings', { enabled: true })).status, 200);
   }
+});
+
+test('a re-read that drifts keeps the user\'s faces: same box a frame later, same box, the only face left (verifier probe2)', async () => {
+  const mk = (n, v, t, type) => { addFile(n, type); fk.fileScripts.set(files[n], { groups: [group(v, { firstTimeS: t, bbox: [0.1, 0.1, 0.2, 0.2] })] }); };
+  mk('c1.mp4', like(21, 0.9, 60), 4, 'video');
+  mk('c2.mp4', like(21, 0.9, 61), 4, 'video');
+  mk('c3.jpg', like(21, 0.9, 62), 0, 'image');
+  await index(['c1.mp4', 'c2.mp4', 'c3.jpg']);
+  // Yuri is named; the user says Yes to each face (confirmed).
+  for (const n of ['c1.mp4', 'c2.mp4', 'c3.jpg']) {
+    assert.strictEqual((await post(`/api/faces/people/${P.y}/review-faces`, { add: [gid(n)] })).status, 200);
+    assert.deepStrictEqual(one('SELECT cluster_id, confirmed FROM face_groups WHERE id = ?', gid(n)), { cluster_id: P.y, confirmed: 1 }, n);
+  }
+  // Re-read much weaker (cosine 0.35 to Yuri: under every match threshold).
+  fk.fileScripts.set(files['c1.mp4'], { groups: [group(like(21, 0.35, 63), { firstTimeS: 5, bbox: [0.1, 0.1, 0.2, 0.2] })] });   // same box, 1 s later
+  fk.fileScripts.set(files['c2.mp4'], { groups: [group(like(21, 0.35, 64), { firstTimeS: 4, bbox: [0.1, 0.1, 0.2, 0.2] })] });   // same box, same time
+  fk.fileScripts.set(files['c3.jpg'], { groups: [group(like(21, 0.35, 65), { firstTimeS: 0, bbox: [0.2, 0.2, 0.2, 0.2] })] });   // box moved
+  for (const n of ['c1.mp4', 'c2.mp4', 'c3.jpg']) assert.strictEqual((await post(`/api/media/${ids[n]}/find-faces`, { force: true })).status, 200);
+  await svc.sortPeopleNow();
+  const st = (n) => one('SELECT cluster_id, person_locked, confirmed, recheck_ask FROM face_groups WHERE id = ?', gid(n));
+  // Matched by place: the user's decision stands.
+  assert.deepStrictEqual(st('c1.mp4'), { cluster_id: P.y, person_locked: 1, confirmed: 1, recheck_ask: null });
+  assert.deepStrictEqual(st('c2.mp4'), { cluster_id: P.y, person_locked: 1, confirmed: 1, recheck_ask: null });
+  // The photo's only face, read elsewhere and weak: still Yuri's, but asked about.
+  assert.deepStrictEqual(st('c3.jpg'), { cluster_id: P.y, person_locked: 1, confirmed: 0, recheck_ask: P.y });
 });
 
 /* ── Older versions ────────────────────────────────────────────────────── */
