@@ -322,6 +322,19 @@ function renderSelectionBar() {
     bar.classList.remove('visible');
     return;
   }
+  // A person's page in the Faces tab: only what concerns this person, for
+  // the ticked files it shows (faces-tab.js).
+  if (!onLibrary && onPersonFiles) {
+    const shown = typeof ftTickedShown === 'function' ? ftTickedShown().length : 0;
+    if (!shown) { bar.classList.remove('visible'); return; }
+    bar.innerHTML = `
+      <span class="sel-count">${shown} selected</span>
+      ${typeof ftRemoveSelectedButton === 'function' ? ftRemoveSelectedButton(shown) : ''}
+      <button class="sel-btn" onclick="addSelectionToCollection(this)" title="Add selection to a collection">📁 Collect</button>
+      <button class="sel-btn sel-clear" onclick="clearSelection()" title="Clear selection">✕</button>`;
+    bar.classList.add('visible');
+    return;
+  }
 
   const counts = selectionCounts();
   const trashedCount = counts.trashed;

@@ -820,18 +820,20 @@ async function fpSave(btn) {
   }
   if (!answers.length) return;
   btn.disabled = true;
-  let same = 0, diff = 0, skipped = 0;
+  let same = 0, diff = 0, named = 0, other = 0;
   try {
     for (let i = 0; i < answers.length; i += 200) {
       const r = await facesApi('/api/faces/review/answers', { method: 'POST', json: { answers: answers.slice(i, i + 200) } });
       for (const d of r.done || []) { if (d.answer === 'same') same++; else diff++; }
-      skipped += (r.skipped || []).length;
+      for (const x of r.skipped || []) { if (x.reason === 'both-named') named++; else other++; }
     }
   } catch (err) { facesToastError(err); btn.disabled = false; return; }
   const said = [];
   if (same) said.push(same === 1 ? 'Put 1 pair together.' : `Put ${same.toLocaleString()} pairs together.`);
   if (diff) said.push(diff === 1 ? '1 pair stays apart.' : `${diff.toLocaleString()} pairs stay apart.`);
-  if (skipped) said.push(`${skipped.toLocaleString()} had changed and ${skipped === 1 ? 'was' : 'were'} left alone.`);
+  // A Same that would have joined two named people (after an earlier Same in the list) is never done here.
+  if (named) said.push(`${named === 1 ? '1 pair' : `${named.toLocaleString()} pairs`} skipped: both already have names. Use Merge in the Faces tab if they are the same.`);
+  if (other) said.push(`${other.toLocaleString()} had changed and ${other === 1 ? 'was' : 'were'} left alone.`);
   showToast(said.join(' ') || 'Nothing changed.');
   facesPairsReviewClose();
   if (typeof FT !== 'undefined') FT.faces.clear();

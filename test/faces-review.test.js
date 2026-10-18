@@ -598,6 +598,11 @@ test('"Remove selected from X": not-in for several files at once, files without 
   const pm = pidOf('m1.jpg');
   for (const n of ns) assert.strictEqual(pidOf(n), pm, n);
   assert.strictEqual((await post(`/api/faces/people/${pm}`, { name: 'Mia' })).status, 200);
+  // The state an Undo must bring back exactly: m1 confirmed by the user, m2 locked and asked about.
+  run('UPDATE face_groups SET person_locked = 1, confirmed = 1 WHERE id = ?', gid('m1.jpg'));
+  run('UPDATE face_groups SET person_locked = 1, confirmed = 0, recheck_ask = ?, recheck_from = ? WHERE id = ?', pm, P.y, gid('m2.jpg'));
+  const state = (n) => one('SELECT cluster_id, person_locked, confirmed, recheck_ask, recheck_from FROM face_groups WHERE id = ?', gid(n));
+  const before = ns.map(state);
   for (const b of [{ mediaIds: [] }, { mediaIds: ['x'] }, { mediaIds: [ids['m1.jpg'], ids['m1.jpg']] }, { mediaIds: Array.from({ length: 501 }, (_, i) => i + 1) }]) {
     assert.strictEqual((await post(`/api/faces/people/${pm}/not-in`, b)).status, 400, JSON.stringify(b).slice(0, 60));
   }
@@ -612,10 +617,61 @@ test('"Remove selected from X": not-in for several files at once, files without 
     assert.ok(one('SELECT 1 FROM face_person_rejects WHERE person_id = ? AND group_id = ?', pm, gid(n)), `${n}: not Mia`);
   }
   assert.strictEqual(pidOf('x1.jpg'), P.x, 'a file Mia is not in is untouched');
-  const u = await post(`/api/faces/people/${pm}/restore`, { groupIds: r.body.moved.map(m => m.groupId) });
-  assert.strictEqual(u.status, 200);
+  // Out means out: no lock, confirmation or re-check marks left from Mia.
+  for (const n of ['m1.jpg', 'm2.jpg']) {
+    const st = state(n);
+    assert.deepStrictEqual([st.confirmed, st.recheck_ask, st.recheck_from], [0, null, null], n);
+  }
+  assert.strictEqual(typeof r.body.undo, 'string');
+  assert.strictEqual((await post(`/api/faces/people/${pm}/restore`, { undo: 'nope' })).status, 404);
+  assert.strictEqual((await post(`/api/faces/people/${P.x}/restore`, { undo: r.body.undo })).status, 404, 'another person\'s undo');
+  const u = await post(`/api/faces/people/${pm}/restore`, { undo: r.body.undo });
+  assert.strictEqual(u.status, 200, JSON.stringify(u.body));
   assert.strictEqual(u.body.files, 4);
-  for (const n of ns) assert.strictEqual(pidOf(n), pm, n);
+  assert.deepStrictEqual(ns.map(state), before, 'every face exactly as it was (person, lock, confirmed, asks)');
+  for (const n of ['m1.jpg', 'm2.jpg']) assert.ok(!one('SELECT 1 FROM face_person_rejects WHERE person_id = ? AND group_id = ?', pm, gid(n)), n);
+  assert.strictEqual((await post(`/api/faces/people/${pm}/restore`, { undo: r.body.undo })).status, 404, 'an undo works once');
+  // One file's "Not this person" has the same exact undo.
+  const one1 = await post(`/api/faces/people/${pm}/not-in`, { mediaId: ids['m1.jpg'] });
+  assert.strictEqual(one1.status, 200);
+  assert.strictEqual((await post(`/api/faces/people/${pm}/restore`, { undo: one1.body.undo })).status, 200);
+  assert.deepStrictEqual(ns.map(state), before);
+});
+
+test('"Same person?" answers never join two named people, a hidden person or a pair answered not the same (verifier probe5)', async () => {
+  const ns = ['n1.jpg', 'n2.jpg', 'n3.jpg', 'n4.jpg', 'n5.jpg'];
+  ns.forEach((n, i) => { addFile(n); fk.fileScripts.set(files[n], { groups: [group(person(85 + i))] }); });
+  await index(ns);
+  const [bea, cal, u1, hid, dee] = ns.map(pidOf);
+  for (const [p, b] of [[bea, { name: 'Bea' }], [cal, { name: 'Cal' }], [hid, { name: 'Hid', hidden: true }], [dee, { name: 'Dee' }]]) {
+    assert.strictEqual((await post(`/api/faces/people/${p}`, b)).status, 200);
+  }
+  run("INSERT OR REPLACE INTO face_pair_decisions (a, b, decision, created_at) VALUES (?, ?, 'different', 'x')", Math.min(bea, dee), Math.max(bea, dee));
+  await svc.sortPeopleNow();   // the names re-score pairs: let that run finish before the offers go in
+  const offer = (a, b) => run('INSERT OR IGNORE INTO face_person_suggestions (a, b, score) VALUES (?, ?, 0.6)', Math.min(a, b), Math.max(a, b));
+  offer(u1, bea); offer(u1, cal); offer(u1, hid);
+  // The chain: U1 is Bea, then U1 (now Bea) is Cal: the second would join two named people.
+  const chain = await post('/api/faces/review/answers', { answers: [{ a: u1, b: bea, answer: 'same' }, { a: u1, b: cal, answer: 'same' }] });
+  assert.strictEqual(chain.status, 200);
+  assert.deepStrictEqual(chain.body.done.map(d => [d.a, d.b]), [[u1, bea]]);
+  assert.deepStrictEqual(chain.body.skipped, [{ a: u1, b: cal, reason: 'both-named' }]);
+  assert.deepStrictEqual([pidOf('n1.jpg'), pidOf('n3.jpg'), pidOf('n2.jpg')], [bea, bea, cal], 'Bea and Cal stay apart');
+  assert.strictEqual(one('SELECT name FROM face_people WHERE id = ?', cal).name, 'Cal');
+  // Not offered: two named people, a decided pair, a hidden person.
+  const r = await post('/api/faces/review/answers', { answers: [{ a: bea, b: dee, answer: 'same' }, { a: bea, b: hid, answer: 'same' }] });
+  assert.deepStrictEqual(r.body.skipped.map(x => x.reason), ['not-offered', 'not-offered']);
+  offer(bea, dee); offer(bea, hid); offer(cal, dee);
+  const r2 = await post('/api/faces/review/answers', { answers: [{ a: bea, b: dee, answer: 'same' }, { a: bea, b: hid, answer: 'same' }, { a: cal, b: dee, answer: 'same' }] });
+  assert.deepStrictEqual(r2.body.skipped.map(x => x.reason), ['both-named', 'both-named', 'both-named']);
+  run('UPDATE face_people SET name = NULL, name_key = NULL WHERE id = ?', hid);
+  store.bumpPeople();
+  const r3 = await post('/api/faces/review/answers', { answers: [{ a: bea, b: hid, answer: 'same' }] });
+  assert.deepStrictEqual(r3.body.skipped.map(x => x.reason), ['hidden']);
+  for (const n of ['n2.jpg', 'n4.jpg', 'n5.jpg']) assert.notStrictEqual(pidOf(n), bea, n);
+  // "Not the same" needs no offer and is always kept.
+  const d = await post('/api/faces/review/answers', { answers: [{ a: cal, b: dee, answer: 'different' }] });
+  assert.strictEqual(d.body.done.length, 1);
+  assert.ok(one("SELECT 1 FROM face_pair_decisions WHERE a = ? AND b = ? AND decision = 'different'", Math.min(cal, dee), Math.max(cal, dee)));
 });
 
 test('"Same person?" answers in one go: merges follow earlier merges, a pair that became one is skipped, not-the-same is remembered', async () => {
@@ -627,6 +683,9 @@ test('"Same person?" answers in one go: merges follow earlier merges, a pair tha
   for (const b of [{}, { answers: [] }, { answers: [{ a: p1, b: p1, answer: 'same' }] }, { answers: [{ a: p1, b: p2, answer: 'maybe' }] }]) {
     assert.strictEqual((await post('/api/faces/review/answers', b)).status, 400, JSON.stringify(b));
   }
+  // The review offered these pairs (stored suggestions).
+  const offer = (a, b) => run('INSERT OR IGNORE INTO face_person_suggestions (a, b, score) VALUES (?, ?, 0.6)', Math.min(a, b), Math.max(a, b));
+  offer(p1, p2); offer(p2, p3); offer(p3, p1);
   const r = await post('/api/faces/review/answers', { answers: [
     { a: p1, b: p2, answer: 'same' },
     { a: p2, b: p3, answer: 'same' },      // p2 is in p1's person now: followed

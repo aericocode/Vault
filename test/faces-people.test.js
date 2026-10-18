@@ -479,7 +479,7 @@ test('not-in ("Not this person"): the file leaves, a new person, a reject; survi
   const alice = personIn('a1.jpg', 0);
   const r = await post(`/api/faces/people/${alice}/not-in`, { mediaId: ids['ab.jpg'] });
   assert.strictEqual(r.status, 200);
-  assert.deepStrictEqual(Object.keys(r.body).sort(), ['moved', 'person']);
+  assert.deepStrictEqual(Object.keys(r.body).sort(), ['moved', 'person', 'undo']);
   assert.strictEqual(r.body.person.id, alice);
   assert.strictEqual(r.body.person.files, 3);
   assert.strictEqual(r.body.moved.length, 1);

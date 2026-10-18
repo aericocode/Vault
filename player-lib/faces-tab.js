@@ -150,6 +150,7 @@ function facesTabEnter() {
 }
 
 function facesTabLeave() {
+  if (FT.personId != null && typeof selectedIds !== 'undefined' && selectedIds.size && typeof clearSelection === 'function') clearSelection();
   ftCloseNaming();
   ftUnpin();
   ftClosePops();
@@ -1389,6 +1390,8 @@ function facesOpenPerson(id, { fromStudio = null } = {}) {
     FT.mode = 'people';
     try { localStorage.setItem('vaultFacesMode', 'people'); } catch {}
   }
+  // A selection belongs to the grid it was made in: none comes along.
+  if (typeof selectedIds !== 'undefined' && selectedIds.size && typeof clearSelection === 'function') clearSelection();
   FT.personId = Number(id);
   FT.might = null;          // a fresh look every time the page opens
   FT.check = null;
@@ -1405,6 +1408,7 @@ function facesOpenPerson(id, { fromStudio = null } = {}) {
 }
 
 function ftClosePerson() {
+  if (typeof selectedIds !== 'undefined' && selectedIds.size && typeof clearSelection === 'function') clearSelection();
   ftCloseNaming();
   ftClosePops();
   FT.fromStudio = null;
@@ -2142,6 +2146,14 @@ async function ftSaveCheck(btn) {
 
 /* ── Person page: "Remove selected from X" ────────────────────────────── */
 
+/** The ticked files this person page shows right now (its filter and page): what "Remove selected" acts on. */
+function ftTickedShown() {
+  if (typeof selectedIds === 'undefined') return [];
+  const inPerson = new Set(FT.fileIds || []);
+  return [...document.querySelectorAll('#resultsGrid .media-tile[data-id]')].map(t => Number(t.dataset.id))
+    .filter(id => selectedIds.has(id) && inPerson.has(id));
+}
+
 /** Is a person's file grid showing (selection.js shows the selection bar there too)? */
 function facesPersonFilesShowing() {
   return ftOnTab() && FT.mode === 'people' && FT.personId != null;
@@ -2160,8 +2172,7 @@ async function ftRemoveSelected() {
   const personId = FT.personId;
   const p = FT.person;
   if (personId == null || !p || typeof selectedIds === 'undefined') return;
-  const inPerson = new Set(FT.fileIds || []);
-  const ids = [...selectedIds].filter(id => inPerson.has(id));
+  const ids = ftTickedShown();
   if (!ids.length) { showToast('None of the selected files show this person.'); return; }
   const whoHtml = p.name ? `<span class="ft-pm-name">${ftEsc(p.name)}</span>` : 'this person';
   const files = ftPlural(ids.length, 'file', 'files');
@@ -2171,12 +2182,12 @@ async function ftRemoveSelected() {
     buttons: [{ label: 'Cancel', value: null }, { label: `Take ${files} out`, value: 'go', primary: true }],
   });
   if (!ok || FT.personId !== personId) return;
-  const groupIds = [];
+  const undos = [];
   let gone = false;
   try {
     for (let i = 0; i < ids.length; i += 500) {
       const r = await ftApi(`/api/faces/people/${personId}/not-in`, { method: 'POST', json: { mediaIds: ids.slice(i, i + 500) } });
-      groupIds.push(...(r.moved || []).map(m => m.groupId));
+      if (r.undo) undos.push(r.undo);
       if (!r.person) gone = true;
     }
   } catch (err) { facesToastError(err); if (FT.personId === personId) ftLoadPerson(); return; }
@@ -2191,10 +2202,9 @@ async function ftRemoveSelected() {
   if (FT.personId === personId) ftLoadPerson();
   const name = ftPrivate() ? '' : ftName(p);
   showUndoToast(name ? `Took ${files} out of ${name}.` : `Took ${files} out of this person.`, async () => {
+    // Each batch's exact state before, newest first.
     try {
-      for (let i = 0; i < groupIds.length; i += 2000) {
-        await ftApi(`/api/faces/people/${personId}/restore`, { method: 'POST', json: { groupIds: groupIds.slice(i, i + 2000) } });
-      }
+      for (const undo of undos.reverse()) await ftApi(`/api/faces/people/${personId}/restore`, { method: 'POST', json: { undo } });
     } catch (err) { facesToastError(err); return; }
     FT.faces.delete(personId);
     if (FT.personId === personId) ftLoadPerson();
@@ -2246,12 +2256,12 @@ async function facesNotThisPerson(mediaId) {
     ftPaintPerson();
     applyFilters({ keepPage: true });
   }
-  const groupIds = (r.moved || []).map(m => m.groupId);
-  if (!groupIds.length) return;
+  if (!(r.moved || []).length || !r.undo) return;
   const name = ftPrivate() ? '' : ftName(r.person);
   showUndoToast(name ? `Removed this file from ${ftEsc(name)}.` : 'Removed this file from this person.', async () => {
+    // The exact state before (person, lock, confirmation), from the server's snapshot.
     try {
-      await ftApi(`/api/faces/people/${personId}/restore`, { method: 'POST', json: { groupIds } });
+      await ftApi(`/api/faces/people/${personId}/restore`, { method: 'POST', json: { undo: r.undo } });
     } catch (err) { facesToastError(err); return; }
     FT.faces.delete(personId);
     if (FT.personId === personId) ftLoadPerson();
