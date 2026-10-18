@@ -72,6 +72,9 @@ function libraryLayoutMode() {
 }
 
 function tileMinWidth() {
+  // A person's page in the Faces tab has its own Size slider (faces-tab.js).
+  const faces = typeof facesFileTileMin === 'function' ? facesFileTileMin() : 0;
+  if (faces) return faces;
   const size = typeof window.vaultCardSize === 'function' ? window.vaultCardSize() : 'M';
   return CARD_MIN_WIDTHS[size] || CARD_MIN_WIDTHS.M;
 }
