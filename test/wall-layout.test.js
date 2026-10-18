@@ -168,3 +168,87 @@ test('masonry: a wide file goes where two columns are near level', () => {
   assert.strictEqual(s.y, 120);
   assert.strictEqual(s.hole, 20);
 });
+
+test('settings: non-numbers fall back to the defaults', () => {
+  const c = W.cfgFrom({ playing: [], gap: true, scrollSpeed: {}, blockSize: true });
+  assert.strictEqual(c.playing, 6);
+  assert.strictEqual(c.gap, 4);
+  assert.strictEqual(c.scrollSpeed, 4);
+  assert.strictEqual(c.colWidth, 390, 'blockSize: true is not a row height');
+  assert.strictEqual(W.cfgFrom({ blockSize: '' }).colWidth, 390);
+  assert.strictEqual(W.cfgFrom({ blockSize: [] }).colWidth, 390);
+  assert.strictEqual(W.cfgFrom({ playing: '9' }).playing, 9, 'a numeric string still counts');
+});
+
+/* The swap pick and the buffer. Rows are { id, a } with a known shape. */
+const swapOpts = (extra = {}) => ({
+  aspectOf: (r) => r.a, usable: () => true, onScreen: () => false, currentId: null, order: 'shuffle', ...extra,
+});
+
+test('swap: a fitting file is chosen however deep in the buffer it sits', () => {
+  for (const order of ['shuffle', 'order']) {
+    for (const depth of [0, 500, 1000, 1200, 1499]) {
+      const list = [];
+      for (let i = 0; i < depth; i++) list.push({ id: 10000 + i, a: 4 });   // rare panoramas nobody takes
+      list.push({ id: 1, a: 16 / 9 });
+      const got = W.pickSwap(list, 16 / 9, swapOpts({ order }));
+      assert.deepStrictEqual({ ...got }, { i: depth, fit: true }, `${order}, fit at ${depth}`);
+    }
+  }
+});
+
+test('swap: In order takes the fit closest to the front; repeats come last', () => {
+  const list = [{ id: 1, a: 4 }, { id: 2, a: 1.7 }, { id: 3, a: 16 / 9 }, { id: 4, a: 1.75 }];
+  assert.strictEqual(W.pickSwap(list, 16 / 9, swapOpts({ order: 'order' })).i, 1);
+  assert.strictEqual(W.pickSwap(list, 16 / 9, swapOpts()).i, 2, 'Shuffle prefers the closer shape');
+  const on = swapOpts({ order: 'order', onScreen: (r) => r.id === 2 });
+  assert.strictEqual(W.pickSwap(list, 16 / 9, on).i, 2, 'one already on screen loses to a fresh fit');
+  // Only the slot's own file fits, but a fresh file can be cropped in: crop.
+  const own = W.pickSwap([{ id: 7, a: 1 }, { id: 8, a: 16 / 9 }], 16 / 9, swapOpts({ currentId: 8 }));
+  assert.deepStrictEqual({ ...own }, { i: 0, fit: false });
+  // Nothing fits: the closest shape is cropped in.
+  const crop = W.pickSwap([{ id: 1, a: 4 }, { id: 2, a: 1 }, { id: 3, a: 0.5 }], 16 / 9, swapOpts());
+  assert.deepStrictEqual({ ...crop }, { i: 1, fit: false });
+  // Files whose shape is not known yet are not picked.
+  const wait = W.pickSwap([{ id: 1, a: 16 / 9, u: false }], 16 / 9, swapOpts({ usable: (r) => r.u !== false }));
+  assert.strictEqual(wait.i, -1);
+});
+
+test('buffer: stays within the cap however many swaps miss', () => {
+  // The Wall's fill loop, driven by the same helpers: every miss asks for
+  // one more batch; each fetched id gives at most one row (here: always one).
+  let held = 300;
+  const base = 340;
+  for (let miss = 0; miss < 500; miss++) {
+    const target = W.fillTarget(held, base, true);
+    assert.ok(target <= W.READY_CAP);
+    let scanned = 0;
+    while (held < target && scanned < 8000) {
+      const n = W.batchSize(held, target, 8000 - scanned);
+      if (n <= 0) break;
+      scanned += n;
+      held += n;
+      assert.ok(held <= W.READY_CAP, `held ${held} after miss ${miss}`);
+    }
+    if (miss % 3 === 0) held--;           // a swap took one
+  }
+  assert.ok(held >= W.READY_CAP - 200, 'the buffer did grow toward the cap');
+  assert.strictEqual(W.fillTarget(W.READY_CAP, base, true), W.READY_CAP);
+  assert.strictEqual(W.batchSize(W.READY_CAP, W.READY_CAP, 8000), 0, 'at the cap nothing is fetched');
+});
+
+test('buffer: a file passed over many times leaves it', () => {
+  const rare = { id: 1, a: 4 };
+  let list = [rare];
+  for (let i = 0; i < 400; i++) list.push({ id: 100 + i, a: 16 / 9 });
+  const skips = new Map();
+  let dropped = 0;
+  for (let t = 0; t < W.STALE_SKIPS && list.includes(rare); t++) {
+    const out = W.takeAt(list, 1, skips);   // something behind it is taken
+    list = out.list;
+    dropped += out.dropped;
+  }
+  assert.ok(!list.includes(rare), 'the rare file was dropped');
+  assert.strictEqual(dropped, 1);
+  assert.strictEqual(list[0].id, 100 + W.STALE_SKIPS, 'the others are untouched, in order');
+});

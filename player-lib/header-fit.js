@@ -9,8 +9,8 @@
       If even icon-only tabs cannot keep it on one line (narrow windows) the
       tabs go back to full size: the header wraps either way, so the names
       may as well stay. Re-measured whenever the header's width, the count
-      text or the buttons change size (ResizeObserver), the open tab changes
-      or the look is switched.
+      text or the buttons change size (ResizeObserver), the open tab or a
+      tab's content (the Editor queue badge) changes, or the look is switched.
 
    2. Modern look only (css/layout-modern.css does the rest):
       - "＋ Add" menu: its entries click the real Add files / Add folder
@@ -49,12 +49,27 @@
     return row.clientHeight > tallest + 1;
   }
 
+  // Every step is measured at the same width. A step that wraps makes the
+  // header taller, which can give the page a scrollbar and narrow the row
+  // for the next step (which then fails when it would fit). So the page's
+  // scrollbar is held as it was while the steps are tried. If the pick then
+  // adds or removes the scrollbar, the probe changes width and the fit runs
+  // again at the new width; a one-line pick never grows the header, so this
+  // settles.
   function fit() {
+    const root = document.documentElement;
+    const hadBar = window.innerWidth - root.clientWidth > 0;
+    const before = root.style.overflowY;
+    root.style.overflowY = hadBar ? 'scroll' : 'hidden';
     let pick = STEPS[0];
-    for (const step of STEPS) {
-      header.classList.remove(...ALL);
-      header.classList.add(...step);
-      if (!wraps()) { pick = step; break; }
+    try {
+      for (const step of STEPS) {
+        header.classList.remove(...ALL);
+        header.classList.add(...step);
+        if (!wraps()) { pick = step; break; }
+      }
+    } finally {
+      root.style.overflowY = before;
     }
     header.classList.remove(...ALL);
     header.classList.add(...pick);
@@ -222,9 +237,14 @@
       new MutationObserver(syncCount).observe(count, { childList: true, subtree: true,
         characterData: true, attributes: true, attributeFilter: ['title', 'data-tip'] });
     }
-    // The open tab moved: its name shows, the old one folds.
+    // The open tab moved (its name shows, the old one folds), or a tab's
+    // content changed: the Editor tab's queue badge comes and goes by text
+    // and inline style, either way the tabs need more or less room. fit()
+    // itself only writes the header's classes and the tabs' data-tip, which
+    // this does not watch, so it cannot feed back into itself.
     new MutationObserver(fit)
-      .observe(tabsNav, { subtree: true, attributes: true, attributeFilter: ['class'] });
+      .observe(tabsNav, { subtree: true, childList: true, characterData: true,
+        attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
 
     window.addEventListener('vault:layout-style', () => { closeMenu(false); syncAll(); });
     // Emoji and fonts arriving late can change widths after the first pass.

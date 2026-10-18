@@ -84,9 +84,16 @@ const Wall = (() => {
 
   let cfg = null;
 
+  /** A stored number (or numeric string); anything else (true, [], '') is NaN. */
+  function toNum(v) {
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string' && v.trim() !== '') return Number(v);
+    return NaN;
+  }
+
   function clampNum(v, r) {
-    const n = Number(v);
-    if (v === null || v === undefined || v === '' || !Number.isFinite(n)) return r.def;
+    const n = toNum(v);
+    if (!Number.isFinite(n)) return r.def;
     return Math.min(r.max, Math.max(r.min, Math.round(n / r.step) * r.step));
   }
 
@@ -103,15 +110,15 @@ const Wall = (() => {
     const out = { v: CFG_VERSION };
     out.playing = clampNum(raw.playing, RANGES.playing);
     out.picSpeed = clampNum(raw.picSpeed, RANGES.picSpeed);
-    if (old && Number(raw.clipLen) >= 120) {
+    if (old && toNum(raw.clipLen) >= 120) {
       out.clipLen = RANGES.clipLen.max;
       out.clipsToEnd = true;
     } else {
       out.clipLen = clampNum(raw.clipLen, RANGES.clipLen);
       out.clipsToEnd = raw.clipsToEnd === true;
     }
-    const oldRow = Number(raw.blockSize);
-    out.colWidth = old && raw.colWidth == null && raw.blockSize != null && Number.isFinite(oldRow)
+    const oldRow = toNum(raw.blockSize);
+    out.colWidth = old && raw.colWidth == null && Number.isFinite(oldRow)
       ? clampNum(oldRow * 1.5, RANGES.colWidth)
       : clampNum(raw.colWidth, RANGES.colWidth);
     out.gap = clampNum(raw.gap, RANGES.gap);
@@ -172,7 +179,7 @@ const Wall = (() => {
   let swallowClick = false;
 
   const drift = { offset: 0, raf: 0, lastT: 0, frames: [], rebases: 0, removed: 0 };
-  const stats = { swaps: 0, exact: 0, near: 0, crops: 0, worstCrop: 1 };
+  const stats = { swaps: 0, exact: 0, near: 0, crops: 0, worstCrop: 1, staleDropped: 0, moreFetches: 0, rowFetches: 0 };
 
   let liveCost = 0;            // slots held by live <video> elements
   let liveRemux = 0;
@@ -184,6 +191,7 @@ const Wall = (() => {
   let poolCursor = 0;
   let poolGen = 0;
   let ready = [];
+  const skipCounts = new WeakMap(); // buffered row → how often a take passed it over
   let fillPromise = null;
   let poolHasEligible = false;
   const onScreen = new Map();  // id → how many blocks show it
@@ -466,14 +474,15 @@ const Wall = (() => {
     const gen = poolGen;
     fillPromise = (async () => {
       if (!poolIds || !poolIds.length) return;
-      const target = more ? Math.min(READY_CAP, Math.max(readyTarget(), ready.length + 150)) : readyTarget();
+      const target = fillTarget(ready.length, readyTarget(), more);
       const scanLimit = Math.min(8000, Math.max(target * 3, poolIds.length));
       let scanned = 0;
       while (ready.length < target && scanned < scanLimit) {
         // A whole pass found nothing: the source has nothing the wall can show.
         if (scanned >= poolIds.length && !poolHasEligible) break;
         const ids = [];
-        const n = Math.min(150, scanLimit - scanned);
+        const n = batchSize(ready.length, target, scanLimit - scanned);
+        if (n <= 0) break;
         for (let i = 0; i < n; i++) {
           ids.push(poolIds[poolCursor]);
           poolCursor++;
@@ -485,6 +494,7 @@ const Wall = (() => {
         }
         let rowsOut;
         try {
+          stats.rowFetches++;
           rowsOut = await Library.fetchRows(ids);
         } catch {
           break;
@@ -499,9 +509,11 @@ const Wall = (() => {
   }
 
   function take(i) {
-    const r = ready.splice(i, 1)[0];
+    const out = takeAt(ready, i, skipCounts);
+    ready = out.list;
+    stats.staleDropped += out.dropped;
     if (ready.length < readyTarget() / 2) fill();
-    return r;
+    return out.item;
   }
 
   /* ── The plan (pure; also exercised by test/wall-layout.test.js) ────── */
@@ -584,35 +596,90 @@ const Wall = (() => {
   }
 
   /**
-   * Index of the file a swap should bring into a slot of shape `aspect`:
-   * the earliest one within the tolerance, preferring one not already on
-   * screen. `fit` is false when nothing fits and the closest shape will be
-   * cropped into the slot.
+   * Index of the file a swap should bring into a slot of shape `aspect`
+   * (pure: `o` gives aspectOf(r), usable(r), onScreen(r), currentId, order).
+   *
+   * Any file within the tolerance fits, wherever it sits in the buffer; a
+   * file not on screen beats one that is, and the slot's current file comes
+   * last. The position only chooses among fits, never whether one fits:
+   * "In order" takes the fit closest to the front, Shuffle weighs a closer
+   * shape against a place further back (a perfect fit is worth about 70
+   * places), so the buffer is used from the front. `fit` is false when
+   * nothing fits and the closest shape will be cropped into the slot.
    */
-  function swapIndex(list, aspect, isOnScreen, current) {
-    const n = list.length;            // the whole buffer: a few thousand compares at most
+  function pickSwap(list, aspect, o) {
     let best = -1;
-    let bestScore = Infinity;
-    let first = -1;
-    let firstScore = Infinity;
-    for (let i = 0; i < n; i++) {
+    let bestDup = Infinity;
+    let bestKey = Infinity;
+    let crop = -1;
+    let cropDup = Infinity;
+    let cropKey = Infinity;
+    for (let i = 0; i < list.length; i++) {
       const r = list[i];
       // A file whose shape is not known yet (still being read) waits: as a
       // guess it could be anything, and the slot would crop it badly.
-      if (badIds.has(r.id) || !shapeKnown(r)) continue;
-      const dup = (current && r.id === current.id) ? 2 : (isOnScreen(r) ? 1 : 0);
-      const d = Math.abs(Math.log(aspectOf(r) / aspect));
+      if (!o.usable(r)) continue;
+      const dup = (o.currentId != null && r.id === o.currentId) ? 2 : (o.onScreen(r) ? 1 : 0);
+      const d = Math.abs(Math.log(o.aspectOf(r) / aspect));
       if (d <= SHAPE_TOL) {
-        const score = d + i * 0.002 + dup;
-        if (score < bestScore) { bestScore = score; best = i; }
+        const key = o.order === 'order' ? i : d + i * 0.002;
+        if (dup < bestDup || (dup === bestDup && key < bestKey)) { best = i; bestDup = dup; bestKey = key; }
       }
       // Nothing fits: the closest shape, so the crop is as small as it can be.
-      const fs = d + i * 0.002 + dup * 10;
-      if (fs < firstScore) { firstScore = fs; first = i; }
+      if (dup < cropDup || (dup === cropDup && d < cropKey)) { crop = i; cropDup = dup; cropKey = d; }
     }
-    if (best >= 0 && bestScore < 2) return { i: best, fit: true };
-    if (best >= 0 && first >= 0 && firstScore >= 10) return { i: best, fit: true };
-    return { i: first, fit: false };
+    // The slot's own file again only when everything else would be a repeat too.
+    if (best >= 0 && (bestDup < 2 || cropDup >= 1)) return { i: best, fit: true };
+    return { i: crop, fit: false };
+  }
+
+  function swapIndex(list, aspect, current) {
+    return pickSwap(list, aspect, {
+      aspectOf,
+      usable: (r) => !badIds.has(r.id) && shapeKnown(r),
+      onScreen: isOnScreen,
+      currentId: current ? current.id : null,
+      order: cfg.order,
+    });
+  }
+
+  /* The buffer: bounded, and files nobody takes do not sit in it forever. */
+
+  const BATCH = 150;            // ids per row fetch
+  const STALE_SKIPS = 150;      // a file passed over this often leaves the buffer
+
+  /** How many rows a top-up aims for: the usual target, or one batch past what is held; never past the cap. */
+  function fillTarget(held, base, more) {
+    return Math.min(READY_CAP, more ? Math.max(base, held + BATCH) : base);
+  }
+
+  /** How many ids the next fetch takes: never more than the room left (an id gives at most one row). */
+  function batchSize(held, target, scanLeft) {
+    return Math.max(0, Math.min(BATCH, scanLeft, target - held));
+  }
+
+  /**
+   * Take list[i] out of the buffer. Every file in front of it was passed
+   * over once more; one passed over STALE_SKIPS times (a rare shape no slot
+   * wants) is dropped, so it stops holding a place at the front. It comes
+   * round again with the pool. Returns { item, list, dropped }.
+   */
+  function takeAt(list, i, skips) {
+    const item = list.splice(i, 1)[0];
+    skips.delete(item);
+    let stale = 0;
+    for (let k = 0; k < i && k < list.length; k++) {
+      const n = (skips.get(list[k]) || 0) + 1;
+      skips.set(list[k], n);
+      if (n >= STALE_SKIPS) stale++;
+    }
+    if (!stale) return { item, list, dropped: 0 };
+    const kept = list.filter((r) => {
+      if ((skips.get(r) || 0) < STALE_SKIPS) return true;
+      skips.delete(r);
+      return false;
+    });
+    return { item, list: kept, dropped: stale };
   }
 
   /* ── DOM ────────────────────────────────────────────────────────────── */
@@ -952,6 +1019,11 @@ const Wall = (() => {
     // Space keeps its own meaning on a control (a checkbox, a button) and
     // in anything you type into.
     if (t && t.closest && t.closest('input, textarea, select, button, a[href], [contenteditable]:not([contenteditable="false"])')) return;
+    // Nor behind a dialog or overlay (Settings, the detail modal...): there
+    // Space belongs to that layer, scrolling it for one. The generic check
+    // from dock.js; the Wall's own settings popover (a role=dialog too) is
+    // the one layer Space still pauses under.
+    if (els.pop.hidden && typeof dockModalLayerOpen === 'function' && dockModalLayerOpen()) return;
     e.preventDefault();
     setPaused(!userPaused);
   }
@@ -1179,7 +1251,7 @@ const Wall = (() => {
         .filter(b => b.item && !b.dead && b.y + b.h > top && b.y < top + lay.H)
         .sort((a, c) => (a.y - c.y) || (a.x - c.x))
         .map(b => b.item);
-      ready = back.concat(ready);
+      ready = back.concat(ready).slice(0, READY_CAP);
     }
     if (!layout()) { markDirty(keep); return; }
     dirty = false;
@@ -1692,12 +1764,13 @@ const Wall = (() => {
 
   /** Grid mode: the block shows its next file, one whose shape fits the slot. */
   function advance(b) {
-    const { i, fit } = swapIndex(ready, b.aspect, isOnScreen, b.item);
+    const { i, fit } = swapIndex(ready, b.aspect, b.item);
     if (i < 0) { fill(); b.dueAt = now() + 2000; return; }
     if (!fit && !b.fitWait && ready.length < READY_CAP) {
-      // Nothing of this shape in the buffer: fetch more and try once more
-      // shortly, before falling back to a crop.
+      // Nothing of this shape in the buffer: fetch one more batch (never past
+      // the cap) and try once more shortly, before falling back to a crop.
       b.fitWait = true;
+      if (!fillPromise) stats.moreFetches++;
       fill(true);
       b.dueAt = now() + 1500;
       return;
@@ -1899,7 +1972,7 @@ const Wall = (() => {
   return {
     enter, leave, lockStop,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { cfgFrom, nearestStep, planColumns, slotFor, placeSlot, minBottom, PIC_STEPS, CLIP_STEPS, RANGES },
+    _pure: { cfgFrom, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
     // For tests and debugging in the console.
     _stats: () => ({
       mode: cfg && cfg.mode,
