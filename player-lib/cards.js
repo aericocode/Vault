@@ -790,7 +790,9 @@ function ownsItsScroll(target, root) {
 function isTypingTarget(el) {
   if (!el) return false;
   const tag = el.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+  // Sliders, checkboxes and buttons take no text, so paging keys still page
+  if (tag === 'INPUT') return !/^(range|checkbox|radio|button|submit|reset|color|file|image)$/i.test(el.type);
+  return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
 }
 
 document.addEventListener('keydown', (e) => {

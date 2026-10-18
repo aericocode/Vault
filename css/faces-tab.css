@@ -568,7 +568,11 @@ body.pm-names .ft-cmeta { filter: blur(7px); }
 .ft-side .ft-cover-cap { opacity: 0; transition: opacity 0.15s; }
 .ft-side .ft-cover:hover .ft-cover-cap, .ft-side .ft-cover:focus-visible .ft-cover-cap { opacity: 1; }
 .ft-side .ft-info { flex: none; gap: 10px; }
-.ft-side .ft-title h1 { font-size: 1.375rem; }
+/* A long name stops at two lines so "Often seen with" keeps its room; the breadcrumb has it in full. */
+.ft-side .ft-title h1 {
+  font-size: 1.375rem; overflow-wrap: anywhere; min-width: 0;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+}
 .ft-side .ft-stats { display: block; font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.45; }
 .ft-side .st-facts { gap: 4px 14px; font-size: 0.8125rem; }
 /* Play all on its own line, then Shuffle, Favorite and the menu. */
