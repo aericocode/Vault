@@ -277,6 +277,38 @@ test('hidden people: adds and moves never take their faces; results never name t
   assert.strictEqual(pidOf('z2.jpg'), pz);
 });
 
+test('a forced re-check of a file never silently drops a named person\'s face: same box = kept and asked; else offered back', async () => {
+  for (const [n, v] of [['kf.jpg', like(20, 0.9, 105)], ['kg.jpg', like(20, 0.9, 106)]]) {
+    addFile(n);
+    fk.fileScripts.set(files[n], { groups: [group(v, { bbox: [0.1, 0.1, 0.2, 0.2] })] });
+  }
+  await index(['kf.jpg', 'kg.jpg']);
+  assert.deepStrictEqual([pidOf('kf.jpg'), pidOf('kg.jpg')], [P.x, P.x]);
+  // The re-check reads both faces quite differently (cosine < 0.45 to the old ones).
+  fk.fileScripts.set(files['kf.jpg'], { groups: [group(person(47), { bbox: [0.11, 0.1, 0.2, 0.2] })] });   // same place
+  fk.fileScripts.set(files['kg.jpg'], { groups: [group(person(48), { bbox: [0.6, 0.6, 0.2, 0.2] })] });   // elsewhere in the photo
+  for (const n of ['kf.jpg', 'kg.jpg']) assert.strictEqual((await post(`/api/media/${ids[n]}/find-faces`, { force: true })).status, 200);
+  await svc.sortPeopleNow();
+  // Same box: still Xena's, and Xena is asked about it.
+  assert.deepStrictEqual(one('SELECT cluster_id, recheck_ask, confirmed FROM face_groups WHERE id = ?', gid('kf.jpg')), { cluster_id: P.x, recheck_ask: P.x, confirmed: 0 });
+  // Elsewhere: sorted on its own, and offered back to Xena ("Is this Xena?").
+  const kg = groupRow('kg.jpg');
+  assert.notStrictEqual(kg.cluster_id, P.x);
+  assert.strictEqual(kg.recheck_from, P.x);
+  const c = await get(`/api/faces/people/${P.x}/candidates?limit=100`);
+  assert.ok(c.body.items.some(i => i.personId === kg.cluster_id), 'offered back to Xena');
+  // A face of an unnamed person is not kept that way (its person simply goes, as before).
+  addFile('kh.jpg');
+  fk.fileScripts.set(files['kh.jpg'], { groups: [group(person(49))] });
+  await index(['kh.jpg']);
+  const ph = pidOf('kh.jpg');
+  fk.fileScripts.set(files['kh.jpg'], { groups: [group(like(49, 0.3, 107))] });
+  assert.strictEqual((await post(`/api/media/${ids['kh.jpg']}/find-faces`, { force: true })).status, 200);
+  await svc.sortPeopleNow();
+  assert.deepStrictEqual([groupRow('kh.jpg').recheck_from, one('SELECT recheck_ask FROM face_groups WHERE id = ?', gid('kh.jpg')).recheck_ask], [null, null]);
+  assert.notStrictEqual(pidOf('kh.jpg'), ph);
+});
+
 test('naming locks nothing (3.8); a chosen cover and an add confirm the face', async () => {
   for (const n of ['x1.jpg', 'x2.jpg', 'y1.jpg']) {
     assert.deepStrictEqual(one('SELECT person_locked, confirmed FROM face_groups WHERE id = ?', gid(n)), { person_locked: 0, confirmed: 0 }, n);
@@ -292,8 +324,8 @@ test('check faces: GET lists the asked faces; Yes keeps (confirmed, never asked 
   const g8 = gid('r8.jpg'), g9 = gid('r9.jpg');
   const l = await get(`/api/faces/people/${P.x}/to-check`);
   assert.strictEqual(l.status, 200);
-  assert.strictEqual(l.body.total, 4);
-  assert.deepStrictEqual(l.body.items.map(i => i.groupId), [gid('r1.jpg'), g8, g9, gid('r7.jpg')]);
+  assert.strictEqual(l.body.total, 5);
+  assert.deepStrictEqual(l.body.items.map(i => i.groupId), [gid('r1.jpg'), g8, g9, gid('r7.jpg'), gid('kf.jpg')]);
   assert.strictEqual(l.body.items[1].filename, 'r8.jpg');
   for (const b of [{}, { keep: [g8], remove: [g8] }, { keep: 'x' }]) {
     assert.strictEqual((await post(`/api/faces/people/${P.x}/to-check`, b)).status, 400, JSON.stringify(b));
@@ -311,8 +343,8 @@ test('check faces: GET lists the asked faces; Yes keeps (confirmed, never asked 
   assert.deepStrictEqual([out.person_locked, out.recheck_ask], [0, null]);
   assert.strictEqual(one('SELECT name FROM face_people WHERE id = ?', out.cluster_id).name, null);
   assert.ok(one('SELECT 1 FROM face_person_rejects WHERE person_id = ? AND group_id = ?', P.x, g9), 'recorded as not Xena');
-  assert.strictEqual(r.body.person.toCheck, 2);
-  assert.strictEqual((await get(`/api/faces/people/${P.x}/to-check`)).body.total, 2);
+  assert.strictEqual(r.body.person.toCheck, 3);
+  assert.strictEqual((await get(`/api/faces/people/${P.x}/to-check`)).body.total, 3);
   // Another re-check (a new rule, a model switch) never asks about the kept face again.
   forgetRule();
   await svc.sortPeopleNow();
