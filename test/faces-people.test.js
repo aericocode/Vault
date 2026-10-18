@@ -442,6 +442,8 @@ test('review "same" merges into the named person', async () => {
   const alice = personIn('a1.jpg', 0);
   const near = personIn('near.jpg', 0);
   db.get().exec('DELETE FROM face_pair_decisions');
+  // Same is only taken for a pair the review offers (round 4).
+  db.get().prepare('INSERT OR IGNORE INTO face_person_suggestions (a, b, score) VALUES (?, ?, 0.6)').run(Math.min(near, alice), Math.max(near, alice));
   const r = await post('/api/faces/review', { a: near, b: alice, answer: 'same' });
   assert.strictEqual(r.status, 200);
   assert.strictEqual(r.body.ok, true);

@@ -702,6 +702,55 @@ test('"Same person?" answers in one go: merges follow earlier merges, a pair tha
   assert.strictEqual((await post('/api/faces/review/answers', { answers: [{ a: 999998, b: p4, answer: 'same' }] })).body.skipped[0].reason, 'gone');
 });
 
+test('Undo of "Not this person" leaves a face that changed since where it is (verifier probe6)', async () => {
+  const ns = ['q6a.jpg', 'q6b.jpg', 'q6c.jpg'];
+  ns.forEach((n, i) => { addFile(n); fk.fileScripts.set(files[n], { groups: [group(like(90, 0.9, 91 + i))] }); });
+  addFile('rita.jpg'); fk.fileScripts.set(files['rita.jpg'], { groups: [group(person(95))] });
+  await index([...ns, 'rita.jpg']);
+  const pq = pidOf('q6a.jpg'), rita = pidOf('rita.jpg');
+  for (const n of ns) assert.strictEqual(pidOf(n), pq, n);
+  assert.strictEqual((await post(`/api/faces/people/${pq}`, { name: 'Quin' })).status, 200);
+  assert.strictEqual((await post(`/api/faces/people/${rita}`, { name: 'Rita' })).status, 200);
+  const r = await post(`/api/faces/people/${pq}/not-in`, { mediaIds: [ids['q6a.jpg'], ids['q6b.jpg']] });
+  assert.strictEqual(r.status, 200);
+  // Meanwhile the user puts q6b in Rita.
+  assert.deepStrictEqual((await post(`/api/faces/people/${rita}/review-faces`, { add: [gid('q6b.jpg')] })).body.moved, [gid('q6b.jpg')]);
+  const u = await post(`/api/faces/people/${pq}/restore`, { undo: r.body.undo });
+  assert.strictEqual(u.status, 200, JSON.stringify(u.body));
+  assert.deepStrictEqual([u.body.restored, u.body.changed], [1, 1]);
+  assert.strictEqual(pidOf('q6a.jpg'), pq, 'back in Quin');
+  assert.deepStrictEqual(one('SELECT cluster_id, confirmed FROM face_groups WHERE id = ?', gid('q6b.jpg')), { cluster_id: rita, confirmed: 1 }, 'left in Rita');
+  // The old restore { groupIds } locks but never confirms.
+  const r2 = await post(`/api/faces/people/${pq}/not-in`, { mediaId: ids['q6c.jpg'] });
+  assert.strictEqual((await post(`/api/faces/people/${pq}/restore`, { groupIds: r2.body.moved.map(m => m.groupId) })).status, 200);
+  assert.deepStrictEqual(one('SELECT cluster_id, person_locked, confirmed FROM face_groups WHERE id = ?', gid('q6c.jpg')), { cluster_id: pq, person_locked: 1, confirmed: 0 });
+});
+
+test('a single "Same person?" answer has the bulk route\'s guards', async () => {
+  const ns = ['g1.jpg', 'g2.jpg', 'g3.jpg'];
+  ns.forEach((n, i) => { addFile(n); fk.fileScripts.set(files[n], { groups: [group(person(96 + i))] }); });
+  await index(ns);
+  const [g1, g2, g3] = ns.map(pidOf);
+  assert.strictEqual((await post(`/api/faces/people/${g1}`, { name: 'Gus' })).status, 200);
+  assert.strictEqual((await post(`/api/faces/people/${g2}`, { name: 'Gil' })).status, 200);
+  await svc.sortPeopleNow();
+  const say = (a, b) => post('/api/faces/review', { a, b, answer: 'same' });
+  let r = await say(g1, g3);
+  assert.deepStrictEqual([r.status, r.body.code], [409, 'NOT_A_QUESTION'], 'not offered');
+  run('INSERT OR IGNORE INTO face_person_suggestions (a, b, score) VALUES (?, ?, 0.6)', Math.min(g1, g2), Math.max(g1, g2));
+  r = await say(g1, g2);
+  assert.strictEqual(r.status, 409, 'both named');
+  run('INSERT OR IGNORE INTO face_person_suggestions (a, b, score) VALUES (?, ?, 0.6)', Math.min(g1, g3), Math.max(g1, g3));
+  run("INSERT OR REPLACE INTO face_pair_decisions (a, b, decision, created_at) VALUES (?, ?, 'different', 'x')", Math.min(g1, g3), Math.max(g1, g3));
+  r = await say(g1, g3);
+  assert.strictEqual(r.status, 409, 'answered not the same before');
+  run('DELETE FROM face_pair_decisions WHERE a = ? AND b = ?', Math.min(g1, g3), Math.max(g1, g3));
+  r = await say(g1, g3);
+  assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+  assert.strictEqual(pidOf('g3.jpg'), g1);
+  assert.strictEqual((await post('/api/faces/review', { a: g1, b: g1, answer: 'same' })).status, 400);
+});
+
 /* ── Older versions ────────────────────────────────────────────────────── */
 
 test('older versions: the schema change is one nullable column; their writes still work; a pre-3.8 library upgrades in place', () => {

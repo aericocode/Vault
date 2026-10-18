@@ -2146,6 +2146,9 @@ async function ftSaveCheck(btn) {
 
 /* ── Person page: "Remove selected from X" ────────────────────────────── */
 
+/** An Undo that found faces changed meanwhile (they stay where they are now). */
+const ftChangedSince = (n) => (n === 1 ? '1 face was changed since and was left as it is.' : `${n.toLocaleString()} faces were changed since and were left as they are.`);
+
 /** The ticked files this person page shows right now (its filter and page): what "Remove selected" acts on. */
 function ftTickedShown() {
   if (typeof selectedIds === 'undefined') return [];
@@ -2203,9 +2206,14 @@ async function ftRemoveSelected() {
   const name = ftPrivate() ? '' : ftName(p);
   showUndoToast(name ? `Took ${files} out of ${name}.` : `Took ${files} out of this person.`, async () => {
     // Each batch's exact state before, newest first.
+    let changed = 0;
     try {
-      for (const undo of undos.reverse()) await ftApi(`/api/faces/people/${personId}/restore`, { method: 'POST', json: { undo } });
+      for (const undo of undos.reverse()) {
+        const u = await ftApi(`/api/faces/people/${personId}/restore`, { method: 'POST', json: { undo } });
+        changed += (u && u.changed) || 0;
+      }
     } catch (err) { facesToastError(err); return; }
+    if (changed) showToast(ftChangedSince(changed));
     FT.faces.delete(personId);
     if (FT.personId === personId) ftLoadPerson();
   }, 8000);
@@ -2261,7 +2269,8 @@ async function facesNotThisPerson(mediaId) {
   showUndoToast(name ? `Removed this file from ${ftEsc(name)}.` : 'Removed this file from this person.', async () => {
     // The exact state before (person, lock, confirmation), from the server's snapshot.
     try {
-      await ftApi(`/api/faces/people/${personId}/restore`, { method: 'POST', json: { undo: r.undo } });
+      const u = await ftApi(`/api/faces/people/${personId}/restore`, { method: 'POST', json: { undo: r.undo } });
+      if (u && u.changed) showToast(ftChangedSince(u.changed));
     } catch (err) { facesToastError(err); return; }
     FT.faces.delete(personId);
     if (FT.personId === personId) ftLoadPerson();

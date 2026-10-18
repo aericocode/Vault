@@ -67,6 +67,8 @@ const FACES_MSG = {
   BAD_ANSWER: 'Faces could not do that. Refresh and try again.',
   BAD_REQUEST: 'Faces could not do that. Refresh and try again.',
   NO_FACES: 'None of those faces can be added. They may belong to someone else now.',
+  NOT_A_QUESTION: 'That pair is not a question any more. Refresh and try again.',
+  UNDO_EXPIRED: 'That can no longer be undone.',
 };
 
 let facesStatus = null;          // last GET /api/faces/status

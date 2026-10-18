@@ -330,7 +330,7 @@ function renderSelectionBar() {
     bar.innerHTML = `
       <span class="sel-count">${shown} selected</span>
       ${typeof ftRemoveSelectedButton === 'function' ? ftRemoveSelectedButton(shown) : ''}
-      <button class="sel-btn" onclick="addSelectionToCollection(this)" title="Add selection to a collection">📁 Collect</button>
+      <button class="sel-btn" onclick="openCollectionPicker(ftTickedShown(), this)" title="Add selection to a collection">📁 Collect</button>
       <button class="sel-btn sel-clear" onclick="clearSelection()" title="Clear selection">✕</button>`;
     bar.classList.add('visible');
     return;
