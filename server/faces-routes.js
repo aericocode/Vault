@@ -180,6 +180,10 @@ function buildRouter() {
   router.get('/faces/people/:id/candidates', on, idParam('id'), h((req) => svc().personCandidates(req.faceId, req.query || {})));
   router.post('/faces/people/:id/candidates', on, idParam('id'), h((req) => svc().answerCandidates(req.faceId, req.body || {})));
   router.post('/faces/people/:id/not-a-face', on, idParam('id'), h((req) => svc().notFacePerson(req.faceId)));
+  // Round 4 (FACES_REVIEW_SPEC): one face at a time.
+  router.post('/faces/people/:id/review-faces', on, idParam('id'), h((req) => svc().reviewFaces(req.faceId, req.body || {})));
+  router.post('/faces/people/:id/move', on, idParam('id'), h((req) => svc().moveFaces(req.faceId, req.body || {})));
+  router.post('/faces/check-faces', on, h((req) => svc().checkFaces(req.body || {})));
   router.get('/faces/review', on, h((req) => svc().reviewPairs(req.query || {})));
   router.post('/faces/review', on, h((req) => svc().answerReview(req.body || {})));
 

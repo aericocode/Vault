@@ -5,7 +5,9 @@
  *      named bar), the one-time re-check of automatic joins (confirmed,
  *      hidden, covers untouched; runs once; sliced and resumable), the model
  *      switch asking for it again, and older versions opening the library
- *      and "Might also be" offering a face the re-check took out
+ *   B  the endpoints the review needs: review-faces (Yes / No), move
+ *      (Compare), check-faces (the cards), and "Might also be" offering a
+ *      face the re-check took out
  *
  * Library (stub-v1 = SFace numbers: join 0.56, margin 0.05; embeddings from
  * basis vectors, helpers/faces-fakes.js):
@@ -286,6 +288,112 @@ test('re-check: sliced with event-loop yields, resumes after a stop where it lef
   run('DELETE FROM face_people WHERE id NOT IN (SELECT DISTINCT cluster_id FROM face_groups WHERE cluster_id IS NOT NULL) AND name IS NULL');
   store.bump();
   store.bumpPeople();
+});
+
+/* ── B: the review endpoints ───────────────────────────────────────────── */
+
+test('check-faces: card details, Strong match for the target, rejected flag; validation', async () => {
+  const r = await post('/api/faces/check-faces', { groupIds: [gid('cl.jpg'), gid('lo.jpg'), gid('mg.jpg')], personId: P.x });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+  const [cl, lo, mg] = r.body.items;
+  assert.deepStrictEqual(Object.keys(cl).sort(), ['bbox', 'cropUrl', 'filename', 'firstTimeS', 'groupId', 'hidden', 'mediaId', 'mediaType',
+    'personId', 'personName', 'rejected', 'tier', 'timeS']);
+  assert.strictEqual(cl.filename, 'cl.jpg');
+  assert.strictEqual(cl.personName, 'Xena');
+  assert.strictEqual(cl.tier, 'likely');
+  assert.strictEqual(lo.tier, 'maybe', '0.52: not a strong match');
+  assert.strictEqual(mg.tier, 'maybe', 'strong score but no margin over Yuri');
+  assert.strictEqual(cl.timeS, null, 'photos have no time');
+  assert.deepStrictEqual(cl.bbox.length, 4);
+  const noP = await post('/api/faces/check-faces', { groupIds: [gid('cl.jpg')] });
+  assert.strictEqual(noP.body.items[0].tier, null);
+  assert.strictEqual((await post('/api/faces/check-faces', { groupIds: 'x' })).status, 400);
+  assert.strictEqual((await post('/api/faces/check-faces', { groupIds: Array.from({ length: 201 }, (_, i) => i + 1) })).status, 400);
+  assert.strictEqual((await post('/api/faces/check-faces', { groupIds: [1], personId: 999999 })).status, 404);
+  assert.deepStrictEqual((await post('/api/faces/check-faces', { groupIds: [] })).body, { items: [] });
+});
+
+test('review-faces: Yes moves in (locked), No is a reject (never suggested, never auto-joined); a face is never both', async () => {
+  for (const [n, v] of [['q1.jpg', like(20, 0.5, 120)], ['q2.jpg', like(20, 0.5, 121)], ['q3.jpg', like(21, 0.9, 122)]]) {
+    addFile(n);
+    fk.fileScripts.set(files[n], { groups: [group(v)] });
+  }
+  await index(['q1.jpg', 'q2.jpg', 'q3.jpg']);
+  const pq2 = pidOf('q2.jpg');
+  assert.notStrictEqual(pidOf('q1.jpg'), P.x);
+  assert.strictEqual(pidOf('q3.jpg'), P.y);
+  const bad = [{}, { add: [] }, { add: [1], reject: [1] }, { add: ['1'] }, { reject: [1, 1] }];
+  for (const b of bad) assert.strictEqual((await post(`/api/faces/people/${P.x}/review-faces`, b)).status, 400, JSON.stringify(b));
+  assert.strictEqual((await post('/api/faces/people/999999/review-faces', { add: [gid('q1.jpg')] })).status, 404);
+  const r = await post(`/api/faces/people/${P.x}/review-faces`, { add: [gid('q1.jpg'), gid('q3.jpg')], reject: [gid('q2.jpg'), gid('x1.jpg')] });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+  assert.deepStrictEqual(r.body.moved, [gid('q1.jpg')]);
+  assert.deepStrictEqual(r.body.rejected, [gid('q2.jpg')]);
+  assert.deepStrictEqual(r.body.skipped.map(s => s.reason).sort(), ['in-person', 'other-named']);
+  assert.deepStrictEqual(groupRow('q1.jpg'), { cluster_id: P.x, person_locked: 1, recheck_from: null });
+  assert.strictEqual(pidOf('q3.jpg'), P.y, 'never taken from another named person');
+  assert.ok(one('SELECT 1 FROM face_person_rejects WHERE person_id = ? AND group_id = ?', P.x, gid('q2.jpg')));
+  // No: its person is never offered to Xena, and the search marks it.
+  const c = await get(`/api/faces/people/${P.x}/candidates?limit=50`);
+  assert.ok(!c.body.items.some(i => i.personId === pq2));
+  const s = await post(`/api/faces/groups/${gid('x1.jpg')}/similar`, { width: 'wide' });
+  assert.ok(s.body.rejected.includes(ids['q2.jpg']), JSON.stringify(s.body.rejected));
+  assert.ok(!s.body.rejected.includes(ids['q1.jpg']));
+  // A re-check of the file keeps the No (carry-over).
+  const before = gid('q2.jpg');
+  const fr = await post(`/api/media/${ids['q2.jpg']}/find-faces`, { force: true });
+  assert.strictEqual(fr.status, 200);
+  await svc.sortPeopleNow();
+  assert.notStrictEqual(gid('q2.jpg'), before);
+  assert.ok(one('SELECT 1 FROM face_person_rejects WHERE person_id = ? AND group_id = ?', P.x, gid('q2.jpg')));
+});
+
+test('move (Compare): faces leave the other person as a decision; the other keeps a reject; keep records one for the target', async () => {
+  for (const [n, v] of [['k1.jpg', like(21, 0.8, 123)], ['k2.jpg', like(21, 0.8, 124)], ['k3.jpg', like(21, 0.8, 125)]]) {
+    addFile(n);
+    fk.fileScripts.set(files[n], { groups: [group(v)] });
+  }
+  await index(['k1.jpg', 'k2.jpg', 'k3.jpg']);
+  for (const n of ['k1.jpg', 'k2.jpg', 'k3.jpg']) assert.strictEqual(pidOf(n), P.y, n);
+  for (const b of [{ groupIds: [gid('k1.jpg')] }, { from: P.y }, { from: P.y, groupIds: [gid('k1.jpg')], keep: [gid('k1.jpg')] }]) {
+    assert.strictEqual((await post(`/api/faces/people/${P.x}/move`, b)).status, 400, JSON.stringify(b));
+  }
+  assert.strictEqual((await post(`/api/faces/people/${P.x}/move`, { from: P.x, groupIds: [gid('k1.jpg')] })).status, 400);
+  assert.strictEqual((await post(`/api/faces/people/${P.x}/move`, { from: 999999, groupIds: [gid('k1.jpg')] })).status, 404);
+  const r = await post(`/api/faces/people/${P.x}/move`, { from: P.y, groupIds: [gid('k1.jpg'), gid('x2.jpg')], keep: [gid('k2.jpg')] });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+  assert.deepStrictEqual(r.body.moved, [gid('k1.jpg')]);
+  assert.deepStrictEqual(r.body.kept, [gid('k2.jpg')]);
+  assert.deepStrictEqual(r.body.skipped, [{ groupId: gid('x2.jpg'), reason: 'moved-on' }]);
+  assert.strictEqual(r.body.fromPerson.id, P.y);
+  assert.deepStrictEqual(groupRow('k1.jpg'), { cluster_id: P.x, person_locked: 1, recheck_from: null });
+  assert.ok(one('SELECT 1 FROM face_person_rejects WHERE person_id = ? AND group_id = ?', P.y, gid('k1.jpg')), 'Yuri: not this person');
+  assert.ok(!one('SELECT 1 FROM face_person_rejects WHERE person_id = ? AND group_id = ?', P.x, gid('k1.jpg')));
+  assert.strictEqual(pidOf('k2.jpg'), P.y);
+  assert.ok(one('SELECT 1 FROM face_person_rejects WHERE person_id = ? AND group_id = ?', P.x, gid('k2.jpg')), 'kept: not Xena');
+  assert.strictEqual(pidOf('k3.jpg'), P.y, 'no choice made: untouched');
+  // Moving a person's last face prunes an unnamed person, keeps a named one.
+  addFile('u1.jpg');
+  fk.fileScripts.set(files['u1.jpg'], { groups: [group(person(26))] });
+  await index(['u1.jpg']);
+  const pu = pidOf('u1.jpg');
+  const r2 = await post(`/api/faces/people/${P.x}/move`, { from: pu, groupIds: [gid('u1.jpg')] });
+  assert.strictEqual(r2.status, 200);
+  assert.strictEqual(r2.body.fromPerson, null);
+  assert.strictEqual(one('SELECT id FROM face_people WHERE id = ?', pu), undefined);
+});
+
+test('feature off: the round 4 routes are FACES_OFF', async () => {
+  assert.strictEqual((await post('/api/faces/settings', { enabled: false })).status, 200);
+  try {
+    for (const p of [`/api/faces/people/${P.x}/review-faces`, `/api/faces/people/${P.x}/move`, '/api/faces/check-faces']) {
+      const r = await post(p, {});
+      assert.strictEqual(r.status, 409, p);
+      assert.strictEqual(r.body.code, 'FACES_OFF', p);
+    }
+  } finally {
+    assert.strictEqual((await post('/api/faces/settings', { enabled: true })).status, 200);
+  }
 });
 
 /* ── Older versions ────────────────────────────────────────────────────── */

@@ -155,7 +155,7 @@ test('setup: the library sorted as the header says', () => {
 test('E1 group search: match is the best-scoring face of each file, with its person; source = the clicked face\'s person', async () => {
   const r = await post(`/api/faces/groups/${gid('b1.jpg')}/similar`, { width: 'normal' });
   assert.strictEqual(r.status, 200);
-  assert.deepStrictEqual(Object.keys(r.body).sort(), ['capped', 'ids', 'match', 'scores', 'source', 'total']);
+  assert.deepStrictEqual(Object.keys(r.body).sort(), ['capped', 'ids', 'match', 'rejected', 'scores', 'source', 'total']);
   assert.deepStrictEqual(r.body.source, { personId: P.joe, personName: 'Joe' });
   assert.deepStrictEqual(new Set(r.body.ids), new Set([ids['b1.jpg'], ids['b2.jpg'], ids['mix.jpg']]));
   assert.deepStrictEqual(Object.keys(r.body.match).map(Number).sort(), [...r.body.ids].sort());
@@ -178,7 +178,7 @@ async function querySearch(tag, embedding, width = 'normal') {
 test('E1 query search: likelyPerson = the person of at least half the results, else a best match >= 0.50, else null', async () => {
   // Barack has most of the results
   let r = await querySearch('q-barack', person(0));
-  assert.deepStrictEqual(Object.keys(r.body).sort(), ['capped', 'ids', 'likelyPerson', 'match', 'scores', 'total']);
+  assert.deepStrictEqual(Object.keys(r.body).sort(), ['capped', 'ids', 'likelyPerson', 'match', 'rejected', 'scores', 'total']);
   assert.deepStrictEqual(r.body.likelyPerson, { id: P.barack, name: 'Barack' });
   assert.strictEqual(r.body.match[ids['o2.jpg']].personId, P.barack);
 
@@ -231,7 +231,7 @@ test('E4 candidates: unnamed people ranked by the rule, hidden / different / rej
   assert.deepStrictEqual(r.body.items.map(i => [i.personId, i.tier]), [[P.l, 'likely'], [P.y, 'maybe']]);
   assert.strictEqual(r.body.total, 2);
   const [it] = r.body.items;
-  assert.deepStrictEqual(Object.keys(it).sort(), ['cropUrl', 'filename', 'files', 'groupId', 'mediaId', 'personId', 'score', 'tier']);
+  assert.deepStrictEqual(Object.keys(it).sort(), ['bbox', 'cropUrl', 'filename', 'files', 'groupId', 'mediaId', 'mediaType', 'personId', 'score', 'tier', 'timeS']);
   assert.deepStrictEqual([it.groupId, it.mediaId, it.filename, it.files, it.cropUrl],
     [gid('l1.jpg'), ids['l1.jpg'], 'l1.jpg', 1, `/api/faces/crop/${gid('l1.jpg')}`]);
   assert.ok(it.score >= 0.56 && r.body.items[1].score >= 0.52 && r.body.items[1].score < 0.56);

@@ -929,13 +929,14 @@ function ftFlipStop() {
  * picking that person (or typing their name) runs onSame() instead, the
  * same as answering Yes.
  */
-function ftStartNaming({ host, anchor, id, initial = '', inGrid = false, onDone, save = null, me = null, onClose = null, pairWith = null, onSame = null }) {
+function ftStartNaming({ host, anchor, id, initial = '', inGrid = false, onDone, save = null, me = null, onClose = null, pairWith = null, onSame = null,
+  pickPerson = null, newLabel = null, placeholder = 'Add a name' }) {
   ftCloseNaming();
   const input = document.createElement('input');
   input.type = 'text';
   input.className = 'ft-field';
   input.value = initial;
-  input.placeholder = 'Add a name';
+  input.placeholder = placeholder;
   input.setAttribute('aria-label', 'Name');
   input.setAttribute('autocomplete', 'off');
   const drop = document.createElement('div');
@@ -947,7 +948,7 @@ function ftStartNaming({ host, anchor, id, initial = '', inGrid = false, onDone,
   anchor.replaceWith(input);
   host.appendChild(drop);
   host.classList.add('ft-naming');
-  const nm = { id, host, input, drop, replaced, opts: [], hi: 0, seq: 0, inGrid, onDone, note: '', initial, save, me, onClose, pairWith, onSame };
+  const nm = { id, host, input, drop, replaced, opts: [], hi: 0, seq: 0, inGrid, onDone, note: '', initial, save, me, onClose, pairWith, onSame, pickPerson, newLabel };
   FT.naming = nm;
 
   const refresh = debounce(() => ftNameOptions(nm), 120);
@@ -1039,7 +1040,7 @@ function ftPaintDrop(nm) {
   d.setAttribute('aria-label', 'Names');
   const items = nm.opts.map((o, i) => o.person
     ? `<button class="ft-opt${i === nm.hi ? ' hi' : ''}" type="button" role="option" aria-selected="${i === nm.hi}" data-opt="${i}">${ftCropImg(o.person.coverUrl)}${ftEsc(o.person.name)}<span>${ftPlural(o.person.files, 'file', 'files')}</span></button>`
-    : `<button class="ft-opt${i === nm.hi ? ' hi' : ''}" type="button" role="option" aria-selected="${i === nm.hi}" data-opt="${i}"><span class="ft-plus" aria-hidden="true">+</span>${nm.initial ? `Rename to "${ftEsc(o.name)}"` : `New person called "${ftEsc(o.name)}"`}</button>`).join('');
+    : `<button class="ft-opt${i === nm.hi ? ' hi' : ''}" type="button" role="option" aria-selected="${i === nm.hi}" data-opt="${i}"><span class="ft-plus" aria-hidden="true">+</span>${nm.newLabel ? nm.newLabel(ftEsc(o.name)) : nm.initial ? `Rename to "${ftEsc(o.name)}"` : `New person called "${ftEsc(o.name)}"`}</button>`).join('');
   d.innerHTML = (nm.note ? `<div class="ft-drop-note">${nm.note}</div>` : '') + items;
   d.hidden = !items && !nm.note;
 }
@@ -1055,6 +1056,8 @@ function ftPairSame(nm, personId) {
 function ftPickOption(nm, o) {
   if (!o) return;
   if (o.person && ftPairSame(nm, o.person.id)) return;
+  // A picker (add faces to someone): an existing person is simply the answer.
+  if (o.person && nm.pickPerson) { ftCloseNaming(); nm.pickPerson(o.person); return; }
   if (o.person) { nm.seq++; nm.ask = o.person; nm.askName = o.person.name; ftPaintDrop(nm); return; }
   ftSaveName(nm, o.name);
 }
@@ -1834,17 +1837,20 @@ async function ftNotAFace(list) {
   return true;
 }
 
-/* ── Might also be (person page) ───────────────────────────────────────── */
+/* ── "Is this X?" on the person page (FACES_REVIEW_SPEC F2b) ───────────── */
 
 const FT_MIGHT_PAGE = 24;
-const FT_MIGHT_LESS = 6;     // less likely faces shown once opened, before "Show N more"
+const FT_MIGHT_MAYBE = 12;   // "Maybe" faces shown at first, then "Show N more"
 
-/** Other unnamed people that look like this one (GET .../candidates). Likely ones start ticked. */
+/**
+ * Other unnamed people that look like this one (GET .../candidates), one
+ * face each, as Yes / No cards. Nothing starts as Yes.
+ */
 async function ftLoadMight({ more = false } = {}) {
   const id = FT.personId;
   if (id == null) return;
   if (!FT.might || FT.might.personId !== id) {
-    FT.might = { personId: id, total: 0, items: [], ticked: new Set(), lessOpen: false, lessShown: FT_MIGHT_LESS, seq: 0 };
+    FT.might = { personId: id, total: 0, items: [], answers: new Map(), maybeShown: FT_MIGHT_MAYBE, seq: 0 };
   }
   const m = FT.might;
   const seq = ++m.seq;
@@ -1854,41 +1860,29 @@ async function ftLoadMight({ more = false } = {}) {
   catch { return; }
   if (seq !== m.seq || FT.might !== m || FT.personId !== id) return;
   const items = r.items || [];
-  if (!more) { m.items = []; m.ticked = new Set(); }
+  if (!more) m.items = [];
   const have = new Set(m.items.map(i => i.personId));
-  for (const it of items) {
-    if (have.has(it.personId)) continue;
-    m.items.push(it);
-    if (it.tier === 'likely') m.ticked.add(it.personId);
-  }
+  for (const it of items) if (!have.has(it.personId)) m.items.push({ ...it, key: String(it.personId) });
+  // Answers only for faces still listed.
+  const listed = new Set(m.items.map(i => i.personId));
+  for (const pid of [...m.answers.keys()]) if (!listed.has(pid)) m.answers.delete(pid);
   m.total = Math.max(r.total || 0, m.items.length);
   ftPaintMight();
 }
 
-function ftMightCardHtml(it, ticked) {
-  const meta = `${ftEsc(it.filename || '')}${it.files > 1 ? ` · ${ftPlural(it.files, 'file', 'files')}` : ''}`;
-  return `
-    <div class="ft-cand${ticked ? ' on' : ''}" data-cand="${it.personId}">
-      <button class="ft-cand-pick" type="button" data-ft-cand="tick" aria-pressed="${ticked}" aria-label="${ticked ? 'Ticked' : 'Not ticked'}">${ftCropImg(it.cropUrl)}</button>
-      <span class="ft-cand-chk" aria-hidden="true">${ticked ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M5 12l5 5 9-10"></path></svg>' : ''}</span>
-      <button class="ft-cand-no" type="button" data-ft-cand="no" aria-label="Not this person" title="Not this person">✕</button>
-      <div class="ft-cmeta">${meta}</div>
-    </div>`;
-}
-
-/**
- * What the section shows: every "Very likely" face, and the "Less likely"
- * ones only once opened (they start folded). The list is ranked by score, so
- * all likely ones come first; until a less likely one (or the end) has been
- * loaded, more likely ones may still be on the server.
- */
+/** What the section shows: every strong match loaded, and the first "Maybe" ones. */
 function ftMightView(m) {
   const likely = m.items.filter(i => i.tier === 'likely');
   const maybe = m.items.filter(i => i.tier !== 'likely');
-  const known = maybe.length > 0 || m.items.length >= m.total;
-  const lessTotal = known ? Math.max(0, m.total - likely.length) : 0;
-  const shownLess = m.lessOpen ? maybe.slice(0, m.lessShown) : [];
-  return { likely, maybe, known, lessTotal, shownLess, visible: likely.concat(shownLess) };
+  const shownMaybe = maybe.slice(0, m.maybeShown);
+  const rest = (maybe.length - shownMaybe.length) + Math.max(0, m.total - m.items.length);
+  return { likely, maybe, shownMaybe, visible: likely.concat(shownMaybe), rest };
+}
+
+function ftMightCounts(m) {
+  let yes = 0, no = 0;
+  for (const a of m.answers.values()) { if (a === 'yes') yes++; else if (a === 'no') no++; }
+  return { yes, no };
 }
 
 function ftPaintMight() {
@@ -1897,59 +1891,53 @@ function ftPaintMight() {
   const m = FT.might;
   const p = FT.person;
   if (!m || !p || m.personId !== FT.personId || !m.items.length) { el.hidden = true; el.innerHTML = ''; return; }
-  const { likely, known, lessTotal, shownLess, visible } = ftMightView(m);
-  const rest = Math.max(0, lessTotal - shownLess.length);
-  const k = visible.filter(i => m.ticked.has(i.personId)).length;
+  const { likely, shownMaybe, visible, rest } = ftMightView(m);
+  const { yes, no } = ftMightCounts(m);
   const who = p.name ? `<span class="ft-pm-name">${ftEsc(p.name)}</span>` : 'this person';
+  const undecided = visible.filter(i => !m.answers.has(i.personId)).length;
+  const likelyOpen = likely.filter(i => !m.answers.has(i.personId)).length;
+  const hadFocus = el.contains(document.activeElement) ? document.activeElement : null;
+  const focusKey = hadFocus && hadFocus.closest('.fr-card') ? hadFocus.closest('.fr-card').dataset.frKey : null;
+  const focusAns = hadFocus && hadFocus.dataset ? hadFocus.dataset.frAns : null;
+  const focusAct = hadFocus && hadFocus.dataset ? hadFocus.dataset.ftMight : null;
+  const card = (i) => frCardHtml(i, m.answers.get(i.personId), { who });
+  const main = yes ? `Add ${yes.toLocaleString()} to ${who}` : no ? 'Save my answers' : `Add 0 to ${who}`;
   el.hidden = false;
-  el.setAttribute('aria-label', p.name && !ftPrivate() ? `Might also be ${p.name}` : 'Might also be this person');
+  el.setAttribute('aria-label', p.name && !ftPrivate() ? `Is this ${p.name}?` : 'Is this this person?');
   el.innerHTML = `
     <div class="ft-might-h">
-      <h2>Might also be ${who}</h2>
-      <span>${!known ? `Many faces from other files look a lot like ${p.name ? 'them' : 'this person'}.`
-        : likely.length ? `${ftPlural(likely.length, 'face', 'faces')} ${likely.length === 1 ? 'from another file looks' : 'from other files look'} a lot like ${p.name ? 'them' : 'this person'}.`
-        : `Some faces from other files look a little like ${p.name ? 'them' : 'this person'}.`} Tick the right ones.</span>
+      <h2>Is this ${who}?</h2>
+      <span>${ftPlural(m.total, 'face from another file that is', 'faces from other files that are')} not in anyone yet. Say Yes or No to each.</span>
       <div class="ft-might-acts">
-        <button class="ft-btn ft-btn-md" type="button" data-ft-might="add"${k ? '' : ' disabled'}>${k ? `Add the ${k.toLocaleString()} ticked to ${who}` : 'Tick faces to add'}</button>
-        <button class="ft-btn ghost ft-btn-md" type="button" data-ft-might="${k ? 'untick' : 'tick'}"${visible.length ? '' : ' disabled'}>${k ? 'Untick all' : 'Tick all'}</button>
-        ${visible.length ? `<button class="ft-btn ghost ft-btn-md" type="button" data-ft-might="none" title="${visible.length === 1 ? 'This face is' : 'These faces are'} someone else. They will not be suggested here again.">None of these</button>` : ''}
+        ${likely.length ? `<button class="ft-btn ghost ft-btn-md" type="button" data-ft-might="yesall"${likelyOpen ? '' : ' disabled'}>Yes to all strong matches (${likely.length.toLocaleString()})</button>` : ''}
+        <button class="ft-btn ghost ft-btn-md" type="button" data-ft-might="norest"${undecided ? '' : ' disabled'}>No to the rest</button>
       </div>
     </div>
-    ${likely.length ? `<div class="ft-might-sub">Very likely</div><div class="ft-cands">${likely.map(i => ftMightCardHtml(i, m.ticked.has(i.personId))).join('')}</div>` : ''}
-    ${m.lessOpen && shownLess.length ? `<div class="ft-might-sub">Less likely</div><div class="ft-cands">${shownLess.map(i => ftMightCardHtml(i, m.ticked.has(i.personId))).join('')}</div>` : ''}
-    <div class="ft-might-more">
-      ${!m.lessOpen && lessTotal ? `<button class="ft-link" type="button" data-ft-might="less">Show ${lessTotal.toLocaleString()} less likely</button>` : ''}
-      ${m.lessOpen && rest ? `<button class="ft-link" type="button" data-ft-might="more">Show ${rest.toLocaleString()} more that ${rest === 1 ? 'is' : 'are'} less likely</button>` : ''}
-      ${m.lessOpen && lessTotal ? '<button class="ft-link" type="button" data-ft-might="fold">Hide the less likely ones</button>' : ''}
-      ${!known ? '<button class="ft-link" type="button" data-ft-might="more">Show more</button>' : ''}
+    ${likely.length ? `<div class="fr-secth"><h3>Strong matches</h3><span>Vault is fairly sure about these</span></div>
+      <div class="fr-cards" role="list" aria-label="Strong matches">${likely.map(card).join('')}</div>` : ''}
+    ${shownMaybe.length ? `<div class="fr-secth"><h3>Maybe</h3><span>Look closely</span></div>
+      <div class="fr-cards" role="list" aria-label="Maybe">${shownMaybe.map(card).join('')}</div>` : ''}
+    ${rest ? `<div class="ft-might-more"><button class="ft-link" type="button" data-ft-might="more">Show ${Math.min(rest, FT_MIGHT_PAGE).toLocaleString()} more</button></div>` : ''}
+    <div class="ft-might-foot">
+      <span class="fr-note"><b>${yes.toLocaleString()}</b> yes, <b>${no.toLocaleString()}</b> no. Faces you say No to are not suggested for ${who} again.</span>
+      <button class="ft-btn ft-btn-md" type="button" data-ft-might="add"${yes || no ? '' : ' disabled'}>${main}</button>
     </div>`;
-}
-
-/** A card's tick, or its ✕ ("not this person": recorded, and it does not come back). */
-async function ftMightCard(pid, act, btn) {
-  const m = FT.might;
-  if (!m || m.personId !== FT.personId) return;
-  if (act === 'tick') {
-    if (m.ticked.has(pid)) m.ticked.delete(pid); else m.ticked.add(pid);
-    ftPaintMight();
-    document.querySelector(`#ftMight [data-cand="${pid}"] .ft-cand-pick`)?.focus();
-    return;
-  }
-  btn.disabled = true;
-  try { await ftApi(`/api/faces/people/${m.personId}/candidates`, { method: 'POST', json: { accept: [], reject: [pid] } }); }
-  catch (err) { facesToastError(err); btn.disabled = false; return; }
-  m.items = m.items.filter(i => i.personId !== pid);
-  m.ticked.delete(pid);
-  m.total = Math.max(0, m.total - 1);
-  ftPaintMight();
-  // Keep the list topped up when the ✕ emptied what was loaded.
-  if (!m.items.length && m.total) ftLoadMight();
-  const forId = m.personId;
-  showUndoToast('Got it. That face will not be suggested for this person again.', async () => {
-    try { await ftApi(`/api/faces/people/${forId}/candidates`, { method: 'POST', json: { unreject: [pid] } }); }
-    catch (err) { facesToastError(err); return; }
-    if (FT.personId === forId) { FT.might = null; ftLoadMight(); }
-  }, 8000);
+  if (typeof hydrateThumbs === 'function') hydrateThumbs(el);
+  frKeys(el, {
+    answer: (key, a, { toggle }) => {
+      const mm = FT.might;
+      if (!mm) return;
+      const pid = Number(key);
+      if (toggle && mm.answers.get(pid) === a) mm.answers.delete(pid); else mm.answers.set(pid, a);
+      ftPaintMight();
+    },
+    frame: (key, c) => frShowFrame(FT.might && FT.might.items.find(i => i.key === key), c.querySelector('.fr-face-btn')),
+  });
+  if (focusKey) {
+    const c = el.querySelector(`.fr-card[data-fr-key="${focusKey}"]`);
+    const t = c && (focusAns ? c.querySelector(`[data-fr-ans="${focusAns}"]`) : c.querySelector('.fr-face-btn'));
+    if (t) t.focus();
+  } else if (focusAct) el.querySelector(`[data-ft-might="${focusAct}"]:not(:disabled)`)?.focus();
 }
 
 async function ftMightAction(act, btn) {
@@ -1957,31 +1945,30 @@ async function ftMightAction(act, btn) {
   const p = FT.person;
   if (!m || !p || m.personId !== FT.personId) return;
   const view = ftMightView(m);
-  if (act === 'untick') { m.ticked.clear(); ftPaintMight(); return; }
-  if (act === 'tick') { view.visible.forEach(i => m.ticked.add(i.personId)); ftPaintMight(); return; }
-  if (act === 'less' || act === 'more') {
-    if (act === 'less') m.lessOpen = true;
-    else if (m.lessOpen) m.lessShown += FT_MIGHT_PAGE;
-    const need = !view.known || (m.lessOpen && view.maybe.length < m.lessShown);
-    if (need && m.items.length < m.total) ftLoadMight({ more: true });
+  if (act === 'yesall') {
+    // Only faces with no answer yet: a No already given stays a No.
+    for (const i of view.likely) if (!m.answers.has(i.personId)) m.answers.set(i.personId, 'yes');
+    ftPaintMight();
+    return;
+  }
+  if (act === 'norest') {
+    for (const i of view.visible) if (!m.answers.has(i.personId)) m.answers.set(i.personId, 'no');
+    ftPaintMight();
+    return;
+  }
+  if (act === 'more') {
+    m.maybeShown += FT_MIGHT_PAGE;
+    if (view.maybe.length < m.maybeShown && m.items.length < m.total) ftLoadMight({ more: true });
     else ftPaintMight();
     return;
   }
-  if (act === 'fold') {
-    m.lessOpen = false;
-    m.lessShown = FT_MIGHT_LESS;
-    for (const i of view.maybe) m.ticked.delete(i.personId);   // nothing ticked out of sight
-    ftPaintMight();
-    document.querySelector('#ftMight [data-ft-might="less"]')?.focus();
-    return;
-  }
-  if (act === 'none') { ftMightNone(view.visible.map(i => i.personId), btn); return; }
   if (act !== 'add') return;
-  const accept = view.visible.filter(i => m.ticked.has(i.personId)).map(i => i.personId);
-  if (!accept.length) return;
+  const accept = [], reject = [];
+  for (const [pid, a] of m.answers) (a === 'yes' ? accept : reject).push(pid);
+  if (!accept.length && !reject.length) return;
   btn.disabled = true;
   let r;
-  try { r = await ftApi(`/api/faces/people/${m.personId}/candidates`, { method: 'POST', json: { accept, reject: [] } }); }
+  try { r = await ftApi(`/api/faces/people/${m.personId}/candidates`, { method: 'POST', json: { accept, reject } }); }
   catch (err) { facesToastError(err); btn.disabled = false; return; }
   const merged = r && Array.isArray(r.merged) ? r.merged : accept;
   const left = r && Array.isArray(r.skipped) ? r.skipped.length : 0;
@@ -1991,35 +1978,22 @@ async function ftMightAction(act, btn) {
   const gained = r && r.person ? (r.person.files || 0) - (p.files || 0) : 0;
   const files = gained > 0 ? gained : m.items.filter(i => merged.includes(i.personId)).reduce((s, i) => s + (i.files || 1), 0);
   const what = ftPlural(files, 'file', 'files');
-  showToast((merged.length ? (name ? `Added ${what} to ${name}.` : `Added ${what} to this person.`) : 'Nothing was added.')
-    + (left ? ` ${left.toLocaleString()} could not be added because ${left === 1 ? 'it has' : 'they have'} changed.` : ''));
+  const said = [];
+  if (merged.length) said.push(name ? `Added ${what} to ${name}.` : `Added ${what} to this person.`);
+  if (reject.length) said.push(reject.length === 1 ? 'The face you said No to will not be suggested here again.' : `The ${reject.length.toLocaleString()} faces you said No to will not be suggested here again.`);
+  if (left) said.push(`${left.toLocaleString()} could not be added because ${left === 1 ? 'it has' : 'they have'} changed.`);
+  const forId = m.personId;
+  const undo = reject.slice();
+  const msg = said.join(' ') || 'Nothing was added.';
+  if (undo.length && !merged.length) {
+    showUndoToast(msg, async () => {
+      try { await ftApi(`/api/faces/people/${forId}/candidates`, { method: 'POST', json: { unreject: undo } }); }
+      catch (err) { facesToastError(err); return; }
+      if (FT.personId === forId) { FT.might = null; ftLoadMight(); }
+    }, 8000);
+  } else showToast(msg);
   FT.might = null;       // reloaded fresh with the person
   if (FT.personId === m.personId) ftLoadPerson();
-}
-
-/**
- * "None of these": every face shown is not this person. Each gets a
- * 'different' answer (never suggested for this person again), with Undo.
- */
-async function ftMightNone(pids, btn) {
-  const m = FT.might;
-  if (!m || !pids.length) return;
-  btn.disabled = true;
-  try { await ftApi(`/api/faces/people/${m.personId}/candidates`, { method: 'POST', json: { reject: pids } }); }
-  catch (err) { facesToastError(err); btn.disabled = false; return; }
-  const gone = new Set(pids);
-  m.items = m.items.filter(i => !gone.has(i.personId));
-  for (const pid of pids) m.ticked.delete(pid);
-  m.total = Math.max(0, m.total - pids.length);
-  ftPaintMight();
-  if (!m.items.length && m.total) ftLoadMight();
-  const forId = m.personId;
-  showUndoToast(pids.length === 1 ? 'Got it. That face will not be suggested for this person again.'
-    : `Got it. Those ${pids.length.toLocaleString()} faces will not be suggested for this person again.`, async () => {
-    try { await ftApi(`/api/faces/people/${forId}/candidates`, { method: 'POST', json: { unreject: pids } }); }
-    catch (err) { facesToastError(err); return; }
-    if (FT.personId === forId) { FT.might = null; ftLoadMight(); }
-  }, 8000);
 }
 
 /* ── Person grid tiles: "▶ from 0:04", "✕ Not this person" ────────────── */
@@ -2164,11 +2138,9 @@ function ftWire() {
       return;
     }
 
-    // Person page: Might also be
+    // Person page: "Is this X?" (the cards answer through frKeys)
     const mightBtn = t.closest('[data-ft-might]');
     if (mightBtn) { ftMightAction(mightBtn.dataset.ftMight, mightBtn); return; }
-    const cand = t.closest('[data-ft-cand]');
-    if (cand) { ftMightCard(Number(cand.closest('[data-cand]').dataset.cand), cand.dataset.ftCand, cand); return; }
 
     // Person page
     const backStudio = t.closest('[data-ft-backstudio]');
