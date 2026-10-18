@@ -367,7 +367,12 @@ async function facesOpenFocus(src, cropUrl, width = 'normal', { refresh = false 
     picking: same ? prev.picking : null,
     named: same ? prev.named || null : null,
   };
-  if (facesFocus.picking) facesPickPrune(facesFocus);
+  if (facesFocus.picking) {
+    facesPickPrune(facesFocus);
+    // Nothing left that can be ticked: picking is over.
+    if (!facesPickableIds(facesFocus).size) facesFocus.picking = null;
+  }
+  document.body.classList.toggle('faces-picking', !!facesFocus.picking);
   if (refresh && prev.ids && prev.ids.length === r.ids.length && prev.ids.every((id, i) => id === r.ids[i])) {
     renderFocusBar();
     if (typeof applyFilters === 'function') applyFilters({ keepPage: true });
@@ -408,7 +413,8 @@ function facesFocusTarget(f = facesFocus) {
  *           other NAMED people (Compare; never in the review)
  *   addable [{ mediaId, groupId }] in no one, or in someone not named yet
  *           ("not in anyone yet"): the review and picking
- * Faces the user already said are not T (rejected) are in none of them.
+ * Faces the user already said are not T (rejected), and faces of a person
+ * the user hid, are in none of them.
  * @param {{ ids, match, rejected?: Set }} res
  * @param {{ id }|null} T
  */
@@ -419,7 +425,7 @@ function facesSplitResults(res, T) {
     const m = res.match[id];
     if (!m) continue;
     if (T && T.id != null && m.personId === T.id) out.inT.push(id);
-    else if (rejected.has(id)) continue;
+    else if (rejected.has(id) || m.personHidden) continue;   // said not T, or a person the user hid: in none
     else if (m.personId && m.personName) {
       const o = out.others.get(m.personId) || { name: m.personName, ids: [], groups: [] };
       o.ids.push(id);
@@ -698,6 +704,18 @@ function facesPickWhich() {
   facesPickRepaint();   // the banner says how it works
 }
 
+/**
+ * Leaving the Library view (tabs.js switchTab): picking ends, the review and
+ * Compare close. The results themselves stay for when the user comes back.
+ */
+function facesLibraryLeave() {
+  if (typeof facesReviewClose === 'function') facesReviewClose();
+  if (typeof facesCompareClose === 'function') facesCompareClose();
+  if (facesFocus && facesFocus.picking) facesFocus.picking = null;
+  document.body.classList.remove('faces-picking');
+  facesPickBarPaint();
+}
+
 /** Done picking: back to the results as they were. */
 function facesPickStop() {
   const f = facesFocus;
@@ -749,7 +767,7 @@ const FACES_TICK_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="no
 function facesPickBarPaint() {
   const f = facesFocus;
   let bar = document.getElementById('facesPickBar');
-  if (!f || !f.picking) { bar?.remove(); return; }
+  if (!f || !f.picking || (typeof currentTab !== 'undefined' && currentTab !== 'library')) { bar?.remove(); return; }
   if (!bar) {
     bar = document.createElement('div');
     bar.id = 'facesPickBar';
@@ -882,6 +900,7 @@ function facesResultTagHtml(media) {
   const T = facesFocusTarget(f);
   let who;
   if (T && T.id != null && m.personId === T.id) who = `<span class="faces-who">${T.name ? facesPmName(T.name) : 'This person'}</span>`;
+  else if (m.personHidden) who = '<span class="faces-who">Hidden person</span>';
   else if (m.personId && m.personName) who = `<span class="faces-who is-other">${facesPmName(m.personName)}</span>`;
   else who = '<span class="faces-who is-new">No one yet</span>';
   const fc = `<span class="faces-fc"><img class="face-crop" src="/api/faces/crop/${Number(m.groupId)}" alt="" loading="lazy" onerror="this.parentElement.remove()"></span>`;

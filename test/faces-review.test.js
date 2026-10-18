@@ -172,24 +172,25 @@ test('join rule in the sorter: a clear face joins; an ambiguous one (no margin) 
 
 /* ── A: the one-time re-check ──────────────────────────────────────────── */
 
-test('re-check: automatic faces that fail the new rule leave their person (recheck_from); confirmed, hidden, covers and hidden people stay; runs once', async () => {
+test('re-check: unnamed people lose automatic faces that fail (offered back); named people never lose a face, failing ones are asked about; runs once', async () => {
   const names = { r1: [like(20, 0.45, 110)], r2: [like(20, 0.45, 111)], r3: [like(20, 0.45, 112)], r5: [like(20, 0.45, 114)],
     r6: [like(20, 0.85, 115)], h1: [person(22)], r4: [like(22, 0.45, 113)],
-    r8: [like(20, 0.45, 117)], r9: [like(20, 0.45, 118)], w1: [person(27)], w2: [like(27, 0.9, 119)], uq: [like(27, 0.4, 127)] };
+    r8: [like(20, 0.45, 117)], r9: [like(20, 0.45, 118)], w1: [person(27)], w2: [like(27, 0.9, 119)], uq: [like(27, 0.4, 127)],
+    wq: [like(27, 0.45, 109)] };
   for (const [n, v] of Object.entries(names)) { addFile(`${n}.jpg`); fk.fileScripts.set(files[`${n}.jpg`], { groups: v.map(x => group(x)) }); }
   await index(Object.keys(names).map(n => `${n}.jpg`));
-  // What an older, looser rule left behind: all in Xena, automatic ...
+  // What an older, looser rule left behind in Xena (named): automatic faces ...
   autoJoin(['r1.jpg', 'r2.jpg', 'r3.jpg', 'r5.jpg', 'r6.jpg', 'r8.jpg', 'r9.jpg'], P.x);
-  // ... except r2, which the user put there; r3 is a hidden face; r5 is Xena's chosen cover.
+  // ... r2 the user put there; r8, r9 locked by 3.7's naming (never confirmed one by one);
+  // r3 is a hidden face; r5 is Xena's chosen cover.
   run('UPDATE face_groups SET person_locked = 1, confirmed = 1 WHERE id = ?', gid('r2.jpg'));
-  // r8, r9: locked by 3.7's naming (every face of a person it named), never confirmed one by one.
   run('UPDATE face_groups SET person_locked = 1, confirmed = 0 WHERE id IN (?, ?)', gid('r8.jpg'), gid('r9.jpg'));
-  // An unnamed person with a weak locked face (a 3.7 merge): not asked about.
-  const pu = pidOf('w1.jpg');
-  autoJoin(['w2.jpg', 'uq.jpg'], pu);
-  run('UPDATE face_groups SET person_locked = 1 WHERE id = ?', gid('uq.jpg'));
   run('UPDATE face_groups SET hidden = 1 WHERE id = ?', gid('r3.jpg'));
   run('UPDATE face_people SET cover_group_id = ? WHERE id = ?', gid('r5.jpg'), P.x);
+  // An unnamed person: a weak automatic face (wq) and a weak locked one (uq, a 3.7 merge).
+  const pu = pidOf('w1.jpg');
+  autoJoin(['w2.jpg', 'uq.jpg', 'wq.jpg'], pu);
+  run('UPDATE face_groups SET person_locked = 1 WHERE id = ?', gid('uq.jpg'));
   // A hidden person with a weak automatic face.
   const ph = pidOf('h1.jpg');
   autoJoin(['r4.jpg'], ph);
@@ -197,46 +198,83 @@ test('re-check: automatic faces that fail the new rule leave their person (reche
   store.bumpPeople();
   forgetRule();
   await svc.sortPeopleNow();
-  const r1 = groupRow('r1.jpg');
-  assert.notStrictEqual(r1.cluster_id, P.x, 'r1 (0.44 to Xena) taken back out');
-  assert.strictEqual(r1.recheck_from, P.x);
-  assert.strictEqual(r1.person_locked, 0);
-  assert.deepStrictEqual(one('SELECT name, hidden FROM face_people WHERE id = ?', r1.cluster_id), { name: null, hidden: 0 }, 'into a new unnamed person');
-  assert.strictEqual(one('SELECT COUNT(*) AS n FROM face_groups WHERE cluster_id = ?', r1.cluster_id).n, 1);
-  for (const n of ['r2.jpg', 'r3.jpg', 'r5.jpg', 'r6.jpg', 'x1.jpg', 'x2.jpg', 'cl.jpg']) assert.strictEqual(pidOf(n), P.x, n);
+  // Unnamed: the automatic face that fails goes out, remembering where it was.
+  const wq = groupRow('wq.jpg');
+  assert.notStrictEqual(wq.cluster_id, pu, 'wq (0.44) taken back out of the unnamed person');
+  assert.strictEqual(wq.recheck_from, pu);
+  assert.deepStrictEqual(one('SELECT name, hidden FROM face_people WHERE id = ?', wq.cluster_id), { name: null, hidden: 0 });
+  assert.deepStrictEqual([pidOf('uq.jpg'), one('SELECT recheck_ask FROM face_groups WHERE id = ?', gid('uq.jpg')).recheck_ask], [pu, null], 'locked: stays, not asked');
+  // Named: nothing leaves Xena; every face that fails and nobody confirmed is asked about.
+  for (const n of ['r1.jpg', 'r2.jpg', 'r3.jpg', 'r5.jpg', 'r6.jpg', 'r8.jpg', 'r9.jpg', 'x1.jpg', 'x2.jpg', 'cl.jpg']) assert.strictEqual(pidOf(n), P.x, n);
+  for (const n of ['r1.jpg', 'r8.jpg', 'r9.jpg']) assert.strictEqual(one('SELECT recheck_ask FROM face_groups WHERE id = ?', gid(n)).recheck_ask, P.x, n);
+  for (const n of ['r2.jpg', 'r3.jpg', 'r5.jpg', 'r6.jpg', 'x1.jpg', 'x2.jpg', 'cl.jpg']) assert.strictEqual(one('SELECT recheck_ask FROM face_groups WHERE id = ?', gid(n)).recheck_ask, null, n);
   assert.strictEqual(pidOf('r4.jpg'), ph, 'hidden people are never touched');
   assert.strictEqual(one("SELECT value FROM face_meta WHERE key = 'join_rule'").value, JOIN_RULE);
   assert.strictEqual(one("SELECT value FROM face_meta WHERE key = 'join_recheck'"), undefined);
-  assert.strictEqual(svc._sorter.lastRecheck().out, 1);
-  // Locked faces of a named person are never moved: they are asked about.
-  for (const n of ['r8.jpg', 'r9.jpg']) {
-    assert.deepStrictEqual(one('SELECT cluster_id, person_locked, recheck_ask FROM face_groups WHERE id = ?', gid(n)), { cluster_id: P.x, person_locked: 1, recheck_ask: P.x }, n);
-  }
-  for (const n of ['r2.jpg', 'r5.jpg', 'r6.jpg', 'x1.jpg']) assert.strictEqual(one('SELECT recheck_ask FROM face_groups WHERE id = ?', gid(n)).recheck_ask, null, n);
-  assert.strictEqual(svc._sorter.lastRecheck().asked, 2);
-  assert.deepStrictEqual([pidOf('uq.jpg'), one('SELECT recheck_ask FROM face_groups WHERE id = ?', gid('uq.jpg')).recheck_ask], [pu, null]);
+  assert.deepStrictEqual([svc._sorter.lastRecheck().out, svc._sorter.lastRecheck().asked], [1, 3]);
   const xena = (await get('/api/faces/people?filter=named')).body.people.find(p => p.id === P.x);
-  assert.strictEqual(xena.toCheck, 2, 'the Faces grid shows "2 faces to check"');
-  assert.strictEqual((await get(`/api/faces/people/${P.x}`)).body.toCheck, 2);
-  // "Might also be" offers it back to Xena (0.44 is under every tier), until answered.
-  const c = await get(`/api/faces/people/${P.x}/candidates?limit=50`);
-  const it = c.body.items.find(i => i.personId === r1.cluster_id);
+  assert.strictEqual(xena.toCheck, 3, 'the Faces grid shows "3 faces to check"');
+  assert.strictEqual((await get(`/api/faces/people/${P.x}`)).body.toCheck, 3);
+  // "Might also be" offers wq back to its person (0.44 is under every tier) ...
+  const c = await get(`/api/faces/people/${pu}/candidates?limit=50`);
+  const it = c.body.items.find(i => i.personId === wq.cluster_id);
   assert.ok(it, 'offered back');
   assert.strictEqual(it.tier, 'maybe');
-  // Runs once: another weak automatic face put in later stays where it is.
+  // ... and once the user says Yes it is home again, with nothing left to offer.
+  assert.strictEqual((await post(`/api/faces/people/${pu}/candidates`, { accept: [wq.cluster_id] })).status, 200);
+  assert.deepStrictEqual([pidOf('wq.jpg'), groupRow('wq.jpg').recheck_from], [pu, null]);
+  // Runs once: another weak automatic face put in later is not asked about.
   addFile('r7.jpg');
   fk.fileScripts.set(files['r7.jpg'], { groups: [group(like(20, 0.45, 116))] });
   await index(['r7.jpg']);
   autoJoin(['r7.jpg'], P.x);
   await svc.sortPeopleNow();
-  assert.strictEqual(pidOf('r7.jpg'), P.x, 'the rule is recorded: no second re-check');
-  // The model switch asks for it again (with the new model's vectors).
+  assert.deepStrictEqual([pidOf('r7.jpg'), one('SELECT recheck_ask FROM face_groups WHERE id = ?', gid('r7.jpg')).recheck_ask], [P.x, null], 'the rule is recorded: no second re-check');
+  // A model switch asks for it again: r7 is asked about, and still nothing leaves Xena.
   svc._modelSwitch.resort('stub-v1');
   assert.strictEqual(one("SELECT value FROM face_meta WHERE key = 'join_rule'"), undefined);
   await svc.sortPeopleNow();
-  assert.notStrictEqual(pidOf('r7.jpg'), P.x, 'checked again after a model switch');
-  assert.strictEqual(groupRow('r7.jpg').recheck_from, P.x);
-  for (const n of ['r2.jpg', 'r5.jpg', 'r6.jpg']) assert.strictEqual(pidOf(n), P.x, n);
+  assert.deepStrictEqual([pidOf('r7.jpg'), one('SELECT recheck_ask FROM face_groups WHERE id = ?', gid('r7.jpg')).recheck_ask], [P.x, P.x]);
+  for (const n of ['r1.jpg', 'r2.jpg', 'r5.jpg', 'r6.jpg', 'r8.jpg', 'r9.jpg']) assert.strictEqual(pidOf(n), P.x, n);
+});
+
+test('verifier repro: a person named after an old-rule sort keeps every face through a model switch re-check; the doubtful ones are asked', async () => {
+  const names = { an0: [person(40)] };
+  for (let i = 1; i <= 6; i++) names[`an${i}`] = [like(40, 0.6, 40 + i)];
+  for (const [n, v] of Object.entries(names)) { addFile(`${n}.jpg`); fk.fileScripts.set(files[`${n}.jpg`], { groups: v.map(x => group(x)) }); }
+  await index(Object.keys(names).map(n => `${n}.jpg`));
+  const anna = pidOf('an0.jpg');
+  // The old rule (people 0.50) put all six 0.60 faces with the anchor.
+  autoJoin(Object.keys(names).map(n => `${n}.jpg`), anna);
+  assert.strictEqual((await post(`/api/faces/people/${anna}`, { name: 'Anna' })).status, 200);
+  svc._modelSwitch.resort('stub-v1');
+  await svc.sortPeopleNow();
+  assert.strictEqual(one('SELECT COUNT(*) AS n FROM face_groups WHERE cluster_id = ?', anna).n, 7, 'Anna keeps all 7 faces');
+  const asked = one('SELECT COUNT(*) AS n FROM face_groups WHERE cluster_id = ? AND recheck_ask = ?', anna, anna).n;
+  assert.strictEqual(asked, 6, 'the six faces at 0.55 to the rest are asked about');
+  assert.strictEqual((await get(`/api/faces/people/${anna}`)).body.toCheck, 6);
+  assert.strictEqual((await get(`/api/faces/people/${anna}`)).body.files, 7);
+});
+
+test('hidden people: adds and moves never take their faces; results never name them', async () => {
+  for (const [n, v] of [['z1.jpg', person(35)], ['z2.jpg', like(35, 0.9, 108)]]) {
+    addFile(n);
+    fk.fileScripts.set(files[n], { groups: [group(v)] });
+  }
+  await index(['z1.jpg', 'z2.jpg']);
+  const pz = pidOf('z1.jpg');
+  assert.strictEqual(pidOf('z2.jpg'), pz);
+  assert.strictEqual((await post(`/api/faces/people/${pz}`, { name: 'Zed', hidden: true })).status, 200);
+  const s = await post(`/api/faces/groups/${gid('z1.jpg')}/similar`, { width: 'wide' });
+  assert.strictEqual(s.body.match[ids['z2.jpg']].personHidden, true);
+  assert.strictEqual(s.body.match[ids['x1.jpg']]?.personHidden, undefined);
+  const r = await post(`/api/faces/people/${P.x}/review-faces`, { add: [gid('z2.jpg')] });
+  assert.strictEqual(r.status, 200);
+  assert.deepStrictEqual([r.body.moved, r.body.skipped], [[], [{ groupId: gid('z2.jpg'), reason: 'hidden-person' }]]);
+  const m = await post(`/api/faces/people/${P.x}/move`, { from: pz, groupIds: [gid('z2.jpg')] });
+  assert.strictEqual(m.status, 200);
+  assert.deepStrictEqual([m.body.moved, m.body.skipped], [[], [{ groupId: gid('z2.jpg'), reason: 'hidden-person' }]]);
+  assert.strictEqual(pidOf('z2.jpg'), pz);
 });
 
 test('naming locks nothing (3.8); a chosen cover and an add confirm the face', async () => {
@@ -254,9 +292,9 @@ test('check faces: GET lists the asked faces; Yes keeps (confirmed, never asked 
   const g8 = gid('r8.jpg'), g9 = gid('r9.jpg');
   const l = await get(`/api/faces/people/${P.x}/to-check`);
   assert.strictEqual(l.status, 200);
-  assert.strictEqual(l.body.total, 2);
-  assert.deepStrictEqual(l.body.items.map(i => i.groupId), [g8, g9]);
-  assert.strictEqual(l.body.items[0].filename, 'r8.jpg');
+  assert.strictEqual(l.body.total, 4);
+  assert.deepStrictEqual(l.body.items.map(i => i.groupId), [gid('r1.jpg'), g8, g9, gid('r7.jpg')]);
+  assert.strictEqual(l.body.items[1].filename, 'r8.jpg');
   for (const b of [{}, { keep: [g8], remove: [g8] }, { keep: 'x' }]) {
     assert.strictEqual((await post(`/api/faces/people/${P.x}/to-check`, b)).status, 400, JSON.stringify(b));
   }
@@ -273,8 +311,8 @@ test('check faces: GET lists the asked faces; Yes keeps (confirmed, never asked 
   assert.deepStrictEqual([out.person_locked, out.recheck_ask], [0, null]);
   assert.strictEqual(one('SELECT name FROM face_people WHERE id = ?', out.cluster_id).name, null);
   assert.ok(one('SELECT 1 FROM face_person_rejects WHERE person_id = ? AND group_id = ?', P.x, g9), 'recorded as not Xena');
-  assert.strictEqual(r.body.person.toCheck, 0);
-  assert.strictEqual((await get(`/api/faces/people/${P.x}/to-check`)).body.total, 0);
+  assert.strictEqual(r.body.person.toCheck, 2);
+  assert.strictEqual((await get(`/api/faces/people/${P.x}/to-check`)).body.total, 2);
   // Another re-check (a new rule, a model switch) never asks about the kept face again.
   forgetRule();
   await svc.sortPeopleNow();
@@ -420,11 +458,13 @@ test('move (Compare): faces leave the other person as a decision; the other keep
   }
   assert.strictEqual((await post(`/api/faces/people/${P.x}/move`, { from: P.x, groupIds: [gid('k1.jpg')] })).status, 400);
   assert.strictEqual((await post(`/api/faces/people/${P.x}/move`, { from: 999999, groupIds: [gid('k1.jpg')] })).status, 404);
-  const r = await post(`/api/faces/people/${P.x}/move`, { from: P.y, groupIds: [gid('k1.jpg'), gid('x2.jpg')], keep: [gid('k2.jpg')] });
+  const r = await post(`/api/faces/people/${P.x}/move`, { from: P.y, groupIds: [gid('k1.jpg'), gid('x2.jpg')], keep: [gid('k2.jpg'), gid('cl.jpg')] });
   assert.strictEqual(r.status, 200, JSON.stringify(r.body));
   assert.deepStrictEqual(r.body.moved, [gid('k1.jpg')]);
   assert.deepStrictEqual(r.body.kept, [gid('k2.jpg')]);
-  assert.deepStrictEqual(r.body.skipped, [{ groupId: gid('x2.jpg'), reason: 'moved-on' }]);
+  // x2 is not in Yuri (not moved); cl is not in Yuri either, so no keep is recorded for it.
+  assert.deepStrictEqual(r.body.skipped, [{ groupId: gid('x2.jpg'), reason: 'moved-on' }, { groupId: gid('cl.jpg'), reason: 'moved-on' }]);
+  assert.ok(!one('SELECT 1 FROM face_person_rejects WHERE person_id = ? AND group_id = ?', P.x, gid('cl.jpg')));
   assert.strictEqual(r.body.fromPerson.id, P.y);
   assert.deepStrictEqual(groupRow('k1.jpg'), { cluster_id: P.x, person_locked: 1, recheck_from: null });
   assert.ok(one('SELECT 1 FROM face_person_rejects WHERE person_id = ? AND group_id = ?', P.y, gid('k1.jpg')), 'Yuri: not this person');

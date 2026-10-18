@@ -25,12 +25,23 @@ const FR_YES_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" 
 const FR_NO_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>';
 const FR_X_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>';
 
-/** The visible width as --fr-vw: a page wider than a phone screen must not push the panel and bars off it. */
+/**
+ * The visible part of the page as --fr-vx / --fr-vy / --fr-vw / --fr-vh: on
+ * a phone the page can be wider (and so taller) than the screen, and a fixed
+ * panel or bar sized to the page would end past the screen's edge.
+ */
 function frSyncViewport() {
-  const w = window.visualViewport ? window.visualViewport.width : window.innerWidth;
-  document.documentElement.style.setProperty('--fr-vw', `${Math.round(w)}px`);
+  const v = window.visualViewport;
+  const st = document.documentElement.style;
+  st.setProperty('--fr-vw', `${Math.round(v ? v.width : window.innerWidth)}px`);
+  st.setProperty('--fr-vh', `${Math.round(v ? v.height : window.innerHeight)}px`);
+  st.setProperty('--fr-vx', `${Math.round(v ? v.offsetLeft : 0)}px`);
+  st.setProperty('--fr-vy', `${Math.round(v ? v.offsetTop : 0)}px`);
 }
-if (window.visualViewport) window.visualViewport.addEventListener('resize', frSyncViewport);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', frSyncViewport);
+  window.visualViewport.addEventListener('scroll', frSyncViewport);
+}
 window.addEventListener('resize', frSyncViewport);
 frSyncViewport();
 const frVw = () => (window.visualViewport ? window.visualViewport.width : window.innerWidth);
@@ -115,15 +126,22 @@ function frKeys(root, { answer, frame }) {
     const i = card ? list.indexOf(card) : -1;
     const k = e.key.toLowerCase();
     if (k === 'y' || k === 'n') {
-      const at = i >= 0 ? list[i] : list.find(c => !c.classList.contains('is-yes') && !c.classList.contains('is-no')) || list[0];
+      const decided = (c) => !!c.querySelector('[data-fr-ans][aria-pressed="true"]');
+      // Outside a card: the first face with no answer (none left: nothing to do).
+      const at = i >= 0 ? list[i] : list.find(c => !decided(c));
+      if (!at) return;
       e.preventDefault();
       e.stopPropagation();   // N is also "next file" while the mini player shows
       const key = at.dataset.frKey;
-      const next = list[list.indexOf(at) + 1];
       answer(key, k === 'y' ? 'yes' : 'no', { toggle: false });
-      // The list repaints: go on to the next face (or stay on the last one).
+      // The list repaints. Go on to the next face with no answer yet (after
+      // this one, else from the top), so a second key press never changes
+      // the answer just given; with every face answered, stay here.
       const again = cards();
-      focusCard(next ? again.find(c => c.dataset.frKey === next.dataset.frKey) : again.find(c => c.dataset.frKey === key));
+      const pos = again.findIndex(c => c.dataset.frKey === key);
+      const nextOpen = again.slice(pos + 1).find(c => !decided(c)) || again.slice(0, Math.max(0, pos)).find(c => !decided(c));
+      if (nextOpen) focusCard(nextOpen);
+      else (root.querySelector('[data-fr-add]:not(:disabled), [data-fc-move]:not(:disabled), [data-ft-might="add"]:not(:disabled), [data-ft-check="save"]:not(:disabled)') || again[pos].querySelector('.fr-face-btn')).focus();
       return;
     }
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {

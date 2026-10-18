@@ -32,6 +32,7 @@ function switchTab(tab) {
   if (prev === 'editor' && typeof editorPauseIfActive === 'function') editorPauseIfActive();
   if (prev === 'games' && typeof gamesPauseIfActive === 'function') gamesPauseIfActive();
   if (prev === 'faces' && typeof facesTabLeave === 'function') facesTabLeave();
+  if (prev === 'library' && typeof facesLibraryLeave === 'function') facesLibraryLeave();
 
   // Show exactly one container
   if (main) main.style.display = (tab === 'editor' || tab === 'games') ? 'none' : '';
