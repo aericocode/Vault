@@ -491,9 +491,13 @@ function facesRenderBanner(bar) {
   const addName = '<span class="faces-bname"><button type="button" class="faces-addname" data-faces-name>Add a name</button></span>';
   // Every result is already the person: say so once ("All 5 are X."); for
   // someone with no name yet, that they look like one person, and offer the name.
-  const allIn = !!(T && f.others && !b.addable.length && !b.others.size && b.inT.length === n);
-  const sameUnnamed = allIn && !T.name && n > 1 ? ' They all look like the same person.' : '';
-  const allAre = (who, already) => (n === 1 ? `It is ${already}${who}.` : n === 2 ? `Both are ${already}${who}.`
+  // Faces the user already said are not T count as settled too.
+  const said = (f.ids || []).filter(id => f.rejected && f.rejected.has(id) && !b.inT.includes(id)).length;
+  const allIn = !!(T && f.others && !b.addable.length && !b.others.size && b.inT.length && b.inT.length + said === n);
+  const sameUnnamed = allIn && !said && !T.name && n > 1 ? ' They all look like the same person.' : '';
+  const allAre = (who, already) => (said
+    ? `${b.inT.length.toLocaleString()} already ${who}, ${said.toLocaleString()} you said ${said === 1 ? 'is' : 'are'} not ${who}.`
+    : n === 1 ? `It is ${already}${who}.` : n === 2 ? `Both are ${already}${who}.`
     : `All ${n.toLocaleString()} are ${already}${who}.`);
   let text;
   const nameIn = (nm) => `<span class="faces-bname"><span class="faces-bname-in"><span class="faces-bname-text ft-pm-name" data-faces-name>${escapeHtml(nm)}</span><button type="button" class="faces-pen" data-faces-name aria-label="Rename" title="Rename">${FACES_PEN}</button></span></span>`;

@@ -184,6 +184,8 @@ function buildRouter() {
   router.post('/faces/people/:id/review-faces', on, idParam('id'), h((req) => svc().reviewFaces(req.faceId, req.body || {})));
   router.post('/faces/people/:id/move', on, idParam('id'), h((req) => svc().moveFaces(req.faceId, req.body || {})));
   router.post('/faces/check-faces', on, h((req) => svc().checkFaces(req.body || {})));
+  router.get('/faces/people/:id/to-check', on, idParam('id'), h((req) => svc().personToCheck(req.faceId, req.query || {})));
+  router.post('/faces/people/:id/to-check', on, idParam('id'), h((req) => svc().answerToCheck(req.faceId, req.body || {})));
   router.get('/faces/review', on, h((req) => svc().reviewPairs(req.query || {})));
   router.post('/faces/review', on, h((req) => svc().answerReview(req.body || {})));
 

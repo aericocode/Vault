@@ -25,6 +25,16 @@ const FR_YES_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" 
 const FR_NO_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>';
 const FR_X_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>';
 
+/** The visible width as --fr-vw: a page wider than a phone screen must not push the panel and bars off it. */
+function frSyncViewport() {
+  const w = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+  document.documentElement.style.setProperty('--fr-vw', `${Math.round(w)}px`);
+}
+if (window.visualViewport) window.visualViewport.addEventListener('resize', frSyncViewport);
+window.addEventListener('resize', frSyncViewport);
+frSyncViewport();
+const frVw = () => (window.visualViewport ? window.visualViewport.width : window.innerWidth);
+
 const frEsc = (s) => escapeHtml(String(s ?? ''));
 const frName = (name) => `<span class="ft-pm-name">${frEsc(name)}</span>`;
 /** "Barack Obama" (privacy-wrapped), or "this person" while there is no name. */
@@ -194,9 +204,10 @@ function facesPersonPicker({ anchor, label, excludeId = null, onChosen }) {
   document.body.appendChild(pop);
   frPicker = pop;
   const r = anchor.getBoundingClientRect();
-  const w = Math.min(320, innerWidth - 16);
+  const vw = frVw();
+  const w = Math.min(320, vw - 16);
   pop.style.width = `${w}px`;
-  pop.style.left = `${Math.max(8, Math.min(r.right - w, innerWidth - w - 8))}px`;
+  pop.style.left = `${Math.max(8, Math.min(r.right - w, vw - w - 8))}px`;
   pop.style.bottom = `${Math.max(8, innerHeight - r.top + 8)}px`;
   const host = pop.querySelector('.fr-pick-host');
   const finish = async (to) => {

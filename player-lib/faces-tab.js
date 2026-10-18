@@ -556,6 +556,7 @@ function ftTileHtml(p) {
           ${name ? `<div class="ft-name" title="${ftEsc(name)}">${ftEsc(name)}</div>`
             : `<button class="ft-addname" type="button" data-ft-addname="${p.id}">Name this person</button>`}
           <div class="ft-meta">${ftEsc(ftCardLine(p))}</div>
+          ${p.toCheck ? `<div class="ft-tocheck">${ftPlural(p.toCheck, 'face', 'faces')} to check</div>` : ''}
         </div>
       </div>
     </article>`;
@@ -1365,6 +1366,7 @@ function facesOpenPerson(id, { fromStudio = null } = {}) {
   }
   FT.personId = Number(id);
   FT.might = null;          // a fresh look every time the page opens
+  FT.check = null;
   FT.person = null;
   FT.kind = 'all';
   FT.fileIds = [];
@@ -1419,6 +1421,7 @@ async function ftLoadPerson() {
     FT.person = person;
     if (!FT.counts) ftLoadPeople();   // the header's people count (opened straight into a person)
     if (!FT.might || FT.might.personId !== id) ftLoadMight();
+    if (!FT.check || FT.check.personId !== id) ftLoadCheck();
     FT.fileIds = (files.ids || []);
     FT.fileInfo = files.files || {};
     ftPaintPerson();
@@ -1493,12 +1496,16 @@ function ftPaintPerson() {
       </div>
       ${extra.trim() ? `<div class="ft-side-more">${extra}</div>` : ''}
     </aside>
-    <section class="ft-might" id="ftMight" aria-label="Might also be" hidden></section>
+    <div class="ft-reviews">
+      <section class="ft-might ft-tochk" id="ftCheck" aria-label="Check faces" hidden></section>
+      <section class="ft-might" id="ftMight" aria-label="Might also be" hidden></section>
+    </div>
     <div class="ft-ptools">
       <div class="ft-seg" role="group" aria-label="Show">${seg.map(([k, label, n]) =>
         `<button type="button" class="${FT.kind === k ? 'on' : ''}" data-ft-kind="${k}" aria-pressed="${FT.kind === k}">${label} ${Number(n || 0).toLocaleString()}</button>`).join('')}</div>
       ${ftSizeHtml('ftFileSize', 'files', 'Tile size')}
     </div>`;
+  ftPaintCheck();
   ftPaintMight();
   ftFitSide();
   // "Might also be" arrives (or changes) after the files: when it moves the
@@ -1506,7 +1513,7 @@ function ftPaintPerson() {
   if (typeof ResizeObserver === 'function') {
     if (ftSideRO) ftSideRO.disconnect();
     ftSideRO = new ResizeObserver(() => { if (typeof relayoutLibrary === 'function') relayoutLibrary(false); });
-    host.querySelectorAll('#ftMight, .ft-side').forEach(el => ftSideRO.observe(el));
+    host.querySelectorAll('#ftCheck, #ftMight, .ft-side').forEach(el => ftSideRO.observe(el));
   }
 }
 let ftSideRO = null;
@@ -1994,6 +2001,105 @@ async function ftMightAction(act, btn) {
   } else showToast(msg);
   FT.might = null;       // reloaded fresh with the person
   if (FT.personId === m.personId) ftLoadPerson();
+}
+
+/* ── "Check N faces in X" (round 4) ──────────────────────────────────────
+   Faces locked in this person before 3.8 (naming used to lock every face)
+   that the stricter join rule doubts. Yes keeps the face for good; No takes
+   it out into its own unnamed person, recorded as not this person. */
+
+const FT_CHECK_PAGE = 60;
+
+async function ftLoadCheck({ more = false } = {}) {
+  const id = FT.personId;
+  if (id == null) return;
+  if (!FT.check || FT.check.personId !== id) FT.check = { personId: id, total: 0, items: [], answers: new Map(), seq: 0 };
+  const c = FT.check;
+  const seq = ++c.seq;
+  const qs = new URLSearchParams({ limit: String(FT_CHECK_PAGE), offset: String(more ? c.items.length : 0) });
+  let r;
+  try { r = await ftApi(`/api/faces/people/${id}/to-check?${qs}`, { background: true }); }
+  catch { return; }
+  if (seq !== c.seq || FT.check !== c || FT.personId !== id) return;
+  if (!more) c.items = [];
+  const have = new Set(c.items.map(i => i.groupId));
+  for (const it of r.items || []) if (!have.has(it.groupId)) c.items.push({ ...it, key: String(it.groupId) });
+  c.total = Math.max(r.total || 0, c.items.length);
+  ftPaintCheck();
+}
+
+function ftPaintCheck() {
+  const el = document.getElementById('ftCheck');
+  if (!el) return;
+  const c = FT.check;
+  const p = FT.person;
+  if (!c || !p || c.personId !== FT.personId || !c.items.length) { el.hidden = true; el.innerHTML = ''; return; }
+  const who = p.name ? `<span class="ft-pm-name">${ftEsc(p.name)}</span>` : 'this person';
+  let yes = 0, no = 0;
+  for (const a of c.answers.values()) { if (a === 'yes') yes++; else if (a === 'no') no++; }
+  const hadFocus = el.contains(document.activeElement) ? document.activeElement : null;
+  const focusKey = hadFocus && hadFocus.closest('.fr-card') ? hadFocus.closest('.fr-card').dataset.frKey : null;
+  const focusAns = hadFocus && hadFocus.dataset ? hadFocus.dataset.frAns : null;
+  const rest = c.total - c.items.length;
+  el.hidden = false;
+  el.setAttribute('aria-label', p.name && !ftPrivate() ? `Check faces in ${p.name}` : 'Check faces in this person');
+  el.innerHTML = `
+    <div class="ft-might-h">
+      <h2>Check ${ftPlural(c.total, 'face', 'faces')} in ${who}</h2>
+      <span>Vault put ${c.total === 1 ? 'this face' : 'these faces'} in ${who} earlier, and ${c.total === 1 ? 'it does' : 'they do'} not look much like ${p.name ? 'them' : 'this person'}. Is this ${who}?</span>
+    </div>
+    <div class="fr-cards" role="list" aria-label="Faces to check">${c.items.map(i => frCardHtml(i, c.answers.get(i.groupId), { who, strong: false })).join('')}</div>
+    ${rest > 0 ? `<div class="ft-might-more"><button class="ft-link" type="button" data-ft-check="more">Show ${Math.min(rest, FT_CHECK_PAGE).toLocaleString()} more</button></div>` : ''}
+    <div class="ft-might-foot">
+      <span class="fr-note"><b>${yes.toLocaleString()}</b> yes, <b>${no.toLocaleString()}</b> no. Yes keeps the face in ${who}. No takes it out.</span>
+      <button class="ft-btn ft-btn-md" type="button" data-ft-check="save"${yes || no ? '' : ' disabled'}>Save my answers</button>
+    </div>`;
+  if (typeof hydrateThumbs === 'function') hydrateThumbs(el);
+  frKeys(el, {
+    answer: (key, a, { toggle }) => {
+      const cc = FT.check;
+      if (!cc) return;
+      const g = Number(key);
+      if (toggle && cc.answers.get(g) === a) cc.answers.delete(g); else cc.answers.set(g, a);
+      ftPaintCheck();
+    },
+    frame: (key, card) => frShowFrame(FT.check && FT.check.items.find(i => i.key === key), card.querySelector('.fr-face-btn')),
+  });
+  if (!el._ftCheckWired) {
+    el._ftCheckWired = true;
+    el.addEventListener('click', (e) => {
+      const b = e.target instanceof Element ? e.target.closest('[data-ft-check]') : null;
+      if (!b || b.disabled) return;
+      if (b.dataset.ftCheck === 'more') ftLoadCheck({ more: true });
+      else ftSaveCheck(b);
+    });
+  }
+  if (focusKey) {
+    const card = el.querySelector(`.fr-card[data-fr-key="${focusKey}"]`);
+    const t = card && (focusAns ? card.querySelector(`[data-fr-ans="${focusAns}"]`) : card.querySelector('.fr-face-btn'));
+    if (t) t.focus();
+  }
+}
+
+async function ftSaveCheck(btn) {
+  const c = FT.check;
+  if (!c || c.personId !== FT.personId) return;
+  const keep = [], remove = [];
+  for (const [g, a] of c.answers) (a === 'yes' ? keep : remove).push(g);
+  if (!keep.length && !remove.length) return;
+  btn.disabled = true;
+  let r;
+  try { r = await ftApi(`/api/faces/people/${c.personId}/to-check`, { method: 'POST', json: { keep, remove } }); }
+  catch (err) { facesToastError(err); btn.disabled = false; return; }
+  const k = (r.kept || []).length, o = (r.removed || []).length;
+  const said = [];
+  if (k) said.push(k === 1 ? 'Kept 1 face.' : `Kept ${k.toLocaleString()} faces.`);
+  if (o) said.push(o === 1 ? 'Took 1 face out. It will not be put back by itself.' : `Took ${o.toLocaleString()} faces out. They will not be put back by themselves.`);
+  showToast(said.join(' ') || 'Nothing changed.');
+  FT.faces.delete(c.personId);
+  FT.check = null;
+  FT.might = null;
+  if (FT.personId === c.personId) ftLoadPerson();
 }
 
 /* ── Person grid tiles: "▶ from 0:04", "✕ Not this person" ────────────── */

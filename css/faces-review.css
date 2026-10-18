@@ -69,7 +69,10 @@ body.faces-picking .media-tile:hover .tile-thumb:has(.faces-tchk) .faces-who { l
 body.faces-picking #resultsGrid,
 body.faces-picking .main-container { padding-bottom: 90px; }
 .faces-pickbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 960;
+  /* --fr-vw: the visible width (faces-review.js), so a page wider than the
+     screen (phones) never pushes the bar off it. */
+  position: fixed; left: 0; right: auto; bottom: 0; z-index: 960; box-sizing: border-box;
+  width: var(--fr-vw, 100vw); max-width: 100vw;
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   background: var(--bg-secondary); border-top: 1px solid var(--border); padding: 12px 16px;
 }
@@ -151,7 +154,8 @@ body.pm-thumbs .fr-src img, body.pm-thumbs .fr-frame-media, body.pm-thumbs .fr-s
 /* ── F2a: the review panel ── */
 .fr-backdrop { position: fixed; inset: 0; z-index: 940; background: rgba(0, 0, 0, 0.55); }
 .fr-panel {
-  position: fixed; top: 0; right: 0; bottom: 0; z-index: 950; width: 600px; max-width: 100vw; box-sizing: border-box;
+  position: fixed; top: 0; bottom: 0; z-index: 950; box-sizing: border-box;
+  right: auto; left: max(0px, calc(var(--fr-vw, 100vw) - 600px)); width: min(600px, var(--fr-vw, 100vw)); max-width: 100vw;
   background: #141414; border-left: 1px solid var(--border); display: flex; flex-direction: column;
   box-shadow: -12px 0 32px rgba(0, 0, 0, 0.5);
 }
@@ -174,12 +178,12 @@ body.pm-thumbs .fr-src img, body.pm-thumbs .fr-frame-media, body.pm-thumbs .fr-s
 
 /* ── The whole frame / photo ── */
 .fr-frame-ov {
-  position: fixed; inset: 0; z-index: 9300; background: rgba(0, 0, 0, 0.85);
+  position: fixed; top: 0; bottom: 0; left: 0; right: auto; width: var(--fr-vw, 100vw); max-width: 100vw; z-index: 9300; background: rgba(0, 0, 0, 0.85);
   display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box;
 }
 .fr-frame { display: flex; flex-direction: column; gap: 10px; align-items: center; max-width: 100%; max-height: 100%; }
 .fr-frame-box { position: relative; display: inline-block; line-height: 0; max-width: 100%; }
-.fr-frame-media { display: block; max-width: min(1200px, calc(100vw - 32px)); max-height: calc(100vh - 110px); }
+.fr-frame-media { display: block; max-width: min(1200px, calc(var(--fr-vw, 100vw) - 32px)); max-height: calc(100vh - 110px); }
 .fr-box {
   position: absolute; border: 3px solid #f59e0b; border-radius: 4px; box-sizing: border-box;
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.25); pointer-events: none;
@@ -188,7 +192,7 @@ body.pm-thumbs .fr-src img, body.pm-thumbs .fr-frame-media, body.pm-thumbs .fr-s
 
 /* ── F3: Compare ── */
 .fr-cmp-ov {
-  position: fixed; inset: 0; z-index: 955; background: rgba(0, 0, 0, 0.6);
+  position: fixed; top: 0; bottom: 0; left: 0; right: auto; width: var(--fr-vw, 100vw); max-width: 100vw; z-index: 955; background: rgba(0, 0, 0, 0.6);
   overflow: auto; padding: 20px 16px; box-sizing: border-box;
 }
 .fr-cmp {
@@ -225,8 +229,15 @@ body.pm-thumbs .fr-src img, body.pm-thumbs .fr-frame-media, body.pm-thumbs .fr-s
   .fr-cards { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
 }
 @media (max-width: 480px) {
-  .fr-panel { width: 100vw; border-left: 0; }
+  .fr-panel { border-left: 0; }
   .fr-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .fr-foot .faces-lg, .faces-pickbar .faces-lg { flex: 1 1 auto; }
   .fr-sum, .faces-pick-sum { flex-basis: 100%; }
+}
+
+/* ── "Check N faces in X" (person page) and its hint on the person card ── */
+.ft-might.ft-tochk { border-color: #f59e0b; }
+.ft-tocheck {
+  display: inline-block; align-self: flex-start; width: max-content; max-width: 100%; margin-top: 3px; font-size: 0.6875rem; font-weight: 600; padding: 1px 7px;
+  border-radius: 4px; background: rgba(245, 158, 11, 0.9); color: #111;
 }

@@ -552,7 +552,7 @@ body.pm-names .ft-cmeta { filter: blur(7px); }
 #mainContainer.faces-person #ftPerson { display: contents; }
 #mainContainer.faces-person .ft-crumb { grid-column: 1 / -1; grid-row: 1; }
 #mainContainer.faces-person .ft-side { grid-column: 1; grid-row: 2 / -1; }
-#mainContainer.faces-person .ft-might { grid-column: 2; grid-row: 2; }
+#mainContainer.faces-person .ft-reviews { grid-column: 2; grid-row: 2; min-width: 0; }
 #mainContainer.faces-person .ft-ptools { grid-column: 2; grid-row: 3; }
 #mainContainer.faces-person > .results-info { grid-column: 2; grid-row: 4; }
 #mainContainer.faces-person > #resultsGrid { grid-column: 2; grid-row: 5; }

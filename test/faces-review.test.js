@@ -174,13 +174,20 @@ test('join rule in the sorter: a clear face joins; an ambiguous one (no margin) 
 
 test('re-check: automatic faces that fail the new rule leave their person (recheck_from); confirmed, hidden, covers and hidden people stay; runs once', async () => {
   const names = { r1: [like(20, 0.45, 110)], r2: [like(20, 0.45, 111)], r3: [like(20, 0.45, 112)], r5: [like(20, 0.45, 114)],
-    r6: [like(20, 0.85, 115)], h1: [person(22)], r4: [like(22, 0.45, 113)] };
+    r6: [like(20, 0.85, 115)], h1: [person(22)], r4: [like(22, 0.45, 113)],
+    r8: [like(20, 0.45, 117)], r9: [like(20, 0.45, 118)], w1: [person(27)], w2: [like(27, 0.9, 119)], uq: [like(27, 0.4, 127)] };
   for (const [n, v] of Object.entries(names)) { addFile(`${n}.jpg`); fk.fileScripts.set(files[`${n}.jpg`], { groups: v.map(x => group(x)) }); }
   await index(Object.keys(names).map(n => `${n}.jpg`));
   // What an older, looser rule left behind: all in Xena, automatic ...
-  autoJoin(['r1.jpg', 'r2.jpg', 'r3.jpg', 'r5.jpg', 'r6.jpg'], P.x);
+  autoJoin(['r1.jpg', 'r2.jpg', 'r3.jpg', 'r5.jpg', 'r6.jpg', 'r8.jpg', 'r9.jpg'], P.x);
   // ... except r2, which the user put there; r3 is a hidden face; r5 is Xena's chosen cover.
-  run('UPDATE face_groups SET person_locked = 1 WHERE id = ?', gid('r2.jpg'));
+  run('UPDATE face_groups SET person_locked = 1, confirmed = 1 WHERE id = ?', gid('r2.jpg'));
+  // r8, r9: locked by 3.7's naming (every face of a person it named), never confirmed one by one.
+  run('UPDATE face_groups SET person_locked = 1, confirmed = 0 WHERE id IN (?, ?)', gid('r8.jpg'), gid('r9.jpg'));
+  // An unnamed person with a weak locked face (a 3.7 merge): not asked about.
+  const pu = pidOf('w1.jpg');
+  autoJoin(['w2.jpg', 'uq.jpg'], pu);
+  run('UPDATE face_groups SET person_locked = 1 WHERE id = ?', gid('uq.jpg'));
   run('UPDATE face_groups SET hidden = 1 WHERE id = ?', gid('r3.jpg'));
   run('UPDATE face_people SET cover_group_id = ? WHERE id = ?', gid('r5.jpg'), P.x);
   // A hidden person with a weak automatic face.
@@ -201,6 +208,16 @@ test('re-check: automatic faces that fail the new rule leave their person (reche
   assert.strictEqual(one("SELECT value FROM face_meta WHERE key = 'join_rule'").value, JOIN_RULE);
   assert.strictEqual(one("SELECT value FROM face_meta WHERE key = 'join_recheck'"), undefined);
   assert.strictEqual(svc._sorter.lastRecheck().out, 1);
+  // Locked faces of a named person are never moved: they are asked about.
+  for (const n of ['r8.jpg', 'r9.jpg']) {
+    assert.deepStrictEqual(one('SELECT cluster_id, person_locked, recheck_ask FROM face_groups WHERE id = ?', gid(n)), { cluster_id: P.x, person_locked: 1, recheck_ask: P.x }, n);
+  }
+  for (const n of ['r2.jpg', 'r5.jpg', 'r6.jpg', 'x1.jpg']) assert.strictEqual(one('SELECT recheck_ask FROM face_groups WHERE id = ?', gid(n)).recheck_ask, null, n);
+  assert.strictEqual(svc._sorter.lastRecheck().asked, 2);
+  assert.deepStrictEqual([pidOf('uq.jpg'), one('SELECT recheck_ask FROM face_groups WHERE id = ?', gid('uq.jpg')).recheck_ask], [pu, null]);
+  const xena = (await get('/api/faces/people?filter=named')).body.people.find(p => p.id === P.x);
+  assert.strictEqual(xena.toCheck, 2, 'the Faces grid shows "2 faces to check"');
+  assert.strictEqual((await get(`/api/faces/people/${P.x}`)).body.toCheck, 2);
   // "Might also be" offers it back to Xena (0.44 is under every tier), until answered.
   const c = await get(`/api/faces/people/${P.x}/candidates?limit=50`);
   const it = c.body.items.find(i => i.personId === r1.cluster_id);
@@ -220,6 +237,49 @@ test('re-check: automatic faces that fail the new rule leave their person (reche
   assert.notStrictEqual(pidOf('r7.jpg'), P.x, 'checked again after a model switch');
   assert.strictEqual(groupRow('r7.jpg').recheck_from, P.x);
   for (const n of ['r2.jpg', 'r5.jpg', 'r6.jpg']) assert.strictEqual(pidOf(n), P.x, n);
+});
+
+test('naming locks nothing (3.8); a chosen cover and an add confirm the face', async () => {
+  for (const n of ['x1.jpg', 'x2.jpg', 'y1.jpg']) {
+    assert.deepStrictEqual(one('SELECT person_locked, confirmed FROM face_groups WHERE id = ?', gid(n)), { person_locked: 0, confirmed: 0 }, n);
+  }
+  assert.strictEqual((await post(`/api/faces/people/${P.y}`, { name: 'Yuri B' })).status, 200);
+  assert.strictEqual(one('SELECT person_locked FROM face_groups WHERE id = ?', gid('y2.jpg')).person_locked, 0, 'a rename neither');
+  assert.strictEqual((await post(`/api/faces/people/${P.y}`, { name: 'Yuri', coverGroupId: gid('y2.jpg') })).status, 200);
+  assert.deepStrictEqual(one('SELECT person_locked, confirmed FROM face_groups WHERE id = ?', gid('y2.jpg')), { person_locked: 1, confirmed: 1 });
+  assert.strictEqual(one('SELECT person_locked FROM face_groups WHERE id = ?', gid('y1.jpg')).person_locked, 0);
+});
+
+test('check faces: GET lists the asked faces; Yes keeps (confirmed, never asked again), No takes out (own person, not-X)', async () => {
+  const g8 = gid('r8.jpg'), g9 = gid('r9.jpg');
+  const l = await get(`/api/faces/people/${P.x}/to-check`);
+  assert.strictEqual(l.status, 200);
+  assert.strictEqual(l.body.total, 2);
+  assert.deepStrictEqual(l.body.items.map(i => i.groupId), [g8, g9]);
+  assert.strictEqual(l.body.items[0].filename, 'r8.jpg');
+  for (const b of [{}, { keep: [g8], remove: [g8] }, { keep: 'x' }]) {
+    assert.strictEqual((await post(`/api/faces/people/${P.x}/to-check`, b)).status, 400, JSON.stringify(b));
+  }
+  const r = await post(`/api/faces/people/${P.x}/to-check`, { keep: [g8], remove: [g9, gid('x1.jpg')] });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+  assert.deepStrictEqual(r.body.kept, [g8]);
+  assert.strictEqual(r.body.removed.length, 1);
+  assert.deepStrictEqual(r.body.skipped, [{ groupId: gid('x1.jpg'), reason: 'moved-on' }]);
+  assert.deepStrictEqual(one('SELECT cluster_id, person_locked, confirmed, recheck_ask FROM face_groups WHERE id = ?', g8),
+    { cluster_id: P.x, person_locked: 1, confirmed: 1, recheck_ask: null });
+  const out = one('SELECT cluster_id, person_locked, recheck_ask FROM face_groups WHERE id = ?', g9);
+  assert.strictEqual(out.cluster_id, r.body.removed[0].personId);
+  assert.notStrictEqual(out.cluster_id, P.x);
+  assert.deepStrictEqual([out.person_locked, out.recheck_ask], [0, null]);
+  assert.strictEqual(one('SELECT name FROM face_people WHERE id = ?', out.cluster_id).name, null);
+  assert.ok(one('SELECT 1 FROM face_person_rejects WHERE person_id = ? AND group_id = ?', P.x, g9), 'recorded as not Xena');
+  assert.strictEqual(r.body.person.toCheck, 0);
+  assert.strictEqual((await get(`/api/faces/people/${P.x}/to-check`)).body.total, 0);
+  // Another re-check (a new rule, a model switch) never asks about the kept face again.
+  forgetRule();
+  await svc.sortPeopleNow();
+  assert.deepStrictEqual(one('SELECT cluster_id, recheck_ask FROM face_groups WHERE id = ?', g8), { cluster_id: P.x, recheck_ask: null });
+  assert.notStrictEqual(pidOf('r9.jpg'), P.x, 'and the No stays out');
 });
 
 test('re-check: a library with nothing sorted yet is marked done without a walk', () => {
@@ -404,6 +464,9 @@ test('older versions: the schema change is one nullable column; their writes sti
   assert.ok(col);
   assert.strictEqual(col.notnull, 0);
   assert.strictEqual(col.dflt_value, null);
+  const conf = cols.find(c => c.name === 'confirmed'), ask = cols.find(c => c.name === 'recheck_ask');
+  assert.deepStrictEqual([conf.notnull, conf.dflt_value], [1, '0'], 'confirmed: 0 for every older row');
+  assert.deepStrictEqual([ask.notnull, ask.dflt_value], [0, null]);
   // 3.7's saveFileResult INSERT (no recheck_from) on the new schema.
   const stamp = new Date().toISOString();
   const g = Number(db.get().prepare(`INSERT INTO face_groups
@@ -421,10 +484,13 @@ test('older versions: the schema change is one nullable column; their writes sti
   const raw = new Raw(file);
   raw.exec('DROP INDEX IF EXISTS idx_face_groups_recheck');
   raw.exec('ALTER TABLE face_groups DROP COLUMN recheck_from');
+  raw.exec('DROP INDEX IF EXISTS idx_face_groups_ask');
+  raw.exec('ALTER TABLE face_groups DROP COLUMN recheck_ask');
+  raw.exec('ALTER TABLE face_groups DROP COLUMN confirmed');
   raw.exec("DELETE FROM face_meta WHERE key IN ('join_rule', 'join_recheck')");
   raw.close();
   db.init(file);
-  assert.ok(db.get().prepare('PRAGMA table_info(face_groups)').all().some(c => c.name === 'recheck_from'));
+  for (const c of ['recheck_from', 'confirmed', 'recheck_ask']) assert.ok(db.get().prepare('PRAGMA table_info(face_groups)').all().some(x => x.name === c), c);
   assert.ok(db.get().prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_face_groups_recheck'").get());
   assert.strictEqual(one('SELECT COUNT(*) AS n FROM face_groups').n, before);
   assert.strictEqual(one('SELECT COUNT(*) AS n FROM face_people WHERE name IS NOT NULL').n, named);
