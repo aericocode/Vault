@@ -439,7 +439,8 @@
     { id: 'guides',    label: '📖 Guides' },
     { id: 'models',    label: '🧠 Models' },
     { id: 'seedpacks', label: '📦 Seed packs' },
-    { id: 'cove',      label: '⛵ Move to Cove' },
+    // Move to Cove is hidden until it is ready (the routes and lib/cove stay).
+    // { id: 'cove',      label: '⛵ Move to Cove' },
     // Near the bottom on purpose: everything in here is about the machine, not
     // the library, and most people never need to open it. About stays last so
     // the nav always ends on the same entry.

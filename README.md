@@ -48,7 +48,7 @@ Each of the following features adds one optional dependency:
 | Thumbnails, hover-scrub, beat bar | ffmpeg, **one click**: Vault offers to download it on first launch |
 | Subtitles / transcription | Python + faster-whisper |
 | Music ID | fpcalc, same one-click banner |
-| Face search | two small models (about 39 MB), one click when you turn it on: [guide](SETUP.md#8-face-search) |
+| Face search | face models (about 213 MB), one click when you turn it on: [guide](SETUP.md#7-face-search) |
 
 See [SETUP.md](SETUP.md) for the full walkthrough and model recommendations by VRAM.
 
