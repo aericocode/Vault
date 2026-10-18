@@ -28,14 +28,13 @@
   gap: 0.35rem;
 }
 
-/* Six tabs since the Wall joined. Below 1700px the header would otherwise
-   wrap to a second line at widths where five tabs fitted on one, so the tabs
-   get a little tighter there: the bar ends up no wider than the five-tab bar
-   was. Wide windows keep the roomier tabs. */
-@media (max-width: 1699px) {
-  .app-tabs { gap: 0.1rem; }
-  .app-tab { padding-left: 0.5rem; padding-right: 0.5rem; }
-}
+/* Fitting the header on one line (player-lib/header-fit.js measures it).
+   First step: slightly tighter tabs. Second step: the tabs other than the
+   open one show their icon only, with the name in the tooltip. If even that
+   cannot keep the header on one line, the tabs go back to full size. */
+.header.tabs-tight .app-tabs { gap: 0.1rem; }
+.header.tabs-tight .app-tab { padding-left: 0.5rem; padding-right: 0.5rem; }
+.header.tabs-collapsed .app-tab:not(.active) .app-tab-name { display: none; }
 
 .app-tab:hover {
   color: var(--text-primary);

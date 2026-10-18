@@ -1236,6 +1236,9 @@
 
   function RENDERERS_library() {
     return `
+      <h3 class="settings-h">Library file</h3>
+      <p class="settings-note" id="settingsDbFile">Asking the server…</p>
+
       <h3 class="settings-h">Deleting files</h3>
       ${deleteModeRow()}
 
@@ -1553,6 +1556,18 @@
   }
 
   function wireLibrarySection() {
+    // Which database file this server is serving (the Modern header only
+    // shows it in the count's tooltip).
+    fetch('/api/dbinfo').then(r => (r.ok ? r.json() : null)).then(info => {
+      const el = document.getElementById('settingsDbFile');
+      if (!el) return;
+      if (!info) { el.textContent = 'Could not ask the server.'; return; }
+      el.innerHTML = `<strong>${escapeHtml(info.filename)}</strong><br><code>${escapeHtml(info.path)}</code>`;
+    }).catch(() => {
+      const el = document.getElementById('settingsDbFile');
+      if (el) el.textContent = 'Could not ask the server.';
+    });
+
     document.querySelectorAll('[data-delete-mode]').forEach(btn => {
       btn.addEventListener('click', () => {
         if (typeof setDeleteMode === 'function') setDeleteMode(btn.dataset.deleteMode);

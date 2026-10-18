@@ -30,6 +30,125 @@ body.layout-modern .games-container {
   }
 }
 
+/* ── Header: one quiet line ─────────────────────────────────────────────
+   Count as small muted text (database name in its tooltip), then on the
+   right: status pill, one Add menu, Refresh as an icon, the gear.
+   player-lib/header-fit.js keeps the short count, the Add menu and the
+   pill's data-status in step; the tab fit is shared with Classic. */
+body.layout-modern .header {
+  padding-top: 0.7rem;
+  padding-bottom: 0.7rem;
+}
+
+body.layout-modern #totalCount,
+body.layout-modern #dbFileName,
+body.layout-modern #addFilesBtn,
+body.layout-modern #addFolderBtn {
+  display: none;
+}
+
+.hdr-count {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: default;
+}
+
+body.layout-modern .header-buttons { align-items: center; }
+body.layout-modern #gamifyChip   { order: 1; }
+body.layout-modern #lovenseChip  { order: 2; }
+body.layout-modern #hdrAdd       { order: 3; }
+body.layout-modern #refreshBtn   { order: 4; }
+body.layout-modern #settingsGear { order: 5; }
+
+/* Status pill: the streak chip and the device chip read as one pill with a
+   divider. Each half is still its own button. */
+body.layout-modern #gamifyChip,
+body.layout-modern #lovenseChip {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding-left: 0.8rem;
+  padding-right: 0.8rem;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}
+body.layout-modern #gamifyChip:hover,
+body.layout-modern #lovenseChip:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+body.layout-modern .header-buttons[data-status="both"] #gamifyChip {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0;
+  padding-right: 0.65rem;
+}
+body.layout-modern .header-buttons[data-status="both"] #lovenseChip {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  margin-left: -0.5rem;          /* cancels the row gap: the halves touch */
+  padding-left: 0.65rem;
+}
+
+/* Add menu */
+.hdr-add { position: relative; display: flex; }
+.hdr-add[hidden] { display: none; }
+.hdr-add-btn.is-busy { opacity: 0.6; }
+.hdr-add-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 200;
+  min-width: 170px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+.hdr-add-menu[hidden] { display: none; }
+.hdr-add-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 0.5rem 0.75rem;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.hdr-add-item[hidden] { display: none; }
+.hdr-add-item:hover,
+.hdr-add-item:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
+}
+.hdr-add-item:disabled { opacity: 0.5; cursor: default; }
+
+/* Refresh as an icon: same green outline and busy state, the word kept for
+   screen readers (the title gives the tooltip). */
+body.layout-modern #refreshBtn {
+  padding-left: 0.6rem;
+  padding-right: 0.6rem;
+}
+body.layout-modern #refreshBtn .hb-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 /* ── Card size slider (library toolbar) ───────────────────────────────── */
 .card-size-control {
   display: flex;

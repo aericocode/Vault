@@ -75,19 +75,32 @@
         Vault
       </div>
       <nav class="app-tabs" id="appTabs">
-        <button class="app-tab active" data-tab="library" onclick="switchTab('library')">📚 Library</button>
-        <button class="app-tab" data-tab="collections" onclick="switchTab('collections')">📁 Collections</button>
-        <button class="app-tab" data-tab="faces" onclick="switchTab('faces')">👤 Faces</button>
-        <button class="app-tab" data-tab="editor" onclick="switchTab('editor')">🎨 Editor<span class="app-tab-badge" id="editorTabBadge" style="display:none;"></span></button>
-        <button class="app-tab" data-tab="games" onclick="switchTab('games')">🎮 Games</button>
-        <button class="app-tab" data-tab="wall" onclick="switchTab('wall')">🧱 Wall</button>
+        <button class="app-tab active" data-tab="library" onclick="switchTab('library')" aria-label="Library"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">📚 </span><span class="app-tab-name">Library</span></span></button>
+        <button class="app-tab" data-tab="collections" onclick="switchTab('collections')" aria-label="Collections"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">📁 </span><span class="app-tab-name">Collections</span></span></button>
+        <button class="app-tab" data-tab="faces" onclick="switchTab('faces')" aria-label="Faces"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">👤 </span><span class="app-tab-name">Faces</span></span></button>
+        <button class="app-tab" data-tab="editor" onclick="switchTab('editor')" aria-label="Editor"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">🎨 </span><span class="app-tab-name">Editor</span></span><span class="app-tab-badge" id="editorTabBadge" style="display:none;"></span></button>
+        <button class="app-tab" data-tab="games" onclick="switchTab('games')" aria-label="Games"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">🎮 </span><span class="app-tab-name">Games</span></span></button>
+        <button class="app-tab" data-tab="wall" onclick="switchTab('wall')" aria-label="Wall"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">🧱 </span><span class="app-tab-name">Wall</span></span></button>
       </nav>
       <div class="db-info">
         <strong id="totalCount">Loading…</strong>
+        <!-- Modern look: the count as short muted text with the database name in
+             its tooltip (player-lib/header-fit.js keeps it in step with #totalCount) -->
+        <span class="hdr-count modern-only" id="headerCountShort"></span>
       </div>
       <div class="header-buttons">
+        <!-- Modern look: one Add button with a small menu. Its entries click the
+             real Add files / Add folder buttons (importer.js), which Modern hides. -->
+        <div class="hdr-add modern-only" id="hdrAdd">
+          <button type="button" class="header-btn hdr-add-btn" id="hdrAddBtn" aria-haspopup="menu"
+                  aria-expanded="false" aria-controls="hdrAddMenu" title="Add files or a folder to the library">＋ Add</button>
+          <div class="hdr-add-menu" id="hdrAddMenu" role="menu" aria-label="Add to the library" hidden>
+            <button type="button" class="hdr-add-item" role="menuitem" tabindex="-1" data-add-for="addFilesBtn">📄 Add files</button>
+            <button type="button" class="hdr-add-item" role="menuitem" tabindex="-1" data-add-for="addFolderBtn">📁 Add folder</button>
+          </div>
+        </div>
         <button class="header-btn refresh-btn" id="refreshBtn" title="Reload library from server">
-          🔄 Refresh
+          <span class="hb-text"><span class="hb-ic">🔄 </span><span class="hb-label">Refresh</span></span>
         </button>
       </div>
     </div>
@@ -480,6 +493,9 @@
   <script src="./player-lib/tabs.js"></script>
   <script src="./player-lib/settings.js"></script>
   <script src="./player-lib/layout-modern.js"></script>
+  <!-- Header fit: tab names fold to icons when the header would wrap, plus the
+       Modern header's Add menu, status pill and short count. -->
+  <script src="./player-lib/header-fit.js"></script>
   <script src="./player-lib/setup-check.js"></script>
   <script src="./player-lib/tooltip.js"></script>
   <!-- Face search (FACES_BUILD_SPEC 8). Hooks: detail-view, filters,
