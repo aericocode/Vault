@@ -965,8 +965,10 @@ function facesCloseMenu() { document.getElementById('facesMenu')?.remove(); }
  * results' review and picking mode do that, one face at a time.
  */
 function facesSelectionButton(n) {
-  if (!facesReady() || !n) return '';
-  return `<button class="sel-btn sel-faces" onclick="facesIndexSelection()"
+  if (!facesReady()) return '';
+  const out = typeof ftRemoveSelectedButton === 'function' && typeof selectedIds !== 'undefined' ? ftRemoveSelectedButton(selectedIds.size) : '';
+  if (!n) return out;
+  return `${out}<button class="sel-btn sel-faces" onclick="facesIndexSelection()"
     title="Find faces in the selected files">👤 Faces (${n})</button>`;
 }
 

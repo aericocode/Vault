@@ -591,6 +591,58 @@ test('re-read claims: by score across named people, never confirmed by place, ne
   assert.deepStrictEqual(rows('d5.jpg').map(r => [r.p, r.c, r.a]), [[P.y, 1, null]]);
 });
 
+test('"Remove selected from X": not-in for several files at once, files without them skipped; restore undoes it', async () => {
+  const ns = ['m1.jpg', 'm2.jpg', 'm3.jpg', 'm4.jpg'];
+  ns.forEach((n, i) => { addFile(n); fk.fileScripts.set(files[n], { groups: [group(like(55, 0.9, 80 + i))] }); });
+  await index(ns);
+  const pm = pidOf('m1.jpg');
+  for (const n of ns) assert.strictEqual(pidOf(n), pm, n);
+  assert.strictEqual((await post(`/api/faces/people/${pm}`, { name: 'Mia' })).status, 200);
+  for (const b of [{ mediaIds: [] }, { mediaIds: ['x'] }, { mediaIds: [ids['m1.jpg'], ids['m1.jpg']] }, { mediaIds: Array.from({ length: 501 }, (_, i) => i + 1) }]) {
+    assert.strictEqual((await post(`/api/faces/people/${pm}/not-in`, b)).status, 400, JSON.stringify(b).slice(0, 60));
+  }
+  assert.strictEqual((await post(`/api/faces/people/${pm}/not-in`, { mediaIds: [ids['x1.jpg']] })).status, 404, 'Mia is in none of them');
+  const r = await post(`/api/faces/people/${pm}/not-in`, { mediaIds: [ids['m1.jpg'], ids['m2.jpg'], ids['x1.jpg']] });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+  assert.deepStrictEqual(r.body.skippedFiles, [ids['x1.jpg']]);
+  assert.deepStrictEqual(r.body.moved.map(m => m.groupId).sort(), [gid('m1.jpg'), gid('m2.jpg')].sort());
+  assert.strictEqual(r.body.person.files, 2);
+  for (const n of ['m1.jpg', 'm2.jpg']) {
+    assert.notStrictEqual(pidOf(n), pm, n);
+    assert.ok(one('SELECT 1 FROM face_person_rejects WHERE person_id = ? AND group_id = ?', pm, gid(n)), `${n}: not Mia`);
+  }
+  assert.strictEqual(pidOf('x1.jpg'), P.x, 'a file Mia is not in is untouched');
+  const u = await post(`/api/faces/people/${pm}/restore`, { groupIds: r.body.moved.map(m => m.groupId) });
+  assert.strictEqual(u.status, 200);
+  assert.strictEqual(u.body.files, 4);
+  for (const n of ns) assert.strictEqual(pidOf(n), pm, n);
+});
+
+test('"Same person?" answers in one go: merges follow earlier merges, a pair that became one is skipped, not-the-same is remembered', async () => {
+  const ns = ['s1.jpg', 's2.jpg', 's3.jpg', 's4.jpg'];
+  ns.forEach((n, i) => { addFile(n); fk.fileScripts.set(files[n], { groups: [group(person(56 + i))] }); });
+  await index(ns);
+  const [p1, p2, p3, p4] = ns.map(pidOf);
+  assert.strictEqual(new Set([p1, p2, p3, p4]).size, 4);
+  for (const b of [{}, { answers: [] }, { answers: [{ a: p1, b: p1, answer: 'same' }] }, { answers: [{ a: p1, b: p2, answer: 'maybe' }] }]) {
+    assert.strictEqual((await post('/api/faces/review/answers', b)).status, 400, JSON.stringify(b));
+  }
+  const r = await post('/api/faces/review/answers', { answers: [
+    { a: p1, b: p2, answer: 'same' },
+    { a: p2, b: p3, answer: 'same' },      // p2 is in p1's person now: followed
+    { a: p3, b: p1, answer: 'same' },      // already one person: skipped
+    { a: p1, b: p4, answer: 'different' },
+  ] });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+  assert.strictEqual(r.body.done.length, 3);
+  assert.deepStrictEqual(r.body.skipped.map(x => x.reason), ['same-person-now']);
+  const into = r.body.done[1].into;
+  for (const n of ['s1.jpg', 's2.jpg', 's3.jpg']) assert.strictEqual(pidOf(n), into, n);
+  assert.notStrictEqual(pidOf('s4.jpg'), into);
+  assert.ok(one("SELECT 1 FROM face_pair_decisions WHERE a = ? AND b = ? AND decision = 'different'", Math.min(into, p4), Math.max(into, p4)));
+  assert.strictEqual((await post('/api/faces/review/answers', { answers: [{ a: 999998, b: p4, answer: 'same' }] })).body.skipped[0].reason, 'gone');
+});
+
 /* ── Older versions ────────────────────────────────────────────────────── */
 
 test('older versions: the schema change is one nullable column; their writes still work; a pre-3.8 library upgrades in place', () => {

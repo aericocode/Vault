@@ -188,6 +188,7 @@ function buildRouter() {
   router.post('/faces/people/:id/to-check', on, idParam('id'), h((req) => svc().answerToCheck(req.faceId, req.body || {})));
   router.get('/faces/review', on, h((req) => svc().reviewPairs(req.query || {})));
   router.post('/faces/review', on, h((req) => svc().answerReview(req.body || {})));
+  router.post('/faces/review/answers', on, h((req) => svc().answerReviewMany(req.body || {})));
 
   router.post('/faces/delete-all', h(() => svc().deleteAll()));
 

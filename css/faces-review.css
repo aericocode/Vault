@@ -245,3 +245,27 @@ body.pm-thumbs .fr-src img, body.pm-thumbs .fr-frame-media, body.pm-thumbs .fr-s
   display: inline-block; align-self: flex-start; width: max-content; max-width: 100%; margin-top: 3px; font-size: 0.6875rem; font-weight: 600; padding: 1px 7px;
   border-radius: 4px; background: rgba(245, 158, 11, 0.9); color: #111;
 }
+
+/* ── Section headings with their bulk buttons (every review section) ── */
+.fr-secth-acts { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.fr-secth-acts .ft-btn-md { font-size: 0.78rem; padding: 0.38rem 0.75rem; }
+.fr-body > .fr-secth:first-child { margin-top: 0; }
+
+/* ── "Same person?" pairs in the panel (faces-review.js fpPaint) ── */
+.fp-cards { grid-template-columns: 1fr; }
+.fp-pair {
+  display: flex; align-items: flex-start; justify-content: center; gap: 10px;
+  padding: 12px 10px 4px; cursor: default; height: auto;
+}
+.fp-side { flex: 1 1 0; min-width: 0; text-align: center; }
+.fp-face { width: 100%; max-width: 150px; aspect-ratio: 1 / 1; margin: 0 auto; border-radius: 8px; overflow: hidden; background: var(--bg-tertiary); }
+.fp-face .face-crop, .fp-face .ft-blank { width: 100%; height: 100%; object-fit: cover; display: flex; align-items: center; justify-content: center; }
+.fp-name { margin-top: 6px; font-size: 0.85rem; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-noname { color: var(--text-secondary); font-style: italic; font-weight: 400; }
+.fp-files { font-size: 0.75rem; color: var(--text-secondary); }
+.fp-plus { align-self: center; color: var(--text-secondary); font-size: 1.2rem; }
+
+/* ── The "Same person?" strip: hide it, and its small chip ── */
+.ft-review-h .ft-review-hide { margin-left: 4px; font-size: 1.25rem; }
+.ft-review.ft-review-min { background: none; border: 0; padding: 0; margin-bottom: 8px; }
+.ft-same-chip { font-size: 0.8125rem; }
