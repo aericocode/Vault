@@ -15,44 +15,27 @@ body.wall-active { overflow: hidden; }
   display: flex;
   flex-direction: column;
   background: #000;
-  --wall-gap: 4px;
 }
 
 .wall-root.wall-fs { top: 0; }
 
-/* ── Controls ─────────────────────────────────────────────────────────── */
+/* ── Controls: one slim line ──────────────────────────────────────────── */
 
 .wall-bar {
+  position: relative;
+  z-index: 4;
   flex: 0 0 auto;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: wrap;                    /* one line from 1280px up; wraps only on narrow windows */
   align-items: center;
-  gap: 0.35rem 0.8rem;
-  padding: 0.4rem 1rem;
+  gap: 0.35rem 0.6rem;
+  padding: 0.35rem 0.8rem;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 0.8rem;
+  transition: opacity 0.3s;
 }
-
-.wall-bar-main {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem 0.8rem;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.wall-bar-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-left: auto;
-}
-
-.wall-root.wall-bar-closed .wall-bar-main { display: none; }
-.wall-root.wall-bar-closed .wall-bar { padding-top: 0.25rem; padding-bottom: 0.25rem; }
 
 .wall-field {
   display: inline-flex;
@@ -63,38 +46,26 @@ body.wall-active { overflow: hidden; }
 
 .wall-label { color: var(--text-muted); }
 
-.wall-field select {
+.wall-bar select,
+.wall-pop select {
   background: var(--bg-tertiary);
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.2rem 0.4rem;
   font-size: 0.8rem;
-  max-width: 14rem;
 }
+.wall-bar > .wall-field select { max-width: 12rem; }
 
-.wall-slider input[type="range"] { width: 80px; accent-color: var(--accent); }
-.wall-slider output {
-  min-width: 3.6em;
+.wall-slider input[type="range"] { width: 84px; accent-color: var(--accent); }
+.wall-slider input[type="range"]:disabled { opacity: 0.45; }
+.wall-slider output,
+.wall-pop-row output {
+  min-width: 3.2em;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
-
-.wall-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.wall-check input { accent-color: var(--accent); }
-
-.wall-status {
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  margin-right: 0.4rem;
-  white-space: nowrap;
-}
+.wall-slider output { min-width: 4.6em; }
 
 .wall-btn {
   padding: 0.25rem 0.7rem;
@@ -107,23 +78,100 @@ body.wall-active { overflow: hidden; }
   white-space: nowrap;
 }
 .wall-btn:hover { background: var(--bg-hover); border-color: var(--accent); }
-.wall-btn-quiet { color: var(--text-secondary); }
+.wall-btn[aria-pressed="true"] { border-color: var(--accent); }
+.wall-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.45rem;
+}
+.wall-icon-btn[aria-expanded="true"] { border-color: var(--accent); background: var(--bg-hover); }
 
-/* Full screen: only the slim action strip, and only while the mouse is on it. */
+/* Grid | Scroll */
+.wall-seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.wall-seg-btn {
+  padding: 0.25rem 0.65rem;
+  background: var(--bg-tertiary);
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.wall-seg-btn + .wall-seg-btn { border-left: 1px solid var(--border); }
+.wall-seg-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.wall-seg-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+.wall-btn:focus-visible,
+.wall-seg-btn:focus-visible,
+.wall-bar select:focus-visible,
+.wall-pop select:focus-visible,
+.wall-bar input:focus-visible,
+.wall-pop input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.wall-note {
+  color: var(--text-muted);
+  font-style: italic;
+  white-space: nowrap;
+}
+
+.wall-status {
+  margin-left: auto;                  /* pushes the count, gear and Full screen right */
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The gear popover */
+.wall-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0.8rem;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-width: 17rem;
+  padding: 0.75rem 0.85rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.wall-pop-row {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+.wall-pop-row select { grid-column: 2 / 4; }
+.wall-pop-row input[type="range"] { width: 100%; min-width: 90px; accent-color: var(--accent); }
+
+.wall-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wall-check input { accent-color: var(--accent); }
+
+/* Full screen: the bar floats over the wall and fades after a few idle seconds. */
 .wall-root.wall-fs .wall-bar {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  z-index: 3;
-  opacity: 0;
-  transition: opacity 0.2s;
   background: rgba(20, 20, 20, 0.85);
   border-bottom: none;
 }
-.wall-root.wall-fs .wall-bar:hover,
-.wall-root.wall-fs .wall-bar:focus-within { opacity: 1; }
-.wall-root.wall-fs .wall-bar-main { display: none; }
+.wall-root.wall-fs.wall-bar-idle .wall-bar { opacity: 0; pointer-events: none; }
+.wall-root.wall-fs.wall-bar-idle .wall-board { cursor: none; }
 
 /* ── The board ────────────────────────────────────────────────────────── */
 
@@ -136,27 +184,23 @@ body.wall-active { overflow: hidden; }
 .wall-board {
   position: absolute;
   inset: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--wall-gap);
   overflow: hidden;
+  transition: opacity 0.2s ease;
 }
+.wall-board.wall-fading { opacity: 0; }
 
-.wall-row {
-  flex: 1 1 0;
-  min-height: 0;
-  display: flex;
-  gap: var(--wall-gap);
-  contain: strict;                    /* a re-fit stays inside its row */
-  /* No transition on flex-grow (here or on blocks): a block that changes shape
-     snaps to it under the cross-fade, instead of visibly stretching for half a
-     second while the row re-fits. */
+/* Every block is placed absolutely in the track; Scroll mode moves only the track. */
+.wall-track {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 0;
+  will-change: transform;
 }
 
 .wall-block {
-  position: relative;
-  flex: 1 1 0px;                      /* flex-grow is set to the aspect ratio */
-  min-width: 0;
+  position: absolute;
   overflow: hidden;
   background: #111;
   cursor: pointer;
@@ -175,7 +219,7 @@ body.wall-active { overflow: hidden; }
 .wall-media {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: cover;                  /* exact shape already; crops only a fallback swap */
   display: block;
   pointer-events: none;
   user-select: none;
@@ -227,6 +271,13 @@ body.wall-active { overflow: hidden; }
   pointer-events: none;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .wall-layer, .wall-board, .wall-bar { transition-duration: 0.01s; }
+}
+
 /* Classes above set display, so [hidden] has to be said again. */
 .wall-msg[hidden],
-.wall-paused[hidden] { display: none; }
+.wall-paused[hidden],
+.wall-pop[hidden],
+.wall-field[hidden],
+.wall-note[hidden] { display: none; }

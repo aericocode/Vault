@@ -1,25 +1,37 @@
 /* =========================================================================
-   WALL - a screen-filling collage of the library (LIBRARY_LAYOUT_SPEC Part 2)
+   WALL - a screen-filling collage of the library (LIBRARY_LAYOUT_SPEC Part 2
+   and Round 2)
 
-   Justified rows of blocks that keep each file's shape. A few videos play
-   muted at once, the rest of the blocks show pictures that change every few
-   seconds. Ambient, so smoothness wins over features:
+   Masonry columns of blocks that keep each file's shape. A few videos play
+   muted at once, the rest of the blocks show pictures. Two modes:
 
-   - Layout is plain flexbox. Each block's flex-grow is its aspect ratio, so a
-     row always fills the width exactly and the browser does the math. Rows
-     are flex:1 in a column, so the board always fills the height. Changing
-     one block's shape re-flows that one row and nothing else.
-   - Rows are picked so their natural width is close to the screen width
-     (the pick looks a few items ahead for one whose shape fills the gap), so
-     the stretch flexbox applies stays small; object-fit: cover hides it.
+   - Grid: a still board. Blocks change their content on a timer (pictures
+     every "Pictures" seconds, clips after "Clips" seconds), crossfading.
+   - Scroll: the board drifts upward. New files join at the bottom of the
+     shortest column, files that leave the top are released and dropped.
+
+   Ambient, so smoothness wins over features:
+
+   - Fixed slots. The columns are planned once per board size; a block's
+     place and size never change after it is placed. A swap brings in a file
+     whose stored shape is within about 15% of the slot; when the queue has
+     none, the incoming file is cropped into the slot (object-fit: cover).
+     A real size the element reports later is remembered for later picks and
+     never moves anything. Block size, gap and window size changes plan the
+     board again, once, behind a short fade.
+   - Blocks are absolutely placed inside one track element. Scroll mode moves
+     only the track (translate3d from requestAnimationFrame), so a frame does
+     no layout. Blocks that leave the top go from the DOM; every so often the
+     coordinates are rebased in the same frame so the numbers stay small.
    - The playing cap is counted on live <video> elements, including one that
-     is still fading out. A remux (HLS) stream counts as 2 and only one runs at
-     a time: the server runs at most 2 FFmpeg sessions for the whole app and a
-     third would kill the main player's.
-   - Every replaced <video> is released (pause, src removed, load()) so its
-     decoder and HTTP connection go with it. Leaving the tab, opening the
-     player, or locking the library releases them all; a hidden browser tab or
-     the Pause button only pauses them.
+     is still fading out. A remux (HLS) stream counts as 2 and only one runs
+     at a time: the server runs at most 2 FFmpeg sessions for the whole app
+     and a third would kill the main player's. In Scroll mode the slots go to
+     blocks fully in view first; blocks leaving the top give theirs up first.
+   - Every replaced <video> is released (pause, src removed, load(), hls
+     destroyed, stream closed). Leaving the tab, opening the player, locking
+     the library or closing the page releases them all; a hidden browser tab
+     or the Pause button only pauses them.
    - One 250 ms scheduler tick drives every block (no timer per block).
 
    Sources go through the existing query API (Library.queryOnce: POST
@@ -32,13 +44,20 @@
    ========================================================================= */
 
 const Wall = (() => {
+  const CFG_VERSION = 2;
   const RANGES = {
-    playing:   { min: 1, max: 16, step: 1, def: 6 },
-    picSpeed:  { min: 2, max: 60, step: 1, def: 8 },
-    clipLen:   { min: 5, max: 120, step: 5, def: 20 },   // the max means "Full clip"
-    blockSize: { min: 120, max: 640, step: 10, def: 260 },
-    gap:       { min: 0, max: 12, step: 1, def: 4 },
+    playing:     { min: 1, max: 16, step: 1, def: 6 },
+    picSpeed:    { min: 2, max: 60, step: 1, def: 8 },     // seconds between picture changes
+    clipLen:     { min: 5, max: 120, step: 1, def: 20 },   // seconds a clip plays
+    colWidth:    { min: 120, max: 960, step: 10, def: 390 },
+    gap:         { min: 0, max: 12, step: 1, def: 4 },
+    scrollSpeed: { min: 1, max: 10, step: 1, def: 4 },
   };
+  // The speed sliders move along these, faster to the right. The stored value
+  // stays in seconds and is kept exactly until the slider is moved.
+  const PIC_STEPS = [60, 45, 30, 20, 15, 12, 10, 8, 6, 5, 4, 3, 2];
+  const CLIP_STEPS = [120, 90, 60, 45, 30, 20, 15, 10, 8, 5];
+  const MODES = ['grid', 'scroll'];
   const MIXES = ['both', 'videos', 'pictures'];
   const ORDERS = ['shuffle', 'order'];
   const MIX_TYPES = { both: ['video', 'image', 'gif'], videos: ['video'], pictures: ['image', 'gif'] };
@@ -46,13 +65,20 @@ const Wall = (() => {
   const MAX_REMUX = 1;               // see the header: the server's FFmpeg cap is 2, app-wide
   const REMUX_COST = 2;
   const FADE_MS = 600;
+  const REPLAN_FADE_MS = 200;
   const TICK_MS = 250;
-  const LOOKAHEAD = 16;              // how far into the queue a pick may look for a shape
+  const LOOKAHEAD = 24;              // how far into the queue a build pick may look
+  const SHAPE_TOL = Math.log(1.15);  // a swap's file fits the slot within 15%
+  const WIDE = 2.5;                  // wider than this spans two columns
   const LOAD_TIMEOUT_MS = 12000;
   const REMUX_TIMEOUT_MS = 25000;
   const ASPECT_MIN = 0.25;
   const ASPECT_MAX = 4;
   const DEFAULT_ASPECT = 16 / 9;
+  const MAX_BLOCKS = 1500;
+  const READY_CAP = 1500;            // the most rows the buffer holds
+  const REBASE_AT = 20000;           // scroll offset (px) at which coordinates are rebased
+  const FS_IDLE_MS = 3000;
 
   /* ── Settings ───────────────────────────────────────────────────────── */
 
@@ -60,28 +86,64 @@ const Wall = (() => {
 
   function clampNum(v, r) {
     const n = Number(v);
-    if (!Number.isFinite(n)) return r.def;
+    if (v === null || v === undefined || v === '' || !Number.isFinite(n)) return r.def;
     return Math.min(r.max, Math.max(r.min, Math.round(n / r.step) * r.step));
   }
 
-  function loadCfg() {
-    const raw = (typeof window.vaultWallSettings === 'function' && window.vaultWallSettings()) || {};
-    const out = {};
-    for (const [k, r] of Object.entries(RANGES)) out[k] = clampNum(raw[k] ?? r.def, r);
+  /**
+   * Settings from the stored blob, every value clamped. A blob from before
+   * Round 2 (no `v`) is migrated so the wall keeps its feel: "Full clip" (the
+   * old clip maximum) becomes "Play clips to the end", and the old row height
+   * becomes a column width (blocks were on average about 1.5 times as wide
+   * as the row was tall).
+   */
+  function cfgFrom(raw) {
+    raw = raw && typeof raw === 'object' ? raw : {};
+    const old = raw.v !== CFG_VERSION;
+    const out = { v: CFG_VERSION };
+    out.playing = clampNum(raw.playing, RANGES.playing);
+    out.picSpeed = clampNum(raw.picSpeed, RANGES.picSpeed);
+    if (old && Number(raw.clipLen) >= 120) {
+      out.clipLen = RANGES.clipLen.max;
+      out.clipsToEnd = true;
+    } else {
+      out.clipLen = clampNum(raw.clipLen, RANGES.clipLen);
+      out.clipsToEnd = raw.clipsToEnd === true;
+    }
+    const oldRow = Number(raw.blockSize);
+    out.colWidth = old && raw.colWidth == null && raw.blockSize != null && Number.isFinite(oldRow)
+      ? clampNum(oldRow * 1.5, RANGES.colWidth)
+      : clampNum(raw.colWidth, RANGES.colWidth);
+    out.gap = clampNum(raw.gap, RANGES.gap);
+    out.scrollSpeed = clampNum(raw.scrollSpeed, RANGES.scrollSpeed);
+    out.mode = MODES.includes(raw.mode) ? raw.mode : 'grid';
     out.mix = MIXES.includes(raw.mix) ? raw.mix : 'both';
     out.order = ORDERS.includes(raw.order) ? raw.order : 'shuffle';
     out.source = typeof raw.source === 'string' && /^(library|c:\d+|s:\d+)$/.test(raw.source) ? raw.source : 'library';
     out.soundOnHover = raw.soundOnHover === true;
     out.directOnly = raw.directOnly === true;
-    out.barOpen = raw.barOpen !== false;
     return out;
+  }
+
+  function loadCfg() {
+    return cfgFrom((typeof window.vaultWallSettings === 'function' && window.vaultWallSettings()) || {});
   }
 
   function saveCfg() {
     if (typeof window.vaultSetWallSettings === 'function') window.vaultSetWallSettings(cfg);
   }
 
-  const fullClip = () => cfg.clipLen >= RANGES.clipLen.max;
+  /** The step index closest to a value in seconds (by ratio, not difference). */
+  function nearestStep(steps, sec) {
+    let best = 0;
+    for (let i = 1; i < steps.length; i++) {
+      if (Math.abs(Math.log(steps[i] / sec)) < Math.abs(Math.log(steps[best] / sec))) best = i;
+    }
+    return best;
+  }
+
+  /** Scroll speed level (1 to 10) in pixels per second. */
+  const speedPx = () => 10 * Math.pow(1.4, cfg.scrollSpeed - 1);
 
   /* ── State ──────────────────────────────────────────────────────────── */
 
@@ -98,10 +160,19 @@ const Wall = (() => {
   // Layout work asked for while the tab was hidden (the board has no size
   // then): 'keep' or 'fresh', done on the way back in. Never laid out hidden.
   let dirty = false;
+  let fading = false;          // a re-plan is behind its fade
+  let reducedNote = false;     // Scroll started paused for reduced motion
+  let reducedDone = false;     // ...and that happens once per visit to Scroll
 
-  let rows = [];               // [{ el, blocks: [] }]
-  let blocks = [];
-  const lay = { W: 0, H: 0, R: 0, rh: 0 };
+  let blocks = [];             // in placement order
+  // The plan: column count and width, x of each column, and each column's
+  // next free y (its content bottom plus one gap).
+  const lay = { W: 0, H: 0, cols: 0, cw: 0, gap: 0, colX: [], tops: [] };
+  let hoverBlock = null;
+  let swallowClick = false;
+
+  const drift = { offset: 0, raf: 0, lastT: 0, frames: [], rebases: 0, removed: 0 };
+  const stats = { swaps: 0, exact: 0, near: 0, crops: 0, worstCrop: 1 };
 
   let liveCost = 0;            // slots held by live <video> elements
   let liveRemux = 0;
@@ -170,12 +241,88 @@ const Wall = (() => {
     return true;
   }
 
+  /** The stored shape (or one learned from the element earlier), clamped. */
   function aspectOf(row) {
     const learned = aspectCache.get(row.id);
     if (learned) return learned;
     const w = Number(row.width) || 0;
     const h = Number(row.height) || 0;
     return w > 0 && h > 0 ? clamp(w / h, ASPECT_MIN, ASPECT_MAX) : DEFAULT_ASPECT;
+  }
+
+  /**
+   * Whether the shape the wall uses for this file is settled: stored, or
+   * learned. A picture without a stored size is not settled until its shape
+   * has been read (or reading it failed, and 16:9 it is); a video without
+   * one keeps the 16:9 guess.
+   */
+  function shapeKnown(row) {
+    if (aspectCache.has(row.id) || (Number(row.width) > 0 && Number(row.height) > 0)) return true;
+    return kindOf(row) !== 'picture' || probeFailed.has(row.id);
+  }
+
+  /*
+   * A picture with no stored size would go up as a 16:9 guess and be cropped
+   * for its whole life (a slot never changes). So its shape is read first:
+   * the picture is loaded off screen (the same URL the block shows, so the
+   * block's load is then a cache hit) and the shape remembered. A few at a
+   * time; builds and swaps prefer files whose shape is known.
+   */
+  const PROBE_MAX = 6;
+  const probing = new Map();   // id → Promise
+  const probeQueue = [];
+  const probeFailed = new Set();
+
+  function probeShape(row) {
+    if (shapeKnown(row) || kindOf(row) !== 'picture' || probing.has(row.id) || probeFailed.has(row.id) || badIds.has(row.id)) return;
+    let resolve;
+    const p = new Promise(r => { resolve = r; });
+    p._start = () => {
+      const img = new Image();
+      img.decoding = 'async';
+      let timer = null;
+      const done = () => {
+        clearTimeout(timer);
+        img.onload = img.onerror = null;
+        if (img.naturalWidth && img.naturalHeight) {
+          aspectCache.set(row.id, clamp(img.naturalWidth / img.naturalHeight, ASPECT_MIN, ASPECT_MAX));
+        } else {
+          probeFailed.add(row.id);
+        }
+        probing.delete(row.id);
+        img.removeAttribute('src');
+        probeActive--;
+        pumpProbes();
+        resolve();
+      };
+      img.onload = done;
+      img.onerror = done;
+      timer = setTimeout(done, LOAD_TIMEOUT_MS);
+      img.src = `/media/${row.id}`;
+    };
+    probing.set(row.id, p);
+    probeQueue.push(p);
+    pumpProbes();
+  }
+
+  let probeActive = 0;
+  function pumpProbes() {
+    while (probeActive < PROBE_MAX && probeQueue.length) {
+      probeActive++;
+      probeQueue.shift()._start();
+    }
+  }
+
+  /** Wait (a little) for the shapes of the next files the board will use. */
+  async function shapesFor(n, ms) {
+    const ps = [];
+    for (let i = 0; i < Math.min(n, ready.length); i++) {
+      probeShape(ready[i]);
+      const p = probing.get(ready[i].id);
+      if (p && !shapeKnown(ready[i])) ps.push(p);
+    }
+    if (!ps.length) return;
+    await Promise.race([Promise.all(ps), new Promise(r => setTimeout(r, ms))]);
   }
 
   function titleOf(row) {
@@ -271,11 +418,12 @@ const Wall = (() => {
     return a;
   }
 
-  /** How many rows the buffer should hold: a screenful and some spare. */
+  /** How many rows the buffer should hold: a screenful and a half, and some spare. */
   function readyTarget() {
     const W = (els && els.board.clientWidth) || window.innerWidth;
     const H = (els && els.board.clientHeight) || window.innerHeight;
-    const est = Math.ceil((W * H) / (cfg.blockSize * cfg.blockSize * 1.4));
+    const cw = Math.max(60, Math.min(W, cfg.colWidth));
+    const est = Math.ceil((W * H * 1.6) / (cw * cw * 0.9));
     return Math.max(40, est + 40);
   }
 
@@ -310,13 +458,15 @@ const Wall = (() => {
    * Top the buffer up. One call scans a bounded number of ids so a huge
    * library of mostly ineligible files never stalls; a small pool is walked
    * round more than once, which is how a 10-file source still fills a board.
+   * `more` fetches one more batch past the usual target (a swap found no
+   * file of its slot's shape in the buffer), up to a hard cap.
    */
-  function fill() {
+  function fill(more = false) {
     if (fillPromise) return fillPromise;
     const gen = poolGen;
     fillPromise = (async () => {
       if (!poolIds || !poolIds.length) return;
-      const target = readyTarget();
+      const target = more ? Math.min(READY_CAP, Math.max(readyTarget(), ready.length + 150)) : readyTarget();
       const scanLimit = Math.min(8000, Math.max(target * 3, poolIds.length));
       let scanned = 0;
       while (ready.length < target && scanned < scanLimit) {
@@ -341,30 +491,11 @@ const Wall = (() => {
         }
         if (gen !== poolGen) return;
         for (const r of rowsOut) {
-          if (r && eligible(r)) { ready.push(r); poolHasEligible = true; }
+          if (r && eligible(r)) { ready.push(r); poolHasEligible = true; probeShape(r); }
         }
       }
     })().finally(() => { if (gen === poolGen) fillPromise = null; });
     return fillPromise;
-  }
-
-  /**
-   * Index in `ready` of the best next item: early in the queue, not already
-   * on screen, and (when a shape is wanted) closest to that aspect ratio.
-   */
-  function bestIndex(target) {
-    const n = Math.min(LOOKAHEAD, ready.length);
-    let best = -1;
-    let bestScore = Infinity;
-    for (let i = 0; i < n; i++) {
-      const r = ready[i];
-      if (badIds.has(r.id)) continue;
-      let score = i * 0.01;
-      if (onScreen.has(r.id)) score += 10;
-      if (target) score += Math.abs(Math.log(aspectOf(r) / target));
-      if (score < bestScore) { bestScore = score; best = i; }
-    }
-    return best;
   }
 
   function take(i) {
@@ -373,17 +504,130 @@ const Wall = (() => {
     return r;
   }
 
-  function pick(target) {
-    const i = bestIndex(target);
-    if (i < 0) { fill(); return null; }
-    return take(i);
+  /* ── The plan (pure; also exercised by test/wall-layout.test.js) ────── */
+
+  function planColumns(W, colWidth, gap) {
+    const cols = Math.max(1, Math.round((W + gap) / (colWidth + gap)));
+    const cw = (W - gap * (cols - 1)) / cols;
+    const colX = [];
+    for (let c = 0; c < cols; c++) colX.push(c * (cw + gap));
+    return { cols, cw, gap, colX, tops: new Array(cols).fill(0) };
+  }
+
+  /**
+   * Where the next block of this shape goes: the shortest column, and for a
+   * file wider than 2.5:1 also the neighbour of it that is closer to level
+   * (always including the shortest column, so the board keeps growing at
+   * its lowest point whatever the shapes). `hole` is the space the lower
+   * column leaves empty; the picker holds a wide file back while that hole
+   * would be big, so in practice it lands where two bottoms are near level.
+   */
+  function slotFor(plan, aspect) {
+    const { cols, cw, gap, colX, tops } = plan;
+    let span = cols >= 2 && aspect > WIDE ? 2 : 1;
+    let col = 0;
+    let y = Infinity;
+    let hole = 0;
+    for (let c = 0; c < cols; c++) if (tops[c] < y) { y = tops[c]; col = c; }
+    if (span === 2) {
+      const left = col > 0 ? tops[col - 1] : Infinity;
+      const right = col + 1 < cols ? tops[col + 1] : Infinity;
+      if (left < right) col -= 1;
+      const top = Math.max(tops[col], tops[col + 1]);
+      hole = top - Math.min(tops[col], tops[col + 1]);
+      y = top;
+      // Too ragged to span (a source of nothing but panoramas gets here):
+      // one column, still at its exact shape, instead of a big empty hole.
+      if (hole > cw * 0.25) {
+        span = 1;
+        hole = 0;
+        y = Infinity;
+        for (let c = 0; c < cols; c++) if (tops[c] < y) { y = tops[c]; col = c; }
+      }
+    }
+    const w = span * cw + (span - 1) * gap;
+    return { col, span, x: colX[col], y, w, h: w / aspect, hole };
+  }
+
+  function placeSlot(plan, s) {
+    for (let c = s.col; c < s.col + s.span; c++) plan.tops[c] = s.y + s.h + plan.gap;
+  }
+
+  /** The content bottom of the shortest column. */
+  function minBottom(plan) {
+    let m = Infinity;
+    for (const t of plan.tops) m = Math.min(m, t - plan.gap);
+    return m;
+  }
+
+  /**
+   * Index of the best next item for the board being built: early in the
+   * queue, not already on screen, and (for a wide file) only where its two
+   * columns are close to level.
+   */
+  function buildIndex(plan, list, isOnScreen) {
+    const n = Math.min(LOOKAHEAD, list.length);
+    let best = -1;
+    let bestScore = Infinity;
+    for (let i = 0; i < n; i++) {
+      const r = list[i];
+      let score = i * 0.01;
+      if (isOnScreen(r)) score += 10;
+      if (!shapeKnown(r)) score += 3;
+      const s = slotFor(plan, aspectOf(r));
+      // A wide file waits for two columns that are near level.
+      if (s.span === 2 && s.hole > plan.cw * 0.12) score += 5 + s.hole / plan.cw;
+      else if (s.span === 1 && plan.cols >= 2 && aspectOf(r) > WIDE) score += 6;
+      if (score < bestScore) { bestScore = score; best = i; }
+    }
+    return best;
+  }
+
+  /**
+   * Index of the file a swap should bring into a slot of shape `aspect`:
+   * the earliest one within the tolerance, preferring one not already on
+   * screen. `fit` is false when nothing fits and the closest shape will be
+   * cropped into the slot.
+   */
+  function swapIndex(list, aspect, isOnScreen, current) {
+    const n = list.length;            // the whole buffer: a few thousand compares at most
+    let best = -1;
+    let bestScore = Infinity;
+    let first = -1;
+    let firstScore = Infinity;
+    for (let i = 0; i < n; i++) {
+      const r = list[i];
+      // A file whose shape is not known yet (still being read) waits: as a
+      // guess it could be anything, and the slot would crop it badly.
+      if (badIds.has(r.id) || !shapeKnown(r)) continue;
+      const dup = (current && r.id === current.id) ? 2 : (isOnScreen(r) ? 1 : 0);
+      const d = Math.abs(Math.log(aspectOf(r) / aspect));
+      if (d <= SHAPE_TOL) {
+        const score = d + i * 0.002 + dup;
+        if (score < bestScore) { bestScore = score; best = i; }
+      }
+      // Nothing fits: the closest shape, so the crop is as small as it can be.
+      const fs = d + i * 0.002 + dup * 10;
+      if (fs < firstScore) { firstScore = fs; first = i; }
+    }
+    if (best >= 0 && bestScore < 2) return { i: best, fit: true };
+    if (best >= 0 && first >= 0 && firstScore >= 10) return { i: best, fit: true };
+    return { i: first, fit: false };
   }
 
   /* ── DOM ────────────────────────────────────────────────────────────── */
 
-  function slider(id, label, key) {
+  function slider(id, label, min, max, step, hint, out = true) {
+    return `<label class="wall-field wall-slider" id="${id}Field" title="${hint}">
+        <span class="wall-label">${label}</span>
+        <input type="range" id="${id}" min="${min}" max="${max}" step="${step}">
+        ${out ? `<output id="${id}Out"></output>` : ''}
+      </label>`;
+  }
+
+  function popSlider(id, label, key) {
     const r = RANGES[key];
-    return `<label class="wall-field wall-slider" title="${label}">
+    return `<label class="wall-pop-row">
         <span class="wall-label">${label}</span>
         <input type="range" id="${id}" min="${r.min}" max="${r.max}" step="${r.step}">
         <output id="${id}Out"></output>
@@ -396,45 +640,53 @@ const Wall = (() => {
     root.classList.add('wall-root');
     root.innerHTML = `
       <div class="wall-bar" id="wallBar">
-        <div class="wall-bar-main">
-          <label class="wall-field">
-            <span class="wall-label">Source</span>
-            <select id="wallSource"></select>
-          </label>
-          <label class="wall-field">
-            <span class="wall-label">Mix</span>
+        <label class="wall-field">
+          <span class="wall-label">Source</span>
+          <select id="wallSource"></select>
+        </label>
+        <div class="wall-seg" role="group" aria-label="Wall mode">
+          <button type="button" class="wall-seg-btn" id="wallModeGrid" data-mode="grid">Grid</button>
+          <button type="button" class="wall-seg-btn" id="wallModeScroll" data-mode="scroll">Scroll</button>
+        </div>
+        <button type="button" class="wall-btn" id="wallPauseBtn">Pause</button>
+        <button type="button" class="wall-btn" id="wallShuffleBtn" title="Start over with a fresh shuffle">Shuffle</button>
+        ${slider('wallPic', 'Pictures', 0, PIC_STEPS.length - 1, 1, 'How often pictures change. Faster to the right.')}
+        ${slider('wallClip', 'Clips', 0, CLIP_STEPS.length - 1, 1, 'How long each clip plays. Faster to the right.')}
+        ${slider('wallSpeed', 'Speed', RANGES.scrollSpeed.min, RANGES.scrollSpeed.max, 1, 'How fast the wall scrolls. Faster to the right.', false)}
+        <span class="wall-note" id="wallNote" hidden>Paused for reduced motion</span>
+        <span class="wall-status" id="wallStatus"></span>
+        <button type="button" class="wall-btn wall-icon-btn" id="wallGearBtn" aria-label="More settings"
+          title="More settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="wallPop">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
+        </button>
+        <button type="button" class="wall-btn" id="wallFullBtn">Full screen</button>
+        <div class="wall-pop" id="wallPop" role="dialog" aria-label="More settings" hidden>
+          ${popSlider('wallPlaying', 'Videos at once', 'playing')}
+          ${popSlider('wallColWidth', 'Block size', 'colWidth')}
+          ${popSlider('wallGap', 'Gap', 'gap')}
+          <label class="wall-pop-row">
+            <span class="wall-label">Show</span>
             <select id="wallMix">
               <option value="both">Videos and pictures</option>
               <option value="videos">Videos only</option>
               <option value="pictures">Pictures only</option>
             </select>
           </label>
-          <label class="wall-field">
+          <label class="wall-pop-row">
             <span class="wall-label">Order</span>
             <select id="wallOrder">
               <option value="shuffle">Shuffle</option>
               <option value="order">In order</option>
             </select>
           </label>
-          ${slider('wallPlaying', 'Playing at once', 'playing')}
-          ${slider('wallPicSpeed', 'Picture speed', 'picSpeed')}
-          ${slider('wallClipLen', 'Clip length', 'clipLen')}
-          ${slider('wallBlockSize', 'Block size', 'blockSize')}
-          ${slider('wallGap', 'Gap', 'gap')}
           <label class="wall-check"><input type="checkbox" id="wallSound"> Sound on hover</label>
           <label class="wall-check" title="Skip videos that need converting on the fly. They are heavier to play.">
-            <input type="checkbox" id="wallDirect"> Only files that play directly</label>
-        </div>
-        <div class="wall-bar-actions">
-          <span class="wall-status" id="wallStatus"></span>
-          <button type="button" class="wall-btn" id="wallPauseBtn">Pause</button>
-          <button type="button" class="wall-btn" id="wallShuffleBtn">Shuffle now</button>
-          <button type="button" class="wall-btn" id="wallFullBtn">Full screen</button>
-          <button type="button" class="wall-btn wall-btn-quiet" id="wallBarBtn"></button>
+            <input type="checkbox" id="wallDirect"> Only direct-play files</label>
+          <label class="wall-check"><input type="checkbox" id="wallToEnd"> Play clips to the end</label>
         </div>
       </div>
       <div class="wall-stage">
-        <div class="wall-board" id="wallBoard"></div>
+        <div class="wall-board" id="wallBoard"><div class="wall-track" id="wallTrack"></div></div>
         <div class="wall-msg" id="wallMsg" hidden></div>
         <div class="wall-paused" id="wallPaused" hidden>Paused</div>
       </div>`;
@@ -443,48 +695,68 @@ const Wall = (() => {
       root,
       bar: $('wallBar'),
       board: $('wallBoard'),
+      track: $('wallTrack'),
       msg: $('wallMsg'),
       paused: $('wallPaused'),
       status: $('wallStatus'),
+      note: $('wallNote'),
       source: $('wallSource'),
+      modeGrid: $('wallModeGrid'),
+      modeScroll: $('wallModeScroll'),
+      pic: $('wallPic'), picOut: $('wallPicOut'), picField: $('wallPicField'),
+      clip: $('wallClip'), clipOut: $('wallClipOut'), clipField: $('wallClipField'),
+      speed: $('wallSpeed'), speedField: $('wallSpeedField'),
+      gear: $('wallGearBtn'),
+      pop: $('wallPop'),
+      playing: $('wallPlaying'), playingOut: $('wallPlayingOut'),
+      colWidth: $('wallColWidth'), colWidthOut: $('wallColWidthOut'),
+      gap: $('wallGap'), gapOut: $('wallGapOut'),
       mix: $('wallMix'),
       order: $('wallOrder'),
-      playing: $('wallPlaying'),
-      picSpeed: $('wallPicSpeed'),
-      clipLen: $('wallClipLen'),
-      blockSize: $('wallBlockSize'),
-      gap: $('wallGap'),
       sound: $('wallSound'),
       direct: $('wallDirect'),
+      toEnd: $('wallToEnd'),
       pauseBtn: $('wallPauseBtn'),
       shuffleBtn: $('wallShuffleBtn'),
       fullBtn: $('wallFullBtn'),
-      barBtn: $('wallBarBtn'),
     };
     wireControls();
     wireBoard();
     syncControls();
   }
 
-  function fmt(key, v) {
-    if (key === 'playing') return String(v);
-    if (key === 'picSpeed') return `${v} s`;
-    if (key === 'clipLen') return v >= RANGES.clipLen.max ? 'Full clip' : `${v} s`;
-    return `${v} px`;
-  }
+  const SPEED_WORDS = ['', 'Slowest', 'Very slow', 'Slow', 'Easy', 'Medium', 'Brisk', 'Quick', 'Fast', 'Very fast', 'Fastest'];
 
   function syncControls() {
-    for (const key of Object.keys(RANGES)) {
-      els[key].value = String(cfg[key]);
-      els.root.querySelector(`#${els[key].id}Out`).textContent = fmt(key, cfg[key]);
-    }
+    const scroll = cfg.mode === 'scroll';
+    els.modeGrid.setAttribute('aria-pressed', String(!scroll));
+    els.modeScroll.setAttribute('aria-pressed', String(scroll));
+    els.picField.hidden = scroll;
+    els.clipField.hidden = scroll;
+    els.speedField.hidden = !scroll;
+
+    els.pic.value = String(nearestStep(PIC_STEPS, cfg.picSpeed));
+    els.picOut.textContent = `${cfg.picSpeed} s`;
+    els.pic.setAttribute('aria-valuetext', `every ${cfg.picSpeed} seconds`);
+    els.clip.value = String(nearestStep(CLIP_STEPS, cfg.clipLen));
+    els.clip.disabled = cfg.clipsToEnd;
+    els.clipOut.textContent = cfg.clipsToEnd ? 'To the end' : `${cfg.clipLen} s`;
+    els.clip.setAttribute('aria-valuetext', cfg.clipsToEnd ? 'clips play to the end' : `${cfg.clipLen} seconds each`);
+    els.speed.value = String(cfg.scrollSpeed);
+    els.speed.setAttribute('aria-valuetext', SPEED_WORDS[cfg.scrollSpeed] || String(cfg.scrollSpeed));
+
+    els.playing.value = String(cfg.playing);
+    els.playingOut.textContent = String(cfg.playing);
+    els.colWidth.value = String(cfg.colWidth);
+    els.colWidthOut.textContent = `${cfg.colWidth} px`;
+    els.gap.value = String(cfg.gap);
+    els.gapOut.textContent = `${cfg.gap} px`;
     els.mix.value = cfg.mix;
     els.order.value = cfg.order;
     els.sound.checked = cfg.soundOnHover;
     els.direct.checked = cfg.directOnly;
-    els.root.classList.toggle('wall-bar-closed', !cfg.barOpen);
-    els.barBtn.textContent = cfg.barOpen ? 'Hide controls' : 'Show controls';
-    els.root.style.setProperty('--wall-gap', `${cfg.gap}px`);
+    els.toEnd.checked = cfg.clipsToEnd;
+    els.note.hidden = !reducedNote;
   }
 
   function populateSources() {
@@ -517,29 +789,65 @@ const Wall = (() => {
     return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
   }
 
-  function wireControls() {
-    const relayoutSoon = debounce(() => relayout(true), 180);
+  function reducedMotion() {
+    try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch { return false; }
+  }
 
-    for (const key of Object.keys(RANGES)) {
+  /** Entering Scroll with reduced motion asked for: start paused, say why. */
+  function applyReducedMotion() {
+    if (cfg.mode !== 'scroll') { reducedDone = false; if (reducedNote) { reducedNote = false; syncControls(); } return; }
+    if (reducedDone || !reducedMotion()) return;
+    reducedDone = true;
+    reducedNote = true;
+    userPaused = true;
+    syncControls();
+  }
+
+  function setPaused(p) {
+    userPaused = p;
+    if (!p && reducedNote) { reducedNote = false; els.note.hidden = true; }
+    evaluate();
+  }
+
+  function wireControls() {
+    // Block size and gap: the label follows the drag, the board is planned
+    // again once, when the slider is let go (or a key press settles).
+    const replanSoon = debounce(() => replan(true), 150);
+
+    els.pic.addEventListener('input', () => {
+      cfg.picSpeed = PIC_STEPS[clamp(Number(els.pic.value) | 0, 0, PIC_STEPS.length - 1)];
+      syncControls();
+      retimeStills();
+    });
+    els.clip.addEventListener('input', () => {
+      cfg.clipLen = CLIP_STEPS[clamp(Number(els.clip.value) | 0, 0, CLIP_STEPS.length - 1)];
+      syncControls();
+      retimeClips();
+    });
+    els.speed.addEventListener('input', () => {
+      cfg.scrollSpeed = clampNum(els.speed.value, RANGES.scrollSpeed);
+      syncControls();
+    });
+    els.playing.addEventListener('input', () => {
+      cfg.playing = clampNum(els.playing.value, RANGES.playing);
+      els.playingOut.textContent = String(cfg.playing);
+      trimVideos();
+      fillSlots();
+    });
+    for (const key of ['colWidth', 'gap']) {
       const input = els[key];
-      const out = els.root.querySelector(`#${input.id}Out`);
       input.addEventListener('input', () => {
+        els[key + 'Out'].textContent = `${clampNum(input.value, RANGES[key])} px`;
+      });
+      input.addEventListener('change', () => {
         const v = clampNum(input.value, RANGES[key]);
-        out.textContent = fmt(key, v);
         if (v === cfg[key]) return;
         cfg[key] = v;
-        if (key === 'playing') trimVideos();
-        else if (key === 'picSpeed') retimeStills();
-        else if (key === 'clipLen') retimeClips();
-        else if (key === 'blockSize') relayoutSoon();
-        else if (key === 'gap') {
-          els.root.style.setProperty('--wall-gap', `${v}px`);
-          rows.forEach(refitRow);
-        }
-        updateStatus();
+        saveCfg();
+        replanSoon();
       });
-      input.addEventListener('change', saveCfg);
     }
+    for (const input of [els.pic, els.clip, els.speed, els.playing]) input.addEventListener('change', saveCfg);
 
     els.source.addEventListener('change', () => { cfg.source = els.source.value; saveCfg(); rebuild(); });
     els.mix.addEventListener('change', () => { cfg.mix = els.mix.value; saveCfg(); rebuild(); });
@@ -550,26 +858,53 @@ const Wall = (() => {
       saveCfg();
       if (!cfg.soundOnHover) muteAll();
     });
-
-    els.pauseBtn.addEventListener('click', () => { userPaused = !userPaused; evaluate(); });
-    els.shuffleBtn.addEventListener('click', shuffleNow);
-    els.fullBtn.addEventListener('click', toggleFullscreen);
-    els.barBtn.addEventListener('click', () => {
-      cfg.barOpen = !cfg.barOpen;
+    els.toEnd.addEventListener('change', () => {
+      cfg.clipsToEnd = els.toEnd.checked;
       saveCfg();
       syncControls();
+      retimeClips();
     });
+
+    for (const btn of [els.modeGrid, els.modeScroll]) {
+      btn.addEventListener('click', () => {
+        const m = btn.dataset.mode;
+        if (m === cfg.mode) return;
+        cfg.mode = m;
+        saveCfg();
+        applyReducedMotion();
+        syncControls();
+        replan(true);
+      });
+    }
+
+    els.pauseBtn.addEventListener('click', () => setPaused(!userPaused));
+    els.shuffleBtn.addEventListener('click', shuffleNow);
+    els.fullBtn.addEventListener('click', toggleFullscreen);
+
+    // The gear popover: Escape or a click outside closes it. A click on the
+    // board that closes it only closes it (it does not also open a file).
+    els.gear.addEventListener('click', () => setPop(els.pop.hidden));
+    document.addEventListener('pointerdown', (e) => {
+      if (els.pop.hidden) return;
+      if (els.pop.contains(e.target) || els.gear.contains(e.target)) return;
+      setPop(false);
+      if (els.board.contains(e.target)) swallowClick = true;
+    }, true);
+    document.addEventListener('keydown', onKey);
 
     document.addEventListener('fullscreenchange', () => {
       const fs = document.fullscreenElement === els.root;
       els.root.classList.toggle('wall-fs', fs);
       els.fullBtn.textContent = fs ? 'Leave full screen' : 'Full screen';
+      if (fs) showBarBriefly(); else { clearTimeout(fsTimer); els.root.classList.remove('wall-bar-idle'); }
     });
+    els.root.addEventListener('mousemove', () => { if (els.root.classList.contains('wall-fs')) showBarBriefly(); });
+    els.bar.addEventListener('focusin', () => { if (els.root.classList.contains('wall-fs')) showBarBriefly(); });
     document.addEventListener('visibilitychange', evaluate);
 
-    // The board's size is what the layout is made of. A size change that
-    // keeps the same number of rows needs nothing: flexbox re-fits the rows.
-    new ResizeObserver(debounce(() => { if (active && built) refitBoard(); }, 200)).observe(els.board);
+    // The board's size is what the plan is made of: plan again once the
+    // resizing has stopped.
+    new ResizeObserver(debounce(() => { if (active && built) refitBoard(); }, 300)).observe(els.board);
     window.addEventListener('resize', () => { if (active) placeRoot(); });
     // The header can change height without the window resizing (its rows wrap).
     const header = document.getElementById('appHeader');
@@ -591,20 +926,55 @@ const Wall = (() => {
     if (mini) mo.observe(mini, { attributes: true, attributeFilter: ['class'] });
   }
 
-  /**
-   * The board changed size. Same number of rows and about the same width:
-   * flexbox re-fits the rows by itself. Otherwise lay out again.
-   */
+  function setPop(open) {
+    els.pop.hidden = !open;
+    els.gear.setAttribute('aria-expanded', String(open));
+    if (open) {
+      const first = els.pop.querySelector('input, select');
+      if (first) first.focus();
+    }
+  }
+
+  /** Escape closes the popover; Space pauses the wall (not while typing or on a control). */
+  function onKey(e) {
+    if (!active) return;
+    if (e.key === 'Escape' && !els.pop.hidden) {
+      e.preventDefault();
+      e.stopPropagation();
+      setPop(false);
+      els.gear.focus();
+      return;
+    }
+    if (e.code !== 'Space' && e.key !== ' ') return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    if (!built || playerOpen) return;
+    const t = e.target;
+    // Space keeps its own meaning on a control (a checkbox, a button) and
+    // in anything you type into.
+    if (t && t.closest && t.closest('input, textarea, select, button, a[href], [contenteditable]:not([contenteditable="false"])')) return;
+    e.preventDefault();
+    setPaused(!userPaused);
+  }
+
+  let fsTimer = null;
+  function showBarBriefly() {
+    els.root.classList.remove('wall-bar-idle');
+    clearTimeout(fsTimer);
+    fsTimer = setTimeout(function hide() {
+      if (!els.root.classList.contains('wall-fs')) return;
+      // Kept while the popover is open or the mouse is on the bar.
+      if (!els.pop.hidden || els.bar.matches(':hover')) { fsTimer = setTimeout(hide, FS_IDLE_MS); return; }
+      els.root.classList.add('wall-bar-idle');
+    }, FS_IDLE_MS);
+  }
+
+  /** The board changed size: plan it again (once, after resizing stopped). */
   function refitBoard() {
     const W = els.board.clientWidth;
     const H = els.board.clientHeight;
     if (!W || !H) return;
-    if (rowCountFor(H) !== lay.R) { relayout(true); return; }
-    lay.W = W; lay.H = H; lay.rh = (H - cfg.gap * (lay.R - 1)) / lay.R;
-    rows.forEach(refitRow);
-    // Much wider or narrower with the same rows: the rows no longer hold
-    // the right number of blocks, and every block would be squeezed.
-    if (Math.abs(Math.log(boardFit())) > 0.12) relayout(true);
+    if (W === lay.W && H === lay.H) return;
+    replan(true);
   }
 
   function wireBoard() {
@@ -622,6 +992,7 @@ const Wall = (() => {
       hoverEnd(b);
     });
     board.addEventListener('click', (e) => {
+      if (swallowClick) { swallowClick = false; return; }
       const b = blockOf(e.target);
       if (b) openItem(b);
     });
@@ -646,27 +1017,29 @@ const Wall = (() => {
 
   function updateStatus() {
     if (!els) return;
-    const playing = blocks.filter(b => b.video).length;
-    els.status.textContent = built && blocks.length
-      ? `${playing} playing, ${blocks.length} on the wall` : '';
+    let playing = 0;
+    for (const b of blocks) if (b.video) playing++;
+    els.status.textContent = built && blocks.length ? `${playing} playing` : '';
   }
 
   /* ── Layout ─────────────────────────────────────────────────────────── */
 
-  function rowCountFor(H) {
-    return Math.max(1, Math.round((H + cfg.gap) / (cfg.blockSize + cfg.gap)));
-  }
-
-  function makeBlock(item, row) {
+  function makeBlock(slot) {
     const el = document.createElement('div');
     el.className = 'wall-block';
+    el.style.left = `${slot.x.toFixed(2)}px`;
+    el.style.top = `${slot.y.toFixed(2)}px`;
+    el.style.width = `${slot.w.toFixed(2)}px`;
+    el.style.height = `${slot.h.toFixed(2)}px`;
     const cap = document.createElement('div');
     cap.className = 'wall-cap';
     el.appendChild(cap);
     const b = {
-      el, cap, row,
+      el, cap,
+      x: slot.x, y: slot.y, w: slot.w, h: slot.h,
+      aspect: slot.w / slot.h,  // the slot's shape, fixed for its life
       item: null,
-      aspect: aspectOf(item),
+      cropped: false,
       video: null,          // { v, layer, hls, token, cost, mode, id, released }
       pending: null,        // a still layer waiting for its picture
       dueAt: 0,
@@ -676,12 +1049,24 @@ const Wall = (() => {
       hovered: false,
       holdLeft: 0,
       rand: Math.random(),
+      fitWait: false,
       dead: false,
-      first: item,
     };
     el._wall = b;
-    el.style.flexGrow = String(b.aspect);
     return b;
+  }
+
+  /** Release a block for good: its videos, its place in the counts, its DOM. */
+  function dropBlock(b) {
+    b.dead = true;
+    for (const v of b.el.querySelectorAll('video')) releaseVideo(v._wallRec);
+    b.video = null;
+    if (b.item) {
+      const c = (onScreen.get(b.item.id) || 1) - 1;
+      if (c > 0) onScreen.set(b.item.id, c); else onScreen.delete(b.item.id);
+    }
+    if (hoverBlock === b) { hoverBlock = null; }
+    b.el.remove();
   }
 
   /** Tear the board down. Every video is released, not just removed. */
@@ -692,16 +1077,46 @@ const Wall = (() => {
       b.video = null;
     }
     blocks = [];
-    rows = [];
+    hoverBlock = null;
     onScreen.clear();
-    if (els) els.board.textContent = '';
+    if (els) els.track.textContent = '';
+  }
+
+  const isOnScreen = (r) => onScreen.has(r.id);
+
+  /**
+   * The next file for the board being built. When the queue is empty (a
+   * tiny source, or the next batch not fetched yet) the board repeats what
+   * it already shows, so it is always full.
+   */
+  function nextBuildItem() {
+    const i = buildIndex(lay, ready, isOnScreen);
+    if (i >= 0) return take(i);
+    fill();
+    if (!blocks.length) return null;
+    return blocks[Math.floor(Math.random() * blocks.length)].item;
+  }
+
+  /** Put one more block on the board at the next place the plan has for it. */
+  function addBlock(item) {
+    const s = slotFor(lay, aspectOf(item));
+    placeSlot(lay, s);
+    const b = makeBlock(s);
+    blocks.push(b);
+    els.track.appendChild(b.el);
+    showStill(b, item);
+    return b;
+  }
+
+  /** How far the columns must reach: the screen (Grid) or a screen and a half (Scroll). */
+  function fillLine() {
+    return cfg.mode === 'scroll' ? drift.offset + lay.H + Math.max(400, lay.H * 0.5) : lay.H;
   }
 
   /**
-   * Build the board from the buffer. Each row takes items until its natural
-   * width (aspect × row height) reaches the board width; near the end it
-   * looks ahead for the shape that fills the rest best, and stops instead
-   * when adding anything would overshoot more than stretching would.
+   * Build the board from the buffer: columns planned from the board width,
+   * blocks added to the shortest column until every column passes the
+   * bottom edge (Scroll: half a screen further, for what drifts in next).
    */
   function layout() {
     layoutGen++;
@@ -711,49 +1126,19 @@ const Wall = (() => {
     // the board dirty and it is laid out on the way back in).
     if (!W || !H) return false;
     teardownBlocks();
-    const g = cfg.gap;
-    const R = rowCountFor(H);
-    const rh = (H - g * (R - 1)) / R;
-    Object.assign(lay, { W, H, R, rh });
+    Object.assign(lay, planColumns(W, cfg.colWidth, cfg.gap), { W, H });
+    drift.offset = 0;
+    applyOffset();
 
-    const frag = document.createDocumentFragment();
-    for (let r = 0; r < R; r++) {
-      const rowEl = document.createElement('div');
-      rowEl.className = 'wall-row';
-      const row = { el: rowEl, blocks: [] };
-      let used = 0;
-      while (row.blocks.length < 60) {
-        const n = row.blocks.length;
-        const rem = W - used - (n ? g : 0);
-        if (n && rem <= 0) break;
-        const target = rem > rh * 2.5 ? null : rem / rh;
-        const i = bestIndex(target);
-        if (i < 0) break;
-        const w = aspectOf(ready[i]) * rh;
-        // Stretching the row by `rem` beats squeezing it by more than that.
-        if (n && w - rem > rem) break;
-        const item = take(i);
-        const b = makeBlock(item, row);
-        row.blocks.push(b);
-        blocks.push(b);
-        rowEl.appendChild(b.el);
-        used += (n ? g : 0) + b.aspect * rh;
-        onScreen.set(item.id, (onScreen.get(item.id) || 0) + 1);
-      }
-      if (!row.blocks.length) break;
-      refitRow(row);
-      rows.push(row);
-      frag.appendChild(rowEl);
+    const line = fillLine();
+    while (blocks.length < MAX_BLOCKS && minBottom(lay) < line) {
+      const item = nextBuildItem();
+      if (!item) break;
+      addBlock(item);
     }
-    els.board.appendChild(frag);
 
     const t = now();
     for (const b of blocks) {
-      const item = b.first;
-      b.first = null;
-      onScreen.set(item.id, onScreen.get(item.id) - 1);
-      if (!onScreen.get(item.id)) onScreen.delete(item.id);
-      showStill(b, item);
       // Staggered so the pictures never all change together.
       b.dueAt = t + (0.2 + Math.random() * 0.9) * cfg.picSpeed * 1000;
     }
@@ -784,10 +1169,16 @@ const Wall = (() => {
       await fill();
       if (gen !== layoutGen || pg !== poolGen || !built) return;
     }
+    await shapesFor(LOOKAHEAD * 2, 1500);
+    if (gen !== layoutGen || pg !== poolGen || !built) return;
     if (!active) { markDirty(keep); return; }
     if (keep) {
-      const back = [];
-      for (const b of blocks) if (b.item && !b.dead) back.push(b.item);
+      // What is in view now, top to bottom, goes up first again.
+      const top = drift.offset;
+      const back = blocks
+        .filter(b => b.item && !b.dead && b.y + b.h > top && b.y < top + lay.H)
+        .sort((a, c) => (a.y - c.y) || (a.x - c.x))
+        .map(b => b.item);
       ready = back.concat(ready);
     }
     if (!layout()) { markDirty(keep); return; }
@@ -795,58 +1186,32 @@ const Wall = (() => {
     if (running) fillSlots();
   }
 
-  /**
-   * The shape a replacement should have so the row goes back to its natural
-   * width: whatever aspect the other blocks leave over.
-   */
-  function rebalanceTarget(b) {
-    const row = b.row;
-    const n = row.blocks.length;
-    const avail = (lay.W - cfg.gap * (n - 1)) / lay.rh;
-    let others = 0;
-    for (const o of row.blocks) if (o !== b) others += o.aspect;
-    return clamp(avail - others, 0.4, 3.5);
+  /** Plan the board again behind a short fade (block size, gap, mode, resize). */
+  let replanGen = 0;
+  function replan(keep) {
+    if (!built || !els) return;
+    if (!active) { markDirty(keep); return; }
+    const gen = ++replanGen;
+    fading = true;
+    syncDrift();
+    els.board.classList.add('wall-fading');
+    setTimeout(async () => {
+      if (gen !== replanGen) return;
+      try { await relayout(keep); } finally {
+        if (gen === replanGen) {
+          fading = false;
+          els.board.classList.remove('wall-fading');
+          evaluate();
+        }
+      }
+    }, REPLAN_FADE_MS);
   }
 
-  function setAspect(b, a) {
-    if (Math.abs(Math.log(a / b.aspect)) < 0.02) return;
-    b.aspect = a;
-    b.el.style.flexGrow = String(a);
-    refitRow(b.row);
-  }
-
-  /**
-   * A row's flex-grow in the board column is its natural height: the height
-   * at which its blocks, at their true shapes, exactly fill the width. So a
-   * row that came out a little short or long takes a little more or less
-   * height instead of stretching its blocks, and the only distortion left is
-   * one small factor shared by the whole board.
-   */
-  /** Board height over the rows' natural heights: 1 means no block is stretched. */
-  function boardFit() {
-    let sum = 0;
-    for (const row of rows) {
-      let a = 0;
-      for (const o of row.blocks) a += o.aspect;
-      sum += (lay.W - cfg.gap * (row.blocks.length - 1)) / a;
-    }
-    return sum ? (lay.H - cfg.gap * (rows.length - 1)) / sum : 1;
-  }
-
-  function refitRow(row) {
-    if (!row || !row.blocks.length || !lay.W) return;
-    let sum = 0;
-    for (const o of row.blocks) sum += o.aspect;
-    const h = (lay.W - cfg.gap * (row.blocks.length - 1)) / sum;
-    row.el.style.flexGrow = h.toFixed(2);
-  }
-
-  /** The element told us the real shape: remember it and re-fit the row. */
-  function learnAspect(b, item, w, h) {
+  /** The element told us the real shape: remember it for later picks. The slot never changes. */
+  function learnAspect(item, w, h) {
     if (!w || !h) return;
     const a = clamp(w / h, ASPECT_MIN, ASPECT_MAX);
     if (Math.abs(Math.log(a / aspectOf(item))) > 0.02) aspectCache.set(item.id, a);
-    if (b.item === item && !b.dead) setAspect(b, a);
   }
 
   let _pinTimer = null;
@@ -856,6 +1221,80 @@ const Wall = (() => {
       // Pinned so the player can open any block (getMediaById reads the cache).
       Library.pin('wall', blocks.map(b => b.item && b.item.id).filter(Boolean));
     }, 300);
+  }
+
+  /* ── Scroll mode ────────────────────────────────────────────────────── */
+
+  function applyOffset() {
+    if (!els) return;
+    const dpr = window.devicePixelRatio || 1;
+    const y = Math.round(drift.offset * dpr) / dpr;
+    els.track.style.transform = y ? `translate3d(0, ${-y}px, 0)` : '';
+  }
+
+  function driftShouldRun() {
+    return cfg.mode === 'scroll' && active && built && running && !fading && !hoverBlock;
+  }
+
+  function syncDrift() {
+    if (driftShouldRun()) {
+      if (!drift.raf) { drift.lastT = 0; drift.raf = requestAnimationFrame(frame); }
+    } else if (drift.raf) {
+      cancelAnimationFrame(drift.raf);
+      drift.raf = 0;
+      drift.lastT = 0;
+    }
+  }
+
+  function frame(t) {
+    drift.raf = 0;
+    if (!driftShouldRun()) return;
+    if (drift.lastT) {
+      const raw = t - drift.lastT;
+      drift.frames.push(raw);
+      if (drift.frames.length > 2000) drift.frames.splice(0, 1000);
+      drift.offset += speedPx() * Math.min(100, raw) / 1000;
+    }
+    drift.lastT = t;
+    maintainScroll();
+    applyOffset();
+    drift.raf = requestAnimationFrame(frame);
+  }
+
+  /**
+   * Keep the drifting board stocked: drop blocks that have left the top,
+   * add blocks to the shortest column below the fold, and every so often
+   * move the coordinates back toward zero (same frame, so nothing jumps).
+   */
+  function maintainScroll() {
+    let removed = 0;
+    if (blocks.length && blocks.some(b => b.y + b.h < drift.offset - 2)) {
+      const keep = [];
+      for (const b of blocks) {
+        if (b.y + b.h < drift.offset - 2 && removed < 8) { dropBlock(b); removed++; }
+        else keep.push(b);
+      }
+      blocks = keep;
+      drift.removed += removed;
+    }
+    const line = fillLine();
+    for (let n = 0; n < 3 && blocks.length < MAX_BLOCKS && minBottom(lay) < line; n++) {
+      const item = nextBuildItem();
+      if (!item) break;
+      const b = addBlock(item);
+      b.dueAt = Infinity;
+    }
+    if (removed) { pinOnScreen(); updateStatus(); }
+    if (drift.offset > REBASE_AT) {
+      const s = Math.floor(drift.offset);
+      drift.offset -= s;
+      for (let c = 0; c < lay.tops.length; c++) lay.tops[c] -= s;
+      for (const b of blocks) {
+        b.y -= s;
+        b.el.style.top = `${b.y.toFixed(2)}px`;
+      }
+      drift.rebases++;
+    }
   }
 
   /* ── Stills (pictures, and videos waiting for a slot) ───────────────── */
@@ -919,10 +1358,10 @@ const Wall = (() => {
       if (c > 0) onScreen.set(prevItem.id, c); else onScreen.delete(prevItem.id);
     }
     b.item = item;
+    b.cropped = Math.abs(Math.log(aspectOf(item) / b.aspect)) > 0.01;
     onScreen.set(item.id, (onScreen.get(item.id) || 0) + 1);
     b.cap.textContent = titleOf(item);
     b.el.title = '';
-    setAspect(b, aspectOf(item));
 
     const layer = document.createElement('div');
     layer.className = 'wall-layer';
@@ -940,7 +1379,7 @@ const Wall = (() => {
     whenImgReady(img, LOAD_TIMEOUT_MS).then((ok) => {
       if (b.dead || b.pending !== layer) { layer.remove(); return; }
       b.pending = null;
-      if (ok) learnAspect(b, item, img.naturalWidth, img.naturalHeight);
+      if (ok) learnAspect(item, img.naturalWidth, img.naturalHeight);
       else if (kindOf(item) === 'picture') {
         // A picture that will not load: drop it and move on soon.
         badIds.add(item.id);
@@ -979,8 +1418,12 @@ const Wall = (() => {
 
   /* ── Videos ─────────────────────────────────────────────────────────── */
 
+  /** Clips loop (and run until their block leaves) in Scroll mode. */
+  const toEnd = () => cfg.clipsToEnd && cfg.mode !== 'scroll';
+
   function clipMs() {
-    return fullClip() ? Infinity : cfg.clipLen * 1000;
+    if (cfg.mode === 'scroll' || cfg.clipsToEnd) return Infinity;
+    return cfg.clipLen * 1000;
   }
 
   function startVideo(b) {
@@ -996,7 +1439,7 @@ const Wall = (() => {
     v.muted = true;
     v.defaultMuted = true;
     v.playsInline = true;
-    v.loop = !fullClip();
+    v.loop = !toEnd();
     v.preload = 'auto';
     v.disablePictureInPicture = true;
     v.setAttribute('disableremoteplayback', '');
@@ -1016,7 +1459,7 @@ const Wall = (() => {
 
     // A random point, far enough from the end for a whole clip.
     const dur = Number(item.duration_seconds) || 0;
-    const clip = fullClip() ? 0 : cfg.clipLen;
+    const clip = toEnd() ? 0 : cfg.clipLen;
     const start = clip && dur > clip + 1 ? Math.random() * (dur - clip) : 0;
 
     v.addEventListener('playing', () => {
@@ -1024,7 +1467,7 @@ const Wall = (() => {
       b.loadDeadline = 0;
       b.startedAt = now();
       b.dueAt = b.startedAt + clipMs();
-      learnAspect(b, item, v.videoWidth, v.videoHeight);
+      learnAspect(item, v.videoWidth, v.videoHeight);
       if (cfg.soundOnHover && b.hovered) unmute(b);
       reveal(b, layer);
       updateStatus();
@@ -1116,7 +1559,7 @@ const Wall = (() => {
     releaseVideo(rec);
     if (b.video === rec) {
       b.video = null;
-      b.dueAt = now() + 400;      // swap the block to something that works
+      b.dueAt = cfg.mode === 'scroll' ? Infinity : now() + 400;   // swap the block to something that works
       b.lastPlayedAt = now();
     }
     updateStatus();
@@ -1128,7 +1571,7 @@ const Wall = (() => {
     releaseVideo(b.video);
     b.video = null;
     b.lastPlayedAt = now();
-    b.dueAt = now() + stillDelay();
+    b.dueAt = cfg.mode === 'scroll' ? Infinity : now() + stillDelay();
   }
 
   function releaseAllVideos() {
@@ -1144,24 +1587,54 @@ const Wall = (() => {
     updateStatus();
   }
 
-  /** Free slots go to the video blocks that have waited longest. */
+  const canPlay = (b) => !b.video && !b.dead && b.item
+    && kindOf(b.item) === 'video' && !badIds.has(b.item.id);
+
+  /**
+   * Free slots go to the video blocks that have waited longest. In Scroll
+   * mode only blocks in view qualify, fully visible ones first, and a block
+   * already leaving the top gives its slot to a fully visible one.
+   */
   function fillSlots() {
-    if (!running || liveCost >= cfg.playing) return;
-    // A still that is still loading does not hold its block back: the clip
-    // layer goes on top of it either way.
-    const cands = blocks.filter(b => !b.video && !b.dead && b.item
-      && kindOf(b.item) === 'video' && !badIds.has(b.item.id));
-    cands.sort((a, c) => (a.lastPlayedAt - c.lastPlayedAt) || (a.rand - c.rand));
+    if (!running) return;
+    if (cfg.mode !== 'scroll') {
+      if (liveCost >= cfg.playing) return;
+      // A still that is still loading does not hold its block back: the clip
+      // layer goes on top of it either way.
+      const cands = blocks.filter(canPlay);
+      cands.sort((a, c) => (a.lastPlayedAt - c.lastPlayedAt) || (a.rand - c.rand));
+      for (const b of cands) {
+        if (liveCost >= cfg.playing) break;
+        startVideo(b);
+      }
+      return;
+    }
+    const top = drift.offset;
+    const bottom = top + lay.H;
+    const full = (b) => b.y >= top && b.y + b.h <= bottom;
+    const cands = blocks.filter(b => canPlay(b) && b.y >= top && b.y < bottom);
+    cands.sort((a, c) => (full(c) - full(a)) || (a.lastPlayedAt - c.lastPlayedAt) || (a.y - c.y));
+    // Playing blocks that are leaving (or out of view), soonest gone first.
+    const leaving = blocks.filter(b => b.video && !full(b) && (b.y < top || b.y >= bottom))
+      .sort((a, c) => a.y - c.y);
     for (const b of cands) {
-      if (liveCost >= cfg.playing) break;
-      startVideo(b);
+      if (startVideo(b)) continue;
+      if (!full(b)) break;
+      // Freeing slots cannot help a remux clip while another remux runs.
+      if (playMode(b.item) === 'remux' && liveRemux >= MAX_REMUX) continue;
+      while (leaving.length) {
+        stopVideo(leaving.shift());
+        if (startVideo(b)) break;
+      }
+      if (!b.video && !leaving.length) break;
     }
   }
 
-  /** "Playing at once" went down: stop the clips closest to their end. */
+  /** "Videos at once" went down: stop the clips closest to their end (Scroll: nearest the top). */
   function trimVideos() {
     if (liveCost <= cfg.playing) return;
-    const playing = blocks.filter(b => b.video).sort((a, c) => a.dueAt - c.dueAt);
+    const playing = blocks.filter(b => b.video)
+      .sort(cfg.mode === 'scroll' ? (a, c) => a.y - c.y : (a, c) => a.dueAt - c.dueAt);
     for (const b of playing) {
       if (liveCost <= cfg.playing) break;
       stopVideo(b);
@@ -1170,6 +1643,7 @@ const Wall = (() => {
   }
 
   function retimeStills() {
+    if (cfg.mode === 'scroll') return;
     const t = now();
     const max = cfg.picSpeed * 1000;
     for (const b of blocks) {
@@ -1180,7 +1654,7 @@ const Wall = (() => {
   function retimeClips() {
     for (const b of blocks) {
       if (!b.video) continue;
-      b.video.v.loop = !fullClip();
+      b.video.v.loop = !toEnd();
       if (b.startedAt) b.dueAt = b.startedAt + clipMs();
     }
   }
@@ -1201,20 +1675,42 @@ const Wall = (() => {
     b.el.classList.add('wall-hover');
     b.holdLeft = b.dueAt - now();
     if (cfg.soundOnHover) unmute(b);
+    hoverBlock = b;
+    syncDrift();
   }
 
   function hoverEnd(b) {
     b.hovered = false;
     b.el.classList.remove('wall-hover');
-    if (Number.isFinite(b.holdLeft)) b.dueAt = now() + Math.max(1500, b.holdLeft);
+    if (cfg.mode !== 'scroll' && Number.isFinite(b.holdLeft)) b.dueAt = now() + Math.max(1500, b.holdLeft);
     if (b.video) b.video.v.muted = true;
+    if (hoverBlock === b) hoverBlock = null;
+    syncDrift();
   }
 
   /* ── The scheduler ──────────────────────────────────────────────────── */
 
+  /** Grid mode: the block shows its next file, one whose shape fits the slot. */
   function advance(b) {
-    const next = pick(rebalanceTarget(b));
-    if (!next) { b.dueAt = now() + 2000; return; }
+    const { i, fit } = swapIndex(ready, b.aspect, isOnScreen, b.item);
+    if (i < 0) { fill(); b.dueAt = now() + 2000; return; }
+    if (!fit && !b.fitWait && ready.length < READY_CAP) {
+      // Nothing of this shape in the buffer: fetch more and try once more
+      // shortly, before falling back to a crop.
+      b.fitWait = true;
+      fill(true);
+      b.dueAt = now() + 1500;
+      return;
+    }
+    b.fitWait = false;
+    const next = take(i);
+    stats.swaps++;
+    if (!fit) {
+      stats.crops++;
+      stats.worstCrop = Math.max(stats.worstCrop, Math.exp(Math.abs(Math.log(aspectOf(next) / b.aspect))));
+    }
+    else if (Math.abs(Math.log(aspectOf(next) / b.aspect)) <= 0.01) stats.exact++;
+    else stats.near++;
     if (b.video) {
       // The old clip keeps playing under the fade and is released after it.
       b.video = null;
@@ -1227,21 +1723,25 @@ const Wall = (() => {
   function tick() {
     if (!running) return;
     const t = now();
+    const grid = cfg.mode !== 'scroll';
     let swaps = 0;
     for (const b of blocks) {
       if (b.dead || b.hovered) continue;
       if (b.video && b.loadDeadline && t > b.loadDeadline) { videoFailed(b, b.video); continue; }
       // At most a few swaps per tick, so a burst of due blocks spreads out.
-      if (t >= b.dueAt && !b.pending && swaps < 3) {
+      if (grid && t >= b.dueAt && !b.pending && swaps < 3) {
         advance(b);
         swaps++;
+      } else if (!grid && b.video && t >= b.dueAt) {
+        stopVideo(b);   // a clip that ended in Scroll mode
       }
     }
     fillSlots();
+    updateStatus();
   }
 
   function setRunning(on) {
-    if (on === running) return;
+    if (on === running) { syncDrift(); return; }
     running = on;
     if (on) {
       const d = pausedAt ? now() - pausedAt : 0;
@@ -1259,6 +1759,7 @@ const Wall = (() => {
       tickTimer = null;
       for (const b of blocks) if (b.video) { try { b.video.v.pause(); } catch {} }
     }
+    syncDrift();
   }
 
   /**
@@ -1272,6 +1773,7 @@ const Wall = (() => {
     if (release && liveCost > 0) releaseAllVideos();
     setRunning(active && built && !userPaused && !playerOpen && !document.hidden);
     els.pauseBtn.textContent = userPaused ? 'Resume' : 'Pause';
+    els.pauseBtn.setAttribute('aria-pressed', String(userPaused));
     els.paused.hidden = !(built && userPaused);
   }
 
@@ -1296,9 +1798,11 @@ const Wall = (() => {
     if (!ready.length) {
       showMsg(cfg.source === 'library'
         ? 'Nothing to show. The Wall uses your current library filter; clear it or pick another source.'
-        : 'Nothing to show from this source. Pick another source or change the mix.');
+        : 'Nothing to show from this source. Pick another source or change what it shows.');
       return;
     }
+    await shapesFor(LOOKAHEAD * 3, 2500);
+    if (gen !== buildGen) return;
     showMsg('');
     if (!active) return;            // left while loading: lay out on the way back in
     dirty = layout() ? false : 'fresh';
@@ -1314,7 +1818,7 @@ const Wall = (() => {
     poolCursor = 0;
     ready = [];
     const gen = poolGen;
-    fill().then(() => {
+    fill().then(() => shapesFor(LOOKAHEAD * 2, 1500)).then(() => {
       if (gen !== poolGen) return;
       if (!active || !layout()) { markDirty(false); return; }
       dirty = false;
@@ -1351,6 +1855,7 @@ const Wall = (() => {
     window.scrollTo(0, 0);
     placeRoot();
     populateSources();
+    applyReducedMotion();
     syncControls();
     if (!built || computePoolKey() !== poolKey) rebuild();
     else if (dirty || !blocks.length) {
@@ -1361,7 +1866,7 @@ const Wall = (() => {
       relayout(keep);
       evaluate();
     } else {
-      // Back on the tab with the same source: re-fit if the window changed.
+      // Back on the tab with the same source: plan again if the window changed.
       refitBoard();
       evaluate();
     }
@@ -1370,6 +1875,7 @@ const Wall = (() => {
   function leave() {
     active = false;
     document.body.classList.remove('wall-active');
+    if (els) setPop(false);
     if (document.fullscreenElement === (els && els.root)) document.exitFullscreen().catch(() => {});
     evaluate();
   }
@@ -1392,19 +1898,37 @@ const Wall = (() => {
 
   return {
     enter, leave, lockStop,
+    // Pure pieces, for test/wall-layout.test.js.
+    _pure: { cfgFrom, nearestStep, planColumns, slotFor, placeSlot, minBottom, PIC_STEPS, CLIP_STEPS, RANGES },
     // For tests and debugging in the console.
     _stats: () => ({
+      mode: cfg && cfg.mode,
       blocks: blocks.length,
-      rows: rows.length,
+      domBlocks: els ? els.track.querySelectorAll('.wall-block').length : 0,
       liveCost,
       liveRemux,
       videos: els ? els.board.querySelectorAll('video').length : 0,
       playing: els ? [...els.board.querySelectorAll('video')].filter(v => !v.paused).length : 0,
+      hls: blocks.reduce((n, b) => n + [...b.el.querySelectorAll('video')].filter(v => v._wallRec && v._wallRec.hls).length, 0),
       ready: ready.length,
       pool: poolIds ? poolIds.length : 0,
       running,
-      lay: { ...lay },
+      userPaused,
+      drifting: !!drift.raf,
+      offset: drift.offset,
+      rebases: drift.rebases,
+      removed: drift.removed,
+      lay: { W: lay.W, H: lay.H, cols: lay.cols, cw: lay.cw, gap: lay.gap, minBottom: lay.tops.length ? minBottom(lay) : 0 },
+      ...stats,
     }),
+    _blocks: () => blocks.map(b => ({
+      id: b.item && b.item.id, x: b.x, y: b.y, w: b.w, h: b.h,
+      stored: b.item ? aspectOf(b.item) : 0, cropped: b.cropped, video: !!b.video,
+      remux: !!(b.video && b.video.mode === 'remux'),
+    })),
+    _frames: (reset) => { const f = drift.frames.slice(); if (reset) drift.frames = []; return f; },
+    _cfg: () => ({ ...cfg }),
+    _queue: () => ready.map(r => ({ id: r.id, a: +aspectOf(r).toFixed(2), known: shapeKnown(r), on: onScreen.has(r.id), bad: badIds.has(r.id) })),
   };
 })();
 
