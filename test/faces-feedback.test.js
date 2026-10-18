@@ -633,16 +633,16 @@ test('E7 sorting: an unclear face (norm < 9) joins a person but never starts one
 });
 
 test('E7 sorting: a held face is retried against a person a user action changed (merge)', async () => {
-  // two looks of one person, 0.48 apart (two people); an unclear third look, 0.48 to each: held
+  // two looks of one person, 0.52 apart (two people under the 0.56 join bar); an unclear third look, 0.52 to each: held
   for (const [n, noise, nrm] of [['g1.jpg', 122, 12], ['g2.jpg', 123, 12], ['g3.jpg', 124, 8]]) {
     addFile(n);
-    fk.fileScripts.set(files[n], { groups: [group(like(70, 0.69, noise), { norm: nrm })] });
+    fk.fileScripts.set(files[n], { groups: [group(like(70, 0.72, noise), { norm: nrm })] });
     await index([n]);
   }
   const p1 = pidOf('g1.jpg'), p2 = pidOf('g2.jpg');
   assert.ok(p1 && p2 && p1 !== p2);
   assert.deepStrictEqual(one('SELECT cluster_id, sort_held FROM face_groups WHERE id = ?', gid('g3.jpg')), { cluster_id: null, sort_held: 1 });
-  // merged, the person's centroid sits at 0.55 to the held face: it joins on the next run
+  // merged, the person's centroid sits at 0.59 to the held face: it joins on the next run
   assert.strictEqual((await post('/api/faces/people/merge', { ids: [p1, p2], into: p1 })).status, 200);
   await svc.sortPeopleNow();
   assert.deepStrictEqual(one('SELECT cluster_id, sort_held FROM face_groups WHERE id = ?', gid('g3.jpg')), { cluster_id: p1, sort_held: 0 });

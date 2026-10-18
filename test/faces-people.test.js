@@ -138,7 +138,8 @@ test.after(async () => {
 test('thresholds: people 0.50, the 0.54 + 0.04 suggestion bar, norm and might-be bands live with the search widths', () => {
   assert.strictEqual(THRESHOLDS.people, 0.5);
   assert.strictEqual(THRESHOLDS.suggest, 0.54);
-  const all = { people: 0.5, suggest: 0.54, suggestMargin: 0.04, dropNorm: 7, startNorm: 9, mightLikely: 0.56, mightMargin: 0.05, mightMaybe: 0.52 };
+  const all = { people: 0.5, suggest: 0.54, suggestMargin: 0.04, dropNorm: 7, startNorm: 9, mightLikely: 0.56, mightMargin: 0.05, mightMaybe: 0.52,
+    join: 0.56, joinNamed: 0.56, joinMargin: 0.05 };
   assert.deepStrictEqual(peopleThresholds('sface-2021dec'), all);
   assert.deepStrictEqual(peopleThresholds('unknown-model'), all);
 });
