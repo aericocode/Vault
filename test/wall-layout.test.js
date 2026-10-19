@@ -35,7 +35,66 @@ test('settings: defaults for an empty or broken blob', () => {
     assert.strictEqual(c.mode, 'grid');
     assert.strictEqual(c.source, 'library');
     assert.strictEqual(c.clipsToEnd, false);
+    assert.strictEqual(c.sound, 'off');
+    assert.strictEqual(c.pauseOnHover, true);
   }
+});
+
+test('settings: the old Sound on hover checkbox migrates to the Sound choice', () => {
+  // A Round 2 blob saved before the Sound choice existed.
+  const on = W.cfgFrom({ v: 2, soundOnHover: true, mode: 'scroll' });
+  assert.strictEqual(on.sound, 'hover');
+  assert.strictEqual(on.pauseOnHover, true, 'existing users keep pause on hover');
+  assert.ok(!('soundOnHover' in on), 'the old key is not carried forward');
+  assert.strictEqual(W.cfgFrom({ v: 2, soundOnHover: false }).sound, 'off');
+  assert.strictEqual(W.cfgFrom({ v: 2, soundOnHover: 'yes' }).sound, 'off', 'only a real true counts');
+  // The new key wins over the old one, and junk falls back.
+  assert.strictEqual(W.cfgFrom({ v: 2, sound: 'auto', soundOnHover: false }).sound, 'auto');
+  assert.strictEqual(W.cfgFrom({ v: 2, sound: 'loud' }).sound, 'off');
+  assert.strictEqual(W.cfgFrom({ v: 2, sound: 'loud', soundOnHover: true }).sound, 'hover');
+  // Pause on hover is on unless it was turned off.
+  assert.strictEqual(W.cfgFrom({ v: 2, pauseOnHover: false }).pauseOnHover, false);
+  assert.strictEqual(W.cfgFrom({ v: 2, pauseOnHover: 0 }).pauseOnHover, true);
+  // Saving and loading again changes nothing.
+  for (const c of [on, W.cfgFrom({ v: 2, sound: 'auto', pauseOnHover: false })]) {
+    assert.deepStrictEqual(W.cfgFrom(JSON.parse(JSON.stringify(c))), c);
+  }
+});
+
+/* Auto sound: which playing clip is heard. */
+const clip = (key, left, startedAt) => ({ key, left, startedAt });
+
+test('auto sound: the clip with the most time left is heard', () => {
+  const cands = [clip('a', 4000, 1), clip('b', 19000, 2), clip('c', 7000, 3)];
+  assert.strictEqual(W.pickAudible(cands, null), 'b');
+  assert.strictEqual(W.pickAudible([], null), null, 'nothing plays: silence');
+  assert.strictEqual(W.pickAudible([], 'a'), null, 'the heard clip stopped and nothing else plays');
+  // A clip nothing ends (loops, or the drift is paused) has the most time.
+  assert.strictEqual(W.pickAudible([clip('a', 90000, 1), clip('b', Infinity, 0)], null), 'b');
+});
+
+test('auto sound: a tie goes to the most recently started clip', () => {
+  const cands = [clip('a', Infinity, 100), clip('b', Infinity, 300), clip('c', Infinity, 200)];
+  assert.strictEqual(W.pickAudible(cands, null), 'b');
+  assert.strictEqual(W.pickAudible([clip('a', 5000, 10), clip('b', 5000, 20)], null), 'b');
+  assert.strictEqual(W.pickAudible([clip('a', 5000, 20), clip('b', 5000, 10)], null), 'a');
+});
+
+test('auto sound: never switches away from a clip that is still playing', () => {
+  const cands = [clip('a', 1000, 1), clip('b', Infinity, 2), clip('c', 60000, 3)];
+  assert.strictEqual(W.pickAudible(cands, 'a'), 'a', 'more time elsewhere is no reason to jump');
+  // Once it stops (no longer among the playing clips) the sound moves on.
+  assert.strictEqual(W.pickAudible(cands.slice(1), 'a'), 'b');
+  // A broken time left never wins.
+  assert.strictEqual(W.pickAudible([clip('a', NaN, 9), clip('b', 10, 1)], null), 'b');
+  // The clip being heard hands the sound on once its own time is up, crossfading while it still plays.
+  assert.strictEqual(W.pickAudible([clip('a', 0, 9), clip('b', 4000, 8)], 'a'), 'b');
+  assert.strictEqual(W.pickAudible([clip('a', 1, 9), clip('b', 4000, 8)], 'a'), 'a');
+  // When every clip is about to stop, something playing is still heard (never silence while clips play):
+  // the current one while it plays, else the one with the most time.
+  assert.strictEqual(W.pickAudible([clip('a', -100, 9), clip('b', -50, 8)], 'a'), 'a');
+  assert.strictEqual(W.pickAudible([clip('a', -250, 9), clip('b', 0, 8)], null), 'b');
+  assert.strictEqual(W.pickAudible([clip('b', -50, 8)], 'gone'), 'b');
 });
 
 test('settings: out-of-range values are clamped', () => {
@@ -61,7 +120,8 @@ test('settings: a first-Wall blob migrates and keeps its feel', () => {
   assert.strictEqual(c.mix, 'videos');
   assert.strictEqual(c.order, 'order');
   assert.strictEqual(c.source, 'c:12');
-  assert.strictEqual(c.soundOnHover, true);
+  assert.strictEqual(c.sound, 'hover', 'Sound on hover becomes the On hover choice');
+  assert.strictEqual(c.pauseOnHover, true);
   assert.strictEqual(c.directOnly, true);
   assert.strictEqual(c.mode, 'grid');
   assert.ok(!('blockSize' in c) && !('barOpen' in c), 'old keys are not carried forward');

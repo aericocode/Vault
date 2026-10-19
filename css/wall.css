@@ -245,6 +245,41 @@ body.wall-active { overflow: hidden; }
 .wall-block.wall-hover .wall-cap { opacity: 1; }
 .wall-block.wall-hover { outline: 2px solid var(--accent); outline-offset: -2px; z-index: 1; }
 
+/* The block being heard: a small speaker in its top-left corner. */
+.wall-spk {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 3;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  pointer-events: none;
+}
+.wall-block.wall-audible .wall-spk { display: flex; }
+
+/* The browser wants a click before it plays sound. */
+.wall-soundnote {
+  position: absolute;
+  left: 50%;
+  bottom: 1rem;
+  z-index: 3;
+  transform: translateX(-50%);
+  display: block;
+  padding: 0.35rem 0.8rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .wall-msg {
   position: absolute;
   inset: 0;
@@ -278,6 +313,7 @@ body.wall-active { overflow: hidden; }
 /* Classes above set display, so [hidden] has to be said again. */
 .wall-msg[hidden],
 .wall-paused[hidden],
+.wall-soundnote[hidden],
 .wall-pop[hidden],
 .wall-field[hidden],
 .wall-note[hidden] { display: none; }
