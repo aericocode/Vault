@@ -13,6 +13,13 @@
 .ft-drop[hidden],
 .ft-ask[hidden] { display: none; }
 
+/* The Faces tab uses the whole window width (the Library, Collections and
+   the other tabs keep the 1800px cap), with a side gutter. */
+#mainContainer.faces-on { max-width: none; padding-left: 16px; padding-right: 16px; }
+@media (min-width: 1600px) {
+  #mainContainer.faces-on { padding-left: 24px; padding-right: 24px; }
+}
+
 /* The tab borrows #mainContainer: the library's own search panel steps
    aside, and on the home the library grid does too. */
 #mainContainer.faces-on .search-section,
@@ -110,14 +117,22 @@
 .ft-chip b { font-weight: 600; color: var(--text-primary); margin-left: 4px; }
 .ft-chip b:empty { display: none; }
 
-/* ── Checking strip ── */
-.ft-checking {
-  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px;
-  padding: 10px 14px; margin-bottom: 12px; font-size: 0.8125rem; color: var(--text-secondary);
+/* Size slider (person cards on the home, file tiles on a person's page) */
+.ft-size {
+  display: inline-flex; align-items: center; gap: 8px; flex: none;
+  font-size: 0.8rem; color: var(--text-secondary); cursor: pointer;
 }
+.ft-size input { width: 120px; accent-color: var(--accent); cursor: pointer; margin: 0; }
+
+/* ── Checking strip: one slim line under the filter chips ── */
+.ft-checking {
+  display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; min-width: 0;
+  margin-top: -4px; font-size: 0.78rem; color: var(--text-secondary); line-height: 1.4;
+}
+.ft-checking > span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ft-checking .ft-link { flex: none; font-size: 0.78rem; white-space: nowrap; }
 .ft-checking b { color: var(--text-primary); font-weight: 600; }
-.ft-bar { flex: 0 0 180px; height: 6px; border-radius: 3px; background: var(--bg-primary); overflow: hidden; }
+.ft-bar { flex: 0 0 140px; height: 4px; border-radius: 2px; background: var(--bg-primary); overflow: hidden; }
 .ft-fill { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.4s; }
 
 /* ── Same person? strip ── */
@@ -150,6 +165,8 @@
   padding-bottom: 90px;   /* room for the selection bar */
 }
 .ft-none { grid-column: 1 / -1; padding: 2rem 0; text-align: center; color: var(--text-secondary); font-size: 0.875rem; }
+/* A person card is the face photo, portrait, with the name on a dark fade
+   at the bottom. */
 .ft-tile {
   position: relative;
   background: var(--bg-secondary);
@@ -161,13 +178,36 @@
 .ft-tile:hover, .ft-tile:focus-visible { border-color: var(--accent); transform: translateY(-2px); outline: none; }
 .ft-tile.ft-naming { border-color: var(--accent); transform: none; z-index: 5; cursor: default; }
 .ft-tile.ft-sel { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.45); }
-.ft-tile.ft-hidden .ft-thumb { opacity: 0.55; }
-.ft-thumb { position: relative; aspect-ratio: 1 / 1; background: var(--bg-tertiary); border-radius: 9px 9px 0 0; overflow: hidden; }
+.ft-tile.ft-hidden .ft-thumb .face-crop, .ft-tile.ft-hidden .ft-thumb .ft-blank { opacity: 0.55; }
+.ft-thumb { position: relative; aspect-ratio: 3 / 4; background: var(--bg-tertiary); border-radius: 9px; overflow: hidden; }
 .ft-thumb .face-crop { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ft-thumb .ft-blank { font-size: 2.4rem; }
 .ft-star {
-  position: absolute; top: 6px; left: 6px; width: 24px; height: 24px; border-radius: 50%;
+  position: absolute; top: 7px; right: 7px; width: 26px; height: 26px; border-radius: 50%;
   background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
 }
+.ft-cap {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+  padding: 28px 10px 9px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.82) 0%, rgba(0, 0, 0, 0.55) 55%, rgba(0, 0, 0, 0) 100%);
+  display: flex; flex-direction: column; gap: 2px;
+}
+/* Quick actions: favorite, hide, rename (top right, on hover or keyboard focus). */
+.ft-qacts {
+  position: absolute; top: 7px; right: 7px; z-index: 3; display: flex; gap: 4px;
+  opacity: 0; pointer-events: none; transition: opacity 0.15s;
+}
+.ft-tile:hover .ft-qacts, .ft-tile:focus-within .ft-qacts { opacity: 1; pointer-events: auto; }
+.ft-tile:hover .ft-star, .ft-tile:focus-within .ft-star { opacity: 0; }
+.ft-tile.ft-naming .ft-qacts, .ft-tile.ft-asking .ft-qacts { opacity: 0; pointer-events: none; }
+.ft-qbtn {
+  width: 28px; height: 28px; border-radius: 50%; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.25); background: rgba(0, 0, 0, 0.62); color: #e5e5e5;
+}
+.ft-qbtn:hover, .ft-qbtn:focus-visible { background: var(--accent); border-color: var(--accent); color: #fff; outline: none; }
+.ft-qbtn.on { color: #facc15; }
 .ft-check {
   position: absolute; top: 7px; left: 7px; width: 24px; height: 24px; border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.8); background: rgba(0, 0, 0, 0.45); box-sizing: border-box;
@@ -175,30 +215,40 @@
   opacity: 0; transition: opacity 0.15s;
 }
 .ft-tile:hover .ft-check, .ft-tile:focus-within .ft-check, .ft-tile.ft-sel .ft-check { opacity: 1; }
-.ft-tile:hover .ft-star, .ft-tile.ft-sel .ft-star { opacity: 0; }
 .ft-tile.ft-sel .ft-check { background: var(--accent); border-color: var(--accent); }
-.ft-scrub { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; gap: 3px; pointer-events: none; }
+/* Hover flip-through: a thin progress line along the top, the count under it. */
+.ft-scrub { position: absolute; left: 8px; right: 8px; top: 3px; display: flex; gap: 3px; pointer-events: none; z-index: 1; }
 .ft-scrub i { flex: 1; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.35); }
 .ft-scrub i.on { background: #fff; }
 .ft-scrub-cap {
-  position: absolute; right: 8px; bottom: 16px; font-size: 0.6875rem; background: rgba(0, 0, 0, 0.7);
-  padding: 1px 6px; border-radius: 4px; color: var(--text-primary); pointer-events: none;
+  position: absolute; left: 50%; transform: translateX(-50%); top: 40px; font-size: 0.6875rem; background: rgba(0, 0, 0, 0.7);
+  padding: 1px 6px; border-radius: 4px; color: var(--text-primary); pointer-events: none; white-space: nowrap; z-index: 1;
 }
-.ft-name {
-  font-size: 0.84rem; font-weight: 600; padding: 7px 9px 2px; color: var(--text-primary);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
+/* "Not named yet" buttons in the "Same person?" pairs */
 .ft-addname {
-  margin: 7px 9px 2px; display: block; width: calc(100% - 18px); box-sizing: border-box; text-align: left;
-  padding: 2px 8px; border: 1px dashed #555; border-radius: 6px; background: transparent;
+  display: block; box-sizing: border-box; text-align: left; height: 22px; line-height: 18px;
+  padding: 0 8px; border: 1px dashed #555; border-radius: 6px; background: transparent;
   color: var(--text-secondary); font: inherit; font-size: 0.78rem; cursor: text;
 }
 .ft-addname:hover { border-color: var(--accent); color: var(--text-primary); }
-.ft-meta { display: flex; gap: 4px; flex-wrap: wrap; padding: 2px 9px 8px; }
-.ft-badge {
-  font-size: 0.625rem; padding: 1px 6px; border-radius: 4px; background: var(--bg-tertiary);
-  color: var(--text-secondary); border: 1px solid var(--border); white-space: nowrap;
+.ft-cap .ft-name {
+  font-size: 0.9rem; font-weight: 600; color: #fff; line-height: 22px; height: 22px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
+.ft-cap .ft-addname {
+  display: block; width: 100%; height: 22px; box-sizing: border-box; text-align: left;
+  padding: 0; border: 0; background: transparent; line-height: 22px;
+  color: #a3a3a3; font: inherit; font-size: 0.86rem; font-style: italic; cursor: text;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ft-cap .ft-addname:hover, .ft-cap .ft-addname:focus-visible { color: #fff; text-decoration: underline; outline: none; }
+.ft-cap .ft-meta {
+  font-size: 0.75rem; color: rgba(255, 255, 255, 0.78); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ft-cap .ft-field { margin: 0; width: 100%; height: 24px; padding: 0 8px; font-size: 0.8125rem; }
+/* The name list opens under the card. */
+.ft-tile > .ft-drop { left: 0; top: calc(100% + 4px); width: max(230px, 100%); }
+.ft-tile > .ft-ask { left: 0; top: calc(100% + 4px); width: max(320px, calc(100% + 60px)); }
 .ft-more-row { display: flex; justify-content: center; margin: -70px 0 90px; }
 
 /* ── Name field, suggestions, "already in Faces" ── */
@@ -330,14 +380,6 @@
   color: var(--text-secondary); border: 1px solid var(--border);
 }
 .ft-acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.ft-with { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.8125rem; color: var(--text-secondary); }
-.ft-mini {
-  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px;
-  border: 1px solid var(--border); border-radius: 999px; background: var(--bg-tertiary);
-  color: var(--text-primary); font: inherit; font-size: 0.78rem; cursor: pointer;
-}
-.ft-mini:hover { border-color: var(--accent); }
-.ft-mini .face-crop, .ft-mini .ft-blank { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; font-size: 0.7rem; }
 .ft-seg {
   display: inline-flex; gap: 2px; padding: 2px; background: var(--bg-tertiary);
   border: 1px solid var(--border); border-radius: 999px; margin: 4px 0 12px;
@@ -395,14 +437,8 @@ body.pm-names .ft-crumb-name { pointer-events: none; user-select: none; }
 @media (max-width: 600px) {
   .ft-cols { gap: 10px; }
   .ft-cover { width: 120px; height: 120px; }
-  .ft-bar { flex-basis: 100%; }
   .ft-pairs { grid-template-columns: 1fr; }
 }
-
-/* Named and unnamed tiles keep the same height: one fixed name row. */
-.ft-name { height: 22px; line-height: 22px; padding: 0 9px; margin: 7px 0 2px; box-sizing: border-box; }
-.ft-addname { height: 22px; line-height: 18px; padding: 0 8px; }
-.ft-tile .ft-field { height: 22px; padding: 0 8px; }
 
 /* "✕ Not this person" folds to "✕" on narrow tiles (Small cards), so it never
    reaches the checkbox at the other corner. */
@@ -499,3 +535,88 @@ body.pm-names .ft-cmeta { filter: blur(7px); }
 /* Might also be: Show N less likely / Hide */
 .ft-might-more { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
 .ft-might-more:empty { display: none; }
+
+/* ── Person page: profile column on the left, files on the right ──────────
+   #facesView and #ftPerson step out of the way (display: contents), so the
+   breadcrumb, the profile column, "Might also be", the tools row and the
+   library's own results bar, grid and pager all sit in one grid. Under
+   1100px the column goes on top as a banner (faces-tab.js FT_SIDE_BREAK). */
+#mainContainer.faces-person {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto auto 1fr;
+  column-gap: 24px;
+  align-items: start;
+}
+#mainContainer.faces-person > #facesView,
+#mainContainer.faces-person #ftPerson { display: contents; }
+#mainContainer.faces-person .ft-crumb { grid-column: 1 / -1; grid-row: 1; }
+#mainContainer.faces-person .ft-side { grid-column: 1; grid-row: 2 / -1; }
+#mainContainer.faces-person .ft-reviews { grid-column: 2; grid-row: 2; min-width: 0; }
+#mainContainer.faces-person .ft-ptools { grid-column: 2; grid-row: 3; }
+#mainContainer.faces-person > .results-info { grid-column: 2; grid-row: 4; }
+#mainContainer.faces-person > #resultsGrid { grid-column: 2; grid-row: 5; }
+#mainContainer.faces-person > #pagination { grid-column: 2; grid-row: 6; }
+
+.ft-side {
+  position: sticky; top: var(--ft-stick, 12px);
+  box-sizing: border-box; min-width: 0;
+  background: var(--bg-secondary); border-radius: 12px; padding: 16px;
+  display: flex; flex-direction: column; flex-wrap: nowrap; gap: 14px; margin-bottom: 0;
+}
+.ft-side .ft-cover { width: min(100%, 26vh); height: auto; aspect-ratio: 1 / 1; min-width: 140px; }
+.ft-side .ft-cover-cap { opacity: 0; transition: opacity 0.15s; }
+.ft-side .ft-cover:hover .ft-cover-cap, .ft-side .ft-cover:focus-visible .ft-cover-cap { opacity: 1; }
+.ft-side .ft-info { flex: none; gap: 10px; }
+/* A long name stops at two lines so "Often seen with" keeps its room; the breadcrumb has it in full. */
+.ft-side .ft-title h1 {
+  font-size: 1.375rem; overflow-wrap: anywhere; min-width: 0;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+}
+.ft-side .ft-stats { display: block; font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.45; }
+.ft-side .st-facts { gap: 4px 14px; font-size: 0.8125rem; }
+/* Play all on its own line, then Shuffle, Favorite and the menu. */
+.ft-side .ft-acts { display: grid; grid-template-columns: 1fr 1fr 40px; gap: 6px; }
+.ft-side .ft-acts [data-ft-play="0"] { grid-column: 1 / -1; }
+.ft-side .ft-acts .ft-btn-md { padding: 0.45rem 0.5rem; white-space: nowrap; }
+.ft-dots { font-size: 1rem; line-height: 1; letter-spacing: 1px; min-width: 38px; }
+/* Description, notes and "Often seen with" scroll inside the column when it is taller than the window. */
+.ft-side-more {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #444 transparent;
+  display: flex; flex-direction: column; gap: 12px;
+  border-top: 1px solid var(--border); padding-top: 12px; margin: 0 -6px; padding-left: 6px; padding-right: 6px;
+}
+.ft-with h2 { margin: 0 0 6px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.38px; text-transform: uppercase; color: #888; }
+.ft-wlist { display: flex; flex-direction: column; gap: 2px; }
+.ft-wrow {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 5px 6px; border-radius: 8px;
+  border: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 0.8125rem;
+  text-align: left; cursor: pointer;
+}
+.ft-wrow:hover, .ft-wrow:focus-visible { background: var(--bg-hover); outline: none; }
+.ft-wrow .face-crop, .ft-wrow .ft-blank { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex: none; font-size: 0.8rem; }
+.ft-wrow .ft-mini-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ft-wn { flex: none; font-size: 0.75rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+/* Right side: All / Videos / Photos and the tile Size slider over the files. */
+.ft-ptools {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.ft-ptools .ft-seg { margin: 0; }
+.ft-ptools .ft-size { margin-left: auto; }
+
+@media (max-width: 1099.98px) {
+  #mainContainer.faces-person { display: block; }
+  .ft-side {
+    position: relative; top: auto; max-height: none;
+    flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 12px 18px; margin-bottom: 12px;
+  }
+  .ft-side .ft-cover { width: 120px; min-width: 0; }
+  .ft-side .ft-info { flex: 1 1 320px; min-width: 0; }
+  .ft-side .ft-acts { display: flex; flex-wrap: wrap; }
+  .ft-side-more { flex: 1 1 100%; overflow: visible; border-top: 0; padding-top: 0; margin: 0; padding-left: 0; padding-right: 0; }
+  .ft-wlist { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+  .ft-wrow { width: auto; padding: 3px 10px 3px 3px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-tertiary); }
+  .ft-wrow .face-crop, .ft-wrow .ft-blank { width: 24px; height: 24px; }
+  .ft-wrow .ft-mini-name { flex: none; }
+}

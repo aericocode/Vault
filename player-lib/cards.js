@@ -72,6 +72,9 @@ function libraryLayoutMode() {
 }
 
 function tileMinWidth() {
+  // A person's page in the Faces tab has its own Size slider (faces-tab.js).
+  const faces = typeof facesFileTileMin === 'function' ? facesFileTileMin() : 0;
+  if (faces) return faces;
   // Modern sets the width directly with the toolbar slider; Classic keeps S/M/L.
   if (typeof isModernLayout === 'function' && isModernLayout()
       && typeof window.vaultCardMinWidth === 'function') return window.vaultCardMinWidth();
@@ -822,7 +825,9 @@ function ownsItsScroll(target, root) {
 function isTypingTarget(el) {
   if (!el) return false;
   const tag = el.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+  // Sliders, checkboxes and buttons take no text, so paging keys still page
+  if (tag === 'INPUT') return !/^(range|checkbox|radio|button|submit|reset|color|file|image)$/i.test(el.type);
+  return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
 }
 
 document.addEventListener('keydown', (e) => {

@@ -155,7 +155,7 @@ test('setup: the library sorted as the header says', () => {
 test('E1 group search: match is the best-scoring face of each file, with its person; source = the clicked face\'s person', async () => {
   const r = await post(`/api/faces/groups/${gid('b1.jpg')}/similar`, { width: 'normal' });
   assert.strictEqual(r.status, 200);
-  assert.deepStrictEqual(Object.keys(r.body).sort(), ['capped', 'ids', 'match', 'scores', 'source', 'total']);
+  assert.deepStrictEqual(Object.keys(r.body).sort(), ['capped', 'ids', 'match', 'rejected', 'scores', 'source', 'total']);
   assert.deepStrictEqual(r.body.source, { personId: P.joe, personName: 'Joe' });
   assert.deepStrictEqual(new Set(r.body.ids), new Set([ids['b1.jpg'], ids['b2.jpg'], ids['mix.jpg']]));
   assert.deepStrictEqual(Object.keys(r.body.match).map(Number).sort(), [...r.body.ids].sort());
@@ -178,7 +178,7 @@ async function querySearch(tag, embedding, width = 'normal') {
 test('E1 query search: likelyPerson = the person of at least half the results, else a best match >= 0.50, else null', async () => {
   // Barack has most of the results
   let r = await querySearch('q-barack', person(0));
-  assert.deepStrictEqual(Object.keys(r.body).sort(), ['capped', 'ids', 'likelyPerson', 'match', 'scores', 'total']);
+  assert.deepStrictEqual(Object.keys(r.body).sort(), ['capped', 'ids', 'likelyPerson', 'match', 'rejected', 'scores', 'total']);
   assert.deepStrictEqual(r.body.likelyPerson, { id: P.barack, name: 'Barack' });
   assert.strictEqual(r.body.match[ids['o2.jpg']].personId, P.barack);
 
@@ -231,7 +231,7 @@ test('E4 candidates: unnamed people ranked by the rule, hidden / different / rej
   assert.deepStrictEqual(r.body.items.map(i => [i.personId, i.tier]), [[P.l, 'likely'], [P.y, 'maybe']]);
   assert.strictEqual(r.body.total, 2);
   const [it] = r.body.items;
-  assert.deepStrictEqual(Object.keys(it).sort(), ['cropUrl', 'filename', 'files', 'groupId', 'mediaId', 'personId', 'score', 'tier']);
+  assert.deepStrictEqual(Object.keys(it).sort(), ['bbox', 'cropUrl', 'filename', 'files', 'groupId', 'mediaId', 'mediaType', 'personId', 'score', 'tier', 'timeS']);
   assert.deepStrictEqual([it.groupId, it.mediaId, it.filename, it.files, it.cropUrl],
     [gid('l1.jpg'), ids['l1.jpg'], 'l1.jpg', 1, `/api/faces/crop/${gid('l1.jpg')}`]);
   assert.ok(it.score >= 0.56 && r.body.items[1].score >= 0.52 && r.body.items[1].score < 0.56);
@@ -633,16 +633,16 @@ test('E7 sorting: an unclear face (norm < 9) joins a person but never starts one
 });
 
 test('E7 sorting: a held face is retried against a person a user action changed (merge)', async () => {
-  // two looks of one person, 0.48 apart (two people); an unclear third look, 0.48 to each: held
+  // two looks of one person, 0.52 apart (two people under the 0.56 join bar); an unclear third look, 0.52 to each: held
   for (const [n, noise, nrm] of [['g1.jpg', 122, 12], ['g2.jpg', 123, 12], ['g3.jpg', 124, 8]]) {
     addFile(n);
-    fk.fileScripts.set(files[n], { groups: [group(like(70, 0.69, noise), { norm: nrm })] });
+    fk.fileScripts.set(files[n], { groups: [group(like(70, 0.72, noise), { norm: nrm })] });
     await index([n]);
   }
   const p1 = pidOf('g1.jpg'), p2 = pidOf('g2.jpg');
   assert.ok(p1 && p2 && p1 !== p2);
   assert.deepStrictEqual(one('SELECT cluster_id, sort_held FROM face_groups WHERE id = ?', gid('g3.jpg')), { cluster_id: null, sort_held: 1 });
-  // merged, the person's centroid sits at 0.55 to the held face: it joins on the next run
+  // merged, the person's centroid sits at 0.59 to the held face: it joins on the next run
   assert.strictEqual((await post('/api/faces/people/merge', { ids: [p1, p2], into: p1 })).status, 200);
   await svc.sortPeopleNow();
   assert.deepStrictEqual(one('SELECT cluster_id, sort_held FROM face_groups WHERE id = ?', gid('g3.jpg')), { cluster_id: p1, sort_held: 0 });

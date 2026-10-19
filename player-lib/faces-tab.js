@@ -5,9 +5,10 @@
      home    #facesView holds the people grid (search, sort, chips, the
              checking strip, "Same person?" strip, tiles); the library grid
              is emptied (filters.js applyFilters -> facesHomeShowing).
-     person  #facesView holds the breadcrumb and header; the library grid
-             below shows the person's files (filters.js currentQuerySpec ->
-             facesPersonQuery: onlyIds + rankedIds in the person's order).
+     person  #facesView holds the breadcrumb and the profile column; the
+             library grid beside it shows the person's files (filters.js
+             currentQuerySpec -> facesPersonQuery: onlyIds + rankedIds in the
+             person's order). css/faces-tab.css lays both out in one grid.
 
    A People | Studios switch (FT.mode, remembered) sits at the start of the
    top row; in Studios mode studios.js draws #facesView instead (studiosRender),
@@ -18,6 +19,7 @@
      filters.js     facesHomeShowing(), facesPersonQuery()
      cards.js       facesTileExtrasHtml(media)   "▶ from 0:04", "✕ Not this person";
                                                  in the library, the face results' tags (faces.js)
+                    facesFileTileMin()           the person page's file tile width (its Size slider)
      viewtracker.js facesStartAt(el)             play from the first appearance
      faces.js       facesTabStatusChanged()      status polls repaint the strip
    Server: /api/faces/people*, /api/faces/review (server/faces-routes.js).
@@ -38,7 +40,6 @@ const FT_FILTERS = [
   { value: 'hidden', label: 'Hidden' },
 ];
 const FT_PAGE = 200;
-const FT_CARD_MIN = { S: 130, M: 170, L: 230 };
 const FT_FLIP_MS = 700;
 
 const FT = {
@@ -72,21 +73,20 @@ function ftTime(s) {
   return s ? formatDuration(s) : '0:00';
 }
 
-/** "About 1 min on screen" / "About 20 s on screen". */
-function ftScreen(s) {
+/** The short form for cards and the profile: "50 s", "3 min", "1 h 5 min". '' when unknown. */
+function ftScreenShort(s) {
   if (!s || s < 1) return '';
-  if (s < 60) return `About ${Math.max(5, Math.round(s / 5) * 5)} s on screen`;
+  if (s < 60) return `${Math.max(5, Math.round(s / 5) * 5)} s`;
   const min = Math.round(s / 60);
-  if (min < 60) return `About ${min} min on screen`;
+  if (min < 60) return `${min} min`;
   const h = Math.floor(min / 60), m = min % 60;
-  return `About ${h} h${m ? ` ${m} min` : ''} on screen`;
+  return `${h} h${m ? ` ${m} min` : ''}`;
 }
 
-function ftBadges(p) {
-  const out = [ftPlural(p.files, 'file', 'files')];
-  if (p.videos) { const t = ftScreen(p.screenS); if (t) out.push(t); }
-  else if (p.photos) out.push('Photos only');
-  return out;
+/** A person card's one line: "5 files · 50 s" (the time only for videos, and only when known). */
+function ftCardLine(p) {
+  const t = p.videos ? ftScreenShort(p.screenS) : '';
+  return `${ftPlural(p.files, 'file', 'files')}${t ? ` · ${t}` : ''}`;
 }
 
 function ftName(p) { return p && p.name ? p.name : ''; }
@@ -150,6 +150,7 @@ function facesTabEnter() {
 }
 
 function facesTabLeave() {
+  if (FT.personId != null && typeof selectedIds !== 'undefined' && selectedIds.size && typeof clearSelection === 'function') clearSelection();
   ftCloseNaming();
   ftUnpin();
   ftClosePops();
@@ -347,10 +348,11 @@ function ftRenderHome() {
               <input type="text" id="ftSearch" placeholder="Search people by name" aria-label="Search people by name" autocomplete="off">
             </label>
             <button class="ft-pill" type="button" id="ftSortBtn" aria-haspopup="menu"></button>
+            ${ftSizeHtml('ftSize', 'people', 'Card size')}
           </div>
           <div class="ft-row ft-chips" id="ftChips" role="group" aria-label="Show"></div>
+          <div class="ft-checking" id="ftStrip" hidden></div>
         </section>
-        <div class="ft-checking" id="ftStrip" hidden></div>
         <section class="ft-review" id="ftReview" aria-label="Same person?" hidden></section>
         <div class="ft-grid" id="ftGrid"></div>
         <div class="ft-more-row" id="ftMoreRow" hidden><button class="ft-btn ghost" type="button" data-ft-showmore>Show more people</button></div>
@@ -365,6 +367,43 @@ function ftRenderHome() {
   ftLoadPeople();
   ftLoadReview();
   ftPoll();   // back on the home (e.g. from a person page): status checks resume
+}
+
+/* ── Size sliders: person cards (home), file tiles (person page) ────────── */
+
+const FT_SIZE_RANGE = { people: [120, 320, 10], files: [120, 400, 10] };
+
+/** The width the files slider shows before it was first moved: the library's Card size. */
+function ftFileSizeDefault() {
+  const size = typeof window.vaultCardSize === 'function' ? window.vaultCardSize() : 'M';
+  return (typeof CARD_MIN_WIDTHS !== 'undefined' && CARD_MIN_WIDTHS[size]) || 170;
+}
+
+function ftSizeValue(which) {
+  const v = typeof window.vaultFacesSize === 'function' ? window.vaultFacesSize(which) : 0;
+  if (v) return v;
+  return which === 'people' ? 180 : ftFileSizeDefault();
+}
+
+function ftSizeHtml(id, which, label) {
+  const [min, max, step] = FT_SIZE_RANGE[which];
+  return `<label class="ft-size" title="${label}"><span>Size</span>
+    <input type="range" id="${id}" data-ft-size="${which}" min="${min}" max="${max}" step="${step}" value="${ftSizeValue(which)}" aria-label="${label}"></label>`;
+}
+
+/** cards.js tileMinWidth(): the file tile width on a person's page, or 0 (follow Card size). */
+function facesFileTileMin() {
+  if (!ftOnTab() || FT.mode !== 'people' || FT.personId == null) return 0;
+  return typeof window.vaultFacesSize === 'function' ? window.vaultFacesSize('files') : 0;
+}
+
+/** A slider moved: the grid follows live, and the width is remembered. */
+function ftSizeInput(input) {
+  const which = input.dataset.ftSize;
+  const v = Number(input.value);
+  if (typeof window.vaultSetFacesSize === 'function') window.vaultSetFacesSize(which, v);
+  if (which === 'people') document.getElementById('ftGrid')?.style.setProperty('--ft-min', `${v}px`);
+  else if (typeof relayoutLibrary === 'function') relayoutLibrary(true);
 }
 
 function ftPaintSort() {
@@ -459,6 +498,17 @@ function facesHeaderCount() {
 const ftPairKey = (a, b) => `${Math.min(a, b)}-${Math.max(a, b)}`;
 
 /** A review answer without the pairs left out this session (ftNamePairSide). */
+const FT_STRIP_MAX = 8;          // "Same person?" pairs the strip loads (it shows one row of them)
+const FT_STRIP_HIDE = 'vaultSamePersonHidden';   // localStorage: the pair count when the strip was hidden
+
+/** The strip was hidden at this many pairs (null: not hidden). Shown again once there are more. */
+function ftStripHiddenAt() {
+  try { const v = Number(localStorage.getItem(FT_STRIP_HIDE)); return Number.isFinite(v) && v > 0 ? v : null; } catch { return null; }
+}
+function ftStripHide(n) {
+  try { if (n == null) localStorage.removeItem(FT_STRIP_HIDE); else localStorage.setItem(FT_STRIP_HIDE, String(n)); } catch {}
+}
+
 function ftReviewMinusSkipped(r) {
   const pairs = (r && r.pairs) || [];
   const keep = pairs.filter(p => !FT.reviewSkip.has(ftPairKey(p.a.id, p.b.id)));
@@ -467,7 +517,7 @@ function ftReviewMinusSkipped(r) {
 
 async function ftLoadReview() {
   if (!facesReady()) return;
-  const limit = Math.min(200, 3 + FT.reviewSkip.size);
+  const limit = Math.min(200, FT_STRIP_MAX + FT.reviewSkip.size);
   try { FT.review = ftReviewMinusSkipped(await ftApi(`/api/faces/review?limit=${limit}`, { background: true })); }
   catch { return; }
   ftPaintReview();
@@ -477,7 +527,7 @@ function ftEmptyText() {
   if (FT.q) return `No one called "${ftEsc(FT.q)}".`;
   const c = FT.counts || {};
   switch (FT.filter) {
-    case 'named': return 'No one has a name yet. Click Add a name under a face.';
+    case 'named': return 'No one has a name yet. Click Name this person on a face.';
     case 'unnamed': return 'Everyone has a name.';
     case 'favorites': return 'No favorites yet. Open a person and click ★ Favorite.';
     case 'single': return 'Everyone here shows up in more than one file.';
@@ -487,6 +537,16 @@ function ftEmptyText() {
   }
 }
 
+const FT_STAR_SVG = (size, fill, stroke = 'none') => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3 6.9 7.5.6-5.7 4.9 1.8 7.3L12 17.8 5.4 21.7l1.8-7.3L1.5 9.5 9 8.9z"></path></svg>`;
+const FT_PENCIL_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg>';
+const FT_EYE_SVG = (off) => `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle>${off ? '<path d="M4 4l16 16"></path>' : ''}</svg>`;
+
+/**
+ * A person card: the face is the whole card, the name and "5 files · 50 s"
+ * sit on a dark fade at the bottom. Hover shows Select (top left) and the
+ * quick actions (top right: favorite, hide, rename); a favorite's star sits
+ * top right otherwise.
+ */
 function ftTileHtml(p) {
   const sel = FT.sel.has(p.id);
   const name = ftName(p);
@@ -495,15 +555,64 @@ function ftTileHtml(p) {
       aria-label="${name ? ftEsc(name) : 'Not named yet'}">
       <div class="ft-thumb">
         ${ftCropImg(p.coverUrl, 'ft-img')}
-        ${p.favorite ? '<span class="ft-star" aria-label="Favorite"><svg width="13" height="13" viewBox="0 0 24 24" fill="#facc15" aria-hidden="true"><path d="M12 2l3 6.9 7.5.6-5.7 4.9 1.8 7.3L12 17.8 5.4 21.7l1.8-7.3L1.5 9.5 9 8.9z"></path></svg></span>' : ''}
+        ${p.favorite ? `<span class="ft-star" aria-label="Favorite">${FT_STAR_SVG(14, '#facc15')}</span>` : ''}
         <button class="ft-check" type="button" aria-label="Select" aria-pressed="${sel}" title="Select (shift-click for a range)">${sel ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>' : ''}</button>
+        <span class="ft-qacts">
+          <button class="ft-qbtn${p.favorite ? ' on' : ''}" type="button" data-ft-q="fav" aria-pressed="${!!p.favorite}" title="${p.favorite ? 'Remove from favorites' : 'Favorite'}" aria-label="${p.favorite ? 'Remove from favorites' : 'Favorite'}">${p.favorite ? FT_STAR_SVG(14, '#facc15') : FT_STAR_SVG(14, 'none', 'currentColor')}</button>
+          <button class="ft-qbtn" type="button" data-ft-q="hide" title="${p.hidden ? 'Unhide' : 'Hide'}" aria-label="${p.hidden ? 'Unhide' : 'Hide'}">${FT_EYE_SVG(!p.hidden)}</button>
+          <button class="ft-qbtn" type="button" data-ft-q="rename" title="${name ? 'Rename' : 'Name this person'}" aria-label="${name ? 'Rename' : 'Name this person'}">${FT_PENCIL_SVG}</button>
+        </span>
         <span class="ft-scrub-cap" hidden></span>
         <span class="ft-scrub" hidden></span>
+        <div class="ft-cap">
+          ${name ? `<div class="ft-name" title="${ftEsc(name)}">${ftEsc(name)}</div>`
+            : `<button class="ft-addname" type="button" data-ft-addname="${p.id}">Name this person</button>`}
+          <div class="ft-meta">${ftEsc(ftCardLine(p))}</div>
+          ${p.toCheck ? `<div class="ft-tocheck">${ftPlural(p.toCheck, 'face', 'faces')} to check</div>` : ''}
+        </div>
       </div>
-      ${name ? `<div class="ft-name" title="${ftEsc(name)}">${ftEsc(name)}</div>`
-        : `<button class="ft-addname" type="button" data-ft-addname="${p.id}">Add a name</button>`}
-      <div class="ft-meta">${ftBadges(p).map(b => `<span class="ft-badge">${ftEsc(b)}</span>`).join('')}</div>
     </article>`;
+}
+
+/** Name or rename from a card: the name line turns into the usual name field. */
+function ftNameTile(tile, id) {
+  const anchor = tile.querySelector('.ft-cap .ft-name, .ft-cap .ft-addname');
+  if (!anchor) return;
+  const p = FT.people.find(x => x.id === id) || (FT.pin && FT.pin.id === id ? FT.pin : null);
+  ftStartNaming({
+    host: tile, anchor, id, initial: (p && p.name) || '', inGrid: true,
+    onDone: () => { ftLoadPeople(); ftLoadReview(); },
+    onClose: () => ftRefocus(document.querySelector(`#ftGrid .ft-tile[data-person="${id}"]`)),
+  });
+}
+
+/** A card's quick actions: favorite, hide (with Undo), rename. */
+async function ftQuickAction(tile, act) {
+  const id = Number(tile.dataset.person);
+  const p = FT.people.find(x => x.id === id) || (FT.pin && FT.pin.id === id ? FT.pin : null);
+  if (!p) return;
+  if (act === 'rename') { ftNameTile(tile, id); return; }
+  if (act === 'fav') {
+    try { await ftApi(`/api/faces/people/${id}`, { method: 'POST', json: { favorite: !p.favorite } }); }
+    catch (err) { facesToastError(err); return; }
+    showToast(p.favorite ? 'Removed from favorites.' : 'Added to favorites.');
+    ftLoadPeople();
+    return;
+  }
+  if (act === 'hide') {
+    FT.sel.delete(id);
+    if (FT.pin && FT.pin.id === id) ftUnpin();
+    await ftHideIds([id], !p.hidden);
+  }
+}
+
+/** Hide or unhide people; hiding says how to find them again, with Undo. */
+async function ftHideIds(ids, hidden) {
+  if (!await ftSetHidden(ids, hidden)) return false;
+  ftPaintSelBar();
+  ftLoadPeople();
+  ftHiddenToast(ids, hidden);
+  return true;
 }
 
 function ftPaintGrid() {
@@ -511,8 +620,7 @@ function ftPaintGrid() {
   if (!grid) return;
   if (FT.naming && FT.naming.inGrid) { FT.gridDirty = true; return; }
   FT.gridDirty = false;
-  const size = typeof window.vaultCardSize === 'function' ? window.vaultCardSize() : 'M';
-  grid.style.setProperty('--ft-min', `${FT_CARD_MIN[size] || 170}px`);
+  grid.style.setProperty('--ft-min', `${ftSizeValue('people')}px`);
   if (!FT.loaded) { grid.innerHTML = ''; return; }
   const list = FT.pin && !FT.people.some(p => p.id === FT.pin.id) ? [FT.pin, ...FT.people] : FT.people;
   grid.innerHTML = list.length ? list.map(ftTileHtml).join('')
@@ -563,10 +671,24 @@ function ftPaintReview({ refocus = false, pairEl = null } = {}) {
   el.hidden = !pairs.length;
   if (!pairs.length) { el.innerHTML = ''; if (hadFocus) ftFocusStrip(null); return; }
   const n = r.total || pairs.length;
+  // Hidden by the viewer: a small "Same person? (N)" until there are more pairs than then.
+  const hiddenAt = ftStripHiddenAt();
+  if (hiddenAt != null && n <= hiddenAt) {
+    el.classList.add('ft-review-min');
+    el.innerHTML = `<button type="button" class="ft-link ft-same-chip" data-ft-reviewshow aria-label="Show Same person? (${n.toLocaleString()} to look at)">Same person? (${n.toLocaleString()})</button>`;
+    if (hadFocus) el.querySelector('[data-ft-reviewshow]').focus();
+    return;
+  }
+  if (hiddenAt != null) ftStripHide(null);   // more pairs since: shown again
+  el.classList.remove('ft-review-min');
+  // One row of pairs, as many as fit the width (each pair needs about 300 px).
+  const width = (el.parentElement && el.parentElement.clientWidth) || 960;
+  const fit = Math.max(1, Math.min(FT_STRIP_MAX, Math.floor((width + 12) / 312)));
   el.innerHTML = `
     <div class="ft-review-h"><h2>Same person?</h2><span>${n.toLocaleString()} to look at. Saying yes puts their files together.</span>
-      <button type="button" class="ft-link" data-ft-reviewall>Review all</button></div>
-    <div class="ft-pairs">${pairs.slice(0, 3).map(pr => `
+      <button type="button" class="ft-link" data-ft-reviewall>Review all</button>
+      <button type="button" class="ft-x ft-review-hide" data-ft-reviewhide aria-label="Hide Same person?" title="Hide">×</button></div>
+    <div class="ft-pairs">${pairs.slice(0, fit).map(pr => `
       <div class="ft-pair" data-a="${pr.a.id}" data-b="${pr.b.id}">
         <div class="ft-faces2">${ftPairSide(pr.a)}${ftPairSide(pr.b)}</div>
         <div class="ft-qa"><span>Same person?</span>
@@ -834,13 +956,14 @@ function ftFlipStop() {
  * picking that person (or typing their name) runs onSame() instead, the
  * same as answering Yes.
  */
-function ftStartNaming({ host, anchor, id, initial = '', inGrid = false, onDone, save = null, me = null, onClose = null, pairWith = null, onSame = null }) {
+function ftStartNaming({ host, anchor, id, initial = '', inGrid = false, onDone, save = null, me = null, onClose = null, pairWith = null, onSame = null,
+  pickPerson = null, newLabel = null, placeholder = 'Add a name' }) {
   ftCloseNaming();
   const input = document.createElement('input');
   input.type = 'text';
   input.className = 'ft-field';
   input.value = initial;
-  input.placeholder = 'Add a name';
+  input.placeholder = placeholder;
   input.setAttribute('aria-label', 'Name');
   input.setAttribute('autocomplete', 'off');
   const drop = document.createElement('div');
@@ -852,7 +975,7 @@ function ftStartNaming({ host, anchor, id, initial = '', inGrid = false, onDone,
   anchor.replaceWith(input);
   host.appendChild(drop);
   host.classList.add('ft-naming');
-  const nm = { id, host, input, drop, replaced, opts: [], hi: 0, seq: 0, inGrid, onDone, note: '', initial, save, me, onClose, pairWith, onSame };
+  const nm = { id, host, input, drop, replaced, opts: [], hi: 0, seq: 0, inGrid, onDone, note: '', initial, save, me, onClose, pairWith, onSame, pickPerson, newLabel };
   FT.naming = nm;
 
   const refresh = debounce(() => ftNameOptions(nm), 120);
@@ -944,7 +1067,7 @@ function ftPaintDrop(nm) {
   d.setAttribute('aria-label', 'Names');
   const items = nm.opts.map((o, i) => o.person
     ? `<button class="ft-opt${i === nm.hi ? ' hi' : ''}" type="button" role="option" aria-selected="${i === nm.hi}" data-opt="${i}">${ftCropImg(o.person.coverUrl)}${ftEsc(o.person.name)}<span>${ftPlural(o.person.files, 'file', 'files')}</span></button>`
-    : `<button class="ft-opt${i === nm.hi ? ' hi' : ''}" type="button" role="option" aria-selected="${i === nm.hi}" data-opt="${i}"><span class="ft-plus" aria-hidden="true">+</span>${nm.initial ? `Rename to "${ftEsc(o.name)}"` : `New person called "${ftEsc(o.name)}"`}</button>`).join('');
+    : `<button class="ft-opt${i === nm.hi ? ' hi' : ''}" type="button" role="option" aria-selected="${i === nm.hi}" data-opt="${i}"><span class="ft-plus" aria-hidden="true">+</span>${nm.newLabel ? nm.newLabel(ftEsc(o.name)) : nm.initial ? `Rename to "${ftEsc(o.name)}"` : `New person called "${ftEsc(o.name)}"`}</button>`).join('');
   d.innerHTML = (nm.note ? `<div class="ft-drop-note">${nm.note}</div>` : '') + items;
   d.hidden = !items && !nm.note;
 }
@@ -960,6 +1083,8 @@ function ftPairSame(nm, personId) {
 function ftPickOption(nm, o) {
   if (!o) return;
   if (o.person && ftPairSame(nm, o.person.id)) return;
+  // A picker (add faces to someone): an existing person is simply the answer.
+  if (o.person && nm.pickPerson) { ftCloseNaming(); nm.pickPerson(o.person); return; }
   if (o.person) { nm.seq++; nm.ask = o.person; nm.askName = o.person.name; ftPaintDrop(nm); return; }
   ftSaveName(nm, o.name);
 }
@@ -1105,13 +1230,18 @@ async function ftSelBarClick(e) {
     }
     return;
   }
-  const hidden = act === 'hide';
   const ids = list.map(p => p.id);
-  if (!await ftSetHidden(ids, hidden)) return;
+  // Cleared only once it worked (a failure keeps the selection, as before).
+  if (!await ftSetHidden(ids, act === 'hide')) return;
   FT.sel.clear();
   ftUnpin();
   ftPaintSelBar();
   ftLoadPeople();
+  ftHiddenToast(ids, act === 'hide');
+}
+
+/** "Hid 2 people..." with Undo, or "back in Everyone". */
+function ftHiddenToast(ids, hidden) {
   if (hidden) {
     showUndoToast(`Hid ${ftPlural(ids.length, 'person', 'people')}. You can find them under Hidden.`, async () => {
       await ftSetHidden(ids, false);
@@ -1260,8 +1390,11 @@ function facesOpenPerson(id, { fromStudio = null } = {}) {
     FT.mode = 'people';
     try { localStorage.setItem('vaultFacesMode', 'people'); } catch {}
   }
+  // A selection belongs to the grid it was made in: none comes along.
+  if (typeof selectedIds !== 'undefined' && selectedIds.size && typeof clearSelection === 'function') clearSelection();
   FT.personId = Number(id);
   FT.might = null;          // a fresh look every time the page opens
+  FT.check = null;
   FT.person = null;
   FT.kind = 'all';
   FT.fileIds = [];
@@ -1275,6 +1408,7 @@ function facesOpenPerson(id, { fromStudio = null } = {}) {
 }
 
 function ftClosePerson() {
+  if (typeof selectedIds !== 'undefined' && selectedIds.size && typeof clearSelection === 'function') clearSelection();
   ftCloseNaming();
   ftClosePops();
   FT.fromStudio = null;
@@ -1285,6 +1419,7 @@ function ftClosePerson() {
   ftApplyMode();
   ftRenderHome();
   applyFilters();
+  if (typeof renderSelectionBar === 'function') renderSelectionBar();   // files are not showing any more
 }
 
 function ftRenderPerson() {
@@ -1314,8 +1449,10 @@ async function ftLoadPerson() {
     }
     if (seq !== FT.filesSeq || FT.personId !== id) return;
     FT.person = person;
+    if (typeof renderSelectionBar === 'function') renderSelectionBar();   // "Remove selected from <name>"
     if (!FT.counts) ftLoadPeople();   // the header's people count (opened straight into a person)
     if (!FT.might || FT.might.personId !== id) ftLoadMight();
+    if (!FT.check || FT.check.personId !== id) ftLoadCheck();
     FT.fileIds = (files.ids || []);
     FT.fileInfo = files.files || {};
     ftPaintPerson();
@@ -1357,17 +1494,21 @@ function ftPaintPerson() {
     return;
   }
   const name = ftName(p);
-  const badges = [ftPlural(p.files, 'file', 'files')];
-  if (p.videos) badges.push(ftPlural(p.videos, 'video', 'videos'));
-  if (p.photos) badges.push(ftPlural(p.photos, 'photo', 'photos'));
-  const t = p.videos ? ftScreen(p.screenS) : '';
-  if (t) badges.push(t);
-  const withChips = (p.oftenWith || []).map(o => `<button class="ft-mini" type="button" data-ft-open="${o.id}">${ftCropImg(o.coverUrl)}<span class="${o.name ? 'ft-mini-name' : 'ft-mini-name ft-muted'}">${o.name ? ftEsc(o.name) : 'Not named yet'}</span> · ${Number(o.shared).toLocaleString()}</button>`).join('');
+  // "5 files · 2 videos · 3 photos · 50 s on screen"
+  const stats = [ftPlural(p.files, 'file', 'files')];
+  if (p.videos) stats.push(ftPlural(p.videos, 'video', 'videos'));
+  if (p.photos) stats.push(ftPlural(p.photos, 'photo', 'photos'));
+  const t = p.videos ? ftScreenShort(p.screenS) : '';
+  if (t) stats.push(`${t} on screen`);
+  const withRows = (p.oftenWith || []).map(o => `<button class="ft-wrow" type="button" data-ft-open="${o.id}">${ftCropImg(o.coverUrl)}<span class="${o.name ? 'ft-mini-name' : 'ft-mini-name ft-muted'}">${o.name ? ftEsc(o.name) : 'Not named yet'}</span><span class="ft-wn" title="Files together">${Number(o.shared).toLocaleString()}</span></button>`).join('');
   const seg = [['all', 'All', p.files], ['video', 'Videos', p.videos], ['photo', 'Photos', p.photos]];
+  const extra = `${p.description ? `<p class="st-desc">${ftEsc(p.description)}</p>` : ''}
+    ${p.notes ? `<div class="st-notes"><b>Notes:</b> ${ftEsc(p.notes)}</div>` : ''}
+    ${withRows ? `<div class="ft-with"><h2>Often seen with</h2><div class="ft-wlist">${withRows}</div></div>` : ''}`;
   host.innerHTML = `
     <div class="ft-crumb">${ftBackBtnHtml()}<span class="ft-sep">/</span>
       <b class="ft-crumb-name${name ? '' : ' ft-muted'}">${name ? ftEsc(name) : 'Not named yet'}</b>${p.hidden ? '<span class="ft-tag">Hidden</span>' : ''}</div>
-    <section class="ft-head">
+    <aside class="ft-head ft-side" aria-label="Profile">
       <button class="ft-cover" type="button" data-ft-cover aria-haspopup="dialog" aria-label="Change photo">${ftCropImg(p.coverUrl)}<span class="ft-cover-cap">Change photo</span></button>
       <div class="ft-info">
         <div class="ft-title" id="ftTitle">
@@ -1375,26 +1516,67 @@ function ftPaintPerson() {
           <button class="ft-icon-btn" type="button" data-ft-rename aria-label="${name ? 'Rename' : 'Add a name'}" title="${name ? 'Rename' : 'Add a name'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a0a0a0" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg></button>
         </div>
         ${ftDetailsTopHtml(p)}
-        <div class="ft-stats">${badges.map(b => `<span class="ft-pbadge">${ftEsc(b)}</span>`).join('')}</div>
+        <div class="ft-stats">${ftEsc(stats.join(' · '))}</div>
         ${typeof stPersonChipsHtml === 'function' ? stPersonChipsHtml(p) : ''}
         <div class="ft-acts">
           <button class="ft-btn ft-btn-md" type="button" data-ft-play="0">▶ Play all</button>
           <button class="ft-btn ghost ft-btn-md" type="button" data-ft-play="1">Shuffle</button>
-          <button class="ft-btn ghost ft-btn-md${p.favorite ? ' on' : ''}" type="button" data-ft-fav aria-pressed="${!!p.favorite}">★ Favorite</button>
-          <button class="ft-btn ghost ft-btn-md" type="button" data-ft-details aria-haspopup="dialog">Edit details</button>
-          <button class="ft-btn ghost ft-btn-md" type="button" data-ft-findmore>Find more that might be them</button>
-          <button class="ft-btn ghost ft-btn-md" type="button" data-ft-more aria-haspopup="menu">More ▾</button>
+          <button class="ft-btn ghost ft-btn-md${p.favorite ? ' on' : ''}" type="button" data-ft-fav aria-pressed="${!!p.favorite}" title="${p.favorite ? 'Remove from favorites' : 'Favorite'}">★ Favorite</button>
+          <button class="ft-btn ghost ft-btn-md ft-dots" type="button" data-ft-more aria-haspopup="menu" aria-label="More actions" title="More actions">⋯</button>
         </div>
-        ${p.description ? `<p class="st-desc">${ftEsc(p.description)}</p>` : ''}
-        ${p.notes ? `<div class="st-notes"><b>Notes:</b> ${ftEsc(p.notes)}</div>` : ''}
-        ${withChips ? `<div class="ft-with">Often seen with ${withChips}</div>` : ''}
       </div>
-    </section>
-    <section class="ft-might" id="ftMight" aria-label="Might also be" hidden></section>
-    <div class="ft-seg" role="group" aria-label="Show">${seg.map(([k, label, n]) =>
-      `<button type="button" class="${FT.kind === k ? 'on' : ''}" data-ft-kind="${k}" aria-pressed="${FT.kind === k}">${label} ${Number(n || 0).toLocaleString()}</button>`).join('')}</div>`;
+      ${extra.trim() ? `<div class="ft-side-more">${extra}</div>` : ''}
+    </aside>
+    <div class="ft-reviews">
+      <section class="ft-might ft-tochk" id="ftCheck" aria-label="Check faces" hidden></section>
+      <section class="ft-might" id="ftMight" aria-label="Might also be" hidden></section>
+    </div>
+    <div class="ft-ptools">
+      <div class="ft-seg" role="group" aria-label="Show">${seg.map(([k, label, n]) =>
+        `<button type="button" class="${FT.kind === k ? 'on' : ''}" data-ft-kind="${k}" aria-pressed="${FT.kind === k}">${label} ${Number(n || 0).toLocaleString()}</button>`).join('')}</div>
+      ${ftSizeHtml('ftFileSize', 'files', 'Tile size')}
+    </div>`;
+  ftPaintCheck();
   ftPaintMight();
+  ftFitSide();
+  // "Might also be" arrives (or changes) after the files: when it moves the
+  // grid's top edge, the pages grid re-lays so it still fits the window.
+  if (typeof ResizeObserver === 'function') {
+    if (ftSideRO) ftSideRO.disconnect();
+    ftSideRO = new ResizeObserver(() => { if (typeof relayoutLibrary === 'function') relayoutLibrary(false); });
+    host.querySelectorAll('#ftCheck, #ftMight, .ft-side').forEach(el => ftSideRO.observe(el));
+  }
 }
+let ftSideRO = null;
+
+/* ── Person page layout: the profile column ────────────────────────────── */
+
+const FT_SIDE_BREAK = 1100;   // under this the column sits on top (css/faces-tab.css)
+
+/**
+ * The profile column sticks under the header and never reaches past the
+ * bottom of the window (its lower part scrolls inside instead), so a pages
+ * grid beside it still fits the screen. Then the files grid re-lays.
+ */
+function ftFitSide() {
+  const side = document.querySelector('#ftPerson .ft-side');
+  const main = document.getElementById('mainContainer');
+  if (!side || !main) return;
+  if (innerWidth < FT_SIDE_BREAK) {
+    side.style.maxHeight = '';
+  } else {
+    const header = document.querySelector('.header');
+    const headH = header ? Math.round(header.getBoundingClientRect().height) : 0;
+    main.style.setProperty('--ft-stick', `${headH + 12}px`);
+    // Where the column starts in the page (under the breadcrumb), stuck or not.
+    const crumb = document.querySelector('#ftPerson .ft-crumb');
+    const top = crumb ? crumb.getBoundingClientRect().bottom + scrollY + 12 : side.getBoundingClientRect().top + scrollY;
+    side.style.maxHeight = `${Math.max(240, innerHeight - top - 16)}px`;
+  }
+  requestAnimationFrame(() => { if (typeof relayoutLibrary === 'function') relayoutLibrary(false); });
+}
+
+window.addEventListener('resize', () => { if (ftOnTab() && FT.personId != null) ftFitSide(); });
 
 /** S5: "Also known as", then Active / Born / links, under the name. */
 function ftDetailsTopHtml(p) {
@@ -1575,7 +1757,12 @@ function ftMoreMenu(anchor) {
   const p = FT.person;
   if (!p) return;
   const r = anchor.getBoundingClientRect();
+  const cover = () => document.querySelector('#ftPerson [data-ft-cover]') || anchor;
   facesMenu(r.left, r.bottom + 4, [
+    { label: 'Edit details', run: () => ftEditDetails() },
+    { label: 'Find more that might be them', run: () => ftFindMore() },
+    ...(typeof stAddPersonToStudio === 'function' ? [{ label: 'Add to a studio', run: () => stAddPersonToStudio(anchor, FT.person) }] : []),
+    { label: 'Change photo', run: () => ftChangePhoto(cover()) },
     { label: p.hidden ? 'Unhide this person' : 'Hide this person', run: () => ftHidePerson(!p.hidden) },
     { label: 'Merge with…', run: () => ftMergeWith(anchor) },
     { label: 'Not a face', run: async () => { if (await ftNotAFace([p])) ftClosePerson(); } },
@@ -1688,17 +1875,20 @@ async function ftNotAFace(list) {
   return true;
 }
 
-/* ── Might also be (person page) ───────────────────────────────────────── */
+/* ── "Is this X?" on the person page (FACES_REVIEW_SPEC F2b) ───────────── */
 
 const FT_MIGHT_PAGE = 24;
-const FT_MIGHT_LESS = 6;     // less likely faces shown once opened, before "Show N more"
+const FT_MIGHT_MAYBE = 12;   // "Maybe" faces shown at first, then "Show N more"
 
-/** Other unnamed people that look like this one (GET .../candidates). Likely ones start ticked. */
+/**
+ * Other unnamed people that look like this one (GET .../candidates), one
+ * face each, as Yes / No cards. Nothing starts as Yes.
+ */
 async function ftLoadMight({ more = false } = {}) {
   const id = FT.personId;
   if (id == null) return;
   if (!FT.might || FT.might.personId !== id) {
-    FT.might = { personId: id, total: 0, items: [], ticked: new Set(), lessOpen: false, lessShown: FT_MIGHT_LESS, seq: 0 };
+    FT.might = { personId: id, total: 0, items: [], answers: new Map(), maybeShown: FT_MIGHT_MAYBE, seq: 0 };
   }
   const m = FT.might;
   const seq = ++m.seq;
@@ -1708,41 +1898,29 @@ async function ftLoadMight({ more = false } = {}) {
   catch { return; }
   if (seq !== m.seq || FT.might !== m || FT.personId !== id) return;
   const items = r.items || [];
-  if (!more) { m.items = []; m.ticked = new Set(); }
+  if (!more) m.items = [];
   const have = new Set(m.items.map(i => i.personId));
-  for (const it of items) {
-    if (have.has(it.personId)) continue;
-    m.items.push(it);
-    if (it.tier === 'likely') m.ticked.add(it.personId);
-  }
+  for (const it of items) if (!have.has(it.personId)) m.items.push({ ...it, key: String(it.personId) });
+  // Answers only for faces still listed.
+  const listed = new Set(m.items.map(i => i.personId));
+  for (const pid of [...m.answers.keys()]) if (!listed.has(pid)) m.answers.delete(pid);
   m.total = Math.max(r.total || 0, m.items.length);
   ftPaintMight();
 }
 
-function ftMightCardHtml(it, ticked) {
-  const meta = `${ftEsc(it.filename || '')}${it.files > 1 ? ` · ${ftPlural(it.files, 'file', 'files')}` : ''}`;
-  return `
-    <div class="ft-cand${ticked ? ' on' : ''}" data-cand="${it.personId}">
-      <button class="ft-cand-pick" type="button" data-ft-cand="tick" aria-pressed="${ticked}" aria-label="${ticked ? 'Ticked' : 'Not ticked'}">${ftCropImg(it.cropUrl)}</button>
-      <span class="ft-cand-chk" aria-hidden="true">${ticked ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M5 12l5 5 9-10"></path></svg>' : ''}</span>
-      <button class="ft-cand-no" type="button" data-ft-cand="no" aria-label="Not this person" title="Not this person">✕</button>
-      <div class="ft-cmeta">${meta}</div>
-    </div>`;
-}
-
-/**
- * What the section shows: every "Very likely" face, and the "Less likely"
- * ones only once opened (they start folded). The list is ranked by score, so
- * all likely ones come first; until a less likely one (or the end) has been
- * loaded, more likely ones may still be on the server.
- */
+/** What the section shows: every strong match loaded, and the first "Maybe" ones. */
 function ftMightView(m) {
   const likely = m.items.filter(i => i.tier === 'likely');
   const maybe = m.items.filter(i => i.tier !== 'likely');
-  const known = maybe.length > 0 || m.items.length >= m.total;
-  const lessTotal = known ? Math.max(0, m.total - likely.length) : 0;
-  const shownLess = m.lessOpen ? maybe.slice(0, m.lessShown) : [];
-  return { likely, maybe, known, lessTotal, shownLess, visible: likely.concat(shownLess) };
+  const shownMaybe = maybe.slice(0, m.maybeShown);
+  const rest = (maybe.length - shownMaybe.length) + Math.max(0, m.total - m.items.length);
+  return { likely, maybe, shownMaybe, visible: likely.concat(shownMaybe), rest };
+}
+
+function ftMightCounts(m) {
+  let yes = 0, no = 0;
+  for (const a of m.answers.values()) { if (a === 'yes') yes++; else if (a === 'no') no++; }
+  return { yes, no };
 }
 
 function ftPaintMight() {
@@ -1751,59 +1929,51 @@ function ftPaintMight() {
   const m = FT.might;
   const p = FT.person;
   if (!m || !p || m.personId !== FT.personId || !m.items.length) { el.hidden = true; el.innerHTML = ''; return; }
-  const { likely, known, lessTotal, shownLess, visible } = ftMightView(m);
-  const rest = Math.max(0, lessTotal - shownLess.length);
-  const k = visible.filter(i => m.ticked.has(i.personId)).length;
+  const { likely, shownMaybe, rest } = ftMightView(m);
+  const { yes, no } = ftMightCounts(m);
   const who = p.name ? `<span class="ft-pm-name">${ftEsc(p.name)}</span>` : 'this person';
+  const open = (list) => list.filter(i => !m.answers.has(i.personId)).length;
+  const hadFocus = el.contains(document.activeElement) ? document.activeElement : null;
+  const focusKey = hadFocus && hadFocus.closest('.fr-card') ? hadFocus.closest('.fr-card').dataset.frKey : null;
+  const focusAns = hadFocus && hadFocus.dataset ? hadFocus.dataset.frAns : null;
+  const focusAct = hadFocus && hadFocus.dataset ? hadFocus.dataset.ftMight : null;
+  const card = (i) => frCardHtml(i, m.answers.get(i.personId), { who });
+  const main = yes ? `Add ${yes.toLocaleString()} to ${who}` : no ? 'Save my answers' : `Add 0 to ${who}`;
   el.hidden = false;
-  el.setAttribute('aria-label', p.name && !ftPrivate() ? `Might also be ${p.name}` : 'Might also be this person');
+  el.setAttribute('aria-label', p.name && !ftPrivate() ? `Is this ${p.name}?` : 'Is this this person?');
   el.innerHTML = `
     <div class="ft-might-h">
-      <h2>Might also be ${who}</h2>
-      <span>${!known ? `Many faces from other files look a lot like ${p.name ? 'them' : 'this person'}.`
-        : likely.length ? `${ftPlural(likely.length, 'face', 'faces')} ${likely.length === 1 ? 'from another file looks' : 'from other files look'} a lot like ${p.name ? 'them' : 'this person'}.`
-        : `Some faces from other files look a little like ${p.name ? 'them' : 'this person'}.`} Tick the right ones.</span>
-      <div class="ft-might-acts">
-        <button class="ft-btn ft-btn-md" type="button" data-ft-might="add"${k ? '' : ' disabled'}>${k ? `Add the ${k.toLocaleString()} ticked to ${who}` : 'Tick faces to add'}</button>
-        <button class="ft-btn ghost ft-btn-md" type="button" data-ft-might="${k ? 'untick' : 'tick'}"${visible.length ? '' : ' disabled'}>${k ? 'Untick all' : 'Tick all'}</button>
-        ${visible.length ? `<button class="ft-btn ghost ft-btn-md" type="button" data-ft-might="none" title="${visible.length === 1 ? 'This face is' : 'These faces are'} someone else. They will not be suggested here again.">None of these</button>` : ''}
-      </div>
+      <h2>Is this ${who}?</h2>
+      <span>${ftPlural(m.total, 'face from another file that is', 'faces from other files that are')} not in anyone yet. Say Yes or No to each.</span>
     </div>
-    ${likely.length ? `<div class="ft-might-sub">Very likely</div><div class="ft-cands">${likely.map(i => ftMightCardHtml(i, m.ticked.has(i.personId))).join('')}</div>` : ''}
-    ${m.lessOpen && shownLess.length ? `<div class="ft-might-sub">Less likely</div><div class="ft-cands">${shownLess.map(i => ftMightCardHtml(i, m.ticked.has(i.personId))).join('')}</div>` : ''}
-    <div class="ft-might-more">
-      ${!m.lessOpen && lessTotal ? `<button class="ft-link" type="button" data-ft-might="less">Show ${lessTotal.toLocaleString()} less likely</button>` : ''}
-      ${m.lessOpen && rest ? `<button class="ft-link" type="button" data-ft-might="more">Show ${rest.toLocaleString()} more that ${rest === 1 ? 'is' : 'are'} less likely</button>` : ''}
-      ${m.lessOpen && lessTotal ? '<button class="ft-link" type="button" data-ft-might="fold">Hide the less likely ones</button>' : ''}
-      ${!known ? '<button class="ft-link" type="button" data-ft-might="more">Show more</button>' : ''}
+    ${likely.length ? `${frSectionHead('Strong matches', 'Vault is fairly sure about these', [
+      { attr: 'data-ft-might="yesall"', label: `Yes to all (${likely.length.toLocaleString()})`, disabled: !open(likely) },
+      { attr: 'data-ft-might="norest-likely"', label: 'No to the rest', disabled: !open(likely) }])}
+      <div class="fr-cards" role="list" aria-label="Strong matches">${likely.map(card).join('')}</div>` : ''}
+    ${shownMaybe.length ? `${frSectionHead('Maybe', 'Look closely', [
+      { attr: 'data-ft-might="norest-maybe"', label: 'No to the rest', disabled: !open(shownMaybe) }])}
+      <div class="fr-cards" role="list" aria-label="Maybe">${shownMaybe.map(card).join('')}</div>` : ''}
+    ${rest ? `<div class="ft-might-more"><button class="ft-link" type="button" data-ft-might="more">Show ${Math.min(rest, FT_MIGHT_PAGE).toLocaleString()} more</button></div>` : ''}
+    <div class="ft-might-foot">
+      <span class="fr-note"><b>${yes.toLocaleString()}</b> yes, <b>${no.toLocaleString()}</b> no. Faces you say No to are not suggested for ${who} again.</span>
+      <button class="ft-btn ft-btn-md" type="button" data-ft-might="add"${yes || no ? '' : ' disabled'}>${main}</button>
     </div>`;
-}
-
-/** A card's tick, or its ✕ ("not this person": recorded, and it does not come back). */
-async function ftMightCard(pid, act, btn) {
-  const m = FT.might;
-  if (!m || m.personId !== FT.personId) return;
-  if (act === 'tick') {
-    if (m.ticked.has(pid)) m.ticked.delete(pid); else m.ticked.add(pid);
-    ftPaintMight();
-    document.querySelector(`#ftMight [data-cand="${pid}"] .ft-cand-pick`)?.focus();
-    return;
-  }
-  btn.disabled = true;
-  try { await ftApi(`/api/faces/people/${m.personId}/candidates`, { method: 'POST', json: { accept: [], reject: [pid] } }); }
-  catch (err) { facesToastError(err); btn.disabled = false; return; }
-  m.items = m.items.filter(i => i.personId !== pid);
-  m.ticked.delete(pid);
-  m.total = Math.max(0, m.total - 1);
-  ftPaintMight();
-  // Keep the list topped up when the ✕ emptied what was loaded.
-  if (!m.items.length && m.total) ftLoadMight();
-  const forId = m.personId;
-  showUndoToast('Got it. That face will not be suggested for this person again.', async () => {
-    try { await ftApi(`/api/faces/people/${forId}/candidates`, { method: 'POST', json: { unreject: [pid] } }); }
-    catch (err) { facesToastError(err); return; }
-    if (FT.personId === forId) { FT.might = null; ftLoadMight(); }
-  }, 8000);
+  if (typeof hydrateThumbs === 'function') hydrateThumbs(el);
+  frKeys(el, {
+    answer: (key, a, { toggle }) => {
+      const mm = FT.might;
+      if (!mm) return;
+      const pid = Number(key);
+      if (toggle && mm.answers.get(pid) === a) mm.answers.delete(pid); else mm.answers.set(pid, a);
+      ftPaintMight();
+    },
+    frame: (key, c) => frShowFrame(FT.might && FT.might.items.find(i => i.key === key), c.querySelector('.fr-face-btn')),
+  });
+  if (focusKey) {
+    const c = el.querySelector(`.fr-card[data-fr-key="${focusKey}"]`);
+    const t = c && (focusAns ? c.querySelector(`[data-fr-ans="${focusAns}"]`) : c.querySelector('.fr-face-btn'));
+    if (t) t.focus();
+  } else if (focusAct) el.querySelector(`[data-ft-might="${focusAct}"]:not(:disabled)`)?.focus();
 }
 
 async function ftMightAction(act, btn) {
@@ -1811,31 +1981,31 @@ async function ftMightAction(act, btn) {
   const p = FT.person;
   if (!m || !p || m.personId !== FT.personId) return;
   const view = ftMightView(m);
-  if (act === 'untick') { m.ticked.clear(); ftPaintMight(); return; }
-  if (act === 'tick') { view.visible.forEach(i => m.ticked.add(i.personId)); ftPaintMight(); return; }
-  if (act === 'less' || act === 'more') {
-    if (act === 'less') m.lessOpen = true;
-    else if (m.lessOpen) m.lessShown += FT_MIGHT_PAGE;
-    const need = !view.known || (m.lessOpen && view.maybe.length < m.lessShown);
-    if (need && m.items.length < m.total) ftLoadMight({ more: true });
+  if (act === 'yesall') {
+    // Only faces with no answer yet: a No already given stays a No.
+    for (const i of view.likely) if (!m.answers.has(i.personId)) m.answers.set(i.personId, 'yes');
+    ftPaintMight();
+    return;
+  }
+  if (act === 'norest-likely' || act === 'norest-maybe') {
+    // Only the cards of that section that have no answer yet.
+    for (const i of act === 'norest-likely' ? view.likely : view.shownMaybe) if (!m.answers.has(i.personId)) m.answers.set(i.personId, 'no');
+    ftPaintMight();
+    return;
+  }
+  if (act === 'more') {
+    m.maybeShown += FT_MIGHT_PAGE;
+    if (view.maybe.length < m.maybeShown && m.items.length < m.total) ftLoadMight({ more: true });
     else ftPaintMight();
     return;
   }
-  if (act === 'fold') {
-    m.lessOpen = false;
-    m.lessShown = FT_MIGHT_LESS;
-    for (const i of view.maybe) m.ticked.delete(i.personId);   // nothing ticked out of sight
-    ftPaintMight();
-    document.querySelector('#ftMight [data-ft-might="less"]')?.focus();
-    return;
-  }
-  if (act === 'none') { ftMightNone(view.visible.map(i => i.personId), btn); return; }
   if (act !== 'add') return;
-  const accept = view.visible.filter(i => m.ticked.has(i.personId)).map(i => i.personId);
-  if (!accept.length) return;
+  const accept = [], reject = [];
+  for (const [pid, a] of m.answers) (a === 'yes' ? accept : reject).push(pid);
+  if (!accept.length && !reject.length) return;
   btn.disabled = true;
   let r;
-  try { r = await ftApi(`/api/faces/people/${m.personId}/candidates`, { method: 'POST', json: { accept, reject: [] } }); }
+  try { r = await ftApi(`/api/faces/people/${m.personId}/candidates`, { method: 'POST', json: { accept, reject } }); }
   catch (err) { facesToastError(err); btn.disabled = false; return; }
   const merged = r && Array.isArray(r.merged) ? r.merged : accept;
   const left = r && Array.isArray(r.skipped) ? r.skipped.length : 0;
@@ -1845,34 +2015,207 @@ async function ftMightAction(act, btn) {
   const gained = r && r.person ? (r.person.files || 0) - (p.files || 0) : 0;
   const files = gained > 0 ? gained : m.items.filter(i => merged.includes(i.personId)).reduce((s, i) => s + (i.files || 1), 0);
   const what = ftPlural(files, 'file', 'files');
-  showToast((merged.length ? (name ? `Added ${what} to ${name}.` : `Added ${what} to this person.`) : 'Nothing was added.')
-    + (left ? ` ${left.toLocaleString()} could not be added because ${left === 1 ? 'it has' : 'they have'} changed.` : ''));
+  const said = [];
+  if (merged.length) said.push(name ? `Added ${what} to ${name}.` : `Added ${what} to this person.`);
+  if (reject.length) said.push(reject.length === 1 ? 'The face you said No to will not be suggested here again.' : `The ${reject.length.toLocaleString()} faces you said No to will not be suggested here again.`);
+  if (left) said.push(`${left.toLocaleString()} could not be added because ${left === 1 ? 'it has' : 'they have'} changed.`);
+  const forId = m.personId;
+  const undo = reject.slice();
+  const msg = said.join(' ') || 'Nothing was added.';
+  if (undo.length && !merged.length) {
+    showUndoToast(msg, async () => {
+      try { await ftApi(`/api/faces/people/${forId}/candidates`, { method: 'POST', json: { unreject: undo } }); }
+      catch (err) { facesToastError(err); return; }
+      if (FT.personId === forId) { FT.might = null; ftLoadMight(); }
+    }, 8000);
+  } else showToast(msg);
   FT.might = null;       // reloaded fresh with the person
   if (FT.personId === m.personId) ftLoadPerson();
 }
 
-/**
- * "None of these": every face shown is not this person. Each gets a
- * 'different' answer (never suggested for this person again), with Undo.
- */
-async function ftMightNone(pids, btn) {
-  const m = FT.might;
-  if (!m || !pids.length) return;
+/* ── "Check N faces in X" (round 4) ──────────────────────────────────────
+   Faces locked in this person before 3.8 (naming used to lock every face)
+   that the stricter join rule doubts. Yes keeps the face for good; No takes
+   it out into its own unnamed person, recorded as not this person. */
+
+const FT_CHECK_PAGE = 60;
+
+async function ftLoadCheck({ more = false } = {}) {
+  const id = FT.personId;
+  if (id == null) return;
+  if (!FT.check || FT.check.personId !== id) FT.check = { personId: id, total: 0, items: [], answers: new Map(), seq: 0 };
+  const c = FT.check;
+  const seq = ++c.seq;
+  const qs = new URLSearchParams({ limit: String(FT_CHECK_PAGE), offset: String(more ? c.items.length : 0) });
+  let r;
+  try { r = await ftApi(`/api/faces/people/${id}/to-check?${qs}`, { background: true }); }
+  catch { return; }
+  if (seq !== c.seq || FT.check !== c || FT.personId !== id) return;
+  if (!more) c.items = [];
+  const have = new Set(c.items.map(i => i.groupId));
+  for (const it of r.items || []) if (!have.has(it.groupId)) c.items.push({ ...it, key: String(it.groupId) });
+  c.total = Math.max(r.total || 0, c.items.length);
+  ftPaintCheck();
+}
+
+function ftPaintCheck() {
+  const el = document.getElementById('ftCheck');
+  if (!el) return;
+  const c = FT.check;
+  const p = FT.person;
+  if (!c || !p || c.personId !== FT.personId || !c.items.length) { el.hidden = true; el.innerHTML = ''; return; }
+  const who = p.name ? `<span class="ft-pm-name">${ftEsc(p.name)}</span>` : 'this person';
+  let yes = 0, no = 0;
+  for (const a of c.answers.values()) { if (a === 'yes') yes++; else if (a === 'no') no++; }
+  const hadFocus = el.contains(document.activeElement) ? document.activeElement : null;
+  const focusKey = hadFocus && hadFocus.closest('.fr-card') ? hadFocus.closest('.fr-card').dataset.frKey : null;
+  const focusAns = hadFocus && hadFocus.dataset ? hadFocus.dataset.frAns : null;
+  const focusAct = hadFocus && hadFocus.dataset ? hadFocus.dataset.ftCheck : null;
+  const rest = c.total - c.items.length;
+  const openC = c.items.filter(i => !c.answers.has(i.groupId)).length;
+  el.hidden = false;
+  el.setAttribute('aria-label', p.name && !ftPrivate() ? `Check faces in ${p.name}` : 'Check faces in this person');
+  el.innerHTML = `
+    <div class="ft-might-h">
+      <h2>Check ${ftPlural(c.total, 'face', 'faces')} in ${who}</h2>
+      <span>Vault put ${c.total === 1 ? 'this face' : 'these faces'} in ${who} earlier, and ${c.total === 1 ? 'it does' : 'they do'} not look much like ${p.name ? 'them' : 'this person'}. Is this ${who}?</span>
+    </div>
+    ${frSectionHead('Faces to check', 'Yes keeps a face, No takes it out', [
+      { attr: 'data-ft-check="yesall"', label: `Yes to all (${c.items.length.toLocaleString()})`, disabled: !openC },
+      { attr: 'data-ft-check="norest"', label: 'No to the rest', disabled: !openC }])}
+    <div class="fr-cards" role="list" aria-label="Faces to check">${c.items.map(i => frCardHtml(i, c.answers.get(i.groupId), { who, strong: false })).join('')}</div>
+    ${rest > 0 ? `<div class="ft-might-more"><button class="ft-link" type="button" data-ft-check="more">Show ${Math.min(rest, FT_CHECK_PAGE).toLocaleString()} more</button></div>` : ''}
+    <div class="ft-might-foot">
+      <span class="fr-note"><b>${yes.toLocaleString()}</b> yes, <b>${no.toLocaleString()}</b> no. Yes keeps the face in ${who}. No takes it out.</span>
+      <button class="ft-btn ft-btn-md" type="button" data-ft-check="save"${yes || no ? '' : ' disabled'}>Save my answers</button>
+    </div>`;
+  if (typeof hydrateThumbs === 'function') hydrateThumbs(el);
+  frKeys(el, {
+    answer: (key, a, { toggle }) => {
+      const cc = FT.check;
+      if (!cc) return;
+      const g = Number(key);
+      if (toggle && cc.answers.get(g) === a) cc.answers.delete(g); else cc.answers.set(g, a);
+      ftPaintCheck();
+    },
+    frame: (key, card) => frShowFrame(FT.check && FT.check.items.find(i => i.key === key), card.querySelector('.fr-face-btn')),
+  });
+  if (!el._ftCheckWired) {
+    el._ftCheckWired = true;
+    el.addEventListener('click', (e) => {
+      const b = e.target instanceof Element ? e.target.closest('[data-ft-check]') : null;
+      if (!b || b.disabled) return;
+      const cc = FT.check;
+      if (b.dataset.ftCheck === 'more') ftLoadCheck({ more: true });
+      else if (b.dataset.ftCheck === 'yesall' || b.dataset.ftCheck === 'norest') {
+        // Only the faces shown here that have no answer yet.
+        if (!cc) return;
+        const a = b.dataset.ftCheck === 'yesall' ? 'yes' : 'no';
+        for (const i of cc.items) if (!cc.answers.has(i.groupId)) cc.answers.set(i.groupId, a);
+        ftPaintCheck();
+      } else ftSaveCheck(b);
+    });
+  }
+  if (focusKey) {
+    const card = el.querySelector(`.fr-card[data-fr-key="${focusKey}"]`);
+    const t = card && (focusAns ? card.querySelector(`[data-fr-ans="${focusAns}"]`) : card.querySelector('.fr-face-btn'));
+    if (t) t.focus();
+  } else if (focusAct) (el.querySelector(`[data-ft-check="${focusAct}"]:not(:disabled)`) || el.querySelector('[data-ft-check="save"]'))?.focus();
+}
+
+async function ftSaveCheck(btn) {
+  const c = FT.check;
+  if (!c || c.personId !== FT.personId) return;
+  const keep = [], remove = [];
+  for (const [g, a] of c.answers) (a === 'yes' ? keep : remove).push(g);
+  if (!keep.length && !remove.length) return;
   btn.disabled = true;
-  try { await ftApi(`/api/faces/people/${m.personId}/candidates`, { method: 'POST', json: { reject: pids } }); }
+  let r;
+  try { r = await ftApi(`/api/faces/people/${c.personId}/to-check`, { method: 'POST', json: { keep, remove } }); }
   catch (err) { facesToastError(err); btn.disabled = false; return; }
-  const gone = new Set(pids);
-  m.items = m.items.filter(i => !gone.has(i.personId));
-  for (const pid of pids) m.ticked.delete(pid);
-  m.total = Math.max(0, m.total - pids.length);
-  ftPaintMight();
-  if (!m.items.length && m.total) ftLoadMight();
-  const forId = m.personId;
-  showUndoToast(pids.length === 1 ? 'Got it. That face will not be suggested for this person again.'
-    : `Got it. Those ${pids.length.toLocaleString()} faces will not be suggested for this person again.`, async () => {
-    try { await ftApi(`/api/faces/people/${forId}/candidates`, { method: 'POST', json: { unreject: pids } }); }
-    catch (err) { facesToastError(err); return; }
-    if (FT.personId === forId) { FT.might = null; ftLoadMight(); }
+  const k = (r.kept || []).length, o = (r.removed || []).length;
+  const said = [];
+  if (k) said.push(k === 1 ? 'Kept 1 face.' : `Kept ${k.toLocaleString()} faces.`);
+  if (o) said.push(o === 1 ? 'Took 1 face out. It will not be put back by itself.' : `Took ${o.toLocaleString()} faces out. They will not be put back by themselves.`);
+  showToast(said.join(' ') || 'Nothing changed.');
+  FT.faces.delete(c.personId);
+  FT.check = null;
+  FT.might = null;
+  if (FT.personId === c.personId) ftLoadPerson();
+}
+
+/* ── Person page: "Remove selected from X" ────────────────────────────── */
+
+/** An Undo that found faces changed meanwhile (they stay where they are now). */
+const ftChangedSince = (n) => (n === 1 ? '1 face was changed since and was left as it is.' : `${n.toLocaleString()} faces were changed since and were left as they are.`);
+
+/** The ticked files this person page shows right now (its filter and page): what "Remove selected" acts on. */
+function ftTickedShown() {
+  if (typeof selectedIds === 'undefined') return [];
+  const inPerson = new Set(FT.fileIds || []);
+  return [...document.querySelectorAll('#resultsGrid .media-tile[data-id]')].map(t => Number(t.dataset.id))
+    .filter(id => selectedIds.has(id) && inPerson.has(id));
+}
+
+/** Is a person's file grid showing (selection.js shows the selection bar there too)? */
+function facesPersonFilesShowing() {
+  return ftOnTab() && FT.mode === 'people' && FT.personId != null;
+}
+
+/** The selection bar's button on a person's page (faces.js facesSelectionButton). */
+function ftRemoveSelectedButton(n) {
+  if (!n || !ftOnTab() || FT.mode !== 'people' || FT.personId == null || !FT.person) return '';
+  const p = FT.person;
+  const who = p.name ? `<span class="ft-pm-name">${ftEsc(p.name)}</span>` : 'this person';
+  return `<button class="sel-btn sel-faces-out" type="button" onclick="ftRemoveSelected()" title="These files do not show this person">✕ Remove selected from ${who}</button>`;
+}
+
+/** "Not this person" for every ticked file at once, after a confirm, with Undo. */
+async function ftRemoveSelected() {
+  const personId = FT.personId;
+  const p = FT.person;
+  if (personId == null || !p || typeof selectedIds === 'undefined') return;
+  const ids = ftTickedShown();
+  if (!ids.length) { showToast('None of the selected files show this person.'); return; }
+  const whoHtml = p.name ? `<span class="ft-pm-name">${ftEsc(p.name)}</span>` : 'this person';
+  const files = ftPlural(ids.length, 'file', 'files');
+  const ok = await facesAsk({
+    title: `Take ${files} out of ${p.name && !ftPrivate() ? p.name : 'this person'}?`,
+    html: `<p class="vault-modal-hint">${ids.length === 1 ? 'This file' : `These ${files}`} will no longer be in <b>${whoHtml}</b>. Their faces are not put back by themselves. You can undo this right after.</p>`,
+    buttons: [{ label: 'Cancel', value: null }, { label: `Take ${files} out`, value: 'go', primary: true }],
+  });
+  if (!ok || FT.personId !== personId) return;
+  const undos = [];
+  let gone = false;
+  try {
+    for (let i = 0; i < ids.length; i += 500) {
+      const r = await ftApi(`/api/faces/people/${personId}/not-in`, { method: 'POST', json: { mediaIds: ids.slice(i, i + 500) } });
+      if (r.undo) undos.push(r.undo);
+      if (!r.person) gone = true;
+    }
+  } catch (err) { facesToastError(err); if (FT.personId === personId) ftLoadPerson(); return; }
+  if (typeof clearSelection === 'function') clearSelection();
+  FT.faces.delete(personId);
+  if (gone) {
+    if (typeof hideUndoToast === 'function') hideUndoToast();
+    showToast('Those were their last files, so they are no longer in Faces.');
+    if (FT.personId === personId) ftClosePerson();
+    return;
+  }
+  if (FT.personId === personId) ftLoadPerson();
+  const name = ftPrivate() ? '' : ftName(p);
+  showUndoToast(name ? `Took ${files} out of ${name}.` : `Took ${files} out of this person.`, async () => {
+    // Each batch's exact state before, newest first.
+    let changed = 0;
+    try {
+      for (const undo of undos.reverse()) {
+        const u = await ftApi(`/api/faces/people/${personId}/restore`, { method: 'POST', json: { undo } });
+        changed += (u && u.changed) || 0;
+      }
+    } catch (err) { facesToastError(err); return; }
+    if (changed) showToast(ftChangedSince(changed));
+    FT.faces.delete(personId);
+    if (FT.personId === personId) ftLoadPerson();
   }, 8000);
 }
 
@@ -1921,12 +2264,13 @@ async function facesNotThisPerson(mediaId) {
     ftPaintPerson();
     applyFilters({ keepPage: true });
   }
-  const groupIds = (r.moved || []).map(m => m.groupId);
-  if (!groupIds.length) return;
+  if (!(r.moved || []).length || !r.undo) return;
   const name = ftPrivate() ? '' : ftName(r.person);
   showUndoToast(name ? `Removed this file from ${ftEsc(name)}.` : 'Removed this file from this person.', async () => {
+    // The exact state before (person, lock, confirmation), from the server's snapshot.
     try {
-      await ftApi(`/api/faces/people/${personId}/restore`, { method: 'POST', json: { groupIds } });
+      const u = await ftApi(`/api/faces/people/${personId}/restore`, { method: 'POST', json: { undo: r.undo } });
+      if (u && u.changed) showToast(ftChangedSince(u.changed));
     } catch (err) { facesToastError(err); return; }
     FT.faces.delete(personId);
     if (FT.personId === personId) ftLoadPerson();
@@ -1956,6 +2300,7 @@ function ftWire() {
   view._ftWired = true;
 
   view.addEventListener('input', (e) => {
+    if (e.target.matches && e.target.matches('[data-ft-size]')) { ftSizeInput(e.target); return; }
     if (e.target.id !== 'ftSearch') return;
     ftSearchInput(e.target.value);
   });
@@ -1986,7 +2331,9 @@ function ftWire() {
     }
     const q = t.closest('[data-ft-queue]');
     if (q) { ftQueue(q.dataset.ftQueue); return; }
-    if (t.closest('[data-ft-reviewall]')) { ftOpenReview(); return; }
+    if (t.closest('[data-ft-reviewall]')) { if (typeof facesPairsReviewOpen === 'function') facesPairsReviewOpen(t.closest('button')); else ftOpenReview(); return; }
+    if (t.closest('[data-ft-reviewhide]')) { ftStripHide((FT.review && FT.review.total) || 1); ftPaintReview({ refocus: true }); return; }
+    if (t.closest('[data-ft-reviewshow]')) { ftStripHide(null); ftPaintReview({ refocus: true }); return; }
     const nameIt = t.closest('#ftReview [data-ft-nameit]');
     if (nameIt) { ftNameStripSide(nameIt); return; }
     const ans = t.closest('[data-ft-answer]');
@@ -2009,21 +2356,17 @@ function ftWire() {
       if (t.closest('.ft-naming .ft-field, .ft-drop, .ft-ask, .ft-whois')) return;
       const id = Number(tile.dataset.person);
       if (t.closest('.ft-check')) { e.preventDefault(); ftToggleSel(id, { range: e.shiftKey }); return; }
-      const add = t.closest('[data-ft-addname]');
-      if (add) {
-        ftStartNaming({ host: tile, anchor: add, id, inGrid: true, onDone: () => { ftLoadPeople(); ftLoadReview(); } });
-        return;
-      }
+      const q = t.closest('[data-ft-q]');
+      if (q) { ftQuickAction(tile, q.dataset.ftQ); return; }
+      if (t.closest('[data-ft-addname]')) { ftNameTile(tile, id); return; }
       if (e.ctrlKey || e.metaKey || e.shiftKey) { ftToggleSel(id, { range: e.shiftKey }); return; }
       facesOpenPerson(id);
       return;
     }
 
-    // Person page: Might also be
+    // Person page: "Is this X?" (the cards answer through frKeys)
     const mightBtn = t.closest('[data-ft-might]');
     if (mightBtn) { ftMightAction(mightBtn.dataset.ftMight, mightBtn); return; }
-    const cand = t.closest('[data-ft-cand]');
-    if (cand) { ftMightCard(Number(cand.closest('[data-cand]').dataset.cand), cand.dataset.ftCand, cand); return; }
 
     // Person page
     const backStudio = t.closest('[data-ft-backstudio]');
@@ -2038,8 +2381,6 @@ function ftWire() {
       if (p && await ftPostPerson({ favorite: !p.favorite })) ftPaintPerson();
       return;
     }
-    if (t.closest('[data-ft-findmore]')) { ftFindMore(); return; }
-    if (t.closest('[data-ft-details]')) { ftEditDetails(); return; }
     const more = t.closest('[data-ft-more]');
     if (more) { e.stopPropagation(); ftMoreMenu(more); return; }
     const cover = t.closest('[data-ft-cover]');
@@ -2136,19 +2477,18 @@ window.addEventListener('keydown', (e) => {
 }, true);
 
 window.addEventListener('resize', () => ftClosePops());
+// The "Same person?" strip shows as many pairs as fit one row.
+window.addEventListener('resize', debounce(() => { if (ftOnTab() && FT.personId == null) ftPaintReview(); }, 200));
 
-// Settings > Card size applies to people tiles too. settings.js asks the
-// library to re-lay itself after saving it; the people grid follows along.
-function ftApplyCardSize() {
-  const grid = document.getElementById('ftGrid');
-  if (!grid || typeof window.vaultCardSize !== 'function') return;
-  grid.style.setProperty('--ft-min', `${FT_CARD_MIN[window.vaultCardSize()] || 170}px`);
-}
+// People cards have their own Size slider now. Settings > Card size still
+// sizes a person's files until that page's slider is first moved, so its
+// slider shows the width the tiles have.
 {
   const relayout = window.vaultRelayoutLibrary;
   window.vaultRelayoutLibrary = (...args) => {
     const r = typeof relayout === 'function' ? relayout(...args) : undefined;
-    ftApplyCardSize();
+    const files = document.getElementById('ftFileSize');
+    if (files) files.value = String(ftSizeValue('files'));
     return r;
   };
 }

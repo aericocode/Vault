@@ -33,6 +33,7 @@ function switchTab(tab) {
   if (prev === 'games' && typeof gamesPauseIfActive === 'function') gamesPauseIfActive();
   if (prev === 'faces' && typeof facesTabLeave === 'function') facesTabLeave();
   if (prev === 'wall' && typeof wallLeave === 'function') wallLeave();
+  if (prev === 'library' && typeof facesLibraryLeave === 'function') facesLibraryLeave();
 
   // Show exactly one container
   const wall = document.getElementById('wallContainer');

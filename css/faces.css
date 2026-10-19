@@ -238,7 +238,6 @@ body.pm-names .faces-qname {
   background: rgba(99, 102, 241, 0.06); border-radius: 0 0 8px 8px;
   font-size: 0.8125rem; color: #c8c8c8;
 }
-.faces-bsum b { color: var(--text-primary); }
 .faces-badd {
   font-family: Arial, sans-serif; font-size: 0.8rem; font-weight: 600;
   padding: 0.34rem 0.75rem; border-radius: 7px; cursor: pointer;
@@ -285,37 +284,7 @@ body.pm-names .faces-qname {
 .faces-bname .ft-ask { left: 0; top: calc(100% + 6px); width: 300px; z-index: 20; }
 .faces-bname .ft-ask { width: 340px; }
 
-/* Result tiles (cards.js via facesTileExtrasHtml): who the matched face is. */
-.faces-tag {
-  position: absolute; left: 6px; top: 6px; z-index: 1; pointer-events: none;
-  max-width: calc(100% - 12px); box-sizing: border-box;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  font-size: 0.6875rem; padding: 1px 7px; border-radius: 4px;
-  background: rgba(0, 0, 0, 0.75); color: #c8c8c8; transition: left 0.15s;
-}
-.faces-tag.is-new { background: rgba(245, 158, 11, 0.9); color: #111; font-weight: 600; }
-/* The selection checkbox owns the corner while it shows. */
-.media-tile:hover .faces-tag,
-.media-tile.tile-selected .faces-tag,
-body.faces-picking .faces-tag { left: 30px; max-width: calc(100% - 36px); }
-.media-tile:has(.faces-tag.is-new) { border-color: rgba(245, 158, 11, 0.6); }
-.media-tile:has(.faces-tag.is-new):hover,
-.media-tile.tile-selected:has(.faces-tag.is-new) { border-color: var(--accent); }
-.faces-tag-add {
-  /* bottom left: the tag row stays clear (the quick actions move under it) */
-  position: absolute; bottom: 6px; left: 6px; z-index: 3;
-  max-width: calc(100% - 64px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  font: inherit; font-size: 0.75rem; font-weight: 600; padding: 3px 9px; border-radius: 6px;
-  border: 0; background: var(--accent); color: #fff; cursor: pointer;
-  opacity: 0; transition: opacity 0.15s;
-}
-.media-tile:hover .faces-tag-add, .faces-tag-add:focus-visible { opacity: 1; }
-.tile-thumb:not(:has(.tile-duration)) .faces-tag-add { max-width: calc(100% - 12px); }
-/* The tag row belongs to the checkbox and the tag: the quick actions sit one row down. */
-.tile-thumb:has(.faces-tag) .tile-actions { top: 30px; }
-.faces-tag-add:hover { background: var(--accent-hover); }
-/* Pick which: every checkbox shows, so unticked files can be ticked too. */
-body.faces-picking .tile-select { opacity: 1; }
+/* Result tiles and picking mode: css/faces-review.css (round 4). */
 
 /* facesAsk: the destructive answer */
 .vault-btn.faces-ask-danger { background: var(--danger); border-color: var(--danger); color: #fff; }

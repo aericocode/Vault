@@ -99,7 +99,7 @@ function partition() {
   return [...by.values()].map(a => a.sort().join(',')).sort();
 }
 
-const ITEM_KEYS = ['addedAt', 'coverUrl', 'favorite', 'files', 'hidden', 'id', 'name', 'photos', 'screenS', 'videos'];
+const ITEM_KEYS = ['addedAt', 'coverUrl', 'favorite', 'files', 'hidden', 'id', 'name', 'photos', 'screenS', 'toCheck', 'videos'];
 // GET /api/faces/people/:id adds these to the list item (STUDIOS_SPEC section 2: person details, studios).
 const PERSON_KEYS = ['coverGroupId', 'oftenWith', 'aliases', 'aliasList', 'urls', 'description', 'notes', 'yearStart', 'yearEnd', 'born', 'studios'];
 
@@ -138,7 +138,8 @@ test.after(async () => {
 test('thresholds: people 0.50, the 0.54 + 0.04 suggestion bar, norm and might-be bands live with the search widths', () => {
   assert.strictEqual(THRESHOLDS.people, 0.5);
   assert.strictEqual(THRESHOLDS.suggest, 0.54);
-  const all = { people: 0.5, suggest: 0.54, suggestMargin: 0.04, dropNorm: 7, startNorm: 9, mightLikely: 0.56, mightMargin: 0.05, mightMaybe: 0.52 };
+  const all = { people: 0.5, suggest: 0.54, suggestMargin: 0.04, dropNorm: 7, startNorm: 9, mightLikely: 0.56, mightMargin: 0.05, mightMaybe: 0.52,
+    join: 0.56, joinNamed: 0.56, joinMargin: 0.05 };
   assert.deepStrictEqual(peopleThresholds('sface-2021dec'), all);
   assert.deepStrictEqual(peopleThresholds('unknown-model'), all);
 });
@@ -289,7 +290,7 @@ test('GET /api/faces/people: shape, counts, filters, sorts, search, paging', asy
   }
 });
 
-test('POST /api/faces/people/:id: rename (locks members), favorite, hide, cover, NAME_TAKEN, clear name', async () => {
+test('POST /api/faces/people/:id: rename (locks nothing since 3.8), favorite, hide, cover, NAME_TAKEN, clear name', async () => {
   const alice = personIn('a1.jpg', 0);
   const bob = personIn('b1.jpg', 1);
   let r = await post(`/api/faces/people/${alice}`, { name: '  Alice   Smith ' });
@@ -297,7 +298,8 @@ test('POST /api/faces/people/:id: rename (locks members), favorite, hide, cover,
   assert.deepStrictEqual(Object.keys(r.body).sort(), [...ITEM_KEYS, ...PERSON_KEYS].sort());
   assert.strictEqual(r.body.name, 'Alice Smith');
   assert.strictEqual(one('SELECT name_key FROM face_people WHERE id = ?', alice).name_key, 'alice smith');
-  assert.deepStrictEqual(q('SELECT DISTINCT person_locked AS l FROM face_groups WHERE cluster_id = ?', alice).map(x => x.l), [1]);
+  // Naming is not a decision about each face: nothing is locked (round 4).
+  assert.deepStrictEqual(q('SELECT DISTINCT person_locked AS l FROM face_groups WHERE cluster_id = ?', alice).map(x => x.l), [0]);
 
   // the name is taken: 409 with the other person
   r = await post(`/api/faces/people/${bob}`, { name: 'ALICE smith' });
@@ -440,6 +442,8 @@ test('review "same" merges into the named person', async () => {
   const alice = personIn('a1.jpg', 0);
   const near = personIn('near.jpg', 0);
   db.get().exec('DELETE FROM face_pair_decisions');
+  // Same is only taken for a pair the review offers (round 4).
+  db.get().prepare('INSERT OR IGNORE INTO face_person_suggestions (a, b, score) VALUES (?, ?, 0.6)').run(Math.min(near, alice), Math.max(near, alice));
   const r = await post('/api/faces/review', { a: near, b: alice, answer: 'same' });
   assert.strictEqual(r.status, 200);
   assert.strictEqual(r.body.ok, true);
@@ -477,7 +481,7 @@ test('not-in ("Not this person"): the file leaves, a new person, a reject; survi
   const alice = personIn('a1.jpg', 0);
   const r = await post(`/api/faces/people/${alice}/not-in`, { mediaId: ids['ab.jpg'] });
   assert.strictEqual(r.status, 200);
-  assert.deepStrictEqual(Object.keys(r.body).sort(), ['moved', 'person']);
+  assert.deepStrictEqual(Object.keys(r.body).sort(), ['moved', 'person', 'undo']);
   assert.strictEqual(r.body.person.id, alice);
   assert.strictEqual(r.body.person.files, 3);
   assert.strictEqual(r.body.moved.length, 1);

@@ -18,6 +18,8 @@
    - window.vaultSetRepeatMode(mode)   → persist the mode the user picked
    - window.vaultScanWorkers()         → AI scan concurrency (int)
    - window.vaultSetScanWorkers(n)     → clamp + persist + push it to the server
+   - window.vaultFacesSize(which)      → Faces Size slider width in px ('people' | 'files')
+   - window.vaultSetFacesSize(which, px) → clamp + persist it
    ========================================================================= */
 
 (function () {
@@ -50,6 +52,8 @@
     cardSize: 'M',          // 'S' | 'M' | 'L' — minimum tile width, mapped in cards.js
     layoutStyle: 'classic', // 'classic' (today's look) | 'modern' (full width, size slider)
     cardMinWidth: 0,        // Modern's size slider, px (120-480); 0 = follow cardSize
+    facesCardWidth: 180,    // Faces tab: person card width in px (its Size slider)
+    facesFileWidth: 0,      // Faces person page: file tile width in px (0 = follow cardSize)
     libraryDeepOpen: false, // Settings > Library: is the deep-search section expanded
     // How each list filter's popover orders its options: 'az' or 'count', one
     // entry per filter key (popSort.language, popSort.theme...). Not in the
@@ -284,6 +288,31 @@
     save();
   };
 
+  /* ── Faces tab Size sliders ──────────────────────────────────────────
+     'people': the person card width on the Faces home. 'files': the file
+     tile width on a person's page, 0 until the slider is first moved (the
+     tiles then follow Card size like the library). Clamped on read and on
+     write, so a hand-edited blob cannot hand the grid a silly width. */
+  const FACES_SIZES = {
+    people: { key: 'facesCardWidth', min: 120, max: 320, def: 180 },
+    files: { key: 'facesFileWidth', min: 120, max: 400, def: 0 },
+  };
+  const clampFacesSize = (spec, v) => {
+    const n = Math.round(Number(v));
+    if (!Number.isFinite(n) || n <= 0) return spec.def;
+    return Math.min(spec.max, Math.max(spec.min, n));
+  };
+  window.vaultFacesSize = (which) => {
+    const spec = FACES_SIZES[which];
+    return spec ? clampFacesSize(spec, settings[spec.key]) : 0;
+  };
+  window.vaultSetFacesSize = (which, px) => {
+    const spec = FACES_SIZES[which];
+    if (!spec) return;
+    settings[spec.key] = clampFacesSize(spec, px);
+    save();
+  };
+
   /* ── Popover option order ────────────────────────────────────────────
      Which way a list filter's popover sorts its options, one answer per
      filter. The toggle lives in the popover, not in this modal, so the pair
@@ -515,7 +544,8 @@
     { id: 'guides',    label: '📖 Guides' },
     { id: 'models',    label: '🧠 Models' },
     { id: 'seedpacks', label: '📦 Seed packs' },
-    { id: 'cove',      label: '⛵ Move to Cove' },
+    // Move to Cove is hidden until it is ready (the routes and lib/cove stay).
+    // { id: 'cove',      label: '⛵ Move to Cove' },
     // Near the bottom on purpose: everything in here is about the machine, not
     // the library, and most people never need to open it. About stays last so
     // the nav always ends on the same entry.

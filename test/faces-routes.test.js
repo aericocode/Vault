@@ -255,7 +255,7 @@ test('similar: same person across files, widths, bad width, other people exclude
   const [g] = (await get(`/api/media/${ids['img1.jpg']}/faces`)).body.groups;
   const r = await post(`/api/faces/groups/${g.id}/similar`, { width: 'normal' });
   assert.strictEqual(r.status, 200);
-  assert.deepStrictEqual(Object.keys(r.body).sort(), ['capped', 'ids', 'match', 'scores', 'source', 'total']);
+  assert.deepStrictEqual(Object.keys(r.body).sort(), ['capped', 'ids', 'match', 'rejected', 'scores', 'source', 'total']);
   assert.deepStrictEqual(r.body.ids, [ids['img1.jpg'], ids['video3.mp4']]);
   assert.strictEqual(r.body.total, 2);
   assert.strictEqual(r.body.capped, false);

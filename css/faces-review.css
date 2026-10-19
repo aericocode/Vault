@@ -1,0 +1,271 @@
+/* ==========================================================================
+   Faces round 4: review one face at a time (player-lib/faces-review.js and
+   the face results in faces.js). Mockups F1 to F5 (FACES_REVIEW_SPEC).
+   ========================================================================== */
+
+/* ── F1: the results strip, second row ── */
+.faces-grp {
+  display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 3px 4px 3px 10px; border-radius: 8px;
+  background: var(--bg-secondary); border: 1px solid var(--border);
+}
+.faces-grp.is-quiet { padding: 4px 10px; color: var(--text-secondary); }
+.faces-grp.is-warn { border-color: rgba(245, 158, 11, 0.55); }
+.faces-mini {
+  width: 22px; height: 22px; border-radius: 50%; overflow: hidden; flex: none;
+  border: 1px solid #444; display: inline-block; background: var(--bg-tertiary);
+}
+.faces-mini .face-crop { width: 100%; height: 100%; object-fit: cover; display: block; }
+.faces-minis { display: inline-flex; }
+.faces-minis .faces-mini { margin-left: -6px; }
+.faces-minis .faces-mini:first-child { margin-left: 0; }
+.faces-bghost.is-amber { border-color: rgba(245, 158, 11, 0.7); color: #fbbf24; }
+.faces-bghost.is-amber:hover { border-color: #f59e0b; }
+.faces-bghost.is-accent { border-color: var(--accent); }
+.faces-bghost:disabled { opacity: 0.5; cursor: default; }
+.faces-brow2 .faces-blink + .faces-blink { margin-left: 0; }
+.faces-lg { font-size: 0.875rem; padding: 0.53rem 0.95rem; border-radius: 8px; }
+.faces-badd.faces-lg { padding: 0.56rem 1rem; }
+
+/* ── F1: result tiles, who the matched face is + that face in the corner ── */
+.faces-who {
+  position: absolute; left: 6px; top: 6px; z-index: 1; pointer-events: none;
+  max-width: calc(100% - 12px); box-sizing: border-box;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 0.6875rem; padding: 1px 7px; border-radius: 4px;
+  background: rgba(0, 0, 0, 0.78); color: #d0d0d0; transition: left 0.15s;
+}
+.faces-who.is-new { background: #f59e0b; color: #111; font-weight: 600; }
+.faces-who.is-other { background: var(--bg-tertiary); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.6); }
+/* The selection checkbox owns the corner while it shows. */
+.media-tile:hover .faces-who,
+.media-tile.tile-selected .faces-who { left: 30px; max-width: calc(100% - 36px); }
+.faces-fc {
+  position: absolute; right: 6px; bottom: 6px; z-index: 1; pointer-events: none;
+  width: 46px; height: 46px; border-radius: 8px; overflow: hidden;
+  border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); background: var(--bg-tertiary);
+}
+.faces-fc .face-crop { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* The duration and the hot/done marks step aside for the face. */
+.tile-thumb:has(.faces-fc) .tile-duration { right: 58px; }
+.tile-thumb:has(.faces-who) .tile-actions { top: 30px; }
+
+/* ── F4: picking mode ── */
+body.faces-picking .media-tile:has(.faces-who) .tile-select,
+body.faces-picking .media-tile:has(.faces-who) .tile-actions { display: none; }
+body.faces-picking .media-tile:has(.faces-who):not(:has(.faces-tchk)) { opacity: 0.55; cursor: not-allowed; }
+body.faces-picking .media-tile:has(.faces-who):not(:has(.faces-tchk)) .tile-thumb { cursor: not-allowed; }
+body.faces-picking .media-tile:has(.faces-tchk) .tile-thumb { cursor: pointer; }
+.faces-tchk {
+  position: absolute; left: 6px; top: 6px; z-index: 3; width: 26px; height: 26px; padding: 0;
+  border-radius: 50%; border: 2px solid #fff; background: rgba(0, 0, 0, 0.5); box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.faces-tchk[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
+.faces-tchk:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.tile-thumb:has(.faces-tchk) .faces-who,
+body.faces-picking .media-tile:hover .tile-thumb:has(.faces-tchk) .faces-who { left: 38px; top: 9px; max-width: calc(100% - 44px); }
+.media-tile:has(.faces-tchk[aria-pressed="true"]) { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.45); }
+body.faces-picking #resultsGrid,
+body.faces-picking .main-container { padding-bottom: 90px; }
+.faces-pickbar {
+  /* --fr-vw: the visible width (faces-review.js), so a page wider than the
+     screen (phones) never pushes the bar off it. */
+  position: fixed; left: var(--fr-vx, 0px); right: auto; bottom: auto; z-index: 960; box-sizing: border-box;
+  top: calc(var(--fr-vy, 0px) + var(--fr-vh, 100vh)); transform: translateY(-100%);
+  width: var(--fr-vw, 100vw); max-width: 100vw;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--bg-secondary); border-top: 1px solid var(--border); padding: 12px 16px;
+}
+.faces-pick-sum { font-size: 0.85rem; color: #c8c8c8; margin-right: auto; }
+.faces-pick-sum b { color: var(--text-primary); }
+
+/* ── "Add to someone else…" (facesPersonPicker) ── */
+.fr-pick {
+  position: fixed; z-index: 9200; box-sizing: border-box;
+  background: var(--bg-secondary); border: 1px solid #444; border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6); padding: 10px;
+}
+.fr-pick .ft-opt > span:last-child:not(.ft-plus),
+.fr-name-host .ft-opt > span:last-child:not(.ft-plus) { margin-left: auto; color: var(--text-secondary); font-size: 0.75rem; white-space: nowrap; }
+.fr-pick-label { font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 6px; }
+.fr-pick-host { display: block; position: relative; }
+.fr-pick .ft-field, .fr-name-host .ft-field { margin: 0; width: 100%; font-size: 0.875rem; padding: 8px 10px; }
+.fr-pick .ft-drop, .fr-pick .ft-ask,
+.fr-name-host .ft-drop, .fr-name-host .ft-ask {
+  position: static; width: auto; margin-top: 8px; box-shadow: none; border-color: var(--border);
+}
+
+/* ── Cards (the review panel, the person page, Compare) ── */
+.fr-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.fr-card {
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px;
+  overflow: hidden; display: flex; flex-direction: column; min-width: 0;
+}
+.fr-card.is-yes { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4); }
+.fr-card.is-no { opacity: 0.5; }
+.fr-card.is-no:focus-within { opacity: 0.8; }
+.fr-face { position: relative; aspect-ratio: 1 / 1; background: var(--bg-tertiary); }
+.fr-face-btn { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.fr-face-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.fr-face-btn .face-crop, .fr-face-btn .ft-blank { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fr-face-btn .ft-blank { display: flex; align-items: center; justify-content: center; font-size: 2rem; }
+.fr-src {
+  position: absolute; left: 6px; bottom: 6px; width: 44px; height: 28px; border-radius: 4px; overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.7); pointer-events: none; background: #000;
+}
+.fr-src img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fr-strong {
+  position: absolute; right: 6px; top: 6px; font-size: 0.66rem; font-weight: 600; padding: 1px 7px;
+  border-radius: 4px; background: rgba(0, 0, 0, 0.78); color: #c7d2fe; pointer-events: none;
+}
+.fr-noline {
+  position: absolute; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); pointer-events: none;
+  font-size: 0.72rem; text-align: center; padding: 4px 0; color: var(--text-primary);
+}
+.fr-meta {
+  font-size: 0.72rem; color: var(--text-secondary); padding: 6px 8px 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fr-yn { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px 8px 8px; }
+.fr-yn.is-stacked { grid-template-columns: 1fr; }
+.fr-yn.is-stacked button { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 7px 8px; }
+.fr-yn.is-stacked button .ft-pm-name { display: inline; }
+.fr-yn button {
+  font-family: Arial, sans-serif; font-size: 0.78rem; font-weight: 600; padding: 7px 4px; border-radius: 7px;
+  border: 1px solid #444; background: var(--bg-tertiary); color: var(--text-primary); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 5px; min-width: 0;
+}
+.fr-yn button:hover { border-color: var(--accent); }
+.fr-yn button.on-yes { background: var(--accent); border-color: var(--accent); color: #fff; }
+.fr-yn button.on-no { background: #e0e0e0; border-color: #e0e0e0; color: #111; }
+.fr-yn button .ft-pm-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.fr-note { font-size: 0.78rem; color: var(--text-secondary); }
+.fr-note b { color: var(--text-primary); }
+.fr-kbd {
+  display: inline-block; font-family: ui-monospace, Consolas, monospace; font-size: 0.69rem; padding: 0 5px;
+  border-radius: 4px; border: 1px solid #555; color: #c8c8c8; background: var(--bg-secondary);
+}
+.fr-secth { display: flex; align-items: baseline; gap: 10px; margin: 18px 0 8px; flex-wrap: wrap; }
+.fr-secth h3 { margin: 0; font-size: 0.8125rem; font-weight: 600; letter-spacing: 0.38px; text-transform: uppercase; color: var(--text-secondary); }
+.fr-secth span { font-size: 0.78rem; color: #888; }
+body.pm-names .fr-meta, body.pm-names .fr-frame-name { filter: blur(7px); }
+body.pm-thumbs .fr-src img, body.pm-thumbs .fr-frame-media, body.pm-thumbs .fr-sample .face-crop { filter: blur(14px); }
+
+/* ── F2a: the review panel ── */
+.fr-backdrop { position: fixed; inset: 0; z-index: 940; background: rgba(0, 0, 0, 0.55); }
+.fr-panel {
+  position: fixed; z-index: 950; box-sizing: border-box;
+  top: var(--fr-vy, 0px); bottom: auto; height: var(--fr-vh, 100vh); max-height: 100vh;
+  right: auto; left: calc(var(--fr-vx, 0px) + max(0px, var(--fr-vw, 100vw) - 600px)); width: min(600px, var(--fr-vw, 100vw)); max-width: 100vw;
+  background: #141414; border-left: 1px solid var(--border); display: flex; flex-direction: column;
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.5);
+}
+.fr-head { display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
+.fr-crop { width: 44px; height: 44px; border-radius: 8px; border: 1px solid var(--accent); overflow: hidden; flex: none; }
+.fr-crop .face-crop { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fr-h { flex: 1; min-width: 0; }
+.fr-title { font-size: 1.06rem; font-weight: 600; color: var(--text-primary); }
+.fr-x { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; }
+.fr-body { flex: 1; overflow: auto; padding: 16px 18px; }
+.fr-body .fr-note { margin: 12px 0 0; }
+.fr-more { display: block; margin: 12px 0 0; }
+.fr-name-host { display: block; max-width: 360px; }
+.fr-foot {
+  position: sticky; bottom: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--bg-secondary); border-top: 1px solid var(--border); padding: 12px 16px;
+}
+.fr-sum { font-size: 0.85rem; color: #c8c8c8; margin-right: auto; }
+.fr-sum b { color: var(--text-primary); }
+
+/* ── The whole frame / photo ── */
+.fr-frame-ov {
+  position: fixed; top: var(--fr-vy, 0px); bottom: auto; left: var(--fr-vx, 0px); right: auto; z-index: 9300;
+  width: var(--fr-vw, 100vw); max-width: 100vw; height: var(--fr-vh, 100vh); max-height: 100vh; background: rgba(0, 0, 0, 0.85);
+  display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box;
+}
+.fr-frame { display: flex; flex-direction: column; gap: 10px; align-items: center; max-width: 100%; max-height: 100%; }
+.fr-frame-box { position: relative; display: inline-block; line-height: 0; max-width: 100%; }
+.fr-frame-media { display: block; max-width: min(1200px, calc(var(--fr-vw, 100vw) - 32px)); max-height: calc(var(--fr-vh, 100vh) - 110px); }
+.fr-box {
+  position: absolute; border: 3px solid #f59e0b; border-radius: 4px; box-sizing: border-box;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.25); pointer-events: none;
+}
+.fr-frame-cap { display: flex; align-items: center; gap: 12px; font-size: 0.85rem; color: #c8c8c8; flex-wrap: wrap; justify-content: center; }
+
+/* ── F3: Compare ── */
+.fr-cmp-ov {
+  position: fixed; top: var(--fr-vy, 0px); bottom: auto; left: var(--fr-vx, 0px); right: auto; z-index: 955;
+  width: var(--fr-vw, 100vw); max-width: 100vw; height: var(--fr-vh, 100vh); max-height: 100vh; background: rgba(0, 0, 0, 0.6);
+  overflow: auto; padding: 20px 16px; box-sizing: border-box;
+}
+.fr-cmp {
+  background: #141414; border: 1px solid var(--border); border-radius: 12px;
+  max-width: 1180px; margin: 0 auto; overflow: clip;   /* clip, not hidden: the footer below stays sticky in the overlay */
+}
+.fr-cmp-head { display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.fr-cmp-seg { flex: none; flex-wrap: wrap; }
+.fr-cmp-grid { display: grid; grid-template-columns: 1fr 1.6fr 1fr; gap: 18px; padding: 18px; }
+.fr-cmp-grid .fr-secth { margin-top: 0; }
+.fr-cmp-cards { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.fr-samples { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.fr-sample {
+  aspect-ratio: 1 / 1; border-radius: 10px; overflow: hidden; background: var(--bg-secondary);
+  border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
+}
+.fr-sample .face-crop { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fr-sample-more { color: var(--text-secondary); font-size: 0.875rem; }
+
+/* ── F2b: "Is this X?" on the person page (faces-tab.js ftPaintMight) ── */
+.ft-might { border-color: var(--accent); }
+.ft-might .fr-secth:first-of-type { margin-top: 4px; }
+.ft-might-foot {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
+}
+.ft-might-foot .fr-note { margin-right: auto; }
+.ft-might-more { margin-top: 10px; }
+
+/* ── Phone width ── */
+@media (max-width: 700px) {
+  .fr-cmp-grid { grid-template-columns: 1fr; }
+  .fr-cmp-side .fr-samples { grid-template-columns: repeat(4, 1fr); }
+  .fr-cards { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+}
+@media (max-width: 480px) {
+  .fr-panel { border-left: 0; }
+  .fr-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .fr-foot .faces-lg, .faces-pickbar .faces-lg { flex: 1 1 auto; }
+  .fr-sum, .faces-pick-sum { flex-basis: 100%; }
+}
+
+/* ── "Check N faces in X" (person page) and its hint on the person card ── */
+.ft-might.ft-tochk { border-color: #f59e0b; }
+.ft-tocheck {
+  display: inline-block; align-self: flex-start; width: max-content; max-width: 100%; margin-top: 3px; font-size: 0.6875rem; font-weight: 600; padding: 1px 7px;
+  border-radius: 4px; background: rgba(245, 158, 11, 0.9); color: #111;
+}
+
+/* ── Section headings with their bulk buttons (every review section) ── */
+.fr-secth-acts { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.fr-secth-acts .ft-btn-md { font-size: 0.78rem; padding: 0.38rem 0.75rem; }
+.fr-body > .fr-secth:first-child { margin-top: 0; }
+
+/* ── "Same person?" pairs in the panel (faces-review.js fpPaint) ── */
+.fp-cards { grid-template-columns: 1fr; }
+.fp-pair {
+  display: flex; align-items: flex-start; justify-content: center; gap: 10px;
+  padding: 12px 10px 4px; cursor: default; height: auto;
+}
+.fp-side { flex: 1 1 0; min-width: 0; text-align: center; }
+.fp-face { width: 100%; max-width: 150px; aspect-ratio: 1 / 1; margin: 0 auto; border-radius: 8px; overflow: hidden; background: var(--bg-tertiary); }
+.fp-face .face-crop, .fp-face .ft-blank { width: 100%; height: 100%; object-fit: cover; display: flex; align-items: center; justify-content: center; }
+.fp-name { margin-top: 6px; font-size: 0.85rem; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-noname { color: var(--text-secondary); font-style: italic; font-weight: 400; }
+.fp-files { font-size: 0.75rem; color: var(--text-secondary); }
+.fp-plus { align-self: center; color: var(--text-secondary); font-size: 1.2rem; }
+
+/* ── The "Same person?" strip: hide it, and its small chip ── */
+.ft-review-h .ft-review-hide { margin-left: 4px; font-size: 1.25rem; }
+.ft-review.ft-review-min { background: none; border: 0; padding: 0; margin-bottom: 8px; }
+.ft-same-chip { font-size: 0.8125rem; }

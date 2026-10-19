@@ -45,6 +45,7 @@ function onTileSelect(event, id) {
   } else {
     if (checked) selectedIds.add(id);
     else selectedIds.delete(id);
+    syncTileCheckboxes();
   }
   selectionChanged();
 
@@ -52,10 +53,18 @@ function onTileSelect(event, id) {
   renderSelectionBar();
 }
 
+/**
+ * Bring every rendered tile in line with selectedIds: its checkbox AND its
+ * tile-selected class. (cards.js only sets the class when a tile is drawn,
+ * so a tile drawn ticked kept its blue border after an untick until the
+ * next full repaint.)
+ */
 function syncTileCheckboxes() {
   document.querySelectorAll('.media-tile').forEach(tile => {
+    const on = selectedIds.has(Number(tile.dataset.id));
     const cb = tile.querySelector('.tile-select');
-    if (cb) cb.checked = selectedIds.has(Number(tile.dataset.id));
+    if (cb) cb.checked = on;
+    tile.classList.toggle('tile-selected', on);
   });
 }
 
@@ -303,12 +312,27 @@ function renderSelectionBar() {
   // Selection actions belong to the Library grid — hide elsewhere (the
   // selection itself survives tab switches).
   const onLibrary = typeof currentTab === 'undefined' || currentTab === 'library';
+  // A person's files in the Faces tab are a library grid too ("Remove selected from X").
+  const onPersonFiles = typeof facesPersonFilesShowing === 'function' && facesPersonFilesShowing();
   // Also hide while the full media player is open (main video / fullscreen) so
   // the bar doesn't sit over the media — the selection is preserved and the bar
   // returns when the player closes or drops to the mini player.
   const fullPlayerOpen = document.getElementById('mediaPlayerOverlay')?.classList.contains('active');
-  if (selectedIds.size === 0 || !onLibrary || fullPlayerOpen) {
+  if (selectedIds.size === 0 || !(onLibrary || onPersonFiles) || fullPlayerOpen) {
     bar.classList.remove('visible');
+    return;
+  }
+  // A person's page in the Faces tab: only what concerns this person, for
+  // the ticked files it shows (faces-tab.js).
+  if (!onLibrary && onPersonFiles) {
+    const shown = typeof ftTickedShown === 'function' ? ftTickedShown().length : 0;
+    if (!shown) { bar.classList.remove('visible'); return; }
+    bar.innerHTML = `
+      <span class="sel-count">${shown} selected</span>
+      ${typeof ftRemoveSelectedButton === 'function' ? ftRemoveSelectedButton(shown) : ''}
+      <button class="sel-btn" onclick="openCollectionPicker(ftTickedShown(), this)" title="Add selection to a collection">📁 Collect</button>
+      <button class="sel-btn sel-clear" onclick="clearSelection()" title="Clear selection">✕</button>`;
+    bar.classList.add('visible');
     return;
   }
 
