@@ -214,7 +214,14 @@
     const info = header.querySelector('.db-info');
 
     if (typeof ResizeObserver === 'function') {
-      const ro = new ResizeObserver(() => fit());
+      // Fit on the next frame: fitting inside the callback can change sizes the
+      // grid's own observer is still delivering ("ResizeObserver loop" error).
+      let fitQueued = false;
+      const ro = new ResizeObserver(() => {
+        if (fitQueued) return;
+        fitQueued = true;
+        requestAnimationFrame(() => { fitQueued = false; fit(); });
+      });
       ro.observe(probe);
       if (btns) ro.observe(btns);
       if (info) ro.observe(info);

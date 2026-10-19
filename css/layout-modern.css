@@ -169,3 +169,6 @@ body.layout-modern #refreshBtn .hb-label {
    dock button) and hides only the sort itself. */
 body.layout-modern #mainContainer.faces-person .results-controls { display: flex; }
 body.layout-modern #mainContainer.faces-person .sort-control { display: none; }
+/* The person page has its own files Size slider (faces-tab.js), so the
+   library's slider would be a second, inert "Size" there. Keep the dock button. */
+body.layout-modern #mainContainer.faces-person .card-size-control { display: none; }
