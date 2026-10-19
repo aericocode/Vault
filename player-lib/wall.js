@@ -35,10 +35,15 @@
    - One 250 ms scheduler tick drives every block (no timer per block).
 
    Sound (the "Sound" choice in the gear popover): Off, On hover (only the
-   hovered clip is heard), or Auto (exactly one playing clip is heard; when
-   it stops, the sound moves to the playing clip with the most time left on
-   the wall, and never away from one that is still playing). Every handover
-   is a short volume crossfade. The level and mute come from the player's
+   hovered clip is heard), or Auto (exactly one playing clip that has an
+   audio track is heard; when it stops, the sound moves to the playing clip
+   with sound that has the most time left on the wall, and never away from
+   one that is still playing; no clip with sound, no sound and no badge).
+   Whether a clip has sound comes from the row's probe (audio_codec), else
+   from the element once it plays. Every handover is a short volume
+   crossfade, and at most two clips are ever partly audible (one fading out,
+   one fading in). Grid clips start staggered over the clip length, so they
+   never all stop together. The level and mute come from the player's
    stored volume (vault_volume). In Auto, a hovered clip borrows the sound
    while hovered when "Pause on hover" is on; with it off, hovering is only
    the caption and Auto keeps its pick. A browser that refuses sound before
@@ -189,7 +194,14 @@ const Wall = (() => {
   // next free y (its content bottom plus one gap).
   const lay = { W: 0, H: 0, cols: 0, cw: 0, gap: 0, colX: [], tops: [] };
   let hoverBlock = null;
-  let swallowClick = false;
+  // A primary-button press that only closed the popover or turned sound on:
+  // the click that follows it is swallowed. Any later press, or a click
+  // that does not come within SWALLOW_MS (a right-click has none), ends it.
+  let swallowUntil = 0;
+  const SWALLOW_MS = 500;
+  // Clips that start right after a layout get shorter first runs, spread
+  // over the clip length, so a Grid's clips never all stop together.
+  let staggerLeft = 0;
 
   // Sound. `autoRec` is Auto's pick, `audioRec` the clip being heard now (or
   // fading in); clips being faded out are in `fadingRecs` until silent.
@@ -994,17 +1006,23 @@ const Wall = (() => {
     // The gear popover: Escape or a click outside closes it. A click on the
     // board that closes it only closes it (it does not also open a file).
     els.gear.addEventListener('click', () => setPop(els.pop.hidden));
+    // Only a primary-button press on the board is followed by a click to swallow.
+    const swallowNext = (e) => {
+      if (e.button === 0 && els.board.contains(e.target)) swallowUntil = now() + SWALLOW_MS;
+    };
+    // Registered first, so every press ends what an earlier one left behind.
+    document.addEventListener('pointerdown', () => { swallowUntil = 0; }, true);
     document.addEventListener('pointerdown', (e) => {
       if (els.pop.hidden) return;
       if (els.pop.contains(e.target) || els.gear.contains(e.target)) return;
       setPop(false);
-      if (els.board.contains(e.target)) swallowClick = true;
+      swallowNext(e);
     }, true);
     // The browser refused sound before a click: this click (a user gesture)
     // turns it on. On the board it only does that; it does not open a file.
     document.addEventListener('pointerdown', (e) => {
       if (!soundBlocked || !active) return;
-      if (els.board.contains(e.target)) swallowClick = true;
+      swallowNext(e);
       soundBlocked = false;
       els.soundNote.hidden = true;
       for (const rec of liveRecs()) applyGain(rec);
@@ -1116,7 +1134,11 @@ const Wall = (() => {
       hoverEnd(b);
     });
     board.addEventListener('click', (e) => {
-      if (swallowClick) { swallowClick = false; return; }
+      if (swallowUntil) {
+        const swallow = now() <= swallowUntil;
+        swallowUntil = 0;
+        if (swallow) return;
+      }
       const b = blockOf(e.target);
       if (b) openItem(b);
     });
@@ -1272,6 +1294,8 @@ const Wall = (() => {
       // Staggered so the pictures never all change together.
       b.dueAt = t + (0.2 + Math.random() * 0.9) * cfg.picSpeed * 1000;
     }
+    // ...and neither do the clips: the first ones get runs spread over the clip length.
+    staggerLeft = cfg.playing;
     pinOnScreen();
     updateStatus();
     return true;
@@ -1578,8 +1602,10 @@ const Wall = (() => {
     layer.appendChild(v);
     b.el.insertBefore(layer, b.cap);
 
+    // audio: whether the clip has sound, true/false from the probe, null until learned.
+    // run: the share of the clip length this clip plays (below 1 only for a staggered start).
     const rec = { v, layer, hls: null, token: null, cost, mode, id: item.id, released: false,
-      gain: 0, from: 0, to: 0, t0: 0 };
+      gain: 0, from: 0, to: 0, t0: 0, block: b, startedAt: 0, run: 1, audio: storedAudio(item) };
     v._wallRec = rec;
     liveCost += cost;
     if (mode === 'remux') liveRemux++;
@@ -1597,7 +1623,12 @@ const Wall = (() => {
       if (b.video !== rec || b.dead) return;
       b.loadDeadline = 0;
       b.startedAt = now();
-      b.dueAt = b.startedAt + clipMs();
+      rec.startedAt = b.startedAt;
+      // The first clips after a layout: the first to start plays the whole
+      // length, the next a share less, and so on, so they stop one by one.
+      rec.run = staggerRun(staggerLeft, cfg.playing);
+      if (staggerLeft > 0) staggerLeft--;
+      b.dueAt = b.startedAt + clipMs() * rec.run;
       learnAspect(item, v.videoWidth, v.videoHeight);
       reveal(b, layer);
       syncAudio();
@@ -1791,7 +1822,7 @@ const Wall = (() => {
     for (const b of blocks) {
       if (!b.video) continue;
       b.video.v.loop = !toEnd();
-      if (b.startedAt) b.dueAt = b.startedAt + clipMs();
+      if (b.startedAt) b.dueAt = b.startedAt + clipMs() * b.video.run;
     }
   }
 
@@ -1851,6 +1882,28 @@ const Wall = (() => {
     return best ? best.key : null;
   }
 
+  /**
+   * Which clip may keep fading out (pure): of the clips other than `want`
+   * still sounding or on their way up ({ gain, to }), the loudest; null if none.
+   */
+  function fadeOutPick(recs, want) {
+    let out = null;
+    for (const r of recs) {
+      if (r !== want && (r.gain > 0 || r.to > 0) && (!out || r.gain > out.gain)) out = r;
+    }
+    return out;
+  }
+
+  /**
+   * The share of the clip length a clip plays (pure): after a layout, the
+   * first `playing` clips to start get playing/playing, (playing-1)/playing,
+   * ... 1/playing, so their swaps spread over one clip length; `left` is how
+   * many staggered starts remain. Every other clip plays the whole length.
+   */
+  function staggerRun(left, playing) {
+    return left > 0 ? Math.min(1, left / Math.max(1, playing)) : 1;
+  }
+
   /** The app's volume as the player stores it (slider 0 to 1.5, curved); 0 when muted. */
   function soundLevel() {
     let vol = 1;
@@ -1876,6 +1929,34 @@ const Wall = (() => {
       if (v._wallRec && !v._wallRec.released) out.push(v._wallRec);
     }
     return out;
+  }
+
+  /** Whether a file has sound as its probe stored it: true/false, or null (not probed yet). */
+  function storedAudio(item) {
+    if (!item || !(Number(item.probe_version) > 0)) return null;
+    return !!item.audio_codec;
+  }
+
+  const AUDIO_LEARN_MS = 1500;   // a playing clip that decoded no sound by then has none
+
+  /**
+   * Whether a clip has sound: the probe's answer, else the element's once it
+   * plays (audioTracks or mozHasAudio where there is one; in Chrome, decoded
+   * audio bytes, which a muted clip decodes too). null while not known yet.
+   */
+  function hasAudio(rec) {
+    if (rec.audio !== null) return rec.audio;
+    const v = rec.v;
+    if (v.readyState < 1) return null;
+    if (v.audioTracks && typeof v.audioTracks.length === 'number') rec.audio = v.audioTracks.length > 0;
+    else if (typeof v.mozHasAudio === 'boolean') rec.audio = v.mozHasAudio;
+    else if (typeof v.webkitAudioDecodedByteCount === 'number') {
+      if (v.webkitAudioDecodedByteCount > 0) rec.audio = true;
+      else if (rec.startedAt && now() - rec.startedAt > AUDIO_LEARN_MS) rec.audio = false;
+    } else {
+      rec.audio = true;   // no way to tell: assume it has sound
+    }
+    return rec.audio;
   }
 
   /** A block's clip that is playing now and can hold the sound. */
@@ -1912,10 +1993,20 @@ const Wall = (() => {
     if (cfg.sound === 'hover') return hoverBlock ? playingRec(hoverBlock) : null;
     const t = now();
     const cands = [];
-    for (const b of blocks) {
-      const rec = playingRec(b);
-      // The handover starts a crossfade before the clip stops, so it is never cut off.
-      if (rec) cands.push({ key: rec, left: timeLeft(b, t) - AUDIO_FADE_MS, startedAt: b.startedAt });
+    // Only clips with sound: a silent clip must never hold it while another could be heard.
+    for (const rec of liveRecs()) {
+      if (!rec.startedAt || rec.v.paused || hasAudio(rec) !== true) continue;
+      const b = rec.block;
+      if (b.video === rec) {
+        if (!playingRec(b)) continue;
+        // The handover starts a crossfade before the clip stops, so it is never cut off.
+        cands.push({ key: rec, left: timeLeft(b, t) - AUDIO_FADE_MS, startedAt: b.startedAt });
+      } else if (!b.dead) {
+        // A Grid block's old clip, still playing under its next picture's fade:
+        // no time left, but it keeps the sound until it really stops if
+        // nothing else can take it.
+        cands.push({ key: rec, left: -AUDIO_FADE_MS, startedAt: rec.startedAt });
+      }
     }
     // A handover settles over a short window: a clip that starts playing
     // within it (often the one taking the slot the old clip gave up) can
@@ -1954,7 +2045,7 @@ const Wall = (() => {
         if (running) v.play().catch(() => {});
         if (!soundBlocked) {
           soundBlocked = true;
-          if (els && active && audioRec) els.soundNote.hidden = false;
+          if (els && active && audioRec && hasAudio(audioRec) === true) els.soundNote.hidden = false;
         }
       });
     }
@@ -2003,18 +2094,29 @@ const Wall = (() => {
       audioRec = null;
     } else {
       audioRec = want && soundLevel() > 0 ? want : null;
+      // At most one clip fades out, the loudest; any other still sounding
+      // (a handover overtaken in the settle window, on start or unmute) is
+      // silenced now. So never more than two clips are partly audible: a
+      // new pick starts one fresh crossfade instead of layering a third.
+      const out = fadeOutPick(recs, audioRec);
       for (const rec of recs) {
         if (rec === audioRec) fadeTo(rec, 1);
-        else if (rec.gain > 0 || rec.to > 0) fadeTo(rec, 0);
+        else if (rec === out) fadeTo(rec, 0);
+        else if (rec.gain > 0 || rec.to > 0) {
+          fadingRecs.delete(rec);
+          rec.gain = 0; rec.from = 0; rec.to = 0;
+        }
         // A clip not fading takes a changed level (the player's volume) here.
         if (!fadingRecs.has(rec)) applyGain(rec);
       }
     }
+    // The speaker badge only on a clip that has sound (hover may pick a silent one).
+    const badge = audioRec && hasAudio(audioRec) === true ? audioRec : null;
     for (const b of blocks) {
-      b.el.classList.toggle('wall-audible', !!audioRec && b.video === audioRec);
+      b.el.classList.toggle('wall-audible', !!badge && b.video === badge);
     }
     // The note only while there is something to hear.
-    els.soundNote.hidden = !(soundBlocked && active && audioRec);
+    els.soundNote.hidden = !(soundBlocked && active && badge);
   }
 
   /* ── The scheduler ──────────────────────────────────────────────────── */
@@ -2080,7 +2182,10 @@ const Wall = (() => {
         if (Number.isFinite(b.dueAt)) b.dueAt += d;
         if (b.loadDeadline) b.loadDeadline += d;
         if (b.startedAt) b.startedAt += d;
-        if (b.video) b.video.v.play().catch(() => {});
+        if (b.video) {
+          if (b.video.startedAt) b.video.startedAt += d;
+          b.video.v.play().catch(() => {});
+        }
       }
       tickTimer = setInterval(tick, TICK_MS);
       tick();
@@ -2231,7 +2336,7 @@ const Wall = (() => {
   return {
     enter, leave, lockStop,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { cfgFrom, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
+    _pure: { cfgFrom, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
     _audio: () => {
       const t = now();
@@ -2250,7 +2355,7 @@ const Wall = (() => {
         clips: liveRecs().map((r) => {
           const b = byRec.get(r);
           return {
-            key: keyOf(r), id: r.id, muted: r.v.muted, volume: +r.v.volume.toFixed(3), paused: r.v.paused, gain: +r.gain.toFixed(3),
+            key: keyOf(r), id: r.id, audio: r.audio, muted: r.v.muted, volume: +r.v.volume.toFixed(3), paused: r.v.paused, gain: +r.gain.toFixed(3),
             current: !!b, started: b ? b.startedAt : 0, left: b && playingRec(b) ? Math.round(timeLeft(b, t)) : null,
             y: b ? Math.round(b.y - drift.offset) : null,
           };

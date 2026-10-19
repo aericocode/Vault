@@ -371,7 +371,8 @@ function ftRenderHome() {
 
 /* ── Size sliders: person cards (home), file tiles (person page) ────────── */
 
-const FT_SIZE_RANGE = { people: [120, 320, 10], files: [120, 400, 10] };
+// files: the same range as the Modern library's Size slider, which it starts from.
+const FT_SIZE_RANGE = { people: [120, 320, 10], files: [120, 480, 10] };
 
 /** The width the files slider shows before it was first moved: the library's Card size
     (in the Modern look, the library's own Size slider). */

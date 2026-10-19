@@ -97,6 +97,33 @@ test('auto sound: never switches away from a clip that is still playing', () => 
   assert.strictEqual(W.pickAudible([clip('b', -50, 8)], 'gone'), 'b');
 });
 
+test('auto sound: a swapped Grid clip still playing keeps the sound until a clip with time left starts', () => {
+  // The old clip under its block's next picture is a candidate with no time left.
+  assert.strictEqual(W.pickAudible([clip('old', -350, 1), clip('x', -100, 2)], 'old'), 'old', 'no dip while everything is stopping');
+  assert.strictEqual(W.pickAudible([clip('old', -350, 1), clip('new', 9000, 3)], 'old'), 'new');
+});
+
+test('auto sound: only a file the probe found sound in counts, unknown until probed', () => {
+  assert.strictEqual(W.storedAudio({ probe_version: 1, audio_codec: 'aac' }), true);
+  assert.strictEqual(W.storedAudio({ probe_version: 1, audio_codec: null }), false, 'probed, no audio stream');
+  assert.strictEqual(W.storedAudio({ probe_version: 0, audio_codec: null }), null, 'not probed: the element tells');
+  assert.strictEqual(W.storedAudio({ audio_codec: 'aac' }), null);
+});
+
+test('auto sound: at most one clip keeps fading out (never three partly audible)', () => {
+  const a = { gain: 0.6, to: 0 }, b = { gain: 0.4, to: 1 }, c = { gain: 0, to: 0 }, d = { gain: 0, to: 0 };
+  assert.strictEqual(W.fadeOutPick([a, b, c], c), a, 'the loudest keeps fading, the rest are silenced');
+  assert.strictEqual(W.fadeOutPick([a, b, c], a), b);
+  assert.strictEqual(W.fadeOutPick([c, d], c), null, 'nothing sounding: nothing to fade');
+  assert.strictEqual(W.fadeOutPick([a], null), a);
+});
+
+test('grid clips: the first clips after a layout stop one by one over a clip length', () => {
+  const runs = [6, 5, 4, 3, 2, 1, 0, -1].map(left => W.staggerRun(left, 6));
+  assert.deepStrictEqual(runs.map(r => +r.toFixed(3)), [1, 0.833, 0.667, 0.5, 0.333, 0.167, 1, 1]);
+  assert.strictEqual(W.staggerRun(3, 0), 1, 'never more than a whole clip');
+});
+
 test('settings: out-of-range values are clamped', () => {
   const c = W.cfgFrom({ v: 2, playing: 99, picSpeed: 0, clipLen: 9999, colWidth: 5, gap: -3, scrollSpeed: 42 });
   assert.strictEqual(c.playing, 16);

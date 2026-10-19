@@ -295,7 +295,7 @@
      write, so a hand-edited blob cannot hand the grid a silly width. */
   const FACES_SIZES = {
     people: { key: 'facesCardWidth', min: 120, max: 320, def: 180 },
-    files: { key: 'facesFileWidth', min: 120, max: 400, def: 0 },
+    files: { key: 'facesFileWidth', min: 120, max: 480, def: 0 },   // max = the Modern library Size slider's
   };
   const clampFacesSize = (spec, v) => {
     const n = Math.round(Number(v));
