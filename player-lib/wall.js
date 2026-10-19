@@ -198,10 +198,13 @@ const Wall = (() => {
   // the click that follows it is swallowed. Any later press, or a click
   // that does not come within SWALLOW_MS (a right-click has none), ends it.
   let swallowUntil = 0;
-  const SWALLOW_MS = 500;
+  // Long enough for a slow press; every new press clears it anyway.
+  const SWALLOW_MS = 5000;
   // Clips that start right after a layout get shorter first runs, spread
   // over the clip length, so a Grid's clips never all stop together.
   let staggerLeft = 0;
+  let staggerFrom = 0;
+  const STAGGER_WINDOW_MS = 4000;
 
   // Sound. `autoRec` is Auto's pick, `audioRec` the clip being heard now (or
   // fading in); clips being faded out are in `fadingRecs` until silent.
@@ -1296,6 +1299,7 @@ const Wall = (() => {
     }
     // ...and neither do the clips: the first ones get runs spread over the clip length.
     staggerLeft = cfg.playing;
+    staggerFrom = now();
     pinOnScreen();
     updateStatus();
     return true;
@@ -1626,6 +1630,8 @@ const Wall = (() => {
       rec.startedAt = b.startedAt;
       // The first clips after a layout: the first to start plays the whole
       // length, the next a share less, and so on, so they stop one by one.
+      // Only clips starting soon after the layout are staggered; later ones play in full.
+      if (now() - staggerFrom > STAGGER_WINDOW_MS) staggerLeft = 0;
       rec.run = staggerRun(staggerLeft, cfg.playing);
       if (staggerLeft > 0) staggerLeft--;
       b.dueAt = b.startedAt + clipMs() * rec.run;
@@ -2018,8 +2024,10 @@ const Wall = (() => {
       autoRec = pick;
     }
     // A hovered clip borrows the sound while hovered (with Pause on hover on).
+    // Only a clip known to have sound borrows it, so hovering a silent clip
+    // never mutes the wall.
     const hovered = hoverBlock && hoverBlock.held ? playingRec(hoverBlock) : null;
-    return hovered || autoRec;
+    return (hovered && hasAudio(hovered) === true) ? hovered : autoRec;
   }
 
   /** Put a clip's gain on its element: volume follows the ramp, muted when silent. */
