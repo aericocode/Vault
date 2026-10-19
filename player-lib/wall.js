@@ -34,6 +34,16 @@
      or the Pause button only pauses them.
    - One 250 ms scheduler tick drives every block (no timer per block).
 
+   Sound (the "Sound" choice in the gear popover): Off, On hover (only the
+   hovered clip is heard), or Auto (exactly one playing clip is heard; when
+   it stops, the sound moves to the playing clip with the most time left on
+   the wall, and never away from one that is still playing). Every handover
+   is a short volume crossfade. The level and mute come from the player's
+   stored volume (vault_volume). In Auto, a hovered clip borrows the sound
+   while hovered when "Pause on hover" is on; with it off, hovering is only
+   the caption and Auto keeps its pick. A browser that refuses sound before
+   a click keeps the clip playing muted and asks for a click on the wall.
+
    Sources go through the existing query API (Library.queryOnce: POST
    /api/library/query + the binary id list) and rows through Library.fetchRows
    (POST /api/media/rows). Thumbnails go through thumbs.js, so the vault's
@@ -60,6 +70,7 @@ const Wall = (() => {
   const MODES = ['grid', 'scroll'];
   const MIXES = ['both', 'videos', 'pictures'];
   const ORDERS = ['shuffle', 'order'];
+  const SOUNDS = ['off', 'hover', 'auto'];
   const MIX_TYPES = { both: ['video', 'image', 'gif'], videos: ['video'], pictures: ['image', 'gif'] };
 
   const MAX_REMUX = 1;               // see the header: the server's FFmpeg cap is 2, app-wide
@@ -127,7 +138,9 @@ const Wall = (() => {
     out.mix = MIXES.includes(raw.mix) ? raw.mix : 'both';
     out.order = ORDERS.includes(raw.order) ? raw.order : 'shuffle';
     out.source = typeof raw.source === 'string' && /^(library|c:\d+|s:\d+)$/.test(raw.source) ? raw.source : 'library';
-    out.soundOnHover = raw.soundOnHover === true;
+    // "Sound on hover" (a checkbox) became the Sound choice.
+    out.sound = SOUNDS.includes(raw.sound) ? raw.sound : (raw.soundOnHover === true ? 'hover' : 'off');
+    out.pauseOnHover = raw.pauseOnHover !== false;
     out.directOnly = raw.directOnly === true;
     return out;
   }
@@ -177,6 +190,16 @@ const Wall = (() => {
   const lay = { W: 0, H: 0, cols: 0, cw: 0, gap: 0, colX: [], tops: [] };
   let hoverBlock = null;
   let swallowClick = false;
+
+  // Sound. `autoRec` is Auto's pick, `audioRec` the clip being heard now (or
+  // fading in); clips being faded out are in `fadingRecs` until silent.
+  let autoRec = null;
+  let audioRec = null;
+  let soundBlocked = false;    // the browser refused sound before a click
+  const fadingRecs = new Set();
+  let rampTimer = 0;
+  const dbgKeys = new WeakMap();  // clip → a number, for Wall._audio() only
+  let dbgSeq = 0;
 
   const drift = { offset: 0, raf: 0, lastT: 0, frames: [], rebases: 0, removed: 0 };
   const stats = { swaps: 0, exact: 0, near: 0, crops: 0, worstCrop: 1, staleDropped: 0, moreFetches: 0, rowFetches: 0 };
@@ -746,7 +769,16 @@ const Wall = (() => {
               <option value="order">In order</option>
             </select>
           </label>
-          <label class="wall-check"><input type="checkbox" id="wallSound"> Sound on hover</label>
+          <label class="wall-pop-row" title="Off: every clip is silent. On hover: the clip under the mouse is heard. Auto: one clip is always heard, the one with the most time left.">
+            <span class="wall-label">Sound</span>
+            <select id="wallSound">
+              <option value="off">Off</option>
+              <option value="hover">On hover</option>
+              <option value="auto">Auto</option>
+            </select>
+          </label>
+          <label class="wall-check" title="Hovering a block holds it: its timer waits, and Scroll mode stops drifting.">
+            <input type="checkbox" id="wallHoverPause"> Pause on hover</label>
           <label class="wall-check" title="Skip videos that need converting on the fly. They are heavier to play.">
             <input type="checkbox" id="wallDirect"> Only direct-play files</label>
           <label class="wall-check"><input type="checkbox" id="wallToEnd"> Play clips to the end</label>
@@ -756,6 +788,7 @@ const Wall = (() => {
         <div class="wall-board" id="wallBoard"><div class="wall-track" id="wallTrack"></div></div>
         <div class="wall-msg" id="wallMsg" hidden></div>
         <div class="wall-paused" id="wallPaused" hidden>Paused</div>
+        <div class="wall-soundnote" id="wallSoundNote" hidden>Click the wall to turn sound on</div>
       </div>`;
     const $ = (id) => root.querySelector('#' + id);
     els = {
@@ -781,6 +814,8 @@ const Wall = (() => {
       mix: $('wallMix'),
       order: $('wallOrder'),
       sound: $('wallSound'),
+      hoverPause: $('wallHoverPause'),
+      soundNote: $('wallSoundNote'),
       direct: $('wallDirect'),
       toEnd: $('wallToEnd'),
       pauseBtn: $('wallPauseBtn'),
@@ -820,7 +855,8 @@ const Wall = (() => {
     els.gapOut.textContent = `${cfg.gap} px`;
     els.mix.value = cfg.mix;
     els.order.value = cfg.order;
-    els.sound.checked = cfg.soundOnHover;
+    els.sound.value = cfg.sound;
+    els.hoverPause.checked = cfg.pauseOnHover;
     els.direct.checked = cfg.directOnly;
     els.toEnd.checked = cfg.clipsToEnd;
     els.note.hidden = !reducedNote;
@@ -921,9 +957,16 @@ const Wall = (() => {
     els.order.addEventListener('change', () => { cfg.order = els.order.value; saveCfg(); rebuild(); });
     els.direct.addEventListener('change', () => { cfg.directOnly = els.direct.checked; saveCfg(); rebuild(); });
     els.sound.addEventListener('change', () => {
-      cfg.soundOnHover = els.sound.checked;
+      cfg.sound = SOUNDS.includes(els.sound.value) ? els.sound.value : 'off';
       saveCfg();
-      if (!cfg.soundOnHover) muteAll();
+      syncAudio();
+    });
+    els.hoverPause.addEventListener('change', () => {
+      cfg.pauseOnHover = els.hoverPause.checked;
+      saveCfg();
+      // A block hovered right now takes the new rule at once.
+      const b = hoverBlock;
+      if (b) { hoverEnd(b); hoverStart(b); }
     });
     els.toEnd.addEventListener('change', () => {
       cfg.clipsToEnd = els.toEnd.checked;
@@ -956,6 +999,15 @@ const Wall = (() => {
       if (els.pop.contains(e.target) || els.gear.contains(e.target)) return;
       setPop(false);
       if (els.board.contains(e.target)) swallowClick = true;
+    }, true);
+    // The browser refused sound before a click: this click (a user gesture)
+    // turns it on. On the board it only does that; it does not open a file.
+    document.addEventListener('pointerdown', (e) => {
+      if (!soundBlocked || !active) return;
+      if (els.board.contains(e.target)) swallowClick = true;
+      soundBlocked = false;
+      els.soundNote.hidden = true;
+      for (const rec of liveRecs()) applyGain(rec);
     }, true);
     document.addEventListener('keydown', onKey);
 
@@ -1106,6 +1158,11 @@ const Wall = (() => {
     const cap = document.createElement('div');
     cap.className = 'wall-cap';
     el.appendChild(cap);
+    const spk = document.createElement('div');
+    spk.className = 'wall-spk';
+    spk.setAttribute('aria-hidden', 'true');
+    spk.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" focusable="false"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4zm12.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>';
+    el.appendChild(spk);
     const b = {
       el, cap,
       x: slot.x, y: slot.y, w: slot.w, h: slot.h,
@@ -1119,6 +1176,7 @@ const Wall = (() => {
       startedAt: 0,
       lastPlayedAt: 0,
       hovered: false,
+      held: false,          // hovered with Pause on hover: its timer (and the drift) waits
       holdLeft: 0,
       rand: Math.random(),
       fitWait: false,
@@ -1305,7 +1363,7 @@ const Wall = (() => {
   }
 
   function driftShouldRun() {
-    return cfg.mode === 'scroll' && active && built && running && !fading && !hoverBlock;
+    return cfg.mode === 'scroll' && active && built && running && !fading && !(hoverBlock && hoverBlock.held);
   }
 
   function syncDrift() {
@@ -1520,7 +1578,8 @@ const Wall = (() => {
     layer.appendChild(v);
     b.el.insertBefore(layer, b.cap);
 
-    const rec = { v, layer, hls: null, token: null, cost, mode, id: item.id, released: false };
+    const rec = { v, layer, hls: null, token: null, cost, mode, id: item.id, released: false,
+      gain: 0, from: 0, to: 0, t0: 0 };
     v._wallRec = rec;
     liveCost += cost;
     if (mode === 'remux') liveRemux++;
@@ -1540,8 +1599,8 @@ const Wall = (() => {
       b.startedAt = now();
       b.dueAt = b.startedAt + clipMs();
       learnAspect(item, v.videoWidth, v.videoHeight);
-      if (cfg.soundOnHover && b.hovered) unmute(b);
       reveal(b, layer);
+      syncAudio();
       updateStatus();
     }, { once: true });
     v.addEventListener('ended', () => { if (b.video === rec) b.dueAt = 0; });
@@ -1614,6 +1673,11 @@ const Wall = (() => {
     liveCost -= rec.cost;
     if (rec.mode === 'remux') liveRemux--;
     const v = rec.v;
+    // Silent at once, even halfway through a crossfade.
+    try { v.muted = true; v.volume = 0; } catch {}
+    fadingRecs.delete(rec);
+    if (audioRec === rec) audioRec = null;
+    if (autoRec === rec) autoRec = null;
     try { v.pause(); } catch {}
     if (rec.hls) {
       try { rec.hls.destroy(); } catch {}
@@ -1731,33 +1795,226 @@ const Wall = (() => {
     }
   }
 
-  /* ── Sound on hover ─────────────────────────────────────────────────── */
-
-  function unmute(b) {
-    muteAll();
-    if (b.video) b.video.v.muted = false;
-  }
-
-  function muteAll() {
-    for (const b of blocks) if (b.video) b.video.v.muted = true;
-  }
+  /* ── Hover ──────────────────────────────────────────────────────────── */
 
   function hoverStart(b) {
     b.hovered = true;
     b.el.classList.add('wall-hover');
-    b.holdLeft = b.dueAt - now();
-    if (cfg.soundOnHover) unmute(b);
+    // Pause on hover: the block's timer waits (and Scroll mode stops drifting).
+    b.held = cfg.pauseOnHover;
+    if (b.held) b.holdLeft = b.dueAt - now();
     hoverBlock = b;
     syncDrift();
+    syncAudio();
   }
 
   function hoverEnd(b) {
     b.hovered = false;
     b.el.classList.remove('wall-hover');
-    if (cfg.mode !== 'scroll' && Number.isFinite(b.holdLeft)) b.dueAt = now() + Math.max(1500, b.holdLeft);
-    if (b.video) b.video.v.muted = true;
+    if (b.held && cfg.mode !== 'scroll' && Number.isFinite(b.holdLeft)) b.dueAt = now() + Math.max(1500, b.holdLeft);
+    b.held = false;
     if (hoverBlock === b) hoverBlock = null;
     syncDrift();
+    syncAudio();
+  }
+
+  /* ── Sound ──────────────────────────────────────────────────────────── */
+
+  const AUDIO_FADE_MS = 350;
+  const AUTO_SETTLE_MS = 500;
+  const RAMP_STEP_MS = 25;
+  let autoAt = -Infinity;      // when Auto's last handover began
+
+  /**
+   * Which playing clip Auto should be heard (pure). `cands` are the clips
+   * playing now, as { key, left, startedAt }: `left` is the time (ms) until
+   * the clip has to hand the sound on, that is until it is swapped or leaves
+   * less the crossfade (Infinity when nothing ends it). The clip heard now
+   * keeps the sound while it has time left, whatever the others have: fewer
+   * jumps. Otherwise the most time left wins, a tie goes to the most recent
+   * start. Only when no clip has time left (they are all about to stop) is
+   * one without it heard: the current one while it plays, else the one with
+   * the most. Returns a key, or null when nothing plays.
+   */
+  function pickAudible(cands, current) {
+    const leftOf = (c) => (Number.isNaN(c.left) ? -Infinity : c.left);
+    const cur = current != null ? cands.find(c => c.key === current) : null;
+    if (cur && leftOf(cur) > 0) return current;
+    let best = null;
+    for (const c of cands) {
+      const left = leftOf(c);
+      if (!best || left > best.left || (left === best.left && c.startedAt > best.startedAt)) {
+        best = { key: c.key, left, startedAt: c.startedAt };
+      }
+    }
+    if (best && best.left <= 0 && cur) return current;
+    return best ? best.key : null;
+  }
+
+  /** The app's volume as the player stores it (slider 0 to 1.5, curved); 0 when muted. */
+  function soundLevel() {
+    let vol = 1;
+    let muted = false;
+    if (typeof playerIsSilent === 'function' && typeof savedVolume !== 'undefined') {
+      muted = playerIsSilent();
+      vol = Number(savedVolume);
+    } else {
+      try {
+        const s = JSON.parse(localStorage.getItem('vault_volume') || 'null');
+        if (s && typeof s === 'object') { vol = Number(s.volume); muted = !!s.muted; }
+      } catch {}
+    }
+    if (muted || !(vol > 0)) return 0;
+    const v = Math.min(1.5, vol);
+    return Math.min(1, Math.pow(v / 1.5, 2) * 1.5);   // the player's curve (sliderToVolume, max 1.5)
+  }
+
+  function liveRecs() {
+    if (!els) return [];
+    const out = [];
+    for (const v of els.track.querySelectorAll('video')) {
+      if (v._wallRec && !v._wallRec.released) out.push(v._wallRec);
+    }
+    return out;
+  }
+
+  /** A block's clip that is playing now and can hold the sound. */
+  function playingRec(b) {
+    const rec = b.video;
+    if (!rec || rec.released || b.dead || !b.startedAt) return null;
+    // Scroll: a block whose top has left the board may lose its slot any moment.
+    if (cfg.mode === 'scroll' && (b.y < drift.offset - 1 || b.y >= drift.offset + lay.H)) return null;
+    return rec;
+  }
+
+  /**
+   * How long (ms) this clip still plays on the wall, as far as the wall
+   * knows: Grid, until its swap or its end; Scroll, until its top reaches
+   * the top of the board (from then on it can lose its slot at any moment).
+   */
+  function timeLeft(b, t) {
+    if (cfg.mode === 'scroll') {
+      if (!driftShouldRun()) return Infinity;
+      return (b.y - drift.offset) / speedPx() * 1000;
+    }
+    // A held block gets at least 1.5 s again when the mouse leaves (hoverEnd).
+    const swapIn = b.held ? Math.max(1500, b.holdLeft) : b.dueAt - t;
+    const v = b.video.v;
+    let mediaLeft = Infinity;
+    if (!v.loop && Number.isFinite(v.duration) && v.duration > 0) mediaLeft = (v.duration - v.currentTime) * 1000;
+    const left = Math.min(swapIn, mediaLeft);
+    return Number.isNaN(left) ? Infinity : left;
+  }
+
+  /** The clip that should be heard right now, or null. Keeps Auto's pick up to date. */
+  function wantedRec() {
+    if (!running || !active || playerOpen || cfg.sound === 'off') return null;
+    if (cfg.sound === 'hover') return hoverBlock ? playingRec(hoverBlock) : null;
+    const t = now();
+    const cands = [];
+    for (const b of blocks) {
+      const rec = playingRec(b);
+      // The handover starts a crossfade before the clip stops, so it is never cut off.
+      if (rec) cands.push({ key: rec, left: timeLeft(b, t) - AUDIO_FADE_MS, startedAt: b.startedAt });
+    }
+    // A handover settles over a short window: a clip that starts playing
+    // within it (often the one taking the slot the old clip gave up) can
+    // still win if it has more time left. After that the pick sticks.
+    const settling = t - autoAt < AUTO_SETTLE_MS;
+    const pick = pickAudible(cands, settling ? null : autoRec);
+    if (pick !== autoRec) {
+      if (!settling) autoAt = t;
+      autoRec = pick;
+    }
+    // A hovered clip borrows the sound while hovered (with Pause on hover on).
+    const hovered = hoverBlock && hoverBlock.held ? playingRec(hoverBlock) : null;
+    return hovered || autoRec;
+  }
+
+  /** Put a clip's gain on its element: volume follows the ramp, muted when silent. */
+  function applyGain(rec) {
+    if (rec.released) return;
+    const v = rec.v;
+    const level = soundLevel();
+    const vol = clamp(rec.gain * level, 0, 1);
+    try { v.volume = vol; } catch {}
+    if (vol <= 0 || soundBlocked) {
+      if (!v.muted) v.muted = true;
+      return;
+    }
+    if (!v.muted) return;
+    v.muted = false;
+    // Without a click on the page the browser may refuse sound (and pause
+    // the clip): keep it playing muted and ask for a click.
+    const p = v.play();
+    if (p && p.catch) {
+      p.catch(() => {
+        if (rec.released) return;
+        v.muted = true;
+        if (running) v.play().catch(() => {});
+        if (!soundBlocked) {
+          soundBlocked = true;
+          if (els && active && audioRec) els.soundNote.hidden = false;
+        }
+      });
+    }
+  }
+
+  function rampTick() {
+    rampTimer = 0;
+    const t = now();
+    for (const rec of [...fadingRecs]) {
+      if (rec.released) { fadingRecs.delete(rec); continue; }
+      const k = Math.min(1, (t - rec.t0) / AUDIO_FADE_MS);
+      rec.gain = rec.from + (rec.to - rec.from) * k;
+      if (k >= 1) { rec.gain = rec.to; fadingRecs.delete(rec); }
+      applyGain(rec);
+    }
+    if (fadingRecs.size) rampTimer = setTimeout(rampTick, RAMP_STEP_MS);
+  }
+
+  function fadeTo(rec, to) {
+    if (rec.to === to && (fadingRecs.has(rec) || rec.gain === to)) return;
+    rec.from = rec.gain;
+    rec.to = to;
+    rec.t0 = now();
+    fadingRecs.add(rec);
+    if (!rampTimer) rampTimer = setTimeout(rampTick, 0);
+  }
+
+  /**
+   * Bring every clip's sound in line with what should be heard: the wanted
+   * clip fades in, every other one fades out (a crossfade on a handover).
+   * A paused, hidden or left wall is silenced at once.
+   */
+  function syncAudio() {
+    if (!els) return;
+    // Any click or key press on the page since (a user gesture) lets sound play.
+    if (soundBlocked && navigator.userActivation && navigator.userActivation.hasBeenActive) soundBlocked = false;
+
+    const want = wantedRec();
+    const recs = liveRecs();
+    if (!running) {
+      for (const rec of recs) {
+        fadingRecs.delete(rec);
+        rec.gain = 0; rec.to = 0;
+        applyGain(rec);
+      }
+      audioRec = null;
+    } else {
+      audioRec = want && soundLevel() > 0 ? want : null;
+      for (const rec of recs) {
+        if (rec === audioRec) fadeTo(rec, 1);
+        else if (rec.gain > 0 || rec.to > 0) fadeTo(rec, 0);
+        // A clip not fading takes a changed level (the player's volume) here.
+        if (!fadingRecs.has(rec)) applyGain(rec);
+      }
+    }
+    for (const b of blocks) {
+      b.el.classList.toggle('wall-audible', !!audioRec && b.video === audioRec);
+    }
+    // The note only while there is something to hear.
+    els.soundNote.hidden = !(soundBlocked && active && audioRec);
   }
 
   /* ── The scheduler ──────────────────────────────────────────────────── */
@@ -1799,7 +2056,7 @@ const Wall = (() => {
     const grid = cfg.mode !== 'scroll';
     let swaps = 0;
     for (const b of blocks) {
-      if (b.dead || b.hovered) continue;
+      if (b.dead || b.held) continue;
       if (b.video && b.loadDeadline && t > b.loadDeadline) { videoFailed(b, b.video); continue; }
       // At most a few swaps per tick, so a burst of due blocks spreads out.
       if (grid && t >= b.dueAt && !b.pending && swaps < 3) {
@@ -1811,10 +2068,11 @@ const Wall = (() => {
     }
     fillSlots();
     updateStatus();
+    syncAudio();
   }
 
   function setRunning(on) {
-    if (on === running) { syncDrift(); return; }
+    if (on === running) { syncDrift(); syncAudio(); return; }
     running = on;
     if (on) {
       const d = pausedAt ? now() - pausedAt : 0;
@@ -1833,6 +2091,7 @@ const Wall = (() => {
       for (const b of blocks) if (b.video) { try { b.video.v.pause(); } catch {} }
     }
     syncDrift();
+    syncAudio();
   }
 
   /**
@@ -1972,7 +2231,32 @@ const Wall = (() => {
   return {
     enter, leave, lockStop,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { cfgFrom, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
+    _pure: { cfgFrom, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
+    // Sound state, for tests and debugging: every live clip's element state.
+    _audio: () => {
+      const t = now();
+      const keyOf = (r) => { if (!dbgKeys.has(r)) dbgKeys.set(r, ++dbgSeq); return dbgKeys.get(r); };
+      const byRec = new Map();
+      for (const b of blocks) if (b.video) byRec.set(b.video, b);
+      return {
+        sound: cfg && cfg.sound,
+        level: soundLevel(),
+        blocked: soundBlocked,
+        note: !!(els && !els.soundNote.hidden),
+        heard: audioRec ? keyOf(audioRec) : null,
+        auto: autoRec ? keyOf(autoRec) : null,
+        handoverAt: autoAt,
+        badges: els ? els.track.querySelectorAll('.wall-block.wall-audible').length : 0,
+        clips: liveRecs().map((r) => {
+          const b = byRec.get(r);
+          return {
+            key: keyOf(r), id: r.id, muted: r.v.muted, volume: +r.v.volume.toFixed(3), paused: r.v.paused, gain: +r.gain.toFixed(3),
+            current: !!b, started: b ? b.startedAt : 0, left: b && playingRec(b) ? Math.round(timeLeft(b, t)) : null,
+            y: b ? Math.round(b.y - drift.offset) : null,
+          };
+        }),
+      };
+    },
     // For tests and debugging in the console.
     _stats: () => ({
       mode: cfg && cfg.mode,
@@ -1998,6 +2282,7 @@ const Wall = (() => {
       id: b.item && b.item.id, x: b.x, y: b.y, w: b.w, h: b.h,
       stored: b.item ? aspectOf(b.item) : 0, cropped: b.cropped, video: !!b.video,
       remux: !!(b.video && b.video.mode === 'remux'),
+      due: b.dueAt, hovered: b.hovered, held: b.held, audible: b.el.classList.contains('wall-audible'),
     })),
     _frames: (reset) => { const f = drift.frames.slice(); if (reset) drift.frames = []; return f; },
     _cfg: () => ({ ...cfg }),
