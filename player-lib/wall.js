@@ -30,8 +30,10 @@
      blocks fully in view first; blocks leaving the top give theirs up first.
    - Every replaced <video> is released (pause, src removed, load(), hls
      destroyed, stream closed). Leaving the tab, opening the player, locking
-     the library or closing the page releases them all; a hidden browser tab
-     or the Pause button only pauses them.
+     the library or closing the page releases them all. A hidden browser tab
+     releases the remux streams (so their FFmpeg sessions stop instead of
+     idling out a minute later) and pauses the rest; on return the freed
+     slots start again with fresh streams. The Pause button only pauses.
    - One 250 ms scheduler tick drives every block (no timer per block).
 
    Sound (the "Sound" choice in the gear popover): Off, On hover (only the
@@ -1747,6 +1749,20 @@ const Wall = (() => {
     b.dueAt = cfg.mode === 'scroll' ? Infinity : now() + stillDelay();
   }
 
+  /**
+   * Release only the remux (HLS) clips, each back to its still: what a hidden
+   * browser tab gives up. Their slots refill with fresh tokens on return.
+   */
+  function releaseRemuxVideos() {
+    for (const b of blocks) {
+      if (b.video && b.video.mode === 'remux') stopVideo(b);
+      for (const v of b.el.querySelectorAll('video')) {
+        if (v._wallRec && v._wallRec.mode === 'remux') releaseVideo(v._wallRec);
+      }
+    }
+    updateStatus();
+  }
+
   function releaseAllVideos() {
     for (const b of blocks) {
       if (b.video) {
@@ -2210,12 +2226,14 @@ const Wall = (() => {
   /**
    * One place decides whether the wall runs. Off the tab or under the player
    * the videos are released outright (their connections are needed
-   * elsewhere); a hidden window or the Pause button only pauses them.
+   * elsewhere). A hidden window releases the remux streams and pauses the
+   * rest; the Pause button only pauses.
    */
   function evaluate() {
     if (!els) return;
     const release = !active || playerOpen;
     if (release && liveCost > 0) releaseAllVideos();
+    else if (document.hidden && liveRemux > 0) releaseRemuxVideos();
     setRunning(active && built && !userPaused && !playerOpen && !document.hidden);
     els.pauseBtn.textContent = userPaused ? 'Resume' : 'Pause';
     els.pauseBtn.setAttribute('aria-pressed', String(userPaused));

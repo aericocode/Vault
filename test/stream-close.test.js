@@ -4,7 +4,9 @@
  *
  * A Wall clip torn down a moment after it started (the Wall swaps clips that
  * way) can have its close beacon arrive before its first segment request, or
- * while a request is still waiting on the producer. Before the fix the close
+ * while a request is still waiting on the producer. A clip that was already
+ * playing can have a late request (in flight or queued in hls.js) land after
+ * its close. Before the fix the close
  * removed nothing and the late request started (or restarted) FFmpeg for a
  * reader that was already gone, which then ran with clients:0 until the idle
  * sweep.
@@ -119,7 +121,7 @@ test('a Wall close while a request waits on the producer: the request does not r
   ring.forget(id);
 });
 
-test('a Wall token the ring pruned is still known: its close is not "unseen" and ends the emptied session', async () => {
+test('a Wall token the ring pruned is still known: its close ends the emptied session', async () => {
   const id = addRow();
   const wall = W();
   ring.put(id, 0, seg(0));
@@ -130,10 +132,61 @@ test('a Wall token the ring pruned is still known: its close is not "unseen" and
   assert.strictEqual((await close(id, wall)).status, 204);
   await tick();
   assert.strictEqual(ring.peek(id), null, 'the close still ended the session and freed the ring');
-  assert.strictEqual(ring.closedUnseen(id, wall), false);
+  assert.strictEqual(ring.wallClosed(id, wall), true);
+});
 
+test('a served Wall clip, closed: a late request for a segment it needs from the producer is refused', async () => {
+  const id = addRow();
+  const wall = W();
+  ring.put(id, 0, seg(0));
+  ring.note(id, 0, 'mainplayer');
+  assert.strictEqual((await getSeg(id, 0, wall)).status, 200);
+  assert.deepStrictEqual(clientsOf(id).sort(), ['mainplayer', wall].sort());
+
+  assert.strictEqual((await close(id, wall)).status, 204);
+  await tick();
+  assert.deepStrictEqual(clientsOf(id), ['mainplayer'], 'the close removed only the Wall clip');
+
+  // Segment 2 is not in the ring: serving it would start a producer.
+  const res = await getSeg(id, 2, wall);
+  assert.strictEqual(res.status, 410);
+  assert.deepStrictEqual(clientsOf(id), ['mainplayer'], 'the closed token did not register again');
+  assert.strictEqual(session.activeIds().has(id), false, 'no producer was started for it');
+  assert.strictEqual((await getSeg(id, 0, 'mainplayer')).status, 200, 'the other player is still served');
+  ring.forget(id);
+});
+
+test('a served Wall clip, closed as the last reader: a late request does not bring the session back', async () => {
+  const id = addRow();
+  const wall = W();
+  ring.put(id, 0, seg(0));
   ring.put(id, 1, seg(1));
-  assert.strictEqual((await getSeg(id, 1, wall)).status, 200, 'a seen token is never refused outright');
+  assert.strictEqual((await getSeg(id, 0, wall)).status, 200);
+
+  assert.strictEqual((await close(id, wall)).status, 204);
+  await tick();
+  assert.strictEqual(ring.peek(id), null, 'the close ended the session');
+
+  for (const n of [1, 2]) {
+    assert.strictEqual((await getSeg(id, n, wall)).status, 410, `segment ${n}`);
+    assert.strictEqual(ring.peek(id), null, 'no ring was made for it');
+    assert.strictEqual(session.activeIds().has(id), false, 'no producer was started for it');
+  }
+});
+
+test('a Wall clip that plays the same file again uses a fresh token and is served', async () => {
+  const id = addRow();
+  const first = W();
+  ring.put(id, 0, seg(0));
+  assert.strictEqual((await getSeg(id, 0, first)).status, 200);
+  assert.strictEqual((await close(id, first)).status, 204);
+  await tick();
+  assert.strictEqual((await getSeg(id, 0, first)).status, 410);
+
+  const again = W();
+  ring.put(id, 0, seg(0));
+  assert.strictEqual((await getSeg(id, 0, again)).status, 200);
+  assert.deepStrictEqual(clientsOf(id), [again]);
   ring.forget(id);
 });
 
@@ -141,15 +194,20 @@ test('Wall closed tokens are per media id and expire', async () => {
   const t0 = Date.now();
   const wall = W();
   ring.closeWallClient(9001, wall);
-  assert.strictEqual(ring.closedUnseen(9001, wall), true);
-  assert.strictEqual(ring.closedUnseen(9002, wall), false, 'another file is not affected');
+  assert.strictEqual(ring.wallClosed(9001, wall), true);
+  assert.strictEqual(ring.wallClosed(9002, wall), false, 'another file is not affected');
+  const seenWall = W();
+  ring.wallSeen(9001, seenWall);
+  ring.closeWallClient(9001, seenWall);
+  assert.strictEqual(ring.wallClosed(9001, seenWall), true, 'a token that was served is remembered too');
   assert.strictEqual(ring.closedSince(9001, wall, t0), true);
   assert.strictEqual(ring.closedSince(9001, wall, Date.now() + 1), false, 'a request started after the close is not moot');
 
   const realNow = Date.now;
   try {
     Date.now = () => realNow() + ring.CLOSED_TTL_MS + 1000;
-    assert.strictEqual(ring.closedUnseen(9001, wall), false, 'forgotten after CLOSED_TTL_MS');
+    assert.strictEqual(ring.wallClosed(9001, wall), false, 'forgotten after CLOSED_TTL_MS');
+    assert.strictEqual(ring.wallClosed(9001, seenWall), false, 'forgotten after CLOSED_TTL_MS');
   } finally {
     Date.now = realNow;
   }
