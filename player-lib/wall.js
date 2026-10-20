@@ -242,6 +242,17 @@ const Wall = (() => {
   const now = () => Date.now();
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
+  /**
+   * Every change to a block's swap time goes through here. A held block
+   * (Pause on hover) keeps its remaining time in holdLeft, which hoverEnd
+   * turns back into a swap time, so it has to follow every new dueAt: a clip
+   * that starts during the hover then gets its whole length afterwards.
+   */
+  function setDue(b, t, at = now()) {
+    b.dueAt = t;
+    if (b.held) b.holdLeft = t - at;
+  }
+
   /* ── What can go on the wall ────────────────────────────────────────── */
 
   function kindOf(row) {
@@ -1297,7 +1308,7 @@ const Wall = (() => {
     const t = now();
     for (const b of blocks) {
       // Staggered so the pictures never all change together.
-      b.dueAt = t + (0.2 + Math.random() * 0.9) * cfg.picSpeed * 1000;
+      setDue(b, t + (0.2 + Math.random() * 0.9) * cfg.picSpeed * 1000);
     }
     // ...and neither do the clips: the first ones get runs spread over the clip length.
     staggerLeft = cfg.playing;
@@ -1442,7 +1453,7 @@ const Wall = (() => {
       const item = nextBuildItem();
       if (!item) break;
       const b = addBlock(item);
-      b.dueAt = Infinity;
+      setDue(b, Infinity);
     }
     if (removed) { pinOnScreen(); updateStatus(); }
     if (drift.offset > REBASE_AT) {
@@ -1543,7 +1554,7 @@ const Wall = (() => {
       else if (kindOf(item) === 'picture') {
         // A picture that will not load: drop it and move on soon.
         badIds.add(item.id);
-        b.dueAt = Math.min(b.dueAt, now() + 800);
+        setDue(b, Math.min(b.dueAt, now() + 800));
       } else {
         layer.classList.add('wall-nothumb');
       }
@@ -1617,7 +1628,7 @@ const Wall = (() => {
     if (mode === 'remux') liveRemux++;
     b.video = rec;
     b.startedAt = 0;
-    b.dueAt = Infinity;
+    setDue(b, Infinity);
     b.loadDeadline = now() + (mode === 'remux' ? REMUX_TIMEOUT_MS : LOAD_TIMEOUT_MS);
 
     // A random point, far enough from the end for a whole clip.
@@ -1636,13 +1647,13 @@ const Wall = (() => {
       if (now() - staggerFrom > STAGGER_WINDOW_MS) staggerLeft = 0;
       rec.run = staggerRun(staggerLeft, cfg.playing);
       if (staggerLeft > 0) staggerLeft--;
-      b.dueAt = b.startedAt + clipMs() * rec.run;
+      setDue(b, b.startedAt + clipMs() * rec.run);
       learnAspect(item, v.videoWidth, v.videoHeight);
       reveal(b, layer);
       syncAudio();
       updateStatus();
     }, { once: true });
-    v.addEventListener('ended', () => { if (b.video === rec) b.dueAt = 0; });
+    v.addEventListener('ended', () => { if (b.video === rec) setDue(b, 0); });
     v.addEventListener('error', () => videoFailed(b, rec));
 
     if (mode === 'native') {
@@ -1734,7 +1745,7 @@ const Wall = (() => {
     releaseVideo(rec);
     if (b.video === rec) {
       b.video = null;
-      b.dueAt = cfg.mode === 'scroll' ? Infinity : now() + 400;   // swap the block to something that works
+      setDue(b, cfg.mode === 'scroll' ? Infinity : now() + 400);   // swap the block to something that works
       b.lastPlayedAt = now();
     }
     updateStatus();
@@ -1746,7 +1757,7 @@ const Wall = (() => {
     releaseVideo(b.video);
     b.video = null;
     b.lastPlayedAt = now();
-    b.dueAt = cfg.mode === 'scroll' ? Infinity : now() + stillDelay();
+    setDue(b, cfg.mode === 'scroll' ? Infinity : now() + stillDelay());
   }
 
   /**
@@ -1790,7 +1801,8 @@ const Wall = (() => {
       if (liveCost >= cfg.playing) return;
       // A still that is still loading does not hold its block back: the clip
       // layer goes on top of it either way.
-      const cands = blocks.filter(canPlay);
+      // Not the hovered block: Pause on hover asked it to stay as it is.
+      const cands = blocks.filter(b => canPlay(b) && !b.held);
       cands.sort((a, c) => (a.lastPlayedAt - c.lastPlayedAt) || (a.rand - c.rand));
       for (const b of cands) {
         if (liveCost >= cfg.playing) break;
@@ -1836,7 +1848,7 @@ const Wall = (() => {
     const t = now();
     const max = cfg.picSpeed * 1000;
     for (const b of blocks) {
-      if (!b.video && b.dueAt - t > max) b.dueAt = t + Math.random() * max;
+      if (!b.video && b.dueAt - t > max) setDue(b, t + Math.random() * max);
     }
   }
 
@@ -1844,7 +1856,7 @@ const Wall = (() => {
     for (const b of blocks) {
       if (!b.video) continue;
       b.video.v.loop = !toEnd();
-      if (b.startedAt) b.dueAt = b.startedAt + clipMs() * b.video.run;
+      if (b.startedAt) setDue(b, b.startedAt + clipMs() * b.video.run);
     }
   }
 
@@ -2148,14 +2160,14 @@ const Wall = (() => {
   /** Grid mode: the block shows its next file, one whose shape fits the slot. */
   function advance(b) {
     const { i, fit } = swapIndex(ready, b.aspect, b.item);
-    if (i < 0) { fill(); b.dueAt = now() + 2000; return; }
+    if (i < 0) { fill(); setDue(b, now() + 2000); return; }
     if (!fit && !b.fitWait && ready.length < READY_CAP) {
       // Nothing of this shape in the buffer: fetch one more batch (never past
       // the cap) and try once more shortly, before falling back to a crop.
       b.fitWait = true;
       if (!fillPromise) stats.moreFetches++;
       fill(true);
-      b.dueAt = now() + 1500;
+      setDue(b, now() + 1500);
       return;
     }
     b.fitWait = false;
@@ -2173,7 +2185,7 @@ const Wall = (() => {
       b.lastPlayedAt = now();
     }
     showStill(b, next);
-    b.dueAt = now() + stillDelay();
+    setDue(b, now() + stillDelay());
   }
 
   function tick() {
@@ -2362,7 +2374,7 @@ const Wall = (() => {
   return {
     enter, leave, lockStop,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { cfgFrom, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
+    _pure: { cfgFrom, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, setDue, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
     _audio: () => {
       const t = now();

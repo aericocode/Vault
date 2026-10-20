@@ -339,3 +339,20 @@ test('buffer: a file passed over many times leaves it', () => {
   assert.strictEqual(dropped, 1);
   assert.strictEqual(list[0].id, 100 + W.STALE_SKIPS, 'the others are untouched, in order');
 });
+
+test('pause on hover: a held block\'s remaining time follows every new swap time', () => {
+  // Hovered while showing a still with 300 ms left: hoverStart snapshots that.
+  const b = { dueAt: 10300, held: true, holdLeft: 300 };
+  // A clip starts during the hover (its 'playing' handler): 30 s from now.
+  W.setDue(b, 10000 + 30000, 10000);
+  assert.strictEqual(b.dueAt, 40000);
+  assert.strictEqual(b.holdLeft, 30000, 'the clip keeps its whole length after the hover');
+  // The clip ends during the hover: due now, so hoverEnd's 1.5 s floor applies.
+  W.setDue(b, 0, 20000);
+  assert.ok(b.holdLeft < 0);
+  // A block that is not held keeps its last snapshot untouched.
+  const free = { dueAt: 5000, held: false, holdLeft: 123 };
+  W.setDue(free, 9000, 1000);
+  assert.strictEqual(free.dueAt, 9000);
+  assert.strictEqual(free.holdLeft, 123);
+});
