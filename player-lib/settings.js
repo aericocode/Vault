@@ -1265,10 +1265,13 @@
   }
 
   function RENDERERS_library() {
-    return `
+    // Modern only: its header no longer shows the database name. Classic's
+    // header still does, so Classic's Library section stays as it was.
+    const dbFile = window.isModernLayout() ? `
       <h3 class="settings-h">Library file</h3>
       <p class="settings-note" id="settingsDbFile">Asking the server…</p>
-
+` : '';
+    return `${dbFile}
       <h3 class="settings-h">Deleting files</h3>
       ${deleteModeRow()}
 
@@ -1587,8 +1590,8 @@
 
   function wireLibrarySection() {
     // Which database file this server is serving (the Modern header only
-    // shows it in the count's tooltip).
-    fetch('/api/dbinfo').then(r => (r.ok ? r.json() : null)).then(info => {
+    // shows it in the count's tooltip). Modern only, see RENDERERS_library.
+    if (document.getElementById('settingsDbFile')) fetch('/api/dbinfo').then(r => (r.ok ? r.json() : null)).then(info => {
       const el = document.getElementById('settingsDbFile');
       if (!el) return;
       if (!info) { el.textContent = 'Could not ask the server.'; return; }
