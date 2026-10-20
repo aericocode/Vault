@@ -99,7 +99,8 @@ function fieldEditBtn(id, key) {
   return `<button class="field-edit-btn" onclick="startFieldEdit(this, ${id}, '${key}')" title="Edit">✎</button>`;
 }
 
-/** POST one-or-more AI fields, sync the item, re-render everything. */
+/** POST one-or-more AI fields, sync the item, re-render everything.
+ *  Resolves to whether the server saved it. */
 async function saveMetaFields(id, fields, okMsg = '💾 Saved') {
   const item = getMediaById(id);
   if (!item) return false;
@@ -116,7 +117,8 @@ async function saveMetaFields(id, fields, okMsg = '💾 Saved') {
     Object.assign(item, updated);
     Library.patchRow(item);
     refreshInfoSurfaces(item);
-    showToast(okMsg);
+    // okMsg null: no toast (the dock pane shows its own small "Saved" tick).
+    if (okMsg !== null) showToast(okMsg);
     return true;
   } catch (err) {
     showToast('⚠ Save failed: ' + err.message);

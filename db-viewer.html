@@ -507,7 +507,9 @@
   <!-- Studios (STUDIOS_SPEC 3): the Studios half of the Faces tab. Hooks:
        faces-tab, filters, selection, detail-view, cards. -->
   <script src="./player-lib/studios.js"></script>
-  <!-- Docked preview pane (Modern look). After settings.js, before app.js. -->
+  <!-- Docked preview pane (Modern look). After settings.js, before app.js.
+       dock-edit.js (its in-place editors) first: dock.js wires it at init. -->
+  <script src="./player-lib/dock-edit.js"></script>
   <script src="./player-lib/dock.js"></script>
   <!-- Left filter rail (Modern look). Hooks: filter-chips, saved-searches, collections. -->
   <script src="./player-lib/filter-rail.js"></script>

@@ -11,8 +11,14 @@
    view: renderDetailBody's Subtitles / Music / Faces sections and inline
    editors find their markup by element id and repaint the modal or the
    player sidebar, so a live second copy would fight them. Everything editable
-   that does not use ids (fave, rating, flag) works here; "Details" opens the
-   full view.
+   that does not use ids (fave, rating, flag) works here, and description,
+   tags, themes, places, collections and notes have their own in-place
+   editors (dock-edit.js) that save through the same calls; "Details" opens
+   the full view.
+
+   The pane is painted as named parts (data-dock-part). For the same file a
+   repaint replaces only the parts whose HTML changed, and a part being
+   edited keeps its editor and the focus (dockPatchParts).
 
    Shown only when all of these hold: Modern look, pane open (toggle button,
    persisted), window at least DOCK_MIN_WINDOW wide (narrower windows keep
@@ -32,6 +38,7 @@ const DOCK_MAX_SHARE = 0.5;     // of the window width
 let _dockShown = false;
 let _dockSelectedId = null;
 let _dockSig = '';              // what the pane last painted, to skip no-op repaints
+let _dockPaintedId = null;      // the file the pane's parts were painted for
 
 function dockIsShown() { return _dockShown; }
 
@@ -149,8 +156,9 @@ function dockSelectFromClick(id) {
 
 function dockFieldSig(m) {
   return m ? [m.id, m.filename, m.filepath, m.user_rating, m.user_starred, m.user_flagged_delete,
-    m.user_trashed, m.view_count, m.description, m.tags, m.themes, m.duration_seconds,
-    m.width, m.height, m.filesize_bytes, m.processed_at].join('\u0001') : 'none';
+    m.user_trashed, m.view_count, m.description, m.tags, m.themes, m.locations, m.user_notes,
+    typeof dockCollectionsSig === 'function' ? dockCollectionsSig(m.id) : '',
+    m.duration_seconds, m.width, m.height, m.filesize_bytes, m.processed_at].join('\u0001') : 'none';
 }
 
 function dockEmptyHtml() {
@@ -161,7 +169,8 @@ function dockEmptyHtml() {
     </div>`;
 }
 
-function dockBodyHtml(m) {
+/** The pane for one file as [part name, outer HTML] in order, top to bottom. */
+function dockPartsHtml(m) {
   const icon = (typeof TILE_TYPE_ICONS !== 'undefined' && TILE_TYPE_ICONS[m.media_type]) || '📁';
   const canThumb = ['image', 'gif', 'video', 'mix'].includes(m.media_type)
     && !(typeof thumbKnownMissing === 'function' && thumbKnownMissing(m.id));
@@ -169,7 +178,6 @@ function dockBodyHtml(m) {
     ? `<img class="tile-img dock-img" ${thumbImgAttrs(m)} alt=""
          onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">`
     : '';
-  const tags = [...safeParseJSON(m.themes, []), ...safeParseJSON(m.tags, [])].slice(0, 24);
   const facts = [
     ['Type', m.media_type || ''],
     ['Length', m.duration_seconds ? formatDuration(m.duration_seconds) : ''],
@@ -181,27 +189,62 @@ function dockBodyHtml(m) {
   const escapedPath = escapeHtml(m.filepath).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   const flagged = !!m.user_flagged_delete;
 
-  return `
-    <div class="dock-thumb tile-thumb ${canThumb ? '' : 'thumb-fallback'}" ondblclick="dockPlayPick(${m.id})"
-         title="Double click to play">
+  const parts = [
+    ['thumb', `<div class="dock-thumb tile-thumb ${canThumb ? '' : 'thumb-fallback'}" data-dock-part="thumb"
+         ondblclick="dockPlayPick(${m.id})" title="Double click to play">
       ${thumb}
       <span class="tile-type-icon">${icon}</span>
-    </div>
-    <div class="dock-name">${escapeHtml(m.filename)}</div>
-    <div class="dock-actions">
+    </div>`],
+    ['name', `<div class="dock-name" data-dock-part="name">${escapeHtml(m.filename)}</div>`],
+    ['actions', `<div class="dock-actions" data-dock-part="actions">
       <button class="dock-btn dock-btn-primary" onclick="dockPlayPick(${m.id})">▶ Play</button>
       <button class="dock-btn" onclick="showDetailsById(${m.id})">Details</button>
       <button class="dock-btn ${flagged ? 'is-on' : ''}" onclick="toggleFlagDelete(mediaPathById(${m.id}))"
               title="${flagged ? 'Unflag' : 'Flag this file'}">🚩</button>
       <button class="dock-btn" onclick="copyPath('${escapedPath}')" title="Copy the full path">Copy path</button>
-    </div>
-    ${typeof renderStarRatingSection === 'function' ? renderStarRatingSection(m) : ''}
-    <dl class="dock-facts">
+    </div>`],
+    ['rating', `<div class="dock-rating" data-dock-part="rating">${typeof renderStarRatingSection === 'function' ? renderStarRatingSection(m) : ''}</div>`],
+  ];
+  if (typeof dockEditPartHtml === 'function') {
+    for (const key of DOCK_EDIT_PARTS) parts.push([key, dockEditPartHtml(m, key)]);
+  }
+  parts.push(['facts', `<dl class="dock-facts" data-dock-part="facts">
       ${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}
-    </dl>
-    ${m.description ? `<p class="dock-desc">${escapeHtml(m.description)}</p>` : ''}
-    ${tags.length ? `<div class="card-tags dock-tags">${tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
-    <div class="detail-path dock-path">${escapeHtml(m.filepath)}</div>`;
+    </dl>`]);
+  parts.push(['path', `<div class="detail-path dock-path" data-dock-part="path">${escapeHtml(m.filepath)}</div>`]);
+  return parts;
+}
+
+function dockBodyHtml(m) {
+  return dockPartsHtml(m).map(([, html]) => html).join('\n');
+}
+
+/** Remember what each painted part was made from, to skip unchanged ones. */
+function dockStampParts(root, parts) {
+  const byKey = new Map(parts);
+  root.querySelectorAll('[data-dock-part]').forEach((el) => { el._dockHtml = byKey.get(el.dataset.dockPart); });
+}
+
+/** Same file, new data: replace the parts that changed. A part being edited
+ *  keeps its editor and the focus; only its label, chips and notes follow. */
+function dockPatchParts(body, m) {
+  const parts = dockPartsHtml(m);
+  for (const [key, html] of parts) {
+    const el = body.querySelector(`[data-dock-part="${key}"]`);
+    if (!el || el._dockHtml === html) continue;
+    if (typeof dockEditPartBusy === 'function' && dockEditPartBusy(el)) {
+      dockEditPatchBusy(el, html);
+      el._dockHtml = null;            // compare afresh once the edit is over
+      continue;
+    }
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html.trim();
+    const fresh = tpl.content.firstElementChild;
+    if (!fresh) continue;
+    fresh._dockHtml = html;
+    el.replaceWith(fresh);
+    if (key === 'thumb' && typeof hydrateThumbs === 'function') hydrateThumbs(fresh.parentElement || body);
+  }
 }
 
 function dockRender() {
@@ -216,9 +259,30 @@ function dockRender() {
   const sig = dockFieldSig(m);
   if (sig === _dockSig) return;
   _dockSig = sig;
-  body.innerHTML = m ? dockBodyHtml(m) : dockEmptyHtml();
+  if (m && m.id === _dockPaintedId && body.querySelector('[data-dock-part]')) {
+    dockPatchParts(body, m);
+    return;
+  }
+  // Another file (or none): anything still being typed is saved to the file
+  // it was typed for before its fields go.
+  if (typeof dockEditCommitAll === 'function') dockEditCommitAll(body);
+  _dockPaintedId = m ? m.id : null;
+  if (m) {
+    const parts = dockPartsHtml(m);
+    body.innerHTML = parts.map(([, html]) => html).join('\n');
+    dockStampParts(body, parts);
+  } else {
+    body.innerHTML = dockEmptyHtml();
+  }
   body.scrollTop = 0;
   if (typeof hydrateThumbs === 'function') hydrateThumbs(body);
+}
+
+/** Repaint now even though the row looks unchanged (an edit's own state:
+ *  chips waiting on their save, the "Saved" tick, a picker list). */
+function dockRefresh() {
+  _dockSig = '';
+  dockRender();
 }
 
 /** cards.js calls this after every grid render: a fave, rating or flag set
@@ -348,6 +412,9 @@ function dockFocusedControl(el) {
 function dockKeyBlocked(e) {
   if (!_dockShown) return true;
   if (e.ctrlKey || e.metaKey || e.altKey) return true;
+  // Shift+Enter is "new line" in the dock's text boxes; once a box closes
+  // and focus falls to the page, it must not start playback.
+  if (e.key === 'Enter' && e.shiftKey) return true;
   if (typeof isTypingTarget === 'function' && isTypingTarget(e.target)) return true;
   // Enter on a focused control keeps that control's own meaning (a rail
   // section header opens and closes, a button presses). The resize handle
@@ -437,6 +504,7 @@ function dockInit() {
   document.getElementById('dockToggleBtn')?.addEventListener('click', dockToggle);
   document.getElementById('dockCloseBtn')?.addEventListener('click', () => dockSetOpen(false));
   dockInitResizer();
+  if (typeof dockEditInit === 'function') dockEditInit(document.getElementById('dockBody'));
 
   // A mouse click on the Preview toggle or a button in the pane (fave, flag,
   // stars...) leaves focus on that button, and Enter would then press it

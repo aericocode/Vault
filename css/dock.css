@@ -134,13 +134,207 @@ body.pm-names .dock-name { filter: blur(7px); pointer-events: none; user-select:
 .dock-facts dt { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .dock-facts dd { margin: 0.1rem 0 0; font-size: 0.85rem; color: var(--text-primary); }
 
-.dock-desc {
+/* ── Editable details (player-lib/dock-edit.js) ── */
+
+.dock-field { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.dock-field[hidden],
+.dock-label[hidden],
+.dock-desc-view[hidden],
+.dock-chips[hidden],
+.dock-chip-input[hidden],
+.dock-note-input[hidden],
+.dock-desc-input[hidden] { display: none; }
+
+.dock-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 1rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.dock-saved {
+  color: var(--success);
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.dock-saved.is-on { opacity: 1; }
+
+/* Description: the text itself is the button that opens the editor. */
+.dock-desc-view {
+  display: block;
+  width: 100%;
   margin: 0;
+  padding: 0.35rem 0.5rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font: inherit;
   font-size: 0.85rem;
   line-height: 1.5;
-  color: var(--text-secondary);
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
 }
-.dock-tags { margin: 0; }
+.dock-desc-view:hover,
+.dock-desc-view:focus-visible { border-color: var(--border); background: var(--bg-tertiary); outline: none; }
+.dock-desc-view.is-empty { color: var(--text-muted); }
+
+.dock-desc-input,
+.dock-note-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.5rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+.dock-desc-input:focus,
+.dock-note-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+/* Chip editor: chips, then the input on the same line(s). */
+.dock-chipbox {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.35rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: text;
+}
+.dock-chipbox[hidden] { display: none; }
+.dock-chipbox:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.dock-chipbox-plain { background: transparent; border-color: transparent; padding: 0; cursor: default; }
+.dock-chipbox-plain:focus-within { border-color: transparent; box-shadow: none; }
+.dock-chips { display: contents; }
+.dock-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 100%;
+  padding: 0.15rem 0.2rem 0.15rem 0.5rem;
+  background: var(--tag-bg);
+  border-radius: 4px;
+  font-size: 0.78rem;
+  color: var(--text-primary);
+}
+.dock-chip[hidden] { display: none; }
+.dock-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-chip-x {
+  flex: none;
+  padding: 0 0.25rem;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.dock-chip-x:hover { color: var(--text-primary); background: var(--bg-hover); }
+.dock-chip-input {
+  flex: 1 1 6rem;
+  min-width: 6rem;
+  padding: 0.2rem 0.1rem;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.82rem;
+}
+.dock-chip-input::placeholder,
+.dock-note-input::placeholder,
+.dock-desc-input::placeholder,
+.dock-coll-filter::placeholder { color: var(--text-muted); }
+
+/* Suggestions under a chip editor: value and how many files have it. */
+.dock-suggest,
+.dock-coll-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 14rem;
+  overflow-y: auto;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.2rem;
+}
+.dock-suggest[hidden],
+.dock-coll-list[hidden] { display: none; }
+.dock-suggest-item,
+.dock-coll-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  word-break: break-word;
+}
+.dock-suggest-item[hidden],
+.dock-coll-item[hidden] { display: none; }
+.dock-suggest-item:hover,
+.dock-coll-item:hover { background: var(--bg-hover); }
+.dock-suggest-item.is-active,
+.dock-coll-item.is-active { background: var(--accent-bg); }
+.dock-suggest-count { flex: none; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.dock-coll-none { padding: 0.3rem 0.5rem; font-size: 0.8rem; color: var(--text-muted); }
+
+/* Collections: chips, a "+" button, and a small picker under them. */
+.dock-add-btn {
+  padding: 0.15rem 0.55rem;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.dock-add-btn:hover,
+.dock-add-btn:focus-visible { border-color: var(--accent); color: var(--text-primary); outline: none; }
+.dock-add-btn.is-empty { color: var(--text-muted); }
+.dock-coll-picker { display: flex; flex-direction: column; gap: 0.3rem; }
+.dock-coll-picker[hidden] { display: none; }
+.dock-coll-filter {
+  padding: 0.35rem 0.5rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.82rem;
+  outline: none;
+}
+
+/* Notes: read only here (edit or delete them in the player), plus a box to add one. */
+.dock-notes-list { display: flex; flex-direction: column; gap: 0.35rem; max-height: 16rem; overflow-y: auto; }
+.dock-notes-list:empty { display: none; }
+.dock-notes-list[hidden] { display: none; }
+.dock-note {
+  padding: 0.35rem 0.5rem;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+}
+.dock-note-text { font-size: 0.82rem; color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
+.dock-note-time { margin-top: 0.15rem; font-size: 0.7rem; color: var(--text-muted); }
+.dock-note-input { resize: none; }
+
 .dock-path {
   font-size: 0.75rem;
   color: var(--text-muted);
