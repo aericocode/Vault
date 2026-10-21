@@ -971,7 +971,7 @@ function facesSelectionButton(n) {
   const out = typeof ftRemoveSelectedButton === 'function' && typeof selectedIds !== 'undefined' ? ftRemoveSelectedButton(selectedIds.size) : '';
   if (!n) return out;
   return `${out}<button class="sel-btn sel-faces" onclick="facesIndexSelection()"
-    title="Find faces in the selected files">👤 Faces (${n})</button>`;
+    title="Find faces in the selected files">${typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(`👤 Faces (${n})`) : `👤 Faces (${n})`}</button>`;
 }
 
 let facesWatching = false;

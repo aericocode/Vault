@@ -257,7 +257,7 @@ function railRenderCollections() {
       rows.push(`<button type="button" class="rail-opt rail-coll${on ? ' is-on' : ''}" data-rail-coll="${c.id}"
           style="padding-left:${0.5 + depth * 0.9}rem" aria-pressed="${on ? 'true' : 'false'}"
           title="${c.kind === 'folder' ? 'Show everything in this folder' : 'Show this collection'}">
-          <span class="rail-opt-label">${c.kind === 'folder' ? '📁 ' : ''}${escapeHtml(c.name)}</span>${railCount(c.item_count)}</button>`);
+          <span class="rail-opt-label">${c.kind === 'folder' ? vaultIconSwap('📁 ', 'folder') : ''}${escapeHtml(c.name)}</span>${railCount(c.item_count)}</button>`);
       if (c.kind === 'folder') walk(c.id, depth + 1, seen);
     });
   };
@@ -282,6 +282,12 @@ function railRenderOptions() {
 
 const RAIL_TYPE_LABELS = { video: '🎬 Video', image: '🖼 Image', gif: '🎞 GIF', audio: '🎵 Audio', mix: '🎛 Mix' };
 
+/** A type pill's label: Classic's emoji, Modern's line icon (player-lib/icons.js). */
+function railTypeLabelHtml(type) {
+  const [emoji, ...words] = RAIL_TYPE_LABELS[type].split(' ');
+  return vaultIconSwap(emoji + ' ', VAULT_TYPE_ICON_NAMES[type]) + escapeHtml(words.join(' '));
+}
+
 function railRenderTypes() {
   const counts = (typeof Library !== 'undefined' && Library.facets && Library.facets.types) || {};
   let html = `<button type="button" class="rail-pill${selectedMediaTypes.length ? '' : ' is-on'}" data-rail-type=""
@@ -290,7 +296,7 @@ function railRenderTypes() {
     if (!counts[type]) continue;
     const on = selectedMediaTypes.includes(type);
     html += `<button type="button" class="rail-pill${on ? ' is-on' : ''}" data-rail-type="${type}"
-        aria-pressed="${on ? 'true' : 'false'}">${RAIL_TYPE_LABELS[type]} ${railCount(counts[type])}</button>`;
+        aria-pressed="${on ? 'true' : 'false'}">${railTypeLabelHtml(type)} ${railCount(counts[type])}</button>`;
   }
   html += `<button type="button" class="rail-pill${safeOnly ? ' is-on' : ''}" data-rail-safe="1"
       aria-pressed="${safeOnly ? 'true' : 'false'}" title="Only formats known to play in this tool">★ Plays here</button>`;

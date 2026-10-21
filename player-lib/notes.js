@@ -808,7 +808,8 @@ function renderStarRatingSection(media) {
   const escapedPath = escapeHtml(media.filepath).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
   const starClass = starred ? 'star-btn starred' : 'star-btn';
-  const starIcon = starred ? '❤' : '🤍';
+  // Classic's heart emoji, Modern's line heart (filled while faved, css/icons.css)
+  const starIcon = typeof vaultIconSwap === 'function' ? vaultIconSwap(starred ? '❤' : '🤍', 'heart') : (starred ? '❤' : '🤍');
 
   let ratingHtml = '';
   for (let i = 1; i <= 5; i++) {

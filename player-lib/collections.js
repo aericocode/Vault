@@ -249,8 +249,8 @@ function folderCardHtml(c) {
 /** A mosaic cell with no picture (yet, or thumbnails off): the file's type icon. */
 function collMosaicIconHtml(id) {
   const m = typeof getMediaById === 'function' ? getMediaById(id) : null;
-  const icon = (m && typeof TILE_TYPE_ICONS !== 'undefined' && TILE_TYPE_ICONS[m.media_type]) || '📁';
-  return `<div class="coll-mosaic-icon">${icon}</div>`;
+  // Classic's emoji, Modern's line icon (player-lib/icons.js)
+  return `<div class="coll-mosaic-icon">${vaultTypeIcon(m && m.media_type)}</div>`;
 }
 
 /** The img gave up (thumbs.js retries pending ones first): show the icon in its place. */

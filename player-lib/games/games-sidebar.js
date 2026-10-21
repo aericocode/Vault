@@ -24,7 +24,7 @@ function renderGamesSidebarSection(media) {
 
   return `
     <div class="detail-section games-section">
-      <h3>🎮 Games</h3>
+      <h3>${typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel('🎮 Games') : '🎮 Games'}</h3>
       <div class="field-content games-sidebar-body">${btns}</div>
     </div>`;
 }

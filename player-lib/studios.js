@@ -927,7 +927,7 @@ function stPicker(anchor, { title = '', placeholder = 'Find or make a studio', a
 
 /** Selection bar button (Library tab). */
 function studiosSelectionButton() {
-  return '<button class="sel-btn sel-studio" type="button" onclick="studiosSelectionPick(this)" title="Put the selected files in a studio">🏢 Studio ▾</button>';
+  return '<button class="sel-btn sel-studio" type="button" onclick="studiosSelectionPick(this)" title="Put the selected files in a studio">' + (typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel('🏢 Studio ▾') : '🏢 Studio ▾') + '</button>';
 }
 
 function studiosSelectionPick(btn) {

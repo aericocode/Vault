@@ -522,7 +522,9 @@
     gear.id = 'settingsGear';
     gear.title = 'Settings';
     gear.setAttribute('aria-label', 'Settings');
-    gear.innerHTML = `⚙<span class="settings-gear-badge" aria-hidden="true"></span>`;
+    // The ⚙ for Classic, a line gear for Modern (player-lib/icons.js).
+    const gearIcon = typeof vaultIconSwap === 'function' ? vaultIconSwap('⚙', 'gear') : '⚙';
+    gear.innerHTML = `${gearIcon}<span class="settings-gear-badge" aria-hidden="true"></span>`;
     gear.addEventListener('click', openModal);
     btns.appendChild(gear);
     updateGearBadge();
@@ -556,6 +558,10 @@
     { id: 'about',     label: 'ℹ About' },
   ];
 
+  // Menu labels: Classic keeps the emoji, Modern shows the words alone
+  // (player-lib/icons.js).
+  const navLabel = (label) => (typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(label, { icon: false }) : label);
+
   function buildModalShell() {
     if (document.getElementById('settingsOverlay')) return;
     const overlay = document.createElement('div');
@@ -567,13 +573,13 @@
         <div class="settings-header">
           <h2>Settings</h2>
           <a class="settings-support" href="https://ko-fi.com/aericocode" target="_blank" rel="noopener"
-             title="Free forever. Donations keep updates coming. Suggested $10, anything helps.">🌿 Support Vault</a>
+             title="Free forever. Donations keep updates coming. Suggested $10, anything helps.">${navLabel('🌿 Support Vault')}</a>
           <button class="settings-close" id="settingsCloseBtn" title="Close" aria-label="Close">&times;</button>
         </div>
         <div class="settings-layout">
           <nav class="settings-nav" id="settingsNav">
             ${SECTIONS.map((s, i) => `
-              <button class="settings-nav-item ${i === 0 ? 'active' : ''}" data-section="${s.id}">${s.label}</button>
+              <button class="settings-nav-item ${i === 0 ? 'active' : ''}" data-section="${s.id}">${navLabel(s.label)}</button>
             `).join('')}
           </nav>
           <div class="settings-body" id="settingsBody"></div>

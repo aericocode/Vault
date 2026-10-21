@@ -875,7 +875,8 @@ function renderTile(media) {
   const hasError = !!media.processing_error && !isUnscanned;
   const rating = media.user_rating || 0;
   const duration = media.duration_seconds ? formatDuration(media.duration_seconds) : '';
-  const icon = TILE_TYPE_ICONS[media.media_type] || '📁';
+  // Classic's emoji, Modern's line icon (player-lib/icons.js)
+  const icon = vaultTypeIcon(media.media_type);
   // A file we already know has no picture (its source is gone, or the render
   // failed) renders as the type icon straight away. Otherwise every re-render
   // would ask the server again for something it has already said is not there.
@@ -898,26 +899,28 @@ function renderTile(media) {
   const views = media.view_count || 0;
   const doneCount = media.done_count || 0;
   const hotCount = media.hot_count || 0;
+  // Each badge: Classic's emoji, Modern's line icon (player-lib/icons.js).
+  const ic = vaultIconSwap;
   const indicators = [
-    views > 0 ? `<span class="tile-ind ind-views" title="Viewed ${views}×">👁${views > 1 ? views : ''}</span>` : '',
-    media.user_starred ? '<span class="tile-ind ind-star" title="Fave">❤</span>' : '',
+    views > 0 ? `<span class="tile-ind ind-views" title="Viewed ${views}×">${ic('👁', 'eye')}${views > 1 ? views : ''}</span>` : '',
+    media.user_starred ? `<span class="tile-ind ind-star" title="Fave">${ic('❤', 'heart')}</span>` : '',
     rating > 0 ? `<span class="tile-ind ind-rating" title="Rated ${rating}/5">${rating}</span>` : '',
-    isFlagged ? '<span class="tile-ind ind-flag" title="Flagged">🚩</span>' : '',
+    isFlagged ? `<span class="tile-ind ind-flag" title="Flagged">${ic('🚩', 'flag')}</span>` : '',
     media.dupe_group ? '<span class="tile-ind ind-dupe" title="Confirmed duplicate, notes shared">⧉</span>' : '',
-    isTrashed ? '<span class="tile-ind ind-trashed" title="In trash">🗑</span>' : '',
-    cannotPlay ? `<span class="tile-ind ind-error" title="${escapeHtml(cannotPlayWhy)}">⚠</span>` : '',
-    hasNotes ? '<span class="tile-ind ind-notes" title="Has notes">📝</span>' : '',
-    hasError ? `<span class="tile-ind ind-error" title="${escapeHtml(errorTooltip(media.processing_error))}">⚠</span>` : '',
-    isUnscanned ? '<span class="tile-ind ind-unscanned" title="Not scanned yet, AI analysis pending">⏳</span>' : '',
+    isTrashed ? `<span class="tile-ind ind-trashed" title="In trash">${ic('🗑', 'trash')}</span>` : '',
+    cannotPlay ? `<span class="tile-ind ind-error" title="${escapeHtml(cannotPlayWhy)}">${ic('⚠', 'alert')}</span>` : '',
+    hasNotes ? `<span class="tile-ind ind-notes" title="Has notes">${ic('📝', 'note')}</span>` : '',
+    hasError ? `<span class="tile-ind ind-error" title="${escapeHtml(errorTooltip(media.processing_error))}">${ic('⚠', 'alert')}</span>` : '',
+    isUnscanned ? `<span class="tile-ind ind-unscanned" title="Not scanned yet, AI analysis pending">${ic('⏳', 'clock')}</span>` : '',
     (typeof mediaSongIds === 'function' && mediaSongIds(media.id).length > 0)
-      ? `<span class="tile-ind ind-music" title="${mediaSongIds(media.id).length} song(s) identified">🎵</span>` : '',
+      ? `<span class="tile-ind ind-music" title="${mediaSongIds(media.id).length} song(s) identified">${ic('🎵', 'audio')}</span>` : '',
   ].filter(Boolean).join('');
 
   // Hot 🔥 / Done 💦 markers live at the thumb's bottom-LEFT (opposite the
   // duration, which sits bottom-right) to save room on the indicator bar.
   const hotDone = [
-    hotCount > 0 ? `<span class="hd-hot" title="Intense moments marked ${hotCount}×">🔥${hotCount > 1 ? hotCount : ''}</span>` : '',
-    doneCount > 0 ? `<span class="hd-done" title="Finishers: sessions ended here ${doneCount}×">💦${doneCount > 1 ? doneCount : ''}</span>` : '',
+    hotCount > 0 ? `<span class="hd-hot" title="Intense moments marked ${hotCount}×">${ic('🔥', 'flame')}${hotCount > 1 ? hotCount : ''}</span>` : '',
+    doneCount > 0 ? `<span class="hd-done" title="Finishers: sessions ended here ${doneCount}×">${ic('💦', 'drop')}${doneCount > 1 ? doneCount : ''}</span>` : '',
   ].filter(Boolean).join('');
 
   // thumbImgAttrs() decides between a plain src and the vault's blob cache;
@@ -932,8 +935,8 @@ function renderTile(media) {
   const delTitle = dMode === 'hard' ? 'Delete permanently (no undo)'
     : dMode === 'recycle' ? 'Delete to Recycle Bin' : 'Move to trash';
   const trashBtn = isMix ? '' : (isTrashed
-    ? `<button class="tile-btn" onclick="restoreSingle(${media.id})" title="Restore from trash">♻</button>`
-    : `<button class="tile-btn ${dMode !== 'soft' ? 'tile-btn-danger' : ''}" onclick="trashSingle(${media.id})" title="${delTitle}">🗑</button>`);
+    ? `<button class="tile-btn" onclick="restoreSingle(${media.id})" title="Restore from trash" aria-label="Restore from trash">${ic('♻', 'rescan')}</button>`
+    : `<button class="tile-btn ${dMode !== 'soft' ? 'tile-btn-danger' : ''}" onclick="trashSingle(${media.id})" title="${delTitle}" aria-label="${delTitle}">${ic('🗑', 'trash')}</button>`);
 
   // Resume progress sliver (video/audio with a stored position)
   const resumePct = (['video', 'audio'].includes(media.media_type) &&
@@ -964,10 +967,10 @@ function renderTile(media) {
         <input type="checkbox" class="tile-select" ${isSelected ? 'checked' : ''}
           onclick="onTileSelect(event, ${media.id})" title="Select (shift-click for range)">
         <div class="tile-actions" onclick="event.stopPropagation()">
-          <button class="tile-btn ${media.user_starred ? 'active-star' : ''}" onclick="toggleStar(mediaPathById(${media.id}))" title="${media.user_starred ? 'Remove Fave' : 'Fave'}">${media.user_starred ? '❤' : '🤍'}</button>
-          <button class="tile-btn ${isFlagged ? 'active-flag' : ''}" onclick="toggleFlagDelete(mediaPathById(${media.id}))" title="${isFlagged ? 'Unflag' : 'Flag'}">🚩</button>
+          <button class="tile-btn ${media.user_starred ? 'active-star' : ''}" onclick="toggleStar(mediaPathById(${media.id}))" title="${media.user_starred ? 'Remove Fave' : 'Fave'}" aria-label="${media.user_starred ? 'Remove Fave' : 'Fave'}">${ic(media.user_starred ? '❤' : '🤍', 'heart')}</button>
+          <button class="tile-btn ${isFlagged ? 'active-flag' : ''}" onclick="toggleFlagDelete(mediaPathById(${media.id}))" title="${isFlagged ? 'Unflag' : 'Flag'}" aria-label="${isFlagged ? 'Unflag' : 'Flag'}">${ic('🚩', 'flag')}</button>
           ${trashBtn}
-          <button class="tile-btn" onclick="showDetailsById(${media.id})" title="Details">ⓘ</button>
+          <button class="tile-btn" onclick="showDetailsById(${media.id})" title="Details" aria-label="Details">${ic('ⓘ', 'info')}</button>
         </div>
       </div>
       <div class="tile-name"${document.body.classList.contains('pm-names') ? '' : ` title="${escapeHtml(media.filename)}"`}>${escapeHtml(media.filename)}</div>
@@ -1057,9 +1060,9 @@ function buildPopoverHtml(media) {
     <div class="pop-title">${escapeHtml(media.filename)}</div>
     ${media.description ? `<div class="pop-desc">${escapeHtml(media.description)}</div>` : ''}
     ${allTags.length ? `<div class="pop-tags">${allTags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
-    <div class="pop-meta">${[duration, fileSize, media.quality_flag, media.content_type, `👁 ${media.view_count || 0} views`].filter(Boolean).join(' • ')}</div>
+    <div class="pop-meta">${[duration, fileSize, media.quality_flag, media.content_type, `${vaultIconSwap('👁 ', 'eye')}${media.view_count || 0} views`].filter(Boolean).join(' • ')}</div>
     <div class="pop-path" title="${escapeHtml(media.filepath)}">
-      <span class="pop-path-text">📁 ${escapeHtml(media.filepath)}</span>
+      <span class="pop-path-text">${vaultIconSwap('📁 ', 'folder')}${escapeHtml(media.filepath)}</span>
       <button class="pop-path-copy" onclick="copyPath('${escapedPath}')" title="Copy full path">⧉</button>
     </div>
     ${flags.length ? `<div class="pop-flags">${flags.join(' &nbsp; ')}</div>` : ''}

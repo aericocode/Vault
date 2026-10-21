@@ -147,27 +147,27 @@ function renderEditorHome() {
     <div class="editor-home">
       <section class="editor-panel editor-songs-panel">
         <div class="editor-panel-head">
-          <h2>🎵 Songs</h2>
+          <h2>${vaultEmojiLabel('🎵 Songs')}</h2>
           <input type="text" class="music-input editor-song-search" id="editorSongSearch"
             placeholder="Search artist or title…" value="${escapeHtml(_editorHomeSongsQ)}" autocomplete="off">
           <select class="editor-select" id="editorSongSource">
             <option value="">All</option>
-            <option value="unknown" ${_editorHomeSource === 'unknown' ? 'selected' : ''}>❓ Unknown only</option>
+            <option value="unknown" ${_editorHomeSource === 'unknown' ? 'selected' : ''}>${vaultIsModern() ? '' : '❓ '}Unknown only</option>
             <option value="identified" ${_editorHomeSource === 'identified' ? 'selected' : ''}>Identified</option>
           </select>
           <button class="music-btn" onclick="editorOpenSeedPacks()"
-            title="Import/export song seed packs: reference fingerprints that identify songs without needing the audio files">📦 Seed packs</button>
+            title="Import/export song seed packs: reference fingerprints that identify songs without needing the audio files">${vaultEmojiLabel('📦 Seed packs')}</button>
         </div>
         <div id="editorSongsBody"><span class="music-hint">Loading…</span></div>
       </section>
       <aside class="editor-side">
         <section class="editor-panel" id="editorStatusPanel"></section>
         <section class="editor-panel">
-          <h3>💾 Saved mixes</h3>
+          <h3>${vaultEmojiLabel('💾 Saved mixes')}</h3>
           <div id="editorPresetList" class="editor-mini-list"><span class="music-hint">Loading…</span></div>
         </section>
         <section class="editor-panel">
-          <h3>📤 Exports</h3>
+          <h3>${vaultEmojiLabel('📤 Exports')}</h3>
           <div id="editorExportList" class="editor-mini-list"><span class="music-hint">Loading…</span></div>
         </section>
       </aside>
@@ -451,12 +451,12 @@ async function renderEditorSongCards() {
           <div class="editor-song-card ${unknown ? 'is-unknown' : ''}" onclick="editorOpenSong(${s.id})"
             title="${escapeHtml(s.artist)} – ${escapeHtml(s.title)}, ${s.video_count} video${s.video_count === 1 ? '' : 's'}">
             <div class="tile-thumb coll-mosaic">${cells}
-              <span class="coll-tile-badge">${unknown ? '❓' : '🎵'}</span>
+              <span class="coll-tile-badge">${vaultIconSwap(unknown ? '❓' : '🎵', unknown ? 'help' : 'audio')}</span>
             </div>
             <div class="tile-name">${escapeHtml(s.title)}</div>
             <div class="tile-meta">
               <span class="editor-song-sub">${escapeHtml(s.artist)}</span>
-              <span class="coll-count">${s.video_count} video${s.video_count === 1 ? '' : 's'}${s.ref_count ? ' · 🔗' : ''}</span>
+              <span class="coll-count">${s.video_count} video${s.video_count === 1 ? '' : 's'}${s.ref_count ? ` · ${vaultIconSwap('🔗', 'link')}` : ''}</span>
             </div>
           </div>`;
       }).join('')}
@@ -504,7 +504,7 @@ async function renderEditorOpenSong(songId) {
     <div class="editor-song-head">
       <button class="music-btn" onclick="editorCloseSong()" title="Back to all songs">← Songs</button>
       <div class="editor-song-head-main">
-        <div class="editor-song-head-title">${unknown ? '❓ ' : '🎵 '}${escapeHtml(song.title)}
+        <div class="editor-song-head-title">${vaultEmojiLabel(unknown ? '❓ ' : '🎵 ')}${escapeHtml(song.title)}
           <button class="music-icon-btn" onclick="musicEditSong(${songId}, renderEditorSongList)" title="Rename / identify">✎</button>
         </div>
         <div class="editor-song-sub">${escapeHtml(song.artist)}${song.remix_label ? ` · ${escapeHtml(song.remix_label)}` : ''}
@@ -556,11 +556,11 @@ function editorSyncOpenSongButtons(songId) {
   bar.innerHTML = `
     <button class="music-btn music-btn-primary" ${tooFew ? 'disabled' : ''}
       onclick="editorOpenMix(editorOpenSongChecked(), 'stack', ${songId})"
-      title="Play the checked videos stacked, aligned on this song${many}">▤ Stack ${n}</button>
+      title="Play the checked videos stacked, aligned on this song${many}">${vaultEmojiLabel(`▤ Stack ${n}`)}</button>
     <button class="music-btn" ${tooFew ? 'disabled' : ''}
       onclick="editorOpenMix(editorOpenSongChecked(), 'grid', ${songId})"
-      title="Play the checked videos side by side${many}">▦ Grid ${n}</button>
-    <button class="music-btn" onclick="editorShowSongInLibrary(${songId})" title="Filter the Library to files containing this song">🔍 In Library</button>
+      title="Play the checked videos side by side${many}">${vaultEmojiLabel(`▦ Grid ${n}`)}</button>
+    <button class="music-btn" onclick="editorShowSongInLibrary(${songId})" title="Filter the Library to files containing this song">${vaultEmojiLabel('🔍 In Library')}</button>
     <button class="music-icon-btn music-icon-danger" onclick="editorDeleteSong(${songId}, this)" title="Delete song (unlinks all files)">×</button>
   `;
 }
@@ -595,17 +595,17 @@ async function renderEditorStatusPanel() {
   const box = document.getElementById('editorStatusPanel');
   if (!box) return;
   const st = await loadMusicStatus();
-  if (!st) { box.innerHTML = '<h3>🎵 Music ID</h3><div class="music-hint">Status unavailable</div>'; return; }
+  if (!st) { box.innerHTML = `<h3>${vaultEmojiLabel('🎵 Music ID')}</h3><div class="music-hint">Status unavailable</div>`; return; }
 
   const t = st.tools;
   const s = st.stats;
   box.innerHTML = `
-    <h3>🎵 Music ID</h3>
+    <h3>${vaultEmojiLabel('🎵 Music ID')}</h3>
     ${t.ok
       ? '<div class="editor-tools-ok">✓ fpcalc + ffmpeg ready</div>'
       : `<div class="music-hint music-warn">⚠ ${escapeHtml(t.errors[0] || 'tools missing')}</div>${musicFpcalcFixHtml()}`}
     <div class="editor-stats">
-      <span title="Identified + placeholder songs">${s.songs} songs${s.unknown_songs ? ` (${s.unknown_songs} ❓)` : ''}</span>
+      <span title="Identified + placeholder songs">${s.songs} songs${s.unknown_songs ? ` (${s.unknown_songs} ${vaultIconSwap('❓', 'help')})` : ''}</span>
       <span title="Files with stored fingerprints">${s.fingerprinted_media} files fingerprinted</span>
       <span title="Song ↔ file links">${s.links} links</span>
       <span title="Reference fingerprints that scans match against">${s.references} references</span>
@@ -635,7 +635,7 @@ function editorRenderQueue(q) {
       </div>`);
   }
   if (q.queued.length) {
-    rows.push(`<div class="music-hint">＋ ${q.queued.length} queued</div>`);
+    rows.push(`<div class="music-hint">${vaultEmojiLabel(`＋ ${q.queued.length} queued`)}</div>`);
   }
   box.innerHTML = rows.join('');
 }
@@ -667,7 +667,7 @@ async function renderEditorPresetList() {
           <div class="editor-mini-title">${escapeHtml(p.name)}</div>
           <div class="editor-mini-sub">${escapeHtml(label)}</div>
         </div>
-        <button class="music-btn" onclick="editorLoadPreset(${p.id})">▶</button>
+        <button class="music-btn" onclick="editorLoadPreset(${p.id})" title="Open this mix" aria-label="Open this mix">${vaultIconSwap('▶', 'play')}</button>
         <button class="music-icon-btn music-icon-danger" onclick="editorDeletePreset(${p.id}, this)" title="Delete mix">×</button>
       </div>`;
   }).join('');
@@ -711,7 +711,7 @@ async function renderEditorExportList() {
     const status =
       j.status === 'done' ? (j.available === false
         ? `<span class="music-badge music-badge-auto" title="Exports stay in memory until downloaded, and this one is gone (restart or vault lock). Render it again if you still need it.">expired</span>`
-        : `<a class="music-btn" href="/api/music/exports/${j.id}/download" download title="Held in memory. Download to save it">⬇</a>`) :
+        : `<a class="music-btn" href="/api/music/exports/${j.id}/download" download title="Held in memory. Download to save it" aria-label="Download">${vaultIconSwap('⬇', 'download')}</a>`) :
       j.status === 'failed' ? `<span class="music-badge music-badge-auto" title="${escapeHtml(j.error || '')}">failed</span>` :
       `<span class="editor-export-pct">${j.status === 'running' ? pct + '%' : 'queued'}</span>`;
     return `
@@ -970,13 +970,13 @@ function buildMixUi(ctx) {
                 </div>
                 <div class="controls-center">
                   <button id="mixMixerBtn" class="info-btn" title="Toggle the mixer sidebar (M)">
-                    <span>🎚</span><span>Mixer</span>
+                    <span>${vaultIconSwap('🎚', 'editor')}</span><span>Mixer</span>
                   </button>
                 </div>
                 <div class="controls-right">
                   <button class="music-btn editor-layout-btn ${layout === 'stack' ? 'tk-active' : ''}"
-                    data-layout="stack" title="Layer all videos on top of each other">▤</button>
-                  <button class="music-btn editor-layout-btn ${layout === 'grid' ? 'tk-active' : ''}" data-layout="grid">▦</button>
+                    data-layout="stack" title="Layer all videos on top of each other" aria-label="Stack">${vaultIconSwap('▤', 'stack')}</button>
+                  <button class="music-btn editor-layout-btn ${layout === 'grid' ? 'tk-active' : ''}" data-layout="grid" title="Side by side" aria-label="Grid">${vaultIconSwap('▦', 'grid')}</button>
                   <span class="editor-toolbar-label" id="mixColsWrap">cols
                     <input type="number" class="music-input editor-cols-input" id="mixCols" min="1" max="6" value="${cols}">
                   </span>
@@ -990,7 +990,7 @@ function buildMixUi(ctx) {
 
         <aside class="editor-mixer-sidebar" id="mixerSidebar">
           <div class="editor-mixer-sidebar-head">
-            <span class="editor-mixer-sidebar-title">🎚 Mixer</span>
+            <span class="editor-mixer-sidebar-title">${vaultEmojiLabel('🎚 Mixer')}</span>
             <button class="music-modal-close" id="mixMixerClose" title="Close mixer (M)">✕</button>
           </div>
           <div class="editor-mixer-sidebar-body">
@@ -1010,7 +1010,7 @@ function buildMixUi(ctx) {
               <div class="mixer-section-label mixer-sync-head">Sync
                 <span class="music-hint">(drag a row sideways to align it)</span>
                 <button class="music-btn" id="mixSnapAll"
-                  title="Auto-align EVERY track to the master via audio fingerprints (~0.1s)">⚡ Snap all</button>
+                  title="Auto-align EVERY track to the master via audio fingerprints (~0.1s)">${vaultEmojiLabel('⚡ Snap all')}</button>
               </div>
               <canvas id="mixSyncPanel"
                 title="Waveforms are fixed; the red playhead moves. Drag any row horizontally to slide that track into alignment."></canvas>
@@ -1051,13 +1051,13 @@ function buildMixUi(ctx) {
                     <span class="editor-offset mix-offset" data-idx="${i}">${fmtStart(t.start_sec)}</span>
                     <button class="music-btn mix-nudge" data-idx="${i}" data-nudge="0.1">+0.1</button>
                     <button class="music-btn mix-nudge" data-idx="${i}" data-nudge="1">+1s</button>
-                    <button class="music-btn mix-autoalign" data-idx="${i}" title="Auto-align this track to the master via audio fingerprints (~0.1s)">⚡</button>
+                    <button class="music-btn mix-autoalign" data-idx="${i}" title="Auto-align this track to the master via audio fingerprints (~0.1s)" aria-label="Auto-align this track">${vaultIconSwap('⚡', 'zap')}</button>
                     <span class="music-hint mix-save-hint" data-idx="${i}"></span>
                   </div>
                 </div>
               `).join('')}
               <div class="editor-mixer-foot">
-                <button class="music-btn" id="mixBalance" title="Equal visual contribution per layer">⚖ Balanced</button>
+                <button class="music-btn" id="mixBalance" title="Equal visual contribution per layer">${vaultEmojiLabel('⚖ Balanced')}</button>
                 <button class="music-btn" id="mixAll100">All 100%</button>
                 <button class="music-btn" id="mixMasterOnly" title="Only the master track audible">Master only</button>
               </div>
@@ -1069,7 +1069,7 @@ function buildMixUi(ctx) {
                 <select class="editor-select" id="mixPresetLoad"><option value="">load preset</option></select>
                 <div class="mixer-preset-save">
                   <input type="text" class="music-input" id="mixPresetName" placeholder="Mix name…" value="${escapeHtml(ctx.presetName || '')}">
-                  <button class="music-btn" id="mixPresetSave">💾 Save</button>
+                  <button class="music-btn" id="mixPresetSave">${vaultEmojiLabel('💾 Save')}</button>
                 </div>
                 <span class="music-hint">Saves layout, volumes, effects &amp; master</span>
               </div>
@@ -1081,14 +1081,14 @@ function buildMixUi(ctx) {
                 <input type="text" class="music-input" id="mixLibTitle" placeholder="Mix title…" value="${escapeHtml(ctx.libTitle || '')}">
                 <textarea class="music-input mixer-desc-input" id="mixLibDesc" rows="2"
                   placeholder="Description (optional)">${escapeHtml(ctx.libDescription || '')}</textarea>
-                <button class="music-btn music-btn-primary" id="mixLibSave">${ctx.libraryMediaId ? '⟳ Update library mix' : '💾 Save to Library'}</button>
+                <button class="music-btn music-btn-primary" id="mixLibSave">${vaultEmojiLabel(ctx.libraryMediaId ? '⟳ Update library mix' : '💾 Save to Library')}</button>
                 <span class="music-hint">Playable 🎛 tile in the Library, with layout, effects &amp; volumes included, no export needed. Ratings/notes work like any file.</span>
               </div>
             </div>
 
             <div class="mixer-section">
               <div class="mixer-section-label">Export</div>
-              <button class="music-btn music-btn-primary" id="mixExport">📤 Export this mix to MP4</button>
+              <button class="music-btn music-btn-primary" id="mixExport">${vaultEmojiLabel('📤 Export this mix to MP4')}</button>
             </div>
 
           </div>
@@ -1789,14 +1789,14 @@ function buildMixUi(ctx) {
    *  endpoint is CPU-bound). Used by the Snap-all button AND auto-snap on load. */
   async function snapAll() {
     const btn = document.getElementById('mixSnapAll');
-    if (btn) { btn.disabled = true; btn.textContent = '⚡ Snapping…'; }
+    if (btn) { btn.disabled = true; btn.innerHTML = vaultEmojiLabel('⚡ Snapping…'); }
     let ok = 0, fail = 0;
     for (let i = 0; i < tracks.length; i++) {
       if (i === masterIdx) continue;
       (await snapTrack(i, { quiet: true })) ? ok++ : fail++;
     }
     syncAllToMaster();
-    if (btn) { btn.disabled = false; btn.textContent = '⚡ Snap all'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = vaultEmojiLabel('⚡ Snap all'); }
     showToast(`⚡ Snapped ${ok} track${ok === 1 ? '' : 's'} to the master${fail ? `, ${fail} had no audio match` : ''}`);
   }
   document.getElementById('mixSnapAll').addEventListener('click', snapAll);

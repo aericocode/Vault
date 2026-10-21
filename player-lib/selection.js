@@ -330,7 +330,7 @@ function renderSelectionBar() {
     bar.innerHTML = `
       <span class="sel-count">${shown} selected</span>
       ${typeof ftRemoveSelectedButton === 'function' ? ftRemoveSelectedButton(shown) : ''}
-      <button class="sel-btn" onclick="openCollectionPicker(ftTickedShown(), this)" title="Add selection to a collection">📁 Collect</button>
+      <button class="sel-btn" onclick="openCollectionPicker(ftTickedShown(), this)" title="Add selection to a collection">${vaultEmojiLabel('📁 Collect')}</button>
       <button class="sel-btn sel-clear" onclick="clearSelection()" title="Clear selection">✕</button>`;
     bar.classList.add('visible');
     return;
@@ -348,12 +348,12 @@ function renderSelectionBar() {
   const musicReady = typeof fingerprintSelected === 'function';
   const many = vidCount > 4 ? ' (playback smoothness depends on drive speed)' : '';
   const musicBtns = !musicReady ? '' : `
-    ${avCount > 0 ? `<button class="sel-btn sel-music" onclick="fingerprintSelected()" title="Fingerprint audio, one-time per file. Auto-matches songs across the library">🎵 Music ID (${avCount})</button>` : ''}
+    ${avCount > 0 ? `<button class="sel-btn sel-music" onclick="fingerprintSelected()" title="Fingerprint audio, one-time per file. Auto-matches songs across the library">${vaultEmojiLabel(`🎵 Music ID (${avCount})`)}</button>` : ''}
     ${vidCount >= 2 ? `
       <button class="sel-btn sel-mix" onclick="openEditorWithSelection('stack')"
-        title="Open in the Editor, layered in sync${many}">▤ Stack ${vidCount}</button>
+        title="Open in the Editor, layered in sync${many}">${vaultEmojiLabel(`▤ Stack ${vidCount}`)}</button>
       <button class="sel-btn sel-mix" onclick="openEditorWithSelection('grid')"
-        title="Open in the Editor, side by side in sync${many}">▦ Grid ${vidCount}</button>
+        title="Open in the Editor, side by side in sync${many}">${vaultEmojiLabel(`▦ Grid ${vidCount}`)}</button>
     ` : ''}`;
 
   // Flag is one toggle rather than two buttons. A mixed selection reads as "not
@@ -366,7 +366,7 @@ function renderSelectionBar() {
     title="${allFlagged
       ? 'Clear the delete flag on all selected'
       : `Flag for deletion${flaggedCount ? ` (${flaggedCount} of ${counts.count} already flagged)` : ''}`}"
-    >${allFlagged ? '🏳 Unflag' : '🚩 Flag'}</button>`;
+    >${vaultEmojiLabel(allFlagged ? '🏳 Unflag' : '🚩 Flag')}</button>`;
 
   // Files whose AI scan never landed: a real error, or a stub that was never
   // scanned (a cancelled queue leaves these). Only offered when the selection
@@ -376,7 +376,7 @@ function renderSelectionBar() {
   const retryable = errored + unscanned;
   const retryBtn = retryable === 0 ? '' : `<button class="sel-btn sel-retry" onclick="retryErrorsSelected()"
     title="Queue ${retryable} file(s) for another AI scan${errored ? `: ${errored} errored` : ''}${unscanned ? `${errored ? ',' : ':'} ${unscanned} never scanned` : ''}"
-    >↻ Retry errors (${retryable})</button>`;
+    >${vaultEmojiLabel(`↻ Retry errors (${retryable})`)}</button>`;
 
   bar.innerHTML = `
     <span class="sel-count">${selectedIds.size} selected</span>
@@ -384,13 +384,13 @@ function renderSelectionBar() {
     ${typeof studiosSelectionButton === 'function' ? studiosSelectionButton() : ''}
     ${typeof facesSelectionButton === 'function' ? facesSelectionButton(counts.faceable) : ''}
     ${retryBtn}
-    ${activeCount > 0 ? `<button class="sel-btn sel-trash" onclick="trashSelected()">🗑 Trash (${activeCount})</button>` : ''}
-    ${trashedCount > 0 ? `<button class="sel-btn sel-restore" onclick="restoreSelected()">♻ Restore (${trashedCount})</button>` : ''}
+    ${activeCount > 0 ? `<button class="sel-btn sel-trash" onclick="trashSelected()">${vaultEmojiLabel(`🗑 Trash (${activeCount})`)}</button>` : ''}
+    ${trashedCount > 0 ? `<button class="sel-btn sel-restore" onclick="restoreSelected()">${vaultEmojiLabel(`♻ Restore (${trashedCount})`)}</button>` : ''}
     ${flagBtn}
-    <button class="sel-btn" onclick="addSelectionToCollection(this)" title="Add selection to a collection">📁 Collect</button>
+    <button class="sel-btn" onclick="addSelectionToCollection(this)" title="Add selection to a collection">${vaultEmojiLabel('📁 Collect')}</button>
     <!-- irreversible, and Select all can point it at the whole library — the
          count stays so the blast radius is visible before the confirm dialog -->
-    <button class="sel-btn sel-remove" onclick="removeSelectedRecords()" title="Forget these files. The records leave the library, the files on disk are NOT touched">✂ Forget (${selectedIds.size})</button>
+    <button class="sel-btn sel-remove" onclick="removeSelectedRecords()" title="Forget these files. The records leave the library, the files on disk are NOT touched">${vaultEmojiLabel(`✂ Forget (${selectedIds.size})`)}</button>
     <button class="sel-btn sel-clear" onclick="clearSelection()" title="Clear selection">✕</button>
   `;
   bar.classList.add('visible');
@@ -477,7 +477,7 @@ async function updateRescanFilteredButton() {
   const { ids, force, done } = targets;
   if (ids.length === 0) { btn.style.display = 'none'; return; }
   btn.style.display = '';
-  btn.textContent = `↻ Rescan these (${ids.length.toLocaleString()})`;
+  btn.innerHTML = `${vaultIconSwap('↻ ', 'rescan')}Rescan these (${ids.length.toLocaleString()})`;
   btn.classList.toggle('force', force);
   btn.title = force
     ? `Re-run AI analysis on all ${ids.length.toLocaleString()} filtered file(s). ${done.toLocaleString()} of them already scanned successfully. Your notes, stars, ratings and flags are kept.`
@@ -1157,7 +1157,7 @@ function updateClearTrashUi() {
   fetchTrashSummary().then((t) => {
     if (seq !== _trashUiSeq) return;
     btn.style.display = t.count ? '' : 'none';
-    btn.textContent = `🗑 Empty trash (${t.count})`;
+    btn.innerHTML = `${vaultIconSwap('🗑 ', 'trash')}Empty trash (${t.count})`;
   }, () => {});
 }
 let _trashUiSeq = 0;

@@ -15,6 +15,7 @@
    2. Modern look only (css/layout-modern.css does the rest):
       - "＋ Add" menu: its entries click the real Add files / Add folder
         buttons (importer.js), which Modern hides, and copy their busy state.
+        Their emoji become line icons (player-lib/icons.js).
       - Status pill: the streak chip (gamify-ui.js) and the device chip
         (lovense-ui.js) are drawn as one pill. Each keeps its own click and
         live updates; data-status on .header-buttons says which are showing.
@@ -110,8 +111,15 @@
       setIf(item, 'hidden', !real);
       if (!real) continue;
       any = true;
+      // The real button's words ("📁 Picker open…" while busy), with a line
+      // icon in place of its emoji: this menu is Modern only.
       const text = real.textContent.trim();
-      if (item.textContent !== text) item.textContent = text;
+      if (item.dataset.addText !== text) {
+        item.dataset.addText = text;
+        const words = typeof vaultStripLeadingEmoji === 'function' ? vaultStripLeadingEmoji(text) : text;
+        const icon = typeof vaultIcon === 'function' ? vaultIcon(item.dataset.addIcon, 'vi-gap') : '';
+        item.innerHTML = icon + words.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      }
       setIf(item, 'disabled', real.disabled);
       busy = busy || real.disabled;
     }

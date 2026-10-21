@@ -831,7 +831,7 @@ const Wall = (() => {
         <span class="wall-status" id="wallStatus"></span>
         <button type="button" class="wall-btn wall-icon-btn" id="wallGearBtn" aria-label="More settings"
           title="More settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="wallPop">
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
+          ${typeof vaultIcon === 'function' ? vaultIcon('gear', 'modern-only') : ''}<svg class="classic-only" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
         </button>
         <button type="button" class="wall-btn" id="wallFullBtn">Full screen</button>
         <div class="wall-pop" id="wallPop" role="dialog" aria-label="More settings" hidden>
@@ -1584,7 +1584,10 @@ const Wall = (() => {
     const span = document.createElement('span');
     span.className = 'wall-type-icon';
     span.setAttribute('aria-hidden', 'true');
-    span.textContent = icons[item.media_type] || '🎬';
+    // Classic's emoji, Modern's line icon (player-lib/icons.js)
+    span.innerHTML = typeof vaultIconSwap === 'function'
+      ? vaultIconSwap(icons[item.media_type] || '🎬', VAULT_TYPE_ICON_NAMES[item.media_type] || 'video')
+      : (icons[item.media_type] || '🎬');
     layer.appendChild(span);
   }
 

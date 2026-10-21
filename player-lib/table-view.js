@@ -143,7 +143,7 @@ function tvCellHtml(c, m) {
   const id = m.id;
   switch (c.key) {
     case 'thumb': {
-      const icon = TILE_TYPE_ICONS[m.media_type] || '📁';
+      const icon = vaultTypeIcon(m.media_type);
       const canThumb = canShowThumb(m);
       const img = canThumb
         ? `<img class="tile-img" loading="lazy" ${thumbImgAttrs(m)} alt=""
@@ -157,11 +157,11 @@ function tvCellHtml(c, m) {
       return `<div class="tv-cell tv-c-title">
           <span class="tile-name tv-name" onclick="tileThumbClick(${id})" ondblclick="tileThumbDblClick(${id})"
                 ${pmNames ? '' : `title="${escapeHtml(m.filename)}"`}>${escapeHtml(m.filename)}</span>
-          ${m.user_starred ? '<span class="tv-fave" title="Fave">❤</span>' : ''}
-          ${m.user_flagged_delete ? '<span class="tv-flag" title="Flagged">🚩</span>' : ''}
+          ${m.user_starred ? `<span class="tv-fave" title="Fave">${vaultIconSwap('❤', 'heart')}</span>` : ''}
+          ${m.user_flagged_delete ? `<span class="tv-flag" title="Flagged">${vaultIconSwap('🚩', 'flag')}</span>` : ''}
           <span class="tv-actions" onclick="event.stopPropagation()">
             <button type="button" class="tile-btn ${m.user_starred ? 'active-star' : ''}" onclick="toggleStar(mediaPathById(${id}))"
-                    title="${m.user_starred ? 'Remove Fave' : 'Fave'}">${m.user_starred ? '❤' : '🤍'}</button>
+                    title="${m.user_starred ? 'Remove Fave' : 'Fave'}" aria-label="${m.user_starred ? 'Remove Fave' : 'Fave'}">${vaultIconSwap(m.user_starred ? '❤' : '🤍', 'heart')}</button>
             <button type="button" class="tile-btn" onclick="showDetailsById(${id})" title="Details">ⓘ</button>
           </span>
         </div>`;

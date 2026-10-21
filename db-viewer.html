@@ -55,6 +55,8 @@
   <link rel="stylesheet" href="./css/wall.css">
   <!-- Modern library look: every rule is scoped under body.layout-modern -->
   <link rel="stylesheet" href="./css/layout-modern.css">
+  <!-- The Modern look's line icons (player-lib/icons.js) -->
+  <link rel="stylesheet" href="./css/icons.css">
   <!-- Table view (Modern look), scoped under .results-grid.grid-table -->
   <link rel="stylesheet" href="./css/table-view.css">
   <!-- The ? window and Settings > Keyboard shortcuts -->
@@ -78,12 +80,12 @@
         Vault
       </div>
       <nav class="app-tabs" id="appTabs">
-        <button class="app-tab active" data-tab="library" onclick="switchTab('library')" aria-label="Library"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">📚 </span><span class="app-tab-name">Library</span></span></button>
-        <button class="app-tab" data-tab="collections" onclick="switchTab('collections')" aria-label="Collections"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">📁 </span><span class="app-tab-name">Collections</span></span></button>
-        <button class="app-tab" data-tab="faces" onclick="switchTab('faces')" aria-label="Faces"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">👤 </span><span class="app-tab-name">Faces</span></span></button>
-        <button class="app-tab" data-tab="editor" onclick="switchTab('editor')" aria-label="Editor" aria-labelledby="editorTabName editorTabBadge"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">🎨 </span><span class="app-tab-name" id="editorTabName">Editor</span></span><span class="app-tab-badge" id="editorTabBadge" style="display:none;"></span></button>
-        <button class="app-tab" data-tab="games" onclick="switchTab('games')" aria-label="Games"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">🎮 </span><span class="app-tab-name">Games</span></span></button>
-        <button class="app-tab" data-tab="wall" onclick="switchTab('wall')" aria-label="Wall"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">🧱 </span><span class="app-tab-name">Wall</span></span></button>
+        <button class="app-tab active" data-tab="library" onclick="switchTab('library')" aria-label="Library"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true" data-vi="library">📚 </span><span class="app-tab-name">Library</span></span></button>
+        <button class="app-tab" data-tab="collections" onclick="switchTab('collections')" aria-label="Collections"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true" data-vi="folder">📁 </span><span class="app-tab-name">Collections</span></span></button>
+        <button class="app-tab" data-tab="faces" onclick="switchTab('faces')" aria-label="Faces"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true" data-vi="person">👤 </span><span class="app-tab-name">Faces</span></span></button>
+        <button class="app-tab" data-tab="editor" onclick="switchTab('editor')" aria-label="Editor" aria-labelledby="editorTabName editorTabBadge"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true" data-vi="editor">🎨 </span><span class="app-tab-name" id="editorTabName">Editor</span></span><span class="app-tab-badge" id="editorTabBadge" style="display:none;"></span></button>
+        <button class="app-tab" data-tab="games" onclick="switchTab('games')" aria-label="Games"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true" data-vi="games">🎮 </span><span class="app-tab-name">Games</span></span></button>
+        <button class="app-tab" data-tab="wall" onclick="switchTab('wall')" aria-label="Wall"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true" data-vi="wall">🧱 </span><span class="app-tab-name">Wall</span></span></button>
       </nav>
       <div class="db-info">
         <strong id="totalCount">Loading…</strong>
@@ -96,14 +98,14 @@
              real Add files / Add folder buttons (importer.js), which Modern hides. -->
         <div class="hdr-add modern-only" id="hdrAdd">
           <button type="button" class="header-btn hdr-add-btn" id="hdrAddBtn" aria-haspopup="menu"
-                  aria-expanded="false" aria-controls="hdrAddMenu" title="Add files or a folder to the library">＋ Add</button>
+                  aria-expanded="false" aria-controls="hdrAddMenu" title="Add files or a folder to the library"><span class="vi-w" data-vi="plus">＋ </span>Add</button>
           <div class="hdr-add-menu" id="hdrAddMenu" role="menu" aria-label="Add to the library" hidden>
-            <button type="button" class="hdr-add-item" role="menuitem" tabindex="-1" data-add-for="addFilesBtn">📄 Add files</button>
-            <button type="button" class="hdr-add-item" role="menuitem" tabindex="-1" data-add-for="addFolderBtn">📁 Add folder</button>
+            <button type="button" class="hdr-add-item" role="menuitem" tabindex="-1" data-add-for="addFilesBtn" data-add-icon="file">Add files</button>
+            <button type="button" class="hdr-add-item" role="menuitem" tabindex="-1" data-add-for="addFolderBtn" data-add-icon="folder">Add folder</button>
           </div>
         </div>
         <button class="header-btn refresh-btn" id="refreshBtn" title="Reload library from server">
-          <span class="hb-text"><span class="hb-ic">🔄 </span><span class="hb-label">Refresh</span></span>
+          <span class="hb-text"><span class="hb-ic" data-vi="refresh">🔄 </span><span class="hb-label">Refresh</span></span>
         </button>
       </div>
     </div>
@@ -114,7 +116,7 @@
     <section class="search-section">
       <div class="search-row">
         <div class="search-input-wrapper">
-          <span class="search-icon">🔍</span>
+          <span class="search-icon" data-vi="search">🔍</span>
           <input type="text" class="search-input" id="searchInput" placeholder="Search files, tags, notes">
           <button class="search-clear-btn" id="searchClearBtn" onclick="clearSearchInput()" title="Clear search" style="display:none;">✕</button>
           <button class="search-save-star" id="searchSaveStar" onclick="saveSearchFromInput()" title="Save this search" style="display:none;">☆</button>
@@ -278,8 +280,8 @@
       <div class="results-count">
         <!-- Modern look only: open / close the left filter rail (player-lib/filter-rail.js) -->
         <button type="button" class="rail-toggle-btn modern-only" id="railToggleBtn" aria-pressed="false"
-                aria-controls="filterRail" title="Show or hide the filter panel">☰ Filters</button>
-        <button class="search-collapse-btn" id="searchCollapseBtn" title="Show/hide search &amp; filters">▲ Search</button>
+                aria-controls="filterRail" title="Show or hide the filter panel"><span class="vi-w" data-vi="filter">☰ </span>Filters</button>
+        <button class="search-collapse-btn" id="searchCollapseBtn" title="Show/hide search &amp; filters" aria-expanded="true"><span class="vi-w" data-vi="search">▲ </span>Search<span class="vi-w" data-vi="chevron"></span></button>
         <!-- Select page / Select all already carry the counts, so no separate
              "Showing N of M results" line: it said the same thing twice. -->
         <span class="results-select" id="resultsSelect"></span>
@@ -302,8 +304,8 @@
         </div>
         <!-- Modern look only: tiles or a table (player-lib/table-view.js) -->
         <div class="view-switch modern-only" id="viewSwitch" role="group" aria-label="Show as">
-          <button type="button" class="view-switch-btn" data-view="grid" aria-pressed="true" title="Show as tiles">▦ Grid</button>
-          <button type="button" class="view-switch-btn" data-view="table" aria-pressed="false" title="Show as a table">☰ Table</button>
+          <button type="button" class="view-switch-btn" data-view="grid" aria-pressed="true" title="Show as tiles"><span class="vi-w" data-vi="grid">▦ </span>Grid</button>
+          <button type="button" class="view-switch-btn" data-view="table" aria-pressed="false" title="Show as a table"><span class="vi-w" data-vi="table">☰ </span>Table</button>
         </div>
         <button type="button" class="tv-columns-btn modern-only" id="tableColumnsBtn" hidden
                 aria-haspopup="true" aria-expanded="false" title="Choose which columns the table shows">Columns ▾</button>
@@ -319,11 +321,11 @@
             <option value="done">Session Ends</option>
           </select>
           <button id="sortDirBtn" class="sort-dir-btn" title="Toggle most/least first">▼</button>
-          <button id="favesFirstBtn" class="faves-first-btn" title="Faves first (on top of any sort)">🤍</button>
+          <button id="favesFirstBtn" class="faves-first-btn" title="Faves first (on top of any sort)" aria-label="Faves first" aria-pressed="false"><span class="vi-w" data-vi="heart">🤍</span></button>
         </div>
         <!-- Modern look only: open / close the docked preview pane (player-lib/dock.js) -->
         <button type="button" class="dock-toggle-btn modern-only" id="dockToggleBtn" aria-pressed="false"
-                title="Show or hide the preview pane">▣ Preview</button>
+                title="Show or hide the preview pane"><span class="vi-w" data-vi="dock">▣ </span>Preview</button>
       </div>
     </div>
 
@@ -446,6 +448,8 @@
        filters.js and cards.js, which ask it whether a file can play. -->
   <script src="./player-lib/playback-decide.js"></script>
   <script src="./player-lib/utils.js"></script>
+  <!-- Line icons for the Modern look; fills the data-vi spots above -->
+  <script src="./player-lib/icons.js"></script>
   <!-- Keyboard shortcuts list (?) and isBrowserChord; early so its key listener runs first -->
   <script src="./player-lib/shortcuts.js"></script>
   <script src="./player-lib/state.js"></script>

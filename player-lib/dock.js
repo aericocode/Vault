@@ -163,7 +163,7 @@ function dockFieldSig(m) {
 
 function dockEmptyHtml() {
   return `<div class="dock-empty">
-      <div class="dock-empty-icon" aria-hidden="true">🖼️</div>
+      <div class="dock-empty-icon" aria-hidden="true">${vaultIconSwap('🖼️', 'image')}</div>
       <p>Click a tile to preview it here.</p>
       <p class="dock-empty-hint">Double click or press Enter to play. Arrow keys move between tiles.</p>
     </div>`;
@@ -171,7 +171,8 @@ function dockEmptyHtml() {
 
 /** The pane for one file as [part name, outer HTML] in order, top to bottom. */
 function dockPartsHtml(m) {
-  const icon = (typeof TILE_TYPE_ICONS !== 'undefined' && TILE_TYPE_ICONS[m.media_type]) || '📁';
+  // Classic's emoji, Modern's line icons (player-lib/icons.js)
+  const icon = vaultTypeIcon(m.media_type);
   const canThumb = typeof canShowThumb === 'function'
     ? canShowThumb(m)
     : ['image', 'gif', 'video', 'mix'].includes(m.media_type);
@@ -198,11 +199,11 @@ function dockPartsHtml(m) {
     </div>`],
     ['name', `<div class="dock-name" data-dock-part="name">${escapeHtml(m.filename)}</div>`],
     ['actions', `<div class="dock-actions" data-dock-part="actions">
-      <button class="dock-btn dock-btn-primary" onclick="dockPlayPick(${m.id})">▶ Play</button>
+      <button class="dock-btn dock-btn-primary" onclick="dockPlayPick(${m.id})">${vaultIconSwap('▶ ', 'play')}Play</button>
       <button class="dock-btn" onclick="showDetailsById(${m.id})">Details</button>
       <button class="dock-btn ${flagged ? 'is-on' : ''}" onclick="toggleFlagDelete(mediaPathById(${m.id}))"
-              title="${flagged ? 'Unflag' : 'Flag this file'}">🚩</button>
-      <button class="dock-btn" onclick="copyPath('${escapedPath}')" title="Copy the full path">Copy path</button>
+              title="${flagged ? 'Unflag' : 'Flag this file'}" aria-label="${flagged ? 'Unflag' : 'Flag this file'}">${vaultIconSwap('🚩', 'flag')}</button>
+      <button class="dock-btn" onclick="copyPath('${escapedPath}')" title="Copy the full path">${vaultIcon('copy', 'modern-only vi-gap')}Copy path</button>
     </div>`],
     ['rating', `<div class="dock-rating" data-dock-part="rating">${typeof renderStarRatingSection === 'function' ? renderStarRatingSection(m) : ''}</div>`],
   ];

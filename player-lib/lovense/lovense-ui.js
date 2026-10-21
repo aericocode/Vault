@@ -33,11 +33,12 @@
     if (!chip) return;
     const d = LovenseApi.getActiveDevice();
     if (LovenseApi.isConnected && d) {
-      chip.innerHTML = `💟 <span class="lovense-chip-name">${escapeHtml(d.nickname)}</span>` +
+      // The 💟 is Classic only: Modern's pill shows the colored dot alone.
+      chip.innerHTML = `<span class="vi-c">💟 </span><span class="lovense-chip-name">${escapeHtml(d.nickname)}</span>` +
         `<span class="lovense-dot lovense-dot-on"></span>` +
         (d.battery ? `<span class="lovense-chip-batt">${d.battery}%</span>` : '');
     } else {
-      chip.innerHTML = `💟 <span class="lovense-dot"></span>`;
+      chip.innerHTML = `<span class="vi-c">💟 </span><span class="lovense-dot"></span>`;
     }
   }
 
