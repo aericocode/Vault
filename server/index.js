@@ -31,6 +31,7 @@ const secureAssets = require('../lib/secure-assets');
 const importQueue = require('../lib/import-queue');
 const facesService = require('../lib/faces/service');
 const appSettings = require('../lib/app-settings');
+const setupNotices = require('../lib/setup-notices');
 const aiSlots = require('../lib/ai-slots');
 const lmsCli = require('../lib/lms-cli');
 const ownedDir = require('../lib/owned-dir');
@@ -512,6 +513,7 @@ function checkTools({ refresh = false } = {}) {
       ok: require('../lib/media-info').isAvailable(),
       required: true,
       label: 'ffmpeg / ffprobe',
+      feature: 'scanning and thumbnails',
       needed: 'scanning, thumbnails and duration. Imports can\'t be processed without it',
       install: FFMPEG_INSTALL,
       downloadable: true,
@@ -524,6 +526,7 @@ function checkTools({ refresh = false } = {}) {
         || (() => { try { require('child_process').execSync('fpcalc -version', { windowsHide: true, stdio: 'ignore' }); return true; } catch { return false; } })(),
       required: false,
       label: 'fpcalc (Chromaprint)',
+      feature: 'Music ID',
       needed: 'Music ID: fingerprinting and song matching. Everything else works without it',
       install: { winget: null, url: 'https://acoustid.org/chromaprint' },
       downloadable: true,
@@ -534,7 +537,22 @@ function checkTools({ refresh = false } = {}) {
 }
 
 app.get('/api/setup-check', (req, res) => {
-  res.json(checkTools({ refresh: req.query.refresh === '1' }));
+  const tools = checkTools({ refresh: req.query.refresh === '1' });
+  const hidden = setupNotices.sanitizeHidden(appSettings.all()[setupNotices.SETTINGS_KEY], tools);
+  res.json(setupNotices.annotate(tools, hidden));
+});
+
+/* "Don't show again" on an optional tool's banner row, and Settings > About's
+   "Show again". Stored with the other server settings so it holds in every
+   browser that opens this library. Required tools are refused: their notice
+   always shows while they are missing. Behind the lock gate like every /api/
+   data route. */
+app.post('/api/setup/hidden', (req, res) => {
+  const tools = checkTools();
+  const r = setupNotices.applyChange(appSettings.all()[setupNotices.SETTINGS_KEY], req.body, tools);
+  if (!r.ok) return res.status(400).json({ error: r.error });
+  appSettings.set({ [setupNotices.SETTINGS_KEY]: r.hidden });
+  res.json({ hidden: r.hidden });
 });
 
 /* ── One-click tool downloads (the Stash onboarding model) ────────────────

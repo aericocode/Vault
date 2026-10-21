@@ -598,7 +598,7 @@ async function renderEditorStatusPanel() {
     <h3>🎵 Music ID</h3>
     ${t.ok
       ? '<div class="editor-tools-ok">✓ fpcalc + ffmpeg ready</div>'
-      : `<div class="music-hint music-warn">⚠ ${escapeHtml(t.errors[0] || 'tools missing')}</div>`}
+      : `<div class="music-hint music-warn">⚠ ${escapeHtml(t.errors[0] || 'tools missing')}</div>${musicFpcalcFixHtml()}`}
     <div class="editor-stats">
       <span title="Identified + placeholder songs">${s.songs} songs${s.unknown_songs ? ` (${s.unknown_songs} ❓)` : ''}</span>
       <span title="Files with stored fingerprints">${s.fingerprinted_media} files fingerprinted</span>

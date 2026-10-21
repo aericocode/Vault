@@ -3077,10 +3077,54 @@
           <a href="https://ko-fi.com/aericocode" target="_blank" rel="noopener">Ko-fi 🌿 ↗</a>
         </div>
       </div>
+      <div class="settings-notices" id="settingsSetupNotices" hidden>
+        <h3 class="settings-h settings-h-mt">Setup notices</h3>
+        <div id="settingsSetupNoticesList"></div>
+        <p class="settings-note settings-notices-note">Required tools like ffmpeg are always shown when missing.</p>
+      </div>
     `;
   }
 
+  /* Setup notices the user hid with "Don't show again" on the setup banner.
+     The group stays hidden unless something is hidden. Same source as the
+     banner (/api/setup-check), which answers 423 while locked: then nothing. */
+  async function loadSetupNotices() {
+    const box = document.getElementById('settingsSetupNotices');
+    const list = document.getElementById('settingsSetupNoticesList');
+    if (!box || !list) return;
+    let tools;
+    try {
+      const resp = await fetch('/api/setup-check');
+      if (!resp.ok) { box.hidden = true; return; }
+      tools = await resp.json();
+    } catch { box.hidden = true; return; }
+    const hidden = Object.entries(tools || {}).filter(([, t]) => t && t.hidden && !t.required && !t.ok);
+    box.hidden = hidden.length === 0;
+    list.innerHTML = hidden.map(([key, t]) => `
+      <div class="settings-notices-row">
+        <span>Hidden: ${escapeHtml(t.label)}${t.feature ? `, for ${escapeHtml(t.feature)}` : ''}</span>
+        <button class="settings-btn settings-btn-quiet" data-show-notice="${escapeHtml(key)}">Show again</button>
+      </div>`).join('');
+    list.querySelectorAll('[data-show-notice]').forEach(btn => btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        const r = await fetch('/api/setup/hidden', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tool: btn.dataset.showNotice, hidden: false }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        try { sessionStorage.removeItem('vault_setup_banner_dismissed'); } catch {}
+        showToast?.('Shown again. It appears on the next reload while the tool is missing');
+      } catch {
+        showToast?.('Could not save that. Try again');
+      }
+      loadSetupNotices();
+    }));
+  }
+
   async function loadAbout() {
+    loadSetupNotices();
     try {
       const resp = await fetch('/api/about');
       if (!resp.ok) return;
