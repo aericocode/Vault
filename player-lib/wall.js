@@ -27,7 +27,10 @@
      is still fading out. A remux (HLS) stream counts as 2 and only one runs
      at a time: the server runs at most 2 FFmpeg sessions for the whole app
      and a third would kill the main player's. In Scroll mode the slots go to
-     blocks fully in view first; blocks leaving the top give theirs up first.
+     blocks mostly in view first (at least 66% of the block, or of the board
+     for a taller block, is on the board); a playing block that is no longer
+     mostly in view at the top, or is off the board, is the first to give its
+     slot to a block mostly in view that needs one.
    - Every replaced <video> is released (pause, src removed, load(), hls
      destroyed, stream closed). Leaving the tab, opening the player, locking
      the library or closing the page releases them all. A hidden browser tab
@@ -66,7 +69,7 @@ const Wall = (() => {
     playing:     { min: 1, max: 16, step: 1, def: 6 },
     picSpeed:    { min: 2, max: 60, step: 1, def: 8 },     // seconds between picture changes
     clipLen:     { min: 5, max: 120, step: 1, def: 20 },   // seconds a clip plays
-    colWidth:    { min: 120, max: 960, step: 10, def: 390 },
+    colWidth:    { min: 120, max: 1280, step: 10, def: 390 },
     gap:         { min: 0, max: 12, step: 1, def: 4 },
     scrollSpeed: { min: 1, max: 10, step: 1, def: 4 },
   };
@@ -97,6 +100,10 @@ const Wall = (() => {
   const READY_CAP = 1500;            // the most rows the buffer holds
   const REBASE_AT = 20000;           // scroll offset (px) at which coordinates are rebased
   const FS_IDLE_MS = 3000;
+  // Scroll: a block is "mostly in view" while at least this share of its
+  // height (of the board's height, for a block taller than the board) is on
+  // the board, top or bottom part. It may play and be heard while it is.
+  const MOSTLY = 0.66;
 
   /* ── Settings ───────────────────────────────────────────────────────── */
 
@@ -171,6 +178,53 @@ const Wall = (() => {
 
   /** Scroll speed level (1 to 10) in pixels per second. */
   const speedPx = () => 10 * Math.pow(1.4, cfg.scrollSpeed - 1);
+
+  /**
+   * The share of a block (top y, height h) on a board showing top..top+H,
+   * measured against min(h, H) so a block taller than the board can reach 1.
+   */
+  function visibleFrac(y, h, top, H) {
+    const base = Math.min(h, H);
+    if (!(base > 0)) return 0;
+    const seen = Math.min(y + h, top + H) - Math.max(y, top);
+    return Math.max(0, Math.min(1, seen / base));
+  }
+
+  /** Scroll: at least MOSTLY of the block is on the board (half a pixel of slack). */
+  function mostlyInView(y, h, top, H) {
+    return visibleFrac(y, h, top, H) * Math.min(h, H) >= MOSTLY * Math.min(h, H) - 0.5;
+  }
+
+  /**
+   * Scroll: ms until a block drifting up at `pxPerSec` stops being mostly in
+   * view at the top (its bottom part shrinks below MOSTLY). Negative once past.
+   */
+  function scrollLeftMs(y, h, offset, H, pxPerSec) {
+    return (y + h - MOSTLY * Math.min(h, H) - offset) / pxPerSec * 1000;
+  }
+
+  /**
+   * Scroll: which leaving clips to stop so a clip costing `cost` can start.
+   * `leaving` is [{ cost, remux }], soonest gone first. Returns the indices to
+   * stop ([] = it fits already), null when stopping every leaving clip would
+   * still not make room, or 'remux' when the one remux slot is held by a clip
+   * that is not leaving (stopping others cannot help).
+   */
+  function scrollFreePlan(cost, isRemux, free, remuxFree, leaving) {
+    const stops = [];
+    if (isRemux && !remuxFree) {
+      const i = leaving.findIndex(l => l.remux);
+      if (i < 0) return 'remux';
+      stops.push(i);
+      free += leaving[i].cost;
+    }
+    for (let i = 0; i < leaving.length && free < cost; i++) {
+      if (stops.includes(i)) continue;
+      stops.push(i);
+      free += leaving[i].cost;
+    }
+    return free >= cost ? stops : null;
+  }
 
   /* ── State ──────────────────────────────────────────────────────────── */
 
@@ -1792,8 +1846,11 @@ const Wall = (() => {
 
   /**
    * Free slots go to the video blocks that have waited longest. In Scroll
-   * mode only blocks in view qualify, fully visible ones first, and a block
-   * already leaving the top gives its slot to a fully visible one.
+   * mode blocks mostly visible come first (those whose top has passed after
+   * the rest of them), then blocks entering at the bottom. A playing block
+   * that is no longer mostly visible at the top (or is off the board) gives
+   * its slot to a mostly visible block that needs it, and only as many are
+   * stopped as that block needs to start.
    */
   function fillSlots() {
     if (!running) return;
@@ -1812,22 +1869,46 @@ const Wall = (() => {
     }
     const top = drift.offset;
     const bottom = top + lay.H;
-    const full = (b) => b.y >= top && b.y + b.h <= bottom;
-    const cands = blocks.filter(b => canPlay(b) && b.y >= top && b.y < bottom);
-    cands.sort((a, c) => (full(c) - full(a)) || (a.lastPlayedAt - c.lastPlayedAt) || (a.y - c.y));
-    // Playing blocks that are leaving (or out of view), soonest gone first.
-    const leaving = blocks.filter(b => b.video && !full(b) && (b.y < top || b.y >= bottom))
+    const mostly = (b) => mostlyInView(b.y, b.h, top, lay.H);
+    // Candidates: blocks whose top is on the board (one entering at the bottom
+    // may take a free slot before it is mostly in view), and "late" blocks
+    // whose top has passed but that are still mostly in view (most never got
+    // a slot while the cap was full). A late clip would leave soon and every
+    // start costs a seek on the drive, so late blocks come after the others
+    // that are mostly in view, take only slots that are free, and never hold
+    // slots back for themselves.
+    const late = (b) => b.y < top;
+    const cands = blocks.filter(b => canPlay(b) && b.y < bottom && (b.y >= top || mostly(b)));
+    cands.sort((a, c) => (mostly(c) - mostly(a)) || (late(a) - late(c))
+      || (a.lastPlayedAt - c.lastPlayedAt) || (a.y - c.y));
+    // Playing blocks that are leaving the top (or off the board), soonest gone
+    // first. Not the hovered one: Pause on hover asked it to stay.
+    const leaving = blocks.filter(b => b.video && !b.held && !mostly(b) && (b.y < top || b.y >= bottom))
       .sort((a, c) => a.y - c.y);
     for (const b of cands) {
-      if (startVideo(b)) continue;
-      if (!full(b)) break;
-      // Freeing slots cannot help a remux clip while another remux runs.
-      if (playMode(b.item) === 'remux' && liveRemux >= MAX_REMUX) continue;
-      while (leaving.length) {
-        stopVideo(leaving.shift());
-        if (startVideo(b)) break;
+      const mode = playMode(b.item);
+      if (!mode || (mode === 'remux' && cfg.directOnly)) continue;   // never plays here
+      const cost = mode === 'remux' ? REMUX_COST : 1;
+      if (cost > cfg.playing) continue;
+      // Only a block mostly in view whose top is on the board may have leaving
+      // clips stopped for it, and only as many as it needs to start.
+      const claims = mostly(b) && !late(b);
+      const pool = claims ? leaving : [];
+      const plan = scrollFreePlan(cost, mode === 'remux', cfg.playing - liveCost, liveRemux < MAX_REMUX,
+        pool.map(l => ({ cost: l.video.cost, remux: l.video.mode === 'remux' })));
+      // A clip that is staying holds the remux slot: wait, and let the others play.
+      if (plan === 'remux') continue;
+      if (plan === null) {
+        // Not enough room yet. A block mostly in view (top on the board)
+        // holds back the slots that free up next for itself, until it starts
+        // or its top passes the board top. At a cap of 2 this can leave a
+        // slot idle for a remux clip that never gets room; a known trade-off,
+        // without it remux clips in Scroll would hardly ever play.
+        if (claims) break;
+        continue;
       }
-      if (!b.video && !leaving.length) break;
+      for (const i of plan.slice().sort((x, y) => y - x)) stopVideo(pool.splice(i, 1)[0]);
+      startVideo(b);
     }
   }
 
@@ -1993,24 +2074,35 @@ const Wall = (() => {
     return rec.audio;
   }
 
-  /** A block's clip that is playing now and can hold the sound. */
-  function playingRec(b) {
+  /**
+   * A block's clip that is playing now and can hold the sound. In Scroll, a
+   * clip for Auto must be mostly in view (once it is not, at the top, it may
+   * lose its slot any moment); with `onBoard` (the hovered clip) any part of
+   * it on the board will do.
+   */
+  function playingRec(b, onBoard) {
     const rec = b.video;
     if (!rec || rec.released || b.dead || !b.startedAt) return null;
-    // Scroll: a block whose top has left the board may lose its slot any moment.
-    if (cfg.mode === 'scroll' && (b.y < drift.offset - 1 || b.y >= drift.offset + lay.H)) return null;
+    if (cfg.mode === 'scroll') {
+      const top = drift.offset;
+      const seen = onBoard
+        ? b.y < top + lay.H && b.y + b.h > top
+        : mostlyInView(b.y, b.h, top, lay.H);
+      if (!seen) return null;
+    }
     return rec;
   }
 
   /**
    * How long (ms) this clip still plays on the wall, as far as the wall
-   * knows: Grid, until its swap or its end; Scroll, until its top reaches
-   * the top of the board (from then on it can lose its slot at any moment).
+   * knows: Grid, until its swap or its end; Scroll, until it stops being
+   * mostly in view at the top (from then on it can lose its slot at any
+   * moment); Infinity while the drift is paused.
    */
   function timeLeft(b, t) {
     if (cfg.mode === 'scroll') {
       if (!driftShouldRun()) return Infinity;
-      return (b.y - drift.offset) / speedPx() * 1000;
+      return scrollLeftMs(b.y, b.h, drift.offset, lay.H, speedPx());
     }
     // A held block gets at least 1.5 s again when the mouse leaves (hoverEnd).
     const swapIn = b.held ? Math.max(1500, b.holdLeft) : b.dueAt - t;
@@ -2024,7 +2116,7 @@ const Wall = (() => {
   /** The clip that should be heard right now, or null. Keeps Auto's pick up to date. */
   function wantedRec() {
     if (!running || !active || playerOpen || cfg.sound === 'off') return null;
-    if (cfg.sound === 'hover') return hoverBlock ? playingRec(hoverBlock) : null;
+    if (cfg.sound === 'hover') return hoverBlock ? playingRec(hoverBlock, true) : null;
     const t = now();
     const cands = [];
     // Only clips with sound: a silent clip must never hold it while another could be heard.
@@ -2054,7 +2146,7 @@ const Wall = (() => {
     // A hovered clip borrows the sound while hovered (with Pause on hover on).
     // Only a clip known to have sound borrows it, so hovering a silent clip
     // never mutes the wall.
-    const hovered = hoverBlock && hoverBlock.held ? playingRec(hoverBlock) : null;
+    const hovered = hoverBlock && hoverBlock.held ? playingRec(hoverBlock, true) : null;
     return (hovered && hasAudio(hovered) === true) ? hovered : autoRec;
   }
 
@@ -2374,7 +2466,7 @@ const Wall = (() => {
   return {
     enter, leave, lockStop,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { cfgFrom, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, setDue, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
+    _pure: { cfgFrom, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, mostlyInView, scrollLeftMs, scrollFreePlan, MOSTLY, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
     _audio: () => {
       const t = now();

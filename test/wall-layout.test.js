@@ -356,3 +356,76 @@ test('pause on hover: a held block\'s remaining time follows every new swap time
   assert.strictEqual(free.dueAt, 9000);
   assert.strictEqual(free.holdLeft, 123);
 });
+
+test('settings: Block size reaches 1280 and stops there', () => {
+  assert.strictEqual(W.RANGES.colWidth.max, 1280);
+  assert.strictEqual(W.cfgFrom({ v: 2, colWidth: 1280 }).colWidth, 1280);
+  assert.strictEqual(W.cfgFrom({ v: 2, colWidth: 1000 }).colWidth, 1000, 'above the old 960 cap is kept');
+  assert.strictEqual(W.cfgFrom({ v: 2, colWidth: 5000 }).colWidth, 1280);
+  assert.strictEqual(W.cfgFrom({ blockSize: 800 }).colWidth, 1200, 'a first-Wall row height follows the new cap');
+  assert.strictEqual(W.cfgFrom({ blockSize: 2000 }).colWidth, 1280);
+});
+
+test('scroll: mostly in view = at least 66% of min(block, board) on the board', () => {
+  assert.strictEqual(W.MOSTLY, 0.66);
+  const H = 1000;
+  // A 300 px block fully on the board, then leaving the top.
+  assert.strictEqual(W.visibleFrac(100, 300, 0, H), 1);
+  assert.ok(W.mostlyInView(100, 300, 0, H));
+  assert.ok(W.mostlyInView(-102, 300, 0, H), '198 px of 300 (66%) still shows at the top');
+  assert.ok(!W.mostlyInView(-110, 300, 0, H), '190 px of 300 is not enough');
+  // Entering at the bottom.
+  assert.ok(W.mostlyInView(H - 198, 300, 0, H));
+  assert.ok(!W.mostlyInView(H - 150, 300, 0, H));
+  // Off the board either way.
+  assert.strictEqual(W.visibleFrac(-400, 300, 0, H), 0);
+  assert.strictEqual(W.visibleFrac(H + 10, 300, 0, H), 0);
+  assert.ok(!W.mostlyInView(H, 300, 0, H));
+  // The board's offset moves with the drift.
+  assert.ok(W.mostlyInView(5000, 300, 4900, H));
+  assert.ok(!W.mostlyInView(4700, 300, 4900, H));
+  // A block taller than the board counts against the board's height.
+  assert.strictEqual(W.visibleFrac(-200, 1500, 0, H), 1, 'it fills the whole board');
+  assert.ok(W.mostlyInView(-200, 1500, 0, H));
+  assert.ok(W.mostlyInView(-840, 1500, 0, H), '660 px of a 1000 px board');
+  assert.ok(!W.mostlyInView(-900, 1500, 0, H));
+  assert.ok(W.mostlyInView(H - 660, 1500, 0, H), 'its top part, entering');
+  assert.strictEqual(W.visibleFrac(0, 0, 0, H), 0, 'no height, no view');
+});
+
+test('scroll: time left runs out when the block stops being mostly in view at the top', () => {
+  const H = 1000, speed = 20;   // px per second
+  // y 100, h 300: 66% of 300 is 198, so it is mostly in view until offset 202.
+  assert.strictEqual(W.scrollLeftMs(100, 300, 0, H, speed), 202 / 20 * 1000);
+  const offAt = 0 + W.scrollLeftMs(100, 300, 0, H, speed) / 1000 * speed;
+  assert.ok(Math.abs(offAt - 202) < 1e-9);
+  assert.ok(W.mostlyInView(100, 300, offAt, H));
+  assert.ok(!W.mostlyInView(100, 300, offAt + 1, H));
+  // Already past: negative.
+  assert.ok(W.scrollLeftMs(100, 300, 300, H, speed) < 0);
+  // A block taller than the board: 66% of the board, not of the block.
+  assert.strictEqual(W.scrollLeftMs(0, 1500, 0, H, 10), (1500 - 660) / 10 * 1000);
+  // A block lower down has more time left than one near the top.
+  assert.ok(W.scrollLeftMs(600, 300, 0, H, speed) > W.scrollLeftMs(100, 300, 0, H, speed));
+});
+
+test('Scroll: only as many leaving clips stop as a clip needs, and none when that cannot help', () => {
+  // Arrays from the VM: copy them into this realm before comparing.
+  const plan = (...a) => { const v = W.scrollFreePlan(...a); return Array.isArray(v) ? [...v] : v; };
+  const n = { cost: 1, remux: false };
+  const r = { cost: 2, remux: true };
+  // Fits already: nothing stops.
+  assert.deepStrictEqual(plan(1, false, 1, true, [n, n]), []);
+  // A native clip needs one slot: the soonest gone leaving clip stops.
+  assert.deepStrictEqual(plan(1, false, 0, true, [n, n]), [0]);
+  // A remux clip needs two: two natives stop, or the leaving remux alone.
+  assert.deepStrictEqual(plan(2, true, 0, true, [n, n, n]), [0, 1]);
+  assert.deepStrictEqual(plan(2, true, 0, false, [n, r]), [1]);
+  // The remux slot is held by a clip that is staying: stopping others cannot help.
+  assert.strictEqual(plan(2, true, 2, false, [n, n]), 'remux');
+  // Not enough to free: nothing is stopped.
+  assert.strictEqual(plan(2, true, 0, true, [n]), null);
+  assert.strictEqual(plan(1, false, 0, true, []), null);
+  // The leaving remux plus one free slot already covers a remux clip.
+  assert.deepStrictEqual(plan(2, true, 1, false, [n, r]), [1]);
+});
