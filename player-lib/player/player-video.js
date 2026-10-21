@@ -161,7 +161,7 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
   // before this point and does not care where the bytes come from.
   attachPlaybackSource(
     video,
-    currentMediaState.currentMediaData?.id || null,
+    currentMediaState.playbackMediaId || null,
     filepath,
     fileUrl,
   );

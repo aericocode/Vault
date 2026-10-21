@@ -993,7 +993,7 @@ function playMediaById(id) {
   hideTilePopover();
   // Mixes play in the main player too (renderMixPlayer); the sidebar's
   // "🎛 Open in Editor" button covers tweaking
-  playMedia({ filepath: m.filepath, filename: m.filename, media_type: m.media_type });
+  playMedia({ id: m.id, filepath: m.filepath, filename: m.filename, media_type: m.media_type });
 }
 
 /* A click on a tile's picture plays it, except in the Modern look with the

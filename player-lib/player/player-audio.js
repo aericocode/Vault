@@ -142,7 +142,7 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
   // MPEG-TS instead of just failing. See player-stream.js.
   attachPlaybackSource(
     audio,
-    currentMediaState.currentMediaData?.id || null,
+    currentMediaState.playbackMediaId || null,
     filepath,
     fileUrl,
   );

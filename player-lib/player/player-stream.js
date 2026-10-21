@@ -132,6 +132,26 @@ function _supportsHls() {
 /* ── Attaching a source ───────────────────────────────────────────────────── */
 
 /**
+ * The library row id to make the playback decision for. An explicit id in
+ * playMedia's argument wins, then the row the file has in the current results,
+ * then any row the client already holds for that path (a file outside the
+ * results: a Wall collection, a saved search, a person's page). Null only for
+ * something that is not a library file at all. Pure, for the tests.
+ *
+ * @param {{id?: number, filepath?: string}} mediaData
+ * @param {{id: number}|null} resultsRow
+ * @param {(filepath: string) => ({id: number}|null)} rowByPath
+ */
+function playbackMediaIdFor(mediaData, resultsRow, rowByPath) {
+  const given = Number(mediaData && mediaData.id);
+  if (Number.isInteger(given) && given > 0) return given;
+  if (resultsRow && resultsRow.id) return resultsRow.id;
+  const fp = mediaData && mediaData.filepath;
+  const row = fp && typeof rowByPath === 'function' ? rowByPath(fp) : null;
+  return (row && row.id) || null;
+}
+
+/**
  * Re-state the session playback speed on this element.
  *
  * Loading a source resets playbackRate to defaultPlaybackRate, so every place
@@ -159,6 +179,7 @@ async function attachPlaybackSource(el, mediaId, filepath, fallbackUrl, opts = {
   // No id (a mix, a stub, anything not in the library): behave exactly as the
   // player did before this feature existed.
   if (!mediaId) {
+    delete el.dataset.playbackMediaId;
     el.src = fallbackUrl;
     _keepSessionSpeed(el);
     if (opts.autoplay !== false) el.play().catch(() => {});
@@ -175,6 +196,7 @@ async function attachPlaybackSource(el, mediaId, filepath, fallbackUrl, opts = {
   if (!el.isConnected) return { mode: 'stale' };
 
   if (!info) {
+    el.dataset.playbackMediaId = String(mediaId);
     el.src = fallbackUrl;
     _keepSessionSpeed(el);
     if (opts.autoplay !== false) el.play().catch(() => {});

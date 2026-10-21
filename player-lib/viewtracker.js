@@ -130,7 +130,7 @@ document.addEventListener('loadedmetadata', (e) => {
   // are still saved (pause handler below), so re-enabling restores behavior.
   if (typeof vaultSetting === 'function' && vaultSetting('resumePlayback') === false) return;
 
-  const item = _mediaItemFromSrc(el.currentSrc || el.src);
+  const item = _mediaItemFor(el);
   const pos = item?.last_position || 0;
   if (item && pos > RESUME_MIN_S && el.duration > 0 && pos < el.duration * RESUME_MAX_FRACTION) {
     el.currentTime = pos;
@@ -145,12 +145,24 @@ document.addEventListener('pause', (e) => {
   if (!(el instanceof HTMLElement) || !['VIDEO', 'AUDIO'].includes(el.tagName)) return;
   if (!el.closest('#mediaPlayerContent') && !el.closest('#miniPlayerMedia')) return;
   flushWatchHeat();
-  const item = _mediaItemFromSrc(el.currentSrc || el.src);
+  const item = _mediaItemFor(el);
   if (item && el.currentTime > 0 && el.duration > 0) {
     const finished = el.currentTime >= el.duration * RESUME_MAX_FRACTION;
     _savePosition(item, finished ? 0 : el.currentTime);
   }
 }, true);
+
+/**
+ * The library row playing in `el`. The id player-stream.js stamps on the
+ * element comes first: a converted (remux) file plays through hls.js, whose
+ * src is a blob: URL that names no file. The src is the fallback for anything
+ * played without that stamp.
+ */
+function _mediaItemFor(el) {
+  const id = Number(el && el.dataset && el.dataset.playbackMediaId);
+  const row = id > 0 ? getMediaById(id) : null;
+  return row || _mediaItemFromSrc(el && (el.currentSrc || el.src));
+}
 
 function _mediaItemFromSrc(src) {
   try {
@@ -177,7 +189,7 @@ document.addEventListener('timeupdate', (e) => {
     flushWatchHeat();
     _watch = {
       src,
-      item: _mediaItemFromSrc(src),
+      item: _mediaItemFor(el),
       accumulated: 0,
       lastTime: el.currentTime,
       counted: false,

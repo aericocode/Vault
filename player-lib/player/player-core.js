@@ -415,6 +415,11 @@ function playMedia(mediaData, { source = 'user' } = {}) {
   currentMediaState.currentIndex = getCurrentMediaIndex(filepath);
   currentMediaState.currentMediaData = currentMediaState.currentIndex >= 0
     ? Library.rowByPath(filepath) : null;
+  // The row id the playback decision uses (remux or native, player-stream.js).
+  // Unlike currentMediaData it is set for any library file, in the current
+  // results or not (a Wall collection, a saved search), so a file that needs
+  // converting is converted wherever it was opened from.
+  currentMediaState.playbackMediaId = playbackMediaIdFor(mediaData, currentMediaState.currentMediaData, Library.rowByPath);
   pinPlayerNeighbours(currentMediaState.currentIndex);
   // Remember it so the library can mark this tile on close (keeps the user's place)
   if (currentMediaState.currentMediaData) lastOpenedMediaId = currentMediaState.currentMediaData.id;
@@ -436,6 +441,7 @@ function playMedia(mediaData, { source = 'user' } = {}) {
   // Reset state but preserve currentIndex and currentMediaData
   const preservedIndex = currentMediaState.currentIndex;
   const preservedMediaData = currentMediaState.currentMediaData;
+  const preservedPlaybackId = currentMediaState.playbackMediaId;
   
   currentMediaState = {
     type: media_type,
@@ -455,6 +461,7 @@ function playMedia(mediaData, { source = 'user' } = {}) {
     gainNode: null,
     mediaSource: null,
     currentMediaData: preservedMediaData,
+    playbackMediaId: preservedPlaybackId,
     previousVolume: currentMediaState.previousVolume || 1,
     fontSize: 14,
     wordWrap: true,
