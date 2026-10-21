@@ -592,6 +592,31 @@
   margin-top: 0.5rem;
 }
 
+/* Setup notices hidden from the banner, with "Show again". */
+.settings-notices[hidden] { display: none; }
+.settings-notices-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.88rem;
+  color: var(--text-primary);
+}
+.settings-notices-row[hidden] { display: none; }
+.settings-btn.settings-btn-quiet {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  padding: 0.35rem 0.8rem;
+}
+.settings-btn.settings-btn-quiet:hover { border-color: var(--accent); }
+.settings-btn.settings-btn-quiet:disabled { opacity: 0.5; cursor: default; }
+.settings-notices-note { margin-top: 0.5rem; }
+
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 
 @media (max-width: 640px) {

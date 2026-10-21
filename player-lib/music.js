@@ -253,13 +253,42 @@ async function loadMusicSidebar(mediaId) {
   musicBoxes(mediaId).forEach(b => { b.innerHTML = html; });
 }
 
+/* Music ID offers the fpcalc download itself, where it is needed. The setup
+   banner's row can be hidden for good ("Don't show again"), so pointing at the
+   banner would leave someone who later tries Music ID with no way forward.
+   Empty when fpcalc is present or the banner script (window.vaultSetup) isn't
+   loaded. */
+function musicFpcalcFixHtml() {
+  if (!musicTools || musicTools.fpcalcVersion || !window.vaultSetup?.downloadTool) return '';
+  return `
+    <div class="music-fp-fix">
+      <button class="music-btn music-btn-primary" onclick="musicDownloadFpcalc(this)"
+        title="Fetches fpcalc and puts it next to Vault. Nothing else is installed">⬇ Download fpcalc (~1 MB)</button>
+      <span class="music-hint" data-music-fp-status></span>
+    </div>`;
+}
+
+async function musicDownloadFpcalc(btn) {
+  const status = btn.parentElement.querySelector('[data-music-fp-status]');
+  btn.disabled = true;
+  const ok = await window.vaultSetup.downloadTool('fpcalc', (msg) => { if (status) status.textContent = msg; });
+  if (!ok) { btn.disabled = false; return; }
+  showToast?.('✓ fpcalc ready');
+  await loadMusicStatus();
+  // Re-render every surface that showed the warning.
+  const ids = new Set([...document.querySelectorAll('[data-music-box]')].map(b => Number(b.dataset.musicBox)));
+  ids.forEach(id => loadMusicSidebar(id));
+  if (typeof renderEditorStatusPanel === 'function') renderEditorStatusPanel();
+}
+
 function musicSidebarHtml(mediaId, info) {
   const parts = [];
 
   // Fingerprint state / actions
   if (!info.fingerprinted) {
     if (musicTools && !musicTools.ok) {
-      parts.push(`<div class="music-hint music-warn">⚠ ${escapeHtml(musicTools.errors[0] || 'fpcalc/ffmpeg missing')}</div>`);
+      parts.push(`<div class="music-hint music-warn">⚠ ${escapeHtml(musicTools.errors[0] || 'fpcalc/ffmpeg missing')}</div>`
+        + musicFpcalcFixHtml());
     } else {
       parts.push(`
         <div class="music-fp-cta">

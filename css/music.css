@@ -35,6 +35,16 @@
   line-height: 1.35;
 }
 
+/* Music ID's own fpcalc download, under the missing-tool warning */
+.music-fp-fix {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.35rem 0 0.5rem;
+}
+.music-fp-fix[hidden] { display: none; }
+
 .music-hint.music-warn {
   color: var(--warning);
 }

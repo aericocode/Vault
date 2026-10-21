@@ -2,7 +2,8 @@
    SETTINGS — the app's info + preferences hub (replaces the old license UI)
 
    A dim ⚙ button at the end of .header-buttons opens a house-style modal with
-   left-nav sections: Settings · Guides · Models · Seed packs · Move to Cove · About.
+   left-nav sections: Settings · Library · Face search · Keyboard shortcuts · Guides ·
+   Models · Seed packs · Backend · About.
 
    All preferences persist to localStorage under one JSON blob (vault_settings)
    and are applied at boot (the privacy-mode body class is applied the moment
@@ -541,6 +542,8 @@
     { id: 'library',   label: '🗂 Library' },
     // Always listed: this is where face search is turned on (player-lib/faces.js).
     { id: 'faces',     label: '👤 Face search' },
+    // Read-only list from player-lib/shortcuts.js (the same table the ? window shows).
+    { id: 'shortcuts', label: '⌨ Keyboard shortcuts' },
     { id: 'guides',    label: '📖 Guides' },
     { id: 'models',    label: '🧠 Models' },
     { id: 'seedpacks', label: '📦 Seed packs' },
@@ -602,6 +605,7 @@
     if (id === 'library') wireLibrarySection();
     // The Face search section wires and polls itself (player-lib/faces.js).
     if (id === 'faces' && typeof facesWireSettings === 'function') facesWireSettings();
+    if (id === 'shortcuts' && typeof shortcutsWireSettings === 'function') shortcutsWireSettings();
     if (id === 'seedpacks') wireSeedpacksSection();
     if (id === 'about') loadAbout();
     // The Move to Cove tab polls too, and only while it is on screen.
@@ -3082,10 +3086,54 @@
           <a href="https://ko-fi.com/aericocode" target="_blank" rel="noopener">Ko-fi 🌿 ↗</a>
         </div>
       </div>
+      <div class="settings-notices" id="settingsSetupNotices" hidden>
+        <h3 class="settings-h settings-h-mt">Setup notices</h3>
+        <div id="settingsSetupNoticesList"></div>
+        <p class="settings-note settings-notices-note">Required tools like ffmpeg are always shown when missing.</p>
+      </div>
     `;
   }
 
+  /* Setup notices the user hid with "Don't show again" on the setup banner.
+     The group stays hidden unless something is hidden. Same source as the
+     banner (/api/setup-check), which answers 423 while locked: then nothing. */
+  async function loadSetupNotices() {
+    const box = document.getElementById('settingsSetupNotices');
+    const list = document.getElementById('settingsSetupNoticesList');
+    if (!box || !list) return;
+    let tools;
+    try {
+      const resp = await fetch('/api/setup-check');
+      if (!resp.ok) { box.hidden = true; return; }
+      tools = await resp.json();
+    } catch { box.hidden = true; return; }
+    const hidden = Object.entries(tools || {}).filter(([, t]) => t && t.hidden && !t.required && !t.ok);
+    box.hidden = hidden.length === 0;
+    list.innerHTML = hidden.map(([key, t]) => `
+      <div class="settings-notices-row">
+        <span>Hidden: ${escapeHtml(t.label)}${t.feature ? `, for ${escapeHtml(t.feature)}` : ''}</span>
+        <button class="settings-btn settings-btn-quiet" data-show-notice="${escapeHtml(key)}">Show again</button>
+      </div>`).join('');
+    list.querySelectorAll('[data-show-notice]').forEach(btn => btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        const r = await fetch('/api/setup/hidden', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tool: btn.dataset.showNotice, hidden: false }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        try { sessionStorage.removeItem('vault_setup_banner_dismissed'); } catch {}
+        showToast?.('Shown again. It appears on the next reload while the tool is missing');
+      } catch {
+        showToast?.('Could not save that. Try again');
+      }
+      loadSetupNotices();
+    }));
+  }
+
   async function loadAbout() {
+    loadSetupNotices();
     try {
       const resp = await fetch('/api/about');
       if (!resp.ok) return;
@@ -3726,6 +3774,7 @@
     settings:  RENDERERS_settings,
     library:   RENDERERS_library,
     faces:     () => (typeof facesSettingsHtml === 'function' ? facesSettingsHtml() : ''),
+    shortcuts: () => (typeof shortcutsSettingsHtml === 'function' ? shortcutsSettingsHtml() : ''),
     guides:    RENDERERS_guides,
     models:    RENDERERS_models,
     seedpacks: RENDERERS_seedpacks,

@@ -20,6 +20,11 @@
    session only — a setup problem that survives a reload deserves to be seen
    again. Degrades to silence: an older server without the route, or a locked
    vault answering 423, simply renders nothing.
+
+   Optional rows also get "Don't show again", which hides that one tool for
+   good (POST /api/setup/hidden, stored server side so every browser that opens
+   this library agrees). Settings > About lists what is hidden and can show it
+   again. Required tools never get the link: ffmpeg missing means imports fail.
    ========================================================================= */
 (function () {
   const DISMISS_KEY = 'vault_setup_banner_dismissed';
@@ -39,8 +44,10 @@
           <div class="setup-banner-desc">Needed for ${escapeHtml(t.needed)}.</div>
           <div class="setup-banner-cmd">
             ${t.downloadable ? `<button class="setup-banner-btn setup-banner-primary" data-dl="${key}"
-              title="Fetches it and puts it next to Vault. Nothing else is installed">⬇ Download for me (~${t.sizeMB} MB)</button>
-            <span class="setup-banner-desc" data-dl-status="${key}"></span>` : ''}
+              title="Fetches it and puts it next to Vault. Nothing else is installed">⬇ Download for me (~${t.sizeMB} MB)</button>` : ''}
+            ${t.required ? '' : `<button class="setup-banner-link" data-hide="${key}"
+              title="Hide this notice on this computer. Show it again from Settings > About">Don't show again</button>`}
+            <span class="setup-banner-desc" data-dl-status="${key}"></span>
           </div>
           <div class="setup-banner-desc">Or install it yourself: ${manual}</div>
         </div>
@@ -81,45 +88,90 @@
       const key = btn.dataset.dl;
       const status = el.querySelector(`[data-dl-status="${key}"]`);
       btn.disabled = true;
-      try {
-        const r = await fetch(`/api/setup/download/${key}`, { method: 'POST' });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) { status.textContent = '⚠ ' + (j.error || `HTTP ${r.status}`); btn.disabled = false; return; }
-      } catch (e) {
-        status.textContent = '⚠ ' + e.message; btn.disabled = false; return;
-      }
-      const poll = setInterval(async () => {
-        let s;
-        try { s = await (await fetch(`/api/setup/download/${key}`)).json(); }
-        catch { return; }                        // transient — keep polling
-        if (s.state === 'downloading') status.textContent = `Downloading… ${s.pct || 0}%`;
-        else if (s.state === 'extracting') status.textContent = 'Extracting…';
-        else if (s.state === 'done') {
-          clearInterval(poll);
-          const row = el.querySelector(`.setup-banner-row[data-tool="${key}"]`);
-          row.classList.add('setup-banner-ok');
-          row.querySelector('.setup-banner-ic').textContent = '✓';
-          row.querySelector('.setup-banner-text').innerHTML =
-            `<div class="setup-banner-title">Installed next to Vault. Ready, no restart needed.</div>`;
-          showToast?.('✓ ' + key + ' ready');
-          setTimeout(() => {
-            row.remove();
-            // Last row gone → the banner itself has nothing left to say.
-            if (!el.querySelector('.setup-banner-row')) el.remove();
-          }, 6000);
-        } else if (s.state === 'error') {
-          clearInterval(poll);
-          status.textContent = `⚠ ${s.error || 'download failed'}. Try the manual install below`;
-          btn.disabled = false;
-        }
-      }, 700);
+      const ok = await downloadTool(key, (msg) => { status.textContent = msg; });
+      if (!ok) { btn.disabled = false; return; }
+      const row = el.querySelector(`.setup-banner-row[data-tool="${key}"]`);
+      row.classList.add('setup-banner-ok');
+      row.querySelector('.setup-banner-ic').textContent = '✓';
+      row.querySelector('.setup-banner-text').innerHTML =
+        `<div class="setup-banner-title">Installed next to Vault. Ready, no restart needed.</div>`;
+      showToast?.('✓ ' + key + ' ready');
+      setTimeout(() => removeRow(row), 6000);
     }));
+
+    el.querySelectorAll('[data-hide]').forEach(btn => btn.addEventListener('click', async () => {
+      const key = btn.dataset.hide;
+      const status = el.querySelector(`[data-dl-status="${key}"]`);
+      btn.disabled = true;
+      try {
+        const r = await fetch('/api/setup/hidden', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tool: key, hidden: true }),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.error || `HTTP ${r.status}`);
+        }
+      } catch (e) {
+        if (status) status.textContent = '⚠ Could not save that: ' + e.message;
+        btn.disabled = false;
+        return;
+      }
+      removeRow(el.querySelector(`.setup-banner-row[data-tool="${key}"]`));
+    }));
+
+    function removeRow(row) {
+      row?.remove();
+      // Last row gone → the banner itself has nothing left to say.
+      if (!el.querySelector('.setup-banner-row')) el.remove();
+    }
 
     el.querySelector('#setupDismissBtn')?.addEventListener('click', () => {
       try { sessionStorage.setItem(DISMISS_KEY, '1'); } catch {}
       el.remove();
     });
   }
+
+  /* POST the download, then poll until it lands. onStatus gets each progress
+     line; resolves true once the binary is in place and verified. Shared with
+     Music ID, which offers the same download where fpcalc is actually used. */
+  async function downloadTool(key, onStatus) {
+    try {
+      const r = await fetch(`/api/setup/download/${key}`, { method: 'POST' });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { onStatus('⚠ ' + (j.error || `HTTP ${r.status}`)); return false; }
+    } catch (e) {
+      onStatus('⚠ ' + e.message); return false;
+    }
+    return new Promise((resolve) => {
+      const poll = setInterval(async () => {
+        let s;
+        try { s = await (await fetch(`/api/setup/download/${key}`)).json(); }
+        catch { return; }                        // transient — keep polling
+        if (s.state === 'downloading') onStatus(`Downloading… ${s.pct || 0}%`);
+        else if (s.state === 'extracting') onStatus('Extracting…');
+        else if (s.state === 'done') { clearInterval(poll); onStatus('Ready'); resolve(true); }
+        else if (s.state === 'error') {
+          clearInterval(poll);
+          onStatus(`⚠ ${s.error || 'download failed'}. Try the manual install`);
+          resolve(false);
+        }
+      }, 700);
+    });
+  }
+
+  /* Which rows the banner shows: missing tools, minus optional ones the user
+     hid. A required tool shows whenever it is missing, even if a stale or
+     hand-edited setting claims it is hidden. Required first, so the row that
+     blocks scanning tops the banner. */
+  function bannerRows(tools) {
+    return Object.entries(tools || {})
+      .filter(([, t]) => t && !t.ok && (t.required || !t.hidden))
+      .sort(([, a], [, b]) => (b.required ? 1 : 0) - (a.required ? 1 : 0));
+  }
+
+  window.vaultSetup = { bannerRows, downloadTool };
 
   async function run() {
     try { if (sessionStorage.getItem(DISMISS_KEY)) return; } catch {}
@@ -129,10 +181,7 @@
       if (!resp.ok) return;                 // 423 while locked, or an older server
       tools = await resp.json();
     } catch { return; }
-    // Required tools first, so the row that blocks scanning tops the banner.
-    const missing = Object.entries(tools || {})
-      .filter(([, t]) => t && !t.ok)
-      .sort(([, a], [, b]) => (b.required ? 1 : 0) - (a.required ? 1 : 0));
+    const missing = bannerRows(tools);
     if (missing.length) render(missing);
   }
 

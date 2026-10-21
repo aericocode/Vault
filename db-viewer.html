@@ -57,6 +57,8 @@
   <link rel="stylesheet" href="./css/layout-modern.css">
   <!-- Table view (Modern look), scoped under .results-grid.grid-table -->
   <link rel="stylesheet" href="./css/table-view.css">
+  <!-- The ? window and Settings > Keyboard shortcuts -->
+  <link rel="stylesheet" href="./css/shortcuts.css">
 
   <link rel="icon" type="image/svg+xml" href="./images/favicon.svg">
 </head>
@@ -444,6 +446,8 @@
        filters.js and cards.js, which ask it whether a file can play. -->
   <script src="./player-lib/playback-decide.js"></script>
   <script src="./player-lib/utils.js"></script>
+  <!-- Keyboard shortcuts list (?) and isBrowserChord; early so its key listener runs first -->
+  <script src="./player-lib/shortcuts.js"></script>
   <script src="./player-lib/state.js"></script>
   <!-- The results and the row cache (server-side search, SERVER_SEARCH_SPEC 7.1) -->
   <script src="./player-lib/library.js"></script>

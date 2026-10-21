@@ -603,7 +603,7 @@ async function renderEditorStatusPanel() {
     <h3>🎵 Music ID</h3>
     ${t.ok
       ? '<div class="editor-tools-ok">✓ fpcalc + ffmpeg ready</div>'
-      : `<div class="music-hint music-warn">⚠ ${escapeHtml(t.errors[0] || 'tools missing')}</div>`}
+      : `<div class="music-hint music-warn">⚠ ${escapeHtml(t.errors[0] || 'tools missing')}</div>${musicFpcalcFixHtml()}`}
     <div class="editor-stats">
       <span title="Identified + placeholder songs">${s.songs} songs${s.unknown_songs ? ` (${s.unknown_songs} ❓)` : ''}</span>
       <span title="Files with stored fingerprints">${s.fingerprinted_media} files fingerprinted</span>
@@ -1882,6 +1882,8 @@ function buildMixUi(ctx) {
     if (currentTab !== 'editor' || !editorMix) return;
     if (e.target.matches('input, textarea, select')) return;
     if (document.getElementById('mediaPlayerOverlay')?.classList.contains('active')) return;
+    // Ctrl / Cmd chords (Ctrl+M, Ctrl+[) are the browser's (shortcuts.js).
+    if (typeof isBrowserChord === 'function' && isBrowserChord(e)) return;
     if (e.key === ' ' || e.code === 'Space') { e.preventDefault(); togglePlay(); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); seekBy(e.shiftKey ? -10 : -5); }
     else if (e.key === 'ArrowRight') { e.preventDefault(); seekBy(e.shiftKey ? 10 : 5); }

@@ -52,6 +52,19 @@
 .setup-banner-btn:hover { border-color: var(--accent); }
 .setup-banner-btn:disabled { opacity: 0.5; cursor: default; }
 .setup-banner-primary { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+/* "Don't show again" on optional rows: a quiet text link, not a second button */
+.setup-banner-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.75rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.setup-banner-link:hover { color: var(--text-primary); }
+.setup-banner-link:disabled { opacity: 0.5; cursor: default; }
 /* Optional tools (Music ID's fpcalc): listed, but visually beneath the tool
    that actually blocks scanning. */
 .setup-banner-row-optional { opacity: 0.85; padding-top: 0.4rem; }
