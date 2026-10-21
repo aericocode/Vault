@@ -99,7 +99,7 @@
 
   function toggle(key, title, desc) {
     const c = current();
-    return `<label class="settings-toggle">
+    return `<label class="settings-toggle" data-sfind="th-${key}">
         <span class="settings-toggle-text">
           <span class="settings-toggle-title">${title}</span>
           <span class="settings-toggle-desc">${desc}</span>
@@ -114,7 +114,7 @@
     return `
       <h3 class="settings-h">Thumbnails</h3>
       <div class="th-group" id="thGroup">
-        <div class="settings-toggle settings-seg-row">
+        <div class="settings-toggle settings-seg-row" data-sfind="thMake">
           <span class="settings-toggle-text">
             <span class="settings-toggle-title" id="segLabel_thMake">Make thumbnails</span>
             <span class="settings-toggle-desc">The small pictures on tiles, in the dock and on the Wall.</span>
@@ -127,7 +127,7 @@
           </span>
         </div>
 
-        <div class="th-sub" id="thKeepBox" ${c.make === 'shown' ? '' : 'hidden'}>
+        <div class="th-sub" id="thKeepBox" data-sfind="thKeep" ${c.make === 'shown' ? '' : 'hidden'}>
           ${radio('keep', 'Keep them', 'Made the first time a tile is on screen, then saved like today.')}
           ${radio('cap', `Keep up to ${sizeBox('diskCapMB', 'Disk limit')}`, 'On disk. The ones not seen for longest are removed first.')}
           ${radio('memory', `Only while Vault is running, up to ${sizeBox('memoryMB', 'Memory limit')}`, 'Held in memory, nothing saved to disk. The ones not seen for longest are dropped first. Tiles are made again after a restart.')}
@@ -142,7 +142,7 @@
         <p class="th-status" id="thStatus" role="status" aria-live="polite"></p>
 
         <div class="th-disc">
-          <button type="button" class="th-disc-h" id="thSpaceToggle" aria-expanded="${spaceOpen}" aria-controls="thSpaceBody">
+          <button type="button" class="th-disc-h" id="thSpaceToggle" data-sfind="thSpace" aria-expanded="${spaceOpen}" aria-controls="thSpaceBody">
             <span class="mig-chev" aria-hidden="true">${spaceOpen ? '&#9662;' : '&#9656;'}</span>
             <span>Space used and cleanup</span>
           </button>

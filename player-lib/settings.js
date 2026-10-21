@@ -21,6 +21,8 @@
    - window.vaultSetScanWorkers(n)     → clamp + persist + push it to the server
    - window.vaultFacesSize(which)      → Faces Size slider width in px ('people' | 'files')
    - window.vaultSetFacesSize(which, px) → clamp + persist it
+   - window.vaultSettingsSelect(id), vaultSettingsIsOpen(), vaultSettingsPageIds(),
+     vaultSettingsPageHtml(id) → for Settings search (player-lib/settings-search.js)
    ========================================================================= */
 
 (function () {
@@ -577,7 +579,7 @@
           <button class="settings-close" id="settingsCloseBtn" title="Close" aria-label="Close">&times;</button>
         </div>
         <div class="settings-layout">
-          <nav class="settings-nav" id="settingsNav">
+          <nav class="settings-nav" id="settingsNav" aria-label="Settings pages">
             ${SECTIONS.map((s, i) => `
               <button class="settings-nav-item ${i === 0 ? 'active' : ''}" data-section="${s.id}">${navLabel(s.label)}</button>
             `).join('')}
@@ -591,6 +593,8 @@
     overlay.querySelectorAll('.settings-nav-item').forEach(btn => {
       btn.addEventListener('click', () => selectSection(btn.dataset.section));
     });
+    // The search box at the top of the nav (player-lib/settings-search.js).
+    window.vaultSettingsSearchMount?.();
   }
 
   function selectSection(id) {
@@ -626,8 +630,17 @@
     const overlay = document.getElementById('settingsOverlay');
     overlay.classList.add('active');
     document.body.style.overflow = 'hidden';
+    window.vaultSettingsSearchReset?.();
     selectSection(SECTIONS.some(s => s.id === section) ? section : 'settings');
   }
+
+  // Settings search (player-lib/settings-search.js) goes to a page, asks
+  // whether Settings is open, and renders pages to check its index against.
+  window.vaultSettingsSelect = (id) => { if (SECTIONS.some(s => s.id === id)) selectSection(id); };
+  window.vaultSettingsIsOpen = () => isOpen();
+  window.vaultCloseSettings = () => closeModal();
+  window.vaultSettingsPageIds = () => SECTIONS.map(s => s.id);
+  window.vaultSettingsPageHtml = (id) => (RENDERERS[id] ? RENDERERS[id]() : '');
 
   // Deep link for anything outside this module that needs a specific section —
   // today the "files missing from disk" banner, which is only useful if it
@@ -659,7 +672,7 @@
   function toggleRow({ key, title, desc, planned = false, disabled = false, value }) {
     const on = planned ? false : (value !== undefined ? !!value : !!settings[key]);
     return `
-      <label class="settings-toggle ${disabled || planned ? 'is-disabled' : ''}">
+      <label class="settings-toggle ${disabled || planned ? 'is-disabled' : ''}" data-sfind="${esc(key)}">
         <span class="settings-toggle-text">
           <span class="settings-toggle-title">${title}${planned ? ` <span class="settings-tag">planned</span>` : ''}</span>
           <span class="settings-toggle-desc">${desc}</span>
@@ -674,7 +687,7 @@
   function numberRow({ key, title, desc, min, max, value, unit = '' }) {
     const v = value !== undefined ? value : settings[key];
     return `
-      <label class="settings-toggle">
+      <label class="settings-toggle" data-sfind="${key}">
         <span class="settings-toggle-text">
           <span class="settings-toggle-title">${title}</span>
           <span class="settings-toggle-desc">${desc}</span>
@@ -700,7 +713,7 @@
   function segRow({ key, title, desc, options, cls = '' }) {
     const current = settings[key];
     return `
-      <div class="settings-toggle settings-seg-row${cls ? ` ${cls}` : ''}">
+      <div class="settings-toggle settings-seg-row${cls ? ` ${cls}` : ''}" data-sfind="${key}">
         <span class="settings-toggle-text">
           <span class="settings-toggle-title" id="segLabel_${key}">${title}</span>
           <span class="settings-toggle-desc">${desc}</span>
@@ -723,7 +736,7 @@
   function privacyHideRow() {
     const off = settings.privacyMode ? '' : ' is-off';
     return `
-      <div class="settings-chips${off}" id="privacyHideChips" role="group" aria-label="Hide while on">
+      <div class="settings-chips${off}" id="privacyHideChips" role="group" aria-label="Hide while on" data-sfind="privacyHide">
         ${PRIVACY_HIDE_ITEMS.map(i => `
           <button type="button" class="settings-chip" aria-pressed="${settings.privacyHide?.[i.key] ? 'true' : 'false'}"
                   data-privacy-hide="${i.key}">${esc(i.short)}</button>`).join('')}
@@ -761,12 +774,12 @@
     return `
       <div class="settings-inst-row" id="settingsInstRow">
         <div class="settings-inst-line">
-          <div class="settings-inst-field">
+          <div class="settings-inst-field" data-sfind="instanceName">
             <label for="settingsInstName">Instance name</label>
             <input class="settings-text" type="text" id="settingsInstName" maxlength="40"
                    spellcheck="false" autocomplete="off" placeholder="Vault" value="${esc(instName())}">
           </div>
-          <div class="settings-inst-field">
+          <div class="settings-inst-field" data-sfind="port">
             <label for="settingsPort">Port
               <span class="settings-tag warn" id="settingsPortTag" hidden>restart to apply</span>
               <span class="settings-tag env" id="settingsPortEnvTag" hidden>set by MEDIA_TAGGER_PORT</span>
@@ -925,7 +938,7 @@
       })}
       ${instanceRow()}
 
-      <h3 class="settings-h">AI model downloads</h3>
+      <h3 class="settings-h" data-sfind="modelDownloads">AI model downloads</h3>
       <p class="settings-note">${modelDl.envAllows
         ? (modelDl.explicit
           ? 'Pre-approved by <code>SUB_ALLOW_DOWNLOADS=1</code> in your environment. Unset it to be asked per model instead.'
@@ -933,7 +946,7 @@
         : 'Turned off by <code>SUB_ALLOW_DOWNLOADS=0</code> or <code>VAULT_OFFLINE=1</code>. The environment overrides anything set here.'}</p>
       ${modelConsentRows()}
 
-      <h3 class="settings-h">Vault security</h3>
+      <h3 class="settings-h" data-sfind="vaultSecurity">Vault security</h3>
       <p class="settings-note" id="settingsSecNote">${server.encrypted
         ? 'Your library is encrypted. These control how it locks itself and how you get back in.'
         : 'No database password set yet. Click the padlock in the header to create one. Auto-lock does nothing until then.'}</p>
@@ -1107,8 +1120,11 @@
 
   /* ── Section: Guides ─────────────────────────────────────────────────────── */
 
+  // data-sfind: Settings search's anchor (player-lib/settings-search.js),
+  // the summary's words without the emoji ("guide-ai-scanning").
   function guide(summary, ...paras) {
-    return `<details class="settings-acc"><summary>${summary}</summary>${paras.map(p => `<p>${p}</p>`).join('')}</details>`;
+    const slug = String(summary).replace(/[^A-Za-z0-9 ]/g, '').trim().toLowerCase().replace(/\s+/g, '-');
+    return `<details class="settings-acc" data-sfind="guide-${slug}"><summary>${summary}</summary>${paras.map(p => `<p>${p}</p>`).join('')}</details>`;
   }
 
   function RENDERERS_guides() {
@@ -1167,7 +1183,7 @@
 
   function RENDERERS_models() {
     return `
-      <h3 class="settings-h">Model recommendations by GPU size</h3>
+      <h3 class="settings-h" data-sfind="modelTable">Model recommendations by GPU size</h3>
       <p class="settings-note">Vision model = scan quality. Quantized (Q4) versions are the sweet spot. ~64k token context is required to handle vision reliably. </p>
       <div class="settings-table-wrap">
         <table class="settings-table">
@@ -1261,7 +1277,7 @@
       { value: 'hard',    label: 'Permanent' },
     ];
     return `
-      <div class="settings-toggle settings-seg-row">
+      <div class="settings-toggle settings-seg-row" data-sfind="deleteMode">
         <span class="settings-toggle-text">
           <span class="settings-toggle-title" id="segLabel_deleteMode">Delete mode</span>
           <span class="settings-toggle-desc">What the 🗑 button does. Soft can be undone from the trash. Recycle Bin can be recovered by Windows. Permanent erases the file from disk straight away.</span>
@@ -1278,7 +1294,7 @@
     // Modern only: its header no longer shows the database name. Classic's
     // header still does, so Classic's Library section stays as it was.
     const dbFile = window.isModernLayout() ? `
-      <h3 class="settings-h">Library file</h3>
+      <h3 class="settings-h" data-sfind="dbFile">Library file</h3>
       <p class="settings-note" id="settingsDbFile">Asking the server…</p>
 ` : '';
     // Thumbnails group: player-lib/thumb-settings-ui.js (both looks).
@@ -1322,7 +1338,7 @@
       </div>
 
       <h3 class="settings-h">Playback support</h3>
-      <div class="mig-card" id="pbCard">
+      <div class="mig-card" id="pbCard" data-sfind="playbackCheck">
         <div class="mig-card-title">Check playback support for all files</div>
         <p class="settings-note">Reads the video and audio format of files
         scanned before this version, so Vault knows which ones play directly,
@@ -1583,7 +1599,7 @@
 
   function migCard({ mode, title, blurb, fields }) {
     return `
-      <div class="mig-card" data-mig-mode="${mode}">
+      <div class="mig-card" data-mig-mode="${mode}" data-sfind="mig-${mode}">
         <div class="mig-card-title">${title}</div>
         <p class="settings-note">${blurb}</p>
         ${fields}
@@ -2279,7 +2295,7 @@
 
   function RENDERERS_seedpacks() {
     return `
-      <h3 class="settings-h">Song seed packs</h3>
+      <h3 class="settings-h" data-sfind="seedpacks">Song seed packs</h3>
       <p>A seed pack (eg <code>vault-songseed.json</code>) is a portable bundle of song <b>reference fingerprints</b>, no audio inside. Importing one lands the songs and their fingerprints straight in your database without needing the MP3s on disk, and every already-fingerprinted file is rescanned against just the new references.</p>
       <p>It's strictly a manual pull: you download and pick the pack yourself, nothing auto-fetches. Re-importing is idempotent, so updated packs only add what's new.</p>
       <button class="settings-btn" id="settingsOpenSeedpacks">Open seed packs in Editor</button>
@@ -3077,11 +3093,11 @@
   function RENDERERS_about() {
     return `
       <h3 class="settings-h">About</h3>
-      <div class="settings-about">
+      <div class="settings-about" data-sfind="about">
         <div class="settings-about-name" id="settingsAboutName">Vault</div>
         <div class="settings-about-ver" id="settingsAboutVer"></div>
         <p class="settings-about-local">🔒 Local-first - no telemetry, no auto-updates. The network is only touched when you allow it (model downloads, manual update checks).</p>
-        <div class="settings-update">
+        <div class="settings-update" data-sfind="aboutUpdate">
           <button class="settings-btn" id="settingsAboutUpdateBtn">Check for updates</button>
           <span class="settings-note settings-update-msg" id="settingsAboutUpdateMsg"></span>
         </div>
@@ -3092,7 +3108,7 @@
           <a href="https://ko-fi.com/aericocode" target="_blank" rel="noopener">Ko-fi 🌿 ↗</a>
         </div>
       </div>
-      <div class="settings-notices" id="settingsSetupNotices" hidden>
+      <div class="settings-notices" id="settingsSetupNotices" data-sfind="setupNotices" hidden>
         <h3 class="settings-h settings-h-mt">Setup notices</h3>
         <div id="settingsSetupNoticesList"></div>
         <p class="settings-note settings-notices-note">Required tools like ffmpeg are always shown when missing.</p>
@@ -3670,12 +3686,12 @@
      machine it is correct and never touched again. */
   function RENDERERS_backend() {
     return `
-      <h3 class="settings-h">Loaded instances</h3>
+      <h3 class="settings-h" data-sfind="backendInstances">Loaded instances</h3>
       <p class="settings-note">Mirrors what LM Studio has loaded right now. Press Refresh after loading
         or ejecting a model there; during a scan Vault also checks once a minute.</p>
-      <div id="backendInstHost"></div>
+      <div id="backendInstHost" data-sfind="scanWorkers"></div>
 
-      <div class="settings-toggle">
+      <div class="settings-toggle" data-sfind="backendModel">
         <span class="settings-toggle-text">
           <span class="settings-toggle-title">Model for scans</span>
           <span class="settings-toggle-desc"><b>Auto</b> uses whatever is loaded and only asks when more
@@ -3686,10 +3702,10 @@
         </select>
       </div>
 
-      <h3 class="settings-h settings-h-mt">AI server</h3>
+      <h3 class="settings-h settings-h-mt" data-sfind="backendAiServer">AI server</h3>
       <p class="settings-note" id="backendAiNote">Checking the AI server.</p>
 
-      <details class="settings-acc" id="backendAdv">
+      <details class="settings-acc" id="backendAdv" data-sfind="backendAdvanced">
         <summary>Advanced: AI servers</summary>
         <div class="settings-acc-body">
           <div class="mig-card" id="backendEpCard">

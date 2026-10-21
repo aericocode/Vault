@@ -248,7 +248,7 @@ function shortcutsGroupsHtml(groups, query) {
     <section class="sk-group${g.here ? ' sk-here' : ''}" aria-label="${shortcutsEsc(g.title)}">
       <h3 class="sk-gh">${shortcutsEsc(g.title)}${g.here ? ' <span class="sk-now">You are here</span>' : ''}</h3>
       <ul class="sk-rows">${g.rows.map(r => `
-        <li class="sk-row"><span class="sk-desc">${shortcutsEsc(r.desc)}</span><span class="sk-keys">${shortcutKeysHtml(r.keys)}</span></li>`).join('')}
+        <li class="sk-row" data-sfind="sk-${SHORTCUTS.indexOf(r)}"><span class="sk-desc">${shortcutsEsc(r.desc)}</span><span class="sk-keys">${shortcutKeysHtml(r.keys)}</span></li>`).join('')}
       </ul>
     </section>`).join('');
 }
@@ -387,7 +387,7 @@ function shortcutsOnKey(e) {
 
 function shortcutsSettingsHtml() {
   return `
-    <h3 class="settings-h">Keyboard shortcuts</h3>
+    <h3 class="settings-h" data-sfind="shortcutsList">Keyboard shortcuts</h3>
     <div class="sk-settings-top">
       <input type="search" class="sk-search" id="skSettingsSearch" placeholder="Find a shortcut" aria-label="Find a shortcut" autocomplete="off" spellcheck="false">
       <span class="sk-tip">Press <kbd>?</kbd> anywhere to see this list.</span>
