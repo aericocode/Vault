@@ -59,8 +59,14 @@ function getNotes(filepath) {
  * propagates the write to the whole group, so mirror it locally too.
  */
 function saveNotesToDb(filepath, notesArray) {
+  return !!saveNotesToDbSaved(filepath, notesArray);
+}
+
+/** saveNotesToDb, handing back the save (postFlags' promise: resolves to
+ *  whether the server saved it), or null when the row is not loaded. */
+function saveNotesToDbSaved(filepath, notesArray) {
   const item = Library.rowByPath(filepath);
-  if (!item) return false;
+  if (!item) return null;
 
   const json = JSON.stringify(notesArray);
   item.user_notes = json;
@@ -71,8 +77,7 @@ function saveNotesToDb(filepath, notesArray) {
     });
   }
 
-  postFlags(item, { user_notes: json });
-  return true;
+  return postFlags(item, { user_notes: json });
 }
 
 /* ── Saved note snippets (quick notes) ──────────────────────────────────────
@@ -506,8 +511,15 @@ function renderNotesSection(media) {
  * Add a note with the given text directly (used by quick-note chips).
  */
 function addNoteText(filepath, text) {
+  addNoteTextSaved(filepath, text);
+}
+
+/** addNoteText, resolving to whether the server saved the note (false also
+ *  when there was nothing to add). The dock pane uses it to keep a note it
+ *  could not save in its box. */
+function addNoteTextSaved(filepath, text) {
   text = (text || '').trim();
-  if (!text) return;
+  if (!text) return Promise.resolve(false);
 
   const notes = getNotes(filepath);
   notes.push({
@@ -518,10 +530,11 @@ function addNoteText(filepath, text) {
     }),
   });
 
-  if (saveNotesToDb(filepath, notes)) {
-    refreshAllNotesSections(filepath);
-    showToast(`Note added: ${text.length > 40 ? text.slice(0, 40) + '…' : text}`);
-  }
+  const saving = saveNotesToDbSaved(filepath, notes);
+  if (!saving) return Promise.resolve(false);
+  refreshAllNotesSections(filepath);
+  showToast(`Note added: ${text.length > 40 ? text.slice(0, 40) + '…' : text}`);
+  return saving;
 }
 
 /**

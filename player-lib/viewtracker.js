@@ -79,7 +79,7 @@ let _watch = { src: null, item: null, accumulated: 0, lastTime: null, counted: f
    flushed to the server (additive merge) on pause / media change / Done.
    Powers the YouTube-style "most watched" curve over the seek bar. */
 
-function flushWatchHeat() {
+function flushWatchHeat({ keepalive = false } = {}) {
   const item = _watch.item;
   const buckets = _watch.heat;
   _watch.heat = {};
@@ -93,6 +93,7 @@ function flushWatchHeat() {
 
   fetch(`/api/media/${item.id}/heatmap`, {
     method: 'POST',
+    keepalive,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ buckets }),
   }).then(r => r.ok ? r.json() : null).then(data => {
@@ -101,11 +102,12 @@ function flushWatchHeat() {
 }
 
 /** Persist the playback position (throttled by the caller). */
-function _savePosition(item, position) {
+function _savePosition(item, position, { keepalive = false } = {}) {
   if (!item || !item.id) return;
   item.last_position = position;
   fetch(`/api/media/${item.id}/flags`, {
     method: 'POST',
+    keepalive,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ last_position: Math.round(position * 10) / 10 }),
   }).catch(() => {});
@@ -118,6 +120,24 @@ document.addEventListener('loadedmetadata', (e) => {
   if (!['VIDEO', 'AUDIO'].includes(el.tagName)) return;
   if (!el.closest('#mediaPlayerContent') && !el.closest('#miniPlayerMedia')) return;
 
+  // Expanded from the mini player (maximizePlayer): carry on from the exact
+  // spot, paused if it was paused. Not a resume, so the setting and the toast
+  // do not apply. A converted file gets its source after maximizePlayer
+  // returns, which drops any time set on the element before then.
+  if (el.dataset.maximizeAt != null) {
+    const at = Number(el.dataset.maximizeAt);
+    const paused = el.dataset.maximizePaused === '1';
+    delete el.dataset.maximizeAt;
+    delete el.dataset.maximizePaused;
+    if (at > 0) el.currentTime = at;
+    if (paused) el.pause();
+    return;
+  }
+
+  // Opened from a playing clip on the Wall: continue from the clip's time
+  // (player-lib/wall.js). Asked first, so it and the Faces start never both apply.
+  if (typeof wallStartAt === 'function' && wallStartAt(el)) return;
+
   // Played from a person's page in the Faces tab: start where they first
   // show up, instead of the resume point (player-lib/faces-tab.js).
   if (typeof facesStartAt === 'function' && facesStartAt(el)) return;
@@ -126,7 +146,7 @@ document.addEventListener('loadedmetadata', (e) => {
   // are still saved (pause handler below), so re-enabling restores behavior.
   if (typeof vaultSetting === 'function' && vaultSetting('resumePlayback') === false) return;
 
-  const item = _mediaItemFromSrc(el.currentSrc || el.src);
+  const item = _mediaItemFor(el);
   const pos = item?.last_position || 0;
   if (item && pos > RESUME_MIN_S && el.duration > 0 && pos < el.duration * RESUME_MAX_FRACTION) {
     el.currentTime = pos;
@@ -134,19 +154,78 @@ document.addEventListener('loadedmetadata', (e) => {
   }
 }, true);
 
-// Save position + flush the activity heatmap on pause (catches
-// close-while-paused too — teardown pauses the element first)
+/** The position to store for `el` now: 0 once effectively finished, null if there is none yet. */
+function _positionToSave(el) {
+  if (!(el.currentTime > 0) || !(el.duration > 0)) return null;
+  return el.currentTime >= el.duration * RESUME_MAX_FRACTION ? 0 : el.currentTime;
+}
+
+// Save position + flush the activity heatmap on pause. A pause the user makes
+// only: teardown's own pause lands after the element has lost its source (and
+// for a converted file hls.js has already detached it), so closing is handled
+// by saveWatchNow below instead.
 document.addEventListener('pause', (e) => {
   const el = e.target;
   if (!(el instanceof HTMLElement) || !['VIDEO', 'AUDIO'].includes(el.tagName)) return;
   if (!el.closest('#mediaPlayerContent') && !el.closest('#miniPlayerMedia')) return;
   flushWatchHeat();
-  const item = _mediaItemFromSrc(el.currentSrc || el.src);
-  if (item && el.currentTime > 0 && el.duration > 0) {
-    const finished = el.currentTime >= el.duration * RESUME_MAX_FRACTION;
-    _savePosition(item, finished ? 0 : el.currentTime);
-  }
+  const item = _mediaItemFor(el);
+  const pos = _positionToSave(el);
+  if (item && pos != null) _savePosition(item, pos);
 }, true);
+
+/* ── Save at close ──────────────────────────────────────────────────────────
+   Closing the player (full or mini), moving to another file, or leaving the
+   page saves where the file was and sends its watch heatmap, by the same rules
+   as a pause. It runs before the element is torn down, while its time and
+   duration still mean something. Mixes are left alone: their layers are not
+   one file's playback. */
+
+function _roundPos(p) { return Math.round((p || 0) * 10) / 10; }
+
+function saveWatchNow(el, { keepalive = false } = {}) {
+  if (!el || !(el instanceof HTMLElement) || !['VIDEO', 'AUDIO'].includes(el.tagName)) return;
+  if (!el.closest('#mediaPlayerContent') && !el.closest('#miniPlayerMedia')) return;
+  if (el.closest('.mix-player-stage')) return;
+  flushWatchHeat({ keepalive });
+  const item = _mediaItemFor(el);
+  const pos = _positionToSave(el);
+  if (!item || pos == null) return;
+  // Already stored (a pause at this spot, or nothing moved since it resumed)
+  if (_roundPos(item.last_position) === _roundPos(pos)) return;
+  _savePosition(item, pos, { keepalive });
+}
+
+// Every teardown of a player element goes through stopMediaElement
+// (player-core.js, loaded before us): close, mini close, the next file.
+if (typeof stopMediaElement === 'function') {
+  const _origStopMediaElement = stopMediaElement;
+  stopMediaElement = function (el, ...rest) {
+    try { saveWatchNow(el); } catch (err) { console.warn('[Views] save at close failed:', err); }
+    return _origStopMediaElement(el, ...rest);
+  };
+}
+
+// Leaving the page never reaches a teardown; keepalive lets the requests
+// outlive it.
+try {
+  window.addEventListener('pagehide', () => {
+    document.querySelectorAll('#mediaPlayerContent video, #mediaPlayerContent audio, #miniPlayerMedia video, #miniPlayerMedia audio')
+      .forEach(el => saveWatchNow(el, { keepalive: true }));
+  });
+} catch {}
+
+/**
+ * The library row playing in `el`. The id player-stream.js stamps on the
+ * element comes first: a converted (remux) file plays through hls.js, whose
+ * src is a blob: URL that names no file. The src is the fallback for anything
+ * played without that stamp.
+ */
+function _mediaItemFor(el) {
+  const id = Number(el && el.dataset && el.dataset.playbackMediaId);
+  const row = id > 0 ? getMediaById(id) : null;
+  return row || _mediaItemFromSrc(el && (el.currentSrc || el.src));
+}
 
 function _mediaItemFromSrc(src) {
   try {
@@ -173,7 +252,7 @@ document.addEventListener('timeupdate', (e) => {
     flushWatchHeat();
     _watch = {
       src,
-      item: _mediaItemFromSrc(src),
+      item: _mediaItemFor(el),
       accumulated: 0,
       lastTime: el.currentTime,
       counted: false,

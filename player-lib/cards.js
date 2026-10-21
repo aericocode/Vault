@@ -75,20 +75,40 @@ function tileMinWidth() {
   // A person's page in the Faces tab has its own Size slider (faces-tab.js).
   const faces = typeof facesFileTileMin === 'function' ? facesFileTileMin() : 0;
   if (faces) return faces;
+  // Modern sets the width directly with the toolbar slider; Classic keeps S/M/L.
+  if (typeof isModernLayout === 'function' && isModernLayout()
+      && typeof window.vaultCardMinWidth === 'function') return window.vaultCardMinWidth();
   const size = typeof window.vaultCardSize === 'function' ? window.vaultCardSize() : 'M';
   return CARD_MIN_WIDTHS[size] || CARD_MIN_WIDTHS.M;
 }
 
 /** Column count, tile width and natural tile height for the grid's width. */
-function measureGrid() {
+function measureGrid(opts) {
   const grid = document.getElementById('resultsGrid');
   if (!grid) return null;
-  const width = grid.clientWidth;
+  const width = opts && opts.noScrollbar ? gridWidthWithoutScrollbar(grid) : grid.clientWidth;
   if (!width) return null;
   const min = tileMinWidth();
   const cols = Math.max(2, Math.floor((width + GRID_GAP) / (min + GRID_GAP)));
   const tileW = (width - (cols - 1) * GRID_GAP) / cols;
   return { grid, width, cols, tileW, natH: tileW / TILE_ASPECT + tileChromeH };
+}
+
+/**
+ * The grid's width as it will be once a page is on screen. Pages mode fits
+ * the page to the window, so the document ends up with no scrollbar; but the
+ * content being replaced (the boot skeleton, a page laid for another size)
+ * can be showing one right now, and measuring under it lost a column that a
+ * later re-layout then found. Measure as if it were gone.
+ */
+function gridWidthWithoutScrollbar(grid) {
+  const html = document.documentElement;
+  if (window.innerWidth - html.clientWidth <= 0) return grid.clientWidth;
+  const prev = html.style.overflowY;
+  html.style.overflowY = 'hidden';
+  const width = grid.clientWidth;
+  html.style.overflowY = prev;
+  return width;
 }
 
 /* ── Pages, counted ───────────────────────────────────────────────────────
@@ -126,7 +146,7 @@ function clampPageAnchor() {
  * of whole rows. Sets pageSize; returns true if pageSize changed.
  */
 function updateGridLayout() {
-  const m = measureGrid();
+  const m = measureGrid({ noScrollbar: true });
   if (!m) return false;
   const { grid, cols, natH } = m;
 
@@ -200,6 +220,8 @@ function fitRowHeight() {
 let _inRenderCorrection = false;
 
 function renderResults() {
+  // Modern's table view draws rows with this same machinery (player-lib/table-view.js).
+  if (typeof tableViewRender === 'function' && tableViewRender()) return;
   if (libraryLayoutMode() === 'continuous') return renderContinuous();
 
   const grid = document.getElementById('resultsGrid');
@@ -228,6 +250,7 @@ function renderResults() {
 
   // Keep the selection bar's "Select page" count/state in sync after paging
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
+  if (typeof dockAfterGridRender === 'function') dockAfterGridRender();
 
   // One correction pass: this render is the only chance to measure the real
   // name-strip and pager heights, and being wrong about them is the difference
@@ -534,6 +557,7 @@ function continuousRange(stride, totalRows) {
 }
 
 function renderContinuous() {
+  if (typeof tableViewRender === 'function' && tableViewRender()) return;
   const m = measureGrid();
   if (!m) return;
   const { grid, cols, natH } = m;
@@ -576,6 +600,7 @@ function renderContinuous() {
 
 /** Swap in the rows for the current scroll position. */
 function renderContinuousWindow() {
+  if (typeof tableViewActive === 'function' && tableViewActive()) return tvRenderWindow();
   const virt = document.querySelector('#resultsGrid .grid-virt');
   if (!virt) return;
   const { cols, stride, totalRows } = contState;
@@ -616,6 +641,7 @@ function renderContinuousWindow() {
   currentPage = Math.floor(pageAnchor / Math.max(1, pageSize)) + 1;
 
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
+  if (typeof dockAfterGridRender === 'function') dockAfterGridRender();
 }
 
 /** Where the viewport sits, expressed as a tile plus a pixel offset. */
@@ -655,10 +681,19 @@ function libraryLayoutKey() {
   return [grid.clientWidth, top, window.innerHeight, tileMinWidth(), libraryLayoutMode()].join('|');
 }
 
+let _relayoutWhenShown = false;
+
 function relayoutLibrary(force) {
+  // Another tab (Editor, Games, Wall) is showing: nothing can be measured,
+  // so lay out when the library is back (the grid's resize observer fires).
+  if (document.getElementById('mainContainer')?.style.display === 'none') {
+    _relayoutWhenShown = true;
+    return;
+  }
   const key = libraryLayoutKey();
   if (!key) return;
-  if (!force && key === _lastLayoutKey) return;
+  if (!force && !_relayoutWhenShown && key === _lastLayoutKey) return;
+  _relayoutWhenShown = false;
   _lastLayoutKey = key;
   // A bar above the grid changing height moves every row; hold the tile the
   // user was looking at rather than let the list slide under them.
@@ -804,6 +839,8 @@ document.addEventListener('keydown', (e) => {
   if (document.getElementById('miniPlayer')?.classList.contains('active')) return;
   if (document.querySelector('.modal-overlay.active, .settings-overlay.active')) return;
   if (document.getElementById('mainContainer')?.classList.contains('active') !== true) return;
+  // Wall, Editor and Games hide the grid: it must not page underneath them
+  if (document.getElementById('mainContainer')?.style.display === 'none') return;
 
   if (e.key === 'PageDown') { movePage(1); }
   else if (e.key === 'PageUp') { movePage(-1); }
@@ -915,8 +952,8 @@ function renderTile(media) {
   }
 
   return `
-    <div class="media-tile ${isFlagged ? 'tile-flagged' : ''} ${isTrashed ? 'tile-trashed' : ''} ${isSelected ? 'tile-selected' : ''} ${cannotPlay ? 'tile-failed' : ''} ${media.id === lastOpenedMediaId ? 'tile-last-opened' : ''} ${(typeof isCardBusy === 'function' && isCardBusy(media.id)) ? 'tile-busy' : ''}" data-id="${media.id}">
-      <div class="tile-thumb ${canThumb ? '' : 'thumb-fallback'}" onclick="playMediaById(${media.id})">
+    <div class="media-tile ${isFlagged ? 'tile-flagged' : ''} ${isTrashed ? 'tile-trashed' : ''} ${isSelected ? 'tile-selected' : ''} ${cannotPlay ? 'tile-failed' : ''} ${media.id === lastOpenedMediaId ? 'tile-last-opened' : ''} ${(typeof isCardBusy === 'function' && isCardBusy(media.id)) ? 'tile-busy' : ''}${typeof dockTileClass === 'function' ? dockTileClass(media.id) : ''}" data-id="${media.id}">
+      <div class="tile-thumb ${canThumb ? '' : 'thumb-fallback'}" onclick="tileThumbClick(${media.id})" ondblclick="tileThumbDblClick(${media.id})">
         ${thumb}
         <span class="tile-type-icon">${icon}</span>
         ${duration ? `<span class="tile-duration">${duration}</span>` : ''}
@@ -956,7 +993,19 @@ function playMediaById(id) {
   hideTilePopover();
   // Mixes play in the main player too (renderMixPlayer); the sidebar's
   // "🎛 Open in Editor" button covers tweaking
-  playMedia({ filepath: m.filepath, filename: m.filename, media_type: m.media_type });
+  playMedia({ id: m.id, filepath: m.filepath, filename: m.filename, media_type: m.media_type });
+}
+
+/* A click on a tile's picture plays it, except in the Modern look with the
+   preview pane docked: there a click picks the tile for the pane and a double
+   click plays it (player-lib/dock.js). */
+function tileThumbClick(id) {
+  if (typeof dockSelectFromClick === 'function' && dockSelectFromClick(id)) return;
+  playMediaById(id);
+}
+
+function tileThumbDblClick(id) {
+  if (typeof dockIsShown === 'function' && dockIsShown()) playMediaById(id);
 }
 
 function showDetailsById(id) {
@@ -1138,6 +1187,8 @@ function attachHoverScrub(container) {
     }
 
     if (id === _popoverForId) return;
+    // A table row already shows its details in its columns (table-view.js).
+    if (tile.classList.contains('tv-row')) return;
 
     clearTimeout(_popoverTimer);
     _popoverTimer = setTimeout(() => {

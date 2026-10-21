@@ -347,12 +347,17 @@ document.getElementById('subtitleSearch')?.addEventListener('change', () => {
 // Refresh button — re-fetch the library from the server
 let isRefreshing = false;
 const refreshBtn = document.getElementById('refreshBtn');
+// Icon and word sit in their own spans so the Modern look can show the icon
+// alone (the word stays there for screen readers).
+function setRefreshLabel(icon, label) {
+  refreshBtn.innerHTML = `<span class="hb-text"><span class="hb-ic">${icon}</span><span class="hb-label"> ${label}</span></span>`;
+}
 refreshBtn.addEventListener('click', async () => {
   if (isRefreshing) return;
 
   isRefreshing = true;
   refreshBtn.disabled = true;
-  refreshBtn.textContent = '⏳ Loading...';
+  setRefreshLabel('⏳', 'Loading...');
 
   try {
     await loadDatabase();
@@ -364,7 +369,7 @@ refreshBtn.addEventListener('click', async () => {
     setTimeout(() => {
       isRefreshing = false;
       refreshBtn.disabled = false;
-      refreshBtn.textContent = '🔄 Refresh';
+      setRefreshLabel('🔄', 'Refresh');
     }, 1000);
   }
 });

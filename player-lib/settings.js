@@ -46,8 +46,12 @@
     scanWorkers: 2,         // files the vision model scans in parallel after an import
     unlockHoldSeconds: 0,   // press-and-hold on the lock before the password box (0 = single click)
     gamifyHidden: false,    // hide the Obsession chip + toasts (scoring continues)
+    libraryView: 'grid',    // Modern: 'grid' (tiles) | 'table' (rows, player-lib/table-view.js)
+    tableColumns: null,     // Modern table: visible column keys; null = the default set
     libraryLayout: 'pages', // 'pages' (whole rows, one screenful) | 'continuous' (free scroll)
     cardSize: 'M',          // 'S' | 'M' | 'L' — minimum tile width, mapped in cards.js
+    layoutStyle: 'classic', // 'classic' (today's look) | 'modern' (full width, size slider)
+    cardMinWidth: 0,        // Modern's size slider, px (120-480); 0 = follow cardSize
     facesCardWidth: 180,    // Faces tab: person card width in px (its Size slider)
     facesFileWidth: 0,      // Faces person page: file tile width in px (0 = follow cardSize)
     libraryDeepOpen: false, // Settings > Library: is the deep-search section expanded
@@ -55,6 +59,10 @@
     // entry per filter key (popSort.language, popSort.theme...). Not in the
     // Settings modal: it is set by the toggle in the popover itself.
     popSort: {},
+    dockOpen: false,        // Modern: is the docked preview pane open (player-lib/dock.js)
+    dockWidth: 380,         // Modern: its width in px, clamped to 300..50% of the window
+    railOpen: null,         // Modern: left filter rail open (true/false); null = by window width
+    wall: {},               // Wall tab controls (validated in wall.js)
     _lastMediaId: null,     // internal: id for restoreSession
   };
 
@@ -223,6 +231,63 @@
   window.vaultCardSize = () =>
     CARD_SIZES.includes(settings.cardSize) ? settings.cardSize : 'M';
 
+  /* ── Library look (Classic / Modern) ─────────────────────────────────
+     One body class, layout-modern, carries the whole Modern look: every
+     Modern CSS rule hangs off it and every Modern JS path asks
+     isModernLayout(). Classic is the default and is exactly today's layout,
+     so switching back is always safe. Applied the moment this script parses
+     (below, next to the privacy classes) so a reload never flashes the other
+     look. */
+
+  const LAYOUT_STYLES = ['classic', 'modern'];
+  const CARD_MIN_W = 120, CARD_MAX_W = 480, CARD_STEP_W = 10;
+  // What the slider starts on before it has ever been moved: the S / M / L
+  // width the user already had, so switching to Modern changes nothing at first.
+  const CARD_SIZE_WIDTHS = { S: 130, M: 170, L: 230 };
+
+  const layoutStyle = () =>
+    LAYOUT_STYLES.includes(settings.layoutStyle) ? settings.layoutStyle : 'classic';
+  window.vaultLayoutStyle = layoutStyle;
+  window.isModernLayout = () => layoutStyle() === 'modern';
+
+  function clampCardWidth(n) {
+    n = Math.round(Number(n) / CARD_STEP_W) * CARD_STEP_W;
+    if (!Number.isFinite(n) || n <= 0) return CARD_SIZE_WIDTHS[window.vaultCardSize()];
+    return Math.min(CARD_MAX_W, Math.max(CARD_MIN_W, n));
+  }
+  window.vaultCardMinWidth = () => clampCardWidth(settings.cardMinWidth);
+  window.vaultCardWidthRange = { min: CARD_MIN_W, max: CARD_MAX_W, step: CARD_STEP_W };
+  window.vaultSetCardMinWidth = function (n) {
+    settings.cardMinWidth = clampCardWidth(n);
+    save();
+    return settings.cardMinWidth;
+  };
+
+  function applyLayoutStyle() {
+    document.body.classList.toggle('layout-modern', layoutStyle() === 'modern');
+    try { window.dispatchEvent(new CustomEvent('vault:layout-style', { detail: { style: layoutStyle() } })); } catch {}
+  }
+  window.vaultApplyLayoutStyle = applyLayoutStyle;
+
+  /* ── Table view (Modern) ──────────────────────────────────────────────
+     Grid or table, and which table columns show. Both are set from the
+     library toolbar (player-lib/table-view.js), which owns the column list;
+     here a stored list only has to be an array of strings. */
+  const LIBRARY_VIEWS = ['grid', 'table'];
+  window.vaultLibraryView = () =>
+    LIBRARY_VIEWS.includes(settings.libraryView) ? settings.libraryView : 'grid';
+  window.vaultSetLibraryView = function (view) {
+    if (!LIBRARY_VIEWS.includes(view)) return;
+    settings.libraryView = view;
+    save();
+  };
+  window.vaultTableColumns = () =>
+    (Array.isArray(settings.tableColumns) ? settings.tableColumns.filter(k => typeof k === 'string') : null);
+  window.vaultSetTableColumns = function (keys) {
+    settings.tableColumns = Array.isArray(keys) ? keys.filter(k => typeof k === 'string') : null;
+    save();
+  };
+
   /* ── Faces tab Size sliders ──────────────────────────────────────────
      'people': the person card width on the Faces home. 'files': the file
      tile width on a person's page, 0 until the slider is first moved (the
@@ -230,7 +295,7 @@
      write, so a hand-edited blob cannot hand the grid a silly width. */
   const FACES_SIZES = {
     people: { key: 'facesCardWidth', min: 120, max: 320, def: 180 },
-    files: { key: 'facesFileWidth', min: 120, max: 400, def: 0 },
+    files: { key: 'facesFileWidth', min: 120, max: 480, def: 0 },   // max = the Modern library Size slider's
   };
   const clampFacesSize = (spec, v) => {
     const n = Math.round(Number(v));
@@ -262,6 +327,45 @@
   window.vaultSetPopSort = function (key, mode) {
     if (!key || !POP_SORTS.includes(mode)) return;
     settings.popSort = { ...settings.popSort, [key]: mode };
+    save();
+  };
+
+  /* ── Docked preview pane (Modern) ─────────────────────────────────────
+     Open state and width, both set from the pane itself (player-lib/dock.js).
+     The width is clamped there against the live window; here it only has to
+     be a sane number. */
+  window.vaultDockOpen = () => settings.dockOpen === true;
+  window.vaultSetDockOpen = function (open) {
+    settings.dockOpen = !!open;
+    save();
+  };
+  window.vaultDockWidth = () => {
+    const n = Number(settings.dockWidth);
+    return Number.isFinite(n) && n > 0 ? n : DEFAULTS.dockWidth;
+  };
+  window.vaultSetDockWidth = function (px) {
+    const n = Math.round(Number(px));
+    if (!Number.isFinite(n) || n <= 0) return;
+    settings.dockWidth = n;
+    save();
+  };
+
+  /* ── Left filter rail (Modern) ────────────────────────────────────────
+     Set from the rail's own toggle (player-lib/filter-rail.js). null means
+     the user has never chosen, and the rail then follows the window width. */
+  window.vaultRailOpen = () => (settings.railOpen === true || settings.railOpen === false ? settings.railOpen : null);
+  window.vaultSetRailOpen = function (open) {
+    settings.railOpen = !!open;
+    save();
+  };
+
+  /* ── Wall tab ───────────────────────────────────────────
+     The Wall's toolbar (sliders, source, mix...) as one object. wall.js
+     clamps every value on read, so a hand-edited blob cannot break it. */
+  window.vaultWallSettings = () =>
+    (settings.wall && typeof settings.wall === 'object') ? { ...settings.wall } : {};
+  window.vaultSetWallSettings = function (obj) {
+    settings.wall = { ...(obj || {}) };
     save();
   };
 
@@ -403,6 +507,7 @@
   load();
   if (settings.privacyMode) document.body.classList.add('privacy-mode');
   applyPrivacyHideClasses(settings.privacyMode);
+  applyLayoutStyle();
 
   /* ── Header gear button ──────────────────────────────────────────────────
      Appended to the END of .header-buttons (gamify prepends its chip; we
@@ -582,10 +687,10 @@
      whole list keeps one left edge, and the buttons carry aria-pressed like
      the privacy chips already do. */
 
-  function segRow({ key, title, desc, options }) {
+  function segRow({ key, title, desc, options, cls = '' }) {
     const current = settings[key];
     return `
-      <div class="settings-toggle settings-seg-row">
+      <div class="settings-toggle settings-seg-row${cls ? ` ${cls}` : ''}">
         <span class="settings-toggle-text">
           <span class="settings-toggle-title" id="segLabel_${key}">${title}</span>
           <span class="settings-toggle-desc">${desc}</span>
@@ -790,10 +895,18 @@
         options: [{ value: 'pages', label: 'Pages' }, { value: 'continuous', label: 'Continuous' }],
       })}
       ${segRow({
+        key: 'layoutStyle',
+        title: 'Library look',
+        desc: 'Classic is the layout you know. Modern uses the full width of the screen and sets card size with a slider above the grid.',
+        options: [{ value: 'classic', label: 'Classic' }, { value: 'modern', label: 'Modern' }],
+      })}
+      ${segRow({
         key: 'cardSize',
         title: 'Card size',
         desc: 'How big each tile is. Columns and rows follow from the window.',
         options: [{ value: 'S', label: 'Small' }, { value: 'M', label: 'Medium' }, { value: 'L', label: 'Large' }],
+        // Modern sets the size with the slider in the library toolbar instead.
+        cls: 'classic-only',
       })}
       ${toggleRow({
         key: 'gamifyHidden',
@@ -898,6 +1011,7 @@
       btn.closest('.settings-seg').querySelectorAll('button[data-setting-seg]').forEach(b => {
         b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
       });
+      if (key === 'layoutStyle') applyLayoutStyle();
       window.vaultRelayoutLibrary?.({ reason: key });
     };
     body.querySelectorAll('button[data-setting-seg]').forEach(btn => {
@@ -1151,7 +1265,13 @@
   }
 
   function RENDERERS_library() {
-    return `
+    // Modern only: its header no longer shows the database name. Classic's
+    // header still does, so Classic's Library section stays as it was.
+    const dbFile = window.isModernLayout() ? `
+      <h3 class="settings-h">Library file</h3>
+      <p class="settings-note" id="settingsDbFile">Asking the server…</p>
+` : '';
+    return `${dbFile}
       <h3 class="settings-h">Deleting files</h3>
       ${deleteModeRow()}
 
@@ -1469,6 +1589,18 @@
   }
 
   function wireLibrarySection() {
+    // Which database file this server is serving (the Modern header only
+    // shows it in the count's tooltip). Modern only, see RENDERERS_library.
+    if (document.getElementById('settingsDbFile')) fetch('/api/dbinfo').then(r => (r.ok ? r.json() : null)).then(info => {
+      const el = document.getElementById('settingsDbFile');
+      if (!el) return;
+      if (!info) { el.textContent = 'Could not ask the server.'; return; }
+      el.innerHTML = `<strong>${escapeHtml(info.filename)}</strong><br><code>${escapeHtml(info.path)}</code>`;
+    }).catch(() => {
+      const el = document.getElementById('settingsDbFile');
+      if (el) el.textContent = 'Could not ask the server.';
+    });
+
     document.querySelectorAll('[data-delete-mode]').forEach(btn => {
       btn.addEventListener('click', () => {
         if (typeof setDeleteMode === 'function') setDeleteMode(btn.dataset.deleteMode);

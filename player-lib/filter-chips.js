@@ -455,6 +455,8 @@ function renderFilterChipRow() {
 
   updateClearFiltersButton();
   updateSearchOptionsButton();
+  // The Modern look's left rail shows the same filters (player-lib/filter-rail.js).
+  if (typeof renderFilterRail === 'function') renderFilterRail();
 }
 
 /* ── Popovers ─────────────────────────────────────────────────────────── */

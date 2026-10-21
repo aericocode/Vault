@@ -1,0 +1,228 @@
+/* ==========================================
+   TABLE VIEW (Modern look, player-lib/table-view.js)
+
+   #resultsGrid gets .grid-table while the table is the view; every rule
+   that touches the grid hangs off that class, so the tile grid (and Classic,
+   which never gets the class) is untouched. Rows are .media-tile elements so
+   selection and the dock treat them as tiles; the tile look is undone here.
+   --tv-cols (the column widths) and --tv-sticky-top are set by the script.
+   ========================================== */
+
+.results-grid.grid-table {
+  display: block;
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  overflow: clip;        /* the rounded corners; clip keeps the sticky header working */
+}
+
+.grid-table .tv-head,
+.grid-table .tv-row {
+  display: grid;
+  grid-template-columns: var(--tv-cols);
+  align-items: center;
+  column-gap: 0.75rem;
+  padding: 0 0.75rem 0 0.25rem;
+}
+
+/* ── Header ── */
+.grid-table .tv-head {
+  min-height: 34px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.grid-table.tv-continuous .tv-head {
+  position: sticky;
+  top: var(--tv-sticky-top, 0px);
+  z-index: 5;
+}
+.grid-table .tv-hcell {
+  min-width: 0;
+  padding: 0.5rem 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.grid-table .tv-sortable {
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.grid-table .tv-sortable:hover,
+.grid-table .tv-sortable.is-sorted { color: var(--text-primary); }
+.grid-table .tv-sortable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.grid-table .tv-sort-ind { margin-left: 0.3rem; font-size: 0.65rem; color: var(--accent-hover); }
+.grid-table .tv-end { text-align: right; justify-self: end; }
+
+/* ── Rows: the tile look undone ── */
+.grid-table .media-tile.tv-row {
+  height: 48px;
+  box-sizing: border-box;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  overflow: visible;
+  transform: none;
+  font-size: 0.83rem;
+  color: var(--text-secondary);
+}
+.grid-table .media-tile.tv-row:hover { background: var(--bg-hover); transform: none; }
+.grid-table .media-tile.tv-row.tile-selected,
+.grid-table .media-tile.tv-row:has(.tile-select:checked) {
+  background: var(--accent-bg);
+  box-shadow: none;
+}
+.grid-table .media-tile.tv-row.tile-last-opened { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+body.dock-shown .grid-table .media-tile.tv-row.tile-docked {
+  background: var(--accent-bg);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.grid-table .media-tile.tv-row.tile-trashed { opacity: 0.55; }
+.grid-table .media-tile.tile-skel {
+  background: linear-gradient(90deg, transparent 0%, var(--bg-hover) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: tile-skel-shimmer 1.2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .grid-table .media-tile.tile-skel { animation: none; }
+}
+
+.grid-table.tv-continuous .grid-virt { position: relative; }
+.grid-table.tv-continuous .grid-virt > .tv-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.grid-table .tv-cell {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The checkbox sits in its own column rather than over a picture. */
+.grid-table .tv-c-sel { display: flex; justify-content: center; }
+.grid-table .tv-row .tile-select { position: static; margin: 0; }
+
+.grid-table .tv-c-thumb {
+  position: relative;
+  width: 64px;
+  height: 40px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+}
+.grid-table .tv-c-thumb .tile-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.grid-table .tv-type-icon {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+}
+.grid-table .tv-c-thumb.thumb-fallback .tv-type-icon { display: flex; }
+
+.grid-table .tv-c-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  overflow: hidden;
+}
+.grid-table .tv-name {
+  min-width: 0;
+  padding: 0;
+  font-size: 0.86rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  flex: 0 1 auto;
+}
+.grid-table .tv-name:hover { text-decoration: underline; }
+.grid-table .tv-fave { color: #f472b6; font-size: 0.75rem; }
+.grid-table .tv-flag { font-size: 0.75rem; }
+.grid-table .tv-actions {
+  display: none;
+  gap: 0.25rem;
+  margin-left: auto;
+  flex: none;
+}
+.grid-table .tv-row:hover .tv-actions,
+.grid-table .tv-row:focus-within .tv-actions { display: inline-flex; }
+.grid-table .tv-actions .tile-btn { width: 24px; height: 24px; font-size: 0.75rem; }
+
+.grid-table .tv-stars { color: #facc15; letter-spacing: 1px; }
+.grid-table .tv-stars-off { color: var(--border); }
+.grid-table .tv-muted { color: var(--text-muted); }
+.grid-table .tv-c-duration,
+.grid-table .tv-c-size { font-variant-numeric: tabular-nums; }
+
+.grid-table .tv-c-tags { display: flex; gap: 0.3rem; overflow: hidden; }
+.grid-table .tv-c-tags .tag { flex: none; }
+
+.grid-table .tv-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* ── Toolbar: Grid / Table switch and the Columns button ── */
+.view-switch {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.view-switch-btn {
+  padding: 0.45rem 0.7rem;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.view-switch-btn:last-child { border-right: 0; }
+.view-switch-btn:hover:not([aria-pressed="true"]) { color: var(--text-primary); }
+.view-switch-btn[aria-pressed="true"] { background: var(--accent-bg); color: var(--text-primary); }
+
+.tv-columns-btn {
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.tv-columns-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+.tv-columns-btn[hidden] { display: none; }
+.tv-cols-note {
+  margin: 0.5rem 0 0;
+  max-width: 240px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* Rows have no card size: the slider steps aside while the table shows. */
+body.layout-modern #mainContainer.tv-on .card-size-control { display: none; }
+/* No table on Faces (its tiles carry face extras). */
+#mainContainer.faces-on .view-switch { display: none; }

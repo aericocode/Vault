@@ -19,6 +19,10 @@
   <link rel="stylesheet" href="./css/saved-searches.css">
   <link rel="stylesheet" href="./css/mini-player.css">
   <link rel="stylesheet" href="./css/sidebar.css">
+  <!-- Docked preview pane (Modern look), scoped under body.dock-shown -->
+  <link rel="stylesheet" href="./css/dock.css">
+  <!-- Left filter rail (Modern look), scoped under body.rail-shown -->
+  <link rel="stylesheet" href="./css/filter-rail.css">
   <link rel="stylesheet" href="./css/detail-view.css">
   <link rel="stylesheet" href="./css/abloop.css">
   <link rel="stylesheet" href="./css/duplicates.css">
@@ -48,6 +52,11 @@
   <link rel="stylesheet" href="./css/faces-tab.css">
   <link rel="stylesheet" href="./css/faces-review.css">
   <link rel="stylesheet" href="./css/studios.css">
+  <link rel="stylesheet" href="./css/wall.css">
+  <!-- Modern library look: every rule is scoped under body.layout-modern -->
+  <link rel="stylesheet" href="./css/layout-modern.css">
+  <!-- Table view (Modern look), scoped under .results-grid.grid-table -->
+  <link rel="stylesheet" href="./css/table-view.css">
 
   <link rel="icon" type="image/svg+xml" href="./images/favicon.svg">
 </head>
@@ -67,18 +76,32 @@
         Vault
       </div>
       <nav class="app-tabs" id="appTabs">
-        <button class="app-tab active" data-tab="library" onclick="switchTab('library')">📚 Library</button>
-        <button class="app-tab" data-tab="collections" onclick="switchTab('collections')">📁 Collections</button>
-        <button class="app-tab" data-tab="faces" onclick="switchTab('faces')">👤 Faces</button>
-        <button class="app-tab" data-tab="editor" onclick="switchTab('editor')">🎨 Editor<span class="app-tab-badge" id="editorTabBadge" style="display:none;"></span></button>
-        <button class="app-tab" data-tab="games" onclick="switchTab('games')">🎮 Games</button>
+        <button class="app-tab active" data-tab="library" onclick="switchTab('library')" aria-label="Library"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">📚 </span><span class="app-tab-name">Library</span></span></button>
+        <button class="app-tab" data-tab="collections" onclick="switchTab('collections')" aria-label="Collections"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">📁 </span><span class="app-tab-name">Collections</span></span></button>
+        <button class="app-tab" data-tab="faces" onclick="switchTab('faces')" aria-label="Faces"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">👤 </span><span class="app-tab-name">Faces</span></span></button>
+        <button class="app-tab" data-tab="editor" onclick="switchTab('editor')" aria-label="Editor" aria-labelledby="editorTabName editorTabBadge"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">🎨 </span><span class="app-tab-name" id="editorTabName">Editor</span></span><span class="app-tab-badge" id="editorTabBadge" style="display:none;"></span></button>
+        <button class="app-tab" data-tab="games" onclick="switchTab('games')" aria-label="Games"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">🎮 </span><span class="app-tab-name">Games</span></span></button>
+        <button class="app-tab" data-tab="wall" onclick="switchTab('wall')" aria-label="Wall"><span class="app-tab-label"><span class="app-tab-ic" aria-hidden="true">🧱 </span><span class="app-tab-name">Wall</span></span></button>
       </nav>
       <div class="db-info">
         <strong id="totalCount">Loading…</strong>
+        <!-- Modern look: the count as short muted text with the database name in
+             its tooltip (player-lib/header-fit.js keeps it in step with #totalCount) -->
+        <span class="hdr-count modern-only" id="headerCountShort"></span>
       </div>
       <div class="header-buttons">
+        <!-- Modern look: one Add button with a small menu. Its entries click the
+             real Add files / Add folder buttons (importer.js), which Modern hides. -->
+        <div class="hdr-add modern-only" id="hdrAdd">
+          <button type="button" class="header-btn hdr-add-btn" id="hdrAddBtn" aria-haspopup="menu"
+                  aria-expanded="false" aria-controls="hdrAddMenu" title="Add files or a folder to the library">＋ Add</button>
+          <div class="hdr-add-menu" id="hdrAddMenu" role="menu" aria-label="Add to the library" hidden>
+            <button type="button" class="hdr-add-item" role="menuitem" tabindex="-1" data-add-for="addFilesBtn">📄 Add files</button>
+            <button type="button" class="hdr-add-item" role="menuitem" tabindex="-1" data-add-for="addFolderBtn">📁 Add folder</button>
+          </div>
+        </div>
         <button class="header-btn refresh-btn" id="refreshBtn" title="Reload library from server">
-          🔄 Refresh
+          <span class="hb-text"><span class="hb-ic">🔄 </span><span class="hb-label">Refresh</span></span>
         </button>
       </div>
     </div>
@@ -251,6 +274,9 @@
     <!-- Results Info -->
     <div class="results-info">
       <div class="results-count">
+        <!-- Modern look only: open / close the left filter rail (player-lib/filter-rail.js) -->
+        <button type="button" class="rail-toggle-btn modern-only" id="railToggleBtn" aria-pressed="false"
+                aria-controls="filterRail" title="Show or hide the filter panel">☰ Filters</button>
         <button class="search-collapse-btn" id="searchCollapseBtn" title="Show/hide search &amp; filters">▲ Search</button>
         <!-- Select page / Select all already carry the counts, so no separate
              "Showing N of M results" line: it said the same thing twice. -->
@@ -265,6 +291,20 @@
           onclick="rescanFiltered()"></button>
       </div>
       <div class="results-controls">
+        <!-- Modern look only: card size as a slider (player-lib/layout-modern.js).
+             Classic keeps Small / Medium / Large in Settings. -->
+        <div class="card-size-control modern-only">
+          <label for="cardSizeRange">Size</label>
+          <input type="range" id="cardSizeRange" min="120" max="480" step="10" value="170"
+                 title="Card size: drag for smaller or bigger tiles">
+        </div>
+        <!-- Modern look only: tiles or a table (player-lib/table-view.js) -->
+        <div class="view-switch modern-only" id="viewSwitch" role="group" aria-label="Show as">
+          <button type="button" class="view-switch-btn" data-view="grid" aria-pressed="true" title="Show as tiles">▦ Grid</button>
+          <button type="button" class="view-switch-btn" data-view="table" aria-pressed="false" title="Show as a table">☰ Table</button>
+        </div>
+        <button type="button" class="tv-columns-btn modern-only" id="tableColumnsBtn" hidden
+                aria-haspopup="true" aria-expanded="false" title="Choose which columns the table shows">Columns ▾</button>
         <div class="sort-control">
           <label>Sort:</label>
           <select id="sortSelect">
@@ -279,6 +319,9 @@
           <button id="sortDirBtn" class="sort-dir-btn" title="Toggle most/least first">▼</button>
           <button id="favesFirstBtn" class="faves-first-btn" title="Faves first (on top of any sort)">🤍</button>
         </div>
+        <!-- Modern look only: open / close the docked preview pane (player-lib/dock.js) -->
+        <button type="button" class="dock-toggle-btn modern-only" id="dockToggleBtn" aria-pressed="false"
+                title="Show or hide the preview pane">▣ Preview</button>
       </div>
     </div>
 
@@ -289,11 +332,39 @@
     <div class="pagination" id="pagination"></div>
   </main>
 
+  <!-- Docked preview pane (Modern look only, player-lib/dock.js). Fixed to the
+       right edge under the header; #mainContainer gets a matching right margin
+       while it shows, so the grid shrinks instead of being covered. -->
+  <aside class="library-dock" id="libraryDock" aria-label="Preview" hidden>
+    <div class="dock-resizer" id="dockResizer" tabindex="0" role="separator" aria-orientation="vertical"
+         aria-label="Resize the preview pane" title="Drag to resize"></div>
+    <div class="dock-head">
+      <span class="dock-head-title">Preview</span>
+      <button type="button" class="dock-close" id="dockCloseBtn" title="Close the preview pane">✕</button>
+    </div>
+    <div class="dock-body" id="dockBody"></div>
+  </aside>
+
+  <!-- Left filter rail (Modern look only, player-lib/filter-rail.js). Fixed to
+       the left edge under the header; #mainContainer gets a matching left
+       margin while it shows. It is another view over #filterState: every
+       control here writes the same elements the chips and the More sheet do. -->
+  <aside class="filter-rail" id="filterRail" aria-label="Filters" hidden>
+    <div class="rail-head">
+      <span class="rail-head-title">Filters</span>
+      <button type="button" class="rail-close" id="railCloseBtn" title="Hide the filter panel">✕</button>
+    </div>
+    <div class="rail-body" id="filterRailBody"></div>
+  </aside>
+
   <!-- Editor (stack/grid mixes, songs browser, exports) — rendered by editor.js -->
   <main class="editor-container" id="editorContainer" style="display:none;"></main>
 
   <!-- Games (video games over the library) — rendered by games.js -->
   <main class="games-container" id="gamesContainer" style="display:none;"></main>
+
+  <!-- Wall (full-bleed collage of the library) — rendered by wall.js -->
+  <main class="wall-root" id="wallContainer" style="display:none;"></main>
 
   <!-- Detail Modal -->
   <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
@@ -390,6 +461,8 @@
   <script src="./player-lib/selection.js"></script>
   <script src="./player-lib/saved-searches.js"></script>
   <script src="./player-lib/cards.js"></script>
+  <!-- Table view (Modern look). Hooks: cards.js renderResults / renderContinuousWindow. -->
+  <script src="./player-lib/table-view.js"></script>
   <script src="./player-lib/detail-view.js"></script>
   <script src="./player-lib/modal.js"></script>
   <script src="./player-lib/player/player-stream.js"></script>
@@ -417,8 +490,13 @@
   <script src="./player-lib/games/games-sidebar.js"></script>
   <script src="./player-lib/vault-ui.js"></script>
   <script src="./player-lib/importer.js"></script>
+  <script src="./player-lib/wall.js"></script>
   <script src="./player-lib/tabs.js"></script>
   <script src="./player-lib/settings.js"></script>
+  <script src="./player-lib/layout-modern.js"></script>
+  <!-- Header fit: tab names fold to icons when the header would wrap, plus the
+       Modern header's Add menu, status pill and short count. -->
+  <script src="./player-lib/header-fit.js"></script>
   <script src="./player-lib/setup-check.js"></script>
   <script src="./player-lib/tooltip.js"></script>
   <!-- Face search (FACES_BUILD_SPEC 8). Hooks: detail-view, filters,
@@ -429,6 +507,12 @@
   <!-- Studios (STUDIOS_SPEC 3): the Studios half of the Faces tab. Hooks:
        faces-tab, filters, selection, detail-view, cards. -->
   <script src="./player-lib/studios.js"></script>
+  <!-- Docked preview pane (Modern look). After settings.js, before app.js.
+       dock-edit.js (its in-place editors) first: dock.js wires it at init. -->
+  <script src="./player-lib/dock-edit.js"></script>
+  <script src="./player-lib/dock.js"></script>
+  <!-- Left filter rail (Modern look). Hooks: filter-chips, saved-searches, collections. -->
+  <script src="./player-lib/filter-rail.js"></script>
   <script src="./player-lib/app.js"></script>
 </body>
 </html>

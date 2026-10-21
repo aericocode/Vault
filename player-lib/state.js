@@ -116,6 +116,7 @@ let currentMediaState = {
   gainNode: null,
   mediaSource: null,
   currentMediaData: null,
+  playbackMediaId: null,
   previousVolume: 1,
   fontSize: 14,
   wordWrap: true
@@ -125,6 +126,7 @@ let currentMediaState = {
 function resetMediaState(mediaType) {
   const preservedIndex = currentMediaState.currentIndex;
   const preservedMediaData = currentMediaState.currentMediaData;
+  const preservedPlaybackId = currentMediaState.playbackMediaId;
   
   // Clean up audio context
   if (currentMediaState.audioContext) {
@@ -149,6 +151,7 @@ function resetMediaState(mediaType) {
     gainNode: null,
     mediaSource: null,
     currentMediaData: preservedMediaData,
+    playbackMediaId: preservedPlaybackId,
     previousVolume: currentMediaState.previousVolume || 1,
     fontSize: 14,
     wordWrap: true

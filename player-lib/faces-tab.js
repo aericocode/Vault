@@ -371,10 +371,14 @@ function ftRenderHome() {
 
 /* ── Size sliders: person cards (home), file tiles (person page) ────────── */
 
-const FT_SIZE_RANGE = { people: [120, 320, 10], files: [120, 400, 10] };
+// files: the same range as the Modern library's Size slider, which it starts from.
+const FT_SIZE_RANGE = { people: [120, 320, 10], files: [120, 480, 10] };
 
-/** The width the files slider shows before it was first moved: the library's Card size. */
+/** The width the files slider shows before it was first moved: the library's Card size
+    (in the Modern look, the library's own Size slider). */
 function ftFileSizeDefault() {
+  if (typeof isModernLayout === 'function' && isModernLayout()
+      && typeof window.vaultCardMinWidth === 'function') return window.vaultCardMinWidth();
   const size = typeof window.vaultCardSize === 'function' ? window.vaultCardSize() : 'M';
   return (typeof CARD_MIN_WIDTHS !== 'undefined' && CARD_MIN_WIDTHS[size]) || 170;
 }

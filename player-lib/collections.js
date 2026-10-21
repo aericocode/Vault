@@ -115,6 +115,8 @@ function _isAncestorFolder(folderId, id) {
 function renderCollectionsTabBar() {
   const bar = document.getElementById('collectionsTabBar');
   if (!bar) return;
+  // The Modern look's left rail lists the collections too (player-lib/filter-rail.js).
+  if (typeof renderFilterRail === 'function') renderFilterRail();
   const show = (typeof currentTab !== 'undefined' && currentTab === 'collections') && activeCollectionId == null;
   if (!show) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
   bar.style.display = 'flex';
@@ -758,7 +760,18 @@ function _applyToggleSideEffects(id) {
 async function togglePickerCollection(id) {
   const c = getCollectionById(id);
   if (!c) return;
-  const adding = _collectionState(c) !== 'all';
+  await changeCollectionMembership(id, _pickerIds, _collectionState(c) !== 'all');
+}
+
+/**
+ * Add (adding true) or remove media ids in one collection: optimistic cache
+ * and card update, the request, then the true-up or the rollback. The picker
+ * above and the dock pane (dock-edit.js) both use it.
+ * @returns {Promise<boolean>} whether the server made the change
+ */
+async function changeCollectionMembership(id, mediaIds, adding) {
+  const c = getCollectionById(id);
+  if (!c) return false;
 
   // Snapshot for rollback
   const prevMembers = (collectionMembers.get(id) || []).slice();
@@ -767,9 +780,9 @@ async function togglePickerCollection(id) {
 
   // Optimistic cache + card state update
   const prevSet = new Set(prevMembers);
-  const pickSet = new Set(_pickerIds);
+  const pickSet = new Set(mediaIds);
   const next = adding
-    ? prevMembers.concat(_pickerIds.filter(x => !prevSet.has(x)))
+    ? prevMembers.concat(mediaIds.filter(x => !prevSet.has(x)))
     : prevMembers.filter(x => !pickSet.has(x));
   collectionMembers.set(id, next);
   c.item_count = next.length;
@@ -783,11 +796,11 @@ async function togglePickerCollection(id) {
     // removing are both safe to split: each chunk is its own idempotent set
     // change, and the last answer carries the final count and mosaic.
     let data = null;
-    for (let i = 0; i < _pickerIds.length; i += COLL_ID_CHUNK) {
+    for (let i = 0; i < mediaIds.length; i += COLL_ID_CHUNK) {
       const resp = await fetch(`/api/collections/${id}/items`, {
         method: adding ? 'POST' : 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: _pickerIds.slice(i, i + COLL_ID_CHUNK) }),
+        body: JSON.stringify({ ids: mediaIds.slice(i, i + COLL_ID_CHUNK) }),
       });
       if (!resp.ok) throw new Error('request failed');
       data = await resp.json();
@@ -798,6 +811,7 @@ async function togglePickerCollection(id) {
     _patchPickerRow(id);
     _patchAncestorCounts(id);
     showToast(adding ? `📁 Added to ${c.name}` : `Removed from ${c.name}`);
+    return true;
   } catch {
     collectionMembers.set(id, prevMembers);
     c.item_count = prevCount;
@@ -807,9 +821,10 @@ async function togglePickerCollection(id) {
     _applyToggleSideEffects(id);
     showToast('⚠ Collection update failed');
     // A chunked change can fail part-way: read back what the server kept.
-    if (_pickerIds.length > COLL_ID_CHUNK) {
+    if (mediaIds.length > COLL_ID_CHUNK) {
       fetchCollectionMembers(id, true).then(() => { _patchPickerRow(id); _patchAncestorCounts(id); }).catch(() => {});
     }
+    return false;
   }
 }
 

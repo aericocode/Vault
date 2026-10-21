@@ -234,6 +234,8 @@ function activateSavedSearch(id) {
 function renderSavedSearches() {
   const container = document.getElementById('savedSearchesBar');
   if (!container) return;
+  // The Modern look's left rail lists them too (player-lib/filter-rail.js).
+  if (typeof renderFilterRail === 'function') renderFilterRail();
 
   if (savedSearches.length === 0) {
     container.style.display = 'none';

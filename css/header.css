@@ -97,6 +97,19 @@
   align-items: center;
   gap: 1.5rem;
   flex-wrap: wrap;
+  position: relative;            /* holds the fit probe below */
+}
+
+/* Zero-height, full-width: player-lib/header-fit.js watches its width to
+   re-measure the tab fit. Out of flow, so the row lays out as if absent. */
+.hdr-fit-probe {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 0;
+  pointer-events: none;
+  visibility: hidden;
 }
 
 .logo {

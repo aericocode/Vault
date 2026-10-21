@@ -220,6 +220,17 @@ function buildRouter() {
     if (!id || !Number.isInteger(n) || n < 0) return res.status(400).end();
     const row = db.getById(id);
     if (!row) return res.status(404).end();
+    // A Wall clip that was already closed: torn down while this request was
+    // still on the way (its first one, or a late one hls.js had in flight or
+    // queued). Serving it would register the token and start or restart a
+    // producer for a reader that is already gone. Only Wall tokens are ever
+    // remembered as closed (lib/stream/ring.js), and the Wall never reuses one,
+    // so no other player and no live clip can be refused here.
+    const wallClient = clientToken(req);
+    if (ring.isWallToken(wallClient)) {
+      if (ring.wallClosed(id, wallClient)) return res.status(410).end();
+      ring.wallSeen(id, wallClient);
+    }
 
     let result;
     try {
@@ -255,11 +266,28 @@ function buildRouter() {
   // still reading, so teardown needs both halves: the token was a known client,
   // and it was the last one. Everything else is a no-op, and the idle sweeper
   // stays the guarantee for sessions that really were abandoned.
+  //
+  // A Wall clip's token ("wall-" + UUID, which only player-lib/wall.js mints)
+  // is also remembered as closed for a minute (ring.closeWallClient), because
+  // the Wall swaps clips fast and the beacon can overtake that clip's last
+  // requests: any segment request arriving after the close (its first, or a
+  // late one from a clip that was playing) is refused instead of starting a
+  // producer, and one already waiting does not restart it. For a Wall token
+  // "known" means it ever made a segment request, even if the ring has since
+  // pruned it, so its close still ends an emptied session.
+  // Every other token takes the plain path below, unchanged.
   router.post('/stream/:id/close', async (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).end();
     res.status(204).end();
     try {
+      const wallClient = clientToken(req);
+      if (ring.isWallToken(wallClient)) {
+        const left = ring.closeWallClient(id, wallClient);
+        if (!left.known || left.remaining > 0) return;
+        await session.end(id);
+        return;
+      }
       const left = ring.dropClient(id, clientToken(req));
       if (!left.removed || left.remaining > 0) return;
       await session.end(id);

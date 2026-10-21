@@ -28,6 +28,14 @@
   gap: 0.35rem;
 }
 
+/* Fitting the header on one line (player-lib/header-fit.js measures it).
+   First step: slightly tighter tabs. Second step: the tabs other than the
+   open one show their icon only, with the name in the tooltip. If even that
+   cannot keep the header on one line, the tabs go back to full size. */
+.header.tabs-tight .app-tabs { gap: 0.1rem; }
+.header.tabs-tight .app-tab { padding-left: 0.5rem; padding-right: 0.5rem; }
+.header.tabs-collapsed .app-tab:not(.active) .app-tab-name { display: none; }
+
 .app-tab:hover {
   color: var(--text-primary);
   background: var(--bg-hover);
