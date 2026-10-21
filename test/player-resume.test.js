@@ -20,18 +20,25 @@ const vm = require('node:vm');
 const read = (rel) => fs.readFileSync(path.join(__dirname, '..', 'player-lib', rel), 'utf8');
 
 class FakeHTMLElement {
-  constructor(tagName, { src = '', id = null, inPlayer = true, duration = 600 } = {}) {
+  constructor(tagName, { src = '', id = null, inPlayer = true, where = '#mediaPlayerContent', inMix = false, duration = 600 } = {}) {
     this.tagName = tagName;
     this.src = src;
     this.currentSrc = src;
     this.dataset = {};
     if (id != null) this.dataset.playbackMediaId = String(id);
     this.inPlayer = inPlayer;
+    this.where = where;
+    this.inMix = inMix;
+    this.paused = false;
     this.duration = duration;
     this.currentTime = 0;
     this.isConnected = true;
   }
-  closest(sel) { return this.inPlayer && sel === '#mediaPlayerContent' ? {} : null; }
+  closest(sel) {
+    if (sel === '.mix-player-stage') return this.inMix ? {} : null;
+    return this.inPlayer && sel === this.where ? {} : null;
+  }
+  pause() { this.paused = true; }
   play() { return Promise.resolve(); }
   canPlayType() { return ''; }
 }
@@ -40,7 +47,9 @@ class FakeHTMLElement {
 function loadViewtracker(rows) {
   const byId = new Map(rows.map(r => [r.id, r]));
   const listeners = {};
-  const calls = { fetch: [], toast: [] };
+  const winListeners = {};
+  const calls = { fetch: [], toast: [], stopped: [] };
+  const onPage = [];
   const ctx = {
     console, URL, Math, Number, String, Object, JSON, Promise, setTimeout, clearTimeout,
     HTMLElement: FakeHTMLElement,
@@ -48,19 +57,22 @@ function loadViewtracker(rows) {
     document: {
       addEventListener(type, fn) { listeners[type] = fn; },
       getElementById() { return null; },
+      querySelectorAll() { return onPage; },
     },
-    window: { dispatchEvent() {} },
+    window: { dispatchEvent() {}, addEventListener(type, fn) { winListeners[type] = fn; } },
+    // player-core.js's teardown; viewtracker wraps it
+    stopMediaElement(el) { calls.stopped.push(el); if (el) { el.currentTime = 0; el.duration = NaN; } },
     CustomEvent: class {},
     playMedia() {},
     Library: { rowByPath: (p) => rows.find(r => r.filepath === p) || null },
     getMediaById: (id) => byId.get(id) || null,
     showToast: (m) => calls.toast.push(m),
     formatDuration: (s) => `${Math.floor(s)}s`,
-    fetch: (url, opts) => { calls.fetch.push({ url, body: opts && opts.body ? JSON.parse(opts.body) : null }); return Promise.resolve({ ok: false }); },
+    fetch: (url, opts) => { calls.fetch.push({ url, keepalive: !!(opts && opts.keepalive), body: opts && opts.body ? JSON.parse(opts.body) : null }); return Promise.resolve({ ok: false }); },
   };
   vm.createContext(ctx);
   vm.runInContext(read('viewtracker.js'), ctx);
-  return { listeners, calls, ctx };
+  return { listeners, winListeners, calls, ctx, onPage };
 }
 
 const remuxRow = () => ({ id: 13, filepath: 'K:/m/long.mkv', last_position: 120 });
@@ -121,6 +133,161 @@ test('timeupdate: watch tracking and the throttled save find a remux file', () =
   listeners.timeupdate({ target: el });          // first tick: picks the row
   for (let t = 11; t <= 16; t++) { el.currentTime = t; listeners.timeupdate({ target: el }); }
   assert.ok(calls.fetch.some(c => c.url === '/api/media/13/flags'), 'throttled save went to row 13');
+});
+
+/* ── Save at close (viewtracker.js wraps stopMediaElement) ─────────────── */
+
+/** Play `el` from `from` to `to` in 1s ticks, so the watch tracker holds heat. */
+function playThrough(listeners, el, from, to) {
+  for (let t = from; t <= to; t++) { el.currentTime = t; listeners.timeupdate({ target: el }); }
+}
+const flagsCalls = (calls, id) => calls.fetch.filter(c => c.url === `/api/media/${id}/flags`);
+const heatCalls = (calls, id) => calls.fetch.filter(c => c.url === `/api/media/${id}/heatmap`);
+
+test('close: a playing remux file saves its position and heatmap before teardown', () => {
+  const { listeners, calls, ctx } = loadViewtracker([remuxRow()]);
+  const el = new FakeHTMLElement('VIDEO', { src: 'blob:http://localhost:1/abc', id: 13 });
+  playThrough(listeners, el, 200, 203);          // throttled save not reached yet
+  el.currentTime = 203.27;
+  calls.fetch.length = 0;
+  ctx.stopMediaElement(el);
+  assert.strictEqual(calls.stopped.length, 1, 'the real teardown still runs');
+  assert.strictEqual(heatCalls(calls, 13).length, 1, 'heatmap sent');
+  const saves = flagsCalls(calls, 13);
+  assert.strictEqual(saves.length, 1);
+  assert.strictEqual(saves[0].body.last_position, 203.3);
+  assert.strictEqual(saves[0].keepalive, false, 'keepalive only for pagehide');
+});
+
+test('close: the mini player saves too', () => {
+  const { calls, ctx } = loadViewtracker([nativeRow()]);
+  const el = new FakeHTMLElement('VIDEO', { src: '/media/5', where: '#miniPlayerMedia' });
+  el.currentTime = 42;
+  ctx.stopMediaElement(el);
+  assert.strictEqual(flagsCalls(calls, 5)[0].body.last_position, 42);
+});
+
+test('close: a finished file is saved as 0', () => {
+  const { calls, ctx } = loadViewtracker([remuxRow()]);
+  const el = new FakeHTMLElement('VIDEO', { src: 'blob:x', id: 13, duration: 600 });
+  el.currentTime = 560;
+  ctx.stopMediaElement(el);
+  assert.strictEqual(flagsCalls(calls, 13)[0].body.last_position, 0);
+});
+
+test('close: no second save right after a pause at the same spot', () => {
+  const { listeners, calls, ctx } = loadViewtracker([remuxRow()]);
+  const el = new FakeHTMLElement('VIDEO', { src: 'blob:x', id: 13 });
+  el.currentTime = 245.31;
+  listeners.pause({ target: el });
+  ctx.stopMediaElement(el);
+  assert.strictEqual(flagsCalls(calls, 13).length, 1);
+});
+
+test('close: nothing moved since it resumed, so no save', () => {
+  const { calls, ctx } = loadViewtracker([remuxRow()]);   // last_position 120
+  const el = new FakeHTMLElement('VIDEO', { src: 'blob:x', id: 13 });
+  el.currentTime = 120;
+  ctx.stopMediaElement(el);
+  assert.strictEqual(flagsCalls(calls, 13).length, 0);
+});
+
+test('close: paused, then moved, then closed saves the new spot', () => {
+  const { listeners, calls, ctx } = loadViewtracker([remuxRow()]);
+  const el = new FakeHTMLElement('VIDEO', { src: 'blob:x', id: 13 });
+  el.currentTime = 100;
+  listeners.pause({ target: el });
+  el.currentTime = 300;
+  ctx.stopMediaElement(el);
+  assert.deepStrictEqual(flagsCalls(calls, 13).map(c => c.body.last_position), [100, 300]);
+});
+
+test('close: saved against the id stamp, never the file the src names', () => {
+  const { calls, ctx } = loadViewtracker([remuxRow(), nativeRow()]);
+  const el = new FakeHTMLElement('VIDEO', { src: '/media/5', id: 13 });
+  el.currentTime = 77;
+  ctx.stopMediaElement(el);
+  assert.strictEqual(flagsCalls(calls, 13).length, 1);
+  assert.strictEqual(flagsCalls(calls, 5).length, 0);
+});
+
+test('close: elements outside the player, mix layers and a missing element save nothing', () => {
+  const { calls, ctx } = loadViewtracker([nativeRow()]);
+  const outside = new FakeHTMLElement('VIDEO', { src: '/media/5', inPlayer: false });
+  const layer = new FakeHTMLElement('VIDEO', { src: '/media/5', inMix: true });
+  outside.currentTime = layer.currentTime = 50;
+  ctx.stopMediaElement(outside);
+  ctx.stopMediaElement(layer);
+  ctx.stopMediaElement(null);
+  assert.strictEqual(calls.fetch.length, 0);
+  assert.strictEqual(calls.stopped.length, 3, 'teardown still runs for each');
+});
+
+test('close: positions are saved with "Resume playback positions" off', () => {
+  const { calls, ctx } = loadViewtracker([nativeRow()]);
+  ctx.vaultSetting = (k) => (k === 'resumePlayback' ? false : undefined);
+  const el = new FakeHTMLElement('VIDEO', { src: '/media/5' });
+  el.currentTime = 33;
+  ctx.stopMediaElement(el);
+  assert.strictEqual(flagsCalls(calls, 5)[0].body.last_position, 33);
+});
+
+test('close: the heatmap is sent once, not again when the next file starts', () => {
+  const { listeners, calls, ctx } = loadViewtracker([remuxRow(), nativeRow()]);
+  const el = new FakeHTMLElement('VIDEO', { src: 'blob:x', id: 13 });
+  playThrough(listeners, el, 10, 13);
+  ctx.stopMediaElement(el);
+  const next = new FakeHTMLElement('VIDEO', { src: '/media/5' });
+  next.currentTime = 1;
+  listeners.timeupdate({ target: next });
+  assert.strictEqual(heatCalls(calls, 13).length, 1);
+});
+
+test('pagehide: saves the playing file with keepalive', () => {
+  const { listeners, winListeners, calls, onPage } = loadViewtracker([remuxRow()]);
+  const el = new FakeHTMLElement('VIDEO', { src: 'blob:x', id: 13, where: '#miniPlayerMedia' });
+  playThrough(listeners, el, 300, 303);
+  el.currentTime = 303.3;
+  onPage.push(el);
+  calls.fetch.length = 0;
+  winListeners.pagehide();
+  const heat = heatCalls(calls, 13);
+  const save = flagsCalls(calls, 13);
+  assert.strictEqual(heat.length, 1);
+  assert.strictEqual(save.length, 1);
+  assert.strictEqual(save[0].body.last_position, 303.3);
+  assert.ok(heat[0].keepalive && save[0].keepalive);
+});
+
+test('pagehide: nothing playing sends nothing', () => {
+  const { winListeners, calls } = loadViewtracker([remuxRow()]);
+  winListeners.pagehide();
+  assert.strictEqual(calls.fetch.length, 0);
+});
+
+/* ── Expanding the mini player (maximizePlayer stamps the new element) ──── */
+
+test('maximize: the new element continues from the stamped spot, not the resume point', () => {
+  const { listeners, calls } = loadViewtracker([remuxRow()]);   // last_position 120
+  const el = new FakeHTMLElement('VIDEO', { src: 'blob:x', id: 13 });
+  el.dataset.maximizeAt = '252.6';
+  listeners.loadedmetadata({ target: el });
+  assert.strictEqual(el.currentTime, 252.6);
+  assert.strictEqual(el.paused, false);
+  assert.strictEqual(calls.toast.length, 0, 'not announced as a resume');
+  assert.strictEqual(el.dataset.maximizeAt, undefined, 'used once');
+});
+
+test('maximize: a paused file stays paused, even with resume off', () => {
+  const { listeners, ctx } = loadViewtracker([nativeRow()]);
+  ctx.vaultSetting = () => false;
+  const el = new FakeHTMLElement('VIDEO', { src: '/media/5' });
+  el.dataset.maximizeAt = '14.8';
+  el.dataset.maximizePaused = '1';
+  listeners.loadedmetadata({ target: el });
+  assert.strictEqual(el.currentTime, 14.8);
+  assert.strictEqual(el.paused, true);
+  assert.strictEqual(el.dataset.maximizePaused, undefined);
 });
 
 /* ── player-stream.js ──────────────────────────────────────────────────── */

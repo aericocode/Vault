@@ -355,9 +355,16 @@ function showHoldFrame(box, still, el) {
    site that does not say otherwise is a deliberate open. */
 let lastPlaySource = 'user';
 
+/* The file the player was last asked to open, as playMedia got it. Unlike
+   currentMediaState.currentMediaData it is there for a file outside the
+   current results too (a Wall collection, a saved search), which is what the
+   mini player needs to show its name and to expand back to the full player. */
+let playingMedia = null;
+
 // Main playMedia function
 function playMedia(mediaData, { source = 'user' } = {}) {
   const { filepath, filename, media_type } = mediaData;
+  playingMedia = { filepath, filename, media_type };
   lastPlaySource = source === 'auto' ? 'auto' : 'user';
 
   /* Minimized is a mode, not a property of one file. A move the queue made on
@@ -1254,7 +1261,7 @@ function stopMediaElement(el) {
 function handleMiniMediaError(e) {
   const el = e.currentTarget;
   if (!el || !el.closest('#miniPlayerMedia')) return;
-  const filepath = currentMediaState.currentMediaData?.filepath;
+  const filepath = currentMediaState.currentMediaData?.filepath || playingMedia?.filepath;
   if (filepath) handleMediaError(filepath);
 }
 
@@ -1291,7 +1298,7 @@ function minimizePlayer() {
   const miniTitle = document.getElementById('miniPlayerTitle');
 
   // Set title
-  miniTitle.textContent = currentMediaState.currentMediaData?.filename || 'Playing...';
+  miniTitle.textContent = currentMediaState.currentMediaData?.filename || playingMedia?.filename || 'Playing...';
   // Audio gets the compact card layout; everything else the plain video box
   miniPlayer.classList.remove('mini-audio');
 
@@ -1383,7 +1390,10 @@ function maximizePlayer() {
   // prefer the tagged master — its clock is the one the mix is synced to, and
   // querySelector would otherwise grab whichever layer is first in the DOM.
   const element = miniMedia.querySelector('[data-mix-master], video, audio');
-  if (!element) {
+  // Re-play in full mode using the current media data. A file outside the
+  // current results has none, so fall back to the file playMedia was given.
+  const mediaData = currentMediaState.currentMediaData || playingMedia;
+  if (!element || !mediaData) {
     closeMiniPlayer();
     return;
   }
@@ -1393,32 +1403,30 @@ function maximizePlayer() {
   miniPlayer.classList.remove('active', 'mini-audio');
   currentMediaState.miniMode = false;
 
-  // Re-play in full mode using the current media data
-  const mediaData = currentMediaState.currentMediaData;
-  if (mediaData) {
-    // Store the current playback position and playing state
-    const wasPlaying = !element.paused;
-    const currentTime = element.currentTime;
-    const volume = element.volume;
+  // Store the current playback position and playing state
+  const wasPlaying = !element.paused;
+  const currentTime = element.currentTime;
 
-    // Clean up the moved element
-    miniMedia.innerHTML = '';
+  // Clean up the moved element
+  miniMedia.innerHTML = '';
 
-    // Re-open the full player (this creates a fresh element)
-    playMedia({
-      filepath: mediaData.filepath,
-      filename: mediaData.filename,
-      media_type: mediaData.media_type
-    });
+  // Re-open the full player (this creates a fresh element). The id keeps the
+  // same playback decision (remux or native) for a file outside the results.
+  playMedia({
+    id: currentMediaState.playbackMediaId || undefined,
+    filepath: mediaData.filepath,
+    filename: mediaData.filename,
+    media_type: mediaData.media_type
+  });
 
-    // Restore playback position after the new element loads
-    const newElement = currentMediaState.element;
-    if (newElement) {
-      newElement.currentTime = currentTime;
-      if (!wasPlaying) {
-        newElement.pause();
-      }
-    }
+  // Restore playback position after the new element loads. Its source is
+  // attached asynchronously (a converted file's only after the server answers),
+  // so the time and paused state are applied on loadedmetadata, ahead of the
+  // stored resume point (player-lib/viewtracker.js).
+  const newElement = currentMediaState.element;
+  if (newElement) {
+    newElement.dataset.maximizeAt = String(currentTime);
+    if (!wasPlaying) newElement.dataset.maximizePaused = '1';
   }
 }
 
