@@ -1877,6 +1877,8 @@ function buildMixUi(ctx) {
     if (currentTab !== 'editor' || !editorMix) return;
     if (e.target.matches('input, textarea, select')) return;
     if (document.getElementById('mediaPlayerOverlay')?.classList.contains('active')) return;
+    // Ctrl / Cmd chords (Ctrl+M, Ctrl+[) are the browser's (shortcuts.js).
+    if (typeof isBrowserChord === 'function' && isBrowserChord(e)) return;
     if (e.key === ' ' || e.code === 'Space') { e.preventDefault(); togglePlay(); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); seekBy(e.shiftKey ? -10 : -5); }
     else if (e.key === 'ArrowRight') { e.preventDefault(); seekBy(e.shiftKey ? 10 : 5); }

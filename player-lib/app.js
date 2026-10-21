@@ -416,6 +416,8 @@ loadDatabase();
 document.addEventListener('keydown', (e) => {
   // Don't capture when focused on inputs
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  // Ctrl / Cmd chords (Ctrl+R reload) are the browser's, not Q / N / P / R.
+  if (typeof isBrowserChord === 'function' && isBrowserChord(e)) return;
 
   // Mini player shortcuts (active when mini player is showing)
   const miniPlayer = document.getElementById('miniPlayer');

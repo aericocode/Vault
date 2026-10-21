@@ -1,0 +1,207 @@
+/* =========================================================================
+   SHORTCUTS - the ? window and Settings > Keyboard shortcuts
+   (player-lib/shortcuts.js). Both views share the group and row styles.
+   ========================================================================= */
+
+.sk-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10100;                 /* above the mini player, editors and tooltips */
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 6vh 16px 16px;
+  box-sizing: border-box;
+}
+.sk-overlay[hidden] { display: none; }
+
+.sk-win {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  width: min(1100px, 100%);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  line-height: 1.45;
+  min-height: 0;
+}
+
+.sk-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.sk-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.sk-hint {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.sk-x {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.5rem;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.sk-x:hover { color: var(--danger); }
+
+.sk-search {
+  flex: 1 1 180px;
+  max-width: 280px;
+  min-width: 0;
+  background: var(--bg-primary);
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: var(--text-primary);
+  padding: 5px 9px;
+  font: inherit;
+}
+.sk-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.sk-body {
+  overflow-y: auto;
+  min-height: 0;
+}
+.sk-cols {
+  columns: 3 250px;
+  column-gap: 22px;
+  padding: 12px 16px 16px;
+}
+.sk-cols2 {
+  columns: 2 240px;
+  column-gap: 22px;
+}
+
+.sk-group {
+  break-inside: avoid;
+  margin: 0 0 14px;
+  border-radius: 8px;
+}
+.sk-group.sk-here {
+  background: rgba(99, 102, 241, 0.10);
+  outline: 1px solid rgba(99, 102, 241, 0.45);
+  padding: 8px 10px;
+  margin-left: -10px;
+  margin-right: -10px;
+}
+.sk-gh {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.sk-now {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 99px;
+  padding: 0 6px;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+}
+
+.sk-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sk-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+  border-bottom: 1px solid #222;
+}
+.sk-desc { min-width: 0; }
+.sk-keys {
+  display: flex;
+  gap: 6px;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  max-width: 55%;
+}
+.sk-combo {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.sk-plus, .sk-click {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.sk-win kbd,
+.sk-settings-top kbd,
+.sk-cols2 kbd {
+  font: 600 11px ui-monospace, Consolas, monospace;
+  background: #2a2a2e;
+  border: 1px solid #444;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 5px;
+  color: #ddd;
+  white-space: nowrap;
+}
+
+.sk-empty {
+  color: var(--text-secondary);
+  margin: 4px 0;
+}
+
+.sk-foot {
+  border-top: 1px solid var(--border);
+  padding: 8px 16px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.sk-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent-hover);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* Settings > Keyboard shortcuts */
+.sk-settings-top {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0 0 14px;
+}
+.sk-tip {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.sk-settings-foot { margin-top: 6px; }

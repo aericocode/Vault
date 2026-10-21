@@ -2,7 +2,8 @@
    SETTINGS — the app's info + preferences hub (replaces the old license UI)
 
    A dim ⚙ button at the end of .header-buttons opens a house-style modal with
-   left-nav sections: Settings · Guides · Models · Seed packs · Move to Cove · About.
+   left-nav sections: Settings · Library · Face search · Keyboard shortcuts · Guides ·
+   Models · Seed packs · Backend · About.
 
    All preferences persist to localStorage under one JSON blob (vault_settings)
    and are applied at boot (the privacy-mode body class is applied the moment
@@ -541,6 +542,8 @@
     { id: 'library',   label: '🗂 Library' },
     // Always listed: this is where face search is turned on (player-lib/faces.js).
     { id: 'faces',     label: '👤 Face search' },
+    // Read-only list from player-lib/shortcuts.js (the same table the ? window shows).
+    { id: 'shortcuts', label: '⌨ Keyboard shortcuts' },
     { id: 'guides',    label: '📖 Guides' },
     { id: 'models',    label: '🧠 Models' },
     { id: 'seedpacks', label: '📦 Seed packs' },
@@ -602,6 +605,7 @@
     if (id === 'library') wireLibrarySection();
     // The Face search section wires and polls itself (player-lib/faces.js).
     if (id === 'faces' && typeof facesWireSettings === 'function') facesWireSettings();
+    if (id === 'shortcuts' && typeof shortcutsWireSettings === 'function') shortcutsWireSettings();
     if (id === 'seedpacks') wireSeedpacksSection();
     if (id === 'about') loadAbout();
     // The Move to Cove tab polls too, and only while it is on screen.
@@ -3765,6 +3769,7 @@
     settings:  RENDERERS_settings,
     library:   RENDERERS_library,
     faces:     () => (typeof facesSettingsHtml === 'function' ? facesSettingsHtml() : ''),
+    shortcuts: () => (typeof shortcutsSettingsHtml === 'function' ? shortcutsSettingsHtml() : ''),
     guides:    RENDERERS_guides,
     models:    RENDERERS_models,
     seedpacks: RENDERERS_seedpacks,
