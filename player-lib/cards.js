@@ -879,8 +879,8 @@ function renderTile(media) {
   // A file we already know has no picture (its source is gone, or the render
   // failed) renders as the type icon straight away. Otherwise every re-render
   // would ask the server again for something it has already said is not there.
-  const canThumb = ['image', 'gif', 'video', 'mix'].includes(media.media_type)
-    && !thumbKnownMissing(media.id);
+  // Thumbnails switched off in Settings: the type icon, nothing asked for.
+  const canThumb = canShowThumb(media);
   const isMix = media.media_type === 'mix';
   const isSelected = typeof selectedIds !== 'undefined' && selectedIds.has(media.id);
 
@@ -1118,6 +1118,8 @@ let _scrub = { id: null, timer: null, idx: 0, img: null };
 
 function startScrub(tile, media) {
   if (media.media_type !== 'video' || !media.duration_seconds || media.duration_seconds < 3) return;
+  // Hover preview frames switched off in Settings: nothing to cycle through.
+  if (typeof thumbHoverOn === 'function' && !thumbHoverOn()) return;
   const img = tile.querySelector('.tile-img');
   if (!img) return; // no thumbnail rendered (fallback icon)
 

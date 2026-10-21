@@ -259,8 +259,25 @@ npm run viewer
 
 This starts the local viewer server (default `http://127.0.0.1:8765`) and the
 library loads automatically, works in any browser. Media
-streams over HTTP with seeking support, and thumbnails are generated on first
-view (cached in `./thumbnails`).
+streams over HTTP with seeking support.
+
+**Thumbnails:** by default every file gets a small picture (and every video
+5 hover preview frames) during the scan, saved in `./thumbnails` (or inside
+the encrypted store when the library has a password). Settings > Library >
+Thumbnails changes that for the whole library, and the scan obeys it too:
+
+- **Make thumbnails**: *Off* (nothing is made or saved; tiles show the file
+  type icon), *For every file* (the default) or *When shown* (made only when a
+  tile scrolls into view). *When shown* then offers *Keep them*, *Keep up to*
+  a disk limit (default 2 GB; the ones not seen for longest are removed first)
+  or *Only while Vault is running* (held in memory up to a limit, default
+  300 MB, nothing written to disk).
+- **Use pictures already inside files** (on by default): album art in music
+  and cover art in videos is shown straight from the file, nothing stored.
+- **Hover preview frames** (on by default): about 85% of the space thumbnails
+  use. Off means none are made and hovering a tile does not scrub.
+- **Space used and cleanup** shows what thumbnails take up and can delete the
+  hover frames or all thumbnails. Your media files are never touched.
 
 **File management:** select tiles (checkbox on hover, shift-click for ranges)
 and use the selection bar to bulk move files to the trash folder (`./trash`
@@ -415,7 +432,7 @@ Vault/
 │   ├── file-scanner.js
 │   ├── frame-extractor.js   # Async parallel ffmpeg + deduplication
 │   ├── media-info.js        # Async ffprobe
-│   ├── thumbnails.js        # Lazy ffmpeg thumbnail generation + cache
+│   ├── thumbnails.js        # ffmpeg thumbnail generation + cache (per the thumbnail settings)
 │   ├── video-transcriber.js # Persistent faster-whisper sidecar
 │   ├── phash.js             # Perceptual hashing for visual dupe detection
 │   ├── gamify.js            # Obsession Score engine (points, streaks, levels)

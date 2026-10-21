@@ -144,7 +144,7 @@ function tvCellHtml(c, m) {
   switch (c.key) {
     case 'thumb': {
       const icon = TILE_TYPE_ICONS[m.media_type] || '📁';
-      const canThumb = ['image', 'gif', 'video', 'mix'].includes(m.media_type) && !thumbKnownMissing(m.id);
+      const canThumb = canShowThumb(m);
       const img = canThumb
         ? `<img class="tile-img" loading="lazy" ${thumbImgAttrs(m)} alt=""
              onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">`

@@ -439,9 +439,14 @@ async function renderEditorSongCards() {
       ${withVideos.map(s => {
         const unknown = s.source === 'auto-cluster';
         const thumbs = (s.first_video_ids || []).slice(0, 4);
-        const cells = Array.from({ length: 4 }, (_, i) => thumbs[i]
-          ? `<img class="coll-mosaic-img" loading="lazy" src="/thumb/${thumbs[i]}" alt="" onerror="this.style.visibility='hidden'">`
-          : '<div class="coll-mosaic-empty"></div>').join('');
+        // A cell with no picture (thumbnails off, or none to be had) shows the
+        // file's type icon, like a collection card (collections.js).
+        const off = typeof thumbsOff === 'function' && thumbsOff();
+        const iconCell = (id) => (typeof collMosaicIconHtml === 'function' ? collMosaicIconHtml(id) : '<div class="coll-mosaic-empty"></div>');
+        const cells = Array.from({ length: 4 }, (_, i) => !thumbs[i]
+          ? '<div class="coll-mosaic-empty"></div>'
+          : off ? iconCell(thumbs[i])
+            : `<img class="coll-mosaic-img" loading="lazy" src="/thumb/${thumbs[i]}" alt="" onerror="typeof collMosaicFallback === 'function' ? collMosaicFallback(this, ${Number(thumbs[i])}) : (this.style.visibility = 'hidden')">`).join('');
         return `
           <div class="editor-song-card ${unknown ? 'is-unknown' : ''}" onclick="editorOpenSong(${s.id})"
             title="${escapeHtml(s.artist)} – ${escapeHtml(s.title)}, ${s.video_count} video${s.video_count === 1 ? '' : 's'}">
@@ -515,9 +520,9 @@ async function renderEditorOpenSong(songId) {
         const duration = m.duration_seconds ? formatDuration(m.duration_seconds) : '';
         return `
           <div class="media-tile editor-pick-tile" data-id="${l.media_id}">
-            <div class="tile-thumb" onclick="this.querySelector('.tile-select').click()">
-              <img class="tile-img" loading="lazy" src="/thumb/${l.media_id}" alt=""
-                onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">
+            <div class="tile-thumb ${(typeof thumbsOff === 'function' && thumbsOff()) ? 'thumb-fallback' : ''}" onclick="this.querySelector('.tile-select').click()">
+              ${(typeof thumbsOff === 'function' && thumbsOff()) ? '' : `<img class="tile-img" loading="lazy" src="/thumb/${l.media_id}" alt=""
+                onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">`}
               ${duration ? `<span class="tile-duration">${duration}</span>` : ''}
               <input type="checkbox" class="tile-select" checked
                 onclick="event.stopPropagation()" onchange="editorSyncOpenSongButtons(${songId})">

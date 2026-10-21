@@ -778,7 +778,7 @@ function ftPaintDialog(toast) {
       ${ftCropImg(p.coverUrl, 'ft-big')}
       ${name ? `<div class="ft-who">${ftEsc(name)}</div>` : ftNameItHtml(p)}
       <div class="ft-sub">${ftPlural(p.files, 'file', 'files')}${kinds ? ` · ${kinds}` : ''}</div>
-      <div class="ft-files">${(sample || []).slice(0, 3).map(id => `<img class="ft-file tile-img" src="/thumb/${id}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`).join('')}</div>
+      <div class="ft-files">${((typeof thumbsOff === 'function' && thumbsOff()) ? [] : (sample || [])).slice(0, 3).map(id => `<img class="ft-file tile-img" src="/thumb/${id}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`).join('')}</div>
     </div>`;
   };
   const named = pr.a.name ? pr.a : pr.b.name ? pr.b : null;

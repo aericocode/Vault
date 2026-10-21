@@ -402,6 +402,18 @@
 
 .coll-mosaic-empty { background: var(--bg-hover); }
 
+/* A mosaic cell with no picture: the file's type icon, like a tile's fallback. */
+.coll-mosaic-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  background: var(--bg-hover);
+  font-size: 1.3rem;
+  opacity: 0.6;
+}
+.coll-mosaic-icon[hidden] { display: none; }
+
 .coll-tile-badge {
   position: absolute;
   top: 6px;

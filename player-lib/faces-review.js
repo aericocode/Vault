@@ -66,6 +66,7 @@ function frMetaText(it) {
 
 function frSrcThumb(mediaId) {
   if (mediaId == null) return '';
+  if ((typeof thumbsOff === 'function' && thumbsOff())) return '';
   const row = typeof getMediaById === 'function' ? getMediaById(mediaId) : null;
   const attrs = typeof thumbImgAttrs === 'function' ? thumbImgAttrs(row || { id: mediaId }) : `src="/thumb/${Number(mediaId)}"`;
   return `<span class="fr-src"><img class="fr-src-img" ${attrs} alt="" loading="lazy" onerror="this.parentElement.remove()"></span>`;

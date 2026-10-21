@@ -315,13 +315,13 @@ function renderSaveCard(def, save) {
   const pct = Math.max(0, Math.min(100, Math.round((typeof st.progress === 'number' ? st.progress : 0) * 100)));
   const barPct = solved ? 100 : pct;
   const time = st.elapsedMs ? formatDuration(Math.round(st.elapsedMs / 1000)) : '0:00';
-  const img = media
+  const img = media && !(typeof thumbsOff === 'function' && thumbsOff())
     ? `<img class="games-save-img" loading="lazy" src="/thumb/${media.id}" alt=""
          onerror="this.parentElement.classList.add('games-save-thumb--missing'); this.remove();">`
     : '';
   return `
     <div class="games-save-card" data-save="${save.save_id}">
-      <div class="games-save-thumb ${media ? '' : 'games-save-thumb--missing'}">
+      <div class="games-save-thumb ${img ? '' : 'games-save-thumb--missing'}">
         ${img}
         <span class="games-save-badge ${solved ? 'solved' : ''}">${solved ? '✓ Solved' : pct + '%'}</span>
         <div class="games-save-progress" style="width:${barPct}%"></div>
@@ -395,9 +395,9 @@ function gamesPickerGridHtml(items, onClickFn) {
     const dur = m.duration_seconds ? formatDuration(m.duration_seconds) : '';
     return `
       <div class="games-pick-tile" data-id="${m.id}" onclick="${onClickFn}(${m.id})" title="${escapeHtml(m.filename)}">
-        <div class="tile-thumb">
-          <img class="tile-img" loading="lazy" src="/thumb/${m.id}" alt=""
-            onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">
+        <div class="tile-thumb ${(typeof thumbsOff === 'function' && thumbsOff()) ? 'thumb-fallback' : ''}">
+          ${(typeof thumbsOff === 'function' && thumbsOff()) ? '' : `<img class="tile-img" loading="lazy" src="/thumb/${m.id}" alt=""
+            onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">`}
           <span class="tile-type-icon">🎬</span>
           ${dur ? `<span class="tile-duration">${dur}</span>` : ''}
         </div>

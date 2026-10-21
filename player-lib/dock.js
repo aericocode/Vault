@@ -172,8 +172,9 @@ function dockEmptyHtml() {
 /** The pane for one file as [part name, outer HTML] in order, top to bottom. */
 function dockPartsHtml(m) {
   const icon = (typeof TILE_TYPE_ICONS !== 'undefined' && TILE_TYPE_ICONS[m.media_type]) || '📁';
-  const canThumb = ['image', 'gif', 'video', 'mix'].includes(m.media_type)
-    && !(typeof thumbKnownMissing === 'function' && thumbKnownMissing(m.id));
+  const canThumb = typeof canShowThumb === 'function'
+    ? canShowThumb(m)
+    : ['image', 'gif', 'video', 'mix'].includes(m.media_type);
   const thumb = canThumb
     ? `<img class="tile-img dock-img" ${thumbImgAttrs(m)} alt=""
          onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">`

@@ -1577,6 +1577,17 @@ const Wall = (() => {
     });
   }
 
+  /** A block with no picture: the file's type icon on the dark block. */
+  function addWallTypeIcon(layer, item) {
+    if (layer.querySelector('.wall-type-icon')) return;
+    const icons = typeof TILE_TYPE_ICONS !== 'undefined' ? TILE_TYPE_ICONS : {};
+    const span = document.createElement('span');
+    span.className = 'wall-type-icon';
+    span.setAttribute('aria-hidden', 'true');
+    span.textContent = icons[item.media_type] || '🎬';
+    layer.appendChild(span);
+  }
+
   /** Swap a block to a new item: the new picture fades in over the old one. */
   function showStill(b, item) {
     const prevItem = b.item;
@@ -1601,9 +1612,14 @@ const Wall = (() => {
     b.el.insertBefore(layer, b.cap);
     if (b.pending) b.pending.remove();
     b.pending = layer;
-    setStillSrc(img, item, layer);
+    // Thumbnails switched off in Settings: a video's still is its type icon,
+    // and nothing is asked for.
+    const noThumb = kindOf(item) !== 'picture' && typeof thumbsOff === 'function' && thumbsOff();
+    if (!noThumb) setStillSrc(img, item, layer);
 
-    whenImgReady(img, LOAD_TIMEOUT_MS).then((ok) => {
+    if (noThumb) addWallTypeIcon(layer, item);
+
+    (noThumb ? Promise.resolve(false) : whenImgReady(img, LOAD_TIMEOUT_MS)).then((ok) => {
       if (b.dead || b.pending !== layer) { layer.remove(); return; }
       b.pending = null;
       if (ok) learnAspect(item, img.naturalWidth, img.naturalHeight);
@@ -1613,6 +1629,7 @@ const Wall = (() => {
         setDue(b, Math.min(b.dueAt, now() + 800));
       } else {
         layer.classList.add('wall-nothumb');
+        addWallTypeIcon(layer, item);
       }
       reveal(b, layer);
     });

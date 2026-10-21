@@ -24,6 +24,7 @@ const express = require('express');
 const config = require('../config');
 const db = require('../lib/database');
 const thumbnails = require('../lib/thumbnails');
+const thumbSettings = require('../lib/thumb-settings');
 const trash = require('../lib/trash');
 const embeddings = require('../lib/embeddings');
 const vault = require('../lib/vault');
@@ -1476,6 +1477,14 @@ importQueue.onItemDone((item) => {
   }
 });
 
+// Locking drops every thumbnail held in memory (the "only while running"
+// cache and pictures read from inside files): nothing decrypted outlives it.
+thumbnails.setLockProbe(() => vault.isLocked());
+vault.onChange((e) => {
+  if (e === 'locking' || e === 'locked') thumbnails.clearMemory();
+  else if (e === 'unlocked') thumbnails.onUnlock();
+});
+
 // Locking stops face work and drops every face vector held in memory.
 vault.onChange((e) => {
   if (e === 'locked') facesService.instance().onVaultLocked();
@@ -2114,8 +2123,11 @@ app.post('/api/import/add-paths', (req, res) => {
       // Thumbnails for everything just added, whatever type. The scan pass
       // makes them too, but the import queue may be paused or hours behind,
       // and a new tile should not sit on a placeholder until then.
-      for (const a of added) {
-        try { thumbnails.enqueueThumbnail(db.getById(a.id)); } catch {}
+      // ("When shown" and "Off" make nothing here; see lib/thumb-settings.)
+      if (thumbSettings.scanMakes()) {
+        for (const a of added) {
+          try { thumbnails.enqueueThumbnail(db.getById(a.id)); } catch {}
+        }
       }
     } catch { /* probe loop is best-effort */ }
   });
@@ -2369,6 +2381,7 @@ app.post('/api/records/delete', (req, res) => {
   }
 
   const deleted = db.deleteRecords(ids);
+  thumbnails.forgetIds(ids);
   embeddings.invalidateCache();
   res.json({ deleted });
 });
@@ -2482,7 +2495,7 @@ app.post('/api/delete', async (req, res) => {
         }
       }
     }
-    if (okIds.length) { db.deleteRecords(okIds); embeddings.invalidateCache(); }
+    if (okIds.length) { db.deleteRecords(okIds); thumbnails.forgetIds(okIds); embeddings.invalidateCache(); }
     res.json({ results });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2523,6 +2536,7 @@ app.post('/api/trash/empty', (req, res) => {
     }
 
     const deleted = db.deleteRecords(rows.map(r => r.id));   // cascades all sub-repos
+    thumbnails.forgetIds(rows.map(r => r.id));
     embeddings.invalidateCache();
     res.json({ deleted, filesDeleted });
   } catch (err) {
@@ -2725,8 +2739,9 @@ app.get('/media/:id', (req, res) => {
  * with no version gets no-cache, because nothing would ever bust it.
  */
 function imageCacheControl(req) {
-  if (secureAssets.enabled()) return 'no-store';
-  return req.query.v ? 'private, max-age=31536000, immutable' : 'no-cache';
+  // The thumbnail settings add two cases (lib/thumbnails.js cacheControl):
+  // "only while running" is no-store, "keep up to" revalidates every time.
+  return thumbnails.cacheControl(req);
 }
 
 // Hover-scrub preview frames (videos only): /scrub/:id/0 … /scrub/:id/4
@@ -2739,15 +2754,16 @@ app.get('/scrub/:id/:idx', async (req, res) => {
 
   res.set('Cache-Control', imageCacheControl(req));
   try {
-    if (secureAssets.enabled()) {
-      const buf = await thumbnails.getScrubFrameBuffer(row, idx);
-      if (!buf) return notCached(res).status(404).end();
+    const r = await thumbnails.lookupScrub(row, idx);
+    // Hover frames switched off (or thumbnails off): say so without running
+    // ffmpeg, so a viewer that still asks stops for good.
+    if (r.type === 'none') return notCached(res).set('X-Thumb', 'none').status(404).end();
+    if (r.type === 'buffer') {
       res.set('Content-Type', 'image/jpeg');
-      return res.end(buf);
+      return res.end(r.buf);
     }
-    const framePath = await thumbnails.getScrubFrame(row, idx);
-    if (!framePath) return notCached(res).status(404).end();
-    res.sendFile(framePath, (err) => {
+    if (r.type !== 'file') return notCached(res).status(404).end();
+    res.sendFile(r.path, (err) => {
       if (err && !res.headersSent) res.status(err.status || 500).end();
     });
   } catch (err) {
@@ -2784,33 +2800,101 @@ app.get('/thumb/:id', async (req, res) => {
   // the tile keeps its placeholder until a retry finds the image there.
   res.set('Cache-Control', imageCacheControl(req));
   try {
-    if (secureAssets.enabled()) {
-      const buf = thumbnails.peekThumbnailBuffer(row);
-      if (!buf) return sendThumbPending(res, row);
+    // lookupThumb decides by the thumbnail settings and queues what is
+    // missing; it never runs ffmpeg itself.
+    const r = thumbnails.lookupThumb(row);
+    if (r.type === 'buffer') {
       res.set('Content-Type', 'image/jpeg');
-      return res.end(buf);
+      return res.end(r.buf);
     }
-    const thumbPath = thumbnails.peekThumbnail(row);
-    if (!thumbPath) return sendThumbPending(res, row);
-    res.sendFile(thumbPath, (err) => {
-      if (err && !res.headersSent) notCached(res).status(err.status || 500).end();
-    });
+    if (r.type === 'file') {
+      return res.sendFile(r.path, (err) => {
+        if (err && !res.headersSent) notCached(res).status(err.status || 500).end();
+      });
+    }
+    return sendThumbState(res, r.type);
   } catch (err) {
     notCached(res).status(500).end();
   }
 });
 
 /**
- * No thumbnail yet: queue one and say so. X-Thumb is "pending" when the work
- * was accepted and "missing" when it never can be (the media file is gone, or
- * the render has failed too often) — the viewer stops retrying on "missing"
- * instead of spending its whole backoff on a file that is not there.
+ * No thumbnail (yet). X-Thumb is "pending" when the work was queued,
+ * "missing" when it never can be (the media file is gone, the render has
+ * failed too often, or the file type has no picture), and "off" when
+ * thumbnails are switched off in Settings. The viewer keeps waiting only on
+ * "pending".
  */
-function sendThumbPending(res, row) {
-  const state = thumbnails.enqueueThumbnail(row);
-  notCached(res).set('X-Thumb', state === 'skipped' ? 'missing' : 'pending');
+function sendThumbState(res, type) {
+  notCached(res).set('X-Thumb', type === 'pending' ? 'pending' : type === 'off' ? 'off' : 'missing');
   return res.status(404).end();
 }
+
+// ── Thumbnail settings (Settings > Library > Thumbnails) ──────────────────
+
+app.get('/api/settings/thumbnails', (req, res) => {
+  res.json({ ...thumbSettings.get(), bounds: thumbSettings.BOUNDS, encrypted: secureAssets.enabled() });
+});
+
+app.post('/api/settings/thumbnails', (req, res) => {
+  const prev = thumbSettings.get();
+  let r = thumbSettings.update(req.body);
+  if (r.error) return res.status(400).json({ error: r.error });
+  // Into the disk limit (or back from memory / off): pictures browsers cached
+  // for a year must be asked for again, or the server never sees them shown
+  // (and could trim what is on screen). New URLs for every tile.
+  const sBefore = thumbSettings.storage(prev);
+  const sAfter = thumbSettings.storage(r.value);
+  if (sBefore !== sAfter && (sAfter === 'cap' || sBefore === 'memory' || sBefore === 'off')) {
+    r = { value: thumbSettings.bumpSalt() };
+  }
+  thumbnails.settingsChanged(prev, r.value);
+  // Turning "use pictures inside files" on or off changes the picture of every
+  // file that has one: new URLs, so no browser keeps showing the old one.
+  if (prev.inside !== r.value.inside) {
+    try { db.get().prepare('UPDATE media SET thumb_version = COALESCE(thumb_version, 0) + 1 WHERE art_stream >= 0').run(); } catch {}
+  }
+  res.json({ ...r.value, bounds: thumbSettings.BOUNDS, encrypted: secureAssets.enabled() });
+});
+
+/** Space used by thumbnails, worked out when the Settings fold-out opens. */
+app.get('/api/thumbnails/space', async (req, res) => {
+  try {
+    res.json({ ...(await thumbnails.spaceUsed()), deleting: thumbnails.deleteProgress(), settings: thumbSettings.get() });
+  } catch (err) {
+    res.status(err.code === 'VAULT_LOCKED' ? 423 : 500).json({ error: err.message });
+  }
+});
+
+/** What "Remove" in the disk-limit dialog would actually remove right now. */
+app.get('/api/thumbnails/trim-estimate', async (req, res) => {
+  try {
+    res.json(await thumbnails.trimEstimate());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Delete saved thumbnails. what: 'scrub' (hover frames), 'all' (covers and
+ * hover frames) or 'trim' (down to the disk limit now). Face crops, beat audio
+ * and media files are never touched (see lib/thumbnails.js deleteStored).
+ */
+app.post('/api/thumbnails/delete', async (req, res) => {
+  const what = req.body && req.body.what;
+  try {
+    if (what === 'trim') {
+      const r = await thumbnails.trimToCap({ max: Infinity });
+      return res.json({ bytes: r.bytes, count: r.removed });
+    }
+    if (what !== 'scrub' && what !== 'all') {
+      return res.status(400).json({ error: 'what must be "scrub", "all" or "trim"' });
+    }
+    res.json(await thumbnails.deleteStored(what));
+  } catch (err) {
+    res.status(err.code === 'VAULT_LOCKED' ? 423 : 500).json({ error: err.message });
+  }
+});
 
 // ── Startup ────────────────────────────────────────────────────────────────
 
@@ -2967,6 +3051,31 @@ function start(args = process.argv.slice(2)) {
   _installShutdownHooks();
   _bootMark('wipe-temp');
 
+  // Plaintext derived artifacts -> encrypted store (secureAssets.migrateFromDisk).
+  // The sweep deletes each plaintext file once its encrypted copy is stored, so
+  // it only runs while the store is OPEN: a locked vault seals the store and
+  // refuses every write. It is due after the adoption pass (whose marker gates
+  // it). Locked when it comes due (booted locked, or locked before the adoption
+  // pass finished)? It waits for the next unlock. Once it has run with the
+  // store open it is done for this process; anything it could not store stays
+  // on disk for the next start.
+  let assetMigrationDone = false;
+  const runAssetMigration = () => {
+    if (assetMigrationDone || !secureAssets.enabled()) return;
+    if (vault.isLocked() || secureAssets.sealed()) return;   // retried on 'unlocked'
+    let out = null;
+    try {
+      out = secureAssets.migrateFromDisk();
+    } catch (err) {
+      console.warn(`[SecureAssets] migration skipped: ${err.message}`);
+      return;                                                 // retried on the next unlock
+    }
+    if (out && !out.deferred) assetMigrationDone = true;
+  };
+  vault.onChange((e) => {
+    if (e === 'unlocked' && !assetMigrationDone) slowDirsAdopted.then(runAssetMigration);
+  });
+
   if (bootedLocked) {
     // Route mounts skipped their boot-time DB cleanup — run it on first unlock
     let staleJobsDone = false;
@@ -2978,16 +3087,8 @@ function start(args = process.argv.slice(2)) {
       try { require('../lib/musicid/exporter').failStaleExports(); } catch {}
       repairMisclassifiedMediaTypes();
     });
-    // The secure-assets store opens on first unlock (vault.unlock); sweep any
-    // pre-existing plaintext artifacts into it once the key is available.
-    let migrated = false;
-    vault.onChange((e) => {
-      if (e !== 'unlocked' || migrated) return;
-      migrated = true;
-      slowDirsAdopted.then(() => {
-        try { secureAssets.migrateFromDisk(); } catch (err) { console.warn(`[SecureAssets] migration skipped: ${err.message}`); }
-      });
-    });
+    // The secure-assets store opens on first unlock (vault.unlock); the
+    // plaintext sweep runs then (runAssetMigration's 'unlocked' listener).
     // Vault-status line (booted locked → encrypted, key not yet available).
     console.log('Vault: LOCKED (encrypted). Unlock in the viewer to open the encrypted secure_assets store');
   } else {
@@ -3012,10 +3113,9 @@ function start(args = process.argv.slice(2)) {
       console.log(`Vault: ON. Derived artifacts encrypted in secure_assets.db at ${path.resolve(secureAssets.storePath())}`);
       // After the async adoption pass — the migration sweep is gated on the
       // marker that pass may have just written (and is itself a full-directory
-      // walk that has no business on the boot path).
-      slowDirsAdopted.then(() => {
-        try { secureAssets.migrateFromDisk(); } catch (err) { console.warn(`[SecureAssets] migration skipped: ${err.message}`); }
-      });
+      // walk that has no business on the boot path). If the vault has locked by
+      // then, runAssetMigration waits for the next unlock.
+      slowDirsAdopted.then(runAssetMigration);
     } else {
       console.log('Vault: OFF. No password set, derived artifacts stored as plain files');
     }

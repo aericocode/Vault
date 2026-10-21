@@ -1271,7 +1271,10 @@
       <h3 class="settings-h">Library file</h3>
       <p class="settings-note" id="settingsDbFile">Asking the server…</p>
 ` : '';
+    // Thumbnails group: player-lib/thumb-settings-ui.js (both looks).
+    const thumbs = typeof window.vaultThumbSettingsHtml === 'function' ? window.vaultThumbSettingsHtml() : '';
     return `${dbFile}
+      ${thumbs}
       <h3 class="settings-h">Deleting files</h3>
       ${deleteModeRow()}
 
@@ -1600,6 +1603,8 @@
       const el = document.getElementById('settingsDbFile');
       if (el) el.textContent = 'Could not ask the server.';
     });
+
+    if (typeof window.vaultWireThumbSettings === 'function') window.vaultWireThumbSettings();
 
     document.querySelectorAll('[data-delete-mode]').forEach(btn => {
       btn.addEventListener('click', () => {

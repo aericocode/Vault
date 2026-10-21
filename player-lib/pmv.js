@@ -260,8 +260,8 @@ function paintPmvVideoGrid() {
     const dur = m.duration_seconds ? formatDuration(m.duration_seconds) : '';
     return `
       <div class="games-pick-tile pmv-pick ${sel ? 'pmv-picked' : ''}" data-id="${m.id}" onclick="pmvToggleVideo(${m.id})" title="${escapeHtml(m.filename)}">
-        <div class="tile-thumb">
-          <img class="tile-img" loading="lazy" src="/thumb/${m.id}" alt="" onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">
+        <div class="tile-thumb ${(typeof thumbsOff === 'function' && thumbsOff()) ? 'thumb-fallback' : ''}">
+          ${(typeof thumbsOff === 'function' && thumbsOff()) ? '' : `<img class="tile-img" loading="lazy" src="/thumb/${m.id}" alt="" onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">`}
           ${sel ? '<span class="pmv-pick-check">✓</span>' : ''}
           ${dur ? `<span class="tile-duration">${dur}</span>` : ''}
         </div>
@@ -288,7 +288,7 @@ function renderPmvSelectedVideos() {
         const name = m ? m.filename : `#${id}`;
         return `
           <div class="pmv-selected-vid" data-id="${id}" title="${escapeHtml(name)}">
-            <img class="pmv-selected-vid-thumb" loading="lazy" src="/thumb/${id}" alt="" onerror="this.style.visibility='hidden'">
+            ${(typeof thumbsOff === 'function' && thumbsOff()) ? '' : `<img class="pmv-selected-vid-thumb" loading="lazy" src="/thumb/${id}" alt="" onerror="this.style.visibility='hidden'">`}
             <span class="pmv-selected-vid-name">${escapeHtml(name)}</span>
             <button class="pmv-selected-vid-x" onclick="pmvToggleVideo(${id})" title="Remove">✕</button>
           </div>`;
