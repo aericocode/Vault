@@ -61,6 +61,8 @@
    native path gets) and /stream/:id via /api/playback for remux.
 
    Globals used by tabs.js / vault-ui.js: wallEnter(), wallLeave(), wallLockStop().
+   viewtracker.js asks wallStartAt(el) so a clicked clip continues in the
+   player from where it was on the Wall.
    ========================================================================= */
 
 const Wall = (() => {
@@ -2406,10 +2408,56 @@ const Wall = (() => {
   async function openItem(b) {
     const item = b.item;
     if (!item) return;
+    // A clip that is playing (or paused on hover) continues in the player from
+    // where it is. Read now: opening the player releases every clip. A still,
+    // or a clip not started yet, opens as before.
+    const rec = b.video;
+    pendingStart = null;
+    if (rec && !rec.released && b.startedAt && item.media_type === 'video') {
+      const t = rec.v.currentTime;
+      if (Number.isFinite(t) && t > 0) pendingStart = { id: item.id, time: t, until: now() + START_TTL_MS };
+    }
     // The player lives outside the wall, so it cannot show over a full-screen wall.
     if (document.fullscreenElement) { try { await document.exitFullscreen(); } catch {} }
     if (!Library.row(item.id)) { try { await Library.fetchRows([item.id]); } catch {} }
     if (typeof playMediaById === 'function') playMediaById(item.id);
+  }
+
+  /* ── Continue in the player ─────────────────────────────────────────── */
+
+  // openItem leaves { id, time, until } here; the player's first
+  // loadedmetadata for that file takes it (viewtracker.js -> wallStartAt).
+  // A remux stream is a VOD playlist on the file's own timeline from 0, on
+  // the Wall and in the player alike, so the clip's time is the player's time.
+  const START_TTL_MS = 15000;   // a remux stream can take a while to start
+  let pendingStart = null;
+
+  /**
+   * The start time for `id` if `pending` is for that file and not expired.
+   * Pure, for the tests. Any answer (a time or null) uses the pending value up.
+   */
+  function takeStart(pending, id, t) {
+    if (!pending || id == null || pending.id !== id) return null;
+    if (!(t <= pending.until)) return null;
+    return pending.time;
+  }
+
+  /** viewtracker.js asks this before its resume seek; true = handled. */
+  function startAt(el) {
+    const p = pendingStart;
+    if (!p || !el) return false;
+    pendingStart = null;
+    let id = Number(el.dataset && el.dataset.playbackMediaId) || null;
+    if (!id && typeof currentMediaState !== 'undefined' && currentMediaState.currentMediaData) id = currentMediaState.currentMediaData.id;
+    // A file outside the current library results (the Wall showing a
+    // collection or saved search) plays by path, with neither id above.
+    if (!id && typeof _mediaItemFromSrc === 'function') id = _mediaItemFromSrc(el.currentSrc || el.src)?.id || null;
+    const t = takeStart(p, id, now());
+    if (t == null) return false;
+    // A clip at its very end would open on the last frame: start as usual.
+    if (!(el.duration > t + 1)) return false;
+    try { el.currentTime = t; } catch { return false; }
+    return true;
   }
 
   /* ── Tab hooks ──────────────────────────────────────────────────────── */
@@ -2464,9 +2512,9 @@ const Wall = (() => {
   }
 
   return {
-    enter, leave, lockStop,
+    enter, leave, lockStop, startAt,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { cfgFrom, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, mostlyInView, scrollLeftMs, scrollFreePlan, MOSTLY, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
+    _pure: { cfgFrom, takeStart, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, mostlyInView, scrollLeftMs, scrollFreePlan, MOSTLY, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
     _audio: () => {
       const t = now();
@@ -2528,3 +2576,4 @@ const Wall = (() => {
 function wallEnter() { Wall.enter(); }
 function wallLeave() { Wall.leave(); }
 function wallLockStop() { Wall.lockStop(); }
+function wallStartAt(el) { return Wall.startAt(el); }

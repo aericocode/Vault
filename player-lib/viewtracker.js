@@ -118,6 +118,10 @@ document.addEventListener('loadedmetadata', (e) => {
   if (!['VIDEO', 'AUDIO'].includes(el.tagName)) return;
   if (!el.closest('#mediaPlayerContent') && !el.closest('#miniPlayerMedia')) return;
 
+  // Opened from a playing clip on the Wall: continue from the clip's time
+  // (player-lib/wall.js). Asked first, so it and the Faces start never both apply.
+  if (typeof wallStartAt === 'function' && wallStartAt(el)) return;
+
   // Played from a person's page in the Faces tab: start where they first
   // show up, instead of the resume point (player-lib/faces-tab.js).
   if (typeof facesStartAt === 'function' && facesStartAt(el)) return;

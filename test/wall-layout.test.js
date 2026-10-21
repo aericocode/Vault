@@ -429,3 +429,14 @@ test('Scroll: only as many leaving clips stop as a clip needs, and none when tha
   // The leaving remux plus one free slot already covers a remux clip.
   assert.deepStrictEqual(plan(2, true, 1, false, [n, r]), [1]);
 });
+
+test('continue in the player: the clip time applies only to the same file, before it expires', () => {
+  const p = { id: 7, time: 42.5, until: 1000 };
+  assert.strictEqual(W.takeStart(p, 7, 999), 42.5);
+  assert.strictEqual(W.takeStart(p, 7, 1000), 42.5, 'the last moment still counts');
+  assert.strictEqual(W.takeStart(p, 7, 1001), null, 'expired');
+  assert.strictEqual(W.takeStart(p, 8, 999), null, 'a different file opened');
+  assert.strictEqual(W.takeStart(p, null, 999), null, 'no id (a mix, a stub)');
+  assert.strictEqual(W.takeStart(null, 7, 999), null, 'nothing pending');
+  assert.strictEqual(W.takeStart({ id: 7, time: 3 }, 7, 999), null, 'no expiry = never applies');
+});
