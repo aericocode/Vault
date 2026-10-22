@@ -1846,6 +1846,12 @@ const PICKER_FILES_PS1 = PICKER_CS_TOP + PICKER_BODY_FILES + PICKER_CS_BOTTOM;
 // appears + stuck busy" failure), and the 10-min watchdog.
 let _picker = null;          // live child process, or null
 function spawnPicker(res, script, kind, onClose) {
+  // Test and scratch servers set this so nothing driving the page (a test
+  // run, an automated check) can put a native dialog on the user's desktop.
+  // Read per request; off unless set to 1.
+  if (process.env.VAULT_DISABLE_NATIVE_PICKER === '1') {
+    return res.status(409).json({ error: 'File pickers are off on this server' });
+  }
   if (process.platform !== 'win32') {
     return res.status(501).json({ error: `native ${kind} picker is Windows-only for now. Type the path instead` });
   }
