@@ -432,25 +432,43 @@
     <div class="media-info-content" id="mediaInfoContent" onclick="event.stopPropagation()"></div>
   </div>
 
-  <!-- Mini Player -->
-  <div class="mini-player" id="miniPlayer">
-    <div class="mini-resize-tl" id="miniResizeTL" title="Drag to resize" aria-hidden="true"></div>
-    <div class="mini-player-drag" id="miniPlayerDrag">
-      <div class="mini-audio-art" aria-hidden="true">🎵</div>
-      <div class="mini-audio-meta">
-        <span class="mini-player-title" id="miniPlayerTitle">filename.mp4</span>
-        <span class="mini-audio-sub"><span id="miniAudioTime">0:00 / 0:00</span> · <span id="miniAudioSpeed">1x</span></span>
+  <!-- Mini Player: a floating picture in a corner, its controls fade in on
+       hover (player-lib/player/mini-player.js, css/mini-player.css) -->
+  <div class="mini-player" id="miniPlayer" role="region" aria-label="Mini player" data-corner="br" tabindex="-1">
+    <div class="mini-player-media" id="miniPlayerMedia"></div>
+    <!-- Audio has no picture: its art, or the type icon -->
+    <div class="mini-audio-art" id="miniAudioArt" aria-hidden="true" hidden>
+      <img class="mini-audio-img" id="miniAudioImg" alt="" draggable="false" hidden>
+      <span class="mini-audio-icon"><span class="vi-w" data-vi="audio">🎵</span></span>
+    </div>
+    <div class="mini-pip-note" id="miniPipNote" hidden>Playing in picture-in-picture</div>
+    <div class="mini-overlay" id="miniOverlay">
+      <div class="mini-player-controls mini-top">
+        <div class="mini-vol" id="miniVol">
+          <button type="button" class="mini-ctrl" id="miniMuteBtn" onclick="miniToggleMute()" title="Mute" aria-label="Mute"></button>
+          <input type="range" class="mini-vol-slider" id="miniVolSlider" min="0" max="1" step="0.01" value="1"
+                 oninput="miniSetVolume(this.value)" aria-label="Volume">
+        </div>
+        <button type="button" class="mini-ctrl" id="miniPipBtn" onclick="miniTogglePip()" title="Pop out over other windows" aria-label="Pop out over other windows" hidden><span class="vi-w" data-vi="pip">⧉</span></button>
+        <button type="button" class="mini-ctrl" onclick="maximizePlayer()" title="Back to the full player (Q)" aria-label="Back to the full player"><span class="vi-w" data-vi="expand">⤢︎</span></button>
+        <button type="button" class="mini-ctrl mini-close" onclick="closeMiniPlayer()" title="Close (Esc)" aria-label="Close the mini player"><span class="vi-w" data-vi="close">✕</span></button>
+      </div>
+      <div class="mini-center">
+        <button type="button" class="mini-ctrl mini-round" data-mini-act="back" title="Back 10 seconds" aria-label="Back 10 seconds"><span class="vi-w" data-vi="rewind">⏪︎</span></button>
+        <button type="button" class="mini-ctrl mini-round mini-big" id="miniPlayPause" data-mini-act="play" title="Play or pause (Space)" aria-label="Pause"></button>
+        <button type="button" class="mini-ctrl mini-round mini-fwd" data-mini-act="fwd" title="Forward 10 seconds" aria-label="Forward 10 seconds"><span class="vi-w" data-vi="rewind">⏩︎</span></button>
+      </div>
+      <div class="mini-bottom">
+        <div class="mini-seek" id="miniSeek" title="Click or drag to seek">
+          <div class="mini-seek-track" id="miniSeekTrack"><div class="mini-seek-fill" id="miniSeekFill"></div></div>
+        </div>
+        <div class="mini-meta">
+          <span class="mini-player-title" id="miniPlayerTitle">filename.mp4</span>
+          <span class="mini-time" id="miniTime">0:00 / 0:00</span>
+        </div>
       </div>
     </div>
-    <div class="mini-player-media" id="miniPlayerMedia"></div>
-    <div class="mini-player-controls">
-      <button class="mini-ctrl" id="miniPlayPause" onclick="miniTogglePlay()" title="Play/Pause">⏸</button>
-      <button class="mini-ctrl" onclick="maximizePlayer()" title="Maximize (Q)">⤢</button>
-      <button class="mini-ctrl mini-close" onclick="closeMiniPlayer()" title="Close">✕</button>
-    </div>
-    <div class="mini-audio-progress" id="miniAudioProgress" title="Click to seek">
-      <div class="mini-audio-progress-fill" id="miniAudioProgressFill"></div>
-    </div>
+    <div class="mini-resize" id="miniResize" title="Drag to resize" aria-hidden="true"></div>
   </div>
 
   <!-- Jump back to the top of the grid (continuous layout only) -->
@@ -494,6 +512,8 @@
   <script src="./player-lib/modal.js"></script>
   <script src="./player-lib/player/player-stream.js"></script>
   <script src="./player-lib/player/player-core.js"></script>
+  <script src="./player-lib/player/mini-geometry.js"></script>
+  <script src="./player-lib/player/mini-player.js"></script>
   <script src="./player-lib/player/abloop.js"></script>
   <script src="./player-lib/player/player-controls.js"></script>
   <script src="./player-lib/player/player-video.js"></script>
