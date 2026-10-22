@@ -625,6 +625,9 @@ function currentQuerySpec() {
       failed: getTriFilterValue('filterFailed'),
       duplicates: getTriFilterValue('filterDuplicates'),
       scanStatus: getTriFilterValue('filterScanStatus'),
+      // Folder watchers: gone from disk / added since you last looked
+      missing: getTriFilterValue('filterMissing'),
+      watchNew: getTriFilterValue('filterWatchNew'),
     },
     collectionId: collectionOpen ? activeCollectionId : null,
     sort: {

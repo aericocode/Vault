@@ -368,6 +368,9 @@ refreshBtn.addEventListener('click', async () => {
 
   try {
     await loadDatabase();
+    // A fresh look at which files are missing from disk (folder watchers'
+    // Missing tags and the banner), in the background.
+    fetch('/api/library/missing-count?expire=1', { headers: { 'X-Vault-Background': '1' } }).catch(() => {});
     showToast('Library refreshed!');
   } catch (err) {
     console.error('Refresh failed:', err);

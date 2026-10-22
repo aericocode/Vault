@@ -47,11 +47,15 @@ const FCHIP_DEFS = {
   dupes:       { label: 'Dupes',        type: 'tri', name: 'filterDuplicates',  def: '',  options: FCHIP_TRI },
   unplayable:  { label: 'Unplayable',   type: 'tri', name: 'filterFailed',      def: '',  options: FCHIP_TRI },
   scan:        { label: 'Scan',         type: 'tri', name: 'filterScanStatus',  def: '',  options: FCHIP_SCAN },
+  // Folder watchers (player-lib/watchers-ui.js): the activity pill's Show buttons set these.
+  missing:     { label: 'Missing',      type: 'tri', name: 'filterMissing',     def: '',  options: FCHIP_TRI },
+  watchNew:    { label: 'Added since you last looked', type: 'tri', name: 'filterWatchNew', def: '',
+                 options: [{ value: '', label: 'All' }, { value: '1', label: 'Only' }] },
 };
 
 const FCHIP_FIXED = ['rating', 'duration', 'language', 'theme'];
 const FCHIP_EXTRA = ['content', 'quality', 'song', 'fave', 'notes', 'flagged',
-  'collections', 'trashed', 'dupes', 'unplayable', 'scan'];
+  'collections', 'trashed', 'dupes', 'unplayable', 'scan', 'missing', 'watchNew'];
 
 /* ── Duration ─────────────────────────────────────────────────────────── */
 // null max = no cap. The minute scale and the weighted slider positions are
@@ -153,6 +157,7 @@ function fchipCountMaps() {
     rating: { unrated: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, ...(f.rating || {}) },
     fave: f.fave || 0, notes: f.notes || 0, flagged: f.flagged || 0, trashed: f.trashed || 0,
     unplayable: f.unplayable || 0, dupes: f.dupes || 0,
+    missing: f.missing || 0, watchNew: f.watchNew || 0,
     scan: { success: 0, failed: 0, unscanned: 0, ...(f.scan || {}) },
   };
   _fchipCounts = { src: f, maps };
@@ -197,6 +202,8 @@ function fchipCountsFor(key) {
     case 'trashed':    return tri(c.trashed);
     case 'unplayable': return tri(c.unplayable);
     case 'dupes':      return tri(c.dupes);
+    case 'missing':    return tri(c.missing);
+    case 'watchNew':   return { '': c.total, '1': c.watchNew };
     case 'scan':       return { '': c.total, success: c.scan.success,
                                 failed: c.scan.failed, unscanned: c.scan.unscanned };
     default:           return null;   // collections, song

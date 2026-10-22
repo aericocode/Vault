@@ -1299,7 +1299,10 @@
 ` : '';
     // Thumbnails group: player-lib/thumb-settings-ui.js (both looks).
     const thumbs = typeof window.vaultThumbSettingsHtml === 'function' ? window.vaultThumbSettingsHtml() : '';
+    // Watched folders group: player-lib/watchers-ui.js (both looks).
+    const watch = typeof window.vaultWatchSettingsHtml === 'function' ? window.vaultWatchSettingsHtml() : '';
     return `${dbFile}
+      ${watch}
       ${thumbs}
       <h3 class="settings-h">Deleting files</h3>
       ${deleteModeRow()}
@@ -1631,6 +1634,7 @@
     });
 
     if (typeof window.vaultWireThumbSettings === 'function') window.vaultWireThumbSettings();
+    if (typeof window.vaultWireWatchSettings === 'function') window.vaultWireWatchSettings();
 
     document.querySelectorAll('[data-delete-mode]').forEach(btn => {
       btn.addEventListener('click', () => {

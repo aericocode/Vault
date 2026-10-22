@@ -885,6 +885,7 @@
         path: scan.path,
         subdirs: scan.subdirs,
         files: scan.files,          // already { path, name, ext, size, depth }
+        watchable: true,            // one real folder: it can be watched afterwards
       });
     } catch (err) {
       showToast('⚠ ' + err.message);
@@ -958,6 +959,7 @@
       types: { video: true, image: true, audio: true },   // default: all selected
       subtitles: false,                                   // post-add jobs default OFF
       fingerprint: false,
+      watch: false,                                       // "Keep watching this folder", off by default
     };
 
     const headPath = pathMode
@@ -1003,6 +1005,12 @@
             </div>
             <div class="imp-note">Runs in the background. The library stays usable. New files are AI-scanned automatically.</div>
           </div>
+          ${pathMode && collected.watchable ? `
+          <label class="imp-watch" id="impWatchRow">
+            <span class="imp-watch-text"><span class="imp-watch-title">Keep watching this folder</span>
+              <span class="imp-watch-desc">New files that land here later are added on their own.</span></span>
+            <span class="wf-switch"><input type="checkbox" id="impWatch"><span aria-hidden="true"></span><span class="wf-sr">Keep watching this folder</span></span>
+          </label>` : ''}
           <div class="imp-note">🔒 Files are referenced in place. Nothing is copied or moved.</div>
         </div>
         <div class="imp-foot">
@@ -1061,6 +1069,7 @@
       state.subtitles = !state.subtitles;
       q('#impSubsJob').classList.toggle('on', state.subtitles);
     });
+    q('#impWatch')?.addEventListener('change', (e) => { state.watch = e.target.checked; });
     q('#impFpJob')?.addEventListener('click', () => {
       state.fingerprint = !state.fingerprint;
       q('#impFpJob').classList.toggle('on', state.fingerprint);
@@ -1076,8 +1085,17 @@
     q('#impGo').addEventListener('click', async () => {
       const entries = selectedEntries();
       const jobs = { subtitles: state.subtitles, fingerprint: state.fingerprint };
+      const watch = state.watch && collected.watchable
+        ? { path: collected.path, includeSubfolders: state.includeSubs,
+            types: Object.keys(state.types).filter(k => state.types[k]) }
+        : null;
       close();
       const { imported } = await addPaths(entries);   // always in place (no copy)
+      // Keep watching: remember the folder (player-lib/watchers-ui.js) once
+      // its files are in, so the watcher's first walk finds them already there.
+      if (watch && typeof window.vaultWatchFolderAfterAdd === 'function') {
+        window.vaultWatchFolderAfterAdd(watch).catch(() => {});
+      }
       if (!imported.length) return;
 
       // Opt-in post-jobs — both are server-side queues; fire and let them drain.

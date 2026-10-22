@@ -81,6 +81,9 @@ const VAULT_ICONS = {
   pause: '<path d="M8.5 5.5v13M15.5 5.5v13"/>',
   chevron: '<path d="m6.5 9.5 5.5 5.5 5.5-5.5"/>',
   stack: '<rect x="4" y="4" width="12" height="9" rx="1.5"/><rect x="8" y="11" width="12" height="9" rx="1.5"/>',
+  // Folder watchers (player-lib/watchers-ui.js)
+  more: '<circle cx="5.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18.5" cy="12" r="1.2"/>',
+  server: '<rect x="3.5" y="4" width="17" height="7" rx="2"/><rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M7.5 7.5h.01M7.5 16.5h.01"/>',
 };
 
 /* Emoji the app leads its own labels with, and the icon that stands in for
