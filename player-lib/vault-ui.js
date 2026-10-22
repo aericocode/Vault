@@ -505,8 +505,10 @@
     btn.id = 'vaultChangePass';
     btn.type = 'button';
     btn.className = 'vault-key-btn';
-    btn.textContent = '🔑';
+    // The 🔑 for Classic, a line key for Modern (player-lib/icons.js).
+    btn.innerHTML = typeof vaultIconSwap === 'function' ? vaultIconSwap('🔑', 'key') : '🔑';
     btn.title = 'Change vault password';
+    btn.setAttribute('aria-label', 'Change vault password');
     btn.style.display = 'none';                     // renderLogo() reveals it when apt
     btn.addEventListener('click', openChangePassModal);
     logo.insertAdjacentElement('afterend', btn);

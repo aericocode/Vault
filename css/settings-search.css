@@ -1,0 +1,130 @@
+/* ==========================================
+   SETTINGS SEARCH (player-lib/settings-search.js)
+   The box at the top of the Settings menu, the results that take the
+   page's place while you type, and the flash on the setting you land on.
+   Both looks.
+   ========================================== */
+
+.sfind-box {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.6rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+}
+.sfind-box[hidden] { display: none; }
+.sfind-box:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.sfind-ic { flex: none; font-size: 0.85rem; line-height: 1; }
+.sfind-input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+}
+.sfind-input::placeholder { color: var(--text-muted); }
+
+#settingsBody[hidden],
+.sfind-results[hidden] { display: none; }
+
+.sfind-empty {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.sfind-group + .sfind-group { margin-top: 1rem; }
+.sfind-gh { margin-bottom: 0.4rem; }
+
+.sfind-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  width: 100%;
+  text-align: left;
+  margin: 0 0 0.3rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.sfind-item[hidden] { display: none; }
+.sfind-item:hover,
+.sfind-item:focus-visible { background: var(--bg-hover); outline: none; }
+.sfind-item.is-active { border-color: var(--accent); }
+
+.sfind-text { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.sfind-label { font-size: 0.9rem; }
+.sfind-desc,
+.sfind-rel { font-size: 0.78rem; color: var(--text-muted); }
+.sfind-rel { font-style: italic; }
+.sfind-sk .sfind-desc { font-family: inherit; }
+
+.sfind-item mark {
+  background: rgba(99, 102, 241, 0.3);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.sfind-go {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--accent-hover, var(--accent));
+  white-space: nowrap;
+}
+.sfind-enter {
+  display: none;
+  font: inherit;
+  font-size: 0.7rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+}
+.sfind-item.is-active .sfind-enter { display: inline-block; }
+
+.sfind-more {
+  background: none;
+  border: none;
+  padding: 0.2rem 0.1rem;
+  color: var(--accent-hover, var(--accent));
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.sfind-more:hover { text-decoration: underline; }
+
+/* The setting you land on: a short glow, then back to normal. */
+.sfind-flash {
+  border-radius: 8px;
+  animation: sfind-flash 2s ease-out;
+}
+@keyframes sfind-flash {
+  0%, 55% { background: rgba(99, 102, 241, 0.22); box-shadow: 0 0 0 2px var(--accent); }
+  100% { background: transparent; box-shadow: 0 0 0 2px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sfind-flash { animation-duration: 0.01s; outline: 2px solid var(--accent); }
+}
+
+/* Narrow windows: the menu is a row, the box keeps a usable width. */
+@media (max-width: 640px) {
+  .sfind-box { flex: 0 0 170px; margin: 0 0.4rem 0 0; }
+}

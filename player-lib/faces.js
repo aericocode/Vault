@@ -971,7 +971,7 @@ function facesSelectionButton(n) {
   const out = typeof ftRemoveSelectedButton === 'function' && typeof selectedIds !== 'undefined' ? ftRemoveSelectedButton(selectedIds.size) : '';
   if (!n) return out;
   return `${out}<button class="sel-btn sel-faces" onclick="facesIndexSelection()"
-    title="Find faces in the selected files">👤 Faces (${n})</button>`;
+    title="Find faces in the selected files">${typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(`👤 Faces (${n})`) : `👤 Faces (${n})`}</button>`;
 }
 
 let facesWatching = false;
@@ -1486,7 +1486,7 @@ async function facesFindInFrame() {
 // data attributes so the Settings tab's generic wiring never picks them up.
 function facesToggleRow(key, title, desc, extraClass = '') {
   return `
-    <label class="settings-toggle${extraClass ? ` ${extraClass}` : ''}">
+    <label class="settings-toggle${extraClass ? ` ${extraClass}` : ''}" data-sfind="faces-${key}">
       <span class="settings-toggle-text">
         <span class="settings-toggle-title">${title}</span>
         <span class="settings-toggle-desc">${desc}</span>
@@ -1533,7 +1533,7 @@ function facesSettingsHtml() {
       </div>
 
       <div id="facesOnRows" hidden>
-        <h3 class="settings-h faces-h">Your library</h3>
+        <h3 class="settings-h faces-h" data-sfind="facesLibrary">Your library</h3>
         <div class="mig-card">
           <div class="faces-stats">
             ${facesStatHtml('facesStatChecked')}
@@ -1554,7 +1554,7 @@ function facesSettingsHtml() {
         </div>
 
         <div id="facesModelRows" hidden>
-          <h3 class="settings-h faces-h">Face model</h3>
+          <h3 class="settings-h faces-h" data-sfind="facesModel">Face model</h3>
           <div class="faces-models">${Object.keys(FACES_KEEPERS).map(facesModelCardHtml).join('')}</div>
           <div class="faces-stuck" id="facesStuck" hidden>
             <span id="facesStuckText"></span>
@@ -1581,7 +1581,7 @@ function facesSettingsHtml() {
         <h3 class="settings-h faces-h">Checking</h3>
         ${facesToggleRow('autoIndex', 'Find faces in new imports automatically',
           'New photos and videos are checked for faces after they are added.')}
-        <div class="settings-toggle settings-seg-row faces-stack">
+        <div class="settings-toggle settings-seg-row faces-stack" data-sfind="facesInterval">
           <span class="settings-toggle-text">
             <span class="settings-toggle-title" id="facesIntervalLabel">How closely to check videos</span>
             <span class="settings-toggle-desc">Closer checks find more faces but take longer. Applies to files checked from now on.</span>
@@ -1595,7 +1595,7 @@ function facesSettingsHtml() {
             <input class="settings-num" type="number" id="facesCustomInterval" min="0.5" max="120" step="0.5"
               aria-label="Seconds between checked frames"> seconds</label>
         </div>
-        <label class="settings-toggle">
+        <label class="settings-toggle" data-sfind="facesMaxFrames">
           <span class="settings-toggle-text">
             <span class="settings-toggle-title">Most frames per video</span>
             <span class="settings-toggle-desc">Longer videos spread these frames evenly. More frames find more faces but take longer.</span>
@@ -1611,7 +1611,7 @@ function facesSettingsHtml() {
            on or off. -->
       <div id="facesDeleteRow" hidden>
         <h3 class="settings-h faces-h">Face data</h3>
-        <div class="settings-toggle faces-delete-row">
+        <div class="settings-toggle faces-delete-row" data-sfind="facesDelete">
           <span class="settings-toggle-text">
             <span class="settings-toggle-title">Delete all face data</span>
             <span class="settings-toggle-desc">Removes every face Vault has found. Your photos and videos are not touched.</span>

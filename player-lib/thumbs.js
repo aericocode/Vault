@@ -21,9 +21,18 @@
    The retry is bound once, at the document, in the capture phase, so it
    covers every /thumb <img> in the page - library tiles, collection
    mosaics, the games and PMV pickers - without any of them knowing.
+
+   The thumbnail settings (Settings > Library > Thumbnails, server side) change
+   three things here: "Off" means no picture is ever asked for; "When shown"
+   means a pending thumbnail is waited for as long as its tile is on the page
+   (the server makes it only because the tile asked); and with hover frames
+   off a tile never asks for scrub frames.
    ========================================================================= */
 
 const THUMB_BACKOFF_MS = [1000, 2000, 4000, 8000];
+// "When shown": after the backoff above, keep asking at this pace while the
+// tile is on the page. Each ask also tells the server the tile still wants it.
+const THUMB_SHOWN_RETRY_MS = 3000;
 const THUMB_BLOB_MAX_ENTRIES = 1500;
 const THUMB_BLOB_MAX_BYTES = 150 * 1024 * 1024;
 const THUMB_PREFETCH_QUIET_MS = 150;
@@ -44,6 +53,8 @@ const PREFETCH_GATE_MAX_MS = 4000;        // how long to wait for the visible ti
 const THUMBABLE_MEDIA = new Set(['video', 'image', 'gif', 'mix']);
 
 let _thumbsEncrypted = false;
+// Server-side thumbnail settings (lib/thumb-settings.js). Defaults = today.
+let _thumbCfg = { make: 'all', keep: 'keep', hover: true, inside: true, salt: 0 };
 const _thumbDead = new Set();    // ids we have stopped asking about
 const _thumbBlobs = new Map();   // id -> { url, size } — LRU, vault mode only
 let _thumbBlobBytes = 0;
@@ -61,18 +72,77 @@ function setThumbsEncrypted(flag) {
   _thumbDead.clear();
 }
 
-/** Read the vault's state once, before the first grid render. */
+/** Read the vault's state and the thumbnail settings once, before the first grid render. */
 async function initThumbMode() {
+  const settings = loadThumbSettings();
   try {
     const s = await fetch('/api/vault/status').then(r => r.json());
     setThumbsEncrypted(!!s.encrypted && !s.locked);
   } catch { /* server unreachable — plain mode is the safe assumption */ }
+  await settings;
+}
+
+/* ── Thumbnail settings ───────────────────────────────────────────────── */
+
+async function loadThumbSettings() {
+  try {
+    const r = await fetch('/api/settings/thumbnails');
+    if (r.ok) setThumbSettings(await r.json());
+  } catch { /* older server or locked: keep the defaults */ }
+}
+
+function thumbCfg() { return _thumbCfg; }
+function thumbsOff() { return _thumbCfg.make === 'off'; }
+function thumbHoverOn() { return !thumbsOff() && _thumbCfg.hover !== false; }
+
+/** New settings from the server. Whatever was given up on is asked for again. */
+function setThumbSettings(cfg) {
+  if (!cfg) return;
+  _thumbCfg = {
+    make: cfg.make || 'all', keep: cfg.keep || 'keep',
+    hover: cfg.hover !== false, inside: cfg.inside !== false,
+    salt: Number(cfg.salt) || 0,
+  };
+  _thumbDead.clear();
+  cancelThumbPrefetch();
+}
+
+/** Should a pending thumbnail be waited for until it comes? */
+function thumbWaitsForever() { return _thumbCfg.make === 'shown'; }
+
+/** Delay before retry number `attempt` (0-based), or null to stop. */
+function thumbRetryDelay(attempt) {
+  if (attempt < THUMB_BACKOFF_MS.length) return THUMB_BACKOFF_MS[attempt];
+  return thumbWaitsForever() ? THUMB_SHOWN_RETRY_MS : null;
 }
 
 /* ── URLs ─────────────────────────────────────────────────────────────── */
 
 function thumbable(media) {
-  return !!media && THUMBABLE_MEDIA.has(media.media_type);
+  if (!media || thumbsOff()) return false;
+  // Music with album art shows it when "Use pictures already inside files" is on.
+  return THUMBABLE_MEDIA.has(media.media_type) || (_thumbCfg.inside && media.media_type === 'audio');
+}
+
+/**
+ * Should a tile put an <img> in for this row? No when thumbnails are off
+ * (nothing is asked for, the type icon shows), and no for a file the server
+ * already said has no picture.
+ */
+function canShowThumb(media) {
+  return thumbable(media) && !_thumbDead.has(media.id);
+}
+
+/**
+ * Prefetching asks for pictures nobody is looking at yet, which is the
+ * opposite of "When shown": there only pictures already made are warmed (the
+ * row carries a version), and "only while running" warms nothing at all.
+ */
+function thumbPrefetchable(media) {
+  if (!canShowThumb(media)) return false;
+  if (_thumbCfg.make !== 'shown') return true;
+  if (_thumbCfg.keep === 'memory') return false;
+  return !!media.thumb_version;
 }
 
 /** True once the server has said there is no picture for this id, ever. */
@@ -87,7 +157,16 @@ function thumbKnownMissing(id) {
 function thumbUrl(media) {
   if (!media) return '';
   const v = media.thumb_version || 0;
-  return (!_thumbsEncrypted && v) ? `/thumb/${media.id}?v=${v}` : `/thumb/${media.id}`;
+  return (!_thumbsEncrypted && v) ? `/thumb/${media.id}?v=${thumbVersionTag(v)}` : `/thumb/${media.id}`;
+}
+
+/**
+ * The ?v= of a cacheable URL: the row's version, plus the settings' salt when
+ * the server bumped it (switching into "Keep up to" must reach the server for
+ * every showing, so year-long cached answers under the old URLs are dropped).
+ */
+function thumbVersionTag(v) {
+  return _thumbCfg.salt ? `${v}-${_thumbCfg.salt}` : String(v);
 }
 
 function thumbUrlById(id) {
@@ -104,7 +183,7 @@ function staticThumbSrc(id) {
 function scrubUrl(id, idx) {
   const m = (typeof getMediaById === 'function') ? getMediaById(id) : null;
   const v = (!_thumbsEncrypted && m && m.thumb_version) || 0;
-  return v ? `/scrub/${id}/${idx}?v=${v}` : `/scrub/${id}/${idx}`;
+  return v ? `/scrub/${id}/${idx}?v=${thumbVersionTag(v)}` : `/scrub/${id}/${idx}`;
 }
 
 /**
@@ -206,10 +285,11 @@ async function loadBlobThumb(img, id, url, attempt) {
 
   hideThumbImg(img);
   if (res.headers.get('X-Thumb') !== 'pending') { _thumbDead.add(id); return; }
-  if (attempt >= THUMB_BACKOFF_MS.length) return;
+  const wait = thumbRetryDelay(attempt);
+  if (wait == null) return;
   setTimeout(() => {
     if (img.isConnected) loadBlobThumb(img, id, url, attempt + 1);
-  }, THUMB_BACKOFF_MS[attempt]);
+  }, wait);
 }
 
 /* ── Plain mode: wait for a pending thumbnail ─────────────────────────── */
@@ -238,13 +318,28 @@ function initThumbRetry() {
     const attempt = Number(img.dataset.thumbTry || 0);
     // Out of patience, or a file we already know is not there: let the event
     // through so the page's own fallback runs.
-    if (_thumbDead.has(id) || attempt >= THUMB_BACKOFF_MS.length) return;
+    const wait = thumbRetryDelay(attempt);
+    if (_thumbDead.has(id) || wait == null) return;
 
     e.stopPropagation();
     img.dataset.thumbTry = String(attempt + 1);
     hideThumbImg(img);
-    setTimeout(() => { if (img.isConnected) retryThumbImg(img, id, url); }, THUMB_BACKOFF_MS[attempt]);
+    setTimeout(() => { if (img.isConnected) retryThumbImg(img, id, url); }, wait);
   }, true);
+}
+
+/**
+ * Stop waiting, and let the page's own fallback run: the img's onerror (a
+ * tile drops its img and shows the type icon, a studio card shows its
+ * letter, a collection cell its icon). The real error event was held back by
+ * the listener above while there was hope; this one gets through because
+ * the id is now dead or out of retries.
+ */
+function giveUpThumbImg(img) {
+  if (!img.isConnected) return;
+  hideThumbImg(img);
+  img.dataset.thumbTry = String(THUMB_BACKOFF_MS.length + 1);
+  img.dispatchEvent(new Event('error'));
 }
 
 /**
@@ -266,11 +361,17 @@ async function retryThumbImg(img, id, url) {
     showThumbImg(img, url);
     return;
   }
-  if (res.headers.get('X-Thumb') !== 'pending') { _thumbDead.add(id); return; }
+  if (res.headers.get('X-Thumb') !== 'pending') {
+    // Gone for good: the tile shows its type icon (the img's own onerror).
+    _thumbDead.add(id);
+    giveUpThumbImg(img);
+    return;
+  }
   const attempt = Number(img.dataset.thumbTry || 0);
-  if (attempt >= THUMB_BACKOFF_MS.length) return;
+  const wait = thumbRetryDelay(attempt);
+  if (wait == null) { giveUpThumbImg(img); return; }
   img.dataset.thumbTry = String(attempt + 1);
-  setTimeout(() => { if (img.isConnected) retryThumbImg(img, id, url); }, THUMB_BACKOFF_MS[attempt]);
+  setTimeout(() => { if (img.isConnected) retryThumbImg(img, id, url); }, wait);
 }
 
 /* ── Prefetch ─────────────────────────────────────────────────────────────
@@ -354,7 +455,7 @@ function prefetchBatch(group, run) {
 
 function prefetchThumbImg(media, run) {
   return new Promise((resolve) => {
-    if (!thumbable(media) || _thumbDead.has(media.id) || run !== _prefetchRun) { resolve(); return; }
+    if (!thumbPrefetchable(media) || run !== _prefetchRun) { resolve(); return; }
     const im = new Image();
     im.setAttribute('fetchpriority', 'low');
     im.decoding = 'async';
@@ -373,7 +474,7 @@ function prefetchThumbImg(media, run) {
 }
 
 async function prefetchThumbBlob(media, signal) {
-  if (!thumbable(media) || _thumbDead.has(media.id)) return;
+  if (!thumbPrefetchable(media)) return;
   if (_thumbBlobs.has(media.id)) return;
   try {
     const res = await fetch(thumbUrl(media), { cache: 'no-store', signal, priority: 'low' });
@@ -386,3 +487,4 @@ initThumbRetry();
 window.vaultRevokeThumbBlobs = revokeThumbBlobs;
 window.vaultSetThumbsEncrypted = setThumbsEncrypted;
 window.vaultThumbBlobStats = thumbBlobStats;
+window.vaultSetThumbSettings = setThumbSettings;

@@ -592,6 +592,31 @@
   margin-top: 0.5rem;
 }
 
+/* Setup notices hidden from the banner, with "Show again". */
+.settings-notices[hidden] { display: none; }
+.settings-notices-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.88rem;
+  color: var(--text-primary);
+}
+.settings-notices-row[hidden] { display: none; }
+.settings-btn.settings-btn-quiet {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  padding: 0.35rem 0.8rem;
+}
+.settings-btn.settings-btn-quiet:hover { border-color: var(--accent); }
+.settings-btn.settings-btn-quiet:disabled { opacity: 0.5; cursor: default; }
+.settings-notices-note { margin-top: 0.5rem; }
+
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 
 @media (max-width: 640px) {
@@ -1689,3 +1714,112 @@ body.pm-names #modalTitle {
 .mig-actions[hidden], .mig-status[hidden] { display: none; }
 .settings-link.cove-only { margin-left: 0; font-size: 0.8rem; }
 .mig-actions .settings-btn[hidden], .settings-link[hidden] { display: none; }
+
+/* ── Thumbnails group (player-lib/thumb-settings-ui.js) ─────────────────────
+   Same rows as the rest of the section; the keep choices sit indented under
+   "Make thumbnails" the way the mockup draws them. Every class that sets a
+   display has its own [hidden] rule (a class display beats the browser's). */
+.th-group { margin-bottom: 1.4rem; }
+.th-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0.2rem 0 0.4rem 0.9rem;
+  padding: 0.5rem 0 0.6rem 0.8rem;
+  border-left: 2px solid var(--border);
+}
+.th-sub[hidden], .th-more[hidden], .th-off-note[hidden] { display: none; }
+.th-radio { display: flex; gap: 0.55rem; align-items: flex-start; cursor: pointer; }
+.th-radio[hidden] { display: none; }
+.th-radio input { margin-top: 0.3rem; accent-color: var(--accent); flex: 0 0 auto; }
+.th-radio-text { display: block; min-width: 0; }
+.th-radio-title { display: block; font-size: 0.88rem; color: var(--text-primary); line-height: 1.9; }
+.th-bounds { margin: 0; font-size: 0.75rem; }
+.th-size {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin: 0 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+}
+.th-size[hidden] { display: none; }
+.th-size:focus-within { border-color: var(--accent); }
+.th-size-input {
+  width: 4.8rem;
+  padding: 0.15rem 0.35rem;
+  background: none;
+  border: 0;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.th-size-input:focus { outline: none; }
+.th-size-arrows { display: inline-flex; flex-direction: column; border-left: 1px solid var(--border); }
+.th-size-arrows[hidden] { display: none; }
+.th-size-step {
+  padding: 0 0.3rem;
+  background: none;
+  border: 0;
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  line-height: 1.1;
+  cursor: pointer;
+}
+.th-size-step:hover { color: var(--text-primary); }
+.th-status { min-height: 1.1em; margin: 0.4rem 0 0.5rem; font-size: 0.78rem; color: var(--text-muted); }
+.th-status.th-bad { color: var(--danger); }
+.th-disc { border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary); }
+.th-disc-h {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  background: none;
+  border: 0;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+.th-disc-h:hover { color: var(--text-primary); }
+.th-disc-b { border-top: 1px solid var(--border); padding: 0.6rem 0.8rem 0.8rem; }
+.th-disc-b[hidden] { display: none; }
+.th-space { display: flex; flex-direction: column; gap: 0.6rem; font-size: 0.85rem; color: var(--text-secondary); }
+.th-space[hidden] { display: none; }
+.th-space b { color: var(--text-primary); }
+.th-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--bg-tertiary); }
+.th-bar[hidden] { display: none; }
+.th-bar b { display: block; height: 100%; }
+.th-bar-covers { background: #6366f1; }
+.th-bar-scrub { background: #8b5cf6; opacity: 0.75; }
+.th-bar-other { background: #22c55e; }
+.th-legend { display: flex; flex-wrap: wrap; gap: 0.9rem; font-size: 0.76rem; color: var(--text-muted); }
+.th-legend[hidden] { display: none; }
+.th-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 0.35rem; vertical-align: middle; }
+.th-mem { font-size: 0.8rem; }
+.th-other { font-size: 0.78rem; color: var(--text-muted); }
+.th-warn {
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.08);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.th-warn b { color: #f59e0b; }
+.th-btns { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.th-btns[hidden] { display: none; }
+.th-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; font-size: 0.82rem; color: var(--text-primary); }
+.th-confirm[hidden] { display: none; }
+.th-btn-danger { background: transparent !important; border: 1px solid rgba(239, 68, 68, 0.6) !important; color: #fca5a5 !important; }
+.th-btn-danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.12) !important; }
+.vault-btn.th-btn-danger:hover:not(:disabled) { border-color: var(--danger) !important; }
+.th-dlg-p { margin: 0; font-size: 0.85rem; line-height: 1.5; color: var(--text-secondary); }
+.th-dlg-p b { color: var(--text-primary); }

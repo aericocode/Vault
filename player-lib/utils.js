@@ -185,7 +185,8 @@ function copyPath(path) {
 
 function showToast(message) {
   const toast = document.getElementById('toast');
-  toast.textContent = message;
+  // Modern drops the leading emoji ("Saved", not "💾 Saved"): player-lib/icons.js
+  toast.textContent = typeof vaultToastText === 'function' ? vaultToastText(message) : message;
   toast.classList.add('active');
   setTimeout(() => toast.classList.remove('active'), 3000);
 }

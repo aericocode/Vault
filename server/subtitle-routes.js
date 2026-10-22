@@ -144,7 +144,12 @@ function buildRouter() {
     const cues = generator.parseVTT(vtt);
     if (!cues.length) return res.status(400).json({ error: 'no valid cues found. Check the timestamps' });
 
-    repo.putTrack(id, lang, existing.kind, vtt);
+    try {
+      repo.putTrack(id, lang, existing.kind, vtt);
+    } catch (err) {
+      // The edit is still in the editor: say it was not saved, never "ok".
+      return res.status(err.code === 'SUBS_NOT_SAVED' ? 423 : 500).json({ error: err.message, code: err.code || null });
+    }
     if (existing.kind === 'original') {
       try {
         db.get().prepare('UPDATE media SET audio_transcription = ? WHERE id = ?')

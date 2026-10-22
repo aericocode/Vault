@@ -19,7 +19,8 @@ function loadScript(url) {
 
 function showToast(message) {
   const toast = document.getElementById('toast');
-  toast.textContent = message;
+  // Modern drops the leading emoji ("Saved", not "💾 Saved"): player-lib/icons.js
+  toast.textContent = typeof vaultToastText === 'function' ? vaultToastText(message) : message;
   toast.classList.add('active');
   setTimeout(() => toast.classList.remove('active'), 3000);
 }
@@ -54,8 +55,12 @@ function syncSortControls() {
     dirBtn.title = currentSortDir() === 'asc' ? 'Least first. Click for most first' : 'Most first. Click for least first';
   }
   if (favBtn) {
-    favBtn.textContent = favesFirst ? '❤' : '🤍';
+    // Classic's heart emoji, Modern's line heart (filled while on, css/icons.css)
+    favBtn.innerHTML = typeof vaultIconSwap === 'function'
+      ? vaultIconSwap(favesFirst ? '❤' : '🤍', 'heart')
+      : (favesFirst ? '❤' : '🤍');
     favBtn.classList.toggle('active', favesFirst);
+    favBtn.setAttribute('aria-pressed', favesFirst ? 'true' : 'false');
   }
 }
 
@@ -349,8 +354,10 @@ let isRefreshing = false;
 const refreshBtn = document.getElementById('refreshBtn');
 // Icon and word sit in their own spans so the Modern look can show the icon
 // alone (the word stays there for screen readers).
+// Modern shows a line icon in place of the emoji (player-lib/icons.js).
 function setRefreshLabel(icon, label) {
-  refreshBtn.innerHTML = `<span class="hb-text"><span class="hb-ic">${icon}</span><span class="hb-label"> ${label}</span></span>`;
+  const ic = typeof vaultIconSwap === 'function' ? vaultIconSwap(icon, 'refresh') : icon;
+  refreshBtn.innerHTML = `<span class="hb-text"><span class="hb-ic">${ic}</span><span class="hb-label"> ${label}</span></span>`;
 }
 refreshBtn.addEventListener('click', async () => {
   if (isRefreshing) return;
@@ -391,7 +398,13 @@ function setSearchCollapsed(collapsed) {
   const btn = document.getElementById('searchCollapseBtn');
   if (!section || !btn) return;
   section.classList.toggle('collapsed', collapsed);
-  btn.textContent = collapsed ? '▼ Search' : '▲ Search';
+  // The arrow in Classic, a search icon in Modern (player-lib/icons.js)
+  const arrow = collapsed ? '▼ ' : '▲ ';
+  // Modern adds a chevron that turns with the state (css/icons.css).
+  btn.innerHTML = typeof vaultIconSwap === 'function'
+    ? `${vaultIconSwap(arrow, 'search')}Search${vaultIcon('chevron', 'modern-only')}`
+    : `${arrow}Search`;
+  btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
   btn.title = collapsed ? 'Show search & filters' : 'Hide search & filters';
   try { localStorage.setItem('searchCollapsed', collapsed ? '1' : '0'); } catch {}
 }
@@ -416,6 +429,8 @@ loadDatabase();
 document.addEventListener('keydown', (e) => {
   // Don't capture when focused on inputs
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  // Ctrl / Cmd chords (Ctrl+R reload) are the browser's, not Q / N / P / R.
+  if (typeof isBrowserChord === 'function' && isBrowserChord(e)) return;
 
   // Mini player shortcuts (active when mini player is showing)
   const miniPlayer = document.getElementById('miniPlayer');

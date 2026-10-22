@@ -246,11 +246,25 @@ function folderCardHtml(c) {
     </div>`;
 }
 
+/** A mosaic cell with no picture (yet, or thumbnails off): the file's type icon. */
+function collMosaicIconHtml(id) {
+  const m = typeof getMediaById === 'function' ? getMediaById(id) : null;
+  // Classic's emoji, Modern's line icon (player-lib/icons.js)
+  return `<div class="coll-mosaic-icon">${vaultTypeIcon(m && m.media_type)}</div>`;
+}
+
+/** The img gave up (thumbs.js retries pending ones first): show the icon in its place. */
+function collMosaicFallback(img, id) {
+  img.outerHTML = collMosaicIconHtml(id);
+}
+
 function collectionCardHtml(c, showPath) {
   const thumbs = (c.first_ids || []).slice(0, 4);
-  const cells = Array.from({ length: 4 }, (_, i) => thumbs[i]
-    ? `<img class="coll-mosaic-img" loading="lazy" draggable="false" src="/thumb/${thumbs[i]}" alt="" onerror="this.style.visibility='hidden'">`
-    : '<div class="coll-mosaic-empty"></div>').join('');
+  const off = typeof thumbsOff === 'function' && thumbsOff();
+  const cells = Array.from({ length: 4 }, (_, i) => !thumbs[i]
+    ? '<div class="coll-mosaic-empty"></div>'
+    : off ? collMosaicIconHtml(thumbs[i])
+      : `<img class="coll-mosaic-img" loading="lazy" draggable="false" src="/thumb/${thumbs[i]}" alt="" onerror="collMosaicFallback(this, ${Number(thumbs[i])})">`).join('');
   const prefix = showPath ? _pathPrefix(c) : '';
   return `
     <div class="media-tile collection-tile" data-coll-id="${c.id}" data-drag-id="${c.id}" data-drag-kind="collection" draggable="true" onclick="openCollection(${c.id})" title="${escapeHtml(c.name)}${c.description ? ': ' + escapeHtml(c.description) : ''}">

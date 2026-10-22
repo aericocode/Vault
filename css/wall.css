@@ -215,6 +215,18 @@ body.wall-active { overflow: hidden; }
 }
 .wall-layer.on { opacity: 1; }
 .wall-layer.wall-nothumb { background: #161616; }
+/* The type icon on a block with no picture (thumbnails off, or none made). */
+.wall-type-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.4rem;
+  opacity: 0.45;
+  pointer-events: none;
+}
+.wall-type-icon[hidden] { display: none; }
 
 .wall-media {
   width: 100%;

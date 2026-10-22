@@ -229,10 +229,10 @@ async function gamesLaunch(key, mediaId, { savedState = null, saveId = null } = 
   container.innerHTML = `
     <div class="games-view">
       <div class="games-topbar">
-        <button class="games-btn" id="gamesBackBtn" title="Back to games">⬅ Library</button>
-        <span class="games-topbar-title">${def.icon} ${escapeHtml(def.label)}
+        <button class="games-btn" id="gamesBackBtn" title="Back to games">${vaultEmojiLabel('⬅ Library')}</button>
+        <span class="games-topbar-title">${vaultEmojiLabel(`${def.icon} ${escapeHtml(def.label)}`)}
           <span class="games-topbar-media" title="${escapeHtml(media.filename)}">· ${escapeHtml(media.filename)}</span></span>
-        <button class="games-btn" id="gamesChangeBtn" title="Pick a different video (stays in the Games tab)">🔀 Change video</button>
+        <button class="games-btn" id="gamesChangeBtn" title="Pick a different video (stays in the Games tab)">${vaultEmojiLabel('🔀 Change video')}</button>
       </div>
       <div class="game-root" id="gameRoot"></div>
     </div>`;
@@ -275,7 +275,7 @@ async function renderGamesHome() {
   const rows = Object.values(GAMES).map(renderGameRow).join('');
   container.innerHTML = `
     <div class="games-view games-home">
-      <h2 class="games-home-title">🎮 Games</h2>
+      <h2 class="games-home-title">${vaultEmojiLabel('🎮 Games')}</h2>
       <div class="games-rows">${rows || '<div class="games-hint">No games installed.</div>'}</div>
     </div>`;
 }
@@ -288,7 +288,7 @@ function renderGameRow(def) {
   return `
     <div class="games-row" data-game="${def.key}">
       <div class="games-row-head">
-        <span class="games-card-icon">${def.icon}</span>
+        <span class="games-card-icon">${vaultEmojiLabel(def.icon)}</span>
         <div class="games-row-meta">
           <div class="games-card-title">${escapeHtml(def.label)}
             ${saves.length ? `<span class="games-row-count">${saves.length}${atMax ? `/${GAMES_MAX_SAVES}` : ''}</span>` : ''}</div>
@@ -296,10 +296,10 @@ function renderGameRow(def) {
         </div>
         <button class="games-btn games-btn-primary games-new-btn"
           onclick="renderGamePicker('${def.key}')"
-          ${atMax ? 'disabled title="Delete a saved game to start a new one"' : ''}>＋ New game</button>
+          ${atMax ? 'disabled title="Delete a saved game to start a new one"' : ''}>${vaultEmojiLabel('＋ New game')}</button>
       </div>
       <div class="games-saves-grid">
-        ${cards || '<div class="games-hint games-saves-empty">No saved games yet. Start one with “＋ New game”.</div>'}
+        ${cards || `<div class="games-hint games-saves-empty">No saved games yet. Start one with “${vaultEmojiLabel('＋ New game', { icon: false })}”.</div>`}
       </div>
     </div>`;
 }
@@ -315,13 +315,13 @@ function renderSaveCard(def, save) {
   const pct = Math.max(0, Math.min(100, Math.round((typeof st.progress === 'number' ? st.progress : 0) * 100)));
   const barPct = solved ? 100 : pct;
   const time = st.elapsedMs ? formatDuration(Math.round(st.elapsedMs / 1000)) : '0:00';
-  const img = media
+  const img = media && !(typeof thumbsOff === 'function' && thumbsOff())
     ? `<img class="games-save-img" loading="lazy" src="/thumb/${media.id}" alt=""
          onerror="this.parentElement.classList.add('games-save-thumb--missing'); this.remove();">`
     : '';
   return `
     <div class="games-save-card" data-save="${save.save_id}">
-      <div class="games-save-thumb ${media ? '' : 'games-save-thumb--missing'}">
+      <div class="games-save-thumb ${img ? '' : 'games-save-thumb--missing'}">
         ${img}
         <span class="games-save-badge ${solved ? 'solved' : ''}">${solved ? '✓ Solved' : pct + '%'}</span>
         <div class="games-save-progress" style="width:${barPct}%"></div>
@@ -329,11 +329,11 @@ function renderSaveCard(def, save) {
       <div class="games-save-info">
         <div class="games-save-name" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
         <div class="games-save-stats">
-          <span class="games-save-time" title="Time spent in this saved game">⏱ ${time}</span>
+          <span class="games-save-time" title="Time spent in this saved game">${vaultEmojiLabel(`⏱ ${time}`)}</span>
         </div>
         <div class="games-save-actions">
-          <button class="games-btn games-btn-primary" onclick="gamesResumeSave('${def.key}','${save.save_id}')">▶ Resume</button>
-          <button class="games-btn games-save-del" onclick="gamesDeleteSave('${def.key}','${save.save_id}')" title="Delete this saved game">🗑</button>
+          <button class="games-btn games-btn-primary" onclick="gamesResumeSave('${def.key}','${save.save_id}')">${vaultEmojiLabel('▶ Resume')}</button>
+          <button class="games-btn games-save-del" onclick="gamesDeleteSave('${def.key}','${save.save_id}')" title="Delete this saved game" aria-label="Delete this saved game">${vaultIconSwap('🗑', 'trash')}</button>
         </div>
       </div>
     </div>`;
@@ -395,9 +395,9 @@ function gamesPickerGridHtml(items, onClickFn) {
     const dur = m.duration_seconds ? formatDuration(m.duration_seconds) : '';
     return `
       <div class="games-pick-tile" data-id="${m.id}" onclick="${onClickFn}(${m.id})" title="${escapeHtml(m.filename)}">
-        <div class="tile-thumb">
-          <img class="tile-img" loading="lazy" src="/thumb/${m.id}" alt=""
-            onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">
+        <div class="tile-thumb ${(typeof thumbsOff === 'function' && thumbsOff()) ? 'thumb-fallback' : ''}">
+          ${(typeof thumbsOff === 'function' && thumbsOff()) ? '' : `<img class="tile-img" loading="lazy" src="/thumb/${m.id}" alt=""
+            onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">`}
           <span class="tile-type-icon">🎬</span>
           ${dur ? `<span class="tile-duration">${dur}</span>` : ''}
         </div>
@@ -414,8 +414,8 @@ function renderGamePicker(key) {
   container.innerHTML = `
     <div class="games-view games-home">
       <div class="games-picker-head">
-        <button class="games-btn" onclick="renderGamesHome()">⬅ Games</button>
-        <h2 class="games-home-title">${def.icon} ${escapeHtml(def.label)}: pick a video</h2>
+        <button class="games-btn" onclick="renderGamesHome()">${vaultEmojiLabel('⬅ Games')}</button>
+        <h2 class="games-home-title">${vaultEmojiLabel(`${def.icon} ${escapeHtml(def.label)}: pick a video`)}</h2>
         <input type="text" class="games-search" id="gamesPickerSearch" placeholder="Search (AND/OR/NOT)" autocomplete="off">
         ${typeof pickerSearchOptionsHtml === 'function' ? pickerSearchOptionsHtml('gamesPick', _pickerState) : ''}
       </div>

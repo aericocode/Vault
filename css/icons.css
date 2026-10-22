@@ -1,0 +1,72 @@
+/* ==========================================
+   LINE ICONS (Modern look, player-lib/icons.js)
+
+   Every icon sits next to the emoji it stands in for; the look shows one
+   (.vi-c below, .modern-only in css/layout-modern.css), so Classic never
+   shows an icon and lays out as before. Icons are 1em square in the text
+   color, so they follow the font size and color of wherever they sit.
+   ========================================== */
+
+.vi {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  flex: none;
+  vertical-align: -0.14em;
+  overflow: visible;
+}
+.vi[hidden] { display: none; }
+
+/* The emoji's wrapper adds no box of its own (display: contents), so Classic
+   lays out exactly as it did with the bare emoji; Modern hides it. */
+.vi-c { display: contents; }
+body.layout-modern .vi-c { display: none; }
+/* A wrapper the page adds around a swap where the emoji used to be bare
+   text (db-viewer.html data-vi spots): no box either. */
+.vi-w { display: contents; }
+
+/* An icon followed by words ("Library", "Filters") */
+.vi-gap { margin-right: 0.4em; }
+
+/* Folded header tabs show the icon alone: no gap after it. */
+.header.tabs-collapsed .app-tab:not(.active) .vi-gap { margin-right: 0; }
+body.layout-modern .app-tab .vi { font-size: 1.05em; }
+
+/* Header: the key beside the logo, the gear, the flame in the status pill */
+body.layout-modern .vault-key-btn { color: var(--text-secondary); }
+body.layout-modern .settings-gear .vi { font-size: 18px; vertical-align: -0.2em; }
+body.layout-modern .gamify-chip-flame .vi { color: var(--warning, #f59e0b); }
+body.layout-modern .wall-icon-btn .vi { width: 16px; height: 16px; vertical-align: -3px; }
+
+/* Search toggle: the chevron points down while the search is folded away,
+   up while it shows. */
+body.layout-modern #searchCollapseBtn .vi-chevron { margin-left: 0.3em; transition: transform 0.15s ease; }
+body.layout-modern #searchCollapseBtn[aria-expanded="true"] .vi-chevron { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) {
+  body.layout-modern #searchCollapseBtn .vi-chevron { transition: none; }
+}
+
+/* On states: a faved heart fills, a set flag fills, in their usual colors. */
+body.layout-modern .faves-first-btn.active .vi-heart,
+body.layout-modern .star-btn.starred .vi-heart,
+body.layout-modern .tile-btn.active-star .vi-heart,
+body.layout-modern .tv-fave .vi-heart,
+body.layout-modern .tile-ind.ind-star .vi-heart {
+  color: var(--danger, #ef4444);
+  fill: currentColor;
+}
+body.layout-modern .dock-btn.is-on .vi-flag,
+body.layout-modern .tv-flag .vi-flag,
+body.layout-modern .tile-ind.ind-flag .vi-flag,
+body.layout-modern .tile-btn.active-flag .vi-flag {
+  color: var(--danger, #ef4444);
+  fill: currentColor;
+  fill-opacity: 0.25;
+}
+body.layout-modern .dock-btn .vi-play { fill: currentColor; }
+
+/* File type icons on tiles with no picture: thinner lines at large sizes. */
+body.layout-modern .tile-type-icon .vi,
+body.layout-modern .wall-type-icon .vi,
+body.layout-modern .dock-empty-icon .vi,
+body.layout-modern .coll-mosaic-icon .vi { stroke-width: 1.5; }

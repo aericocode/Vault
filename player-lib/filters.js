@@ -291,7 +291,10 @@ function renderMediaTypeBar() {
   for (const type of ['video', 'image', 'gif', 'audio', 'mix']) {
     if (!typeCounts[type]) continue;
     const active = selectedMediaTypes.includes(type);
-    html += `<button class="ext-chip type-chip ${active ? 'active' : ''}" data-type="${type}">${labels[type]} <span class="ext-count">${typeCounts[type].toLocaleString()}</span></button>`;
+    // Classic's emoji, Modern's line icon (player-lib/icons.js)
+    const [emoji, ...words] = labels[type].split(' ');
+    const label = vaultIconSwap(emoji + ' ', VAULT_TYPE_ICON_NAMES[type]) + words.join(' ');
+    html += `<button class="ext-chip type-chip ${active ? 'active' : ''}" data-type="${type}">${label} <span class="ext-count">${typeCounts[type].toLocaleString()}</span></button>`;
   }
   html += `<button class="ext-chip safe-chip ${safeOnly ? 'active' : ''}" id="safeChip" title="Only formats known to play in this tool">★ safe</button>`;
   html += `<button class="ext-chip ext-expander ${extBarOpen ? 'open' : ''}" id="extExpander" title="Filter by exact file extension">${extBarOpen ? 'extensions ▾' : 'extensions ▸'}${selectedExtensions.length ? ` <span class="ext-count">${selectedExtensions.length}</span>` : ''}</button>`;

@@ -41,12 +41,18 @@ async function run(args) {
     const thumbnails = require('../lib/thumbnails');
     await runPool(toHash.map(row => async () => {
       try {
-        let source = row.filepath;
+        let hash;
         if (row.media_type === 'video') {
-          source = await thumbnails.getThumbnail(row); // representative frame
-          if (!source) throw new Error('no thumbnail');
+          // Representative frame: the stored thumbnail when there is one
+          // (bytes straight from the encrypted store in a locked library),
+          // else the same frame read from the video. Nothing is stored or
+          // copied to a temp file, whatever the thumbnail settings are.
+          const pic = await thumbnails.pictureForHash(row);
+          if (!pic) throw new Error('no picture');
+          hash = pic.buffer ? await phash.phashBuffer(pic.buffer) : await phash.phashFile(pic.path, { seek: pic.seek });
+        } else {
+          hash = await phash.phashFile(row.filepath);
         }
-        const hash = await phash.phashFile(source);
         setHash.run(hash, row.id);
         row.phash = hash;
         done++;

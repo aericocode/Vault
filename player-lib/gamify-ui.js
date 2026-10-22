@@ -99,7 +99,7 @@
     const chip = document.getElementById('gamifyChip');
     if (!chip || !_stats) return;
     chip.innerHTML =
-      `<span class="gamify-chip-flame">🔥</span>` +
+      `<span class="gamify-chip-flame">${typeof vaultIconSwap === 'function' ? vaultIconSwap('🔥', 'flame') : '🔥'}</span>` +
       `<span class="gamify-chip-score">${Math.round(_stats.score).toLocaleString()}</span>` +
       (_stats.streakDays > 1 ? `<span class="gamify-chip-streak">${_stats.streakDays}d</span>` : '');
   }

@@ -32,7 +32,12 @@ document.addEventListener('keydown', (e) => {
 
   // Don't capture keys when focused on inputs
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-  
+
+  // Ctrl / Cmd with a letter or symbol is the browser's: Ctrl+R reloads
+  // rather than picking a random file, Ctrl+= zooms the page, not the picture
+  // (shortcuts.js). Space, the arrows and Esc keep working.
+  if (typeof isBrowserChord === 'function' && isBrowserChord(e)) return;
+
   const mediaType = currentMediaState.type;
   
   switch (e.key) {
@@ -148,6 +153,10 @@ document.addEventListener('keydown', (e) => {
     case 'Q':
       if (currentMediaState.type === 'video' || currentMediaState.type === 'audio') {
         minimizePlayer();
+        // app.js's mini player keys run next on this same key press, and with
+        // the mini player now showing, its Q would bring the full player
+        // straight back.
+        e.stopImmediatePropagation();
       }
       break;
       

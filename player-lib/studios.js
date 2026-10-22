@@ -102,6 +102,8 @@ function stCoverHtml(s, cls = '') {
   const letter = (String(s && s.name || '?').trim()[0] || '?').toUpperCase();
   const fallback = `<span class="st-letter ${cls}" aria-hidden="true">${stEsc(letter)}</span>`;
   if (!s || !s.coverUrl) return fallback;
+  // Thumbnails off: an automatic cover (a file's thumbnail) is not asked for.
+  if (String(s.coverUrl).startsWith('/thumb/') && typeof thumbsOff === 'function' && thumbsOff()) return fallback;
   return `<img class="st-cover-img ${cls}" src="${stEsc(s.coverUrl)}" alt="" loading="lazy" draggable="false"
     onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'st-letter ${cls}',textContent:${stEsc(JSON.stringify(letter))}}))">`;
 }
@@ -534,11 +536,15 @@ async function stFramePicker(s, after) {
   let rows = [];
   try { rows = await Library.fetchRows(ids.slice(0, 24)); } catch {}
   const opts = [];
-  for (const m of rows.filter(Boolean)) {
-    if (m.media_type === 'video' && m.duration_seconds >= 3) {
+  // Thumbnails off in Settings: nothing to pick from. Hover frames off: one
+  // picture per video (its thumbnail) instead of five frames.
+  const off = (typeof thumbsOff === 'function' && thumbsOff());
+  const hover = typeof thumbHoverOn !== 'function' || thumbHoverOn();
+  for (const m of (off ? [] : rows.filter(Boolean))) {
+    if (hover && m.media_type === 'video' && m.duration_seconds >= 3) {
       for (let i = 0; i < 5; i++) opts.push({ mediaId: m.id, timeS: Math.round(m.duration_seconds * ((i + 1) / 6) * 10) / 10, src: `/scrub/${m.id}/${i}` });
     } else if (['image', 'gif', 'video'].includes(m.media_type)) {
-      opts.push({ mediaId: m.id, timeS: 0, src: `/thumb/${m.id}${m.thumb_version ? `?v=${m.thumb_version}` : ''}` });
+      opts.push({ mediaId: m.id, timeS: 0, src: typeof thumbUrl === 'function' ? thumbUrl(m) : `/thumb/${m.id}` });
     }
   }
   if (!opts.length) { showToast('None of its files has a picture to use.'); return; }
@@ -921,7 +927,7 @@ function stPicker(anchor, { title = '', placeholder = 'Find or make a studio', a
 
 /** Selection bar button (Library tab). */
 function studiosSelectionButton() {
-  return '<button class="sel-btn sel-studio" type="button" onclick="studiosSelectionPick(this)" title="Put the selected files in a studio">🏢 Studio ▾</button>';
+  return '<button class="sel-btn sel-studio" type="button" onclick="studiosSelectionPick(this)" title="Put the selected files in a studio">' + (typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel('🏢 Studio ▾') : '🏢 Studio ▾') + '</button>';
 }
 
 function studiosSelectionPick(btn) {

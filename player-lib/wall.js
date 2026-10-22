@@ -831,7 +831,7 @@ const Wall = (() => {
         <span class="wall-status" id="wallStatus"></span>
         <button type="button" class="wall-btn wall-icon-btn" id="wallGearBtn" aria-label="More settings"
           title="More settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="wallPop">
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
+          ${typeof vaultIcon === 'function' ? vaultIcon('gear', 'modern-only') : ''}<svg class="classic-only" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
         </button>
         <button type="button" class="wall-btn" id="wallFullBtn">Full screen</button>
         <div class="wall-pop" id="wallPop" role="dialog" aria-label="More settings" hidden>
@@ -1577,6 +1577,20 @@ const Wall = (() => {
     });
   }
 
+  /** A block with no picture: the file's type icon on the dark block. */
+  function addWallTypeIcon(layer, item) {
+    if (layer.querySelector('.wall-type-icon')) return;
+    const icons = typeof TILE_TYPE_ICONS !== 'undefined' ? TILE_TYPE_ICONS : {};
+    const span = document.createElement('span');
+    span.className = 'wall-type-icon';
+    span.setAttribute('aria-hidden', 'true');
+    // Classic's emoji, Modern's line icon (player-lib/icons.js)
+    span.innerHTML = typeof vaultIconSwap === 'function'
+      ? vaultIconSwap(icons[item.media_type] || '🎬', VAULT_TYPE_ICON_NAMES[item.media_type] || 'video')
+      : (icons[item.media_type] || '🎬');
+    layer.appendChild(span);
+  }
+
   /** Swap a block to a new item: the new picture fades in over the old one. */
   function showStill(b, item) {
     const prevItem = b.item;
@@ -1601,9 +1615,14 @@ const Wall = (() => {
     b.el.insertBefore(layer, b.cap);
     if (b.pending) b.pending.remove();
     b.pending = layer;
-    setStillSrc(img, item, layer);
+    // Thumbnails switched off in Settings: a video's still is its type icon,
+    // and nothing is asked for.
+    const noThumb = kindOf(item) !== 'picture' && typeof thumbsOff === 'function' && thumbsOff();
+    if (!noThumb) setStillSrc(img, item, layer);
 
-    whenImgReady(img, LOAD_TIMEOUT_MS).then((ok) => {
+    if (noThumb) addWallTypeIcon(layer, item);
+
+    (noThumb ? Promise.resolve(false) : whenImgReady(img, LOAD_TIMEOUT_MS)).then((ok) => {
       if (b.dead || b.pending !== layer) { layer.remove(); return; }
       b.pending = null;
       if (ok) learnAspect(item, img.naturalWidth, img.naturalHeight);
@@ -1613,6 +1632,7 @@ const Wall = (() => {
         setDue(b, Math.min(b.dueAt, now() + 800));
       } else {
         layer.classList.add('wall-nothumb');
+        addWallTypeIcon(layer, item);
       }
       reveal(b, layer);
     });

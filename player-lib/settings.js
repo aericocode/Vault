@@ -2,7 +2,8 @@
    SETTINGS — the app's info + preferences hub (replaces the old license UI)
 
    A dim ⚙ button at the end of .header-buttons opens a house-style modal with
-   left-nav sections: Settings · Guides · Models · Seed packs · Move to Cove · About.
+   left-nav sections: Settings · Library · Face search · Keyboard shortcuts · Guides ·
+   Models · Seed packs · Backend · About.
 
    All preferences persist to localStorage under one JSON blob (vault_settings)
    and are applied at boot (the privacy-mode body class is applied the moment
@@ -20,6 +21,8 @@
    - window.vaultSetScanWorkers(n)     → clamp + persist + push it to the server
    - window.vaultFacesSize(which)      → Faces Size slider width in px ('people' | 'files')
    - window.vaultSetFacesSize(which, px) → clamp + persist it
+   - window.vaultSettingsSelect(id), vaultSettingsIsOpen(), vaultSettingsPageIds(),
+     vaultSettingsPageHtml(id) → for Settings search (player-lib/settings-search.js)
    ========================================================================= */
 
 (function () {
@@ -521,7 +524,9 @@
     gear.id = 'settingsGear';
     gear.title = 'Settings';
     gear.setAttribute('aria-label', 'Settings');
-    gear.innerHTML = `⚙<span class="settings-gear-badge" aria-hidden="true"></span>`;
+    // The ⚙ for Classic, a line gear for Modern (player-lib/icons.js).
+    const gearIcon = typeof vaultIconSwap === 'function' ? vaultIconSwap('⚙', 'gear') : '⚙';
+    gear.innerHTML = `${gearIcon}<span class="settings-gear-badge" aria-hidden="true"></span>`;
     gear.addEventListener('click', openModal);
     btns.appendChild(gear);
     updateGearBadge();
@@ -541,6 +546,8 @@
     { id: 'library',   label: '🗂 Library' },
     // Always listed: this is where face search is turned on (player-lib/faces.js).
     { id: 'faces',     label: '👤 Face search' },
+    // Read-only list from player-lib/shortcuts.js (the same table the ? window shows).
+    { id: 'shortcuts', label: '⌨ Keyboard shortcuts' },
     { id: 'guides',    label: '📖 Guides' },
     { id: 'models',    label: '🧠 Models' },
     { id: 'seedpacks', label: '📦 Seed packs' },
@@ -553,6 +560,10 @@
     { id: 'about',     label: 'ℹ About' },
   ];
 
+  // Menu labels: Classic keeps the emoji, Modern shows the words alone
+  // (player-lib/icons.js).
+  const navLabel = (label) => (typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(label, { icon: false }) : label);
+
   function buildModalShell() {
     if (document.getElementById('settingsOverlay')) return;
     const overlay = document.createElement('div');
@@ -564,13 +575,13 @@
         <div class="settings-header">
           <h2>Settings</h2>
           <a class="settings-support" href="https://ko-fi.com/aericocode" target="_blank" rel="noopener"
-             title="Free forever. Donations keep updates coming. Suggested $10, anything helps.">🌿 Support Vault</a>
+             title="Free forever. Donations keep updates coming. Suggested $10, anything helps.">${navLabel('🌿 Support Vault')}</a>
           <button class="settings-close" id="settingsCloseBtn" title="Close" aria-label="Close">&times;</button>
         </div>
         <div class="settings-layout">
-          <nav class="settings-nav" id="settingsNav">
+          <nav class="settings-nav" id="settingsNav" aria-label="Settings pages">
             ${SECTIONS.map((s, i) => `
-              <button class="settings-nav-item ${i === 0 ? 'active' : ''}" data-section="${s.id}">${s.label}</button>
+              <button class="settings-nav-item ${i === 0 ? 'active' : ''}" data-section="${s.id}">${navLabel(s.label)}</button>
             `).join('')}
           </nav>
           <div class="settings-body" id="settingsBody"></div>
@@ -582,6 +593,8 @@
     overlay.querySelectorAll('.settings-nav-item').forEach(btn => {
       btn.addEventListener('click', () => selectSection(btn.dataset.section));
     });
+    // The search box at the top of the nav (player-lib/settings-search.js).
+    window.vaultSettingsSearchMount?.();
   }
 
   function selectSection(id) {
@@ -602,6 +615,7 @@
     if (id === 'library') wireLibrarySection();
     // The Face search section wires and polls itself (player-lib/faces.js).
     if (id === 'faces' && typeof facesWireSettings === 'function') facesWireSettings();
+    if (id === 'shortcuts' && typeof shortcutsWireSettings === 'function') shortcutsWireSettings();
     if (id === 'seedpacks') wireSeedpacksSection();
     if (id === 'about') loadAbout();
     // The Move to Cove tab polls too, and only while it is on screen.
@@ -616,8 +630,17 @@
     const overlay = document.getElementById('settingsOverlay');
     overlay.classList.add('active');
     document.body.style.overflow = 'hidden';
+    window.vaultSettingsSearchReset?.();
     selectSection(SECTIONS.some(s => s.id === section) ? section : 'settings');
   }
+
+  // Settings search (player-lib/settings-search.js) goes to a page, asks
+  // whether Settings is open, and renders pages to check its index against.
+  window.vaultSettingsSelect = (id) => { if (SECTIONS.some(s => s.id === id)) selectSection(id); };
+  window.vaultSettingsIsOpen = () => isOpen();
+  window.vaultCloseSettings = () => closeModal();
+  window.vaultSettingsPageIds = () => SECTIONS.map(s => s.id);
+  window.vaultSettingsPageHtml = (id) => (RENDERERS[id] ? RENDERERS[id]() : '');
 
   // Deep link for anything outside this module that needs a specific section —
   // today the "files missing from disk" banner, which is only useful if it
@@ -649,7 +672,7 @@
   function toggleRow({ key, title, desc, planned = false, disabled = false, value }) {
     const on = planned ? false : (value !== undefined ? !!value : !!settings[key]);
     return `
-      <label class="settings-toggle ${disabled || planned ? 'is-disabled' : ''}">
+      <label class="settings-toggle ${disabled || planned ? 'is-disabled' : ''}" data-sfind="${esc(key)}">
         <span class="settings-toggle-text">
           <span class="settings-toggle-title">${title}${planned ? ` <span class="settings-tag">planned</span>` : ''}</span>
           <span class="settings-toggle-desc">${desc}</span>
@@ -664,7 +687,7 @@
   function numberRow({ key, title, desc, min, max, value, unit = '' }) {
     const v = value !== undefined ? value : settings[key];
     return `
-      <label class="settings-toggle">
+      <label class="settings-toggle" data-sfind="${key}">
         <span class="settings-toggle-text">
           <span class="settings-toggle-title">${title}</span>
           <span class="settings-toggle-desc">${desc}</span>
@@ -690,7 +713,7 @@
   function segRow({ key, title, desc, options, cls = '' }) {
     const current = settings[key];
     return `
-      <div class="settings-toggle settings-seg-row${cls ? ` ${cls}` : ''}">
+      <div class="settings-toggle settings-seg-row${cls ? ` ${cls}` : ''}" data-sfind="${key}">
         <span class="settings-toggle-text">
           <span class="settings-toggle-title" id="segLabel_${key}">${title}</span>
           <span class="settings-toggle-desc">${desc}</span>
@@ -713,7 +736,7 @@
   function privacyHideRow() {
     const off = settings.privacyMode ? '' : ' is-off';
     return `
-      <div class="settings-chips${off}" id="privacyHideChips" role="group" aria-label="Hide while on">
+      <div class="settings-chips${off}" id="privacyHideChips" role="group" aria-label="Hide while on" data-sfind="privacyHide">
         ${PRIVACY_HIDE_ITEMS.map(i => `
           <button type="button" class="settings-chip" aria-pressed="${settings.privacyHide?.[i.key] ? 'true' : 'false'}"
                   data-privacy-hide="${i.key}">${esc(i.short)}</button>`).join('')}
@@ -751,12 +774,12 @@
     return `
       <div class="settings-inst-row" id="settingsInstRow">
         <div class="settings-inst-line">
-          <div class="settings-inst-field">
+          <div class="settings-inst-field" data-sfind="instanceName">
             <label for="settingsInstName">Instance name</label>
             <input class="settings-text" type="text" id="settingsInstName" maxlength="40"
                    spellcheck="false" autocomplete="off" placeholder="Vault" value="${esc(instName())}">
           </div>
-          <div class="settings-inst-field">
+          <div class="settings-inst-field" data-sfind="port">
             <label for="settingsPort">Port
               <span class="settings-tag warn" id="settingsPortTag" hidden>restart to apply</span>
               <span class="settings-tag env" id="settingsPortEnvTag" hidden>set by MEDIA_TAGGER_PORT</span>
@@ -915,7 +938,7 @@
       })}
       ${instanceRow()}
 
-      <h3 class="settings-h">AI model downloads</h3>
+      <h3 class="settings-h" data-sfind="modelDownloads">AI model downloads</h3>
       <p class="settings-note">${modelDl.envAllows
         ? (modelDl.explicit
           ? 'Pre-approved by <code>SUB_ALLOW_DOWNLOADS=1</code> in your environment. Unset it to be asked per model instead.'
@@ -923,7 +946,7 @@
         : 'Turned off by <code>SUB_ALLOW_DOWNLOADS=0</code> or <code>VAULT_OFFLINE=1</code>. The environment overrides anything set here.'}</p>
       ${modelConsentRows()}
 
-      <h3 class="settings-h">Vault security</h3>
+      <h3 class="settings-h" data-sfind="vaultSecurity">Vault security</h3>
       <p class="settings-note" id="settingsSecNote">${server.encrypted
         ? 'Your library is encrypted. These control how it locks itself and how you get back in.'
         : 'No database password set yet. Click the padlock in the header to create one. Auto-lock does nothing until then.'}</p>
@@ -1097,8 +1120,11 @@
 
   /* ── Section: Guides ─────────────────────────────────────────────────────── */
 
+  // data-sfind: Settings search's anchor (player-lib/settings-search.js),
+  // the summary's words without the emoji ("guide-ai-scanning").
   function guide(summary, ...paras) {
-    return `<details class="settings-acc"><summary>${summary}</summary>${paras.map(p => `<p>${p}</p>`).join('')}</details>`;
+    const slug = String(summary).replace(/[^A-Za-z0-9 ]/g, '').trim().toLowerCase().replace(/\s+/g, '-');
+    return `<details class="settings-acc" data-sfind="guide-${slug}"><summary>${summary}</summary>${paras.map(p => `<p>${p}</p>`).join('')}</details>`;
   }
 
   function RENDERERS_guides() {
@@ -1157,7 +1183,7 @@
 
   function RENDERERS_models() {
     return `
-      <h3 class="settings-h">Model recommendations by GPU size</h3>
+      <h3 class="settings-h" data-sfind="modelTable">Model recommendations by GPU size</h3>
       <p class="settings-note">Vision model = scan quality. Quantized (Q4) versions are the sweet spot. ~64k token context is required to handle vision reliably. </p>
       <div class="settings-table-wrap">
         <table class="settings-table">
@@ -1251,7 +1277,7 @@
       { value: 'hard',    label: 'Permanent' },
     ];
     return `
-      <div class="settings-toggle settings-seg-row">
+      <div class="settings-toggle settings-seg-row" data-sfind="deleteMode">
         <span class="settings-toggle-text">
           <span class="settings-toggle-title" id="segLabel_deleteMode">Delete mode</span>
           <span class="settings-toggle-desc">What the 🗑 button does. Soft can be undone from the trash. Recycle Bin can be recovered by Windows. Permanent erases the file from disk straight away.</span>
@@ -1268,10 +1294,13 @@
     // Modern only: its header no longer shows the database name. Classic's
     // header still does, so Classic's Library section stays as it was.
     const dbFile = window.isModernLayout() ? `
-      <h3 class="settings-h">Library file</h3>
+      <h3 class="settings-h" data-sfind="dbFile">Library file</h3>
       <p class="settings-note" id="settingsDbFile">Asking the server…</p>
 ` : '';
+    // Thumbnails group: player-lib/thumb-settings-ui.js (both looks).
+    const thumbs = typeof window.vaultThumbSettingsHtml === 'function' ? window.vaultThumbSettingsHtml() : '';
     return `${dbFile}
+      ${thumbs}
       <h3 class="settings-h">Deleting files</h3>
       ${deleteModeRow()}
 
@@ -1309,7 +1338,7 @@
       </div>
 
       <h3 class="settings-h">Playback support</h3>
-      <div class="mig-card" id="pbCard">
+      <div class="mig-card" id="pbCard" data-sfind="playbackCheck">
         <div class="mig-card-title">Check playback support for all files</div>
         <p class="settings-note">Reads the video and audio format of files
         scanned before this version, so Vault knows which ones play directly,
@@ -1570,7 +1599,7 @@
 
   function migCard({ mode, title, blurb, fields }) {
     return `
-      <div class="mig-card" data-mig-mode="${mode}">
+      <div class="mig-card" data-mig-mode="${mode}" data-sfind="mig-${mode}">
         <div class="mig-card-title">${title}</div>
         <p class="settings-note">${blurb}</p>
         ${fields}
@@ -1600,6 +1629,8 @@
       const el = document.getElementById('settingsDbFile');
       if (el) el.textContent = 'Could not ask the server.';
     });
+
+    if (typeof window.vaultWireThumbSettings === 'function') window.vaultWireThumbSettings();
 
     document.querySelectorAll('[data-delete-mode]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -2264,7 +2295,7 @@
 
   function RENDERERS_seedpacks() {
     return `
-      <h3 class="settings-h">Song seed packs</h3>
+      <h3 class="settings-h" data-sfind="seedpacks">Song seed packs</h3>
       <p>A seed pack (eg <code>vault-songseed.json</code>) is a portable bundle of song <b>reference fingerprints</b>, no audio inside. Importing one lands the songs and their fingerprints straight in your database without needing the MP3s on disk, and every already-fingerprinted file is rescanned against just the new references.</p>
       <p>It's strictly a manual pull: you download and pick the pack yourself, nothing auto-fetches. Re-importing is idempotent, so updated packs only add what's new.</p>
       <button class="settings-btn" id="settingsOpenSeedpacks">Open seed packs in Editor</button>
@@ -3062,11 +3093,11 @@
   function RENDERERS_about() {
     return `
       <h3 class="settings-h">About</h3>
-      <div class="settings-about">
+      <div class="settings-about" data-sfind="about">
         <div class="settings-about-name" id="settingsAboutName">Vault</div>
         <div class="settings-about-ver" id="settingsAboutVer"></div>
         <p class="settings-about-local">🔒 Local-first - no telemetry, no auto-updates. The network is only touched when you allow it (model downloads, manual update checks).</p>
-        <div class="settings-update">
+        <div class="settings-update" data-sfind="aboutUpdate">
           <button class="settings-btn" id="settingsAboutUpdateBtn">Check for updates</button>
           <span class="settings-note settings-update-msg" id="settingsAboutUpdateMsg"></span>
         </div>
@@ -3077,10 +3108,54 @@
           <a href="https://ko-fi.com/aericocode" target="_blank" rel="noopener">Ko-fi 🌿 ↗</a>
         </div>
       </div>
+      <div class="settings-notices" id="settingsSetupNotices" data-sfind="setupNotices" hidden>
+        <h3 class="settings-h settings-h-mt">Setup notices</h3>
+        <div id="settingsSetupNoticesList"></div>
+        <p class="settings-note settings-notices-note">Required tools like ffmpeg are always shown when missing.</p>
+      </div>
     `;
   }
 
+  /* Setup notices the user hid with "Don't show again" on the setup banner.
+     The group stays hidden unless something is hidden. Same source as the
+     banner (/api/setup-check), which answers 423 while locked: then nothing. */
+  async function loadSetupNotices() {
+    const box = document.getElementById('settingsSetupNotices');
+    const list = document.getElementById('settingsSetupNoticesList');
+    if (!box || !list) return;
+    let tools;
+    try {
+      const resp = await fetch('/api/setup-check');
+      if (!resp.ok) { box.hidden = true; return; }
+      tools = await resp.json();
+    } catch { box.hidden = true; return; }
+    const hidden = Object.entries(tools || {}).filter(([, t]) => t && t.hidden && !t.required && !t.ok);
+    box.hidden = hidden.length === 0;
+    list.innerHTML = hidden.map(([key, t]) => `
+      <div class="settings-notices-row">
+        <span>Hidden: ${escapeHtml(t.label)}${t.feature ? `, for ${escapeHtml(t.feature)}` : ''}</span>
+        <button class="settings-btn settings-btn-quiet" data-show-notice="${escapeHtml(key)}">Show again</button>
+      </div>`).join('');
+    list.querySelectorAll('[data-show-notice]').forEach(btn => btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        const r = await fetch('/api/setup/hidden', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tool: btn.dataset.showNotice, hidden: false }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        try { sessionStorage.removeItem('vault_setup_banner_dismissed'); } catch {}
+        showToast?.('Shown again. It appears on the next reload while the tool is missing');
+      } catch {
+        showToast?.('Could not save that. Try again');
+      }
+      loadSetupNotices();
+    }));
+  }
+
   async function loadAbout() {
+    loadSetupNotices();
     try {
       const resp = await fetch('/api/about');
       if (!resp.ok) return;
@@ -3611,12 +3686,12 @@
      machine it is correct and never touched again. */
   function RENDERERS_backend() {
     return `
-      <h3 class="settings-h">Loaded instances</h3>
+      <h3 class="settings-h" data-sfind="backendInstances">Loaded instances</h3>
       <p class="settings-note">Mirrors what LM Studio has loaded right now. Press Refresh after loading
         or ejecting a model there; during a scan Vault also checks once a minute.</p>
-      <div id="backendInstHost"></div>
+      <div id="backendInstHost" data-sfind="scanWorkers"></div>
 
-      <div class="settings-toggle">
+      <div class="settings-toggle" data-sfind="backendModel">
         <span class="settings-toggle-text">
           <span class="settings-toggle-title">Model for scans</span>
           <span class="settings-toggle-desc"><b>Auto</b> uses whatever is loaded and only asks when more
@@ -3627,10 +3702,10 @@
         </select>
       </div>
 
-      <h3 class="settings-h settings-h-mt">AI server</h3>
+      <h3 class="settings-h settings-h-mt" data-sfind="backendAiServer">AI server</h3>
       <p class="settings-note" id="backendAiNote">Checking the AI server.</p>
 
-      <details class="settings-acc" id="backendAdv">
+      <details class="settings-acc" id="backendAdv" data-sfind="backendAdvanced">
         <summary>Advanced: AI servers</summary>
         <div class="settings-acc-body">
           <div class="mig-card" id="backendEpCard">
@@ -3721,6 +3796,7 @@
     settings:  RENDERERS_settings,
     library:   RENDERERS_library,
     faces:     () => (typeof facesSettingsHtml === 'function' ? facesSettingsHtml() : ''),
+    shortcuts: () => (typeof shortcutsSettingsHtml === 'function' ? shortcutsSettingsHtml() : ''),
     guides:    RENDERERS_guides,
     models:    RENDERERS_models,
     seedpacks: RENDERERS_seedpacks,
