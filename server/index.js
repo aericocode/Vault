@@ -210,6 +210,12 @@ const MIGRATE_BLOCKED_ROUTES = [
   /^\/api\/studios\/auto\/apply$/,
   /^\/api\/studios\/\d+\/merge$/,
   /^\/api\/studios\/\d+\/delete$/,
+  // Folder watchers (lib/watchers/): watching a folder and checking one walk
+  // it and add rows by path; resume starts every watch again. (Writes the
+  // watchers make on their own wait out a migrate in the manager.)
+  /^\/api\/watch\/folders$/,
+  /^\/api\/watch\/folders\/\d+\/check$/,
+  /^\/api\/watch\/resume$/,
 ];
 /** Same rule for DELETE requests. */
 const MIGRATE_BLOCKED_DELETE_ROUTES = [
@@ -1549,52 +1555,71 @@ app.get('/api/migrate/job', (req, res) => {
   res.json(_migrateJob.status() || { running: false, idle: true });
 });
 
-/* ── "N files missing from disk" — the banner's source ─────────────────────
-   One existsSync per live row. On a 100k library that is 100k syscalls, which
-   is milliseconds of real work but seconds of a BLOCKED event loop — no
-   streaming, no thumbnails, a frozen viewer on every page load. So the walk
-   runs in 500-row slices with a setImmediate between them (other requests
-   interleave), the result is cached, and the route answers from cache
-   immediately rather than waiting.
+/* ── "N files missing from disk": the banner's source ──────────────────────
+   One existence check per live row, which on a big library (and on a network
+   share that does not answer) must never hold the server. So the sweep is
+   lib/missing-sweep.js: rows read a page at a time, every check in a worker
+   thread with a timeout, volume by volume (a volume that is not there or does
+   not answer is skipped, nothing on it marked), and the same answer kept in
+   media.missing_since for the Missing filter. The route answers from cache.
 
    First call returns {computing:true, count:null} and the client polls. The
-   TTL is generous because the answer only changes when files move, and the
-   two things that move them — a migrate apply and a library reload — invalidate
-   it explicitly. */
+   TTL is generous because the answer only changes when files move; a migrate
+   apply invalidates it, the header's Refresh only expires it. */
 const _missingCount = (() => {
   const TTL_MS = 5 * 60 * 1000;
-  const SLICE = 500;
   let value = null;         // { count, total, at }
   let running = null;       // in-flight promise
-  let gen = 0;              // bumped by invalidate(); a walk started under an
-                            // older gen must not publish its snapshot — it was
-                            // taken before whatever just moved the files.
+  let gen = 0;              // bumped by invalidate(); a sweep started under an
+                            // older gen stops at its next step: it was
+                            // looking at files from before whatever moved them.
 
-  async function compute() {
+  /**
+   * The sweep itself is lib/missing-sweep.js: paged, every existence check in
+   * a worker thread with a timeout, volume by volume, and it also brings
+   * media.missing_since in line (the Missing filter) with the same answer.
+   * `auto`: the timed sweep, which leaves network and removable drives alone.
+   */
+  async function compute({ auto = false } = {}) {
     const myGen = gen;
-    const rows = db.get().prepare(
-      'SELECT filepath FROM media WHERE user_trashed = 0'
-    ).all();
-    let count = 0;
-    for (let i = 0; i < rows.length; i += SLICE) {
-      for (const r of rows.slice(i, i + SLICE)) {
-        try { if (!fs.existsSync(r.filepath)) count++; } catch { count++; }
-      }
-      // Yield: the whole point of this dance.
-      await new Promise(resolve => setImmediate(resolve));
-    }
-    if (myGen !== gen) return null; // invalidated mid-walk; discard
-    value = { count, total: rows.length, at: Date.now() };
+    const watchers = require('../lib/watchers');
+    let watchedRoots = [];
+    let holdRoots = [];
+    try {
+      const folders = require('../lib/watchers/store').listFolders().filter(f => f.enabled);
+      const offline = watchers.manager().offline;
+      watchedRoots = folders.map(f => f.path);
+      holdRoots = folders.filter(f => offline.has(f.id)).map(f => f.path);
+    } catch { /* no watched folders table yet */ }
+    const out = await require('../lib/missing-sweep').sweep({
+      getDb: () => db.get(),
+      stopped: () => myGen !== gen || vault.isLocked() || _migrateJob.isRunning(),
+      store: require('../lib/watchers/store'),
+      auto, watchedRoots, holdRoots,
+    });
+    if (!out || myGen !== gen) return null;
+    value = { count: out.count, total: out.total, at: Date.now(), skipped: out.skipped };
     return value;
   }
 
   return {
     invalidate() { value = null; gen++; },
-    /** Cached answer, kicking off a recompute when there isn't a fresh one. */
-    get() {
+    /** The cached count is out of date, but a sweep under way may finish (watcher writes). */
+    expire() { value = null; },
+    /** The quiet timed sweep (network and removable drives left alone). */
+    sweepQuietly() {
+      if (running || vault.isLocked() || _migrateJob.isRunning()) return;
+      running = compute({ auto: true }).catch(() => null).finally(() => { running = null; });
+    },
+    /**
+     * Cached answer, kicking off a recompute when there isn't a fresh one. A
+     * stale read (the banner) runs the quiet variant that leaves network and
+     * removable drives alone; only an explicit check (?refresh=1) probes them.
+     */
+    get({ full = false } = {}) {
       const fresh = value && (Date.now() - value.at) < TTL_MS;
-      if (!fresh && !running) {
-        running = compute().catch(() => null).finally(() => { running = null; });
+      if (!fresh && !running && !vault.isLocked()) {
+        running = compute({ auto: !full }).catch(() => null).finally(() => { running = null; });
       }
       if (fresh) return { ...value, computing: false };
       return { count: value ? value.count : null, total: value ? value.total : null,
@@ -1603,9 +1628,14 @@ const _missingCount = (() => {
   };
 })();
 
+// ?refresh=1 starts a fresh sweep (the banner, after a relink); ?expire=1
+// only drops the cached answer (the header's Refresh), so the next read
+// recomputes it in the background instead of a full sweep per click.
 app.get('/api/library/missing-count', (req, res) => {
-  if (req.query.refresh === '1') _missingCount.invalidate();
-  res.json(_missingCount.get());
+  if (req.query.expire === '1') { _missingCount.expire(); return res.json({ expired: true }); }
+  const full = req.query.refresh === '1';
+  if (full) _missingCount.invalidate();
+  res.json(_missingCount.get({ full }));
 });
 
 // Cancel: drop everything still queued. Destructive (the panel makes it a
@@ -2095,60 +2125,12 @@ app.post('/api/import/add-paths', (req, res) => {
   const paths = Array.isArray(req.body?.paths) ? req.body.paths.map(String) : [];
   if (!paths.length) return res.status(400).json({ error: 'paths required' });
 
-  const added = [];
-  let unsupported = 0, existing = 0, missing = 0;
-  const stubs = [];
-  for (const p of paths) {
-    const ext = path.extname(p).toLowerCase();
-    // Default types first (video/image/gif): the video processor also claims
-    // image/gif exts in the registry, so getProcessorMediaType would tag an
-    // imported .png/.gif as 'video'. getMediaType returns the true type for
-    // those; fall back to the registry for audio/document imports.
-    const mediaType = config.getMediaType(ext) || config.getProcessorMediaType(ext);
-    if (!mediaType) { unsupported++; continue; }
-    if (!fs.existsSync(p)) { missing++; continue; }
-    if (db.getByPath(p)) { existing++; continue; }
-    stubs.push({ path: p, name: path.basename(p), mediaType });
-  }
-  if (stubs.length) db.insertStubs(stubs);
-
-  for (const s of stubs) {
-    const row = db.getByPath(s.path);
-    if (!row) continue;
-    added.push({ id: row.id, mediaType: s.mediaType, row });
-    // fresh: a brand-new row, which the face auto-index hook acts on
-    importQueue.enqueue({ id: row.id, filepath: s.path, filename: row.filename, mediaType: s.mediaType, fresh: true });
-  }
-
-  res.json({ added, skipped: { unsupported, existing, missing }, queued: true });
-
-  // Background probe: duration/width/height for the new tiles, one at a time,
-  // fully detached from the response. Errors are cosmetic-only.
-  setImmediate(async () => {
-    try {
-      const mediaInfo = require('../lib/media-info');
-      if (!mediaInfo.isAvailable()) return;
-      for (const a of added) {
-        if (!['video', 'audio', 'gif'].includes(a.mediaType)) continue;
-        try {
-          // One ffprobe now covers the tile (duration/size) AND the playback
-          // decision (codecs), so a freshly imported file never has to be
-          // probed again on its first play.
-          const info = await mediaInfo.getStreamInfo(a.row.filepath);
-          if (info) db.saveStreamInfo(a.id, info);
-        } catch { /* per-file probe failure is fine */ }
-      }
-      // Thumbnails for everything just added, whatever type. The scan pass
-      // makes them too, but the import queue may be paused or hours behind,
-      // and a new tile should not sit on a placeholder until then.
-      // ("When shown" and "Off" make nothing here; see lib/thumb-settings.)
-      if (thumbSettings.scanMakes()) {
-        for (const a of added) {
-          try { thumbnails.enqueueThumbnail(db.getById(a.id)); } catch {}
-        }
-      }
-    } catch { /* probe loop is best-effort */ }
-  });
+  // Shared with the folder watchers (lib/import-add.js): stubs, then the AI
+  // scan queue, then a background probe + thumbnails.
+  const importAdd = require('../lib/import-add');
+  const { added, skipped } = importAdd.addPaths(paths);
+  res.json({ added, skipped, queued: true });
+  setImmediate(() => { importAdd.probeAndThumb(added, { isLocked: () => vault.isLocked(), requireProbe: true }); });
 });
 
 // ── Single-file rescan (fix failed/bad scans without leaving the viewer) ──
@@ -2684,6 +2666,9 @@ app.use('/api', require('./studios-routes').buildRouter());
 // ── Subtitles (whisper transcription + OPUS-MT translation — lib/subtitles/)
 app.use('/api', require('./subtitle-routes').buildRouter());
 
+// ── Folder watchers (watched folders, activity pill — see lib/watchers/) ──
+app.use('/api/watch', require('./watch-routes').buildRouter());
+
 // ── Playback decision + HLS remux streaming (mounted at the root: it owns
 //    both /api/playback|/api/stream and the /stream/:id/* media URLs) ────────
 app.use(require('./stream-routes').buildRouter());
@@ -2944,6 +2929,12 @@ function _installShutdownHooks() {
     try { await require('../lib/stream/session').stopAll(); } catch {}
     try { wipeTempDir(); } catch {}
     try { secureAssets.close(); } catch {}
+    // A missing-files probe stuck on an unreachable share would hold the exit
+    // for up to ~40 s (Node joins worker threads at exit). Everything above is
+    // already done, so end at once in that case.
+    try {
+      if (require('../lib/exists-check').hasStuckWorkers()) process.kill(process.pid, 'SIGKILL');
+    } catch {}
     process.exit(signal === 'SIGTERM' ? 143 : 130);
   };
   process.on('SIGINT', () => onExit('SIGINT'));
@@ -3193,6 +3184,15 @@ function start(args = process.argv.slice(2)) {
   // Non-blocking: boot must not wait on an LM Studio that is not running. The
   // ticker only spends a request while a scan is actually going.
   aiSlots.boot({ activeProbe: () => importQueue.isActive() || _rescanning.size > 0 });
+  // Folder watchers: start a few seconds after boot (or on first unlock),
+  // stop on lock, catch up on unlock. A migrate holds their writes; a write
+  // that marks files missing or back drops the banner's cached count.
+  try {
+    require('../lib/watchers').boot({
+      migrateProbe: () => _migrateJob.isRunning(),
+      onChange: () => _missingCount.expire(),
+    });
+  } catch (err) { console.warn(`[Watch] folder watchers not started: ${err.message}`); }
   _bootMark('db-open-housekeeping');
 
   const { host, port } = config.server;
@@ -3227,6 +3227,16 @@ function start(args = process.argv.slice(2)) {
     };
     if (bootedLocked) vault.onChange((e) => { if (e === 'unlocked') selfHeal(); });
     else selfHeal();
+
+    // Missing marks outside watched folders (a drive plugged back in, files
+    // restored while Vault was closed): a quiet sliced re-check a minute
+    // after start and every half hour (GET missing-count recomputes once its
+    // cache has aged out). Skipped while locked or while a migrate runs.
+    const missingSweep = () => { try { _missingCount.sweepQuietly(); } catch {} };
+    const firstSweep = setTimeout(missingSweep, 60 * 1000);
+    if (firstSweep.unref) firstSweep.unref();
+    const sweepTimer = setInterval(missingSweep, 30 * 60 * 1000);
+    if (sweepTimer.unref) sweepTimer.unref();
 
     // Say it here, once, in the window the user is already looking at — rather
     // than letting them find out one failed file at a time. Deferred off the

@@ -55,6 +55,8 @@
   <link rel="stylesheet" href="./css/faces-review.css">
   <link rel="stylesheet" href="./css/studios.css">
   <link rel="stylesheet" href="./css/wall.css">
+  <!-- Folder watchers: Settings group, options dialog, activity pill, tile tags -->
+  <link rel="stylesheet" href="./css/watchers.css">
   <!-- Modern library look: every rule is scoped under body.layout-modern -->
   <link rel="stylesheet" href="./css/layout-modern.css">
   <!-- The Modern look's line icons (player-lib/icons.js) -->
@@ -260,6 +262,21 @@
             <button class="tri-btn" data-value="success">Done</button>
             <button class="tri-btn" data-value="failed">Failed</button>
             <button class="tri-btn" data-value="unscanned">Unscanned</button>
+          </div>
+        </div>
+        <!-- Folder watchers (player-lib/watchers-ui.js): files gone from disk,
+             and files a watcher added that have not been seen yet. -->
+        <div class="tri-filter" data-filter="filterMissing">
+          <div class="tri-buttons">
+            <button class="tri-btn active" data-value="">All</button>
+            <button class="tri-btn" data-value="1">Only</button>
+            <button class="tri-btn" data-value="0">Hide</button>
+          </div>
+        </div>
+        <div class="tri-filter" data-filter="filterWatchNew">
+          <div class="tri-buttons">
+            <button class="tri-btn active" data-value="">All</button>
+            <button class="tri-btn" data-value="1">Only</button>
           </div>
         </div>
       </div>
@@ -503,6 +520,7 @@
   <script src="./player-lib/wall.js"></script>
   <script src="./player-lib/tabs.js"></script>
   <script src="./player-lib/thumb-settings-ui.js"></script>
+  <script src="./player-lib/watchers-ui.js"></script>
   <script src="./player-lib/settings.js"></script>
   <!-- Settings search: one index of every setting, plus the shortcuts table -->
   <script src="./player-lib/settings-search.js"></script>

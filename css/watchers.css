@@ -1,0 +1,238 @@
+/* =========================================================================
+   Folder watchers (player-lib/watchers-ui.js): the Watched folders group in
+   Settings > Library, one folder's options, the header activity pill and its
+   popover, the Missing and New tile tags, and the Add folder dialog's "Keep
+   watching this folder" row. Both looks; Modern-only tweaks are scoped under
+   body.layout-modern. Every class here that sets display has a [hidden] rule.
+   ========================================================================= */
+
+/* ── Settings > Library > Watched folders ─────────────────────────────── */
+
+.wf-group { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 1.6rem; }
+.wf-topbar { display: flex; align-items: flex-start; gap: 0.8rem; flex-wrap: wrap; }
+.wf-topbar[hidden] { display: none; }
+.wf-intro { flex: 1 1 260px; margin: 0 !important; }
+.wf-topbtns { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.wf-topbtns[hidden] { display: none; }
+.wf-btn { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+.wf-btn[hidden] { display: none; }
+.wf-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.wf-list[hidden] { display: none; }
+.wf-empty { margin: 0 !important; }
+
+.wf-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.2rem 0.75rem;
+  align-items: center;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-tertiary);
+}
+.wf-row[hidden] { display: none; }
+.wf-ic {
+  grid-row: 1 / 3;
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+}
+.wf-ic[hidden] { display: none; }
+.wf-path {
+  font-weight: 600; font-size: 0.88rem; color: var(--text-primary);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wf-meta { grid-column: 2; font-size: 0.78rem; color: var(--text-muted); min-width: 0; }
+.wf-acts { grid-row: 1 / 3; grid-column: 3; display: flex; align-items: center; gap: 0.4rem; }
+.wf-acts[hidden] { display: none; }
+.wf-st {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-size: 0.76rem; padding: 0.12rem 0.55rem;
+  border-radius: 999px; background: var(--bg-secondary); color: var(--text-secondary);
+  max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wf-st[hidden] { display: none; }
+.wf-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; background: #777; }
+.wf-dot[hidden] { display: none; }
+.wf-dot-ok { background: var(--success); }
+.wf-dot-amber { background: var(--warning); }
+.wf-dot-bad { background: var(--danger); }
+.wf-more {
+  background: none; border: 1px solid transparent; color: var(--text-secondary);
+  border-radius: 7px; padding: 0.15rem 0.45rem; cursor: pointer; font-size: 1rem; line-height: 1;
+}
+.wf-more:hover, .wf-more:focus-visible { border-color: var(--border); background: var(--bg-hover); color: var(--text-primary); }
+.wf-bar { grid-column: 2; height: 5px; border-radius: 3px; background: var(--bg-secondary); overflow: hidden; display: block; }
+.wf-bar[hidden] { display: none; }
+.wf-bar b { display: block; height: 100%; background: var(--accent); transition: width 0.4s; }
+
+/* ── Dialogs (one folder's options, and the small confirm) ─────────────── */
+
+.wf-overlay {
+  position: fixed; inset: 0; z-index: 3000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.wf-overlay[hidden] { display: none; }
+.wf-dialog {
+  width: min(640px, 100%);
+  max-height: calc(100vh - 32px);
+  display: flex; flex-direction: column;
+  background: var(--bg-secondary); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.wf-dialog[hidden] { display: none; }
+.wf-ask { width: min(440px, 100%); }
+.wf-ask-text { margin: 0; padding: 1.1rem 1.1rem 0.4rem; font-size: 0.9rem; line-height: 1.5; }
+.wf-dhead { display: flex; align-items: center; gap: 0.6rem; padding: 0.8rem 1rem; border-bottom: 1px solid var(--border); }
+.wf-dhead[hidden] { display: none; }
+.wf-dhead .wf-ic { grid-row: auto; width: 26px; height: 26px; }
+.wf-dtitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.95rem; }
+.wf-x { background: none; border: none; color: var(--text-secondary); font-size: 1rem; cursor: pointer; padding: 0.2rem 0.4rem; border-radius: 6px; }
+.wf-x:hover { color: var(--text-primary); background: var(--bg-hover); }
+.wf-dbody { padding: 0.4rem 1rem 0.6rem; overflow-y: auto; }
+.wf-orow {
+  display: flex; justify-content: space-between; align-items: center; gap: 0.6rem 1rem;
+  padding: 0.65rem 0; border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.wf-orow[hidden] { display: none; }
+.wf-orow-top { align-items: flex-start; }
+.wf-olabel { flex: 1 1 220px; min-width: 0; font-size: 0.88rem; font-weight: 600; }
+.wf-olabel small { display: block; font-weight: 400; color: var(--text-muted); font-size: 0.76rem; line-height: 1.45; margin-top: 0.15rem; }
+.wf-octl { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end; }
+.wf-octl[hidden] { display: none; }
+.wf-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; flex-wrap: wrap; }
+.wf-seg[hidden] { display: none; }
+.wf-seg-btn {
+  background: var(--bg-tertiary); color: var(--text-secondary); border: none;
+  border-right: 1px solid var(--border); padding: 0.35rem 0.7rem; font: inherit; font-size: 0.8rem;
+  cursor: pointer; white-space: nowrap;
+}
+.wf-seg-btn:last-child { border-right: none; }
+.wf-seg-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.wf-seg-btn:disabled { opacity: 0.45; cursor: default; }
+.wf-interval { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: var(--text-secondary); }
+.wf-interval[hidden] { display: none; }
+.wf-num, .wf-field, .wf-text {
+  background: var(--bg-primary); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: 0.82rem; padding: 0.3rem 0.5rem;
+}
+.wf-num { width: 4.5rem; }
+.wf-field { width: 8rem; }
+.wf-text { width: min(260px, 100%); min-height: 6.5rem; resize: vertical; font-family: ui-monospace, Consolas, monospace; font-size: 0.78rem; }
+.wf-num:focus, .wf-field:focus, .wf-text:focus { outline: none; border-color: var(--accent); }
+.wf-chips { display: inline-flex; gap: 0.35rem; flex-wrap: wrap; }
+.wf-chips[hidden] { display: none; }
+.wf-chip {
+  background: var(--bg-tertiary); color: var(--text-muted); border: 1px solid var(--border);
+  border-radius: 6px; padding: 0.22rem 0.6rem; font: inherit; font-size: 0.8rem; cursor: pointer;
+}
+.wf-chip[aria-pressed="true"] { color: var(--text-primary); border-color: var(--accent); background: var(--accent-bg); }
+.wf-chip[aria-pressed="true"]::after { content: ' ✓'; }
+.wf-err { color: var(--danger); font-size: 0.82rem; margin: 0.6rem 0 0; }
+.wf-err[hidden] { display: none; }
+.wf-foot { display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.wf-foot[hidden] { display: none; }
+.wf-foot .settings-btn { display: inline-flex; align-items: center; gap: 0.35rem; }
+.wf-ask .wf-foot { border-top: none; }
+.wf-grow { flex: 1; }
+.wf-confirm-text { font-size: 0.85rem; color: var(--text-primary); flex: 1 1 240px; }
+.settings-btn.wf-danger { background: var(--danger); }
+.settings-btn.wf-danger:hover { background: #dc2626; }
+
+/* A small on/off switch for places without the Settings row around it. */
+.wf-switch { position: relative; display: inline-flex; flex: none; cursor: pointer; }
+.wf-switch[hidden] { display: none; }
+.wf-switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.wf-switch input + span {
+  width: 38px; height: 22px; border-radius: 22px; position: relative;
+  background: var(--bg-tertiary); border: 1px solid var(--border); transition: background 0.18s;
+}
+.wf-switch input + span::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--text-secondary); transition: transform 0.18s, background 0.18s;
+}
+.wf-switch input:checked + span { background: var(--accent); border-color: var(--accent); }
+.wf-switch input:checked + span::after { transform: translateX(16px); background: #fff; }
+.wf-switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wf-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ── The Add folder dialog's "Keep watching this folder" ───────────────── */
+
+.imp-watch {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.6rem 0.75rem; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-tertiary); cursor: pointer;
+}
+.imp-watch[hidden] { display: none; }
+.imp-watch-text { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.imp-watch-title { font-size: 0.86rem; font-weight: 600; color: var(--text-primary); }
+.imp-watch-desc { font-size: 0.76rem; color: var(--text-muted); }
+
+/* ── Header activity pill ──────────────────────────────────────────────── */
+
+.watch-pill-wrap { position: relative; display: flex; }
+.watch-pill-wrap[hidden] { display: none; }
+.watch-pill { gap: 0.4rem; }
+.watch-pill-text { font-size: 0.8rem; white-space: nowrap; }
+.watch-pill-text[hidden] { display: none; }
+.watch-pill-wrap[data-state="adding"] .watch-pill,
+.watch-pill-wrap[data-state="scanning"] .watch-pill { color: var(--warning); border-color: rgba(245, 158, 11, 0.6); }
+.watch-pill-wrap[data-state="error"] .watch-pill { color: var(--danger); border-color: rgba(239, 68, 68, 0.6); }
+.watch-pill-wrap[data-state="paused"] .watch-pill { opacity: 0.6; }
+
+body.layout-modern #watchPillWrap { order: 2; }
+body.layout-modern .watch-pill {
+  border-radius: 999px;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+}
+
+.watch-pop {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 210;
+  width: min(340px, calc(100vw - 32px));
+  display: flex; flex-direction: column; gap: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--bg-secondary); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+  font-size: 0.82rem;
+}
+.watch-pop[hidden] { display: none; }
+.watch-pop-r { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; min-width: 0; }
+.watch-pop-r[hidden] { display: none; }
+.watch-pop-r > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.watch-pop-mut { color: var(--text-muted); white-space: nowrap; }
+.watch-pop-bad span { color: var(--danger); }
+.watch-pop-btn {
+  display: inline-flex; align-items: center; gap: 0.3rem; flex: none;
+  background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border);
+  border-radius: 7px; padding: 0.2rem 0.6rem; font: inherit; font-size: 0.78rem; cursor: pointer;
+}
+.watch-pop-btn:hover { border-color: var(--accent); }
+.watch-pop-ghost { background: transparent; }
+
+/* ── Tiles: Missing and New ────────────────────────────────────────────── */
+
+.tile-watch-tag {
+  position: absolute; left: 6px; top: 6px; z-index: 2;
+  font-size: 0.62rem; font-weight: 600; letter-spacing: 0.02em;
+  padding: 0 0.35rem; border-radius: 3px; line-height: 1.45;
+  pointer-events: none;
+}
+.tile-tag-new { background: var(--accent); color: #fff; }
+.tile-tag-missing { background: #5a2a2a; color: #fecaca; }
+/* The select box sits top-left on hover: the tag steps aside for it. */
+.media-tile:hover .tile-watch-tag { left: 30px; }
+.media-tile.tile-missing .tile-img,
+.media-tile.tile-missing .tile-type-icon { opacity: 0.4; filter: grayscale(0.6); }
+.media-tile.tile-missing .tile-name { color: var(--text-muted); }
+/* Table view (Modern): the same tags inline after the name. */
+.tv-row .tile-watch-tag,
+.media-tile.tv-row:hover .tile-watch-tag { position: static; flex: none; align-self: center; margin-left: 0.4rem; }
+.media-tile.tv-row.tile-missing .tv-c-thumb { opacity: 0.45; }

@@ -157,6 +157,7 @@ function tvCellHtml(c, m) {
       return `<div class="tv-cell tv-c-title">
           <span class="tile-name tv-name" onclick="tileThumbClick(${id})" ondblclick="tileThumbDblClick(${id})"
                 ${pmNames ? '' : `title="${escapeHtml(m.filename)}"`}>${escapeHtml(m.filename)}</span>
+          ${typeof watchTagHtml === 'function' ? watchTagHtml(m) : ''}
           ${m.user_starred ? `<span class="tv-fave" title="Fave">${vaultIconSwap('❤', 'heart')}</span>` : ''}
           ${m.user_flagged_delete ? `<span class="tv-flag" title="Flagged">${vaultIconSwap('🚩', 'flag')}</span>` : ''}
           <span class="tv-actions" onclick="event.stopPropagation()">
@@ -187,6 +188,7 @@ function tvRowHtml(m, style) {
   const isSelected = typeof selectedIds !== 'undefined' && selectedIds.has(m.id);
   const cls = [
     'media-tile', 'tv-row',
+    m.missing_since ? 'tile-missing' : '',
     m.user_flagged_delete ? 'tile-flagged' : '',
     m.user_trashed ? 'tile-trashed' : '',
     isSelected ? 'tile-selected' : '',

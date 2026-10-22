@@ -955,10 +955,11 @@ function renderTile(media) {
   }
 
   return `
-    <div class="media-tile ${isFlagged ? 'tile-flagged' : ''} ${isTrashed ? 'tile-trashed' : ''} ${isSelected ? 'tile-selected' : ''} ${cannotPlay ? 'tile-failed' : ''} ${media.id === lastOpenedMediaId ? 'tile-last-opened' : ''} ${(typeof isCardBusy === 'function' && isCardBusy(media.id)) ? 'tile-busy' : ''}${typeof dockTileClass === 'function' ? dockTileClass(media.id) : ''}" data-id="${media.id}">
+    <div class="media-tile ${media.missing_since ? 'tile-missing' : ''} ${isFlagged ? 'tile-flagged' : ''} ${isTrashed ? 'tile-trashed' : ''} ${isSelected ? 'tile-selected' : ''} ${cannotPlay ? 'tile-failed' : ''} ${media.id === lastOpenedMediaId ? 'tile-last-opened' : ''} ${(typeof isCardBusy === 'function' && isCardBusy(media.id)) ? 'tile-busy' : ''}${typeof dockTileClass === 'function' ? dockTileClass(media.id) : ''}" data-id="${media.id}">
       <div class="tile-thumb ${canThumb ? '' : 'thumb-fallback'}" onclick="tileThumbClick(${media.id})" ondblclick="tileThumbDblClick(${media.id})">
         ${thumb}
         <span class="tile-type-icon">${icon}</span>
+        ${watchTagHtml(media)}
         ${duration ? `<span class="tile-duration">${duration}</span>` : ''}
         ${hotDone ? `<span class="tile-hotdone">${hotDone}</span>` : ''}
         ${typeof studiosTileTagHtml === 'function' ? studiosTileTagHtml(media) : ''}
@@ -982,6 +983,22 @@ function renderTile(media) {
       </div>
     </div>
   `;
+}
+
+/* Folder watchers (player-lib/watchers-ui.js): a file gone from disk is
+   dimmed and tagged Missing (everything about it is kept, and it comes back
+   when the file does); a file a watched folder added carries New until its
+   tile has been on screen. data-watch-new lets watchers-ui.js find it. */
+function watchTagHtml(media) {
+  if (media.missing_since) {
+    // A New file that went missing still counts as seen once it was on screen.
+    const seen = media.watch_new ? ` data-watch-new="${media.id}"` : '';
+    return `<span class="tile-watch-tag tile-tag-missing"${seen} title="Not on disk right now. Everything about this file is kept.">Missing</span>`;
+  }
+  if (media.watch_new) {
+    return `<span class="tile-watch-tag tile-tag-new" data-watch-new="${media.id}" title="Added by a watched folder">New</span>`;
+  }
+  return '';
 }
 
 /** Look up helpers used by inline tile handlers */
