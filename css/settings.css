@@ -53,7 +53,9 @@
   z-index: 300;
   justify-content: center;
   align-items: flex-start;
-  padding: 2rem;
+  /* 4vh + 92vh + 4vh and 3vw + 94vw + 3vw: the largest modal still fits the
+     window without the overlay scrolling. */
+  padding: 4vh 3vw;
   overflow-y: auto;
 }
 
@@ -64,9 +66,12 @@
 .settings-modal {
   background: var(--bg-secondary);
   border-radius: 16px;
-  max-width: 800px;
+  /* Wide enough for the two-column pages (Keyboard shortcuts, the Models
+     table) to hold one line per row. Text keeps its own readable line length
+     (see "Readable line length" below). */
+  max-width: min(1200px, 94vw);
   width: 100%;
-  max-height: 88vh;
+  max-height: 92vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -128,7 +133,7 @@
 }
 
 .settings-nav {
-  flex: 0 0 170px;
+  flex: 0 0 200px;              /* "Keyboard shortcuts" on one line */
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
@@ -194,6 +199,20 @@
   color: var(--text-secondary);
   line-height: 1.6;
   margin: 0 0 0.8rem;
+}
+
+/* ── Readable line length ──────────────────────────────────────────────────
+   The modal is wide for the two-column pages; running prose stops at about
+   75 characters so a line stays easy to follow. Controls, tables and the
+   shortcut columns still use the full width. */
+.settings-body p,
+.settings-note,
+.settings-toggle-desc,
+.settings-inst-hint,
+.settings-body .settings-ep-why,
+.mig-card-blurb,
+.settings-body li {
+  max-width: 75ch;
 }
 
 .settings-body code {
@@ -621,6 +640,7 @@
 
 @media (max-width: 640px) {
   .settings-overlay { padding: 1rem; }
+  .settings-modal { max-width: none; }   /* the whole window, less the 1rem gutter */
   .settings-layout { flex-direction: column; }
   .settings-nav {
     flex: none;

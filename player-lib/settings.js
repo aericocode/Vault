@@ -542,12 +542,12 @@
      diverge from the detail modal. Overlay-click + Escape close. */
 
   const SECTIONS = [
-    { id: 'settings',  label: '⚙ Settings' },
+    { id: 'settings',  label: '⚙️ Settings' },
     { id: 'library',   label: '🗂 Library' },
     // Always listed: this is where face search is turned on (player-lib/faces.js).
     { id: 'faces',     label: '👤 Face search' },
     // Read-only list from player-lib/shortcuts.js (the same table the ? window shows).
-    { id: 'shortcuts', label: '⌨ Keyboard shortcuts' },
+    { id: 'shortcuts', label: '⌨️ Keyboard shortcuts' },
     { id: 'guides',    label: '📖 Guides' },
     { id: 'models',    label: '🧠 Models' },
     { id: 'seedpacks', label: '📦 Seed packs' },
@@ -557,7 +557,7 @@
     // the library, and most people never need to open it. About stays last so
     // the nav always ends on the same entry.
     { id: 'backend',   label: '🔌 Backend' },
-    { id: 'about',     label: 'ℹ About' },
+    { id: 'about',     label: 'ℹ️ About' },
   ];
 
   // Menu labels: Classic keeps the emoji, Modern shows the words alone
