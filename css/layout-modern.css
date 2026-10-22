@@ -61,6 +61,18 @@ body.layout-modern #hdrAdd       { order: 3; }
 body.layout-modern #refreshBtn   { order: 4; }
 body.layout-modern #settingsGear { order: 5; }
 
+/* One height for every boxed control on the right. Each sized to its own
+   content, the device half (a dot alone) came out shorter than the streak
+   half and the pill looked like two pills stuck together. */
+body.layout-modern #gamifyChip,
+body.layout-modern #lovenseChip,
+body.layout-modern #hdrAddBtn,
+body.layout-modern #refreshBtn {
+  height: 2.125rem;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
 /* Status pill: the streak chip and the device chip read as one pill with a
    divider. Each half is still its own button. */
 body.layout-modern #gamifyChip,
@@ -134,11 +146,21 @@ body.layout-modern .header-buttons[data-status="both"] #lovenseChip {
 .hdr-add-item:disabled { opacity: 0.5; cursor: default; }
 
 /* Refresh as an icon: same green outline and busy state, the word kept for
-   screen readers (the title gives the tooltip). */
+   screen readers (the title gives the tooltip). A square as tall as Add,
+   the icon dead centre: no gap after it (the emoji's trailing space asks for
+   one) and no text baseline under it. */
 body.layout-modern #refreshBtn {
-  padding-left: 0.6rem;
-  padding-right: 0.6rem;
+  width: 2.125rem;
+  padding: 0;
+  justify-content: center;
 }
+body.layout-modern #refreshBtn .hb-text,
+body.layout-modern #refreshBtn .hb-ic {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+body.layout-modern #refreshBtn .vi-gap { margin-right: 0; }
 body.layout-modern #refreshBtn .hb-label {
   position: absolute;
   width: 1px;
