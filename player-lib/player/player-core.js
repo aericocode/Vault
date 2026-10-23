@@ -753,14 +753,16 @@ function finishStalledTail(element) {
 
 /** 'ended' fired → advance the queue (or start over, in repeat-all). */
 function autoAdvanceOnEnded() {
-  // 'one' repeats through the element's own loop flag, which means no 'ended'
-  // at all — but a stale listener must not advance past the file either.
-  if (isRepeatOne()) return;
-  // An A-B loop that runs to the end of the file owns the end: back to A
+  // An A-B loop that runs to the end of the file owns the end: back to A.
+  // Checked before repeat-one, since setting a loop turns the element's own
+  // loop flag off and 'ended' then does fire.
   if (typeof abLoopWrapAtEnd === 'function' && abLoopWrapAtEnd(currentMediaState.element)) {
     if (typeof syncPlayPauseButton === 'function') syncPlayPauseButton();
     return;
   }
+  // 'one' repeats through the element's own loop flag, which means no 'ended'
+  // at all — but a stale listener must not advance past the file either.
+  if (isRepeatOne()) return;
   playNextMediaOrWrap();
 }
 
