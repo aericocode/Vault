@@ -6,6 +6,7 @@
  * bottom edge whatever the shapes and sizes.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

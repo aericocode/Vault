@@ -2,6 +2,7 @@
 // that optimisation to the naive full-count implementation it replaced:
 // same BER, same offset, same overlap length, same winner, on random data,
 // on planted matches around the 7% threshold, and at exact boundaries.
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const matcher = require('../lib/musicid/matcher');

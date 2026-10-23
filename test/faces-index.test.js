@@ -4,6 +4,7 @@
  * exclusion, rebuild after writes, and the 5,000 cap with an honest total.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

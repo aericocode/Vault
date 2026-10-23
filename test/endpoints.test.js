@@ -7,6 +7,7 @@
  * can show without rewording.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const os = require('node:os');

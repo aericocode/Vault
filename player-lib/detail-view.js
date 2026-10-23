@@ -119,7 +119,7 @@ function renderDetailBody(media, opts = {}) {
     <div class="detail-section detail-section--error">
       <h3 style="color: var(--danger);">⚠ Processing Error</h3>
       <p class="detail-error">${escapeHtml(media.processing_error)}</p>
-      <p class="detail-error-hint">The file itself is fine. It plays and can be tagged. Fix the cause above, then use 🔄 Rescan to try the AI analysis again.</p>
+      <p class="detail-error-hint">The file itself is fine. It plays and can be tagged. Fix the cause above, then use 🔄 Rescan to try the AI analysis again. If the file was still being copied when it was scanned, use Force refresh.</p>
     </div>` : '';
 
   return `

@@ -7,6 +7,7 @@
  * exercised both through the app's own writers and through raw SQL.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
