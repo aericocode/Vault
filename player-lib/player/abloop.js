@@ -20,27 +20,52 @@ function toggleAbLoop() {
     // Set point A
     abLoopA = element.currentTime;
     abLoopB = null;
+    // Modern says what happens next (the bar also shows an "A" marker)
+    if (_abModern()) showToast(`A set at ${formatDuration(abLoopA) || '0:00'}. Press ] or click the bar to set B`);
   } else if (abLoopB === null) {
     // Set point B
-    let b = element.currentTime;
-    // Ensure B > A, swap if needed
-    if (b <= abLoopA) {
-      abLoopB = abLoopA;
-      abLoopA = b;
-    } else {
-      abLoopB = b;
-    }
-    // Remove native loop — we handle it now
-    element.removeAttribute('loop');
-    element.loop = false;
-    // Seek to A to start the loop
-    element.currentTime = abLoopA;
+    _abSetB(element, element.currentTime);
   } else {
     // Clear both
     clearAbLoop();
     return;
   }
 
+  updateAbLoopButton();
+  updateAbLoopOverlay();
+}
+
+/** Is the Modern dock drawing the controls? */
+function _abModern() {
+  return typeof ModernDock !== 'undefined' && ModernDock.mounted();
+}
+
+/** B at `b` seconds: order the two points, take over looping, jump to A. */
+function _abSetB(element, b) {
+  // Ensure B > A, swap if needed
+  if (b <= abLoopA) {
+    abLoopB = abLoopA;
+    abLoopA = b;
+  } else {
+    abLoopB = b;
+  }
+  // Remove native loop — we handle it now
+  element.removeAttribute('loop');
+  element.loop = false;
+  // Seek to A to start the loop
+  element.currentTime = abLoopA;
+}
+
+/**
+ * Set B at a time picked on the bar (the Modern dock: A is set and the next
+ * click on the bar lands B there instead of seeking).
+ */
+function setAbLoopEnd(seconds) {
+  const element = currentMediaState.element;
+  if (!element || abLoopA === null || abLoopB !== null) return;
+  const t = Number(seconds);
+  if (!isFinite(t)) return;
+  _abSetB(element, t);
   updateAbLoopButton();
   updateAbLoopOverlay();
 }
@@ -112,8 +137,20 @@ function checkAbLoop(mediaElement) {
  * Called from renderVideoPlayer / renderAudioPlayer.
  */
 function renderAbLoopButton() {
+  if (typeof mpBuildingDock === 'function' && mpBuildingDock()) {
+    const m = getAbLoopModernState();
+    return `<button type="button" class="mp-ic mp-ab-btn ${m.cls}" id="abLoopBtn" onclick="toggleAbLoop()" title="${m.title}" aria-label="A-B loop"
+      >${mpIcon('ab-loop')}<span class="mp-badge" aria-hidden="true">A</span></button>`;
+  }
   const { label, stateClass, title } = getAbLoopButtonState();
   return `<button class="ab-loop-btn ${stateClass}" id="abLoopBtn" onclick="toggleAbLoop()" title="${title}">${label}</button>`;
+}
+
+/** The Modern button: lit once the loop is set, filled with an A badge while waiting for B. */
+function getAbLoopModernState() {
+  if (abLoopA === null) return { cls: '', title: 'A-B loop: set the start ([)' };
+  if (abLoopB === null) return { cls: 'pending', title: `A is at ${formatDuration(abLoopA) || '0:00'}. Click or press ] to set B, Esc to cancel` };
+  return { cls: 'on', title: `Looping ${formatDuration(abLoopA) || '0:00'} to ${formatDuration(abLoopB) || '0:00'}. Click to clear (\\)` };
 }
 
 /**
@@ -147,6 +184,14 @@ function getAbLoopButtonState() {
 function updateAbLoopButton() {
   const btn = document.getElementById('abLoopBtn');
   if (!btn) return;
+  if (btn.classList.contains('mp-ic')) {
+    const m = getAbLoopModernState();
+    btn.classList.toggle('pending', m.cls === 'pending');
+    btn.classList.toggle('on', m.cls === 'on');
+    btn.title = m.title;
+    btn.removeAttribute('data-tip');   // tooltip.js re-reads the title on the next hover
+    return;
+  }
   const { label, stateClass, title } = getAbLoopButtonState();
   btn.className = `ab-loop-btn ${stateClass}`;
   btn.textContent = label;
@@ -159,6 +204,8 @@ function updateAbLoopButton() {
  * Render/update the visual overlay on the progress bar showing the A-B region.
  */
 function updateAbLoopOverlay() {
+  // Modern draws the A marker and the loop span on its own timeline
+  if (_abModern()) { ModernDock.drawAb(); return; }
   // Find the progress bar container (works for both video and audio)
   const progressBar = document.getElementById('videoProgress') || document.getElementById('audioProgress');
   if (!progressBar) return;

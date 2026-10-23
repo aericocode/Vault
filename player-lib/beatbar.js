@@ -24,9 +24,30 @@
    Rendering runs on requestAnimationFrame (full display refresh) with a
    drift-corrected time estimate so motion stays smooth between the video's
    coarse ~4Hz timeupdate samples.
+
+   Modern look (isModernLayout()): a 64 px frosted "glass lane" instead of
+   the card (renderGlassFrame, live only; exports keep renderBarFrame). The
+   grip, BPM and gear show only while the mouse is over it. Drag it up or
+   down anywhere; drag the grip sideways to resize it about the centre
+   (config.widthFrac). Px per second stay fixed by Speed, so a wider lane
+   shows more time (player-lib/beatbar-geometry.js). Its own settings panel
+   (css/beatbar-modern.css) uses the same config keys. Switching looks
+   rebuilds the overlay in place, beats and all.
    ========================================================================= */
 
 (function () {
+  // The Modern lane's pure maths live in their own file (tested in Node).
+  // Loaded from here so the page needs no extra tag; nothing uses it until a
+  // video plays, long after it has arrived.
+  if (typeof window.BeatBarGeom === 'undefined') {
+    try {
+      const s = document.createElement('script');
+      s.src = new URL('beatbar-geometry.js', document.currentScript?.src || location.href).href;
+      s.async = false;
+      document.head.appendChild(s);
+    } catch {}
+  }
+
   const LS_ENABLED = 'beatbar_enabled';
   const LS_CONFIG = 'beatbar_config';
   const LS_BEATS_PREFIX = 'beatbar_beats_';
@@ -100,16 +121,27 @@
     // style
     shape: 'circle',       // circle | heart | square | diamond | star
     effects: { pulse: true, ripple: false, spark: false },
-    fillColor: '#7aa8ff',
+    // null = never picked: the look's own default (fillColorOf). A colour
+    // anyone saved is kept as it is in both looks.
+    fillColor: null,
     fillSize: 9,           // base dot radius (px)
     fillOpacity: 1.0,      // 0.2–1
     borderColor: '#ffffff',
     borderWidth: 0,        // 0 = auto dark hairline for contrast
+    // Modern lane width as a fraction of the video width (null = 56%).
+    widthFrac: null,
   };
+
+  const CLASSIC_FILL = '#7aa8ff';
+  const MODERN_FILL = '#a5b4fc';
+  const MODERN_FILL_SWATCHES = [MODERN_FILL, ...FILL_SWATCHES];
+  const LANE_HEIGHT = 64;          // the Modern glass lane
 
   let _state = null; // one active attachment at a time (single player)
 
   const isEnabled = () => localStorage.getItem(LS_ENABLED) === '1';
+  const isModern = () => typeof window.isModernLayout === 'function' && window.isModernLayout();
+  const fillColorOf = (cfg, modern = isModern()) => cfg.fillColor || (modern ? MODERN_FILL : CLASSIC_FILL);
 
   /* ── Config (localStorage) ─────────────────────────────────────────────── */
 
@@ -543,6 +575,8 @@
   /* ── Overlay ───────────────────────────────────────────────────────────── */
 
   function createOverlay(state) {
+    state.modern = isModern() && !!window.BeatBarGeom;
+    if (state.modern) return createModernOverlay(state);
     const overlay = document.createElement('div');
     overlay.className = 'beatbar-overlay';
     overlay.innerHTML = `
@@ -624,16 +658,21 @@
     if (state.overlay.parentElement !== parent) parent.appendChild(state.overlay);
   }
 
-  function setSettingsOpen(open) {
-    const panel = _state?.overlay?.querySelector('.beatbar-settings');
+  const settingsPanel = () => _state?.overlay?.querySelector('.beatbar-settings, .bbm-settings') || null;
+
+  // `from` / `opts` only matter in Modern: 'bar' = the lane's own gear,
+  // 'menu' = the player's gear menu (back arrow, anchored above the dock).
+  function setSettingsOpen(open, from = 'bar', opts = {}) {
+    const panel = settingsPanel();
     if (panel) panel.hidden = !open;
     _state?.overlay?.querySelector('.beatbar-gear')?.classList.toggle('gear-open', open);
     document.getElementById('beatbarSettingsBtn')?.classList.toggle('gear-open', open);
+    if (_state?.modern) modernPanelOpened(_state, open, from, opts);
   }
 
-  function toggleSettingsPanel() {
-    const panel = _state?.overlay?.querySelector('.beatbar-settings');
-    if (panel) setSettingsOpen(panel.hidden);
+  function toggleSettingsPanel(from, opts) {
+    const panel = settingsPanel();
+    if (panel) setSettingsOpen(panel.hidden, from, opts);
   }
 
   function settingsPanelHtml() {
@@ -698,20 +737,33 @@
       qa('.bb-effect-btn').forEach(b => b.classList.toggle('active', !!config.effects[b.dataset.effect]));
       const noneOn = !config.effects.pulse && !config.effects.ripple && !config.effects.spark;
       q('.bb-effect-off')?.classList.toggle('active', noneOn);
-      qa('.bb-fill-swatch').forEach(b => b.classList.toggle('active', b.dataset.color.toLowerCase() === config.fillColor.toLowerCase()));
+      qa('.bb-fill-swatch').forEach(b => b.classList.toggle('active', b.dataset.color.toLowerCase() === fillColorOf(config).toLowerCase()));
       qa('.bb-border-swatch').forEach(b => b.classList.toggle('active', b.dataset.color.toLowerCase() === config.borderColor.toLowerCase()));
     };
 
-    const fmtNudge = (ms) => ms === 0 ? '0ms' : (ms > 0 ? `+${ms}ms` : `${ms}ms`);
+    // The Modern panel reuses this wiring (same classes, same config keys);
+    // only its value labels read differently.
+    const modern = overlay.classList.contains('bb-modern');
+    const borderVal = q('.bb-border-val');
+    const fmtNudge = modern
+      ? (ms) => ms === 0 ? '0 ms' : (ms > 0 ? `+${ms} ms` : `${ms} ms`)
+      : (ms) => ms === 0 ? '0ms' : (ms > 0 ? `+${ms}ms` : `${ms}ms`);
+    const fmtOpacity = modern ? (v) => `${Math.round(v * 100)}%` : (v) => Number(v).toFixed(2);
+    const fmtBorder = (v) => (Number(v) > 0 ? String(v) : 'Auto');
 
-    // Seed controls from config
-    sens.value = String(config.sensitivity); sensVal.textContent = Number(config.sensitivity).toFixed(1);
-    speed.value = String(config.speed); speedVal.textContent = String(config.speed);
-    nudge.value = String(Math.round((config.nudgeSec || 0) * 1000)); nudgeVal.textContent = fmtNudge(Math.round((config.nudgeSec || 0) * 1000));
-    fillSize.value = String(config.fillSize); sizeVal.textContent = String(config.fillSize);
-    fillOpacity.value = String(config.fillOpacity); opacityVal.textContent = Number(config.fillOpacity).toFixed(2);
-    borderWidth.value = String(config.borderWidth);
-    syncChips();
+    // Seed controls from config (again after a Reset)
+    const seed = () => {
+      sens.value = String(config.sensitivity); sensVal.textContent = Number(config.sensitivity).toFixed(1);
+      speed.value = String(config.speed); speedVal.textContent = String(config.speed);
+      nudge.value = String(Math.round((config.nudgeSec || 0) * 1000)); nudgeVal.textContent = fmtNudge(Math.round((config.nudgeSec || 0) * 1000));
+      fillSize.value = String(config.fillSize); sizeVal.textContent = String(config.fillSize);
+      fillOpacity.value = String(config.fillOpacity); opacityVal.textContent = fmtOpacity(config.fillOpacity);
+      borderWidth.value = String(config.borderWidth);
+      if (borderVal) borderVal.textContent = fmtBorder(config.borderWidth);
+      syncChips();
+    };
+    seed();
+    state._seedSettings = seed;
 
     // Live style / speed (drawBar reads config every frame)
     speed.addEventListener('input', () => { config.speed = parseFloat(speed.value); speedVal.textContent = speed.value; saveConfig(); });
@@ -720,8 +772,12 @@
       config.nudgeSec = ms / 1000; nudgeVal.textContent = fmtNudge(ms); saveConfig();
     });
     fillSize.addEventListener('input', () => { config.fillSize = parseFloat(fillSize.value); sizeVal.textContent = fillSize.value; saveConfig(); });
-    fillOpacity.addEventListener('input', () => { config.fillOpacity = parseFloat(fillOpacity.value); opacityVal.textContent = Number(fillOpacity.value).toFixed(2); saveConfig(); });
-    borderWidth.addEventListener('input', () => { config.borderWidth = parseFloat(borderWidth.value); saveConfig(); });
+    fillOpacity.addEventListener('input', () => { config.fillOpacity = parseFloat(fillOpacity.value); opacityVal.textContent = fmtOpacity(fillOpacity.value); saveConfig(); });
+    borderWidth.addEventListener('input', () => {
+      config.borderWidth = parseFloat(borderWidth.value);
+      if (borderVal) borderVal.textContent = fmtBorder(config.borderWidth);
+      saveConfig();
+    });
 
     qa('.bb-playhead-btns .bb-chip').forEach(btn => btn.addEventListener('click', () => {
       config.playheadFrac = parseFloat(btn.dataset.frac); saveConfig(); syncChips();
@@ -743,7 +799,10 @@
     }));
     qa('.bb-border-swatch').forEach(btn => btn.addEventListener('click', () => {
       config.borderColor = btn.dataset.color;
-      if (!config.borderWidth) { config.borderWidth = 1.5; borderWidth.value = '1.5'; } // picking a colour implies wanting a border
+      if (!config.borderWidth) { // picking a colour implies wanting a border
+        config.borderWidth = 1.5; borderWidth.value = '1.5';
+        if (borderVal) borderVal.textContent = fmtBorder(1.5);
+      }
       saveConfig(); syncChips();
     }));
 
@@ -792,6 +851,480 @@
     });
   }
 
+  /* ── Modern overlay: glass lane + its own settings panel ───────────────
+     Same overlay element (so fullscreen, detach, export snapshot all work
+     as before) holding the lane and a fixed-position panel. Every rule that
+     styles it lives in css/beatbar-modern.css under body.layout-modern. */
+
+  const svgIcon = (inner, cls = '') => `<svg class="bbm-svg ${cls}" viewBox="0 0 24 24" aria-hidden="true">${inner}</svg>`;
+  const GRIP_SVG = svgIcon('<circle cx="9" cy="7" r="1.1"/><circle cx="15" cy="7" r="1.1"/><circle cx="9" cy="12" r="1.1"/><circle cx="15" cy="12" r="1.1"/><circle cx="9" cy="17" r="1.1"/><circle cx="15" cy="17" r="1.1"/>', 'bbm-dots');
+  const BACK_SVG = svgIcon('<path d="M15 6l-6 6 6 6"/>');
+  const CHEVRON_SVG = svgIcon('<path d="m6.5 9.5 5.5 5.5 5.5-5.5"/>', 'bbm-chev');
+  const gearIcon = () => (typeof vaultIcon === 'function' && vaultIcon('gear')) ||
+    svgIcon('<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/>');
+  const SHAPE_SVGS = {
+    circle: '<circle cx="12" cy="12" r="7"/>',
+    heart: '<path d="M12 19s-7-4.2-7-9.3A3.8 3.8 0 0 1 12 7.4a3.8 3.8 0 0 1 7 2.3C19 14.8 12 19 12 19z"/>',
+    square: '<rect x="5.5" y="5.5" width="13" height="13" rx="3"/>',
+    diamond: '<rect x="7" y="7" width="10" height="10" rx="2" transform="rotate(45 12 12)"/>',
+    star: '<path d="M12 4.5l2.3 4.7 5.2.8-3.8 3.6.9 5.1L12 16.3l-4.6 2.4.9-5.1L4.5 10l5.2-.8z"/>',
+  };
+  const SHAPE_NAMES = { circle: 'Circle', heart: 'Heart', square: 'Square', diamond: 'Diamond', star: 'Star' };
+
+  function modernPanelHtml() {
+    const row = (label, control) => `<div class="bbm-row"><span class="bbm-lbl">${label}</span>${control}</div>`;
+    const range = (cls, min, max, step, valCls, title = '') =>
+      `<input type="range" class="${cls}" min="${min}" max="${max}" step="${step}"${title ? ` title="${title}"` : ''}><span class="bbm-val ${valCls}"></span>`;
+    const swatches = (cls, colors) => `<span class="bbm-swatches">${colors.map(c =>
+      `<button type="button" class="bb-swatch ${cls}" data-color="${c}" style="background:${c}" title="${c}" aria-label="Colour ${c}"></button>`).join('')}</span>`;
+    const shapes = SHAPES.map(s =>
+      `<button type="button" class="bb-shape-btn" data-shape="${s.id}" title="${SHAPE_NAMES[s.id]}" aria-label="${SHAPE_NAMES[s.id]}">${svgIcon(SHAPE_SVGS[s.id], 'bbm-solid')}</button>`).join('');
+    const effects = EFFECTS.map(e =>
+      `<button type="button" class="bb-chip bb-effect-btn" data-effect="${e.id}" title="Click to turn on or off. They can be combined">${e.label}</button>`).join('');
+    return `
+      <div class="bbm-settings" hidden role="dialog" aria-label="Beat bar settings">
+        <div class="bbm-hdr">
+          <button type="button" class="bbm-icon bbm-back" title="Back" aria-label="Back" hidden>${BACK_SVG}</button>
+          <span class="bbm-title">Beat bar</span>
+          <button type="button" class="bbm-link bbm-reset" title="Put timing and look back to the defaults">Reset</button>
+        </div>
+        <div class="bbm-prev" hidden><canvas></canvas></div>
+        <div class="bbm-body">
+          <div class="bbm-sh">Timing</div>
+          ${row('Sensitivity', range('bb-sens', 1, 10, 0.1, 'bb-sens-val', 'Higher finds more beats'))}
+          ${row('Speed', range('bb-speed', 2, 10, 0.5, 'bb-speed-val', 'How fast the beats move'))}
+          ${row('Nudge', range('bb-nudge', -500, 500, 10, 'bb-nudge-val', 'Move the beats earlier or later to match your audio'))}
+          ${row('Playhead', `<span class="bbm-seg bb-playhead-btns">
+              <button type="button" class="bb-chip" data-frac="0.1">Left</button>
+              <button type="button" class="bb-chip" data-frac="0.25">Quarter</button>
+              <button type="button" class="bb-chip" data-frac="0.5">Middle</button></span>`)}
+          <div class="bbm-sh bbm-look">Look</div>
+          <div class="bbm-looks">
+            ${row('Shape', `<span class="bbm-shapes">${shapes}</span>`)}
+            ${row('Effects', `<span class="bbm-chips">${effects}</span>`)}
+            ${row('Colour', swatches('bb-fill-swatch', MODERN_FILL_SWATCHES))}
+            ${row('Size', range('bb-fill-size', 4, 18, 1, 'bb-size-val'))}
+            ${row('Opacity', range('bb-fill-opacity', 0.2, 1, 0.05, 'bb-opacity-val'))}
+          </div>
+        </div>
+        <button type="button" class="bbm-more-toggle" aria-expanded="false"><span>More</span>${CHEVRON_SVG}</button>
+        <div class="bbm-more" hidden>
+          <div class="bbm-looks">
+            ${row('Outline', swatches('bb-border-swatch', BORDER_SWATCHES))}
+            ${row('Outline width', range('bb-border-width', 0, 5, 0.5, 'bb-border-val', 'Auto draws a thin dark edge'))}
+          </div>
+          <button type="button" class="bbm-wide bbm-resetpos">Reset position and width</button>
+        </div>
+      </div>`;
+  }
+
+  function createModernOverlay(state) {
+    const G = window.BeatBarGeom;
+    const overlay = document.createElement('div');
+    overlay.className = 'beatbar-overlay bb-modern';
+    overlay.innerHTML = `
+      <div class="bbm-lane">
+        <canvas class="beatbar-canvas"></canvas>
+        <span class="bbm-grip" title="Drag up or down to move. Drag sideways to make it wider or narrower">${GRIP_SVG}</span>
+        <span class="bbm-bpm"></span>
+        <span class="beatbar-status"></span>
+        <button type="button" class="beatbar-gear bbm-gear" title="Beat bar settings" aria-label="Beat bar settings">${gearIcon()}</button>
+      </div>
+      ${modernPanelHtml()}
+    `;
+    document.body.appendChild(overlay);
+    state.overlay = overlay;
+    state.canvas = overlay.querySelector('.beatbar-canvas');
+    state.ctx = state.canvas.getContext('2d');
+    state.statusEl = overlay.querySelector('.beatbar-status');
+    state.bpmEl = overlay.querySelector('.bbm-bpm');
+    state.panel = overlay.querySelector('.bbm-settings');
+    state.prevWrap = overlay.querySelector('.bbm-prev');
+    state.prevCanvas = state.prevWrap.querySelector('canvas');
+    state._bpmShown = null;
+    state._prevShown = null;
+    const lane = overlay.querySelector('.bbm-lane');
+    const panel = state.panel;
+
+    overlay.querySelector('.bbm-gear').addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleSettingsPanel('bar');
+    });
+    wireSettings(state, overlay);
+    wireModernPanel(state, panel);
+    wireModernDrag(state, lane);
+
+    state._outsideClose = (e) => {
+      if (panel.hidden) return;
+      if (e.target.closest('.bbm-settings') || e.target.closest('.bbm-gear')) return;
+      setSettingsOpen(false);
+    };
+    document.addEventListener('pointerdown', state._outsideClose, true);
+    // Esc closes the panel first (and only the panel, not the player)
+    state._keyClose = (e) => {
+      if (e.key !== 'Escape' || panel.hidden) return;
+      e.preventDefault(); e.stopPropagation();
+      setSettingsOpen(false);
+    };
+    document.addEventListener('keydown', state._keyClose, true);
+
+    const updatePos = () => {
+      if (state.destroyed) return;
+      const v = state.video;
+      if (!v.isConnected) { detach(); return; }
+      const rect = v.getBoundingClientRect();
+      if (rect.width < 50 || rect.height < 50) {
+        overlay.style.display = 'none';
+        return;
+      }
+      const box = G.laneBox({ rect, widthFrac: config.widthFrac, posFrac: config.posFrac, laneH: LANE_HEIGHT });
+      state.videoW = rect.width;
+      overlay.style.display = '';
+      overlay.style.left = `${box.left}px`;
+      overlay.style.top = `${box.top}px`;
+      overlay.style.width = `${box.width}px`;
+      overlay.style.height = `${box.height}px`;
+      resizeCanvas(state);
+      placeModernPanel(state);
+    };
+    state._updatePos = updatePos;
+
+    placeOverlay(state);
+    updatePos();
+    state.ro = new ResizeObserver(updatePos);
+    try { state.ro.observe(state.video); } catch {}
+    window.addEventListener('resize', updatePos, { passive: true });
+    state._posInterval = setInterval(updatePos, 1000);
+  }
+
+  function wireModernPanel(state, panel) {
+    const q = (sel) => panel.querySelector(sel);
+    q('.bbm-back').addEventListener('click', () => {
+      const opts = state.panelOpts || {};
+      setSettingsOpen(false);
+      // The player's gear menu passes onBack to reopen itself; anything else
+      // can listen for the event.
+      if (typeof opts.onBack === 'function') opts.onBack();
+      else document.dispatchEvent(new CustomEvent('beatbar:settings-back'));
+    });
+    q('.bbm-reset').addEventListener('click', () => {
+      const oldSens = config.sensitivity;
+      config = {
+        ...DEFAULT_CONFIG, effects: { ...DEFAULT_CONFIG.effects },
+        posFrac: config.posFrac, widthFrac: config.widthFrac,   // "Reset position and width" is its own button
+      };
+      saveConfig();
+      state._seedSettings && state._seedSettings();
+      if (config.sensitivity !== oldSens) {
+        setStatus(state, 'Re-detecting…');
+        loadBeats(state, { retune: true });
+      }
+    });
+    const moreBtn = q('.bbm-more-toggle'), more = q('.bbm-more');
+    moreBtn.addEventListener('click', () => {
+      more.hidden = !more.hidden;
+      moreBtn.setAttribute('aria-expanded', String(!more.hidden));
+      panel.classList.toggle('bbm-more-open', !more.hidden);
+    });
+    q('.bbm-resetpos').addEventListener('click', () => {
+      config.posFrac = null;
+      config.widthFrac = null;
+      saveConfig();
+      state._updatePos && state._updatePos();
+    });
+  }
+
+  function wireModernDrag(state, lane) {
+    // Anywhere on the lane: drag up / down (horizontal stays centred). On the
+    // grip, the first clear movement picks the axis: sideways resizes the lane
+    // about its centre (away from the centre = wider), up / down moves it.
+    const G = window.BeatBarGeom;
+    const DRAG_THRESHOLD = 3;
+    let drag = null;
+
+    const onMove = (ev) => {
+      if (!drag) return;
+      const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+      if (!drag.axis) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < DRAG_THRESHOLD) return;
+        drag.axis = drag.grip && Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+        state.overlay.classList.add('bbm-dragging', drag.axis === 'x' ? 'bbm-resizing' : 'bbm-moving');
+      }
+      const rect = state.video.getBoundingClientRect();
+      if (drag.axis === 'x') {
+        config.widthFrac = G.widthAfterGripDrag(drag.width, dx, rect.width);
+      } else {
+        // Keep the spot under the pointer where it was grabbed (no jump)
+        const f = G.posFracFromPointer(ev.clientY - drag.offset, rect);
+        if (f != null) config.posFrac = f;
+      }
+      state._updatePos && state._updatePos();
+    };
+    const onUp = (ev) => {
+      if (!drag) return;
+      const moved = !!drag.axis;
+      drag = null;
+      try { lane.releasePointerCapture(ev.pointerId); } catch {}
+      lane.removeEventListener('pointermove', onMove);
+      lane.removeEventListener('pointerup', onUp);
+      lane.removeEventListener('pointercancel', onUp);
+      state.overlay?.classList.remove('bbm-dragging', 'bbm-resizing', 'bbm-moving');
+      if (moved) saveConfig();
+    };
+    lane.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || e.target.closest('.bbm-gear')) return;
+      e.preventDefault(); e.stopPropagation();
+      const r = lane.getBoundingClientRect();
+      drag = {
+        x: e.clientX, y: e.clientY, axis: null,
+        grip: !!e.target.closest('.bbm-grip'),
+        width: G.clampWidthFrac(config.widthFrac),
+        offset: e.clientY - (r.top + r.height / 2),
+      };
+      try { lane.setPointerCapture(e.pointerId); } catch {}
+      lane.addEventListener('pointermove', onMove);
+      lane.addEventListener('pointerup', onUp);
+      lane.addEventListener('pointercancel', onUp);
+    });
+  }
+
+  function modernPanelOpened(state, open, from, opts) {
+    state.overlay.classList.toggle('bbm-open', open);
+    if (!open) return;
+    state.panelFrom = from;
+    state.panelOpts = opts || {};
+    const back = state.panel.querySelector('.bbm-back');
+    if (back) back.hidden = from !== 'menu';
+    state._prevShown = null;
+    syncPreview(state, performance.now());
+    placeModernPanel(state);
+  }
+
+  // Above the lane's gear, or (from the player's gear menu) above the given
+  // anchor / the dock's right end. Bottom-anchored so it grows upward when
+  // the preview or "More" opens.
+  function placeModernPanel(state) {
+    const panel = state.panel;
+    if (!panel || panel.hidden || !state.overlay || !window.BeatBarGeom) return;
+    let anchor;
+    if (state.panelFrom === 'menu') {
+      const el = state.panelOpts?.anchor;
+      const a = el && el.isConnected ? el.getBoundingClientRect() : null;
+      if (a && a.width) anchor = a;
+      else {
+        const v = state.video.getBoundingClientRect();
+        const y = v.bottom - 96;   // just above the dock
+        anchor = { top: y, bottom: y, right: v.right - 16 };
+      }
+    } else {
+      const lane = state.overlay.getBoundingClientRect();
+      const gear = state.overlay.querySelector('.bbm-gear').getBoundingClientRect();
+      anchor = { top: lane.top, bottom: lane.bottom, right: gear.right + 6 };
+    }
+    const p = window.BeatBarGeom.panelPlace({
+      anchor, vw: window.innerWidth, vh: window.innerHeight,
+      panelW: panel.offsetWidth || 380, panelH: panel.scrollHeight,
+    });
+    panel.style.right = `${p.right}px`;
+    panel.style.bottom = p.bottom == null ? 'auto' : `${p.bottom}px`;
+    panel.style.top = p.top == null ? 'auto' : `${p.top}px`;
+    panel.style.maxHeight = `${p.maxHeight}px`;
+  }
+
+  // Per frame while Modern: the hover BPM label, and the settings preview
+  // lane, which shows only while the video is paused (while playing, the real
+  // bar is right there).
+  function modernTick(state, nowPerf) {
+    const bpmText = state.bpm > 0 ? `${Math.round(state.bpm)} BPM` : '';
+    if (bpmText !== state._bpmShown) { state.bpmEl.textContent = bpmText; state._bpmShown = bpmText; }
+    if (state.panel && !state.panel.hidden) syncPreview(state, nowPerf);
+  }
+
+  function syncPreview(state, nowPerf) {
+    const show = !!state.video.paused;
+    if (show !== state._prevShown) {
+      state.prevWrap.hidden = !show;
+      state._prevShown = show;
+    }
+    if (show) drawPreview(state, nowPerf);
+  }
+
+  // A steady beat at the video's tempo (120 BPM before it is known), so
+  // every setting shows live, effects included, even with the video paused.
+  function drawPreview(state, nowPerf) {
+    const G = window.BeatBarGeom;
+    const c = state.prevCanvas;
+    const w = c.clientWidth, h = c.clientHeight;
+    if (!w || !h) return;
+    const dpr = window.devicePixelRatio || 1;
+    const ctx = c.getContext('2d');
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const bpm = state.bpm >= 60 && state.bpm <= 200 ? state.bpm : 120;
+    const iv = 60 / bpm, t = nowPerf / 1000;
+    const timing = G.laneTiming({
+      laneW: w, refW: w / G.WIDTH_DEFAULT, playheadFrac: config.playheadFrac, baseLookahead: lookaheadFor(config),
+    });
+    const n0 = Math.floor((t - timing.lookbehind - 1.5) / iv);
+    const n1 = Math.ceil((t + timing.lookahead + 0.5) / iv);
+    const beats = [];
+    for (let n = n0; n <= n1; n++) beats.push(n * iv);
+    renderGlassFrame(ctx, w, h, t, beats, config, timing, n0);
+  }
+
+  /* Live-only Modern painter (mock "glass lane"). The frosted pill itself is
+     CSS (backdrop-filter cannot be baked), so this draws on a transparent
+     canvas: a track hairline fading at both ends, a playhead in the beat
+     colour that glows brighter on each hit, and beats that grow as they
+     approach (0.62 -> 1), land with the same envelope and effects as the
+     classic bar plus a soft glow, then fade out behind the playhead.
+     `seedBase` keeps spark layouts stable for a sliding beat list. */
+  function renderGlassFrame(ctx, w, h, t, beats, cfg, timing, seedBase = 0) {
+    ctx.clearRect(0, 0, w, h);
+    const cy = h / 2;
+    const rgb = hexToRgb(fillColorOf(cfg, true));
+    const col = `${rgb.r},${rgb.g},${rgb.b}`;
+    const lift = (v, k) => Math.round(v + (255 - v) * k);
+
+    const tg = ctx.createLinearGradient(0, 0, w, 0);
+    tg.addColorStop(0, 'rgba(255,255,255,0)');
+    tg.addColorStop(0.15, 'rgba(255,255,255,0.14)');
+    tg.addColorStop(0.85, 'rgba(255,255,255,0.14)');
+    tg.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.strokeStyle = tg;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(w, cy); ctx.stroke();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(0, 0, w, h, h / 2);
+    ctx.clip();
+
+    const { playheadX, lookahead, lookbehind, pxPerSec } = timing;
+    const nudgeSec = cfg.nudgeSec || 0;
+    const firstT = t - lookbehind - 0.2 - nudgeSec;
+    let lo = 0, hi = beats.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (beats[mid] < firstT) lo = mid + 1; else hi = mid;
+    }
+
+    // How hard the nearest beat is hitting right now (drives the playhead glow)
+    let near = 0;
+    for (let i = lo; i < beats.length; i++) {
+      const phase = t - (beats[i] + nudgeSec - BEAT_NUDGE_SEC);
+      if (phase <= -BEAT_ATTACK_SEC) break;
+      near = Math.max(near, beatEnvelope(phase));
+    }
+
+    const pg = ctx.createLinearGradient(0, 0, 0, h);
+    pg.addColorStop(0, `rgba(${col},0)`);
+    pg.addColorStop(0.5, `rgba(${lift(rgb.r, 0.35)},${lift(rgb.g, 0.35)},${lift(rgb.b, 0.35)},${0.7 + 0.3 * near})`);
+    pg.addColorStop(1, `rgba(${col},0)`);
+    ctx.save();
+    ctx.shadowColor = `rgba(${col},${0.4 + 0.6 * near})`;
+    ctx.shadowBlur = 6 + 14 * near;
+    ctx.strokeStyle = pg;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(playheadX, h * 0.08); ctx.lineTo(playheadX, h * 0.92); ctx.stroke();
+    ctx.restore();
+
+    const shape = cfg.shape || 'circle';
+    const effects = cfg.effects || DEFAULT_CONFIG.effects;
+    const anyEffect = effects.pulse || effects.ripple || effects.spark;
+    const fillOpacity = cfg.fillOpacity == null ? 1 : cfg.fillOpacity;
+    const borderWidth = cfg.borderWidth || 0;
+    const borderColor = cfg.borderColor || '#ffffff';
+    const baseR = Math.max(3, cfg.fillSize || 9);
+    const pulseR = baseR + Math.max(8, baseR * 1.2);
+
+    for (let i = lo; i < beats.length; i++) {
+      const dt = (beats[i] + nudgeSec) - t;
+      if (dt > lookahead + 0.2) break;
+      const x = playheadX + dt * pxPerSec;
+
+      let fade = 1;
+      if (dt < 0) {
+        fade = 1 - Math.min(1, -dt / PAST_FADE_SEC);
+        if (fade <= 0) continue;
+      }
+      const approach = dt > 0 ? Math.max(0.62, 1 - (dt / lookahead) * 0.38) : 1;
+      const k = beatEnvelope(t - (beats[i] + nudgeSec - BEAT_NUDGE_SEC));
+      const r0 = baseR * approach;
+      const radius = k > 0 && effects.pulse ? r0 + k * (pulseR - baseR) : r0;
+
+      // Soft glow on the hit (Pulse brings its own, so only without it)
+      if (k > 0 && !effects.pulse) {
+        const gr = radius * 2.8;
+        const g = ctx.createRadialGradient(x, cy, 0, x, cy, gr);
+        g.addColorStop(0, `rgba(${col},${0.45 * k * fade})`);
+        g.addColorStop(1, `rgba(${col},0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(x, cy, gr, 0, Math.PI * 2); ctx.fill();
+      }
+      if (k > 0 && anyEffect) {
+        const pulse = effects.spark ? { sparks: makeSparks(i + seedBase) } : null;
+        drawEffects(ctx, effects, shape, x, cy, effects.pulse ? radius : r0, k, rgb, fade, pulse);
+      }
+
+      traceShape(ctx, shape, x, cy, radius);
+      ctx.globalAlpha = fade * fillOpacity * (dt > 0 ? 0.55 + 0.45 * approach : 1);
+      ctx.fillStyle = k > 0 ? `rgb(${lift(rgb.r, k * 0.5)},${lift(rgb.g, k * 0.5)},${lift(rgb.b, k * 0.5)})` : `rgb(${col})`;
+      ctx.fill();
+      ctx.globalAlpha = fade;
+      if (borderWidth > 0) {
+        ctx.lineWidth = borderWidth;
+        ctx.strokeStyle = borderColor;
+      } else {
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.restore(); // end clip
+  }
+
+  // What the Modern lane says while it works: one plain line, no counts; the
+  // BPM shows on hover once it is known.
+  function modernStatus(text) {
+    if (!text) return '';
+    if (/beats · /.test(text)) return '';
+    const m = /^(Analyzing|Extracting|Detecting|Re-detecting)\D*(\d+%)?/.exec(text);
+    if (m) return m[2] ? `Finding beats... ${m[2]}` : 'Finding beats...';
+    return text.replace(/^Beat bar: /, 'Could not find beats: ');
+  }
+
+  // Unhook one overlay (its DOM and listeners) but keep the beats, worker
+  // and clock: used on detach and when the look switches.
+  function teardownOverlay(state) {
+    if (state.ro) try { state.ro.disconnect(); } catch {}
+    state.ro = null;
+    if (state._posInterval) clearInterval(state._posInterval);
+    state._posInterval = null;
+    if (state._updatePos) window.removeEventListener('resize', state._updatePos);
+    if (state._outsideClose) document.removeEventListener('pointerdown', state._outsideClose, true);
+    if (state._keyClose) document.removeEventListener('keydown', state._keyClose, true);
+    state._outsideClose = state._keyClose = state._updatePos = null;
+    state.overlay?.remove();
+    state.overlay = state.canvas = state.ctx = state.statusEl = state.bpmEl = null;
+    state.panel = state.prevWrap = state.prevCanvas = null;
+    document.getElementById('beatbarSettingsBtn')?.classList.remove('gear-open');
+  }
+
+  // Settings > Layout switched looks: rebuild the bar in place.
+  window.addEventListener('vault:layout-style', () => {
+    const state = _state;
+    if (!state || state.destroyed) return;
+    if (state.modern === (isModern() && !!window.BeatBarGeom)) return;
+    teardownOverlay(state);
+    createOverlay(state);
+  });
+
   function resizeCanvas(state) {
     if (!state.canvas) return;
     const dpr = window.devicePixelRatio || 1;
@@ -807,7 +1340,7 @@
   }
 
   function setStatus(state, text) {
-    if (state.statusEl) state.statusEl.textContent = text;
+    if (state.statusEl) state.statusEl.textContent = state.modern ? modernStatus(text) : text;
   }
 
   /* ── Render loop (rAF; drift-corrected time estimate for smoothness) ────── */
@@ -817,6 +1350,7 @@
       if (state.destroyed) return;
       updateSmoothTime(state, now);
       drawBar(state);
+      if (state.modern && state.overlay) modernTick(state, now);
       state.rafId = requestAnimationFrame(tick);
     };
     state.rafId = requestAnimationFrame(tick);
@@ -858,6 +1392,15 @@
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
     if (w === 0 || h === 0) return;
+    if (state.modern) {
+      const G = window.BeatBarGeom;
+      const timing = G.laneTiming({
+        laneW: w, refW: state.videoW || w / G.WIDTH_DEFAULT,
+        playheadFrac: config.playheadFrac, baseLookahead: lookaheadFor(config),
+      });
+      renderGlassFrame(ctx, w, h, state.smoothTime, state.beats, config, timing);
+      return;
+    }
     renderBarFrame(ctx, w, h, state.smoothTime, state.beats, config);
   }
 
@@ -1014,13 +1557,8 @@
     try { state.abort?.abort(); } catch {}
     cleanupWorker(state);
     if (state.rafId) cancelAnimationFrame(state.rafId);
-    if (state.ro) try { state.ro.disconnect(); } catch {}
-    if (state._posInterval) clearInterval(state._posInterval);
     if (state._statusTimer) clearTimeout(state._statusTimer);
-    if (state._updatePos) window.removeEventListener('resize', state._updatePos);
-    if (state._outsideClose) document.removeEventListener('pointerdown', state._outsideClose, true);
-    state.overlay?.remove();
-    document.getElementById('beatbarSettingsBtn')?.classList.remove('gear-open');
+    teardownOverlay(state);
   }
 
   /* ── Toggle + settings buttons + player integration ────────────────────── */
@@ -1062,11 +1600,16 @@
     const vRect = state.video.getBoundingClientRect();
     const oRect = state.overlay.getBoundingClientRect();
     if (vRect.height < 1) return null;
+    // The bake always draws the classic card (renderBarFrame). From the
+    // Modern lane it is centred on the lane, in the colour the lane shows.
+    const cfg = JSON.parse(JSON.stringify(config));
+    cfg.fillColor = fillColorOf(config, !!state.modern);
+    const top = state.modern ? oRect.top + oRect.height / 2 - BAR_HEIGHT / 2 : oRect.top;
     return {
       mediaId: state.mediaId,
       beats: state.beats.slice(),
-      config: JSON.parse(JSON.stringify(config)),
-      yFrac: (oRect.top - vRect.top) / vRect.height,
+      config: cfg,
+      yFrac: (top - vRect.top) / vRect.height,
       hFrac: BAR_HEIGHT / vRect.height,
     };
   }
@@ -1122,6 +1665,8 @@
     const on = !isEnabled();
     localStorage.setItem(LS_ENABLED, on ? '1' : '0');
     syncButton();
+    // For buttons that draw the on / off state themselves (the Modern dock)
+    try { document.dispatchEvent(new CustomEvent('beatbar:toggle', { detail: { on } })); } catch {}
     const media = (typeof currentMediaState !== 'undefined') && currentMediaState.currentMediaData;
     if (on && media?.media_type === 'video') {
       const item = Library.rowByPath(media.filepath);
@@ -1136,17 +1681,26 @@
 
   // Settings button in the control bar — toggles the panel. If the bar isn't
   // running yet, turn it on first so there's something to preview.
-  function openBeatBarSettings() {
+  // In Modern this is the player's gear menu > "Beat bar settings": the panel
+  // gets a back arrow and opens above the dock. Optional opts:
+  //   anchor  element to open above (the dock's gear button)
+  //   onBack  called by the back arrow (reopen the menu); without it the
+  //           arrow fires a 'beatbar:settings-back' event on document
+  function openBeatBarSettings(opts) {
+    opts = opts && typeof opts === 'object' && !(opts instanceof Event) ? opts : {};
     if (!_state) {
-      if (!isEnabled()) localStorage.setItem(LS_ENABLED, '1');
+      if (!isEnabled()) {
+        localStorage.setItem(LS_ENABLED, '1');
+        try { document.dispatchEvent(new CustomEvent('beatbar:toggle', { detail: { on: true } })); } catch {}
+      }
       syncButton();
       const media = (typeof currentMediaState !== 'undefined') && currentMediaState.currentMediaData;
       const item = media && (Library.rowByPath(media.filepath) || media);
       if (item) attach(item);
-      setSettingsOpen(true);
+      setSettingsOpen(true, 'menu', opts);
       return;
     }
-    toggleSettingsPanel();
+    toggleSettingsPanel('menu', opts);
   }
   window.openBeatBarSettings = openBeatBarSettings;
 
@@ -1191,7 +1745,8 @@
     // keeps Prev/Random/Info/Next in a fixed spot across media types
     const center = document.querySelector('.video-extras-row .pr-center');
     if (!center) return;
-    if (!document.getElementById('beatbarBtn')) center.insertAdjacentHTML('beforeend', renderButtons());
+    // The Modern dock draws its own button
+    if (!isModern() && !document.getElementById('beatbarBtn')) center.insertAdjacentHTML('beforeend', renderButtons());
     syncButton();
   }
 

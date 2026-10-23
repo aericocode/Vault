@@ -102,6 +102,30 @@ const VAULT_ICONS = {
   chip: '<rect x="6.5" y="6.5" width="11" height="11" rx="2"/><path d="M9.5 3v3.5M14.5 3v3.5M9.5 17.5V21M14.5 17.5V21M3 9.5h3.5M3 14.5h3.5M17.5 9.5H21M17.5 14.5H21"/>',
   plug: '<path d="M9 3v5M15 3v5M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0z"/><path d="M12 17v4"/>',
   book: '<path d="M4.5 5.5a2 2 0 0 1 2-2h13v15h-13a2 2 0 0 0-2 2z"/><path d="M4.5 20.5v-15M19.5 18.5v2h-13"/>',
+  // The Modern player's dock (player-lib/player/player-modern.js). Drawn at
+  // stroke 1.75 there (css/player/player-modern.css); the numbers and letters
+  // inside skip, A-B and repeat-one are filled text, not strokes.
+  'play-fill': '<path d="M8 5l11 7-11 7z" fill="currentColor"/>',
+  'pause-bold': '<path d="M7 5h2.6v14H7zM14.4 5H17v14h-2.6z" fill="currentColor" stroke="none"/>',
+  'prev-file': '<path d="M6 5v14M19 5l-10 7 10 7z"/>',
+  'next-file': '<path d="M18 5v14M5 5l10 7-10 7z"/>',
+  'back-ten': '<path d="M12 4a8 8 0 1 1-7.4 5"/><path d="M4 3.5v5.5h5.5"/><text x="12" y="15.5" text-anchor="middle" font-size="7" font-weight="700" font-family="system-ui,sans-serif" fill="currentColor" stroke="none">10</text>',
+  'fwd-ten': '<path d="M12 4a8 8 0 1 0 7.4 5"/><path d="M20 3.5v5.5h-5.5"/><text x="12" y="15.5" text-anchor="middle" font-size="7" font-weight="700" font-family="system-ui,sans-serif" fill="currentColor" stroke="none">10</text>',
+  hot: '<path d="M12 22c4 0 7-3 7-7 0-4-3-6-4-10-2 2-3 4-3 6-1-1-2-2-2-4-2 2-5 5-5 8 0 4 3 7 7 7z"/><path d="M12 22c-1.7 0-3-1.3-3-3 0-1.6 1.5-2.8 3-5 1.5 2.2 3 3.4 3 5 0 1.7-1.3 3-3 3z"/>',
+  'done-tick': '<path d="M5 3h14v18l-7-4-7 4z"/><path d="M8.5 9.5l2.5 2.5 4.5-5"/>',
+  'face-scan': '<path d="M4 8V5h3M17 5h3v3M4 16v3h3M17 19h3v-3"/><circle cx="12" cy="10.5" r="2.7"/><path d="M7.8 17.5a4.3 4.3 0 0 1 8.4 0"/>',
+  vibe: '<rect x="9" y="4" width="6" height="16" rx="3"/><path d="M5.5 9a4.5 4.5 0 0 0 0 6M18.5 9a4.5 4.5 0 0 1 0 6M2.5 6.5a8.5 8.5 0 0 0 0 11M21.5 6.5a8.5 8.5 0 0 1 0 11"/>',
+  beat: '<rect x="2" y="7" width="20" height="10" rx="5"/><path d="M8 4.5v15"/><circle cx="8" cy="12" r="2.2" fill="currentColor" stroke="none"/><circle cx="13" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="17.5" cy="12" r="1.3" fill="currentColor" stroke="none"/>',
+  'ab-loop': '<path d="M5 12a7 7 0 0 1 14 0"/><path d="M16.5 9.5l2.5 2.5 2.2-2.8"/><text x="5" y="21" text-anchor="middle" font-size="8.5" font-weight="800" font-family="system-ui,sans-serif" fill="currentColor" stroke="none">A</text><text x="19" y="21" text-anchor="middle" font-size="8.5" font-weight="800" font-family="system-ui,sans-serif" fill="currentColor" stroke="none">B</text>',
+  repeat: '<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/>',
+  'repeat-one': '<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/><text x="12" y="14.8" text-anchor="middle" font-size="7.5" font-weight="800" font-family="system-ui,sans-serif" fill="currentColor" stroke="none">1</text>',
+  cc: '<rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M10.5 10.2a2.2 2.2 0 1 0 0 3.6M17 10.2a2.2 2.2 0 1 0 0 3.6"/>',
+  fullscreen: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  'fullscreen-exit': '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
+  panel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
+  fit: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 9l-2 3 2 3M16 9l2 3-2 3"/>',
+  'chev-left': '<path d="M15 6l-6 6 6 6"/>',
+  'chev-right': '<path d="M9 6l6 6-6 6"/>',
 };
 
 /* Emoji the app leads its own labels with, and the icon that stands in for

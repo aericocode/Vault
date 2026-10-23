@@ -139,7 +139,11 @@ document.addEventListener('keydown', (e) => {
       
     case 'Escape':
       // Peel one layer at a time: fullscreen, then the sidebar, then the player.
-      if (document.fullscreenElement) {
+      // Modern: a loop waiting for its B point is the first thing Esc drops.
+      if (typeof ModernDock !== 'undefined' && ModernDock.mounted() && abLoopA !== null && abLoopB === null) {
+        clearAbLoop();
+        showToast('Loop cancelled');
+      } else if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
       } else if (typeof sidebarOpen !== 'undefined' && sidebarOpen) {
         toggleSidebar();

@@ -479,6 +479,9 @@ function playMedia(mediaData, { source = 'user' } = {}) {
     loopB: null
   };
 
+  // The Modern dock lets go of the old controls (its menus, its stage watch)
+  if (typeof ModernDock !== 'undefined') ModernDock.unmount();
+
   const hasPrev = currentMediaState.currentIndex > 0;
   // Before the exact count is in there is always more to come.
   const hasNext = !Library.known() || currentMediaState.currentIndex < Library.length() - 1;
@@ -593,8 +596,18 @@ function repeatButtonInner(mode) {
     </svg>${badge}`;
 }
 
+/* Modern: the line icon (a 1 inside for repeat-one), lit unless off. */
+const REPEAT_MODERN_TITLES = { off: 'Repeat: off. Click to repeat the list', all: 'Repeat all. Click to repeat this file', one: 'Repeat this file. Click to turn repeat off' };
+
+function renderRepeatButtonModern(mode) {
+  return `<button type="button" onclick="cycleRepeatMode()" id="repeatBtn" class="mp-ic mp-repeat${mode !== 'off' ? ' on' : ''}"
+    data-mode="${mode}" title="${REPEAT_MODERN_TITLES[mode]}" aria-label="${REPEAT_LABELS[mode]}"
+    >${mpIcon(mode === 'one' ? 'repeat-one' : 'repeat')}</button>`;
+}
+
 function renderRepeatButton() {
   const mode = repeatMode();
+  if (typeof mpBuildingDock === 'function' && mpBuildingDock()) return renderRepeatButtonModern(mode);
   return `<button onclick="cycleRepeatMode()" id="repeatBtn" class="repeat-btn rep-${mode}"
     data-mode="${mode}" title="${REPEAT_LABELS[mode]}" aria-label="${REPEAT_LABELS[mode]}"
     >${repeatButtonInner(mode)}</button>`;
@@ -602,6 +615,7 @@ function renderRepeatButton() {
 
 function updateRepeatButton() {
   const mode = repeatMode();
+  document.querySelectorAll('.mp-repeat').forEach(btn => { btn.outerHTML = renderRepeatButtonModern(mode); });
   document.querySelectorAll('.repeat-btn').forEach(btn => {
     btn.className = `repeat-btn rep-${mode}`;
     btn.dataset.mode = mode;
@@ -733,8 +747,7 @@ function finishStalledTail(element) {
     return;
   }
   try { element.pause(); } catch {}
-  const btn = document.getElementById('playPauseBtn');
-  if (btn) btn.textContent = '▶';
+  if (typeof syncPlayPauseButton === 'function') syncPlayPauseButton();
   autoAdvanceOnEnded();
 }
 
@@ -752,6 +765,9 @@ function autoAdvanceOnEnded() {
  * center nav.
  */
 function renderDoneButton() {
+  if (typeof mpBuildingDock === 'function' && mpBuildingDock()) {
+    return `<button type="button" onclick="markSessionDone()" class="mp-ic done-btn" title="Done. Marks the end of this viewing here" aria-label="Done">${mpIcon('done-tick')}</button>`;
+  }
   return `<button onclick="markSessionDone()" class="done-btn" title="Done. End the viewing session here (💦 tracked per item)">💦 Done</button>`;
 }
 
@@ -760,6 +776,9 @@ function renderDoneButton() {
  * used to mark intense moments. Rendered to the LEFT of Done.
  */
 function renderHotButton() {
+  if (typeof mpBuildingDock === 'function' && mpBuildingDock()) {
+    return `<button type="button" onclick="markSessionHot()" class="mp-ic hot-btn" title="Hot moment. Marks this spot (orange on the bar)" aria-label="Hot moment">${mpIcon('hot')}</button>`;
+  }
   return `<button onclick="markSessionHot()" class="hot-btn" title="Hot. Mark an intense moment here (🔥 tracked per item)">🔥 Hot</button>`;
 }
 
@@ -996,6 +1015,9 @@ function hidePlayerChrome() {
   // cursor that never went away either.
   if (!isVideoLike(currentMediaState.type) || !el) return;
   if (el.paused) return;
+  // Modern: a menu, the scrub preview, a drag or keyboard focus in the dock
+  // keeps it up; try again after another idle stretch.
+  if (typeof ModernDock !== 'undefined' && ModernDock.hold()) { scheduleHideControls(); return; }
 
   overlay.classList.remove('controls-visible');
   overlay.classList.add('cursor-hidden');
@@ -1051,6 +1073,14 @@ function handlePlayerPointerMove(e) {
   const beatbar = document.querySelector('.beatbar-overlay');
   const overBeatbar = beatbar && beatbar.style.display !== 'none' &&
     inside(beatbar.getBoundingClientRect(), BEATBAR_DEADZONE_PAD);
+
+  // Modern: show / hide by how far down the stage the pointer is (the dock's
+  // show zone and hide line, player-modern.js), the beat bar still dead space.
+  if (typeof ModernDock !== 'undefined' && ModernDock.mounted()) {
+    if (overBeatbar) revealCursorOnly();
+    else ModernDock.pointerMove(e);
+    return;
+  }
 
   const el = currentMediaState.element;
   const videoRect = (el && el.tagName === 'VIDEO') ? el.getBoundingClientRect() : null;
@@ -1351,6 +1381,7 @@ function minimizePlayer() {
   }
 
   // Close the full overlay without destroying the element
+  if (typeof ModernDock !== 'undefined') ModernDock.unmount();
   clearTimeout(currentMediaState.hideControlsTimeout);
   clearTimeout(currentMediaState.clickTimeout);
   overlay.removeEventListener('mousemove', showMediaControls);
@@ -1534,6 +1565,7 @@ function closeMediaPlayer(event) {
   // Close media info if open
   closeMediaInfo();
   
+  if (typeof ModernDock !== 'undefined') ModernDock.unmount();
   overlay.classList.remove('active', 'controls-visible', 'cursor-hidden');
   document.getElementById('mediaPlayerContent').innerHTML = '';
   document.getElementById('mediaPlayerControls').innerHTML = '';

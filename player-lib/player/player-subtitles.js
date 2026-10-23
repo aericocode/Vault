@@ -46,7 +46,24 @@ let _subs = { mediaId: null, lang: null, cues: null, el: null, handler: null, ge
 
 /* ── Button (rendered into the video extras row) ────────────────────────── */
 
+/* Modern (the dock, player-modern.js): the CC line icon, lit while on. The
+   make / fix chips stay in the markup but hidden; the gear menu's Subtitles
+   page offers them (it reads whether this file shows them). */
+const SUB_MODERN_TITLES = {
+  off: 'Subtitles: off. Click for on',
+  on: 'Subtitles: on. Click for auto (English, only for other languages)',
+  auto: 'Subtitles: auto. Click to turn them off',
+};
+
 function renderSubtitleButton() {
+  if (typeof mpBuildingDock === 'function' && mpBuildingDock()) {
+    return `<span class="subtitle-ctl mp-subctl" id="subtitleCtl">
+      <button type="button" onclick="cycleSubtitleMode()" id="subtitleBtn" class="mp-ic mp-cc${subtitleMode !== 'off' ? ' on' : ''}"
+        data-mode="${subtitleMode}" title="${SUB_MODERN_TITLES[subtitleMode]}" aria-label="Subtitles">${mpIcon('cc')}</button>
+      <button type="button" onclick="subtitlesGenerate()" id="subtitleGenBtn" class="subtitle-gen-btn" style="display:none" tabindex="-1">＋</button>
+      <button type="button" onclick="subtitlesFixHere()" id="subtitleFixBtn" class="subtitle-gen-btn" style="display:none" tabindex="-1">⟳ Fix</button>
+    </span>`;
+  }
   return `<span class="subtitle-ctl" id="subtitleCtl">
     <button onclick="cycleSubtitleMode()" id="subtitleBtn" class="subtitle-btn sub-mode-${subtitleMode}"
       title="Subtitles: Off → On → Auto (English only for foreign audio)">CC${subtitleMode === 'auto' ? '<sup>AUTO</sup>' : ''}</button>
@@ -60,12 +77,24 @@ function renderSubtitleButton() {
 function _syncSubtitleBtn() {
   const btn = document.getElementById('subtitleBtn');
   if (!btn) return;
+  if (btn.classList.contains('mp-ic')) {
+    btn.classList.toggle('on', subtitleMode !== 'off');
+    btn.dataset.mode = subtitleMode;
+    btn.title = SUB_MODERN_TITLES[subtitleMode];
+    return;
+  }
   btn.className = `subtitle-btn sub-mode-${subtitleMode}`;
   btn.innerHTML = `CC${subtitleMode === 'auto' ? '<sup>AUTO</sup>' : ''}`;
 }
 
 function cycleSubtitleMode() {
-  subtitleMode = SUBTITLE_MODES[(SUBTITLE_MODES.indexOf(subtitleMode) + 1) % SUBTITLE_MODES.length];
+  setSubtitleMode(SUBTITLE_MODES[(SUBTITLE_MODES.indexOf(subtitleMode) + 1) % SUBTITLE_MODES.length]);
+}
+
+/** Pick a mode outright (the Modern gear menu); the CC button cycles through them. */
+function setSubtitleMode(mode) {
+  if (!SUBTITLE_MODES.includes(mode)) return;
+  subtitleMode = mode;
   try { localStorage.setItem('subtitle_mode', subtitleMode); } catch {}
   _syncSubtitleBtn();
   const media = currentMediaState.currentMediaData;

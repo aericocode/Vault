@@ -251,6 +251,14 @@
      change without moving anything either. */
   function renderVibeButton() {
     const s = vibeState();
+    // Modern dock (player-modern.js): the device icon, lit while syncing, and
+    // only shown once a device is set up. It stays in the markup when hidden
+    // so injectVibeButton never adds Classic's text button beside it.
+    if (typeof mpBuildingDock === 'function' && mpBuildingDock()) {
+      const setUp = typeof mpDeviceSetUp === 'function' ? mpDeviceSetUp() : true;
+      return `<button type="button" id="vibeBtn" class="mp-ic vibe-btn${s.on && !s.disconnected ? ' on' : ''}${s.disconnected ? ' vibe-warn' : ''}"
+        onclick="toggleVibe()" title="${escapeHtml(s.title)}" aria-label="Device sync"${setUp ? '' : ' hidden'}>${mpIcon('vibe')}</button>`;
+    }
     const cls = 'control-btn vibe-btn'
       + (s.on && !s.disconnected ? ' active' : '')
       + (s.disconnected ? ' vibe-warn' : '');
@@ -288,7 +296,13 @@
     const disconnected = on && !LovenseApi.isConnected;
 
     const full = document.getElementById('vibeBtn');
-    if (full) {
+    if (full && full.classList.contains('mp-ic')) {
+      const s = vibeState();
+      full.classList.toggle('on', s.on && !s.disconnected);
+      full.classList.toggle('vibe-warn', s.disconnected);
+      full.title = s.title;
+      if (typeof ModernDock !== 'undefined') ModernDock.syncDevice();   // shown once set up, the top bar's chip
+    } else if (full) {
       const s = vibeState();
       full.classList.toggle('active', s.on && !s.disconnected);
       full.classList.toggle('vibe-warn', s.disconnected);

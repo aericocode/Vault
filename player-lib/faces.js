@@ -1455,6 +1455,11 @@ let facesPlayerPath = null;   // the file the video player was built for
 /** Called from renderVideoPlayer with the file it is about to play. */
 function renderFacesFrameButton(filepath) {
   facesPlayerPath = filepath || null;
+  // The Modern dock's line icon (player-lib/player/player-modern.js)
+  if (typeof mpBuildingDock === 'function' && mpBuildingDock()) {
+    return `<button type="button" onclick="facesFindInFrame()" class="mp-ic faces-frame-btn" id="facesFrameBtn"
+      title="Find people in this frame" aria-label="Find faces"${facesReady() ? '' : ' hidden'}>${mpIcon('face-scan')}</button>`;
+  }
   return `<button onclick="facesFindInFrame()" class="control-btn faces-frame-btn" id="facesFrameBtn"
     title="Find people in this frame"${facesReady() ? '' : ' hidden'}>👤</button>`;
 }
