@@ -126,6 +126,10 @@ const VAULT_ICONS = {
   fit: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 9l-2 3 2 3M16 9l2 3-2 3"/>',
   'chev-left': '<path d="M15 6l-6 6 6 6"/>',
   'chev-right': '<path d="M9 6l6 6-6 6"/>',
+  // The Modern player's Info panel (player-lib/detail-view.js renderDetailPanel)
+  edit: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+  star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8-4.3-4.1 5.9-.9z"/>',
+  pin: '<path d="M9 3.5h6M10 3.5v6l-3 4h10l-3-4v-6M12 13.5v7"/>',
 };
 
 /* Emoji the app leads its own labels with, and the icon that stands in for
@@ -181,6 +185,19 @@ function vaultIconSwap(emoji, name) {
   const icon = vaultIcon(name, `modern-only${/\s$/.test(text) ? ' vi-gap' : ''}`);
   if (!icon) return vaultIconEsc(text);
   return `<span class="vi-c">${vaultIconEsc(text)}</span>${icon}`;
+}
+
+/**
+ * vaultIconSwap for markup the library modal and the player's Info panel
+ * share: the icon shows only inside the Modern Info panel (.mpp, css/player/
+ * player-panel-modern.css), so Classic and the library modal keep the emoji
+ * exactly as before. No name (or an unknown one): the panel shows the words
+ * alone.
+ */
+function vaultPanelIconSwap(emoji, name) {
+  const text = String(emoji == null ? '' : emoji);
+  const icon = name ? vaultIcon(name, `vi-pm${/\s$/.test(text) ? ' vi-gap' : ''}`) : '';
+  return `<span class="vi-pc">${vaultIconEsc(text)}</span>${icon}`;
 }
 
 /** The type icon for a tile with no picture: Classic's emoji, Modern's line icon. */

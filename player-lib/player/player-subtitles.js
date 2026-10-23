@@ -550,6 +550,10 @@ const SUB_LANG_NAMES = {
   uk: 'Ukrainian', el: 'Greek', he: 'Hebrew', fi: 'Finnish', da: 'Danish',
   hu: 'Hungarian', ro: 'Romanian', no: 'Norwegian',
 };
+/** A glyph the Modern Info panel shows as a line icon; Classic keeps it (icons.js). */
+function subsGlyph(emoji, icon) {
+  return typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap(emoji, icon) : escapeHtml(emoji);
+}
 const subLangName = (l) => SUB_LANG_NAMES[l] || (l || '').toUpperCase();
 
 function renderSubtitlesSidebarSection(media) {
@@ -590,7 +594,7 @@ function subtitlesSidebarHtml(mediaId, info) {
     return `
       <div class="subs-status"><span class="sub-prog-spin"></span> ${escapeHtml(info.stage || 'Generating…')} <b>${Math.round(info.progress || 0)}%</b></div>
       <div class="subs-hint">Lines stream in as they're transcribed. This panel updates when done.</div>
-      <div class="subs-actions"><button class="subs-btn" onclick="subtitlesLoadSidebar(${mediaId})">↻ Refresh</button></div>`;
+      <div class="subs-actions"><button class="subs-btn" onclick="subtitlesLoadSidebar(${mediaId})">${subsGlyph('↻ ', 'refresh')}Refresh</button></div>`;
   }
 
   const rows = tracks.length ? tracks.map(t => {
@@ -599,17 +603,17 @@ function subtitlesSidebarHtml(mediaId, info) {
       <div class="subs-track">
         <span class="subs-track-label">${escapeHtml(subLangName(t.lang))} <span class="subs-track-kind">${kindLabel}</span></span>
         <span class="subs-track-btns">
-          <button class="subs-btn" title="Transcript. Click a line to jump there, 📌 to save it as a note snippet" onclick="subtitlesToggleTranscript(${mediaId}, '${escapeHtml(t.lang)}')">≡</button>
-          <button class="subs-btn" title="View & edit the VTT cues" onclick="subtitlesOpenEditor(${mediaId}, '${escapeHtml(t.lang)}')">✎ Edit</button>
-          <a class="subs-btn" title="Download as SRT" href="/api/media/${mediaId}/subtitles?lang=${encodeURIComponent(t.lang)}&format=srt">⤓ SRT</a>
-          <button class="subs-btn subs-btn-danger" title="Delete this track" onclick="subtitlesDeleteTrack(${mediaId}, '${escapeHtml(t.lang)}')">✕</button>
+          <button class="subs-btn" title="Transcript. Click a line to jump there, 📌 to save it as a note snippet" onclick="subtitlesToggleTranscript(${mediaId}, '${escapeHtml(t.lang)}')">${subsGlyph('≡', 'table')}</button>
+          <button class="subs-btn" title="View & edit the VTT cues" onclick="subtitlesOpenEditor(${mediaId}, '${escapeHtml(t.lang)}')">${subsGlyph('✎ ', 'edit')}Edit</button>
+          <a class="subs-btn" title="Download as SRT" href="/api/media/${mediaId}/subtitles?lang=${encodeURIComponent(t.lang)}&format=srt">${subsGlyph('⤓ ', 'download')}SRT</a>
+          <button class="subs-btn subs-btn-danger" title="Delete this track" onclick="subtitlesDeleteTrack(${mediaId}, '${escapeHtml(t.lang)}')">${subsGlyph('✕', 'close')}</button>
         </span>
       </div>`;
   }).join('') : '<div class="subs-hint">No subtitles yet.</div>';
 
   const rescan = tracks.length
-    ? `<button class="subs-btn" title="Re-transcribe the whole file from scratch (replaces every track)" onclick="subtitlesRescanAll(${mediaId})">🔄 Rescan all</button>`
-    : `<button class="subs-btn subs-btn-primary" title="Transcribe this file now" onclick="subtitlesGenerateFor(${mediaId})">＋ Generate</button>`;
+    ? `<button class="subs-btn" title="Re-transcribe the whole file from scratch (replaces every track)" onclick="subtitlesRescanAll(${mediaId})">${subsGlyph('🔄 ', 'refresh')}Rescan all</button>`
+    : `<button class="subs-btn subs-btn-primary" title="Transcribe this file now" onclick="subtitlesGenerateFor(${mediaId})">${subsGlyph('＋ ', 'plus')}Generate</button>`;
 
   return `<div class="subs-tracks">${rows}</div>
     <div class="subs-transcript" id="subsTranscript-${mediaId}" style="display:none"></div>
@@ -641,7 +645,7 @@ async function subtitlesToggleTranscript(mediaId, lang) {
     <div class="subs-tr-line" data-start="${c.start}" title="Jump to ${fmt(c.start)}">
       <span class="subs-tr-time">${fmt(c.start)}</span>
       <span class="subs-tr-text">${escapeHtml(_subsClean(c.text))}</span>
-      <button class="subs-tr-pin" title="Save this line as a note snippet">📌</button>
+      <button class="subs-tr-pin" title="Save this line as a note snippet">${subsGlyph('📌', 'pin')}</button>
     </div>`).join('') : '<span class="subs-hint">No cues in this track.</span>';
 
   box.onclick = async (e) => {

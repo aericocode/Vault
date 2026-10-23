@@ -10,6 +10,29 @@
    the .db now.
    ========================================================================= */
 
+/** A glyph the Modern Info panel shows as a line icon; Classic keeps it (icons.js). */
+function _panelGlyph(emoji, icon) {
+  return typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap(emoji, icon) : escapeHtml(emoji);
+}
+
+/**
+ * The Modern Info panel's note box (.notes-add[data-note-at], detail-view.js)
+ * leads a new note with the playback time it was started at, so the note
+ * links to that spot. A note that names a time already is kept as typed;
+ * every other notes box saves exactly what was typed.
+ */
+function _noteBoxText(section, text) {
+  const box = section?.querySelector('.notes-add[data-note-at]');
+  if (!box || typeof PanelLayout === 'undefined') return text;
+  let at = parseFloat(box.dataset.noteAt);
+  box.dataset.noteAt = '';
+  if (!Number.isFinite(at)) {
+    const el = document.querySelector('#mediaPlayerContent video, #mediaPlayerContent audio');
+    at = el && Number.isFinite(el.currentTime) ? el.currentTime : NaN;
+  }
+  return PanelLayout.noteWithTime(text, at);
+}
+
 /**
  * POST user-editable fields for a media item.
  * @param {object} item - the in-memory media row (must have .id)
@@ -123,7 +146,7 @@ function renderNoteSnippets(escapedPath) {
         ondragstart="onSnippetDragStart(event)" ondragend="onSnippetDragEnd(event)">
       ${s.color ? `<span class="note-snippet-dot" style="background:${s.color}"></span>` : ''}
       <span class="note-snippet-label">${escapeHtml(s.text)}</span>
-      <button class="note-snippet-del" onclick="event.stopPropagation(); deleteNoteSnippet(${s.id})" title="Forget this snippet">✕</button>
+      <button class="note-snippet-del" onclick="event.stopPropagation(); deleteNoteSnippet(${s.id})" title="Forget this snippet">${_panelGlyph('✕', 'close')}</button>
     </span>`;
   }).join('');
   return `<div class="note-snippets" ondragover="onSnippetDragOver(event)" ondrop="onSnippetDrop(event)">${chips}</div>`;
@@ -385,7 +408,7 @@ function linkifyTimestamps(escapedText, escapedPath) {
   return escapedText.replace(_TS_LINK_RE, (m, aTs, bTs) => {
     if (aTs) {
       // Range → loop between the two points
-      return `<a class="note-ts note-ts-range" href="#" onclick="loopNoteRange('${escapedPath}', '${aTs}', '${bTs}'); return false;" title="Loop ${aTs}–${bTs}">🔁 ${aTs}–${bTs}</a>`;
+      return `<a class="note-ts note-ts-range" href="#" onclick="loopNoteRange('${escapedPath}', '${aTs}', '${bTs}'); return false;" title="Loop ${aTs}–${bTs}">${_panelGlyph('🔁 ', 'repeat')}${aTs}–${bTs}</a>`;
     }
     return `<a class="note-ts" href="#" onclick="seekToNoteTimestamp('${escapedPath}', '${m}'); return false;" title="Jump to ${m}">${m}</a>`;
   });
@@ -463,8 +486,8 @@ function renderNoteEntry(note, i, escapedPath) {
     <div class="note-entry" data-index="${i}">
       <div class="note-timestamp">${escapeHtml(note.timestamp)}${note.edited ? ' <span class="note-edited" title="Edited ' + escapeHtml(note.edited) + '">· edited</span>' : ''}</div>
       <div class="note-text">${linkifyTimestamps(escapeHtml(note.text), escapedPath)}</div>
-      <button class="note-edit" onclick="startNoteEdit(this)" title="Edit this note">✎</button>
-      <button class="note-delete" onclick="deleteNote('${escapedPath}', ${i})" title="Delete this note">✕</button>
+      <button class="note-edit" onclick="startNoteEdit(this)" title="Edit this note">${_panelGlyph('✎', 'edit')}</button>
+      <button class="note-delete" onclick="deleteNote('${escapedPath}', ${i})" title="Delete this note">${_panelGlyph('✕', 'close')}</button>
     </div>
   `;
 }
@@ -555,7 +578,7 @@ function flushPendingNotes() {
     const text = input.value.trim();
     if (!text) return;
     input.value = '';              // clear first so a re-render race can't double-add
-    addNoteText(filepath, text);
+    addNoteText(filepath, _noteBoxText(section, text));
   });
 }
 
@@ -584,7 +607,7 @@ function addNote(filepath, btnEl) {
   if (!text) return;
 
   input.value = '';               // clear first so a re-render race can't double-add
-  addNoteText(filepath, text);
+  addNoteText(filepath, _noteBoxText(section, text));
 }
 
 /* ── Editing an existing note ───────────────────────────────────────────────
@@ -697,7 +720,7 @@ function handleNoteKeydown(e) {
   const text = target.value.trim();
   if (!text) return;
   target.value = '';               // clear first so a re-render race can't double-add
-  addNoteText(filepath, text);
+  addNoteText(filepath, _noteBoxText(section, text));
 }
 
 document.addEventListener('keydown', handleNoteKeydown, true);
@@ -740,6 +763,8 @@ function refreshAllNotesSections(filepath) {
       : null;
 
     notesList.innerHTML = renderNotesList(notes, escapedPath);
+    // The Modern Info panel's Notes tab shows the count.
+    if (typeof detailPanelNotesChanged === 'function') detailPanelNotesChanged(section, notes.length);
 
     if (pending && pending.index >= 0 && pending.index < notes.length) {
       const btn = notesList.querySelector(`.note-entry[data-index="${pending.index}"] .note-edit`);

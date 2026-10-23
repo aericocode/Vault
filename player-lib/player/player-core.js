@@ -974,8 +974,14 @@ function renderSidebar() {
   // The skipped tally is appended here rather than built into
   // renderDetailBody, because it is about the session, not about this file,
   // and the library modal shares that renderer.
-  body.innerHTML = renderDetailBody(media, { context: 'player' })
-    + (typeof renderSkippedSection === 'function' ? renderSkippedSection() : '');
+  const skipped = typeof renderSkippedSection === 'function' ? renderSkippedSection() : '';
+  // Modern: the tabbed Info panel (detail-view.js), skipped list in its File tab.
+  if (typeof detailPanelTabbed === 'function' && detailPanelTabbed()) {
+    body.innerHTML = renderDetailPanel(media, { extraFile: skipped });
+    detailPanelMounted();
+    return;
+  }
+  body.innerHTML = renderDetailBody(media, { context: 'player' }) + skipped;
 }
 
 

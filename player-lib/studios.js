@@ -987,7 +987,7 @@ function stMediaStudio(m) {
 }
 
 function stDetailValHtml(s) {
-  const edit = `<button class="st-detail-edit" type="button" data-st-detail-edit title="${s ? 'Change studio' : 'Put this file in a studio'}" aria-label="${s ? 'Change studio' : 'Put this file in a studio'}">✎</button>`;
+  const edit = `<button class="st-detail-edit" type="button" data-st-detail-edit title="${s ? 'Change studio' : 'Put this file in a studio'}" aria-label="${s ? 'Change studio' : 'Put this file in a studio'}">${typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap('✎', 'edit') : '✎'}</button>`;
   if (s === undefined) return '<span class="field-empty">…</span>';
   if (!s) return `<span class="field-empty">None</span>${edit}`;
   return `<button class="st-detail-link" type="button" data-st-detail-open="${s.id}" title="Open this studio"><span class="st-pm">${stEsc(s.name || 'Studio')}</span></button>${edit}`;

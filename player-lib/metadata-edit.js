@@ -156,12 +156,14 @@ function _editActions(onSave) {
   wrap.className = 'inline-edit-actions';
   const save = document.createElement('button');
   save.className = 'inline-edit-save';
-  save.textContent = '✓';
+  // The Modern Info panel shows line icons here (icons.js vaultPanelIconSwap).
+  const glyph = (emoji, icon) => (typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap(emoji, icon) : emoji);
+  save.innerHTML = glyph('✓', 'check');
   save.title = 'Save (Enter)';
   save.onclick = onSave;
   const cancel = document.createElement('button');
   cancel.className = 'inline-edit-cancel';
-  cancel.textContent = '✕';
+  cancel.innerHTML = glyph('✕', 'close');
   cancel.title = 'Cancel (Esc)';
   cancel.onclick = () => _cancelEdit(cancel);
   wrap.append(save, cancel);

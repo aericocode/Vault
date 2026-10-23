@@ -8,8 +8,8 @@
 
 // Client mirror of the server allowlist (server/games-routes.js GAME_ACCEPT_TYPES)
 const GAMES_SIDEBAR_ENTRIES = [
-  { key: 'reelorder', label: 'Reel Order', icon: '🎬', accept: ['video'] },
-  { key: 'framefit', label: 'Frame Fit', icon: '🧩', accept: ['video', 'gif', 'image'] },
+  { key: 'reelorder', label: 'Reel Order', icon: '🎬', vi: 'video', accept: ['video'] },
+  { key: 'framefit', label: 'Frame Fit', icon: '🧩', vi: 'puzzle', accept: ['video', 'gif', 'image'] },
 ];
 
 function renderGamesSidebarSection(media) {
@@ -19,7 +19,7 @@ function renderGamesSidebarSection(media) {
 
   const btns = usable.map(g =>
     `<button class="games-btn" onclick="gamesSendToGame('${g.key}', ${media.id})" title="Open this ${escapeHtml(media.media_type)} in ${escapeHtml(g.label)}">
-      ${g.icon} ${escapeHtml(g.label)}
+      ${typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap(g.icon + ' ', g.vi) : g.icon + ' '}${escapeHtml(g.label)}
     </button>`).join('');
 
   return `

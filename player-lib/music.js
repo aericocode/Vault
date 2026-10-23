@@ -206,6 +206,11 @@ async function openEditorWithSelection(layout) {
   if (typeof editorOpenMix === 'function') editorOpenMix(ids, layout);
 }
 
+/** A glyph the Modern Info panel shows as a line icon; Classic keeps it (icons.js). */
+function musicGlyph(emoji, icon) {
+  return typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap(emoji, icon) : escapeHtml(emoji);
+}
+
 /* ── Player sidebar section ────────────────────────────────────────────── */
 
 /** Synchronous shell — async content fills in via loadMusicSidebar. */
@@ -215,7 +220,7 @@ function renderMusicSidebarSection(media) {
   setTimeout(() => loadMusicSidebar(media.id), 0);
   return `
     <div class="detail-section music-section" data-media-id="${media.id}">
-      <h3>🎵 Music ID</h3>
+      <h3>${musicGlyph('🎵 ', 'audio')}Music ID</h3>
       <div class="field-content music-sidebar-body" data-music-box="${media.id}">
         <span class="music-hint">Loading…</span>
       </div>
@@ -251,6 +256,8 @@ async function loadMusicSidebar(mediaId) {
   const html = musicSidebarHtml(mediaId, info);
   // Re-query: loadMusicStatus() awaited, so a surface may have opened or closed.
   musicBoxes(mediaId).forEach(b => { b.innerHTML = html; });
+  // The Modern Info panel: the Music tab count, and where the section sits.
+  if (typeof detailPanelMusic === 'function') detailPanelMusic(mediaId, info);
 }
 
 /* Music ID offers the fpcalc download itself, where it is needed. The setup
@@ -263,7 +270,7 @@ function musicFpcalcFixHtml() {
   return `
     <div class="music-fp-fix">
       <button class="music-btn music-btn-primary" onclick="musicDownloadFpcalc(this)"
-        title="Fetches fpcalc and puts it next to Vault. Nothing else is installed">⬇ Download fpcalc (~1 MB)</button>
+        title="Fetches fpcalc and puts it next to Vault. Nothing else is installed">${musicGlyph('⬇ ', 'download')}Download fpcalc (~1 MB)</button>
       <span class="music-hint" data-music-fp-status></span>
     </div>`;
 }
@@ -287,12 +294,12 @@ function musicSidebarHtml(mediaId, info) {
   // Fingerprint state / actions
   if (!info.fingerprinted) {
     if (musicTools && !musicTools.ok) {
-      parts.push(`<div class="music-hint music-warn">⚠ ${escapeHtml(musicTools.errors[0] || 'fpcalc/ffmpeg missing')}</div>`
+      parts.push(`<div class="music-hint music-warn">${musicGlyph('⚠ ', 'alert')}${escapeHtml(musicTools.errors[0] || 'fpcalc/ffmpeg missing')}</div>`
         + musicFpcalcFixHtml());
     } else {
       parts.push(`
         <div class="music-fp-cta">
-          <button class="music-btn music-btn-primary" onclick="musicFingerprintOne(${mediaId})">🎵 Fingerprint &amp; scan</button>
+          <button class="music-btn music-btn-primary" onclick="musicFingerprintOne(${mediaId})">${musicGlyph('🎵 ', 'audio')}Fingerprint &amp; scan</button>
           <span class="music-hint">One-time (~5–15s per 5 min). After that this file auto-matches songs across the library</span>
         </div>
         <div class="music-progress" id="musicProgress-${mediaId}" style="display:none;">
@@ -304,10 +311,10 @@ function musicSidebarHtml(mediaId, info) {
     parts.push(`
       <div class="music-fp-status">
         <span class="music-chunkcount" title="Fingerprint chunks stored (30s windows, silence skipped)">${info.chunks} chunks</span>
-        <button class="music-btn" onclick="musicOpenSections(${mediaId})" title="Chunk-level timeline. See which sections matched what, drag-select to tag songs">🧬 Sections</button>
-        <button class="music-btn" onclick="musicRescanOne(${mediaId}, this)" title="Re-match against known songs and other fingerprinted files">🔄 Rescan</button>
-        ${info.songs.length ? `<button class="music-btn" onclick="startAudioSimilarity(${mediaId})" title="Rank the library by songs shared with this file">≈ Similar</button>` : ''}
-        <button class="music-btn music-btn-danger" onclick="musicRemoveFingerprints(${mediaId}, this)" title="Delete this file's fingerprints and auto-detected songs (manual tags survive)">✕ Remove</button>
+        <button class="music-btn" onclick="musicOpenSections(${mediaId})" title="Chunk-level timeline. See which sections matched what, drag-select to tag songs">${musicGlyph('🧬 ', 'stack')}Sections</button>
+        <button class="music-btn" onclick="musicRescanOne(${mediaId}, this)" title="Re-match against known songs and other fingerprinted files">${musicGlyph('🔄 ', 'refresh')}Rescan</button>
+        ${info.songs.length ? `<button class="music-btn" onclick="startAudioSimilarity(${mediaId})" title="Rank the library by songs shared with this file">${musicGlyph('≈ ')}Similar</button>` : ''}
+        <button class="music-btn music-btn-danger" onclick="musicRemoveFingerprints(${mediaId}, this)" title="Delete this file's fingerprints and auto-detected songs (manual tags survive)">${musicGlyph('✕ ', 'close')}Remove</button>
       </div>
       <div class="music-progress" id="musicProgress-${mediaId}" style="display:none;">
         <div class="music-progress-fill"></div><span class="music-progress-label"></span>
@@ -326,12 +333,12 @@ function musicSidebarHtml(mediaId, info) {
         <div class="music-song-row">
           <button class="music-time" onclick="musicSeekTo(${l.start_sec ?? 0}, ${mediaId})" title="Jump to ${musicFmtTime(l.start_sec)}">${musicFmtTime(l.start_sec)}–${musicFmtTime(l.end_sec)}</button>
           <div class="music-song-info" title="${escapeHtml(l.artist)} – ${escapeHtml(l.title)}">
-            <div class="music-song-title">${unknown ? '❓ ' : ''}${escapeHtml(l.title)}</div>
+            <div class="music-song-title">${unknown ? musicGlyph('❓ ', 'help') : ''}${escapeHtml(l.title)}</div>
             <div class="music-song-artist">${escapeHtml(l.artist)}</div>
           </div>
           ${badge}
-          <button class="music-icon-btn" onclick="musicEditLink(${l.link_id}, ${mediaId})" title="Edit: swap song or adjust times">✎</button>
-          <button class="music-icon-btn music-icon-danger" onclick="musicRemoveLink(${l.link_id}, ${mediaId}, this)" title="Remove this song from the file">×</button>
+          <button class="music-icon-btn" onclick="musicEditLink(${l.link_id}, ${mediaId})" title="Edit: swap song or adjust times">${musicGlyph('✎', 'edit')}</button>
+          <button class="music-icon-btn music-icon-danger" onclick="musicRemoveLink(${l.link_id}, ${mediaId}, this)" title="Remove this song from the file">${musicGlyph('×', 'close')}</button>
         </div>`;
     }).join('') + `</div>`);
   } else if (info.fingerprinted) {
@@ -340,7 +347,7 @@ function musicSidebarHtml(mediaId, info) {
 
   // Manual tag form (collapsed)
   parts.push(`
-    <button class="music-btn music-add-toggle" onclick="musicToggleAddForm(${mediaId})">＋ Tag a song</button>
+    <button class="music-btn music-add-toggle" onclick="musicToggleAddForm(${mediaId})">${musicGlyph('＋ ', 'plus')}Tag a song</button>
     <div class="music-add-form" id="musicAddForm-${mediaId}" style="display:none;">
       <div class="music-form-row">
         <input type="text" class="music-input" id="musicAddArtist-${mediaId}" placeholder="Artist" autocomplete="off">
@@ -416,7 +423,7 @@ async function musicRemoveFingerprints(mediaId, btn) {
     btn.dataset.armed = '1';
     btn.textContent = 'Really remove?';
     setTimeout(() => {
-      if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = '✕ Remove'; }
+      if (btn.isConnected) { delete btn.dataset.armed; btn.innerHTML = `${musicGlyph('✕ ', 'close')}Remove`; }
     }, 3500);
     return;
   }

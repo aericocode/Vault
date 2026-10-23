@@ -149,6 +149,8 @@ function facesApplyState() {
   if (btn) btn.hidden = !on;
   if (typeof renderFilterChipRow === 'function') renderFilterChipRow();
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
+  // The Modern Info panel shows or hides its People tab.
+  if (typeof detailPanelSync === 'function') detailPanelSync();
 }
 
 /* ── People row (detail-view.js) ───────────────────────────────────────── */
@@ -179,10 +181,13 @@ function facesAddToOpenSurfaces() {
   document.querySelectorAll('#modalBody .detail-body, #mediaSidebarBody .detail-body').forEach(body => {
     const id = Number(body.dataset.mediaId);
     if (!id || body.querySelector('.faces-section')) return;
+    // The Modern Info panel has a People tab for it.
+    const people = body.querySelector('[data-mpp-pane="people"]');
     const media = (typeof getMediaById === 'function' && getMediaById(id))
       || (currentMediaState?.currentMediaData?.id === id ? currentMediaState.currentMediaData : null);
     const html = media ? renderFacesSection(media) : '';
     if (!html) return;
+    if (people) { people.insertAdjacentHTML('afterbegin', html); return; }
     const music = body.querySelector('.music-section');
     if (music) { music.insertAdjacentHTML('afterend', html); return; }
     const next = body.querySelector('.games-section, .sidebar-nav-hint')
@@ -207,6 +212,11 @@ function facesPaint(mediaId) {
     box.innerHTML = html;
     box.closest('.faces-section').hidden = !html;
   });
+  // The Modern Info panel's People tab shows how many people were found.
+  const info = facesInfo.get(mediaId);
+  if (typeof detailPanelSetCount === 'function') {
+    detailPanelSetCount(mediaId, 'people', info && info.indexed ? (info.groups || []).length : null);
+  }
 }
 
 function facesTip(g) {
@@ -241,7 +251,7 @@ function facesBoxHtml(mediaId, info) {
     return `<button type="button" class="face-chip${g.id === pending ? ' is-pending' : ''}" data-face-group="${g.id}"
         data-face-media="${mediaId}" aria-label="Find this person"${tip ? ` title="${escapeHtml(tip)}"` : ''}>${g.cropUrl
         ? `<img class="face-crop" src="${escapeHtml(g.cropUrl)}" alt="" loading="lazy">`
-        : '<span class="face-chip-blank" aria-hidden="true">👤</span>'}</button>`;
+        : `<span class="face-chip-blank" aria-hidden="true">${typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap('👤', 'person') : '👤'}</span>`}</button>`;
   }).join('');
   const more = all ? '' : `<button type="button" class="face-more" data-faces-more="${mediaId}">+${groups.length - shown.length} more</button>`;
   const confirm = pending == null ? '' : `
