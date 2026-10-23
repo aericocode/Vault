@@ -1790,11 +1790,12 @@
     if (on && media?.media_type === 'video') {
       const item = Library.rowByPath(media.filepath);
       attach(item || media);
-      showToast(isModern() ? 'Beat bar on. It stays on for future videos'
+      // The Modern dock's beat bar button lights up instead of a toast
+      if (!(typeof mpQuietToast === 'function' && mpQuietToast())) showToast(isModern() ? 'Beat bar on. It stays on for future videos'
         : '🥁 Beat bar ON, stays on for future videos');
     } else {
       detach();
-      if (!on) showToast('Beat bar off');
+      if (!on && !(typeof mpQuietToast === 'function' && mpQuietToast())) showToast('Beat bar off');
     }
   }
   window.toggleBeatBar = toggleBeatBar;

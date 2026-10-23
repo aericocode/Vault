@@ -619,3 +619,30 @@ body.layout-modern .mp-dock.f4 .mp-row {
   justify-content: space-between;
   gap: 8px;
 }
+
+/* ── Toasts (the shared #toast, css/toast.css) in the Modern look ─────
+   A dark card like the menus: 12 px corners, a hairline border, no green
+   outline. Bottom centre of the window in the library; in the player the
+   dock sets --toast-x / --toast-bottom so it sits in the stage, above the
+   dock and clear of the beat bar (player-modern.js placeToast). Classic
+   keeps css/toast.css as is. */
+body.layout-modern .toast {
+  left: var(--toast-x, 50%);
+  right: auto;
+  bottom: var(--toast-bottom, 24px);
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 10px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(22, 22, 27, 0.96);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  color: #ececf1;
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: center;
+  transform: translate(-50%, 10px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+body.layout-modern .toast.active { transform: translate(-50%, 0); }
+body.layout-modern .toast.success { border-color: rgba(74, 222, 128, 0.45); background: rgba(22, 22, 27, 0.96); }
+body.layout-modern .toast.error { border-color: rgba(248, 113, 113, 0.55); background: rgba(22, 22, 27, 0.96); }

@@ -101,7 +101,8 @@ function setSubtitleMode(mode) {
   // userInitiated → auto-generate when this video has no subs yet (turning CC
   // on is the "make subtitles" gesture; no separate + click needed)
   if (media) applySubtitlesFor(media, { userInitiated: true });
-  showToast(`CC: ${subtitleMode === 'off' ? 'Off' : subtitleMode === 'on' ? 'On' : 'Auto (non-English only)'}`);
+  // The Modern dock's CC button shows the mode; Classic keeps its toast
+  if (!(typeof mpQuietToast === 'function' && mpQuietToast())) showToast(`CC: ${subtitleMode === 'off' ? 'Off' : subtitleMode === 'on' ? 'On' : 'Auto (non-English only)'}`);
 }
 
 /* ── Track resolution + attachment ──────────────────────────────────────── */
@@ -310,7 +311,7 @@ function _subsBindDrag(el) {
     _subsPos = null;
     _subsSavePos();
     _subsReposition();
-    showToast('Subtitles reset to bottom');
+    if (!(typeof mpQuietToast === 'function' && mpQuietToast())) showToast('Subtitles reset to bottom');   // the line moving says it
   });
 }
 
@@ -674,7 +675,7 @@ async function subtitlesToggleTranscript(mediaId, lang) {
     const el = currentMediaState.element;
     if (currentMediaState.currentMediaData?.id === mediaId && el && ['VIDEO', 'AUDIO'].includes(el.tagName)) {
       el.currentTime = Math.max(0, start - 0.3);
-      showToast(`⏪ Jumped to ${fmt(start)}`);
+      if (!(typeof mpQuietToast === 'function' && mpQuietToast())) showToast(`⏪ Jumped to ${fmt(start)}`);   // the dock's playhead says it
       if (typeof gamifyEvent === 'function') gamifyEvent('transcript_seek');
     } else if (typeof detailSeekTo === 'function' && detailSeekTo(mediaId, start - 0.3)) {
       // Clicked from the library modal — open the file, then land on the line

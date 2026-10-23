@@ -29,6 +29,12 @@ function isModernPlayer() {
   return typeof window.isModernLayout === 'function' && window.isModernLayout();
 }
 
+/** The Modern dock is up: its buttons already show what a toggle did (A-B,
+ *  CC, beat bar, device sync), so those skip their toast. */
+function mpQuietToast() {
+  return typeof ModernDock !== 'undefined' && ModernDock.mounted();
+}
+
 /** One dock icon: the icons.js line icon, sized by the dock's CSS. */
 function mpIcon(name) {
   return typeof vaultIcon === 'function' ? vaultIcon(name, 'mp-i') : '';
@@ -232,6 +238,7 @@ const ModernDock = (() => {
     st = null;
     const ov = overlay();
     if (ov) ov.classList.remove('mp-modern', 'mp-previewing');
+    placeToast();
   }
 
   /** Every button whose look follows state the dock does not own. */
@@ -945,6 +952,54 @@ const ModernDock = (() => {
     ov.classList.remove('controls-visible');
     revealCursorOnly();
   }
+
+  /* ── Toasts: in the stage, above the dock, clear of the beat bar ──── */
+
+  const TOAST_GAP = 12;      // between the toast and what it sits above
+  const TOAST_H = 48;        // a one-line toast with its padding, for the lane check
+
+  /**
+   * Where the shared #toast goes while the dock is up: centred on the stage
+   * (the video area, so not under an open panel), its bottom above the dock
+   * when the controls show (clear of the A marker and the hint), lower when
+   * they are hidden, and moved above the beat bar lane if it would land on
+   * it. The CSS reads --toast-x / --toast-bottom (css/player/player-modern.css);
+   * without them it sits at the bottom centre of the window (the library).
+   */
+  function placeToast() {
+    const root = document.documentElement;
+    if (!mounted()) {
+      root.style.removeProperty('--toast-x');
+      root.style.removeProperty('--toast-bottom');
+      return;
+    }
+    const s = stage();
+    const r = s ? s.getBoundingClientRect() : { left: 0, width: innerWidth, bottom: innerHeight };
+    const shown = overlay()?.classList.contains('controls-visible');
+    // The dock's box starts at the timeline; the A marker and the hint ride
+    // up to ~50 px above it.
+    let y = shown ? st.dock.getBoundingClientRect().top - 50 : r.bottom - 24;
+    const lane = document.querySelector('.beatbar-overlay .bbm-lane') || document.querySelector('.beatbar-overlay');
+    if (lane && lane.getClientRects().length) {   // not display: none (fixed boxes have no offsetParent)
+      const l = lane.getBoundingClientRect();
+      if (l.height && l.bottom > y - TOAST_H && l.top < y) y = Math.min(y, l.top - TOAST_GAP);
+    }
+    root.style.setProperty('--toast-x', Math.round(r.left + r.width / 2) + 'px');
+    root.style.setProperty('--toast-bottom', Math.max(TOAST_GAP, Math.round(innerHeight - y)) + 'px');
+  }
+
+  // Re-placed whenever a toast comes up, the controls show or hide, or the
+  // window changes size.
+  const toastWatch = new MutationObserver(() => placeToast());
+  function watchToast() {
+    const t = document.getElementById('toast');
+    const ov = overlay();
+    if (t) toastWatch.observe(t, { attributes: true, attributeFilter: ['class'] });
+    if (ov) toastWatch.observe(ov, { attributes: true, attributeFilter: ['class'] });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchToast);
+  else watchToast();
+  window.addEventListener('resize', placeToast);
 
   /* ── Keyboard navigation vs. the mouse ────────────────────────────── */
 

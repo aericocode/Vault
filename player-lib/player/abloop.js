@@ -34,8 +34,7 @@ function toggleAbLoop() {
     // Set point A
     abLoopA = _abHundredth(element.currentTime);
     abLoopB = null;
-    // Modern says what happens next (the bar also shows an "A" marker)
-    if (_abModern()) showToast(`A set at ${formatAbTime(abLoopA)}. Press ] or click the bar to set B`);
+    // No toast: Modern's A marker, filled button and the bar's hint say it
   } else if (abLoopB === null) {
     // Set point B
     _abSetB(element, _abHundredth(element.currentTime));

@@ -348,8 +348,9 @@
     LovenseSync.setEnabled(on);
     if (on) {
       attachCurrent();
-      showToast('💟 Vibe ON, synced to the beat (stays on for future videos)');
-    } else {
+      // The Modern dock's device button lights up instead
+      if (!(typeof mpQuietToast === 'function' && mpQuietToast())) showToast('💟 Vibe ON, synced to the beat (stays on for future videos)');
+    } else if (!(typeof mpQuietToast === 'function' && mpQuietToast())) {
       showToast('Vibe off');
     }
     syncVibeButton();
