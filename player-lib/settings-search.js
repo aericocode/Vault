@@ -185,6 +185,18 @@ const SETTINGS_INDEX = [
     keywords: ['password', 'lock', 'encrypt', 'security'] },
 
   // Models
+  { page: 'models', id: 'scanModel', label: 'Scan model',
+    desc: 'The model Vault uses to analyse new files, picked from the models LM Studio has on disk.',
+    keywords: ['vision model', 'ai scan', 'lm studio', 'analyse', 'analyze', 'default model', 'which model'] },
+  { page: 'models', id: 'scanWhenNotLoaded', label: 'When the scan model is not loaded',
+    desc: 'Load it if there is room on the GPU, wait until you load it, or always load it.',
+    keywords: ['load model', 'auto load', 'vram', 'gpu memory', 'waiting', 'not loaded', 'lms'] },
+  { page: 'models', id: 'scanGpuFree', label: 'Only scan watched folders when the GPU is free',
+    desc: 'Watched folder files wait while any other model is loaded.',
+    keywords: ['watch', 'folder watchers', 'gpu busy', 'text model', 'wait'] },
+  { page: 'models', id: 'scanUnloadIdle', label: 'Unload the scan model after',
+    desc: 'Free GPU memory once the queue has been idle. Only a copy Vault loaded itself.',
+    keywords: ['unload', 'idle', 'eject', 'free vram', 'gpu memory', 'timeout'] },
   { page: 'models', id: 'modelTable', label: 'Model recommendations by GPU size',
     desc: 'Which vision model to load for your graphics card.',
     keywords: ['vram', 'gpu', 'graphics card', 'lm studio', 'vision model', 'whisper', 'quant'] },

@@ -7,6 +7,7 @@
  * the permission fallbacks, rows Cove found nothing in, not-found reasons.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

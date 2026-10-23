@@ -66,8 +66,11 @@
     const failures = [];   // { name, error }
     let hideTimer = null;
 
+    // Classic keeps its emoji, Modern gets line icons (player-lib/icons.js).
+    const sw = (emoji, name) => (typeof vaultIconSwap === 'function' ? vaultIconSwap(emoji, name) : escapeHtml(emoji));
+    const verbHtml = typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(escapeHtml(verb)) : escapeHtml(verb);
     const failRows = () => failures.map(f =>
-      `<div class="dq-row dq-failed" title="${escapeHtml(f.error)}"><span class="dq-ico">✗</span><span class="dq-name">${escapeHtml(f.name)}</span></div>`
+      `<div class="dq-row dq-failed" title="${escapeHtml(f.error)}"><span class="dq-ico">${sw('✗', 'close')}</span><span class="dq-name">${escapeHtml(f.name)}</span></div>`
     ).join('');
 
     return {
@@ -75,7 +78,7 @@
         el.innerHTML = `
           <div class="dq-head">
             <span class="dq-spin"></span>
-            <span class="dq-title">${verb} ${done}/${total}${name ? ` · <span class="dq-file">${escapeHtml(name)}</span>` : ''}</span>
+            <span class="dq-title">${verbHtml} ${done}/${total}${name ? ` · <span class="dq-file">${escapeHtml(name)}</span>` : ''}</span>
           </div>
           ${failures.length ? `<div class="dq-list">${failRows()}</div>` : ''}`;
       },
@@ -84,8 +87,8 @@
         clearTimeout(hideTimer);
         el.innerHTML = `
           <div class="dq-head">
-            <span class="dq-title">${ok ? '✓' : '⚠'} ${ok ? 'Added' : 'Import'} ${ok}/${total}${failures.length ? ` · ${failures.length} failed` : ''}${extra ? ` · ${escapeHtml(extra)}` : ''}</span>
-            <button class="dq-x" title="Dismiss">✕</button>
+            <span class="dq-title">${ok ? sw('✓', 'check') : sw('⚠', 'alert')} ${ok ? 'Added' : 'Import'} ${ok}/${total}${failures.length ? ` · ${failures.length} failed` : ''}${extra ? ` · ${escapeHtml(extra)}` : ''}</span>
+            <button class="dq-x" title="Dismiss" aria-label="Dismiss">${sw('✕', 'close')}</button>
           </div>
           ${failures.length ? `<div class="dq-list">${failRows()}</div>` : ''}`;
         el.querySelector('.dq-x')?.addEventListener('click', () => el.remove());
@@ -97,19 +100,33 @@
   /* ── AI scan panel (the slow half of an import) ────────────────────────
      importPanel() above tracks path *registration*, which is instant. The
      vision scan that follows can run for hours, so it gets its own persistent
-     panel fed by GET /api/import/queue — one poller for the whole app, started
-     from addPaths() (covering both the modal and the loose-file drop path) and
-     again at load so a reload mid-scan reattaches instead of going blind.
+     panel fed by GET /api/import/queue.
 
-     Everything degrades to silence: a server without the route just never
-     shows the panel. */
+     It shows for ANY scan the server is doing, whoever queued it: an import
+     from this page, a watched folder, a retry, another tab. While a run is on
+     screen the panel polls every 1.5 s; once the queue goes quiet it drops to
+     a light count every few seconds (/api/import/queue/summary) and comes
+     back the moment work appears. (It used to start only from this page's own
+     imports, so files a watched folder added scanned with no panel at all.)
+
+     Three tabs, shown once there is something on the second or third:
+       Progress  the bar (done + failed), what is working, the time left
+       Failed    failures grouped by reason, Retry, Show in library, Copy list
+       Waiting   files held for the scan model, and why
+
+     Classic keeps its emoji; Modern draws the same spots with line icons
+     (vaultIconSwap, player-lib/icons.js). Everything degrades to silence: a
+     server without the routes just never shows the panel. */
 
   const SCAN_POLL_MS = 1500;
-  const SCAN_MAX_FAILS = 5;      // consecutive fetch errors → assume no route
-  const SCAN_MAX_IDLE = 40;      // rounds with an empty queue → stop watching
-  const CANCEL_ARM_MS = 5000;    // armed Cancel disarms itself if left alone
+  const SCAN_IDLE_POLL_MS = 4000;  // the light count while nothing is on screen
+  const SCAN_MAX_FAILS = 5;        // consecutive fetch errors → assume no route
+  const SCAN_MAX_IDLE = 40;        // rounds with an empty queue → back to the light count
+  const CANCEL_ARM_MS = 5000;      // armed Cancel disarms itself if left alone
+  const FAIL_POLL_MS = 3000;       // the Failed / Waiting lists, while one is open
 
   let _scanTimer = null;
+  let _scanIdleTimer = null;
   let _scanBusy = false;
   let _scanFails = 0;
   let _scanIdle = 0;
@@ -119,26 +136,42 @@
   let _scanCmdBusy = false;      // a pause/resume POST is in flight
   let _cancelArmTimer = null;    // the second half of the two-click Cancel
   let _haltNotified = 0;         // halt.at already toasted — warn once per halt
+  let _waitNotified = 0;         // waiting.since already toasted
+  let _scanTab = 'progress';     // which tab of the AI pane is showing
+  let _scanTabPicked = false;    // the user chose it (a finish does not move them)
+  let _failData = null;          // last /api/import/failures answer
+  let _failAt = 0;
+  let _failBusy = false;
+  const _grpOpen = new Set();    // reason keys whose file list is expanded
+  let _grpTouched = false;       // the user opened or closed one (stop auto-opening the first)
 
-  // Same buckets as lib/work-queue.js ProgressTracker.eta, so the CLI and the
-  // panel never quote different numbers for the same queue.
+  /* Icons: the emoji for Classic, a line icon for Modern, side by side. */
+  const ico = (emoji, name) => (typeof vaultIconSwap === 'function' ? vaultIconSwap(emoji, name) : escapeHtml(emoji));
+  const modernLook = () => (typeof vaultIsModern === 'function' && vaultIsModern());
+  const AI_TAB = () => (modernLook() ? 'AI scan' : '🤖 AI scan');
+  const n0 = (v) => Number(v) || 0;
+  const fmtN = (v) => n0(v).toLocaleString();
+  const plural = (n, one, many) => `${fmtN(n)} ${n === 1 ? one : (many || one + 's')}`;
+  const baseName = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || String(p || '');
+
   /* ── Instances in the scan panel ─────────────────────────────────────────
      Several copies of one model can be loaded in LM Studio, and the server
      spreads scans over all of them. The panel says how many are actually
      pulling, because the answer to "why is this slow" is usually a copy that
      quietly unloaded, not the worker count. The strip only appears when there
-     is something to say: two or more instances, or one that has gone. */
+     is something to say: two or more instances. */
 
   // Same sentence as the Backend tab's stepper (player-lib/settings.js), for
   // the same reason: more workers is the wrong instinct.
   const WORKERS_TIP = 'A second worker removes the idle gap between files. '
     + 'More than 2 adds little; extra instances are what multiply throughput.';
 
-  function fmtEta(ms) {
-    if (ms == null || !Number.isFinite(ms)) return '–';
-    if (ms < 60000) return `${Math.round(ms / 1000)}s`;
-    if (ms < 3600000) return `${Math.round(ms / 60000)}m`;
-    return `${(ms / 3600000).toFixed(1)}h`;
+  /** "about 6 min left", or '' with nothing honest to say. */
+  function fmtLeft(ms) {
+    if (ms == null || !Number.isFinite(ms) || ms <= 0) return '';
+    if (ms < 60000) return 'under a minute left';
+    if (ms < 3600000) return `about ${Math.round(ms / 60000)} min left`;
+    return `about ${(ms / 3600000).toFixed(1)} h left`;
   }
 
   /* ── One panel, two jobs ────────────────────────────────────────────────
@@ -250,7 +283,9 @@
 
     let el = scanAiPane();
     if (el && el.querySelector('#scanHead')) return el;
-    el = openPane('ai', { tab: '🤖 AI scan' });
+    el = openPane('ai', { tab: AI_TAB() });
+    _scanTab = 'progress';
+    _scanTabPicked = false;
     // The bar fill, the worker stepper and the action buttons live outside the
     // re-rendered regions: rebuilding the fill every round would restart its CSS
     // transition, rebuilding the input would swallow half-typed digits (the
@@ -258,18 +293,50 @@
     // would wipe the armed half of the two-click Cancel every 1.5s — the poll
     // would disarm it faster than anyone can click twice.
     el.innerHTML = `
-      <div class="dq-head" id="scanHead"></div>
-      <div class="dq-bar"><div class="dq-bar-fill" id="scanBarFill"></div></div>
-      <div class="dq-meta" id="scanMeta">
-        <span class="dq-eta" id="scanEta"></span>
-        <span class="dq-workers">🤖 <input type="number" min="1" max="4" step="1"
-          class="dq-num" id="scanWorkersNum" data-scan-workers
-          title="${WORKERS_TIP}"></span>
+      <div class="dq-head sp-head" id="scanHead">
+        <span class="sp-head-ico" id="scanHeadIco"></span>
+        <b class="sp-head-title">AI scan</b>
+        <span class="sp-head-sub" id="scanHeadSub"></span>
+        <span class="sp-grow"></span>
+        <button type="button" class="dq-x sp-close" id="scanCloseBtn" title="Close" aria-label="Close" hidden>${ico('✕', 'close')}</button>
       </div>
-      <div class="dq-inst" id="scanInst" hidden></div>
-      <div class="dq-notice" id="scanNotice" hidden></div>
-      <div class="dq-warn" id="scanWarn" hidden></div>
-      <div class="dq-list" id="scanList"></div>
+      <div class="sp-tabs" id="scanTabs" role="tablist" aria-label="AI scan" hidden>
+        <button type="button" class="sp-tab" role="tab" data-scan-tab="progress">Progress</button>
+        <button type="button" class="sp-tab" role="tab" data-scan-tab="failed">Failed <span class="sp-tab-n" id="scanTabFailedN"></span></button>
+        <button type="button" class="sp-tab" role="tab" data-scan-tab="waiting">Waiting <span class="sp-tab-n" id="scanTabWaitingN"></span></button>
+      </div>
+      <div class="sp-view" id="scanViewProgress" role="tabpanel">
+        <div class="dq-bar sp-bar"><div class="dq-bar-fill" id="scanBarFill"></div><div class="sp-bar-fail" id="scanBarFail"></div></div>
+        <div class="dq-meta" id="scanMeta">
+          <span class="dq-eta sp-line" id="scanEta"></span>
+          <span class="dq-workers" title="${WORKERS_TIP}">${ico('🤖', 'spark')} <input type="number" min="1" max="4" step="1"
+            class="dq-num" id="scanWorkersNum" data-scan-workers aria-label="Workers per instance"
+            title="${WORKERS_TIP}"></span>
+        </div>
+        <div class="sp-waitline" id="scanWaitLine" hidden></div>
+        <div class="dq-inst" id="scanInst" hidden></div>
+        <div class="dq-notice" id="scanNotice" hidden></div>
+        <div class="dq-warn" id="scanWarn" hidden></div>
+        <div class="dq-list sp-now-list" id="scanList"></div>
+      </div>
+      <div class="sp-view" id="scanViewFailed" role="tabpanel" hidden>
+        <div class="sp-groups" id="scanGroups"></div>
+        <div class="sp-foot" id="scanFailFoot">
+          <button type="button" class="dq-btn dq-btn-primary" id="scanRetryAll">${ico('↻ ', 'rescan')}<span class="sp-retry-label">Retry all</span></button>
+          <button type="button" class="dq-btn" id="scanShowFailed" title="Show every file whose scan failed in the library (the Scan: Failed filter)">${ico('🔍 ', 'filter')}Show in library</button>
+          <button type="button" class="dq-btn dq-btn-ghost" id="scanCopyList" title="Copy each failed file's path and reason as text">${ico('📋 ', 'copy')}Copy list</button>
+        </div>
+      </div>
+      <div class="sp-view" id="scanViewWaiting" role="tabpanel" hidden>
+        <div class="sp-wait" id="scanWaitBox"></div>
+        <div class="sp-foot">
+          <button type="button" class="dq-btn dq-btn-primary" id="scanPickAgain" hidden>Pick a model that can read pictures</button>
+          <button type="button" class="dq-btn" id="scanLoadAnyway" title="Load the scan model in LM Studio now, even if Vault thinks there is not enough room">Load anyway</button>
+          <button type="button" class="dq-btn dq-btn-ghost" id="scanOpenLms">Open LM Studio</button>
+          <button type="button" class="dq-btn dq-btn-ghost" id="scanOpenSettings">${ico('⚙ ', 'gear')}Settings</button>
+        </div>
+        <div class="dq-list sp-wait-list" id="scanWaitList"></div>
+      </div>
       <div class="dq-actions" id="scanActions">
         <button type="button" class="dq-btn dq-btn-quiet" id="scanHideBtn"
           title="Hide this panel. The scan keeps running in the background">Hide</button>
@@ -283,21 +350,332 @@
     });
     el.querySelector('#scanPauseBtn').addEventListener('click', onPauseClick);
     el.querySelector('#scanCancelBtn').addEventListener('click', onCancelClick);
-    // The head's ✕ became Cancel, which would leave no way to get an hours-long
-    // run off the screen without killing it — so the harmless half of the old ✕
-    // lives on here. Keeps polling: a halt still toasts through a hidden panel.
+    // Hide keeps polling: a halt still toasts through a hidden panel.
     el.querySelector('#scanHideBtn').addEventListener('click', () => {
       _scanDismissed = true;
       dropPane('ai');
     });
+    el.querySelector('#scanCloseBtn').addEventListener('click', closeFinished);
+    el.querySelector('#scanTabs').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-scan-tab]');
+      if (!b) return;
+      _scanTabPicked = true;
+      setScanTab(b.dataset.scanTab);
+    });
+    el.querySelector('#scanGroups').addEventListener('click', onGroupsClick);
+    el.querySelector('#scanRetryAll').addEventListener('click', () => retryFailed(null));
+    el.querySelector('#scanShowFailed').addEventListener('click', showFailedInLibrary);
+    el.querySelector('#scanCopyList').addEventListener('click', copyFailedList);
+    el.querySelector('#scanLoadAnyway').addEventListener('click', loadAnyway);
+    el.querySelector('#scanPickAgain').addEventListener('click', async () => {
+      try {
+        await fetch('/api/ai/model-choice', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: null, kind: 'vision' }),
+        });
+        watchScanQueue();
+      } catch (err) { showToast('⚠ ' + err.message); }
+    });
+    el.querySelector('#scanOpenLms').addEventListener('click', openLmStudio);
+    el.querySelector('#scanOpenSettings').addEventListener('click', () => {
+      if (typeof window.vaultOpenSettings === 'function') window.vaultOpenSettings('models');
+    });
     return el;
+  }
+
+  /** Switch the AI pane's tab, and fetch the lists it needs. */
+  function setScanTab(tab) {
+    const el = scanAiPane();
+    if (!el) return;
+    _scanTab = tab;
+    el.querySelectorAll('[data-scan-tab]').forEach(b => {
+      const on = b.dataset.scanTab === tab;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-selected', String(on));
+    });
+    el.querySelector('#scanViewProgress').hidden = tab !== 'progress';
+    el.querySelector('#scanViewFailed').hidden = tab !== 'failed';
+    el.querySelector('#scanViewWaiting').hidden = tab !== 'waiting';
+    if (tab !== 'progress') loadFailures(true);
+  }
+
+  /* ── Failed and Waiting lists ───────────────────────────────────────────
+     One request feeds both (GET /api/import/failures): the failure groups,
+     a few files each, and the files waiting for the model. Fetched while one
+     of those tabs is open, at most every FAIL_POLL_MS. */
+  async function loadFailures(force = false) {
+    if (_failBusy) return;
+    if (!force && Date.now() - _failAt < FAIL_POLL_MS) return;
+    _failBusy = true;
+    try {
+      const resp = await fetch('/api/import/failures?sample=5', { headers: { 'X-Vault-Background': '1' } });
+      if (!resp.ok) return;
+      _failData = await resp.json();
+      _failAt = Date.now();
+      renderFailed();
+      renderWaiting(_scanLast);
+    } catch { /* the next tick tries again */ } finally {
+      _failBusy = false;
+    }
+  }
+
+  function renderFailed() {
+    const el = scanAiPane();
+    if (!el) return;
+    const box = el.querySelector('#scanGroups');
+    const f = _failData && _failData.failed;
+    const groups = (f && f.groups) || [];
+    const total = n0(f && f.total);
+    el.querySelector('#scanRetryAll .sp-retry-label').textContent = total ? `Retry all ${fmtN(total)}` : 'Retry all';
+    el.querySelector('#scanRetryAll').disabled = !total;
+    el.querySelector('#scanCopyList').disabled = !total;
+    if (!_grpTouched && groups.length && !_grpOpen.size) _grpOpen.add(groups[0].key);
+    // Rebuilt only when the answer changes: buttons under the cursor survive the poll.
+    const sig = JSON.stringify([groups, [..._grpOpen]]);
+    if (box.dataset.sig === sig) return;
+    box.dataset.sig = sig;
+    if (!groups.length) {
+      box.innerHTML = '<div class="sp-empty">Nothing failed in this run.</div>';
+      return;
+    }
+    box.innerHTML = groups.map(g => {
+      const open = _grpOpen.has(g.key);
+      const more = g.count - g.sample.length;
+      return `<div class="sp-grp${open ? ' open' : ''}" data-grp="${escapeHtml(g.key)}">
+        <div class="sp-grp-head">
+          <button type="button" class="sp-grp-toggle" data-grp-toggle aria-expanded="${open}">
+            <span class="sp-grp-label">${escapeHtml(g.label)}</span> <span class="sp-grp-n">(${fmtN(g.count)})</span>
+            <span class="sp-chev">${ico('▾', 'chevron')}</span>
+          </button>
+          <button type="button" class="dq-btn sp-mini" data-grp-retry title="Queue these ${fmtN(g.count)} files for another scan">${ico('↻ ', 'rescan')}Retry</button>
+        </div>
+        <div class="sp-grp-explain">${escapeHtml(g.explain)}</div>
+        <div class="sp-files"${open ? '' : ' hidden'}>
+          ${g.sample.map(s => `<div class="sp-file" title="${escapeHtml(s.error)}">
+              <span class="dq-name">${escapeHtml(s.filename)}</span>
+              <span class="sp-folder" title="${escapeHtml(s.folder)}">${escapeHtml(s.folder)}</span>
+              <button type="button" class="dq-x sp-file-btn" data-force-refresh="${n0(s.id)}"
+                title="Force refresh: read this file again and remake its thumbnail, without redoing the AI scan"
+                aria-label="Force refresh ${escapeHtml(s.filename)}">${ico('🔄', 'refresh')}</button>
+            </div>`).join('')}
+          ${more > 0 ? `<div class="sp-more">and ${fmtN(more)} more</div>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function onGroupsClick(e) {
+    const grp = e.target.closest('[data-grp]');
+    if (!grp) return;
+    const key = grp.dataset.grp;
+    if (e.target.closest('[data-grp-toggle]')) {
+      _grpTouched = true;
+      if (_grpOpen.has(key)) _grpOpen.delete(key); else _grpOpen.add(key);
+      renderFailed();
+      return;
+    }
+    if (e.target.closest('[data-grp-retry]')) { retryFailed(key); return; }
+    const fr = e.target.closest('[data-force-refresh]');
+    if (fr) forceRefreshIds([Number(fr.dataset.forceRefresh)], fr);
+  }
+
+  async function retryFailed(key) {
+    try {
+      const resp = await fetch('/api/import/failures/retry', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(key ? { reason: key } : {}),
+      });
+      const r = await resp.json().catch(() => ({}));
+      if (!resp.ok) { showToast('⚠ ' + (r.error || `HTTP ${resp.status}`)); return; }
+      const notes = [];
+      if (r.alreadyQueued) notes.push(`${fmtN(r.alreadyQueued)} already queued`);
+      if (r.missing) notes.push(`${fmtN(r.missing)} missing from disk`);
+      showToast(r.queued
+        ? `↻ Queued ${plural(r.queued, 'file')} for another scan${notes.length ? ` · ${notes.join(', ')}` : ''}`
+        : (notes.length ? `Nothing new to queue: ${notes.join(', ')}` : 'Nothing to retry'));
+      _scanTabPicked = false;
+      _failAt = 0;
+      if (r.queued) { setScanTab('progress'); watchScanQueue(); }
+      else loadFailures(true);
+    } catch (err) {
+      showToast('⚠ ' + err.message);
+    }
+  }
+
+  /** The library's Scan: Failed filter: every failed file, not only this run's. */
+  function showFailedInLibrary() {
+    if (typeof switchTab === 'function' && typeof currentTab !== 'undefined' && currentTab !== 'library') switchTab('library');
+    if (typeof setTriFilterValue !== 'function' || typeof applyFilters !== 'function') return;
+    setTriFilterValue('filterScanStatus', 'failed');
+    applyFilters();
+    showToast('🔍 Showing files whose scan failed');
+  }
+
+  async function copyFailedList() {
+    try {
+      const resp = await fetch('/api/import/failures/text');
+      if (!resp.ok) { showToast(`⚠ HTTP ${resp.status}`); return; }
+      const text = await resp.text();
+      if (!text) { showToast('Nothing to copy'); return; }
+      const n = text.split(/\r?\n/).length;
+      if (await copyText(text)) {
+        showToast(`📋 Copied ${plural(n, 'file')} with their reasons`);
+        return;
+      }
+      // The clipboard said no (no permission, or the page lost focus while the
+      // list was fetched): hand the list over as a text file instead.
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+      a.download = 'vault-failed-scans.txt';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      showToast(`📋 The clipboard was not available, so the list of ${plural(n, 'file')} was saved as a text file`);
+    } catch (err) {
+      showToast('⚠ Could not copy: ' + err.message);
+    }
+  }
+
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch { /* try the old way */ }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return !!ok;
+    } catch { return false; }
+  }
+
+  /**
+   * Force refresh (also from the sidebar and the selection bar, through
+   * window.vaultForceRefresh): read the files again and remake their
+   * thumbnails, without redoing the AI scan.
+   */
+  async function forceRefreshIds(ids, btn, { onlyErrored = false } = {}) {
+    const list = (ids || []).map(Number).filter(n => Number.isInteger(n) && n > 0);
+    if (!list.length) return null;
+    if (btn) btn.disabled = true;
+    try {
+      const resp = await fetch('/api/media/force-refresh', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(onlyErrored ? { ids: list, onlyErrored: true } : { ids: list }),
+      });
+      const r = await resp.json().catch(() => ({}));
+      if (!resp.ok) { showToast('⚠ ' + (r.error || `HTTP ${resp.status}`)); return null; }
+      if (r.started) {
+        showToast(`🔄 Reading ${plural(r.count, 'file')} again in the background`);
+        return r;
+      }
+      for (const row of (r.rows || [])) {
+        try { if (typeof getMediaById === 'function' && getMediaById(row.id)) Library.patchRow(row); } catch {}
+      }
+      const ok = (r.refreshed || []).length, bad = (r.stillBroken || []).length, gone = (r.missing || []).length;
+      const parts = [];
+      if (ok) parts.push(`${plural(ok, 'file')} read again`);
+      if (r.queued && r.queued.length) parts.push(`${fmtN(r.queued.length)} queued for their first AI scan`);
+      if (bad) parts.push(r.noProbe ? `${fmtN(bad)} not checked (ffmpeg is not installed)` : `${fmtN(bad)} still cannot be read`);
+      if (gone) parts.push(`${fmtN(gone)} missing from disk`);
+      showToast(`${bad || gone ? '⚠' : '🔄'} ${parts.join(' · ') || 'Nothing to refresh'}`);
+      _failAt = 0;
+      if (scanAiPane()) loadFailures(true);
+      if (r.queued && r.queued.length) watchScanQueue();
+      if (typeof refreshInfoSurfaces === 'function' && list.length === 1 && typeof getMediaById === 'function') {
+        const m = getMediaById(list[0]);
+        if (m) refreshInfoSurfaces(m);
+      }
+      return r;
+    } catch (err) {
+      showToast('⚠ ' + err.message);
+      return null;
+    } finally {
+      if (btn && btn.isConnected) btn.disabled = false;
+    }
+  }
+  window.vaultForceRefresh = forceRefreshIds;
+
+  async function loadAnyway(e) {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      const resp = await fetch('/api/ai/scan-model/load', { method: 'POST' });
+      const r = await resp.json().catch(() => ({}));
+      if (!resp.ok) { showToast('⚠ ' + (r.error || `HTTP ${resp.status}`)); return; }
+      showToast(r.ok ? '⬆ Loading the scan model in LM Studio' : `⚠ ${(r.wait && r.wait.reason) || 'Could not load the scan model'}`);
+      watchScanQueue();
+    } catch (err) {
+      showToast('⚠ ' + err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function openLmStudio() {
+    try {
+      const resp = await fetch('/api/ai/open-lmstudio', { method: 'POST' });
+      const r = await resp.json().catch(() => ({}));
+      showToast(resp.ok ? 'Opening LM Studio' : '⚠ ' + (r.error || `HTTP ${resp.status}`));
+    } catch (err) {
+      showToast('⚠ ' + err.message);
+    }
+  }
+
+  /** The Waiting tab and the one-line wait note on Progress. */
+  function renderWaiting(q) {
+    const el = scanAiPane();
+    if (!el) return;
+    const w = (q && q.waiting) || null;
+    const detail = _failData && _failData.waiting;
+    const box = el.querySelector('#scanWaitBox');
+    const line = el.querySelector('#scanWaitLine');
+    if (!w) {
+      box.innerHTML = '<div class="sp-empty">Nothing is waiting.</div>';
+      el.querySelector('#scanWaitList').innerHTML = '';
+      line.hidden = true;
+      line.innerHTML = '';
+      el.querySelector('#scanLoadAnyway').hidden = true;
+      return;
+    }
+    // "Load anyway" only where it can do something (a scan model to load, and
+    // Vault able to load models here).
+    el.querySelector('#scanLoadAnyway').hidden = !w.loadable;
+    // A text model picked for pictures: offer to pick again (it clears the pick,
+    // and the next picture asks "which model?" with only vision models listed).
+    el.querySelector('#scanPickAgain').hidden = !w.pickAgain;
+    const pill = `<span class="sp-pill"><span class="sp-dot sp-dot-amber"></span>${w.gpuBusy ? 'Waiting for the GPU to be free' : (w.code === 'loading' ? 'Loading the scan model' : 'Waiting for the scan model')}</span>`;
+    const html = `${pill}<div class="sp-reason">${escapeHtml(w.reason || '')}</div>`;
+    if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
+    line.hidden = false;
+    // Some files still running: say how many are held, and why on the tab.
+    const heldBit = q && !q.paused ? `<span class="sp-held">${plural(n0(w.count), 'file')} held</span> ` : '';
+    const lineHtml = `${heldBit}${pill} <button type="button" class="sp-link" data-scan-tab-go="waiting">Why?</button>`;
+    if (line.dataset.sig !== lineHtml) {
+      line.dataset.sig = lineHtml;
+      line.innerHTML = lineHtml;
+      line.querySelector('[data-scan-tab-go]').addEventListener('click', () => { _scanTabPicked = true; setScanTab('waiting'); });
+    }
+    const sample = (detail && detail.sample) || [];
+    const more = n0(w.count) - sample.length;
+    const list = sample.map(s => `<div class="dq-row"><span class="dq-ico">${ico('⏳', 'clock')}</span>`
+      + `<span class="dq-name">${escapeHtml(s.filename || '')}</span>`
+      + `<span class="sp-folder" title="${escapeHtml(s.folder || '')}">${escapeHtml(s.watchFolder ? `from ${baseName(s.watchFolder)}` : baseName(s.folder))}</span></div>`).join('')
+      + (more > 0 && sample.length ? `<div class="sp-more">and ${fmtN(more)} more</div>` : '');
+    const wl = el.querySelector('#scanWaitList');
+    if (wl.dataset.sig !== list) { wl.dataset.sig = list; wl.innerHTML = list; }
   }
 
   /* ── ⏸ Pause / ▶ Resume ─────────────────────────────────────────────────
      Pausing stops dispatch only — whatever is already mid-scan finishes, since
-     a vision call can't be torn down cleanly. Resuming a model halt asks the
-     server to probe the endpoint first, so "I loaded the wrong model" comes
-     back as a warning instead of an instant re-pause. */
+     a vision call can't be torn down cleanly. Resuming asks the server to
+     probe the endpoint first, so "I loaded the wrong model" comes back as a
+     warning instead of an instant re-pause. On a wait, Resume reads "Try now":
+     it sends the next file whatever the check says. */
   async function onPauseClick(e) {
     if (_scanCmdBusy) return;
     const resuming = e.currentTarget.dataset.mode === 'resume';
@@ -308,6 +686,7 @@
       const q = await resp.json().catch(() => null);
       if (!resp.ok) { showToast('⚠ ' + ((q && q.error) || `HTTP ${resp.status}`)); return; }
       if (q?.warning) showToast('⚠ ' + q.warning);
+      else if (resuming && q && q.pausedBy === 'waiting' && q.waiting) showToast('⚠ Nothing could start: ' + q.waiting.reason);
       else showToast(resuming ? '▶ Scanning resumed' : '⏸ Scan paused. Files already running will finish');
       if (q) _scanLast = q;
       // The watcher may have given up while the queue sat halted; a resume needs
@@ -331,7 +710,7 @@
     btn.title = 'Stop the scan and drop everything still queued';
   }
 
-  /* ── ✕ → two-click Cancel ───────────────────────────────────────────────
+  /* ── Two-click Cancel ───────────────────────────────────────────────────
      This genuinely throws work away (the queue is cleared), so one stray click
      must not be enough. First click arms and relabels; the second commits.
      Left alone it disarms itself after CANCEL_ARM_MS. */
@@ -370,6 +749,15 @@
     }
   }
 
+  /** The close button on a finished panel: the failure list goes with it. */
+  function closeFinished() {
+    fetch('/api/import/failures/clear', { method: 'POST' }).catch(() => {});
+    _failData = null;
+    _grpOpen.clear();
+    _grpTouched = false;
+    dropPane('ai');
+  }
+
   /* ── "Which model?" halt → inline picker ────────────────────────────────
      LM Studio only ignores the `model` field while ONE model is loaded; load a
      second (the setup guide's embedding model does it) and every scan request
@@ -382,18 +770,22 @@
      their choice every round — the same reason the worker stepper lives outside
      the re-rendered regions. */
   function renderModelChoice(warn, q) {
-    const at = String(q.halt?.at || 0);
+    const at = String(q.halt?.at || 0) + (q.halt?.kind || '');
     if (warn.dataset.pickerAt === at) return;
     warn.dataset.pickerAt = at;
     warn.hidden = false;
-    warn.innerHTML = `⚠ <b>Which model?</b> LM Studio has several models loaded. Pick the vision model Vault should use:
+    // Asked per kind of file: pictures and videos only get models that can
+    // read pictures; documents and audio may use any model.
+    const vision = q.halt?.kind !== 'plain';
+    const kind = vision ? 'vision' : 'text';
+    warn.innerHTML = `<b>${vision ? 'Which model should scan pictures and videos?' : 'Which model should read documents?'}</b> LM Studio has several models loaded.
       <div class="dq-pick">
         <select class="dq-pick-sel" id="scanModelSelect" disabled><option>Loading…</option></select>
         <button type="button" class="dq-btn dq-btn-primary" id="scanModelGo" disabled>Use this model</button>
       </div>`
       + `<div class="dq-warn-at">Copies of the same model are one choice. Vault uses all of them.</div>`
       + (q.halt.filename ? `<div class="dq-warn-at">stopped at ${escapeHtml(q.halt.filename)}</div>` : '')
-      + `<div class="dq-warn-at">Nothing was lost. The scan carries on from here. Set AI_MODEL to skip this next time.</div>`;
+      + `<div class="dq-warn-at">Nothing was lost. The scan carries on from here. Pick a scan model in Settings to skip this next time.</div>`;
 
     const sel = warn.querySelector('#scanModelSelect');
     const go = warn.querySelector('#scanModelGo');
@@ -411,20 +803,24 @@
       // choice, and listing them separately would show three near-identical
       // rows for what is really a single decision. Older servers send no
       // `families`, so the flat model list stays the fallback.
-      const families = (data && data.families) || [];
-      const models = (data && data.models) || [];
+      const families = ((data && data.families) || []).filter(f => !vision || f.vision !== false);
+      const models = vision && (data && data.families || []).length ? [] : ((data && data.models) || []);
       if (!families.length && !models.length) {
-        sel.innerHTML = `<option>${escapeHtml(data?.error || 'No models reported')}</option>`;
+        sel.innerHTML = `<option>${escapeHtml(data?.error || (vision ? 'No model that can read pictures is loaded' : 'No models reported'))}</option>`;
         return;
       }
+      // Never pre-select something that is not on the list (a text model for
+      // a pictures question).
+      const listed = new Set(families.map(f => f.family).concat(models.map(m => m.id)));
+      const current = listed.has(data.current) ? data.current : null;
       sel.innerHTML = families.length
         ? families.map(f => {
           const n = Number(f.count) || 1;
-          return `<option value="${escapeHtml(f.family)}"${f.family === data.current ? ' selected' : ''}>`
+          return `<option value="${escapeHtml(f.family)}"${f.family === current ? ' selected' : ''}>`
             + `${escapeHtml(f.family)} · ${n} instance${n === 1 ? '' : 's'}</option>`;
         }).join('')
         : models.map(m =>
-          `<option value="${escapeHtml(m.id)}"${m.id === data.current ? ' selected' : ''}>${escapeHtml(m.id)}</option>`
+          `<option value="${escapeHtml(m.id)}"${m.id === current ? ' selected' : ''}>${escapeHtml(m.id)}</option>`
         ).join('');
       sel.disabled = false;
       go.disabled = false;
@@ -438,7 +834,7 @@
       try {
         const resp = await fetch('/api/ai/model-choice', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model }),
+          body: JSON.stringify({ model, kind }),
         });
         const r = await resp.json().catch(() => ({}));
         if (!resp.ok) {
@@ -463,12 +859,12 @@
 
   /**
    * A copy went away and the run carried on. Not a halt and no picker, but it
-   * explains why the strip is one line shorter and the ETA just moved, so it
-   * gets a line of its own, with a ✕ because the same panel repaints every
-   * 1.5 s and a line you cannot get rid of wears out fast.
+   * explains why the strip is one line shorter and the time left just moved,
+   * so it gets a line of its own, with a close button because the same panel
+   * repaints every 1.5 s and a line you cannot get rid of wears out fast.
    *
    * Rebuilt only when the id changes: re-running innerHTML every tick would
-   * throw away the ✕ the user is reaching for.
+   * throw away the button the user is reaching for.
    */
   function renderScanNotice(el, notice) {
     const line = el.querySelector('#scanNotice');
@@ -485,7 +881,7 @@
     line.dataset.noticeId = id;
     line.hidden = false;
     line.innerHTML = `<span class="dq-notice-text">${escapeHtml(text)}</span>`
-      + `<button type="button" class="dq-x dq-notice-x" title="Dismiss">✕</button>`;
+      + `<button type="button" class="dq-x dq-notice-x" title="Dismiss" aria-label="Dismiss">${ico('✕', 'close')}</button>`;
     line.querySelector('.dq-notice-x').addEventListener('click', () => {
       if (id) _noticeClosed.add(id);
       line.hidden = true;
@@ -493,74 +889,115 @@
     });
   }
 
+  /** The tab row: shown once Failed or Waiting has something in it. */
+  function paintScanTabs(el, failed, waiting) {
+    const tabs = el.querySelector('#scanTabs');
+    const show = failed > 0 || waiting > 0;
+    tabs.hidden = !show;
+    el.querySelector('#scanTabFailedN').textContent = `(${fmtN(failed)})`;
+    el.querySelector('#scanTabWaitingN').textContent = `(${fmtN(waiting)})`;
+    // A tab that has just emptied (the wait cleared, the failures were
+    // retried) gives way to one that still has something to say.
+    if (!show && _scanTab !== 'progress') setScanTab('progress');
+    else if (_scanTab === 'waiting' && !waiting) setScanTab(failed ? 'failed' : 'progress');
+    else if (_scanTab === 'failed' && !failed) setScanTab(waiting ? 'waiting' : 'progress');
+    else el.querySelectorAll('[data-scan-tab]').forEach(b => b.classList.toggle('on', b.dataset.scanTab === _scanTab));
+  }
+
   function renderScanPanel(q) {
     const el = scanPanelEl();
 
-    const done = q.done || 0, failed = q.failed || 0, total = q.total || 0;
-    openPane('ai', { tab: '🤖 AI scan', sub: `${Math.max(0, total - done - failed).toLocaleString()} left` });
+    const done = n0(q.done), failed = n0(q.failed), total = n0(q.total);
+    const waiting = q.waiting ? n0(q.waiting.count) : 0;
+    const left = Math.max(0, total - done - failed);
+    openPane('ai', { tab: AI_TAB(), sub: waiting ? `${fmtN(waiting)} waiting` : `${fmtN(left)} left` });
     const by = q.paused ? (q.pausedBy || 'user') : null;
-    const modelHalt = by === 'model' || by === 'model-choice';
-    const note = {
-      vault: ' · paused (vault locked)',
-      user: ' · paused',
-      model: ' · paused (model unavailable)',
-      'model-choice': ' · paused (pick a model)',
-    }[by] || '';
-    // Instance counts, if the server reports them. An older server sends no
-    // `instances` array and everything below collapses to today's panel.
-    // The server only reports copies that are loaded, so there is no "unloaded"
-    // count to carry here any more — a copy that goes simply leaves the strip,
-    // and the notice line below says it happened.
+    // Instance counts, if the server reports them. The server only reports
+    // copies that are loaded; a copy that goes simply leaves the strip, and
+    // the notice line says it happened.
     const insts = Array.isArray(q.instances) ? q.instances : [];
     const liveInsts = insts.filter(i => i.enabled);
-    const instBit = liveInsts.length >= 2
-      ? ` · ${liveInsts.length} instances` : '';
 
-    el.querySelector('#scanHead').innerHTML = `
-      ${q.paused ? `<span class="dq-ico">${modelHalt ? '⚠' : '⏸'}</span>` : '<span class="dq-spin"></span>'}
-      <span class="dq-title">🤖 AI scan ${done}/${total}${instBit}${failed ? ` · ${failed} failed` : ''}${note}</span>`;
+    // Head: what is going on, in a few words.
+    const sub = {
+      vault: 'paused (vault locked)',
+      user: 'paused',
+      model: 'paused (model unavailable)',
+      'model-choice': 'pick a model',
+      waiting: `${fmtN(waiting)} waiting`,
+    }[by] || `${fmtN(done + failed)} of ${fmtN(total)}`;
+    el.querySelector('#scanHeadSub').textContent = `· ${sub}`;
+    const icoEl = el.querySelector('#scanHeadIco');
+    const icoKey = by ? (by === 'waiting' || by === 'model' || by === 'model-choice' ? 'wait' : 'pause') : 'run';
+    if (icoEl.dataset.k !== icoKey) {
+      icoEl.dataset.k = icoKey;
+      icoEl.innerHTML = icoKey === 'run' ? `<span class="dq-spin"></span>`
+        : icoKey === 'wait' ? `<span class="sp-dot sp-dot-amber"></span>` : ico('⏸', 'pause');
+    }
+    el.querySelector('#scanCloseBtn').hidden = true;
 
-    const pct = total ? Math.min(100, ((done + failed) / total) * 100) : 0;
+    const pct = total ? Math.min(100, (done / total) * 100) : 0;
+    const fpct = total ? Math.min(100 - pct, (failed / total) * 100) : 0;
     el.querySelector('#scanBarFill').style.width = `${pct}%`;
+    el.querySelector('#scanBarFail').style.width = `${fpct}%`;
 
-    // Why it stopped, and what to do about it. Only the model halt needs
-    // explaining — a vault lock and a deliberate pause speak for themselves.
+    paintScanTabs(el, failed, waiting);
+
+    // "Which model?" is the one stop that still needs a person.
     const warn = el.querySelector('#scanWarn');
-    if (by === 'model-choice' && q.halt) {
+    // The question shows even while the other kind of file is running.
+    if (q.halt && q.halt.needsModelChoice) {
       renderModelChoice(warn, q);
     } else if (by === 'model' && q.halt) {
       delete warn.dataset.pickerAt;
       warn.hidden = false;
-      warn.innerHTML = `⚠ <b>Model unavailable</b>: ${escapeHtml(q.halt.reason || '')}`
-        + (q.halt.filename ? `<div class="dq-warn-at">stopped at ${escapeHtml(q.halt.filename)}</div>` : '')
-        + `<div class="dq-warn-at">Nothing was lost. Load the model, then press ▶ Resume.</div>`;
+      warn.innerHTML = `<b>Model unavailable</b>: ${escapeHtml(q.halt.reason || '')}`
+        + `<div class="dq-warn-at">Nothing was lost. Load the model, then press Resume.</div>`;
     } else {
       delete warn.dataset.pickerAt;
       warn.hidden = true;
       warn.innerHTML = '';
     }
 
-    // Pause ↔ Resume. A vault lock isn't ours to clear, so the button steps
-    // aside rather than pretending it can.
+    // Pause / Resume. A vault lock isn't ours to clear, so the button steps
+    // aside rather than pretending it can. On a wait it reads "Try now".
     const pauseBtn = el.querySelector('#scanPauseBtn');
     const resuming = !!q.paused;
-    pauseBtn.dataset.mode = resuming ? 'resume' : 'pause';
-    pauseBtn.textContent = resuming ? '▶ Resume' : '⏸ Pause';
-    pauseBtn.classList.toggle('dq-btn-primary', resuming && by !== 'vault');
+    const mode = resuming ? 'resume' : 'pause';
+    const label = !resuming ? 'pause' : (by === 'waiting' ? 'try' : 'resume');
+    pauseBtn.dataset.mode = mode;
+    if (pauseBtn.dataset.label !== label) {
+      pauseBtn.dataset.label = label;
+      pauseBtn.innerHTML = label === 'pause' ? `${ico('⏸ ', 'pause')}Pause`
+        : label === 'try' ? `${ico('▶ ', 'play')}Try now` : `${ico('▶ ', 'play')}Resume`;
+    }
+    pauseBtn.classList.toggle('dq-btn-primary', resuming && by !== 'vault' && by !== 'waiting');
     pauseBtn.disabled = _scanCmdBusy || by === 'vault';
+    // Nothing can start while the only model cannot read pictures: Try now
+    // would only say "resumed" and do nothing.
+    pauseBtn.hidden = by === 'waiting' && q.waiting && q.waiting.code === 'not-vision';
     pauseBtn.title = by === 'vault'
       ? 'The vault is locked. Unlock it to carry on scanning'
-      : resuming ? 'Start scanning again from where it stopped'
-        : 'Stop starting new files. Anything mid-scan still finishes';
+      : by === 'waiting' ? 'Send the next file now, even though the scan model does not look ready'
+        : resuming ? 'Start scanning again from where it stopped'
+          : 'Stop starting new files. Anything mid-scan still finishes';
 
     el.querySelector('#scanActions').hidden = false;
-    el.querySelector('#scanMeta').style.display = '';
-    // With one instance the worker count IS the concurrency, so the old line
-    // still says everything. With several, the sum is the interesting number.
-    const wpi = Number(q.workersPerInstance) || Number(q.concurrency) || 0;
-    el.querySelector('#scanEta').textContent = liveInsts.length >= 2 && wpi
-      ? `${liveInsts.length} × ${wpi} = ${liveInsts.length * wpi} in flight · ~${fmtEta(q.etaMs)} left`
-      : `ETA ${fmtEta(q.etaMs)}`;
+    el.querySelector('#scanMeta').hidden = false;
+    // "2 working · about 6 min left · minicpm-v-4.6 (2 copies)"
+    const working = (q.active || []).length;
+    const bits = [];
+    if (by === 'waiting') bits.push('Nothing is scanning');
+    else if (by) bits.push('Paused');
+    else if (q.starting && !working) bits.push('Starting');
+    else bits.push(`${fmtN(working)} working`);
+    const leftText = fmtLeft(q.etaMs);
+    if (!by && leftText) bits.push(leftText);
+    const copies = n0(q.model && q.model.copies) || liveInsts.length;
+    if (q.model && q.model.name) bits.push(`${q.model.name}${copies > 1 ? ` (${copies} copies)` : ''}`);
+    el.querySelector('#scanEta').textContent = bits.join(' · ');
+
+    renderWaiting(q);
 
     // The per-instance strip: one line each, only when it earns its space.
     const strip = el.querySelector('#scanInst');
@@ -571,61 +1008,105 @@
         ? `${Number(i.inFlight) || 0} in flight · ${Number(i.done) || 0} done`
         : 'parked';
       return `<div class="dq-inst-row">`
-        + `<span class="dq-ico">${i.enabled ? '●' : '○'}</span>`
+        + `<span class="sp-dot ${i.enabled ? 'sp-dot-ok' : 'sp-dot-off'}"></span>`
         + `<span class="dq-inst-id">${escapeHtml(i.suffix || ':1')}</span>`
         + `<span>${text}</span></div>`;
     }).join('');
 
     renderScanNotice(el, q.notice);
     // Mid-edit is sacred: a poll landing between keystrokes must not rewrite
-    // what the user is typing.
-    // Workers PER INSTANCE, which is what this stepper sets. `concurrency` is
-    // instances × workers, so reading it put a 4 in a control whose range stops
-    // at 4, and every poll tick undid whatever syncScanWorkersUI had just made
-    // the two steppers agree on.
+    // what the user is typing. Workers PER INSTANCE, which is what this
+    // stepper sets.
     const num = el.querySelector('#scanWorkersNum');
     const workers = String(q.workersPerInstance
       || (window.vaultScanWorkers ? window.vaultScanWorkers() : 2));
     if (document.activeElement !== num && num.value !== workers) num.value = workers;
 
     // .dq-name is already blurred under body.privacy-mode (css/settings.css).
-    // The slot suffix says WHICH copy of the model has this file, so a stalled
-    // row can be traced to the instance above. Absent on older servers, and
-    // the row then looks exactly as it does today.
-    el.querySelector('#scanList').innerHTML = (q.active || []).map(a => {
+    // "Now: file" and, for a watched folder, which one. The slot suffix says
+    // WHICH copy of the model has this file.
+    el.querySelector('#scanList').innerHTML = (q.active || []).map((a, i) => {
       const slot = a.suffix || a.slot || '';
-      return `<div class="dq-row dq-active"><span class="dq-ico">⏳</span>`
+      return `<div class="dq-row dq-active">`
+        + `<span class="sp-now">${i === 0 ? 'Now' : ''}</span>`
         + `<span class="dq-name">${escapeHtml(a.filename || '')}</span>`
+        + (a.watchFolder ? `<span class="sp-folder" title="${escapeHtml(a.watchFolder)}">from ${escapeHtml(baseName(a.watchFolder))}</span>` : '')
         + (slot ? `<span class="dq-slot">${escapeHtml(slot)}</span>` : '')
         + `</div>`;
     }).join('');
+
+    if (_scanTab !== 'progress') loadFailures();
   }
 
   function finishScanPanel(q) {
     const el = scanAiPane();
     if (!el) return;
-    const done = q.done || 0, failed = q.failed || 0, total = q.total || 0;
-    el.querySelector('#scanBarFill').style.width = '100%';
-    openPane('ai', { tab: '🤖 AI scan', sub: 'done' });
-    el.querySelector('#scanHead').innerHTML =
-      `<span class="dq-title">${failed ? '⚠' : '✓'} AI scan ${done}/${total}${failed ? ` · ${failed} failed` : ''}</span>
-       <button class="dq-x" title="Dismiss">✕</button>`;
-    el.querySelector('#scanMeta').style.display = 'none';   // keeps the stepper node alive
+    const done = n0(q.done), failed = n0(q.failed);
+    openPane('ai', { tab: AI_TAB(), sub: failed ? `${fmtN(failed)} failed` : 'done' });
+    el.querySelector('#scanHeadSub').textContent = failed ? `· done, ${fmtN(failed)} failed` : `· done, ${plural(done, 'file')} scanned`;
+    const icoEl = el.querySelector('#scanHeadIco');
+    icoEl.dataset.k = failed ? 'warn' : 'ok';
+    icoEl.innerHTML = failed ? `<span class="sp-dot sp-dot-bad"></span>` : ico('✓', 'check');
+    const pct = n0(q.total) ? Math.min(100, (done / n0(q.total)) * 100) : 100;
+    el.querySelector('#scanBarFill').style.width = `${failed ? pct : 100}%`;
+    el.querySelector('#scanBarFail').style.width = `${failed ? 100 - pct : 0}%`;
+    el.querySelector('#scanMeta').hidden = true;   // keeps the stepper node alive
     el.querySelector('#scanList').innerHTML = '';
-    // Nothing left to pause or cancel — the head's ✕ is a plain dismiss here.
+    // Nothing left to pause or cancel: the head's close is a plain dismiss here.
     el.querySelector('#scanActions').hidden = true;
     el.querySelector('#scanWarn').hidden = true;
     el.querySelector('#scanNotice').hidden = true;
-    el.querySelector('#scanInst').hidden = true;     // nothing in flight to report on
+    el.querySelector('#scanInst').hidden = true;
+    el.querySelector('#scanWaitLine').hidden = true;
+    el.querySelector('#scanCloseBtn').hidden = false;
     disarmCancel();
-    el.querySelector('.dq-x').addEventListener('click', () => dropPane('ai'));
+    paintScanTabs(el, failed, 0);
     clearTimeout(_scanFinishTimer);
-    if (!failed) _scanFinishTimer = setTimeout(() => dropPane('ai'), 4000);
+    if (failed) {
+      // The panel stays with its failure list until it is closed.
+      if (!_scanTabPicked) setScanTab('failed');
+      else loadFailures(true);
+    } else {
+      _scanFinishTimer = setTimeout(() => {
+        if (_scanLast) return;                // a new run started meanwhile
+        fetch('/api/import/failures/clear', { method: 'POST' }).catch(() => {});
+        dropPane('ai');
+      }, 4000);
+    }
   }
 
   function stopScanWatch() {
     clearInterval(_scanTimer);
     _scanTimer = null;
+    startIdleWatch();
+  }
+
+  /* ── The light watch while no run is on screen ──────────────────────────
+     Every few seconds, counts only. Work appearing from anywhere (a watched
+     folder, another tab) brings the full panel back. Marked as background so
+     it never keeps the vault from locking itself. */
+  function startIdleWatch() {
+    if (_scanIdleTimer || _scanTimer) return;
+    _scanIdleTimer = setInterval(idleTick, SCAN_IDLE_POLL_MS);
+  }
+
+  function stopIdleWatch() {
+    clearInterval(_scanIdleTimer);
+    _scanIdleTimer = null;
+  }
+
+  let _idleBusy = false;
+  async function idleTick() {
+    if (_idleBusy || _scanTimer || document.hidden) return;
+    _idleBusy = true;
+    try {
+      const resp = await fetch('/api/import/queue/summary', { headers: { 'X-Vault-Background': '1' } });
+      if (!resp.ok) return;                  // locked (423) or an older server: keep quiet
+      const s = await resp.json();
+      if (n0(s.active) + n0(s.queued) + n0(s.waiting) > 0) watchScanQueue({ fresh: true });
+    } catch { /* the server may be restarting */ } finally {
+      _idleBusy = false;
+    }
   }
 
   /* ── One-time Ko-fi thank-you after a big first scan ────────────────────
@@ -664,7 +1145,7 @@
     if (_scanBusy) return;                  // a slow round must not stack
     _scanBusy = true;
     try {
-      const resp = await fetch('/api/import/queue');
+      const resp = await fetch('/api/import/queue', { headers: { 'X-Vault-Background': '1' } });
       // 423 is the vault-lock gate (server/index.js), not a broken route: the
       // queue is paused, not gone. Keep polling — the run resumes on unlock and
       // the panel picks itself back up with no reload. status() is behind that
@@ -689,8 +1170,9 @@
       const q = await resp.json();
       _scanFails = 0;
 
-      const total = q.total || 0;
-      const working = (q.active?.length || 0) + (q.pending?.length || 0);
+      const total = n0(q.total);
+      const queued = q.pendingCount != null ? n0(q.pendingCount) : (q.pending?.length || 0);
+      const working = (q.active?.length || 0) + queued;
       if (!total && !working) {
         // Idle queue — keep a short watch in case work lands, then let go.
         _scanLast = null;
@@ -698,24 +1180,35 @@
         return;
       }
       _scanIdle = 0;
-      _scanLast = q;
 
       // Warn once per halt whether the panel is up or not: the queue has stopped
       // and needs a person, and the whole stack hides behind the full player.
-      if ((q.pausedBy === 'model' || q.pausedBy === 'model-choice') && q.halt && q.halt.at !== _haltNotified) {
+      if (q.halt && q.halt.at !== _haltNotified) {
         _haltNotified = q.halt.at;
         _scanDismissed = false;                 // a halt is worth un-hiding for
         showToast(`⚠ AI scan paused: ${q.halt.reason}`);
       }
+      // A wait is said once too, but it does not un-hide the panel: it clears
+      // itself, and the user may well have hidden the panel on purpose.
+      if (q.waiting && q.waiting.since && q.waiting.since !== _waitNotified && !q.waiting.gpuBusy) {
+        _waitNotified = q.waiting.since;
+        showToast('⏳ AI scan is waiting for the scan model');
+      }
 
-      const complete = total > 0 && (q.done || 0) + (q.failed || 0) >= total && !working;
-      if (complete) {
+      // Done: nothing running, nothing queued or waiting.
+      if (total > 0 && !working) {
         _scanLast = null;
-        if (scanAiPane()) { renderScanPanel(q); finishScanPanel(q); }
+        if (scanAiPane() || (n0(q.failed) && !_scanDismissed)) {
+          // A run that ended with failures shows them even after a reload:
+          // they are kept on the server until the panel is closed.
+          renderScanPanel(q);
+          finishScanPanel(q);
+        }
         stopScanWatch();
-        maybeKofiNudge(total);
+        if (!n0(q.failed)) maybeKofiNudge(total);
         return;
       }
+      _scanLast = q;
       if (!_scanDismissed) renderScanPanel(q);
     } catch {
       // Missing route or a dead server: bail quietly rather than retrying
@@ -727,11 +1220,12 @@
   }
 
   // Exposed so other modules can raise the panel for work they queued
-  // themselves (selection.js's ↻ Retry errors).
+  // themselves (selection.js's Retry errors).
   window.vaultWatchScanQueue = (opts) => watchScanQueue(opts || {});
 
   function watchScanQueue({ fresh = false } = {}) {
     if (fresh) { _scanDismissed = false; _scanIdle = 0; _scanFails = 0; }
+    stopIdleWatch();
     if (_scanTimer) { scanTick(); return; }
     _scanTimer = setInterval(() => { if (!document.hidden) scanTick(); }, SCAN_POLL_MS);
     scanTick();
@@ -739,7 +1233,8 @@
 
   // Back from another tab → catch up now instead of waiting out the interval.
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && _scanTimer) scanTick();
+    if (document.hidden) return;
+    if (_scanTimer) scanTick(); else if (_scanIdleTimer) idleTick();
   });
 
   /* ── Shared live-grid refresh (throttled — big adds shouldn't repaint 60×) */

@@ -1,13 +1,14 @@
 /**
  * Settings search (player-lib/settings-search.js), run in a VM: the index is
  * well formed and every anchor in it is on the page it names (each Settings
- * page rendered by settings.js, with the Thumbnails group, Face search and
+ * page rendered by settings.js, with the Thumbnails and Scanning groups, Face search and
  * Keyboard shortcuts pages from their own files, in both looks); matching
  * covers names, descriptions and extra words, results group by page with the
  * best first and the matched words marked; keyboard shortcuts come from
  * shortcuts.js and jump to their own row.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -66,7 +67,7 @@ function loadSettings(look) {
   ctx.addEventListener = noop;
   ctx.dispatchEvent = noop;
   vm.createContext(ctx);
-  for (const f of ['shortcuts.js', 'thumb-settings-ui.js', 'watchers-ui.js', 'settings.js', 'faces.js']) vm.runInContext(read(f), ctx);
+  for (const f of ['shortcuts.js', 'thumb-settings-ui.js', 'watchers-ui.js', 'scan-settings-ui.js', 'settings.js', 'faces.js']) vm.runInContext(read(f), ctx);
   return ctx;
 }
 

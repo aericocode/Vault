@@ -3375,6 +3375,16 @@
   function renderModelSel() {
     const sel = document.getElementById('backendModelSel');
     if (!sel) return;
+    // What actually decides, per kind of file, as the server resolves it:
+    // AI_MODEL, then a pick made here or in the scan panel, then the saved
+    // scan model, then Auto.
+    const dec = backend.models?.decides || {};
+    const line = document.getElementById('backendModelPicks');
+    if (line) {
+      const why = { env: 'set by AI_MODEL', pick: 'picked', saved: 'the saved scan model', auto: 'Auto' };
+      const say = (d) => (!d || !d.model || d.by === 'auto') ? 'Auto (whatever is loaded)' : `${d.model} (${why[d.by] || d.by})`;
+      line.textContent = `Right now: pictures and videos use ${say(dec.vision)}; documents and audio use ${say(dec.text)}.`;
+    }
     // Rebuilding a select the user has open closes it and throws away the
     // keyboard position, so a poll that lands mid-choice is skipped instead.
     if (document.activeElement === sel) return;
@@ -3708,6 +3718,7 @@
           <span class="settings-toggle-title">Model for scans</span>
           <span class="settings-toggle-desc"><b>Auto</b> uses whatever is loaded and only asks when more
             than one family is. Picking a family uses every loaded copy of it.</span>
+          <span class="settings-toggle-desc" id="backendModelPicks"></span>
         </span>
         <select class="settings-sel" id="backendModelSel" aria-label="Model for scans">
           <option value="">Auto (whatever is loaded)</option>
@@ -3764,7 +3775,9 @@
       sel.disabled = false;
       if (!ok) { showToast?.('⚠ ' + (data.error || 'could not set the model')); return; }
       if (backend.models) backend.models.current = data.family || data.model || value || '';
-      showToast?.(value ? `Scanning with ${value}` : 'Using whatever is loaded');
+      showToast?.(value ? `Scanning with ${value}` : 'Auto for pictures, videos and documents');
+      // A choice here sets both kinds (Auto clears both): show what decides now.
+      refreshModelSel();
       // Which copies are loaded did not change, only which ones scans use.
       loadInstances();
     });
@@ -3810,7 +3823,7 @@
     faces:     () => (typeof facesSettingsHtml === 'function' ? facesSettingsHtml() : ''),
     shortcuts: () => (typeof shortcutsSettingsHtml === 'function' ? shortcutsSettingsHtml() : ''),
     guides:    RENDERERS_guides,
-    models:    RENDERERS_models,
+    models:    () => (window.vaultScanSettingsHtml ? window.vaultScanSettingsHtml() : '') + RENDERERS_models(),
     seedpacks: RENDERERS_seedpacks,
     cove:      RENDERERS_cove,
     about:     RENDERERS_about,

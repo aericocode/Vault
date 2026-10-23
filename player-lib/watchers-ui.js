@@ -283,9 +283,9 @@
               aria-pressed="${o.value === current ? 'true' : 'false'}"${o.disabled ? ' disabled' : ''}${o.title ? ` title="${h(o.title)}"` : ''}>${o.html || h(o.label)}</button>`).join('')}</span>`;
   }
 
-  function optRow(title, desc, control, extraCls = '') {
+  function optRow(title, desc, control, extraCls = '', hint = '') {
     return `<div class="wf-orow${extraCls ? ' ' + extraCls : ''}">
-        <div class="wf-olabel">${h(title)}${desc ? `<small>${h(desc)}</small>` : ''}</div>
+        <div class="wf-olabel">${h(title)}${desc ? `<small>${h(desc)}</small>` : ''}${hint ? `<small class="wf-ohint">${h(hint)}</small>` : ''}</div>
         <div class="wf-octl">${control}</div>
       </div>`;
   }
@@ -317,7 +317,8 @@
             + `<label class="wf-interval" id="wfIntervalRow"${draft.mode === 'timer' ? '' : ' hidden'}>Check every
                 <input type="number" class="wf-num" id="wfInterval" min="1" max="1440" value="${h(draft.intervalMin)}"> min</label>`)}
           ${optRow('New files', 'Add only: playable and searchable by name right away. You can analyse them later.',
-            seg('newFiles', [{ value: 'analyse', label: 'Add and analyse' }, { value: 'add_only', label: 'Add only' }], draft.newFiles, 'New files'))}
+            seg('newFiles', [{ value: 'analyse', label: 'Add and analyse' }, { value: 'add_only', label: 'Add only' }], draft.newFiles, 'New files'),
+            '', 'Add and analyse uses your scan model. If it is not loaded, new files wait for it.')}
           ${optRow('Include subfolders', '', `<label class="wf-switch"><input type="checkbox" id="wfSubs" ${draft.includeSubfolders ? 'checked' : ''}><span aria-hidden="true"></span><span class="wf-sr">Include subfolders</span></label>`)}
           ${optRow('File types', '', `<span class="wf-chips" role="group" aria-label="File types">${types.map(t => `
             <button type="button" class="wf-chip" data-wf-type="${t.id}" aria-pressed="${draft.types.includes(t.id) ? 'true' : 'false'}">${h(t.label)}</button>`).join('')}</span>`)}

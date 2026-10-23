@@ -377,6 +377,11 @@ function renderSelectionBar() {
   const retryBtn = retryable === 0 ? '' : `<button class="sel-btn sel-retry" onclick="retryErrorsSelected()"
     title="Queue ${retryable} file(s) for another AI scan${errored ? `: ${errored} errored` : ''}${unscanned ? `${errored ? ',' : ':'} ${unscanned} never scanned` : ''}"
     >${vaultEmojiLabel(`↻ Retry errors (${retryable})`)}</button>`;
+  // Force refresh: read the errored files again and remake their thumbnails,
+  // without redoing the AI scan (the fix for files scanned mid-copy).
+  const refreshBtn = errored === 0 || typeof window.vaultForceRefresh !== 'function' ? '' : `<button class="sel-btn sel-refresh" onclick="forceRefreshSelected(this)"
+    title="Read ${errored} errored file(s) again and remake their thumbnails, without redoing the AI scan"
+    >${vaultEmojiLabel(`🔄 Force refresh (${errored})`)}</button>`;
 
   bar.innerHTML = `
     <span class="sel-count">${selectedIds.size} selected</span>
@@ -384,6 +389,7 @@ function renderSelectionBar() {
     ${typeof studiosSelectionButton === 'function' ? studiosSelectionButton() : ''}
     ${typeof facesSelectionButton === 'function' ? facesSelectionButton(counts.faceable) : ''}
     ${retryBtn}
+    ${refreshBtn}
     ${activeCount > 0 ? `<button class="sel-btn sel-trash" onclick="trashSelected()">${vaultEmojiLabel(`🗑 Trash (${activeCount})`)}</button>` : ''}
     ${trashedCount > 0 ? `<button class="sel-btn sel-restore" onclick="restoreSelected()">${vaultEmojiLabel(`♻ Restore (${trashedCount})`)}</button>` : ''}
     ${flagBtn}
@@ -431,6 +437,15 @@ async function retryErrorsSelected() {
   } catch (err) {
     showToast('⚠ ' + err.message);
   }
+}
+
+/** Force refresh the errored files in the selection (player-lib/importer.js does the work). */
+async function forceRefreshSelected(btn) {
+  // The whole selection goes (Select all can reach rows that are not loaded
+  // here); the server keeps only the ones with an error.
+  const ids = [...selectedIds];
+  if (!ids.length) { showToast('Nothing to refresh in this selection'); return; }
+  await window.vaultForceRefresh(ids, btn, { onlyErrored: true });
 }
 
 /* ── Rescan the filtered set (🔍 Scan filter) ──────────────────────────── */

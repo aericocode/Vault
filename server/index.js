@@ -35,6 +35,7 @@ const appSettings = require('../lib/app-settings');
 const setupNotices = require('../lib/setup-notices');
 const aiSlots = require('../lib/ai-slots');
 const lmsCli = require('../lib/lms-cli');
+const scanModel = require('../lib/scan-model');
 const ownedDir = require('../lib/owned-dir');
 const { netFetch } = require('../lib/net');
 const pkg = require('../package.json');
@@ -198,6 +199,9 @@ const MIGRATE_BLOCKED_ROUTES = [
   // so pausing a scan is exactly how you make room to run a migrate. That only
   // holds if un-pausing is refused until the migrate is done.
   /^\/api\/import\/queue\/resume$/,
+  // The scan panel's Retry and Force refresh queue scans and read files by path.
+  /^\/api\/import\/failures\/retry$/,
+  /^\/api\/media\/force-refresh$/,
   // Face indexing reads files by path (lib/faces/). Same paused-queue rule.
   /^\/api\/faces\/index$/,
   /^\/api\/faces\/queue\/resume$/,
@@ -968,16 +972,183 @@ app.post('/api/import/queue/pause', (req, res) => res.json(importQueue.pause()))
 // the panel bounce. Advisory only — the resume still happens, because a probe
 // that's wrong must never be able to trap the user in a paused queue.
 app.post('/api/import/queue/resume', async (req, res) => {
-  const wasModelHalt = importQueue.pausedBy() === 'model';
+  // 'waiting' is what a model halt became (lib/import-queue.js).
+  const by = importQueue.pausedBy();
+  const wasModelHalt = by === 'model' || by === 'waiting';
   let warning = null;
   if (wasModelHalt) {
     try {
       const up = await require('../lib/llm-client').isAvailable();
-      if (!up) warning = 'No LLM endpoint answered. Load a model, or the scan will pause again on the next file.';
+      if (!up) warning = 'No AI server answered. Load the scan model, or files will wait again on the next one.';
     } catch {}
   }
   res.json({ ...importQueue.resume(), warning });
 });
+
+// What the viewer polls while no scan panel is showing, so work queued by
+// someone else (a watched folder, another tab, a retry) brings the panel up.
+// Counts only: cheap enough to ask every few seconds.
+app.get('/api/import/queue/summary', (req, res) => {
+  const s = importQueue.status();
+  res.json({
+    active: s.active.length,
+    queued: s.pendingCount,
+    waiting: s.waiting ? s.waiting.count : 0,
+    failed: s.failed,
+    done: s.done,
+    total: s.total,
+  });
+});
+
+/* ── Failed and waiting files (the scan panel's Failed and Waiting tabs) ──
+   Grouped by reason with a few files per group, never the whole list: a run
+   can fail by the hundred thousand. Grouping reads processing_error from the
+   database in chunks (lib/scan-failures.js), so files fixed since drop out.
+   The result is cached for a few seconds per change of the failure set, as
+   the panel polls it while the tab is open. */
+let _failCache = null;          // { version, at, sample, value }
+const FAIL_CACHE_MS = 3000;
+let _failInflight = null;
+
+async function _failureGroups(sample) {
+  const version = importQueue.failVersion();
+  if (_failCache && _failCache.version === version && _failCache.sample === sample
+      && Date.now() - _failCache.at < FAIL_CACHE_MS) return _failCache.value;
+  if (_failInflight) return _failInflight;
+  _failInflight = (async () => {
+    const out = await require('../lib/scan-failures').collect(db.get(), importQueue.failedIds(), { sample });
+    // Files fixed since (or gone) leave this run's list.
+    if (out.cleared.length) importQueue.forgetFailures(out.cleared);
+    const value = { total: out.total, groups: out.groups };
+    _failCache = { version: importQueue.failVersion(), at: Date.now(), sample, value };
+    return value;
+  })().finally(() => { _failInflight = null; });
+  return _failInflight;
+}
+
+app.get('/api/import/failures', async (req, res) => {
+  const sample = Math.max(1, Math.min(20, parseInt(req.query.sample, 10) || 5));
+  try {
+    const failed = await _failureGroups(sample);
+    res.json({ failed, waiting: importQueue.waitingInfo({ sample: 50 }) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Copy list: every failed file of the run, path and reason, as plain text.
+app.get('/api/import/failures/text', async (req, res) => {
+  try {
+    const text = await require('../lib/scan-failures').asText(db.get(), importQueue.failedIds());
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.type('text/plain; charset=utf-8').send(text);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Retry all failed files of the run, or one reason's (`reason`: a group key).
+app.post('/api/import/failures/retry', async (req, res) => {
+  const reason = req.body?.reason;
+  if (reason !== undefined && reason !== null && (typeof reason !== 'string' || !/^[a-z-]{1,40}$/.test(reason))) {
+    return res.status(400).json({ error: 'reason must be a group key' });
+  }
+  try {
+    res.json(await importQueue.retryFailures(reason || null));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// The panel was closed: forget this run's failure list.
+app.post('/api/import/failures/clear', (req, res) => {
+  res.json({ cleared: importQueue.clearFailures() });
+});
+
+/* ── The scan model (Settings > Models > Scanning, lib/scan-model.js) ───── */
+
+function _scanSettingsPayload(models) {
+  const llm = require('../lib/llm-client');
+  return {
+    ...scanModel.status(),
+    // What a scan asks for right now, and what decided it: AI_MODEL and a
+    // pick made in the scan panel or Backend outrank the saved choice.
+    current: llm.resolveModel({ forScan: true }) || null,
+    envModel: config.lmStudio.model || null,
+    sessionModel: llm.getSessionModel({ kind: 'vision' }) || null,
+    models,
+  };
+}
+
+app.get('/api/ai/scan-settings', async (req, res) => {
+  let models = [];
+  try { models = await scanModel.diskModels({ force: req.query.refresh === '1' }); } catch {}
+  res.json(_scanSettingsPayload(models));
+});
+
+app.post('/api/ai/scan-settings', async (req, res) => {
+  const body = req.body || {};
+  const patch = {};
+  for (const k of ['scanModel', 'whenNotLoaded', 'gpuFreeForWatch', 'unloadIdleMin']) {
+    if (body[k] !== undefined) patch[k] = body[k];
+  }
+  // A scan model has to read pictures: refuse one LM Studio lists as text only.
+  if (typeof patch.scanModel === 'string' && patch.scanModel.trim()) {
+    let rows = [];
+    try { rows = await scanModel.diskModels(); } catch {}
+    const row = rows.find(r => r.modelKey === patch.scanModel.trim());
+    if (row && row.vision === false) {
+      return res.status(400).json({ error: `${row.modelKey} cannot read pictures (LM Studio lists it as text only). Pick a vision model.` });
+    }
+  }
+  const out = scanModel.setSettings(patch);
+  if (out.error) return res.status(400).json({ error: out.error });
+  // The temporary pick from the scan panel or Backend is left alone: text
+  // features use it too. While one is set it outranks this choice for scans,
+  // and the Scanning group says so.
+  let models = [];
+  try { models = await scanModel.diskModels(); } catch {}
+  res.json(_scanSettingsPayload(models));
+});
+
+// "Load anyway" on the Waiting tab: load the scan model whatever the room check says.
+app.post('/api/ai/scan-model/load', async (req, res) => {
+  const w = await importQueue.loadNow();
+  res.json({ ok: !!w && w.code === 'loading', wait: w || null, status: scanModel.status() });
+});
+
+// "Open LM Studio": start the LM Studio app on this PC (the window, not just
+// the server). Only from its usual install places; never a path from the client.
+app.post('/api/ai/open-lmstudio', (req, res) => {
+  const out = _openLmStudio();
+  if (!out.ok) return res.status(404).json({ error: out.error });
+  res.json({ ok: true });
+});
+
+function _openLmStudio() {
+  const candidates = [];
+  if (process.platform === 'win32') {
+    const local = process.env.LOCALAPPDATA;
+    const pf = process.env.ProgramFiles;
+    if (local) candidates.push(path.join(local, 'Programs', 'LM Studio', 'LM Studio.exe'), path.join(local, 'Programs', 'lm-studio', 'LM Studio.exe'));
+    if (pf) candidates.push(path.join(pf, 'LM Studio', 'LM Studio.exe'));
+  } else if (process.platform === 'darwin') {
+    candidates.push('/Applications/LM Studio.app');
+  }
+  const exe = candidates.find(p => { try { return fs.existsSync(p); } catch { return false; } });
+  if (!exe) return { ok: false, error: 'LM Studio was not found in its usual place. Open it from the Start menu.' };
+  try {
+    const { spawn } = require('child_process');
+    const child = process.platform === 'darwin'
+      ? spawn('open', [exe], { detached: true, stdio: 'ignore' })
+      : spawn(exe, [], { detached: true, stdio: 'ignore', windowsHide: false });
+    child.on('error', () => {});
+    child.unref();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
 
 // ── "Which model?" — answering LM Studio's multiple-models 400 ──────────────
 // LM Studio only ignores the `model` field while exactly one model is loaded.
@@ -998,7 +1169,7 @@ app.get('/api/ai/models', async (req, res) => {
     // of Vault. Refresh in Settings > Backend sends ?refresh=1.
     await aiSlots.refresh({ force: req.query.refresh === '1' });
     const states = aiSlots.endpointStates();
-    const fams = aiSlots.families(llm.currentFamily());
+    const fams = aiSlots.families(llm.currentFamily({ forScan: true }));
     const models = [];
     for (const f of fams) for (const i of f.instances) if (i.alive) models.push({ id: i.id });
     const errors = states.filter(s => s.error).map(s => `${s.url}: ${s.error}`);
@@ -1008,12 +1179,20 @@ app.get('/api/ai/models', async (req, res) => {
       // uses all of them, which is the whole point of loading extras.
       families: fams.map(f => ({
         family: f.family,
+        vision: aiSlots.familyVision(f.family),
         count: f.instances.filter(i => i.alive).length,
         endpoints: new Set(f.instances.filter(i => i.alive).map(i => i.endpoint)).size,
       })),
       // What a request would carry today: the session pick, unless AI_MODEL
       // (which outranks it) is set.
-      current: config.lmStudio.model || llm.getSessionModel() || null,
+      current: llm.resolveModel({ forScan: true }) || null,
+      // The temporary picks, per kind, so the Backend page can say which is in charge.
+      picks: { vision: llm.getSessionModel({ kind: 'vision' }) || null, text: llm.getSessionModel({ kind: 'text' }) || null },
+      // What actually decides, per kind, by the same rules a scan uses.
+      decides: {
+        vision: _decides('vision'),
+        text: _decides('text'),
+      },
       error: (models.length === 0 && errors.length) ? errors.join('; ') : null,
     });
   } catch (err) {
@@ -1022,8 +1201,22 @@ app.get('/api/ai/models', async (req, res) => {
   }
 });
 
+/** Which model a scan of this kind asks for, and what decided it. */
+function _decides(kind) {
+  const llm = require('../lib/llm-client');
+  const model = llm.resolveModel(kind === 'vision' ? { forScan: true } : { forTextScan: true }) || null;
+  let by = 'auto';
+  if (config.lmStudio.model) by = 'env';
+  else if (llm.getSessionModel({ kind })) by = 'pick';
+  else if (model) by = 'saved';
+  return { model, by };
+}
+
 app.post('/api/ai/model-choice', (req, res) => {
   const raw = req.body?.model;
+  // 'vision' (pictures and videos) or 'text' (documents, audio): the panel's
+  // picker answers for the kind of file that asked. None: both (Backend).
+  const kind = req.body?.kind === 'vision' || req.body?.kind === 'text' ? req.body.kind : null;
   const llm = require('../lib/llm-client');
   // null / 'auto' means "stop pinning anything" — the way back out of a choice
   // made for a model that has since been unloaded.
@@ -1032,15 +1225,12 @@ app.post('/api/ai/model-choice', (req, res) => {
   if (!clearing && typeof raw !== 'string') {
     return res.status(400).json({ error: 'model must be text, or null for auto' });
   }
-  const model = llm.setSessionModel(clearing ? null : raw);
-  // The halt this answers should clear itself — making the user press ▶ Resume
-  // straight after picking would be asking the same question twice.
-  let resumed = false;
-  if (importQueue.pausedBy() === 'model-choice') {
-    importQueue.resume();
-    resumed = true;
-  }
-  res.json({ ok: true, model, family: llm.currentFamily(), resumed });
+  const model = llm.setSessionModel(clearing ? null : raw, { kind });
+  // The question this answers clears itself: making the user press Resume
+  // straight after picking would be asking the same question twice. A pick
+  // for one kind never clears (or holds) the other kind's question.
+  const resumed = importQueue.answerChoice(kind);
+  res.json({ ok: true, model, family: llm.currentFamily({ forScan: true }), resumed });
 });
 
 /* ── AI servers and loaded instances ──────────────────────────────────────
@@ -1087,7 +1277,7 @@ app.post('/api/ai/endpoints/test', async (req, res) => {
 
 function _instancesPayload() {
   const llm = require('../lib/llm-client');
-  const current = llm.currentFamily();
+  const current = llm.currentFamily({ forScan: true });
   const activeSlots = importQueue.activeSlots();
   const workersPerInstance = importQueue.getWorkersPerInstance();
   return {
@@ -1096,7 +1286,7 @@ function _instancesPayload() {
     // an exact id) rather than a family. The family's other rows are still
     // listed so the user can see them, but only this one is being used, and
     // activeSlots counts only this one.
-    pinnedId: llm.currentPin(),
+    pinnedId: llm.currentPin({ forScan: true }),
     workersPerInstance,
     activeSlots,
     // The real pool size. It equals activeSlots × workersPerInstance whenever
@@ -1290,6 +1480,52 @@ app.post('/api/media/retry-errors', (req, res) => {
   const out = _queueBulkScan(req.body?.ids, { force: false });
   if (out.status) return res.status(out.status).json({ error: out.error });
   res.json(out);
+});
+
+// Force refresh: read files again (media info, thumbnail, hover frames) and
+// clear a stale processing error, without redoing the AI scan (lib/import-add.js
+// forceRefresh). A few files answer with the outcome; a big selection runs in
+// the background (one ffprobe per file adds up) and answers 202 straight away.
+const FORCE_REFRESH_INLINE = 20;
+const FORCE_REFRESH_MAX = 100_000;
+let _forceRefreshJob = null;      // { total, startedAt } while a background run goes
+
+app.post('/api/media/force-refresh', async (req, res) => {
+  const raw = req.body?.ids;
+  if (!Array.isArray(raw) || raw.length === 0) return res.status(400).json({ error: 'ids must be a non-empty array' });
+  const ids = [...new Set(raw.map(v => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v
+    : (typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? Number(v) : null))).filter(v => v !== null))];
+  if (!ids.length) return res.status(400).json({ error: 'no valid ids' });
+  if (ids.length > FORCE_REFRESH_MAX) return res.status(400).json({ error: `at most ${FORCE_REFRESH_MAX} files at once` });
+  // From a selection: only the files that carry an error (a big selection
+  // must not remake every thumbnail in it).
+  if (req.body?.onlyErrored === true) {
+    const handle = db.get();
+    const keep = [];
+    for (let i = 0; i < ids.length; i += 900) {
+      const chunk = ids.slice(i, i + 900);
+      for (const r of handle.prepare(
+        `SELECT id FROM media WHERE id IN (${chunk.map(() => '?').join(',')})
+           AND processing_error IS NOT NULL AND processing_error != '' AND processing_error != 'unscanned'`
+      ).all(...chunk)) keep.push(r.id);
+    }
+    ids.length = 0;
+    ids.push(...keep);
+    if (!ids.length) return res.json({ refreshed: [], stillBroken: [], missing: [], queued: [], noProbe: false, rows: [] });
+  }
+  const importAdd = require('../lib/import-add');
+  const isLocked = () => vault.isLocked();
+  if (ids.length <= FORCE_REFRESH_INLINE) {
+    const out = await importAdd.forceRefresh(ids, { isLocked });
+    return res.json({ ...out, rows: out.refreshed.map(id => db.getById(id)).filter(Boolean) });
+  }
+  if (_forceRefreshJob) return res.status(409).json({ error: 'A force refresh is already running. Try again when it is done.' });
+  _forceRefreshJob = { total: ids.length, startedAt: Date.now() };
+  res.status(202).json({ started: true, count: ids.length });
+  importAdd.forceRefresh(ids, { isLocked })
+    .then(out => console.log(`[Refresh] force refresh: ${out.refreshed.length} read again, ${out.stillBroken.length} still unreadable, ${out.missing.length} missing`))
+    .catch(err => console.warn(`[Refresh] force refresh failed: ${err.message}`))
+    .finally(() => { _forceRefreshJob = null; });
 });
 
 // Bulk rescan — the scan-status filter's "Rescan these (N)" button.
@@ -2162,10 +2398,13 @@ app.post('/api/media/:id/rescan', async (req, res) => {
     const { processFile } = require('../commands/scan');
     require('../lib/frame-extractor').ensureTempDir();
 
-    const result = await processFile(
+    // A scan like the queue's: it uses the saved scan model, and in
+    // automatic mode only models that can read pictures (lib/llm-client.js).
+    const vision = ['video', 'image', 'gif', 'mix'].includes(row.media_type);
+    const result = await aiSlots.runScan({ mediaId: id, scan: true, vision }, () => processFile(
       { path: row.filepath, name: row.filename, mediaType: row.media_type },
       { reprocess: true, retryErrors: true }
-    );
+    ));
 
     embeddings.invalidateCache();
     if (result.error) {
@@ -3190,6 +3429,9 @@ function start(args = process.argv.slice(2)) {
   // Non-blocking: boot must not wait on an LM Studio that is not running. The
   // ticker only spends a request while a scan is actually going.
   aiSlots.boot({ activeProbe: () => importQueue.isActive() || _rescanning.size > 0 });
+  // The idle clock for "Unload the scan model after N min idle" (only ever
+  // copies Vault loaded itself; see lib/scan-model.js).
+  scanModel.boot({ isBusy: () => importQueue.isActive() || _rescanning.size > 0 });
   // Folder watchers: start a few seconds after boot (or on first unlock),
   // stop on lock, catch up on unlock. A migrate holds their writes; a write
   // that marks files missing or back drops the banner's cached count.

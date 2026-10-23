@@ -21,6 +21,11 @@ function renderMetaTools(media) {
       <button class="meta-tool-btn meta-rescan-btn" onclick="rescanMedia(${media.id}, this)" title="Run the AI scan on this file now (LM Studio must be running)">
         ${media.processing_error === 'unscanned' ? '⏳ Scan now' : '🔄 Rescan'}
       </button>` : ''}
+      ${media.media_type !== 'mix' ? `
+      <button class="meta-tool-btn meta-refresh-btn" onclick="window.vaultForceRefresh && window.vaultForceRefresh([${media.id}], this)"
+        title="Force refresh: read the file again (length, size, codecs), remake its thumbnail and hover frames, and clear a stale error. The AI scan is not redone">
+        ${typeof vaultIconSwap === 'function' ? vaultIconSwap('🔄 ', 'refresh') : '🔄 '}Force refresh
+      </button>` : ''}
       <button class="meta-tool-btn" onclick="openCollectionPicker([${media.id}], this)" title="Add/remove this item in your collections">
         📁 Collections
       </button>

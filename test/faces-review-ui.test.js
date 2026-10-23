@@ -6,6 +6,7 @@
  * the target are in none of them; nothing offers a one-click add.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

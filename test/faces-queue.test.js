@@ -4,6 +4,7 @@
  * files back, runNow jumping the queue, and the status shape.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const { createQueue, progressOf } = require('../lib/faces/queue');
