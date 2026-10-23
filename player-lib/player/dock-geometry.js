@@ -8,7 +8,7 @@
    - zoneDecision(y, h, visible)         show / keep / hide for a pointer
                                          height over the stage
    - foldLevel(width, present)           how much of the control row folds
-                                         away at this stage width (0..4)
+                                         away at this stage width (0..7)
    - segments(duration, songs)           the timeline split at song edges
    - layout(segs, width, gap)            each segment's x and width in px
    - timeToX / xToTime                   time <-> px across those gaps
@@ -51,42 +51,61 @@ const DockGeom = (() => {
 
   /* Fold order (spec 7): 1 the volume slider folds into its icon, 2 previous
      and next leave the row, 3 faces and beat bar move into the gear menu,
-     4 (below ~700 px) device sync and speed follow them. Hot, Done, play,
-     A-B, repeat and subtitles never leave. */
+     4 (below ~700 px) device sync and speed follow them. Past that, for
+     stages down to 480 px: 5 back / forward 10 s go to the keyboard (and the
+     gear menu), 6 the time shows the current time only, 7 volume and full
+     screen go to the gear menu (M, Up / Down and F still work). Hot, Done,
+     play, A-B, repeat and subtitles never leave. Up to 3 the play group is
+     truly centred; from 4 the three clusters share the row (the centred
+     sum no longer fits), so the check is their plain total. */
   const W = {
     btn: 42,        // 40 px target + 2 px gap
-    time: 112,      // "1:23:45 / 2:03:44" at 14 px tabular
+    time: 104,      // "12:34 / 45:06" at 14 px tabular, with its padding
+    timeHours: 136, // "1:01:40 / 1:02:36"
+    timeShort: 58,  // current time only: "12:34"
+    timeShortHours: 72,  // "1:01:40"
     sep: 13,
     speed: 54,      // the "1.25x" pill and its margins
     play: 66,       // the 54 px round button and its margins
     slider: 88,     // the 80 px volume slider and its margins
     pad: 48,        // the dock's own side padding
+    gaps: 16,       // between the clusters once they share the row
   };
   const NARROW = 700;
-  const MAX_LEVEL = 4;
+  const CENTRED_MAX = 3;
+  const MAX_LEVEL = 7;
+
+  /** The time label's width at a fold level; present.hours: the file runs an hour or more. */
+  function timeWidth(level, p) {
+    if (level >= 6) return p.hours ? W.timeShortHours : W.timeShort;
+    return p.hours ? W.timeHours : W.time;
+  }
 
   /** Widths of the three clusters at a fold level, for the buttons present. */
   function clusterWidths(level, present = {}) {
     const p = present || {};
-    let left = W.time + W.sep + 2 * W.btn;                // time, Hot, Done
+    let left = timeWidth(level, p) + W.sep + 2 * W.btn;   // time, Hot, Done
     if (level < 3) left += (p.faces ? W.btn : 0) + (p.beat ? W.btn : 0);
     if (level < 4) left += (p.vibe ? W.btn : 0) + W.speed;
-    const center = W.play + 2 * W.btn + (level < 2 ? 2 * W.btn : 0);
-    const right = 6 * W.btn + (level < 1 ? W.slider : 0);  // A-B, repeat, CC, volume, gear, full screen
+    let center = W.play + (level < 5 ? 2 * W.btn : 0) + (level < 2 ? 2 * W.btn : 0);
+    // A-B, repeat, CC, gear always; volume and full screen until level 7
+    const right = 4 * W.btn + (level < 7 ? 2 * W.btn : 0) + (level < 1 ? W.slider : 0);
     return { left, center, right };
   }
 
-  /** Room the row needs with the play group truly centred (grid 1fr auto 1fr). */
+  /** Room the row needs at a level: play truly centred (grid 1fr auto 1fr)
+   *  up to level 3, the clusters side by side from level 4. */
   function rowNeed(level, present) {
     const c = clusterWidths(level, present);
-    return 2 * Math.max(c.left, c.right) + c.center + W.pad;
+    if (level <= CENTRED_MAX) return 2 * Math.max(c.left, c.right) + c.center + W.pad;
+    return c.left + c.center + c.right + W.gaps + W.pad;
   }
 
   /** The least folding that fits `width` px of stage. */
   function foldLevel(width, present) {
     width = num(width, 0);
-    if (width < NARROW) return MAX_LEVEL;
-    for (let level = 0; level < MAX_LEVEL; level++) {
+    const from = width < NARROW ? CENTRED_MAX + 1 : 0;
+    for (let level = from; level < MAX_LEVEL; level++) {
       if (rowNeed(level, present) <= width) return level;
     }
     return MAX_LEVEL;
@@ -242,7 +261,7 @@ const DockGeom = (() => {
   }
 
   return {
-    DOCK_ZONE, TOP_ZONE, BUFFER, NARROW, MAX_LEVEL, W,
+    DOCK_ZONE, TOP_ZONE, BUFFER, NARROW, CENTRED_MAX, MAX_LEVEL, W,
     zoneDecision, clusterWidths, rowNeed, foldLevel,
     segments, layout, segmentIndexAt, timeToX, xToTime,
     scrubFrameIndex, noteMarks, noteNear, hotMarks, smoothHeat,

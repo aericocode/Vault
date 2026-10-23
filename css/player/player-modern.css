@@ -257,18 +257,27 @@ body.layout-modern .mp-vol-slider::-moz-range-thumb {
 }
 body.layout-modern .mp-vol-slider:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 4px; }
 
-/* ── Folding (data-fold from DockGeom.foldLevel) ────────────────────── */
+/* ── Folding (DockGeom.foldLevel; the dock carries f1 .. fN up to its level) ── */
 
 /* 1: the slider folds into its icon, back on hover or focus */
-body.layout-modern .mp-dock:not([data-fold="0"]) .mp-vol-slider { width: 0; margin: 0; opacity: 0; }
-body.layout-modern .mp-dock:not([data-fold="0"]) .mp-vol:hover .mp-vol-slider,
-body.layout-modern .mp-dock:not([data-fold="0"]) .mp-vol:focus-within .mp-vol-slider { width: 80px; margin: 0 6px 0 2px; opacity: 1; }
+body.layout-modern .mp-dock.f1 .mp-vol-slider { width: 0; margin: 0; opacity: 0; }
+body.layout-modern .mp-dock.f1 .mp-vol:hover .mp-vol-slider,
+body.layout-modern .mp-dock.f1 .mp-vol:focus-within .mp-vol-slider { width: 80px; margin: 0 6px 0 2px; opacity: 1; }
 /* 2: previous / next leave (keyboard, gear menu) */
-body.layout-modern .mp-dock:is([data-fold="2"], [data-fold="3"], [data-fold="4"]) :is(#mpPrev, #mpNext) { display: none; }
+body.layout-modern .mp-dock.f2 :is(#mpPrev, #mpNext) { display: none; }
 /* 3: faces and beat bar move to the top of the gear menu */
-body.layout-modern .mp-dock:is([data-fold="3"], [data-fold="4"]) :is(#facesFrameBtn, #beatbarBtn) { display: none; }
+body.layout-modern .mp-dock.f3 :is(#facesFrameBtn, #beatbarBtn) { display: none; }
 /* 4: below ~700 px device sync and speed follow them */
-body.layout-modern .mp-dock[data-fold="4"] :is(#vibeBtn, #speedDisplay) { display: none; }
+body.layout-modern .mp-dock.f4 :is(#vibeBtn, #speedDisplay) { display: none; }
+/* 5: back / forward 10 s go to the keyboard (J, L) and the gear menu */
+body.layout-modern .mp-dock.f5 :is(#mpBack10, #mpFwd10) { display: none; }
+/* 6: the time shows the current time only */
+body.layout-modern .mp-dock.f6 .mp-time-tot { display: none; }
+body.layout-modern .mp-dock.f6 .mp-time { padding-right: 4px; }
+/* 7: volume and full screen go to the gear menu (M, Up / Down, F) */
+body.layout-modern .mp-dock.f7 :is(#mpVol, #mpFullBtn) { display: none; }
+/* From 4 on the clusters share the row; the dock's sides get narrower too */
+body.layout-modern .mp-dock.f5 { padding-left: 16px; padding-right: 16px; }
 
 /* ── Timeline ───────────────────────────────────────────────────────── */
 
@@ -605,7 +614,7 @@ body.layout-modern .mp-note {
 
 /* Below ~700 px even the folded row cannot keep play exactly centred, so the
    three clusters share the width instead of overlapping. */
-body.layout-modern .mp-dock[data-fold="4"] .mp-row {
+body.layout-modern .mp-dock.f4 .mp-row {
   display: flex;
   justify-content: space-between;
   gap: 8px;

@@ -63,10 +63,30 @@ test('fold: a wide stage keeps everything, folding goes slider, prev/next, faces
   assert.strictEqual(G.foldLevel(G.rowNeed(1, {}), {}), 1);
 });
 
-test('fold: below 700 px the left cluster folds too', () => {
+test('fold: below 700 px the left cluster folds too, then 10 s skips, long time, volume and full screen', () => {
   assert.strictEqual(G.foldLevel(699, {}), 4);
-  assert.strictEqual(G.foldLevel(320, { faces: true }), 4);
   assert.strictEqual(G.foldLevel(760, {}) < 4, true);
+  const all = { faces: true, vibe: true, beat: true };
+  const levels = [];
+  for (let w = 699; w >= 300; w -= 1) levels.push(G.foldLevel(w, all));
+  for (let i = 1; i < levels.length; i++) assert.ok(levels[i] >= levels[i - 1], `monotonic at ${699 - i}`);
+  assert.deepStrictEqual([...new Set(levels)], [4, 5, 6, 7]);
+  assert.strictEqual(G.foldLevel(320, { faces: true }), 7, 'nothing left to fold: the last level');
+});
+
+test('fold: every stage from 480 px up fits its row, also with an hour-long file', () => {
+  for (const hours of [false, true]) {
+    for (const extra of [{}, { faces: true, vibe: true, beat: true }]) {
+      const p = { ...extra, hours };
+      for (let w = 480; w <= 1600; w += 2) {
+        const level = G.foldLevel(w, p);
+        assert.ok(G.rowNeed(level, p) <= w, `w=${w} hours=${hours} level=${level} needs ${G.rowNeed(level, p)}`);
+      }
+    }
+  }
+  // A long time label folds sooner than a short one
+  assert.ok(G.foldLevel(560, { hours: true }) >= G.foldLevel(560, {}));
+  assert.ok(G.clusterWidths(6, { hours: true }).left < G.clusterWidths(5, { hours: true }).left, 'level 6 shows the current time only');
 });
 
 test('fold: fewer optional buttons need less room', () => {
@@ -75,14 +95,19 @@ test('fold: fewer optional buttons need less room', () => {
   assert.ok(none <= all);
   assert.ok(G.foldLevel(1000, {}) <= G.foldLevel(1000, { faces: true, vibe: true, beat: true }));
   // Each fold level needs no more room than the one before
-  for (let l = 1; l <= 4; l++) assert.ok(G.rowNeed(l, { faces: true, vibe: true, beat: true }) <= G.rowNeed(l - 1, { faces: true, vibe: true, beat: true }));
+  for (let l = 1; l <= G.MAX_LEVEL; l++) assert.ok(G.rowNeed(l, { faces: true, vibe: true, beat: true }) <= G.rowNeed(l - 1, { faces: true, vibe: true, beat: true }));
 });
 
-test('fold: Hot, Done and the right cluster never fold away', () => {
-  const c = G.clusterWidths(4, { faces: true, vibe: true, beat: true });
-  assert.strictEqual(c.left, G.W.time + G.W.sep + 2 * G.W.btn, 'time, Hot and Done stay');
-  assert.strictEqual(c.right, 6 * G.W.btn, 'A-B, repeat, CC, volume, gear, full screen stay');
-  assert.strictEqual(c.center, G.W.play + 2 * G.W.btn, 'back 10, play, forward 10 stay');
+test('fold: Hot, Done, play, A-B, repeat and subtitles never fold away', () => {
+  const p = { faces: true, vibe: true, beat: true };
+  const c4 = G.clusterWidths(4, p);
+  assert.strictEqual(c4.left, G.W.time + G.W.sep + 2 * G.W.btn, 'level 4: time, Hot and Done stay');
+  assert.strictEqual(c4.right, 6 * G.W.btn, 'level 4: A-B, repeat, CC, volume, gear, full screen stay');
+  assert.strictEqual(c4.center, G.W.play + 2 * G.W.btn, 'level 4: back 10, play, forward 10 stay');
+  const c7 = G.clusterWidths(7, p);
+  assert.strictEqual(c7.left, G.W.timeShort + G.W.sep + 2 * G.W.btn, 'level 7: current time, Hot and Done');
+  assert.strictEqual(c7.center, G.W.play, 'level 7: play');
+  assert.strictEqual(c7.right, 4 * G.W.btn, 'level 7: A-B, repeat, CC and the gear');
 });
 
 test('segments: no song data is one plain segment', () => {

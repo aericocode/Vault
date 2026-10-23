@@ -768,7 +768,12 @@ function renderDoneButton() {
   if (typeof mpBuildingDock === 'function' && mpBuildingDock()) {
     return `<button type="button" onclick="markSessionDone()" class="mp-ic done-btn" title="Done. Marks the end of this viewing here" aria-label="Done">${mpIcon('done-tick')}</button>`;
   }
-  return `<button onclick="markSessionDone()" class="done-btn" title="Done. End the viewing session here (💦 tracked per item)">💦 Done</button>`;
+  // Classic's bar (and the audio player in either look): the emoji in Classic,
+  // the line icon in Modern (icons.js swaps them with the look).
+  const title = typeof vaultIsModern === 'function' && vaultIsModern()
+    ? 'Done. Marks the end of this viewing here' : 'Done. End the viewing session here (💦 tracked per item)';
+  const lead = typeof vaultIconSwap === 'function' ? vaultIconSwap('💦 ', 'done-tick') : '💦 ';
+  return `<button onclick="markSessionDone()" class="done-btn" title="${title}">${lead}Done</button>`;
 }
 
 /**
@@ -779,7 +784,10 @@ function renderHotButton() {
   if (typeof mpBuildingDock === 'function' && mpBuildingDock()) {
     return `<button type="button" onclick="markSessionHot()" class="mp-ic hot-btn" title="Hot moment. Marks this spot (orange on the bar)" aria-label="Hot moment">${mpIcon('hot')}</button>`;
   }
-  return `<button onclick="markSessionHot()" class="hot-btn" title="Hot. Mark an intense moment here (🔥 tracked per item)">🔥 Hot</button>`;
+  const title = typeof vaultIsModern === 'function' && vaultIsModern()
+    ? 'Hot moment. Marks this spot' : 'Hot. Mark an intense moment here (🔥 tracked per item)';
+  const lead = typeof vaultIconSwap === 'function' ? vaultIconSwap('🔥 ', 'hot') : '🔥 ';
+  return `<button onclick="markSessionHot()" class="hot-btn" title="${title}">${lead}Hot</button>`;
 }
 
 /**
@@ -817,7 +825,9 @@ async function markSessionHot() {
     }
   } catch {}
 
-  showToast(`🔥 Hot, marked on ${media.filename}`);
+  // Modern's toasts carry no emoji (Classic keeps it)
+  const modern = typeof vaultIsModern === 'function' && vaultIsModern();
+  showToast(`${modern ? '' : '🔥 '}Hot, marked on ${media.filename}`);
   if (typeof drawActivityBar === 'function') drawActivityBar(); // tint the spot live
   renderResults(); // refresh 🔥 badges on the grid behind the player
 }
@@ -858,7 +868,8 @@ async function markSessionDone() {
     }
   } catch {}
 
-  showToast(`💦 Done, marked on ${media.filename}`);
+  const modern = typeof vaultIsModern === 'function' && vaultIsModern();
+  showToast(`${modern ? '' : '💦 '}Done, marked on ${media.filename}`);
   if (typeof drawActivityBar === 'function') drawActivityBar(); // tint the spot live
   renderResults(); // refresh 💦 badges on the grid behind the player
 }

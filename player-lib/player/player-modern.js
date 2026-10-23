@@ -111,16 +111,16 @@ function buildModernControls(ctl) {
       ${opt('renderFacesFrameButton', ctl.filepath)}
       ${opt('renderVibeButton')}
       ${mpBeatButton()}
-      <button type="button" class="mp-ic mp-pill" id="speedDisplay" onclick="ModernDock.toggleSpeedList()"
+      <button type="button" class="mp-ic mp-pill" id="speedDisplay" onclick="ModernDock.toggleSpeedList(event)"
         title="Speed (&lt; and &gt;)" aria-label="Speed" aria-haspopup="menu">1x</button>
     </div>`;
 
   const center = `
     <div class="mp-c">
       ${mpButton('prev-file', 'Previous file (P)', `id="mpPrev" onclick="playPreviousMedia()" ${ctl.hasPrev ? '' : 'disabled'}`)}
-      ${mpButton('back-ten', 'Back 10 seconds (J)', 'onclick="skipVideo(-10)"')}
+      ${mpButton('back-ten', 'Back 10 seconds (J)', 'id="mpBack10" onclick="skipVideo(-10)"')}
       <button type="button" class="mp-ic mp-play" id="playPauseBtn" onclick="togglePlay()" title="Play or pause (Space)" aria-label="Play">${mpIcon('play-fill')}</button>
-      ${mpButton('fwd-ten', 'Forward 10 seconds (L)', 'onclick="skipVideo(10)"')}
+      ${mpButton('fwd-ten', 'Forward 10 seconds (L)', 'id="mpFwd10" onclick="skipVideo(10)"')}
       ${mpButton('next-file', 'Next file (N)', `id="mpNext" onclick="playNextMedia()" ${ctl.hasNext ? '' : 'disabled'}`)}
     </div>`;
 
@@ -135,7 +135,7 @@ function buildModernControls(ctl) {
           oninput="setVolume(this.value)" aria-label="Volume" title="Volume (Up and Down)">
         <span id="volumeDisplay" hidden>${Math.round(vol * 100)}%</span>
       </span>
-      ${mpButton('gear', 'Settings', 'id="mpGearBtn" onclick="ModernDock.toggleGear()" aria-haspopup="menu"')}
+      ${mpButton('gear', 'Settings', 'id="mpGearBtn" onclick="ModernDock.toggleGear(event)" aria-haspopup="menu"')}
       ${mpButton('fullscreen', 'Full screen (F)', 'id="mpFullBtn" onclick="toggleFullscreen()"')}
     </div>`;
 
@@ -209,7 +209,7 @@ const ModernDock = (() => {
     bindTimeline();
     const el = videoEl();
     if (el) {
-      st.onMeta = () => { rebuild(); syncAll(); };
+      st.onMeta = () => { rebuild(); syncAll(); applyFold(true); };
       el.addEventListener('loadedmetadata', st.onMeta);
       st.boundEl = el;
     }
@@ -238,6 +238,7 @@ const ModernDock = (() => {
     if (typeof syncPlayPauseButton === 'function') syncPlayPauseButton();
     syncVolume();
     syncDevice();
+    syncFullscreen();
     update();
   }
 
@@ -591,7 +592,10 @@ const ModernDock = (() => {
 
   function present() {
     const shown = (id) => { const el = $(id); return !!(el && !el.hidden); };
-    return { faces: shown('facesFrameBtn'), vibe: shown('vibeBtn'), beat: shown('beatbarBtn') };
+    // An hour or more makes the time label longer ("1:01:40 / 1:02:36")
+    const tot = $('totalTime');
+    const hours = duration() >= 3600 || !!(tot && /\d:\d\d:\d\d/.test(tot.textContent));
+    return { faces: shown('facesFrameBtn'), vibe: shown('vibeBtn'), beat: shown('beatbarBtn'), hours };
   }
 
   function applyFold(force) {
@@ -602,6 +606,8 @@ const ModernDock = (() => {
     if (!force && level === st.fold) return;
     st.fold = level;
     st.dock.dataset.fold = String(level);
+    // f1 .. fN: every level up to this one, so the CSS reads "at least N"
+    for (let i = 1; i <= G.MAX_LEVEL; i++) st.dock.classList.toggle('f' + i, i <= level);
     if (st.menu && st.menu.kind === 'gear') renderGear(st.menu.view);
   }
 
@@ -633,36 +639,64 @@ const ModernDock = (() => {
   }
 
   function onOutside(e) {
-    if (!st || !st.menu) return;
+    if (!st || !st.menu || e === st.menu.openEvent) return;
     if (st.menu.el.contains(e.target) || st.menu.anchor?.contains(e.target)) return;
     closeMenu();
   }
 
+  /* Keys while a menu is open: Esc steps back or closes, Up / Down / Home /
+     End move between rows, Enter / Space pick the row in focus. None of
+     them reach the player (no volume change, no play / pause). */
+  const MENU_KEYS = ['Escape', 'ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', ' '];
+
   function onMenuKey(e) {
-    if (e.key !== 'Escape' || !st || !st.menu) return;
+    if (!st || !st.menu || e === st.menu.openEvent || !MENU_KEYS.includes(e.key)) return;
     e.stopPropagation();
     e.preventDefault();
-    if (st.menu.kind === 'gear' && st.menu.view !== 'root') { renderGear('root'); return; }
-    const anchor = st.menu.anchor;
-    closeMenu();
-    anchor?.focus({ preventScroll: true });
+    const m = st.menu;
+    if (e.key === 'Escape') {
+      if (m.kind === 'gear' && m.view !== 'root') { renderGear('root'); return; }
+      const anchor = m.anchor;
+      const byKey = m.byKey;
+      closeMenu();
+      // Back to the button only for someone working from the keyboard; after
+      // a mouse open, focus there would hold the controls up for good.
+      if (byKey) anchor?.focus({ preventScroll: true });
+      return;
+    }
+    const items = [...m.el.querySelectorAll('.mp-it:not([disabled])')];
+    if (!items.length) return;
+    const at = items.indexOf(document.activeElement);
+    if (e.key === 'Enter' || e.key === ' ') {
+      if (at >= 0) items[at].click();
+      return;
+    }
+    let next;
+    if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = items.length - 1;
+    else if (e.key === 'ArrowDown') next = at < 0 ? 0 : (at + 1) % items.length;
+    else next = at < 0 ? items.length - 1 : (at - 1 + items.length) % items.length;
+    items[next].focus({ preventScroll: true });
   }
 
   /** Open a menu box above `anchor`, its edge lined up with the anchor's. */
-  function openMenu(kind, anchor, cls) {
+  function openMenu(kind, anchor, cls, ev) {
     closeMenu();
     if (!mounted() || !anchor) return null;
     const el = document.createElement('div');
     el.className = `mp-menu ${cls || ''}`;
     el.setAttribute('role', 'menu');
     st.dock.appendChild(el);
-    st.menu = { kind, el, anchor, view: 'root', acts: [] };
+    // byKey: opened with Enter / Space (a click with no pointer behind it)
+    const openEvent = ev || window.event || null;
+    const byKey = !!(openEvent && openEvent.type === 'click' && openEvent.detail === 0) || keyNav;
+    st.menu = { kind, el, anchor, view: 'root', acts: [], openEvent, byKey };
     anchor.classList.add('open');
     el.addEventListener('click', onMenuClick);
-    setTimeout(() => {
-      document.addEventListener('mousedown', onOutside, true);
-      document.addEventListener('keydown', onMenuKey, true);
-    }, 0);
+    // At once, so an Esc right after opening closes the menu rather than the
+    // player; the event that opened the menu is skipped by both handlers.
+    document.addEventListener('mousedown', onOutside, true);
+    document.addEventListener('keydown', onMenuKey, true);
     return el;
   }
 
@@ -686,14 +720,14 @@ const ModernDock = (() => {
   }
 
   /* Speed list: every step the player has, Normal in words. */
-  function toggleSpeedList() {
+  function toggleSpeedList(ev) {
     if (st && st.menu && st.menu.kind === 'speed') { closeMenu(); return; }
     const anchor = $('speedDisplay');
-    const el = openMenu('speed', anchor, 'mp-menu-narrow');
+    const el = openMenu('speed', anchor, 'mp-menu-narrow', ev);
     if (!el) return;
     el.innerHTML = speedRows(true);
     placeMenu(false);
-    el.querySelector('.sel')?.focus({ preventScroll: true });
+    if (st.menu.byKey) el.querySelector('.sel')?.focus({ preventScroll: true });
   }
 
   /** The speed rows (and the head and note when it is its own list). */
@@ -712,9 +746,9 @@ const ModernDock = (() => {
   }
 
   /* Gear menu: the set-once choices, plus whatever the row has folded away. */
-  function toggleGear() {
+  function toggleGear(ev) {
     if (st && st.menu && st.menu.kind === 'gear') { closeMenu(); return; }
-    const el = openMenu('gear', $('mpGearBtn'), '');
+    const el = openMenu('gear', $('mpGearBtn'), '', ev);
     if (!el) return;
     renderGear('root');
   }
@@ -772,6 +806,15 @@ const ModernDock = (() => {
           const on = !!(window.BeatBar && window.BeatBar.isEnabled());
           extra.push(row({ icon: 'beat', label: 'Beat bar', value: on ? 'On' : 'Off', act: () => { window.toggleBeatBar(); renderGear('root'); } }));
         }
+      }
+      if (fold >= 5) {
+        extra.push(row({ icon: 'back-ten', label: 'Back 10 seconds', key: 'J', act: () => skipVideo(-10) }));
+        extra.push(row({ icon: 'fwd-ten', label: 'Forward 10 seconds', key: 'L', act: () => skipVideo(10) }));
+      }
+      if (fold >= 7) {
+        const silent = typeof playerIsSilent === 'function' && playerIsSilent();
+        extra.push(row({ icon: silent ? 'mute' : 'volume', label: silent ? 'Unmute' : 'Mute', key: 'M', act: () => { toggleMute(); renderGear('root'); } }));
+        extra.push(row({ icon: document.fullscreenElement ? 'fullscreen-exit' : 'fullscreen', label: document.fullscreenElement ? 'Exit full screen' : 'Full screen', key: 'F', act: after(() => toggleFullscreen()) }));
       }
       if (fold >= 4) {
         if (mpDeviceSetUp() && typeof window.toggleVibe === 'function') {
@@ -848,7 +891,7 @@ const ModernDock = (() => {
     st.menu.el.innerHTML = html;
     placeMenu(true);
     const first = st.menu.el.querySelector('.mp-it:not([disabled])');
-    if (first && view !== 'root') first.focus({ preventScroll: true });
+    if (first && (view !== 'root' || st.menu.byKey)) first.focus({ preventScroll: true });
   }
 
   /* ── Show / hide ──────────────────────────────────────────────────── */
@@ -861,7 +904,11 @@ const ModernDock = (() => {
     const bb = document.querySelector('.beatbar-overlay .beatbar-settings:not([hidden]), .beatbar-overlay .bbm-settings:not([hidden])');
     if (bb) return true;
     const ov = overlay();
-    if (ov && ov.querySelector('.mp-dock :focus-visible, .mp-top :focus-visible')) return true;
+    // Keyboard focus in the dock holds it only while someone is tabbing
+    // through it: a button focused by a click, followed by shortcut keys,
+    // must not keep the controls up (Chrome shows :focus-visible after any key).
+    const active = document.activeElement;
+    if (keyNav && ov && active && ov.contains(active) && active.closest('.mp-dock, .mp-top')) return true;
     const tip = document.getElementById('vaultTooltip');
     if (tip && tip.classList.contains('is-on') && !tip.hidden) {
       const target = ov && ov.querySelector('[aria-describedby="vaultTooltip"]');
@@ -894,6 +941,27 @@ const ModernDock = (() => {
     ov.classList.remove('controls-visible');
     revealCursorOnly();
   }
+
+  /* ── Keyboard navigation vs. the mouse ────────────────────────────── */
+
+  /* True from a Tab (or Shift+Tab) until the next pointer press. Shortcut
+     keys leave it alone, so a click on a dock button followed by Space or an
+     arrow does not count as keyboard navigation. */
+  let keyNav = false;
+  document.addEventListener('keydown', (e) => { if (e.key === 'Tab') keyNav = true; }, true);
+  document.addEventListener('pointerdown', () => { keyNav = false; }, true);
+
+  /* ── Full screen button follows the state ──────────────────────────── */
+
+  function syncFullscreen() {
+    const btn = $('mpFullBtn');
+    if (!btn) return;
+    const on = !!document.fullscreenElement;
+    btn.innerHTML = mpIcon(on ? 'fullscreen-exit' : 'fullscreen');
+    btn.title = on ? 'Exit full screen (F)' : 'Full screen (F)';
+    btn.setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen');
+  }
+  document.addEventListener('fullscreenchange', syncFullscreen);
 
   /* ── The look switched with the player open ───────────────────────── */
 

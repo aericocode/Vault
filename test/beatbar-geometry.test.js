@@ -143,3 +143,76 @@ test('panel: flips below when the bar is near the top, and never leaves the wind
   const left = G.panelPlace({ anchor: { top: 600, bottom: 640, right: 100 }, vw: 1400, vh: 900, panelW: 380 });
   assert.strictEqual(left.right, 1400 - 380 - 8);
 });
+
+/* ── Stored config shape: the released build must still read it ───────────
+   The released beatbar.js loads { ...DEFAULT_CONFIG, ...raw } and its
+   settings popover calls config.fillColor.toLowerCase() and
+   config.borderColor.toLowerCase(), then reads the numbers as numbers. */
+
+const CLASSIC = '#7aa8ff';
+const RELEASED_DEFAULTS = {
+  sensitivity: 2.0, speed: 7, playheadFrac: 0.5, posFrac: null, nudgeSec: 0,
+  shape: 'circle', effects: { pulse: true, ripple: false, spark: false },
+  fillColor: '#7aa8ff', fillSize: 9, fillOpacity: 1.0, borderColor: '#ffffff', borderWidth: 0,
+};
+// What this build keeps in memory before saving (never picked a colour, Modern width set)
+const MEMORY = { ...RELEASED_DEFAULTS, fillColor: null, widthFrac: null, effects: { ...RELEASED_DEFAULTS.effects } };
+
+function releasedRead(json) {
+  const raw = JSON.parse(json);
+  const cfg = { ...RELEASED_DEFAULTS, ...raw, effects: { ...RELEASED_DEFAULTS.effects, ...(raw.effects || {}) } };
+  // the calls the released popover makes on open
+  cfg.fillColor.toLowerCase();
+  cfg.borderColor.toLowerCase();
+  for (const k of ['sensitivity', 'speed', 'playheadFrac', 'nudgeSec', 'fillSize', 'fillOpacity', 'borderWidth']) {
+    assert.strictEqual(typeof cfg[k], 'number', k);
+  }
+  assert.ok(cfg.posFrac === null || typeof cfg.posFrac === 'number');
+  return cfg;
+}
+
+test('stored config: a never-picked colour is saved as the classic blue plus a flag, never null', () => {
+  for (const mem of [MEMORY, { ...MEMORY, fillColor: undefined }, { ...MEMORY, fillColor: '' }]) {
+    const json = JSON.stringify(G.storedConfig(mem, CLASSIC));
+    const raw = JSON.parse(json);
+    assert.strictEqual(raw.fillColor, CLASSIC);
+    assert.strictEqual(raw.fillColorAuto, true);
+    assert.strictEqual(releasedRead(json).fillColor, CLASSIC);
+    assert.strictEqual(G.fillColorFromStored(raw, CLASSIC), null, 'reads back as "follow the look"');
+  }
+});
+
+test('stored config: a picked colour is saved as is, with no flag, and reads back', () => {
+  const json = JSON.stringify(G.storedConfig({ ...MEMORY, fillColor: '#ff4d6d', fillColorAuto: true }, CLASSIC));
+  const raw = JSON.parse(json);
+  assert.strictEqual(raw.fillColor, '#ff4d6d');
+  assert.ok(!('fillColorAuto' in raw));
+  assert.strictEqual(G.fillColorFromStored(raw, CLASSIC), '#ff4d6d');
+  releasedRead(json);
+});
+
+test('stored config: every saved shape this build makes is safe for the released reader', () => {
+  const variants = [
+    MEMORY,
+    { ...MEMORY, widthFrac: 0.7, posFrac: 0.4 },
+    { ...MEMORY, widthFrac: NaN },
+    { ...MEMORY, fillColor: '#a5b4fc', borderWidth: 1.5, borderColor: '#000000' },
+  ];
+  for (const v of variants) {
+    const raw = JSON.parse(JSON.stringify(G.storedConfig(v, CLASSIC)));
+    releasedRead(JSON.stringify(raw));
+    assert.ok(raw.widthFrac === null || typeof raw.widthFrac === 'number');
+  }
+  // storedConfig does not change the in-memory config
+  assert.strictEqual(MEMORY.fillColor, null);
+});
+
+test('stored config: reading what other builds left behind', () => {
+  assert.strictEqual(G.fillColorFromStored({}, CLASSIC), null, 'no blob: follow the look');
+  assert.strictEqual(G.fillColorFromStored({ fillColor: null }, CLASSIC), null, 'an earlier test build stored null');
+  assert.strictEqual(G.fillColorFromStored({ fillColor: 42 }, CLASSIC), null);
+  assert.strictEqual(G.fillColorFromStored({ fillColor: '#7aa8ff' }, CLASSIC), '#7aa8ff', 'a released build saved its blue: kept');
+  // released build kept our flag but the user picked pink there: the pick wins
+  assert.strictEqual(G.fillColorFromStored({ fillColor: '#ec4899', fillColorAuto: true }, CLASSIC), '#ec4899');
+  assert.strictEqual(G.fillColorFromStored({ fillColor: '#7AA8FF', fillColorAuto: true }, CLASSIC), null);
+});

@@ -32,21 +32,17 @@
    (config.widthFrac). Px per second stay fixed by Speed, so a wider lane
    shows more time (player-lib/beatbar-geometry.js). Its own settings panel
    (css/beatbar-modern.css) uses the same config keys. Switching looks
-   rebuilds the overlay in place, beats and all.
+   rebuilds the overlay in place, beats and all. The glass lane is for the
+   main player only: a bar attached to another video (the Editor) stays the
+   classic card, which is what its export bakes.
+
+   Needs player-lib/beatbar-geometry.js loaded first (db-viewer.html): the
+   Modern maths and the stored config shape (storedConfig /
+   fillColorFromStored) live there so Node tests can load them.
    ========================================================================= */
 
 (function () {
-  // The Modern lane's pure maths live in their own file (tested in Node).
-  // Loaded from here so the page needs no extra tag; nothing uses it until a
-  // video plays, long after it has arrived.
-  if (typeof window.BeatBarGeom === 'undefined') {
-    try {
-      const s = document.createElement('script');
-      s.src = new URL('beatbar-geometry.js', document.currentScript?.src || location.href).href;
-      s.async = false;
-      document.head.appendChild(s);
-    } catch {}
-  }
+  const G = window.BeatBarGeom;
 
   const LS_ENABLED = 'beatbar_enabled';
   const LS_CONFIG = 'beatbar_config';
@@ -158,11 +154,17 @@
         };
         delete cfg.effect;
       }
+      // "Never picked a colour" is stored as the classic blue plus a flag,
+      // so older builds reading this blob always find a colour string.
+      cfg.fillColor = G.fillColorFromStored(raw, CLASSIC_FILL);
+      delete cfg.fillColorAuto;
       return cfg;
     }
     catch { return { ...DEFAULT_CONFIG }; }
   }
-  function saveConfig() { try { localStorage.setItem(LS_CONFIG, JSON.stringify(config)); } catch {} }
+  function saveConfig() {
+    try { localStorage.setItem(LS_CONFIG, JSON.stringify(G.storedConfig(config, CLASSIC_FILL))); } catch {}
+  }
   let config = loadConfig();
 
   // Slider 1.0–10.0 → threshold multiplier (higher mult = lower threshold =
@@ -575,7 +577,7 @@
   /* ── Overlay ───────────────────────────────────────────────────────────── */
 
   function createOverlay(state) {
-    state.modern = isModern() && !!window.BeatBarGeom;
+    state.modern = wantsModern(state);
     if (state.modern) return createModernOverlay(state);
     const overlay = document.createElement('div');
     overlay.className = 'beatbar-overlay';
@@ -737,7 +739,7 @@
       qa('.bb-effect-btn').forEach(b => b.classList.toggle('active', !!config.effects[b.dataset.effect]));
       const noneOn = !config.effects.pulse && !config.effects.ripple && !config.effects.spark;
       q('.bb-effect-off')?.classList.toggle('active', noneOn);
-      qa('.bb-fill-swatch').forEach(b => b.classList.toggle('active', b.dataset.color.toLowerCase() === fillColorOf(config).toLowerCase()));
+      qa('.bb-fill-swatch').forEach(b => b.classList.toggle('active', b.dataset.color.toLowerCase() === fillColorOf(config, !!state.modern).toLowerCase()));
       qa('.bb-border-swatch').forEach(b => b.classList.toggle('active', b.dataset.color.toLowerCase() === config.borderColor.toLowerCase()));
     };
 
@@ -1002,10 +1004,9 @@
     q('.bbm-back').addEventListener('click', () => {
       const opts = state.panelOpts || {};
       setSettingsOpen(false);
-      // The player's gear menu passes onBack to reopen itself; anything else
-      // can listen for the event.
+      // Only shown when the opener passed onBack (the player's gear menu,
+      // which reopens itself)
       if (typeof opts.onBack === 'function') opts.onBack();
-      else document.dispatchEvent(new CustomEvent('beatbar:settings-back'));
     });
     q('.bbm-reset').addEventListener('click', () => {
       const oldSens = config.sensitivity;
@@ -1094,7 +1095,7 @@
     state.panelFrom = from;
     state.panelOpts = opts || {};
     const back = state.panel.querySelector('.bbm-back');
-    if (back) back.hidden = from !== 'menu';
+    if (back) back.hidden = typeof state.panelOpts.onBack !== 'function';
     state._prevShown = null;
     syncPreview(state, performance.now());
     placeModernPanel(state);
@@ -1316,11 +1317,16 @@
     document.getElementById('beatbarSettingsBtn')?.classList.remove('gear-open');
   }
 
+  // The glass lane is the main player's only. A bar riding another video
+  // (the Editor's stack / grid master) stays the classic card in both looks,
+  // so what you see there is what its export bakes.
+  const wantsModern = (state) => !state.ownVideo && isModern() && !!window.BeatBarGeom;
+
   // Settings > Layout switched looks: rebuild the bar in place.
   window.addEventListener('vault:layout-style', () => {
     const state = _state;
     if (!state || state.destroyed) return;
-    if (state.modern === (isModern() && !!window.BeatBarGeom)) return;
+    if (state.modern === wantsModern(state)) return;
     teardownOverlay(state);
     createOverlay(state);
   });
@@ -1535,6 +1541,7 @@
 
     const state = {
       video, mediaId: mediaItem.id,
+      ownVideo: !!videoEl,
       beats: [], bpm: 0,
       filtered: null, worker: null,
       smoothTime: 0, lastPerf: null,
@@ -1682,10 +1689,9 @@
   // Settings button in the control bar — toggles the panel. If the bar isn't
   // running yet, turn it on first so there's something to preview.
   // In Modern this is the player's gear menu > "Beat bar settings": the panel
-  // gets a back arrow and opens above the dock. Optional opts:
+  // opens above the dock. Optional opts:
   //   anchor  element to open above (the dock's gear button)
-  //   onBack  called by the back arrow (reopen the menu); without it the
-  //           arrow fires a 'beatbar:settings-back' event on document
+  //   onBack  shows a back arrow in the header that calls it (reopen the menu)
   function openBeatBarSettings(opts) {
     opts = opts && typeof opts === 'object' && !(opts instanceof Event) ? opts : {};
     if (!_state) {
@@ -1734,7 +1740,10 @@
     btn.classList.toggle('beatbar-btn-on', on);
     const stateEl = btn.querySelector('.beatbar-state');
     if (stateEl) stateEl.textContent = on ? 'ON' : 'OFF';
-    btn.title = buttonTitle(on);
+    // The Modern dock's button (player-modern.js) keeps its own wording
+    btn.title = btn.classList.contains('mp-beat')
+      ? (on ? 'Beat bar is on. Click to turn it off' : 'Beat bar is off. Click to turn it on')
+      : buttonTitle(on);
   }
 
   /* Safety net for players that don't render the buttons themselves (and for

@@ -18,7 +18,10 @@
                                   anchor (bottom fixed, so it grows upward),
                                   or below it when there is no room above
 
-   Loaded by player-lib/beatbar.js; tested in test/beatbar-geometry.test.js.
+   - storedConfig / fillColorFromStored   the saved config's shape, kept
+                                  readable by older builds (see below)
+
+   Loaded before player-lib/beatbar.js; tested in test/beatbar-geometry.test.js.
    ========================================================================= */
 
 const BeatBarGeom = (function () {
@@ -100,9 +103,33 @@ const BeatBarGeom = (function () {
     return { right, bottom: null, top: anchor.bottom + gap, maxHeight: Math.max(120, below) };
   }
 
+  /* Stored config shape (localStorage beatbar_config). Released builds read
+     it as { ...defaults, ...raw } and call fillColor.toLowerCase(), so every
+     key they know must keep its old type. A never-picked colour (null in
+     memory: "follow the look's default") is stored as the classic colour
+     plus fillColorAuto: true. New keys (widthFrac) are ignored by old builds. */
+  function storedConfig(cfg, classicFill) {
+    const out = { ...cfg, effects: { ...(cfg.effects || {}) } };
+    if (typeof out.fillColor === 'string' && out.fillColor) delete out.fillColorAuto;
+    else { out.fillColor = classicFill; out.fillColorAuto = true; }
+    out.widthFrac = finite(out.widthFrac) ? out.widthFrac : null;
+    return out;
+  }
+
+  // null = follow the look's default. The flag only counts while the colour
+  // is still the classic one: an older build that let you pick another colour
+  // keeps the flag it does not know about, and the pick must win.
+  function fillColorFromStored(raw, classicFill) {
+    const c = raw && typeof raw.fillColor === 'string' && raw.fillColor ? raw.fillColor : null;
+    if (!c) return null;
+    if (raw.fillColorAuto === true && c.toLowerCase() === String(classicFill).toLowerCase()) return null;
+    return c;
+  }
+
   return {
     WIDTH_MIN, WIDTH_MAX, WIDTH_DEFAULT, LANE_H, DOCK_GAP,
     clampWidthFrac, widthAfterGripDrag, laneTiming, laneBox, posFracFromPointer, panelPlace,
+    storedConfig, fillColorFromStored,
   };
 })();
 
