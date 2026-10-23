@@ -386,14 +386,19 @@ function shortcutsOnKey(e) {
 /* ── Settings > Keyboard shortcuts ────────────────────────────────────── */
 
 function shortcutsSettingsHtml() {
-  return `
-    <h3 class="settings-h" data-sfind="shortcutsList">Keyboard shortcuts</h3>
+  const body = `
     <div class="sk-settings-top">
       <input type="search" class="sk-search" id="skSettingsSearch" placeholder="Find a shortcut" aria-label="Find a shortcut" autocomplete="off" spellcheck="false">
       <span class="sk-tip">Press <kbd>?</kbd> anywhere to see this list.</span>
     </div>
     <div class="sk-body sk-cols2" id="skSettingsList">${shortcutsGroupsHtml(shortcutsGroups('', null), '')}</div>
     <p class="settings-note sk-settings-foot">Shortcuts don't fire while you type in a box.</p>`;
+  // Modern: one card (player-lib/settings-kit.js); Classic: its heading.
+  if (typeof settingsIsModern === 'function' && settingsIsModern()) {
+    return settingsCardHtml({ title: 'Keyboard shortcuts', sfind: 'shortcutsList', body });
+  }
+  return `
+    <h3 class="settings-h" data-sfind="shortcutsList">Keyboard shortcuts</h3>${body}`;
 }
 
 function shortcutsWireSettings() {

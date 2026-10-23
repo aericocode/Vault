@@ -1482,46 +1482,40 @@ async function facesFindInFrame() {
 
 /* ── Settings > Face search ────────────────────────────────────────────── */
 
-// Same markup as settings.js toggleRow / segRow, with this block's own
-// data attributes so the Settings tab's generic wiring never picks them up.
+// Same markup as settings.js toggleRow / segRow (settings-kit.js
+// settingsRowHtml), with this block's own data attributes so the Settings
+// tab's generic wiring never picks them up.
 function facesToggleRow(key, title, desc, extraClass = '') {
-  return `
-    <label class="settings-toggle${extraClass ? ` ${extraClass}` : ''}" data-sfind="faces-${key}">
-      <span class="settings-toggle-text">
-        <span class="settings-toggle-title">${title}</span>
-        <span class="settings-toggle-desc">${desc}</span>
-      </span>
-      <input type="checkbox" data-faces-setting="${key}">
-      <span class="settings-switch" aria-hidden="true"></span>
-    </label>`;
+  return settingsRowHtml({
+    tag: 'label', cls: extraClass, sfind: `faces-${key}`, title, desc,
+    control: `<input type="checkbox" data-faces-setting="${key}">
+      <span class="settings-switch" aria-hidden="true"></span>`,
+  });
 }
 
 function facesStatHtml(id) {
   return `<div><span class="faces-stat-num" id="${id}Num"></span><span class="faces-stat-label" id="${id}Label"></span></div>`;
 }
 
-/** The whole Settings > Face search section (settings.js RENDERERS.faces). */
-function facesSettingsHtml() {
-  return `
-    <div class="faces-settings" id="facesSettings">
-      ${facesToggleRow('enabled', 'Face search',
-        'Click a face in a file\'s info to see every file that person is in, or search with a photo.', 'faces-main-toggle')}
-      <p class="settings-note faces-privacy">Face search runs entirely on this computer. Nothing is
-      uploaded. Faces are stored in your library and can be deleted here at any time.</p>
-
+/* The pieces of the Face search page. Classic puts a heading over each;
+   Modern a card around each (facesSettingsHtml below). Same ids either way,
+   so facesSettingsPaint and facesWireSettings serve both looks. */
+function facesSettingsParts(modern) {
+  return {
+    privacy: `<p class="settings-note faces-privacy">Face search runs entirely on this computer. Nothing is
+      uploaded. Faces are stored in your library and can be deleted here at any time.</p>`,
+    offCard: `
       <div class="mig-card" id="facesOffCard" hidden>
         <div class="mig-card-title">What you can do with it</div>
         <ul class="faces-list">
           <li>Click a face in a file's info to see every file that person is in.</li>
-          <li>Drop a photo on 👤 Find a person to search with it.</li>
+          <li>Drop a photo on ${modern ? 'Find a person' : '👤 Find a person'} to search with it.</li>
           <li>Pause a video and find the people in that frame.</li>
         </ul>
         <p class="faces-card-foot">The first time, Vault downloads three models (about ${facesSetupMB()} MB).
         Nothing else is set up until you turn it on.</p>
-      </div>
-
-      <div id="facesSetup" hidden>
-        <h3 class="settings-h faces-h">Setting up</h3>
+      </div>`,
+    setupCard: `
         <div class="mig-card" id="facesSetupCard">
           <div class="faces-status-line" id="facesSetupText"></div>
           <div class="mig-progress" id="facesDlBar" hidden>
@@ -1529,11 +1523,8 @@ function facesSettingsHtml() {
             <div class="mig-bar-stats"></div>
           </div>
           <div class="mig-actions"><button class="settings-btn" id="facesDlBtn" type="button">Download the models</button></div>
-        </div>
-      </div>
-
-      <div id="facesOnRows" hidden>
-        <h3 class="settings-h faces-h" data-sfind="facesLibrary">Your library</h3>
+        </div>`,
+    libraryCard: `
         <div class="mig-card">
           <div class="faces-stats">
             ${facesStatHtml('facesStatChecked')}
@@ -1551,10 +1542,8 @@ function facesSettingsHtml() {
             <span class="faces-qstatus" id="facesQueueText"></span>
           </div>
           <p class="faces-done" id="facesDoneText" hidden></p>
-        </div>
-
-        <div id="facesModelRows" hidden>
-          <h3 class="settings-h faces-h" data-sfind="facesModel">Face model</h3>
+        </div>`,
+    models: `
           <div class="faces-models">${Object.keys(FACES_KEEPERS).map(facesModelCardHtml).join('')}</div>
           <div class="faces-stuck" id="facesStuck" hidden>
             <span id="facesStuckText"></span>
@@ -1575,35 +1564,78 @@ function facesSettingsHtml() {
               <button class="settings-btn faces-ghost" id="facesSwitchBackBtn" type="button" hidden></button>
             </div>
           </div>
-          <p class="faces-model-hint" id="facesModelHint"></p>
-        </div>
-
-        <h3 class="settings-h faces-h">Checking</h3>
+          <p class="faces-model-hint" id="facesModelHint"></p>`,
+    checking: `
         ${facesToggleRow('autoIndex', 'Find faces in new imports automatically',
           'New photos and videos are checked for faces after they are added.')}
-        <div class="settings-toggle settings-seg-row faces-stack" data-sfind="facesInterval">
-          <span class="settings-toggle-text">
-            <span class="settings-toggle-title" id="facesIntervalLabel">How closely to check videos</span>
-            <span class="settings-toggle-desc">Closer checks find more faces but take longer. Applies to files checked from now on.</span>
-          </span>
-          <span class="settings-seg" role="group" aria-labelledby="facesIntervalLabel">
+        ${settingsRowHtml({
+          cls: 'settings-seg-row faces-stack', sfind: 'facesInterval', titleId: 'facesIntervalLabel',
+          title: 'How closely to check videos',
+          desc: modern ? 'Closer finds more faces but takes longer. Applies from now on.'
+            : 'Closer checks find more faces but take longer. Applies to files checked from now on.',
+          control: `<span class="settings-seg" role="group" aria-labelledby="facesIntervalLabel">
             ${FACES_INTERVALS.map(v => `<button type="button" class="settings-seg-btn" data-faces-interval="${v}"
               aria-pressed="false">Every ${v} seconds</button>`).join('')}
             <button type="button" class="settings-seg-btn" data-faces-interval="custom" aria-pressed="false">Custom</button>
           </span>
           <label class="faces-custom" id="facesCustomRow" hidden>Every
             <input class="settings-num" type="number" id="facesCustomInterval" min="0.5" max="120" step="0.5"
-              aria-label="Seconds between checked frames"> seconds</label>
-        </div>
-        <label class="settings-toggle" data-sfind="facesMaxFrames">
-          <span class="settings-toggle-text">
-            <span class="settings-toggle-title">Most frames per video</span>
-            <span class="settings-toggle-desc">Longer videos spread these frames evenly. More frames find more faces but take longer.</span>
-          </span>
-          <span class="settings-num-wrap">
+              aria-label="Seconds between checked frames"> seconds</label>`,
+        })}
+        ${settingsRowHtml({
+          tag: 'label', sfind: 'facesMaxFrames', title: 'Most frames per video',
+          desc: modern ? 'Long videos spread these frames evenly. More finds more faces but takes longer.'
+            : 'Longer videos spread these frames evenly. More frames find more faces but take longer.',
+          control: `<span class="settings-num-wrap">
             <input class="settings-num faces-maxframes" type="number" id="facesMaxFrames" min="100" max="20000" step="1">
-          </span>
-        </label>
+          </span>`,
+        })}`,
+    deleteRow: settingsRowHtml({
+      cls: 'faces-delete-row', sfind: 'facesDelete', title: 'Delete all face data',
+      desc: 'Removes every face Vault has found. Your photos and videos are not touched.',
+      control: '<button class="settings-btn faces-danger" id="facesDeleteBtn" type="button">Delete</button>',
+    }),
+  };
+}
+
+/** The whole Settings > Face search section (settings.js RENDERERS.faces). */
+function facesSettingsHtml() {
+  const modern = typeof settingsIsModern === 'function' && settingsIsModern();
+  const P = facesSettingsParts(modern);
+  const mainToggle = facesToggleRow('enabled', 'Face search',
+    'Click a face in a file\'s info to see every file that person is in, or search with a photo.', 'faces-main-toggle');
+  if (modern) {
+    const card = settingsCardHtml;
+    return `
+    <div class="faces-settings" id="facesSettings">
+      ${card({ title: 'Face search', body: mainToggle + P.privacy + P.offCard })}
+      ${card({ title: 'Setting up', id: 'facesSetup', hidden: true, body: P.setupCard })}
+      <div id="facesOnRows" hidden>
+        ${card({ title: 'Your library', sfind: 'facesLibrary', body: P.libraryCard })}
+        ${card({ title: 'Face model', sfind: 'facesModel', id: 'facesModelRows', hidden: true, body: P.models })}
+        ${card({ title: 'Checking', body: P.checking })}
+      </div>
+      ${card({ title: 'Face data', id: 'facesDeleteRow', hidden: true, body: P.deleteRow })}
+    </div>`;
+  }
+  return `
+    <div class="faces-settings" id="facesSettings">
+      ${mainToggle}
+      ${P.privacy}
+${P.offCard}
+
+      <div id="facesSetup" hidden>
+        <h3 class="settings-h faces-h">Setting up</h3>${P.setupCard}
+      </div>
+
+      <div id="facesOnRows" hidden>
+        <h3 class="settings-h faces-h" data-sfind="facesLibrary">Your library</h3>${P.libraryCard}
+
+        <div id="facesModelRows" hidden>
+          <h3 class="settings-h faces-h" data-sfind="facesModel">Face model</h3>${P.models}
+        </div>
+
+        <h3 class="settings-h faces-h">Checking</h3>${P.checking}
       </div>
 
       <!-- Its own section, outside facesOnRows: the privacy line promises
@@ -1611,13 +1643,7 @@ function facesSettingsHtml() {
            on or off. -->
       <div id="facesDeleteRow" hidden>
         <h3 class="settings-h faces-h">Face data</h3>
-        <div class="settings-toggle faces-delete-row" data-sfind="facesDelete">
-          <span class="settings-toggle-text">
-            <span class="settings-toggle-title">Delete all face data</span>
-            <span class="settings-toggle-desc">Removes every face Vault has found. Your photos and videos are not touched.</span>
-          </span>
-          <button class="settings-btn faces-danger" id="facesDeleteBtn" type="button">Delete</button>
-        </div>
+        ${P.deleteRow}
       </div>
     </div>`;
 }

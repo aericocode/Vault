@@ -95,9 +95,23 @@
   let state = null;           // last GET /api/watch/folders
   let pollTimer = null;
 
+  /* Modern: one summary row ("3 folders watched") whose Manage button opens
+     the same group in a dialog (settings-kit.js), so every id below is the
+     same in both looks. */
   function html() {
+    if (typeof settingsIsModern === 'function' && settingsIsModern()) {
+      return settingsCardHtml({ title: 'Watched folders', body: settingsRowHtml({
+        sfind: 'watchFolders', title: '<span id="wfSummary">Watched folders</span>',
+        desc: 'New files in these folders are added on their own.',
+        control: `<button type="button" class="settings-btn settings-btn-quiet" id="wfManageBtn"${settingsDialogOpenerAttrs('wfDlg')}>Manage</button>`,
+      }) + settingsDialogHtml({ id: 'wfDlg', title: 'Watched folders', wide: true, body: groupHtml() }) });
+    }
     return `
-      <h3 class="settings-h" data-sfind="watchFolders">Watched folders</h3>
+      <h3 class="settings-h" data-sfind="watchFolders">Watched folders</h3>${groupHtml()}`;
+  }
+
+  function groupHtml() {
+    return `
       <div class="wf-group" id="wfGroup">
         <div class="wf-topbar">
           <p class="settings-note wf-intro">Vault keeps an eye on these folders and adds new files on its own.
@@ -161,6 +175,12 @@
     }
     const cos = document.getElementById('wfCheckOnStart');
     if (cos) cos.checked = state.checkOnStart !== false;
+    // Modern's summary row.
+    const sum = document.getElementById('wfSummary');
+    if (sum) {
+      const n = state.folders.length;
+      sum.textContent = n ? `${plural(n, 'folder')} watched${state.paused ? ', paused' : ''}` : 'No folders watched yet';
+    }
   }
 
   async function refreshList() {
