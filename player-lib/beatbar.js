@@ -1215,12 +1215,7 @@
       ctx.beginPath();
       ctx.roundRect(0, 0, w, h, h / 2);
       ctx.clip();
-      const { video, x, y, w: bw, h: bh } = backdrop;
-      if (video.readyState >= 2) {
-        ctx.filter = `blur(${GLASS_BLUR_PX}px)`;
-        try { ctx.drawImage(video, x, y, bw, bh); } catch {}
-        ctx.filter = 'none';
-      }
+      paintBackdrop(ctx, w, h, backdrop);
       ctx.fillStyle = GLASS_TINT;
       ctx.fillRect(0, 0, w, h);
       ctx.restore();
@@ -1327,6 +1322,42 @@
     }
 
     ctx.restore(); // end clip
+  }
+
+  /* The blurred picture under the lane, kept in an offscreen canvas
+     (backdrop.cache, one per attachment). Redrawn while playing, after a
+     seek lands, or when the lane / picture box changes; reused while paused
+     (no per-frame blur cost) and while the video has no frame to give
+     (seeking, readyState < 2), so the frost never drops out on a skip. */
+  function paintBackdrop(ctx, w, h, backdrop) {
+    const { video, x, y, w: bw, h: bh, cache } = backdrop;
+    const dpr = window.devicePixelRatio || 1;
+    const pw = Math.max(1, Math.round(w * dpr)), ph = Math.max(1, Math.round(h * dpr));
+    const key = `${pw}x${ph}|${x}|${y}|${bw}|${bh}`;
+    const ready = video.readyState >= 2 && !video.seeking;
+    const fresh = cache && cache.ok && cache.key === key && video.paused && cache.t === video.currentTime;
+    if (ready && !fresh) {
+      if (!cache) {                       // no cache (shouldn't happen): draw direct
+        ctx.filter = `blur(${GLASS_BLUR_PX}px)`;
+        try { ctx.drawImage(video, x, y, bw, bh); } catch {}
+        ctx.filter = 'none';
+        return;
+      }
+      const c = cache.canvas || (cache.canvas = document.createElement('canvas'));
+      if (c.width !== pw || c.height !== ph) { c.width = pw; c.height = ph; }
+      const cx = c.getContext('2d');
+      cx.setTransform(1, 0, 0, 1, 0, 0);
+      cx.clearRect(0, 0, pw, ph);
+      cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      cx.filter = `blur(${GLASS_BLUR_PX}px)`;
+      try {
+        cx.drawImage(video, x, y, bw, bh);
+        cache.ok = true; cache.key = key; cache.t = video.currentTime;
+      } catch { cache.ok = false; }
+      cx.filter = 'none';
+    }
+    // Last good frost (stretched if the lane changed size meanwhile)
+    if (cache && cache.ok && cache.canvas) ctx.drawImage(cache.canvas, 0, 0, w, h);
   }
 
   // What the Modern lane says while it works: one plain line, no counts; the
@@ -1445,7 +1476,8 @@
       });
       const bd = state._backdrop;
       renderGlassFrame(ctx, w, h, state.smoothTime, state.beats, config, timing, 0,
-        bd ? { video: state.video, ...bd } : { video: { readyState: 0 } });
+        bd ? { video: state.video, ...bd, cache: state._frost || (state._frost = {}) }
+           : { video: { readyState: 0 }, cache: state._frost });
       return;
     }
     renderBarFrame(ctx, w, h, state.smoothTime, state.beats, config);
@@ -1719,7 +1751,8 @@
     if (on && media?.media_type === 'video') {
       const item = Library.rowByPath(media.filepath);
       attach(item || media);
-      showToast('🥁 Beat bar ON, stays on for future videos');
+      showToast(isModern() ? 'Beat bar on. It stays on for future videos'
+        : '🥁 Beat bar ON, stays on for future videos');
     } else {
       detach();
       if (!on) showToast('Beat bar off');

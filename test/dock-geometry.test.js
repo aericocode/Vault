@@ -200,7 +200,6 @@ test('note marks: times inside note text, ranges by their start, nearest within 
     { text: 'no time here' },
     { text: '' },
     null,
-    { text: 'not a time 1:75' },
   ]);
   assert.deepStrictEqual(plain(marks.map(m => m.t)), [11, 83, 116, 3723]);
   assert.strictEqual(G.noteNear(marks, 117.5).text, 'good bit at 1:56');
@@ -259,7 +258,48 @@ test('note marks: hundredths in note times (m:ss.d, m:ss.dd, h:mm:ss.dd)', () =>
     { text: 'drop at 0:41.25 and 1:02.5' },
     { text: 'range 0:11.25-1:23.5' },
     { text: 'long one 1:02:03.07' },
-    { text: 'three places 0:12.345 is not a time' },
   ]);
   assert.deepStrictEqual(plain(marks.map(m => m.t)), [11.25, 41.25, 62.5, 83.5, 3723.07]);
+});
+
+/* The note-time cases notes.js links (its _TS_LINK_RE, [h:]m:ss[.d|.dd]
+   between word boundaries), so a pin sits wherever the note shows a link. */
+test('note marks: same times as the note links, full stops and long decimals included', () => {
+  const t = (text) => plain(G.noteMarks([{ text }]).map(m => m.t));
+  assert.deepStrictEqual(t('good bit at 1:56.'), [116], 'a full stop after a time belongs to the sentence');
+  assert.deepStrictEqual(t('ends 2:03:04.'), [7384], 'h:mm:ss before a full stop');
+  assert.deepStrictEqual(t('v 1:23.456'), [83], 'three decimals stop at the whole second');
+  assert.deepStrictEqual(t('three places 0:12.345'), [12]);
+  assert.deepStrictEqual(t('at 0:41.25, then 0:43.5!'), [41.25, 43.5]);
+  assert.deepStrictEqual(t('(1:56)'), [116]);
+  assert.deepStrictEqual(t('range 0:11 - 1:23 and 0:30–0:40'), [11, 30, 40, 83]);
+  assert.deepStrictEqual(t('1:02:33 start'), [3753]);
+  assert.deepStrictEqual(t('time 1:75 as written'), [135], 'not range-checked, like the links');
+  assert.deepStrictEqual(t('ab1:23 and 1:2 and 123:45'), [], 'no word boundary, one-digit seconds or three-digit minutes');
+});
+
+/* Pins and links cannot drift apart: the times notes.js would link (its own
+   pattern, read from its source) are exactly the times pinned on the bar. */
+test('note marks: agree with notes.js link pattern on every case', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'notes.js'), 'utf8');
+  const tsSrc = /const _TS = '([^']+)';/.exec(src);
+  assert.ok(tsSrc, 'notes.js still defines _TS');
+  // The source holds a JS string literal: '\\d' there is the regex \d
+  const TS = tsSrc[1].replace(/\\\\/g, '\\');
+  const link = new RegExp(`\\b(${TS})\\s*[-–—]\\s*(${TS})\\b|\\b${TS}\\b`, 'g');
+  const secs = (ts) => {
+    const m = /^(?:(\d{1,2}):)?(\d{1,2}):(\d{2}(?:\.\d{1,2})?)$/.exec(ts);
+    return Math.round(((Number(m[1] || 0) * 3600) + Number(m[2]) * 60 + Number(m[3])) * 100) / 100;
+  };
+  const cases = ['good bit at 1:56.', 'ends 2:03:04.', 'v 1:23.456', 'at 0:41.25, then 0:43.5!', '(1:56)',
+    'range 0:11 - 1:23 and 0:30–0:40', '1:02:33 start', 'time 1:75 as written', 'ab1:23 and 1:2 and 123:45',
+    'loop 0:11.25-1:23.5 again', '0:00 and 0:00.5', 'a.1:23 b 1:23.4.5'];
+  for (const text of cases) {
+    const linked = new Set();
+    for (const m of text.matchAll(link)) {
+      if (m[1]) { linked.add(secs(m[1])); linked.add(secs(m[2])); } else linked.add(secs(m[0]));
+    }
+    const pinned = G.noteMarks([{ text }]).map(m => m.t);
+    assert.deepStrictEqual(plain(pinned), plain([...linked].sort((a, b) => a - b)), text);
+  }
 });

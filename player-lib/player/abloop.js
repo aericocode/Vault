@@ -141,9 +141,31 @@ function checkAbLoop(mediaElement) {
   if (abLoopA === null || abLoopB === null) return;
   // Within a hundredth of B or past it. timeupdate only comes ~4 times a
   // second, so _abWatch checks every frame as well; this is the fallback.
-  if (mediaElement.currentTime >= abLoopB - 0.01) {
+  // A B at (or past) the end of the file wraps AB_END_GUARD early: the last
+  // timeupdate can come before B and the frame watch can miss the final
+  // frame, and then 'ended' would move the queue on (autoAdvanceOnEnded also
+  // turns an 'ended' into a wrap while a loop is set, as the last net).
+  const dur = mediaElement.duration;
+  const end = isFinite(dur) && dur > 0 ? Math.min(abLoopB - 0.01, dur - AB_END_GUARD) : abLoopB - 0.01;
+  if (mediaElement.currentTime >= end) {
     mediaElement.currentTime = abLoopA;
   }
+}
+
+/** How far before the end of the file a loop that runs to the end wraps. */
+const AB_END_GUARD = 0.06;
+
+/**
+ * The file ended while an A-B loop was set (B at the very end, and the last
+ * frame slipped past the checks): go back to A and keep playing instead of
+ * moving on. Returns true when it did.
+ */
+function abLoopWrapAtEnd(element) {
+  if (!element || abLoopA === null || abLoopB === null) return false;
+  try { element.currentTime = abLoopA; } catch { return false; }
+  element.play?.().catch(() => {});
+  _abWatch(element);
+  return true;
 }
 
 /* Every frame while a loop is set and the element plays: timeupdate alone

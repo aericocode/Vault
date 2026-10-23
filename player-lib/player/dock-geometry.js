@@ -203,9 +203,12 @@ const DockGeom = (() => {
     return clamp(Math.round((num(t, 0) / dur) * (count + 1)) - 1, 0, count - 1);
   }
 
-  /* Times written inside notes ("2:35", "1:02:33", a range "0:11-1:23"
-     counts from its start), same shape notes.js links: [h:]m:ss[.d|.dd]. */
-  const TS_RE = /\b(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:\.(\d{1,2}))?(?![\d.])/g;
+  /* Times written inside notes ("2:35", "1:02:33", both ends of a range
+     "0:11-1:23"): exactly the pattern notes.js links, [h:]m:ss[.d|.dd]
+     between word boundaries, so a pin is wherever a link is. A full stop
+     after a time is the sentence's ("at 1:56." is 1:56), and three or more
+     decimals stop at the whole second ("1:23.456" is 1:23), as in notes.js. */
+  const TS_RE = /\b(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:\.(\d{1,2}))?\b/g;
 
   /** Seconds (to the hundredth) from the parts of a [h:]m:ss[.d|.dd] match. */
   function partsToSeconds(h, m, s, frac) {
@@ -249,7 +252,7 @@ const DockGeom = (() => {
       let m;
       while ((m = TS_RE.exec(text))) {
         const t = partsToSeconds(m[1], m[2], m[3], m[4]);
-        if (Number(m[3]) > 59 || seen.has(t)) continue;
+        if (seen.has(t)) continue;   // not range-checked, like the links
         seen.add(t);
         out.push({ t, text });
       }
