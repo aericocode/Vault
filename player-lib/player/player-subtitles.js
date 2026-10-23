@@ -603,7 +603,7 @@ function subtitlesSidebarHtml(mediaId, info) {
       <div class="subs-track">
         <span class="subs-track-label">${escapeHtml(subLangName(t.lang))} <span class="subs-track-kind">${kindLabel}</span></span>
         <span class="subs-track-btns">
-          <button class="subs-btn" title="Transcript. Click a line to jump there, 📌 to save it as a note snippet" onclick="subtitlesToggleTranscript(${mediaId}, '${escapeHtml(t.lang)}')">${subsGlyph('≡', 'table')}</button>
+          <button class="subs-btn" title="Transcript. Click a line to jump there, ${typeof vaultIsModern === 'function' && vaultIsModern() ? 'the pin' : '📌'} to save it as a note snippet" onclick="subtitlesToggleTranscript(${mediaId}, '${escapeHtml(t.lang)}')">${subsGlyph('≡', 'table')}</button>
           <button class="subs-btn" title="View & edit the VTT cues" onclick="subtitlesOpenEditor(${mediaId}, '${escapeHtml(t.lang)}')">${subsGlyph('✎ ', 'edit')}Edit</button>
           <a class="subs-btn" title="Download as SRT" href="/api/media/${mediaId}/subtitles?lang=${encodeURIComponent(t.lang)}&format=srt">${subsGlyph('⤓ ', 'download')}SRT</a>
           <button class="subs-btn subs-btn-danger" title="Delete this track" onclick="subtitlesDeleteTrack(${mediaId}, '${escapeHtml(t.lang)}')">${subsGlyph('✕', 'close')}</button>

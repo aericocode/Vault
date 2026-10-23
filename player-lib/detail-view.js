@@ -600,9 +600,36 @@ function detailPanelPlayerTime() {
   return el && Number.isFinite(el.currentTime) ? el.currentTime : NaN;
 }
 
-function detailPanelNotePlaceholder() {
+/** "Note at 1:16, Enter to save"; just "Note at 1:16" when the box is too
+ *  narrow for the rest on one line (a 900 px window). */
+function detailPanelNotePlaceholder(input) {
   const t = detailPanelPlayerTime();
-  return `Note at ${PanelLayout.formatTime(Number.isFinite(t) ? t : 0)}, Enter to save`;
+  const at = `Note at ${PanelLayout.formatTime(Number.isFinite(t) ? t : 0)}`;
+  const full = `${at}, Enter to save`;
+  return input && input.clientWidth > 0 && detailPanelTextWidth(full, input) > detailPanelInnerWidth(input) ? at : full;
+}
+
+let detailPanelMeasure = null;
+/** How wide `text` draws in the box's font. */
+function detailPanelTextWidth(text, el) {
+  detailPanelMeasure = detailPanelMeasure || document.createElement('canvas').getContext('2d');
+  if (!detailPanelMeasure) return 0;
+  detailPanelMeasure.font = getComputedStyle(el).font;
+  return detailPanelMeasure.measureText(text).width;
+}
+
+/** The box's width for text: less its padding. */
+function detailPanelInnerWidth(el) {
+  const s = getComputedStyle(el);
+  return el.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);
+}
+
+/** Put the current time (and the right length) in the note box's placeholder. */
+function detailPanelPlaceholderUpdate() {
+  const input = document.querySelector('#mediaSidebarBody .notes-add[data-note-at] .note-input-field');
+  if (!input) return;
+  const text = detailPanelNotePlaceholder(input);
+  if (input.placeholder !== text) input.placeholder = text;
 }
 
 /** Show one tab. remember: false when the panel picks it rather than you. */
@@ -629,8 +656,14 @@ function detailPanelSelect(key, { remember = true, focus = false } = {}) {
 function detailPanelTabKey(e) {
   const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
   if (!keys.includes(e.key) || e.altKey || e.ctrlKey || e.metaKey) {
-    // Enter / Space pick the focused tab instead of play / pause.
-    if ((e.key === ' ' || e.key === 'Enter') && e.target.matches?.('[data-mpp-tab]')) e.stopPropagation();
+    // Enter / Space pick the focused tab instead of play / pause; Up / Down
+    // do nothing here rather than change the volume (or zoom a picture).
+    // Alt+Left / Right still go to the previous / next file.
+    if (e.altKey) return;
+    if (e.key === ' ' || e.key === 'Enter' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.stopPropagation();
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+    }
     return;
   }
   e.preventDefault();
@@ -689,9 +722,12 @@ function detailPanelMusic(mediaId, info) {
   if (root.dataset.mppType === 'video' && section) {
     const fp = !!info.fingerprinted;
     const wasFp = root.dataset.fp;   // undefined on the first answer
+    const onMusic = root.querySelector('[data-mpp-tab="music"]')?.getAttribute('aria-selected') === 'true';
     root.dataset.fp = fp ? '1' : '';
     const home = fp ? root.querySelector('[data-mpp-pane="music"]') : root.querySelector('.mpp-music-slot');
     if (home && section.parentElement !== home) home.appendChild(section);
+    // Fingerprints removed from the Music tab: Music ID now lives in File.
+    if (!fp && onMusic) detailPanelSelect('file', { remember: false });
     detailPanelSync();
     // Scanned from the File tab just now: follow the songs to their tab.
     const onFile = root.querySelector('[data-mpp-tab="file"]')?.getAttribute('aria-selected') === 'true';
@@ -769,13 +805,19 @@ function detailPanelMenuKey(e) {
     items[next]?.focus();
   } else if (e.key === ' ' || e.key === 'Enter') {
     e.stopPropagation();   // the item's own click, not play / pause
+  } else if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key) && !e.altKey) {
+    e.preventDefault();    // not a seek while the menu has focus
+    e.stopPropagation();
   }
 }
 
 /* ── Quick actions that do not fit go to More, from the end ── */
 
 const detailPanelFitObserver = typeof ResizeObserver === 'function'
-  ? new ResizeObserver(entries => entries.forEach(en => detailPanelFit(en.target))) : null;
+  ? new ResizeObserver(entries => {
+    entries.forEach(en => detailPanelFit(en.target));
+    detailPanelPlaceholderUpdate();   // the panel's width changed, so may the box's
+  }) : null;
 
 function detailPanelFit(qa) {
   if (!qa || !qa.isConnected) return;
@@ -801,6 +843,7 @@ function detailPanelMounted() {
     if (qa) detailPanelFitObserver.observe(qa);
   }
   detailPanelFit(qa);
+  detailPanelPlaceholderUpdate();
 }
 
 /* The note box remembers the playback time a note was started at (it is
@@ -820,23 +863,25 @@ document.addEventListener('input', (e) => {
 
 document.addEventListener('timeupdate', (e) => {
   if (!e.target?.closest?.('#mediaPlayerContent')) return;
-  const input = document.querySelector('#mediaSidebarBody .notes-add[data-note-at] .note-input-field');
-  if (!input) return;
-  const text = detailPanelNotePlaceholder();
-  if (input.placeholder !== text) input.placeholder = text;
+  detailPanelPlaceholderUpdate();
 }, true);
 
 /* Switching between Classic and Modern with the panel open redraws it in the
-   new look, keeping whatever is half-typed in the note box. */
+   new look, keeping whatever is half-typed in the note box, and the time it
+   was started at: Classic's box has no place for that time, so it is kept
+   here across a Modern -> Classic -> Modern round trip. */
+let detailPanelDraftAt = '';
 window.addEventListener('vault:layout-style', () => {
   if (typeof sidebarOpen === 'undefined' || !sidebarOpen || typeof renderSidebar !== 'function') return;
   const input = document.querySelector('#mediaSidebarBody .note-input-field');
   const draft = input ? input.value : '';
-  const at = document.querySelector('#mediaSidebarBody .notes-add[data-note-at]')?.dataset.noteAt || '';
+  const box = document.querySelector('#mediaSidebarBody .notes-add[data-note-at]');
+  if (!draft.trim()) detailPanelDraftAt = '';
+  else if (box) detailPanelDraftAt = box.dataset.noteAt || '';
   if (input) input.value = '';   // carried over below, not saved as a note by the redraw
   renderSidebar();
   const next = document.querySelector('#mediaSidebarBody .note-input-field');
   if (next && draft) next.value = draft;
-  const box = document.querySelector('#mediaSidebarBody .notes-add[data-note-at]');
-  if (box && draft) box.dataset.noteAt = at;
+  const nextBox = document.querySelector('#mediaSidebarBody .notes-add[data-note-at]');
+  if (nextBox && draft) nextBox.dataset.noteAt = detailPanelDraftAt;
 });

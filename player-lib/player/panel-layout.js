@@ -82,8 +82,10 @@ const PanelLayout = (() => {
     return `${m}:${String(s).padStart(2, '0')}`;
   }
 
-  // A time the notes already understand ([h:]m:ss, notes.js _TS_LINK_RE).
-  const HAS_TIME = /\b(?:\d{1,2}:)?\d{1,2}:\d{2}\b/;
+  // Any [h:]m:ss in the note, whatever sits right after it ("0:05intro",
+  // "10:30pm"): a word boundary would miss those and a second time would go
+  // in front. Not preceded by a digit or colon, not followed by a digit.
+  const HAS_TIME = /(?:^|[^\d:])(?:\d{1,2}:)?\d{1,2}:\d{2}(?!\d)/;
 
   /**
    * The note box saves "1:16 good bit": the time leads, so the note links to

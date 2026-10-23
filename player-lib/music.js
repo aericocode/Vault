@@ -211,6 +211,11 @@ function musicGlyph(emoji, icon) {
   return typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap(emoji, icon) : escapeHtml(emoji);
 }
 
+/** The Modern look: tooltips name the line icons, not emoji (a title cannot swap). */
+function musicModern() {
+  return typeof vaultIsModern === 'function' && vaultIsModern();
+}
+
 /* ── Player sidebar section ────────────────────────────────────────────── */
 
 /** Synchronous shell — async content fills in via loadMusicSidebar. */
@@ -328,7 +333,7 @@ function musicSidebarHtml(mediaId, info) {
       const unknown = l.source === 'auto-cluster' && l.title.startsWith('Unknown Song');
       const badge = l.method === 'manual'
         ? '<span class="music-badge music-badge-manual" title="Tagged by hand, used as a reference">manual</span>'
-        : `<span class="music-badge music-badge-auto" title="Auto-detected by fingerprint match. Click ✎ to correct">auto${l.confidence ? ` ${Math.round(l.confidence * 100)}%` : ''}</span>`;
+        : `<span class="music-badge music-badge-auto" title="Auto-detected by fingerprint match. ${musicModern() ? 'Click the pencil to correct it' : 'Click ✎ to correct'}">auto${l.confidence ? ` ${Math.round(l.confidence * 100)}%` : ''}</span>`;
       return `
         <div class="music-song-row">
           <button class="music-time" onclick="musicSeekTo(${l.start_sec ?? 0}, ${mediaId})" title="Jump to ${musicFmtTime(l.start_sec)}">${musicFmtTime(l.start_sec)}–${musicFmtTime(l.end_sec)}</button>
@@ -405,7 +410,7 @@ async function musicFingerprintOne(mediaId) {
 }
 
 async function musicRescanOne(mediaId, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = '🔄 Scanning…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = `${musicGlyph('🔄 ', 'refresh')}Scanning…`; }
   try {
     const r = await fetch(`/api/music/media/${mediaId}/scan`, { method: 'POST' }).then(x => x.json());
     if (r.error) showToast('⚠ ' + r.error);

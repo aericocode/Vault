@@ -125,6 +125,18 @@ test('note box: a note that names a time, or has no usable time, is kept as type
   assert.strictEqual(P.noteWithTime('ratio 16:9 is wide', 10), '0:10 ratio 16:9 is wide', 'one-digit seconds is not a time');
 });
 
+test('note box: a time with letters right after it still counts, so no second time goes in', () => {
+  assert.strictEqual(P.noteWithTime('0:05intro', 5), '0:05intro');
+  assert.strictEqual(P.noteWithTime('0:05 intro', 5), '0:05 intro', 'the clock button\'s own insert');
+  assert.strictEqual(P.noteWithTime('meet at 10:30pm', 7), 'meet at 10:30pm');
+  assert.strictEqual(P.noteWithTime('1:02:03 x', 7), '1:02:03 x');
+  assert.strictEqual(P.noteWithTime('(1:16) drop', 7), '(1:16) drop');
+  assert.strictEqual(P.noteWithTime('v2:30', 7), 'v2:30');
+  // Not times: too many digits, or part of a longer number.
+  assert.strictEqual(P.noteWithTime('id 123:456', 7), '0:07 id 123:456');
+  assert.strictEqual(P.noteWithTime('ip 10.0.0.1:8080', 7), '0:07 ip 10.0.0.1:8080');
+});
+
 /* ── Panel-only icons (icons.js) ───────────────────────────────────────── */
 
 function loadIcons() {

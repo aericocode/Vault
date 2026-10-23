@@ -305,14 +305,18 @@ function insertCurrentTimestamp(btnEl) {
   const end = input.selectionEnd ?? input.value.length;
   const before = input.value.slice(0, start);
   const after = input.value.slice(end);
-  // Pad with a space when butting up against existing text
+  // Pad with a space when butting up against existing text, and after the
+  // time when nothing follows it, so the words typed next stand apart.
   const lead = before && !/\s$/.test(before) ? ' ' : '';
-  const trail = after && !/^\s/.test(after) ? ' ' : '';
+  const trail = !/^\s/.test(after) ? ' ' : '';
   const insert = `${lead}${ts}${trail}`;
   input.value = before + insert + after;
   const caret = start + insert.length;
   input.focus();
   input.setSelectionRange(caret, caret);
+  // Typing fires this by itself; a button's insert has to say so (the Modern
+  // note box notes when a note was started).
+  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 /**
@@ -329,6 +333,7 @@ function insertNoteSnippet(chipEl) {
   const existing = input.value.trim();
   input.value = existing ? `${existing.replace(/,\s*$/, '')}, ${tag}` : tag;
   input.focus();
+  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 /** Save the currently-typed note text as a reusable snippet. */
