@@ -99,7 +99,21 @@ const PanelLayout = (() => {
     return `${formatTime(seconds)} ${t}`;
   }
 
-  return { TAB_ORDER, tabsFor, pickTab, actionsFor, fitActions, formatTime, noteWithTime };
+  /**
+   * Back from Classic: the start time remembered when the Modern box was
+   * left ({id, text, at}) still belongs to the box only if the same file is
+   * open and the box still holds that draft (or that draft typed on). A
+   * draft saved in Classic, a new one, or another file: '' (the time is then
+   * taken when typing starts, or at save).
+   */
+  function draftStartAt(saved, mediaId, draft) {
+    if (!saved || !saved.text || saved.at === '' || saved.at == null) return '';
+    if (Number(saved.id) !== Number(mediaId)) return '';
+    const now = String(draft == null ? '' : draft).trim();
+    return now.startsWith(saved.text) ? String(saved.at) : '';
+  }
+
+  return { TAB_ORDER, tabsFor, pickTab, actionsFor, fitActions, formatTime, noteWithTime, draftStartAt };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = PanelLayout;

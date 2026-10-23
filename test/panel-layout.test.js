@@ -137,6 +137,18 @@ test('note box: a time with letters right after it still counts, so no second ti
   assert.strictEqual(P.noteWithTime('ip 10.0.0.1:8080', 7), '0:07 ip 10.0.0.1:8080');
 });
 
+test('note box: a start time carried through Classic only comes back with its own file and draft', () => {
+  const saved = { id: 7, text: 'round trip', at: '3' };
+  assert.strictEqual(P.draftStartAt(saved, 7, 'round trip'), '3');
+  assert.strictEqual(P.draftStartAt(saved, 7, '  round trip, and more '), '3', 'typed on in Classic');
+  assert.strictEqual(P.draftStartAt(saved, 8, 'round trip'), '', 'another file');
+  assert.strictEqual(P.draftStartAt(saved, 7, 'classic draft'), '', 'saved in Classic, a new draft typed');
+  assert.strictEqual(P.draftStartAt(saved, 7, ''), '');
+  assert.strictEqual(P.draftStartAt({ id: 7, text: 'x', at: '' }, 7, 'x'), '', 'no time was taken');
+  assert.strictEqual(P.draftStartAt(null, 7, 'x'), '');
+  assert.strictEqual(P.draftStartAt({ id: 7, text: '', at: '3' }, 7, 'x'), '');
+});
+
 /* ── Panel-only icons (icons.js) ───────────────────────────────────────── */
 
 function loadIcons() {

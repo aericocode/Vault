@@ -869,19 +869,25 @@ document.addEventListener('timeupdate', (e) => {
 /* Switching between Classic and Modern with the panel open redraws it in the
    new look, keeping whatever is half-typed in the note box, and the time it
    was started at: Classic's box has no place for that time, so it is kept
-   here across a Modern -> Classic -> Modern round trip. */
-let detailPanelDraftAt = '';
+   here, with the file and the draft it belongs to, for the way back
+   (PanelLayout.draftStartAt decides whether it still applies). */
+let detailPanelDraftAt = null;   // {id, text, at} while Classic shows
 window.addEventListener('vault:layout-style', () => {
   if (typeof sidebarOpen === 'undefined' || !sidebarOpen || typeof renderSidebar !== 'function') return;
   const input = document.querySelector('#mediaSidebarBody .note-input-field');
   const draft = input ? input.value : '';
   const box = document.querySelector('#mediaSidebarBody .notes-add[data-note-at]');
-  if (!draft.trim()) detailPanelDraftAt = '';
-  else if (box) detailPanelDraftAt = box.dataset.noteAt || '';
+  const saved = detailPanelDraftAt;
+  detailPanelDraftAt = box && draft.trim()
+    ? { id: Number(box.closest('.mpp')?.dataset.mediaId), text: draft.trim(), at: box.dataset.noteAt || '' }
+    : null;
   if (input) input.value = '';   // carried over below, not saved as a note by the redraw
   renderSidebar();
   const next = document.querySelector('#mediaSidebarBody .note-input-field');
   if (next && draft) next.value = draft;
   const nextBox = document.querySelector('#mediaSidebarBody .notes-add[data-note-at]');
-  if (nextBox && draft) nextBox.dataset.noteAt = detailPanelDraftAt;
+  if (nextBox) {
+    const id = Number(nextBox.closest('.mpp')?.dataset.mediaId);
+    nextBox.dataset.noteAt = draft.trim() ? PanelLayout.draftStartAt(saved, id, draft) : '';
+  }
 });
