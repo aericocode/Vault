@@ -859,13 +859,10 @@ if (document.readyState === 'loading') {
 }
 
 /* ── Compact tile (grid view) ──────────────────────────────────────────────
-   The filename `title=` tooltip below is written conditionally: a native
-   tooltip cannot be blurred by CSS, so the only way to stop a hover printing
-   the name in the clear is to not write the attribute at all. It is dropped
-   when privacy mode is hiding FILE NAMES specifically (body.pm-names) rather
-   than for privacy mode as a whole — with names left visible the tooltip leaks
-   nothing the tile is not already showing. settings.js repaints the grid when
-   either the mode or that choice changes. */
+   The filename carries no tooltip. The hover popover already shows the
+   full name (in both looks), so a tooltip only repeated it on top. It also
+   kept the name out of reach of privacy mode's blur. The table view, which
+   has no popover, keeps its own name tooltip (table-view.js). */
 
 function renderTile(media) {
   const isFlagged = !!media.user_flagged_delete;
@@ -974,7 +971,7 @@ function renderTile(media) {
           <button class="tile-btn" onclick="showDetailsById(${media.id})" title="Details" aria-label="Details">${ic('ⓘ', 'info')}</button>
         </div>
       </div>
-      <div class="tile-name"${document.body.classList.contains('pm-names') ? '' : ` title="${escapeHtml(media.filename)}"`}>${escapeHtml(media.filename)}</div>
+      <div class="tile-name">${escapeHtml(media.filename)}</div>
       <div class="tile-meta">
         <span class="tile-badge type-${media.media_type}">${media.media_type}</span>
         ${simChip}
