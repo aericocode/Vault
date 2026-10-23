@@ -94,19 +94,19 @@ test('lane box: centred on the video, width from widthFrac', () => {
   assert.strictEqual(b.width, 500);
   assert.strictEqual(b.left, 350);
   assert.strictEqual(b.left + b.width / 2, rect.left + rect.width / 2);
-  assert.strictEqual(b.top, 50 + 300 - 40);
-  assert.strictEqual(b.height, 80);
+  assert.strictEqual(b.top, 50 + 300 - 34);
+  assert.strictEqual(b.height, 68);
 });
 
 test('lane box: no saved spot sits above the dock; saved spots are clamped inside the video', () => {
   const rect = { left: 0, top: 0, width: 1000, height: 600 };
-  assert.strictEqual(G.laneBox({ rect, widthFrac: null, posFrac: null }).top, 600 - 80 - 150);
+  assert.strictEqual(G.laneBox({ rect, widthFrac: null, posFrac: null }).top, 600 - 68 - 150);
   assert.strictEqual(G.laneBox({ rect, widthFrac: null, posFrac: null }).width, 560);
   assert.strictEqual(G.laneBox({ rect, widthFrac: 0.5, posFrac: 0 }).top, 4);
-  assert.strictEqual(G.laneBox({ rect, widthFrac: 0.5, posFrac: 1 }).top, 600 - 80 - 4);
+  assert.strictEqual(G.laneBox({ rect, widthFrac: 0.5, posFrac: 1 }).top, 600 - 68 - 4);
   // a video shorter than the lane: centred rather than flipping outside
   const tiny = G.laneBox({ rect: { left: 0, top: 0, width: 300, height: 40 }, widthFrac: 0.5, posFrac: 0.2 });
-  assert.strictEqual(tiny.top, -20);
+  assert.strictEqual(tiny.top, -14);
 });
 
 test('vertical drag: pointer y -> centre fraction, clamped', () => {
@@ -225,34 +225,42 @@ const FX = [
 ];
 const SHAPES_ALL = ['circle', 'heart', 'square', 'diamond', 'star'];
 
-test('lane height: the default look stays 80 px', () => {
-  assert.strictEqual(G.laneHeight({ fillSize: 9, shape: 'circle', effects: { pulse: true } }), 80);
-  assert.strictEqual(G.laneHeight({}), 80);
-  assert.strictEqual(G.laneHeight(null), 80);
+test('lane height: the default look is 68 px', () => {
+  assert.strictEqual(G.laneHeight({ fillSize: 9, shape: 'circle', effects: { pulse: true } }), 68);
+  assert.strictEqual(G.laneHeight({}), 68);
+  assert.strictEqual(G.laneHeight(null), 68);
 });
 
-test('lane height: holds the peak icon, the pulse glow, ripples and sparks at every size', () => {
+test('lane height: the peak icon never clips and stays clear of the edge fade, at every size / shape / effect', () => {
   for (let size = 4; size <= 18; size++) {
     for (const shape of SHAPES_ALL) {
       for (const effects of FX) {
-        const h = G.laneHeight({ fillSize: size, shape, effects });
-        const half = h / 2;
-        const baseR = size, pulseR = size + Math.max(8, size * 1.2);
-        const peak = (effects.pulse ? pulseR : baseR) * (shape === 'star' || shape === 'heart' ? 1.12 : 1);
-        assert.ok(half >= peak + 1, `icon ${size} ${shape} ${JSON.stringify(effects)}`);
-        // ripple at its brightest visible point (k = .5 -> kk = .5, radius x1.95)
-        if (effects.ripple) {
-          const r = effects.pulse ? baseR + 0.5 * (pulseR - baseR) : baseR;
-          assert.ok(half >= r * 1.95, `ripple ${size} ${shape}`);
-        }
-        // a spark half way out (k = .5) at the fastest speed
-        if (effects.spark) {
-          const r = effects.pulse ? baseR + 0.5 * (pulseR - baseR) : baseR;
-          assert.ok(half >= r + 0.5 * r * 3, `spark ${size} ${shape}`);
+        for (const borderWidth of [0, 5]) {
+          const cfg = { fillSize: size, shape, effects, borderWidth };
+          const half = G.laneHeight(cfg) / 2;
+          const baseR = size, pulseR = size + Math.max(8, size * 1.2);
+          const sf = shape === 'star' || shape === 'heart' ? 1.12 : shape === 'diamond' ? 1.06 : 1;
+          const peak = (effects.pulse ? pulseR : baseR) * sf + Math.max(0.5, borderWidth / 2);
+          assert.ok(half - G.EDGE_FADE >= peak - 1e-9, size + " " + shape + " " + JSON.stringify(effects) + " border " + borderWidth);
         }
       }
     }
   }
+});
+
+test('lane height: room for only a share of the effects, so big ripples / sparks do not pad the lane', () => {
+  for (let size = 4; size <= 18; size++) {
+    for (const shape of SHAPES_ALL) {
+      for (const effects of FX) {
+        const cfg = { fillSize: size, shape, effects };
+        const full = Math.ceil(2 * (G.effectExtent(cfg) + G.EDGE_FADE));
+        assert.ok(G.laneHeight(cfg) <= Math.max(68, full), 'never more than the full reach');
+      }
+    }
+  }
+  // the Size 13 heart with everything on (the user's example) is well under its full reach
+  const heart = { fillSize: 13, shape: 'heart', effects: { pulse: true, ripple: true, spark: true } };
+  assert.ok(G.laneHeight(heart) <= 0.8 * Math.ceil(2 * G.effectExtent(heart) + 12), "about a quarter shorter than room for every tail");
 });
 
 test('lane height: grows with Size and with each effect, never shrinks below the default', () => {
@@ -260,20 +268,20 @@ test('lane height: grows with Size and with each effect, never shrinks below the
     let prev = 0;
     for (let size = 4; size <= 18; size++) {
       const h = G.laneHeight({ fillSize: size, shape: 'star', effects });
-      assert.ok(h >= prev && h >= 80, `${size} ${JSON.stringify(effects)}`);
+      assert.ok(h >= prev && h >= 68, size + " " + JSON.stringify(effects));
       prev = h;
     }
   }
   const max = (fx) => G.laneHeight({ fillSize: 18, shape: 'star', effects: fx });
   assert.ok(max({ pulse: true, ripple: true }) > max({ pulse: true }));
   assert.ok(max({ pulse: true, ripple: true, spark: true }) > max({ pulse: true, ripple: true }));
-  assert.ok(max({ pulse: true, ripple: true, spark: true }) <= 200, 'stays a lane, not a wall');
+  assert.ok(max({ pulse: true, ripple: true, spark: true }) <= 140, 'stays a lane, not a wall');
 });
 
 test('lane height change keeps a saved lane centred where it was', () => {
   const rect = { left: 0, top: 0, width: 1280, height: 720 };
   const a = G.laneBox({ rect, widthFrac: 0.56, posFrac: 0.5, laneH: 80 });
-  const b = G.laneBox({ rect, widthFrac: 0.56, posFrac: 0.5, laneH: 174 });
+  const b = G.laneBox({ rect, widthFrac: 0.56, posFrac: 0.5, laneH: 128 });
   assert.strictEqual(a.top + a.height / 2, b.top + b.height / 2);
 });
 

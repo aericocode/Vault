@@ -18,7 +18,7 @@ body.layout-modern .bbm-lane {
   pointer-events: auto;
   cursor: ns-resize;
   touch-action: none;
-  border-radius: 999px;
+  border-radius: 12px;      /* a rounded rect like the app's cards; the canvas clips to the same */
   /* No backdrop-filter, background or outer shadow here: a backdrop-filter
      over the <video> changed how the browser composites the whole video (the
      frame looked brighter with the bar on), and a shadow would darken the
@@ -162,7 +162,7 @@ body.layout-modern .bbm-hdr {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 8px 6px 14px;
+  padding: 6px 6px 4px 14px;
   font-weight: 700;
   font-size: 14px;
 }
@@ -199,10 +199,10 @@ body.layout-modern .bbm-link:hover { background: rgba(165, 180, 252, 0.12); }
 
 /* Live preview lane: only while the video is paused */
 body.layout-modern .bbm-prev {
-  margin: 2px 12px 4px;
+  margin: 0 12px 2px;
   height: 80px;            /* beatbar.js sets the lane's own height */
   box-sizing: border-box;
-  border-radius: 999px;
+  border-radius: 12px;
   background: #0d0d11;
   border: 1px solid #2a2a31;
   overflow: hidden;
@@ -210,25 +210,25 @@ body.layout-modern .bbm-prev {
 body.layout-modern .bbm-prev[hidden] { display: none; }
 body.layout-modern .bbm-prev canvas { display: block; width: 100%; height: 100%; }
 
-body.layout-modern .bbm-body { padding: 2px 14px 6px; }
+body.layout-modern .bbm-body { padding: 0 14px 4px; }
 
 body.layout-modern .bbm-sh {
-  margin: 10px 0 4px;
+  margin: 8px 0 2px;
   font-size: 10.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #8b8b97;
 }
-body.layout-modern .bbm-sh.bbm-look { margin-top: 14px; }
+body.layout-modern .bbm-sh.bbm-look { margin-top: 10px; }
 
 body.layout-modern .bbm-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 36px;
+  min-height: 34px;
 }
 /* Look rows get more room than Timing (the mock felt cramped there) */
-body.layout-modern .bbm-looks .bbm-row { min-height: 44px; }
+body.layout-modern .bbm-looks .bbm-row { min-height: 38px; }
 
 body.layout-modern .bbm-lbl {
   flex: none;
@@ -274,13 +274,13 @@ body.layout-modern .bbm-seg .bb-chip:hover { color: #fff; }
 body.layout-modern .bbm-seg .bb-chip.active { background: #45457a; color: #fff; }
 
 /* Shapes */
-body.layout-modern .bbm-shapes { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+body.layout-modern .bbm-shapes { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 body.layout-modern .bbm-shapes .bb-shape-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: none;
   border-radius: 8px;
@@ -292,9 +292,9 @@ body.layout-modern .bbm-shapes .bb-shape-btn:hover { background: #34343e; }
 body.layout-modern .bbm-shapes .bb-shape-btn.active { outline: 2px solid #a5b4fc; background: #33335a; }
 
 /* Effects chips */
-body.layout-modern .bbm-chips { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+body.layout-modern .bbm-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 body.layout-modern .bbm-chips .bb-chip {
-  padding: 5px 14px;
+  padding: 4px 12px;
   border: 1px solid #44444f;
   border-radius: 99px;
   background: none;
@@ -305,11 +305,11 @@ body.layout-modern .bbm-chips .bb-chip:hover { border-color: #6d6dc0; }
 body.layout-modern .bbm-chips .bb-chip.active { background: #45457a; border-color: #6d6dc0; color: #fff; }
 
 /* Colour swatches */
-body.layout-modern .bbm-swatches { display: inline-flex; flex-wrap: wrap; gap: 7px; }
+body.layout-modern .bbm-swatches { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 body.layout-modern .bbm-swatches .bb-swatch {
   box-sizing: border-box;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 2px solid transparent;
   border-radius: 50%;
@@ -325,8 +325,8 @@ body.layout-modern .bbm-more-toggle {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  margin-top: 4px;
-  padding: 11px 14px;
+  margin-top: 2px;
+  padding: 9px 14px;
   border: none;
   border-top: 1px solid #2c2c33;
   background: none;
@@ -338,13 +338,13 @@ body.layout-modern .bbm-more-toggle:hover { color: #fff; }
 body.layout-modern .bbm-more-toggle .bbm-chev { width: 16px; height: 16px; transition: transform 0.15s; }
 body.layout-modern .bbm-more-open .bbm-more-toggle .bbm-chev { transform: rotate(180deg); }
 
-body.layout-modern .bbm-more { padding: 0 14px 12px; }
+body.layout-modern .bbm-more { padding: 0 14px 10px; }
 body.layout-modern .bbm-more[hidden] { display: none; }
 
 body.layout-modern .bbm-wide {
   width: 100%;
-  margin-top: 8px;
-  padding: 9px 12px;
+  margin-top: 6px;
+  padding: 8px 12px;
   border: 1px solid #3a3a44;
   border-radius: 8px;
   background: #24242b;

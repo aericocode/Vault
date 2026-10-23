@@ -131,8 +131,9 @@
   const CLASSIC_FILL = '#7aa8ff';
   const MODERN_FILL = '#a5b4fc';
   const MODERN_FILL_SWATCHES = [MODERN_FILL, ...FILL_SWATCHES];
-  const GLASS_BLUR_PX = 4;                      // the lane's frost
-  const GLASS_TINT = 'rgba(16,16,22,0.25)';     // over the blurred picture
+  const GLASS_BLUR_PX = 2.5;                    // the lane's frost: barely there
+  const GLASS_TINT = 'rgba(16,16,22,0.13)';     // over the blurred picture
+  const LANE_RADIUS = 12;                       // rounded rect like the app's cards (css/beatbar-modern.css)
 
   let _state = null; // one active attachment at a time (single player)
 
@@ -1206,14 +1207,19 @@
      colour that glows brighter on each hit, and beats that grow as they
      approach (0.62 -> 1), land with the same envelope and effects as the
      classic bar plus a soft glow, then fade out behind the playhead.
-     `seedBase` keeps spark layouts stable for a sliding beat list. */
+     `seedBase` keeps spark layouts stable for a sliding beat list.
+     The lane is sized for the peak icon plus a share of the effects
+     (BeatBarGeom.laneHeight); everything but the frost is drawn on a layer
+     whose top and bottom EDGE_FADE px fade out, so the faint outer tails of
+     big ripples / sparks soften away instead of being cut off. */
   function renderGlassFrame(ctx, w, h, t, beats, cfg, timing, seedBase = 0, backdrop = null) {
     ctx.clearRect(0, 0, w, h);
     const cy = h / 2;
+    const radius = Math.min(LANE_RADIUS, h / 2);
     if (backdrop) {
       ctx.save();
       ctx.beginPath();
-      ctx.roundRect(0, 0, w, h, h / 2);
+      ctx.roundRect(0, 0, w, h, radius);
       ctx.clip();
       paintBackdrop(ctx, w, h, backdrop);
       ctx.fillStyle = GLASS_TINT;
@@ -1223,6 +1229,9 @@
     const rgb = hexToRgb(fillColorOf(cfg, true));
     const col = `${rgb.r},${rgb.g},${rgb.b}`;
     const lift = (v, k) => Math.round(v + (255 - v) * k);
+
+    const out = ctx;
+    ctx = fxLayer(out);
 
     const tg = ctx.createLinearGradient(0, 0, w, 0);
     tg.addColorStop(0, 'rgba(255,255,255,0)');
@@ -1235,7 +1244,7 @@
 
     ctx.save();
     ctx.beginPath();
-    ctx.roundRect(0, 0, w, h, h / 2);
+    ctx.roundRect(0, 0, w, h, radius);
     ctx.clip();
 
     const { playheadX, lookahead, lookbehind, pxPerSec } = timing;
@@ -1322,6 +1331,36 @@
     }
 
     ctx.restore(); // end clip
+
+    // Soft top / bottom edges, then onto the lane
+    const fade = Math.min(window.BeatBarGeom.EDGE_FADE, h / 4) / h;
+    const mg = ctx.createLinearGradient(0, 0, 0, h);
+    mg.addColorStop(0, 'rgba(0,0,0,0)');
+    mg.addColorStop(fade, 'rgba(0,0,0,1)');
+    mg.addColorStop(1 - fade, 'rgba(0,0,0,1)');
+    mg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.fillStyle = mg;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+    out.drawImage(ctx.canvas, 0, 0, w, h);
+  }
+
+  // One offscreen layer per target canvas (lane, settings preview), same
+  // pixel size and transform, cleared for this frame.
+  const _fxLayers = new WeakMap();
+  function fxLayer(out) {
+    let c = _fxLayers.get(out.canvas);
+    if (!c) { c = document.createElement('canvas'); _fxLayers.set(out.canvas, c); }
+    if (c.width !== out.canvas.width || c.height !== out.canvas.height) {
+      c.width = out.canvas.width; c.height = out.canvas.height;
+    }
+    const lc = c.getContext('2d');
+    lc.setTransform(1, 0, 0, 1, 0, 0);
+    lc.clearRect(0, 0, c.width, c.height);
+    lc.setTransform(out.getTransform());
+    return lc;
   }
 
   /* The blurred picture under the lane, kept in an offscreen canvas

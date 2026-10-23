@@ -21,7 +21,10 @@
    - effectExtent(cfg) / laneHeight(cfg)  how far a beat and its effects
                                   reach from the lane's centre line at the
                                   config's Size, shape and effects, and the
-                                  lane height that holds all of it (min 80)
+                                  lane height: the peak icon always fits clear
+                                  of the edge fade, plus a modest share of the
+                                  effects (their faint outer tails fade out at
+                                  the edges instead); min 68
    - displayedVideoRect(...)      where the picture sits inside a <video>
                                   box (object-fit contain / cover / fill), for
                                   the lane's blurred backdrop
@@ -35,7 +38,9 @@ const BeatBarGeom = (function () {
   const WIDTH_MIN = 0.30;
   const WIDTH_MAX = 0.96;
   const WIDTH_DEFAULT = 0.56;
-  const LANE_H = 80;            // the glass pill's height at the default look (laneHeight)
+  const LANE_H = 68;            // the lane's height at the default look (laneHeight)
+  const EDGE_FADE = 8;          // px at the lane's top / bottom where effects fade out (renderGlassFrame)
+  const TAIL_SHARE = 0.3;       // share of the glow / ripple / spark reach beyond the icon the lane makes room for
   const DOCK_GAP = 150;         // default spot: lane bottom this far above the video bottom
   const EDGE = 4;               // keep the lane this far inside the video
 
@@ -154,8 +159,23 @@ const BeatBarGeom = (function () {
 
   // Lane height: room for the full reach on both sides plus a little air,
   // never under the default 80.
+  // How far the icon itself reaches at the peak of a hit (Pulse grows it).
+  function peakExtent(cfg) {
+    const c = cfg || {};
+    const fx = c.effects || { pulse: true };
+    const baseR = Math.max(3, finite(c.fillSize) && c.fillSize > 0 ? c.fillSize : 9);
+    const r = fx.pulse ? baseR + Math.max(8, baseR * 1.2) : baseR;
+    const border = finite(c.borderWidth) && c.borderWidth > 0 ? c.borderWidth / 2 : 0.5;
+    return r * (SHAPE_EXTENT[c.shape] || 1) + border;
+  }
+
+  // Lane height: sized to what shows most of the time. The peak icon always
+  // sits clear of the edge fade; beyond it only TAIL_SHARE of the effects'
+  // reach gets room, and the rest fades out softly at the edges.
   function laneHeight(cfg) {
-    return Math.max(LANE_H, Math.ceil(2 * effectExtent(cfg) + 12));
+    const peak = peakExtent(cfg);
+    const reach = peak + TAIL_SHARE * Math.max(0, effectExtent(cfg) - peak);
+    return Math.max(LANE_H, Math.ceil(2 * (reach + EDGE_FADE)));
   }
 
   /** The picture's box inside a <video> element box (CSS px, same frame). */
@@ -197,9 +217,9 @@ const BeatBarGeom = (function () {
   }
 
   return {
-    WIDTH_MIN, WIDTH_MAX, WIDTH_DEFAULT, LANE_H, DOCK_GAP,
+    WIDTH_MIN, WIDTH_MAX, WIDTH_DEFAULT, LANE_H, DOCK_GAP, EDGE_FADE,
     clampWidthFrac, widthAfterGripDrag, laneTiming, laneBox, posFracFromPointer, panelPlace,
-    effectExtent, laneHeight, displayedVideoRect,
+    effectExtent, peakExtent, laneHeight, displayedVideoRect,
     storedConfig, fillColorFromStored,
   };
 })();
