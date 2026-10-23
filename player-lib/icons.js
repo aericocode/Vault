@@ -112,7 +112,8 @@ const VAULT_ICONS = {
   'back-ten': '<path d="M12 4a8 8 0 1 1-7.4 5"/><path d="M4 3.5v5.5h5.5"/><text x="12" y="15.5" text-anchor="middle" font-size="7" font-weight="700" font-family="system-ui,sans-serif" fill="currentColor" stroke="none">10</text>',
   'fwd-ten': '<path d="M12 4a8 8 0 1 0 7.4 5"/><path d="M20 3.5v5.5h-5.5"/><text x="12" y="15.5" text-anchor="middle" font-size="7" font-weight="700" font-family="system-ui,sans-serif" fill="currentColor" stroke="none">10</text>',
   hot: '<path d="M12 22c4 0 7-3 7-7 0-4-3-6-4-10-2 2-3 4-3 6-1-1-2-2-2-4-2 2-5 5-5 8 0 4 3 7 7 7z"/><path d="M12 22c-1.7 0-3-1.3-3-3 0-1.6 1.5-2.8 3-5 1.5 2.2 3 3.4 3 5 0 1.7-1.3 3-3 3z"/>',
-  'done-tick': '<path d="M5 3h14v18l-7-4-7 4z"/><path d="M8.5 9.5l2.5 2.5 4.5-5"/>',
+  // Done: a splash of three drops, the 💦 it stands in for
+  done: '<path d="M9 4c2.6 3.3 4.2 5.8 4.2 7.9a4.2 4.2 0 0 1-8.4 0C4.8 9.8 6.4 7.3 9 4z"/><path d="M17 10.5c1.6 2 2.6 3.6 2.6 4.9a2.6 2.6 0 0 1-5.2 0c0-1.3 1-2.9 2.6-4.9z"/><path d="M14 17.5c.9 1.1 1.4 2 1.4 2.7a1.4 1.4 0 0 1-2.8 0c0-.7.5-1.6 1.4-2.7z"/>',
   'face-scan': '<path d="M4 8V5h3M17 5h3v3M4 16v3h3M17 19h3v-3"/><circle cx="12" cy="10.5" r="2.7"/><path d="M7.8 17.5a4.3 4.3 0 0 1 8.4 0"/>',
   vibe: '<rect x="9" y="4" width="6" height="16" rx="3"/><path d="M5.5 9a4.5 4.5 0 0 0 0 6M18.5 9a4.5 4.5 0 0 1 0 6M2.5 6.5a8.5 8.5 0 0 0 0 11M21.5 6.5a8.5 8.5 0 0 1 0 11"/>',
   beat: '<rect x="2" y="7" width="20" height="10" rx="5"/><path d="M8 4.5v15"/><circle cx="8" cy="12" r="2.2" fill="currentColor" stroke="none"/><circle cx="13" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="17.5" cy="12" r="1.3" fill="currentColor" stroke="none"/>',
@@ -140,7 +141,7 @@ const VAULT_EMOJI_ICONS = {
   '💾': 'save', '📤': 'upload', '⬆': 'upload', '⬇': 'download', '📦': 'box', '⚡': 'zap', '⚖': 'scale',
   '⬅': 'back', '🔀': 'shuffle', '⏱': 'timer', '🧩': 'puzzle', '▶': 'play', '🔍': 'search',
   '🚩': 'flag', '🏳': 'flag', '✂': 'scissors', '👤': 'person', '🏢': 'building', '▤': 'stack', '▦': 'grid',
-  '＋': 'plus', '➕': 'plus', '❓': 'help', '🔗': 'link', '🎮': 'games', '⚙': 'gear', '🕘': 'clock',
+  '＋': 'plus', '➕': 'plus', '❓': 'help', '🔗': 'link', '🎮': 'games', '💦': 'done', '⚙': 'gear', '🕘': 'clock',
 };
 
 /**

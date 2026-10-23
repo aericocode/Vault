@@ -18,6 +18,7 @@
    - noteNear(marks, t, win)             a note within `win` seconds
    - hotMarks(heat, duration, lastPos)   where Hot was pressed
    - smoothHeat(heat)                    the heat ridge's curve
+   - formatPrecise / parsePrecise        [h:]m:ss[.d|.dd] (A-B points, notes)
    ========================================================================= */
 
 const DockGeom = (() => {
@@ -203,8 +204,39 @@ const DockGeom = (() => {
   }
 
   /* Times written inside notes ("2:35", "1:02:33", a range "0:11-1:23"
-     counts from its start), same shape notes.js links. */
-  const TS_RE = /\b(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\b/g;
+     counts from its start), same shape notes.js links: [h:]m:ss[.d|.dd]. */
+  const TS_RE = /\b(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:\.(\d{1,2}))?(?![\d.])/g;
+
+  /** Seconds (to the hundredth) from the parts of a [h:]m:ss[.d|.dd] match. */
+  function partsToSeconds(h, m, s, frac) {
+    const f = frac ? Number(frac) / (frac.length === 1 ? 10 : 100) : 0;
+    return Math.round(((Number(h || 0) * 3600) + Number(m) * 60 + Number(s) + f) * 100) / 100;
+  }
+
+  /**
+   * A time to the hundredth, [h:]m:ss[.d|.dd], decimals only when there is a
+   * fraction: "0:41", "0:41.5", "0:41.25", "1:02:03.07". A-B points and note
+   * times use it, so a typed 0:41.25 reads back as typed.
+   */
+  function formatPrecise(t) {
+    const cs = Math.round(Math.max(0, num(Number(t), 0)) * 100);   // centiseconds
+    const frac = cs % 100;
+    let s = (cs - frac) / 100;
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    s %= 60;
+    const ss = String(s).padStart(2, '0');
+    const base = h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+    if (!frac) return base;
+    return `${base}.${frac % 10 ? String(frac).padStart(2, '0') : String(frac / 10)}`;
+  }
+
+  /** "[h:]m:ss[.d|.dd]" to seconds (to the hundredth), or null. */
+  function parsePrecise(text) {
+    const m = /^\s*(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:\.(\d{1,2}))?\s*$/.exec(String(text == null ? '' : text));
+    if (!m || Number(m[3]) > 59 || (m[1] && Number(m[2]) > 59)) return null;
+    return partsToSeconds(m[1], m[2], m[3], m[4]);
+  }
 
   /** [{t, text}] for every time named in the notes, sorted by time. */
   function noteMarks(notes) {
@@ -216,7 +248,7 @@ const DockGeom = (() => {
       TS_RE.lastIndex = 0;
       let m;
       while ((m = TS_RE.exec(text))) {
-        const t = (Number(m[1] || 0) * 3600) + Number(m[2]) * 60 + Number(m[3]);
+        const t = partsToSeconds(m[1], m[2], m[3], m[4]);
         if (Number(m[3]) > 59 || seen.has(t)) continue;
         seen.add(t);
         out.push({ t, text });
@@ -264,7 +296,7 @@ const DockGeom = (() => {
     DOCK_ZONE, TOP_ZONE, BUFFER, NARROW, CENTRED_MAX, MAX_LEVEL, W,
     zoneDecision, clusterWidths, rowNeed, foldLevel,
     segments, layout, segmentIndexAt, timeToX, xToTime,
-    scrubFrameIndex, noteMarks, noteNear, hotMarks, smoothHeat,
+    scrubFrameIndex, noteMarks, noteNear, hotMarks, smoothHeat, formatPrecise, parsePrecise,
   };
 })();
 

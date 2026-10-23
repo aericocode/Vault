@@ -18,12 +18,12 @@
      4. Wrapper class   — .detail-body--library / --player, so CSS can set
                           density for 800px vs 480px without a markup diff
 
-   The Modern look's player is the one exception: renderDetailPanel (bottom
-   of this file) lays the same sections out as a tabbed Info panel. It reuses
-   every section renderer above (notes, subtitles, music, people, games,
-   duplicates, studio, rating); only the small inline blocks of this function
-   are drawn again there, in the panel's own style. The library modal and
-   Classic never see it.
+   The Modern look is the one exception: renderDetailPanel (bottom of this
+   file) lays the same sections out as a tabbed Info panel, on both surfaces.
+   It reuses every section renderer above (notes, subtitles, music, people,
+   games, duplicates, studio, rating); only the small inline blocks of this
+   function are drawn again there, in the panel's own style. Classic never
+   sees it.
    ========================================================================= */
 
 /**
@@ -311,29 +311,35 @@ function renderDetailBody(media, opts = {}) {
 }
 
 /* =========================================================================
-   MODERN PLAYER INFO PANEL - the tabbed panel beside the Modern player
-   (.notes/MODERN_PLAYER_SPEC.md, Phase 3; mock vault-player-v2.html).
+   MODERN INFO PANEL - the tabbed detail view of the Modern look, on both
+   surfaces: beside the player (player-core.js renderSidebar) and as the
+   library's detail slide-out (modal.js showDetails, the tile's i).
+   See .notes/MODERN_PLAYER_SPEC.md, Phase 3; mock vault-player-v2.html.
 
    A header row of quick actions (line icons, the ones that do not fit go to
    More), tabs that only show when they apply (player-lib/player/
    panel-layout.js decides which), and a note box pinned under every tab.
+   opts.context picks the surface: 'player' adds the current-time button,
+   Find faces in this frame, the close button and the keyboard hint;
+   'library' adds Play and trashes through the library's own handler.
 
    The whole tab area plus the note box is ONE .notes-section, so notes.js
    finds the list (Notes tab) and the input (note box) from either end
    exactly as it does in Classic: nothing in notes.js had to learn about tabs.
 
    Music, People and the Notes count fill in after the fact (their own async
-   loads call detailPanelMusic / detailPanelSetCount / detailPanelNotesChanged).
+   loads call detailPanelMusic / detailPanelSetCount / detailPanelNotesChanged),
+   on every open panel showing that file.
    ========================================================================= */
 
-/** The tab picked last; remembered for the session (page load). */
-let detailPanelTab = 'details';
+/** The tab picked last on each surface; remembered until the page reloads. */
+const detailPanelTab = { player: 'details', library: 'details' };
 
 const DETAIL_PANEL_TABS = {
   details: 'Details', notes: 'Notes', subtitles: 'Subtitles', music: 'Music', people: 'People', file: 'File',
 };
 
-/** True when the player sidebar should draw the tabbed panel (Modern look). */
+/** True when the detail surfaces draw the tabbed panel (Modern look). */
 function detailPanelTabbed() {
   return typeof isModernLayout === 'function' && isModernLayout();
 }
@@ -343,15 +349,21 @@ function detailPanelIcon(name) {
 }
 
 /* Quick actions: icon, words (the tooltip and the More menu row) and the
-   inline handler, which runs with `this` = the clicked button. */
+   inline handler, which runs with `this` = the clicked button. lib: true
+   when the library surface is drawing. */
 const DETAIL_PANEL_ACTIONS = {
+  play: {
+    icon: 'play',
+    label: () => 'Play',
+    click: (m, p, n) => `closeModal(); playMedia({filepath: '${p}', filename: '${n}', media_type: '${m.media_type}'})`,
+  },
   flag: {
     icon: 'flag',
     label: (m) => (m.user_flagged_delete ? 'Flagged for deletion. Click to unflag' : 'Flag for deletion'),
-    click: (m, p) => `toggleFlagDelete('${p}'); detailPanelFlagged()`,
+    click: (m, p) => `toggleFlagDelete('${p}'); detailPanelFlagged(this)`,
   },
-  trash: { icon: 'trash', label: () => 'Move to trash', click: (m) => `trashOrRestoreFromSidebar(${m.id})` },
-  restore: { icon: 'rescan', label: () => 'Restore from trash', click: (m) => `trashOrRestoreFromSidebar(${m.id})` },
+  trash: { icon: 'trash', label: () => 'Move to trash', click: (m, p, n, lib) => `${lib ? 'trashOrRestoreFromDetails' : 'trashOrRestoreFromSidebar'}(${m.id})` },
+  restore: { icon: 'rescan', label: () => 'Restore from trash', click: (m, p, n, lib) => `${lib ? 'trashOrRestoreFromDetails' : 'trashOrRestoreFromSidebar'}(${m.id})` },
   copy: { icon: 'copy', label: () => 'Copy path', click: (m, p) => `copyPath('${p}')` },
   refresh: {
     icon: 'refresh',
@@ -371,22 +383,26 @@ const DETAIL_PANEL_ACTIONS = {
   },
 };
 
-function detailPanelActionsHtml(media, escapedPath) {
+function detailPanelActionsHtml(media, escapedPath, escapedName, lib) {
   const { row, more } = PanelLayout.actionsFor(media);
   const btn = (key) => {
     const a = DETAIL_PANEL_ACTIONS[key];
     const label = escapeHtml(a.label(media));
     const on = key === 'flag' && media.user_flagged_delete;
     return `<button type="button" class="mpp-qa-btn${on ? ' on' : ''}" data-qa="${key}" title="${label}" aria-label="${escapeHtml(a.short || a.label(media))}"${key === 'flag' ? ` aria-pressed="${on ? 'true' : 'false'}"` : ''}
-      onclick="${a.click(media, escapedPath)}">${detailPanelIcon(a.icon)}</button>`;
+      onclick="${a.click(media, escapedPath, escapedName, lib)}">${detailPanelIcon(a.icon)}</button>`;
   };
   const item = (key, overflow) => {
     const a = DETAIL_PANEL_ACTIONS[key];
     return `<button type="button" role="menuitem" class="mpp-menu-item" data-qa-item="${key}"${overflow ? ' hidden' : ''}
-      onclick="detailPanelMoreClose(); ${a.click(media, escapedPath)}">${detailPanelIcon(a.icon)}<span>${escapeHtml(a.short || a.label(media))}</span></button>`;
+      onclick="detailPanelMoreClose(); ${a.click(media, escapedPath, escapedName, lib)}">${detailPanelIcon(a.icon)}<span>${escapeHtml(a.short || a.label(media))}</span></button>`;
   };
+  // The library's Play leads the row and never folds into More.
+  const play = lib ? `<button type="button" class="mpp-qa-btn mpp-qa-play" title="Play" aria-label="Play"
+      onclick="${DETAIL_PANEL_ACTIONS.play.click(media, escapedPath, escapedName)}">${detailPanelIcon('play')}<span>Play</span></button>` : '';
   return `
     <div class="mpp-qa" role="toolbar" aria-label="File actions">
+      ${play}
       ${row.map(btn).join('')}
       <span class="mpp-qa-more-wrap">
         <button type="button" class="mpp-qa-btn mpp-qa-more" title="More" aria-label="More actions" aria-haspopup="menu" aria-expanded="false"
@@ -397,16 +413,18 @@ function detailPanelActionsHtml(media, escapedPath) {
         </div>
       </span>
       <span class="mpp-qa-sp"></span>
-      <button type="button" class="mpp-qa-btn mpp-qa-close" title="Close the panel (I)" aria-label="Close the panel" onclick="toggleSidebar()">${detailPanelIcon('close')}</button>
+      ${lib ? '' : `<button type="button" class="mpp-qa-btn mpp-qa-close" title="Close the panel (I)" aria-label="Close the panel" onclick="toggleSidebar()">${detailPanelIcon('close')}</button>`}
     </div>`;
 }
 
 /**
- * The Modern player's Info panel. Same data as renderDetailBody, laid out in
- * tabs. opts.extraFile: markup for the bottom of the File tab (the session's
- * skipped list from player-core.js).
+ * The Modern Info panel. Same data as renderDetailBody, laid out in tabs.
+ * opts.context: 'player' (default) or 'library'. opts.extraFile: markup for
+ * the bottom of the File tab (the player's skipped-this-session list).
  */
 function renderDetailPanel(media, opts = {}) {
+  const lib = opts.context === 'library';
+  const ctx = lib ? 'library' : 'player';
   const type = media.media_type || '';
   const timed = type === 'video' || type === 'audio';
   const mediaElements = safeParseJSON(media.media_elements, []);
@@ -416,6 +434,7 @@ function renderDetailPanel(media, opts = {}) {
   const tags = safeParseJSON(media.tags, []);
   const locations = safeParseJSON(media.locations, []);
   const escapedPath = escapeHtml(media.filepath).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const escapedName = escapeHtml(media.filename).replace(/'/g, "\\'");
   const notes = typeof getNotes === 'function' ? getNotes(media.filepath) : [];
 
   const editBtn = (key, what) => `<button type="button" class="field-edit-btn mpp-edit" onclick="startFieldEdit(this, ${media.id}, '${key}')"
@@ -483,7 +502,7 @@ function renderDetailPanel(media, opts = {}) {
   const notesPane = `
     ${media.dupe_group ? '<p class="mpp-hint">Notes are shared with this file\'s duplicates.</p>' : ''}
     <div class="notes-list">${typeof renderNotesList === 'function' ? renderNotesList(notes, escapedPath) : ''}</div>
-    <p class="mpp-hint">Click a time in a note to jump there; a range like 0:41-1:03 loops.${timed ? ' A note from the box below starts with the time you began typing it.' : ''}</p>`;
+    <p class="mpp-hint">Click a time in a note to jump there; a range like 0:41-1:03 loops. Times can carry hundredths, like 0:41.25.${timed && !lib ? ' The clock button by the box puts in the current time.' : ''}</p>`;
 
   /* ── File ── */
   const views = [
@@ -526,17 +545,18 @@ function renderDetailPanel(media, opts = {}) {
       <div class="text-items">${textItems(transcribedText)}</div>
     </div>` : ''}
     ${opts.extraFile || ''}
+    ${lib ? '' : `
     <div class="sidebar-nav-hint">
       <span><kbd>Alt</kbd>+<kbd>Left</kbd> Previous</span>
       <span><kbd>Alt</kbd>+<kbd>Right</kbd> Next</span>
       <span><kbd>I</kbd> Close</span>
-    </div>`;
+    </div>`}`;
 
   /* ── People ── */
   const people = `
     ${typeof renderFacesSection === 'function' ? renderFacesSection(media) : ''}
     <p class="mpp-hint mpp-people-empty">No people found in this file yet.</p>
-    ${type === 'video' && typeof facesFindInFrame === 'function' ? `<button type="button" class="mpp-btn" onclick="facesFindInFrame()">${detailPanelIcon('face-scan')}Find faces in this frame</button>` : ''}`;
+    ${!lib && type === 'video' && typeof facesFindInFrame === 'function' ? `<button type="button" class="mpp-btn" onclick="facesFindInFrame()">${detailPanelIcon('face-scan')}Find faces in this frame</button>` : ''}`;
 
   /* A video's Music section waits in the File tab until a fingerprint scan
      shows there is music (detailPanelMusic moves it); audio always has it. */
@@ -551,24 +571,23 @@ function renderDetailPanel(media, opts = {}) {
 
   const faces = typeof facesReady === 'function' && facesReady();
   const tabs = PanelLayout.tabsFor(type, { faces, fingerprinted: false });
-  const active = PanelLayout.pickTab(tabs, detailPanelTab);
+  const active = PanelLayout.pickTab(tabs, detailPanelTab[ctx]);
   const errDot = errorSection ? ' mpp-tab--alert' : '';
+  // Ids carry the surface: the library's panel can open over the player's.
   const tabHtml = PanelLayout.TAB_ORDER.map(k => {
     const count = k === 'notes' && notes.length ? notes.length : '';
-    return `<button type="button" role="tab" class="mpp-tab${k === 'file' ? errDot : ''}" id="mppTab-${k}" data-mpp-tab="${k}"
-      aria-controls="mppPane-${k}" aria-selected="${k === active}" tabindex="${k === active ? 0 : -1}"${tabs.includes(k) ? '' : ' hidden'}
-      onclick="detailPanelSelect('${k}')">${DETAIL_PANEL_TABS[k]}<span class="mpp-count">${count}</span></button>`;
+    return `<button type="button" role="tab" class="mpp-tab${k === 'file' ? errDot : ''}" id="mppTab-${ctx}-${k}" data-mpp-tab="${k}"
+      aria-controls="mppPane-${ctx}-${k}" aria-selected="${k === active}" tabindex="${k === active ? 0 : -1}"${tabs.includes(k) ? '' : ' hidden'}
+      onclick="detailPanelSelect('${k}', { root: this.closest('.mpp') })">${DETAIL_PANEL_TABS[k]}<span class="mpp-count">${count}</span></button>`;
   }).join('');
   const paneHtml = PanelLayout.TAB_ORDER.map(k => `
-    <div class="mpp-pane" role="tabpanel" id="mppPane-${k}" data-mpp-pane="${k}" aria-labelledby="mppTab-${k}"${k === active ? '' : ' hidden'}>
+    <div class="mpp-pane" role="tabpanel" id="mppPane-${ctx}-${k}" data-mpp-pane="${k}" aria-labelledby="mppTab-${ctx}-${k}"${k === active ? '' : ' hidden'}>
       ${panes[k]}
     </div>`).join('');
 
-  const placeholder = timed ? detailPanelNotePlaceholder() : 'Add a note, Enter to save';
-
   return `
-    <div class="detail-body detail-body--player mpp" data-media-id="${media.id}" data-mpp-type="${escapeHtml(type)}">
-      ${detailPanelActionsHtml(media, escapedPath)}
+    <div class="detail-body detail-body--${ctx} mpp" data-media-id="${media.id}" data-mpp-type="${escapeHtml(type)}" data-mpp-ctx="${ctx}">
+      ${detailPanelActionsHtml(media, escapedPath, escapedName, lib)}
       ${media.user_trashed ? `
       <div class="mpp-notice">${detailPanelIcon('trash')}<span>This file is in the trash folder.
         <small class="trash-original-path">Original: ${escapeHtml(media.trashed_original_path || '')}</small></span></div>` : ''}
@@ -577,9 +596,9 @@ function renderDetailPanel(media, opts = {}) {
         <div class="mpp-panes">${paneHtml}</div>
         <div class="mpp-notebox">
           ${typeof renderNoteSnippets === 'function' ? renderNoteSnippets(escapedPath) : ''}
-          <div class="notes-add mpp-noteadd"${timed ? ' data-note-at=""' : ''}>
-            ${timed ? `<button type="button" class="mpp-ib" onclick="insertCurrentTimestamp(this)" title="Put the current time in the note">${detailPanelIcon('clock')}</button>` : ''}
-            <textarea class="note-textarea note-input-field" rows="1" placeholder="${placeholder}" aria-label="New note"></textarea>
+          <div class="notes-add mpp-noteadd">
+            ${timed && !lib ? `<button type="button" class="mpp-ib" onclick="insertCurrentTimestamp(this)" title="Put the current time in the note">${detailPanelIcon('clock')}</button>` : ''}
+            <textarea class="note-textarea note-input-field" rows="1" placeholder="${DETAIL_PANEL_NOTE_TEXT}" aria-label="New note"></textarea>
             <button type="button" class="mpp-ib" onclick="saveNoteSnippet(this)" title="Keep the typed text as a quick note to reuse">${detailPanelIcon('star')}</button>
             <button type="button" class="mpp-ib" onclick="clearNoteInput(this)" title="Clear the box without saving">${detailPanelIcon('close')}</button>
             <button type="button" class="mpp-ib mpp-ib--pri" onclick="addNote('${escapedPath}', this)" title="Add the note (Enter)">${detailPanelIcon('check')}</button>
@@ -591,23 +610,16 @@ function renderDetailPanel(media, opts = {}) {
 
 /* ── Panel behaviour ─────────────────────────────────────────────────── */
 
-function detailPanelRoot() {
-  return document.querySelector('#mediaSidebarBody .mpp');
+/** Every open panel (the player's, the library's, or both). */
+function detailPanelRoots(mediaId) {
+  const all = [...document.querySelectorAll('.mpp')];
+  return mediaId == null ? all : all.filter(r => Number(r.dataset.mediaId) === Number(mediaId));
 }
 
-function detailPanelPlayerTime() {
-  const el = document.querySelector('#mediaPlayerContent video, #mediaPlayerContent audio');
-  return el && Number.isFinite(el.currentTime) ? el.currentTime : NaN;
-}
-
-/** "Note at 1:16, Enter to save"; just "Note at 1:16" when the box is too
- *  narrow for the rest on one line (a 900 px window). */
-function detailPanelNotePlaceholder(input) {
-  const t = detailPanelPlayerTime();
-  const at = `Note at ${PanelLayout.formatTime(Number.isFinite(t) ? t : 0)}`;
-  const full = `${at}, Enter to save`;
-  return input && input.clientWidth > 0 && detailPanelTextWidth(full, input) > detailPanelInnerWidth(input) ? at : full;
-}
+// The note box's placeholder, and its short form when that would not fit
+// on one line (a 900 px window).
+const DETAIL_PANEL_NOTE_TEXT = 'Add a note, Enter to save';
+const DETAIL_PANEL_NOTE_SHORT = 'Add a note';
 
 let detailPanelMeasure = null;
 /** How wide `text` draws in the box's font. */
@@ -624,17 +636,22 @@ function detailPanelInnerWidth(el) {
   return el.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);
 }
 
-/** Put the current time (and the right length) in the note box's placeholder. */
+/** Keep each note box's placeholder on one line. */
 function detailPanelPlaceholderUpdate() {
-  const input = document.querySelector('#mediaSidebarBody .notes-add[data-note-at] .note-input-field');
-  if (!input) return;
-  const text = detailPanelNotePlaceholder(input);
-  if (input.placeholder !== text) input.placeholder = text;
+  document.querySelectorAll('.mpp .mpp-noteadd .note-input-field').forEach(input => {
+    if (!(input.clientWidth > 0)) return;
+    const fits = detailPanelTextWidth(DETAIL_PANEL_NOTE_TEXT, input) <= detailPanelInnerWidth(input);
+    const text = fits ? DETAIL_PANEL_NOTE_TEXT : DETAIL_PANEL_NOTE_SHORT;
+    if (input.placeholder !== text) input.placeholder = text;
+  });
 }
 
-/** Show one tab. remember: false when the panel picks it rather than you. */
-function detailPanelSelect(key, { remember = true, focus = false } = {}) {
-  const root = detailPanelRoot();
+/**
+ * Show one tab. root: the panel (the clicked tab's; else the player's).
+ * remember: false when the panel picks it rather than you.
+ */
+function detailPanelSelect(key, { root = null, remember = true, focus = false } = {}) {
+  root = root || document.querySelector('#mediaSidebarBody .mpp') || document.querySelector('.mpp');
   const tab = root?.querySelector(`[data-mpp-tab="${key}"]`);
   if (!tab || tab.hidden) return;
   root.querySelectorAll('[data-mpp-tab]').forEach(t => {
@@ -646,7 +663,7 @@ function detailPanelSelect(key, { remember = true, focus = false } = {}) {
   const panes = root.querySelector('.mpp-panes');
   if (panes) panes.scrollTop = 0;
   if (remember) {
-    detailPanelTab = key;
+    detailPanelTab[root.dataset.mppCtx === 'library' ? 'library' : 'player'] = key;
     root.dataset.picked = '1';
   }
   if (focus) tab.focus();
@@ -674,7 +691,7 @@ function detailPanelTabKey(e) {
   if (e.key === 'Home') next = 0;
   else if (e.key === 'End') next = tabs.length - 1;
   else next = (Math.max(0, i) + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
-  if (tabs[next]) detailPanelSelect(tabs[next].dataset.mppTab, { focus: true });
+  if (tabs[next]) detailPanelSelect(tabs[next].dataset.mppTab, { root: e.currentTarget.closest('.mpp'), focus: true });
 }
 
 /**
@@ -683,24 +700,25 @@ function detailPanelTabKey(e) {
  * the remembered one wins as soon as it appears (Music shows up only once
  * its scan state has loaded).
  */
-function detailPanelSync() {
-  const root = detailPanelRoot();
-  if (!root || typeof PanelLayout === 'undefined') return;
+function detailPanelSync(onlyRoot = null) {
+  if (typeof PanelLayout === 'undefined') return;
   const faces = typeof facesReady === 'function' && facesReady();
-  const tabs = PanelLayout.tabsFor(root.dataset.mppType, { faces, fingerprinted: root.dataset.fp === '1' });
-  root.querySelectorAll('[data-mpp-tab]').forEach(t => { t.hidden = !tabs.includes(t.dataset.mppTab); });
-  const current = root.querySelector('[data-mpp-tab][aria-selected="true"]')?.dataset.mppTab;
-  const want = root.dataset.picked ? current : detailPanelTab;
-  const pick = PanelLayout.pickTab(tabs, tabs.includes(want) ? want : current);
-  if (pick !== current) detailPanelSelect(pick, { remember: false });
+  for (const root of onlyRoot ? [onlyRoot] : detailPanelRoots()) {
+    const tabs = PanelLayout.tabsFor(root.dataset.mppType, { faces, fingerprinted: root.dataset.fp === '1' });
+    root.querySelectorAll('[data-mpp-tab]').forEach(t => { t.hidden = !tabs.includes(t.dataset.mppTab); });
+    const current = root.querySelector('[data-mpp-tab][aria-selected="true"]')?.dataset.mppTab;
+    const want = root.dataset.picked ? current : detailPanelTab[root.dataset.mppCtx === 'library' ? 'library' : 'player'];
+    const pick = PanelLayout.pickTab(tabs, tabs.includes(want) ? want : current);
+    if (pick !== current) detailPanelSelect(pick, { root, remember: false });
+  }
 }
 
-/** A count beside a tab's name (null or 0: none). */
+/** A count beside a tab's name (null or 0: none), on every panel for this file. */
 function detailPanelSetCount(mediaId, tab, n) {
-  const root = detailPanelRoot();
-  if (!root || Number(root.dataset.mediaId) !== Number(mediaId)) return;
-  const el = root.querySelector(`[data-mpp-tab="${tab}"] .mpp-count`);
-  if (el) el.textContent = n > 0 ? String(n) : '';
+  for (const root of detailPanelRoots(mediaId)) {
+    const el = root.querySelector(`[data-mpp-tab="${tab}"] .mpp-count`);
+    if (el) el.textContent = n > 0 ? String(n) : '';
+  }
 }
 
 /** notes.js redrew a notes list: keep the Notes count in step. */
@@ -716,10 +734,10 @@ function detailPanelNotesChanged(section, n) {
  * "Fingerprint and scan" button) sits in the File tab.
  */
 function detailPanelMusic(mediaId, info) {
-  const root = detailPanelRoot();
-  if (!root || Number(root.dataset.mediaId) !== Number(mediaId) || !info) return;
-  const section = root.querySelector('.music-section');
-  if (root.dataset.mppType === 'video' && section) {
+  if (!info) return;
+  for (const root of detailPanelRoots(mediaId)) {
+    const section = root.querySelector('.music-section');
+    if (root.dataset.mppType !== 'video' || !section) continue;
     const fp = !!info.fingerprinted;
     const wasFp = root.dataset.fp;   // undefined on the first answer
     const onMusic = root.querySelector('[data-mpp-tab="music"]')?.getAttribute('aria-selected') === 'true';
@@ -727,26 +745,28 @@ function detailPanelMusic(mediaId, info) {
     const home = fp ? root.querySelector('[data-mpp-pane="music"]') : root.querySelector('.mpp-music-slot');
     if (home && section.parentElement !== home) home.appendChild(section);
     // Fingerprints removed from the Music tab: Music ID now lives in File.
-    if (!fp && onMusic) detailPanelSelect('file', { remember: false });
-    detailPanelSync();
+    if (!fp && onMusic) detailPanelSelect('file', { root, remember: false });
+    detailPanelSync(root);
     // Scanned from the File tab just now: follow the songs to their tab.
     const onFile = root.querySelector('[data-mpp-tab="file"]')?.getAttribute('aria-selected') === 'true';
-    if (fp && wasFp === '' && onFile) detailPanelSelect('music', { remember: false });
+    if (fp && wasFp === '' && onFile) detailPanelSelect('music', { root, remember: false });
   }
   detailPanelSetCount(mediaId, 'music', (info.songs || []).length);
 }
 
-/** Flag toggled: light the button (and its More row) without a re-render. */
-function detailPanelFlagged() {
-  const root = detailPanelRoot();
-  if (!root) return;
-  const m = typeof getMediaById === 'function' ? getMediaById(Number(root.dataset.mediaId)) : null;
-  const on = m ? !!m.user_flagged_delete : !root.querySelector('[data-qa="flag"].on');
-  root.querySelectorAll('[data-qa="flag"]').forEach(b => {
-    b.classList.toggle('on', on);
-    b.setAttribute('aria-pressed', on ? 'true' : 'false');
-    b.title = on ? 'Flagged for deletion. Click to unflag' : 'Flag for deletion';
-  });
+/** Flag toggled: light the button (and its More row) on every panel for the file. */
+function detailPanelFlagged(btn) {
+  const id = Number(btn?.closest?.('.mpp')?.dataset.mediaId);
+  if (!id) return;
+  const m = typeof getMediaById === 'function' ? getMediaById(id) : null;
+  const on = m ? !!m.user_flagged_delete : !btn.classList.contains('on');
+  for (const root of detailPanelRoots(id)) {
+    root.querySelectorAll('[data-qa="flag"]').forEach(b => {
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.title = on ? 'Flagged for deletion. Click to unflag' : 'Flag for deletion';
+    });
+  }
 }
 
 /** Disable a quick action while its promise runs. */
@@ -765,6 +785,7 @@ function detailPanelMoreToggle(btn) {
   const menu = btn.parentElement.querySelector('.mpp-menu');
   if (!menu) return;
   if (!menu.hidden) { detailPanelMoreClose(); return; }
+  detailPanelMoreClose();
   menu.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
   btn.classList.add('open');
@@ -775,13 +796,12 @@ function detailPanelMoreToggle(btn) {
 
 function detailPanelMoreClose() {
   document.removeEventListener('pointerdown', detailPanelMoreOutside, true);
-  const root = detailPanelRoot();
-  const menu = root?.querySelector('.mpp-menu');
-  if (!menu || menu.hidden) return;
-  menu.hidden = true;
-  const btn = root.querySelector('.mpp-qa-more');
-  btn?.setAttribute('aria-expanded', 'false');
-  btn?.classList.remove('open');
+  document.querySelectorAll('.mpp .mpp-menu:not([hidden])').forEach(menu => {
+    menu.hidden = true;
+    const btn = menu.parentElement.querySelector('.mpp-qa-more');
+    btn?.setAttribute('aria-expanded', 'false');
+    btn?.classList.remove('open');
+  });
 }
 
 function detailPanelMoreOutside(e) {
@@ -795,8 +815,9 @@ function detailPanelMenuKey(e) {
   if (e.key === 'Escape') {
     e.preventDefault();
     e.stopPropagation();
+    const more = e.currentTarget.parentElement.querySelector('.mpp-qa-more');
     detailPanelMoreClose();
-    detailPanelRoot()?.querySelector('.mpp-qa-more')?.focus();
+    more?.focus();
   } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
     e.stopPropagation();
@@ -823,9 +844,12 @@ function detailPanelFit(qa) {
   if (!qa || !qa.isConnected) return;
   const row = [...qa.querySelectorAll('[data-qa]')];
   const style = getComputedStyle(qa);
-  const width = qa.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-  // Room for More, close and the gap before close
-  const n = PanelLayout.fitActions(width, row.length, { btn: 36, gap: 4, fixed: 36 * 2 + 4 * 2 + 8 });
+  const play = qa.querySelector('.mpp-qa-play');
+  const width = qa.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    - (play ? play.offsetWidth + 4 : 0);
+  // Room for More, close (player only) and the gap before it
+  const close = qa.querySelector('.mpp-qa-close') ? 36 + 4 : 0;
+  const n = PanelLayout.fitActions(width, row.length, { btn: 36, gap: 4, fixed: 36 + 4 + 8 + close });
   row.forEach((b, i) => {
     b.hidden = i >= n;
     const item = qa.querySelector(`[data-qa-item="${b.dataset.qa}"]`);
@@ -833,61 +857,36 @@ function detailPanelFit(qa) {
   });
 }
 
-/** Called once the panel is in the page (player-core.js renderSidebar). */
+/** Called once a panel is in the page (renderSidebar, showDetails). */
 function detailPanelMounted() {
-  const root = detailPanelRoot();
-  if (!root) return;
-  const qa = root.querySelector('.mpp-qa');
   if (detailPanelFitObserver) {
     detailPanelFitObserver.disconnect();
-    if (qa) detailPanelFitObserver.observe(qa);
+    document.querySelectorAll('.mpp .mpp-qa').forEach(qa => detailPanelFitObserver.observe(qa));
   }
-  detailPanelFit(qa);
+  document.querySelectorAll('.mpp .mpp-qa').forEach(detailPanelFit);
   detailPanelPlaceholderUpdate();
 }
 
-/* The note box remembers the playback time a note was started at (it is
-   put in front of the note on save, notes.js _noteBoxText), and keeps the
-   placeholder's time current while the box is empty. */
-document.addEventListener('input', (e) => {
-  const input = e.target;
-  if (!input?.classList?.contains('note-input-field')) return;
-  const box = input.closest('.notes-add[data-note-at]');
-  if (!box) return;
-  if (!input.value.trim()) { box.dataset.noteAt = ''; return; }
-  if (box.dataset.noteAt === '') {
-    const t = detailPanelPlayerTime();
-    if (Number.isFinite(t)) box.dataset.noteAt = String(t);
-  }
-});
-
-document.addEventListener('timeupdate', (e) => {
-  if (!e.target?.closest?.('#mediaPlayerContent')) return;
-  detailPanelPlaceholderUpdate();
-}, true);
-
-/* Switching between Classic and Modern with the panel open redraws it in the
-   new look, keeping whatever is half-typed in the note box, and the time it
-   was started at: Classic's box has no place for that time, so it is kept
-   here, with the file and the draft it belongs to, for the way back
-   (PanelLayout.draftStartAt decides whether it still applies). */
-let detailPanelDraftAt = null;   // {id, text, at} while Classic shows
-window.addEventListener('vault:layout-style', () => {
-  if (typeof sidebarOpen === 'undefined' || !sidebarOpen || typeof renderSidebar !== 'function') return;
-  const input = document.querySelector('#mediaSidebarBody .note-input-field');
+/** Redraw an open surface in the current look, keeping a half-typed note. */
+function detailPanelRedraw(bodySel, redraw) {
+  const input = document.querySelector(`${bodySel} .note-input-field`);
   const draft = input ? input.value : '';
-  const box = document.querySelector('#mediaSidebarBody .notes-add[data-note-at]');
-  const saved = detailPanelDraftAt;
-  detailPanelDraftAt = box && draft.trim()
-    ? { id: Number(box.closest('.mpp')?.dataset.mediaId), text: draft.trim(), at: box.dataset.noteAt || '' }
-    : null;
   if (input) input.value = '';   // carried over below, not saved as a note by the redraw
-  renderSidebar();
-  const next = document.querySelector('#mediaSidebarBody .note-input-field');
+  redraw();
+  const next = document.querySelector(`${bodySel} .note-input-field`);
   if (next && draft) next.value = draft;
-  const nextBox = document.querySelector('#mediaSidebarBody .notes-add[data-note-at]');
-  if (nextBox) {
-    const id = Number(nextBox.closest('.mpp')?.dataset.mediaId);
-    nextBox.dataset.noteAt = draft.trim() ? PanelLayout.draftStartAt(saved, id, draft) : '';
+}
+
+/* Switching between Classic and Modern redraws an open player panel and an
+   open library detail view in the new look. */
+window.addEventListener('vault:layout-style', () => {
+  if (typeof sidebarOpen !== 'undefined' && sidebarOpen && typeof renderSidebar === 'function') {
+    detailPanelRedraw('#mediaSidebarBody', renderSidebar);
+  }
+  const modal = document.getElementById('modalOverlay');
+  const id = Number(document.querySelector('#modalBody .detail-body')?.dataset.mediaId);
+  const media = id && typeof getMediaById === 'function' ? getMediaById(id) : null;
+  if (modal?.classList.contains('active') && media && typeof showDetails === 'function') {
+    detailPanelRedraw('#modalBody', () => showDetails(media));
   }
 });

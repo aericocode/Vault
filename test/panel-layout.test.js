@@ -1,9 +1,10 @@
 /**
- * The Modern player's tabbed Info panel (player-lib/player/panel-layout.js,
+ * The Modern tabbed Info panel, beside the player and as the library detail
+ * view (player-lib/player/panel-layout.js,
  * drawn by player-lib/detail-view.js renderDetailPanel): which tabs each file
- * type gets, the tab it opens on, the quick actions and how many fit, the
- * note box's leading time, the panel-only icon swap (icons.js), and that the
- * page wires it up for Modern only.
+ * type gets, the tab it opens on, the quick actions and how many fit, times
+ * in notes (hundredths too), the panel-only icon swap (icons.js), and that
+ * the page wires it up for Modern only.
  */
 
 const test = require('node:test');
@@ -100,53 +101,53 @@ test('quick actions: how many fit, the rest go to More', () => {
   assert.strictEqual(P.fitActions(1000, 0, sizes), 0);
 });
 
-/* ── The note box ──────────────────────────────────────────────────────── */
+/* ── Times in notes (notes.js): [h:]m:ss with optional hundredths ────── */
 
-test('times: m:ss, and h:mm:ss past an hour', () => {
-  assert.strictEqual(P.formatTime(0), '0:00');
-  assert.strictEqual(P.formatTime(76.9), '1:16');
-  assert.strictEqual(P.formatTime(3723), '1:02:03');
-  assert.strictEqual(P.formatTime(-4), '0:00');
-  assert.strictEqual(P.formatTime(NaN), '0:00');
+function loadNotes() {
+  const noop = () => {};
+  const ctx = {
+    Math, Number, String, Array, Object, RegExp, JSON, console,
+    document: { addEventListener: noop, querySelector: () => null, querySelectorAll: () => [] },
+    escapeHtml: (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
+  };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(`${read('player-lib', 'notes.js')}\nglobalThis.__n = { _parseTs, linkifyTimestamps, insertCurrentTimestamp };`, ctx);
+  return { ...ctx.__n, ctx };
+}
+const N = loadNotes();
+/** The [onclick target, text] of each link linkifyTimestamps makes. */
+const links = (text) => [...N.linkifyTimestamps(text, 'p').matchAll(/onclick="(\w+)\('p', ([^)]*)\)[^"]*"[^>]*>([\s\S]*?)<\/a>/g)]
+  .map(m => `${m[1]}(${m[2]})`);
+
+test('note times: whole seconds, hours, and up to hundredths', () => {
+  assert.strictEqual(N._parseTs('1:56'), 116);
+  assert.strictEqual(N._parseTs('1:56.4'), 116.4);
+  assert.strictEqual(N._parseTs('0:41.25'), 41.25);
+  assert.strictEqual(N._parseTs('1:02:03'), 3723);
+  assert.strictEqual(N._parseTs('1:02:03.5'), 3723.5);
+  assert.strictEqual(N._parseTs(' 0:05 '), 5);
+  for (const bad of ['', 'abc', '1:5', '1:56.', '1:56.123', '123:45', '1:2:3', ':30', '1:56,4']) {
+    assert.strictEqual(N._parseTs(bad), null, bad);
+  }
 });
 
-test('note box: the time it was started at leads the note', () => {
-  assert.strictEqual(P.noteWithTime('good bit', 76), '1:16 good bit');
-  assert.strictEqual(P.noteWithTime('  spaced  ', 0), '0:00 spaced');
+test('note links: a time seeks, a range loops, both keep their hundredths', () => {
+  assert.deepStrictEqual(links('see 1:56.4 here'), ["seekToNoteTimestamp('1:56.4')"]);
+  assert.deepStrictEqual(links('loop 0:41.25-1:03.5 best'), ["loopNoteRange('0:41.25', '1:03.5')"]);
+  assert.deepStrictEqual(links('loop 0:41 - 1:03'), ["loopNoteRange('0:41', '1:03')"]);
+  assert.deepStrictEqual(links('at 1:02:03.25 it ends'), ["seekToNoteTimestamp('1:02:03.25')"]);
+  // A full stop after a time is the sentence's, not a decimal.
+  assert.deepStrictEqual(links('it ends at 1:56.'), ["seekToNoteTimestamp('1:56')"]);
+  assert.deepStrictEqual(links('plain words'), []);
 });
 
-test('note box: a note that names a time, or has no usable time, is kept as typed', () => {
-  assert.strictEqual(P.noteWithTime('loop 0:41-1:03 best waves', 76), 'loop 0:41-1:03 best waves');
-  assert.strictEqual(P.noteWithTime('at 1:02:03 it ends', 5), 'at 1:02:03 it ends');
-  assert.strictEqual(P.noteWithTime('no time', NaN), 'no time');
-  assert.strictEqual(P.noteWithTime('no time', undefined), 'no time');
-  assert.strictEqual(P.noteWithTime('no time', -1), 'no time');
-  assert.strictEqual(P.noteWithTime('   ', 10), '');
-  assert.strictEqual(P.noteWithTime('ratio 16:9 is wide', 10), '0:10 ratio 16:9 is wide', 'one-digit seconds is not a time');
-});
-
-test('note box: a time with letters right after it still counts, so no second time goes in', () => {
-  assert.strictEqual(P.noteWithTime('0:05intro', 5), '0:05intro');
-  assert.strictEqual(P.noteWithTime('0:05 intro', 5), '0:05 intro', 'the clock button\'s own insert');
-  assert.strictEqual(P.noteWithTime('meet at 10:30pm', 7), 'meet at 10:30pm');
-  assert.strictEqual(P.noteWithTime('1:02:03 x', 7), '1:02:03 x');
-  assert.strictEqual(P.noteWithTime('(1:16) drop', 7), '(1:16) drop');
-  assert.strictEqual(P.noteWithTime('v2:30', 7), 'v2:30');
-  // Not times: too many digits, or part of a longer number.
-  assert.strictEqual(P.noteWithTime('id 123:456', 7), '0:07 id 123:456');
-  assert.strictEqual(P.noteWithTime('ip 10.0.0.1:8080', 7), '0:07 ip 10.0.0.1:8080');
-});
-
-test('note box: a start time carried through Classic only comes back with its own file and draft', () => {
-  const saved = { id: 7, text: 'round trip', at: '3' };
-  assert.strictEqual(P.draftStartAt(saved, 7, 'round trip'), '3');
-  assert.strictEqual(P.draftStartAt(saved, 7, '  round trip, and more '), '3', 'typed on in Classic');
-  assert.strictEqual(P.draftStartAt(saved, 8, 'round trip'), '', 'another file');
-  assert.strictEqual(P.draftStartAt(saved, 7, 'classic draft'), '', 'saved in Classic, a new draft typed');
-  assert.strictEqual(P.draftStartAt(saved, 7, ''), '');
-  assert.strictEqual(P.draftStartAt({ id: 7, text: 'x', at: '' }, 7, 'x'), '', 'no time was taken');
-  assert.strictEqual(P.draftStartAt(null, 7, 'x'), '');
-  assert.strictEqual(P.draftStartAt({ id: 7, text: '', at: '3' }, 7, 'x'), '');
+test('clock button: whole seconds, with a space after so typing stands apart', () => {
+  const input = { value: '', selectionStart: 0, selectionEnd: 0, focus() {}, setSelectionRange() {} };
+  N.ctx.document.querySelector = () => ({ currentTime: 76.93 });
+  N.ctx.formatDuration = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  N.insertCurrentTimestamp({ closest: () => ({ querySelector: () => input }) });
+  assert.strictEqual(input.value, '1:16 ');
 });
 
 /* ── Panel-only icons (icons.js) ───────────────────────────────────────── */
@@ -218,6 +219,25 @@ test('player sidebar: the tabbed panel only in Modern, Classic keeps renderDetai
   assert.match(fn, /renderDetailBody\(media, \{ context: 'player' \}\) \+ skipped/);
   const dv = read('player-lib', 'detail-view.js');
   assert.match(dv, /function detailPanelTabbed\(\) \{\s*return typeof isModernLayout === 'function' && isModernLayout\(\);/);
-  // The library modal path never asks for the panel.
-  assert.ok(!/renderDetailPanel/.test(read('player-lib', 'modal.js')));
+});
+
+test('library detail view: the tabbed panel in Modern (library surface), Classic keeps renderDetailBody', () => {
+  const src = read('player-lib', 'modal.js');
+  const fn = src.slice(src.indexOf('function showDetails('), src.indexOf('function closeModal('));
+  assert.match(fn, /tabbed\s*\? renderDetailPanel\(media, \{ context: 'library' \}\)\s*: renderDetailBody\(media, \{ context: 'library' \}\)/);
+  assert.match(fn, /if \(tabbed\) detailPanelMounted\(\);/);
+});
+
+test('panel surfaces: player-only and library-only parts stay on their own side', () => {
+  const dv = read('player-lib', 'detail-view.js');
+  const panel = dv.slice(dv.indexOf('function renderDetailPanel('), dv.indexOf('/* ── Panel behaviour'));
+  // The current-time button and Find faces in this frame: player only.
+  assert.match(panel, /timed && !lib \? `<button type="button" class="mpp-ib" onclick="insertCurrentTimestamp\(this\)"/);
+  assert.match(panel, /!lib && type === 'video' && typeof facesFindInFrame/);
+  // Play: library only; trash goes through the library's own handler there.
+  assert.match(dv, /const play = lib \?/);
+  assert.match(dv, /lib \? 'trashOrRestoreFromDetails' : 'trashOrRestoreFromSidebar'/);
+  // The note box saves exactly what was typed: no automatic time.
+  assert.ok(!/data-note-at/.test(dv), 'no start time on the box');
+  assert.ok(!/_noteBoxText/.test(read('player-lib', 'notes.js')));
 });

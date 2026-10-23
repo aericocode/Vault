@@ -94,19 +94,19 @@ test('lane box: centred on the video, width from widthFrac', () => {
   assert.strictEqual(b.width, 500);
   assert.strictEqual(b.left, 350);
   assert.strictEqual(b.left + b.width / 2, rect.left + rect.width / 2);
-  assert.strictEqual(b.top, 50 + 300 - 32);
-  assert.strictEqual(b.height, 64);
+  assert.strictEqual(b.top, 50 + 300 - 40);
+  assert.strictEqual(b.height, 80);
 });
 
 test('lane box: no saved spot sits above the dock; saved spots are clamped inside the video', () => {
   const rect = { left: 0, top: 0, width: 1000, height: 600 };
-  assert.strictEqual(G.laneBox({ rect, widthFrac: null, posFrac: null }).top, 600 - 64 - 150);
+  assert.strictEqual(G.laneBox({ rect, widthFrac: null, posFrac: null }).top, 600 - 80 - 150);
   assert.strictEqual(G.laneBox({ rect, widthFrac: null, posFrac: null }).width, 560);
   assert.strictEqual(G.laneBox({ rect, widthFrac: 0.5, posFrac: 0 }).top, 4);
-  assert.strictEqual(G.laneBox({ rect, widthFrac: 0.5, posFrac: 1 }).top, 600 - 64 - 4);
+  assert.strictEqual(G.laneBox({ rect, widthFrac: 0.5, posFrac: 1 }).top, 600 - 80 - 4);
   // a video shorter than the lane: centred rather than flipping outside
   const tiny = G.laneBox({ rect: { left: 0, top: 0, width: 300, height: 40 }, widthFrac: 0.5, posFrac: 0.2 });
-  assert.strictEqual(tiny.top, -12);
+  assert.strictEqual(tiny.top, -20);
 });
 
 test('vertical drag: pointer y -> centre fraction, clamped', () => {
@@ -215,4 +215,79 @@ test('stored config: reading what other builds left behind', () => {
   // released build kept our flag but the user picked pink there: the pick wins
   assert.strictEqual(G.fillColorFromStored({ fillColor: '#ec4899', fillColorAuto: true }, CLASSIC), '#ec4899');
   assert.strictEqual(G.fillColorFromStored({ fillColor: '#7AA8FF', fillColorAuto: true }, CLASSIC), null);
+});
+
+/* ── Lane height: room for the icon and its effects at any Size ──────────── */
+
+const FX = [
+  {}, { pulse: true }, { ripple: true }, { spark: true },
+  { pulse: true, ripple: true }, { pulse: true, spark: true }, { pulse: true, ripple: true, spark: true },
+];
+const SHAPES_ALL = ['circle', 'heart', 'square', 'diamond', 'star'];
+
+test('lane height: the default look stays 80 px', () => {
+  assert.strictEqual(G.laneHeight({ fillSize: 9, shape: 'circle', effects: { pulse: true } }), 80);
+  assert.strictEqual(G.laneHeight({}), 80);
+  assert.strictEqual(G.laneHeight(null), 80);
+});
+
+test('lane height: holds the peak icon, the pulse glow, ripples and sparks at every size', () => {
+  for (let size = 4; size <= 18; size++) {
+    for (const shape of SHAPES_ALL) {
+      for (const effects of FX) {
+        const h = G.laneHeight({ fillSize: size, shape, effects });
+        const half = h / 2;
+        const baseR = size, pulseR = size + Math.max(8, size * 1.2);
+        const peak = (effects.pulse ? pulseR : baseR) * (shape === 'star' || shape === 'heart' ? 1.12 : 1);
+        assert.ok(half >= peak + 1, `icon ${size} ${shape} ${JSON.stringify(effects)}`);
+        // ripple at its brightest visible point (k = .5 -> kk = .5, radius x1.95)
+        if (effects.ripple) {
+          const r = effects.pulse ? baseR + 0.5 * (pulseR - baseR) : baseR;
+          assert.ok(half >= r * 1.95, `ripple ${size} ${shape}`);
+        }
+        // a spark half way out (k = .5) at the fastest speed
+        if (effects.spark) {
+          const r = effects.pulse ? baseR + 0.5 * (pulseR - baseR) : baseR;
+          assert.ok(half >= r + 0.5 * r * 3, `spark ${size} ${shape}`);
+        }
+      }
+    }
+  }
+});
+
+test('lane height: grows with Size and with each effect, never shrinks below the default', () => {
+  for (const effects of FX) {
+    let prev = 0;
+    for (let size = 4; size <= 18; size++) {
+      const h = G.laneHeight({ fillSize: size, shape: 'star', effects });
+      assert.ok(h >= prev && h >= 80, `${size} ${JSON.stringify(effects)}`);
+      prev = h;
+    }
+  }
+  const max = (fx) => G.laneHeight({ fillSize: 18, shape: 'star', effects: fx });
+  assert.ok(max({ pulse: true, ripple: true }) > max({ pulse: true }));
+  assert.ok(max({ pulse: true, ripple: true, spark: true }) > max({ pulse: true, ripple: true }));
+  assert.ok(max({ pulse: true, ripple: true, spark: true }) <= 200, 'stays a lane, not a wall');
+});
+
+test('lane height change keeps a saved lane centred where it was', () => {
+  const rect = { left: 0, top: 0, width: 1280, height: 720 };
+  const a = G.laneBox({ rect, widthFrac: 0.56, posFrac: 0.5, laneH: 80 });
+  const b = G.laneBox({ rect, widthFrac: 0.56, posFrac: 0.5, laneH: 174 });
+  assert.strictEqual(a.top + a.height / 2, b.top + b.height / 2);
+});
+
+/* ── The picture's box inside the <video> (for the lane's blurred backdrop) ─ */
+
+test('displayed video rect: contain letterboxes, cover crops, fill stretches', () => {
+  const box = { left: 10, top: 20, width: 1000, height: 1000 };
+  const close = (a, b) => Object.keys(b).forEach(k => assert.ok(Math.abs(a[k] - b[k]) < 1e-9, k));
+  close(G.displayedVideoRect(box, 1920, 1080, 'contain'), { left: 10, top: 20 + 218.75, width: 1000, height: 562.5 });
+  assert.deepStrictEqual({ ...G.displayedVideoRect(box, 1920, 1080, '') }, { ...G.displayedVideoRect(box, 1920, 1080, 'contain') });
+  const cover = G.displayedVideoRect(box, 1920, 1080, 'cover');
+  assert.strictEqual(cover.height, 1000);
+  assert.ok(Math.abs(cover.width - 1777.777) < 0.01);
+  assert.ok(Math.abs(cover.left - (10 - 388.888)) < 0.01);
+  close(G.displayedVideoRect(box, 1920, 1080, 'fill'), { left: 10, top: 20, width: 1000, height: 1000 });
+  assert.strictEqual(G.displayedVideoRect(box, 0, 0, 'contain'), null, 'no metadata yet');
 });

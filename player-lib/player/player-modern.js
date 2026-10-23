@@ -186,6 +186,8 @@ const ModernDock = (() => {
   }
 
   const fmt = (t) => (typeof formatDuration === 'function' ? formatDuration(t) : '') || '0:00';
+  // A-B points to the hundredth, decimals only when there is a fraction
+  const fmtAb = (t) => G.formatPrecise(t);
 
   /* ── Mount / unmount ──────────────────────────────────────────────── */
 
@@ -483,8 +485,10 @@ const ModernDock = (() => {
       // B lands and how long the loop will be.
       st.scrub.classList.remove('on');
       overlay()?.classList.remove('mp-previewing');
-      const len = Math.abs(p.t - abLoopA);
-      st.hint.innerHTML = `Click to set B at <b>${mpEsc(fmt(p.t))}</b><small>Loop ${mpEsc(fmt(len))} · Esc to cancel</small>`;
+      // A click lands B here, kept to the hundredth (setAbLoopEnd)
+      const b = Math.round(p.t * 100) / 100;
+      const len = Math.abs(b - abLoopA);
+      st.hint.innerHTML = `Click to set B at <b>${mpEsc(fmtAb(b))}</b><small>Loop ${mpEsc(fmtAb(len))} · Esc to cancel</small>`;
       st.hint.classList.add('on');
       placeFloat(st.hint, p.x);
       drawAb();
@@ -548,7 +552,7 @@ const ModernDock = (() => {
         const bx = xOf(b);
         parts.push(`<span class="mp-ab-span" style="left:${ax}px;width:${Math.max(2, bx - ax)}px"></span>`);
       } else {
-        parts.push(`<span class="mp-amark" style="left:${ax}px"><b>A ${mpEsc(fmt(a))}</b><i></i></span>`);
+        parts.push(`<span class="mp-amark" style="left:${ax}px"><b>A ${mpEsc(fmtAb(a))}</b><i></i></span>`);
         if (st.hover) {
           const lo = Math.min(ax, st.hoverX), hi = Math.max(ax, st.hoverX);
           parts.push(`<span class="mp-ab-go${st.hoverX < ax ? ' rev' : ''}" style="left:${lo}px;width:${hi - lo}px"></span>`);

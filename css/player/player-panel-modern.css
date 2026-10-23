@@ -39,11 +39,22 @@ body.layout-modern .media-sidebar:has(.mpp) {
 }
 /* The panel brings its own close button (end of the quick actions). */
 body.layout-modern .media-sidebar:has(.mpp) .media-sidebar-header { display: none; }
-body.layout-modern .media-sidebar-body:has(> .mpp) {
+body.layout-modern .media-sidebar-body:has(> .mpp),
+body.layout-modern #modalBody:has(> .mpp) {
   padding: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+/* The library's detail slide-out (modal.js showDetails): same panel, under
+   its title bar. */
+body.layout-modern #modalBody:has(> .mpp) { flex: 1; min-height: 0; }
+/* The note box stays on screen: the slide-out fits inside the overlay's
+   padding instead of running 100vh from below it (css/tiles.css). */
+body.layout-modern .modal-content:has(#modalBody > .mpp) {
+  background: #18181b;
+  height: calc(100vh - 4rem);
+  max-height: calc(100vh - 4rem) !important;
 }
 
 body.layout-modern .mpp {
@@ -103,6 +114,17 @@ body.layout-modern .mpp-qa-btn.on .vi-flag,
 body.layout-modern .mpp-menu-item[data-qa-item="flag"] .vi-flag { fill: none; }
 body.layout-modern .mpp-qa-btn.on .vi-flag { fill: currentColor; }
 body.layout-modern .mpp-qa-close { background: none; color: #9a9aa6; }
+/* The library's Play leads the row, in words as well */
+body.layout-modern .mpp-qa-play {
+  width: auto;
+  gap: 6px;
+  padding: 0 14px 0 10px;
+  background: #6366f1;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+}
+body.layout-modern .mpp-qa-play:hover:not(:disabled) { background: #4f46e5; }
 @keyframes mpp-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   body.layout-modern .mpp-qa-btn.busy .vi { animation: none; }

@@ -228,3 +228,38 @@ test('smoothHeat: neighbour average scaled to a peak of 1, empty when nothing wa
   assert.deepStrictEqual(plain(G.smoothHeat([0, 0, 0])), []);
   assert.deepStrictEqual(plain(G.smoothHeat(null)), []);
 });
+
+test('precise times: decimals only when there is a fraction, to the hundredth', () => {
+  assert.strictEqual(G.formatPrecise(41), '0:41');
+  assert.strictEqual(G.formatPrecise(41.25), '0:41.25');
+  assert.strictEqual(G.formatPrecise(41.5), '0:41.5');
+  assert.strictEqual(G.formatPrecise(41.07), '0:41.07');
+  assert.strictEqual(G.formatPrecise(41.004), '0:41', 'under a hundredth rounds away');
+  assert.strictEqual(G.formatPrecise(59.999), '1:00', 'rounding carries into the minute');
+  assert.strictEqual(G.formatPrecise(3723.4), '1:02:03.4');
+  assert.strictEqual(G.formatPrecise(0), '0:00');
+  assert.strictEqual(G.formatPrecise(NaN), '0:00');
+  assert.strictEqual(G.formatPrecise(-3), '0:00');
+});
+
+test('precise times: [h:]m:ss[.d|.dd] parses to the hundredth and round-trips', () => {
+  assert.strictEqual(G.parsePrecise('0:41'), 41);
+  assert.strictEqual(G.parsePrecise('0:41.5'), 41.5);
+  assert.strictEqual(G.parsePrecise('0:41.25'), 41.25);
+  assert.strictEqual(G.parsePrecise('0:41.05'), 41.05);
+  assert.strictEqual(G.parsePrecise(' 1:02:03.07 '), 3723.07);
+  for (const bad of ['', '41', '0:4', '0:60', '1:60:00', '0:41.123', '0:41.', 'a:bc', null]) {
+    assert.strictEqual(G.parsePrecise(bad), null, String(bad));
+  }
+  for (const t of [0, 1, 41.25, 41.5, 599.99, 3723.07]) assert.strictEqual(G.parsePrecise(G.formatPrecise(t)), t);
+});
+
+test('note marks: hundredths in note times (m:ss.d, m:ss.dd, h:mm:ss.dd)', () => {
+  const marks = G.noteMarks([
+    { text: 'drop at 0:41.25 and 1:02.5' },
+    { text: 'range 0:11.25-1:23.5' },
+    { text: 'long one 1:02:03.07' },
+    { text: 'three places 0:12.345 is not a time' },
+  ]);
+  assert.deepStrictEqual(plain(marks.map(m => m.t)), [11.25, 41.25, 62.5, 83.5, 3723.07]);
+});

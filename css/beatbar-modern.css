@@ -18,12 +18,13 @@ body.layout-modern .bbm-lane {
   pointer-events: auto;
   cursor: ns-resize;
   touch-action: none;
-  border-radius: 32px;
-  background: rgba(16, 16, 22, 0.42);
-  -webkit-backdrop-filter: blur(10px) saturate(1.2);
-  backdrop-filter: blur(10px) saturate(1.2);
+  border-radius: 999px;
+  /* No backdrop-filter, background or outer shadow here: a backdrop-filter
+     over the <video> changed how the browser composites the whole video (the
+     frame looked brighter with the bar on), and a shadow would darken the
+     picture around the lane. The frost (blurred picture + light tint) is
+     painted on the canvas instead: renderGlassFrame in beatbar.js. */
   border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
   overflow: hidden;
   user-select: none;
 }
@@ -199,8 +200,9 @@ body.layout-modern .bbm-link:hover { background: rgba(165, 180, 252, 0.12); }
 /* Live preview lane: only while the video is paused */
 body.layout-modern .bbm-prev {
   margin: 2px 12px 4px;
-  height: 52px;
-  border-radius: 26px;
+  height: 80px;            /* beatbar.js sets the lane's own height */
+  box-sizing: border-box;
+  border-radius: 999px;
   background: #0d0d11;
   border: 1px solid #2a2a31;
   overflow: hidden;

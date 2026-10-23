@@ -385,13 +385,13 @@ body.layout-modern .mp-hovline {
 }
 body.layout-modern .mp-tl.hover .mp-hovline { display: block; }
 
-/* The grab area: the bar looks 5 px tall, the pointer gets 40 px */
+/* The grab area: the bar looks 5 px tall, the pointer gets 45 px (13 above, 27 below the top) */
 body.layout-modern .mp-hit {
   position: absolute;
   left: -8px;
   right: -8px;
-  top: -8px;
-  height: 40px;
+  top: -13px;       /* 5 px more above the bar than below: aiming from the picture */
+  height: 45px;
   z-index: 2;
   cursor: pointer;
 }

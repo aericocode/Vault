@@ -16,24 +16,6 @@ function _panelGlyph(emoji, icon) {
 }
 
 /**
- * The Modern Info panel's note box (.notes-add[data-note-at], detail-view.js)
- * leads a new note with the playback time it was started at, so the note
- * links to that spot. A note that names a time already is kept as typed;
- * every other notes box saves exactly what was typed.
- */
-function _noteBoxText(section, text) {
-  const box = section?.querySelector('.notes-add[data-note-at]');
-  if (!box || typeof PanelLayout === 'undefined') return text;
-  let at = parseFloat(box.dataset.noteAt);
-  box.dataset.noteAt = '';
-  if (!Number.isFinite(at)) {
-    const el = document.querySelector('#mediaPlayerContent video, #mediaPlayerContent audio');
-    at = el && Number.isFinite(el.currentTime) ? el.currentTime : NaN;
-  }
-  return PanelLayout.noteWithTime(text, at);
-}
-
-/**
  * POST user-editable fields for a media item.
  * @param {object} item - the in-memory media row (must have .id)
  * @param {object} fields - e.g. { user_starred: 1 }
@@ -314,9 +296,6 @@ function insertCurrentTimestamp(btnEl) {
   const caret = start + insert.length;
   input.focus();
   input.setSelectionRange(caret, caret);
-  // Typing fires this by itself; a button's insert has to say so (the Modern
-  // note box notes when a note was started).
-  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 /**
@@ -333,7 +312,6 @@ function insertNoteSnippet(chipEl) {
   const existing = input.value.trim();
   input.value = existing ? `${existing.replace(/,\s*$/, '')}, ${tag}` : tag;
   input.focus();
-  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 /** Save the currently-typed note text as a reusable snippet. */
@@ -392,16 +370,19 @@ function refreshAllSnippetRows() {
    "2:35" / "1:02:33" inside a note becomes a link that seeks the player.
    If the file isn't playing yet, it opens it and seeks once loaded. */
 
-// A single timestamp fragment: [h:]m:ss
-const _TS = '(?:\\d{1,2}:)?\\d{1,2}:\\d{2}';
+// A single timestamp fragment: [h:]m:ss[.d|.dd] ("1:56", "0:41.25"). The
+// hundredths are for exact A-B loops; the clock button inserts whole seconds.
+const _TS = '(?:\\d{1,2}:)?\\d{1,2}:\\d{2}(?:\\.\\d{1,2})?';
 // Range ("0:11-1:23" / "0:11 - 1:23") tried FIRST so it wins over singles.
 // Dash class covers hyphen + en/em dash (common when text is pasted).
 const _TS_LINK_RE = new RegExp(`\\b(${_TS})\\s*[-–—]\\s*(${_TS})\\b|\\b${_TS}\\b`, 'g');
 
+/** "1:56.4" -> 116.4, "1:02:03" -> 3723; null for anything else. */
 function _parseTs(ts) {
-  const parts = String(ts).trim().split(':').map(Number);
-  if (parts.some(n => Number.isNaN(n))) return null;
-  return parts.reduce((acc, p) => acc * 60 + p, 0);
+  const m = /^(?:(\d{1,2}):)?(\d{1,2}):(\d{2}(?:\.\d{1,2})?)$/.exec(String(ts).trim());
+  if (!m) return null;
+  const secs = (Number(m[1] || 0) * 3600) + (Number(m[2]) * 60) + Number(m[3]);
+  return Math.round(secs * 100) / 100;
 }
 
 /**
@@ -453,7 +434,8 @@ function loopNoteRange(filepath, aTs, bTs) {
 }
 
 function seekToNoteTimestamp(filepath, ts) {
-  const secs = ts.split(':').map(Number).reduce((acc, p) => acc * 60 + p, 0);
+  const secs = _parseTs(ts);
+  if (secs == null) return;
   const item = Library.rowByPath(filepath);
   if (!item) return;
 
@@ -583,7 +565,7 @@ function flushPendingNotes() {
     const text = input.value.trim();
     if (!text) return;
     input.value = '';              // clear first so a re-render race can't double-add
-    addNoteText(filepath, _noteBoxText(section, text));
+    addNoteText(filepath, text);
   });
 }
 
@@ -612,7 +594,7 @@ function addNote(filepath, btnEl) {
   if (!text) return;
 
   input.value = '';               // clear first so a re-render race can't double-add
-  addNoteText(filepath, _noteBoxText(section, text));
+  addNoteText(filepath, text);
 }
 
 /* ── Editing an existing note ───────────────────────────────────────────────
@@ -725,7 +707,7 @@ function handleNoteKeydown(e) {
   const text = target.value.trim();
   if (!text) return;
   target.value = '';               // clear first so a re-render race can't double-add
-  addNoteText(filepath, _noteBoxText(section, text));
+  addNoteText(filepath, text);
 }
 
 document.addEventListener('keydown', handleNoteKeydown, true);

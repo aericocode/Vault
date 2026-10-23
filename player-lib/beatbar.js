@@ -131,7 +131,8 @@
   const CLASSIC_FILL = '#7aa8ff';
   const MODERN_FILL = '#a5b4fc';
   const MODERN_FILL_SWATCHES = [MODERN_FILL, ...FILL_SWATCHES];
-  const LANE_HEIGHT = 64;          // the Modern glass lane
+  const GLASS_BLUR_PX = 4;                      // the lane's frost
+  const GLASS_TINT = 'rgba(16,16,22,0.25)';     // over the blurred picture
 
   let _state = null; // one active attachment at a time (single player)
 
@@ -193,7 +194,16 @@
 
   /* ── Beat cache (localStorage, small: ~2-6KB per video per level) ──────── */
 
-  function beatCacheKey(id) { return `${LS_BEATS_PREFIX}${id}_s${Number(config.sensitivity).toFixed(1)}`; }
+  // v2: the streaming worker's beats moved ~46 ms earlier (AAC priming no
+  // longer counted, peaks placed between envelope frames), so beats cached
+  // before that are stale. Old-format keys are dropped once on load.
+  const BEATS_CACHE_VER = 'v2_';
+  function beatCacheKey(id) { return `${LS_BEATS_PREFIX}${BEATS_CACHE_VER}${id}_s${Number(config.sensitivity).toFixed(1)}`; }
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith(LS_BEATS_PREFIX) && !k.startsWith(LS_BEATS_PREFIX + BEATS_CACHE_VER))
+      .forEach(k => localStorage.removeItem(k));
+  } catch {}
 
   function cacheGet(id) {
     try {
@@ -979,8 +989,14 @@
         overlay.style.display = 'none';
         return;
       }
-      const box = G.laneBox({ rect, widthFrac: config.widthFrac, posFrac: config.posFrac, laneH: LANE_HEIGHT });
+      // Taller lane for bigger icons / effects (never clipped); posFrac is
+      // the lane's centre, so a height change keeps it centred where it was.
+      state._laneH = G.laneHeight(config);
+      const box = G.laneBox({ rect, widthFrac: config.widthFrac, posFrac: config.posFrac, laneH: state._laneH });
       state.videoW = rect.width;
+      // Where the picture sits relative to the lane, for the blurred backdrop
+      const pic = G.displayedVideoRect(rect, v.videoWidth, v.videoHeight, getComputedStyle(v).objectFit);
+      state._backdrop = pic && { x: pic.left - box.left, y: pic.top - box.top, w: pic.width, h: pic.height };
       overlay.style.display = '';
       overlay.style.left = `${box.left}px`;
       overlay.style.top = `${box.top}px`;
@@ -1138,6 +1154,8 @@
   function modernTick(state, nowPerf) {
     const bpmText = state.bpm > 0 ? `${Math.round(state.bpm)} BPM` : '';
     if (bpmText !== state._bpmShown) { state.bpmEl.textContent = bpmText; state._bpmShown = bpmText; }
+    // Size / shape / effects changed: grow or shrink the lane right away
+    if (state._laneH !== window.BeatBarGeom.laneHeight(config)) state._updatePos && state._updatePos();
     if (state.panel && !state.panel.hidden) syncPreview(state, nowPerf);
   }
 
@@ -1155,6 +1173,8 @@
   function drawPreview(state, nowPerf) {
     const G = window.BeatBarGeom;
     const c = state.prevCanvas;
+    const ph = `${G.laneHeight(config)}px`;
+    if (state.prevWrap.style.height !== ph) state.prevWrap.style.height = ph;
     const w = c.clientWidth, h = c.clientHeight;
     if (!w || !h) return;
     const dpr = window.devicePixelRatio || 1;
@@ -1176,16 +1196,35 @@
     renderGlassFrame(ctx, w, h, t, beats, config, timing, n0);
   }
 
-  /* Live-only Modern painter (mock "glass lane"). The frosted pill itself is
-     CSS (backdrop-filter cannot be baked), so this draws on a transparent
-     canvas: a track hairline fading at both ends, a playhead in the beat
+  /* Live-only Modern painter (mock "glass lane"). The frost is drawn here,
+     not with CSS backdrop-filter: a backdrop-filter over the <video> makes
+     the browser composite the whole video differently, and the entire frame
+     came out slightly brighter with the bar on. Instead, `backdrop` (the
+     picture's box relative to the lane) redraws the video blurred inside the
+     pill, under a light tint; the <video> itself is never touched. Then: a
+     track hairline fading at both ends, a playhead in the beat
      colour that glows brighter on each hit, and beats that grow as they
      approach (0.62 -> 1), land with the same envelope and effects as the
      classic bar plus a soft glow, then fade out behind the playhead.
      `seedBase` keeps spark layouts stable for a sliding beat list. */
-  function renderGlassFrame(ctx, w, h, t, beats, cfg, timing, seedBase = 0) {
+  function renderGlassFrame(ctx, w, h, t, beats, cfg, timing, seedBase = 0, backdrop = null) {
     ctx.clearRect(0, 0, w, h);
     const cy = h / 2;
+    if (backdrop) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(0, 0, w, h, h / 2);
+      ctx.clip();
+      const { video, x, y, w: bw, h: bh } = backdrop;
+      if (video.readyState >= 2) {
+        ctx.filter = `blur(${GLASS_BLUR_PX}px)`;
+        try { ctx.drawImage(video, x, y, bw, bh); } catch {}
+        ctx.filter = 'none';
+      }
+      ctx.fillStyle = GLASS_TINT;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
+    }
     const rgb = hexToRgb(fillColorOf(cfg, true));
     const col = `${rgb.r},${rgb.g},${rgb.b}`;
     const lift = (v, k) => Math.round(v + (255 - v) * k);
@@ -1281,7 +1320,7 @@
         ctx.strokeStyle = borderColor;
       } else {
         ctx.lineWidth = 1;
-        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+        ctx.strokeStyle = 'rgba(0,0,0,0.4)';
       }
       ctx.stroke();
       ctx.globalAlpha = 1;
@@ -1404,7 +1443,9 @@
         laneW: w, refW: state.videoW || w / G.WIDTH_DEFAULT,
         playheadFrac: config.playheadFrac, baseLookahead: lookaheadFor(config),
       });
-      renderGlassFrame(ctx, w, h, state.smoothTime, state.beats, config, timing);
+      const bd = state._backdrop;
+      renderGlassFrame(ctx, w, h, state.smoothTime, state.beats, config, timing, 0,
+        bd ? { video: state.video, ...bd } : { video: { readyState: 0 } });
       return;
     }
     renderBarFrame(ctx, w, h, state.smoothTime, state.beats, config);

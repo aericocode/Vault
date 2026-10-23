@@ -3,15 +3,21 @@
 
    The body itself comes from renderDetailBody (player-lib/detail-view.js),
    which the player sidebar also uses, so the two surfaces cannot drift apart
-   again. Only the title bar and overlay plumbing live here.
+   again. In the Modern look both use the tabbed renderDetailPanel instead.
+   Only the title bar and overlay plumbing live here.
    ========================================================================= */
 
 function showDetails(media) {
   // The open item's row stays cached and fresh while the panel shows it.
   if (typeof Library !== 'undefined') Library.pin('detail', [media.id]);
   document.getElementById('modalTitle').textContent = media.filename;
-  document.getElementById('modalBody').innerHTML = renderDetailBody(media, { context: 'library' });
+  // Modern: the tabbed Info panel (detail-view.js renderDetailPanel).
+  const tabbed = typeof detailPanelTabbed === 'function' && detailPanelTabbed();
+  document.getElementById('modalBody').innerHTML = tabbed
+    ? renderDetailPanel(media, { context: 'library' })
+    : renderDetailBody(media, { context: 'library' });
   document.getElementById('modalOverlay').classList.add('active');
+  if (tabbed) detailPanelMounted();
   document.body.style.overflow = 'hidden';
 }
 

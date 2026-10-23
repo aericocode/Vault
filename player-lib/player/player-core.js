@@ -766,13 +766,13 @@ function autoAdvanceOnEnded() {
  */
 function renderDoneButton() {
   if (typeof mpBuildingDock === 'function' && mpBuildingDock()) {
-    return `<button type="button" onclick="markSessionDone()" class="mp-ic done-btn" title="Done. Marks the end of this viewing here" aria-label="Done">${mpIcon('done-tick')}</button>`;
+    return `<button type="button" onclick="markSessionDone()" class="mp-ic done-btn" title="Done. Marks the end of this viewing here" aria-label="Done">${mpIcon('done')}</button>`;
   }
   // Classic's bar (and the audio player in either look): the emoji in Classic,
   // the line icon in Modern (icons.js swaps them with the look).
   const title = typeof vaultIsModern === 'function' && vaultIsModern()
     ? 'Done. Marks the end of this viewing here' : 'Done. End the viewing session here (💦 tracked per item)';
-  const lead = typeof vaultIconSwap === 'function' ? vaultIconSwap('💦 ', 'done-tick') : '💦 ';
+  const lead = typeof vaultIconSwap === 'function' ? vaultIconSwap('💦 ', 'done') : '💦 ';
   return `<button onclick="markSessionDone()" class="done-btn" title="${title}">${lead}Done</button>`;
 }
 

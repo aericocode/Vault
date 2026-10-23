@@ -29,6 +29,15 @@
 'use strict';
 
 const FRAME_SIZE = 1024, HOP = 512;
+
+// ffmpeg's AAC encoder (the server's "-c:a aac") writes 1024 priming samples
+// of encoder delay before the audio. An .m4a carries an edit list that makes
+// decoders skip them; raw ADTS has nowhere to say so, and WebCodecs hands
+// them to us. Measured on a synthetic click track (120 BPM, 22.05 kHz):
+// beats from this worker landed 51 ms late (median) against the true
+// onsets, while the .m4a path (legacy) landed 13 ms late. Subtracting the
+// priming puts them back on the audio.
+const AAC_PRIMING_SAMPLES = 1024;
 const ADTS_SR = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050,
   16000, 12000, 11025, 8000, 7350];
 
@@ -54,6 +63,7 @@ let filters = null;
 let carry = new Float32Array(0);    // < FRAME_SIZE tail awaiting next chunk
 let energy = new Float32Array(1 << 16);
 let nFrames = 0;
+let pcmPos = 0;                     // decoded samples handed to processPcm (incl. gap fill)
 
 // Detection state (append-only incremental scan)
 let beats = [];
@@ -133,6 +143,28 @@ function processPcm(chunk) {
 
 /* ── Detection (port of beatbar.js detectBeats over the envelope) ────────── */
 
+// Seconds for a detected peak at envelope frame i. The frame grid is one HOP
+// (23 ms at 22.05 kHz), which alone jitters beats by up to +-11 ms; a
+// parabola through the peak and its two neighbours places it between frames.
+// Then the AAC priming is taken off (see AAC_PRIMING_SAMPLES).
+function beatTimeAt(i, env, sr) {
+  const a = env[i - 1], b = env[i], c = env[i + 1];
+  const den = a - 2 * b + c;
+  const d = den < 0 ? Math.max(-0.5, Math.min(0.5, (0.5 * (a - c)) / den)) : 0;
+  return Math.max(0, ((i + d) * HOP - AAC_PRIMING_SAMPLES) / sr);
+}
+
+// Samples of silence to insert before a decoded chunk so the envelope stays
+// on the audio's own clock. Normally 0; after a decoder error the queued
+// chunks are lost, and without this every later beat would land early by
+// the missing stretch. Capped so a broken timestamp cannot balloon memory.
+function gapSamples(timestampUs, sr, pos) {
+  if (!Number.isFinite(timestampUs)) return 0;
+  const expected = Math.round((timestampUs / 1e6) * sr);
+  const gap = expected - pos;
+  return gap > 1 ? Math.min(gap, sr * 120) : 0;
+}
+
 function windowFrames() { return Math.round((sampleRate / HOP) * opts.avgWindowSec); }
 function minGapFrames() { return Math.round((opts.minGapMs / 1000) * (sampleRate / HOP)); }
 
@@ -149,7 +181,7 @@ function scanTo(hi) {
     const onset = e - energy[i - 1];
     if (e > avg * effSens && e > energy[i - 1] && e >= energy[i + 1] &&
         onset > 0 && i - lastBeatFrame > gap) {
-      beats.push((i * HOP) / sampleRate);
+      beats.push(beatTimeAt(i, energy, sampleRate));
       lastBeatFrame = i;
     }
   }
@@ -216,8 +248,11 @@ function onDecoded(data) {
   try {
     const pcm = new Float32Array(data.numberOfFrames);
     data.copyTo(pcm, { planeIndex: 0, format: 'f32-planar' });
+    const gap = gapSamples(data.timestamp, sampleRate, pcmPos);
     data.close();
+    if (gap) { processPcm(new Float32Array(gap)); pcmPos += gap; }
     processPcm(pcm);
+    pcmPos += pcm.length;
     progressTick();
   } catch (err) {
     data.close?.();

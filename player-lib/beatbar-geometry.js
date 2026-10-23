@@ -18,6 +18,13 @@
                                   anchor (bottom fixed, so it grows upward),
                                   or below it when there is no room above
 
+   - effectExtent(cfg) / laneHeight(cfg)  how far a beat and its effects
+                                  reach from the lane's centre line at the
+                                  config's Size, shape and effects, and the
+                                  lane height that holds all of it (min 80)
+   - displayedVideoRect(...)      where the picture sits inside a <video>
+                                  box (object-fit contain / cover / fill), for
+                                  the lane's blurred backdrop
    - storedConfig / fillColorFromStored   the saved config's shape, kept
                                   readable by older builds (see below)
 
@@ -28,7 +35,7 @@ const BeatBarGeom = (function () {
   const WIDTH_MIN = 0.30;
   const WIDTH_MAX = 0.96;
   const WIDTH_DEFAULT = 0.56;
-  const LANE_H = 64;            // the glass pill's height
+  const LANE_H = 80;            // the glass pill's height at the default look (laneHeight)
   const DOCK_GAP = 150;         // default spot: lane bottom this far above the video bottom
   const EDGE = 4;               // keep the lane this far inside the video
 
@@ -103,6 +110,69 @@ const BeatBarGeom = (function () {
     return { right, bottom: null, top: anchor.bottom + gap, maxHeight: Math.max(120, below) };
   }
 
+  /* How far the drawing reaches above / below the centre line. Mirrors the
+     painters in beatbar.js (renderGlassFrame + drawEffects): keep in step.
+     Sweeps the hit envelope k (1 = peak) and counts only what is drawn at
+     an alpha above EXTENT_ALPHA, so invisible tails do not inflate the lane. */
+  const EXTENT_ALPHA = 0.06;
+  // Half height of each shape at radius 1 (traceShape): star and heart reach
+  // furthest up, the diamond's point sits at 1.06.
+  const SHAPE_EXTENT = { circle: 1, heart: 1.12, square: 0.92, diamond: 1.06, star: 1.12 };
+
+  function effectExtent(cfg) {
+    const c = cfg || {};
+    const fx = c.effects || { pulse: true };
+    const baseR = Math.max(3, finite(c.fillSize) && c.fillSize > 0 ? c.fillSize : 9);
+    const pulseR = baseR + Math.max(8, baseR * 1.2);
+    const sf = SHAPE_EXTENT[c.shape] || 1;
+    const border = finite(c.borderWidth) && c.borderWidth > 0 ? c.borderWidth / 2 : 0.5;
+    const seen = (alpha, reach) => (alpha > EXTENT_ALPHA ? reach : 0);
+    let ext = baseR * sf + border;
+    for (let s = 1; s <= 100; s++) {
+      const k = s / 100;
+      const r = fx.pulse ? baseR + k * (pulseR - baseR) : baseR;
+      ext = Math.max(ext, r * sf + border);
+      // Glow: Pulse's own (radius r + 18, alpha .55k, linear fade) or the
+      // lane's soft hit glow (radius 2.8r, alpha .45k)
+      const [gR, gA] = fx.pulse ? [r + 18, 0.55 * k] : [r * 2.8, 0.45 * k];
+      ext = Math.max(ext, seen(gA, gR * (1 - EXTENT_ALPHA / gA)));
+      if (fx.ripple) {
+        for (const delay of [0, 0.3]) {
+          const kk = clamp((1 - k) / (1 - delay) - delay, 0, 1);
+          if (kk <= 0) continue;
+          ext = Math.max(ext, seen(k * 0.55 * (1 - kk * 0.5), r * (1 + kk * 1.9) * sf + 1));
+        }
+      }
+      if (fx.spark) {
+        const dist = r + (1 - k) * r * 3.0;                       // fastest spark
+        const size = Math.max(1, r * 0.28 * (0.4 + k * 0.6) + 0.8);  // biggest spark
+        ext = Math.max(ext, seen(k * 0.85, dist + size));
+      }
+    }
+    return ext;
+  }
+
+  // Lane height: room for the full reach on both sides plus a little air,
+  // never under the default 80.
+  function laneHeight(cfg) {
+    return Math.max(LANE_H, Math.ceil(2 * effectExtent(cfg) + 12));
+  }
+
+  /** The picture's box inside a <video> element box (CSS px, same frame). */
+  function displayedVideoRect(rect, videoW, videoH, fit) {
+    if (!rect || !(videoW > 0) || !(videoH > 0) || !(rect.width > 0) || !(rect.height > 0)) return null;
+    let sx, sy;
+    if (fit === 'fill') { sx = rect.width / videoW; sy = rect.height / videoH; }
+    else {
+      const s = fit === 'cover'
+        ? Math.max(rect.width / videoW, rect.height / videoH)
+        : Math.min(rect.width / videoW, rect.height / videoH);   // contain (the default)
+      sx = sy = s;
+    }
+    const width = videoW * sx, height = videoH * sy;
+    return { left: rect.left + (rect.width - width) / 2, top: rect.top + (rect.height - height) / 2, width, height };
+  }
+
   /* Stored config shape (localStorage beatbar_config). Released builds read
      it as { ...defaults, ...raw } and call fillColor.toLowerCase(), so every
      key they know must keep its old type. A never-picked colour (null in
@@ -129,6 +199,7 @@ const BeatBarGeom = (function () {
   return {
     WIDTH_MIN, WIDTH_MAX, WIDTH_DEFAULT, LANE_H, DOCK_GAP,
     clampWidthFrac, widthAfterGripDrag, laneTiming, laneBox, posFracFromPointer, panelPlace,
+    effectExtent, laneHeight, displayedVideoRect,
     storedConfig, fillColorFromStored,
   };
 })();
