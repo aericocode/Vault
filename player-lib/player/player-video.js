@@ -719,9 +719,8 @@ function updateSpeedDisplay() {
   const speed = live === null ? currentSpeed() : live;
   display.textContent = speed + 'x';
   display.classList.toggle('speed-modified', speed !== 1);
-  // Mini player carries the same readout when it shows an audio card
-  const mini = document.getElementById('miniAudioSpeed');
-  if (mini) mini.textContent = speed + 'x';
+  // The mini player's time line carries the speed too, when it is not 1x
+  if (currentMediaState.miniMode && typeof miniUpdateTimeline === 'function') miniUpdateTimeline();
 }
 
 /* ── Speed menu (right-click the readout) ────────────────────────────────

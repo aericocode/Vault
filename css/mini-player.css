@@ -1,124 +1,68 @@
 /* =========================================================================
-   MINI PLAYER - Floating picture-in-picture player
+   MINI PLAYER - a floating picture in a window corner, picture-in-picture
+   style (player-lib/player/mini-player.js).
+
+   Just the picture, rounded, with a soft shadow. The controls sit over it and
+   fade in on hover or focus. The box is placed with inline left/top/width/
+   height (always resting in a corner, the picture's own shape), so nothing
+   here positions it beyond the first frame.
+
+   Both looks get the same box and behaviour. Classic keeps its tokens (its
+   border colour, the accent seek bar, the emoji glyphs); Modern uses the line
+   icons, a hairline ring instead of the border and a white seek bar.
    ========================================================================= */
 
 .mini-player {
   display: none; /* shown via JS */
   position: fixed;
-  bottom: 1.5rem;
-  right: 1.5rem;
-  width: 640px;
-  height: 400px;
-  min-width: 280px;
-  min-height: 120px;
-  max-width: 90vw;
-  max-height: 90vh;
-  background: var(--bg-secondary, #181825);
+  right: 16px;
+  bottom: 16px;
+  width: 480px;
+  height: 270px;
+  background: #000;
   border: 1px solid var(--border, #444);
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
   z-index: 9000;
   overflow: hidden;
-  transition: box-shadow 0.2s;
-  flex-direction: column;
-  resize: both;
-}
-
-.mini-player:hover {
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.65);
+  touch-action: none;       /* drags are ours, on touch too */
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
 }
 
 .mini-player.active {
-  display: flex;
+  display: block;
 }
 
-/* ── Drag Handle / Title Bar ─────────────────────────────────────────── */
-
-.mini-player-drag {
-  display: flex;
-  align-items: center;
-  padding: 0.4rem 0.65rem;
-  background: var(--bg-tertiary, #1e1e2e);
-  cursor: grab;
-  user-select: none;
-  border-bottom: 1px solid var(--border, #333);
-  flex-shrink: 0;
+/* The box takes focus on a press (tabindex -1) so the mini player keys work
+   again after a control had focus; that focus is not drawn. */
+.mini-player:focus {
+  outline: none;
 }
 
-.mini-player-drag:active {
+.mini-player.mini-dragging {
   cursor: grabbing;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
 }
 
-.mini-player-title {
-  font-size: 0.72rem;
-  color: var(--text-secondary, #aaa);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
+/* The glide into a corner after a drag (not while dragging or resizing) */
+.mini-player.mini-snapping {
+  transition: left 0.22s ease, top 0.22s ease, width 0.22s ease, height 0.22s ease;
 }
 
-.mini-audio-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
-  min-width: 0;
+body.layout-modern .mini-player {
+  border-color: transparent;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
-/* Art tile, the second text line and the progress strip only exist for audio */
-.mini-player:not(.mini-audio) .mini-audio-art,
-.mini-player:not(.mini-audio) .mini-audio-sub,
-.mini-player:not(.mini-audio) .mini-audio-progress {
-  display: none;
-}
-
-/* ── Top-left resize grip ────────────────────────────────────────────── */
-/* The browser's own grip is bottom-right, the corner the player sits in, so
-   it could only be reached after dragging the box away. This one grows the box
-   up and to the left with the bottom-right corner held still (player-core.js
-   initMiniPlayerResize). It sits over the title bar's left end, so the title
-   starts a little further in to keep clear of it. */
-.mini-resize-tl {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 18px;
-  height: 18px;
-  z-index: 2;
-  cursor: nwse-resize;
-  touch-action: none;
-  opacity: 0.7;
-  background: linear-gradient(135deg,
-    transparent 0 7px,
-    var(--text-secondary, #aaa) 7px 8.2px,
-    transparent 8.2px 10.5px,
-    var(--text-secondary, #aaa) 10.5px 11.7px,
-    transparent 11.7px);
-}
-
-.mini-resize-tl:hover {
-  opacity: 1;
-}
-
-.mini-player:not(.mini-audio) .mini-player-drag {
-  padding-left: 1.2rem;
-}
-
-/* The audio card has a fixed size (no bottom-right grip either) */
-.mini-player.mini-audio .mini-resize-tl {
-  display: none;
-}
-
-/* ── Media Container ─────────────────────────────────────────────────── */
+/* ── The picture ─────────────────────────────────────────────────────── */
 
 .mini-player-media {
-  position: relative;
-  background: #000;
+  position: absolute;
+  inset: 0;
   line-height: 0;
-  flex: 1;
   overflow: hidden;
-  min-height: 0;
 }
 
 .mini-player-media video {
@@ -126,6 +70,7 @@
   height: 100%;
   object-fit: contain;
   display: block;
+  pointer-events: none;     /* the box takes the clicks and drags */
 }
 
 /* A minimized MIX brings its whole layer stack along (player-core.js
@@ -137,56 +82,392 @@
   max-width: 100%;
   max-height: 100%;
   margin: 0;
+  pointer-events: none;
 }
 
+/* The <audio> rides along with no box of its own */
 .mini-player-media audio {
-  width: 100%;
-  display: block;
-}
-
-.mini-player-media .audio-visualization {
-  padding: 1rem;
-  text-align: center;
-}
-
-.mini-player-media .audio-visualization canvas {
   display: none;
 }
 
-/* ── Controls ────────────────────────────────────────────────────────── */
+/* ── Audio: art, or the type icon ────────────────────────────────────── */
 
-.mini-player-controls {
+.mini-audio-art {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.25rem;
-  padding: 0.35rem 0.5rem;
-  background: var(--bg-tertiary, #1e1e2e);
-  border-top: 1px solid var(--border, #333);
-  flex-shrink: 0;
+  background: linear-gradient(135deg, var(--accent, #6366f1), var(--accent-hover, #4f46e5));
+  color: #fff;
+}
+.mini-audio-art[hidden] { display: none; }
+
+.mini-audio-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.mini-audio-img[hidden] { display: none; }
+
+.mini-audio-icon {
+  font-size: 2.6rem;
+  line-height: 1;
+  opacity: 0.9;
+  transition: opacity 0.15s ease;
 }
 
-.mini-ctrl {
-  background: none;
-  border: 1px solid transparent;
-  color: var(--text-secondary, #aaa);
-  cursor: pointer;
-  font-size: 0.9rem;
-  padding: 0.3rem 0.55rem;
-  border-radius: 6px;
-  transition: all 0.12s;
-  line-height: 1;
+/* The play button takes the middle while the controls show */
+.mini-player.mini-controls-on .mini-audio-icon,
+.mini-player:has(:focus-visible) .mini-audio-icon {
+  opacity: 0;
 }
+.mini-audio-icon .vi { stroke-width: 1.5; }
+
+/* ── Popped out (browser picture-in-picture) ─────────────────────────── */
+
+.mini-pip-note {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1rem;
+  text-align: center;
+  background: #111;
+  color: #c8c8d0;
+  font-size: 0.8rem;
+}
+.mini-pip-note[hidden] { display: none; }
+
+/* ── Controls over the picture ───────────────────────────────────────── */
+
+.mini-overlay {
+  /* Control sizes, stepped down with the box (mini-player.js sets
+     mini-compact under 400 px wide, mini-tiny under 300 px or 170 px tall,
+     mini-micro under 200 px wide). Nothing goes below 28 px; a small box
+     drops its secondary buttons instead. */
+  --mc-btn: 34px;           /* top row */
+  --mc-icon: 19px;
+  --mc-side: 42px;          /* back and forward 10 s */
+  --mc-side-icon: 20px;
+  --mc-big: 56px;           /* play / pause */
+  --mc-big-icon: 26px;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 8px;
+  /* A strong scrim top and bottom, so white controls read on any frame */
+  background: linear-gradient(180deg,
+    rgba(0, 0, 0, 0.72) 0, rgba(0, 0, 0, 0.35) 22%, transparent 42%,
+    transparent 55%, rgba(0, 0, 0, 0.4) 75%, rgba(0, 0, 0, 0.82) 100%);
+  /* Faded, not hidden: the buttons stay in the Tab order, and focusing one
+     brings the controls up. A click on faded controls goes to the box
+     (which shows them), never to a button the user cannot see. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.mini-player.mini-compact .mini-overlay {
+  --mc-btn: 32px;
+  --mc-icon: 18px;
+  --mc-side: 38px;
+  --mc-side-icon: 18px;
+  --mc-big: 50px;
+  --mc-big-icon: 24px;
+}
+
+.mini-player.mini-tiny .mini-overlay {
+  --mc-btn: 28px;
+  --mc-icon: 17px;
+  --mc-big: 44px;
+  --mc-big-icon: 22px;
+  --mc-pad: 6px;
+  padding: 6px;
+}
+
+/* Under 200 px wide (a 16:9 box about 111 px tall): the time line goes and
+   play / pause shrinks, so it fits between the top row and the seek bar. */
+.mini-player.mini-micro .mini-overlay {
+  --mc-big: 34px;
+  --mc-big-icon: 18px;
+  --mc-bottom: 26px;
+}
+.mini-player.mini-micro .mini-meta { display: none; }
+
+.mini-player.mini-controls-on .mini-overlay,
+.mini-player:has(:focus-visible) .mini-overlay {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 0.15s ease;
+}
+
+.mini-player.mini-controls-on .mini-center .mini-ctrl,
+.mini-player:has(:focus-visible) .mini-center .mini-ctrl {
+  pointer-events: auto;
+}
+
+.mini-player.mini-dragging .mini-overlay {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mini-top {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;         /* never spills past the rounded corner */
+  padding: 3px;             /* room for the focus ring inside the clip */
+  margin: -3px;
+}
+.mini-top > * { flex: none; }
+
+/* The middle row sits in the space between the top row and the seek bar
+   (not over the whole box), so a short box never puts play / pause on top
+   of either. */
+.mini-center {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--mc-pad, 8px) + var(--mc-btn, 34px));
+  bottom: var(--mc-bottom, 48px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  pointer-events: none;     /* only the buttons themselves catch the pointer */
+}
+
+.mini-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Every button: a solid dark disc or tile behind a full-white icon */
+.mini-ctrl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--mc-btn, 34px);
+  height: var(--mc-btn, 34px);
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  cursor: pointer;
+  font-size: calc(var(--mc-icon, 19px) - 3px);   /* Classic's glyphs */
+  line-height: 1;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.mini-ctrl[hidden] { display: none; }
 
 .mini-ctrl:hover {
-  color: var(--text, #cdd6f4);
-  background: rgba(255, 255, 255, 0.06);
-  border-color: var(--border, #444);
+  background: rgba(0, 0, 0, 0.82);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+body:not(.layout-modern) .mini-ctrl:hover {
+  border-color: var(--border, #666);
+}
+
+.mini-ctrl:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px var(--accent, #6366f1);
 }
 
 .mini-ctrl.mini-close:hover {
-  color: var(--danger, #f38ba8);
-  background: rgba(243, 139, 168, 0.1);
+  background: var(--danger, #e5484d);
+  border-color: transparent;
+}
+
+#miniPipBtn[aria-pressed="true"] {
+  background: var(--accent, #6366f1);
+}
+
+.mini-round {
+  width: var(--mc-side, 42px);
+  height: var(--mc-side, 42px);
+  border-radius: 50%;
+  font-size: calc(var(--mc-side-icon, 20px) - 2px);
+}
+
+.mini-big {
+  width: var(--mc-big, 56px);
+  height: var(--mc-big, 56px);
+  font-size: calc(var(--mc-big-icon, 26px) - 4px);
+  background: rgba(0, 0, 0, 0.66);
+}
+
+.mini-ctrl .vi { width: var(--mc-icon, 19px); height: var(--mc-icon, 19px); stroke-width: 2.2; }
+.mini-round .vi { width: var(--mc-side-icon, 20px); height: var(--mc-side-icon, 20px); }
+.mini-big .vi { width: var(--mc-big-icon, 26px); height: var(--mc-big-icon, 26px); }
+.mini-big .vi-play { fill: currentColor; margin-left: 2px; }
+.mini-fwd .vi { transform: scaleX(-1); }
+
+/* Small boxes drop what they can do without: the 10 s buttons (the seek
+   bar is right there), and below 200 px also Pop out and the Vibe button. */
+.mini-player.mini-tiny .mini-center .mini-round:not(.mini-big) { display: none; }
+.mini-player.mini-micro #miniPipBtn,
+.mini-player.mini-micro .mini-vibe-btn { display: none; }
+
+/* Volume: the button, and a slider that opens beside it on hover or focus */
+.mini-vol {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;       /* keeps it at the left end of the top row */
+}
+
+.mini-vol-slider {
+  width: 0;
+  opacity: 0;
+  margin: 0;
+  accent-color: #fff;
+  cursor: pointer;
+  transition: width 0.15s ease, opacity 0.15s ease;
+}
+
+.mini-vol:hover .mini-vol-slider,
+.mini-vol:focus-within .mini-vol-slider {
+  width: 80px;
+  opacity: 1;
+}
+
+/* A narrow box (mini-player.js, under 340 px) has no room for the slider
+   next to five buttons: mute only there. */
+.mini-player.mini-narrow .mini-vol-slider {
+  display: none;
+}
+
+/* Seek bar with the time under it */
+.mini-seek {
+  position: relative;       /* the shared scrub helper drops a time pill in here */
+  padding: 7px 0;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.mini-seek-track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.32);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.mini-seek-fill {
+  position: relative;
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  background: var(--accent, #6366f1);
+}
+body.layout-modern .mini-seek-fill { background: #fff; }
+
+/* The thumb at the playhead */
+.mini-seek-fill::after {
+  content: '';
+  position: absolute;
+  right: -7px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+.mini-seek:hover .mini-seek-track,
+.mini-seek.scrubbing .mini-seek-track {
+  height: 8px;
+  margin-top: -1px;
+  margin-bottom: -1px;
+}
+
+.mini-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.6);
+}
+
+.mini-player-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.mini-player.mini-tiny .mini-player-title { visibility: hidden; }
+
+.mini-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* ── Resize grip, on the corner facing into the window ───────────────── */
+
+.mini-resize {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  z-index: 2;
+  touch-action: none;
+  opacity: 0;
+  pointer-events: none;     /* an unseen grip takes no presses */
+  transition: opacity 0.2s ease;
+  border: 0 solid #fff;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9));
+}
+
+.mini-player.mini-controls-on .mini-resize,
+.mini-player.mini-resizing .mini-resize,
+.mini-player:has(:focus-visible) .mini-resize {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Snapped bottom right: grip top left, and so on round the corners */
+.mini-player[data-corner="br"] .mini-resize { top: 4px; left: 4px; border-top-width: 2px; border-left-width: 2px; border-top-left-radius: 4px; cursor: nwse-resize; }
+.mini-player[data-corner="bl"] .mini-resize { top: 4px; right: 4px; border-top-width: 2px; border-right-width: 2px; border-top-right-radius: 4px; cursor: nesw-resize; }
+.mini-player[data-corner="tr"] .mini-resize { bottom: 4px; left: 4px; border-bottom-width: 2px; border-left-width: 2px; border-bottom-left-radius: 4px; cursor: nesw-resize; }
+.mini-player[data-corner="tl"] .mini-resize { bottom: 4px; right: 4px; border-bottom-width: 2px; border-right-width: 2px; border-bottom-right-radius: 4px; cursor: nwse-resize; }
+
+/* Keep the controls clear of the grip on whichever side it is */
+.mini-player[data-corner="br"] .mini-top { padding-left: 20px; }
+.mini-player[data-corner="bl"] .mini-top { padding-right: 20px; }
+.mini-player[data-corner="tr"] .mini-bottom { padding-left: 20px; }
+.mini-player[data-corner="tl"] .mini-bottom { padding-right: 20px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mini-player.mini-snapping,
+  .mini-overlay,
+  .mini-player.mini-controls-on .mini-overlay,
+  .mini-resize,
+  .mini-audio-icon,
+  .mini-vol-slider,
+  .mini-ctrl {
+    transition: none;
+  }
 }
 
 /* ── Minimize button in full player header ───────────────────────────── */
@@ -212,110 +493,4 @@
   color: #fff;
   border-color: rgba(255, 255, 255, 0.4);
   background: rgba(255, 255, 255, 0.08);
-}
-
-/* =========================================================================
-   AUDIO MINI PLAYER - compact card
-
-   Audio has nothing to look at, so the 640x400 video box is wasted space. In
-   this mode the mini player is one small card: art tile + title/time + the
-   controls on a single row, with a hairline seek strip underneath. The whole
-   top row is the drag handle, so it reads as one card rather than two bars.
-   ========================================================================= */
-
-.mini-player.mini-audio.active {
-  display: grid;
-}
-
-/* !important because the browser writes a user resize as INLINE width/height
-   on the element, and a video mini that had been resized would otherwise hand
-   its box to this card. player-core.js clears that inline size on the way in;
-   these are the belt to its braces. */
-.mini-player.mini-audio {
-  width: 380px !important;
-  height: auto !important;
-  min-height: 0;
-  min-width: 0;
-  max-height: none;
-  resize: none;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "head controls"
-    "progress progress";
-  align-items: center;
-}
-
-/* The <audio> rides along hidden — no visual box for it */
-.mini-player.mini-audio .mini-player-media {
-  display: none;
-}
-
-.mini-player.mini-audio .mini-player-drag {
-  grid-area: head;
-  gap: 10px;
-  padding: 10px;
-  background: none;
-  border-bottom: none;
-  min-width: 0;
-}
-
-.mini-player.mini-audio .mini-audio-art {
-  width: 56px;
-  height: 56px;
-  flex-shrink: 0;
-  border-radius: 8px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.6rem;
-  line-height: 1;
-}
-
-.mini-player.mini-audio .mini-player-title {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text, #e6e6e6);
-  flex: 0 0 auto;
-}
-
-.mini-audio-sub {
-  font-size: 0.72rem;
-  color: var(--text-secondary, #aaa);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.mini-player.mini-audio .mini-player-controls {
-  grid-area: controls;
-  flex-direction: row;
-  background: none;
-  border-top: none;
-  padding: 10px 10px 10px 0;
-  gap: 0.1rem;
-}
-
-/* ── Hairline seek strip ──────────────────────────────────────────────── */
-
-.mini-audio-progress {
-  grid-area: progress;
-  position: relative;      /* the shared scrub helper drops a time pill in here */
-  height: 4px;
-  width: 100%;
-  background: rgba(255, 255, 255, 0.14);
-  cursor: pointer;
-  touch-action: none;
-}
-
-.mini-audio-progress-fill {
-  height: 100%;
-  width: 0%;
-  background: var(--accent);
-  transition: width 0.1s linear;
-}
-
-.mini-audio-progress.scrubbing .mini-audio-progress-fill {
-  transition: none;
 }
