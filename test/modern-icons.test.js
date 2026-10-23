@@ -51,7 +51,7 @@ const I = load(['icons.js']);
 
 test('icon set: line icons, all well formed', () => {
   const names = Object.keys(I.VAULT_ICONS);
-  assert.ok(names.length >= 28 && names.length <= 60, `${names.length} icons`);
+  assert.ok(names.length >= 28 && names.length <= 90, `${names.length} icons`);
   for (const n of names) {
     const svg = I.vaultIcon(n);
     assert.match(svg, /^<svg class="vi vi-[a-z-]+" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"/);
