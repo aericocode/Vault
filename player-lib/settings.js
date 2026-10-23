@@ -1172,43 +1172,48 @@
       notes: 'Room for 2 to 4 instances at 2 workers each.' },
   ];
 
-  /** Model name plus a button that copies just the name. */
+  /** Model name on one line plus a small icon button that copies just the name. */
   function modelNameCell(model) {
-    return `<span class="settings-model">
-        <code class="settings-model-name">${esc(model)}</code>
-        <button type="button" class="settings-copy-btn" data-copy-model="${esc(model)}"
-                title="Copy the model name">Copy</button>
+    const icon = typeof vaultIconSwap === 'function' ? vaultIconSwap('📋', 'copy') : '📋';
+    return `<span class="models-name">
+        <code class="models-name-text">${esc(model)}</code><button type="button" class="models-copy"
+          data-copy-model="${esc(model)}" aria-label="Copy ${esc(model)}" title="Copy the model name">${icon}</button>
       </span>`;
   }
 
+  /* One row block per VRAM tier: the tier on the left, then model, quant and
+     Whisper on one line with the notes under them. The column heads show on
+     wide pages only; each value also carries its own label, which screen
+     readers always get and which shows once the block stacks on a narrow
+     page (css/settings.css, the models-tiers container query). */
   function RENDERERS_models() {
     return `
       <h3 class="settings-h" data-sfind="modelTable">Model recommendations by GPU size</h3>
       <p class="settings-note">Vision model = scan quality. Quantized (Q4) versions are the sweet spot. ~64k token context is required to handle vision reliably. </p>
-      <div class="settings-table-wrap">
-        <table class="settings-table">
-          <thead>
-            <tr><th>VRAM</th><th>Vision model (scanning)</th><th>Quant</th><th>Whisper (subtitles)</th><th>Notes</th></tr>
-          </thead>
-          <tbody>
-            ${MODEL_TIERS.map(t => `
-            <tr>
-              <td>${t.vram}</td>
-              <td>${modelNameCell(t.model)}</td>
-              <td>${t.quant === 'NA' ? '<span class="settings-quant-na">NA</span>' : `<code>${t.quant}</code>`}</td>
-              <td>${t.whisper}</td>
-              <td>${t.notes}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
+      <div class="models-tiers">
+        <div class="models-head" aria-hidden="true">
+          <span>VRAM</span><span>Vision model (scanning)</span><span>Quant</span><span>Whisper (subtitles)</span>
+        </div>
+        <ul class="models-list">
+          ${MODEL_TIERS.map(t => `
+          <li class="models-tier">
+            <div class="models-vram"><span class="models-k">VRAM </span>${t.vram}</div>
+            <div class="models-model"><span class="models-k">Vision model </span>${modelNameCell(t.model)}</div>
+            <div class="models-quant"><span class="models-k">Quant </span>${t.quant === 'NA'
+              ? '<span class="models-chip models-chip-na">NA</span>'
+              : `<span class="models-chip">${esc(t.quant)}</span>`}</div>
+            <div class="models-whisper"><span class="models-k">Whisper </span>${t.whisper}</div>
+            <div class="models-notes"><span class="models-k">Notes </span>${t.notes}</div>
+          </li>`).join('')}
+        </ul>
       </div>
       <p class="settings-note">Semantic search embeddings are tiny - <code>nomic-embed-text</code> (~0.5 GB) runs anywhere.</p>
     `;
   };
 
-  /* Copy buttons in the model table. Same shape as the setup banner's: the
-     label confirms, then goes back. If the clipboard is blocked, select the
-     name instead so Ctrl+C still works. */
+  /* Copy buttons in the model list. A toast says it worked and the button
+     turns green for a moment. If the clipboard is blocked, select the name
+     instead so Ctrl+C still works. */
   function wireModelsSection() {
     const body = document.getElementById('settingsBody');
     if (!body) return;
@@ -1216,11 +1221,14 @@
       btn.addEventListener('click', async () => {
         try {
           await navigator.clipboard.writeText(btn.dataset.copyModel);
-          btn.textContent = 'Copied';
-          setTimeout(() => { if (btn.isConnected) btn.textContent = 'Copy'; }, 1500);
+          btn.classList.add('is-copied');
+          clearTimeout(btn._copiedTimer);
+          btn._copiedTimer = setTimeout(() => btn.classList.remove('is-copied'), 1500);
+          showToast?.('📋 Copied ' + btn.dataset.copyModel);
         } catch {
-          const name = btn.parentElement?.querySelector('.settings-model-name');
+          const name = btn.parentElement?.querySelector('.models-name-text');
           if (!name) return;
+          showToast?.('Press Ctrl+C to copy the model name');
           const range = document.createRange();
           range.selectNodeContents(name);
           const sel = getSelection();
