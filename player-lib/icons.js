@@ -96,6 +96,12 @@ const VAULT_ICONS = {
   spark: '<path d="M12 3.5l1.8 5.2 5.2 1.8-5.2 1.8L12 17.5l-1.8-5.2L5 10.5l5.2-1.8z"/><path d="M18.5 16.5v4M16.5 18.5h4"/>',
   close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  // The Modern Settings menu (player-lib/settings-kit.js)
+  lock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
+  keyboard: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M7.5 14h9"/>',
+  chip: '<rect x="6.5" y="6.5" width="11" height="11" rx="2"/><path d="M9.5 3v3.5M14.5 3v3.5M9.5 17.5V21M14.5 17.5V21M3 9.5h3.5M3 14.5h3.5M17.5 9.5H21M17.5 14.5H21"/>',
+  plug: '<path d="M9 3v5M15 3v5M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0z"/><path d="M12 17v4"/>',
+  book: '<path d="M4.5 5.5a2 2 0 0 1 2-2h13v15h-13a2 2 0 0 0-2 2z"/><path d="M4.5 20.5v-15M19.5 18.5v2h-13"/>',
 };
 
 /* Emoji the app leads its own labels with, and the icon that stands in for

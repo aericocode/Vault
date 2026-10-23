@@ -68,8 +68,17 @@
   /** The line under Scan model: what decides it right now. */
   function modelNote() {
     if (!data) return 'Used for new files. Picked from the models LM Studio has on disk.';
-    if (data.envModel) return `AI_MODEL is set to ${shortName(data.envModel)}, and it outranks this choice.`;
-    if (data.sessionModel) return `Right now scans use ${shortName(data.sessionModel)}, picked in the scan panel or the Backend page. This choice applies again once that pick is set back to Auto (Backend, Model for scans) or Vault restarts.`;
+    if (data.envModel) {
+      // Modern keeps the variable's name in the line's tooltip.
+      return typeof settingsIsModern === 'function' && settingsIsModern()
+        ? `Fixed to ${shortName(data.envModel)} when Vault was started, which outranks this choice.`
+        : `AI_MODEL is set to ${shortName(data.envModel)}, and it outranks this choice.`;
+    }
+    if (data.sessionModel) {
+      // The page is called AI servers in Modern.
+      const page = typeof settingsIsModern === 'function' && settingsIsModern() ? 'AI servers' : 'Backend';
+      return `Right now scans use ${shortName(data.sessionModel)}, picked in the scan panel or the ${page} page. This choice applies again once that pick is set back to Auto (${page}, Model for scans) or Vault restarts.`;
+    }
     return 'Used for new files. Picked from the models LM Studio has on disk.';
   }
 
@@ -83,48 +92,40 @@
   function html() {
     const c = cfg();
     setTimeout(wire, 0);
-    return `
-      <h3 class="settings-h">Scanning</h3>
-      <div class="scan-set" id="scanSetGroup">
-        <div class="settings-toggle" data-sfind="scanModel">
-          <span class="settings-toggle-text">
-            <span class="settings-toggle-title">Scan model</span>
-            <span class="settings-toggle-desc" id="scanSetModelNote">${h(modelNote())}</span>
-          </span>
-          <select class="settings-sel scan-set-sel" id="scanSetModel" aria-label="Scan model">${modelOptions()}</select>
-        </div>
-
-        <div class="settings-toggle settings-seg-row" data-sfind="scanWhenNotLoaded">
-          <span class="settings-toggle-text">
-            <span class="settings-toggle-title" id="segLabel_scanWhen">When it is not loaded</span>
-            <span class="settings-toggle-desc" id="scanSetWhenNote">${whenNote()}</span>
-          </span>
-          <span class="settings-seg" role="group" aria-labelledby="segLabel_scanWhen">
+    // A plain line under the name: the notes are set by id after a repaint.
+    const note = (id, text) => `<span class="settings-toggle-desc" id="${id}">${text}</span>`;
+    const group = `
+      <div class="scan-set" id="scanSetGroup">${settingsRowHtml({
+        sfind: 'scanModel', title: 'Scan model', extra: `
+            ${note('scanSetModelNote', h(modelNote()))}`,
+        control: `<select class="settings-sel scan-set-sel" id="scanSetModel" aria-label="Scan model">${modelOptions()}</select>`,
+      })}
+${settingsRowHtml({
+        cls: 'settings-seg-row', sfind: 'scanWhenNotLoaded', titleId: 'segLabel_scanWhen', title: 'When it is not loaded', extra: `
+            ${note('scanSetWhenNote', whenNote())}`,
+        control: `<span class="settings-seg" role="group" aria-labelledby="segLabel_scanWhen">
             ${WHEN.map(o => `<button type="button" class="settings-seg-btn" data-scan-when="${o.value}"
               aria-pressed="${c.whenNotLoaded === o.value ? 'true' : 'false'}">${h(o.label)}</button>`).join('')}
-          </span>
-        </div>
-
-        <label class="settings-toggle" data-sfind="scanGpuFree">
-          <span class="settings-toggle-text">
-            <span class="settings-toggle-title">Only scan watched folders when the GPU is free</span>
-            <span class="settings-toggle-desc">Watched folder files wait while any other model is loaded, so your other work is never slowed or pushed out.</span>
-          </span>
-          <input type="checkbox" id="scanSetGpuFree" ${c.gpuFreeForWatch ? 'checked' : ''}>
-          <span class="settings-switch" aria-hidden="true"></span>
-        </label>
-
-        <div class="settings-toggle" data-sfind="scanUnloadIdle">
-          <span class="settings-toggle-text">
-            <span class="settings-toggle-title">Unload the scan model after</span>
-            <span class="settings-toggle-desc">Frees GPU memory once the queue is empty. Only a copy Vault loaded itself, never one you loaded.</span>
-          </span>
-          <select class="settings-sel" id="scanSetIdle" aria-label="Unload the scan model after">
+          </span>`,
+      })}
+${settingsRowHtml({
+        tag: 'label', sfind: 'scanGpuFree', title: 'Only scan watched folders when the GPU is free',
+        desc: 'Watched folder files wait while any other model is loaded, so your other work is never slowed or pushed out.',
+        control: `<input type="checkbox" id="scanSetGpuFree" ${c.gpuFreeForWatch ? 'checked' : ''}>
+          <span class="settings-switch" aria-hidden="true"></span>`,
+      })}
+${settingsRowHtml({
+        sfind: 'scanUnloadIdle', title: 'Unload the scan model after',
+        desc: 'Frees GPU memory once the queue is empty. Only a copy Vault loaded itself, never one you loaded.',
+        control: `<select class="settings-sel" id="scanSetIdle" aria-label="Unload the scan model after">
             ${IDLE.map(o => `<option value="${o.value}"${c.unloadIdleMin === o.value ? ' selected' : ''}>${h(o.label)}</option>`).join('')}
-          </select>
-        </div>
+          </select>`,
+      })}
         <p class="th-status scan-set-status" id="scanSetStatus" role="status" aria-live="polite"></p>
       </div>`;
+    if (typeof settingsIsModern === 'function' && settingsIsModern()) return settingsCardHtml({ title: 'Scanning', body: group });
+    return `
+      <h3 class="settings-h">Scanning</h3>${group}`;
   }
 
   function status(text, bad = false) {
@@ -141,7 +142,9 @@
     const c = cfg();
     const sel = root.querySelector('#scanSetModel');
     if (sel && document.activeElement !== sel) sel.innerHTML = modelOptions();
-    root.querySelector('#scanSetModelNote').textContent = modelNote();
+    const mn = root.querySelector('#scanSetModelNote');
+    mn.textContent = modelNote();
+    if (data && data.envModel) mn.title = 'Set by the AI_MODEL environment variable'; else mn.removeAttribute('title');
     root.querySelector('#scanSetWhenNote').innerHTML = whenNote();
     root.querySelectorAll('[data-scan-when]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.scanWhen === c.whenNotLoaded)));
     root.querySelector('#scanSetGpuFree').checked = !!c.gpuFreeForWatch;

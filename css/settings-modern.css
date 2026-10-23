@@ -1,0 +1,316 @@
+/* =========================================================================
+   MODERN SETTINGS - the grouped menu, the cards, the rows, the in-page
+   dialogs and the guide cards (player-lib/settings-kit.js).
+
+   Every rule hangs off body.layout-modern, so Classic Settings never sees
+   any of it. Classes that set a display carry a matching [hidden] rule.
+   ========================================================================= */
+
+/* ── Menu: four small groups, a line icon before each name ─────────────── */
+
+body.layout-modern .settings-nav { flex-basis: 220px; padding: 0.8rem 0.6rem; gap: 0.1rem; }
+
+body.layout-modern .settings-nav-group {
+  margin: 0.85rem 0.7rem 0.3rem;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+body.layout-modern .sfind-box + .settings-nav-group { margin-top: 0.3rem; }
+
+body.layout-modern .settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.86rem;
+}
+body.layout-modern .settings-nav-ic { font-size: 1rem; flex: none; opacity: 0.85; }
+body.layout-modern .settings-nav-item.active .settings-nav-ic { opacity: 1; }
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+body.layout-modern .settings-body {
+  padding: 1.1rem 1.3rem 1.4rem;
+}
+/* Cards stack with an even gap. */
+body.layout-modern #settingsBody > * + .settings-card,
+body.layout-modern #settingsBody .settings-card + .settings-card,
+body.layout-modern #settingsBody .settings-card + div > .settings-card:first-child,
+body.layout-modern #facesOnRows > .settings-card + .settings-card { margin-top: 0.9rem; }
+body.layout-modern #facesOnRows:not([hidden]) { display: block; margin-top: 0.9rem; }
+
+/* ── Card: a group of rows under a small uppercase heading ─────────────── */
+
+.settings-card[hidden],
+body.layout-modern .settings-card[hidden] { display: none; }
+
+body.layout-modern .settings-card {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-primary);
+  padding: 0.25rem 1rem 0.35rem;
+}
+
+body.layout-modern .settings-card-h {
+  margin: 0.55rem 0 0.1rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ── Row: bold name and one short line on the left, control on the right ── */
+
+body.layout-modern .settings-card .settings-toggle {
+  align-items: center;
+  gap: 1.2rem;
+  padding: 0.7rem 0;
+  border-bottom: 0;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+body.layout-modern .settings-card .settings-card-h + .settings-toggle,
+body.layout-modern .settings-card .settings-card-h + * > .settings-toggle:first-child,
+body.layout-modern .settings-card .settings-card-h + .faces-settings .settings-toggle:first-child { border-top: 0; }
+body.layout-modern .settings-card .settings-toggle-text { flex: 1 1 260px; }
+body.layout-modern .settings-card .settings-toggle-title { font-weight: 600; font-size: 0.9rem; }
+body.layout-modern .settings-card .settings-toggle-title label { cursor: inherit; }
+body.layout-modern .settings-card .settings-toggle-desc { font-size: 0.78rem; margin-top: 0.1rem; max-width: 70ch; }
+body.layout-modern .settings-card .settings-switch,
+body.layout-modern .settings-card .settings-num,
+body.layout-modern .settings-card .settings-num-wrap { margin-top: 0; }
+body.layout-modern .settings-card .settings-seg { flex: none; }
+body.layout-modern .settings-card .settings-sel { flex: none; max-width: 22rem; }
+
+/* Two or three buttons on the right of one row. */
+.settings-row-btns[hidden],
+body.layout-modern .settings-row-btns[hidden] { display: none; }
+body.layout-modern .settings-row-btns {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex: none;
+}
+body.layout-modern .settings-row-btns .mig-status { font-size: 0.78rem; }
+body.layout-modern .settings-card a.settings-btn { text-decoration: none; display: inline-block; }
+body.layout-modern .settings-card a.settings-btn:hover { text-decoration: none; }
+
+/* Notes inside a card read as part of it, not as page prose. */
+body.layout-modern .settings-card .settings-note,
+body.layout-modern .settings-card > p {
+  margin: 0.15rem 0 0.6rem;
+  font-size: 0.8rem;
+}
+body.layout-modern .settings-card > .settings-card-h + .settings-note { margin-top: 0.1rem; }
+body.layout-modern .settings-card .settings-toggle + .settings-note,
+body.layout-modern .settings-card .settings-toggle + p { margin-top: 0; }
+
+/* Name and port (General > This copy of Vault). */
+body.layout-modern #settingsInstRow .settings-text { width: 14rem; }
+body.layout-modern #settingsInstRow .settings-num { width: 6.5rem; }
+body.layout-modern #settingsInstRow .settings-restart-note { margin: 0 0 0.6rem; }
+body.layout-modern #settingsPortNow { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+/* Privacy chips as a row's control. */
+body.layout-modern .settings-chips-row .settings-chips {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  padding: 0;
+  border-bottom: 0;
+  max-width: 34rem;
+}
+body.layout-modern .settings-card .settings-toggle:has(+ .settings-chips-row) { padding-bottom: 0.7rem; }
+
+/* ── Advanced fold: developer details only ─────────────────────────────── */
+
+.settings-fold[hidden],
+body.layout-modern .settings-fold[hidden] { display: none; }
+body.layout-modern .settings-fold {
+  display: block;
+  margin: 0.2rem 0 0.45rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.45rem;
+}
+body.layout-modern .settings-fold > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  padding: 0.15rem 0;
+  width: max-content;
+}
+body.layout-modern .settings-fold > summary::-webkit-details-marker { display: none; }
+body.layout-modern .settings-fold > summary::before {
+  content: '';
+  display: inline-block;
+  width: 0.4em;
+  height: 0.4em;
+  margin: 0 0.5rem 0.12em 0.1rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+}
+body.layout-modern .settings-fold[open] > summary::before { transform: rotate(45deg); }
+body.layout-modern .settings-fold > summary:hover { color: var(--text-primary); }
+body.layout-modern .settings-fold-body { padding: 0.4rem 0 0.2rem; }
+body.layout-modern .settings-fold-body p { font-size: 0.8rem; margin: 0 0 0.4rem; }
+body.layout-modern .settings-fold-body .mig-card { margin: 0.2rem 0 0.4rem; }
+
+/* ── In-page dialogs (Quick move, Deep search, Watched folders, guides) ── */
+
+.settings-dlg-ov[hidden],
+body.layout-modern .settings-dlg-ov[hidden] { display: none; }
+body.layout-modern .settings-dlg-ov {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 10vh 16px 16px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow-y: auto;
+}
+body.layout-modern .settings-dlg {
+  width: min(560px, 100%);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+}
+body.layout-modern .settings-dlg.is-wide { width: min(780px, 100%); }
+body.layout-modern .settings-dlg-head {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.8rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+body.layout-modern .settings-dlg-title {
+  flex: 1;
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+body.layout-modern .settings-dlg-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  cursor: pointer;
+}
+body.layout-modern .settings-dlg-x:hover { background: var(--bg-hover); color: var(--text-primary); }
+body.layout-modern .settings-dlg-body {
+  padding: 0.9rem 1rem 1rem;
+  overflow-y: auto;
+}
+body.layout-modern .settings-dlg-body > p { font-size: 0.86rem; }
+body.layout-modern .settings-dlg-body > .mig-card { margin: 0; border: 0; padding: 0; background: none; }
+body.layout-modern .settings-dlg-body .wf-group { margin: 0; }
+
+/* The "More" link inside a row's line. */
+body.layout-modern .settings-toggle-desc .settings-link { font-size: inherit; padding: 0; vertical-align: baseline; }
+.mig-row-note[hidden] { display: none; }
+body.layout-modern .mig-row-note { color: var(--text-secondary); }
+
+/* ── Guides: a card per guide ──────────────────────────────────────────── */
+
+.settings-guides[hidden],
+.settings-guide[hidden],
+body.layout-modern .settings-guides[hidden],
+body.layout-modern .settings-guide[hidden] { display: none; }
+body.layout-modern .settings-guides {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.6rem;
+  margin: 0.2rem 0 0.7rem;
+}
+body.layout-modern .settings-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  text-align: left;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+body.layout-modern .settings-guide:hover { border-color: var(--accent); background: var(--bg-hover); }
+body.layout-modern .settings-guide:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+body.layout-modern .settings-guide-h { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+body.layout-modern .settings-guide-ic { color: var(--accent-hover, var(--accent)); font-size: 1rem; }
+body.layout-modern .settings-guide-sum { font-size: 0.78rem; color: var(--text-muted); line-height: 1.45; }
+body.layout-modern .settings-guide-adv {
+  margin-top: 0.8rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem !important;
+  color: var(--text-muted);
+}
+
+/* ── Page details ──────────────────────────────────────────────────────── */
+
+/* About: the version beside the name. */
+body.layout-modern .settings-about-v { color: var(--text-muted); font-weight: 400; margin-left: 0.2rem; }
+body.layout-modern .settings-update-msg:empty { display: none; }
+
+/* Tables keep their layout inside a card. */
+body.layout-modern .settings-card .models-tiers { margin: 0.2rem 0 0.7rem; }
+body.layout-modern .settings-card .settings-inst-table { margin-top: 0.2rem; }
+body.layout-modern .settings-card .settings-why { background: var(--bg-secondary); }
+body.layout-modern .settings-card .settings-inst-foot { margin-bottom: 0.6rem; }
+body.layout-modern .settings-card .sk-settings-top { margin-top: 0.3rem; }
+body.layout-modern .settings-card .sk-settings-foot { margin: 0.6rem 0 0.4rem; }
+
+/* Mig cards inside a card or a fold: one box is enough. */
+body.layout-modern .settings-card > .mig-card,
+body.layout-modern .settings-card .faces-settings .mig-card {
+  background: var(--bg-secondary);
+  margin: 0.2rem 0 0.7rem;
+}
+body.layout-modern #pbCard .mig-progress,
+body.layout-modern #pbCard .mig-report { margin-bottom: 0.5rem; }
+body.layout-modern #pbCard .mig-report:empty { display: none; }
+
+/* Thumbnails and Scanning groups: an empty status line takes no room. */
+body.layout-modern .settings-card .th-group { margin: 0; }
+body.layout-modern .settings-card .th-sub { margin-top: 0; }
+body.layout-modern .settings-card .th-status:empty { display: none; }
+body.layout-modern .settings-card .th-disc { margin: 0.3rem 0 0.6rem; }
+
+/* Face search: the cards hold the old sections. */
+body.layout-modern .faces-settings > .settings-card + .settings-card { margin-top: 0.9rem; }
+body.layout-modern .settings-card .faces-models { margin: 0.3rem 0 0.6rem; }
+body.layout-modern .settings-card .faces-privacy { margin-top: 0; }
+
+/* Narrow window: the control drops under its words. */
+@media (max-width: 640px) {
+  body.layout-modern .settings-card .settings-toggle { align-items: flex-start; }
+  body.layout-modern .settings-row-btns { justify-content: flex-start; }
+  body.layout-modern .settings-chips-row .settings-chips { justify-content: flex-start; }
+  body.layout-modern .settings-nav-group { display: none; }
+  /* The menu is a row here: the 220px basis would become its height. */
+  body.layout-modern .settings-nav { flex: none; padding: 0.9rem 0.6rem; }
+}
