@@ -871,3 +871,51 @@
     max-height: none;
   }
 }
+
+/* ── Modern look (UI audit, 3.9) ──────────────────────────────────────
+   Editor home: dark cards with 12 px corners and hairline borders; song
+   cards are neutral (no amber edge for unknown songs; the accent shows on
+   hover and keyboard focus only) and one to three pictures fill the
+   mosaic instead of leaving empty quarters (editor.js adds .ed-mos-N). */
+
+body.layout-modern .editor-panel {
+  background: var(--m-surface);
+  border-color: var(--m-border);
+  border-radius: var(--m-radius);
+}
+body.layout-modern .editor-panel h3 { color: var(--m-text); }
+body.layout-modern .editor-panel h3 .vi,
+body.layout-modern .editor-panel h2 .vi { color: var(--m-text-2); }
+
+body.layout-modern .editor-song-card {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--m-border);
+  border-radius: var(--m-radius);
+}
+body.layout-modern .editor-song-card.is-unknown { border-color: var(--m-border); }
+body.layout-modern .editor-song-card:hover { border-color: rgba(255, 255, 255, 0.28); }
+body.layout-modern .editor-song-card:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+body.layout-modern .editor-song-card .tile-name { color: var(--m-text); font-size: 13px; }
+body.layout-modern .editor-song-card .coll-count { color: var(--m-muted); }
+
+body.layout-modern .editor-song-card .coll-mosaic.ed-mos-1 > :not(.coll-tile-badge) { grid-column: 1 / -1; grid-row: 1 / -1; }
+body.layout-modern .editor-song-card .coll-mosaic.ed-mos-2 > :not(.coll-tile-badge) { grid-row: 1 / -1; }
+body.layout-modern .editor-song-card .coll-mosaic.ed-mos-3 > :first-child { grid-row: 1 / -1; }
+
+body.layout-modern .editor-song-head { border-radius: var(--m-radius); }
+body.layout-modern .editor-song-head-title .vi { color: var(--m-text-2); }
+body.layout-modern .editor-tools-ok { color: var(--m-success-text); }
+body.layout-modern .editor-stats { color: var(--m-text-2); }
+body.layout-modern .editor-export-pct { font-family: inherit; font-variant-numeric: tabular-nums; color: var(--m-text-2); }
+
+body.layout-modern .editor-export-done,
+body.layout-modern .editor-export-fail,
+body.layout-modern .editor-export-run { border-radius: var(--m-radius-sm); }
+body.layout-modern .editor-export-done { color: var(--m-success-text); }
+body.layout-modern .editor-export-fail { color: var(--m-danger-text); }
+body.layout-modern .editor-export-done .music-btn,
+body.layout-modern .editor-export-fail .music-btn { color: var(--m-text); }
+
+/* Mix player transport: line icons in Modern; forward 10 s is the rewind icon mirrored. */
+body.layout-modern .editor-mix .ed-ff .vi { transform: scaleX(-1); }
+body.layout-modern .editor-mix .play-pause-btn .vi { width: 20px; height: 20px; }

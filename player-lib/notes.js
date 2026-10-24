@@ -831,8 +831,8 @@ function renderStarRatingSection(media) {
 
   return `
     <div class="star-rating-section" data-star-rating-for="${escapeHtml(media.filepath)}">
-      <button class="${starClass}" onclick="toggleStar('${escapedPath}')" title="${starred ? 'Remove fave' : 'Fave this file'}">
-        ${starIcon}<span class="star-label">Fave</span>
+      <button class="${starClass}" onclick="toggleStar('${escapedPath}')" title="${starred ? 'Remove from favorites' : 'Add to favorites'}" aria-pressed="${starred ? 'true' : 'false'}">
+        ${starIcon}<span class="star-label">Favorite</span>
       </button>
       <div class="rating-control">
         <span class="rating-label">Rating:</span>
@@ -851,7 +851,7 @@ function renderStarRatingSection(media) {
 function renderCardStarRating(media) {
   let html = '';
   if (media.user_starred) {
-    html += '<span class="meta-badge starred-badge">❤ Fave</span>';
+    html += '<span class="meta-badge starred-badge">❤ Favorite</span>';
   }
   if (media.user_rating > 0) {
     const stars = '★'.repeat(media.user_rating) + '☆'.repeat(5 - media.user_rating);

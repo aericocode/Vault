@@ -223,6 +223,21 @@ function refreshSidebarIfOpen() {
  * @param {boolean} hasNext - Whether next media exists
  * @returns {string} Complete control bar HTML
  */
+/**
+ * A control glyph for the players without the Modern dock (audio, pictures,
+ * documents, mixes): Classic keeps the glyph, Modern shows the line icon
+ * (player-lib/icons.js vaultIconSwap). Audit V5.
+ */
+function playerGlyph(emoji, icon) {
+  return typeof vaultIconSwap === 'function' ? vaultIconSwap(emoji, icon) : escapeHtml(emoji);
+}
+
+/** The play button of those players, playing or not. */
+function setPlayerPlayGlyph(btn, playing) {
+  btn.innerHTML = playerGlyph(playing ? '⏸' : '▶', playing ? 'pause-bold' : 'play-fill');
+  btn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+}
+
 function generateUnifiedControlBar(leftControls, rightControls, hasPrev, hasNext) {
   return `
     <div class="player-controls-wrapper" onclick="event.stopPropagation()">
@@ -232,19 +247,19 @@ function generateUnifiedControlBar(leftControls, rightControls, hasPrev, hasNext
         </div>
         <div class="controls-center">
           <button onclick="playPreviousMedia()" class="nav-btn" title="Previous (P)" ${!hasPrev ? 'disabled' : ''}>
-            <span class="nav-icon">⏮</span>
+            <span class="nav-icon">${playerGlyph('⏮', 'prev-file')}</span>
             <span class="nav-label">Prev</span>
           </button>
           <button onclick="playRandomMedia()" class="nav-btn random-btn" title="Random (R)">
-            <span class="nav-icon">🎲</span>
+            <span class="nav-icon">${playerGlyph('🎲', 'shuffle')}</span>
           </button>
           <button onclick="showMediaInfo()" class="info-btn" id="infoBtn" title="Show Info (I)">
-            <span>ℹ️</span>
+            <span>${playerGlyph('ℹ️', 'info')}</span>
             <span>Info</span>
           </button>
           <button onclick="playNextMedia()" class="nav-btn" title="Next (N)" ${!hasNext ? 'disabled' : ''}>
             <span class="nav-label">Next</span>
-            <span class="nav-icon">⏭</span>
+            <span class="nav-icon">${playerGlyph('⏭', 'next-file')}</span>
           </button>
         </div>
         <div class="controls-right">
@@ -660,7 +675,7 @@ const FILL_TITLE = {
 function renderFillButton() {
   const t = fillMode ? FILL_TITLE.on : FILL_TITLE.off;
   return `<button onclick="toggleFillMode()" class="control-btn fill-btn ${fillMode ? 'active' : ''}"
-    title="${t}" aria-label="Fit to window" aria-pressed="${fillMode ? 'true' : 'false'}">⤢</button>`;
+    title="${t}" aria-label="Fit to window" aria-pressed="${fillMode ? 'true' : 'false'}">${playerGlyph('⤢', 'fit')}</button>`;
 }
 
 function updateFillButton() {

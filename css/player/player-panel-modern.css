@@ -331,8 +331,56 @@ body.layout-modern .mpp-kv {
 body.layout-modern .mpp-kv-row { display: contents; }
 body.layout-modern .mpp-kv dt { color: #8a8a96; }
 body.layout-modern .mpp-kv dd { margin: 0; color: #e4e4ea; overflow-wrap: anywhere; }
-body.layout-modern .mpp .mpp-studio .detail-item { display: flex; gap: 14px; font-size: 13px; }
-body.layout-modern .mpp .mpp-studio .detail-item label { width: auto; color: #8a8a96; }
+/* Studio: the same shape as the sections above it (audit B11): the label as
+   a small-caps heading with the edit pencil at its right, the studio (or
+   "None") on the line below. The markup is studios.js's one-line row, so
+   the grid moves its pieces without changing it. */
+body.layout-modern .mpp .mpp-studio .detail-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  margin: 0;
+  font-size: 13.5px;
+}
+body.layout-modern .mpp .mpp-studio .detail-item > label {
+  grid-row: 1;
+  grid-column: 1;
+  width: auto;
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #8a8a96;
+}
+body.layout-modern .mpp .mpp-studio .st-detail-val { display: contents; }
+body.layout-modern .mpp .mpp-studio .st-detail-val > :not(.st-detail-edit) {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  justify-self: start;
+  font-size: 13.5px;
+}
+body.layout-modern .mpp .mpp-studio .st-detail-val > .field-empty { color: #6b6b76; }
+body.layout-modern .mpp .mpp-studio .st-detail-edit {
+  grid-row: 1;
+  grid-column: 2;
+  align-self: start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: -6px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: #8a8a96;
+  line-height: 1;
+}
+body.layout-modern .mpp .mpp-studio .st-detail-edit .vi { width: 15px; height: 15px; vertical-align: 0; }
+body.layout-modern .mpp .mpp-studio .st-detail-edit:hover { background: #2a2a31; color: #fff; }
+body.layout-modern .mpp .mpp-studio .st-detail-link { font-size: 13.5px; }
 
 body.layout-modern .mpp .star-rating-section { margin: 0 0 18px; }
 

@@ -132,6 +132,12 @@
 }
 .faces-menu-item:hover,
 .faces-menu-item:focus-visible { background: var(--bg-hover); outline: none; }
+/* A pick-one menu (Sort): the tick column */
+.faces-menu-tick { display: inline-flex; width: 1.2em; flex: none; vertical-align: -0.14em; color: var(--accent-hover); }
+/* "Add to someone else" opens upward: its caret points up */
+svg.faces-caret-up { transform: rotate(180deg); margin-left: 0.25em; vertical-align: -0.16em; }
+/* The selection bar's Studio button in Modern: a caret icon after the words */
+body.layout-modern svg.sel-caret { margin-left: 0.3em; vertical-align: -0.16em; }
 
 /* Above the importer's drag overlay (z 9000), so the box stays visible and
    bright while a photo is dragged onto it. */
@@ -238,8 +244,13 @@ body.pm-names .faces-qname {
   background: rgba(99, 102, 241, 0.06); border-radius: 0 0 8px 8px;
   font-size: 0.8125rem; color: #c8c8c8;
 }
+/* Modern: the banner is a 12 px card (css/settings.css); the second row is part of it, under a hairline. */
+body.layout-modern .faces-brow2 {
+  border-top: 1px solid var(--m-border); background: none; border-radius: 0 0 var(--m-radius) var(--m-radius);
+  color: var(--m-text-2);
+}
 .faces-badd {
-  font-family: Arial, sans-serif; font-size: 0.8rem; font-weight: 600;
+  font-family: inherit; font-size: 0.8rem; font-weight: 600;
   padding: 0.34rem 0.75rem; border-radius: 7px; cursor: pointer;
   background: var(--accent); color: #fff; border: 1px solid var(--accent);
 }
@@ -257,6 +268,11 @@ body.pm-names .faces-qname {
 .faces-blink:hover { color: var(--text-primary); }
 /* The name is an inline-block (privacy blur): it carries its own underline so the link reads as one. */
 .faces-blink .ft-pm-name { text-decoration: underline; }
+/* Modern: the same quiet accent link as the Faces tab (.ft-link), underlined only on hover. */
+body.layout-modern .faces-blink,
+body.layout-modern .faces-blink .ft-pm-name { color: var(--accent-hover); text-decoration: none; }
+body.layout-modern .faces-blink:hover,
+body.layout-modern .faces-blink:hover .ft-pm-name { color: var(--m-text); text-decoration: underline; }
 
 /* The name in the banner: click it (or the pen) to rename, or "Add a name".
    The name field and its suggestions are the Faces tab's (.ft-field, .ft-drop). */
@@ -314,7 +330,7 @@ body.pm-names .faces-qname {
 .faces-settings .faces-switch-card .mig-progress { margin-top: 0.6rem; }
 .settings-body .faces-switch-named { margin: 0.3rem 0 0; font-size: 0.72rem; color: var(--text-secondary); }
 .settings-body .faces-model-hint { margin: 0.5rem 0 0; font-size: 0.78rem; color: #888; line-height: 1.5; }
-.faces-consent-list { margin: 0; padding-left: 1.25rem; }
+
 /* Each of these sets display, so [hidden] needs saying again. */
 .faces-model-tag[hidden],
 .faces-model-meta[hidden],
@@ -343,3 +359,5 @@ body.pm-names .faces-qname {
 .faces-stuck-name { color: var(--text-primary); overflow-wrap: anywhere; }
 .faces-stuck-why { color: var(--text-muted); }
 body.pm-names .faces-stuck-name { filter: blur(7px); pointer-events: none; user-select: none; }
+
+.faces-menu-item { justify-content: flex-start; }

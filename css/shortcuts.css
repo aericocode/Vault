@@ -208,3 +208,48 @@
   font-size: 12px;
 }
 .sk-settings-foot { margin-top: 6px; }
+
+/* ── Modern: the same card as Settings and the in-app dialogs ── */
+body.layout-modern .sk-win {
+  background: var(--m-surface-solid);
+  color: var(--m-text);
+  border-color: var(--m-border);
+  border-radius: var(--m-radius);
+  box-shadow: var(--m-shadow);
+}
+body.layout-modern .sk-head,
+body.layout-modern .sk-foot { border-color: var(--m-border); }
+body.layout-modern .sk-hint,
+body.layout-modern .sk-foot { color: var(--m-muted); }
+body.layout-modern .sk-search {
+  background: var(--m-field);
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  padding: 6px 10px;
+}
+body.layout-modern .sk-search:focus { border-color: var(--accent); }
+body.layout-modern .sk-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--m-radius-sm);
+  color: var(--m-muted);
+}
+body.layout-modern .sk-x:hover { background: var(--m-btn); color: var(--m-text); }
+body.layout-modern .sk-x .vi { width: 16px; height: 16px; }
+body.layout-modern .sk-row { border-bottom-color: rgba(255, 255, 255, 0.06); }
+/* The footer link is a quiet text button in the accent colour, no underline. */
+body.layout-modern .sk-link {
+  margin: -3px -8px;
+  padding: 3px 8px;
+  border-radius: var(--m-radius-sm);
+  text-decoration: none;
+}
+body.layout-modern .sk-link:hover { background: var(--m-btn); }
+body.layout-modern .sk-link:focus-visible,
+body.layout-modern .sk-x:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+/* The same dim as the Settings dialog behind it. */
+body.layout-modern .sk-overlay { background: rgba(0, 0, 0, 0.8); }

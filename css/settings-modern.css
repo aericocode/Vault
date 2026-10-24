@@ -281,6 +281,36 @@ body.layout-modern .settings-card .models-tiers { margin: 0.2rem 0 0.7rem; }
 body.layout-modern .settings-card .settings-inst-table { margin-top: 0.2rem; }
 body.layout-modern .settings-card .settings-why { background: var(--bg-secondary); }
 body.layout-modern .settings-card .settings-inst-foot { margin-bottom: 0.6rem; }
+
+/* AI servers table: "Load another copy" is a quiet button with the plus icon,
+   not an underlined link; copies read "Copy 2" in the body face. */
+body.layout-modern .settings-inst-table .inst-clone {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 10px;
+  padding: 3px 10px 3px 8px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-btn);
+  color: var(--m-text);
+  font-size: 12px;
+  text-decoration: none;
+  vertical-align: middle;
+}
+body.layout-modern .settings-inst-table .inst-clone:hover:not([disabled]) { background: var(--m-btn-hover); }
+body.layout-modern .settings-inst-table .inst-clone[disabled] { color: var(--m-muted); opacity: 0.6; }
+body.layout-modern .settings-inst-table .inst-clone .vi { width: 14px; height: 14px; }
+body.layout-modern .settings-inst-table .inst-unload { text-decoration: none; color: var(--accent-hover); }
+body.layout-modern .settings-inst-table .inst-unload:hover:not([disabled]) { text-decoration: underline; }
+body.layout-modern .settings-inst-table .mid { font-family: inherit; font-size: 12.5px; }
+body.layout-modern .settings-inst-table .sfx { color: var(--m-text-2); }
+
+/* Model downloads: the size after the name, quieter. */
+body.layout-modern .settings-consent-size { color: var(--text-muted); font-weight: 400; }
+
+/* Privacy and security: the password button is a normal-size row control. */
+body.layout-modern .settings-pass-btn { flex: none; padding: 0.45rem 0.95rem; font-size: 0.84rem; }
 body.layout-modern .settings-card .sk-settings-top { margin-top: 0.3rem; }
 body.layout-modern .settings-card .sk-settings-foot { margin: 0.6rem 0 0.4rem; }
 

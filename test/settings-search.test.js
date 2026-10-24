@@ -179,7 +179,7 @@ test('names, descriptions and extra words all match; every word must', () => {
     assert.ok(lib.items.find(i => i.item.id === 'thMake').related.length, `${q}: says which extra word matched`);
   }
   const pw = S.settingsSearch('password');
-  assert.deepStrictEqual(ids(pw.find(g => g.page === 'settings')).slice(0, 2).sort(), ['autolockMinutes', 'vaultSecurity']);
+  assert.deepStrictEqual(ids(pw.find(g => g.page === 'settings')).slice(0, 3).sort(), ['autolockMinutes', 'vaultPassword', 'vaultSecurity']);
   assert.ok(ids(pw.find(g => g.page === 'guides')).includes('guide-encryption'));
 
   assert.deepStrictEqual(pages(S.settingsSearch('hover preview frames')).slice(0, 1), ['library']);

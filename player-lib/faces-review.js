@@ -83,7 +83,7 @@ function frCardHtml(it, ans, o = {}) {
   const yesLabel = o.yes || 'Yes', noLabel = o.no || 'No';
   const more = it.files > 1 ? ` · ${frPlural(it.files, 'file', 'files')}` : '';
   const crop = it.cropUrl ? `<img class="face-crop" src="${frEsc(it.cropUrl)}" alt="" loading="lazy" draggable="false">`
-    : '<span class="ft-blank" aria-hidden="true">👤</span>';
+    : facesBlankHtml();
   return `
     <div class="fr-card${yes ? ' is-yes' : ''}${no && o.noLine !== false ? ' is-no' : ''}" data-fr-key="${frEsc(it.key)}">
       <div class="fr-face">
@@ -597,7 +597,7 @@ function frComparePaint() {
   const hadFocus = st.el.contains(document.activeElement) ? document.activeElement : null;
   const focusKey = hadFocus && hadFocus.closest('.fr-card') ? hadFocus.closest('.fr-card').dataset.frKey : null;
   const focusAns = hadFocus && hadFocus.dataset ? hadFocus.dataset.frAns : null;
-  const faceTile = (x) => `<div class="fr-sample">${x.cropUrl ? `<img class="face-crop" src="${frEsc(x.cropUrl)}" alt="" loading="lazy">` : '<span class="ft-blank" aria-hidden="true">👤</span>'}</div>`;
+  const faceTile = (x) => `<div class="fr-sample">${x.cropUrl ? `<img class="face-crop" src="${frEsc(x.cropUrl)}" alt="" loading="lazy">` : facesBlankHtml()}</div>`;
   const side = (p, name, max) => {
     if (!p) return '<div class="fr-samples"></div>';
     const shown = p.faces.slice(0, max);
@@ -762,7 +762,7 @@ async function facesPairsReviewOpen(opener) {
 
 function fpSide(p) {
   const name = p.name ? `<span class="ft-pm-name">${frEsc(p.name)}</span>` : '<span class="fp-noname">Not named yet</span>';
-  const crop = p.coverUrl ? `<img class="face-crop" src="${frEsc(p.coverUrl)}" alt="" loading="lazy">` : '<span class="ft-blank" aria-hidden="true">👤</span>';
+  const crop = p.coverUrl ? `<img class="face-crop" src="${frEsc(p.coverUrl)}" alt="" loading="lazy">` : facesBlankHtml();
   return `<div class="fp-side"><div class="fp-face">${crop}</div><div class="fp-name">${name}</div><div class="fp-files">${frPlural(p.files || 0, 'file', 'files')}</div></div>`;
 }
 

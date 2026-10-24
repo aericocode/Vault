@@ -437,7 +437,10 @@
       scheduleStatusClear(state);
     } catch (err) {
       if (err?.name === 'AbortError') return; // detached mid-download — expected
-      if (!state.destroyed) setStatus(state, `Beat bar: ${err.message}`);
+      if (!state.destroyed) {
+        setStatus(state, typeof friendlyError === 'function'
+          ? `Beat bar: ${friendlyError(err, 'finding the beats')}` : `Beat bar: ${err.message}`);
+      }
     }
   }
 
@@ -595,7 +598,7 @@
     overlay.innerHTML = `
       <canvas class="beatbar-canvas"></canvas>
       <div class="beatbar-status"></div>
-      <button class="beatbar-gear" title="Beat bar settings">⚙</button>
+      <button class="beatbar-gear" title="Beat bar settings" aria-label="Beat bar settings">${glyph('⚙', 'gear')}</button>
       ${settingsPanelHtml()}
     `;
     document.body.appendChild(overlay);
@@ -1824,6 +1827,11 @@
   }
   window.openBeatBarSettings = openBeatBarSettings;
 
+  /* Classic keeps the emoji; Modern shows the line icon (player-lib/icons.js). */
+  function glyph(emoji, icon) {
+    return typeof vaultIconSwap === 'function' ? vaultIconSwap(emoji, icon) : emoji;
+  }
+
   function buttonTitle(on) {
     return on
       ? 'Beat bar is ON. Click to turn off'
@@ -1840,10 +1848,10 @@
     const on = isEnabled();
     return `<button id="beatbarBtn" class="nav-btn beatbar-toggle${on ? ' beatbar-btn-on' : ''}"
         onclick="toggleBeatBar()" title="${buttonTitle(on)}"
-      ><span class="nav-icon">🥁</span><span class="beatbar-state">${on ? 'ON' : 'OFF'}</span></button>
+      ><span class="nav-icon">${glyph('🥁', 'beat')}</span><span class="beatbar-state">${on ? 'ON' : 'OFF'}</span></button>
       <button id="beatbarSettingsBtn" class="nav-btn beatbar-settings-btn"
-        onclick="openBeatBarSettings()" title="Beat bar settings"
-      ><span class="nav-icon">⚙</span></button>`;
+        onclick="openBeatBarSettings()" title="Beat bar settings" aria-label="Beat bar settings"
+      ><span class="nav-icon">${glyph('⚙', 'gear')}</span></button>`;
   }
   window.renderBeatBarButtons = renderButtons;
 

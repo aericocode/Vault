@@ -305,3 +305,27 @@
   text-align: center;
   pointer-events: none;
 }
+
+/* ── Modern: line icons in the players without the dock (audio, pictures,
+   documents, mixes). The glyphs became icons in the markup (playerGlyph in
+   player-core.js), except the mute button: state.js repaints it as text for
+   every player, so here the glyph is hidden and the line icon drawn with a
+   mask, picked by its aria-pressed. Audit V5. */
+body.layout-modern #mediaPlayerControls .control-btn .vi,
+body.layout-modern #mediaPlayerControls .play-pause-btn .vi { width: 18px; height: 18px; vertical-align: -3px; }
+body.layout-modern #mediaPlayerControls .nav-icon .vi { width: 16px; height: 16px; vertical-align: -3px; }
+body.layout-modern #mediaPlayerControls .info-btn .vi { width: 16px; height: 16px; vertical-align: -3px; }
+body.layout-modern #mediaPlayerControls .volume-control #muteBtn { font-size: 0; line-height: 0; }
+body.layout-modern #mediaPlayerControls .volume-control #muteBtn::before {
+  content: '';
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 9.5h3.5L12 5.5v13l-4.5-4H4z'/%3E%3Cpath d='M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 9.5h3.5L12 5.5v13l-4.5-4H4z'/%3E%3Cpath d='M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+body.layout-modern #mediaPlayerControls .volume-control #muteBtn[aria-pressed="true"]::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 9.5h3.5L12 5.5v13l-4.5-4H4z'/%3E%3Cpath d='m16 9.5 5 5M21 9.5l-5 5'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 9.5h3.5L12 5.5v13l-4.5-4H4z'/%3E%3Cpath d='m16 9.5 5 5M21 9.5l-5 5'/%3E%3C/svg%3E");
+}

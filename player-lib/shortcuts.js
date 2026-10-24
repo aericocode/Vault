@@ -294,7 +294,7 @@ function shortcutsOpen() {
         <h2 id="skTitle">Keyboard shortcuts</h2>
         <input type="search" class="sk-search" placeholder="Find a shortcut" aria-label="Find a shortcut" autocomplete="off" spellcheck="false">
         <span class="sk-hint">Esc to close</span>
-        <button type="button" class="sk-x" data-sk-close aria-label="Close">&times;</button>
+        <button type="button" class="sk-x" data-sk-close aria-label="Close" title="Close">${typeof vaultIconSwap === 'function' ? vaultIconSwap('×', 'close') : '&times;'}</button>
       </div>
       <div class="sk-body sk-cols"></div>
       <div class="sk-foot">

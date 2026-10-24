@@ -1108,6 +1108,56 @@ body.pm-names #modalTitle {
 }
 .missing-banner-close:hover { color: var(--text-primary); }
 
+/* Modern: the missing-files and focus notices are quiet cards like the setup
+   banner (css/header.css): neutral surface, hairline border, a warning icon,
+   a normal button. Classic keeps the amber / indigo strips. */
+body.layout-modern .missing-banner,
+body.layout-modern .focus-banner {
+  gap: 8px 12px;
+  margin: 0 0 12px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  background: var(--m-surface-solid);
+  color: var(--m-text);
+  font-size: 13px;
+}
+body.layout-modern .missing-banner,
+body.layout-modern .focus-banner:not(.faces-banner) { padding: 7px 8px 7px 14px; }
+body.layout-modern .missing-banner-ic { display: inline-flex; flex: none; color: var(--warning); }
+body.layout-modern .missing-banner-ic .vi { width: 16px; height: 16px; }
+body.layout-modern .missing-banner-text,
+body.layout-modern .focus-banner-text { font-size: 13px; color: var(--m-text-2); }
+body.layout-modern .missing-banner-text b,
+body.layout-modern .focus-banner-text b { color: var(--m-text); font-weight: 600; }
+body.layout-modern .missing-banner-fix,
+body.layout-modern .focus-banner-close {
+  min-height: 30px;
+  padding: 4px 12px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-btn);
+  color: var(--m-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+body.layout-modern .missing-banner-fix:hover,
+body.layout-modern .focus-banner-close:hover { background: var(--m-btn-hover); }
+body.layout-modern .missing-banner-fix:focus-visible,
+body.layout-modern .focus-banner-close:focus-visible,
+body.layout-modern .missing-banner-close:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+body.layout-modern .missing-banner-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--m-radius-sm);
+  color: var(--m-muted);
+}
+body.layout-modern .missing-banner-close:hover { background: var(--m-btn); color: var(--m-text); }
+body.layout-modern .missing-banner-close .vi { width: 16px; height: 16px; }
+
 /* ── Relink's inline double-confirm ──────────────────────────────────────
    The accept button sits on the far side of the card from Apply, and stays
    disabled for a beat, so a double-click on Apply cannot reach it. */

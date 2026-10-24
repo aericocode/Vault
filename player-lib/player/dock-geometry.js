@@ -17,7 +17,8 @@
    - noteMarks(notes)                    times named inside note text
    - noteNear(marks, t, win)             a note within `win` seconds
    - hotMarks(heat, duration, lastPos)   where Hot was pressed
-   - smoothHeat(heat)                    the heat ridge's curve
+   - heatHasShape(heat)                  whether the ridge has anything to show
+   - smoothHeat(heat)                  the heat ridge's curve
    - formatPrecise / parsePrecise        [h:]m:ss[.d|.dd] (A-B points, notes)
    ========================================================================= */
 
@@ -295,11 +296,29 @@ const DockGeom = (() => {
     return max > 0 ? s.map(x => x / max) : [];
   }
 
+  /**
+   * Whether the watch heatmap has a shape worth drawing as the ridge: some
+   * watched part was watched clearly more than the rest. One pass over part
+   * of a file fills every bucket it crossed by the same amount, and the ridge
+   * then reads as a flat block from 0:00 to where watching stopped (audit V1),
+   * which looks like a rendering fault rather than heat. So the busiest bucket
+   * has to reach HEAT_SHAPE times the median of the watched ones.
+   */
+  const HEAT_SHAPE = 1.5;
+  function heatHasShape(heat) {
+    if (!Array.isArray(heat)) return false;
+    const v = heat.map(x => num(Number(x), 0)).filter(x => x > 0).sort((a, b) => a - b);
+    if (v.length < 2) return false;
+    const mid = v.length >> 1;
+    const median = v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
+    return v[v.length - 1] >= median * HEAT_SHAPE;
+  }
+
   return {
     DOCK_ZONE, TOP_ZONE, BUFFER, NARROW, CENTRED_MAX, MAX_LEVEL, W,
     zoneDecision, clusterWidths, rowNeed, foldLevel,
     segments, layout, segmentIndexAt, timeToX, xToTime,
-    scrubFrameIndex, noteMarks, noteNear, hotMarks, smoothHeat, formatPrecise, parsePrecise,
+    scrubFrameIndex, noteMarks, noteNear, hotMarks, smoothHeat, heatHasShape, formatPrecise, parsePrecise,
   };
 })();
 

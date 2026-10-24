@@ -79,7 +79,9 @@ function miniLayout({ animate = false } = {}) {
   const box = _miniBox();
   if (!box || !box.classList.contains('active')) return;
   const vp = _miniViewport();
-  const r = MiniGeom.cornerRect(_miniGeom.corner, _miniGeom.w, _miniAspect(box), vp.w, vp.h);
+  const r = MiniGeom.liftClear(
+    MiniGeom.cornerRect(_miniGeom.corner, _miniGeom.w, _miniAspect(box), vp.w, vp.h),
+    _miniGeom.corner, _miniPagerRect());
   // Control sizes step down with the box (css/mini-player.css), and a small
   // box drops secondary controls rather than shrinking them past use: the
   // volume slider first, then the 10 s buttons and the title, then Pop out.
@@ -99,6 +101,38 @@ function miniLayout({ animate = false } = {}) {
   box.style.width = r.width + 'px';
   box.style.height = r.height + 'px';
 }
+
+/**
+ * The library's page buttons as one rect, while they are on screen, else
+ * null: a box in a bottom corner sits above them instead of over Next.
+ * Measured from the buttons, not the row, which is as wide as the grid.
+ */
+function _miniPagerRect() {
+  const pager = document.getElementById('pagination');
+  if (!pager || !pager.getClientRects().length || getComputedStyle(pager).visibility === 'hidden') return null;
+  let o = null;
+  for (const el of pager.children) {
+    const b = el.getBoundingClientRect();
+    if (!b.width || !b.height) continue;
+    o = o ? { left: Math.min(o.left, b.left), top: Math.min(o.top, b.top), right: Math.max(o.right, b.right), bottom: Math.max(o.bottom, b.bottom) }
+      : { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+  }
+  return o;
+}
+
+// The page buttons come and go (a tab without the grid, a single page, the
+// table view): the box follows. Watched once #pagination exists.
+(function watchPagerForMini() {
+  const relayout = () => { if (_miniBox()?.classList.contains('active')) miniLayout(); };
+  const hook = () => {
+    const pager = document.getElementById('pagination');
+    if (!pager) return;
+    if (typeof ResizeObserver === 'function') new ResizeObserver(relayout).observe(pager);
+    new MutationObserver(relayout).observe(pager, { attributes: true, attributeFilter: ['class', 'style'] });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', hook);
+  else hook();
+})();
 
 // The window changed size: back into a corner, still fitting. The remembered
 // width is the user's choice and is left alone; only what is shown is clamped.

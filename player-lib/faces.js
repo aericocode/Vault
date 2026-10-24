@@ -83,6 +83,18 @@ function facesReady() {
   return !!(facesStatus && facesStatus.enabled && facesStatus.modelsReady);
 }
 
+/* ── Look helpers: line icons (player-lib/icons.js) with plain fallbacks ── */
+
+const facesModern = () => typeof vaultIsModern === 'function' && vaultIsModern();
+/** One line icon, or '' when icons.js is missing. */
+const facesIcon = (name, cls = '') => (typeof vaultIcon === 'function' ? vaultIcon(name, cls) : '');
+/** Classic's glyph and Modern's icon side by side (vaultIconSwap); the glyph alone without icons.js. */
+const facesSwap = (glyph, name) => (typeof vaultIconSwap === 'function' ? vaultIconSwap(glyph, name) : escapeHtml(glyph));
+/** The stand-in for a face with no picture: the person icon. */
+function facesBlankHtml(cls = '') {
+  return `<span class="ft-blank${cls ? ` ${cls}` : ''}" aria-hidden="true">${facesIcon('person', 'ft-blank-ico') || '?'}</span>`;
+}
+
 /* ── Server calls ──────────────────────────────────────────────────────── */
 
 /**
@@ -167,7 +179,7 @@ function renderFacesSection(media) {
   setTimeout(() => facesLoad(media.id), 0);
   return `
     <div class="detail-section faces-section" data-faces-section="${media.id}" hidden>
-      <h3>👤 People</h3>
+      <h3>${facesModern() ? 'People' : '👤 People'}</h3>
       <div class="field-content" data-faces-box="${media.id}"></div>
     </div>`;
 }
@@ -486,7 +498,7 @@ const facesNames = () => document.body.classList.contains('pm-names');
 /** "Barack Obama", or "this person" for someone without a name. */
 const facesWho = (T) => (T && T.name ? facesPmName(T.name) : 'this person');
 
-const FACES_PEN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a0a0a0" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg>';
+const FACES_PEN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg>';
 
 function facesRenderBanner(bar) {
   const f = facesFocus;
@@ -804,7 +816,7 @@ function facesPickBarPaint() {
   bar.innerHTML = `
     <span class="faces-pick-sum"><b>${k.toLocaleString()}</b> ${k === 1 ? 'face' : 'faces'} ticked</span>
     ${has && T.id != null ? `<button type="button" class="faces-bghost faces-lg" data-pick="not"${dis}>Not ${who}</button>` : ''}
-    <button type="button" class="faces-bghost faces-lg is-accent" data-pick="other" aria-haspopup="dialog"${dis}>${has ? 'Add to someone else…' : 'Add to someone…'} <span aria-hidden="true">▴</span></button>
+    <button type="button" class="faces-bghost faces-lg is-accent" data-pick="other" aria-haspopup="dialog"${dis}>${has ? 'Add to someone else…' : 'Add to someone…'} ${facesIcon('caret', 'faces-caret-up') || '<span aria-hidden="true">▴</span>'}</button>
     ${has ? `<button type="button" class="faces-badd faces-lg" data-pick="add"${dis}>Add ${k.toLocaleString()} to ${who}</button>` : ''}`;
 }
 
@@ -952,8 +964,11 @@ function facesMenu(x, y, items) {
   menu.className = 'fpop faces-menu';
   menu.id = 'facesMenu';
   menu.setAttribute('role', 'menu');
-  menu.innerHTML = items.map((it, i) =>
-    `<button type="button" class="fpop-opt faces-menu-item" role="menuitem" data-i="${i}">${escapeHtml(it.label)}</button>`).join('');
+  // A pick-one menu (items with checked): a tick column, the current one ticked.
+  const radio = items.some(it => it.checked !== undefined);
+  menu.innerHTML = items.map((it, i) => (radio
+    ? `<button type="button" class="fpop-opt faces-menu-item" role="menuitemradio" aria-checked="${!!it.checked}" data-i="${i}"><span class="faces-menu-tick" aria-hidden="true">${it.checked ? (facesIcon('check') || '✓') : ''}</span>${escapeHtml(it.label)}</button>`
+    : `<button type="button" class="fpop-opt faces-menu-item" role="menuitem" data-i="${i}">${escapeHtml(it.label)}</button>`)).join('');
   document.body.appendChild(menu);
   const r = menu.getBoundingClientRect();
   menu.style.left = `${Math.max(8, Math.min(x, innerWidth - r.width - 8))}px`;
@@ -980,8 +995,14 @@ function facesSelectionButton(n) {
   if (!facesReady()) return '';
   const out = typeof ftRemoveSelectedButton === 'function' && typeof selectedIds !== 'undefined' ? ftRemoveSelectedButton(selectedIds.size) : '';
   if (!n) return out;
+  const label = `👤 ${facesSelLabel(n, typeof selectedIds !== 'undefined' ? selectedIds.size : n)}`;
   return `${out}<button class="sel-btn sel-faces" onclick="facesIndexSelection()"
-    title="Find faces in the selected files">${typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(`👤 Faces (${n})`) : `👤 Faces (${n})`}</button>`;
+    title="Find faces in the selected files">${typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(label) : label}</button>`;
+}
+
+/** "Faces", or "Faces (3)" when only 3 of the selected files are photos or videos (the bar already says "N selected"). */
+function facesSelLabel(n, selected) {
+  return n === selected ? 'Faces' : `Faces (${Number(n).toLocaleString()})`;
 }
 
 let facesWatching = false;
@@ -1043,14 +1064,14 @@ function facesAbout(s) {
 
 function facesScanRow(r) {
   const name = `<span class="dq-name">${escapeHtml(r.filename || `File ${r.mediaId}`)}</span>`;
-  if (!r.ok) return `<div class="dq-row dq-failed"><span class="dq-ico">✕</span>${name}<span class="fsq-res">could not be read</span></div>`;
-  if (!r.faces) return `<div class="dq-row dq-done fsq-none"><span class="dq-ico">–</span>${name}<span class="fsq-res">no faces</span></div>`;
+  if (!r.ok) return `<div class="dq-row dq-failed"><span class="dq-ico">${facesSwap('✕', 'close')}</span>${name}<span class="fsq-res">could not be read</span></div>`;
+  if (!r.faces) return `<div class="dq-row dq-done fsq-none"><span class="dq-ico">${facesSwap('–', 'minus')}</span>${name}<span class="fsq-res">no faces</span></div>`;
   const names = r.names || [];
   const people = r.people || 0;
   const res = people === 1 && names.length === 1 ? facesPmName(names[0])
     : people ? `${people.toLocaleString()} ${people === 1 ? 'person' : 'people'}`
     : `${r.faces.toLocaleString()} ${r.faces === 1 ? 'face' : 'faces'}`;
-  return `<div class="dq-row dq-done"><span class="dq-ico">✓</span>${name}<span class="fsq-res">${res}</span></div>`;
+  return `<div class="dq-row dq-done"><span class="dq-ico">${facesSwap('✓', 'check')}</span>${name}<span class="fsq-res">${res}</span></div>`;
 }
 
 /** Build the pane's fixed parts once: the buttons keep their armed state across polls. */
@@ -1058,7 +1079,7 @@ function facesScanBuild(pane) {
   if (pane.querySelector('.fsq-head')) return;
   pane.innerHTML = `
     <div class="dq-head fsq-head"><span class="fsq-ico"></span><span class="dq-title fsq-title"></span>
-      <button type="button" class="dq-x fsq-x" title="Dismiss" hidden>✕</button></div>
+      <button type="button" class="dq-x fsq-x" title="Dismiss" aria-label="Dismiss" hidden>${facesSwap('✕', 'close')}</button></div>
     <div class="dq-bar"><div class="dq-bar-fill fsq-fill"></div></div>
     <div class="dq-meta"><span class="fsq-meta"></span></div>
     <div class="dq-list fsq-list"></div>
@@ -1156,7 +1177,7 @@ function facesScanPaint() {
   const withPeople = run.withPeople != null ? run.withPeople : recent.filter(r => r.ok && r.faces > 0).length;
   const stopped = !q.running && (facesScan.stopped || finished < total);
   const pane = api.open('faces', {
-    tab: '👤 Faces',
+    tab: facesModern() ? 'Faces' : '👤 Faces',
     sub: q.running ? `${Math.max(0, total - finished).toLocaleString()} left` : 'done',
     focus: facesScan.focus,
   });
@@ -1166,7 +1187,7 @@ function facesScanPaint() {
 
   const ico = $('.fsq-ico');
   if (q.running && !q.paused) { if (!ico.querySelector('.dq-spin')) ico.innerHTML = '<span class="dq-spin"></span>'; }
-  else ico.innerHTML = `<span class="dq-ico">${q.running ? '⏸' : run.failed || stopped ? '⚠' : '✓'}</span>`;
+  else ico.innerHTML = `<span class="dq-ico">${q.running ? facesSwap('⏸', 'pause') : run.failed || stopped ? facesSwap('⚠', 'alert') : facesSwap('✓', 'check')}</span>`;
   $('.fsq-title').textContent = `${q.running
     ? `${q.paused ? 'Paused: finding' : 'Finding'} faces in ${facesFiles(total)}`
     : stopped ? `Stopped after checking ${finished.toLocaleString()} of ${facesFiles(total)}`
@@ -1177,7 +1198,7 @@ function facesScanPaint() {
     + (q.running && !q.paused && q.etaS ? ` · ${facesAbout(q.etaS)} left` : '')
     + (run.failed ? ` · ${run.failed.toLocaleString()} could not be read` : '');
 
-  const active = q.running ? (q.current || []).map(c => `<div class="dq-row dq-active"><span class="dq-ico">⏳</span>`
+  const active = q.running ? (q.current || []).map(c => `<div class="dq-row dq-active"><span class="dq-ico">${facesSwap('⏳', 'clock')}</span>`
     + `<span class="dq-name">${escapeHtml(c.filename || `File ${c.id}`)}</span>`
     + `<span class="fsq-res">${c.progress > 0 && c.progress < 1 ? `${Math.round(c.progress * 100)}%` : ''}</span></div>`).join('') : '';
   const html = active + recent.map(facesScanRow).join('');
@@ -1238,7 +1259,7 @@ function facesSwitchPaneBuild(pane) {
   if (pane.querySelector('.fsw-head')) return;
   pane.innerHTML = `
     <div class="dq-head fsw-head"><span class="fsw-ico"></span><span class="dq-title fsw-title"></span>
-      <button type="button" class="dq-x fsw-x" title="Dismiss" hidden>✕</button></div>
+      <button type="button" class="dq-x fsw-x" title="Dismiss" aria-label="Dismiss" hidden>${facesSwap('✕', 'close')}</button></div>
     <div class="dq-bar"><div class="dq-bar-fill fsw-fill"></div></div>
     <div class="dq-meta"><span class="fsw-meta"></span></div>
     <div class="dq-meta fsw-named" hidden></div>
@@ -1277,7 +1298,7 @@ function facesSwitchPanePaint() {
   if (!st.shown || !api) return;
 
   const pane = api.open('faces', {
-    tab: '👤 Faces',
+    tab: facesModern() ? 'Faces' : '👤 Faces',
     sub: sw ? `${Math.max(0, (sw.total || 0) - (sw.done || 0)).toLocaleString()} left` : 'done',
     focus: st.focus,
   });
@@ -1286,7 +1307,7 @@ function facesSwitchPanePaint() {
   const $ = (sel) => pane.querySelector(sel);
   const ico = $('.fsw-ico');
   if (sw && !sw.paused) { if (!ico.querySelector('.dq-spin')) ico.innerHTML = '<span class="dq-spin"></span>'; }
-  else ico.innerHTML = `<span class="dq-ico">${sw ? '⏸' : '✓'}</span>`;
+  else ico.innerHTML = `<span class="dq-ico">${sw ? facesSwap('⏸', 'pause') : facesSwap('✓', 'check')}</span>`;
   $('.fsw-title').textContent = !sw ? `Finished re-reading faces with the ${st.label} model`
     : sw.paused ? `Paused: re-reading faces with the ${st.label} model`
     : `Re-reading faces with the ${st.label} model`;
@@ -1345,17 +1366,20 @@ async function facesTileMenu(e, tile) {
 /** The filter-row button; '' while the feature is off (also read by fchipFitRow). */
 function facesFindChipHtml() {
   if (!facesReady()) return '';
-  // fchipFitRow swaps in the icon alone when the row is short of room.
+  // fchipFitRow swaps in the icon alone when the row is short of room (Classic;
+  // Modern has no emoji to fall back to, so it keeps the words and folds).
+  const full = facesModern() ? 'Find a person' : '👤 Find a person';
+  const compact = facesModern() ? full : '👤';
   return `<button type="button" class="fchip fchip-more faces-find-chip" id="findPersonChip"
     aria-haspopup="dialog" aria-expanded="false" aria-label="Find a person" data-tip="Find a person"
-    data-full="👤 Find a person" data-compact="👤">👤 Find a person</button>`;
+    data-full="${full}" data-compact="${compact}">${full}</button>`;
 }
 
 /** The same button inside the More sheet, shown only while the row has folded it away. */
 function facesSheetHtml() {
   if (!facesReady()) return '';
   return `<div class="faces-sheet-row"><button type="button" class="fchip fchip-more faces-sheet-find"
-    aria-haspopup="dialog">👤 Find a person</button></div>`;
+    aria-haspopup="dialog">${facesModern() ? 'Find a person' : '👤 Find a person'}</button></div>`;
 }
 
 function facesOpenPopover(anchor) {
@@ -1694,7 +1718,7 @@ function facesSettingsPaint() {
     const running = !!(dl && dl.running);
     const damaged = Object.values(s.missingReasons || {}).includes('corrupt');
     $('facesSetupText').textContent = running
-      ? 'Downloading the face search models from huggingface.co.'
+      ? 'Downloading the face search models from Hugging Face.'
       : dl && dl.error ? 'The download did not finish. Check your connection and try again.'
       : damaged ? 'A face search model is damaged. Download it again to fix it.'
       : `Face search needs three models (about ${facesSetupMB()} MB) before it can work.`;
@@ -1831,32 +1855,13 @@ async function facesAllowKeys(keys) {
 }
 
 /**
- * A download question in the style of subtitlesShowModelConsent. Resolves
- * true on the yes button. Shares the #facesConsent id with the Escape handler.
+ * A download question on the shared dialog (player-lib/vault-dialogs.js):
+ * plain text, an optional bullet list, Not now / the yes label. Resolves true
+ * on yes. Esc, the backdrop and Not now all answer no.
  */
-function facesConsentModal({ label, title, body, yes }) {
-  return new Promise((resolve) => {
-    document.getElementById('facesConsent')?.remove();
-    const ov = document.createElement('div');
-    ov.id = 'facesConsent';
-    ov.className = 'vault-modal-overlay';
-    ov.innerHTML = `
-      <div class="vault-modal" role="dialog" aria-label="${label}">
-        <h3>⬇ ${title}</h3>
-        ${body}
-        <div class="vault-modal-actions">
-          <button class="vault-btn" data-consent="no">Not now</button>
-          <button class="vault-btn vault-btn-primary" data-consent="yes">${yes}</button>
-        </div>
-      </div>`;
-    document.body.appendChild(ov);
-    const answer = (ok) => { ov.remove(); resolve(ok); };
-    ov._close = () => answer(false);
-    ov.querySelector('[data-consent="yes"]').addEventListener('click', () => answer(true));
-    ov.querySelector('[data-consent="no"]').addEventListener('click', () => answer(false));
-    ov.addEventListener('mousedown', (e) => { if (e.target === ov) answer(false); });
-    ov.querySelector('[data-consent="yes"]').focus();
-  });
+async function facesConsentModal({ title, message, list, yes }) {
+  if (typeof vaultConfirm !== 'function') return false;
+  return !!(await vaultConfirm(message, { title, list, okLabel: yes, cancelLabel: 'Not now' }));
 }
 
 const FACES_RESEARCH_NOTE = 'was made by researchers from photos collected for research. Vault uses it only on your own library.';
@@ -1879,23 +1884,24 @@ async function facesAskConsent() {
   const name = facesSetupKeeper();
   const k = FACES_KEEPERS[name];
   const ok = await facesConsentModal({
-    label: 'Download the face search models',
-    title: 'Download the face search models?',
-    body: `
-      <p class="vault-modal-hint">Face search needs three models from <b>huggingface.co</b>,
-        about ${facesSetupMB()} MB in all:</p>
-      <ul class="vault-modal-hint faces-consent-list">
-        <li>one that finds faces in photos and video frames (under 1 MB)</li>
-        <li>one that groups the faces found in each file (about ${FACES_GRUNT_MB} MB)</li>
-        <li>the ${k.label} face model, which tells people apart (about ${k.mb} MB)</li>
-      </ul>
-      <p class="vault-modal-hint">They run on this computer only. Your photos and videos are never
-        uploaded. If you say no, nothing is downloaded, and face search cannot be used until the
-        models are here.</p>
-      <p class="vault-modal-hint">The ${k.label} face model ${FACES_RESEARCH_NOTE}</p>`,
-    yes: 'Download them',
+    title: `Download face search models (${facesSetupMB()} MB)?`,
+    message: `Face search needs three models from Hugging Face, about ${facesSetupMB()} MB in all. `
+      + 'They run on this computer only. Your photos and videos are never uploaded.\n\n'
+      + 'If you say no, nothing is downloaded, and face search cannot be used until the models are here.\n\n'
+      + 'What gets downloaded:',
+    list: [
+      'One that finds faces in photos and video frames (under 1 MB).',
+      `One that groups the faces found in each file (about ${FACES_GRUNT_MB} MB).`,
+      `The ${k.label} face model, which tells people apart (about ${k.mb} MB). It ${FACES_RESEARCH_NOTE}`,
+    ],
+    yes: 'Download',
   });
-  if (!ok) return false;
+  if (!ok) {
+    showToast(facesStatus && facesStatus.enabled
+      ? 'Nothing was downloaded. Face search needs these models before it can work.'
+      : 'Face search stays off. Turn it on any time in Settings.');
+    return false;
+  }
   try { await facesAllowKeys(['face:detect', 'face:embed', `face:keeper-${name}`]); }
   catch (err) { facesToastError(err); return false; }
   return facesStartDownload();
@@ -2114,14 +2120,12 @@ async function facesDownloadKeeper(name, { asked = false } = {}) {
 async function facesAskModelConsent(name) {
   const k = FACES_KEEPERS[name];
   const ok = await facesConsentModal({
-    label: `Download the ${k.label} face model`,
-    title: `Switch to the ${k.label} face model?`,
-    body: `
-      <p class="vault-modal-hint">Vault downloads it once (about ${k.mb} MB) from <b>huggingface.co</b>.
-        It runs on this computer only, and your photos and videos are never uploaded.</p>
-      <p class="vault-modal-hint">Then Vault re-reads the faces it already found with the new model.
-        It runs in the background, your names and fixes stay, and you can keep using Vault.</p>
-      <p class="vault-modal-hint">This model ${FACES_RESEARCH_NOTE}</p>`,
+    title: `Switch to the ${k.label} face model (${k.mb} MB)?`,
+    message: `Vault downloads it once (about ${k.mb} MB) from Hugging Face. `
+      + 'It runs on this computer only, and your photos and videos are never uploaded.\n\n'
+      + 'Then Vault re-reads the faces it already found with the new model. '
+      + 'It runs in the background, your names and fixes stay, and you can keep using Vault.\n\n'
+      + `This model ${FACES_RESEARCH_NOTE}`,
     yes: 'Download and switch',
   });
   if (!ok) return false;
@@ -2327,7 +2331,7 @@ document.addEventListener('contextmenu', (e) => {
 // handling (the player, the detail modal) sees it.
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  const modal = document.getElementById('facesAsk') || document.getElementById('facesConsent') || document.getElementById('facesPicker');
+  const modal = document.getElementById('facesAsk') || document.getElementById('facesPicker');
   if (modal) modal._close();
   else if (document.getElementById('facesMenu')) facesCloseMenu();
   else if (document.getElementById('facesPop')) {

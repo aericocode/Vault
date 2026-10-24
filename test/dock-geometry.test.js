@@ -228,6 +228,20 @@ test('smoothHeat: neighbour average scaled to a peak of 1, empty when nothing wa
   assert.deepStrictEqual(plain(G.smoothHeat(null)), []);
 });
 
+test('heatHasShape: a single even pass is a flat block, not heat (audit V1)', () => {
+  // Watched once from the start to 40 %: equal buckets, a partial one at the end
+  const once = Array.from({ length: 100 }, (_, i) => (i < 40 ? 37.5 : i === 40 ? 12 : 0));
+  assert.strictEqual(G.heatHasShape(once), false);
+  assert.strictEqual(G.heatHasShape(new Array(100).fill(20)), false, 'the whole file once');
+  // A part watched again stands out
+  const again = once.slice(); again[10] = 75; again[11] = 75;
+  assert.strictEqual(G.heatHasShape(again), true);
+  assert.strictEqual(G.heatHasShape([0, 3, 4.5, 9, 3]), true);
+  assert.strictEqual(G.heatHasShape([0, 0, 6, 0]), false, 'one bucket says nothing');
+  assert.strictEqual(G.heatHasShape(new Array(100).fill(0)), false);
+  assert.strictEqual(G.heatHasShape(null), false);
+});
+
 test('precise times: decimals only when there is a fraction, to the hundredth', () => {
   assert.strictEqual(G.formatPrecise(41), '0:41');
   assert.strictEqual(G.formatPrecise(41.25), '0:41.25');

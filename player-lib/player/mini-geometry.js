@@ -86,7 +86,25 @@ const MiniGeom = (() => {
     return num(startW, DEFAULT.w) + (Math.abs(gx) >= Math.abs(gy) ? gx : gy);
   }
 
-  return { CORNERS, MARGIN, MIN_W, MIN_H, MAX_FRACTION, DEFAULT, geomFrom, nearestCorner, clampWidth, cornerRect, aspectResize };
+  /**
+   * A box resting in a bottom corner, lifted clear of something along the
+   * bottom of the window it would cover (the library's page buttons, audit
+   * V4): its top moves up so it ends MARGIN above that thing. `obstacle` is a
+   * {left, top, right, bottom} rect, or null. A top corner, a box that does
+   * not overlap it, or a lift that would push the box off the top leaves the
+   * rect as it was.
+   */
+  function liftClear(rect, corner, obstacle) {
+    if (!rect || !obstacle || !String(corner || '').startsWith('b')) return rect;
+    const o = obstacle;
+    const overlaps = rect.left < o.right && rect.left + rect.width > o.left
+      && rect.top < o.bottom && rect.top + rect.height > o.top;
+    if (!overlaps) return rect;
+    const top = Math.round(o.top - MARGIN - rect.height);
+    return top >= MARGIN ? { ...rect, top } : rect;
+  }
+
+  return { CORNERS, MARGIN, MIN_W, MIN_H, MAX_FRACTION, DEFAULT, geomFrom, nearestCorner, clampWidth, cornerRect, aspectResize, liftClear };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = MiniGeom;

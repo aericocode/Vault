@@ -101,7 +101,7 @@ async function musicEnqueue(ids, { force = false } = {}) {
   });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
-    showToast('⚠ ' + (err.error || 'Fingerprint request failed'));
+    showErrorToast(err, 'starting Music ID');
     return null;
   }
   const result = await resp.json();
@@ -127,8 +127,8 @@ async function fingerprintSelected() {
     r = r ? { queued: r.queued + part.queued, skipped: r.skipped + part.skipped } : part;
   }
   if (r) {
-    showToast(`🎵 ${r.queued} queued for fingerprinting` +
-      (r.skipped ? ` (${r.skipped} skipped, already done or not A/V)` : ''));
+    showToast(`🎵 ${musicN(r.queued, 'file', 'files')} queued for Music ID` +
+      (r.skipped ? ` (${r.skipped} skipped: already checked, or not video or audio)` : ''));
   }
 }
 
@@ -147,12 +147,11 @@ function startMusicQueuePolling() {
       if (_musicSeenJobs.has(j.media_id)) continue;
       _musicSeenJobs.add(j.media_id);
       if (j.state === 'done') {
-        const foundTxt = j.found?.length
-          ? ` → ${j.found.map(f => `${f.artist} – ${f.title}`).join('; ')}`
-          : ': no known songs matched yet';
-        showToast(`🎵 ${j.filename}: ${j.chunks} chunks${foundTxt}`);
+        showToast(j.found?.length
+          ? `🎵 ${j.filename}: found ${musicFoundText(j.found)}.`
+          : `🎵 ${j.filename}: no known songs found yet.`);
       } else if (j.state === 'error') {
-        showToast(`⚠ Fingerprint failed for ${j.filename}: ${j.error}`);
+        showToast(`⚠ Music ID could not check ${j.filename}. ${friendlyError(j.error)}`);
       }
       loadMusicData();
       musicReloadSidebar(j.media_id);
@@ -178,7 +177,7 @@ function updateEditorTabBadge(n) {
   if (!b) return;
   b.style.display = n > 0 ? 'inline-flex' : 'none';
   b.textContent = n > 0 ? n : '';
-  b.title = n > 0 ? `${n} file(s) in the fingerprint queue` : '';
+  b.title = n > 0 ? `${musicN(n, 'file', 'files')} waiting for Music ID` : '';
 }
 
 /* ── Selection bar → Editor ────────────────────────────────────────────── */
@@ -209,6 +208,24 @@ async function openEditorWithSelection(layout) {
 /** A glyph the Modern Info panel shows as a line icon; Classic keeps it (icons.js). */
 function musicGlyph(emoji, icon) {
   return typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap(emoji, icon) : escapeHtml(emoji);
+}
+
+/** "1 file", "3 files". */
+function musicN(n, one, many) {
+  return `${Number(n || 0).toLocaleString()} ${n === 1 ? one : many}`;
+}
+
+/** Songs a scan found, as words: "Not My Problem by Noga Erez; Unknown Song 3". */
+function musicFoundText(found) {
+  return (found || []).map(f => (f.artist && f.artist !== 'Unknown' ? `${f.title} by ${f.artist}` : f.title)).join('; ');
+}
+
+/** What is missing for Music ID, in plain words (the server's text names programs and PATH). */
+function musicToolsProblem(t) {
+  if (!t) return 'Music ID is not available right now.';
+  if (!t.fpcalcVersion) return 'The Music ID helper (fpcalc) is missing. Download it below.';
+  if (!t.ffmpegVersion) return 'Video tools (ffmpeg) are missing. Install them from the banner at the top of the library, then restart Vault.';
+  return 'Music ID is not available right now.';
 }
 
 /** The Modern look: tooltips name the line icons, not emoji (a title cannot swap). */
@@ -275,7 +292,7 @@ function musicFpcalcFixHtml() {
   return `
     <div class="music-fp-fix">
       <button class="music-btn music-btn-primary" onclick="musicDownloadFpcalc(this)"
-        title="Fetches fpcalc and puts it next to Vault. Nothing else is installed">${musicGlyph('⬇ ', 'download')}Download fpcalc (~1 MB)</button>
+        title="Downloads the Music ID helper (fpcalc) and puts it next to Vault. Nothing else is installed">${musicGlyph('⬇ ', 'download')}Download the Music ID helper (about 1 MB)</button>
       <span class="music-hint" data-music-fp-status></span>
     </div>`;
 }
@@ -285,7 +302,7 @@ async function musicDownloadFpcalc(btn) {
   btn.disabled = true;
   const ok = await window.vaultSetup.downloadTool('fpcalc', (msg) => { if (status) status.textContent = msg; });
   if (!ok) { btn.disabled = false; return; }
-  showToast?.('✓ fpcalc ready');
+  showToast?.('✓ The Music ID helper is ready');
   await loadMusicStatus();
   // Re-render every surface that showed the warning.
   const ids = new Set([...document.querySelectorAll('[data-music-box]')].map(b => Number(b.dataset.musicBox)));
@@ -299,7 +316,7 @@ function musicSidebarHtml(mediaId, info) {
   // Fingerprint state / actions
   if (!info.fingerprinted) {
     if (musicTools && !musicTools.ok) {
-      parts.push(`<div class="music-hint music-warn">${musicGlyph('⚠ ', 'alert')}${escapeHtml(musicTools.errors[0] || 'fpcalc/ffmpeg missing')}</div>`
+      parts.push(`<div class="music-hint music-warn">${musicGlyph('⚠ ', 'alert')}${escapeHtml(musicToolsProblem(musicTools))}</div>`
         + musicFpcalcFixHtml());
     } else {
       parts.push(`
@@ -315,7 +332,7 @@ function musicSidebarHtml(mediaId, info) {
   } else {
     parts.push(`
       <div class="music-fp-status">
-        <span class="music-chunkcount" title="Fingerprint chunks stored (30s windows, silence skipped)">${info.chunks} chunks</span>
+        <span class="music-chunkcount" title="${musicN(info.chunks, 'fingerprint piece', 'fingerprint pieces')} stored (30 s each, silence skipped)">Checked</span>
         <button class="music-btn" onclick="musicOpenSections(${mediaId})" title="Chunk-level timeline. See which sections matched what, drag-select to tag songs">${musicGlyph('🧬 ', 'stack')}Sections</button>
         <button class="music-btn" onclick="musicRescanOne(${mediaId}, this)" title="Re-match against known songs and other fingerprinted files">${musicGlyph('🔄 ', 'refresh')}Rescan</button>
         ${info.songs.length ? `<button class="music-btn" onclick="startAudioSimilarity(${mediaId})" title="Rank the library by songs shared with this file">${musicGlyph('≈ ')}Similar</button>` : ''}
@@ -332,8 +349,8 @@ function musicSidebarHtml(mediaId, info) {
     parts.push(`<div class="music-song-list">` + info.songs.map(l => {
       const unknown = l.source === 'auto-cluster' && l.title.startsWith('Unknown Song');
       const badge = l.method === 'manual'
-        ? '<span class="music-badge music-badge-manual" title="Tagged by hand, used as a reference">manual</span>'
-        : `<span class="music-badge music-badge-auto" title="Auto-detected by fingerprint match. ${musicModern() ? 'Click the pencil to correct it' : 'Click ✎ to correct'}">auto${l.confidence ? ` ${Math.round(l.confidence * 100)}%` : ''}</span>`;
+        ? `<span class="music-badge music-badge-manual" title="Tagged by hand, used as a reference">${musicModern() ? 'Tagged' : 'manual'}</span>`
+        : `<span class="music-badge music-badge-auto" title="Auto-detected by fingerprint match. ${musicModern() ? 'Click the pencil to correct it' : 'Click ✎ to correct'}">${musicModern() ? 'Matched' : 'auto'}${l.confidence ? ` ${Math.round(l.confidence * 100)}%` : ''}</span>`;
       return `
         <div class="music-song-row">
           <button class="music-time" onclick="musicSeekTo(${l.start_sec ?? 0}, ${mediaId})" title="Jump to ${musicFmtTime(l.start_sec)}">${musicFmtTime(l.start_sec)}–${musicFmtTime(l.end_sec)}</button>
@@ -362,11 +379,11 @@ function musicSidebarHtml(mediaId, info) {
       <div class="music-form-row">
         <label class="music-time-field">start
           <input type="text" class="music-input music-input-time" id="musicAddStart-${mediaId}" placeholder="0:00">
-          <button class="music-icon-btn" onclick="musicGrabTime('musicAddStart-${mediaId}')" title="Use the current player position. Needs the file playing">⏱</button>
+          <button class="music-icon-btn" onclick="musicGrabTime('musicAddStart-${mediaId}')" title="Use the current player position. Needs the file playing" aria-label="Use the current player position">${musicGlyph('⏱', 'timer')}</button>
         </label>
         <label class="music-time-field">end
           <input type="text" class="music-input music-input-time" id="musicAddEnd-${mediaId}" placeholder="3:45">
-          <button class="music-icon-btn" onclick="musicGrabTime('musicAddEnd-${mediaId}')" title="Use the current player position. Needs the file playing">⏱</button>
+          <button class="music-icon-btn" onclick="musicGrabTime('musicAddEnd-${mediaId}')" title="Use the current player position. Needs the file playing" aria-label="Use the current player position">${musicGlyph('⏱', 'timer')}</button>
         </label>
         <button class="music-btn music-btn-primary" onclick="musicSaveManualTag(${mediaId}, this)">Save</button>
       </div>
@@ -402,8 +419,8 @@ function musicSidebarProgress(job) {
 async function musicFingerprintOne(mediaId) {
   const r = await musicEnqueue([mediaId]);
   if (r) {
-    if (r.queued) showToast('🎵 Queued for fingerprinting');
-    else showToast('Already fingerprinted (use Rescan to re-match)');
+    if (r.queued) showToast('🎵 Queued for Music ID');
+    else showToast('Already checked. Use Rescan to match it again');
     const el = document.getElementById(`musicProgress-${mediaId}`);
     if (el && r.queued) { el.style.display = 'flex'; el.querySelector('.music-progress-label').textContent = 'queued…'; }
   }
@@ -413,9 +430,9 @@ async function musicRescanOne(mediaId, btn) {
   if (btn) { btn.disabled = true; btn.innerHTML = `${musicGlyph('🔄 ', 'refresh')}Scanning…`; }
   try {
     const r = await fetch(`/api/music/media/${mediaId}/scan`, { method: 'POST' }).then(x => x.json());
-    if (r.error) showToast('⚠ ' + r.error);
+    if (r.error) showErrorToast(r, 'rescanning this file');
     else showToast(r.found?.length
-      ? `🎵 Found: ${r.found.map(f => `${f.artist} – ${f.title}`).join('; ')}`
+      ? `🎵 Found ${musicFoundText(r.found)}.`
       : 'No new matches');
   } finally {
     loadMusicData();
@@ -559,7 +576,7 @@ async function musicSaveManualTag(mediaId, btn) {
   const end = musicParseTime(document.getElementById(`musicAddEnd-${mediaId}`)?.value);
 
   if (!artist || !title) { showToast('Artist and title are required'); return; }
-  if (start == null) { showToast('Set a start time (⏱ grabs the player position)'); return; }
+  if (start == null) { showToast('Set a start time. The clock button takes the player position'); return; }
 
   btn.disabled = true;
   btn.textContent = 'Saving…';
@@ -578,15 +595,15 @@ async function musicSaveManualTag(mediaId, btn) {
     if (end != null && end - start >= 8) {
       btn.textContent = 'Building reference…';
       const r = await fetch(`/api/music/links/${linkId}/reference`, { method: 'POST' }).then(x => x.json());
-      if (r.error) showToast('⚠ Reference: ' + r.error);
+      if (r.error) showErrorToast(r, 'saving the song as a reference');
       else showToast(r.matched?.length
-        ? `🎵 Tagged. Also found in ${r.matched.length} other file(s)!`
-        : '🎵 Tagged. Reference saved for future scans');
+        ? `🎵 Tagged. ${r.matched.length === 1 ? '1 other file has' : `${r.matched.length.toLocaleString()} other files have`} this song too.`
+        : '🎵 Tagged. Vault will look for this song in future scans.');
     } else {
-      showToast('🎵 Tagged (add an end time ≥ 8s after start to enable auto-matching)');
+      showToast('🎵 Tagged. Add an end time at least 8 s after the start to find it in other files.');
     }
   } catch (e) {
-    showToast('⚠ Tag failed: ' + e.message);
+    showErrorToast(e, 'tagging the song');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Save';
@@ -621,7 +638,7 @@ async function musicOpenSections(mediaId) {
   let data;
   try { data = await fetch(`/api/music/media/${mediaId}/sections`).then(r => r.json()); }
   catch { showToast('⚠ Sections view unavailable'); return; }
-  if (data.error) { showToast('⚠ ' + data.error); return; }
+  if (data.error) { showErrorToast(data, 'opening the sections view'); return; }
   if (!data.chunks.length) { showToast('Fingerprint this file first'); return; }
 
   const m = getMediaById(mediaId);
@@ -644,11 +661,11 @@ async function musicOpenSections(mediaId) {
         <div class="music-ac-panel" id="msecAc" style="display:none;"></div>
         <div class="music-form-row">
           <label class="msec-check" title="Auto-detected spans of OTHER songs overlapping the selection are removed/trimmed/split. Manual tags are never touched">
-            <input type="checkbox" id="msecReplace" checked> replace overlapping auto-detections
+            <input type="checkbox" class="m-check" id="msecReplace" checked> Replace overlapping matches
           </label>
-          <button class="music-btn" id="msecPlay" title="Play / pause the player behind this modal">▶</button>
-          <button class="music-btn" id="msecPreview" disabled title="Seek the player to the selection start">⏮ Selection</button>
-          <button class="music-btn music-btn-primary" id="msecTag" disabled>Tag section + teach matcher</button>
+          <button class="music-btn" id="msecPlay" title="Play / pause the player behind this window" aria-label="Play or pause">${vaultIconSwap('▶', 'play')}</button>
+          <button class="music-btn" id="msecPreview" disabled title="Seek the player to the selection start">${vaultIconSwap('⏮ ', 'rewind')}Selection</button>
+          <button class="music-btn music-btn-primary" id="msecTag" disabled>Tag this section</button>
         </div>
       </div>
       <div class="msec-legend" id="msecLegend"></div>
@@ -683,7 +700,7 @@ function msecWirePlayButton(body) {
   const el = msecPlayerEl();
   if (!el) { btn.disabled = true; btn.title = 'Open the file in the player to control playback'; return; }
 
-  const sync = () => { btn.textContent = el.paused ? '▶' : '⏸'; };
+  const sync = () => { btn.innerHTML = el.paused ? vaultIconSwap('▶', 'play') : vaultIconSwap('⏸', 'pause'); };
   // Self-removing listeners: once the modal is gone, unhook from the element
   const onState = () => {
     if (!btn.isConnected) {
@@ -711,7 +728,7 @@ function msecRenderTimeline() {
   body.querySelector('#msecLinks').innerHTML = data.links.map(l => {
     const s = l.start_sec ?? 0, e = l.end_sec ?? dur;
     const unknown = l.source === 'auto-cluster' && l.title.startsWith('Unknown Song');
-    const label = `${unknown ? '❓ ' : ''}${escapeHtml(l.title)}`;
+    const label = `${unknown ? vaultIconSwap('❓ ', 'help') : ''}${escapeHtml(l.title)}`;
     const tip = `${escapeHtml(l.artist)} – ${escapeHtml(l.title)} · ${musicFmtTime(s)}–${musicFmtTime(e)} · ${l.method}${l.confidence ? ` ${Math.round(l.confidence * 100)}%` : ''}`;
     return `<div class="msec-link ${msecColorClass(l.song_id)} ${l.method === 'manual' ? 'msec-manual' : ''}"
       style="left:${pct(s)};width:${pct(e - s)};" title="${tip}"
@@ -749,7 +766,7 @@ function msecRenderTimeline() {
 
   // Legend: every song present in chunks or links
   body.querySelector('#msecLegend').innerHTML = Object.entries(data.songs).map(([sid, s]) =>
-    `<span><span class="msec-legend-swatch ${msecColorClass(Number(sid))}"></span>${s.source === 'auto-cluster' && s.title.startsWith('Unknown Song') ? '❓ ' : ''}${escapeHtml(s.artist)} – ${escapeHtml(s.title)}</span>`
+    `<span><span class="msec-legend-swatch ${msecColorClass(Number(sid))}"></span>${s.source === 'auto-cluster' && s.title.startsWith('Unknown Song') ? vaultIconSwap('❓ ', 'help') : ''}${escapeHtml(s.artist)} – ${escapeHtml(s.title)}</span>`
   ).join('') + `<span><span class="msec-legend-swatch msec-none"></span>unmatched</span>
     <span><span class="msec-legend-swatch msec-silent"></span>silence</span>`;
 
@@ -847,7 +864,7 @@ async function msecSubmit() {
 
   const btn = body.querySelector('#msecTag');
   btn.disabled = true;
-  btn.textContent = 'Teaching…';
+  btn.textContent = 'Tagging…';
   try {
     const r = await fetch(`/api/music/media/${mediaId}/tag-section`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -857,22 +874,22 @@ async function msecSubmit() {
         replace_overlapping_auto: body.querySelector('#msecReplace').checked,
       }),
     }).then(x => x.json());
-    if (r.error) { showToast('⚠ ' + r.error); return; }
+    if (r.error) { showErrorToast(r, 'tagging the section'); return; }
 
-    let msg = `🧬 Tagged: ${r.refs_created} reference${r.refs_created === 1 ? '' : 's'}`;
-    if (r.matched?.length) msg += `, found in ${r.matched.length} other file${r.matched.length === 1 ? '' : 's'}!`;
+    let msg = `🧬 Tagged: ${musicN(r.refs_created, 'reference', 'references')}`;
+    if (r.matched?.length) msg += `, found in ${musicN(r.matched.length, 'other file', 'other files')}`;
     showToast(msg);
     if (r.conflicts?.length) {
-      setTimeout(() => showToast(`⚠ Overlaps ${r.conflicts.length} manual tag(s), left untouched`), 1200);
+      setTimeout(() => showToast(`⚠ Overlaps ${musicN(r.conflicts.length, 'tag you made', 'tags you made')}. Those were left as they are`), 1200);
     }
     await msecRefresh();
     loadMusicData();
     musicReloadSidebar(mediaId);
   } catch (e) {
-    showToast('⚠ Tag failed: ' + e.message);
+    showErrorToast(e, 'tagging the section');
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Tag section + teach matcher';
+    btn.textContent = 'Tag this section';
   }
 }
 
@@ -920,7 +937,7 @@ function computeAudioSimilarity(anchorId) {
 function startAudioSimilarity(anchorId) {
   const scores = computeAudioSimilarity(anchorId);
   if (!scores || scores.size === 0) {
-    showToast('No other file shares a song with this one yet. Fingerprint more files');
+    showToast('No other file shares a song with this one yet. Run Music ID on more files to compare.');
     return;
   }
   audioSimAnchorId = anchorId;
@@ -934,7 +951,7 @@ function startAudioSimilarity(anchorId) {
   renderAudioSimBar();
   applyFilters();
   const m = getMediaById(anchorId);
-  showToast(`≈ ${scores.size} file(s) share audio with ${m?.filename || 'this file'}`);
+  showToast(`${musicN(scores.size, 'file shares', 'files share')} songs with ${m?.filename || 'this file'}`);
 }
 
 function clearAudioSimilarity() {
@@ -966,29 +983,54 @@ function renderAudioSimBar() {
     <span class="audiosim-label">≈ <strong>Audio similarity</strong>, ranked by songs shared with
       <strong>${escapeHtml(m?.filename || `#${audioSimAnchorId}`)}</strong>
       · ${audioSimScores.size} match${audioSimScores.size === 1 ? '' : 'es'}</span>
-    <button class="music-btn" onclick="clearAudioSimilarity()">✕ Clear</button>
+    <button class="music-btn" onclick="clearAudioSimilarity()">${vaultEmojiLabel('✕ Clear')}</button>
   `;
 }
 
 /* ── Lightweight modal + link/song editors ─────────────────────────────── */
 
+/* Title is HTML; a leading emoji becomes the line icon in Modern. Esc and the
+   close button close it; a click on the dim backdrop does too, but only when
+   the press also started there (a drag that ends outside keeps it open).
+   Modern draws it like the shared dialogs (css/dialogs.css), in music.css. */
 function musicModal(title, bodyHtml) {
-  document.getElementById('musicModal')?.remove();
+  const old = document.getElementById('musicModal');
+  if (old) { if (typeof old._musicClose === 'function') old._musicClose(); else old.remove(); }
+  const opener = document.activeElement;
   const overlay = document.createElement('div');
   overlay.id = 'musicModal';
   overlay.className = 'music-modal-overlay';
   overlay.innerHTML = `
-    <div class="music-modal">
+    <div class="music-modal" role="dialog" aria-modal="true" aria-labelledby="musicModalTitle">
       <div class="music-modal-head">
-        <span>${title}</span>
-        <button class="music-modal-close" title="Close">✕</button>
+        <span class="music-modal-title" id="musicModalTitle">${vaultEmojiLabel(title)}</span>
+        <button class="music-modal-close" title="Close" aria-label="Close">${vaultIconSwap('✕', 'close')}</button>
       </div>
       <div class="music-modal-body">${bodyHtml}</div>
     </div>`;
   document.body.appendChild(overlay);
-  const close = () => overlay.remove();
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  // Esc closes this, not the player or panel behind it. A shared dialog
+  // (vault-dialogs.js) opened on top gets the key first and swallows it.
+  const onKey = (e) => {
+    if (e.key !== 'Escape' || !overlay.isConnected) return;
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  };
+  const close = () => {
+    window.removeEventListener('keydown', onKey, true);
+    if (!overlay.isConnected) return;
+    overlay.remove();
+    if (opener && opener.isConnected && typeof opener.focus === 'function') opener.focus();
+  };
+  overlay._musicClose = close;
+  window.addEventListener('keydown', onKey, true);
+  let downOnBackdrop = false;
+  overlay.addEventListener('mousedown', (e) => { downOnBackdrop = e.target === overlay; });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay && downOnBackdrop) close(); });
   overlay.querySelector('.music-modal-close').addEventListener('click', close);
+  const first = overlay.querySelector('.music-modal-body input:not([type="file"]):not([type="hidden"]), .music-modal-body button');
+  (first || overlay.querySelector('.music-modal-close')).focus({ preventScroll: true });
   return { overlay, body: overlay.querySelector('.music-modal-body'), close };
 }
 
@@ -1008,11 +1050,11 @@ async function musicEditLink(linkId, mediaId) {
     <div class="music-form-row">
       <label class="music-time-field">start
         <input type="text" class="music-input music-input-time" id="mel-start" value="${link.start_sec != null ? musicFmtTime(link.start_sec) : ''}">
-        <button class="music-icon-btn" id="mel-start-grab" title="Use the current player position. Needs the file playing">⏱</button>
+        <button class="music-icon-btn" id="mel-start-grab" title="Use the current player position. Needs the file playing" aria-label="Use the current player position">${vaultIconSwap('⏱', 'timer')}</button>
       </label>
       <label class="music-time-field">end
         <input type="text" class="music-input music-input-time" id="mel-end" value="${link.end_sec != null ? musicFmtTime(link.end_sec) : ''}">
-        <button class="music-icon-btn" id="mel-end-grab" title="Use the current player position. Needs the file playing">⏱</button>
+        <button class="music-icon-btn" id="mel-end-grab" title="Use the current player position. Needs the file playing" aria-label="Use the current player position">${vaultIconSwap('⏱', 'timer')}</button>
       </label>
     </div>
     <div class="music-hint">${link.method !== 'manual' ? 'Saving converts this auto match to a manual tag (trusted as a reference).' : ''}</div>
@@ -1077,7 +1119,7 @@ function musicEditSong(songId, onDone) {
     <div class="music-form-row">
       <input type="text" class="music-input" id="mes-remix" placeholder="Remix label (optional)" value="${escapeHtml(s.remix_label || '')}">
     </div>
-    ${s.source === 'auto-cluster' ? '<div class="music-hint">❓ Auto-clustered placeholder. Naming it identifies the track in every linked file.</div>' : ''}
+    ${s.source === 'auto-cluster' ? `<div class="music-hint">${vaultIconSwap('❓ ', 'help')}Unknown song. Give it a name and every linked file updates.</div>` : ''}
     <div class="music-form-row music-form-actions">
       <button class="music-btn music-btn-primary" id="mes-save">Save</button>
       <button class="music-btn" id="mes-cancel">Cancel</button>

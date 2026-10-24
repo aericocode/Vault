@@ -587,3 +587,106 @@
 .msec-c5 { background: #a855f7; }
 .msec-c6 { background: #ef4444; }
 .msec-c7 { background: #34d399; }
+
+/* ── Modern look (UI audit, 3.9) ──────────────────────────────────────
+   The Music ID modal (seed packs, export a mix, edit a song, sections)
+   matches the shared dialogs (css/dialogs.css): dark card, 12 px corners,
+   hairline border, line-icon close button. Match pills are neutral and
+   times use the body font. */
+
+body.layout-modern .music-modal-overlay { background: rgba(0, 0, 0, 0.55); padding: 16px; }
+body.layout-modern .music-modal {
+  width: min(460px, 100%);
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  color: var(--m-text);
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+}
+body.layout-modern .music-modal.music-modal-wide { width: min(1100px, 100%); max-width: 100%; }
+body.layout-modern .music-modal-head {
+  gap: 12px;
+  padding: 16px 12px 4px 20px;
+  border-bottom: none;
+  font-size: 16px;
+  color: var(--m-text);
+}
+body.layout-modern .music-modal-title { min-width: 0; display: inline-flex; align-items: center; }
+body.layout-modern .music-modal-title .vi { width: 18px; height: 18px; color: var(--m-text-2); }
+body.layout-modern .music-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--m-radius-sm);
+  color: var(--m-muted);
+}
+body.layout-modern .music-modal-close:hover { background: var(--m-btn); color: var(--m-text); }
+body.layout-modern .music-modal-close:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
+body.layout-modern .music-modal-close .vi { width: 16px; height: 16px; }
+body.layout-modern .music-modal-body { padding: 8px 20px 18px; gap: 10px; overflow-y: auto; }
+body.layout-modern .music-modal-body .music-hint { font-size: 13px; line-height: 1.5; color: var(--m-text-2); }
+body.layout-modern .music-modal-body .music-form-actions { justify-content: flex-end; margin-top: 6px; }
+
+/* Buttons and fields (also in the player's Info panel and the Editor) */
+body.layout-modern .music-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--m-radius-sm);
+  border-color: var(--m-border-strong);
+  background: var(--m-btn);
+  color: var(--m-text);
+  text-decoration: none;
+}
+body.layout-modern .music-btn:hover:not(:disabled) { background: var(--m-btn-hover); border-color: var(--m-border-strong); }
+body.layout-modern .music-btn:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+body.layout-modern .music-btn-primary { background: var(--accent); border-color: transparent; color: #fff; }
+body.layout-modern .music-btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: transparent; }
+body.layout-modern .music-btn-danger { color: var(--m-danger-text); }
+body.layout-modern .music-modal-body .music-btn { padding: 7px 14px; font-size: 13px; }
+body.layout-modern .music-icon-btn {
+  border-radius: 6px;
+  border-color: var(--m-border-strong);
+  background: var(--m-btn);
+  color: var(--m-text-2);
+}
+body.layout-modern .music-icon-btn:hover { border-color: var(--m-border-strong); background: var(--m-btn-hover); color: var(--m-text); }
+body.layout-modern .music-icon-btn .vi { width: 13px; height: 13px; }
+body.layout-modern .music-icon-btn.music-icon-danger:hover,
+body.layout-modern .music-icon-btn.armed { border-color: rgba(252, 165, 165, 0.5); color: var(--m-danger-text); }
+body.layout-modern .music-input {
+  border-color: var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-field);
+  color: var(--m-text);
+}
+body.layout-modern .music-input:focus { border-color: var(--accent-hover); }
+body.layout-modern .music-input-time { font-family: inherit; font-variant-numeric: tabular-nums; }
+body.layout-modern .music-hint.music-warn { color: #fcd34d; }
+
+/* Match pills and times */
+body.layout-modern .music-badge {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+  border-radius: 999px;
+}
+body.layout-modern .music-badge-auto,
+body.layout-modern .music-badge-manual {
+  color: var(--m-text-2);
+  background: var(--m-btn);
+  border: 1px solid var(--m-border);
+}
+body.layout-modern .music-time {
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--m-text-2);
+}
+body.layout-modern .music-time:hover { color: var(--m-text); }
+body.layout-modern .msec-info strong { font-family: inherit; font-variant-numeric: tabular-nums; }

@@ -113,22 +113,50 @@
     if (!seen.size) {
       return '<p class="settings-note">Nothing needed yet. Vault will ask the first time a feature wants one.</p>';
     }
-    const label = (k) => k.startsWith('whisper:') ? `Transcription model (${k.slice(8)})`
-      : k.startsWith('opus:') ? `Translation pack (${k.slice(5)}→en)`
-      : k === 'diarize' ? 'Speaker-detection models'
-      : k === 'face:detect' ? 'Face search: finding faces'
-      : k === 'face:embed' ? 'Face search: grouping faces in a file'
-      : k === 'face:keeper-ir50' ? 'Face search: Standard face model'
-      : k === 'face:keeper-ir101' ? 'Face search: Best face model' : k;
-    return [...seen.values()].map(r => toggleRow({
-      key: `modelConsent:${r.key}`,
-      value: r.allowed,
-      disabled: !modelDl.envAllows || modelDl.explicit,
-      title: label(r.key),
-      desc: r.allowed
-        ? 'Approved. Downloaded on first use, then loaded from disk.'
-        : `Not approved${r.sizeHint ? ` · ${r.sizeHint}` : ''}. Vault will ask again when it needs this.`,
-    })).join('');
+    return [...seen.values()].map(r => {
+      const size = consentSize(r.key, r.sizeHint);
+      return toggleRow({
+        key: `modelConsent:${r.key}`,
+        value: r.allowed,
+        disabled: !modelDl.envAllows || modelDl.explicit,
+        title: esc(consentName(r.key)) + (size ? ` <span class="settings-consent-size">· ${esc(size)}</span>` : ''),
+        desc: r.allowed
+          ? 'Approved. Downloaded on first use, then loaded from disk.'
+          : 'Not approved. Vault will ask again when it needs this.',
+      });
+    }).join('');
+  }
+
+  /* Plain names for the consent rows. The keys (whisper:large-v3-turbo,
+     opus:ja ...) are stored consent keys and stay as they are; only what the
+     row says changes. */
+  function consentName(k) {
+    if (k.startsWith('whisper:')) return 'Subtitles model';
+    if (k.startsWith('opus:')) return `${consentLang(k.slice(5))} to English translation pack`;
+    if (k === 'diarize') return 'Speaker detection models';
+    if (k === 'face:detect') return 'Face search: finding faces';
+    if (k === 'face:embed') return 'Face search: grouping faces in a file';
+    if (k === 'face:keeper-ir50') return 'Face search: standard face model';
+    if (k === 'face:keeper-ir101') return 'Face search: best face model';
+    return k;
+  }
+
+  /** "ja" -> "Japanese"; the code itself when the browser has no name for it. */
+  function consentLang(code) {
+    try {
+      const name = new Intl.DisplayNames(['en'], { type: 'language' }).of(code);
+      if (name && name.toLowerCase() !== String(code).toLowerCase()) return name;
+    } catch { /* not a language code */ }
+    return String(code);
+  }
+
+  /* The download size after a middle dot. The server sends a hint for models
+     it is waiting on ("~1.5 GB"); approved ones fall back to the same sizes
+     lib/model-consent.js describes. */
+  const CONSENT_SIZES = { whisper: '~1.5 GB', opus: '~300 MB', diarize: '~35 MB' };
+  function consentSize(k, hint) {
+    const raw = hint || CONSENT_SIZES[k.split(':')[0]] || '';
+    return raw.replace(/^~\s*/, 'about ');
   }
 
   async function loadServerSettings() {
@@ -950,7 +978,7 @@
       } catch (err) {
         lastSaved = instName();
         name.value = lastSaved;
-        showToast?.('⚠ ' + err.message);
+        showErrorToast(err, 'saving the name');
       }
     };
     name.addEventListener('input', () => {
@@ -977,7 +1005,7 @@
         // 409 means MEDIA_TAGGER_PORT owns it; the message says so and the
         // re-sync disables the field once the server state catches up.
         port.value = storedPort();
-        showToast?.('⚠ ' + err.message);
+        showErrorToast(err, 'saving the port');
         loadServerSettings().then(ok => { if (ok) syncPortRow(); });
       }
     });
@@ -1038,7 +1066,7 @@
       ${modelConsentRows()}
 
       <h3 class="settings-h" data-sfind="vaultSecurity">Vault security</h3>
-      <p class="settings-note" id="settingsSecNote">${secNoteHtml()}</p>
+      <div id="settingsPassRow">${passRowHtml()}</div>
       ${numberRow({
         key: 'autolockMinutes',
         value: server.autolockMinutes,
@@ -1054,11 +1082,39 @@
     `;
   }
 
-  // The line above the lock settings, in both looks.
-  function secNoteHtml() {
-    return server.encrypted
-      ? 'Your library is encrypted. These control how it locks itself and how you get back in.'
-      : 'No database password set yet. Click the padlock in the header to create one. Auto-lock does nothing until then.';
+  /* The vault password row above Auto-lock, in both looks: whether one is
+     set, and a button that opens vault-ui.js's dialog for it
+     (window.vaultOpenSetPassword / window.vaultOpenChangePassword). */
+  function passRowHtml() {
+    const enc = !!server.encrypted;
+    return settingsRowHtml({
+      sfind: 'vaultPassword',
+      title: 'Vault password',
+      desc: enc
+        ? 'Set. The library is encrypted, and this password unlocks it.'
+        : 'No vault password yet. Setting one encrypts the library; auto-lock needs it.',
+      control: `<button type="button" class="settings-btn settings-pass-btn" data-vault-pass="${enc ? 'change' : 'set'}">${enc ? 'Change password' : 'Set a password'}</button>`,
+    });
+  }
+
+  function wirePassRow() {
+    const btn = document.querySelector('#settingsPassRow [data-vault-pass]');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const open = btn.dataset.vaultPass === 'change' ? window.vaultOpenChangePassword : window.vaultOpenSetPassword;
+      if (typeof open !== 'function') return;
+      open();
+      // vault-ui.js says nothing when its dialog closes, so watch for it to go,
+      // then ask the server whether the library is encrypted now.
+      const dlg = document.getElementById('vaultPassModal');
+      if (!dlg) return;
+      const mo = new MutationObserver(() => {
+        if (dlg.isConnected) return;
+        mo.disconnect();
+        loadServerSettings().then(ok => { if (ok) syncServerRows(); });
+      });
+      mo.observe(document.body, { childList: true });
+    });
   }
 
   /* ── Modern: General ─────────────────────────────────────────────────────
@@ -1128,7 +1184,7 @@
         desc: 'What privacy mode covers.', control: privacyHideRow({ sfind: false }) }),
     })
     + settingsCardHtml({ title: 'Locking', sfind: 'vaultSecurity', body:
-      `<p class="settings-note" id="settingsSecNote">${secNoteHtml()}</p>`
+      `<div id="settingsPassRow">${passRowHtml()}</div>`
       + numberRow({
         key: 'autolockMinutes', value: server.autolockMinutes, title: 'Auto-lock after',
         desc: 'Minutes with no activity. 0 means never. A running AI scan keeps it awake.',
@@ -1150,6 +1206,7 @@
     const body = document.getElementById('settingsBody');
     if (!body) return;
     wireInstanceRow();
+    wirePassRow();
     body.querySelectorAll('input[data-setting]').forEach(input => {
       if (input.disabled) return;
       input.addEventListener('change', async () => {
@@ -1168,10 +1225,10 @@
             const d = await r.json().catch(() => ({}));
             if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
             modelDl = { ...modelDl, ...d };
-            showToast?.(allow ? '⬇ Approved for download' : 'Not approved, nothing will be fetched');
+            showToast?.(allow ? 'Approved. It downloads the first time it is needed.' : 'Not approved. Nothing will be downloaded.');
           } catch (err) {
             input.checked = !allow;
-            showToast?.('⚠ ' + err.message);
+            showErrorToast(err, 'saving that choice');
           } finally {
             input.disabled = !modelDl.envAllows || modelDl.explicit;
           }
@@ -1250,7 +1307,7 @@
               : '🔓 Auto-lock off');
           } catch (err) {
             input.value = server.autolockMinutes;     // snap back to what's live
-            showToast?.('⚠ ' + err.message);
+            showErrorToast(err, 'saving auto-lock');
           }
         } else if (key === 'unlockHoldSeconds') {
           const n = clampInt(input.value, 0, 10, settings.unlockHoldSeconds);
@@ -1272,6 +1329,13 @@
     return Math.max(min, Math.min(max, n));
   }
 
+  // "1 file" / "3,204 files": counts in copy, never "file(s)".
+  function settingsPlural(n, one, many) {
+    const k = Number(n) || 0;
+    return `${k.toLocaleString()} ${k === 1 ? one : (many || one + 's')}`;
+  }
+  const settingsFiles = (n) => settingsPlural(n, 'file');
+
   // Patch the server-owned rows in place rather than re-rendering the section —
   // a re-render mid-edit would yank the field out from under the cursor.
   function syncServerRows() {
@@ -1284,9 +1348,16 @@
     const n = body.querySelector('#settingsInstName');
     if (n && document.activeElement !== n) n.value = instName();
     syncPortRow();
-    const note = document.getElementById('settingsSecNote');
-    if (note) {
-      note.innerHTML = secNoteHtml();
+    // Re-drawn only when it changes (a password was just set), keeping focus
+    // on the button if it had it.
+    const pr = document.getElementById('settingsPassRow');
+    const want = server.encrypted ? 'change' : 'set';
+    const had = pr && pr.querySelector('[data-vault-pass]');
+    if (pr && (!had || had.dataset.vaultPass !== want)) {
+      const focused = had && document.activeElement === had;
+      pr.innerHTML = passRowHtml();
+      wirePassRow();
+      if (focused) pr.querySelector('[data-vault-pass]')?.focus();
     }
   }
 
@@ -1346,7 +1417,7 @@
       adv: 'Start Vault with <code>--no-gamify</code> to stop scoring entirely.' },
     { slug: 'encryption', icon: 'lock', title: 'Encryption',
       sum: 'Lock your library with a password.',
-      paras: ['Click the vault in the top left to set a database password and encrypt the library. Vault locks itself after a while with no activity (30 minutes unless you change it under Privacy and security) and asks for the password to carry on.'] },
+      paras: ['Set a vault password under <b>Privacy and security</b> to encrypt the library. Vault locks itself after a while with no activity (30 minutes unless you change it under Privacy and security) and asks for the password to carry on.'] },
   ];
 
   function RENDERERS_guides_modern() {
@@ -1389,7 +1460,7 @@
         'A local gamification tracker - points, streaks, levels, quests and achievements, all scored from what you actually watch. Fully offline; it needs no AI model and no setup, so it works from the first launch.',
         'Not keen on it? <b>Settings → Hide 🏆 Obsession Score</b> removes the chip and its toasts. Scoring keeps running underneath, so unhiding later shows your real history instead of a gap - nothing is deleted either way. To stop it entirely, start Vault with <code>--no-gamify</code>.')}
       ${guide('🔒 Encryption',
-        'Click the vault in the top left to set a database password and encrypt the library. Vault auto-locks after an idle timeout (default 30 min) and requires the password to resume.')}
+        'Set a vault password under <b>Vault security</b> above to encrypt the library. Vault auto-locks after an idle timeout (default 30 min) and requires the password to resume.')}
     `;
   }
 
@@ -1427,21 +1498,27 @@
      wide pages only; each value also carries its own label, which screen
      readers always get and which shows once the block stacks on a narrow
      page (css/settings.css, the models-tiers container query). */
-  function modelTiersHtml(tiers) {
+  const MODEL_HEADS = { vram: 'VRAM', model: 'Vision model', quant: 'Quant', whisper: 'Whisper',
+    headModel: 'Vision model (scanning)', headWhisper: 'Whisper (subtitles)' };
+  // Modern: plain words for the same columns.
+  const MODEL_HEADS_MODERN = { vram: 'GPU memory', model: 'Vision model', quant: 'Version', whisper: 'Subtitles',
+    headModel: 'Vision model (scanning)', headWhisper: 'Subtitles model' };
+
+  function modelTiersHtml(tiers, h = MODEL_HEADS) {
     return `
       <div class="models-tiers">
         <div class="models-head" aria-hidden="true">
-          <span>VRAM</span><span>Vision model (scanning)</span><span>Quant</span><span>Whisper (subtitles)</span>
+          <span>${h.vram}</span><span>${h.headModel}</span><span>${h.quant}</span><span>${h.headWhisper}</span>
         </div>
         <ul class="models-list">
           ${tiers.map(t => `
           <li class="models-tier">
-            <div class="models-vram"><span class="models-k">VRAM </span>${t.vram}</div>
-            <div class="models-model"><span class="models-k">Vision model </span>${modelNameCell(t.model)}</div>
-            <div class="models-quant"><span class="models-k">Quant </span>${t.quant === 'NA'
+            <div class="models-vram"><span class="models-k">${h.vram} </span>${t.vram}</div>
+            <div class="models-model"><span class="models-k">${h.model} </span>${modelNameCell(t.model)}</div>
+            <div class="models-quant"><span class="models-k">${h.quant} </span>${t.quant === 'NA'
               ? '<span class="models-chip models-chip-na">NA</span>'
               : `<span class="models-chip">${esc(t.quant)}</span>`}</div>
-            <div class="models-whisper"><span class="models-k">Whisper </span>${t.whisper}</div>
+            <div class="models-whisper"><span class="models-k">${h.whisper} </span>${t.whisper}</div>
             <div class="models-notes"><span class="models-k">Notes </span>${t.notes}</div>
           </li>`).join('')}
         </ul>
@@ -1454,17 +1531,21 @@
   const MODEL_TIERS_MODERN = MODEL_TIERS.map((t, i) => ({
     ...t,
     vram: t.vram.replace('–', ' to '),
-    whisper: ['small', 'large-v3-turbo (default)', 'default', 'default'][i],
-    notes: i === 0 ? 'One instance with 1 worker. Slower but fine.' : t.notes,
+    // LM Studio lists the versions in capitals (Q8_0).
+    quant: t.quant === 'NA' ? t.quant : t.quant.toUpperCase(),
+    // The Whisper codenames stay in the Advanced fold under the table.
+    whisper: ['Small', 'Full (default)', 'Full', 'Full'][i],
+    notes: ['One copy, 1 scan at once. Slower but fine.', 'One copy, 2 scans at once. The defaults target this class.',
+      'Room for 2 to 4 copies at 2 scans at once each.', 'Room for 2 to 4 copies at 2 scans at once each.'][i],
   }));
 
   function RENDERERS_models_modern() {
     return settingsCardHtml({ title: 'Model recommendations by GPU size', sfind: 'modelTable', body: `
       <p class="settings-note">The vision model sets scan quality. Quantized (Q4) versions are the sweet spot, and about 64k of context is needed to read pictures reliably.</p>
-      ${modelTiersHtml(MODEL_TIERS_MODERN)}
+      ${modelTiersHtml(MODEL_TIERS_MODERN, MODEL_HEADS_MODERN)}
       <p class="settings-note">Semantic search embeddings are tiny: <code>nomic-embed-text</code> (about 0.5 GB) runs anywhere.</p>
-      ${settingsFoldHtml({ body: `<p>Subtitles: <code>WHISPER_MODEL=small</code> picks the small model for 6 to 8 GB cards; the default is
-        <code>large-v3-turbo</code> at <code>int8_float16</code>. Scanning from the command line:
+      ${settingsFoldHtml({ body: `<p>Subtitles: <code>WHISPER_MODEL=small</code> picks the small model for 6 to 8 GB cards; the full
+        model is <code>large-v3-turbo</code> at <code>int8_float16</code>. Scanning from the command line:
         <code>VISION_WORKERS=1</code> runs one worker.</p>` })}` });
   }
 
@@ -1843,7 +1924,7 @@
         }
       }
     } catch (err) {
-      if (typeof showToast === 'function') showToast('⚠ ' + err.message);
+      showErrorToast(err, 'finding those files');
       return;
     }
     if (!ids.size) {
@@ -2282,8 +2363,7 @@
 
     if (s.kind === 'apply') {
       migState[mode] = null;
-      const n = (s.applied || 0).toLocaleString();
-      migSetStatus(card, `Done: ${n} record(s) repointed in ${migHuman(s.elapsedMs)}.`, 'mig-good');
+      migSetStatus(card, `Done: ${settingsFiles(s.applied || 0)} repointed in ${migHuman(s.elapsedMs)}.`, 'mig-good');
       card.querySelector('.mig-apply').disabled = true;
 
       // The finished summary stays parked server-side for an hour, and this
@@ -2294,7 +2374,7 @@
       // survives the reload the apply itself triggers); the report below still
       // renders every visit, because that is the part worth seeing again.
       if (migClaimNotify(s.jobId)) {
-        if (typeof showToast === 'function') showToast(`🗂 ${n} record(s) repointed`);
+        if (typeof showToast === 'function') showToast(`${settingsFiles(s.applied || 0)} repointed`, { type: 'success' });
         // Every path in memory is now wrong — reload rather than patch.
         if (typeof loadDatabase === 'function') loadDatabase();
         if (typeof window.vaultRefreshMissingBanner === 'function') window.vaultRefreshMissingBanner();
@@ -2304,7 +2384,7 @@
 
     const willChange = s.report.counts.rewrite + s.report.counts.absorb;
     const status = willChange > 0
-      ? `Preview only, nothing written. ${willChange.toLocaleString()} record(s) would move (took ${migHuman(s.elapsedMs)}).`
+      ? `Preview only, nothing written. ${settingsFiles(willChange)} would move (took ${migHuman(s.elapsedMs)}).`
       : 'Nothing would change.';
     // The signature is taken from the inputs as they now stand, which
     // migRestoreInputs has just set to the ones the job actually ran with.
@@ -2343,12 +2423,12 @@
     const asides = [];
     const rules = report.rules || [];
     if (rules.length) {
-      asides.push(`${rules.length} whole-folder move(s) detected, covering ` +
-        `${rules.reduce((n, r) => n + r.rows, 0).toLocaleString()} record(s)`);
+      asides.push(`${settingsPlural(rules.length, 'whole-folder move')} detected, covering ` +
+        settingsFiles(rules.reduce((n, r) => n + r.rows, 0)));
     }
-    if (c.absorb) asides.push(`${c.absorb.toLocaleString()} placeholder row(s) deleted`);
+    if (c.absorb) asides.push(`${settingsPlural(c.absorb, 'placeholder row')} deleted`);
     if (c.mismatch) asides.push(`${c.mismatch.toLocaleString()} rejected, content differs`);
-    if (c.dupesLinked) asides.push(`${c.dupesLinked.toLocaleString()} look-alike(s) grouped as dupes`);
+    if (c.dupesLinked) asides.push(`${settingsPlural(c.dupesLinked, 'look-alike')} grouped as dupes`);
     if (c.ambiguous) asides.push(`${c.ambiguous.toLocaleString()} ambiguous, left alone`);
     if (c.unmatched) asides.push(`${c.unmatched.toLocaleString()} unmatched, left alone`);
 
@@ -2357,7 +2437,7 @@
       : `<code>${esc(report.newRoot)}</code>`;
     bar.innerHTML = `
       <div class="mig-confirm-text">
-        <b>Repoint ${moving.toLocaleString()} record(s)</b> ${mode === 'prefix' ? 'from' : 'to'}
+        <b>Repoint ${settingsFiles(moving)}</b> ${mode === 'prefix' ? 'from' : 'to'}
         ${dest}. Their old paths will be forgotten.
         ${asides.length ? `<span class="mig-confirm-aside">${asides.join(' · ')}</span>` : ''}
       </div>
@@ -2495,7 +2575,7 @@
       let ids = [];
       try { ids = JSON.parse(btn.dataset.ids || '[]'); } catch {}
       if (typeof window.vaultShowMediaIds !== 'function') {
-        if (typeof showToast === 'function') showToast('⚠ Library view unavailable');
+        if (typeof showToast === 'function') showToast('Could not show those files in the library.', { type: 'error' });
         return;
       }
       closeModal();
@@ -2536,7 +2616,7 @@
             <code>${esc(r.oldPrefix)}</code>
             <span class="mig-arrow">-&gt;</span>
             <code>${esc(r.newPrefix)}</code>
-            <span class="mig-why">${r.rows.toLocaleString()} record(s), ${r.verified.toLocaleString()} of ${r.sampled.toLocaleString()} sampled files checked against their contents</span>
+            <span class="mig-why">${settingsFiles(r.rows)}, ${r.verified.toLocaleString()} of ${r.sampled.toLocaleString()} sampled files checked against their contents</span>
           </div>`).join('')}
       </div>` : '';
 
@@ -2545,10 +2625,10 @@
     const left = report.notMigrated;
     const notMigrated = (left && left.total) ? `
       <div class="mig-leftovers">
-        <span>${left.total.toLocaleString()} record(s) ${applied ? 'did not migrate' : 'would not migrate'}. They keep everything and were not touched.</span>
+        <span>${settingsFiles(left.total)} ${applied ? 'did not move' : 'would not move'}. They keep everything and were not touched.</span>
         <button class="settings-btn mig-show-left" type="button"
           data-ids="${esc(JSON.stringify(left.ids))}"
-          data-label="record(s) that did not migrate">Show in library</button>
+          data-label="files that did not move">Show in library</button>
         ${left.capped ? `<span class="settings-note">Only the first ${left.ids.length.toLocaleString()} can be listed.</span>` : ''}
       </div>` : '';
 
@@ -2613,12 +2693,16 @@
       return;
     }
     host.style.display = '';
+    // Modern: a warning line icon and the close icon (css/settings.css); Classic keeps its strip.
+    const warnIc = typeof vaultIcon === 'function' ? vaultIcon('alert') : '';
+    const x = typeof vaultIconSwap === 'function' ? vaultIconSwap('×', 'close') : '&times;';
     host.innerHTML = `
+      ${warnIc ? `<span class="missing-banner-ic modern-only">${warnIc}</span>` : ''}
       <span class="missing-banner-text">
         <b>${count.toLocaleString()}</b> of ${total.toLocaleString()} files are missing from disk. Did your library move?
       </span>
-      <button class="missing-banner-fix" id="missingBannerFix">Fix paths…</button>
-      <button class="missing-banner-close" id="missingBannerClose" title="Dismiss for this session" aria-label="Dismiss">&times;</button>`;
+      <button type="button" class="missing-banner-fix" id="missingBannerFix">Fix paths…</button>
+      <button type="button" class="missing-banner-close" id="missingBannerClose" title="Hide for now" aria-label="Hide this notice">${x}</button>`;
     host.querySelector('#missingBannerFix').addEventListener('click', () => openModal('library'));
     host.querySelector('#missingBannerClose').addEventListener('click', () => {
       try { sessionStorage.setItem(SS_DISMISSED, '1'); } catch {}
@@ -3496,7 +3580,7 @@
         <p>Free for personal use - proprietary, source-available. See the LICENSE file next to the app.</p>
         <div class="settings-links">
           <a href="https://github.com/aericocode/Vault" target="_blank" rel="noopener">GitHub repo ↗</a>
-          <a href="https://ko-fi.com/aericocode" target="_blank" rel="noopener">Ko-fi 🌿 ↗</a>
+          <a href="https://ko-fi.com/aericocode" target="_blank" rel="noopener">Ko-fi ↗</a>
         </div>
       </div>
       <div class="settings-notices" id="settingsSetupNotices" data-sfind="setupNotices" hidden>
@@ -3608,14 +3692,14 @@
   // Two short paragraphs rather than a label grid: the two words people mix
   // up are bolded in place, so the difference reads as a sentence.
   const BACKEND_WHY = '<div class="settings-why-title">Want it faster?</div>'
-    + '<p>A second <b>worker</b> keeps each instance busy while the next file\'s frames are '
+    + '<p>A second <b>scan at once</b> keeps each copy busy while the next file\'s frames are '
     + 'extracted, so scans stop waiting between files. That is a real gain from 1 to 2, and '
-    + 'little beyond that: an instance still answers one request at a time.</p>'
-    + '<p>Extra <b>instances</b> are more copies of the model loaded in LM Studio, and each one '
-    + 'answers in parallel: three copies, about three times the throughput. Start with 2 workers '
-    + 'per instance, then add as many instances as your VRAM holds, usually 2 to 4 from 16 GB up.</p>';
-  const WORKERS_TIP = 'A second worker removes the idle gap between files. '
-    + 'More than 2 adds little; extra instances are what multiply throughput.';
+    + 'little beyond that: a copy still answers one request at a time.</p>'
+    + '<p>More <b>copies</b> of the model loaded in LM Studio each answer in parallel: three '
+    + 'copies, about three times the speed. Start with 2 scans at once per copy, then add as many '
+    + 'copies as your graphics memory holds, usually 2 to 4 from 16 GB up.</p>';
+  const WORKERS_TIP = 'A second scan at once removes the idle gap between files. '
+    + 'More than 2 adds little; more copies of the model are what make scans faster.';
 
   let _backendPoll = null;
 
@@ -3711,7 +3795,7 @@
     const endpoints = epUrls();
     if (!endpoints.length) return;            // an empty list is a 400; nothing to save yet
     const { ok, data } = await bePost('/api/ai/endpoints', { endpoints });
-    if (!ok) { showToast?.('⚠ ' + (data.error || 'could not save the server list')); return; }
+    if (!ok) { showErrorToast(data, 'saving the server list'); return; }
     backend.status = data;
     renderAiNote();
     renderEpRows();
@@ -3800,8 +3884,15 @@
   /* Every listed copy is loaded: the table mirrors the server, so an ejected
      copy is simply not here any more rather than sitting in a red row. */
   function instStatusHtml(inst) {
-    if (!inst.enabled) return '<span class="settings-st"><span class="settings-dot"></span>parked</span>';
-    return `<span class="settings-st"><span class="settings-dot ok"></span>${Number(inst.inFlight) || 0} in flight</span>`;
+    if (!inst.enabled) return '<span class="settings-st"><span class="settings-dot"></span>not in use</span>';
+    const n = Number(inst.inFlight) || 0;
+    return `<span class="settings-st"><span class="settings-dot ok"></span>${n ? `scanning ${n}` : 'ready'}</span>`;
+  }
+
+  /** ":2" (LM Studio's suffix for a second copy) as "Copy 2". */
+  function copyName(sfx) {
+    const m = /^:(\d+)$/.exec(String(sfx || ':1'));
+    return m ? `Copy ${m[1]}` : String(sfx);
   }
 
   const secs1 = (ms) => `${((Number(ms) || 0) / 1000).toFixed(1)} s`;
@@ -3837,16 +3928,18 @@
     const why = cloneWhyNot(fam);
     const loading = (backend.instances?.jobs || []).some(j => j.family === fam.family && j.state === 'loading');
     const title = loading ? 'A copy is loading already.' : (why || 'Load a second copy of this model in LM Studio');
+    // Modern: a quiet button with the plus line icon; Classic keeps its link.
+    const plus = settingsIsModern() && typeof vaultIcon === 'function' ? vaultIcon('plus') : '+ ';
     return `<button type="button" class="settings-link inst-clone"
       data-clone-fam="${esc(fam.family)}" data-clone-ep="${esc(src?.endpoint || '')}"
       data-clone-id="${esc(src?.id || '')}"${(why || loading) ? ' disabled' : ''}
-      title="${esc(title)}">+ Load another copy</button>`;
+      title="${esc(title)}">${plus}Load another copy</button>`;
   }
 
   /** Placeholder rows for copies that have been asked for but are not up yet. */
   function jobRowsHtml(family) {
     return (backend.instances?.jobs || []).filter(j => j.family === family).map(j => {
-      const sfx = esc(String(j.identifier || '').slice(String(family).length) || ':?');
+      const sfx = esc(copyName(String(j.identifier || '').slice(String(family).length) || ':?'));
       if (j.state === 'failed') {
         return `
       <tr class="sub dead">
@@ -3880,7 +3973,7 @@
         <td class="num">${avg}</td>
       </tr>`;
     // A non-selected family with a single copy is listed for context only: its
-    // per-instance row would be five empty cells under its own name. It still
+    // per-copy row would be five empty cells under its own name. It still
     // expands when it has several copies, because "which copy do I park" is a
     // question people ask before they have picked the family.
     const jobs = jobRowsHtml(fam.family);
@@ -3889,15 +3982,15 @@
       const pct = Math.round(((Number(i.done) || 0) / maxDone) * 100);
       return `
       <tr class="sub ${i.enabled ? '' : 'off'}">
-        <td><label class="settings-sw-inline" title="${i.enabled ? 'Stop sending scans here' : 'Use this instance'}">
+        <td><label class="settings-sw-inline" title="${i.enabled ? 'Stop sending scans here' : 'Use this copy'}">
           <input type="checkbox" data-inst-id="${esc(i.id)}" data-inst-ep="${esc(i.endpoint)}"
                  ${i.enabled ? 'checked' : ''}
-                 aria-label="Use instance ${esc(i.suffix || '')}">
+                 aria-label="Use ${esc(copyName(i.suffix).toLowerCase())}">
           <span class="settings-switch" aria-hidden="true"></span>
         </label></td>
-        <td><span class="mid"><span class="sfx">${esc(i.suffix || ':1')}</span>${unloadBtnHtml(fam, i)}</span></td>
+        <td><span class="mid"><span class="sfx">${esc(copyName(i.suffix))}</span>${unloadBtnHtml(fam, i)}</span></td>
         <td>${instStatusHtml(i)}</td>
-        <td class="num"><span class="settings-inst-bar"><i style="width:${pct}%"></i></span> ${Number(i.done) || 0}</td>
+        <td class="num">${Number(i.done) > 0 ? `<span class="settings-inst-bar"><i style="width:${pct}%"></i></span> ` : ''}${Number(i.done) || 0}</td>
         <td class="num">${Number(i.avgMs) > 0 ? secs1(i.avgMs) : '-'}</td>
       </tr>`;
     }).join('') + jobs;
@@ -3932,17 +4025,17 @@
     // Saying so is useful; printing 0 × 2 = 0 is not.
     const anyFamily = (backend.instances?.families || []).length > 0;
     const sum = active > 0
-      ? `<b>${active}</b> instance${active === 1 ? '' : 's'} × <b>${w}</b> workers =
-         <b>${product}</b> scans in flight.${capped}`
+      ? `<b>${active}</b> ${active === 1 ? 'copy' : 'copies'} × <b>${w}</b> each =
+         <b>${product}</b> scans at once.${capped}`
       : anyFamily
         ? 'No model picked yet. Choose one above and Vault will use every loaded copy of it.'
         : 'Nothing loaded to scan with yet.';
     return `
       <span class="settings-kv">${sum}</span>
-      <span class="settings-wk">Workers per instance
+      <span class="settings-wk">Scans at once, per copy
         <input class="settings-num" type="number" min="${WORKERS_MIN}" max="${WORKERS_MAX}" step="1"
                data-setting-num="scanWorkers" value="${w}" title="${WORKERS_TIP}"
-               aria-label="Workers per instance"></span>
+               aria-label="Scans at once, per copy of the model"></span>
       <span class="settings-checked" id="backendChecked">${checkedAgoText()}</span>
       <button type="button" class="settings-btn" id="backendInstRefresh">Refresh</button>`;
   }
@@ -3998,14 +4091,14 @@
     const table = fams.length ? `
       <table class="settings-inst-table">
         <thead><tr>
-          <th colspan="2">Family / instance</th><th>Status</th>
+          <th colspan="2">Model / copy</th><th>Status</th>
           <th class="num">Done this run</th><th class="num">Avg / file</th>
         </tr></thead>
         <tbody>${fams.map(familyRowsHtml).join('')}</tbody>
       </table>`
       : `<p class="settings-note">${backend.instances
         ? 'Nothing loaded yet. Load a model in your AI server, then press Refresh.'
-        : 'Could not reach the local server for the instance list. Press Refresh to try again.'}</p>`;
+        : 'Could not reach the AI server for the list of loaded models. Press Refresh to try again.'}</p>`;
     host.innerHTML = table
       + `<p class="settings-note">Copies use the same context length, parallel setting and TTL as the
         original. GPU placement is LM Studio's choice.</p>`
@@ -4021,7 +4114,7 @@
         if (!ok) {
           cb.checked = !cb.checked;
           cb.disabled = false;
-          showToast?.('⚠ ' + (data.error || 'could not change that instance'));
+          showErrorToast(data, 'changing that copy');
           return;
         }
         backend.instances = data;
@@ -4037,7 +4130,7 @@
         });
         if (!ok) {
           btn.disabled = false;
-          showToast?.('⚠ ' + (data.error || 'could not load another copy'));
+          showErrorToast(data, 'loading another copy');
           return;
         }
         showToast?.(`Loading ${data.identifier}. It joins the scans when LM Studio is done.`);
@@ -4057,7 +4150,7 @@
         });
         if (!ok) {
           btn.disabled = false;
-          showToast?.('⚠ ' + (data.error || 'could not unload that copy'));
+          showErrorToast(data, 'unloading that copy');
           return;
         }
         showToast?.(`Unloaded ${btn.dataset.unloadId}`);
@@ -4089,7 +4182,7 @@
   function RENDERERS_backend() {
     if (settingsIsModern()) return RENDERERS_servers();
     return `
-      <h3 class="settings-h" data-sfind="backendInstances">Loaded instances</h3>
+      <h3 class="settings-h" data-sfind="backendInstances">Loaded models</h3>
       <p class="settings-note">Mirrors what LM Studio has loaded right now. Press Refresh after loading
         or ejecting a model there; during a scan Vault also checks once a minute.</p>
       <div id="backendInstHost" data-sfind="scanWorkers"></div>
@@ -4135,7 +4228,7 @@
      a card; the server list (and the LM_STUDIO_URLS note) stays in its
      Advanced fold. */
   function RENDERERS_servers() {
-    return settingsCardHtml({ title: 'Loaded instances', sfind: 'backendInstances', body: `
+    return settingsCardHtml({ title: 'Loaded models', sfind: 'backendInstances', body: `
       <p class="settings-note">Mirrors what LM Studio has loaded right now. Press Refresh after loading or
         ejecting a model there; during a scan Vault also checks once a minute.</p>
       <div id="backendInstHost" data-sfind="scanWorkers"></div>` })
@@ -4190,7 +4283,7 @@
       sel.disabled = true;
       const { ok, data } = await bePost('/api/ai/model-choice', { model: value });
       sel.disabled = false;
-      if (!ok) { showToast?.('⚠ ' + (data.error || 'could not set the model')); return; }
+      if (!ok) { showErrorToast(data, 'setting the model'); return; }
       if (backend.models) backend.models.current = data.family || data.model || value || '';
       showToast?.(value ? `Scanning with ${value}` : 'Auto for pictures, videos and documents');
       // A choice here sets both kinds (Auto clears both): show what decides now.

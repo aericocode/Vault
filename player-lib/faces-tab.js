@@ -117,7 +117,7 @@ async function ftApi(url, opts) {
 
 function ftCropImg(url, cls = '') {
   return url ? `<img class="face-crop ${cls}" src="${ftEsc(url)}" alt="" loading="lazy" draggable="false">`
-    : `<span class="ft-blank ${cls}" aria-hidden="true">👤</span>`;
+    : facesBlankHtml(cls);
 }
 
 /* ── Tab hooks ─────────────────────────────────────────────────────────── */
@@ -289,13 +289,14 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) ftPo
 function ftOffHtml() {
   const s = facesStatus;
   if (!s) return '<div class="ft-off-wait"></div>';
-  const head = (stroke, face, size) => `<svg width="${size}" height="${size}" viewBox="0 0 72 72"><circle cx="36" cy="36" r="34" fill="#252525" stroke="${stroke}" stroke-width="2"></circle><circle cx="36" cy="29" r="11" fill="none" stroke="${face}" stroke-width="2.5"></circle><path d="M16 58c3-10 11-15 20-15s17 5 20 15" fill="none" stroke="${face}" stroke-width="2.5"></path></svg>`;
+  // Colours come from css/faces-tab.css (.ft-head-svg): the middle head is the accent.
+  const head = (main, size) => `<svg class="ft-head-svg${main ? ' is-main' : ''}" width="${size}" height="${size}" viewBox="0 0 72 72"><circle class="ft-head-ring" cx="36" cy="36" r="34" stroke-width="2"></circle><circle class="ft-head-face" cx="36" cy="29" r="11" fill="none" stroke-width="2.5"></circle><path class="ft-head-face" d="M16 58c3-10 11-15 20-15s17 5 20 15" fill="none" stroke-width="2.5"></path></svg>`;
   // Turned on, models still coming: the same card, pointing at the setup.
   const setup = s.enabled && !s.modelsReady;
   return `
     <div class="ft-off">
       <section class="ft-empty">
-        <div class="ft-heads" aria-hidden="true">${head('#333', '#666', 72)}${head('#6366f1', '#a0a0a0', 92)}${head('#333', '#666', 72)}</div>
+        <div class="ft-heads" aria-hidden="true">${head(false, 72)}${head(true, 92)}${head(false, 72)}</div>
         <h1>See everyone in your library</h1>
         <ul>
           <li>Every person Vault finds gets a card here.</li>
@@ -303,7 +304,7 @@ function ftOffHtml() {
           <li>Search with a photo, or pause a video and find who is on screen.</li>
         </ul>
         <button class="ft-btn ft-btn-lg" type="button" data-ft-turnon>${setup ? 'Finish setting up face search' : 'Turn on face search'}</button>
-        <p class="ft-small">Runs entirely on this computer. Nothing is uploaded. Vault downloads two small models (about 39 MB) once.</p>
+        <p class="ft-small">Runs entirely on this computer. Nothing is uploaded. Vault downloads three models (about ${facesSetupMB()} MB) once.</p>
       </section>
     </div>`;
 }
@@ -344,7 +345,7 @@ function ftRenderHome() {
           <div class="ft-row">
             ${ftModeSegHtml()}
             <label class="ft-search">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
               <input type="text" id="ftSearch" placeholder="Search people by name" aria-label="Search people by name" autocomplete="off">
             </label>
             <button class="ft-pill" type="button" id="ftSortBtn" aria-haspopup="menu"></button>
@@ -412,7 +413,7 @@ function ftSizeInput(input) {
 
 function ftPaintSort() {
   const b = document.getElementById('ftSortBtn');
-  if (b) b.textContent = `Sort: ${FT_SORTS.find(s => s.value === FT.sort).label} ▾`;
+  if (b) b.innerHTML = `Sort: ${ftEsc(FT_SORTS.find(s => s.value === FT.sort).label)}${facesIcon('caret', 'ft-caret') || ' ▾'}`;
 }
 
 function ftPaintChips() {
@@ -533,7 +534,7 @@ function ftEmptyText() {
   switch (FT.filter) {
     case 'named': return 'No one has a name yet. Click Name this person on a face.';
     case 'unnamed': return 'Everyone has a name.';
-    case 'favorites': return 'No favorites yet. Open a person and click ★ Favorite.';
+    case 'favorites': return 'No favorites yet. Open a person and click Favorite.';
     case 'single': return 'Everyone here shows up in more than one file.';
     case 'hidden': return 'No one is hidden.';
     default: return c.hidden ? 'Everyone found so far is hidden.'
@@ -691,7 +692,7 @@ function ftPaintReview({ refocus = false, pairEl = null } = {}) {
   el.innerHTML = `
     <div class="ft-review-h"><h2>Same person?</h2><span>${n.toLocaleString()} to look at. Saying yes puts their files together.</span>
       <button type="button" class="ft-link" data-ft-reviewall>Review all</button>
-      <button type="button" class="ft-x ft-review-hide" data-ft-reviewhide aria-label="Hide Same person?" title="Hide">×</button></div>
+      <button type="button" class="ft-x ft-review-hide" data-ft-reviewhide aria-label="Hide Same person?" title="Hide">${facesIcon('close') || '×'}</button></div>
     <div class="ft-pairs">${pairs.slice(0, fit).map(pr => `
       <div class="ft-pair" data-a="${pr.a.id}" data-b="${pr.b.id}">
         <div class="ft-faces2">${ftPairSide(pr.a)}${ftPairSide(pr.b)}</div>
@@ -789,7 +790,7 @@ function ftPaintDialog(toast) {
   ov.innerHTML = `
     <div class="ft-dlg" role="dialog" aria-modal="true" aria-label="Same person?">
       <div class="ft-dlg-h"><h2>Same person?</h2><span>${(ftDlg.i + 1).toLocaleString()} of ${ftDlg.total.toLocaleString()}</span>
-        <button type="button" class="ft-x" data-ft-dlg="close" aria-label="Close">×</button></div>
+        <button type="button" class="ft-x" data-ft-dlg="close" aria-label="Close">${facesIcon('close') || '×'}</button></div>
       <div class="ft-cols">${col(pr.a, pr.sample && pr.sample.a)}${col(pr.b, pr.sample && pr.sample.b)}</div>
       <div class="ft-dlg-acts">
         <button class="ft-btn ft-btn-md" type="button" data-ft-dlg="same">Yes, same person</button>
@@ -1484,9 +1485,9 @@ async function ftLoadFiles() {
 function ftBackBtnHtml() {
   const s = FT.fromStudio;
   if (s && s.id != null) {
-    return `<button class="ft-back" type="button" data-ft-backstudio="${Number(s.id)}" title="Back to this studio">← <span class="ft-pm-name">${ftEsc(s.name)}</span></button>`;
+    return `<button class="ft-back" type="button" data-ft-backstudio="${Number(s.id)}" title="Back to this studio">${facesIcon('chev-left') || '←'} <span class="ft-pm-name">${ftEsc(s.name)}</span></button>`;
   }
-  return '<button class="ft-back" type="button" data-ft-home>← Faces</button>';
+  return `<button class="ft-back" type="button" data-ft-home>${facesIcon('chev-left') || '←'} Faces</button>`;
 }
 
 function ftPaintPerson() {
@@ -1523,10 +1524,10 @@ function ftPaintPerson() {
         <div class="ft-stats">${ftEsc(stats.join(' · '))}</div>
         ${typeof stPersonChipsHtml === 'function' ? stPersonChipsHtml(p) : ''}
         <div class="ft-acts">
-          <button class="ft-btn ft-btn-md" type="button" data-ft-play="0">▶ Play all</button>
+          <button class="ft-btn ft-btn-md" type="button" data-ft-play="0">${facesIcon('play', 'ft-bico') || '▶'} Play all</button>
           <button class="ft-btn ghost ft-btn-md" type="button" data-ft-play="1">Shuffle</button>
-          <button class="ft-btn ghost ft-btn-md${p.favorite ? ' on' : ''}" type="button" data-ft-fav aria-pressed="${!!p.favorite}" title="${p.favorite ? 'Remove from favorites' : 'Favorite'}">★ Favorite</button>
-          <button class="ft-btn ghost ft-btn-md ft-dots" type="button" data-ft-more aria-haspopup="menu" aria-label="More actions" title="More actions">⋯</button>
+          <button class="ft-btn ghost ft-btn-md${p.favorite ? ' on' : ''}" type="button" data-ft-fav aria-pressed="${!!p.favorite}" title="${p.favorite ? 'Remove from favorites' : 'Favorite'}">${facesIcon('star', 'ft-bico') || '★'} Favorite</button>
+          <button class="ft-btn ghost ft-btn-md ft-dots" type="button" data-ft-more aria-haspopup="menu" aria-label="More actions" title="More actions">${facesIcon('more') || '⋯'}</button>
         </div>
       </div>
       ${extra.trim() ? `<div class="ft-side-more">${extra}</div>` : ''}
@@ -2171,7 +2172,7 @@ function ftRemoveSelectedButton(n) {
   if (!n || !ftOnTab() || FT.mode !== 'people' || FT.personId == null || !FT.person) return '';
   const p = FT.person;
   const who = p.name ? `<span class="ft-pm-name">${ftEsc(p.name)}</span>` : 'this person';
-  return `<button class="sel-btn sel-faces-out" type="button" onclick="ftRemoveSelected()" title="These files do not show this person">✕ Remove selected from ${who}</button>`;
+  return `<button class="sel-btn sel-faces-out" type="button" onclick="ftRemoveSelected()" title="These files do not show this person">${typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(`✕ Remove selected from ${who}`) : `✕ Remove selected from ${who}`}</button>`;
 }
 
 /** "Not this person" for every ticked file at once, after a confirm, with Undo. */
@@ -2223,7 +2224,7 @@ async function ftRemoveSelected() {
   }, 8000);
 }
 
-/* ── Person grid tiles: "▶ from 0:04", "✕ Not this person" ────────────── */
+/* ── Person grid tiles: "from 0:04", "Not this person" ─────────────────── */
 
 function facesTileExtrasHtml(media) {
   // Library: the face results' tags (faces.js).
@@ -2233,9 +2234,9 @@ function facesTileExtrasHtml(media) {
   if (!info) return '';
   // Same rule as facesStartAt: under a second is just the start of the file.
   const from = media.media_type === 'video' && info.firstTimeS != null && info.firstTimeS >= 1
-    ? `<span class="ft-from" title="This person first shows up at ${ftTime(info.firstTimeS)}">▶ from ${ftTime(info.firstTimeS)}</span>` : '';
+    ? `<span class="ft-from" title="This person first shows up at ${ftTime(info.firstTimeS)}">${facesIcon('play', 'ft-from-ico') || '▶'} from ${ftTime(info.firstTimeS)}</span>` : '';
   return `${from}<button class="ft-notme" type="button" onclick="event.stopPropagation(); facesNotThisPerson(${media.id})"
-    title="This file does not show this person" aria-label="Not this person">✕<span class="ft-notme-text"> Not this person</span></button>`;
+    title="This file does not show this person" aria-label="Not this person">${facesIcon('close', 'ft-notme-ico') || '✕'}<span class="ft-notme-text"> Not this person</span></button>`;
 }
 
 /**
@@ -2292,7 +2293,7 @@ function facesStartAt(el) {
   if (!info || info.firstTimeS == null || info.firstTimeS < 1) return false;
   if (!(el.duration > info.firstTimeS)) return false;
   el.currentTime = info.firstTimeS;
-  showToast(`▶ From ${ftTime(info.firstTimeS)}, where this person first shows up`);
+  showToast(`Playing from ${ftTime(info.firstTimeS)}, where this person first shows up.`);
   return true;
 }
 
@@ -2328,7 +2329,7 @@ function ftWire() {
     if (sortBtn) {
       const r = sortBtn.getBoundingClientRect();
       facesMenu(r.left, r.bottom + 4, FT_SORTS.map(s => ({
-        label: `${s.value === FT.sort ? '✓ ' : ''}${s.label}`,
+        label: s.label, checked: s.value === FT.sort,
         run: () => { FT.sort = s.value; ftUnpin(); ftPaintSort(); ftLoadPeople(); },
       })));
       return;

@@ -162,3 +162,20 @@ test('corner rect: never shorter than 150 px, any shape, and always fits', () =>
   // A window too short for 150 gets what fits.
   assert.strictEqual(G.cornerRect('tl', 240, 32 / 9, 1400, 120).height, 120 - 2 * G.MARGIN);
 });
+
+test('liftClear: a bottom-corner box rises above the page buttons it would cover (audit V4)', () => {
+  const r = G.cornerRect('br', 480, 16 / 9, 1440, 900);          // 480x270 at 944,614
+  const pager = { left: 597, top: 846, right: 960, bottom: 886 };
+  const up = G.liftClear(r, 'br', pager);
+  assert.strictEqual(up.top, 846 - G.MARGIN - r.height);
+  assert.strictEqual(up.left, r.left);
+  assert.strictEqual(up.height, r.height);
+  // Not covering them, a top corner, or nothing to avoid: unchanged
+  assert.strictEqual(G.liftClear(r, 'br', { left: 100, top: 846, right: 400, bottom: 886 }), r);
+  const tl = G.cornerRect('tl', 480, 16 / 9, 1440, 900);
+  assert.strictEqual(G.liftClear(tl, 'tl', pager), tl);
+  assert.strictEqual(G.liftClear(r, 'br', null), r);
+  // A lift past the top of the window is not made
+  const big = G.cornerRect('br', 9999, 16 / 9, 1440, 500);
+  assert.strictEqual(G.liftClear(big, 'br', { left: 0, top: 200, right: 1440, bottom: 480 }), big);
+});

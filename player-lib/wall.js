@@ -816,7 +816,7 @@ const Wall = (() => {
       <div class="wall-bar" id="wallBar">
         <label class="wall-field">
           <span class="wall-label">Source</span>
-          <select id="wallSource"></select>
+          <select id="wallSource" class="m-select"></select>
         </label>
         <div class="wall-seg" role="group" aria-label="Wall mode">
           <button type="button" class="wall-seg-btn" id="wallModeGrid" data-mode="grid">Grid</button>
@@ -840,7 +840,7 @@ const Wall = (() => {
           ${popSlider('wallGap', 'Gap', 'gap')}
           <label class="wall-pop-row">
             <span class="wall-label">Show</span>
-            <select id="wallMix">
+            <select id="wallMix" class="m-select">
               <option value="both">Videos and pictures</option>
               <option value="videos">Videos only</option>
               <option value="pictures">Pictures only</option>
@@ -848,24 +848,24 @@ const Wall = (() => {
           </label>
           <label class="wall-pop-row">
             <span class="wall-label">Order</span>
-            <select id="wallOrder">
+            <select id="wallOrder" class="m-select">
               <option value="shuffle">Shuffle</option>
               <option value="order">In order</option>
             </select>
           </label>
           <label class="wall-pop-row" title="Off: every clip is silent. On hover: the clip under the mouse is heard. Auto: one clip is always heard, the one with the most time left.">
             <span class="wall-label">Sound</span>
-            <select id="wallSound">
+            <select id="wallSound" class="m-select">
               <option value="off">Off</option>
               <option value="hover">On hover</option>
               <option value="auto">Auto</option>
             </select>
           </label>
           <label class="wall-check" title="Hovering a block holds it: its timer waits, and Scroll mode stops drifting.">
-            <input type="checkbox" id="wallHoverPause"> Pause on hover</label>
+            <input type="checkbox" id="wallHoverPause" class="m-check"> Pause on hover</label>
           <label class="wall-check" title="Skip videos that need converting on the fly. They are heavier to play.">
-            <input type="checkbox" id="wallDirect"> Only direct-play files</label>
-          <label class="wall-check"><input type="checkbox" id="wallToEnd"> Play clips to the end</label>
+            <input type="checkbox" id="wallDirect" class="m-check"> Only files that play without converting</label>
+          <label class="wall-check"><input type="checkbox" id="wallToEnd" class="m-check"> Play clips to the end</label>
         </div>
       </div>
       <div class="wall-stage">
@@ -2380,7 +2380,7 @@ const Wall = (() => {
       await buildPool();
     } catch (err) {
       if (gen !== buildGen) return;
-      showMsg(err && err.message ? `Could not load the wall. ${err.message}` : 'Could not load the wall.');
+      showMsg(typeof friendlyError === 'function' ? friendlyError(err, 'loading the wall') : 'Could not load the wall.');
       return;
     }
     if (gen !== buildGen) return;

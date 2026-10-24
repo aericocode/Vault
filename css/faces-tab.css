@@ -37,10 +37,12 @@
   display: flex; align-items: center; justify-content: center;
   width: 100%; height: 100%; background: var(--bg-tertiary); color: var(--text-muted); font-size: 1.6rem;
 }
+/* The person icon stands in for a face with no picture; thinner lines as it grows. */
+svg.ft-blank-ico { width: 0.9em; height: 0.9em; stroke-width: 1.6; }
 
 /* ── Buttons ── */
 .ft-btn {
-  font-family: Arial, sans-serif;
+  font-family: inherit;
   font-size: 0.8rem;
   font-weight: 600;
   padding: 0.42rem 0.85rem;
@@ -59,11 +61,20 @@
 .ft-btn-md.ghost:hover { border-color: var(--accent); }
 .ft-btn-md.ghost.on { border-color: #facc15; color: #facc15; }
 .ft-btn-lg { font-size: 0.875rem; padding: 0.625rem 1.125rem; margin-top: 6px; }
+/* Line icons inside buttons and pills (player-lib/icons.js) */
+.ft-bico { margin-right: 0.35em; }
+.ft-btn-md.ghost.on .vi-star { fill: currentColor; }
+svg.ft-caret { margin-left: 0.3em; width: 0.95em; height: 0.95em; vertical-align: -0.18em; }
+.ft-back .vi { vertical-align: -0.16em; }
+.ft-dots svg.vi { width: 1.15em; height: 1.15em; vertical-align: -0.22em; }
 .ft-link {
   background: none; border: 0; padding: 0; font: inherit; font-size: 0.8rem;
   color: var(--text-secondary); text-decoration: underline; cursor: pointer;
 }
 .ft-link:hover { color: var(--text-primary); }
+/* Modern: text actions read as quiet accent links, not underlined Classic ones. */
+body.layout-modern .ft-link { color: var(--accent-hover); text-decoration: none; }
+body.layout-modern .ft-link:hover { color: var(--m-text); text-decoration: underline; }
 
 /* ── Off ── */
 .ft-off { display: flex; justify-content: center; padding: 32px 0; }
@@ -79,6 +90,10 @@
 }
 .ft-heads { display: flex; align-items: center; }
 .ft-heads svg { margin: 0 -8px; }
+.ft-head-ring { fill: var(--bg-tertiary); stroke: var(--border); }
+.ft-head-face { stroke: var(--text-muted); }
+.ft-head-svg.is-main .ft-head-ring { stroke: var(--accent); }
+.ft-head-svg.is-main .ft-head-face { stroke: var(--text-secondary); }
 .ft-empty h1 { margin: 6px 0 0; font-size: 1.375rem; font-weight: 600; color: var(--text-primary); }
 .ft-empty ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 0.875rem; color: #c8c8c8; }
 .ft-small { margin: 0; font-size: 0.78rem; color: var(--text-secondary); max-width: 420px; }
@@ -101,7 +116,7 @@
 }
 .ft-search input:focus { outline: none; border-color: var(--accent); }
 .ft-search input::placeholder { color: var(--text-muted); }
-.ft-search svg { position: absolute; left: 13px; top: 50%; margin-top: -8px; pointer-events: none; }
+.ft-search svg { position: absolute; left: 13px; top: 50%; margin-top: -8px; pointer-events: none; color: var(--text-muted); }
 .ft-pill {
   padding: 0.6rem 1rem; border: 1px solid var(--border); border-radius: 999px;
   background: var(--bg-tertiary); color: var(--text-secondary); font: inherit; font-size: 0.8rem; cursor: pointer;
@@ -321,6 +336,7 @@
 .ft-dlg-h h2 { margin: 0; font-size: 1.25rem; font-weight: 600; }
 .ft-dlg-h span { font-size: 0.8125rem; color: var(--text-secondary); }
 .ft-x { margin-left: auto; background: none; border: 0; color: var(--text-secondary); font-size: 1.5rem; line-height: 1; padding: 0; cursor: pointer; }
+.ft-x .vi { width: 18px; height: 18px; display: block; }
 .ft-x:hover { color: var(--text-primary); }
 .ft-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .ft-col { display: flex; flex-direction: column; gap: 8px; }
@@ -418,6 +434,8 @@
 }
 .media-tile:hover .ft-notme, .ft-notme:focus-visible { opacity: 1; }
 .ft-notme:hover { background: var(--danger); color: #fff; }
+svg.ft-from-ico, svg.ft-notme-ico { width: 0.95em; height: 0.95em; vertical-align: -0.15em; }
+svg.ft-from-ico { fill: currentColor; }
 .tile-thumb:has(.ft-notme) .tile-actions { top: 36px; }
 
 /* ── Privacy mode ── */
@@ -620,3 +638,6 @@ body.pm-names .ft-cmeta { filter: blur(7px); }
   .ft-wrow .face-crop, .ft-wrow .ft-blank { width: 24px; height: 24px; }
   .ft-wrow .ft-mini-name { flex: none; }
 }
+
+/* The person icon stays centred in a blank face, whatever box it fills. */
+.ft-f2 .ft-blank, .ft-cover .ft-blank, .ft-thumb .ft-blank { display: flex; }

@@ -5,7 +5,7 @@
 function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filename, hasPrev, hasNext) {
   content.innerHTML = `
     <div class="audio-visualization" id="audioVisualization">
-      <div class="audio-icon">🎵</div>
+      <div class="audio-icon">${playerGlyph('🎵', 'audio')}</div>
       <div class="audio-filename">${escapeHtml(filename)}</div>
       <canvas id="audioCanvas" width="400" height="100"></canvas>
     </div>
@@ -33,7 +33,7 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
   // way back out was the keyboard.
   const rightControls = `
     ${renderFillButton()}
-    <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)">⛶</button>
+    <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)" aria-label="Fullscreen">${playerGlyph('⛶', 'fullscreen')}</button>
   `;
 
   const speedControls = renderSpeedControls();
@@ -53,7 +53,7 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
         <div class="playback-controls">
           ${renderSkipButton(-10, 'skipAudio(-10)', '-10s (J)')}
           ${renderSkipButton(-5, 'skipAudio(-5)', '-5s (←)')}
-          <button onclick="toggleAudioPlay()" id="playPauseBtn" class="play-pause-btn" title="Play/Pause (Space)">▶</button>
+          <button onclick="toggleAudioPlay()" id="playPauseBtn" class="play-pause-btn" title="Play/Pause (Space)" aria-label="Play">${playerGlyph('▶', 'play-fill')}</button>
           ${renderSkipButton(5, 'skipAudio(5)', '+5s (→)')}
           ${renderSkipButton(10, 'skipAudio(10)', '+10s (L)')}
         </div>
@@ -113,17 +113,17 @@ function renderAudioPlayer(content, controlsContainer, fileUrl, filepath, filena
   
   audio.addEventListener('play', () => {
     const btn = document.getElementById('playPauseBtn');
-    if (btn) btn.textContent = '⏸';
+    if (btn) setPlayerPlayGlyph(btn, true);
   });
   
   audio.addEventListener('pause', () => {
     const btn = document.getElementById('playPauseBtn');
-    if (btn) btn.textContent = '▶';
+    if (btn) setPlayerPlayGlyph(btn, false);
   });
   
   audio.addEventListener('ended', () => {
     const btn = document.getElementById('playPauseBtn');
-    if (btn) btn.textContent = '▶';
+    if (btn) setPlayerPlayGlyph(btn, false);
     if (typeof autoAdvanceOnEnded === 'function') autoAdvanceOnEnded();
   });
 

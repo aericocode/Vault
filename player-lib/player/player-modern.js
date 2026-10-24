@@ -281,7 +281,9 @@ const ModernDock = (() => {
     const heat = (s) => { const a = parseJson(s, null); return Array.isArray(a) && a.length ? a : null; };
     st.notes = m ? G.noteMarks(parseJson(m.user_notes, [])) : [];
     st.hots = m ? G.hotMarks(heat(m.hot_heatmap), dur, m.last_hot_position) : [];
-    st.heat = m ? G.smoothHeat(heat(m.watch_heatmap)) : [];
+    // A single even pass has no shape: no ridge rather than a flat block (V1)
+    const watch = m ? heat(m.watch_heatmap) : null;
+    st.heat = watch && G.heatHasShape(watch) ? G.smoothHeat(watch) : [];
     drawPins();
     if (st.hover) drawRidge();
   }
@@ -969,6 +971,16 @@ const ModernDock = (() => {
   function placeToast() {
     const root = document.documentElement;
     if (!mounted()) {
+      // The players without the dock (audio, pictures, documents, mixes)
+      // keep their control bar: the toast goes in the stage, above that bar.
+      const bar = otherPlayerBar();
+      if (bar) {
+        const r = stage().getBoundingClientRect();
+        const top = bar.getBoundingClientRect().top - TOAST_GAP;
+        root.style.setProperty('--toast-x', Math.round(r.left + r.width / 2) + 'px');
+        root.style.setProperty('--toast-bottom', Math.max(TOAST_GAP, Math.round(innerHeight - top)) + 'px');
+        return;
+      }
       root.style.removeProperty('--toast-x');
       root.style.removeProperty('--toast-bottom');
       return;
@@ -986,6 +998,16 @@ const ModernDock = (() => {
     }
     root.style.setProperty('--toast-x', Math.round(r.left + r.width / 2) + 'px');
     root.style.setProperty('--toast-bottom', Math.max(TOAST_GAP, Math.round(innerHeight - y)) + 'px');
+  }
+
+  /** The control bar of an open Modern player that has no dock, else null. */
+  function otherPlayerBar() {
+    const ov = overlay();
+    if (!ov || !ov.classList.contains('active') || !vaultIsModern()) return null;
+    if (currentMediaState && currentMediaState.miniMode) return null;
+    const s = stage();
+    const bar = s && s.querySelector('#mediaPlayerControls .player-controls-wrapper');
+    return bar && bar.getClientRects().length && bar.getBoundingClientRect().height ? bar : null;
   }
 
   // Re-placed whenever a toast comes up, the controls show or hide, or the

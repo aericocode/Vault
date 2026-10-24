@@ -81,9 +81,9 @@ function renderDocumentPlayer(content, controlsContainer, fileUrl, filepath, fil
   
   // Right controls: Copy, Fullscreen
   const rightControls = `
-    <button onclick="copyDocContent()" class="control-btn" title="Copy Content">📋 Copy</button>
+    <button onclick="copyDocContent()" class="control-btn" title="Copy Content">${playerGlyph('📋 ', 'copy')}Copy</button>
     ${renderFillButton()}
-    <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)">⛶</button>
+    <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)" aria-label="Fullscreen">${playerGlyph('⛶', 'fullscreen')}</button>
   `;
   
   controlsContainer.innerHTML = `

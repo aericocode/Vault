@@ -87,3 +87,97 @@
 /* Mini-player Vibe toggle (reuses .mini-ctrl base) */
 .mini-vibe-btn.active { color: #fff; background: var(--accent); border-radius: 6px; }
 .mini-vibe-btn.vibe-warn { color: #000; background: var(--warning); border-radius: 6px; }
+
+/* Status line: a dot drawn in CSS, then the words */
+.lovense-status-wrap { display: inline-flex; align-items: center; gap: 0.45rem; min-width: 0; }
+.lovense-status.error { color: var(--danger); }
+.lovense-seg { display: inline-flex; align-items: center; gap: 0.7rem; }
+.lovense-actions[hidden] { display: none; }
+
+/* ── Modern ─────────────────────────────────────────────────────────────
+   The Modern popover card, sentence-case labels, accent sliders with plain
+   numbers, a segmented Mode switch, and the .m-field / .m-btn controls the
+   markup already carries. */
+body.layout-modern .lovense-panel {
+  width: min(440px, calc(100vw - 32px));
+  padding: 14px 16px;
+  gap: 12px;
+  background: var(--m-surface-solid);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  box-shadow: var(--m-shadow);
+  color: var(--m-text);
+  font-size: 13px;
+}
+body.layout-modern .lovense-row { gap: 8px; }
+body.layout-modern .lovense-status { color: var(--m-text-2); font-size: 13px; }
+body.layout-modern .lovense-status.on { color: var(--m-success-text); }
+body.layout-modern .lovense-status.error { color: var(--m-danger-text); }
+body.layout-modern .lovense-panel .lovense-dot { width: 8px; height: 8px; flex: none; }
+body.layout-modern .lovense-panel .lovense-dot:not(.lovense-dot-on) { background: var(--m-muted); }
+body.layout-modern .lovense-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: -4px -6px -4px 0;
+  padding: 0;
+  border-radius: var(--m-radius-sm);
+  color: var(--m-text-2);
+}
+body.layout-modern .lovense-x:hover { background: var(--m-btn-hover); color: var(--m-text); }
+body.layout-modern .lovense-x:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
+body.layout-modern .lovense-x .vi { width: 16px; height: 16px; }
+body.layout-modern .lovense-lbl {
+  min-width: 2.6em;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--m-muted);
+}
+body.layout-modern .lovense-input { flex: 1; min-width: 110px; font-family: inherit; font-variant-numeric: tabular-nums; }
+body.layout-modern .lovense-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+body.layout-modern .lovense-num {
+  min-width: 3.4em;
+  font-family: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--m-text);
+}
+body.layout-modern .lovense-btn-danger { color: var(--m-danger-text); }
+body.layout-modern .lovense-btn-danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.14); }
+body.layout-modern .lovense-btn .vi { width: 14px; height: 14px; }
+
+/* Mode: one switch with two halves; the radios stay in the markup for keys
+   and screen readers, only their dots are hidden */
+body.layout-modern .lovense-seg {
+  gap: 0;
+  padding: 2px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-field);
+}
+body.layout-modern .lovense-seg .lovense-radio {
+  position: relative;
+  padding: 5px 12px;
+  border-radius: 6px;
+  color: var(--m-text-2);
+  font-size: 13px;
+}
+body.layout-modern .lovense-seg .lovense-radio input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+body.layout-modern .lovense-seg .lovense-radio:hover { color: var(--m-text); }
+body.layout-modern .lovense-seg .lovense-radio:has(input:checked) { background: var(--accent); color: #fff; }
+body.layout-modern .lovense-seg .lovense-radio:has(input:focus-visible) { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
+
+body.layout-modern .lovense-devmeta { color: var(--m-muted); font-size: 12px; }
+body.layout-modern .lovense-actuator { border-color: var(--m-border-strong); border-radius: var(--m-radius-sm); padding: 3px 8px; }
+body.layout-modern .lovense-hint { font-size: 12px; color: var(--m-muted); line-height: 1.4; }
+.lovense-devices:empty { display: none; }
