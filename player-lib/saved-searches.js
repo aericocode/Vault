@@ -292,11 +292,13 @@ function updateSearchStarButton() {
 
 // ── Modern: the saved searches panel under the search box ──────────────
 //
-// Clicking or focusing the empty library search box opens a small panel under
-// the left of the box: each saved search is a compact pill (name only).
+// Clicking or focusing the library search box opens a small panel under the
+// left of the box: each saved search is a compact pill (name only). While
+// there is typed text it starts with a "+ Save" pill (the Modern box has no
+// star; this is the save), then the saved searches that match.
 // Clicking a pill runs it (activateSavedSearch, the same as the rail). Typing
-// narrows the pills (by name or query, any case); typed text that matches
-// nothing hides the panel so normal typing is unaffected. Arrows move pill to
+// narrows the pills (by name or query, any case). Enter (the search), Esc, a
+// click away or Tab close the panel, so it never covers the results for long. Arrows move pill to
 // pill, Enter picks; nothing is highlighted on open, so Enter alone is the
 // normal search. The pencil turns on edit mode: every pill shows an x that
 // removes it (deleteSavedSearch, no confirm), as do Delete / Backspace on the
@@ -328,13 +330,30 @@ function savedSearchMoveIndex(index, delta, count) {
   return i <= 0 ? count - 1 : i - 1;
 }
 
-/** Whether the panel shows, and with which pills: hidden when the box has
- *  text that no saved search matches; an empty box always shows it (with no
- *  saved searches it says how to add one). */
-function savedSearchDropdownState(list, query) {
-  const rows = savedSearchMatches(list, query);
-  const typed = !!String(query || '').trim();
-  return { rows, show: !typed || rows.length > 0, empty: !(Array.isArray(list) && list.length) };
+/** The saved query of one saved search (the search_text column, or the
+ *  saved filters' searchText for older rows). */
+function savedSearchQueryOf(s) {
+  if (!s) return '';
+  return String(s.search_text != null ? s.search_text : (s.filters && s.filters.searchText) || '');
+}
+
+/**
+ * The panel for what is typed: { items, rows, save, current, show, empty }.
+ * items is what shows, in arrow order: with typed text, a Save pill first
+ * ({ id: 'save', save: true, text }), then the saved searches that match.
+ * No Save pill when a saved search's name or query is exactly the typed text
+ * (current is that one's id; it is shown marked instead), or in edit mode.
+ * An empty box shows the saved list (or, with none, the empty state); typed
+ * text shows the panel whenever it has a pill.
+ */
+function savedSearchDropdownState(list, query, opts) {
+  const all = Array.isArray(list) ? list : [];
+  const text = String(query || '').trim();
+  const rows = savedSearchMatches(all, text);
+  const cur = text ? all.find(s => s && (String(s.name || '').trim() === text || savedSearchQueryOf(s).trim() === text)) : null;
+  const save = !!text && !cur && !(opts && opts.editing);
+  const items = save ? [{ id: 'save', save: true, text }, ...rows] : rows;
+  return { items, rows, save, current: cur ? cur.id : null, show: !text || items.length > 0, empty: !all.length };
 }
 
 /**
@@ -396,27 +415,31 @@ function ssdRender() {
   const { input, box } = ssdEls();
   if (!input || !box) return;
   if (!ssdIsModern() || _ssd.dismissed || document.activeElement !== input || input.disabled) { ssdClose(); return; }
-  const st = savedSearchDropdownState(savedSearches, input.value);
+  const st = savedSearchDropdownState(savedSearches, input.value, { editing: _ssd.editing });
   if (!st.show) { ssdClose(); return; }
   const prev = _ssd.rows[_ssd.index];
   let index = prev ? st.rows.findIndex(s => s.id === prev.id) : -1;
-  if (index < 0 && _ssd.afterRemove != null) index = Math.min(_ssd.afterRemove, st.rows.length - 1);
+  if (index < 0 && _ssd.afterRemove != null) index = Math.min(_ssd.afterRemove, st.items.length - 1);
   _ssd.afterRemove = null;
-  _ssd.rows = st.rows;
+  _ssd.rows = st.items;
   _ssd.index = index;
   if (st.empty) _ssd.editing = false;
+  const hasSaved = st.rows.length > 0;
   const icon = (n) => (typeof vaultIcon === 'function' ? vaultIcon(n) : '');
   const edit = _ssd.editing;
   box.classList.toggle('is-editing', edit);
-  box.innerHTML = st.empty
+  box.innerHTML = st.empty && !st.save
     ? `<div class="ssd-head"><span class="ssd-h">Saved searches</span></div>
        <p class="ssd-empty">No saved searches yet.</p>
-       <div class="ssd-foot">Star a search to keep it here</div>`
+       <div class="ssd-foot">Type a search to save it here</div>`
     : `<div class="ssd-head"><span class="ssd-h" id="ssdHead">Saved searches</span>
-         <button type="button" class="ssd-edit" data-ssd-edit tabindex="-1" aria-pressed="${edit ? 'true' : 'false'}">${icon('edit')}<span>${edit ? 'Done' : 'Edit'}</span></button></div>
-       <div class="ssd-pills" role="listbox" aria-labelledby="ssdHead">${st.rows.map(s => {
+         ${hasSaved ? `<button type="button" class="ssd-edit" data-ssd-edit tabindex="-1" aria-pressed="${edit ? 'true' : 'false'}">${icon('edit')}<span>${edit ? 'Done' : 'Edit'}</span></button>` : ''}</div>
+       <div class="ssd-pills" role="listbox" aria-labelledby="ssdHead">${st.items.map(s => {
+         if (s.save) {
+           return `<div class="ssd-pill ssd-save" role="option" id="ssdOptsave" data-ssd-save aria-selected="false">${icon('plus')}<span class="ssd-name">Save "${escapeHtml(s.text)}"</span></div>`;
+         }
          const name = escapeHtml(s.name);
-         return `<div class="ssd-pill" role="option" id="ssdOpt${s.id}" data-ssd-id="${s.id}" aria-selected="false">
+         return `<div class="ssd-pill${s.id === st.current ? ' is-current' : ''}" role="option" id="ssdOpt${s.id}" data-ssd-id="${s.id}" aria-selected="false">
            <span class="ssd-name">${name}</span>${edit ? `<button type="button" class="ssd-x" data-ssd-del="${s.id}" tabindex="-1"
                    title="Remove this saved search" aria-label="Remove the saved search ${name}">${icon('close')}</button>` : ''}
          </div>`;
@@ -454,7 +477,15 @@ function ssdRemove(id) {
   return deleteSavedSearch(id);
 }
 
+/** The Save pill: the same save as the star was (saveSearchFromInput names
+ *  it after the text); the panel stays open and the new pill replaces it. */
+function ssdSave() {
+  _ssd.index = -1;
+  return saveSearchFromInput();
+}
+
 function ssdPick(id) {
+  if (id === 'save') return ssdSave();
   ssdClose({ dismiss: true });
   activateSavedSearch(id);
   if (typeof updateSearchStarButton === 'function') updateSearchStarButton();
@@ -523,6 +554,7 @@ function ssdInit() {
     if (e.target.closest('[data-ssd-edit]')) { ssdSetEditing(!_ssd.editing); return; }
     const del = e.target.closest('[data-ssd-del]');
     if (del) { e.stopPropagation(); ssdRemove(Number(del.dataset.ssdDel)); return; }
+    if (e.target.closest('[data-ssd-save]')) { ssdSave(); return; }
     const pill = e.target.closest('[data-ssd-id]');
     if (pill && !_ssd.editing) ssdPick(Number(pill.dataset.ssdId));
   });

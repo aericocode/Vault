@@ -257,8 +257,36 @@ function updateSearchClearButton() {
   const btn = document.getElementById('searchClearBtn');
   if (btn) {
     btn.style.display = searchInput.value.trim() ? 'flex' : 'none';
+    positionSearchClearButton();
   }
 }
+
+// Modern: the clear x sits a few pixels after the end of the typed text and
+// moves along as it grows (on a wide window the box's right end is far from
+// the text); text longer than the box pins it to the right end. Classic keeps
+// it at the right end (css/extensions.css).
+let _searchMeasureCtx = null;
+function searchTextWidth(input) {
+  if (!_searchMeasureCtx) _searchMeasureCtx = document.createElement('canvas').getContext('2d');
+  const cs = getComputedStyle(input);
+  _searchMeasureCtx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  return _searchMeasureCtx.measureText(input.value).width;
+}
+function positionSearchClearButton() {
+  const btn = document.getElementById('searchClearBtn');
+  if (!btn) return;
+  const modern = typeof isModernLayout === 'function' && isModernLayout();
+  if (!modern || btn.style.display === 'none') { btn.style.left = ''; btn.style.right = ''; return; }
+  const cs = getComputedStyle(searchInput);
+  const start = searchInput.offsetLeft + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft);
+  const afterText = start + searchTextWidth(searchInput) + 6;
+  const rightEnd = searchInput.offsetLeft + searchInput.offsetWidth - btn.offsetWidth - 8;
+  btn.style.left = `${Math.round(Math.max(start, Math.min(afterText, rightEnd)))}px`;
+  btn.style.right = 'auto';
+}
+window.addEventListener('resize', positionSearchClearButton);
+if (typeof ResizeObserver === 'function') new ResizeObserver(() => positionSearchClearButton()).observe(searchInput);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(positionSearchClearButton).catch(() => {});
 
 // Filter change handlers — dropdowns
 document.querySelectorAll('#filterContent, #filterLanguage, #filterMinRating, #filterTheme, #filterQuality').forEach(select => {

@@ -248,3 +248,12 @@ body.layout-modern .ssd-x .vi { width: 11px; height: 11px; }
 body.layout-modern .ssd-x:hover { color: var(--m-danger-text); background: var(--m-btn-hover); }
 body.layout-modern .ssd-empty { margin: 0 0 8px; color: var(--m-text-2); }
 body.layout-modern .ssd-foot { margin-top: 10px; color: var(--m-muted); font-size: 12px; }
+/* The Save pill (first while there is typed text): a dashed accent outline
+   and a plus. It replaces the star in the Modern search box. */
+body.layout-modern .ssd-pill.ssd-save { gap: 6px; border-style: dashed; border-color: var(--accent); background: none; color: var(--accent-hover); }
+body.layout-modern .ssd-pill.ssd-save:hover { background: var(--accent-bg, rgba(99, 102, 241, 0.2)); }
+body.layout-modern .ssd-pill.ssd-save.is-hl { border-style: solid; background: var(--accent-bg, rgba(99, 102, 241, 0.2)); }
+body.layout-modern .ssd-pill.ssd-save .vi { width: 13px; height: 13px; flex: none; }
+/* The saved search that is exactly the typed text. */
+body.layout-modern .ssd-pill.is-current { border-color: var(--accent); }
+body.layout-modern .search-save-star { display: none !important; }

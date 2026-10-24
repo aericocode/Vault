@@ -384,7 +384,7 @@ function railRenderSaved() {
         <button type="button" class="rail-saved-x" data-rail-saved-del="${s.id}" title="Remove this saved search"
                 aria-label="Remove the saved search ${escapeHtml(s.name)}">×</button>
       </div>`;
-  }).join('') : '<p class="rail-empty">None yet. Type a search and click the star in the search box to keep it.</p>');
+  }).join('') : '<p class="rail-empty">None yet. Type a search and choose Save in the list under the search box.</p>');
 }
 
 function railRenderLists() {

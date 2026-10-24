@@ -53,15 +53,53 @@ test('bad input is an empty list, not a throw', () => {
   assert.deepStrictEqual(ids(savedSearchMatches([null, { id: 4, name: 'Ok' }], 'ok')), [4]);
 });
 
-test('the list hides when typed text matches nothing, and always shows for an empty box', () => {
-  assert.strictEqual(savedSearchDropdownState(LIST, '').show, true);
-  assert.strictEqual(savedSearchDropdownState(LIST, 'beach').show, true);
-  assert.strictEqual(savedSearchDropdownState(LIST, 'nothing like it').show, false);
+test('an empty box shows the saved list, or the empty state, with no Save pill', () => {
+  const st = savedSearchDropdownState(LIST, '');
+  assert.strictEqual(st.show, true);
+  assert.strictEqual(st.save, false);
+  assert.deepStrictEqual(ids(st.items), [1, 2, 3]);
+  assert.strictEqual(st.empty, false);
   const none = savedSearchDropdownState([], '');
-  assert.strictEqual(none.show, true, 'an empty box with nothing saved says how to save one');
+  assert.strictEqual(none.show, true, 'says how to save one');
   assert.strictEqual(none.empty, true);
-  assert.strictEqual(savedSearchDropdownState([], 'cats').show, false, 'typing with nothing saved: normal search only');
-  assert.strictEqual(savedSearchDropdownState(LIST, '').empty, false);
+  assert.strictEqual(none.items.length, 0);
+});
+
+test('typed text puts a Save pill first, then the saved searches that match', () => {
+  const st = savedSearchDropdownState(LIST, 'b');
+  assert.strictEqual(st.show, true);
+  assert.strictEqual(st.save, true);
+  assert.deepStrictEqual(ids(st.items), ['save', 1, 2]);
+  assert.strictEqual(st.items[0].text, 'b');
+  assert.deepStrictEqual(ids(st.rows), [1, 2], 'rows are the saved ones only');
+  assert.strictEqual(st.current, null);
+  const lone = savedSearchDropdownState(LIST, ' nothing like it ');
+  assert.strictEqual(lone.show, true, 'no match still offers to save it');
+  assert.deepStrictEqual(ids(lone.items), ['save']);
+  assert.strictEqual(lone.items[0].text, 'nothing like it', 'trimmed');
+  const first = savedSearchDropdownState([], 'cats');
+  assert.deepStrictEqual(ids(first.items), ['save'], 'the first save, with nothing saved yet');
+  assert.strictEqual(first.empty, true);
+});
+
+test('no Save pill when the text already is a saved search; that one is marked current', () => {
+  const byQuery = savedSearchDropdownState(LIST, 'beach');
+  assert.strictEqual(byQuery.save, false);
+  assert.strictEqual(byQuery.current, 2);
+  assert.deepStrictEqual(ids(byQuery.items), [2]);
+  const byName = savedSearchDropdownState(LIST, 'Blonde dance');
+  assert.strictEqual(byName.save, false);
+  assert.strictEqual(byName.current, 1);
+  const legacy = savedSearchDropdownState([{ id: 9, name: 'Top', filters: { searchText: 'rating:5' } }], 'rating:5');
+  assert.strictEqual(legacy.current, 9, 'older rows keep the query in their filters');
+  assert.strictEqual(savedSearchDropdownState(LIST, 'Beach').save, true, 'a different case is a different search, as the save check sees it');
+});
+
+test('edit mode has no Save pill, and typed text matching nothing then hides the panel', () => {
+  const st = savedSearchDropdownState(LIST, 'b', { editing: true });
+  assert.strictEqual(st.save, false);
+  assert.deepStrictEqual(ids(st.items), [1, 2]);
+  assert.strictEqual(savedSearchDropdownState(LIST, 'zzz', { editing: true }).show, false);
 });
 
 test('Down from nothing is the first row, Up from nothing is the last, and both wrap', () => {
