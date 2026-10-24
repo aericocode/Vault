@@ -1011,8 +1011,8 @@
       ${segRow({
         key: 'layoutStyle',
         title: 'Library look',
-        desc: 'Classic is the layout you know. Modern uses the full width of the screen and sets card size with a slider above the grid.',
-        options: [{ value: 'classic', label: 'Classic' }, { value: 'modern', label: 'Modern' }],
+        desc: 'Modern is the new look. Classic is the old look: it gets no new features and will be removed in a future version.',
+        options: [{ value: 'modern', label: 'Modern' }, { value: 'classic', label: 'Classic (old look)' }],
       })}
       ${segRow({
         key: 'cardSize',
@@ -1066,13 +1066,13 @@
      auto-lock and model downloads have their own page (Privacy and
      security); Card size is the Size slider above the grid in Modern. */
 
-  const LOOK_OPTIONS = [{ value: 'classic', label: 'Classic' }, { value: 'modern', label: 'Modern' }];
+  const LOOK_OPTIONS = [{ value: 'modern', label: 'Modern' }, { value: 'classic', label: 'Classic (old look)' }];
   const LAYOUT_OPTIONS = [{ value: 'pages', label: 'Pages' }, { value: 'continuous', label: 'Continuous' }];
 
   function RENDERERS_general() {
     return settingsCardHtml({ title: 'Look', body:
       segRow({ key: 'layoutStyle', title: 'Library look',
-        desc: 'Classic keeps the original style. Modern uses the full width of the screen.', options: LOOK_OPTIONS })
+        desc: 'Classic is the old look. It gets no new features and will be removed in a future version.', options: LOOK_OPTIONS })
       + segRow({ key: 'libraryLayout', title: 'Browsing',
         desc: 'Pages of whole rows, or one long scroll.', options: LAYOUT_OPTIONS })
       + toggleRow({ key: 'gamifyHidden', invert: true, title: 'Show the Obsession Score',
