@@ -17,22 +17,7 @@ function loadScript(url) {
   });
 }
 
-function showToast(message) {
-  const toast = document.getElementById('toast');
-  // Modern drops the leading emoji ("Saved", not "💾 Saved"): player-lib/icons.js
-  toast.textContent = typeof vaultToastText === 'function' ? vaultToastText(message) : message;
-  toast.classList.add('active');
-  setTimeout(() => toast.classList.remove('active'), 3000);
-}
-
-// Copy path to clipboard
-function copyPath(filepath) {
-  navigator.clipboard.writeText(filepath).then(() => {
-    showToast('Path copied to clipboard!');
-  }).catch(() => {
-    showToast('Failed to copy path');
-  });
-}
+// showToast, showErrorToast, friendlyError and copyPath live in utils.js.
 
 // ── Sort controls: one option per field + a direction arrow + ❤ toggle ────
 // currentSort stays a composed "field_dir" string so saved searches keep
@@ -51,7 +36,11 @@ function syncSortControls() {
   const favBtn = document.getElementById('favesFirstBtn');
   if (select) select.value = currentSortField();
   if (dirBtn) {
-    dirBtn.textContent = currentSortDir() === 'asc' ? '▲' : '▼';
+    // Classic's ▲ / ▼, Modern's line arrow (player-lib/icons.js)
+    const asc = currentSortDir() === 'asc';
+    dirBtn.innerHTML = typeof vaultIconSwap === 'function'
+      ? vaultIconSwap(asc ? '▲' : '▼', asc ? 'arrow-up' : 'arrow-down')
+      : (asc ? '▲' : '▼');
     dirBtn.title = currentSortDir() === 'asc' ? 'Least first. Click for most first' : 'Most first. Click for least first';
   }
   if (favBtn) {
@@ -82,6 +71,9 @@ document.getElementById('favesFirstBtn').addEventListener('click', () => {
   syncSortControls();
   applyFilters({ keepPage: true });
 });
+
+// The page's static ▼ becomes the right arrow (a line icon in Modern) from the start.
+syncSortControls();
 
 /* ── The More sheet ────────────────────────────────────────────────────────
    The sheet floats over the grid instead of pushing it down, so opening and
@@ -371,10 +363,10 @@ refreshBtn.addEventListener('click', async () => {
     // A fresh look at which files are missing from disk (folder watchers'
     // Missing tags and the banner), in the background.
     fetch('/api/library/missing-count?expire=1', { headers: { 'X-Vault-Background': '1' } }).catch(() => {});
-    showToast('Library refreshed!');
+    showToast('Library refreshed');
   } catch (err) {
     console.error('Refresh failed:', err);
-    showToast('Refresh failed!');
+    showErrorToast(err, 'refreshing the library');
   } finally {
     setTimeout(() => {
       isRefreshing = false;

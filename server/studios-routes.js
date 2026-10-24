@@ -25,14 +25,14 @@ function vaultLocked() {
 
 function sendError(res, err) {
   if (err && err.type === 'entity.too.large') {
-    return res.status(413).json({ error: 'That photo is too big (15 MB at most).', code: 'TOO_LARGE' });
+    return res.status(413).json({ error: 'That picture is too big. Studio pictures can be 15 MB at most.', code: 'TOO_LARGE' });
   }
   if (err && err.type) {   // other body-parser failures (bad JSON, bad encoding)
     return res.status(err.status || 400).json({ error: err.message, code: 'BAD_BODY' });
   }
   // The vault locked while this request waited on ffmpeg: the DB closed under it.
   if (err && (err.code === 'DB_ENCRYPTED' || err.code === 'VAULT_LOCKED' || (!err.status && vaultLocked()))) {
-    return res.status(423).json({ error: 'vault is locked', code: 'VAULT_LOCKED' });
+    return res.status(423).json({ error: 'Vault is locked. Unlock it first.', code: 'VAULT_LOCKED' });
   }
   if (err && err.status) {
     const body = { error: err.message, code: err.code };

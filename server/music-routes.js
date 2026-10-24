@@ -93,7 +93,7 @@ function buildRouter() {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'bad id' });
     if (!repo.mediaHasFingerprints(id)) {
-      return res.status(409).json({ error: 'not fingerprinted yet' });
+      return res.status(409).json({ error: 'This file has not been fingerprinted yet. Run Music ID on it first.' });
     }
     const found = service.scanMedia(id);
     res.json({ found, songs: repo.songsForMedia(id) });
@@ -118,7 +118,7 @@ function buildRouter() {
 
   router.post('/songs', (req, res) => {
     const { title, artist } = req.body || {};
-    if (!title || !artist) return res.status(400).json({ error: 'title + artist required' });
+    if (!title || !artist) return res.status(400).json({ error: 'Enter a title and an artist.' });
     const id = repo.findOrCreateSong(req.body);
     res.json({ id, song: repo.getSong(id) });
   });
@@ -242,8 +242,8 @@ function buildRouter() {
   router.post('/mixes', (req, res) => {
     const { title, description, song_id, media_ids, config } = req.body || {};
     const ids = Array.isArray(media_ids) ? media_ids.map(Number).filter(n => Number.isInteger(n) && n > 0) : [];
-    if (!title || !String(title).trim()) return res.status(400).json({ error: 'title required' });
-    if (ids.length < 2) return res.status(400).json({ error: 'media_ids required (2+)' });
+    if (!title || !String(title).trim()) return res.status(400).json({ error: 'Enter a title.' });
+    if (ids.length < 2) return res.status(400).json({ error: 'Pick at least two files for a mix.' });
     for (const id of ids) {
       if (!db.getById(id)) return res.status(400).json({ error: `media ${id} not found` });
     }
@@ -282,7 +282,7 @@ function buildRouter() {
   // aligned:true marks tracks whose start came from the fine pass.
   router.get('/stack-align', (req, res) => {
     const ids = (req.query.ids || '').toString().split(',').map(Number).filter(n => Number.isInteger(n) && n > 0);
-    if (ids.length < 2) return res.status(400).json({ error: 'need 2+ ids' });
+    if (ids.length < 2) return res.status(400).json({ error: 'Pick at least two files.' });
     const pinnedSong = req.query.song ? parseId(req.query.song) : null;
 
     const perMedia = ids.map(id => ({ id, links: repo.songsForMedia(id) }));
@@ -343,9 +343,9 @@ function buildRouter() {
   // → { delta_sec, pairs, ber }: play A at t ⇒ B belongs at t − delta_sec.
   router.get('/fine-align', (req, res) => {
     const a = parseId(req.query.a), b = parseId(req.query.b);
-    if (!a || !b || a === b) return res.status(400).json({ error: 'need distinct a & b media ids' });
+    if (!a || !b || a === b) return res.status(400).json({ error: 'Pick two different files.' });
     const r = service.fineAlignPair(a, b);
-    if (!r) return res.status(404).json({ error: 'no shared audio found. Fingerprint both files first' });
+    if (!r) return res.status(404).json({ error: 'No shared audio found. Fingerprint both files first.' });
     res.json(r);
   });
 
@@ -357,7 +357,7 @@ function buildRouter() {
 
   router.post('/presets', (req, res) => {
     const name = String(req.body?.name || '').trim();
-    if (!name) return res.status(400).json({ error: 'name required' });
+    if (!name) return res.status(400).json({ error: 'Enter a name.' });
     const id = repo.savePreset({
       song_id: req.body?.song_id ? parseId(req.body.song_id) : null,
       name,
@@ -404,11 +404,11 @@ function buildRouter() {
     express.raw({ type: () => true, limit: '200mb' }),
     (req, res) => {
       if (!Buffer.isBuffer(req.body) || !req.body.length) {
-        return res.status(400).json({ error: 'empty upload' });
+        return res.status(400).json({ error: 'That file is empty.' });
       }
       let pack;
       try { pack = JSON.parse(req.body.toString('utf8')); }
-      catch { return res.status(400).json({ error: 'not valid JSON' }); }
+      catch { return res.status(400).json({ error: 'That file is not a seed pack Vault can read.' }); }
       try {
         res.status(202).json(seedpack.startImportJob(pack));
       } catch (err) {
@@ -460,7 +460,7 @@ function buildRouter() {
       const w = Math.round(Number(b.w)), h = Math.round(Number(b.h));
       const fps = Math.round(Number(b.fps));
       if (typeof b.overlay_token !== 'string' || !b.overlay_token) {
-        return res.status(400).json({ error: 'beatbar.overlay_token required' });
+        return res.status(400).json({ error: 'The beat bar picture did not upload. Export again.' });
       }
       if (![x, y, w, h, fps].every(Number.isFinite) ||
           w < 1 || h < 1 || x < 0 || y < 0 || x + w > width || y + h > height ||
@@ -475,7 +475,7 @@ function buildRouter() {
       const mid = parseId(t.media_id);
       const row = mid && db.getById(mid);
       if (!row) return res.status(400).json({ error: `media ${t.media_id} not found` });
-      if (!fs.existsSync(row.filepath)) return res.status(400).json({ error: `${row.filename} missing on disk` });
+      if (!fs.existsSync(row.filepath)) return res.status(400).json({ error: `${row.filename} is missing on disk.` });
       tracks.push({
         mediaPath: row.filepath,
         seek: Math.max(0, Number(t.seek) || 0),
@@ -532,7 +532,7 @@ function buildRouter() {
     if (e.output_path && fs.existsSync(e.output_path)) {
       return res.download(e.output_path, e.filename);
     }
-    res.status(404).json({ error: 'expired. Exports are held in memory until downloaded, render it again' });
+    res.status(404).json({ error: 'This export has expired. Exports are kept in memory only until downloaded, so render it again.' });
   });
 
   return router;

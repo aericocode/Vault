@@ -94,7 +94,6 @@ const VAULT_ICONS = {
   server: '<rect x="3.5" y="4" width="17" height="7" rx="2"/><rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M7.5 7.5h.01M7.5 16.5h.01"/>',
   // The AI scan panel (player-lib/importer.js)
   spark: '<path d="M12 3.5l1.8 5.2 5.2 1.8-5.2 1.8L12 17.5l-1.8-5.2L5 10.5l5.2-1.8z"/><path d="M18.5 16.5v4M16.5 18.5h4"/>',
-  close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   // The Modern Settings menu (player-lib/settings-kit.js)
   lock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
@@ -131,6 +130,21 @@ const VAULT_ICONS = {
   edit: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
   star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8-4.3-4.1 5.9-.9z"/>',
   pin: '<path d="M9 3.5h6M10 3.5v6l-3 4h10l-3-4v-6M12 13.5v7"/>',
+  // Shared UI audit set (3.9): glyph controls, toasts, sort, password fields,
+  // queue states and the Obsession Score card titles.
+  caret: '<path d="m8 10 4 4 4-4"/>',
+  'arrow-up': '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  'arrow-down': '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  minus: '<path d="M5 12h14"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  'eye-off': '<path d="M3.5 3.5l17 17"/><path d="M10.6 5.6c.5-.1.9-.1 1.4-.1 6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-2.7 3.4M6.6 6.6C3.9 8.4 2.5 12 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.4-1.1"/><path d="M9.9 9.9a2.8 2.8 0 0 0 4.2 4.2"/>',
+  award: '<circle cx="12" cy="9" r="5.5"/><path d="M8.6 13.4 7 21l5-3 5 3-1.6-7.6"/>',
+  chart: '<path d="M4 20.5h16M7 20.5v-6M12 20.5V7M17 20.5v-10"/>',
+  trend: '<path d="m3.5 17 6-6 4 4 7-7.5"/><path d="M15 7.5h5.5V13"/>',
+  map: '<path d="M9 4.5 3.5 6.5v13L9 17.5l6 2 5.5-2v-13l-5.5 2z"/><path d="M9 4.5v13M15 6.5v13"/>',
+  palette: '<path d="M12 3.5a8.5 8.5 0 0 0 0 17c1.1 0 1.8-.8 1.8-1.8 0-1.2-1-1.6-1-2.7 0-.9.8-1.5 1.8-1.5h2.2a3.7 3.7 0 0 0 3.7-3.7C20.5 7 16.7 3.5 12 3.5z"/><path d="M7.5 12h.01M9.5 8h.01M14.5 8h.01"/>',
+  camera: '<path d="M4 8.5a2 2 0 0 1 2-2h2L9.5 4h5L16 6.5h2a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.5"/>',
+  mask: '<path d="M5 4.5h14v6a7 7 0 0 1-14 0z"/><path d="M8.5 9h1.5M14 9h1.5M9 13.5a3.5 3.5 0 0 0 6 0"/>',
 };
 
 /* Emoji the app leads its own labels with, and the icon that stands in for
@@ -142,6 +156,13 @@ const VAULT_EMOJI_ICONS = {
   '⬅': 'back', '🔀': 'shuffle', '⏱': 'timer', '🧩': 'puzzle', '▶': 'play', '🔍': 'search',
   '🚩': 'flag', '🏳': 'flag', '✂': 'scissors', '👤': 'person', '🏢': 'building', '▤': 'stack', '▦': 'grid',
   '＋': 'plus', '➕': 'plus', '❓': 'help', '🔗': 'link', '🎮': 'games', '💦': 'done', '⚙': 'gear', '🕘': 'clock',
+  // Status glyphs and the rest of the app's chrome emoji (UI audit, 3.9)
+  '⚠': 'alert', '❗': 'alert', '✓': 'check', '✔': 'check', '✅': 'check', '✕': 'close', '✖': 'close', '❌': 'close',
+  '✗': 'close', '⏳': 'clock', '⌛': 'clock', '✎': 'edit', '✏': 'edit', '🔒': 'lock', '🔐': 'lock',
+  '🔑': 'key', '❤': 'heart', '🤍': 'heart', '📝': 'note', '👁': 'eye', '⏸': 'pause', '🔊': 'volume', '🔇': 'mute',
+  '🏅': 'award', '🏆': 'award', '📈': 'trend', '📊': 'chart', '🗺': 'map', '🎨': 'palette', '🎭': 'mask',
+  '📸': 'camera', '📷': 'camera', '🔥': 'flame', '📋': 'copy', '➖': 'minus', '⛶': 'fullscreen', '↩': 'undo',
+  'ℹ': 'info', '📂': 'folder', '⭳': 'download',
 };
 
 /**

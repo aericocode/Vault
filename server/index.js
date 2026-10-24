@@ -164,7 +164,7 @@ function isLockGatedPath(rawPath) {
 }
 app.use((req, res, next) => {
   if (!isLockGatedPath(req.path)) return next();
-  if (vault.isLocked()) return res.status(423).json({ error: 'vault is locked', code: 'VAULT_LOCKED' });
+  if (vault.isLocked()) return res.status(423).json({ error: 'Vault is locked. Unlock it first.', code: 'VAULT_LOCKED' });
   // Timed background polls (the unscanned-row watcher, for one) mark
   // themselves so they do not count as the user being present; otherwise a
   // library with a single unscanned file could never auto-lock.
@@ -242,7 +242,7 @@ app.use((req, res, next) => {
   // reaches the same handler as /api/faces/index. Match the same way.
   if (!list.some(re => re.test(_normalizeGuardPath(req.path)))) return next();
   res.status(409).json({
-    error: 'a library migration is running. Wait for it to finish.',
+    error: 'Vault is updating file paths in the library. Wait for it to finish.',
     code: 'MIGRATE_RUNNING',
     jobId: _migrateJob.currentId(),
   });
@@ -325,7 +325,7 @@ app.get('/api/gamify/status', (req, res) => {
 // Settings toggle works without a restart; the router (and everything it pulls
 // in) is still only required the first time a request actually gets through.
 app.use('/api/gamify', (req, res, next) => {
-  if (!gamifyEnabled) return res.status(403).json({ error: 'gamification is off', code: 'GAMIFY_OFF' });
+  if (!gamifyEnabled) return res.status(403).json({ error: 'Obsession Score is turned off.', code: 'GAMIFY_OFF' });
   if (!_gamifyRouter) _gamifyRouter = require('./gamify-routes').buildRouter();
   return _gamifyRouter(req, res, next);
 });
@@ -361,7 +361,7 @@ app.post('/api/settings/model-downloads', (req, res) => {
   const r = modelConsent.grant(key, req.body.allow);
   if (!r.ok) {
     return res.status(409).json({
-      error: 'Model downloads are disabled by SUB_ALLOW_DOWNLOADS=0 or VAULT_OFFLINE=1',
+      error: 'Model downloads are turned off for this copy of Vault (SUB_ALLOW_DOWNLOADS=0 or VAULT_OFFLINE=1).',
       code: r.code,
     });
   }
@@ -440,7 +440,7 @@ app.post('/api/settings/app', (req, res) => {
     // A port set in the environment is not ours to overwrite: silently saving a
     // value that the next launch would ignore is worse than refusing.
     if (config.server.portSource === 'env') {
-      return res.status(409).json({ error: 'port is set by MEDIA_TAGGER_PORT' });
+      return res.status(409).json({ error: 'The port is set by MEDIA_TAGGER_PORT when Vault starts, so it cannot be changed here.' });
     }
     const raw = body.serverPort;
     const n = typeof raw === 'number' ? raw
@@ -523,9 +523,9 @@ function checkTools({ refresh = false } = {}) {
     ffmpeg: {
       ok: require('../lib/media-info').isAvailable(),
       required: true,
-      label: 'ffmpeg / ffprobe',
+      label: 'Video tools (ffmpeg)',
       feature: 'scanning and thumbnails',
-      needed: 'scanning, thumbnails and duration. Imports can\'t be processed without it',
+      needed: 'scanning, thumbnails and video length. New files can\'t be processed without them',
       install: FFMPEG_INSTALL,
       downloadable: true,
       sizeMB: DOWNLOADABLE_TOOLS.ffmpeg.sizeMB,
@@ -536,9 +536,9 @@ function checkTools({ refresh = false } = {}) {
       ok: fs.existsSync(path.join(ROOT, 'fpcalc.exe'))
         || (() => { try { require('child_process').execSync('fpcalc -version', { windowsHide: true, stdio: 'ignore' }); return true; } catch { return false; } })(),
       required: false,
-      label: 'fpcalc (Chromaprint)',
+      label: 'Music ID helper (fpcalc)',
       feature: 'Music ID',
-      needed: 'Music ID: fingerprinting and song matching. Everything else works without it',
+      needed: 'Music ID, which recognizes songs in your files. Everything else works without it',
       install: { winget: null, url: 'https://acoustid.org/chromaprint' },
       downloadable: true,
       sizeMB: DOWNLOADABLE_TOOLS.fpcalc.sizeMB,
@@ -605,7 +605,7 @@ app.post('/api/setup/download/:tool', (req, res) => {
     const tmp = path.join(os.tmpdir(), `vault-${req.params.tool}-${process.pid}.zip`);
     try {
       const resp = await netFetch(tool.url, { purpose: 'tool' });
-      if (!resp.ok) throw new Error(`download failed: HTTP ${resp.status}`);
+      if (!resp.ok) throw new Error(`The download failed (the server answered ${resp.status})`);
 
       // Stream to disk with progress — ffmpeg's zip is ~90 MB and adm-zip
       // needs a file anyway; buffering it whole in memory helps nobody.
@@ -624,14 +624,14 @@ app.post('/api/setup/download/:tool', (req, res) => {
       const zip = new AdmZip(tmp);
       for (const name of tool.files) {
         const entry = zip.getEntries().find(e => !e.isDirectory && tool.entry(name)(e));
-        if (!entry) throw new Error(`archive layout unexpected: ${name} not found`);
+        if (!entry) throw new Error(`The download did not contain ${name}`);
         fs.writeFileSync(path.join(ROOT, name), entry.getData());
       }
 
       // Prove the binary actually runs before declaring victory.
       require('../lib/ffmpeg-locate').invalidate();
       if (!(await tool.verify())) {
-        throw new Error('extracted binary did not run. Antivirus quarantine?');
+        throw new Error('The downloaded tool would not start. Your antivirus may have blocked it');
       }
       checkTools({ refresh: true });
       // Files that failed only because this tool was missing are now fixable —
@@ -697,7 +697,7 @@ function _isNewer(latest, current) {
 app.get('/api/update-check', async (req, res) => {
   const current = pkg.version;
   const slug = _parseRepoSlug(pkg.repository);
-  if (!slug) return res.json({ current, error: 'repository not configured' });
+  if (!slug) return res.json({ current, error: 'Update checks are not set up for this copy of Vault.' });
 
   try {
     const resp = await netFetch(`https://api.github.com/repos/${slug}/releases/latest`, {
@@ -706,10 +706,10 @@ app.get('/api/update-check', async (req, res) => {
       signal: AbortSignal.timeout(8000),
     });
     if (resp.status === 404) {
-      return res.json({ current, error: 'No releases found - repository may not be published yet' });
+      return res.json({ current, error: 'No releases have been published yet.' });
     }
     if (!resp.ok) {
-      return res.json({ current, error: `GitHub returned HTTP ${resp.status}` });
+      return res.json({ current, error: `Could not check for updates (GitHub answered ${resp.status}). Try again later.` });
     }
     const data = await resp.json();
     const latest = String(data.tag_name || '').replace(/^v/, '');
@@ -1247,7 +1247,7 @@ app.get('/api/ai/endpoints', (req, res) => res.json(_endpointsPayload()));
 
 app.post('/api/ai/endpoints', async (req, res) => {
   if (config.lmStudio.endpointSource === 'env') {
-    return res.status(409).json({ error: 'servers are set by LM_STUDIO_URLS' });
+    return res.status(409).json({ error: 'The AI servers are set by LM_STUDIO_URLS when Vault starts, so they cannot be changed here.' });
   }
   const { urls, error } = aiSlots.normalizeEndpoints(req.body?.endpoints);
   if (error) return res.status(400).json({ error });
@@ -1496,7 +1496,7 @@ app.post('/api/media/force-refresh', async (req, res) => {
   const ids = [...new Set(raw.map(v => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v
     : (typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? Number(v) : null))).filter(v => v !== null))];
   if (!ids.length) return res.status(400).json({ error: 'no valid ids' });
-  if (ids.length > FORCE_REFRESH_MAX) return res.status(400).json({ error: `at most ${FORCE_REFRESH_MAX} files at once` });
+  if (ids.length > FORCE_REFRESH_MAX) return res.status(400).json({ error: `Pick ${FORCE_REFRESH_MAX} files or fewer at a time.` });
   // From a selection: only the files that carry an error (a big selection
   // must not remake every thumbnail in it).
   if (req.body?.onlyErrored === true) {
@@ -1566,13 +1566,13 @@ function _migrateParams(body) {
   const str = (v) => (typeof v === 'string' ? v.trim() : '');
   if (mode === 'relink' || mode === 'auto') {
     const newRoot = str(body?.newRoot);
-    if (!newRoot) return { error: 'newRoot is required' };
+    if (!newRoot) return { error: 'Choose the new folder first.' };
     return { mode, newRoot };
   }
   const oldPrefix = str(body?.oldPrefix);
   const newPrefix = str(body?.newPrefix);
-  if (!oldPrefix || !newPrefix) return { error: 'oldPrefix and newPrefix are required' };
-  if (oldPrefix === newPrefix) return { error: 'the two prefixes are identical' };
+  if (!oldPrefix || !newPrefix) return { error: 'Enter both the old path and the new path.' };
+  if (oldPrefix === newPrefix) return { error: 'The old path and the new path are the same.' };
   return { mode, oldPrefix, newPrefix };
 }
 
@@ -1675,7 +1675,7 @@ const _migrateJob = (() => {
     /** @returns {{job}|{status,error}} */
     start(kind, params) {
       if (job && !job.done) {
-        return { status: 409, error: 'a migrate is already running', jobId: job.id };
+        return { status: 409, error: 'A migrate is already running', jobId: job.id };
       }
       job = {
         id: `mig-${++seq}-${Date.now()}`,
@@ -1756,7 +1756,7 @@ async function _migrateStart(kind, req, res) {
   const p = _migrateParams(req.body);
   if (p.error) return res.status(400).json({ error: p.error });
   if (_scanBusy()) {
-    return res.status(409).json({ error: 'a scan is running. Pause it or let it finish first.' });
+    return res.status(409).json({ error: 'A scan is running. Pause it or let it finish first.' });
   }
 
   const started = _migrateJob.start(kind, p);
@@ -2086,15 +2086,15 @@ function spawnPicker(res, script, kind, onClose) {
   // run, an automated check) can put a native dialog on the user's desktop.
   // Read per request; off unless set to 1.
   if (process.env.VAULT_DISABLE_NATIVE_PICKER === '1') {
-    return res.status(409).json({ error: 'File pickers are off on this server' });
+    return res.status(409).json({ error: 'This copy of Vault cannot open the Windows file picker.' });
   }
   if (process.platform !== 'win32') {
-    return res.status(501).json({ error: `native ${kind} picker is Windows-only for now. Type the path instead` });
+    return res.status(501).json({ error: `The ${kind} picker only works on Windows. Drop files onto the window instead.` });
   }
   // Busy only when the child is genuinely alive — a crashed/killed picker can
   // never wedge the button again.
   if (_picker && _picker.exitCode === null) {
-    return res.status(409).json({ error: 'a picker is already open. Check for its window (it stays on top)' });
+    return res.status(409).json({ error: 'A file picker is already open. It may be behind this window.' });
   }
 
   const { spawn } = require('child_process');
@@ -2137,7 +2137,7 @@ app.post('/api/import/pick-folder', (req, res) => {
     if (raw === PICK_CANCEL) return finish(200, { canceled: true });
     if (raw) return finish(200, { path: raw });
     console.warn('[Import] folder picker failed:', (errOut.trim() || `exit ${code}, no output`).split('\n')[0]);
-    finish(500, { error: 'folder picker failed, see server log' });
+    finish(500, { error: 'The folder picker could not open. Try again.' });
   });
 });
 
@@ -2153,7 +2153,7 @@ app.post('/api/import/pick-files', (req, res) => {
     if (paths.length) return finish(200, { paths });
     if (code === 0 && !errOut.trim()) return finish(200, { paths: [] });
     console.warn('[Import] file picker failed:', (errOut.trim() || `exit ${code}, no output`).split('\n')[0]);
-    finish(500, { error: 'file picker failed, see server log' });
+    finish(500, { error: 'The file picker could not open. Try again.' });
   });
 });
 
@@ -2331,10 +2331,10 @@ app.post('/api/import/resolve-drop', (req, res) => {
 // No DB writes; the client decides what to add.
 app.post('/api/import/scan-folder', (req, res) => {
   const root = String(req.body?.path || '').trim();
-  if (!root) return res.status(400).json({ error: 'path required' });
+  if (!root) return res.status(400).json({ error: 'Enter a folder path.' });
   let st;
-  try { st = fs.statSync(root); } catch { return res.status(404).json({ error: 'folder not found' }); }
-  if (!st.isDirectory()) return res.status(400).json({ error: 'not a folder' });
+  try { st = fs.statSync(root); } catch { return res.status(404).json({ error: 'Folder not found. Check the path and that its drive is connected.' }); }
+  if (!st.isDirectory()) return res.status(400).json({ error: 'That path is a file, not a folder.' });
 
   const MAX_FILES = 50000;                       // sanity cap for a mis-pick like C:\
   const files = [];
@@ -2387,10 +2387,10 @@ app.post('/api/media/:id/rescan', async (req, res) => {
   const row = db.getById(id);
   if (!row) return res.status(404).json({ error: 'not found' });
   if (!fs.existsSync(row.filepath)) {
-    return res.status(409).json({ error: 'source file missing on disk' });
+    return res.status(409).json({ error: 'The file is missing on disk. It may have been moved, renamed or deleted.' });
   }
   if (_rescanning.has(id)) {
-    return res.status(409).json({ error: 'rescan already running for this file' });
+    return res.status(409).json({ error: 'This file is already being rescanned.' });
   }
 
   _rescanning.add(id);
@@ -2497,7 +2497,7 @@ async function beatAudioAdts(req, res, id, row) {
   // the finished bytes rather than racing the extractor.
   if (_adtsInflight.has(id)) {
     const job = await _adtsInflight.get(id);
-    if (!job.ok) return res.status(500).json({ error: 'audio extraction failed' });
+    if (!job.ok) return res.status(500).json({ error: 'Could not read the audio from this file.' });
     res.set('Content-Type', 'audio/aac');
     return res.end(job.buf);
   }
@@ -2509,7 +2509,7 @@ async function beatAudioAdts(req, res, id, row) {
 
   if (!job.ok) {
     console.warn(`[BeatBar] adts extraction failed for #${id}:`, job.err);
-    if (!res.headersSent) return res.status(500).json({ error: 'audio extraction failed' });
+    if (!res.headersSent) return res.status(500).json({ error: 'Could not read the audio from this file.' });
     return res.destroy();                 // mid-stream failure → kill the socket
   }
   // pipe() already ended the response; persist the cache.
@@ -2566,7 +2566,7 @@ app.get('/api/media/:id/beat-audio', async (req, res) => {
         }
         buf = await _beatAudioInflight.get(id);
       } catch (err) {
-        return res.status(500).json({ error: 'audio extraction failed' });
+        return res.status(500).json({ error: 'Could not read the audio from this file.' });
       }
     }
     if (!buf) return res.status(404).end();
@@ -2601,7 +2601,7 @@ app.get('/api/media/:id/beat-audio', async (req, res) => {
       }
       await _beatAudioInflight.get(id);
     } catch (err) {
-      return res.status(500).json({ error: 'audio extraction failed' });
+      return res.status(500).json({ error: 'Could not read the audio from this file.' });
     }
   }
   res.sendFile(outPath, (err) => {

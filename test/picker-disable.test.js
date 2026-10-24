@@ -51,6 +51,6 @@ for (const route of ['/api/import/pick-files', '/api/import/pick-folder']) {
     const res = await fetch(base + route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     assert.strictEqual(res.status, 409);
     const j = await res.json();
-    assert.strictEqual(j.error, 'File pickers are off on this server');
+    assert.strictEqual(j.error, 'This copy of Vault cannot open the Windows file picker.');
   });
 }

@@ -16,6 +16,19 @@ body {
   min-height: 100vh;
 }
 
+/* Form controls take the page's font. Browsers give them their own (Arial
+   on Windows), which made every field, select and button look like a
+   browser default next to the text around it. Family only: each control
+   keeps the size its own rules (or the browser) give it, so nothing that
+   was laid out at the old size moves. Low specificity on purpose: any rule
+   that names a control's font still wins. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
 /* Utility classes */
 .hidden {
   display: none !important;

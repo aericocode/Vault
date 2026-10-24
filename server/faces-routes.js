@@ -39,7 +39,7 @@ function sendError(res, err) {
   // inference): the DB closed under it. Answer like the lock gate does, not
   // with a 500 and a stack.
   if (err && (err.code === 'DB_ENCRYPTED' || err.code === 'VAULT_LOCKED' || (!err.status && vaultLocked()))) {
-    return res.status(423).json({ error: 'vault is locked', code: 'VAULT_LOCKED' });
+    return res.status(423).json({ error: 'Vault is locked. Unlock it first.', code: 'VAULT_LOCKED' });
   }
   if (err && err.status) {
     const body = { error: err.message, code: err.code };

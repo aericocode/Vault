@@ -155,10 +155,10 @@ function buildRouter() {
       lib = await library.whenReady({ refreshAfterMs: ANALYTICS_REFRESH_MS });
     } catch (err) {
       // The pass failed; the next request starts a new one
-      return res.status(500).json({ error: `the library could not be read for these charts (${err.message}). Try again` });
+      return res.status(500).json({ error: `The library could not be read for these charts (${err.message}). Try again.` });
     }
     // null: the vault was locked while the charts were being prepared
-    if (!lib) return res.status(423).json({ error: 'the vault was locked while the charts were being prepared. Unlock and try again' });
+    if (!lib) return res.status(423).json({ error: 'Vault was locked while the charts were being prepared. Unlock it and try again.' });
     try {
       res.json(gamify.getAnalytics(lib));
     } catch (err) {
@@ -169,7 +169,7 @@ function buildRouter() {
   // Cosmetic theme selection (level-gated server-side)
   router.post('/theme', (req, res) => {
     const t = gamify.setSelectedTheme((req.body?.id || '').toString());
-    if (!t) return res.status(400).json({ error: 'theme locked or unknown' });
+    if (!t) return res.status(400).json({ error: 'That theme is not unlocked yet.' });
     res.json(gamify.getPublicStats());
   });
 

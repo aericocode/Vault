@@ -24,12 +24,122 @@
   opacity: 1;
 }
 
+/* The tint sits on the solid surface so the page never shows through. */
 .toast.success {
   border-color: var(--success);
-  background: rgba(34, 197, 94, 0.1);
+  background: linear-gradient(rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.1)), var(--bg-tertiary);
 }
 
 .toast.error {
   border-color: var(--danger);
-  background: rgba(239, 68, 68, 0.1);
+  background: linear-gradient(rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.1)), var(--bg-tertiary);
+}
+
+/* ==========================================
+   Modern look: one toast style for the whole app
+
+   #toast (utils.js showToast) and the undo toast (selection.js
+   showUndoToast) are the same dark card, bottom centre. Neither sits on the
+   other or on the selection bar: utils.js vaultPlaceToasts sets
+     --vault-toast-base  the lowest spot (above the selection bar when it is up)
+     --vault-undo-h      the undo toast's height while it shows
+   so the undo toast takes the bottom spot and #toast stacks above it. In the
+   player, player-modern.js sets --toast-x / --toast-bottom (stage centre,
+   above the dock), which win. Ids and the body class give these rules the
+   weight to beat the older .toast / .undo-toast blocks loaded later
+   (css/player/player-modern.css, css/tiles.css).
+   ========================================== */
+
+body.layout-modern #toast {
+  left: var(--toast-x, 50%);
+  right: auto;
+  bottom: var(--toast-bottom, calc(var(--vault-toast-base, 24px) + var(--vault-undo-h, 0px)));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: max-content;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 10px 16px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  background: var(--m-surface);
+  box-shadow: var(--m-shadow);
+  color: var(--m-text);
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: center;
+  overflow-wrap: anywhere;
+  transform: translate(-50%, 10px);
+  transition: opacity 0.2s ease, transform 0.2s ease, bottom 0.2s ease;
+}
+body.layout-modern #toast.active { transform: translate(-50%, 0); }
+body.layout-modern #toast.success { border-color: rgba(74, 222, 128, 0.45); background: var(--m-surface); }
+body.layout-modern #toast.error { border-color: rgba(248, 113, 113, 0.55); background: var(--m-surface); }
+
+/* The type icon showToast puts first (Modern only) */
+.toast-ic { width: 16px; height: 16px; flex: none; }
+#toast.error .toast-ic { color: #f87171; }
+#toast.success .toast-ic { color: #4ade80; }
+
+body.layout-modern .undo-toast {
+  left: 50%;
+  right: auto;
+  bottom: var(--vault-toast-base, 24px);
+  transform: translate(-50%, 10px);
+  width: max-content;
+  max-width: min(560px, calc(100vw - 32px));
+  gap: 12px;
+  padding: 6px 6px 6px 16px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  background: var(--m-surface);
+  box-shadow: var(--m-shadow);
+  color: var(--m-text);
+  font-size: 14px;
+  line-height: 1.4;
+  transition: transform 0.2s ease, opacity 0.2s ease, visibility 0.2s, bottom 0.2s ease;
+}
+body.layout-modern .undo-toast.visible { transform: translate(-50%, 0); }
+
+/* The action reads as a text button in the accent colour, like the Modern
+   menus; the ✕ glyph becomes the line close icon (drawn here, so
+   selection.js keeps its markup and Classic keeps the glyph). */
+body.layout-modern .undo-toast .undo-btn {
+  flex: none;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--m-radius-sm);
+  background: transparent;
+  color: var(--accent-hover);
+  font-size: 13px;
+  font-weight: 600;
+}
+body.layout-modern .undo-toast .undo-btn:hover,
+body.layout-modern .undo-toast .undo-btn:focus-visible { background: var(--m-btn-hover); outline: none; }
+body.layout-modern .undo-toast .undo-dismiss {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--m-radius-sm);
+  color: var(--m-muted);
+  font-size: 0;
+}
+body.layout-modern .undo-toast .undo-dismiss::before {
+  content: '';
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6.5 6.5l11 11M17.5 6.5l-11 11'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6.5 6.5l11 11M17.5 6.5l-11 11'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+body.layout-modern .undo-toast .undo-dismiss:hover,
+body.layout-modern .undo-toast .undo-dismiss:focus-visible { background: var(--m-btn-hover); color: var(--m-text); outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  body.layout-modern #toast,
+  body.layout-modern .undo-toast { transition: opacity 0.2s ease, visibility 0.2s; }
 }

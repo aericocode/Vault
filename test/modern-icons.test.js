@@ -20,7 +20,7 @@ const noop = () => {};
 function load(files, { modern = false, extra = {} } = {}) {
   const toast = { textContent: '', classList: { add: noop, remove: noop } };
   const ctx = {
-    console, Math, JSON, Array, Object, String, Number, Boolean, Map, Set, RegExp, setTimeout: noop,
+    console, Math, JSON, Array, Object, String, Number, Boolean, Map, Set, RegExp, setTimeout: noop, clearTimeout: noop,
     document: {
       addEventListener: noop,
       getElementById: (id) => (id === 'toast' ? toast : null),
@@ -51,7 +51,7 @@ const I = load(['icons.js']);
 
 test('icon set: line icons, all well formed', () => {
   const names = Object.keys(I.VAULT_ICONS);
-  assert.ok(names.length >= 28 && names.length <= 90, `${names.length} icons`);
+  assert.ok(names.length >= 28 && names.length <= 130, `${names.length} icons`);
   for (const n of names) {
     const svg = I.vaultIcon(n);
     assert.match(svg, /^<svg class="vi vi-[a-z-]+" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"/);
@@ -172,16 +172,17 @@ test('leading emoji: stripped once, stars and plain text left alone', () => {
   assert.strictEqual(s(''), '');
 });
 
-test('toasts: Modern drops the leading emoji, Classic keeps it (utils.js and app.js)', () => {
+test('toasts: Modern drops the leading emoji, Classic keeps it (utils.js holds the only showToast)', () => {
   const m = load(['icons.js', 'utils.js'], { modern: true });
   m.showToast('💾 Saved');
   assert.strictEqual(m.__toast.textContent, 'Saved');
   const c = load(['icons.js', 'utils.js'], { modern: false });
   c.showToast('💾 Saved');
   assert.strictEqual(c.__toast.textContent, '💾 Saved');
-  // app.js defines the showToast the page ends up with: same words.
-  const app = fs.readFileSync(path.join(LIB, 'app.js'), 'utf8');
-  assert.match(app, /toast\.textContent = typeof vaultToastText === 'function' \? vaultToastText\(message\) : message;/);
+  // One definition: app.js used to carry a second copy that replaced this one.
+  for (const f of fs.readdirSync(LIB).filter(n => n.endsWith('.js') && n !== 'utils.js')) {
+    assert.ok(!/^function showToast\(/m.test(fs.readFileSync(path.join(LIB, f), 'utf8')), `${f} defines no showToast`);
+  }
 });
 
 test('page: icons.js loads right after utils.js, before anything that draws', () => {
@@ -220,6 +221,10 @@ test('labels: Classic keeps the emoji, Modern shows the icon (or the words alone
   assert.match(I.vaultEmojiLabel('🧩'), /vi-puzzle modern-only"/);
   assert.strictEqual(modernText(I.vaultEmojiLabel('👍🏽 Thanks')), 'Thanks', 'the whole sequence is Classic only');
   for (const name of Object.values(vm.runInContext('VAULT_EMOJI_ICONS', I))) assert.ok(I.VAULT_ICONS[name], `icon ${name} exists`);
+  // Every emoji in the map is one the label helper can find at the start of a label.
+  const lead = vm.runInContext('VAULT_ONE_LEADING_EMOJI', I);
+  for (const e of Object.keys(vm.runInContext('VAULT_EMOJI_ICONS', I))) assert.ok(lead.test(`${e} words`), `${e} is found as a leading emoji`);
+  assert.match(I.vaultEmojiLabel('⚠ Could not save'), /vi-alert modern-only vi-gap/);
 });
 
 test('faves first: aria-pressed follows the toggle, in both looks', () => {

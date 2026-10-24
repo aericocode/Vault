@@ -80,8 +80,8 @@ function buildRouter() {
     if (!tr.ok) {
       return res.status(412).json({
         error: tr.python
-          ? 'faster-whisper is not installed for the Python Vault is using'
-          : 'Python was not found',
+          ? 'Subtitles need one more Python package (faster-whisper).'
+          : 'Subtitles need Python, which was not found.',
         code: 'WHISPER_MISSING',
         ...tr,
       });
@@ -107,12 +107,12 @@ function buildRouter() {
     const row = db.getById(id);
     if (!row) return res.status(404).json({ error: 'not found' });
     if (!['video', 'audio'].includes(row.media_type)) {
-      return res.status(400).json({ error: `subtitles need audio/video (got ${row.media_type})` });
+      return res.status(400).json({ error: 'Subtitles need a video or audio file.' });
     }
-    if (!fs.existsSync(row.filepath)) return res.status(409).json({ error: 'file missing on disk' });
+    if (!fs.existsSync(row.filepath)) return res.status(409).json({ error: 'The file is missing on disk.' });
 
     if (req.body?.fresh) {
-      if (service.isActive(id)) return res.status(409).json({ error: 'already generating' });
+      if (service.isActive(id)) return res.status(409).json({ error: 'Subtitles are already being made for this file.' });
       for (const t of repo.listTracks(id)) repo.deleteTrack(id, t.lang);
     }
 
@@ -122,7 +122,7 @@ function buildRouter() {
     let language = null;
     if (req.body?.lang) {
       language = String(req.body.lang).toLowerCase().trim();
-      if (!/^[a-z]{2,3}$/.test(language)) return res.status(400).json({ error: 'bad lang code' });
+      if (!/^[a-z]{2,3}$/.test(language)) return res.status(400).json({ error: 'That language code is not valid.' });
     }
 
     const job = service.enqueue(id, { language });
@@ -137,14 +137,14 @@ function buildRouter() {
     const lang = String(req.query.lang || '');
     if (!lang) return res.status(400).json({ error: 'lang required' });
     // A run still writing this file would overwrite the edit, or remove it if it fails
-    if (service.isActive(id)) return res.status(409).json({ error: 'subtitles still generating. Try again shortly' });
+    if (service.isActive(id)) return res.status(409).json({ error: 'Subtitles are still being made. Try again in a moment.' });
     const existing = repo.getTrack(id, lang);
     if (!existing) return res.status(404).json({ error: 'no such track' });
 
     let vtt = typeof req.body?.vtt === 'string' ? req.body.vtt : '';
     if (!/^﻿?WEBVTT/.test(vtt)) vtt = 'WEBVTT\n\n' + vtt;   // tolerate a header-less paste
     const cues = generator.parseVTT(vtt);
-    if (!cues.length) return res.status(400).json({ error: 'no valid cues found. Check the timestamps' });
+    if (!cues.length) return res.status(400).json({ error: 'No subtitle lines could be read. Check the timestamps.' });
 
     try {
       repo.putTrack(id, lang, existing.kind, vtt);
@@ -174,7 +174,7 @@ function buildRouter() {
     if (!id) return res.status(400).json({ error: 'bad id' });
     const row = db.getById(id);
     if (!row) return res.status(404).json({ error: 'not found' });
-    if (service.isActive(id)) return res.status(409).json({ error: 'subtitles still generating. Try again shortly' });
+    if (service.isActive(id)) return res.status(409).json({ error: 'Subtitles are still being made. Try again in a moment.' });
     const at = Number(req.body?.at);
     if (!Number.isFinite(at) || at < 0) return res.status(400).json({ error: 'at (seconds) required' });
     const window = Math.min(300, Math.max(10, Number(req.body?.window) || 60));
