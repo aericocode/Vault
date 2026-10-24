@@ -421,7 +421,7 @@ function ssdRender() {
                    title="Remove this saved search" aria-label="Remove the saved search ${name}">${icon('close')}</button>` : ''}
          </div>`;
        }).join('')}</div>
-       <div class="ssd-foot">${edit ? 'Editing: click an x to remove. Press Done to finish.' : 'Arrows to move, Enter to search'}</div>`;
+       ${edit ? '<div class="ssd-foot">Editing: click an x to remove. Press Done to finish.</div>' : ''}`;
   box.hidden = false;
   _ssd.open = true;
   input.setAttribute('aria-expanded', 'true');
