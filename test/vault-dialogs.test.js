@@ -53,7 +53,7 @@ function makeEnv() {
     select() { this.selected = true; }
     addEventListener(type, fn) { (this.handlers[type] = this.handlers[type] || []).push(fn); }
     fire(type, ev = {}) { for (const fn of this.handlers[type] || []) fn({ target: this, ...ev }); }
-    click() { this.fire('mousedown'); this.fire('click'); }
+    click() { this.fire('mousedown'); this.fire('mouseup'); this.fire('click'); }
     find(cls) {
       for (const c of this.children) {
         if (c.className.split(' ').includes(cls)) return c;
@@ -183,6 +183,7 @@ test('prompt: Enter gives the text, Esc and Cancel give null, a backdrop click k
   assert.ok(typed.stopped && !typed.prevented, 'typing reaches the box but not the page');
   input.value = 'My mix';
   E.top().fire('mousedown');             // press and release on the backdrop
+  E.top().fire('mouseup');
   E.top().fire('click');
   assert.strictEqual(await state(p), 'pending');
   E.key('Enter');
@@ -210,12 +211,17 @@ test('alert: one OK button, resolves to undefined on OK, Enter or Esc', async ()
   assert.deepStrictEqual(await state(p), { value: undefined });
 });
 
-test('a backdrop click cancels a confirm; a drag that ends there does not', async () => {
+test('a backdrop click cancels a confirm; a drag that starts or ends in the card does not', async () => {
   const E = makeEnv();
   const p = E.win.vaultConfirm('Go?');
   const ov = E.top();
   ov.children[0].fire('mousedown', { target: ov.children[0] });   // press inside the card
-  ov.handlers.click.forEach(fn => fn({ target: ov }));             // release on the backdrop
+  ov.fire('mouseup');                                              // release on the backdrop
+  ov.fire('click');                                                // (the click lands on the backdrop)
+  assert.strictEqual(await state(p), 'pending');
+  ov.fire('mousedown');                                            // press on the backdrop
+  ov.handlers.mouseup.forEach(fn => fn({ target: ov.children[0] })); // release in the card
+  ov.fire('click');                                                // their common parent gets the click
   assert.strictEqual(await state(p), 'pending');
   ov.click();
   assert.deepStrictEqual(await state(p), { value: false });

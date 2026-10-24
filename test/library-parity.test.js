@@ -168,6 +168,7 @@ function browserContext() {
   const allMedia = db.getManyForViewer(order);
   // duplicates.js buildDuplicateIndex
   const duplicateFilepaths = new Set();
+  const duplicateExtras = new Set();
   const sizeMap = {};
   allMedia.forEach(m => {
     if (!m.filesize_bytes || !m.media_type) return;
@@ -178,6 +179,12 @@ function browserContext() {
   Object.entries(sizeMap).forEach(([, items]) => {
     if (items.length < 2) return;
     items.forEach(m => duplicateFilepaths.add(m.filepath));
+    // "Hide dupes" keeps one copy per group: on disk, not trashed, then oldest
+    const keeper = [...items].sort((a, b) =>
+      (a.missing_since != null) - (b.missing_since != null)
+      || (a.user_trashed ? 1 : 0) - (b.user_trashed ? 1 : 0)
+      || a.id - b.id)[0];
+    items.forEach(m => { if (m !== keeper) duplicateExtras.add(m.filepath); });
   });
   // collections.js caches
   const collectionsList = db.getCollections();
@@ -185,11 +192,11 @@ function browserContext() {
   for (const c of collectionsList) collectionMembers.set(c.id, db.getCollectionItems(c.id));
   // music.js musicLinksMap
   const musicLinksMap = require('../lib/musicid/repo').linksMap();
-  return { allMedia, duplicateFilepaths, collectionsList, collectionMembers, musicLinksMap };
+  return { allMedia, duplicateFilepaths, duplicateExtras, collectionsList, collectionMembers, musicLinksMap };
 }
 
 function browserResult(ctx, st) {
-  const { allMedia, duplicateFilepaths, collectionsList, collectionMembers, musicLinksMap } = ctx;
+  const { allMedia, duplicateFilepaths, duplicateExtras, collectionsList, collectionMembers, musicLinksMap } = ctx;
   const isDuplicate = (fp) => duplicateFilepaths.has(fp);
   const mediaInAnyCollection = (id) => {
     for (const c of collectionsList) {
@@ -255,7 +262,7 @@ function browserResult(ctx, st) {
     if (triFailed === '0' && m.playback_failed) return false;
     if (scanStatus && scanStatusOf(m) !== scanStatus) return false;
     if (triDuplicates === '1' && !isDuplicate(m.filepath)) return false;
-    if (triDuplicates === '0' && isDuplicate(m.filepath)) return false;
+    if (triDuplicates === '0' && duplicateExtras.has(m.filepath)) return false;
     if (minRatingValue === 'unrated' && (m.user_rating || 0) > 0) return false;
     if (minRatingValue !== '0' && minRatingValue !== 'unrated') {
       const minRating = parseInt(minRatingValue) || 0;

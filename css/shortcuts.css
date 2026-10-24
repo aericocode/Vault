@@ -253,3 +253,19 @@ body.layout-modern .sk-link:focus-visible,
 body.layout-modern .sk-x:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
 /* The same dim as the Settings dialog behind it. */
 body.layout-modern .sk-overlay { background: rgba(0, 0, 0, 0.8); }
+
+/* Settings > Keyboard shortcuts in Modern: on a wide window the page takes a
+   wider modal and three columns of groups, so on a 4K screen (100% or 150%
+   scaling) every shortcut and the note fit without scrolling. The column
+   count follows the width (340px each), so narrower windows keep two. */
+@media (min-width: 1400px) {
+  body.layout-modern .settings-modal:has(#skSettingsList) { max-width: min(1680px, 94vw); }
+}
+body.layout-modern .sk-cols2 {
+  columns: 3 340px;
+  column-gap: 28px;
+}
+body.layout-modern .sk-cols2 .sk-group { margin-bottom: 10px; }
+body.layout-modern .sk-cols2 .sk-gh { margin-bottom: 3px; }
+body.layout-modern .sk-cols2 .sk-row { padding: 2px 0; }
+body.layout-modern .sk-settings-top { margin-bottom: 10px; }

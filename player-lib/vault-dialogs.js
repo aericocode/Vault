@@ -144,11 +144,14 @@
       if (cancelBtn) cancelBtn.addEventListener('click', d.cancel);
       // A press that starts and ends on the dim backdrop is a cancel. Not for
       // a prompt, where a stray click would throw away what was typed.
-      let downOnBackdrop = false;
+      // (A press from the backdrop into the box clicks the backdrop too, as
+      // their common parent, so both ends are checked.)
+      let downOnBackdrop = false, upOnBackdrop = false;
       ov.addEventListener('mousedown', (e) => { downOnBackdrop = e.target === ov; });
+      ov.addEventListener('mouseup', (e) => { upOnBackdrop = e.target === ov; });
       ov.addEventListener('click', (e) => {
-        if (kind !== 'prompt' && downOnBackdrop && e.target === ov) d.cancel();
-        downOnBackdrop = false;
+        if (kind !== 'prompt' && downOnBackdrop && upOnBackdrop && e.target === ov) d.cancel();
+        downOnBackdrop = upOnBackdrop = false;
       });
 
       d.first = input || (danger ? cancelBtn : okBtn);

@@ -291,9 +291,11 @@
   /**
    * A .vault-modal dialog with the keyboard handled: Esc cancels, Enter
    * submits (a focused button answers for itself, so Enter on Cancel
-   * cancels), Tab stays inside, focus goes back to whatever had it. A click
-   * on the backdrop does nothing: these dialogs hold typed passwords, and a
-   * stray click should not throw them away.
+   * cancels), Tab stays inside, focus goes back to whatever had it. A press
+   * that starts and ends on the backdrop cancels, like the other dialogs
+   * (not while the main button is busy). Esc is taken at window level while
+   * the dialog is open, so it never reaches Settings or a panel behind it,
+   * even when focus is still back there.
    */
   function openVaultModal({ id, labelledBy, describedBy, html, onSubmit, onCancel }) {
     document.getElementById(id)?.remove();
@@ -310,12 +312,34 @@
     document.body.appendChild(ov);
 
     const close = () => {
+      window.removeEventListener('keydown', onWindowEsc, true);
       ov.remove();
       if (opener && opener.isConnected && typeof opener.focus === 'function') {
         try { opener.focus({ preventScroll: true }); } catch { /* gone */ }
       }
     };
     const cancel = () => (onCancel ? onCancel(close) : close());
+    const busy = () => !!box.querySelector('.vault-btn-primary:disabled');
+
+    // Esc from anywhere goes to this dialog while it is the top one (an
+    // in-app vaultConfirm/prompt above it handles its own keys first).
+    function onWindowEsc(e) {
+      if (e.key !== 'Escape' || ov.contains(e.target)) return;
+      if (typeof window.vaultDialogOpen === 'function' && window.vaultDialogOpen()) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      cancel();
+    }
+    window.addEventListener('keydown', onWindowEsc, true);
+
+    // A press from the backdrop into the box still clicks the backdrop (their
+    // common parent), so both ends of the press are checked.
+    let downOnBackdrop = false, upOnBackdrop = false;
+    ov.addEventListener('mousedown', (e) => { downOnBackdrop = e.target === ov; });
+    ov.addEventListener('mouseup', (e) => { upOnBackdrop = e.target === ov; });
+    ov.addEventListener('click', (e) => {
+      if (downOnBackdrop && upOnBackdrop && e.target === ov && !busy()) cancel();
+      downOnBackdrop = upOnBackdrop = false;
+    });
 
     ov.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
@@ -342,7 +366,16 @@
       }
     });
     wireEyeToggles(ov);
-    return { ov, box, q: (sel) => ov.querySelector(sel), close, cancel };
+    // Focus the first field now and again on the next frame: the click that
+    // opened the dialog (a Settings button) can leave focus behind otherwise.
+    const focusIn = (el) => {
+      if (!el) return;
+      el.focus();
+      requestAnimationFrame(() => {
+        if (ov.isConnected && !ov.contains(document.activeElement)) el.focus();
+      });
+    };
+    return { ov, box, q: (sel) => ov.querySelector(sel), close, cancel, focusIn };
   }
 
   /** Busy state for a dialog's main button. */
@@ -421,7 +454,7 @@
       }
     }
     q('#vaultPassOk').onclick = submit;
-    q('#vaultPass1').focus();
+    d.focusIn(q('#vaultPass1'));
   }
 
   /* ── Change-password dialog (key button, encrypted + unlocked) ───────── */
@@ -501,7 +534,7 @@
       }
     }
     q('#vaultPassOk').onclick = submit;
-    q('#vaultCur').focus();
+    d.focusIn(q('#vaultCur'));
   }
 
   // Settings (Privacy and security) opens the same dialogs from its own
@@ -843,7 +876,7 @@
       d.close();
       openCreatePassModal();
     });
-    d.q('#vaultFirstRunSet').focus();
+    d.focusIn(d.q('#vaultFirstRunSet'));
   }
 
   document.addEventListener('DOMContentLoaded', () => {

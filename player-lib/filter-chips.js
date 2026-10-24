@@ -17,6 +17,13 @@ const FCHIP_TRI = [
   { value: '0', label: 'Hide' },
 ];
 
+// Dupes: "Hide extras" keeps one copy of each duplicate group (server side)
+const FCHIP_DUPES = [
+  { value: '',  label: 'All' },
+  { value: '1', label: 'Only' },
+  { value: '0', label: 'Hide extras' },
+];
+
 const FCHIP_SCAN = [
   { value: '',          label: 'All' },
   { value: 'success',   label: 'Done' },
@@ -44,7 +51,7 @@ const FCHIP_DEFS = {
   flagged:     { label: 'Flagged',      type: 'tri', name: 'filterFlagged',     def: '',  options: FCHIP_TRI },
   collections: { label: 'Collections',  type: 'tri', name: 'filterCollections', def: '',  options: FCHIP_TRI },
   trashed:     { label: 'Trashed',      type: 'tri', name: 'filterTrashed',     def: '0', options: FCHIP_TRI },
-  dupes:       { label: 'Dupes',        type: 'tri', name: 'filterDuplicates',  def: '',  options: FCHIP_TRI },
+  dupes:       { label: 'Dupes',        type: 'tri', name: 'filterDuplicates',  def: '',  options: FCHIP_DUPES },
   unplayable:  { label: 'Unplayable',   type: 'tri', name: 'filterFailed',      def: '',  options: FCHIP_TRI },
   scan:        { label: 'Scan',         type: 'tri', name: 'filterScanStatus',  def: '',  options: FCHIP_SCAN },
   // Folder watchers (player-lib/watchers-ui.js): the activity pill's Show buttons set these.
