@@ -61,7 +61,7 @@
     tableColumns: null,     // Modern table: visible column keys; null = the default set
     libraryLayout: 'pages', // 'pages' (whole rows, one screenful) | 'continuous' (free scroll)
     cardSize: 'M',          // 'S' | 'M' | 'L' — minimum tile width, mapped in cards.js
-    layoutStyle: 'classic', // 'classic' (today's look) | 'modern' (full width, size slider)
+    layoutStyle: 'modern',  // 'modern' (the default since 3.9) | 'classic' (the original look)
     cardMinWidth: 0,        // Modern's size slider, px (120-480); 0 = follow cardSize
     facesCardWidth: 180,    // Faces tab: person card width in px (its Size slider)
     facesFileWidth: 0,      // Faces person page: file tile width in px (0 = follow cardSize)
@@ -257,7 +257,7 @@
   const CARD_SIZE_WIDTHS = { S: 130, M: 170, L: 230 };
 
   const layoutStyle = () =>
-    LAYOUT_STYLES.includes(settings.layoutStyle) ? settings.layoutStyle : 'classic';
+    LAYOUT_STYLES.includes(settings.layoutStyle) ? settings.layoutStyle : 'modern';
   window.vaultLayoutStyle = layoutStyle;
   window.isModernLayout = () => layoutStyle() === 'modern';
 

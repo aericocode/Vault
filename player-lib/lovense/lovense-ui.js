@@ -314,7 +314,7 @@
     if (mini) {
       mini.classList.toggle('active', on && !disconnected);
       mini.classList.toggle('vibe-warn', disconnected);
-      mini.textContent = '💟';
+      mini.innerHTML = typeof vaultIconSwap === 'function' ? vaultIconSwap('💟', 'vibe') : '💟';
       mini.title = disconnected
         ? 'Vibe on but no device connected'
         : on ? 'Vibe on, synced to the beat (click to stop)'

@@ -257,3 +257,12 @@ test('Modern Library: watched folders, moves and guides open in dialogs with the
   const c = loadSettings('classic').vaultSettingsPageHtml('library');
   assert.ok(c.includes('id="migDeepToggle"') && !c.includes('settings-dlg-ov'));
 });
+
+test('a profile that never picked a look gets Modern; a saved pick is kept', () => {
+  // No stored layoutStyle at all, as in every profile from 3.8 and earlier
+  const fresh = loadSettings(undefined, { repeatMode: 'all' });
+  assert.equal(fresh.vaultLayoutStyle(), 'modern');
+  assert.equal(fresh.isModernLayout(), true);
+  assert.equal(loadSettings('classic').vaultLayoutStyle(), 'classic');
+  assert.equal(loadSettings('nonsense').vaultLayoutStyle(), 'modern');
+});
