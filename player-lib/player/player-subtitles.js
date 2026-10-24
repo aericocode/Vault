@@ -343,6 +343,11 @@ function _subsStartGrowthPoll(media) {
       const genBtn = document.getElementById('subtitleGenBtn');
       if (genBtn) genBtn.style.display = 'none';
       if (info.status === 'error') showToast('⚠ Subtitles failed');
+      // The job may have wanted the speaker-detection models or a translation
+      // pack and gone without for lack of permission. Ask now, same as the
+      // sidebar does: the CC button is the usual way in, and before this the
+      // question only came up after a page refresh and a sidebar regenerate.
+      subtitlesOfferPendingConsent();
     }
   };
   _subs.growPoll = setTimeout(tick, 1500);
@@ -712,6 +717,11 @@ function subtitlesHandleGenerateError(resp, data, retry) {
    line no exe user sees — which isn't consent. Asked once here; the answer
    persists server-side and covers the translation and diarization models too,
    since they're the same class of one-time fetch. */
+// Keys whose dialog was closed without an answer (backdrop click or Esc):
+// "not now" for this page load only. Nothing is saved, so a reload asks again,
+// but the end of every job does not.
+const _subsConsentDismissed = new Set();
+
 function subtitlesShowModelConsent(info = {}, retry) {
   document.getElementById('subsModelConsent')?.remove();
   const key = info.key || 'whisper:large-v3-turbo';
@@ -768,8 +778,16 @@ function subtitlesShowModelConsent(info = {}, retry) {
     </div>`;
   document.body.appendChild(ov);
 
+  const onKey = (e) => { if (e.key === 'Escape') dismiss(); };
+  const dismiss = () => {
+    _subsConsentDismissed.add(key);
+    ov.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  document.addEventListener('keydown', onKey);
   const answer = async (allow) => {
     ov.remove();
+    document.removeEventListener('keydown', onKey);
     try {
       const r = await fetch('/api/settings/model-downloads', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -784,7 +802,7 @@ function subtitlesShowModelConsent(info = {}, retry) {
   };
   ov.querySelector('#subsModelYes').addEventListener('click', () => answer(true));
   ov.querySelector('#subsModelNo').addEventListener('click', () => answer(false));
-  ov.addEventListener('mousedown', (e) => { if (e.target === ov) ov.remove(); });
+  ov.addEventListener('mousedown', (e) => { if (e.target === ov) dismiss(); });
 }
 
 /**
@@ -801,8 +819,12 @@ async function subtitlesOfferPendingConsent() {
   let st;
   try { st = await (await fetch('/api/settings/model-downloads')).json(); }
   catch { return; }
-  if (!st.envAllows || !st.pending?.length) return;
-  subtitlesShowModelConsent(st.pending[0]);
+  if (!st.envAllows) return;
+  // A model the user already said "Not now" to is not asked about again after
+  // every job (it stays changeable in Settings). Whisper itself is different:
+  // Generate asks each time, since nothing works without it.
+  const ask = (st.pending || []).find(p => st.consents?.[p.key] !== false && !_subsConsentDismissed.has(p.key));
+  if (ask) subtitlesShowModelConsent(ask);
 }
 
 function subtitlesShowPrereqModal(info = {}) {

@@ -42,6 +42,13 @@ function _resolveEndpoints() {
   return { endpoints: ['http://localhost:1234/v1/chat/completions'], source: 'default' };
 }
 
+/** WHISPER_SUBS_VAD ('1' on, '0' off) > stored subtitleVad > off. */
+function _resolveSubtitleVad(env = process.env, stored = appSettings.all().subtitleVad) {
+  if (env.WHISPER_SUBS_VAD === '1') return true;
+  if (env.WHISPER_SUBS_VAD === '0') return false;
+  return stored === true;
+}
+
 const _port = _resolvePort();
 const _endpoints = _resolveEndpoints();
 
@@ -94,6 +101,11 @@ const config = {
     // are mapped back to the original timeline. WHISPER_VAD=0 to disable.
     vad: process.env.WHISPER_VAD !== '0',
     vadMinSilenceMs: parseInt(process.env.WHISPER_VAD_MIN_SILENCE_MS) || 500,
+    // The VAD filter above applies to scan snippets only. Subtitle passes hear
+    // the whole file: VAD drops singing and speech over music, which cut music
+    // videos down to a few words. WHISPER_SUBS_VAD=1 (or "subtitleVad": true in
+    // the settings file; the env wins) turns it back on for them.
+    subtitleVad: _resolveSubtitleVad(),
     // Local-first network policy for AI MODELS (whisper + OPUS-MT translation).
     // Once a model is on disk it ALWAYS loads offline (local_files_only) — no
     // silent HuggingFace pings on every load. A model that ISN'T installed yet
@@ -332,5 +344,7 @@ config.getProcessorMediaType = (ext) => {
 // Vault passphrase. Read from the real environment only — lib/load-env.js
 // refuses a value that came from the .env file, under EITHER name.
 config.getDbPassword = () => envVar('DB_PASSWORD') || null;
+
+config._resolveSubtitleVad = _resolveSubtitleVad;   // exported for tests
 
 module.exports = config;

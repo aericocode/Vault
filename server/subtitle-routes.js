@@ -136,6 +136,8 @@ function buildRouter() {
     if (!id) return res.status(400).json({ error: 'bad id' });
     const lang = String(req.query.lang || '');
     if (!lang) return res.status(400).json({ error: 'lang required' });
+    // A run still writing this file would overwrite the edit, or remove it if it fails
+    if (service.isActive(id)) return res.status(409).json({ error: 'subtitles still generating. Try again shortly' });
     const existing = repo.getTrack(id, lang);
     if (!existing) return res.status(404).json({ error: 'no such track' });
 
