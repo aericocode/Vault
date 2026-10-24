@@ -158,67 +158,93 @@ body.layout-modern .saved-search-chip.active .saved-search-delete:hover { color:
 /* Keyboard users reach the remove button too, not only on hover. */
 body.layout-modern .saved-search-chip:focus-within .saved-search-delete { opacity: 1; max-width: 30px; padding-left: 0.1rem; padding-right: 0.5rem; }
 
-/* ── Modern: the saved searches list under the search box ──
-   (player-lib/saved-searches.js ssdRender). Classic never opens it. */
+/* ── Modern: the saved searches panel under the search box ──
+   (player-lib/saved-searches.js ssdRender): compact pills, an x on each only
+   in edit mode. Classic never opens it. */
 .ssd[hidden] { display: none; }
 body:not(.layout-modern) .ssd { display: none; }
 body.layout-modern .ssd {
   position: absolute;
   left: 0;
-  right: 0;
   top: calc(100% + 6px);
   z-index: 900;                  /* above the chip rows, rail and grid */
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 280px;
+  max-width: min(480px, 100%);
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
   background: var(--m-surface-solid);
   border: 1px solid var(--m-border-strong);
   border-radius: var(--m-radius);
   box-shadow: var(--m-shadow);
-  padding: 6px;
+  padding: 10px 12px 10px;
   color: var(--m-text);
-  font-size: 13.5px;
+  font-size: 13px;
   text-align: left;
 }
+body.layout-modern .ssd-head { display: flex; align-items: center; gap: 8px; min-height: 24px; margin-bottom: 8px; }
 body.layout-modern .ssd-h {
-  padding: 8px 10px 6px;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--m-muted);
 }
-body.layout-modern .ssd-list { max-height: min(50vh, 360px); overflow-y: auto; }
-body.layout-modern .ssd-opt {
-  display: flex;
+body.layout-modern .ssd-edit {
+  margin-left: auto;
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 6px 7px 10px;
-  border-radius: var(--m-radius-sm);
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--m-muted);
+  font: inherit;
+  font-size: 12px;
   cursor: pointer;
 }
-body.layout-modern .ssd-opt.is-hl { background: var(--m-btn-hover); }
-body.layout-modern .ssd-star { display: inline-flex; color: #facc15; flex: none; }
-body.layout-modern .ssd-star .vi { width: 16px; height: 16px; fill: currentColor; }
-body.layout-modern .ssd-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.layout-modern .ssd-edit .vi { width: 13px; height: 13px; }
+body.layout-modern .ssd-edit:hover { background: var(--m-btn); color: var(--m-text); }
+body.layout-modern .ssd.is-editing .ssd-edit { color: var(--accent-hover); }
+body.layout-modern .ssd-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+body.layout-modern .ssd-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  height: 28px;
+  max-width: 100%;
+  padding: 0 10px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: 7px;
+  background: var(--m-btn);
+  color: var(--m-text);
+  cursor: pointer;
+}
+body.layout-modern .ssd-pill:hover { background: var(--m-btn-hover); }
+body.layout-modern .ssd-pill.is-hl { border-color: var(--accent); background: var(--accent-bg, rgba(99, 102, 241, 0.2)); }
+body.layout-modern .ssd.is-editing .ssd-pill { padding-right: 4px; cursor: default; }
+body.layout-modern .ssd.is-editing .ssd-pill:hover { background: var(--m-btn); }
+body.layout-modern .ssd.is-editing .ssd-pill.is-hl { background: var(--accent-bg, rgba(99, 102, 241, 0.2)); }
+body.layout-modern .ssd-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.layout-modern .ssd-x {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: 4px;
   background: none;
   color: var(--m-muted);
   cursor: pointer;
 }
-body.layout-modern .ssd-x .vi { width: 13px; height: 13px; }
-body.layout-modern .ssd-x:hover { color: var(--m-danger-text); background: var(--m-btn); }
-body.layout-modern .ssd-empty { margin: 2px 10px 8px; color: var(--m-text-2); }
-body.layout-modern .ssd-foot {
-  border-top: 1px solid var(--m-border);
-  margin-top: 4px;
-  padding: 8px 10px 4px;
-  color: var(--m-muted);
-  font-size: 12.5px;
-}
+body.layout-modern .ssd-x .vi { width: 11px; height: 11px; }
+body.layout-modern .ssd-x:hover { color: var(--m-danger-text); background: var(--m-btn-hover); }
+body.layout-modern .ssd-empty { margin: 0 0 8px; color: var(--m-text-2); }
+body.layout-modern .ssd-foot { margin-top: 10px; color: var(--m-muted); font-size: 12px; }
