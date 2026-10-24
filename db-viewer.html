@@ -301,7 +301,7 @@
          server-side check comes back high; dismissible for the session. -->
     <div class="missing-banner" id="missingFilesBanner" style="display:none"></div>
 
-    <!-- "Showing exactly these N records" — filters.js focus set, used by the
+    <!-- "Showing N selected files" — filters.js focus set, used by the
          migration report's "Show not migrated" button. -->
     <div class="focus-banner" id="focusFilterBar" style="display:none"></div>
 
@@ -342,16 +342,16 @@
         <div class="sort-control">
           <label>Sort:</label>
           <select id="sortSelect">
-            <option value="processed">Date Processed</option>
+            <option value="processed">Date added</option>
             <option value="name">Name</option>
             <option value="size">Size</option>
             <option value="duration">Duration</option>
             <option value="rating">Rating</option>
             <option value="views">Views</option>
-            <option value="done">Session Ends</option>
+            <option value="done">Finished most</option>
           </select>
           <button id="sortDirBtn" class="sort-dir-btn" title="Toggle most/least first">▼</button>
-          <button id="favesFirstBtn" class="faves-first-btn" title="Faves first (on top of any sort)" aria-label="Faves first" aria-pressed="false"><span class="vi-w" data-vi="heart">🤍</span></button>
+          <button id="favesFirstBtn" class="faves-first-btn" title="Favorites first (on top of any sort)" aria-label="Favorites first" aria-pressed="false"><span class="vi-w" data-vi="heart">🤍</span></button>
         </div>
         <!-- Modern look only: open / close the docked preview pane (player-lib/dock.js) -->
         <button type="button" class="dock-toggle-btn modern-only" id="dockToggleBtn" aria-pressed="false"

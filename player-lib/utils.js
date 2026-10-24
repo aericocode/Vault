@@ -270,7 +270,7 @@ function friendlyError(err, what) {
   const sentence = msg.length <= 240
     && words.length >= 3
     && /^[A-Z]/.test(msg)
-    && !/\bHTTP\s?\d{3}\b|^E[A-Z]{3,}\b|^[A-Z]\w*Error\b|\b[a-z]+_[a-z_]+\b|[{}<>]|\bat \S+:\d+|\bundefined\b|\bnull\b/.test(msg)
+    && !/\bHTTP\s?\d{3}\b|\breturned \d{3}\b|\bstatus(?: code)? \d{3}\b|^E[A-Z]{3,}\b|^[A-Z]\w*Error\b|\b[a-z]+_[a-z_]+\b|[{}<>]|\bat \S+:\d+|\bundefined\b|\bnull\b/.test(msg)
     && !/^(?:Internal Server Error|Bad Request|Not Found|Bad Gateway|Service Unavailable|Gateway Timeout|Forbidden|Unauthorized)\b/i.test(msg);
   if (!sentence) return generic;
   return /[.!?]$/.test(msg) ? msg : msg + '.';

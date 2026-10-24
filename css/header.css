@@ -211,3 +211,161 @@
     width: 100%;
   }
 }
+
+/* ── Setup banner, Modern look ─────────────────────────────────────────────
+   A neutral card under nothing but the window edge (it still scrolls away
+   above the sticky header): warning icon, a plain title, one line on what
+   breaks, one Download button, and the manual install folded away. */
+.setup-banner-more summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  width: max-content;
+}
+.setup-banner-more summary:hover { color: var(--text-primary); }
+.setup-banner-more[open] summary { margin-bottom: 0.3rem; }
+.setup-banner-more .setup-banner-desc { margin-top: 0.2rem; }
+.setup-banner-more .setup-banner-btn { margin-left: 0.25rem; }
+.setup-banner-x .vi { width: 16px; height: 16px; vertical-align: -3px; }
+
+body.layout-modern .setup-banner {
+  margin: 12px 16px 0;
+  background: var(--m-surface-solid);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  color: var(--m-text);
+}
+body.layout-modern .setup-banner-row {
+  padding: 12px 48px 12px 16px;
+  gap: 12px;
+}
+body.layout-modern .setup-banner-row + .setup-banner-row { border-top: 1px solid var(--m-border); }
+body.layout-modern .setup-banner-row-optional { opacity: 1; padding-top: 12px; }
+body.layout-modern .setup-banner-ic { font-size: 18px; line-height: 1.25; color: var(--warning); }
+body.layout-modern .setup-banner-row-optional .setup-banner-ic { color: var(--m-muted); }
+body.layout-modern .setup-banner-text { font-size: 13px; }
+body.layout-modern .setup-banner-title { font-weight: 600; font-size: 14px; }
+body.layout-modern .setup-banner-row-optional .setup-banner-title { font-weight: 600; }
+body.layout-modern .setup-banner-desc { color: var(--m-text-2); }
+body.layout-modern .setup-banner-desc a { color: var(--accent-hover); }
+body.layout-modern .setup-banner-cmd { margin: 8px 0 6px; gap: 12px; }
+body.layout-modern .setup-banner-tag {
+  font-size: 11px;
+  color: var(--m-muted);
+  border-color: var(--m-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-left: 6px;
+}
+body.layout-modern .setup-banner-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-btn);
+  color: var(--m-text);
+  font-size: 12.5px;
+}
+body.layout-modern .setup-banner-btn:hover { background: var(--m-btn-hover); border-color: var(--m-border-strong); }
+body.layout-modern .setup-banner-primary {
+  min-height: 32px;
+  padding: 6px 14px;
+  border-color: transparent;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+}
+body.layout-modern .setup-banner-primary:hover { background: var(--accent-hover); border-color: transparent; }
+body.layout-modern .setup-banner-primary .vi { width: 15px; height: 15px; }
+body.layout-modern .setup-banner-link { color: var(--m-muted); font-size: 12.5px; text-decoration: none; }
+body.layout-modern .setup-banner-link:hover { color: var(--m-text); text-decoration: underline; }
+body.layout-modern .setup-banner-more summary { color: var(--m-muted); font-size: 12.5px; }
+body.layout-modern .setup-banner-more summary:hover { color: var(--m-text); }
+body.layout-modern .setup-banner-cmd code,
+body.layout-modern .setup-banner-more code {
+  background: var(--m-field);
+  border: 1px solid var(--m-border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  user-select: all;
+}
+body.layout-modern .setup-banner-row.setup-banner-ok { background: none; }
+body.layout-modern .setup-banner-ok .setup-banner-ic { color: var(--m-success-text); }
+body.layout-modern .setup-banner > .setup-banner-x {
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--m-radius-sm);
+  color: var(--m-muted);
+}
+body.layout-modern .setup-banner > .setup-banner-x:hover { background: var(--m-btn); color: var(--m-text); }
+
+/* ── "Can't reach Vault" (player-lib/database.js) ─────────────────────────
+   First thing inside the sticky header, so it stays in view while the server
+   is gone; the rail and the preview pane follow the header's new height. */
+.server-notice {
+  max-width: 1800px;
+  margin: 0 auto 0.75rem;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+.server-notice-ic { color: var(--danger); flex: none; }
+.server-notice-text { flex: 1 1 18rem; min-width: 0; }
+.server-notice-status { color: var(--text-secondary); font-size: 0.8rem; }
+.server-notice-btn {
+  flex: none;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+}
+.server-notice-btn:hover { border-color: var(--accent); }
+.server-notice-btn:disabled { opacity: 0.6; cursor: default; }
+
+body.layout-modern .server-notice {
+  max-width: none;
+  margin-bottom: 10px;
+  padding: 8px 10px 8px 14px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: var(--m-radius);
+  background: var(--m-surface-solid);
+  font-size: 13px;
+  color: var(--m-text);
+}
+body.layout-modern .server-notice-ic { color: var(--m-danger-text); line-height: 1; }
+body.layout-modern .server-notice-ic .vi { width: 16px; height: 16px; vertical-align: -3px; }
+body.layout-modern .server-notice-text { color: var(--m-text-2); }
+body.layout-modern .server-notice-text strong { color: var(--m-text); font-weight: 600; }
+body.layout-modern .server-notice-status { color: var(--m-muted); font-size: 12.5px; }
+body.layout-modern .server-notice-btn {
+  min-height: 30px;
+  padding: 4px 14px;
+  border: 0;
+  border-radius: var(--m-radius-sm);
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+body.layout-modern .server-notice-btn:hover { background: var(--accent-hover); }

@@ -14,10 +14,13 @@
   padding: 2rem;
 }
 
+/* Head and foot stay put; only the body scrolls, so Add is always on screen. */
 .import-modal {
   width: min(520px, 100%);
   max-height: 92vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -66,6 +69,9 @@
 
 /* ── body ── */
 .imp-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   padding: 1rem 1.1rem;
   display: flex;
   flex-direction: column;
@@ -155,23 +161,6 @@
 .imp-pill.on::before { background: var(--brand); }
 .imp-sub { font-size: 0.68rem; color: var(--text-muted); }
 
-/* Value pill, not a toggle — drop the on/off dot the toggling pills carry */
-.imp-pill-num { cursor: default; }
-.imp-pill-num::before { display: none; }
-.imp-num {
-  width: 46px;
-  padding: 0.1rem 0.25rem;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-family: inherit;
-  font-size: 0.78rem;
-  text-align: center;
-  cursor: text;
-}
-.imp-num:focus { outline: none; border-color: var(--brand); }
-
 .imp-note {
   font-size: 0.72rem;
   color: var(--text-muted);
@@ -191,6 +180,163 @@
 }
 .imp-sum { font-size: 0.78rem; color: var(--text-secondary); }
 .imp-sum b { color: var(--text-primary); }
-.imp-foot .vault-btn { margin-left: auto; }
-.imp-foot .vault-btn + .vault-btn { margin-left: 0; }
-.imp-foot .vault-btn:disabled { opacity: 0.55; cursor: default; }
+.imp-foot .imp-cancel { margin-left: auto; }
+.imp-foot .vdlg-btn:disabled { opacity: 0.55; cursor: default; }
+.imp-foot .vdlg-btn { min-width: 0; }
+
+/* ── Toggles: a real checkbox in each pill (keyboard), hidden in Classic ── */
+.import-modal:focus { outline: none; }
+.imp-opt { position: relative; }
+.imp-opt-text { display: inline; }
+.imp-opt-desc { display: none; }
+.imp-switch {
+  position: absolute; inset: 0;
+  opacity: 0; overflow: hidden;
+}
+.imp-switch input { cursor: pointer; }
+.imp-opt:has(input:focus-visible) { outline: 2px solid var(--brand); outline-offset: 2px; }
+.imp-type:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.imp-inplace .vi { margin-right: 0.35em; }
+
+/* ── Drop overlay icon (the overlay itself: css/vault.css) ── */
+#vaultDropOverlay .vi { width: 1.3em; height: 1.3em; margin-right: 0.5em; }
+
+/* =========================================================================
+   Modern: the shared dialog look (css/dialogs.css). Dark card, 12 px
+   corners, hairline borders, line icons, neutral cards with an accent tick,
+   option rows with switches.
+   ========================================================================= */
+body.layout-modern .import-overlay { background: rgba(0, 0, 0, 0.55); padding: 16px; }
+body.layout-modern .import-modal {
+  width: min(540px, 100%);
+  background: var(--m-surface-solid);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  color: var(--m-text);
+  font-size: 14px;
+}
+body.layout-modern .imp-head { padding: 16px 18px 14px; border-bottom-color: rgba(255, 255, 255, 0.08); gap: 12px; }
+body.layout-modern .imp-ic {
+  width: 36px; height: 36px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--m-border);
+  color: var(--m-text);
+}
+body.layout-modern .imp-ic .vi { width: 18px; height: 18px; }
+body.layout-modern .imp-t1 { font-size: 16px; font-weight: 600; color: var(--m-text); }
+body.layout-modern .imp-t2 { font-size: 12px; color: var(--m-muted); margin-top: 2px; }
+body.layout-modern .imp-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0;
+  border-radius: var(--m-radius-sm); color: var(--m-muted);
+}
+body.layout-modern .imp-x:hover { background: var(--m-btn-hover); color: var(--m-text); }
+body.layout-modern .imp-x:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
+body.layout-modern .imp-x .vi { width: 16px; height: 16px; }
+
+body.layout-modern .imp-body { padding: 16px 18px; gap: 18px; }
+body.layout-modern .imp-sect {
+  text-transform: none; letter-spacing: 0;
+  font-size: 13px; font-weight: 600; color: var(--m-text-2);
+  margin-bottom: 8px;
+}
+
+/* Kind-of-file cards: neutral, the tick carries the accent */
+body.layout-modern .imp-types { gap: 8px; }
+body.layout-modern .imp-type {
+  gap: 12px; padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--m-field);
+  border: 1px solid var(--m-border);
+}
+body.layout-modern .imp-type:hover { background: rgba(255, 255, 255, 0.08); }
+body.layout-modern .imp-type.on { background: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.2); }
+body.layout-modern .imp-type.off { opacity: 0.6; }
+body.layout-modern .imp-type:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+body.layout-modern .imp-em {
+  width: 32px; height: 32px; border-radius: var(--m-radius-sm);
+  display: grid; place-items: center;
+  background: rgba(255, 255, 255, 0.06); color: var(--m-text-2);
+}
+body.layout-modern .imp-em .vi { width: 18px; height: 18px; }
+body.layout-modern .imp-tname { font-size: 14px; font-weight: 600; color: var(--m-text); }
+body.layout-modern .imp-texts { font-size: 12px; color: var(--m-muted); }
+body.layout-modern .imp-n { font-size: 15px; font-weight: 600; color: var(--m-text); }
+body.layout-modern .imp-files { font-size: 11px; color: var(--m-muted); }
+body.layout-modern .imp-type.off .imp-n { color: var(--m-muted); }
+body.layout-modern .imp-tick {
+  width: 18px; height: 18px; border-radius: 5px;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  color: transparent;
+}
+body.layout-modern .imp-tick .vi { width: 12px; height: 12px; stroke-width: 3; }
+body.layout-modern .imp-type.on .imp-tick { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* Option rows: one card per section, a switch on the right of each row */
+body.layout-modern .imp-opts {
+  display: flex; flex-direction: column; gap: 0;
+  border: 1px solid var(--m-border);
+  border-radius: 10px;
+  background: var(--m-field);
+  overflow: hidden;
+}
+body.layout-modern .imp-pill.imp-opt {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 10px 12px;
+  border: none; border-radius: 0;
+  background: none;
+  color: var(--m-text);
+  font-size: 14px;
+}
+body.layout-modern .imp-pill.imp-opt + .imp-pill.imp-opt { border-top: 1px solid rgba(255, 255, 255, 0.08); }
+body.layout-modern .imp-pill.imp-opt::before { display: none; }
+body.layout-modern .imp-pill.imp-opt.on { background: none; }
+body.layout-modern .imp-opt:has(input:focus-visible) { outline: none; }
+body.layout-modern .imp-opt-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+body.layout-modern .imp-opt-title { font-weight: 500; }
+body.layout-modern .imp-opt-desc { display: block; font-size: 12px; color: var(--m-muted); line-height: 1.4; }
+body.layout-modern .imp-sub { font-size: 12px; color: var(--m-muted); }
+/* Modern says it in the row's description instead. */
+body.layout-modern .imp-sub-classic { display: none; }
+body.layout-modern .imp-switch { position: relative; inset: auto; opacity: 1; overflow: visible; }
+
+/* The switch itself (.wf-switch, css/watchers.css) at the Modern size */
+body.layout-modern .import-modal .wf-switch input + span {
+  width: 32px; height: 18px;
+  border: none; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+body.layout-modern .import-modal .wf-switch input + span::after { width: 14px; height: 14px; top: 2px; left: 2px; background: #fff; }
+body.layout-modern .import-modal .wf-switch input:checked + span { background: var(--accent); }
+body.layout-modern .import-modal .wf-switch input:checked + span::after { transform: translateX(14px); }
+body.layout-modern .import-modal .wf-switch input:focus-visible + span { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+
+body.layout-modern .imp-watch {
+  padding: 10px 12px;
+  border: 1px solid var(--m-border);
+  border-radius: 10px;
+  background: var(--m-field);
+}
+body.layout-modern .imp-watch-title { font-size: 14px; font-weight: 500; color: var(--m-text); }
+body.layout-modern .imp-watch-desc { font-size: 12px; color: var(--m-muted); }
+
+body.layout-modern .imp-note { font-size: 12px; color: var(--m-muted); margin-top: 8px; }
+body.layout-modern .imp-inplace { display: flex; align-items: center; margin-top: 0; }
+body.layout-modern .imp-inplace .vi { width: 14px; height: 14px; margin-right: 8px; flex: none; }
+
+body.layout-modern .imp-foot {
+  padding: 12px 18px;
+  gap: 8px;
+  border-top-color: rgba(255, 255, 255, 0.08);
+  background: transparent;
+}
+body.layout-modern .imp-sum { font-size: 13px; color: var(--m-text-2); margin-right: 8px; }
+body.layout-modern .imp-sum b { color: var(--m-text); font-weight: 600; }
+
+/* Phone width: the summary gets its own line above the buttons */
+@media (max-width: 480px) {
+  .imp-foot { flex-wrap: wrap; }
+  .imp-sum { flex: 1 1 100%; }
+  .imp-foot .imp-cancel { margin-left: 0; }
+}

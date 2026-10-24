@@ -192,3 +192,72 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Empty states (player-lib/cards.js emptyStateHtml) ────────────────────
+   A new library, a search or filter that matched nothing, an empty
+   collection, a library that could not load: one centred message with its
+   actions where the tiles would be. */
+#resultsGrid.results-empty {
+  display: block;
+}
+.empty-state {
+  max-width: 30rem;
+  margin: 3.5rem auto 2rem;
+  padding: 0 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+.empty-state .empty-state-ic {
+  width: 40px;
+  height: 40px;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+  stroke-width: 1.6;
+}
+.empty-state-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.empty-state-hint {
+  margin-top: 0.4rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.empty-state-actions {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem;
+}
+.empty-state-btn {
+  padding: 0.5rem 1.1rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.empty-state-btn:hover:not(:disabled) { border-color: var(--accent); }
+.empty-state-btn.is-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.empty-state-btn:disabled { opacity: 0.6; cursor: default; }
+.empty-state-note {
+  flex-basis: 100%;
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+body.layout-modern .empty-state { color: var(--m-text-2); }
+body.layout-modern .empty-state .empty-state-ic { color: var(--m-muted); }
+body.layout-modern .empty-state-title { color: var(--m-text); font-size: 17px; }
+body.layout-modern .empty-state-hint { font-size: 14px; }
+body.layout-modern .empty-state-note { color: var(--m-muted); font-size: 12.5px; }
+body.layout-modern .empty-state-btn { min-height: 36px; padding: 8px 18px; font-size: 14px; }
+@media (max-height: 720px) {
+  .empty-state { margin-top: 1.5rem; }
+}

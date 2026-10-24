@@ -49,7 +49,12 @@ function errorTooltip(msg) {
 const CARD_MIN_WIDTHS = { S: 130, M: 170, L: 230 };
 const GRID_GAP = 12;          // px — 0.75rem, the grid's own gap
 const TILE_ASPECT = 16 / 10;  // .tile-thumb aspect-ratio (css/tiles.css)
-const BOTTOM_RESERVE = 16;    // .main-container bottom padding
+const BOTTOM_PAD = 16;        // .main-container bottom padding
+// Room kept free under the pager: the padding, plus the selection bar while it
+// shows (it is fixed to the bottom edge and would sit on the pager, so Prev,
+// Next and the slider could not be reached with files ticked). A let, set by
+// updateBottomReserve() before each layout; table-view.js reads it too.
+let BOTTOM_RESERVE = BOTTOM_PAD;
 const PAGER_MARGIN = 16;      // .pagination margin-top
 const MIN_ROW_H = 90;
 // A tile never shrinks below this share of its natural height. Squeezing a row
@@ -145,6 +150,18 @@ function clampPageAnchor() {
  * Pin the column count and the row height so one page is exactly one screenful
  * of whole rows. Sets pageSize; returns true if pageSize changed.
  */
+/** Height the selection bar takes at the bottom edge while it shows (0 when hidden). */
+function selectionBarReserve() {
+  const bar = document.getElementById('selectionBar');
+  if (!bar || !bar.classList.contains('visible')) return 0;
+  const bottom = parseFloat(getComputedStyle(bar).bottom) || 0;
+  return Math.round(bar.offsetHeight + bottom);
+}
+
+function updateBottomReserve() {
+  BOTTOM_RESERVE = BOTTOM_PAD + selectionBarReserve();
+}
+
 function updateGridLayout() {
   const m = measureGrid({ noScrollbar: true });
   if (!m) return false;
@@ -217,9 +234,107 @@ function fitRowHeight() {
   document.getElementById('resultsGrid')?.style.setProperty('--tile-h', `${rowH.toFixed(1)}px`);
 }
 
+/* ── Empty states ─────────────────────────────────────────────────────────
+   A result with nothing in it says why instead of leaving a blank grid under
+   a pager: a brand-new library offers the Add actions, a search or filter
+   that matched nothing offers to clear it, and an open collection with no
+   files says so. Not for the Collections home and the Faces pages (their own
+   cards fill the space) or a search the server refused (the line under the
+   search box says why). */
+
+/** What is narrowing the result right now: { text, filters, focus, collection }. */
+function libraryNarrowing() {
+  const input = document.getElementById('searchInput');
+  return {
+    text: input ? input.value.trim() : '',
+    filters: typeof anyFilterIsSet === 'function' && anyFilterIsSet(),
+    focus: typeof focusIds !== 'undefined' && !!focusIds,
+    similar: typeof audioSimScores !== 'undefined' && !!audioSimScores,
+    collection: typeof activeCollectionId !== 'undefined' && activeCollectionId != null,
+  };
+}
+
+function emptyStateHtml() {
+  if (!Library.known() || Library.length() > 0 || Library.isEmptyResult) return '';
+  if (typeof collectionsHomeShowing === 'function' && collectionsHomeShowing()) return '';
+  if (document.getElementById('mainContainer')?.classList.contains('faces-on')) return '';
+  const n = libraryNarrowing();
+  const ic = (name) => (typeof vaultIcon === 'function' ? vaultIcon(name, 'empty-state-ic') : '');
+  const btn = (act, label, primary) =>
+    `<button type="button" class="empty-state-btn m-btn${primary ? ' is-primary' : ''}" data-empty-act="${act}">${escapeHtml(label)}</button>`;
+  let icon, title, hint, actions;
+  if (n.text || n.filters || n.focus || n.similar) {
+    icon = ic('search');
+    title = n.text ? `No files match "${n.text}"` : 'No files match these filters';
+    hint = n.text && n.filters ? 'Check the spelling, or clear the filters to search everything.'
+      : n.text ? 'Check the spelling, or try fewer or shorter words.'
+      : n.focus ? 'None of these files are left.'
+      : 'Try removing a filter or two.';
+    actions = (n.text ? btn('clear-search', 'Clear search', !n.filters) : '')
+      + (n.filters ? btn('clear-filters', 'Clear filters', true) : '')
+      + (n.focus ? btn('clear-focus', 'Show all files', true) : '');
+  } else if (n.collection) {
+    icon = ic('folder');
+    title = 'This collection is empty';
+    hint = 'Select files in the Library and choose Add to collection.';
+    actions = '';
+  } else {
+    icon = ic('folder');
+    title = 'Your library is empty';
+    hint = 'Add a folder or some files to get started. Your files stay where they are.';
+    const canFolder = !!document.getElementById('addFolderBtn');
+    const canFiles = !!document.getElementById('addFilesBtn');
+    actions = (canFolder ? btn('add-folder', 'Add folder', true) : '') + (canFiles ? btn('add-files', 'Add files', !canFolder) : '');
+    actions += '<div class="empty-state-note">Or drop files anywhere on this window.</div>';
+  }
+  return `<div class="empty-state" role="status">
+      ${icon}
+      <div class="empty-state-title">${escapeHtml(title)}</div>
+      <div class="empty-state-hint">${escapeHtml(hint)}</div>
+      ${actions ? `<div class="empty-state-actions">${actions}</div>` : ''}
+    </div>`;
+}
+
+/** Draw the empty state in place of the grid. Returns true if it did. */
+function renderEmptyState() {
+  const grid = document.getElementById('resultsGrid');
+  if (!grid) return false;
+  const html = emptyStateHtml();
+  if (!html) {
+    grid.classList.remove('results-empty');
+    return false;
+  }
+  grid.classList.add('results-empty');
+  grid.innerHTML = html;
+  // The tile and table skeletons are gone: make them rebuild next time.
+  delete grid.dataset.gridShape;
+  delete grid.dataset.tvShape;
+  pageAnchor = 0;
+  currentPage = 1;
+  Library.pin('grid', []);
+  renderPagination();
+  if (typeof renderSelectionBar === 'function') renderSelectionBar();
+  return true;
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('[data-empty-act]');
+  if (!b || !b.closest('#resultsGrid')) return;
+  const act = b.dataset.emptyAct;
+  if (act === 'add-folder') document.getElementById('addFolderBtn')?.click();
+  else if (act === 'add-files') document.getElementById('addFilesBtn')?.click();
+  else if (act === 'clear-filters') document.getElementById('clearFiltersBtn')?.click();
+  else if (act === 'clear-focus' && typeof clearFocusIds === 'function') clearFocusIds();
+  else if (act === 'clear-search') {
+    if (typeof clearSearchInput === 'function') clearSearchInput();
+  }
+});
+
 let _inRenderCorrection = false;
 
 function renderResults() {
+  if (renderEmptyState()) return;
+  updateBottomReserve();
   // Modern's table view draws rows with this same machinery (player-lib/table-view.js).
   if (typeof tableViewRender === 'function' && tableViewRender()) return;
   if (libraryLayoutMode() === 'continuous') return renderContinuous();
@@ -350,7 +465,7 @@ window.addEventListener('vault:results-counted', (e) => {
   // The exact count is in: the pager and Select all can say it now. If the
   // list was computed against newer data, the tiles on screen re-read too.
   if (libraryLayoutMode() === 'continuous') renderContinuous();
-  else if (e.detail && e.detail.versionChanged) renderResults();
+  else if ((e.detail && e.detail.versionChanged) || Library.length() === 0) renderResults();
   else renderPagination();
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
 });
@@ -557,6 +672,7 @@ function continuousRange(stride, totalRows) {
 }
 
 function renderContinuous() {
+  if (renderEmptyState()) return;
   if (typeof tableViewRender === 'function' && tableViewRender()) return;
   const m = measureGrid();
   if (!m) return;
@@ -678,7 +794,8 @@ function libraryLayoutKey() {
   const grid = document.getElementById('resultsGrid');
   if (!grid) return '';
   const top = Math.round(grid.getBoundingClientRect().top + window.scrollY);
-  return [grid.clientWidth, top, window.innerHeight, tileMinWidth(), libraryLayoutMode()].join('|');
+  const reserve = libraryLayoutMode() === 'pages' ? selectionBarReserve() : 0;
+  return [grid.clientWidth, top, window.innerHeight, tileMinWidth(), libraryLayoutMode(), reserve].join('|');
 }
 
 let _relayoutWhenShown = false;
@@ -719,8 +836,22 @@ function initGridObservers() {
     const ro = new ResizeObserver(nudge);
     ro.observe(grid);
     // The bars above the grid: showing or hiding one moves the grid's top edge
-    ['.search-section', '.results-info', '#missingFilesBanner', '#focusFilterBar']
+    // (#appHeader: the "Can't reach Vault" notice grows it.)
+    ['#appHeader', '.search-section', '.results-info', '#missingFilesBanner', '#focusFilterBar']
       .forEach(sel => { const el = document.querySelector(sel); if (el) ro.observe(el); });
+    // The selection bar coming or going changes the room under the pager.
+    // selection.js creates it on first use, so wait for it to exist.
+    const attachBar = () => {
+      const bar = document.getElementById('selectionBar');
+      if (!bar) return false;
+      ro.observe(bar);
+      new MutationObserver(nudge).observe(bar, { attributes: true, attributeFilter: ['class'] });
+      return true;
+    };
+    if (!attachBar() && typeof MutationObserver === 'function') {
+      const mo = new MutationObserver(() => { if (attachBar()) { mo.disconnect(); nudge(); } });
+      mo.observe(document.body, { childList: true });
+    }
   }
   window.addEventListener('resize', nudge);
 
@@ -858,6 +989,14 @@ if (document.readyState === 'loading') {
   initGridObservers();
 }
 
+/** The duration badge: none for pictures (a still image has no length worth
+    showing; "0:00" read as a broken video) or anything under a second. */
+function tileDurationText(media) {
+  if (!media || media.media_type === 'image') return '';
+  const s = Number(media.duration_seconds) || 0;
+  return s >= 1 ? formatDuration(s) : '';
+}
+
 /* ── Compact tile (grid view) ──────────────────────────────────────────────
    The filename carries no tooltip. The hover popover already shows the
    full name (in both looks), so a tooltip only repeated it on top. It also
@@ -871,7 +1010,7 @@ function renderTile(media) {
   const isUnscanned = media.processing_error === 'unscanned';
   const hasError = !!media.processing_error && !isUnscanned;
   const rating = media.user_rating || 0;
-  const duration = media.duration_seconds ? formatDuration(media.duration_seconds) : '';
+  const duration = tileDurationText(media);
   // Classic's emoji, Modern's line icon (player-lib/icons.js)
   const icon = vaultTypeIcon(media.media_type);
   // A file we already know has no picture (its source is gone, or the render
@@ -900,7 +1039,7 @@ function renderTile(media) {
   const ic = vaultIconSwap;
   const indicators = [
     views > 0 ? `<span class="tile-ind ind-views" title="Viewed ${views}×">${ic('👁', 'eye')}${views > 1 ? views : ''}</span>` : '',
-    media.user_starred ? `<span class="tile-ind ind-star" title="Fave">${ic('❤', 'heart')}</span>` : '',
+    media.user_starred ? `<span class="tile-ind ind-star" title="Favorite">${ic('❤', 'heart')}</span>` : '',
     rating > 0 ? `<span class="tile-ind ind-rating" title="Rated ${rating}/5">${rating}</span>` : '',
     isFlagged ? `<span class="tile-ind ind-flag" title="Flagged">${ic('🚩', 'flag')}</span>` : '',
     media.dupe_group ? '<span class="tile-ind ind-dupe" title="Confirmed duplicate, notes shared">⧉</span>' : '',
@@ -910,7 +1049,7 @@ function renderTile(media) {
     hasError ? `<span class="tile-ind ind-error" title="${escapeHtml(errorTooltip(media.processing_error))}">${ic('⚠', 'alert')}</span>` : '',
     isUnscanned ? `<span class="tile-ind ind-unscanned" title="Not scanned yet, AI analysis pending">${ic('⏳', 'clock')}</span>` : '',
     (typeof mediaSongIds === 'function' && mediaSongIds(media.id).length > 0)
-      ? `<span class="tile-ind ind-music" title="${mediaSongIds(media.id).length} song(s) identified">${ic('🎵', 'audio')}</span>` : '',
+      ? `<span class="tile-ind ind-music" title="${mediaSongIds(media.id).length === 1 ? '1 song' : `${mediaSongIds(media.id).length} songs`} identified">${ic('🎵', 'audio')}</span>` : '',
   ].filter(Boolean).join('');
 
   // Hot 🔥 / Done 💦 markers live at the thumb's bottom-LEFT (opposite the
@@ -965,7 +1104,7 @@ function renderTile(media) {
         <input type="checkbox" class="tile-select" ${isSelected ? 'checked' : ''}
           onclick="onTileSelect(event, ${media.id})" title="Select (shift-click for range)">
         <div class="tile-actions" onclick="event.stopPropagation()">
-          <button class="tile-btn ${media.user_starred ? 'active-star' : ''}" onclick="toggleStar(mediaPathById(${media.id}))" title="${media.user_starred ? 'Remove Fave' : 'Fave'}" aria-label="${media.user_starred ? 'Remove Fave' : 'Fave'}">${ic(media.user_starred ? '❤' : '🤍', 'heart')}</button>
+          <button class="tile-btn ${media.user_starred ? 'active-star' : ''}" onclick="toggleStar(mediaPathById(${media.id}))" title="${media.user_starred ? 'Remove from favorites' : 'Favorite'}" aria-label="${media.user_starred ? 'Remove from favorites' : 'Favorite'}">${ic(media.user_starred ? '❤' : '🤍', 'heart')}</button>
           <button class="tile-btn ${isFlagged ? 'active-flag' : ''}" onclick="toggleFlagDelete(mediaPathById(${media.id}))" title="${isFlagged ? 'Unflag' : 'Flag'}" aria-label="${isFlagged ? 'Unflag' : 'Flag'}">${ic('🚩', 'flag')}</button>
           ${trashBtn}
           <button class="tile-btn" onclick="showDetailsById(${media.id})" title="Details" aria-label="Details">${ic('ⓘ', 'info')}</button>
@@ -1054,18 +1193,20 @@ function buildPopoverHtml(media) {
   const themes = safeParseJSON(media.themes, []);
   const tags = safeParseJSON(media.tags, []);
   const allTags = [...themes, ...tags].slice(0, 12);
-  const duration = media.duration_seconds ? formatDuration(media.duration_seconds) : '';
+  const duration = tileDurationText(media);
   const fileSize = media.filesize_bytes ? formatFileSize(media.filesize_bytes) : '';
   const rating = media.user_rating || 0;
 
   const flags = [
-    media.user_starred ? '❤ Fave' : '',
+    media.user_starred ? '❤ Favorite' : '',
     rating > 0 ? `${'★'.repeat(rating)}${'☆'.repeat(5 - rating)}` : '',
     media.user_flagged_delete ? '🚩 Flagged' : '',
-    media.dupe_group ? '⧉ Dupe (notes shared)' : '',
+    media.dupe_group ? '⧉ Duplicate (notes shared)' : '',
     media.user_trashed ? '🗑 In trash' : '',
     media.playback_failed ? '⚠ Failed to play' : '',
-  ].filter(Boolean);
+  ].filter(Boolean)
+    // Classic's emoji, Modern's line icon; the rating stars are content.
+    .map(f => (/^[★☆]/.test(f) ? f : vaultEmojiLabel(escapeHtml(f))));
 
   const escapedPath = escapeHtml(media.filepath).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   const songCount = typeof mediaSongIds === 'function' ? mediaSongIds(media.id).length : 0;
@@ -1274,10 +1415,10 @@ function renderCard(media) {
           <span class="meta-badge type-${media.media_type}">${media.media_type}</span>
           ${media.language_code && media.language_code !== 'none' ? `<span class="meta-badge language" title="${escapeHtml(media.language_name || '')}">${escapeHtml(media.language_code.toUpperCase())}</span>` : ''}
           ${media.content_type ? `<span class="meta-badge">${media.content_type}</span>` : ''}
-          ${hasError ? `<span class="meta-badge error" title="${escapeHtml(errorTooltip(media.processing_error))}" data-error="${escapeHtml(media.processing_error)}">⚠ Error</span>` : ''}
-          ${cardUnscanned ? '<span class="meta-badge unscanned-badge" title="AI analysis pending">⏳ Not scanned</span>' : ''}
-          ${hasNotes ? '<span class="meta-badge has-notes">📝 Notes</span>' : ''}
-          ${isFlagged ? '<span class="meta-badge flagged-badge">🚩 Flagged</span>' : ''}
+          ${hasError ? `<span class="meta-badge error" title="${escapeHtml(errorTooltip(media.processing_error))}" data-error="${escapeHtml(media.processing_error)}">${vaultEmojiLabel('⚠ Error')}</span>` : ''}
+          ${cardUnscanned ? `<span class="meta-badge unscanned-badge" title="AI analysis pending">${vaultEmojiLabel('⏳ Not scanned')}</span>` : ''}
+          ${hasNotes ? `<span class="meta-badge has-notes">${vaultEmojiLabel('📝 Notes')}</span>` : ''}
+          ${isFlagged ? `<span class="meta-badge flagged-badge">${vaultEmojiLabel('🚩 Flagged')}</span>` : ''}
           ${typeof renderDuplicateBadge === 'function' ? renderDuplicateBadge(media) : ''}
           ${typeof renderCardStarRating === 'function' ? renderCardStarRating(media) : ''}
         </div>
@@ -1294,7 +1435,7 @@ function renderCard(media) {
         </div>
       </div>
       <div class="card-quick-actions">
-        <button class="card-star-btn ${media.user_starred ? 'starred' : ''}" onclick="event.stopPropagation(); toggleStar('${escapedPath}');" title="${media.user_starred ? 'Remove Fave' : 'Fave'}">${media.user_starred ? '❤' : '🤍'}</button>
+        <button class="card-star-btn ${media.user_starred ? 'starred' : ''}" onclick="event.stopPropagation(); toggleStar('${escapedPath}');" title="${media.user_starred ? 'Remove from favorites' : 'Favorite'}">${media.user_starred ? '❤' : '🤍'}</button>
         <div class="card-rating-inline">${renderCardInlineRating(media, escapedPath)}</div>
         <button class="card-flag-btn ${isFlagged ? 'flagged' : ''}" onclick="event.stopPropagation(); toggleFlagDelete('${escapedPath}');" title="${isFlagged ? 'Unflag' : 'Flag'}">🚩</button>
       </div>
@@ -1340,7 +1481,9 @@ function quickRate(filepath, rating, btnEl) {
 
    The bar renders even on a single page so its height never changes under the
    grid — the row maths reserves that height, and a bar that came and went
-   would re-lay the grid every time a filter narrowed the list to one page. */
+   would re-lay the grid every time a filter narrowed the list to one page.
+   On a single page it is only made invisible (.pager-single): Prev and Next
+   that can never be pressed are noise. */
 
 let _pagerPages = -1;   // page count the bar was last built for
 
@@ -1370,11 +1513,11 @@ function renderPagination() {
 function buildPager(count) {
   const pager = document.getElementById('pagination');
   pager.innerHTML = `
-    <button class="pager-btn" id="pagerPrev" title="Previous page (Page Up)">← Prev</button>
+    <button class="pager-btn" id="pagerPrev" title="Previous page (Page Up)">${vaultIconSwap('←', 'chev-left')}<span>Prev</span></button>
     <span class="pager-pos" id="pagerPos" aria-live="polite"></span>
     <input type="range" class="pager-range" id="pagerRange" min="1" max="${count}" step="1"
       value="1" aria-label="Jump to a page" title="Drag to jump">
-    <button class="pager-btn" id="pagerNext" title="Next page (Page Down)">Next →</button>`;
+    <button class="pager-btn" id="pagerNext" title="Next page (Page Down)"><span>Next</span>${vaultIconSwap('→', 'chev-right')}</button>`;
 
   pager.querySelector('#pagerPrev').addEventListener('click', () => movePage(-1));
   pager.querySelector('#pagerNext').addEventListener('click', () => movePage(1));
@@ -1417,6 +1560,7 @@ function updatePagerState() {
   if (prev) prev.disabled = page <= 1;
   // Before the count is in, Next stays on (the first answer was not all).
   if (next) next.disabled = known ? page >= count : false;
+  document.getElementById('pagination')?.classList.toggle('pager-single', known && count <= 1);
 }
 
 /** Kept for callers that still think in page numbers. */

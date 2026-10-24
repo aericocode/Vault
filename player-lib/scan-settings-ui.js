@@ -82,9 +82,16 @@
     return 'Used for new files. Picked from the models LM Studio has on disk.';
   }
 
+  /** Why Vault cannot load models, in plain words (the server's reason names the lms tool). */
+  function cannotLoadWords(reason) {
+    const r = String(reason || '');
+    if (!r || /\blms\b/i.test(r)) return "LM Studio's command line tool is not installed";
+    return r;
+  }
+
   function whenNote() {
     if (data && !data.canLoad) {
-      return `Vault cannot load models here (${h(data.cannotLoadReason || 'no lms command')}). With "Wait until I load it" files wait for you; otherwise they go out and LM Studio loads the model itself if it can.`;
+      return `Vault cannot load models here (${h(cannotLoadWords(data.cannotLoadReason))}). With "Wait until I load it" files wait for you; otherwise they go out and LM Studio loads the model itself if it can.`;
     }
     return 'Room means free memory on the graphics card, read from the NVIDIA driver. Other cards wait unless you pick Always.';
   }
@@ -174,13 +181,13 @@ ${settingsRowHtml({
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
       });
       const out = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
+      if (!res.ok) throw Object.assign(new Error(out.error || ''), { status: res.status });
       data = out;
       paint();
       status('Saved.');
       setTimeout(() => { const el = document.getElementById('scanSetStatus'); if (el && el.textContent === 'Saved.') status(''); }, 2000);
     } catch (err) {
-      status(`Could not save: ${err.message}`, true);
+      status(typeof friendlyError === 'function' ? friendlyError(err, 'saving') : 'Could not save. Try again.', true);
       paint();
     }
   }

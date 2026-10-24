@@ -8,10 +8,14 @@
    click arms an orange warning state ("locking interrupts the scan") and only
    a second click within 6s force-locks.
 
-   Locked: an opaque full-screen lock covers the app (client data wiped);
-   click the big padlock to reveal the password prompt — or press and hold it,
-   if unlockHoldSeconds is set above its 0 default. Unlock reloads the page
-   fresh.
+   Locked: an opaque full-screen lock covers the app (client data wiped).
+   The password field shows straight away, focused. Only when a stored
+   unlockHoldSeconds is above its 0 default is the field hidden until the
+   big padlock is pressed and held (pointer, or Space / Enter on the focused
+   lock). Unlock reloads the page fresh.
+
+   The password dialogs (set, change) and the first-launch offer are built on
+   the .vault-modal shell (css/vault.css), which other prompts share too.
 
    Autolock (server-side, config.security.autolockMinutes) is detected by a
    status poll + a fetch wrapper that watches for 423 responses. Real user
@@ -63,25 +67,26 @@
     return node;
   }
 
-  /** Title, header word and lock-screen eyebrow, from one string. Safe to call
-   *  before the lock overlay exists; showLockOverlay() re-applies it. */
+  /** The lock screen's heading: the name is what tells two locked tabs
+   *  apart, so it is the heading itself, not a small line above it. */
+  const lockHeading = () => `${displayName()} is locked`;
+
+  /** Title, header word and lock-screen heading, from one string. Safe to
+   *  call before the lock overlay exists; showLockOverlay() re-applies it. */
   function applyInstanceName(name) {
     _instanceName = String(name == null ? '' : name).trim().slice(0, 40);
     applyTitle();
     const node = logoTextNode();
     if (node) node.textContent = displayName();
-    const eyebrow = document.getElementById('vaultLockEyebrow');
-    if (eyebrow) {
-      eyebrow.textContent = _instanceName;
-      eyebrow.hidden = !_instanceName;
-    }
+    const heading = document.getElementById('vaultLockTitle');
+    if (heading) heading.textContent = lockHeading();
   }
 
-  // Locked adds a padlock prefix, so the lock state reads from the tab strip
-  // too — the case this whole feature exists for is a second Vault sitting
-  // locked and unfocused in another tab.
+  // Locked adds a "Locked:" prefix, so the lock state reads from the tab
+  // strip too — the case this whole feature exists for is a second Vault
+  // sitting locked and unfocused in another tab.
   function applyTitle() {
-    document.title = (_status.locked ? '🔒 ' : '') + displayName();
+    document.title = (_status.locked ? 'Locked: ' : '') + displayName();
   }
 
   // Settings applies a rename live, with no reload, through this.
@@ -111,10 +116,11 @@
     if (!el) return;
     el.classList.toggle('vault-open', !_status.locked);
     el.classList.toggle('vault-warn', _armedInterrupt);
-    el.title = _status.locked ? 'Vault locked'
+    el.title = _status.locked ? 'The library is locked'
       : _armedInterrupt ? 'A scan is running. Locking now interrupts it. Click again to lock anyway.'
-      : _status.encrypted ? 'Vault unlocked. Click to lock'
-      : 'Click to create a vault password (encrypts the library database)';
+      : _status.encrypted ? 'Lock the library'
+      : 'Set a vault password (encrypts the library file)';
+    el.setAttribute('aria-label', el.title);
     // The 🔑 change-password affordance only makes sense on an encrypted,
     // unlocked vault — hidden while plaintext or locked.
     const key = $keyBtn();
@@ -140,19 +146,29 @@
         // First click while scanning: arm the warning, require a second click
         _armedInterrupt = true;
         renderLogo();
-        showToast('⚠ A scan is running. Click the lock again to interrupt it and lock');
+        showToast('A scan is running. Click the lock again to stop it and lock the library.', { type: 'error' });
         clearTimeout(_armTimer);
         _armTimer = setTimeout(() => { _armedInterrupt = false; renderLogo(); }, 6000);
         return;
       }
-      if (!resp.ok) { showToast('⚠ ' + (data.error || 'lock failed')); return; }
+      if (!resp.ok) { errorToast(data, 'locking the library'); return; }
       _armedInterrupt = false;
       clearTimeout(_armTimer);
       _status = data;
       enterLockedUi();
     } catch (err) {
-      showToast('⚠ ' + err.message);
+      errorToast(err, 'locking the library');
     }
+  }
+
+  /* Readable words for a failure (player-lib/utils.js friendlyError), with a
+     plain fallback if utils.js is ever missing. */
+  function errorText(err, what) {
+    if (typeof friendlyError === 'function') return friendlyError(err, what);
+    return `Something went wrong while ${what}. Try again.`;
+  }
+  function errorToast(err, what) {
+    showToast(errorText(err, what), { type: 'error' });
   }
 
   /** Hard-stop every playback subsystem the moment the vault locks. Runs on
@@ -186,7 +202,7 @@
   /** Wipe client-side state and cover the app with the lock screen. */
   function enterLockedUi() {
     _status.locked = true;
-    applyTitle();                 // 🔒 prefix the moment it locks
+    applyTitle();                 // "Locked:" prefix the moment it locks
     haltAllPlayback();
     // Decrypted thumbnails are held as object URLs in this tab. Locking the
     // vault has to take them with it, not just hide the grid.
@@ -199,58 +215,195 @@
     showLockOverlay();
   }
 
-  /* ── Create-password modal (first lock on a plaintext DB) ────────────── */
+  /* ── Shared pieces for the password dialogs and the lock screen ──────── */
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // Line icons from player-lib/icons.js; both looks show them here (these
+  // controls are new, there is no Classic emoji to keep).
+  const icon = (name) => (typeof vaultIcon === 'function' ? vaultIcon(name) : '');
+
+  /** The show / hide toggle inside a password field. */
+  function eyeButtonHtml(inputId) {
+    return `<button type="button" class="vault-eye" data-eye-for="${inputId}" aria-controls="${inputId}"`
+      + ` aria-pressed="false" aria-label="Show password" title="Show password">${icon('eye') || 'Show'}</button>`;
+  }
+
+  /** One labelled password field: label above, eye toggle inside, an optional
+   *  note under it that the field also points screen readers at. */
+  function passFieldHtml(id, label, { note = '', autocomplete = 'new-password' } = {}) {
+    const noteId = `${id}Note`;
+    return `
+      <div class="vault-field">
+        <label class="vault-label" for="${id}">${esc(label)}</label>
+        <div class="vault-pass-wrap">
+          <input type="password" id="${id}" class="vault-input" autocomplete="${autocomplete}"
+                 spellcheck="false" autocapitalize="off"${note ? ` aria-describedby="${noteId}"` : ''}>
+          ${eyeButtonHtml(id)}
+        </div>
+        ${note ? `<div class="vault-field-note" id="${noteId}">${esc(note)}</div>` : ''}
+      </div>`;
+  }
+
+  /** Wire every eye toggle under root. Showing swaps the field to text; the
+   *  button says what it will do next and shows the matching icon. */
+  function wireEyeToggles(root) {
+    root.querySelectorAll('.vault-eye').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const input = root.querySelector('#' + btn.dataset.eyeFor);
+        if (!input) return;
+        const show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        const words = show ? 'Hide password' : 'Show password';
+        btn.setAttribute('aria-pressed', String(show));
+        btn.setAttribute('aria-label', words);
+        btn.title = words;
+        btn.innerHTML = icon(show ? 'eye-off' : 'eye') || (show ? 'Hide' : 'Show');
+      });
+      // A press on the eye should not pull focus out of the field being typed in.
+      btn.addEventListener('mousedown', (e) => e.preventDefault());
+    });
+  }
+
+  /** The error line under the fields: alert icon and plain words, or hidden. */
+  function setErrorLine(el, msg) {
+    if (!el) return;
+    if (!msg) { el.hidden = true; el.textContent = ''; return; }
+    el.innerHTML = `${icon('alert')}<span>${esc(msg)}</span>`;
+    el.hidden = false;
+  }
+
+  /** Mark one field as the one to fix: red edge, a short shake, focus. */
+  function flagField(input, { clear = false } = {}) {
+    if (!input) return;
+    if (clear) input.value = '';
+    input.setAttribute('aria-invalid', 'true');
+    input.classList.remove('vault-shake');
+    void input.offsetWidth;                         // restart the animation
+    input.classList.add('vault-shake');
+    input.focus();
+    if (!clear && typeof input.select === 'function') input.select();
+  }
+
+  /**
+   * A .vault-modal dialog with the keyboard handled: Esc cancels, Enter
+   * submits (a focused button answers for itself, so Enter on Cancel
+   * cancels), Tab stays inside, focus goes back to whatever had it. A click
+   * on the backdrop does nothing: these dialogs hold typed passwords, and a
+   * stray click should not throw them away.
+   */
+  function openVaultModal({ id, labelledBy, describedBy, html, onSubmit, onCancel }) {
+    document.getElementById(id)?.remove();
+    const opener = document.activeElement;
+    const ov = document.createElement('div');
+    ov.id = id;
+    ov.className = 'vault-modal-overlay';
+    ov.innerHTML = html;
+    const box = ov.querySelector('.vault-modal');
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-modal', 'true');
+    if (labelledBy) box.setAttribute('aria-labelledby', labelledBy);
+    if (describedBy) box.setAttribute('aria-describedby', describedBy);
+    document.body.appendChild(ov);
+
+    const close = () => {
+      ov.remove();
+      if (opener && opener.isConnected && typeof opener.focus === 'function') {
+        try { opener.focus({ preventScroll: true }); } catch { /* gone */ }
+      }
+    };
+    const cancel = () => (onCancel ? onCancel(close) : close());
+
+    ov.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault(); e.stopPropagation();
+        cancel();
+      } else if (e.key === 'Enter') {
+        if (e.target && e.target.tagName === 'BUTTON') { e.stopPropagation(); return; }
+        e.preventDefault(); e.stopPropagation();
+        if (e.repeat || e.isComposing) return;
+        if (onSubmit) onSubmit();
+      } else if (e.key === 'Tab') {
+        const f = [...box.querySelectorAll('input, button')].filter(n => !n.disabled && n.offsetParent !== null);
+        if (!f.length) return;
+        const i = f.indexOf(document.activeElement);
+        if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+        else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
+      }
+    });
+    // Typing in a field clears its red edge.
+    ov.addEventListener('input', (e) => {
+      if (e.target && e.target.classList && e.target.classList.contains('vault-input')) {
+        e.target.removeAttribute('aria-invalid');
+        e.target.classList.remove('vault-shake');
+      }
+    });
+    wireEyeToggles(ov);
+    return { ov, box, q: (sel) => ov.querySelector(sel), close, cancel };
+  }
+
+  /** Busy state for a dialog's main button. */
+  function setBusy(btn, busy, idleLabel, busyLabel) {
+    btn.disabled = busy;
+    btn.textContent = busy ? busyLabel : idleLabel;
+  }
+
+  const NO_RECOVERY = 'There is no way to recover a lost password.';
+
+  /* ── Set-password dialog (first lock on a plaintext DB) ──────────────── */
 
   function openCreatePassModal() {
-    document.getElementById('vaultPassModal')?.remove();
-    const ov = document.createElement('div');
-    ov.id = 'vaultPassModal';
-    ov.className = 'vault-modal-overlay';
-    ov.innerHTML = `
-      <div class="vault-modal" role="dialog" aria-label="Create vault password">
-        <h3>🔐 Create vault password</h3>
-        <p class="vault-modal-hint">
-          Encrypts the library database in place (ChaCha20-Poly1305, AES-256-class).
-          Protects all metadata, notes, transcripts and history. Media files themselves
-          stay as-is on disk. <b>No recovery exists. A lost password loses the data.</b>
-        </p>
-        <input type="password" id="vaultPass1" class="vault-input" placeholder="Password (min 4 characters)" autocomplete="new-password">
-        <input type="password" id="vaultPass2" class="vault-input" placeholder="Confirm password" autocomplete="new-password">
-        <div class="vault-modal-err" id="vaultPassErr"></div>
-        <div class="vault-modal-actions">
-          <button class="vault-btn" id="vaultPassCancel" type="button">Cancel</button>
-          <button class="vault-btn vault-btn-primary" id="vaultPassOk" type="button">Encrypt library</button>
-        </div>
-      </div>`;
-    document.body.appendChild(ov);
-    const q = (sel) => ov.querySelector(sel);
-    const err = (m) => { q('#vaultPassErr').textContent = m || ''; };
-
-    q('#vaultPassCancel').onclick = () => ov.remove();
-    ov.addEventListener('mousedown', (e) => { if (e.target === ov) ov.remove(); });
-    ov.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') ov.remove();
-      if (e.key === 'Enter') submit();
+    if (_status.encrypted || _status.locked) return;
+    const OK = 'Set password';
+    const d = openVaultModal({
+      id: 'vaultPassModal',
+      labelledBy: 'vaultPassTitle',
+      describedBy: 'vaultPassHint',
+      html: `
+        <div class="vault-modal vault-pass-dlg">
+          <h3 id="vaultPassTitle">Set a vault password</h3>
+          <div id="vaultPassHint" class="vault-modal-body">
+            <p class="vault-modal-hint">Vault encrypts the library file with this password. Your media files are not changed.</p>
+            <p class="vault-modal-hint vault-modal-strong">${NO_RECOVERY}</p>
+          </div>
+          ${passFieldHtml('vaultPass1', 'Password', { note: 'At least 4 characters.' })}
+          ${passFieldHtml('vaultPass2', 'Type it again')}
+          <div class="vault-modal-err" id="vaultPassErr" role="alert" hidden></div>
+          <div class="vault-modal-actions">
+            <button class="vault-btn" id="vaultPassCancel" type="button">Cancel</button>
+            <button class="vault-btn vault-btn-primary" id="vaultPassOk" type="button">${OK}</button>
+          </div>
+        </div>`,
+      onSubmit: () => submit(),
     });
+    const { q } = d;
+    const err = (m) => setErrorLine(q('#vaultPassErr'), m);
+    q('#vaultPassCancel').onclick = d.cancel;
 
     async function submit() {
-      const p1 = q('#vaultPass1').value, p2 = q('#vaultPass2').value;
-      if (p1.length < 4) return err('Password must be at least 4 characters');
-      if (p1 !== p2) return err('Passwords do not match');
       const btn = q('#vaultPassOk');
-      btn.disabled = true; btn.textContent = 'Encrypting…';
+      if (btn.disabled) return;
+      const f1 = q('#vaultPass1'), f2 = q('#vaultPass2');
+      const p1 = f1.value, p2 = f2.value;
+      if (p1.length < 4) { err('The password must be at least 4 characters.'); flagField(f1); return; }
+      if (p1 !== p2) { err('The two passwords do not match. Type it again.'); flagField(f2, { clear: true }); return; }
+      err('');
+      setBusy(btn, true, OK, 'Encrypting the library…');
       try {
         const resp = await fetch('/api/vault/setpass', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pass: p1 }),
         });
-        const data = await resp.json();
+        const data = await resp.json().catch(() => ({ status: resp.status }));
         if (!resp.ok) {
-          err(data.error || 'encryption failed');
-          btn.disabled = false; btn.textContent = 'Encrypt library';
+          err(errorText(data, 'setting the password'));
+          setBusy(btn, false, OK);
           return;
         }
-        ov.remove();
+        d.close();
         // Deliberately NO lock here. Setting the password encrypts the file in
         // place; the session that just created it carries on unlocked (the
         // server never locked either — setPassword only rekeys). Sending the
@@ -260,62 +413,59 @@
         // Thumbnails become uncacheable the moment the library is encrypted.
         if (typeof setThumbsEncrypted === 'function') setThumbsEncrypted(true);
         if (typeof renderResults === 'function') renderResults();
-        renderLogo();                   // padlock → open + 🔑 appears, no reload
-        showToast('🔐 Library encrypted. It stays open while you use it');
+        renderLogo();                   // padlock → open + key button appears, no reload
+        showToast('Password set. The library is encrypted and stays open while you use it.', { type: 'success' });
       } catch (e2) {
-        err(e2.message);
-        btn.disabled = false; btn.textContent = 'Encrypt library';
+        err(errorText(e2, 'setting the password'));
+        setBusy(btn, false, OK);
       }
     }
     q('#vaultPassOk').onclick = submit;
     q('#vaultPass1').focus();
   }
 
-  /* ── Change-password modal (🔑, encrypted + unlocked) ────────────────── */
+  /* ── Change-password dialog (key button, encrypted + unlocked) ───────── */
 
   function openChangePassModal() {
     if (!_status.encrypted || _status.locked) return;
-    document.getElementById('vaultPassModal')?.remove();
-    const ov = document.createElement('div');
-    ov.id = 'vaultPassModal';
-    ov.className = 'vault-modal-overlay';
-    ov.innerHTML = `
-      <div class="vault-modal" role="dialog" aria-label="Change vault password">
-        <h3>🔑 Change vault password</h3>
-        <p class="vault-modal-hint">
-          Confirm your current password, then set a new one. The library is re-encrypted
-          in place. Nothing is exported or re-scanned.
-          <b>No recovery exists. A lost password loses the data.</b>
-        </p>
-        <input type="password" id="vaultCur" class="vault-input" placeholder="Current password" autocomplete="current-password">
-        <input type="password" id="vaultNew1" class="vault-input" placeholder="New password (min 4 characters)" autocomplete="new-password">
-        <input type="password" id="vaultNew2" class="vault-input" placeholder="Confirm new password" autocomplete="new-password">
-        <div class="vault-modal-err" id="vaultPassErr"></div>
-        <div class="vault-modal-actions">
-          <button class="vault-btn" id="vaultPassCancel" type="button">Cancel</button>
-          <button class="vault-btn vault-btn-primary" id="vaultPassOk" type="button">Change password</button>
-        </div>
-      </div>`;
-    document.body.appendChild(ov);
-    const q = (sel) => ov.querySelector(sel);
-    const err = (m) => { q('#vaultPassErr').textContent = m || ''; };
-
-    q('#vaultPassCancel').onclick = () => ov.remove();
-    ov.addEventListener('mousedown', (e) => { if (e.target === ov) ov.remove(); });
-    ov.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') ov.remove();
-      if (e.key === 'Enter') submit();
+    const OK = 'Change password';
+    const d = openVaultModal({
+      id: 'vaultPassModal',
+      labelledBy: 'vaultPassTitle',
+      describedBy: 'vaultPassHint',
+      html: `
+        <div class="vault-modal vault-pass-dlg">
+          <h3 id="vaultPassTitle">Change vault password</h3>
+          <div id="vaultPassHint" class="vault-modal-body">
+            <p class="vault-modal-hint">Enter your current password, then choose a new one. Vault encrypts the library file again with the new password. Nothing is scanned again.</p>
+            <p class="vault-modal-hint vault-modal-strong">${NO_RECOVERY}</p>
+          </div>
+          ${passFieldHtml('vaultCur', 'Current password', { autocomplete: 'current-password' })}
+          ${passFieldHtml('vaultNew1', 'New password', { note: 'At least 4 characters.' })}
+          ${passFieldHtml('vaultNew2', 'Type the new password again')}
+          <div class="vault-modal-err" id="vaultPassErr" role="alert" hidden></div>
+          <div class="vault-modal-actions">
+            <button class="vault-btn" id="vaultPassCancel" type="button">Cancel</button>
+            <button class="vault-btn vault-btn-primary" id="vaultPassOk" type="button">${OK}</button>
+          </div>
+        </div>`,
+      onSubmit: () => submit(),
     });
+    const { q } = d;
+    const err = (m) => setErrorLine(q('#vaultPassErr'), m);
+    q('#vaultPassCancel').onclick = d.cancel;
 
     async function submit() {
-      const cur = q('#vaultCur').value;
-      const n1 = q('#vaultNew1').value, n2 = q('#vaultNew2').value;
-      if (!cur) return err('Enter your current password');
-      if (n1.length < 4) return err('New password must be at least 4 characters');
-      if (n1 !== n2) return err('New passwords do not match');
-      if (n1 === cur) return err('New password must be different from the current one');
       const btn = q('#vaultPassOk');
-      btn.disabled = true; btn.textContent = 'Changing…';
+      if (btn.disabled) return;
+      const fc = q('#vaultCur'), f1 = q('#vaultNew1'), f2 = q('#vaultNew2');
+      const cur = fc.value, n1 = f1.value, n2 = f2.value;
+      if (!cur) { err('Enter your current password.'); flagField(fc); return; }
+      if (n1.length < 4) { err('The new password must be at least 4 characters.'); flagField(f1); return; }
+      if (n1 !== n2) { err('The two new passwords do not match. Type it again.'); flagField(f2, { clear: true }); return; }
+      if (n1 === cur) { err('The new password is the same as the current one. Choose a different one.'); flagField(f1); return; }
+      err('');
+      setBusy(btn, true, OK, 'Changing the password…');
       try {
         const resp = await fetch('/api/vault/changepass', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -326,43 +476,47 @@
         // Lockout: the vault sealed itself. Drop the modal and let the lock
         // screen take over — no explanation of the mechanism.
         if (resp.status === 423 || data.locked) {
-          ov.remove();
+          d.ov.remove();
           if (!_status.locked) enterLockedUi();
           return;
         }
         if (!resp.ok) {
-          // Wrong current password (or scan-running etc.) — generic message,
-          // re-focus the field they need to fix.
-          err(data.error || 'could not change password');
-          btn.disabled = false; btn.textContent = 'Change password';
+          setBusy(btn, false, OK);
           if (data.code === 'VAULT_WRONG_CURRENT') {
-            const c = q('#vaultCur');
-            c.value = '';
-            c.classList.remove('vault-shake'); void c.offsetWidth; c.classList.add('vault-shake');
-            c.focus();
+            // Generic on purpose: no count of tries left.
+            err('That is not your current password. Try again.');
+            flagField(fc, { clear: true });
+          } else {
+            err(errorText({ ...data, status: resp.status }, 'changing the password'));
           }
           return;
         }
-        ov.remove();
-        showToast('🔑 Vault password changed');
-        _status = data;               // stays unlocked; renderLogo keeps 🔑 visible
+        d.close();
+        showToast('Vault password changed.', { type: 'success' });
+        _status = data;               // stays unlocked; renderLogo keeps the key button
         renderLogo();
       } catch (e2) {
-        err(e2.message);
-        btn.disabled = false; btn.textContent = 'Change password';
+        err(errorText(e2, 'changing the password'));
+        setBusy(btn, false, OK);
       }
     }
     q('#vaultPassOk').onclick = submit;
     q('#vaultCur').focus();
   }
 
-  /* ── Lock screen (opaque overlay + click / optional hold to unlock) ──── */
+  // Settings (Privacy and security) opens the same dialogs from its own
+  // buttons. Each does nothing when it does not apply (already encrypted /
+  // not encrypted yet / locked).
+  window.vaultOpenSetPassword = openCreatePassModal;
+  window.vaultOpenChangePassword = openChangePassModal;
+
+  /* ── Lock screen (opaque overlay, field shown straight away) ─────────── */
 
   /**
    * How long the lock must be held before the password box appears.
-   * Default 0 = a plain click. The hold gesture itself is still fully wired
-   * (0–10s) and honours a stored unlockHoldSeconds, but no Settings row
-   * renders for it any more — see player-lib/settings.js.
+   * Default 0 = no hold: the field shows at once. The hold gesture itself is
+   * still fully wired (0–10s) and honours a stored unlockHoldSeconds, but no
+   * Settings row renders for it any more — see player-lib/settings.js.
    */
   function holdSeconds() {
     const raw = typeof window.vaultSetting === 'function' ? window.vaultSetting('unlockHoldSeconds') : 0;
@@ -371,59 +525,101 @@
     return Math.max(0, Math.min(10, Math.round(n)));
   }
 
+  /** Which copy of Vault this tab is, in words: "on this computer, port
+   *  8800" for a local address, the address itself otherwise. */
+  function whereLine() {
+    const host = String(location.hostname || '').replace(/^\[|\]$/g, '');
+    const local = host === 'localhost' || host === '::1' || /^127\./.test(host);
+    const port = location.port || (location.protocol === 'https:' ? '443' : '80');
+    return local ? `Vault on this computer, port ${port}` : `Vault at ${location.host}`;
+  }
+
   function showLockOverlay() {
     if (document.getElementById('vaultLockScreen')) return;
+    document.getElementById('vaultPassModal')?.remove();
+    if (typeof window.vaultDialogCloseAll === 'function') window.vaultDialogCloseAll();
     const secs = holdSeconds();
-    const label = secs === 0
-      ? 'Click the lock to unlock'
-      : `Press and hold the lock for ${secs} second${secs === 1 ? '' : 's'}`;
+    const holdHint = `Press and hold the lock for ${secs} second${secs === 1 ? '' : 's'} to unlock.`;
     const ov = document.createElement('div');
     ov.id = 'vaultLockScreen';
+    ov.setAttribute('role', 'dialog');
+    ov.setAttribute('aria-modal', 'true');
+    ov.setAttribute('aria-labelledby', 'vaultLockTitle');
+    // With no hold the lock picture is decoration (a click on it still just
+    // focuses the field), so it stays out of the Tab order. With a hold it is
+    // the control: a real button that Space / Enter can hold too.
+    const logoAttrs = secs === 0
+      ? 'tabindex="-1" aria-hidden="true"'
+      : `aria-label="Press and hold to unlock" aria-describedby="vaultLockHint"`;
     ov.innerHTML = `
       <div class="vault-lock-center">
-        <div class="vault-lock-logo" id="vaultHoldTarget" title="${label}"
-             style="--vault-hold-ms:${secs * 1000}ms">
+        <button type="button" class="vault-lock-logo" id="vaultHoldTarget" ${logoAttrs}
+                style="--vault-hold-ms:${secs * 1000}ms">
           ${LOCK_SVG}
           <svg class="vault-hold-ring" viewBox="0 0 120 120" aria-hidden="true">
             <circle cx="60" cy="60" r="54" fill="none" stroke-width="5"/>
           </svg>
-        </div>
-        <div class="vault-lock-eyebrow" id="vaultLockEyebrow"></div>
-        <div class="vault-lock-title">Vault locked</div>
-        <div class="vault-lock-hint" id="vaultLockHint">${label}</div>
-        <div class="vault-lock-addr">${escAttr(location.host)}</div>
-        <form id="vaultUnlockForm" class="vault-unlock-form" style="display:none">
-          <input type="password" id="vaultUnlockPass" class="vault-input" placeholder="Password" autocomplete="current-password">
+        </button>
+        <h1 class="vault-lock-title" id="vaultLockTitle">${esc(lockHeading())}</h1>
+        <p class="vault-lock-hint" id="vaultLockHint">${secs === 0 ? 'Enter your password to unlock the library.' : holdHint}</p>
+        <form id="vaultUnlockForm" class="vault-unlock-form" novalidate${secs === 0 ? '' : ' hidden'}>
+          <label class="vault-sr-only" for="vaultUnlockPass">Password</label>
+          <div class="vault-pass-wrap">
+            <input type="password" id="vaultUnlockPass" class="vault-input" placeholder="Password"
+                   autocomplete="current-password" spellcheck="false" autocapitalize="off"
+                   aria-describedby="vaultLockErr">
+            ${eyeButtonHtml('vaultUnlockPass')}
+          </div>
           <button class="vault-btn vault-btn-primary" type="submit">Unlock</button>
         </form>
+        <p class="vault-lock-err" id="vaultLockErr" role="alert"></p>
+        <p class="vault-lock-addr">${esc(whereLine())}</p>
       </div>`;
     document.body.appendChild(ov);
-    // The overlay is built after boot, so the eyebrow is filled in here rather
-    // than baked into the template above.
+    // Keep Tab and screen readers on the lock screen: nothing behind it is
+    // reachable while locked. Unlock reloads the page, so nothing undoes this.
+    for (const n of Array.from(document.body.children)) {
+      if (n !== ov) n.inert = true;
+    }
+    // The overlay is built after boot, so the name is applied again here.
     applyInstanceName(_instanceName);
-    bindHoldToUnlock(ov);
+    wireEyeToggles(ov);
+    bindUnlock(ov, secs);
+    if (secs === 0) ov.querySelector('#vaultUnlockPass').focus();
+    else ov.querySelector('#vaultHoldTarget').focus();
   }
 
-  // location.host is the user's own address bar, not remote content, but it
-  // reaches the DOM as a string — escape it like anything else.
-  function escAttr(s) {
-    return String(s).replace(/[&<>"']/g, c =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  }
-
-  function bindHoldToUnlock(ov) {
+  function bindUnlock(ov, secs) {
     const target = ov.querySelector('#vaultHoldTarget');
     const form = ov.querySelector('#vaultUnlockForm');
     const hint = ov.querySelector('#vaultLockHint');
+    const errLine = ov.querySelector('#vaultLockErr');
+    const input = form.querySelector('#vaultUnlockPass');
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const showErr = (msg) => {
+      errLine.innerHTML = msg ? `${icon('alert')}<span>${esc(msg)}</span>` : '';
+    };
     let holdTimer = null;
 
-    const secs = holdSeconds();
-
     const reveal = () => {
+      clearTimeout(holdTimer);
+      holdTimer = null;
       target.classList.remove('holding');
-      form.style.display = '';
-      hint.textContent = 'Enter the vault password';
-      form.querySelector('#vaultUnlockPass').focus();
+      if (form.hidden) {
+        form.hidden = false;
+        hint.textContent = 'Enter your password to unlock the library.';
+        // The lock has done its job; take it out of the Tab order.
+        target.tabIndex = -1;
+      }
+      input.focus();
+    };
+    const startHold = () => {
+      if (!form.hidden) { input.focus(); return; }   // prompt already revealed
+      // 0 = the deliberate-gesture guard is off; a click is enough.
+      if (secs === 0) { reveal(); return; }
+      if (holdTimer) return;
+      target.classList.add('holding');                // CSS ring fills over `secs`
+      holdTimer = setTimeout(reveal, secs * 1000);
     };
     const cancelHold = () => {
       clearTimeout(holdTimer);
@@ -432,42 +628,59 @@
     };
     target.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      if (form.style.display !== 'none') return;      // prompt already revealed
-      // 0 = the deliberate-gesture guard is off; a click is enough.
-      if (secs === 0) { reveal(); return; }
-      target.classList.add('holding');                // CSS ring fills over `secs`
-      holdTimer = setTimeout(reveal, secs * 1000);
+      startHold();
     });
     for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) {
       target.addEventListener(ev, cancelHold);
     }
+    // Keyboard: holding Space or Enter on the focused lock is the same gesture.
+    target.addEventListener('keydown', (e) => {
+      if (e.key !== ' ' && e.key !== 'Enter') return;
+      e.preventDefault();
+      if (!e.repeat) startHold();
+    });
+    target.addEventListener('keyup', (e) => {
+      if (e.key === ' ' || e.key === 'Enter') cancelHold();
+    });
+    target.addEventListener('blur', cancelHold);
+
+    input.addEventListener('input', () => {
+      input.classList.remove('vault-shake');
+      input.removeAttribute('aria-invalid');
+    });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const input = form.querySelector('#vaultUnlockPass');
-      const btn = form.querySelector('button');
-      btn.disabled = true;
+      if (submitBtn.disabled) return;
+      if (!input.value) {
+        showErr('Enter your password.');
+        flagField(input);
+        return;
+      }
+      submitBtn.disabled = true;
+      showErr('');
       try {
         const resp = await fetch('/api/vault/unlock', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pass: input.value }),
         });
         if (resp.ok) {
-          hint.textContent = 'Unlocked, loading…';
+          hint.textContent = 'Unlocked. Loading your library…';
           location.reload();                          // fresh boot with data
           return;
         }
         const data = await resp.json().catch(() => ({}));
-        hint.textContent = '⚠ ' + (data.error || 'unlock failed');
-        input.value = '';
-        input.classList.remove('vault-shake');
-        void input.offsetWidth;                       // restart the animation
-        input.classList.add('vault-shake');
-        input.focus();
+        // The server's own words for a wrong password are short and
+        // lowercase (and pinned by a test), so the code picks the copy here.
+        showErr(data.code === 'VAULT_WRONG_PASS'
+          ? 'That password is not right. Try again.'
+          : errorText({ ...data, status: resp.status }, 'unlocking the library'));
+        flagField(input, { clear: true });
       } catch (e2) {
-        hint.textContent = '⚠ ' + e2.message;
+        showErr(errorText(e2, 'unlocking the library'));
+        input.focus();
       } finally {
-        btn.disabled = false;
+        submitBtn.disabled = false;
       }
     });
   }
@@ -477,8 +690,34 @@
   // Any data endpoint answering 423 means the server locked (autolock or a
   // second window) — swap to the lock screen immediately.
   const _origFetch = window.fetch;
+  //
+  // The same wrapper tells the rest of the page when Vault itself stops
+  // answering: 'vault:offline' on the first failed request to this server,
+  // 'vault:online' on the next one that gets any answer (the 45 s status
+  // poll keeps asking). Requests to other sites and aborted requests do not
+  // count.
+  let _offline = false;
+  const sameOrigin = (input) => {
+    try {
+      const u = typeof input === 'string' || input instanceof URL ? input : input && input.url;
+      return new URL(String(u), location.href).origin === location.origin;
+    } catch { return false; }
+  };
   window.fetch = async function (...args) {
-    const resp = await _origFetch.apply(this, args);
+    let resp;
+    try {
+      resp = await _origFetch.apply(this, args);
+    } catch (err) {
+      if (!_offline && err && err.name === 'TypeError' && sameOrigin(args[0])) {
+        _offline = true;
+        window.dispatchEvent(new CustomEvent('vault:offline'));
+      }
+      throw err;
+    }
+    if (_offline && sameOrigin(args[0])) {
+      _offline = false;
+      window.dispatchEvent(new CustomEvent('vault:online'));
+    }
     if (resp.status === 423 && !_status.locked) enterLockedUi();
     return resp;
   };
@@ -496,6 +735,20 @@
   }
 
   /* ── Boot ─────────────────────────────────────────────────────────────── */
+
+  /** The header logo is a plain div in db-viewer.html; make it a keyboard
+   *  control too (Tab to it, Enter or Space locks / sets a password). */
+  function makeLogoKeyboardable() {
+    const el = $logo();
+    if (!el) return;
+    el.setAttribute('role', 'button');
+    el.tabIndex = 0;
+    el.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      if (!e.repeat) onLogoClick();
+    });
+  }
 
   /** Inject the small 🔑 change-password button beside the header logo. */
   function installKeyButton() {
@@ -539,46 +792,51 @@
       body: JSON.stringify({ passwordPromptSeen: true }),
     }).catch(() => {});
 
-    const ov = document.createElement('div');
-    ov.id = 'vaultFirstRunModal';
-    ov.className = 'vault-modal-overlay';
-    ov.innerHTML = `
-      <div class="vault-modal" role="dialog" aria-label="Protect your library">
-        <h3>🔐 Protect your library?</h3>
-        <p class="vault-modal-hint">
-          Vault stores everything in one database next to the app: AI descriptions
-          and tags, your notes, ratings, watch counts and history. <b>Without a
-          password that file is readable by anyone with access to this computer.</b>
-        </p>
-        <p class="vault-modal-hint">
-          Setting one encrypts the whole database at rest. You can still leave
-          auto-lock off (Settings → <b>Auto-lock after: 0</b>) so it never locks
-          while you're using it. The encryption applies either way.
-        </p>
-        <p class="vault-modal-hint">
-          <b>There is no recovery.</b> Lose the password and the library is gone,
-          so use something you'll remember or store it in a password manager.
-        </p>
-        <div class="vault-modal-actions">
-          <button class="vault-btn" id="vaultFirstRunSkip">Not now</button>
-          <button class="vault-btn vault-btn-primary" id="vaultFirstRunSet">Set a password</button>
-        </div>
-      </div>`;
-    document.body.appendChild(ov);
-
-    ov.querySelector('#vaultFirstRunSkip').addEventListener('click', () => {
-      remember();
-      ov.remove();
+    // Esc is the same answer as Not now: declining is a real choice.
+    const d = openVaultModal({
+      id: 'vaultFirstRunModal',
+      labelledBy: 'vaultFirstRunTitle',
+      describedBy: 'vaultFirstRunBody',
+      html: `
+        <div class="vault-modal">
+          <h3 id="vaultFirstRunTitle">Protect your library?</h3>
+          <div id="vaultFirstRunBody" class="vault-modal-body">
+            <p class="vault-modal-hint">
+              Vault keeps your tags, notes, ratings, watch history and AI descriptions in one
+              library file on this computer. Without a password, anyone who can open that file
+              can read it.
+            </p>
+            <p class="vault-modal-hint">
+              A password encrypts the library file. Your media files are not changed. If you would
+              rather it never locks while you use it, set
+              <b>Settings &gt; Privacy and security &gt; Auto-lock after</b> to 0. The library stays
+              encrypted either way.
+            </p>
+            <p class="vault-modal-hint vault-modal-strong">
+              There is no way to recover a lost password. Pick one you will remember, or keep it in
+              a password manager.
+            </p>
+          </div>
+          <div class="vault-modal-actions">
+            <button class="vault-btn" id="vaultFirstRunSkip" type="button">Not now</button>
+            <button class="vault-btn vault-btn-primary" id="vaultFirstRunSet" type="button">Set a password</button>
+          </div>
+        </div>`,
+      onCancel: (close) => { remember(); close(); },
     });
-    ov.querySelector('#vaultFirstRunSet').addEventListener('click', () => {
+
+    d.q('#vaultFirstRunSkip').addEventListener('click', d.cancel);
+    d.q('#vaultFirstRunSet').addEventListener('click', () => {
       remember();
-      ov.remove();
+      d.close();
       openCreatePassModal();
     });
+    d.q('#vaultFirstRunSet').focus();
   }
 
   document.addEventListener('DOMContentLoaded', () => {
     $logo()?.addEventListener('click', onLogoClick);
+    makeLogoKeyboardable();
     installKeyButton();
     document.addEventListener('pointerdown', touchActivity, true);
     document.addEventListener('keydown', touchActivity, true);

@@ -800,3 +800,126 @@
   color: var(--accent);
   white-space: nowrap;
 }
+
+/* An empty collection's card: a folder and the word "Empty", not four blank
+   cells (both looks). */
+.coll-mosaic.coll-mosaic--empty {
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  color: var(--text-muted);
+}
+.coll-mosaic--empty svg { opacity: 0.7; }
+.coll-empty-word { font-size: 0.78rem; }
+
+/* =========================================================================
+   MODERN: collections picker, card menu, open-collection bar, inline edits.
+   The same dark card, hairline border and quiet buttons as the dialogs and
+   the selection bar (css/dialogs.css, css/tiles.css).
+   ========================================================================= */
+body.layout-modern .coll-picker,
+body.layout-modern .coll-card-menu {
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  box-shadow: var(--m-shadow);
+  color: var(--m-text);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+body.layout-modern .coll-picker { padding: 10px; }
+body.layout-modern .coll-picker-head { padding: 2px 4px 8px; font-size: 12px; font-weight: 600; color: var(--m-text-2); }
+body.layout-modern .coll-picker-filter,
+body.layout-modern .coll-create-input {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-field);
+  color: var(--m-text);
+  font-size: 13px;
+}
+body.layout-modern .coll-picker-filter { margin-bottom: 6px; }
+body.layout-modern .coll-picker-filter::placeholder,
+body.layout-modern .coll-create-input::placeholder { color: var(--m-muted); }
+body.layout-modern .coll-picker-filter:focus,
+body.layout-modern .coll-create-input:focus { border-color: var(--accent-hover); }
+body.layout-modern .coll-picker-row { border-radius: var(--m-radius-sm); font-size: 13px; }
+body.layout-modern .coll-picker-row:hover,
+body.layout-modern .coll-menu-item:hover { background: var(--m-btn-hover); }
+body.layout-modern .coll-picker-empty { color: var(--m-muted); font-size: 12px; }
+body.layout-modern .coll-check { border: 1.5px solid rgba(255, 255, 255, 0.35); border-radius: 5px; }
+body.layout-modern .coll-picker-row:hover .coll-check[data-state="none"] { border-color: rgba(255, 255, 255, 0.6); }
+body.layout-modern .coll-picker .coll-count { font-size: 12px; color: var(--m-muted); font-variant-numeric: tabular-nums; }
+body.layout-modern .coll-picker-footer { gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--m-border); }
+body.layout-modern .coll-picker-add {
+  min-height: 32px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-btn);
+  color: var(--m-text);
+  font-size: 12px;
+}
+body.layout-modern .coll-picker-add:hover { background: var(--m-btn-hover); border-color: rgba(255, 255, 255, 0.22); }
+body.layout-modern .coll-picker-add:focus-visible,
+body.layout-modern .coll-menu-item:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
+body.layout-modern .coll-card-menu { padding: 4px; }
+body.layout-modern .coll-menu-item { border-radius: var(--m-radius-sm); font-size: 13px; color: var(--m-text); }
+body.layout-modern .coll-menu-head { color: var(--m-muted); font-size: 12px; }
+body.layout-modern .coll-menu-danger { color: var(--m-danger-text); }
+
+/* Open collection: the strip above its files */
+body.layout-modern .collections-bar {
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  background: var(--m-surface);
+}
+body.layout-modern .coll-back,
+body.layout-modern .coll-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-btn);
+  color: var(--m-text);
+  font-size: 13px;
+}
+body.layout-modern .coll-back:hover,
+body.layout-modern .coll-action:hover { background: var(--m-btn-hover); border-color: rgba(255, 255, 255, 0.22); }
+body.layout-modern .coll-back .vi { width: 16px; height: 16px; }
+body.layout-modern .coll-back .vi-gap { margin-right: 4px; }
+body.layout-modern .coll-delete:hover,
+body.layout-modern .coll-delete.armed { color: var(--m-danger-text); border-color: rgba(248, 113, 113, 0.45); background: rgba(248, 113, 113, 0.10); }
+body.layout-modern .collections-bar .field-edit-btn .vi { width: 14px; height: 14px; vertical-align: -2px; }
+body.layout-modern .coll-mosaic--empty { color: var(--m-muted); }
+
+/* Inline edits (Details): the fields are .m-field; Save is the accent
+   button, Cancel a quiet one, both square with the line icon. */
+body.layout-modern .inline-edit { gap: 6px; }
+body.layout-modern .inline-edit textarea.inline-edit-input { min-height: 84px; line-height: 1.45; resize: vertical; }
+body.layout-modern .inline-edit-row { font-size: 13px; color: var(--m-text-2); }
+body.layout-modern .inline-edit-save,
+body.layout-modern .inline-edit-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-btn);
+  color: var(--m-text);
+  font-size: 13px;
+}
+body.layout-modern .inline-edit-save { border-color: transparent; background: var(--accent); color: #fff; }
+body.layout-modern .inline-edit-save:hover { background: var(--accent-hover); }
+body.layout-modern .inline-edit-cancel:hover { background: var(--m-btn-hover); }
+body.layout-modern .inline-edit-save:focus-visible,
+body.layout-modern .inline-edit-cancel:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+body.layout-modern .inline-edit-actions .vi { width: 16px; height: 16px; }
+body.layout-modern .meta-tool-btn .vi { width: 14px; height: 14px; vertical-align: -2px; }

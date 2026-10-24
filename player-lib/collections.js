@@ -30,6 +30,35 @@ const ICON = {
   dots: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>',
 };
 
+/** "1 file", "6 files": what a collection holds, in the words the library uses. */
+function collFiles(n) {
+  const v = Number(n) || 0;
+  return `${v.toLocaleString()} ${v === 1 ? 'file' : 'files'}`;
+}
+
+/** A collections request that failed, as an Error friendlyError can read. */
+async function collResponseError(resp) {
+  const body = await resp.json().catch(() => ({}));
+  const err = new Error(body.error || `Server returned ${resp.status}`);
+  err.status = resp.status;
+  err.code = body.code;
+  if (!body.error) err.name = 'HttpError';
+  return err;
+}
+
+/* Words for the collection errors the server names by code. */
+const COLL_ERROR_TEXT = {
+  NAME_TAKEN: 'A collection with that name is already in this folder.',
+  CYCLE: 'A folder cannot go inside itself or one of its own folders.',
+  BAD_PARENT: 'That folder is no longer there.',
+};
+
+/** One error toast for a collections action ("making the collection"). */
+function collErrorToast(err, what) {
+  if (err && COLL_ERROR_TEXT[err.code]) showToast(COLL_ERROR_TEXT[err.code], { type: 'error' });
+  else showErrorToast(err, what);
+}
+
 async function loadCollections() {
   try {
     collectionsList = await fetch('/api/collections').then(r => r.json());
@@ -132,7 +161,7 @@ function renderCollectionsTabBar() {
   let viewAll = '';
   if (currentFolderId != null) {
     const f = getCollectionById(currentFolderId);
-    viewAll = `<button class="coll-viewall" onclick="openCollection(${currentFolderId})" title="Play this folder as one playlist">View all ${f ? f.item_count : 0} items</button>`;
+    viewAll = `<button class="coll-viewall" onclick="openCollection(${currentFolderId})" title="Play this folder as one playlist">View all ${collFiles(f ? f.item_count : 0)}</button>`;
   }
 
   bar.innerHTML = `
@@ -189,8 +218,7 @@ async function apiCreateCollection(name, kind, parentId) {
     body: JSON.stringify({ name, kind, parent_id: parentId ?? null }),
   });
   if (!resp.ok) {
-    const e = await resp.json().catch(() => ({}));
-    showToast(e.code === 'NAME_TAKEN' ? '⚠ A collection with that name already exists here' : `⚠ ${e.error || 'Create failed'}`);
+    collErrorToast(await collResponseError(resp), kind === 'folder' ? 'making the folder' : 'making the collection');
     return null;
   }
   const created = await resp.json();
@@ -229,7 +257,7 @@ function renderCollectionCards() {
 
   if (children.length === 0) {
     const msg = currentFolderId == null
-      ? 'No collections yet. Select files in the Library to Collect them, or add a folder above.'
+      ? 'No collections yet. Select files in the Library and choose Add to collection, or make one above.'
       : 'This folder is empty. Add a collection above.';
     return `<div class="coll-empty-state">${msg}</div>`;
   }
@@ -241,7 +269,7 @@ function folderCardHtml(c) {
     <div class="media-tile folder-tile" data-coll-id="${c.id}" data-drag-id="${c.id}" data-drag-kind="folder" draggable="true" onclick="drillIntoFolder(${c.id})" title="${escapeHtml(c.name)}">
       <div class="tile-thumb folder-glyph">${ICON.folderBig}</div>
       <div class="tile-name">${escapeHtml(c.name)}</div>
-      <div class="tile-meta">${c.child_count} collection${c.child_count === 1 ? '' : 's'} · ${c.item_count} item${c.item_count === 1 ? '' : 's'}</div>
+      <div class="tile-meta">${c.child_count} collection${c.child_count === 1 ? '' : 's'} · ${collFiles(c.item_count)}</div>
       <button class="coll-card-menu-btn" onclick="event.stopPropagation(); openCardMenu(${c.id}, this)" title="More">${ICON.dots}</button>
     </div>`;
 }
@@ -266,11 +294,15 @@ function collectionCardHtml(c, showPath) {
     : off ? collMosaicIconHtml(thumbs[i])
       : `<img class="coll-mosaic-img" loading="lazy" draggable="false" src="/thumb/${thumbs[i]}" alt="" onerror="collMosaicFallback(this, ${Number(thumbs[i])})">`).join('');
   const prefix = showPath ? _pathPrefix(c) : '';
+  // An empty collection says so, rather than showing four blank cells.
+  const thumb = !thumbs.length
+    ? `<div class="tile-thumb coll-mosaic coll-mosaic--empty">${ICON.folderBig}<span class="coll-empty-word">Empty</span></div>`
+    : `<div class="tile-thumb coll-mosaic">${cells}</div>`;
   return `
     <div class="media-tile collection-tile" data-coll-id="${c.id}" data-drag-id="${c.id}" data-drag-kind="collection" draggable="true" onclick="openCollection(${c.id})" title="${escapeHtml(c.name)}${c.description ? ': ' + escapeHtml(c.description) : ''}">
-      <div class="tile-thumb coll-mosaic">${cells}</div>
+      ${thumb}
       <div class="tile-name">${prefix}${escapeHtml(c.name)}</div>
-      <div class="tile-meta"><span class="coll-count">${c.item_count} item${c.item_count === 1 ? '' : 's'}</span></div>
+      <div class="tile-meta"><span class="coll-count">${collFiles(c.item_count)}</span></div>
       <button class="coll-card-menu-btn" onclick="event.stopPropagation(); openCardMenu(${c.id}, this)" title="More">${ICON.dots}</button>
     </div>`;
 }
@@ -327,8 +359,7 @@ async function cardRename(id) {
         body: JSON.stringify({ name: v }),
       });
       if (!resp.ok) {
-        const e2 = await resp.json().catch(() => ({}));
-        showToast(e2.code === 'NAME_TAKEN' ? '⚠ A collection with that name already exists here' : '⚠ Rename failed');
+        collErrorToast(await collResponseError(resp), 'renaming it');
         renderResults(); return;
       }
       c.name = v;
@@ -359,11 +390,7 @@ async function cardMove(id, parentId) {
     body: JSON.stringify({ parent_id: parentId }),
   });
   if (!resp.ok) {
-    const e = await resp.json().catch(() => ({}));
-    const msg = e.code === 'NAME_TAKEN' ? '⚠ A collection with that name already exists there'
-      : e.code === 'CYCLE' ? '⚠ Can’t move a folder into its own subtree'
-      : `⚠ ${e.error || 'Move failed'}`;
-    showToast(msg);
+    collErrorToast(await collResponseError(resp), 'moving it');
     return;
   }
   // Refresh the list so parent_ids + folder counts reflect the move (items,
@@ -383,12 +410,34 @@ async function cardDelete(id, btn) {
     return;
   }
   closeCardMenu();
-  collectionsList = await fetch(`/api/collections/${id}`, { method: 'DELETE' }).then(r => r.json());
+  const list = await collDeleteRequest(c);
+  if (!list) return;
+  collectionsList = list;
   collectionMembers.delete(id);
   if (activeCollectionId === id) activeCollectionId = null;
   renderResults();
   renderCollectionsTabBar();
-  showToast(c && c.kind === 'folder' ? 'Folder deleted, contents moved up a level' : 'Collection deleted, files and records untouched');
+  showToast(collDeletedText(c));
+}
+
+/** DELETE a collection or folder. @returns the server's new list, or null (toast shown) */
+async function collDeleteRequest(c) {
+  try {
+    const resp = await fetch(`/api/collections/${c ? c.id : 0}`, { method: 'DELETE' });
+    if (!resp.ok) throw await collResponseError(resp);
+    const list = await resp.json();
+    if (!Array.isArray(list)) throw new Error('');
+    return list;
+  } catch (err) {
+    collErrorToast(err, c && c.kind === 'folder' ? 'deleting the folder' : 'deleting the collection');
+    return null;
+  }
+}
+
+function collDeletedText(c) {
+  return c && c.kind === 'folder'
+    ? 'Folder deleted. What was in it moved up a level.'
+    : 'Collection deleted. Its files stay in the library.';
 }
 
 /* ── Open / close a collection or folder ───────────────────────────────── */
@@ -421,23 +470,28 @@ function renderCollectionHeader() {
   const isFolder = c.kind === 'folder';
   bar.style.display = 'flex';
   bar.innerHTML = `
-    <button class="coll-back" onclick="closeCollection()" title="Back to all collections">← Collections</button>
+    <button class="coll-back" onclick="closeCollection()" title="Back to all collections">${collGlyph('← ', 'chev-left')}Collections</button>
     <div class="coll-head-main">
       <div class="coll-head-name" id="collHeadName">
         <span class="coll-head-title">${isFolder ? `<span class="coll-head-folder">${ICON.folder}</span>` : ''}${escapeHtml(c.name)}</span>
-        <button class="field-edit-btn" onclick="editCollectionName(${c.id})" title="Rename">✎</button>
-        <span class="coll-count">${c.item_count} item${c.item_count === 1 ? '' : 's'}${isFolder ? ' · folder' : ' · playlist order'}</span>
+        <button class="field-edit-btn" onclick="editCollectionName(${c.id})" title="Rename" aria-label="Rename">${collGlyph('✎', 'edit')}</button>
+        <span class="coll-count">${collFiles(c.item_count)}${isFolder ? ' · folder' : ' · playlist order'}</span>
       </div>
       <div class="coll-head-desc" id="collHeadDesc" onclick="editCollectionDesc(${c.id})" title="Click to edit description">
         ${c.description ? escapeHtml(c.description) : '<span class="field-empty">Add a description…</span>'}
       </div>
     </div>
     <div class="coll-head-actions">
-      <button class="coll-action" onclick="playCollection(${c.id}, false)">Play All</button>
+      <button class="coll-action" onclick="playCollection(${c.id}, false)">Play all</button>
       <button class="coll-action" onclick="playCollection(${c.id}, true)">Shuffle</button>
       <button class="coll-action coll-delete" id="collDeleteBtn" onclick="deleteCollectionTwoStep(${c.id}, this)">Delete</button>
     </div>
   `;
+}
+
+/** Classic's glyph, Modern's line icon (player-lib/icons.js). */
+function collGlyph(glyph, icon) {
+  return typeof vaultIconSwap === 'function' ? vaultIconSwap(glyph, icon) : escapeHtml(glyph);
 }
 
 /* ── Inline rename + description (no popups) ───────────────────────────── */
@@ -468,8 +522,7 @@ function editCollectionName(id) {
         body: JSON.stringify({ name: v }),
       });
       if (!resp.ok) {
-        const e = await resp.json().catch(() => ({}));
-        showToast(e.code === 'NAME_TAKEN' ? '⚠ A collection with that name already exists here' : '⚠ Rename failed');
+        collErrorToast(await collResponseError(resp), 'renaming the collection');
         renderCollectionHeader(); return;
       }
       c.name = v;
@@ -489,12 +542,17 @@ function editCollectionDesc(id) {
   const holder = document.getElementById('collHeadDesc');
   if (!c || !holder || holder.querySelector('input')) return;
   const input = _inlineInput(c.description || '', 'Describe this collection…', async (v) => {
-    await fetch(`/api/collections/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description: v }),
-    });
-    c.description = v;
+    try {
+      const resp = await fetch(`/api/collections/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: v }),
+      });
+      if (!resp.ok) throw await collResponseError(resp);
+      c.description = v;
+    } catch (err) {
+      collErrorToast(err, 'saving the description');
+    }
     renderCollectionHeader();
   });
   holder.innerHTML = '';
@@ -520,22 +578,22 @@ async function deleteCollectionTwoStep(id, btn) {
     return;
   }
   const parent = c ? (c.parent_id ?? null) : null;
-  collectionsList = await fetch(`/api/collections/${id}`, { method: 'DELETE' }).then(r => r.json());
+  const list = await collDeleteRequest(c);
+  if (!list) return;
+  collectionsList = list;
   collectionMembers.delete(id);
   if (activeCollectionId === id) { activeCollectionId = null; currentFolderId = parent; }
   renderCollectionHeader();
   renderCollectionsTabBar();
   applyFilters();
-  showToast(c && c.kind === 'folder'
-    ? 'Folder deleted, contents moved up a level'
-    : '📁 Collection deleted, files and records untouched');
+  showToast(collDeletedText(c));
 }
 
 /* ── Playback ──────────────────────────────────────────────────────────── */
 
 async function playCollection(id, shuffle) {
   if (activeCollectionId !== id) await openCollection(id);
-  if (Library.length() === 0) { showToast('Collection is empty'); return; }
+  if (Library.length() === 0) { showToast('This collection is empty.'); return; }
   // A collection is a queue, so repeat-one would sit on the first file forever.
   // Step it down to off for this session only, leaving the remembered mode (and
   // repeat-all, which still advances) alone.
@@ -567,10 +625,15 @@ function _setPickerExpanded(set) {
   try { localStorage.setItem(PICKER_EXPANDED_KEY, JSON.stringify([...set])); } catch {}
 }
 
+let _pickerFromBar = false;      // opened from the selection bar: goes with the selection
+
 function openCollectionPicker(ids, anchorEl) {
   _pickerIds = ids.filter(Boolean);
   if (_pickerIds.length === 0) return;
   closeCollectionPicker();
+  // One menu at a time: the Studio menu (studios.js) closes when this opens.
+  if (typeof stClosePops === 'function') stClosePops();
+  _pickerFromBar = !!(anchorEl && anchorEl.closest && anchorEl.closest('#selectionBar'));
   _pickerFilter = '';
 
   // Open INSTANTLY from the local cache — no awaited requests.
@@ -587,6 +650,7 @@ function openCollectionPicker(ids, anchorEl) {
   panel.style.left = `${Math.max(8, left)}px`;
 
   setTimeout(() => document.addEventListener('pointerdown', _pickerOutside, true), 0);
+  document.addEventListener('keydown', _pickerEsc, true);
 
   // ONE background request to true-up any drifted row states.
   refreshPickerMembership();
@@ -597,9 +661,33 @@ function _pickerOutside(e) {
   closeCollectionPicker();
 }
 
+/**
+ * Esc closes the picker, and only the picker: the key stops here so it does
+ * not also clear the selection or close what is behind. A name being typed
+ * into a New collection / New folder box takes its own Esc (that box goes).
+ */
+function _pickerEsc(e) {
+  if (e.key !== 'Escape' || !document.getElementById('collectionPicker')) return;
+  if (e.target && e.target.classList && e.target.classList.contains('coll-create-input')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const back = document.querySelector('#selectionBar .sel-collect');
+  closeCollectionPicker();
+  if (back && _pickerFromBarWas) back.focus();
+}
+let _pickerFromBarWas = false;
+
 function closeCollectionPicker() {
+  _pickerFromBarWas = _pickerFromBar;
+  _pickerFromBar = false;
   document.getElementById('collectionPicker')?.remove();
   document.removeEventListener('pointerdown', _pickerOutside, true);
+  document.removeEventListener('keydown', _pickerEsc, true);
+}
+
+/** The selection went away (or its bar hid): a picker opened from the bar goes too. */
+function closeBarCollectionPicker() {
+  if (_pickerFromBar) closeCollectionPicker();
 }
 
 /** all | some | none for the selected ids against a collection's cache. */
@@ -617,7 +705,7 @@ function _checkboxHtml(state) {
 
 function buildPickerHtml() {
   return `
-    <div class="coll-picker-head">Add ${_pickerIds.length > 1 ? `${_pickerIds.length} items` : 'to collection'}</div>
+    <div class="coll-picker-head">${_pickerIds.length > 1 ? `Add ${collFiles(_pickerIds.length)} to a collection` : 'Add to a collection'}</div>
     <input type="text" class="coll-picker-filter" id="collPickerFilter" placeholder="Filter collections…"
       oninput="onPickerFilter(this.value)" value="${escapeHtml(_pickerFilter)}">
     <div class="coll-picker-list" id="collPickerList">${buildPickerRows()}</div>
@@ -833,7 +921,7 @@ async function changeCollectionMembership(id, mediaIds, adding) {
     _patchPickerRow(id);
     _patchAncestorCounts(id);
     _applyToggleSideEffects(id);
-    showToast('⚠ Collection update failed');
+    showErrorToast(null, adding ? `adding to ${c.name}` : `taking files out of ${c.name}`);
     // A chunked change can fail part-way: read back what the server kept.
     if (mediaIds.length > COLL_ID_CHUNK) {
       fetchCollectionMembers(id, true).then(() => { _patchPickerRow(id); _patchAncestorCounts(id); }).catch(() => {});
@@ -958,7 +1046,7 @@ async function _applyMove(id, targetParentId) {
   const dest = targetParentId ?? null;
   if (!_dragCanDrop(id, dest)) {
     if (node.kind === 'folder' && dest != null && _isAncestorFolder(id, dest)) {
-      showToast('⚠ Can’t move a folder into its own subtree');
+      showToast(COLL_ERROR_TEXT.CYCLE, { type: 'error' });
     }
     return;
   }
@@ -974,17 +1062,13 @@ async function _applyMove(id, targetParentId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ parent_id: dest }),
     });
-    if (!resp.ok) { const e = await resp.json().catch(() => ({})); throw e; }
+    if (!resp.ok) throw await collResponseError(resp);
     showToast('Moved');
   } catch (e) {
     node.parent_id = prev;
     _recomputeFolderCounts();
     _rerenderAfterMove();
-    const msg = e && e.code === 'CYCLE' ? '⚠ Can’t move a folder into its own subtree'
-      : e && e.code === 'NAME_TAKEN' ? '⚠ A collection with that name already exists there'
-      : e && e.code === 'BAD_PARENT' ? '⚠ Invalid destination'
-      : '⚠ Move failed';
-    showToast(msg);
+    collErrorToast(e, 'moving it');
   }
 }
 

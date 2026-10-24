@@ -322,8 +322,64 @@ test('selection bar: every button is words and a line icon in Modern', () => {
     selectionCounts = () => ({ count: 3, trashed: 1, av: 3, video: 3, flagged: 0, errored: 1, unscanned: 0, faceable: 0 });
     fingerprintSelected = () => {};`, ctx);
   vm.runInContext('renderSelectionBar()', ctx);
-  assert.match(bar.innerHTML, /Collect[\s\S]*Forget/);
-  const text = visibleModern(bar.innerHTML.replace(/>✕</g, '><'));
+  // One name per action: "Remove from library" everywhere (not Forget), "Add to collection" (not Collect).
+  assert.match(bar.innerHTML, /Add to collection[\s\S]*Remove from library/);
+  assert.doesNotMatch(bar.innerHTML, /Forget|>Collect</);
+  const text = visibleModern(bar.innerHTML);
   assert.ok(!MODERN_EMOJI.test(text), text);
-  for (const w of ['Music ID', 'Stack', 'Grid', 'Retry errors', 'Trash', 'Restore', 'Flag', 'Collect', 'Forget']) assert.match(text, new RegExp(w));
+  assert.ok(!/✕/.test(text), 'the clear button is the line icon in Modern');
+  assert.match(bar.innerHTML, /aria-label="Clear selection"/);
+  for (const w of ['Music ID', 'Stack', 'Grid', 'Retry errors', 'Trash', 'Restore', 'Flag']) assert.match(text, new RegExp(w));
+  // A count only when the button acts on part of the selection (3 selected).
+  assert.match(text, /Trash \(2\)/, 'two of three are outside the trash');
+  assert.match(text, /Restore \(1\)/);
+  assert.match(text, /Retry errors \(1\)/);
+  assert.match(text, /Music ID(?! \()/, 'all three are audio or video: no count');
+  assert.doesNotMatch(text, /Remove from library \(/);
+});
+
+test('selection: file counts read as words, bar counts only when partial', () => {
+  const ctx = loadUi(['selection.js'], true);
+  vm.runInContext('selectedIds = new Set([1, 2, 3])', ctx);
+  assert.strictEqual(vm.runInContext('selFiles(1)', ctx), '1 file');
+  assert.strictEqual(vm.runInContext('selFiles(0)', ctx), '0 files');
+  assert.strictEqual(vm.runInContext('selFiles(2345)', ctx), `${(2345).toLocaleString()} files`);
+  assert.strictEqual(vm.runInContext('selBtnLabel("Trash", 3)', ctx), 'Trash');
+  assert.strictEqual(vm.runInContext('selBtnLabel("Trash", 2)', ctx), 'Trash (2)');
+  // An HTTP failure with no server sentence is not shown as "Server returned 500".
+  const bare = vm.runInContext('selHttpError(500)', ctx);
+  assert.strictEqual(bare.name, 'HttpError');
+  assert.strictEqual(bare.status, 500);
+  const said = vm.runInContext('selHttpError(409, "That file is already in the trash.")', ctx);
+  assert.strictEqual(said.name, 'Error');
+  assert.strictEqual(said.message, 'That file is already in the trash.');
+});
+
+test('collections: "files" not "items", coded errors in words, empty card says Empty', () => {
+  const toasts = [];
+  const ctx = loadUi(['collections.js'], true, {
+    showToast: (m, o) => toasts.push([m, o && o.type]),
+    showErrorToast: (e, what) => toasts.push([`generic:${what}`, 'error']),
+  });
+  assert.strictEqual(vm.runInContext('collFiles(1)', ctx), '1 file');
+  assert.strictEqual(vm.runInContext('collFiles(6)', ctx), '6 files');
+  vm.runInContext('collErrorToast({ code: "NAME_TAKEN" }, "renaming it"); collErrorToast(new Error("x"), "moving it")', ctx);
+  assert.deepStrictEqual(toasts, [
+    ['A collection with that name is already in this folder.', 'error'],
+    ['generic:moving it', 'error'],
+  ]);
+  const card = vm.runInContext('collectionCardHtml({ id: 2, name: "New", item_count: 0, first_ids: [] }, false)', ctx);
+  assert.match(card, /coll-mosaic--empty[\s\S]*Empty/);
+  assert.match(card, /0 files/);
+  assert.doesNotMatch(card, /items?\b/);
+});
+
+test('delete queue: row states are line icons in Modern, glyphs in Classic', () => {
+  const ctx = loadUi(['selection.js'], true);
+  const icons = vm.runInContext('_dqIconSet()', ctx);
+  for (const [state, glyph] of [['done', '✓'], ['skipped', '–'], ['failed', '✗'], ['x', '✕']]) {
+    assert.strictEqual(classicText(icons[state]), glyph, `${state} keeps its glyph in Classic`);
+    assert.strictEqual(modernText(icons[state]), '', `${state} is an icon in Modern`);
+    assert.match(icons[state], /<svg class="vi /);
+  }
 });

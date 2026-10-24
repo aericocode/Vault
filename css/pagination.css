@@ -174,3 +174,15 @@ body:has(.settings-overlay.active) .scroll-top-pill {
   .scroll-top-pill,
   .scroll-top-pill.visible { transition: none; }
 }
+
+/* One page: the bar keeps its height (the row maths counts on it) but shows
+   nothing, since Prev and Next could never be pressed (player-lib/cards.js). */
+.pagination.pager-single { visibility: hidden; }
+
+/* Prev / Next carry an arrow (a glyph in Classic, a line icon in Modern). */
+.pager-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+body.layout-modern .pager-btn .vi { width: 15px; height: 15px; }

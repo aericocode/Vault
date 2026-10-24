@@ -333,7 +333,11 @@
   transform: translate(0, calc(100% + 24px));
   visibility: hidden;
   pointer-events: none;
-  z-index: 950;
+  /* Over the grid, the rail and the dock (150), under every modal scrim
+     (200+): a dialog or the details sheet covers the bar instead of the bar
+     floating on top of it, and its buttons cannot be pressed behind one.
+     The full player (300) hides it anyway (selection.js). */
+  z-index: 195;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -378,6 +382,110 @@
 /* Flag is a toggle: lit means every selected file already carries the flag. */
 .sel-btn.sel-flagged { border-color: var(--danger); color: #fca5a5; }
 .sel-btn.sel-retry { border-color: #f0ad4e; color: #f0ad4e; }
+
+/* ── Selection bar, Modern: a dark card with quiet buttons and line icons,
+   like the dialogs and toasts (css/dialogs.css, css/toast.css). Colour is
+   kept for meaning only: red words on Trash and a lit Flag, green on Restore. */
+body.layout-modern .selection-bar {
+  gap: 6px;
+  padding: 8px 10px 8px 14px;
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  box-shadow: var(--m-shadow);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+body.layout-modern .sel-count {
+  margin-right: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--m-text);
+  white-space: nowrap;
+}
+body.layout-modern .selection-bar .sel-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-btn);
+  color: var(--m-text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+body.layout-modern .selection-bar .sel-btn:hover { background: var(--m-btn-hover); border-color: rgba(255, 255, 255, 0.22); }
+body.layout-modern .selection-bar .sel-btn:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+body.layout-modern .selection-bar .sel-btn .vi { width: 16px; height: 16px; flex: none; }
+body.layout-modern .selection-bar .sel-btn .vi-gap { margin-right: 6px; }
+/* Remove from library turns red on hover only: its confirm dialog does the
+   warning, and one red word at rest (Trash) is enough for the bar. */
+body.layout-modern .selection-bar .sel-btn.sel-trash,
+body.layout-modern .selection-bar .sel-btn.sel-flagged,
+body.layout-modern .selection-bar .sel-btn.sel-remove:hover { color: var(--m-danger-text); }
+body.layout-modern .selection-bar .sel-btn.sel-trash:hover,
+body.layout-modern .selection-bar .sel-btn.sel-flagged,
+body.layout-modern .selection-bar .sel-btn.sel-remove:hover { border-color: rgba(248, 113, 113, 0.45); background: rgba(248, 113, 113, 0.10); }
+body.layout-modern .selection-bar .sel-btn.sel-restore { color: var(--m-success-text); }
+body.layout-modern .selection-bar .sel-btn.sel-restore:hover { border-color: rgba(134, 239, 172, 0.45); }
+body.layout-modern .selection-bar .sel-btn.sel-retry { color: #fbbf24; }
+/* A bar button whose menu is open (Studio, css/studios.css) stays lit. */
+body.layout-modern .selection-bar .sel-btn.on { background: var(--m-btn-hover); border-color: var(--accent); }
+/* Clear: the close icon alone, a square ghost button at the end. */
+body.layout-modern .selection-bar .sel-btn.sel-clear {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+  border-color: transparent;
+  background: transparent;
+  color: var(--m-muted);
+}
+body.layout-modern .selection-bar .sel-btn.sel-clear:hover { background: var(--m-btn); color: var(--m-text); }
+
+/* ── Tile tick box, Modern: a round tick on a dark disc instead of the
+   browser checkbox (the same tick as .m-check in css/layout-modern.css). */
+body.layout-modern .tile-select {
+  appearance: none;
+  -webkit-appearance: none;
+  top: 8px;
+  left: 8px;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45) center / 14px 14px no-repeat;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  transition: opacity 0.15s, background-color 0.12s ease, border-color 0.12s ease;
+}
+body.layout-modern .tile-select:hover { background-color: rgba(0, 0, 0, 0.65); border-color: #fff; }
+body.layout-modern .tile-select:checked {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+}
+body.layout-modern .tile-select:focus-visible { opacity: 1; outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+/* Table rows: the same tick, a little smaller and without the disc's shadow. */
+body.layout-modern .grid-table .tv-row .tile-select {
+  width: 18px;
+  height: 18px;
+  border-color: rgba(255, 255, 255, 0.35);
+  border-radius: 5px;
+  background-color: transparent;
+  background-size: 12px 12px;
+  box-shadow: none;
+}
+body.layout-modern .grid-table .tv-row .tile-select:hover { border-color: rgba(255, 255, 255, 0.6); }
+body.layout-modern .grid-table .tv-row .tile-select:checked { border-color: var(--accent); background-color: var(--accent); }
+@media (prefers-reduced-motion: reduce) {
+  body.layout-modern .tile-select,
+  body.layout-modern .selection-bar .sel-btn { transition: none; }
+}
 
 /* ── Select page / Select all, up by "Showing X of Y results" ── */
 .results-select {
@@ -587,6 +695,38 @@
 }
 .dq-cancel:hover { color: var(--danger); background: rgba(239, 68, 68, 0.12); }
 .dq-dot { color: var(--text-muted); }
+
+/* Delete / restore queue, Modern: the same card as the scan and import panels
+   (css/scan-panel.css), line icons for the row states (selection.js). */
+body.layout-modern #deleteQueue {
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  box-shadow: var(--m-shadow);
+  color: var(--m-text);
+  padding: 12px 14px;
+}
+body.layout-modern #deleteQueue .dq-head { font-size: 13px; color: var(--m-text); }
+body.layout-modern #deleteQueue .dq-x,
+body.layout-modern #deleteQueue .dq-cancel {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0;
+  border-radius: 6px; color: var(--m-muted);
+}
+body.layout-modern #deleteQueue .dq-cancel { width: 20px; height: 20px; }
+body.layout-modern #deleteQueue .dq-x:hover { background: var(--m-btn-hover); color: var(--m-text); }
+body.layout-modern #deleteQueue .dq-x .vi { width: 14px; height: 14px; }
+body.layout-modern #deleteQueue .dq-cancel .vi { width: 12px; height: 12px; }
+body.layout-modern #deleteQueue .dq-ico { display: inline-flex; align-items: center; justify-content: center; }
+body.layout-modern #deleteQueue .dq-ico .vi { width: 13px; height: 13px; }
+body.layout-modern #deleteQueue .dq-row.dq-done .dq-ico { color: var(--m-success-text); }
+body.layout-modern #deleteQueue .dq-row.dq-failed .dq-ico,
+body.layout-modern #deleteQueue .dq-row.dq-failed .dq-name { color: var(--m-danger-text); }
+body.layout-modern #deleteQueue .dq-act {
+  border: 1px solid var(--m-border-strong); border-radius: var(--m-radius-sm);
+  background: var(--m-btn); color: var(--m-text); font-size: 12px; padding: 4px 10px;
+}
+body.layout-modern #deleteQueue .dq-act:hover { background: var(--m-btn-hover); }
 .dq-spin {
   flex: none;
   width: 12px; height: 12px;

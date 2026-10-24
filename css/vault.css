@@ -1,10 +1,14 @@
 /* ==========================================
-   VAULT — lock logo states, lock screen,
-   password modal, drag-drop import overlay
+   VAULT: lock logo states, lock screen, the
+   .vault-modal dialog shell and password dialogs,
+   drag-drop import overlay
    ========================================== */
 
 /* ── Header logo as the lock control ── */
 #vaultLogo { cursor: pointer; user-select: none; }
+/* vault-ui.js makes the logo a keyboard control (role=button, tabindex 0). */
+#vaultLogo:focus { outline: none; }
+#vaultLogo:focus-visible { outline: 2px solid var(--accent-hover, #818cf8); outline-offset: 3px; border-radius: 8px; }
 #vaultLogo .logo-lock { overflow: visible; }
 #vaultLogo .lock-shackle {
   transition: transform 0.35s ease;
@@ -25,7 +29,7 @@
   50% { filter: drop-shadow(0 0 6px var(--warning, #f59e0b)); transform: scale(1.06); }
 }
 
-/* ── Change-password affordance (🔑, beside the header logo) ── */
+/* ── Change-password button (key icon, beside the header logo) ── */
 .vault-key-btn {
   background: none;
   border: none;
@@ -35,29 +39,47 @@
   padding: 0.2rem 0.35rem;
   margin-left: -0.25rem;
   border-radius: 6px;
-  opacity: 0.55;
+  opacity: 0.75;
   transition: opacity 0.15s, background 0.15s;
 }
+.vault-key-btn:focus-visible { opacity: 1; outline: 2px solid var(--accent-hover, #818cf8); outline-offset: 1px; }
 .vault-key-btn:hover {
   opacity: 1;
   background: var(--bg-tertiary, #252525);
 }
 
-/* ── Lock screen (opaque — nothing leaks through) ── */
+/* ── Lock screen (opaque — nothing leaks through) ──
+   One look in both layouts: it covers everything, so there is no Classic
+   screen around it to match. */
 #vaultLockScreen {
   position: fixed; inset: 0; z-index: 10000;
   background: #0b0b10;
   display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  overflow-y: auto;
 }
-.vault-lock-center { text-align: center; color: var(--text-primary, #e0e0e0); }
+.vault-lock-center {
+  text-align: center;
+  color: var(--m-text, #ececf1);
+  width: min(360px, 100%);
+}
 .vault-lock-logo {
   position: relative;
+  display: block;
   width: 120px; height: 120px;
-  margin: 0 auto 1rem;
+  margin: 0 auto 1.1rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: inherit;
   cursor: pointer; user-select: none;
   touch-action: none;
 }
-.vault-lock-logo > svg:first-child { width: 100px; height: 100px; margin: 10px; }
+.vault-lock-logo:focus { outline: none; }
+.vault-lock-logo:focus-visible,
+.vault-lock-logo:not([tabindex="-1"]):focus { outline: 2px solid var(--accent-hover, #818cf8); outline-offset: 2px; }
+.vault-lock-logo > svg:first-child { display: block; width: 100px; height: 100px; margin: 10px; }
 .vault-hold-ring {
   position: absolute; inset: 0;
   transform: rotate(-90deg);        /* progress starts at 12 o'clock */
@@ -75,30 +97,86 @@
   transition: stroke-dashoffset var(--vault-hold-ms, 3000ms) linear;
   stroke-dashoffset: 0;
 }
-/* Whose Vault is this? The name has to be readable BEFORE unlock, which is the
-   one place it cannot come from a browser preference. The address underneath
-   answers "which port is this tab?" without unlocking anything it should not. */
-.vault-lock-eyebrow {
-  font-size: 0.72rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--brand, var(--accent));
-  font-weight: 600;
-  margin-top: 0.4rem;
-  margin-bottom: 0.15rem;
+/* "<Name> is locked": the name is the heading, since it is what tells two
+   locked tabs apart. Sentence case, normal weight. */
+.vault-lock-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0;
+  color: var(--m-text, #ececf1);
+  overflow-wrap: anywhere;
 }
-.vault-lock-eyebrow[hidden] { display: none; }
-.vault-lock-title { font-size: 1.3rem; font-weight: 700; letter-spacing: 0.04em; }
-.vault-lock-hint { margin-top: 0.4rem; font-size: 0.85rem; color: var(--text-muted, #888); min-height: 1.2em; }
+.vault-lock-hint {
+  margin: 6px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--m-text-2, #b4b4bf);
+}
+.vault-unlock-form {
+  margin-top: 18px;
+  display: flex; gap: 8px; justify-content: center; align-items: stretch;
+}
+.vault-unlock-form[hidden] { display: none; }
+.vault-unlock-form .vault-pass-wrap { flex: 1 1 auto; min-width: 0; }
+.vault-unlock-form .vault-btn { flex: none; }
+/* Under the field, in the danger colour with the alert icon. The line keeps
+   its height when empty so the page does not jump when it fills. */
+.vault-lock-err {
+  margin: 10px 0 0;
+  min-height: 1.45em;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--m-danger-text, #fca5a5);
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.vault-lock-err .vi { flex: none; }
+/* Which copy of Vault this is, as quiet body text. */
 .vault-lock-addr {
-  margin-top: 0.7rem;
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  color: var(--m-muted, #8b8b97);
 }
-.vault-unlock-form { margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: center; }
 
-/* ── Password modal (create/confirm) ── */
+/* Lock screen fields and buttons use the Modern field look in both layouts. */
+#vaultLockScreen .vault-input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 38px;
+  padding: 0 40px 0 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: #ececf1;
+  font-size: 14px;
+}
+#vaultLockScreen .vault-input:focus { border-color: var(--accent-hover, #818cf8); }
+#vaultLockScreen .vault-input.vault-shake,
+#vaultLockScreen .vault-input[aria-invalid="true"],
+.vault-input[aria-invalid="true"]:focus { border-color: var(--danger, #ef4444); }
+#vaultLockScreen .vault-btn {
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+/* Screen-reader-only text (the lock screen's field label). */
+.vault-sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; border: 0;
+}
+
+/* ── .vault-modal: the shell for the password dialogs, the first-launch
+   offer and several other prompts (face and subtitle model consents,
+   subtitles prerequisites, Faces questions, thumbnail cleanup). Classic
+   keeps the old look; Modern matches css/dialogs.css (.vdlg). Modern rules
+   use :where() so they weigh no more than the Classic ones, and each
+   prompt's own overrides (.faces-ask-danger, .th-btn-danger ...) still win. ── */
 .vault-modal-overlay {
   position: fixed; inset: 0; z-index: 9500;
   background: rgba(0, 0, 0, 0.6);
@@ -116,8 +194,43 @@
 }
 .vault-modal h3 { margin: 0; font-size: 1.05rem; }
 .vault-modal-hint { margin: 0; font-size: 0.78rem; color: var(--text-secondary, #a0a0a0); line-height: 1.45; }
-.vault-modal-err { min-height: 1.1em; font-size: 0.78rem; color: var(--danger, #ef4444); }
+.vault-modal-strong { color: var(--text-primary, #e0e0e0); font-weight: 600; }
+.vault-modal-err {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--danger, #ef4444);
+  display: flex; align-items: flex-start; gap: 6px;
+}
+.vault-modal-err[hidden] { display: none; }
+.vault-modal-err .vi { flex: none; margin-top: 0.15em; }
 .vault-modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+/* The copy above the fields, when it is more than one paragraph. */
+.vault-modal-body { display: flex; flex-direction: column; gap: 0.5rem; }
+
+/* Labelled password fields (label, field with the eye toggle, a note). */
+.vault-field { display: flex; flex-direction: column; gap: 4px; }
+.vault-label { font-size: 0.8rem; font-weight: 600; color: var(--text-primary, #e0e0e0); }
+.vault-field-note { font-size: 0.75rem; color: var(--text-muted, #888); }
+.vault-pass-wrap { position: relative; display: flex; }
+.vault-pass-wrap .vault-input { flex: 1 1 auto; width: 100%; min-width: 0; box-sizing: border-box; padding-right: 40px; }
+.vault-eye {
+  position: absolute;
+  top: 50%; right: 4px;
+  transform: translateY(-50%);
+  width: 30px; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted, #888);
+  font-size: 16px;
+  cursor: pointer;
+}
+.vault-eye:hover { color: var(--text-primary, #e0e0e0); background: rgba(255, 255, 255, 0.06); }
+.vault-eye:focus { outline: none; }
+.vault-eye:focus-visible { outline: 2px solid var(--accent-hover, #818cf8); outline-offset: 1px; }
+.vault-eye .vi { width: 16px; height: 16px; vertical-align: 0; }
 
 .vault-input {
   padding: 0.5rem 0.65rem;
@@ -129,10 +242,14 @@
 }
 .vault-input:focus { outline: none; border-color: var(--accent, #7aa8ff); }
 .vault-input.vault-shake { animation: vaultShake 0.35s ease; border-color: var(--danger, #ef4444); }
+.vault-input[aria-invalid="true"] { border-color: var(--danger, #ef4444); }
 @keyframes vaultShake {
   0%, 100% { transform: translateX(0); }
   25% { transform: translateX(-6px); }
   75% { transform: translateX(6px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vault-input.vault-shake { animation: none; }
 }
 
 .vault-btn {
@@ -144,7 +261,89 @@
 }
 .vault-btn:hover:not(:disabled) { border-color: var(--accent, #7aa8ff); }
 .vault-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.vault-btn:focus-visible { outline: 2px solid var(--accent-hover, #818cf8); outline-offset: 2px; }
 .vault-btn-primary { background: var(--accent, #7aa8ff); border-color: var(--accent, #7aa8ff); color: #fff; font-weight: 600; }
+
+/* ── .vault-modal, Modern (matches .vdlg in css/dialogs.css) ── */
+:where(body.layout-modern) .vault-modal-overlay {
+  background: rgba(0, 0, 0, 0.55);
+  align-items: flex-start;
+  padding: 18vh 16px 16px;
+  overflow-y: auto;
+}
+:where(body.layout-modern) .vault-modal {
+  width: min(460px, 100%);
+  box-sizing: border-box;
+  background: rgba(22, 22, 27, 0.98);
+  border: 1px solid var(--m-border, rgba(255, 255, 255, 0.12));
+  border-radius: var(--m-radius, 12px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  padding: 18px 20px 16px;
+  gap: 10px;
+  color: var(--m-text, #ececf1);
+  font-size: 14px;
+  line-height: 1.45;
+}
+:where(body.layout-modern) .vault-modal h3 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--m-text, #ececf1);
+}
+:where(body.layout-modern) .vault-modal-hint {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--m-text-2, #b4b4bf);
+}
+:where(body.layout-modern) .vault-modal-hint b { color: var(--m-text, #ececf1); font-weight: 600; }
+:where(body.layout-modern) .vault-modal-strong { color: var(--m-text, #ececf1); font-weight: 500; }
+:where(body.layout-modern) .vault-modal-err { font-size: 13px; color: var(--m-danger-text, #fca5a5); }
+:where(body.layout-modern) .vault-modal-actions { margin-top: 8px; }
+:where(body.layout-modern) .vault-modal-actions .vault-btn { min-width: 5.5rem; }
+:where(body.layout-modern) .vault-field { gap: 6px; }
+:where(body.layout-modern) .vault-label { font-size: 13px; font-weight: 500; color: var(--m-text, #ececf1); }
+:where(body.layout-modern) .vault-field-note { font-size: 12.5px; color: var(--m-muted, #8b8b97); }
+:where(body.layout-modern) .vault-eye { color: var(--m-muted, #8b8b97); }
+:where(body.layout-modern) .vault-eye:hover { color: var(--m-text, #ececf1); }
+:where(body.layout-modern) .vault-input {
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  background: var(--m-field, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--m-border-strong, rgba(255, 255, 255, 0.14));
+  border-radius: var(--m-radius-sm, 8px);
+  color: var(--m-text, #ececf1);
+  font-size: 14px;
+}
+:where(body.layout-modern) .vault-pass-wrap .vault-input { padding-right: 40px; }
+:where(body.layout-modern) .vault-input:focus { border-color: var(--accent-hover, #818cf8); }
+:where(body.layout-modern) .vault-input[aria-invalid="true"] { border-color: var(--danger, #ef4444); }
+:where(body.layout-modern) .vault-btn {
+  border-radius: var(--m-radius-sm, 8px);
+  border: 1px solid var(--m-border-strong, rgba(255, 255, 255, 0.14));
+  background: var(--m-btn, rgba(255, 255, 255, 0.06));
+  color: var(--m-text, #ececf1);
+  font-size: 13px;
+  padding: 7px 14px;
+}
+:where(body.layout-modern) .vault-btn:hover:not(:disabled) {
+  background: var(--m-btn-hover, rgba(255, 255, 255, 0.11));
+  border-color: var(--m-border-strong, rgba(255, 255, 255, 0.14));
+}
+:where(body.layout-modern) .vault-btn-primary {
+  background: var(--accent, #6366f1);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+}
+:where(body.layout-modern) .vault-btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover, #818cf8);
+  border-color: transparent;
+}
+@media (max-width: 480px) {
+  :where(body.layout-modern) .vault-modal-overlay { padding-top: 10vh; }
+  :where(body.layout-modern) .vault-modal-actions .vault-btn { flex: 1; }
+}
 
 /* ── Drag-drop import overlay ── */
 #vaultDropOverlay {

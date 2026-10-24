@@ -22,6 +22,33 @@ const SMALL_SELECTION = 2000;
 // Ids per request for the bulk endpoints (the server takes 2 MB of JSON).
 const BULK_ID_CHUNK = 50000;
 
+/** "1 file", "2,345 files". */
+function selFiles(n) {
+  const v = Number(n) || 0;
+  return `${v.toLocaleString()} ${v === 1 ? 'file' : 'files'}`;
+}
+
+/**
+ * A selection-bar button's label: the count only when the button acts on part
+ * of the selection ("Trash (2)" with 3 selected, 1 already in the trash). The
+ * bar already says how many are selected, so a count that repeats it is noise.
+ */
+function selBtnLabel(label, n) {
+  return n === selectedIds.size ? label : `${label} (${Number(n).toLocaleString()})`;
+}
+
+/**
+ * An HTTP failure as an Error for showErrorToast / friendlyError: the server's
+ * own words when it sent a sentence, otherwise a plain "something went wrong"
+ * (an HttpError name keeps "Server returned 500" out of a toast).
+ */
+function selHttpError(status, serverText) {
+  const err = new Error(serverText || `Server returned ${status}`);
+  err.status = status;
+  if (!serverText) err.name = 'HttpError';
+  return err;
+}
+
 /* ── Selection state ───────────────────────────────────────────────────── */
 
 function onTileSelect(event, id) {
@@ -161,7 +188,7 @@ function renderResultsSelect() {
 
   writeResultsSelect(host, `
     ${pageIds.length ? `<button class="rs-btn" onclick="toggleSelectPage()"
-      title="Select the ${pageIds.length} file(s) shown on this page">${pageAll ? 'Deselect page' : `Select page (${pageIds.length})`}</button>` : ''}
+      title="Select the ${selFiles(pageIds.length)} shown on this page">${pageAll ? 'Deselect page' : `Select page (${pageIds.length})`}</button>` : ''}
     ${allBtn}`);
 }
 
@@ -171,6 +198,16 @@ function clearSelection() {
   lastSelectedId = null;
   syncTileCheckboxes();
   renderSelectionBar();
+}
+
+/**
+ * Close the menus the selection bar opened (Add to collection, Studio): they
+ * act on the selection, so they go when it does or when the bar hides.
+ */
+function closeSelectionPopovers() {
+  if (typeof closeBarCollectionPicker === 'function') closeBarCollectionPicker();
+  // The Studio menu is studios.js's; close it only when it was opened from the bar.
+  if (document.querySelector('#selectionBar .sel-studio.on') && typeof stClosePops === 'function') stClosePops();
 }
 
 /**
@@ -200,12 +237,18 @@ async function selectedRows() {
 
 /** Say so when some asked-for records have left the library meanwhile. */
 function noteGoneRows(rows) {
-  if (rows && rows.gone) showToast(`${rows.gone.toLocaleString()} selected file(s) are no longer in the library and were left out`);
+  if (rows && rows.gone) {
+    showToast(rows.gone === 1
+      ? '1 selected file is no longer in the library and was left out.'
+      : `${rows.gone.toLocaleString()} selected files are no longer in the library and were left out.`);
+  }
 }
 
 /** The message for a bulk action that could not load its rows. */
 function bulkLoadFailed(err) {
-  showToast('⚠ ' + ((err && err.message) || 'Could not load the selected files. Try again.'));
+  // Library.RowsUnavailable carries how many rows did not arrive.
+  if (err && err.count) showToast(`Could not load ${selFiles(err.count)} from Vault. Nothing was changed. Try again.`, { type: 'error' });
+  else showErrorToast(err, 'loading the selected files');
 }
 
 /* What the selection bar counts. A small selection is counted from its rows
@@ -319,19 +362,20 @@ function renderSelectionBar() {
   // returns when the player closes or drops to the mini player.
   const fullPlayerOpen = document.getElementById('mediaPlayerOverlay')?.classList.contains('active');
   if (selectedIds.size === 0 || !(onLibrary || onPersonFiles) || fullPlayerOpen) {
-    bar.classList.remove('visible');
+    hideSelectionBar(bar);
     return;
   }
+  wireSelectionBar(bar);
   // A person's page in the Faces tab: only what concerns this person, for
   // the ticked files it shows (faces-tab.js).
   if (!onLibrary && onPersonFiles) {
     const shown = typeof ftTickedShown === 'function' ? ftTickedShown().length : 0;
-    if (!shown) { bar.classList.remove('visible'); return; }
+    if (!shown) { hideSelectionBar(bar); return; }
     bar.innerHTML = `
-      <span class="sel-count">${shown} selected</span>
+      <span class="sel-count">${shown.toLocaleString()} selected</span>
       ${typeof ftRemoveSelectedButton === 'function' ? ftRemoveSelectedButton(shown) : ''}
-      <button class="sel-btn" onclick="openCollectionPicker(ftTickedShown(), this)" title="Add selection to a collection">${vaultEmojiLabel('📁 Collect')}</button>
-      <button class="sel-btn sel-clear" onclick="clearSelection()" title="Clear selection">✕</button>`;
+      <button class="sel-btn sel-collect" onclick="openCollectionPicker(ftTickedShown(), this)" title="Add the selected files to a collection">${vaultEmojiLabel('📁 Add to collection')}</button>
+      ${SEL_CLEAR_BTN}`;
     bar.classList.add('visible');
     return;
   }
@@ -348,12 +392,12 @@ function renderSelectionBar() {
   const musicReady = typeof fingerprintSelected === 'function';
   const many = vidCount > 4 ? ' (playback smoothness depends on drive speed)' : '';
   const musicBtns = !musicReady ? '' : `
-    ${avCount > 0 ? `<button class="sel-btn sel-music" onclick="fingerprintSelected()" title="Fingerprint audio, one-time per file. Auto-matches songs across the library">${vaultEmojiLabel(`🎵 Music ID (${avCount})`)}</button>` : ''}
+    ${avCount > 0 ? `<button class="sel-btn sel-music" onclick="fingerprintSelected()" title="Find the songs in ${selFiles(avCount)}. Each file is checked once, then matched across the library">${vaultEmojiLabel(`🎵 ${selBtnLabel('Music ID', avCount)}`)}</button>` : ''}
     ${vidCount >= 2 ? `
       <button class="sel-btn sel-mix" onclick="openEditorWithSelection('stack')"
-        title="Open in the Editor, layered in sync${many}">${vaultEmojiLabel(`▤ Stack ${vidCount}`)}</button>
+        title="Open ${vidCount} videos in the Editor, layered in sync${many}">${vaultEmojiLabel(`▤ ${selBtnLabel('Stack', vidCount)}`)}</button>
       <button class="sel-btn sel-mix" onclick="openEditorWithSelection('grid')"
-        title="Open in the Editor, side by side in sync${many}">${vaultEmojiLabel(`▦ Grid ${vidCount}`)}</button>
+        title="Open ${vidCount} videos in the Editor, side by side in sync${many}">${vaultEmojiLabel(`▦ ${selBtnLabel('Grid', vidCount)}`)}</button>
     ` : ''}`;
 
   // Flag is one toggle rather than two buttons. A mixed selection reads as "not
@@ -375,31 +419,57 @@ function renderSelectionBar() {
   const unscanned = counts.unscanned;
   const retryable = errored + unscanned;
   const retryBtn = retryable === 0 ? '' : `<button class="sel-btn sel-retry" onclick="retryErrorsSelected()"
-    title="Queue ${retryable} file(s) for another AI scan${errored ? `: ${errored} errored` : ''}${unscanned ? `${errored ? ',' : ':'} ${unscanned} never scanned` : ''}"
-    >${vaultEmojiLabel(`↻ Retry errors (${retryable})`)}</button>`;
+    title="Queue ${selFiles(retryable)} for another AI scan${errored ? `: ${errored.toLocaleString()} with an error` : ''}${unscanned ? `${errored ? ',' : ':'} ${unscanned.toLocaleString()} never scanned` : ''}"
+    >${vaultEmojiLabel(`↻ ${selBtnLabel('Retry errors', retryable)}`)}</button>`;
   // Force refresh: read the errored files again and remake their thumbnails,
   // without redoing the AI scan (the fix for files scanned mid-copy).
   const refreshBtn = errored === 0 || typeof window.vaultForceRefresh !== 'function' ? '' : `<button class="sel-btn sel-refresh" onclick="forceRefreshSelected(this)"
-    title="Read ${errored} errored file(s) again and remake their thumbnails, without redoing the AI scan"
-    >${vaultEmojiLabel(`🔄 Force refresh (${errored})`)}</button>`;
+    title="Read ${selFiles(errored)} with an error again and remake their thumbnails, without redoing the AI scan"
+    >${vaultEmojiLabel(`🔄 ${selBtnLabel('Force refresh', errored)}`)}</button>`;
 
   bar.innerHTML = `
-    <span class="sel-count">${selectedIds.size} selected</span>
+    <span class="sel-count">${selectedIds.size.toLocaleString()} selected</span>
     ${musicBtns}
     ${typeof studiosSelectionButton === 'function' ? studiosSelectionButton() : ''}
     ${typeof facesSelectionButton === 'function' ? facesSelectionButton(counts.faceable) : ''}
     ${retryBtn}
     ${refreshBtn}
-    ${activeCount > 0 ? `<button class="sel-btn sel-trash" onclick="trashSelected()">${vaultEmojiLabel(`🗑 Trash (${activeCount})`)}</button>` : ''}
-    ${trashedCount > 0 ? `<button class="sel-btn sel-restore" onclick="restoreSelected()">${vaultEmojiLabel(`♻ Restore (${trashedCount})`)}</button>` : ''}
+    ${activeCount > 0 ? `<button class="sel-btn sel-trash" onclick="trashSelected()" title="Move ${selFiles(activeCount)} to the trash">${vaultEmojiLabel(`🗑 ${selBtnLabel('Trash', activeCount)}`)}</button>` : ''}
+    ${trashedCount > 0 ? `<button class="sel-btn sel-restore" onclick="restoreSelected()" title="Take ${selFiles(trashedCount)} out of the trash">${vaultEmojiLabel(`♻ ${selBtnLabel('Restore', trashedCount)}`)}</button>` : ''}
     ${flagBtn}
-    <button class="sel-btn" onclick="addSelectionToCollection(this)" title="Add selection to a collection">${vaultEmojiLabel('📁 Collect')}</button>
-    <!-- irreversible, and Select all can point it at the whole library — the
-         count stays so the blast radius is visible before the confirm dialog -->
-    <button class="sel-btn sel-remove" onclick="removeSelectedRecords()" title="Forget these files. The records leave the library, the files on disk are NOT touched">${vaultEmojiLabel(`✂ Forget (${selectedIds.size})`)}</button>
-    <button class="sel-btn sel-clear" onclick="clearSelection()" title="Clear selection">✕</button>
+    <button class="sel-btn sel-collect" onclick="addSelectionToCollection(this)" title="Add the selected files to a collection">${vaultEmojiLabel('📁 Add to collection')}</button>
+    <!-- irreversible, and Select all can point it at the whole library: the
+         confirm dialog names the count before anything happens -->
+    <button class="sel-btn sel-remove" onclick="removeSelectedRecords()" title="Take the selected files out of the library. The files on disk are not touched">${vaultEmojiLabel('✂ Remove from library')}</button>
+    ${SEL_CLEAR_BTN}
   `;
   bar.classList.add('visible');
+}
+
+/* The bar's close button: the line icon in Modern, the glyph in Classic. */
+const SEL_CLEAR_BTN = `<button class="sel-btn sel-clear" onclick="clearSelection()" title="Clear selection" aria-label="Clear selection">${
+  typeof vaultIconSwap === 'function' ? vaultIconSwap('✕', 'close') : '✕'}</button>`;
+
+/** Hide the bar, and the menus it opened. */
+function hideSelectionBar(bar) {
+  if (_selBarWasShown) closeSelectionPopovers();
+  _selBarWasShown = false;
+  bar.classList.remove('visible');
+}
+let _selBarWasShown = false;
+
+/**
+ * One listener on the bar: a press on any other bar button closes the
+ * collections picker first, so two of the bar's menus never stack.
+ */
+function wireSelectionBar(bar) {
+  _selBarWasShown = true;
+  if (bar._selWired || typeof bar.addEventListener !== 'function') return;
+  bar._selWired = true;
+  bar.addEventListener('click', (e) => {
+    const btn = e.target.closest && e.target.closest('button');
+    if (btn && !btn.classList.contains('sel-collect') && typeof closeCollectionPicker === 'function') closeCollectionPicker();
+  }, true);
 }
 
 /**
@@ -420,7 +490,7 @@ async function retryErrorsSelected() {
   const ids = [...selectedIds];
   try {
     const r = await postIdsChunked('/api/media/retry-errors', ids);
-    if (!r.ok) { showToast('⚠ ' + (r.error || `HTTP ${r.status}`)); return; }
+    if (!r.ok) { showErrorToast(selHttpError(r.status, r.error), 'queueing the files for another scan'); return; }
     // Report what actually moved. Files already in the queue, or gone from disk,
     // are named rather than folded into a number that would overstate the work.
     const notes = [];
@@ -430,12 +500,12 @@ async function retryErrorsSelected() {
       showToast(notes.length ? `Nothing new to queue: ${notes.join(', ')}` : 'Nothing to retry');
       return;
     }
-    showToast(`↻ Queued ${r.queued} file(s) for another scan${notes.length ? ` · ${notes.join(', ')}` : ''}`);
+    showToast(`↻ Queued ${selFiles(r.queued)} for another scan${notes.length ? ` · ${notes.join(', ')}` : ''}`);
     // Surface the scan panel so the retry is visible; the new rows fill in as
     // they land (Library's version polling re-reads them).
     if (typeof window.vaultWatchScanQueue === 'function') window.vaultWatchScanQueue({ fresh: true });
   } catch (err) {
-    showToast('⚠ ' + err.message);
+    showErrorToast(err, 'queueing the files for another scan');
   }
 }
 
@@ -495,8 +565,8 @@ async function updateRescanFilteredButton() {
   btn.innerHTML = `${vaultIconSwap('↻ ', 'rescan')}Rescan these (${ids.length.toLocaleString()})`;
   btn.classList.toggle('force', force);
   btn.title = force
-    ? `Re-run AI analysis on all ${ids.length.toLocaleString()} filtered file(s). ${done.toLocaleString()} of them already scanned successfully. Your notes, stars, ratings and flags are kept.`
-    : `Queue ${ids.length.toLocaleString()} file(s) whose scan failed or never ran`;
+    ? `Run the AI scan again on all ${selFiles(ids.length)} shown. ${done.toLocaleString()} of them were already scanned. Your notes, stars, ratings and flags are kept.`
+    : `Queue the ${selFiles(ids.length)} whose scan failed or never ran`;
 }
 
 async function rescanFiltered() {
@@ -506,7 +576,7 @@ async function rescanFiltered() {
   // Only the force path costs anything the user might not want: it burns real
   // GPU time re-analyzing files that are already fine.
   if (force && !await vaultConfirm(
-    `Scan ${ids.length.toLocaleString()} file(s) with AI again?\n\n` +
+    `Scan ${selFiles(ids.length)} with AI again?\n\n` +
     `${done.toLocaleString()} of them were already scanned and will be tagged again ` +
     `from scratch. This can take a long time.\n\n` +
     `Your notes, stars, ratings and flags are kept.`,
@@ -514,7 +584,7 @@ async function rescanFiltered() {
 
   try {
     const r = await postIdsChunked('/api/media/batch-rescan', ids, { force });
-    if (!r.ok) { showToast('⚠ ' + (r.error || `HTTP ${r.status}`)); return; }
+    if (!r.ok) { showErrorToast(selHttpError(r.status, r.error), 'queueing the files for scanning'); return; }
     const notes = [];
     if (r.alreadyQueued) notes.push(`${r.alreadyQueued} already queued`);
     if (r.missing) notes.push(`${r.missing} missing from disk`);
@@ -522,10 +592,10 @@ async function rescanFiltered() {
       showToast(notes.length ? `Nothing new to queue: ${notes.join(', ')}` : 'Nothing to rescan');
       return;
     }
-    showToast(`↻ Queued ${r.queued} file(s) for scanning${notes.length ? ` · ${notes.join(', ')}` : ''}`);
+    showToast(`↻ Queued ${selFiles(r.queued)} for scanning${notes.length ? ` · ${notes.join(', ')}` : ''}`);
     if (typeof window.vaultWatchScanQueue === 'function') window.vaultWatchScanQueue({ fresh: true });
   } catch (err) {
-    showToast('⚠ ' + err.message);
+    showErrorToast(err, 'queueing the files for scanning');
   }
 }
 
@@ -548,7 +618,10 @@ async function postTrashOp(endpoint, ids, extra = {}, { retried = false } = {}) 
     err.noResponse = true;
     throw err;
   }
-  if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw selHttpError(resp.status, body && body.error);
+  }
   const { results } = await resp.json();
 
   const okIds = [];
@@ -852,7 +925,7 @@ function _dqRender(now = false) {
   else if (_dq.ops.recycle) { verbing = 'Recycling'; verbed = 'Recycled'; }
   else { verbing = 'Moving to trash'; verbed = 'Moved to trash'; }
 
-  const ICON = { queued: '<span class="dq-dot">•</span>', active: '<span class="dq-spin"></span>', done: '✓', skipped: '–', failed: '✗' };
+  const ICON = _dqIconSet();
   // The list scrolls (CSS caps it at ~5 rows) and the active row is scrolled
   // into view, so the file actually being deleted is always visible.
   let from = 0;
@@ -871,7 +944,7 @@ function _dqRender(now = false) {
     // Only QUEUED items are cleanly cancelable — an active one is already
     // mid-flight on the server; done/failed are settled.
     const cancel = it.state === 'queued'
-      ? `<button class="dq-cancel" data-seq="${it.seq}" title="Cancel this delete" aria-label="Cancel">✕</button>`
+      ? `<button class="dq-cancel" data-seq="${it.seq}" title="Leave this file out" aria-label="Leave this file out">${ICON.x}</button>`
       : '';
     rowHtml += `<div class="dq-row dq-${it.state}" data-id="${it.id}" title="${escapeHtml(it.error || name)}">
       <span class="dq-ico">${ICON[it.state]}</span>
@@ -893,7 +966,7 @@ function _dqRender(now = false) {
     <div class="dq-head">
       ${allDone || _dq.paused ? '' : '<span class="dq-spin"></span>'}
       <span class="dq-title">${escapeHtml(headText)}</span>
-      ${allDone ? '<button class="dq-x" title="Dismiss">✕</button>' : ''}
+      ${allDone ? `<button class="dq-x" title="Dismiss" aria-label="Dismiss">${ICON.x}</button>` : ''}
     </div>
     ${_dq.paused ? `<div class="dq-paused">
       <span>Nothing more happens until you choose.</span>
@@ -913,6 +986,23 @@ function _dqRender(now = false) {
   // Keep the in-flight file visible in the scroll region
   const active = _dq.items[_dq.next];
   if (active && active.state === 'active') el.querySelector(`.dq-row[data-id="${active.id}"]`)?.scrollIntoView({ block: 'nearest' });
+}
+
+/* Row states in the queue panel: Classic keeps its glyphs, Modern shows line
+   icons (vaultIconSwap puts both in and the look's body class picks one). */
+let _dqIcons = null;
+function _dqIconSet() {
+  if (_dqIcons) return _dqIcons;
+  const sw = (glyph, name) => (typeof vaultIconSwap === 'function' ? vaultIconSwap(glyph, name) : glyph);
+  _dqIcons = {
+    queued: `<span class="dq-dot">${sw('•', 'clock')}</span>`,
+    active: '<span class="dq-spin"></span>',
+    done: sw('✓', 'check'),
+    skipped: sw('–', 'minus'),
+    failed: sw('✗', 'alert'),
+    x: sw('✕', 'close'),
+  };
+  return _dqIcons;
 }
 
 /** Cancel a still-queued item: drop it, un-grey its card, and settle its batch
@@ -1030,23 +1120,32 @@ async function trashIds(ids, { confirmBulk = false } = {}) {
     const { okIds, skippedIds, failures } = await _dqEnqueue(toTrash, 'trash');
 
     if (failures.length) {
-      showToast(`⚠ ${failures.length} failed: ${failures[0]}${failures.length > 1 ? ' (+' + (failures.length - 1) + ' more)' : ''}`);
+      failuresToast(failures, 'moved to the trash');
       console.warn('[Trash] failures:', failures);
     }
 
     if (okIds.length) {
       showUndoToast(
-        `🗑 ${okIds.length} file(s) moved to trash${skippedIds.length ? ` · ${skippedIds.length} already in the trash` : ''}`,
+        `🗑 Moved ${selFiles(okIds.length)} to the trash${skippedIds.length ? ` · ${skippedIds.length.toLocaleString()} already there` : ''}`,
         () => restoreIds(okIds)
       );
     }
-    if (!okIds.length && skippedIds.length) showToast(`${skippedIds.length} file(s) were already in the trash`);
+    if (!okIds.length && skippedIds.length) {
+      showToast(skippedIds.length === 1 ? 'That file was already in the trash.' : `Those ${selFiles(skippedIds.length)} were already in the trash.`);
+    }
     return { okIds, failures };
   } catch (err) {
     console.error('[Trash] failed:', err);
-    showToast('⚠ Trash failed: ' + err.message);
+    showErrorToast(err, 'moving files to the trash');
     return { okIds: [], failures: [String(err.message || err)] };
   }
+}
+
+/** "2 files could not be moved to the trash: a.mp4: reason (and 1 more)". */
+function failuresToast(failures, verbed) {
+  const n = failures.length;
+  const more = n > 1 ? ` (and ${(n - 1).toLocaleString()} more)` : '';
+  showToast(`${n === 1 ? '1 file' : selFiles(n)} could not be ${verbed}: ${failures[0]}${more}`, { type: 'error' });
 }
 
 /** recycle / hard delete (no soft-trash undo). Confirms on bulk, and always
@@ -1056,7 +1155,7 @@ async function _destructiveDelete(ids, mode) {
   const needConfirm = n > 1 || mode === 'hard';
   if (needConfirm) {
     const ok = mode === 'hard'
-      ? await vaultConfirm(`Delete ${n} file(s) from disk for good? This cannot be undone.`,
+      ? await vaultConfirm(`Delete ${n === 1 ? 'this file' : selFiles(n)} from disk for good? This cannot be undone.`,
         { title: 'Delete permanently', okLabel: 'Delete permanently', danger: true })
       : await vaultConfirm(`Move ${n} files to the Recycle Bin?`,
         { title: 'Move to Recycle Bin', okLabel: 'Move to Recycle Bin' });
@@ -1065,21 +1164,21 @@ async function _destructiveDelete(ids, mode) {
   try {
     const { okIds, skippedIds, failures } = await _dqEnqueue(ids, 'delete', { mode });
     if (failures.length) {
-      showToast(`⚠ ${failures.length} failed: ${failures[0]}${failures.length > 1 ? ' (+' + (failures.length - 1) + ' more)' : ''}`);
+      failuresToast(failures, mode === 'hard' ? 'deleted' : 'moved to the Recycle Bin');
       console.warn('[Delete] failures:', failures);
     }
     if (okIds.length) {
       showToast((mode === 'hard'
-        ? `🗑 Permanently deleted ${okIds.length} file(s)`
-        : `♻ Sent ${okIds.length} file(s) to the Recycle Bin`) +
-        (skippedIds.length ? `. Kept ${skippedIds.length} that went to the trash in the meantime` : ''));
+        ? `🗑 Deleted ${selFiles(okIds.length)} for good`
+        : `♻ Moved ${selFiles(okIds.length)} to the Recycle Bin`) +
+        (skippedIds.length ? `. Kept ${skippedIds.length.toLocaleString()} that went to the trash in the meantime.` : '.'));
     } else if (skippedIds.length) {
-      showToast(`Nothing deleted. ${skippedIds.length} file(s) went to the trash in the meantime and were kept there`);
+      showToast(`Nothing deleted. ${selFiles(skippedIds.length)} went to the trash in the meantime and stayed there.`);
     }
     return { okIds, failures };
   } catch (err) {
     console.error('[Delete] failed:', err);
-    showToast('⚠ Delete failed: ' + err.message);
+    showErrorToast(err, 'deleting the files');
     return { okIds: [], failures: [String(err.message || err)] };
   }
 }
@@ -1097,16 +1196,16 @@ async function restoreIds(ids) {
     const { okIds, skippedIds, failures } = await _dqEnqueue(toRestore, 'restore');
 
     if (failures.length) {
-      showToast(`⚠ ${failures.length} failed: ${failures[0]}${failures.length > 1 ? ' (+' + (failures.length - 1) + ' more)' : ''}`);
+      failuresToast(failures, 'restored');
       console.warn('[Restore] failures:', failures);
     }
     if (okIds.length || skippedIds.length) {
-      showToast(`♻ ${okIds.length} file(s) restored${skippedIds.length ? ` · ${skippedIds.length} were already out of the trash` : ''}`);
+      showToast(`♻ Restored ${selFiles(okIds.length)}${skippedIds.length ? ` · ${skippedIds.length.toLocaleString()} were already out of the trash` : ''}`);
     }
     return { okIds, failures };
   } catch (err) {
     console.error('[Restore] failed:', err);
-    showToast('⚠ Restore failed: ' + err.message);
+    showErrorToast(err, 'restoring the files');
     return { okIds: [], failures: [String(err.message || err)] };
   }
 }
@@ -1118,7 +1217,7 @@ async function restoreIds(ids) {
 /** What Empty trash will delete: every trashed row, documents too (6.10). */
 async function fetchTrashSummary() {
   const resp = await fetch('/api/library/trash-summary');
-  if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+  if (!resp.ok) throw selHttpError(resp.status);
   return resp.json();
 }
 
@@ -1126,17 +1225,17 @@ async function clearTrash() {
   // Every file in the trash, whatever the filters say, counted exactly as the
   // server will delete them.
   let trash;
-  try { trash = await fetchTrashSummary(); } catch (err) { showToast('⚠ ' + err.message); return; }
+  try { trash = await fetchTrashSummary(); } catch (err) { showErrorToast(err, 'counting the files in the trash'); return; }
   const n = trash.count;
-  if (!n) { showToast('Trash is already empty'); return; }
+  if (!n) { showToast('The trash is already empty.'); return; }
 
   const bytes = trash.bytes || 0;
   const size = typeof formatFileSize === 'function' ? formatFileSize(bytes) : `${Math.round(bytes / 1e6)} MB`;
-  if (!await vaultConfirm(`Delete all ${n} file(s) in the trash (${size}) for good?\n\n` +
+  if (!await vaultConfirm(`Delete ${n === 1 ? 'the 1 file' : `all ${selFiles(n)}`} in the trash (${size}) for good?\n\n` +
     `This erases the files from disk and everything Vault knows about them: tags, notes, ratings, ` +
     `subtitles and watch history. It cannot be undone.`,
     { title: 'Empty trash', okLabel: 'Empty trash', danger: true })) return;
-  if (!await vaultConfirm(`Last chance. Delete ${n} file(s) forever?`,
+  if (!await vaultConfirm(`Last chance. Delete ${n === 1 ? 'it' : selFiles(n)} forever?`,
     { title: 'Are you sure?', okLabel: 'Delete forever', cancelLabel: 'Keep them', danger: true })) return;
 
   const btn = document.getElementById('clearTrashBtn');
@@ -1146,7 +1245,7 @@ async function clearTrash() {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
     });
     const data = await resp.json();
-    if (!resp.ok) { showToast('⚠ ' + (data.error || 'empty trash failed')); return; }
+    if (!resp.ok) { showErrorToast(selHttpError(resp.status, data.error), 'emptying the trash'); return; }
     // Drop the purged rows from the client cache and re-render
     const ids = [];
     Library.eachCachedRow(m => { if (m.user_trashed) ids.push(m.id); });
@@ -1156,9 +1255,9 @@ async function clearTrash() {
     selectionChanged();
     if (typeof applyFilters === 'function') applyFilters({ keepPage: true });
     Library.refreshFacets();
-    showToast(`🗑 Permanently deleted ${data.deleted} file(s)${data.filesDeleted < data.deleted ? ` (${data.deleted - data.filesDeleted} already gone from disk)` : ''}`);
+    showToast(`🗑 Deleted ${selFiles(data.deleted)} for good${data.filesDeleted < data.deleted ? ` (${(data.deleted - data.filesDeleted).toLocaleString()} were already gone from disk)` : ''}`);
   } catch (err) {
-    showToast('⚠ ' + err.message);
+    showErrorToast(err, 'emptying the trash');
   } finally {
     if (btn) btn.disabled = false;
     updateClearTrashUi();
@@ -1325,13 +1424,13 @@ async function bulkFlag(value) {
   renderResults();
   renderSelectionBar();
   const total = ids.length - gone;
-  const goneNote = gone ? ` ${gone.toLocaleString()} selected file(s) are no longer in the library.` : '';
+  const goneNote = !gone ? '' : gone === 1 ? ' 1 selected file is no longer in the library.'
+    : ` ${gone.toLocaleString()} selected files are no longer in the library.`;
   if (stopped) {
-    showToast(`⚠ ${verb} ${settled.toLocaleString()} of ${total.toLocaleString()}. ` +
-      `${(total - settled).toLocaleString()} could not be saved.${goneNote}`);
+    showToast(`${verb} ${settled.toLocaleString()} of ${total.toLocaleString()}. ` +
+      `${(total - settled).toLocaleString()} could not be saved. Try again.${goneNote}`, { type: 'error' });
   } else if (saved) {
-    showToast(`${value ? '🚩 Flagged' : 'Unflagged'} ${saved} file(s)` +
-      (gone ? `. ${gone} selected file(s) are no longer in the library` : ''));
+    showToast(`${value ? '🚩 Flagged' : 'Unflagged'} ${selFiles(saved)}.${goneNote}`);
   }
 }
 
@@ -1352,7 +1451,7 @@ function showUndoToast(message, onUndo, ms = 8000, label = 'Undo') {
   el.innerHTML = `
     <span>${message}</span>
     <button class="undo-btn">${label}</button>
-    <button class="undo-dismiss" title="Dismiss">✕</button>
+    <button class="undo-dismiss" title="Dismiss" aria-label="Dismiss">✕</button>
   `;
   el.querySelector('.undo-btn').addEventListener('click', () => {
     hideUndoToast();
@@ -1396,7 +1495,7 @@ document.addEventListener('error', (e) => {
     // for one dead file reads as two separate problems, so only the flag is
     // set here and the message is left to the handler that acted on it.
     if (!document.body.classList.contains('privacy-mode')) {
-      showToast('⚠ File failed to play, marked as unplayable');
+      showToast('This file would not play, so it is marked as unplayable.', { type: 'error' });
     }
   }
 }, true);
@@ -1421,7 +1520,7 @@ function _clearPlaybackFailed(e) {
   if (!media || !media.playback_failed) return;
   media.playback_failed = 0;
   postFlags(media, { playback_failed: 0 });
-  showToast('✓ Plays fine now, unplayable flag cleared');
+  showToast('This file plays now, so it is no longer marked as unplayable.', { type: 'success' });
   // Repaint so the ⚠ badge and the red tile border go without a manual refresh.
   if (typeof refreshInfoSurfaces === 'function') refreshInfoSurfaces(media);
   else if (typeof renderResults === 'function') renderResults();

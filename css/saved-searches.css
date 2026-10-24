@@ -135,3 +135,25 @@
 .saved-search-chip.active .saved-search-delete:hover {
   color: #7f1d1d;
 }
+
+/* ── Modern: the line star (filled once saved) and quiet chips ── */
+body.layout-modern .search-save-star { width: 28px; height: 28px; padding: 0; border-radius: var(--m-radius-sm); color: var(--m-muted); }
+body.layout-modern .search-save-star:hover:not(:disabled) { color: #facc15; background: var(--m-btn); transform: translateY(-50%); }
+body.layout-modern .search-save-star.saved { color: #facc15; }
+body.layout-modern .search-save-star .vi { width: 18px; height: 18px; }
+body.layout-modern .search-save-star.saved .vi { fill: currentColor; }
+body.layout-modern .search-save-star:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
+
+body.layout-modern .saved-search-chip { border: 1px solid var(--m-border-strong); background: var(--m-btn); }
+body.layout-modern .saved-search-chip:hover { border-color: rgba(255, 255, 255, 0.22); background: var(--m-btn-hover); }
+body.layout-modern .saved-search-chip.active { border-color: var(--accent); background: var(--accent-bg, rgba(99, 102, 241, 0.2)); }
+body.layout-modern .saved-search-activate { color: var(--m-text-2); font-size: 12px; }
+body.layout-modern .saved-search-chip:hover .saved-search-activate,
+body.layout-modern .saved-search-chip.active .saved-search-activate { color: var(--m-text); }
+body.layout-modern .saved-search-delete,
+body.layout-modern .saved-search-chip.active .saved-search-delete { display: inline-flex; align-items: center; color: var(--m-muted); }
+body.layout-modern .saved-search-delete .vi { width: 12px; height: 12px; }
+body.layout-modern .saved-search-delete:hover,
+body.layout-modern .saved-search-chip.active .saved-search-delete:hover { color: var(--m-danger-text); }
+/* Keyboard users reach the remove button too, not only on hover. */
+body.layout-modern .saved-search-chip:focus-within .saved-search-delete { opacity: 1; max-width: 30px; padding-left: 0.1rem; padding-right: 0.5rem; }

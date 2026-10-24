@@ -206,5 +206,8 @@
   window.vaultConfirm = (message, o) => open('confirm', message, o);
   window.vaultPrompt = (message, o) => open('prompt', message, o);
   window.vaultDialogOpen = () => stack.length > 0;
+  // The lock screen closes every open dialog as a cancel, so none sits above
+  // it with its key guard swallowing the password typing.
+  window.vaultDialogCloseAll = () => { while (stack.length) stack[stack.length - 1].cancel(); };
   window.vaultDialogMessageHtml = vaultDialogMessageHtml;
 })();

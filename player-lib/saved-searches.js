@@ -15,7 +15,7 @@ async function loadSavedSearches() {
   savedSearches = [];
   try {
     const resp = await fetch('/api/searches');
-    if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+    if (!resp.ok) throw Object.assign(new Error(`Server returned ${resp.status}`), { name: 'HttpError', status: resp.status });
     const rows = await resp.json();
     savedSearches = rows.map(row => ({
       ...row,
@@ -154,7 +154,7 @@ async function saveSearchFromInput() {
   // Check for duplicate name
   const exists = savedSearches.find(s => s.name === name);
   if (exists) {
-    showToast('Already saved');
+    showToast('This search is already saved.');
     return;
   }
 
@@ -173,15 +173,15 @@ async function saveSearchFromInput() {
         sort_order: maxOrder,
       }),
     });
-    if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+    if (!resp.ok) throw Object.assign(new Error(`Server returned ${resp.status}`), { name: 'HttpError', status: resp.status });
 
     await loadSavedSearches();
     renderSavedSearches();
     updateSearchStarButton();
-    showToast('Search saved');
+    showToast('Search saved.', { type: 'success' });
   } catch (err) {
     console.error('[SavedSearches] Failed to save:', err);
-    showToast('⚠ Failed to save search');
+    showErrorToast(err, 'saving the search');
   }
 }
 
@@ -191,7 +191,7 @@ async function saveSearchFromInput() {
 async function deleteSavedSearch(id) {
   try {
     const resp = await fetch(`/api/searches/${id}`, { method: 'DELETE' });
-    if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+    if (!resp.ok) throw Object.assign(new Error(`Server returned ${resp.status}`), { name: 'HttpError', status: resp.status });
 
     if (activeSavedSearchId === id) {
       activeSavedSearchId = null;
@@ -200,10 +200,10 @@ async function deleteSavedSearch(id) {
     await loadSavedSearches();
     renderSavedSearches();
     updateSearchStarButton();
-    showToast('Search removed');
+    showToast('Saved search removed.');
   } catch (err) {
     console.error('[SavedSearches] Failed to delete:', err);
-    showToast('⚠ Failed to delete search');
+    showErrorToast(err, 'removing the saved search');
   }
 }
 
@@ -254,7 +254,8 @@ function renderSavedSearches() {
         <button class="saved-search-activate" onclick="activateSavedSearch(${s.id})" title="${label}">
           ${label}
         </button>
-        <button class="saved-search-delete" onclick="event.stopPropagation(); deleteSavedSearch(${s.id})" title="Remove">✕</button>
+        <button class="saved-search-delete" onclick="event.stopPropagation(); deleteSavedSearch(${s.id})"
+          title="Remove this saved search" aria-label="Remove the saved search ${label}">${typeof vaultIconSwap === 'function' ? vaultIconSwap('✕', 'close') : '✕'}</button>
       </div>
     `;
   });
@@ -280,7 +281,8 @@ function updateSearchStarButton() {
   btn.style.display = 'flex';
 
   const isSaved = savedSearches.some(s => s.name === text);
-  btn.textContent = isSaved ? '★' : '☆';
+  // Classic keeps the star glyph; Modern draws the line star, filled once saved.
+  btn.innerHTML = typeof vaultIconSwap === 'function' ? vaultIconSwap(isSaved ? '★' : '☆', 'star') : (isSaved ? '★' : '☆');
   btn.classList.toggle('saved', isSaved);
   btn.disabled = isSaved;
   btn.title = isSaved ? 'Already saved' : 'Save this search';

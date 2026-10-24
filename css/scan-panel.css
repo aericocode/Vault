@@ -117,3 +117,96 @@
 /* Settings > Models > Scanning (player-lib/scan-settings-ui.js) */
 .scan-set-sel { max-width: 340px; min-width: 220px; }
 .sp-held { color: var(--text-secondary); font-size: 0.72rem; }
+
+/* Scans at once (the worker stepper): words, then the number */
+.dq-workers-label { white-space: nowrap; }
+
+/* =========================================================================
+   Modern: the import, AI scan and thank-you panels as Modern cards (dark
+   surface, hairline border, 12 px corners) with Modern buttons and fields.
+   Scoped to these panels' ids; the delete queue is selection.js's.
+   ========================================================================= */
+body.layout-modern #scanQueuePanel,
+body.layout-modern #importQueuePanel,
+body.layout-modern #kofiThanksPanel {
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  box-shadow: var(--m-shadow);
+  color: var(--m-text);
+  padding: 12px 14px;
+}
+body.layout-modern #scanQueuePanel .dq-head,
+body.layout-modern #importQueuePanel .dq-head,
+body.layout-modern #kofiThanksPanel .dq-head { font-size: 13px; color: var(--m-text); }
+body.layout-modern #scanQueuePanel .dq-x,
+body.layout-modern #importQueuePanel .dq-x,
+body.layout-modern #kofiThanksPanel .dq-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0;
+  border-radius: 6px; color: var(--m-muted);
+}
+body.layout-modern #scanQueuePanel .dq-x:hover,
+body.layout-modern #importQueuePanel .dq-x:hover,
+body.layout-modern #kofiThanksPanel .dq-x:hover { background: var(--m-btn-hover); color: var(--m-text); }
+body.layout-modern #scanQueuePanel .dq-x .vi,
+body.layout-modern #importQueuePanel .dq-x .vi,
+body.layout-modern #kofiThanksPanel .dq-x .vi { width: 14px; height: 14px; }
+body.layout-modern #importQueuePanel .dq-title .vi,
+body.layout-modern #kofiThanksPanel .dq-title .vi { margin-right: 6px; }
+body.layout-modern #kofiThanksPanel .dq-title .vi { color: var(--accent-hover); }
+body.layout-modern #kofiThanksPanel .kofi-note { font-size: 12px; color: var(--m-text-2); }
+
+body.layout-modern #scanQueuePanel .dq-bar { background: rgba(255, 255, 255, 0.08); }
+body.layout-modern #scanQueuePanel .dq-meta { font-size: 12px; color: var(--m-muted); }
+body.layout-modern #scanQueuePanel .sp-tabs { margin: 0 -14px 8px; padding: 0 10px; border-bottom-color: rgba(255, 255, 255, 0.08); }
+body.layout-modern #scanQueuePanel .sp-tab { font-size: 12px; color: var(--m-muted); }
+body.layout-modern #scanQueuePanel .sp-tab:hover,
+body.layout-modern #scanQueuePanel .sp-tab.on { color: var(--m-text); }
+
+/* The stepper and the model picker: the Modern field / select, panel sized */
+body.layout-modern #scanQueuePanel .dq-workers { gap: 6px; }
+body.layout-modern #scanQueuePanel .dq-num.m-field {
+  width: 52px; min-height: 26px;
+  padding: 2px 4px 2px 8px;
+  font-size: 12px; text-align: left;
+}
+body.layout-modern #scanQueuePanel .dq-pick-sel.m-select {
+  min-height: 30px; padding-top: 4px; padding-bottom: 4px; font-size: 12px;
+}
+
+body.layout-modern #scanQueuePanel .dq-warn {
+  border-radius: var(--m-radius-sm);
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 8px 10px;
+}
+body.layout-modern #scanQueuePanel .dq-warn-at { color: var(--m-text-2); }
+body.layout-modern #scanQueuePanel .sp-grp { border-radius: var(--m-radius-sm); }
+body.layout-modern #scanQueuePanel .sp-pill { background: rgba(255, 255, 255, 0.07); }
+
+body.layout-modern #scanQueuePanel .dq-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-btn);
+  color: var(--m-text);
+  font-size: 12px;
+}
+body.layout-modern #scanQueuePanel .dq-btn:hover:not(:disabled) { background: var(--m-btn-hover); border-color: var(--m-border-strong); }
+body.layout-modern #scanQueuePanel .dq-btn:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+body.layout-modern #scanQueuePanel .dq-btn-primary { background: var(--accent); border-color: transparent; color: #fff; }
+body.layout-modern #scanQueuePanel .dq-btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: transparent; }
+body.layout-modern #scanQueuePanel .dq-btn-quiet,
+body.layout-modern #scanQueuePanel .dq-btn-ghost { background: transparent; border-color: transparent; color: var(--m-text-2); }
+body.layout-modern #scanQueuePanel .dq-btn-quiet:hover:not(:disabled),
+body.layout-modern #scanQueuePanel .dq-btn-ghost:hover:not(:disabled) { background: var(--m-btn); color: var(--m-text); }
+body.layout-modern #scanQueuePanel .dq-btn-danger:hover:not(:disabled) { color: var(--m-danger-text); border-color: rgba(239, 68, 68, 0.5); }
+body.layout-modern #scanQueuePanel .dq-btn-danger.armed,
+body.layout-modern #scanQueuePanel .dq-btn-danger.armed:hover:not(:disabled) { background: #dc2626; border-color: #dc2626; color: #fff; }
+body.layout-modern #scanQueuePanel .sp-mini { padding: 2px 8px; font-size: 11px; }
+
+/* The display rules above outrank the [hidden] attribute: keep hidden buttons hidden. */
+body.layout-modern #scanQueuePanel .dq-btn[hidden],
+body.layout-modern #scanQueuePanel .dq-x[hidden] { display: none; }

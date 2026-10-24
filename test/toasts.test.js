@@ -111,6 +111,8 @@ test('friendlyError: raw codes and fragments become a plain sentence', () => {
   const g = 'Something went wrong while saving the note. Try again.';
   assert.strictEqual(f('HTTP 500', 'saving the note'), g);
   assert.strictEqual(f(new Error('HTTP 404'), 'saving the note'), g);
+  assert.strictEqual(f('Server returned 500', 'saving the note'), g);
+  assert.strictEqual(f(new Error('Request failed with status code 502'), 'saving the note'), g);
   assert.strictEqual(f('could not read folder', 'saving the note'), g, 'lowercase server text');
   assert.strictEqual(f('media_ids required (2+)', 'saving the note'), g);
   assert.strictEqual(f(new TypeError("Cannot read properties of undefined (reading 'x')"), 'saving the note'), g);
