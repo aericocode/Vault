@@ -40,6 +40,7 @@ const SHORTCUTS = [
   { ctx: 'player', keys: ['Space'], desc: 'Play or pause' },
   { ctx: 'player', keys: ['Left', 'Right'], desc: 'Back or forward 5 seconds' },
   { ctx: 'player', keys: ['J', 'L'], desc: 'Back or forward 10 seconds' },
+  { ctx: 'player', keys: ['0', '9'], desc: 'Jump to 0% through 90% of the file (5 is halfway)' },
   { ctx: 'player', keys: ['Up', 'Down'], desc: 'Volume up or down' },
   { ctx: 'player', keys: ['M'], desc: 'Mute or unmute' },
   { ctx: 'player', keys: ['F'], desc: 'Full screen on or off' },

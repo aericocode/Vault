@@ -477,3 +477,13 @@ person", even when a file is checked again.
   and you can pause it at any time. If you close Vault part way, click **Find
   faces in the rest** next time to carry on.
 - Running from source on Linux? See the `npm install` note in §6.
+
+---
+
+## 8. Keyboard shortcuts
+
+Press **?** anywhere in Vault for the full list, with the group for where you are marked **You are here**. The same list is in **Settings > Keyboard shortcuts**.
+
+Most keys do nothing while you are typing in a box (search, notes, a name), so typing never sets anything off by accident. A few still work there on purpose: Esc, Alt+Left and Alt+Right in the player, and Ctrl+Shift+H.
+
+Number keys: in the player, **0** to **9** jump through a video or audio file (0 is the start, 1 is 10%, 5 is halfway, 9 is 90%). On a picture, **0** resets the zoom and turn. Holding Ctrl or Alt leaves them to the browser, so Ctrl+0 still resets the page zoom.
