@@ -236,6 +236,8 @@ function renderSavedSearches() {
   if (!container) return;
   // The Modern look's left rail lists them too (player-lib/filter-rail.js).
   if (typeof renderFilterRail === 'function') renderFilterRail();
+  // ...and the list under the search box, while it is open (a remove from its x).
+  if (_ssd.open) ssdRender();
 
   if (savedSearches.length === 0) {
     container.style.display = 'none';
@@ -286,4 +288,202 @@ function updateSearchStarButton() {
   btn.classList.toggle('saved', isSaved);
   btn.disabled = isSaved;
   btn.title = isSaved ? 'Already saved' : 'Save this search';
+}
+
+// ── Modern: the saved searches list under the search box ───────────────
+//
+// Clicking or focusing the empty library search box opens a list of the saved
+// searches right under it. Typing narrows it (by name or query, any case);
+// when the box has text and nothing matches, the list hides so normal typing
+// is unaffected. Up / Down move, Enter picks (the same as clicking the search
+// in the rail: activateSavedSearch), Enter with nothing highlighted is the
+// normal search, Esc closes the list and keeps focus in the box, a click
+// outside or Tab closes it. The x removes one through deleteSavedSearch.
+// There is no recent-searches store, so the list has no Recent section.
+// Classic keeps its chip row only.
+
+/** The saved searches whose name or query contains `query` (any case). An
+ *  empty query lists them all, in their saved order. */
+function savedSearchMatches(list, query) {
+  const all = Array.isArray(list) ? list : [];
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return all.slice();
+  return all.filter(s => {
+    if (!s) return false;
+    const text = s.search_text != null ? s.search_text : (s.filters && s.filters.searchText);
+    return String(s.name || '').toLowerCase().includes(q) || String(text || '').toLowerCase().includes(q);
+  });
+}
+
+/** The highlighted row after Up (delta -1) or Down (+1) in a list of `count`
+ *  rows; -1 is "nothing highlighted". Down from nothing is the first row, Up
+ *  from nothing or the first row is the last, Down from the last wraps. */
+function savedSearchMoveIndex(index, delta, count) {
+  if (!(count > 0)) return -1;
+  const i = Number.isInteger(index) && index >= 0 && index < count ? index : -1;
+  if (delta > 0) return (i + 1) % count;
+  return i <= 0 ? count - 1 : i - 1;
+}
+
+/** Whether the list shows, and with which rows: hidden when the box has text
+ *  that no saved search matches; an empty box always shows it (with no saved
+ *  searches it says how to add one). */
+function savedSearchDropdownState(list, query) {
+  const rows = savedSearchMatches(list, query);
+  const typed = !!String(query || '').trim();
+  return { rows, show: !typed || rows.length > 0, empty: !(Array.isArray(list) && list.length) };
+}
+
+const _ssd = { open: false, dismissed: false, index: -1, rows: [] };
+
+function ssdEls() {
+  return { input: document.getElementById('searchInput'), box: document.getElementById('savedSearchDropdown') };
+}
+
+function ssdIsModern() {
+  return typeof window !== 'undefined' && typeof window.isModernLayout === 'function' && window.isModernLayout();
+}
+
+function ssdClose(opts) {
+  const { input, box } = ssdEls();
+  _ssd.open = false;
+  _ssd.index = -1;
+  if (opts && opts.dismiss) _ssd.dismissed = true;
+  if (box) box.hidden = true;
+  if (input) {
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+  }
+}
+
+/** Draw the list for what is in the box now, or hide it. */
+function ssdRender() {
+  const { input, box } = ssdEls();
+  if (!input || !box) return;
+  if (!ssdIsModern() || _ssd.dismissed || document.activeElement !== input || input.disabled) { ssdClose(); return; }
+  const st = savedSearchDropdownState(savedSearches, input.value);
+  if (!st.show) { ssdClose(); return; }
+  const prev = _ssd.rows[_ssd.index];
+  _ssd.rows = st.rows;
+  _ssd.index = prev ? st.rows.findIndex(s => s.id === prev.id) : -1;
+  const icon = (n) => (typeof vaultIcon === 'function' ? vaultIcon(n) : '');
+  box.innerHTML = st.empty
+    ? `<div class="ssd-h">Saved searches</div>
+       <p class="ssd-empty">No saved searches yet.</p>
+       <div class="ssd-foot">Star a search to keep it here</div>`
+    : `<div class="ssd-h" id="ssdHead">Saved searches</div>
+       <div class="ssd-list" role="listbox" aria-labelledby="ssdHead">${st.rows.map(s => {
+         const name = escapeHtml(s.name);
+         return `<div class="ssd-opt" role="option" id="ssdOpt${s.id}" data-ssd-id="${s.id}" aria-selected="false">
+           <span class="ssd-star">${icon('star')}</span><span class="ssd-name">${name}</span>
+           <button type="button" class="ssd-x" data-ssd-del="${s.id}" tabindex="-1" title="Remove this saved search"
+                   aria-label="Remove the saved search ${name}">${icon('close')}</button>
+         </div>`;
+       }).join('')}</div>
+       <div class="ssd-foot">Up and Down to move, Enter to search</div>`;
+  box.hidden = false;
+  _ssd.open = true;
+  input.setAttribute('aria-expanded', 'true');
+  ssdSyncHighlight();
+}
+
+function ssdSyncHighlight() {
+  const { input, box } = ssdEls();
+  if (!box) return;
+  box.querySelectorAll('.ssd-opt').forEach((el, i) => {
+    const on = i === _ssd.index;
+    el.classList.toggle('is-hl', on);
+    el.setAttribute('aria-selected', on ? 'true' : 'false');
+    if (on && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
+  });
+  const cur = _ssd.rows[_ssd.index];
+  if (!input) return;
+  if (cur) input.setAttribute('aria-activedescendant', `ssdOpt${cur.id}`);
+  else input.removeAttribute('aria-activedescendant');
+}
+
+function ssdPick(id) {
+  ssdClose({ dismiss: true });
+  activateSavedSearch(id);
+  if (typeof updateSearchStarButton === 'function') updateSearchStarButton();
+  if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
+}
+
+function ssdOnKeydown(e) {
+  if (!ssdIsModern()) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (!_ssd.open) {
+      // After Esc or a pick, Down opens the list again.
+      _ssd.dismissed = false;
+      ssdRender();
+      if (_ssd.open) e.preventDefault();
+      return;
+    }
+    e.preventDefault();
+    _ssd.index = savedSearchMoveIndex(_ssd.index, e.key === 'ArrowDown' ? 1 : -1, _ssd.rows.length);
+    ssdSyncHighlight();
+    return;
+  }
+  if (e.key === 'Enter' && !e.isComposing) {
+    const cur = _ssd.open ? _ssd.rows[_ssd.index] : null;
+    if (cur) { e.preventDefault(); ssdPick(cur.id); return; }
+    // Nothing highlighted: the normal search, run now rather than after the pause.
+    if (_ssd.open) ssdClose({ dismiss: true });
+    if (typeof flushPendingSearch === 'function') flushPendingSearch();
+  }
+}
+
+function ssdInit() {
+  const { input } = ssdEls();
+  if (!input || document.getElementById('savedSearchDropdown')) return;
+  const box = document.createElement('div');
+  box.id = 'savedSearchDropdown';
+  box.className = 'ssd';
+  box.hidden = true;
+  input.insertAdjacentElement('afterend', box);
+  input.setAttribute('aria-controls', 'savedSearchDropdown');
+  input.setAttribute('aria-expanded', 'false');
+  input.setAttribute('aria-autocomplete', 'list');
+  input.setAttribute('autocomplete', 'off');
+
+  input.addEventListener('focus', () => { _ssd.dismissed = false; ssdRender(); });
+  // A click into a box that already has focus (after Esc or a pick) opens it again.
+  input.addEventListener('mousedown', () => {
+    if (document.activeElement !== input || _ssd.open) return;
+    _ssd.dismissed = false;
+    setTimeout(ssdRender, 0);
+  });
+  input.addEventListener('input', () => { _ssd.dismissed = false; _ssd.index = -1; _ssd.rows = []; ssdRender(); });
+  input.addEventListener('keydown', ssdOnKeydown);
+  // Tab or a click elsewhere: the list goes with the focus.
+  input.addEventListener('blur', () => ssdClose());
+
+  // Keep the focus in the box while the list is used with the mouse.
+  box.addEventListener('mousedown', (e) => e.preventDefault());
+  box.addEventListener('click', (e) => {
+    const del = e.target.closest('[data-ssd-del]');
+    if (del) { e.stopPropagation(); deleteSavedSearch(Number(del.dataset.ssdDel)); return; }
+    const opt = e.target.closest('[data-ssd-id]');
+    if (opt) ssdPick(Number(opt.dataset.ssdId));
+  });
+  box.addEventListener('mousemove', (e) => {
+    const opt = e.target.closest('[data-ssd-id]');
+    if (!opt) return;
+    const i = _ssd.rows.findIndex(s => s.id === Number(opt.dataset.ssdId));
+    if (i >= 0 && i !== _ssd.index) { _ssd.index = i; ssdSyncHighlight(); }
+  });
+
+  // Esc closes the list only (not the filter sheet or anything behind it):
+  // this runs ahead of the document's own Esc handlers.
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !_ssd.open || e.target !== input) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    ssdClose({ dismiss: true });
+  }, true);
+}
+
+if (typeof document !== 'undefined' && typeof document.getElementById === 'function') {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ssdInit);
+  else ssdInit();
 }

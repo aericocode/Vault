@@ -134,6 +134,7 @@ function railBuild() {
       </div>
       <div class="rail-active" id="railActive"></div>
     </section>
+    ${railSecHtml('saved', 'Saved searches', true, '<div class="rail-saved" id="railSaved"></div>')}
     ${railSecHtml('collections', 'Collections', true, '<div class="rail-colls" id="railColls"></div>')}
     ${railSecHtml('options', 'Search options', false, '<div id="railOptions"></div>')}
     ${railSecHtml('type', 'Type', true, '<div class="rail-pills" id="railTypes"></div>')}
@@ -143,7 +144,6 @@ function railBuild() {
       <input type="search" class="rail-search" id="railTagSearch" placeholder="Find a tag" autocomplete="off"
              aria-label="Find a tag">
       <div class="rail-list" id="railTags"></div>`)}
-    ${railSecHtml('saved', 'Saved searches', true, '<div class="rail-saved" id="railSaved"></div>')}
     ${railSecHtml('language', 'Language', false, '<div class="rail-list" id="railLanguage"></div>')}
     ${railSecHtml('about', 'About the file', false, `
       <div class="rail-sub">Content type</div><div class="rail-list" id="railContent"></div>
