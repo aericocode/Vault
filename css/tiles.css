@@ -327,7 +327,7 @@
   position: fixed;
   left: 18px;
   bottom: 18px;
-  max-width: calc(100vw - 36px);
+  max-width: calc(100vw - 36px - var(--sel-pager-room, 0px));
   /* Hidden: below the viewport edge whatever the bar's height (it wraps on
      narrow windows), and out of reach, so no sliver can ever take a click. */
   transform: translate(0, calc(100% + 24px));
@@ -446,6 +446,16 @@ body.layout-modern .selection-bar .sel-btn.sel-clear {
   color: var(--m-muted);
 }
 body.layout-modern .selection-bar .sel-btn.sel-clear:hover { background: var(--m-btn); color: var(--m-text); }
+/* Compact (selection.js fitSelectionBar): the words would need a second line,
+   so the buttons keep their icons only. The words stay in the DOM, so each
+   button keeps its name for screen readers, and the title names it on hover.
+   One line high, the bar fits the pager's strip and covers no tiles. */
+body.layout-modern .selection-bar.sel-compact .sel-btn:has(> svg.vi) { font-size: 0; padding: 6px 9px; }
+body.layout-modern .selection-bar.sel-compact .sel-btn .vi-gap { margin-right: 0; }
+body.layout-modern .selection-bar.sel-compact .sel-btn .sel-caret { margin-left: 2px; }
+/* Classic: the same, keeping the emoji. */
+body:not(.layout-modern) .selection-bar.sel-compact .sel-btn:has(> .vi-c) { font-size: 0; }
+body:not(.layout-modern) .selection-bar.sel-compact .sel-btn .vi-c { font-size: 0.85rem; }
 
 /* ── Tile tick box, Modern: a round tick on a dark disc instead of the
    browser checkbox (the same tick as .m-check in css/layout-modern.css). */

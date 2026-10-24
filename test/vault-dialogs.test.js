@@ -65,6 +65,9 @@ function makeEnv() {
   }
 
   doc.createElement = (tag) => new El(tag);
+  // Only vaultModalOpen asks: is one of the other modals (password, lock, import) up?
+  doc.otherModal = null;
+  doc.querySelector = (sel) => (doc.otherModal && sel.split(',').map(s => s.trim()).includes(doc.otherModal) ? {} : null);
   doc.body = new El('body');
   const app = doc.body.appendChild(new El('div'));       // the page behind
   const opener = app.appendChild(new El('button'));
@@ -253,6 +256,22 @@ test('key guard: every key swallowed while open, none when closed', async () => 
   await p;
   assert.strictEqual(E.win.vaultDialogOpen(), false);
   assert.ok(!E.key('Delete').stopped);
+});
+
+test('vaultModalOpen: true for these dialogs and for the password, lock and import ones', async () => {
+  const E = makeEnv();
+  assert.strictEqual(E.win.vaultModalOpen(), false);
+  const p = E.win.vaultConfirm('Go?');
+  assert.strictEqual(E.win.vaultModalOpen(), true);
+  E.top().find('vdlg-cancel').click();
+  await p;
+  assert.strictEqual(E.win.vaultModalOpen(), false);
+  for (const sel of ['.vault-modal-overlay', '.import-overlay', '#vaultLockScreen']) {
+    E.doc.otherModal = sel;
+    assert.strictEqual(E.win.vaultModalOpen(), true, sel);
+  }
+  E.doc.otherModal = '.modal-overlay';
+  assert.strictEqual(E.win.vaultModalOpen(), false, 'not every overlay');
 });
 
 test('Tab stays inside the dialog', async () => {

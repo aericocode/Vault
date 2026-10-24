@@ -223,6 +223,8 @@ function shortcutsShouldOpen(e, active) {
   if (e.metaKey) return false;
   if ((e.ctrlKey || e.altKey) && !isAltGr(e)) return false;
   if (shortcutsIsTyping(e.target) || shortcutsIsTyping(active)) return false;
+  // Another dialog has the keyboard (vault-dialogs.js): the list would open on top of it.
+  if (typeof vaultModalOpen === 'function' && vaultModalOpen()) return false;
   return true;
 }
 

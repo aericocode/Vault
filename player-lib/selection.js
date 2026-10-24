@@ -444,6 +444,33 @@ function renderSelectionBar() {
     ${SEL_CLEAR_BTN}
   `;
   bar.classList.add('visible');
+  fitSelectionBar(bar);
+}
+
+/* When the bar's words would wrap it onto a second line (a narrow window, the
+   rail or the dock open, many buttons), the buttons show their icons only
+   (css/tiles.css .sel-compact; the emoji in Classic). One line high, the bar fits in the
+   pager's strip and covers no tiles; the grid never re-lays for it. Re-checked
+   on every render and whenever the bar's size changes (the rail or the dock
+   opening narrows it). */
+function fitSelectionBar(bar) {
+  bar.classList.remove('sel-compact');
+  if (!bar.classList.contains('visible')) return;
+  const first = bar.firstElementChild, last = bar.lastElementChild;
+  if (first && last && last.offsetTop > first.offsetTop + 4) bar.classList.add('sel-compact');
+  if (bar._fitWired) return;
+  bar._fitWired = true;
+  const refit = () => { if (bar.classList.contains('visible')) fitSelectionBar(bar); };
+  window.addEventListener('resize', refit);
+  if (typeof ResizeObserver === 'function') {
+    // Skip the size the last fit left behind: fitting resizes the bar itself.
+    let seen = '';
+    new ResizeObserver(() => {
+      if (`${bar.offsetWidth}x${bar.offsetHeight}` === seen) return;
+      refit();
+      seen = `${bar.offsetWidth}x${bar.offsetHeight}`;
+    }).observe(bar);
+  }
 }
 
 /* The bar's close button: the line icon in Modern, the glyph in Classic. */
@@ -1112,7 +1139,7 @@ async function trashIds(ids, { confirmBulk = false } = {}) {
     const ok = await vaultConfirm(
       `Move ${n} files to the trash folder?\n\nThe files are moved on disk, not deleted, and you can restore them later.`,
       { title: 'Move to trash', okLabel: 'Move to trash' });
-    if (!ok) return { okIds: [], failures: [] };
+    if (!ok) return { okIds: [], failures: [], cancelled: true };
   }
 
   try {
@@ -1159,7 +1186,7 @@ async function _destructiveDelete(ids, mode) {
         { title: 'Delete permanently', okLabel: 'Delete permanently', danger: true })
       : await vaultConfirm(`Move ${n} files to the Recycle Bin?`,
         { title: 'Move to Recycle Bin', okLabel: 'Move to Recycle Bin' });
-    if (!ok) return { okIds: [], failures: [] };
+    if (!ok) return { okIds: [], failures: [], cancelled: true };
   }
   try {
     const { okIds, skippedIds, failures } = await _dqEnqueue(ids, 'delete', { mode });
@@ -1286,7 +1313,8 @@ let _trashUiSeq = 0;
 window.addEventListener('vault:facets-changed', () => updateClearTrashUi());
 
 function trashSelected() {
-  trashIds([...selectedIds], { confirmBulk: true }).then(() => clearSelection());
+  // A cancelled confirm leaves the selection as it was.
+  trashIds([...selectedIds], { confirmBulk: true }).then(r => { if (!r || !r.cancelled) clearSelection(); });
 }
 // (Both clear the selection when their queue batch settles, as before.)
 

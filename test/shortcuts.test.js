@@ -184,6 +184,17 @@ test('?: opens on its own, not with Ctrl / Cmd / Alt, not while typing', () => {
   assert.strictEqual(S.shortcutsShouldOpen(key('?'), { nodeType: 1, tagName: 'BUTTON' }), true);
 });
 
+test('?: stays shut while another dialog has the keyboard (vaultModalOpen)', () => {
+  let open = false;
+  const ctx = makeCtx({ vaultModalOpen: () => open });
+  const src = fs.readFileSync(path.join(LIB, 'shortcuts.js'), 'utf8');
+  vm.runInContext(`${src}
+;globalThis.__open = shortcutsShouldOpen;`, ctx);
+  assert.strictEqual(ctx.__open(key('?', { shiftKey: true })), true);
+  open = true;   // "Protect your library?", a password dialog, the lock screen, import
+  assert.strictEqual(ctx.__open(key('?', { shiftKey: true })), false);
+});
+
 test('isBrowserChord: Ctrl / Cmd with a letter or symbol; not Space, arrows, Esc or AltGr', () => {
   assert.strictEqual(S.isBrowserChord(key('r', { ctrlKey: true })), true);
   assert.strictEqual(S.isBrowserChord(key('R', { ctrlKey: true, shiftKey: true })), true);

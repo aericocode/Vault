@@ -1233,6 +1233,52 @@ const Wall = (() => {
     els.msg.hidden = !text;
   }
 
+  /**
+   * Why the wall came up empty, as { kind, title, hint }. Only a search or a
+   * filter earns the "clear it" hint; a library with no files at all gets the
+   * library's own empty state (with Add), and files that exist but cannot go
+   * up (all music, say) are told so.
+   */
+  function emptyMessage({ source, narrowed, libraryEmpty }) {
+    if (source !== 'library') {
+      return { kind: 'source', title: '', hint: 'Nothing to show from this source. Pick another source or change what it shows.' };
+    }
+    if (narrowed) {
+      return { kind: 'filter', title: '', hint: 'Nothing to show. The Wall uses your current library search and filters; clear them or pick another source.' };
+    }
+    if (libraryEmpty) {
+      return { kind: 'library', title: 'Your library is empty', hint: 'Add a folder or some files and they will show up here. Your files stay where they are.' };
+    }
+    return { kind: 'unfit', title: '', hint: 'Nothing to show. The Wall plays videos and pictures, and none of your files can go up with these Wall settings.' };
+  }
+
+  function showEmpty() {
+    const n = typeof libraryNarrowing === 'function' ? libraryNarrowing() : {};
+    const m = emptyMessage({
+      source: cfg.source,
+      narrowed: !!(n.text || n.filters || n.focus || n.similar || n.collection),
+      libraryEmpty: typeof Library !== 'undefined' && Library.known() && Library.length() === 0,
+    });
+    if (m.kind !== 'library') { showMsg(m.hint); return; }
+    // The same empty state as the library's (cards.js emptyStateHtml), with its Add actions.
+    const esc = (s) => (typeof escapeHtml === 'function' ? escapeHtml(s) : String(s));
+    const ic = typeof vaultIcon === 'function' ? vaultIcon('folder', 'empty-state-ic') : '';
+    const btn = (id, label, primary) => (document.getElementById(id)
+      ? `<button type="button" class="empty-state-btn m-btn${primary ? ' is-primary' : ''}" data-wall-add="${id}">${esc(label)}</button>` : '');
+    const hasFolder = !!document.getElementById('addFolderBtn');
+    const actions = btn('addFolderBtn', 'Add folder', true) + btn('addFilesBtn', 'Add files', !hasFolder);
+    els.msg.innerHTML = `<div class="empty-state" role="status">
+        ${ic}
+        <div class="empty-state-title">${esc(m.title)}</div>
+        <div class="empty-state-hint">${esc(m.hint)}</div>
+        ${actions ? `<div class="empty-state-actions">${actions}</div>` : ''}
+      </div>`;
+    els.msg.hidden = false;
+    els.msg.querySelectorAll('[data-wall-add]').forEach(b => b.addEventListener('click', () => {
+      document.getElementById(b.dataset.wallAdd)?.click();
+    }));
+  }
+
   function updateStatus() {
     if (!els) return;
     let playing = 0;
@@ -2385,9 +2431,7 @@ const Wall = (() => {
     }
     if (gen !== buildGen) return;
     if (!ready.length) {
-      showMsg(cfg.source === 'library'
-        ? 'Nothing to show. The Wall uses your current library filter; clear it or pick another source.'
-        : 'Nothing to show from this source. Pick another source or change what it shows.');
+      showEmpty();
       return;
     }
     await shapesFor(LOOKAHEAD * 3, 2500);
@@ -2534,7 +2578,7 @@ const Wall = (() => {
   return {
     enter, leave, lockStop, startAt,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { cfgFrom, takeStart, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, mostlyInView, scrollLeftMs, scrollFreePlan, MOSTLY, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
+    _pure: { emptyMessage, cfgFrom, takeStart, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, mostlyInView, scrollLeftMs, scrollFreePlan, MOSTLY, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
     _audio: () => {
       const t = now();

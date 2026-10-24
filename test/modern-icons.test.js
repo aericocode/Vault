@@ -314,7 +314,7 @@ test('Games: the home title, game rows and save cards have no emoji in Modern', 
 });
 
 test('selection bar: every button is words and a line icon in Modern', () => {
-  const bar = { innerHTML: '', classList: { add: noop, remove: noop } };
+  const bar = { innerHTML: '', classList: { add: noop, remove: noop, contains: () => false } };
   const ctx = loadUi(['selection.js'], true);
   ctx.document.getElementById = (id) => (id === 'selectionBar' ? bar : null);
   vm.runInContext(`selectedIds = new Set([1, 2, 3]);

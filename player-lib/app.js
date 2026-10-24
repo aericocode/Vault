@@ -191,6 +191,8 @@ document.addEventListener('click', (e) => {
 // gets to act on it.
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  // A dialog on top takes this Esc (vault-dialogs.js vaultModalOpen).
+  if (typeof vaultModalOpen === 'function' && vaultModalOpen()) return;
   if (typeof filterPopoverIsOpen === 'function' && filterPopoverIsOpen()) {
     closeFilterPopover();
     e.stopPropagation();
@@ -426,6 +428,8 @@ document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
   // Ctrl / Cmd chords (Ctrl+R reload) are the browser's, not Q / N / P / R.
   if (typeof isBrowserChord === 'function' && isBrowserChord(e)) return;
+  // A password, lock or import dialog has the keyboard.
+  if (typeof vaultModalOpen === 'function' && vaultModalOpen()) return;
 
   // Mini player shortcuts (active when mini player is showing)
   const miniPlayer = document.getElementById('miniPlayer');

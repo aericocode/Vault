@@ -206,6 +206,13 @@
   window.vaultConfirm = (message, o) => open('confirm', message, o);
   window.vaultPrompt = (message, o) => open('prompt', message, o);
   window.vaultDialogOpen = () => stack.length > 0;
+  // Is any modal up that owns the keyboard? These dialogs, plus the ones
+  // built elsewhere with their own key handling: the password dialogs and
+  // "Protect your library?" (vault-ui.js), the lock screen, and the import
+  // dialog (importer.js). The page-wide shortcuts (?, Page Down, the mini
+  // player's keys, Esc for the details sheet) stay quiet while one is open.
+  const OTHER_MODALS = '.vault-modal-overlay, .import-overlay, #vaultLockScreen';
+  window.vaultModalOpen = () => stack.length > 0 || !!document.querySelector(OTHER_MODALS);
   // The lock screen closes every open dialog as a cancel, so none sits above
   // it with its key guard swallowing the password typing.
   window.vaultDialogCloseAll = () => { while (stack.length) stack[stack.length - 1].cancel(); };

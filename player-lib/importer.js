@@ -1643,12 +1643,20 @@
     q('#impWatch')?.addEventListener('change', (e) => { state.watch = e.target.checked; });
 
     const close = () => {
-      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, true);
       ov.remove();
       if (opener && opener.isConnected && typeof opener.focus === 'function') opener.focus();
     };
-    const onKey = (e) => { if (e.key === 'Escape') close(); };
-    document.addEventListener('keydown', onKey);
+    // Capture on window, so Esc closes this dialog and nothing under it (the
+    // filter sheet, the details sheet). A vaultConfirm opened on top of it
+    // still gets Esc first: its guard is registered earlier.
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      close();
+    };
+    window.addEventListener('keydown', onKey, true);
     q('.imp-x').addEventListener('click', close);
     q('#impCancel').addEventListener('click', close);
     ov.addEventListener('mousedown', (e) => { if (e.target === ov) close(); });

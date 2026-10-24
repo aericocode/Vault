@@ -5,6 +5,8 @@
 document.addEventListener('keydown', (e) => {
   const overlay = document.getElementById('mediaPlayerOverlay');
   if (!overlay.classList.contains('active')) return;
+  // A password, lock or import dialog over the player has the keyboard.
+  if (typeof vaultModalOpen === 'function' && vaultModalOpen()) return;
 
   // Alt+Arrow for sidebar navigation (works even in textarea)
   if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {

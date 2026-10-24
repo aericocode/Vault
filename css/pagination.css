@@ -186,3 +186,12 @@ body:has(.settings-overlay.active) .scroll-top-pill {
   gap: 0.35rem;
 }
 body.layout-modern .pager-btn .vi { width: 15px; height: 15px; }
+
+/* Files ticked: the selection bar (fixed bottom-left, css/tiles.css) sits in
+   the pager's own strip, which is as tall as one line of the bar. So the
+   pager steps over to the right and drops the slider while the bar shows,
+   and the bar stops short of it (--sel-pager-room). Nothing re-lays: the
+   tiles on the page stay exactly where they were (player-lib/cards.js). */
+body:has(#pagination:not(.pager-single) > .pager-btn) { --sel-pager-room: 300px; }
+body:has(.selection-bar.visible) #pagination { justify-content: flex-end; }
+body:has(.selection-bar.visible) #pagination .pager-range { display: none; }

@@ -49,12 +49,12 @@ function errorTooltip(msg) {
 const CARD_MIN_WIDTHS = { S: 130, M: 170, L: 230 };
 const GRID_GAP = 12;          // px — 0.75rem, the grid's own gap
 const TILE_ASPECT = 16 / 10;  // .tile-thumb aspect-ratio (css/tiles.css)
-const BOTTOM_PAD = 16;        // .main-container bottom padding
-// Room kept free under the pager: the padding, plus the selection bar while it
-// shows (it is fixed to the bottom edge and would sit on the pager, so Prev,
-// Next and the slider could not be reached with files ticked). A let, set by
-// updateBottomReserve() before each layout; table-view.js reads it too.
-let BOTTOM_RESERVE = BOTTOM_PAD;
+// .main-container bottom padding; table-view.js reads it too. Fixed on
+// purpose: the selection bar does NOT add to it. The bar sits in the pager's
+// strip (no taller than the pager plus its margins) and the pager steps to
+// the right while it shows (css/pagination.css), so ticking a file never
+// re-lays the grid and the ticked tile stays where it is.
+const BOTTOM_RESERVE = 16;
 const PAGER_MARGIN = 16;      // .pagination margin-top
 const MIN_ROW_H = 90;
 // A tile never shrinks below this share of its natural height. Squeezing a row
@@ -150,18 +150,6 @@ function clampPageAnchor() {
  * Pin the column count and the row height so one page is exactly one screenful
  * of whole rows. Sets pageSize; returns true if pageSize changed.
  */
-/** Height the selection bar takes at the bottom edge while it shows (0 when hidden). */
-function selectionBarReserve() {
-  const bar = document.getElementById('selectionBar');
-  if (!bar || !bar.classList.contains('visible')) return 0;
-  const bottom = parseFloat(getComputedStyle(bar).bottom) || 0;
-  return Math.round(bar.offsetHeight + bottom);
-}
-
-function updateBottomReserve() {
-  BOTTOM_RESERVE = BOTTOM_PAD + selectionBarReserve();
-}
-
 function updateGridLayout() {
   const m = measureGrid({ noScrollbar: true });
   if (!m) return false;
@@ -334,7 +322,6 @@ let _inRenderCorrection = false;
 
 function renderResults() {
   if (renderEmptyState()) return;
-  updateBottomReserve();
   // Modern's table view draws rows with this same machinery (player-lib/table-view.js).
   if (typeof tableViewRender === 'function' && tableViewRender()) return;
   if (libraryLayoutMode() === 'continuous') return renderContinuous();
@@ -794,8 +781,7 @@ function libraryLayoutKey() {
   const grid = document.getElementById('resultsGrid');
   if (!grid) return '';
   const top = Math.round(grid.getBoundingClientRect().top + window.scrollY);
-  const reserve = libraryLayoutMode() === 'pages' ? selectionBarReserve() : 0;
-  return [grid.clientWidth, top, window.innerHeight, tileMinWidth(), libraryLayoutMode(), reserve].join('|');
+  return [grid.clientWidth, top, window.innerHeight, tileMinWidth(), libraryLayoutMode()].join('|');
 }
 
 let _relayoutWhenShown = false;
@@ -839,19 +825,6 @@ function initGridObservers() {
     // (#appHeader: the "Can't reach Vault" notice grows it.)
     ['#appHeader', '.search-section', '.results-info', '#missingFilesBanner', '#focusFilterBar']
       .forEach(sel => { const el = document.querySelector(sel); if (el) ro.observe(el); });
-    // The selection bar coming or going changes the room under the pager.
-    // selection.js creates it on first use, so wait for it to exist.
-    const attachBar = () => {
-      const bar = document.getElementById('selectionBar');
-      if (!bar) return false;
-      ro.observe(bar);
-      new MutationObserver(nudge).observe(bar, { attributes: true, attributeFilter: ['class'] });
-      return true;
-    };
-    if (!attachBar() && typeof MutationObserver === 'function') {
-      const mo = new MutationObserver(() => { if (attachBar()) { mo.disconnect(); nudge(); } });
-      mo.observe(document.body, { childList: true });
-    }
   }
   window.addEventListener('resize', nudge);
 
@@ -969,6 +942,7 @@ document.addEventListener('keydown', (e) => {
   if (document.getElementById('mediaPlayerOverlay')?.classList.contains('active')) return;
   if (document.getElementById('miniPlayer')?.classList.contains('active')) return;
   if (document.querySelector('.modal-overlay.active, .settings-overlay.active')) return;
+  if (typeof vaultModalOpen === 'function' && vaultModalOpen()) return;
   if (document.getElementById('mainContainer')?.classList.contains('active') !== true) return;
   // Wall, Editor and Games hide the grid: it must not page underneath them
   if (document.getElementById('mainContainer')?.style.display === 'none') return;

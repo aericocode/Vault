@@ -538,6 +538,8 @@
     if (document.getElementById('vaultLockScreen')) return;
     document.getElementById('vaultPassModal')?.remove();
     if (typeof window.vaultDialogCloseAll === 'function') window.vaultDialogCloseAll();
+    // The shortcuts list holds the keyboard while open; it must not sit over the lock.
+    if (typeof shortcutsIsOpen === 'function' && shortcutsIsOpen()) shortcutsClose({ keepFocus: true });
     const secs = holdSeconds();
     const holdHint = `Press and hold the lock for ${secs} second${secs === 1 ? '' : 's'} to unlock.`;
     const ov = document.createElement('div');
@@ -600,6 +602,10 @@
       errLine.innerHTML = msg ? `${icon('alert')}<span>${esc(msg)}</span>` : '';
     };
     let holdTimer = null;
+    // The key (Space / Enter) whose press started a keyboard hold, until its
+    // keyup. While it is down the field is not focused: its auto-repeats would
+    // otherwise land in the field as invisible spaces (or submit it empty).
+    let heldKey = null;
 
     const reveal = () => {
       clearTimeout(holdTimer);
@@ -611,10 +617,10 @@
         // The lock has done its job; take it out of the Tab order.
         target.tabIndex = -1;
       }
-      input.focus();
+      if (!heldKey) input.focus();                    // else on that key's keyup
     };
     const startHold = () => {
-      if (!form.hidden) { input.focus(); return; }   // prompt already revealed
+      if (!form.hidden) { if (!heldKey) input.focus(); return; }   // prompt already revealed
       // 0 = the deliberate-gesture guard is off; a click is enough.
       if (secs === 0) { reveal(); return; }
       if (holdTimer) return;
@@ -637,12 +643,18 @@
     target.addEventListener('keydown', (e) => {
       if (e.key !== ' ' && e.key !== 'Enter') return;
       e.preventDefault();
-      if (!e.repeat) startHold();
+      if (e.repeat) return;
+      heldKey = e.key;
+      startHold();
     });
     target.addEventListener('keyup', (e) => {
-      if (e.key === ' ' || e.key === 'Enter') cancelHold();
+      if (e.key !== ' ' && e.key !== 'Enter') return;
+      cancelHold();
+      if (e.key !== heldKey) return;
+      heldKey = null;
+      if (!form.hidden) input.focus();
     });
-    target.addEventListener('blur', cancelHold);
+    target.addEventListener('blur', () => { heldKey = null; cancelHold(); });
 
     input.addEventListener('input', () => {
       input.classList.remove('vault-shake');

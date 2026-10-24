@@ -25,7 +25,7 @@ body.dock-shown #mainContainer { margin-right: var(--dock-w, 380px); }
 
 /* Things pinned to the bottom-right / full width move clear of the pane. */
 body.dock-shown .scroll-top-pill { right: calc(var(--dock-w, 380px) + 18px); }
-body.dock-shown .selection-bar { max-width: calc(100vw - var(--dock-w, 380px) - 36px); }
+body.dock-shown .selection-bar { max-width: calc(100vw - var(--dock-w, 380px) - 36px - var(--sel-pager-room, 0px)); }
 
 /* Left edge: the drag handle. Wider than it looks so it is easy to grab. */
 .dock-resizer {

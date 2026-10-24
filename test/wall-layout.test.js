@@ -23,6 +23,20 @@ function loadWall() {
 
 const W = loadWall();
 
+test('empty wall: the filter hint only when a search or filter is on; an empty library gets its own state', () => {
+  const lib = (o) => W.emptyMessage({ source: 'library', narrowed: false, libraryEmpty: false, ...o });
+  assert.strictEqual(lib({ libraryEmpty: true }).kind, 'library');
+  assert.strictEqual(lib({ libraryEmpty: true }).title, 'Your library is empty');
+  assert.doesNotMatch(lib({ libraryEmpty: true }).hint, /filter/);
+  assert.strictEqual(lib({ narrowed: true }).kind, 'filter');
+  assert.match(lib({ narrowed: true }).hint, /filters/);
+  assert.strictEqual(lib({ narrowed: true, libraryEmpty: true }).kind, 'filter', 'a search that matched nothing is not an empty library');
+  assert.strictEqual(lib({}).kind, 'unfit');
+  assert.doesNotMatch(lib({}).hint, /filter/);
+  assert.strictEqual(W.emptyMessage({ source: 'c:3', narrowed: true, libraryEmpty: true }).kind, 'source');
+  for (const o of [{}, { narrowed: true }, { libraryEmpty: true }]) assert.doesNotMatch(JSON.stringify(lib(o)), /—|–/, 'no dashes');
+});
+
 test('settings: defaults for an empty or broken blob', () => {
   for (const raw of [undefined, null, {}, 'junk', { playing: 'x', gap: NaN, mode: 'diagonal', source: 'drop table' }]) {
     const c = W.cfgFrom(raw);

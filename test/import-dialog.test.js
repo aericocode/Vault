@@ -108,6 +108,13 @@ function load({ modern = true, pick = null } = {}) {
       : { ok: true, status: 200, json: async () => ({}) }),
   };
   ctx.window = ctx;
+  // window listeners (the dialog's Esc is a window capture listener)
+  const winListeners = [];
+  ctx.addEventListener = (type, fn, capture) => winListeners.push({ type, fn, capture });
+  ctx.removeEventListener = (type, fn, capture) => {
+    const i = winListeners.findIndex(l => l.type === type && l.fn === fn && l.capture === capture);
+    if (i >= 0) winListeners.splice(i, 1);
+  };
   ctx.isModernLayout = () => modern;
   vm.createContext(ctx);
   vm.runInContext(read('utils.js'), ctx);
@@ -115,7 +122,7 @@ function load({ modern = true, pick = null } = {}) {
   // Capture toasts (showErrorToast in utils.js goes through this too).
   ctx.showToast = (msg, opts) => toasts.push({ msg: String(msg), type: opts && opts.type });
   vm.runInContext(read('importer.js'), ctx);
-  return { ctx, dom, toasts, $: (id) => dom.document.getElementById(id) };
+  return { ctx, dom, toasts, winListeners, $: (id) => dom.document.getElementById(id) };
 }
 
 const EMOJI = /\p{Extended_Pictographic}/u;
@@ -144,6 +151,23 @@ test('Modern: the dialog draws line icons and no emoji, and no workers field', (
   assert.doesNotMatch(html, /—/, 'no em dash');
   // The footer uses the shared dialog buttons.
   assert.match(html, /class="vdlg-btn vdlg-ok[^"]*" id="impGo"/);
+});
+
+test('Esc closes the dialog and goes no further (window capture), and the listener goes with it', () => {
+  const t = load();
+  t.ctx.openImportModal(FOLDER);
+  assert.ok(t.$('importModal'), 'open');
+  const caps = t.winListeners.filter(l => l.type === 'keydown' && l.capture === true);
+  assert.strictEqual(caps.length, 1);
+  const other = { key: 'a', stopped: false, stopImmediatePropagation() { this.stopped = true; }, preventDefault() {} };
+  caps[0].fn(other);
+  assert.ok(t.$('importModal') && !other.stopped, 'other keys pass');
+  const esc = { key: 'Escape', stopped: false, prevented: false,
+    stopImmediatePropagation() { this.stopped = true; }, preventDefault() { this.prevented = true; } };
+  caps[0].fn(esc);
+  assert.ok(esc.stopped && esc.prevented, 'nothing under the dialog hears this Esc');
+  assert.strictEqual(t.$('importModal'), null, 'closed');
+  assert.strictEqual(t.winListeners.filter(l => l.type === 'keydown').length, 0, 'listener removed');
 });
 
 test('Classic keeps its emoji', () => {
