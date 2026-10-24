@@ -302,12 +302,21 @@ async function removeRecords(ids) {
     if (!only) return;
     label = `"${only.filename}"`;
   }
-  const ok = confirm(
-    `Remove ${label} from the library?\n\n` +
-    `• The file(s) on disk are NOT touched\n` +
-    `• All metadata, notes, ratings and view history for the record(s) are permanently deleted\n` +
-    `• A future scan of their folder will re-add them as fresh entries`
-  );
+  const one = ids.length === 1;
+  const ok = await vaultConfirm(`Remove ${label} from the library?`, {
+    title: 'Remove from library',
+    list: one ? [
+      'The file stays on disk. Only its library entry is removed.',
+      'Its tags, notes, ratings and watch history are deleted for good.',
+      'Scanning its folder again adds it back as a new entry.',
+    ] : [
+      'The files stay on disk. Only their library entries are removed.',
+      'Their tags, notes, ratings and watch history are deleted for good.',
+      'Scanning their folder again adds them back as new entries.',
+    ],
+    okLabel: 'Remove',
+    danger: true,
+  });
   if (!ok) return;
 
   // Chunked (body limit); each chunk deletes its own records outright, so

@@ -608,7 +608,12 @@ async function pmvDeleteRecipe(id) {
 
 async function pmvSaveRecipe() {
   const job = pmvState.job;
-  const name = prompt('Recipe name:', job ? `PMV ${new Date().toLocaleDateString()}` : '');
+  const name = await vaultPrompt('Give this recipe a name so you can load it again later.', {
+    title: 'Save recipe',
+    value: job ? `PMV ${new Date().toLocaleDateString()}` : '',
+    placeholder: 'Recipe name',
+    okLabel: 'Save',
+  });
   if (!name || !name.trim()) return;
   const body = {
     name: name.trim(),
@@ -655,7 +660,15 @@ function pmvOpenJob(jobId) {
 }
 
 async function pmvDeleteJob(jobId) {
-  if (!confirm('Delete this job? Un-imported renders only exist in memory and are dropped; files already added to the library are kept.')) return;
+  if (!await vaultConfirm('Delete this job?', {
+    title: 'Delete job',
+    list: [
+      'Renders you have not added to the library are lost.',
+      'Files already added to the library are kept.',
+    ],
+    okLabel: 'Delete',
+    danger: true,
+  })) return;
   try { await fetch(`/api/pmv/jobs/${jobId}`, { method: 'DELETE' }); } catch {}
   if (pmvState.jobId === jobId) { pmvState.jobId = null; pmvState.job = null; pmvState.phase = 'setup'; renderPmvHome(); }
   else renderPmvJobList();

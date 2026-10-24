@@ -74,6 +74,8 @@
   <link rel="stylesheet" href="./css/player/player-panel-modern.css">
   <!-- Modern beat bar: glass lane and its settings (body.layout-modern only) -->
   <link rel="stylesheet" href="./css/beatbar-modern.css">
+  <!-- In-app alert / confirm / prompt (player-lib/vault-dialogs.js), both looks -->
+  <link rel="stylesheet" href="./css/dialogs.css">
 
   <link rel="icon" type="image/svg+xml" href="./images/favicon.svg">
 </head>
@@ -496,6 +498,8 @@
   <script src="./player-lib/utils.js"></script>
   <!-- Line icons for the Modern look; fills the data-vi spots above -->
   <script src="./player-lib/icons.js"></script>
+  <!-- In-app alert / confirm / prompt; before shortcuts.js so its key guard runs first -->
+  <script src="./player-lib/vault-dialogs.js"></script>
   <!-- Keyboard shortcuts list (?) and isBrowserChord; early so its key listener runs first -->
   <script src="./player-lib/shortcuts.js"></script>
   <script src="./player-lib/state.js"></script>

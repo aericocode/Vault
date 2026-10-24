@@ -505,11 +505,12 @@ async function rescanFiltered() {
 
   // Only the force path costs anything the user might not want: it burns real
   // GPU time re-analyzing files that are already fine.
-  if (force && !confirm(
-    `Re-run AI analysis on ${ids.length.toLocaleString()} file(s)?\n\n` +
-    `${done.toLocaleString()} of them already scanned successfully and will be tagged again ` +
-    `from scratch, which can take a long time.\n\n` +
-    `Your notes, stars, ratings and flags are NOT affected.`)) return;
+  if (force && !await vaultConfirm(
+    `Scan ${ids.length.toLocaleString()} file(s) with AI again?\n\n` +
+    `${done.toLocaleString()} of them were already scanned and will be tagged again ` +
+    `from scratch. This can take a long time.\n\n` +
+    `Your notes, stars, ratings and flags are kept.`,
+    { title: 'Rescan files', okLabel: 'Rescan' })) return;
 
   try {
     const r = await postIdsChunked('/api/media/batch-rescan', ids, { force });
@@ -1018,7 +1019,9 @@ async function trashIds(ids, { confirmBulk = false } = {}) {
   if (mode !== 'soft') return _destructiveDelete(toTrash, mode);
 
   if (confirmBulk && n > 1) {
-    const ok = confirm(`Move ${n} file(s) to the trash folder?\n\nFiles are moved on disk (not deleted) and can be restored.`);
+    const ok = await vaultConfirm(
+      `Move ${n} files to the trash folder?\n\nThe files are moved on disk, not deleted, and you can restore them later.`,
+      { title: 'Move to trash', okLabel: 'Move to trash' });
     if (!ok) return { okIds: [], failures: [] };
   }
 
@@ -1052,10 +1055,12 @@ async function _destructiveDelete(ids, mode) {
   const n = ids.length;
   const needConfirm = n > 1 || mode === 'hard';
   if (needConfirm) {
-    const msg = mode === 'hard'
-      ? `⚠ PERMANENTLY delete ${n} file(s) from disk? This CANNOT be undone.`
-      : `Delete ${n} file(s) to the Recycle Bin?`;
-    if (!confirm(msg)) return { okIds: [], failures: [] };
+    const ok = mode === 'hard'
+      ? await vaultConfirm(`Delete ${n} file(s) from disk for good? This cannot be undone.`,
+        { title: 'Delete permanently', okLabel: 'Delete permanently', danger: true })
+      : await vaultConfirm(`Move ${n} files to the Recycle Bin?`,
+        { title: 'Move to Recycle Bin', okLabel: 'Move to Recycle Bin' });
+    if (!ok) return { okIds: [], failures: [] };
   }
   try {
     const { okIds, skippedIds, failures } = await _dqEnqueue(ids, 'delete', { mode });
@@ -1127,9 +1132,12 @@ async function clearTrash() {
 
   const bytes = trash.bytes || 0;
   const size = typeof formatFileSize === 'function' ? formatFileSize(bytes) : `${Math.round(bytes / 1e6)} MB`;
-  if (!confirm(`⚠ PERMANENTLY delete ${n} file(s) in the trash (${size})?\n\n` +
-    `This erases the files from disk AND every record, note, rating, subtitle and view-history trace. It CANNOT be undone.`)) return;
-  if (!confirm(`Last chance. Really delete ${n} file(s) forever?`)) return;
+  if (!await vaultConfirm(`Delete all ${n} file(s) in the trash (${size}) for good?\n\n` +
+    `This erases the files from disk and everything Vault knows about them: tags, notes, ratings, ` +
+    `subtitles and watch history. It cannot be undone.`,
+    { title: 'Empty trash', okLabel: 'Empty trash', danger: true })) return;
+  if (!await vaultConfirm(`Last chance. Delete ${n} file(s) forever?`,
+    { title: 'Are you sure?', okLabel: 'Delete forever', cancelLabel: 'Keep them', danger: true })) return;
 
   const btn = document.getElementById('clearTrashBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Emptying…'; }

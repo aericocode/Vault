@@ -1022,7 +1022,9 @@ function _subsPollSidebarUntilDone(mediaId) {
 }
 
 async function subtitlesDeleteTrack(mediaId, lang) {
-  if (!confirm(`Delete the ${subLangName(lang)} subtitle track?`)) return;
+  if (!await vaultConfirm(`Delete the ${subLangName(lang)} subtitle track? This cannot be undone.`, {
+    title: 'Delete subtitles', okLabel: 'Delete', danger: true,
+  })) return;
   try {
     const resp = await fetch(`/api/media/${mediaId}/subtitles?lang=${encodeURIComponent(lang)}`, { method: 'DELETE' });
     if (!resp.ok) { showToast('⚠ delete failed'); return; }
