@@ -8,6 +8,19 @@
 
 const { Global_options } = require(".");
 
+// The values the prompts ask the model to choose from. lib/content-type.js
+// checks what comes back against these same lists before it is stored, so a
+// model that answers with anything else (a sentence, or markup) never reaches
+// the database. Change a list here and the prompt and the check both follow.
+const CONTENT_TYPES = [
+  'anime', 'live_action', 'animation', 'documentary', 'gameplay', 'tutorial',
+  'music_video', 'screenshot', 'artwork', 'photo', 'meme', 'other',
+];
+const DOCUMENT_TYPES = [
+  'article', 'code', 'config', 'data', 'documentation', 'email', 'legal',
+  'letter', 'log', 'manual', 'notes', 'report', 'script', 'spreadsheet', 'other',
+];
+
 // ============================================================================
 // SHARED JSON SCHEMA
 // ============================================================================
@@ -129,7 +142,7 @@ function buildJsonSchema(options = {}) {
 
   return `{
   "language": ${languageLine},
-  "content_type": "anime|live_action|animation|documentary|gameplay|tutorial|music_video|screenshot|artwork|photo|meme|other",
+  "content_type": "${CONTENT_TYPES.join('|')}",
   "themes": ${themesLine},
   "locations": ["array", "of", "locations seen: school, home, outdoor, office, city, rural, beach, etc"],
   "tags": ${tagsLine},
@@ -272,7 +285,7 @@ ${text}
 Respond with ONLY a valid JSON object (no markdown, no explanation):
 {
   "description": "2-4 sentence summary of what this document contains and its purpose",
-  "document_type": "one of: article, code, config, data, documentation, email, legal, letter, log, manual, notes, report, script, spreadsheet, other",
+  "document_type": "one of: ${DOCUMENT_TYPES.join(', ')}",
   "language": "primary human language (english, japanese, etc.) or 'code' for programming",
   "themes": ["array", "of", "main", "topics"],
   "tags": ["array", "of", "relevant", "keywords"],
@@ -321,4 +334,6 @@ module.exports = {
   getDocumentPrompt,
   buildJsonSchema,
   baseJsonSchema,
+  CONTENT_TYPES,
+  DOCUMENT_TYPES,
 };
