@@ -5,9 +5,11 @@
  *    touches nothing, a failed write leaves that file in place, and the next
  *    run with the store open moves everything;
  *  - the seal holds across a failed unlock;
- *  - size and "last shown" queries are answered from the size index, never by
- *    reading the blobs (EXPLAIN QUERY PLAN), including on a store made before
- *    the index existed;
+ *  - size totals are answered from the length(data) index, never by reading
+ *    the blobs (EXPLAIN QUERY PLAN), including on a store made before the
+ *    index existed; "last shown" reads only rows found through it; the index
+ *    is built just after an unlock, never inside it, never while sealed, and
+ *    the earlier 3.9 index (size, updated_at) is dropped;
  *  - the bounded delete step and the batched touch still do all their work.
  * Throwaway DBs and folders only.
  */
@@ -190,55 +192,162 @@ function selectsDuring(fn) {
   return seen.filter(s => /^\s*SELECT/i.test(s) && /\bassets\b/.test(s));
 }
 
-test('size queries are answered from the covering size index, also on a store made before it existed', () => {
+const NEW_INDEX = 'assets_kind_media_len';
+const OLD_INDEX = 'assets_kind_media_size';
+const hasIndex = (name) => !!secureAssets.conn().prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?").get(name);
+
+/** selectsDuring for an async fn. */
+async function selectsDuringAsync(fn) {
   const c = secureAssets.conn();
-  // A store as an older version left it: no size index.
-  c.exec('DROP INDEX IF EXISTS assets_kind_media_size');
-  const big = Buffer.alloc(20000, 7);       // spills to overflow pages, like a real thumbnail
-  const ins = c.prepare("INSERT INTO assets (media_id, kind, lang, data, size) VALUES (?, ?, '', ?, ?)");
-  c.transaction(() => {
-    for (let i = 1; i <= 40; i++) {
-      ins.run(i, 'thumb', big, big.length);
-      ins.run(i, 'scrub0', big.subarray(0, 5000), 5000);
+  const seen = [];
+  const orig = c.prepare;
+  c.prepare = function (sql) { seen.push(sql); return orig.call(this, sql); };
+  try { await fn(); } finally { delete c.prepare; }
+  return seen.filter(s => /^\s*SELECT/i.test(s) && /\bassets\b/.test(s));
+}
+
+test('stored sizes: length(data) is the byte count put() writes into size', () => {
+  secureAssets.put(9001, 'thumb', Buffer.alloc(12345, 3));
+  secureAssets.put(9001, 'subtitle', 'WEBVTT\n\nhéllo ✓', 'en');   // a string goes in as its UTF-8 bytes
+  const r = secureAssets.conn().prepare(
+    "SELECT COUNT(*) AS n, SUM(size != length(data)) AS off, SUM(typeof(data) != 'blob') AS notBlob FROM assets WHERE media_id = 9001").get();
+  assert.deepStrictEqual({ ...r }, { n: 2, off: 0, notBlob: 0 });
+  secureAssets.deleteAll(9001);
+});
+
+test('size queries are answered from the length index without reading a blob, also on a store made before it existed', async () => {
+  secureAssets._setIndexDelayMs(0);
+  try {
+    await secureAssets.whenIndexed();
+    const c = secureAssets.conn();
+    // A store as 3.8 left it: no size index at all.
+    c.exec(`DROP INDEX IF EXISTS ${NEW_INDEX}`);
+    c.exec(`DROP INDEX IF EXISTS ${OLD_INDEX}`);
+    const big = Buffer.alloc(20000, 7);       // spills to overflow pages, like a real thumbnail
+    const ins = c.prepare("INSERT INTO assets (media_id, kind, lang, data, size) VALUES (?, ?, '', ?, ?)");
+    c.transaction(() => {
+      for (let i = 1; i <= 40; i++) {
+        ins.run(i, 'thumb', big, big.length);
+        ins.run(i, 'scrub0', big.subarray(0, 5000), 5000);
+      }
+      ins.run(1, 'face-9', big.subarray(0, 100), 100);
+    })();
+    assert.doesNotMatch(plan('SELECT kind, SUM(length(data)) FROM assets GROUP BY kind'), /COVERING INDEX/,
+      'old store: the sum reads the table');
+    // Without the index the queries still work (slower): a failed or pending build never breaks them.
+    assert.strictEqual(secureAssets.sizesByKind().length, 3);
+    assert.strictEqual(secureAssets.mediaSizes(['thumb'], 7)[0].bytes, 20000);
+    assert.strictEqual((await secureAssets.sizesByKindAsync()).length, 3);
+
+    // An unlock never builds it inside the open (that is the unlock request):
+    // it comes just after, and a second unlock schedules nothing.
+    secureAssets.close();
+    secureAssets.unlock(PASS);
+    assert.strictEqual(hasIndex(NEW_INDEX), false, 'not built inside the unlock');
+    await secureAssets.whenIndexed();
+    assert.ok(hasIndex(NEW_INDEX), 'built just after');
+    secureAssets.close();
+    secureAssets.unlock(PASS);
+    const idx = secureAssets.conn().prepare(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = '${NEW_INDEX}'`).all();
+    assert.strictEqual(idx.length, 1);
+    assert.match(idx[0].sql, /\(kind, media_id, length\(data\)\)/);
+
+    // Totals: covering, never a table (or blob) read.
+    const sqls = [...new Set([
+      ...selectsDuring(() => {
+        secureAssets.sizesByKind();
+        secureAssets.deleteKindsStep(['no-such-kind']);
+      }),
+      ...await selectsDuringAsync(() => secureAssets.sizesByKindAsync()),
+    ])];
+    assert.strictEqual(sqls.length, 4, sqls.join('\n'));   // sizesByKind, deleteKindsStep, kinds seek, slice walk
+    for (const sql of sqls) {
+      const p = plan(sql);
+      assert.match(p, new RegExp(`USING COVERING INDEX ${NEW_INDEX}`), `${sql}\n  -> ${p}`);
+      assert.doesNotMatch(p, /sqlite_autoindex|SCAN assets(?! USING COVERING)/, `no table read: ${p}`);
     }
-    ins.run(1, 'face-9', big.subarray(0, 100), 100);
-  })();
-  assert.doesNotMatch(plan('SELECT kind, SUM(size) FROM assets GROUP BY kind'), /COVERING INDEX/,
-    'old store: the sum reads the table');
-  // Without the index the queries still work (slowly): a failed build never breaks them.
-  assert.strictEqual(secureAssets.sizesByKind().length, 3);
-  assert.strictEqual(secureAssets.mediaSizes(['thumb'], 7)[0].bytes, 20000);
+    // "Last shown" reads the rows it needs, found through the index (no scan).
+    const seenSqls = [...new Set([
+      ...selectsDuring(() => { secureAssets.mediaSizes(['thumb', 'scrub0'], 7); }),
+      ...await selectsDuringAsync(() => secureAssets.mediaSizesAsync(['thumb'])),
+    ])];
+    assert.strictEqual(seenSqls.length, 2, seenSqls.join('\n'));
+    for (const sql of seenSqls) {
+      const p = plan(sql);
+      assert.match(p, new RegExp(`SEARCH assets USING INDEX ${NEW_INDEX}`), `${sql}\n  -> ${p}`);
+      assert.doesNotMatch(p, /sqlite_autoindex|SCAN assets/, `no scan: ${p}`);
+    }
 
-  // Reopening (an unlock) adds the index, and again is a no-op.
-  secureAssets.close();
-  secureAssets.unlock(PASS);
-  secureAssets.close();
-  secureAssets.unlock(PASS);
-  const idx = secureAssets.conn().prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'assets_kind_media_size'").all();
-  assert.strictEqual(idx.length, 1);
-  assert.match(idx[0].sql, /\(kind, media_id, size, updated_at\)/);
-
-  const sqls = selectsDuring(() => {
-    secureAssets.sizesByKind();
-    secureAssets.mediaSizes(['thumb', 'scrub0']);
-    secureAssets.mediaSizes(['thumb', 'scrub0'], 7);
-    secureAssets.deleteKindsStep(['no-such-kind']);
-  });
-  assert.strictEqual(sqls.length, 4, sqls.join('\n'));
-  for (const sql of sqls) {
-    const p = plan(sql);
-    assert.match(p, /USING COVERING INDEX assets_kind_media_size/, `${sql}\n  -> ${p}`);
-    assert.doesNotMatch(p, /sqlite_autoindex|SCAN assets(?! USING COVERING)/, `no table read: ${p}`);
+    // And the numbers are right.
+    const byKind = Object.fromEntries(secureAssets.sizesByKind().map(r => [r.kind, [r.bytes, r.count]]));
+    assert.deepStrictEqual(byKind, { thumb: [800000, 40], scrub0: [200000, 40], 'face-9': [100, 1] });
+    const one = secureAssets.mediaSizes(['thumb', 'scrub0'], 7);
+    assert.strictEqual(one.length, 1);
+    assert.strictEqual(one[0].bytes, 25000);
+    assert.ok(one[0].seen > 0);
+    assert.strictEqual(secureAssets.mediaSizes(['thumb', 'scrub0']).length, 40);
+  } finally {
+    secureAssets._setIndexDelayMs(1000);
   }
+});
 
-  // And the numbers are right.
-  const byKind = Object.fromEntries(secureAssets.sizesByKind().map(r => [r.kind, [r.bytes, r.count]]));
-  assert.deepStrictEqual(byKind, { thumb: [800000, 40], scrub0: [200000, 40], 'face-9': [100, 1] });
-  const one = secureAssets.mediaSizes(['thumb', 'scrub0'], 7);
-  assert.strictEqual(one.length, 1);
-  assert.strictEqual(one[0].bytes, 25000);
-  assert.ok(one[0].seen > 0);
-  assert.strictEqual(secureAssets.mediaSizes(['thumb', 'scrub0']).length, 40);
+test('a store that has the earlier 3.9 size index gets it dropped, once, and the new one built', async () => {
+  secureAssets._setIndexDelayMs(0);
+  try {
+    const c = secureAssets.conn();
+    c.exec(`DROP INDEX IF EXISTS ${NEW_INDEX}`);
+    c.exec(`CREATE INDEX ${OLD_INDEX} ON assets (kind, media_id, size, updated_at)`);
+    secureAssets.close();
+    secureAssets.unlock(PASS);
+    assert.ok(hasIndex(OLD_INDEX), 'nothing done inside the unlock');
+    await secureAssets.whenIndexed();
+    assert.strictEqual(hasIndex(OLD_INDEX), false, 'old index dropped');
+    assert.ok(hasIndex(NEW_INDEX), 'new index built');
+    // Both already right: the next unlock schedules nothing.
+    secureAssets.close();
+    secureAssets.unlock(PASS);
+    let ran = false;
+    secureAssets.whenIndexed().then(() => { ran = true; });
+    await Promise.resolve();
+    assert.ok(ran, 'nothing pending');
+    // The old index back next to the new one: dropped alone.
+    secureAssets.conn().exec(`CREATE INDEX ${OLD_INDEX} ON assets (kind, media_id, size, updated_at)`);
+    secureAssets.close();
+    secureAssets.unlock(PASS);
+    await secureAssets.whenIndexed();
+    assert.strictEqual(hasIndex(OLD_INDEX), false);
+    assert.ok(hasIndex(NEW_INDEX));
+  } finally {
+    secureAssets._setIndexDelayMs(1000);
+  }
+});
+
+test('the size index build waits out a lock: nothing is built while sealed, the next unlock builds it', async () => {
+  secureAssets._setIndexDelayMs(0);
+  try {
+    secureAssets.conn().exec(`DROP INDEX IF EXISTS ${NEW_INDEX}`);
+    secureAssets.close();
+    secureAssets.unlock(PASS);          // schedules the build...
+    secureAssets.close();               // ...and the vault locks before it runs
+    await secureAssets.whenIndexed();
+    assert.ok(secureAssets.sealed());
+    assert.strictEqual(secureAssets.conn(), null, 'the build did not reopen the store');
+    secureAssets.unlock(PASS);
+    assert.strictEqual(hasIndex(NEW_INDEX), false);
+    await secureAssets.whenIndexed();
+    assert.ok(hasIndex(NEW_INDEX), 'built after the next unlock');
+
+    // Locked and unlocked again before the build ran: built once, on the open connection.
+    secureAssets.conn().exec(`DROP INDEX IF EXISTS ${NEW_INDEX}`);
+    secureAssets.close();
+    secureAssets.unlock(PASS);
+    secureAssets.close();
+    secureAssets.unlock(PASS);
+    await secureAssets.whenIndexed();
+    assert.ok(hasIndex(NEW_INDEX));
+  } finally {
+    secureAssets._setIndexDelayMs(1000);
+  }
 });
 
 test('deleteKindsStep: bounded steps that remove only the given kinds, until done', () => {

@@ -4,8 +4,8 @@
  *  - a disk ledger build that was in flight when the ledger was thrown away
  *    (lock, settings change, a delete) is never installed or handed out;
  *  - the encrypted store's size totals are read in slices with yields, give
- *    the same answer as the one-statement versions, and a big store builds
- *    its size index after the open instead of inside it.
+ *    the same answer (bytes and "last shown") as the one-statement versions,
+ *    and the store builds its size index after the open instead of inside it.
  */
 
 require('./helpers/no-real-lm');   // never the user's own LM Studio
@@ -102,15 +102,19 @@ test('encrypted store: size totals in slices match the one-statement totals and 
   secureAssets.init('scale-test-pass');
   try {
     const c = secureAssets.conn();
-    const st = c.prepare("INSERT INTO assets (media_id, kind, lang, data, size) VALUES (?, ?, '', ?, ?)");
-    const b = Buffer.alloc(16, 1);
+    const st = c.prepare("INSERT INTO assets (media_id, kind, lang, data, size, updated_at) VALUES (?, ?, '', ?, ?, ?)");
+    const b = (n) => Buffer.alloc(n, 1);
+    // Spread "last shown" over the rows, newest on a frame for some ids, so the
+    // per-id newest time comes from more than one kind.
+    const when = (i, k) => new Date(Date.UTC(2024, 0, 1) + ((i * 7 + k * 3600) % 86400) * 1000)
+      .toISOString().replace('T', ' ').slice(0, 19);
     c.transaction(() => {
       for (let i = 1; i <= 12000; i++) {
-        st.run(i, 'thumb', b, 10);
-        st.run(i, 'scrub0', b, 20);
-        if (i % 3 === 0) st.run(i, 'scrub4', b, 5);
+        st.run(i, 'thumb', b(10), 10, when(i, 0));
+        st.run(i, 'scrub0', b(20), 20, when(i, 1));
+        if (i % 3 === 0) st.run(i, 'scrub4', b(5), 5, when(i, 2));
       }
-      st.run(5, 'face-1', b, 7);
+      st.run(5, 'face-1', b(7), 7, when(5, 3));
     })();
     let ticks = 0;
     const iv = setInterval(() => { ticks++; }, 0);
@@ -119,9 +123,17 @@ test('encrypted store: size totals in slices match the one-statement totals and 
     clearInterval(iv);
     const norm = (rows) => JSON.stringify(rows.map(r => [r.kind, r.bytes, r.count]).sort());
     assert.strictEqual(norm(kinds), norm(secureAssets.sizesByKind()));
-    const sync = new Map(secureAssets.mediaSizes(thumbnails.THUMB_KINDS).map(r => [r.media_id, r.bytes]));
+    assert.deepStrictEqual(Object.fromEntries(kinds.map(k => [k.kind, k.bytes])),
+      { thumb: 120000, scrub0: 240000, scrub4: 20000, 'face-1': 7 });
+    const sync = new Map(secureAssets.mediaSizes(thumbnails.THUMB_KINDS).map(r => [r.media_id, r]));
     assert.strictEqual(sizes.length, sync.size);
-    for (const r of sizes) assert.strictEqual(r.bytes, sync.get(r.media_id), `media ${r.media_id}`);
+    for (const r of sizes) {
+      assert.strictEqual(r.bytes, sync.get(r.media_id).bytes, `media ${r.media_id}`);
+      assert.strictEqual(r.seen, sync.get(r.media_id).seen, `media ${r.media_id} last shown`);
+    }
+    // Same "last shown" as the newest updated_at over the id's kinds.
+    const want = Math.max(Date.parse(when(3, 0) + 'Z'), Date.parse(when(3, 1) + 'Z'), Date.parse(when(3, 2) + 'Z'));
+    assert.strictEqual(sizes.find(r => r.media_id === 3).seen, want);
     assert.ok(ticks >= 3, `other work ran between slices (${ticks})`);
 
     // Locked part way: the walk stops with null instead of reopening the store.
@@ -135,21 +147,22 @@ test('encrypted store: size totals in slices match the one-statement totals and 
   }
 });
 
-test('encrypted store: a big store builds its size index after the open, and the totals wait for it', async () => {
+test('encrypted store: the size index is built after the open, and the totals wait for it', async () => {
   secureAssets.init('scale-test-pass');
   try {
     const c = secureAssets.conn();
-    c.exec('DROP INDEX IF EXISTS assets_kind_media_size');
-    secureAssets._setIndexDeferRows(100);
+    await secureAssets.whenIndexed();
+    c.exec('DROP INDEX IF EXISTS assets_kind_media_len');
+    secureAssets._setIndexDelayMs(30);
     secureAssets.close();
-    secureAssets.unlock('scale-test-pass');   // 24k rows > 100: deferred
-    const has = () => !!secureAssets.conn().prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'assets_kind_media_size'").get();
+    secureAssets.unlock('scale-test-pass');
+    const has = () => !!secureAssets.conn().prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'assets_kind_media_len'").get();
     assert.strictEqual(has(), false, 'not built inside the open');
     const kinds = await secureAssets.sizesByKindAsync();
     assert.ok(has(), 'built just after');
     assert.strictEqual(kinds.find(k => k.kind === 'thumb').count, 12000);
   } finally {
-    secureAssets._setIndexDeferRows(50000);
+    secureAssets._setIndexDelayMs(1000);
     secureAssets.close();
     secureAssets.init(null);
   }
