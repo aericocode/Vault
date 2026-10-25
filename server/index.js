@@ -38,11 +38,20 @@ const lmsCli = require('../lib/lms-cli');
 const scanModel = require('../lib/scan-model');
 const ownedDir = require('../lib/owned-dir');
 const { netFetch } = require('../lib/net');
+const { hostCheck } = require('../lib/host-check');
 const pkg = require('../package.json');
 
 const { ROOT } = require('../lib/approot');
 
 const app = express();
+
+// ── Host allowlist (DNS rebinding) ──────────────────────────────────────────
+// FIRST middleware on purpose, ahead of the CSRF guard, the lock gate and the
+// static mounts, so it covers every route and anything added later. See
+// lib/host-check.js. The port is the one this connection arrived on (the
+// socket's local port): that is the port being listened on now, never the
+// saved port for the next launch, and it stays right when a test listens on 0.
+app.use(hostCheck({ port: (req) => req.socket && req.socket.localPort }));
 
 // ── CSRF guard (audit finding D) ────────────────────────────────────────────
 // The server binds 127.0.0.1 with no CORS config. JSON-body routes are already
