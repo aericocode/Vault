@@ -955,7 +955,7 @@ function renderTile(media) {
   }
 
   return `
-    <div class="media-tile ${media.missing_since ? 'tile-missing' : ''} ${isFlagged ? 'tile-flagged' : ''} ${isTrashed ? 'tile-trashed' : ''} ${isSelected ? 'tile-selected' : ''} ${cannotPlay ? 'tile-failed' : ''} ${media.id === lastOpenedMediaId ? 'tile-last-opened' : ''} ${(typeof isCardBusy === 'function' && isCardBusy(media.id)) ? 'tile-busy' : ''}${typeof dockTileClass === 'function' ? dockTileClass(media.id) : ''}" data-id="${media.id}">
+    <div class="media-tile ${media.missing_since ? 'tile-missing' : ''} ${isFlagged ? 'tile-flagged' : ''} ${isTrashed ? 'tile-trashed' : ''} ${isSelected ? 'tile-selected' : ''} ${cannotPlay ? 'tile-failed' : ''} ${media.id === lastOpenedMediaId ? 'tile-last-opened' : ''} ${(typeof isCardBusy === 'function' && isCardBusy(media.id)) ? 'tile-busy' : ''}${typeof dockTileClass === 'function' ? dockTileClass(media.id) : ''}" data-id="${media.id}"${typeof reorderTileAttr === 'function' ? reorderTileAttr() : ''}>
       <div class="tile-thumb ${canThumb ? '' : 'thumb-fallback'}" onclick="tileThumbClick(${media.id})" ondblclick="tileThumbDblClick(${media.id})">
         ${thumb}
         <span class="tile-type-icon">${icon}</span>

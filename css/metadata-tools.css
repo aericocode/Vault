@@ -498,6 +498,34 @@
   color: #fca5a5;
 }
 
+/* ── Rearranging an open collection (player-lib/collection-reorder.js) ── */
+.coll-reorder-note {
+  margin: 0.4rem 0.2rem 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+.coll-reorder-note[hidden] { display: none; }
+
+.coll-note-btn {
+  margin-left: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.76rem;
+}
+.coll-note-btn:hover { border-color: var(--accent); }
+
+/* The tiles being dragged, and a 3px bar in the gap where they will land */
+.media-tile.reorder-dragging { opacity: 0.35; }
+#resultsGrid .media-tile.reorder-drop-before { box-shadow: -6px 0 0 -3px var(--accent); }
+#resultsGrid .media-tile.reorder-drop-after { box-shadow: 6px 0 0 -3px var(--accent); }
+/* The docked tile keeps its 2px ring; the bar sits just outside it. */
+body.dock-shown #resultsGrid .media-tile.tile-docked.reorder-drop-before { box-shadow: -8px 0 0 -3px var(--accent), 0 0 0 2px var(--accent); }
+body.dock-shown #resultsGrid .media-tile.tile-docked.reorder-drop-after { box-shadow: 8px 0 0 -3px var(--accent), 0 0 0 2px var(--accent); }
+
 /* =========================================================================
    HIERARCHICAL COLLECTIONS — flat, emoji-free surfaces (folders + tree picker)
    ========================================================================= */

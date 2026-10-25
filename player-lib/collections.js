@@ -385,7 +385,10 @@ async function cardDelete(id, btn) {
   closeCardMenu();
   collectionsList = await fetch(`/api/collections/${id}`, { method: 'DELETE' }).then(r => r.json());
   collectionMembers.delete(id);
-  if (activeCollectionId === id) activeCollectionId = null;
+  if (activeCollectionId === id) {
+    activeCollectionId = null;
+    if (typeof collectionSortLeave === 'function') collectionSortLeave();
+  }
   renderResults();
   renderCollectionsTabBar();
   showToast(c && c.kind === 'folder' ? 'Folder deleted, contents moved up a level' : 'Collection deleted, files and records untouched');
@@ -396,6 +399,8 @@ async function cardDelete(id, btn) {
 async function openCollection(id) {
   await fetchCollectionMembers(id, true);   // folders resolve to their aggregate union
   activeCollectionId = id;
+  // Playlist order by default (the user can still pick another sort).
+  if (typeof collectionSortEnter === 'function') collectionSortEnter();
   renderCollectionHeader();
   renderCollectionsTabBar();
   return applyFilters();
@@ -403,9 +408,36 @@ async function openCollection(id) {
 
 function closeCollection() {
   activeCollectionId = null;
+  if (typeof collectionSortLeave === 'function') collectionSortLeave();
   renderCollectionHeader();
   renderCollectionsTabBar();
   applyFilters();
+}
+
+/**
+ * The count line: "8 items · playlist order" while the grid shows the saved
+ * order, otherwise what it is sorted by, in the sort menu's own words
+ * ("8 items · sorted by name"), or "· shuffled" after Shuffle. Folders say
+ * "· folder".
+ */
+function collectionCountText(c) {
+  const n = `${c.item_count} item${c.item_count === 1 ? '' : 's'}`;
+  if (c.kind === 'folder') return `${n} · folder`;
+  if (typeof Library !== 'undefined' && Library.shuffled) return `${n} · shuffled`;
+  const field = typeof currentSortField === 'function' ? currentSortField() : 'playlist';
+  if (field === 'playlist') return `${n} · playlist order`;
+  const opt = document.querySelector(`#sortSelect option[value="${field}"]`);
+  const label = (opt ? opt.textContent : field).trim().toLowerCase();
+  return `${n} · sorted by ${label}`;
+}
+
+/** Refresh just the count line of an open collection (sort or shuffle changed). */
+function renderCollectionCount() {
+  const el = document.getElementById('collHeadCount');
+  const c = getCollectionById(activeCollectionId);
+  if (!el || !c) return;
+  const text = collectionCountText(c);
+  if (el.textContent !== text) el.textContent = text;
 }
 
 /** Header strip shown while a collection/folder is open (in #collectionsBar). */
@@ -413,6 +445,7 @@ function renderCollectionHeader() {
   const bar = document.getElementById('collectionsBar');
   if (!bar) return;
   const c = getCollectionById(activeCollectionId);
+  if (typeof renderReorderNote === 'function') renderReorderNote();
   if (!c) {
     bar.style.display = 'none';
     bar.innerHTML = '';
@@ -426,7 +459,7 @@ function renderCollectionHeader() {
       <div class="coll-head-name" id="collHeadName">
         <span class="coll-head-title">${isFolder ? `<span class="coll-head-folder">${ICON.folder}</span>` : ''}${escapeHtml(c.name)}</span>
         <button class="field-edit-btn" onclick="editCollectionName(${c.id})" title="Rename">✎</button>
-        <span class="coll-count">${c.item_count} item${c.item_count === 1 ? '' : 's'}${isFolder ? ' · folder' : ' · playlist order'}</span>
+        <span class="coll-count" id="collHeadCount">${collectionCountText(c)}</span>
       </div>
       <div class="coll-head-desc" id="collHeadDesc" onclick="editCollectionDesc(${c.id})" title="Click to edit description">
         ${c.description ? escapeHtml(c.description) : '<span class="field-empty">Add a description…</span>'}
@@ -522,7 +555,11 @@ async function deleteCollectionTwoStep(id, btn) {
   const parent = c ? (c.parent_id ?? null) : null;
   collectionsList = await fetch(`/api/collections/${id}`, { method: 'DELETE' }).then(r => r.json());
   collectionMembers.delete(id);
-  if (activeCollectionId === id) { activeCollectionId = null; currentFolderId = parent; }
+  if (activeCollectionId === id) {
+    activeCollectionId = null;
+    currentFolderId = parent;
+    if (typeof collectionSortLeave === 'function') collectionSortLeave();
+  }
   renderCollectionHeader();
   renderCollectionsTabBar();
   applyFilters();
@@ -544,8 +581,15 @@ async function playCollection(id, shuffle) {
     setRepeatMode('off', { persist: false });
   }
   if (shuffle) {
-    // The grid shows the shuffled order too, as it always did.
+    // The grid shows the shuffled order too, as it always did. The saved
+    // order is never touched.
     if (await Library.shuffle()) renderResults();
+    if (typeof renderReorderNote === 'function') renderReorderNote();
+  } else if (typeof switchToPlaylistOrder === 'function' && getCollectionById(id)?.kind !== 'folder'
+             && (currentSortField() !== 'playlist' || Library.shuffled)) {
+    // Play All plays the saved order: another sort (or a shuffle) on screen
+    // goes back to playlist order first, so the grid shows what will play.
+    await switchToPlaylistOrder();
   }
   const [first] = await Library.rowsForRange(0, 1);
   if (!first) return;

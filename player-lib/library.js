@@ -863,6 +863,8 @@ const Library = (() => {
     get total() { return known() ? length() : null; },
     get search() { return res.search; },
     get counting() { return res.counting; },
+    /** Collection Shuffle reordered the result in place (a new query undoes it). */
+    get shuffled() { return res.shuffled; },
     get isEmptyResult() { return res.empty; },
     get firstPageIds() { return res.firstIds; },
     get index() { return index; },

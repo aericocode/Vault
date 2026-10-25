@@ -222,6 +222,13 @@ body.dock-shown .grid-table .media-tile.tv-row.tile-docked {
   color: var(--text-muted);
 }
 
+/* Rearranging a collection (collection-reorder.js): a line above or below the row */
+#resultsGrid.grid-table .media-tile.tv-row.reorder-drop-before { box-shadow: inset 0 3px 0 0 var(--accent); }
+#resultsGrid.grid-table .media-tile.tv-row.reorder-drop-after { box-shadow: inset 0 -3px 0 0 var(--accent); }
+/* The docked row keeps its left bar too. */
+body.dock-shown #resultsGrid.grid-table .media-tile.tv-row.tile-docked.reorder-drop-before { box-shadow: inset 0 3px 0 0 var(--accent), inset 3px 0 0 var(--accent); }
+body.dock-shown #resultsGrid.grid-table .media-tile.tv-row.tile-docked.reorder-drop-after { box-shadow: inset 0 -3px 0 0 var(--accent), inset 3px 0 0 var(--accent); }
+
 /* Rows have no card size: the slider steps aside while the table shows. */
 body.layout-modern #mainContainer.tv-on .card-size-control { display: none; }
 /* No table on Faces (its tiles carry face extras). */

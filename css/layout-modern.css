@@ -194,3 +194,14 @@ body.layout-modern #mainContainer.faces-person .sort-control { display: none; }
 /* The person page has its own files Size slider (faces-tab.js), so the
    library's slider would be a second, inert "Size" there. Keep the dock button. */
 body.layout-modern #mainContainer.faces-person .card-size-control { display: none; }
+
+/* Rearranging a collection: the note reads as quiet help text, its button
+   as Modern's flat text button. */
+body.layout-modern .coll-reorder-note { color: var(--text-muted); margin-top: 0.5rem; }
+body.layout-modern .coll-note-btn {
+  background: transparent;
+  border-color: transparent;
+  color: var(--accent-hover);
+  padding: 0.15rem 0.4rem;
+}
+body.layout-modern .coll-note-btn:hover { border-color: var(--border); background: var(--bg-hover); }

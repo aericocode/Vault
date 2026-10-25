@@ -2551,7 +2551,10 @@ app.get('/api/collections', (req, res) => {
 });
 
 // Map typed collection errors → HTTP status codes (shared by create/patch/items)
-const COLL_ERR_STATUS = { NAME_TAKEN: 409, BAD_PARENT: 400, BAD_KIND: 400, CYCLE: 400, FOLDER_TARGET: 400 };
+const COLL_ERR_STATUS = { NAME_TAKEN: 409, BAD_PARENT: 400, BAD_KIND: 400, CYCLE: 400, FOLDER_TARGET: 400,
+  // POST /api/collections/:id/order (lib/collection-order.js)
+  NOT_FOUND: 404, BAD_MOVE: 400, BAD_BEFORE: 400, NOT_MEMBER: 400, BEFORE_IN_MOVE: 400,
+  BEFORE_NOT_MEMBER: 400, BAD_ORDER: 400 };
 
 app.post('/api/collections', (req, res) => {
   const name = (req.body?.name || '').toString().trim();
@@ -2637,6 +2640,23 @@ app.delete('/api/collections/:id/items', (req, res) => {
   if (!id || ids.length === 0) return res.status(400).json({ error: 'id + ids required' });
   const removed = db.removeFromCollection(id, ids);
   res.json({ removed, item_count: db.collectionItemCount(id), first_ids: db.collectionFirstIds(id) });
+});
+
+// Rearrange the playlist order: { move: [ids], before: id | null } moves a
+// block (null = to the end), { order: [ids] } sets the whole order (Undo).
+// One transaction rewrites positions 0..n-1. Answers the new order.
+app.post('/api/collections/:id/order', (req, res) => {
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'bad id' });
+  let order;
+  try {
+    order = db.reorderCollection(id, req.body);
+  } catch (err) {
+    const status = COLL_ERR_STATUS[err.code];
+    if (status) return res.status(status).json({ error: err.message, code: err.code });
+    throw err;
+  }
+  res.json({ order, item_count: order.length, first_ids: order.slice(0, 4) });
 });
 
 app.get('/api/media/:id/collections', (req, res) => {

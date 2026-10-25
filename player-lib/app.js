@@ -40,7 +40,7 @@ function copyPath(filepath) {
 
 // Natural first direction when switching fields (name reads A→Z; everything
 // else starts with "most" on top)
-const SORT_DEFAULT_DIR = { name: 'asc' };
+const SORT_DEFAULT_DIR = { name: 'asc', playlist: 'asc' };
 
 function currentSortField() { return currentSort.split('_')[0]; }
 function currentSortDir() { return currentSort.split('_')[1] || 'desc'; }
@@ -49,10 +49,19 @@ function syncSortControls() {
   const select = document.getElementById('sortSelect');
   const dirBtn = document.getElementById('sortDirBtn');
   const favBtn = document.getElementById('favesFirstBtn');
+  // "Playlist order" is a choice only while a collection is open
+  // (player-lib/collection-reorder.js switches to it on open).
+  const collOpen = typeof activeCollectionId !== 'undefined' && activeCollectionId != null;
+  const playlistOpt = select ? select.querySelector('option[value="playlist"]') : null;
+  if (select && collOpen && !playlistOpt) select.insertBefore(new Option('Playlist order', 'playlist'), select.firstChild);
+  else if (playlistOpt && !collOpen) playlistOpt.remove();
   if (select) select.value = currentSortField();
+  const playlist = currentSortField() === 'playlist';
   if (dirBtn) {
     dirBtn.textContent = currentSortDir() === 'asc' ? '▲' : '▼';
-    dirBtn.title = currentSortDir() === 'asc' ? 'Least first. Click for most first' : 'Most first. Click for least first';
+    dirBtn.title = playlist ? 'Playlist order runs first to last'
+      : currentSortDir() === 'asc' ? 'Least first. Click for most first' : 'Most first. Click for least first';
+    dirBtn.disabled = playlist;
   }
   if (favBtn) {
     // Classic's heart emoji, Modern's line heart (filled while on, css/icons.css)
@@ -62,6 +71,8 @@ function syncSortControls() {
     favBtn.classList.toggle('active', favesFirst);
     favBtn.setAttribute('aria-pressed', favesFirst ? 'true' : 'false');
   }
+  // An open collection's count line names the sort (collections.js)
+  if (typeof renderCollectionCount === 'function') renderCollectionCount();
 }
 
 // A new order keeps the page the grid is on, as re-sorting in place did.

@@ -195,7 +195,8 @@ function tvRowHtml(m, style) {
     m.id === lastOpenedMediaId ? 'tile-last-opened' : '',
     (typeof isCardBusy === 'function' && isCardBusy(m.id)) ? 'tile-busy' : '',
   ].filter(Boolean).join(' ') + (typeof dockTileClass === 'function' ? dockTileClass(m.id) : '');
-  return `<div class="${cls}" data-id="${m.id}" role="row"${style ? ` style="${style}"` : ''}>
+  const drag = typeof reorderTileAttr === 'function' ? reorderTileAttr() : '';
+  return `<div class="${cls}" data-id="${m.id}" role="row"${style ? ` style="${style}"` : ''}${drag}>
       <div class="tv-cell tv-c-sel"><input type="checkbox" class="tile-select" ${isSelected ? 'checked' : ''}
         onclick="onTileSelect(event, ${m.id})" title="Select (shift-click for range)" aria-label="Select"></div>
       ${tvVisibleColumns().map(c => tvCellHtml(c, m)).join('')}

@@ -51,7 +51,8 @@ function captureCurrentFilterState() {
     durMin: typeof durMinM !== 'undefined' ? durMinM : 0,
     durMax: typeof durMaxM !== 'undefined' ? durMaxM : null,
     selectedExtensions: selectedExtensions ? [...selectedExtensions] : [],
-    sortValue: currentSort || 'processed_desc',
+    // The library's sort, not an open collection's playlist order
+    sortValue: typeof librarySortValue === 'function' ? librarySortValue() : (currentSort || 'processed_desc'),
     favesFirst: typeof favesFirst !== 'undefined' ? favesFirst : false,
   };
 }
@@ -135,6 +136,8 @@ function restoreFilterState(state) {
     }
   }
   if (typeof state.favesFirst === 'boolean') favesFirst = state.favesFirst;
+  // An open collection shows this sort and puts it back on close (collection-reorder.js)
+  if (state.sortValue && typeof collectionSortAdopt === 'function') collectionSortAdopt();
   if (typeof syncSortControls === 'function') syncSortControls();
 
   return applyFilters();
