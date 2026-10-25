@@ -635,11 +635,40 @@ function stAliasList(x) {
   if (x && Array.isArray(x.aliasList)) return x.aliasList.filter(Boolean);
   return String((x && x.aliases) || '').split(',').map(v => v.trim()).filter(Boolean);
 }
-/** One name per line in the box; saved as an array. */
-const stReadAliases = (text) => String(text || '').split(/\r?\n/).map(v => v.trim()).filter(Boolean);
-function stAliasField(id, x, hint) {
-  return `<div><label class="st-lbl" for="${id}">Other names</label><textarea class="st-in st-in-short st-pm-field" id="${id}" rows="2" placeholder="One name per line">${stEsc(stAliasList(x).join('\n'))}</textarea><div class="st-hint">One per line. ${hint}</div></div>`;
+/**
+ * Other names typed in one line, split on commas (and on line breaks, so a
+ * pasted list works too); saved as an array, blanks and repeats (any case) dropped.
+ */
+function stReadAliases(text) {
+  const seen = new Set();
+  return String(text || '').split(/[,\r\n]+/).map(v => v.trim()).filter(v => {
+    const k = v.toLowerCase();
+    if (!v || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
+/** The names as the one-line box shows them. */
+const stAliasText = (x) => stAliasList(x).join(', ');
+const ST_ALIAS_PH = 'Name, another name';
+function stAliasField(id, x, hint) {
+  return `<div><label class="st-lbl" for="${id}">Other names</label><input class="st-in st-pm-field" id="${id}" type="text" data-st-aliases placeholder="${ST_ALIAS_PH}" value="${stEsc(stAliasText(x))}"><div class="st-hint">Separate names with commas. ${hint}</div></div>`;
+}
+// A one-line box drops line breaks from a paste: a pasted list keeps its names apart.
+document.addEventListener('paste', (e) => {
+  const t = e.target;
+  if (!(t instanceof HTMLInputElement) || !t.matches('[data-st-aliases]')) return;
+  const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
+  if (!/[\r\n]/.test(text)) return;
+  e.preventDefault();
+  const before = t.value.slice(0, t.selectionStart), after = t.value.slice(t.selectionEnd);
+  const names = text.split(/\r?\n/).map(v => v.trim()).filter(Boolean).join(', ');
+  // A comma only between names: none before the first name or after the last.
+  const lead = !before.trim() ? '' : /,\s*$/.test(before) ? (/\s$/.test(before) ? '' : ' ') : ', ';
+  const tail = !after.trim() || /^\s*,/.test(after) ? '' : (/^\s/.test(after) ? ',' : ', ');
+  t.setRangeText(lead + names + tail, t.selectionStart, t.selectionEnd, 'end');
+  t.dispatchEvent(new Event('input', { bubbles: true }));
+});
 
 const ST_URL_RE = /^https?:\/\/[^\s"'<>`]+$/i;
 /** Links, one per line. @returns {{list:string[]}|{error:string}} */
@@ -848,16 +877,15 @@ function stAddPersonToStudio(anchor, person) {
   });
 }
 
-/** Person page: the studio chips row (S4/S5). */
+/** Person page: the studio chips for the Details "Studio" row (S4/S5); '' when none. */
 function stPersonChipsHtml(p) {
-  const chips = (p.studios || []).map(s => {
+  return (p.studios || []).map(s => {
     const yrs = stYears(s.yearStart, s.yearEnd);
     return `<span class="st-chip">
       <button class="st-chip-main" type="button" data-st-chip="${s.id}" aria-haspopup="dialog">${stCoverHtml(s, 'st-chip-img')}<span class="st-pm">${stEsc(s.name)}</span>${yrs ? ` <span class="st-chip-yr">${yrs}</span>` : ''}</button>
       ${s.explicit ? `<button class="st-chip-x" type="button" data-st-chip-x="${s.id}" aria-label="Remove from studio" title="Remove from studio">${stIcon('close') || '✕'}</button>` : ''}
     </span>`;
   }).join('');
-  return `<div class="st-chips-row">${chips}<button class="st-addst" type="button" data-st-addto>+ Add to a studio</button></div>`;
 }
 
 /* ── Studio picker (selection bar, File Info row, person page, Merge with) ── */

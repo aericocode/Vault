@@ -3,7 +3,7 @@
  * the fold order for short windows (the photo keeps its size; seen-with
  * folds, then Details, then the photo moves beside the name, and only then
  * the column scrolls), the Born check the in-place field and Edit details
- * share, and the "N of 6 filled" count.
+ * share, and the "N of 7 filled" count (Studio counts too).
  */
 
 require('./helpers/no-real-lm');
@@ -66,11 +66,27 @@ test('Born: year, year-month or a real date', () => {
   }
 });
 
-test('Details count: six fields, empty ones do not count', () => {
-  assert.strictEqual(ftDetailCount({}), '· 0 of 6 filled');
+test('Details count: seven rows, empty ones do not count', () => {
+  assert.strictEqual(ftDetailCount({}), '· 0 of 7 filled');
   const p = { aliasList: ['Poki'], yearStart: 2013, yearEnd: null, born: '1996', urls: 'https://a.example\n', description: 'x', notes: '' };
-  assert.strictEqual(ftDetailCount(p), '· 5 of 6 filled');
+  assert.strictEqual(ftDetailCount(p), '· 5 of 7 filled');
+  assert.strictEqual(ftDetailCount({ ...p, studios: [{ id: 3, name: 'S' }] }), '· 6 of 7 filled');
+  assert.strictEqual(ftDetailFilled({ studios: [] }, 'studio'), false);
   assert.strictEqual(ftDetailFilled(p, 'notes'), false);
   assert.strictEqual(ftDetailFilled({ yearEnd: 2017 }, 'years'), true);
   assert.strictEqual(ftDetailFilled({ urls: '\n' }, 'links'), false);
+});
+
+test('Other names: commas or line breaks, trimmed, no blanks or repeats (any case)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'studios.js'), 'utf8').replace(/\r\n/g, '\n');
+  const m = /function stReadAliases\(text\) \{[\s\S]*?\n\}/.exec(src);
+  assert.ok(m, 'stReadAliases in studios.js');
+  const ctx = { String, Set };
+  vm.createContext(ctx);
+  vm.runInContext(`${m[0]}\n;globalThis.__f = stReadAliases;`, ctx);
+  const read = (t) => JSON.parse(JSON.stringify(ctx.__f(t)));
+  assert.deepStrictEqual(read('Poki, Imane'), ['Poki', 'Imane']);
+  assert.deepStrictEqual(read(' Poki ,, imane\nIMANE\r\nPoki Chan , '), ['Poki', 'imane', 'Poki Chan']);
+  assert.deepStrictEqual(read(''), []);
+  assert.deepStrictEqual(read(null), []);
 });
