@@ -327,6 +327,64 @@ test('two dialogs stack: the newest has the keys, each closes on its own', async
   assert.strictEqual(E.app.inert, false);
 });
 
+test('choose: three buttons in order, each answers its value; Enter is the primary, Esc and the backdrop the cancel value', async () => {
+  const E = makeEnv();
+  const o = {
+    title: 'Save your 5 answers?',
+    buttons: [{ label: 'Keep reviewing', value: null }, { label: 'Discard', value: 'discard' }, { label: 'Save and close', value: 'save', primary: true }],
+    cancelValue: null,
+  };
+  const btns = () => E.top().find('vdlg-actions').children;
+  let p = E.win.vaultChoose('Not saved yet.', o);
+  assert.deepStrictEqual(btns().map(b => b.textContent), ['Keep reviewing', 'Discard', 'Save and close']);
+  assert.match(btns()[2].className, /vdlg-ok/);
+  assert.strictEqual(E.top().find('vdlg-title').textContent, 'Save your 5 answers?');
+  assert.strictEqual(E.doc.activeElement, btns()[2], 'starts on the primary button');
+  btns()[1].click();
+  assert.deepStrictEqual(await state(p), { value: 'discard' });
+
+  p = E.win.vaultChoose('Not saved yet.', o);
+  E.doc.activeElement = E.doc.body;
+  E.key('Enter');
+  assert.deepStrictEqual(await state(p), { value: 'save' });
+
+  p = E.win.vaultChoose('Not saved yet.', o);
+  const ev = E.key('Escape');
+  assert.ok(ev.prevented && ev.stopped);
+  assert.deepStrictEqual(await state(p), { value: null });
+
+  p = E.win.vaultChoose('Not saved yet.', o);
+  E.top().fire('mousedown');
+  E.top().fire('mouseup');
+  E.top().fire('click');
+  assert.deepStrictEqual(await state(p), { value: null }, 'a backdrop click is the cancel value');
+
+  p = E.win.vaultChoose('Not saved yet.', o);
+  E.doc.activeElement = btns()[2];
+  E.key('Tab');
+  assert.strictEqual(E.doc.activeElement, btns()[0], 'Tab goes round all three');
+  E.key('Tab', { shiftKey: true });
+  assert.strictEqual(E.doc.activeElement, btns()[2]);
+  btns()[0].click();
+  assert.deepStrictEqual(await state(p), { value: null });
+  assert.strictEqual(E.overlays().length, 0);
+});
+
+test('choose with no buttons never jams: one OK that answers the cancel value', async () => {
+  const E = makeEnv();
+  for (const buttons of [[], undefined, [{ label: '' }, null]]) {
+    const p = E.win.vaultChoose('Hm.', { buttons, cancelValue: 'none' });
+    const btns = E.top().find('vdlg-actions').children;
+    assert.deepStrictEqual(btns.map(b => b.textContent), ['OK']);
+    btns[0].click();
+    assert.deepStrictEqual(await state(p), { value: 'none' });
+  }
+  const p = E.win.vaultChoose('Hm.', { buttons: [] });
+  E.key('Enter', { target: E.doc.body });
+  assert.deepStrictEqual(await state(p), { value: undefined });
+  assert.strictEqual(E.overlays().length, 0);
+});
+
 test('page: the dialogs load before shortcuts.js and every caller, with their stylesheet', () => {
   const html = fs.readFileSync(path.join(ROOT, 'db-viewer.html'), 'utf8');
   const scripts = [...html.matchAll(/<script src="\.\/player-lib\/([^"]+)"/g)].map(m => m[1]);

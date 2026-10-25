@@ -14,8 +14,9 @@
                            person page's "Is this X?" (faces-tab.js, F2b)
      frShowFrame()         the whole frame or photo with the face box
 
-   Keys (Y, N, left/right) only work while focus is inside a card list; no
-   global keydown. Server: POST /api/faces/check-faces (card details),
+   Keys (Y, N, left/right; S in "Same person?") only work while focus is
+   inside a card list. The one global key: Esc closes the "Same person?"
+   panel wherever the focus is (facesPairsReviewOpen). Server: POST /api/faces/check-faces (card details),
    /people/:id/review-faces (Yes / No), /people/:id/move (Compare),
    /people/merge.
    ========================================================================= */
@@ -105,8 +106,9 @@ function frCardHtml(it, ans, o = {}) {
  * the keys Y, N, left and right while focus is inside it.
  *   answer(key, 'yes'|'no')  record (a second click on the same answer clears it)
  *   frame(key)               show the whole frame
+ *   skip: true               S answers 'skip' too (the "Same person?" pairs)
  */
-function frKeys(root, { answer, frame }) {
+function frKeys(root, { answer, frame, skip = false }) {
   if (root._frWired) return;
   root._frWired = true;
   const cards = () => [...root.querySelectorAll('.fr-card')];
@@ -128,7 +130,7 @@ function frKeys(root, { answer, frame }) {
     const card = t.closest('.fr-card');
     const i = card ? list.indexOf(card) : -1;
     const k = e.key.toLowerCase();
-    if (k === 'y' || k === 'n') {
+    if (k === 'y' || k === 'n' || (skip && k === 's')) {
       const decided = (c) => !!c.querySelector('[data-fr-ans][aria-pressed="true"]');
       // Outside a card: the first face with no answer (none left: nothing to do).
       const at = i >= 0 ? list[i] : list.find(c => !decided(c));
@@ -136,7 +138,7 @@ function frKeys(root, { answer, frame }) {
       e.preventDefault();
       e.stopPropagation();   // N is also "next file" while the mini player shows
       const key = at.dataset.frKey;
-      answer(key, k === 'y' ? 'yes' : 'no', { toggle: false });
+      answer(key, k === 'y' ? 'yes' : k === 'n' ? 'no' : 'skip', { toggle: false });
       // The list repaints. Go on to the next face with no answer yet (after
       // this one, else from the top), so a second key press never changes
       // the answer just given; with every face answered, stay here.
@@ -144,7 +146,7 @@ function frKeys(root, { answer, frame }) {
       const pos = again.findIndex(c => c.dataset.frKey === key);
       const nextOpen = again.slice(pos + 1).find(c => !decided(c)) || again.slice(0, Math.max(0, pos)).find(c => !decided(c));
       if (nextOpen) focusCard(nextOpen);
-      else (root.querySelector('[data-fr-add]:not(:disabled), [data-fc-move]:not(:disabled), [data-ft-might="add"]:not(:disabled), [data-ft-check="save"]:not(:disabled)') || again[pos].querySelector('.fr-face-btn')).focus();
+      else (root.querySelector('[data-fr-add]:not(:disabled), [data-fc-move]:not(:disabled), [data-ft-might="add"]:not(:disabled), [data-ft-check="save"]:not(:disabled), [data-fp-save]:not(:disabled)') || again[pos].querySelector('.fr-face-btn')).focus();
       return;
     }
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
@@ -695,23 +697,74 @@ async function frCompareMerge(btn) {
 }
 
 /* ── "Same person?" in the panel (the Faces tab's Review all) ──────────────
-   Pairs of people that may be one person, as cards: both faces side by side,
-   names and file counts, Same / Not the same. Nothing is answered until
-   Save my answers (POST /api/faces/review/answers: Same merges as before,
-   Not the same is remembered). */
+   Pairs of people that may be one person, as compact cards in a grid (the
+   strip's card: both faces back to back, the names, Same | Different | Skip).
+   Nothing is sent until Save (POST /api/faces/review/answers: Same merges as
+   before, Different is remembered, Skip is never sent). Each face has a menu
+   (Not a face, Hide this person: done at once, and every pair with that
+   person leaves the list) and a click on a face peeks at a few of that
+   person's files. Esc (wherever the focus is), the close button and a click
+   on the backdrop close the panel, asking first while answers are not saved.
+   An open name field, menu, peek or dialog takes Esc first. */
 
-const FP_PAGE = 30;
-let FP = null;   // { el, back, opener, pairs, shown, answers: Map key -> 'yes'|'no', total }
+const FP_PAGE = 48;
+let FP = null;   // { el, back, opener, pairs, shown, answers: Map key -> 'yes'|'no'|'skip', total, asking, peek, down }
 
 const fpKey = (pr) => `${Math.min(pr.a.id, pr.b.id)}-${Math.max(pr.a.id, pr.b.id)}`;
 
 function facesPairsReviewClose() {
   if (!FP) return;
   const { el, back, opener } = FP;
+  if (typeof FT !== 'undefined' && FT.naming && el.contains(FT.naming.host)) ftCloseNaming();
+  if (typeof facesCloseMenu === 'function') facesCloseMenu();
   FP = null;
   el.remove();
   back.remove();
-  if (opener && opener.isConnected) opener.focus();
+  // Back to Review all; the strip may have been drawn again meanwhile (a hide, a save).
+  const to = opener && opener.isConnected && opener.offsetParent ? opener
+    : document.querySelector('#ftReview:not([hidden]) .ft-review-h [data-ft-reviewall]') || document.getElementById('ftSearch');
+  to?.focus({ preventScroll: true });
+}
+
+/** Same, Different and Skipped answers (Skip is never saved). */
+function fpCounts() {
+  let same = 0, diff = 0, skip = 0;
+  for (const a of FP.answers.values()) { if (a === 'yes') same++; else if (a === 'no') diff++; else if (a === 'skip') skip++; }
+  return { same, diff, skip, left: Math.max(0, FP.total - same - diff - skip) };
+}
+
+/**
+ * Close, or first ask when there are answers not saved yet: Save and close,
+ * Discard, or Keep reviewing (also Esc and a click outside that question).
+ */
+async function fpRequestClose() {
+  if (!FP || FP.asking || FP.saving) return;   // a save on its way closes the panel itself
+  const st = FP;
+  const { same, diff } = fpCounts();
+  const n = same + diff;
+  if (!n || typeof vaultChoose !== 'function') { facesPairsReviewClose(); return; }
+  fpPeekClose();
+  st.asking = true;
+  const said = [];
+  if (same) said.push(`${frPlural(same, 'pair is', 'pairs are')} the same person`);
+  if (diff) said.push(`${frPlural(diff, 'pair is', 'pairs are')} different`);
+  const choice = await vaultChoose(`You said ${said.join(' and ')}. ${n === 1 ? 'That answer is' : 'These answers are'} not saved yet.`, {
+    title: n === 1 ? 'Save your answer?' : `Save your ${n.toLocaleString()} answers?`,
+    buttons: [
+      { label: 'Keep reviewing', value: null },
+      { label: 'Discard', value: 'discard' },
+      { label: 'Save and close', value: 'save', primary: true },
+    ],
+    cancelValue: null,
+  });
+  if (FP !== st) return;
+  st.asking = false;
+  if (choice === 'discard') facesPairsReviewClose();
+  else if (choice === 'save') fpSave();
+  else if (!st.el.contains(document.activeElement)) {
+    // Keep reviewing: focus back in the panel, so Y / N / S work again straight away.
+    st.el.querySelector('[data-fp-x]')?.focus({ preventScroll: true });
+  }
 }
 
 async function facesPairsReviewOpen(opener) {
@@ -723,7 +776,7 @@ async function facesPairsReviewOpen(opener) {
   facesPairsReviewClose();
   frSyncViewport();
   const back = document.createElement('div');
-  back.className = 'fr-backdrop';
+  back.className = 'fr-backdrop fp-backdrop';
   document.body.appendChild(back);
   const el = document.createElement('aside');
   el.className = 'fr-panel fr-pairs-panel';
@@ -731,96 +784,420 @@ async function facesPairsReviewOpen(opener) {
   el.setAttribute('aria-modal', 'true');
   el.setAttribute('aria-labelledby', 'fpTitle');
   document.body.appendChild(el);
-  FP = { el, back, opener, pairs, shown: Math.min(FP_PAGE, pairs.length), answers: new Map(), total: Math.max(r.total || 0, pairs.length) };
-  el.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !(typeof FT !== 'undefined' && FT.naming)) { e.preventDefault(); e.stopPropagation(); facesPairsReviewClose(); }
+  FP = { el, back, opener, pairs, shown: Math.min(FP_PAGE, pairs.length), answers: new Map(), total: Math.max(r.total || 0, pairs.length), asking: false, saving: false, peek: null, down: null };
+  // A press that starts and ends on the backdrop closes (asking first when
+  // needed), unless a name field, menu or peek was open: that click only closes it.
+  back.addEventListener('click', (e) => {
+    const d = FP && FP.down;
+    if (FP && e.target === back && d && d.onBack && !d.busy) fpRequestClose();
   });
+  el.addEventListener('scroll', () => fpPeekClose(), true);
   el.addEventListener('click', (e) => {
     const t = e.target instanceof Element ? e.target : null;
-    if (!t || !FP) return;
-    if (t.closest('[data-fp-x]')) { facesPairsReviewClose(); return; }
+    if (!t || !FP || FP.saving) return;   // nothing changes while a save is on its way
+    if (t.closest('[data-fp-x]')) { fpRequestClose(); return; }
     if (t.closest('[data-fp-more]')) { FP.shown = Math.min(FP.pairs.length, FP.shown + FP_PAGE); fpPaint(); return; }
     if (t.closest('[data-fp-norest]')) {
-      for (const pr of FP.pairs.slice(0, FP.shown)) if (!FP.answers.has(fpKey(pr))) FP.answers.set(fpKey(pr), 'no');
-      fpPaint();
+      for (const pr of FP.pairs.slice(0, FP.shown)) if (!FP.answers.has(fpKey(pr))) { FP.answers.set(fpKey(pr), 'no'); fpPaintCard(fpKey(pr)); }
+      fpPaintFoot();
       FP.el.querySelector('[data-fp-save]:not(:disabled)')?.focus();
       return;
     }
-    if (t.closest('[data-fp-save]')) fpSave(t.closest('button'));
+    if (t.closest('[data-fp-save]')) { fpSave(); return; }
+    const nameIt = t.closest('[data-ft-nameit]');
+    if (nameIt) { fpNameSide(nameIt); return; }
+    const menu = t.closest('[data-fp-menu]');
+    if (menu) { fpFaceMenu(menu); return; }
+    const peek = t.closest('[data-fp-peek]');
+    if (peek) fpPeek(peek);
   });
   frKeys(el, {
     answer: (key, a, { toggle }) => {
-      if (!FP) return;
+      if (!FP || FP.saving) return;
       if (toggle && FP.answers.get(key) === a) FP.answers.delete(key); else FP.answers.set(key, a);
-      fpPaint();
+      fpPaintCard(key);
+      fpPaintFoot();
     },
     frame: () => {},
+    skip: true,
   });
   fpPaint();
   el.querySelector('.fr-card .fr-face-btn')?.focus();
 }
 
-function fpSide(p) {
-  const name = p.name ? `<span class="ft-pm-name">${frEsc(p.name)}</span>` : '<span class="fp-noname">Not named yet</span>';
-  const crop = p.coverUrl ? `<img class="face-crop" src="${frEsc(p.coverUrl)}" alt="" loading="lazy">` : facesBlankHtml();
-  return `<div class="fp-side"><div class="fp-face">${crop}</div><div class="fp-name">${name}</div><div class="fp-files">${frPlural(p.files || 0, 'file', 'files')}</div></div>`;
+// Esc anywhere while the panel is open. Runs after the Faces menus' and the
+// name field's own Esc (faces.js, faces-tab.js), so those close first.
+window.addEventListener('keydown', (e) => {
+  if (!FP || e.key !== 'Escape' || e.defaultPrevented) return;
+  if (FP.asking || (typeof vaultModalOpen === 'function' && vaultModalOpen())) return;
+  if (document.getElementById('frFrame') || document.getElementById('facesMenu')) return;
+  if (typeof FT !== 'undefined' && FT.naming) return;
+  if (typeof shortcutsIsOpen === 'function' && shortcutsIsOpen()) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  if (FP.peek) { const btn = FP.peek.btn; fpPeekClose(); if (btn.isConnected) btn.focus({ preventScroll: true }); return; }
+  fpRequestClose();
+}, true);
+
+// What was open when a press started (the backdrop click above reads it),
+// and a press outside the peek closes it.
+window.addEventListener('mousedown', (e) => {
+  if (!FP) return;
+  const t = e.target instanceof Element ? e.target : null;
+  const onPeekFace = !!(t && FP.peek && t.closest('[data-fp-peek]') === FP.peek.btn);
+  FP.down = {
+    onBack: t === FP.back,
+    busy: !!((typeof FT !== 'undefined' && FT.naming) || document.getElementById('facesMenu') || FP.peek),
+  };
+  if (FP.peek && !onPeekFace && !(t && FP.peek.el.contains(t))) fpPeekClose();
+}, true);
+
+const fpWhoText = (p) => (p && p.name && !document.body.classList.contains('pm-names') ? p.name : 'this person');
+
+function fpFaceHtml(p) {
+  const crop = p.coverUrl ? `<img class="face-crop" src="${frEsc(p.coverUrl)}" alt="" loading="lazy" draggable="false">` : facesBlankHtml();
+  const who = frEsc(fpWhoText(p));
+  return `<div class="fp-face">
+    <button type="button" class="fr-face-btn fp-face-btn" data-fp-peek="${p.id}" aria-haspopup="dialog" aria-label="See more of ${who}'s files">${crop}</button>
+    <button type="button" class="fp-dots" data-fp-menu="${p.id}" aria-haspopup="menu" aria-label="More for ${who}" title="More">${facesIcon('more') || '...'}</button>
+  </div>`;
+}
+
+function fpCardHtml(pr, i) {
+  const key = fpKey(pr);
+  const a = FP.answers.get(key);
+  const seg = (ans, cls, inner, extra = '') => `<button type="button" class="${cls}${a === ans ? ' on' : ''}" data-fr-ans="${ans}" aria-pressed="${a === ans}"${extra}>${inner}</button>`;
+  return `
+    <div class="fr-card fp-card${a === 'yes' ? ' is-yes' : a === 'no' ? ' is-no' : a === 'skip' ? ' is-skip' : ''}" data-fr-key="${key}" role="listitem" aria-label="Pair ${(i + 1).toLocaleString()} of ${FP.pairs.length.toLocaleString()}">
+      <div class="ft-pfaces fp-faces">${fpFaceHtml(pr.a)}${fpFaceHtml(pr.b)}<span class="ft-vs" aria-hidden="true">?</span></div>
+      <div class="ft-pnames fp-names">${ftPairName(pr.a)}${ftPairName(pr.b)}</div>
+      <div class="ft-seg fp-seg" role="group" aria-label="Same person?">
+        ${seg('yes', 'ft-seg-same', `${facesIcon('check')}Same`)}
+        ${seg('no', 'ft-seg-diff', `${facesIcon('close')}Different`)}
+        ${seg('skip', 'ft-seg-skip', facesIcon('skip') || 'Skip', ' title="Skip for now" aria-label="Skip for now"')}
+      </div>
+    </div>`;
+}
+
+/** One card's answer, in place (the focus stays where it is). */
+function fpPaintCard(key) {
+  const card = FP && FP.el.querySelector(`.fp-card[data-fr-key="${key}"]`);
+  if (!card) return;
+  const a = FP.answers.get(key);
+  card.classList.toggle('is-yes', a === 'yes');
+  card.classList.toggle('is-no', a === 'no');
+  card.classList.toggle('is-skip', a === 'skip');
+  for (const b of card.querySelectorAll('[data-fr-ans]')) {
+    const on = b.dataset.frAns === a;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
+}
+
+/** The footer's counts and buttons, in place. */
+function fpPaintFoot() {
+  if (!FP) return;
+  const { same, diff, skip, left } = fpCounts();
+  const sum = FP.el.querySelector('.fr-sum');
+  if (sum) {
+    sum.innerHTML = `<b class="fp-n-same">${same.toLocaleString()}</b> same, <b class="fp-n-diff">${diff.toLocaleString()}</b> different, `
+      + `${skip ? `<b>${skip.toLocaleString()}</b> skipped, ` : ''}<b>${left.toLocaleString()}</b> left`;
+  }
+  const rest = FP.el.querySelector('[data-fp-norest]');
+  if (rest) rest.disabled = !FP.pairs.slice(0, FP.shown).some(pr => !FP.answers.has(fpKey(pr)));
+  const save = FP.el.querySelector('[data-fp-save]');
+  if (save) {
+    const n = same + diff;
+    save.disabled = !n;
+    save.textContent = n === 1 ? 'Save 1 answer' : `Save ${n.toLocaleString()} answers`;
+  }
 }
 
 function fpPaint() {
   if (!FP) return;
   const el = FP.el;
+  fpPeekClose();
   const hadFocus = el.contains(document.activeElement) ? document.activeElement : null;
   const focusKey = hadFocus && hadFocus.closest('.fr-card') ? hadFocus.closest('.fr-card').dataset.frKey : null;
   const focusAns = hadFocus && hadFocus.dataset ? hadFocus.dataset.frAns : null;
   const list = FP.pairs.slice(0, FP.shown);
-  let same = 0, diff = 0;
-  for (const a of FP.answers.values()) { if (a === 'yes') same++; else if (a === 'no') diff++; }
-  const open = FP.pairs.length - same - diff;
-  const cards = list.map((pr) => {
-    const key = fpKey(pr);
-    const a = FP.answers.get(key);
-    return `
-      <div class="fr-card fp-card${a === 'yes' ? ' is-yes' : ''}${a === 'no' ? ' is-no' : ''}" data-fr-key="${key}" role="listitem">
-        <button type="button" class="fr-face-btn fp-pair" aria-label="Pair ${list.indexOf(pr) + 1} of ${FP.pairs.length}">${fpSide(pr.a)}<span class="fp-plus" aria-hidden="true">+</span>${fpSide(pr.b)}</button>
-        <div class="fr-yn">
-          <button type="button" class="${a === 'yes' ? 'on-yes' : ''}" data-fr-ans="yes" aria-pressed="${a === 'yes'}">Same</button>
-          <button type="button" class="${a === 'no' ? 'on-no' : ''}" data-fr-ans="no" aria-pressed="${a === 'no'}">Not the same</button>
-        </div>
-      </div>`;
-  }).join('');
   const rest = FP.pairs.length - FP.shown;
   el.innerHTML = `
     <div class="fr-head">
-      <div class="fr-h"><div class="fr-title" id="fpTitle">Same person?</div>
-        <div class="fr-note">${frPlural(FP.total, 'pair', 'pairs')} to look at. Same puts their files together; Not the same keeps them apart for good.</div></div>
+      <div class="fr-h"><div class="fr-title" id="fpTitle">Same person? <span class="fp-count">${frPlural(FP.total, 'pair', 'pairs')}</span></div>
+        <div class="fr-note">${FT_SAME_HINT}</div></div>
       <button type="button" class="faces-bghost fr-x" data-fp-x aria-label="Close">${FR_X_SVG}</button>
     </div>
     <div class="fr-body">
-      ${frSectionHead('Pairs', '', [{ attr: 'data-fp-norest', label: 'Not the same to the rest', disabled: !list.some(pr => !FP.answers.has(fpKey(pr))) }])}
-      <div class="fr-cards fp-cards" role="list" aria-label="Pairs">${cards}</div>
+      <div class="fr-cards fp-cards" role="list" aria-label="Pairs">${list.map(fpCardHtml).join('')}</div>
       ${rest > 0 ? `<button type="button" class="faces-blink fr-more" data-fp-more>Show ${Math.min(rest, FP_PAGE).toLocaleString()} more</button>` : ''}
-      <p class="fr-note fr-keys">Keys: <span class="fr-kbd">Y</span> same, <span class="fr-kbd">N</span> not the same, <span class="fr-kbd">←</span> <span class="fr-kbd">→</span> move between pairs.</p>
+      <p class="fr-note fr-keys">Keys: <span class="fr-kbd">Y</span> same, <span class="fr-kbd">N</span> different, <span class="fr-kbd">S</span> skip, <span class="fr-kbd">←</span> <span class="fr-kbd">→</span> move between pairs. Click a face to see more of their files.</p>
     </div>
     <div class="fr-foot">
-      <span class="fr-sum"><b>${same.toLocaleString()}</b> same, <b>${diff.toLocaleString()}</b> not the same, <b>${open.toLocaleString()}</b> not decided</span>
-      <button type="button" class="faces-badd faces-lg" data-fp-save${same || diff ? '' : ' disabled'}>Save my answers</button>
+      <span class="fr-sum"></span>
+      <button type="button" class="faces-bghost faces-lg" data-fp-norest title="Different for every pair shown that has no answer yet">Different to the rest</button>
+      <button type="button" class="faces-badd faces-lg" data-fp-save disabled>Save 0 answers</button>
     </div>`;
+  fpPaintFoot();
   if (focusKey) {
     const card = el.querySelector(`.fr-card[data-fr-key="${focusKey}"]`);
     const t = card && (focusAns ? card.querySelector(`[data-fr-ans="${focusAns}"]`) : card.querySelector('.fr-face-btn'));
     if (t) t.focus();
-  } else if (hadFocus && hadFocus.matches('[data-fp-more]')) el.querySelector(`.fr-card:nth-child(${FP.shown - FP_PAGE + 1}) .fr-face-btn`)?.focus();
+  } else if (hadFocus && hadFocus.matches('[data-fp-more]')) el.querySelector(`.fr-card:nth-child(${Math.max(1, FP.shown - FP_PAGE + 1)}) .fr-face-btn`)?.focus();
 }
 
-async function fpSave(btn) {
-  if (!FP) return;
+/** The person on one side of a pair in the list (null when no pair has them). */
+function fpPerson(id) {
+  for (const pr of FP.pairs) { if (pr.a.id === id) return pr.a; if (pr.b.id === id) return pr.b; }
+  return null;
+}
+
+/**
+ * Every pair with this person leaves the list, answers and all. Returns what
+ * left, for fpRestore (Undo).
+ */
+function fpDropPerson(id) {
+  const removed = [];
+  const oldShown = FP.shown;
+  FP.pairs = FP.pairs.filter((pr, i) => {
+    if (pr.a.id !== id && pr.b.id !== id) return true;
+    removed.push({ pr, i, answer: FP.answers.get(fpKey(pr)) });
+    FP.answers.delete(fpKey(pr));
+    return false;
+  });
+  FP.total = Math.max(FP.pairs.length, FP.total - removed.length);
+  FP.shown = Math.min(FP.pairs.length, oldShown - removed.filter(x => x.i < oldShown).length);
+  return removed;
+}
+
+/** One pair (and its answer) leaves the list: the server no longer asks it. */
+function fpDropKey(key) {
+  const i = FP.pairs.findIndex(x => fpKey(x) === key);
+  if (i < 0) return;
+  FP.pairs.splice(i, 1);
+  FP.answers.delete(key);
+  FP.total = Math.max(FP.pairs.length, FP.total - 1);
+  if (i < FP.shown) FP.shown = Math.min(FP.pairs.length, FP.shown - 1);
+}
+
+/**
+ * The pairs fpDropPerson took out that the server still asks about (pure).
+ * Hiding a person deletes their "Same person?" questions on the server, and
+ * unhiding does not bring them back at once, so an Undo restores only the
+ * pairs a fresh GET /api/faces/review still offers: a Same on any other
+ * would come back "had changed and was left alone".
+ */
+function fpStillOffered(removed, offeredPairs) {
+  const offered = new Set((offeredPairs || []).map(fpKey));
+  return removed.filter(x => offered.has(fpKey(x.pr)));
+}
+
+function fpRestore(removed) {
+  for (const { pr, i, answer } of removed) {
+    if (FP.pairs.some(x => fpKey(x) === fpKey(pr))) continue;
+    FP.pairs.splice(Math.min(i, FP.pairs.length), 0, pr);
+    if (answer) FP.answers.set(fpKey(pr), answer);
+    FP.total++;
+    if (i < FP.shown + 1) FP.shown++;
+  }
+  FP.shown = Math.min(FP.pairs.length, Math.max(FP.shown, Math.min(FP_PAGE, FP.pairs.length)));
+  fpPaint();
+}
+
+/** After pairs left: draw again with the focus on the card now at that place (or close with none left). */
+function fpAfterDrop(at) {
+  if (!FP.pairs.length) { facesPairsReviewClose(); return; }
+  fpPaint();
+  const cards = FP.el.querySelectorAll('.fr-card');
+  (cards[Math.min(at, cards.length - 1)]?.querySelector('.fr-face-btn') || FP.el.querySelector('[data-fp-x]'))?.focus();
+}
+
+function fpCardIndex(btn) {
+  const card = btn.closest('.fr-card');
+  return card ? [...FP.el.querySelectorAll('.fr-card')].indexOf(card) : 0;
+}
+
+/** A face's menu: Not a face, Hide this person. */
+function fpFaceMenu(btn) {
+  const id = Number(btn.dataset.fpMenu);
+  const p = fpPerson(id);
+  if (!p) return;
+  fpPeekClose();
+  const r = btn.getBoundingClientRect();
+  facesMenu(r.left, r.bottom + 4, [
+    { label: 'Not a face', run: () => fpNotAFace(p, fpCardIndex(btn)) },
+    { label: 'Hide this person', run: () => fpHide(p, fpCardIndex(btn)) },
+  ], btn);
+}
+
+/** Not a face: the Faces tab's own action (it asks first: there is no undo). */
+async function fpNotAFace(p, at) {
+  const st = FP;
+  if (!await ftNotAFace([p])) { if (FP === st) FP.el.querySelectorAll('.fr-card')[at]?.querySelector('.fr-face-btn')?.focus(); return; }
+  if (typeof ftLoadPeople === 'function') ftLoadPeople();
+  if (typeof ftLoadReview === 'function') ftLoadReview();
+  if (FP !== st) return;
+  fpDropPerson(p.id);
+  fpAfterDrop(at);
+}
+
+/** Hide this person, with Undo (their pairs come back to the list). */
+async function fpHide(p, at) {
+  const st = FP;
+  try { await ftApi(`/api/faces/people/${p.id}`, { method: 'POST', json: { hidden: true } }); }
+  catch (err) { facesToastError(err); return; }
+  if (typeof ftLoadPeople === 'function') ftLoadPeople();
+  if (typeof ftLoadReview === 'function') ftLoadReview();
+  const removed = FP === st ? fpDropPerson(p.id) : [];
+  if (FP === st) fpAfterDrop(at);
+  showUndoToast('Hidden from Faces. You can find them under Hidden.', async () => {
+    try { await ftApi(`/api/faces/people/${p.id}`, { method: 'POST', json: { hidden: false } }); }
+    catch (err) { facesToastError(err); return; }
+    if (typeof ftLoadPeople === 'function') ftLoadPeople();
+    if (typeof ftLoadReview === 'function') ftLoadReview();
+    if (FP !== st || !removed.length) return;
+    // The server scores them again in the background (under a second):
+    // their pairs come back once it has, with their answers, where they were.
+    const back = await fpWaitOffered(removed, () => facesApi('/api/faces/review?limit=200', { background: true }));
+    if (FP !== st || st.saving || !back.length) return;
+    fpRestore(back);
+    if (typeof ftLoadReview === 'function') ftLoadReview();
+  }, 8000);
+}
+
+/**
+ * After an unhide: ask GET /api/faces/review again (every `every` ms, up to
+ * `tries` times) until any of the removed pairs is offered again, then
+ * answer the ones that are (fpStillOffered). [] when none came back in time.
+ */
+async function fpWaitOffered(removed, fetchReview, { tries = 13, every = 400, wait = (ms) => new Promise(r => setTimeout(r, ms)) } = {}) {
+  for (let i = 0; i < tries; i++) {
+    await wait(every);
+    let r = null;
+    try { r = await fetchReview(); } catch { /* try again */ }
+    const back = r ? fpStillOffered(removed, r.pairs) : [];
+    if (back.length) return back;
+  }
+  return [];
+}
+
+/* ── The face peek: a few of the person's files, anchored to the face ── */
+
+function fpPeekClose() {
+  if (!FP || !FP.peek) return false;
+  FP.peek.el.remove();
+  FP.peek = null;
+  return true;
+}
+
+function fpPeekPlace(pop, btn) {
+  const r = btn.getBoundingClientRect();
+  const pr = FP.el.getBoundingClientRect();
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  const left = Math.max(pr.left + 8, Math.min(r.left, pr.right - w - 8));
+  let top = r.bottom + 6;
+  if (top + h > innerHeight - 8) top = Math.max(8, r.top - h - 6);
+  pop.style.left = `${Math.round(left)}px`;
+  pop.style.top = `${Math.round(top)}px`;
+}
+
+async function fpPeek(btn) {
+  const id = Number(btn.dataset.fpPeek);
+  if (FP.peek && FP.peek.btn === btn) { fpPeekClose(); return; }
+  fpPeekClose();
+  const p = fpPerson(id);
+  if (!p) return;
+  const kinds = [p.videos ? frPlural(p.videos, 'video', 'videos') : '', p.photos ? frPlural(p.photos, 'photo', 'photos') : ''].filter(Boolean).join(', ');
+  const pop = document.createElement('div');
+  pop.className = 'fp-peek';
+  pop.setAttribute('role', 'dialog');
+  pop.setAttribute('aria-label', `${fpWhoText(p)}: files`);
+  pop.innerHTML = `
+    <div class="fp-peek-h">${p.name ? `<span class="ft-pm-name fp-peek-name">${frEsc(p.name)}</span>` : '<span class="fp-peek-name fp-noname">Not named yet</span>'}
+      <span class="fp-peek-sub">${frPlural(p.files || 0, 'file', 'files')}${kinds ? ` · ${kinds}` : ''}</span></div>
+    <div class="fp-peek-files"><span class="fr-note">Loading…</span></div>`;
+  FP.el.appendChild(pop);
+  const st = FP;
+  FP.peek = { el: pop, btn, id };
+  fpPeekPlace(pop, btn);
+  const faces = await ftFacesOf(id);
+  if (FP !== st || !FP.peek || FP.peek.el !== pop) return;
+  const off = typeof thumbsOff === 'function' && thumbsOff();
+  const tiles = (faces || []).slice(0, 6).map((f) => {
+    if (off || f.mediaId == null) return `<span class="fp-peek-file"><img class="face-crop" src="${frEsc(f.cropUrl)}" alt="" loading="lazy"></span>`;
+    const row = typeof getMediaById === 'function' ? getMediaById(f.mediaId) : null;
+    const attrs = typeof thumbImgAttrs === 'function' ? thumbImgAttrs(row || { id: f.mediaId }) : `src="/thumb/${Number(f.mediaId)}"`;
+    return `<span class="fp-peek-file"><img class="tile-img" ${attrs} alt="" loading="lazy" onerror="this.style.visibility='hidden'"></span>`;
+  }).join('');
+  pop.querySelector('.fp-peek-files').innerHTML = tiles || '<span class="fr-note">No files to show.</span>';
+  if (typeof hydrateThumbs === 'function') hydrateThumbs(pop);
+  fpPeekPlace(pop, btn);
+}
+
+/* ── "Not named yet" in a card: the usual name field ── */
+
+function fpNameSide(btn) {
+  const card = btn.closest('.fp-card');
+  const key = card && card.dataset.frKey;
+  const pr = key && FP.pairs.find(x => fpKey(x) === key);
+  if (!pr) return;
+  fpPeekClose();
+  const me = Number(btn.dataset.ftNameit) === pr.a.id ? pr.a : pr.b;
+  const other = me === pr.a ? pr.b : pr.a;
+  const st = FP;
+  ftNamePairSide(btn, me, other, {
+    // Picking the person it is compared with: the same as Same (saved with the rest).
+    onSame: () => {
+      if (FP !== st) return;
+      FP.answers.set(key, 'yes');
+      fpPaintCard(key);
+      fpPaintFoot();
+      FP.el.querySelector(`.fr-card[data-fr-key="${key}"] [data-fr-ans="yes"]`)?.focus();
+    },
+    onNamed: (p, how = {}) => {
+      if (typeof ftLoadPeople === 'function') ftLoadPeople();
+      ftOpenToast(p, how);
+      if (FP !== st) return;
+      const at = fpCardIndex(card);
+      if (how.merged) { fpDropPerson(me.id); fpAfterDrop(at); return; }
+      // A new name: the server scores this person again and stops asking
+      // this pair, as the strip does (ftNamePairSide). The pair leaves the
+      // list with its answer; other pairs with them show the new name.
+      fpDropKey(key);
+      if (p) for (const x of FP.pairs) for (const k of ['a', 'b']) if (x[k].id === me.id) x[k] = { ...x[k], name: p.name };
+      fpAfterDrop(at);
+    },
+  });
+}
+
+/**
+ * While a save is on its way: answers, names, menus and Save are off, and
+ * close, Esc and the backdrop wait (fpRequestClose), so the same answers
+ * are never sent twice and nothing offers Discard for answers being saved.
+ */
+function fpSetSaving(on) {
+  FP.saving = on;
+  FP.el.classList.toggle('is-saving', on);
+  FP.el.setAttribute('aria-busy', String(on));
+  for (const b of FP.el.querySelectorAll('[data-fr-ans], [data-fp-norest], [data-fp-save], [data-fp-menu], [data-ft-nameit], [data-fp-more]')) b.disabled = on;
+  const save = FP.el.querySelector('[data-fp-save]');
+  if (save && on) save.textContent = 'Saving...';
+  if (!on) fpPaintFoot();
+}
+
+async function fpSave() {
+  if (!FP || FP.saving) return;
+  const st = FP;
   const answers = [];
   for (const pr of FP.pairs) {
     const a = FP.answers.get(fpKey(pr));
-    if (a) answers.push({ a: pr.a.id, b: pr.b.id, answer: a === 'yes' ? 'same' : 'different' });
+    if (a === 'yes' || a === 'no') answers.push({ a: pr.a.id, b: pr.b.id, answer: a === 'yes' ? 'same' : 'different' });
   }
   if (!answers.length) return;
-  btn.disabled = true;
+  fpPeekClose();
+  if (typeof facesCloseMenu === 'function') facesCloseMenu();
+  if (typeof FT !== 'undefined' && FT.naming && st.el.contains(FT.naming.host)) ftCloseNaming();
+  fpSetSaving(true);
   let same = 0, diff = 0, named = 0, other = 0;
   try {
     for (let i = 0; i < answers.length; i += 200) {
@@ -828,7 +1205,12 @@ async function fpSave(btn) {
       for (const d of r.done || []) { if (d.answer === 'same') same++; else diff++; }
       for (const x of r.skipped || []) { if (x.reason === 'both-named') named++; else other++; }
     }
-  } catch (err) { facesToastError(err); btn.disabled = false; return; }
+  } catch (err) {
+    facesToastError(err);
+    if (FP === st) fpSetSaving(false);
+    return;
+  }
+  if (FP === st) st.saving = false;
   const said = [];
   if (same) said.push(same === 1 ? 'Put 1 pair together.' : `Put ${same.toLocaleString()} pairs together.`);
   if (diff) said.push(diff === 1 ? '1 pair stays apart.' : `${diff.toLocaleString()} pairs stay apart.`);

@@ -135,6 +135,7 @@ const VAULT_ICONS = {
   caret: '<path d="m8 10 4 4 4-4"/>',
   'arrow-up': '<path d="M12 19V5M6 11l6-6 6 6"/>',
   'arrow-down': '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  skip: '<path d="M5 12h14M13 6l6 6-6 6"/>',   // Faces review: Skip for now
   minus: '<path d="M5 12h14"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   'eye-off': '<path d="M3.5 3.5l17 17"/><path d="M10.6 5.6c.5-.1.9-.1 1.4-.1 6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-2.7 3.4M6.6 6.6C3.9 8.4 2.5 12 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.4-1.1"/><path d="M9.9 9.9a2.8 2.8 0 0 0 4.2 4.2"/>',

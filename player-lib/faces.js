@@ -957,12 +957,13 @@ async function facesNotAFace(mediaId, groupId) {
 
 /* ── Small menu (chip right-click, tile right-click) ───────────────────── */
 
-function facesMenu(x, y, items) {
+function facesMenu(x, y, items, opener = null) {
   facesCloseMenu();
   if (typeof hideTilePopover === 'function') hideTilePopover();   // it would sit on top
   const menu = document.createElement('div');
   menu.className = 'fpop faces-menu';
   menu.id = 'facesMenu';
+  menu._opener = opener;   // Esc hands the focus back to it
   menu.setAttribute('role', 'menu');
   // A pick-one menu (items with checked): a tick column, the current one ticked.
   const radio = items.some(it => it.checked !== undefined);
@@ -982,7 +983,13 @@ function facesMenu(x, y, items) {
   menu.querySelector('button')?.focus();
 }
 
-function facesCloseMenu() { document.getElementById('facesMenu')?.remove(); }
+function facesCloseMenu() {
+  const menu = document.getElementById('facesMenu');
+  if (!menu) return;
+  const hadFocus = menu.contains(document.activeElement);
+  menu.remove();
+  if (hadFocus && menu._opener && menu._opener.isConnected) menu._opener.focus({ preventScroll: true });
+}
 
 /* ── Tile right-click + selection bar ──────────────────────────────────── */
 

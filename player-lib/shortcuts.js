@@ -98,10 +98,11 @@ const SHORTCUTS = [
   { ctx: 'editor', keys: ['\\'], desc: 'Loop: turn it off' },
 
   // faces-review.js (the review windows and the checks on a person's page)
-  { ctx: 'faces', keys: ['Y'], desc: 'Yes for this face (or the first one with no answer)' },
-  { ctx: 'faces', keys: ['N'], desc: 'No for this face (or the first one with no answer)' },
-  { ctx: 'faces', keys: ['Left', 'Right'], desc: 'Move between faces' },
-  { ctx: 'faces', keys: ['Esc'], desc: 'Close the review window' },
+  { ctx: 'faces', keys: ['Y'], desc: 'Yes for this face, or Same for this pair (or the first one with no answer)' },
+  { ctx: 'faces', keys: ['N'], desc: 'No for this face, or Different for this pair (or the first one with no answer)' },
+  { ctx: 'faces', keys: ['S'], desc: 'Skip this pair for now (Same person?)' },
+  { ctx: 'faces', keys: ['Left', 'Right'], desc: 'Move between faces or pairs' },
+  { ctx: 'faces', keys: ['Esc'], desc: 'Close the review window (Same person? asks first if answers are not saved)' },
 
   // this file, settings.js, every popover and window, lovense-sync.js
   { ctx: 'anywhere', keys: ['?'], desc: 'Show this list' },

@@ -504,7 +504,7 @@ function facesHeaderCount() {
 const ftPairKey = (a, b) => `${Math.min(a, b)}-${Math.max(a, b)}`;
 
 /** A review answer without the pairs left out this session (ftNamePairSide). */
-const FT_STRIP_MAX = 8;          // "Same person?" pairs the strip loads (it shows one row of them)
+const FT_STRIP_MAX = 16;         // "Same person?" pairs the strip loads (it shows as many as fit one row)
 const FT_STRIP_HIDE = 'vaultSamePersonHidden';   // localStorage: the pair count when the strip was hidden
 
 /** The strip was hidden at this many pairs (null: not hidden). Shown again once there are more. */
@@ -642,9 +642,86 @@ function ftNameItHtml(p) {
   return `<div class="ft-nm-slot"><button class="ft-addname ft-nameit" type="button" data-ft-nameit="${p.id}" title="Add a name">Not named yet</button></div>`;
 }
 
-function ftPairSide(p) {
+/** A name under a pair's face, or "Not named yet" (opens the name field). */
+function ftPairName(p) {
   const name = ftName(p);
-  return `<div class="ft-f2">${ftCropImg(p.coverUrl)}${name ? `<div class="ft-pname">${ftEsc(name)}</div>` : ftNameItHtml(p)}</div>`;
+  return `<div class="ft-f2">${name ? `<div class="ft-pname">${ftEsc(name)}</div>` : ftNameItHtml(p)}</div>`;
+}
+
+/** The three answers' words, everywhere a pair is asked about. */
+const FT_SAME_HINT = 'Same puts their files together. Different keeps them apart for good. Skip leaves it for later.';
+
+/**
+ * A compact pair card for the strip: the two faces back to back with a "?"
+ * between them, the names under them, and Same | Different.
+ */
+function ftPairCardHtml(pr) {
+  return `
+    <div class="ft-pair" data-a="${pr.a.id}" data-b="${pr.b.id}">
+      <div class="ft-pfaces">${ftCropImg(pr.a.coverUrl)}${ftCropImg(pr.b.coverUrl)}<span class="ft-vs" aria-hidden="true">?</span></div>
+      <div class="ft-pnames">${ftPairName(pr.a)}${ftPairName(pr.b)}</div>
+      <div class="ft-seg" role="group" aria-label="Same person?">
+        <button type="button" class="ft-seg-same" data-ft-answer="same">${facesIcon('check')}Same</button>
+        <button type="button" class="ft-seg-diff" data-ft-answer="different">${facesIcon('close')}Different</button>
+      </div>
+    </div>`;
+}
+
+/**
+ * How many pair cards fit one row of the strip (pure). width: the row's
+ * inner width; card, gap, more: a card's width, the gap between cards and
+ * the "N more" slot's width, in px; count: pairs loaded; total: pairs in all.
+ * When every pair fits, all of them show and there is no "N more". Otherwise
+ * the last slot is "N more · Review all" and the cards get what is left: at
+ * least one card, alone when there is no room for both.
+ * @returns {{ show: number, more: boolean }}
+ */
+function ftStripFit({ width, card, gap = 0, more = 0, count, total }) {
+  total = Math.max(0, Number(total) || 0);
+  count = Math.max(0, Math.min(Number(count) || 0, total));
+  if (!count || !(card > 0) || !(width > 0)) return { show: Math.min(count, 1), more: false };
+  const step = card + gap;
+  if (count === total && total * card + (total - 1) * gap <= width) return { show: total, more: false };
+  const n = Math.floor((width - more) / step);   // n cards, each followed by a gap, then the slot
+  if (n < 1) return { show: 1, more: false };
+  return { show: Math.min(count, n), more: true };
+}
+
+/** Show as many cards as fit the strip's width right now; the rest wait behind "N more". */
+function ftFitStrip() {
+  const el = document.getElementById('ftReview');
+  const row = el && !el.hidden ? el.querySelector('.ft-pairs') : null;
+  if (!row || !row.clientWidth) return;
+  if (FT.naming && el.contains(FT.naming.host)) return;   // never hide a card with a name field open
+  const cards = [...row.querySelectorAll('.ft-pair')];
+  const slot = row.querySelector('.ft-pair-more');
+  if (!cards.length || !slot) return;
+  // Measure at the base size (ft-fitted lets the shown cards grow into the leftover width).
+  row.classList.remove('ft-fitted');
+  cards[0].hidden = false;
+  slot.hidden = false;
+  const card = cards[0].getBoundingClientRect().width;
+  const more = slot.getBoundingClientRect().width;
+  const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+  const total = Math.max((FT.review && FT.review.total) || 0, cards.length);
+  const fit = ftStripFit({ width: row.clientWidth, card, gap, more, count: cards.length, total });
+  const a = document.activeElement;
+  const lost = a && cards.some((c, i) => i >= fit.show && c.contains(a));
+  cards.forEach((c, i) => { c.hidden = i >= fit.show; });
+  slot.hidden = !fit.more;
+  if (fit.more) slot.querySelector('b').textContent = `${(total - fit.show).toLocaleString()} more`;
+  row.classList.add('ft-fitted');
+  if (lost) (fit.more ? slot : el.querySelector('[data-ft-reviewall]'))?.focus({ preventScroll: true });
+}
+
+/* The strip lays itself out again whenever its width changes. */
+let ftStripRO = null;
+function ftWatchStrip(el) {
+  if (typeof ResizeObserver !== 'function' || (ftStripRO && ftStripRO.el === el)) return;
+  if (ftStripRO) ftStripRO.ro.disconnect();
+  const ro = new ResizeObserver(() => ftFitStrip());
+  ro.observe(el);
+  ftStripRO = { el, ro };
 }
 
 /**
@@ -687,20 +764,15 @@ function ftPaintReview({ refocus = false, pairEl = null } = {}) {
   }
   if (hiddenAt != null) ftStripHide(null);   // more pairs since: shown again
   el.classList.remove('ft-review-min');
-  // One row of pairs, as many as fit the width (each pair needs about 300 px).
-  const width = (el.parentElement && el.parentElement.clientWidth) || 960;
-  const fit = Math.max(1, Math.min(FT_STRIP_MAX, Math.floor((width + 12) / 312)));
+  // Exactly one row: every loaded pair is drawn, then ftFitStrip hides the
+  // ones that do not fit (again on every width change) behind "N more".
   el.innerHTML = `
-    <div class="ft-review-h"><h2>Same person?</h2><span>${n.toLocaleString()} to look at. Saying yes puts their files together.</span>
+    <div class="ft-review-h"><h2>Same person?</h2><span>${n.toLocaleString()} to look at. Same puts their files together.</span>
       <button type="button" class="ft-link" data-ft-reviewall>Review all</button>
       <button type="button" class="ft-x ft-review-hide" data-ft-reviewhide aria-label="Hide Same person?" title="Hide">${facesIcon('close') || '×'}</button></div>
-    <div class="ft-pairs">${pairs.slice(0, fit).map(pr => `
-      <div class="ft-pair" data-a="${pr.a.id}" data-b="${pr.b.id}">
-        <div class="ft-faces2">${ftPairSide(pr.a)}${ftPairSide(pr.b)}</div>
-        <div class="ft-qa"><span>Same person?</span>
-          <button class="ft-btn" type="button" data-ft-answer="same">Yes</button>
-          <button class="ft-btn ghost" type="button" data-ft-answer="different">No</button></div>
-      </div>`).join('')}</div>`;
+    <div class="ft-pairs">${pairs.slice(0, FT_STRIP_MAX).map(ftPairCardHtml).join('')}<button type="button" class="ft-pair-more" data-ft-reviewall hidden><b></b><span>Review all</span></button></div>`;
+  ftFitStrip();
+  ftWatchStrip(el);
   if (hadFocus) ftFocusStrip(fromPair);
 }
 
@@ -783,23 +855,18 @@ function ftPaintDialog(toast) {
       <div class="ft-files">${((typeof thumbsOff === 'function' && thumbsOff()) ? [] : (sample || [])).slice(0, 3).map(id => `<img class="ft-file tile-img" src="/thumb/${id}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`).join('')}</div>
     </div>`;
   };
-  const named = pr.a.name ? pr.a : pr.b.name ? pr.b : null;
-  const nm = named && `<span class="ft-pm-name">${ftEsc(named.name)}</span>`;
-  const hint = named
-    ? `Yes puts their files together under ${nm}. You can split them again from ${nm}'s page.`
-    : 'Yes puts their files together. You can split them again from their page.';
   ov.innerHTML = `
     <div class="ft-dlg" role="dialog" aria-modal="true" aria-label="Same person?">
       <div class="ft-dlg-h"><h2>Same person?</h2><span>${(ftDlg.i + 1).toLocaleString()} of ${ftDlg.total.toLocaleString()}</span>
         <button type="button" class="ft-x" data-ft-dlg="close" aria-label="Close">${facesIcon('close') || '×'}</button></div>
       <div class="ft-cols">${col(pr.a, pr.sample && pr.sample.a)}${col(pr.b, pr.sample && pr.sample.b)}</div>
       <div class="ft-dlg-acts">
-        <button class="ft-btn ft-btn-md" type="button" data-ft-dlg="same">Yes, same person</button>
-        <button class="ft-btn ghost ft-btn-md" type="button" data-ft-dlg="different">No, different people</button>
-        <button class="ft-btn ghost ft-btn-md" type="button" data-ft-dlg="skip">Not sure, skip</button>
+        <button class="ft-btn ft-btn-md" type="button" data-ft-dlg="same">${facesIcon('check')}Same</button>
+        <button class="ft-btn ghost ft-btn-md" type="button" data-ft-dlg="different">${facesIcon('close')}Different</button>
+        <button class="ft-btn ghost ft-btn-md" type="button" data-ft-dlg="skip">${facesIcon('skip')}Skip</button>
         <button type="button" class="ft-link" data-ft-dlg="close">Done for now</button>
       </div>
-      <div class="ft-hint">${hint}</div>
+      <div class="ft-hint">${FT_SAME_HINT}</div>
     </div>`;
   ov.querySelector('[data-ft-dlg="same"]').focus();
   const act = async (what) => {
@@ -2600,11 +2667,13 @@ function ftWire() {
     const ans = t.closest('[data-ft-answer]');
     if (ans) {
       const pair = ans.closest('.ft-pair');
+      const hadFocus = pair.contains(document.activeElement);
       pair.querySelectorAll('button').forEach(b => { b.disabled = true; });
       const said = await ftAnswer(Number(pair.dataset.a), Number(pair.dataset.b), ans.dataset.ftAnswer);
       if (said != null) {
         showToast(said);
-        ftLoadReview();
+        // Answered from the keyboard: the focus goes on to the next pair.
+        ftLoadReview().then(() => { if (hadFocus && (!document.activeElement || document.activeElement === document.body)) ftFocusStrip(pair); });
         if (ans.dataset.ftAnswer === 'same') ftLoadPeople();
       } else pair.querySelectorAll('button').forEach(b => { b.disabled = false; });
       return;
@@ -2739,15 +2808,16 @@ window.addEventListener('keydown', (e) => {
   else if (dlg) ftCloseReview();
   else if (document.getElementById('ftPop')) ftClosePops();
   else if (FT.naming) ftCloseNaming();
-  else if (ftOnTab() && FT.mode === 'people' && FT.personId == null && FT.sel.size && !document.querySelector('.modal-overlay.active, .media-player-overlay.active, .settings-overlay.active')) ftClearSel();
+  else if (ftOnTab() && FT.mode === 'people' && FT.personId == null && FT.sel.size && !document.querySelector('.modal-overlay.active, .media-player-overlay.active, .settings-overlay.active, .fr-panel')) ftClearSel();
   else return;
   e.preventDefault();
   e.stopImmediatePropagation();
 }, true);
 
 window.addEventListener('resize', () => ftClosePops());
-// The "Same person?" strip shows as many pairs as fit one row.
-window.addEventListener('resize', debounce(() => { if (ftOnTab() && FT.personId == null) ftPaintReview(); }, 200));
+// The "Same person?" strip shows as many pairs as fit one row (ftWatchStrip
+// follows its width; this is for a browser with no ResizeObserver).
+if (typeof ResizeObserver !== 'function') window.addEventListener('resize', debounce(() => { if (ftOnTab() && FT.personId == null) ftFitStrip(); }, 100));
 
 // People cards have their own Size slider now. Settings > Card size still
 // sizes a person's files until that page's slider is first moved, so its

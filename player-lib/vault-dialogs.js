@@ -10,6 +10,12 @@
                                    danger, list })                  -> true | false
      await vaultPrompt(message, { title, value, placeholder,
                                   okLabel, cancelLabel })           -> string | null
+     await vaultChoose(message, { title, buttons: [{ label, value,
+                                  primary, danger }], cancelValue }) -> a value
+
+   vaultChoose is for three or more answers ("Keep reviewing", "Discard",
+   "Save and close"): the buttons in the order given, Enter answers the
+   primary one, Esc and a click on the backdrop answer cancelValue.
 
    message is plain text: a blank line starts a new paragraph, a single line
    break stays a line break. `list` (any of them) adds a bullet list under the
@@ -50,7 +56,7 @@
     return html;
   }
 
-  const DEFAULT_TITLE = { alert: 'Vault', confirm: 'Please confirm', prompt: 'Enter a value' };
+  const DEFAULT_TITLE = { alert: 'Vault', confirm: 'Please confirm', prompt: 'Enter a value', choose: 'Please choose' };
 
   function el(tag, cls, attrs) {
     const n = document.createElement(tag);
@@ -60,7 +66,7 @@
   }
 
   function focusables(d) {
-    return [d.input, d.cancelBtn, d.okBtn].filter(Boolean);
+    return d.btns || [d.input, d.cancelBtn, d.okBtn].filter(Boolean);
   }
 
   /** Inert everything at body level except the top dialog's overlay. */
@@ -106,22 +112,40 @@
 
     const actions = el('div', 'vdlg-actions');
     let cancelBtn = null;
-    if (kind !== 'alert') {
+    let okBtn = null;
+    let btns = null;          // vaultChoose: every button, in order
+    if (kind === 'choose') {
+      // No buttons given (a caller's mistake): one OK that answers cancelValue, so the dialog can always be closed.
+      const given = Array.isArray(o.buttons) ? o.buttons.filter(b => b && b.label != null && String(b.label) !== '') : [];
+      const list = given.length ? given : [{ label: 'OK', value: o.cancelValue, primary: true }];
+      btns = list.map((b) => {
+        const n = el('button', 'vdlg-btn' + (b.primary ? ' vdlg-ok' : ' vdlg-cancel') + (b.danger ? ' is-danger' : ''), { type: 'button' });
+        n.textContent = b.label;
+        n._value = b.value;
+        actions.appendChild(n);
+        if (b.primary && !okBtn) okBtn = n;
+        if (b.value === o.cancelValue && !cancelBtn) cancelBtn = n;
+        return n;
+      });
+      okBtn = okBtn || btns[btns.length - 1] || null;
+    } else if (kind !== 'alert') {
       cancelBtn = el('button', 'vdlg-btn vdlg-cancel', { type: 'button' });
       cancelBtn.textContent = o.cancelLabel || 'Cancel';
       actions.appendChild(cancelBtn);
     }
-    const okBtn = el('button', 'vdlg-btn vdlg-ok' + (danger ? ' is-danger' : ''), { type: 'button' });
-    okBtn.textContent = o.okLabel || 'OK';
-    actions.appendChild(okBtn);
+    if (kind !== 'choose') {
+      okBtn = el('button', 'vdlg-btn vdlg-ok' + (danger ? ' is-danger' : ''), { type: 'button' });
+      okBtn.textContent = o.okLabel || 'OK';
+      actions.appendChild(okBtn);
+    }
     box.appendChild(actions);
     ov.appendChild(box);
 
-    const okValue = () => kind === 'confirm' ? true : kind === 'prompt' ? input.value : undefined;
-    const cancelValue = kind === 'confirm' ? false : kind === 'prompt' ? null : undefined;
+    const okValue = () => kind === 'confirm' ? true : kind === 'prompt' ? input.value : kind === 'choose' ? (okBtn ? okBtn._value : o.cancelValue) : undefined;
+    const cancelValue = kind === 'confirm' ? false : kind === 'prompt' ? null : kind === 'choose' ? o.cancelValue : undefined;
 
     return new Promise((resolve) => {
-      const d = { kind, ov, box, input, okBtn, cancelBtn, done: false };
+      const d = { kind, ov, box, input, okBtn, cancelBtn, btns, done: false };
       d.ok = () => finish(okValue());
       d.cancel = () => finish(cancelValue);
       function finish(value) {
@@ -140,8 +164,11 @@
         } else if (top) top.first.focus();
         resolve(value);
       }
-      okBtn.addEventListener('click', d.ok);
-      if (cancelBtn) cancelBtn.addEventListener('click', d.cancel);
+      if (btns) for (const b of btns) b.addEventListener('click', () => finish(b._value));
+      else {
+        okBtn.addEventListener('click', d.ok);
+        if (cancelBtn) cancelBtn.addEventListener('click', d.cancel);
+      }
       // A press that starts and ends on the dim backdrop is a cancel. Not for
       // a prompt, where a stray click would throw away what was typed.
       // (A press from the backdrop into the box clicks the backdrop too, as
@@ -154,7 +181,7 @@
         downOnBackdrop = upOnBackdrop = false;
       });
 
-      d.first = input || (danger ? cancelBtn : okBtn);
+      d.first = input || (danger ? cancelBtn : okBtn) || (btns && btns[0]);
       stack.push(d);
       document.body.appendChild(ov);
       syncInert();
@@ -208,6 +235,7 @@
   window.vaultAlert = (message, o) => open('alert', message, o);
   window.vaultConfirm = (message, o) => open('confirm', message, o);
   window.vaultPrompt = (message, o) => open('prompt', message, o);
+  window.vaultChoose = (message, o) => open('choose', message, o);
   window.vaultDialogOpen = () => stack.length > 0;
   // Is any modal up that owns the keyboard? These dialogs, plus the ones
   // built elsewhere with their own key handling: the password dialogs and

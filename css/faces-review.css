@@ -251,19 +251,60 @@ body.pm-thumbs .fr-src img, body.pm-thumbs .fr-frame-media, body.pm-thumbs .fr-s
 .fr-secth-acts .ft-btn-md { font-size: 0.78rem; padding: 0.38rem 0.75rem; }
 .fr-body > .fr-secth:first-child { margin-top: 0; }
 
-/* ── "Same person?" pairs in the panel (faces-review.js fpPaint) ── */
-.fp-cards { grid-template-columns: 1fr; }
-.fp-pair {
-  display: flex; align-items: flex-start; justify-content: center; gap: 10px;
-  padding: 12px 10px 4px; cursor: default; height: auto;
+/* ── "Same person?" pairs in the panel (faces-review.js fpPaint): the
+   strip's compact card (faces-tab.css .ft-pfaces / .ft-pnames / .ft-seg)
+   in a grid, four across at the panel's own width ── */
+.fr-pairs-panel {
+  left: calc(var(--fr-vx, 0px) + max(0px, var(--fr-vw, 100vw) - 880px)); width: min(880px, var(--fr-vw, 100vw));
 }
-.fp-side { flex: 1 1 0; min-width: 0; text-align: center; }
-.fp-face { width: 100%; max-width: 150px; aspect-ratio: 1 / 1; margin: 0 auto; border-radius: 8px; overflow: hidden; background: var(--bg-tertiary); }
-.fp-face .face-crop, .fp-face .ft-blank { width: 100%; height: 100%; object-fit: cover; display: flex; align-items: center; justify-content: center; }
-.fp-name { margin-top: 6px; font-size: 0.85rem; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-count { margin-left: 8px; font-size: 0.8125rem; font-weight: 400; color: var(--text-secondary); }
+.fp-cards { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.fr-card.fp-card {
+  overflow: visible; position: relative; padding: 8px; gap: 7px; border-radius: 12px; background: var(--bg-secondary);
+}
+.fr-card.fp-card.is-yes { border-color: rgba(74, 222, 128, 0.6); box-shadow: none; background: rgba(74, 222, 128, 0.08); }
+.fr-card.fp-card.is-no { border-color: rgba(248, 113, 113, 0.5); background: rgba(248, 113, 113, 0.06); opacity: 0.6; }
+.fr-card.fp-card.is-no:focus-within { opacity: 0.85; }
+.fr-card.fp-card.is-skip { border-style: dashed; }
+.fp-faces .fp-face {
+  position: relative; flex: 1 1 0; min-width: 0; aspect-ratio: 1 / 1; border-radius: 8px; overflow: hidden; background: var(--bg-tertiary);
+}
+.fp-face-btn.fr-face-btn { cursor: pointer; }
+.ft-pfaces.fp-faces .face-crop, .ft-pfaces.fp-faces .ft-blank { width: 100%; height: 100%; border-radius: 0; }
+.fp-dots {
+  position: absolute; right: 4px; top: 4px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px;
+  background: rgba(20, 20, 26, 0.8); color: #e5e5ea; display: flex; align-items: center; justify-content: center; cursor: pointer;
+  opacity: 0; transition: opacity 0.12s;
+}
+.fp-face:hover .fp-dots, .fp-card:focus-within .fp-dots, .fp-dots:focus-visible { opacity: 1; }
+.fp-dots:hover { background: rgba(40, 40, 52, 0.95); }
+.fp-dots:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.fp-dots .vi { width: 16px; height: 16px; }
+@media (hover: none) { .fp-dots { opacity: 1; } }
+.fp-names .ft-f2 { flex: 1 1 0; width: auto; }
+.fp-seg .ft-seg-skip { flex: 0 0 36px; padding: 0; color: var(--text-secondary); }
+.ft-seg .ft-seg-same.on { background: rgba(74, 222, 128, 0.18); color: #bbf7d0; }
+.ft-seg .ft-seg-diff.on { background: rgba(248, 113, 113, 0.18); color: #fecaca; }
+.ft-seg .ft-seg-skip.on { background: var(--bg-hover); color: var(--text-primary); }
+.fr-sum .fp-n-same { color: #86efac; }
+.fr-sum .fp-n-diff { color: #fca5a5; }
+.fr-pairs-panel .fr-body { padding-top: 14px; }
+.fr-pairs-panel .fr-head .fr-note { margin-top: 4px; }
+/* A face's peek: a few of the person's files */
+.fp-peek {
+  position: fixed; z-index: 5; width: 280px; box-sizing: border-box; padding: 10px;
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+}
+.fp-peek-h { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; min-width: 0; }
+.fp-peek-name { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fp-noname { color: var(--text-secondary); font-style: italic; font-weight: 400; }
-.fp-files { font-size: 0.75rem; color: var(--text-secondary); }
-.fp-plus { align-self: center; color: var(--text-secondary); font-size: 1.2rem; }
+.fp-peek-sub { font-size: 0.75rem; color: var(--text-secondary); }
+.fp-peek-files { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.fp-peek-files .fr-note { grid-column: 1 / -1; margin: 0; }
+.fp-peek-file { display: block; aspect-ratio: 16 / 10; border-radius: 6px; overflow: hidden; background: var(--bg-tertiary); }
+.fp-peek-file img { width: 100%; height: 100%; object-fit: cover; display: block; }
+body.pm-thumbs .fp-peek-file img { filter: blur(14px); }
+.fr-pairs-panel.is-saving .fr-body { opacity: 0.7; pointer-events: none; }
 
 /* ── The "Same person?" strip: hide it, and its small chip ── */
 .ft-review-h .ft-review-hide { margin-left: 4px; font-size: 1.25rem; }
