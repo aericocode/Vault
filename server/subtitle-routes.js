@@ -17,6 +17,16 @@ function parseId(value) {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
+/**
+ * The ?lang= of a track route, or null when it is not a track key. Checked
+ * before anything looks it up: the key ends up in a file name (see
+ * repo.isValidTrackLang), so a value like ../../x is refused here.
+ */
+function parseLang(value, fallback = '') {
+  const lang = value === undefined ? fallback : String(value);
+  return repo.isValidTrackLang(lang) ? lang : null;
+}
+
 function buildRouter() {
   const router = express.Router();
 
@@ -36,7 +46,8 @@ function buildRouter() {
   router.get('/media/:id/subtitles', (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'bad id' });
-    const lang = String(req.query.lang || 'en');
+    const lang = parseLang(req.query.lang || undefined, 'en');
+    if (!lang) return res.status(400).json({ error: 'That language code is not valid.' });
     const track = repo.getTrack(id, lang);
     if (!track) return res.status(404).json({ error: 'no such track' });
 
@@ -134,8 +145,9 @@ function buildRouter() {
   router.put('/media/:id/subtitles', (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'bad id' });
-    const lang = String(req.query.lang || '');
-    if (!lang) return res.status(400).json({ error: 'lang required' });
+    if (!req.query.lang) return res.status(400).json({ error: 'lang required' });
+    const lang = parseLang(req.query.lang);
+    if (!lang) return res.status(400).json({ error: 'That language code is not valid.' });
     // A run still writing this file would overwrite the edit, or remove it if it fails
     if (service.isActive(id)) return res.status(409).json({ error: 'Subtitles are still being made. Try again in a moment.' });
     const existing = repo.getTrack(id, lang);
@@ -188,9 +200,10 @@ function buildRouter() {
   router.delete('/media/:id/subtitles', (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'bad id' });
-    const lang = String(req.query.lang || '');
-    if (!lang) return res.status(400).json({ error: 'lang required' });
-    repo.deleteTrack(id, lang);
+    if (!req.query.lang) return res.status(400).json({ error: 'lang required' });
+    const lang = parseLang(req.query.lang);
+    if (!lang) return res.status(400).json({ error: 'That language code is not valid.' });
+    if (!repo.deleteTrack(id, lang)) return res.status(404).json({ error: 'no such track' });
     if (lang === 'en') service.refreshEnglishSearchText(id);   // clears the search index
     res.json({ ok: true });
   });
