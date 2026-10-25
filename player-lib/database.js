@@ -51,9 +51,11 @@ async function loadDatabase() {
     // Then the library-wide counts and the saved searches, once the first
     // page is on screen and its id list has been asked for: the server takes
     // requests in order, and a cold count of a big library takes seconds.
+    // The saved searches go first: one small read, so the rail and the panel
+    // under the search box list them without waiting behind the counts.
     await first;
-    const facets = Library.refreshFacets();
     const saved = loadSavedSearches().then(() => renderSavedSearches());
+    const facets = Library.refreshFacets();
 
     // Show WHICH database file this server is serving (catches accidentally
     // launching against a test/other DB — the count alone can't tell you)

@@ -297,7 +297,10 @@ function updateSearchStarButton() {
 // there is typed text it starts with a "+ Save" pill (the Modern box has no
 // star; this is the save), then the saved searches that match.
 // Clicking a pill runs it (activateSavedSearch, the same as the rail). Typing
-// narrows the pills (by name or query, any case). Enter (the search), Esc, a
+// narrows the pills (by name or query, any case). Text that was already in the
+// box when the panel opened (the last session's search, restored at launch, or
+// the query a saved search put there) does not narrow: the panel opens on
+// every saved search, the same list as the rail, until a key is typed. Enter (the search), Esc, a
 // click away or Tab close the panel, so it never covers the results for long. Arrows move pill to
 // pill, Enter picks; nothing is highlighted on open, so Enter alone is the
 // normal search. The pencil turns on edit mode: every pill shows an x that
@@ -344,12 +347,16 @@ function savedSearchQueryOf(s) {
  * No Save pill when a saved search's name or query is exactly the typed text
  * (current is that one's id; it is shown marked instead), or in edit mode.
  * An empty box shows the saved list (or, with none, the empty state); typed
- * text shows the panel whenever it has a pill.
+ * text shows the panel whenever it has a pill. opts.narrow false lists every
+ * saved search whatever the text (the Save pill and current still follow
+ * it): the panel passes that until the user types, so text left in the box
+ * from before never hides saved searches.
  */
 function savedSearchDropdownState(list, query, opts) {
   const all = Array.isArray(list) ? list : [];
   const text = String(query || '').trim();
-  const rows = savedSearchMatches(all, text);
+  const narrow = !(opts && opts.narrow === false);
+  const rows = savedSearchMatches(all, narrow ? text : '');
   const cur = text ? all.find(s => s && (String(s.name || '').trim() === text || savedSearchQueryOf(s).trim() === text)) : null;
   const save = !!text && !cur && !(opts && opts.editing);
   const items = save ? [{ id: 'save', save: true, text }, ...rows] : rows;
@@ -387,7 +394,8 @@ function savedSearchIndexAfterRemove(index, count) {
   return Math.min(index, left - 1);
 }
 
-const _ssd = { open: false, dismissed: false, editing: false, index: -1, rows: [], afterRemove: null };
+// typed: the user has typed since the panel opened, so the text narrows it.
+const _ssd = { open: false, dismissed: false, editing: false, typed: false, index: -1, rows: [], afterRemove: null };
 
 function ssdEls() {
   return { input: document.getElementById('searchInput'), box: document.getElementById('savedSearchDropdown') };
@@ -401,6 +409,7 @@ function ssdClose(opts) {
   const { input, box } = ssdEls();
   _ssd.open = false;
   _ssd.editing = false;
+  _ssd.typed = false;
   _ssd.index = -1;
   if (opts && opts.dismiss) _ssd.dismissed = true;
   if (box) { box.hidden = true; box.classList.remove('is-editing'); }
@@ -415,7 +424,7 @@ function ssdRender() {
   const { input, box } = ssdEls();
   if (!input || !box) return;
   if (!ssdIsModern() || _ssd.dismissed || document.activeElement !== input || input.disabled) { ssdClose(); return; }
-  const st = savedSearchDropdownState(savedSearches, input.value, { editing: _ssd.editing });
+  const st = savedSearchDropdownState(savedSearches, input.value, { editing: _ssd.editing, narrow: _ssd.typed });
   if (!st.show) { ssdClose(); return; }
   const prev = _ssd.rows[_ssd.index];
   let index = prev ? st.rows.findIndex(s => s.id === prev.id) : -1;
@@ -543,7 +552,7 @@ function ssdInit() {
     _ssd.dismissed = false;
     setTimeout(ssdRender, 0);
   });
-  input.addEventListener('input', () => { _ssd.dismissed = false; _ssd.index = -1; _ssd.rows = []; ssdRender(); });
+  input.addEventListener('input', () => { _ssd.dismissed = false; _ssd.typed = true; _ssd.index = -1; _ssd.rows = []; ssdRender(); });
   input.addEventListener('keydown', ssdOnKeydown);
   // Tab or a click elsewhere: the panel goes with the focus (and edit mode ends).
   input.addEventListener('blur', () => ssdClose());

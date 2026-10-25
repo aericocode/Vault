@@ -49,12 +49,19 @@ body.layout-modern #modalBody:has(> .mpp) {
 /* The library's detail slide-out (modal.js showDetails): same panel, under
    its title bar. */
 body.layout-modern #modalBody:has(> .mpp) { flex: 1; min-height: 0; }
-/* The note box stays on screen: the slide-out fits inside the overlay's
-   padding instead of running 100vh from below it (css/tiles.css). */
+/* The slide-out sits flush against the window's right edge, top to bottom:
+   the overlay drops its 2rem padding (css/modal.css) for this panel only,
+   and the panel is exactly the window's height, so the note box stays on
+   screen and only the tab's body scrolls (css/tiles.css's 100vh plus that
+   padding would scroll the whole overlay instead). */
+body.layout-modern .modal-overlay:has(#modalBody > .mpp) {
+  padding: 0;
+  overflow: hidden;
+}
 body.layout-modern .modal-content:has(#modalBody > .mpp) {
   background: #18181b;
-  height: calc(100vh - 4rem);
-  max-height: calc(100vh - 4rem) !important;
+  height: 100%;
+  max-height: 100% !important;
 }
 
 body.layout-modern .mpp {

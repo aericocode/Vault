@@ -159,3 +159,53 @@ test('after a remove the next pill takes the highlight, or the new last one', ()
   assert.strictEqual(savedSearchIndexAfterRemove(0, 1), -1, 'none left');
   assert.strictEqual(savedSearchIndexAfterRemove(-1, 3), -1);
 });
+
+// 3.9: the panel opened on a box that still held the last session's search
+// (restored at launch) or a saved search's query, and narrowed by it, so the
+// saved searches made before (the ones the rail lists) seemed missing.
+test('text from before the panel opened does not narrow it; the Save pill and current still follow it', () => {
+  const restored = savedSearchDropdownState(LIST, 'zzz', { narrow: false });
+  assert.deepStrictEqual(ids(restored.items), ['save', 1, 2, 3], 'every saved search, after the Save pill');
+  assert.deepStrictEqual(ids(restored.rows), [1, 2, 3]);
+  const ran = savedSearchDropdownState(LIST, 'beach', { narrow: false });
+  assert.deepStrictEqual(ids(ran.items), [1, 2, 3]);
+  assert.strictEqual(ran.current, 2, 'the one in the box is marked');
+  assert.deepStrictEqual(ids(savedSearchDropdownState(LIST, 'beach').items), [2], 'typed text still narrows');
+});
+
+function fakePanelPage(list, boxText) {
+  const listeners = {};
+  const doc = { activeElement: null, getElementById: (id) => (id === 'searchInput' ? input : id === 'savedSearchDropdown' ? box : null) };
+  let box = null;
+  const input = {
+    value: boxText, disabled: false, attrs: {},
+    setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; },
+    addEventListener(t, fn) { listeners[t] = fn; },
+    insertAdjacentElement(_, el) { box = el; },
+  };
+  doc.createElement = () => ({
+    hidden: false, innerHTML: '', classList: { toggle() {}, remove() {} },
+    addEventListener() {}, querySelectorAll: () => [],
+  });
+  const ctx = {
+    console, Math, JSON, Array, Object, String, Number, Boolean, setTimeout,
+    document: doc, window: { isModernLayout: () => true, addEventListener() {} },
+    escapeHtml: (s) => String(s),
+  };
+  vm.createContext(ctx);
+  const src = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'saved-searches.js'), 'utf8');
+  vm.runInContext(`${src}\n;savedSearches = __list; ssdInit();`, Object.assign(ctx, { __list: list }));
+  const pills = () => [...box.innerHTML.matchAll(/data-ssd-id="(\d+)"/g)].map(m => Number(m[1]));
+  const fire = (t) => { doc.activeElement = input; listeners[t](); };
+  return { input, pills, fire, saves: () => box.innerHTML.includes('data-ssd-save') };
+}
+
+test('the panel opens on every saved search when the box already has text, and narrows once the user types', () => {
+  const page = fakePanelPage(LIST, 'beach');
+  page.fire('focus');
+  assert.deepStrictEqual(page.pills(), [1, 2, 3], 'the same list as the rail');
+  page.input.value = 'bea';
+  page.fire('input');
+  assert.deepStrictEqual(page.pills(), [2]);
+  assert.strictEqual(page.saves(), true);
+});
