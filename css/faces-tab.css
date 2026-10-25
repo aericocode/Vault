@@ -582,7 +582,8 @@ body.pm-names .ft-cmeta { filter: blur(7px); }
   background: var(--bg-secondary); border-radius: 12px; padding: 16px;
   display: flex; flex-direction: column; flex-wrap: nowrap; gap: 14px; margin-bottom: 0;
 }
-.ft-side .ft-cover { width: min(100%, 26vh); height: auto; aspect-ratio: 1 / 1; min-width: 140px; }
+/* The photo keeps its size; a short window folds the column instead (faces-tab.js ftApplyFold). */
+.ft-side .ft-cover { width: 232px; height: 232px; max-width: 100%; min-width: 0; }
 .ft-side .ft-cover-cap { opacity: 0; transition: opacity 0.15s; }
 .ft-side .ft-cover:hover .ft-cover-cap, .ft-side .ft-cover:focus-visible .ft-cover-cap { opacity: 1; }
 .ft-side .ft-info { flex: none; gap: 10px; }
@@ -592,19 +593,105 @@ body.pm-names .ft-cmeta { filter: blur(7px); }
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
 }
 .ft-side .ft-stats { display: block; font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.45; }
-.ft-side .st-facts { gap: 4px 14px; font-size: 0.8125rem; }
+/* Beside the folded photo the stats are short ("3 files · 5 min on screen"); the full line is its tooltip. */
+.ft-stats-short { display: none; }
+.ft-side.ft-fold-photo .ft-stats-full { display: none; }
+.ft-side.ft-fold-photo .ft-stats-short { display: inline; }
 /* Play all on its own line, then Shuffle, Favorite and the menu. */
 .ft-side .ft-acts { display: grid; grid-template-columns: 1fr 1fr 40px; gap: 6px; }
 .ft-side .ft-acts [data-ft-play="0"] { grid-column: 1 / -1; }
 .ft-side .ft-acts .ft-btn-md { padding: 0.45rem 0.5rem; white-space: nowrap; }
 .ft-dots { font-size: 1rem; line-height: 1; letter-spacing: 1px; min-width: 38px; }
-/* Description, notes and "Often seen with" scroll inside the column when it is taller than the window. */
+/* Details and "Often seen with": past the last fold they scroll inside the column, under the buttons. */
 .ft-side-more {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #444 transparent;
-  display: flex; flex-direction: column; gap: 12px;
+  display: flex; flex-direction: column; gap: 14px;
   border-top: 1px solid var(--border); padding-top: 12px; margin: 0 -6px; padding-left: 6px; padding-right: 6px;
 }
-.ft-with h2 { margin: 0 0 6px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.38px; text-transform: uppercase; color: #888; }
+.ft-with h2, .ft-dhead { margin: 0 0 6px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.38px; text-transform: uppercase; color: #888; }
+
+/* Details: one row per field, filled or a grey "Add ..." prompt; a click turns the row into its field. */
+.ft-details { display: flex; flex-direction: column; min-width: 0; }
+.ft-drows { display: flex; flex-direction: column; gap: 1px; margin: 0 -6px; }
+.ft-drow {
+  display: grid; grid-template-columns: 86px minmax(0, 1fr) 20px; column-gap: 8px; align-items: baseline;
+  width: 100%; box-sizing: border-box; padding: 5px 6px; margin: 0; border: 0; border-radius: 7px;
+  background: transparent; color: var(--text-primary); font: inherit; font-size: 0.8125rem; line-height: 1.45;
+  text-align: left; cursor: pointer;
+}
+.ft-drow:hover, .ft-drow:focus-visible { background: var(--bg-hover); outline: none; }
+.ft-drow:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
+.ft-dk { color: var(--text-secondary); }
+.ft-dv { min-width: 0; overflow-wrap: anywhere; }
+.ft-dadd { color: var(--text-muted); font-style: italic; }
+.ft-dpen {
+  align-self: center; justify-self: end; display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent;
+  color: var(--text-secondary); opacity: 0; transition: opacity 0.12s; cursor: pointer;
+}
+.ft-drow:hover .ft-dpen, .ft-drow:focus-visible .ft-dpen, .ft-dpen:focus-visible { opacity: 1; }
+button.ft-dpen:hover { color: var(--text-primary); }
+button.ft-dpen:focus-visible { outline: 1px solid var(--accent); }
+svg.ft-dpen-ico { width: 14px; height: 14px; }
+.ft-dchips { display: flex; flex-wrap: wrap; gap: 4px; }
+.ft-dchip {
+  padding: 0 7px; border-radius: 6px; background: var(--bg-tertiary); border: 1px solid var(--border);
+  font-size: 0.75rem; line-height: 1.6;
+}
+.ft-dlinks { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.ft-dtext {
+  white-space: pre-line;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; line-clamp: 6; overflow: hidden;
+}
+.ft-drow.ft-dediting { cursor: default; background: transparent; align-items: start; }
+.ft-dediting .ft-dk { padding-top: 5px; }
+.ft-dedit { grid-column: 2 / -1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ft-din {
+  width: 100%; box-sizing: border-box; margin: 0; padding: 4px 8px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary);
+  font: inherit; font-size: 0.8125rem; line-height: 1.45;
+}
+.ft-din:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2); }
+textarea.ft-din { resize: vertical; min-height: 2.6em; max-height: 14em; field-sizing: content; }
+.ft-dyears { display: flex; align-items: center; gap: 6px; }
+.ft-dyears .ft-din { width: 64px; }
+.ft-dto { color: var(--text-secondary); }
+.ft-dhint { font-size: 0.7rem; line-height: 1.35; color: var(--text-muted); }
+.ft-derr { font-size: 0.75rem; line-height: 1.35; color: #f87171; }
+.ft-derr[hidden] { display: none; }
+.ft-dsaving .ft-din { opacity: 0.6; }
+
+/* Folded Details: one "Details · N of 6 filled" line that opens on click. */
+.ft-dfold { display: none; }
+.ft-side.ft-fold-details .ft-dhead { display: none; }
+.ft-side.ft-fold-details .ft-dfold {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: calc(100% + 12px); margin: 0 -6px; padding: 6px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--text-primary); font: inherit; font-size: 0.8125rem; text-align: left; cursor: pointer;
+}
+.ft-dfold:hover, .ft-dfold:focus-visible { background: var(--bg-hover); outline: none; }
+.ft-dcount { color: var(--text-muted); }
+svg.ft-dchev { width: 16px; height: 16px; flex: none; color: var(--text-secondary); transition: transform 0.15s; }
+.ft-side.ft-dopen .ft-dchev { transform: rotate(180deg); }
+.ft-side.ft-fold-details:not(.ft-dopen) .ft-drows { display: none; }
+.ft-side.ft-fold-details.ft-dopen .ft-drows { margin-top: 4px; }
+
+/* Folded "Often seen with": a row of small faces (names in tooltips). */
+.ft-side.ft-fold-seen .ft-wlist { flex-direction: row; flex-wrap: wrap; gap: 4px; }
+.ft-side.ft-fold-seen .ft-wrow { width: auto; padding: 2px; border-radius: 50%; }
+.ft-side.ft-fold-seen .ft-wrow .ft-mini-name, .ft-side.ft-fold-seen .ft-wn { display: none; }
+
+/* Folded photo: smaller, beside the name. */
+.ft-side.ft-fold-photo .ft-info { display: grid; grid-template-columns: 120px minmax(0, 1fr); column-gap: 14px; row-gap: 8px; align-items: start; }
+.ft-side.ft-fold-photo .ft-cover { width: 120px; height: 120px; grid-row: 1 / span 3; }
+.ft-side.ft-fold-photo .ft-info > :not(.ft-cover) { grid-column: 2; }
+.ft-side.ft-fold-photo .ft-info > .ft-acts { grid-column: 1 / -1; }
+.ft-side.ft-fold-photo .ft-title h1 { font-size: 1.125rem; }
+
+body.pm-names .ft-dchips,
+body.pm-names .ft-dlinks,
+body.pm-names .ft-dtext { filter: blur(7px); }
+body.pm-names .ft-dlinks { pointer-events: none; user-select: none; }
 .ft-wlist { display: flex; flex-direction: column; gap: 2px; }
 .ft-wrow {
   display: flex; align-items: center; gap: 10px; width: 100%; padding: 5px 6px; border-radius: 8px;
@@ -629,8 +716,10 @@ body.pm-names .ft-cmeta { filter: blur(7px); }
     position: relative; top: auto; max-height: none;
     flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 12px 18px; margin-bottom: 12px;
   }
-  .ft-side .ft-cover { width: 120px; min-width: 0; }
-  .ft-side .ft-info { flex: 1 1 320px; min-width: 0; }
+  /* the photo beside the name, the buttons under it */
+  .ft-side .ft-info { flex: 1 1 100%; min-width: 0; display: grid; grid-template-columns: 120px minmax(0, 1fr); column-gap: 18px; align-items: start; }
+  .ft-side .ft-cover { width: 120px; height: 120px; grid-row: 1 / span 4; }
+  .ft-side .ft-info > :not(.ft-cover) { grid-column: 2; }
   .ft-side .ft-acts { display: flex; flex-wrap: wrap; }
   .ft-side-more { flex: 1 1 100%; overflow: visible; border-top: 0; padding-top: 0; margin: 0; padding-left: 0; padding-right: 0; }
   .ft-wlist { flex-direction: row; flex-wrap: wrap; gap: 6px; }
