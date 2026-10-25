@@ -350,12 +350,16 @@ and play. Everything runs on your computer, and face search is off until you tur
 ### Turn it on
 
 1. Open **⚙ Settings > Face search** and switch on **Face search**.
-2. Vault asks to download two small models (about 39 MB) from
-   **huggingface.co**. Click **Download them**. This happens once, and face
-   search works offline after that.
+2. Vault asks to download three face search models (about 213 MB) from
+   Hugging Face. Click **Download**. This happens once, and face search works
+   offline after that.
 
 The models are YuNet (finds faces) and SFace (tells people apart) from the
-OpenCV model zoo, released under the MIT and Apache-2.0 licenses.
+OpenCV model zoo, released under the MIT and Apache-2.0 licenses, plus the
+AdaFace IR50 matching model (the Standard face model, about 174 MB of the
+total). Switching to the **Best** face model in Settings downloads AdaFace IR101
+instead (about 261 MB). The AdaFace models state no license of their own (MIT
+code, research-use training data).
 
 ### Check your files for faces
 
