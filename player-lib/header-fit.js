@@ -190,11 +190,16 @@
   function syncCount() {
     if (!count || !short) return;
     const full = count.textContent.trim();
-    // "1,234 media files loaded (5 hidden)" -> "1,234 files". Anything else
-    // ("18 people", "Loading…", a warning) is already short or must be read.
+    // "1,234 media files loaded (5 hidden)" -> "1,234 files"; a narrowed
+    // result brings its own short form ("12 of 353 files", database.js).
+    // Anything else ("18 people", "Loading…") is already short or must be read.
     const m = full.match(/^([\d.,\s  ]+?)\s+media files loaded/);
-    const text = m ? `${m[1].trim()} files` : full;
+    const text = count.dataset.short || (m ? `${m[1].trim()} files` : full);
     if (short.textContent !== text) short.textContent = text;
+    // The count is about the library: the Editor, Games and Wall tabs have
+    // nothing it describes (Faces writes its own count of people).
+    const tab = typeof currentTab === 'undefined' ? 'library' : currentTab;
+    setIf(short, 'hidden', !['library', 'collections', 'faces'].includes(tab));
     const lines = [full];
     const hiddenTypes = count.getAttribute('data-tip') || count.getAttribute('title');
     if (hiddenTypes) lines.push(hiddenTypes);
@@ -250,14 +255,14 @@
     if (info) new MutationObserver(syncCount).observe(info, { childList: true });
     if (count) {
       new MutationObserver(syncCount).observe(count, { childList: true, subtree: true,
-        characterData: true, attributes: true, attributeFilter: ['title', 'data-tip'] });
+        characterData: true, attributes: true, attributeFilter: ['title', 'data-tip', 'data-short'] });
     }
     // The open tab moved (its name shows, the old one folds), or a tab's
     // content changed: the Editor tab's queue badge comes and goes by text
     // and inline style, either way the tabs need more or less room. fit()
     // itself only writes the header's classes and the tabs' data-tip, which
     // this does not watch, so it cannot feed back into itself.
-    new MutationObserver(fit)
+    new MutationObserver(() => { syncCount(); fit(); })
       .observe(tabsNav, { subtree: true, childList: true, characterData: true,
         attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
 

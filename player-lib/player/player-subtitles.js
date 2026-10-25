@@ -46,7 +46,24 @@ let _subs = { mediaId: null, lang: null, cues: null, el: null, handler: null, ge
 
 /* ── Button (rendered into the video extras row) ────────────────────────── */
 
+/* Modern (the dock, player-modern.js): the CC line icon, lit while on. The
+   make / fix chips stay in the markup but hidden; the gear menu's Subtitles
+   page offers them (it reads whether this file shows them). */
+const SUB_MODERN_TITLES = {
+  off: 'Subtitles: off. Click for on',
+  on: 'Subtitles: on. Click for auto (English, only for other languages)',
+  auto: 'Subtitles: auto. Click to turn them off',
+};
+
 function renderSubtitleButton() {
+  if (typeof mpBuildingDock === 'function' && mpBuildingDock()) {
+    return `<span class="subtitle-ctl mp-subctl" id="subtitleCtl">
+      <button type="button" onclick="cycleSubtitleMode()" id="subtitleBtn" class="mp-ic mp-cc${subtitleMode !== 'off' ? ' on' : ''}"
+        data-mode="${subtitleMode}" title="${SUB_MODERN_TITLES[subtitleMode]}" aria-label="Subtitles">${mpIcon('cc')}</button>
+      <button type="button" onclick="subtitlesGenerate()" id="subtitleGenBtn" class="subtitle-gen-btn" style="display:none" tabindex="-1">＋</button>
+      <button type="button" onclick="subtitlesFixHere()" id="subtitleFixBtn" class="subtitle-gen-btn" style="display:none" tabindex="-1">⟳ Fix</button>
+    </span>`;
+  }
   return `<span class="subtitle-ctl" id="subtitleCtl">
     <button onclick="cycleSubtitleMode()" id="subtitleBtn" class="subtitle-btn sub-mode-${subtitleMode}"
       title="Subtitles: Off → On → Auto (English only for foreign audio)">CC${subtitleMode === 'auto' ? '<sup>AUTO</sup>' : ''}</button>
@@ -60,19 +77,32 @@ function renderSubtitleButton() {
 function _syncSubtitleBtn() {
   const btn = document.getElementById('subtitleBtn');
   if (!btn) return;
+  if (btn.classList.contains('mp-ic')) {
+    btn.classList.toggle('on', subtitleMode !== 'off');
+    btn.dataset.mode = subtitleMode;
+    btn.title = SUB_MODERN_TITLES[subtitleMode];
+    return;
+  }
   btn.className = `subtitle-btn sub-mode-${subtitleMode}`;
   btn.innerHTML = `CC${subtitleMode === 'auto' ? '<sup>AUTO</sup>' : ''}`;
 }
 
 function cycleSubtitleMode() {
-  subtitleMode = SUBTITLE_MODES[(SUBTITLE_MODES.indexOf(subtitleMode) + 1) % SUBTITLE_MODES.length];
+  setSubtitleMode(SUBTITLE_MODES[(SUBTITLE_MODES.indexOf(subtitleMode) + 1) % SUBTITLE_MODES.length]);
+}
+
+/** Pick a mode outright (the Modern gear menu); the CC button cycles through them. */
+function setSubtitleMode(mode) {
+  if (!SUBTITLE_MODES.includes(mode)) return;
+  subtitleMode = mode;
   try { localStorage.setItem('subtitle_mode', subtitleMode); } catch {}
   _syncSubtitleBtn();
   const media = currentMediaState.currentMediaData;
   // userInitiated → auto-generate when this video has no subs yet (turning CC
   // on is the "make subtitles" gesture; no separate + click needed)
   if (media) applySubtitlesFor(media, { userInitiated: true });
-  showToast(`CC: ${subtitleMode === 'off' ? 'Off' : subtitleMode === 'on' ? 'On' : 'Auto (non-English only)'}`);
+  // The Modern dock's CC button shows the mode; Classic keeps its toast
+  if (!(typeof mpQuietToast === 'function' && mpQuietToast())) showToast(`CC: ${subtitleMode === 'off' ? 'Off' : subtitleMode === 'on' ? 'On' : 'Auto (non-English only)'}`);
 }
 
 /* ── Track resolution + attachment ──────────────────────────────────────── */
@@ -281,7 +311,7 @@ function _subsBindDrag(el) {
     _subsPos = null;
     _subsSavePos();
     _subsReposition();
-    showToast('Subtitles reset to bottom');
+    if (!(typeof mpQuietToast === 'function' && mpQuietToast())) showToast('Subtitles reset to bottom');   // the line moving says it
   });
 }
 
@@ -298,7 +328,7 @@ function _subsStartGrowthPoll(media) {
     // One-shot job advisory (e.g. "no model to download — AI fallback") → toast
     if (info.notice && info.notice !== _subs.notice) {
       _subs.notice = info.notice;
-      showToast('⚠ ' + info.notice);
+      showToast('⚠ ' + info.notice, { type: 'error' });
     }
 
     const running = ['queued', 'transcribing', 'translating'].includes(info.status);
@@ -312,7 +342,12 @@ function _subsStartGrowthPoll(media) {
       _subsHideProgress();
       const genBtn = document.getElementById('subtitleGenBtn');
       if (genBtn) genBtn.style.display = 'none';
-      if (info.status === 'error') showToast('⚠ Subtitles failed');
+      if (info.status === 'error') showToast('Could not make the subtitles. Try again.', { type: 'error' });
+      // The job may have wanted the speaker-detection models or a translation
+      // pack and gone without for lack of permission. Ask now, same as the
+      // sidebar does: the CC button is the usual way in, and before this the
+      // question only came up after a page refresh and a sidebar regenerate.
+      subtitlesOfferPendingConsent();
     }
   };
   _subs.growPoll = setTimeout(tick, 1500);
@@ -457,17 +492,17 @@ async function subtitlesGenerate() {
     const data = await resp.json();
     if (!resp.ok) {
       if (!subtitlesHandleGenerateError(resp, data, subtitlesGenerate)) {
-        showToast('⚠ ' + (data.error || 'failed to start'));
+        showErrorToast(data, 'starting the subtitles');
       }
       return;
     }
-    showToast('📝 Generating subtitles. First lines appear in seconds');
+    showToast('📝 Making subtitles. The first lines appear in a few seconds.');
     if (genBtn) genBtn.style.display = 'none';   // the progress pill takes over
     // Streaming: cues stream into the VTT; the growth poll shows them + progress
     _subsShowProgress({ progress: 0, stage: 'Starting…', status: 'queued' });
     _subsStartGrowthPoll(media);
   } catch (err) {
-    showToast('⚠ ' + err.message);
+    showErrorToast(err, 'starting the subtitles');
   }
 }
 
@@ -480,7 +515,7 @@ async function subtitlesFixHere() {
   const mmss = `${Math.floor(at / 60)}:${String(at % 60).padStart(2, '0')}`;
   const btn = document.getElementById('subtitleFixBtn');
   if (btn) { btn.disabled = true; btn.textContent = '⟳ …'; }
-  showToast('⟳ Re-scanning subtitles around here…');
+  showToast('⟳ Fixing the subtitles around here…');
   // The patch is one blocking request (no job to poll) — trickle the pill so
   // it's clearly working while the re-scan runs.
   _subsTrickle(`Re-scanning subtitles around ${mmss}…`);
@@ -490,9 +525,9 @@ async function subtitlesFixHere() {
       body: JSON.stringify({ at, window: 60 }),
     });
     const data = await resp.json();
-    if (!resp.ok) { _subsCancelTrickle(); _subsHideProgress(); showToast('⚠ ' + (data.error || 'failed')); return; }
+    if (!resp.ok) { _subsCancelTrickle(); _subsHideProgress(); showErrorToast(data, 'fixing the subtitles'); return; }
     _subsCancelTrickle();
-    showToast(`✓ Re-scanned: ${data.patched} line${data.patched === 1 ? '' : 's'} updated${data.speakers ? ' · speakers re-tagged' : ''}`);
+    showToast(`✓ Fixed: ${data.patched} line${data.patched === 1 ? '' : 's'} updated${data.speakers ? ', speakers labelled again' : ''}`, { type: 'success' });
     if (currentMediaState.currentMediaData?.id === media.id) {
       _subs.lang = null;                 // force a re-fetch of the rewritten VTT
       await applySubtitlesFor(media);    // detaches → clears the pill, reloads cues
@@ -502,7 +537,7 @@ async function subtitlesFixHere() {
     if (typeof subtitlesLoadSidebar === 'function') subtitlesLoadSidebar(media.id);   // refresh sidebar counts
   } catch (err) {
     _subsCancelTrickle(); _subsHideProgress();
-    showToast('⚠ ' + err.message);
+    showErrorToast(err, 'fixing the subtitles');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '⟳ Fix'; }
   }
@@ -521,6 +556,14 @@ const SUB_LANG_NAMES = {
   uk: 'Ukrainian', el: 'Greek', he: 'Hebrew', fi: 'Finnish', da: 'Danish',
   hu: 'Hungarian', ro: 'Romanian', no: 'Norwegian',
 };
+/** A glyph the Modern Info panel shows as a line icon; Classic keeps it (icons.js). */
+function subsGlyph(emoji, icon) {
+  return typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap(emoji, icon) : escapeHtml(emoji);
+}
+/** A glyph shown as a line icon in Modern (any surface), kept in Classic (icons.js). */
+function subsSwap(emoji, icon) {
+  return typeof vaultIconSwap === 'function' ? vaultIconSwap(emoji, icon) : escapeHtml(emoji);
+}
 const subLangName = (l) => SUB_LANG_NAMES[l] || (l || '').toUpperCase();
 
 function renderSubtitlesSidebarSection(media) {
@@ -546,7 +589,7 @@ async function subtitlesLoadSidebar(mediaId) {
   let info;
   try { info = await fetch(`/api/media/${mediaId}/subtitles/info`).then(r => r.json()); }
   catch {
-    boxes.forEach(b => { b.innerHTML = '<span class="subs-hint">Subtitles unavailable</span>'; });
+    boxes.forEach(b => { b.innerHTML = '<span class="subs-hint">Could not load the subtitles.</span>'; });
     return;
   }
   const html = subtitlesSidebarHtml(mediaId, info);
@@ -561,7 +604,7 @@ function subtitlesSidebarHtml(mediaId, info) {
     return `
       <div class="subs-status"><span class="sub-prog-spin"></span> ${escapeHtml(info.stage || 'Generating…')} <b>${Math.round(info.progress || 0)}%</b></div>
       <div class="subs-hint">Lines stream in as they're transcribed. This panel updates when done.</div>
-      <div class="subs-actions"><button class="subs-btn" onclick="subtitlesLoadSidebar(${mediaId})">↻ Refresh</button></div>`;
+      <div class="subs-actions"><button class="subs-btn" onclick="subtitlesLoadSidebar(${mediaId})">${subsGlyph('↻ ', 'refresh')}Refresh</button></div>`;
   }
 
   const rows = tracks.length ? tracks.map(t => {
@@ -570,17 +613,17 @@ function subtitlesSidebarHtml(mediaId, info) {
       <div class="subs-track">
         <span class="subs-track-label">${escapeHtml(subLangName(t.lang))} <span class="subs-track-kind">${kindLabel}</span></span>
         <span class="subs-track-btns">
-          <button class="subs-btn" title="Transcript. Click a line to jump there, 📌 to save it as a note snippet" onclick="subtitlesToggleTranscript(${mediaId}, '${escapeHtml(t.lang)}')">≡</button>
-          <button class="subs-btn" title="View & edit the VTT cues" onclick="subtitlesOpenEditor(${mediaId}, '${escapeHtml(t.lang)}')">✎ Edit</button>
-          <a class="subs-btn" title="Download as SRT" href="/api/media/${mediaId}/subtitles?lang=${encodeURIComponent(t.lang)}&format=srt">⤓ SRT</a>
-          <button class="subs-btn subs-btn-danger" title="Delete this track" onclick="subtitlesDeleteTrack(${mediaId}, '${escapeHtml(t.lang)}')">✕</button>
+          <button class="subs-btn" title="Transcript. Click a line to jump there, ${typeof vaultIsModern === 'function' && vaultIsModern() ? 'the pin' : '📌'} to save it as a note snippet" onclick="subtitlesToggleTranscript(${mediaId}, '${escapeHtml(t.lang)}')">${subsGlyph('≡', 'table')}</button>
+          <button class="subs-btn" title="Edit the subtitle lines" onclick="subtitlesOpenEditor(${mediaId}, '${escapeHtml(t.lang)}')">${subsGlyph('✎ ', 'edit')}Edit</button>
+          <a class="subs-btn" title="Download as SRT" href="/api/media/${mediaId}/subtitles?lang=${encodeURIComponent(t.lang)}&format=srt">${subsGlyph('⤓ ', 'download')}SRT</a>
+          <button class="subs-btn subs-btn-danger" title="Delete this track" onclick="subtitlesDeleteTrack(${mediaId}, '${escapeHtml(t.lang)}')">${subsGlyph('✕', 'close')}</button>
         </span>
       </div>`;
   }).join('') : '<div class="subs-hint">No subtitles yet.</div>';
 
   const rescan = tracks.length
-    ? `<button class="subs-btn" title="Re-transcribe the whole file from scratch (replaces every track)" onclick="subtitlesRescanAll(${mediaId})">🔄 Rescan all</button>`
-    : `<button class="subs-btn subs-btn-primary" title="Transcribe this file now" onclick="subtitlesGenerateFor(${mediaId})">＋ Generate</button>`;
+    ? `<button class="subs-btn" title="Make the subtitles again from the start (replaces every track)" onclick="subtitlesRescanAll(${mediaId})">${subsGlyph('🔄 ', 'refresh')}Rescan all</button>`
+    : `<button class="subs-btn subs-btn-primary" title="Transcribe this file now" onclick="subtitlesGenerateFor(${mediaId})">${subsGlyph('＋ ', 'plus')}Generate</button>`;
 
   return `<div class="subs-tracks">${rows}</div>
     <div class="subs-transcript" id="subsTranscript-${mediaId}" style="display:none"></div>
@@ -604,7 +647,7 @@ async function subtitlesToggleTranscript(mediaId, lang) {
   try {
     vtt = await fetch(`/api/media/${mediaId}/subtitles?lang=${encodeURIComponent(lang)}`).then(r => r.ok ? r.text() : null);
   } catch { vtt = null; }
-  if (vtt == null) { box.innerHTML = '<span class="subs-hint">Track unavailable</span>'; return; }
+  if (vtt == null) { box.innerHTML = '<span class="subs-hint">Could not load this track.</span>'; return; }
 
   const cues = subtitlesParseVTT(vtt);
   const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -612,7 +655,7 @@ async function subtitlesToggleTranscript(mediaId, lang) {
     <div class="subs-tr-line" data-start="${c.start}" title="Jump to ${fmt(c.start)}">
       <span class="subs-tr-time">${fmt(c.start)}</span>
       <span class="subs-tr-text">${escapeHtml(_subsClean(c.text))}</span>
-      <button class="subs-tr-pin" title="Save this line as a note snippet">📌</button>
+      <button class="subs-tr-pin" title="Save this line as a note snippet">${subsGlyph('📌', 'pin')}</button>
     </div>`).join('') : '<span class="subs-hint">No cues in this track.</span>';
 
   box.onclick = async (e) => {
@@ -628,11 +671,11 @@ async function subtitlesToggleTranscript(mediaId, lang) {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text }),
         });
-        if (!resp.ok) { showToast('⚠ could not save the snippet'); return; }
+        if (!resp.ok) { showErrorToast(await resp.json().catch(() => ({ status: resp.status })), 'saving the line as a snippet'); return; }
         showToast('📌 Line saved as a note snippet');
         if (typeof loadNoteSnippets === 'function') loadNoteSnippets();   // refresh chip cache
         if (typeof gamifyEvent === 'function') gamifyEvent('quote_saved');
-      } catch (err) { showToast('⚠ ' + err.message); }
+      } catch (err) { showErrorToast(err, 'saving the line as a snippet'); }
       return;
     }
 
@@ -641,7 +684,7 @@ async function subtitlesToggleTranscript(mediaId, lang) {
     const el = currentMediaState.element;
     if (currentMediaState.currentMediaData?.id === mediaId && el && ['VIDEO', 'AUDIO'].includes(el.tagName)) {
       el.currentTime = Math.max(0, start - 0.3);
-      showToast(`⏪ Jumped to ${fmt(start)}`);
+      if (!(typeof mpQuietToast === 'function' && mpQuietToast())) showToast(`⏪ Jumped to ${fmt(start)}`);   // the dock's playhead says it
       if (typeof gamifyEvent === 'function') gamifyEvent('transcript_seek');
     } else if (typeof detailSeekTo === 'function' && detailSeekTo(mediaId, start - 0.3)) {
       // Clicked from the library modal — open the file, then land on the line
@@ -666,7 +709,8 @@ function subtitlesHandleGenerateError(resp, data, retry) {
   if (data?.code === 'WHISPER_MISSING') { subtitlesShowPrereqModal(data); return true; }
   if (data?.code === 'MODEL_DOWNLOAD_CONSENT') { subtitlesShowModelConsent(data, retry); return true; }
   if (data?.code === 'DOWNLOADS_OFF_BY_ENV') {
-    showToast('⚠ Model downloads are off (SUB_ALLOW_DOWNLOADS=0 / VAULT_OFFLINE=1)');
+    // The variable names stay: only whoever set them can turn downloads back on.
+    showToast('Model downloads are turned off for this copy of Vault (SUB_ALLOW_DOWNLOADS=0 or VAULT_OFFLINE=1).', { type: 'error' });
     return true;
   }
   return false;
@@ -678,79 +722,114 @@ function subtitlesHandleGenerateError(resp, data, retry) {
    line no exe user sees — which isn't consent. Asked once here; the answer
    persists server-side and covers the translation and diarization models too,
    since they're the same class of one-time fetch. */
+// Keys whose dialog was closed without an answer (backdrop click or Esc):
+// "not now" for this page load only. Nothing is saved, so a reload asks again,
+// but the end of every job does not.
+const _subsConsentDismissed = new Set();
+
+/**
+ * Plain words for one model consent: { title, what, decline, them }, plain
+ * text (them: the model is plural, so "download them").
+ * The consent keys keep their codenames ("whisper:large-v3-turbo", "opus:ja");
+ * people see what the model is for and its size ("~1.5 GB" -> "about 1.5 GB").
+ * One decision per model: the copy says what happens on a no, because two of
+ * the three have a working fallback.
+ */
+function subtitlesConsentCopy(kind, detail, sizeHint) {
+  const size = String(sizeHint || '').trim().replace(/^~\s*/, 'about ');
+  const sized = (s) => (size ? `${s} (${size})` : s);
+  if (kind === 'whisper') {
+    return {
+      title: `${sized('Download the subtitles model')}?`,
+      what: 'This is the speech-to-text model that makes subtitles.',
+      decline: 'Without it, Vault cannot make subtitles. Everything else keeps working.',
+    };
+  }
+  if (kind === 'opus') {
+    const lang = detail ? subLangName(detail) : '';
+    const pack = lang && lang !== 'English' ? `${lang} to English translation pack` : 'translation pack';
+    return {
+      title: `${sized(`Download the ${pack}`)}?`,
+      what: lang && lang !== 'English' ? `It translates ${lang} subtitles to English.` : 'It translates subtitles to English.',
+      decline: 'If you say no, Vault keeps translating with your LM Studio model. That is slower, but nothing is downloaded.',
+    };
+  }
+  if (kind === 'diarize') {
+    return {
+      title: `${sized('Download the speaker detection models')}?`,
+      what: 'They tell speakers apart, so each line can say who is talking.',
+      them: true,
+      decline: 'If you say no, subtitles are still made, just without speaker labels.',
+    };
+  }
+  return {
+    title: `${sized('Download a model')}?`,
+    what: detail ? `The model is called "${detail}".` : '',
+    decline: 'Nothing is downloaded if you say no.',
+  };
+}
+
 function subtitlesShowModelConsent(info = {}, retry) {
   document.getElementById('subsModelConsent')?.remove();
   const key = info.key || 'whisper:large-v3-turbo';
   const kind = info.kind || (key.split(':')[0]);
   const detail = info.detail || key.split(':')[1] || '';
-  const size = info.sizeHint || '';
-
-  // One artifact, one decision — the copy names exactly what would be fetched
-  // and what happens if you decline, because for two of the three there IS a
-  // working fallback and the user should know that before choosing.
-  const COPY = {
-    whisper: {
-      title: '⬇ Download the transcription model?',
-      what: `the speech-to-text model <b>${escapeHtml(detail)}</b>${size ? ` (<b>${escapeHtml(size)}</b>)` : ''}`,
-      decline: 'Without it, subtitles can\'t be generated at all. Everything else in Vault keeps working.',
-    },
-    opus: {
-      title: '⬇ Download the offline translation model?',
-      what: `the <b>${escapeHtml(detail)}→en</b> translation pack${size ? ` (<b>${escapeHtml(size)}</b>)` : ''}`,
-      decline: 'Decline and Vault keeps translating with your local LM Studio model instead, which is slower but nothing is downloaded.',
-    },
-    diarize: {
-      title: '⬇ Download the speaker-detection models?',
-      what: `the speaker-detection models${size ? ` (<b>${escapeHtml(size)}</b>)` : ''}`,
-      decline: 'Decline and subtitles are still generated, just without per-speaker labels.',
-    },
-  };
-  const c = COPY[kind] || {
-    title: '⬇ Download a model?',
-    what: `<b>${escapeHtml(key)}</b>`,
-    decline: 'Nothing is downloaded if you decline.',
-  };
+  const c = subtitlesConsentCopy(kind, detail, info.sizeHint);
 
   const ov = document.createElement('div');
   ov.id = 'subsModelConsent';
   ov.className = 'vault-modal-overlay';
   ov.innerHTML = `
-    <div class="vault-modal" role="dialog" aria-label="Download a model">
-      <h3>${c.title}</h3>
+    <div class="vault-modal" role="dialog" aria-modal="true" aria-labelledby="subsModelTitle">
+      <h3 id="subsModelTitle">${escapeHtml(c.title)}</h3>
       <p class="vault-modal-hint">
-        Vault would fetch ${c.what} from <b>huggingface.co</b>. It runs entirely
-        on your machine afterwards. Your media is never uploaded, and nothing
-        else is downloaded with it.
+        ${escapeHtml(c.what)} Vault downloads ${c.them ? 'them' : 'it'} once from Hugging Face
+        and runs ${c.them ? 'them' : 'it'} on this computer. Your files are never uploaded.
       </p>
-      <p class="vault-modal-hint">${c.decline}</p>
+      <p class="vault-modal-hint">${escapeHtml(c.decline)}</p>
       <p class="vault-modal-hint">
-        This asks separately for every model, so approving this one doesn't
-        approve any other. Change your mind any time in Settings.
+        Vault asks about each model on its own. You can change your answer any
+        time in Settings &gt; Privacy and security.
       </p>
       <div class="vault-modal-actions">
         <button class="vault-btn" id="subsModelNo">Not now</button>
-        <button class="vault-btn vault-btn-primary" id="subsModelYes">Download it</button>
+        <button class="vault-btn vault-btn-primary" id="subsModelYes">Download</button>
       </div>
     </div>`;
   document.body.appendChild(ov);
 
+  // Esc is "not now" for this page load, and stops here (not the player too)
+  const onKey = (e) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation();
+    dismiss();
+  };
+  const dismiss = () => {
+    _subsConsentDismissed.add(key);
+    ov.remove();
+    window.removeEventListener('keydown', onKey, true);
+  };
+  window.addEventListener('keydown', onKey, true);
   const answer = async (allow) => {
     ov.remove();
+    window.removeEventListener('keydown', onKey, true);
     try {
       const r = await fetch('/api/settings/model-downloads', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, allow }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) { showToast('⚠ ' + (d.error || `HTTP ${r.status}`)); return; }
-    } catch (err) { showToast('⚠ ' + err.message); return; }
-    if (!allow) { showToast('Nothing downloaded. Vault will ask again if it needs it'); return; }
-    showToast('⬇ Approved, fetching on next use');
+      if (!r.ok) { showErrorToast({ error: d.error, status: r.status }, 'saving your answer'); return; }
+    } catch (err) { showErrorToast(err, 'saving your answer'); return; }
+    if (!allow) { showToast('Nothing was downloaded. Vault will ask again when it needs this model.'); return; }
+    showToast('Download approved. It starts the next time the model is needed.', { type: 'success' });
     if (typeof retry === 'function') retry();      // resume what they clicked
   };
   ov.querySelector('#subsModelYes').addEventListener('click', () => answer(true));
   ov.querySelector('#subsModelNo').addEventListener('click', () => answer(false));
-  ov.addEventListener('mousedown', (e) => { if (e.target === ov) ov.remove(); });
+  ov.addEventListener('mousedown', (e) => { if (e.target === ov) dismiss(); });
+  ov.querySelector('#subsModelYes').focus();
 }
 
 /**
@@ -767,8 +846,12 @@ async function subtitlesOfferPendingConsent() {
   let st;
   try { st = await (await fetch('/api/settings/model-downloads')).json(); }
   catch { return; }
-  if (!st.envAllows || !st.pending?.length) return;
-  subtitlesShowModelConsent(st.pending[0]);
+  if (!st.envAllows) return;
+  // A model the user already said "Not now" to is not asked about again after
+  // every job (it stays changeable in Settings). Whisper itself is different:
+  // Generate asks each time, since nothing works without it.
+  const ask = (st.pending || []).find(p => st.consents?.[p.key] !== false && !_subsConsentDismissed.has(p.key));
+  if (ask) subtitlesShowModelConsent(ask);
 }
 
 function subtitlesShowPrereqModal(info = {}) {
@@ -778,38 +861,36 @@ function subtitlesShowPrereqModal(info = {}) {
 
   // Two different problems, two different fixes — saying "subtitles
   // unavailable" for both sends half the users to the wrong place.
+  const cmd = (text) => `<div class="subs-prereq-cmd"><code>${escapeHtml(text)}</code>
+           <button class="vault-btn subs-prereq-copy" data-copy="${escapeHtml(text)}">Copy</button></div>`;
   const steps = noPython
-    ? `<li>Install <b>Python 3.9+</b> and tick <b>“Add python.exe to PATH”</b> in the installer:
-         <div class="subs-prereq-cmd"><code>winget install Python.Python.3.12</code>
-           <button class="vault-btn subs-prereq-copy" data-copy="winget install Python.Python.3.12">Copy</button></div>
-         …or from <a href="https://www.python.org/downloads/" target="_blank" rel="noopener">python.org/downloads</a>.</li>
-       <li>Then install the transcription package:
-         <div class="subs-prereq-cmd"><code>pip install faster-whisper</code>
-           <button class="vault-btn subs-prereq-copy" data-copy="pip install faster-whisper">Copy</button></div></li>
-       <li><b>Restart Vault</b>. A running app keeps the PATH it started with, so it can't see a brand-new Python until then.</li>`
-    : `<li>Install the transcription package into the Python Vault is using
-         (<code>${escapeHtml(pyCmd)}</code>):
-         <div class="subs-prereq-cmd"><code>${escapeHtml(pyCmd)} -m pip install faster-whisper</code>
-           <button class="vault-btn subs-prereq-copy" data-copy="${escapeHtml(pyCmd)} -m pip install faster-whisper">Copy</button></div></li>
-       <li>Press <b>Generate</b> again. No restart needed, Vault re-checks each time.</li>`;
+    ? `<li>Install Python 3.9 or newer. In its installer, tick <b>Add python.exe to PATH</b>.
+         ${cmd('winget install Python.Python.3.12')}
+         Or download it from <a href="https://www.python.org/downloads/" target="_blank" rel="noopener">python.org</a>.</li>
+       <li>Then add the speech-to-text package:
+         ${cmd('pip install faster-whisper')}</li>
+       <li>Restart Vault, so it can find the new Python.</li>`
+    : `<li>Add it to the Python Vault uses:
+         ${cmd(`${pyCmd} -m pip install faster-whisper`)}</li>
+       <li>Press <b>Generate</b> again. No restart needed.</li>`;
 
   const ov = document.createElement('div');
   ov.id = 'subsPrereqModal';
   ov.className = 'vault-modal-overlay';
   ov.innerHTML = `
-    <div class="vault-modal" role="dialog" aria-label="Subtitles need Python">
-      <h3>💬 Subtitles need one more thing</h3>
+    <div class="vault-modal subs-prereq" role="dialog" aria-modal="true" aria-labelledby="subsPrereqTitle">
+      <h3 id="subsPrereqTitle">${noPython ? 'Subtitles need Python' : 'Subtitles need one more package'}</h3>
       <p class="vault-modal-hint">
         ${noPython
-          ? 'Transcription runs locally through <b>faster-whisper</b>, which needs Python. Vault couldn\'t find a Python installation.'
-          : 'Transcription runs locally through <b>faster-whisper</b>. Python is installed, but the package isn\'t.'}
-        It's the one dependency Vault can't fetch for you. Everything else it installs itself.
+          ? 'Subtitles need Python, which Vault cannot install for you. Everything else, Vault sets up itself.'
+          : 'Python is installed, but the speech-to-text package that makes subtitles is not.'}
       </p>
       <ol class="vault-modal-hint subs-prereq-steps">${steps}</ol>
-      <p class="vault-modal-hint">
-        Already using a virtual environment? Point Vault at it by setting
-        <code>PYTHON_PATH</code> to that interpreter. Full details in SETUP.md.
-      </p>
+      <details class="vault-modal-hint subs-prereq-more">
+        <summary>For advanced setups</summary>
+        <p>Using a virtual environment? Set <code>PYTHON_PATH</code> to that
+        environment's python.exe, then restart Vault. SETUP.md has the details.</p>
+      </details>
       <div class="vault-modal-actions">
         <button class="vault-btn vault-btn-primary" id="subsPrereqClose">Got it</button>
       </div>
@@ -823,9 +904,18 @@ function subtitlesShowPrereqModal(info = {}) {
       setTimeout(() => { if (btn.isConnected) btn.textContent = 'Copy'; }, 1500);
     } catch { /* clipboard blocked — the text is selectable anyway */ }
   }));
-  const close = () => ov.remove();
+  // Esc closes this and stops there (not the player behind it as well)
+  const onKey = (e) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  };
+  const close = () => { ov.remove(); window.removeEventListener('keydown', onKey, true); };
+  window.addEventListener('keydown', onKey, true);
   ov.querySelector('#subsPrereqClose').addEventListener('click', close);
   ov.addEventListener('mousedown', (e) => { if (e.target === ov) close(); });
+  ov.querySelector('#subsPrereqClose').focus();
 }
 
 /** Generate for a specific media id from the sidebar (player may not be on it). */
@@ -835,11 +925,11 @@ async function subtitlesGenerateFor(mediaId) {
     const data = await resp.json();
     if (!resp.ok) {
       if (!subtitlesHandleGenerateError(resp, data, () => subtitlesGenerateFor(mediaId))) {
-        showToast('⚠ ' + (data.error || 'failed to start'));
+        showErrorToast(data, 'starting the subtitles');
       }
       return;
     }
-    showToast('📝 Generating subtitles…');
+    showToast('📝 Making subtitles…');
     subtitlesLoadSidebar(mediaId);
     // If we're watching this item, let the player's poller pick up the cues too
     if (currentMediaState.currentMediaData?.id === mediaId && subtitleMode !== 'off') {
@@ -847,7 +937,7 @@ async function subtitlesGenerateFor(mediaId) {
       _subsStartGrowthPoll(currentMediaState.currentMediaData);
     }
     _subsPollSidebarUntilDone(mediaId);
-  } catch (err) { showToast('⚠ ' + err.message); }
+  } catch (err) { showErrorToast(err, 'starting the subtitles'); }
 }
 
 /* ── Rescan confirm modal: replaces the native confirm() so the user can
@@ -875,11 +965,11 @@ async function subtitlesRescanAll(mediaId) {
   ov.innerHTML = `
     <div class="subs-editor subs-rescan" role="dialog" aria-label="Rescan subtitles">
       <div class="subs-editor-head">
-        <span>🔄 Rescan: <b>re-transcribe from scratch</b></span>
-        <button class="subs-editor-x" title="Close (Esc)" onclick="subtitlesCloseRescan()">✕</button>
+        <span>Rescan subtitles</span>
+        <button class="subs-editor-x" title="Close (Esc)" aria-label="Close" onclick="subtitlesCloseRescan()">${subsSwap('✕', 'close')}</button>
       </div>
       <div class="subs-rescan-body">
-        <p class="subs-rescan-warn">⚠ Replaces every subtitle track for this file, including manual edits.</p>
+        <p class="subs-rescan-warn">${subsSwap('⚠ ', 'alert')}This makes the subtitles again from the start and replaces every track for this file, including your edits.</p>
         <label class="subs-rescan-label" for="subsRescanLang">Spoken language</label>
         <select id="subsRescanLang" class="subs-rescan-select">
           <option value="">Auto-detect (default)</option>
@@ -892,7 +982,7 @@ async function subtitlesRescanAll(mediaId) {
         <span class="subs-editor-hint"></span>
         <span class="subs-editor-actions">
           <button class="subs-btn" onclick="subtitlesCloseRescan()">Cancel</button>
-          <button class="subs-btn subs-btn-primary" id="subsRescanGo" onclick="subtitlesConfirmRescan(${mediaId})">🔄 Rescan</button>
+          <button class="subs-btn subs-btn-primary" id="subsRescanGo" onclick="subtitlesConfirmRescan(${mediaId})">Rescan</button>
         </span>
       </div>
     </div>`;
@@ -922,7 +1012,7 @@ async function subtitlesConfirmRescan(mediaId) {
     const data = await resp.json();
     if (!resp.ok) {
       if (subtitlesHandleGenerateError(resp, data, () => subtitlesConfirmRescan(mediaId))) subtitlesCloseRescan();
-      else showToast('⚠ ' + (data.error || 'failed to start'));
+      else showErrorToast(data, 'starting the subtitles');
       return;
     }
     subtitlesCloseRescan();
@@ -938,9 +1028,9 @@ async function subtitlesConfirmRescan(mediaId) {
     subtitlesLoadSidebar(mediaId);
     _subsPollSidebarUntilDone(mediaId);
   } catch (err) {
-    showToast('⚠ ' + err.message);
+    showErrorToast(err, 'starting the rescan');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '🔄 Rescan'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Rescan'; }
   }
 }
 
@@ -966,17 +1056,19 @@ function _subsPollSidebarUntilDone(mediaId) {
 }
 
 async function subtitlesDeleteTrack(mediaId, lang) {
-  if (!confirm(`Delete the ${subLangName(lang)} subtitle track?`)) return;
+  if (!await vaultConfirm(`Delete the ${subLangName(lang)} subtitle track? This cannot be undone.`, {
+    title: 'Delete subtitles', okLabel: 'Delete', danger: true,
+  })) return;
   try {
     const resp = await fetch(`/api/media/${mediaId}/subtitles?lang=${encodeURIComponent(lang)}`, { method: 'DELETE' });
-    if (!resp.ok) { showToast('⚠ delete failed'); return; }
-    showToast(`✓ ${subLangName(lang)} track deleted`);
+    if (!resp.ok) { showErrorToast(await resp.json().catch(() => ({ status: resp.status })), 'deleting the track'); return; }
+    showToast(`✓ ${subLangName(lang)} subtitles deleted`, { type: 'success' });
     if (currentMediaState.currentMediaData?.id === mediaId && _subs.lang === lang) {
       _subs.lang = null;
       await applySubtitlesFor(currentMediaState.currentMediaData);
     }
     subtitlesLoadSidebar(mediaId);
-  } catch (err) { showToast('⚠ ' + err.message); }
+  } catch (err) { showErrorToast(err, 'deleting the track'); }
 }
 
 /* ── VTT editor (raw cue text, hand-editable) ───────────────────────────── */
@@ -986,7 +1078,7 @@ async function subtitlesOpenEditor(mediaId, lang) {
   try {
     vtt = await fetch(`/api/media/${mediaId}/subtitles?lang=${encodeURIComponent(lang)}`).then(r => r.ok ? r.text() : null);
   } catch { vtt = null; }
-  if (vtt == null) { showToast('⚠ could not load the track'); return; }
+  if (vtt == null) { showToast('Could not open the subtitles. Try again.', { type: 'error' }); return; }
 
   document.getElementById('subsEditorOverlay')?.remove();
   const ov = document.createElement('div');
@@ -995,8 +1087,8 @@ async function subtitlesOpenEditor(mediaId, lang) {
   ov.innerHTML = `
     <div class="subs-editor" role="dialog" aria-label="Edit subtitles">
       <div class="subs-editor-head">
-        <span>✎ Edit subtitles: <b>${escapeHtml(subLangName(lang))}</b></span>
-        <button class="subs-editor-x" title="Close (Esc)" onclick="subtitlesCloseEditor()">✕</button>
+        <span>Edit subtitles: <b>${escapeHtml(subLangName(lang))}</b></span>
+        <button class="subs-editor-x" title="Close (Esc)" aria-label="Close" onclick="subtitlesCloseEditor()">${subsSwap('✕', 'close')}</button>
       </div>
       <textarea class="subs-editor-ta" spellcheck="false" wrap="off">${escapeHtml(vtt)}</textarea>
       <div class="subs-editor-foot">
@@ -1032,8 +1124,8 @@ async function subtitlesSaveEditor(mediaId, lang) {
       body: JSON.stringify({ vtt: ta.value }),
     });
     const data = await resp.json();
-    if (!resp.ok) { showToast('⚠ ' + (data.error || 'save failed')); return; }
-    showToast(`✓ Saved: ${data.cues} line${data.cues === 1 ? '' : 's'}`);
+    if (!resp.ok) { showErrorToast(data, 'saving the subtitles'); return; }
+    showToast(`✓ Saved: ${data.cues} line${data.cues === 1 ? '' : 's'}`, { type: 'success' });
     subtitlesCloseEditor();
     // Reload the on-screen cues if this track is showing
     if (currentMediaState.currentMediaData?.id === mediaId && _subs.lang === lang) {
@@ -1041,7 +1133,7 @@ async function subtitlesSaveEditor(mediaId, lang) {
       await applySubtitlesFor(currentMediaState.currentMediaData);
     }
   } catch (err) {
-    showToast('⚠ ' + err.message);
+    showErrorToast(err, 'saving the subtitles');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
   }

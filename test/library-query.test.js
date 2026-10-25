@@ -9,6 +9,7 @@
  * of the browser's own code.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -315,8 +316,10 @@ test('theme: the clean copy, then the raw column; bad JSON matches nothing', asy
 
 test('duplicates: same type and non-zero size', async () => {
   assert.deepStrictEqual(new Set(await ids({ filters: { duplicates: '1' } })), new Set([ID.dupA, ID.dupB]));
+  // Hide keeps one copy of each duplicate group (the oldest here), hiding only the extras
   const not = new Set(await ids({ filters: { duplicates: '0' } }));
-  assert.ok(not.has(ID.dupImg) && !not.has(ID.dupA));
+  const keep = Math.min(ID.dupA, ID.dupB), extra = Math.max(ID.dupA, ID.dupB);
+  assert.ok(not.has(ID.dupImg) && not.has(keep) && !not.has(extra));
 });
 
 test('scan status, notes, safe and extension filters', async () => {

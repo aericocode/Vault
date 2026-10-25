@@ -71,15 +71,98 @@ async function loadDatabase() {
     // Signal that the library is ready (settings.js listens once, to
     // restore the last session after the data it needs is available).
     window.dispatchEvent(new CustomEvent('vault:library-loaded'));
+    _loadFailed = false;
   } catch (err) {
     console.error('Failed to load library:', err);
+    _loadFailed = true;
+    const offline = err instanceof TypeError || (Library.offline && !err.status);
+    if (offline) Library.noteServerLost();
     const totalCountElement = document.getElementById('totalCount');
-    if (totalCountElement) {
-      totalCountElement.textContent = '⚠ Could not load library. Is the server running?';
-    }
-    showToast('Failed to load library: ' + err.message);
+    if (totalCountElement) totalCountElement.textContent = 'Library not loaded';
+    showLoadError(offline);
   }
 }
+
+/* ── When the library cannot load, or the server goes away ────────────────
+   The first load failing leaves the grid saying so with a Try again button
+   (only when the grid has nothing in it: tiles already on screen stay). A
+   server that stops answering at any time gets one slim notice at the top
+   of the header, "Can't reach Vault", with Try again; it goes away by itself
+   on the next good answer (Library's version poll every 3 s, see setOffline
+   in library.js), and the search re-runs then. */
+
+let _loadFailed = false;
+
+function showLoadError(offline) {
+  const grid = document.getElementById('resultsGrid');
+  if (!grid || grid.querySelector('.media-tile:not(.tile-skel), .tv-row')) {
+    if (!offline) showErrorToast(new Error(''), 'loading the library');
+    return;
+  }
+  const icon = typeof vaultIcon === 'function' ? vaultIcon('alert', 'empty-state-ic') : '';
+  grid.classList.add('results-empty');
+  delete grid.dataset.gridShape;
+  delete grid.dataset.tvShape;
+  grid.innerHTML = `<div class="empty-state" role="alert">
+      ${icon}
+      <div class="empty-state-title">The library could not load</div>
+      <div class="empty-state-hint">${offline
+        ? 'Vault is not answering. If you closed it, start it again.'
+        : 'Something went wrong while loading the library.'}</div>
+      <div class="empty-state-actions">
+        <button type="button" class="empty-state-btn m-btn is-primary" id="loadRetryBtn">Try again</button>
+      </div>
+    </div>`;
+  grid.querySelector('#loadRetryBtn').addEventListener('click', (e) => {
+    e.currentTarget.disabled = true;
+    e.currentTarget.textContent = 'Loading…';
+    loadDatabase();
+  });
+}
+
+function renderServerNotice(offline) {
+  let el = document.getElementById('serverNotice');
+  if (!offline) {
+    if (el) el.remove();
+    return;
+  }
+  if (el) return;
+  const header = document.getElementById('appHeader');
+  if (!header) return;
+  el = document.createElement('div');
+  el.id = 'serverNotice';
+  el.className = 'server-notice';
+  el.setAttribute('role', 'alert');
+  const icon = typeof vaultIconSwap === 'function' ? vaultIconSwap('⚠', 'alert') : '⚠';
+  el.innerHTML = `
+    <span class="server-notice-ic" aria-hidden="true">${icon}</span>
+    <span class="server-notice-text"><strong>Can't reach Vault.</strong>
+      It may have been closed or restarted. What you see may be out of date.</span>
+    <span class="server-notice-status" aria-live="polite"></span>
+    <button type="button" class="server-notice-btn">Try again</button>`;
+  header.insertBefore(el, header.firstChild);
+  const btn = el.querySelector('.server-notice-btn');
+  const status = el.querySelector('.server-notice-status');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    status.textContent = 'Checking…';
+    const ok = await Library.checkServer();
+    if (!btn.isConnected) return;
+    btn.disabled = false;
+    status.textContent = ok ? '' : 'Still not answering. Start Vault again, then try again.';
+  });
+}
+
+// vault-ui.js's fetch wrapper sees every request fail: the notice comes up on
+// the first one, and the version poll takes it down once the server answers.
+window.addEventListener('vault:offline', () => Library.noteServerLost());
+
+window.addEventListener('vault:server-state', (e) => {
+  const offline = !!(e.detail && e.detail.offline);
+  renderServerNotice(offline);
+  // Back after a failed first load: load it properly now.
+  if (!offline && _loadFailed) loadDatabase();
+});
 
 /* ── After an unlock: the one-time "preparing" step ───────────────────────
    Only an encrypted library unlocked for the first time after the update
@@ -141,8 +224,23 @@ function onFacetsChanged() {
   renderLibraryCount();
 }
 window.addEventListener('vault:facets-changed', onFacetsChanged);
+// A new result (or its exact count) changes "N of M".
+window.addEventListener('vault:results-changed', () => renderLibraryCount());
+window.addEventListener('vault:results-counted', () => renderLibraryCount());
 
-/** "N media files loaded (M hidden)": the same sentence, from the counts. */
+/** Is a search, a filter or a focus narrowing what the library shows? */
+function libraryCountNarrowed() {
+  if (typeof currentTab !== 'undefined' && currentTab !== 'library' && currentTab !== 'collections') return false;
+  if (typeof collectionsHomeShowing === 'function' && collectionsHomeShowing()) return false;
+  if (typeof libraryNarrowing !== 'function') return false;
+  const n = libraryNarrowing();
+  return !!(n.text || n.filters || n.focus || n.similar || n.collection);
+}
+
+/** "N media files loaded (M hidden)": the same sentence, from the counts.
+    While a search or filter narrows the grid it reads "12 of 353 media files"
+    (data-short "12 of 353 files" for the Modern header), so the header never
+    says 353 over an empty result. */
 function renderLibraryCount() {
   const f = Library.facets;
   const el = document.getElementById('totalCount');
@@ -159,6 +257,14 @@ function renderLibraryCount() {
     if (!allowedMediaTypes.includes(g.media_type) && g.count > 0) hiddenTypes.add(g.media_type);
   }
   const hiddenCount = Math.max(0, all - mediaCount);
+  if (libraryCountNarrowed() && Library.known() && !Library.isEmptyResult) {
+    const shown = Library.length().toLocaleString();
+    el.textContent = `${shown} of ${mediaCount.toLocaleString()} media files`;
+    el.dataset.short = `${shown} of ${mediaCount.toLocaleString()} files`;
+    el.title = 'Files that match the search and filters, of all the files in the library';
+    return;
+  }
+  delete el.dataset.short;
   if (hiddenCount > 0) {
     el.textContent = `${mediaCount.toLocaleString()} media files loaded (${hiddenCount.toLocaleString()} hidden)`;
     el.title = `Hidden file types: ${[...hiddenTypes].sort().join(', ')}`;

@@ -194,3 +194,151 @@ body.layout-modern #mainContainer.faces-person .sort-control { display: none; }
 /* The person page has its own files Size slider (faces-tab.js), so the
    library's slider would be a second, inert "Size" there. Keep the dock button. */
 body.layout-modern #mainContainer.faces-person .card-size-control { display: none; }
+
+/* ── Form controls (UI audit X6) ────────────────────────────────────────
+   Two layers.
+
+   1. Defaults for every control in Modern, at zero specificity (:where), so
+      any rule a panel already has for its own controls still wins. Native
+      parts (select popups, number spinners, unticked boxes, scrollbars) draw
+      dark, ticks and sliders use the accent, and a field nobody styled gets
+      the dark field look instead of a white browser box.
+
+   2. Opt-in classes for a full Modern control, for code that builds its own:
+        .m-select   select with a line chevron
+        .m-field    text / number / search field, or a textarea
+        .m-check    checkbox drawn as a rounded box with a line tick
+        .m-switch   checkbox drawn as an on / off switch
+        .m-btn      quiet button; add .is-primary (accent) or .is-ghost (text)
+      All scoped to body.layout-modern: in Classic they stay browser controls. */
+
+html:has(> body.layout-modern) { color-scheme: dark; }
+body.layout-modern { color-scheme: dark; accent-color: var(--accent); }
+
+:where(body.layout-modern) :where(select:not([multiple]), textarea,
+  input:is([type="text"], [type="number"], [type="search"], [type="password"], [type="email"], [type="url"], :not([type]))) {
+  background-color: #1c1c22;
+  color: var(--m-text);
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  padding: 4px 8px;
+}
+:where(body.layout-modern) :where(select, textarea, input):focus-visible {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: 1px;
+}
+
+body.layout-modern .m-select,
+body.layout-modern .m-field {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background-color: var(--m-field);
+  color: var(--m-text);
+  font-size: 13px;
+  line-height: 1.3;
+}
+body.layout-modern .m-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b8b97' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6.5 9.5 5.5 5.5 5.5-5.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 14px 14px;
+  cursor: pointer;
+}
+body.layout-modern .m-select option { background: var(--m-surface-solid); color: var(--m-text); }
+body.layout-modern .m-field::placeholder { color: var(--m-muted); }
+body.layout-modern .m-select:hover,
+body.layout-modern .m-field:hover { border-color: rgba(255, 255, 255, 0.22); }
+body.layout-modern .m-select:focus-visible,
+body.layout-modern .m-field:focus-visible { outline: none; border-color: var(--accent-hover); }
+body.layout-modern .m-select:disabled,
+body.layout-modern .m-field:disabled { opacity: 0.5; cursor: default; }
+
+body.layout-modern .m-check {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  border-radius: 5px;
+  background: transparent center / 12px 12px no-repeat;
+  vertical-align: -3px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+body.layout-modern .m-check:hover { border-color: rgba(255, 255, 255, 0.6); }
+body.layout-modern .m-check:checked {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+}
+body.layout-modern .m-check:focus-visible,
+body.layout-modern .m-switch:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+
+body.layout-modern .m-switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: none;
+  width: 32px;
+  height: 18px;
+  margin: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  vertical-align: -4px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+body.layout-modern .m-switch::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+body.layout-modern .m-switch:checked { background: var(--accent); }
+body.layout-modern .m-switch:checked::before { transform: translateX(14px); }
+body.layout-modern .m-check:disabled,
+body.layout-modern .m-switch:disabled { opacity: 0.45; cursor: default; }
+
+body.layout-modern .m-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 14px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-btn);
+  color: var(--m-text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+body.layout-modern .m-btn:hover { background: var(--m-btn-hover); }
+body.layout-modern .m-btn:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+body.layout-modern .m-btn:disabled { opacity: 0.5; cursor: default; }
+body.layout-modern .m-btn.is-primary { border-color: transparent; background: var(--accent); color: #fff; font-weight: 600; }
+body.layout-modern .m-btn.is-primary:hover { background: var(--accent-hover); }
+body.layout-modern .m-btn.is-ghost { border-color: transparent; background: transparent; color: var(--accent-hover); }
+body.layout-modern .m-btn.is-ghost:hover { background: var(--m-btn); }
+body.layout-modern .m-btn .vi { width: 16px; height: 16px; }
+
+@media (prefers-reduced-motion: reduce) {
+  body.layout-modern .m-check,
+  body.layout-modern .m-switch,
+  body.layout-modern .m-switch::before { transition: none; }
+}

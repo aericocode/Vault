@@ -2,9 +2,40 @@
 // PLAYER CONTROLS - Keyboard shortcuts for media player
 // =========================================================================
 
+/**
+ * Number keys jump through the file like mpv: 0 = start, 1 = 10%, ... 9 = 90%.
+ * Null while the duration is unknown (NaN before metadata, Infinity on a live
+ * stream), since assigning either to currentTime throws or goes nowhere.
+ */
+function percentKeyTime(duration, digit) {
+  if (!isFinite(duration) || duration <= 0) return null;
+  const d = Number(digit);
+  if (!Number.isInteger(d) || d < 0 || d > 9) return null;
+  return duration * d / 10;
+}
+
+/**
+ * Seek the playing video, mix or audio to a number key's percentage. Shared
+ * with the mini player keys (app.js): the element is the same one either way,
+ * it just moves. Same path as the seek bar: write currentTime, re-sync a mix's
+ * followers, pop the controls.
+ */
+function seekToPercentKey(digit) {
+  const type = currentMediaState.type;
+  if (!isVideoLike(type) && type !== 'audio') return;
+  const el = currentMediaState.element;
+  const t = el ? percentKeyTime(el.duration, digit) : null;
+  if (t === null) return;
+  el.currentTime = t;
+  if (type === 'mix' && typeof mixPlayerResync === 'function') mixPlayerResync();
+  showMediaControls();
+}
+
 document.addEventListener('keydown', (e) => {
   const overlay = document.getElementById('mediaPlayerOverlay');
   if (!overlay.classList.contains('active')) return;
+  // A password, lock or import dialog over the player has the keyboard.
+  if (typeof vaultModalOpen === 'function' && vaultModalOpen()) return;
 
   // Alt+Arrow for sidebar navigation (works even in textarea)
   if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
@@ -139,7 +170,10 @@ document.addEventListener('keydown', (e) => {
       
     case 'Escape':
       // Peel one layer at a time: fullscreen, then the sidebar, then the player.
-      if (document.fullscreenElement) {
+      // Modern: a loop waiting for its B point is the first thing Esc drops.
+      if (typeof ModernDock !== 'undefined' && ModernDock.mounted() && abLoopA !== null && abLoopB === null) {
+        clearAbLoop();   // the A marker going away says it
+      } else if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
       } else if (typeof sidebarOpen !== 'undefined' && sidebarOpen) {
         toggleSidebar();
@@ -187,7 +221,14 @@ document.addEventListener('keydown', (e) => {
     case '0':
       if (mediaType === 'image' || mediaType === 'gif') {
         resetImage();
+        break;
       }
+      // falls through: 0 seeks to the start of a video, mix or audio
+    case '1': case '2': case '3': case '4': case '5':
+    case '6': case '7': case '8': case '9':
+      // Leave Ctrl+0 (browser zoom reset), Alt+digit and friends alone
+      if (e.ctrlKey || e.altKey || e.metaKey) break;
+      seekToPercentKey(e.key);
       break;
       
     case '+':

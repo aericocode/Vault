@@ -12,7 +12,7 @@
   display: block;
   position: relative;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--m-radius, 12px);
   background: var(--bg-secondary);
   overflow: clip;        /* the rounded corners; clip keeps the sticky header working */
 }
@@ -62,6 +62,7 @@
 .grid-table .tv-sortable.is-sorted { color: var(--text-primary); }
 .grid-table .tv-sortable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .grid-table .tv-sort-ind { margin-left: 0.3rem; font-size: 0.65rem; color: var(--accent-hover); }
+.grid-table .tv-sort-ind .vi { width: 12px; height: 12px; vertical-align: -2px; }
 .grid-table .tv-end { text-align: right; justify-self: end; }
 
 /* ── Rows: the tile look undone ── */
@@ -120,7 +121,7 @@ body.dock-shown .grid-table .media-tile.tv-row.tile-docked {
   position: relative;
   width: 64px;
   height: 40px;
-  border-radius: 4px;
+  border-radius: 6px;
   background: var(--bg-tertiary);
   cursor: pointer;
 }
@@ -166,6 +167,7 @@ body.dock-shown .grid-table .media-tile.tv-row.tile-docked {
 .grid-table .tv-row:hover .tv-actions,
 .grid-table .tv-row:focus-within .tv-actions { display: inline-flex; }
 .grid-table .tv-actions .tile-btn { width: 24px; height: 24px; font-size: 0.75rem; }
+.grid-table .tv-actions .tile-btn .vi { width: 14px; height: 14px; }
 
 .grid-table .tv-stars { color: #facc15; letter-spacing: 1px; }
 .grid-table .tv-stars-off { color: var(--border); }

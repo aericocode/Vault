@@ -816,7 +816,7 @@ const Wall = (() => {
       <div class="wall-bar" id="wallBar">
         <label class="wall-field">
           <span class="wall-label">Source</span>
-          <select id="wallSource"></select>
+          <select id="wallSource" class="m-select"></select>
         </label>
         <div class="wall-seg" role="group" aria-label="Wall mode">
           <button type="button" class="wall-seg-btn" id="wallModeGrid" data-mode="grid">Grid</button>
@@ -840,7 +840,7 @@ const Wall = (() => {
           ${popSlider('wallGap', 'Gap', 'gap')}
           <label class="wall-pop-row">
             <span class="wall-label">Show</span>
-            <select id="wallMix">
+            <select id="wallMix" class="m-select">
               <option value="both">Videos and pictures</option>
               <option value="videos">Videos only</option>
               <option value="pictures">Pictures only</option>
@@ -848,24 +848,24 @@ const Wall = (() => {
           </label>
           <label class="wall-pop-row">
             <span class="wall-label">Order</span>
-            <select id="wallOrder">
+            <select id="wallOrder" class="m-select">
               <option value="shuffle">Shuffle</option>
               <option value="order">In order</option>
             </select>
           </label>
           <label class="wall-pop-row" title="Off: every clip is silent. On hover: the clip under the mouse is heard. Auto: one clip is always heard, the one with the most time left.">
             <span class="wall-label">Sound</span>
-            <select id="wallSound">
+            <select id="wallSound" class="m-select">
               <option value="off">Off</option>
               <option value="hover">On hover</option>
               <option value="auto">Auto</option>
             </select>
           </label>
           <label class="wall-check" title="Hovering a block holds it: its timer waits, and Scroll mode stops drifting.">
-            <input type="checkbox" id="wallHoverPause"> Pause on hover</label>
+            <input type="checkbox" id="wallHoverPause" class="m-check"> Pause on hover</label>
           <label class="wall-check" title="Skip videos that need converting on the fly. They are heavier to play.">
-            <input type="checkbox" id="wallDirect"> Only direct-play files</label>
-          <label class="wall-check"><input type="checkbox" id="wallToEnd"> Play clips to the end</label>
+            <input type="checkbox" id="wallDirect" class="m-check"> Only files that play without converting</label>
+          <label class="wall-check"><input type="checkbox" id="wallToEnd" class="m-check"> Play clips to the end</label>
         </div>
       </div>
       <div class="wall-stage">
@@ -1231,6 +1231,52 @@ const Wall = (() => {
   function showMsg(text) {
     els.msg.textContent = text;
     els.msg.hidden = !text;
+  }
+
+  /**
+   * Why the wall came up empty, as { kind, title, hint }. Only a search or a
+   * filter earns the "clear it" hint; a library with no files at all gets the
+   * library's own empty state (with Add), and files that exist but cannot go
+   * up (all music, say) are told so.
+   */
+  function emptyMessage({ source, narrowed, libraryEmpty }) {
+    if (source !== 'library') {
+      return { kind: 'source', title: '', hint: 'Nothing to show from this source. Pick another source or change what it shows.' };
+    }
+    if (narrowed) {
+      return { kind: 'filter', title: '', hint: 'Nothing to show. The Wall uses your current library search and filters; clear them or pick another source.' };
+    }
+    if (libraryEmpty) {
+      return { kind: 'library', title: 'Your library is empty', hint: 'Add a folder or some files and they will show up here. Your files stay where they are.' };
+    }
+    return { kind: 'unfit', title: '', hint: 'Nothing to show. The Wall plays videos and pictures, and none of your files can go up with these Wall settings.' };
+  }
+
+  function showEmpty() {
+    const n = typeof libraryNarrowing === 'function' ? libraryNarrowing() : {};
+    const m = emptyMessage({
+      source: cfg.source,
+      narrowed: !!(n.text || n.filters || n.focus || n.similar || n.collection),
+      libraryEmpty: typeof Library !== 'undefined' && Library.known() && Library.length() === 0,
+    });
+    if (m.kind !== 'library') { showMsg(m.hint); return; }
+    // The same empty state as the library's (cards.js emptyStateHtml), with its Add actions.
+    const esc = (s) => (typeof escapeHtml === 'function' ? escapeHtml(s) : String(s));
+    const ic = typeof vaultIcon === 'function' ? vaultIcon('folder', 'empty-state-ic') : '';
+    const btn = (id, label, primary) => (document.getElementById(id)
+      ? `<button type="button" class="empty-state-btn m-btn${primary ? ' is-primary' : ''}" data-wall-add="${id}">${esc(label)}</button>` : '');
+    const hasFolder = !!document.getElementById('addFolderBtn');
+    const actions = btn('addFolderBtn', 'Add folder', true) + btn('addFilesBtn', 'Add files', !hasFolder);
+    els.msg.innerHTML = `<div class="empty-state" role="status">
+        ${ic}
+        <div class="empty-state-title">${esc(m.title)}</div>
+        <div class="empty-state-hint">${esc(m.hint)}</div>
+        ${actions ? `<div class="empty-state-actions">${actions}</div>` : ''}
+      </div>`;
+    els.msg.hidden = false;
+    els.msg.querySelectorAll('[data-wall-add]').forEach(b => b.addEventListener('click', () => {
+      document.getElementById(b.dataset.wallAdd)?.click();
+    }));
   }
 
   function updateStatus() {
@@ -2380,14 +2426,12 @@ const Wall = (() => {
       await buildPool();
     } catch (err) {
       if (gen !== buildGen) return;
-      showMsg(err && err.message ? `Could not load the wall. ${err.message}` : 'Could not load the wall.');
+      showMsg(typeof friendlyError === 'function' ? friendlyError(err, 'loading the wall') : 'Could not load the wall.');
       return;
     }
     if (gen !== buildGen) return;
     if (!ready.length) {
-      showMsg(cfg.source === 'library'
-        ? 'Nothing to show. The Wall uses your current library filter; clear it or pick another source.'
-        : 'Nothing to show from this source. Pick another source or change what it shows.');
+      showEmpty();
       return;
     }
     await shapesFor(LOOKAHEAD * 3, 2500);
@@ -2534,7 +2578,7 @@ const Wall = (() => {
   return {
     enter, leave, lockStop, startAt,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { cfgFrom, takeStart, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, mostlyInView, scrollLeftMs, scrollFreePlan, MOSTLY, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
+    _pure: { emptyMessage, cfgFrom, takeStart, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, mostlyInView, scrollLeftMs, scrollFreePlan, MOSTLY, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
     _audio: () => {
       const t = now();

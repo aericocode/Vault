@@ -26,7 +26,7 @@ function stopMixPlayer() {
 async function renderMixPlayer(content, controlsContainer, filepath, filename, hasPrev, hasNext) {
   stopMixPlayer();
   const row = Library.rowByPath(filepath) || currentMediaState.currentMediaData;
-  content.innerHTML = '<div class="unsupported-media"><div class="unsupported-icon">🎛</div><div class="unsupported-text">Loading mix…</div></div>';
+  content.innerHTML = `<div class="unsupported-media"><div class="unsupported-icon">${playerGlyph('🎛', 'mix')}</div><div class="unsupported-text">Loading mix…</div></div>`;
   controlsContainer.innerHTML = '';
 
   let mix = null;
@@ -44,7 +44,7 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
   if (!mix || mix.error || ids.length < 2) {
     content.innerHTML = `
       <div class="unsupported-media">
-        <div class="unsupported-icon">🎛</div>
+        <div class="unsupported-icon">${playerGlyph('🎛', 'mix')}</div>
         <div class="unsupported-text">${!mix || mix.error ? 'Mix config missing' : rowsFailed ? 'Could not load the source videos from the server. Try again.' : 'Source videos are no longer in the library'}</div>
         <div class="unsupported-filename">${escapeHtml(filename)}</div>
       </div>`;
@@ -99,7 +99,7 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
   `;
   const rightControls = `
     ${renderFillButton()}
-    <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)">⛶</button>
+    <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)" aria-label="Fullscreen">${playerGlyph('⛶', 'fullscreen')}</button>
   `;
   const speedControls = renderSpeedControls();
 
@@ -118,7 +118,7 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
         <div class="playback-controls">
           ${renderSkipButton(-10, 'skipVideo(-10); mixPlayerResync();', '-10s (J)')}
           ${renderSkipButton(-5, 'skipVideo(-5); mixPlayerResync();', '-5s (←)')}
-          <button onclick="togglePlay()" id="playPauseBtn" class="play-pause-btn" title="Play/Pause (Space)">▶</button>
+          <button onclick="togglePlay()" id="playPauseBtn" class="play-pause-btn" title="Play/Pause (Space)" aria-label="Play">${playerGlyph('▶', 'play-fill')}</button>
           ${renderSkipButton(5, 'skipVideo(5); mixPlayerResync();', '+5s (→)')}
           ${renderSkipButton(10, 'skipVideo(10); mixPlayerResync();', '+10s (L)')}
         </div>
@@ -178,7 +178,7 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
 
   master.addEventListener('play', () => {
     const btn = document.getElementById('playPauseBtn');
-    if (btn) btn.textContent = '⏸';
+    if (btn) setPlayerPlayGlyph(btn, true);
     videos.forEach((v, i) => {
       // blank tiles stay paused — syncTrack resumes them when back in range
       if (i !== masterIdx && !v.closest('.editor-tile')?.classList.contains('mix-tile-blank')) {
@@ -188,12 +188,12 @@ async function renderMixPlayer(content, controlsContainer, filepath, filename, h
   });
   master.addEventListener('pause', () => {
     const btn = document.getElementById('playPauseBtn');
-    if (btn) btn.textContent = '▶';
+    if (btn) setPlayerPlayGlyph(btn, false);
     videos.forEach((v, i) => { if (i !== masterIdx) v.pause(); });
   });
   master.addEventListener('ended', () => {
     const btn = document.getElementById('playPauseBtn');
-    if (btn) btn.textContent = '▶';
+    if (btn) setPlayerPlayGlyph(btn, false);
     if (typeof autoAdvanceOnEnded === 'function') autoAdvanceOnEnded();
   });
   // Bound to the STAGE, not the master. Only the master carries id="mediaVideo",

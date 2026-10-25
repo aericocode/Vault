@@ -8,6 +8,7 @@
  * Real files in a temp folder: these routes move and unlink them.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

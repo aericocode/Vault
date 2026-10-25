@@ -6,6 +6,7 @@
  * not pick a random file).
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -181,6 +182,17 @@ test('?: opens on its own, not with Ctrl / Cmd / Alt, not while typing', () => {
   // Focus in a text box (a modal that takes typing) even when the event's target is not.
   assert.strictEqual(S.shortcutsShouldOpen(key('?'), { nodeType: 1, tagName: 'TEXTAREA' }), false);
   assert.strictEqual(S.shortcutsShouldOpen(key('?'), { nodeType: 1, tagName: 'BUTTON' }), true);
+});
+
+test('?: stays shut while another dialog has the keyboard (vaultModalOpen)', () => {
+  let open = false;
+  const ctx = makeCtx({ vaultModalOpen: () => open });
+  const src = fs.readFileSync(path.join(LIB, 'shortcuts.js'), 'utf8');
+  vm.runInContext(`${src}
+;globalThis.__open = shortcutsShouldOpen;`, ctx);
+  assert.strictEqual(ctx.__open(key('?', { shiftKey: true })), true);
+  open = true;   // "Protect your library?", a password dialog, the lock screen, import
+  assert.strictEqual(ctx.__open(key('?', { shiftKey: true })), false);
 });
 
 test('isBrowserChord: Ctrl / Cmd with a letter or symbol; not Space, arrows, Esc or AltGr', () => {

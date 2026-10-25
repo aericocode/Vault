@@ -49,6 +49,14 @@ const VAULT_ICONS = {
   play: '<path d="M7.5 5v14l11-7z"/>',
   flag: '<path d="M5.5 21V4M5.5 4.5h11l-2.2 4.2 2.2 4.3h-11"/>',
   copy: '<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>',
+  // Mini player (player-lib/player/mini-player.js). Forward is rewind
+  // mirrored in css/mini-player.css, which keeps the set small.
+  close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+  expand: '<path d="M14 4.5h5.5V10M10 19.5H4.5V14M19.5 4.5 13 11M4.5 19.5 11 13"/>',
+  pip: '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="11" width="6.5" height="5.5" rx="1"/>',
+  rewind: '<path d="M11 7l-5 5 5 5M18 7l-5 5 5 5"/>',
+  volume: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
+  mute: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="m16 9.5 5 5M21 9.5l-5 5"/>',
   // File types (tiles waiting for a picture, or with thumbnails Off)
   video: '<rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M7.5 4.5v15M16.5 4.5v15M3 9.5h4.5M3 14.5h4.5M16.5 9.5H21M16.5 14.5H21"/>',
   image: '<rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="m21 16-5-5-9.5 8.5"/>',
@@ -84,6 +92,59 @@ const VAULT_ICONS = {
   // Folder watchers (player-lib/watchers-ui.js)
   more: '<circle cx="5.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18.5" cy="12" r="1.2"/>',
   server: '<rect x="3.5" y="4" width="17" height="7" rx="2"/><rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M7.5 7.5h.01M7.5 16.5h.01"/>',
+  // The AI scan panel (player-lib/importer.js)
+  spark: '<path d="M12 3.5l1.8 5.2 5.2 1.8-5.2 1.8L12 17.5l-1.8-5.2L5 10.5l5.2-1.8z"/><path d="M18.5 16.5v4M16.5 18.5h4"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  // The Modern Settings menu (player-lib/settings-kit.js)
+  lock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
+  keyboard: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M7.5 14h9"/>',
+  chip: '<rect x="6.5" y="6.5" width="11" height="11" rx="2"/><path d="M9.5 3v3.5M14.5 3v3.5M9.5 17.5V21M14.5 17.5V21M3 9.5h3.5M3 14.5h3.5M17.5 9.5H21M17.5 14.5H21"/>',
+  plug: '<path d="M9 3v5M15 3v5M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0z"/><path d="M12 17v4"/>',
+  book: '<path d="M4.5 5.5a2 2 0 0 1 2-2h13v15h-13a2 2 0 0 0-2 2z"/><path d="M4.5 20.5v-15M19.5 18.5v2h-13"/>',
+  // The Modern player's dock (player-lib/player/player-modern.js). Drawn at
+  // stroke 1.75 there (css/player/player-modern.css); the numbers and letters
+  // inside skip, A-B and repeat-one are filled text, not strokes.
+  'play-fill': '<path d="M8 5l11 7-11 7z" fill="currentColor"/>',
+  'pause-bold': '<path d="M7 5h2.6v14H7zM14.4 5H17v14h-2.6z" fill="currentColor" stroke="none"/>',
+  'prev-file': '<path d="M6 5v14M19 5l-10 7 10 7z"/>',
+  'next-file': '<path d="M18 5v14M5 5l10 7-10 7z"/>',
+  'back-ten': '<path d="M12 4a8 8 0 1 1-7.4 5"/><path d="M4 3.5v5.5h5.5"/><text x="12" y="15.5" text-anchor="middle" font-size="7" font-weight="700" font-family="system-ui,sans-serif" fill="currentColor" stroke="none">10</text>',
+  'fwd-ten': '<path d="M12 4a8 8 0 1 0 7.4 5"/><path d="M20 3.5v5.5h-5.5"/><text x="12" y="15.5" text-anchor="middle" font-size="7" font-weight="700" font-family="system-ui,sans-serif" fill="currentColor" stroke="none">10</text>',
+  hot: '<path d="M12 22c4 0 7-3 7-7 0-4-3-6-4-10-2 2-3 4-3 6-1-1-2-2-2-4-2 2-5 5-5 8 0 4 3 7 7 7z"/><path d="M12 22c-1.7 0-3-1.3-3-3 0-1.6 1.5-2.8 3-5 1.5 2.2 3 3.4 3 5 0 1.7-1.3 3-3 3z"/>',
+  // Done: a splash of three drops, the 💦 it stands in for
+  done: '<path d="M9 4c2.6 3.3 4.2 5.8 4.2 7.9a4.2 4.2 0 0 1-8.4 0C4.8 9.8 6.4 7.3 9 4z"/><path d="M17 10.5c1.6 2 2.6 3.6 2.6 4.9a2.6 2.6 0 0 1-5.2 0c0-1.3 1-2.9 2.6-4.9z"/><path d="M14 17.5c.9 1.1 1.4 2 1.4 2.7a1.4 1.4 0 0 1-2.8 0c0-.7.5-1.6 1.4-2.7z"/>',
+  'face-scan': '<path d="M4 8V5h3M17 5h3v3M4 16v3h3M17 19h3v-3"/><circle cx="12" cy="10.5" r="2.7"/><path d="M7.8 17.5a4.3 4.3 0 0 1 8.4 0"/>',
+  vibe: '<rect x="9" y="4" width="6" height="16" rx="3"/><path d="M5.5 9a4.5 4.5 0 0 0 0 6M18.5 9a4.5 4.5 0 0 1 0 6M2.5 6.5a8.5 8.5 0 0 0 0 11M21.5 6.5a8.5 8.5 0 0 1 0 11"/>',
+  beat: '<rect x="2" y="7" width="20" height="10" rx="5"/><path d="M8 4.5v15"/><circle cx="8" cy="12" r="2.2" fill="currentColor" stroke="none"/><circle cx="13" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="17.5" cy="12" r="1.3" fill="currentColor" stroke="none"/>',
+  'ab-loop': '<path d="M5 12a7 7 0 0 1 14 0"/><path d="M16.5 9.5l2.5 2.5 2.2-2.8"/><text x="5" y="21" text-anchor="middle" font-size="8.5" font-weight="800" font-family="system-ui,sans-serif" fill="currentColor" stroke="none">A</text><text x="19" y="21" text-anchor="middle" font-size="8.5" font-weight="800" font-family="system-ui,sans-serif" fill="currentColor" stroke="none">B</text>',
+  repeat: '<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/>',
+  'repeat-one': '<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/><text x="12" y="14.8" text-anchor="middle" font-size="7.5" font-weight="800" font-family="system-ui,sans-serif" fill="currentColor" stroke="none">1</text>',
+  cc: '<rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M10.5 10.2a2.2 2.2 0 1 0 0 3.6M17 10.2a2.2 2.2 0 1 0 0 3.6"/>',
+  fullscreen: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  'fullscreen-exit': '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
+  panel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
+  fit: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 9l-2 3 2 3M16 9l2 3-2 3"/>',
+  'chev-left': '<path d="M15 6l-6 6 6 6"/>',
+  'chev-right': '<path d="M9 6l6 6-6 6"/>',
+  // The Modern player's Info panel (player-lib/detail-view.js renderDetailPanel)
+  edit: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+  star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8-4.3-4.1 5.9-.9z"/>',
+  pin: '<path d="M9 3.5h6M10 3.5v6l-3 4h10l-3-4v-6M12 13.5v7"/>',
+  // Shared UI audit set (3.9): glyph controls, toasts, sort, password fields,
+  // queue states and the Obsession Score card titles.
+  caret: '<path d="m8 10 4 4 4-4"/>',
+  'arrow-up': '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  'arrow-down': '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  minus: '<path d="M5 12h14"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  'eye-off': '<path d="M3.5 3.5l17 17"/><path d="M10.6 5.6c.5-.1.9-.1 1.4-.1 6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-2.7 3.4M6.6 6.6C3.9 8.4 2.5 12 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.4-1.1"/><path d="M9.9 9.9a2.8 2.8 0 0 0 4.2 4.2"/>',
+  award: '<circle cx="12" cy="9" r="5.5"/><path d="M8.6 13.4 7 21l5-3 5 3-1.6-7.6"/>',
+  chart: '<path d="M4 20.5h16M7 20.5v-6M12 20.5V7M17 20.5v-10"/>',
+  trend: '<path d="m3.5 17 6-6 4 4 7-7.5"/><path d="M15 7.5h5.5V13"/>',
+  map: '<path d="M9 4.5 3.5 6.5v13L9 17.5l6 2 5.5-2v-13l-5.5 2z"/><path d="M9 4.5v13M15 6.5v13"/>',
+  palette: '<path d="M12 3.5a8.5 8.5 0 0 0 0 17c1.1 0 1.8-.8 1.8-1.8 0-1.2-1-1.6-1-2.7 0-.9.8-1.5 1.8-1.5h2.2a3.7 3.7 0 0 0 3.7-3.7C20.5 7 16.7 3.5 12 3.5z"/><path d="M7.5 12h.01M9.5 8h.01M14.5 8h.01"/>',
+  camera: '<path d="M4 8.5a2 2 0 0 1 2-2h2L9.5 4h5L16 6.5h2a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.5"/>',
+  mask: '<path d="M5 4.5h14v6a7 7 0 0 1-14 0z"/><path d="M8.5 9h1.5M14 9h1.5M9 13.5a3.5 3.5 0 0 0 6 0"/>',
 };
 
 /* Emoji the app leads its own labels with, and the icon that stands in for
@@ -94,7 +155,14 @@ const VAULT_EMOJI_ICONS = {
   '💾': 'save', '📤': 'upload', '⬆': 'upload', '⬇': 'download', '📦': 'box', '⚡': 'zap', '⚖': 'scale',
   '⬅': 'back', '🔀': 'shuffle', '⏱': 'timer', '🧩': 'puzzle', '▶': 'play', '🔍': 'search',
   '🚩': 'flag', '🏳': 'flag', '✂': 'scissors', '👤': 'person', '🏢': 'building', '▤': 'stack', '▦': 'grid',
-  '＋': 'plus', '➕': 'plus', '❓': 'help', '🔗': 'link', '🎮': 'games', '⚙': 'gear', '🕘': 'clock',
+  '＋': 'plus', '➕': 'plus', '❓': 'help', '🔗': 'link', '🎮': 'games', '💦': 'done', '⚙': 'gear', '🕘': 'clock',
+  // Status glyphs and the rest of the app's chrome emoji (UI audit, 3.9)
+  '⚠': 'alert', '❗': 'alert', '✓': 'check', '✔': 'check', '✅': 'check', '✕': 'close', '✖': 'close', '❌': 'close',
+  '✗': 'close', '⏳': 'clock', '⌛': 'clock', '✎': 'edit', '✏': 'edit', '🔒': 'lock', '🔐': 'lock',
+  '🔑': 'key', '❤': 'heart', '🤍': 'heart', '📝': 'note', '👁': 'eye', '⏸': 'pause', '🔊': 'volume', '🔇': 'mute',
+  '🏅': 'award', '🏆': 'award', '📈': 'trend', '📊': 'chart', '🗺': 'map', '🎨': 'palette', '🎭': 'mask',
+  '📸': 'camera', '📷': 'camera', '🔥': 'flame', '📋': 'copy', '➖': 'minus', '⛶': 'fullscreen', '↩': 'undo',
+  'ℹ': 'info', '📂': 'folder', '⭳': 'download',
 };
 
 /**
@@ -139,6 +207,19 @@ function vaultIconSwap(emoji, name) {
   const icon = vaultIcon(name, `modern-only${/\s$/.test(text) ? ' vi-gap' : ''}`);
   if (!icon) return vaultIconEsc(text);
   return `<span class="vi-c">${vaultIconEsc(text)}</span>${icon}`;
+}
+
+/**
+ * vaultIconSwap for markup the library modal and the player's Info panel
+ * share: the icon shows only inside the Modern Info panel (.mpp, css/player/
+ * player-panel-modern.css), so Classic and the library modal keep the emoji
+ * exactly as before. No name (or an unknown one): the panel shows the words
+ * alone.
+ */
+function vaultPanelIconSwap(emoji, name) {
+  const text = String(emoji == null ? '' : emoji);
+  const icon = name ? vaultIcon(name, `vi-pm${/\s$/.test(text) ? ' vi-gap' : ''}`) : '';
+  return `<span class="vi-pc">${vaultIconEsc(text)}</span>${icon}`;
 }
 
 /** The type icon for a tile with no picture: Classic's emoji, Modern's line icon. */

@@ -209,15 +209,15 @@ async function gamesLaunch(key, mediaId, { savedState = null, saveId = null } = 
   // A saved game can point at a file nothing on screen has loaded yet.
   let media;
   try { [media] = await Library.fetchRows([mediaId], { strict: true }); }
-  catch (err) { showToast('⚠ ' + err.message); return; }
-  if (!media) { showToast('Video not found'); return; }
+  catch (err) { showErrorToast(err, 'opening the file'); return; }
+  if (!media) { showToast('That file is no longer in the library.', { type: 'error' }); return; }
   if (!def.acceptTypes.includes(media.media_type)) {
-    showToast(`${def.label} needs: ${def.acceptTypes.join(', ')}`);
+    showToast(`${def.label} works with ${gamesTypeList(def.acceptTypes)} only.`, { type: 'error' });
     return;
   }
   // A brand-new game (no saveId) needs room under the per-game cap
   if (!saveId && gamesSavesFor(key).length >= GAMES_MAX_SAVES) {
-    showToast(`Max ${GAMES_MAX_SAVES} saved ${def.label} games. Delete one first`);
+    showToast(`You can keep ${GAMES_MAX_SAVES} saved ${def.label} games. Delete one to start another.`, { type: 'error' });
     return;
   }
 
@@ -255,10 +255,17 @@ async function gamesLaunch(key, mediaId, { savedState = null, saveId = null } = 
     });
   } catch (e) {
     console.error('[Games] mount failed:', e);
-    showToast('⚠ Game failed to start: ' + e.message);
+    showErrorToast(e, 'starting the game');
     await teardownActive();
     renderGamesHome();
   }
+}
+
+/** ['video', 'gif', 'image'] -> "videos, GIFs and pictures" */
+function gamesTypeList(types) {
+  const words = { video: 'videos', gif: 'GIFs', image: 'pictures', audio: 'audio files' };
+  const list = types.map(t => words[t] || t);
+  return list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}` : (list[0] || '');
 }
 
 /* ── Home (per-game rows of save cards) ─────────────────────────────────── */
@@ -323,7 +330,7 @@ function renderSaveCard(def, save) {
     <div class="games-save-card" data-save="${save.save_id}">
       <div class="games-save-thumb ${img ? '' : 'games-save-thumb--missing'}">
         ${img}
-        <span class="games-save-badge ${solved ? 'solved' : ''}">${solved ? '✓ Solved' : pct + '%'}</span>
+        <span class="games-save-badge ${solved ? 'solved' : ''}">${solved ? vaultEmojiLabel('✓ Solved') : pct + '%'}</span>
         <div class="games-save-progress" style="width:${barPct}%"></div>
       </div>
       <div class="games-save-info">
@@ -367,7 +374,7 @@ async function gamesFillPickerBody(bodyId, onClickFn) {
   try { items = await gamesPickableMedia(_pickerState.key); } catch (err) {
     if (seq !== _gamesPickSeq) return;
     const b = document.getElementById(bodyId);
-    if (b) b.innerHTML = `<div class="games-hint games-picker-empty">${escapeHtml(err.message || 'Search failed')}</div>`;
+    if (b) b.innerHTML = `<div class="games-hint games-picker-empty">${escapeHtml(friendlyError(err, 'searching the library'))}</div>`;
     return;
   }
   if (seq !== _gamesPickSeq) return;
@@ -398,7 +405,7 @@ function gamesPickerGridHtml(items, onClickFn) {
         <div class="tile-thumb ${(typeof thumbsOff === 'function' && thumbsOff()) ? 'thumb-fallback' : ''}">
           ${(typeof thumbsOff === 'function' && thumbsOff()) ? '' : `<img class="tile-img" loading="lazy" src="/thumb/${m.id}" alt=""
             onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">`}
-          <span class="tile-type-icon">🎬</span>
+          <span class="tile-type-icon">${vaultTypeIcon(m.media_type || 'video')}</span>
           ${dur ? `<span class="tile-duration">${dur}</span>` : ''}
         </div>
         <div class="tile-name">${escapeHtml(m.filename)}</div>
@@ -416,7 +423,7 @@ function renderGamePicker(key) {
       <div class="games-picker-head">
         <button class="games-btn" onclick="renderGamesHome()">${vaultEmojiLabel('⬅ Games')}</button>
         <h2 class="games-home-title">${vaultEmojiLabel(`${def.icon} ${escapeHtml(def.label)}: pick a video`)}</h2>
-        <input type="text" class="games-search" id="gamesPickerSearch" placeholder="Search (AND/OR/NOT)" autocomplete="off">
+        <input type="text" class="games-search" id="gamesPickerSearch" placeholder="Search files, tags, notes" autocomplete="off">
         ${typeof pickerSearchOptionsHtml === 'function' ? pickerSearchOptionsHtml('gamesPick', _pickerState) : ''}
       </div>
       <div id="gamesPickerBody"></div>
@@ -444,9 +451,9 @@ function openGamePickerOverlay(key) {
     <div class="games-picker-panel">
       <div class="games-picker-head">
         <h3>Change video</h3>
-        <input type="text" class="games-search" id="gamesOverlaySearch" placeholder="Search (AND/OR/NOT)" autocomplete="off">
+        <input type="text" class="games-search" id="gamesOverlaySearch" placeholder="Search files, tags, notes" autocomplete="off">
         ${typeof pickerSearchOptionsHtml === 'function' ? pickerSearchOptionsHtml('gamesPick', _pickerState) : ''}
-        <button class="games-btn" onclick="closeGamePickerOverlay()">✕</button>
+        <button class="games-btn games-icon-btn" onclick="closeGamePickerOverlay()" title="Close" aria-label="Close">${vaultIconSwap('✕', 'close')}</button>
       </div>
       <div id="gamesOverlayBody"></div>
     </div>`;

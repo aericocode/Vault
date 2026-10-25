@@ -1,0 +1,648 @@
+/* ==========================================
+   MODERN PLAYER (body.layout-modern only)
+
+   The Modern look's video controls (player-lib/player/player-modern.js):
+   a top bar and a full-width bottom dock laid over the picture, both fading
+   together (0.2 s). Classic's header and control bar are untouched; the
+   overlay carries .mp-modern only while the dock is mounted, which is what
+   hides Classic's header here. See .notes/MODERN_PLAYER_SPEC.md.
+   ========================================== */
+
+body.layout-modern #mediaPlayerOverlay.mp-modern .media-player-header { display: none; }
+
+/* ── Shared: icon buttons ───────────────────────────────────────────── */
+
+body.layout-modern .mp-ic {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: none;
+  height: 40px;
+  min-width: 40px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: #fff;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+body.layout-modern .mp-ic[hidden] { display: none; }
+body.layout-modern .mp-ic:hover:not(:disabled),
+body.layout-modern .mp-ic.open { background: rgba(255, 255, 255, 0.14); }
+body.layout-modern .mp-ic:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 1px; }
+body.layout-modern .mp-ic:disabled { opacity: 0.35; cursor: default; }
+body.layout-modern .mp-ic svg.vi {
+  width: 22px;
+  height: 22px;
+  stroke-width: 1.75;
+  vertical-align: 0;
+}
+/* Lit: on, set, syncing */
+body.layout-modern .mp-ic.on,
+body.layout-modern .mp-ic.beatbar-btn-on { color: #a5b4fc; }
+body.layout-modern .mp-ic.vibe-warn { color: #fbbf24; }
+
+/* ── Top bar ────────────────────────────────────────────────────────── */
+
+body.layout-modern .mp-top {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 35;
+  height: 76px;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #ececf1;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+body.layout-modern .controls-visible .mp-top { opacity: 1; }
+body.layout-modern .controls-visible .mp-top > * { pointer-events: auto; }
+
+body.layout-modern .mp-title {
+  min-width: 0;
+  max-width: 50%;
+  font-size: 17px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.layout-modern.pm-names #mpTitle {
+  filter: blur(7px);
+  pointer-events: none;
+  user-select: none;
+}
+body.layout-modern .mp-sp { flex: 1; }
+
+body.layout-modern .mp-devchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+body.layout-modern .mp-devchip[hidden] { display: none; }
+body.layout-modern .mp-devchip i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4ade80;
+}
+body.layout-modern .sidebar-open #mpPanelBtn {
+  color: #a5b4fc;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ── The dock ───────────────────────────────────────────────────────── */
+
+body.layout-modern .mp-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 35;
+  padding: 0 24px 12px;
+  color: #ececf1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+/* The bottom-up shade reaches 80 px above the bar; it never takes a click. */
+body.layout-modern .mp-dock::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(100% + 80px);
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.6) 55%, rgba(0, 0, 0, 0) 100%);
+  pointer-events: none;
+  z-index: -1;
+}
+body.layout-modern .controls-visible .mp-dock { opacity: 1; }
+body.layout-modern .controls-visible .mp-dock .mp-tl,
+body.layout-modern .controls-visible .mp-dock .mp-row { pointer-events: auto; }
+
+/* Control row: play group truly centred */
+body.layout-modern .mp-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  margin-top: 4px;
+}
+body.layout-modern .mp-row > div {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+body.layout-modern .mp-l { justify-self: start; }
+body.layout-modern .mp-c { justify-self: center; }
+body.layout-modern .mp-r { justify-self: end; }
+
+body.layout-modern .mp-time {
+  padding: 0 10px 0 4px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+body.layout-modern .mp-time-tot { color: #a9a9b4; }
+body.layout-modern .mp-vsep {
+  flex: none;
+  width: 1px;
+  height: 22px;
+  margin: 0 6px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+body.layout-modern .mp-play {
+  width: 54px;
+  height: 54px;
+  margin: 0 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+}
+body.layout-modern .mp-play:hover { background: rgba(255, 255, 255, 0.24); }
+body.layout-modern .mp-play svg.vi { width: 28px; height: 28px; }
+
+/* Speed as words; dimmed at normal speed */
+body.layout-modern .mp-pill {
+  height: 28px;
+  min-width: 0;
+  margin: 0 6px;
+  padding: 0 9px;
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
+  border-radius: 99px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+body.layout-modern .mp-pill:not(.speed-modified) { opacity: 0.6; }
+body.layout-modern .mp-pill:not(.speed-modified):hover,
+body.layout-modern .mp-pill.open { opacity: 1; }
+body.layout-modern .mp-pill.speed-modified { border-color: #a5b4fc; color: #a5b4fc; }
+
+/* A-B: filled with an A badge while waiting for B */
+body.layout-modern .mp-ab-btn .mp-badge {
+  display: none;
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: #fff;
+  color: #6366f1;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+body.layout-modern .mp-ab-btn.pending,
+body.layout-modern .mp-ab-btn.pending:hover { background: #6366f1; color: #fff; }
+body.layout-modern .mp-ab-btn.pending .mp-badge { display: block; }
+
+/* Subtitles: Classic's make / fix chips live in the gear menu here */
+body.layout-modern .mp-subctl { display: contents; }
+body.layout-modern .mp-subctl .subtitle-gen-btn { display: none !important; }
+
+/* Volume: icon plus an 80 px slider (folds into the icon on narrow stages) */
+body.layout-modern .mp-vol { display: inline-flex; align-items: center; }
+body.layout-modern .mp-vol-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 80px;
+  height: 4px;
+  margin: 0 6px 0 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #fff var(--mp-vol, 68%), rgba(255, 255, 255, 0.25) var(--mp-vol, 68%));
+  cursor: pointer;
+  transition: width 0.15s, margin 0.15s, opacity 0.15s;
+}
+body.layout-modern .mp-vol-slider.boosted {
+  background: linear-gradient(90deg, #fbbf24 var(--mp-vol, 68%), rgba(255, 255, 255, 0.25) var(--mp-vol, 68%));
+}
+body.layout-modern .mp-vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  border: 0;
+}
+body.layout-modern .mp-vol-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  border: 0;
+}
+body.layout-modern .mp-vol-slider:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 4px; }
+
+/* ── Folding (DockGeom.foldLevel; the dock carries f1 .. fN up to its level) ── */
+
+/* 1: the slider folds into its icon, back on hover or focus */
+body.layout-modern .mp-dock.f1 .mp-vol-slider { width: 0; margin: 0; opacity: 0; }
+body.layout-modern .mp-dock.f1 .mp-vol:hover .mp-vol-slider,
+body.layout-modern .mp-dock.f1 .mp-vol:focus-within .mp-vol-slider { width: 80px; margin: 0 6px 0 2px; opacity: 1; }
+/* 2: previous / next leave (keyboard, gear menu) */
+body.layout-modern .mp-dock.f2 :is(#mpPrev, #mpNext) { display: none; }
+/* 3: faces and beat bar move to the top of the gear menu */
+body.layout-modern .mp-dock.f3 :is(#facesFrameBtn, #beatbarBtn) { display: none; }
+/* 4: below ~700 px device sync and speed follow them */
+body.layout-modern .mp-dock.f4 :is(#vibeBtn, #speedDisplay) { display: none; }
+/* 5: back / forward 10 s go to the keyboard (J, L) and the gear menu */
+body.layout-modern .mp-dock.f5 :is(#mpBack10, #mpFwd10) { display: none; }
+/* 6: the time shows the current time only */
+body.layout-modern .mp-dock.f6 .mp-time-tot { display: none; }
+body.layout-modern .mp-dock.f6 .mp-time { padding-right: 4px; }
+/* 7: volume and full screen go to the gear menu (M, Up / Down, F) */
+body.layout-modern .mp-dock.f7 :is(#mpVol, #mpFullBtn) { display: none; }
+/* From 4 on the clusters share the row; the dock's sides get narrower too */
+body.layout-modern .mp-dock.f5 { padding-left: 16px; padding-right: 16px; }
+
+/* ── Timeline ───────────────────────────────────────────────────────── */
+
+body.layout-modern .mp-tl {
+  position: relative;
+  height: 26px;
+}
+body.layout-modern .mp-segs {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 7px;
+  height: 5px;
+  transition: height 0.12s, top 0.12s;
+}
+body.layout-modern .mp-tl.hover .mp-segs,
+body.layout-modern .mp-tl.dragging .mp-segs { height: 8px; top: 5.5px; }
+body.layout-modern .mp-seg {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+body.layout-modern .mp-seg.song { background: rgba(45, 212, 191, 0.38); }
+body.layout-modern .mp-seg i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: #fff;
+}
+body.layout-modern .mp-seg.song i { background: linear-gradient(90deg, #fff, #d6fff8); }
+body.layout-modern .mp-tl.hover .mp-seg.lit { transform: scaleY(1.4); }
+body.layout-modern .mp-tl.hover .mp-seg.song.lit { box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.9); }
+
+body.layout-modern .mp-knob {
+  position: absolute;
+  top: 9.5px;
+  left: 0;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.18);
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 0.12s;
+  pointer-events: none;
+}
+body.layout-modern .mp-tl.hover .mp-knob,
+body.layout-modern .mp-tl.dragging .mp-knob { transform: translate(-50%, -50%) scale(1); }
+
+/* The heat ridge: only while the pointer is over the grab area */
+body.layout-modern .mp-ridge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 19px;
+  width: 100%;
+  height: 30px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+body.layout-modern .mp-tl.hover .mp-ridge:not(.empty) { opacity: 1; }
+
+body.layout-modern .mp-pins {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 15px;
+  height: 10px;
+  pointer-events: none;
+}
+body.layout-modern .mp-pin {
+  position: absolute;
+  top: 1px;
+  transform: translateX(-50%);
+}
+body.layout-modern .mp-pin.note {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #facc15;
+}
+body.layout-modern .mp-pin.hot {
+  width: 0;
+  height: 0;
+  border-left: 4.5px solid transparent;
+  border-right: 4.5px solid transparent;
+  border-bottom: 8px solid #fb923c;
+}
+
+body.layout-modern .mp-hovline {
+  position: absolute;
+  top: -28px;
+  height: 46px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.55);
+  display: none;
+  pointer-events: none;
+}
+body.layout-modern .mp-tl.hover .mp-hovline { display: block; }
+
+/* The grab area: the bar looks 5 px tall, the pointer gets 45 px (13 above, 27 below the top) */
+body.layout-modern .mp-hit {
+  position: absolute;
+  left: -8px;
+  right: -8px;
+  top: -13px;       /* 5 px more above the bar than below: aiming from the picture */
+  height: 45px;
+  z-index: 2;
+  cursor: pointer;
+}
+
+/* A-B on the bar */
+body.layout-modern .mp-abl {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+body.layout-modern .mp-ab-span,
+body.layout-modern .mp-ab-go {
+  position: absolute;
+  top: 2px;
+  height: 15px;
+  box-sizing: border-box;
+  border: 2px solid #6366f1;
+  border-radius: 5px;
+  background: rgba(99, 102, 241, 0.16);
+}
+body.layout-modern .mp-ab-go {
+  border-style: dashed;
+  border-left: none;
+  border-radius: 0 5px 5px 0;
+  background: rgba(99, 102, 241, 0.12);
+}
+body.layout-modern .mp-ab-go.rev {
+  border-left: 2px dashed #6366f1;
+  border-right: none;
+  border-radius: 5px 0 0 5px;
+}
+body.layout-modern .mp-amark {
+  position: absolute;
+  top: -22px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+body.layout-modern .mp-amark b {
+  padding: 0 6px;
+  border-radius: 5px;
+  background: #6366f1;
+  color: #fff;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+body.layout-modern .mp-amark i {
+  width: 2px;
+  height: 22px;
+  background: #6366f1;
+}
+
+/* Scrub preview: the nearest hover frame, the time, the song, a nearby note */
+body.layout-modern .mp-scrub {
+  position: absolute;
+  bottom: 50px;
+  left: 0;
+  z-index: 3;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+body.layout-modern .mp-scrub.on { display: flex; }
+body.layout-modern .mp-scrub-th {
+  display: block;
+  width: 220px;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 2px solid #fff;
+  border-radius: 8px;
+  background: #111;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+body.layout-modern .mp-scrub-th img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+body.layout-modern .mp-scrub.no-img .mp-scrub-th { display: none; }
+body.layout-modern .mp-scrub-lb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 5px 11px;
+  border-radius: 7px;
+  background: rgba(10, 10, 14, 0.9);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+body.layout-modern .mp-scrub-lb b { font-variant-numeric: tabular-nums; }
+body.layout-modern .mp-scrub-song {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #2dd4bf;
+}
+body.layout-modern .mp-scrub-song small { color: #9aa; font-size: 0.9em; }
+body.layout-modern .mp-scrub-song svg.vi { width: 14px; height: 14px; stroke-width: 1.75; }
+body.layout-modern .mp-scrub-note {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #facc15;
+}
+body.layout-modern .mp-scrub-song[hidden],
+body.layout-modern .mp-scrub-note[hidden] { display: none; }
+
+/* A-B hint while choosing B */
+body.layout-modern .mp-hint {
+  position: absolute;
+  bottom: 54px;
+  left: 0;
+  z-index: 3;
+  display: none;
+  padding: 6px 12px;
+  border: 1px solid #3a3a7a;
+  border-radius: 8px;
+  background: rgba(10, 10, 14, 0.92);
+  font-size: 13px;
+  white-space: nowrap;
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+body.layout-modern .mp-hint.on { display: block; }
+body.layout-modern .mp-hint small { display: block; color: #a9a9b4; }
+
+/* Subtitles step up out of the dock's way, and further for the preview */
+body.layout-modern #mediaPlayerOverlay.mp-modern .subtitle-overlay { transition: translate 0.2s; }
+body.layout-modern #mediaPlayerOverlay.mp-modern.controls-visible .subtitle-overlay { translate: 0 -16px; }
+body.layout-modern #mediaPlayerOverlay.mp-modern.mp-previewing .subtitle-overlay { translate: 0 -220px; }
+
+/* ── Menus: the speed list and the gear menu ────────────────────────── */
+
+body.layout-modern .mp-menu {
+  position: absolute;
+  z-index: 20;
+  width: 310px;
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid #34343c;
+  border-radius: 12px;
+  background: rgba(22, 22, 27, 0.97);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6);
+  color: #ececf1;
+  font-size: 14px;
+  pointer-events: auto;
+}
+body.layout-modern .mp-menu-narrow { width: 190px; }
+body.layout-modern .mp-it {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+body.layout-modern .mp-it:hover:not(:disabled),
+body.layout-modern .mp-it:focus-visible { background: rgba(255, 255, 255, 0.08); outline: none; }
+body.layout-modern .mp-it:disabled { opacity: 0.4; cursor: default; }
+body.layout-modern .mp-it svg.vi { flex: none; width: 20px; height: 20px; stroke-width: 1.75; }
+body.layout-modern .mp-it .mp-l-txt { overflow: hidden; text-overflow: ellipsis; }
+body.layout-modern .mp-it .mp-v {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding-left: 12px;
+  color: #a9a9b4;
+}
+body.layout-modern .mp-it .mp-v svg.vi { width: 16px; height: 16px; }
+body.layout-modern .mp-it kbd {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #2a2a31;
+  color: #ccc;
+  font: inherit;
+  font-size: 12px;
+}
+body.layout-modern .mp-it.sel { color: #a5b4fc; }
+body.layout-modern .mp-ck {
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  color: #a5b4fc;
+}
+body.layout-modern .mp-ck svg.vi { width: 16px; height: 16px; }
+body.layout-modern .mp-it.mp-back { color: #c7c7d1; font-weight: 600; }
+body.layout-modern .mp-sep { height: 1px; margin: 6px 4px; background: #2c2c33; }
+body.layout-modern .mp-mh {
+  padding: 6px 10px 2px;
+  color: #8b8b97;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+body.layout-modern .mp-note {
+  padding: 4px 10px 6px;
+  color: #8b8b97;
+  font-size: 12px;
+  white-space: normal;
+}
+
+/* Below ~700 px even the folded row cannot keep play exactly centred, so the
+   three clusters share the width instead of overlapping. */
+body.layout-modern .mp-dock.f4 .mp-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* ── Toasts (the shared #toast, css/toast.css) in the Modern look ─────
+   A dark card like the menus: 12 px corners, a hairline border, no green
+   outline. Bottom centre of the window in the library; in the player the
+   dock sets --toast-x / --toast-bottom so it sits in the stage, above the
+   dock and clear of the beat bar (player-modern.js placeToast). Classic
+   keeps css/toast.css as is. */
+body.layout-modern .toast {
+  left: var(--toast-x, 50%);
+  right: auto;
+  bottom: var(--toast-bottom, 24px);
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 10px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(22, 22, 27, 0.96);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  color: #ececf1;
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: center;
+  transform: translate(-50%, 10px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+body.layout-modern .toast.active { transform: translate(-50%, 0); }
+body.layout-modern .toast.success { border-color: rgba(74, 222, 128, 0.45); background: rgba(22, 22, 27, 0.96); }
+body.layout-modern .toast.error { border-color: rgba(248, 113, 113, 0.55); background: rgba(22, 22, 27, 0.96); }

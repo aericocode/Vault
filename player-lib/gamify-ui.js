@@ -17,6 +17,36 @@
   let _stats = null;
   let _theme = { a: '#a855f7', b: '#ec4899' };
 
+  /* ── Icons ──────────────────────────────────────────────────────────────── */
+
+  /* Chrome glyphs: Classic keeps the emoji, Modern shows the line icon
+     (player-lib/icons.js). No icon name: Modern shows the words alone.
+     Achievement badges are content, not chrome, and stay emoji in both. */
+  function ic(emoji, name) {
+    if (typeof vaultIconSwap !== 'function') return escapeHtml(emoji);
+    if (!name) return `<span class="vi-c">${escapeHtml(emoji)}</span>`;
+    return vaultIconSwap(emoji, name);
+  }
+  const isModern = () => typeof vaultIsModern === 'function' && vaultIsModern();
+  const plural = (n, one, many) => `${Number(n).toLocaleString()} ${n === 1 ? one : (many || one + 's')}`;
+
+  /** A card title: the icon, then the words (HTML). */
+  function cardTitle(emoji, name, words) {
+    return `<div class="gamify-card-title">${ic(emoji + ' ', name)}${words}</div>`;
+  }
+
+  /** ▲ / ▼ for a change: arrows in Modern, the triangles in Classic. */
+  function deltaArrow(up) {
+    return up ? ic('▲ ', 'arrow-up') : ic('▼ ', 'arrow-down');
+  }
+
+  /** An achievement toast. The badge emoji is content, but mid-sentence in a
+   *  Modern toast it reads as chrome, so Modern leaves it out. */
+  function achievementToast(a) {
+    const badge = isModern() || !a.icon ? '' : `${a.icon} `;
+    return `🏅 Achievement: ${badge}${a.name}${a.tier > 1 ? ` (tier ${a.tier})` : ''}, +${plural(a.points, 'point')}`;
+  }
+
   /* ── Bootstrap ──────────────────────────────────────────────────────────── */
 
   /**
@@ -124,17 +154,17 @@
     if (isHidden()) return;
     pulseChip();
 
-    showToast(`🔥 +${result.earned} pts`);
+    showToast(`🔥 +${plural(result.earned, 'point')}`);
     for (const q of result.questEvents || []) {
       if (q.completed) {
-        setTimeout(() => showToast(`🏆 Quest complete: ${q.title} (+${q.reward} pts)`), 1200);
+        setTimeout(() => showToast(`🏆 Quest complete: ${q.title}, +${plural(q.reward, 'point')}`, { type: 'success' }), 1200);
       }
     }
     if (result.levelUp) {
-      setTimeout(() => showToast(`⬆️ Level up! You are now: ${result.levelUp.name}`), 2400);
+      setTimeout(() => showToast(`⬆️ Level up. You are now ${result.levelUp.name}`, { type: 'success' }), 2400);
     }
     (result.achievements || []).forEach((a, i) => {
-      setTimeout(() => showToast(`🏅 Achievement: ${a.icon} ${a.name}${a.tier > 1 ? ` (tier ${a.tier})` : ''} +${a.points} pts`), 3200 + i * 1400);
+      setTimeout(() => showToast(achievementToast(a), { type: 'success' }), 3200 + i * 1400);
     });
 
     // If the modal is open, refresh it live
@@ -149,27 +179,44 @@
     const overlay = document.createElement('div');
     overlay.className = 'gamify-overlay';
     overlay.id = 'gamifyModal';
-    overlay.innerHTML = `<div class="gamify-phone" role="dialog" aria-label="Obsession Score stats">
+    // The notch is Classic's "phone"; Modern shows the header row instead
+    // (a normal dialog: title left, close right). css/gamify.css
+    overlay.innerHTML = `<div class="gamify-phone" role="dialog" aria-modal="true" aria-labelledby="gamifyHeadTitle">
       <div class="gamify-phone-notch"></div>
-      <button class="gamify-close" title="Close">✕</button>
+      <div class="gamify-head"><h2 id="gamifyHeadTitle">Obsession Score</h2></div>
+      <button class="gamify-close" title="Close" aria-label="Close">${ic('✕', 'close')}</button>
       <div class="gamify-body" id="gamifyBody"></div>
     </div>`;
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay || e.target.closest('.gamify-close')) closeModal();
     });
     document.body.appendChild(overlay);
+    // One Esc handler for both layers: Full stats sits on top of the score,
+    // so Esc closes it first and leaves the score open behind it.
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && overlay.classList.contains('active')) closeModal();
+      if (e.key !== 'Escape') return;
+      if (typeof vaultDialogOpen === 'function' && vaultDialogOpen()) return;
+      const stats = document.getElementById('gamifyAnalytics');
+      if (stats?.classList.contains('active')) { closeAnalytics(); e.stopPropagation(); return; }
+      if (overlay.classList.contains('active')) { closeModal(); e.stopPropagation(); }
     });
   }
 
+  let _modalOpener = null;
   async function openModal() {
-    document.getElementById('gamifyModal').classList.add('active');
+    const overlay = document.getElementById('gamifyModal');
+    if (!overlay.classList.contains('active')) _modalOpener = document.activeElement;
+    overlay.classList.add('active');
+    overlay.querySelector('.gamify-close')?.focus({ preventScroll: true });
     await renderModal();
   }
 
   function closeModal() {
-    document.getElementById('gamifyModal').classList.remove('active');
+    const overlay = document.getElementById('gamifyModal');
+    if (!overlay?.classList.contains('active')) return;
+    overlay.classList.remove('active');
+    if (_modalOpener && _modalOpener.isConnected) _modalOpener.focus({ preventScroll: true });
+    _modalOpener = null;
   }
 
   async function renderModal() {
@@ -189,8 +236,11 @@
       _stats = stats;
       applyTheme(stats.theme);
       renderChip();
+      // The cards sit in their own box: a grid in Classic, packed columns in
+      // Modern so short cards never leave holes beside tall ones.
       body.innerHTML =
         sectionScore(stats) +
+        '<div class="gamify-cards">' +
         sectionStreak(stats) +
         sectionObsessed(stats) +
         sectionAchievements(ach) +
@@ -198,16 +248,25 @@
         sectionChart(history) +
         sectionStats(stats) +
         sectionThemes(stats) +
+        '</div>' +
         sectionShare();
       body.querySelector('#gamifyShareBtn')?.addEventListener('click', shareCard);
       body.querySelector('#gamifyAnalyticsBtn')?.addEventListener('click', () => openAnalytics('stats'));
-      body.querySelector('#gamifyAchCard')?.addEventListener('click', () => openAnalytics('achievements'));
-      body.querySelectorAll('.gamify-theme-pick').forEach(el =>
-        el.addEventListener('click', () => selectTheme(el.dataset.theme)));
+      const achCard = body.querySelector('#gamifyAchCard');
+      achCard?.addEventListener('click', () => openAnalytics('achievements'));
+      achCard?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAnalytics('achievements'); }
+      });
+      body.querySelectorAll('.gamify-theme-pick[data-theme]').forEach(el => {
+        el.addEventListener('click', () => selectTheme(el.dataset.theme));
+        el.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectTheme(el.dataset.theme); }
+        });
+      });
       bindQuestRerolls(body);
       watchPendingQuests(questsPending);
     } catch (err) {
-      body.innerHTML = `<div class="gamify-loading">Couldn't load stats: ${err.message}</div>`;
+      body.innerHTML = `<div class="gamify-loading">${escapeHtml(friendlyError(err, 'loading your stats'))}</div>`;
     }
   }
 
@@ -247,24 +306,29 @@
 
   function sectionScore(s) {
     const pct = Math.round(s.progress * 100);
+    const toGo = s.nextAt ? Math.max(0, s.nextAt - Math.round(s.score)) : 0;
     const nextLabel = s.nextAt
-      ? `${Math.round(s.score).toLocaleString()} / ${s.nextAt.toLocaleString()} → ${s.nextName}`
-      : 'MAX LEVEL';
+      ? `${Math.round(s.score).toLocaleString()} of ${s.nextAt.toLocaleString()}. ${plural(toGo, 'point')} to ${escapeHtml(s.nextName)}`
+      : 'Top level reached';
     const wd = s.weekDelta;
+    const d = wd ? Math.round(wd.delta) : 0;
+    const deltaWords = d > 0 ? `${plural(d, 'point')} more than last week`
+      : d < 0 ? `${plural(-d, 'point')} fewer than last week` : 'Same as last week';
     const deltaHtml = wd && (wd.thisWeek || wd.lastWeek)
-      ? `<div class="gamify-week-delta ${wd.delta >= 0 ? 'up' : 'down'}">${wd.delta >= 0 ? '▲' : '▼'} ${wd.delta >= 0 ? '+' : ''}${wd.delta.toLocaleString()} pts vs last week</div>`
+      ? `<div class="gamify-week-delta ${d >= 0 ? 'up' : 'down'}">${d ? deltaArrow(d > 0) : ''}${deltaWords}</div>`
       : '';
     return `<div class="gamify-score-section">
-      <div class="gamify-score-label">OBSESSION SCORE</div>
+      <div class="gamify-score-label">Obsession Score</div>
       <div class="gamify-score-value">${Math.round(s.score).toLocaleString()}</div>
       ${deltaHtml}
-      <div class="gamify-level-name">Lv ${s.level}: ${escapeHtml(s.name)}</div>
+      <div class="gamify-level-name">Level ${s.level}: ${escapeHtml(s.name)}</div>
       <div class="gamify-progressbar"><div class="gamify-progressbar-fill" style="width:${pct}%"></div></div>
       <div class="gamify-level-next">${nextLabel}</div>
     </div>`;
   }
 
   const MEDIA_ICON = { video: '🎬', audio: '🎵', image: '🖼', gif: '🎞', document: '📄', mix: '🎛' };
+  const MEDIA_VI = { video: 'video', audio: 'audio', image: 'image', gif: 'gif', document: 'file', mix: 'mix' };
 
   function sectionObsessed(s) {
     const it = s.topItem;
@@ -272,10 +336,10 @@
     const stars = it.rating > 0 ? '★'.repeat(it.rating) + '☆'.repeat(5 - it.rating) : '';
     const meta = it.rating > 0
       ? `<span class="gamify-obsessed-stars">${stars}</span>`
-      : `<span class="gamify-obsessed-sub">watched ${it.views}×</span>`;
+      : `<span class="gamify-obsessed-sub">Watched ${plural(it.views, 'time')}</span>`;
     return `<div class="gamify-card gamify-obsessed" title="${escapeHtml(it.filename)}">
-      <div class="gamify-card-title">🔥 Obsessed with</div>
-      <div class="gamify-obsessed-name">${MEDIA_ICON[it.media_type] || '📦'} ${escapeHtml(it.filename)}</div>
+      ${cardTitle('🔥', 'flame', 'Obsessed with')}
+      <div class="gamify-obsessed-name">${ic((MEDIA_ICON[it.media_type] || '📦') + ' ', MEDIA_VI[it.media_type] || 'file')}${escapeHtml(it.filename)}</div>
       ${meta}
     </div>`;
   }
@@ -291,21 +355,22 @@
       cells += `<div class="gamify-heat-cell${active.has(ymd) ? ' on' : ''}${i === 0 ? ' today' : ''}" title="${ymd}"></div>`;
     }
     return `<div class="gamify-card">
-      <div class="gamify-card-title">🔥 ${s.streakDays}-day streak</div>
+      ${cardTitle('🔥', 'flame', `${s.streakDays}-day streak`)}
       <div class="gamify-heatmap">${cells}</div>
     </div>`;
   }
 
   function sectionQuests(quests, refreshesLeft = 0) {
     if (!quests.length) {
-      return `<div class="gamify-card" id="gamifyQuestCard"><div class="gamify-card-title">🗺️ Quests</div>
+      return `<div class="gamify-card" id="gamifyQuestCard">${cardTitle('🗺️', 'map', 'Quests')}
         <div class="gamify-empty">New quests arriving soon…</div></div>`;
     }
+    const swapIcon = ic('🔄', 'refresh');
     const items = quests.map(q => {
       const pct = Math.min(100, Math.round((q.progress / q.target) * 100));
       const reroll = refreshesLeft > 0
-        ? `<button class="gamify-quest-reroll" data-quest="${q.id}" title="Swap for a different quest (1 reroll per day; progress is lost)">🔄</button>`
-        : `<button class="gamify-quest-reroll" disabled title="Daily reroll used. Next one at midnight">🔄</button>`;
+        ? `<button class="gamify-quest-reroll" data-quest="${q.id}" aria-label="Swap this quest" title="Swap for a different quest. One swap a day; progress on this quest is lost.">${swapIcon}</button>`
+        : `<button class="gamify-quest-reroll" disabled aria-label="Swap this quest" title="Today's swap is used. The next one comes at midnight.">${swapIcon}</button>`;
       return `<div class="gamify-quest">
         <div class="gamify-quest-head">
           <span class="gamify-quest-title">${escapeHtml(q.title)}</span>
@@ -317,25 +382,25 @@
         <div class="gamify-quest-progress">${q.progress} / ${q.target}</div>
       </div>`;
     }).join('');
-    const hint = refreshesLeft > 0 ? ` <span class="gamify-ach-count" title="Daily quest reroll available">1×🔄</span>` : '';
-    return `<div class="gamify-card" id="gamifyQuestCard"><div class="gamify-card-title">🗺️ Active Quests${hint}</div>${items}</div>`;
+    const hint = refreshesLeft > 0 ? ` <span class="gamify-quest-swaps" title="You can swap one quest today">1 swap left</span>` : '';
+    return `<div class="gamify-card" id="gamifyQuestCard">${cardTitle('🗺️', 'map', `Active quests${hint}`)}${items}</div>`;
   }
 
   async function rerollQuest(questId) {
     try {
       const resp = await fetch(`/api/gamify/quests/${questId}/refresh`, { method: 'POST' });
-      const data = await resp.json();
-      if (!resp.ok) { showToast('⚠ ' + (data.error || 'reroll failed')); return; }
-      showToast('🔄 Quest rerolled');
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) { showErrorToast({ ...data, status: resp.status }, 'swapping the quest'); return; }
+      showToast('🔄 Quest swapped', { type: 'success' });
       renderModal();
     } catch (err) {
-      showToast('⚠ ' + err.message);
+      showErrorToast(err, 'swapping the quest');
     }
   }
 
   function sectionChart(history) {
     if (history.length < 2) {
-      return `<div class="gamify-card"><div class="gamify-card-title">📈 Score, last 30 days</div>
+      return `<div class="gamify-card">${cardTitle('📈', 'trend', 'Score, last 30 days')}
         <div class="gamify-empty">Chart unlocks after two active days.</div></div>`;
     }
     const W = 300, H = 80, PAD = 4;
@@ -347,7 +412,7 @@
       const y = PAD + (H - PAD * 2) * (1 - (r.score - min) / range);
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     }).join(' ');
-    return `<div class="gamify-card"><div class="gamify-card-title">📈 Score, last 30 days</div>
+    return `<div class="gamify-card">${cardTitle('📈', 'trend', 'Score, last 30 days')}
       <svg class="gamify-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
         <polyline points="${pts}" fill="none" stroke="url(#gamifyGrad)" stroke-width="2.5"
           stroke-linejoin="round" stroke-linecap="round"/>
@@ -359,15 +424,15 @@
 
   function sectionStats(s) {
     const themes = (s.topThemes || []).map(t =>
-      `<span class="gamify-theme-tag">${escapeHtml(t.theme)} <em>${t.count}</em></span>`).join('') || '<span class="gamify-empty">none yet</span>';
-    return `<div class="gamify-card"><div class="gamify-card-title">📊 Totals</div>
+      `<span class="gamify-theme-tag">${escapeHtml(t.theme)} <em>${t.count}</em></span>`).join('') || '<span class="gamify-empty">None yet</span>';
+    return `<div class="gamify-card">${cardTitle('📊', 'chart', 'Totals')}
       <div class="gamify-totals">
         <div><b>${s.totalViews.toLocaleString()}</b><span>views</span></div>
         <div><b>${formatWatch(s.totalWatchTimeS)}</b><span>watched</span></div>
         <div><b>${s.questsCompleted}</b><span>quests</span></div>
-        <div><b>💦 ${(s.finishers || 0).toLocaleString()}</b><span>finishers</span></div>
+        <div><b>${ic('💦 ', 'done')}${(s.finishers || 0).toLocaleString()}</b><span>finishers</span></div>
       </div>
-      <div class="gamify-card-title" style="margin-top:10px">🎭 Top themes (30d)</div>
+      <div class="gamify-card-title gamify-subtitle">${ic('🎭 ', 'mask')}Top themes, last 30 days</div>
       <div class="gamify-themes">${themes}</div>
     </div>`;
   }
@@ -378,13 +443,14 @@
       if (!t.unlocked) {
         return `<div class="gamify-theme-pick locked" title="Unlocks at level ${t.minLevel}">
           <span class="gamify-theme-dot" style="background:linear-gradient(135deg,${t.a},${t.b})"></span>
-          <span class="gamify-theme-name">🔒 Lv ${t.minLevel}</span></div>`;
+          <span class="gamify-theme-name">${ic('🔒 ', 'lock')}Level ${t.minLevel}</span></div>`;
       }
-      return `<div class="gamify-theme-pick ${selected ? 'selected' : ''}" data-theme="${t.id}" title="${escapeHtml(t.name)}">
+      return `<div class="gamify-theme-pick ${selected ? 'selected' : ''}" data-theme="${t.id}" title="${escapeHtml(t.name)}"
+        role="button" tabindex="0" aria-pressed="${selected}">
         <span class="gamify-theme-dot" style="background:linear-gradient(135deg,${t.a},${t.b})"></span>
         <span class="gamify-theme-name">${escapeHtml(t.name)}</span></div>`;
     }).join('');
-    return `<div class="gamify-card"><div class="gamify-card-title">🎨 Theme <small style="font-weight:400;color:var(--text-muted)">(level up to unlock)</small></div>
+    return `<div class="gamify-card">${cardTitle('🎨', 'palette', 'Theme <small class="gamify-title-hint">Level up to unlock more</small>')}
       <div class="gamify-theme-grid">${chips}</div></div>`;
   }
 
@@ -401,9 +467,9 @@
       applyTheme(_stats.theme);
       renderChip();
       renderModal();
-      showToast(`🎨 Theme: ${_stats.theme.name}`);
+      showToast(`🎨 Theme changed to ${_stats.theme.name}`, { type: 'success' });
     } catch {
-      showToast('That theme is still locked');
+      showToast('That theme is still locked. Level up to unlock it.');
     }
   }
 
@@ -421,17 +487,18 @@
         <div class="gamify-ach-next-desc">Next: ${escapeHtml(n.desc)}</div>
         <div class="gamify-progressbar small"><div class="gamify-progressbar-fill" style="width:${Math.round(n.progress * 100)}%"></div></div>
       </div>` : '';
-    return `<div class="gamify-card gamify-ach-card" id="gamifyAchCard" title="Open all achievements" style="cursor:pointer">
-      <div class="gamify-card-title">🏅 Achievements <span class="gamify-ach-count">${ach.earned}/${ach.total}</span></div>
-      <div class="gamify-ach-recent">${recent || '<span class="gamify-empty">None yet. Go watch something!</span>'}</div>
+    return `<div class="gamify-card gamify-ach-card" id="gamifyAchCard" title="Open all achievements" style="cursor:pointer"
+      role="button" tabindex="0">
+      ${cardTitle('🏅', 'award', `Achievements <span class="gamify-ach-count">${ach.earned}/${ach.total}</span>`)}
+      <div class="gamify-ach-recent">${recent || '<span class="gamify-empty">None yet. Watching earns the first one.</span>'}</div>
       ${teaser}
     </div>`;
   }
 
   function sectionShare() {
     return `<div class="gamify-share-row">
-      <button class="gamify-analytics-btn" id="gamifyAnalyticsBtn">📈 Full stats</button>
-      <button class="gamify-share-btn" id="gamifyShareBtn">📸 Share card</button>
+      <button class="gamify-analytics-btn" id="gamifyAnalyticsBtn">${ic('📈 ', 'trend')}Full stats</button>
+      <button class="gamify-share-btn" id="gamifyShareBtn" title="Saves a picture of your score and copies it to the clipboard">${ic('📸 ', 'camera')}Share card</button>
     </div>`;
   }
 
@@ -443,34 +510,47 @@
       overlay = document.createElement('div');
       overlay.id = 'gamifyAnalytics';
       overlay.className = 'gamify-overlay';
-      overlay.innerHTML = `<div class="gamify-analytics-panel" role="dialog" aria-label="Full stats">
-        <button class="gamify-close" title="Close">✕</button>
-        <div class="gamify-tabs">
-          <button class="gamify-tab" data-tab="stats">📈 Stats</button>
-          <button class="gamify-tab" data-tab="achievements">🏅 Achievements</button>
+      overlay.innerHTML = `<div class="gamify-analytics-panel" role="dialog" aria-modal="true" aria-label="Full stats">
+        <button class="gamify-close" title="Close" aria-label="Close">${ic('✕', 'close')}</button>
+        <div class="gamify-tabs" role="tablist">
+          <button class="gamify-tab" role="tab" data-tab="stats">${ic('📈 ', 'trend')}Stats</button>
+          <button class="gamify-tab" role="tab" data-tab="achievements">${ic('🏅 ', 'award')}Achievements</button>
         </div>
         <div class="gamify-analytics-body" id="gamifyAnalyticsBody"></div>
       </div>`;
       overlay.addEventListener('click', (e) => {
-        if (e.target === overlay || e.target.closest('.gamify-close')) overlay.classList.remove('active');
+        if (e.target === overlay || e.target.closest('.gamify-close')) closeAnalytics();
         const tabBtn = e.target.closest('.gamify-tab');
         if (tabBtn) showAnalyticsTab(tabBtn.dataset.tab);
       });
       document.body.appendChild(overlay);
     }
     overlay.classList.add('active');
+    overlay.querySelector('.gamify-close')?.focus({ preventScroll: true });
     showAnalyticsTab(tab);
   }
 
+  /** Close Full stats and hand focus back to the score dialog under it. */
+  function closeAnalytics() {
+    const overlay = document.getElementById('gamifyAnalytics');
+    if (!overlay?.classList.contains('active')) return;
+    overlay.classList.remove('active');
+    const back = document.getElementById('gamifyModal');
+    if (back?.classList.contains('active')) back.querySelector('#gamifyAnalyticsBtn, .gamify-close')?.focus({ preventScroll: true });
+  }
+
   async function showAnalyticsTab(tab) {
-    document.querySelectorAll('#gamifyAnalytics .gamify-tab').forEach(b =>
-      b.classList.toggle('active', b.dataset.tab === tab));
+    document.querySelectorAll('#gamifyAnalytics .gamify-tab').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === tab);
+      b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+    });
     const body = document.getElementById('gamifyAnalyticsBody');
     body.innerHTML = '<div class="gamify-loading">Crunching your history…</div>';
     try {
       if (tab === 'achievements') {
         const resp = await fetch('/api/gamify/achievements');
-        if (!resp.ok) throw new Error(`server error ${resp.status}. Restart the server if it's an older build`);
+        if (resp.status === 404) throw new Error(RESTART_MSG);
+        if (!resp.ok) throw Object.assign(new Error(''), { status: resp.status });
         body.innerHTML = renderAchievementsTab(await resp.json());
         return;
       }
@@ -478,16 +558,16 @@
       if (resp.status === 404) {
         // Old server process without the analytics route — the UI files are
         // served fresh on reload but server routes need a restart
-        throw new Error('the server is running an older build. Restart it (close the window / re-run start.bat) to enable Full Stats');
+        throw new Error(RESTART_MSG);
       }
       if (!resp.ok) {
-        let msg = `server error ${resp.status}`;
-        try { msg = (await resp.json()).error || msg; } catch {}
-        throw new Error(msg);
+        let msg = '';
+        try { msg = (await resp.json()).error || ''; } catch {}
+        throw Object.assign(new Error(msg), { status: resp.status });
       }
       const a = await resp.json();
       body.innerHTML =
-        `<div class="gamify-analytics-title">📈 Full Stats</div>` +
+        `<div class="gamify-analytics-title">${ic('📈 ', 'trend')}Full stats</div>` +
         (a.milestones ? analyticsMilestones(a.milestones) : '') +
         analyticsHeatmap(a.hourDow) +
         analyticsDaily(a.daily) +
@@ -498,9 +578,10 @@
         (a.notes ? analyticsNotes(a.notes) : '') +
         analyticsGrowth(a.growth);
     } catch (err) {
-      body.innerHTML = `<div class="gamify-loading">Couldn't load: ${escapeHtml(err.message)}</div>`;
+      body.innerHTML = `<div class="gamify-loading">${escapeHtml(friendlyError(err, 'loading your stats'))}</div>`;
     }
   }
+  const RESTART_MSG = 'Vault needs a restart to show this. Close Vault and start it again.';
 
   /** Achievements tab: tiered with progress bars, hidden masked as ??? */
   function renderAchievementsTab(ach) {
@@ -512,14 +593,14 @@
         <div class="ach-main">
           <div class="ach-head">
             <span class="ach-name">${escapeHtml(a.name)}</span>
-            <span class="ach-pips">${a.maxTier > 1 ? tierPips(a) : (a.tier ? '🏅' : '')}</span>
+            <span class="ach-pips">${a.maxTier > 1 ? tierPips(a) : (a.tier ? ic('🏅', 'award') : '')}</span>
           </div>
           <div class="ach-desc">${escapeHtml(a.desc)}${a.value != null && a.tier < a.maxTier ? ` · <em>${a.value}</em>` : ''}</div>
           <div class="gamify-progressbar small"><div class="gamify-progressbar-fill" style="width:${Math.round(a.progress * 100)}%"></div></div>
         </div>
       </div>`;
     return `
-      <div class="gamify-analytics-title">🏅 Achievements <span class="gamify-ach-count">${ach.earned}/${ach.total}</span></div>
+      <div class="gamify-analytics-title">${ic('🏅 ', 'award')}Achievements <span class="gamify-ach-count">${ach.earned}/${ach.total}</span></div>
       <div class="gamify-card"><div class="gamify-card-title">Milestones</div>${ach.tiered.map(row).join('')}</div>
       <div class="gamify-card"><div class="gamify-card-title">Hidden</div>${ach.hidden.map(row).join('')}</div>`;
   }
@@ -534,7 +615,7 @@
       body: JSON.stringify({ type }),
     }).then(r => r.ok ? r.json() : null).then(data => {
       (data?.unlocked || []).forEach((a, i) =>
-        setTimeout(() => showToast(`🏅 Achievement: ${a.icon} ${a.name} +${a.points} pts`), i * 1400));
+        setTimeout(() => showToast(achievementToast(a), { type: 'success' }), i * 1400));
     }).catch(() => {});
   }
   window.gamifyEvent = gamifyEvent;
@@ -602,14 +683,14 @@
     }
     const hourLabels = [0, 6, 12, 18].map(h =>
       `<span style="left:${(h / 24) * 100}%">${h}:00</span>`).join('');
-    return `<div class="gamify-card"><div class="gamify-card-title">🕒 When you watch</div>
+    return `<div class="gamify-card">${cardTitle('🕒', 'clock', 'When you watch')}
       <div class="ga-heatmap">${rows}</div>
       <div class="ga-heat-hours">${hourLabels}</div></div>`;
   }
 
   /** 90-day activity bars (points earned per day). */
   function analyticsDaily(daily) {
-    if (!daily.length) return _emptyCard('📊 Daily activity', 'No activity recorded yet.');
+    if (!daily.length) return _emptyCard('📊', 'chart', 'Daily activity', 'No activity recorded yet.');
     const W = 600, H = 90;
     const max = Math.max(1, ...daily.map(r => r.points_earned));
     const bw = W / Math.max(daily.length, 30);
@@ -617,7 +698,7 @@
       const bh = Math.max(1.5, (r.points_earned / max) * (H - 14));
       return `<rect x="${(i * bw).toFixed(1)}" y="${(H - bh).toFixed(1)}" width="${Math.max(1, bw - 1.5).toFixed(1)}" height="${bh.toFixed(1)}" rx="1.5" fill="url(#gaGrad)"><title>${r.day}: ${Math.round(r.points_earned)} pts, ${r.views} views</title></rect>`;
     }).join('');
-    return `<div class="gamify-card"><div class="gamify-card-title">📊 Daily points, last ${daily.length} active day${daily.length === 1 ? '' : 's'}</div>
+    return `<div class="gamify-card">${cardTitle('📊', 'chart', `Daily points, last ${plural(daily.length, 'active day')}`)}
       <svg class="ga-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
         ${_gaGradDef()}${bars}</svg></div>`;
   }
@@ -625,7 +706,7 @@
   /** Weekly theme mix over 12 weeks — one line per top theme. */
   function analyticsThemeDrift(drift) {
     if (!drift.weeks.length || !drift.themes.length) {
-      return _emptyCard('🎭 Theme drift', 'Watch more. Theme trends appear after a few days.');
+      return _emptyCard('🎭', 'mask', 'Theme drift', 'Watch more. Theme trends appear after a few days.');
     }
     const W = 600, H = 110, PAD = 6;
     const palette = [_theme.a, _theme.b, '#38bdf8', '#4ade80', '#fbbf24'];
@@ -638,21 +719,21 @@
     }).join('');
     const legend = drift.themes.map((t, ti) =>
       `<span class="ga-legend-item"><span class="ga-legend-dot" style="background:${palette[ti % palette.length]}"></span>${escapeHtml(t.theme)}</span>`).join('');
-    return `<div class="gamify-card"><div class="gamify-card-title">🎭 Theme drift, 12 weeks</div>
+    return `<div class="gamify-card">${cardTitle('🎭', 'mask', 'Theme drift, last 12 weeks')}
       <svg class="ga-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${lines}</svg>
       <div class="ga-legend">${legend}</div></div>`;
   }
 
   /** Cumulative library size over time. */
   function analyticsGrowth(growth) {
-    if (growth.length < 2) return _emptyCard('📚 Library growth', 'Not enough history yet.');
+    if (growth.length < 2) return _emptyCard('📚', 'library', 'Library growth', 'Not enough history yet.');
     const W = 600, H = 90, PAD = 4;
     const max = growth[growth.length - 1].total;
     const xs = (i) => PAD + (i / (growth.length - 1)) * (W - PAD * 2);
     const ys = (v) => H - PAD - (v / max) * (H - PAD * 2);
     const pts = growth.map((r, i) => `${xs(i).toFixed(1)},${ys(r.total).toFixed(1)}`).join(' ');
     const area = `${PAD},${H - PAD} ${pts} ${W - PAD},${H - PAD}`;
-    return `<div class="gamify-card"><div class="gamify-card-title">📚 Library growth, ${max.toLocaleString()} items</div>
+    return `<div class="gamify-card">${cardTitle('📚', 'library', `Library growth, ${plural(max, 'file')}`)}
       <svg class="ga-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
         ${_gaGradDef()}
         <polygon points="${area}" fill="url(#gaGrad)" opacity="0.25"/>
@@ -666,8 +747,8 @@
     </linearGradient></defs>`;
   }
 
-  function _emptyCard(title, msg) {
-    return `<div class="gamify-card"><div class="gamify-card-title">${title}</div>
+  function _emptyCard(emoji, icon, title, msg) {
+    return `<div class="gamify-card">${cardTitle(emoji, icon, title)}
       <div class="gamify-empty">${msg}</div></div>`;
   }
 
@@ -684,18 +765,18 @@
   function analyticsMilestones(m) {
     const contentLabel = m.contentDays >= 1
       ? `${m.contentDays.toLocaleString()} days`
-      : `${m.contentHours.toLocaleString()} hrs`;
-    return `<div class="gamify-card"><div class="gamify-card-title">🏆 Milestones</div>
+      : plural(m.contentHours, 'hour');
+    return `<div class="gamify-card">${cardTitle('🏆', 'award', 'Milestones')}
       <div class="gamify-milestones">
         <div><b>${contentLabel}</b><span>of content, back to back</span></div>
         <div><b>${_fmtBytes(m.storageBytes)}</b><span>scanned</span></div>
-        <div><b>${m.items.toLocaleString()}</b><span>items in the vault</span></div>
+        <div><b>${m.items.toLocaleString()}</b><span>${m.items === 1 ? 'file' : 'files'} in the library</span></div>
       </div></div>`;
   }
 
   /** Average rating + 1–5 distribution bars + a trend arrow. */
   function analyticsRatings(r) {
-    if (!r.count) return _emptyCard('⭐ Ratings', 'Rate some items to see the breakdown.');
+    if (!r.count) return _emptyCard('⭐', 'star', 'Ratings', 'Rate some files to see the breakdown.');
     const max = Math.max(1, ...r.distribution);
     const bars = r.distribution.map((n, i) => `
       <div class="gamify-rating-row">
@@ -704,9 +785,9 @@
         <span class="gamify-rating-n">${n}</span>
       </div>`).reverse().join('');
     const trend = r.trend == null ? ''
-      : ` <span class="gamify-week-delta ${r.trend >= 0 ? 'up' : 'down'}" style="display:inline-block;font-size:0.7em">${r.trend >= 0 ? '▲' : '▼'} ${r.trend >= 0 ? '+' : ''}${r.trend} (30d)</span>`;
-    return `<div class="gamify-card"><div class="gamify-card-title">⭐ Ratings</div>
-      <div class="gamify-rating-hero"><b>${r.avg.toFixed(2)}</b><span>avg over ${r.count.toLocaleString()} rated${trend}</span></div>
+      : ` <span class="gamify-week-delta ${r.trend >= 0 ? 'up' : 'down'}" style="display:inline-block;font-size:0.7em">${deltaArrow(r.trend >= 0)}${r.trend >= 0 ? '+' : ''}${r.trend} in 30 days</span>`;
+    return `<div class="gamify-card">${cardTitle('⭐', 'star', 'Ratings')}
+      <div class="gamify-rating-hero"><b>${r.avg.toFixed(2)}</b><span>average over ${plural(r.count, 'rated file')}${trend}</span></div>
       <div class="gamify-rating-dist">${bars}</div></div>`;
   }
 
@@ -726,7 +807,7 @@
     } else {
       chart = `<div class="gamify-empty" style="padding:8px 0">Finishers you mark from now on chart here.</div>`;
     }
-    return `<div class="gamify-card"><div class="gamify-card-title">💦 Finishers</div>
+    return `<div class="gamify-card">${cardTitle('💦', 'done', 'Finishers')}
       <div class="gamify-finisher-rate">
         <div class="gamify-finisher-pct">${rate.pct}%</div>
         <div class="gamify-finisher-sub">of watched videos finished<br><em>${rate.done.toLocaleString()} of ${rate.watched.toLocaleString()}</em></div>
@@ -736,18 +817,18 @@
 
   /** Tags with only 1–2 items — "haven't really explored these". */
   function analyticsUnderTags(u) {
-    if (!u.total) return _emptyCard('🏷️ Underexplored tags', 'Every tag is well-explored. Nice.');
+    if (!u.total) return _emptyCard('🏷️', 'search', 'Underexplored tags', 'Every tag is well explored. Nice.');
     const chips = u.sample.map(t =>
       `<span class="gamify-theme-tag">${escapeHtml(t.tag)} <em>${t.n}</em></span>`).join('');
-    return `<div class="gamify-card"><div class="gamify-card-title">🏷️ Underexplored tags <span class="gamify-ach-count">${u.total}</span></div>
-      <div class="gamify-under-hint">Only 1–2 items each, barely touched:</div>
+    return `<div class="gamify-card">${cardTitle('🏷️', 'search', `Underexplored tags <span class="gamify-ach-count">${u.total}</span>`)}
+      <div class="gamify-under-hint">Tags on only one or two files:</div>
       <div class="gamify-themes">${chips}</div></div>`;
   }
 
   function analyticsNotes(n) {
-    return `<div class="gamify-card"><div class="gamify-card-title">📝 Notes</div>
+    return `<div class="gamify-card">${cardTitle('📝', 'note', 'Notes')}
       <div class="gamify-totals">
-        <div><b>${n.itemsWithNotes.toLocaleString()}</b><span>items annotated</span></div>
+        <div><b>${n.itemsWithNotes.toLocaleString()}</b><span>${n.itemsWithNotes === 1 ? 'file' : 'files'} with notes</span></div>
         <div><b>${n.snippets.toLocaleString()}</b><span>saved snippets</span></div>
       </div></div>`;
   }
@@ -790,9 +871,9 @@
       a.click();
       URL.revokeObjectURL(a.href);
 
-      showToast(copied ? '📸 Card downloaded + copied to clipboard' : '📸 Card downloaded');
+      showToast(copied ? '📸 Card saved and copied to the clipboard' : '📸 Card saved to your downloads', { type: 'success' });
     } catch (err) {
-      showToast(`Share failed: ${err.message}`);
+      showErrorToast(err, 'making the share card');
     }
   }
 

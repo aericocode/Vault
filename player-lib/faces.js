@@ -83,6 +83,18 @@ function facesReady() {
   return !!(facesStatus && facesStatus.enabled && facesStatus.modelsReady);
 }
 
+/* ── Look helpers: line icons (player-lib/icons.js) with plain fallbacks ── */
+
+const facesModern = () => typeof vaultIsModern === 'function' && vaultIsModern();
+/** One line icon, or '' when icons.js is missing. */
+const facesIcon = (name, cls = '') => (typeof vaultIcon === 'function' ? vaultIcon(name, cls) : '');
+/** Classic's glyph and Modern's icon side by side (vaultIconSwap); the glyph alone without icons.js. */
+const facesSwap = (glyph, name) => (typeof vaultIconSwap === 'function' ? vaultIconSwap(glyph, name) : escapeHtml(glyph));
+/** The stand-in for a face with no picture: the person icon. */
+function facesBlankHtml(cls = '') {
+  return `<span class="ft-blank${cls ? ` ${cls}` : ''}" aria-hidden="true">${facesIcon('person', 'ft-blank-ico') || '?'}</span>`;
+}
+
 /* ── Server calls ──────────────────────────────────────────────────────── */
 
 /**
@@ -149,6 +161,8 @@ function facesApplyState() {
   if (btn) btn.hidden = !on;
   if (typeof renderFilterChipRow === 'function') renderFilterChipRow();
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
+  // The Modern Info panel shows or hides its People tab.
+  if (typeof detailPanelSync === 'function') detailPanelSync();
 }
 
 /* ── People row (detail-view.js) ───────────────────────────────────────── */
@@ -165,7 +179,7 @@ function renderFacesSection(media) {
   setTimeout(() => facesLoad(media.id), 0);
   return `
     <div class="detail-section faces-section" data-faces-section="${media.id}" hidden>
-      <h3>👤 People</h3>
+      <h3>${facesModern() ? 'People' : '👤 People'}</h3>
       <div class="field-content" data-faces-box="${media.id}"></div>
     </div>`;
 }
@@ -179,10 +193,13 @@ function facesAddToOpenSurfaces() {
   document.querySelectorAll('#modalBody .detail-body, #mediaSidebarBody .detail-body').forEach(body => {
     const id = Number(body.dataset.mediaId);
     if (!id || body.querySelector('.faces-section')) return;
+    // The Modern Info panel has a People tab for it.
+    const people = body.querySelector('[data-mpp-pane="people"]');
     const media = (typeof getMediaById === 'function' && getMediaById(id))
       || (currentMediaState?.currentMediaData?.id === id ? currentMediaState.currentMediaData : null);
     const html = media ? renderFacesSection(media) : '';
     if (!html) return;
+    if (people) { people.insertAdjacentHTML('afterbegin', html); return; }
     const music = body.querySelector('.music-section');
     if (music) { music.insertAdjacentHTML('afterend', html); return; }
     const next = body.querySelector('.games-section, .sidebar-nav-hint')
@@ -207,6 +224,11 @@ function facesPaint(mediaId) {
     box.innerHTML = html;
     box.closest('.faces-section').hidden = !html;
   });
+  // The Modern Info panel's People tab shows how many people were found.
+  const info = facesInfo.get(mediaId);
+  if (typeof detailPanelSetCount === 'function') {
+    detailPanelSetCount(mediaId, 'people', info && info.indexed ? (info.groups || []).length : null);
+  }
 }
 
 function facesTip(g) {
@@ -241,7 +263,7 @@ function facesBoxHtml(mediaId, info) {
     return `<button type="button" class="face-chip${g.id === pending ? ' is-pending' : ''}" data-face-group="${g.id}"
         data-face-media="${mediaId}" aria-label="Find this person"${tip ? ` title="${escapeHtml(tip)}"` : ''}>${g.cropUrl
         ? `<img class="face-crop" src="${escapeHtml(g.cropUrl)}" alt="" loading="lazy">`
-        : '<span class="face-chip-blank" aria-hidden="true">👤</span>'}</button>`;
+        : `<span class="face-chip-blank" aria-hidden="true">${typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap('👤', 'person') : '👤'}</span>`}</button>`;
   }).join('');
   const more = all ? '' : `<button type="button" class="face-more" data-faces-more="${mediaId}">+${groups.length - shown.length} more</button>`;
   const confirm = pending == null ? '' : `
@@ -476,7 +498,7 @@ const facesNames = () => document.body.classList.contains('pm-names');
 /** "Barack Obama", or "this person" for someone without a name. */
 const facesWho = (T) => (T && T.name ? facesPmName(T.name) : 'this person');
 
-const FACES_PEN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a0a0a0" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg>';
+const FACES_PEN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg>';
 
 function facesRenderBanner(bar) {
   const f = facesFocus;
@@ -794,7 +816,7 @@ function facesPickBarPaint() {
   bar.innerHTML = `
     <span class="faces-pick-sum"><b>${k.toLocaleString()}</b> ${k === 1 ? 'face' : 'faces'} ticked</span>
     ${has && T.id != null ? `<button type="button" class="faces-bghost faces-lg" data-pick="not"${dis}>Not ${who}</button>` : ''}
-    <button type="button" class="faces-bghost faces-lg is-accent" data-pick="other" aria-haspopup="dialog"${dis}>${has ? 'Add to someone else…' : 'Add to someone…'} <span aria-hidden="true">▴</span></button>
+    <button type="button" class="faces-bghost faces-lg is-accent" data-pick="other" aria-haspopup="dialog"${dis}>${has ? 'Add to someone else…' : 'Add to someone…'} ${facesIcon('caret', 'faces-caret-up') || '<span aria-hidden="true">▴</span>'}</button>
     ${has ? `<button type="button" class="faces-badd faces-lg" data-pick="add"${dis}>Add ${k.toLocaleString()} to ${who}</button>` : ''}`;
 }
 
@@ -942,8 +964,11 @@ function facesMenu(x, y, items) {
   menu.className = 'fpop faces-menu';
   menu.id = 'facesMenu';
   menu.setAttribute('role', 'menu');
-  menu.innerHTML = items.map((it, i) =>
-    `<button type="button" class="fpop-opt faces-menu-item" role="menuitem" data-i="${i}">${escapeHtml(it.label)}</button>`).join('');
+  // A pick-one menu (items with checked): a tick column, the current one ticked.
+  const radio = items.some(it => it.checked !== undefined);
+  menu.innerHTML = items.map((it, i) => (radio
+    ? `<button type="button" class="fpop-opt faces-menu-item" role="menuitemradio" aria-checked="${!!it.checked}" data-i="${i}"><span class="faces-menu-tick" aria-hidden="true">${it.checked ? (facesIcon('check') || '✓') : ''}</span>${escapeHtml(it.label)}</button>`
+    : `<button type="button" class="fpop-opt faces-menu-item" role="menuitem" data-i="${i}">${escapeHtml(it.label)}</button>`)).join('');
   document.body.appendChild(menu);
   const r = menu.getBoundingClientRect();
   menu.style.left = `${Math.max(8, Math.min(x, innerWidth - r.width - 8))}px`;
@@ -970,8 +995,14 @@ function facesSelectionButton(n) {
   if (!facesReady()) return '';
   const out = typeof ftRemoveSelectedButton === 'function' && typeof selectedIds !== 'undefined' ? ftRemoveSelectedButton(selectedIds.size) : '';
   if (!n) return out;
+  const label = `👤 ${facesSelLabel(n, typeof selectedIds !== 'undefined' ? selectedIds.size : n)}`;
   return `${out}<button class="sel-btn sel-faces" onclick="facesIndexSelection()"
-    title="Find faces in the selected files">${typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(`👤 Faces (${n})`) : `👤 Faces (${n})`}</button>`;
+    title="Find faces in the selected files">${typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(label) : label}</button>`;
+}
+
+/** "Faces", or "Faces (3)" when only 3 of the selected files are photos or videos (the bar already says "N selected"). */
+function facesSelLabel(n, selected) {
+  return n === selected ? 'Faces' : `Faces (${Number(n).toLocaleString()})`;
 }
 
 let facesWatching = false;
@@ -1033,14 +1064,14 @@ function facesAbout(s) {
 
 function facesScanRow(r) {
   const name = `<span class="dq-name">${escapeHtml(r.filename || `File ${r.mediaId}`)}</span>`;
-  if (!r.ok) return `<div class="dq-row dq-failed"><span class="dq-ico">✕</span>${name}<span class="fsq-res">could not be read</span></div>`;
-  if (!r.faces) return `<div class="dq-row dq-done fsq-none"><span class="dq-ico">–</span>${name}<span class="fsq-res">no faces</span></div>`;
+  if (!r.ok) return `<div class="dq-row dq-failed"><span class="dq-ico">${facesSwap('✕', 'close')}</span>${name}<span class="fsq-res">could not be read</span></div>`;
+  if (!r.faces) return `<div class="dq-row dq-done fsq-none"><span class="dq-ico">${facesSwap('–', 'minus')}</span>${name}<span class="fsq-res">no faces</span></div>`;
   const names = r.names || [];
   const people = r.people || 0;
   const res = people === 1 && names.length === 1 ? facesPmName(names[0])
     : people ? `${people.toLocaleString()} ${people === 1 ? 'person' : 'people'}`
     : `${r.faces.toLocaleString()} ${r.faces === 1 ? 'face' : 'faces'}`;
-  return `<div class="dq-row dq-done"><span class="dq-ico">✓</span>${name}<span class="fsq-res">${res}</span></div>`;
+  return `<div class="dq-row dq-done"><span class="dq-ico">${facesSwap('✓', 'check')}</span>${name}<span class="fsq-res">${res}</span></div>`;
 }
 
 /** Build the pane's fixed parts once: the buttons keep their armed state across polls. */
@@ -1048,7 +1079,7 @@ function facesScanBuild(pane) {
   if (pane.querySelector('.fsq-head')) return;
   pane.innerHTML = `
     <div class="dq-head fsq-head"><span class="fsq-ico"></span><span class="dq-title fsq-title"></span>
-      <button type="button" class="dq-x fsq-x" title="Dismiss" hidden>✕</button></div>
+      <button type="button" class="dq-x fsq-x" title="Dismiss" aria-label="Dismiss" hidden>${facesSwap('✕', 'close')}</button></div>
     <div class="dq-bar"><div class="dq-bar-fill fsq-fill"></div></div>
     <div class="dq-meta"><span class="fsq-meta"></span></div>
     <div class="dq-list fsq-list"></div>
@@ -1146,7 +1177,7 @@ function facesScanPaint() {
   const withPeople = run.withPeople != null ? run.withPeople : recent.filter(r => r.ok && r.faces > 0).length;
   const stopped = !q.running && (facesScan.stopped || finished < total);
   const pane = api.open('faces', {
-    tab: '👤 Faces',
+    tab: facesModern() ? 'Faces' : '👤 Faces',
     sub: q.running ? `${Math.max(0, total - finished).toLocaleString()} left` : 'done',
     focus: facesScan.focus,
   });
@@ -1156,7 +1187,7 @@ function facesScanPaint() {
 
   const ico = $('.fsq-ico');
   if (q.running && !q.paused) { if (!ico.querySelector('.dq-spin')) ico.innerHTML = '<span class="dq-spin"></span>'; }
-  else ico.innerHTML = `<span class="dq-ico">${q.running ? '⏸' : run.failed || stopped ? '⚠' : '✓'}</span>`;
+  else ico.innerHTML = `<span class="dq-ico">${q.running ? facesSwap('⏸', 'pause') : run.failed || stopped ? facesSwap('⚠', 'alert') : facesSwap('✓', 'check')}</span>`;
   $('.fsq-title').textContent = `${q.running
     ? `${q.paused ? 'Paused: finding' : 'Finding'} faces in ${facesFiles(total)}`
     : stopped ? `Stopped after checking ${finished.toLocaleString()} of ${facesFiles(total)}`
@@ -1167,7 +1198,7 @@ function facesScanPaint() {
     + (q.running && !q.paused && q.etaS ? ` · ${facesAbout(q.etaS)} left` : '')
     + (run.failed ? ` · ${run.failed.toLocaleString()} could not be read` : '');
 
-  const active = q.running ? (q.current || []).map(c => `<div class="dq-row dq-active"><span class="dq-ico">⏳</span>`
+  const active = q.running ? (q.current || []).map(c => `<div class="dq-row dq-active"><span class="dq-ico">${facesSwap('⏳', 'clock')}</span>`
     + `<span class="dq-name">${escapeHtml(c.filename || `File ${c.id}`)}</span>`
     + `<span class="fsq-res">${c.progress > 0 && c.progress < 1 ? `${Math.round(c.progress * 100)}%` : ''}</span></div>`).join('') : '';
   const html = active + recent.map(facesScanRow).join('');
@@ -1228,7 +1259,7 @@ function facesSwitchPaneBuild(pane) {
   if (pane.querySelector('.fsw-head')) return;
   pane.innerHTML = `
     <div class="dq-head fsw-head"><span class="fsw-ico"></span><span class="dq-title fsw-title"></span>
-      <button type="button" class="dq-x fsw-x" title="Dismiss" hidden>✕</button></div>
+      <button type="button" class="dq-x fsw-x" title="Dismiss" aria-label="Dismiss" hidden>${facesSwap('✕', 'close')}</button></div>
     <div class="dq-bar"><div class="dq-bar-fill fsw-fill"></div></div>
     <div class="dq-meta"><span class="fsw-meta"></span></div>
     <div class="dq-meta fsw-named" hidden></div>
@@ -1267,7 +1298,7 @@ function facesSwitchPanePaint() {
   if (!st.shown || !api) return;
 
   const pane = api.open('faces', {
-    tab: '👤 Faces',
+    tab: facesModern() ? 'Faces' : '👤 Faces',
     sub: sw ? `${Math.max(0, (sw.total || 0) - (sw.done || 0)).toLocaleString()} left` : 'done',
     focus: st.focus,
   });
@@ -1276,7 +1307,7 @@ function facesSwitchPanePaint() {
   const $ = (sel) => pane.querySelector(sel);
   const ico = $('.fsw-ico');
   if (sw && !sw.paused) { if (!ico.querySelector('.dq-spin')) ico.innerHTML = '<span class="dq-spin"></span>'; }
-  else ico.innerHTML = `<span class="dq-ico">${sw ? '⏸' : '✓'}</span>`;
+  else ico.innerHTML = `<span class="dq-ico">${sw ? facesSwap('⏸', 'pause') : facesSwap('✓', 'check')}</span>`;
   $('.fsw-title').textContent = !sw ? `Finished re-reading faces with the ${st.label} model`
     : sw.paused ? `Paused: re-reading faces with the ${st.label} model`
     : `Re-reading faces with the ${st.label} model`;
@@ -1335,17 +1366,20 @@ async function facesTileMenu(e, tile) {
 /** The filter-row button; '' while the feature is off (also read by fchipFitRow). */
 function facesFindChipHtml() {
   if (!facesReady()) return '';
-  // fchipFitRow swaps in the icon alone when the row is short of room.
+  // fchipFitRow swaps in the icon alone when the row is short of room (Classic;
+  // Modern has no emoji to fall back to, so it keeps the words and folds).
+  const full = facesModern() ? 'Find a person' : '👤 Find a person';
+  const compact = facesModern() ? full : '👤';
   return `<button type="button" class="fchip fchip-more faces-find-chip" id="findPersonChip"
     aria-haspopup="dialog" aria-expanded="false" aria-label="Find a person" data-tip="Find a person"
-    data-full="👤 Find a person" data-compact="👤">👤 Find a person</button>`;
+    data-full="${full}" data-compact="${compact}">${full}</button>`;
 }
 
 /** The same button inside the More sheet, shown only while the row has folded it away. */
 function facesSheetHtml() {
   if (!facesReady()) return '';
   return `<div class="faces-sheet-row"><button type="button" class="fchip fchip-more faces-sheet-find"
-    aria-haspopup="dialog">👤 Find a person</button></div>`;
+    aria-haspopup="dialog">${facesModern() ? 'Find a person' : '👤 Find a person'}</button></div>`;
 }
 
 function facesOpenPopover(anchor) {
@@ -1455,6 +1489,11 @@ let facesPlayerPath = null;   // the file the video player was built for
 /** Called from renderVideoPlayer with the file it is about to play. */
 function renderFacesFrameButton(filepath) {
   facesPlayerPath = filepath || null;
+  // The Modern dock's line icon (player-lib/player/player-modern.js)
+  if (typeof mpBuildingDock === 'function' && mpBuildingDock()) {
+    return `<button type="button" onclick="facesFindInFrame()" class="mp-ic faces-frame-btn" id="facesFrameBtn"
+      title="Find people in this frame" aria-label="Find faces"${facesReady() ? '' : ' hidden'}>${mpIcon('face-scan')}</button>`;
+  }
   return `<button onclick="facesFindInFrame()" class="control-btn faces-frame-btn" id="facesFrameBtn"
     title="Find people in this frame"${facesReady() ? '' : ' hidden'}>👤</button>`;
 }
@@ -1482,46 +1521,40 @@ async function facesFindInFrame() {
 
 /* ── Settings > Face search ────────────────────────────────────────────── */
 
-// Same markup as settings.js toggleRow / segRow, with this block's own
-// data attributes so the Settings tab's generic wiring never picks them up.
+// Same markup as settings.js toggleRow / segRow (settings-kit.js
+// settingsRowHtml), with this block's own data attributes so the Settings
+// tab's generic wiring never picks them up.
 function facesToggleRow(key, title, desc, extraClass = '') {
-  return `
-    <label class="settings-toggle${extraClass ? ` ${extraClass}` : ''}" data-sfind="faces-${key}">
-      <span class="settings-toggle-text">
-        <span class="settings-toggle-title">${title}</span>
-        <span class="settings-toggle-desc">${desc}</span>
-      </span>
-      <input type="checkbox" data-faces-setting="${key}">
-      <span class="settings-switch" aria-hidden="true"></span>
-    </label>`;
+  return settingsRowHtml({
+    tag: 'label', cls: extraClass, sfind: `faces-${key}`, title, desc,
+    control: `<input type="checkbox" data-faces-setting="${key}">
+      <span class="settings-switch" aria-hidden="true"></span>`,
+  });
 }
 
 function facesStatHtml(id) {
   return `<div><span class="faces-stat-num" id="${id}Num"></span><span class="faces-stat-label" id="${id}Label"></span></div>`;
 }
 
-/** The whole Settings > Face search section (settings.js RENDERERS.faces). */
-function facesSettingsHtml() {
-  return `
-    <div class="faces-settings" id="facesSettings">
-      ${facesToggleRow('enabled', 'Face search',
-        'Click a face in a file\'s info to see every file that person is in, or search with a photo.', 'faces-main-toggle')}
-      <p class="settings-note faces-privacy">Face search runs entirely on this computer. Nothing is
-      uploaded. Faces are stored in your library and can be deleted here at any time.</p>
-
+/* The pieces of the Face search page. Classic puts a heading over each;
+   Modern a card around each (facesSettingsHtml below). Same ids either way,
+   so facesSettingsPaint and facesWireSettings serve both looks. */
+function facesSettingsParts(modern) {
+  return {
+    privacy: `<p class="settings-note faces-privacy">Face search runs entirely on this computer. Nothing is
+      uploaded. Faces are stored in your library and can be deleted here at any time.</p>`,
+    offCard: `
       <div class="mig-card" id="facesOffCard" hidden>
         <div class="mig-card-title">What you can do with it</div>
         <ul class="faces-list">
           <li>Click a face in a file's info to see every file that person is in.</li>
-          <li>Drop a photo on 👤 Find a person to search with it.</li>
+          <li>Drop a photo on ${modern ? 'Find a person' : '👤 Find a person'} to search with it.</li>
           <li>Pause a video and find the people in that frame.</li>
         </ul>
         <p class="faces-card-foot">The first time, Vault downloads three models (about ${facesSetupMB()} MB).
         Nothing else is set up until you turn it on.</p>
-      </div>
-
-      <div id="facesSetup" hidden>
-        <h3 class="settings-h faces-h">Setting up</h3>
+      </div>`,
+    setupCard: `
         <div class="mig-card" id="facesSetupCard">
           <div class="faces-status-line" id="facesSetupText"></div>
           <div class="mig-progress" id="facesDlBar" hidden>
@@ -1529,11 +1562,8 @@ function facesSettingsHtml() {
             <div class="mig-bar-stats"></div>
           </div>
           <div class="mig-actions"><button class="settings-btn" id="facesDlBtn" type="button">Download the models</button></div>
-        </div>
-      </div>
-
-      <div id="facesOnRows" hidden>
-        <h3 class="settings-h faces-h" data-sfind="facesLibrary">Your library</h3>
+        </div>`,
+    libraryCard: `
         <div class="mig-card">
           <div class="faces-stats">
             ${facesStatHtml('facesStatChecked')}
@@ -1551,10 +1581,8 @@ function facesSettingsHtml() {
             <span class="faces-qstatus" id="facesQueueText"></span>
           </div>
           <p class="faces-done" id="facesDoneText" hidden></p>
-        </div>
-
-        <div id="facesModelRows" hidden>
-          <h3 class="settings-h faces-h" data-sfind="facesModel">Face model</h3>
+        </div>`,
+    models: `
           <div class="faces-models">${Object.keys(FACES_KEEPERS).map(facesModelCardHtml).join('')}</div>
           <div class="faces-stuck" id="facesStuck" hidden>
             <span id="facesStuckText"></span>
@@ -1575,35 +1603,78 @@ function facesSettingsHtml() {
               <button class="settings-btn faces-ghost" id="facesSwitchBackBtn" type="button" hidden></button>
             </div>
           </div>
-          <p class="faces-model-hint" id="facesModelHint"></p>
-        </div>
-
-        <h3 class="settings-h faces-h">Checking</h3>
+          <p class="faces-model-hint" id="facesModelHint"></p>`,
+    checking: `
         ${facesToggleRow('autoIndex', 'Find faces in new imports automatically',
           'New photos and videos are checked for faces after they are added.')}
-        <div class="settings-toggle settings-seg-row faces-stack" data-sfind="facesInterval">
-          <span class="settings-toggle-text">
-            <span class="settings-toggle-title" id="facesIntervalLabel">How closely to check videos</span>
-            <span class="settings-toggle-desc">Closer checks find more faces but take longer. Applies to files checked from now on.</span>
-          </span>
-          <span class="settings-seg" role="group" aria-labelledby="facesIntervalLabel">
+        ${settingsRowHtml({
+          cls: 'settings-seg-row faces-stack', sfind: 'facesInterval', titleId: 'facesIntervalLabel',
+          title: 'How closely to check videos',
+          desc: modern ? 'Closer finds more faces but takes longer. Applies from now on.'
+            : 'Closer checks find more faces but take longer. Applies to files checked from now on.',
+          control: `<span class="settings-seg" role="group" aria-labelledby="facesIntervalLabel">
             ${FACES_INTERVALS.map(v => `<button type="button" class="settings-seg-btn" data-faces-interval="${v}"
               aria-pressed="false">Every ${v} seconds</button>`).join('')}
             <button type="button" class="settings-seg-btn" data-faces-interval="custom" aria-pressed="false">Custom</button>
           </span>
           <label class="faces-custom" id="facesCustomRow" hidden>Every
             <input class="settings-num" type="number" id="facesCustomInterval" min="0.5" max="120" step="0.5"
-              aria-label="Seconds between checked frames"> seconds</label>
-        </div>
-        <label class="settings-toggle" data-sfind="facesMaxFrames">
-          <span class="settings-toggle-text">
-            <span class="settings-toggle-title">Most frames per video</span>
-            <span class="settings-toggle-desc">Longer videos spread these frames evenly. More frames find more faces but take longer.</span>
-          </span>
-          <span class="settings-num-wrap">
+              aria-label="Seconds between checked frames"> seconds</label>`,
+        })}
+        ${settingsRowHtml({
+          tag: 'label', sfind: 'facesMaxFrames', title: 'Most frames per video',
+          desc: modern ? 'Long videos spread these frames evenly. More finds more faces but takes longer.'
+            : 'Longer videos spread these frames evenly. More frames find more faces but take longer.',
+          control: `<span class="settings-num-wrap">
             <input class="settings-num faces-maxframes" type="number" id="facesMaxFrames" min="100" max="20000" step="1">
-          </span>
-        </label>
+          </span>`,
+        })}`,
+    deleteRow: settingsRowHtml({
+      cls: 'faces-delete-row', sfind: 'facesDelete', title: 'Delete all face data',
+      desc: 'Removes every face Vault has found. Your photos and videos are not touched.',
+      control: '<button class="settings-btn faces-danger" id="facesDeleteBtn" type="button">Delete</button>',
+    }),
+  };
+}
+
+/** The whole Settings > Face search section (settings.js RENDERERS.faces). */
+function facesSettingsHtml() {
+  const modern = typeof settingsIsModern === 'function' && settingsIsModern();
+  const P = facesSettingsParts(modern);
+  const mainToggle = facesToggleRow('enabled', 'Face search',
+    'Click a face in a file\'s info to see every file that person is in, or search with a photo.', 'faces-main-toggle');
+  if (modern) {
+    const card = settingsCardHtml;
+    return `
+    <div class="faces-settings" id="facesSettings">
+      ${card({ title: 'Face search', body: mainToggle + P.privacy + P.offCard })}
+      ${card({ title: 'Setting up', id: 'facesSetup', hidden: true, body: P.setupCard })}
+      <div id="facesOnRows" hidden>
+        ${card({ title: 'Your library', sfind: 'facesLibrary', body: P.libraryCard })}
+        ${card({ title: 'Face model', sfind: 'facesModel', id: 'facesModelRows', hidden: true, body: P.models })}
+        ${card({ title: 'Checking', body: P.checking })}
+      </div>
+      ${card({ title: 'Face data', id: 'facesDeleteRow', hidden: true, body: P.deleteRow })}
+    </div>`;
+  }
+  return `
+    <div class="faces-settings" id="facesSettings">
+      ${mainToggle}
+      ${P.privacy}
+${P.offCard}
+
+      <div id="facesSetup" hidden>
+        <h3 class="settings-h faces-h">Setting up</h3>${P.setupCard}
+      </div>
+
+      <div id="facesOnRows" hidden>
+        <h3 class="settings-h faces-h" data-sfind="facesLibrary">Your library</h3>${P.libraryCard}
+
+        <div id="facesModelRows" hidden>
+          <h3 class="settings-h faces-h" data-sfind="facesModel">Face model</h3>${P.models}
+        </div>
+
+        <h3 class="settings-h faces-h">Checking</h3>${P.checking}
       </div>
 
       <!-- Its own section, outside facesOnRows: the privacy line promises
@@ -1611,13 +1682,7 @@ function facesSettingsHtml() {
            on or off. -->
       <div id="facesDeleteRow" hidden>
         <h3 class="settings-h faces-h">Face data</h3>
-        <div class="settings-toggle faces-delete-row" data-sfind="facesDelete">
-          <span class="settings-toggle-text">
-            <span class="settings-toggle-title">Delete all face data</span>
-            <span class="settings-toggle-desc">Removes every face Vault has found. Your photos and videos are not touched.</span>
-          </span>
-          <button class="settings-btn faces-danger" id="facesDeleteBtn" type="button">Delete</button>
-        </div>
+        ${P.deleteRow}
       </div>
     </div>`;
 }
@@ -1653,7 +1718,7 @@ function facesSettingsPaint() {
     const running = !!(dl && dl.running);
     const damaged = Object.values(s.missingReasons || {}).includes('corrupt');
     $('facesSetupText').textContent = running
-      ? 'Downloading the face search models from huggingface.co.'
+      ? 'Downloading the face search models from Hugging Face.'
       : dl && dl.error ? 'The download did not finish. Check your connection and try again.'
       : damaged ? 'A face search model is damaged. Download it again to fix it.'
       : `Face search needs three models (about ${facesSetupMB()} MB) before it can work.`;
@@ -1790,32 +1855,13 @@ async function facesAllowKeys(keys) {
 }
 
 /**
- * A download question in the style of subtitlesShowModelConsent. Resolves
- * true on the yes button. Shares the #facesConsent id with the Escape handler.
+ * A download question on the shared dialog (player-lib/vault-dialogs.js):
+ * plain text, an optional bullet list, Not now / the yes label. Resolves true
+ * on yes. Esc, the backdrop and Not now all answer no.
  */
-function facesConsentModal({ label, title, body, yes }) {
-  return new Promise((resolve) => {
-    document.getElementById('facesConsent')?.remove();
-    const ov = document.createElement('div');
-    ov.id = 'facesConsent';
-    ov.className = 'vault-modal-overlay';
-    ov.innerHTML = `
-      <div class="vault-modal" role="dialog" aria-label="${label}">
-        <h3>⬇ ${title}</h3>
-        ${body}
-        <div class="vault-modal-actions">
-          <button class="vault-btn" data-consent="no">Not now</button>
-          <button class="vault-btn vault-btn-primary" data-consent="yes">${yes}</button>
-        </div>
-      </div>`;
-    document.body.appendChild(ov);
-    const answer = (ok) => { ov.remove(); resolve(ok); };
-    ov._close = () => answer(false);
-    ov.querySelector('[data-consent="yes"]').addEventListener('click', () => answer(true));
-    ov.querySelector('[data-consent="no"]').addEventListener('click', () => answer(false));
-    ov.addEventListener('mousedown', (e) => { if (e.target === ov) answer(false); });
-    ov.querySelector('[data-consent="yes"]').focus();
-  });
+async function facesConsentModal({ title, message, list, yes }) {
+  if (typeof vaultConfirm !== 'function') return false;
+  return !!(await vaultConfirm(message, { title, list, okLabel: yes, cancelLabel: 'Not now' }));
 }
 
 const FACES_RESEARCH_NOTE = 'was made by researchers from photos collected for research. Vault uses it only on your own library.';
@@ -1838,23 +1884,24 @@ async function facesAskConsent() {
   const name = facesSetupKeeper();
   const k = FACES_KEEPERS[name];
   const ok = await facesConsentModal({
-    label: 'Download the face search models',
-    title: 'Download the face search models?',
-    body: `
-      <p class="vault-modal-hint">Face search needs three models from <b>huggingface.co</b>,
-        about ${facesSetupMB()} MB in all:</p>
-      <ul class="vault-modal-hint faces-consent-list">
-        <li>one that finds faces in photos and video frames (under 1 MB)</li>
-        <li>one that groups the faces found in each file (about ${FACES_GRUNT_MB} MB)</li>
-        <li>the ${k.label} face model, which tells people apart (about ${k.mb} MB)</li>
-      </ul>
-      <p class="vault-modal-hint">They run on this computer only. Your photos and videos are never
-        uploaded. If you say no, nothing is downloaded, and face search cannot be used until the
-        models are here.</p>
-      <p class="vault-modal-hint">The ${k.label} face model ${FACES_RESEARCH_NOTE}</p>`,
-    yes: 'Download them',
+    title: `Download face search models (${facesSetupMB()} MB)?`,
+    message: `Face search needs three models from Hugging Face, about ${facesSetupMB()} MB in all. `
+      + 'They run on this computer only. Your photos and videos are never uploaded.\n\n'
+      + 'If you say no, nothing is downloaded, and face search cannot be used until the models are here.\n\n'
+      + 'What gets downloaded:',
+    list: [
+      'One that finds faces in photos and video frames (under 1 MB).',
+      `One that groups the faces found in each file (about ${FACES_GRUNT_MB} MB).`,
+      `The ${k.label} face model, which tells people apart (about ${k.mb} MB). It ${FACES_RESEARCH_NOTE}`,
+    ],
+    yes: 'Download',
   });
-  if (!ok) return false;
+  if (!ok) {
+    showToast(facesStatus && facesStatus.enabled
+      ? 'Nothing was downloaded. Face search needs these models before it can work.'
+      : 'Face search stays off. Turn it on any time in Settings.');
+    return false;
+  }
   try { await facesAllowKeys(['face:detect', 'face:embed', `face:keeper-${name}`]); }
   catch (err) { facesToastError(err); return false; }
   return facesStartDownload();
@@ -2073,14 +2120,12 @@ async function facesDownloadKeeper(name, { asked = false } = {}) {
 async function facesAskModelConsent(name) {
   const k = FACES_KEEPERS[name];
   const ok = await facesConsentModal({
-    label: `Download the ${k.label} face model`,
-    title: `Switch to the ${k.label} face model?`,
-    body: `
-      <p class="vault-modal-hint">Vault downloads it once (about ${k.mb} MB) from <b>huggingface.co</b>.
-        It runs on this computer only, and your photos and videos are never uploaded.</p>
-      <p class="vault-modal-hint">Then Vault re-reads the faces it already found with the new model.
-        It runs in the background, your names and fixes stay, and you can keep using Vault.</p>
-      <p class="vault-modal-hint">This model ${FACES_RESEARCH_NOTE}</p>`,
+    title: `Switch to the ${k.label} face model (${k.mb} MB)?`,
+    message: `Vault downloads it once (about ${k.mb} MB) from Hugging Face. `
+      + 'It runs on this computer only, and your photos and videos are never uploaded.\n\n'
+      + 'Then Vault re-reads the faces it already found with the new model. '
+      + 'It runs in the background, your names and fixes stay, and you can keep using Vault.\n\n'
+      + `This model ${FACES_RESEARCH_NOTE}`,
     yes: 'Download and switch',
   });
   if (!ok) return false;
@@ -2286,7 +2331,7 @@ document.addEventListener('contextmenu', (e) => {
 // handling (the player, the detail modal) sees it.
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  const modal = document.getElementById('facesAsk') || document.getElementById('facesConsent') || document.getElementById('facesPicker');
+  const modal = document.getElementById('facesAsk') || document.getElementById('facesPicker');
   if (modal) modal._close();
   else if (document.getElementById('facesMenu')) facesCloseMenu();
   else if (document.getElementById('facesPop')) {

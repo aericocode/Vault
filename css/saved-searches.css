@@ -135,3 +135,125 @@
 .saved-search-chip.active .saved-search-delete:hover {
   color: #7f1d1d;
 }
+
+/* ── Modern: the line star (filled once saved) and quiet chips ── */
+body.layout-modern .search-save-star { width: 28px; height: 28px; padding: 0; border-radius: var(--m-radius-sm); color: var(--m-muted); }
+body.layout-modern .search-save-star:hover:not(:disabled) { color: #facc15; background: var(--m-btn); transform: translateY(-50%); }
+body.layout-modern .search-save-star.saved { color: #facc15; }
+body.layout-modern .search-save-star .vi { width: 18px; height: 18px; }
+body.layout-modern .search-save-star.saved .vi { fill: currentColor; }
+body.layout-modern .search-save-star:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
+
+body.layout-modern .saved-search-chip { border: 1px solid var(--m-border-strong); background: var(--m-btn); }
+body.layout-modern .saved-search-chip:hover { border-color: rgba(255, 255, 255, 0.22); background: var(--m-btn-hover); }
+body.layout-modern .saved-search-chip.active { border-color: var(--accent); background: var(--accent-bg, rgba(99, 102, 241, 0.2)); }
+body.layout-modern .saved-search-activate { color: var(--m-text-2); font-size: 12px; }
+body.layout-modern .saved-search-chip:hover .saved-search-activate,
+body.layout-modern .saved-search-chip.active .saved-search-activate { color: var(--m-text); }
+body.layout-modern .saved-search-delete,
+body.layout-modern .saved-search-chip.active .saved-search-delete { display: inline-flex; align-items: center; color: var(--m-muted); }
+body.layout-modern .saved-search-delete .vi { width: 12px; height: 12px; }
+body.layout-modern .saved-search-delete:hover,
+body.layout-modern .saved-search-chip.active .saved-search-delete:hover { color: var(--m-danger-text); }
+/* Keyboard users reach the remove button too, not only on hover. */
+body.layout-modern .saved-search-chip:focus-within .saved-search-delete { opacity: 1; max-width: 30px; padding-left: 0.1rem; padding-right: 0.5rem; }
+
+/* ── Modern: the saved searches panel under the search box ──
+   (player-lib/saved-searches.js ssdRender): compact pills, an x on each only
+   in edit mode. Classic never opens it. */
+.ssd[hidden] { display: none; }
+body:not(.layout-modern) .ssd { display: none; }
+body.layout-modern .ssd {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 900;                  /* above the chip rows, rail and grid */
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 280px;
+  max-width: min(480px, 100%);
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  background: var(--m-surface-solid);
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius);
+  box-shadow: var(--m-shadow);
+  padding: 10px 12px 10px;
+  color: var(--m-text);
+  font-size: 13px;
+  text-align: left;
+}
+body.layout-modern .ssd-head { display: flex; align-items: center; gap: 8px; min-height: 24px; margin-bottom: 8px; }
+body.layout-modern .ssd-h {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--m-muted);
+}
+body.layout-modern .ssd-edit {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--m-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+body.layout-modern .ssd-edit .vi { width: 13px; height: 13px; }
+body.layout-modern .ssd-edit:hover { background: var(--m-btn); color: var(--m-text); }
+body.layout-modern .ssd.is-editing .ssd-edit { color: var(--accent-hover); }
+body.layout-modern .ssd-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+body.layout-modern .ssd-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  height: 28px;
+  max-width: 100%;
+  padding: 0 10px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: 7px;
+  background: var(--m-btn);
+  color: var(--m-text);
+  cursor: pointer;
+}
+body.layout-modern .ssd-pill:hover { background: var(--m-btn-hover); }
+body.layout-modern .ssd-pill.is-hl { border-color: var(--accent); background: var(--accent-bg, rgba(99, 102, 241, 0.2)); }
+body.layout-modern .ssd.is-editing .ssd-pill { padding-right: 4px; cursor: default; }
+body.layout-modern .ssd.is-editing .ssd-pill:hover { background: var(--m-btn); }
+body.layout-modern .ssd.is-editing .ssd-pill.is-hl { background: var(--accent-bg, rgba(99, 102, 241, 0.2)); }
+body.layout-modern .ssd-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.layout-modern .ssd-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--m-muted);
+  cursor: pointer;
+}
+body.layout-modern .ssd-x .vi { width: 11px; height: 11px; }
+body.layout-modern .ssd-x:hover { color: var(--m-danger-text); background: var(--m-btn-hover); }
+body.layout-modern .ssd-empty { margin: 0 0 8px; color: var(--m-text-2); }
+body.layout-modern .ssd-foot { margin-top: 10px; color: var(--m-muted); font-size: 12px; }
+/* The Save pill (first while there is typed text): a dashed accent outline
+   and a plus. It replaces the star in the Modern search box. */
+body.layout-modern .ssd-pill.ssd-save { gap: 6px; border-style: dashed; border-color: var(--accent); background: none; color: var(--accent-hover); }
+body.layout-modern .ssd-pill.ssd-save:hover { background: var(--accent-bg, rgba(99, 102, 241, 0.2)); }
+body.layout-modern .ssd-pill.ssd-save.is-hl { border-style: solid; background: var(--accent-bg, rgba(99, 102, 241, 0.2)); }
+body.layout-modern .ssd-pill.ssd-save .vi { width: 13px; height: 13px; flex: none; }
+/* The saved search that is exactly the typed text. */
+body.layout-modern .ssd-pill.is-current { border-color: var(--accent); }
+body.layout-modern .search-save-star { display: none !important; }

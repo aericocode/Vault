@@ -606,6 +606,7 @@ const Library = (() => {
   let lastResultAt = 0;
   let _locked = false;
   let _lostServer = false;   // a request failed for want of a server: recover on the next good poll
+  let _offline = false;      // no answer at all from the server right now (the notice in database.js)
   let _seenVersion = null;
   let _pollTimer = null;
   let _pollBusy = false;
@@ -667,9 +668,10 @@ const Library = (() => {
         const resp = await fetch('/api/library/version', { headers: { 'X-Vault-Background': '1' }, cache: 'no-store' });
         // An HTTP error is an answer: only no response at all means the server
         // went away (and earns a re-run once it is back).
+        setOffline(false);
         if (!resp.ok) return;
         v = await resp.json();
-      } catch { _lostServer = true; return; }
+      } catch { _lostServer = true; setOffline(true); return; }
       if (gen !== _gen) return;
       // Back after a restart or a network error: whatever was asked meanwhile
       // (a search, rows for the tiles) may have gone unanswered, so the query
@@ -717,6 +719,31 @@ const Library = (() => {
     if (!_deferred || viewerBusy()) return;
     _deferred = false;
     runAutoRequery();
+  }
+
+  /* Can the page reach the server at all? Flipped by the version poll (every
+     3 s), the boot loop and failed searches; database.js shows a notice with
+     Try again while it is true. An HTTP error is an answer and counts as
+     reachable: only a request that got no response at all means the server
+     is gone. */
+  function setOffline(v) {
+    if (_offline === v) return;
+    _offline = v;
+    emit('vault:server-state', { offline: v });
+  }
+
+  /** Try again now (the notice's button): resolves true once the server answers. */
+  async function checkServer() {
+    // pollOnce also re-runs the search if the server is back; it skips while
+    // hidden, locked or already polling, so a plain ping settles the answer.
+    await pollOnce();
+    if (_offline) {
+      try {
+        await fetch('/api/library/version', { headers: { 'X-Vault-Background': '1' }, cache: 'no-store' });
+        setOffline(false);
+      } catch { setOffline(true); }
+    }
+    return !_offline;
   }
 
   function startPolling() {
@@ -782,9 +809,10 @@ const Library = (() => {
       let v = null;
       try {
         const resp = await fetch('/api/library/version', { headers: { 'X-Vault-Background': '1' }, cache: 'no-store' });
+        setOffline(false);
         if (resp.status === 423) { state = 'locked'; break; }   // the lock screen owns the page
         if (resp.ok) v = await resp.json();
-      } catch { /* the server is busy with a statement: try again */ }
+      } catch { setOffline(true); /* gone, or busy with a statement: try again */ }
       if (v && v.index) {
         index.step = v.index.step;
         index.steps = v.index.steps;
@@ -875,7 +903,10 @@ const Library = (() => {
     refreshFacets, boot, resumeDeferred, ownWrite, clear,
     invalidateRows: markAllStale,
     /** A query failed for want of a server: re-run it once polling gets an answer. */
-    noteServerLost() { _lostServer = true; },
+    noteServerLost() { _lostServer = true; setOffline(true); },
+    /** No answer from the server right now (see setOffline). */
+    get offline() { return _offline; },
+    checkServer,
     set onLibraryChanged(fn) { onLibraryChanged = fn; },
     set renderGate(p) { renderGate = Promise.resolve(p).catch(() => {}); },
     get onLibraryChanged() { return onLibraryChanged; },

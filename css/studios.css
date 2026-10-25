@@ -33,7 +33,19 @@
 }
 .st-new:hover { background: var(--accent-bg); color: var(--text-primary); }
 .st-chips { display: flex; gap: 8px; flex-wrap: wrap; }
-.st-auto-link { margin-left: auto; }
+.st-auto-btn { margin-left: auto; display: inline-flex; align-items: center; font-weight: 400; }
+.st-auto-btn[hidden] { display: none; }
+.st-new[hidden] { display: none; }
+
+/* No studios yet: one card with the words and both ways to start */
+.st-empty {
+  grid-column: 1 / -1; justify-self: center; width: min(560px, 100%); box-sizing: border-box;
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px;
+  padding: 28px 30px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px;
+}
+.st-empty p { margin: 0; font-size: 0.875rem; color: var(--text-secondary); max-width: 420px; }
+.st-empty svg.st-empty-ico { width: 34px; height: 34px; color: var(--text-muted); stroke-width: 1.5; }
+.st-empty-acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .st-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--st-min, 260px), 1fr));
@@ -137,7 +149,9 @@
   width: 36px; height: 22px; border-radius: 4px; border: 1px dashed #555; flex: none;
   display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary);
 }
-.ft-opt.st-rm { color: #fca5a5; }
+/* Take out of a studio: a plain row under a hairline, not a red one (it changes no file on disk). */
+.ft-opt.st-rm { color: var(--text-secondary); border-top: 1px solid var(--border); border-radius: 0 0 6px 6px; }
+.ft-opt.st-rm:hover, .ft-opt.st-rm.hi { color: var(--text-primary); }
 .st-newname { font-style: normal; }
 .st-yrs { width: 320px; border-color: var(--accent); gap: 8px; }
 .st-yrs-p { margin: 0; font-size: 0.8125rem; color: var(--text-primary); }
@@ -229,7 +243,8 @@ textarea.st-in-links { min-height: 40px; }
 .st-chip-main:focus-visible { outline: 2px solid var(--accent); }
 .st-chip .st-chip-img { width: 30px; height: 18px; border-radius: 999px; object-fit: cover; flex: none; font-size: 0.6rem; }
 .st-chip-yr { color: var(--text-secondary); }
-.st-chip-x { background: none; border: 0; color: #888; font-size: 0.75rem; padding: 0 2px; cursor: pointer; }
+.st-chip-x { background: none; border: 0; color: #888; font-size: 0.75rem; padding: 0 2px; cursor: pointer; display: inline-flex; align-items: center; }
+.st-chip-x .vi { width: 12px; height: 12px; }
 .st-chip-x:hover { color: var(--text-primary); }
 .st-chip:not(:has(.st-chip-x)) { padding-right: 6px; }
 .st-addst {

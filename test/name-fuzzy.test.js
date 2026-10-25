@@ -4,6 +4,7 @@
  * it in small slices gives the same answers as one big read.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

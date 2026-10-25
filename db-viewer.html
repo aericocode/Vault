@@ -57,6 +57,8 @@
   <link rel="stylesheet" href="./css/wall.css">
   <!-- Folder watchers: Settings group, options dialog, activity pill, tile tags -->
   <link rel="stylesheet" href="./css/watchers.css">
+  <!-- AI scan panel tabs (Progress / Failed / Waiting) and the Scanning settings group -->
+  <link rel="stylesheet" href="./css/scan-panel.css">
   <!-- Modern library look: every rule is scoped under body.layout-modern -->
   <link rel="stylesheet" href="./css/layout-modern.css">
   <!-- The Modern look's line icons (player-lib/icons.js) -->
@@ -65,6 +67,15 @@
   <link rel="stylesheet" href="./css/table-view.css">
   <!-- The ? window and Settings > Keyboard shortcuts -->
   <link rel="stylesheet" href="./css/shortcuts.css">
+  <!-- Modern Settings: cards, rows, grouped menu (body.layout-modern only) -->
+  <link rel="stylesheet" href="./css/settings-modern.css">
+  <!-- Modern player: bottom dock, song-segment timeline, auto-hide (body.layout-modern only) -->
+  <link rel="stylesheet" href="./css/player/player-modern.css">
+  <link rel="stylesheet" href="./css/player/player-panel-modern.css">
+  <!-- Modern beat bar: glass lane and its settings (body.layout-modern only) -->
+  <link rel="stylesheet" href="./css/beatbar-modern.css">
+  <!-- In-app alert / confirm / prompt (player-lib/vault-dialogs.js), both looks -->
+  <link rel="stylesheet" href="./css/dialogs.css">
 
   <link rel="icon" type="image/svg+xml" href="./images/favicon.svg">
 </head>
@@ -290,7 +301,7 @@
          server-side check comes back high; dismissible for the session. -->
     <div class="missing-banner" id="missingFilesBanner" style="display:none"></div>
 
-    <!-- "Showing exactly these N records" — filters.js focus set, used by the
+    <!-- "Showing N selected files" — filters.js focus set, used by the
          migration report's "Show not migrated" button. -->
     <div class="focus-banner" id="focusFilterBar" style="display:none"></div>
 
@@ -331,16 +342,16 @@
         <div class="sort-control">
           <label>Sort:</label>
           <select id="sortSelect">
-            <option value="processed">Date Processed</option>
+            <option value="processed">Date added</option>
             <option value="name">Name</option>
             <option value="size">Size</option>
             <option value="duration">Duration</option>
             <option value="rating">Rating</option>
             <option value="views">Views</option>
-            <option value="done">Session Ends</option>
+            <option value="done">Finished most</option>
           </select>
           <button id="sortDirBtn" class="sort-dir-btn" title="Toggle most/least first">▼</button>
-          <button id="favesFirstBtn" class="faves-first-btn" title="Faves first (on top of any sort)" aria-label="Faves first" aria-pressed="false"><span class="vi-w" data-vi="heart">🤍</span></button>
+          <button id="favesFirstBtn" class="faves-first-btn" title="Favorites first (on top of any sort)" aria-label="Favorites first" aria-pressed="false"><span class="vi-w" data-vi="heart">🤍</span></button>
         </div>
         <!-- Modern look only: open / close the docked preview pane (player-lib/dock.js) -->
         <button type="button" class="dock-toggle-btn modern-only" id="dockToggleBtn" aria-pressed="false"
@@ -432,25 +443,43 @@
     <div class="media-info-content" id="mediaInfoContent" onclick="event.stopPropagation()"></div>
   </div>
 
-  <!-- Mini Player -->
-  <div class="mini-player" id="miniPlayer">
-    <div class="mini-resize-tl" id="miniResizeTL" title="Drag to resize" aria-hidden="true"></div>
-    <div class="mini-player-drag" id="miniPlayerDrag">
-      <div class="mini-audio-art" aria-hidden="true">🎵</div>
-      <div class="mini-audio-meta">
-        <span class="mini-player-title" id="miniPlayerTitle">filename.mp4</span>
-        <span class="mini-audio-sub"><span id="miniAudioTime">0:00 / 0:00</span> · <span id="miniAudioSpeed">1x</span></span>
+  <!-- Mini Player: a floating picture in a corner, its controls fade in on
+       hover (player-lib/player/mini-player.js, css/mini-player.css) -->
+  <div class="mini-player" id="miniPlayer" role="region" aria-label="Mini player" data-corner="br" tabindex="-1">
+    <div class="mini-player-media" id="miniPlayerMedia"></div>
+    <!-- Audio has no picture: its art, or the type icon -->
+    <div class="mini-audio-art" id="miniAudioArt" aria-hidden="true" hidden>
+      <img class="mini-audio-img" id="miniAudioImg" alt="" draggable="false" hidden>
+      <span class="mini-audio-icon"><span class="vi-w" data-vi="audio">🎵</span></span>
+    </div>
+    <div class="mini-pip-note" id="miniPipNote" hidden>Playing in picture-in-picture</div>
+    <div class="mini-overlay" id="miniOverlay">
+      <div class="mini-player-controls mini-top">
+        <div class="mini-vol" id="miniVol">
+          <button type="button" class="mini-ctrl" id="miniMuteBtn" onclick="miniToggleMute()" title="Mute" aria-label="Mute"></button>
+          <input type="range" class="mini-vol-slider" id="miniVolSlider" min="0" max="1" step="0.01" value="1"
+                 oninput="miniSetVolume(this.value)" aria-label="Volume">
+        </div>
+        <button type="button" class="mini-ctrl" id="miniPipBtn" onclick="miniTogglePip()" title="Pop out over other windows" aria-label="Pop out over other windows" hidden><span class="vi-w" data-vi="pip">⧉</span></button>
+        <button type="button" class="mini-ctrl" onclick="maximizePlayer()" title="Back to the full player (Q)" aria-label="Back to the full player"><span class="vi-w" data-vi="expand">⤢︎</span></button>
+        <button type="button" class="mini-ctrl mini-close" onclick="closeMiniPlayer()" title="Close (Esc)" aria-label="Close the mini player"><span class="vi-w" data-vi="close">✕</span></button>
+      </div>
+      <div class="mini-center">
+        <button type="button" class="mini-ctrl mini-round" data-mini-act="back" title="Back 10 seconds" aria-label="Back 10 seconds"><span class="vi-w" data-vi="rewind">⏪︎</span></button>
+        <button type="button" class="mini-ctrl mini-round mini-big" id="miniPlayPause" data-mini-act="play" title="Play or pause (Space)" aria-label="Pause"></button>
+        <button type="button" class="mini-ctrl mini-round mini-fwd" data-mini-act="fwd" title="Forward 10 seconds" aria-label="Forward 10 seconds"><span class="vi-w" data-vi="rewind">⏩︎</span></button>
+      </div>
+      <div class="mini-bottom">
+        <div class="mini-seek" id="miniSeek" title="Click or drag to seek">
+          <div class="mini-seek-track" id="miniSeekTrack"><div class="mini-seek-fill" id="miniSeekFill"></div></div>
+        </div>
+        <div class="mini-meta">
+          <span class="mini-player-title" id="miniPlayerTitle">filename.mp4</span>
+          <span class="mini-time" id="miniTime">0:00 / 0:00</span>
+        </div>
       </div>
     </div>
-    <div class="mini-player-media" id="miniPlayerMedia"></div>
-    <div class="mini-player-controls">
-      <button class="mini-ctrl" id="miniPlayPause" onclick="miniTogglePlay()" title="Play/Pause">⏸</button>
-      <button class="mini-ctrl" onclick="maximizePlayer()" title="Maximize (Q)">⤢</button>
-      <button class="mini-ctrl mini-close" onclick="closeMiniPlayer()" title="Close">✕</button>
-    </div>
-    <div class="mini-audio-progress" id="miniAudioProgress" title="Click to seek">
-      <div class="mini-audio-progress-fill" id="miniAudioProgressFill"></div>
-    </div>
+    <div class="mini-resize" id="miniResize" title="Drag to resize" aria-hidden="true"></div>
   </div>
 
   <!-- Jump back to the top of the grid (continuous layout only) -->
@@ -469,6 +498,8 @@
   <script src="./player-lib/utils.js"></script>
   <!-- Line icons for the Modern look; fills the data-vi spots above -->
   <script src="./player-lib/icons.js"></script>
+  <!-- In-app alert / confirm / prompt; before shortcuts.js so its key guard runs first -->
+  <script src="./player-lib/vault-dialogs.js"></script>
   <!-- Keyboard shortcuts list (?) and isBrowserChord; early so its key listener runs first -->
   <script src="./player-lib/shortcuts.js"></script>
   <script src="./player-lib/state.js"></script>
@@ -490,10 +521,13 @@
   <script src="./player-lib/cards.js"></script>
   <!-- Table view (Modern look). Hooks: cards.js renderResults / renderContinuousWindow. -->
   <script src="./player-lib/table-view.js"></script>
+  <script src="./player-lib/player/panel-layout.js"></script>
   <script src="./player-lib/detail-view.js"></script>
   <script src="./player-lib/modal.js"></script>
   <script src="./player-lib/player/player-stream.js"></script>
   <script src="./player-lib/player/player-core.js"></script>
+  <script src="./player-lib/player/mini-geometry.js"></script>
+  <script src="./player-lib/player/mini-player.js"></script>
   <script src="./player-lib/player/abloop.js"></script>
   <script src="./player-lib/player/player-controls.js"></script>
   <script src="./player-lib/player/player-video.js"></script>
@@ -502,7 +536,11 @@
   <script src="./player-lib/player/player-image.js"></script>
   <script src="./player-lib/player/player-document.js"></script>
   <script src="./player-lib/player/player-mix.js"></script>
+  <!-- Modern player: the dock's geometry (pure) and the dock itself -->
+  <script src="./player-lib/player/dock-geometry.js"></script>
+  <script src="./player-lib/player/player-modern.js"></script>
   <script src="./player-lib/viewtracker.js"></script>
+  <script src="./player-lib/beatbar-geometry.js"></script>
   <script src="./player-lib/beatbar.js"></script>
   <script src="./player-lib/lovense/lovense-api.js"></script>
   <script src="./player-lib/lovense/lovense-sync.js"></script>
@@ -519,8 +557,12 @@
   <script src="./player-lib/importer.js"></script>
   <script src="./player-lib/wall.js"></script>
   <script src="./player-lib/tabs.js"></script>
+  <!-- Settings cards, rows, dialogs and the Modern page map (player-lib/settings-kit.js) -->
+  <script src="./player-lib/settings-kit.js"></script>
   <script src="./player-lib/thumb-settings-ui.js"></script>
   <script src="./player-lib/watchers-ui.js"></script>
+  <!-- Settings > Models > Scanning (mounted from settings.js with one line) -->
+  <script src="./player-lib/scan-settings-ui.js"></script>
   <script src="./player-lib/settings.js"></script>
   <!-- Settings search: one index of every setting, plus the shortcuts table -->
   <script src="./player-lib/settings-search.js"></script>

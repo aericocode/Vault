@@ -208,3 +208,69 @@
   font-size: 12px;
 }
 .sk-settings-foot { margin-top: 6px; }
+
+/* ── Modern: the same card as Settings and the in-app dialogs ── */
+body.layout-modern .sk-win {
+  background: var(--m-surface-solid);
+  color: var(--m-text);
+  border-color: var(--m-border);
+  border-radius: var(--m-radius);
+  box-shadow: var(--m-shadow);
+}
+body.layout-modern .sk-head,
+body.layout-modern .sk-foot { border-color: var(--m-border); }
+body.layout-modern .sk-hint,
+body.layout-modern .sk-foot { color: var(--m-muted); }
+body.layout-modern .sk-search {
+  background: var(--m-field);
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  padding: 6px 10px;
+}
+body.layout-modern .sk-search:focus { border-color: var(--accent); }
+body.layout-modern .sk-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--m-radius-sm);
+  color: var(--m-muted);
+}
+body.layout-modern .sk-x:hover { background: var(--m-btn); color: var(--m-text); }
+body.layout-modern .sk-x .vi { width: 16px; height: 16px; }
+body.layout-modern .sk-row { border-bottom-color: rgba(255, 255, 255, 0.06); }
+/* The footer link is a quiet text button in the accent colour, no underline. */
+body.layout-modern .sk-link {
+  margin: -3px -8px;
+  padding: 3px 8px;
+  border-radius: var(--m-radius-sm);
+  text-decoration: none;
+}
+body.layout-modern .sk-link:hover { background: var(--m-btn); }
+body.layout-modern .sk-link:focus-visible,
+body.layout-modern .sk-x:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+/* The same dim as the Settings dialog behind it. */
+body.layout-modern .sk-overlay { background: rgba(0, 0, 0, 0.8); }
+
+/* Settings > Keyboard shortcuts in Modern: Settings keeps its normal size on
+   this page too, and the list gets denser instead: three columns of groups
+   where they fit (230px each, so two on narrow windows), 12.5px rows with
+   tighter padding, smaller keys and compact group headers. At 2560 x 1300
+   (a 4K screen at 150%) and up, every shortcut and the note fit with no
+   scroll. Classic and the ? window keep their own sizes (.sk-cols2 only). */
+body.layout-modern .sk-cols2 {
+  columns: 3 230px;
+  column-gap: 20px;
+  font-size: 12.5px;
+  line-height: 1.3;
+}
+body.layout-modern .sk-cols2 .sk-group { margin-bottom: 8px; }
+body.layout-modern .sk-cols2 .sk-group.sk-here { padding: 5px 8px; margin-left: -8px; margin-right: -8px; }
+body.layout-modern .sk-cols2 .sk-gh { margin-bottom: 2px; font-size: 10.5px; }
+body.layout-modern .sk-cols2 .sk-row { padding: 2px 0; gap: 8px; }
+body.layout-modern .sk-cols2 .sk-keys { gap: 4px; max-width: 48%; }
+body.layout-modern .sk-cols2 kbd { font-size: 10.5px; padding: 0 4px; }
+body.layout-modern .sk-settings-top { margin-bottom: 8px; }
+body.layout-modern .settings-card p.sk-settings-foot { margin: 2px 0 4px; }   /* over settings-modern.css */

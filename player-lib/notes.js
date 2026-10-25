@@ -10,6 +10,11 @@
    the .db now.
    ========================================================================= */
 
+/** A glyph the Modern Info panel shows as a line icon; Classic keeps it (icons.js). */
+function _panelGlyph(emoji, icon) {
+  return typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap(emoji, icon) : escapeHtml(emoji);
+}
+
 /**
  * POST user-editable fields for a media item.
  * @param {object} item - the in-memory media row (must have .id)
@@ -123,7 +128,7 @@ function renderNoteSnippets(escapedPath) {
         ondragstart="onSnippetDragStart(event)" ondragend="onSnippetDragEnd(event)">
       ${s.color ? `<span class="note-snippet-dot" style="background:${s.color}"></span>` : ''}
       <span class="note-snippet-label">${escapeHtml(s.text)}</span>
-      <button class="note-snippet-del" onclick="event.stopPropagation(); deleteNoteSnippet(${s.id})" title="Forget this snippet">✕</button>
+      <button class="note-snippet-del" onclick="event.stopPropagation(); deleteNoteSnippet(${s.id})" title="Forget this snippet">${_panelGlyph('✕', 'close')}</button>
     </span>`;
   }).join('');
   return `<div class="note-snippets" ondragover="onSnippetDragOver(event)" ondrop="onSnippetDrop(event)">${chips}</div>`;
@@ -282,9 +287,10 @@ function insertCurrentTimestamp(btnEl) {
   const end = input.selectionEnd ?? input.value.length;
   const before = input.value.slice(0, start);
   const after = input.value.slice(end);
-  // Pad with a space when butting up against existing text
+  // Pad with a space when butting up against existing text, and after the
+  // time when nothing follows it, so the words typed next stand apart.
   const lead = before && !/\s$/.test(before) ? ' ' : '';
-  const trail = after && !/^\s/.test(after) ? ' ' : '';
+  const trail = !/^\s/.test(after) ? ' ' : '';
   const insert = `${lead}${ts}${trail}`;
   input.value = before + insert + after;
   const caret = start + insert.length;
@@ -364,16 +370,19 @@ function refreshAllSnippetRows() {
    "2:35" / "1:02:33" inside a note becomes a link that seeks the player.
    If the file isn't playing yet, it opens it and seeks once loaded. */
 
-// A single timestamp fragment: [h:]m:ss
-const _TS = '(?:\\d{1,2}:)?\\d{1,2}:\\d{2}';
+// A single timestamp fragment: [h:]m:ss[.d|.dd] ("1:56", "0:41.25"). The
+// hundredths are for exact A-B loops; the clock button inserts whole seconds.
+const _TS = '(?:\\d{1,2}:)?\\d{1,2}:\\d{2}(?:\\.\\d{1,2})?';
 // Range ("0:11-1:23" / "0:11 - 1:23") tried FIRST so it wins over singles.
 // Dash class covers hyphen + en/em dash (common when text is pasted).
 const _TS_LINK_RE = new RegExp(`\\b(${_TS})\\s*[-–—]\\s*(${_TS})\\b|\\b${_TS}\\b`, 'g');
 
+/** "1:56.4" -> 116.4, "1:02:03" -> 3723; null for anything else. */
 function _parseTs(ts) {
-  const parts = String(ts).trim().split(':').map(Number);
-  if (parts.some(n => Number.isNaN(n))) return null;
-  return parts.reduce((acc, p) => acc * 60 + p, 0);
+  const m = /^(?:(\d{1,2}):)?(\d{1,2}):(\d{2}(?:\.\d{1,2})?)$/.exec(String(ts).trim());
+  if (!m) return null;
+  const secs = (Number(m[1] || 0) * 3600) + (Number(m[2]) * 60) + Number(m[3]);
+  return Math.round(secs * 100) / 100;
 }
 
 /**
@@ -385,7 +394,7 @@ function linkifyTimestamps(escapedText, escapedPath) {
   return escapedText.replace(_TS_LINK_RE, (m, aTs, bTs) => {
     if (aTs) {
       // Range → loop between the two points
-      return `<a class="note-ts note-ts-range" href="#" onclick="loopNoteRange('${escapedPath}', '${aTs}', '${bTs}'); return false;" title="Loop ${aTs}–${bTs}">🔁 ${aTs}–${bTs}</a>`;
+      return `<a class="note-ts note-ts-range" href="#" onclick="loopNoteRange('${escapedPath}', '${aTs}', '${bTs}'); return false;" title="Loop ${aTs}–${bTs}">${_panelGlyph('🔁 ', 'repeat')}${aTs}–${bTs}</a>`;
     }
     return `<a class="note-ts" href="#" onclick="seekToNoteTimestamp('${escapedPath}', '${m}'); return false;" title="Jump to ${m}">${m}</a>`;
   });
@@ -425,7 +434,8 @@ function loopNoteRange(filepath, aTs, bTs) {
 }
 
 function seekToNoteTimestamp(filepath, ts) {
-  const secs = ts.split(':').map(Number).reduce((acc, p) => acc * 60 + p, 0);
+  const secs = _parseTs(ts);
+  if (secs == null) return;
   const item = Library.rowByPath(filepath);
   if (!item) return;
 
@@ -463,8 +473,8 @@ function renderNoteEntry(note, i, escapedPath) {
     <div class="note-entry" data-index="${i}">
       <div class="note-timestamp">${escapeHtml(note.timestamp)}${note.edited ? ' <span class="note-edited" title="Edited ' + escapeHtml(note.edited) + '">· edited</span>' : ''}</div>
       <div class="note-text">${linkifyTimestamps(escapeHtml(note.text), escapedPath)}</div>
-      <button class="note-edit" onclick="startNoteEdit(this)" title="Edit this note">✎</button>
-      <button class="note-delete" onclick="deleteNote('${escapedPath}', ${i})" title="Delete this note">✕</button>
+      <button class="note-edit" onclick="startNoteEdit(this)" title="Edit this note">${_panelGlyph('✎', 'edit')}</button>
+      <button class="note-delete" onclick="deleteNote('${escapedPath}', ${i})" title="Delete this note">${_panelGlyph('✕', 'close')}</button>
     </div>
   `;
 }
@@ -740,6 +750,8 @@ function refreshAllNotesSections(filepath) {
       : null;
 
     notesList.innerHTML = renderNotesList(notes, escapedPath);
+    // The Modern Info panel's Notes tab shows the count.
+    if (typeof detailPanelNotesChanged === 'function') detailPanelNotesChanged(section, notes.length);
 
     if (pending && pending.index >= 0 && pending.index < notes.length) {
       const btn = notesList.querySelector(`.note-entry[data-index="${pending.index}"] .note-edit`);
@@ -819,8 +831,8 @@ function renderStarRatingSection(media) {
 
   return `
     <div class="star-rating-section" data-star-rating-for="${escapeHtml(media.filepath)}">
-      <button class="${starClass}" onclick="toggleStar('${escapedPath}')" title="${starred ? 'Remove fave' : 'Fave this file'}">
-        ${starIcon}<span class="star-label">Fave</span>
+      <button class="${starClass}" onclick="toggleStar('${escapedPath}')" title="${starred ? 'Remove from favorites' : 'Add to favorites'}" aria-pressed="${starred ? 'true' : 'false'}">
+        ${starIcon}<span class="star-label">Favorite</span>
       </button>
       <div class="rating-control">
         <span class="rating-label">Rating:</span>
@@ -839,7 +851,7 @@ function renderStarRatingSection(media) {
 function renderCardStarRating(media) {
   let html = '';
   if (media.user_starred) {
-    html += '<span class="meta-badge starred-badge">❤ Fave</span>';
+    html += '<span class="meta-badge starred-badge">❤ Favorite</span>';
   }
   if (media.user_rating > 0) {
     const stars = '★'.repeat(media.user_rating) + '☆'.repeat(5 - media.user_rating);

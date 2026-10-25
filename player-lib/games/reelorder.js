@@ -563,7 +563,7 @@
       bar.innerHTML = `
         <div class="top-left">
           <h1 class="game-title">Reel Order</h1>
-          <p class="game-hint">Drag clips onto the timeline in order. Accuracy = bonus points.</p>
+          <p class="game-hint">Drag the clips onto the timeline in order. Closer guesses earn bonus points.</p>
         </div>
         <div class="top-right">
           <div class="ro-size" title="Tile size">
@@ -572,14 +572,14 @@
               min="${TL.Config.ui.minTileWidth}" max="${TL.Config.ui.maxTileWidth}" step="${TL.Config.ui.tileStep}">
           </div>
           <div class="top-stats">
-            <div class="hud-stat"><span class="hud-label">Clip Length</span><span class="hud-value" id="hud-clip-dur">–</span></div>
+            <div class="hud-stat"><span class="hud-label">Clip length</span><span class="hud-value" id="hud-clip-dur">–</span></div>
             <div class="hud-stat"><span class="hud-label">Placed</span><span class="hud-value" id="hud-placed">0 / 0</span></div>
             <div class="hud-stat"><span class="hud-label">Time</span><span class="hud-value" id="hud-timer">0:00.0</span></div>
             <div class="hud-stat"><span class="hud-label">Best</span><span class="hud-value" id="hud-best">–</span></div>
           </div>
           <div class="top-buttons">
-            <button class="new-game-btn" id="btn-new-game">New Game</button>
-            <button class="submit-btn" id="btn-submit" disabled>Submit Order</button>
+            <button class="new-game-btn" id="btn-new-game">New game</button>
+            <button class="submit-btn" id="btn-submit" disabled>Submit order</button>
           </div>
         </div>`;
       container.appendChild(bar);
@@ -590,12 +590,12 @@
       bar.id = 'transport-bar';
       bar.innerHTML = `
         <div class="transport-controls">
-          <button class="transport-btn" id="btn-back" title="Back 5s">◀◀</button>
-          <button class="transport-btn transport-play" id="btn-play" title="Play/Pause">▶</button>
-          <button class="transport-btn" id="btn-fwd" title="Forward 5s">▶▶</button>
+          <button class="transport-btn" id="btn-back" title="Back 5 seconds" aria-label="Back 5 seconds">${ic('◀◀', 'rewind')}</button>
+          <button class="transport-btn transport-play" id="btn-play" title="Play or pause" aria-label="Play">${ic('▶', 'play-fill')}</button>
+          <button class="transport-btn" id="btn-fwd" title="Forward 5 seconds" aria-label="Forward 5 seconds">${ic('▶▶', 'rewind', 'ro-flip')}</button>
           <div class="volume-wrap">
-            <span class="vol-icon">🔊</span>
-            <input type="range" id="volume-slider" min="0" max="1" step="0.05" value="0.7" class="volume-slider">
+            <span class="vol-icon">${ic('🔊', 'volume')}</span>
+            <input type="range" id="volume-slider" min="0" max="1" step="0.05" value="0.7" class="volume-slider" aria-label="Volume">
           </div>
         </div>`;
       container.appendChild(bar);
@@ -617,27 +617,27 @@
         <div class="results-card">
           <h2 class="results-title">Results</h2>
           <div class="results-score">${score.toLocaleString()}</div>
-          ${isNewBest ? '<div class="new-best">New High Score!</div>' : ''}
+          ${isNewBest ? '<div class="new-best">New high score</div>' : ''}
           <div class="results-best">Best (${TL.Config.difficulties[difficulty].label}): ${bestScore.toLocaleString()}</div>
           <div class="results-breakdown">
-            <div class="rb-row"><span>Base Score</span><span>${breakdown.base.toLocaleString()}</span></div>
-            <div class="rb-row penalty"><span>Time Penalty (${TL.ScoreKeeper.formatTime(breakdown.timeTaken)})</span><span>−${breakdown.timeDecay.toLocaleString()}</span></div>
-            <div class="rb-row ${breakdown.orderWrong > 0 ? 'penalty' : 'bonus'}"><span>Order (${orderCorrect}/${total} correct)</span><span>${breakdown.orderWrong > 0 ? '−' + breakdown.orderPenalties.toLocaleString() : '✓'}</span></div>
-            <div class="rb-row bonus"><span>Timestamp Bonus</span><span>+${breakdown.timestampBonus.toLocaleString()}</span></div>
+            <div class="rb-row"><span>Base score</span><span>${breakdown.base.toLocaleString()}</span></div>
+            <div class="rb-row penalty"><span>Time penalty (${TL.ScoreKeeper.formatTime(breakdown.timeTaken)})</span><span>−${breakdown.timeDecay.toLocaleString()}</span></div>
+            <div class="rb-row ${breakdown.orderWrong > 0 ? 'penalty' : 'bonus'}"><span>Order (${orderCorrect}/${total} correct)</span><span>${breakdown.orderWrong > 0 ? '−' + breakdown.orderPenalties.toLocaleString() : ic('✓', 'check')}</span></div>
+            <div class="rb-row bonus"><span>Timestamp bonus</span><span>+${breakdown.timestampBonus.toLocaleString()}</span></div>
           </div>
           <div class="results-clips">
-            <h3>Clip Details</h3>
+            <h3>Clip details</h3>
             ${clipResults.map(c => `
               <div class="rc-row ${c.orderCorrect ? (c.timeBonus > 0 ? 'perfect' : 'correct') : 'wrong'}">
                 <span class="rc-num">#${c.clipWindow.displayIndex}</span>
-                <span class="rc-order">${c.orderCorrect ? '✓' : '✗'}</span>
-                <span class="rc-time">Placed: ${fmt(c.placedAt)} → Actual: ${fmt(c.actualStart)}</span>
+                <span class="rc-order" title="${c.orderCorrect ? 'In the right order' : 'Out of order'}">${c.orderCorrect ? ic('✓', 'check') : ic('✗', 'close')}</span>
+                <span class="rc-time">Placed at ${fmt(c.placedAt)}, starts at ${fmt(c.actualStart)}</span>
                 <span class="rc-bonus">${c.timeBonus > 0 ? '+' + c.timeBonus : ''}</span>
               </div>`).join('')}
           </div>
           <div class="results-buttons">
-            <button class="start-btn review-btn" id="btn-review">Review Timeline</button>
-            <button class="start-btn" id="btn-play-again">Play Again</button>
+            <button class="start-btn review-btn" id="btn-review">Review timeline</button>
+            <button class="start-btn" id="btn-play-again">Play again</button>
           </div>
         </div>`;
       container.appendChild(overlay);
@@ -662,6 +662,16 @@
       };
       for (let k = 0; k < Math.min(concurrency, tasks.length); k++) next();
     });
+  }
+  /** Classic's glyph, Modern's line icon (player-lib/icons.js). */
+  function ic(glyph, name, cls) {
+    if (typeof vaultIcon !== 'function') return esc(glyph);
+    return `<span class="vi-c">${esc(glyph)}</span>${vaultIcon(name, 'modern-only' + (cls ? ' ' + cls : ''))}`;
+  }
+  /** The transport's play button: pause while playing, play while paused. */
+  function setPlayBtn(btn, playing) {
+    btn.innerHTML = playing ? ic('❚❚', 'pause-bold') : ic('▶', 'play-fill');
+    btn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
   }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
@@ -746,7 +756,7 @@
         const best = TL.HighScores.get(key);
         return `
           <button class="ro-diff-btn ${tooShort ? 'disabled' : ''}" data-key="${key}" ${tooShort ? 'disabled' : ''}
-            title="${tooShort ? `Video too short, needs ${TL.ScoreKeeper.formatMMSS(minDuration)}+` : ''}">
+            title="${tooShort ? `The video is too short. This needs at least ${TL.ScoreKeeper.formatMMSS(minDuration)}.` : ''}">
             <strong>${val.label}</strong>
             <small>${Math.round(val.coveragePercent * 100)}% coverage</small>
             <small class="ro-diff-best">${best > 0 ? 'Best: ' + best.toLocaleString() : ''}</small>
@@ -754,8 +764,8 @@
       }).join('');
       this._root.innerHTML = `
         <div class="ro-setup">
-          <h2 class="ro-setup-title">🎬 ${esc(this._media?.filename || 'Video')}</h2>
-          <p class="ro-setup-sub">Pick a difficulty. More coverage = easier.</p>
+          <h2 class="ro-setup-title">${ic('🎬 ', 'video', 'vi-gap')}${esc(this._media?.filename || 'Video')}</h2>
+          <p class="ro-setup-sub">Pick a difficulty. More coverage makes it easier.</p>
           <div class="ro-diff-grid">${cards}</div>
         </div>`;
       this._root.querySelectorAll('.ro-diff-btn:not(.disabled)').forEach(btn => {
@@ -844,7 +854,7 @@
         this._audioManager.setGlobalPlaying(true);
         this._clipWindows[0].player.play();
         const playBtn = document.getElementById('btn-play');
-        if (playBtn) playBtn.textContent = '❚❚';
+        if (playBtn) setPlayBtn(playBtn, true);
       }
 
       const hudClipDur = document.getElementById('hud-clip-dur');
@@ -1007,7 +1017,7 @@
 
       playBtn.addEventListener('click', () => {
         this._playing = !this._playing;
-        playBtn.textContent = this._playing ? '❚❚' : '▶';
+        setPlayBtn(playBtn, this._playing);
         this._audioManager.setGlobalPlaying(this._playing);
         const f = this._audioManager.focused;
         if (f) { if (this._playing) f.player.play(); else f.player.pause(); }

@@ -101,6 +101,7 @@ Start with `start.bat` to launch a full browser UI, works in any browser, media 
 - **Resume playback**: remembers your position per file; view counts track real engagement (requires ≥75% watched for video/audio)
 - **Mini-player**: pop out and keep browsing while something plays
 - **VLC-style playback UX**: controls and cursor auto-hide while playing, region-aware (won't hide over the sidebar or interrupt while paused), fullscreen support
+- **Keyboard shortcuts**: mpv-style keys for playback, including 0 to 9 to jump to 0% through 90% of a video. Press ? in Vault for the full list, or see [SETUP.md §8](SETUP.md#8-keyboard-shortcuts)
 - **Watch activity on hover**: hover the seek bar to show view activity per video. Bonus activity for finishers.
 - **Finishers 💦**: click 'Done 💦' to mark what you last saw and sort by Finishers later. Watch activity glows blue to mark the moment.
 - **Hot 🔥**: click 'Hot 🔥' to mark exciting and intense moments. Watch activity glows orange to mark the best moments that nearly finished you off.

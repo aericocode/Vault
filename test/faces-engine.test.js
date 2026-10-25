@@ -7,6 +7,7 @@
  * the photo checks only when the LFW scratch set is there (FACES_TEST_DIR).
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

@@ -1,0 +1,212 @@
+/* ==========================================
+   AI SCAN PANEL: Progress / Failed / Waiting
+   (player-lib/importer.js, the #scanAiPane of #scanQueuePanel).
+   Built on the queue panel look in css/tiles.css (.delete-queue, .dq-*);
+   only what the tabs, failure groups and waiting box add lives here.
+   Colours come from the look's own tokens, so Classic keeps its palette.
+   Every class here that sets display has a [hidden] rule beside it.
+   ========================================== */
+
+#scanQueuePanel { width: 360px; }
+
+/* Head: icon, "AI scan", a few words, close */
+.sp-head { display: flex; align-items: center; gap: 0.45rem; }
+.sp-head[hidden] { display: none; }
+.sp-head-ico { display: inline-flex; align-items: center; justify-content: center; width: 14px; flex: none; color: var(--accent); }
+.sp-head-ico:empty { display: none; }
+.sp-head-title { font-weight: 600; white-space: nowrap; }
+.sp-head-sub { color: var(--text-muted); font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sp-grow { flex: 1; }
+.sp-close { display: inline-flex; align-items: center; }
+.sp-close[hidden] { display: none; }
+
+/* Tabs */
+.sp-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin: 0 -0.75rem 0.5rem; padding: 0 0.6rem; }
+.sp-tabs[hidden] { display: none; }
+.sp-tab {
+  background: none; border: none; cursor: pointer; font-family: inherit;
+  font-size: 0.74rem; color: var(--text-muted); padding: 0.3rem 0.55rem;
+  box-shadow: inset 0 -2px 0 transparent;
+}
+.sp-tab:hover { color: var(--text-primary); }
+.sp-tab.on { color: var(--text-primary); box-shadow: inset 0 -2px 0 var(--accent); }
+.sp-tab-n { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+.sp-view { display: block; }
+.sp-view[hidden] { display: none; }
+
+/* Bar: done, then failed, side by side */
+.sp-bar { display: flex; }
+.sp-bar[hidden] { display: none; }
+.sp-bar .dq-bar-fill { flex: none; border-radius: 0; }
+.sp-bar-fail { flex: none; height: 100%; width: 0; background: var(--danger); transition: width 0.4s ease-out; }
+.dq-meta[hidden] { display: none; }
+.sp-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Now: file (from folder) */
+.sp-now { flex: none; width: 2.2em; color: var(--text-muted); font-size: 0.7rem; }
+.sp-folder {
+  flex: 0 1 auto; max-width: 45%; min-width: 0;
+  color: var(--text-muted); font-size: 0.7rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* A dot that says how things stand */
+.sp-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--text-muted); }
+.sp-dot-amber { background: var(--warning); }
+.sp-dot-ok { background: var(--success); }
+.sp-dot-bad { background: var(--danger); }
+.sp-dot-off { background: transparent; border: 1px solid var(--text-muted); }
+
+/* Waiting */
+.sp-waitline { display: flex; align-items: center; gap: 0.4rem; margin: 0 0 0.4rem; font-size: 0.72rem; }
+.sp-waitline[hidden] { display: none; }
+.sp-pill {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-size: 0.7rem; padding: 0.1rem 0.55rem; border-radius: 99px;
+  background: var(--bg-tertiary); color: var(--text-primary); white-space: nowrap;
+}
+.sp-pill[hidden] { display: none; }
+.sp-link {
+  background: none; border: none; padding: 0; cursor: pointer; font: inherit;
+  color: var(--accent); text-decoration: underline; text-underline-offset: 2px;
+}
+.sp-wait { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; margin-bottom: 0.45rem; }
+.sp-wait[hidden] { display: none; }
+.sp-reason { font-size: 0.72rem; line-height: 1.4; color: var(--text-secondary); }
+.sp-wait-list { margin-top: 0.45rem; }
+
+/* Failed: one box per reason */
+.sp-groups { display: flex; flex-direction: column; gap: 0.4rem; max-height: 260px; overflow-y: auto; scrollbar-width: thin; padding-right: 2px; }
+.sp-groups[hidden] { display: none; }
+.sp-grp {
+  display: flex; flex-direction: column; gap: 0.25rem;
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--border));
+  background: color-mix(in srgb, var(--danger) 7%, var(--bg-secondary));
+  border-radius: 8px; padding: 0.4rem 0.5rem;
+}
+.sp-grp[hidden] { display: none; }
+.sp-grp-head { display: flex; align-items: center; gap: 0.4rem; }
+.sp-grp-head[hidden] { display: none; }
+.sp-grp-toggle {
+  flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 0.3rem;
+  background: none; border: none; padding: 0; cursor: pointer; text-align: left;
+  font-family: inherit; font-size: 0.74rem; color: var(--text-primary);
+}
+.sp-grp-label { font-weight: 600; color: color-mix(in srgb, var(--danger) 55%, var(--text-primary)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-grp-n { color: var(--text-secondary); font-variant-numeric: tabular-nums; flex: none; }
+.sp-chev { display: inline-flex; flex: none; color: var(--text-muted); transition: transform 0.15s; transform: rotate(-90deg); }
+.sp-grp.open .sp-chev { transform: none; }
+.sp-grp-explain { font-size: 0.7rem; line-height: 1.35; color: var(--text-muted); }
+.sp-files { display: flex; flex-direction: column; gap: 0.1rem; }
+.sp-files[hidden] { display: none; }
+.sp-file { display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; color: var(--text-secondary); min-width: 0; }
+.sp-file[hidden] { display: none; }
+.sp-file-btn { display: inline-flex; align-items: center; padding: 0 0.15rem; }
+.sp-file-btn:disabled { opacity: 0.4; cursor: default; }
+.sp-more { font-size: 0.7rem; color: var(--text-muted); font-style: italic; }
+.sp-empty { font-size: 0.72rem; color: var(--text-muted); padding: 0.3rem 0; }
+
+/* Buttons */
+.sp-mini { padding: 0.12rem 0.45rem; font-size: 0.68rem; flex: none; }
+.dq-btn-ghost { background: none; }
+.dq-btn .vi, .sp-mini .vi { vertical-align: -0.15em; }
+.sp-foot { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; }
+.sp-foot[hidden] { display: none; }
+
+/* Settings > Models > Scanning (player-lib/scan-settings-ui.js) */
+.scan-set-sel { max-width: 340px; min-width: 220px; }
+.sp-held { color: var(--text-secondary); font-size: 0.72rem; }
+
+/* Scans at once (the worker stepper): words, then the number */
+.dq-workers-label { white-space: nowrap; }
+
+/* =========================================================================
+   Modern: the import, AI scan and thank-you panels as Modern cards (dark
+   surface, hairline border, 12 px corners) with Modern buttons and fields.
+   Scoped to these panels' ids; the delete queue is selection.js's.
+   ========================================================================= */
+body.layout-modern #scanQueuePanel,
+body.layout-modern #importQueuePanel,
+body.layout-modern #kofiThanksPanel {
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  box-shadow: var(--m-shadow);
+  color: var(--m-text);
+  padding: 12px 14px;
+}
+body.layout-modern #scanQueuePanel .dq-head,
+body.layout-modern #importQueuePanel .dq-head,
+body.layout-modern #kofiThanksPanel .dq-head { font-size: 13px; color: var(--m-text); }
+body.layout-modern #scanQueuePanel .dq-x,
+body.layout-modern #importQueuePanel .dq-x,
+body.layout-modern #kofiThanksPanel .dq-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0;
+  border-radius: 6px; color: var(--m-muted);
+}
+body.layout-modern #scanQueuePanel .dq-x:hover,
+body.layout-modern #importQueuePanel .dq-x:hover,
+body.layout-modern #kofiThanksPanel .dq-x:hover { background: var(--m-btn-hover); color: var(--m-text); }
+body.layout-modern #scanQueuePanel .dq-x .vi,
+body.layout-modern #importQueuePanel .dq-x .vi,
+body.layout-modern #kofiThanksPanel .dq-x .vi { width: 14px; height: 14px; }
+body.layout-modern #importQueuePanel .dq-title .vi,
+body.layout-modern #kofiThanksPanel .dq-title .vi { margin-right: 6px; }
+body.layout-modern #kofiThanksPanel .dq-title .vi { color: var(--accent-hover); }
+body.layout-modern #kofiThanksPanel .kofi-note { font-size: 12px; color: var(--m-text-2); }
+
+body.layout-modern #scanQueuePanel .dq-bar { background: rgba(255, 255, 255, 0.08); }
+body.layout-modern #scanQueuePanel .dq-meta { font-size: 12px; color: var(--m-muted); }
+body.layout-modern #scanQueuePanel .sp-tabs { margin: 0 -14px 8px; padding: 0 10px; border-bottom-color: rgba(255, 255, 255, 0.08); }
+body.layout-modern #scanQueuePanel .sp-tab { font-size: 12px; color: var(--m-muted); }
+body.layout-modern #scanQueuePanel .sp-tab:hover,
+body.layout-modern #scanQueuePanel .sp-tab.on { color: var(--m-text); }
+
+/* The stepper and the model picker: the Modern field / select, panel sized */
+body.layout-modern #scanQueuePanel .dq-workers { gap: 6px; }
+body.layout-modern #scanQueuePanel .dq-num.m-field {
+  width: 52px; min-height: 26px;
+  padding: 2px 4px 2px 8px;
+  font-size: 12px; text-align: left;
+}
+body.layout-modern #scanQueuePanel .dq-pick-sel.m-select {
+  min-height: 30px; padding-top: 4px; padding-bottom: 4px; font-size: 12px;
+}
+
+body.layout-modern #scanQueuePanel .dq-warn {
+  border-radius: var(--m-radius-sm);
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 8px 10px;
+}
+body.layout-modern #scanQueuePanel .dq-warn-at { color: var(--m-text-2); }
+body.layout-modern #scanQueuePanel .sp-grp { border-radius: var(--m-radius-sm); }
+body.layout-modern #scanQueuePanel .sp-pill { background: rgba(255, 255, 255, 0.07); }
+
+body.layout-modern #scanQueuePanel .dq-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-btn);
+  color: var(--m-text);
+  font-size: 12px;
+}
+body.layout-modern #scanQueuePanel .dq-btn:hover:not(:disabled) { background: var(--m-btn-hover); border-color: var(--m-border-strong); }
+body.layout-modern #scanQueuePanel .dq-btn:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+body.layout-modern #scanQueuePanel .dq-btn-primary { background: var(--accent); border-color: transparent; color: #fff; }
+body.layout-modern #scanQueuePanel .dq-btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: transparent; }
+body.layout-modern #scanQueuePanel .dq-btn-quiet,
+body.layout-modern #scanQueuePanel .dq-btn-ghost { background: transparent; border-color: transparent; color: var(--m-text-2); }
+body.layout-modern #scanQueuePanel .dq-btn-quiet:hover:not(:disabled),
+body.layout-modern #scanQueuePanel .dq-btn-ghost:hover:not(:disabled) { background: var(--m-btn); color: var(--m-text); }
+body.layout-modern #scanQueuePanel .dq-btn-danger:hover:not(:disabled) { color: var(--m-danger-text); border-color: rgba(239, 68, 68, 0.5); }
+body.layout-modern #scanQueuePanel .dq-btn-danger.armed,
+body.layout-modern #scanQueuePanel .dq-btn-danger.armed:hover:not(:disabled) { background: #dc2626; border-color: #dc2626; color: #fff; }
+body.layout-modern #scanQueuePanel .sp-mini { padding: 2px 8px; font-size: 11px; }
+
+/* The display rules above outrank the [hidden] attribute: keep hidden buttons hidden. */
+body.layout-modern #scanQueuePanel .dq-btn[hidden],
+body.layout-modern #scanQueuePanel .dq-x[hidden] { display: none; }

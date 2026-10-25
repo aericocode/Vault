@@ -17,22 +17,7 @@ function loadScript(url) {
   });
 }
 
-function showToast(message) {
-  const toast = document.getElementById('toast');
-  // Modern drops the leading emoji ("Saved", not "💾 Saved"): player-lib/icons.js
-  toast.textContent = typeof vaultToastText === 'function' ? vaultToastText(message) : message;
-  toast.classList.add('active');
-  setTimeout(() => toast.classList.remove('active'), 3000);
-}
-
-// Copy path to clipboard
-function copyPath(filepath) {
-  navigator.clipboard.writeText(filepath).then(() => {
-    showToast('Path copied to clipboard!');
-  }).catch(() => {
-    showToast('Failed to copy path');
-  });
-}
+// showToast, showErrorToast, friendlyError and copyPath live in utils.js.
 
 // ── Sort controls: one option per field + a direction arrow + ❤ toggle ────
 // currentSort stays a composed "field_dir" string so saved searches keep
@@ -51,7 +36,11 @@ function syncSortControls() {
   const favBtn = document.getElementById('favesFirstBtn');
   if (select) select.value = currentSortField();
   if (dirBtn) {
-    dirBtn.textContent = currentSortDir() === 'asc' ? '▲' : '▼';
+    // Classic's ▲ / ▼, Modern's line arrow (player-lib/icons.js)
+    const asc = currentSortDir() === 'asc';
+    dirBtn.innerHTML = typeof vaultIconSwap === 'function'
+      ? vaultIconSwap(asc ? '▲' : '▼', asc ? 'arrow-up' : 'arrow-down')
+      : (asc ? '▲' : '▼');
     dirBtn.title = currentSortDir() === 'asc' ? 'Least first. Click for most first' : 'Most first. Click for least first';
   }
   if (favBtn) {
@@ -82,6 +71,9 @@ document.getElementById('favesFirstBtn').addEventListener('click', () => {
   syncSortControls();
   applyFilters({ keepPage: true });
 });
+
+// The page's static ▼ becomes the right arrow (a line icon in Modern) from the start.
+syncSortControls();
 
 /* ── The More sheet ────────────────────────────────────────────────────────
    The sheet floats over the grid instead of pushing it down, so opening and
@@ -199,6 +191,8 @@ document.addEventListener('click', (e) => {
 // gets to act on it.
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  // A dialog on top takes this Esc (vault-dialogs.js vaultModalOpen).
+  if (typeof vaultModalOpen === 'function' && vaultModalOpen()) return;
   if (typeof filterPopoverIsOpen === 'function' && filterPopoverIsOpen()) {
     closeFilterPopover();
     e.stopPropagation();
@@ -263,8 +257,36 @@ function updateSearchClearButton() {
   const btn = document.getElementById('searchClearBtn');
   if (btn) {
     btn.style.display = searchInput.value.trim() ? 'flex' : 'none';
+    positionSearchClearButton();
   }
 }
+
+// Modern: the clear x sits a few pixels after the end of the typed text and
+// moves along as it grows (on a wide window the box's right end is far from
+// the text); text longer than the box pins it to the right end. Classic keeps
+// it at the right end (css/extensions.css).
+let _searchMeasureCtx = null;
+function searchTextWidth(input) {
+  if (!_searchMeasureCtx) _searchMeasureCtx = document.createElement('canvas').getContext('2d');
+  const cs = getComputedStyle(input);
+  _searchMeasureCtx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  return _searchMeasureCtx.measureText(input.value).width;
+}
+function positionSearchClearButton() {
+  const btn = document.getElementById('searchClearBtn');
+  if (!btn) return;
+  const modern = typeof isModernLayout === 'function' && isModernLayout();
+  if (!modern || btn.style.display === 'none') { btn.style.left = ''; btn.style.right = ''; return; }
+  const cs = getComputedStyle(searchInput);
+  const start = searchInput.offsetLeft + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft);
+  const afterText = start + searchTextWidth(searchInput) + 6;
+  const rightEnd = searchInput.offsetLeft + searchInput.offsetWidth - btn.offsetWidth - 8;
+  btn.style.left = `${Math.round(Math.max(start, Math.min(afterText, rightEnd)))}px`;
+  btn.style.right = 'auto';
+}
+window.addEventListener('resize', positionSearchClearButton);
+if (typeof ResizeObserver === 'function') new ResizeObserver(() => positionSearchClearButton()).observe(searchInput);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(positionSearchClearButton).catch(() => {});
 
 // Filter change handlers — dropdowns
 document.querySelectorAll('#filterContent, #filterLanguage, #filterMinRating, #filterTheme, #filterQuality').forEach(select => {
@@ -371,10 +393,10 @@ refreshBtn.addEventListener('click', async () => {
     // A fresh look at which files are missing from disk (folder watchers'
     // Missing tags and the banner), in the background.
     fetch('/api/library/missing-count?expire=1', { headers: { 'X-Vault-Background': '1' } }).catch(() => {});
-    showToast('Library refreshed!');
+    showToast('Library refreshed');
   } catch (err) {
     console.error('Refresh failed:', err);
-    showToast('Refresh failed!');
+    showErrorToast(err, 'refreshing the library');
   } finally {
     setTimeout(() => {
       isRefreshing = false;
@@ -434,6 +456,8 @@ document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
   // Ctrl / Cmd chords (Ctrl+R reload) are the browser's, not Q / N / P / R.
   if (typeof isBrowserChord === 'function' && isBrowserChord(e)) return;
+  // A password, lock or import dialog has the keyboard.
+  if (typeof vaultModalOpen === 'function' && vaultModalOpen()) return;
 
   // Mini player shortcuts (active when mini player is showing)
   const miniPlayer = document.getElementById('miniPlayer');
@@ -464,6 +488,11 @@ document.addEventListener('keydown', (e) => {
     }
     if (e.key === 'r' || e.key === 'R') {
       playRandomMedia();
+      return;
+    }
+    // Number keys seek to 0%..90%, as in the full player
+    if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      seekToPercentKey(e.key);
       return;
     }
     return;

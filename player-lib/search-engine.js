@@ -54,7 +54,7 @@ async function pickerQuery(query, types, opts = {}, { limit = PICKER_LIMIT } = {
     out = await Library.queryOnce(spec, { pageSize: limit });
   } catch (err) {
     if (err && err.code === 'SEMANTIC_UNAVAILABLE') {
-      if (typeof showToast === 'function') showToast('🧠 ' + (err.message || 'Semantic search unavailable'));
+      if (typeof showToast === 'function') showToast('Search by meaning is not available right now, so this is a normal search');
       out = await Library.queryOnce({ ...spec, search: { ...spec.search, semantic: false } }, { pageSize: limit });
     } else {
       throw err;
@@ -70,9 +70,9 @@ async function pickerQuery(query, types, opts = {}, { limit = PICKER_LIMIT } = {
 function pickerSearchOptionsHtml(prefix, opts = {}) {
   return `
     <div class="picker-search-options" data-picker="${prefix}">
-      <label class="picker-opt" title="Search only metadata (exclude filename & path)"><input type="checkbox" id="${prefix}MetaOnly" ${opts.metadataOnly ? 'checked' : ''}> Metadata</label>
-      <label class="picker-opt" title="Approximate (fuzzy) matching"><input type="checkbox" id="${prefix}Fuzzy" ${opts.fuzzy ? 'checked' : ''}> Fuzzy</label>
-      <label class="picker-opt" title="Semantic search. Find by meaning (local embeddings)"><input type="checkbox" id="${prefix}Semantic" ${opts.semantic ? 'checked' : ''}> 🧠</label>
+      <label class="picker-opt" title="Search only tags and descriptions, not file names or folders"><input type="checkbox" class="m-check" id="${prefix}MetaOnly" ${opts.metadataOnly ? 'checked' : ''}> Metadata</label>
+      <label class="picker-opt" title="Also find close spellings"><input type="checkbox" class="m-check" id="${prefix}Fuzzy" ${opts.fuzzy ? 'checked' : ''}> Fuzzy</label>
+      <label class="picker-opt" title="Find files by what they show, not only the exact words. Runs on this computer"><input type="checkbox" class="m-check" id="${prefix}Semantic" ${opts.semantic ? 'checked' : ''}> Meaning</label>
       <span class="picker-mode-indicator" id="${prefix}Mode" style="display:none"></span>
     </div>`;
 }
@@ -81,7 +81,7 @@ function pickerSearchOptionsHtml(prefix, opts = {}) {
 function pickerSetModeIndicator(prefix, mode, pending) {
   const el = document.getElementById(prefix + 'Mode');
   if (!el) return;
-  const labels = { default: '', fuzzy: '~ fuzzy', boolean: 'AND/OR', semantic: pending ? '🧠 …' : '🧠' };
+  const labels = { default: '', fuzzy: 'Fuzzy', boolean: 'AND/OR', semantic: pending ? 'Meaning…' : 'Meaning' };
   const t = labels[mode] || '';
   el.textContent = t;
   el.style.display = t ? 'inline-flex' : 'none';

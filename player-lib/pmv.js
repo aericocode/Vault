@@ -148,7 +148,7 @@ function renderPmvSetup() {
         <section class="editor-panel">
           <div class="editor-panel-head">
             <h2>${vaultEmojiLabel('🎬 Source videos')} <span class="pmv-count" id="pmvVideoCount">${pmvState.videoIds.length} selected</span></h2>
-            <input type="text" class="music-input pmv-search" id="pmvVideoSearch" placeholder="Search (AND/OR/NOT)" value="${escapeHtml(pmvState.videoQ)}" autocomplete="off">
+            <input type="text" class="music-input m-field pmv-search" id="pmvVideoSearch" placeholder="Search videos" title="Search by name, tag or words. AND, OR and NOT (in capitals) combine words" value="${escapeHtml(pmvState.videoQ)}" autocomplete="off">
             ${typeof pickerSearchOptionsHtml === 'function' ? pickerSearchOptionsHtml('pmvVid', pmvState.videoOpts) : ''}
           </div>
           <div class="pmv-selected-videos" id="pmvSelectedVideos"></div>
@@ -157,8 +157,8 @@ function renderPmvSetup() {
 
         <section class="editor-panel">
           <div class="editor-panel-head">
-            <h2>${vaultEmojiLabel('🎵 Soundtrack')} <span class="pmv-count">${pmvState.audioIds.length ? pmvState.audioIds.length + ' track(s)' : 'pick one'}</span></h2>
-            <input type="text" class="music-input pmv-search" id="pmvAudioSearch" placeholder="Search (AND/OR/NOT)" value="${escapeHtml(pmvState.audioQ)}" autocomplete="off">
+            <h2>${vaultEmojiLabel('🎵 Soundtrack')} <span class="pmv-count" id="pmvAudioCount">${pmvAudioCountText()}</span></h2>
+            <input type="text" class="music-input m-field pmv-search" id="pmvAudioSearch" placeholder="Search music" title="Search by name, tag or words. AND, OR and NOT (in capitals) combine words" value="${escapeHtml(pmvState.audioQ)}" autocomplete="off">
             ${typeof pickerSearchOptionsHtml === 'function' ? pickerSearchOptionsHtml('pmvAud', pmvState.audioOpts) : ''}
           </div>
           <div class="pmv-audio-selected" id="pmvAudioSelected"></div>
@@ -171,7 +171,7 @@ function renderPmvSetup() {
           <h3>${vaultEmojiLabel('⚙️ Options')}</h3>
           <div class="pmv-options">
             <label class="pmv-opt">Order
-              <select id="pmvOrderMode">
+              <select id="pmvOrderMode" class="m-select">
                 <option value="shuffle" ${o.orderMode === 'shuffle' ? 'selected' : ''}>Shuffle (beat-matched)</option>
                 <option value="sequential" ${o.orderMode === 'sequential' ? 'selected' : ''}>Sequential (story order)</option>
               </select>
@@ -183,37 +183,37 @@ function renderPmvSetup() {
                 <input type="range" id="pmvMaxClip" min="0.1" max="10" step="0.1" value="${o.maxClipDuration}">
               </div>
             </label>
-            <label class="pmv-opt-check"><input type="checkbox" id="pmvCutBeats" ${o.cutOnBeats ? 'checked' : ''}> Cut on beats</label>
-            <label class="pmv-opt-check"><input type="checkbox" id="pmvEnergy" ${o.preferHighAction ? 'checked' : ''}> Energy matching</label>
-            <label class="pmv-opt-check"><input type="checkbox" id="pmvTransitions" ${o.transitions ? 'checked' : ''}> Transitions</label>
-            <label class="pmv-opt-check"><input type="checkbox" id="pmvColorFx" ${o.colorEffects ? 'checked' : ''}> Color effects</label>
-            <label class="pmv-opt-check"><input type="checkbox" id="pmvSpeedRamp" ${o.speedRamping ? 'checked' : ''}> Speed ramp on drops</label>
+            <label class="pmv-opt-check"><input type="checkbox" class="m-check" id="pmvCutBeats" ${o.cutOnBeats ? 'checked' : ''}> Cut on beats</label>
+            <label class="pmv-opt-check"><input type="checkbox" class="m-check" id="pmvEnergy" ${o.preferHighAction ? 'checked' : ''}> Energy matching</label>
+            <label class="pmv-opt-check"><input type="checkbox" class="m-check" id="pmvTransitions" ${o.transitions ? 'checked' : ''}> Transitions</label>
+            <label class="pmv-opt-check"><input type="checkbox" class="m-check" id="pmvColorFx" ${o.colorEffects ? 'checked' : ''}> Color effects</label>
+            <label class="pmv-opt-check"><input type="checkbox" class="m-check" id="pmvSpeedRamp" ${o.speedRamping ? 'checked' : ''}> Speed ramp on drops</label>
             <label class="pmv-opt">Layout
-              <select id="pmvLayout">
+              <select id="pmvLayout" class="m-select">
                 <option value="standard" ${o.layout === 'standard' ? 'selected' : ''}>Standard</option>
                 <option value="triptych" ${o.layout === 'triptych' ? 'selected' : ''}>Triptych (3-panel mirror)</option>
               </select>
             </label>
             <label class="pmv-opt">Resolution
-              <select id="pmvRes">
+              <select id="pmvRes" class="m-select">
                 <option value="1280:720" ${o.resolution === '1280:720' ? 'selected' : ''}>720p</option>
                 <option value="1920:1080" ${o.resolution === '1920:1080' ? 'selected' : ''}>1080p</option>
                 <option value="3840:2160" ${o.resolution === '3840:2160' ? 'selected' : ''}>4K</option>
               </select>
             </label>
             <label class="pmv-opt">Quality
-              <select id="pmvQuality">
+              <select id="pmvQuality" class="m-select">
                 <option value="low" ${o.quality === 'low' ? 'selected' : ''}>Low (fast)</option>
                 <option value="medium" ${o.quality === 'medium' ? 'selected' : ''}>Medium</option>
                 <option value="high" ${o.quality === 'high' ? 'selected' : ''}>High</option>
               </select>
             </label>
             <label class="pmv-opt">AI scene filter <span class="pmv-opt-hint">(optional criteria)</span>
-              <input type="text" id="pmvCriteria" class="music-input" placeholder="e.g. close-ups, outdoors…" value="${escapeHtml(o.userCriteria)}">
+              <input type="text" id="pmvCriteria" class="music-input m-field" placeholder="e.g. close-ups, outdoors…" value="${escapeHtml(o.userCriteria)}">
             </label>
-            <label class="pmv-opt-check"><input type="checkbox" id="pmvVL" ${o.enableVL ? 'checked' : ''}> AI frame analysis (slower, needs LM Studio)</label>
+            <label class="pmv-opt-check"><input type="checkbox" class="m-check" id="pmvVL" ${o.enableVL ? 'checked' : ''}> AI frame analysis (slower, needs LM Studio)</label>
             <label class="pmv-opt">Seed <span class="pmv-opt-hint">(blank = random)</span>
-              <input type="text" id="pmvSeed" class="music-input" placeholder="random" value="${o.seed ?? ''}">
+              <input type="text" id="pmvSeed" class="music-input m-field" placeholder="random" value="${o.seed ?? ''}">
             </label>
           </div>
           <button class="pmv-generate-btn" id="pmvGenerate" ${pmvState.videoIds.length && pmvState.audioIds.length ? '' : 'disabled'}>${vaultEmojiLabel('▶ Generate PMV')}</button>
@@ -263,7 +263,7 @@ function paintPmvVideoGrid() {
       <div class="games-pick-tile pmv-pick ${sel ? 'pmv-picked' : ''}" data-id="${m.id}" onclick="pmvToggleVideo(${m.id})" title="${escapeHtml(m.filename)}">
         <div class="tile-thumb ${(typeof thumbsOff === 'function' && thumbsOff()) ? 'thumb-fallback' : ''}">
           ${(typeof thumbsOff === 'function' && thumbsOff()) ? '' : `<img class="tile-img" loading="lazy" src="/thumb/${m.id}" alt="" onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">`}
-          ${sel ? '<span class="pmv-pick-check">✓</span>' : ''}
+          ${sel ? `<span class="pmv-pick-check">${vaultIconSwap('✓', 'check')}</span>` : ''}
           ${dur ? `<span class="tile-duration">${dur}</span>` : ''}
         </div>
         <div class="tile-name">${escapeHtml(m.filename)}</div>
@@ -291,7 +291,7 @@ function renderPmvSelectedVideos() {
           <div class="pmv-selected-vid" data-id="${id}" title="${escapeHtml(name)}">
             ${(typeof thumbsOff === 'function' && thumbsOff()) ? '' : `<img class="pmv-selected-vid-thumb" loading="lazy" src="/thumb/${id}" alt="" onerror="this.style.visibility='hidden'">`}
             <span class="pmv-selected-vid-name">${escapeHtml(name)}</span>
-            <button class="pmv-selected-vid-x" onclick="pmvToggleVideo(${id})" title="Remove">✕</button>
+            <button class="pmv-selected-vid-x" onclick="pmvToggleVideo(${id})" title="Remove" aria-label="Remove">${vaultIconSwap('✕', 'close')}</button>
           </div>`;
       }).join('')}
     </div>`;
@@ -317,8 +317,16 @@ function pmvToggleVideo(id) {
   pmvSyncGenerateBtn();
 }
 
+/** The Soundtrack heading's count: "2 tracks", or what to do when none is picked. */
+function pmvAudioCountText() {
+  const n = pmvState.audioIds.length;
+  return n ? `${n} track${n === 1 ? '' : 's'}` : 'Choose at least one';
+}
+
 /** Repaint the soundtrack panel; requery: also ask for fresh matches. */
 function renderPmvAudio({ requery = true } = {}) {
+  const count = document.getElementById('pmvAudioCount');
+  if (count) count.textContent = pmvAudioCountText();
   // Selected tracks (ordered — this is the concatenation order)
   const sel = document.getElementById('pmvAudioSelected');
   if (sel) {
@@ -329,11 +337,11 @@ function renderPmvAudio({ requery = true } = {}) {
         <div class="pmv-audio-row">
           <span class="pmv-audio-order">${i + 1}</span>
           <span class="pmv-audio-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
-          <button class="pmv-mini-btn" onclick="pmvMoveAudio(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="Move up">↑</button>
-          <button class="pmv-mini-btn" onclick="pmvMoveAudio(${i}, 1)" ${i === pmvState.audioIds.length - 1 ? 'disabled' : ''} title="Move down">↓</button>
-          <button class="pmv-mini-btn pmv-mini-del" onclick="pmvRemoveAudio(${i})" title="Remove">✕</button>
+          <button class="pmv-mini-btn" onclick="pmvMoveAudio(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="Move up" aria-label="Move up">${vaultIconSwap('↑', 'arrow-up')}</button>
+          <button class="pmv-mini-btn" onclick="pmvMoveAudio(${i}, 1)" ${i === pmvState.audioIds.length - 1 ? 'disabled' : ''} title="Move down" aria-label="Move down">${vaultIconSwap('↓', 'arrow-down')}</button>
+          <button class="pmv-mini-btn pmv-mini-del" onclick="pmvRemoveAudio(${i})" title="Remove" aria-label="Remove">${vaultIconSwap('✕', 'close')}</button>
         </div>`;
-    }).join('') : '<div class="pmv-hint">No soundtrack picked. Tracks play (and concatenate) in this order.</div>';
+    }).join('') : '<div class="pmv-hint">No soundtrack yet. Tracks play one after another, in this order.</div>';
   }
 
   paintPmvAudioGrid();
@@ -354,7 +362,7 @@ function paintPmvAudioGrid() {
     grid.innerHTML = items.length ? items.map(m => {
       const picked = pmvState.audioIds.includes(m.id);
       const dur = m.duration_seconds ? formatDuration(m.duration_seconds) : '';
-      const icon = vaultEmojiLabel(m.media_type === 'audio' ? '🎵 ' : '🎬 ');
+      const icon = m.media_type === 'audio' ? vaultIconSwap('🎵 ', 'audio') : vaultIconSwap('🎬 ', 'video');
       return `
         <div class="pmv-audio-pick ${picked ? 'picked' : ''}" data-audio-id="${m.id}">
           <button class="pmv-audio-play" onclick="pmvToggleAudioPreview(${m.id})" title="Preview" aria-label="Preview">${vaultIconSwap('▶', 'play')}</button>
@@ -364,7 +372,7 @@ function paintPmvAudioGrid() {
           </div>
           ${dur ? `<span class="pmv-audio-pick-dur">${dur}</span>` : ''}
           <button class="pmv-audio-addbtn ${picked ? 'added' : ''}" onclick="pmvAddAudio(${m.id})"
-            title="${picked ? 'Remove from soundtrack' : 'Add to soundtrack'}">${picked ? '✓' : '+'}</button>
+            title="${picked ? 'Remove from soundtrack' : 'Add to soundtrack'}" aria-label="${picked ? 'Remove from soundtrack' : 'Add to soundtrack'}">${picked ? vaultIconSwap('✓', 'check') : vaultIconSwap('+', 'plus')}</button>
         </div>`;
     }).join('') : '<div class="games-hint">Nothing matches.</div>';
     // Re-reflect any currently-playing preview after a re-render
@@ -559,14 +567,14 @@ async function pmvGenerate() {
       body: JSON.stringify({ video_ids: pmvState.videoIds, audio_ids: pmvState.audioIds, options }),
     });
     const data = await resp.json();
-    if (!resp.ok) { showToast('⚠ ' + (data.error || 'Failed to start')); return; }
+    if (!resp.ok) { showErrorToast(data, 'starting the PMV'); return; }
     pmvState.jobId = data.jobId;
     pmvState.job = null;
     pmvState.edlDirty = false;
     pmvState.phase = 'running';
     renderPmvJobView();
   } catch (err) {
-    showToast('⚠ ' + err.message);
+    showErrorToast(err, 'starting the PMV');
   }
 }
 
@@ -580,8 +588,8 @@ async function renderPmvRecipeList() {
   el.innerHTML = recipes.length ? recipes.map(r => `
     <div class="editor-mini-row">
       <span class="editor-mini-name" title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</span>
-      <button class="pmv-mini-btn" onclick="pmvLoadRecipe(${r.id})" title="Load this recipe">↻</button>
-      <button class="pmv-mini-btn pmv-mini-del" onclick="pmvDeleteRecipe(${r.id})" title="Delete">✕</button>
+      <button class="pmv-mini-btn" onclick="pmvLoadRecipe(${r.id})" title="Load this recipe" aria-label="Load this recipe">${vaultIconSwap('↻', 'rescan')}</button>
+      <button class="pmv-mini-btn pmv-mini-del" onclick="pmvDeleteRecipe(${r.id})" title="Delete recipe" aria-label="Delete recipe">${vaultIconSwap('✕', 'close')}</button>
     </div>`).join('') : '<span class="music-hint">None saved yet.</span>';
   el._recipes = recipes;
 }
@@ -593,7 +601,7 @@ async function pmvLoadRecipe(id) {
   // The recipe's files may be ones no picker has shown yet.
   try {
     await Library.fetchRows([...(recipe.media_ids || []), ...(recipe.config?.audio_ids || [])], { strict: true });
-  } catch (err) { showToast('⚠ ' + err.message); return; }
+  } catch (err) { showErrorToast(err, 'loading the recipe'); return; }
   pmvState.videoIds = (recipe.media_ids || []).filter(mid => getMediaById(mid));
   pmvState.audioIds = (recipe.config?.audio_ids || []).filter(mid => getMediaById(mid));
   pmvState.options = { ...PMV_DEFAULT_OPTIONS, ...(recipe.config?.options || {}) };
@@ -608,7 +616,12 @@ async function pmvDeleteRecipe(id) {
 
 async function pmvSaveRecipe() {
   const job = pmvState.job;
-  const name = prompt('Recipe name:', job ? `PMV ${new Date().toLocaleDateString()}` : '');
+  const name = await vaultPrompt('Give this recipe a name so you can load it again later.', {
+    title: 'Save recipe',
+    value: job ? `PMV ${new Date().toLocaleDateString()}` : '',
+    placeholder: 'Recipe name',
+    okLabel: 'Save',
+  });
   if (!name || !name.trim()) return;
   const body = {
     name: name.trim(),
@@ -623,9 +636,9 @@ async function pmvSaveRecipe() {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
     const data = await resp.json();
-    if (!resp.ok) { showToast('⚠ ' + (data.error || 'Save failed')); return; }
+    if (!resp.ok) { showErrorToast(data, 'saving the recipe'); return; }
     showToast('💾 Recipe saved');
-  } catch (err) { showToast('⚠ ' + err.message); }
+  } catch (err) { showErrorToast(err, 'saving the recipe'); }
 }
 
 async function renderPmvJobList() {
@@ -633,15 +646,19 @@ async function renderPmvJobList() {
   if (!el) return;
   let jobs = [];
   try { jobs = await fetch('/api/pmv/jobs').then(r => r.json()); } catch {}
-  const ICON = { complete: '✅', error: '⚠', canceled: '✕', rendering: '⏳', analyzing: '⏳', edl_ready: '🎞', queued: '·' };
+  // Classic keeps its glyphs; Modern shows the line icon. The tooltip says it in words.
+  const ICON = {
+    complete: ['✅', 'check'], error: ['⚠', 'alert'], canceled: ['✕', 'close'], rendering: ['⏳', 'clock'],
+    analyzing: ['⏳', 'clock'], edl_ready: ['🎞', 'scissors'], queued: ['·', 'clock'],
+  };
   el.innerHTML = jobs.length ? jobs.slice(0, 8).map(j => {
     const when = (j.created_at || '').slice(5, 16).replace('T', ' ');
     const openable = ['complete', 'edl_ready', 'rendering', 'analyzing', 'queued'].includes(j.status);
     return `
       <div class="editor-mini-row">
-        <span class="editor-mini-name" title="${j.id}">${ICON[j.status] || '·'} ${when} · ${j.video_ids.length}v</span>
-        ${openable ? `<button class="pmv-mini-btn" onclick="pmvOpenJob('${j.id}')" title="Open">▶</button>` : ''}
-        <button class="pmv-mini-btn pmv-mini-del" onclick="pmvDeleteJob('${j.id}')" title="Delete job + files">✕</button>
+        <span class="editor-mini-name pmv-job-row" title="${escapeHtml(PMV_STATUS_WORDS[j.status] || j.status)}">${vaultIconSwap(...(ICON[j.status] || ['·', 'clock']))} ${when} · ${j.video_ids.length} video${j.video_ids.length === 1 ? '' : 's'}</span>
+        ${openable ? `<button class="pmv-mini-btn" onclick="pmvOpenJob('${j.id}')" title="Open" aria-label="Open">${vaultIconSwap('▶', 'play')}</button>` : ''}
+        <button class="pmv-mini-btn pmv-mini-del" onclick="pmvDeleteJob('${j.id}')" title="Delete job and its files" aria-label="Delete job">${vaultIconSwap('✕', 'close')}</button>
       </div>`;
   }).join('') : '<span class="music-hint">No jobs yet.</span>';
 }
@@ -655,7 +672,15 @@ function pmvOpenJob(jobId) {
 }
 
 async function pmvDeleteJob(jobId) {
-  if (!confirm('Delete this job? Un-imported renders only exist in memory and are dropped; files already added to the library are kept.')) return;
+  if (!await vaultConfirm('Delete this job?', {
+    title: 'Delete job',
+    list: [
+      'Renders you have not added to the library are lost.',
+      'Files already added to the library are kept.',
+    ],
+    okLabel: 'Delete',
+    danger: true,
+  })) return;
   try { await fetch(`/api/pmv/jobs/${jobId}`, { method: 'DELETE' }); } catch {}
   if (pmvState.jobId === jobId) { pmvState.jobId = null; pmvState.job = null; pmvState.phase = 'setup'; renderPmvHome(); }
   else renderPmvJobList();
@@ -675,7 +700,7 @@ function renderPmvJobView() {
         <span class="pmv-job-title">${vaultEmojiLabel('🎬 PMV')} ${pmvState.jobId ? `<span class="pmv-job-id">${pmvState.jobId.slice(-7)}</span>` : ''}</span>
         <span class="pmv-job-status" id="pmvJobStatus"></span>
         <span class="pmv-flex"></span>
-        <button class="games-btn" id="pmvCancelBtn" onclick="pmvCancelJob()" style="display:none">✕ Cancel</button>
+        <button class="games-btn" id="pmvCancelBtn" onclick="pmvCancelJob()" style="display:none">${vaultEmojiLabel('✕ Cancel')}</button>
       </div>
       <div class="pmv-progress-wrap" id="pmvProgressWrap">
         <div class="pmv-progress-bar"><div class="pmv-progress-fill" id="pmvProgressFill"></div></div>
@@ -705,14 +730,25 @@ async function pmvCancelJob() {
   showToast('✕ Canceling…');
 }
 
+/* A job's status and the server's stage names, as words for people. */
+const PMV_STATUS_WORDS = {
+  complete: 'Finished', error: 'Failed', canceled: 'Canceled', rendering: 'Rendering',
+  analyzing: 'Finding the beats', edl_ready: 'Cut list ready', queued: 'Waiting',
+};
+const PMV_STAGE_WORDS = { done: 'Done', 'vl-tagging': 'Looking at the frames (AI)' };
+function pmvStageText(stage) {
+  const s = String(stage || '');
+  return PMV_STAGE_WORDS[s] || PMV_STATUS_WORDS[s] || (s.charAt(0).toUpperCase() + s.slice(1));
+}
+
 function pmvUpdateProgressUi(job) {
   const fill = document.getElementById('pmvProgressFill');
   const stage = document.getElementById('pmvProgressStage');
   const status = document.getElementById('pmvJobStatus');
   const cancel = document.getElementById('pmvCancelBtn');
   if (fill) fill.style.width = `${job.progress || 0}%`;
-  if (stage) stage.textContent = `${job.stage || job.status} (${Math.round(job.progress || 0)}%)`;
-  if (status) status.textContent = job.status;
+  if (stage) stage.textContent = `${pmvStageText(job.stage || job.status)} (${Math.round(job.progress || 0)}%)`;
+  if (status) status.textContent = PMV_STATUS_WORDS[job.status] || job.status || '';
   if (cancel) cancel.style.display = ['queued', 'analyzing', 'rendering'].includes(job.status) ? '' : 'none';
 }
 
@@ -734,7 +770,7 @@ function renderPmvReview(job) {
   pmvUpdateProgressUi(job);
 
   if (!job.edl) {
-    body.innerHTML = job.error ? `<div class="pmv-error">⚠ ${escapeHtml(job.error)}</div>` : '';
+    body.innerHTML = job.error ? `<div class="pmv-error">${vaultIconSwap('⚠ ', 'alert')}${escapeHtml(job.error)}</div>` : '';
     return;
   }
 
@@ -754,10 +790,10 @@ function renderPmvReview(job) {
 
   const entriesHtml = (e.entries || []).map((entry, i) => `
     <div class="pmv-cut" data-i="${i}" title="${escapeHtml(vidName(entry.sourceVideo))} @ ${entry.sourceIn.toFixed(1)}s · ${entry.duration.toFixed(2)}s${entry.onBeat ? ' · on beat' : ''}">
-      ${entry.preview ? `<img class="pmv-cut-img" src="${entry.preview}">` : '<div class="pmv-cut-img pmv-cut-noimg">🎞</div>'}
+      ${entry.preview ? `<img class="pmv-cut-img" src="${entry.preview}">` : `<div class="pmv-cut-img pmv-cut-noimg">${vaultIconSwap('🎞', 'image')}</div>`}
       <span class="pmv-cut-vid">V${(entry.sourceVideo ?? 0) + 1}</span>
       <span class="pmv-cut-dur">${entry.duration.toFixed(1)}s${entry.onBeat ? ' ●' : ''}</span>
-      <button class="pmv-cut-del" onclick="pmvRemoveCut(${i})" title="Remove this cut">✕</button>
+      <button class="pmv-cut-del" onclick="pmvRemoveCut(${i})" title="Remove this cut" aria-label="Remove this cut">${vaultIconSwap('✕', 'close')}</button>
     </div>`).join('');
 
   const done = job.status === 'complete';
@@ -769,33 +805,33 @@ function renderPmvReview(job) {
 
   body.innerHTML = `
     <div class="pmv-review-stats">
-      <span>♪ ${e.bpm} BPM</span><span>${(e.entries || []).length} cuts</span>
+      <span>${vaultIconSwap('♪ ', 'audio')}${e.bpm} BPM</span><span>${(e.entries || []).length} cuts</span>
       <span>${Math.round((e.coverage || 0) * 100)}% coverage</span>
       <span>${e.uniqueSegments}/${e.totalSegments} segments</span>
-      <span>🎲 seed ${e.seed}</span>
+      <span>${vaultIconSwap('🎲 ', 'shuffle')}Seed ${e.seed}</span>
       ${pmvState.edlDirty ? '<span class="pmv-dirty">edited, re-render to apply</span>' : ''}
     </div>
     <div class="pmv-edl-strip" id="pmvEdlStrip">${entriesHtml}</div>
     <div class="pmv-review-actions">
-      <button class="games-btn" onclick="pmvReroll()" title="Same sources + options, new seed">${vaultEmojiLabel('🎲 Re-roll')}</button>
+      <button class="games-btn" onclick="pmvReroll()" title="Same videos, music and options with a new seed">${vaultIconSwap('🎲 ', 'shuffle')}Re-roll</button>
       <button class="games-btn ${pmvState.edlDirty || failed || expired ? 'games-btn-primary' : ''}" onclick="pmvRerender()" ${['analyzing', 'queued'].includes(job.status) ? 'disabled' : ''}>${vaultEmojiLabel('🎬 Re-render')}</button>
       <button class="games-btn" onclick="pmvSaveRecipe()">${vaultEmojiLabel('💾 Save recipe')}</button>
       <span class="pmv-flex"></span>
       ${done && !expired ? `
         <a class="games-btn" href="/api/pmv/jobs/${job.id}/download" download title="Held in memory. Download to save it anywhere">${vaultEmojiLabel('⬇ Download')}</a>
         <button class="games-btn games-btn-primary" onclick="pmvImport()" ${imported ? 'disabled title="Already in the library"' : ''}>
-          ${imported ? '✓ In library' : vaultEmojiLabel('➕ Add to library')}
+          ${vaultEmojiLabel(imported ? '✓ In library' : '➕ Add to library')}
         </button>` : ''}
     </div>
     ${done && !expired ? `
       <div class="pmv-output">
         <video class="pmv-output-video" src="/api/pmv/jobs/${job.id}/output" controls preload="metadata"></video>
         <div class="pmv-output-meta">
-          ${escapeHtml(job.result.filename)} · ${(job.result.fileSize / 1e6).toFixed(1)} MB · ${job.result.clips} clips · ${escapeHtml(job.result.encoder)}${imported ? '' : ' · in memory until you ⬇ save or ➕ add it'}
+          ${escapeHtml(job.result.filename)} · ${(job.result.fileSize / 1e6).toFixed(1)} MB · ${job.result.clips} clips · ${escapeHtml(job.result.encoder)}${imported ? '' : ' · kept in memory until you download it or add it to the library'}
         </div>
       </div>` : ''}
-    ${expired ? `<div class="pmv-error">⏳ Render expired. Finished PMVs are held in memory only, and a restart or vault lock drops them. Hit 🎬 Re-render to regenerate, then ⬇ Download or ➕ Add to library.</div>` : ''}
-    ${failed ? `<div class="pmv-error">⚠ ${escapeHtml(job.error || job.status)}</div>` : ''}
+    ${expired ? `<div class="pmv-error">${vaultIconSwap('⏳ ', 'clock')}This render has expired. Finished PMVs are kept in memory only, and restarting or locking Vault drops them. Choose Re-render to make it again, then download it or add it to the library.</div>` : ''}
+    ${failed ? `<div class="pmv-error">${vaultIconSwap('⚠ ', 'alert')}${escapeHtml(job.status === 'canceled' && !job.error ? 'Canceled.' : (job.error || job.status))}</div>` : ''}
   `;
 }
 
@@ -819,11 +855,11 @@ async function pmvRerender() {
   try {
     const resp = await fetch(`/api/pmv/jobs/${job.id}/render`, { method: 'POST' });
     const data = await resp.json();
-    if (!resp.ok) { showToast('⚠ ' + (data.error || 'render failed to start')); return; }
+    if (!resp.ok) { showErrorToast(data, 'starting the render'); return; }
     pmvState.edlDirty = false;
     showToast('🎬 Re-render queued');
     pmvStartPolling();
-  } catch (err) { showToast('⚠ ' + err.message); }
+  } catch (err) { showErrorToast(err, 'starting the render'); }
 }
 
 /** Same sources + options, fresh seed — a new job (analysis comes from cache). */
@@ -838,13 +874,13 @@ async function pmvReroll() {
       body: JSON.stringify({ video_ids: job.video_ids, audio_ids: job.audio_ids, options }),
     });
     const data = await resp.json();
-    if (!resp.ok) { showToast('⚠ ' + (data.error || 'failed')); return; }
+    if (!resp.ok) { showErrorToast(data, 'starting a new version'); return; }
     pmvState.jobId = data.jobId;
     pmvState.job = null;
     pmvState.edlDirty = false;
     pmvState.phase = 'running';
     renderPmvJobView();
-  } catch (err) { showToast('⚠ ' + err.message); }
+  } catch (err) { showErrorToast(err, 'starting a new version'); }
 }
 
 async function pmvImport() {
@@ -853,9 +889,9 @@ async function pmvImport() {
   try {
     const resp = await fetch(`/api/pmv/jobs/${job.id}/import`, { method: 'POST' });
     const data = await resp.json();
-    if (!resp.ok) { showToast('⚠ ' + (data.error || 'import failed')); return; }
-    showToast('➕ Added to library (unscanned, rescan for AI metadata)');
+    if (!resp.ok) { showErrorToast(data, 'adding it to the library'); return; }
+    showToast('➕ Added to the library. Rescan it to get AI tags');
     if (typeof loadDatabase === 'function') loadDatabase();
     pmvPollJob();
-  } catch (err) { showToast('⚠ ' + err.message); }
+  } catch (err) { showErrorToast(err, 'adding it to the library'); }
 }

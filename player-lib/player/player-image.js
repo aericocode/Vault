@@ -10,18 +10,18 @@ function renderImagePlayer(content, controlsContainer, fileUrl, filepath, hasPre
   
   // Left controls: Zoom
   const leftControls = `
-    <button onclick="zoomImage(-0.25)" class="control-btn" title="Zoom Out (-)">➖</button>
+    <button onclick="zoomImage(-0.25)" class="control-btn" title="Zoom Out (-)" aria-label="Zoom out">${playerGlyph('➖', 'minus')}</button>
     <span class="zoom-display" id="zoomDisplay">100%</span>
-    <button onclick="zoomImage(0.25)" class="control-btn" title="Zoom In (+)">➕</button>
+    <button onclick="zoomImage(0.25)" class="control-btn" title="Zoom In (+)" aria-label="Zoom in">${playerGlyph('➕', 'plus')}</button>
   `;
   
   // Right controls: Rotate, Reset, Fullscreen
   const rightControls = `
-    <button onclick="rotateImage(-90)" class="control-btn" title="Rotate Left">↺</button>
-    <button onclick="rotateImage(90)" class="control-btn" title="Rotate Right (R)">↻</button>
+    <button onclick="rotateImage(-90)" class="control-btn" title="Rotate Left" aria-label="Rotate left">${playerGlyph('↺', 'undo')}</button>
+    <button onclick="rotateImage(90)" class="control-btn" title="Rotate Right (R)" aria-label="Rotate right">${playerGlyph('↻', 'refresh')}</button>
     <button onclick="resetImage()" class="control-btn" title="Reset (0)">Reset</button>
     ${renderFillButton()}
-    <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)">⛶</button>
+    <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)" aria-label="Fullscreen">${playerGlyph('⛶', 'fullscreen')}</button>
   `;
   
   controlsContainer.innerHTML = `
@@ -45,18 +45,18 @@ function renderGifPlayer(content, controlsContainer, fileUrl, filepath, hasPrev,
   
   // Left controls: Zoom
   const leftControls = `
-    <button onclick="zoomImage(-0.25)" class="control-btn" title="Zoom Out (-)">➖</button>
+    <button onclick="zoomImage(-0.25)" class="control-btn" title="Zoom Out (-)" aria-label="Zoom out">${playerGlyph('➖', 'minus')}</button>
     <span class="zoom-display" id="zoomDisplay">100%</span>
-    <button onclick="zoomImage(0.25)" class="control-btn" title="Zoom In (+)">➕</button>
+    <button onclick="zoomImage(0.25)" class="control-btn" title="Zoom In (+)" aria-label="Zoom in">${playerGlyph('➕', 'plus')}</button>
   `;
   
   // Right controls: Rotate, Reset, Fullscreen
   const rightControls = `
-    <button onclick="rotateImage(-90)" class="control-btn" title="Rotate Left">↺</button>
-    <button onclick="rotateImage(90)" class="control-btn" title="Rotate Right (R)">↻</button>
+    <button onclick="rotateImage(-90)" class="control-btn" title="Rotate Left" aria-label="Rotate left">${playerGlyph('↺', 'undo')}</button>
+    <button onclick="rotateImage(90)" class="control-btn" title="Rotate Right (R)" aria-label="Rotate right">${playerGlyph('↻', 'refresh')}</button>
     <button onclick="resetImage()" class="control-btn" title="Reset (0)">Reset</button>
     ${renderFillButton()}
-    <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)">⛶</button>
+    <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)" aria-label="Fullscreen">${playerGlyph('⛶', 'fullscreen')}</button>
   `;
   
   controlsContainer.innerHTML = `

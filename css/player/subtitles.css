@@ -297,3 +297,104 @@
   user-select: all;              /* one click selects the whole command */
 }
 .subs-prereq-copy { padding: 0.15rem 0.5rem; font-size: 0.72rem; }
+
+/* Prerequisites modal: a readable link in both looks (the browser's default
+   dark blue was barely visible), and the advanced fold. */
+.subs-prereq a { color: var(--accent-hover, #818cf8); text-decoration: underline; text-underline-offset: 2px; }
+.subs-prereq a:hover { color: #c7d2fe; }
+.subs-prereq-more summary { cursor: pointer; color: var(--text-secondary); }
+.subs-prereq-more summary:hover { color: var(--text-primary); }
+.subs-prereq-more p { margin: 0.4rem 0 0; }
+.subs-prereq-more code,
+.subs-prereq-steps code { font-size: 0.85em; }
+
+/* ── Modern: the editor and rescan dialogs on the shared dialog look
+   (css/dialogs.css .vdlg): dark card, 12 px corners, hairline borders,
+   Modern buttons and fields, line icons. Classic keeps the rules above. */
+body.layout-modern .subs-editor-overlay { background: rgba(0, 0, 0, 0.55); }
+body.layout-modern .subs-editor {
+  background: rgba(22, 22, 27, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  color: #ececf1;
+}
+body.layout-modern .subs-rescan { width: min(460px, 100%); }
+body.layout-modern .subs-editor-head {
+  padding: 14px 14px 10px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 16px;
+  font-weight: 600;
+  color: #ececf1;
+}
+body.layout-modern .subs-editor-head b { color: #ececf1; font-weight: 600; }
+body.layout-modern .subs-editor-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+  color: #8b8b97;
+}
+body.layout-modern .subs-editor-x .vi { width: 16px; height: 16px; }
+body.layout-modern .subs-editor-x:hover { background: rgba(255, 255, 255, 0.08); color: #ececf1; }
+body.layout-modern .subs-editor-ta {
+  background: rgba(0, 0, 0, 0.25);
+  color: #ececf1;
+  font-size: 13px;
+}
+body.layout-modern .subs-editor-foot {
+  padding: 12px 20px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+body.layout-modern .subs-editor-hint { font-size: 12.5px; color: #8b8b97; }
+body.layout-modern .subs-editor-hint code { background: rgba(255, 255, 255, 0.06); }
+body.layout-modern .subs-rescan-body { gap: 10px; padding: 16px 20px 4px; font-size: 14px; }
+body.layout-modern .subs-rescan-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 8px;
+  color: #fecaca;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+body.layout-modern .subs-rescan-warn .vi { flex: none; width: 16px; height: 16px; margin-top: 1px; color: #fca5a5; }
+body.layout-modern .subs-rescan-label {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #ececf1;
+}
+body.layout-modern .subs-rescan-select {
+  height: 36px;
+  padding: 0 10px;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: #ececf1;
+  font-size: 14px;
+}
+body.layout-modern .subs-rescan-select:focus { border-color: var(--accent-hover, #818cf8); }
+body.layout-modern .subs-rescan .subs-hint { font-size: 12.5px; color: #8b8b97; line-height: 1.45; }
+body.layout-modern .subs-rescan .subs-editor-foot { border-top: 0; padding-top: 14px; }
+body.layout-modern .subs-editor-actions .subs-btn {
+  min-width: 5.5rem;
+  justify-content: center;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ececf1;
+  font-size: 13px;
+}
+body.layout-modern .subs-editor-actions .subs-btn:hover { background: rgba(255, 255, 255, 0.11); color: #ececf1; }
+body.layout-modern .subs-editor-actions .subs-btn-primary { background: var(--accent); border-color: transparent; color: #fff; font-weight: 600; }
+body.layout-modern .subs-editor-actions .subs-btn-primary:hover { background: var(--accent-hover); filter: none; }
+body.layout-modern .subs-editor-actions .subs-btn:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }

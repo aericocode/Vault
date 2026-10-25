@@ -6,6 +6,7 @@
  * their leading emoji in Modern only.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -19,7 +20,7 @@ const noop = () => {};
 function load(files, { modern = false, extra = {} } = {}) {
   const toast = { textContent: '', classList: { add: noop, remove: noop } };
   const ctx = {
-    console, Math, JSON, Array, Object, String, Number, Boolean, Map, Set, RegExp, setTimeout: noop,
+    console, Math, JSON, Array, Object, String, Number, Boolean, Map, Set, RegExp, setTimeout: noop, clearTimeout: noop,
     document: {
       addEventListener: noop,
       getElementById: (id) => (id === 'toast' ? toast : null),
@@ -50,7 +51,7 @@ const I = load(['icons.js']);
 
 test('icon set: line icons, all well formed', () => {
   const names = Object.keys(I.VAULT_ICONS);
-  assert.ok(names.length >= 28 && names.length <= 60, `${names.length} icons`);
+  assert.ok(names.length >= 28 && names.length <= 130, `${names.length} icons`);
   for (const n of names) {
     const svg = I.vaultIcon(n);
     assert.match(svg, /^<svg class="vi vi-[a-z-]+" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"/);
@@ -171,16 +172,17 @@ test('leading emoji: stripped once, stars and plain text left alone', () => {
   assert.strictEqual(s(''), '');
 });
 
-test('toasts: Modern drops the leading emoji, Classic keeps it (utils.js and app.js)', () => {
+test('toasts: Modern drops the leading emoji, Classic keeps it (utils.js holds the only showToast)', () => {
   const m = load(['icons.js', 'utils.js'], { modern: true });
   m.showToast('💾 Saved');
   assert.strictEqual(m.__toast.textContent, 'Saved');
   const c = load(['icons.js', 'utils.js'], { modern: false });
   c.showToast('💾 Saved');
   assert.strictEqual(c.__toast.textContent, '💾 Saved');
-  // app.js defines the showToast the page ends up with: same words.
-  const app = fs.readFileSync(path.join(LIB, 'app.js'), 'utf8');
-  assert.match(app, /toast\.textContent = typeof vaultToastText === 'function' \? vaultToastText\(message\) : message;/);
+  // One definition: app.js used to carry a second copy that replaced this one.
+  for (const f of fs.readdirSync(LIB).filter(n => n.endsWith('.js') && n !== 'utils.js')) {
+    assert.ok(!/^function showToast\(/m.test(fs.readFileSync(path.join(LIB, f), 'utf8')), `${f} defines no showToast`);
+  }
 });
 
 test('page: icons.js loads right after utils.js, before anything that draws', () => {
@@ -219,6 +221,10 @@ test('labels: Classic keeps the emoji, Modern shows the icon (or the words alone
   assert.match(I.vaultEmojiLabel('🧩'), /vi-puzzle modern-only"/);
   assert.strictEqual(modernText(I.vaultEmojiLabel('👍🏽 Thanks')), 'Thanks', 'the whole sequence is Classic only');
   for (const name of Object.values(vm.runInContext('VAULT_EMOJI_ICONS', I))) assert.ok(I.VAULT_ICONS[name], `icon ${name} exists`);
+  // Every emoji in the map is one the label helper can find at the start of a label.
+  const lead = vm.runInContext('VAULT_ONE_LEADING_EMOJI', I);
+  for (const e of Object.keys(vm.runInContext('VAULT_EMOJI_ICONS', I))) assert.ok(lead.test(`${e} words`), `${e} is found as a leading emoji`);
+  assert.match(I.vaultEmojiLabel('⚠ Could not save'), /vi-alert modern-only vi-gap/);
 });
 
 test('faves first: aria-pressed follows the toggle, in both looks', () => {
@@ -308,7 +314,7 @@ test('Games: the home title, game rows and save cards have no emoji in Modern', 
 });
 
 test('selection bar: every button is words and a line icon in Modern', () => {
-  const bar = { innerHTML: '', classList: { add: noop, remove: noop } };
+  const bar = { innerHTML: '', classList: { add: noop, remove: noop, contains: () => false } };
   const ctx = loadUi(['selection.js'], true);
   ctx.document.getElementById = (id) => (id === 'selectionBar' ? bar : null);
   vm.runInContext(`selectedIds = new Set([1, 2, 3]);
@@ -316,8 +322,64 @@ test('selection bar: every button is words and a line icon in Modern', () => {
     selectionCounts = () => ({ count: 3, trashed: 1, av: 3, video: 3, flagged: 0, errored: 1, unscanned: 0, faceable: 0 });
     fingerprintSelected = () => {};`, ctx);
   vm.runInContext('renderSelectionBar()', ctx);
-  assert.match(bar.innerHTML, /Collect[\s\S]*Forget/);
-  const text = visibleModern(bar.innerHTML.replace(/>✕</g, '><'));
+  // One name per action: "Remove from library" everywhere (not Forget), "Add to collection" (not Collect).
+  assert.match(bar.innerHTML, /Add to collection[\s\S]*Remove from library/);
+  assert.doesNotMatch(bar.innerHTML, /Forget|>Collect</);
+  const text = visibleModern(bar.innerHTML);
   assert.ok(!MODERN_EMOJI.test(text), text);
-  for (const w of ['Music ID', 'Stack', 'Grid', 'Retry errors', 'Trash', 'Restore', 'Flag', 'Collect', 'Forget']) assert.match(text, new RegExp(w));
+  assert.ok(!/✕/.test(text), 'the clear button is the line icon in Modern');
+  assert.match(bar.innerHTML, /aria-label="Clear selection"/);
+  for (const w of ['Music ID', 'Stack', 'Grid', 'Retry errors', 'Trash', 'Restore', 'Flag']) assert.match(text, new RegExp(w));
+  // A count only when the button acts on part of the selection (3 selected).
+  assert.match(text, /Trash \(2\)/, 'two of three are outside the trash');
+  assert.match(text, /Restore \(1\)/);
+  assert.match(text, /Retry errors \(1\)/);
+  assert.match(text, /Music ID(?! \()/, 'all three are audio or video: no count');
+  assert.doesNotMatch(text, /Remove from library \(/);
+});
+
+test('selection: file counts read as words, bar counts only when partial', () => {
+  const ctx = loadUi(['selection.js'], true);
+  vm.runInContext('selectedIds = new Set([1, 2, 3])', ctx);
+  assert.strictEqual(vm.runInContext('selFiles(1)', ctx), '1 file');
+  assert.strictEqual(vm.runInContext('selFiles(0)', ctx), '0 files');
+  assert.strictEqual(vm.runInContext('selFiles(2345)', ctx), `${(2345).toLocaleString()} files`);
+  assert.strictEqual(vm.runInContext('selBtnLabel("Trash", 3)', ctx), 'Trash');
+  assert.strictEqual(vm.runInContext('selBtnLabel("Trash", 2)', ctx), 'Trash (2)');
+  // An HTTP failure with no server sentence is not shown as "Server returned 500".
+  const bare = vm.runInContext('selHttpError(500)', ctx);
+  assert.strictEqual(bare.name, 'HttpError');
+  assert.strictEqual(bare.status, 500);
+  const said = vm.runInContext('selHttpError(409, "That file is already in the trash.")', ctx);
+  assert.strictEqual(said.name, 'Error');
+  assert.strictEqual(said.message, 'That file is already in the trash.');
+});
+
+test('collections: "files" not "items", coded errors in words, empty card says Empty', () => {
+  const toasts = [];
+  const ctx = loadUi(['collections.js'], true, {
+    showToast: (m, o) => toasts.push([m, o && o.type]),
+    showErrorToast: (e, what) => toasts.push([`generic:${what}`, 'error']),
+  });
+  assert.strictEqual(vm.runInContext('collFiles(1)', ctx), '1 file');
+  assert.strictEqual(vm.runInContext('collFiles(6)', ctx), '6 files');
+  vm.runInContext('collErrorToast({ code: "NAME_TAKEN" }, "renaming it"); collErrorToast(new Error("x"), "moving it")', ctx);
+  assert.deepStrictEqual(toasts, [
+    ['A collection with that name is already in this folder.', 'error'],
+    ['generic:moving it', 'error'],
+  ]);
+  const card = vm.runInContext('collectionCardHtml({ id: 2, name: "New", item_count: 0, first_ids: [] }, false)', ctx);
+  assert.match(card, /coll-mosaic--empty[\s\S]*Empty/);
+  assert.match(card, /0 files/);
+  assert.doesNotMatch(card, /items?\b/);
+});
+
+test('delete queue: row states are line icons in Modern, glyphs in Classic', () => {
+  const ctx = loadUi(['selection.js'], true);
+  const icons = vm.runInContext('_dqIconSet()', ctx);
+  for (const [state, glyph] of [['done', '✓'], ['skipped', '–'], ['failed', '✗'], ['x', '✕']]) {
+    assert.strictEqual(classicText(icons[state]), glyph, `${state} keeps its glyph in Classic`);
+    assert.strictEqual(modernText(icons[state]), '', `${state} is an icon in Modern`);
+    assert.match(icons[state], /<svg class="vi /);
+  }
 });

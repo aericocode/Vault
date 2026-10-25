@@ -398,3 +398,36 @@
 .fchip.is-waiting { opacity: 0.45; }
 .fchip.is-waiting:hover { border-color: var(--border, #444); }
 .fchip.is-waiting .fchip-main { cursor: not-allowed; }
+
+/* More is a .fchip too, but the shared .fchip-main/.fchip-more rule above
+   resets its font-size to inherit, which made it the one chip in the row at
+   the page's full text size. Same size as the chips beside it. */
+.fchip.fchip-more { font-size: 0.78rem; }
+
+/* Carets and the clear × as line icons (Modern; Classic keeps the glyphs). */
+body.layout-modern .fchip-caret { opacity: 0.7; font-size: inherit; display: inline-flex; }
+body.layout-modern .fchip-caret .vi { width: 12px; height: 12px; }
+body.layout-modern .fchip-x .vi { width: 12px; height: 12px; vertical-align: -1px; }
+body.layout-modern .fchip-btn .fchip-caret .vi { width: 12px; height: 12px; }
+
+/* The type bar's last two chips (filters.js renderMediaTypeBar): Plays here
+   reads like the other chips instead of green, and File types is a plain
+   chip whose caret turns when the extension list is open. */
+body.layout-modern .safe-chip { color: var(--text-secondary); }
+body.layout-modern .safe-chip .vi { width: 12px; height: 12px; }
+body.layout-modern .safe-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+body.layout-modern .ext-expander { border-style: solid; }
+body.layout-modern .ext-caret {
+  width: 12px;
+  height: 12px;
+  transform: rotate(-90deg);
+  transition: transform 0.15s;
+}
+body.layout-modern .ext-expander.open .ext-caret { transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  body.layout-modern .ext-caret { transition: none; }
+}

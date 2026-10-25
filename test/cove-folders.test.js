@@ -4,6 +4,7 @@
  * round trip that adds library roots, not-found reasons, and the scan payloads.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const F = require('../lib/cove/folders');

@@ -27,6 +27,15 @@
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
   const ic = (emoji, name) => (typeof vaultIconSwap === 'function' ? vaultIconSwap(emoji, name) : h(emoji));
   const toast = (msg) => { if (typeof showToast === 'function') showToast(msg); };
+  /** A readable error toast (player-lib/utils.js); `err` is an Error or a reply's { error, status }. */
+  const errToast = (err, what) => {
+    if (typeof showErrorToast === 'function') showErrorToast(err, what);
+    else toast(`⚠ Something went wrong while ${what}. Try again.`);
+  };
+  /** The same words for the options dialog's error line. */
+  const errWords = (err, what) => (typeof friendlyError === 'function'
+    ? friendlyError(err, what) : `Something went wrong while ${what}. Try again.`);
+  const replyErr = (r) => ({ error: r.data && r.data.error, status: r.status });
 
   async function api(method, url, body) {
     const opts = { method, headers: {} };
@@ -95,9 +104,23 @@
   let state = null;           // last GET /api/watch/folders
   let pollTimer = null;
 
+  /* Modern: one summary row ("3 folders watched") whose Manage button opens
+     the same group in a dialog (settings-kit.js), so every id below is the
+     same in both looks. */
   function html() {
+    if (typeof settingsIsModern === 'function' && settingsIsModern()) {
+      return settingsCardHtml({ title: 'Watched folders', body: settingsRowHtml({
+        sfind: 'watchFolders', title: '<span id="wfSummary">Watched folders</span>',
+        desc: 'New files in these folders are added on their own.',
+        control: `<button type="button" class="settings-btn settings-btn-quiet" id="wfManageBtn"${settingsDialogOpenerAttrs('wfDlg')}>Manage</button>`,
+      }) + settingsDialogHtml({ id: 'wfDlg', title: 'Watched folders', wide: true, body: groupHtml() }) });
+    }
     return `
-      <h3 class="settings-h" data-sfind="watchFolders">Watched folders</h3>
+      <h3 class="settings-h" data-sfind="watchFolders">Watched folders</h3>${groupHtml()}`;
+  }
+
+  function groupHtml() {
+    return `
       <div class="wf-group" id="wfGroup">
         <div class="wf-topbar">
           <p class="settings-note wf-intro">Vault keeps an eye on these folders and adds new files on its own.
@@ -161,6 +184,12 @@
     }
     const cos = document.getElementById('wfCheckOnStart');
     if (cos) cos.checked = state.checkOnStart !== false;
+    // Modern's summary row.
+    const sum = document.getElementById('wfSummary');
+    if (sum) {
+      const n = state.folders.length;
+      sum.textContent = n ? `${plural(n, 'folder')} watched${state.paused ? ', paused' : ''}` : 'No folders watched yet';
+    }
   }
 
   async function refreshList() {
@@ -169,7 +198,7 @@
       const r = await api('GET', '/api/watch/folders');
       if (!r.ok) {
         const list = document.getElementById('wfList');
-        if (list && !state) list.innerHTML = '<p class="settings-note">Could not ask the server.</p>';
+        if (list && !state) list.innerHTML = '<p class="settings-note">Could not load the watched folders. Close Settings and try again.</p>';
         return;
       }
       state = r.data;
@@ -203,7 +232,7 @@
     document.getElementById('wfPauseAll')?.addEventListener('click', togglePauseAll);
     document.getElementById('wfCheckOnStart')?.addEventListener('change', async (e) => {
       const r = await api('POST', '/api/watch/settings', { checkOnStart: e.target.checked });
-      if (!r.ok) { e.target.checked = !e.target.checked; toast('⚠ ' + (r.data.error || 'Could not save')); }
+      if (!r.ok) { e.target.checked = !e.target.checked; errToast(replyErr(r), 'saving that setting'); }
     });
     document.getElementById('wfList')?.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-wf-more]');
@@ -216,42 +245,26 @@
   async function togglePauseAll() {
     const resume = state && state.paused;
     const r = await api('POST', resume ? '/api/watch/resume' : '/api/watch/pause');
-    if (!r.ok) { toast('⚠ ' + (r.data.error || 'Could not change that')); return; }
+    if (!r.ok) { errToast(replyErr(r), resume ? 'resuming watching' : 'pausing watching'); return; }
     toast(resume ? '👁 Watching again. Checking for changes.' : '⏸ Watching paused');
     refreshList();
     refreshPill();
   }
 
-  /** Small in-app question. Resolves true for the main button. */
-  function ask(message, okLabel, { danger = false } = {}) {
-    return new Promise((resolve) => {
-      const ov = document.createElement('div');
-      ov.className = 'wf-overlay wf-ask-overlay';
-      ov.innerHTML = `<div class="wf-dialog wf-ask" role="alertdialog" aria-modal="true" aria-label="Confirm">
-          <p class="wf-ask-text">${h(message)}</p>
-          <div class="wf-foot"><span class="wf-grow"></span>
-            <button type="button" class="settings-btn settings-btn-quiet" data-ask="no">Cancel</button>
-            <button type="button" class="settings-btn${danger ? ' wf-danger' : ''}" data-ask="yes">${h(okLabel)}</button>
-          </div></div>`;
-      const done = (v) => { document.removeEventListener('keydown', onKey, true); ov.remove(); resolve(v); };
-      const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(false); } };
-      document.addEventListener('keydown', onKey, true);
-      ov.addEventListener('mousedown', (e) => { if (e.target === ov) done(false); });
-      ov.querySelector('[data-ask="no"]').addEventListener('click', () => done(false));
-      ov.querySelector('[data-ask="yes"]').addEventListener('click', () => done(true));
-      document.body.appendChild(ov);
-      ov.querySelector('[data-ask="yes"]').focus();
-    });
+  /** In-app question (player-lib/vault-dialogs.js). Resolves true for the main button. */
+  function ask(message, okLabel, { title = 'Please confirm', danger = false } = {}) {
+    if (typeof vaultConfirm !== 'function') return Promise.resolve(false);
+    return vaultConfirm(message, { title, okLabel, danger });
   }
 
   /** POST /api/watch/folders, with the drive-root confirm. @returns {object|null} reply */
   async function addWatch(body) {
     let r = await api('POST', '/api/watch/folders', body);
     if (r.status === 409 && r.data.code === 'WATCH_CONFIRM_ROOT') {
-      if (!(await ask(r.data.error, 'Watch the whole drive'))) return null;
+      if (!(await ask(r.data.error, 'Watch the whole drive', { title: 'Watch a whole drive?' }))) return null;
       r = await api('POST', '/api/watch/folders', { ...body, confirm: true });
     }
-    if (!r.ok) { toast('⚠ ' + (r.data.error || 'Could not watch that folder')); return null; }
+    if (!r.ok) { errToast(replyErr(r), 'watching that folder'); return null; }
     const name = r.data.folder.path;
     toast(`👁 Watching ${name}` + (r.data.merged?.length ? `. It now covers ${r.data.merged.length === 1 ? r.data.merged[0] : plural(r.data.merged.length, 'folder')} too.` : ''));
     refreshList();
@@ -265,11 +278,11 @@
     if (btn) btn.disabled = true;
     try {
       const r = await api('POST', '/api/import/pick-folder');
-      if (!r.ok) { toast('⚠ ' + (r.data.error || 'folder picker failed')); return; }
+      if (!r.ok) { errToast(replyErr(r), 'opening the folder picker'); return; }
       if (r.data.canceled || !r.data.path) return;
       await addWatch({ path: r.data.path });
     } catch (err) {
-      toast('⚠ ' + err.message);
+      errToast(err, 'opening the folder picker');
     } finally {
       if (btn) btn.disabled = false;
     }
@@ -283,9 +296,9 @@
               aria-pressed="${o.value === current ? 'true' : 'false'}"${o.disabled ? ' disabled' : ''}${o.title ? ` title="${h(o.title)}"` : ''}>${o.html || h(o.label)}</button>`).join('')}</span>`;
   }
 
-  function optRow(title, desc, control, extraCls = '') {
+  function optRow(title, desc, control, extraCls = '', hint = '') {
     return `<div class="wf-orow${extraCls ? ' ' + extraCls : ''}">
-        <div class="wf-olabel">${h(title)}${desc ? `<small>${h(desc)}</small>` : ''}</div>
+        <div class="wf-olabel">${h(title)}${desc ? `<small>${h(desc)}</small>` : ''}${hint ? `<small class="wf-ohint">${h(hint)}</small>` : ''}</div>
         <div class="wf-octl">${control}</div>
       </div>`;
   }
@@ -305,7 +318,7 @@
         <div class="wf-dhead">
           <span class="wf-ic">${ic('📁', 'folder')}</span>
           <b class="wf-dtitle" id="wfOptTitle" title="${h(f.path)}">${h(f.path)}</b>
-          <button type="button" class="wf-x" aria-label="Close">✕</button>
+          <button type="button" class="wf-x" title="Close" aria-label="Close">${ic('✕', 'close')}</button>
         </div>
         <div class="wf-dbody">
           ${optRow('How to watch', 'Live is instant on local drives. Use a timer for network or USB drives.',
@@ -315,16 +328,17 @@
               { value: 'manual', label: 'Only when I ask' },
             ], draft.mode, 'How to watch')
             + `<label class="wf-interval" id="wfIntervalRow"${draft.mode === 'timer' ? '' : ' hidden'}>Check every
-                <input type="number" class="wf-num" id="wfInterval" min="1" max="1440" value="${h(draft.intervalMin)}"> min</label>`)}
+                <input type="number" class="wf-num m-field" id="wfInterval" min="1" max="1440" value="${h(draft.intervalMin)}"> min</label>`)}
           ${optRow('New files', 'Add only: playable and searchable by name right away. You can analyse them later.',
-            seg('newFiles', [{ value: 'analyse', label: 'Add and analyse' }, { value: 'add_only', label: 'Add only' }], draft.newFiles, 'New files'))}
+            seg('newFiles', [{ value: 'analyse', label: 'Add and analyse' }, { value: 'add_only', label: 'Add only' }], draft.newFiles, 'New files'),
+            '', 'Add and analyse uses your scan model. If it is not loaded, new files wait for it.')}
           ${optRow('Include subfolders', '', `<label class="wf-switch"><input type="checkbox" id="wfSubs" ${draft.includeSubfolders ? 'checked' : ''}><span aria-hidden="true"></span><span class="wf-sr">Include subfolders</span></label>`)}
           ${optRow('File types', '', `<span class="wf-chips" role="group" aria-label="File types">${types.map(t => `
             <button type="button" class="wf-chip" data-wf-type="${t.id}" aria-pressed="${draft.types.includes(t.id) ? 'true' : 'false'}">${h(t.label)}</button>`).join('')}</span>`)}
           ${optRow('Skip these', 'Names or folders to ignore. One per line; * matches anything; end with \\ for a folder.',
-            `<textarea class="wf-text" id="wfSkip" rows="5" spellcheck="false" aria-label="Skip these">${h(f.skipPatterns.join('\n'))}</textarea>`, 'wf-orow-top')}
+            `<textarea class="wf-text m-field" id="wfSkip" rows="5" spellcheck="false" aria-label="Skip these">${h(f.skipPatterns.join('\n'))}</textarea>`, 'wf-orow-top')}
           ${optRow('Smaller than', 'Ignore tiny videos and pictures, like previews and samples. Audio and documents are never skipped for size. Empty means off.',
-            `<input type="text" class="wf-field" id="wfMin" inputmode="decimal" spellcheck="false" placeholder="Off" value="${h(fmtSize(f.minSizeBytes))}" aria-label="Smaller than">`)}
+            `<input type="text" class="wf-field m-field" id="wfMin" inputmode="decimal" spellcheck="false" placeholder="Off" value="${h(fmtSize(f.minSizeBytes))}" aria-label="Smaller than">`)}
           ${optRow('Missing files', 'Kept and marked Missing. They come back on their own when the file does.',
             seg('missing', [{ value: 'keep', label: 'Keep' }, { value: 'forget', label: 'Forget after 30 days', disabled: true, title: 'Coming in a later update' }], 'keep', 'Missing files'))}
           <p class="wf-err" id="wfErr" hidden></p>
@@ -383,7 +397,7 @@
       if (Number.isInteger(interval) && interval >= 1 && interval <= 1440) body.intervalMin = interval;
       else if (draft.mode === 'timer') { err('Check every needs a whole number of minutes from 1 to 1440.'); return; }
       const r = await api('POST', `/api/watch/folders/${f.id}`, body);
-      if (!r.ok) { err(r.data.error || 'Could not save.'); return; }
+      if (!r.ok) { err(errWords(replyErr(r), 'saving')); return; }
       toast('💾 Saved');
       close();
       refreshList();
@@ -391,7 +405,7 @@
 
     q('#wfCheck').addEventListener('click', async () => {
       const r = await api('POST', `/api/watch/folders/${f.id}/check`);
-      if (!r.ok) { err(r.data.error || 'Could not check now.'); return; }
+      if (!r.ok) { err(errWords(replyErr(r), 'checking the folder')); return; }
       toast('🔄 Checking for changes');
       refreshList();
     });
@@ -400,7 +414,7 @@
     q('#wfStopNo').addEventListener('click', () => { q('#wfFoot').hidden = false; q('#wfConfirm').hidden = true; });
     q('#wfStopYes').addEventListener('click', async () => {
       const r = await api('DELETE', `/api/watch/folders/${f.id}`);
-      if (!r.ok) { err(r.data.error || 'Could not stop watching.'); return; }
+      if (!r.ok) { err(errWords(replyErr(r), 'stopping watching')); return; }
       toast('Stopped watching. Files already added stay in your library.');
       close();
       refreshList();
@@ -509,14 +523,16 @@
     const show = e.target.closest('[data-watch-show]');
     if (show) { showFilter(show.dataset.watchShow); return; }
     if (e.target.closest('[data-watch-pause]')) {
-      await api('POST', '/api/watch/pause');
+      const r = await api('POST', '/api/watch/pause').catch(() => null);
+      if (!r || !r.ok) { errToast(r ? replyErr(r) : null, 'pausing watching'); return; }
       toast('⏸ Watching paused');
       refreshPill();
       refreshList();
       return;
     }
     if (e.target.closest('[data-watch-resume]')) {
-      await api('POST', '/api/watch/resume');
+      const r = await api('POST', '/api/watch/resume').catch(() => null);
+      if (!r || !r.ok) { errToast(r ? replyErr(r) : null, 'resuming watching'); return; }
       toast('👁 Watching again. Checking for changes.');
       refreshPill();
       refreshList();

@@ -3,8 +3,22 @@
    ========================================================================= */
 
 // AB loop state
-let abLoopA = null;  // seconds (null = not set)
-let abLoopB = null;  // seconds (null = not set)
+let abLoopA = null;  // seconds, to the hundredth (null = not set)
+let abLoopB = null;  // seconds, to the hundredth (null = not set)
+
+/* Precision: every point is kept to the hundredth of a second, whether it
+   comes from the playhead (the button, [ and ], a click on the bar) or is
+   typed by hand in a note range such as "0:11.25-1:23.5". The loop honours
+   it to the hundredth (a frame-by-frame watch while it plays, not only
+   timeupdate). */
+const _abHundredth = (t) => Math.max(0, Math.round((Number(t) || 0) * 100) / 100);
+
+/** A point as [h:]m:ss[.d|.dd] for the Modern readouts: decimals only when it
+ *  has a fraction. Classic's label keeps formatDuration, as before. */
+function formatAbTime(t) {
+  if (typeof DockGeom !== 'undefined') return DockGeom.formatPrecise(t);
+  return formatDuration(t) || '0:00';
+}
 
 /**
  * Cycle the AB loop state:
@@ -18,29 +32,54 @@ function toggleAbLoop() {
 
   if (abLoopA === null) {
     // Set point A
-    abLoopA = element.currentTime;
+    abLoopA = _abHundredth(element.currentTime);
     abLoopB = null;
+    // No toast: Modern's A marker, filled button and the bar's hint say it
   } else if (abLoopB === null) {
     // Set point B
-    let b = element.currentTime;
-    // Ensure B > A, swap if needed
-    if (b <= abLoopA) {
-      abLoopB = abLoopA;
-      abLoopA = b;
-    } else {
-      abLoopB = b;
-    }
-    // Remove native loop — we handle it now
-    element.removeAttribute('loop');
-    element.loop = false;
-    // Seek to A to start the loop
-    element.currentTime = abLoopA;
+    _abSetB(element, _abHundredth(element.currentTime));
   } else {
     // Clear both
     clearAbLoop();
     return;
   }
 
+  updateAbLoopButton();
+  updateAbLoopOverlay();
+}
+
+/** Is the Modern dock drawing the controls? */
+function _abModern() {
+  return typeof ModernDock !== 'undefined' && ModernDock.mounted();
+}
+
+/** B at `b` seconds: order the two points, take over looping, jump to A. */
+function _abSetB(element, b) {
+  // Ensure B > A, swap if needed
+  if (b <= abLoopA) {
+    abLoopB = abLoopA;
+    abLoopA = b;
+  } else {
+    abLoopB = b;
+  }
+  // Remove native loop — we handle it now
+  element.removeAttribute('loop');
+  element.loop = false;
+  // Seek to A to start the loop
+  element.currentTime = abLoopA;
+  _abWatch(element);
+}
+
+/**
+ * Set B at a time picked on the bar (the Modern dock: A is set and the next
+ * click on the bar lands B there instead of seeking).
+ */
+function setAbLoopEnd(seconds) {
+  const element = currentMediaState.element;
+  if (!element || abLoopA === null || abLoopB !== null) return;
+  const t = Number(seconds);
+  if (!isFinite(t)) return;
+  _abSetB(element, _abHundredth(t));
   updateAbLoopButton();
   updateAbLoopOverlay();
 }
@@ -54,15 +93,15 @@ function setAbLoop(aSecs, bSecs) {
   const element = currentMediaState.element;
   if (!element) return;
 
-  let a = Math.max(0, Number(aSecs) || 0);
-  let b = Math.max(0, Number(bSecs) || 0);
+  let a = _abHundredth(aSecs);
+  let b = _abHundredth(bSecs);
   if (b < a) [a, b] = [b, a];
   const dur = element.duration;
   if (isFinite(dur) && dur > 0) {
-    a = Math.min(a, dur - 0.2);
-    b = Math.min(b, dur);
+    a = _abHundredth(Math.min(a, dur - 0.2));
+    b = _abHundredth(Math.min(b, dur));
   }
-  if (b - a < 0.1) b = a + 0.1; // guarantee a loopable span
+  if (b - a < 0.1) b = _abHundredth(a + 0.1); // guarantee a loopable span
 
   abLoopA = a;
   abLoopB = b;
@@ -71,6 +110,7 @@ function setAbLoop(aSecs, bSecs) {
   element.loop = false;
   element.currentTime = a;
   element.play?.().catch(() => {});
+  _abWatch(element);
 
   updateAbLoopButton();
   updateAbLoopOverlay();
@@ -98,11 +138,51 @@ function clearAbLoop() {
  */
 function checkAbLoop(mediaElement) {
   if (abLoopA === null || abLoopB === null) return;
-  // Check with a tiny tolerance — timeupdate fires ~4 times/sec at 250ms intervals
-  // so we check if we're within 0.3s of B or past it
-  if (mediaElement.currentTime >= abLoopB - 0.05) {
+  // Within a hundredth of B or past it. timeupdate only comes ~4 times a
+  // second, so _abWatch checks every frame as well; this is the fallback.
+  // A B at (or past) the end of the file wraps AB_END_GUARD early: the last
+  // timeupdate can come before B and the frame watch can miss the final
+  // frame, and then 'ended' would move the queue on (autoAdvanceOnEnded also
+  // turns an 'ended' into a wrap while a loop is set, as the last net).
+  const dur = mediaElement.duration;
+  const end = isFinite(dur) && dur > 0 ? Math.min(abLoopB - 0.01, dur - AB_END_GUARD) : abLoopB - 0.01;
+  if (mediaElement.currentTime >= end) {
     mediaElement.currentTime = abLoopA;
   }
+}
+
+/** How far before the end of the file a loop that runs to the end wraps. */
+const AB_END_GUARD = 0.06;
+
+/**
+ * The file ended while an A-B loop was set (B at the very end, and the last
+ * frame slipped past the checks): go back to A and keep playing instead of
+ * moving on. Returns true when it did.
+ */
+function abLoopWrapAtEnd(element) {
+  if (!element || abLoopA === null || abLoopB === null) return false;
+  try { element.currentTime = abLoopA; } catch { return false; }
+  element.play?.().catch(() => {});
+  _abWatch(element);
+  return true;
+}
+
+/* Every frame while a loop is set and the element plays: timeupdate alone
+   would overshoot B by up to a quarter of a second. Stops by itself once the
+   loop is cleared or the element leaves the page. */
+let _abWatchEl = null;
+function _abWatch(element) {
+  if (!element || _abWatchEl === element) return;
+  _abWatchEl = element;
+  const tick = () => {
+    if (_abWatchEl !== element || abLoopA === null || abLoopB === null || !element.isConnected) {
+      if (_abWatchEl === element) _abWatchEl = null;
+      return;
+    }
+    if (!element.paused) checkAbLoop(element);
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
 }
 
 // ── Button Rendering ────────────────────────────────────────────────────
@@ -112,8 +192,20 @@ function checkAbLoop(mediaElement) {
  * Called from renderVideoPlayer / renderAudioPlayer.
  */
 function renderAbLoopButton() {
+  if (typeof mpBuildingDock === 'function' && mpBuildingDock()) {
+    const m = getAbLoopModernState();
+    return `<button type="button" class="mp-ic mp-ab-btn ${m.cls}" id="abLoopBtn" onclick="toggleAbLoop()" title="${m.title}" aria-label="A-B loop"
+      >${mpIcon('ab-loop')}<span class="mp-badge" aria-hidden="true">A</span></button>`;
+  }
   const { label, stateClass, title } = getAbLoopButtonState();
   return `<button class="ab-loop-btn ${stateClass}" id="abLoopBtn" onclick="toggleAbLoop()" title="${title}">${label}</button>`;
+}
+
+/** The Modern button: lit once the loop is set, filled with an A badge while waiting for B. */
+function getAbLoopModernState() {
+  if (abLoopA === null) return { cls: '', title: 'A-B loop: set the start ([)' };
+  if (abLoopB === null) return { cls: 'pending', title: `A is at ${formatAbTime(abLoopA)}. Click or press ] to set B, Esc to cancel` };
+  return { cls: 'on', title: `Looping ${formatAbTime(abLoopA)} to ${formatAbTime(abLoopB)}. Click to clear (\\)` };
 }
 
 /**
@@ -147,6 +239,14 @@ function getAbLoopButtonState() {
 function updateAbLoopButton() {
   const btn = document.getElementById('abLoopBtn');
   if (!btn) return;
+  if (btn.classList.contains('mp-ic')) {
+    const m = getAbLoopModernState();
+    btn.classList.toggle('pending', m.cls === 'pending');
+    btn.classList.toggle('on', m.cls === 'on');
+    btn.title = m.title;
+    btn.removeAttribute('data-tip');   // tooltip.js re-reads the title on the next hover
+    return;
+  }
   const { label, stateClass, title } = getAbLoopButtonState();
   btn.className = `ab-loop-btn ${stateClass}`;
   btn.textContent = label;
@@ -159,6 +259,8 @@ function updateAbLoopButton() {
  * Render/update the visual overlay on the progress bar showing the A-B region.
  */
 function updateAbLoopOverlay() {
+  // Modern draws the A marker and the loop span on its own timeline
+  if (_abModern()) { ModernDock.drawAb(); return; }
   // Find the progress bar container (works for both video and audio)
   const progressBar = document.getElementById('videoProgress') || document.getElementById('audioProgress');
   if (!progressBar) return;

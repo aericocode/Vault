@@ -350,12 +350,16 @@ and play. Everything runs on your computer, and face search is off until you tur
 ### Turn it on
 
 1. Open **⚙ Settings > Face search** and switch on **Face search**.
-2. Vault asks to download two small models (about 39 MB) from
-   **huggingface.co**. Click **Download them**. This happens once, and face
-   search works offline after that.
+2. Vault asks to download three face search models (about 213 MB) from
+   Hugging Face. Click **Download**. This happens once, and face search works
+   offline after that.
 
 The models are YuNet (finds faces) and SFace (tells people apart) from the
-OpenCV model zoo, released under the MIT and Apache-2.0 licenses.
+OpenCV model zoo, released under the MIT and Apache-2.0 licenses, plus the
+AdaFace IR50 matching model (the Standard face model, about 174 MB of the
+total). Switching to the **Best** face model in Settings downloads AdaFace IR101
+instead (about 261 MB). The AdaFace models state no license of their own (MIT
+code, research-use training data).
 
 ### Check your files for faces
 
@@ -477,3 +481,13 @@ person", even when a file is checked again.
   and you can pause it at any time. If you close Vault part way, click **Find
   faces in the rest** next time to carry on.
 - Running from source on Linux? See the `npm install` note in §6.
+
+---
+
+## 8. Keyboard shortcuts
+
+Press **?** anywhere in Vault for the full list, with the group for where you are marked **You are here**. The same list is in **Settings > Keyboard shortcuts**.
+
+Most keys do nothing while you are typing in a box (search, notes, a name), so typing never sets anything off by accident. A few still work there on purpose: Esc, Alt+Left and Alt+Right in the player, and Ctrl+Shift+H.
+
+Number keys: in the player, **0** to **9** jump through a video or audio file (0 is the start, 1 is 10%, 5 is halfway, 9 is 90%). On a picture, **0** resets the zoom and turn. Holding Ctrl or Alt leaves them to the browser, so Ctrl+0 still resets the page zoom.

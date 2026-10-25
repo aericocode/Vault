@@ -20,7 +20,8 @@
     const chip = document.createElement('button');
     chip.id = 'lovenseChip';
     chip.className = 'header-btn lovense-chip';
-    chip.title = 'Lovense device. Click for connection & sync settings';
+    chip.title = 'Lovense device: connection and sync settings';
+    chip.setAttribute('aria-label', 'Lovense device');
     chip.onclick = togglePanel;
     const gamify = document.getElementById('gamifyChip');
     if (gamify) btns.insertBefore(chip, gamify);
@@ -44,29 +45,44 @@
 
   /* ── Settings panel ────────────────────────────────────────────────────── */
 
+  /** Classic's glyph, Modern's line icon (player-lib/icons.js). */
+  const ic = (emoji, name) => (typeof vaultIconSwap === 'function' ? vaultIconSwap(emoji, name) : escapeHtml(emoji));
+
   function togglePanel() {
-    const existing = document.getElementById('lovensePanel');
-    if (existing) { existing.remove(); return; }
+    if (document.getElementById('lovensePanel')) { closePanel(); return; }
     openPanel();
   }
 
+  /** Close the panel and drop its window listeners. focusChip: hand focus
+   *  back to the header chip (Esc and the close button). */
+  function closePanel(focusChip) {
+    const panel = document.getElementById('lovensePanel');
+    if (!panel) return;
+    panel._cleanup?.();
+    panel.remove();
+    if (focusChip) document.getElementById('lovenseChip')?.focus({ preventScroll: true });
+  }
+
   function openPanel() {
-    document.getElementById('lovensePanel')?.remove();
+    closePanel();
     const cfg = LovenseSync.cfg;
     const savedIp = LovenseApi.savedIP() || DEFAULT_IP_HINT;
     const panel = document.createElement('div');
     panel.id = 'lovensePanel';
     panel.className = 'lovense-panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Lovense device');
+    // .m-* classes only take effect in Modern (css/layout-modern.css)
     panel.innerHTML = `
       <div class="lovense-row lovense-status-row">
-        <span id="lovStatus" class="lovense-status"></span>
-        <button class="lovense-x" id="lovClose" title="Close">✕</button>
+        <span class="lovense-status-wrap"><span class="lovense-dot" id="lovDot"></span><span id="lovStatus" class="lovense-status" role="status"></span></span>
+        <button class="lovense-x" id="lovClose" title="Close" aria-label="Close">${ic('✕', 'close')}</button>
       </div>
       <div class="lovense-row">
-        <span class="lovense-lbl">IP</span>
-        <input type="text" class="lovense-input" id="lovIp" value="${escapeHtml(savedIp)}" placeholder="${DEFAULT_IP_HINT}" autocomplete="off">
-        <button class="lovense-btn" id="lovConnect">Connect</button>
-        <button class="lovense-btn" id="lovScan" title="Try the saved IP, then scan common subnets">Scan</button>
+        <label class="lovense-lbl" for="lovIp">IP</label>
+        <input type="text" class="lovense-input m-field" id="lovIp" value="${escapeHtml(savedIp)}" placeholder="${DEFAULT_IP_HINT}" autocomplete="off" spellcheck="false">
+        <button class="lovense-btn m-btn" id="lovConnect">Connect</button>
+        <button class="lovense-btn m-btn" id="lovScan" title="Try the saved address, then look through the usual home network addresses">Scan</button>
       </div>
       <div class="lovense-row lovense-devices" id="lovDevices"></div>
       <div class="lovense-row lovense-actuators" id="lovActuators"></div>
@@ -79,20 +95,22 @@
         <span class="lovense-num" id="lovMaxV">${cfg.max}</span>
       </div>
       <div class="lovense-row">
-        <span class="lovense-lbl" title="Commands are sent this far ahead so they land on the beat. Test measures it">Lead</span>
+        <span class="lovense-lbl" title="Commands are sent this far ahead so they land on the beat. Test device measures it.">Lead</span>
         <input type="range" id="lovLead" min="0" max="400" step="10" value="${cfg.leadMs}">
-        <span class="lovense-num" id="lovLeadV">${cfg.leadMs}ms</span>
+        <span class="lovense-num" id="lovLeadV">${cfg.leadMs} ms</span>
       </div>
-      <div class="lovense-row">
+      <div class="lovense-row" role="radiogroup" aria-label="Mode">
         <span class="lovense-lbl">Mode</span>
-        <label class="lovense-radio"><input type="radio" name="lovMode" value="energy" ${cfg.mode === 'energy' ? 'checked' : ''}> Follow energy</label>
-        <label class="lovense-radio"><input type="radio" name="lovMode" value="pulse" ${cfg.mode === 'pulse' ? 'checked' : ''}> Beat pulses</label>
+        <span class="lovense-seg">
+          <label class="lovense-radio"><input type="radio" name="lovMode" value="energy" ${cfg.mode === 'energy' ? 'checked' : ''}> Follow energy</label>
+          <label class="lovense-radio"><input type="radio" name="lovMode" value="pulse" ${cfg.mode === 'pulse' ? 'checked' : ''}> Beat pulses</label>
+        </span>
       </div>
-      <div class="lovense-row lovense-actions">
-        <button class="lovense-btn lovense-btn-primary" id="lovTest" title="Short 1.5s ramp on the device. Also calibrates the latency lead">▶ Test device</button>
-        <button class="lovense-btn lovense-btn-danger" id="lovDisconnect">Disconnect</button>
+      <div class="lovense-row lovense-actions" id="lovActions" hidden>
+        <button class="lovense-btn lovense-btn-primary m-btn is-primary" id="lovTest" title="A short 1.5 second ramp on the device. It also measures the lead.">${ic('▶ ', 'play')}Test device</button>
+        <button class="lovense-btn lovense-btn-danger m-btn" id="lovDisconnect">Disconnect</button>
       </div>
-      <div class="lovense-hint">Local network only. Nothing leaves your LAN. Esc while syncing = instant stop.</div>
+      <div class="lovense-hint">Works on your local network only; nothing leaves it. Press Esc while it syncs to stop the device at once.</div>
     `;
     document.body.appendChild(panel);
 
@@ -105,23 +123,34 @@
     }
 
     const q = (sel) => panel.querySelector(sel);
-    q('#lovClose').addEventListener('click', () => panel.remove());
+    q('#lovClose').addEventListener('click', () => closePanel(true));
 
     // Outside click closes (capture, like the beat-bar panel)
     const outside = (e) => {
       if (!panel.isConnected) { document.removeEventListener('pointerdown', outside, true); return; }
       if (e.target.closest('#lovensePanel') || e.target.closest('#lovenseChip')) return;
-      panel.remove();
-      document.removeEventListener('pointerdown', outside, true);
+      closePanel();
     };
     document.addEventListener('pointerdown', outside, true);
+    // Esc closes the panel. It does not stop the event: Esc is also the
+    // sync's instant stop (lovense-sync.js), and both should happen.
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (typeof vaultDialogOpen === 'function' && vaultDialogOpen()) return;
+      closePanel(true);
+    };
+    document.addEventListener('keydown', onKey);
+    panel._cleanup = () => {
+      document.removeEventListener('pointerdown', outside, true);
+      document.removeEventListener('keydown', onKey);
+    };
 
     q('#lovConnect').addEventListener('click', () => doConnect(q('#lovIp').value));
     q('#lovIp').addEventListener('keydown', (e) => { if (e.key === 'Enter') doConnect(q('#lovIp').value); });
     q('#lovScan').addEventListener('click', async () => {
-      setStatus('scanning…');
+      setStatus('Looking for your device…');
       try { await LovenseApi.scan().promise; setStatus(null); }
-      catch (e) { setStatus('⚠ ' + e.message); }
+      catch (e) { setStatus(friendlyError(e, 'looking for the device'), 'error'); }
     });
 
     q('#lovMin').addEventListener('input', (e) => {
@@ -138,7 +167,7 @@
     });
     q('#lovLead').addEventListener('input', (e) => {
       const v = parseInt(e.target.value, 10);
-      q('#lovLeadV').textContent = v + 'ms';
+      q('#lovLeadV').textContent = v + ' ms';
       LovenseSync.saveCfg({ leadMs: v });
     });
     panel.querySelectorAll('input[name="lovMode"]').forEach(r =>
@@ -153,50 +182,59 @@
         const lead = Math.max(40, Math.min(400, rttMs));
         LovenseSync.saveCfg({ leadMs: lead });
         const slider = q('#lovLead');
-        if (slider) { slider.value = lead; q('#lovLeadV').textContent = lead + 'ms'; }
-        setStatus(`test ok: ack ${rttMs}ms, lead set to ${lead}ms`);
+        if (slider) { slider.value = lead; q('#lovLeadV').textContent = lead + ' ms'; }
+        setStatus(`Test done. The device answered in ${rttMs} ms, so the lead is now ${lead} ms.`, 'ok');
       } catch (e) {
-        setStatus('⚠ ' + e.message);
+        setStatus(friendlyError(e, 'testing the device'), 'error');
       } finally {
         btn.disabled = false;
-        btn.textContent = '▶ Test device';
+        btn.innerHTML = `${ic('▶ ', 'play')}Test device`;
       }
     });
 
     q('#lovDisconnect').addEventListener('click', () => {
       LovenseSync.setEnabled(false);
       LovenseApi.disconnect();
-      setStatus(null);
+      renderPanelState();
     });
 
     renderPanelState();
   }
 
   async function doConnect(ip) {
-    setStatus('connecting…');
+    setStatus('Connecting…');
     try {
       const { devices, transport } = await LovenseApi.connect(ip);
-      setStatus(`connected (${transport}), ${devices.length} device${devices.length === 1 ? '' : 's'}`);
+      setStatus(`Connected (${transport}), ${devices.length} device${devices.length === 1 ? '' : 's'}`, 'ok');
     } catch (e) {
-      setStatus('⚠ ' + e.message);
+      setStatus(friendlyError(e, 'connecting to the device'), 'error');
     }
   }
 
-  function setStatus(text) {
+  /** The status line. text: a message (tone 'ok' / 'error' colours it);
+   *  null: the connection state. The dot beside it is drawn in CSS. */
+  function setStatus(text, tone) {
     const el = document.getElementById('lovStatus');
     if (!el) return;
+    const dot = document.getElementById('lovDot');
+    const on = LovenseApi.isConnected;
+    dot?.classList.toggle('lovense-dot-on', on);
+    el.classList.toggle('on', on && (text == null || tone === 'ok'));
+    el.classList.toggle('error', tone === 'error');
     if (text != null) { el.textContent = text; return; }
     const d = LovenseApi.getActiveDevice();
-    el.textContent = LovenseApi.isConnected && d
-      ? `● Connected: ${d.nickname} (${LovenseApi.transport})`
-      : '○ Not connected';
-    el.classList.toggle('on', LovenseApi.isConnected);
+    el.textContent = on && d
+      ? `Connected: ${d.nickname} (${LovenseApi.transport})`
+      : 'Not connected';
   }
 
   function renderPanelState() {
     const panel = document.getElementById('lovensePanel');
     if (!panel) return;
     setStatus(null);
+    // Test and Disconnect only do something with a device connected
+    const actions = panel.querySelector('#lovActions');
+    if (actions) actions.hidden = !LovenseApi.isConnected;
     const wrap = panel.querySelector('#lovDevices');
     if (!LovenseApi.devices.length) { wrap.innerHTML = ''; return; }
     wrap.innerHTML = '<span class="lovense-lbl">Device</span>' + LovenseApi.devices.map(d => `
@@ -251,6 +289,14 @@
      change without moving anything either. */
   function renderVibeButton() {
     const s = vibeState();
+    // Modern dock (player-modern.js): the device icon, lit while syncing, and
+    // only shown once a device is set up. It stays in the markup when hidden
+    // so injectVibeButton never adds Classic's text button beside it.
+    if (typeof mpBuildingDock === 'function' && mpBuildingDock()) {
+      const setUp = typeof mpDeviceSetUp === 'function' ? mpDeviceSetUp() : true;
+      return `<button type="button" id="vibeBtn" class="mp-ic vibe-btn${s.on && !s.disconnected ? ' on' : ''}${s.disconnected ? ' vibe-warn' : ''}"
+        onclick="toggleVibe()" title="${escapeHtml(s.title)}" aria-label="Device sync"${setUp ? '' : ' hidden'}>${mpIcon('vibe')}</button>`;
+    }
     const cls = 'control-btn vibe-btn'
       + (s.on && !s.disconnected ? ' active' : '')
       + (s.disconnected ? ' vibe-warn' : '');
@@ -288,7 +334,13 @@
     const disconnected = on && !LovenseApi.isConnected;
 
     const full = document.getElementById('vibeBtn');
-    if (full) {
+    if (full && full.classList.contains('mp-ic')) {
+      const s = vibeState();
+      full.classList.toggle('on', s.on && !s.disconnected);
+      full.classList.toggle('vibe-warn', s.disconnected);
+      full.title = s.title;
+      if (typeof ModernDock !== 'undefined') ModernDock.syncDevice();   // shown once set up, the top bar's chip
+    } else if (full) {
       const s = vibeState();
       full.classList.toggle('active', s.on && !s.disconnected);
       full.classList.toggle('vibe-warn', s.disconnected);
@@ -300,7 +352,7 @@
     if (mini) {
       mini.classList.toggle('active', on && !disconnected);
       mini.classList.toggle('vibe-warn', disconnected);
-      mini.textContent = '💟';
+      mini.innerHTML = typeof vaultIconSwap === 'function' ? vaultIconSwap('💟', 'vibe') : '💟';
       mini.title = disconnected
         ? 'Vibe on but no device connected'
         : on ? 'Vibe on, synced to the beat (click to stop)'
@@ -324,7 +376,7 @@
         await LovenseApi.connect(ip);
       } catch (e) {
         openPanel();
-        showToast('⚠ ' + e.message);
+        showErrorToast(e, 'connecting to the device');
         return;
       }
       on = true;              // connect-click means "start", never toggle-off
@@ -334,8 +386,9 @@
     LovenseSync.setEnabled(on);
     if (on) {
       attachCurrent();
-      showToast('💟 Vibe ON, synced to the beat (stays on for future videos)');
-    } else {
+      // The Modern dock's device button lights up instead
+      if (!(typeof mpQuietToast === 'function' && mpQuietToast())) showToast('💟 Vibe on, synced to the beat. It stays on for the next videos.');
+    } else if (!(typeof mpQuietToast === 'function' && mpQuietToast())) {
       showToast('Vibe off');
     }
     syncVibeButton();

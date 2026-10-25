@@ -128,7 +128,7 @@ function tvHeadHtml() {
     const sortWord = dir === 'asc' ? 'ascending' : 'descending';
     return `<button type="button" class="tv-hcell tv-sortable tv-c-${c.key}${align}${on ? ' is-sorted' : ''}"
         role="columnheader" data-tv-sort="${c.sort}" aria-sort="${on ? sortWord : 'none'}"
-        title="Sort by ${escapeHtml(c.label.toLowerCase())}">${escapeHtml(c.head)}${on ? `<span class="tv-sort-ind">${dir === 'asc' ? '▲' : '▼'}</span>` : ''}</button>`;
+        title="Sort by ${escapeHtml(c.label.toLowerCase())}">${escapeHtml(c.head)}${on ? `<span class="tv-sort-ind">${vaultIcon(dir === 'asc' ? 'arrow-up' : 'arrow-down') || (dir === 'asc' ? '▲' : '▼')}</span>` : ''}</button>`;
   }).join('');
   return `<div class="tv-head" role="row"><div class="tv-hcell tv-c-sel"></div>${cells}</div>`;
 }
@@ -158,12 +158,12 @@ function tvCellHtml(c, m) {
           <span class="tile-name tv-name" onclick="tileThumbClick(${id})" ondblclick="tileThumbDblClick(${id})"
                 ${pmNames ? '' : `title="${escapeHtml(m.filename)}"`}>${escapeHtml(m.filename)}</span>
           ${typeof watchTagHtml === 'function' ? watchTagHtml(m) : ''}
-          ${m.user_starred ? `<span class="tv-fave" title="Fave">${vaultIconSwap('❤', 'heart')}</span>` : ''}
-          ${m.user_flagged_delete ? `<span class="tv-flag" title="Flagged">${vaultIconSwap('🚩', 'flag')}</span>` : ''}
+          ${m.user_starred ? `<span class="tv-fave" title="Favorite">${vaultIconSwap('❤', 'heart')}</span>` : ''}
+          ${m.user_flagged_delete ? `<span class="tv-flag" title="Flagged for deletion">${vaultIconSwap('🚩', 'flag')}</span>` : ''}
           <span class="tv-actions" onclick="event.stopPropagation()">
             <button type="button" class="tile-btn ${m.user_starred ? 'active-star' : ''}" onclick="toggleStar(mediaPathById(${id}))"
-                    title="${m.user_starred ? 'Remove Fave' : 'Fave'}" aria-label="${m.user_starred ? 'Remove Fave' : 'Fave'}">${vaultIconSwap(m.user_starred ? '❤' : '🤍', 'heart')}</button>
-            <button type="button" class="tile-btn" onclick="showDetailsById(${id})" title="Details">ⓘ</button>
+                    title="${m.user_starred ? 'Remove from favorites' : 'Add to favorites'}" aria-label="${m.user_starred ? 'Remove from favorites' : 'Add to favorites'}">${vaultIconSwap(m.user_starred ? '❤' : '🤍', 'heart')}</button>
+            <button type="button" class="tile-btn" onclick="showDetailsById(${id})" title="Details" aria-label="Details">${vaultIconSwap('ⓘ', 'info')}</button>
           </span>
         </div>`;
     }

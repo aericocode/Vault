@@ -179,14 +179,161 @@ function pathToFileUrl(filepath) {
 
 function copyPath(path) {
   navigator.clipboard.writeText(path).then(() => {
-    showToast('Path copied to clipboard!');
+    showToast('Path copied', { type: 'success' });
+  }).catch(() => {
+    showToast('Could not copy the path. The clipboard is not available here.', { type: 'error' });
   });
 }
 
-function showToast(message) {
-  const toast = document.getElementById('toast');
-  // Modern drops the leading emoji ("Saved", not "💾 Saved"): player-lib/icons.js
-  toast.textContent = typeof vaultToastText === 'function' ? vaultToastText(message) : message;
-  toast.classList.add('active');
-  setTimeout(() => toast.classList.remove('active'), 3000);
+/* ── Toasts ────────────────────────────────────────────────────────────────
+   The one #toast (db-viewer.html), styled by css/toast.css. A newer toast
+   replaces the one showing and gets its own full time: the old timer is
+   cleared first, so it can no longer hide the new message early. */
+
+let _toastTimer = null;
+
+/** How long a toast stays up: 3 s, a little longer for a long sentence (7 s at most). */
+function toastDuration(text) {
+  const n = String(text == null ? '' : text).length;
+  return Math.min(7000, Math.max(3000, 1000 + n * 45));
 }
+
+/** 'error' / 'success' / '' for a toast: the caller's type, else a leading ⚠ or ❌ means an error. */
+function toastType(message, type) {
+  if (type === 'error' || type === 'success') return type;
+  return /^\s*(?:⚠|❌)/.test(String(message == null ? '' : message)) ? 'error' : '';
+}
+
+/**
+ * Show a short message at the bottom of the window.
+ *   showToast('Saved')
+ *   showToast('Could not save the note.', { type: 'error' })   // red edge + alert icon in Modern
+ *   showToast('Copied', { type: 'success', duration: 2000 })
+ * A message that starts with ⚠ or ❌ counts as an error without a type, so
+ * the old call sites keep a visible error cue in Modern (which drops the
+ * leading emoji). A string second argument is read as the type.
+ */
+function showToast(message, opts) {
+  const toast = document.getElementById('toast');
+  if (!toast) return;
+  const o = typeof opts === 'string' ? { type: opts } : (opts || {});
+  const raw = String(message == null ? '' : message);
+  const type = toastType(raw, o.type);
+  // Modern drops the leading emoji ("Saved", not "💾 Saved"): player-lib/icons.js
+  const text = typeof vaultToastText === 'function' ? vaultToastText(raw) : raw;
+  toast.textContent = text;
+  // The icon is Modern only (.modern-only): Classic keeps the message's own emoji.
+  if (type && typeof vaultIcon === 'function' && typeof toast.insertAdjacentHTML === 'function') {
+    toast.insertAdjacentHTML('afterbegin', vaultIcon(type === 'error' ? 'alert' : 'check', 'toast-ic modern-only'));
+  }
+  toast.classList.remove('error', 'success');
+  if (type) toast.classList.add(type);
+  if (typeof toast.setAttribute === 'function') toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+  if (typeof vaultPlaceToasts === 'function') vaultPlaceToasts();
+  toast.classList.add('active');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => toast.classList.remove('active'), o.duration > 0 ? o.duration : toastDuration(text));
+}
+
+/**
+ * Words a person can act on for something that went wrong, in place of raw
+ * error text ("Failed to fetch", "HTTP 500", "could not read folder").
+ *   err:  an Error, a server's error string, or a JSON body / Response with
+ *         .error / .message / .status
+ *   what: what was being done, as "-ing" words: 'saving the note'
+ * Server text is passed through only when it already reads as a sentence
+ * (starts with a capital, has a few words, no codes); a missing full stop
+ * is added. Leading emoji are dropped.
+ */
+function friendlyError(err, what) {
+  const generic = what ? `Something went wrong while ${what}. Try again.` : 'Something went wrong. Try again.';
+  if (err == null) return generic;
+  const name = (err && typeof err === 'object' && err.name) || '';
+  const status = (err && typeof err === 'object' && Number(err.status)) || 0;
+  let msg = typeof err === 'string' ? err
+    : (err && typeof err === 'object' && (typeof err.error === 'string' ? err.error
+      : typeof err.message === 'string' ? err.message : '')) || '';
+  msg = msg.replace(/^(?:\s*(?:⚠|❌|✗|✕|❗|⛔)️?)+\s*/u, '').trim();
+
+  if (/failed to fetch|networkerror|network error|load failed|net::|err_connection|econnrefused|econnreset/i.test(msg)) {
+    return 'Could not reach Vault. Is it still running?';
+  }
+  if (status === 423 || /\bvault is locked\b|\blibrary is locked\b/i.test(msg)) {
+    return 'The library is locked. Unlock it and try again.';
+  }
+  if (name === 'AbortError' || name === 'TimeoutError' || /\btimed? ?out\b/i.test(msg)) {
+    return 'Vault took too long to answer. Try again.';
+  }
+  // A script error (TypeError, SyntaxError ...) is never words for a person.
+  if (name && name !== 'Error') return generic;
+  const words = msg.split(/\s+/).filter(Boolean);
+  const sentence = msg.length <= 240
+    && words.length >= 3
+    && /^[A-Z]/.test(msg)
+    && !/\bHTTP\s?\d{3}\b|\breturned \d{3}\b|\bstatus(?: code)? \d{3}\b|^E[A-Z]{3,}\b|^[A-Z]\w*Error\b|\b[a-z]+_[a-z_]+\b|[{}<>]|\bat \S+:\d+|\bundefined\b|\bnull\b/.test(msg)
+    && !/^(?:Internal Server Error|Bad Request|Not Found|Bad Gateway|Service Unavailable|Gateway Timeout|Forbidden|Unauthorized)\b/i.test(msg);
+  if (!sentence) return generic;
+  return /[.!?]$/.test(msg) ? msg : msg + '.';
+}
+
+/** showToast(friendlyError(err, what), { type: 'error' }) in one call. */
+function showErrorToast(err, what) {
+  showToast(friendlyError(err, what), { type: 'error' });
+}
+
+/* ── Where the toasts sit (Modern, css/toast.css) ──────────────────────────
+   Bottom centre, but never on the selection bar and never on each other.
+   Two numbers go on <html> for the CSS:
+     --vault-toast-base  the lowest a toast may sit: above the selection bar
+                         when it is up and reaches the toast's lane, else 24px
+     --vault-undo-h      the undo toast's height while it shows (0 otherwise),
+                         so #toast stacks just above it
+   The player sets its own --toast-bottom, which wins over both. Both bars
+   are made later by other scripts, so they are found as they join <body>. */
+
+const VAULT_TOAST_BASE = 24;    // px from the window's bottom edge
+const VAULT_TOAST_GAP = 10;     // between stacked pieces
+const VAULT_TOAST_LANE = 560;   // the Modern toast's widest box
+
+function vaultPlaceToasts() {
+  if (typeof document === 'undefined' || !document.documentElement || typeof window === 'undefined') return;
+  const root = document.documentElement;
+  let base = VAULT_TOAST_BASE;
+  const bar = document.getElementById('selectionBar');
+  if (bar && bar.classList.contains('visible')) {
+    // Layout numbers, not getBoundingClientRect: the bar may still be sliding in.
+    const bottom = parseFloat(getComputedStyle(bar).bottom) || 0;
+    const half = Math.min(VAULT_TOAST_LANE, window.innerWidth - 32) / 2;
+    const mid = window.innerWidth / 2;
+    const overlaps = bar.offsetLeft < mid + half && bar.offsetLeft + bar.offsetWidth > mid - half;
+    if (overlaps) base = Math.max(base, bottom + bar.offsetHeight + VAULT_TOAST_GAP);
+  }
+  const undo = document.getElementById('undoToast');
+  const undoH = undo && undo.classList.contains('visible') ? undo.offsetHeight + VAULT_TOAST_GAP : 0;
+  root.style.setProperty('--vault-toast-base', base + 'px');
+  root.style.setProperty('--vault-undo-h', undoH + 'px');
+}
+
+(function watchToastNeighbours() {
+  if (typeof document === 'undefined' || typeof MutationObserver === 'undefined' || typeof window === 'undefined') return;
+  const watched = new Set();
+  const classWatch = new MutationObserver(vaultPlaceToasts);
+  const sizeWatch = typeof ResizeObserver === 'function' ? new ResizeObserver(vaultPlaceToasts) : null;
+  function find() {
+    for (const id of ['selectionBar', 'undoToast']) {
+      const el = document.getElementById(id);
+      if (!el || watched.has(el)) continue;
+      watched.add(el);
+      classWatch.observe(el, { attributes: true, attributeFilter: ['class'] });
+      if (sizeWatch) sizeWatch.observe(el);
+    }
+    vaultPlaceToasts();
+  }
+  function start() {
+    find();
+    new MutationObserver(find).observe(document.body, { childList: true });
+    window.addEventListener('resize', vaultPlaceToasts);
+  }
+  if (document.body) start();
+  else document.addEventListener('DOMContentLoaded', start);
+})();

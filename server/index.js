@@ -35,6 +35,7 @@ const appSettings = require('../lib/app-settings');
 const setupNotices = require('../lib/setup-notices');
 const aiSlots = require('../lib/ai-slots');
 const lmsCli = require('../lib/lms-cli');
+const scanModel = require('../lib/scan-model');
 const ownedDir = require('../lib/owned-dir');
 const { netFetch } = require('../lib/net');
 const pkg = require('../package.json');
@@ -163,7 +164,7 @@ function isLockGatedPath(rawPath) {
 }
 app.use((req, res, next) => {
   if (!isLockGatedPath(req.path)) return next();
-  if (vault.isLocked()) return res.status(423).json({ error: 'vault is locked', code: 'VAULT_LOCKED' });
+  if (vault.isLocked()) return res.status(423).json({ error: 'Vault is locked. Unlock it first.', code: 'VAULT_LOCKED' });
   // Timed background polls (the unscanned-row watcher, for one) mark
   // themselves so they do not count as the user being present; otherwise a
   // library with a single unscanned file could never auto-lock.
@@ -198,6 +199,9 @@ const MIGRATE_BLOCKED_ROUTES = [
   // so pausing a scan is exactly how you make room to run a migrate. That only
   // holds if un-pausing is refused until the migrate is done.
   /^\/api\/import\/queue\/resume$/,
+  // The scan panel's Retry and Force refresh queue scans and read files by path.
+  /^\/api\/import\/failures\/retry$/,
+  /^\/api\/media\/force-refresh$/,
   // Face indexing reads files by path (lib/faces/). Same paused-queue rule.
   /^\/api\/faces\/index$/,
   /^\/api\/faces\/queue\/resume$/,
@@ -238,7 +242,7 @@ app.use((req, res, next) => {
   // reaches the same handler as /api/faces/index. Match the same way.
   if (!list.some(re => re.test(_normalizeGuardPath(req.path)))) return next();
   res.status(409).json({
-    error: 'a library migration is running. Wait for it to finish.',
+    error: 'Vault is updating file paths in the library. Wait for it to finish.',
     code: 'MIGRATE_RUNNING',
     jobId: _migrateJob.currentId(),
   });
@@ -321,7 +325,7 @@ app.get('/api/gamify/status', (req, res) => {
 // Settings toggle works without a restart; the router (and everything it pulls
 // in) is still only required the first time a request actually gets through.
 app.use('/api/gamify', (req, res, next) => {
-  if (!gamifyEnabled) return res.status(403).json({ error: 'gamification is off', code: 'GAMIFY_OFF' });
+  if (!gamifyEnabled) return res.status(403).json({ error: 'Obsession Score is turned off.', code: 'GAMIFY_OFF' });
   if (!_gamifyRouter) _gamifyRouter = require('./gamify-routes').buildRouter();
   return _gamifyRouter(req, res, next);
 });
@@ -357,7 +361,7 @@ app.post('/api/settings/model-downloads', (req, res) => {
   const r = modelConsent.grant(key, req.body.allow);
   if (!r.ok) {
     return res.status(409).json({
-      error: 'Model downloads are disabled by SUB_ALLOW_DOWNLOADS=0 or VAULT_OFFLINE=1',
+      error: 'Model downloads are turned off for this copy of Vault (SUB_ALLOW_DOWNLOADS=0 or VAULT_OFFLINE=1).',
       code: r.code,
     });
   }
@@ -436,7 +440,7 @@ app.post('/api/settings/app', (req, res) => {
     // A port set in the environment is not ours to overwrite: silently saving a
     // value that the next launch would ignore is worse than refusing.
     if (config.server.portSource === 'env') {
-      return res.status(409).json({ error: 'port is set by MEDIA_TAGGER_PORT' });
+      return res.status(409).json({ error: 'The port is set by MEDIA_TAGGER_PORT when Vault starts, so it cannot be changed here.' });
     }
     const raw = body.serverPort;
     const n = typeof raw === 'number' ? raw
@@ -519,9 +523,9 @@ function checkTools({ refresh = false } = {}) {
     ffmpeg: {
       ok: require('../lib/media-info').isAvailable(),
       required: true,
-      label: 'ffmpeg / ffprobe',
+      label: 'Video tools (ffmpeg)',
       feature: 'scanning and thumbnails',
-      needed: 'scanning, thumbnails and duration. Imports can\'t be processed without it',
+      needed: 'scanning, thumbnails and video length. New files can\'t be processed without them',
       install: FFMPEG_INSTALL,
       downloadable: true,
       sizeMB: DOWNLOADABLE_TOOLS.ffmpeg.sizeMB,
@@ -532,9 +536,9 @@ function checkTools({ refresh = false } = {}) {
       ok: fs.existsSync(path.join(ROOT, 'fpcalc.exe'))
         || (() => { try { require('child_process').execSync('fpcalc -version', { windowsHide: true, stdio: 'ignore' }); return true; } catch { return false; } })(),
       required: false,
-      label: 'fpcalc (Chromaprint)',
+      label: 'Music ID helper (fpcalc)',
       feature: 'Music ID',
-      needed: 'Music ID: fingerprinting and song matching. Everything else works without it',
+      needed: 'Music ID, which recognizes songs in your files. Everything else works without it',
       install: { winget: null, url: 'https://acoustid.org/chromaprint' },
       downloadable: true,
       sizeMB: DOWNLOADABLE_TOOLS.fpcalc.sizeMB,
@@ -601,7 +605,7 @@ app.post('/api/setup/download/:tool', (req, res) => {
     const tmp = path.join(os.tmpdir(), `vault-${req.params.tool}-${process.pid}.zip`);
     try {
       const resp = await netFetch(tool.url, { purpose: 'tool' });
-      if (!resp.ok) throw new Error(`download failed: HTTP ${resp.status}`);
+      if (!resp.ok) throw new Error(`The download failed (the server answered ${resp.status})`);
 
       // Stream to disk with progress — ffmpeg's zip is ~90 MB and adm-zip
       // needs a file anyway; buffering it whole in memory helps nobody.
@@ -620,14 +624,14 @@ app.post('/api/setup/download/:tool', (req, res) => {
       const zip = new AdmZip(tmp);
       for (const name of tool.files) {
         const entry = zip.getEntries().find(e => !e.isDirectory && tool.entry(name)(e));
-        if (!entry) throw new Error(`archive layout unexpected: ${name} not found`);
+        if (!entry) throw new Error(`The download did not contain ${name}`);
         fs.writeFileSync(path.join(ROOT, name), entry.getData());
       }
 
       // Prove the binary actually runs before declaring victory.
       require('../lib/ffmpeg-locate').invalidate();
       if (!(await tool.verify())) {
-        throw new Error('extracted binary did not run. Antivirus quarantine?');
+        throw new Error('The downloaded tool would not start. Your antivirus may have blocked it');
       }
       checkTools({ refresh: true });
       // Files that failed only because this tool was missing are now fixable —
@@ -693,7 +697,7 @@ function _isNewer(latest, current) {
 app.get('/api/update-check', async (req, res) => {
   const current = pkg.version;
   const slug = _parseRepoSlug(pkg.repository);
-  if (!slug) return res.json({ current, error: 'repository not configured' });
+  if (!slug) return res.json({ current, error: 'Update checks are not set up for this copy of Vault.' });
 
   try {
     const resp = await netFetch(`https://api.github.com/repos/${slug}/releases/latest`, {
@@ -702,10 +706,10 @@ app.get('/api/update-check', async (req, res) => {
       signal: AbortSignal.timeout(8000),
     });
     if (resp.status === 404) {
-      return res.json({ current, error: 'No releases found - repository may not be published yet' });
+      return res.json({ current, error: 'No releases have been published yet.' });
     }
     if (!resp.ok) {
-      return res.json({ current, error: `GitHub returned HTTP ${resp.status}` });
+      return res.json({ current, error: `Could not check for updates (GitHub answered ${resp.status}). Try again later.` });
     }
     const data = await resp.json();
     const latest = String(data.tag_name || '').replace(/^v/, '');
@@ -968,16 +972,183 @@ app.post('/api/import/queue/pause', (req, res) => res.json(importQueue.pause()))
 // the panel bounce. Advisory only — the resume still happens, because a probe
 // that's wrong must never be able to trap the user in a paused queue.
 app.post('/api/import/queue/resume', async (req, res) => {
-  const wasModelHalt = importQueue.pausedBy() === 'model';
+  // 'waiting' is what a model halt became (lib/import-queue.js).
+  const by = importQueue.pausedBy();
+  const wasModelHalt = by === 'model' || by === 'waiting';
   let warning = null;
   if (wasModelHalt) {
     try {
       const up = await require('../lib/llm-client').isAvailable();
-      if (!up) warning = 'No LLM endpoint answered. Load a model, or the scan will pause again on the next file.';
+      if (!up) warning = 'No AI server answered. Load the scan model, or files will wait again on the next one.';
     } catch {}
   }
   res.json({ ...importQueue.resume(), warning });
 });
+
+// What the viewer polls while no scan panel is showing, so work queued by
+// someone else (a watched folder, another tab, a retry) brings the panel up.
+// Counts only: cheap enough to ask every few seconds.
+app.get('/api/import/queue/summary', (req, res) => {
+  const s = importQueue.status();
+  res.json({
+    active: s.active.length,
+    queued: s.pendingCount,
+    waiting: s.waiting ? s.waiting.count : 0,
+    failed: s.failed,
+    done: s.done,
+    total: s.total,
+  });
+});
+
+/* ── Failed and waiting files (the scan panel's Failed and Waiting tabs) ──
+   Grouped by reason with a few files per group, never the whole list: a run
+   can fail by the hundred thousand. Grouping reads processing_error from the
+   database in chunks (lib/scan-failures.js), so files fixed since drop out.
+   The result is cached for a few seconds per change of the failure set, as
+   the panel polls it while the tab is open. */
+let _failCache = null;          // { version, at, sample, value }
+const FAIL_CACHE_MS = 3000;
+let _failInflight = null;
+
+async function _failureGroups(sample) {
+  const version = importQueue.failVersion();
+  if (_failCache && _failCache.version === version && _failCache.sample === sample
+      && Date.now() - _failCache.at < FAIL_CACHE_MS) return _failCache.value;
+  if (_failInflight) return _failInflight;
+  _failInflight = (async () => {
+    const out = await require('../lib/scan-failures').collect(db.get(), importQueue.failedIds(), { sample });
+    // Files fixed since (or gone) leave this run's list.
+    if (out.cleared.length) importQueue.forgetFailures(out.cleared);
+    const value = { total: out.total, groups: out.groups };
+    _failCache = { version: importQueue.failVersion(), at: Date.now(), sample, value };
+    return value;
+  })().finally(() => { _failInflight = null; });
+  return _failInflight;
+}
+
+app.get('/api/import/failures', async (req, res) => {
+  const sample = Math.max(1, Math.min(20, parseInt(req.query.sample, 10) || 5));
+  try {
+    const failed = await _failureGroups(sample);
+    res.json({ failed, waiting: importQueue.waitingInfo({ sample: 50 }) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Copy list: every failed file of the run, path and reason, as plain text.
+app.get('/api/import/failures/text', async (req, res) => {
+  try {
+    const text = await require('../lib/scan-failures').asText(db.get(), importQueue.failedIds());
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.type('text/plain; charset=utf-8').send(text);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Retry all failed files of the run, or one reason's (`reason`: a group key).
+app.post('/api/import/failures/retry', async (req, res) => {
+  const reason = req.body?.reason;
+  if (reason !== undefined && reason !== null && (typeof reason !== 'string' || !/^[a-z-]{1,40}$/.test(reason))) {
+    return res.status(400).json({ error: 'reason must be a group key' });
+  }
+  try {
+    res.json(await importQueue.retryFailures(reason || null));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// The panel was closed: forget this run's failure list.
+app.post('/api/import/failures/clear', (req, res) => {
+  res.json({ cleared: importQueue.clearFailures() });
+});
+
+/* ── The scan model (Settings > Models > Scanning, lib/scan-model.js) ───── */
+
+function _scanSettingsPayload(models) {
+  const llm = require('../lib/llm-client');
+  return {
+    ...scanModel.status(),
+    // What a scan asks for right now, and what decided it: AI_MODEL and a
+    // pick made in the scan panel or Backend outrank the saved choice.
+    current: llm.resolveModel({ forScan: true }) || null,
+    envModel: config.lmStudio.model || null,
+    sessionModel: llm.getSessionModel({ kind: 'vision' }) || null,
+    models,
+  };
+}
+
+app.get('/api/ai/scan-settings', async (req, res) => {
+  let models = [];
+  try { models = await scanModel.diskModels({ force: req.query.refresh === '1' }); } catch {}
+  res.json(_scanSettingsPayload(models));
+});
+
+app.post('/api/ai/scan-settings', async (req, res) => {
+  const body = req.body || {};
+  const patch = {};
+  for (const k of ['scanModel', 'whenNotLoaded', 'gpuFreeForWatch', 'unloadIdleMin']) {
+    if (body[k] !== undefined) patch[k] = body[k];
+  }
+  // A scan model has to read pictures: refuse one LM Studio lists as text only.
+  if (typeof patch.scanModel === 'string' && patch.scanModel.trim()) {
+    let rows = [];
+    try { rows = await scanModel.diskModels(); } catch {}
+    const row = rows.find(r => r.modelKey === patch.scanModel.trim());
+    if (row && row.vision === false) {
+      return res.status(400).json({ error: `${row.modelKey} cannot read pictures (LM Studio lists it as text only). Pick a vision model.` });
+    }
+  }
+  const out = scanModel.setSettings(patch);
+  if (out.error) return res.status(400).json({ error: out.error });
+  // The temporary pick from the scan panel or Backend is left alone: text
+  // features use it too. While one is set it outranks this choice for scans,
+  // and the Scanning group says so.
+  let models = [];
+  try { models = await scanModel.diskModels(); } catch {}
+  res.json(_scanSettingsPayload(models));
+});
+
+// "Load anyway" on the Waiting tab: load the scan model whatever the room check says.
+app.post('/api/ai/scan-model/load', async (req, res) => {
+  const w = await importQueue.loadNow();
+  res.json({ ok: !!w && w.code === 'loading', wait: w || null, status: scanModel.status() });
+});
+
+// "Open LM Studio": start the LM Studio app on this PC (the window, not just
+// the server). Only from its usual install places; never a path from the client.
+app.post('/api/ai/open-lmstudio', (req, res) => {
+  const out = _openLmStudio();
+  if (!out.ok) return res.status(404).json({ error: out.error });
+  res.json({ ok: true });
+});
+
+function _openLmStudio() {
+  const candidates = [];
+  if (process.platform === 'win32') {
+    const local = process.env.LOCALAPPDATA;
+    const pf = process.env.ProgramFiles;
+    if (local) candidates.push(path.join(local, 'Programs', 'LM Studio', 'LM Studio.exe'), path.join(local, 'Programs', 'lm-studio', 'LM Studio.exe'));
+    if (pf) candidates.push(path.join(pf, 'LM Studio', 'LM Studio.exe'));
+  } else if (process.platform === 'darwin') {
+    candidates.push('/Applications/LM Studio.app');
+  }
+  const exe = candidates.find(p => { try { return fs.existsSync(p); } catch { return false; } });
+  if (!exe) return { ok: false, error: 'LM Studio was not found in its usual place. Open it from the Start menu.' };
+  try {
+    const { spawn } = require('child_process');
+    const child = process.platform === 'darwin'
+      ? spawn('open', [exe], { detached: true, stdio: 'ignore' })
+      : spawn(exe, [], { detached: true, stdio: 'ignore', windowsHide: false });
+    child.on('error', () => {});
+    child.unref();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
 
 // ── "Which model?" — answering LM Studio's multiple-models 400 ──────────────
 // LM Studio only ignores the `model` field while exactly one model is loaded.
@@ -998,7 +1169,7 @@ app.get('/api/ai/models', async (req, res) => {
     // of Vault. Refresh in Settings > Backend sends ?refresh=1.
     await aiSlots.refresh({ force: req.query.refresh === '1' });
     const states = aiSlots.endpointStates();
-    const fams = aiSlots.families(llm.currentFamily());
+    const fams = aiSlots.families(llm.currentFamily({ forScan: true }));
     const models = [];
     for (const f of fams) for (const i of f.instances) if (i.alive) models.push({ id: i.id });
     const errors = states.filter(s => s.error).map(s => `${s.url}: ${s.error}`);
@@ -1008,12 +1179,20 @@ app.get('/api/ai/models', async (req, res) => {
       // uses all of them, which is the whole point of loading extras.
       families: fams.map(f => ({
         family: f.family,
+        vision: aiSlots.familyVision(f.family),
         count: f.instances.filter(i => i.alive).length,
         endpoints: new Set(f.instances.filter(i => i.alive).map(i => i.endpoint)).size,
       })),
       // What a request would carry today: the session pick, unless AI_MODEL
       // (which outranks it) is set.
-      current: config.lmStudio.model || llm.getSessionModel() || null,
+      current: llm.resolveModel({ forScan: true }) || null,
+      // The temporary picks, per kind, so the Backend page can say which is in charge.
+      picks: { vision: llm.getSessionModel({ kind: 'vision' }) || null, text: llm.getSessionModel({ kind: 'text' }) || null },
+      // What actually decides, per kind, by the same rules a scan uses.
+      decides: {
+        vision: _decides('vision'),
+        text: _decides('text'),
+      },
       error: (models.length === 0 && errors.length) ? errors.join('; ') : null,
     });
   } catch (err) {
@@ -1022,8 +1201,22 @@ app.get('/api/ai/models', async (req, res) => {
   }
 });
 
+/** Which model a scan of this kind asks for, and what decided it. */
+function _decides(kind) {
+  const llm = require('../lib/llm-client');
+  const model = llm.resolveModel(kind === 'vision' ? { forScan: true } : { forTextScan: true }) || null;
+  let by = 'auto';
+  if (config.lmStudio.model) by = 'env';
+  else if (llm.getSessionModel({ kind })) by = 'pick';
+  else if (model) by = 'saved';
+  return { model, by };
+}
+
 app.post('/api/ai/model-choice', (req, res) => {
   const raw = req.body?.model;
+  // 'vision' (pictures and videos) or 'text' (documents, audio): the panel's
+  // picker answers for the kind of file that asked. None: both (Backend).
+  const kind = req.body?.kind === 'vision' || req.body?.kind === 'text' ? req.body.kind : null;
   const llm = require('../lib/llm-client');
   // null / 'auto' means "stop pinning anything" — the way back out of a choice
   // made for a model that has since been unloaded.
@@ -1032,15 +1225,12 @@ app.post('/api/ai/model-choice', (req, res) => {
   if (!clearing && typeof raw !== 'string') {
     return res.status(400).json({ error: 'model must be text, or null for auto' });
   }
-  const model = llm.setSessionModel(clearing ? null : raw);
-  // The halt this answers should clear itself — making the user press ▶ Resume
-  // straight after picking would be asking the same question twice.
-  let resumed = false;
-  if (importQueue.pausedBy() === 'model-choice') {
-    importQueue.resume();
-    resumed = true;
-  }
-  res.json({ ok: true, model, family: llm.currentFamily(), resumed });
+  const model = llm.setSessionModel(clearing ? null : raw, { kind });
+  // The question this answers clears itself: making the user press Resume
+  // straight after picking would be asking the same question twice. A pick
+  // for one kind never clears (or holds) the other kind's question.
+  const resumed = importQueue.answerChoice(kind);
+  res.json({ ok: true, model, family: llm.currentFamily({ forScan: true }), resumed });
 });
 
 /* ── AI servers and loaded instances ──────────────────────────────────────
@@ -1057,7 +1247,7 @@ app.get('/api/ai/endpoints', (req, res) => res.json(_endpointsPayload()));
 
 app.post('/api/ai/endpoints', async (req, res) => {
   if (config.lmStudio.endpointSource === 'env') {
-    return res.status(409).json({ error: 'servers are set by LM_STUDIO_URLS' });
+    return res.status(409).json({ error: 'The AI servers are set by LM_STUDIO_URLS when Vault starts, so they cannot be changed here.' });
   }
   const { urls, error } = aiSlots.normalizeEndpoints(req.body?.endpoints);
   if (error) return res.status(400).json({ error });
@@ -1087,7 +1277,7 @@ app.post('/api/ai/endpoints/test', async (req, res) => {
 
 function _instancesPayload() {
   const llm = require('../lib/llm-client');
-  const current = llm.currentFamily();
+  const current = llm.currentFamily({ forScan: true });
   const activeSlots = importQueue.activeSlots();
   const workersPerInstance = importQueue.getWorkersPerInstance();
   return {
@@ -1096,7 +1286,7 @@ function _instancesPayload() {
     // an exact id) rather than a family. The family's other rows are still
     // listed so the user can see them, but only this one is being used, and
     // activeSlots counts only this one.
-    pinnedId: llm.currentPin(),
+    pinnedId: llm.currentPin({ forScan: true }),
     workersPerInstance,
     activeSlots,
     // The real pool size. It equals activeSlots × workersPerInstance whenever
@@ -1292,6 +1482,52 @@ app.post('/api/media/retry-errors', (req, res) => {
   res.json(out);
 });
 
+// Force refresh: read files again (media info, thumbnail, hover frames) and
+// clear a stale processing error, without redoing the AI scan (lib/import-add.js
+// forceRefresh). A few files answer with the outcome; a big selection runs in
+// the background (one ffprobe per file adds up) and answers 202 straight away.
+const FORCE_REFRESH_INLINE = 20;
+const FORCE_REFRESH_MAX = 100_000;
+let _forceRefreshJob = null;      // { total, startedAt } while a background run goes
+
+app.post('/api/media/force-refresh', async (req, res) => {
+  const raw = req.body?.ids;
+  if (!Array.isArray(raw) || raw.length === 0) return res.status(400).json({ error: 'ids must be a non-empty array' });
+  const ids = [...new Set(raw.map(v => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v
+    : (typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? Number(v) : null))).filter(v => v !== null))];
+  if (!ids.length) return res.status(400).json({ error: 'no valid ids' });
+  if (ids.length > FORCE_REFRESH_MAX) return res.status(400).json({ error: `Pick ${FORCE_REFRESH_MAX} files or fewer at a time.` });
+  // From a selection: only the files that carry an error (a big selection
+  // must not remake every thumbnail in it).
+  if (req.body?.onlyErrored === true) {
+    const handle = db.get();
+    const keep = [];
+    for (let i = 0; i < ids.length; i += 900) {
+      const chunk = ids.slice(i, i + 900);
+      for (const r of handle.prepare(
+        `SELECT id FROM media WHERE id IN (${chunk.map(() => '?').join(',')})
+           AND processing_error IS NOT NULL AND processing_error != '' AND processing_error != 'unscanned'`
+      ).all(...chunk)) keep.push(r.id);
+    }
+    ids.length = 0;
+    ids.push(...keep);
+    if (!ids.length) return res.json({ refreshed: [], stillBroken: [], missing: [], queued: [], noProbe: false, rows: [] });
+  }
+  const importAdd = require('../lib/import-add');
+  const isLocked = () => vault.isLocked();
+  if (ids.length <= FORCE_REFRESH_INLINE) {
+    const out = await importAdd.forceRefresh(ids, { isLocked });
+    return res.json({ ...out, rows: out.refreshed.map(id => db.getById(id)).filter(Boolean) });
+  }
+  if (_forceRefreshJob) return res.status(409).json({ error: 'A force refresh is already running. Try again when it is done.' });
+  _forceRefreshJob = { total: ids.length, startedAt: Date.now() };
+  res.status(202).json({ started: true, count: ids.length });
+  importAdd.forceRefresh(ids, { isLocked })
+    .then(out => console.log(`[Refresh] force refresh: ${out.refreshed.length} read again, ${out.stillBroken.length} still unreadable, ${out.missing.length} missing`))
+    .catch(err => console.warn(`[Refresh] force refresh failed: ${err.message}`))
+    .finally(() => { _forceRefreshJob = null; });
+});
+
 // Bulk rescan — the scan-status filter's "Rescan these (N)" button.
 //
 // Same queue, one extra switch: force also re-runs files that scanned FINE.
@@ -1330,13 +1566,13 @@ function _migrateParams(body) {
   const str = (v) => (typeof v === 'string' ? v.trim() : '');
   if (mode === 'relink' || mode === 'auto') {
     const newRoot = str(body?.newRoot);
-    if (!newRoot) return { error: 'newRoot is required' };
+    if (!newRoot) return { error: 'Choose the new folder first.' };
     return { mode, newRoot };
   }
   const oldPrefix = str(body?.oldPrefix);
   const newPrefix = str(body?.newPrefix);
-  if (!oldPrefix || !newPrefix) return { error: 'oldPrefix and newPrefix are required' };
-  if (oldPrefix === newPrefix) return { error: 'the two prefixes are identical' };
+  if (!oldPrefix || !newPrefix) return { error: 'Enter both the old path and the new path.' };
+  if (oldPrefix === newPrefix) return { error: 'The old path and the new path are the same.' };
   return { mode, oldPrefix, newPrefix };
 }
 
@@ -1439,7 +1675,7 @@ const _migrateJob = (() => {
     /** @returns {{job}|{status,error}} */
     start(kind, params) {
       if (job && !job.done) {
-        return { status: 409, error: 'a migrate is already running', jobId: job.id };
+        return { status: 409, error: 'A migrate is already running', jobId: job.id };
       }
       job = {
         id: `mig-${++seq}-${Date.now()}`,
@@ -1520,7 +1756,7 @@ async function _migrateStart(kind, req, res) {
   const p = _migrateParams(req.body);
   if (p.error) return res.status(400).json({ error: p.error });
   if (_scanBusy()) {
-    return res.status(409).json({ error: 'a scan is running. Pause it or let it finish first.' });
+    return res.status(409).json({ error: 'A scan is running. Pause it or let it finish first.' });
   }
 
   const started = _migrateJob.start(kind, p);
@@ -1846,13 +2082,19 @@ const PICKER_FILES_PS1 = PICKER_CS_TOP + PICKER_BODY_FILES + PICKER_CS_BOTTOM;
 // appears + stuck busy" failure), and the 10-min watchdog.
 let _picker = null;          // live child process, or null
 function spawnPicker(res, script, kind, onClose) {
+  // Test and scratch servers set this so nothing driving the page (a test
+  // run, an automated check) can put a native dialog on the user's desktop.
+  // Read per request; off unless set to 1.
+  if (process.env.VAULT_DISABLE_NATIVE_PICKER === '1') {
+    return res.status(409).json({ error: 'This copy of Vault cannot open the Windows file picker.' });
+  }
   if (process.platform !== 'win32') {
-    return res.status(501).json({ error: `native ${kind} picker is Windows-only for now. Type the path instead` });
+    return res.status(501).json({ error: `The ${kind} picker only works on Windows. Drop files onto the window instead.` });
   }
   // Busy only when the child is genuinely alive — a crashed/killed picker can
   // never wedge the button again.
   if (_picker && _picker.exitCode === null) {
-    return res.status(409).json({ error: 'a picker is already open. Check for its window (it stays on top)' });
+    return res.status(409).json({ error: 'A file picker is already open. It may be behind this window.' });
   }
 
   const { spawn } = require('child_process');
@@ -1895,7 +2137,7 @@ app.post('/api/import/pick-folder', (req, res) => {
     if (raw === PICK_CANCEL) return finish(200, { canceled: true });
     if (raw) return finish(200, { path: raw });
     console.warn('[Import] folder picker failed:', (errOut.trim() || `exit ${code}, no output`).split('\n')[0]);
-    finish(500, { error: 'folder picker failed, see server log' });
+    finish(500, { error: 'The folder picker could not open. Try again.' });
   });
 });
 
@@ -1911,7 +2153,7 @@ app.post('/api/import/pick-files', (req, res) => {
     if (paths.length) return finish(200, { paths });
     if (code === 0 && !errOut.trim()) return finish(200, { paths: [] });
     console.warn('[Import] file picker failed:', (errOut.trim() || `exit ${code}, no output`).split('\n')[0]);
-    finish(500, { error: 'file picker failed, see server log' });
+    finish(500, { error: 'The file picker could not open. Try again.' });
   });
 });
 
@@ -2089,10 +2331,10 @@ app.post('/api/import/resolve-drop', (req, res) => {
 // No DB writes; the client decides what to add.
 app.post('/api/import/scan-folder', (req, res) => {
   const root = String(req.body?.path || '').trim();
-  if (!root) return res.status(400).json({ error: 'path required' });
+  if (!root) return res.status(400).json({ error: 'Enter a folder path.' });
   let st;
-  try { st = fs.statSync(root); } catch { return res.status(404).json({ error: 'folder not found' }); }
-  if (!st.isDirectory()) return res.status(400).json({ error: 'not a folder' });
+  try { st = fs.statSync(root); } catch { return res.status(404).json({ error: 'Folder not found. Check the path and that its drive is connected.' }); }
+  if (!st.isDirectory()) return res.status(400).json({ error: 'That path is a file, not a folder.' });
 
   const MAX_FILES = 50000;                       // sanity cap for a mis-pick like C:\
   const files = [];
@@ -2145,10 +2387,10 @@ app.post('/api/media/:id/rescan', async (req, res) => {
   const row = db.getById(id);
   if (!row) return res.status(404).json({ error: 'not found' });
   if (!fs.existsSync(row.filepath)) {
-    return res.status(409).json({ error: 'source file missing on disk' });
+    return res.status(409).json({ error: 'The file is missing on disk. It may have been moved, renamed or deleted.' });
   }
   if (_rescanning.has(id)) {
-    return res.status(409).json({ error: 'rescan already running for this file' });
+    return res.status(409).json({ error: 'This file is already being rescanned.' });
   }
 
   _rescanning.add(id);
@@ -2156,10 +2398,13 @@ app.post('/api/media/:id/rescan', async (req, res) => {
     const { processFile } = require('../commands/scan');
     require('../lib/frame-extractor').ensureTempDir();
 
-    const result = await processFile(
+    // A scan like the queue's: it uses the saved scan model, and in
+    // automatic mode only models that can read pictures (lib/llm-client.js).
+    const vision = ['video', 'image', 'gif', 'mix'].includes(row.media_type);
+    const result = await aiSlots.runScan({ mediaId: id, scan: true, vision }, () => processFile(
       { path: row.filepath, name: row.filename, mediaType: row.media_type },
       { reprocess: true, retryErrors: true }
-    );
+    ));
 
     embeddings.invalidateCache();
     if (result.error) {
@@ -2252,7 +2497,7 @@ async function beatAudioAdts(req, res, id, row) {
   // the finished bytes rather than racing the extractor.
   if (_adtsInflight.has(id)) {
     const job = await _adtsInflight.get(id);
-    if (!job.ok) return res.status(500).json({ error: 'audio extraction failed' });
+    if (!job.ok) return res.status(500).json({ error: 'Could not read the audio from this file.' });
     res.set('Content-Type', 'audio/aac');
     return res.end(job.buf);
   }
@@ -2264,7 +2509,7 @@ async function beatAudioAdts(req, res, id, row) {
 
   if (!job.ok) {
     console.warn(`[BeatBar] adts extraction failed for #${id}:`, job.err);
-    if (!res.headersSent) return res.status(500).json({ error: 'audio extraction failed' });
+    if (!res.headersSent) return res.status(500).json({ error: 'Could not read the audio from this file.' });
     return res.destroy();                 // mid-stream failure → kill the socket
   }
   // pipe() already ended the response; persist the cache.
@@ -2321,7 +2566,7 @@ app.get('/api/media/:id/beat-audio', async (req, res) => {
         }
         buf = await _beatAudioInflight.get(id);
       } catch (err) {
-        return res.status(500).json({ error: 'audio extraction failed' });
+        return res.status(500).json({ error: 'Could not read the audio from this file.' });
       }
     }
     if (!buf) return res.status(404).end();
@@ -2356,7 +2601,7 @@ app.get('/api/media/:id/beat-audio', async (req, res) => {
       }
       await _beatAudioInflight.get(id);
     } catch (err) {
-      return res.status(500).json({ error: 'audio extraction failed' });
+      return res.status(500).json({ error: 'Could not read the audio from this file.' });
     }
   }
   res.sendFile(outPath, (err) => {
@@ -3184,6 +3429,9 @@ function start(args = process.argv.slice(2)) {
   // Non-blocking: boot must not wait on an LM Studio that is not running. The
   // ticker only spends a request while a scan is actually going.
   aiSlots.boot({ activeProbe: () => importQueue.isActive() || _rescanning.size > 0 });
+  // The idle clock for "Unload the scan model after N min idle" (only ever
+  // copies Vault loaded itself; see lib/scan-model.js).
+  scanModel.boot({ isBusy: () => importQueue.isActive() || _rescanning.size > 0 });
   // Folder watchers: start a few seconds after boot (or on first unlock),
   // stop on lock, catch up on unlock. A migrate holds their writes; a write
   // that marks files missing or back drops the banner's cached count.

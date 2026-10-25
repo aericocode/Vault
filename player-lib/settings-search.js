@@ -16,6 +16,12 @@
    Hooks in settings.js: vaultSettingsSearchMount (modal built),
    vaultSettingsSearchReset (modal opened), and from there
    vaultSettingsSelect / vaultSettingsIsOpen.
+
+   The index names each setting's Classic page. Modern has its own pages
+   (player-lib/settings-kit.js SETTINGS_PAGES_MODERN): an entry's Modern
+   page is its mpage if it has one (the privacy rows moved to Privacy and
+   security), else its Classic page under its Modern name (Settings is
+   General, Backend is AI servers).
    ========================================================================= */
 
 /** The Settings pages, in menu order, with their names in plain words. */
@@ -31,27 +37,45 @@ const SETTINGS_SEARCH_PAGES = [
   { id: 'about', title: 'About' },
 ];
 
+/** Classic page ids and the Modern page each one became (settings-kit.js has the same map). */
+const SETTINGS_SEARCH_MODERN_PAGE = { settings: 'general', backend: 'servers' };
+
+/** The pages for a look, in menu order: { id, title }. */
+function settingsSearchPages(look) {
+  if (look === 'modern' && typeof SETTINGS_PAGES_MODERN !== 'undefined') {
+    return SETTINGS_PAGES_MODERN.flatMap(g => g.pages.map(p => ({ id: p.id, title: p.title })));
+  }
+  return SETTINGS_SEARCH_PAGES;
+}
+
+/** The page an index entry is on in a look. */
+function settingsSearchPageOf(entry, look) {
+  if (look !== 'modern') return entry.page;
+  return entry.mpage || SETTINGS_SEARCH_MODERN_PAGE[entry.page] || entry.page;
+}
+
 /**
- * Every setting on every page. id is the row's data-sfind value. look:
- * 'modern' or 'classic' for a row only one look shows.
+ * Every setting on every page. id is the row's data-sfind value. page: its
+ * Classic page; mpage: its Modern page when that is not just the Classic
+ * page renamed. look: 'modern' or 'classic' for a row only one look shows.
  */
 const SETTINGS_INDEX = [
   // Settings
-  { page: 'settings', id: 'privacyMode', label: 'Privacy mode',
+  { page: 'settings', mpage: 'privacy', id: 'privacyMode', label: 'Privacy mode',
     desc: 'Hide personal data on screen. Ctrl+Shift+H turns it on or off.',
     keywords: ['streaming', 'screen share', 'hide', 'blur', 'private'] },
-  { page: 'settings', id: 'privacyHide', label: 'Privacy mode: what to hide',
+  { page: 'settings', mpage: 'privacy', id: 'privacyHide', label: 'Privacy mode: what to hide',
     desc: 'File paths, notes, note chips, saved searches, import folders, thumbnails, file names.',
     keywords: ['hide while on', 'blur thumbnails', 'streaming', 'screen share'] },
   { page: 'settings', id: 'resumePlayback', label: 'Resume playback positions',
     desc: 'Go back to where you left off when you open a video or audio file again.',
-    keywords: ['continue', 'seek', 'left off', 'position'] },
+    keywords: ['continue', 'seek', 'left off', 'position', 'where i left off'] },
   { page: 'settings', id: 'restoreSession', label: 'Restore last session on open',
     desc: 'When Vault starts, open the last file you played, paused.',
-    keywords: ['reopen', 'last file', 'startup', 'launch'] },
+    keywords: ['reopen', 'last file', 'startup', 'launch', 'session'] },
   { page: 'settings', id: 'libraryLayout', label: 'Library layout',
     desc: 'Pages fill the screen with whole rows. Continuous scrolls freely.',
-    keywords: ['pages', 'continuous', 'scroll', 'infinite', 'pagination'] },
+    keywords: ['pages', 'continuous', 'scroll', 'infinite', 'pagination', 'browsing'] },
   { page: 'settings', id: 'layoutStyle', label: 'Library look',
     desc: 'Classic or Modern. Modern uses the full width and line icons.',
     keywords: ['classic', 'modern', 'style', 'appearance', 'theme', 'icons', 'emoji'] },
@@ -63,28 +87,32 @@ const SETTINGS_INDEX = [
   { page: 'settings', id: 'cardSizeRange', outside: 'cardSizeRange', label: 'Card size', look: 'modern',
     desc: 'The Size slider above the library grid. Drag it for smaller or bigger tiles.',
     keywords: ['tile size', 'thumbnail size', 'bigger', 'smaller', 'zoom', 'slider'] },
-  { page: 'settings', id: 'gamifyHidden', label: 'Hide Obsession Score',
-    desc: 'Remove the score chip and its toasts. Scoring carries on in the background.',
+  { page: 'settings', id: 'gamifyHidden', label: 'Show or hide the Obsession Score',
+    desc: 'The score chip and its toasts. Scoring carries on in the background.',
     keywords: ['gamify', 'points', 'streak', 'level', 'achievements', 'flame'] },
   { page: 'settings', id: 'instanceName', label: 'Instance name',
     desc: 'The page title and the word at the top left.',
-    keywords: ['rename', 'title', 'second vault'] },
+    keywords: ['rename', 'title', 'second vault', 'this copy'] },
   { page: 'settings', id: 'port', label: 'Port',
     desc: 'The port Vault runs on. Takes effect at the next launch.',
     keywords: ['address', 'url', 'localhost', 'network', '8765'] },
-  { page: 'settings', id: 'modelDownloads', label: 'AI model downloads',
+  { page: 'settings', mpage: 'privacy', id: 'modelDownloads', label: 'AI model downloads',
     desc: 'Approve the one-time model downloads for subtitles, translation, speaker detection and face search.',
     keywords: ['download', 'consent', 'hugging face', 'whisper', 'offline', 'internet'] },
-  { page: 'settings', id: 'vaultSecurity', label: 'Vault security',
-    desc: 'The database password and how the library locks itself.',
+  { page: 'settings', mpage: 'privacy', id: 'vaultSecurity', label: 'Vault security',
+    desc: 'The vault password and how the library locks itself.',
     keywords: ['password', 'encrypt', 'encryption', 'lock', 'padlock'] },
-  { page: 'settings', id: 'autolockMinutes', label: 'Auto-lock after',
+  { page: 'settings', mpage: 'privacy', id: 'vaultPassword', label: 'Vault password',
+    desc: 'Set a password to encrypt the library, or change it.',
+    keywords: ['password', 'encrypt', 'encryption', 'lock', 'change password', 'set password'] },
+  { page: 'settings', mpage: 'privacy', id: 'autolockMinutes', label: 'Auto-lock after',
     desc: 'Lock the vault after this many minutes with no activity. 0 means never.',
     keywords: ['password', 'lock', 'timeout', 'idle', 'security', 'minutes'] },
-  { page: 'settings', id: 'p_confirmTrash', label: 'Confirm before trash (planned)',
+  // The Planned group is Classic's only.
+  { page: 'settings', id: 'p_confirmTrash', label: 'Confirm before trash (planned)', look: 'classic',
     desc: 'Ask before moving a file to the trash. Not available yet.',
     keywords: ['delete', 'confirm', 'ask'] },
-  { page: 'settings', id: 'p_defaultSort', label: 'Default sort and filter on open (planned)',
+  { page: 'settings', id: 'p_defaultSort', label: 'Default sort and filter on open (planned)', look: 'classic',
     desc: 'Start every session with a saved sort and filter. Not available yet.',
     keywords: ['sort', 'filter', 'preset', 'startup'] },
 
@@ -122,7 +150,7 @@ const SETTINGS_INDEX = [
     keywords: ['trash', 'recycle bin', 'remove', 'erase', 'permanent'] },
   { page: 'library', id: 'mig-prefix', label: 'Quick move',
     desc: 'Moved your files to a new drive or folder? Change the start of their paths, no rescan.',
-    keywords: ['relink', 'move', 'moved', 'migrate', 'drive', 'path', 'prefix'] },
+    keywords: ['relink', 'move', 'moved', 'migrate', 'drive', 'path', 'prefix', 'moved your files'] },
   { page: 'library', id: 'mig-auto', label: 'Deep search for moved files',
     desc: 'Finds renamed and shuffled files in a new folder and relinks them.',
     keywords: ['relink', 'move', 'moved', 'renamed', 'migrate', 'missing'] },
@@ -185,6 +213,18 @@ const SETTINGS_INDEX = [
     keywords: ['password', 'lock', 'encrypt', 'security'] },
 
   // Models
+  { page: 'models', id: 'scanModel', label: 'Scan model',
+    desc: 'The model Vault uses to analyse new files, picked from the models LM Studio has on disk.',
+    keywords: ['vision model', 'ai scan', 'lm studio', 'analyse', 'analyze', 'default model', 'which model'] },
+  { page: 'models', id: 'scanWhenNotLoaded', label: 'When the scan model is not loaded',
+    desc: 'Load it if there is room on the GPU, wait until you load it, or always load it.',
+    keywords: ['load model', 'auto load', 'vram', 'gpu memory', 'waiting', 'not loaded', 'lms'] },
+  { page: 'models', id: 'scanGpuFree', label: 'Only scan watched folders when the GPU is free',
+    desc: 'Watched folder files wait while any other model is loaded.',
+    keywords: ['watch', 'folder watchers', 'gpu busy', 'text model', 'wait'] },
+  { page: 'models', id: 'scanUnloadIdle', label: 'Unload the scan model after',
+    desc: 'Free GPU memory once the queue has been idle. Only a copy Vault loaded itself.',
+    keywords: ['unload', 'idle', 'eject', 'free vram', 'gpu memory', 'timeout'] },
   { page: 'models', id: 'modelTable', label: 'Model recommendations by GPU size',
     desc: 'Which vision model to load for your graphics card.',
     keywords: ['vram', 'gpu', 'graphics card', 'lm studio', 'vision model', 'whisper', 'quant'] },
@@ -195,21 +235,21 @@ const SETTINGS_INDEX = [
     keywords: ['songs', 'music id', 'import', 'fingerprints'] },
 
   // Backend
-  { page: 'backend', id: 'backendInstances', label: 'Loaded instances',
+  { page: 'backend', id: 'backendInstances', label: 'Loaded models',
     desc: 'What LM Studio has loaded right now, and which copies scans use.',
-    keywords: ['lm studio', 'models', 'gpu', 'instances', 'loaded'] },
-  { page: 'backend', id: 'scanWorkers', label: 'Workers per instance',
+    keywords: ['lm studio', 'models', 'gpu', 'instances', 'loaded', 'backend', 'ai servers'] },
+  { page: 'backend', id: 'scanWorkers', label: 'Scans at once, per copy',
     desc: 'How many files each loaded model scans at once.',
-    keywords: ['parallel', 'concurrency', 'speed', 'threads', 'scan'] },
+    keywords: ['parallel', 'concurrency', 'speed', 'threads', 'scan', 'backend', 'workers', 'instances'] },
   { page: 'backend', id: 'backendModel', label: 'Model for scans',
     desc: 'Auto uses whatever is loaded, or pick one model family.',
-    keywords: ['vision model', 'family', 'choose model', 'scan'] },
+    keywords: ['vision model', 'family', 'choose model', 'scan', 'backend'] },
   { page: 'backend', id: 'backendAiServer', label: 'AI server',
     desc: 'Where scans go: LM Studio, Ollama or vLLM on this PC.',
-    keywords: ['lm studio', 'ollama', 'vllm', 'endpoint', 'url', 'address'] },
+    keywords: ['lm studio', 'ollama', 'vllm', 'endpoint', 'url', 'address', 'backend', 'ai servers'] },
   { page: 'backend', id: 'backendAdvanced', label: 'Advanced: AI servers',
     desc: 'Add a second machine or another program, and test a server.',
-    keywords: ['endpoint', 'network', 'remote', 'ollama', 'url', 'lm_studio_urls'] },
+    keywords: ['endpoint', 'network', 'remote', 'ollama', 'url', 'lm_studio_urls', 'backend'] },
 
   // About
   { page: 'about', id: 'about', label: 'About Vault',
@@ -290,7 +330,8 @@ function settingsSearch(query, opts = {}) {
   for (const e of SETTINGS_INDEX) {
     if (e.look && e.look !== look) continue;
     const m = settingsSearchScore(e, words);
-    if (m) add(e, m);
+    // The result names the page it is on in this look.
+    if (m) add({ ...e, page: settingsSearchPageOf(e, look) }, m);
   }
   let more = 0;
   if (typeof SHORTCUTS !== 'undefined' && typeof shortcutsFilter === 'function') {
@@ -303,7 +344,8 @@ function settingsSearch(query, opts = {}) {
     });
     more = Math.max(0, rows.length - limit);
   }
-  const order = SETTINGS_SEARCH_PAGES.map(p => p.id);
+  const pages = settingsSearchPages(look);
+  const order = pages.map(p => p.id);
   return [...byPage.entries()]
     .map(([page, items]) => {
       // Within a page: best first; the shortcut rows keep the table's order
@@ -311,7 +353,7 @@ function settingsSearch(query, opts = {}) {
       items.sort((a, b) => (a.item.shortcut === b.item.shortcut ? b.score - a.score : a.item.shortcut ? 1 : -1));
       return {
         page,
-        title: (SETTINGS_SEARCH_PAGES.find(p => p.id === page) || { title: page }).title,
+        title: (pages.find(p => p.id === page) || { title: page }).title,
         items,
         best: Math.max(...items.filter(i => !i.item.shortcut).map(i => i.score), 0),
         more: page === 'shortcuts' ? more : 0,
@@ -482,7 +524,10 @@ function settingsSearchFocusTarget(el) {
     const smooth = !(typeof prefersReducedMotion === 'function' && prefersReducedMotion());
     el.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' });
     flash(el);
-    const control = standIn ? null : settingsSearchFocusTarget(el);
+    // Inside a dialog the result itself takes focus when it is a button
+    // (Pause all), so the dialog's own first field does not keep it.
+    const inDialog = !standIn && el.closest('.settings-dlg-ov') && el.matches('button:not([disabled])');
+    const control = standIn ? null : (inDialog ? el : settingsSearchFocusTarget(el));
     if (control && visible(control)) {
       try { control.focus({ preventScroll: true }); } catch {}
     }

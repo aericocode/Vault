@@ -362,3 +362,50 @@
   background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger);
   color: var(--danger); border-radius: 8px; padding: 0.6rem 0.8rem; font-size: 0.85rem;
 }
+
+/* ── Modern look (UI audit, 3.9) ──────────────────────────────────────
+   Body font for numbers (no monospace), Modern controls (pmv.js adds
+   .m-select / .m-check / .m-field), line icons sized for the small round
+   buttons, and status text in the Modern colours. */
+
+body.layout-modern .pmv-opt-val,
+body.layout-modern .pmv-job-id,
+body.layout-modern .pmv-job-status,
+body.layout-modern .pmv-review-stats,
+body.layout-modern .pmv-cut-vid,
+body.layout-modern .pmv-cut-dur { font-family: inherit; font-variant-numeric: tabular-nums; }
+body.layout-modern .pmv-opt-val { color: var(--m-text-2); }
+body.layout-modern .pmv-opt-check { color: var(--m-text-2); }
+body.layout-modern .pmv-opt .m-select,
+body.layout-modern .pmv-opt .m-field { width: 100%; box-sizing: border-box; }
+body.layout-modern .pmv-count { background: var(--m-btn); border-color: var(--m-border); color: var(--m-muted); }
+body.layout-modern .pmv-generate-btn { border-radius: var(--m-radius-sm); border-color: transparent; }
+
+body.layout-modern .pmv-pick-check .vi { width: 13px; height: 13px; stroke-width: 3; }
+body.layout-modern .pmv-mini-btn,
+body.layout-modern .pmv-audio-addbtn,
+body.layout-modern .pmv-selected-vid-x,
+body.layout-modern .pmv-cut-del { display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+body.layout-modern .pmv-mini-btn { border-color: var(--m-border-strong); background: var(--m-btn); color: var(--m-text-2); }
+body.layout-modern .pmv-mini-btn:hover:not(:disabled) { border-color: var(--m-border-strong); background: var(--m-btn-hover); color: var(--m-text); }
+body.layout-modern .pmv-mini-btn .vi { width: 13px; height: 13px; }
+body.layout-modern .pmv-audio-addbtn { border-color: var(--m-border-strong); background: var(--m-btn); color: var(--m-text-2); }
+body.layout-modern .pmv-audio-addbtn.added { background: var(--accent); border-color: transparent; color: #fff; }
+body.layout-modern .pmv-audio-addbtn .vi { width: 15px; height: 15px; }
+body.layout-modern .pmv-selected-vid-x .vi,
+body.layout-modern .pmv-cut-del .vi { width: 10px; height: 10px; }
+body.layout-modern .pmv-cut-noimg .vi { width: 22px; height: 22px; }
+body.layout-modern .pmv-audio-pick-name .vi { color: var(--m-muted); }
+body.layout-modern .pmv-job-row .vi { color: var(--m-text-2); margin-right: 2px; }
+body.layout-modern .pmv-review-stats .vi { color: var(--m-muted); }
+
+body.layout-modern .pmv-error {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(252, 165, 165, 0.35);
+  color: var(--m-danger-text);
+  border-radius: var(--m-radius-sm);
+}
+
+/* The picker search options (player-lib/search-engine.js, PMV and Games):
+   a smaller tick box inside the pill. */
+body.layout-modern .picker-opt .m-check { width: 14px; height: 14px; border-radius: 4px; background-size: 10px 10px; }

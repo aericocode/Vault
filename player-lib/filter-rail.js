@@ -134,6 +134,7 @@ function railBuild() {
       </div>
       <div class="rail-active" id="railActive"></div>
     </section>
+    ${railSecHtml('saved', 'Saved searches', true, '<div class="rail-saved" id="railSaved"></div>')}
     ${railSecHtml('collections', 'Collections', true, '<div class="rail-colls" id="railColls"></div>')}
     ${railSecHtml('options', 'Search options', false, '<div id="railOptions"></div>')}
     ${railSecHtml('type', 'Type', true, '<div class="rail-pills" id="railTypes"></div>')}
@@ -143,7 +144,6 @@ function railBuild() {
       <input type="search" class="rail-search" id="railTagSearch" placeholder="Find a tag" autocomplete="off"
              aria-label="Find a tag">
       <div class="rail-list" id="railTags"></div>`)}
-    ${railSecHtml('saved', 'Saved searches', true, '<div class="rail-saved" id="railSaved"></div>')}
     ${railSecHtml('language', 'Language', false, '<div class="rail-list" id="railLanguage"></div>')}
     ${railSecHtml('about', 'About the file', false, `
       <div class="rail-sub">Content type</div><div class="rail-list" id="railContent"></div>
@@ -206,7 +206,7 @@ function railRenderActive() {
   }
   if (safeOnly) extras.push({ kind: 'safe', label: 'Plays here only' });
   if (selectedExtensions.length) {
-    extras.push({ kind: 'ext', label: `Extensions: ${selectedExtensions.map(e => '.' + e).join(' ')}` });
+    extras.push({ kind: 'ext', label: `File types: ${selectedExtensions.map(e => '.' + e).join(' ')}` });
   }
   FCHIP_SEARCH_OPTIONS.forEach(o => {
     if (document.getElementById(o.id)?.checked) extras.push({ kind: `opt:${o.id}`, label: `Search: ${o.label}` });
@@ -299,7 +299,7 @@ function railRenderTypes() {
         aria-pressed="${on ? 'true' : 'false'}">${railTypeLabelHtml(type)} ${railCount(counts[type])}</button>`;
   }
   html += `<button type="button" class="rail-pill${safeOnly ? ' is-on' : ''}" data-rail-safe="1"
-      aria-pressed="${safeOnly ? 'true' : 'false'}" title="Only formats known to play in this tool">★ Plays here</button>`;
+      aria-pressed="${safeOnly ? 'true' : 'false'}" title="Only formats known to play in Vault">${vaultIconSwap('★ ', 'star')}Plays here</button>`;
   railSet('railTypes', html);
   railVal('type', selectedMediaTypes.length ? selectedMediaTypes.join(', ') : '');
 }
@@ -384,7 +384,7 @@ function railRenderSaved() {
         <button type="button" class="rail-saved-x" data-rail-saved-del="${s.id}" title="Remove this saved search"
                 aria-label="Remove the saved search ${escapeHtml(s.name)}">×</button>
       </div>`;
-  }).join('') : '<p class="rail-empty">None yet. Type a search and click the star in the search box to keep it.</p>');
+  }).join('') : '<p class="rail-empty">None yet. Type a search and choose Save in the list under the search box.</p>');
 }
 
 function railRenderLists() {
@@ -521,7 +521,9 @@ function railOnClick(e) {
     // "Clear filters" leaves the search options alone; the rail lists them as
     // in use too, so its Clear all turns them off as well.
     FCHIP_SEARCH_OPTIONS.forEach(o => railSetSearchOption(o.id, false));
-    document.getElementById('clearFiltersBtn')?.click();
+    // With no filter set the button means "Clear search": not this one's job.
+    const cf = document.getElementById('clearFiltersBtn');
+    if (cf && cf.dataset.mode !== 'search') cf.click();
   }
 }
 
@@ -565,6 +567,9 @@ function railInit() {
   };
   window.addEventListener('resize', onResizeOrScroll);
   window.addEventListener('scroll', () => { if (_railShown) onResizeOrScroll(); }, { passive: true });
+  // A banner above the sticky header (setup-check.js) moves the header down
+  // without changing its size, so the header's own observer never hears of it.
+  window.addEventListener('vault:top-chrome', onResizeOrScroll);
   const header = document.getElementById('appHeader');
   if (header && typeof ResizeObserver === 'function') new ResizeObserver(onResizeOrScroll).observe(header);
 

@@ -9,7 +9,192 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
     </video>
   `;
   bindMediaError(document.getElementById('mediaVideo'), filepath);
-  
+
+  // Kept so the controls can be drawn again without touching the video (the
+  // look switched in Settings with the player open: rerenderVideoControls).
+  currentMediaState.videoCtl = { filepath, filename, hasPrev, hasNext };
+  controlsContainer.innerHTML = videoControlsHtml(currentMediaState.videoCtl);
+
+  const video = document.getElementById('mediaVideo');
+  currentMediaState.element = video;
+
+  // Repeat preference (A-B loop takes over while active)
+  video.loop = typeof isRepeatOne === 'function' ? isRepeatOne() : false;
+
+  // Subtitles (3-state CC toggle resolves which track, if any)
+  if (typeof applySubtitlesFor === 'function' && currentMediaState.currentMediaData) {
+    applySubtitlesFor(currentMediaState.currentMediaData);
+  }
+
+  // Setup Web Audio API for volume boost
+  setupAudioBoost(video);
+
+  // Apply saved volume (savedVolume is slider position, needs curve)
+  const max = currentMediaState.gainNode ? 1.5 : 1;
+  applyVolume(sliderToVolume(savedVolume, max));   // also carries the mute flag over
+  updateVolumeDisplay(playerIsSilent() ? 0 : savedVolume, max);
+
+  // Playback speed is a session preference, not a per-file one — the freshly
+  // rendered chrome always says "1x", so re-apply and re-label it here.
+  applySpeedTo(video);
+  updateSpeedDisplay();
+  attachTailWatchdog(video);
+
+  video.addEventListener('loadedmetadata', () => {
+    updateTotalTimeLabel();
+    // Init AB loop overlay (needed if loop was somehow preserved)
+    if (typeof updateAbLoopOverlay === 'function') updateAbLoopOverlay();
+  });
+
+  video.addEventListener('timeupdate', () => {
+    const progressBar = document.getElementById('videoProgressBar');
+    const currentTimeEl = document.getElementById('currentTime');
+    if (progressBar) {
+      const progress = (video.currentTime / video.duration) * 100;
+      progressBar.style.width = progress + '%';
+    }
+    if (currentTimeEl) {
+      // formatDuration(0/NaN) returns '' — keep the label readable while
+      // the stream is still at 0:00 (or stalled)
+      currentTimeEl.textContent = formatDuration(video.currentTime) || '0:00';
+    }
+    updateTotalTimeLabel();
+    // The Modern dock's song segments and knob
+    if (typeof ModernDock !== 'undefined') ModernDock.update();
+    // AB loop check
+    if (typeof checkAbLoop === 'function') {
+      checkAbLoop(video);
+    }
+  });
+
+  video.addEventListener('play', () => {
+    syncPlayPauseButton();
+    // Playback resuming has to re-arm the idle hide: the chrome now stays put
+    // while paused, so without this a pause-then-play from the native element
+    // or from autoplay would leave the bar up for good.
+    if (typeof scheduleHideControls === 'function') scheduleHideControls();
+  });
+
+  video.addEventListener('pause', () => {
+    syncPlayPauseButton();
+  });
+
+  video.addEventListener('ended', () => {
+    syncPlayPauseButton();
+    if (typeof autoAdvanceOnEnded === 'function') autoAdvanceOnEnded();
+  });
+
+  video.addEventListener('click', handleVideoClick);
+  video.addEventListener('dblclick', handleVideoDoubleClick);
+
+  wireVideoControls();
+
+  // The source comes from the server's playback decision (native file, or an
+  // HLS playlist FFmpeg fills in on demand), so it is set asynchronously —
+  // hence no src attribute above. Everything else about the element was set up
+  // before this point and does not care where the bytes come from.
+  attachPlaybackSource(
+    video,
+    currentMediaState.playbackMediaId || null,
+    filepath,
+    fileUrl,
+  );
+}
+
+/**
+ * The controls for the video on screen: the Modern top bar and dock, or
+ * Classic's bar. Both carry the same ids for the parts the rest of the
+ * player drives (time, play, speed, volume, A-B, repeat, CC).
+ * @param {{filepath:string, filename:string, hasPrev:boolean, hasNext:boolean}} ctl
+ */
+function videoControlsHtml(ctl) {
+  if (typeof isModernPlayer === 'function' && isModernPlayer() && typeof modernVideoControlsHtml === 'function') {
+    return modernVideoControlsHtml(ctl);
+  }
+  return classicVideoControlsHtml(ctl);
+}
+
+/** Bind what the freshly drawn controls need: the seek bar, the volume range. */
+function wireVideoControls() {
+  if (document.getElementById('mpDock') && typeof ModernDock !== 'undefined') {
+    ModernDock.mount();
+  } else {
+    attachSeekScrubbing(
+      document.getElementById('videoProgressWrapper'),
+      document.getElementById('videoProgress'),
+      () => currentMediaState.element
+    );
+  }
+
+  // Set volume slider max based on whether audio boost is available
+  const volumeSlider = document.getElementById('volumeSlider');
+  if (volumeSlider) {
+    volumeSlider.max = currentMediaState.gainNode ? 1.5 : 1;
+  }
+}
+
+/**
+ * Draw the video controls again for the file already playing, after the
+ * look changed (Classic <-> Modern) with the player open. The <video> is
+ * left alone, so playback, time and audio carry straight on.
+ */
+function rerenderVideoControls() {
+  const ctl = currentMediaState.videoCtl;
+  const video = currentMediaState.element;
+  const controls = document.getElementById('mediaPlayerControls');
+  if (!ctl || !video || video.tagName !== 'VIDEO' || !controls) return;
+
+  // The subtitle "make" / "fix" chips are shown by player-subtitles.js as it
+  // learns what the file has; carry their state over rather than ask again.
+  const gen = document.getElementById('subtitleGenBtn');
+  const fix = document.getElementById('subtitleFixBtn');
+  const keep = { gen: gen && [gen.style.display, gen.textContent], fix: fix && fix.style.display };
+
+  if (typeof ModernDock !== 'undefined') ModernDock.unmount();
+  controls.innerHTML = videoControlsHtml(ctl);
+
+  const gen2 = document.getElementById('subtitleGenBtn');
+  if (gen2 && keep.gen) { gen2.style.display = keep.gen[0]; gen2.textContent = keep.gen[1]; }
+  const fix2 = document.getElementById('subtitleFixBtn');
+  if (fix2 && keep.fix != null) fix2.style.display = keep.fix;
+
+  wireVideoControls();
+
+  const max = currentMediaState.gainNode ? 1.5 : 1;
+  const shown = playerIsSilent() ? 0 : savedVolume;
+  const slider = document.getElementById('volumeSlider');
+  if (slider) slider.value = shown;
+  updateVolumeDisplay(shown, max);
+  updateMuteButton();
+  if (typeof ModernDock !== 'undefined') ModernDock.syncVolume();
+  updateSpeedDisplay();
+  updateTotalTimeLabel();
+  const cur = document.getElementById('currentTime');
+  if (cur) cur.textContent = formatDuration(video.currentTime) || '0:00';
+  const bar = document.getElementById('videoProgressBar');
+  if (bar && video.duration) bar.style.width = (video.currentTime / video.duration) * 100 + '%';
+  syncPlayPauseButton();
+  if (typeof updateAbLoopButton === 'function') updateAbLoopButton();
+  if (typeof updateAbLoopOverlay === 'function') updateAbLoopOverlay();
+  showMediaControls();
+}
+
+/** Play or pause on the play button: an icon in Modern, the glyph in Classic. */
+function syncPlayPauseButton() {
+  const btn = document.getElementById('playPauseBtn');
+  if (!btn) return;
+  const el = currentMediaState.element;
+  const playing = !!(el && !el.paused && !el.ended);
+  if (btn.classList.contains('mp-play')) {
+    btn.innerHTML = typeof mpIcon === 'function' ? mpIcon(playing ? 'pause-bold' : 'play-fill') : '';
+    btn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  } else {
+    btn.textContent = playing ? '⏸' : '▶';
+  }
+}
+
+/** Classic's control bar for a video (unchanged markup). */
+function classicVideoControlsHtml({ filepath, hasPrev, hasNext }) {
   // Left controls: Volume
   const leftControls = `
     <div class="volume-control">
@@ -29,7 +214,7 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
 
   const speedControls = renderSpeedControls();
 
-  controlsContainer.innerHTML = `
+  return `
     <div class="player-controls-wrapper video-controls">
       <div class="video-progress-row">
         ${renderProgressTimes('start')}
@@ -69,102 +254,6 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
       ${generateUnifiedControlBar(leftControls, rightControls, hasPrev, hasNext)}
     </div>
   `;
-  
-  const video = document.getElementById('mediaVideo');
-  currentMediaState.element = video;
-
-  // Repeat preference (A-B loop takes over while active)
-  video.loop = typeof isRepeatOne === 'function' ? isRepeatOne() : false;
-
-  // Subtitles (3-state CC toggle resolves which track, if any)
-  if (typeof applySubtitlesFor === 'function' && currentMediaState.currentMediaData) {
-    applySubtitlesFor(currentMediaState.currentMediaData);
-  }
-
-  // Setup Web Audio API for volume boost
-  setupAudioBoost(video);
-  
-  // Apply saved volume (savedVolume is slider position, needs curve)
-  const max = currentMediaState.gainNode ? 1.5 : 1;
-  applyVolume(sliderToVolume(savedVolume, max));   // also carries the mute flag over
-  updateVolumeDisplay(playerIsSilent() ? 0 : savedVolume, max);
-
-  // Playback speed is a session preference, not a per-file one — the freshly
-  // rendered chrome always says "1x", so re-apply and re-label it here.
-  applySpeedTo(video);
-  updateSpeedDisplay();
-  attachTailWatchdog(video);
-
-  video.addEventListener('loadedmetadata', () => {
-    updateTotalTimeLabel();
-    // Init AB loop overlay (needed if loop was somehow preserved)
-    if (typeof updateAbLoopOverlay === 'function') updateAbLoopOverlay();
-  });
-  
-  video.addEventListener('timeupdate', () => {
-    const progressBar = document.getElementById('videoProgressBar');
-    const currentTimeEl = document.getElementById('currentTime');
-    if (progressBar) {
-      const progress = (video.currentTime / video.duration) * 100;
-      progressBar.style.width = progress + '%';
-    }
-    if (currentTimeEl) {
-      // formatDuration(0/NaN) returns '' — keep the label readable while
-      // the stream is still at 0:00 (or stalled)
-      currentTimeEl.textContent = formatDuration(video.currentTime) || '0:00';
-    }
-    updateTotalTimeLabel();
-    // AB loop check
-    if (typeof checkAbLoop === 'function') {
-      checkAbLoop(video);
-    }
-  });
-  
-  video.addEventListener('play', () => {
-    const btn = document.getElementById('playPauseBtn');
-    if (btn) btn.textContent = '⏸';
-    // Playback resuming has to re-arm the idle hide: the chrome now stays put
-    // while paused, so without this a pause-then-play from the native element
-    // or from autoplay would leave the bar up for good.
-    if (typeof scheduleHideControls === 'function') scheduleHideControls();
-  });
-  
-  video.addEventListener('pause', () => {
-    const btn = document.getElementById('playPauseBtn');
-    if (btn) btn.textContent = '▶';
-  });
-  
-  video.addEventListener('ended', () => {
-    const btn = document.getElementById('playPauseBtn');
-    if (btn) btn.textContent = '▶';
-    if (typeof autoAdvanceOnEnded === 'function') autoAdvanceOnEnded();
-  });
-
-  video.addEventListener('click', handleVideoClick);
-  video.addEventListener('dblclick', handleVideoDoubleClick);
-
-  attachSeekScrubbing(
-    document.getElementById('videoProgressWrapper'),
-    document.getElementById('videoProgress'),
-    () => currentMediaState.element
-  );
-
-  // Set volume slider max based on whether audio boost is available
-  const volumeSlider = document.getElementById('volumeSlider');
-  if (volumeSlider) {
-    volumeSlider.max = currentMediaState.gainNode ? 1.5 : 1;
-  }
-
-  // The source comes from the server's playback decision (native file, or an
-  // HLS playlist FFmpeg fills in on demand), so it is set asynchronously —
-  // hence no src attribute above. Everything else about the element was set up
-  // before this point and does not care where the bytes come from.
-  attachPlaybackSource(
-    video,
-    currentMediaState.playbackMediaId || null,
-    filepath,
-    fileUrl,
-  );
 }
 
 /* ── Watch-activity curve (YouTube "most replayed" style) ──────────────────
@@ -178,6 +267,8 @@ function _activityHeat(str) {
 }
 
 function drawActivityBar() {
+  // Modern draws its own ridge and pins from the same data (player-modern.js)
+  if (typeof ModernDock !== 'undefined' && ModernDock.mounted()) { ModernDock.refreshMarks(); return; }
   const canvas = document.getElementById('videoActivityBar');
   const media = currentMediaState.currentMediaData;
   if (!canvas || !media) return;
@@ -461,6 +552,7 @@ function applyVolume(value) {
 
   video.muted = playerIsSilent();
   updateMuteButton();
+  if (typeof ModernDock !== 'undefined') ModernDock.syncVolume();
 }
 
 function updateVolumeDisplay(sliderValue, max) {
@@ -479,6 +571,7 @@ function updateVolumeDisplay(sliderValue, max) {
       if (slider) slider.classList.remove('boosted');
     }
   }
+  if (typeof ModernDock !== 'undefined') ModernDock.syncVolume();
 }
 
 // Handle single click on video
@@ -719,9 +812,8 @@ function updateSpeedDisplay() {
   const speed = live === null ? currentSpeed() : live;
   display.textContent = speed + 'x';
   display.classList.toggle('speed-modified', speed !== 1);
-  // Mini player carries the same readout when it shows an audio card
-  const mini = document.getElementById('miniAudioSpeed');
-  if (mini) mini.textContent = speed + 'x';
+  // The mini player's time line carries the speed too, when it is not 1x
+  if (currentMediaState.miniMode && typeof miniUpdateTimeline === 'function') miniUpdateTimeline();
 }
 
 /* ── Speed menu (right-click the readout) ────────────────────────────────

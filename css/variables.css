@@ -41,4 +41,23 @@
   --player-control-bg: rgba(255, 255, 255, 0.1);
   --player-control-hover: rgba(255, 255, 255, 0.25);
   --player-border: rgba(255, 255, 255, 0.1);
+
+  /* Modern look surfaces (3.9 UI audit). The values the Settings dialog,
+     css/dialogs.css and the Modern toasts already use, named once so new
+     Modern rules can share them. Nothing in Classic reads these. */
+  --m-surface: rgba(22, 22, 27, 0.96);      /* cards, popovers, toasts */
+  --m-surface-solid: #16161b;               /* the same, fully opaque */
+  --m-border: rgba(255, 255, 255, 0.12);    /* hairline around a card */
+  --m-border-strong: rgba(255, 255, 255, 0.14); /* fields and buttons */
+  --m-field: rgba(255, 255, 255, 0.05);     /* text fields, selects */
+  --m-btn: rgba(255, 255, 255, 0.06);       /* quiet buttons */
+  --m-btn-hover: rgba(255, 255, 255, 0.11);
+  --m-text: #ececf1;
+  --m-text-2: #b4b4bf;                      /* body copy under a title */
+  --m-muted: #8b8b97;                       /* hints, captions */
+  --m-danger-text: #fca5a5;
+  --m-success-text: #86efac;
+  --m-radius: 12px;                         /* dialogs, popovers, cards */
+  --m-radius-sm: 8px;                       /* buttons, fields */
+  --m-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
 }

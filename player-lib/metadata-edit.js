@@ -15,17 +15,24 @@
 
 /** Toolbar shown in the info panels. Rescan appears only for failed scans. */
 function renderMetaTools(media) {
+  // Classic keeps each label's emoji, Modern shows the line icon (icons.js).
+  const label = (s) => (typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(s) : s);
   return `
     <div class="meta-tools">
       ${media.processing_error ? `
       <button class="meta-tool-btn meta-rescan-btn" onclick="rescanMedia(${media.id}, this)" title="Run the AI scan on this file now (LM Studio must be running)">
-        ${media.processing_error === 'unscanned' ? '⏳ Scan now' : '🔄 Rescan'}
+        ${label(media.processing_error === 'unscanned' ? '⏳ Scan now' : '🔄 Rescan')}
       </button>` : ''}
-      <button class="meta-tool-btn" onclick="openCollectionPicker([${media.id}], this)" title="Add/remove this item in your collections">
-        📁 Collections
+      ${media.media_type !== 'mix' ? `
+      <button class="meta-tool-btn meta-refresh-btn" onclick="window.vaultForceRefresh && window.vaultForceRefresh([${media.id}], this)"
+        title="Force refresh: read the file again (length, size, codecs), remake its thumbnail and hover frames, and clear a stale error. The AI scan is not redone">
+        ${typeof vaultIconSwap === 'function' ? vaultIconSwap('🔄 ', 'refresh') : '🔄 '}Force refresh
+      </button>` : ''}
+      <button class="meta-tool-btn" onclick="openCollectionPicker([${media.id}], this)" title="Add this file to a collection, or take it out of one">
+        ${label('📁 Collections')}
       </button>
-      <button class="meta-tool-btn meta-remove-btn" onclick="removeRecords([${media.id}])" title="Delete this record from the library. The file on disk is NOT touched">
-        ✂ Remove record
+      <button class="meta-tool-btn meta-remove-btn" onclick="removeRecords([${media.id}])" title="Take this file out of the library. The file on disk is not touched">
+        ${label('✂ Remove from library')}
       </button>
     </div>
   `;
@@ -54,35 +61,46 @@ async function rescanMedia(id, btn) {
   const item = getMediaById(id);
   if (!item) return;
 
+  const label = (s) => (typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(s) : s);
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = '⏳ Scanning… (can take a minute)';
+    btn.innerHTML = label('⏳ Scanning… (can take a minute)');
   }
-  showToast(`🔄 Rescanning ${item.filename}…`);
+  showToast(`🔄 Scanning ${item.filename}…`);
 
   try {
     const resp = await fetch(`/api/media/${id}/rescan`, { method: 'POST' });
-    const data = await resp.json();
+    const data = await resp.json().catch(() => ({}));
 
     if (data.row) {
       Object.assign(item, data.row);
       refreshInfoSurfaces(item);
     }
 
-    if (!resp.ok) throw new Error(data.error || `Server returned ${resp.status}`);
+    if (!resp.ok) throw metaHttpError(resp.status, data.error);
 
     if (data.ok) {
-      showToast(`✅ Rescanned ${item.filename} (${((data.elapsed || 0) / 1000).toFixed(1)}s)`);
+      showToast(`Scanned ${item.filename} in ${((data.elapsed || 0) / 1000).toFixed(1)} s.`, { type: 'success' });
     } else {
-      showToast(`⚠ Rescan failed again: ${data.error}`);
+      // The scan ran and failed: the reason is shown in the file's Processing error.
+      const why = friendlyError(data.error);
+      showToast(`The scan of ${item.filename} failed again. ${why === friendlyError(null) ? 'Its details say why.' : why}`, { type: 'error' });
     }
   } catch (err) {
-    showToast(`⚠ Rescan failed: ${err.message}`);
+    showErrorToast(err, 'scanning the file');
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = '🔄 Rescan';
+      btn.innerHTML = label('🔄 Rescan');
     }
   }
+}
+
+/** A failed request as an Error showErrorToast can word (the server's sentence, or a plain "try again"). */
+function metaHttpError(status, serverText) {
+  const err = new Error(serverText || `Server returned ${status}`);
+  err.status = status;
+  if (!serverText) err.name = 'HttpError';
+  return err;
 }
 
 /* ── Inline metadata editing (no popups) ────────────────────────────────────
@@ -111,7 +129,10 @@ async function saveMetaFields(id, fields, okMsg = '💾 Saved') {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(fields),
     }));
-    if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      throw metaHttpError(resp.status, body && body.error);
+    }
     const updated = await resp.json();
     for (const k of ['embedding', 'audio_transcription']) delete updated[k];
     Object.assign(item, updated);
@@ -121,7 +142,7 @@ async function saveMetaFields(id, fields, okMsg = '💾 Saved') {
     if (okMsg !== null) showToast(okMsg);
     return true;
   } catch (err) {
-    showToast('⚠ Save failed: ' + err.message);
+    showErrorToast(err, 'saving the change');
     return false;
   }
 }
@@ -151,12 +172,14 @@ function _editActions(onSave) {
   wrap.className = 'inline-edit-actions';
   const save = document.createElement('button');
   save.className = 'inline-edit-save';
-  save.textContent = '✓';
+  // The Modern Info panel shows line icons here (icons.js vaultPanelIconSwap).
+  const glyph = (emoji, icon) => (typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap(emoji, icon) : emoji);
+  save.innerHTML = glyph('✓', 'check');
   save.title = 'Save (Enter)';
   save.onclick = onSave;
   const cancel = document.createElement('button');
   cancel.className = 'inline-edit-cancel';
-  cancel.textContent = '✕';
+  cancel.innerHTML = glyph('✕', 'close');
   cancel.title = 'Cancel (Esc)';
   cancel.onclick = () => _cancelEdit(cancel);
   wrap.append(save, cancel);
@@ -201,7 +224,7 @@ function startFieldEdit(btn, id, key) {
     input.type = 'text';
     input.placeholder = 'comma, separated, values';
   }
-  input.className = 'inline-edit-input';
+  input.className = 'inline-edit-input m-field';   // .m-field: the Modern field (layout-modern.css)
   input.value = currentValue;
 
   const doSave = () => {
@@ -234,7 +257,7 @@ function startInfoEdit(content, media) {
     row.textContent = label;
     const input = document.createElement('input');
     input.type = 'text';
-    input.className = 'inline-edit-input';
+    input.className = 'inline-edit-input m-field';
     input.value = val;
     inputs[k] = input;
     row.appendChild(input);
@@ -265,7 +288,7 @@ function startElementEdit(btn, id, index) {
 
   const input = document.createElement('input');
   input.type = 'text';
-  input.className = 'inline-edit-input element-edit-input';
+  input.className = 'inline-edit-input element-edit-input m-field';
   input.value = elements[index].details || '';
 
   const doSave = () => {
@@ -289,18 +312,27 @@ async function removeRecords(ids) {
   if (ids.length === 0) return;
   // One record is named; a selection is counted (Select all can hand this a
   // whole library, whose rows the tab never loads).
-  let label = `${ids.length} records`;
+  let label = `${ids.length.toLocaleString()} files`;
   if (ids.length === 1) {
     const [only] = await Library.fetchRows(ids);
     if (!only) return;
     label = `"${only.filename}"`;
   }
-  const ok = confirm(
-    `Remove ${label} from the library?\n\n` +
-    `• The file(s) on disk are NOT touched\n` +
-    `• All metadata, notes, ratings and view history for the record(s) are permanently deleted\n` +
-    `• A future scan of their folder will re-add them as fresh entries`
-  );
+  const one = ids.length === 1;
+  const ok = await vaultConfirm(`Remove ${label} from the library?`, {
+    title: 'Remove from library',
+    list: one ? [
+      'The file stays on disk. Only its library entry is removed.',
+      'Its tags, notes, ratings and watch history are deleted for good.',
+      'Scanning its folder again adds it back as a new entry.',
+    ] : [
+      'The files stay on disk. Only their library entries are removed.',
+      'Their tags, notes, ratings and watch history are deleted for good.',
+      'Scanning their folder again adds them back as new entries.',
+    ],
+    okLabel: 'Remove',
+    danger: true,
+  });
   if (!ok) return;
 
   // Chunked (body limit); each chunk deletes its own records outright, so
@@ -318,7 +350,10 @@ async function removeRecords(ids) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: chunk }),
       });
-      if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw metaHttpError(resp.status, body && body.error);
+      }
       deleted += (await resp.json()).deleted || 0;
       sent += chunk.length;
     } catch (err) {
@@ -346,13 +381,17 @@ async function removeRecords(ids) {
   }
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
 
+  const files = (n) => `${n.toLocaleString()} ${n === 1 ? 'file' : 'files'}`;
   if (!error) {
-    showToast(`✂ Removed ${deleted} record(s), files kept on disk`);
+    showToast(deleted === 1
+      ? '✂ Removed 1 file from the library. The file stays on disk.'
+      : `✂ Removed ${files(deleted)} from the library. The files stay on disk.`);
   } else if (!removed.length) {
-    showToast('⚠ Remove failed: ' + error.message);
+    showErrorToast(error, 'removing from the library');
   } else {
-    showToast(`⚠ Removed ${deleted.toLocaleString()} of ${ids.length.toLocaleString()}. ` +
-      `${(ids.length - sent).toLocaleString()} could not be removed (${error.message}). Files kept on disk.`);
+    showToast(`Removed ${deleted.toLocaleString()} of ${files(ids.length)} from the library. ` +
+      `${(ids.length - sent).toLocaleString()} could not be removed: ${friendlyError(error, 'removing them')} The files stay on disk.`,
+      { type: 'error' });
   }
 }
 

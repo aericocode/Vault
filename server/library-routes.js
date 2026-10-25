@@ -51,7 +51,7 @@ function buildRouter() {
   router.get('/query/:qid/ids', async (req, res) => {
     try {
       const out = await libraryQuery.idsForQid(String(req.params.qid));
-      if (!out) return res.status(404).json({ error: 'unknown or expired query. Send it again.' });
+      if (!out) return res.status(404).json({ error: 'That search has expired. Try it again.' });
       res.set('Content-Type', 'application/octet-stream');
       res.set('X-Vault-Total', String(out.ids.length));
       res.set('X-Vault-Version', String(out.version));

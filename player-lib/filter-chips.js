@@ -17,6 +17,13 @@ const FCHIP_TRI = [
   { value: '0', label: 'Hide' },
 ];
 
+// Dupes: "Hide extras" keeps one copy of each duplicate group (server side)
+const FCHIP_DUPES = [
+  { value: '',  label: 'All' },
+  { value: '1', label: 'Only' },
+  { value: '0', label: 'Hide extras' },
+];
+
 const FCHIP_SCAN = [
   { value: '',          label: 'All' },
   { value: 'success',   label: 'Done' },
@@ -39,12 +46,12 @@ const FCHIP_DEFS = {
   content:     { label: 'Content type', type: 'select',   el: 'filterContent',   def: '',  search: true },
   quality:     { label: 'Quality',      type: 'select',   el: 'filterQuality',   def: '',  search: false },
   song:        { label: 'Song',         type: 'select',   el: 'filterSong',      def: '',  search: true },
-  fave:        { label: 'Fave',         type: 'tri', name: 'filterStarred',     def: '',  options: FCHIP_TRI },
+  fave:        { label: 'Favorite',       type: 'tri', name: 'filterStarred',     def: '',  options: FCHIP_TRI },
   notes:       { label: 'Notes',        type: 'tri', name: 'filterHasNotes',    def: '',  options: FCHIP_TRI },
   flagged:     { label: 'Flagged',      type: 'tri', name: 'filterFlagged',     def: '',  options: FCHIP_TRI },
   collections: { label: 'Collections',  type: 'tri', name: 'filterCollections', def: '',  options: FCHIP_TRI },
   trashed:     { label: 'Trashed',      type: 'tri', name: 'filterTrashed',     def: '0', options: FCHIP_TRI },
-  dupes:       { label: 'Dupes',        type: 'tri', name: 'filterDuplicates',  def: '',  options: FCHIP_TRI },
+  dupes:       { label: 'Dupes',        type: 'tri', name: 'filterDuplicates',  def: '',  options: FCHIP_DUPES },
   unplayable:  { label: 'Unplayable',   type: 'tri', name: 'filterFailed',      def: '',  options: FCHIP_TRI },
   scan:        { label: 'Scan',         type: 'tri', name: 'filterScanStatus',  def: '',  options: FCHIP_SCAN },
   // Folder watchers (player-lib/watchers-ui.js): the activity pill's Show buttons set these.
@@ -254,6 +261,17 @@ function fchipClear(key) {
 
 /* ── Chip markup ──────────────────────────────────────────────────────── */
 
+/* Carets and the clear ×: Classic's glyphs, Modern's line icons. */
+function fchipCaretInner() {
+  return '<span class="vi-c">▾</span>' + (typeof vaultIcon === 'function' ? vaultIcon('caret', 'modern-only') : '');
+}
+function fchipCaretHtml() {
+  return `<span class="fchip-caret" aria-hidden="true">${fchipCaretInner()}</span>`;
+}
+function fchipClearInner() {
+  return typeof vaultIconSwap === 'function' ? vaultIconSwap('×', 'close') : '×';
+}
+
 /* The chip is a <span> holding a button, not a single <button>, because the ×
    is a control of its own and a button inside a button is not valid HTML (the
    browser unnests it and the × stops working). It still reads and behaves as
@@ -268,10 +286,10 @@ function fchipHtml(key) {
             aria-haspopup="true" aria-expanded="false"${waiting ? ' aria-disabled="true"' : ''}>
       <span class="fchip-name">${escapeHtml(d.label)}${set ? ':' : ''}</span>
       ${set ? `<span class="fchip-value">${escapeHtml(String(value))}</span>`
-            : '<span class="fchip-caret" aria-hidden="true">▾</span>'}
+            : fchipCaretHtml()}
     </button>
     ${set ? `<button type="button" class="fchip-x" data-fchip-clear="${key}"
-        title="Clear this filter" aria-label="Clear the ${escapeHtml(d.label)} filter">×</button>` : ''}
+        title="Clear this filter" aria-label="Clear the ${escapeHtml(d.label)} filter">${fchipClearInner()}</button>` : ''}
   </span>`;
 }
 
@@ -319,7 +337,7 @@ function fchipPatch(wrap) {
       caret = document.createElement('span');
       caret.className = 'fchip-caret';
       caret.setAttribute('aria-hidden', 'true');
-      caret.textContent = '▾';
+      caret.innerHTML = fchipCaretInner();
       main.appendChild(caret);
     }
   }
@@ -332,7 +350,7 @@ function fchipPatch(wrap) {
     clear.dataset.fchipClear = key;
     clear.title = 'Clear this filter';
     clear.setAttribute('aria-label', `Clear the ${d.label} filter`);
-    clear.textContent = '×';
+    clear.innerHTML = fchipClearInner();
     wrap.appendChild(clear);
   } else if (!set && x) {
     x.remove();
@@ -347,12 +365,12 @@ function fchipPatch(wrap) {
    are folded away and counted on the More chip ("More (3) ▾"). A folded
    filter is still set, and still visible and editable inside the sheet. */
 
-const FCHIP_MORE_LABEL = 'More ▾';
+const FCHIP_MORE_LABEL = 'More';
 
 let _fchipRowObserver = null;
 
 function fchipMoreLabel(folded) {
-  return folded > 0 ? `More (${folded}) ▾` : FCHIP_MORE_LABEL;
+  return (folded > 0 ? `More (${folded}) ` : `${FCHIP_MORE_LABEL} `) + fchipCaretHtml();
 }
 
 function fchipFitRow(host) {
@@ -365,7 +383,7 @@ function fchipFitRow(host) {
   const extras = [...host.querySelectorAll('[data-fchip-wrap]')]
     .filter(el => FCHIP_EXTRA.includes(el.dataset.fchipWrap));
   extras.forEach(el => el.classList.remove('fchip-folded'));
-  more.textContent = fchipMoreLabel(0);
+  more.innerHTML = fchipMoreLabel(0);
   // Face search's "Find a person" (player-lib/faces.js) gives way in steps:
   // full label, then the icon alone, then into the More sheet. It is a tool,
   // not a filter, so it never counts on the More chip.
@@ -397,7 +415,7 @@ function fchipFitRow(host) {
     folded++;
     extras[extras.length - folded].classList.add('fchip-folded');
     // Re-measured next round on purpose: "More (3) ▾" is wider than "More ▾".
-    more.textContent = fchipMoreLabel(folded);
+    more.innerHTML = fchipMoreLabel(folded);
   }
   if (face && used([]) > avail) setFace('folded');
 
@@ -438,7 +456,7 @@ function renderFilterChipRow() {
       (typeof facesFindChipHtml === 'function' ? facesFindChipHtml() : '') +
       `<button type="button" class="fchip fchip-more" id="moreFiltersChip"
          aria-haspopup="true" aria-expanded="false"
-         title="Every other filter, in one sheet">${FCHIP_MORE_LABEL}</button>`;
+         title="Every other filter, in one sheet">${fchipMoreLabel(0)}</button>`;
 
     if (focused) {
       const wrap = host.querySelector(`[data-fchip-wrap="${focused}"]`);
@@ -642,7 +660,7 @@ function updateSearchOptionsButton() {
   const btn = document.getElementById('searchOptionsBtn');
   if (!btn) return;
   const n = searchOptionsOnCount();
-  btn.textContent = n ? `Options (${n}) ▾` : 'Options ▾';
+  btn.innerHTML = (n ? `Options (${n}) ` : 'Options ') + fchipCaretHtml();
   btn.classList.toggle('is-set', n > 0);
 }
 
@@ -686,13 +704,35 @@ function anyFilterIsSet() {
   return false;
 }
 
+/* Clear filters clears the filters and keeps the search text (app.js). With
+   no filter set but text in the search box, the same button reads "Clear
+   search" and clears the text instead, so it is never a dead button over a
+   search that matched nothing. */
 function updateClearFiltersButton() {
   const btn = document.getElementById('clearFiltersBtn');
   if (!btn) return;
   const on = anyFilterIsSet();
-  btn.disabled = !on;
-  btn.title = on ? 'Clear every filter. The search text stays.' : 'No filters set';
+  const text = !on && !!document.getElementById('searchInput')?.value.trim();
+  btn.disabled = !on && !text;
+  btn.dataset.mode = text ? 'search' : 'filters';
+  const label = text ? 'Clear search' : 'Clear filters';
+  if (btn.textContent !== label) btn.textContent = label;
+  btn.title = on ? 'Clear every filter. The search text stays.'
+    : text ? 'Clear the search box' : 'No filters set';
 }
+
+// Capture phase on the document runs before app.js's listener on the button.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest?.('#clearFiltersBtn');
+  if (!btn || btn.dataset.mode !== 'search' || btn.disabled) return;
+  e.stopPropagation();
+  if (typeof clearSearchInput === 'function') clearSearchInput();
+}, true);
+
+// Typing changes what the button should say before the search has run.
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'searchInput') updateClearFiltersButton();
+});
 
 /* ── Wiring ───────────────────────────────────────────────────────────── */
 

@@ -139,7 +139,7 @@ function duplicateSectionMarkup(media, group) {
   const others = group.filter(m => m.filepath !== media.filepath);
 
   let html = `<div class="detail-section duplicate-section">
-    <h3>⚠ Duplicate Files (${group.length -1} matches)</h3>
+    <h3>${typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap('⚠ ', 'alert') : '⚠ '}Duplicate Files (${group.length -1} matches)</h3>
 
     <div class="duplicate-list">`;
 
@@ -150,7 +150,7 @@ function duplicateSectionMarkup(media, group) {
 
     html += `
       <div class="duplicate-item ${flagged}">
-        <div class="duplicate-match-type">${exact ? '🔴 Exact match' : '🟡 Same size'}</div>
+        <div class="duplicate-match-type">${exact ? `${typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap('🔴 ') : '🔴 '}Exact match` : `${typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap('🟡 ') : '🟡 '}Same size`}</div>
         <div class="duplicate-filename">${escapeHtml(other.filename)}</div>
         <div class="duplicate-details">
           ${other.duration_seconds ? formatDuration(other.duration_seconds) : 'N/A'} •
@@ -160,10 +160,10 @@ function duplicateSectionMarkup(media, group) {
         <div class="duplicate-path">${escapeHtml(truncatePath(other.filepath, 60))}</div>
         <div class="duplicate-actions">
           <button onclick="copyPath('${escapedPath}')" class="dup-action-btn">Copy Path</button>
-          <button onclick="toggleFlagDelete('${escapedPath}'); this.classList.toggle('active')" class="dup-action-btn flag-btn ${other.user_flagged_delete ? 'active' : ''}" title="Flag">🚩</button>
+          <button onclick="toggleFlagDelete('${escapedPath}'); this.classList.toggle('active')" class="dup-action-btn flag-btn ${other.user_flagged_delete ? 'active' : ''}" title="Flag">${typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap('🚩', 'flag') : '🚩'}</button>
           ${other.user_trashed
-            ? `<button onclick="trashDupeFromDetails(${other.id}, ${media.id})" class="dup-action-btn dup-restore-btn" title="Restore this duplicate from trash">♻ Restore</button>`
-            : `<button onclick="trashDupeFromDetails(${other.id}, ${media.id})" class="dup-action-btn dup-trash-btn" title="Move this duplicate to trash (notes are shared, nothing is lost)">🗑 Trash</button>`}
+            ? `<button onclick="trashDupeFromDetails(${other.id}, ${media.id})" class="dup-action-btn dup-restore-btn" title="Restore this duplicate from trash">${typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap('♻ ', 'rescan') : '♻ '}Restore</button>`
+            : `<button onclick="trashDupeFromDetails(${other.id}, ${media.id})" class="dup-action-btn dup-trash-btn" title="Move this duplicate to trash (notes are shared, nothing is lost)">${typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap('🗑 ', 'trash') : '🗑 '}Trash</button>`}
           ${typeof renderStarRatingSection === 'function' ? renderStarRatingSection(other) : ''}
         </div>
       </div>`;

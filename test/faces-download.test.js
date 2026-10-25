@@ -4,6 +4,7 @@
  * abort, and the file-backed model store. No network: fetch is a fake.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

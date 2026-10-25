@@ -103,14 +103,20 @@
   overflow-y: auto;
   padding: 3px 16px 10px;
   scrollbar-width: thin;
-  /* Two/three-column card grid; the score hero + footer row span all */
+}
+/* Two/three-column card grid between the score hero and the footer row */
+.gamify-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
   gap: 0 14px;
   align-items: start;
 }
-.gamify-body > .gamify-score-section,
-.gamify-body > .gamify-share-row { grid-column: 1 / -1; }
+
+/* The Modern header row (title + close); Classic keeps the notch */
+.gamify-head { display: none; }
+.gamify-subtitle { margin-top: 10px; }
+.gamify-title-hint { font-weight: 400; color: var(--text-muted); }
+.gamify-quest-swaps { color: #fbbf24; font-weight: 700; }
 
 /* Quest reroll (🔄, one per day) */
 .gamify-quest-reroll {
@@ -144,6 +150,7 @@
 .gamify-score-label {
   font-size: 0.72em;
   letter-spacing: 2.5px;
+  text-transform: uppercase;
   color: var(--text-secondary);
 }
 
@@ -590,3 +597,211 @@
 .gamify-finisher-sub em { color: var(--text-muted); font-style: normal; }
 
 .gamify-under-hint { font-size: 0.74em; color: var(--text-muted); margin-bottom: 6px; }
+
+/* ══ Modern ════════════════════════════════════════════════════════════════
+   The score keeps its purple accent (the level theme's --gamify-a / -b) on
+   the Modern dialog shell: a dark 12 px card with a hairline border, a title
+   row with the close button, line icons in the chrome, 12 px cards packed in
+   columns so short cards never leave holes beside tall ones. Achievement
+   badges stay emoji: they are content. */
+
+body.layout-modern .gamify-overlay {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: none;
+  padding: 16px;
+}
+
+body.layout-modern .gamify-phone,
+body.layout-modern .gamify-analytics-panel {
+  max-height: calc(100vh - 32px);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--gamify-a, #a855f7) 9%, transparent), transparent 240px),
+    var(--m-surface-solid);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  color: var(--m-text);
+  font-size: 14px;
+  animation: gamifyFade 0.16s ease;
+}
+body.layout-modern .gamify-phone { width: min(960px, 100%); padding: 0; }
+body.layout-modern .gamify-analytics-panel { width: min(720px, 100%); max-width: none; padding: 0; }
+
+@keyframes gamifyFade {
+  from { transform: translateY(6px); opacity: 0; }
+  to   { transform: none;            opacity: 1; }
+}
+
+body.layout-modern .gamify-phone-notch { display: none; }
+
+body.layout-modern .gamify-head {
+  display: flex;
+  align-items: center;
+  flex: none;
+  min-height: 56px;
+  padding: 0 60px 0 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+body.layout-modern .gamify-head h2 { margin: 0; font-size: 16px; font-weight: 600; color: var(--m-text); }
+
+body.layout-modern .gamify-close {
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--m-radius-sm);
+  color: var(--m-text-2);
+}
+body.layout-modern .gamify-close:hover { background: var(--m-btn-hover); color: var(--m-text); }
+body.layout-modern .gamify-close:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
+body.layout-modern .gamify-close .vi { width: 18px; height: 18px; }
+
+body.layout-modern .gamify-body { padding: 4px 20px 18px; }
+
+/* Score hero: the title row already names it */
+body.layout-modern .gamify-score-label { display: none; }
+body.layout-modern .gamify-score-section { padding: 18px 0 20px; }
+body.layout-modern .gamify-score-value { font-size: 44px; color: var(--m-text); }
+body.layout-modern .gamify-level-next { font-size: 12px; color: var(--m-muted); margin-top: 6px; }
+body.layout-modern .gamify-week-delta { font-size: 13px; }
+body.layout-modern .gamify-week-delta .vi { width: 14px; height: 14px; vertical-align: -2px; margin-right: 0.25em; }
+body.layout-modern .gamify-progressbar { height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); }
+body.layout-modern .gamify-progressbar.small { height: 6px; }
+body.layout-modern .gamify-progressbar-fill { border-radius: 999px; }
+
+/* Cards: packed columns, no holes */
+body.layout-modern .gamify-cards { display: block; columns: 3 260px; column-gap: 12px; }
+body.layout-modern .gamify-card {
+  break-inside: avoid;
+  margin: 0 0 12px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+}
+body.layout-modern .gamify-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--m-text);
+  margin-bottom: 10px;
+}
+body.layout-modern .gamify-card-title > .vi,
+body.layout-modern .gamify-analytics-title > .vi {
+  width: 16px;
+  height: 16px;
+  vertical-align: -3px;
+  color: var(--gamify-a, #a855f7);
+}
+body.layout-modern .gamify-subtitle { margin-top: 14px; }
+body.layout-modern .gamify-title-hint { font-size: 12px; color: var(--m-muted); margin-left: 4px; }
+body.layout-modern .gamify-ach-count { font-weight: 600; margin-left: 2px; }
+body.layout-modern .gamify-quest-swaps {
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--m-text-2);
+  font-size: 11px;
+  font-weight: 500;
+}
+body.layout-modern .gamify-ach-card:hover { border-color: color-mix(in srgb, var(--gamify-a, #a855f7) 55%, transparent); }
+body.layout-modern .gamify-ach-card:focus-visible,
+body.layout-modern .gamify-theme-pick:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+body.layout-modern .gamify-ach-next { border-top-color: rgba(255, 255, 255, 0.08); }
+body.layout-modern .gamify-obsessed-name .vi { width: 15px; height: 15px; vertical-align: -2px; color: var(--m-text-2); }
+body.layout-modern .gamify-obsessed-sub,
+body.layout-modern .gamify-quest-progress,
+body.layout-modern .gamify-totals span { color: var(--m-muted); }
+body.layout-modern .gamify-quest-desc { color: var(--m-text-2); }
+body.layout-modern .gamify-quest { border-top-color: rgba(255, 255, 255, 0.08); }
+body.layout-modern .gamify-heat-cell:not(.on) { background: rgba(255, 255, 255, 0.07); }
+body.layout-modern .gamify-totals b .vi { width: 15px; height: 15px; vertical-align: -1px; margin-right: 0.3em; color: var(--gamify-a, #a855f7); }
+
+body.layout-modern .gamify-quest-reroll {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-btn);
+  color: var(--m-text-2);
+  font-size: 13px;
+  align-self: center;
+}
+body.layout-modern .gamify-quest-reroll:hover:not(:disabled) { background: var(--m-btn-hover); color: var(--m-text); border-color: var(--m-border-strong); }
+body.layout-modern .gamify-quest-reroll .vi { width: 14px; height: 14px; }
+body.layout-modern .gamify-quest-head { align-items: center; gap: 8px; }
+body.layout-modern .gamify-quest-title { margin-right: auto; }
+
+body.layout-modern .gamify-theme-tag {
+  background: color-mix(in srgb, var(--gamify-a, #a855f7) 14%, transparent);
+  border-color: color-mix(in srgb, var(--gamify-a, #a855f7) 35%, transparent);
+  border-radius: 999px;
+}
+body.layout-modern .gamify-theme-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
+body.layout-modern .gamify-theme-pick { min-width: 0; border-color: var(--m-border); border-radius: var(--m-radius-sm); padding: 6px 8px; }
+body.layout-modern .gamify-theme-name { font-size: 12px; }
+body.layout-modern .gamify-theme-name .vi { width: 12px; height: 12px; vertical-align: -1px; }
+
+/* Footer buttons: Modern button shapes, the share button keeps the accent */
+body.layout-modern .gamify-share-row { gap: 10px; padding: 4px 0 0; }
+body.layout-modern .gamify-share-btn,
+body.layout-modern .gamify-analytics-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 8px 16px;
+  border-radius: var(--m-radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+}
+body.layout-modern .gamify-analytics-btn { border: 1px solid var(--m-border-strong); background: var(--m-btn); color: var(--m-text); }
+body.layout-modern .gamify-analytics-btn:hover { background: var(--m-btn-hover); }
+body.layout-modern .gamify-share-btn .vi,
+body.layout-modern .gamify-analytics-btn .vi { width: 16px; height: 16px; }
+body.layout-modern .gamify-share-btn:focus-visible,
+body.layout-modern .gamify-analytics-btn:focus-visible,
+body.layout-modern .gamify-tab:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+
+/* Full stats */
+body.layout-modern .gamify-tabs { padding: 12px 60px 0 20px; gap: 8px; }
+body.layout-modern .gamify-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-btn);
+  color: var(--m-text-2);
+  font-size: 13px;
+}
+body.layout-modern .gamify-tab:hover { background: var(--m-btn-hover); color: var(--m-text); }
+body.layout-modern .gamify-tab.active {
+  border-color: color-mix(in srgb, var(--gamify-a, #a855f7) 70%, transparent);
+  background: color-mix(in srgb, var(--gamify-a, #a855f7) 14%, transparent);
+  color: var(--m-text);
+}
+body.layout-modern .gamify-tab .vi { width: 15px; height: 15px; }
+body.layout-modern .gamify-analytics-body { padding: 14px 20px 18px; }
+body.layout-modern .gamify-analytics-title { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
+body.layout-modern .ach-row { border-top-color: rgba(255, 255, 255, 0.08); }
+body.layout-modern .ach-pips .vi { width: 15px; height: 15px; color: #fbbf24; }
+body.layout-modern .ach-desc { color: var(--m-text-2); }
+body.layout-modern .gamify-rating-hero .vi { width: 12px; height: 12px; vertical-align: -1px; margin-right: 0.2em; }
+body.layout-modern .gamify-loading,
+body.layout-modern .gamify-empty { color: var(--m-muted); font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  body.layout-modern .gamify-phone,
+  body.layout-modern .gamify-analytics-panel { animation: none; }
+}

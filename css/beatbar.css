@@ -197,3 +197,23 @@
   background: #7aa8ff;
   color: #0f1220;
 }
+
+/* ── Modern look for the classic card's buttons (UI audit, 3.9) ────────
+   The classic card still rides the Editor's mix player in Modern (the
+   glass lane is the main player's only), so its gear and the mix player's
+   beat bar toggle get line icons (beatbar.js / editor.js) and a flat
+   surface instead of the gradient chip. Drawing is unchanged. */
+
+body.layout-modern .beatbar-gear { display: inline-flex; align-items: center; justify-content: center; }
+body.layout-modern .beatbar-gear .vi { width: 14px; height: 14px; }
+body.layout-modern .beatbar-toggle .nav-icon .vi,
+body.layout-modern .beatbar-settings-btn .nav-icon .vi { width: 16px; height: 16px; }
+body.layout-modern .beatbar-toggle.beatbar-btn-on {
+  border-color: rgba(165, 180, 252, 0.5) !important;
+  background: rgba(165, 180, 252, 0.14);
+}
+body.layout-modern .beatbar-toggle.beatbar-btn-on .beatbar-state { background: #a5b4fc; color: #16161b; }
+body.layout-modern .beatbar-settings-btn.gear-open {
+  border-color: rgba(165, 180, 252, 0.5) !important;
+  background: rgba(165, 180, 252, 0.14);
+}

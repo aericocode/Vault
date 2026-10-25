@@ -57,6 +57,9 @@ const ST = {
 
 /* ── Small helpers ─────────────────────────────────────────────────────── */
 
+/** One line icon (player-lib/icons.js), or '' without it. */
+const stIcon = (name, cls = '') => (typeof vaultIcon === 'function' ? vaultIcon(name, cls) : '');
+
 const stEsc = (s) => escapeHtml(String(s ?? ''));
 const stPlural = (n, one, many) => `${Number(n || 0).toLocaleString()} ${n === 1 ? one : many}`;
 const stNamesHidden = () => document.body.classList.contains('pm-names');
@@ -180,7 +183,7 @@ function stRenderHome() {
           <div class="ft-row">
             ${ftModeSegHtml()}
             <label class="ft-search">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
               <input type="text" id="stSearch" placeholder="Search studios by name" aria-label="Search studios" autocomplete="off">
             </label>
             <button class="ft-pill" type="button" id="stSortBtn" aria-haspopup="menu"></button>
@@ -188,7 +191,7 @@ function stRenderHome() {
           </div>
           <div class="ft-row ft-chips">
             <span class="st-chips" id="stChips" role="group" aria-label="Show"></span>
-            <button class="ft-link st-auto-link" type="button" data-st-auto>Put files in studios by folder name</button>
+            <button class="ft-btn ghost st-auto-btn" type="button" data-st-auto>${stIcon('folder', 'ft-bico')}Put files in studios by folder name</button>
           </div>
         </section>
         <div class="st-grid" id="stGrid"></div>
@@ -204,7 +207,7 @@ function stRenderHome() {
 
 function stPaintSort() {
   const b = document.getElementById('stSortBtn');
-  if (b) b.textContent = `Sort: ${ST_SORTS.find(s => s.value === ST.sort).label} ▾`;
+  if (b) b.innerHTML = `Sort: ${stEsc(ST_SORTS.find(s => s.value === ST.sort).label)}${stIcon('caret', 'ft-caret') || ' ▾'}`;
 }
 
 function stPaintChips() {
@@ -235,7 +238,7 @@ async function stLoadList() {
 function stEmptyText() {
   if (ST.q) return `No studio called "${stEsc(ST.q)}".`;
   switch (ST.filter) {
-    case 'favorites': return 'No favorites yet. Open a studio and click ★ Favorite.';
+    case 'favorites': return 'No favorites yet. Open a studio and click Favorite.';
     case 'nophoto': return 'Every studio has a cover picked.';
     default: return 'No studios yet. A studio groups files by where they come from, like a channel, a site or a maker.';
   }
@@ -268,8 +271,22 @@ function stPaintGrid() {
   grid.style.setProperty('--st-min', `${ST_CARD_MIN[size] || 260}px`);
   if (!ST.loaded) { grid.innerHTML = ''; return; }
   const add = '<button class="st-addcard" type="button" data-st-new><b aria-hidden="true">+</b>New studio</button>';
-  grid.innerHTML = ST.list.length ? ST.list.map(stCardHtml).join('') + (ST.q || ST.filter !== 'all' ? '' : add)
-    : `<div class="ft-none">${stEmptyText()}</div>${ST.q || ST.filter !== 'all' ? '' : add}`;
+  const filtered = !!ST.q || ST.filter !== 'all';
+  // No studios at all: one card holds the words and both ways to start, and
+  // the panel's own New studio and folder buttons step aside meanwhile.
+  const none = !ST.list.length && !filtered;
+  document.querySelectorAll('.st-home .st-new, .st-home .st-auto-btn').forEach(b => { b.hidden = none; });
+  grid.innerHTML = ST.list.length ? ST.list.map(stCardHtml).join('') + (filtered ? '' : add)
+    : none ? `
+      <section class="st-empty">
+        ${stIcon('building', 'st-empty-ico')}
+        <p>${stEmptyText()}</p>
+        <div class="st-empty-acts">
+          <button class="ft-btn ft-btn-md" type="button" data-st-new>New studio</button>
+          <button class="ft-btn ghost ft-btn-md" type="button" data-st-auto>Put files in studios by folder name</button>
+        </div>
+      </section>`
+    : `<div class="ft-none">${stEmptyText()}</div>`;
   const more = document.getElementById('stMoreRow');
   if (more) more.hidden = ST.list.length >= ST.total;
 }
@@ -375,7 +392,7 @@ function stPaintPage() {
   if (!host) return;
   const s = ST.studio;
   if (!s) {
-    host.innerHTML = '<div class="ft-crumb"><button class="ft-back" type="button" data-st-home>← Studios</button></div>';
+    host.innerHTML = `<div class="ft-crumb"><button class="ft-back" type="button" data-st-home>${stIcon('chev-left') || '←'} Studios</button></div>`;
     return;
   }
   const people = s.people || [];
@@ -388,7 +405,7 @@ function stPaintPage() {
   const links = stLinksHtml(s.urls);
   const seg = [['all', 'All', s.files], ['video', 'Videos', s.videos], ['photo', 'Photos', s.photos]];
   host.innerHTML = `
-    <div class="ft-crumb"><button class="ft-back" type="button" data-st-home>← Studios</button><span class="ft-sep">/</span>
+    <div class="ft-crumb"><button class="ft-back" type="button" data-st-home>${stIcon('chev-left') || '←'} Studios</button><span class="ft-sep">/</span>
       <b class="ft-crumb-name st-pm">${stEsc(s.name)}</b></div>
     <section class="ft-head st-head">
       <button class="st-pcover" type="button" data-st-cover aria-haspopup="menu" aria-label="Change photo">${stCoverHtml(s)}<span class="ft-cover-cap">Change photo</span></button>
@@ -397,11 +414,11 @@ function stPaintPage() {
         ${years || links ? `<div class="st-meta">${years ? `<span>Active ${years}</span>` : ''}${links}</div>` : ''}
         <div class="ft-stats">${badges.map(b => `<span class="ft-pbadge">${stEsc(b)}</span>`).join('')}</div>
         <div class="ft-acts">
-          <button class="ft-btn ft-btn-md" type="button" data-st-play="0">▶ Play all</button>
+          <button class="ft-btn ft-btn-md" type="button" data-st-play="0">${stIcon('play', 'ft-bico') || '▶'} Play all</button>
           <button class="ft-btn ghost ft-btn-md" type="button" data-st-play="1">Shuffle</button>
-          <button class="ft-btn ghost ft-btn-md${s.favorite ? ' on' : ''}" type="button" data-st-fav aria-pressed="${!!s.favorite}">★ Favorite</button>
+          <button class="ft-btn ghost ft-btn-md${s.favorite ? ' on' : ''}" type="button" data-st-fav aria-pressed="${!!s.favorite}">${stIcon('star', 'ft-bico') || '★'} Favorite</button>
           <button class="ft-btn ghost ft-btn-md" type="button" data-st-edit>Edit</button>
-          <button class="ft-btn ghost ft-btn-md" type="button" data-st-more aria-haspopup="menu">More ▾</button>
+          <button class="ft-btn ghost ft-btn-md" type="button" data-st-more aria-haspopup="menu">More${stIcon('caret', 'ft-caret') || ' ▾'}</button>
         </div>
         ${s.description ? `<p class="st-desc">${stEsc(s.description)}</p>` : ''}
         ${s.notes ? `<div class="st-notes"><b>Notes:</b> ${stEsc(s.notes)}</div>` : ''}
@@ -550,7 +567,7 @@ async function stFramePicker(s, after) {
   if (!opts.length) { showToast('None of its files has a picture to use.'); return; }
   const ov = stOverlay(`
     <div class="ft-dlg st-dlg st-frames" role="dialog" aria-modal="true" aria-label="Use a frame">
-      <div class="ft-dlg-h"><h2>Use a frame from one of its files</h2><button type="button" class="ft-x" data-st-x aria-label="Close">×</button></div>
+      <div class="ft-dlg-h"><h2>Use a frame from one of its files</h2><button type="button" class="ft-x" data-st-x aria-label="Close">${stIcon('close') || '×'}</button></div>
       <div class="st-frame-grid">${opts.map((o, i) => `<button type="button" class="st-frame" data-frame="${i}" aria-label="Use this frame"><img class="tile-img" src="${stEsc(o.src)}" alt="" loading="lazy" onerror="this.closest('.st-frame').remove()"></button>`).join('')}</div>
     </div>`);
   ov.addEventListener('click', async (e) => {
@@ -837,7 +854,7 @@ function stPersonChipsHtml(p) {
     const yrs = stYears(s.yearStart, s.yearEnd);
     return `<span class="st-chip">
       <button class="st-chip-main" type="button" data-st-chip="${s.id}" aria-haspopup="dialog">${stCoverHtml(s, 'st-chip-img')}<span class="st-pm">${stEsc(s.name)}</span>${yrs ? ` <span class="st-chip-yr">${yrs}</span>` : ''}</button>
-      ${s.explicit ? `<button class="st-chip-x" type="button" data-st-chip-x="${s.id}" aria-label="Remove from studio" title="Remove from studio">✕</button>` : ''}
+      ${s.explicit ? `<button class="st-chip-x" type="button" data-st-chip-x="${s.id}" aria-label="Remove from studio" title="Remove from studio">${stIcon('close') || '✕'}</button>` : ''}
     </span>`;
   }).join('');
   return `<div class="st-chips-row">${chips}<button class="st-addst" type="button" data-st-addto>+ Add to a studio</button></div>`;
@@ -927,15 +944,38 @@ function stPicker(anchor, { title = '', placeholder = 'Find or make a studio', a
 
 /** Selection bar button (Library tab). */
 function studiosSelectionButton() {
-  return '<button class="sel-btn sel-studio" type="button" onclick="studiosSelectionPick(this)" title="Put the selected files in a studio">' + (typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel('🏢 Studio ▾') : '🏢 Studio ▾') + '</button>';
+  const modern = typeof vaultIsModern === 'function' && vaultIsModern();
+  const label = typeof vaultEmojiLabel === 'function'
+    ? vaultEmojiLabel(modern ? '🏢 Studio' : '🏢 Studio ▾') + (modern ? stIcon('caret', 'sel-caret') : '')
+    : '🏢 Studio ▾';
+  return '<button class="sel-btn sel-studio" type="button" onclick="studiosSelectionPick(this)" title="Put the selected files in a studio">' + label + '</button>';
 }
+
+/**
+ * Is any of these files in a studio? 'yes', 'no', or 'unknown' when a row
+ * is not loaded or does not say (then the take-out row is offered anyway).
+ * rowOf(id) answers a library row or null.
+ */
+function stSelectionInStudio(ids, rowOf) {
+  let unknown = false;
+  for (const id of ids) {
+    const s = stMediaStudio(rowOf(id));
+    if (s) return 'yes';
+    if (s === undefined) unknown = true;
+  }
+  return unknown ? 'unknown' : 'no';
+}
+
+const stRowOf = (id) => (typeof Library !== 'undefined' && Library.row(id))
+  || (typeof getMediaById === 'function' ? getMediaById(id) : null) || null;
 
 function studiosSelectionPick(btn) {
   const ids = [...selectedIds];
   if (!ids.length) return;
   btn.classList.add('on');
+  const canClear = stSelectionInStudio(ids, stRowOf) !== 'no';
   const pop = stPicker(btn, {
-    above: true, clear: ids.length === 1 ? 'Take it out of its studio' : 'Take these out of their studio',
+    above: true, clear: !canClear ? '' : ids.length === 1 ? 'Take it out of its studio' : 'Take these out of their studio',
     onPick: (s) => stAssign(ids, s), onClear: () => stAssign(ids, null),
   });
   pop._onClose = () => btn.classList.remove('on');
@@ -987,9 +1027,9 @@ function stMediaStudio(m) {
 }
 
 function stDetailValHtml(s) {
-  const edit = `<button class="st-detail-edit" type="button" data-st-detail-edit title="${s ? 'Change studio' : 'Put this file in a studio'}" aria-label="${s ? 'Change studio' : 'Put this file in a studio'}">✎</button>`;
+  const edit = `<button class="st-detail-edit" type="button" data-st-detail-edit title="${s ? 'Change studio' : 'Put this file in a studio'}" aria-label="${s ? 'Change studio' : 'Put this file in a studio'}">${typeof vaultPanelIconSwap === 'function' ? vaultPanelIconSwap('✎', 'edit') : '✎'}</button>`;
   if (s === undefined) return '<span class="field-empty">…</span>';
-  if (!s) return `<span class="field-empty">None</span>${edit}`;
+  if (!s) return `<span class="field-empty">None yet</span>${edit}`;
   return `<button class="st-detail-link" type="button" data-st-detail-open="${s.id}" title="Open this studio"><span class="st-pm">${stEsc(s.name || 'Studio')}</span></button>${edit}`;
 }
 
@@ -1166,7 +1206,7 @@ function stWire() {
     if (sortBtn) {
       const r = sortBtn.getBoundingClientRect();
       facesMenu(r.left, r.bottom + 4, ST_SORTS.map(s => ({
-        label: `${s.value === ST.sort ? '✓ ' : ''}${s.label}`,
+        label: s.label, checked: s.value === ST.sort,
         run: () => { ST.sort = s.value; stPaintSort(); stLoadList(); },
       })));
       return;
@@ -1228,7 +1268,8 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (id == null) return;
-  stPicker(edit, { clear: 'Take it out of its studio', onPick: (s) => stAssign([id], s), onClear: () => stAssign([id], null) });
+  const inOne = !!box.querySelector('[data-st-detail-open]');
+  stPicker(edit, { clear: inOne ? 'Take it out of its studio' : '', onPick: (s) => stAssign([id], s), onClear: () => stAssign([id], null) });
 }, true);   // capture: the modal stops clicks from bubbling out of it
 
 // Outside clicks close the popover; Esc too.

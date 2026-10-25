@@ -1,0 +1,129 @@
+/* =========================================================================
+   IN-APP DIALOGS (player-lib/vault-dialogs.js): vaultAlert, vaultConfirm,
+   vaultPrompt, in place of the browser's alert / confirm / prompt.
+
+   Classic gets a plain, tidy dialog on the old tokens. The Modern look
+   matches the Settings dialogs and the Modern toasts: a dark card, 12 px
+   corners, a hairline border.
+   ========================================================================= */
+
+.vdlg-ov {
+  position: fixed;
+  inset: 0;
+  z-index: 20000;                 /* above every panel, menu and the player */
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 18vh 16px 16px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow-y: auto;
+}
+
+.vdlg {
+  width: min(440px, 100%);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  padding: 1rem 1.1rem 0.9rem;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.vdlg-title {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.vdlg-msg { color: var(--text-secondary); overflow-wrap: anywhere; }
+.vdlg-msg p { margin: 0 0 0.55rem; }
+.vdlg-msg ul { margin: 0 0 0.55rem; padding-left: 1.2rem; }
+.vdlg-msg li { margin: 0.15rem 0; }
+.vdlg-msg > :last-child { margin-bottom: 0; }
+
+.vdlg-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.7rem;
+  padding: 0.45rem 0.6rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font: inherit;
+}
+.vdlg-input:focus { outline: none; border-color: var(--accent); }
+
+.vdlg-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.vdlg-btn {
+  min-width: 5.5rem;
+  padding: 0.42rem 0.9rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+.vdlg-btn:hover { background: var(--bg-hover); }
+/* :focus, not :focus-visible: the dialog opens with focus on its default
+   button, and a danger dialog should show that the default is Cancel. */
+.vdlg-btn:focus { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+.vdlg-ok { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.vdlg-ok:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.vdlg-ok.is-danger { background: var(--danger); border-color: var(--danger); }
+.vdlg-ok.is-danger:hover { background: #dc2626; border-color: #dc2626; }
+
+/* ── Modern ────────────────────────────────────────────────────────────── */
+
+body.layout-modern .vdlg {
+  width: min(460px, 100%);
+  background: rgba(22, 22, 27, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  padding: 18px 20px 16px;
+  color: #ececf1;
+  font-size: 14px;
+}
+body.layout-modern .vdlg-title { font-size: 16px; color: #ececf1; margin-bottom: 8px; }
+body.layout-modern .vdlg.is-danger .vdlg-title { color: #fca5a5; }
+body.layout-modern .vdlg-msg { color: #b4b4bf; }
+body.layout-modern .vdlg-input {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: #ececf1;
+  padding: 8px 10px;
+}
+body.layout-modern .vdlg-input:focus { border-color: var(--accent-hover); }
+body.layout-modern .vdlg-actions { margin-top: 18px; }
+body.layout-modern .vdlg-btn {
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ececf1;
+  font-size: 13px;
+  padding: 7px 14px;
+}
+body.layout-modern .vdlg-btn:hover { background: rgba(255, 255, 255, 0.11); }
+body.layout-modern .vdlg-ok { background: var(--accent); border-color: transparent; color: #fff; }
+body.layout-modern .vdlg-ok:hover { background: var(--accent-hover); }
+body.layout-modern .vdlg-ok.is-danger { background: #dc2626; }
+body.layout-modern .vdlg-ok.is-danger:hover { background: #ef4444; }
+
+@media (max-width: 480px) {
+  .vdlg-ov { padding-top: 10vh; }
+  .vdlg-btn { flex: 1; }
+}

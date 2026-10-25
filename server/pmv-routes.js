@@ -44,22 +44,22 @@ function buildRouter() {
   router.post('/jobs', (req, res) => {
     const videoIds = (req.body?.video_ids || []).map(parseId).filter(Boolean);
     const audioIds = (req.body?.audio_ids || []).map(parseId).filter(Boolean);
-    if (videoIds.length < 1) return res.status(400).json({ error: 'at least one source video required' });
-    if (audioIds.length < 1) return res.status(400).json({ error: 'a soundtrack file is required' });
+    if (videoIds.length < 1) return res.status(400).json({ error: 'Add at least one video.' });
+    if (audioIds.length < 1) return res.status(400).json({ error: 'Pick a soundtrack.' });
 
     for (const id of videoIds) {
       const row = db.getById(id);
       if (!row) return res.status(404).json({ error: `media ${id} not found` });
-      if (row.media_type !== 'video') return res.status(400).json({ error: `media ${id} is not a video` });
-      if (!fs.existsSync(row.filepath)) return res.status(409).json({ error: `${row.filename} missing on disk` });
+      if (row.media_type !== 'video') return res.status(400).json({ error: `${row.filename} is not a video.` });
+      if (!fs.existsSync(row.filepath)) return res.status(409).json({ error: `${row.filename} is missing on disk.` });
     }
     for (const id of audioIds) {
       const row = db.getById(id);
       if (!row) return res.status(404).json({ error: `media ${id} not found` });
       if (!['audio', 'video'].includes(row.media_type)) {
-        return res.status(400).json({ error: `soundtrack must be audio or video (media ${id} is ${row.media_type})` });
+        return res.status(400).json({ error: `The soundtrack must be an audio or video file (${row.filename} is not).` });
       }
-      if (!fs.existsSync(row.filepath)) return res.status(409).json({ error: `${row.filename} missing on disk` });
+      if (!fs.existsSync(row.filepath)) return res.status(409).json({ error: `${row.filename} is missing on disk.` });
     }
 
     const job = repo.createJob({
@@ -80,7 +80,7 @@ function buildRouter() {
   // Replace EDL entries (review edits: remove/swap). Only cut fields accepted.
   router.put('/jobs/:id/edl', (req, res) => {
     const job = repo.getJob(req.params.id);
-    if (!job?.edl) return res.status(400).json({ error: 'EDL not ready' });
+    if (!job?.edl) return res.status(400).json({ error: 'The cut list is not ready yet.' });
     const entries = req.body?.entries;
     if (!Array.isArray(entries) || !entries.length) return res.status(400).json({ error: 'entries must be a non-empty array' });
     repo.updateJob(job.id, { edl: { ...job.edl, entries } });
@@ -89,8 +89,8 @@ function buildRouter() {
 
   router.post('/jobs/:id/render', (req, res) => {
     const job = repo.getJob(req.params.id);
-    if (!job?.edl) return res.status(400).json({ error: 'EDL not ready' });
-    if (service.isActive(job.id)) return res.status(409).json({ error: 'job is still processing' });
+    if (!job?.edl) return res.status(400).json({ error: 'The cut list is not ready yet.' });
+    if (service.isActive(job.id)) return res.status(409).json({ error: 'This PMV is still being made. Wait for it to finish.' });
     service.enqueueRender(job.id);
     res.json({ ok: true });
   });
@@ -190,7 +190,7 @@ function buildRouter() {
     }
     const out = job.result?.outputPath;
     if (out && fs.existsSync(out)) return res.download(out, name);
-    res.status(404).json({ error: 'expired. Renders are held in memory until saved, re-render it' });
+    res.status(404).json({ error: 'This render has expired. Renders are kept in memory only until saved, so render it again.' });
   });
 
   /* ── Recipes ── */
@@ -201,8 +201,8 @@ function buildRouter() {
 
   router.post('/recipes', (req, res) => {
     const { name, media_ids, config, song_id } = req.body || {};
-    if (!name || !String(name).trim()) return res.status(400).json({ error: 'name required' });
-    if (!Array.isArray(media_ids) || !media_ids.length) return res.status(400).json({ error: 'media_ids required' });
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'Enter a name.' });
+    if (!Array.isArray(media_ids) || !media_ids.length) return res.status(400).json({ error: 'Pick at least one file.' });
     try {
       const recipe = repo.saveRecipe({
         name: String(name).trim().slice(0, 120),

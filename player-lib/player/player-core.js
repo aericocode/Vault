@@ -223,6 +223,21 @@ function refreshSidebarIfOpen() {
  * @param {boolean} hasNext - Whether next media exists
  * @returns {string} Complete control bar HTML
  */
+/**
+ * A control glyph for the players without the Modern dock (audio, pictures,
+ * documents, mixes): Classic keeps the glyph, Modern shows the line icon
+ * (player-lib/icons.js vaultIconSwap). Audit V5.
+ */
+function playerGlyph(emoji, icon) {
+  return typeof vaultIconSwap === 'function' ? vaultIconSwap(emoji, icon) : escapeHtml(emoji);
+}
+
+/** The play button of those players, playing or not. */
+function setPlayerPlayGlyph(btn, playing) {
+  btn.innerHTML = playerGlyph(playing ? '⏸' : '▶', playing ? 'pause-bold' : 'play-fill');
+  btn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+}
+
 function generateUnifiedControlBar(leftControls, rightControls, hasPrev, hasNext) {
   return `
     <div class="player-controls-wrapper" onclick="event.stopPropagation()">
@@ -232,19 +247,19 @@ function generateUnifiedControlBar(leftControls, rightControls, hasPrev, hasNext
         </div>
         <div class="controls-center">
           <button onclick="playPreviousMedia()" class="nav-btn" title="Previous (P)" ${!hasPrev ? 'disabled' : ''}>
-            <span class="nav-icon">⏮</span>
+            <span class="nav-icon">${playerGlyph('⏮', 'prev-file')}</span>
             <span class="nav-label">Prev</span>
           </button>
           <button onclick="playRandomMedia()" class="nav-btn random-btn" title="Random (R)">
-            <span class="nav-icon">🎲</span>
+            <span class="nav-icon">${playerGlyph('🎲', 'shuffle')}</span>
           </button>
           <button onclick="showMediaInfo()" class="info-btn" id="infoBtn" title="Show Info (I)">
-            <span>ℹ️</span>
+            <span>${playerGlyph('ℹ️', 'info')}</span>
             <span>Info</span>
           </button>
           <button onclick="playNextMedia()" class="nav-btn" title="Next (N)" ${!hasNext ? 'disabled' : ''}>
             <span class="nav-label">Next</span>
-            <span class="nav-icon">⏭</span>
+            <span class="nav-icon">${playerGlyph('⏭', 'next-file')}</span>
           </button>
         </div>
         <div class="controls-right">
@@ -392,13 +407,16 @@ function playMedia(mediaData, { source = 'user' } = {}) {
   if (miniPlayer && miniPlayer.classList.contains('active')) {
     const miniMedia = document.getElementById('miniPlayerMedia');
     const miniEl = miniMedia?.querySelector('video, audio');
-    teardownMiniAudioCard();
+    // Popped out and the queue moving on inside the mini player: keep the
+    // browser's picture-in-picture window open and hand it to the next file
+    // (mini-player.js). Anything else leaves picture-in-picture here.
+    const carryPip = keepMini && media_type === 'video' && miniPipCarry(miniEl);
+    miniPlayerTeardown({ keepPip: carryPip });
     stopMediaElement(miniEl);
     miniMedia.innerHTML = '';
     miniPlayer.classList.remove('active', 'mini-audio');
-    // Where the user dragged the box is theirs to keep while it stays open;
-    // only leaving mini mode altogether puts it back in the corner.
-    if (!keepMini) resetMiniPlayerPosition();
+    // The corner and size the user chose are remembered (mini-player.js), so
+    // nothing to put back here.
     currentMediaState.miniMode = false;
   }
 
@@ -475,6 +493,9 @@ function playMedia(mediaData, { source = 'user' } = {}) {
     loopA: null,
     loopB: null
   };
+
+  // The Modern dock lets go of the old controls (its menus, its stage watch)
+  if (typeof ModernDock !== 'undefined') ModernDock.unmount();
 
   const hasPrev = currentMediaState.currentIndex > 0;
   // Before the exact count is in there is always more to come.
@@ -590,8 +611,18 @@ function repeatButtonInner(mode) {
     </svg>${badge}`;
 }
 
+/* Modern: the line icon (a 1 inside for repeat-one), lit unless off. */
+const REPEAT_MODERN_TITLES = { off: 'Repeat: off. Click to repeat the list', all: 'Repeat all. Click to repeat this file', one: 'Repeat this file. Click to turn repeat off' };
+
+function renderRepeatButtonModern(mode) {
+  return `<button type="button" onclick="cycleRepeatMode()" id="repeatBtn" class="mp-ic mp-repeat${mode !== 'off' ? ' on' : ''}"
+    data-mode="${mode}" title="${REPEAT_MODERN_TITLES[mode]}" aria-label="${REPEAT_LABELS[mode]}"
+    >${mpIcon(mode === 'one' ? 'repeat-one' : 'repeat')}</button>`;
+}
+
 function renderRepeatButton() {
   const mode = repeatMode();
+  if (typeof mpBuildingDock === 'function' && mpBuildingDock()) return renderRepeatButtonModern(mode);
   return `<button onclick="cycleRepeatMode()" id="repeatBtn" class="repeat-btn rep-${mode}"
     data-mode="${mode}" title="${REPEAT_LABELS[mode]}" aria-label="${REPEAT_LABELS[mode]}"
     >${repeatButtonInner(mode)}</button>`;
@@ -599,6 +630,7 @@ function renderRepeatButton() {
 
 function updateRepeatButton() {
   const mode = repeatMode();
+  document.querySelectorAll('.mp-repeat').forEach(btn => { btn.outerHTML = renderRepeatButtonModern(mode); });
   document.querySelectorAll('.repeat-btn').forEach(btn => {
     btn.className = `repeat-btn rep-${mode}`;
     btn.dataset.mode = mode;
@@ -643,7 +675,7 @@ const FILL_TITLE = {
 function renderFillButton() {
   const t = fillMode ? FILL_TITLE.on : FILL_TITLE.off;
   return `<button onclick="toggleFillMode()" class="control-btn fill-btn ${fillMode ? 'active' : ''}"
-    title="${t}" aria-label="Fit to window" aria-pressed="${fillMode ? 'true' : 'false'}">⤢</button>`;
+    title="${t}" aria-label="Fit to window" aria-pressed="${fillMode ? 'true' : 'false'}">${playerGlyph('⤢', 'fit')}</button>`;
 }
 
 function updateFillButton() {
@@ -730,13 +762,19 @@ function finishStalledTail(element) {
     return;
   }
   try { element.pause(); } catch {}
-  const btn = document.getElementById('playPauseBtn');
-  if (btn) btn.textContent = '▶';
+  if (typeof syncPlayPauseButton === 'function') syncPlayPauseButton();
   autoAdvanceOnEnded();
 }
 
 /** 'ended' fired → advance the queue (or start over, in repeat-all). */
 function autoAdvanceOnEnded() {
+  // An A-B loop that runs to the end of the file owns the end: back to A.
+  // Checked before repeat-one, since setting a loop turns the element's own
+  // loop flag off and 'ended' then does fire.
+  if (typeof abLoopWrapAtEnd === 'function' && abLoopWrapAtEnd(currentMediaState.element)) {
+    if (typeof syncPlayPauseButton === 'function') syncPlayPauseButton();
+    return;
+  }
   // 'one' repeats through the element's own loop flag, which means no 'ended'
   // at all — but a stale listener must not advance past the file either.
   if (isRepeatOne()) return;
@@ -749,7 +787,15 @@ function autoAdvanceOnEnded() {
  * center nav.
  */
 function renderDoneButton() {
-  return `<button onclick="markSessionDone()" class="done-btn" title="Done. End the viewing session here (💦 tracked per item)">💦 Done</button>`;
+  if (typeof mpBuildingDock === 'function' && mpBuildingDock()) {
+    return `<button type="button" onclick="markSessionDone()" class="mp-ic done-btn" title="Done. Marks the end of this viewing here" aria-label="Done">${mpIcon('done')}</button>`;
+  }
+  // Classic's bar (and the audio player in either look): the emoji in Classic,
+  // the line icon in Modern (icons.js swaps them with the look).
+  const title = typeof vaultIsModern === 'function' && vaultIsModern()
+    ? 'Done. Marks the end of this viewing here' : 'Done. End the viewing session here (💦 tracked per item)';
+  const lead = typeof vaultIconSwap === 'function' ? vaultIconSwap('💦 ', 'done') : '💦 ';
+  return `<button onclick="markSessionDone()" class="done-btn" title="${title}">${lead}Done</button>`;
 }
 
 /**
@@ -757,7 +803,13 @@ function renderDoneButton() {
  * used to mark intense moments. Rendered to the LEFT of Done.
  */
 function renderHotButton() {
-  return `<button onclick="markSessionHot()" class="hot-btn" title="Hot. Mark an intense moment here (🔥 tracked per item)">🔥 Hot</button>`;
+  if (typeof mpBuildingDock === 'function' && mpBuildingDock()) {
+    return `<button type="button" onclick="markSessionHot()" class="mp-ic hot-btn" title="Hot moment. Marks this spot (orange on the bar)" aria-label="Hot moment">${mpIcon('hot')}</button>`;
+  }
+  const title = typeof vaultIsModern === 'function' && vaultIsModern()
+    ? 'Hot moment. Marks this spot' : 'Hot. Mark an intense moment here (🔥 tracked per item)';
+  const lead = typeof vaultIconSwap === 'function' ? vaultIconSwap('🔥 ', 'hot') : '🔥 ';
+  return `<button onclick="markSessionHot()" class="hot-btn" title="${title}">${lead}Hot</button>`;
 }
 
 /**
@@ -795,7 +847,9 @@ async function markSessionHot() {
     }
   } catch {}
 
-  showToast(`🔥 Hot, marked on ${media.filename}`);
+  // Modern's toasts carry no emoji (Classic keeps it)
+  const modern = typeof vaultIsModern === 'function' && vaultIsModern();
+  showToast(`${modern ? '' : '🔥 '}Hot, marked on ${media.filename}`);
   if (typeof drawActivityBar === 'function') drawActivityBar(); // tint the spot live
   renderResults(); // refresh 🔥 badges on the grid behind the player
 }
@@ -836,7 +890,8 @@ async function markSessionDone() {
     }
   } catch {}
 
-  showToast(`💦 Done, marked on ${media.filename}`);
+  const modern = typeof vaultIsModern === 'function' && vaultIsModern();
+  showToast(`${modern ? '' : '💦 '}Done, marked on ${media.filename}`);
   if (typeof drawActivityBar === 'function') drawActivityBar(); // tint the spot live
   renderResults(); // refresh 💦 badges on the grid behind the player
 }
@@ -941,8 +996,14 @@ function renderSidebar() {
   // The skipped tally is appended here rather than built into
   // renderDetailBody, because it is about the session, not about this file,
   // and the library modal shares that renderer.
-  body.innerHTML = renderDetailBody(media, { context: 'player' })
-    + (typeof renderSkippedSection === 'function' ? renderSkippedSection() : '');
+  const skipped = typeof renderSkippedSection === 'function' ? renderSkippedSection() : '';
+  // Modern: the tabbed Info panel (detail-view.js), skipped list in its File tab.
+  if (typeof detailPanelTabbed === 'function' && detailPanelTabbed()) {
+    body.innerHTML = renderDetailPanel(media, { extraFile: skipped });
+    detailPanelMounted();
+    return;
+  }
+  body.innerHTML = renderDetailBody(media, { context: 'player' }) + skipped;
 }
 
 
@@ -993,6 +1054,9 @@ function hidePlayerChrome() {
   // cursor that never went away either.
   if (!isVideoLike(currentMediaState.type) || !el) return;
   if (el.paused) return;
+  // Modern: a menu, the scrub preview, a drag or keyboard focus in the dock
+  // keeps it up; try again after another idle stretch.
+  if (typeof ModernDock !== 'undefined' && ModernDock.hold()) { scheduleHideControls(); return; }
 
   overlay.classList.remove('controls-visible');
   overlay.classList.add('cursor-hidden');
@@ -1048,6 +1112,14 @@ function handlePlayerPointerMove(e) {
   const beatbar = document.querySelector('.beatbar-overlay');
   const overBeatbar = beatbar && beatbar.style.display !== 'none' &&
     inside(beatbar.getBoundingClientRect(), BEATBAR_DEADZONE_PAD);
+
+  // Modern: show / hide by how far down the stage the pointer is (the dock's
+  // show zone and hide line, player-modern.js), the beat bar still dead space.
+  if (typeof ModernDock !== 'undefined' && ModernDock.mounted()) {
+    if (overBeatbar) revealCursorOnly();
+    else ModernDock.pointerMove(e);
+    return;
+  }
 
   const el = currentMediaState.element;
   const videoRect = (el && el.tagName === 'VIDEO') ? el.getBoundingClientRect() : null;
@@ -1247,6 +1319,9 @@ function stopMediaElement(el) {
   // element alone would leave them fetching segments for a file nobody is
   // watching any more.
   if (typeof destroyStream === 'function') destroyStream();
+  // Picture-in-picture would be left showing a frozen frame, unless the mini
+  // player is handing the window on to the next file (mini-player.js).
+  if (document.pictureInPictureElement === el && !el._pipCarry) document.exitPictureInPicture().catch(() => {});
   try { el.onerror = null; el.removeAttribute('onerror'); } catch {}
   try { el.pause(); } catch {}
   try { el.removeAttribute('src'); el.load(); } catch {}
@@ -1299,7 +1374,7 @@ function minimizePlayer() {
 
   // Set title
   miniTitle.textContent = currentMediaState.currentMediaData?.filename || playingMedia?.filename || 'Playing...';
-  // Audio gets the compact card layout; everything else the plain video box
+  // Audio shows its art (or the type icon) where the picture would be
   miniPlayer.classList.remove('mini-audio');
 
   // The inline onerror carries this file's path and calls closeMediaPlayer;
@@ -1336,24 +1411,16 @@ function minimizePlayer() {
     miniMedia.innerHTML = '';
     miniMedia.appendChild(element);
   } else if (type === 'audio') {
-    // Audio has nothing to show, so the mini player becomes a compact card:
-    // art tile + title/time + controls on one row, hairline progress under it.
-    // The <audio> itself just rides along, hidden.
+    // Audio has nothing to show: the <audio> rides along hidden and the box
+    // shows the file's art, or the type icon (mini-player.js).
     element.removeAttribute('id');
     miniMedia.innerHTML = '';
     miniMedia.appendChild(element);
     miniPlayer.classList.add('mini-audio');
-    setupMiniAudioCard(element);
   }
 
-  // Give this mode its own box before the card is shown, so the first paint is
-  // already the right shape.
-  applyMiniPlayerSize(miniPlayer, type === 'audio');
-
-  // Update mini play/pause button
-  updateMiniPlayPause();
-
   // Close the full overlay without destroying the element
+  if (typeof ModernDock !== 'undefined') ModernDock.unmount();
   clearTimeout(currentMediaState.hideControlsTimeout);
   clearTimeout(currentMediaState.clickTimeout);
   overlay.removeEventListener('mousemove', showMediaControls);
@@ -1369,14 +1436,10 @@ function minimizePlayer() {
   // Show mini player
   currentMediaState.miniMode = true;
   miniPlayer.classList.add('active');
-  // Now that it has a layout, pull it back on-screen if a previous drag left
-  // it somewhere that only fit the old (bigger) box.
-  clampMiniPlayerToViewport(miniPlayer);
+  // Controls, listeners, and the remembered corner and size (mini-player.js)
+  miniPlayerOpen(element, type);
   // Mini player doesn't cover the grid → bring the selection bar back
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
-
-  // Initialize drag
-  initMiniPlayerDrag();
 }
 
 /**
@@ -1398,8 +1461,8 @@ function maximizePlayer() {
     return;
   }
 
-  // Hide mini player
-  teardownMiniAudioCard();
+  // Hide mini player (and leave picture-in-picture: this element goes away)
+  miniPlayerTeardown();
   miniPlayer.classList.remove('active', 'mini-audio');
   currentMediaState.miniMode = false;
 
@@ -1440,7 +1503,7 @@ function closeMiniPlayer() {
   // Stop any playing media (without tripping the inline error handler). A mix
   // has several layers plus a drift-correction interval, so hand it to its own
   // teardown or the followers keep decoding behind a closed mini player.
-  teardownMiniAudioCard();
+  miniPlayerTeardown();
   if (currentMediaState.type === 'mix' && typeof stopMixPlayer === 'function') {
     stopMixPlayer();
   } else {
@@ -1471,8 +1534,7 @@ function closeMiniPlayer() {
  * Toggle play/pause in the mini player.
  */
 function miniTogglePlay() {
-  const miniMedia = document.getElementById('miniPlayerMedia');
-  const element = miniMedia?.querySelector('video, audio');
+  const element = miniMediaEl();
   if (!element) return;
 
   if (element.paused) {
@@ -1481,281 +1543,6 @@ function miniTogglePlay() {
     element.pause();
   }
   updateMiniPlayPause();
-}
-
-/**
- * Update the mini player play/pause button icon.
- */
-function updateMiniPlayPause() {
-  const miniMedia = document.getElementById('miniPlayerMedia');
-  const btn = document.getElementById('miniPlayPause');
-  const element = miniMedia?.querySelector('video, audio');
-  if (!btn || !element) return;
-
-  // Update immediately and on state changes
-  const update = () => {
-    btn.textContent = element.paused ? '▶' : '⏸';
-  };
-  update();
-  element.addEventListener('play', update);
-  element.addEventListener('pause', update);
-  element.addEventListener('ended', update);
-}
-
-/**
- * Wire the compact audio card: the "0:14 / 0:40 · 1x" line and the hairline
- * progress strip. The listener is parked on the element itself so maximize and
- * close can take it back off again.
- */
-function setupMiniAudioCard(element) {
-  const timeEl = document.getElementById('miniAudioTime');
-  const speedEl = document.getElementById('miniAudioSpeed');
-  const fill = document.getElementById('miniAudioProgressFill');
-  const strip = document.getElementById('miniAudioProgress');
-
-  const update = () => {
-    const dur = (isFinite(element.duration) && element.duration > 0) ? element.duration : 0;
-    if (fill) fill.style.width = dur ? ((element.currentTime / dur) * 100) + '%' : '0%';
-    if (timeEl) {
-      timeEl.textContent = `${formatDuration(element.currentTime) || '0:00'} / ${formatDuration(dur) || '0:00'}`;
-    }
-    if (speedEl) speedEl.textContent = (element.playbackRate || 1) + 'x';
-  };
-
-  update();
-  element.addEventListener('timeupdate', update);
-  element.addEventListener('loadedmetadata', update);
-  element._miniAudioUpdate = update;
-
-  // Click/drag the strip to seek. Bound once — the card markup lives in the
-  // page, so re-binding on every minimize would stack handlers.
-  if (strip && !strip._seekBound && typeof attachSeekScrubbing === 'function') {
-    strip._seekBound = true;
-    attachSeekScrubbing(strip, strip, () => {
-      const box = document.getElementById('miniPlayerMedia');
-      return box ? box.querySelector('audio, video') : null;
-    // The strip is a 4px hairline inside a card with overflow:hidden — a pill
-    // left hanging after a click reads as a glitch, so hide it on release.
-    }, { hideLabelOnRelease: true });
-  }
-}
-
-/** Drop the mini audio card's timeupdate listener (maximize / close / replace). */
-function teardownMiniAudioCard() {
-  const miniMedia = document.getElementById('miniPlayerMedia');
-  const element = miniMedia ? miniMedia.querySelector('video, audio') : null;
-  if (element && element._miniAudioUpdate) {
-    element.removeEventListener('timeupdate', element._miniAudioUpdate);
-    element.removeEventListener('loadedmetadata', element._miniAudioUpdate);
-    delete element._miniAudioUpdate;
-  }
-}
-
-/**
- * Size the mini player for the mode it is about to show.
- *
- * The mini player is user-resizable (CSS `resize: both`), and the browser
- * records a resize as INLINE width/height on #miniPlayer. Inline styles beat
- * every stylesheet rule, so once a video mini had been dragged out to, say,
- * 770x900, minimizing an audio file handed the compact card that same box —
- * art/title/controls floating in the middle of a huge empty rectangle with the
- * seek strip stranded at the bottom.
- *
- * So: park the inline size while audio is showing (audio sizes itself from
- * CSS, 380px wide and only as tall as its one row), and give the video box
- * back the size the user chose the next time a video or mix is minimized.
- */
-function applyMiniPlayerSize(miniPlayer, isAudio) {
-  if (!miniPlayer) return;
-  const d = miniPlayer.dataset;
-  if (isAudio) {
-    // Only the switch from the video box saves: the size it has now (from
-    // either grip, or none) IS the video size. A second audio file in a row
-    // must not overwrite that with the card's empty one.
-    if (!d.audioCard) {
-      d.savedW = miniPlayer.style.width;
-      d.savedH = miniPlayer.style.height;
-      d.audioCard = '1';
-    }
-    miniPlayer.style.width = '';
-    miniPlayer.style.height = '';
-  } else if (d.audioCard) {
-    // Back from the card: the video size it parked. Video to video leaves the
-    // box alone, so a resize made since is never undone by an old saved size.
-    miniPlayer.style.width = d.savedW || '';
-    miniPlayer.style.height = d.savedH || '';
-    delete d.savedW;
-    delete d.savedH;
-    delete d.audioCard;
-  }
-}
-
-/**
- * Snap the card back inside the viewport.
- *
- * Dragging switches the mini player to inline left/top, and that position
- * sticks across minimizes. A spot that fit a 640x400 video box can push a
- * different-sized card (or the same card after the window shrank) off the
- * right or bottom edge. Untouched, it is still anchored bottom/right by CSS
- * and there is nothing to clamp.
- */
-function clampMiniPlayerToViewport(miniPlayer) {
-  if (!miniPlayer || !miniPlayer.style.left) return;
-  const w = miniPlayer.offsetWidth;
-  const h = miniPlayer.offsetHeight;
-  const left = parseFloat(miniPlayer.style.left) || 0;
-  const top = parseFloat(miniPlayer.style.top) || 0;
-  miniPlayer.style.left = Math.max(0, Math.min(Math.max(0, window.innerWidth - w), left)) + 'px';
-  miniPlayer.style.top = Math.max(0, Math.min(Math.max(0, window.innerHeight - h), top)) + 'px';
-}
-
-// ── Mini Player Drag ────────────────────────────────────────────────────
-
-function initMiniPlayerDrag() {
-  const miniPlayer = document.getElementById('miniPlayer');
-  const dragHandle = document.getElementById('miniPlayerDrag');
-  
-  let isDragging = false;
-  let startX, startY, startLeft, startTop;
-
-  const onMouseDown = (e) => {
-    isDragging = true;
-    const rect = miniPlayer.getBoundingClientRect();
-    startX = e.clientX;
-    startY = e.clientY;
-    startLeft = rect.left;
-    startTop = rect.top;
-
-    // Switch from bottom/right positioning to top/left for drag
-    miniPlayer.style.left = rect.left + 'px';
-    miniPlayer.style.top = rect.top + 'px';
-    miniPlayer.style.right = 'auto';
-    miniPlayer.style.bottom = 'auto';
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-    e.preventDefault();
-  };
-
-  const onMouseMove = (e) => {
-    if (!isDragging) return;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    
-    const newLeft = Math.max(0, Math.min(window.innerWidth - miniPlayer.offsetWidth, startLeft + dx));
-    const newTop = Math.max(0, Math.min(window.innerHeight - miniPlayer.offsetHeight, startTop + dy));
-    
-    miniPlayer.style.left = newLeft + 'px';
-    miniPlayer.style.top = newTop + 'px';
-  };
-
-  const onMouseUp = () => {
-    isDragging = false;
-    document.removeEventListener('mousemove', onMouseMove);
-    document.removeEventListener('mouseup', onMouseUp);
-  };
-
-  // Remove old listeners if re-initializing
-  dragHandle._onMouseDown && dragHandle.removeEventListener('mousedown', dragHandle._onMouseDown);
-  dragHandle._onMouseDown = onMouseDown;
-  dragHandle.addEventListener('mousedown', onMouseDown);
-
-  initMiniPlayerResize();
-}
-
-/**
- * The top-left resize grip. The browser's own grip (CSS `resize: both`) is
- * bottom-right, the corner the player starts in, so it was out of reach until
- * the box had been dragged away. This one moves the top-left corner and holds
- * the bottom-right one still. It writes the same inline width/height the
- * browser's grip does, so applyMiniPlayerSize keeps the size across audio and
- * video, and it honours the same CSS min/max. Pointer events, so touch and pen
- * work too. Bound once.
- */
-function initMiniPlayerResize() {
-  const miniPlayer = document.getElementById('miniPlayer');
-  const grip = document.getElementById('miniResizeTL');
-  if (!miniPlayer || !grip || grip._bound) return;
-  grip._bound = true;
-
-  let start = null;
-  const px = (v, fallback) => {
-    const n = parseFloat(v);
-    return Number.isFinite(n) ? n : fallback;
-  };
-
-  grip.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    const rect = miniPlayer.getBoundingClientRect();
-    const cs = getComputedStyle(miniPlayer);
-    start = {
-      x: e.clientX,
-      y: e.clientY,
-      w: rect.width,
-      h: rect.height,
-      right: rect.right,
-      bottom: rect.bottom,
-      minW: px(cs.minWidth, 0),
-      minH: px(cs.minHeight, 0),
-      maxW: px(cs.maxWidth, Infinity),
-      maxH: px(cs.maxHeight, Infinity),
-    };
-    // Same switch the drag makes: position by top/left from here on.
-    miniPlayer.style.left = rect.left + 'px';
-    miniPlayer.style.top = rect.top + 'px';
-    miniPlayer.style.right = 'auto';
-    miniPlayer.style.bottom = 'auto';
-    grip.setPointerCapture(e.pointerId);
-    e.preventDefault();
-    e.stopPropagation();
-  });
-
-  grip.addEventListener('pointermove', (e) => {
-    if (!start) return;
-    // Growing stops at the viewport's top and left edges, since the bottom
-    // right corner does not move.
-    const w = Math.max(start.minW, Math.min(start.maxW, start.right, start.w - (e.clientX - start.x)));
-    const h = Math.max(start.minH, Math.min(start.maxH, start.bottom, start.h - (e.clientY - start.y)));
-    miniPlayer.style.width = w + 'px';
-    miniPlayer.style.height = h + 'px';
-    miniPlayer.style.left = (start.right - w) + 'px';
-    miniPlayer.style.top = (start.bottom - h) + 'px';
-  });
-
-  const end = (e) => {
-    if (!start) return;
-    start = null;
-    try { grip.releasePointerCapture(e.pointerId); } catch {}
-    clampMiniPlayerToViewport(miniPlayer);
-  };
-  grip.addEventListener('pointerup', end);
-  grip.addEventListener('pointercancel', end);
-  // A click on the grip is not a click on the player.
-  grip.addEventListener('click', (e) => e.stopPropagation());
-}
-
-// A window made smaller can leave a dragged or resized mini player partly off
-// screen (its inline left/top no longer fit). Pull it back once the resize
-// settles. One left anchored bottom/right by CSS follows the window anyway.
-let _miniClampTimer = null;
-window.addEventListener('resize', () => {
-  clearTimeout(_miniClampTimer);
-  _miniClampTimer = setTimeout(() => {
-    const mini = document.getElementById('miniPlayer');
-    if (mini && mini.classList.contains('active')) clampMiniPlayerToViewport(mini);
-  }, 150);
-});
-
-/**
- * Reset mini player position (for next use).
- */
-function resetMiniPlayerPosition() {
-  const miniPlayer = document.getElementById('miniPlayer');
-  if (!miniPlayer) return;
-  miniPlayer.style.left = '';
-  miniPlayer.style.top = '';
-  miniPlayer.style.right = '1.5rem';
-  miniPlayer.style.bottom = '1.5rem';
 }
 
 function closeMediaPlayer(event) {
@@ -1817,6 +1604,7 @@ function closeMediaPlayer(event) {
   // Close media info if open
   closeMediaInfo();
   
+  if (typeof ModernDock !== 'undefined') ModernDock.unmount();
   overlay.classList.remove('active', 'controls-visible', 'cursor-hidden');
   document.getElementById('mediaPlayerContent').innerHTML = '';
   document.getElementById('mediaPlayerControls').innerHTML = '';
@@ -1824,8 +1612,6 @@ function closeMediaPlayer(event) {
   // Player closed → restore the selection bar if a selection is still active
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
 
-  // Reset mini player position for next use
-  resetMiniPlayerPosition();
 
   // Mark the last-opened tile, and otherwise leave the grid exactly where it
   // was — see revealLastPlayedIfBooting for the one exception.

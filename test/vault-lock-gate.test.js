@@ -13,6 +13,7 @@
  * ("//api" even becomes a host), which would hide the exact bytes under test.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

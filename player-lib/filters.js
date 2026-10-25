@@ -88,7 +88,7 @@ let focusPriorSearch = null;
 function setFocusIds(ids, label, opts) {
   const list = Array.isArray(ids) ? ids : [...(ids || [])];
   if (!list.length && !opts) {
-    if (typeof showToast === 'function') showToast('Nothing to show');
+    if (typeof showToast === 'function') showToast('There are no files to show.');
     return;
   }
   const search = document.getElementById('searchInput');
@@ -98,7 +98,7 @@ function setFocusIds(ids, label, opts) {
   if (!opts) focusPriorSearch = null;
   else if (!focusIds) focusPriorSearch = search ? search.value : null;
   focusIds = new Set(list);
-  focusLabel = label || 'selected records';
+  focusLabel = label || 'selected files';
   focusOpts = opts || null;
   const r = opts && opts.rankedScores;
   focusRanked = !r ? null : (r instanceof Map ? [...r].map(([id, score]) => ({ id, score })) : r);
@@ -296,8 +296,10 @@ function renderMediaTypeBar() {
     const label = vaultIconSwap(emoji + ' ', VAULT_TYPE_ICON_NAMES[type]) + words.join(' ');
     html += `<button class="ext-chip type-chip ${active ? 'active' : ''}" data-type="${type}">${label} <span class="ext-count">${typeCounts[type].toLocaleString()}</span></button>`;
   }
-  html += `<button class="ext-chip safe-chip ${safeOnly ? 'active' : ''}" id="safeChip" title="Only formats known to play in this tool">★ safe</button>`;
-  html += `<button class="ext-chip ext-expander ${extBarOpen ? 'open' : ''}" id="extExpander" title="Filter by exact file extension">${extBarOpen ? 'extensions ▾' : 'extensions ▸'}${selectedExtensions.length ? ` <span class="ext-count">${selectedExtensions.length}</span>` : ''}</button>`;
+  html += `<button class="ext-chip safe-chip ${safeOnly ? 'active' : ''}" id="safeChip" title="Only formats known to play in Vault">${vaultIconSwap('★ ', 'star')}Plays here</button>`;
+  // Classic keeps its glyph caret; Modern turns the line caret with CSS.
+  const caret = `<span class="vi-c">${extBarOpen ? ' ▾' : ' ▸'}</span>${vaultIcon('caret', 'modern-only ext-caret')}`;
+  html += `<button class="ext-chip ext-expander ${extBarOpen ? 'open' : ''}" id="extExpander" title="Filter by exact file extension" aria-expanded="${extBarOpen}">File types${caret}${selectedExtensions.length ? ` <span class="ext-count">${selectedExtensions.length}</span>` : ''}</button>`;
 
   bar.innerHTML = html;
 
@@ -752,10 +754,11 @@ function applyFilters(opts) {
       // The server answered with an error (a 500): asking again every few
       // seconds would only repeat it. Say so once; the next change the user
       // makes tries again.
-      showToast('Search failed: ' + (err.message || `Server returned ${err.status}`));
+      showErrorToast(err, 'searching');
       return null;
     }
-    showToast('Search failed: ' + ((err && err.message) || 'server unreachable'));
+    // No toast: the "Can't reach Vault" notice at the top says it and stays
+    // until the server answers again (database.js, Library.noteServerLost).
     // No answer at all (restarting, offline): the box now says something the
     // grid does not show, so run it again as soon as the server answers
     // (Library's polling). A new search lands on page 1 when it does; only a

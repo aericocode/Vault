@@ -69,7 +69,7 @@
 .wf-bar[hidden] { display: none; }
 .wf-bar b { display: block; height: 100%; background: var(--accent); transition: width 0.4s; }
 
-/* ── Dialogs (one folder's options, and the small confirm) ─────────────── */
+/* ── One folder's options (the confirms use player-lib/vault-dialogs.js) ── */
 
 .wf-overlay {
   position: fixed; inset: 0; z-index: 3000;
@@ -88,8 +88,6 @@
   overflow: hidden;
 }
 .wf-dialog[hidden] { display: none; }
-.wf-ask { width: min(440px, 100%); }
-.wf-ask-text { margin: 0; padding: 1.1rem 1.1rem 0.4rem; font-size: 0.9rem; line-height: 1.5; }
 .wf-dhead { display: flex; align-items: center; gap: 0.6rem; padding: 0.8rem 1rem; border-bottom: 1px solid var(--border); }
 .wf-dhead[hidden] { display: none; }
 .wf-dhead .wf-ic { grid-row: auto; width: 26px; height: 26px; }
@@ -140,7 +138,6 @@
 .wf-foot { display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid var(--border); flex-wrap: wrap; }
 .wf-foot[hidden] { display: none; }
 .wf-foot .settings-btn { display: inline-flex; align-items: center; gap: 0.35rem; }
-.wf-ask .wf-foot { border-top: none; }
 .wf-grow { flex: 1; }
 .wf-confirm-text { font-size: 0.85rem; color: var(--text-primary); flex: 1 1 240px; }
 .settings-btn.wf-danger { background: var(--danger); }
@@ -162,6 +159,59 @@
 .wf-switch input:checked + span::after { transform: translateX(16px); background: #fff; }
 .wf-switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 .wf-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ── Modern: the folder rows and the options dialog in the shared look ─── */
+body.layout-modern .wf-row {
+  border-color: var(--m-border);
+  border-radius: 10px;
+  background: var(--m-field);
+}
+body.layout-modern .wf-ic { background: rgba(255, 255, 255, 0.06); color: var(--m-text-2); border-radius: var(--m-radius-sm); }
+body.layout-modern .wf-ic .vi { width: 16px; height: 16px; }
+body.layout-modern .wf-path { color: var(--m-text); font-size: 14px; }
+body.layout-modern .wf-meta { color: var(--m-muted); font-size: 12px; }
+body.layout-modern .wf-st { background: rgba(255, 255, 255, 0.06); color: var(--m-text-2); font-size: 12px; }
+body.layout-modern .wf-more { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border-radius: var(--m-radius-sm); }
+body.layout-modern .wf-more:hover,
+body.layout-modern .wf-more:focus-visible { border-color: transparent; background: var(--m-btn-hover); }
+body.layout-modern .wf-bar { background: rgba(255, 255, 255, 0.08); }
+
+body.layout-modern .wf-dialog {
+  background: rgba(22, 22, 27, 0.98);
+  color: var(--m-text);
+  border-color: var(--m-border);
+  border-radius: var(--m-radius);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  font-size: 14px;
+}
+body.layout-modern .wf-dhead { padding: 14px 18px; border-bottom-color: rgba(255, 255, 255, 0.08); gap: 10px; }
+body.layout-modern .wf-dtitle { font-size: 15px; font-weight: 600; }
+body.layout-modern .wf-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0;
+  border-radius: var(--m-radius-sm); color: var(--m-muted);
+}
+body.layout-modern .wf-x:hover { background: var(--m-btn-hover); color: var(--m-text); }
+body.layout-modern .wf-x .vi { width: 16px; height: 16px; }
+body.layout-modern .wf-dbody { padding: 4px 18px 10px; }
+body.layout-modern .wf-orow { border-bottom-color: rgba(255, 255, 255, 0.08); padding: 12px 0; }
+body.layout-modern .wf-olabel { font-size: 14px; font-weight: 500; }
+body.layout-modern .wf-olabel small { font-size: 12px; color: var(--m-muted); }
+body.layout-modern .wf-seg { border-color: var(--m-border-strong); border-radius: var(--m-radius-sm); }
+body.layout-modern .wf-seg-btn { background: var(--m-btn); color: var(--m-text-2); border-right-color: var(--m-border-strong); font-size: 13px; padding: 6px 11px; }
+body.layout-modern .wf-seg-btn:hover:not(:disabled):not([aria-pressed="true"]) { background: var(--m-btn-hover); color: var(--m-text); }
+body.layout-modern .wf-seg-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
+body.layout-modern .wf-interval { font-size: 13px; color: var(--m-text-2); }
+body.layout-modern .wf-num.m-field { width: 5rem; }
+body.layout-modern .wf-field.m-field { width: 8rem; }
+body.layout-modern .wf-text.m-field { min-height: 6.5rem; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+body.layout-modern .wf-chip { border-color: var(--m-border-strong); border-radius: var(--m-radius-sm); background: var(--m-btn); color: var(--m-text-2); font-size: 13px; padding: 4px 10px; }
+body.layout-modern .wf-chip[aria-pressed="true"] { color: #fff; border-color: transparent; background: var(--accent); }
+/* The accent fill says "on" in Modern; the ✓ glyph is Classic's. */
+body.layout-modern .wf-chip[aria-pressed="true"]::after { content: none; }
+body.layout-modern .wf-err { color: var(--m-danger-text); font-size: 13px; }
+body.layout-modern .wf-foot { padding: 12px 18px; border-top-color: rgba(255, 255, 255, 0.08); }
+body.layout-modern .wf-confirm-text { font-size: 13px; color: var(--m-text-2); }
 
 /* ── The Add folder dialog's "Keep watching this folder" ───────────────── */
 
@@ -236,3 +286,15 @@ body.layout-modern .watch-pill {
 .tv-row .tile-watch-tag,
 .media-tile.tv-row:hover .tile-watch-tag { position: static; flex: none; align-self: center; margin-left: 0.4rem; }
 .media-tile.tv-row.tile-missing .tv-c-thumb { opacity: 0.45; }
+
+/* Modern popover: the shared card look */
+body.layout-modern .watch-pop {
+  background: var(--m-surface-solid);
+  border-color: var(--m-border);
+  border-radius: var(--m-radius);
+  box-shadow: var(--m-shadow);
+  color: var(--m-text);
+}
+body.layout-modern .watch-pop-btn { border-color: var(--m-border-strong); border-radius: var(--m-radius-sm); background: var(--m-btn); }
+body.layout-modern .watch-pop-btn:hover { background: var(--m-btn-hover); border-color: var(--m-border-strong); }
+body.layout-modern .watch-pop-ghost { background: transparent; }

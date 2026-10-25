@@ -1,0 +1,354 @@
+/* ==========================================
+   Modern beat bar (body.layout-modern only): the frosted "glass lane" and
+   its settings panel. Markup + drawing: player-lib/beatbar.js
+   (createModernOverlay / renderGlassFrame). Classic keeps css/beatbar.css.
+   ========================================== */
+
+/* The overlay is just a positioned box; the lane and the panel inside it
+   take the pointer. */
+body.layout-modern .beatbar-overlay.bb-modern {
+  pointer-events: none;
+  cursor: auto;
+  touch-action: auto;
+}
+
+body.layout-modern .bbm-lane {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  cursor: ns-resize;
+  touch-action: none;
+  border-radius: 12px;      /* a rounded rect like the app's cards; the canvas clips to the same */
+  /* No backdrop-filter, background or outer shadow here: a backdrop-filter
+     over the <video> changed how the browser composites the whole video (the
+     frame looked brighter with the bar on), and a shadow would darken the
+     picture around the lane. The frost (blurred picture + light tint) is
+     painted on the canvas instead: renderGlassFrame in beatbar.js. */
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  user-select: none;
+}
+
+body.layout-modern .bb-modern .beatbar-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Line icons used in the lane and the panel */
+body.layout-modern .bbm-svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+body.layout-modern .bbm-svg.bbm-dots,
+body.layout-modern .bbm-svg.bbm-solid { fill: currentColor; stroke: none; }
+
+/* Tools: only while the mouse is over the lane (or while dragging, or with
+   the panel open); otherwise just the beats. */
+body.layout-modern .bbm-grip,
+body.layout-modern .bbm-bpm,
+body.layout-modern .bbm-gear {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+body.layout-modern .bbm-lane:hover .bbm-grip,
+body.layout-modern .bbm-lane:hover .bbm-bpm,
+body.layout-modern .bbm-lane:hover .bbm-gear,
+body.layout-modern .bb-modern.bbm-dragging .bbm-grip,
+body.layout-modern .bb-modern.bbm-dragging .bbm-bpm,
+body.layout-modern .bb-modern.bbm-dragging .bbm-gear,
+body.layout-modern .bb-modern.bbm-open .bbm-grip,
+body.layout-modern .bb-modern.bbm-open .bbm-bpm,
+body.layout-modern .bb-modern.bbm-open .bbm-gear { opacity: 1; }
+
+body.layout-modern .bbm-grip {
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 40px;
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: move;
+}
+body.layout-modern .bbm-grip:hover,
+body.layout-modern .bb-modern.bbm-resizing .bbm-grip { color: #fff; background: rgba(255, 255, 255, 0.1); }
+body.layout-modern .bb-modern.bbm-resizing .bbm-lane { cursor: ew-resize; }
+
+body.layout-modern .bbm-bpm {
+  left: 40px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+body.layout-modern .bbm-bpm:empty { display: none; }
+
+body.layout-modern .bbm-gear {
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  cursor: pointer;
+  font-size: 18px;
+}
+body.layout-modern .bbm-gear svg { width: 18px; height: 18px; }
+body.layout-modern .bbm-gear:hover { background: rgba(255, 255, 255, 0.14); }
+body.layout-modern .bbm-gear.gear-open { color: #a5b4fc; background: rgba(165, 180, 252, 0.18); }
+
+/* "Finding beats..." sits inside the lane, centred, always visible */
+body.layout-modern .bb-modern .beatbar-status {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: rgba(10, 10, 14, 0.55);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  text-shadow: none;
+  pointer-events: none;
+}
+body.layout-modern .bb-modern .beatbar-status:empty { display: none; }
+
+/* ── Settings panel ─────────────────────────────────────────────────────
+   Fixed to the viewport; beatbar.js sets right / bottom (or top) and
+   max-height so it opens above its gear and grows upward. */
+body.layout-modern .bbm-settings {
+  position: fixed;
+  z-index: 1;
+  width: 392px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  cursor: auto;
+  background: rgba(22, 22, 27, 0.97);
+  border: 1px solid #34343c;
+  border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6);
+  color: #e6e6ee;
+  font-size: 13.5px;
+  line-height: 1.3;
+  user-select: none;
+}
+body.layout-modern .bbm-settings[hidden] { display: none; }
+
+body.layout-modern .bbm-settings button { font: inherit; }
+
+body.layout-modern .bbm-hdr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 4px 14px;
+  font-weight: 700;
+  font-size: 14px;
+}
+body.layout-modern .bbm-hdr:has(.bbm-back:not([hidden])) { padding-left: 8px; }
+body.layout-modern .bbm-title { flex: 1; min-width: 0; }
+
+body.layout-modern .bbm-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: #fff;
+  cursor: pointer;
+}
+body.layout-modern .bbm-icon[hidden] { display: none; }
+body.layout-modern .bbm-icon:hover { background: rgba(255, 255, 255, 0.1); }
+
+body.layout-modern .bbm-link {
+  border: none;
+  background: none;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: #a5b4fc;
+  font-size: 12.5px !important;
+  font-weight: 400;
+  cursor: pointer;
+}
+body.layout-modern .bbm-link:hover { background: rgba(165, 180, 252, 0.12); }
+
+/* Live preview lane: only while the video is paused */
+body.layout-modern .bbm-prev {
+  margin: 0 12px 2px;
+  height: 80px;            /* beatbar.js sets the lane's own height */
+  box-sizing: border-box;
+  border-radius: 12px;
+  background: #0d0d11;
+  border: 1px solid #2a2a31;
+  overflow: hidden;
+}
+body.layout-modern .bbm-prev[hidden] { display: none; }
+body.layout-modern .bbm-prev canvas { display: block; width: 100%; height: 100%; }
+
+body.layout-modern .bbm-body { padding: 0 14px 4px; }
+
+body.layout-modern .bbm-sh {
+  margin: 8px 0 2px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8b8b97;
+}
+body.layout-modern .bbm-sh.bbm-look { margin-top: 10px; }
+
+body.layout-modern .bbm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+}
+/* Look rows get more room than Timing (the mock felt cramped there) */
+body.layout-modern .bbm-looks .bbm-row { min-height: 38px; }
+
+body.layout-modern .bbm-lbl {
+  flex: none;
+  width: 92px;
+  color: #cfcfd8;
+}
+
+body.layout-modern .bbm-val {
+  flex: none;
+  width: 52px;
+  text-align: right;
+  color: #a9a9b4;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sliders: thin track, accent fill via accent-color, white thumb */
+body.layout-modern .bbm-settings input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+  accent-color: #a5b4fc;
+  cursor: pointer;
+}
+
+/* Playhead: segmented control */
+body.layout-modern .bbm-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: #2a2a31;
+}
+body.layout-modern .bbm-seg .bb-chip {
+  padding: 5px 12px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #b9b9c4;
+  cursor: pointer;
+}
+body.layout-modern .bbm-seg .bb-chip:hover { color: #fff; }
+body.layout-modern .bbm-seg .bb-chip.active { background: #45457a; color: #fff; }
+
+/* Shapes */
+body.layout-modern .bbm-shapes { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+body.layout-modern .bbm-shapes .bb-shape-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: #2a2a31;
+  color: #cfd3ff;
+  cursor: pointer;
+}
+body.layout-modern .bbm-shapes .bb-shape-btn:hover { background: #34343e; }
+body.layout-modern .bbm-shapes .bb-shape-btn.active { outline: 2px solid #a5b4fc; background: #33335a; }
+
+/* Effects chips */
+body.layout-modern .bbm-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+body.layout-modern .bbm-chips .bb-chip {
+  padding: 4px 12px;
+  border: 1px solid #44444f;
+  border-radius: 99px;
+  background: none;
+  color: #c9c9d2;
+  cursor: pointer;
+}
+body.layout-modern .bbm-chips .bb-chip:hover { border-color: #6d6dc0; }
+body.layout-modern .bbm-chips .bb-chip.active { background: #45457a; border-color: #6d6dc0; color: #fff; }
+
+/* Colour swatches */
+body.layout-modern .bbm-swatches { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+body.layout-modern .bbm-swatches .bb-swatch {
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  cursor: pointer;
+}
+body.layout-modern .bbm-swatches .bb-swatch:hover { transform: scale(1.12); }
+body.layout-modern .bbm-swatches .bb-swatch.active { border-color: #fff; box-shadow: 0 0 0 2px #45457a; }
+
+/* More */
+body.layout-modern .bbm-more-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 2px;
+  padding: 9px 14px;
+  border: none;
+  border-top: 1px solid #2c2c33;
+  background: none;
+  color: #a9a9b4;
+  cursor: pointer;
+  text-align: left;
+}
+body.layout-modern .bbm-more-toggle:hover { color: #fff; }
+body.layout-modern .bbm-more-toggle .bbm-chev { width: 16px; height: 16px; transition: transform 0.15s; }
+body.layout-modern .bbm-more-open .bbm-more-toggle .bbm-chev { transform: rotate(180deg); }
+
+body.layout-modern .bbm-more { padding: 0 14px 10px; }
+body.layout-modern .bbm-more[hidden] { display: none; }
+
+body.layout-modern .bbm-wide {
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 12px;
+  border: 1px solid #3a3a44;
+  border-radius: 8px;
+  background: #24242b;
+  color: #e6e6ee;
+  cursor: pointer;
+}
+body.layout-modern .bbm-wide:hover { border-color: #6d6dc0; }

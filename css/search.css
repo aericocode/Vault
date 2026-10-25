@@ -309,3 +309,31 @@
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Short windows (about 1024x640): leave room for the tiles ─────────────
+   Header, search card, chip rows and the toolbar took about 360 px, so a
+   page held a single row of tiles. Modern only, under 720 px tall: a tighter
+   search card and the toolbar on one line (narrower Size slider, smaller
+   gaps). Classic keeps its spacing. */
+@media (max-height: 720px) {
+  body.layout-modern .main-container { padding-top: 0.6rem; }
+  body.layout-modern .search-section { padding: 0.6rem 0.75rem 0.35rem; }
+  body.layout-modern .search-row { margin-bottom: 0.4rem; gap: 0.6rem; }
+  body.layout-modern .search-input { padding-top: 0.5rem; padding-bottom: 0.5rem; font-size: 0.95rem; }
+  body.layout-modern #searchOptionsBtn,
+  body.layout-modern .clear-filters-btn { padding-top: 0.45rem; padding-bottom: 0.45rem; }
+  body.layout-modern .search-note { margin: -0.2rem 0 0.4rem; }
+  body.layout-modern .media-type-bar { padding-top: 0.15rem; }
+  body.layout-modern .filter-chip-row { padding-top: 0.3rem; min-height: 2rem; }
+  body.layout-modern .results-info { flex-wrap: nowrap; gap: 0.5rem; margin-bottom: 0.4rem; }
+  body.layout-modern .results-count { flex: 0 1 auto; min-width: 0; }
+  body.layout-modern .results-controls { gap: 0.5rem; flex: none; }
+  body.layout-modern .card-size-control input[type="range"] { width: 84px; }
+  body.layout-modern .sort-control { gap: 0.35rem; }
+  body.layout-modern .sort-control select { padding: 0.4rem 0.5rem; }
+}
+
+/* With the rail open the chip rows under the search box are gone: no empty
+   band under the search row. */
+body.rail-shown .search-section .search-row { margin-bottom: 0; }
+body.rail-shown .search-note { margin: 0.6rem 0 0; }

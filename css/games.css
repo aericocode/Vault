@@ -627,3 +627,25 @@
 .ro-root .results-buttons { display: flex; gap: 0.6rem; justify-content: center; margin-top: 1rem; }
 .ro-root .results-buttons .start-btn { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .ro-root .results-buttons .review-btn { background: var(--bg-tertiary); color: var(--text-primary); }
+
+/* ── Modern: line icons in the game controls (UI audit G2) ─────────────── */
+.vi.ro-flip { transform: scaleX(-1); }
+body.layout-modern .ff-btn { display: inline-flex; align-items: center; justify-content: center; }
+body.layout-modern .ff-btn .vi { width: 15px; height: 15px; }
+body.layout-modern .ff-ic { min-width: 34px; padding: 0.3rem 0.5rem; }
+body.layout-modern .ff-ic .vi { width: 18px; height: 18px; }
+body.layout-modern .ff-vol .vi,
+body.layout-modern .ro-root .vol-icon .vi { width: 16px; height: 16px; color: var(--text-secondary); }
+body.layout-modern .ro-root .vol-icon { display: inline-flex; }
+body.layout-modern .ro-root .transport-btn .vi { width: 18px; height: 18px; }
+body.layout-modern .ro-root .rc-order { display: inline-flex; }
+body.layout-modern .ro-root .rc-row.wrong .rc-order { color: var(--danger); }
+body.layout-modern .ro-root .rc-row:not(.wrong) .rc-order,
+body.layout-modern .ro-root .rb-row .vi { color: var(--success); }
+body.layout-modern .ro-root .rc-order .vi,
+body.layout-modern .ro-root .rb-row .vi { width: 14px; height: 14px; }
+body.layout-modern .ro-setup-title .vi,
+body.layout-modern .ff-setup-title .vi { width: 0.9em; height: 0.9em; vertical-align: -0.1em; color: var(--text-secondary); }
+body.layout-modern .ff-win-ic { width: 22px; height: 22px; margin-right: 8px; vertical-align: -3px; color: var(--success); }
+body.layout-modern .games-icon-btn { display: inline-flex; align-items: center; justify-content: center; }
+body.layout-modern .games-icon-btn .vi { width: 16px; height: 16px; }

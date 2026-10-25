@@ -329,3 +329,25 @@ body.wall-active { overflow: hidden; }
 .wall-pop[hidden],
 .wall-field[hidden],
 .wall-note[hidden] { display: none; }
+
+/* ── Modern controls (UI audit X6 / G4) ────────────────────────────────
+   The selects and ticks carry .m-select / .m-check (css/layout-modern.css);
+   here they are sized for the slim bar, and the gear popover takes the
+   Modern card. Classic is unchanged. */
+body.layout-modern .wall-bar .m-select,
+body.layout-modern .wall-pop .m-select {
+  min-height: 28px;
+  padding: 3px 28px 3px 9px;
+  background-position: right 8px center;
+  font-size: 12.5px;
+}
+body.layout-modern .wall-pop {
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--m-surface-solid);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  box-shadow: var(--m-shadow);
+}
+body.layout-modern .wall-check { gap: 8px; color: var(--m-text-2); }
+body.layout-modern .wall-check:hover { color: var(--m-text); }

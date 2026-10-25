@@ -478,84 +478,225 @@
   font-size: 0.84rem;
 }
 
-/* ── Table (Models) ──────────────────────────────────────────────────────── */
+/* ── Model recommendations (Models) ─────────────────────────────────────────
+   One row block per VRAM tier (player-lib/settings.js RENDERERS_models): the
+   tier, then model, quant and Whisper on one line, the notes under them. The
+   columns are fixed widths so the four tiers line up like a table; the model
+   column fits the longest name on one line. Below about 780 px of page width
+   each tier stacks into a small card (the container query further down), so
+   nothing scrolls sideways. */
 
-.settings-table-wrap {
-  overflow-x: auto;
+.models-tiers {
+  container-type: inline-size;
   margin-bottom: 1rem;
+  font-size: 0.84rem;
+  --models-cols: 6rem 23.5rem 5rem minmax(0, 1fr);
 }
 
-.settings-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.82rem;
+.models-head,
+.models-tier {
+  display: grid;
+  grid-template-columns: var(--models-cols);
+  column-gap: 1rem;
+  padding: 0 0.7rem;
 }
 
-.settings-table th,
-.settings-table td {
-  text-align: left;
-  padding: 0.55rem 0.7rem;
+.models-head {
+  padding-bottom: 0.45rem;
   border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-
-.settings-table th {
   color: var(--text-muted);
   text-transform: uppercase;
   font-size: 0.72rem;
+  font-weight: 600;
   letter-spacing: 0.03em;
 }
 
-.settings-table td:first-child {
-  white-space: nowrap;
-  font-weight: 600;
-  color: var(--text-primary);
+.models-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
-/* Model name and its copy button. The name is the whole string you paste into
-   LM Studio, so it wraps rather than being cut off, and the button keeps its
-   width when the label changes to "Copied" so the column does not jump. */
-.settings-model {
-  display: inline-flex;
+.models-tier {
+  grid-template-areas:
+    "vram model quant whisper"
+    ".    notes notes notes";
+  row-gap: 0.25rem;
   align-items: baseline;
-  gap: 0.45rem;
-  flex-wrap: wrap;
+  padding-top: 0.7rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--border);
 }
 
-.settings-model-name {
-  word-break: break-all;
+/* The list's own max-width rule for prose (.settings-body li) is for running
+   text; these rows use the full width. */
+.settings-body .models-tier { max-width: none; }
+
+.models-vram    { grid-area: vram; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
+.models-model   { grid-area: model; min-width: 0; }
+.models-quant   { grid-area: quant; }
+.models-whisper { grid-area: whisper; color: var(--text-secondary); }
+.models-notes   { grid-area: notes; color: var(--text-secondary); font-size: 0.8rem; line-height: 1.5; }
+
+/* Per-value labels: the column heads say it on a wide page, so here they
+   are for screen readers only; the stacked layout shows some of them. */
+.models-k {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-.settings-copy-btn {
-  flex: 0 0 auto;
-  min-width: 3.8rem;
-  padding: 0.15rem 0.45rem;
+/* Model name and its copy button, on one line. */
+.models-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.settings-body .models-name-text {
+  min-width: 0;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.models-chip {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-family: Consolas, ui-monospace, monospace;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.models-chip-na {
+  color: var(--text-muted);
+}
+
+/* Copy: a small square button right after the name. Classic shows its
+   clipboard emoji on a bordered button like its other small buttons; Modern
+   a borderless line icon. Green for a moment once the name is copied. */
+.models-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.6rem;
+  height: 1.5rem;
+  padding: 0;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: 5px;
   color: var(--text-secondary);
   font-family: inherit;
   font-size: 0.72rem;
+  line-height: 1;
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
 }
 
-.settings-copy-btn:hover {
+.models-copy:hover {
   border-color: var(--accent);
   color: var(--text-primary);
 }
 
-.settings-copy-btn:focus-visible {
+.models-copy:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-.settings-quant-na {
+.models-copy.is-copied {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+body.layout-modern .models-copy {
+  background: transparent;
+  border-color: transparent;
   color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+body.layout-modern .models-copy:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+body.layout-modern .models-copy.is-copied {
+  background: transparent;
+  color: var(--success);
+}
+
+.models-head[hidden],
+.models-tier[hidden],
+.models-name[hidden],
+.models-chip[hidden],
+.models-copy[hidden] {
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .settings-copy-btn { transition: none; }
+  .models-copy { transition: none; }
+}
+
+/* Narrow page: one card per tier. The tier on top, then the model, then
+   quant and Whisper (labelled), then the notes. */
+@container (max-width: 779px) {
+  .models-head { display: none; }
+
+  .models-list {
+    display: grid;
+    gap: 0.6rem;
+  }
+
+  .models-tier {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "vram    vram"
+      "model   model"
+      "quant   whisper"
+      "notes   notes";
+    column-gap: 1rem;
+    row-gap: 0.4rem;
+    padding: 0.7rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+  }
+
+  .models-quant .models-k,
+  .models-whisper .models-k {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    margin-right: 0.35rem;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+}
+
+/* Phone: everything on its own line, and a long name may break at its
+   hyphens rather than push the card wider than the screen. */
+@container (max-width: 360px) {
+  .models-tier {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "vram" "model" "quant" "whisper" "notes";
+    padding: 0.6rem 0.65rem;
+  }
+  .settings-body .models-name-text { white-space: normal; }
+  .models-whisper code { overflow-wrap: anywhere; }
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
@@ -966,6 +1107,56 @@ body.pm-names #modalTitle {
   padding: 0 0.2rem;
 }
 .missing-banner-close:hover { color: var(--text-primary); }
+
+/* Modern: the missing-files and focus notices are quiet cards like the setup
+   banner (css/header.css): neutral surface, hairline border, a warning icon,
+   a normal button. Classic keeps the amber / indigo strips. */
+body.layout-modern .missing-banner,
+body.layout-modern .focus-banner {
+  gap: 8px 12px;
+  margin: 0 0 12px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  background: var(--m-surface-solid);
+  color: var(--m-text);
+  font-size: 13px;
+}
+body.layout-modern .missing-banner,
+body.layout-modern .focus-banner:not(.faces-banner) { padding: 7px 8px 7px 14px; }
+body.layout-modern .missing-banner-ic { display: inline-flex; flex: none; color: var(--warning); }
+body.layout-modern .missing-banner-ic .vi { width: 16px; height: 16px; }
+body.layout-modern .missing-banner-text,
+body.layout-modern .focus-banner-text { font-size: 13px; color: var(--m-text-2); }
+body.layout-modern .missing-banner-text b,
+body.layout-modern .focus-banner-text b { color: var(--m-text); font-weight: 600; }
+body.layout-modern .missing-banner-fix,
+body.layout-modern .focus-banner-close {
+  min-height: 30px;
+  padding: 4px 12px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-btn);
+  color: var(--m-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+body.layout-modern .missing-banner-fix:hover,
+body.layout-modern .focus-banner-close:hover { background: var(--m-btn-hover); }
+body.layout-modern .missing-banner-fix:focus-visible,
+body.layout-modern .focus-banner-close:focus-visible,
+body.layout-modern .missing-banner-close:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+body.layout-modern .missing-banner-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--m-radius-sm);
+  color: var(--m-muted);
+}
+body.layout-modern .missing-banner-close:hover { background: var(--m-btn); color: var(--m-text); }
+body.layout-modern .missing-banner-close .vi { width: 16px; height: 16px; }
 
 /* ── Relink's inline double-confirm ──────────────────────────────────────
    The accept button sits on the far side of the card from Apply, and stays

@@ -99,33 +99,31 @@
 
   function toggle(key, title, desc) {
     const c = current();
-    return `<label class="settings-toggle" data-sfind="th-${key}">
-        <span class="settings-toggle-text">
-          <span class="settings-toggle-title">${title}</span>
-          <span class="settings-toggle-desc">${desc}</span>
-        </span>
-        <input type="checkbox" data-th-toggle="${key}" ${c[key] ? 'checked' : ''}>
-        <span class="settings-switch" aria-hidden="true"></span>
-      </label>`;
+    return settingsRowHtml({
+      tag: 'label', sfind: `th-${key}`, title, desc,
+      control: `<input type="checkbox" data-th-toggle="${key}" ${c[key] ? 'checked' : ''}>
+        <span class="settings-switch" aria-hidden="true"></span>`,
+    });
   }
+
+  // Modern words a few lines shorter; Classic keeps its own.
+  const modern = () => typeof settingsIsModern === 'function' && settingsIsModern();
 
   function html() {
     const c = current();
-    return `
-      <h3 class="settings-h">Thumbnails</h3>
-      <div class="th-group" id="thGroup">
-        <div class="settings-toggle settings-seg-row" data-sfind="thMake">
-          <span class="settings-toggle-text">
-            <span class="settings-toggle-title" id="segLabel_thMake">Make thumbnails</span>
-            <span class="settings-toggle-desc">The small pictures on tiles, in the dock and on the Wall.</span>
-            <span class="settings-toggle-desc th-off-note" id="thOffNote" ${c.make === 'off' ? '' : 'hidden'}>Off: no pictures are made or saved, and tiles show the file type icon.</span>
-          </span>
-          <span class="settings-seg" role="group" aria-labelledby="segLabel_thMake">
+    const m = modern();
+    const group = `
+      <div class="th-group" id="thGroup">${settingsRowHtml({
+        cls: 'settings-seg-row', sfind: 'thMake', titleId: 'segLabel_thMake', title: 'Make thumbnails',
+        desc: m ? 'Pictures on tiles, in the preview pane and on the Wall.' : 'The small pictures on tiles, in the dock and on the Wall.',
+        extra: `
+            <span class="settings-toggle-desc th-off-note" id="thOffNote" ${c.make === 'off' ? '' : 'hidden'}>Off: no pictures are made or saved, and tiles show the file type icon.</span>`,
+        control: `<span class="settings-seg" role="group" aria-labelledby="segLabel_thMake">
             ${MAKE.map(o => `
               <button type="button" class="settings-seg-btn" data-th-make="${o.value}"
                       aria-pressed="${c.make === o.value ? 'true' : 'false'}">${h(o.label)}</button>`).join('')}
-          </span>
-        </div>
+          </span>`,
+      })}
 
         <div class="th-sub" id="thKeepBox" data-sfind="thKeep" ${c.make === 'shown' ? '' : 'hidden'}>
           ${radio('keep', 'Keep them', 'Made the first time a tile is on screen, then saved like today.')}
@@ -135,8 +133,12 @@
         </div>
 
         <div class="th-more" id="thMore" ${c.make === 'off' ? 'hidden' : ''}>
-          ${toggle('inside', 'Use pictures already inside files', 'Album art in music, and cover art some videos carry (common for downloaded or ripped videos, rare from phones and cameras). Those files need nothing made or stored.')}
-          ${toggle('hover', 'Hover preview frames', '5 extra pictures per video for scrubbing when you hover a tile. About 85% of the space thumbnails use.')}
+          ${toggle('inside', 'Use pictures already inside files', m
+            ? 'Album art in music and the cover art some videos carry. Nothing is made for those.'
+            : 'Album art in music, and cover art some videos carry (common for downloaded or ripped videos, rare from phones and cameras). Those files need nothing made or stored.')}
+          ${toggle('hover', 'Hover preview frames', m
+            ? '5 extra pictures per video for scrubbing on hover. Most of the space thumbnails use.'
+            : '5 extra pictures per video for scrubbing when you hover a tile. About 85% of the space thumbnails use.')}
         </div>
 
         <p class="th-status" id="thStatus" role="status" aria-live="polite"></p>
@@ -151,6 +153,9 @@
           </div>
         </div>
       </div>`;
+    if (m) return settingsCardHtml({ title: 'Thumbnails', body: group });
+    return `
+      <h3 class="settings-h">Thumbnails</h3>${group}`;
   }
 
   /* ── Saving ─────────────────────────────────────────────────────────── */

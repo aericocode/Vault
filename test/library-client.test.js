@@ -6,6 +6,7 @@
  * action sees (strict), never a silent null.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

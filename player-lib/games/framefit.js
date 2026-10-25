@@ -897,6 +897,12 @@
 
   /* ═══ Small helpers ══════════════════════════════════════════════════════ */
 
+/** Classic's glyph, Modern's line icon (player-lib/icons.js). */
+  function ic(glyph, name, cls) {
+    if (typeof vaultIcon !== 'function') return esc(glyph);
+    return `${glyph ? `<span class="vi-c">${esc(glyph)}</span>` : ''}${vaultIcon(name, 'modern-only' + (cls ? ' ' + cls : ''))}`;
+  }
+  const NEW_LABEL = ic('↻ ', 'rescan', 'vi-gap') + 'New';
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
   function fmtMMSS(sec) {
     if (!isFinite(sec)) return '0:00';
@@ -976,17 +982,18 @@
 
     _showPieceChooser() {
       this._phase = 'setup';
-      const kind = this._media?.media_type === 'video' ? '🎬' : '🖼';
+      const isVideo = this._media?.media_type === 'video';
+      const kind = isVideo ? ic('🎬 ', 'video', 'vi-gap') : ic('🖼 ', 'image', 'vi-gap');
       this._root.innerHTML = `
         <div class="ff-setup">
-          <h2 class="ff-setup-title">${kind} ${esc(this._media?.filename || 'Media')}</h2>
+          <h2 class="ff-setup-title">${kind}${esc(this._media?.filename || 'Media')}</h2>
           <p class="ff-setup-sub">Slice it into a jigsaw. It keeps playing while you solve.</p>
           <div class="ff-setup-slider">
             <span class="ff-lbl">Pieces</span>
             <input type="range" id="ff-setup-pieces" min="0" max="${PIECE_STEPS.length - 1}" step="1" value="${this._pieceStep}">
             <span class="ff-pieces-lbl" id="ff-setup-lbl">${PIECE_STEPS[this._pieceStep]}</span>
           </div>
-          <button class="ff-btn ff-btn-primary ff-start-btn" id="ff-setup-start">▶ Start puzzle</button>
+          <button class="ff-btn ff-btn-primary ff-start-btn" id="ff-setup-start">${ic('▶ ', 'play', 'vi-gap')}Start puzzle</button>
         </div>`;
       const slider = this._root.querySelector('#ff-setup-pieces');
       slider.addEventListener('input', () => {
@@ -1032,7 +1039,7 @@
         this._onProgress();
       } catch (e) {
         console.error('[FrameFit] start failed:', e);
-        showToast('⚠ Frame Fit: ' + e.message);
+        showErrorToast(e, 'starting Frame Fit');
         this._showPieceChooser();
       } finally {
         this._hideLoading();
@@ -1076,8 +1083,8 @@
           </div>
           <div class="ff-top-right">
             <div class="ff-bg" id="ff-bg">
-              <button class="ff-btn ff-bg-btn" id="ff-bg-btn" title="Workspace background colour">
-                <span class="ff-bg-swatch" id="ff-bg-swatch" style="background:${esc(this._bg)}"></span> BG
+              <button class="ff-btn ff-bg-btn" id="ff-bg-btn" title="Workspace background color">
+                <span class="ff-bg-swatch" id="ff-bg-swatch" style="background:${esc(this._bg)}"></span> Background
               </button>
               <div class="ff-bg-pop" id="ff-bg-pop">
                 <div class="ff-bg-grid">
@@ -1089,25 +1096,25 @@
                 </label>
               </div>
             </div>
-            <button class="ff-btn" id="ff-ghost" title="Toggle the faint reference image">👁 Ghost</button>
-            <button class="ff-btn" id="ff-fit" title="Fit the workspace to the screen">⤢ Fit</button>
-            <button class="ff-btn" id="ff-gather" title="Pull loose pieces toward the puzzle">✥ Gather</button>
+            <button class="ff-btn" id="ff-ghost" title="Show or hide a faint picture of the finished puzzle">${ic('👁 ', 'eye', 'vi-gap')}Ghost</button>
+            <button class="ff-btn" id="ff-fit" title="Fit the workspace to the screen">${ic('⤢ ', 'fit', 'vi-gap')}Fit</button>
+            <button class="ff-btn" id="ff-gather" title="Pull loose pieces toward the puzzle">${ic('✥ ', 'stack', 'vi-gap')}Gather</button>
             <div class="ff-hud">
               <span class="ff-hud-stat"><span class="ff-lbl">Time</span><span id="ff-time">0:00</span></span>
               <span class="ff-hud-stat"><span class="ff-lbl">Done</span><span id="ff-progress">0%</span></span>
             </div>
-            <button class="ff-btn" id="ff-new" title="Re-cut a fresh puzzle (uses the Pieces slider)">↻ New</button>
+            <button class="ff-btn" id="ff-new" title="Cut a fresh puzzle with the Pieces setting">${NEW_LABEL}</button>
           </div>
         </div>
         <div id="ff-ws"><canvas id="ff-canvas"></canvas></div>
         <div id="ff-transport" ${isVideo ? '' : 'style="display:none;"'}>
-          <button class="ff-btn" id="ff-back">◀◀ 10</button>
-          <button class="ff-btn ff-btn-primary" id="ff-play">⏸</button>
-          <button class="ff-btn" id="ff-fwd">10 ▶▶</button>
+          <button class="ff-btn ff-ic" id="ff-back" title="Back 10 seconds" aria-label="Back 10 seconds">${ic('◀◀ 10', 'back-ten')}</button>
+          <button class="ff-btn ff-btn-primary ff-ic" id="ff-play" aria-label="Pause">${ic('⏸', 'pause-bold')}</button>
+          <button class="ff-btn ff-ic" id="ff-fwd" title="Forward 10 seconds" aria-label="Forward 10 seconds">${ic('10 ▶▶', 'fwd-ten')}</button>
           <div class="ff-scrub" id="ff-scrub"><div class="ff-scrub-fill" id="ff-scrub-fill"></div></div>
           <span class="ff-time-lbl" id="ff-clock">0:00 / 0:00</span>
-          <span class="ff-vol">🔊<input type="range" id="ff-vol" min="0" max="1" step="0.05" value="0.7"></span>
-          <input type="range" id="ff-speed" min="0.5" max="2" step="0.25" value="1" title="Playback speed">
+          <span class="ff-vol">${ic('🔊', 'volume')}<input type="range" id="ff-vol" min="0" max="1" step="0.05" value="0.7" aria-label="Volume"></span>
+          <input type="range" id="ff-speed" min="0.5" max="2" step="0.25" value="1" title="Playback speed" aria-label="Playback speed">
           <span class="ff-time-lbl" id="ff-speed-lbl" title="Click to reset">1×</span>
         </div>`;
 
@@ -1151,11 +1158,11 @@
       newBtn.addEventListener('click', () => {
         if (this._phase === 'playing' && this._newConfirm === 0) {
           this._newConfirm = 1;
-          newBtn.textContent = '↻ Confirm?';
+          newBtn.innerHTML = `${ic('↻ ', 'rescan', 'vi-gap')}Start over?`;
           newBtn.classList.add('ff-btn-warn');
           setTimeout(() => {
             this._newConfirm = 0;
-            newBtn.textContent = '↻ New';
+            newBtn.innerHTML = NEW_LABEL;
             newBtn.classList.remove('ff-btn-warn');
           }, 3000);
           return;
@@ -1169,7 +1176,11 @@
       const vid = this._player.videoEl;
 
       const playBtn = q('#ff-play');
-      const syncPlay = () => { playBtn.textContent = this._player.isVideoPlaying() ? '⏸' : '▶'; };
+      const syncPlay = () => {
+        const playing = this._player.isVideoPlaying();
+        playBtn.innerHTML = playing ? ic('⏸', 'pause-bold') : ic('▶', 'play-fill');
+        playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+      };
       playBtn.addEventListener('click', () => { this._player.togglePlay(); });
       vid.addEventListener('play', syncPlay);
       vid.addEventListener('pause', syncPlay);
@@ -1321,7 +1332,7 @@
       overlay.id = 'ff-win';
       overlay.innerHTML = `
         <div class="ff-win-card">
-          <h2>Solved! 🎉</h2>
+          <h2>${ic('', 'check', 'ff-win-ic')}Solved</h2>
           <p>Completed in ${fmtMMSS(elapsed)}</p>
           <div class="ff-win-btns">
             <button class="ff-btn" id="ff-win-keep">Keep watching</button>

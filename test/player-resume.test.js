@@ -11,6 +11,7 @@
  *   the server's playback decision and played by path, remux or not.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

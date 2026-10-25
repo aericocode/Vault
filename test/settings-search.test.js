@@ -1,13 +1,15 @@
 /**
  * Settings search (player-lib/settings-search.js), run in a VM: the index is
  * well formed and every anchor in it is on the page it names (each Settings
- * page rendered by settings.js, with the Thumbnails group, Face search and
+ * page rendered by settings.js, with the Thumbnails and Scanning groups, Face search and
  * Keyboard shortcuts pages from their own files, in both looks); matching
  * covers names, descriptions and extra words, results group by page with the
  * best first and the matched words marked; keyboard shortcuts come from
- * shortcuts.js and jump to their own row.
+ * shortcuts.js and jump to their own row. Modern has its own pages
+ * (settings-kit.js): every entry is found on its Modern page too.
  */
 
+require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -36,10 +38,11 @@ function loadSearch() {
     document: { addEventListener: noop, getElementById: () => null, querySelector: () => null },
   };
   vm.createContext(ctx);
-  vm.runInContext(`${read('shortcuts.js')}\n${read('settings-search.js')}
+  vm.runInContext(`${read('shortcuts.js')}\n${read('settings-kit.js')}\n${read('settings-search.js')}
     ;globalThis.__s = { SETTINGS_INDEX, SETTINGS_SEARCH_PAGES, SHORTCUTS, settingsSearch, settingsSearchMark,
       settingsSearchResultsHtml, settingsSearchScore, SETTINGS_SEARCH_SHORTCUT_LIMIT,
-      settingsSearchFocusTarget, settingsSearchTarget, SETTINGS_SEARCH_FIELD };`, ctx);
+      settingsSearchFocusTarget, settingsSearchTarget, SETTINGS_SEARCH_FIELD,
+      settingsSearchPages, settingsSearchPageOf, SETTINGS_PAGE_IDS_MODERN };`, ctx);
   return ctx.__s;
 }
 
@@ -66,7 +69,7 @@ function loadSettings(look) {
   ctx.addEventListener = noop;
   ctx.dispatchEvent = noop;
   vm.createContext(ctx);
-  for (const f of ['shortcuts.js', 'thumb-settings-ui.js', 'watchers-ui.js', 'settings.js', 'faces.js']) vm.runInContext(read(f), ctx);
+  for (const f of ['shortcuts.js', 'settings-kit.js', 'thumb-settings-ui.js', 'watchers-ui.js', 'scan-settings-ui.js', 'settings.js', 'faces.js']) vm.runInContext(read(f), ctx);
   return ctx;
 }
 
@@ -91,11 +94,15 @@ test('index: one entry per anchor, known pages, plain words', () => {
     assert.ok(typeof e.desc === 'string' && e.desc.length > 10, `${key}: a description`);
     assert.ok(Array.isArray(e.keywords) && e.keywords.every(k => typeof k === 'string' && k === k.toLowerCase()), `${key}: keywords`);
     assert.ok(e.look === undefined || e.look === 'modern' || e.look === 'classic', `${key}: look`);
+    assert.ok(e.mpage === undefined || S.SETTINGS_PAGE_IDS_MODERN.includes(e.mpage), `${key}: unknown Modern page`);
     for (const text of [e.label, e.desc, ...e.keywords]) assert.ok(!/[–—]/.test(text), `${key}: no dashes in "${text}"`);
   }
-  for (const p of S.SETTINGS_SEARCH_PAGES) {
-    assert.ok(S.SETTINGS_INDEX.some(e => e.page === p.id), `${p.id} has at least one entry`);
-    assert.ok(!/[\p{Extended_Pictographic}–—]/u.test(p.title), `${p.id}: plain title`);
+  for (const look of ['classic', 'modern']) {
+    for (const p of S.settingsSearchPages(look)) {
+      assert.ok(S.SETTINGS_INDEX.some(e => (!e.look || e.look === look) && S.settingsSearchPageOf(e, look) === p.id),
+        `${look} ${p.id} has at least one entry`);
+      assert.ok(!/[\p{Extended_Pictographic}–—]/u.test(p.title), `${p.id}: plain title`);
+    }
   }
 });
 
@@ -103,30 +110,58 @@ for (const look of ['classic', 'modern']) {
   test(`index: every anchor is on its page (${look})`, () => {
     const ctx = loadSettings(look);
     assert.strictEqual(ctx.isModernLayout(), look === 'modern');
-    assert.deepStrictEqual(plain(ctx.vaultSettingsPageIds()), plain(S.SETTINGS_SEARCH_PAGES.map(p => p.id)),
+    const pages = S.settingsSearchPages(look);
+    assert.deepStrictEqual(plain(ctx.vaultSettingsPageIds()), plain(pages.map(p => p.id)),
       'the search knows every page in the Settings menu, in order');
-    const html = Object.fromEntries(S.SETTINGS_SEARCH_PAGES.map(p => [p.id, ctx.vaultSettingsPageHtml(p.id)]));
+    const html = Object.fromEntries(pages.map(p => [p.id, ctx.vaultSettingsPageHtml(p.id)]));
     for (const e of S.SETTINGS_INDEX) {
       if (e.look && e.look !== look) continue;
       // A control outside Settings (the Modern Size slider) lives on the page itself.
       if (e.outside) { assert.ok(PAGE.includes(`id="${e.outside}"`), `db-viewer.html: no id="${e.outside}"`); continue; }
-      const here = html[e.page].includes(`data-sfind="${e.id}"`);
-      assert.ok(here, `${e.page}: no data-sfind="${e.id}" for "${e.label}"`);
+      const page = S.settingsSearchPageOf(e, look);
+      const here = html[page].includes(`data-sfind="${e.id}"`);
+      assert.ok(here, `${page}: no data-sfind="${e.id}" for "${e.label}"`);
     }
     // Rows for the other look only: Card size is Classic's, the Library file Modern's.
     assert.strictEqual(html.library.includes('data-sfind="dbFile"'), look === 'modern');
   });
 }
 
-test('index: every toggle, number and choice row on the Settings page is in it', () => {
-  const ctx = loadSettings('classic');
-  const html = ctx.vaultSettingsPageHtml('settings') + ctx.vaultSettingsPageHtml('library');
-  const anchors = [...html.matchAll(/data-sfind="([^"]+)"/g)].map(m => m[1]);
-  const indexed = new Set(S.SETTINGS_INDEX.map(e => e.id));
-  // Model download rows come and go with what Vault has asked for; their
-  // group heading is indexed instead.
-  const missing = anchors.filter(a => !indexed.has(a) && !a.startsWith('modelConsent:'));
-  assert.deepStrictEqual(missing, [], 'anchors on the page with no index entry');
+for (const [look, ids] of [['classic', ['settings', 'library']], ['modern', ['general', 'privacy', 'library', 'guides']]]) {
+  test(`index: every toggle, number and choice row on the Settings pages is in it (${look})`, () => {
+    const ctx = loadSettings(look);
+    const html = ids.map(id => ctx.vaultSettingsPageHtml(id)).join('');
+    const anchors = [...html.matchAll(/data-sfind="([^"]+)"/g)].map(m => m[1]);
+    const indexed = new Set(S.SETTINGS_INDEX.map(e => e.id));
+    // Model download rows come and go with what Vault has asked for; their
+    // group heading is indexed instead.
+    const missing = anchors.filter(a => !indexed.has(a) && !a.startsWith('modelConsent:'));
+    assert.deepStrictEqual(missing, [], 'anchors on the page with no index entry');
+  });
+}
+
+test('Modern: results name the Modern pages; Backend still finds AI servers', () => {
+  const m = (q) => S.settingsSearch(q, { look: 'modern' });
+  const backend = m('backend');
+  assert.strictEqual(backend[0].page, 'servers');
+  assert.strictEqual(backend[0].title, 'AI servers');
+  assert.ok(ids(backend[0]).includes('backendInstances'));
+  assert.match(S.settingsSearchResultsHtml(backend, 'backend'), /data-sfind-go="servers\|backendInstances"/);
+  // The privacy rows moved to Privacy and security.
+  const lock = m('auto-lock');
+  assert.strictEqual(lock[0].page, 'privacy');
+  assert.strictEqual(lock[0].title, 'Privacy and security');
+  assert.ok(ids(m('privacy mode').find(g => g.page === 'privacy')).includes('privacyMode'));
+  // General keeps the look and playback rows.
+  assert.deepStrictEqual(ids(m('library look')[0]), ['layoutStyle']);
+  assert.strictEqual(m('library look')[0].title, 'General');
+  assert.ok(m('continue where i left off').some(g => g.page === 'general' && ids(g).includes('resumePlayback')));
+  // No Planned group in Modern; Classic still has it.
+  assert.ok(!m('planned').some(g => ids(g).some(id => id.startsWith('p_'))));
+  assert.ok(S.settingsSearch('planned', { look: 'classic' }).some(g => ids(g).includes('p_confirmTrash')));
+  // Classic is unchanged: its own page names.
+  assert.strictEqual(S.settingsSearch('backend', { look: 'classic' })[0].page, 'backend');
+  assert.strictEqual(S.settingsSearch('auto-lock', { look: 'classic' })[0].page, 'settings');
 });
 
 /* ── Matching ──────────────────────────────────────────────────────────── */
@@ -144,7 +179,7 @@ test('names, descriptions and extra words all match; every word must', () => {
     assert.ok(lib.items.find(i => i.item.id === 'thMake').related.length, `${q}: says which extra word matched`);
   }
   const pw = S.settingsSearch('password');
-  assert.deepStrictEqual(ids(pw.find(g => g.page === 'settings')).slice(0, 2).sort(), ['autolockMinutes', 'vaultSecurity']);
+  assert.deepStrictEqual(ids(pw.find(g => g.page === 'settings')).slice(0, 3).sort(), ['autolockMinutes', 'vaultPassword', 'vaultSecurity']);
   assert.ok(ids(pw.find(g => g.page === 'guides')).includes('guide-encryption'));
 
   assert.deepStrictEqual(pages(S.settingsSearch('hover preview frames')).slice(0, 1), ['library']);

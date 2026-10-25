@@ -36,10 +36,10 @@ body.rail-shown #searchOptionsBtn { display: none !important; }
 /* Things pinned bottom-left move clear of the rail. */
 body.rail-shown .selection-bar {
   left: calc(var(--rail-w) + 18px);
-  max-width: calc(100vw - var(--rail-w) - 36px);
+  max-width: calc(100vw - var(--rail-w) - 36px - var(--sel-pager-room, 0px));
 }
 body.rail-shown.dock-shown .selection-bar {
-  max-width: calc(100vw - var(--rail-w) - var(--dock-w, 380px) - 36px);
+  max-width: calc(100vw - var(--rail-w) - var(--dock-w, 380px) - 36px - var(--sel-pager-room, 0px));
 }
 
 .rail-head {

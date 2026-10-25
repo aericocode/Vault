@@ -40,6 +40,7 @@ const SHORTCUTS = [
   { ctx: 'player', keys: ['Space'], desc: 'Play or pause' },
   { ctx: 'player', keys: ['Left', 'Right'], desc: 'Back or forward 5 seconds' },
   { ctx: 'player', keys: ['J', 'L'], desc: 'Back or forward 10 seconds' },
+  { ctx: 'player', keys: ['0', '9'], desc: 'Jump to 0% through 90% of the file (5 is halfway)' },
   { ctx: 'player', keys: ['Up', 'Down'], desc: 'Volume up or down' },
   { ctx: 'player', keys: ['M'], desc: 'Mute or unmute' },
   { ctx: 'player', keys: ['F'], desc: 'Full screen on or off' },
@@ -75,6 +76,10 @@ const SHORTCUTS = [
   { ctx: 'library', keys: ['PageDown', 'PageUp'], desc: 'Next or previous page (Pages layout)' },
   { ctx: 'library', keys: ['Home', 'End'], desc: 'First or last page (Pages layout)' },
   { ctx: 'library', keys: [['Shift', 'click']], desc: 'Select a range: tick one tile, then Shift+click the tick box of another' },
+  // saved-searches.js (the panel under the search box, Modern)
+  { ctx: 'library', keys: ['Up', 'Down'], desc: 'In the empty search box: open your saved searches and move between them' },
+  { ctx: 'library', keys: ['Enter'], desc: 'Run the highlighted saved search (nothing highlighted: search for what you typed)' },
+  { ctx: 'library', keys: ['Delete'], desc: 'Remove the highlighted saved search, while editing them' },
 
   // dock.js
   { ctx: 'dock', keys: ['Left', 'Right', 'Up', 'Down'], desc: 'Move between tiles (up and down go a row)' },
@@ -223,6 +228,8 @@ function shortcutsShouldOpen(e, active) {
   if (e.metaKey) return false;
   if ((e.ctrlKey || e.altKey) && !isAltGr(e)) return false;
   if (shortcutsIsTyping(e.target) || shortcutsIsTyping(active)) return false;
+  // Another dialog has the keyboard (vault-dialogs.js): the list would open on top of it.
+  if (typeof vaultModalOpen === 'function' && vaultModalOpen()) return false;
   return true;
 }
 
@@ -294,7 +301,7 @@ function shortcutsOpen() {
         <h2 id="skTitle">Keyboard shortcuts</h2>
         <input type="search" class="sk-search" placeholder="Find a shortcut" aria-label="Find a shortcut" autocomplete="off" spellcheck="false">
         <span class="sk-hint">Esc to close</span>
-        <button type="button" class="sk-x" data-sk-close aria-label="Close">&times;</button>
+        <button type="button" class="sk-x" data-sk-close aria-label="Close" title="Close">${typeof vaultIconSwap === 'function' ? vaultIconSwap('×', 'close') : '&times;'}</button>
       </div>
       <div class="sk-body sk-cols"></div>
       <div class="sk-foot">
@@ -386,22 +393,34 @@ function shortcutsOnKey(e) {
 /* ── Settings > Keyboard shortcuts ────────────────────────────────────── */
 
 function shortcutsSettingsHtml() {
-  return `
-    <h3 class="settings-h" data-sfind="shortcutsList">Keyboard shortcuts</h3>
+  const body = `
     <div class="sk-settings-top">
       <input type="search" class="sk-search" id="skSettingsSearch" placeholder="Find a shortcut" aria-label="Find a shortcut" autocomplete="off" spellcheck="false">
       <span class="sk-tip">Press <kbd>?</kbd> anywhere to see this list.</span>
     </div>
-    <div class="sk-body sk-cols2" id="skSettingsList">${shortcutsGroupsHtml(shortcutsGroups('', null), '')}</div>
+    <div class="sk-body sk-cols2" id="skSettingsList">${shortcutsGroupsHtml(shortcutsGroups('', shortcutsSettingsHere()), '')}</div>
     <p class="settings-note sk-settings-foot">Shortcuts don't fire while you type in a box.</p>`;
+  // Modern: one card (player-lib/settings-kit.js); Classic: its heading.
+  if (typeof settingsIsModern === 'function' && settingsIsModern()) {
+    return settingsCardHtml({ title: 'Keyboard shortcuts', sfind: 'shortcutsList', body });
+  }
+  return `
+    <h3 class="settings-h" data-sfind="shortcutsList">Keyboard shortcuts</h3>${body}`;
+}
+
+/** Where the user was when Settings opened (what is behind it), marked
+ *  "You are here" like the ? window does. */
+function shortcutsSettingsHere() {
+  try { return shortcutsDetectContext(shortcutsReadEnv()); } catch { return null; }
 }
 
 function shortcutsWireSettings() {
   const input = document.getElementById('skSettingsSearch');
   const list = document.getElementById('skSettingsList');
   if (!input || !list) return;
+  const here = shortcutsSettingsHere();
   input.addEventListener('input', () => {
-    list.innerHTML = shortcutsGroupsHtml(shortcutsGroups(input.value, null), input.value.trim());
+    list.innerHTML = shortcutsGroupsHtml(shortcutsGroups(input.value, here), input.value.trim());
   });
 }
 
