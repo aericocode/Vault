@@ -188,18 +188,20 @@ body.layout-modern .ft-link:hover { color: var(--m-text); text-decoration: under
 }
 .ft-pnames .ft-nm-slot .ft-nameit:hover, .ft-pnames .ft-nm-slot .ft-nameit:focus-visible { border-color: var(--accent); color: var(--text-primary); outline: none; }
 .ft-pnames .ft-nm-slot .ft-field { margin: 0; height: 22px; padding: 0 6px; font-size: 0.78rem; }
-/* Same | Different (| Skip): one control in two or three parts */
-.ft-seg { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.ft-seg button {
+/* Same | Different (| Skip): one control in two or three parts. Its own
+   class: .ft-seg is the round tab switch on the person and studio pages. */
+.ft-ans { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.ft-ans button {
   flex: 1 1 0; min-width: 0; height: 30px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-  background: transparent; border: 0; border-right: 1px solid var(--border); color: var(--text-primary);
+  margin: 0; background: transparent; border: 0; border-radius: 0; border-right: 1px solid var(--border); color: var(--text-primary);
   font: inherit; font-size: 0.78rem; cursor: pointer; white-space: nowrap;
 }
-.ft-seg button:last-child { border-right: 0; }
-.ft-seg button:hover { background: var(--bg-hover); }
-.ft-seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.ft-seg button:disabled { opacity: 0.5; cursor: default; }
-.ft-seg .vi { width: 14px; height: 14px; flex: none; }
+.ft-ans button:last-child { border-right: 0; }
+.ft-ans button:hover { background: var(--bg-hover); }
+.ft-ans button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ft-ans button:disabled { opacity: 0.5; cursor: default; }
+.ft-ans .vi { width: 14px; height: 14px; flex: none; }
+.ft-ans-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ft-seg-same .vi { color: #4ade80; }
 .ft-seg-diff .vi { color: #f87171; }
 .ft-pair-more {

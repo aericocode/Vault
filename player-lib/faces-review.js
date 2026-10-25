@@ -871,10 +871,10 @@ function fpCardHtml(pr, i) {
     <div class="fr-card fp-card${a === 'yes' ? ' is-yes' : a === 'no' ? ' is-no' : a === 'skip' ? ' is-skip' : ''}" data-fr-key="${key}" role="listitem" aria-label="Pair ${(i + 1).toLocaleString()} of ${FP.pairs.length.toLocaleString()}">
       <div class="ft-pfaces fp-faces">${fpFaceHtml(pr.a)}${fpFaceHtml(pr.b)}<span class="ft-vs" aria-hidden="true">?</span></div>
       <div class="ft-pnames fp-names">${ftPairName(pr.a)}${ftPairName(pr.b)}</div>
-      <div class="ft-seg fp-seg" role="group" aria-label="Same person?">
-        ${seg('yes', 'ft-seg-same', `${facesIcon('check')}Same`)}
-        ${seg('no', 'ft-seg-diff', `${facesIcon('close')}Different`)}
-        ${seg('skip', 'ft-seg-skip', facesIcon('skip') || 'Skip', ' title="Skip for now" aria-label="Skip for now"')}
+      <div class="ft-ans fp-ans" role="group" aria-label="Same person?">
+        ${seg('yes', 'ft-seg-same', `${facesIcon('check')}<span class="ft-ans-t">Same</span>`)}
+        ${seg('no', 'ft-seg-diff', `${facesIcon('close')}<span class="ft-ans-t">Different</span>`)}
+        ${seg('skip', 'ft-seg-skip', `${facesIcon('skip')}<span class="ft-ans-t">Skip</span>`, ' title="Skip for now" aria-label="Skip for now"')}
       </div>
     </div>`;
 }

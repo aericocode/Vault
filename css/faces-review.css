@@ -265,7 +265,7 @@ body.pm-thumbs .fr-src img, body.pm-thumbs .fr-frame-media, body.pm-thumbs .fr-s
 .fr-card.fp-card.is-yes { border-color: rgba(74, 222, 128, 0.6); box-shadow: none; background: rgba(74, 222, 128, 0.08); }
 .fr-card.fp-card.is-no { border-color: rgba(248, 113, 113, 0.5); background: rgba(248, 113, 113, 0.06); opacity: 0.6; }
 .fr-card.fp-card.is-no:focus-within { opacity: 0.85; }
-.fr-card.fp-card.is-skip { border-style: dashed; }
+.fr-card.fp-card.is-skip { border-style: dashed; border-color: rgba(165, 180, 252, 0.7); background: rgba(165, 180, 252, 0.06); }
 .fp-faces .fp-face {
   position: relative; flex: 1 1 0; min-width: 0; aspect-ratio: 1 / 1; border-radius: 8px; overflow: hidden; background: var(--bg-tertiary);
 }
@@ -282,10 +282,24 @@ body.pm-thumbs .fr-src img, body.pm-thumbs .fr-frame-media, body.pm-thumbs .fr-s
 .fp-dots .vi { width: 16px; height: 16px; }
 @media (hover: none) { .fp-dots { opacity: 1; } }
 .fp-names .ft-f2 { flex: 1 1 0; width: auto; }
-.fp-seg .ft-seg-skip { flex: 0 0 36px; padding: 0; color: var(--text-secondary); }
-.ft-seg .ft-seg-same.on { background: rgba(74, 222, 128, 0.18); color: #bbf7d0; }
-.ft-seg .ft-seg-diff.on { background: rgba(248, 113, 113, 0.18); color: #fecaca; }
-.ft-seg .ft-seg-skip.on { background: var(--bg-hover); color: var(--text-primary); }
+/* Skip: the word as well as the arrow, in the accent colour, so it reads as an answer */
+.fp-ans .ft-seg-skip { flex: 0 0 auto; padding: 0 8px; color: #a5b4fc; }
+.fp-ans .ft-seg-skip .vi { color: #a5b4fc; }
+/* Each part as wide as its words, the rest shared out, so "Different" never loses out to "Same". */
+.fp-ans button { gap: 4px; padding: 0 5px; flex: 1 1 auto; }
+/* Narrow cards (down to the grid's 180 px): Same and Different drop their
+   icons and take the icons' colours instead, so every word stays whole. */
+.fr-card.fp-card { container-type: inline-size; }
+@container (max-width: 199px) {
+  .fp-ans .ft-seg-same .vi, .fp-ans .ft-seg-diff .vi { display: none; }
+  .fp-ans .ft-seg-same { color: #86efac; }
+  .fp-ans .ft-seg-diff { color: #fca5a5; }
+  .fp-ans button { padding: 0 4px; }
+}
+.ft-ans .ft-seg-same.on { background: rgba(74, 222, 128, 0.2); color: #bbf7d0; }
+.ft-ans .ft-seg-diff.on { background: rgba(248, 113, 113, 0.2); color: #fecaca; }
+.ft-ans .ft-seg-skip.on { background: rgba(165, 180, 252, 0.22); color: #e0e7ff; }
+.ft-ans .ft-seg-skip.on .vi { color: #e0e7ff; }
 .fr-sum .fp-n-same { color: #86efac; }
 .fr-sum .fp-n-diff { color: #fca5a5; }
 .fr-pairs-panel .fr-body { padding-top: 14px; }

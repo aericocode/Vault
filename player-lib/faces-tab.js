@@ -660,9 +660,9 @@ function ftPairCardHtml(pr) {
     <div class="ft-pair" data-a="${pr.a.id}" data-b="${pr.b.id}">
       <div class="ft-pfaces">${ftCropImg(pr.a.coverUrl)}${ftCropImg(pr.b.coverUrl)}<span class="ft-vs" aria-hidden="true">?</span></div>
       <div class="ft-pnames">${ftPairName(pr.a)}${ftPairName(pr.b)}</div>
-      <div class="ft-seg" role="group" aria-label="Same person?">
-        <button type="button" class="ft-seg-same" data-ft-answer="same">${facesIcon('check')}Same</button>
-        <button type="button" class="ft-seg-diff" data-ft-answer="different">${facesIcon('close')}Different</button>
+      <div class="ft-ans" role="group" aria-label="Same person?">
+        <button type="button" class="ft-seg-same" data-ft-answer="same">${facesIcon('check')}<span class="ft-ans-t">Same</span></button>
+        <button type="button" class="ft-seg-diff" data-ft-answer="different">${facesIcon('close')}<span class="ft-ans-t">Different</span></button>
       </div>
     </div>`;
 }
