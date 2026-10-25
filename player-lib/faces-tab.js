@@ -2282,7 +2282,8 @@ async function ftMightAction(act, btn) {
   const undo = reject.slice();
   const msg = said.join(' ') || 'Nothing was added.';
   if (undo.length && !merged.length) {
-    showUndoToast(msg, async () => {
+    // showUndoToast takes HTML (showToast takes text): escaped, as msg can carry a name.
+    showUndoToast(ftEsc(msg), async () => {
       try { await ftApi(`/api/faces/people/${forId}/candidates`, { method: 'POST', json: { unreject: undo } }); }
       catch (err) { facesToastError(err); return; }
       if (FT.personId === forId) { FT.might = null; ftLoadMight(); }
@@ -2463,7 +2464,8 @@ async function ftRemoveSelected() {
   }
   if (FT.personId === personId) ftLoadPerson();
   const name = ftPrivate() ? '' : ftName(p);
-  showUndoToast(name ? `Took ${files} out of ${name}.` : `Took ${files} out of this person.`, async () => {
+  // showUndoToast takes HTML: the person's name is the one piece that needs escaping.
+  showUndoToast(name ? `Took ${files} out of ${ftEsc(name)}.` : `Took ${files} out of this person.`, async () => {
     // Each batch's exact state before, newest first.
     let changed = 0;
     try {
