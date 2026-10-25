@@ -51,6 +51,7 @@ const FT = {
   sel: new Map(),            // id -> person (kept while the list changes under it)
   anchor: null,              // last checkbox clicked, for shift ranges
   personId: null, person: null, kind: 'all',
+  detailsOpen: false,        // the folded Details section was opened on this page (short windows)
   fileIds: null, fileInfo: {}, filesSeq: 0, filesReady: null,
   faces: new Map(),          // personId -> [{ groupId, mediaId, cropUrl }]
   naming: null,              // the open name editor
@@ -1398,7 +1399,8 @@ function facesOpenPerson(id, { fromStudio = null } = {}) {
   // A selection belongs to the grid it was made in: none comes along.
   if (typeof selectedIds !== 'undefined' && selectedIds.size && typeof clearSelection === 'function') clearSelection();
   FT.personId = Number(id);
-  FT.might = null;          // a fresh look every time the page opens
+  FT.detailsOpen = false;   // a new page starts folded again (short windows)
+  FT.might = null;         // a fresh look every time the page opens
   FT.check = null;
   FT.person = null;
   FT.kind = 'all';
@@ -1505,23 +1507,21 @@ function ftPaintPerson() {
   if (p.photos) stats.push(ftPlural(p.photos, 'photo', 'photos'));
   const t = p.videos ? ftScreenShort(p.screenS) : '';
   if (t) stats.push(`${t} on screen`);
-  const withRows = (p.oftenWith || []).map(o => `<button class="ft-wrow" type="button" data-ft-open="${o.id}">${ftCropImg(o.coverUrl)}<span class="${o.name ? 'ft-mini-name' : 'ft-mini-name ft-muted'}">${o.name ? ftEsc(o.name) : 'Not named yet'}</span><span class="ft-wn" title="Files together">${Number(o.shared).toLocaleString()}</span></button>`).join('');
+  const withRows = (p.oftenWith || []).map(o => `<button class="ft-wrow" type="button" data-ft-open="${o.id}" ${ftWithLabel(o)}>${ftCropImg(o.coverUrl)}<span class="${o.name ? 'ft-mini-name' : 'ft-mini-name ft-muted'}">${o.name ? ftEsc(o.name) : 'Not named yet'}</span><span class="ft-wn" title="Files together">${Number(o.shared).toLocaleString()}</span></button>`).join('');
   const seg = [['all', 'All', p.files], ['video', 'Videos', p.videos], ['photo', 'Photos', p.photos]];
-  const extra = `${p.description ? `<p class="st-desc">${ftEsc(p.description)}</p>` : ''}
-    ${p.notes ? `<div class="st-notes"><b>Notes:</b> ${ftEsc(p.notes)}</div>` : ''}
+  const extra = `${ftDetailsHtml(p)}
     ${withRows ? `<div class="ft-with"><h2>Often seen with</h2><div class="ft-wlist">${withRows}</div></div>` : ''}`;
   host.innerHTML = `
     <div class="ft-crumb">${ftBackBtnHtml()}<span class="ft-sep">/</span>
       <b class="ft-crumb-name${name ? '' : ' ft-muted'}">${name ? ftEsc(name) : 'Not named yet'}</b>${p.hidden ? '<span class="ft-tag">Hidden</span>' : ''}</div>
     <aside class="ft-head ft-side" aria-label="Profile">
-      <button class="ft-cover" type="button" data-ft-cover aria-haspopup="dialog" aria-label="Change photo">${ftCropImg(p.coverUrl)}<span class="ft-cover-cap">Change photo</span></button>
       <div class="ft-info">
+        <button class="ft-cover" type="button" data-ft-cover aria-haspopup="dialog" aria-label="Change photo">${ftCropImg(p.coverUrl)}<span class="ft-cover-cap">Change photo</span></button>
         <div class="ft-title" id="ftTitle">
           ${name ? `<h1>${ftEsc(name)}</h1>` : '<h1 class="ft-muted">Not named yet</h1>'}
           <button class="ft-icon-btn" type="button" data-ft-rename aria-label="${name ? 'Rename' : 'Add a name'}" title="${name ? 'Rename' : 'Add a name'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a0a0a0" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg></button>
         </div>
-        ${ftDetailsTopHtml(p)}
-        <div class="ft-stats">${ftEsc(stats.join(' · '))}</div>
+        <div class="ft-stats"><span class="ft-stats-full">${ftEsc(stats.join(' · '))}</span><span class="ft-stats-short" title="${ftEsc(stats.join(' · '))}" aria-label="${ftEsc(stats.join(' · '))}">${ftEsc([stats[0], ...(t ? [`${t} on screen`] : [])].join(' · '))}</span></div>
         ${typeof stPersonChipsHtml === 'function' ? stPersonChipsHtml(p) : ''}
         <div class="ft-acts">
           <button class="ft-btn ft-btn-md" type="button" data-ft-play="0">${facesIcon('play', 'ft-bico') || '▶'} Play all</button>
@@ -1530,7 +1530,7 @@ function ftPaintPerson() {
           <button class="ft-btn ghost ft-btn-md ft-dots" type="button" data-ft-more aria-haspopup="menu" aria-label="More actions" title="More actions">${facesIcon('more') || '⋯'}</button>
         </div>
       </div>
-      ${extra.trim() ? `<div class="ft-side-more">${extra}</div>` : ''}
+      <div class="ft-side-more">${extra}</div>
     </aside>
     <div class="ft-reviews">
       <section class="ft-might ft-tochk" id="ftCheck" aria-label="Check faces" hidden></section>
@@ -1548,7 +1548,7 @@ function ftPaintPerson() {
   // grid's top edge, the pages grid re-lays so it still fits the window.
   if (typeof ResizeObserver === 'function') {
     if (ftSideRO) ftSideRO.disconnect();
-    ftSideRO = new ResizeObserver(() => { if (typeof relayoutLibrary === 'function') relayoutLibrary(false); });
+    ftSideRO = new ResizeObserver(() => { ftFoldSoon(); if (typeof relayoutLibrary === 'function') relayoutLibrary(false); });
     host.querySelectorAll('#ftCheck, #ftMight, .ft-side').forEach(el => ftSideRO.observe(el));
   }
 }
@@ -1578,21 +1578,264 @@ function ftFitSide() {
     const top = crumb ? crumb.getBoundingClientRect().bottom + scrollY + 12 : side.getBoundingClientRect().top + scrollY;
     side.style.maxHeight = `${Math.max(240, innerHeight - top - 16)}px`;
   }
+  ftApplyFold();
   requestAnimationFrame(() => { if (typeof relayoutLibrary === 'function') relayoutLibrary(false); });
 }
 
 window.addEventListener('resize', () => { if (ftOnTab() && FT.personId != null) ftFitSide(); });
 
-/** S5: "Also known as", then Active / Born / links, under the name. */
-function ftDetailsTopHtml(p) {
-  // " · " between names: a name can hold a comma.
-  const aka = typeof stAliasList === 'function' ? stAliasList(p).join(' · ') : '';
-  const years = typeof stYears === 'function' ? stYears(p.yearStart, p.yearEnd) : '';
-  const born = p.born && typeof stBorn === 'function' ? stBorn(p.born) : '';
-  const links = typeof stLinksHtml === 'function' ? stLinksHtml(p.urls) : '';
-  const facts = `${years ? `<span><b>Active</b> ${years}</span>` : ''}${born ? `<span><b>Born</b> ${ftEsc(born)}</span>` : ''}${links}`;
-  return `${aka ? `<div class="st-aka">Also known as: <span class="ft-pm-name">${ftEsc(aka)}</span></div>` : ''}
-    ${facts ? `<div class="st-facts">${facts}</div>` : ''}`;
+/**
+ * Short windows: the photo keeps its size and the column folds instead, in
+ * this order (each level keeps the folds before it):
+ *   1  "Often seen with" becomes a row of small faces
+ *   2  Details folds to one "Details · N of 6 filled" line
+ *   3  the photo moves beside the name, smaller
+ * Only past level 3 does the column scroll (its lower part, under the buttons).
+ * heights[i] is the column's natural height at level i; the first level
+ * that fits `avail` wins.
+ */
+function ftFoldLevel(avail, heights) {
+  for (let i = 0; i < heights.length; i++) if (heights[i] <= avail) return i;
+  return Math.max(0, heights.length - 1);
+}
+
+const FT_FOLDS = ['ft-fold-seen', 'ft-fold-details', 'ft-fold-photo'];
+function ftSetFold(side, level) {
+  FT_FOLDS.forEach((c, i) => side.classList.toggle(c, level > i));
+  side.dataset.fold = String(level);
+}
+
+/**
+ * Measure the column at each fold level and keep the first that fits. The
+ * measuring happens on a hidden copy, so nothing the user is focused on (an
+ * open field, the Details line) is hidden for a moment and loses focus.
+ */
+function ftApplyFold() {
+  const side = document.querySelector('#ftPerson .ft-side');
+  if (!side) return;
+  // A field being edited keeps Details open too, so it never folds away under the typing.
+  side.classList.toggle('ft-dopen', !!FT.detailsOpen || !!side.querySelector('.ft-dediting'));
+  if (innerWidth < FT_SIDE_BREAK || !side.style.maxHeight) { ftSetFold(side, 0); return; }
+  const avail = parseFloat(side.style.maxHeight);
+  const probe = side.cloneNode(true);
+  probe.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+  probe.removeAttribute('aria-label');
+  probe.setAttribute('aria-hidden', 'true');
+  probe.inert = true;
+  Object.assign(probe.style, { position: 'absolute', left: '0', top: '0', width: `${side.offsetWidth}px`, maxHeight: 'none', visibility: 'hidden', pointerEvents: 'none' });
+  side.parentNode.appendChild(probe);
+  const heights = [];
+  for (let i = 0; i <= FT_FOLDS.length; i++) { ftSetFold(probe, i); heights.push(probe.offsetHeight); }
+  probe.remove();
+  ftSetFold(side, ftFoldLevel(avail, heights));
+}
+
+let ftFoldRaf = 0;
+function ftFoldSoon() {
+  if (ftFoldRaf) return;
+  ftFoldRaf = requestAnimationFrame(() => { ftFoldRaf = 0; if (ftOnTab() && FT.personId != null) ftApplyFold(); });
+}
+
+/** "Often seen with" rows: the name and count for tooltips and screen readers (the small-faces fold shows no text). */
+function ftWithLabel(o) {
+  const n = Number(o.shared) || 0;
+  const label = `${o.name || 'Not named yet'}, ${n.toLocaleString()} ${n === 1 ? 'file' : 'files'} together`;
+  return `aria-label="${ftEsc(label)}"${ftPrivate() ? '' : ` title="${ftEsc(label)}"`}`;
+}
+
+/* ── Person page: Details on the column, each row edited in place ─────── */
+
+const FT_DETAILS = [
+  { key: 'aka', label: 'Other names', add: 'Add other names' },
+  { key: 'years', label: 'Years active', add: 'Add years' },
+  { key: 'born', label: 'Born', add: 'Add a birth date' },
+  { key: 'links', label: 'Links', add: 'Add a link' },
+  { key: 'desc', label: 'Description', add: 'Add a description' },
+  { key: 'notes', label: 'Notes', add: 'Add a note (only for you)' },
+];
+
+/** Born as typed: '' when it is fine (empty, 1961, 1961-08 or 1961-08-04), else the sentence to show. */
+function ftBornError(born) {
+  born = String(born || '').trim();
+  if (!born) return '';
+  const m = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/.exec(born);
+  const ok = m && Number(m[1]) >= 1800 && Number(m[1]) <= 2100 && (!m[2] || (Number(m[2]) >= 1 && Number(m[2]) <= 12))
+    && (!m[3] || (Number(m[3]) >= 1 && Number(m[3]) <= new Date(Number(m[1]), Number(m[2]), 0).getDate()));
+  return ok ? '' : 'Born needs to look like 1961, 1961-08 or 1961-08-04.';
+}
+
+/** Saved links (one per line, or a list) as a list. */
+const ftLinkLines = (urls) => (Array.isArray(urls) ? urls : String(urls || '').split(/\s*\n\s*/)).map(u => String(u).trim()).filter(Boolean);
+
+/** A Details field as the person has it now, in the shape a save sends. */
+function ftDetailNow(p, key) {
+  switch (key) {
+    case 'aka': return { aliases: stAliasList(p) };
+    case 'years': return { yearStart: p.yearStart ?? null, yearEnd: p.yearEnd ?? null };
+    case 'born': return { born: p.born || null };
+    case 'links': return { urls: ftLinkLines(p.urls) };
+    case 'desc': return { description: p.description || '' };
+    case 'notes': return { notes: p.notes || '' };
+  }
+  return {};
+}
+const ftDetailFilled = (p, key) => Object.values(ftDetailNow(p, key)).some(v => (Array.isArray(v) ? v.length > 0 : v != null && v !== ''));
+const ftDetailCount = (p) => `· ${FT_DETAILS.filter(d => ftDetailFilled(p, d.key)).length} of ${FT_DETAILS.length} filled`;
+
+function ftDetailValueHtml(p, key) {
+  switch (key) {
+    case 'aka': {
+      const list = stAliasList(p);
+      return list.length ? `<span class="ft-dchips">${list.map(a => `<span class="ft-dchip">${ftEsc(a)}</span>`).join('')}</span>` : '';
+    }
+    case 'years': return ftEsc(stYears(p.yearStart, p.yearEnd));
+    case 'born': return p.born ? ftEsc(stBorn(p.born)) : '';
+    case 'links': return stLinksHtml(p.urls);
+    case 'desc': return p.description ? `<span class="ft-dtext">${ftEsc(p.description)}</span>` : '';
+    case 'notes': return p.notes ? `<span class="ft-dtext">${ftEsc(p.notes)}</span>` : '';
+  }
+  return '';
+}
+
+/** One row: a button that opens its field, or (links set) a row of links with its own pencil. */
+function ftDetailRowHtml(p, d) {
+  const val = ftDetailValueHtml(p, d.key);
+  const pen = facesIcon('edit', 'ft-dpen-ico');
+  if (d.key === 'links' && val) {
+    return `<div class="ft-drow ft-drow-links" data-ft-drow="links"><span class="ft-dk">${d.label}</span><span class="ft-dv ft-dlinks">${val}</span><button class="ft-dpen" type="button" data-ft-dedit="links" aria-label="Edit links" title="Edit links">${pen}</button></div>`;
+  }
+  return `<button class="ft-drow" type="button" data-ft-drow="${d.key}" data-ft-dedit="${d.key}"><span class="ft-dk">${d.label}</span>${val
+    ? `<span class="ft-dv">${val}</span>` : `<span class="ft-dv ft-dadd">${d.add}</span>`}<span class="ft-dpen" aria-hidden="true">${pen}</span></button>`;
+}
+
+function ftDetailsHtml(p) {
+  return `<section class="ft-details" aria-label="Details">
+    <h2 class="ft-dhead">Details</h2>
+    <button class="ft-dfold" type="button" data-ft-dfold aria-expanded="${!!FT.detailsOpen}"><span>Details <span class="ft-dcount">${ftDetailCount(p)}</span></span>${facesIcon('chevron', 'ft-dchev')}</button>
+    <div class="ft-drows">${FT_DETAILS.map(d => ftDetailRowHtml(p, d)).join('')}</div>
+  </section>`;
+}
+
+/** The folded Details line (short windows): opened, it stays open until another page. */
+function ftToggleDetails() {
+  FT.detailsOpen = !FT.detailsOpen;
+  document.querySelector('#ftPerson [data-ft-dfold]')?.setAttribute('aria-expanded', String(FT.detailsOpen));
+  ftApplyFold();
+}
+
+/** Turn one Details row into its field, right there. Enter or a click away saves, Esc puts it back. */
+function ftStartDetailEdit(key) {
+  const p = FT.person;
+  const d = FT_DETAILS.find(x => x.key === key);
+  const row = document.querySelector(`#ftPerson .ft-drow[data-ft-drow="${key}"]:not(.ft-dediting)`);
+  if (!p || !d || !row) return;
+  // A field that could not save stays open: fix it (or Esc) first.
+  const stuck = document.querySelector('#ftPerson .ft-dediting.ft-dhaserr');
+  if (stuck) { stuck.querySelector('.ft-din')?.focus(); return; }
+  const v = ftDetailNow(p, key);
+  const id = `ftD_${key}`;
+  const area = (val, ph, rows, pm) => `<textarea class="ft-din m-field${pm ? ' st-pm-field' : ''}" id="${id}" rows="${rows}" placeholder="${ph}">${ftEsc(val)}</textarea>`;
+  const lines = 'Enter saves, Shift+Enter adds a line, Esc cancels.';
+  let field, hint = 'Enter saves, Esc cancels.';
+  switch (key) {
+    case 'aka': field = area(v.aliases.join('\n'), 'One name per line', 2, true); hint = `One per line. ${lines}`; break;
+    case 'years': field = `<span class="ft-dyears"><input class="ft-din m-field" id="${id}" type="text" inputmode="numeric" maxlength="4" placeholder="Year" value="${v.yearStart ?? ''}"><span class="ft-dto">to</span><input class="ft-din m-field" id="${id}b" type="text" inputmode="numeric" maxlength="4" placeholder="Now" aria-label="Last year" value="${v.yearEnd ?? ''}"></span>`; break;
+    case 'born': field = `<input class="ft-din m-field" id="${id}" type="text" maxlength="10" placeholder="1961-08-04" value="${ftEsc(v.born || '')}">`; hint = `1961, 1961-08 or 1961-08-04. ${hint}`; break;
+    case 'links': field = area(v.urls.join('\n'), 'https://', 2, false); hint = `One per line. ${lines}`; break;
+    case 'desc': field = area(v.description, '', 3, true); hint = lines; break;
+    case 'notes': field = area(v.notes, 'Only you see this', 3, true); hint = lines; break;
+    default: return;
+  }
+  const ed = document.createElement('div');
+  ed.className = 'ft-drow ft-dediting';
+  ed.dataset.ftDrow = key;
+  ed.innerHTML = `<label class="ft-dk" for="${id}">${d.label}</label><div class="ft-dedit">${field}<div class="ft-dhint">${hint}</div><div class="ft-derr" role="alert" hidden></div></div>`;
+  row.replaceWith(ed);
+  const st = { key, ed, saving: false, done: false };
+  ed.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); ftEndDetailEdit(st, true); return; }
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); e.stopPropagation(); ftSaveDetail(st, true); }
+  });
+  ed.addEventListener('focusout', (e) => {
+    if (e.relatedTarget && ed.contains(e.relatedTarget)) return;
+    // The window losing focus keeps activeElement here: that is not a click away.
+    setTimeout(() => { if (!st.done && ed.isConnected && !ed.contains(document.activeElement)) ftSaveDetail(st, false); }, 0);
+  });
+  const first = ed.querySelector('.ft-din');
+  first.focus();
+  first.setSelectionRange(first.value.length, first.value.length);
+  ftApplyFold();
+}
+
+/** Check and save one open Details field; a problem keeps it open with the reason under it. */
+async function ftSaveDetail(st, byKey) {
+  const p = FT.person;
+  const { ed, key } = st;
+  if (st.saving || st.done || !p || !ed.isConnected) return;
+  const val = (sel) => (ed.querySelector(sel) || {}).value || '';
+  const say = (msg) => {
+    const err = ed.querySelector('.ft-derr');
+    err.textContent = msg;
+    err.hidden = !msg;
+    ed.classList.toggle('ft-dhaserr', !!msg);
+    if (msg) ftApplyFold();
+  };
+  let patch, bad = '';
+  if (key === 'aka') {
+    bad = stTextTooLong([val('textarea')]);
+    patch = { aliases: stReadAliases(val('textarea')) };
+  } else if (key === 'years') {
+    const y = stReadYears(val('#ftD_years'), val('#ftD_yearsb'));
+    bad = y.error || '';
+    patch = { yearStart: y.a, yearEnd: y.b };
+  } else if (key === 'born') {
+    const b = val('input').trim();
+    bad = ftBornError(b);
+    patch = { born: b || null };
+  } else if (key === 'links') {
+    const l = stReadLinks(val('textarea'));
+    bad = l.error || stTextTooLong([val('textarea')]);
+    patch = { urls: l.list };
+  } else {
+    bad = stTextTooLong([val('textarea')]);
+    patch = key === 'desc' ? { description: val('textarea').trim() } : { notes: val('textarea').trim() };
+  }
+  if (bad) { say(bad); return; }
+  if (JSON.stringify(patch) === JSON.stringify(ftDetailNow(p, key))) { ftEndDetailEdit(st, byKey); return; }
+  st.saving = true;
+  ed.classList.add('ft-dsaving');
+  let r;
+  try { r = await ftApi(`/api/faces/people/${p.id}`, { method: 'POST', json: patch }); }
+  catch (ex) {
+    st.saving = false;
+    ed.classList.remove('ft-dsaving');
+    if (!ed.isConnected) { facesToastError(ex); return; }
+    // The detail checks (BAD_YEARS, BAD_BORN, BAD_URL) answer in plain sentences.
+    say((/^BAD_/.test(ex.code || '') && ex.data && ex.data.error) || ex.message || 'Could not save. Try again.');
+    return;
+  }
+  st.saving = false;
+  if (FT.personId === p.id && FT.person) ftMergePerson(r);
+  ftEndDetailEdit(st, byKey);
+}
+
+/** Put the row back (saved or cancelled), showing the person's value now. */
+function ftEndDetailEdit(st, refocus) {
+  if (st.done) return;
+  st.done = true;
+  const { ed, key } = st;
+  const p = FT.person;
+  const d = FT_DETAILS.find(x => x.key === key);
+  if (!ed.isConnected || !p || !d) return;
+  const had = ed.contains(document.activeElement);
+  const tmp = document.createElement('div');
+  tmp.innerHTML = ftDetailRowHtml(p, d);
+  const row = tmp.firstElementChild;
+  ed.replaceWith(row);
+  const count = document.querySelector('#ftPerson .ft-dcount');
+  if (count) count.textContent = ftDetailCount(p);
+  if (refocus || had) (row.matches('button') ? row : row.querySelector('button'))?.focus({ preventScroll: true });
+  ftApplyFold();
 }
 
 /** A person answer lands on the open page; the extras it may not carry stay. */
@@ -1644,10 +1887,8 @@ function ftEditDetails() {
     const yrs = stReadYears(val('pdY1'), val('pdY2'));
     if (yrs.error) { say(yrs.error); return; }
     const born = val('pdBorn').trim();
-    const bm = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/.exec(born);
-    const bornOk = !born || (bm && Number(bm[1]) >= 1800 && Number(bm[1]) <= 2100 && (!bm[2] || (Number(bm[2]) >= 1 && Number(bm[2]) <= 12))
-      && (!bm[3] || (Number(bm[3]) >= 1 && Number(bm[3]) <= new Date(Number(bm[1]), Number(bm[2]), 0).getDate())));
-    if (!bornOk) { say('Born needs to look like 1961, 1961-08 or 1961-08-04.'); return; }
+    const bornBad = ftBornError(born);
+    if (bornBad) { say(bornBad); return; }
     const links = stReadLinks(val('pdLinks'));
     if (links.error) { say(links.error); return; }
     const long = stTextTooLong([val('pdAka'), val('pdDesc'), val('pdNotes'), val('pdLinks')]);
@@ -2377,6 +2618,11 @@ function ftWire() {
     const backStudio = t.closest('[data-ft-backstudio]');
     if (backStudio) { const sid = Number(backStudio.dataset.ftBackstudio); FT.fromStudio = null; stOpenStudio(sid); return; }
     if (t.closest('[data-ft-home]')) { ftClosePerson(); return; }
+    if (t.closest('[data-ft-dfold]')) { ftToggleDetails(); return; }
+    const dedit = t.closest('[data-ft-dedit]');
+    if (dedit) { ftStartDetailEdit(dedit.dataset.ftDedit); return; }
+    // The links row: a link opens (new tab); the rest of the row edits.
+    if (t.closest('.ft-drow-links') && !t.closest('a')) { ftStartDetailEdit('links'); return; }
     const open = t.closest('[data-ft-open]');
     if (open) { facesOpenPerson(Number(open.dataset.ftOpen)); return; }
     const play = t.closest('[data-ft-play]');
