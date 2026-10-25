@@ -390,6 +390,11 @@ body.layout-modern .ft-link:hover { color: var(--m-text); text-decoration: under
 }
 .ft-icon-btn:hover { border-color: var(--accent); }
 .ft-title.ft-naming .ft-icon-btn { display: none; }
+/* Favorite: a star beside the rename pencil, filled when on. */
+.ft-favbtn { color: #a0a0a0; }
+svg.ft-favico { width: 16px; height: 16px; }
+.ft-favbtn.on { color: #facc15; }
+.ft-favbtn.on svg.ft-favico { fill: currentColor; }
 .ft-stats { display: flex; gap: 6px; flex-wrap: wrap; }
 .ft-pbadge {
   font-size: 0.75rem; padding: 2px 9px; border-radius: 999px; background: var(--bg-tertiary);
@@ -598,8 +603,8 @@ body.pm-names .ft-cmeta { filter: blur(7px); }
 .ft-side.ft-fold-photo .ft-stats-full { display: none; }
 .ft-side.ft-fold-photo .ft-stats-short { display: inline; }
 /* Play all on its own line, then Shuffle, Favorite and the menu. */
-.ft-side .ft-acts { display: grid; grid-template-columns: 1fr 1fr 40px; gap: 6px; }
-.ft-side .ft-acts [data-ft-play="0"] { grid-column: 1 / -1; }
+/* Play all takes the room; Shuffle and the menu are icon buttons beside it. */
+.ft-side .ft-acts { display: grid; grid-template-columns: minmax(0, 1fr) 40px 40px; gap: 6px; }
 .ft-side .ft-acts .ft-btn-md { padding: 0.45rem 0.5rem; white-space: nowrap; }
 .ft-dots { font-size: 1rem; line-height: 1; letter-spacing: 1px; min-width: 38px; }
 /* Details and "Often seen with": past the last fold they scroll inside the column, under the buttons. */
@@ -638,6 +643,10 @@ svg.ft-dpen-ico { width: 14px; height: 14px; }
   padding: 0 7px; border-radius: 6px; background: var(--bg-tertiary); border: 1px solid var(--border);
   font-size: 0.75rem; line-height: 1.6;
 }
+.ft-drow-studio .st-chips-row { gap: 4px; }
+.ft-drow-studio .st-chip { max-width: 100%; min-width: 0; }
+.ft-drow-studio .st-chip-main { min-width: 0; }
+.ft-drow-studio .st-chip-main .st-pm { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ft-dlinks { display: flex; flex-wrap: wrap; gap: 2px 10px; }
 .ft-dtext {
   white-space: pre-line;
@@ -683,10 +692,11 @@ svg.ft-dchev { width: 16px; height: 16px; flex: none; color: var(--text-secondar
 
 /* Folded photo: smaller, beside the name. */
 .ft-side.ft-fold-photo .ft-info { display: grid; grid-template-columns: 120px minmax(0, 1fr); column-gap: 14px; row-gap: 8px; align-items: start; }
-.ft-side.ft-fold-photo .ft-cover { width: 120px; height: 120px; grid-row: 1 / span 3; }
+.ft-side.ft-fold-photo .ft-cover { width: 120px; height: 120px; grid-row: 1 / span 2; }
 .ft-side.ft-fold-photo .ft-info > :not(.ft-cover) { grid-column: 2; }
 .ft-side.ft-fold-photo .ft-info > .ft-acts { grid-column: 1 / -1; }
-.ft-side.ft-fold-photo .ft-title h1 { font-size: 1.125rem; }
+.ft-side.ft-fold-photo .ft-title { flex-wrap: wrap; gap: 6px; }
+.ft-side.ft-fold-photo .ft-title h1 { font-size: 1.125rem; flex: 1 0 100%; }
 
 body.pm-names .ft-dchips,
 body.pm-names .ft-dlinks,
@@ -718,7 +728,7 @@ body.pm-names .ft-dlinks { pointer-events: none; user-select: none; }
   }
   /* the photo beside the name, the buttons under it */
   .ft-side .ft-info { flex: 1 1 100%; min-width: 0; display: grid; grid-template-columns: 120px minmax(0, 1fr); column-gap: 18px; align-items: start; }
-  .ft-side .ft-cover { width: 120px; height: 120px; grid-row: 1 / span 4; }
+  .ft-side .ft-cover { width: 120px; height: 120px; grid-row: 1 / span 3; }
   .ft-side .ft-info > :not(.ft-cover) { grid-column: 2; }
   .ft-side .ft-acts { display: flex; flex-wrap: wrap; }
   .ft-side-more { flex: 1 1 100%; overflow: visible; border-top: 0; padding-top: 0; margin: 0; padding-left: 0; padding-right: 0; }

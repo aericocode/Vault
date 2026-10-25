@@ -1520,13 +1520,12 @@ function ftPaintPerson() {
         <div class="ft-title" id="ftTitle">
           ${name ? `<h1>${ftEsc(name)}</h1>` : '<h1 class="ft-muted">Not named yet</h1>'}
           <button class="ft-icon-btn" type="button" data-ft-rename aria-label="${name ? 'Rename' : 'Add a name'}" title="${name ? 'Rename' : 'Add a name'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a0a0a0" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg></button>
+          <button class="ft-icon-btn ft-favbtn${p.favorite ? ' on' : ''}" type="button" data-ft-fav aria-pressed="${!!p.favorite}" aria-label="Favorite" title="${p.favorite ? 'Remove from favorites' : 'Add to favorites'}">${facesIcon('star', 'ft-favico') || '★'}</button>
         </div>
         <div class="ft-stats"><span class="ft-stats-full">${ftEsc(stats.join(' · '))}</span><span class="ft-stats-short" title="${ftEsc(stats.join(' · '))}" aria-label="${ftEsc(stats.join(' · '))}">${ftEsc([stats[0], ...(t ? [`${t} on screen`] : [])].join(' · '))}</span></div>
-        ${typeof stPersonChipsHtml === 'function' ? stPersonChipsHtml(p) : ''}
         <div class="ft-acts">
           <button class="ft-btn ft-btn-md" type="button" data-ft-play="0">${facesIcon('play', 'ft-bico') || '▶'} Play all</button>
-          <button class="ft-btn ghost ft-btn-md" type="button" data-ft-play="1">Shuffle</button>
-          <button class="ft-btn ghost ft-btn-md${p.favorite ? ' on' : ''}" type="button" data-ft-fav aria-pressed="${!!p.favorite}" title="${p.favorite ? 'Remove from favorites' : 'Favorite'}">${facesIcon('star', 'ft-bico') || '★'} Favorite</button>
+          <button class="ft-btn ghost ft-btn-md ft-dots" type="button" data-ft-play="1" aria-label="Shuffle" title="Shuffle">${facesIcon('shuffle') || 'Shuffle'}</button>
           <button class="ft-btn ghost ft-btn-md ft-dots" type="button" data-ft-more aria-haspopup="menu" aria-label="More actions" title="More actions">${facesIcon('more') || '⋯'}</button>
         </div>
       </div>
@@ -1647,6 +1646,7 @@ function ftWithLabel(o) {
 
 const FT_DETAILS = [
   { key: 'aka', label: 'Other names', add: 'Add other names' },
+  { key: 'studio', label: 'Studio', add: 'Add to a studio' },   // the studio picker, not a field
   { key: 'years', label: 'Years active', add: 'Add years' },
   { key: 'born', label: 'Born', add: 'Add a birth date' },
   { key: 'links', label: 'Links', add: 'Add a link' },
@@ -1671,6 +1671,7 @@ const ftLinkLines = (urls) => (Array.isArray(urls) ? urls : String(urls || '').s
 function ftDetailNow(p, key) {
   switch (key) {
     case 'aka': return { aliases: stAliasList(p) };
+    case 'studio': return { studios: (p.studios || []).map(s => s.id) };
     case 'years': return { yearStart: p.yearStart ?? null, yearEnd: p.yearEnd ?? null };
     case 'born': return { born: p.born || null };
     case 'links': return { urls: ftLinkLines(p.urls) };
@@ -1697,10 +1698,22 @@ function ftDetailValueHtml(p, key) {
   return '';
 }
 
-/** One row: a button that opens its field, or (links set) a row of links with its own pencil. */
+/**
+ * One row: a button that opens its field, or (links set) a row of links with
+ * its own pencil. Studio opens the studio picker (studios.js answers
+ * data-st-addto); its chips keep their own buttons (years, remove).
+ */
 function ftDetailRowHtml(p, d) {
-  const val = ftDetailValueHtml(p, d.key);
   const pen = facesIcon('edit', 'ft-dpen-ico');
+  if (d.key === 'studio') {
+    const chips = typeof stPersonChipsHtml === 'function' ? stPersonChipsHtml(p) : '';
+    const plus = facesIcon('plus', 'ft-dpen-ico') || '+';
+    if (chips) {
+      return `<div class="ft-drow ft-drow-studio" data-ft-drow="studio"><span class="ft-dk">${d.label}</span><span class="ft-dv st-chips-row">${chips}</span><button class="ft-dpen" type="button" data-st-addto aria-label="Add to a studio" title="Add to a studio">${plus}</button></div>`;
+    }
+    return `<button class="ft-drow" type="button" data-ft-drow="studio" data-st-addto aria-haspopup="dialog"><span class="ft-dk">${d.label}</span><span class="ft-dv ft-dadd">${d.add}</span><span class="ft-dpen" aria-hidden="true">${plus}</span></button>`;
+  }
+  const val = ftDetailValueHtml(p, d.key);
   if (d.key === 'links' && val) {
     return `<div class="ft-drow ft-drow-links" data-ft-drow="links"><span class="ft-dk">${d.label}</span><span class="ft-dv ft-dlinks">${val}</span><button class="ft-dpen" type="button" data-ft-dedit="links" aria-label="Edit links" title="Edit links">${pen}</button></div>`;
   }
@@ -1738,7 +1751,7 @@ function ftStartDetailEdit(key) {
   const lines = 'Enter saves, Shift+Enter adds a line, Esc cancels.';
   let field, hint = 'Enter saves, Esc cancels.';
   switch (key) {
-    case 'aka': field = area(v.aliases.join('\n'), 'One name per line', 2, true); hint = `One per line. ${lines}`; break;
+    case 'aka': field = `<input class="ft-din m-field st-pm-field" id="${id}" type="text" data-st-aliases placeholder="${ST_ALIAS_PH}" value="${ftEsc(stAliasText(p))}">`; hint = `Separate names with commas. ${hint}`; break;
     case 'years': field = `<span class="ft-dyears"><input class="ft-din m-field" id="${id}" type="text" inputmode="numeric" maxlength="4" placeholder="Year" value="${v.yearStart ?? ''}"><span class="ft-dto">to</span><input class="ft-din m-field" id="${id}b" type="text" inputmode="numeric" maxlength="4" placeholder="Now" aria-label="Last year" value="${v.yearEnd ?? ''}"></span>`; break;
     case 'born': field = `<input class="ft-din m-field" id="${id}" type="text" maxlength="10" placeholder="1961-08-04" value="${ftEsc(v.born || '')}">`; hint = `1961, 1961-08 or 1961-08-04. ${hint}`; break;
     case 'links': field = area(v.urls.join('\n'), 'https://', 2, false); hint = `One per line. ${lines}`; break;
@@ -1782,8 +1795,8 @@ async function ftSaveDetail(st, byKey) {
   };
   let patch, bad = '';
   if (key === 'aka') {
-    bad = stTextTooLong([val('textarea')]);
-    patch = { aliases: stReadAliases(val('textarea')) };
+    bad = stTextTooLong([val('input')]);
+    patch = { aliases: stReadAliases(val('input')) };
   } else if (key === 'years') {
     const y = stReadYears(val('#ftD_years'), val('#ftD_yearsb'));
     bad = y.error || '';
@@ -2623,6 +2636,9 @@ function ftWire() {
     if (dedit) { ftStartDetailEdit(dedit.dataset.ftDedit); return; }
     // The links row: a link opens (new tab); the rest of the row edits.
     if (t.closest('.ft-drow-links') && !t.closest('a')) { ftStartDetailEdit('links'); return; }
+    // The studio row: its chips and + answer in studios.js; the rest of the row opens the picker too.
+    const stRow = t.closest('.ft-drow-studio');
+    if (stRow && !t.closest('.st-chip, [data-st-addto]') && FT.person && typeof stAddPersonToStudio === 'function') { stAddPersonToStudio(stRow, FT.person); return; }
     const open = t.closest('[data-ft-open]');
     if (open) { facesOpenPerson(Number(open.dataset.ftOpen)); return; }
     const play = t.closest('[data-ft-play]');

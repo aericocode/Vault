@@ -247,11 +247,6 @@ textarea.st-in-links { min-height: 40px; }
 .st-chip-x .vi { width: 12px; height: 12px; }
 .st-chip-x:hover { color: var(--text-primary); }
 .st-chip:not(:has(.st-chip-x)) { padding-right: 6px; }
-.st-addst {
-  padding: 4px 10px; border: 1px dashed #666; border-radius: 999px; background: transparent;
-  color: #c8c8c8; font: inherit; font-size: 0.78rem; cursor: pointer;
-}
-.st-addst:hover { border-color: var(--accent); color: var(--text-primary); }
 
 /* ── Selection bar, File Info row, tile tag ── */
 .sel-btn.sel-studio.on { border-color: var(--accent); background: rgba(99, 102, 241, 0.25); color: #fff; }
