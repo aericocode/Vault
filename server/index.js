@@ -101,12 +101,15 @@ let instanceName = appSettings.getString('instanceName', '', { max: INSTANCE_NAM
 
 app.get('/api/vault/status', (req, res) => res.json({ ...vault.status(), instanceName }));
 
-// Create (or change) the vault password — encrypts the DB in place
+// Create the FIRST vault password: encrypts a plaintext DB in place. An
+// encrypted library answers 409 VAULT_ALREADY_SET; changing the password goes
+// through /api/vault/changepass, which asks for the current one.
 app.post('/api/vault/setpass', async (req, res) => {
   try {
     res.json(await vault.setPassword(String(req.body?.pass ?? '')));
   } catch (err) {
-    res.status(err.code === 'VAULT_SCAN_ACTIVE' ? 409 : 400).json({ error: err.message, code: err.code });
+    const status = err.code === 'VAULT_SCAN_ACTIVE' || err.code === 'VAULT_ALREADY_SET' ? 409 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
   }
 });
 
