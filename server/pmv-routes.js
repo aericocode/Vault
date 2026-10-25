@@ -77,14 +77,32 @@ function buildRouter() {
     res.json(service.decorateJob(job));
   });
 
-  // Replace EDL entries (review edits: remove/swap). Only cut fields accepted.
+  // Replace EDL entries (review edits: the review screen removes cuts). The
+  // client says only WHICH cuts stay and in what order, by each entry's id.
+  // Everything else is the server's own copy of that cut: the source file
+  // paths, timings, effects and transitions all reach FFmpeg (as inputs, -ss /
+  // -t values and filter graphs), and this route used to store whatever entry
+  // objects arrived. An id the stored list does not have, or one given twice,
+  // is refused. (service.renderEntries also re-derives the source paths from
+  // the job's own videos at render time, for jobs saved before this check.)
   router.put('/jobs/:id/edl', (req, res) => {
     const job = repo.getJob(req.params.id);
     if (!job?.edl) return res.status(400).json({ error: 'The cut list is not ready yet.' });
     const entries = req.body?.entries;
     if (!Array.isArray(entries) || !entries.length) return res.status(400).json({ error: 'entries must be a non-empty array' });
-    repo.updateJob(job.id, { edl: { ...job.edl, entries } });
-    res.json({ ok: true, totalEdits: entries.length });
+    const stored = new Map((job.edl.entries || []).map(e => [e.id, e]));
+    const kept = [];
+    const seen = new Set();
+    for (const e of entries) {
+      const id = e?.id;
+      if (!Number.isInteger(id) || !stored.has(id) || seen.has(id)) {
+        return res.status(400).json({ error: 'The cut list does not match this PMV. Reload it and try again.' });
+      }
+      seen.add(id);
+      kept.push(stored.get(id));
+    }
+    repo.updateJob(job.id, { edl: { ...job.edl, entries: kept } });
+    res.json({ ok: true, totalEdits: kept.length });
   });
 
   router.post('/jobs/:id/render', (req, res) => {

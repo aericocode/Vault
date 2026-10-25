@@ -39,19 +39,66 @@ const scanModel = require('../lib/scan-model');
 const ownedDir = require('../lib/owned-dir');
 const { netFetch } = require('../lib/net');
 const { hostCheck } = require('../lib/host-check');
+const { fetchMetadataGate } = require('../lib/fetch-metadata');
 const pkg = require('../package.json');
 
 const { ROOT } = require('../lib/approot');
 
 const app = express();
 
+// ── Framing and sniffing headers ────────────────────────────────────────────
+// On every response, refusals included, so it comes before anything that can
+// answer. It only sets headers and never refuses a request.
+//  - Framing: another site's page must not be able to show Vault inside a
+//    frame (clickjacking: a hidden frame over a decoy button). Vault does frame
+//    its OWN responses (the document player shows a PDF in an iframe), so the
+//    policy is same-origin, not "never". X-Frame-Options for older browsers,
+//    CSP frame-ancestors for current ones.
+//    A response that sets a CSP of its own replaces the header set here (no
+//    Vault route does today, but Express's own 404 page sends
+//    "default-src 'none'", and frame-ancestors does not fall back to
+//    default-src). So the check is repeated just before the headers go out:
+//    a CSP without frame-ancestors gets it appended, never replaced.
+//  - nosniff: a response is only ever what its Content-Type says, so a file
+//    from the library cannot be run as a script or a stylesheet. Every script
+//    and stylesheet Vault serves has a proper type: express.static and the
+//    SEA asset table (ASSET_TYPES) both send text/javascript and text/css.
+//    Media, thumbnails, subtitles and stream segments are not affected:
+//    nosniff only changes how browsers treat scripts and styles.
+const FRAME_ANCESTORS = "frame-ancestors 'self'";
+app.use((req, res, next) => {
+  res.set('X-Frame-Options', 'SAMEORIGIN');
+  res.set('Content-Security-Policy', FRAME_ANCESTORS);
+  res.set('X-Content-Type-Options', 'nosniff');
+  // Every way a response starts (res.send, sendFile, pipes, res.end) goes
+  // through writeHead, Node's implicit header write included.
+  const writeHead = res.writeHead;
+  res.writeHead = function writeHeadWithFrameAncestors(...args) {
+    if (!res.headersSent) {
+      const csp = res.getHeader('Content-Security-Policy');
+      if (csp == null || csp === '') res.setHeader('Content-Security-Policy', FRAME_ANCESTORS);
+      else if (typeof csp === 'string' && !/frame-ancestors/i.test(csp)) {
+        res.setHeader('Content-Security-Policy', `${csp}; ${FRAME_ANCESTORS}`);
+      }
+    }
+    return writeHead.apply(this, args);
+  };
+  next();
+});
+
 // ── Host allowlist (DNS rebinding) ──────────────────────────────────────────
-// FIRST middleware on purpose, ahead of the CSRF guard, the lock gate and the
-// static mounts, so it covers every route and anything added later. See
-// lib/host-check.js. The port is the one this connection arrived on (the
-// socket's local port): that is the port being listened on now, never the
-// saved port for the next launch, and it stays right when a test listens on 0.
+// FIRST gate on purpose (only the headers above come before it), ahead of
+// the CSRF guard, the lock gate and the static mounts, so it covers every
+// route and anything added later. See lib/host-check.js. The port is the one
+// this connection arrived on (the socket's local port): that is the port being
+// listened on now, never the saved port for the next launch, and it stays
+// right when a test listens on 0.
 app.use(hostCheck({ port: (req) => req.socket && req.socket.localPort }));
+
+// ── Fetch Metadata (requests made by another site's page) ───────────────────
+// Ahead of the lock gate, so a refused request never counts as the user being
+// present (vault.touch()) and never starts any work. See lib/fetch-metadata.js.
+app.use(fetchMetadataGate());
 
 // ── CSRF guard (audit finding D) ────────────────────────────────────────────
 // The server binds 127.0.0.1 with no CORS config. JSON-body routes are already
@@ -101,12 +148,15 @@ let instanceName = appSettings.getString('instanceName', '', { max: INSTANCE_NAM
 
 app.get('/api/vault/status', (req, res) => res.json({ ...vault.status(), instanceName }));
 
-// Create (or change) the vault password — encrypts the DB in place
+// Create the FIRST vault password: encrypts a plaintext DB in place. An
+// encrypted library answers 409 VAULT_ALREADY_SET; changing the password goes
+// through /api/vault/changepass, which asks for the current one.
 app.post('/api/vault/setpass', async (req, res) => {
   try {
     res.json(await vault.setPassword(String(req.body?.pass ?? '')));
   } catch (err) {
-    res.status(err.code === 'VAULT_SCAN_ACTIVE' ? 409 : 400).json({ error: err.message, code: err.code });
+    const status = err.code === 'VAULT_SCAN_ACTIVE' || err.code === 'VAULT_ALREADY_SET' ? 409 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
   }
 });
 
@@ -1049,7 +1099,8 @@ app.get('/api/import/failures', async (req, res) => {
 app.get('/api/import/failures/text', async (req, res) => {
   try {
     const text = await require('../lib/scan-failures').asText(db.get(), importQueue.failedIds());
-    res.set('X-Content-Type-Options', 'nosniff');
+    // File names in it could look like markup: plain text, and nosniff (set
+    // on every response at the top of this file) keeps the browser to that.
     res.type('text/plain; charset=utf-8').send(text);
   } catch (err) {
     res.status(500).json({ error: err.message });

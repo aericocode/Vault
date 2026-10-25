@@ -1189,7 +1189,7 @@ function buildPopoverHtml(media) {
     <div class="pop-title">${escapeHtml(media.filename)}</div>
     ${media.description ? `<div class="pop-desc">${escapeHtml(media.description)}</div>` : ''}
     ${allTags.length ? `<div class="pop-tags">${allTags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
-    <div class="pop-meta">${[duration, fileSize, media.quality_flag, media.content_type, `${vaultIconSwap('👁 ', 'eye')}${media.view_count || 0} views`].filter(Boolean).join(' • ')}</div>
+    <div class="pop-meta">${[duration, fileSize, escapeHtml(media.quality_flag), escapeHtml(media.content_type), `${vaultIconSwap('👁 ', 'eye')}${media.view_count || 0} views`].filter(Boolean).join(' • ')}</div>
     <div class="pop-path" title="${escapeHtml(media.filepath)}">
       <span class="pop-path-text">${vaultIconSwap('📁 ', 'folder')}${escapeHtml(media.filepath)}</span>
       <button class="pop-path-copy" onclick="copyPath('${escapedPath}')" title="Copy full path">⧉</button>
@@ -1388,7 +1388,7 @@ function renderCard(media) {
         <div class="card-meta">
           <span class="meta-badge type-${media.media_type}">${media.media_type}</span>
           ${media.language_code && media.language_code !== 'none' ? `<span class="meta-badge language" title="${escapeHtml(media.language_name || '')}">${escapeHtml(media.language_code.toUpperCase())}</span>` : ''}
-          ${media.content_type ? `<span class="meta-badge">${media.content_type}</span>` : ''}
+          ${media.content_type ? `<span class="meta-badge">${escapeHtml(media.content_type)}</span>` : ''}
           ${hasError ? `<span class="meta-badge error" title="${escapeHtml(errorTooltip(media.processing_error))}" data-error="${escapeHtml(media.processing_error)}">${vaultEmojiLabel('⚠ Error')}</span>` : ''}
           ${cardUnscanned ? `<span class="meta-badge unscanned-badge" title="AI analysis pending">${vaultEmojiLabel('⏳ Not scanned')}</span>` : ''}
           ${hasNotes ? `<span class="meta-badge has-notes">${vaultEmojiLabel('📝 Notes')}</span>` : ''}
@@ -1402,7 +1402,7 @@ function renderCard(media) {
         </div>
       </div>
       <div class="card-footer">
-        <span>${[duration, fileSize, media.quality_flag].filter(Boolean).join(' • ')}</span>
+        <span>${[duration, fileSize, escapeHtml(media.quality_flag)].filter(Boolean).join(' • ')}</span>
         <div style="display: flex; gap: 0.5rem; align-items: center;">
           <button class="expand-btn" onclick="showDetailsById(${media.id})">Details</button>
           <button class="play-btn" onclick="playMediaById(${media.id})">▶ Play</button>
