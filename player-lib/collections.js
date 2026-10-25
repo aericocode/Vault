@@ -468,6 +468,7 @@ function renderCollectionHeader() {
     <div class="coll-head-actions">
       <button class="coll-action" onclick="playCollection(${c.id}, false)">Play All</button>
       <button class="coll-action" onclick="playCollection(${c.id}, true)">Shuffle</button>
+      <button class="coll-action" id="collExportBtn" onclick="openCollectionExport(${c.id})" title="Save this list as a playlist file for other players">Export…</button>
       <button class="coll-action coll-delete" id="collDeleteBtn" onclick="deleteCollectionTwoStep(${c.id}, this)">Delete</button>
     </div>
   `;
