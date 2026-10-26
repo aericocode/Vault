@@ -242,3 +242,21 @@ test('no peak reading: positive gain is capped at +3 dB', () => {
   assert.strictEqual(loudness.gainDb({ lufs: -40, peak_db: null }), 3);
   assert.strictEqual(loudness.gainDb({ lufs: -10, peak_db: null }), -6, 'turning down is not limited');
 });
+
+test('Flow order has its own worker: a file that hangs the measuring worker does not hold it up', async () => {
+  process.env.VAULT_FLOW_TEST_HOOKS = '1';
+  const pool = require('../lib/flow/pool');
+  pool.stop();
+  try {
+    const hung = pool.measure(':hang', { watchdogMs: 1500 }).catch(e => e);
+    await new Promise(r => setTimeout(r, 100));
+    const t0 = Date.now();
+    const o = await pool.order([{ id: 1, measured: true, music: true, es: 0.9, em: 0.9, ee: 0.9, bs: 120, bm: 120, be: 120 }, { id: 2, measured: true, music: true, es: 0.1, em: 0.1, ee: 0.1, bs: 120, bm: 120, be: 120 }], { shape: 'build' });
+    assert.deepStrictEqual(o.order, [2, 1]);
+    assert.ok(Date.now() - t0 < 1000, `order answered in ${Date.now() - t0} ms while a file hangs`);
+    assert.strictEqual((await hung).code, 'HUNG');
+  } finally {
+    pool.stop();
+    delete process.env.VAULT_FLOW_TEST_HOOKS;
+  }
+});
