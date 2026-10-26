@@ -363,7 +363,8 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
         if (SC) SC.paintVolume();       // Basic: a gain change fires no volumechange
         break;
       case 'menu': if (SC) SC.menu(e); break;
-      case 'close': if (SC) SC.closeStage(); break;
+      // The X closes Stage and stops (the Stage menu's Close Stage plays on here).
+      case 'close': if (SC) SC.closeStageAndStop(); break;
       default: break;
     }
   }
