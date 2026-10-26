@@ -14,10 +14,11 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 function loadWall() {
-  const code = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'wall.js'), 'utf8');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', 'player-lib', f), 'utf8');
   const ctx = { window: {}, document: {}, console, Math, Number, String, Array, Object, JSON, Map, Set, Promise };
   vm.createContext(ctx);
-  vm.runInContext(`${code}\nglobalThis.__wall = Wall;`, ctx);
+  // The settings rules load first, as in the page.
+  vm.runInContext(`${read('wall-rules.js')}\n${read('wall.js')}\nglobalThis.__wall = Wall;`, ctx);
   return ctx.__wall._pure;
 }
 
