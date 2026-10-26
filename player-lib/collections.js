@@ -51,6 +51,10 @@ const COLL_ERROR_TEXT = {
   NAME_TAKEN: 'A collection with that name is already in this folder.',
   CYCLE: 'A folder cannot go inside itself or one of its own folders.',
   BAD_PARENT: 'That folder is no longer there.',
+  // Undo of a rearrange (collection-reorder.js) sends the whole old order
+  BAD_ORDER: 'Could not undo. Files were added or removed since.',
+  // Export (collection-export.js)
+  FILES_ENCRYPTED: 'File paths are not available for an encrypted library.',
 };
 
 /** One error toast for a collections action ("making the collection"). */
@@ -414,7 +418,10 @@ async function cardDelete(id, btn) {
   if (!list) return;
   collectionsList = list;
   collectionMembers.delete(id);
-  if (activeCollectionId === id) activeCollectionId = null;
+  if (activeCollectionId === id) {
+    activeCollectionId = null;
+    if (typeof collectionSortLeave === 'function') collectionSortLeave();
+  }
   renderResults();
   renderCollectionsTabBar();
   showToast(collDeletedText(c));
@@ -445,6 +452,8 @@ function collDeletedText(c) {
 async function openCollection(id) {
   await fetchCollectionMembers(id, true);   // folders resolve to their aggregate union
   activeCollectionId = id;
+  // Playlist order by default (the user can still pick another sort).
+  if (typeof collectionSortEnter === 'function') collectionSortEnter();
   renderCollectionHeader();
   renderCollectionsTabBar();
   return applyFilters();
@@ -452,9 +461,36 @@ async function openCollection(id) {
 
 function closeCollection() {
   activeCollectionId = null;
+  if (typeof collectionSortLeave === 'function') collectionSortLeave();
   renderCollectionHeader();
   renderCollectionsTabBar();
   applyFilters();
+}
+
+/**
+ * The count line: "8 files · playlist order" while the grid shows the saved
+ * order, otherwise what it is sorted by, in the sort menu's own words
+ * ("8 files · sorted by name"), or "· shuffled" after Shuffle. Folders say
+ * "· folder".
+ */
+function collectionCountText(c) {
+  const n = collFiles(c.item_count);
+  if (c.kind === 'folder') return `${n} · folder`;
+  if (typeof Library !== 'undefined' && Library.shuffled) return `${n} · shuffled`;
+  const field = typeof currentSortField === 'function' ? currentSortField() : 'playlist';
+  if (field === 'playlist') return `${n} · playlist order`;
+  const opt = document.querySelector(`#sortSelect option[value="${field}"]`);
+  const label = (opt ? opt.textContent : field).trim().toLowerCase();
+  return `${n} · sorted by ${label}`;
+}
+
+/** Refresh just the count line of an open collection (sort or shuffle changed). */
+function renderCollectionCount() {
+  const el = document.getElementById('collHeadCount');
+  const c = getCollectionById(activeCollectionId);
+  if (!el || !c) return;
+  const text = collectionCountText(c);
+  if (el.textContent !== text) el.textContent = text;
 }
 
 /** Header strip shown while a collection/folder is open (in #collectionsBar). */
@@ -462,6 +498,7 @@ function renderCollectionHeader() {
   const bar = document.getElementById('collectionsBar');
   if (!bar) return;
   const c = getCollectionById(activeCollectionId);
+  if (typeof renderReorderNote === 'function') renderReorderNote();
   if (!c) {
     bar.style.display = 'none';
     bar.innerHTML = '';
@@ -475,7 +512,7 @@ function renderCollectionHeader() {
       <div class="coll-head-name" id="collHeadName">
         <span class="coll-head-title">${isFolder ? `<span class="coll-head-folder">${ICON.folder}</span>` : ''}${escapeHtml(c.name)}</span>
         <button class="field-edit-btn" onclick="editCollectionName(${c.id})" title="Rename" aria-label="Rename">${collGlyph('✎', 'edit')}</button>
-        <span class="coll-count">${collFiles(c.item_count)}${isFolder ? ' · folder' : ' · playlist order'}</span>
+        <span class="coll-count" id="collHeadCount">${collectionCountText(c)}</span>
       </div>
       <div class="coll-head-desc" id="collHeadDesc" onclick="editCollectionDesc(${c.id})" title="Click to edit description">
         ${c.description ? escapeHtml(c.description) : '<span class="field-empty">Add a description…</span>'}
@@ -484,6 +521,7 @@ function renderCollectionHeader() {
     <div class="coll-head-actions">
       <button class="coll-action" onclick="playCollection(${c.id}, false)">Play all</button>
       <button class="coll-action" onclick="playCollection(${c.id}, true)">Shuffle</button>
+      <button class="coll-action" id="collExportBtn" onclick="openCollectionExport(${c.id})" title="Save this list as a playlist file for other players">Export…</button>
       <button class="coll-action coll-delete" id="collDeleteBtn" onclick="deleteCollectionTwoStep(${c.id}, this)">Delete</button>
     </div>
   `;
@@ -582,7 +620,11 @@ async function deleteCollectionTwoStep(id, btn) {
   if (!list) return;
   collectionsList = list;
   collectionMembers.delete(id);
-  if (activeCollectionId === id) { activeCollectionId = null; currentFolderId = parent; }
+  if (activeCollectionId === id) {
+    activeCollectionId = null;
+    currentFolderId = parent;
+    if (typeof collectionSortLeave === 'function') collectionSortLeave();
+  }
   renderCollectionHeader();
   renderCollectionsTabBar();
   applyFilters();
@@ -602,8 +644,15 @@ async function playCollection(id, shuffle) {
     setRepeatMode('off', { persist: false });
   }
   if (shuffle) {
-    // The grid shows the shuffled order too, as it always did.
+    // The grid shows the shuffled order too, as it always did. The saved
+    // order is never touched.
     if (await Library.shuffle()) renderResults();
+    if (typeof renderReorderNote === 'function') renderReorderNote();
+  } else if (typeof switchToPlaylistOrder === 'function' && getCollectionById(id)?.kind !== 'folder'
+             && (currentSortField() !== 'playlist' || Library.shuffled)) {
+    // Play All plays the saved order: another sort (or a shuffle) on screen
+    // goes back to playlist order first, so the grid shows what will play.
+    await switchToPlaylistOrder();
   }
   const [first] = await Library.rowsForRange(0, 1);
   if (!first) return;

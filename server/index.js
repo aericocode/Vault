@@ -1979,6 +1979,12 @@ app.post('/api/import/queue/cancel', (req, res) => {
 
 const PICK_CANCEL = '::CANCEL::';    // stdout sentinel — never a legal path
 
+// Fixed client GUIDs (IFileDialog::SetClientGuid): each kind of Vault window
+// opens where Vault last used it, separate from PowerShell's shared state and
+// from each other. Never change them, or users lose the remembered folder.
+const PICKER_CLIENT_GUID = '9fb4b93b-8fc5-489d-abf9-06d6566a093b';   // add a folder / add files
+const SAVER_CLIENT_GUID = '045639f5-70b9-4d34-b5b7-d5b95904a74f';    // save a playlist
+
 const PICKER_CS_TOP = `
 $src = @'
 using System;
@@ -2089,6 +2095,10 @@ namespace VaultPick {
 
       try {
         var dlg = (IFileOpenDialog)(object)(new FileOpenDialogRCW());
+        // Vault's own remembered folder for adding media (folder and files
+        // pickers share it), instead of whatever PowerShell's dialogs last used.
+        Guid client = new Guid("${PICKER_CLIENT_GUID}");
+        dlg.SetClientGuid(ref client);
 `;
 
 // Folder mode: single pick via GetResult (an IFileDialog-level method).
@@ -2135,13 +2145,150 @@ Add-Type -TypeDefinition $src
 const PICKER_PS1 = PICKER_CS_TOP + PICKER_BODY_FOLDER + PICKER_CS_BOTTOM;
 const PICKER_FILES_PS1 = PICKER_CS_TOP + PICKER_BODY_FILES + PICKER_CS_BOTTOM;
 
+// Save As (playlist export, POST /api/collections/:id/export/save). The same
+// shim pattern as the pickers above (DPI awareness, hidden TOPMOST owner,
+// best-effort dark mode, PICK_CANCEL on dismiss), on the shell's
+// IFileSaveDialog. Only IFileDialog-level methods are used, so the interface
+// declares those (IFileSaveDialog's own methods come after them in the vtable
+// and are left out). Everything that varies comes in through environment
+// variables, never spliced into the script text, so a collection name cannot
+// change the code: VAULT_SAVE_NAME (default file name). M3U8 only. Options:
+// overwrite prompt, strict file type, path must exist, file system only, not
+// read-only. Its own remembered folder (SAVER_CLIENT_GUID; SetClientGuid sits
+// in the same IFileDialog slot as in the pickers' interface, just before
+// ClearClientData and SetFilter). Prints the chosen path or PICK_CANCEL.
+const SAVER_PS1 = `
+$src = @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace VaultSave {
+  [ComImport, Guid("C0B4E2F3-BA21-4773-8DBA-335EC946EB8B")]
+  internal class FileSaveDialogRCW {}
+
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  internal struct FilterSpec {
+    [MarshalAs(UnmanagedType.LPWStr)] public string Name;
+    [MarshalAs(UnmanagedType.LPWStr)] public string Spec;
+  }
+
+  [ComImport, Guid("84bccd23-5fde-4cdb-aea4-af64b83d78ab"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  internal interface IFileSaveDialog {
+    [PreserveSig] uint Show(IntPtr hwndParent);
+    void SetFileTypes(uint c, [MarshalAs(UnmanagedType.LPArray)] FilterSpec[] rg);
+    void SetFileTypeIndex(uint i);
+    void GetFileTypeIndex(out uint o);
+    void Advise(IntPtr p, out uint c);
+    void Unadvise(uint c);
+    void SetOptions(uint fos);
+    void GetOptions(out uint fos);
+    void SetDefaultFolder(IntPtr si);
+    void SetFolder(IntPtr si);
+    void GetFolder(out IntPtr si);
+    void GetCurrentSelection(out IntPtr si);
+    void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string n);
+    void GetFileName(out IntPtr n);
+    void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string t);
+    void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string t);
+    void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string t);
+    void GetResult(out IShellItem si);
+    void AddPlace(IntPtr si, int f);
+    void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string e);
+    void Close(uint hr);
+    void SetClientGuid(ref Guid g);
+    void ClearClientData();
+    void SetFilter(IntPtr f);
+  }
+
+  [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  internal interface IShellItem {
+    void BindToHandler(IntPtr pbc, ref Guid bhid, ref Guid riid, out IntPtr ppv);
+    void GetParent(out IShellItem ppsi);
+    void GetDisplayName(uint sigdn, out IntPtr ppszName);
+    void GetAttributes(uint mask, out uint attrs);
+    void Compare(IShellItem psi, uint hint, out int order);
+  }
+
+  public static class Saver {
+    [DllImport("user32.dll", SetLastError = true)] static extern IntPtr CreateWindowEx(
+      uint exStyle, string cls, string name, uint style,
+      int x, int y, int w, int h, IntPtr parent, IntPtr menu, IntPtr inst, IntPtr param);
+    [DllImport("user32.dll")] static extern bool DestroyWindow(IntPtr h);
+    [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("kernel32.dll")] static extern IntPtr GetModuleHandle(string m);
+    [DllImport("uxtheme.dll", EntryPoint = "#135")] static extern int SetPreferredAppMode(int mode);
+    [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr ctx);
+    [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr ctx);
+    [DllImport("shcore.dll")] static extern int SetProcessDpiAwareness(int mode);
+    [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+
+    const uint WS_POPUP = 0x80000000;
+    const uint WS_EX_TOPMOST = 0x00000008;
+    const uint WS_EX_TOOLWINDOW = 0x00000080;
+
+    static void EnsureDpiAware() {
+      try { if (SetThreadDpiAwarenessContext((IntPtr)(-4)) != IntPtr.Zero) return; } catch {}
+      try { if (SetProcessDpiAwarenessContext((IntPtr)(-4))) return; } catch {}
+      try { if (SetProcessDpiAwareness(2) == 0) return; } catch {}
+      try { SetProcessDPIAware(); } catch {}
+    }
+
+    static string Env(string k) { string v = Environment.GetEnvironmentVariable(k); return v == null ? "" : v; }
+
+    public static string Save() {
+      EnsureDpiAware();
+      try { SetPreferredAppMode(2); } catch {}
+      const string ext = "m3u8";
+
+      IntPtr owner = CreateWindowEx(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, "STATIC", "",
+        WS_POPUP, 0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero, GetModuleHandle(null), IntPtr.Zero);
+      try { SetForegroundWindow(owner); } catch {}
+
+      try {
+        var dlg = (IFileSaveDialog)(object)(new FileSaveDialogRCW());
+        Guid client = new Guid("${SAVER_CLIENT_GUID}");
+        dlg.SetClientGuid(ref client);
+        uint fos; dlg.GetOptions(out fos);
+        // FOS_OVERWRITEPROMPT | FOS_STRICTFILETYPES | FOS_NOCHANGEDIR |
+        // FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOREADONLYRETURN
+        dlg.SetOptions(fos | 0x2 | 0x4 | 0x8 | 0x40 | 0x800 | 0x8000);
+        var types = new FilterSpec[1];
+        types[0].Name = "M3U8 playlist (*.m3u8)";
+        types[0].Spec = "*." + ext;
+        dlg.SetFileTypes(1, types);
+        dlg.SetFileTypeIndex(1);
+        dlg.SetDefaultExtension(ext);
+        dlg.SetFileName(Env("VAULT_SAVE_NAME"));
+        dlg.SetTitle("Save playlist");
+        dlg.SetOkButtonLabel("Save playlist");
+        uint hr = dlg.Show(owner);
+        if (hr != 0) return "${PICK_CANCEL}";      // dismissed / closed
+        IShellItem item; dlg.GetResult(out item);
+        IntPtr p; item.GetDisplayName(0x80058000, out p);   // SIGDN_FILESYSPATH
+        string s = Marshal.PtrToStringUni(p);
+        Marshal.FreeCoTaskMem(p);
+        return s == null ? "" : s;
+      } finally {
+        if (owner != IntPtr.Zero) DestroyWindow(owner);
+      }
+    }
+  }
+}
+'@
+Add-Type -TypeDefinition $src
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::Out.Write([VaultSave.Saver]::Save())
+`;
+
 // One native dialog process at a time (folder OR files) — a second request
 // while one is alive is a 409. Shared spawn/collect/cleanup for both pickers:
 // Windows-only guard, single-instance guard, BOTH-pipe draining (an unread
 // stderr fills its 4KB buffer and deadlocks the child — the "dialog never
 // appears + stuck busy" failure), and the 10-min watchdog.
 let _picker = null;          // live child process, or null
-function spawnPicker(res, script, kind, onClose) {
+// opts.env: extra environment for the child (the save dialog takes its
+// inputs this way, never inside the script text).
+function spawnPicker(res, script, kind, onClose, opts = {}) {
   // Test and scratch servers set this so nothing driving the page (a test
   // run, an automated check) can put a native dialog on the user's desktop.
   // Read per request; off unless set to 1.
@@ -2164,8 +2311,12 @@ function spawnPicker(res, script, kind, onClose) {
 
   const ps = spawn('powershell',
     ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File', scriptPath],
-    { windowsHide: true });
+    { windowsHide: true, ...(opts.env ? { env: { ...process.env, ...opts.env } } : {}) });
   _picker = ps;
+  // Decode as one UTF-8 stream: a non-ASCII path split across two chunks
+  // would otherwise turn into replacement characters at the seam.
+  ps.stdout.setEncoding('utf8');
+  ps.stderr.setEncoding('utf8');
 
   let out = '', errOut = '', sent = false;
   const finish = (status, body) => {
@@ -2856,7 +3007,10 @@ app.get('/api/collections', (req, res) => {
 });
 
 // Map typed collection errors → HTTP status codes (shared by create/patch/items)
-const COLL_ERR_STATUS = { NAME_TAKEN: 409, BAD_PARENT: 400, BAD_KIND: 400, CYCLE: 400, FOLDER_TARGET: 400 };
+const COLL_ERR_STATUS = { NAME_TAKEN: 409, BAD_PARENT: 400, BAD_KIND: 400, CYCLE: 400, FOLDER_TARGET: 400,
+  // POST /api/collections/:id/order (lib/collection-order.js)
+  NOT_FOUND: 404, BAD_MOVE: 400, BAD_BEFORE: 400, NOT_MEMBER: 400, BEFORE_IN_MOVE: 400,
+  BEFORE_NOT_MEMBER: 400, BAD_ORDER: 400 };
 
 app.post('/api/collections', (req, res) => {
   const name = (req.body?.name || '').toString().trim();
@@ -2942,6 +3096,174 @@ app.delete('/api/collections/:id/items', (req, res) => {
   if (!id || ids.length === 0) return res.status(400).json({ error: 'id + ids required' });
   const removed = db.removeFromCollection(id, ids);
   res.json({ removed, item_count: db.collectionItemCount(id), first_ids: db.collectionFirstIds(id) });
+});
+
+// Rearrange the playlist order: { move: [ids], before: id | null } moves a
+// block (null = to the end), { order: [ids] } sets the whole order (Undo).
+// One transaction rewrites positions 0..n-1. Answers the new order.
+app.post('/api/collections/:id/order', (req, res) => {
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'bad id' });
+  let order;
+  try {
+    order = db.reorderCollection(id, req.body);
+  } catch (err) {
+    const status = COLL_ERR_STATUS[err.code];
+    if (status) return res.status(status).json({ error: err.message, code: err.code });
+    throw err;
+  }
+  res.json({ order, item_count: order.length, first_ids: order.slice(0, 4) });
+});
+
+// ── Export a collection as a playlist file (PLAYLISTS_SPEC step 2) ────────
+// M3U8 only (for VLC / PotPlayer). links: full | relative | vault.
+// GET  /api/collections/:id/export?links=full|vault
+//      → the playlist text (preview, tests). Relative links are worked out
+//        from where the playlist is saved, so GET answers 400
+//        RELATIVE_NEEDS_SAVE for them.
+// POST /api/collections/:id/export/save  { links }
+//      → opens a native Save As window and writes the file where the user
+//        chose: { path, count, skipped, fullPathCount } | { canceled: true }
+//        (fullPathCount: relative entries written as full paths because the
+//        file is on another drive or share than the playlist)
+// Errors: 400 bad id / BAD_LINKS / RELATIVE_NEEDS_SAVE, 404 NOT_FOUND, 403
+// FILES_ENCRYPTED (full or relative links on an encrypted library: the
+// playlist would spell out where the files are, in a plain file next to an
+// encrypted library), 409 a picker is already open, 423 locked (the gate
+// above, and again after the window closes), 501 not Windows.
+const playlistExport = require('../lib/playlist/export');
+const { M3U8: PLAYLIST_M3U8 } = require('../lib/playlist/formats');
+const EXPORT_ERR_STATUS = { BAD_LINKS: 400, RELATIVE_NEEDS_SAVE: 400, NOT_FOUND: 404 };
+
+/** Vault links always name 127.0.0.1 and the port this request came in on
+ *  (never the Host header, which the client controls). */
+const exportBaseUrl = (req) => `http://127.0.0.1:${req.socket.localPort}`;
+
+/** A typed error → its status; anything unexpected → a plain JSON 500 (the
+ *  detail goes to the server log, never a stack trace to the client). */
+function sendExportErr(res, err) {
+  const status = EXPORT_ERR_STATUS[err && err.code];
+  if (status) return res.status(status).json({ error: err.message, code: err.code });
+  console.warn('[Export] could not build the playlist:', err && err.message);
+  if (res.headersSent) return undefined;
+  return res.status(500).json({ error: 'could not build the playlist, see the server log' });
+}
+
+// Any written path (full or relative) shows where the files are on disk.
+const filesRefused = (links) => links !== 'vault' && vault.isEncrypted();
+const FILES_ENCRYPTED_BODY = {
+  error: 'file paths are not available for an encrypted library',
+  code: 'FILES_ENCRYPTED',
+};
+
+/** Shared checks for both routes. Answers the error itself and returns null,
+ *  or returns { id, coll }. */
+function exportPrecheck(req, res, links, { saving = false } = {}) {
+  const id = parseId(req.params.id);
+  if (!id) { res.status(400).json({ error: 'bad id' }); return null; }
+  try {
+    playlistExport.checkLinks(links, { saving });
+    const coll = playlistExport.collectionRow(id);
+    if (filesRefused(links)) { res.status(403).json(FILES_ENCRYPTED_BODY); return null; }
+    return { id, coll };
+  } catch (err) { sendExportErr(res, err); return null; }
+}
+
+app.get('/api/collections/:id/export', (req, res) => {
+  const { links } = req.query;
+  const pre = exportPrecheck(req, res, links);
+  if (!pre) return;
+  let out;
+  try { out = playlistExport.buildExport(pre.id, { links, baseUrl: exportBaseUrl(req) }); }
+  catch (err) { return sendExportErr(res, err); }
+  res.set({
+    'Content-Type': out.contentType,
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Vault-Count': String(out.count),
+    'X-Vault-Skipped': String(out.skipped),
+  });
+  res.send(out.text);
+});
+
+/**
+ * The path the Save As window printed, if it is one we will write to: one
+ * line, an absolute Windows path (drive or UNC), ending in .m3u8. Anything
+ * else is refused, never repaired.
+ */
+function checkSavePath(raw) {
+  if (typeof raw !== 'string' || raw.length === 0 || raw.length > 32767) return null;
+  if (/[\u0000-\u001f]/.test(raw)) return null;
+  if (!/^(?:[A-Za-z]:\\|\\\\[^\\])/.test(raw) || !path.win32.isAbsolute(raw)) return null;
+  if (path.win32.extname(raw).toLowerCase() !== `.${PLAYLIST_M3U8.ext}`) return null;
+  return raw;
+}
+
+// The Save As window. The default opens the real one (Windows only); tests
+// swap it, since the real one is a desktop window. Whatever runs here, the
+// path written to only ever comes from what it reports, never the request.
+const _defaultSaveDialog = (res, env, onClose) => {
+  if (process.platform !== 'win32') {
+    return res.status(501).json({ error: 'saving a playlist is Windows-only for now', code: 'UNSUPPORTED' });
+  }
+  spawnPicker(res, SAVER_PS1, 'save', onClose, { env });
+};
+let _saveDialog = _defaultSaveDialog;
+
+app.post('/api/collections/:id/export/save', (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const { links } = body;
+  const pre = exportPrecheck(req, res, links, { saving: true });
+  if (!pre) return;
+  const baseUrl = exportBaseUrl(req);
+  const env = { VAULT_SAVE_NAME: `${playlistExport.safeFileName(pre.coll.name)}.${PLAYLIST_M3U8.ext}` };
+  try {
+    // This runs from the child process's close event, outside Express: an
+    // error thrown there would take the server down, so it is caught here.
+    _saveDialog(res, env, (r) => {
+      try { onSaveDialogClosed(r); } catch (err) {
+        console.warn('[Export] could not save the playlist:', err && err.message);
+        r.finish(500, { error: 'could not save the playlist, see the server log' });
+      }
+    });
+  } catch (err) {
+    // e.g. the dialog script could not be written to the temp folder
+    console.warn('[Export] save window did not open:', err && err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'the save window did not open, see the server log' });
+  }
+
+  function onSaveDialogClosed({ code, out, errOut, finish }) {
+    const raw = String(out || '').trim();
+    if (raw === PICK_CANCEL) return finish(200, { canceled: true });
+    if (!raw) {
+      console.warn('[Export] save window failed:', (String(errOut || '').trim() || `exit ${code}, no output`).split('\n')[0]);
+      return finish(500, { error: 'the save window failed, see the server log' });
+    }
+    const target = checkSavePath(raw);
+    if (!target) {
+      console.warn('[Export] save window returned a path that was not used');
+      return finish(500, { error: 'the save window returned a path Vault cannot use' });
+    }
+    // The window can stay open for minutes: look again before writing.
+    if (vault.isLocked()) return finish(423, { error: 'vault is locked', code: 'VAULT_LOCKED' });
+    if (filesRefused(links)) return finish(403, FILES_ENCRYPTED_BODY);
+    let built;
+    try {
+      // Relative links start from the folder the user chose in the window.
+      built = playlistExport.buildExport(pre.id, { links, baseUrl, playlistDir: path.win32.dirname(target) });
+    } catch (err) {
+      const status = EXPORT_ERR_STATUS[err && err.code];
+      if (status) return finish(status, { error: err.message, code: err.code });
+      console.warn('[Export] could not build the playlist:', err && err.message);
+      return finish(500, { error: 'could not build the playlist, see the server log' });
+    }
+    try {
+      fs.writeFileSync(target, built.text, 'utf8');
+    } catch (err) {
+      return finish(500, { error: `could not write the playlist (${err.code || err.message})` });
+    }
+    finish(200, { path: target, count: built.count, skipped: built.skipped, fullPathCount: built.fullPathCount });
+  }
 });
 
 app.get('/api/media/:id/collections', (req, res) => {
@@ -3574,4 +3896,7 @@ if (require.main === module) {
   start();
 }
 
-module.exports = { app, start, run: start, isLockGatedPath };
+// Tests only: swap the Save As window for a fake (null puts the real one back).
+function _setSaveDialogForTest(fn) { _saveDialog = fn || _defaultSaveDialog; }
+
+module.exports = { app, start, run: start, isLockGatedPath, _setSaveDialogForTest };

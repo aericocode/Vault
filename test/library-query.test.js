@@ -290,6 +290,17 @@ test('an open collection shows its members in playlist order, no faves-first', a
     [ID.party, ID.beach, ID.apple]);
 });
 
+test('an open collection can be sorted like the library; playlist order is its default', async () => {
+  const playlist = [ID.party, ID.beach, ID.apple];
+  assert.deepStrictEqual([...await ids({ collectionId: ID.c1, sort: { field: 'playlist' } })], playlist);
+  assert.strictEqual(q.normalizeSpec({ collectionId: ID.c1 }).sort.field, 'playlist');
+  // Another field sorts the members, as it sorts the library.
+  assert.deepStrictEqual([...await ids({ collectionId: ID.c1, sort: { field: 'name', dir: 'asc' } })],
+    [ID.apple, ID.beach, ID.party]);
+  // No collection open: there is no playlist, so it is the default sort.
+  assert.strictEqual(q.normalizeSpec({ sort: { field: 'playlist' } }).sort.field, 'processed');
+});
+
 test('the Collections tri-filter and the song filter', async () => {
   const inAny = new Set(await ids({ filters: { collections: '1' } }));
   assert.deepStrictEqual(inAny, new Set([ID.party, ID.beach, ID.apple, ID.dusk]));

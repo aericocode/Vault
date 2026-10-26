@@ -633,7 +633,8 @@ function currentQuerySpec() {
     },
     collectionId: collectionOpen ? activeCollectionId : null,
     sort: {
-      field: QUERY_SORT_FIELDS.includes(field) ? field : 'processed',
+      // 'playlist': the open collection's saved order (collection-reorder.js)
+      field: QUERY_SORT_FIELDS.includes(field) || (field === 'playlist' && collectionOpen) ? field : 'processed',
       dir: dir === 'asc' ? 'asc' : 'desc',
       favesFirst: typeof favesFirst !== 'undefined' && !!favesFirst,
     },

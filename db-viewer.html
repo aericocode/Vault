@@ -173,8 +173,11 @@
       <!-- Collections tab chrome: breadcrumb + New folder/collection + View all -->
       <div class="coll-tabbar" id="collectionsTabBar" style="display:none;"></div>
 
-      <!-- Open-collection header strip (name, description, Play All / Shuffle) -->
+      <!-- Open-collection header strip (name, description, Play All / Shuffle / Export…) -->
       <div class="collections-bar" id="collectionsBar" style="display:none;"></div>
+      <!-- Under the bar while a collection is open: how to rearrange it
+           (player-lib/collection-reorder.js) -->
+      <div class="coll-reorder-note" id="collReorderNote" hidden></div>
 
       <!-- The "More" sheet. Floats over the grid rather than sitting in the
            flow, so opening it never moves a single tile. Filled by
@@ -515,6 +518,8 @@
   <script src="./player-lib/notes.js"></script>
   <script src="./player-lib/metadata-edit.js"></script>
   <script src="./player-lib/collections.js"></script>
+  <script src="./player-lib/collection-reorder.js"></script>
+  <script src="./player-lib/collection-export.js"></script>
   <script src="./player-lib/music.js"></script>
   <script src="./player-lib/selection.js"></script>
   <script src="./player-lib/saved-searches.js"></script>

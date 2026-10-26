@@ -295,8 +295,10 @@ function browserResult(ctx, st) {
 
   // sortFilteredMedia
   if (semanticOrdered) return filteredMedia.map(m => m.id);
+  // Playlist order (the default while a collection is open); another sort
+  // field sorts the collection's files like the library (PLAYLISTS_SPEC 1).
   const applyCollectionOrder = (list) => {
-    if (activeCollectionId == null) return false;
+    if (activeCollectionId == null || st.sort.field !== 'playlist') return false;
     const ids = collectionMembers.get(activeCollectionId);
     if (!ids) return false;
     const pos = new Map(ids.map((id, i) => [id, i]));
@@ -398,7 +400,7 @@ test('open collections and folders, focus sets and ranked ids', async () => {
   const ctx = browserContext();
   const ids = ctx.allMedia.map(m => m.id);
   for (const collectionId of [...collectionIds, folderId, 999999]) {
-    for (const sort of [SORTS[0], SORTS[5], SORTS[3]]) {
+    for (const sort of [undefined, { field: 'playlist', favesFirst: true }, SORTS[0], SORTS[5], SORTS[3]]) {
       await check(ctx, { collectionId, sort }, 'collection');
       await check(ctx, { collectionId, sort, filters: { collections: '0', mediaTypes: ['video'] } }, 'collection filtered');
     }

@@ -342,3 +342,14 @@ body.layout-modern .m-btn .vi { width: 16px; height: 16px; }
   body.layout-modern .m-switch,
   body.layout-modern .m-switch::before { transition: none; }
 }
+
+/* Rearranging a collection: the note reads as quiet help text, its button
+   as Modern's flat text button. */
+body.layout-modern .coll-reorder-note { color: var(--m-muted); margin-top: 0.5rem; }
+body.layout-modern .coll-note-btn {
+  background: transparent;
+  border-color: transparent;
+  color: var(--accent-hover);
+  padding: 0.15rem 0.4rem;
+}
+body.layout-modern .coll-note-btn:hover { border-color: var(--border); background: var(--bg-hover); }
