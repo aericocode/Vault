@@ -302,7 +302,7 @@ test('Unicode: keys stay one key in either case; names compare in any case and c
   const d = db.get();
   const H = (v) => { try { return tags.cleanHotkey(v); } catch (e) { return e.code || 'BAD'; } };
   // One key upper case and lower case: ß (SS), ŉ (ʼN), ﬁ (FI) are not.
-  for (const k of ['ß', 'ŉ', 'ﬁ', '́', '​', '‮', ' ']) assert.strictEqual(H(k), 'BAD_REQUEST', JSON.stringify(k));
+  for (const k of ['ß', 'ŉ', 'ﬁ', '́', '​', '‮', ' ', '�']) assert.strictEqual(H(k), 'BAD_REQUEST', JSON.stringify(k));
   assert.strictEqual(H('é'), 'É');
   assert.strictEqual(H('é'), 'É', 'a composed key is one key');
   assert.strictEqual(H('ж'), 'Ж');
