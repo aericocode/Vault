@@ -7,12 +7,14 @@
    Stage, live in front of the viewers. So while Stage is open:
 
      - a single click shows the file in the preview pane (dock.js). The pane
-       is turned on for as long as Stage is open, in Classic too, and goes
+       is on for as long as Stage is open, in Classic too, and goes
        back to the user's own setting when Stage closes: the setting itself
        is never changed. A window too narrow for the pane opens the file's
        details instead;
      - a double click (or Enter on the picked tile, or the pane's Play)
-       plays it on Stage;
+       plays it on Stage: only the file both clicks were on, never from a
+       tile's own controls, never just after the layout moved. The pane
+       comes on as Stage opens, so the grid does not move under a click;
      - the first time, a toast says so, and the pane carries a line about it.
 
    Nothing previewed makes a sound: the pane shows a still and the tiles'
@@ -41,46 +43,93 @@ const StagePreview = (() => {
     if (typeof showToast === 'function') showToast('Stage is on: click to preview, double-click to play on Stage');
   }
 
+  // A double click plays only the file both of its clicks were on, with no
+  // change of layout since the first: a grid that moved under the pointer
+  // (the pane, the rail, a resize) must never put another file on Stage.
+  const DBL_MS = 600;           // the two clicks of one double click
+  const SETTLE_MS = 300;        // a layout change this recent: not a double click
+  let clicks = [];              // the last two clicks: { id, at }
+  let layoutAt = 0;             // when the grid last changed size or the pane came or went
+
+  /** Inside a control of its own (the tick box, the heart, flag, trash, details, a link). */
+  const onControl = (ev) => {
+    const t = ev && ev.target;
+    return !!(t && t.closest && t.closest('input, button, label, a, select, textarea, .tile-actions, .tile-select, .tv-actions, .tv-c-sel'));
+  };
+
+  const now = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+  function noteLayout() { layoutAt = now(); }
+
   /** A single click while Stage is open: preview, never play. */
   function click(id) {
     if (!stageOn()) return false;
+    clicks = [...clicks.slice(-1), { id, at: now() }];
     if (typeof hideTilePopover === 'function') hideTilePopover();
-    if (!forcing) {
-      forcing = true;
-      if (typeof dockSync === 'function') dockSync();
-    }
+    if (!forcing) setForcing(true);   // normally already on since Stage opened
     if (typeof dockIsShown === 'function' && dockIsShown() && typeof dockSelect === 'function') dockSelect(id);
     else if (typeof showDetailsById === 'function') showDetailsById(id);   // too narrow for the pane
     hintOnce();
     return true;
   }
 
-  /** A double click while Stage is open: play it on Stage. */
-  function dblClick(id) {
+  /** Would this double click on id play it? (Both clicks on id, close together, nothing moved.) */
+  function sameFile(id) {
+    const [a, b] = clicks;
+    if (!a || !b || a.id !== id || b.id !== id) return false;
+    const t = now();
+    if (b.at - a.at > DBL_MS || t - a.at > DBL_MS + 200) return false;
+    if (layoutAt >= a.at - SETTLE_MS) return false;
+    return true;
+  }
+
+  /**
+   * A double click while Stage is open: play it on Stage, but only the same
+   * file both clicks were on, never from a control, never just after the
+   * layout moved. Handled (true) either way, so nothing else plays it.
+   */
+  function dblClick(id, ev) {
     if (!stageOn()) return false;
+    if (onControl(ev) || !sameFile(id)) return true;
+    clicks = [];
     if (typeof playMediaById === 'function') playMediaById(id);
     return true;
   }
 
   function hintHtml() {
     if (!stageOn()) return '';
-    return '<div class="dock-stage-hint" data-dock-part="stagehint">Stage is on: click a file to preview it here, double-click it (or press Enter) to play it on Stage.</div>';
+    return '<div class=dock-stage-hint data-dock-part=stagehint>Stage is on: click a file to preview it here, double-click it (or press Enter) to play it on Stage.</div>';
   }
 
+  function setForcing(on) {
+    if (forcing === on) return;
+    forcing = on;
+    noteLayout();
+    if (typeof dockSync === 'function') dockSync();
+  }
+
+  // The pane comes with Stage, so the grid never moves under a click: on
+  // when the Stage bar shows, back to the user's own setting when it goes.
   window.addEventListener('vault:stage-bar', (e) => {
     const on = !!(e.detail && e.detail.on);
-    if (!on && forcing) {
-      // Stage closed: the pane goes back to the user's own setting.
-      forcing = false;
-      if (typeof dockSync === 'function') dockSync();
-    }
-    if (typeof dockIsShown === 'function' && dockIsShown() && typeof dockRefresh === 'function') dockRefresh();
+    clicks = [];
+    setForcing(on);
+    // The pane's Stage line comes and goes with Stage, on the same file too.
+    if (typeof dockIsShown === 'function' && dockIsShown() && typeof dockRepaintAll === 'function') dockRepaintAll();
   });
 
-  return { click, dblClick, hintHtml, forcing: () => forcing && stageOn(), stageOn };
+  // Anything else that moves the grid (the rail, the window, the pane's width).
+  if (typeof ResizeObserver === 'function' && typeof document !== 'undefined') {
+    const watch = () => {
+      const grid = document.getElementById('resultsGrid');
+      if (grid) new ResizeObserver(noteLayout).observe(grid);
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watch); else watch();
+  }
+
+  return { click, dblClick, hintHtml, onControl, noteLayout, forcing: () => forcing && stageOn(), stageOn };
 })();
 
 function stagePreviewClick(id) { return StagePreview.click(id); }
-function stagePreviewDblClick(id) { return StagePreview.dblClick(id); }
+function stagePreviewDblClick(id, ev) { return StagePreview.dblClick(id, ev); }
 function stagePreviewForcing() { return StagePreview.forcing(); }
 function stagePreviewHintHtml() { return StagePreview.hintHtml(); }

@@ -287,10 +287,18 @@ function dockRender() {
     body.innerHTML = parts.map(([, html]) => html).join('\n');
     dockStampParts(body, parts);
   } else {
-    body.innerHTML = dockEmptyHtml();
+    body.innerHTML = (typeof stagePreviewHintHtml === 'function' ? stagePreviewHintHtml() : '') + dockEmptyHtml();
   }
   body.scrollTop = 0;
   if (typeof hydrateThumbs === 'function') hydrateThumbs(body);
+}
+
+/** Paint every part again from scratch (a part that comes and goes, like
+ *  the Stage line, cannot be patched in: dockPatchParts only replaces). */
+function dockRepaintAll() {
+  _dockPaintedId = null;
+  _dockSig = '';
+  dockRender();
 }
 
 /** Repaint now even though the row looks unchanged (an edit's own state:
@@ -558,8 +566,10 @@ function dockInit() {
     const tile = e.target.closest('.media-tile:not(.tile-skel)');
     // Anything with its own double click (a tile's picture, a table row's
     // picture and title) already played it.
-    if (!tile || e.target.closest('button, input, a, .tile-thumb, [ondblclick]')) return;
+    if (!tile || e.target.closest('button, input, label, a, .tile-thumb, .tile-actions, .tv-actions, [ondblclick]')) return;
     const id = Number(tile.dataset.id);
+    // Stage open: only the same file both clicks were on (stage-preview.js).
+    if (id && typeof stagePreviewDblClick === 'function' && stagePreviewDblClick(id, e)) return;
     if (id) playMediaById(id);
   });
 

@@ -150,12 +150,12 @@ function tvCellHtml(c, m) {
              onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">`
         : '';
       return `<div class="tv-cell tv-c-thumb ${canThumb ? '' : 'thumb-fallback'}" onclick="tileThumbClick(${id})"
-          ondblclick="tileThumbDblClick(${id})">${img}<span class="tv-type-icon">${icon}</span></div>`;
+          ondblclick="tileThumbDblClick(${id}, event)">${img}<span class="tv-type-icon">${icon}</span></div>`;
     }
     case 'title': {
       const pmNames = document.body.classList.contains('pm-names');
       return `<div class="tv-cell tv-c-title">
-          <span class="tile-name tv-name" onclick="tileThumbClick(${id})" ondblclick="tileThumbDblClick(${id})"
+          <span class="tile-name tv-name" onclick="tileThumbClick(${id})" ondblclick="tileThumbDblClick(${id}, event)"
                 ${pmNames ? '' : `title="${escapeHtml(m.filename)}"`}>${escapeHtml(m.filename)}</span>
           ${typeof streamTagRowHtml === 'function' ? streamTagRowHtml(m) : ''}
           ${typeof watchTagHtml === 'function' ? watchTagHtml(m) : ''}
