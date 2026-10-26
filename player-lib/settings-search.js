@@ -183,6 +183,9 @@ const SETTINGS_INDEX = [
     keywords: ['erase', 'reset', 'privacy', 'faces', 'people'] },
 
   // Stage, the window shared in Discord (player-lib/stage-settings-ui.js)
+  { page: 'stage', id: 'stagePlayer', label: 'Player (mpv)',
+    desc: 'Where mpv is, the player Stage runs in. Choose mpv.exe if Vault does not find it.',
+    keywords: ['stage', 'mpv', 'player', 'path', 'program', 'discord'] },
   { page: 'stage', id: 'stageShowName', label: 'Show the name as a file starts',
     desc: 'The name of the file, bottom left over the picture, for a few seconds.',
     keywords: ['stage', 'title', 'name', 'discord', 'stream', 'card'] },

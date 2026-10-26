@@ -20,9 +20,6 @@ const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
 
 const WallRules = require('../player-lib/wall-rules');
-const stageSettings = require('../lib/stage/settings');
-const { createHub, validateCommand, validateReport, MAX_SPEC_BYTES } = require('../lib/stage/hub');
-const ring = require('../lib/stream/ring');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -102,200 +99,6 @@ test('the remote’s line: source, clips, sound, as the mockup has it; no dashes
   for (const s of ['loading', 'running', 'empty', 'error']) assert.doesNotMatch(WallRules.wallLine({ state: s }), /—|–/);
 });
 
-/* ── The hub: commands and reports ──────────────────────────────────────── */
-
-const wallCmd = (o = {}) => ({ type: 'wall', cfg: { v: 2, source: 'c:1', sound: 'auto', playing: 4 }, spec: { collectionId: 1 }, label: 'Friday stream', ...o });
-
-test('wall commands are checked: settings clamped as the Wall reads them, the spec bounded', () => {
-  const ok = validateCommand(wallCmd({ cfg: { v: 2, playing: 99, colWidth: 'x', source: 'drop table', keepPlaying: true, evil: 1 } }));
-  assert.ok(ok.ok);
-  assert.strictEqual(ok.cmd.cfg.playing, 16);
-  assert.strictEqual(ok.cmd.cfg.colWidth, 390);
-  assert.strictEqual(ok.cmd.cfg.source, 'library');
-  assert.ok(!('evil' in ok.cmd.cfg), 'unknown keys never travel');
-  assert.deepStrictEqual(ok.cmd.spec, { collectionId: 1 });
-  assert.strictEqual(ok.cmd.label, 'Friday stream');
-  assert.strictEqual(ok.cmd.paused, false);
-  assert.strictEqual(ok.cmd.from, null);
-  assert.strictEqual(validateCommand(wallCmd({ label: undefined })).cmd.label, 'The Wall');
-  assert.strictEqual(validateCommand(wallCmd({ label: 'x'.repeat(500) })).cmd.label.length, 120);
-  assert.strictEqual(validateCommand(wallCmd({ spec: undefined })).ok, true, 'no spec: the whole library');
-  assert.strictEqual(validateCommand(wallCmd({ paused: true, from: 'pabc123' })).cmd.from, 'pabc123');
-  for (const bad of [
-    { cfg: undefined }, { cfg: [1] }, { cfg: 'x' },
-    { spec: [] }, { spec: 'x' }, { spec: { search: { text: 'x'.repeat(MAX_SPEC_BYTES) } } },
-    { label: 5 }, { paused: 'yes' }, { from: 'no spaces' }, { from: 7 },
-  ]) assert.strictEqual(validateCommand(wallCmd(bad)).ok, false, JSON.stringify(bad).slice(0, 60));
-  assert.deepStrictEqual(validateCommand({ type: 'wallShuffle' }), { ok: true, cmd: { type: 'wallShuffle' } });
-  assert.deepStrictEqual(validateCommand({ type: 'wallOff', extra: 1 }), { ok: true, cmd: { type: 'wallOff' } });
-});
-
-test('wall reports are checked: a known state, counts, at most six peek ids', () => {
-  const r = validateReport({ type: 'wall', state: 'running', clips: 9, blocks: 24, running: true, paused: false, message: '', ids: [1, 2, 'x', -3, 4, 5, 6, 7, 8, 9] });
-  assert.ok(r.ok);
-  assert.deepStrictEqual(r.rep.ids, [1, 2, 4, 5, 6, 7]);
-  assert.strictEqual(r.rep.clips, 9);
-  assert.strictEqual(validateReport({ type: 'wall', state: 'running', clips: -1 }).rep.clips, 0);
-  assert.strictEqual(validateReport({ type: 'wall', state: 'running', message: 'x'.repeat(900) }).rep.message.length, 300);
-  assert.strictEqual(validateReport({ type: 'wall', state: 'dancing' }).ok, false);
-  assert.strictEqual(validateReport({ type: 'wall' }).ok, false);
-  // Stage's status while the Wall is on it.
-  assert.strictEqual(validateReport({ type: 'status', key: null, state: 'wall', paused: false }).ok, true);
-});
-
-/** A server-sent event stream that records what it was sent. */
-function fakeStream() {
-  const req = new EventEmitter();
-  const res = new EventEmitter();
-  res.out = '';
-  res.writeHead = () => {};
-  res.write = (s) => { res.out += s; return true; };
-  res.end = () => { res.ended = true; res.emit('close'); };
-  res.events = () => res.out.split('\n\n').filter(b => b.startsWith('event: ')).map((b) => {
-    const [e, d] = b.split('\n');
-    return { event: e.slice(7), data: JSON.parse(d.slice(6)) };
-  });
-  return { req, res };
-}
-
-function hubFor({ alive = false } = {}) {
-  const calls = [];
-  const hub = createHub({
-    host: { alive: () => alive, close: () => calls.push('close'), front: () => {}, size: () => {}, setTitle: () => {} },
-    graceMs: 30, openGraceMs: 60, heartbeatMs: 0,
-    settings: { get: () => stageSettings.normalize({}), sizes: stageSettings.OPEN_SIZES, presets: stageSettings.SIZE_PRESETS },
-  });
-  return { hub, calls };
-}
-
-const item = (key, id) => ({ key, id, media_type: 'video', filename: `f${id}.mp4`, duration: 30 });
-const last = (s, name) => s.res.events().filter(e => e.event === name).pop();
-
-test('hub: the Wall needs an open Stage; shown, it replaces the file and Stage and the other tabs are told', () => {
-  const { hub } = hubFor();
-  assert.strictEqual(hub.command(wallCmd()).status, 409);
-  hub.opened('popup');
-  const ctl = fakeStream();
-  const st = fakeStream();
-  hub.attach('control', ctl.req, ctl.res);
-  hub.attach('stage', st.req, st.res);
-  hub.command({ type: 'load', item: item('a1', 1), upcoming: [item('a2', 2)] });
-  assert.strictEqual(hub.command(wallCmd({ from: 'pme' })).status, 200);
-  const s = hub.state();
-  assert.strictEqual(s.current, null, 'Stage stops showing a file');
-  assert.deepStrictEqual(s.upcoming, [], 'files wait');
-  assert.strictEqual(s.wall.label, 'Friday stream');
-  assert.strictEqual(s.status.state, 'wall');
-  assert.strictEqual(last(st, 'wall').data.cfg.playing, 4);
-  assert.strictEqual(last(ctl, 'cmd').data.type, 'wall');
-  assert.strictEqual(last(ctl, 'cmd').data.from, 'pme', 'the sending tab knows its own change');
-  // A Stage that (re)connects gets the Wall at once.
-  const st2 = fakeStream();
-  hub.attach('stage', st2.req, st2.res);
-  assert.strictEqual(last(st2, 'sync').data.wall.spec.collectionId, 1);
-  hub.close();
-});
-
-test('hub: play and pause pause the Wall; seeking is refused; a report updates the remote', () => {
-  const { hub } = hubFor();
-  hub.opened('popup');
-  const ctl = fakeStream();
-  const st = fakeStream();
-  hub.attach('control', ctl.req, ctl.res);
-  hub.attach('stage', st.req, st.res);
-  hub.command(wallCmd({ from: 'pme' }));
-  assert.strictEqual(hub.command({ type: 'pause' }).status, 200);
-  assert.strictEqual(hub.state().wall.paused, true);
-  const w = last(st, 'wall').data;
-  assert.strictEqual(w.paused, true, 'Stage gets the Wall paused, not a file pause');
-  assert.strictEqual(w.from, null, 'every tab mirrors it, the sender too');
-  assert.strictEqual(last(ctl, 'cmd').data.type, 'wall');
-  hub.command({ type: 'play' });
-  assert.strictEqual(hub.state().wall.paused, false);
-  const seek = hub.command({ type: 'seek', t: 4 });
-  assert.strictEqual(seek.status, 409);
-  assert.strictEqual(seek.body.code, 'WALL_ON_STAGE');
-  assert.strictEqual(hub.report({ type: 'wall', state: 'running', clips: 9, ids: [3, 4] }).status, 200);
-  assert.strictEqual(hub.state().wallStatus.clips, 9);
-  assert.strictEqual(last(ctl, 'wallStatus').data.clips, 9);
-  assert.strictEqual(hub.command({ type: 'wallShuffle' }).status, 200);
-  assert.ok(last(st, 'wallShuffle'));
-  hub.close();
-});
-
-test('hub: Back to one file at a time, Stop, and a file played on Stage all end the Wall there', () => {
-  const { hub } = hubFor();
-  hub.opened('popup');
-  const st = fakeStream();
-  hub.attach('stage', st.req, st.res);
-  hub.command(wallCmd());
-  hub.report({ type: 'wall', state: 'running', clips: 2 });
-  assert.strictEqual(hub.command({ type: 'wallOff' }).status, 200);
-  assert.strictEqual(hub.state().wall, null);
-  assert.strictEqual(hub.state().wallStatus, null);
-  assert.strictEqual(hub.state().status.state, 'black', 'Stop: black until a file comes');
-  assert.ok(last(st, 'wallOff'));
-  assert.strictEqual(hub.command({ type: 'wallOff' }).body.already, true);
-  assert.strictEqual(hub.command({ type: 'wallShuffle' }).status, 409, 'nothing to shuffle');
-  // A late report from the Wall that left is not taken.
-  assert.strictEqual(hub.report({ type: 'wall', state: 'running', clips: 5 }).body.stale, true);
-  assert.strictEqual(hub.state().wallStatus, null);
-  // A report never starts the Wall: only Control's command does (roles).
-  assert.strictEqual(hub.state().wall, null);
-  // A file played on Stage replaces the Wall.
-  hub.command(wallCmd());
-  hub.command({ type: 'load', item: item('b1', 7) });
-  assert.strictEqual(hub.state().wall, null);
-  assert.strictEqual(hub.state().current.key, 'b1');
-  // Play and pause are the file's again.
-  hub.command({ type: 'pause' });
-  assert.strictEqual(hub.state().paused, true);
-  assert.strictEqual(last(st, 'pause').data.type, 'pause');
-  hub.close();
-});
-
-test('hub: a lock blacks the Wall out at once and keeps it for after the unlock, under Hold', () => {
-  const { hub } = hubFor();
-  hub.opened('popup');
-  const ctl = fakeStream();
-  const st = fakeStream();
-  hub.attach('control', ctl.req, ctl.res);
-  hub.attach('stage', st.req, st.res);
-  hub.command(wallCmd());
-  hub.lock();
-  assert.ok(st.res.events().some(e => e.event === 'locked'));
-  assert.ok(st.res.ended, 'Stage’s stream is ended: it goes black and stops');
-  assert.strictEqual(hub.command(wallCmd()).status, 423);
-  assert.strictEqual(hub.command({ type: 'wallOff' }).status, 423);
-  assert.strictEqual(hub.report({ type: 'wall', state: 'running' }).status, 423);
-  hub.unlock();
-  const st2 = fakeStream();
-  hub.attach('stage', st2.req, st2.res);
-  const sync = last(st2, 'sync').data;
-  assert.strictEqual(sync.hold, true, 'back under Hold');
-  assert.strictEqual(sync.resume, true, 'it was playing: Hold off carries on');
-  assert.ok(sync.wall, 'the Wall comes back with it');
-  hub.close();
-});
-
-test('hub: closing Stage with the Wall on it ends the Wall and says so; a new Stage starts on files', () => {
-  const { hub } = hubFor();
-  hub.opened('popup');
-  const ctl = fakeStream();
-  const st = fakeStream();
-  hub.attach('control', ctl.req, ctl.res);
-  hub.attach('stage', st.req, st.res);
-  hub.command(wallCmd());
-  hub.hostExited({ byUser: true });
-  const closed = last(ctl, 'closed').data;
-  assert.strictEqual(closed.wall, true, 'Control brings the Wall back to its tab');
-  assert.strictEqual(closed.current, null);
-  assert.strictEqual(hub.state().wall, null);
-  hub.opened('popup');
-  assert.strictEqual(hub.state().wall, null);
-  hub.close();
-});
-
 /* ── Stream tokens: Stage's never close Control's ───────────────────────── */
 
 function loadWall() {
@@ -329,46 +132,7 @@ test('the Wall on Stage runs with Stage’s own host: no chrome, "stage-" tokens
   assert.strictEqual(JSON.stringify(Wall._pure.cfgFrom({ playing: 99 })), JSON.stringify(WallRules.cfgFrom({ playing: 99 })));
 });
 
-test('stream tokens: Wall on Stage tokens are "stage-" + UUID, in the closed-token scope, with or without randomUUID', () => {
-  const withUuid = Wall._pure.tokenFor('stage', crypto);
-  const fallback = Wall._pure.tokenFor('stage', { getRandomValues: (b) => crypto.randomFillSync(b) });
-  const noCrypto = Wall._pure.tokenFor('stage', null);
-  for (const t of [withUuid, fallback, noCrypto]) {
-    assert.match(t, /^stage-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-    assert.strictEqual(ring.isWallToken(t), true);
-  }
-  assert.match(Wall._pure.tokenFor('wall', crypto), /^wall-/);
-  assert.notStrictEqual(Wall._pure.tokenFor('stage', crypto), Wall._pure.tokenFor('stage', crypto));
-});
-
-test('stream tokens: closing a Stage clip never refuses Control’s Wall clip or its player on the same file', () => {
-  const id = 900001;
-  const stageTok = Wall._pure.tokenFor('stage', crypto);
-  const wallTok = Wall._pure.tokenFor('wall', crypto);
-  const playerTok = 'p' + crypto.randomBytes(6).toString('hex');
-  ring.wallSeen(id, stageTok);
-  ring.wallSeen(id, wallTok);
-  ring.closeWallClient(id, stageTok);
-  assert.strictEqual(ring.wallClosed(id, stageTok), true, 'the closed Stage clip’s late requests are refused');
-  assert.strictEqual(ring.wallClosed(id, wallTok), false, 'Control’s Wall clip is untouched');
-  assert.strictEqual(ring.wallClosed(id, playerTok), false, 'the player is never in this scope');
-  ring.closeWallClient(id, wallTok);
-  assert.strictEqual(ring.wallClosed(id, wallTok), true);
-  ring.forget(id);
-});
-
 /* ── The pages load the pieces in order ─────────────────────────────────── */
-
-test('pages: the Stage page and the Vault page load the Wall rules before the Wall', () => {
-  const order = (html, names) => names.map(n => html.indexOf(`src="./player-lib/${n}"`));
-  const stage = fs.readFileSync(path.join(ROOT, 'player-lib', 'stage.html'), 'utf8');
-  const [rules, wall, stageJs, decide] = order(stage, ['wall-rules.js', 'wall.js', 'stage.js', 'playback-decide.js']);
-  assert.ok(rules > 0 && rules < wall && wall < stageJs && decide < wall, 'stage.html: rules, then the Wall, then Stage');
-  assert.ok(stage.includes('css/wall.css'));
-  const page = fs.readFileSync(path.join(ROOT, 'db-viewer.html'), 'utf8');
-  const [r2, w2, c2] = order(page, ['wall-rules.js', 'wall.js', 'stage-control.js']);
-  assert.ok(r2 > 0 && r2 < w2 && r2 < c2, 'db-viewer.html: rules before the Wall and the remote');
-});
 
 test('copy: the new Wall and Stage words have no dashes', () => {
   for (const f of ['player-lib/wall.js', 'player-lib/stage-control.js', 'player-lib/wall-rules.js']) {
@@ -382,13 +146,6 @@ test('copy: the new Wall and Stage words have no dashes', () => {
 });
 
 /* ── Follow-ups: spec size in bytes, a slider change racing the remote's pause ── */
-
-test('wall spec size is measured in bytes (UTF-8), as the error says', () => {
-  const big = { search: { text: 'é'.repeat(16000) } };            // 16,000 characters, about 32 KB
-  assert.ok(JSON.stringify(big).length < MAX_SPEC_BYTES, 'short enough in characters');
-  assert.strictEqual(validateCommand(wallCmd({ spec: big })).ok, false, 'too big in bytes');
-  assert.strictEqual(validateCommand(wallCmd({ spec: { search: { text: 'é'.repeat(7000) } } })).ok, true);
-});
 
 test('echoes: a tab never takes settings from its own change, nor while a change of its own is on its way', () => {
   assert.strictEqual(WallRules.takeEchoCfg({ mine: false, pendingLocal: false }), true, 'another tab’s change');

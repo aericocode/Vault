@@ -1,20 +1,21 @@
 /* =========================================================================
    STAGE CONTROL - the Vault window's side of Stage (PLAYLISTS_SPEC 5).
 
-   Stage is the window shared in Discord (player-lib/stage.html). Everything
-   is run from here: while Stage is open the mini player is its remote, with a
-   dimmed still of the file on Stage, and every way of playing a file (a tile,
-   Next, Up next, Play all, the Wall) plays it on Stage instead (playMedia
-   asks intercept() first, player-core.js).
+   Stage is the window shared in Discord: the user's own mpv, started and
+   driven by the server (lib/stage/engine.js, PLAYLISTS_SPEC "Stage host,
+   final"). Everything is run from here: while Stage is open the mini player
+   is its remote, with a dimmed still of the file on Stage, and every way of
+   playing a file (a tile, Next, Up next, Play all, the Wall) plays it on
+   Stage instead (playMedia asks intercept() first, player-core.js).
 
    The link goes through the server (lib/stage/hub.js): commands out
    (/api/stage/cmd), Stage's reports in over an event stream. Stage moves on
    by itself when a file ends, because this tab is often in the background
    (the streamer is in Discord) where the browser slows its timers: every
    file sent goes with the upcoming files (Up next first, then the list,
-   player-lib/stage-rules.js upcoming()), and when Stage reports that one of
-   them started, the queue here catches up (Up next, the list's anchor) and
-   sends the next ones.
+   player-lib/stage-rules.js upcoming()), the server lines the next one up
+   in mpv, and when Stage reports that one of them started, the queue here
+   catches up (Up next, the list's anchor) and sends the next ones.
 
    Closing Stage (the remote, its menu, the window's own close) hands the
    file back to the mini player at the same spot, with sound. Stage vanishing
@@ -42,12 +43,9 @@ const StageControl = (() => {
 
   let open = false;                   // Stage is open (the remote is on)
   let remoteShown = false;
-  let how = null;                     // how Stage opens on this machine (server says): 'webview2' | 'popup'
-  let howReason = null;
+  let mpv = null;                     // is mpv there (server says): { found, path, version, ... }
   let settings = { showName: true, nameSeconds: 3, windowName: 'Vault Stage', imageSeconds: 8, cursorSeconds: 1, openSize: 'free', muteVault: true, tips: true };
   let es = null;
-  let popup = null;
-  let popupBounds = null;             // where the pop-up was last (it reports it)
 
   // What is on Stage
   let cur = null;                     // { key, row, item }
@@ -131,10 +129,8 @@ const StageControl = (() => {
   async function refreshState() {
     try {
       const s = await api('/api/stage/state');
-      how = s.how || 'popup';
-      howReason = s.howReason || null;
+      mpv = s.mpv || null;
       if (s.settings) settings = { ...settings, ...s.settings };
-      popupBounds = s.popupBounds || null;
       locked = s.locked === true;   // the state route only answers unlocked
       return s;
     } catch { return null; }
@@ -179,51 +175,46 @@ const StageControl = (() => {
 
   /* ── Opening Stage ────────────────────────────────────────────────── */
 
-  function openPopup() {
-    const w = popupBounds;
-    const size = { '720p': [1280, 720], '1080p': [1920, 1080], '1440p': [2560, 1440] }[settings.openSize] || [960, 540];
-    const feat = w ? `popup,left=${w.x},top=${w.y},width=${w.w},height=${w.h}` : `popup,width=${size[0]},height=${size[1]}`;
-    try { return window.open('/stage', 'vault-stage', feat); } catch { return null; }
-  }
-
-  function blocked(retry) {
-    const msg = 'Your browser blocked the Stage window. Allow pop-ups for 127.0.0.1 in the address bar, then press Open Stage again.';
+  /** mpv is not on this computer (or not where Vault looks): say how to get it. */
+  function noMpv() {
+    const msg = 'Stage plays in mpv, a free video player, and Vault could not find it. Install mpv (from mpv.io), then press Open Stage again. If it is installed somewhere else, choose mpv.exe in Settings › Stage.';
     if (typeof vaultChoose === 'function') {
-      vaultChoose(msg, { title: 'Stage could not open', buttons: [{ label: 'Try again', value: 'retry', primary: true }, { label: 'Close', value: null }], cancelValue: null })
-        .then((v) => { if (v === 'retry') retry(); });
+      vaultChoose(msg, { title: 'Stage needs mpv', buttons: [{ label: 'Open Settings › Stage', value: 'settings', primary: true }, { label: 'Close', value: null }], cancelValue: null })
+        .then((v) => { if (v === 'settings' && typeof window.vaultOpenSettings === 'function') window.vaultOpenSettings('stage'); });
     } else showToast(msg, { type: 'error' });
   }
 
+  let opening = null;                 // the open in progress (a promise)
+
   /**
    * Open Stage (or bring it to the front). then(): what to play once it is
-   * open; without it, the file playing here moves there.
-   * Called from a click: a pop-up has to be opened before anything is awaited.
+   * open; without it, the file playing here moves there. A second call while
+   * Stage is opening waits for that open, then does its own part (its then).
    */
   async function openStage({ then = null } = {}) {
     if (open) { front(); if (then) then(); return; }
-    if (!how) await refreshState();
-    let win = null;
-    if (how === 'popup') {
-      win = openPopup();
-      if (!win) { blocked(() => openStage({ then })); return; }
-    }
-    // What plays here now, taken before anything is torn down.
-    const local = then ? null : localPlayback();
-    let r;
-    try {
-      r = await api('/api/stage/open', {});
-    } catch (err) {
-      if (win) { try { win.close(); } catch {} }
-      if (err.status !== 423) showErrorToast ? showErrorToast(err, 'opening Stage') : showToast('Stage could not open.', { type: 'error' });
+    if (opening) {
+      await opening;
+      if (open && then) then();
       return;
     }
-    if (r.mode === 'webview2' && win) { try { win.close(); } catch {} win = null; }
-    if (r.mode === 'popup' && !win) {
-      // The Stage window could not start here: a pop-up instead.
-      win = openPopup();
-      if (!win) { blocked(() => openStage({ then })); return; }
+    opening = doOpen({ then });
+    try { await opening; } finally { opening = null; }
+  }
+
+  async function doOpen({ then }) {
+    // What plays here now, taken before anything is torn down.
+    const local = then ? null : localPlayback();
+    try {
+      await api('/api/stage/open', {});
+    } catch (err) {
+      if (err.code === 'MPV_MISSING') noMpv();
+      else if (err.status !== 423) {
+        if (typeof showErrorToast === 'function') showErrorToast(err, 'opening Stage');
+        else showToast('Stage could not open.', { type: 'error' });
+      }
+      return;
     }
-    popup = win;
     open = true;
     connect();
     if (local) {
@@ -423,6 +414,21 @@ const StageControl = (() => {
     paint();
   }
 
+  /**
+   * Stage reports a file this page never sent (another tab sent it, or a
+   * start this page missed): take what is on Stage from the server, so the
+   * remote never stays on the file before.
+   */
+  let catchUpAt = 0;
+  async function catchUp(key) {
+    if (Date.now() - catchUpAt < 2000) return;
+    catchUpAt = Date.now();
+    let s = null;
+    try { s = await api('/api/stage/state'); } catch { return; }
+    if (!open || !s || !s.current || s.current.key !== key || (cur && cur.key === key)) return;
+    adoptCurrent(s.current, s);
+  }
+
   async function adoptCurrent(item, s) {
     let row = null;
     try { [row] = await Library.fetchRows([item.id]); } catch {}
@@ -444,6 +450,7 @@ const StageControl = (() => {
     if (r.key !== cur.key) {
       // Still the file before: the new one is getting ready.
       if (r.state !== 'loading' && Date.now() - loadingSince > LOADING_NOTE_MS) paintMeta();
+      if (r.key && !sent.has(r.key)) catchUp(r.key);
       return;
     }
     const wasPaused = proxy.paused;
@@ -673,7 +680,7 @@ const StageControl = (() => {
     paintVolume();
   }
 
-  function front() { cmd({ type: 'front' }); if (popup && !popup.closed) { try { popup.focus(); } catch {} } }
+  function front() { cmd({ type: 'front' }); }
 
   function setSize(preset) { cmd({ type: 'size', preset }); }
 
@@ -682,6 +689,8 @@ const StageControl = (() => {
     if (!open) return;
     const r = await cmd({ type: 'close' });
     const last = r && r.last ? r.last : { t, paused: proxy.paused };
+    // After the end of the list there is no file to carry on with here.
+    if (finished) cur = null;
     handBack({ t: last.t != null ? last.t : t, paused: hold || finished || !!last.paused, how: 'closed' });
   }
 
@@ -689,6 +698,8 @@ const StageControl = (() => {
   function stageGone({ how: kind, last }) {
     if (!open && !remoteShown) return;
     const at = last && last.t != null ? last.t : t;
+    // After the end of the list there is no file to carry on with here.
+    if (finished) cur = null;
     if (kind === 'closed') handBack({ t: at, paused: !!(last && last.paused), how: 'closed' });
     else handBack({ t: at, paused: true, how: 'gone' });
   }
@@ -706,7 +717,6 @@ const StageControl = (() => {
     closeMenu();
     leaveRemote();
     disconnect();
-    popup = null;
     cur = null;
     applyMute();
     const words = kind === 'gone' ? 'Stage was closed' : 'Stage closed';
@@ -1035,7 +1045,7 @@ const StageControl = (() => {
       <ol class="st-list">
         <li>In Discord, start a screen share and pick the window named <b>${name}</b>.</li>
         <li>Turn on sound in Discord's share options.</li>
-        <li>Stage runs as its own window, so Discord picks up Stage's sound, not your other browser tabs.</li>
+        <li>Stage plays in mpv, its own window, so Discord picks up Stage's sound, not your browser's.</li>
         <li>Run everything from here. ${settings.muteVault !== false ? 'Vault’s own sound is muted while Stage is open.' : 'Vault’s own sound stays on (Settings › Stage).'}</li>
       </ol>
       <div class="st-acts"><button type="button" class="st-btn" data-tips="never">Don't show again</button><button type="button" class="st-btn st-pri" data-tips="ok">Got it</button></div>`;
@@ -1103,6 +1113,6 @@ const StageControl = (() => {
     toggleHold, setVolume, toggleMute, paintVolume, key, hideRemote,
     upNextChanged, repeatChanged, showTips,
     showWall, updateWall, wallShuffle, wallOff, wallState,
-    _state: () => ({ open, remoteShown, how, cur: cur && { key: cur.key, id: cur.row && cur.row.id }, t, d, paused, hold, finished, volume, muted, note: note && note.text, wall: wall && { ...wall }, wallStatus }),
+    _state: () => ({ open, remoteShown, mpv, cur: cur && { key: cur.key, id: cur.row && cur.row.id }, t, d, paused, hold, finished, volume, muted, note: note && note.text, wall: wall && { ...wall }, wallStatus }),
   };
 })();
