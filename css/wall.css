@@ -318,89 +318,11 @@ body.wall-active { overflow: hidden; }
   pointer-events: none;
 }
 
-/* ── The Wall on Stage: what the board's place shows in this tab ────── */
-
-.wall-onstage {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1.5rem;
-  background: var(--bg-primary, #0d0d0d);
-  color: var(--text-secondary);
-}
-.wall-onstage-card {
-  width: 100%;
-  max-width: 34rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 1rem 1.15rem;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-.wall-onstage-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 10px 0 8px;
-  border-radius: 99px;
-  border: 1px solid rgba(239, 68, 68, 0.55);
-  background: rgba(239, 68, 68, 0.18);
-  color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 600;
-}
-.wall-onstage-pill > i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #ef4444;
-  animation: wall-onstage-live 1.6s ease-in-out infinite;
-}
-@keyframes wall-onstage-live { 50% { opacity: 0.35; } }
-.wall-onstage-line { margin: 0; color: var(--text-primary); font-size: 0.95rem; }
-.wall-onstage-hint { margin: 0; color: var(--text-muted); font-size: 0.82rem; line-height: 1.45; }
-/* A still of a few files Stage shows now (thumbnails, no second Wall here) */
-.wall-onstage-peek {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 4px;
-}
-.wall-onstage-peek:empty { display: none; }
-.wall-onstage-peek img {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  border-radius: 4px;
-  background: #000;
-}
-.wall-onstage-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; }
-.wall-btn.wall-btn-pri { background: var(--accent); border-color: var(--accent); color: #fff; }
-.wall-btn.wall-btn-pri:hover { filter: brightness(1.1); }
-
-body.layout-modern .wall-onstage-card {
-  background: var(--m-surface-solid);
-  border-color: var(--m-border);
-  border-radius: var(--m-radius);
-  box-shadow: var(--m-shadow);
-}
-body.layout-modern .wall-onstage-line { color: var(--m-text); }
-body.layout-modern .wall-onstage-hint { color: var(--m-text-2); }
-
 @media (prefers-reduced-motion: reduce) {
   .wall-layer, .wall-board, .wall-bar { transition-duration: 0.01s; }
-  .wall-onstage-pill > i { animation: none; }
 }
 
 /* Classes above set display, so [hidden] has to be said again. */
-.wall-onstage[hidden],
-.wall-board[hidden],
-.wall-btn[hidden],
 .wall-msg[hidden],
 .wall-paused[hidden],
 .wall-soundnote[hidden],

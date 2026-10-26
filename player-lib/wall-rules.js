@@ -1,19 +1,12 @@
 /* =========================================================================
-   WALL RULES - the pure parts of the Wall's settings and of the Wall on
-   Stage, shared by the Wall (player-lib/wall.js, in the Vault page and in
-   the Stage page), the remote (player-lib/stage-control.js), the Stage hub
-   (lib/stage/hub.js checks what Control sends with cfgFrom) and the tests.
-   No DOM, no network.
+   WALL RULES - the pure parts of the Wall's settings, shared by the Wall
+   (player-lib/wall.js) and the tests. No DOM, no network.
 
    - cfgFrom(raw)              the Wall's settings from a stored blob, every
                                value clamped (an old blob migrated)
-   - cfgChanges(prev, next)    what a settings change has to redo on a board
-                               that is up (the Wall on Stage takes changes
-                               from Control this way)
    - visibilityAction(o)       whether the Wall stops when its page is hidden,
                                and whether a clip the browser paused by itself
                                is played again
-   - wallLine(o)               the remote's line while the Wall is on Stage
    ========================================================================= */
 
 const WallRules = (() => {
@@ -34,7 +27,6 @@ const WallRules = (() => {
   const MIXES = ['both', 'videos', 'pictures'];
   const ORDERS = ['shuffle', 'order'];
   const SOUNDS = ['off', 'hover', 'auto'];
-  const SOUND_WORDS = { off: 'Off', hover: 'On hover', auto: 'Auto' };
 
   /** A stored number (or numeric string); anything else (true, [], '') is NaN. */
   function toNum(v) {
@@ -83,48 +75,20 @@ const WallRules = (() => {
     out.sound = SOUNDS.includes(raw.sound) ? raw.sound : (raw.soundOnHover === true ? 'hover' : 'off');
     out.pauseOnHover = raw.pauseOnHover !== false;
     out.directOnly = raw.directOnly === true;
-    // Off by default: a hidden tab gives its clips up, as it always has.
-    out.keepPlaying = raw.keepPlaying === true;
+    // On by default: the Wall keeps playing with another tab selected or its
+    // window covered (PLAYLISTS_SPEC "Stage host, final"). Turned off, a
+    // hidden tab pauses it to save power. Stored as keepPlaying2: test builds
+    // saved the earlier keepPlaying (off by default) on every save, so only a
+    // choice made since it turned on by default counts.
+    out.keepPlaying2 = raw.keepPlaying2 !== false;
     return out;
-  }
-
-  /**
-   * What changing the settings from `prev` to `next` has to redo on a board
-   * that is up. Each flag names one piece of work:
-   *   pool    the files change (source, what to show, order, converting):
-   *           build the wall again
-   *   plan    the shape of the board changes (block size, gap, mode): plan it
-   *           again behind a short fade
-   *   stills  pictures change at a new speed: retime them
-   *   clips   clips play for a new length (or to the end): retime them
-   *   playing how many play at once: stop some or start more
-   *   sound   the sound choice: who is heard
-   *   hover   Pause on hover: a hovered block takes the new rule
-   *   visible keep playing when hidden: decide again whether to run
-   * Scroll speed is read on every frame, so it needs nothing.
-   */
-  function cfgChanges(prev, next) {
-    const p = prev || {};
-    const n = next || {};
-    const diff = (...keys) => keys.some(k => p[k] !== n[k]);
-    return {
-      pool: diff('source', 'mix', 'order', 'directOnly'),
-      plan: diff('colWidth', 'gap', 'mode'),
-      stills: diff('picSpeed'),
-      clips: diff('clipLen', 'clipsToEnd', 'mode'),
-      playing: diff('playing'),
-      sound: diff('sound'),
-      hover: diff('pauseOnHover'),
-      visible: diff('keepPlaying'),
-    };
   }
 
   /**
    * Whether the Wall stops because its page is hidden (pure).
    *
    * o: {
-   *   onStage      the Wall on Stage (always keeps playing)
-   *   keepPlaying  the Wall setting "Keep playing when this tab is hidden"
+   *   keepPlaying  the Wall setting "Keep playing when this tab is hidden" (cfg.keepPlaying2)
    *   visibility   'visible' | 'hidden' (document.visibilityState)
    *   reason       'page': the page was shown or hidden (Vault's own rule)
    *                'clip': a playing clip paused without the Wall asking
@@ -135,50 +99,20 @@ const WallRules = (() => {
    * again) or 'ignore' (leave that clip alone).
    *
    * A clip the browser paused is played again only where the Wall keeps
-   * playing and nobody can have paused it on purpose: a hidden page, or
-   * Stage (nobody touches the clips there). In a page that is showing, a
-   * pause the Wall did not ask for is the user's (a media key), and stays.
+   * playing and nobody can have paused it on purpose: a hidden page. In a
+   * page that is showing, a pause the Wall did not ask for is the user's (a
+   * media key), and stays.
    */
-  function visibilityAction({ onStage = false, keepPlaying = false, visibility = 'visible', reason = 'page' } = {}) {
-    const keep = onStage === true || keepPlaying === true;
+  function visibilityAction({ keepPlaying = true, visibility = 'visible', reason = 'page' } = {}) {
+    const keep = keepPlaying !== false;
     const hidden = visibility === 'hidden';
-    if (reason === 'clip') return keep && (hidden || onStage === true) ? 'replay' : 'ignore';
+    if (reason === 'clip') return keep && hidden ? 'replay' : 'ignore';
     return hidden && !keep ? 'pause' : 'run';
   }
 
-  /**
-   * Whether a tab takes the Wall's settings from an echo of the Wall on
-   * Stage (another tab's change, or the hub's answer to a play or pause):
-   * never its own change coming back, and never while a change of its own
-   * is still on its way (a slider just moved), which would undo that change.
-   */
-  function takeEchoCfg({ mine = false, pendingLocal = false } = {}) {
-    return !mine && !pendingLocal;
-  }
-
-  /**
-   * The remote's line while the Wall is on Stage, as the mockup has it:
-   * "Friday stream · 9 clips · sound Auto".
-   * o: { label, state: 'loading'|'running'|'empty'|'error', clips, mix, sound, paused }
-   */
-  function wallLine({ label = '', state = 'running', clips = 0, mix = 'both', sound = 'off', paused = false } = {}) {
-    const parts = [String(label || '').trim() || 'The Wall'];
-    if (state === 'loading') parts.push('getting ready');
-    else if (state === 'empty') parts.push('nothing to show');
-    else if (state === 'error') parts.push('could not load');
-    else if (mix === 'pictures') parts.push('pictures');
-    else {
-      const n = Math.max(0, Math.floor(Number(clips) || 0));
-      parts.push(`${n} clip${n === 1 ? '' : 's'}`);
-    }
-    parts.push(`sound ${SOUND_WORDS[sound] || 'Off'}`);
-    if (paused) parts.push('paused');
-    return parts.join(' · ');
-  }
-
   return {
-    CFG_VERSION, RANGES, PIC_STEPS, CLIP_STEPS, MODES, MIXES, ORDERS, SOUNDS, SOUND_WORDS,
-    toNum, clampNum, cfgFrom, cfgChanges, visibilityAction, takeEchoCfg, wallLine,
+    CFG_VERSION, RANGES, PIC_STEPS, CLIP_STEPS, MODES, MIXES, ORDERS, SOUNDS,
+    toNum, clampNum, cfgFrom, visibilityAction,
   };
 })();
 
