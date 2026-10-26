@@ -169,7 +169,7 @@ const Flow = (() => {
   }
 
   /** What changes when a measurement lands (a stale row measured again changes only stale). */
-  const countKey = (c) => `${c.measured}:${c.failed}:${c.stale || 0}`;
+  const countKey = (c) => `${c.measured}:${c.failed}:${c.stale || 0}:${c.kept || 0}`;
 
   function schedulePoll() {
     clearTimeout(st.pollTimer);
@@ -316,8 +316,11 @@ const Flow = (() => {
     }
     if (c.failed > 0) {
       parts.push(`<span class="flow-sub flow-failed">${plural(c.failed, 'file', 'files')} couldn’t be measured</span>`);
-      if (!(q && q.state !== 'idle')) parts.push('<button type="button" class="flow-btn flow-btn-sm" data-flow-q="retry">Try again</button>');
     }
+    if (c.kept > 0) {
+      parts.push(`<span class="flow-sub">${plural(c.kept, 'file', 'files')} kept ${c.kept === 1 ? 'its' : 'their'} older measurements (couldn’t measure again)</span>`);
+    }
+    if ((c.failed > 0 || c.kept > 0) && !(q && q.state !== 'idle')) parts.push('<button type="button" class="flow-btn flow-btn-sm" data-flow-q="retry">Try again</button>');
     return parts.join('');
   }
 

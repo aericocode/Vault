@@ -89,7 +89,7 @@ test('GET /api/flow/collections/:id: Build up orders by energy, talk placed by s
   assert.deepStrictEqual(j.playlistOrder, ids);
   assert.strictEqual(j.targets.length, 6);
   assert.strictEqual(j.handovers.length, 5);
-  assert.deepStrictEqual(j.counts, { total: 6, measurable: 5, measured: 5, music: 4, noMusic: 1, failed: 0, left: 0, stale: 0, max: 5000, tooMany: false });
+  assert.deepStrictEqual(j.counts, { total: 6, measurable: 5, measured: 5, music: 4, noMusic: 1, failed: 0, left: 0, stale: 0, kept: 0, max: 5000, tooMany: false });
   const pic = j.features.find(f => f.id === ids[5]);
   assert.strictEqual(pic.kind, 'other');
 });
@@ -180,7 +180,10 @@ test('a row from the previous method (no envelope) is used meanwhile, counted st
   await new Promise(res => setTimeout(res, 1100));
   const s = await (await get(`/api/flow/status?collection=${coll}`)).json();
   assert.strictEqual(s.collection.failed, 0);
-  assert.strictEqual(s.collection.stale, 1);
+  // Kept its older numbers: counted as kept, not as stale still to do (no "adding detail" for it).
+  assert.strictEqual(s.collection.stale, 0);
+  assert.strictEqual(s.collection.kept, 1);
+  assert.strictEqual(s.collection.measured, 5);
   // Not asked again on the next open (no loop) ...
   assert.strictEqual((await (await post(`/api/flow/collections/${coll}/measure`)).json()).added, 0);
   // ... but Try again asks once more, and a second failure still keeps the numbers.
