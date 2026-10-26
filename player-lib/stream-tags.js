@@ -279,6 +279,8 @@ const StreamTags = (() => {
   }
   function onOutside(e) {
     if ((menuEl && menuEl.contains(e.target)) || (subEl && subEl.contains(e.target))) return;
+    // The button that opened it: its own click closes it (a toggle), not this.
+    if (menuEl && menuEl._opener && menuEl._opener.contains && menuEl._opener.contains(e.target)) return;
     closeMenu();
   }
 
@@ -311,35 +313,54 @@ const StreamTags = (() => {
     }).join('');
   }
 
-  function buildMenu(items, cls = '') {
+  /**
+   * refresh: makes the items again (the ticks after a change). Items with
+   * keep (the tags) leave the menu open: it is drawn again in place, the
+   * focus on the same item, so several tags go on in a row. Esc, a click
+   * outside or the button that opened it close it.
+   */
+  function buildMenu(items, cls = '', refresh = null) {
     const el = document.createElement('div');
     el.className = `stag-menu ${cls}`;
     el.setAttribute('role', 'menu');
     el.innerHTML = itemsHtml(items);
     el._items = items;
-    el.addEventListener('click', (e) => {
+    el._refresh = refresh;
+    el.addEventListener('click', async (e) => {
       const b = e.target.closest('[data-i]');
       if (!b || b.disabled) return;
-      const it = items[Number(b.dataset.i)];
-      if (it.sub) { openSub(b, it.sub); return; }
-      closeMenu();
-      if (it.run) it.run();
+      const i = Number(b.dataset.i);
+      const it = el._items[i];
+      if (it.sub) { openSub(b, it.sub, it.refresh); return; }
+      if (!it.keep) { closeMenu(); if (it.run) it.run(); return; }
+      if (el._busy) return;
+      el._busy = true;
+      try { if (it.run) await it.run(); } finally { el._busy = false; }
+      if (el.isConnected && el._refresh) redraw(el, i);
     });
     el.addEventListener('pointerover', (e) => {
       const b = e.target.closest('[data-i]');
       if (!b || el !== menuEl) return;
-      const it = items[Number(b.dataset.i)];
-      if (it.sub) openSub(b, it.sub);
+      const it = el._items[Number(b.dataset.i)];
+      if (it.sub) openSub(b, it.sub, it.refresh);
       else if (subEl) { subEl.remove(); subEl = null; }
     });
     el.addEventListener('keydown', (e) => menuKey(e, el));
     return el;
   }
 
-  function openSub(btn, items) {
+  /** The menu's items made again (ticks, dashes), drawn in place; the focus stays on item i. */
+  function redraw(el, i) {
+    const hadFocus = el.contains(document.activeElement);
+    el._items = el._refresh();
+    el.innerHTML = itemsHtml(el._items);
+    if (hadFocus) el.querySelector(`[data-i="${i}"]`)?.focus({ preventScroll: true });
+  }
+
+  function openSub(btn, items, refresh = null) {
     if (subEl && subEl._for === btn) return subEl;
     if (subEl) subEl.remove();
-    subEl = buildMenu(items, 'stag-sub');
+    subEl = buildMenu(refresh ? refresh() : items, 'stag-sub', refresh);
     subEl._for = btn;
     document.body.appendChild(subEl);
     const r = btn.getBoundingClientRect();
@@ -368,7 +389,7 @@ const StreamTags = (() => {
       if (n) btns[(i + (e.key === 'ArrowDown' ? 1 : -1) + n) % n].focus();
     } else if (e.key === 'ArrowRight' && el === menuEl && i >= 0) {
       const it = el._items[Number(btns[i].dataset.i)];
-      if (it && it.sub) openSub(btns[i], it.sub)?.querySelector('.stag-mi:not([disabled])')?.focus();
+      if (it && it.sub) openSub(btns[i], it.sub, it.refresh)?.querySelector('.stag-mi:not([disabled])')?.focus();
     } else if (e.key === 'ArrowLeft' && el === subEl) {
       closeSub();
     } else if (e.key !== 'Tab') {
@@ -378,11 +399,11 @@ const StreamTags = (() => {
     if (handled) { e.preventDefault(); e.stopPropagation(); }
   }
 
-  function openMenu(items, at, opener = null) {
+  function openMenu(items, at, opener = null, refresh = null) {
     closeMenu();
     if (typeof hideTilePopover === 'function') hideTilePopover();
     if (typeof facesCloseMenu === 'function') facesCloseMenu();
-    menuEl = buildMenu(items);
+    menuEl = buildMenu(items, '', refresh);
     menuEl._opener = opener;
     document.body.appendChild(menuEl);
     place(menuEl, at);
@@ -402,6 +423,7 @@ const StreamTags = (() => {
         out.push({
           label: t.name, color: t.color, kbd: t.hotkey || '',
           check: n === 0 ? '' : n === ids.length ? 'on' : 'mixed',
+          keep: true,
           run: () => apply(t.id, ids, n === ids.length ? 'remove' : 'add'),
         });
       }
@@ -432,7 +454,7 @@ const StreamTags = (() => {
       // Usually known already (the tile shows its faces); never more than a moment's wait.
       try { faces = await Promise.race([facesTileMenuItems(id), new Promise(r => setTimeout(() => r(null), 400))]); } catch { faces = null; }
     }
-    const items = [{ label: ids.length > 1 ? `Stream tag (${ids.length.toLocaleString()} files)` : 'Stream tag', sub: laneItems(ids) }];
+    const items = [{ label: ids.length > 1 ? `Stream tag (${ids.length.toLocaleString()} files)` : 'Stream tag', sub: laneItems(ids), refresh: () => laneItems(ids) }];
     if (faces && faces.length) items.push({ sep: true }, ...faces);
     openMenu(items, at);
   }
@@ -440,7 +462,8 @@ const StreamTags = (() => {
   function selectionMenu(btn) {
     if (typeof selectedIds === 'undefined' || !selectedIds.size) return;
     if (menuEl && menuEl._opener === btn) { closeMenu(); return; }
-    openMenu(laneItems([...selectedIds]), { rect: btn.getBoundingClientRect(), up: true }, btn);
+    const ids = [...selectedIds];
+    openMenu(laneItems(ids), { rect: btn.getBoundingClientRect(), up: true }, btn, () => laneItems(ids));
   }
 
   function selectionButton() {
@@ -474,7 +497,8 @@ const StreamTags = (() => {
   function stageMenu(btn) {
     if (!st.stageId) return;
     if (menuEl && menuEl._opener === btn) { closeMenu(); return; }
-    openMenu(laneItems([st.stageId]), { rect: btn.getBoundingClientRect(), up: true }, btn);
+    const id = st.stageId;
+    openMenu(laneItems([id]), { rect: btn.getBoundingClientRect(), up: true }, btn, () => laneItems([id]));
   }
 
   /* ── Keys ───────────────────────────────────────────────────────── */
