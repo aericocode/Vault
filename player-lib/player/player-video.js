@@ -209,6 +209,7 @@ function classicVideoControlsHtml({ filepath, hasPrev, hasNext }) {
   const rightControls = `
     ${typeof renderFacesFrameButton === 'function' ? renderFacesFrameButton(filepath) : ''}
     ${renderFillButton()}
+    ${typeof StageControl !== 'undefined' ? '<button onclick="StageControl.openFromPlayer()" class="control-btn stage-btn" title="Play on Stage, the window you share in Discord. This player shrinks to its remote">📺</button>' : ''}
     <button onclick="toggleFullscreen()" class="control-btn" title="Fullscreen (F)">⛶</button>
   `;
 

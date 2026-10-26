@@ -584,6 +584,8 @@
     { id: 'faces',     label: '👤 Face search' },
     // Read-only list from player-lib/shortcuts.js (the same table the ? window shows).
     { id: 'shortcuts', label: '⌨️ Keyboard shortcuts' },
+    // The window shared in Discord (player-lib/stage-settings-ui.js).
+    { id: 'stage',     label: '🎬 Stage' },
     { id: 'guides',    label: '📖 Guides' },
     { id: 'models',    label: '🧠 Models' },
     { id: 'seedpacks', label: '📦 Seed packs' },
@@ -738,6 +740,7 @@
     // The Face search section wires and polls itself (player-lib/faces.js).
     if (id === 'faces' && typeof facesWireSettings === 'function') facesWireSettings();
     if (id === 'shortcuts' && typeof shortcutsWireSettings === 'function') shortcutsWireSettings();
+    if (id === 'stage' && typeof stageSettingsWire === 'function') stageSettingsWire(body);
     if (id === 'seedpacks') wireSeedpacksSection();
     if (id === 'about') loadAbout();
     // The Move to Cove tab polls too, and only while it is on screen.
@@ -4335,6 +4338,7 @@
     library:   RENDERERS_library,
     faces:     () => (typeof facesSettingsHtml === 'function' ? facesSettingsHtml() : ''),
     shortcuts: () => (typeof shortcutsSettingsHtml === 'function' ? shortcutsSettingsHtml() : ''),
+    stage:     () => (typeof stageSettingsHtml === 'function' ? stageSettingsHtml() : ''),
     guides:    RENDERERS_guides,
     models:    () => (window.vaultScanSettingsHtml ? window.vaultScanSettingsHtml() : '') + RENDERERS_models(),
     seedpacks: RENDERERS_seedpacks,

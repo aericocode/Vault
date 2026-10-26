@@ -520,6 +520,7 @@ function renderCollectionHeader() {
     </div>
     <div class="coll-head-actions">
       <button class="coll-action" onclick="playCollection(${c.id}, false)">Play all</button>
+      <button class="coll-action coll-stage" onclick="StageControl.playCollectionOnStage(${c.id})" title="Open Stage, the window you share in Discord, and play this there">${collGlyph('📺 ', 'stage')}Play on Stage</button>
       <button class="coll-action" onclick="playCollection(${c.id}, true)">Shuffle</button>
       <button class="coll-action" id="collExportBtn" onclick="openCollectionExport(${c.id})" title="Save this list as a playlist file for other players">Export…</button>
       <button class="coll-action coll-delete" id="collDeleteBtn" onclick="deleteCollectionTwoStep(${c.id}, this)">Delete</button>

@@ -13,6 +13,9 @@
  *   runtime/node_modules/    the native SQLite addons (can't live in the blob)
  *                            and onnxruntime-node (face search), trimmed to
  *                            this platform's CPU runtime (see ONNX_FILES)
+ *   runtime/webview2/        the three WebView2 SDK files the Stage window
+ *                            loads (lib/stage/sdk.js), hash-checked, with
+ *                            their licence. Never in the folder root.
  *   diarize_service.py, opus_translate.py     python sidecars (spawned by
  *                            path.join(__dirname,…) which inside a SEA exe
  *                            resolves to the exe's own directory)
@@ -59,6 +62,15 @@ const CLIENT_ASSETS = ['db-viewer.html', 'css', 'player-lib', 'images'];
 
 // Python sidecars spawned from disk (see lib/subtitles/{diarizer,translator}.js).
 const PY_SIDECARS = ['lib/subtitles/diarize_service.py', 'lib/subtitles/opus_translate.py'];
+
+// The Stage window's WebView2 SDK files (Windows builds). They are not in
+// git: copy the three Microsoft-signed files into <repo>/runtime/webview2/
+// (or point VAULT_WEBVIEW2_SDK at a folder with them) before building. The
+// build checks them against the pins in lib/stage/sdk.js and stops if any is
+// missing or different.
+const STAGE_SDK = require(path.join(REPO, 'lib', 'stage', 'sdk.js'));
+const STAGE_SDK_SRC = process.env.VAULT_WEBVIEW2_SDK ? path.resolve(process.env.VAULT_WEBVIEW2_SDK) : path.join(REPO, 'runtime', 'webview2');
+const STAGE_SDK_DST = path.join(OUT, 'runtime', 'webview2');
 
 // Docs shipped loose in the folder so a zip user can read them without GitHub.
 const DOCS = ['SETUP.md', 'LICENSE'];
@@ -237,6 +249,28 @@ try {
   console.log('copied (trimmed): ' + Object.keys(ONNX_FILES).join(', ') + ' = ' + (bytes / 1048576).toFixed(1) + ' MB');
 } catch (e) { die('runtime sidecar', e); }
 
+/* 6b ── the Stage window's WebView2 SDK files (runtime/webview2, never the root) */
+if (process.platform === 'win32') {
+  step('runtime/webview2 (Stage window, WebView2 SDK ' + STAGE_SDK.SDK_VERSION + ')');
+  try {
+    const check = STAGE_SDK.verify(STAGE_SDK_SRC);
+    if (!check.ok) {
+      die('WebView2 SDK files in ' + STAGE_SDK_SRC + (check.missing.length ? ' missing: ' + check.missing.join(', ') : '')
+        + (check.mismatched.length ? ' not the pinned build: ' + check.mismatched.join(', ') : '')
+        + '. Copy Microsoft.Web.WebView2.Core.dll, Microsoft.Web.WebView2.WinForms.dll and the x64 WebView2Loader.dll (SDK '
+        + STAGE_SDK.SDK_VERSION + ') there, or set VAULT_WEBVIEW2_SDK');
+    }
+    fs.mkdirSync(STAGE_SDK_DST, { recursive: true });
+    for (const name of Object.keys(STAGE_SDK.SDK_FILES)) {
+      fs.copyFileSync(path.join(STAGE_SDK_SRC, name), path.join(STAGE_SDK_DST, name));
+    }
+    if (!STAGE_SDK.verify(STAGE_SDK_DST).ok) die('WebView2 SDK files changed while copying');
+    // The SDK's licence goes with the files (the same text is in player-lib/THIRD-PARTY.txt).
+    fs.copyFileSync(path.join(REPO, 'lib', 'stage', 'WEBVIEW2-LICENSE.txt'), path.join(STAGE_SDK_DST, 'LICENSE.txt'));
+    console.log('copied: ' + Object.keys(STAGE_SDK.SDK_FILES).join(', ') + ', LICENSE.txt');
+  } catch (e) { die('runtime/webview2', e); }
+}
+
 /* 7 ── python sidecars (client assets are embedded — nothing loose to copy) */
 step('python sidecars');
 try {
@@ -266,7 +300,9 @@ closing it stops Vault and locks the library), and the viewer opens in your
 default browser at http://127.0.0.1:8765, or whatever port you set in Settings.
 
 Everything Vault creates (library database, thumbnails, trash, models, …)
-lives HERE, next to Vault.exe. Move or copy this whole folder anywhere —
+lives HERE, next to Vault.exe. The runtime folder holds what Vault loads (the
+database engine, face search, and the WebView2 files the Stage window uses).
+Move or copy this whole folder anywhere —
 nothing is installed elsewhere on the system.
 
 On first launch Vault offers to set a password. It's optional and it

@@ -143,6 +143,7 @@ function buildModernControls(ctl) {
       </span>
       ${typeof UpNext !== 'undefined' ? UpNext.dockButtonHtml() : ''}
       ${mpButton('gear', 'Settings', 'id="mpGearBtn" onclick="ModernDock.toggleGear(event)" aria-haspopup="menu"')}
+      ${typeof StageControl !== 'undefined' ? mpButton('stage', 'Play on Stage, the window you share in Discord', 'id="mpStageBtn" onclick="StageControl.openFromPlayer()"') : ''}
       ${mpButton('fullscreen', 'Full screen (F)', 'id="mpFullBtn" onclick="toggleFullscreen()"')}
     </div>`;
 

@@ -69,7 +69,7 @@ function loadSettings(look) {
   ctx.addEventListener = noop;
   ctx.dispatchEvent = noop;
   vm.createContext(ctx);
-  for (const f of ['shortcuts.js', 'settings-kit.js', 'thumb-settings-ui.js', 'watchers-ui.js', 'scan-settings-ui.js', 'settings.js', 'faces.js']) vm.runInContext(read(f), ctx);
+  for (const f of ['shortcuts.js', 'settings-kit.js', 'thumb-settings-ui.js', 'watchers-ui.js', 'scan-settings-ui.js', 'stage-settings-ui.js', 'settings.js', 'faces.js']) vm.runInContext(read(f), ctx);
   return ctx;
 }
 

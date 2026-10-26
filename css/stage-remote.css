@@ -1,0 +1,228 @@
+/* =========================================================================
+   STAGE REMOTE - the mini player while Stage is open (player-lib/
+   stage-control.js), its right-click menu and the "Stage is open" tips.
+
+   The box is the 3.9 mini player with .mini-stage: a dimmed still of the
+   file on Stage, an "On Stage" (or "Holding") badge, controls that stay up
+   (there is nothing to hide them for), Repeat and Hold, the volume of Stage,
+   and the Stage button. Expand, Close and Pop out go while Stage is open.
+   Classic keeps its tokens (border colour, emoji glyphs, accent seek bar).
+   ========================================================================= */
+
+.mini-player:not(.mini-stage) .mini-stage-only { display: none; }
+.mini-player.mini-stage .mini-stage-hide { display: none !important; }
+
+.mini-player.mini-stage .mini-overlay {
+  opacity: 1;
+  pointer-events: auto;
+}
+.mini-player.mini-stage .mini-center .mini-ctrl { pointer-events: auto; }
+.mini-player.mini-stage.mini-dragging .mini-overlay { opacity: 0; }
+
+/* The still of the file on Stage, dimmed: it is a picture of what plays there */
+.mini-stage-still {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0.42;
+  filter: saturate(0.7);
+  pointer-events: none;
+}
+.mini-stage-still[hidden] { display: none; }
+.mini-player.mini-stage.mini-audio .mini-audio-art { opacity: 0.55; }
+
+/* Top row, in the remote's order: badge … Up next, Repeat, Hold, volume, Stage */
+.mini-player.mini-stage .mini-top > .mini-stage-pill { order: 0; margin-right: auto; }
+.mini-player.mini-stage .mini-top > .mini-upnext { order: 2; }
+.mini-player.mini-stage .mini-top > #miniRepeatBtn { order: 3; }
+.mini-player.mini-stage .mini-top > #miniHoldBtn { order: 4; }
+.mini-player.mini-stage .mini-top > .mini-vol { order: 5; margin-right: 0; }
+.mini-player.mini-stage .mini-top > .mini-stage-btn { order: 6; }
+
+.mini-stage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 24px;
+  padding: 0 9px 0 8px;
+  border-radius: 99px;
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  background: rgba(239, 68, 68, 0.18);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.mini-stage-pill > i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex: none;
+  animation: stage-live 1.6s ease-in-out infinite;
+}
+.mini-stage-pill.hold {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+}
+.mini-stage-pill.hold > i { background: #8b8b97; animation: none; }
+@keyframes stage-live { 50% { opacity: 0.35; } }
+.mini-player.mini-compact .mini-stage-pill .msp-word { display: none; }
+.mini-player.mini-compact .mini-stage-pill { padding: 0 8px; }
+
+/* The Stage button: lit while Stage is open (a click closes it) */
+.mini-ctrl.mini-stage-btn.on {
+  background: var(--accent, #6366f1);
+  border-color: transparent;
+}
+.mini-ctrl#miniHoldBtn.on,
+.mini-ctrl#miniRepeatBtn.on {
+  border-color: var(--accent, #6366f1);
+  color: var(--accent-hover, #818cf8);
+}
+body.layout-modern .mini-ctrl#miniHoldBtn.on,
+body.layout-modern .mini-ctrl#miniRepeatBtn.on {
+  background: var(--accent-bg, rgba(99, 102, 241, 0.16));
+  box-shadow: 0 0 0 1px var(--accent, #6366f1);
+  border-color: transparent;
+}
+
+/* The 10 s buttons stay, a little smaller (the mockup) */
+.mini-player.mini-stage .mini-center .mini-round:not(.mini-big):not(.mini-file) {
+  width: calc(var(--mc-side, 42px) - 4px);
+  height: calc(var(--mc-side, 42px) - 4px);
+}
+
+/* A box this small still keeps Hold and the Stage button: Up next folds to its icon */
+.mini-player.mini-stage.mini-narrow .mini-un-label { display: none; }
+
+/* ── The Stage button's menu ─────────────────────────────────────────── */
+
+.stage-menu,
+.stage-tips {
+  position: fixed;
+  z-index: 9002;              /* over the mini player and the Up next list */
+  background: var(--bg-secondary, #1a1a1a);
+  border: 1px solid var(--border, #333);
+  border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6);
+  color: var(--text-primary, #e0e0e0);
+  font-size: 13px;
+}
+.stage-menu[hidden], .stage-tips[hidden] { display: none; }
+body.layout-modern .stage-menu,
+body.layout-modern .stage-tips {
+  background: #17171b;
+  border-color: #34343c;
+  color: var(--m-text, #ececf1);
+}
+
+.stage-menu {
+  min-width: 250px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+}
+.stage-menu .sm-h {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #a0a0a0);
+}
+.stage-menu button {
+  display: grid;
+  grid-template-columns: 18px auto 1fr;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.stage-menu button:hover,
+.stage-menu button:focus-visible {
+  background: var(--bg-hover, #2a2a2a);
+  outline: none;
+}
+body.layout-modern .stage-menu button:hover,
+body.layout-modern .stage-menu button:focus-visible { background: rgba(255, 255, 255, 0.07); }
+.stage-menu .sm-check { color: var(--accent-hover, #818cf8); font-weight: 700; }
+.stage-menu .sm-s { color: var(--text-secondary, #a0a0a0); font-size: 12px; justify-self: end; }
+.stage-menu .sm-sep { height: 1px; margin: 4px 6px; background: var(--border, #333); }
+body.layout-modern .stage-menu .sm-sep { background: #26262c; }
+
+/* ── "Stage is open" tips, beside the remote ─────────────────────────── */
+
+.stage-tips {
+  width: min(360px, calc(100vw - 16px));
+  padding: 12px 14px;
+  line-height: 1.45;
+}
+.stage-tips .st-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+.stage-tips .st-x {
+  border: 0;
+  background: none;
+  color: var(--text-secondary, #a0a0a0);
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: inline-grid;
+  place-items: center;
+}
+.stage-tips .st-x:hover { color: inherit; background: rgba(255, 255, 255, 0.08); }
+.stage-tips .st-x .vi { width: 16px; height: 16px; }
+.stage-tips .st-list {
+  margin: 0 0 10px;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary, #b4b4bf);
+}
+body.layout-modern .stage-tips .st-list { color: var(--m-text-2, #b4b4bf); }
+.stage-tips .st-list b { color: var(--text-primary, #e0e0e0); }
+.stage-tips .st-acts { display: flex; justify-content: flex-end; gap: 8px; }
+.stage-tips .st-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  background: var(--bg-tertiary, #252525);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.stage-tips .st-btn.st-pri { background: var(--accent, #6366f1); border-color: var(--accent, #6366f1); color: #fff; }
+body.layout-modern .stage-tips .st-btn:not(.st-pri) { background: var(--m-btn, rgba(255, 255, 255, 0.06)); border-color: var(--m-border-strong, rgba(255, 255, 255, 0.14)); }
+
+/* ── Play on Stage in the collection bar, the full player's Stage button ── */
+
+.coll-action.coll-stage .vi { width: 15px; height: 15px; vertical-align: -2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mini-stage-pill > i { animation: none; }
+}
+
+/* ── Settings › Stage (player-lib/stage-settings-ui.js) ──────────────── */
+
+.stage-set-pair { display: inline-flex; align-items: center; gap: 12px; flex: none; }
+.stage-set-sw { display: inline-flex; align-items: center; cursor: pointer; }
+.settings-toggle-title .settings-num-wrap { display: inline-flex; vertical-align: middle; margin: 0 2px; }
+.stage-set-lead { margin: 0 0 12px; }

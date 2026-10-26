@@ -470,13 +470,52 @@ let lastPlaySource = 'user';
    mini player needs to show its name and to expand back to the full player. */
 let playingMedia = null;
 
+/**
+ * What opening a file changes, wherever it plays (here, or on Stage:
+ * player-lib/stage-control.js): the file playMedia was given, its place in
+ * the results and its row, the id the playback decision uses, the list's
+ * anchor (Up next), the pinned neighbours and the last-opened marks.
+ */
+function noteFileOpened(mediaData, { source = 'user', fromUpNext = false, keepAnchor = false } = {}) {
+  const { filepath, filename, media_type } = mediaData;
+  playingMedia = { filepath, filename, media_type };
+  lastPlaySource = source === 'auto' ? 'auto' : 'user';
+  // Find current index and store full media data
+  currentMediaState.currentIndex = getCurrentMediaIndex(filepath);
+  currentMediaState.currentMediaData = currentMediaState.currentIndex >= 0
+    ? Library.rowByPath(filepath) : null;
+  // The row id the playback decision uses (remux or native, player-stream.js).
+  // Unlike currentMediaData it is set for any library file, in the current
+  // results or not (a Wall collection, a saved search), so a file that needs
+  // converting is converted wherever it was opened from.
+  currentMediaState.playbackMediaId = playbackMediaIdFor(mediaData, currentMediaState.currentMediaData, Library.rowByPath);
+  // Up next: a file from the list moves the list's anchor, one from Up next
+  // (or the same file reopened) leaves it.
+  listAnchor = UpNextRule.anchorAfterPlay(listAnchor, {
+    fromUpNext, keep: keepAnchor,
+    id: currentMediaState.currentMediaData ? currentMediaState.currentMediaData.id : null,
+    index: currentMediaState.currentIndex,
+  });
+  if (!keepAnchor) playingFromUpNext = !!fromUpNext;
+  pinPlayerNeighbours(currentMediaState.currentIndex);
+  // Remember it so the library can mark this tile on close (keeps the user's place)
+  if (currentMediaState.currentMediaData) lastOpenedMediaId = currentMediaState.currentMediaData.id;
+  // Settings: record the last-opened media for the "Restore last session" option
+  if (typeof vaultRecordLastOpened === 'function' && currentMediaState.currentMediaData) {
+    vaultRecordLastOpened(currentMediaState.currentMediaData.id);
+  }
+}
+
 // Main playMedia function
 /* fromUpNext: Up next is playing this file, so the list's anchor stays where
    it was (the list carries on from there). keepAnchor: the same file opened
    again in another box (Maximize), which changes nothing about the queue. */
-function playMedia(mediaData, { source = 'user', fromUpNext = false, keepAnchor = false } = {}) {
+function playMedia(mediaData, opts = {}) {
+  // Stage open (player-lib/stage-control.js): the file plays there instead,
+  // and the mini player stays its remote.
+  if (typeof StageControl !== 'undefined' && StageControl.intercept(mediaData, opts)) return;
+  const { source = 'user', fromUpNext = false, keepAnchor = false } = opts || {};
   const { filepath, filename, media_type } = mediaData;
-  playingMedia = { filepath, filename, media_type };
   lastPlaySource = source === 'auto' ? 'auto' : 'user';
 
   /* Minimized is a mode, not a property of one file. A move the queue made on
@@ -533,30 +572,7 @@ function playMedia(mediaData, { source = 'user', fromUpNext = false, keepAnchor 
   // Next/Prev/Random/maximize keep whatever you set. Each renderer re-applies it
   // to its new element.
 
-  // Find current index and store full media data
-  currentMediaState.currentIndex = getCurrentMediaIndex(filepath);
-  currentMediaState.currentMediaData = currentMediaState.currentIndex >= 0
-    ? Library.rowByPath(filepath) : null;
-  // The row id the playback decision uses (remux or native, player-stream.js).
-  // Unlike currentMediaData it is set for any library file, in the current
-  // results or not (a Wall collection, a saved search), so a file that needs
-  // converting is converted wherever it was opened from.
-  currentMediaState.playbackMediaId = playbackMediaIdFor(mediaData, currentMediaState.currentMediaData, Library.rowByPath);
-  // Up next: a file from the list moves the list's anchor, one from Up next
-  // (or the same file reopened) leaves it.
-  listAnchor = UpNextRule.anchorAfterPlay(listAnchor, {
-    fromUpNext, keep: keepAnchor,
-    id: currentMediaState.currentMediaData ? currentMediaState.currentMediaData.id : null,
-    index: currentMediaState.currentIndex,
-  });
-  if (!keepAnchor) playingFromUpNext = !!fromUpNext;
-  pinPlayerNeighbours(currentMediaState.currentIndex);
-  // Remember it so the library can mark this tile on close (keeps the user's place)
-  if (currentMediaState.currentMediaData) lastOpenedMediaId = currentMediaState.currentMediaData.id;
-  // Settings: record the last-opened media for the "Restore last session" option
-  if (typeof vaultRecordLastOpened === 'function' && currentMediaState.currentMediaData) {
-    vaultRecordLastOpened(currentMediaState.currentMediaData.id);
-  }
+  noteFileOpened(mediaData, { source, fromUpNext, keepAnchor });
   
   document.getElementById('mediaPlayerTitle').textContent = filename;
   const overlay = document.getElementById('mediaPlayerOverlay');
@@ -742,6 +758,8 @@ function renderRepeatButton() {
 
 function updateRepeatButton() {
   const mode = repeatMode();
+  // Stage moves on by itself: what comes next may have changed.
+  if (typeof StageControl !== 'undefined') StageControl.repeatChanged();
   document.querySelectorAll('.mp-repeat').forEach(btn => { btn.outerHTML = renderRepeatButtonModern(mode); });
   document.querySelectorAll('.repeat-btn').forEach(btn => {
     btn.className = `repeat-btn rep-${mode}`;
@@ -1570,6 +1588,8 @@ function minimizePlayer() {
  * Maximize from mini player back to full player.
  */
 function maximizePlayer() {
+  // The remote of an open Stage has no full player: the file would play twice.
+  if (typeof StageControl !== 'undefined' && StageControl.on()) return;
   const miniPlayer = document.getElementById('miniPlayer');
   const miniMedia = document.getElementById('miniPlayerMedia');
 
@@ -1621,6 +1641,8 @@ function maximizePlayer() {
  * Fully close the mini player — stop playback and clean up.
  */
 function closeMiniPlayer() {
+  // The remote of an open Stage: only hidden (a lock), Stage carries on.
+  if (typeof StageControl !== 'undefined' && StageControl.on()) { StageControl.hideRemote(); return; }
   const miniPlayer = document.getElementById('miniPlayer');
   const miniMedia = document.getElementById('miniPlayerMedia');
 
