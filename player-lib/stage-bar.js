@@ -269,8 +269,14 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
         watch = new ResizeObserver(() => { if (on) relayout(); });
         watch.observe(bar);
       }
+      announce(true);
     }
     relayout();
+  }
+
+  /** Stage opened or closed (stage-preview.js listens). */
+  function announce(shown) {
+    try { window.dispatchEvent(new CustomEvent('vault:stage-bar', { detail: { on: shown } })); } catch {}
   }
 
   /** Hide it: the mini player (if it plays) is back where it was. */
@@ -283,6 +289,7 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
     document.documentElement.style.removeProperty('--stagebar-h');
     if (typeof miniLayout === 'function') miniLayout();
     if (typeof vaultPlaceToasts === 'function') vaultPlaceToasts();
+    announce(false);
   }
 
   const NO_CLASSES = { skip: 'sb-no-skip', unLabel: 'sb-no-label', volSlider: 'sb-no-volslider', thumb: 'sb-no-thumb', times: 'sb-no-times', repeat: 'sb-no-repeat', hold: 'sb-no-hold' };

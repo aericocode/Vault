@@ -1066,7 +1066,7 @@ function renderTile(media) {
 
   return `
     <div class="media-tile ${media.missing_since ? 'tile-missing' : ''} ${isFlagged ? 'tile-flagged' : ''} ${isTrashed ? 'tile-trashed' : ''} ${isSelected ? 'tile-selected' : ''} ${cannotPlay ? 'tile-failed' : ''} ${media.id === lastOpenedMediaId ? 'tile-last-opened' : ''} ${(typeof isCardBusy === 'function' && isCardBusy(media.id)) ? 'tile-busy' : ''}${typeof dockTileClass === 'function' ? dockTileClass(media.id) : ''}" data-id="${media.id}"${typeof reorderTileAttr === 'function' ? reorderTileAttr() : ''}>
-      <div class="tile-thumb ${canThumb ? '' : 'thumb-fallback'}" onclick="tileThumbClick(${media.id})" ondblclick="tileThumbDblClick(${media.id})">
+      <div class="tile-thumb ${canThumb ? '' : 'thumb-fallback'}" onclick="tileThumbClick(${media.id})" ondblclick="tileThumbDblClick(${media.id}, event)">
         ${thumb}
         <span class="tile-type-icon">${icon}</span>
         ${watchTagHtml(media)}
@@ -1133,11 +1133,18 @@ function playMediaById(id) {
    preview pane docked: there a click picks the tile for the pane and a double
    click plays it (player-lib/dock.js). */
 function tileThumbClick(id) {
+  // Stage open: a click previews, it never puts the file on Stage (stage-preview.js).
+  if (typeof stagePreviewClick === 'function' && stagePreviewClick(id)) return;
   if (typeof dockSelectFromClick === 'function' && dockSelectFromClick(id)) return;
   playMediaById(id);
 }
 
-function tileThumbDblClick(id) {
+function tileThumbDblClick(id, ev) {
+  // A double click on the tick box or a tile button (heart, flag, trash,
+  // details) is two presses of that control, not "play this file".
+  const t = ev && ev.target;
+  if (t && t.closest && t.closest('input, button, label, a, .tile-actions, .tile-select, .tv-actions')) return;
+  if (typeof stagePreviewDblClick === 'function' && stagePreviewDblClick(id, ev)) return;
   if (typeof dockIsShown === 'function' && dockIsShown()) playMediaById(id);
 }
 

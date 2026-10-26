@@ -7,6 +7,9 @@
    is covered), a single click on a tile shows it here, a double click or
    Enter plays it, and the arrow keys walk the grid with the pane following.
 
+   While Stage is open the pane is also how a click previews a file, in
+   both looks (player-lib/stage-preview.js).
+
    The pane is deliberately a PREVIEW, not a third copy of the full detail
    view: renderDetailBody's Subtitles / Music / Faces sections and inline
    editors find their markup by element id and repaint the modal or the
@@ -58,8 +61,11 @@ function dockGridTabVisible() {
 }
 
 function dockShouldShow() {
-  return typeof isModernLayout === 'function' && isModernLayout()
-    && typeof window.vaultDockOpen === 'function' && window.vaultDockOpen()
+  // While Stage is open a click previews here (stage-preview.js): the pane
+  // shows in either look, whatever the user's own setting.
+  const forStage = typeof stagePreviewForcing === 'function' && stagePreviewForcing();
+  return (forStage || (typeof isModernLayout === 'function' && isModernLayout()
+    && typeof window.vaultDockOpen === 'function' && window.vaultDockOpen()))
     && window.innerWidth >= DOCK_MIN_WINDOW
     && dockGridTabVisible();
 }
@@ -209,6 +215,11 @@ function dockPartsHtml(m) {
     </div>`],
     ['rating', `<div class="dock-rating" data-dock-part="rating">${typeof renderStarRatingSection === 'function' ? renderStarRatingSection(m) : ''}</div>`],
   ];
+  // Stage open: how to put a file on Stage from here (stage-preview.js).
+  const stageHint = typeof stagePreviewHintHtml === 'function' ? stagePreviewHintHtml() : '';
+  if (stageHint) parts.unshift(['stagehint', stageHint]);
+  // The file's stream tags, by lane, with + Tag (stream-tags.js).
+  if (typeof streamTagBlockHtml === 'function') parts.push(['stags', `<div class="dock-stags" data-dock-part="stags">${streamTagBlockHtml(m)}</div>`]);
   if (typeof dockEditPartHtml === 'function') {
     for (const key of DOCK_EDIT_PARTS) parts.push([key, dockEditPartHtml(m, key)]);
   }
@@ -276,10 +287,18 @@ function dockRender() {
     body.innerHTML = parts.map(([, html]) => html).join('\n');
     dockStampParts(body, parts);
   } else {
-    body.innerHTML = dockEmptyHtml();
+    body.innerHTML = (typeof stagePreviewHintHtml === 'function' ? stagePreviewHintHtml() : '') + dockEmptyHtml();
   }
   body.scrollTop = 0;
   if (typeof hydrateThumbs === 'function') hydrateThumbs(body);
+}
+
+/** Paint every part again from scratch (a part that comes and goes, like
+ *  the Stage line, cannot be patched in: dockPatchParts only replaces). */
+function dockRepaintAll() {
+  _dockPaintedId = null;
+  _dockSig = '';
+  dockRender();
 }
 
 /** Repaint now even though the row looks unchanged (an edit's own state:
@@ -426,7 +445,10 @@ function dockKeyBlocked(e) {
   // itself is not such a control.
   if (e.key === 'Enter' && dockFocusedControl(e.target)) return true;
   if (document.getElementById('mediaPlayerOverlay')?.classList.contains('active')) return true;
-  if (document.getElementById('miniPlayer')?.classList.contains('active')) return true;
+  // The mini player has these keys, except under Stage: there the pane's
+  // arrows and Enter (play on Stage) work (stage-preview.js).
+  if (document.getElementById('miniPlayer')?.classList.contains('active')
+    && !(typeof stagePreviewForcing === 'function' && stagePreviewForcing())) return true;
   if (document.querySelector('.modal-overlay.active, .settings-overlay.active, .media-info-overlay.active, .filters-panel.active')) return true;
   if (typeof filterPopoverIsOpen === 'function' && filterPopoverIsOpen()) return true;
   if (dockModalLayerOpen()) return true;
@@ -544,8 +566,10 @@ function dockInit() {
     const tile = e.target.closest('.media-tile:not(.tile-skel)');
     // Anything with its own double click (a tile's picture, a table row's
     // picture and title) already played it.
-    if (!tile || e.target.closest('button, input, a, .tile-thumb, [ondblclick]')) return;
+    if (!tile || e.target.closest('button, input, label, a, .tile-thumb, .tile-actions, .tv-actions, [ondblclick]')) return;
     const id = Number(tile.dataset.id);
+    // Stage open: only the same file both clicks were on (stage-preview.js).
+    if (id && typeof stagePreviewDblClick === 'function' && stagePreviewDblClick(id, e)) return;
     if (id) playMediaById(id);
   });
 
