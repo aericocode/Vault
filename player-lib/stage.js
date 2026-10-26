@@ -21,6 +21,14 @@
    cannot play is skipped here and reported. The end of the list, Hold and a
    lock are black. A lock (or any request refused with 423) is black at once,
    with everything stopped: Stage never shows anything of the library.
+
+   The Wall on Stage: instead of files, the Wall's collage (player-lib/wall.js
+   runs here without its toolbar, Wall.stage). Control sends the settings and
+   the source ("wall", again on every change); the rows come straight from
+   the server. It keeps playing when the window is covered or not focused
+   (the WebView2 window is never treated as hidden; in a pop-up the Wall plays
+   again what the browser pauses), Hold pauses it under black, a lock or
+   leaving Stage releases every clip and closes its stream.
    ========================================================================= */
 
 (() => {
@@ -32,6 +40,7 @@
   const blackEl = $('stageBlack');
   const nameEl = $('stageName');
   const fillBtn = $('stageFill');
+  const wallBox = $('stageWall');
 
   const STATUS_MS = 250;              // reports to Control, about 4 a second
   const LOAD_TIMEOUT_MS = 20000;      // a file that never starts is skipped
@@ -58,6 +67,13 @@
   let es = null;
   let waitTimer = null;
   let lastSent = '';
+  // The Wall on Stage: on, its last settings from Control, its last report.
+  let wallOn = false;
+  let wallCmd = null;
+  let wallSent = '';
+  let wallPeekAt = 0;
+  let wallReportTimer = null;
+  let wallPeekSent = [];
   let caps = '';
   try { caps = typeof codecCaps === 'function' ? codecCaps() : ''; } catch {}
 
@@ -75,7 +91,7 @@
     // auto-locks and blacks out a live stream. Everything else Stage sends is
     // marked as background (server/index.js lock gate), so Hold, a pause or
     // the black end of the list let the auto-lock clock run as usual.
-    const presence = body.type === 'status' && !body.hold && !body.paused && (body.state === 'playing' || body.state === 'picture');
+    const presence = body.type === 'status' && !body.hold && !body.paused && (body.state === 'playing' || body.state === 'picture' || body.state === 'wall');
     return fetch('/api/stage/report', {
       method: 'POST',
       headers: presence ? { 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json', 'X-Vault-Background': '1' },
@@ -436,9 +452,108 @@
     ahead = { key: next.key, ready: prepare(next, { paused: true }) };
   }
 
+  /* ── The Wall on Stage ────────────────────────────────────────────── */
+
+  const bg = { 'X-Vault-Background': '1' };
+
+  /** The Wall's source, asked of the server as the library page asks it (Library.queryOnce). */
+  async function wallQuery(spec) {
+    const r = await get('/api/library/query', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...bg }, body: JSON.stringify({ ...spec, pageSize: 200 }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(data.error || `Server returned ${r.status}`); e.code = data.code || null; throw e; }
+    let ids = (data.page && data.page.ids) || [];
+    if (!data.complete && data.qid) {
+      const resp = await get(`/api/library/query/${encodeURIComponent(data.qid)}/ids`, { headers: bg });
+      if (resp.ok) {
+        const buf = await resp.arrayBuffer();
+        const n = new DataView(buf).getUint32(0, true);
+        ids = new Uint32Array(buf, 8, n);
+      }
+    }
+    return { ids };
+  }
+
+  /** Rows for the Wall, in the order asked (null where one is gone). */
+  async function wallRows(ids) {
+    const r = await get('/api/media/rows', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...bg }, body: JSON.stringify({ ids: Array.from(ids) }),
+    });
+    if (!r.ok) throw new Error(`Server returned ${r.status}`);
+    const byId = new Map(((await r.json()).rows || []).map(x => [x.id, x]));
+    return Array.from(ids, id => byId.get(id) || null);
+  }
+
+  /** How loud the clip the Wall lets be heard plays: Stage's volume, nothing on Hold or a lock. */
+  const wallLevel = () => (muted || hold || locked || settings.forceMute === true ? 0 : Math.max(0, Math.min(1, volume)));
+
+  /**
+   * What the Wall is doing, for the remote: at once when it changes, the
+   * peek (a few files in view) at most every few seconds.
+   */
+  function wallStatus(st) {
+    if (!wallOn || locked) return;
+    const now = Date.now();
+    const body = { type: 'wall', state: st.state, clips: st.clips, blocks: st.blocks, running: !!st.running, paused: !!st.paused, message: st.message || '', ids: st.ids || [] };
+    const core = JSON.stringify({ ...body, ids: [] });
+    const peekDue = now - wallPeekAt > 3000 && JSON.stringify(body.ids) !== JSON.stringify(wallPeekSent);
+    if (core === wallSent && !peekDue) return;
+    clearTimeout(wallReportTimer);
+    wallReportTimer = setTimeout(() => {
+      if (!wallOn || locked) return;
+      wallSent = core;
+      if (peekDue || !wallPeekSent.length) { wallPeekAt = Date.now(); wallPeekSent = body.ids; }
+      report({ ...body, ids: wallPeekSent });
+    }, 150);
+  }
+
+  /** Show the Wall (or take Control's new settings for it). Any file on Stage goes. */
+  function showWall(cmd) {
+    wallCmd = cmd;
+    if (wallOn) { Wall.stage.update(cmd); sendStatus(true); return; }
+    ++gen;
+    clearTimeout(waitTimer);
+    dropAhead();
+    if (loading) { dropLayer(loading); loading = null; }
+    if (cur) { dropLayer(cur); cur = null; }
+    upcoming = [];
+    needNext = false;
+    finished = false;
+    clearTimeout(nameTimer);
+    nameEl.classList.remove('on');
+    wallOn = true;
+    wallSent = '';
+    wallPeekSent = [];
+    wallBox.hidden = false;
+    setBlack(hold);
+    Wall.stage.start(wallBox, {
+      cfg: cmd.cfg, spec: cmd.spec, paused: cmd.paused === true, hold,
+      query: wallQuery, fetchRows: wallRows, soundLevel: wallLevel, status: wallStatus,
+    });
+    sendStatus(true);
+  }
+
+  /** The Wall leaves Stage: every clip released and its stream closed. Black until a file comes. */
+  function stopWall({ black = true } = {}) {
+    if (!wallOn) return;
+    wallOn = false;
+    wallCmd = null;
+    clearTimeout(wallReportTimer);
+    try { Wall.stage.stop(); } catch (err) { console.warn('[Stage] wall stop', err); }
+    wallBox.hidden = true;
+    if (black) {
+      finished = true;
+      upcoming = [];
+      setBlack(true);
+      sendStatus(true);
+    }
+  }
+
   /* ── Commands from Control ────────────────────────────────────────── */
 
   async function load(cmd) {
+    if (wallOn) stopWall({ black: false });
     const my = ++gen;
     finished = false;
     clearTimeout(waitTimer);
@@ -465,6 +580,8 @@
   }
 
   function setUpcoming(cmd) {
+    // The Wall is on: files wait for Control to send one.
+    if (wallOn) return;
     upcoming = (cmd.upcoming || []).slice();
     repeat = cmd.repeat || repeat;
     if (cur && cur.v) cur.v.loop = repeat === 'one';
@@ -480,6 +597,14 @@
   function setHold(on) {
     if (on === hold) return;
     hold = on;
+    if (wallOn) {
+      // Black and silent, the board paused (its clips kept, so it carries on at once).
+      setBlack(on);
+      Wall.stage.hold(on);
+      Wall.stage.sound();
+      sendStatus(true);
+      return;
+    }
     const v = cur && cur.v;
     if (on) {
       holdWasPlaying = !!(v ? !v.paused : (cur && cur.picStart));
@@ -498,6 +623,7 @@
   }
 
   function play() {
+    if (wallOn) return;                     // the hub turns these into the Wall's own pause
     if (!cur || hold) { holdWasPlaying = true; return; }
     if (cur.v) { if (cur.v.ended) cur.v.currentTime = 0; cur.v.play().catch(() => {}); }
     else if (!cur.picStart) startPicture(cur);
@@ -505,6 +631,7 @@
   }
 
   function pause() {
+    if (wallOn) return;
     if (!cur) return;
     if (hold) { holdWasPlaying = false; return; }
     if (cur.v) { try { cur.v.pause(); } catch {} } else pausePicture(cur);
@@ -523,6 +650,7 @@
     volume = cmd.volume;
     muted = cmd.muted === true;
     if (cur) applySound(cur.v);
+    if (wallOn) Wall.stage.sound();
   }
 
   function applySettings(s) {
@@ -530,6 +658,7 @@
     settings = { ...settings, ...s };
     document.title = settings.windowName || 'Vault Stage';
     if (cur) applySound(cur.v);
+    if (wallOn) Wall.stage.sound();
     armCursor();
   }
 
@@ -564,6 +693,8 @@
     if (loading) { dropLayer(loading); loading = null; }
     if (cur) { dropLayer(cur); cur = null; }
     upcoming = [];
+    // The Wall too (the session keeps it: after the unlock it comes back under Hold).
+    if (wallOn) { wallOn = false; wallCmd = null; clearTimeout(wallReportTimer); try { Wall.stage.stop(); } catch {} wallBox.hidden = true; }
     document.querySelectorAll('video').forEach((v) => { try { v.muted = true; v.pause(); } catch {} });
     if (es) { try { es.close(); } catch {} es = null; }
     waitForUnlock();
@@ -598,6 +729,9 @@
       setPrivacy(s.hideNames === true);
       repeat = s.repeat || 'off';
       if (s.hold !== hold) setHold(!!s.hold);
+      // The Wall on Stage: opened, reloaded or back after a lock, it carries on (under Hold after a lock).
+      if (s.wall) { showWall(s.wall); report({ type: 'ready' }); return; }
+      if (wallOn) stopWall();
       // Opened, reloaded, or back after a lock: pick up what Control last sent.
       if (s.current && (!cur || cur.item.key !== s.current.key)) {
         const at = s.status && s.status.key === s.current.key ? s.status.t : s.current.startAt;
@@ -618,6 +752,9 @@
     on('hold', (c) => setHold(!!c.on));
     on('settings', applySettings);
     on('privacy', (c) => setPrivacy(c.hideNames === true));
+    on('wall', showWall);
+    on('wallOff', () => stopWall());
+    on('wallShuffle', () => { if (wallOn) Wall.stage.shuffle(); });
     on('locked', lockdown);
     on('front', () => { try { window.focus(); } catch {} });
     on('size', (c) => {
@@ -626,6 +763,8 @@
     });
     on('close', () => {
       sayClosing();
+      // Every Wall clip's stream closed now, while the page can still say so.
+      if (wallOn) stopWall({ black: true });
       if (HOST === 'popup') { try { window.close(); } catch {} }
     });
     es.onerror = () => {
@@ -641,6 +780,7 @@
   /* ── Reports: where Stage is, about 4 times a second ──────────────── */
 
   function stateNow() {
+    if (wallOn) return 'wall';
     if (finished) return 'black';
     if (!cur) return 'black';
     if (cur.v) return cur.v.ended ? 'ended' : cur.v.paused ? 'paused' : 'playing';
@@ -658,6 +798,7 @@
       t = (c.picMs - (c.picStart ? Math.max(0, c.picLeft - (Date.now() - c.picStart)) : c.picLeft)) / 1000;
       paused = !c.picStart;
     }
+    if (wallOn) paused = !!(wallCmd && wallCmd.paused);
     const o = override || {};
     if (o.t !== undefined) t = o.t;
     if (o.d !== undefined) d = o.d;
@@ -771,5 +912,6 @@
     host: HOST, locked, hold, holdWasPlaying, hideNames, finished, repeat, upcoming: upcoming.map(u => u.key), upcomingNames: upcoming.map(u => u.filename),
     current: cur ? { key: cur.item.key, id: cur.item.id, kind: cur.v ? 'video' : 'picture', muted: cur.v ? cur.v.muted : null, t: cur.v ? cur.v.currentTime : null } : null,
     layers: mediaBox.children.length, black: blackEl.classList.contains('on'), name: nameEl.classList.contains('on') ? nameEl.textContent : null,
+    wall: wallOn ? { paused: !!(wallCmd && wallCmd.paused), stats: Wall._stats(), audio: Wall._audio() } : null,
   });
 })();

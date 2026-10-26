@@ -55,6 +55,23 @@ body.stage-body.cursor-hidden * {
   background: transparent;
 }
 
+/* The Wall on Stage: the Wall's board (css/wall.css) filling the window,
+   and nothing else of it. No captions, no speaker badge, no notes or
+   messages (the remote says those), no hover outline, no pointer. */
+.stage-body .stage-wall.wall-root {
+  position: fixed;
+  inset: 0;
+  z-index: auto;
+  background: #000;
+}
+.stage-body .stage-wall[hidden] { display: none; }
+.stage-body .stage-wall .wall-cap,
+.stage-body .stage-wall .wall-spk,
+.stage-body .stage-wall .wall-msg,
+.stage-body .stage-wall .wall-paused,
+.stage-body .stage-wall .wall-soundnote { display: none !important; }
+.stage-body .stage-wall .wall-block { cursor: inherit; outline: none; }
+
 /* The name, lower left, over the first seconds of a file */
 .stage-name {
   position: fixed;
