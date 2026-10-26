@@ -345,7 +345,7 @@ function settingsSearchShortcutItem(row) {
   const group = (typeof SHORTCUT_GROUPS !== 'undefined' && SHORTCUT_GROUPS.find(g => g.id === row.ctx)) || null;
   return {
     page: 'shortcuts',
-    id: `sk-${SHORTCUTS.indexOf(row)}`,
+    id: `sk-${(typeof shortcutsAll === 'function' ? shortcutsAll() : SHORTCUTS).indexOf(row)}`,
     label: row.desc,
     desc: `${keyText}${group ? ` · ${group.title}` : ''}`,
     shortcut: true,
@@ -378,7 +378,7 @@ function settingsSearch(query, opts = {}) {
   if (typeof SHORTCUTS !== 'undefined' && typeof shortcutsFilter === 'function') {
     // shortcuts.js decides what a row matches (its words, keys and group), as
     // the ? window and the Keyboard shortcuts page do.
-    const rows = shortcutsFilter(SHORTCUTS, query);
+    const rows = shortcutsFilter(typeof shortcutsAll === 'function' ? shortcutsAll() : SHORTCUTS, query);
     rows.slice(0, limit).forEach(r => {
       const item = settingsSearchShortcutItem(r);
       add(item, settingsSearchScore(item, words) || { score: 1, related: [] });

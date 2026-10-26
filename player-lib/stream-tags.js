@@ -163,6 +163,8 @@ const StreamTags = (() => {
     repaintTiles(mediaIds);
     paintStage(st.stageId);
     renderFilterOptions();
+    // The shortcuts list shows the keys the tags really have.
+    if (typeof shortcutsSetStreamTagKeys === 'function') shortcutsSetStreamTagKeys([...st.tags.values()].map(t => t.hotkey).filter(Boolean));
     for (const cb of st.subs) { try { cb(); } catch (err) { console.warn('[stream tags] a listener failed:', err); } }
   }
 
