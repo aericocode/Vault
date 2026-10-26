@@ -3415,6 +3415,10 @@ app.use('/api', require('./faces-routes').buildRouter());
 // ── Studios (files and people grouped by studio — see lib/studios.js) ──────
 app.use('/api', require('./studios-routes').buildRouter());
 
+// ── Stream tags (lanes of the user's own labels for stream sets, kept apart
+//    from the library's tags — see lib/stream-tags.js) ─────────────────────
+app.use('/api', require('./stream-tags-routes').buildRouter());
+
 // ── Subtitles (whisper transcription + OPUS-MT translation — lib/subtitles/)
 app.use('/api', require('./subtitle-routes').buildRouter());
 
