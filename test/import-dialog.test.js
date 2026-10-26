@@ -212,3 +212,39 @@ test('a raw picker failure becomes a plain sentence', async () => {
   const last = t.toasts[t.toasts.length - 1];
   assert.strictEqual(last.msg, 'Something went wrong while opening the file picker. Try again.');
 });
+
+/* A drag the way Chrome shapes it: dragging a tile's <img> lists 'Files' too,
+   and setData adds its type to the list. */
+function dataTransfer(types) {
+  const dt = { types: [...types], dropEffect: 'none', effectAllowed: 'move' };
+  dt.setData = (type) => { if (!dt.types.includes(type)) dt.types.push(type); };
+  return dt;
+}
+function dragEvent(type, dataTransfer) {
+  return { type, dataTransfer, target: null, prevented: false, preventDefault() { this.prevented = true; } };
+}
+
+test('a drag that starts on the page (a tile thumbnail, "Files" included) is not taken for an import', () => {
+  const t = load();
+  const fire = (ev) => { for (const fn of t.dom.docListeners[ev.type] || []) fn(ev); return ev; };
+  const dt = dataTransfer(['text/uri-list', 'text/html', 'Files']);
+  fire(dragEvent('dragstart', dt));
+  dt.dropEffect = 'move';   // what the collection reorder sets
+  const enter = fire(dragEvent('dragenter', dt));
+  const over = fire(dragEvent('dragover', dt));
+  assert.strictEqual(enter.prevented, false);
+  assert.strictEqual(over.prevented, false);
+  assert.strictEqual(dt.dropEffect, 'move', 'the reorder keeps its move, so the browser lets the drop happen');
+  assert.strictEqual(t.$('vaultDropOverlay'), null, 'no import overlay');
+  assert.strictEqual(fire(dragEvent('drop', dt)).prevented, false);
+});
+
+test('files dragged in from outside still import', () => {
+  const t = load();
+  const fire = (ev) => { for (const fn of t.dom.docListeners[ev.type] || []) fn(ev); return ev; };
+  const dt = dataTransfer(['Files']);
+  const enter = fire(dragEvent('dragenter', dt));
+  const over = fire(dragEvent('dragover', dt));
+  assert.ok(enter.prevented && over.prevented);
+  assert.strictEqual(dt.dropEffect, 'copy');
+});
