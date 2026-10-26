@@ -20,6 +20,8 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-test-pl-export-'));
 process.env.VAULT_DB = path.join(tmp, 'library.db');
 process.env.VAULT_SETTINGS_FILE = path.join(tmp, 'settings.json');
 process.env.VAULT_OFFLINE = '1';
+// Never a real Save As window on the desktop, whatever a test does (spawnPicker)
+process.env.VAULT_DISABLE_NATIVE_PICKER = '1';
 delete process.env.VAULT_DB_PASSWORD;
 
 const { buildM3U8, toM3U8, relativeLocation, fileUri, exportablePath } = require('../lib/playlist/formats');
@@ -301,14 +303,22 @@ test('GET export: Vault links at the port the server listens on', async () => {
 
 test('GET export: the Host header does not change the Vault links', async () => {
   const http = require('node:http');
-  const text = await new Promise((resolve, reject) => {
+  const get = (host) => new Promise((resolve, reject) => {
     http.get({ host: '127.0.0.1', port, path: `/api/collections/${coll}/export?links=vault`,
-      headers: { Host: 'evil.example:80' } }, (r) => {
-      let s = ''; r.setEncoding('utf8'); r.on('data', (c) => { s += c; }); r.on('end', () => resolve(s));
+      headers: { Host: host } }, (r) => {
+      let s = ''; r.setEncoding('utf8'); r.on('data', (c) => { s += c; });
+      r.on('end', () => resolve({ status: r.statusCode, text: s }));
     }).on('error', reject);
   });
-  assert.ok(!text.includes('evil'));
-  assert.ok(text.includes(`http://127.0.0.1:${port}/media/${m[0]}`));
+  // A Host Vault does not answer to is refused before the route (lib/host-check.js)
+  const evil = await get('evil.example:80');
+  assert.strictEqual(evil.status, 403);
+  assert.ok(!evil.text.includes('evil'));
+  // One it does answer to still never shows up in the links
+  const local = await get(`localhost:${port}`);
+  assert.strictEqual(local.status, 200);
+  assert.ok(!local.text.includes('localhost'));
+  assert.ok(local.text.includes(`http://127.0.0.1:${port}/media/${m[0]}`));
 });
 
 test('GET export: full paths', async () => {
@@ -681,6 +691,59 @@ test('save: the library locked or encrypted while the window was open writes not
     vault._locked = false;
     server._setSaveDialogForTest(null);
   }
+});
+
+test('the request guards cover the playlist routes: the app passes, another site does not', async () => {
+  const seen = {};
+  server._setSaveDialogForTest(fakeDialog('::CANCEL::', seen));
+  // The CSRF guard allows the configured port's origin (this test server
+  // listens on a random one); a different port is still refused below.
+  const ownPort = require('../config').server.port;
+  const own = `http://127.0.0.1:${ownPort}`;
+  const send = (p, method, headers, body) => fetch(base + p, {
+    method, headers: { 'Content-Type': 'application/json', ...headers },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  try {
+    // Vault's own page: Origin is this server, Sec-Fetch-Site same-origin
+    const app = { Origin: own, 'Sec-Fetch-Site': 'same-origin' };
+    let res = await send(`/api/collections/${coll}/export/save`, 'POST', app, { links: 'vault' });
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(await res.json(), { canceled: true });
+    assert.strictEqual(seen.opened, 1);
+    res = await send(`/api/collections/${coll}/order`, 'POST', app, { move: [m[1]], before: null });
+    assert.strictEqual(res.status, 200);
+    const moved = (await res.json()).order;
+    assert.strictEqual(moved[moved.length - 1], m[1]);
+    res = await send(`/api/collections/${coll}/export?links=vault`, 'GET', { 'Sec-Fetch-Site': 'same-origin' });
+    assert.strictEqual(res.status, 200);
+    // Put the order back for the tests that read it
+    res = await send(`/api/collections/${coll}/order`, 'POST', app, { order: [m[0], m[1], m[2], m[3]] });
+    assert.strictEqual(res.status, 200);
+
+    // Another site's page: refused before the route, and no window opens
+    for (const h of [
+      { Origin: 'https://evil.example' },
+      { Origin: 'null' },
+      { Origin: `http://127.0.0.1:${ownPort + 1}` },
+      { 'Sec-Fetch-Site': 'cross-site' },
+      { 'Sec-Fetch-Site': 'same-site' },
+    ]) {
+      res = await send(`/api/collections/${coll}/export/save`, 'POST', h, { links: 'vault' });
+      assert.strictEqual(res.status, 403, JSON.stringify(h));
+      res = await send(`/api/collections/${coll}/order`, 'POST', h, { move: [m[0]], before: null });
+      assert.strictEqual(res.status, 403, JSON.stringify(h));
+    }
+    res = await send(`/api/collections/${coll}/export?links=vault`, 'GET', { 'Sec-Fetch-Site': 'cross-site' });
+    assert.strictEqual(res.status, 403);
+    assert.strictEqual((await res.json()).code, 'CROSS_SITE');
+    assert.strictEqual(seen.opened, 1, 'no window for a refused request');
+  } finally {
+    server._setSaveDialogForTest(null);
+  }
+  // The order no refused request could change
+  const after = await exp(coll, 'links=vault');
+  assert.deepStrictEqual(locs(await after.text()).map((u) => Number(u.split('/').pop())), [m[0], m[1], m[2], m[3]]);
 });
 
 // ── The dialog's toast (player-lib/collection-export.js, run in a VM) ──────

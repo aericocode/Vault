@@ -39,7 +39,9 @@ test.after(async () => {
 // below would open a real dialog on the desktop, so the HTTP tests refuse to
 // run at all.
 const src = fs.readFileSync(path.join(__dirname, '..', 'server', 'index.js'), 'utf8');
-const guarded = /function spawnPicker[^{]*\{\s*(?:\/\/[^\n]*\n\s*)*if \(process\.env\.VAULT_DISABLE_NATIVE_PICKER === '1'\)/.test(src);
+// (The parameter list may hold a default such as opts = {}, so it is matched
+// up to its closing parenthesis.)
+const guarded = /function spawnPicker\([^)]*\)\s*\{\s*(?:\/\/[^\n]*\n\s*)*if \(process\.env\.VAULT_DISABLE_NATIVE_PICKER === '1'\)/.test(src);
 
 test('spawnPicker checks VAULT_DISABLE_NATIVE_PICKER before anything else', () => {
   assert.ok(guarded, 'the switch must be the first thing spawnPicker does');
