@@ -1565,7 +1565,7 @@
             <div class="imp-types" id="impTypes" role="group" aria-label="Kinds of files to add"></div>
             <div class="imp-note" id="impIgnored"></div>
           </div>
-          <div>
+          <div${collected.noSubfolders ? ' hidden' : ''}>
             <div class="imp-sect">Options</div>
             <div class="imp-pills imp-opts">${toggle('impSubdirs', '📂', 'Include subfolders', {
               sub: subdirs ? `(${fmtN(subdirs)} found)` : '', subClassicOnly: true,
@@ -1683,6 +1683,9 @@
         : null;
       close();
       const { imported } = await addPaths(entries);   // always in place (no copy)
+      // The caller's follow-up (Import playlist refreshes the collection the
+      // new files went into).
+      if (typeof collected.afterAdd === 'function') { try { collected.afterAdd(imported); } catch {} }
       // Keep watching: remember the folder (player-lib/watchers-ui.js) once
       // its files are in, so the watcher's first walk finds them already there.
       if (watch && typeof window.vaultWatchFolderAfterAdd === 'function') {
@@ -1853,6 +1856,15 @@
       else if (entry?.name) files.push({ name: entry.name, size: null });
     }
     if (!files.length && !dirs.length) return;
+
+    // A playlist file (VLC / PotPlayer) imports as a collection instead
+    // (player-lib/playlist-import.js). Media dropped with it adds as usual.
+    const isList = (f) => /\.(m3u8?|xspf|pls|dpl)$/i.test(f.name || '');
+    if (!dirs.length && files.length && files.every(isList) && typeof window.vaultImportPlaylistDrop === 'function') {
+      if (files.length > 1) { showToast('⚠ Drop one playlist at a time.'); return; }
+      window.vaultImportPlaylistDrop(files[0]);
+      return;
+    }
 
     showToast('🔍 Finding where the dropped items are on disk…');
     let r = null;

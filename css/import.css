@@ -340,3 +340,117 @@ body.layout-modern .imp-sum b { color: var(--m-text); font-weight: 600; }
   .imp-sum { flex: 1 1 100%; }
   .imp-foot .imp-cancel { margin-left: 0; }
 }
+
+/* =========================================================================
+   IMPORT PLAYLIST - the review window (player-lib/playlist-import.js).
+   The Add window's frame (.import-modal) made wider, with groups of entries.
+   Classic first, the Modern look after it.
+   ========================================================================= */
+.pli-modal { width: min(640px, 100%); }
+.pli-modal .imp-body { gap: 1rem; }
+.pli-choices { display: flex; flex-direction: column; gap: 0.45rem; }
+.pli-choice {
+  display: flex; align-items: flex-start; gap: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+}
+.pli-choice.is-disabled { opacity: 0.6; cursor: default; }
+.pli-choice > input { margin-top: 0.2rem; accent-color: var(--accent); flex: none; }
+.pli-ctext { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; flex: 1; font-size: 0.86rem; }
+.pli-name, .pli-select {
+  width: 100%; box-sizing: border-box;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-secondary); color: var(--text-primary);
+  font: inherit; font-size: 0.85rem;
+}
+.pli-name:disabled, .pli-select:disabled { opacity: 0.55; }
+.pli-hint { font-size: 0.72rem; color: var(--text-muted); }
+.pli-group { display: flex; flex-direction: column; }
+.pli-ghead { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
+.pli-ghead .imp-sect { margin-bottom: 0; }
+.pli-count { font-variant-numeric: tabular-nums; }
+.pli-act { min-width: 0; display: inline-flex; align-items: center; white-space: nowrap; }
+.pli-act .vi { width: 14px; height: 14px; margin-right: 0.4em; }
+.pli-gnote { margin-top: 0.3rem; }
+.pli-rows {
+  list-style: none; margin: 0.5rem 0 0; padding: 0;
+  border: 1px solid var(--border); border-radius: 8px;
+  max-height: 210px; overflow-y: auto;
+  background: var(--bg-tertiary);
+}
+.pli-rows li {
+  display: flex; align-items: baseline; gap: 0.6rem;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.8rem; min-width: 0;
+}
+.pli-rows li + li { border-top: 1px solid var(--border); }
+.pli-num { flex: none; min-width: 2.6em; text-align: right; color: var(--text-muted); font-variant-numeric: tabular-nums; font-size: 0.72rem; }
+.pli-name-cell, .pli-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pli-path { color: var(--text-secondary); }
+.pli-tag {
+  margin-left: auto; flex: none;
+  font-size: 0.68rem; padding: 0.05rem 0.45rem; border-radius: 999px;
+  background: var(--bg-secondary); color: var(--text-muted); border: 1px solid var(--border);
+}
+.pli-more {
+  align-self: flex-start; margin-top: 0.4rem;
+  background: none; border: none; padding: 0.2rem 0;
+  color: var(--accent); font: inherit; font-size: 0.78rem; cursor: pointer;
+}
+.pli-more:hover { text-decoration: underline; }
+.pli-ambiguous { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.pli-network { margin-top: 0.6rem; }
+.pli-amb {
+  margin: 0; padding: 0.5rem 0.65rem 0.6rem;
+  border: 1px solid var(--border); border-radius: 8px;
+  display: flex; flex-direction: column; gap: 0.3rem; min-width: 0;
+}
+.pli-amb legend { display: flex; gap: 0.5rem; max-width: 100%; font-size: 0.8rem; padding: 0 0.3rem; }
+.pli-pick {
+  display: flex; gap: 0.3rem; align-items: baseline; min-width: 0;
+  text-align: left; padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-tertiary); color: var(--text-primary);
+  font: inherit; font-size: 0.78rem; cursor: pointer;
+}
+.pli-pick:hover { background: var(--bg-hover); }
+.pli-pick.pli-skip { align-self: flex-start; color: var(--text-secondary); }
+.pli-found { margin-top: 0.5rem; }
+.pli-left-item { font-size: 0.8rem; color: var(--text-secondary); }
+.pli-left-item + .pli-left-item { margin-top: 0.3rem; }
+.pli-left-item summary { cursor: pointer; }
+.pli-modal [disabled] { cursor: default; }
+
+body.layout-modern .pli-modal { width: min(640px, 100%); }
+body.layout-modern .pli-choice {
+  border-color: var(--m-border); border-radius: 10px; background: var(--m-field); padding: 10px 12px;
+}
+body.layout-modern .pli-ctext { font-size: 14px; }
+body.layout-modern .pli-ctext b { font-weight: 500; color: var(--m-text); }
+body.layout-modern .pli-name, body.layout-modern .pli-select {
+  border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05); color: var(--m-text);
+  padding: 7px 10px; font-size: 13px;
+}
+body.layout-modern .pli-name:focus, body.layout-modern .pli-select:focus { outline: none; border-color: var(--accent-hover); }
+body.layout-modern .pli-select option { background: var(--m-surface-solid); }
+body.layout-modern .pli-hint { font-size: 12px; color: var(--m-muted); }
+body.layout-modern .pli-count { color: var(--m-muted); font-weight: 500; }
+body.layout-modern .pli-rows { border-color: var(--m-border); border-radius: 10px; background: var(--m-field); }
+body.layout-modern .pli-rows li { font-size: 13px; padding: 6px 12px; }
+body.layout-modern .pli-rows li + li { border-top-color: rgba(255, 255, 255, 0.06); }
+body.layout-modern .pli-num { font-size: 11px; color: var(--m-muted); }
+body.layout-modern .pli-path { color: var(--m-text-2); }
+body.layout-modern .pli-tag { background: rgba(255, 255, 255, 0.06); border-color: var(--m-border); color: var(--m-muted); font-size: 11px; }
+body.layout-modern .pli-more { color: var(--accent-hover); font-size: 12px; }
+body.layout-modern .pli-amb { border-color: var(--m-border); border-radius: 10px; }
+body.layout-modern .pli-amb legend { font-size: 13px; color: var(--m-text); }
+body.layout-modern .pli-pick {
+  border-color: rgba(255, 255, 255, 0.14); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05); color: var(--m-text); font-size: 13px;
+}
+body.layout-modern .pli-pick:hover { background: rgba(255, 255, 255, 0.1); }
+body.layout-modern .pli-left-item { font-size: 13px; color: var(--m-text-2); }

@@ -113,13 +113,15 @@
       </div>
       <div class="header-buttons">
         <!-- Modern look: one Add button with a small menu. Its entries click the
-             real Add files / Add folder buttons (importer.js), which Modern hides. -->
+             real Add files / Add folder buttons (importer.js) and Import playlist
+             (playlist-import.js), which Modern hides. -->
         <div class="hdr-add modern-only" id="hdrAdd">
           <button type="button" class="header-btn hdr-add-btn" id="hdrAddBtn" aria-haspopup="menu"
                   aria-expanded="false" aria-controls="hdrAddMenu" title="Add files or a folder to the library"><span class="vi-w" data-vi="plus">＋ </span>Add</button>
           <div class="hdr-add-menu" id="hdrAddMenu" role="menu" aria-label="Add to the library" hidden>
             <button type="button" class="hdr-add-item" role="menuitem" tabindex="-1" data-add-for="addFilesBtn" data-add-icon="file">Add files</button>
             <button type="button" class="hdr-add-item" role="menuitem" tabindex="-1" data-add-for="addFolderBtn" data-add-icon="folder">Add folder</button>
+            <button type="button" class="hdr-add-item" role="menuitem" tabindex="-1" data-add-for="importPlaylistBtn" data-add-icon="queue">Import playlist…</button>
           </div>
         </div>
         <button class="header-btn refresh-btn" id="refreshBtn" title="Reload library from server">
@@ -580,6 +582,8 @@
   <script src="./player-lib/games/games-sidebar.js"></script>
   <script src="./player-lib/vault-ui.js"></script>
   <script src="./player-lib/importer.js"></script>
+  <!-- Import playlist (VLC / PotPlayer) as a collection; after importer.js (its Add window and drops) -->
+  <script src="./player-lib/playlist-import.js"></script>
   <script src="./player-lib/wall.js"></script>
   <script src="./player-lib/tabs.js"></script>
   <!-- Settings cards, rows, dialogs and the Modern page map (player-lib/settings-kit.js) -->

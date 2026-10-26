@@ -2145,6 +2145,50 @@ Add-Type -TypeDefinition $src
 const PICKER_PS1 = PICKER_CS_TOP + PICKER_BODY_FOLDER + PICKER_CS_BOTTOM;
 const PICKER_FILES_PS1 = PICKER_CS_TOP + PICKER_BODY_FILES + PICKER_CS_BOTTOM;
 
+// Import playlist (PLAYLISTS_SPEC step 3): one playlist file, filtered to the
+// formats lib/playlist/parse.js reads, in its own remembered folder. The
+// filter array (COMDLG_FILTERSPEC pairs) is built by hand because the shared
+// interface declares SetFileTypes with an IntPtr.
+const PLAYLIST_PICKER_CLIENT_GUID = 'c3a4f1d2-6b8e-4f57-9a0c-2e7d5b1f8a46';   // import a playlist
+const PICKER_BODY_PLAYLIST = `        string[] specs = new string[] {
+          "Playlists (*.m3u, *.m3u8, *.xspf, *.pls, *.dpl)", "*.m3u;*.m3u8;*.xspf;*.pls;*.dpl",
+          "All files (*.*)", "*.*" };
+        IntPtr types = Marshal.AllocCoTaskMem(IntPtr.Size * specs.Length);
+        IntPtr[] strs = new IntPtr[specs.Length];
+        try {
+          for (int i = 0; i < specs.Length; i++) {
+            strs[i] = Marshal.StringToCoTaskMemUni(specs[i]);
+            Marshal.WriteIntPtr(types, i * IntPtr.Size, strs[i]);
+          }
+          dlg.SetFileTypes((uint)(specs.Length / 2), types);
+          dlg.SetFileTypeIndex(1);
+          // FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_FILEMUSTEXIST
+          dlg.SetOptions(0x40 | 0x800 | 0x1000);
+          dlg.SetTitle("Import a playlist from VLC or PotPlayer");
+          dlg.SetOkButtonLabel("Import playlist");
+          uint hr = dlg.Show(owner);
+          if (hr != 0) return "${PICK_CANCEL}";    // dismissed / closed
+          IShellItem item; dlg.GetResult(out item);
+          return GetPath(item);
+        } finally {
+          for (int i = 0; i < strs.Length; i++) if (strs[i] != IntPtr.Zero) Marshal.FreeCoTaskMem(strs[i]);
+          Marshal.FreeCoTaskMem(types);
+        }
+`;
+// "Find in folder…" for the entries of a playlist that were not found. The
+// media folders' remembered place (the Add folder picker's), its own words.
+const PICKER_BODY_FIND_FOLDER = `        dlg.SetOptions(0x20 | 0x40);               // FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM
+        dlg.SetTitle("Find the missing files of the playlist in a folder");
+        dlg.SetOkButtonLabel("Look in this folder");
+        uint hr = dlg.Show(owner);
+        if (hr != 0) return "${PICK_CANCEL}";      // dismissed / closed
+        IShellItem item; dlg.GetResult(out item);
+        return GetPath(item);
+`;
+const PLAYLIST_PICKER_PS1 = PICKER_CS_TOP.replace(PICKER_CLIENT_GUID, PLAYLIST_PICKER_CLIENT_GUID)
+  + PICKER_BODY_PLAYLIST + PICKER_CS_BOTTOM;
+const FIND_FOLDER_PICKER_PS1 = PICKER_CS_TOP + PICKER_BODY_FIND_FOLDER + PICKER_CS_BOTTOM;
+
 // Save As (playlist export, POST /api/collections/:id/export/save). The same
 // shim pattern as the pickers above (DPI awareness, hidden TOPMOST owner,
 // best-effort dark mode, PICK_CANCEL on dismiss), on the shell's
@@ -3294,6 +3338,24 @@ app.post('/api/collections/:id/export/save', (req, res) => {
   }
 });
 
+// ── Import a playlist from VLC / PotPlayer (PLAYLISTS_SPEC step 3) ─────────
+// server/playlist-import-routes.js; the matching is lib/playlist/import.js.
+// Paths only ever come from the pickers, the drop resolver, or the playlist
+// file found that way (see the routes file).
+const playlistImportRoutes = require('./playlist-import-routes');
+app.use(playlistImportRoutes.buildRouter({
+  spawnPicker,
+  pickCancel: PICK_CANCEL,
+  playlistScript: PLAYLIST_PICKER_PS1,
+  folderScript: FIND_FOLDER_PICKER_PS1,
+  runResolver,
+  normalizeSelections,
+  matchSelection,
+  isLocked: () => vault.isLocked(),
+}));
+// An open playlist's review lists paths: it does not outlive a lock.
+vault.onChange((e) => { if (e === 'locked') require('../lib/playlist/import').clearSessions(); });
+
 app.get('/api/media/:id/collections', (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'bad id' });
@@ -3942,4 +4004,9 @@ if (require.main === module) {
 // Tests only: swap the Save As window for a fake (null puts the real one back).
 function _setSaveDialogForTest(fn) { _saveDialog = fn || _defaultSaveDialog; }
 
-module.exports = { app, start, run: start, isLockGatedPath, _setSaveDialogForTest, _stageRouter: stageRouter };
+module.exports = {
+  app, start, run: start, isLockGatedPath, _setSaveDialogForTest, _stageRouter: stageRouter,
+  // Tests only: fake pickers and drop resolver for Import playlist (null restores).
+  _setPlaylistDialogsForTest: playlistImportRoutes._setDialogsForTest,
+  _playlistPickerScripts: { playlist: PLAYLIST_PICKER_PS1, folder: FIND_FOLDER_PICKER_PS1 },
+};

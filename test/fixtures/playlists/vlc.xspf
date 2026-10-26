@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<playlist xmlns="http://xspf.org/ns/0/" xmlns:vlc="http://www.videolan.org/vlc/playlist/ns/0/" version="1">
+	<title>Playlist</title>
+	<trackList>
+		<track>
+			<location>file:///C:/Media/Caf%C3%A9%20clip.mp4</location>
+			<title>Caf&#233; &amp; friends</title>
+			<duration>95000</duration>
+			<extension application="http://www.videolan.org/vlc/playlist/0">
+				<vlc:id>0</vlc:id>
+				<vlc:option>start-time=3</vlc:option>
+			</extension>
+		</track>
+		<track>
+			<location>file://nas/media/Beta%20two.mkv</location>
+			<extension application="http://www.videolan.org/vlc/playlist/0">
+				<vlc:id>1</vlc:id>
+			</extension>
+		</track>
+		<track>
+			<location>Sub/rel%20one.mp4</location>
+		</track>
+		<track>
+			<location>https://www.youtube.com/watch?v=abc&amp;t=1</location>
+			<title>A web video</title>
+		</track>
+	</trackList>
+	<extension application="http://www.videolan.org/vlc/playlist/0">
+		<vlc:node title="Folder">
+			<vlc:item tid="0"/>
+			<vlc:item tid="1"/>
+		</vlc:node>
+		<vlc:item tid="2"/>
+	</extension>
+</playlist>

@@ -494,13 +494,13 @@ test('watchers\' indexes: not built inside the open of a big library; built in t
   libraryIndex._setWatchIndexNowRows(0);
   try {
     libraryIndex.ensureSchema(conn);
-    assert.strictEqual(libraryIndex.missingWatchIndexes(conn).length, 4, 'the open does not build them');
+    assert.strictEqual(libraryIndex.missingWatchIndexes(conn).length, libraryIndex.WATCH_INDEXES.length, 'the open does not build them');
     // Everything still works without them (slower).
     assert.ok(Array.isArray(store.rowsUnder(media, null, 5)));
     const counts = await store.activityCounts([{ id: 1, path: media }]);
     assert.strictEqual(counts.pending, true, 'the pill counts wait for their indexes');
     const done = await libraryIndex.buildWatchIndexes(() => conn, { pauseMs: 1, log: () => {} });
-    assert.strictEqual(done.length, 4);
+    assert.strictEqual(done.length, libraryIndex.WATCH_INDEXES.length);
     assert.strictEqual(libraryIndex.missingWatchIndexes(conn).length, 0);
   } finally {
     libraryIndex._setWatchIndexNowRows(20000);
