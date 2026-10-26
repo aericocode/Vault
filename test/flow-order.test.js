@@ -87,7 +87,42 @@ test('grades: energy and tempo apart, the worse wins', () => {
   assert.strictEqual(s.jumps, 1);
 });
 
+test('tempo grades at exactly 4 % and 10 % apart (no floating-point noise), cost to match', () => {
+  const tg = (x, y) => F.handover(m(1, 0.5, 0.5, 0.5, x), m(2, 0.5, 0.5, 0.5, y)).tempoGrade;
+  // Every whole BPM from 50 to 200 into exactly 10 % more (a 1-decimal BPM),
+  // and every fifth into exactly 4 % more.
+  for (let b = 50; b <= 200; b++) {
+    const up10 = Math.round(b * 11) / 10;
+    assert.strictEqual(tg(b, up10), 'jump', `${b} into ${up10}`);
+    if (b % 5 === 0) {
+      const up4 = Math.round(b * 10.4) / 10;
+      assert.strictEqual(tg(b, up4), 'noticeable', `${b} into ${up4}`);
+    }
+  }
+  assert.strictEqual(tg(58, 63.8), 'jump');
+  assert.strictEqual(tg(53, 58.3), 'jump');
+  assert.strictEqual(tg(100, 104), 'noticeable');
+  assert.strictEqual(tg(100, 103.9), 'smooth');
+  assert.strictEqual(F.tempoRatio(58, 63.8), 0.1);
+  // The cost uses the same rounded ratio: exactly one jump step.
+  assert.ok(Math.abs(F.handoverCost(m(1, 0.5, 0.5, 0.5, 58), m(2, 0.5, 0.5, 0.5, 63.8)) - 0.25) < 1e-9);
+});
+
+test('a BPM that is not a finite number above 0 is no tempo', () => {
+  for (const bad of [0, -120, Infinity, NaN, '120']) {
+    const h = F.handover(m(1, 0.5, 0.5, 0.5, bad), m(2, 0.5, 0.5, 0.5, 120));
+    assert.strictEqual(h.tempoGrade, null, String(bad));
+    assert.strictEqual(h.tempoPct, null);
+    const t = F.handoverText(m(1, 0.5, 0.5, 0.5, bad), m(2, 0.5, 0.5, 0.5, 120));
+    assert.ok(!/NaN|Infinity/.test(t), t);
+    assert.ok(Number.isFinite(F.handoverCost(m(1, 0.5, 0.5, 0.5, bad), m(2, 0.5, 0.5, 0.5, 120))));
+  }
+});
+
 test('handoverText: the reason in plain words, the worse part first', () => {
+  // Matched against double or half time: said in every grade.
+  assert.strictEqual(F.handoverText(m(1, 0.5, 0.5, 0.5, 120), m(2, 0.5, 0.5, 0.5, 250)), 'Tempo 120 → 250 BPM (double time, 4% apart) · energy steady');
+  assert.strictEqual(F.handoverText(m(1, 0.5, 0.5, 0.5, 280), m(2, 0.5, 0.5, 0.5, 120)), 'Tempo 280 → 120 BPM (half time, 17% apart) · energy steady');
   const t = (a, b) => F.handoverText(a, b);
   assert.strictEqual(t(m(1, 0.5, 0.5, 0.64), m(2, 0.5, 0.5, 0.5)), 'Energy drops 14 · same tempo');
   assert.strictEqual(t(m(1, 0.8, 0.8, 0.8, 115), m(2, 0.8, 0.8, 0.8, 137)), 'Tempo 115 → 137 BPM (19% apart) · energy steady');

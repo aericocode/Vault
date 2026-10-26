@@ -168,11 +168,15 @@ const FlowOrder = (() => {
     return out;
   }
 
-  /** The smallest ratio between two tempos, allowing double and half time. */
+  /**
+   * The smallest ratio between two tempos, allowing double and half time,
+   * rounded to 4 decimals (so exactly 10 % apart is 0.1, not 0.0999...; the
+   * cost and the grade both use this).
+   */
   function tempoRatio(a, b) {
     let best = Infinity;
     for (const k of [1, 2, 0.5]) best = Math.min(best, Math.abs(Math.log(a / (b * k))));
-    return Math.exp(best) - 1;
+    return Math.round((Math.exp(best) - 1) * 1e4) / 1e4;
   }
 
   /**
@@ -192,8 +196,10 @@ const FlowOrder = (() => {
    */
   const eIn = (f) => (f.music ? f.ei ?? f.es ?? f.em : f.em);
   const eOut = (f) => (f.music ? f.eo ?? f.ee ?? f.em : f.em);
-  const bpmOut = (f) => (f.music ? (f.be || f.bm || null) : null);
-  const bpmIn = (f) => (f.music ? (f.bs || f.bm || null) : null);
+  // A tempo is a finite BPM above 0; anything else counts as no tempo.
+  const bpmOk = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null);
+  const bpmOut = (f) => (f.music ? bpmOk(f.be) || bpmOk(f.bm) : null);
+  const bpmIn = (f) => (f.music ? bpmOk(f.bs) || bpmOk(f.bm) : null);
 
   /** End of a into the start of b (see the top). Hot: no objects made. */
   function handoverCost(a, b) {
@@ -246,10 +252,11 @@ const FlowOrder = (() => {
     let tempo;
     if (h.tempoGrade) {
       const ab = Math.round(bpmOut(a)), bb = Math.round(bpmIn(b));
-      const k = Math.abs(Math.log(bpmOut(a) / bpmIn(b))) > Math.log(1.5) ? (bpmOut(a) > bpmIn(b) ? ' (half time)' : ' (double time)') : '';
+      // Matched against double or half time (128 into 64): say so.
+      const k = Math.abs(Math.log(bpmOut(a) / bpmIn(b))) > Math.log(1.5) ? (bpmOut(a) > bpmIn(b) ? 'half time' : 'double time') : '';
       tempo = h.tempoPct < 1 && !k ? 'same tempo'
-        : h.tempoGrade === 'smooth' ? `tempo close, ${ab} → ${bb} BPM${k}`
-        : `tempo ${ab} → ${bb} BPM (${Math.round(h.tempoPct)}% apart)`;
+        : h.tempoGrade === 'smooth' ? `tempo close, ${ab} → ${bb} BPM${k ? ` (${k})` : ''}`
+        : `tempo ${ab} → ${bb} BPM (${k ? `${k}, ` : ''}${Math.round(h.tempoPct)}% apart)`;
     } else if (!a.music || !b.music) {
       tempo = !b.music ? 'no music in the next file' : 'no music in the file before';
     } else tempo = 'tempo unknown';
