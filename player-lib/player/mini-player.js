@@ -93,13 +93,23 @@ function miniLayout({ animate = false } = {}) {
   box.classList.toggle('mini-snapping', glide);
   if (glide) {
     clearTimeout(box._snapTimer);
-    box._snapTimer = setTimeout(() => box.classList.remove('mini-snapping'), 260);
+    box._snapTimer = setTimeout(() => {
+      box.classList.remove('mini-snapping');
+      _miniPlaceNeighbours();   // again where the glide ended
+    }, 260);
   }
   box.dataset.corner = _miniGeom.corner;
   box.style.left = r.left + 'px';
   box.style.top = r.top + 'px';
   box.style.width = r.width + 'px';
   box.style.height = r.height + 'px';
+  _miniPlaceNeighbours();
+}
+
+/** The Up next list (up-next.js) and the toasts (utils.js) follow the box, once it has moved. */
+function _miniPlaceNeighbours() {
+  if (typeof UpNext !== 'undefined') UpNext.positionPopover();
+  if (typeof vaultPlaceToasts === 'function') vaultPlaceToasts();
 }
 
 /**
@@ -544,6 +554,11 @@ function miniPlayerTeardown({ keepPip = false } = {}) {
 
     if (kind === 'back' || kind === 'fwd') {
       miniSkip(kind === 'back' ? -10 : 10);
+      return;
+    }
+    // Previous and next file: the same queue moves as P and N (Up next first).
+    if (kind === 'prev' || kind === 'next') {
+      if (kind === 'prev') playPreviousMedia(); else playNextMedia();
       return;
     }
 

@@ -101,6 +101,10 @@ function renderDetailBody(media, opts = {}) {
     <button onclick="copyPath('${escapedPath}')" class="detail-copy-btn">
       Copy Path
     </button>`;
+  // Up next (player-lib/up-next.js), beside Play in the library's details
+  const upNextBtns = typeof UpNext === 'undefined' ? '' : `
+    <button onclick="upNextAddFrom(${media.id}, 'next', 'details')" class="detail-copy-btn detail-un-btn" title="Play this file after the one playing now (Shift+U)">⤴ Play next</button>
+    <button onclick="upNextAddFrom(${media.id}, 'end', 'details')" class="detail-copy-btn detail-un-btn" title="Add this file to the end of Up next (U)">＋ Up next</button>`;
 
   const trashHandler = isLibrary ? 'trashOrRestoreFromDetails' : 'trashOrRestoreFromSidebar';
 
@@ -135,6 +139,7 @@ function renderDetailBody(media, opts = {}) {
     <div class="detail-section">
       <div class="detail-action-row">
         ${isLibrary ? playBtn : ''}
+        ${isLibrary ? upNextBtns : ''}
         ${copyBtn}
       </div>
 
@@ -336,7 +341,7 @@ function renderDetailBody(media, opts = {}) {
 const detailPanelTab = { player: 'details', library: 'details' };
 
 const DETAIL_PANEL_TABS = {
-  details: 'Details', notes: 'Notes', subtitles: 'Subtitles', music: 'Music', people: 'People', file: 'File',
+  details: 'Details', notes: 'Notes', subtitles: 'Subtitles', music: 'Music', people: 'People', upnext: 'Up next', file: 'File',
 };
 
 /** True when the detail surfaces draw the tabbed panel (Modern look). */
@@ -365,6 +370,9 @@ const DETAIL_PANEL_ACTIONS = {
   trash: { icon: 'trash', label: () => 'Move to trash', click: (m, p, n, lib) => `${lib ? 'trashOrRestoreFromDetails' : 'trashOrRestoreFromSidebar'}(${m.id})` },
   restore: { icon: 'rescan', label: () => 'Restore from trash', click: (m, p, n, lib) => `${lib ? 'trashOrRestoreFromDetails' : 'trashOrRestoreFromSidebar'}(${m.id})` },
   copy: { icon: 'copy', label: () => 'Copy path', click: (m, p) => `copyPath('${p}')` },
+  // Up next (player-lib/up-next.js): fixed buttons after Play, never in More
+  playnext: { icon: 'play-next', label: () => 'Play next (Shift+U)', short: 'Play next', click: (m) => `upNextAddFrom(${m.id}, 'next', 'details')` },
+  upnext: { icon: 'queue', label: () => 'Add to Up next (U)', short: 'Add to Up next', click: (m) => `upNextAddFrom(${m.id}, 'end', 'details')` },
   refresh: {
     icon: 'refresh',
     label: () => 'Force refresh: read the file again (length, size, codecs) and remake its thumbnail and hover frames. The AI scan is not redone',
@@ -400,9 +408,16 @@ function detailPanelActionsHtml(media, escapedPath, escapedName, lib) {
   // The library's Play leads the row and never folds into More.
   const play = lib ? `<button type="button" class="mpp-qa-btn mpp-qa-play" title="Play" aria-label="Play"
       onclick="${DETAIL_PANEL_ACTIONS.play.click(media, escapedPath, escapedName)}">${detailPanelIcon('play')}<span>Play</span></button>` : '';
+  const fixed = (key) => {
+    const a = DETAIL_PANEL_ACTIONS[key];
+    return `<button type="button" class="mpp-qa-btn mpp-qa-fixed" data-qa-fixed="${key}" title="${escapeHtml(a.label(media))}" aria-label="${escapeHtml(a.short)}"
+      onclick="${a.click(media)}">${detailPanelIcon(a.icon)}</button>`;
+  };
+  const upNext = typeof UpNext === 'undefined' ? '' : fixed('playnext') + fixed('upnext');
   return `
     <div class="mpp-qa" role="toolbar" aria-label="File actions">
       ${play}
+      ${upNext}
       ${row.map(btn).join('')}
       <span class="mpp-qa-more-wrap">
         <button type="button" class="mpp-qa-btn mpp-qa-more" title="More" aria-label="More actions" aria-haspopup="menu" aria-expanded="false"
@@ -566,16 +581,19 @@ function renderDetailPanel(media, opts = {}) {
     subtitles: typeof renderSubtitlesSidebarSection === 'function' ? renderSubtitlesSidebarSection(media) : '',
     music: type === 'audio' ? music : '',
     people,
+    // Up next lives beside the player (player-lib/up-next.js fills it in)
+    upnext: !lib && typeof UpNext !== 'undefined' ? UpNext.panelPaneHtml() : '',
     file,
   };
 
   const faces = typeof facesReady === 'function' && facesReady();
-  const tabs = PanelLayout.tabsFor(type, { faces, fingerprinted: false });
+  const tabs = PanelLayout.tabsFor(type, { faces, fingerprinted: false, upNext: !lib && typeof UpNext !== 'undefined' });
   const active = PanelLayout.pickTab(tabs, detailPanelTab[ctx]);
   const errDot = errorSection ? ' mpp-tab--alert' : '';
   // Ids carry the surface: the library's panel can open over the player's.
   const tabHtml = PanelLayout.TAB_ORDER.map(k => {
-    const count = k === 'notes' && notes.length ? notes.length : '';
+    const count = k === 'notes' && notes.length ? notes.length
+      : k === 'upnext' && !lib && typeof UpNext !== 'undefined' && UpNext.count() ? UpNext.count() : '';
     return `<button type="button" role="tab" class="mpp-tab${k === 'file' ? errDot : ''}" id="mppTab-${ctx}-${k}" data-mpp-tab="${k}"
       aria-controls="mppPane-${ctx}-${k}" aria-selected="${k === active}" tabindex="${k === active ? 0 : -1}"${tabs.includes(k) ? '' : ' hidden'}
       onclick="detailPanelSelect('${k}', { root: this.closest('.mpp') })">${DETAIL_PANEL_TABS[k]}<span class="mpp-count">${count}</span></button>`;
@@ -704,7 +722,8 @@ function detailPanelSync(onlyRoot = null) {
   if (typeof PanelLayout === 'undefined') return;
   const faces = typeof facesReady === 'function' && facesReady();
   for (const root of onlyRoot ? [onlyRoot] : detailPanelRoots()) {
-    const tabs = PanelLayout.tabsFor(root.dataset.mppType, { faces, fingerprinted: root.dataset.fp === '1' });
+    const tabs = PanelLayout.tabsFor(root.dataset.mppType, { faces, fingerprinted: root.dataset.fp === '1',
+      upNext: root.dataset.mppCtx === 'player' && typeof UpNext !== 'undefined' });
     root.querySelectorAll('[data-mpp-tab]').forEach(t => { t.hidden = !tabs.includes(t.dataset.mppTab); });
     const current = root.querySelector('[data-mpp-tab][aria-selected="true"]')?.dataset.mppTab;
     const want = root.dataset.picked ? current : detailPanelTab[root.dataset.mppCtx === 'library' ? 'library' : 'player'];
@@ -845,8 +864,9 @@ function detailPanelFit(qa) {
   const row = [...qa.querySelectorAll('[data-qa]')];
   const style = getComputedStyle(qa);
   const play = qa.querySelector('.mpp-qa-play');
+  const fixedW = [...qa.querySelectorAll('.mpp-qa-fixed')].reduce((w, b) => w + b.offsetWidth + 4, 0);
   const width = qa.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
-    - (play ? play.offsetWidth + 4 : 0);
+    - (play ? play.offsetWidth + 4 : 0) - fixedW;
   // Room for More, close (player only) and the gap before it
   const close = qa.querySelector('.mpp-qa-close') ? 36 + 4 : 0;
   const n = PanelLayout.fitActions(width, row.length, { btn: 36, gap: 4, fixed: 36 + 4 + 8 + close });

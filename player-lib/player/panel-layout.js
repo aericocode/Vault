@@ -6,14 +6,14 @@
    Pure functions, no DOM, so test/panel-layout.test.js can load them in vm.
    See .notes/MODERN_PLAYER_SPEC.md, Phase 3.
 
-   - tabsFor(type, {faces, fingerprinted})  the tabs a file gets, in order
+   - tabsFor(type, {faces, fingerprinted, upNext})  the tabs a file gets, in order
    - pickTab(tabs, remembered)              the tab to open on
    - actionsFor(media)                      quick actions: {row, more}
    - fitActions(width, count, sizes)        how many row buttons fit
    ========================================================================= */
 
 const PanelLayout = (() => {
-  const TAB_ORDER = ['details', 'notes', 'subtitles', 'music', 'people', 'file'];
+  const TAB_ORDER = ['details', 'notes', 'subtitles', 'music', 'people', 'upnext', 'file'];
   const TIMED = ['video', 'audio'];
   // Same list as faces.js FACES_KINDS: the types face search looks at.
   const FACE_KINDS = ['image', 'gif', 'video'];
@@ -21,15 +21,17 @@ const PanelLayout = (() => {
   /**
    * Details, Notes and File always; Subtitles for video and audio; Music for
    * audio, and for a video once it has been fingerprinted; People while face
-   * search is on, for the types it reads.
+   * search is on, for the types it reads; Up next beside the player only
+   * (upNext: the queue that plays before the list carries on).
    */
-  function tabsFor(type, { faces = false, fingerprinted = false } = {}) {
+  function tabsFor(type, { faces = false, fingerprinted = false, upNext = false } = {}) {
     const on = {
       details: true,
       notes: true,
       subtitles: TIMED.includes(type),
       music: type === 'audio' || (type === 'video' && !!fingerprinted),
       people: !!faces && FACE_KINDS.includes(type),
+      upnext: !!upNext,
       file: true,
     };
     return TAB_ORDER.filter(k => on[k]);

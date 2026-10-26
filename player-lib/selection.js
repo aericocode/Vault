@@ -429,6 +429,8 @@ function renderSelectionBar() {
 
   bar.innerHTML = `
     <span class="sel-count">${selectedIds.size.toLocaleString()} selected</span>
+    ${typeof UpNext === 'undefined' ? '' : `<button class="sel-btn sel-upnext" onclick="upNextAddSelection('next')" title="Play the selected files after the one playing now (Shift+U)">${vaultIconSwap('⤴ ', 'play-next')}Play next</button>
+    <button class="sel-btn sel-upnext" onclick="upNextAddSelection('end')" title="Add the selected files to the end of Up next (U)">${vaultIconSwap('＋ ', 'queue')}Up next</button>`}
     ${musicBtns}
     ${typeof studiosSelectionButton === 'function' ? studiosSelectionButton() : ''}
     ${typeof facesSelectionButton === 'function' ? facesSelectionButton(counts.faceable) : ''}
