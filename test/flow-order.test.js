@@ -211,3 +211,103 @@ test('no cliff past 600 files: the improvement pass scales instead of stopping',
   const ca = F.planOrder(a, { shape: 'build' }).cost, cb = F.planOrder(b, { shape: 'build' }).cost;
   assert.ok(cb < ca * 1.1, `600: ${ca.toFixed(1)}, 601: ${cb.toFixed(1)}`);
 });
+
+/* ── Places (stream tags, lib/stream-tags.js) ──────────────────────────── */
+
+const twelve = () => {
+  const rng = F.seeded(7);
+  const out = [];
+  for (let i = 1; i <= 12; i++) { const e = 0.15 + 0.7 * rng(); out.push(m(i, e, e, e, 100 + Math.round(rng() * 40))); }
+  return out;
+};
+
+test('places: First goes to the start and Last to the end, with any shape (Smooth only too)', () => {
+  const f = twelve();
+  for (const shape of F.SHAPE_KEYS) {
+    const { order } = F.planOrder(f, { shape, places: { 7: 'first', 3: 'last', 9: 'first' } });
+    assert.deepStrictEqual([...order.slice(0, 2)].sort((a, b) => a - b), [7, 9], shape);
+    assert.strictEqual(order[order.length - 1], 3, shape);
+    assert.strictEqual(new Set(order).size, 12);
+  }
+  // A Map works the same, and a fixed first file still comes before the Firsts.
+  const { order } = F.planOrder(f, { shape: 'build', firstId: 5, places: new Map([[7, 'first']]) });
+  assert.deepStrictEqual(order.slice(0, 2), [5, 7]);
+});
+
+test('places: At a peak takes the highest targets, At a low point the lowest', () => {
+  const f = twelve();
+  const by = new Map(f.map(x => [x.id, x]));
+  const calmest = [...f].sort((a, b) => a.em - b.em)[0].id;
+  const wildest = [...f].sort((a, b) => b.em - a.em)[0].id;
+  // Put the peak on the calmest file and the low on the wildest: the places win over the energy.
+  const plan = F.planOrder(f, { shape: 'build', places: { [calmest]: 'peak', [wildest]: 'low' } });
+  const t = plan.targets;
+  const top = t.indexOf(Math.max(...t)), bottom = t.indexOf(Math.min(...t));
+  assert.strictEqual(plan.order[top], calmest);
+  assert.strictEqual(plan.order[bottom], wildest);
+  // Waves: two peaks land one on each crest, not side by side.
+  const w = F.planOrder(f, { shape: 'waves', places: { 1: 'peak', 2: 'peak' } });
+  const p1 = w.order.indexOf(1), p2 = w.order.indexOf(2);
+  assert.ok(Math.abs(p1 - p2) > 1, `peaks apart: ${p1}, ${p2}`);
+  for (const p of [p1, p2]) assert.ok(w.targets[p] > 0.8 * Math.max(...w.targets), `on a crest: ${p}`);
+  assert.ok(by.size === 12);
+});
+
+test('places: After a peak follows a peak-placed file', () => {
+  const f = twelve();
+  for (const shape of ['build', 'waves', 'peak']) {
+    const { order } = F.planOrder(f, { shape, places: { 4: 'peak', 8: 'after_peak' } });
+    assert.strictEqual(order.indexOf(8), order.indexOf(4) + 1, `${shape}: ${order}`);
+  }
+});
+
+test('places: Smooth only and Steady use First and Last only; Anywhere is ignored', () => {
+  const f = twelve();
+  for (const shape of ['smooth', 'steady']) {
+    const plain = F.planOrder(f, { shape }).order;
+    assert.deepStrictEqual(F.planOrder(f, { shape, places: { 4: 'peak', 5: 'low', 6: 'after_peak', 7: 'anywhere' } }).order, plain, shape);
+  }
+  assert.deepStrictEqual(F.planOrder(f, { shape: 'build', places: { 7: 'anywhere' } }).order, F.planOrder(f, { shape: 'build' }).order);
+});
+
+test('places: precedence First > Last > At a peak > After a peak > At a low point', () => {
+  assert.strictEqual(F.resolvePlace(['low', 'peak', 'last']), 'last');
+  assert.strictEqual(F.resolvePlace(['after_peak', 'first', 'last']), 'first');
+  assert.strictEqual(F.resolvePlace(['low', 'after_peak']), 'after_peak');
+  assert.strictEqual(F.resolvePlace(['anywhere']), null);
+  const f = twelve();
+  const { order } = F.planOrder(f, { shape: 'build', places: { 6: ['peak', 'last'], 2: ['low', 'first'] } });
+  assert.strictEqual(order[0], 2);
+  assert.strictEqual(order[11], 6);
+});
+
+test('places: unmeasured files keep their spot but never take the start or end from a First or Last', () => {
+  const f = [unmeasured(1), m(2, 0.3, 0.3, 0.3), m(3, 0.6, 0.6, 0.6), m(4, 0.5, 0.5, 0.5), unmeasured(5), m(6, 0.8, 0.8, 0.8)];
+  const { order } = F.planOrder(f, { shape: 'build', places: { 3: 'first', 4: 'last' } });
+  assert.strictEqual(order[0], 3);
+  assert.strictEqual(order[5], 4);
+  assert.strictEqual(new Set(order).size, 6);
+  // A placed file is ordered even when it is not measured.
+  const g = F.planOrder(f, { shape: 'build', places: { 5: 'first' } }).order;
+  assert.strictEqual(g[0], 5);
+});
+
+test('places: deterministic, and a big collection stays quick', () => {
+  const rng = F.seeded(11);
+  const f = [];
+  const places = {};
+  const kinds = ['first', 'last', 'peak', 'after_peak', 'low'];
+  for (let i = 1; i <= 800; i++) {
+    const e = rng();
+    f.push(m(i, e, e, e, 80 + Math.round(rng() * 90)));
+    if (rng() < 0.05) places[i] = kinds[Math.floor(rng() * kinds.length)];
+  }
+  const t0 = Date.now();
+  const a = F.planOrder(f, { shape: 'waves', places });
+  assert.ok(Date.now() - t0 < 5000, 'quick');
+  assert.deepStrictEqual(F.planOrder(f, { shape: 'waves', places }).order, a.order);
+  assert.strictEqual(new Set(a.order).size, 800);
+  const firsts = Object.keys(places).filter(k => places[k] === 'first').map(Number);
+  assert.deepStrictEqual(a.order.slice(0, firsts.length).sort((x, y) => x - y), firsts.sort((x, y) => x - y));
+  assert.strictEqual(a.placed, Object.keys(places).length);
+});
