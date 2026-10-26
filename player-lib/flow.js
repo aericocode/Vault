@@ -34,6 +34,9 @@
      flowLeaveOrder()             collection-reorder.js switchToPlaylistOrder
      flowCountText()              collections.js collectionCountText
      flowShuffleCollection(id)    collections.js playCollection (Shuffle)
+     flowWorkingOrder()           collection-reorder.js (drags in Flow order)
+     flowMoveInOrder(ids, before) collection-reorder.js reorderMove
+     flowOrderBarHtml()           collection-reorder.js renderReorderNote (the order bar)
      flowStageCurrent(row)        stage-control.js setCurrent
    ========================================================================= */
 
@@ -61,6 +64,7 @@ const Flow = (() => {
     lanePrefs: null,    // which lane rows show (localStorage)
     hookedSource: null, // the FlowLaneSource whose onChange we listen to
     flashTimer: null,
+    edited: null,       // the working Flow order after drags (ids), or null: as worked out
   };
 
   const esc = (s) => (typeof escapeHtml === 'function' ? escapeHtml(String(s)) : String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])));
@@ -101,6 +105,7 @@ const Flow = (() => {
     st.cid = null; st.open = false; st.order = false; st.data = null; st.byId = new Map();
     st.status = null; st.lastCount = -1; st.appliedOrder = null; st.fetchFails = 0; st.toasted = false;
     st.places = null;
+    st.edited = null;
     paint();
   }
 
@@ -167,6 +172,12 @@ const Flow = (() => {
       const data = await api(`/api/flow/collections/${cid}?shape=${encodeURIComponent(st.shape)}&places=${placesOn() ? 1 : 0}`);
       if (cid !== st.cid) return;
       st.data = data;
+      if (st.edited) {
+        const kept = reconcile(st.edited, data.order);
+        const same = kept.length === st.edited.length && kept.every((id, i) => id === st.edited[i]);
+        st.edited = kept;
+        if (!same) remember();
+      }
       // Asked before the answer said which files have a placed tag: ask again.
       if (placesOn() !== !!data.placesOn) again = true;
       st.byId = new Map(data.features.map(f => [f.id, f]));
@@ -185,6 +196,7 @@ const Flow = (() => {
       st.fetching = false;
     }
     paint();
+    if (typeof renderReorderNote === 'function') renderReorderNote();
     if (st.open && typeof renderResults === 'function') renderResults();
   }
 
@@ -228,7 +240,7 @@ const Flow = (() => {
 
   async function applyOrder() {
     if (!st.data) return;
-    const next = st.data.order;
+    const next = workingOrder();
     if (st.appliedOrder && st.appliedOrder.length === next.length && st.appliedOrder.every((id, i) => id === next[i])) return;
     st.appliedOrder = next.slice();
     if (typeof applyFilters === 'function') await applyFilters({ keepPage: true });
@@ -238,6 +250,7 @@ const Flow = (() => {
   async function useFlowOrder() {
     if (!isMine()) return;
     st.order = true;
+    remember();
     if (!st.data) await refetch(true);
     st.appliedOrder = null;
     await applyOrder();
@@ -246,8 +259,7 @@ const Flow = (() => {
 
   async function usePlaylistOrder() {
     if (!st.order) return;
-    st.order = false;
-    st.appliedOrder = null;
+    leave();
     paint();
     if (typeof switchToPlaylistOrder === 'function') await switchToPlaylistOrder();
     else if (typeof applyFilters === 'function') await applyFilters({ keepPage: true });
@@ -255,23 +267,31 @@ const Flow = (() => {
 
   async function pickShape(shape) {
     if (!FlowOrder.isShape(shape)) return;
+    const dropped = st.order ? st.edited : null, prevShape = st.shape, prevPlaces = st.places;
     st.shape = shape;
     st.order = true;
+    st.edited = null;
+    remember();
     paint();
     await refetch(true);
     st.appliedOrder = null;
     await applyOrder();
     paint();
+    offerUndoEdits(dropped, prevShape, prevPlaces, `Worked out ${FlowOrder.shapeLabel(shape)} afresh`);
   }
 
   async function pickPlaces(on) {
+    const dropped = st.order ? st.edited : null, prevShape = st.shape, prevPlaces = st.places;
     st.places = !!on;
     st.order = true;
+    st.edited = null;
+    remember();
     paint();
     await refetch(true);
     st.appliedOrder = null;
     await applyOrder();
     paint();
+    offerUndoEdits(dropped, prevShape, prevPlaces, `Place tagged files is ${on ? 'on' : 'off'} now`);
   }
 
   /** The Place tagged files switch: only for a collection with placed tags (or once used). */
@@ -289,17 +309,19 @@ const Flow = (() => {
     if (!st.data || !isMine()) return;
     const cid = st.cid;
     const before = st.data.playlistOrder.slice();
-    const order = st.data.order.slice();
+    const order = workingOrder().slice();
     try {
-      await post(`/api/collections/${cid}/order`, { order });
+      const saved = await post(`/api/collections/${cid}/order`, { order });
+      // The page's copy of the playlist order (rearranging reads it).
+      if (typeof collectionMembers !== 'undefined') collectionMembers.set(cid, Array.isArray(saved.order) ? saved.order : order);
     } catch (err) { toastErr(err, 'saving the order'); return; }
-    st.order = false;
-    st.appliedOrder = null;
+    leave();
     await refetch(true);
     if (typeof switchToPlaylistOrder === 'function') await switchToPlaylistOrder();
     const undo = async () => {
       try {
-        await post(`/api/collections/${cid}/order`, { order: before });
+        const back = await post(`/api/collections/${cid}/order`, { order: before });
+        if (typeof collectionMembers !== 'undefined') collectionMembers.set(cid, Array.isArray(back.order) ? back.order : before);
         if (cid === st.cid) await refetch(true);
         if (typeof applyFilters === 'function') await applyFilters({ keepPage: true });
         if (typeof showToast === 'function') showToast('Playlist order put back');
@@ -319,6 +341,256 @@ const Flow = (() => {
       schedulePoll();
     }
     paint();
+  }
+
+  /* ── The working Flow order: edits, the bar, remembering ────────────
+     While Flow order shows, dragging tiles (or Alt+arrows,
+     collection-reorder.js) edits the working order here, in memory: the
+     bar says "edited", the chart, hand-overs and jumps follow it, and
+     nothing is saved until Save as playlist order. Back to playlist order
+     drops it; picking a shape (or Place tagged files) again works the order
+     out afresh and drops the edits, with Undo.
+
+     Remembered per collection on this computer (localStorage
+     vault.flow.order.<id>: { shape, places, edited }): while the key is
+     there, opening the collection (or reloading) shows Flow order again.
+     Going back, saving or shuffling removes it. An edited order is kept
+     valid when files come or go: gone ones dropped, new ones at the end. */
+
+  const MEM_PREFIX = 'vault.flow.order.';
+
+  /** The order Flow order shows: the edited one, or the one worked out. */
+  function workingOrder() {
+    if (!st.data) return [];
+    return st.edited || st.data.order;
+  }
+
+  /** The edited order kept to the collection's files (gone dropped, new at the end). */
+  function reconcile(edited, base) {
+    const inBase = new Set(base);
+    const seen = new Set();
+    const out = [];
+    for (const id of edited) if (inBase.has(id) && !seen.has(id)) { seen.add(id); out.push(id); }
+    for (const id of base) if (!seen.has(id)) out.push(id);
+    return out;
+  }
+
+  let sumMemo = { edited: null, data: null, value: null };
+  /** Hand-overs and jumps of what Flow order shows now. */
+  function orderSummary() {
+    const d = st.data;
+    if (!d) return { handovers: [], jumps: 0 };
+    if (!st.edited) return { handovers: d.handovers, jumps: d.jumps };
+    if (sumMemo.edited !== st.edited || sumMemo.data !== d) sumMemo = { edited: st.edited, data: d, value: FlowOrder.summary(d.features, st.edited) };
+    return sumMemo.value;
+  }
+
+  function remember() {
+    if (st.cid == null) return;
+    try {
+      if (!st.order) localStorage.removeItem(MEM_PREFIX + st.cid);
+      else localStorage.setItem(MEM_PREFIX + st.cid, JSON.stringify({ shape: st.shape, places: st.places, edited: st.edited }));
+    } catch {}
+  }
+
+  function recalled(cid) {
+    try {
+      const v = JSON.parse(localStorage.getItem(MEM_PREFIX + cid) || 'null');
+      return v && typeof v === 'object' ? v : null;
+    } catch { return null; }
+  }
+
+  /** The collection just opened: show Flow order again if it was showing. */
+  let restoring = null;
+  async function restore(cid) {
+    const m = recalled(cid);
+    if (!m || restoring === cid) return;
+    restoring = cid;
+    try {
+      if (st.cid !== cid) reset();
+      st.cid = cid;
+      st.shape = FlowOrder.isShape(m.shape) ? m.shape : 'smooth';
+      st.places = typeof m.places === 'boolean' ? m.places : null;
+      st.edited = Array.isArray(m.edited) && m.edited.length ? m.edited.filter(Number.isInteger) : null;
+      st.order = true;
+      st.appliedOrder = null;
+      await refetch(true);
+    } finally {
+      restoring = null;
+    }
+  }
+
+  /** Leave Flow order (Back, Save, Shuffle...): edits dropped, nothing remembered. */
+  function leave() {
+    st.order = false;
+    st.appliedOrder = null;
+    st.edited = null;
+    remember();
+  }
+
+  /**
+   * A drag or Alt+arrows in Flow order: move `ids` to sit before `before`
+   * (null: the end) in the working order. In memory only, with Undo.
+   * @returns {Promise<boolean>} whether the order changed
+   */
+  async function moveInOrder(ids, before) {
+    if (!st.order || !st.data || !isMine()) return false;
+    const prev = workingOrder().slice();
+    const prevEdited = st.edited;
+    const moving = new Set(ids);
+    const block = prev.filter(id => moving.has(id));
+    const rest = prev.filter(id => !moving.has(id));
+    const at = before == null ? rest.length : rest.indexOf(before);
+    if (!block.length || at < 0) return false;
+    const next = [...rest.slice(0, at), ...block, ...rest.slice(at)];
+    if (next.every((id, i) => id === prev[i])) return false;
+    st.edited = next;
+    remember();
+    await applyOrder();
+    paint();
+    if (typeof renderReorderNote === 'function') renderReorderNote();
+    const n = next.indexOf(block[0]) + 1;
+    const f = st.byId.get(block[0]);
+    // selection.js showUndoToast takes HTML: the name is escaped.
+    const msg = block.length === 1
+      ? `Moved “${esc(shortName(f) || 'file')}” to position ${n} in Flow order`
+      : `Moved ${block.length} files to position ${n} in Flow order`;
+    const undo = async () => {
+      if (!st.order || !isMine()) return;
+      st.edited = prevEdited ? reconcile(prevEdited, st.data.order) : null;
+      remember();
+      await applyOrder();
+      paint();
+      if (typeof renderReorderNote === 'function') renderReorderNote();
+    };
+    if (typeof showUndoToast === 'function') showUndoToast(msg, undo);
+    return true;
+  }
+
+  /** Picking a shape or Place tagged files again dropped the edits: Undo puts them (and the old pick) back. */
+  function offerUndoEdits(dropped, prevShape, prevPlaces, what) {
+    if (!dropped || typeof showUndoToast !== 'function') return;
+    showUndoToast(`${what}, so your moves in Flow order were dropped`, async () => {
+      st.shape = prevShape;
+      st.places = prevPlaces;
+      st.order = true;
+      await refetch(true);
+      if (!st.data) return;
+      st.edited = reconcile(dropped, st.data.order);
+      st.appliedOrder = null;
+      remember();
+      await applyOrder();
+      paint();
+      if (typeof renderReorderNote === 'function') renderReorderNote();
+    });
+  }
+
+  /** The order bar over the grid while Flow order shows (collection-reorder.js renderReorderNote). */
+  function orderBarHtml() {
+    if (!st.order || !isMine()) return '';
+    const name = `${FlowOrder.shapeLabel(st.shape)}${st.edited ? ', edited' : ''}`;
+    let status = 'Not saved';
+    const d = st.data;
+    if (d && d.counts && d.counts.music >= 2) status += ` · ${plural(orderSummary().jumps, 'jump', 'jumps')}, was ${d.playlistJumps.toLocaleString()}`;
+    return `<span class="flow-ob-pill">Flow order: ${esc(name)}</span>
+      <span class="flow-ob-status">${esc(status)}</span>
+      <span class="flow-sp"></span>
+      <button type="button" class="flow-btn flow-btn-sm" onclick="Flow.usePlaylistOrder()">Back to playlist order</button>
+      <button type="button" class="flow-btn flow-btn-sm flow-ob-save" onclick="Flow.saveOrder()">Save as playlist order</button>`;
+  }
+
+  /* ── Tile marks ─────────────────────────────────────────────────────
+     On the open collection's tiles and table rows, in every order: a
+     "Playing" mark and a thin progress line on the file playing (the same
+     clock as the playhead), and "Next" on the file the list plays next
+     (Up next's own tag already marks its files). While Flow order shows,
+     a file whose place changed shows its position and the old one faint
+     ("3 · was 7"). Painted onto whatever the grid drew (a watch on the
+     grid, and a check every PH_TICK_MS), so cards.js and table-view.js
+     need nothing; only the progress line's width changes between paints. */
+
+  function nextFrom(playing) {
+    if (typeof UpNext !== 'undefined' && UpNext.count() > 0) return { id: UpNext.ids()[0], upNext: true };
+    if (playing == null || typeof Library === 'undefined') return null;
+    const i = Library.indexOf(playing);
+    if (i < 0) return null;
+    const id = Library.idAt(i + 1);
+    return id != null ? { id, upNext: false } : null;
+  }
+
+  let marksKey = '';
+  let marksQueued = false;
+  function scheduleMarks() {
+    if (marksQueued) return;
+    marksQueued = true;
+    requestAnimationFrame(() => { marksQueued = false; paintMarks(); });
+  }
+
+  function marksState() {
+    const inColl = activeId() != null;
+    const src = inColl ? playSource() : null;
+    const playing = src ? src.id : null;
+    const nx = inColl ? nextFrom(playing) : null;
+    const flowOn = !!(st.order && isMine() && st.data && st.appliedOrder);
+    return { src, playing, next: nx && !nx.upNext ? nx.id : null, flowOn };
+  }
+
+  function paintMarks() {
+    const grid = document.getElementById('resultsGrid');
+    if (!grid) return;
+    const s = marksState();
+    let pos = null, was = null;
+    if (s.flowOn) {
+      pos = new Map(workingOrder().map((id, i) => [id, i]));
+      was = new Map(st.data.playlistOrder.map((id, i) => [id, i]));
+    }
+    marksKey = `${s.playing}|${s.next}|${s.flowOn ? workingOrder().length + ':' + (st.edited ? 'e' : '') + st.shape : ''}`;
+    for (const tile of grid.querySelectorAll('.media-tile[data-id]')) {
+      const id = Number(tile.dataset.id);
+      let html = '';
+      if (pos && pos.has(id) && was.has(id) && pos.get(id) !== was.get(id)) {
+        html += `<span class="flow-mk-pos" title="Position ${pos.get(id) + 1} in Flow order, ${was.get(id) + 1} in the playlist order">${pos.get(id) + 1}<s> · was ${was.get(id) + 1}</s></span>`;
+      }
+      if (id === s.playing) html += '<span class="flow-mk-badge flow-mk-now">Playing</span><span class="flow-mk-prog"><i></i></span>';
+      else if (id === s.next) html += '<span class="flow-mk-badge flow-mk-next">Next</span>';
+      const host = tile.querySelector('.tile-thumb') || tile.querySelector('.tv-c-title');
+      if (!host) continue;
+      let mk = host.querySelector(':scope > .flow-marks');
+      tile.classList.toggle('flow-mk-playing', id === s.playing);
+      if (!html) { if (mk) mk.remove(); continue; }
+      if (mk && mk.dataset.k === html) continue;
+      if (!mk) {
+        mk = document.createElement('span');
+        mk.className = 'flow-marks';
+        host.appendChild(mk);
+      }
+      mk.dataset.k = html;
+      mk.innerHTML = html;
+    }
+    paintProgress(s);
+  }
+
+  function paintProgress(s) {
+    const bar = s.playing != null ? document.querySelector('#resultsGrid .flow-mk-prog > i') : null;
+    if (!bar || !s.src) return;
+    const d = Number(s.src.el.duration);
+    const p = d > 0 && Number.isFinite(d) ? Math.max(0, Math.min(1, (Number(s.src.el.currentTime) || 0) / d)) : 0;
+    bar.style.width = `${(p * 100).toFixed(2)}%`;
+  }
+
+  /** Every PH_TICK_MS: repaint the marks when what plays (or the order) changed, else move the progress line. */
+  function marksTick() {
+    if (document.hidden) return;
+    const s = marksState();
+    const key = `${s.playing}|${s.next}|${s.flowOn ? workingOrder().length + ':' + (st.edited ? 'e' : '') + st.shape : ''}`;
+    if (key !== marksKey) paintMarks();
+    else paintProgress(s);
+  }
+
+  function startMarks() {
+    const grid = document.getElementById('resultsGrid');
+    if (grid && typeof MutationObserver === 'function') new MutationObserver(scheduleMarks).observe(grid, { childList: true, subtree: true });
+    setInterval(marksTick, PH_TICK_MS);
   }
 
   /* ── The panel ──────────────────────────────────────────────────── */
@@ -404,12 +676,12 @@ const Flow = (() => {
 
   function chartOrder() {
     const d = st.data;
-    return d ? (st.order ? d.order : d.playlistOrder) : [];
+    return d ? (st.order ? workingOrder() : d.playlistOrder) : [];
   }
 
   function chartHandovers(order) {
     const d = st.data;
-    return st.order ? d.handovers : FlowOrder.summary(d.features, order).handovers;
+    return st.order ? orderSummary().handovers : FlowOrder.summary(d.features, order).handovers;
   }
 
   /* ── Lane rows ───────────────────────────────────────────────────────
@@ -978,7 +1250,7 @@ const Flow = (() => {
   function summaryText() {
     const d = st.data;
     if (!d) return '';
-    const jumps = st.order ? d.jumps : d.playlistJumps;
+    const jumps = st.order ? orderSummary().jumps : d.playlistJumps;
     if (d.counts.music < 2) return '';
     return jumps ? `${plural(jumps, 'jump', 'jumps')} between files` : 'Every hand-over is smooth or close';
   }
@@ -1110,7 +1382,7 @@ const Flow = (() => {
     if (!data) { try { data = await api(`/api/flow/collections/${cid}?shape=smooth`); } catch { return false; } }
     if (!data.features.some(f => f.measured && f.music)) return false;
     const order = FlowOrder.flowShuffle(data.features);
-    if (st.order) { st.order = false; st.appliedOrder = null; paint(); }
+    if (st.order) { leave(); paint(); }
     return Library.shuffle(order);
   }
 
@@ -1146,9 +1418,15 @@ const Flow = (() => {
   window.addEventListener('vault:results-changed', () => {
     if (st.cid != null && st.cid !== activeId()) reset();
     else renderHeaderButton();
+    // A collection that was showing Flow order when it was left (or the page reloaded): show it again.
+    const cid = activeId();
+    if (cid != null && st.cid == null && recalled(cid)) restore(cid);
+    scheduleMarks();
   });
   document.addEventListener('DOMContentLoaded', wire);
   if (document.readyState !== 'loading') wire();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startMarks);
+  else setTimeout(startMarks, 0);
 
   // A stream tag changed (player-lib/stream-tags.js, loaded after this file):
   // a Place may have, so the open panel asks again.
@@ -1164,8 +1442,10 @@ const Flow = (() => {
     tileHtml, queryRanked, shuffleCollection, stageCurrent,
     isOpen: () => st.open && isMine(),
     orderOn: () => st.order && isMine() && !!st.appliedOrder,
-    countText: () => (st.order && isMine() && st.appliedOrder ? `Flow order: ${FlowOrder.shapeLabel(st.shape).toLowerCase()}` : null),
-    leaveOrder: () => { if (st.order) { st.order = false; st.appliedOrder = null; paint(); } },
+    countText: () => (st.order && isMine() && st.appliedOrder ? `Flow order: ${FlowOrder.shapeLabel(st.shape).toLowerCase()}${st.edited ? ', edited' : ''}` : null),
+    leaveOrder: () => { if (st.order) { leave(); paint(); } },
+    workingOrder: () => (st.order && isMine() ? workingOrder().slice() : null),
+    moveInOrder, orderBarHtml,
     _state: () => ({ ...st, byId: st.byId.size, data: st.data && { order: st.data.order, counts: st.data.counts, jumps: st.data.jumps } }),
   };
 })();
@@ -1184,4 +1464,7 @@ function flowOrderOn() { return Flow.orderOn(); }
 function flowLeaveOrder() { Flow.leaveOrder(); }
 function flowCountText() { return Flow.countText(); }
 function flowShuffleCollection(id) { return Flow.shuffleCollection(id); }
+function flowWorkingOrder() { return Flow.workingOrder(); }
+function flowMoveInOrder(ids, before) { return Flow.moveInOrder(ids, before); }
+function flowOrderBarHtml() { return Flow.orderBarHtml(); }
 function flowStageCurrent(row) { Flow.stageCurrent(row); }
