@@ -5,7 +5,9 @@
  *
  *   GET  /api/stage/state           is Stage open, is mpv there, the session
  *   GET  /api/stage/events?role=control   server-sent events for Control
- *   POST /api/stage/open            start mpv (or bring it to the front)
+ *   POST /api/stage/open            start mpv (or bring it to the front); with Basic
+ *                                   chosen or no mpv nothing starts here: the page
+ *                                   runs Basic Stage (picture-in-picture) itself
  *   POST /api/stage/cmd             a command from Control (load, play, hold...)
  *   GET  /api/stage/settings        Settings › Stage
  *   POST /api/stage/settings        change some of them
@@ -33,6 +35,7 @@ const { createEngine } = require('../lib/stage/engine');
 const { createMpvHost } = require('../lib/stage/mpv-host');
 const { buildArgs } = require('../lib/stage/mpv-args');
 const mpvFind = require('../lib/stage/mpv-find');
+const StageRules = require('../player-lib/stage-rules.js');
 
 /**
  * @param {object} opts
@@ -43,8 +46,10 @@ const mpvFind = require('../lib/stage/mpv-find');
  * @param {Function} [opts.hostFactory]  createMpvHost (tests)
  * @param {Function} [opts.find]         mpvFind.findMpv (tests)
  */
-function buildRouter({ lib = {}, pickMpv = null, env = process.env, hostFactory = createMpvHost, find = mpvFind.findMpv, platform = process.platform } = {}) {
+function buildRouter({ lib = {}, pickMpv = null, env = process.env, hostFactory = createMpvHost, find: findReal = mpvFind.findMpv, platform = process.platform } = {}) {
   const router = express.Router();
+  // VAULT_STAGE_NO_MPV=1 (checks only): mpv is never found, so Stage runs Basic.
+  const find = (o) => (env.VAULT_STAGE_NO_MPV === '1' ? Promise.resolve({ found: false }) : findReal(o));
 
   const readSettings = () => stageSettings.normalize(appSettings.all().stage);
   const readWindow = () => {
@@ -163,13 +168,17 @@ function buildRouter({ lib = {}, pickMpv = null, env = process.env, hostFactory 
       chosen,
       chosenProblem: f.chosenProblem || null,
       canChoose: platform === 'win32' && env.VAULT_DISABLE_NATIVE_PICKER !== '1' && typeof pickMpv === 'function',
+      // Which Stage opens: mpv, or Basic (picture-in-picture in the Vault page).
+      choice: StageRules.playerChoice({ setting: readSettings().player, mpvFound: f.found === true }),
     };
   }
 
   async function launch() {
+    if (readSettings().player === 'basic') return { status: 200, body: { ok: true, mode: 'basic' } };
     const found = await find({ chosen: readChosen() });
     if (!found.found) {
-      return { status: 409, body: { error: 'Stage plays in mpv, and mpv was not found on this computer. Choose it in Settings › Stage.', code: 'MPV_MISSING' } };
+      // The page runs Basic Stage itself (picture-in-picture); nothing to start here.
+      return { status: 409, body: { error: 'mpv was not found on this computer, so Stage runs as Basic (picture-in-picture).', code: 'MPV_MISSING', mode: 'basic' } };
     }
     const s = readSettings();
     const w = readWindow();

@@ -17,6 +17,16 @@
    in mpv, and when Stage reports that one of them started, the queue here
    catches up (Up next, the list's anchor) and sends the next ones.
 
+   Basic Stage, when mpv is not there (or Settings › Stage says Basic): the
+   browser's own picture-in-picture of the mini player's video, in this
+   page. No extra program; the mini player stays the mini player (its own
+   element, volume, seek bar, Up next, Next and Previous), dressed with the
+   Stage pill, Repeat, Hold and the Stage button. The queue moves on with
+   player-core's own logic, and the picture-in-picture window is handed from
+   one file to the next (mini-player.js miniPipCarry). Videos only: anything
+   else the queue reaches is passed over and said. Hold pauses and mutes (it
+   cannot go black). A lock leaves picture-in-picture at once.
+
    Closing Stage (the remote, its menu, the window's own close) hands the
    file back to the mini player at the same spot, with sound. Stage vanishing
    (a crash, sleep) leaves the remote saying "Stage was closed", paused.
@@ -105,7 +115,7 @@ const StageControl = (() => {
   function cmd(body) {
     return api('/api/stage/cmd', body).catch((err) => {
       if (err.status === 423) return null;
-      if (err.code === 'STAGE_CLOSED') { if (open) stageGone({ how: 'gone' }); return null; }
+      if (err.code === 'STAGE_CLOSED') { if (open && !basic) stageGone({ how: 'gone' }); return null; }
       console.warn('[Stage] command failed:', body.type, err.message);
       return null;
     });
@@ -154,15 +164,6 @@ const StageControl = (() => {
 
   /* ── Opening Stage ────────────────────────────────────────────────── */
 
-  /** mpv is not on this computer (or not where Vault looks): say how to get it. */
-  function noMpv() {
-    const msg = 'Stage plays in mpv, a free video player, and Vault could not find it. Install mpv (from mpv.io), then press Open Stage again. If it is installed somewhere else, choose mpv.exe in Settings › Stage.';
-    if (typeof vaultChoose === 'function') {
-      vaultChoose(msg, { title: 'Stage needs mpv', buttons: [{ label: 'Open Settings › Stage', value: 'settings', primary: true }, { label: 'Close', value: null }], cancelValue: null })
-        .then((v) => { if (v === 'settings' && typeof window.vaultOpenSettings === 'function') window.vaultOpenSettings('stage'); });
-    } else showToast(msg, { type: 'error' });
-  }
-
   let opening = null;                 // the open in progress (a promise)
 
   /**
@@ -171,13 +172,23 @@ const StageControl = (() => {
    * Stage is opening waits for that open, then does its own part (its then).
    */
   async function openStage({ then = null } = {}) {
-    if (open) { front(); if (then) then(); return; }
+    if (open) {
+      front();
+      if (then) { if (basic) markListStart(); then(); }
+      return;
+    }
     if (opening) {
       await opening;
       if (open && then) then();
       return;
     }
-    opening = doOpen({ then });
+    // Basic Stage needs the click that opened it (picture-in-picture asks for
+    // one), so it starts from here, after one quick look at what is set.
+    opening = (async () => {
+      await refreshState();
+      if (wantBasic()) { startBasic({ then }); return; }
+      await doOpen({ then });
+    })();
     try { await opening; } finally { opening = null; }
   }
 
@@ -185,10 +196,11 @@ const StageControl = (() => {
     // What plays here now, taken before anything is torn down.
     const local = then ? null : localPlayback();
     try {
-      await api('/api/stage/open', {});
+      const r = await api('/api/stage/open', {});
+      if (r && r.mode === 'basic') { startBasic({ then }); return; }
     } catch (err) {
-      if (err.code === 'MPV_MISSING') noMpv();
-      else if (err.status !== 423) {
+      if (err.code === 'MPV_MISSING') { startBasic({ then }); return; }
+      if (err.status !== 423) {
         if (typeof showErrorToast === 'function') showErrorToast(err, 'opening Stage');
         else showToast('Stage could not open.', { type: 'error' });
       }
@@ -264,6 +276,7 @@ const StageControl = (() => {
    */
   function intercept(mediaData, opts) {
     if (!open) return false;
+    if (basic) return basicIntercept(mediaData, opts);
     const type = mediaData && mediaData.media_type;
     if (!STAGEABLE.has(type)) {
       showToast('Stage shows videos, pictures and sound. Close Stage to open this here.');
@@ -518,7 +531,10 @@ const StageControl = (() => {
     paintMeta();
     fire(hold ? 'pause' : 'play');
   }
-  function toggleHold() { if (open) setHold(!hold); }
+  function toggleHold() {
+    if (basic) { basicToggleHold(); return; }
+    if (open) setHold(!hold);
+  }
 
   function setVolume(v) {
     volume = Math.max(0, Math.min(1, Number(v) || 0));
@@ -532,12 +548,16 @@ const StageControl = (() => {
     paintVolume();
   }
 
-  function front() { cmd({ type: 'front' }); }
+  function front() {
+    if (basic) { pipWhenReady(); return; }
+    cmd({ type: 'front' });
+  }
 
   function setSize(preset) { cmd({ type: 'size', preset }); }
 
   /** Close Stage from here: the file carries on in the mini player at the same spot. */
   async function closeStage() {
+    if (basic) { closeBasic({ how: 'closed' }); return; }
     if (!open) return;
     const r = await cmd({ type: 'close' });
     const last = r && r.last ? r.last : { t, paused: proxy.paused };
@@ -548,6 +568,7 @@ const StageControl = (() => {
 
   /** Stage closed (its own window) or vanished. */
   function stageGone({ how: kind, last }) {
+    if (basic) { closeBasic({ how: kind === 'closed' ? 'closed' : 'pip' }); return; }
     if (!open && !remoteShown) return;
     const at = last && last.t != null ? last.t : t;
     // After the end of the list there is no file to carry on with here.
@@ -558,6 +579,7 @@ const StageControl = (() => {
 
   /** Back to the mini player: the same file at the same spot (maximizeAt, player-core.js). */
   function handBack({ t: at, paused: wasPaused, how: kind }) {
+    if (basic) { closeBasic({ how: kind === 'closed' ? 'closed' : 'pip' }); return; }
     const row = cur && cur.row;
     open = false;
     sentHideNames = null;
@@ -599,6 +621,7 @@ const StageControl = (() => {
   }
 
   function key(e) {
+    if (basic) return basicKey(e);
     if (e.key === 'Escape') {
       if (menuOpen()) { closeMenu(); return true; }
       if (tipsOpen()) { hideTips(); return true; }
@@ -760,7 +783,8 @@ const StageControl = (() => {
 
   const mutedByStage = new WeakSet();
   function applyMute() {
-    const on = open && settings.muteVault !== false;
+    // Basic Stage's sound is this page's own: never muted for it.
+    const on = open && !basic && settings.muteVault !== false;
     document.querySelectorAll('video, audio').forEach((el) => {
       if (on && !el.muted) { el.muted = true; mutedByStage.add(el); }
       else if (!on && mutedByStage.has(el)) { el.muted = false; mutedByStage.delete(el); }
@@ -769,7 +793,7 @@ const StageControl = (() => {
   // Anything that starts making sound here while Stage is open (a preview, the Wall).
   document.addEventListener('play', (e) => {
     const el = e.target;
-    if (!open || settings.muteVault === false || !(el instanceof HTMLMediaElement) || el.muted) return;
+    if (!open || basic || settings.muteVault === false || !(el instanceof HTMLMediaElement) || el.muted) return;
     el.muted = true;
     mutedByStage.add(el);
   }, true);
@@ -782,7 +806,7 @@ const StageControl = (() => {
     if (e) e.preventDefault();
     if (!open) return;
     let size = 'free';
-    try { const s = await api('/api/stage/state'); size = s.size || 'free'; } catch {}
+    if (!basic) { try { const s = await api('/api/stage/state'); size = s.size || 'free'; } catch {} }
     let el = $('stageMenu');
     if (!el) {
       el = document.createElement('div');
@@ -802,7 +826,13 @@ const StageControl = (() => {
     }
     const check = (p) => (p === size ? '<span class="sm-check" aria-hidden="true">✓</span>' : '<span class="sm-check" aria-hidden="true"></span>');
     const item = (act, label, sub) => `<button type="button" role="menuitemradio" aria-checked="${act === size}" data-stage-act="${act}">${check(act)}<span class="sm-l">${esc(label)}</span>${sub ? `<span class="sm-s">${esc(sub)}</span>` : ''}</button>`;
-    el.innerHTML = `
+    el.innerHTML = basic ? `
+      <div class="sm-h">Basic Stage</div>
+      <button type="button" role="menuitem" data-stage-act="front"><span class="sm-check"></span><span class="sm-l">Show the picture-in-picture window</span></button>
+      <div class="sm-h">Size</div>
+      <div class="sm-note">Drag the picture-in-picture window's edge to size it. Sizes need the full Stage (mpv).</div>
+      <div class="sm-sep"></div>
+      <button type="button" role="menuitem" data-stage-act="close" class="sm-close"><span class="sm-check"></span><span class="sm-l">Close Stage</span><span class="sm-s">plays on here</span></button>` : `
       <div class="sm-h">Stage</div>
       <button type="button" role="menuitem" data-stage-act="front"><span class="sm-check"></span><span class="sm-l">Bring Stage to the front</span></button>
       <div class="sm-h">Size</div>
@@ -871,7 +901,15 @@ const StageControl = (() => {
       });
     }
     const name = esc(settings.windowName || 'Vault Stage');
-    el.innerHTML = `
+    el.innerHTML = basic ? `
+      <div class="st-head"><b>Stage is open (Basic)</b><button type="button" class="st-x" data-tips="close" aria-label="Close">${glyph('✕', 'close')}</button></div>
+      <ol class="st-list">
+        <li>In Discord, start a screen share and pick the browser's window named <b>Picture in picture</b>.</li>
+        <li>It shows the address and its controls while the mouse is over it, so keep the mouse away from it.</li>
+        <li>Basic Stage plays videos only, and Hold pauses and mutes (it can't go black). Run everything from the mini player.</li>
+        <li>For the full Stage (its own window, pictures, a black Hold, sizes), install mpv, the free player from mpv.io.</li>
+      </ol>
+      <div class="st-acts"><button type="button" class="st-btn" data-tips="never">Don't show again</button><button type="button" class="st-btn st-pri" data-tips="ok">Got it</button></div>` : `
       <div class="st-head"><b>Stage is open</b><button type="button" class="st-x" data-tips="close" aria-label="Close">${glyph('✕', 'close')}</button></div>
       <ol class="st-list">
         <li>In Discord, start a screen share and pick the window named <b>${name}</b>.</li>
@@ -891,6 +929,252 @@ const StageControl = (() => {
     if (tipsOpen()) placeNear($('stageTips'));
   });
 
+  /* ── Basic Stage: the browser's picture-in-picture (no mpv) ────────── */
+
+  let basic = false;
+  let basicHold = null;               // while held: { wasPlaying, muted }
+  let basicListStart = false;         // Play on Stage started a list: its first file may be passed over too
+  let listStartTimer = null;
+  function markListStart() {
+    basicListStart = true;
+    clearTimeout(listStartTimer);
+    listStartTimer = setTimeout(() => { basicListStart = false; }, 5000);
+  }
+  const BASIC_LOCK_KEY = 'vault-stage-basic-locked';
+
+  /**
+   * Basic when Settings › Stage says so, or mpv is not found: the server's
+   * answer from just now (refreshState). If the server could not be asked,
+   * what this page last heard decides (Basic if it never heard), and an mpv
+   * open then fails with "Could not reach Vault".
+   */
+  function wantBasic() {
+    if (mpv && mpv.choice) return mpv.choice === 'basic';
+    return StageRules.playerChoice({ setting: settings.player, mpvFound: !!(mpv && mpv.found) }) === 'basic';
+  }
+
+  const basicEl = () => document.querySelector('#miniPlayerMedia video');
+  const pipCarrying = () => typeof miniPipCarrying === 'function' && miniPipCarrying();
+
+  function startBasic({ then = null } = {}) {
+    basic = true;
+    open = true;
+    basicHold = null;
+    document.body.classList.add('stage-basic');
+    const local = then ? null : localPlayback();
+    if (local && local.mediaData.media_type !== 'video') {
+      showToast('Basic Stage plays videos only. Play a video to show it there.');
+    } else if (local && local.overlayOn) {
+      minimizePlayer();
+    }
+    if (then) { markListStart(); then(); }
+    basicSettle();
+    if (settings.tips) showTips();
+    else if (!local && !then) showToast('Stage is open (Basic). Play a video to show it there.');
+  }
+
+  /** The video is in the mini player, dressed as the remote, and in picture-in-picture. */
+  function basicSettle() {
+    if (!basic) return;
+    const overlay = $('mediaPlayerOverlay');
+    if (overlay && overlay.classList.contains('active') && currentMediaState.type === 'video') minimizePlayer();
+    paintBasic();
+    pipWhenReady();
+  }
+
+  function paintBasic() {
+    if (!basic) return;
+    const box = $('miniPlayer');
+    if (box && box.classList.contains('active')) box.classList.add('mini-stage', 'mini-stage-basic');
+    const pill = $('miniStagePill');
+    if (pill) {
+      pill.classList.toggle('hold', !!basicHold);
+      const w = pill.querySelector('.msp-word');
+      if (w) w.textContent = basicHold ? 'Holding' : 'On Stage';
+    }
+    const hb = $('miniHoldBtn');
+    if (hb) {
+      hb.setAttribute('aria-pressed', basicHold ? 'true' : 'false');
+      hb.title = basicHold ? 'Holding: paused and muted. Press to come back (H)' : 'Hold: pause and mute. Basic Stage can’t go black (H)';
+      hb.classList.toggle('on', !!basicHold);
+    }
+    const sb = $('miniStageBtn');
+    if (sb) {
+      sb.title = 'Close Stage and keep playing here (right-click for more)';
+      sb.setAttribute('aria-label', 'Close Stage');
+      sb.classList.add('on');
+    }
+    paintRepeat();
+    if (typeof miniLayout === 'function') miniLayout();
+  }
+
+  /** Into picture-in-picture once the video knows its size (the browser asks for that). */
+  function pipWhenReady() {
+    const el = basicEl();
+    if (!basic || !el || document.pictureInPictureElement === el || pipCarrying()) return;
+    if (!document.pictureInPictureEnabled || typeof el.requestPictureInPicture !== 'function') {
+      showToast('This browser has no picture-in-picture, so Basic Stage cannot show. The full Stage needs mpv (Settings › Stage).');
+      return;
+    }
+    const go = () => {
+      if (!basic || basicEl() !== el || document.pictureInPictureElement === el) return;
+      el.requestPictureInPicture().catch(() => {
+        showToast('Press the pop-out button on the mini player to show Stage.');
+      });
+    };
+    if (el.readyState >= 1) go();
+    else el.addEventListener('loadedmetadata', go, { once: true });
+  }
+
+  /**
+   * The queue asks (player-core.js nextPlayableIndex): does Basic Stage pass
+   * over a file of this type? Pure apart from basic.
+   */
+  function passOver(mediaType) {
+    return basic && !StageRules.basicPlays(mediaType);
+  }
+
+  /** The queue walked past these on Basic Stage (names said, nothing opened); end: nothing playable was left. */
+  function notePassed(rows, { end = false } = {}) {
+    if (!basic) return;
+    const list = (rows || []).filter(Boolean);
+    if (list.length === 1) showToast(`Skipped “${nameOf(list[0])}”: Basic Stage plays videos only.`);
+    else if (list.length > 1) showToast(`Skipped ${list.length} files: Basic Stage plays videos only.`);
+    if (end) showToast('Nothing more that Basic Stage can play.');
+  }
+
+  /** playMedia while Basic Stage is open: videos play in the mini player (and its window). */
+  function basicIntercept(mediaData, opts) {
+    const o = opts || {};
+    const type = mediaData && mediaData.media_type;
+    const listStart = basicListStart;
+    basicListStart = false;
+    if (!StageRules.basicPlays(type)) {
+      if (listStart && typeof getCurrentMediaIndex === 'function' && typeof queueNav === 'function') {
+        // Play on Stage's list starts with something Basic cannot show: on to its first video.
+        const from = getCurrentMediaIndex(mediaData.filepath);
+        const passed = [mediaData];
+        queueNav(async () => {
+          const i = await nextPlayableIndex(from, 1, passed);
+          notePassed(passed, { end: i === -1 });
+          if (i !== -1) await playIndexHandsFree(i);
+        });
+        return true;
+      }
+      showToast(o.source === 'auto' || o.fromUpNext
+        ? `Skipped “${nameOf(mediaData)}”: Basic Stage plays videos only.`
+        : 'Basic Stage plays videos only. Close Stage to open this here.');
+      return true;
+    }
+    if (basicHold) {
+      const el = basicEl();
+      if (el) el.muted = basicHold.muted;
+      basicHold = null;
+    }
+    // Stays in the mini player (and so in its picture-in-picture window), even when picked from the library.
+    if (opts) opts.stayMini = true;
+    setTimeout(basicSettle, 0);
+    return false;
+  }
+
+  function basicToggleHold() {
+    const el = basicEl();
+    if (basicHold) {
+      const h = basicHold;
+      basicHold = null;
+      if (el) {
+        el.muted = h.muted;
+        if (h.wasPlaying) el.play().catch(() => {});
+      }
+    } else {
+      basicHold = { wasPlaying: !!el && !el.paused, muted: !!el && el.muted };
+      if (el) { try { el.pause(); el.muted = true; } catch {} }
+    }
+    paintBasic();
+  }
+
+  function basicKey(e) {
+    if (e.key === 'Escape') {
+      if (menuOpen()) { closeMenu(); return true; }
+      if (tipsOpen()) { hideTips(); return true; }
+      return true;                    // Esc never closes Stage by accident
+    }
+    if (e.key === 'q' || e.key === 'Q') return true;
+    if ((e.key === 'h' || e.key === 'H') && !e.ctrlKey && !e.altKey && !e.metaKey) { basicToggleHold(); return true; }
+    return false;
+  }
+
+  /** Close Basic Stage: picture-in-picture goes, the mini player plays on at the same spot. */
+  function closeBasic({ how = 'closed' } = {}) {
+    if (!basic) return;
+    basic = false;
+    open = false;
+    const el = basicEl();
+    if (basicHold && el) el.muted = basicHold.muted;
+    basicHold = null;
+    document.body.classList.remove('stage-basic');
+    const box = $('miniPlayer');
+    if (box) box.classList.remove('mini-stage', 'mini-stage-basic');
+    const sb = $('miniStageBtn');
+    if (sb) { sb.classList.remove('on'); sb.title = 'Open Stage, the window you share in Discord'; sb.setAttribute('aria-label', 'Open Stage'); }
+    hideTips();
+    closeMenu();
+    try { if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {}); } catch {}
+    if (typeof miniLayout === 'function') miniLayout();
+    if (how === 'lock') return;
+    if (how === 'mini') { showToast('Stage closed.'); return; }
+    const words = how === 'pip' ? 'Stage closed (its window was closed)' : 'Stage closed';
+    if (el && !el.paused) showToast(`${words}. Playing here from ${fmt(el.currentTime || 0)}.`);
+    else if (el) showToast(`${words}. Paused here at ${fmt(el.currentTime || 0)}.`);
+    else showToast(`${words}.`);
+  }
+
+  // The picture-in-picture window closed (its own close button, the browser
+  // giving up handing it to the next file, its element taken out of the
+  // page): Stage is closed. leavepictureinpicture fires on the element, which
+  // may already be out of the page then, so each element that enters
+  // picture-in-picture is watched itself. Moving the window to the next file
+  // is not a close (the next element holds it at once).
+  function pipLeft() {
+    setTimeout(() => {
+      if (!basic || document.pictureInPictureElement || pipCarrying()) return;
+      closeBasic({ how: 'pip' });
+    }, 400);
+  }
+  document.addEventListener('enterpictureinpicture', (e) => {
+    const el = e.target;
+    if (!el || el._stageWatched) return;
+    el._stageWatched = true;
+    el.addEventListener('leavepictureinpicture', () => { el._stageWatched = false; pipLeft(); }, { once: true });
+  }, true);
+
+  // Play pressed while Held: Hold ends and the sound comes back.
+  document.addEventListener('play', (e) => {
+    if (!basic || !basicHold || e.target !== basicEl()) return;
+    e.target.muted = basicHold.muted;
+    basicHold = null;
+    paintBasic();
+  }, true);
+
+  /** The mini player is closing under Basic Stage (closed, a file that failed for good, the playing file trashed): Stage closes. */
+  function miniClosing() {
+    if (!basic) return;
+    closeBasic({ how: 'mini' });
+  }
+
+  /**
+   * Vault is locking (vault-ui.js haltAllPlayback): out of picture-in-picture
+   * and paused at once, so no picture is left on screen. Nothing reopens by
+   * itself after the unlock (picture-in-picture needs a click).
+   */
+  function lockStop() {
+    if (!basic) return;
+    const el = basicEl();
+    if (el) { try { el.pause(); } catch {} }
+    try { sessionStorage.setItem(BASIC_LOCK_KEY, '1'); } catch {}
+    closeBasic({ how: 'lock' });
+  }
+
   /* ── Privacy mode: file names hidden ──────────────────────────────── */
 
   // Files are sent without a name while Vault hides file names (itemFor).
@@ -906,13 +1190,16 @@ const StageControl = (() => {
     cmd({ type: 'privacy', hideNames: on });
   }
   function privacyChanged() {
-    if (!open) return;
+    // Basic Stage has no server session: nothing to send, its names are this page's.
+    if (!open || basic) return;
     syncPrivacy();
     if (cur) sendUpcoming();
     paintMeta();
   }
   if (typeof MutationObserver === 'function') {
-    let was = null;
+    // From the state at load: a class change that is not about privacy (Basic
+    // Stage dressing the page, say) is not a privacy change.
+    let was = namesHidden();
     new MutationObserver(() => {
       const now = namesHidden();
       if (now === was) return;
@@ -924,7 +1211,10 @@ const StageControl = (() => {
   /* ── Changes here that change what comes next ─────────────────────── */
 
   function upNextChanged() { if (open && cur) sendUpcoming(); }
-  function repeatChanged() { if (open && cur) { paintRepeat(); sendUpcoming(); } }
+  function repeatChanged() {
+    if (basic) { paintRepeat(); return; }
+    if (open && cur) { paintRepeat(); sendUpcoming(); }
+  }
 
   // Keep the loading note and the picture countdown moving even with no reports.
   setInterval(() => { if (remoteShown) paintMeta(); }, 1000);
@@ -932,6 +1222,9 @@ const StageControl = (() => {
   /* ── Boot: Stage may already be open (this page reloaded, or unlocked) ── */
 
   async function boot() {
+    let lockedOut = false;
+    try { lockedOut = sessionStorage.getItem(BASIC_LOCK_KEY) === '1'; sessionStorage.removeItem(BASIC_LOCK_KEY); } catch {}
+    if (lockedOut) showToast('Basic Stage closed when Vault locked. Press the Stage button to show it again.');
     const s = await refreshState();
     if (s && s.open) { open = true; connect(); }
   }
@@ -939,10 +1232,10 @@ const StageControl = (() => {
   boot();
 
   return {
-    proxy, intercept, on: () => open && remoteShown, isOpen: () => open,
+    proxy, intercept, on: () => open && remoteShown, isOpen: () => open, basicOn: () => basic, lockStop, passOver, notePassed, miniClosing,
     openStage, openFromPlayer, playCollectionOnStage, stageButton, closeStage, menu, front, setSize,
     toggleHold, setVolume, toggleMute, paintVolume, key, hideRemote,
     upNextChanged, repeatChanged, showTips,
-    _state: () => ({ open, remoteShown, mpv, cur: cur && { key: cur.key, id: cur.row && cur.row.id }, t, d, paused, hold, finished, volume, muted, note: note && note.text }),
+    _state: () => ({ open, basic, basicHold: !!basicHold, remoteShown, mpv, cur: cur && { key: cur.key, id: cur.row && cur.row.id }, t, d, paused, hold, finished, volume, muted, note: note && note.text }),
   };
 })();
