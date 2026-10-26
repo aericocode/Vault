@@ -207,6 +207,16 @@ const SETTINGS_INDEX = [
   { page: 'stage', id: 'stageTips', label: 'Tips when Stage opens',
     desc: 'How to share Stage in Discord, shown next to the remote.',
     keywords: ['stage', 'tips', 'help', 'discord'] },
+  // Flow (player-lib/flow.js) and Even out loudness, on the Stage page too
+  { page: 'stage', id: 'stageEvenLoudness', label: 'Even out loudness on Stage',
+    desc: 'Quiet files are turned up and loud ones down, so viewers do not reach for the volume. mpv Stage only.',
+    keywords: ['stage', 'loudness', 'volume', 'normalize', 'normalise', 'level', 'lufs', 'replaygain', 'quiet', 'loud'] },
+  { page: 'stage', id: 'stageFlowMeasure', label: 'Measure for Flow',
+    desc: 'When Vault listens to files for Flow order: only when you use Flow, new files too, or the whole library now.',
+    keywords: ['flow', 'measure', 'tempo', 'bpm', 'energy', 'music', 'order', 'playlist', 'analyse', 'analyze'] },
+  { page: 'stage', id: 'stageFlowShuffle', label: 'Flow shuffle',
+    desc: 'A collection’s Shuffle lines files up so each one tends to flow into the next, instead of pure random. It still mixes things up.',
+    keywords: ['flow', 'shuffle', 'random', 'tempo', 'bpm', 'energy', 'collection'] },
 
   // Keyboard shortcuts (its rows are searched from shortcuts.js as well)
   { page: 'shortcuts', id: 'shortcutsList', label: 'Keyboard shortcuts',

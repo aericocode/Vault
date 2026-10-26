@@ -3442,7 +3442,11 @@ const stageRouter = require('./stage-routes').buildRouter({
     mergeHeatmap: (id, buckets) => { db.mergeHeatmap(id, buckets); },
     touch: () => vault.touch(),
     isLocked: () => vault.isLocked(),
+    // Even out loudness: the gain for a file from its Flow measurement (lib/flow/loudness.js).
+    loudnessGain: (id) => flowService.gainFor(id),
   },
+  // "Measure for Flow" may have changed: the measuring queue looks again.
+  onSettingsSaved: () => flowService.kick(),
   // Choose mpv in the native file picker (Settings › Stage); off where native
   // dialogs are off (VAULT_DISABLE_NATIVE_PICKER, checked inside spawnPicker).
   pickMpv: (res, done) => spawnPicker(res, PICKER_MPV_PS1, 'file', ({ code, out, errOut, finish }) => {
@@ -3454,6 +3458,17 @@ const stageRouter = require('./stage-routes').buildRouter({
   }),
 });
 app.use(stageRouter);
+
+// ── Flow (measure each file's music, Flow order for a collection, see
+//    lib/flow/). Measuring waits while locked and while the mpv Stage plays. ──
+const flowService = require('../lib/flow/service');
+flowService.configure({
+  isLocked: () => vault.isLocked(),
+  stagePlaying: () => stageRouter.isPlaying(),
+  settings: () => require('../lib/stage/settings').normalize(appSettings.all().stage),
+});
+vault.onChange(() => flowService.kick());
+app.use(require('./flow-routes').buildRouter());
 
 // ── Library search (server-side query, facets, id lists — see
 //    lib/library-query.js and SERVER_SEARCH_SPEC) ─────────────────────────

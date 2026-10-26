@@ -487,11 +487,24 @@ const Library = (() => {
     emit('vault:results-changed');
   }
 
-  /** Shuffle the result in place (collection Shuffle): the grid follows. */
-  async function shuffle() {
+  /**
+   * Shuffle the result in place (collection Shuffle): the grid follows.
+   * order: an order worked out elsewhere (Flow shuffle, player-lib/flow.js);
+   * ids it does not list keep their places after the ones it does.
+   */
+  async function shuffle(order) {
     const ids = await waitIds();
     if (!ids) return false;
     const types = res.types;
+    if (Array.isArray(order)) {
+      const at = new Map(order.map((id, i) => [id, i]));
+      const idx = Array.from(ids, (_, i) => i);
+      idx.sort((a, b) => ((at.get(ids[a]) ?? 1e12 + a) - (at.get(ids[b]) ?? 1e12 + b)));
+      const oldIds = ids.slice(), oldTypes = types.slice();
+      idx.forEach((from, to) => { ids[to] = oldIds[from]; types[to] = oldTypes[from]; });
+      res.shuffled = true;
+      return true;
+    }
     for (let i = ids.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       const t = ids[i]; ids[i] = ids[j]; ids[j] = t;

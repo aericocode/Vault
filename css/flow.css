@@ -1,0 +1,178 @@
+/* ==========================================
+   Flow (player-lib/flow.js): the panel above an open collection's files,
+   the Flow… button, and the energy row on tiles.
+   Classic first; Modern (body.layout-modern) takes the Modern surfaces.
+   ========================================== */
+
+:root {
+  --flow-e-lo: #38bdf8;         /* calm */
+  --flow-e-hi: #f472b6;         /* intense */
+  --flow-ok: #86efac;           /* smooth hand-over */
+  --flow-warn: #fcd34d;         /* noticeable */
+  --flow-bad: #fca5a5;          /* jump */
+  --flow-target: rgba(255, 255, 255, 0.55);
+  --flow-quiet: rgba(255, 255, 255, 0.35);
+  --flow-band: rgba(255, 255, 255, 0.03);
+}
+
+.coll-action.coll-flow.on {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent-hover);
+}
+
+.flow-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 0.5rem;
+  padding: 10px 12px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  min-width: 0;
+}
+.flow-panel[hidden] { display: none; }
+
+.flow-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+}
+.flow-title { font-weight: 700; font-size: 0.9rem; }
+.flow-sub { color: var(--text-secondary); font-size: 0.78rem; }
+.flow-failed { color: var(--flow-bad); }
+.flow-sp { flex: 1; }
+.flow-seg-label { color: var(--text-secondary); font-size: 0.75rem; }
+
+.flow-seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.flow-seg button {
+  background: none;
+  border: 0;
+  padding: 5px 11px;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.flow-seg button:hover { color: var(--text-primary); background: var(--bg-hover); }
+.flow-seg button[aria-pressed="true"] {
+  background: var(--accent-bg);
+  color: var(--text-primary);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.flow-seg button:focus-visible,
+.flow-btn:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
+
+.flow-btn {
+  padding: 0.35rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.flow-btn:hover { border-color: var(--accent); }
+.flow-btn-sm { padding: 0.15rem 0.6rem; font-size: 0.74rem; }
+
+.flow-prog {
+  width: 140px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.flow-prog i { display: block; height: 100%; background: var(--accent); transition: width 0.3s; }
+
+.flow-chart { width: 100%; height: 110px; display: block; }
+
+.flow-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+.flow-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+.flow-legend .flow-key-energy { background: linear-gradient(90deg, var(--flow-e-lo), var(--flow-e-hi)); }
+.flow-legend .flow-key-target { border: 1px dashed var(--flow-target); }
+
+/* Tiles: energy start / middle / end, the BPM, the hand-over dot */
+.tile-flow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 6px;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.flow-ebar { display: inline-flex; gap: 1px; align-items: flex-end; height: 12px; }
+.flow-ebar b { display: block; width: 5px; border-radius: 1px; }
+.flow-tile-note { color: var(--text-muted); }
+.flow-join {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.flow-join-smooth { background: var(--flow-ok); }
+.flow-join-noticeable { background: var(--flow-warn); }
+.flow-join-jump { background: var(--flow-bad); }
+
+@media (prefers-reduced-motion: reduce) { .flow-prog i { transition: none; } }
+
+/* ── Modern ── */
+body.layout-modern .flow-panel {
+  background: var(--m-surface);
+  border-color: var(--m-border);
+  border-radius: var(--m-radius);
+  color: var(--m-text);
+  font-size: 13px;
+}
+body.layout-modern .flow-title { font-size: 13px; font-weight: 600; }
+body.layout-modern .flow-sub,
+body.layout-modern .flow-seg-label,
+body.layout-modern .flow-legend { color: var(--m-muted); font-size: 12px; }
+body.layout-modern .flow-seg { border-color: var(--m-border-strong); }
+body.layout-modern .flow-seg button { color: var(--m-text-2); font-size: 13px; }
+body.layout-modern .flow-seg button:hover { color: var(--m-text); background: var(--m-btn-hover); }
+body.layout-modern .flow-seg button[aria-pressed="true"] { color: var(--m-text); }
+body.layout-modern .flow-btn {
+  min-height: 28px;
+  border-color: var(--m-border-strong);
+  border-radius: var(--m-radius-sm, 8px);
+  background: var(--m-btn);
+  color: var(--m-text);
+  font-size: 12.5px;
+}
+body.layout-modern .flow-btn:hover { background: var(--m-btn-hover); border-color: rgba(255, 255, 255, 0.22); }
+body.layout-modern .flow-btn-sm { min-height: 22px; font-size: 12px; }
+body.layout-modern .coll-action.coll-flow.on { background: var(--accent-bg); border-color: var(--accent); color: var(--accent-hover); }
+body.layout-modern .tile-flow { color: var(--m-muted); font-size: 11px; }
+body.layout-modern .flow-tile-note { color: var(--m-muted); }
+
+@media (max-width: 720px) {
+  .flow-shapes button { padding: 4px 8px; }
+  .flow-prog { width: 90px; }
+}

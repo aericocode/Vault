@@ -320,6 +320,7 @@ const StageControl = (() => {
     cur = { key, row };
     statusKey = null;
     paint();
+    if (typeof flowStageCurrent === 'function') flowStageCurrent(row);   // the Stage bar's tempo and energy (flow.js)
   }
 
   function currentRepeat() { return typeof repeatMode === 'function' ? repeatMode() : 'off'; }

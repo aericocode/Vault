@@ -648,6 +648,9 @@ function currentQuerySpec() {
     spec.rankedIds = [{ id: audioSimAnchorId, score: 2 }];
     for (const [id, score] of audioSimScores) if (id !== audioSimAnchorId) spec.rankedIds.push({ id, score });
   }
+  // Flow order on an open collection (player-lib/flow.js): the order it worked out.
+  const flowRanked = typeof flowQueryRanked === 'function' ? flowQueryRanked() : null;
+  if (flowRanked && spec.collectionId != null && !spec.rankedIds) spec.rankedIds = flowRanked;
   // A ranked focus (a person search) orders the grid by its own scores.
   if (focusIds && focusRanked) spec.rankedIds = focusRanked;
   // A person open in the Faces tab: exactly their files, in their order. The

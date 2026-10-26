@@ -32,7 +32,7 @@ const stageSettings = require('../lib/stage/settings');
 const geometry = require('../lib/stage/geometry');
 const { createHub, ROLES } = require('../lib/stage/hub');
 const { createEngine } = require('../lib/stage/engine');
-const { createMpvHost } = require('../lib/stage/mpv-host');
+const { createMpvHost, volumeGainSupported } = require('../lib/stage/mpv-host');
 const { buildArgs } = require('../lib/stage/mpv-args');
 const mpvFind = require('../lib/stage/mpv-find');
 const StageRules = require('../player-lib/stage-rules.js');
@@ -45,8 +45,9 @@ const StageRules = require('../player-lib/stage-rules.js');
  *        { canceled } | { path } and the function that answers the request
  * @param {Function} [opts.hostFactory]  createMpvHost (tests)
  * @param {Function} [opts.find]         mpvFind.findMpv (tests)
+ * @param {(settings: object) => void} [opts.onSettingsSaved]  after Settings › Stage saves (Flow's "Measure for Flow")
  */
-function buildRouter({ lib = {}, pickMpv = null, env = process.env, hostFactory = createMpvHost, find: findReal = mpvFind.findMpv, platform = process.platform } = {}) {
+function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = process.env, hostFactory = createMpvHost, find: findReal = mpvFind.findMpv, platform = process.platform } = {}) {
   const router = express.Router();
   // VAULT_STAGE_NO_MPV=1 (checks only): mpv is never found, so Stage runs Basic.
   const find = (o) => (env.VAULT_STAGE_NO_MPV === '1' ? Promise.resolve({ found: false }) : findReal(o));
@@ -210,7 +211,7 @@ function buildRouter({ lib = {}, pickMpv = null, env = process.env, hostFactory 
       },
     });
     host = h;
-    engine = createEngine({ mpv: h, report: (r) => hub.report(r), settings: readSettings, lib, forceMute });
+    engine = createEngine({ mpv: h, report: (r) => hub.report(r), settings: readSettings, lib, forceMute, volumeGain: volumeGainSupported(found.version) });
     const out = await h.start(found.path, (ipcPath) => buildArgs({
       ipcPath, title: s.windowName, bounds, maximized: w.max === true && !preset,
       cursorSeconds: s.cursorSeconds, volume: session.volume, muted: session.muted, forceMute, quiet,
@@ -270,6 +271,7 @@ function buildRouter({ lib = {}, pickMpv = null, env = process.env, hostFactory 
     if (!v.ok) return res.status(400).json({ error: v.error });
     appSettings.set({ stage: v.settings });
     hub.settingsChanged();
+    if (typeof onSettingsSaved === 'function') { try { onSettingsSaved(v.settings); } catch {} }
     res.json(v.settings);
   });
 
@@ -301,6 +303,11 @@ function buildRouter({ lib = {}, pickMpv = null, env = process.env, hostFactory 
     try { res.json({ ok: true, mpv: await status() }); } catch { res.json({ ok: true }); }
   });
 
+  /** mpv Stage is open and playing (not paused, not on Hold, not locked): Flow waits. */
+  router.isPlaying = () => {
+    const s = hub._session();
+    return !!(s.open && s.mode === 'mpv' && alive() && !s.paused && !s.hold && !s.locked);
+  };
   router._hub = hub;
   router._runner = runner;
   router._engine = () => engine;
