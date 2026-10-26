@@ -89,7 +89,7 @@ test('GET /api/flow/collections/:id: Build up orders by energy, talk placed by s
   assert.deepStrictEqual(j.playlistOrder, ids);
   assert.strictEqual(j.targets.length, 6);
   assert.strictEqual(j.handovers.length, 5);
-  assert.deepStrictEqual(j.counts, { total: 6, measurable: 5, measured: 5, music: 4, noMusic: 1, failed: 0, left: 0, max: 5000, tooMany: false });
+  assert.deepStrictEqual(j.counts, { total: 6, measurable: 5, measured: 5, music: 4, noMusic: 1, failed: 0, left: 0, stale: 0, kept: 0, max: 5000, tooMany: false });
   const pic = j.features.find(f => f.id === ids[5]);
   assert.strictEqual(pic.kind, 'other');
 });
@@ -109,6 +109,90 @@ test('GET /api/flow/media/:id: the Stage bar line', async () => {
   assert.strictEqual(j.text, '140 BPM · energy high');
   assert.strictEqual((await (await get(`/api/flow/media/${ids[4]}`)).json()).text, 'no music');
   assert.strictEqual((await get('/api/flow/media/99999')).status, 404);
+});
+
+test("the chart's data: each file's name, and its envelope (2 decimals) when it has one", async () => {
+  const d = db.get();
+  d.prepare('UPDATE media_flow SET env = ? WHERE media_id = ?').run('[[0.05,0.8123],[0.5,0.9],[0.95,0.886]]', ids[0]);
+  // A shape not asked for yet (the order cache knows nothing of a direct write).
+  const j = await (await get(`/api/flow/collections/${coll}?shape=steady`)).json();
+  const f0 = j.features.find(f => f.id === ids[0]);
+  assert.deepStrictEqual(f0.env, [[0.05, 0.81], [0.5, 0.9], [0.95, 0.89]]);
+  assert.strictEqual(f0.name, 'f0.mp4');
+  const f1 = j.features.find(f => f.id === ids[1]);
+  assert.ok(!('env' in f1), 'no envelope: the chart draws start, middle and end');
+  assert.strictEqual(j.features.find(f => f.id === ids[5]).name, 'f5.mp4');
+  assert.ok(!('title' in f0), 'no song linked: no title');
+  d.prepare('UPDATE media_flow SET env = NULL WHERE media_id = ?').run(ids[0]);
+});
+
+test("the chart's names: the library's title when one song is linked to the file, none for a mix", async () => {
+  const music = require('../lib/musicid/repo');
+  const a = music.findOrCreateSong({ title: 'Glass Hours', artist: 'Neon Harbor' });
+  const b = music.findOrCreateSong({ title: 'Low Orbit', artist: '' });
+  music.linkSongToMedia({ media_id: ids[1], song_id: a });
+  music.linkSongToMedia({ media_id: ids[2], song_id: b });
+  music.linkSongToMedia({ media_id: ids[3], song_id: a });
+  music.linkSongToMedia({ media_id: ids[3], song_id: b });
+  // Music ID's placeholder for a song it grouped by sound alone is not a title.
+  const c = music.findOrCreateSong({ title: 'Unknown Song 1', artist: 'Unknown', source: 'auto-cluster' });
+  music.linkSongToMedia({ media_id: ids[0], song_id: c });
+  const j = await (await get(`/api/flow/collections/${coll}?shape=build&first=${ids[1]}`)).json();
+  const by = new Map(j.features.map(f => [f.id, f]));
+  assert.strictEqual(by.get(ids[1]).title, 'Glass Hours by Neon Harbor');
+  assert.strictEqual(by.get(ids[2]).title, 'Low Orbit');
+  assert.ok(!('title' in by.get(ids[3])), 'two songs: no one title');
+  assert.strictEqual(by.get(ids[3]).name, 'f3.mp4');
+  assert.ok(!('title' in by.get(ids[0])), 'a placeholder: the file name instead');
+  db.get().prepare('DELETE FROM media_songs WHERE media_id IN (?, ?, ?, ?)').run(ids[0], ids[1], ids[2], ids[3]);
+});
+
+/** Wait until the measuring queue has nothing left. */
+async function queueIdle() {
+  const t0 = Date.now();
+  for (;;) {
+    const s = await (await get('/api/flow/status')).json();
+    if (s.queue.state === 'idle' && !s.queue.current && !s.queue.pending) return;
+    if (Date.now() - t0 > 5000) throw new Error('the queue never went idle');
+    await new Promise(res => setTimeout(res, 50));
+  }
+}
+
+test('a row from the previous method (no envelope) is used meanwhile, counted stale, and measured again', async () => {
+  const d = db.get();
+  d.prepare('UPDATE media_flow SET version = 2 WHERE media_id = ?').run(ids[2]);
+  await new Promise(res => setTimeout(res, 1100));             // the counts cache
+  const j = await (await get(`/api/flow/collections/${coll}?shape=peak`)).json();
+  assert.strictEqual(j.counts.measured, 5);
+  assert.strictEqual(j.counts.stale, 1);
+  assert.strictEqual(j.counts.left, 0);
+  const f2 = j.features.find(f => f.id === ids[2]);
+  assert.strictEqual(f2.measured, true);
+  assert.strictEqual(f2.em, 0.5);
+  const m = await (await post(`/api/flow/collections/${coll}/measure`)).json();
+  assert.strictEqual(m.added, 1, 'queued to be measured again');
+  await queueIdle();
+
+  // The file is not on disk (an unplugged drive): its older numbers are kept, no error row.
+  const kept = () => d.prepare('SELECT version, error, e_start, e_mid, e_end, bpm_mid FROM media_flow WHERE media_id = ?').get(ids[2]);
+  assert.deepStrictEqual(kept(), { version: 2, error: null, e_start: 0.5, e_mid: 0.5, e_end: 0.5, bpm_mid: 120 });
+  assert.strictEqual(store.get(d, ids[2]).stale, 1);
+  await new Promise(res => setTimeout(res, 1100));
+  const s = await (await get(`/api/flow/status?collection=${coll}`)).json();
+  assert.strictEqual(s.collection.failed, 0);
+  // Kept its older numbers: counted as kept, not as stale still to do (no "adding detail" for it).
+  assert.strictEqual(s.collection.stale, 0);
+  assert.strictEqual(s.collection.kept, 1);
+  assert.strictEqual(s.collection.measured, 5);
+  // Not asked again on the next open (no loop) ...
+  assert.strictEqual((await (await post(`/api/flow/collections/${coll}/measure`)).json()).added, 0);
+  // ... but Try again asks once more, and a second failure still keeps the numbers.
+  assert.strictEqual((await (await post(`/api/flow/collections/${coll}/measure`, { retry: true })).json()).added, 1);
+  await queueIdle();
+  assert.deepStrictEqual(kept(), { version: 2, error: null, e_start: 0.5, e_mid: 0.5, e_end: 0.5, bpm_mid: 120 });
+  assert.strictEqual((await (await post(`/api/flow/collections/${coll}/measure`)).json()).added, 0);
+  // Back to the current method for the tests after (the same numbers).
+  d.prepare('UPDATE media_flow SET version = ? WHERE media_id = ?').run(require('../lib/flow/analyze').VERSION, ids[2]);
 });
 
 test('measure: queues only what is not measured; status counts it', async () => {

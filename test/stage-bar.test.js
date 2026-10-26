@@ -362,7 +362,7 @@ test('css: the mini player hides under the bar; the page, the dock, the rail, th
   for (const c of ['sb-no-skip .sb-skip', 'sb-no-label .sb-un-label', 'sb-no-volslider .sb-vol-slider', 'sb-no-thumb .sb-thumb']) assert.ok(css.includes(c), c);
 });
 
-test('Up next, the Stage menu and the tips open above the bar while it shows; Close Stage carries on in the mini player', () => {
+test('Up next, the Stage menu and the tips open above the bar while it shows; the X closes Stage and stops', () => {
   const un = read('player-lib/up-next.js');
   assert.match(un, /const r = sb \? sb\.anchorRect\('upnext'\) : mini\.getBoundingClientRect\(\);/);
   assert.match(un, /if \(!miniOpen\(\) && !stageBar\(\)\) return;/, 'opens from the bar even before Basic plays a video');
@@ -373,7 +373,7 @@ test('Up next, the Stage menu and the tips open above the bar while it shows; Cl
   assert.match(sc, /if \(remoteShown \|\| basic\) \{ b\.show\(\); paint\(\); \} else b\.hide\(\);/);
   assert.match(sc, /Press the picture on the Stage bar to show Stage\./);
   const bar = read('player-lib/stage-bar.js');
-  assert.match(bar, /case 'close': if \(SC\) SC\.closeStage\(\); break;/);
+  assert.match(bar, /case 'close': if \(SC\) SC\.closeStageAndStop\(\); break;/);
   assert.match(bar, /\$\('stageBarMenu'\)\?\.addEventListener\('contextmenu', \(e\) => act\('menu', e\)\);/, 'right-click opens the menu too');
 });
 

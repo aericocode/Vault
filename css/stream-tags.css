@@ -128,9 +128,9 @@ kbd.stag-kbd {
 .sb-btn.sb-tag { gap: 5px; max-width: 260px; border-style: dashed; }
 .sb-btn.sb-tag.sb-tag-has { border-style: solid; }
 .sb-tag-plus { flex: none; }
-.sb-tag-chips { display: inline-flex; gap: 4px; min-width: 0; overflow: hidden; }
+.sb-tag-chips { display: inline-flex; align-items: center; gap: 3px; min-width: 0; }
+.sb-tag-more { font-size: 0.7rem; color: var(--text-secondary, #aaa); }
 .sb-tag-chips:empty { display: none; }
-.sb-tag-chips .stag-chip { max-width: 96px; }
 
 /* ── Settings › Stage › Lanes and stream tags ─────────────────────────── */
 
@@ -199,5 +199,7 @@ body.layout-modern .sl-tag { background: rgba(255, 255, 255, 0.03); }
 .sl-add.sl-addtag { font-weight: 500; font-size: 0.78rem; padding-left: 8px; }
 .sl-add:hover { text-decoration: underline; }
 .sl-note { margin: 2px 0 0; }
-/* A narrow bar: the words go first (stage-bar.js drops the Up next label), the chips with them. */
-.stage-bar.sb-no-label .sb-tag-chips { display: none; }
+
+/* The Flow panel: a label stays with its buttons when the row wraps
+   (Place tagged files, Shape; player-lib/flow.js). */
+.flow-row > .flow-opt { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-width: 0; }

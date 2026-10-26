@@ -68,6 +68,22 @@ test('energy: a loud fast track is well above a quiet slow one; a build-up rises
   const ramp = `aevalsrc=(0.04+0.86*t/90)*(0.9*sin(2*PI*70*t)*exp(-mod(t\\,0.6)*25)+0.12*sin(2*PI*220*t)):s=44100:d=90`;
   const b = await analyze.measureFile(make('build.m4a', ramp, { seconds: 90 }), { duration: 90 });
   assert.ok(b.e_end - b.e_start > 0.15, `start ${b.e_start} end ${b.e_end}`);
+  // The envelope: 10 slices of the whole file, in time order, on the same scale, rising with it.
+  assert.strictEqual(b.env.length, analyze.ENV_POINTS);
+  b.env.forEach(([t, e], i) => {
+    assert.ok(Math.abs(t - (i + 0.5) / 10) < 0.01, `t ${t}`);
+    assert.ok(e >= 0 && e <= 1);
+  });
+  assert.ok(b.env[9][1] - b.env[0][1] > 0.2, JSON.stringify(b.env));
+  let rises = 0;
+  for (let i = 1; i < 10; i++) if (b.env[i][1] >= b.env[i - 1][1] - 0.02) rises++;
+  assert.ok(rises >= 8, `mostly rising: ${JSON.stringify(b.env)}`);
+  // A steady track's envelope sits around its windows' energy.
+  for (const [, e] of loud.env) assert.ok(Math.abs(e - loud.e_mid) < 0.12, `${e} vs ${loud.e_mid}`);
+  // Too short for 3 slices of 4 s: no envelope (the chart uses start, middle, end).
+  const short = await analyze.measureFile(make('short.m4a', `aevalsrc=${clickExpr(120, 0.5)}:s=44100:d=10`, { seconds: 10 }), { duration: 10 });
+  assert.strictEqual(short.env, null);
+  assert.ok(short.e_mid > 0);
 });
 
 test('no music: a held tone and silence; no audio stream is its own answer', opt, async () => {
@@ -109,16 +125,24 @@ test('a long file reads only the start, middle and end windows plus a few loudne
   assert.strictEqual(r.has_music, 1);
   assert.ok(Math.abs(r.bpm_mid - 120) <= 1);
   assert.strictEqual(r.peak_db, -6);
+  // The envelope: the three windows (each a small part of an hour: not split) and the six samples, in time order.
+  assert.strictEqual(r.env.length, 9);
+  assert.deepStrictEqual(r.env.map(p => p[0]), [15, 300, 900, 1500, 1800, 2100, 2700, 3300, 3585].map(s => Math.round(s / 3600 * 1000) / 1000));
+  assert.ok(r.env.every(([, e]) => e > 0 && e <= 1));
 
   // Length unknown even to ffprobe: only the first 150 s, as the whole (memory stays bounded).
   calls.length = 0;
   const r2 = await analyze.measureFile('y.mkv', { duration: null, extract, probe: async () => ({ channels: 2, layout: 'stereo', duration: null }) });
   assert.deepStrictEqual(calls, [[0, 151]]);
   assert.strictEqual(r2.has_music, 1);
+  assert.strictEqual(r2.env.length, 10);
   // Surround: whole only up to 60 s, windows past that.
   calls.length = 0;
-  await analyze.measureFile('z.mkv', { extract, probe: async () => ({ channels: 6, layout: '5.1', duration: 100 }) });
+  const r3 = await analyze.measureFile('z.mkv', { extract, probe: async () => ({ channels: 6, layout: '5.1', duration: 100 }) });
   assert.ok(calls.length >= 3, 'windowed');
+  // Windows that cover an eighth of the file or more are split in two; samples inside a window add nothing.
+  assert.strictEqual(r3.env.length, 6);
+  assert.ok(r3.env.every((p, i) => !i || p[0] > r3.env[i - 1][0]), 'in time order');
 });
 
 test('a cancelled measurement stops ffmpeg and says ABORTED', opt, async () => {

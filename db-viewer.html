@@ -545,7 +545,7 @@
         <input type="range" class="sb-vol-slider" id="stageBarVol" min="0" max="1" step="0.01" value="1" aria-label="Volume">
       </span>
       <button type="button" class="sb-btn sb-stage" id="stageBarMenu" data-sb-act="menu" title="Stage menu: bring to front, size, close" aria-label="Stage menu" aria-haspopup="menu"><span class="vi-w" data-vi="stage">📺</span></button>
-      <button type="button" class="sb-btn sb-close" id="stageBarClose" data-sb-act="close" title="Close Stage and carry on in the mini player" aria-label="Close Stage"><span class="vi-w" data-vi="close">✕</span></button>
+      <button type="button" class="sb-btn sb-close" id="stageBarClose" data-sb-act="close" title="Close Stage and stop playing" aria-label="Close Stage"><span class="vi-w" data-vi="close">✕</span></button>
     </div>
   </div>
 
@@ -586,6 +586,7 @@
   <script src="./player-lib/collection-export.js"></script>
   <!-- Flow: order a collection so each file flows into the next (pure rules, then the panel) -->
   <script src="./player-lib/flow-order.js"></script>
+  <script src="./player-lib/flow-chart-math.js"></script>
   <script src="./player-lib/flow.js"></script>
   <!-- Stream tags: lanes, keys, menus, chips, and window.FlowLaneSource for the Flow chart -->
   <script src="./player-lib/stream-tags.js"></script>

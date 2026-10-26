@@ -364,7 +364,8 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
         if (SC) SC.paintVolume();       // Basic: a gain change fires no volumechange
         break;
       case 'menu': if (SC) SC.menu(e); break;
-      case 'close': if (SC) SC.closeStage(); break;
+      // The X closes Stage and stops (the Stage menu's Close Stage plays on here).
+      case 'close': if (SC) SC.closeStageAndStop(); break;
       // + Tag: the file on Stage's stream tags (player-lib/stream-tags.js).
       case 'tag': if (typeof StreamTags !== 'undefined') StreamTags.stageMenu(e.target.closest('[data-sb-act]')); break;
       default: break;

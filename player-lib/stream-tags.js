@@ -456,7 +456,11 @@ const StreamTags = (() => {
     if (!btn) return;
     btn.disabled = !st.stageId;
     const box = document.getElementById('stageBarTagChips');
-    const html = st.stageId ? chipsHtml(st.stageId) : '';
+    // A coloured dot per tag (up to four, then +n): the bar is short of room,
+    // and the button's title names them all.
+    const list = st.stageId ? tagsOf(st.stageId) : [];
+    const html = list.slice(0, 4).map(t => `<i class="stag-dot" style="--c:${color(t.color)}"></i>`).join('')
+      + (list.length > 4 ? `<span class="sb-tag-more">+${list.length - 4}</span>` : '');
     if (box && box.innerHTML !== html) {
       box.innerHTML = html;
       btn.classList.toggle('sb-tag-has', !!html);

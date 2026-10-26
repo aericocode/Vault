@@ -12,7 +12,10 @@
   --flow-bad: #fca5a5;          /* jump */
   --flow-target: rgba(255, 255, 255, 0.55);
   --flow-quiet: rgba(255, 255, 255, 0.35);
-  --flow-band: rgba(255, 255, 255, 0.03);
+  --flow-grid: rgba(255, 255, 255, 0.06);
+  --flow-label: rgba(255, 255, 255, 0.4);
+  --flow-col-hot: rgba(139, 140, 255, 0.1);
+  --flow-lane-empty: rgba(255, 255, 255, 0.05);
 }
 
 .coll-action.coll-flow.on {
@@ -96,7 +99,104 @@
 }
 .flow-prog i { display: block; height: 100%; background: var(--accent); transition: width 0.3s; }
 
-.flow-chart { width: 100%; height: 110px; display: block; }
+/* The chart: drawn at the panel's real width (flow.js drawChart), so no
+   stretching here; the wrap clips sideways while a resize redraw is due. */
+.flow-chart-wrap {
+  position: relative;
+  min-width: 0;
+  overflow-x: clip;
+  cursor: pointer;
+}
+.flow-chart { display: block; overflow: hidden; }
+.flow-chart text {
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.flow-chart .flow-grid { stroke: var(--flow-grid); stroke-width: 1; }
+.flow-chart .flow-axis { font-size: 10px; fill: var(--flow-label); }
+.flow-chart .flow-col-hot { fill: var(--flow-col-hot); }
+.flow-chart .flow-line { fill: none; stroke: url(#flowEg); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.flow-chart .flow-line-dense { stroke-width: 1.25; }
+.flow-chart .flow-fill { fill: url(#flowEg); }
+.flow-chart .flow-quiet { stroke: var(--flow-quiet); stroke-width: 1.5; stroke-dasharray: 1.5 4; stroke-linecap: round; }
+.flow-chart .flow-target { fill: none; stroke: var(--flow-target); stroke-width: 1.5; stroke-dasharray: 5 5; stroke-linecap: round; }
+.flow-chart .flow-hand { fill: none; stroke-linecap: round; }
+.flow-chart .flow-hand-smooth { stroke: var(--flow-ok); stroke-width: 1.25; opacity: 0.55; }
+.flow-chart .flow-hand-noticeable { stroke: var(--flow-warn); stroke-width: 2; stroke-dasharray: 3 3; }
+.flow-chart .flow-hand-jump { stroke: var(--flow-bad); stroke-width: 2.25; }
+.flow-chart .flow-badge circle { fill: var(--bg-secondary); stroke: var(--flow-bad); stroke-width: 1.5; }
+.flow-chart .flow-badge text { font-size: 9.5px; font-weight: 700; fill: var(--flow-bad); }
+.flow-chart .flow-now-dot { fill: var(--accent); }
+.flow-chart .flow-lane-empty { fill: var(--flow-lane-empty); }
+.flow-chart .flow-lane-label { font-size: 9.5px; font-weight: 600; fill: var(--text-secondary); pointer-events: auto; }
+
+.flow-names {
+  position: relative;
+  height: 20px;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+.flow-names[hidden] { display: none; }
+.flow-nm {
+  position: absolute;
+  top: 0;
+  box-sizing: border-box;
+  padding: 2px 4px;
+  border-radius: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.flow-nm.num { text-align: center; padding: 2px 0; }
+.flow-nm b { color: var(--text-muted); font-weight: 600; margin-right: 4px; font-variant-numeric: tabular-nums; }
+.flow-nm.num b { margin-right: 0; }
+.flow-nm.hot { background: var(--flow-col-hot); color: var(--text-primary); }
+.flow-nm.now { color: var(--text-primary); }
+.flow-nm.now b { color: var(--accent-hover); }
+
+.flow-tip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  display: grid;
+  gap: 3px;
+  min-width: 170px;
+  max-width: 280px;
+  padding: 7px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-size: 0.75rem;
+}
+.flow-tip[hidden] { display: none; }
+.flow-tip-t { font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-tip-m { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.flow-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.flow-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px 0 5px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: color-mix(in oklab, var(--c) 18%, transparent);
+  color: color-mix(in oklab, var(--c) 80%, white);
+  border: 1px solid color-mix(in oklab, var(--c) 45%, transparent);
+}
+.flow-chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--c); }
+
+/* A file the chart was clicked for, in the list below */
+#resultsGrid .flow-flash {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px color-mix(in oklab, var(--accent) 30%, transparent);
+  transition: box-shadow 0.3s;
+}
 
 .flow-legend {
   display: flex;
@@ -107,14 +207,16 @@
 }
 .flow-legend i {
   display: inline-block;
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 4px;
   border-radius: 2px;
   margin-right: 5px;
-  vertical-align: -1px;
+  vertical-align: middle;
 }
 .flow-legend .flow-key-energy { background: linear-gradient(90deg, var(--flow-e-lo), var(--flow-e-hi)); }
-.flow-legend .flow-key-target { border: 1px dashed var(--flow-target); }
+.flow-legend .flow-key-dash { height: 0; border-radius: 0; border-top: 2px dashed; }
+.flow-legend .flow-key-target { border-color: var(--flow-target); }
+.flow-legend .flow-key-dots { height: 0; border-radius: 0; border-top: 2px dotted var(--flow-quiet); }
 
 /* Tiles: energy start / middle / end, the BPM, the hand-over dot */
 .tile-flow {
@@ -169,6 +271,20 @@ body.layout-modern .flow-btn {
 body.layout-modern .flow-btn:hover { background: var(--m-btn-hover); border-color: rgba(255, 255, 255, 0.22); }
 body.layout-modern .flow-btn-sm { min-height: 22px; font-size: 12px; }
 body.layout-modern .coll-action.coll-flow.on { background: var(--accent-bg); border-color: var(--accent); color: var(--accent-hover); }
+body.layout-modern .flow-names { color: var(--m-muted); font-size: 11.5px; }
+body.layout-modern .flow-nm.hot,
+body.layout-modern .flow-nm.now { color: var(--m-text); }
+body.layout-modern .flow-chart .flow-lane-label { fill: var(--m-text-2); }
+body.layout-modern .flow-chart .flow-badge circle { fill: var(--m-surface-solid); }
+body.layout-modern .flow-tip {
+  background: var(--m-surface-solid);
+  border-color: var(--m-border);
+  border-radius: var(--m-radius-sm, 8px);
+  box-shadow: var(--m-shadow);
+  font-size: 12px;
+}
+body.layout-modern .flow-tip-t { color: var(--m-text); }
+body.layout-modern .flow-tip-m { color: var(--m-text-2); }
 body.layout-modern .tile-flow { color: var(--m-muted); font-size: 11px; }
 body.layout-modern .flow-tile-note { color: var(--m-muted); }
 
