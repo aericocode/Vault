@@ -1,111 +1,258 @@
 /* =========================================================================
-   STAGE REMOTE - the mini player while Stage is open (player-lib/
-   stage-control.js), its right-click menu and the "Stage is open" tips.
+   STAGE REMOTE - the Stage bar while Stage is open (player-lib/stage-bar.js,
+   player-lib/stage-control.js), its Stage menu and the "Stage is open" tips.
 
-   The box is the 3.9 mini player with .mini-stage: a dimmed still of the
-   file on Stage, an "On Stage" (or "Holding") badge, controls that stay up
-   (there is nothing to hide them for), Repeat and Hold, the volume of Stage,
-   and the Stage button. Expand, Close and Pop out go while Stage is open.
+   The bar is docked along the bottom of the window, full width, in place of
+   the mini player (hidden under it while Stage is open, back where it was
+   after). The page keeps its height free: body.stage-bar-on, and
+   --stagebar-h on <html> (the bar's own height, stage-bar.js) move the page
+   and everything pinned to the bottom up; the toasts step over it
+   (utils.js vaultToastsClearOfMini). Modern: line icons, a white seek bar.
    Classic keeps its tokens (border colour, emoji glyphs, accent seek bar).
    ========================================================================= */
 
-.mini-player:not(.mini-stage) .mini-stage-only { display: none; }
-.mini-player.mini-stage .mini-stage-hide { display: none !important; }
+/* ── Room for the bar ────────────────────────────────────────────────── */
 
-.mini-player.mini-stage .mini-overlay {
-  opacity: 1;
-  pointer-events: auto;
+body.stage-bar-on #miniPlayer {
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
-.mini-player.mini-stage .mini-center .mini-ctrl { pointer-events: auto; }
-.mini-player.mini-stage.mini-dragging .mini-overlay { opacity: 0; }
+body.stage-bar-on { padding-bottom: var(--stagebar-h, 0px); }
+body.stage-bar-on .library-dock,
+body.stage-bar-on .filter-rail,
+body.stage-bar-on .wall-root { bottom: var(--stagebar-h, 0px); }
+body.stage-bar-on .selection-bar,
+body.stage-bar-on .scroll-top-pill { bottom: calc(18px + var(--stagebar-h, 0px)); }
+body.stage-bar-on .ft-selbar { bottom: calc(24px + var(--stagebar-h, 0px)); }
 
-/* The still of the file on Stage, dimmed: it is a picture of what plays there */
-.mini-stage-still {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  opacity: 0.42;
-  filter: saturate(0.7);
-  pointer-events: none;
-}
-.mini-stage-still[hidden] { display: none; }
-.mini-player.mini-stage.mini-audio .mini-audio-art { opacity: 0.55; }
+/* ── The bar ─────────────────────────────────────────────────────────── */
 
-/* Top row, in the remote's order: badge … Up next, Repeat, Hold, volume, Stage */
-.mini-player.mini-stage .mini-top > .mini-stage-pill { order: 0; margin-right: auto; }
-.mini-player.mini-stage .mini-top > .mini-upnext { order: 2; }
-.mini-player.mini-stage .mini-top > #miniRepeatBtn { order: 3; }
-.mini-player.mini-stage .mini-top > #miniHoldBtn { order: 4; }
-.mini-player.mini-stage .mini-top > .mini-vol { order: 5; margin-right: 0; }
-.mini-player.mini-stage .mini-top > .mini-stage-btn { order: 6; }
-
-.mini-stage-pill {
-  display: inline-flex;
+.stage-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 190;               /* over the grid, the rail and the dock (150), under the selection bar (195) and every dialog (200+) */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(min-content, 1.4fr) auto;
+  gap: 14px;
   align-items: center;
-  gap: 6px;
+  padding: 8px 14px 9px;
+  background: var(--bg-secondary, #1a1a1a);
+  border-top: 1px solid var(--border, #333);
+  color: var(--text-primary, #e0e0e0);
+  font-size: 13px;
+  line-height: 1.35;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.stage-bar[hidden] { display: none; }
+body.layout-modern .stage-bar {
+  background: #131317;
+  border-top-color: rgba(255, 255, 255, 0.12);
+  color: var(--m-text, #ececf1);
+}
+
+/* Left: the still, the name, the pill and the status line */
+.sb-now { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
+.sb-thumb {
+  position: relative;
+  flex: none;
+  width: 64px;
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  border: 1px solid var(--border, #333);
+  border-radius: 4px;
+  background: #000;
+  color: var(--text-secondary, #a0a0a0);
+  overflow: hidden;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+}
+body.layout-modern .sb-thumb { border-color: rgba(255, 255, 255, 0.1); color: #8b8b97; }
+.sb-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.sb-thumb img[hidden] { display: none; }
+.sb-thumb img:not([hidden]) + .sb-thumb-ic { display: none; }
+.sb-thumb .vi { width: 18px; height: 18px; }
+.sb-thumb:hover { border-color: var(--accent, #6366f1); }
+.sb-thumb:focus-visible { outline: 2px solid var(--accent-hover, #818cf8); outline-offset: 2px; }
+
+.sb-text { min-width: 0; display: grid; gap: 2px; }
+.sb-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sb-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
-  height: 24px;
-  padding: 0 9px 0 8px;
-  border-radius: 99px;
-  border: 1px solid rgba(239, 68, 68, 0.55);
-  background: rgba(239, 68, 68, 0.18);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1;
+  font-size: 11.5px;
+  color: var(--text-secondary, #a0a0a0);
   white-space: nowrap;
 }
-.mini-stage-pill > i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #ef4444;
+body.layout-modern .sb-sub { color: #8b8b97; }
+.sb-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sb-note:empty { display: none; }
+/* Flow order's "tempo · energy" (StageBar.setFlowText) */
+.stagebar-flow { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.stagebar-flow[hidden] { display: none; }
+
+.sb-pill {
   flex: none;
-  animation: stage-live 1.6s ease-in-out infinite;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 99px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary, #e0e0e0);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
 }
-.mini-stage-pill.hold {
-  border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.08);
-}
-.mini-stage-pill.hold > i { background: #8b8b97; animation: none; }
+.sb-pill > i { width: 6px; height: 6px; border-radius: 50%; background: #8b8b97; flex: none; }
+.sb-pill.sb-pill-live { border-color: rgba(239, 68, 68, 0.5); background: rgba(239, 68, 68, 0.1); color: #fca5a5; }
+.sb-pill.sb-pill-live > i { background: #ef4444; animation: stage-live 1.6s ease-in-out infinite; }
 @keyframes stage-live { 50% { opacity: 0.35; } }
-.mini-player.mini-compact .mini-stage-pill .msp-word { display: none; }
-.mini-player.mini-compact .mini-stage-pill { padding: 0 8px; }
 
-/* The Stage button: lit while Stage is open (a click closes it) */
-.mini-ctrl.mini-stage-btn.on {
+/* Middle: the transport, the seek bar under it */
+.sb-mid { display: grid; gap: 3px; min-width: 0; }
+.sb-ctrls { display: flex; justify-content: center; align-items: center; gap: 6px; }
+.sb-seekrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--text-secondary, #a0a0a0);
+  font-variant-numeric: tabular-nums;
+}
+body.layout-modern .sb-seekrow { color: #8b8b97; }
+.sb-time { flex: none; min-width: 34px; text-align: right; }
+.sb-time.sb-end { text-align: left; }
+.sb-seek {
+  position: relative;          /* the shared scrub helper drops a time pill in here */
+  flex: 1;
+  min-width: 60px;
+  padding: 6px 0;
+  cursor: pointer;
+  touch-action: none;
+  border-radius: 4px;
+}
+.sb-seek:focus-visible { outline: 2px solid var(--accent-hover, #818cf8); outline-offset: 1px; }
+.sb-track { position: relative; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.18); }
+.sb-fill { position: relative; height: 100%; width: 0%; border-radius: 2px; background: var(--accent, #6366f1); }
+body.layout-modern .sb-fill { background: #fff; }
+.sb-fill::after {
+  content: '';
+  position: absolute;
+  right: -6px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.sb-seek:hover .sb-fill::after,
+.sb-seek:focus-visible .sb-fill::after,
+.sb-seek.scrubbing .sb-fill::after { opacity: 1; }
+.sb-seek.sb-seek-off { cursor: default; }
+.sb-seek.sb-seek-off .sb-fill::after { display: none; }
+
+/* Right: Up next, Repeat, Hold, the volume, the Stage menu, Close */
+.sb-right { display: flex; justify-content: flex-end; align-items: center; gap: 6px; flex-wrap: nowrap; }
+
+.sb-btn {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  background: var(--bg-tertiary, #252525);
+  color: var(--text-primary, #e0e0e0);
+  font-size: 15px;            /* Classic's glyphs */
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.sb-btn:hover { border-color: var(--accent, #6366f1); }
+.sb-btn:disabled { opacity: 0.4; cursor: default; }
+.sb-btn:disabled:hover { border-color: var(--border, #333); }
+.sb-btn:focus-visible { outline: 2px solid var(--accent-hover, #818cf8); outline-offset: 2px; }
+.sb-btn .vi { width: 18px; height: 18px; stroke-width: 2.1; }
+body.layout-modern .sb-btn { border-color: transparent; background: rgba(255, 255, 255, 0.06); color: #fff; }
+body.layout-modern .sb-btn:hover { background: rgba(255, 255, 255, 0.12); }
+body.layout-modern .sb-btn:disabled:hover { background: rgba(255, 255, 255, 0.06); border-color: transparent; }
+
+.sb-btn.sb-big { width: 38px; height: 38px; border-radius: 50%; border: none; background: var(--accent, #6366f1); color: #fff; font-size: 17px; }
+body.layout-modern .sb-btn.sb-big { background: #fff; color: #111; }
+body.layout-modern .sb-btn.sb-big:hover { background: #e4e4ea; }
+.sb-big .vi { width: 20px; height: 20px; }
+.sb-big .vi-play { fill: currentColor; margin-left: 2px; }
+
+.sb-btn.on { border-color: var(--accent, #6366f1); color: var(--accent-hover, #818cf8); }
+body.layout-modern .sb-btn.on { background: var(--accent-bg, rgba(99, 102, 241, 0.16)); color: var(--accent-hover, #818cf8); box-shadow: inset 0 0 0 1px var(--accent, #6366f1); }
+.sb-btn.sb-close:hover { background: var(--danger, #e5484d); border-color: transparent; color: #fff; }
+
+.sb-btn.sb-wide { display: inline-flex; align-items: center; gap: 6px; width: auto; padding: 0 10px; font-size: 12.5px; font-weight: 600; }
+.sb-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
   background: var(--accent, #6366f1);
-  border-color: transparent;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
 }
-.mini-ctrl#miniHoldBtn.on,
-.mini-ctrl#miniRepeatBtn.on {
-  border-color: var(--accent, #6366f1);
-  color: var(--accent-hover, #818cf8);
-}
-body.layout-modern .mini-ctrl#miniHoldBtn.on,
-body.layout-modern .mini-ctrl#miniRepeatBtn.on {
-  background: var(--accent-bg, rgba(99, 102, 241, 0.16));
-  box-shadow: 0 0 0 1px var(--accent, #6366f1);
-  border-color: transparent;
+.sb-badge[hidden] { display: none; }
+
+.sb-vol { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.sb-vol-slider { width: 70px; margin: 0; accent-color: var(--accent, #6366f1); cursor: pointer; }
+body.layout-modern .sb-vol-slider { accent-color: #fff; }
+
+/* Narrow windows (stage-bar.js StageBarRules.fit): one row always, the
+   least needed pieces go first */
+.stage-bar.sb-no-skip .sb-skip { display: none; }
+.stage-bar.sb-no-label .sb-un-label { display: none; }
+.stage-bar.sb-no-label .sb-wide { padding: 0 8px; }
+.stage-bar.sb-no-volslider .sb-vol-slider { display: none; }
+.stage-bar.sb-no-thumb .sb-thumb { display: none; }
+.stage-bar.sb-no-times .sb-time { display: none; }
+.stage-bar.sb-no-repeat #stageBarRepeat,
+.stage-bar.sb-no-hold #stageBarHold { display: none; }
+.stage-bar:focus { outline: none; }   /* takes focus from a hidden mini player control, not drawn */
+
+/* Privacy mode (file names hidden): the bar's name is blurred like the
+   players' titles (css/settings.css); stage-bar.js already writes "this file". */
+body.pm-names #stageBarTitle {
+  filter: blur(7px);
+  pointer-events: none;
+  user-select: none;
 }
 
-/* The 10 s buttons stay, a little smaller (the mockup) */
-.mini-player.mini-stage .mini-center .mini-round:not(.mini-big):not(.mini-file) {
-  width: calc(var(--mc-side, 42px) - 4px);
-  height: calc(var(--mc-side, 42px) - 4px);
+@media (prefers-reduced-motion: reduce) {
+  .sb-pill.sb-pill-live > i { animation: none; }
+  .sb-btn, .sb-fill::after { transition: none; }
 }
-
-/* A box this small still keeps Hold and the Stage button: Up next folds to its icon */
-.mini-player.mini-stage.mini-narrow .mini-un-label { display: none; }
 
 /* ── The Stage button's menu ─────────────────────────────────────────── */
 
 .stage-menu,
 .stage-tips {
   position: fixed;
-  z-index: 9002;              /* over the mini player and the Up next list */
+  z-index: 9002;              /* over the Stage bar and the Up next list */
   background: var(--bg-secondary, #1a1a1a);
   border: 1px solid var(--border, #333);
   border-radius: 10px;
@@ -162,7 +309,7 @@ body.layout-modern .stage-menu button:focus-visible { background: rgba(255, 255,
 .stage-menu .sm-sep { height: 1px; margin: 4px 6px; background: var(--border, #333); }
 body.layout-modern .stage-menu .sm-sep { background: #26262c; }
 
-/* ── "Stage is open" tips, beside the remote ─────────────────────────── */
+/* ── "Stage is open" tips, above the Stage bar ─────────────────────────── */
 
 .stage-tips {
   width: min(360px, calc(100vw - 16px));
@@ -216,10 +363,6 @@ body.layout-modern .stage-tips .st-btn:not(.st-pri) { background: var(--m-btn, r
 
 .coll-action.coll-stage .vi { width: 15px; height: 15px; vertical-align: -2px; }
 
-@media (prefers-reduced-motion: reduce) {
-  .mini-stage-pill > i { animation: none; }
-}
-
 /* ── Settings › Stage (player-lib/stage-settings-ui.js) ──────────────── */
 
 .stage-set-pair { display: inline-flex; align-items: center; gap: 12px; flex: none; }
@@ -235,7 +378,4 @@ body.layout-modern .stage-tips .st-btn:not(.st-pri) { background: var(--m-btn, r
 
 /* ── Basic Stage (picture-in-picture, player-lib/stage-control.js) ───── */
 
-/* The mini player keeps its own picture and controls; the pop-out button
-   stays, so the picture-in-picture window can be shown again with a click. */
-.mini-player.mini-stage.mini-stage-basic #miniPipBtn:not([hidden]) { display: inline-flex !important; }
 .stage-menu .sm-note { padding: 4px 12px 8px; font-size: 12px; line-height: 1.35; color: var(--text-secondary, #a1a1aa); max-width: 260px; }

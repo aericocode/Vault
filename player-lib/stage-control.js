@@ -3,8 +3,9 @@
 
    Stage is the window shared in Discord: the user's own mpv, started and
    driven by the server (lib/stage/engine.js, PLAYLISTS_SPEC "Stage host,
-   final"). Everything is run from here: while Stage is open the mini player
-   is its remote, with a dimmed still of the file on Stage, and every way of
+   final"). Everything is run from here: while Stage is open the Stage bar
+   along the bottom of the window is its remote (player-lib/stage-bar.js;
+   the mini player is hidden under it, its clock Stage's), and every way of
    playing a file (a tile, Next, Up next, Play all, a Wall block) plays it on
    Stage instead (playMedia asks intercept() first, player-core.js).
 
@@ -19,22 +20,23 @@
 
    Basic Stage, when mpv is not there (or Settings › Stage says Basic): the
    browser's own picture-in-picture of the mini player's video, in this
-   page. No extra program; the mini player stays the mini player (its own
-   element, volume, seek bar, Up next, Next and Previous), dressed with the
-   Stage pill, Repeat, Hold and the Stage button. The queue moves on with
-   player-core's own logic, and the picture-in-picture window is handed from
-   one file to the next (mini-player.js miniPipCarry). Videos only: anything
-   else the queue reaches is passed over and said. Hold pauses and mutes (it
-   cannot go black). A lock leaves picture-in-picture at once.
+   page. No extra program; the mini player keeps playing (its own element,
+   volume, Up next, Next and Previous), hidden under the Stage bar, which
+   runs it with the Stage pill, Repeat, Hold and the Stage menu. The queue
+   moves on with player-core's own logic, and the picture-in-picture window
+   is handed from one file to the next (mini-player.js miniPipCarry).
+   Videos only: anything else the queue reaches is passed over and said.
+   Hold pauses and mutes (it cannot go black). A lock leaves
+   picture-in-picture at once.
 
-   Closing Stage (the remote, its menu, the window's own close) hands the
-   file back to the mini player at the same spot, with sound. Stage vanishing
-   (a crash, sleep) leaves the remote saying "Stage was closed", paused.
+   Closing Stage (the bar's Close, its menu, the window's own close) hands
+   the file back to the mini player at the same spot, with sound, and the
+   bar goes. Stage vanishing (a crash, sleep) says "Stage was closed", paused.
 
    Hooks elsewhere: playMedia (intercept), maximizePlayer and closeMiniPlayer
    (on, hideRemote), mini-player.js (miniMediaEl returns the proxy below, the
-   volume), app.js (key), up-next.js render (upNextChanged), the repeat
-   button (repeatChanged).
+   volume), app.js (key), up-next.js render (upNextChanged) and its list's
+   place (StageBar.anchorRect), the repeat button (repeatChanged).
    ========================================================================= */
 
 const StageControl = (() => {
@@ -317,7 +319,7 @@ const StageControl = (() => {
   function setCurrent(key, row) {
     cur = { key, row };
     statusKey = null;
-    paintStill();
+    paint();
   }
 
   function currentRepeat() { return typeof repeatMode === 'function' ? repeatMode() : 'off'; }
@@ -428,7 +430,7 @@ const StageControl = (() => {
     if (!cur) return;
     if (r.key !== cur.key) {
       // Still the file before: the new one is getting ready.
-      if (r.state !== 'loading' && Date.now() - loadingSince > LOADING_NOTE_MS) paintMeta();
+      if (r.state !== 'loading' && Date.now() - loadingSince > LOADING_NOTE_MS) paint();
       if (r.key && !sent.has(r.key)) catchUp(r.key);
       return;
     }
@@ -446,10 +448,8 @@ const StageControl = (() => {
       if (pos !== null) row.last_position = pos;
     }
     if (oldD !== d) fire('durationchange');
-    fire('timeupdate');
+    fire('timeupdate');                 // draws the bar (the proxy listener below), once per report
     if (wasPaused !== proxy.paused) fire(proxy.paused ? 'pause' : 'play');
-    paintMeta();
-    paintHold();
   }
 
   /** Stage started a file: one Control sent (confirmation), or the next one on its own. */
@@ -502,8 +502,8 @@ const StageControl = (() => {
 
   /** Another Vault tab sent a command (or this one's came back): show what it did. */
   function onOtherControl(c) {
-    if (c.type === 'hold') { hold = c.on; paintHold(); }
-    if (c.type === 'volume') { volume = c.volume; muted = c.muted; paintVolume(); }
+    if (c.type === 'hold') { hold = c.on; paint(); }
+    if (c.type === 'volume') { volume = c.volume; muted = c.muted; paint(); }
   }
 
   /* ── Remote controls ──────────────────────────────────────────────── */
@@ -522,13 +522,13 @@ const StageControl = (() => {
     paused = !play;
     cmd({ type: play ? 'play' : 'pause' });
     fire(play ? 'play' : 'pause');
+    paint();
   }
 
   function setHold(on) {
     hold = !!on;
     cmd({ type: 'hold', on: hold });
-    paintHold();
-    paintMeta();
+    paint();
     fire(hold ? 'pause' : 'play');
   }
   function toggleHold() {
@@ -540,12 +540,12 @@ const StageControl = (() => {
     volume = Math.max(0, Math.min(1, Number(v) || 0));
     if (volume > 0) muted = false;
     cmd({ type: 'volume', volume, muted });
-    paintVolume();
+    paint();
   }
   function toggleMute() {
     muted = !muted;
     cmd({ type: 'volume', volume, muted });
-    paintVolume();
+    paint();
   }
 
   function front() {
@@ -636,8 +636,15 @@ const StageControl = (() => {
     return false;
   }
 
-  /* ── The remote (the mini player box, dressed for Stage) ──────────── */
+  /* ── The remote: the Stage bar (player-lib/stage-bar.js) ──────────── */
 
+  const bar = () => (typeof StageBar !== 'undefined' && StageBar ? StageBar : null);
+
+  /**
+   * The full Stage: the mini player box is kept open underneath (its clock is
+   * Stage's, through the proxy, so the keys, Up next and the seek helpers
+   * work as before) but hidden, and the bar shows.
+   */
   function showRemote() {
     const box = $('miniPlayer');
     if (!box) return;
@@ -646,26 +653,26 @@ const StageControl = (() => {
     if (!remoteShown) {
       remoteShown = true;
       document.body.classList.add('stage-open');
-      box.classList.add('active', 'mini-stage');
-      $('miniPlayerMedia').innerHTML = '<img class="mini-stage-still" id="miniStageStill" alt="" draggable="false" hidden>';
+      box.classList.add('active');
+      $('miniPlayerMedia').innerHTML = '';
       currentMediaState.miniMode = false;
       if (typeof miniPlayerOpen === 'function') miniPlayerOpen(proxy, (cur && cur.row && cur.row.media_type) === 'audio' ? 'audio' : 'video');
       applyMute();
       if (typeof renderSelectionBar === 'function') renderSelectionBar();
     }
-    paint();
+    syncBar();
   }
 
   function leaveRemote() {
     const box = $('miniPlayer');
-    if (!remoteShown || !box) { remoteShown = false; return; }
+    if (!remoteShown || !box) { remoteShown = false; syncBar(); return; }
     remoteShown = false;
     document.body.classList.remove('stage-open');
     if (typeof miniPlayerTeardown === 'function') miniPlayerTeardown();
-    box.classList.remove('mini-stage', 'active', 'mini-audio');
+    box.classList.remove('active', 'mini-audio');
     $('miniPlayerMedia').innerHTML = '';
     if (typeof UpNext !== 'undefined') UpNext.closePopover();
-    if (typeof vaultPlaceToasts === 'function') vaultPlaceToasts();
+    syncBar();
   }
 
   /** A lock hides the remote (Stage stays black); this page reloads on unlock and picks it up again. */
@@ -675,108 +682,64 @@ const StageControl = (() => {
     leaveRemote();
   }
 
-  function paint() {
-    if (!remoteShown) return;
-    paintStill();
-    paintHold();
-    paintVolume();
-    paintRepeat();
-    paintMeta();
-    const btn = $('miniStageBtn');
-    if (btn) {
-      btn.title = open ? 'Close Stage and keep playing here (right-click for more)' : 'Open Stage, the window you share in Discord';
-      btn.setAttribute('aria-label', open ? 'Close Stage' : 'Open Stage');
-      btn.classList.toggle('on', open);
-    }
-    if (typeof miniUpdateTimeline === 'function') miniUpdateTimeline();
-    if (typeof updateMiniPlayPause === 'function') updateMiniPlayPause();
-    if (typeof miniLayout === 'function') miniLayout();
+  /** The bar shows while Stage is open: the full Stage's remote, or Basic Stage. */
+  function syncBar() {
+    const b = bar();
+    if (!b) return;
+    if (remoteShown || basic) { b.show(); paint(); } else b.hide();
   }
 
-  function paintStill() {
-    const img = $('miniStageStill');
+  /** The bar's view of what is on Stage (StageBarRules.view), for either Stage. */
+  function barState() {
+    const repeat = currentRepeat();
+    const upNext = typeof UpNext !== 'undefined' && UpNext.count ? UpNext.count() : 0;
+    const base = { namesHidden: namesHidden(), repeat, upNext, fmt: typeof formatDuration === 'function' ? formatDuration : null };
+    if (basic) {
+      const el = basicEl();
+      const miniOn = !!$('miniPlayer')?.classList.contains('active');
+      const data = miniOn && el ? (currentMediaState.currentMediaData || null) : null;
+      const silent = typeof playerIsSilent === 'function' ? playerIsSilent() : !!(el && el.muted);
+      return {
+        ...base, basic: true, hasFile: !!data, filename: data && data.filename, mediaType: data ? 'video' : null,
+        t: el ? el.currentTime : 0, d: el && isFinite(el.duration) ? el.duration : 0, paused: !el || el.paused,
+        hold: !!basicHold, finished: false, locked: false, loading: false, note: null,
+        volume: typeof savedVolume !== 'undefined' ? savedVolume : 1, muted: silent,
+        volumeMax: typeof _miniVolumeMax === 'function' ? _miniVolumeMax() : 1,
+        thumbRow: data,
+      };
+    }
     const row = cur && cur.row;
-    const box = $('miniPlayer');
-    if (box) box.classList.toggle('mini-audio', !!row && row.media_type === 'audio');
-    if (!img) return;
-    const can = row && typeof canShowThumb === 'function' && canShowThumb(row) && typeof staticThumbSrc === 'function';
-    const src = can ? staticThumbSrc(row.id) : '';
-    if (!src) { img.hidden = true; img.removeAttribute('src'); return; }
-    if (img.dataset.forId === String(row.id)) return;
-    img.dataset.forId = String(row.id);
-    img.onload = () => { img.hidden = false; };
-    img.onerror = () => { img.hidden = true; };
-    img.src = src;
-  }
-
-  function paintHold() {
-    const pill = $('miniStagePill');
-    if (pill) {
-      const word = locked ? 'Black' : hold ? 'Holding' : finished ? 'Finished' : 'On Stage';
-      pill.classList.toggle('hold', hold || finished || locked);
-      const w = pill.querySelector('.msp-word');
-      if (w) w.textContent = word;
-    }
-    const btn = $('miniHoldBtn');
-    if (btn) {
-      btn.setAttribute('aria-pressed', hold ? 'true' : 'false');
-      btn.title = hold ? 'Holding: Stage is black and silent. Press to come back (H)' : 'Hold: Stage goes black and silent (H)';
-      btn.classList.toggle('on', hold);
-    }
-  }
-
-  function paintVolume() {
-    const btn = $('miniMuteBtn');
-    const slider = $('miniVolSlider');
-    const silent = muted || volume === 0;
-    if (btn) {
-      btn.innerHTML = glyph(silent ? '🔇' : '🔊', silent ? 'mute' : 'volume');
-      btn.title = silent ? 'Unmute Stage' : 'Stage volume';
-      btn.setAttribute('aria-label', silent ? 'Unmute Stage' : 'Mute Stage');
-      btn.setAttribute('aria-pressed', silent ? 'true' : 'false');
-    }
-    if (slider && !slider.matches(':active')) { slider.max = '1'; slider.value = String(silent ? 0 : volume); }
-  }
-
-  function paintRepeat() {
-    const btn = $('miniRepeatBtn');
-    if (!btn) return;
-    const mode = currentRepeat();
-    const titles = { off: 'Repeat: off. Click to repeat the list', all: 'Repeat all. Click to repeat this file', one: 'Repeat this file. Click to turn repeat off' };
-    btn.innerHTML = glyph(mode === 'one' ? '🔂' : '🔁', mode === 'one' ? 'repeat-one' : 'repeat');
-    btn.title = titles[mode];
-    btn.setAttribute('aria-label', mode === 'off' ? 'Repeat: off' : mode === 'all' ? 'Repeat all' : 'Repeat this file');
-    btn.classList.toggle('on', mode !== 'off');
-    btn.dataset.mode = mode;
-  }
-
-  /** The line under the seek bar: the file and its time, or what just happened. */
-  function paintMeta() {
-    const title = $('miniPlayerTitle');
-    const time = $('miniTime');
-    if (!title || !remoteShown) return;
-    const row = cur && cur.row;
-    let line = row ? nameOf(row) : 'Stage is open';
-    let right = null;
     const n = note && (note.sticky || Date.now() < note.until) ? note.text : null;
-    if (locked) line = 'Stage went black. Unlock to carry on.';
-    else if (hold) line = `Holding. ${cur && !isPicture(cur.row) ? `Paused at ${fmt(t)}. ` : ''}Press Hold again to come back.`;
-    else if (n) line = n;
-    else if (cur && statusKey !== cur.key && loadingSince && Date.now() - loadingSince > LOADING_NOTE_MS) line = `Getting “${nameOf(row)}” ready…`;
-    if (row && isPicture(row) && statusKey === cur.key && !hold && !finished) {
-      const left = Math.max(0, Math.ceil(d - t));
-      right = paused ? `paused · ${left} s left` : `next in ${left} s`;
-    }
-    title.textContent = line;
-    title.title = line;
-    if (time && right !== null) time.textContent = right;
+    return {
+      ...base, basic: false, hasFile: !!row, filename: row && row.filename, mediaType: row && row.media_type,
+      t, d, paused, hold, finished, locked, note: n,
+      loading: !!(cur && statusKey !== cur.key && loadingSince && Date.now() - loadingSince > LOADING_NOTE_MS),
+      pictureLive: !!(cur && statusKey === cur.key),
+      volume, muted, volumeMax: 1,
+      thumbRow: row,
+    };
+  }
+
+  function thumbFor(row) {
+    if (!row || !row.id || typeof canShowThumb !== 'function' || typeof staticThumbSrc !== 'function' || !canShowThumb(row)) return '';
+    return staticThumbSrc(row.id) || '';
+  }
+
+  /** Draw the bar from what is on Stage now. */
+  function paint() {
+    const b = bar();
+    if (!b || !(remoteShown || basic)) return;
+    const s = barState();
+    if (typeof StageBarRules === 'undefined') return;
+    b.paint(StageBarRules.view(s), { thumb: thumbFor(s.thumbRow) });
+    if (remoteShown && typeof miniUpdateTimeline === 'function') miniUpdateTimeline();
   }
 
   function setNote(text, { sticky = false } = {}) {
     note = { text, until: Date.now() + NOTE_MS, sticky };
     clearTimeout(noteTimer);
-    if (!sticky) noteTimer = setTimeout(() => { note = null; paintMeta(); }, NOTE_MS + 50);
-    paintMeta();
+    if (!sticky) noteTimer = setTimeout(() => { note = null; paint(); }, NOTE_MS + 50);
+    paint();
   }
 
   /* ── Vault's own sound while Stage is open ────────────────────────── */
@@ -805,6 +768,8 @@ const StageControl = (() => {
   async function menu(e) {
     if (e) e.preventDefault();
     if (!open) return;
+    // The bar's Stage button opens and closes it with a click too.
+    if (e && e.type === 'click' && menuOpen()) { closeMenu(); return; }
     let size = 'free';
     if (!basic) { try { const s = await api('/api/stage/state'); size = s.size || 'free'; } catch {} }
     let el = $('stageMenu');
@@ -821,11 +786,17 @@ const StageControl = (() => {
         closeMenu();
         if (act === 'front') front();
         else if (act === 'close') closeStage();
+        else if (act === 'repeat') { if (typeof cycleRepeatMode === 'function') cycleRepeatMode(); }
+        else if (act === 'hold') toggleHold();
         else setSize(act);
       });
     }
     const check = (p) => (p === size ? '<span class="sm-check" aria-hidden="true">✓</span>' : '<span class="sm-check" aria-hidden="true"></span>');
     const item = (act, label, sub) => `<button type="button" role="menuitemradio" aria-checked="${act === size}" data-stage-act="${act}">${check(act)}<span class="sm-l">${esc(label)}</span>${sub ? `<span class="sm-s">${esc(sub)}</span>` : ''}</button>`;
+    // A bar too narrow for Repeat and Hold has them here instead (StageBarRules.fit).
+    const v = typeof StageBarRules !== 'undefined' ? StageBarRules.view(barState()) : null;
+    const dropped = bar() && bar().dropped ? bar().dropped() : {};
+    const extra = !v ? '' : `${dropped.repeat ? `<button type="button" role="menuitem" data-stage-act="repeat"><span class="sm-check"></span><span class="sm-l">${esc(v.repeat.label)}</span><span class="sm-s">click to change</span></button>` : ''}${dropped.hold ? `<button type="button" role="menuitem" data-stage-act="hold"><span class="sm-check" aria-hidden="true">${v.hold.on ? '✓' : ''}</span><span class="sm-l">Hold</span><span class="sm-s">${basic ? 'pause and mute' : 'black and silent'} (H)</span></button>` : ''}`;
     el.innerHTML = basic ? `
       <div class="sm-h">Basic Stage</div>
       <button type="button" role="menuitem" data-stage-act="front"><span class="sm-check"></span><span class="sm-l">Show the picture-in-picture window</span></button>
@@ -842,8 +813,10 @@ const StageControl = (() => {
       ${item('1440p', '1440p', '2560 × 1440')}
       <div class="sm-sep"></div>
       <button type="button" role="menuitem" data-stage-act="close" class="sm-close"><span class="sm-check"></span><span class="sm-l">Close Stage</span><span class="sm-s">plays on here</span></button>`;
+    if (extra) el.insertAdjacentHTML('afterbegin', extra);
     el.hidden = false;
-    placeNear(el);
+    placeNear(el, 'menu');
+    $('stageBarMenu')?.setAttribute('aria-expanded', 'true');
     setTimeout(() => document.addEventListener('pointerdown', menuOutside, true), 0);
     el.querySelector('button')?.focus({ preventScroll: true });
   }
@@ -851,25 +824,38 @@ const StageControl = (() => {
   function menuOutside(e) {
     const el = $('stageMenu');
     if (el && el.contains(e.target)) return;
+    // A press on the bar's Stage button: its click closes the menu.
+    if ($('stageBarMenu')?.contains(e.target)) return;
     closeMenu();
   }
 
   function closeMenu() {
     const el = $('stageMenu');
     if (el) el.hidden = true;
+    $('stageBarMenu')?.setAttribute('aria-expanded', 'false');
     document.removeEventListener('pointerdown', menuOutside, true);
   }
 
-  /** Above the mini player (below it when it sits at the top), lined up with its outer edge. */
-  function placeNear(el) {
-    const mini = $('miniPlayer');
-    if (!mini) return;
-    const r = mini.getBoundingClientRect();
+  /**
+   * Above the Stage bar, lined up with the right end of its button (the menu)
+   * or of the bar (the tips). Without the bar: above the mini player (below
+   * it when it sits at the top), lined up with its outer edge.
+   */
+  function placeNear(el, kind) {
     const de = document.documentElement;
     const vw = de.clientWidth || window.innerWidth;
     const vh = de.clientHeight || window.innerHeight;
     const gap = 8;
     const w = Math.min(el.offsetWidth || 300, vw - 2 * gap);
+    const a = bar() && bar().anchorRect(kind);
+    if (a) {
+      el.style.left = `${Math.max(gap, Math.min(vw - w - gap, a.right - w))}px`;
+      el.style.top = `${Math.max(gap, a.top - gap - el.offsetHeight)}px`;
+      return;
+    }
+    const mini = $('miniPlayer');
+    if (!mini) return;
+    const r = mini.getBoundingClientRect();
     const right = r.left + r.width / 2 > vw / 2;
     el.style.left = `${Math.max(gap, Math.min(vw - w - gap, right ? r.right - w : r.left))}px`;
     const h = el.offsetHeight;
@@ -906,7 +892,7 @@ const StageControl = (() => {
       <ol class="st-list">
         <li>In Discord, start a screen share and pick the browser's window named <b>Picture in picture</b>.</li>
         <li>It shows the address and its controls while the mouse is over it, so keep the mouse away from it.</li>
-        <li>Basic Stage plays videos only, and Hold pauses and mutes (it can't go black). Run everything from the mini player.</li>
+        <li>Basic Stage plays videos only, and Hold pauses and mutes (it can't go black). Run everything from the Stage bar.</li>
         <li>For the full Stage (its own window, pictures, a black Hold, sizes), install mpv, the free player from mpv.io.</li>
       </ol>
       <div class="st-acts"><button type="button" class="st-btn" data-tips="never">Don't show again</button><button type="button" class="st-btn st-pri" data-tips="ok">Got it</button></div>` : `
@@ -915,18 +901,18 @@ const StageControl = (() => {
         <li>In Discord, start a screen share and pick the window named <b>${name}</b>.</li>
         <li>Turn on sound in Discord's share options.</li>
         <li>Stage plays in mpv, its own window, so Discord picks up Stage's sound, not your browser's.</li>
-        <li>Run everything from here. ${settings.muteVault !== false ? 'Vault’s own sound is muted while Stage is open.' : 'Vault’s own sound stays on (Settings › Stage).'}</li>
+        <li>Run everything from the Stage bar. ${settings.muteVault !== false ? 'Vault’s own sound is muted while Stage is open.' : 'Vault’s own sound stays on (Settings › Stage).'}</li>
       </ol>
       <div class="st-acts"><button type="button" class="st-btn" data-tips="never">Don't show again</button><button type="button" class="st-btn st-pri" data-tips="ok">Got it</button></div>`;
     el.hidden = false;
-    requestAnimationFrame(() => placeNear(el));
+    requestAnimationFrame(() => placeNear(el, 'tips'));
   }
 
   function hideTips() { const el = $('stageTips'); if (el) el.hidden = true; }
 
   window.addEventListener('resize', () => {
-    if (menuOpen()) placeNear($('stageMenu'));
-    if (tipsOpen()) placeNear($('stageTips'));
+    if (menuOpen()) placeNear($('stageMenu'), 'menu');
+    if (tipsOpen()) placeNear($('stageTips'), 'tips');
   });
 
   /* ── Basic Stage: the browser's picture-in-picture (no mpv) ────────── */
@@ -957,11 +943,15 @@ const StageControl = (() => {
   const pipCarrying = () => typeof miniPipCarrying === 'function' && miniPipCarrying();
 
   function startBasic({ then = null } = {}) {
+    const local = then ? null : localPlayback();
+    // Sound or a picture in the mini player would go on playing under the
+    // Stage bar, out of reach: it stops (before Basic is on, so it is not
+    // a close of Stage).
+    if (local && local.mediaData.media_type !== 'video' && local.miniOn) stopLocal(local);
     basic = true;
     open = true;
     basicHold = null;
     document.body.classList.add('stage-basic');
-    const local = then ? null : localPlayback();
     if (local && local.mediaData.media_type !== 'video') {
       showToast('Basic Stage plays videos only. Play a video to show it there.');
     } else if (local && local.overlayOn) {
@@ -973,7 +963,7 @@ const StageControl = (() => {
     else if (!local && !then) showToast('Stage is open (Basic). Play a video to show it there.');
   }
 
-  /** The video is in the mini player, dressed as the remote, and in picture-in-picture. */
+  /** The video is in the mini player (hidden under the Stage bar) and in picture-in-picture. */
   function basicSettle() {
     if (!basic) return;
     const overlay = $('mediaPlayerOverlay');
@@ -984,28 +974,12 @@ const StageControl = (() => {
 
   function paintBasic() {
     if (!basic) return;
-    const box = $('miniPlayer');
-    if (box && box.classList.contains('active')) box.classList.add('mini-stage', 'mini-stage-basic');
-    const pill = $('miniStagePill');
-    if (pill) {
-      pill.classList.toggle('hold', !!basicHold);
-      const w = pill.querySelector('.msp-word');
-      if (w) w.textContent = basicHold ? 'Holding' : 'On Stage';
-    }
-    const hb = $('miniHoldBtn');
-    if (hb) {
-      hb.setAttribute('aria-pressed', basicHold ? 'true' : 'false');
-      hb.title = basicHold ? 'Holding: paused and muted. Press to come back (H)' : 'Hold: pause and mute. Basic Stage can’t go black (H)';
-      hb.classList.toggle('on', !!basicHold);
-    }
-    const sb = $('miniStageBtn');
-    if (sb) {
-      sb.title = 'Close Stage and keep playing here (right-click for more)';
-      sb.setAttribute('aria-label', 'Close Stage');
-      sb.classList.add('on');
-    }
-    paintRepeat();
-    if (typeof miniLayout === 'function') miniLayout();
+    syncBar();
+  }
+
+  // Basic Stage's clock is the mini player's own video: the bar follows it.
+  for (const ev of ['timeupdate', 'durationchange', 'play', 'pause', 'ended', 'volumechange', 'loadedmetadata', 'emptied']) {
+    document.addEventListener(ev, (e) => { if (basic && e.target === basicEl()) paint(); }, true);
   }
 
   /** Into picture-in-picture once the video knows its size (the browser asks for that). */
@@ -1019,7 +993,7 @@ const StageControl = (() => {
     const go = () => {
       if (!basic || basicEl() !== el || document.pictureInPictureElement === el) return;
       el.requestPictureInPicture().catch(() => {
-        showToast('Press the pop-out button on the mini player to show Stage.');
+        showToast('Press the picture on the Stage bar to show Stage.');
       });
     };
     if (el.readyState >= 1) go();
@@ -1113,14 +1087,12 @@ const StageControl = (() => {
     if (basicHold && el) el.muted = basicHold.muted;
     basicHold = null;
     document.body.classList.remove('stage-basic');
-    const box = $('miniPlayer');
-    if (box) box.classList.remove('mini-stage', 'mini-stage-basic');
-    const sb = $('miniStageBtn');
-    if (sb) { sb.classList.remove('on'); sb.title = 'Open Stage, the window you share in Discord'; sb.setAttribute('aria-label', 'Open Stage'); }
     hideTips();
     closeMenu();
+    if (typeof UpNext !== 'undefined' && UpNext.closePopover) UpNext.closePopover();
     try { if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {}); } catch {}
-    if (typeof miniLayout === 'function') miniLayout();
+    // The bar goes and the mini player is back where it was.
+    syncBar();
     if (how === 'lock') return;
     if (how === 'mini') { showToast('Stage closed.'); return; }
     const words = how === 'pip' ? 'Stage closed (its window was closed)' : 'Stage closed';
@@ -1190,11 +1162,14 @@ const StageControl = (() => {
     cmd({ type: 'privacy', hideNames: on });
   }
   function privacyChanged() {
-    // Basic Stage has no server session: nothing to send, its names are this page's.
-    if (!open || basic) return;
-    syncPrivacy();
-    if (cur) sendUpcoming();
-    paintMeta();
+    if (!open) return;
+    // Basic Stage has no server session: nothing to send, its names are this
+    // page's. The bar shows the name either way, so it is drawn again.
+    if (!basic) {
+      syncPrivacy();
+      if (cur) sendUpcoming();
+    }
+    paint();
   }
   if (typeof MutationObserver === 'function') {
     // From the state at load: a class change that is not about privacy (Basic
@@ -1210,14 +1185,19 @@ const StageControl = (() => {
 
   /* ── Changes here that change what comes next ─────────────────────── */
 
-  function upNextChanged() { if (open && cur) sendUpcoming(); }
+  function upNextChanged() {
+    paint();                          // the bar's Up next count
+    if (open && cur && !basic) sendUpcoming();
+  }
   function repeatChanged() {
-    if (basic) { paintRepeat(); return; }
-    if (open && cur) { paintRepeat(); sendUpcoming(); }
+    if (basic) { paint(); return; }
+    if (open && cur) { paint(); sendUpcoming(); }
   }
 
   // Keep the loading note and the picture countdown moving even with no reports.
-  setInterval(() => { if (remoteShown) paintMeta(); }, 1000);
+  setInterval(() => { if (remoteShown) paint(); }, 1000);
+  // A seek from the bar (the proxy's clock moves at once).
+  proxy.addEventListener('timeupdate', () => paint());
 
   /* ── Boot: Stage may already be open (this page reloaded, or unlocked) ── */
 
@@ -1234,7 +1214,7 @@ const StageControl = (() => {
   return {
     proxy, intercept, on: () => open && remoteShown, isOpen: () => open, basicOn: () => basic, lockStop, passOver, notePassed, miniClosing,
     openStage, openFromPlayer, playCollectionOnStage, stageButton, closeStage, menu, front, setSize,
-    toggleHold, setVolume, toggleMute, paintVolume, key, hideRemote,
+    toggleHold, setVolume, toggleMute, paintVolume: paint, key, hideRemote,
     upNextChanged, repeatChanged, showTips,
     _state: () => ({ open, basic, basicHold: !!basicHold, remoteShown, mpv, cur: cur && { key: cur.key, id: cur.row && cur.row.id }, t, d, paused, hold, finished, volume, muted, note: note && note.text }),
   };

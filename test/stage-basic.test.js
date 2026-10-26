@@ -153,7 +153,7 @@ test('Basic: no "Stage needs mpv" dialog; Hold says it cannot go black; sizes sa
   const sc = read('player-lib/stage-control.js');
   assert.ok(!sc.includes("title: 'Stage needs mpv'") && !/function noMpv/.test(sc));
   assert.match(sc, /if \(err\.code === 'MPV_MISSING'\) \{ startBasic\(\{ then \}\); return; \}/);
-  assert.match(sc, /Basic Stage can’t go black/);
+  assert.match(read('player-lib/stage-bar.js'), /Basic Stage can’t go black/, 'the Stage bar Hold says so');
   assert.match(sc, /Sizes need the full Stage \(mpv\)/);
   const tips = sc.slice(sc.indexOf('el.innerHTML = basic ?'), sc.indexOf(': `', sc.indexOf('el.innerHTML = basic ?')));
   assert.strictEqual((tips.match(/mpv/g) || []).length, 1, 'mpv once in the Basic tips');

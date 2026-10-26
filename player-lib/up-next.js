@@ -378,6 +378,12 @@ const UpNext = (() => {
 
   function overlayOpen() { return !!document.getElementById('mediaPlayerOverlay')?.classList.contains('active'); }
   function miniOpen() { return !!document.getElementById('miniPlayer')?.classList.contains('active'); }
+  /** While Stage is open the Stage bar stands in for the mini player (player-lib/stage-bar.js). */
+  function stageBar() { return typeof StageBar !== 'undefined' && StageBar && StageBar.shown() ? StageBar : null; }
+  function popButton() { return document.getElementById(stageBar() ? 'stageBarUpNext' : 'miniUpNextBtn'); }
+  function setExpanded(on) {
+    for (const id of ['miniUpNextBtn', 'stageBarUpNext']) document.getElementById(id)?.setAttribute('aria-expanded', on ? 'true' : 'false');
+  }
 
   /* ── Drawing ───────────────────────────────────────────────────────── */
 
@@ -512,11 +518,11 @@ const UpNext = (() => {
   }
 
   function openPopover() {
-    if (!miniOpen()) return;
+    if (!miniOpen() && !stageBar()) return;
     const el = popEl();
     popOpen = true;
     el.hidden = false;
-    document.getElementById('miniUpNextBtn')?.setAttribute('aria-expanded', 'true');
+    setExpanded(true);
     render();
     setTimeout(() => document.addEventListener('pointerdown', onOutside, true), 0);
   }
@@ -526,7 +532,7 @@ const UpNext = (() => {
     popOpen = false;
     const el = document.getElementById('upNextPop');
     if (el) el.hidden = true;
-    document.getElementById('miniUpNextBtn')?.setAttribute('aria-expanded', 'false');
+    setExpanded(false);
     document.removeEventListener('pointerdown', onOutside, true);
     if (typeof vaultPlaceToasts === 'function') vaultPlaceToasts();
   }
@@ -537,7 +543,7 @@ const UpNext = (() => {
 
   function onOutside(e) {
     const el = document.getElementById('upNextPop');
-    const btn = document.getElementById('miniUpNextBtn');
+    const btn = popButton();
     if ((el && el.contains(e.target)) || (btn && btn.contains(e.target))) return;
     // The toasts (Undo after a ✕ or Clear in this list) count as inside.
     if (e.target.closest && e.target.closest('#undoToast, #toast')) return;
@@ -546,14 +552,16 @@ const UpNext = (() => {
 
   /**
    * Above the mini player, lined up with its outer edge; below it when there
-   * is more room there (a box snapped to a top corner).
+   * is more room there (a box snapped to a top corner). While Stage is open:
+   * above the Stage bar, lined up with the bar's Up next button.
    */
   function positionPopover() {
     if (!popOpen) return;
     const mini = document.getElementById('miniPlayer');
     const el = document.getElementById('upNextPop');
-    if (!el || !mini || !mini.classList.contains('active')) { closePopover(); return; }
-    const r = mini.getBoundingClientRect();
+    const sb = stageBar();
+    if (!el || (!sb && (!mini || !mini.classList.contains('active')))) { closePopover(); return; }
+    const r = sb ? sb.anchorRect('upnext') : mini.getBoundingClientRect();
     const de = document.documentElement;
     const vw = de.clientWidth || window.innerWidth;
     const vh = de.clientHeight || window.innerHeight;
@@ -689,7 +697,8 @@ const UpNext = (() => {
       // Pressed with the mini player in hand: the file playing. Otherwise the
       // library's pick (queueing while something plays is the point), and the
       // file playing when nothing is picked.
-      const inMini = document.getElementById('miniPlayer')?.contains(document.activeElement);
+      const inMini = document.getElementById('miniPlayer')?.contains(document.activeElement)
+        || !!(stageBar() && stageBar().contains(document.activeElement));
       const lib = inMini ? [] : libraryTargets();
       if (lib.length) return { ids: lib, source: 'library' };
       const id = playingId();
@@ -721,8 +730,9 @@ const UpNext = (() => {
     if (!popOpen || e.key !== 'Escape') return;
     e.preventDefault();
     e.stopImmediatePropagation();
+    const btn = popButton();
     closePopover();
-    document.getElementById('miniUpNextBtn')?.focus({ preventScroll: true });
+    btn?.focus({ preventScroll: true });
   }, true);
 
   window.addEventListener('resize', () => { if (popOpen) positionPopover(); });
