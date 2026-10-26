@@ -217,6 +217,10 @@ const SETTINGS_INDEX = [
   { page: 'stage', id: 'stageFlowShuffle', label: 'Flow shuffle',
     desc: 'A collection’s Shuffle lines files up so each one tends to flow into the next, instead of pure random. It still mixes things up.',
     keywords: ['flow', 'shuffle', 'random', 'tempo', 'bpm', 'energy', 'collection'] },
+  // Stream tags (player-lib/stream-tags-settings.js), on the Stage page too
+  { page: 'stage', id: 'stageLanes', label: 'Lanes and stream tags',
+    desc: 'Your own labels for files in a stream set, like Opener or Closer: lanes, tags, colours, keys and where Flow order puts them.',
+    keywords: ['stream', 'tags', 'lanes', 'role', 'mood', 'opener', 'closer', 'centerpiece', 'label', 'keys', 'hotkey', 'place', 'flow'] },
 
   // Keyboard shortcuts (its rows are searched from shortcuts.js as well)
   { page: 'shortcuts', id: 'shortcutsList', label: 'Keyboard shortcuts',

@@ -136,6 +136,9 @@ function stageSettingsHtml() {
   const nameField = `<input class="settings-text" type="text" maxlength="60" spellcheck="false" autocomplete="off"
           data-stage-text="windowName" placeholder="Vault Stage" value="${_stEsc(s.windowName)}" aria-label="Window name">`;
 
+  // Lanes and stream tags (player-lib/stream-tags-settings.js), after the Stage rows.
+  const lanes = typeof streamLanesSettingsHtml === 'function' ? streamLanesSettingsHtml(modern) : '';
+
   const playerRow = settingsRowHtml({
     sfind: 'stagePlayer', title: 'Player', cls: 'stage-mpv-row',
     extra: `<span class="settings-toggle-desc stage-mpv-box" data-stage-mpv-box>${_stageMpvHtml()}</span>`,
@@ -158,7 +161,7 @@ function stageSettingsHtml() {
       + settingsRowHtml({ sfind: 'stageFlowMeasure', title: 'Measure for Flow', desc: measureDesc, control: measureSel })
       + settingsRowHtml({ tag: 'label', sfind: 'stageFlowShuffle', title: 'Flow shuffle', desc: shuffleDesc, control: _stSwitch('flowShuffle', s.flowShuffle) });
     return `<p class="settings-note stage-set-lead">Stage is the window you share in Discord. Open it from the mini player, the full player, or Play on Stage on a collection.</p>`
-      + settingsCardHtml({ title: 'Stage', sfind: 'stage', body: rows });
+      + settingsCardHtml({ title: 'Stage', sfind: 'stage', body: rows }) + lanes;
   }
 
   // Classic
@@ -176,7 +179,8 @@ function stageSettingsHtml() {
       ${settingsRowHtml({ tag: 'label', sfind: 'stageTips', title: 'Tips when Stage opens', control: _stSwitch('tips', s.tips) })}
       ${settingsRowHtml({ tag: 'label', sfind: 'stageEvenLoudness', title: 'Even out loudness on Stage', desc: loudDesc, control: _stSwitch('evenLoudness', s.evenLoudness) })}
       ${settingsRowHtml({ sfind: 'stageFlowMeasure', title: 'Measure for Flow', desc: measureDesc, control: measureSel })}
-      ${settingsRowHtml({ tag: 'label', sfind: 'stageFlowShuffle', title: 'Flow shuffle', desc: shuffleDesc, control: _stSwitch('flowShuffle', s.flowShuffle) })}`;
+      ${settingsRowHtml({ tag: 'label', sfind: 'stageFlowShuffle', title: 'Flow shuffle', desc: shuffleDesc, control: _stSwitch('flowShuffle', s.flowShuffle) })}
+      ${lanes}`;
 }
 
 async function _stageSettingsSave(patch, root) {
@@ -208,6 +212,7 @@ function _stageSettingsPaint(root) {
 function stageSettingsWire(root) {
   if (!root) return;
   _stageMpvLoad(root);
+  if (typeof streamLanesSettingsWire === 'function') streamLanesSettingsWire(root);
   // The Settings body is one element for every page: one listener on it, ever.
   if (!root._stageMpvWired) {
     root._stageMpvWired = true;

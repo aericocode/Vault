@@ -13,6 +13,10 @@
    currentQuerySpec), so a search or filter still applies on top. "Save as
    playlist order" writes it with POST /api/collections/:id/order, with Undo.
 
+   Place tagged files (On / Off, shown once a file in the collection has a
+   stream tag with a Place, on by default then): Flow order puts those files
+   where their tag says (First, Last, At a peak...; FlowOrder.planOrder).
+
    While the panel is open, tiles show a small energy start/middle/end bar
    and the BPM, and a dot for the hand-over from the file before (smooth,
    noticeable, jump). Flow shuffle (Settings › Stage) makes the collection's
@@ -46,6 +50,7 @@ const Flow = (() => {
     lastFetch: 0,
     fetching: false,
     appliedOrder: null, // the order last handed to the query
+    places: null,       // Place tagged files: true / false as picked, null = on when any file has a placed tag
   };
 
   const esc = (s) => (typeof escapeHtml === 'function' ? escapeHtml(String(s)) : String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])));
@@ -53,6 +58,17 @@ const Flow = (() => {
   const activeId = () => (typeof activeCollectionId !== 'undefined' ? activeCollectionId : null);
   const isMine = () => st.cid != null && st.cid === activeId();
   const tooMany = () => !!(st.status && st.status.collection && st.status.collection.tooMany);
+
+  /* Place tagged files (stream tags with a Place, player-lib/stream-tags.js):
+     on by default once a file in the collection has one. The server's answer
+     says which files do; before the first answer, the page's own copy does. */
+  function hasPlaced() {
+    if (st.data && st.data.places) return Object.keys(st.data.places).length > 0;
+    if (typeof StreamTags === 'undefined' || typeof collectionMembers === 'undefined') return false;
+    const ids = collectionMembers.get(st.cid) || [];
+    return ids.some(id => StreamTags.tagsOf(id).some(t => t.place && t.place !== 'anywhere'));
+  }
+  const placesOn = () => (st.places == null ? hasPlaced() : st.places);
 
   async function api(url, opts) {
     const r = await fetch(url, opts);
@@ -74,6 +90,7 @@ const Flow = (() => {
     st.pollTimer = null;
     st.cid = null; st.open = false; st.order = false; st.data = null; st.byId = new Map();
     st.status = null; st.lastCount = -1; st.appliedOrder = null; st.fetchFails = 0; st.toasted = false;
+    st.places = null;
     paint();
   }
 
@@ -136,9 +153,11 @@ const Flow = (() => {
     st.fetching = true;
     const cid = st.cid;
     try {
-      const data = await api(`/api/flow/collections/${cid}?shape=${encodeURIComponent(st.shape)}`);
+      const data = await api(`/api/flow/collections/${cid}?shape=${encodeURIComponent(st.shape)}&places=${placesOn() ? 1 : 0}`);
       if (cid !== st.cid) return;
       st.data = data;
+      // Asked before the answer said which files have a placed tag: ask again.
+      if (placesOn() !== !!data.placesOn) again = true;
       st.byId = new Map(data.features.map(f => [f.id, f]));
       st.lastFetch = Date.now();
       st.lastCount = data.counts.measured + data.counts.failed;
@@ -228,6 +247,27 @@ const Flow = (() => {
     st.appliedOrder = null;
     await applyOrder();
     paint();
+  }
+
+  async function pickPlaces(on) {
+    st.places = !!on;
+    st.order = true;
+    paint();
+    await refetch(true);
+    st.appliedOrder = null;
+    await applyOrder();
+    paint();
+  }
+
+  /** The Place tagged files switch: only for a collection with placed tags (or once used). */
+  function placesHtml() {
+    if (st.places == null && !hasPlaced()) return '';
+    const on = placesOn();
+    return `<span class="flow-seg-label">Place tagged files</span>
+        <span class="flow-seg" role="group" aria-label="Place tagged files" title="Files with a stream tag that has a Place (Opener, Closer...) go where it says">
+          <button type="button" data-flow-places="1" aria-pressed="${String(on)}">On</button>
+          <button type="button" data-flow-places="0" aria-pressed="${String(!on)}">Off</button>
+        </span>`;
   }
 
   async function saveOrder() {
@@ -365,6 +405,7 @@ const Flow = (() => {
           <button type="button" data-flow-order="flow" aria-pressed="${String(st.order)}">Flow order</button>
         </span>
         <span class="flow-sp"></span>
+        ${placesHtml()}
         <span class="flow-seg-label">Shape</span>
         <span class="flow-seg flow-shapes" role="group" aria-label="Shape">${shapes}</span>
       </div>
@@ -394,6 +435,8 @@ const Flow = (() => {
       if (o) { if (o.dataset.flowOrder === 'flow') useFlowOrder(); else usePlaylistOrder(); return; }
       const q = e.target.closest('[data-flow-q]');
       if (q) { queueAct(q.dataset.flowQ); return; }
+      const pl = e.target.closest('[data-flow-places]');
+      if (pl) { pickPlaces(pl.dataset.flowPlaces === '1'); return; }
       if (e.target.closest('[data-flow-save]')) saveOrder();
     });
   }
@@ -470,6 +513,15 @@ const Flow = (() => {
   });
   document.addEventListener('DOMContentLoaded', wire);
   if (document.readyState !== 'loading') wire();
+
+  // A stream tag changed (player-lib/stream-tags.js, loaded after this file):
+  // a Place may have, so the open panel asks again.
+  const watchTags = () => {
+    if (typeof StreamTags === 'undefined') return;
+    StreamTags.onChange(() => { if (st.open && isMine() && st.data) refetch(true); });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchTags);
+  else setTimeout(watchTags, 0);
 
   return {
     toggle, close, pickShape, useFlowOrder, usePlaylistOrder, saveOrder, refetch,
