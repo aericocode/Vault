@@ -45,7 +45,7 @@ test('an older media_flow gets the env column; its rows survive', () => {
 });
 
 test('a version 2 row is used meanwhile (stale, no envelope); failed, older or changed ones are not', () => {
-  assert.strictEqual(analyze.VERSION, 3);
+  assert.strictEqual(analyze.VERSION, 4);
   assert.strictEqual(analyze.MIN_VERSION, 2);
   const d = oldDb();
   store.ensureSchema(d);
@@ -66,7 +66,7 @@ test('the envelope is stored as compact JSON pairs and read back rounded; a new 
   const env = [[0.05, 0.71234], [0.15, 0.7], [0.5, 0.8], [0.95, 1.2]];
   store.save(d, 1, SRC, { lufs: -14, has_music: 1, e_start: 0.7, e_mid: 0.8, e_end: 0.9, env });
   const raw = d.prepare('SELECT env, version FROM media_flow WHERE media_id = 1').get();
-  assert.strictEqual(raw.version, 3);
+  assert.strictEqual(raw.version, analyze.VERSION);
   assert.strictEqual(raw.env, '[[0.05,0.712],[0.15,0.7],[0.5,0.8],[0.95,1]]');
   const row = store.get(d, 1);
   assert.strictEqual(row.stale, 0);
