@@ -14,6 +14,16 @@ let lastSelectedId = null; // anchor for shift-click range select
 // Bumped on every change to selectedIds, so the counts derived from it (the
 // selection bar, "all selected") are recomputed only when they can differ.
 let _selGen = 0;
+
+/**
+ * Is the grid showing library files that can be ticked and acted on? The
+ * Library tab, and a collection opened in the Collections tab (its files are
+ * the same tiles there; only the collection cards themselves are not files).
+ */
+function selectionGridShowing() {
+  if (typeof currentTab === 'undefined' || currentTab === 'library') return true;
+  return currentTab === 'collections' && typeof activeCollectionId !== 'undefined' && activeCollectionId != null;
+}
 function selectionChanged() { _selGen++; }
 
 // A selection this size or smaller is counted from its rows; a bigger one
@@ -169,7 +179,7 @@ function writeResultsSelect(host, html) {
 function renderResultsSelect() {
   const host = document.getElementById('resultsSelect');
   if (!host) return;
-  const onLibrary = typeof currentTab === 'undefined' || currentTab === 'library';
+  const onLibrary = selectionGridShowing();
   const total = Library.length();
   if (!onLibrary || !total) { writeResultsSelect(host, ''); return; }
 
@@ -352,9 +362,10 @@ function renderSelectionBar() {
   // a selection gets STARTED, so they have to render when nothing is selected.
   renderResultsSelect();
 
-  // Selection actions belong to the Library grid — hide elsewhere (the
-  // selection itself survives tab switches).
-  const onLibrary = typeof currentTab === 'undefined' || currentTab === 'library';
+  // Selection actions belong to the Library grid, and to a collection open in
+  // the Collections tab: hidden elsewhere (the selection itself survives tab
+  // switches).
+  const onLibrary = selectionGridShowing();
   // A person's files in the Faces tab are a library grid too ("Remove selected from X").
   const onPersonFiles = typeof facesPersonFilesShowing === 'function' && facesPersonFilesShowing();
   // Also hide while the full media player is open (main video / fullscreen) so
@@ -427,8 +438,15 @@ function renderSelectionBar() {
     title="Read ${selFiles(errored)} with an error again and remake their thumbnails, without redoing the AI scan"
     >${vaultEmojiLabel(`🔄 ${selBtnLabel('Force refresh', errored)}`)}</button>`;
 
+  // A collection is open: its ticked files can be taken out of it (collections.js).
+  const inCollection = typeof selectedInOpenCollection === 'function' ? selectedInOpenCollection().length : 0;
+  const uncollectBtn = inCollection === 0 ? '' : `<button class="sel-btn sel-uncollect" onclick="removeSelectedFromCollection()"
+    title="Take ${selFiles(inCollection)} out of this collection. The files themselves are not touched"
+    >${vaultEmojiLabel(`➖ ${selBtnLabel('Remove from this collection', inCollection)}`)}</button>`;
+
   bar.innerHTML = `
     <span class="sel-count">${selectedIds.size.toLocaleString()} selected</span>
+    ${uncollectBtn}
     ${typeof UpNext === 'undefined' ? '' : `<button class="sel-btn sel-upnext" onclick="upNextAddSelection('next')" title="Play the selected files after the one playing now (Shift+U)">${vaultIconSwap('⤴ ', 'play-next')}Play next</button>
     <button class="sel-btn sel-upnext" onclick="upNextAddSelection('end')" title="Add the selected files to the end of Up next (U)">${vaultIconSwap('＋ ', 'queue')}Up next</button>`}
     ${musicBtns}
