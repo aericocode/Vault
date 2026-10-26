@@ -41,8 +41,21 @@
     return i > 0 ? name.slice(i + 1).toLowerCase() : '';
   };
 
-  const hasFiles = (e) =>
-    e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+  // A drag that started on this page is never an import, even when it says it
+  // carries files: the browser lists 'Files' for a dragged <img> (a tile's
+  // thumbnail), and taking that drag over (dropEffect 'copy') cancelled the
+  // drop of a collection reorder (effectAllowed 'move'). Every drag that
+  // starts here is tagged; the tag rides in the drag itself, so nothing is
+  // left stuck when the dragged element is gone before dragend.
+  const PAGE_DRAG_TYPE = 'application/x-vault-page-drag';
+  document.addEventListener('dragstart', (e) => {
+    try { e.dataTransfer.setData(PAGE_DRAG_TYPE, '1'); } catch {}
+  }, true);
+
+  const hasFiles = (e) => {
+    const types = Array.from((e.dataTransfer && e.dataTransfer.types) || []);
+    return types.includes('Files') && !types.includes(PAGE_DRAG_TYPE);
+  };
 
   function showDropOverlay(show) {
     let ov = document.getElementById('vaultDropOverlay');
