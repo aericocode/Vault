@@ -408,3 +408,44 @@ test('a disconnected drive and a pile of silent videos: the server keeps answeri
   assert.ok(worst < 3000, `slowest answer while draining: ${worst} ms (all drained in ${Date.now() - t0} ms)`);
   assert.ok(h.max / 1e6 < 2000, `longest event-loop stall ${(h.max / 1e6).toFixed(0)} ms`);
 });
+
+test('quick answers: a failed write never crashes, and files dropped by a lock or a failed write are asked again', async () => {
+  const d = db.get();
+  const svc = require('../lib/flow/service');
+  const c = db.createCollection('Quick drops').id;
+  const mk = d.prepare("INSERT INTO media (filepath, filename, media_type, filesize_bytes, file_mtime_ms) VALUES (?, ?, 'video', 1, 1)");
+  const add = d.prepare('INSERT INTO collection_items (collection_id, media_id, position) VALUES (?, ?, ?)');
+  const qids = [];
+  for (let i = 0; i < 3; i++) { const id = Number(mk.run(`Q:\gone\drop${i}.mp4`, `drop${i}.mp4`).lastInsertRowid); add.run(c, id, i); qids.push(id); }
+  const rowCount = () => d.prepare('SELECT COUNT(*) AS n FROM media_flow WHERE media_id IN (SELECT value FROM json_each(?))').get(JSON.stringify(qids)).n;
+  const drained = async () => { const t0 = Date.now(); while (svc._queue().status().state !== 'idle' && Date.now() - t0 < 5000) await new Promise(r => setTimeout(r, 20)); };
+
+  // 1. The write fails (a full disk): logged, nothing thrown, the files kept for later.
+  const realSave = store.save;
+  store.save = () => { throw new Error('database or disk is full'); };
+  try {
+    svc.requestCollection(c);
+    await drained();
+    assert.doesNotThrow(() => svc._flushQuick());
+  } finally { store.save = realSave; }
+  assert.strictEqual(rowCount(), 0);
+  assert.deepStrictEqual(svc._dropped().sort(), qids.slice().sort());
+  svc.kick();                       // the next kick asks them again
+  await drained();
+  svc._flushQuick();
+  assert.strictEqual(rowCount(), 3);
+
+  // 2. The vault locks before the write: dropped, and asked again after the unlock.
+  d.prepare('DELETE FROM media_flow WHERE media_id IN (SELECT value FROM json_each(?))').run(JSON.stringify(qids));
+  svc.requestCollection(c);
+  await drained();
+  vault.bootLocked();
+  try { svc._flushQuick(); } finally { vault._locked = false; }
+  assert.strictEqual(rowCount(), 0);
+  assert.strictEqual(svc._dropped().length, 3);
+  svc.kick();                       // what the unlock does (server/index.js vault.onChange)
+  await drained();
+  svc._flushQuick();
+  assert.strictEqual(rowCount(), 3);
+  assert.deepStrictEqual(svc._dropped(), []);
+});
