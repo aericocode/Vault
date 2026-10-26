@@ -70,6 +70,8 @@ function librarySortValue() {
 }
 
 function switchToPlaylistOrder() {
+  // Flow order (player-lib/flow.js) is left too.
+  if (typeof flowLeaveOrder === 'function') flowLeaveOrder();
   currentSort = PLAYLIST_SORT_VALUE;
   if (typeof syncSortControls === 'function') syncSortControls();
   // A shuffled grid is put back too: a fresh query is never shuffled.
@@ -92,6 +94,7 @@ function reorderBlockedReason() {
   if (!_openReorderable()) return 'none';
   if (typeof currentSortField !== 'function' || currentSortField() !== 'playlist') return 'sort';
   if (Library.shuffled) return 'shuffled';
+  if (typeof flowOrderOn === 'function' && flowOrderOn()) return 'flow';
   const spec = Library.spec;
   if (!spec || spec.collectionId !== activeCollectionId) return 'none';   // the grid has not caught up yet
   if (spec.rankedIds || (Library.search && Library.search.mode === 'semantic')) return 'ranked';
@@ -125,6 +128,9 @@ function renderReorderNote() {
       + '<button type="button" class="coll-note-btn" onclick="switchToPlaylistOrder()">Use playlist order</button>';
   } else if (reason === 'shuffled') {
     html = 'Showing a shuffled order. Switch to playlist order to rearrange. '
+      + '<button type="button" class="coll-note-btn" onclick="switchToPlaylistOrder()">Use playlist order</button>';
+  } else if (reason === 'flow') {
+    html = 'Showing Flow order. Save it as the playlist order in the Flow panel, or switch back to rearrange. '
       + '<button type="button" class="coll-note-btn" onclick="switchToPlaylistOrder()">Use playlist order</button>';
   } else if (reason === 'ranked') {
     html = 'Your search is ranking these files, so rearranging is off until it is cleared.';

@@ -18,7 +18,14 @@
 const STAGE_SETTINGS_DEFAULTS = {
   showName: true, nameSeconds: 3, windowName: 'Vault Stage', imageSeconds: 8,
   cursorSeconds: 1, openSize: 'free', muteVault: true, tips: true, player: 'auto',
+  evenLoudness: true, flowMeasure: 'use', flowShuffle: false,
 };
+
+const STAGE_FLOW_MEASURE_OPTIONS = [
+  { value: 'use', label: 'Only when I use Flow' },
+  { value: 'new', label: 'New files too' },
+  { value: 'all', label: 'Whole library now' },
+];
 
 const STAGE_BASIC_WORDS = 'Basic (picture-in-picture): no extra program. It shows the address and controls when your mouse is over it, plays videos only, and stays on top.';
 let _stageSettings = { ...STAGE_SETTINGS_DEFAULTS };
@@ -120,6 +127,12 @@ function stageSettingsHtml() {
   const sizeSel = `<select class="settings-sel" data-stage-sel="openSize" aria-label="Size when Stage opens">
           ${STAGE_SIZE_OPTIONS.map(o => `<option value="${o.value}"${s.openSize === o.value ? ' selected' : ''}>${_stEsc(o.label)}</option>`).join('')}
         </select>`;
+  const measureSel = `<select class="settings-sel" data-stage-sel="flowMeasure" aria-label="Measure for Flow">
+          ${STAGE_FLOW_MEASURE_OPTIONS.map(o => `<option value="${o.value}"${s.flowMeasure === o.value ? ' selected' : ''}>${_stEsc(o.label)}</option>`).join('')}
+        </select>`;
+  const loudDesc = 'Quiet files are turned up and loud ones down, so viewers don’t reach for the volume. mpv Stage only: Basic can’t.';
+  const measureDesc = 'Vault listens to each file’s music for Flow order on a collection, on this PC at low priority, and waits while Stage plays. Only when I use Flow measures a collection when you open Flow on it.';
+  const shuffleDesc = 'A collection’s Shuffle lines files up so each one tends to flow into the next, instead of pure random. It still mixes things up.';
   const nameField = `<input class="settings-text" type="text" maxlength="60" spellcheck="false" autocomplete="off"
           data-stage-text="windowName" placeholder="Vault Stage" value="${_stEsc(s.windowName)}" aria-label="Window name">`;
 
@@ -140,7 +153,10 @@ function stageSettingsHtml() {
       + settingsRowHtml({ sfind: 'stageCursor', title: 'Hide the cursor', desc: 'After it stops moving over Stage.', control: _stNum('cursorSeconds', s.cursorSeconds, 1, 60, 'Seconds before the cursor hides') })
       + settingsRowHtml({ sfind: 'stageOpenSize', title: 'Size when Stage opens', desc: 'Free size keeps the size and spot you last left it at.', control: sizeSel })
       + settingsRowHtml({ tag: 'label', sfind: 'stageMuteVault', title: 'Mute Vault while Stage is open', desc: 'So viewers don’t hear the file twice.', control: _stSwitch('muteVault', s.muteVault) })
-      + settingsRowHtml({ tag: 'label', sfind: 'stageTips', title: 'Tips when Stage opens', desc: 'How to share it in Discord.', control: _stSwitch('tips', s.tips) });
+      + settingsRowHtml({ tag: 'label', sfind: 'stageTips', title: 'Tips when Stage opens', desc: 'How to share it in Discord.', control: _stSwitch('tips', s.tips) })
+      + settingsRowHtml({ tag: 'label', sfind: 'stageEvenLoudness', title: 'Even out loudness on Stage', desc: loudDesc, control: _stSwitch('evenLoudness', s.evenLoudness) })
+      + settingsRowHtml({ sfind: 'stageFlowMeasure', title: 'Measure for Flow', desc: measureDesc, control: measureSel })
+      + settingsRowHtml({ tag: 'label', sfind: 'stageFlowShuffle', title: 'Flow shuffle', desc: shuffleDesc, control: _stSwitch('flowShuffle', s.flowShuffle) });
     return `<p class="settings-note stage-set-lead">Stage is the window you share in Discord. Open it from the mini player, the full player, or Play on Stage on a collection.</p>`
       + settingsCardHtml({ title: 'Stage', sfind: 'stage', body: rows });
   }
@@ -157,7 +173,10 @@ function stageSettingsHtml() {
       ${settingsRowHtml({ sfind: 'stageCursor', title: lbl('Hide the cursor after', _stNum('cursorSeconds', s.cursorSeconds, 1, 60, 'Seconds before the cursor hides')) })}
       ${settingsRowHtml({ sfind: 'stageOpenSize', title: 'Size when Stage opens', control: sizeSel })}
       ${settingsRowHtml({ tag: 'label', sfind: 'stageMuteVault', title: 'Mute Vault while Stage is open', control: _stSwitch('muteVault', s.muteVault) })}
-      ${settingsRowHtml({ tag: 'label', sfind: 'stageTips', title: 'Tips when Stage opens', control: _stSwitch('tips', s.tips) })}`;
+      ${settingsRowHtml({ tag: 'label', sfind: 'stageTips', title: 'Tips when Stage opens', control: _stSwitch('tips', s.tips) })}
+      ${settingsRowHtml({ tag: 'label', sfind: 'stageEvenLoudness', title: 'Even out loudness on Stage', desc: loudDesc, control: _stSwitch('evenLoudness', s.evenLoudness) })}
+      ${settingsRowHtml({ sfind: 'stageFlowMeasure', title: 'Measure for Flow', desc: measureDesc, control: measureSel })}
+      ${settingsRowHtml({ tag: 'label', sfind: 'stageFlowShuffle', title: 'Flow shuffle', desc: shuffleDesc, control: _stSwitch('flowShuffle', s.flowShuffle) })}`;
 }
 
 async function _stageSettingsSave(patch, root) {

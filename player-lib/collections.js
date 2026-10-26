@@ -478,6 +478,8 @@ function collectionCountText(c) {
   const n = collFiles(c.item_count);
   if (c.kind === 'folder') return `${n} · folder`;
   if (typeof Library !== 'undefined' && Library.shuffled) return `${n} · shuffled`;
+  const flow = typeof flowCountText === 'function' ? flowCountText() : null;
+  if (flow) return `${n} · ${flow}`;
   const field = typeof currentSortField === 'function' ? currentSortField() : 'playlist';
   if (field === 'playlist') return `${n} · playlist order`;
   const opt = document.querySelector(`#sortSelect option[value="${field}"]`);
@@ -523,6 +525,7 @@ function renderCollectionHeader() {
       <button class="coll-action" onclick="playCollection(${c.id}, false)">Play all</button>
       <button class="coll-action coll-stage" onclick="StageControl.playCollectionOnStage(${c.id})" title="Open Stage, the window you share in Discord, and play this there">${collGlyph('📺 ', 'stage')}Play on Stage</button>
       <button class="coll-action" onclick="playCollection(${c.id}, true)">Shuffle</button>
+      ${typeof flowButtonHtml === 'function' ? flowButtonHtml(c) : ''}
       <button class="coll-action" id="collExportBtn" onclick="openCollectionExport(${c.id})" title="Save this list as a playlist file for other players">Export…</button>
       <button class="coll-action coll-delete" id="collDeleteBtn" onclick="deleteCollectionTwoStep(${c.id}, this)">Delete</button>
     </div>
@@ -647,8 +650,10 @@ async function playCollection(id, shuffle) {
   }
   if (shuffle) {
     // The grid shows the shuffled order too, as it always did. The saved
-    // order is never touched.
-    if (await Library.shuffle()) renderResults();
+    // order is never touched. Flow shuffle (Settings › Stage) leans toward
+    // files that flow on from the one before (player-lib/flow.js).
+    const flowed = typeof flowShuffleCollection === 'function' && await flowShuffleCollection(id);
+    if (flowed || await Library.shuffle()) renderResults();
     if (typeof renderReorderNote === 'function') renderReorderNote();
   } else if (typeof switchToPlaylistOrder === 'function' && getCollectionById(id)?.kind !== 'folder'
              && (currentSortField() !== 'playlist' || Library.shuffled)) {

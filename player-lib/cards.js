@@ -1092,6 +1092,7 @@ function renderTile(media) {
         ${media.language_code && media.language_code !== 'none' ? `<span class="tile-badge lang" title="${escapeHtml(media.language_name || '')}">${escapeHtml(media.language_code.toUpperCase())}</span>` : ''}
         <span class="tile-indicators">${indicators}</span>
       </div>
+      ${typeof flowTileHtml === 'function' ? flowTileHtml(media) : ''}
     </div>
   `;
 }
