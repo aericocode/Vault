@@ -297,10 +297,11 @@ const Flow = (() => {
     } else if ((c.left > 0 || c.stale > 0) && q && q.state !== 'idle') {
       // Measuring, or (everything measured by an older method) adding the chart's detail.
       const again = !(c.left > 0);
-      const why = q.reason === 'paused' ? 'Paused'
+      const wait = q.reason === 'paused' ? 'Paused'
         : q.reason === 'stage' ? 'Waiting while Stage plays'
         : q.reason === 'locked' ? 'Waiting: Vault is locked'
-        : again ? 'Adding detail to the chart:' : 'Measuring';
+        : null;
+      const why = again ? (wait ? `${wait}: adding detail,` : 'Adding detail to the chart:') : (wait || 'Measuring');
       const n = again ? c.measured - c.stale : done;
       const of = again ? c.measured : c.measurable;
       const pct = Math.round((n / Math.max(1, of)) * 100);
@@ -378,12 +379,17 @@ const Flow = (() => {
          onChange(cb: () => void): void                            // call cb to redraw when tags change
        }
 
-     A cell with several tags is drawn as side-by-side rounded segments; an
+     Colours must be #rgb or #rrggbb: a tag with any other colour is not
+     drawn (its chip falls back to grey). A cell with several tags is drawn
+     as side-by-side rounded segments; an
      untagged cell is a very faint rounded bar. Which rows show is the user's
      pick (the Lanes toggles), kept in localStorage: { tempo: bool,
      'tag:<key>': bool }; a tag lane shows until it is turned off, Tempo
      until it is turned on. Anything the provider throws or returns malformed
      counts as no tags. */
+
+  /** A provider's colour, only as #rgb or #rrggbb (it goes into markup; anything else is dropped). */
+  const safeColor = (c) => (typeof c === 'string' && /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.trim()) ? c.trim() : null);
 
   function laneSource() {
     const s = typeof window !== 'undefined' ? window.FlowLaneSource : null;
@@ -444,7 +450,7 @@ const Flow = (() => {
     try { out = s ? s.cells(lane.laneKey, order) : null; } catch { out = null; }
     return order.map((_, i) => {
       const c = out && Array.isArray(out[i]) ? out[i] : [];
-      return c.filter(t => t && t.color).map(t => ({ color: String(t.color), label: String(t.label || '') }));
+      return c.filter(t => t && safeColor(t.color)).map(t => ({ color: safeColor(t.color), label: String(t.label || '') }));
     });
   }
 
@@ -487,9 +493,10 @@ const Flow = (() => {
 
   /* ── Drawing ──────────────────────────────────────────────────────── */
 
-  function chartHtml() {
+  function chartHtml(reuse = false) {
     const d = st.data;
     if (!d || !d.features.length) return '';
+    if (reuse) return '<div id="flowChartSlot"></div>';
     return `<div class="flow-chart-wrap" id="flowChartWrap">
         <div class="flow-chart-svg"></div>
         <div class="flow-names"></div>
@@ -549,6 +556,7 @@ const Flow = (() => {
           <stop offset="0" stop-color="#fff" stop-opacity="0.16"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
         </linearGradient>
         <mask id="flowFade" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${base}"><rect x="0" y="${TOP}" width="${W}" height="${PH}" fill="url(#flowFadeG)"/></mask>
+        <clipPath id="flowClip"><rect x="${L - 2}" y="0" width="${W - R - L + 4}" height="${base + 1}"/></clipPath>
       </defs>`;
     // Gridlines, labelled 0-100.
     for (let k = 0; k <= 3; k++) {
@@ -558,6 +566,8 @@ const Flow = (() => {
     }
     svg += `<rect class="flow-col-hot" x="0" y="0" width="0" height="${H}" rx="4" visibility="hidden"/>`;
 
+    // The plot: nothing in it is drawn outside it (lane rows and labels sit below and left).
+    svg += '<g clip-path="url(#flowClip)">';
     // The target (Flow order with a shape).
     if (targets && targets.length) {
       const every = Math.max(1, Math.ceil(targets.length / Math.max(2, (W - L - R) / 4)));
@@ -621,6 +631,7 @@ const Flow = (() => {
       }
     });
     if (jumpsDense) svg += `<path class="flow-hand flow-hand-jump" d="${jumpsDense}"/>`;
+    svg += '</g>';
 
     // The file playing now.
     const nowI = st.nowId != null ? order.indexOf(st.nowId) : -1;
@@ -634,6 +645,12 @@ const Flow = (() => {
     namesRow(wrap, order, { L, step, dense, nowI });
     if (st.hot >= n) st.hot = -1;
     showHot(st.hot);
+    // Measured while the page may still be settling (a scrollbar coming or
+    // going): look again once it has, and redraw if the width moved.
+    requestAnimationFrame(() => {
+      const w = document.getElementById('flowChartWrap');
+      if (w && w.clientWidth !== st.drawnW && st.open && isMine()) drawChart();
+    });
   }
 
   function namesRow(wrap, order, { L, step, dense, nowI }) {
@@ -689,7 +706,7 @@ const Flow = (() => {
     if (s && typeof s.chips === 'function') {
       let c = [];
       try { c = s.chips(id) || []; } catch { c = []; }
-      if (Array.isArray(c) && c.length) chips = `<span class="flow-chips">${c.filter(t => t && t.label).map(t => `<span class="flow-chip" style="--c:${esc(t.color || 'var(--text-secondary)')}">${esc(t.label)}</span>`).join('')}</span>`;
+      if (Array.isArray(c) && c.length) chips = `<span class="flow-chips">${c.filter(t => t && t.label).map(t => `<span class="flow-chip" style="--c:${safeColor(t.color) || 'var(--text-secondary)'}">${esc(t.label)}</span>`).join('')}</span>`;
     }
     tip.innerHTML = `<span class="flow-tip-t">${i + 1}. ${esc(shortName(f) || 'Untitled')}</span><span class="flow-tip-m">${esc(line)}</span>${chips}`;
     tip.hidden = false;
@@ -776,7 +793,8 @@ const Flow = (() => {
 
   function legendHtml() {
     const d = st.data;
-    const anyQuiet = !!(d && d.features.some(f => drawable(f) && !f.music));
+    if (!d || !d.features.length) return '';
+    const anyQuiet = d.features.some(f => drawable(f) && !f.music);
     return `<div class="flow-legend">
           <span><i class="flow-key-energy"></i>Energy (loudness and tempo)</span>
           <span><i class="flow-key-line" style="background:var(--flow-ok)"></i>Smooth hand-over</span>
@@ -794,6 +812,11 @@ const Flow = (() => {
     el.hidden = false;
     if (tooMany()) { el.innerHTML = `<div class="flow-row"><span class="flow-title">Flow</span>${progressHtml()}</div>`; st.geom = null; return; }
     const shapes = FlowOrder.SHAPES.map(s => `<button type="button" data-flow-shape="${s.key}" aria-pressed="${String(st.order && st.shape === s.key)}">${esc(s.label)}</button>`).join('');
+    // The chart's host is kept across repaints (polls repaint often): an empty
+    // host would shrink the panel for a moment, and a page scrollbar going
+    // with it would make the chart measure too wide.
+    const keep = document.getElementById('flowChartWrap');
+    if (keep) keep.remove();
     el.innerHTML = `
       <div class="flow-row">
         <span class="flow-title">Flow</span>
@@ -807,13 +830,15 @@ const Flow = (() => {
         <span class="flow-seg flow-shapes" role="group" aria-label="Shape">${shapes}</span>
       </div>
       ${lanesRowHtml()}
-      ${chartHtml()}
+      ${chartHtml(!!keep)}
       <div class="flow-row">
         ${legendHtml()}
         <span class="flow-sp"></span>
         <span class="flow-sub" id="flowSummary">${esc(summaryText())}</span>
         ${st.order && st.data ? '<button type="button" class="flow-btn" data-flow-save>Save as playlist order</button>' : ''}
       </div>`;
+    const slot = el.querySelector('#flowChartSlot');
+    if (slot && keep) slot.replaceWith(keep);
     st.geom = null;
     drawChart();
   }

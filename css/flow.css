@@ -107,7 +107,7 @@
   overflow-x: clip;
   cursor: pointer;
 }
-.flow-chart { display: block; overflow: visible; }
+.flow-chart { display: block; overflow: hidden; }
 .flow-chart text {
   font-family: inherit;
   font-variant-numeric: tabular-nums;
