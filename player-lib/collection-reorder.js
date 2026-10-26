@@ -3,7 +3,8 @@
    (PLAYLISTS_SPEC, build step 1; Modern UI review items 1 and 11)
 
    While a collection (not a folder) is open and the grid is in playlist
-   order, tiles (and table rows) can be dragged to a new spot, and the
+   order (or Flow order: then a move edits Flow's working order in memory,
+   player-lib/flow.js, and the note line is Flow's order bar), tiles (and table rows) can be dragged to a new spot, and the
    selected file moves one place with Alt+arrows. Each move is one call to
    POST /api/collections/:id/order, then the grid re-runs its query in place
    and a toast offers Undo (selection.js showUndoToast; Undo sends the whole
@@ -94,9 +95,10 @@ function reorderBlockedReason() {
   if (!_openReorderable()) return 'none';
   if (typeof currentSortField !== 'function' || currentSortField() !== 'playlist') return 'sort';
   if (Library.shuffled) return 'shuffled';
-  if (typeof flowOrderOn === 'function' && flowOrderOn()) return 'flow';
   const spec = Library.spec;
   if (!spec || spec.collectionId !== activeCollectionId) return 'none';   // the grid has not caught up yet
+  // Flow order: drags edit its working order (flow.js), not the playlist order.
+  if (typeof flowOrderOn === 'function' && flowOrderOn()) return Library.search && Library.search.mode === 'semantic' ? 'ranked' : null;
   if (spec.rankedIds || (Library.search && Library.search.mode === 'semantic')) return 'ranked';
   return null;
 }
@@ -121,16 +123,19 @@ function renderReorderNote() {
   if (!el) return;
   const reason = reorderBlockedReason();
   let html = '';
-  if (reason === null) {
+  // Flow order shows: the order bar (flow.js) instead of the note.
+  // A shuffle on screen wins: its note shows (a shuffle leaves Flow order anyway).
+  const flowBar = !Library.shuffled && typeof flowOrderOn === 'function' && flowOrderOn() && typeof flowOrderBarHtml === 'function' ? flowOrderBarHtml() : '';
+  el.classList.toggle('flow-orderbar', !!flowBar);
+  if (flowBar) {
+    html = flowBar;
+  } else if (reason === null) {
     html = 'Drag tiles to rearrange, or select one and press Alt+arrows. Saves as you go.';
   } else if (reason === 'sort') {
     html = 'Switch to playlist order to rearrange. '
       + '<button type="button" class="coll-note-btn" onclick="switchToPlaylistOrder()">Use playlist order</button>';
   } else if (reason === 'shuffled') {
     html = 'Showing a shuffled order. Switch to playlist order to rearrange. '
-      + '<button type="button" class="coll-note-btn" onclick="switchToPlaylistOrder()">Use playlist order</button>';
-  } else if (reason === 'flow') {
-    html = 'Showing Flow order. Save it as the playlist order in the Flow panel, or switch back to rearrange. '
       + '<button type="button" class="coll-note-btn" onclick="switchToPlaylistOrder()">Use playlist order</button>';
   } else if (reason === 'ranked') {
     html = 'Your search is ranking these files, so rearranging is off until it is cleared.';
@@ -148,6 +153,9 @@ window.addEventListener('vault:results-changed', () => renderReorderNote());
 let _reorderBusy = false;
 
 function _members() {
+  // Flow order: the order it shows (a move edits that, flow.js).
+  const flow = typeof flowWorkingOrder === 'function' ? flowWorkingOrder() : null;
+  if (flow) return flow;
   return (typeof collectionMembers !== 'undefined' && collectionMembers.get(activeCollectionId)) || [];
 }
 
@@ -205,6 +213,8 @@ async function reorderMove(ids, before) {
   const moving = new Set(ids);
   if (!ids.length || (before != null && moving.has(before))) return false;
   if (_sameOrder(_plannedOrder(prev, moving, before), prev)) return false;
+  // Flow order: the working order changes, in memory, until Save as playlist order.
+  if (typeof flowOrderOn === 'function' && flowOrderOn() && typeof flowMoveInOrder === 'function') return flowMoveInOrder(ids, before);
   _reorderBusy = true;
   try {
     const data = await Library.ownWrite(_postOrder(collId, { move: ids, before }));
