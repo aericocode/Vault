@@ -350,7 +350,8 @@ const Flow = (() => {
   const plural = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
   const f1 = (v) => (Math.round(v * 10) / 10).toString();
   const pct = (v) => Math.round(Math.max(0, Math.min(1, v)) * 100);
-  const shortName = (f) => String((f && f.name) || '').replace(/\.[a-z0-9]{1,5}$/i, '');
+  /** What the chart calls a file: the library's title, or the file name without its extension. */
+  const shortName = (f) => (f && f.title) || String((f && f.name) || '').replace(/\.[a-z0-9]{1,5}$/i, '');
   /** Drawn as a line: measured, with sound (no audio stream, or silent: nothing). */
   const drawable = (f) => !!(f && f.measured && !f.failed && !f.noSound);
 
@@ -648,7 +649,7 @@ const Flow = (() => {
       const name = shortName(f);
       const w = named ? step : Math.max(step, NUM_PX);
       const left = named ? L + i * step : L + (i + 0.5) * step - w / 2;
-      html += `<span class="flow-nm${i === nowI ? ' now' : ''}${named ? '' : ' num'}" data-i="${i}" style="left:${f1(left)}px;width:${f1(w)}px" title="${esc(`${i + 1}. ${(f && f.name) || ''}${i === nowI ? ' (playing now)' : ''}`)}"><b>${i + 1}</b>${named ? esc(name) : ''}</span>`;
+      html += `<span class="flow-nm${i === nowI ? ' now' : ''}${named ? '' : ' num'}" data-i="${i}" style="left:${f1(left)}px;width:${f1(w)}px" title="${esc(`${i + 1}. ${name}${i === nowI ? ' (playing now)' : ''}`)}"><b>${i + 1}</b>${named ? esc(name) : ''}</span>`;
     }
     el.innerHTML = html;
   }

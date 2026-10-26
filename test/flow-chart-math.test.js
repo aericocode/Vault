@@ -34,9 +34,25 @@ test('filePoints: the envelope stretched to the column, or start / middle / end 
   assert.deepStrictEqual(M.filePoints({ es: 0.1, em: 0.2, ee: 0.3, env: [[0.1, 0.5]] }), [[0, 0.1], [0.5, 0.2], [1, 0.3]]);
   const p = M.filePoints({ es: 0, em: 0, ee: 0, env: [[0.05, 0.4], [0.5, 0.6], [0.95, 0.5]] });
   assert.ok(near(p[0][0], 0) && near(p[1][0], 0.5) && near(p[2][0], 1));
-  assert.deepStrictEqual(p.map(x => x[1]), [0.4, 0.6, 0.5]);
+  // Smoothed for display: the ends kept, the inside 0.25 / 0.5 / 0.25.
+  assert.ok(near(p[0][1], 0.4) && near(p[1][1], 0.525) && near(p[2][1], 0.5), JSON.stringify(p));
   // All at one t (should not happen): spread evenly rather than divide by zero.
   assert.deepStrictEqual(M.filePoints({ env: [[0.5, 0.1], [0.5, 0.2]] }), [[0, 0.1], [1, 0.2]]);
+  // The data is untouched.
+  const env = [[0.1, 0.8], [0.5, 0.2], [0.9, 0.8]];
+  M.filePoints({ env });
+  assert.deepStrictEqual(env, [[0.1, 0.8], [0.5, 0.2], [0.9, 0.8]]);
+});
+
+test('smoothed: one pass of 0.25 / 0.5 / 0.25 inside, ends kept; a lone dip is softened, not moved', () => {
+  const s = M.smoothed([0.8, 0.8, 0.4, 0.8, 0.8]);
+  assert.ok(near(s[0], 0.8) && near(s[4], 0.8));
+  assert.ok(near(s[1], 0.7) && near(s[2], 0.6) && near(s[3], 0.7), JSON.stringify(s));
+  // Stays within the data's range (an average never overshoots).
+  const data = [0.2, 0.9, 0.1, 0.95, 0.3, 0.6];
+  for (const v of M.smoothed(data)) assert.ok(v >= 0.1 && v <= 0.95);
+  assert.deepStrictEqual(M.smoothed([0.3, 0.7]), [0.3, 0.7]);
+  assert.deepStrictEqual(M.smoothed([]), []);
 });
 
 /** Points along a cubic Bezier path made of "M x,y C ..." segments. */

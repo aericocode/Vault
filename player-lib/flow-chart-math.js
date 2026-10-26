@@ -6,7 +6,11 @@
                              padded about 12 %, at least 0.2 wide, inside 0..1
    - filePoints(f)           the points a file's line goes through, [[t, e]],
                              t stretched to 0..1: its envelope (about 10
-                             points) or, without one, start / middle / end
+                             points, smoothed for display) or, without one,
+                             start / middle / end
+   - smoothed(es)            0.25 / 0.5 / 0.25 over the inside values, once
+                             (one dipping slice is not drawn as a needle);
+                             the ends are kept, so hand-overs still meet them
    - monotonePath(pts, o)    an SVG path through [[x, y], ...]: a monotone
                              cubic (Fritsch-Carlson), so it never overshoots
                              between points (no bumps the music does not have)
@@ -40,14 +44,20 @@ const FlowChartMath = (() => {
     return { lo, hi };
   }
 
-  /** The points of a file's line: [[t 0..1, e], ...], at least 2. */
+  /** Display only: each inside value 0.25 / 0.5 / 0.25 with its neighbours, once; the ends kept. */
+  function smoothed(es) {
+    return es.map((e, i) => (i === 0 || i === es.length - 1 ? e : 0.25 * es[i - 1] + 0.5 * e + 0.25 * es[i + 1]));
+  }
+
+  /** The points of a file's line: [[t 0..1, e], ...], at least 2 (an envelope smoothed for display). */
   function filePoints(f) {
     const env = f && Array.isArray(f.env) && f.env.length >= 2 ? f.env : null;
     if (!env) return [[0, f.es], [0.5, f.em], [1, f.ee]];
+    const es = smoothed(env.map(p => p[1]));
     const t0 = env[0][0], t1 = env[env.length - 1][0];
     const span = t1 - t0;
-    if (!(span > 0)) return env.map((p, k) => [k / (env.length - 1), p[1]]);
-    return env.map(p => [(p[0] - t0) / span, p[1]]);
+    if (!(span > 0)) return env.map((p, k) => [k / (env.length - 1), es[k]]);
+    return env.map((p, k) => [(p[0] - t0) / span, es[k]]);
   }
 
   const fx = (v) => (Math.round(v * 10) / 10).toString();
@@ -86,7 +96,7 @@ const FlowChartMath = (() => {
   /** 70 BPM (calm) .. 170 BPM (fast) as 0..1. */
   const tempoShare = (bpm) => clamp01((bpm - 70) / 100);
 
-  return { yRange, filePoints, monotonePath, tempoShare };
+  return { yRange, filePoints, smoothed, monotonePath, tempoShare };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = FlowChartMath;

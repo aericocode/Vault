@@ -122,7 +122,29 @@ test("the chart's data: each file's name, and its envelope (2 decimals) when it 
   const f1 = j.features.find(f => f.id === ids[1]);
   assert.ok(!('env' in f1), 'no envelope: the chart draws start, middle and end');
   assert.strictEqual(j.features.find(f => f.id === ids[5]).name, 'f5.mp4');
+  assert.ok(!('title' in f0), 'no song linked: no title');
   d.prepare('UPDATE media_flow SET env = NULL WHERE media_id = ?').run(ids[0]);
+});
+
+test("the chart's names: the library's title when one song is linked to the file, none for a mix", async () => {
+  const music = require('../lib/musicid/repo');
+  const a = music.findOrCreateSong({ title: 'Glass Hours', artist: 'Neon Harbor' });
+  const b = music.findOrCreateSong({ title: 'Low Orbit', artist: '' });
+  music.linkSongToMedia({ media_id: ids[1], song_id: a });
+  music.linkSongToMedia({ media_id: ids[2], song_id: b });
+  music.linkSongToMedia({ media_id: ids[3], song_id: a });
+  music.linkSongToMedia({ media_id: ids[3], song_id: b });
+  // Music ID's placeholder for a song it grouped by sound alone is not a title.
+  const c = music.findOrCreateSong({ title: 'Unknown Song 1', artist: 'Unknown', source: 'auto-cluster' });
+  music.linkSongToMedia({ media_id: ids[0], song_id: c });
+  const j = await (await get(`/api/flow/collections/${coll}?shape=build&first=${ids[1]}`)).json();
+  const by = new Map(j.features.map(f => [f.id, f]));
+  assert.strictEqual(by.get(ids[1]).title, 'Glass Hours by Neon Harbor');
+  assert.strictEqual(by.get(ids[2]).title, 'Low Orbit');
+  assert.ok(!('title' in by.get(ids[3])), 'two songs: no one title');
+  assert.strictEqual(by.get(ids[3]).name, 'f3.mp4');
+  assert.ok(!('title' in by.get(ids[0])), 'a placeholder: the file name instead');
+  db.get().prepare('DELETE FROM media_songs WHERE media_id IN (?, ?, ?, ?)').run(ids[0], ids[1], ids[2], ids[3]);
 });
 
 test('a row from the previous method (no envelope) is used meanwhile, counted stale, and measured again', async () => {

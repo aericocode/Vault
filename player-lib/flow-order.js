@@ -9,7 +9,8 @@
        env (optional: the energy envelope, [[t, e], ...] with t 0..1 where in
        the file and e 0..1 on the same scale, about 10 points; absent for a row
        measured before it existed, which the chart draws from es, em, ee),
-       name (optional: the file name, for the chart) }
+       name, title (optional: the file name, and the library's title when it
+       has one, for the chart) }
 
    - SHAPES, shapeLabel(k)       the shapes you pick from
    - targetsFor(shape, feats)    the energy each position aims for, across the
