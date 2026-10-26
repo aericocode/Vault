@@ -575,7 +575,8 @@ const Flow = (() => {
     if (!bar || !s.src) return;
     const d = Number(s.src.el.duration);
     const p = d > 0 && Number.isFinite(d) ? Math.max(0, Math.min(1, (Number(s.src.el.currentTime) || 0) / d)) : 0;
-    bar.style.width = `${(p * 100).toFixed(2)}%`;
+    const w = `${(p * 100).toFixed(1)}%`;
+    if (bar.style.width !== w) bar.style.width = w;            // written only when it moved
   }
 
   /** Every PH_TICK_MS: repaint the marks when what plays (or the order) changed, else move the progress line. */
@@ -986,8 +987,10 @@ const Flow = (() => {
 
      Only the dot's own element moves: a check every PH_TICK_MS (and on
      play / pause / seek) finds what plays and where; while it plays, a
-     requestAnimationFrame loop moves the dot between position reports
-     (mpv reports a few times a second). The loop stops while paused, when
+     requestAnimationFrame loop (about 30 fps, writing only what moved)
+     carries the dot between position reports (mpv reports a few times a
+     second), and the tiles' progress line with it. It runs only while the
+     dot can move (playing, a known length), and stops while paused, when
      the panel is closed or hidden, and when the tab is hidden. The dot lets
      clicks through, so clicking it jumps to the file like its column. */
 
@@ -1049,33 +1052,73 @@ const Flow = (() => {
         const f = st.byId.get(ph.src.id);
         const x0 = g.L + ph.index * g.step + g.gap, x1 = g.L + (ph.index + 1) * g.step - g.gap;
         let pts = null, flat = null;
-        if (drawable(f) && f.music && !g.dense) pts = FlowChartMath.filePoints(f).map(([t, e]) => [x0 + (x1 - x0) * t, g.y(e)]);
-        else if (drawable(f)) flat = g.y(f.em);                      // no music (a dotted line), or one simplified path
-        ph.curve = { x0, x1, pts, sl: pts ? FlowChartMath.slopes(pts) : null, flat };
+        if (g.dense) {
+          // One simplified path: straight lines between the centres of the
+          // music files next to each other (broken at anything else). The dot
+          // rides those; where nothing is drawn it has no y.
+          const at = (i) => { const h = st.byId.get(g.order[i]); return i >= 0 && i < g.n && drawable(h) && h.music ? g.y(h.em) : null; };
+          const cx = (i) => g.L + (i + 0.5) * g.step;
+          const yi = at(ph.index);
+          if (yi != null) {
+            pts = [];
+            const yl = at(ph.index - 1), yr = at(ph.index + 1);
+            if (yl != null) pts.push([cx(ph.index - 1), yl]);
+            pts.push([cx(ph.index), yi]);
+            if (yr != null) pts.push([cx(ph.index + 1), yr]);
+          }
+          ph.curve = { x0, x1, pts, linear: true, flat: null };
+        } else {
+          if (drawable(f) && f.music) pts = FlowChartMath.filePoints(f).map(([t, e]) => [x0 + (x1 - x0) * t, g.y(e)]);
+          else if (drawable(f)) flat = g.y(f.em);                    // no music: its dotted line
+          ph.curve = { x0, x1, pts, sl: pts ? FlowChartMath.slopes(pts) : null, flat };
+        }
       }
     }
     if (ph.index < 0 || !ph.curve) { phHide(); return; }
     const c = ph.curve;
     const p = ph.d > 0 ? Math.max(0, Math.min(1, phTime() / ph.d)) : 0;
     const x = c.x0 + (c.x1 - c.x0) * p;
-    const yv = c.pts ? FlowChartMath.monotoneAt(c.pts, x, c.sl) : c.flat;
-    const [line, glow, dot] = node.children;
-    line.setAttribute('x1', f1(x)); line.setAttribute('x2', f1(x));
+    const yv = c.linear ? linearAt(c.pts, x) : c.pts ? FlowChartMath.monotoneAt(c.pts, x, c.sl) : c.flat;
     const show = yv != null && Number.isFinite(yv) ? 'visible' : 'hidden';
-    for (const ci of [glow, dot]) { ci.setAttribute('cx', f1(x)); ci.setAttribute('cy', f1(yv || 0)); ci.setAttribute('visibility', show); }
+    // Written only when something visible changed (each write costs a style pass).
+    const sx = f1(x), sy = f1(show === 'visible' ? yv : 0);
+    if (node.dataset.at === `${sx}|${sy}|${show}` && node.getAttribute('visibility') === 'visible') return;
+    node.dataset.at = `${sx}|${sy}|${show}`;
+    const [line, glow, dot] = node.children;
+    line.setAttribute('x1', sx); line.setAttribute('x2', sx);
+    for (const ci of [glow, dot]) { ci.setAttribute('cx', sx); ci.setAttribute('cy', sy); ci.setAttribute('visibility', show); }
     node.setAttribute('visibility', 'visible');
   }
 
-  function phFrame() {
+  /** The y of straight lines through pts at x, or null outside them (nothing drawn there). */
+  function linearAt(pts, x) {
+    if (!pts || !pts.length) return null;
+    if (pts.length === 1) return Math.abs(x - pts[0][0]) < 0.5 ? pts[0][1] : null;
+    if (x < pts[0][0] || x > pts[pts.length - 1][0]) return null;
+    let i = 0;
+    while (i < pts.length - 2 && x > pts[i + 1][0]) i++;
+    const [xa, ya] = pts[i], [xb, yb] = pts[i + 1];
+    return xb === xa ? ya : ya + (yb - ya) * (x - xa) / (xb - xa);
+  }
+
+  // About 30 frames a second is plenty for a dot (and the tiles' progress line).
+  const PH_FRAME_MS = 33;
+  let phLast = 0;
+  function phFrame(now) {
     ph.raf = 0;
     if (!phShouldRun()) { phPlace(); return; }
-    phRead(ph.src);
-    phPlace();
+    if (!(now - phLast < PH_FRAME_MS)) {
+      phLast = now;
+      phRead(ph.src);
+      phPlace();
+      paintProgress(marksState());
+    }
     ph.raf = requestAnimationFrame(phFrame);
   }
 
   function phShouldRun() {
-    return !!(ph.src && !ph.paused && !document.hidden && st.open && isMine() && st.geom && ph.index >= 0
+    // Only while the dot can move: playing, with a known length (a picture on Stage has none).
+    return !!(ph.src && !ph.paused && ph.d > 0 && !document.hidden && st.open && isMine() && st.geom && ph.index >= 0
       && document.getElementById('flowChartWrap') && panel() && !panel().hidden);
   }
 
