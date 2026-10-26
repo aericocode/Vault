@@ -4,7 +4,7 @@
    SHORTCUTS below is the single list of every key the app answers to,
    written from the handlers themselves (player-controls.js, app.js, cards.js,
    dock.js, dock-edit.js, notes.js, metadata-edit.js, editor.js, wall.js,
-   faces-review.js, settings.js, lovense-sync.js). Two views are built from it:
+   faces-review.js, settings.js, lovense-sync.js, up-next.js). Two views are built from it:
    - the window that ? (Shift + /) opens from anywhere, with the group for
      where the user is now first and marked "You are here";
    - Settings > Keyboard shortcuts (settings.js calls shortcutsSettingsHtml
@@ -49,6 +49,9 @@ const SHORTCUTS = [
   { ctx: 'player', keys: ['R'], desc: 'Random file' },
   { ctx: 'player', keys: ['I'], desc: 'Show or hide the side panel (info and notes)' },
   { ctx: 'player', keys: ['Q'], desc: 'Shrink to the mini player (video and audio)' },
+  // up-next.js
+  { ctx: 'player', keys: ['U'], desc: 'Add the file playing to the end of Up next, so it plays again later' },
+  { ctx: 'player', keys: [['Shift', 'U']], desc: 'Put the file playing at the front of Up next, so it plays again next' },
   { ctx: 'player', keys: ['<', ','], desc: 'Slower' },
   { ctx: 'player', keys: ['>', '.'], desc: 'Faster' },
   { ctx: 'player', keys: ['['], desc: 'Loop: set the start' },
@@ -70,12 +73,17 @@ const SHORTCUTS = [
   { ctx: 'mini', keys: ['Q'], desc: 'Back to the full player' },
   { ctx: 'mini', keys: ['N', 'P'], desc: 'Next or previous file' },
   { ctx: 'mini', keys: ['R'], desc: 'Random file' },
+  { ctx: 'mini', keys: ['U'], desc: 'Add to the end of Up next: the file you picked in the library, or else the file playing' },
+  { ctx: 'mini', keys: [['Shift', 'U']], desc: 'Play next: the file you picked in the library, or else the file playing' },
   { ctx: 'mini', keys: ['Esc'], desc: 'Close the mini player' },
 
   // cards.js, selection.js
   { ctx: 'library', keys: ['PageDown', 'PageUp'], desc: 'Next or previous page (Pages layout)' },
   { ctx: 'library', keys: ['Home', 'End'], desc: 'First or last page (Pages layout)' },
   { ctx: 'library', keys: [['Shift', 'click']], desc: 'Select a range: tick one tile, then Shift+click the tick box of another' },
+  // up-next.js (two or more ticked files win over the preview pane's file)
+  { ctx: 'library', keys: ['U'], desc: 'Add the picked or ticked files to the end of Up next' },
+  { ctx: 'library', keys: [['Shift', 'U']], desc: 'Play the picked or ticked files next (front of Up next)' },
   // saved-searches.js (the panel under the search box, Modern)
   { ctx: 'library', keys: ['Up', 'Down'], desc: 'In the empty search box: open your saved searches and move between them' },
   { ctx: 'library', keys: ['Enter'], desc: 'Run the highlighted saved search (nothing highlighted: search for what you typed)' },

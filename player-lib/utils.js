@@ -312,6 +312,81 @@ function vaultPlaceToasts() {
   const undoH = undo && undo.classList.contains('visible') ? undo.offsetHeight + VAULT_TOAST_GAP : 0;
   root.style.setProperty('--vault-toast-base', base + 'px');
   root.style.setProperty('--vault-undo-h', undoH + 'px');
+  vaultToastsClearOfMini(undo, document.getElementById('toast'));
+}
+
+/**
+ * Never under the mini player or its open Up next list, in either look: a
+ * toast whose box would sit on them goes just above them, or beside them
+ * when there is no room above (and above both in the stacking order), so
+ * its Undo stays clickable. The mini player moves and resizes, so this asks
+ * the rectangles each time.
+ */
+function vaultToastsClearOfMini(undo, toast) {
+  const els = [undo, toast].filter(el => el && el.style);
+  for (const el of els) { el.style.bottom = ''; el.style.left = ''; el.style.right = ''; el.style.zIndex = ''; }
+  const mini = document.getElementById('miniPlayer');
+  if (!mini || !mini.classList || !mini.classList.contains('active') || typeof mini.getBoundingClientRect !== 'function'
+    || typeof getComputedStyle !== 'function') return;
+  undo = undo && undo.style ? undo : null;
+  toast = toast && toast.style ? toast : null;
+  // What to stay clear of: the box, and the list above (or below) it while open.
+  const u = mini.getBoundingClientRect();
+  const area = { left: u.left, right: u.right, top: u.top, bottom: u.bottom };
+  const pop = document.getElementById('upNextPop');
+  if (pop && !pop.hidden && typeof pop.getBoundingClientRect === 'function') {
+    const p = pop.getBoundingClientRect();
+    area.left = Math.min(area.left, p.left);
+    area.right = Math.max(area.right, p.right);
+    area.top = Math.min(area.top, p.top);
+    area.bottom = Math.max(area.bottom, p.bottom);
+  }
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const gap = VAULT_TOAST_GAP;
+  // Where a toast's box rests: its CSS position, not part way through a slide.
+  const box = (el) => {
+    const was = el.style.transition;
+    el.style.transition = 'none';
+    const r = el.getBoundingClientRect();
+    const bottom = parseFloat(getComputedStyle(el).bottom) || 0;
+    el.style.transition = was;
+    return { left: r.left, right: r.right, top: vh - bottom - el.offsetHeight, bottom: vh - bottom };
+  };
+  const meets = (b, o) => b.right > o.left && b.left < o.right && b.bottom > o.top && b.top < o.bottom;
+  // Move a toast sideways by dx px, whichever edge its look anchors it by.
+  const shiftX = (el, dx) => {
+    const cs = getComputedStyle(el);
+    if (cs.left === 'auto' || el.classList.contains('undo-toast') && !document.body.classList.contains('layout-modern')) {
+      el.style.right = (parseFloat(cs.right) - dx) + 'px';
+    } else {
+      el.style.left = (parseFloat(cs.left) + dx) + 'px';
+    }
+  };
+  /** Clear of the area (and of `also`, a toast placed already). Returns where it rests. */
+  const place = (el, also) => {
+    let b = box(el);
+    const blocked = (x) => meets(x, area) || (also && meets(x, also));
+    if (!blocked(b)) return b;
+    el.style.zIndex = '9002';
+    // Above the area, and above a toast already placed in the same column.
+    const sameColumn = also && b.right > also.left && b.left < also.right && also.top < area.top + 1;
+    const ceiling = Math.min(area.top, sameColumn || (also && meets(b, also)) ? also.top : Infinity);
+    const h = el.offsetHeight;
+    if (ceiling - gap - h >= 8) {
+      el.style.bottom = (vh - ceiling + gap) + 'px';
+      return box(el);
+    }
+    // No room above: beside the area, on whichever side has the room.
+    const w = b.right - b.left;
+    if (area.left - gap - w >= 8) shiftX(el, area.left - gap - b.right);
+    else if (vw - area.right - gap - w >= 8) shiftX(el, area.right + gap - b.left);
+    b = box(el);
+    if (also && meets(b, also)) el.style.bottom = (vh - also.top + gap) + 'px';
+    return box(el);
+  };
+  const undoAt = undo && undo.classList.contains('visible') ? place(undo, null) : (undo ? (place(undo, null), null) : null);
+  if (toast) place(toast, undoAt);
 }
 
 (function watchToastNeighbours() {

@@ -1070,6 +1070,7 @@ function renderTile(media) {
         ${thumb}
         <span class="tile-type-icon">${icon}</span>
         ${watchTagHtml(media)}
+        ${typeof upNextTileTag === 'function' ? upNextTileTag(media.id) : ''}
         ${duration ? `<span class="tile-duration">${duration}</span>` : ''}
         ${hotDone ? `<span class="tile-hotdone">${hotDone}</span>` : ''}
         ${typeof studiosTileTagHtml === 'function' ? studiosTileTagHtml(media) : ''}

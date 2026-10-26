@@ -72,6 +72,7 @@
   <!-- Modern player: bottom dock, song-segment timeline, auto-hide (body.layout-modern only) -->
   <link rel="stylesheet" href="./css/player/player-modern.css">
   <link rel="stylesheet" href="./css/player/player-panel-modern.css">
+  <link rel="stylesheet" href="./css/up-next.css">
   <!-- Modern beat bar: glass lane and its settings (body.layout-modern only) -->
   <link rel="stylesheet" href="./css/beatbar-modern.css">
   <!-- In-app alert / confirm / prompt (player-lib/vault-dialogs.js), both looks -->
@@ -463,14 +464,18 @@
           <input type="range" class="mini-vol-slider" id="miniVolSlider" min="0" max="1" step="0.01" value="1"
                  oninput="miniSetVolume(this.value)" aria-label="Volume">
         </div>
+        <!-- Up next (player-lib/up-next.js): opens its list above the box -->
+        <button type="button" class="mini-ctrl mini-upnext" id="miniUpNextBtn" onclick="UpNext.togglePopover()" title="Up next" aria-label="Up next" aria-haspopup="dialog" aria-expanded="false"><span class="vi-w" data-vi="queue">☰</span><span class="mini-un-label">Up next</span><span class="mini-un-badge" id="miniUpNextCount" hidden>0</span></button>
         <button type="button" class="mini-ctrl" id="miniPipBtn" onclick="miniTogglePip()" title="Pop out over other windows" aria-label="Pop out over other windows" hidden><span class="vi-w" data-vi="pip">⧉</span></button>
         <button type="button" class="mini-ctrl" onclick="maximizePlayer()" title="Back to the full player (Q)" aria-label="Back to the full player"><span class="vi-w" data-vi="expand">⤢︎</span></button>
         <button type="button" class="mini-ctrl mini-close" onclick="closeMiniPlayer()" title="Close (Esc)" aria-label="Close the mini player"><span class="vi-w" data-vi="close">✕</span></button>
       </div>
       <div class="mini-center">
+        <button type="button" class="mini-ctrl mini-round mini-file" data-mini-act="prev" title="Previous file (P)" aria-label="Previous file"><span class="vi-w" data-vi="prev-file">⏮︎</span></button>
         <button type="button" class="mini-ctrl mini-round" data-mini-act="back" title="Back 10 seconds" aria-label="Back 10 seconds"><span class="vi-w" data-vi="rewind">⏪︎</span></button>
         <button type="button" class="mini-ctrl mini-round mini-big" id="miniPlayPause" data-mini-act="play" title="Play or pause (Space)" aria-label="Pause"></button>
         <button type="button" class="mini-ctrl mini-round mini-fwd" data-mini-act="fwd" title="Forward 10 seconds" aria-label="Forward 10 seconds"><span class="vi-w" data-vi="rewind">⏩︎</span></button>
+        <button type="button" class="mini-ctrl mini-round mini-file" data-mini-act="next" title="Next file (N)" aria-label="Next file"><span class="vi-w" data-vi="next-file">⏭︎</span></button>
       </div>
       <div class="mini-bottom">
         <div class="mini-seek" id="miniSeek" title="Click or drag to seek">
@@ -527,6 +532,7 @@
   <!-- Table view (Modern look). Hooks: cards.js renderResults / renderContinuousWindow. -->
   <script src="./player-lib/table-view.js"></script>
   <script src="./player-lib/player/panel-layout.js"></script>
+  <script src="./player-lib/up-next-rule.js"></script>
   <script src="./player-lib/detail-view.js"></script>
   <script src="./player-lib/modal.js"></script>
   <script src="./player-lib/player/player-stream.js"></script>
@@ -541,6 +547,7 @@
   <script src="./player-lib/player/player-image.js"></script>
   <script src="./player-lib/player/player-document.js"></script>
   <script src="./player-lib/player/player-mix.js"></script>
+  <script src="./player-lib/up-next.js"></script>
   <!-- Modern player: the dock's geometry (pure) and the dock itself -->
   <script src="./player-lib/player/dock-geometry.js"></script>
   <script src="./player-lib/player/player-modern.js"></script>

@@ -141,6 +141,7 @@ function buildModernControls(ctl) {
           oninput="setVolume(this.value)" aria-label="Volume" title="Volume (Up and Down)">
         <span id="volumeDisplay" hidden>${Math.round(vol * 100)}%</span>
       </span>
+      ${typeof UpNext !== 'undefined' ? UpNext.dockButtonHtml() : ''}
       ${mpButton('gear', 'Settings', 'id="mpGearBtn" onclick="ModernDock.toggleGear(event)" aria-haspopup="menu"')}
       ${mpButton('fullscreen', 'Full screen (F)', 'id="mpFullBtn" onclick="toggleFullscreen()"')}
     </div>`;

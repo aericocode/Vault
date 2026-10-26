@@ -49,6 +49,10 @@ const VAULT_ICONS = {
   play: '<path d="M7.5 5v14l11-7z"/>',
   flag: '<path d="M5.5 21V4M5.5 4.5h11l-2.2 4.2 2.2 4.3h-11"/>',
   copy: '<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>',
+  // Up next (player-lib/up-next.js): the list with a plus (add to the end),
+  // and the list with a play mark at its top (play next)
+  queue: '<path d="M4 7h11M4 12h11M4 17h7M18 14v6M15 17h6"/>',
+  'play-next': '<path d="M4 12h10M4 17h10M4 7h4"/><path d="M12 4.5v5l4-2.5z" fill="currentColor"/><path d="M18 9v8"/>',
   // Mini player (player-lib/player/mini-player.js). Forward is rewind
   // mirrored in css/mini-player.css, which keeps the set small.
   close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',

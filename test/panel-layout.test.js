@@ -34,6 +34,13 @@ test('tabs: video gets Subtitles, and Music only once fingerprinted', () => {
   assert.strictEqual(tabs('video', { faces: true, fingerprinted: true }), 'details notes subtitles music people file');
 });
 
+test('tabs: Up next only beside the player (upNext), before File, for every type', () => {
+  assert.strictEqual(tabs('video', { upNext: true }), 'details notes subtitles upnext file');
+  assert.strictEqual(tabs('image', { faces: true, upNext: true }), 'details notes people upnext file');
+  assert.strictEqual(tabs('document', { upNext: true }), 'details notes upnext file');
+  assert.strictEqual(tabs('mix'), 'details notes file', 'the library details have no Up next tab');
+});
+
 test('tabs: audio always has Music, never People', () => {
   assert.strictEqual(tabs('audio'), 'details notes subtitles music file');
   assert.strictEqual(tabs('audio', { faces: true }), 'details notes subtitles music file');
@@ -50,8 +57,8 @@ test('tabs: pictures get Details, Notes, People, File; documents and mixes Detai
 });
 
 test('tabs: always in the panel order', () => {
-  assert.deepStrictEqual([...P.TAB_ORDER], ['details', 'notes', 'subtitles', 'music', 'people', 'file']);
-  const all = P.tabsFor('video', { faces: true, fingerprinted: true });
+  assert.deepStrictEqual([...P.TAB_ORDER], ['details', 'notes', 'subtitles', 'music', 'people', 'upnext', 'file']);
+  const all = P.tabsFor('video', { faces: true, fingerprinted: true, upNext: true });
   assert.deepStrictEqual([...all], [...P.TAB_ORDER]);
 });
 

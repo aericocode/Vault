@@ -1,0 +1,234 @@
+/* =========================================================================
+   UP NEXT (player-lib/up-next.js): the list above the mini player, the
+   Modern panel's Up next tab, Classic's section in Info & Notes, the mini
+   player's Up next and previous / next file buttons, the Modern dock's
+   "Up next n" button and the tile tag. Classic keeps its own tokens; the
+   Modern pieces hang off body.layout-modern.
+   ========================================================================= */
+
+/* ── Mini player: the Up next button and previous / next file ─────────── */
+
+.mini-ctrl.mini-upnext {
+  width: auto;
+  min-width: var(--mc-btn, 34px);
+  padding: 0 9px;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.mini-ctrl.mini-upnext[aria-expanded="true"] {
+  background: var(--accent-bg, rgba(99, 102, 241, 0.16));
+  border-color: var(--accent, #6366f1);
+}
+.mini-un-label { white-space: nowrap; }
+.mini-un-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent, #6366f1);
+  color: #fff;
+  font: 700 11px/18px system-ui, sans-serif;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.mini-un-badge[hidden] { display: none; }
+/* A smaller box: the button folds to its icon and the count. */
+.mini-player.mini-compact .mini-un-label { display: none; }
+.mini-player.mini-compact .mini-ctrl.mini-upnext { padding: 0 6px; }
+
+/* Previous and next file sit outside the 10 s buttons, square-ish like the
+   mockup, and go first when the box gets small (the 10 s buttons follow
+   under mini-tiny, css/mini-player.css). */
+.mini-ctrl.mini-file { border-radius: 10px; }
+.mini-player.mini-compact .mini-center .mini-file { display: none; }
+
+/* ── The list above the mini player ───────────────────────────────────── */
+
+.un-pop {
+  position: fixed;
+  z-index: 9001;              /* over the mini player (9000) */
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  background: var(--bg-secondary, #1a1a1a);
+  border: 1px solid var(--border, #333);
+  border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6);
+  color: var(--text-primary, #e0e0e0);
+  overflow: hidden;
+}
+.un-pop[hidden] { display: none; }
+body.layout-modern .un-pop {
+  background: #17171b;
+  border-color: #34343c;
+  color: var(--m-text, #ececf1);
+}
+.un-pop > [data-un-surface] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 4px;
+}
+.un-pop .un-list { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* ── One list (every surface) ─────────────────────────────────────────── */
+
+.un-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 6px;
+  border-bottom: 1px solid var(--border, #333);
+}
+body.layout-modern .un-head { border-bottom-color: #26262c; }
+.un-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.un-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent, #6366f1);
+  color: #fff;
+  font: 700 11px/18px system-ui, sans-serif;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.un-badge[hidden] { display: none; }
+.un-sp { flex: 1; }
+.un-clear {
+  background: none;
+  border: 1px solid var(--border, #444);
+  border-radius: 6px;
+  padding: 1px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-secondary, #a0a0a0);
+  cursor: pointer;
+}
+.un-clear:hover:not(:disabled) { color: var(--text-primary, #fff); }
+.un-clear:disabled { opacity: 0.45; cursor: default; }
+body.layout-modern .un-clear { border-color: var(--m-border-strong, rgba(255, 255, 255, 0.14)); color: #b4b4bf; }
+
+.un-list { display: grid; gap: 2px; align-content: start; }
+.un-row {
+  display: grid;
+  grid-template-columns: 14px 48px minmax(0, 1fr) auto 24px;
+  gap: 8px;
+  align-items: center;
+  padding: 4px;
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+.un-row:hover { background: rgba(255, 255, 255, 0.05); }
+.un-row.un-dragging { opacity: 0.45; }
+.un-row.un-drop-before { box-shadow: inset 0 2px 0 var(--accent, #6366f1); }
+.un-row.un-drop-after { box-shadow: inset 0 -2px 0 var(--accent, #6366f1); }
+.un-grip {
+  color: var(--text-muted, #8b8b97);
+  cursor: grab;
+  font-size: 11px;
+  letter-spacing: -1px;
+  user-select: none;
+}
+.un-th {
+  position: relative;
+  width: 48px;
+  aspect-ratio: 16 / 9;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--bg-tertiary, #252525);
+}
+.un-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.un-ti {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--text-secondary, #a0a0a0);
+}
+.un-th-fallback .un-ti { display: flex; }
+.un-tt { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.un-row.un-first .un-tt { font-weight: 600; }
+.un-du { color: var(--text-muted, #8b8b97); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.un-x {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: var(--text-muted, #8b8b97);
+  cursor: pointer;
+}
+.un-x:hover { color: #fca5a5; background: rgba(239, 68, 68, 0.12); }
+.un-x .vi { width: 14px; height: 14px; }
+.un-empty { margin: 0; padding: 8px 4px; color: var(--text-muted, #8b8b97); font-size: 12.5px; }
+.un-then {
+  padding: 6px 4px 2px;
+  border-top: 1px dashed var(--border, #444);
+  color: var(--text-muted, #8b8b97);
+  font-size: 12px;
+}
+.un-then[hidden] { display: none; }
+.un-then b { color: var(--text-secondary, #b4b4bf); font-weight: 600; }
+body.layout-modern .un-then { border-top-color: #34343c; }
+
+/* ── The player's side panel ──────────────────────────────────────────── */
+
+/* Modern: the Up next tab */
+.un-panel { display: grid; gap: 4px; }
+
+/* Classic: a section at the top of Info & Notes */
+.un-classic[hidden] { display: none; }
+.un-classic-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.un-side { display: grid; gap: 4px; }
+
+/* The Modern dock's "Up next n" button */
+body.layout-modern .mp-ic.mp-upnext { font-size: 13px; font-weight: 600; }
+.mp-un-n {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent, #6366f1);
+  color: #fff;
+  font: 700 11px/18px system-ui, sans-serif;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.mp-un-n[hidden] { display: none; }
+/* A folded dock (narrow stage) keeps the icon and the count only */
+.mp-dock:not([data-fold="0"]) .mp-un-label { display: none; }
+
+/* ── Tiles: "Up next 1" ───────────────────────────────────────────────── */
+
+.tile-upnext {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  z-index: 2;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--accent, #6366f1);
+  color: #fff;
+  font: 600 10.5px/16px system-ui, sans-serif;
+  pointer-events: none;
+}
+/* The select box sits top left on hover: the tag steps aside, as New does. */
+.media-tile:hover .tile-upnext,
+.media-tile.tile-selected .tile-upnext { left: 30px; }
+.tile-thumb:has(.tile-watch-tag) .tile-upnext { top: 26px; }
+body.layout-modern .media-tile:hover .tile-upnext,
+body.layout-modern .media-tile.tile-selected .tile-upnext { left: 34px; }

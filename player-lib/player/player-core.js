@@ -92,12 +92,123 @@ async function playIndexHandsFree(i) {
   return true;
 }
 
+/* ── Up next ───────────────────────────────────────────────────────────────
+   Next and a file ending play the first file in Up next (player-lib/
+   up-next.js) before the list moves on; Previous and Repeat all stay in the
+   list. The list's anchor is the last file that came from the list, so the
+   list carries on from there however many Up next files played in between
+   (player-lib/up-next-rule.js has the rule, this file walks the list). */
+
+let listAnchor = UpNextRule.NO_ANCHOR;
+let playingFromUpNext = false;
+
+/** Where the list stands: the anchor's position in the results, or -1. */
+function listAnchorIndex() {
+  return UpNextRule.anchorIndex(listAnchor, (id) => Library.indexOf(id));
+}
+
+function upNextCount() {
+  return typeof UpNext !== 'undefined' ? UpNext.count() : 0;
+}
+
+/** Does Next have somewhere to go from the file on screen (Up next, or the list)? */
+function playerHasNext() {
+  return upNextCount() > 0 || !Library.known() || listAnchorIndex() < Library.length() - 1;
+}
+
+/**
+ * Play the first file in Up next that can play, taking it (and any before it
+ * that cannot: documents, files nothing here can play, files gone from the
+ * library) out of Up next. Resolves false when Up next had nothing to play,
+ * 'stopped' when the next file's details could not be loaded (it goes back
+ * to the front of Up next, and nothing moves on).
+ */
+async function playUpNextHead(wait) {
+  while (upNextCount() > 0) {
+    // The first take may still wait what is left of the move's budget; any
+    // further one (past a file that cannot play) decides at once.
+    const item = await UpNext.shift({ wait });
+    wait = 0;
+    if (!item) return false;
+    let row = null;
+    try {
+      [row] = await Library.fetchRows([item.id], { strict: true });
+    } catch {
+      await UpNext.unshift(item);
+      showToast('Could not open the next file in Up next. Is Vault still running?', { type: 'error' });
+      return 'stopped';
+    }
+    const type = (row && row.media_type) || item.media_type;
+    if (!row || type === 'document' || isKnownBadMedia(row)) continue;
+    playMedia({ id: row.id, filepath: row.filepath, filename: row.filename, media_type: row.media_type },
+      { source: 'auto', fromUpNext: true });
+    refreshSidebarIfOpen();
+    return true;
+  }
+  return false;
+}
+
+/**
+ * The list file that plays once Up next is empty (the Up next footer says
+ * "Then the list carries on: ..."), or null when the list ends there.
+ */
+async function upNextListContinuation() {
+  const from = listAnchorIndex();
+  let i = await nextPlayableIndex(from, 1);
+  if (i === -1 && repeatMode() === 'all' && Library.length() >= 2) {
+    i = await nextPlayableIndex(-1, 1);
+    if (i === from) i = -1;
+  }
+  if (i === -1) return null;
+  const [row] = await Library.rowsForRange(i, i + 1);
+  return row || null;
+}
+
+/** Walk the list as UpNextRule.plan said. Resolves true if a file opened. */
+async function playListStep(step, from, wrap) {
+  const i = await nextPlayableIndex(from, step);
+  if (i !== -1) return playIndexHandsFree(i);
+  if (!wrap) return false;
+  // A one-item list would "wrap" onto itself, which is repeat-one's job, not
+  // this one's.
+  if (Library.length() < 2) return false;
+  // Wrapping starts at the top of the list, skipping any known-bad files there
+  // just as the forward walk does. Landing back on the file that just ended is
+  // repeat-one's job, so that one does not count as a wrap.
+  const first = await nextPlayableIndex(-1, 1);
+  if (first === -1 || first === from) return false;
+  return playIndexHandsFree(first);
+}
+
+/** One move through Up next and the list (Next, Previous, a file ending). */
+async function queueMove(dir, auto) {
+  // A change to Up next still on its way (Shift+U just pressed) lands first,
+  // but a slow server never holds the player up for more than a moment:
+  // past that the move is decided from Up next as shown.
+  // One budget for the whole move: what this wait used, shift() does not get again.
+  let left = 0;
+  if (typeof UpNext !== 'undefined') {
+    const t0 = Date.now();
+    await UpNext.settled(UpNext._limits.wait);
+    left = Math.max(0, UpNext._limits.wait - (Date.now() - t0));
+  }
+  const plan = UpNextRule.plan({
+    dir, auto, upNextCount: upNextCount(), anchor: listAnchorIndex(),
+    fromUpNext: playingFromUpNext, repeat: repeatMode(),
+  });
+  if (plan.take === 'upnext') {
+    const head = await playUpNextHead(left);
+    if (head === 'stopped') return false;
+    if (head) return true;
+    // Up next held nothing that could play: the list carries on.
+    return playListStep(1, listAnchorIndex(), !!auto && repeatMode() === 'all');
+  }
+  return playListStep(plan.step, plan.from, plan.wrap);
+}
+
 // Play next media
 function playNextMedia() {
-  return queueNav(async () => {
-    const i = await nextPlayableIndex(currentQueueIndex(), 1);
-    if (i !== -1) await playIndexHandsFree(i);
-  });
+  return queueNav(() => queueMove('next', false));
 }
 
 /**
@@ -113,29 +224,12 @@ function playNextMedia() {
  * @returns {Promise<boolean>} true if it moved to another file.
  */
 function playNextMediaOrWrap() {
-  return queueNav(async () => {
-    const cur = currentQueueIndex();
-    const i = await nextPlayableIndex(cur, 1);
-    if (i !== -1) return playIndexHandsFree(i);
-
-    // A one-item list would "wrap" onto itself, which is repeat-one's job, not
-    // this one's.
-    if (repeatMode() !== 'all' || Library.length() < 2) return false;
-    // Wrapping starts at the top of the list, skipping any known-bad files there
-    // just as the forward walk does. Landing back on the file that just ended is
-    // repeat-one's job, so that one does not count as a wrap.
-    const first = await nextPlayableIndex(-1, 1);
-    if (first === -1 || first === cur) return false;
-    return playIndexHandsFree(first);
-  });
+  return queueNav(() => queueMove('next', true));
 }
 
-// Play previous media
+// Play previous media (always in the list, never Up next)
 function playPreviousMedia() {
-  return queueNav(async () => {
-    const i = await nextPlayableIndex(currentQueueIndex(), -1);
-    if (i !== -1) await playIndexHandsFree(i);
-  });
+  return queueNav(() => queueMove('prev', false));
 }
 
 const RANDOM_TRIES = 24;
@@ -377,7 +471,10 @@ let lastPlaySource = 'user';
 let playingMedia = null;
 
 // Main playMedia function
-function playMedia(mediaData, { source = 'user' } = {}) {
+/* fromUpNext: Up next is playing this file, so the list's anchor stays where
+   it was (the list carries on from there). keepAnchor: the same file opened
+   again in another box (Maximize), which changes nothing about the queue. */
+function playMedia(mediaData, { source = 'user', fromUpNext = false, keepAnchor = false } = {}) {
   const { filepath, filename, media_type } = mediaData;
   playingMedia = { filepath, filename, media_type };
   lastPlaySource = source === 'auto' ? 'auto' : 'user';
@@ -445,6 +542,14 @@ function playMedia(mediaData, { source = 'user' } = {}) {
   // results or not (a Wall collection, a saved search), so a file that needs
   // converting is converted wherever it was opened from.
   currentMediaState.playbackMediaId = playbackMediaIdFor(mediaData, currentMediaState.currentMediaData, Library.rowByPath);
+  // Up next: a file from the list moves the list's anchor, one from Up next
+  // (or the same file reopened) leaves it.
+  listAnchor = UpNextRule.anchorAfterPlay(listAnchor, {
+    fromUpNext, keep: keepAnchor,
+    id: currentMediaState.currentMediaData ? currentMediaState.currentMediaData.id : null,
+    index: currentMediaState.currentIndex,
+  });
+  if (!keepAnchor) playingFromUpNext = !!fromUpNext;
   pinPlayerNeighbours(currentMediaState.currentIndex);
   // Remember it so the library can mark this tile on close (keeps the user's place)
   if (currentMediaState.currentMediaData) lastOpenedMediaId = currentMediaState.currentMediaData.id;
@@ -497,9 +602,12 @@ function playMedia(mediaData, { source = 'user' } = {}) {
   // The Modern dock lets go of the old controls (its menus, its stage watch)
   if (typeof ModernDock !== 'undefined') ModernDock.unmount();
 
-  const hasPrev = currentMediaState.currentIndex > 0;
+  // Previous and Next follow the list's anchor (a file Up next played sits
+  // outside the list's order); Next also has Up next to go to.
+  const anchorAt = listAnchorIndex();
+  const hasPrev = anchorAt > 0 || (playingFromUpNext && anchorAt >= 0);
   // Before the exact count is in there is always more to come.
-  const hasNext = !Library.known() || currentMediaState.currentIndex < Library.length() - 1;
+  const hasNext = playerHasNext();
 
   // Render based on media type
   if (media_type === 'video') {
@@ -547,8 +655,12 @@ function playMedia(mediaData, { source = 'user' } = {}) {
   // Straight back down to the mini player. Same tick as the build above, so
   // the full overlay never gets a frame to paint in.
   if (keepMini) minimizePlayer();
+  // The Up next list leaves with the mini player it opened from.
+  else if (typeof UpNext !== 'undefined') UpNext.closePopover();
 
   if (holdStill) showHoldFrame(holdBox, holdStill, currentMediaState.element);
+  // Up next's "Then the list carries on" follows the file on screen.
+  if (typeof UpNext !== 'undefined') UpNext.playerChanged();
 }
 
 /* ── Repeat / auto-advance ────────────────────────────────────────
@@ -958,7 +1070,9 @@ function toggleSidebar() {
     // Autofocus notes textarea after render
     requestAnimationFrame(() => {
       const textarea = sidebar.querySelector('.note-input-field');
-      if (textarea) textarea.focus();
+      // preventScroll: Classic's Up next section sits above the notes and
+      // should stay in view.
+      if (textarea) textarea.focus({ preventScroll: true });
     });
   } else {
     sidebar.classList.remove('active');
@@ -991,7 +1105,14 @@ function clearSidebarBody() {
 function renderSidebar() {
   const media = currentMediaState.currentMediaData;
   const body = document.getElementById('mediaSidebarBody');
-  if (!media || !body) return;
+  if (!body) return;
+  const upNext = typeof UpNext !== 'undefined';
+  // A file outside the results (Up next can hold anything in the library)
+  // has no details here: the panel shows Up next alone.
+  if (!media) {
+    if (upNext) { body.innerHTML = UpNext.sidebarOnlyHtml(); UpNext.render(); }
+    return;
+  }
 
   // The skipped tally is appended here rather than built into
   // renderDetailBody, because it is about the session, not about this file,
@@ -1001,9 +1122,12 @@ function renderSidebar() {
   if (typeof detailPanelTabbed === 'function' && detailPanelTabbed()) {
     body.innerHTML = renderDetailPanel(media, { extraFile: skipped });
     detailPanelMounted();
+    if (upNext) UpNext.render();
     return;
   }
-  body.innerHTML = renderDetailBody(media, { context: 'player' }) + skipped;
+  // Classic: Up next sits at the top of Info & Notes while it has files.
+  body.innerHTML = (upNext ? UpNext.classicSectionHtml() : '') + renderDetailBody(media, { context: 'player' }) + skipped;
+  if (upNext) UpNext.render();
 }
 
 
@@ -1480,7 +1604,7 @@ function maximizePlayer() {
     filepath: mediaData.filepath,
     filename: mediaData.filename,
     media_type: mediaData.media_type
-  });
+  }, { keepAnchor: true });
 
   // Restore playback position after the new element loads. Its source is
   // attached asynchronously (a converted file's only after the server answers),
@@ -1519,6 +1643,8 @@ function closeMiniPlayer() {
   miniMedia.innerHTML = '';
   miniPlayer.classList.remove('active', 'mini-audio');
   currentMediaState.miniMode = false;
+  if (typeof UpNext !== 'undefined') UpNext.closePopover();
+  if (typeof vaultPlaceToasts === 'function') vaultPlaceToasts();
   Library.pin('player', null);
 
   // Re-render so the "last opened" tile border lands, but leave the grid where

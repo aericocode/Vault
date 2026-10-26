@@ -200,6 +200,8 @@ function dockPartsHtml(m) {
     ['name', `<div class="dock-name" data-dock-part="name">${escapeHtml(m.filename)}</div>`],
     ['actions', `<div class="dock-actions" data-dock-part="actions">
       <button class="dock-btn dock-btn-primary" onclick="dockPlayPick(${m.id})">${vaultIconSwap('▶ ', 'play')}Play</button>
+      ${typeof UpNext === 'undefined' ? '' : `<button class="dock-btn" onclick="upNextAddFrom(${m.id}, 'next', 'dock')" title="Play this file after the one playing now (Shift+U)">Play next</button>
+      <button class="dock-btn" onclick="upNextAddFrom(${m.id}, 'end', 'dock')" title="Add this file to the end of Up next (U)">+ Up next</button>`}
       <button class="dock-btn" onclick="showDetailsById(${m.id})">Details</button>
       <button class="dock-btn ${flagged ? 'is-on' : ''}" onclick="toggleFlagDelete(mediaPathById(${m.id}))"
               title="${flagged ? 'Unflag' : 'Flag this file'}" aria-label="${flagged ? 'Unflag' : 'Flag this file'}">${vaultIconSwap('🚩', 'flag')}</button>

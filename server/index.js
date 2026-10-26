@@ -3115,6 +3115,34 @@ app.post('/api/collections/:id/order', (req, res) => {
   res.json({ order, item_count: order.length, first_ids: order.slice(0, 4) });
 });
 
+// ── Up next (PLAYLISTS_SPEC step 4) ───────────────────────────────────────
+// The saved queue that plays before the list carries on (lib/play-queue.js).
+// GET answers it in order; each change is one transaction and answers the
+// whole list again ({ items, refused }), so the viewer redraws from that.
+//   POST /api/queue/add      { ids, where: 'next' | 'end', source? }
+//   POST /api/queue/move     { move: [ids], before: id | null }
+//   POST /api/queue/remove   { ids }
+//   POST /api/queue/clear
+//   POST /api/queue/replace  { ids }   the exact list (Undo)
+const QUEUE_ERR_STATUS = { BAD_IDS: 400, TOO_MANY: 400, BAD_WHERE: 400, BAD_SOURCE: 400, BAD_MOVE: 400,
+  BAD_BEFORE: 400, NOT_MEMBER: 400, BEFORE_IN_MOVE: 400, BEFORE_NOT_MEMBER: 400 };
+
+app.get('/api/queue', (req, res) => {
+  res.json({ items: db.getPlayQueue() });
+});
+
+for (const op of ['add', 'move', 'remove', 'clear', 'replace']) {
+  app.post(`/api/queue/${op}`, (req, res) => {
+    try {
+      res.json(db.changePlayQueue(op, req.body));
+    } catch (err) {
+      const status = QUEUE_ERR_STATUS[err.code];
+      if (status) return res.status(status).json({ error: err.message, code: err.code });
+      throw err;
+    }
+  });
+}
+
 // ── Export a collection as a playlist file (PLAYLISTS_SPEC step 2) ────────
 // M3U8 only (for VLC / PotPlayer). links: full | relative | vault.
 // GET  /api/collections/:id/export?links=full|vault
