@@ -3,9 +3,12 @@
  * in Flow order.
  *
  *   GET  /api/flow/status[?collection=ID]   the queue (and that collection's counts)
- *   GET  /api/flow/collections/:id?shape=build&first=ID
+ *   GET  /api/flow/collections/:id?shape=build&first=ID&places=1
  *        Flow order: { shape, order, playlistOrder, features, targets,
- *        handovers, jumps, playlistJumps, counts }. Computed (in Flow's worker
+ *        handovers, jumps, playlistJumps, counts, places, placesOn }.
+ *        places=1: files with a placed stream tag go where it says (First,
+ *        Last, At a peak... lib/stream-tags.js); the answer's places is every
+ *        file's place ({ id: place }) either way. Computed (in Flow's worker
  *        thread, cached until something changes) from what is measured so far;
  *        files not measured yet are placed by the shape alone. 413 TOO_MANY
  *        over 5,000 files (status says so too: counts.tooMany).
@@ -59,8 +62,10 @@ function buildRouter() {
       first = parseId(req.query.first);
       if (!first) return res.status(400).json({ error: 'bad first id' });
     }
+    const places = req.query.places == null || req.query.places === '' ? '0' : String(req.query.places);
+    if (places !== '0' && places !== '1') return res.status(400).json({ error: 'places must be 0 or 1' });
     try {
-      res.json(await flow.collectionFlow(id, { shape, firstId: first }));
+      res.json(await flow.collectionFlow(id, { shape, firstId: first, places: places === '1' }));
     } catch (err) { fail(res, err); }
   });
 

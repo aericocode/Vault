@@ -77,6 +77,7 @@
   <link rel="stylesheet" href="./css/up-next.css">
   <!-- Flow: the panel over a collection's files, tiles, Settings rows (player-lib/flow.js) -->
   <link rel="stylesheet" href="./css/flow.css">
+  <link rel="stylesheet" href="./css/stream-tags.css">
   <!-- Modern beat bar: glass lane and its settings (body.layout-modern only) -->
   <link rel="stylesheet" href="./css/beatbar-modern.css">
   <!-- In-app alert / confirm / prompt (player-lib/vault-dialogs.js), both looks -->
@@ -219,6 +220,8 @@
         <select id="filterTheme"><option value="">All Themes</option></select>
         <select id="filterQuality"><option value="">All Quality</option></select>
         <select id="filterSong"><option value="">All Songs</option></select>
+        <!-- player-lib/stream-tags.js fills it -->
+        <select id="filterStreamTag"><option value="">All stream tags</option></select>
 
         <span class="duration-label" id="durationLabel">0:00 – ∞</span>
         <div class="duration-slider" id="durationSlider">
@@ -532,6 +535,8 @@
       </div>
     </div>
     <div class="sb-right">
+      <!-- The file on Stage's stream tags (player-lib/stream-tags.js) -->
+      <button type="button" class="sb-btn sb-wide sb-tag" id="stageBarTag" data-sb-act="tag" title="Add a stream tag to the file on Stage" aria-label="Stream tags" aria-haspopup="menu" disabled><span class="sb-tag-plus">+ Tag</span><span class="sb-tag-chips" id="stageBarTagChips"></span></button>
       <button type="button" class="sb-btn sb-wide" id="stageBarUpNext" data-sb-act="upnext" title="Up next" aria-label="Up next" aria-haspopup="dialog" aria-expanded="false"><span class="vi-w" data-vi="queue">☰</span><span class="sb-un-label">Up next</span><span class="sb-badge" id="stageBarUpNextCount" hidden>0</span></button>
       <button type="button" class="sb-btn" id="stageBarRepeat" data-sb-act="repeat" title="Repeat" aria-label="Repeat: off"><span class="sb-g"></span></button>
       <button type="button" class="sb-btn" id="stageBarHold" data-sb-act="hold" title="Hold: Stage goes black and silent (H)" aria-label="Hold" aria-pressed="false"><span class="vi-w" data-vi="hold">⬛</span></button>
@@ -583,6 +588,8 @@
   <script src="./player-lib/flow-order.js"></script>
   <script src="./player-lib/flow-chart-math.js"></script>
   <script src="./player-lib/flow.js"></script>
+  <!-- Stream tags: lanes, keys, menus, chips, and window.FlowLaneSource for the Flow chart -->
+  <script src="./player-lib/stream-tags.js"></script>
   <script src="./player-lib/music.js"></script>
   <script src="./player-lib/selection.js"></script>
   <script src="./player-lib/saved-searches.js"></script>
@@ -643,6 +650,7 @@
   <script src="./player-lib/scan-settings-ui.js"></script>
   <!-- Settings › Stage (both looks); before settings.js, which draws it -->
   <script src="./player-lib/stage-settings-ui.js"></script>
+  <script src="./player-lib/stream-tags-settings.js"></script>
   <script src="./player-lib/settings.js"></script>
   <!-- Settings search: one index of every setting, plus the shortcuts table -->
   <script src="./player-lib/settings-search.js"></script>

@@ -1,0 +1,205 @@
+/* =========================================================================
+   Stream tags (player-lib/stream-tags.js, player-lib/stream-tags-settings.js):
+   chips on tiles and rows, the menu, the Stage bar's + Tag, the editor in
+   Settings › Stage. A chip's colour is the tag's own (--c).
+   ========================================================================= */
+
+/* ── Chips ─────────────────────────────────────────────────────────────── */
+
+.stag-chip {
+  --c: #94a3b8;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 1px 7px 1px 5px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #fff;
+  background: color-mix(in oklab, var(--c) 32%, rgba(0, 0, 0, 0.6));
+  border: 1px solid color-mix(in oklab, var(--c) 55%, transparent);
+}
+.stag-chip::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c);
+}
+.stag-chip.stag-more::before { display: none; }
+.stag-chip.stag-more { padding: 1px 6px; background: rgba(0, 0, 0, 0.6); border-color: rgba(255, 255, 255, 0.25); }
+
+/* On a tile: along the bottom of the picture, above Hot / Done when those show. */
+.tile-thumb > .tile-stags {
+  position: absolute;
+  left: 6px;
+  right: 54px;                       /* the duration's corner */
+  bottom: 6px;
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.tile-thumb > .tile-stags .stag-chip { flex: 0 1 auto; backdrop-filter: blur(4px); }
+.tile-thumb:has(.tile-hotdone) > .tile-stags { bottom: 28px; }
+
+/* In the table: after the name in the Title cell. */
+.tv-c-title > .tv-stags {
+  display: inline-flex;
+  flex: 0 1 auto;
+  gap: 4px;
+  min-width: 0;
+  margin-left: 0.4rem;
+  align-self: center;
+}
+.tv-stags .stag-chip { color: var(--text-primary, #eee); background: color-mix(in oklab, var(--c) 22%, transparent); }
+
+/* ── The menu ──────────────────────────────────────────────────────────── */
+
+.stag-menu {
+  position: fixed;
+  z-index: 9200;                     /* over the selection bar, the Stage bar and face menus */
+  min-width: 220px;
+  max-width: 300px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0.3rem;
+  background: var(--bg-secondary, #181825);
+  border: 1px solid var(--border, #444);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  font-size: 0.85rem;
+}
+body.layout-modern .stag-menu { background: var(--m-surface-solid, #18181b); border-color: var(--m-border-strong, #3f3f46); border-radius: var(--m-radius, 10px); }
+.stag-mi {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.38rem 0.55rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-primary, #eee);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.stag-mi:hover, .stag-mi:focus-visible, .stag-mi[aria-expanded="true"] { background: var(--bg-hover, #2a2a3e); outline: none; }
+.stag-mi:disabled { opacity: 0.5; cursor: default; background: none; }
+.stag-check { flex: none; width: 1em; text-align: center; color: var(--accent-hover, #818cf8); font-weight: 700; }
+.stag-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+.stag-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stag-kbd {
+  flex: none;
+  margin-left: auto;
+  font: 600 0.7rem ui-monospace, "Cascadia Mono", monospace;
+  color: var(--text-secondary, #aaa);
+}
+kbd.stag-kbd {
+  border: 1px solid var(--border, #444);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 5px;
+  background: var(--bg-primary, #111);
+}
+.stag-head {
+  padding: 0.4rem 0.55rem 0.15rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted, #888);
+}
+.stag-sep { border: 0; border-top: 1px solid var(--border, #444); margin: 0.25rem 0; }
+
+/* ── The Stage bar's + Tag ─────────────────────────────────────────────── */
+
+.sb-btn.sb-tag { gap: 5px; max-width: 260px; border-style: dashed; }
+.sb-btn.sb-tag.sb-tag-has { border-style: solid; }
+.sb-tag-plus { flex: none; }
+.sb-tag-chips { display: inline-flex; align-items: center; gap: 3px; min-width: 0; }
+.sb-tag-more { font-size: 0.7rem; color: var(--text-secondary, #aaa); }
+.sb-tag-chips:empty { display: none; }
+
+/* ── Settings › Stage › Lanes and stream tags ─────────────────────────── */
+
+.sl-editor { display: grid; gap: 10px; padding: 4px 0; }
+.sl-lane {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border, #444);
+  border-radius: 10px;
+  background: var(--bg-tertiary, #1f1f2e);
+}
+body.layout-modern .sl-lane { border-color: var(--m-border, #27272a); background: var(--m-field, rgba(255, 255, 255, 0.03)); }
+.sl-lanehead, .sl-tag { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sl-lanehead .sl-lane-name { flex: 1 1 160px; width: auto; font-weight: 700; }
+.sl-tag { padding: 4px 6px; border-radius: 8px; background: var(--bg-secondary, #181825); }
+body.layout-modern .sl-tag { background: rgba(255, 255, 255, 0.03); }
+.sl-tag .sl-name { flex: 1 1 140px; width: auto; font-weight: 600; }
+.sl-color {
+  flex: none;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border, #444);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+.sl-color::-webkit-color-swatch-wrapper { padding: 2px; }
+.sl-color::-webkit-color-swatch { border: 0; border-radius: 4px; }
+.sl-key {
+  flex: none;
+  width: 3.2em !important;
+  text-align: center;
+  font: 600 0.8rem ui-monospace, "Cascadia Mono", monospace;
+  text-transform: uppercase;
+}
+.sl-place, .sl-multi { margin-top: 0; }
+.sl-count { flex: none; font-size: 0.72rem; color: var(--text-muted, #888); }
+.sl-acts { display: inline-flex; gap: 4px; margin-left: auto; }
+.sl-btn {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border, #444);
+  border-radius: 6px;
+  background: var(--bg-secondary, #181825);
+  color: var(--text-secondary, #aaa);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.sl-btn:hover:not(:disabled) { color: var(--text-primary, #eee); background: var(--bg-hover, #2a2a3e); }
+.sl-btn:disabled { opacity: 0.35; cursor: default; }
+.sl-btn.sl-del:hover:not(:disabled) { color: #fff; background: var(--danger, #e5484d); border-color: transparent; }
+.sl-add {
+  justify-self: start;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--accent-hover, #818cf8);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sl-add.sl-addtag { font-weight: 500; font-size: 0.78rem; padding-left: 8px; }
+.sl-add:hover { text-decoration: underline; }
+.sl-note { margin: 2px 0 0; }
+
+/* The Flow panel: a label stays with its buttons when the row wraps
+   (Place tagged files, Shape; player-lib/flow.js). */
+.flow-row > .flow-opt { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-width: 0; }

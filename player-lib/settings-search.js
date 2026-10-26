@@ -217,6 +217,10 @@ const SETTINGS_INDEX = [
   { page: 'stage', id: 'stageFlowShuffle', label: 'Flow shuffle',
     desc: 'A collection’s Shuffle lines files up so each one tends to flow into the next, instead of pure random. It still mixes things up.',
     keywords: ['flow', 'shuffle', 'random', 'tempo', 'bpm', 'energy', 'collection'] },
+  // Stream tags (player-lib/stream-tags-settings.js), on the Stage page too
+  { page: 'stage', id: 'stageLanes', label: 'Lanes and stream tags',
+    desc: 'Your own labels for files in a stream set, like Opener or Closer: lanes, tags, colours, keys and where Flow order puts them.',
+    keywords: ['stream', 'tags', 'lanes', 'role', 'mood', 'opener', 'closer', 'centerpiece', 'label', 'keys', 'hotkey', 'place', 'flow'] },
 
   // Keyboard shortcuts (its rows are searched from shortcuts.js as well)
   { page: 'shortcuts', id: 'shortcutsList', label: 'Keyboard shortcuts',
@@ -341,7 +345,7 @@ function settingsSearchShortcutItem(row) {
   const group = (typeof SHORTCUT_GROUPS !== 'undefined' && SHORTCUT_GROUPS.find(g => g.id === row.ctx)) || null;
   return {
     page: 'shortcuts',
-    id: `sk-${SHORTCUTS.indexOf(row)}`,
+    id: `sk-${(typeof shortcutsAll === 'function' ? shortcutsAll() : SHORTCUTS).indexOf(row)}`,
     label: row.desc,
     desc: `${keyText}${group ? ` · ${group.title}` : ''}`,
     shortcut: true,
@@ -374,7 +378,7 @@ function settingsSearch(query, opts = {}) {
   if (typeof SHORTCUTS !== 'undefined' && typeof shortcutsFilter === 'function') {
     // shortcuts.js decides what a row matches (its words, keys and group), as
     // the ? window and the Keyboard shortcuts page do.
-    const rows = shortcutsFilter(SHORTCUTS, query);
+    const rows = shortcutsFilter(typeof shortcutsAll === 'function' ? shortcutsAll() : SHORTCUTS, query);
     rows.slice(0, limit).forEach(r => {
       const item = settingsSearchShortcutItem(r);
       add(item, settingsSearchScore(item, words) || { score: 1, related: [] });

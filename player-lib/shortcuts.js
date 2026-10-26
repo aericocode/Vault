@@ -128,6 +128,27 @@ const SHORTCUTS = [
   { ctx: 'typing', keys: ['Backspace'], desc: 'Remove the last tag, in an empty tag box (preview pane)' },
 ];
 
+/* Stream tag keys (stream-tags.js): the keys are the user's own (Settings,
+   Stage: Lanes and stream tags), so these rows take the keys of their tags
+   (shortcutsSetStreamTagKeys) and are left out while no tag has one. Over
+   the Stage bar, the mini player's and Stage's own keys stay theirs. */
+const STREAM_TAG_SHORTCUTS = [
+  { ctx: 'library', keys: [], desc: 'Stream tag keys: put that tag on the file under the pointer, or take it off. On a ticked file: every ticked file' },
+  { ctx: 'mini', keys: [], desc: 'Stream tag keys, with the pointer over the Stage bar: put that tag on the file on Stage, or take it off' },
+];
+const STREAM_TAG_MINI_KEYS = ['Q', 'N', 'P', 'R', 'H', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+
+function shortcutsSetStreamTagKeys(keys) {
+  const list = [...new Set((keys || []).map(k => String(k)))];
+  STREAM_TAG_SHORTCUTS[0].keys = list;
+  STREAM_TAG_SHORTCUTS[1].keys = list.filter(k => !STREAM_TAG_MINI_KEYS.includes(k.toUpperCase()));
+}
+
+/** Every row the views show: the fixed table, then the stream tag rows that have keys. */
+function shortcutsAll() {
+  return SHORTCUTS.concat(STREAM_TAG_SHORTCUTS.filter(r => r.keys.length));
+}
+
 /* key -> [what the chip shows, its name for search and screen readers] */
 const SHORTCUT_KEY_NAMES = {
   Left: ['←', 'Left arrow'],
@@ -162,7 +183,7 @@ function shortcutsFilter(rows, query) {
 
 /** The groups to show, here first; groups the search leaves empty drop out. */
 function shortcutsGroups(query, here) {
-  const rows = shortcutsFilter(SHORTCUTS, query);
+  const rows = shortcutsFilter(shortcutsAll(), query);
   const order = SHORTCUT_GROUPS.slice();
   const i = order.findIndex(g => g.id === here);
   if (i > 0) order.unshift(order.splice(i, 1)[0]);
@@ -264,7 +285,7 @@ function shortcutsGroupsHtml(groups, query) {
     <section class="sk-group${g.here ? ' sk-here' : ''}" aria-label="${shortcutsEsc(g.title)}">
       <h3 class="sk-gh">${shortcutsEsc(g.title)}${g.here ? ' <span class="sk-now">You are here</span>' : ''}</h3>
       <ul class="sk-rows">${g.rows.map(r => `
-        <li class="sk-row" data-sfind="sk-${SHORTCUTS.indexOf(r)}"><span class="sk-desc">${shortcutsEsc(r.desc)}</span><span class="sk-keys">${shortcutKeysHtml(r.keys)}</span></li>`).join('')}
+        <li class="sk-row" data-sfind="sk-${shortcutsAll().indexOf(r)}"><span class="sk-desc">${shortcutsEsc(r.desc)}</span><span class="sk-keys">${shortcutKeysHtml(r.keys)}</span></li>`).join('')}
       </ul>
     </section>`).join('');
 }

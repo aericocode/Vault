@@ -1368,6 +1368,28 @@ async function facesTileMenu(e, tile) {
   }]);
 }
 
+/**
+ * The same items for another menu to show (the stream tags menu,
+ * player-lib/stream-tags.js, owns a tile's right-click): [{ label, run }],
+ * or null while face search is off or has nothing for this file.
+ */
+async function facesTileMenuItems(id) {
+  if (!facesReady()) return null;
+  if (typeof selectedIds !== 'undefined' && selectedIds.has(id) && selectedIds.size > 1) {
+    const n = selectionCounts().faceable;
+    return n ? [{ label: `Find faces in ${n} selected file${n === 1 ? '' : 's'}`, run: facesIndexSelection }] : null;
+  }
+  const m = typeof getMediaById === 'function' ? getMediaById(id) : null;
+  if (!m || !FACES_KINDS.includes(m.media_type)) return null;
+  let info = facesInfo.get(id);
+  if (!info) {
+    try { info = await facesApi(`/api/media/${id}/faces`, { background: true }); facesInfo.set(id, info); }
+    catch { info = null; }
+  }
+  const again = !!(info && info.indexed);
+  return [{ label: again ? 'Look for faces again' : 'Find faces in this file', run: () => facesFindNow(id, { force: again, toast: true }) }];
+}
+
 /* ── Find a person (search by photo) ───────────────────────────────────── */
 
 /** The filter-row button; '' while the feature is off (also read by fchipFitRow). */

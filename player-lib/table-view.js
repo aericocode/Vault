@@ -157,6 +157,7 @@ function tvCellHtml(c, m) {
       return `<div class="tv-cell tv-c-title">
           <span class="tile-name tv-name" onclick="tileThumbClick(${id})" ondblclick="tileThumbDblClick(${id})"
                 ${pmNames ? '' : `title="${escapeHtml(m.filename)}"`}>${escapeHtml(m.filename)}</span>
+          ${typeof streamTagRowHtml === 'function' ? streamTagRowHtml(m) : ''}
           ${typeof watchTagHtml === 'function' ? watchTagHtml(m) : ''}
           ${m.user_starred ? `<span class="tv-fave" title="Favorite">${vaultIconSwap('❤', 'heart')}</span>` : ''}
           ${m.user_flagged_delete ? `<span class="tv-flag" title="Flagged for deletion">${vaultIconSwap('🚩', 'flag')}</span>` : ''}

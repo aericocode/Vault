@@ -37,7 +37,7 @@ function loadShortcuts() {
   const ctx = makeCtx();
   const src = fs.readFileSync(path.join(LIB, 'shortcuts.js'), 'utf8');
   vm.runInContext(`${src}\n;globalThis.__s = { SHORTCUT_GROUPS, SHORTCUTS, shortcutsFilter, shortcutsGroups,
-    shortcutsDetectContext, shortcutsShouldOpen, isBrowserChord, shortcutsGroupsHtml };`, ctx);
+    shortcutsDetectContext, shortcutsShouldOpen, isBrowserChord, shortcutsGroupsHtml, shortcutsSetStreamTagKeys, shortcutsAll };`, ctx);
   return ctx.__s;
 }
 
@@ -321,4 +321,18 @@ test('context: the Editor is here only while a mix is open; Games has no group',
   const g = S.shortcutsGroups('', null);
   assert.ok(g.every(x => !x.here));
   assert.strictEqual(g[0].id, 'player');
+});
+
+test('stream tag keys: the rows show the keys the tags have, and none while no tag has a key', () => {
+  const S = loadShortcuts();
+  const rows = (ctx) => S.shortcutsGroups('', 'library').flatMap(g => g.rows).filter(r => r.ctx === ctx && /Stream tag keys/.test(r.desc));
+  assert.strictEqual(rows('library').length, 0);
+  S.shortcutsSetStreamTagKeys(['O', 'X', '1']);
+  assert.deepStrictEqual([...rows('library')[0].keys], ['O', 'X', '1']);
+  // Over the Stage bar the mini player keeps its digits.
+  assert.deepStrictEqual([...rows('mini')[0].keys], ['O', 'X']);
+  assert.ok(!/O, C, L, I, X/.test(S.shortcutsGroupsHtml(S.shortcutsGroups('', 'library'), '')));
+  assert.strictEqual(S.shortcutsAll().length, S.SHORTCUTS.length + 2);
+  S.shortcutsSetStreamTagKeys([]);
+  assert.strictEqual(rows('library').length, 0);
 });

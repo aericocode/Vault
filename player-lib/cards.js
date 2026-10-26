@@ -1075,6 +1075,7 @@ function renderTile(media) {
         ${hotDone ? `<span class="tile-hotdone">${hotDone}</span>` : ''}
         ${typeof studiosTileTagHtml === 'function' ? studiosTileTagHtml(media) : ''}
         ${typeof facesTileExtrasHtml === 'function' ? facesTileExtrasHtml(media) : ''}
+        ${typeof streamTagTileHtml === 'function' ? streamTagTileHtml(media) : ''}
         ${resumePct > 2 ? `<div class="tile-resume" style="width:${resumePct.toFixed(1)}%" title="Resume at ${formatDuration(media.last_position)}"></div>` : ''}
         <input type="checkbox" class="tile-select" ${isSelected ? 'checked' : ''}
           onclick="onTileSelect(event, ${media.id})" title="Select (shift-click for range)">

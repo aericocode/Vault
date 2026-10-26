@@ -13,7 +13,8 @@
        Flow text spot (setFlowText, filled by the Flow order work)
      - Previous file, back 10 s, Play / Pause, forward 10 s, Next file, and
        the seek bar with its times under them
-     - Up next (its list opens above the bar, player-lib/up-next.js), Repeat,
+     - + Tag (the file's stream tags, a menu to change them,
+       player-lib/stream-tags.js), Up next (its list opens above the bar, player-lib/up-next.js), Repeat,
        Hold, the volume, the Stage menu and Close Stage
 
    The page keeps the bar's height free: body.stage-bar-on and --stagebar-h
@@ -365,6 +366,8 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
       case 'menu': if (SC) SC.menu(e); break;
       // The X closes Stage and stops (the Stage menu's Close Stage plays on here).
       case 'close': if (SC) SC.closeStageAndStop(); break;
+      // + Tag: the file on Stage's stream tags (player-lib/stream-tags.js).
+      case 'tag': if (typeof StreamTags !== 'undefined') StreamTags.stageMenu(e.target.closest('[data-sb-act]')); break;
       default: break;
     }
   }
@@ -378,7 +381,7 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
       act(b.dataset.sbAct, e);
       // A mouse press leaves no focus on the button, so Space, N and P
       // (app.js) go to Stage, not to the last button pressed.
-      if (e.detail > 0 && b.dataset.sbAct !== 'menu' && b.dataset.sbAct !== 'upnext') b.blur();
+      if (e.detail > 0 && b.dataset.sbAct !== 'menu' && b.dataset.sbAct !== 'upnext' && b.dataset.sbAct !== 'tag') b.blur();
     });
     $('stageBarMenu')?.addEventListener('contextmenu', (e) => act('menu', e));
     const slider = $('stageBarVol');
@@ -571,6 +574,8 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
       slider.max = String(v.volume.max);
       slider.value = String(v.volume.value);
     }
+    // + Tag shows the file on Stage's stream tags.
+    if (typeof StreamTags !== 'undefined') StreamTags.paintStage(v.hasFile ? v.id : null);
   }
 
   /**
