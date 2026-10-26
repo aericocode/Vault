@@ -320,13 +320,17 @@ function vaultPlaceToasts() {
  * toast whose box would sit on them goes just above them, or beside them
  * when there is no room above (and above both in the stacking order), so
  * its Undo stays clickable. The mini player moves and resizes, so this asks
- * the rectangles each time.
+ * the rectangles each time. While Stage is open the Stage bar along the
+ * bottom (player-lib/stage-bar.js) takes the mini player's place here.
  */
 function vaultToastsClearOfMini(undo, toast) {
   const els = [undo, toast].filter(el => el && el.style);
   for (const el of els) { el.style.bottom = ''; el.style.left = ''; el.style.right = ''; el.style.zIndex = ''; }
-  const mini = document.getElementById('miniPlayer');
-  if (!mini || !mini.classList || !mini.classList.contains('active') || typeof mini.getBoundingClientRect !== 'function'
+  const stageBar = document.getElementById('stageBar');
+  const barOn = !!(stageBar && !stageBar.hidden && document.body && document.body.classList
+    && document.body.classList.contains('stage-bar-on'));
+  const mini = barOn ? stageBar : document.getElementById('miniPlayer');
+  if (!mini || !mini.classList || !(barOn || mini.classList.contains('active')) || typeof mini.getBoundingClientRect !== 'function'
     || typeof getComputedStyle !== 'function') return;
   undo = undo && undo.style ? undo : null;
   toast = toast && toast.style ? toast : null;
