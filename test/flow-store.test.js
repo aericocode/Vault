@@ -82,5 +82,14 @@ test('the envelope is stored as compact JSON pairs and read back rounded; a new 
 
 test('parseEnv: rounded to 2 decimals, anything malformed is no envelope', () => {
   assert.deepStrictEqual(FlowOrder.parseEnv('[[0.123,0.456],[0.9,0.111]]'), [[0.12, 0.46], [0.9, 0.11]]);
-  for (const bad of [null, '', '[]', '[[0.1,0.2]]', '{"a":1}', '[[1,"x"],[2,3]]', 'nope']) assert.strictEqual(FlowOrder.parseEnv(bad), null, bad);
+  for (const bad of [null, '', '[]', '[[0.1,0.2]]', '{"a":1}', '[[1,"x"],[0.2,0.3]]', 'nope']) assert.strictEqual(FlowOrder.parseEnv(bad), null, bad);
+  // Clamped to 0..1, junk pairs dropped, sorted by t.
+  assert.deepStrictEqual(FlowOrder.parseEnv('[[0.9,1.7],[null,0.2],[0.1,-0.3],["a",1],[0.5,0.5]]'), [[0.1, 0], [0.5, 0.5], [0.9, 1]]);
+  assert.deepStrictEqual(FlowOrder.parseEnv([[1.4, 0.2], [-1, 0.3]]), [[0, 0.3], [1, 0.2]]);
+});
+
+test('encodeEnv: junk pairs dropped, clamped, stored in time order', () => {
+  assert.strictEqual(store.encodeEnv([[0.9, 0.5], [0.1, 0.4], [NaN, 0.1], [0.5, 2]]), '[[0.1,0.4],[0.5,1],[0.9,0.5]]');
+  assert.strictEqual(store.encodeEnv('[[0.7,0.2],[0.3,0.1]]'), '[[0.3,0.1],[0.7,0.2]]');
+  assert.strictEqual(store.encodeEnv([[0.1, 0.2], [Infinity, 0.3]]), null);
 });

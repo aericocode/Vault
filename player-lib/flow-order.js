@@ -406,18 +406,18 @@ const FlowOrder = (() => {
     return `${bpmText(f)} BPM · energy ${energyWord(f.em)}`;
   }
 
-  /** media_flow.env (JSON pairs) as the features carry it: rounded to 2 decimals, or null. */
+  /** media_flow.env (JSON pairs) as the features carry it: inside 0..1, rounded to 2 decimals, sorted by t; or null. */
   function parseEnv(text) {
     if (!text) return null;
     let a;
     try { a = typeof text === 'string' ? JSON.parse(text) : text; } catch { return null; }
-    if (!Array.isArray(a) || a.length < 2) return null;
-    const out = [];
-    for (const p of a) {
-      if (!Array.isArray(p) || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null;
-      out.push([Math.round(p[0] * 100) / 100, Math.round(p[1] * 100) / 100]);
-    }
-    return out;
+    if (!Array.isArray(a)) return null;
+    // Pairs that are not two finite numbers are dropped; t and e kept inside 0..1; in time order.
+    const r2 = (x) => Math.round(Math.max(0, Math.min(1, x)) * 100) / 100;
+    const out = a.filter(p => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+      .map(p => [r2(p[0]), r2(p[1])])
+      .sort((x, y) => x[0] - y[0]);
+    return out.length >= 2 ? out : null;
   }
 
   /** A media_flow row (or null) as features. */

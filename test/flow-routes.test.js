@@ -147,6 +147,17 @@ test("the chart's names: the library's title when one song is linked to the file
   db.get().prepare('DELETE FROM media_songs WHERE media_id IN (?, ?, ?, ?)').run(ids[0], ids[1], ids[2], ids[3]);
 });
 
+/** Wait until the measuring queue has nothing left. */
+async function queueIdle() {
+  const t0 = Date.now();
+  for (;;) {
+    const s = await (await get('/api/flow/status')).json();
+    if (s.queue.state === 'idle' && !s.queue.current && !s.queue.pending) return;
+    if (Date.now() - t0 > 5000) throw new Error('the queue never went idle');
+    await new Promise(res => setTimeout(res, 50));
+  }
+}
+
 test('a row from the previous method (no envelope) is used meanwhile, counted stale, and measured again', async () => {
   const d = db.get();
   d.prepare('UPDATE media_flow SET version = 2 WHERE media_id = ?').run(ids[2]);
@@ -160,11 +171,25 @@ test('a row from the previous method (no envelope) is used meanwhile, counted st
   assert.strictEqual(f2.em, 0.5);
   const m = await (await post(`/api/flow/collections/${coll}/measure`)).json();
   assert.strictEqual(m.added, 1, 'queued to be measured again');
-  // The file is not on disk: wait for that answer, then put the row back.
-  const t0 = Date.now();
-  while (store.get(d, ids[2]) && store.get(d, ids[2]).stale && Date.now() - t0 < 5000) await new Promise(res => setTimeout(res, 50));
-  await new Promise(res => setTimeout(res, 300));
-  store.save(d, ids[2], store.srcOf({ filesize_bytes: 1000, file_mtime_ms: 5 }), { lufs: -20, peak_db: -6, has_music: 1, e_start: 0.5, e_mid: 0.5, e_end: 0.5, bpm_start: 120, bpm_mid: 120, bpm_end: 120, bpm_conf: 0.9 });
+  await queueIdle();
+
+  // The file is not on disk (an unplugged drive): its older numbers are kept, no error row.
+  const kept = () => d.prepare('SELECT version, error, e_start, e_mid, e_end, bpm_mid FROM media_flow WHERE media_id = ?').get(ids[2]);
+  assert.deepStrictEqual(kept(), { version: 2, error: null, e_start: 0.5, e_mid: 0.5, e_end: 0.5, bpm_mid: 120 });
+  assert.strictEqual(store.get(d, ids[2]).stale, 1);
+  await new Promise(res => setTimeout(res, 1100));
+  const s = await (await get(`/api/flow/status?collection=${coll}`)).json();
+  assert.strictEqual(s.collection.failed, 0);
+  assert.strictEqual(s.collection.stale, 1);
+  // Not asked again on the next open (no loop) ...
+  assert.strictEqual((await (await post(`/api/flow/collections/${coll}/measure`)).json()).added, 0);
+  // ... but Try again asks once more, and a second failure still keeps the numbers.
+  assert.strictEqual((await (await post(`/api/flow/collections/${coll}/measure`, { retry: true })).json()).added, 1);
+  await queueIdle();
+  assert.deepStrictEqual(kept(), { version: 2, error: null, e_start: 0.5, e_mid: 0.5, e_end: 0.5, bpm_mid: 120 });
+  assert.strictEqual((await (await post(`/api/flow/collections/${coll}/measure`)).json()).added, 0);
+  // Back to the current method for the tests after (the same numbers).
+  d.prepare('UPDATE media_flow SET version = ? WHERE media_id = ?').run(require('../lib/flow/analyze').VERSION, ids[2]);
 });
 
 test('measure: queues only what is not measured; status counts it', async () => {
