@@ -1,18 +1,20 @@
 /**
- * Stage (PLAYLISTS_SPEC 5): the window shared in Discord, run from the mini
- * player as its remote.
+ * Stage (PLAYLISTS_SPEC 5, "Stage host, final"): the window shared in
+ * Discord is the user's mpv, driven by the server, run from the mini player
+ * as its remote.
  *
  *  - player-lib/stage-rules.js   what Stage plays next by itself (Up next,
  *                                then the list), resume, views, GIF loops
  *  - lib/stage/settings.js       Settings › Stage, checked
  *  - lib/stage/geometry.js       size presets: the picture, not the window
  *  - lib/stage/hub.js            the Control <-> Stage link through the server
- *  - lib/stage/host.js, sdk.js   how Stage opens here, the pinned SDK files
- *  - server/stage-routes.js      the routes behind the lock gate and guards
- *  - tools/sea/build-app.js      nothing extra in the install root
+ *  - server/stage-routes.js      the routes behind the lock gate and guards;
+ *                                opening Stage with a fake mpv
+ *  - no WebView2 leftovers
  *
- * No window is ever opened: VAULT_STAGE_HOST=popup and
- * VAULT_DISABLE_NATIVE_PICKER=1 are set before the app loads.
+ * mpv itself (finding it, its arguments, the IPC, the engine) is in
+ * test/stage-mpv.test.js. No window is ever opened here: every launch uses a
+ * fake mpv host, and VAULT_DISABLE_NATIVE_PICKER=1 keeps the picker shut.
  */
 
 require('./helpers/no-real-lm');   // never the user's own LM Studio
@@ -21,7 +23,6 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-test-stage-'));
@@ -29,8 +30,6 @@ process.env.VAULT_DB = path.join(tmp, 'library.db');
 process.env.VAULT_SETTINGS_FILE = path.join(tmp, 'settings.json');
 process.env.VAULT_OFFLINE = '1';
 process.env.VAULT_DISABLE_NATIVE_PICKER = '1';
-process.env.VAULT_STAGE_HOST = 'popup';
-process.env.VAULT_STAGE_DATA = path.join(tmp, 'stage-webview');
 delete process.env.VAULT_DB_PASSWORD;
 
 const ROOT = path.join(__dirname, '..');
@@ -38,9 +37,6 @@ const Rules = require('../player-lib/stage-rules');
 const stageSettings = require('../lib/stage/settings');
 const geometry = require('../lib/stage/geometry');
 const { createHub, validateCommand, validateReport } = require('../lib/stage/hub');
-const { chooseMode, createHost, sweepStale, pidAlive } = require('../lib/stage/host');
-const sdk = require('../lib/stage/sdk');
-const ring = require('../lib/stream/ring');
 
 /* ── Upcoming: what Stage moves on to by itself ─────────────────────────── */
 
@@ -227,12 +223,14 @@ test('commands are checked: shapes, keys, ranges, unknown types', () => {
   assert.ok(!('filepath' in c.item));
 });
 
-test('reports are checked', () => {
+test('reports are checked (they come from the engine, in a fixed shape)', () => {
   assert.strictEqual(validateReport({ type: 'status', key: 'a1', state: 'playing', t: 3, d: 30 }).ok, true);
+  assert.strictEqual(validateReport({ type: 'status', key: 'a1', state: 'waiting' }).ok, true);
   assert.strictEqual(validateReport({ type: 'status', key: 'a1', state: 'dancing' }).ok, false);
   assert.strictEqual(validateReport({ type: 'started' }).ok, false);
-  assert.strictEqual(validateReport({ type: 'bounds', x: 1, y: 2, w: 0, h: 5 }).ok, false);
-  assert.strictEqual(validateReport({ type: 'whatever' }).ok, false);
+  assert.strictEqual(validateReport({ type: 'skipped', key: 'a1', reason: 'x'.repeat(500) }).rep.reason.length, 200);
+  // The page-only reports of the old Stage page are gone.
+  for (const type of ['ready', 'bounds', 'closing', 'wall', 'whatever']) assert.strictEqual(validateReport({ type, x: 1, y: 1, w: 9, h: 9 }).ok, false, type);
 });
 
 /** A server-sent event stream that records what it was sent. */
@@ -250,448 +248,199 @@ function fakeStream() {
   return { req, res };
 }
 
-function hubFor({ alive = false, graceMs = 30, openGraceMs = 60 } = {}) {
+/** A hub with a fake Stage runner that records what it was asked. */
+function hubFor({ alive = true, position = null } = {}) {
   const calls = [];
-  const host = {
-    alive: () => alive, close: () => calls.push('close'), front: () => calls.push('front'),
-    size: (p) => calls.push(`size:${p}`), setTitle: (t) => calls.push(`title:${t}`),
+  const runner = {
+    alive: () => runner._alive,
+    _alive: alive,
+    command: (c) => calls.push(`cmd:${c.type}`),
+    front: () => calls.push('front'),
+    size: (p) => calls.push(`size:${p}`),
+    close: () => calls.push('close'),
+    position: () => position,
+    lock: () => calls.push('lock'),
+    unlock: (s) => calls.push(`unlock:${s.hold}:${s.resume}`),
+    settingsChanged: (st) => calls.push(`settings:${st.windowName}`),
   };
   const hub = createHub({
-    host, graceMs, openGraceMs, heartbeatMs: 0,
-    settings: { get: () => stageSettings.normalize({}), sizes: stageSettings.OPEN_SIZES, presets: stageSettings.SIZE_PRESETS },
-  });
-  return { hub, calls, host };
-}
-
-test('hub: commands wait for an open Stage; a Stage that connects gets the whole session', () => {
-  const { hub } = hubFor();
-  assert.strictEqual(hub.command({ type: 'play' }).status, 409);
-  hub.opened('popup');
-  assert.strictEqual(hub.command({ type: 'load', item: item('a1', 1), upcoming: [item('a2', 2)], repeat: 'all' }).status, 200);
-  hub.command({ type: 'volume', volume: 0.3, muted: false });
-  const st = fakeStream();
-  hub.attach('stage', st.req, st.res);
-  const sync = st.res.events().find(e => e.event === 'sync').data;
-  assert.strictEqual(sync.current.key, 'a1');
-  assert.deepStrictEqual(sync.upcoming.map(u => u.key), ['a2']);
-  assert.strictEqual(sync.volume, 0.3);
-  assert.strictEqual(sync.settings.windowName, 'Vault Stage');
-  hub.close();
-});
-
-test('hub: Stage moving on by itself makes the upcoming file current and tells Control', () => {
-  const { hub } = hubFor();
-  hub.opened('popup');
-  const ctl = fakeStream();
-  hub.attach('control', ctl.req, ctl.res);
-  hub.command({ type: 'load', item: item('a1', 1), upcoming: [item('a2', 2, { via: 'upnext' }), item('a3', 3, { via: 'list', index: 4 })] });
-  assert.strictEqual(hub.report({ type: 'started', key: 'a2', auto: true }).status, 200);
-  const s = hub.state();
-  assert.strictEqual(s.current.key, 'a2');
-  assert.deepStrictEqual(s.upcoming.map(u => u.key), ['a3']);
-  const started = ctl.res.events().filter(e => e.event === 'started').pop().data;
-  assert.strictEqual(started.item.via, 'upnext');
-  assert.strictEqual(started.auto, true);
-  // A file it was never given is refused.
-  assert.strictEqual(hub.report({ type: 'started', key: 'zz9', auto: true }).status, 409);
-  // An upcoming list worked out for a file Stage has already left is stale.
-  assert.strictEqual(hub.command({ type: 'upcoming', upcoming: [item('b1', 9)], forKey: 'a1' }).body.stale, true);
-  assert.deepStrictEqual(hub.state().upcoming.map(u => u.key), ['a3']);
-  assert.strictEqual(hub.command({ type: 'upcoming', upcoming: [item('b1', 9)], forKey: 'a2' }).status, 200);
-  assert.deepStrictEqual(hub.state().upcoming.map(u => u.key), ['b1']);
-  hub.close();
-});
-
-test('hub: skipped files are reported with what they were; status keeps the paused flag', () => {
-  const { hub } = hubFor();
-  hub.opened('popup');
-  const ctl = fakeStream();
-  hub.attach('control', ctl.req, ctl.res);
-  hub.command({ type: 'load', item: item('a1', 1), upcoming: [item('a2', 2, { via: 'upnext' })] });
-  hub.report({ type: 'skipped', key: 'a2', reason: 'it can\u2019t be played' });
-  const sk = ctl.res.events().find(e => e.event === 'skipped').data;
-  assert.strictEqual(sk.item.id, 2);
-  assert.deepStrictEqual(hub.state().upcoming, []);
-  hub.report({ type: 'status', key: 'a1', state: 'paused', t: 4, d: 30, paused: true });
-  assert.strictEqual(hub.state().paused, true);
-  assert.ok(ctl.res.events().some(e => e.event === 'status' && e.data.t === 4));
-  hub.close();
-});
-
-test('hub: Control\u2019s Close answers with where Stage was; the stream ending then says closed', async () => {
-  const { hub, calls } = hubFor();
-  hub.opened('popup');
-  const ctl = fakeStream();
-  const st = fakeStream();
-  hub.attach('control', ctl.req, ctl.res);
-  hub.attach('stage', st.req, st.res);
-  hub.command({ type: 'load', item: item('a1', 1) });
-  hub.report({ type: 'status', key: 'a1', state: 'playing', t: 12.5, d: 30, paused: false });
-  const out = hub.command({ type: 'close' });
-  assert.strictEqual(out.body.last.t, 12.5);
-  assert.strictEqual(out.body.last.current.key, 'a1');
-  assert.ok(st.res.events().some(e => e.event === 'close'));
-  assert.ok(!calls.includes('close'), 'no host process: nothing to tell');
-  st.res.end();
-  await new Promise(r => setTimeout(r, 60));
-  assert.ok(ctl.res.events().some(e => e.event === 'closed'));
-  assert.strictEqual(hub.state().open, false);
-  hub.close();
-});
-
-test('hub: a Stage page that vanishes on its own is gone, not closed; a reload in time is neither', async () => {
-  const { hub } = hubFor({ graceMs: 40 });
-  hub.opened('popup');
-  const ctl = fakeStream();
-  hub.attach('control', ctl.req, ctl.res);
-  const s1 = fakeStream();
-  hub.attach('stage', s1.req, s1.res);
-  s1.res.end();
-  const s2 = fakeStream();
-  hub.attach('stage', s2.req, s2.res);      // reloaded within the grace period
-  await new Promise(r => setTimeout(r, 70));
-  assert.strictEqual(hub.state().open, true);
-  s2.res.end();
-  await new Promise(r => setTimeout(r, 70));
-  assert.ok(ctl.res.events().some(e => e.event === 'gone'));
-  assert.ok(!ctl.res.events().some(e => e.event === 'closed'));
-  hub.close();
-});
-
-test('hub: with a host process, its exit decides (the window\u2019s own close is closed, a crash is gone)', () => {
-  for (const [byUser, word] of [[true, 'closed'], [false, 'gone']]) {
-    const { hub } = hubFor({ alive: true });
-    hub.opened('webview2');
-    const ctl = fakeStream();
-    hub.attach('control', ctl.req, ctl.res);
-    hub.hostExited({ byUser });
-    assert.ok(ctl.res.events().some(e => e.event === word), word);
-    assert.strictEqual(hub.state().open, false);
-    hub.close();
-  }
-});
-
-test('hub: a pop-up that never connects is gone after a while', async () => {
-  const { hub } = hubFor({ openGraceMs: 40, graceMs: 10 });
-  const ctl = fakeStream();
-  hub.attach('control', ctl.req, ctl.res);
-  hub.opened('popup');
-  await new Promise(r => setTimeout(r, 80));
-  assert.strictEqual(hub.state().open, false);
-  assert.ok(ctl.res.events().some(e => e.event === 'gone'));
-  hub.close();
-});
-
-test('hub: lock is black at once: every stream told and ended, commands 423, Hold after the unlock', () => {
-  const { hub } = hubFor();
-  hub.opened('popup');
-  const ctl = fakeStream();
-  const st = fakeStream();
-  hub.attach('control', ctl.req, ctl.res);
-  hub.attach('stage', st.req, st.res);
-  hub.command({ type: 'load', item: item('a1', 1) });
-  hub.report({ type: 'status', key: 'a1', state: 'playing', t: 3, d: 30, paused: false });
-  hub.lock();
-  assert.ok(st.res.events().some(e => e.event === 'locked'));
-  assert.ok(st.res.ended && ctl.res.ended);
-  assert.strictEqual(hub.count('stage'), 0);
-  assert.strictEqual(hub.command({ type: 'play' }).status, 423);
-  assert.strictEqual(hub.report({ type: 'ready' }).status, 423);
-  hub.unlock();
-  const s = hub.state();
-  assert.strictEqual(s.hold, true);
-  assert.strictEqual(s.resume, true, 'it was playing: Hold off plays again');
-  assert.strictEqual(s.current.key, 'a1');
-  hub.close();
-});
-
-test('hub: a pop-up closed while locked does not keep the session open after the unlock', async () => {
-  const h = createHub({
-    host: { alive: () => false }, graceMs: 20, unlockGraceMs: 40, heartbeatMs: 0,
+    stage: runner, heartbeatMs: 0,
     settings: { get: () => stageSettings.normalize({}), sizes: stageSettings.OPEN_SIZES },
   });
-  h.opened('popup');
-  const st = fakeStream();
-  h.attach('stage', st.req, st.res);
-  h.command({ type: 'load', item: item('a1', 1) });
-  h.lock();                        // streams ended; the pop-up is closed while locked and says nothing
-  await new Promise(r => setTimeout(r, 60));
-  assert.strictEqual(h.state().open, true, 'nothing decided while locked');
-  h.unlock();
-  const ctl = fakeStream();
-  h.attach('control', ctl.req, ctl.res);
-  await new Promise(r => setTimeout(r, 90));
-  assert.strictEqual(h.state().open, false);
-  assert.ok(ctl.res.events().some(e => e.event === 'gone'));
-  assert.strictEqual(h.command({ type: 'play' }).status, 409);
-  h.close();
+  return { hub, calls, runner };
+}
+
+test('hub: commands wait for an open Stage; they reach the engine; a Control tab that connects gets the whole session', () => {
+  const { hub, calls } = hubFor();
+  assert.strictEqual(hub.command({ type: 'play' }).status, 409);
+  hub.opened('mpv');
+  assert.strictEqual(hub.command({ type: 'load', item: item('a1', 1), upcoming: [item('a2', 2)], repeat: 'all' }).status, 200);
+  assert.deepStrictEqual(calls, ['cmd:load']);
+  const { req, res } = fakeStream();
+  hub.attach('control', req, res);
+  const sync = res.events().find(e => e.event === 'sync').data;
+  assert.strictEqual(sync.open, true);
+  assert.strictEqual(sync.mode, 'mpv');
+  assert.strictEqual(sync.current.key, 'a1');
+  assert.strictEqual(sync.upcoming[0].key, 'a2');
+  assert.strictEqual(sync.repeat, 'all');
+  assert.strictEqual(sync.settings.windowName, 'Vault Stage');
 });
 
-test('hub: a Stage that reconnects after the unlock keeps its session', async () => {
-  const h = createHub({ host: { alive: () => false }, graceMs: 20, unlockGraceMs: 60, heartbeatMs: 0, settings: { get: () => ({}), sizes: ['free'] } });
-  h.opened('popup');
-  const s1 = fakeStream();
-  h.attach('stage', s1.req, s1.res);
-  h.lock();
-  h.unlock();
-  const s2 = fakeStream();
-  h.attach('stage', s2.req, s2.res);
-  await new Promise(r => setTimeout(r, 90));
-  assert.strictEqual(h.state().open, true);
-  h.close();
-});
-
-test('hub: opening again within a closing session’s grace period is a new Stage, not a closed one', async () => {
-  const h = createHub({ host: { alive: () => false }, graceMs: 30, openGraceMs: 30, heartbeatMs: 0, settings: { get: () => ({}), sizes: ['free'] } });
-  h.opened('popup');
-  const ctl = fakeStream();
-  h.attach('control', ctl.req, ctl.res);
-  const s1 = fakeStream();
-  h.attach('stage', s1.req, s1.res);
-  h.command({ type: 'close' });
-  s1.res.end();
-  h.opened('popup');               // pressed Stage again at once
-  const s2 = fakeStream();
-  h.attach('stage', s2.req, s2.res);
-  s2.res.end();                    // and this one crashes
-  await new Promise(r => setTimeout(r, 70));
-  const evs = ctl.res.events().map(e => e.event);
-  assert.ok(evs.includes('gone'), evs.join(','));
-  assert.ok(!evs.includes('closed'), 'the earlier Close does not carry over');
-  h.close();
-});
-
-test('hub: privacy mode hiding file names reaches Stage at once and leaves no names in the session', () => {
+test('hub: the engine moving on by itself makes the upcoming file current and tells Control; a key it was not given is refused', () => {
   const { hub } = hubFor();
-  hub.opened('popup');
-  const st = fakeStream();
-  hub.attach('stage', st.req, st.res);
+  hub.opened();
   hub.command({ type: 'load', item: item('a1', 1), upcoming: [item('a2', 2), item('a3', 3)] });
-  assert.strictEqual(hub.command({ type: 'privacy' }).status, 400);
-  assert.strictEqual(hub.command({ type: 'privacy', hideNames: true }).status, 200);
-  const relayed = st.res.events().filter(e => e.event === 'privacy').pop();
-  assert.strictEqual(relayed.data.hideNames, true);
-  const s = hub.state();
-  assert.strictEqual(s.hideNames, true);
-  assert.strictEqual(s.current.filename, '');
-  assert.deepStrictEqual(s.upcoming.map(u => u.filename), ['', '']);
-  // A Stage that (re)connects is told too, and gets no names.
-  const st2 = fakeStream();
-  hub.attach('stage', st2.req, st2.res);
-  const sync = st2.res.events().find(e => e.event === 'sync').data;
-  assert.strictEqual(sync.hideNames, true);
-  assert.ok(sync.upcoming.every(u => u.filename === ''));
-  // Off again: the flag goes; the names come back with the files Control sends next.
-  hub.command({ type: 'privacy', hideNames: false });
-  assert.strictEqual(hub.state().hideNames, false);
-  hub.command({ type: 'upcoming', upcoming: [item('a2', 2)], forKey: 'a1' });
-  assert.strictEqual(hub.state().upcoming[0].filename, 'f2.mp4');
-  hub.close();
+  const { req, res } = fakeStream();
+  hub.attach('control', req, res);
+  assert.strictEqual(hub.report({ type: 'started', key: 'a2', auto: true }).status, 200);
+  const st = hub.state();
+  assert.strictEqual(st.current.key, 'a2');
+  assert.deepStrictEqual(st.upcoming.map(u => u.key), ['a3']);
+  const ev = res.events().find(e => e.event === 'started').data;
+  assert.strictEqual(ev.auto, true);
+  assert.strictEqual(ev.item.key, 'a2');
+  assert.strictEqual(hub.report({ type: 'started', key: 'zz', auto: true }).status, 409);
+  // A stale answer for a file Stage has moved past is dropped.
+  assert.strictEqual(hub.command({ type: 'upcoming', upcoming: [item('b1', 9)], forKey: 'a1' }).body.stale, true);
+  assert.deepStrictEqual(hub.state().upcoming.map(u => u.key), ['a3']);
 });
 
-test('Stage and the remote handle privacy changes (names dropped and resent)', () => {
-  const stage = fs.readFileSync(path.join(ROOT, 'player-lib', 'stage.js'), 'utf8');
-  assert.match(stage, /on\('privacy', \(c\) => setPrivacy\(c\.hideNames === true\)\)/);
-  assert.match(stage, /setPrivacy\(s\.hideNames === true\)/, 'from the sync too');
-  assert.match(stage, /upcoming\.forEach\(blank\)/);
-  assert.match(stage, /settings\.showName \|\| hideNames/);
-  const ctl = fs.readFileSync(path.join(ROOT, 'player-lib', 'stage-control.js'), 'utf8');
-  assert.match(ctl, /new MutationObserver\(/);
-  assert.match(ctl, /cmd\(\{ type: 'privacy', hideNames: on \}\)/);
-  assert.match(ctl, /if \(cur\) sendUpcoming\(\);/);
+test('hub: skipped files are reported with what they were; status keeps Control’s pause on Hold', () => {
+  const { hub } = hubFor();
+  hub.opened();
+  hub.command({ type: 'load', item: item('a1', 1), upcoming: [item('a2', 2)] });
+  const { req, res } = fakeStream();
+  hub.attach('control', req, res);
+  hub.report({ type: 'skipped', key: 'a2', reason: 'it can’t be played' });
+  assert.strictEqual(res.events().find(e => e.event === 'skipped').data.item.id, 2);
+  assert.deepStrictEqual(hub.state().upcoming, []);
+  hub.report({ type: 'status', key: 'a1', state: 'paused', t: 4, d: 30, paused: true, hold: false });
+  assert.strictEqual(hub.state().paused, true);
+  hub.command({ type: 'play' });
+  hub.report({ type: 'status', key: 'a1', state: 'paused', t: 4, d: 30, paused: true, hold: true });
+  assert.strictEqual(hub.state().paused, false, 'on Hold the engine is paused, Control still wants play');
 });
 
-test('hub: front, size and close go to the host process while it runs; settings reach Stage and the title', () => {
-  const { hub, calls } = hubFor({ alive: true });
-  hub.opened('webview2');
-  const st = fakeStream();
-  hub.attach('stage', st.req, st.res);
+test('hub: Control’s Close asks the engine where it is, closes mpv, and its exit says closed', () => {
+  const { hub, calls, runner } = hubFor({ position: { key: 'a1', t: 12.5, paused: false } });
+  hub.opened();
+  hub.command({ type: 'load', item: item('a1', 1) });
+  const { req, res } = fakeStream();
+  hub.attach('control', req, res);
+  const out = hub.command({ type: 'close' });
+  assert.strictEqual(out.status, 200);
+  assert.strictEqual(out.body.last.t, 12.5);
+  assert.ok(calls.includes('close'));
+  runner._alive = false;
+  hub.stageExited({ byUser: true });
+  const closed = res.events().find(e => e.event === 'closed');
+  assert.ok(closed);
+  assert.strictEqual(closed.data.current.key, 'a1');
+  assert.strictEqual(hub.state().open, false);
+});
+
+test('hub: mpv ending on its own (a crash) is gone, paused; the window’s own close button is closed', () => {
+  const a = hubFor();
+  a.hub.opened();
+  a.hub.command({ type: 'load', item: item('a1', 1) });
+  const s1 = fakeStream();
+  a.hub.attach('control', s1.req, s1.res);
+  a.hub.stageExited({ byUser: false });
+  assert.ok(s1.res.events().find(e => e.event === 'gone'));
+
+  const b = hubFor({ position: { key: 'a1', t: 3, paused: true } });
+  b.hub.opened();
+  b.hub.command({ type: 'load', item: item('a1', 1) });
+  const s2 = fakeStream();
+  b.hub.attach('control', s2.req, s2.res);
+  b.hub.closeRequested();
+  assert.ok(b.calls.includes('close'));
+  b.hub.stageExited({ byUser: false });   // whatever mpv says: Vault asked it to close
+  const closed = s2.res.events().find(e => e.event === 'closed');
+  assert.ok(closed);
+  assert.strictEqual(closed.data.t, 3);
+  assert.strictEqual(closed.data.paused, true);
+});
+
+test('hub: a lock blacks Stage out at once (the engine is told), ends every stream, refuses commands and reports; the unlock comes back under Hold', () => {
+  const { hub, calls } = hubFor();
+  hub.opened();
+  hub.command({ type: 'load', item: item('a1', 1) });
+  const { req, res } = fakeStream();
+  hub.attach('control', req, res);
+  hub.lock();
+  assert.ok(calls.includes('lock'));
+  assert.ok(res.ended);
+  assert.ok(res.events().some(e => e.event === 'locked'));
+  assert.strictEqual(hub.count(), 0);
+  assert.strictEqual(hub.command({ type: 'play' }).status, 423);
+  assert.strictEqual(hub.report({ type: 'status', key: 'a1', state: 'playing' }).status, 423);
+  hub.unlock();
+  // It was playing: Hold on, and Hold off plays again (resume).
+  assert.ok(calls.includes('unlock:true:true'), calls.join(' '));
+  assert.strictEqual(hub.state().hold, true);
+  assert.strictEqual(hub.command({ type: 'hold', on: false }).status, 200);
+  assert.strictEqual(hub.state().resume, false);
+});
+
+test('hub: mpv gone while locked: the session ends at the unlock', () => {
+  const { hub, runner } = hubFor();
+  hub.opened();
+  hub.lock();
+  runner._alive = false;
+  hub.unlock();
+  assert.strictEqual(hub.state().open, false);
+});
+
+test('hub: privacy mode hiding file names reaches the engine and leaves no names in the session', () => {
+  const { hub, calls } = hubFor();
+  hub.opened();
+  hub.command({ type: 'load', item: item('a1', 1, { filename: 'secret.mp4' }), upcoming: [item('a2', 2, { filename: 'other.mp4' })] });
+  hub.command({ type: 'privacy', hideNames: true });
+  assert.ok(calls.includes('cmd:privacy'));
+  const st = hub.state();
+  assert.strictEqual(st.current.filename, '');
+  assert.strictEqual(st.upcoming[0].filename, '');
+  assert.strictEqual(st.hideNames, true);
+});
+
+test('hub: front and size go to the runner only while mpv runs; settings reach mpv and the remote', () => {
+  const { hub, calls, runner } = hubFor();
+  hub.opened();
   hub.command({ type: 'front' });
-  hub.command({ type: 'size', preset: '720p' });
-  hub.command({ type: 'close' });
+  hub.command({ type: 'size', preset: '1080p' });
   hub.settingsChanged();
-  assert.deepStrictEqual(calls, ['front', 'size:720p', 'close', 'title:Vault Stage']);
-  assert.ok(st.res.events().some(e => e.event === 'settings'));
-  hub.close();
+  assert.deepStrictEqual(calls, ['front', 'size:1080p', 'settings:Vault Stage']);
+  runner._alive = false;
+  hub.command({ type: 'front' });
+  assert.deepStrictEqual(calls, ['front', 'size:1080p', 'settings:Vault Stage']);
 });
 
-/* ── How Stage opens, and the SDK files ─────────────────────────────────── */
+/* ── No WebView2 leftovers ──────────────────────────────────────────────── */
 
-test('chooseMode: the switch, the platform, test servers, the runtime and the files', () => {
-  const win = { platform: 'win32', runtime: '130.0', sdkOk: true };
-  assert.strictEqual(chooseMode({ ...win, env: {} }).mode, 'webview2');
-  assert.strictEqual(chooseMode({ ...win, env: { VAULT_STAGE_HOST: 'popup' } }).mode, 'popup');
-  assert.strictEqual(chooseMode({ ...win, platform: 'linux', env: {} }).mode, 'popup');
-  assert.strictEqual(chooseMode({ ...win, env: { VAULT_DISABLE_NATIVE_PICKER: '1' } }).mode, 'popup');
-  assert.strictEqual(chooseMode({ ...win, env: { VAULT_DISABLE_NATIVE_PICKER: '1', VAULT_STAGE_HOST: 'webview2' } }).mode, 'webview2');
-  assert.strictEqual(chooseMode({ ...win, runtime: null, env: {} }).mode, 'popup');
-  assert.strictEqual(chooseMode({ ...win, sdkOk: false, env: {} }).mode, 'popup');
-  assert.strictEqual(chooseMode({ ...win, platform: 'darwin', env: { VAULT_STAGE_HOST: 'webview2' } }).mode, 'popup');
-});
-
-test('sdk.verify: all three files, byte for byte the pinned ones', () => {
-  const dir = fs.mkdtempSync(path.join(tmp, 'sdk-'));
-  const files = {};
-  for (const n of ['a.dll', 'b.dll']) {
-    const buf = crypto.randomBytes(64);
-    fs.writeFileSync(path.join(dir, n), buf);
-    files[n] = crypto.createHash('sha256').update(buf).digest('hex').toUpperCase();
+test('the WebView2 Stage is gone: no host, SDK files, Stage page, switches or install steps', () => {
+  for (const f of ['lib/stage/host.js', 'lib/stage/host-script.js', 'lib/stage/sdk.js', 'lib/stage/WEBVIEW2-LICENSE.txt', 'player-lib/stage.html', 'player-lib/stage.js', 'css/stage.css']) {
+    assert.ok(!fs.existsSync(path.join(ROOT, f)), `${f} is gone`);
   }
-  assert.strictEqual(sdk.verify(dir, { files }).ok, true);
-  const dir2 = fs.mkdtempSync(path.join(tmp, 'sdk-'));
-  fs.writeFileSync(path.join(dir2, 'a.dll'), 'changed');
-  const r = sdk.verify(dir2, { files });
-  assert.strictEqual(r.ok, false);
-  assert.deepStrictEqual(r.mismatched, ['a.dll']);
-  assert.deepStrictEqual(r.missing, ['b.dll']);
-  assert.deepStrictEqual(Object.keys(sdk.SDK_FILES).sort(), ['Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll']);
-  for (const h of Object.values(sdk.SDK_FILES)) assert.match(h, /^[0-9A-F]{64}$/);
-});
-
-test('sdk.verify is never cached: a file changed after a check fails the next one', () => {
-  const dir = fs.mkdtempSync(path.join(tmp, 'sdk-'));
-  const buf = crypto.randomBytes(64);
-  fs.writeFileSync(path.join(dir, 'WebView2Loader.dll'), buf);
-  const files = { 'WebView2Loader.dll': crypto.createHash('sha256').update(buf).digest('hex').toUpperCase() };
-  assert.strictEqual(sdk.verify(dir, { files }).ok, true);
-  fs.appendFileSync(path.join(dir, 'WebView2Loader.dll'), Buffer.alloc(8));
-  assert.strictEqual(sdk.verify(dir, { files }).ok, false);
-  // The launcher checks with verify (uncached); only the remote's "how it opens" uses the remembered answer.
-  const src = fs.readFileSync(path.join(ROOT, 'lib', 'stage', 'host.js'), 'utf8');
-  assert.match(src, /const check = sdk\.verify\(dir\)/);
-  assert.match(src, /sdk\.looksPresent\(/);
-  assert.strictEqual(sdk.pinsEnv({ 'a.dll': 'AB', 'b.dll': 'CD' }), 'a.dll=AB;b.dll=CD');
-});
-
-test('the helper checks the files itself and fails closed (pins from the environment)', { skip: process.platform !== 'win32' && 'Windows only' }, async () => {
-  const { SCRIPT } = require('../lib/stage/host-script');
-  assert.match(SCRIPT, /\$env:VAULT_STAGE_PINS/);
-  assert.match(SCRIPT, /Assembly\.Load\(bytes\)/, 'the managed assemblies are loaded from the checked bytes');
-  assert.ok(!/Add-Type -Path/.test(SCRIPT), 'never loaded from the SDK folder by path');
-  assert.match(SCRIPT, /OpenVerifiedLoader\(launchDir/, 'the loader is checked again right before it is loaded');
-  assert.match(SCRIPT, /FileShare\.Read\)/, 'and held read-only until the web view has loaded it');
-  assert.match(SCRIPT, /finally \{ loaderLock\.Dispose\(\); \}/);
-  const { spawn } = require('node:child_process');
-  const run = async (files, pins) => {
-    const dir = fs.mkdtempSync(path.join(tmp, 'sdk-run-'));
-    for (const [n, b] of Object.entries(files)) fs.writeFileSync(path.join(dir, n), b);
-    const script = path.join(tmp, `stage-helper-test-${Date.now()}.ps1`);
-    fs.writeFileSync(script, SCRIPT);
-    // A bad file stops the helper before anything is loaded or any window exists.
-    const p = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File', script], {
-      windowsHide: true,
-      env: { ...process.env, VAULT_STAGE_SDK: dir, VAULT_STAGE_PINS: pins, VAULT_STAGE_LAUNCH: path.join(dir, 'launch'), VAULT_STAGE_URL: 'about:blank', VAULT_STAGE_PARENT: String(process.pid) },
-    });
-    let out = '';
-    p.stdout.on('data', d => { out += d; });
-    const t = setTimeout(() => { try { p.kill(); } catch {} }, 60000);
-    const code = await new Promise(r => p.on('exit', r));
-    clearTimeout(t);
-    return { code, out: out.trim(), written: fs.existsSync(path.join(dir, 'launch', 'Microsoft.Web.WebView2.Core.dll')) };
-  };
-  const core = crypto.randomBytes(32);
-  const bad = await run({ 'Microsoft.Web.WebView2.Core.dll': core }, `Microsoft.Web.WebView2.Core.dll=${'0'.repeat(64)}`);
-  assert.strictEqual(bad.code, 3);
-  assert.match(bad.out, /error Microsoft\.Web\.WebView2\.Core\.dll is not the expected file/);
-  assert.strictEqual(bad.written, false, 'nothing written for a file that failed');
-  const noPin = await run({ 'Microsoft.Web.WebView2.Core.dll': core }, '');
-  assert.strictEqual(noPin.code, 3);
-  assert.match(noPin.out, /error no pin for/);
-  const gone = await run({}, `Microsoft.Web.WebView2.Core.dll=${'0'.repeat(64)}`);
-  assert.strictEqual(gone.code, 3);
-  assert.match(gone.out, /is missing/);
-});
-
-test('stale helper scripts and launch folders of a Vault that is gone are swept', () => {
-  const t = fs.mkdtempSync(path.join(tmp, 'sweep-'));
-  const udd = path.join(t, 'udd');
-  let dead = 999999;
-  while (pidAlive(dead)) dead--;
-  fs.writeFileSync(path.join(t, `vault-stage-${dead}-1.ps1`), 'x');
-  fs.writeFileSync(path.join(t, `vault-stage-${process.pid}-1.ps1`), 'x');
-  fs.writeFileSync(path.join(t, 'vault-pick-1.ps1'), 'x');
-  fs.mkdirSync(path.join(udd, 'sdk-launch', `${dead}-5`), { recursive: true });
-  fs.mkdirSync(path.join(udd, 'sdk-launch', `${process.pid}-5`), { recursive: true });
-  sweepStale(udd, t);
-  assert.ok(!fs.existsSync(path.join(t, `vault-stage-${dead}-1.ps1`)));
-  assert.ok(fs.existsSync(path.join(t, `vault-stage-${process.pid}-1.ps1`)), 'its own stays');
-  assert.ok(fs.existsSync(path.join(t, 'vault-pick-1.ps1')), 'not ours: left alone');
-  assert.ok(!fs.existsSync(path.join(udd, 'sdk-launch', `${dead}-5`)));
-  assert.ok(fs.existsSync(path.join(udd, 'sdk-launch', `${process.pid}-5`)));
-});
-
-test('the SDK folder is runtime/webview2 (or VAULT_WEBVIEW2_SDK), never the install root', () => {
-  assert.strictEqual(sdk.sdkDir({}, 'X:\\Vault'), path.join('X:\\Vault', 'runtime', 'webview2'));
-  assert.strictEqual(sdk.sdkDir({ VAULT_WEBVIEW2_SDK: path.join(tmp, 'w') }, 'X:\\Vault'), path.join(tmp, 'w'));
-});
-
-test('install layout: the release build puts the SDK files and their licence in runtime/webview2, nothing in the root', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'tools', 'sea', 'build-app.js'), 'utf8');
-  assert.match(src, /STAGE_SDK_DST = path\.join\(OUT, 'runtime', 'webview2'\)/);
-  // Every copy of an SDK file or its licence lands under STAGE_SDK_DST.
-  const copies = src.split('\n').filter(l => /copyFileSync/.test(l) && /(SDK|WEBVIEW2)/.test(l));
-  assert.ok(copies.length >= 2);
-  for (const l of copies) assert.match(l, /STAGE_SDK_DST/);
-  assert.match(src, /STAGE_SDK\.verify\(STAGE_SDK_SRC\)/, 'checked before copying');
-  // The licence text exists and is in the third-party notices too.
-  const lic = fs.readFileSync(path.join(ROOT, 'lib', 'stage', 'WEBVIEW2-LICENSE.txt'), 'utf8');
-  assert.match(lic, /Microsoft Corporation/);
-  assert.match(fs.readFileSync(path.join(ROOT, 'player-lib', 'THIRD-PARTY.txt'), 'utf8'), /Microsoft WebView2 SDK/);
-  // WebView2's own profile goes under Vault's data folder, never next to the helper.
-  assert.match(fs.readFileSync(path.join(ROOT, 'lib', 'stage', 'host.js'), 'utf8'), /VAULT_STAGE_UDD: udd/);
-});
-
-test('the host helper script: no template breaks, every input from the environment, the protocol parses', () => {
-  const { SCRIPT } = require('../lib/stage/host-script');
-  assert.ok(!SCRIPT.includes('`'), 'no backtick: the script is a template literal');
-  for (const v of ['VAULT_STAGE_URL', 'VAULT_STAGE_UDD', 'VAULT_STAGE_SDK', 'VAULT_STAGE_PARENT', 'VAULT_STAGE_TITLE']) assert.ok(SCRIPT.includes(v), v);
-  assert.match(SCRIPT, /UserDataFolder = udd/);
-  const h = createHost({ env: { VAULT_STAGE_HOST: 'popup' } });
-  assert.deepStrictEqual(h.parse('bounds 1 2 3 4 5 6 7 8 0 0 3840 2088 1 10 20 640 360'),
-    { type: 'bounds', win: { x: 1, y: 2, w: 3, h: 4 }, client: { x: 5, y: 6, w: 7, h: 8 }, work: { x: 0, y: 0, w: 3840, h: 2088 }, max: true, normal: { x: 10, y: 20, w: 640, h: 360 } });
-  assert.deepStrictEqual(h.parse('closing user'), { type: 'closing', why: 'user' });
-  assert.strictEqual(h.parse('bounds 1 2 x'), null);
-  assert.strictEqual(h.parse('hello'), null);
-});
-
-test('stream tokens: Stage\u2019s "stage-" + UUID tokens get the Wall\u2019s closed-token handling', () => {
-  assert.strictEqual(ring.isWallToken(`stage-${crypto.randomUUID()}`), true);
-  assert.strictEqual(ring.isWallToken(`wall-${crypto.randomUUID()}`), true);
-  assert.strictEqual(ring.isWallToken('stage-'), false);
-  assert.strictEqual(ring.isWallToken(`stage-${crypto.randomUUID()}x`), false);
-  assert.strictEqual(ring.isWallToken(`stagex-${crypto.randomUUID()}`), false);
-});
-
-test('the Stage window has no title-bar style (title-bar tools add no buttons) but keeps resize, Snap, the system menu and the taskbar button', { skip: process.platform !== 'win32' && 'Windows only' }, () => {
-  const { SCRIPT } = require('../lib/stage/host-script');
-  const m = SCRIPT.match(/\/\/ <stage-style>([\s\S]*?)\/\/ <\/stage-style>/);
-  assert.ok(m, 'the style class is marked');
-  assert.match(SCRIPT, /cp\.Style = VaultStageStyle\.Style\(cp\.Style\)/, 'the form takes it in CreateParams');
-  assert.match(SCRIPT, /cp\.ExStyle = VaultStageStyle\.ExStyle\(cp\.ExStyle\)/);
-  // The C# itself, compiled and run: WinForms' Sizable style in, the Stage's out.
-  const { execFileSync } = require('node:child_process');
-  const ps = `Add-Type -TypeDefinition @'\nusing System;\n${m[1]}\n'@\n`
-    + "foreach ($s in @(0x06CF0000, 0x16CF0000, 0x00C00000, 0)) { '{0} {1}' -f [VaultStageStyle]::Style([int]$s), [VaultStageStyle]::ExStyle(0x100) }";
-  const out = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { encoding: 'utf8', windowsHide: true })
-    .trim().split(/\r?\n/).map(l => l.trim().split(' ').map(Number));
-  assert.strictEqual(out.length, 4);
-  const WS = { BORDER: 0x00800000, DLGFRAME: 0x00400000, SYSMENU: 0x00080000, THICKFRAME: 0x00040000, MINIMIZEBOX: 0x00020000, MAXIMIZEBOX: 0x00010000, VISIBLE: 0x10000000 };
-  for (const [style, ex] of out) {
-    assert.strictEqual(style & WS.BORDER, 0, 'no WS_BORDER');
-    assert.strictEqual(style & WS.DLGFRAME, 0, 'no WS_DLGFRAME (together they are WS_CAPTION)');
-    for (const k of ['SYSMENU', 'THICKFRAME', 'MINIMIZEBOX', 'MAXIMIZEBOX']) assert.ok(style & WS[k], k);
-    assert.ok(ex & 0x00040000, 'WS_EX_APPWINDOW: the taskbar button');
-    assert.ok(ex & 0x100, 'other extended styles kept');
+  const files = [
+    'tools/sea/build-app.js', 'SETUP.md', 'player-lib/THIRD-PARTY.txt', 'server/stage-routes.js', 'server/index.js',
+    'player-lib/stage-control.js', 'player-lib/stage-settings-ui.js', 'db-viewer.html', '.gitignore',
+    ...fs.readdirSync(path.join(ROOT, 'lib', 'stage')).map(f => `lib/stage/${f}`),
+  ];
+  for (const f of files) {
+    const text = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    for (const word of [/webview2/i, /VAULT_STAGE_HOST/, /VAULT_STAGE_BROWSER_ARGS/, /VAULT_WEBVIEW2_SDK/, /stage-webview/, /runtime\/webview2/]) {
+      assert.ok(!word.test(text), `${f} mentions ${word}`);
+    }
   }
-  // WinForms Sizable: WS_CLIPCHILDREN | WS_CLIPSIBLINGS | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | min/max boxes.
-  assert.strictEqual(out[0][0], 0x060F0000, 'Sizable less the caption, everything else kept');
-  assert.ok(out[1][0] & WS.VISIBLE, 'bits it does not touch stay');
 });
 
 /* ── The routes, on the real app ────────────────────────────────────────── */
 
 const db = require('../lib/database');
 const vault = require('../lib/vault');
+const appSettings = require('../lib/app-settings');
 const { app } = require('../server/index');
 let server;
 let base;
@@ -706,48 +455,33 @@ test.before(async () => {
 test.after(async () => {
   vault._locked = false;
   await new Promise((resolve) => server.close(resolve));
+  if (fakeServer) await new Promise((resolve) => fakeServer.close(resolve));
   db.close();
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
 });
 
-const post = (p, body, headers = {}) => fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+const post = (p, body, headers = {}, at = base) => fetch(at + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
 
-test('GET /stage: the page, not cached, outside the lock gate', async () => {
-  const r = await fetch(base + '/stage');
-  assert.strictEqual(r.status, 200);
-  assert.match(r.headers.get('content-type'), /html/);
-  assert.match(r.headers.get('cache-control'), /no-store/);
-  const html = await r.text();
-  assert.match(html, /<title>Vault Stage<\/title>/);
-  assert.match(html, /stage\.js/);
-});
-
-test('GET /api/stage/state: closed, how it opens here (the switch says pop-up), the settings', async () => {
+test('GET /api/stage/state: closed, whether mpv is there, the settings', async () => {
   const s = await (await fetch(base + '/api/stage/state')).json();
   assert.strictEqual(s.open, false);
-  assert.strictEqual(s.how, 'popup');
+  assert.strictEqual(typeof s.mpv.found, 'boolean');
+  assert.strictEqual(s.mpv.canChoose, false, 'test servers never open the picker');
   assert.strictEqual(s.settings.windowName, 'Vault Stage');
+  assert.ok(!('how' in s) && !('popupBounds' in s));
 });
 
-test('events need a known role; commands before Stage opens are refused', async () => {
+test('events are for Control only; commands before Stage opens are refused; the old page routes are gone', async () => {
+  assert.strictEqual((await fetch(base + '/api/stage/events?role=stage')).status, 400);
   assert.strictEqual((await fetch(base + '/api/stage/events?role=boss')).status, 400);
   const r = await post('/api/stage/cmd', { type: 'play' });
   assert.strictEqual(r.status, 409);
   assert.strictEqual((await r.json()).code, 'STAGE_CLOSED');
   assert.strictEqual((await post('/api/stage/cmd', { type: 'nope' })).status, 400);
-  assert.strictEqual((await post('/api/stage/report', { type: 'status', state: 'bogus' })).status, 400);
-});
-
-test('POST /api/stage/open with the pop-up switch: no window, the page opens it; commands then work', async () => {
-  const r = await (await post('/api/stage/open', {})).json();
-  assert.strictEqual(r.mode, 'popup');
-  const ok = await post('/api/stage/cmd', { type: 'load', item: item('r1', 1), upcoming: [] });
-  assert.strictEqual(ok.status, 200);
-  const s = await (await fetch(base + '/api/stage/state')).json();
-  assert.strictEqual(s.open, true);
-  assert.strictEqual(s.current.key, 'r1');
-  const close = await (await post('/api/stage/cmd', { type: 'close' })).json();
-  assert.strictEqual(close.last.current.key, 'r1');
+  assert.strictEqual((await post('/api/stage/report', { type: 'status', state: 'playing' })).status, 404);
+  const page = await fetch(base + '/stage');
+  const text = await page.text();
+  assert.ok(page.status !== 200 || !/stage\.js/.test(text), 'no Stage page');
 });
 
 test('the events stream answers as server-sent events', async () => {
@@ -767,6 +501,8 @@ test('cross-origin writes are refused (CSRF guard), and a foreign Host header to
   assert.strictEqual(r.status, 403);
   const s = await post('/api/stage/settings', { tips: false }, { Origin: 'http://evil.example' });
   assert.strictEqual(s.status, 403);
+  assert.strictEqual((await post('/api/stage/mpv/choose', {}, { Origin: 'http://evil.example' })).status, 403);
+  assert.strictEqual((await post('/api/stage/open', {}, { Origin: 'http://evil.example' })).status, 403);
   const http = require('node:http');
   const status = await new Promise((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port, path: '/api/stage/state', headers: { Host: 'evil.example' } }, (res) => { res.resume(); resolve(res.statusCode); });
@@ -776,7 +512,7 @@ test('cross-origin writes are refused (CSRF guard), and a foreign Host header to
   assert.ok(status >= 400 && status < 500, `foreign Host: ${status}`);
 });
 
-test('Settings › Stage: read, saved, checked', async () => {
+test('Settings › Stage: read, saved, checked; the mpv path is not a setting a page can send', async () => {
   const g = await (await fetch(base + '/api/stage/settings')).json();
   assert.strictEqual(g.imageSeconds, 8);
   const r = await post('/api/stage/settings', { imageSeconds: 5, windowName: 'Friday show' });
@@ -787,20 +523,140 @@ test('Settings › Stage: read, saved, checked', async () => {
   assert.strictEqual((await post('/api/stage/settings', { imageSeconds: 'x' })).status, 400);
   assert.strictEqual((await post('/api/stage/settings', { nameSeconds: 31 })).status, 400);
   assert.strictEqual((await post('/api/stage/settings', { surprise: true })).status, 400);
-  const stored = JSON.parse(fs.readFileSync(process.env.VAULT_SETTINGS_FILE, 'utf8')).stage;
-  assert.strictEqual(stored.windowName, 'Friday show');
+  for (const k of ['mpvPath', 'mpv', 'path', 'stageMpv']) {
+    assert.strictEqual((await post('/api/stage/settings', { [k]: 'C:\\Windows\\System32\\calc.exe' })).status, 400, k);
+  }
+  const stored = JSON.parse(fs.readFileSync(process.env.VAULT_SETTINGS_FILE, 'utf8'));
+  assert.strictEqual(stored.stage.windowName, 'Friday show');
+  assert.ok(!stored.stageMpv);
 });
 
-test('locked: every Stage route under /api answers 423; the page itself still loads (it shows black)', async () => {
+test('Choose mpv: the native picker only (never a path from the request); off on test servers; Find it again forgets the pick', async () => {
+  const r = await post('/api/stage/mpv/choose', { path: 'C:\\Windows\\System32\\calc.exe' });
+  assert.strictEqual(r.status, 409, 'VAULT_DISABLE_NATIVE_PICKER: the picker does not open');
+  assert.ok(!(appSettings.all().stageMpv && appSettings.all().stageMpv.path));
+  appSettings.set({ stageMpv: { path: 'C:\\nowhere\\mpv.exe' } });
+  const m = await (await fetch(base + '/api/stage/mpv')).json();
+  assert.strictEqual(m.chosen, 'C:\\nowhere\\mpv.exe');
+  assert.ok(m.chosenProblem, 'a chosen path that is gone says why');
+  assert.notStrictEqual(m.source, 'chosen');
+  const f = await (await post('/api/stage/mpv/forget', {})).json();
+  assert.strictEqual(f.mpv.chosen, null);
+});
+
+test('locked: every Stage route answers 423', async () => {
   vault._locked = true;
   try {
-    for (const [m, p] of [['GET', '/api/stage/state'], ['GET', '/api/stage/events?role=stage'], ['GET', '/api/stage/settings'],
-      ['POST', '/api/stage/cmd'], ['POST', '/api/stage/report'], ['POST', '/api/stage/open'], ['POST', '/api/stage/settings']]) {
+    for (const [m, p] of [['GET', '/api/stage/state'], ['GET', '/api/stage/events?role=control'], ['GET', '/api/stage/settings'],
+      ['GET', '/api/stage/mpv'], ['POST', '/api/stage/cmd'], ['POST', '/api/stage/open'], ['POST', '/api/stage/settings'],
+      ['POST', '/api/stage/mpv/choose'], ['POST', '/api/stage/mpv/forget']]) {
       const r = m === 'GET' ? await fetch(base + p) : await post(p, { type: 'play' });
       assert.strictEqual(r.status, 423, `${m} ${p}`);
     }
-    assert.strictEqual((await fetch(base + '/stage')).status, 200);
   } finally {
     vault._locked = false;
   }
+});
+
+/* ── Opening Stage with a fake mpv (the routes, the engine, the hub) ────── */
+
+const express = require('express');
+const { buildRouter } = require('../server/stage-routes');
+let fakeServer = null;
+
+/** A stand-in for lib/stage/mpv-host.js: records what it is asked, plays nothing. */
+function fakeHostFactory(log) {
+  return (opts) => {
+    let alive = false;
+    let entry = 0;
+    const host = {
+      opts,
+      async start(exe, argsFor, { mpvVersion } = {}) {
+        log.push({ start: exe, args: argsFor('\\\\.\\pipe\\vault-stage-test'), mpvVersion });
+        alive = true;
+        return { ok: true };
+      },
+      alive: () => alive,
+      command: async (cmd) => { log.push({ cmd }); return null; },
+      set: async (name, value) => { log.push({ set: [name, value] }); return null; },
+      get: async () => null,
+      loadfile: async (file, mode, o) => { log.push({ loadfile: [file, mode, o] }); entry += 1; return { playlist_entry_id: entry }; },
+      quit: () => { alive = false; log.push('quit'); setImmediate(() => opts.onExit({ code: 0, asked: true })); },
+      kill: () => { alive = false; },
+      get pid() { return 1; },
+    };
+    log.host = host;
+    return host;
+  };
+}
+
+test('opening Stage: mpv found and started with Stage’s arguments; files go as library paths; the window’s close button closes it', async () => {
+  const log = [];
+  const found = { found: true, path: 'C:\\Program Files\\mpv\\mpv.exe', version: 'v0.41.0', source: 'default' };
+  const router = buildRouter({
+    hostFactory: fakeHostFactory(log),
+    find: async () => found,
+    lib: { pathFor: (id) => (id === 7 ? { ok: true, path: 'D:\\Media\\seven.mp4' } : { ok: false, reason: 'it is not in the library' }), isLocked: () => false },
+    env: { VAULT_STAGE_MUTE: '1', VAULT_STAGE_TEST_QUIET: '1' },
+  });
+  const app2 = express();
+  app2.use(express.json());
+  app2.use(router);
+  await new Promise((resolve) => { fakeServer = app2.listen(0, '127.0.0.1', resolve); });
+  const at = `http://127.0.0.1:${fakeServer.address().port}`;
+
+  const o = await (await post('/api/stage/open', {}, {}, at)).json();
+  assert.deepStrictEqual(o, { ok: true, mode: 'mpv' });
+  const start = log.find(l => l.start);
+  assert.strictEqual(start.start, found.path);
+  assert.ok(start.args.includes('--no-config'));
+  assert.ok(start.args.includes('--ao=null') && start.args.includes('--mute=yes'), 'VAULT_STAGE_MUTE: silent');
+  assert.ok(start.args.some(a => /^--geometry=\d+x\d+\+-20000\+0$/.test(a)), 'VAULT_STAGE_TEST_QUIET: off every screen');
+  assert.ok(start.args.includes('--title=Friday show'), 'the Window name setting from the earlier test');
+  // Again: brought to the front, not a second mpv.
+  const again = await (await post('/api/stage/open', {}, {}, at)).json();
+  assert.strictEqual(again.reused, true);
+  assert.strictEqual(log.filter(l => l.start).length, 1);
+  assert.ok(log.some(l => l.set && l.set[0] === 'ontop' && l.set[1] === true));
+
+  const load = await post('/api/stage/cmd', { type: 'load', item: { key: 'k7', id: 7, media_type: 'video', filename: 'seven.mp4', filepath: 'C:\\evil.exe' }, upcoming: [] }, {}, at);
+  assert.strictEqual(load.status, 200);
+  await new Promise(r => setTimeout(r, 20));
+  const lf = log.find(l => l.loadfile);
+  assert.deepStrictEqual(lf.loadfile.slice(0, 2), ['D:\\Media\\seven.mp4', 'replace'], 'the path from the library, never from the request');
+
+  // The window's own close button: mpv asks Vault, Vault closes it, Control hears "closed".
+  log.host.opts.onEvent({ event: 'client-message', args: ['vault-stage', 'close'] });
+  await new Promise(r => setTimeout(r, 20));
+  assert.ok(log.includes('quit'));
+  const st = await (await fetch(at + '/api/stage/state')).json();
+  assert.strictEqual(st.open, false);
+});
+
+test('opening Stage without mpv: a clear answer, nothing started', async () => {
+  const log = [];
+  const router = buildRouter({ hostFactory: fakeHostFactory(log), find: async () => ({ found: false }), lib: {}, env: {} });
+  const app3 = express();
+  app3.use(express.json());
+  app3.use(router);
+  const srv = await new Promise((resolve) => { const s = app3.listen(0, '127.0.0.1', () => resolve(s)); });
+  try {
+    const r = await post('/api/stage/open', {}, {}, `http://127.0.0.1:${srv.address().port}`);
+    assert.strictEqual(r.status, 409);
+    const j = await r.json();
+    assert.strictEqual(j.code, 'MPV_MISSING');
+    assert.match(j.error, /mpv/);
+    assert.strictEqual(log.length, 0);
+  } finally {
+    await new Promise((resolve) => srv.close(resolve));
+  }
+});
+
+test('the remote: a second Open while Stage is opening waits for it (its then runs); after the end of the list Close hands back no file; a status for a file it never sent is caught up from the server', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'player-lib', 'stage-control.js'), 'utf8');
+  assert.match(src, /if \(opening\) \{\s*await opening;\s*if \(open && then\) then\(\);/);
+  assert.strictEqual((src.match(/if \(finished\) cur = null;/g) || []).length, 2, 'Close and a vanished Stage hand back no file after the end');
+  assert.match(src, /if \(r\.key && !sent\.has\(r\.key\)\) catchUp\(r\.key\);/);
+  const ui = fs.readFileSync(path.join(ROOT, 'player-lib', 'stage-settings-ui.js'), 'utf8');
+  assert.ok(ui.includes('mpv found: ') && !ui.includes('Full (mpv)'));
 });

@@ -3,9 +3,13 @@
 
    One page, both looks (player-lib/settings.js draws it: RENDERERS.stage,
    wired by stageSettingsWire). The values live on the server
-   (GET / POST /api/stage/settings, lib/stage/settings.js), because the Stage
-   window is its own browser and reads them from there; an open Stage takes
-   a change at once.
+   (GET / POST /api/stage/settings, lib/stage/settings.js), because the
+   server runs Stage (mpv) and acts on them; an open Stage takes a change at
+   once.
+
+   The Player row says where mpv is (GET /api/stage/mpv). "Choose mpv…" asks
+   the server to open the native file picker (POST /api/stage/mpv/choose):
+   the page never sends a path, and the server checks what was picked.
 
    Modern: a card of rows (settings-kit.js). Classic: its own heading and the
    same rows, the seconds inside the sentence ("for 3 s").
@@ -17,6 +21,64 @@ const STAGE_SETTINGS_DEFAULTS = {
 };
 let _stageSettings = { ...STAGE_SETTINGS_DEFAULTS };
 let _stageSettingsLoaded = false;
+let _stageMpv = null;          // { found, path, version, source, chosen, chosenProblem, canChoose }
+
+/** What the Player row says about mpv. */
+function _stageMpvHtml() {
+  const m = _stageMpv;
+  if (!m) return '<span class="stage-mpv-line">Looking for mpv…</span>';
+  const lines = [];
+  if (m.found) {
+    const where = m.source === 'chosen' ? ', the one you chose' : '';
+    lines.push(`<span class="stage-mpv-line">mpv found: <code class="stage-mpv-path">${_stEsc(m.path)}</code>${m.version ? ` <span class="stage-mpv-ver">(${_stEsc(m.version)}${where})</span>` : (where ? ` <span class="stage-mpv-ver">(${where.slice(2)})</span>` : '')}</span>`);
+  } else {
+    lines.push('<span class="stage-mpv-line stage-mpv-missing">mpv was not found.</span>');
+  }
+  if (m.chosenProblem) lines.push(`<span class="stage-mpv-line stage-mpv-missing">The mpv you chose can’t be used: ${_stEsc(m.chosenProblem)}</span>`);
+  if (!m.found) {
+    lines.push('<span class="stage-mpv-line stage-mpv-how">Stage plays in mpv, a free video player. Install it from mpv.io; Vault looks in Program Files and on PATH. If it is somewhere else, choose mpv.exe here.</span>');
+  }
+  return lines.join('');
+}
+
+function _stageMpvButtons() {
+  const m = _stageMpv || {};
+  const can = m.canChoose !== false;
+  const off = can ? '' : ' disabled title="This copy of Vault cannot open the Windows file picker."';
+  return `<span class="stage-mpv-acts">
+          <button type="button" class="settings-btn settings-btn-quiet" data-stage-mpv="choose"${off}>Choose mpv…</button>
+          ${m.chosen ? '<button type="button" class="settings-btn settings-btn-quiet" data-stage-mpv="forget" title="Forget the mpv you chose and find it again">Find it again</button>' : ''}
+        </span>`;
+}
+
+function _stageMpvPaint(root) {
+  if (!root) return;
+  const box = root.querySelector('[data-stage-mpv-box]');
+  if (box) box.innerHTML = _stageMpvHtml();
+  const acts = root.querySelector('[data-stage-mpv-acts]');
+  if (acts) acts.innerHTML = _stageMpvButtons();
+}
+
+async function _stageMpvLoad(root) {
+  try {
+    const r = await fetch('/api/stage/mpv');
+    if (r.ok) _stageMpv = await r.json();
+  } catch {}
+  _stageMpvPaint(root);
+}
+
+async function _stageMpvAct(act, root) {
+  try {
+    const r = await fetch(`/api/stage/mpv/${act === 'forget' ? 'forget' : 'choose'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(data.error || `Server returned ${r.status}`), { status: r.status });
+    if (data.mpv) _stageMpv = data.mpv;
+    if (!data.canceled && typeof showToast === 'function') showToast(act === 'forget' ? 'Vault finds mpv by itself again' : 'Stage will use this mpv');
+  } catch (err) {
+    if (typeof showErrorToast === 'function') showErrorToast(err, act === 'forget' ? 'forgetting the chosen mpv' : 'choosing mpv');
+  }
+  _stageMpvPaint(root);
+}
 
 const STAGE_SIZE_OPTIONS = [
   { value: 'free', label: 'Free size' },
@@ -51,8 +113,14 @@ function stageSettingsHtml() {
   const nameField = `<input class="settings-text" type="text" maxlength="60" spellcheck="false" autocomplete="off"
           data-stage-text="windowName" placeholder="Vault Stage" value="${_stEsc(s.windowName)}" aria-label="Window name">`;
 
+  const playerRow = settingsRowHtml({
+    sfind: 'stagePlayer', title: 'Player', cls: 'stage-mpv-row',
+    extra: `<span class="settings-toggle-desc stage-mpv-box" data-stage-mpv-box>${_stageMpvHtml()}</span>`,
+    control: `<span data-stage-mpv-acts>${_stageMpvButtons()}</span>`,
+  });
+
   if (modern) {
-    const rows = settingsRowHtml({
+    const rows = playerRow + settingsRowHtml({
       sfind: 'stageShowName', title: 'Show the name as a file starts', desc: 'Bottom left, over the picture.',
       control: `<span class="stage-set-pair">${_stNum('nameSeconds', s.nameSeconds, 1, 30, 'Seconds the name shows')}
         <label class="stage-set-sw" title="Show the name">${_stSwitch('showName', s.showName)}</label></span>`,
@@ -72,6 +140,7 @@ function stageSettingsHtml() {
   return `
       <h3 class="settings-h" data-sfind="stage">${typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel('🎬 Stage', { icon: false }) : '🎬 Stage'}</h3>
       <p class="settings-note">The window you share in Discord. Open it from the mini player, the full player, or Play on Stage on a collection.</p>
+      ${playerRow}
       ${settingsRowHtml({ sfind: 'stageShowName', title: lbl('Show the name as a file starts, for', _stNum('nameSeconds', s.nameSeconds, 1, 30, 'Seconds the name shows')), desc: 'Bottom left, over the picture.', control: `<label class="stage-set-sw">${_stSwitch('showName', s.showName)}</label>` })}
       ${settingsRowHtml({ sfind: 'stageWindowName', title: 'Window name', desc: 'What Discord lists, and may show on the stream.', control: nameField })}
       ${settingsRowHtml({ sfind: 'stageImageSeconds', title: lbl('Show pictures for', _stNum('imageSeconds', s.imageSeconds, 1, 600, 'Seconds a picture shows')), desc: 'GIFs play at least one full loop.' })}
@@ -109,6 +178,16 @@ function _stageSettingsPaint(root) {
 /** Wire the page drawn into root (settings.js calls this after drawing it). */
 function stageSettingsWire(root) {
   if (!root) return;
+  _stageMpvLoad(root);
+  // The Settings body is one element for every page: one listener on it, ever.
+  if (!root._stageMpvWired) {
+    root._stageMpvWired = true;
+    root.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-stage-mpv]');
+      if (!b || b.disabled) return;
+      _stageMpvAct(b.dataset.stageMpv, root);
+    });
+  }
   if (!_stageSettingsLoaded) {
     fetch('/api/stage/settings').then(r => (r.ok ? r.json() : null)).then((s) => {
       if (!s) return;

@@ -918,17 +918,23 @@ app.post('/api/media/:id/flags', (req, res) => {
 app.post('/api/media/:id/viewed', (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'bad id' });
-  const row = db.incrementViewCount(id);
+  const row = recordViewed(id, Number(req.body?.watch_s) || 0);
   if (!row) return res.status(404).json({ error: 'not found' });
-
-  if (gamifyEnabled) {
-    const gamify = require('../lib/gamify');
-    const watchS = Number(req.body?.watch_s) || 0;
-    row.gamify = gamify.recordView(id, watchS);
-  }
-
   res.json(row);
 });
+
+// One qualifying view: the count, and the gamify score when that is on.
+// Shared by the route above and Stage (it plays in mpv, so the server
+// records its views itself, server/stage-routes.js).
+function recordViewed(id, watchS) {
+  const row = db.incrementViewCount(id);
+  if (!row) return null;
+  if (gamifyEnabled) {
+    const gamify = require('../lib/gamify');
+    row.gamify = gamify.recordView(id, watchS);
+  }
+  return row;
+}
 
 // "Done" — the user ended their viewing session on this item. Tracks a
 // per-item counter + last position (for A/V resume-of-interest) and gives
@@ -2142,8 +2148,37 @@ Add-Type -TypeDefinition $src
 [Console]::Out.Write([VaultPick.Picker]::Pick())
 `;
 
+// Choose mpv (Settings › Stage, POST /api/stage/mpv/choose): one file, shown
+// with an "mpv.exe" filter. Its own remembered folder, apart from adding
+// media. What comes back is checked by the route (lib/stage/mpv-find.js:
+// named mpv.exe, a local file, answers --version as mpv) before it is kept.
+const MPV_PICKER_CLIENT_GUID = 'c2a6f0b1-6a49-4d0e-9a54-7c1b3e8f5d27';
+const PICKER_BODY_MPV = `        // FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_FILEMUSTEXIST
+        dlg.SetOptions(0x40 | 0x800 | 0x1000);
+        dlg.SetTitle("Choose mpv.exe, the player Stage runs in");
+        dlg.SetOkButtonLabel("Use this mpv");
+        dlg.SetFileName("mpv.exe");
+        // One filter, "mpv (mpv.exe)": COMDLG_FILTERSPEC is two string pointers.
+        IntPtr fName = Marshal.StringToCoTaskMemUni("mpv (mpv.exe)");
+        IntPtr fSpec = Marshal.StringToCoTaskMemUni("mpv.exe");
+        IntPtr spec = Marshal.AllocCoTaskMem(IntPtr.Size * 2);
+        Marshal.WriteIntPtr(spec, 0, fName);
+        Marshal.WriteIntPtr(spec, IntPtr.Size, fSpec);
+        uint hr;
+        try {
+          dlg.SetFileTypes(1, spec);
+          hr = dlg.Show(owner);
+        } finally {
+          Marshal.FreeCoTaskMem(spec); Marshal.FreeCoTaskMem(fName); Marshal.FreeCoTaskMem(fSpec);
+        }
+        if (hr != 0) return "${PICK_CANCEL}";      // dismissed / closed
+        IShellItem item; dlg.GetResult(out item);
+        return GetPath(item);
+`;
+
 const PICKER_PS1 = PICKER_CS_TOP + PICKER_BODY_FOLDER + PICKER_CS_BOTTOM;
 const PICKER_FILES_PS1 = PICKER_CS_TOP + PICKER_BODY_FILES + PICKER_CS_BOTTOM;
+const PICKER_MPV_PS1 = PICKER_CS_TOP.replace(PICKER_CLIENT_GUID, MPV_PICKER_CLIENT_GUID) + PICKER_BODY_MPV + PICKER_CS_BOTTOM;
 
 // Import playlist (PLAYLISTS_SPEC step 3): one playlist file, filtered to the
 // formats lib/playlist/parse.js reads, in its own remembered folder. The
@@ -3390,18 +3425,33 @@ app.use('/api/watch', require('./watch-routes').buildRouter());
 //    both /api/playback|/api/stream and the /stream/:id/* media URLs) ────────
 app.use(require('./stream-routes').buildRouter());
 
-// ── Stage (the frameless window shared in Discord, run from the mini player
-//    remote, see lib/stage/). /stage is the page; /api/stage/* is gated. ──
+// ── Stage (the window shared in Discord: the user's mpv, driven from here and
+//    run from the mini player remote, see lib/stage/). /api/stage/* is gated. ──
 const stageRouter = require('./stage-routes').buildRouter({
-  sendPage: (res) => {
-    if (seaAssets) {
-      try {
-        res.set('Content-Type', ASSET_TYPES['.html']);
-        return res.end(Buffer.from(seaAssets.getAsset('player-lib/stage.html')));
-      } catch { /* not embedded: the disk copy below */ }
-    }
-    res.sendFile('stage.html', { root: path.join(ROOT, 'player-lib') });
+  lib: {
+    // The file for an id, read from the library (the lock gate and the engine
+    // make sure this only happens unlocked). Never a path from the page.
+    pathFor: (id) => {
+      const row = db.getById(id);
+      if (!row || typeof row.filepath !== 'string' || !path.isAbsolute(row.filepath)) return { ok: false, reason: 'it is not in the library' };
+      if (!fs.existsSync(row.filepath)) return { ok: false, reason: 'the file is missing' };
+      return { ok: true, path: row.filepath };
+    },
+    recordView: (id, watchS) => { recordViewed(id, watchS); },
+    savePosition: (id, pos) => { db.setUserFields(id, { last_position: pos }); },
+    mergeHeatmap: (id, buckets) => { db.mergeHeatmap(id, buckets); },
+    touch: () => vault.touch(),
+    isLocked: () => vault.isLocked(),
   },
+  // Choose mpv in the native file picker (Settings › Stage); off where native
+  // dialogs are off (VAULT_DISABLE_NATIVE_PICKER, checked inside spawnPicker).
+  pickMpv: (res, done) => spawnPicker(res, PICKER_MPV_PS1, 'file', ({ code, out, errOut, finish }) => {
+    const raw = out.trim();
+    if (raw === PICK_CANCEL) return done({ canceled: true }, finish);
+    if (raw && !/[\r\n]/.test(raw)) return done({ path: raw }, finish);
+    console.warn('[Stage] mpv picker failed:', (errOut.trim() || `exit ${code}, no output`).split('\n')[0]);
+    finish(500, { error: 'The file picker could not open. Try again.' });
+  }),
 });
 app.use(stageRouter);
 

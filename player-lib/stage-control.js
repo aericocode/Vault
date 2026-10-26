@@ -1,32 +1,25 @@
 /* =========================================================================
    STAGE CONTROL - the Vault window's side of Stage (PLAYLISTS_SPEC 5).
 
-   Stage is the window shared in Discord (player-lib/stage.html). Everything
-   is run from here: while Stage is open the mini player is its remote, with a
-   dimmed still of the file on Stage, and every way of playing a file (a tile,
-   Next, Up next, Play all, the Wall) plays it on Stage instead (playMedia
-   asks intercept() first, player-core.js).
+   Stage is the window shared in Discord: the user's own mpv, started and
+   driven by the server (lib/stage/engine.js, PLAYLISTS_SPEC "Stage host,
+   final"). Everything is run from here: while Stage is open the mini player
+   is its remote, with a dimmed still of the file on Stage, and every way of
+   playing a file (a tile, Next, Up next, Play all, a Wall block) plays it on
+   Stage instead (playMedia asks intercept() first, player-core.js).
 
    The link goes through the server (lib/stage/hub.js): commands out
    (/api/stage/cmd), Stage's reports in over an event stream. Stage moves on
    by itself when a file ends, because this tab is often in the background
    (the streamer is in Discord) where the browser slows its timers: every
    file sent goes with the upcoming files (Up next first, then the list,
-   player-lib/stage-rules.js upcoming()), and when Stage reports that one of
-   them started, the queue here catches up (Up next, the list's anchor) and
-   sends the next ones.
+   player-lib/stage-rules.js upcoming()), the server lines the next one up
+   in mpv, and when Stage reports that one of them started, the queue here
+   catches up (Up next, the list's anchor) and sends the next ones.
 
    Closing Stage (the remote, its menu, the window's own close) hands the
    file back to the mini player at the same spot, with sound. Stage vanishing
    (a crash, sleep) leaves the remote saying "Stage was closed", paused.
-
-   The Wall on Stage: the Wall tab's "Show on Stage" (player-lib/wall.js)
-   hands the collage to Stage through here (showWall, updateWall on every
-   change, wallOff for Stop or Back to one file at a time). Meanwhile the
-   remote says "Wall on Stage" with a line of what it shows; Hold, the
-   volume and Close Stage work, play pauses the Wall, and the file controls
-   (previous, next, seeking) are put away: Up next waits for the files.
-   Closing Stage brings the Wall back to its tab.
 
    Hooks elsewhere: playMedia (intercept), maximizePlayer and closeMiniPlayer
    (on, hideRemote), mini-player.js (miniMediaEl returns the proxy below, the
@@ -42,12 +35,9 @@ const StageControl = (() => {
 
   let open = false;                   // Stage is open (the remote is on)
   let remoteShown = false;
-  let how = null;                     // how Stage opens on this machine (server says): 'webview2' | 'popup'
-  let howReason = null;
+  let mpv = null;                     // is mpv there (server says): { found, path, version, ... }
   let settings = { showName: true, nameSeconds: 3, windowName: 'Vault Stage', imageSeconds: 8, cursorSeconds: 1, openSize: 'free', muteVault: true, tips: true };
   let es = null;
-  let popup = null;
-  let popupBounds = null;             // where the pop-up was last (it reports it)
 
   // What is on Stage
   let cur = null;                     // { key, row, item }
@@ -61,12 +51,6 @@ const StageControl = (() => {
   let upTimer = null;
   const sent = new Map();             // key -> { row, via, index } of every file handed to Stage
 
-  // The Wall on Stage: { cfg, label, paused, mine } (mine: this page sent the
-  // last change), Stage's last report on it, and the file it replaced.
-  let wall = null;
-  let wallStatus = null;
-  let beforeWall = null;
-
   const esc = (s) => (typeof escapeHtml === 'function' ? escapeHtml(String(s == null ? '' : s))
     : String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
   const $ = (id) => document.getElementById(id);
@@ -77,7 +61,6 @@ const StageControl = (() => {
 
   let keySeq = 0;
   const newKey = () => `k${Date.now().toString(36)}${(++keySeq).toString(36)}`;
-  const pageKey = `p${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
 
   /* ── The remote's media element: Stage's clock, as the mini player reads it ── */
 
@@ -91,7 +74,7 @@ const StageControl = (() => {
       cmd({ type: 'seek', t });
       this.dispatchEvent(new Event('timeupdate'));
     }
-    get paused() { return wall ? (wall.paused || hold) : (paused || hold || finished); }
+    get paused() { return paused || hold || finished; }
     get ended() { return finished; }
     get readyState() { return 4; }
     get playbackRate() { return 1; }
@@ -131,10 +114,8 @@ const StageControl = (() => {
   async function refreshState() {
     try {
       const s = await api('/api/stage/state');
-      how = s.how || 'popup';
-      howReason = s.howReason || null;
+      mpv = s.mpv || null;
       if (s.settings) settings = { ...settings, ...s.settings };
-      popupBounds = s.popupBounds || null;
       locked = s.locked === true;   // the state route only answers unlocked
       return s;
     } catch { return null; }
@@ -159,12 +140,6 @@ const StageControl = (() => {
     on('settings', (s) => { settings = { ...settings, ...s }; applyMute(); });
     on('locked', () => { locked = true; });
     on('cmd', onOtherControl);
-    on('wallStatus', (r) => {
-      if (!wall) return;
-      wallStatus = r;
-      paintMeta();
-      notifyWall('status');
-    });
     es.onerror = () => {
       if (!es || es.readyState !== EventSource.CLOSED) return;
       es = null;
@@ -179,51 +154,46 @@ const StageControl = (() => {
 
   /* ── Opening Stage ────────────────────────────────────────────────── */
 
-  function openPopup() {
-    const w = popupBounds;
-    const size = { '720p': [1280, 720], '1080p': [1920, 1080], '1440p': [2560, 1440] }[settings.openSize] || [960, 540];
-    const feat = w ? `popup,left=${w.x},top=${w.y},width=${w.w},height=${w.h}` : `popup,width=${size[0]},height=${size[1]}`;
-    try { return window.open('/stage', 'vault-stage', feat); } catch { return null; }
-  }
-
-  function blocked(retry) {
-    const msg = 'Your browser blocked the Stage window. Allow pop-ups for 127.0.0.1 in the address bar, then press Open Stage again.';
+  /** mpv is not on this computer (or not where Vault looks): say how to get it. */
+  function noMpv() {
+    const msg = 'Stage plays in mpv, a free video player, and Vault could not find it. Install mpv (from mpv.io), then press Open Stage again. If it is installed somewhere else, choose mpv.exe in Settings › Stage.';
     if (typeof vaultChoose === 'function') {
-      vaultChoose(msg, { title: 'Stage could not open', buttons: [{ label: 'Try again', value: 'retry', primary: true }, { label: 'Close', value: null }], cancelValue: null })
-        .then((v) => { if (v === 'retry') retry(); });
+      vaultChoose(msg, { title: 'Stage needs mpv', buttons: [{ label: 'Open Settings › Stage', value: 'settings', primary: true }, { label: 'Close', value: null }], cancelValue: null })
+        .then((v) => { if (v === 'settings' && typeof window.vaultOpenSettings === 'function') window.vaultOpenSettings('stage'); });
     } else showToast(msg, { type: 'error' });
   }
 
+  let opening = null;                 // the open in progress (a promise)
+
   /**
    * Open Stage (or bring it to the front). then(): what to play once it is
-   * open; without it, the file playing here moves there.
-   * Called from a click: a pop-up has to be opened before anything is awaited.
+   * open; without it, the file playing here moves there. A second call while
+   * Stage is opening waits for that open, then does its own part (its then).
    */
   async function openStage({ then = null } = {}) {
     if (open) { front(); if (then) then(); return; }
-    if (!how) await refreshState();
-    let win = null;
-    if (how === 'popup') {
-      win = openPopup();
-      if (!win) { blocked(() => openStage({ then })); return; }
-    }
-    // What plays here now, taken before anything is torn down.
-    const local = then ? null : localPlayback();
-    let r;
-    try {
-      r = await api('/api/stage/open', {});
-    } catch (err) {
-      if (win) { try { win.close(); } catch {} }
-      if (err.status !== 423) showErrorToast ? showErrorToast(err, 'opening Stage') : showToast('Stage could not open.', { type: 'error' });
+    if (opening) {
+      await opening;
+      if (open && then) then();
       return;
     }
-    if (r.mode === 'webview2' && win) { try { win.close(); } catch {} win = null; }
-    if (r.mode === 'popup' && !win) {
-      // The Stage window could not start here: a pop-up instead.
-      win = openPopup();
-      if (!win) { blocked(() => openStage({ then })); return; }
+    opening = doOpen({ then });
+    try { await opening; } finally { opening = null; }
+  }
+
+  async function doOpen({ then }) {
+    // What plays here now, taken before anything is torn down.
+    const local = then ? null : localPlayback();
+    try {
+      await api('/api/stage/open', {});
+    } catch (err) {
+      if (err.code === 'MPV_MISSING') noMpv();
+      else if (err.status !== 423) {
+        if (typeof showErrorToast === 'function') showErrorToast(err, 'opening Stage');
+        else showToast('Stage could not open.', { type: 'error' });
+      }
+      return;
     }
-    popup = win;
     open = true;
     connect();
     if (local) {
@@ -304,8 +274,6 @@ const StageControl = (() => {
   }
 
   function startOnStage(mediaData, { startAt = null, paused: startPaused = false, source = 'user', fromUpNext = false, keepAnchor = false } = {}) {
-    // A file on Stage ends the Wall there (the hub does the same with the load).
-    if (wall) { wall = null; wallStatus = null; beforeWall = null; notifyWall(); }
     noteFileOpened(mediaData, { source, fromUpNext, keepAnchor });
     currentMediaState.type = mediaData.media_type;
     currentMediaState.element = null;
@@ -405,22 +373,26 @@ const StageControl = (() => {
       return;
     }
     open = true;
-    // The Wall is on Stage (this page reloaded, or unlocked): the remote and the Wall tab say so.
-    if (s.wall) {
-      adoptWall(s.wall);
-      wallStatus = s.wallStatus || null;
-      if (s.locked) setNote('Stage went black. Unlock to carry on.', { sticky: true });
-      showRemote();
-      paint();
-      notifyWall();
-      return;
-    }
-    if (wall) { wall = null; wallStatus = null; notifyWall(); }
     // This page reloaded (or unlocked) while Stage played: pick up what is on Stage.
     if (s.current && (!cur || cur.key !== s.current.key)) adoptCurrent(s.current, s);
     else if (s.status) onStatus(s.status);
     showRemote();
     paint();
+  }
+
+  /**
+   * Stage reports a file this page never sent (another tab sent it, or a
+   * start this page missed): take what is on Stage from the server, so the
+   * remote never stays on the file before.
+   */
+  let catchUpAt = 0;
+  async function catchUp(key) {
+    if (Date.now() - catchUpAt < 2000) return;
+    catchUpAt = Date.now();
+    let s = null;
+    try { s = await api('/api/stage/state'); } catch { return; }
+    if (!open || !s || !s.current || s.current.key !== key || (cur && cur.key === key)) return;
+    adoptCurrent(s.current, s);
   }
 
   async function adoptCurrent(item, s) {
@@ -444,6 +416,7 @@ const StageControl = (() => {
     if (r.key !== cur.key) {
       // Still the file before: the new one is getting ready.
       if (r.state !== 'loading' && Date.now() - loadingSince > LOADING_NOTE_MS) paintMeta();
+      if (r.key && !sent.has(r.key)) catchUp(r.key);
       return;
     }
     const wasPaused = proxy.paused;
@@ -516,127 +489,13 @@ const StageControl = (() => {
 
   /** Another Vault tab sent a command (or this one's came back): show what it did. */
   function onOtherControl(c) {
-    if (c.type === 'hold') { hold = c.on; paintHold(); if (wall) notifyWall(); }
+    if (c.type === 'hold') { hold = c.on; paintHold(); }
     if (c.type === 'volume') { volume = c.volume; muted = c.muted; paintVolume(); }
-    if (c.type === 'wall') {
-      const fresh = !wall;
-      adoptWall(c);
-      if (fresh) showRemote();
-      paint();
-      notifyWall();
-    }
-    if ((c.type === 'wallOff' || c.type === 'load') && wall) {
-      wall = null;
-      wallStatus = null;
-      paint();
-      notifyWall();
-    }
-  }
-
-  /* ── The Wall on Stage ────────────────────────────────────────────── */
-
-  function adoptWall(w) {
-    if (!wall) { cur = null; statusKey = null; finished = false; }
-    wall = { cfg: w.cfg, label: w.label, paused: w.paused === true, mine: w.from === pageKey };
-  }
-
-  /** The Wall tab follows (player-lib/wall.js): kind 'status' is only a new report. */
-  function notifyWall(kind) {
-    if (typeof Wall !== 'undefined' && typeof Wall.stageChanged === 'function') {
-      try { Wall.stageChanged(kind); } catch (err) { console.warn('[Stage] wall tab:', err); }
-    }
-  }
-
-  /** What the Wall tab asks about: is the Wall on Stage, with what, doing what. */
-  function wallState() {
-    return {
-      on: open && !!wall, cfg: wall ? wall.cfg : null, label: wall ? wall.label : '',
-      paused: wall ? wall.paused : false, mine: wall ? wall.mine : true,
-      status: wallStatus, hold, locked,
-    };
-  }
-
-  /**
-   * Show on Stage (the Wall tab's button, from a click): Stage opens if it is
-   * not open, and the collage moves there. The file on Stage, if any, waits
-   * to be picked up again by Back to one file at a time.
-   */
-  function showWall(payload) {
-    if (!open) { openStage({ then: () => sendWall(payload) }); return; }
-    sendWall(payload);
-  }
-
-  /** Every change from the Wall tab, at once. */
-  function updateWall(payload) {
-    if (!open || !wall) return;
-    sendWall(payload);
-  }
-
-  function sendWall(payload) {
-    if (!open) return;
-    if (!wall) {
-      beforeWall = cur && cur.row ? { row: cur.row, t, paused: proxy.paused } : null;
-      note = null;
-    }
-    adoptWall({ ...payload, from: pageKey });
-    showRemote();
-    paint();
-    notifyWall();
-    cmd({ type: 'wall', cfg: payload.cfg, spec: payload.spec || {}, label: payload.label || '', paused: payload.paused === true, from: pageKey });
-  }
-
-  function wallShuffle() { if (open && wall) cmd({ type: 'wallShuffle' }); }
-
-  /**
-   * Stop: Stage goes black. Back to one file at a time: Stage plays files
-   * again, Up next first (it waited), else the file the Wall replaced, else
-   * the list carries on.
-   */
-  function wallOff({ back = false } = {}) {
-    if (!wall) return;
-    wall = null;
-    wallStatus = null;
-    finished = true;
-    paused = true;
-    notifyWall();
-    const done = cmd({ type: 'wallOff' });
-    if (back) done.then(() => { if (open) backToFiles(); });
-    else setNote('The Wall stopped. Stage is black until you play a file.', { sticky: true });
-    paint();
-  }
-
-  function backToFiles() {
-    const upNext = typeof UpNext !== 'undefined' && UpNext.items ? UpNext.items().length : 0;
-    const b = beforeWall;
-    beforeWall = null;
-    if (upNext) { playNextMedia(); return; }
-    if (b && b.row && b.row.filepath) {
-      const r = b.row;
-      startOnStage({ id: r.id, filepath: r.filepath, filename: r.filename, media_type: r.media_type },
-        { startAt: isPicture(r) ? null : b.t, paused: b.paused, keepAnchor: true });
-      return;
-    }
-    if (typeof playerHasNext === 'function' && playerHasNext()) { playNextMedia(); return; }
-    setNote('Nothing lined up. Play a file to show it on Stage.', { sticky: true });
   }
 
   /* ── Remote controls ──────────────────────────────────────────────── */
 
   function togglePlay(want) {
-    if (open && wall) {
-      // The Wall on Stage: play and pause are the Wall's own Pause.
-      const play = want === undefined ? proxy.paused : want;
-      if (hold && play) { setHold(false); return; }
-      wall.paused = !play;
-      wall.mine = true;
-      // The Wall tab sends the whole Wall (its latest settings with it); else a plain play or pause.
-      const sent = typeof Wall !== 'undefined' && typeof Wall.stagePause === 'function' && Wall.stagePause(!play);
-      if (!sent) cmd({ type: play ? 'play' : 'pause' });
-      fire(play ? 'play' : 'pause');
-      paint();
-      notifyWall();
-      return;
-    }
     if (!open || !cur) return;
     const play = want === undefined ? proxy.paused : want;
     if (hold && play) { setHold(false); return; }
@@ -673,7 +532,7 @@ const StageControl = (() => {
     paintVolume();
   }
 
-  function front() { cmd({ type: 'front' }); if (popup && !popup.closed) { try { popup.focus(); } catch {} } }
+  function front() { cmd({ type: 'front' }); }
 
   function setSize(preset) { cmd({ type: 'size', preset }); }
 
@@ -682,6 +541,8 @@ const StageControl = (() => {
     if (!open) return;
     const r = await cmd({ type: 'close' });
     const last = r && r.last ? r.last : { t, paused: proxy.paused };
+    // After the end of the list there is no file to carry on with here.
+    if (finished) cur = null;
     handBack({ t: last.t != null ? last.t : t, paused: hold || finished || !!last.paused, how: 'closed' });
   }
 
@@ -689,6 +550,8 @@ const StageControl = (() => {
   function stageGone({ how: kind, last }) {
     if (!open && !remoteShown) return;
     const at = last && last.t != null ? last.t : t;
+    // After the end of the list there is no file to carry on with here.
+    if (finished) cur = null;
     if (kind === 'closed') handBack({ t: at, paused: !!(last && last.paused), how: 'closed' });
     else handBack({ t: at, paused: true, how: 'gone' });
   }
@@ -696,25 +559,16 @@ const StageControl = (() => {
   /** Back to the mini player: the same file at the same spot (maximizeAt, player-core.js). */
   function handBack({ t: at, paused: wasPaused, how: kind }) {
     const row = cur && cur.row;
-    const hadWall = !!wall;
-    wall = null;
-    wallStatus = null;
-    beforeWall = null;
     open = false;
     sentHideNames = null;
     hideTips();
     closeMenu();
     leaveRemote();
     disconnect();
-    popup = null;
     cur = null;
     applyMute();
     const words = kind === 'gone' ? 'Stage was closed' : 'Stage closed';
-    // The Wall comes back to its tab (it builds there when the tab shows).
-    if (hadWall) notifyWall();
-    if (hadWall) {
-      showToast(`${words}. The Wall is back in its tab.`);
-    } else if (row && row.filepath && (row.media_type === 'video' || row.media_type === 'audio')) {
+    if (row && row.filepath && (row.media_type === 'video' || row.media_type === 'audio')) {
       playMedia({ id: row.id, filepath: row.filepath, filename: row.filename, media_type: row.media_type }, { keepAnchor: true });
       const el = currentMediaState.element;
       if (el) {
@@ -756,8 +610,6 @@ const StageControl = (() => {
       return true;
     }
     if ((e.key === 'h' || e.key === 'H') && !e.ctrlKey && !e.altKey && !e.metaKey) { toggleHold(); return true; }
-    // The Wall on Stage: no file to move to (Next, Previous, Random wait for the files).
-    if (wall && /^[nNpPrR]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) return true;
     return false;
   }
 
@@ -774,7 +626,7 @@ const StageControl = (() => {
       box.classList.add('active', 'mini-stage');
       $('miniPlayerMedia').innerHTML = '<img class="mini-stage-still" id="miniStageStill" alt="" draggable="false" hidden>';
       currentMediaState.miniMode = false;
-      if (typeof miniPlayerOpen === 'function') miniPlayerOpen(proxy, (!wall && cur && cur.row && cur.row.media_type) === 'audio' ? 'audio' : 'video');
+      if (typeof miniPlayerOpen === 'function') miniPlayerOpen(proxy, (cur && cur.row && cur.row.media_type) === 'audio' ? 'audio' : 'video');
       applyMute();
       if (typeof renderSelectionBar === 'function') renderSelectionBar();
     }
@@ -787,7 +639,7 @@ const StageControl = (() => {
     remoteShown = false;
     document.body.classList.remove('stage-open');
     if (typeof miniPlayerTeardown === 'function') miniPlayerTeardown();
-    box.classList.remove('mini-stage', 'mini-stage-wall', 'active', 'mini-audio');
+    box.classList.remove('mini-stage', 'active', 'mini-audio');
     $('miniPlayerMedia').innerHTML = '';
     if (typeof UpNext !== 'undefined') UpNext.closePopover();
     if (typeof vaultPlaceToasts === 'function') vaultPlaceToasts();
@@ -802,8 +654,6 @@ const StageControl = (() => {
 
   function paint() {
     if (!remoteShown) return;
-    const box = $('miniPlayer');
-    if (box) box.classList.toggle('mini-stage-wall', !!wall);
     paintStill();
     paintHold();
     paintVolume();
@@ -839,8 +689,8 @@ const StageControl = (() => {
   function paintHold() {
     const pill = $('miniStagePill');
     if (pill) {
-      const word = locked ? 'Black' : hold ? 'Holding' : wall ? 'Wall on Stage' : finished ? 'Finished' : 'On Stage';
-      pill.classList.toggle('hold', hold || (finished && !wall) || locked);
+      const word = locked ? 'Black' : hold ? 'Holding' : finished ? 'Finished' : 'On Stage';
+      pill.classList.toggle('hold', hold || finished || locked);
       const w = pill.querySelector('.msp-word');
       if (w) w.textContent = word;
     }
@@ -886,17 +736,8 @@ const StageControl = (() => {
     let line = row ? nameOf(row) : 'Stage is open';
     let right = null;
     const n = note && (note.sticky || Date.now() < note.until) ? note.text : null;
-    if (wall) {
-      const st = wallStatus || {};
-      line = WallRules.wallLine({
-        label: wall.label, state: st.state || 'loading', clips: st.clips,
-        mix: wall.cfg && wall.cfg.mix, sound: wall.cfg && wall.cfg.sound, paused: wall.paused,
-      });
-      if (time) time.textContent = '';
-    }
     if (locked) line = 'Stage went black. Unlock to carry on.';
-    else if (hold) line = `Holding. ${!wall && cur && !isPicture(cur.row) ? `Paused at ${fmt(t)}. ` : ''}Press Hold again to come back.`;
-    else if (wall) { /* the Wall's line */ }
+    else if (hold) line = `Holding. ${cur && !isPicture(cur.row) ? `Paused at ${fmt(t)}. ` : ''}Press Hold again to come back.`;
     else if (n) line = n;
     else if (cur && statusKey !== cur.key && loadingSince && Date.now() - loadingSince > LOADING_NOTE_MS) line = `Getting “${nameOf(row)}” ready…`;
     if (row && isPicture(row) && statusKey === cur.key && !hold && !finished) {
@@ -1035,7 +876,7 @@ const StageControl = (() => {
       <ol class="st-list">
         <li>In Discord, start a screen share and pick the window named <b>${name}</b>.</li>
         <li>Turn on sound in Discord's share options.</li>
-        <li>Stage runs as its own window, so Discord picks up Stage's sound, not your other browser tabs.</li>
+        <li>Stage plays in mpv, its own window, so Discord picks up Stage's sound, not your browser's.</li>
         <li>Run everything from here. ${settings.muteVault !== false ? 'Vault’s own sound is muted while Stage is open.' : 'Vault’s own sound stays on (Settings › Stage).'}</li>
       </ol>
       <div class="st-acts"><button type="button" class="st-btn" data-tips="never">Don't show again</button><button type="button" class="st-btn st-pri" data-tips="ok">Got it</button></div>`;
@@ -1102,7 +943,6 @@ const StageControl = (() => {
     openStage, openFromPlayer, playCollectionOnStage, stageButton, closeStage, menu, front, setSize,
     toggleHold, setVolume, toggleMute, paintVolume, key, hideRemote,
     upNextChanged, repeatChanged, showTips,
-    showWall, updateWall, wallShuffle, wallOff, wallState,
-    _state: () => ({ open, remoteShown, how, cur: cur && { key: cur.key, id: cur.row && cur.row.id }, t, d, paused, hold, finished, volume, muted, note: note && note.text, wall: wall && { ...wall }, wallStatus }),
+    _state: () => ({ open, remoteShown, mpv, cur: cur && { key: cur.key, id: cur.row && cur.row.id }, t, d, paused, hold, finished, volume, muted, note: note && note.text }),
   };
 })();

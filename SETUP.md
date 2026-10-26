@@ -50,6 +50,7 @@ now. The steps below add the AI features.
 | **LM Studio** *or* **Ollama** | AI scanning, semantic search, chat-based translation fallback | see §2, step-by-step |
 | **fpcalc** (Chromaprint) | Music ID fingerprinting | **one click**: same banner (or [acoustid.org/chromaprint](https://acoustid.org/chromaprint) → PATH) |
 | **Face search models** | face search | **one click**: Vault offers them when you turn face search on (see §7) |
+| **mpv** | Stage (the window you share in Discord) | install mpv from mpv.io (Vault looks in `C:\Program Files\MPV Player`, `C:\Program Files\mpv`, `C:\Program Files (x86)\mpv` and PATH), or pick `mpv.exe` in Settings › Stage |
 | **Python + faster-whisper** | transcription/subtitles | `pip install faster-whisper`, or into a venv, then set `PYTHON_PATH` to that interpreter (see below) |
 
 The ⬇ banner puts the downloaded tools next to `Vault.exe` and they work
@@ -243,11 +244,9 @@ as a fallback, so an existing `.env` keeps working.
 | `VAULT_TRASH` | `./trash` | Trash folder (opaque filenames) |
 | `VAULT_THUMBS` | `./thumbnails` | Thumbnail/cache folder |
 | `FRAME_WORKERS` / `VISION_WORKERS` / `PIPELINE_DEPTH` | `4` / `1` / `2` | Scan parallelism (see §3) |
-| `VAULT_STAGE_HOST` | *(automatic)* | How the Stage window (the one you share in Discord) opens. Unset: Vault's own frameless window on Windows (it uses the WebView2 Runtime Windows already has, and the three WebView2 files in `runtime/webview2/`), a browser pop-up anywhere else or when those are missing. `popup` = always the browser pop-up. `webview2` = always Vault's window, even where `VAULT_DISABLE_NATIVE_PICKER=1` would otherwise keep windows off the desktop (test servers that need the real window) |
-| `VAULT_DISABLE_NATIVE_PICKER` | *(unset)* | `1` = no native Windows dialogs or windows: the file pickers and Save As answer with a message, and Stage opens as a browser pop-up (for test and scratch servers) |
-| `VAULT_STAGE_DATA` | `./stage-webview` | The Stage window's browser profile and cache (WebView2 user data) |
-| `VAULT_STAGE_MUTE` | *(unset)* | `1` = Stage never makes a sound (test servers) |
-| `VAULT_WEBVIEW2_SDK` | `./runtime/webview2` | Folder with the three WebView2 SDK files the Stage window loads. They are checked against pinned hashes before use |
+| `VAULT_DISABLE_NATIVE_PICKER` | *(unset)* | `1` = no native Windows dialogs: the file pickers, Save As and Choose mpv answer with a message (for test and scratch servers) |
+| `VAULT_STAGE_MUTE` | *(unset)* | `1` = Stage (mpv) never makes a sound: it runs with no audio output (test servers) |
+| `VAULT_STAGE_TEST_QUIET` | *(unset)* | `1` = checks only: Stage's mpv window opens far off every screen and never takes the focus |
 
 ### Running two Vaults
 

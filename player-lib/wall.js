@@ -60,27 +60,20 @@
    blob mode works unchanged. Videos use /media/:id (the same URL the player's
    native path gets) and /stream/:id via /api/playback for remux.
 
-   Where it runs. The same engine runs in two pages (PLAYLISTS_SPEC, Stage
-   decisions 6 and 8):
-   - the Vault page, the Wall tab: toolbar, hover, clicks, keys, full screen.
-     Its source, rows and sound come from the page (Library, the filters, the
-     player's volume). While the Wall is on Stage this tab keeps only the
-     toolbar: a panel stands in for the board, and every change goes to Stage
-     (StageControl.updateWall) instead of to a board here.
-   - the Stage page (player-lib/stage.js, Wall.stage): the board alone, no
-     toolbar, captions, badges or messages, nothing for the mouse. Control
-     sends the settings and the source as a query spec; rows come straight
-     from the server, the stream tokens are "stage-" ones (the server's
-     closed-token rules cover them, so Stage and Control never close each
-     other's), and the sound follows Stage's volume.
-   The difference lives in one object, `host` below; the engine itself is
-   shared.
-
-   Hidden pages (WallRules.visibilityAction): a hidden tab pauses the Wall and
-   gives up its converted clips, unless "Keep playing when this tab is hidden"
-   is on; the Wall on Stage always keeps playing. Where it keeps playing, a
-   clip the browser pauses by itself (Chromium pauses muted videos in hidden
-   pages) is played again.
+   Hidden pages (WallRules.visibilityAction). "Keep playing when this tab is
+   hidden" is on by default: the Wall carries on with another tab selected,
+   or with its window covered or not focused (Chromium then treats the page
+   as hidden too). Two things stand in the way and are dealt with here:
+   - Chromium pauses muted videos in hidden pages, and holds new ones before
+     they start: such a clip is played again (clipPaused, replayHeld).
+   - Timers in hidden pages are slowed (once a second, then once a minute
+     after a few minutes): the scheduler's tick comes from a small worker
+     while the page is hidden (worker timers are not slowed that way).
+   What a hidden page still cannot do: animate (Scroll mode stands still,
+   requestAnimationFrame does not run) and fade (the crossfade is skipped).
+   Turned off, a hidden tab pauses the Wall and gives up its converted clips
+   to save power, as it always did. A minimised window is paused by the
+   browser whatever the setting (nothing can capture it then anyway).
 
    Globals used by tabs.js / vault-ui.js: wallEnter(), wallLeave(), wallLockStop().
    viewtracker.js asks wallStartAt(el) so a clicked clip continues in the
@@ -118,38 +111,12 @@ const Wall = (() => {
 
   let cfg = null;
 
-  /* ── Where the Wall runs ────────────────────────────────────────────── */
-
-  /**
-   * The Vault page: everything from its own globals. The Stage page swaps in
-   * its own (Wall.stage.start).
-   */
-  function vaultHost() {
-    return {
-      chrome: true,                   // toolbar, hover, clicks, keys, full screen
-      onStage: false,
-      tokenPrefix: 'wall',
-      rootId: 'wallContainer',
-      query: (spec) => Library.queryOnce(spec, { pageSize: 200, allIds: true }),
-      fetchRows: (ids) => Library.fetchRows(ids),
-      pin: (ids) => Library.pin('wall', ids),
-      baseSpec: vaultBaseSpec,
-      soundLevel: vaultSoundLevel,
-      status: null,                   // Stage only: what the board is doing, for the remote
-    };
-  }
-  let host = null;
-  const hostNow = () => host || (host = vaultHost());
-
   function loadCfg() {
     return cfgFrom((typeof window.vaultWallSettings === 'function' && window.vaultWallSettings()) || {});
   }
 
   function saveCfg() {
-    if (!hostNow().chrome) return;
     if (typeof window.vaultSetWallSettings === 'function') window.vaultSetWallSettings(cfg);
-    // The Wall on Stage follows every change at once.
-    if (remote) pushToStage();
   }
 
   /** The step index closest to a value in seconds (by ratio, not difference). */
@@ -229,13 +196,6 @@ const Wall = (() => {
   let fading = false;          // a re-plan is behind its fade
   let reducedNote = false;     // Scroll started paused for reduced motion
   let reducedDone = false;     // ...and that happens once per visit to Scroll
-
-  // What the board is doing, for the remote while it is on Stage.
-  let boardState = 'loading';  // 'loading' | 'running' | 'empty' | 'error'
-  let boardMessage = '';
-  // The Vault page while its Wall is on Stage: the toolbar drives Stage, no board here.
-  let remote = false;
-  let held = false;            // Stage only: Hold (black, silent, the board paused)
 
   let blocks = [];             // in placement order
   // The plan: column count and width, x of each column, and each column's
@@ -483,7 +443,7 @@ const Wall = (() => {
   }
 
   /** The spec for the picked source (before the mix), or null when it is gone. */
-  function vaultBaseSpec() {
+  function baseSpec() {
     const src = cfg.source;
     if (src.startsWith('c:')) {
       const id = Number(src.slice(2));
@@ -504,7 +464,7 @@ const Wall = (() => {
   }
 
   function sourceSpec() {
-    const base = hostNow().baseSpec();
+    const base = baseSpec();
     if (!base) return null;
     return withMix(base);
   }
@@ -543,10 +503,11 @@ const Wall = (() => {
     if (!spec) return;
     let out;
     try {
-      out = await hostNow().query(spec);
+      out = await Library.queryOnce(spec, { pageSize: 200, allIds: true });
     } catch (err) {
       if (err && err.code === 'SEMANTIC_UNAVAILABLE') {
-        out = await hostNow().query({ ...spec, search: { ...spec.search, semantic: false } });
+        out = await Library.queryOnce({ ...spec, search: { ...spec.search, semantic: false } },
+          { pageSize: 200, allIds: true });
       } else {
         throw err;
       }
@@ -591,7 +552,7 @@ const Wall = (() => {
         let rowsOut;
         try {
           stats.rowFetches++;
-          rowsOut = await hostNow().fetchRows(ids);
+          rowsOut = await Library.fetchRows(ids);
         } catch {
           break;
         }
@@ -799,66 +760,9 @@ const Wall = (() => {
 
   function ensureDom() {
     if (els) return;
-    const h = hostNow();
-    const root = h.root || document.getElementById(h.rootId);
+    const root = document.getElementById('wallContainer');
     root.classList.add('wall-root');
-    root.innerHTML = (h.chrome ? barHtml() : '') + `
-      <div class="wall-stage">
-        <div class="wall-board" id="wallBoard"><div class="wall-track" id="wallTrack"></div></div>
-        <div class="wall-msg" id="wallMsg" hidden></div>
-        <div class="wall-paused" id="wallPaused" hidden>Paused</div>
-        <div class="wall-soundnote" id="wallSoundNote" hidden>Click the wall to turn sound on</div>
-        ${h.chrome ? onStageHtml() : ''}
-      </div>`;
-    const $ = (id) => root.querySelector('#' + id);
-    els = {
-      root,
-      bar: $('wallBar'),
-      board: $('wallBoard'),
-      track: $('wallTrack'),
-      msg: $('wallMsg'),
-      paused: $('wallPaused'),
-      status: $('wallStatus'),
-      note: $('wallNote'),
-      source: $('wallSource'),
-      modeGrid: $('wallModeGrid'),
-      modeScroll: $('wallModeScroll'),
-      pic: $('wallPic'), picOut: $('wallPicOut'), picField: $('wallPicField'),
-      clip: $('wallClip'), clipOut: $('wallClipOut'), clipField: $('wallClipField'),
-      speed: $('wallSpeed'), speedField: $('wallSpeedField'),
-      gear: $('wallGearBtn'),
-      pop: $('wallPop'),
-      playing: $('wallPlaying'), playingOut: $('wallPlayingOut'),
-      colWidth: $('wallColWidth'), colWidthOut: $('wallColWidthOut'),
-      gap: $('wallGap'), gapOut: $('wallGapOut'),
-      mix: $('wallMix'),
-      order: $('wallOrder'),
-      sound: $('wallSound'),
-      hoverPause: $('wallHoverPause'),
-      soundNote: $('wallSoundNote'),
-      direct: $('wallDirect'),
-      toEnd: $('wallToEnd'),
-      keep: $('wallKeepPlaying'),
-      pauseBtn: $('wallPauseBtn'),
-      shuffleBtn: $('wallShuffleBtn'),
-      fullBtn: $('wallFullBtn'),
-      stageBtn: $('wallStageBtn'),
-      onStage: $('wallOnStage'),
-      onStageLine: $('wallOnStageLine'),
-      onStageNote: $('wallOnStageNote'),
-      onStagePeek: $('wallOnStagePeek'),
-    };
-    if (h.chrome) {
-      wireControls();
-      wireBoard();
-    }
-    wirePage();
-    syncControls();
-  }
-
-  /** The toolbar (the Vault page only). */
-  function barHtml() {
-    return `
+    root.innerHTML = `
       <div class="wall-bar" id="wallBar">
         <label class="wall-field">
           <span class="wall-label">Source</span>
@@ -879,7 +783,6 @@ const Wall = (() => {
           title="More settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="wallPop">
           ${typeof vaultIcon === 'function' ? vaultIcon('gear', 'modern-only') : ''}<svg class="classic-only" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
         </button>
-        <button type="button" class="wall-btn" id="wallStageBtn" title="Show the Wall on Stage, the window you share in Discord">Show on Stage</button>
         <button type="button" class="wall-btn" id="wallFullBtn">Full screen</button>
         <div class="wall-pop" id="wallPop" role="dialog" aria-label="More settings" hidden>
           ${popSlider('wallPlaying', 'Videos at once', 'playing')}
@@ -913,34 +816,57 @@ const Wall = (() => {
           <label class="wall-check" title="Skip videos that need converting on the fly. They are heavier to play.">
             <input type="checkbox" id="wallDirect" class="m-check"> Only files that play without converting</label>
           <label class="wall-check"><input type="checkbox" id="wallToEnd" class="m-check"> Play clips to the end</label>
-          <label class="wall-check" title="Off: a hidden tab pauses the Wall to save power. On: it keeps playing (and you keep hearing it) while you use another tab.">
+          <label class="wall-check" title="On: the Wall keeps playing while you use another tab or window. Off: a hidden tab pauses it to save power.">
             <input type="checkbox" id="wallKeepPlaying" class="m-check"> Keep playing when this tab is hidden</label>
         </div>
+      </div>
+      <div class="wall-stage">
+        <div class="wall-board" id="wallBoard"><div class="wall-track" id="wallTrack"></div></div>
+        <div class="wall-msg" id="wallMsg" hidden></div>
+        <div class="wall-paused" id="wallPaused" hidden>Paused</div>
+        <div class="wall-soundnote" id="wallSoundNote" hidden>Click the wall to turn sound on</div>
       </div>`;
-  }
-
-  /** What the board's place shows while the Wall is on Stage (the Vault page only). */
-  function onStageHtml() {
-    return `
-        <div class="wall-onstage" id="wallOnStage" role="region" aria-label="The Wall is on Stage" hidden>
-          <div class="wall-onstage-card">
-            <div class="wall-onstage-head"><span class="wall-onstage-pill"><i aria-hidden="true"></i>Wall on Stage</span></div>
-            <p class="wall-onstage-line" id="wallOnStageLine" aria-live="polite"></p>
-            <div class="wall-onstage-peek" id="wallOnStagePeek" aria-hidden="true"></div>
-            <p class="wall-onstage-hint">Change anything above and Stage follows at once. The Wall keeps playing on Stage when its window is covered or you switch tabs here.</p>
-            <p class="wall-onstage-hint" id="wallOnStageNote" hidden></p>
-            <div class="wall-onstage-acts">
-              <button type="button" class="wall-btn" id="wallStageStop" title="Stage goes black">Stop</button>
-              <button type="button" class="wall-btn wall-btn-pri" id="wallStageBack" title="Stage plays files again: Up next first, then the list">Back to one file at a time</button>
-            </div>
-          </div>
-        </div>`;
+    const $ = (id) => root.querySelector('#' + id);
+    els = {
+      root,
+      bar: $('wallBar'),
+      board: $('wallBoard'),
+      track: $('wallTrack'),
+      msg: $('wallMsg'),
+      paused: $('wallPaused'),
+      status: $('wallStatus'),
+      note: $('wallNote'),
+      source: $('wallSource'),
+      modeGrid: $('wallModeGrid'),
+      modeScroll: $('wallModeScroll'),
+      pic: $('wallPic'), picOut: $('wallPicOut'), picField: $('wallPicField'),
+      clip: $('wallClip'), clipOut: $('wallClipOut'), clipField: $('wallClipField'),
+      speed: $('wallSpeed'), speedField: $('wallSpeedField'),
+      gear: $('wallGearBtn'),
+      pop: $('wallPop'),
+      playing: $('wallPlaying'), playingOut: $('wallPlayingOut'),
+      colWidth: $('wallColWidth'), colWidthOut: $('wallColWidthOut'),
+      gap: $('wallGap'), gapOut: $('wallGapOut'),
+      mix: $('wallMix'),
+      order: $('wallOrder'),
+      sound: $('wallSound'),
+      hoverPause: $('wallHoverPause'),
+      soundNote: $('wallSoundNote'),
+      direct: $('wallDirect'),
+      toEnd: $('wallToEnd'),
+      keep: $('wallKeepPlaying'),
+      pauseBtn: $('wallPauseBtn'),
+      shuffleBtn: $('wallShuffleBtn'),
+      fullBtn: $('wallFullBtn'),
+    };
+    wireControls();
+    wireBoard();
+    syncControls();
   }
 
   const SPEED_WORDS = ['', 'Slowest', 'Very slow', 'Slow', 'Easy', 'Medium', 'Brisk', 'Quick', 'Fast', 'Very fast', 'Fastest'];
 
   function syncControls() {
-    if (!els.bar) return;             // Stage: no toolbar
     const scroll = cfg.mode === 'scroll';
     els.modeGrid.setAttribute('aria-pressed', String(!scroll));
     els.modeScroll.setAttribute('aria-pressed', String(scroll));
@@ -970,9 +896,8 @@ const Wall = (() => {
     els.hoverPause.checked = cfg.pauseOnHover;
     els.direct.checked = cfg.directOnly;
     els.toEnd.checked = cfg.clipsToEnd;
-    els.keep.checked = cfg.keepPlaying;
-    els.note.hidden = !reducedNote || remote;
-    syncRemote();
+    els.keep.checked = cfg.keepPlaying2;
+    els.note.hidden = !reducedNote;
   }
 
   function populateSources() {
@@ -1011,9 +936,6 @@ const Wall = (() => {
 
   /** Entering Scroll with reduced motion asked for: start paused, say why. */
   function applyReducedMotion() {
-    // Stage plays what the streamer picked; reduced motion is a setting of this
-    // screen, so it never pauses the Wall on Stage (from there or from here).
-    if (!hostNow().chrome || remote) return;
     if (cfg.mode !== 'scroll') { reducedDone = false; if (reducedNote) { reducedNote = false; syncControls(); } return; }
     if (reducedDone || !reducedMotion()) return;
     reducedDone = true;
@@ -1024,9 +946,8 @@ const Wall = (() => {
 
   function setPaused(p) {
     userPaused = p;
-    if (!p && reducedNote) { reducedNote = false; if (els.note) els.note.hidden = true; }
+    if (!p && reducedNote) { reducedNote = false; els.note.hidden = true; }
     evaluate();
-    if (remote) pushToStage();
   }
 
   function wireControls() {
@@ -1038,25 +959,21 @@ const Wall = (() => {
       cfg.picSpeed = PIC_STEPS[clamp(Number(els.pic.value) | 0, 0, PIC_STEPS.length - 1)];
       syncControls();
       retimeStills();
-      if (remote) pushToStage();
     });
     els.clip.addEventListener('input', () => {
       cfg.clipLen = CLIP_STEPS[clamp(Number(els.clip.value) | 0, 0, CLIP_STEPS.length - 1)];
       syncControls();
       retimeClips();
-      if (remote) pushToStage();
     });
     els.speed.addEventListener('input', () => {
       cfg.scrollSpeed = clampNum(els.speed.value, RANGES.scrollSpeed);
       syncControls();
-      if (remote) pushToStage();
     });
     els.playing.addEventListener('input', () => {
       cfg.playing = clampNum(els.playing.value, RANGES.playing);
       els.playingOut.textContent = String(cfg.playing);
       trimVideos();
       fillSlots();
-      if (remote) pushToStage();
     });
     for (const key of ['colWidth', 'gap']) {
       const input = els[key];
@@ -1096,7 +1013,7 @@ const Wall = (() => {
       retimeClips();
     });
     els.keep.addEventListener('change', () => {
-      cfg.keepPlaying = els.keep.checked;
+      cfg.keepPlaying2 = els.keep.checked;
       saveCfg();
       evaluate();
     });
@@ -1116,9 +1033,6 @@ const Wall = (() => {
     els.pauseBtn.addEventListener('click', () => setPaused(!userPaused));
     els.shuffleBtn.addEventListener('click', shuffleNow);
     els.fullBtn.addEventListener('click', toggleFullscreen);
-    els.stageBtn.addEventListener('click', showOnStage);
-    els.root.querySelector('#wallStageStop').addEventListener('click', () => leaveStage({ back: false }));
-    els.root.querySelector('#wallStageBack').addEventListener('click', () => leaveStage({ back: true }));
 
     // The gear popover: Escape or a click outside closes it. A click on the
     // board that closes it only closes it (it does not also open a file).
@@ -1138,7 +1052,11 @@ const Wall = (() => {
     // The browser refused sound before a click: this click (a user gesture)
     // turns it on. On the board it only does that; it does not open a file.
     document.addEventListener('pointerdown', (e) => {
-      if (soundBlocked && active) swallowNext(e);
+      if (!soundBlocked || !active) return;
+      swallowNext(e);
+      soundBlocked = false;
+      els.soundNote.hidden = true;
+      for (const rec of liveRecs()) applyGain(rec);
     }, true);
     document.addEventListener('keydown', onKey);
 
@@ -1150,11 +1068,19 @@ const Wall = (() => {
     });
     els.root.addEventListener('mousemove', () => { if (els.root.classList.contains('wall-fs')) showBarBriefly(); });
     els.bar.addEventListener('focusin', () => { if (els.root.classList.contains('wall-fs')) showBarBriefly(); });
+    document.addEventListener('visibilitychange', evaluate);
 
+    // The board's size is what the plan is made of: plan again once the
+    // resizing has stopped.
+    new ResizeObserver(debounce(() => { if (active && built) refitBoard(); }, 300)).observe(els.board);
     window.addEventListener('resize', () => { if (active) placeRoot(); });
     // The header can change height without the window resizing (its rows wrap).
     const header = document.getElementById('appHeader');
     if (header) new ResizeObserver(() => { if (active) placeRoot(); }).observe(header, { box: 'border-box' });
+
+    // A closing or reloading page never reaches leave(): release every clip so
+    // each remux stream sends its close beacon (the player does the same).
+    window.addEventListener('pagehide', () => { if (liveCost > 0) releaseAllVideos(); });
 
     // The player (full or mini) opening over the wall pauses it; closing resumes.
     const ov = document.getElementById('mediaPlayerOverlay');
@@ -1168,26 +1094,7 @@ const Wall = (() => {
     if (mini) mo.observe(mini, { attributes: true, attributeFilter: ['class'] });
   }
 
-  /** What the board needs in either page: visibility, size, sound unlock, the page going away. */
-  function wirePage() {
-    document.addEventListener('visibilitychange', evaluate);
-    // The board's size is what the plan is made of: plan again once the
-    // resizing has stopped.
-    new ResizeObserver(debounce(() => { if (active && built) refitBoard(); }, 300)).observe(els.board);
-    // The browser refused sound before a click: any click (a user gesture) turns it on.
-    document.addEventListener('pointerdown', () => {
-      if (!soundBlocked || !active) return;
-      soundBlocked = false;
-      els.soundNote.hidden = true;
-      for (const rec of liveRecs()) applyGain(rec);
-    }, true);
-    // A closing or reloading page never reaches leave(): release every clip so
-    // each remux stream sends its close beacon (the player does the same).
-    window.addEventListener('pagehide', () => { if (liveCost > 0) releaseAllVideos(); });
-  }
-
   function setPop(open) {
-    if (!els.pop) return;
     els.pop.hidden = !open;
     els.gear.setAttribute('aria-expanded', String(open));
     if (open) {
@@ -1281,8 +1188,6 @@ const Wall = (() => {
   }
 
   function showMsg(text) {
-    // Stage shows viewers nothing but the board: the remote says it instead.
-    if (!hostNow().chrome) { boardMessage = text || ''; updateStatus(); return; }
     els.msg.textContent = text;
     els.msg.hidden = !text;
   }
@@ -1307,11 +1212,6 @@ const Wall = (() => {
   }
 
   function showEmpty() {
-    boardState = 'empty';
-    if (!hostNow().chrome) {
-      showMsg(emptyMessage({ source: cfg.source, narrowed: cfg.source === 'library', libraryEmpty: false }).hint);
-      return;
-    }
     const n = typeof libraryNarrowing === 'function' ? libraryNarrowing() : {};
     const m = emptyMessage({
       source: cfg.source,
@@ -1342,26 +1242,7 @@ const Wall = (() => {
     if (!els) return;
     let playing = 0;
     for (const b of blocks) if (b.video) playing++;
-    if (els.status) els.status.textContent = built && blocks.length ? `${playing} playing` : '';
-    const h = hostNow();
-    if (typeof h.status === 'function') {
-      h.status({
-        state: boardState, clips: playing, blocks: blocks.length, running, paused: userPaused,
-        message: boardMessage, ids: peekIds(),
-      });
-    }
-  }
-
-  /** A few of the files in view, top left first: Control's small picture of what is on Stage. */
-  function peekIds() {
-    const top = drift.offset;
-    const seen = [];
-    for (const b of blocks) {
-      if (!b.item || b.dead || b.y + b.h <= top || b.y >= top + lay.H) continue;
-      seen.push(b);
-    }
-    seen.sort((a, c) => (a.y - c.y) || (a.x - c.x));
-    return seen.slice(0, 6).map(b => b.item.id);
+    els.status.textContent = built && blocks.length ? `${playing} playing` : '';
   }
 
   /* ── Layout ─────────────────────────────────────────────────────────── */
@@ -1570,7 +1451,7 @@ const Wall = (() => {
     clearTimeout(_pinTimer);
     _pinTimer = setTimeout(() => {
       // Pinned so the player can open any block (getMediaById reads the cache).
-      hostNow().pin(blocks.map(b => b.item && b.item.id).filter(Boolean));
+      Library.pin('wall', blocks.map(b => b.item && b.item.id).filter(Boolean));
     }, 300);
   }
 
@@ -1899,26 +1780,22 @@ const Wall = (() => {
   }
 
   /**
-   * A stream token only the Wall mints: "wall-" + a lowercase UUID in the
-   * Vault page, "stage-" + one on Stage (Stage's own scope, so Control's
-   * players and Stage never close each other's sessions). The server
+   * A stream token only the Wall mints: "wall-" + a lowercase UUID. The server
    * remembers closed tokens (and refuses their late requests) only in exactly
-   * these shapes, so the main player's tokens never take that path.
+   * this shape, so the main player's tokens never take that path.
    * crypto.randomUUID needs a secure context, which plain-http LAN access is
    * not, so the same shape is built from getRandomValues there.
    */
-  const wallToken = () => tokenFor(hostNow().tokenPrefix, window.crypto);
-
-  /** prefix + "-" + a lowercase UUID (pure apart from the randomness; for the tests too). */
-  function tokenFor(pre, c) {
-    if (c && typeof c.randomUUID === 'function') return `${pre}-${c.randomUUID().toLowerCase()}`;
+  function wallToken() {
+    const c = window.crypto;
+    if (c && typeof c.randomUUID === 'function') return `wall-${c.randomUUID().toLowerCase()}`;
     const b = new Uint8Array(16);
     if (c && typeof c.getRandomValues === 'function') c.getRandomValues(b);
     else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
     const h = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
-    return `${pre}-${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+    return `wall-${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
   }
 
   /* A hidden page (WallRules.visibilityAction). Where the Wall keeps
@@ -1929,8 +1806,7 @@ const Wall = (() => {
 
   function pageAction(reason) {
     return R.visibilityAction({
-      onStage: hostNow().onStage,
-      keepPlaying: !!(cfg && cfg.keepPlaying),
+      keepPlaying: !!(cfg && cfg.keepPlaying2),
       visibility: document.visibilityState === 'hidden' ? 'hidden' : 'visible',
       reason,
     });
@@ -1963,6 +1839,30 @@ const Wall = (() => {
     rec.replayAt = t;
     stats.replays++;
     rec.v.play().catch(() => {});
+  }
+
+  /* The tick in a hidden page. Chromium slows a hidden page's timers to once
+     a second, and after a few minutes to once a minute, which would leave
+     clips ended and blocks unchanged for a minute at a time. A dedicated
+     worker's timers are not slowed that way, so while the page is hidden and
+     the Wall runs, the tick is driven from one (a few lines from a Blob, no
+     file, nothing but a timer). Shown again, the page's own timer takes over. */
+  let tickWorker = null;
+  let tickWorkerUrl = null;
+
+  function workerTicks(on) {
+    if (!on) {
+      if (tickWorker) { try { tickWorker.terminate(); } catch {} tickWorker = null; }
+      return;
+    }
+    if (tickWorker || typeof Worker !== 'function' || typeof Blob !== 'function') return;
+    try {
+      if (!tickWorkerUrl) {
+        tickWorkerUrl = URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${TICK_MS});`], { type: 'text/javascript' }));
+      }
+      tickWorker = new Worker(tickWorkerUrl);
+      tickWorker.onmessage = () => { if (running && document.visibilityState === 'hidden') tick(); };
+    } catch { tickWorker = null; }
   }
 
   /** Free a video for good: decoder, buffers, connection, stream session. */
@@ -2214,11 +2114,8 @@ const Wall = (() => {
     return left > 0 ? Math.min(1, left / Math.max(1, playing)) : 1;
   }
 
-  /** How loud a clip that is heard plays (0 to 1): the page's own rule. */
-  const soundLevel = () => hostNow().soundLevel();
-
   /** The app's volume as the player stores it (slider 0 to 1.5, curved); 0 when muted. */
-  function vaultSoundLevel() {
+  function soundLevel() {
     let vol = 1;
     let muted = false;
     if (typeof playerIsSilent === 'function' && typeof savedVolume !== 'undefined') {
@@ -2518,6 +2415,7 @@ const Wall = (() => {
       tick();
     } else {
       pausedAt = now();
+      workerTicks(false);
       clearInterval(tickTimer);
       tickTimer = null;
       for (const b of blocks) if (b.video) { try { b.video.v.pause(); } catch {} }
@@ -2539,22 +2437,19 @@ const Wall = (() => {
     const hiddenStop = pageAction('page') === 'pause';
     if (release && liveCost > 0) releaseAllVideos();
     else if (hiddenStop && liveRemux > 0) releaseRemuxVideos();
-    setRunning(active && built && !userPaused && !playerOpen && !held && !hiddenStop);
-    if (els.pauseBtn) {
-      els.pauseBtn.textContent = userPaused ? 'Resume' : 'Pause';
-      els.pauseBtn.setAttribute('aria-pressed', String(userPaused));
-    }
+    setRunning(active && built && !userPaused && !playerOpen && !hiddenStop);
+    // Running in a hidden page: the tick comes from the worker (see workerTicks).
+    workerTicks(running && document.visibilityState === 'hidden');
+    els.pauseBtn.textContent = userPaused ? 'Resume' : 'Pause';
+    els.pauseBtn.setAttribute('aria-pressed', String(userPaused));
     els.paused.hidden = !(built && userPaused);
   }
 
   /* ── Actions ────────────────────────────────────────────────────────── */
 
   async function rebuild() {
-    // The board is on Stage: it builds there.
-    if (remote) { pushToStage(); return; }
     const gen = ++buildGen;
     built = false;
-    boardState = 'loading';
     setRunning(false);
     teardownBlocks();
     updateStatus();
@@ -2564,7 +2459,6 @@ const Wall = (() => {
       await buildPool();
     } catch (err) {
       if (gen !== buildGen) return;
-      boardState = 'error';
       showMsg(typeof friendlyError === 'function' ? friendlyError(err, 'loading the wall') : 'Could not load the wall.');
       return;
     }
@@ -2575,7 +2469,6 @@ const Wall = (() => {
     }
     await shapesFor(LOOKAHEAD * 3, 2500);
     if (gen !== buildGen) return;
-    boardState = 'running';
     showMsg('');
     if (!active) return;            // left while loading: lay out on the way back in
     dirty = layout() ? false : 'fresh';
@@ -2584,7 +2477,6 @@ const Wall = (() => {
   }
 
   function shuffleNow() {
-    if (remote) { if (typeof StageControl !== 'undefined') StageControl.wallShuffle(); return; }
     if (!poolIds || !poolIds.length) return;
     poolGen++;
     fillPromise = null;
@@ -2676,13 +2568,7 @@ const Wall = (() => {
     placeRoot();
     populateSources();
     applyReducedMotion();
-    remote = stageWallOn();
     syncControls();
-    if (remote) {
-      // The board is on Stage. The library filter may have changed since: Stage follows.
-      pushToStage();
-      return;
-    }
     if (!built || computePoolKey() !== poolKey) rebuild();
     else if (dirty || !blocks.length) {
       // Something asked for a layout while the tab was hidden, or the board
@@ -2719,233 +2605,13 @@ const Wall = (() => {
     teardownBlocks();
     ready = [];
     poolIds = null;
-    try { hostNow().pin([]); } catch {}
-  }
-
-  /* ── The Wall on Stage, seen from the Vault page ────────────────────── */
-
-  const stageWallOn = () => typeof StageControl !== 'undefined' && typeof StageControl.wallState === 'function'
-    && !!StageControl.wallState().on;
-
-  /** What Stage needs to run this Wall: the settings, the source as a query spec, a name for the remote. */
-  function stagePayload() {
-    return { cfg: { ...cfg }, spec: vaultBaseSpec() || {}, label: sourceLabel(), paused: userPaused };
-  }
-
-  /** The source's name for the remote's line: the collection's or saved search's, else the library. */
-  function sourceLabel() {
-    if (cfg.source === 'library') return 'Library';
-    const opt = els && els.source ? [...els.source.options].find(o => o.value === cfg.source) : null;
-    if (opt) return opt.textContent.trim() || 'The Wall';
-    // The tab not shown yet (no source list): the name Stage already has.
-    const w = stageWallOn() ? StageControl.wallState() : null;
-    return (w && w.label) || 'The Wall';
-  }
-
-  /** Show on Stage: Stage opens if it is not open yet, and the collage moves there. */
-  function showOnStage() {
-    if (typeof StageControl === 'undefined') return;
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    setPop(false);
-    StageControl.showWall(stagePayload());
-  }
-
-  /** Stop (Stage goes black) or Back to one file at a time (Stage plays files again). */
-  function leaveStage({ back }) {
-    if (typeof StageControl !== 'undefined') StageControl.wallOff({ back });
-  }
-
-  let pushTimer = null;
-  /** Every change goes to Stage at once (a slider drag is sent as it settles; now: no wait). */
-  function pushToStage({ now = false } = {}) {
-    clearTimeout(pushTimer);
-    pushTimer = null;
-    const send = () => {
-      pushTimer = null;
-      if (!remote || typeof StageControl === 'undefined') return;
-      StageControl.updateWall(stagePayload());
-    };
-    if (now) send(); else pushTimer = setTimeout(send, 120);
-  }
-
-  /**
-   * The remote's play or pause, while the Wall is on Stage: sent as the
-   * whole Wall (settings and all, a change still waiting goes with it), so
-   * a slider moved a moment before is never lost to the hub's older copy.
-   * False when this page cannot (then the remote sends a plain play or pause).
-   */
-  function stagePause(p) {
-    if (!remote || !cfg) return false;
-    userPaused = !!p;
-    pushToStage({ now: true });
-    if (els) { syncControls(); evaluate(); }
-    return true;
-  }
-
-  /**
-   * Stage changed (StageControl calls this): the Wall went to Stage, came
-   * back, or Stage reports what it is doing. Gone to Stage: nothing plays
-   * here any more. Back: the board is built here again (when the tab shows).
-   */
-  function stageChanged(kind) {
-    const want = stageWallOn();
-    // Only what Stage reports (clips, the peek): the panel, nothing else.
-    if (kind === 'status') { if (remote && want) syncRemote(); return; }
-    if (want !== remote) {
-      remote = want;
-      if (!cfg) cfg = loadCfg();
-      if (remote) {
-        if (els) {
-          buildGen++;
-          poolGen++;
-          built = false;
-          dirty = false;
-          setRunning(false);
-          teardownBlocks();
-          ready = [];
-          poolIds = null;
-          showMsg('');
-          try { hostNow().pin([]); } catch {}
-        }
-      } else if (els && active) {
-        rebuild();
-      }
-    } else if (remote) {
-      // Another Vault tab (or the remote's play button) changed the Wall on Stage: follow it here.
-      const w = StageControl.wallState();
-      if (w.cfg && R.takeEchoCfg({ mine: w.mine, pendingLocal: pushTimer !== null })) cfg = cfgFrom(w.cfg);
-      if (typeof w.paused === 'boolean') userPaused = w.paused;
-    }
-    if (els) { syncControls(); evaluate(); }
-  }
-
-  /** The toolbar and the panel, as they are with the board here or on Stage. */
-  function syncRemote() {
-    if (!els || !els.onStage) return;
-    els.onStage.hidden = !remote;
-    els.board.hidden = remote;
-    els.stageBtn.hidden = remote;
-    els.fullBtn.hidden = remote;
-    if (!remote) return;
-    els.msg.hidden = true;
-    els.status.textContent = 'On Stage';
-    const w = stageWallOn() ? StageControl.wallState() : {};
-    const st = w.status || {};
-    els.onStageLine.textContent = R.wallLine({
-      label: sourceLabel(), state: st.state || 'loading', clips: st.clips, mix: cfg.mix, sound: cfg.sound,
-      paused: userPaused,
-    });
-    const note = st.state === 'empty' || st.state === 'error' ? st.message
-      : w.hold ? 'Stage is holding: black and silent. Press Hold on the remote to come back.'
-      : cfg.sound === 'hover' ? 'Sound On hover is silent on Stage: nobody hovers there. Pick Auto to hear one clip.'
-      : '';
-    els.onStageNote.textContent = note || '';
-    els.onStageNote.hidden = !note;
-    paintPeek(Array.isArray(st.ids) ? st.ids : []);
-  }
-
-  /** A small still of what is on Stage: thumbnails of a few files in view (no second Wall here). */
-  function paintPeek(ids) {
-    const box = els.onStagePeek;
-    const key = ids.join(',');
-    if (box.dataset.ids === key) return;
-    box.dataset.ids = key;
-    box.textContent = '';
-    if (typeof thumbsOff === 'function' && thumbsOff()) return;
-    for (const id of ids) {
-      const img = document.createElement('img');
-      img.alt = '';
-      img.draggable = false;
-      img.decoding = 'async';
-      img.onerror = () => img.remove();
-      img.src = typeof staticThumbSrc === 'function' ? staticThumbSrc(id) : `/thumb/${id}`;
-      box.appendChild(img);
-    }
-  }
-
-  /* ── The Wall on Stage, in the Stage page (player-lib/stage.js) ─────── */
-
-  let stageSpec = {};
-
-  /** Where the Wall runs on Stage: no chrome, Stage's own stream tokens, the rows and sound Stage gives it. */
-  function stageHost(root, o, spec) {
-    return {
-      chrome: false, onStage: true, tokenPrefix: 'stage', root,
-      query: o.query, fetchRows: o.fetchRows, pin: () => {},
-      baseSpec: spec,
-      soundLevel: o.soundLevel, status: o.status || null,
-    };
-  }
-
-  /**
-   * Run the board in `root` with no chrome. o: { cfg, spec, paused, hold,
-   * query(spec), fetchRows(ids), soundLevel(), status(st) }.
-   */
-  function stageStart(root, o) {
-    host = stageHost(root, o, () => stageSpec);
-    stageSpec = o.spec && typeof o.spec === 'object' ? o.spec : {};
-    cfg = cfgFrom(o.cfg);
-    userPaused = o.paused === true;
-    held = o.hold === true;
-    ensureDom();
-    active = true;
-    rebuild();
-  }
-
-  /** New settings from Control: only what changed is redone (WallRules.cfgChanges). */
-  function stageUpdate(o) {
-    if (!active || !host || !host.onStage) return;
-    const prev = cfg;
-    const next = cfgFrom(o.cfg);
-    const spec = o.spec && typeof o.spec === 'object' ? o.spec : {};
-    const specChanged = JSON.stringify(spec) !== JSON.stringify(stageSpec);
-    stageSpec = spec;
-    cfg = next;
-    if (typeof o.paused === 'boolean') userPaused = o.paused;
-    const ch = R.cfgChanges(prev, next);
-    if ((ch.pool || specChanged) && computePoolKey() !== poolKey) { rebuild(); return; }
-    if (ch.plan) replan(true);
-    if (ch.stills) retimeStills();
-    if (ch.clips) retimeClips();
-    if (ch.playing) { trimVideos(); fillSlots(); }
-    evaluate();
-    if (ch.sound) syncAudio();
-    updateStatus();
-  }
-
-  function stageHold(on) {
-    held = !!on;
-    evaluate();
-    updateStatus();
-  }
-
-  /** Stage's volume changed: the clip heard takes it. */
-  function stageSound() { syncAudio(); }
-
-  /** Off Stage (back to files, Stop, a lock, closing): every clip released, its stream closed. */
-  function stageStop() {
-    if (!els) return;
-    active = false;
-    built = false;
-    dirty = false;
-    buildGen++;
-    poolGen++;
-    replanGen++;
-    fading = false;
-    els.board.classList.remove('wall-fading');
-    setRunning(false);
-    teardownBlocks();
-    ready = [];
-    poolIds = null;
-    boardState = 'loading';
-    boardMessage = '';
+    try { Library.pin('wall', []); } catch {}
   }
 
   return {
-    enter, leave, lockStop, startAt, stageChanged, stagePause,
-    stage: { start: stageStart, update: stageUpdate, hold: stageHold, sound: stageSound, shuffle: () => shuffleNow(), stop: stageStop },
+    enter, leave, lockStop, startAt,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { emptyMessage, cfgFrom, takeStart, tokenFor, stageHost, vaultHost, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, mostlyInView, scrollLeftMs, scrollFreePlan, MOSTLY, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
+    _pure: { emptyMessage, cfgFrom, takeStart, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, mostlyInView, scrollLeftMs, scrollFreePlan, MOSTLY, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
     _audio: () => {
       const t = now();
@@ -2974,11 +2640,6 @@ const Wall = (() => {
     // For tests and debugging in the console.
     _stats: () => ({
       mode: cfg && cfg.mode,
-      host: hostNow().onStage ? 'stage' : 'vault',
-      remote,
-      held,
-      board: boardState,
-      tokens: blocks.flatMap(b => [...b.el.querySelectorAll('video')].map(v => v._wallRec && v._wallRec.token).filter(Boolean)),
       blocks: blocks.length,
       domBlocks: els ? els.track.querySelectorAll('.wall-block').length : 0,
       liveCost,
@@ -3005,8 +2666,6 @@ const Wall = (() => {
     })),
     _frames: (reset) => { const f = drift.frames.slice(); if (reset) drift.frames = []; return f; },
     _cfg: () => ({ ...cfg }),
-    // A toolbar change while the Wall is on Stage, without the toolbar (tests): what a slider's input does.
-    _remoteChange: (patch) => { cfg = cfgFrom({ ...cfg, ...patch }); if (remote) pushToStage(); },
     _queue: () => ready.map(r => ({ id: r.id, a: +aspectOf(r).toFixed(2), known: shapeKnown(r), on: onScreen.has(r.id), bad: badIds.has(r.id) })),
   };
 })();
