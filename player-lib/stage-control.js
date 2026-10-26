@@ -29,9 +29,11 @@
    Hold pauses and mutes (it cannot go black). A lock leaves
    picture-in-picture at once.
 
-   Closing Stage (the bar's Close, its menu, the window's own close) hands
-   the file back to the mini player at the same spot, with sound, and the
-   bar goes. Stage vanishing (a crash, sleep) says "Stage was closed", paused.
+   The bar's X closes Stage and stops: nothing plays on, in this Vault tab
+   or any other (the server's "closed" report says stop). Closing Stage
+   any other way (Close Stage in its menu, the window's own close) hands the
+   file back to the mini player at the same spot, with sound, and the bar
+   goes. Stage vanishing (a crash, sleep) says "Stage was closed", paused.
 
    Hooks elsewhere: playMedia (intercept), maximizePlayer and closeMiniPlayer
    (on, hideRemote), mini-player.js (miniMediaEl returns the proxy below, the
@@ -56,6 +58,7 @@ const StageControl = (() => {
   let t = 0, d = 0, paused = false, hold = false, state = null, finished = false, locked = false;
   let volume = 1, muted = false;
   let statusKey = null;
+  let closeGen = 0;                   // bumped when Stage closes here: a reply still on its way is dropped
   let loadingSince = 0;
   let note = null;                    // { text, until }
   let noteTimer = null;
@@ -412,8 +415,11 @@ const StageControl = (() => {
   }
 
   async function adoptCurrent(item, s) {
+    const gen = closeGen;
     let row = null;
     try { [row] = await Library.fetchRows([item.id]); } catch {}
+    // Stage closed while the row was on its way: nothing to show any more.
+    if (gen !== closeGen || !open) return;
     row = row || { id: item.id, filename: item.filename, media_type: item.media_type, duration_seconds: item.duration, width: item.width, height: item.height };
     if (row.filepath) noteFileOpened({ id: row.id, filepath: row.filepath, filename: row.filename, media_type: row.media_type }, {});
     currentMediaState.type = row.media_type;
@@ -461,11 +467,12 @@ const StageControl = (() => {
       return;
     }
     // Moved on by itself: the queue here catches up, in turn with any Next pressed.
+    const gen = closeGen;
     queueNav(async () => {
       const meta = sent.get(item.key);
       let row = meta && meta.row;
       if (!row) { try { [row] = await Library.fetchRows([item.id]); } catch {} }
-      if (!row) return;
+      if (!row || gen !== closeGen || !open) return;
       const fromUpNext = item.via === 'upnext';
       if (fromUpNext && typeof UpNext !== 'undefined') UpNext.take(item.id);
       noteFileOpened({ id: row.id, filepath: row.filepath, filename: row.filename, media_type: row.media_type },
@@ -567,10 +574,70 @@ const StageControl = (() => {
     handBack({ t: last.t != null ? last.t : t, paused: hold || finished || !!last.paused, how: 'closed' });
   }
 
+  /**
+   * The Stage bar's X: Stage closes and playback stops, nothing carries on
+   * in the mini player (Close Stage in the Stage menu still plays on here).
+   */
+  async function closeStageAndStop() {
+    if (basic) {
+      // Basic Stage is the mini player's picture-in-picture: closing the
+      // mini player stops the video and closes Stage with it (miniClosing).
+      if (typeof closeMiniPlayer === 'function') closeMiniPlayer();
+      if (basic) closeBasic({ how: 'mini' });
+      return;
+    }
+    if (!open && !remoteShown) return;
+    // The close says it stops, so the server's "closed" report tells every
+    // Vault tab to stop too (stageGone), this one included. Nothing here is
+    // torn down until Stage has taken the close: a close that never got
+    // there would leave mpv playing with nothing to control it.
+    if (!(await sendStopClose())) {
+      showToast('Stage could not be closed. Check that Vault is still running, then try again.', { type: 'error' });
+      return;
+    }
+    stopHere();
+  }
+
+  /** POST the stopping close, tried again on a network or server error. True once Stage has it (or is closed already). */
+  async function sendStopClose() {
+    const waits = [0, 400, 1200];
+    for (const ms of waits) {
+      if (ms) await new Promise(r => setTimeout(r, ms));
+      try {
+        await api('/api/stage/cmd', { type: 'close', stop: true });
+        return true;
+      } catch (err) {
+        if (err.code === 'STAGE_CLOSED') return true;
+        if (err.status === 423 || (err.status >= 400 && err.status < 500)) return false;
+      }
+    }
+    return false;
+  }
+
+  /** Stage closed with a stop: the remote goes and nothing plays here. */
+  function stopHere() {
+    if (!open && !remoteShown) return;
+    closeGen++;
+    open = false;
+    sentHideNames = null;
+    hideTips();
+    closeMenu();
+    leaveRemote();
+    disconnect();
+    cur = null;
+    applyMute();
+    if (typeof closeMiniPlayer === 'function') closeMiniPlayer();
+    showToast('Stage closed.');
+    // A connection kept for a Stage opened again later.
+    refreshState();
+  }
+
   /** Stage closed (its own window) or vanished. */
   function stageGone({ how: kind, last }) {
     if (basic) { closeBasic({ how: kind === 'closed' ? 'closed' : 'pip' }); return; }
     if (!open && !remoteShown) return;
+    // The Stage bar's X (in this tab or another): playback stops everywhere.
+    if (kind === 'closed' && last && last.stop === true) { stopHere(); return; }
     const at = last && last.t != null ? last.t : t;
     // After the end of the list there is no file to carry on with here.
     if (finished) cur = null;
@@ -582,6 +649,7 @@ const StageControl = (() => {
   function handBack({ t: at, paused: wasPaused, how: kind }) {
     if (basic) { closeBasic({ how: kind === 'closed' ? 'closed' : 'pip' }); return; }
     const row = cur && cur.row;
+    closeGen++;
     open = false;
     sentHideNames = null;
     hideTips();
@@ -1260,7 +1328,7 @@ const StageControl = (() => {
 
   return {
     proxy, intercept, on: () => open && remoteShown, isOpen: () => open, basicOn: () => basic, lockStop, passOver, notePassed, miniClosing, basicMediaFailed,
-    openStage, openFromPlayer, playCollectionOnStage, stageButton, closeStage, menu, front, setSize,
+    openStage, openFromPlayer, playCollectionOnStage, stageButton, closeStage, closeStageAndStop, menu, front, setSize,
     toggleHold, setVolume, toggleMute, paintVolume: paint, key, hideRemote,
     upNextChanged, repeatChanged, showTips,
     _state: () => ({ open, basic, basicHold: !!basicHold, remoteShown, mpv, cur: cur && { key: cur.key, id: cur.row && cur.row.id }, t, d, paused, hold, finished, volume, muted, note: note && note.text }),

@@ -295,9 +295,19 @@ function _dropSide(tile, e) {
   return e.clientX < r.left + r.width / 2 ? 'before' : 'after';
 }
 
+// Where the press that may become a drag began. A press on a tile's tick box
+// or one of its buttons is a click, even when the mouse moves a few pixels
+// before it is let go: the tile is not dragged then (the browser would take
+// the drag and the click would be lost, so the tick box did nothing).
+let _reorderPressOn = null;
+document.addEventListener('pointerdown', (e) => { _reorderPressOn = e.target; }, true);
+const REORDER_NO_DRAG_FROM = 'input, button, select, textarea, a, label, .tile-actions';
+
 document.addEventListener('dragstart', (e) => {
   const tile = _gridTile(e.target);
   if (!tile || !tile.hasAttribute('draggable') || !reorderReady() || _reorderBusy) return;
+  const from = _reorderPressOn && _reorderPressOn.closest ? _reorderPressOn.closest(REORDER_NO_DRAG_FROM) : null;
+  if (from && tile.contains(from)) { e.preventDefault(); return; }
   const ids = _idsFor(Number(tile.dataset.id));
   if (!ids.length) { e.preventDefault(); return; }
   _reorderDrag = { ids, set: new Set(ids) };

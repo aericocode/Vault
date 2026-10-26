@@ -84,7 +84,10 @@ async function loadCollections() {
 async function fetchCollectionMembers(id, force = false) {
   if (!force && collectionMembers.has(id)) return collectionMembers.get(id);
   const data = await fetch(`/api/collections/${id}`).then(r => r.json());
+  const before = id === activeCollectionId && collectionMembers.has(id) ? collectionMembers.get(id).slice() : null;
   collectionMembers.set(id, data.media_ids || []);
+  // Read again while open (a change made elsewhere): files that left are unticked.
+  if (before) _untickLeftOpenCollection(before);
   return collectionMembers.get(id);
 }
 
@@ -927,12 +930,13 @@ async function togglePickerCollection(id) {
  * above and the dock pane (dock-edit.js) both use it.
  * @returns {Promise<boolean>} whether the server made the change
  */
-async function changeCollectionMembership(id, mediaIds, adding) {
+async function changeCollectionMembership(id, mediaIds, adding, { quiet = false } = {}) {
   const c = getCollectionById(id);
   if (!c) return false;
 
   // Snapshot for rollback
   const prevMembers = (collectionMembers.get(id) || []).slice();
+  const openBefore = _openMembersNow();
   const prevCount = c.item_count;
   const prevFirst = c.first_ids;
 
@@ -948,6 +952,8 @@ async function changeCollectionMembership(id, mediaIds, adding) {
   _patchPickerRow(id);
   _patchAncestorCounts(id);
   _applyToggleSideEffects(id);
+  // Files that left the open collection are not left ticked out of sight.
+  const unticked = _untickLeftOpenCollection(openBefore);
 
   try {
     // Chunked like the membership check (2 MB body limit); adding and
@@ -968,7 +974,10 @@ async function changeCollectionMembership(id, mediaIds, adding) {
     if (Array.isArray(data.first_ids)) c.first_ids = data.first_ids;
     _patchPickerRow(id);
     _patchAncestorCounts(id);
-    showToast(adding ? `📁 Added to ${c.name}` : `Removed from ${c.name}`);
+    // The grid's query above ran before the server had the change (it can
+    // come back with the files still in): once more, now that it has.
+    _applyToggleSideEffects(id);
+    if (!quiet) showToast(adding ? `📁 Added to ${c.name}` : `Removed from ${c.name}`);
     return true;
   } catch {
     collectionMembers.set(id, prevMembers);
@@ -977,12 +986,122 @@ async function changeCollectionMembership(id, mediaIds, adding) {
     _patchPickerRow(id);
     _patchAncestorCounts(id);
     _applyToggleSideEffects(id);
+    // They are back in the grid: ticked again, as they were.
+    if (unticked.length) _retick(unticked);
     showErrorToast(null, adding ? `adding to ${c.name}` : `taking files out of ${c.name}`);
     // A chunked change can fail part-way: read back what the server kept.
     if (mediaIds.length > COLL_ID_CHUNK) {
       fetchCollectionMembers(id, true).then(() => { _patchPickerRow(id); _patchAncestorCounts(id); }).catch(() => {});
     }
     return false;
+  }
+}
+
+/* ── Ticked files and the open collection ────────────────────────────── */
+
+/** The files the open collection or folder holds now (a copy), or null when none is open. */
+function _openMembersNow() {
+  if (activeCollectionId == null) return null;
+  return (collectionMembers.get(activeCollectionId) || []).slice();
+}
+
+/**
+ * Untick the files that were in the open collection (before) and are not
+ * any more: they are gone from the grid, so a "4 selected" over a grid
+ * without them would act on files the user cannot see. Returns them.
+ */
+function _untickLeftOpenCollection(before) {
+  if (!before || activeCollectionId == null || typeof selectedIds === 'undefined') return [];
+  const now = new Set(collectionMembers.get(activeCollectionId) || []);
+  const gone = before.filter(m => !now.has(m) && selectedIds.has(m));
+  if (!gone.length) return gone;
+  gone.forEach(m => selectedIds.delete(m));
+  _selectionRedraw();
+  return gone;
+}
+
+function _retick(ids) {
+  if (typeof selectedIds === 'undefined') return;
+  ids.forEach(m => selectedIds.add(m));
+  _selectionRedraw();
+}
+
+function _selectionRedraw() {
+  if (typeof selectionChanged === 'function') selectionChanged();
+  if (typeof syncTileCheckboxes === 'function') syncTileCheckboxes();
+  if (typeof renderSelectionBar === 'function') renderSelectionBar();
+}
+
+/** The open collection (not a folder), or null. Remove from this collection acts on it. */
+function openPlainCollection() {
+  const c = activeCollectionId != null ? getCollectionById(activeCollectionId) : null;
+  return c && c.kind !== 'folder' ? c : null;
+}
+
+/** How many of the ticked files the open collection holds (the selection bar's button). */
+function selectedInOpenCollection() {
+  const c = openPlainCollection();
+  if (!c || typeof selectedIds === 'undefined') return [];
+  // The collection's own list, walked once (a Select all can tick far more files than it holds).
+  return (collectionMembers.get(c.id) || []).filter(m => selectedIds.has(m));
+}
+
+/**
+ * The selection bar's Remove from this collection: the ticked files leave
+ * the open collection (the files themselves are not touched), the grid
+ * follows, they are unticked, and Undo puts them back in their places.
+ */
+async function removeSelectedFromCollection() {
+  const c = openPlainCollection();
+  if (!c) return;
+  const ids = selectedInOpenCollection();
+  if (!ids.length) { showToast('None of the selected files are in this collection.'); return; }
+  const order = (collectionMembers.get(c.id) || []).slice();
+  const ok = await changeCollectionMembership(c.id, ids, false, { quiet: true });
+  if (!ok) return;
+  // Ticked files the collection never held (a search can hide them) stay ticked.
+  ids.forEach(m => selectedIds.delete(m));
+  _selectionRedraw();
+  const what = ids.length === 1 ? '1 file' : `${ids.length.toLocaleString()} files`;
+  showUndoToast(`Removed ${what} from ${escapeHtml(c.name)}`, () => undoRemoveFromCollection(c.id, ids, order));
+}
+
+/** Undo: the files go back in, then the whole earlier order is put back. */
+async function undoRemoveFromCollection(id, ids, order) {
+  const c = getCollectionById(id);
+  if (!c) return;
+  const write = (p) => (typeof Library !== 'undefined' && Library.ownWrite ? Library.ownWrite(p) : p);
+  try {
+    for (let i = 0; i < ids.length; i += COLL_ID_CHUNK) {
+      const resp = await write(fetch(`/api/collections/${id}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: ids.slice(i, i + COLL_ID_CHUNK) }),
+      }));
+      if (!resp.ok) throw await collResponseError(resp);
+    }
+    const resp = await write(fetch(`/api/collections/${id}/order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order }),
+    }));
+    if (!resp.ok) throw await collResponseError(resp);
+    const data = await resp.json();
+    collectionMembers.set(id, data.order);
+    c.item_count = data.item_count;
+    if (Array.isArray(data.first_ids)) c.first_ids = data.first_ids;
+    _patchAncestorCounts(id);
+    if (activeCollectionId === id) {
+      renderCollectionHeader();
+      await applyFilters({ keepPage: true });
+    }
+    showToast(`Put back in ${c.name}`);
+  } catch (err) {
+    collErrorToast(err, `putting the files back in ${c.name}`);
+    // Whatever the server holds now is what the grid should show.
+    fetchCollectionMembers(id, true).then(() => {
+      if (activeCollectionId === id) { renderCollectionHeader(); applyFilters({ keepPage: true }); }
+    }).catch(() => {});
   }
 }
 
