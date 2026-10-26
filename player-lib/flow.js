@@ -391,6 +391,8 @@ const Flow = (() => {
   const eColor = (v) => `color-mix(in oklab, var(--flow-e-lo), var(--flow-e-hi) ${Math.round(Math.max(0, Math.min(1, v)) * 100)}%)`;
   const GRADE_VAR = { smooth: 'var(--flow-ok)', noticeable: 'var(--flow-warn)', jump: 'var(--flow-bad)' };
   const GRADE_WORD = { smooth: 'Smooth hand-over', noticeable: 'Noticeable hand-over', jump: 'Jump' };
+  /** A hand-over in words: "Jump: A into B. Energy drops 14 · same tempo". */
+  const handTitle = (h, fa, fb, i) => `${GRADE_WORD[h.grade]}: ${shortName(fa) || `file ${i + 1}`} into ${shortName(fb) || `file ${i + 2}`}. ${FlowOrder.handoverText(fa, fb, h)}`;
   const plural = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
   const f1 = (v) => (Math.round(v * 10) / 10).toString();
   const pct = (v) => Math.round(Math.max(0, Math.min(1, v)) * 100);
@@ -638,8 +640,10 @@ const Flow = (() => {
         if (!drawable(f)) continue;
         const x0 = L + i * step + gap, x1 = L + (i + 1) * step - gap;
         if (!f.music) {
-          const qy = f1(y(f.em));
-          quiet += `<line x1="${f1(x0)}" x2="${f1(x1)}" y1="${qy}" y2="${qy}"/>`;
+          // No music: a dotted line at its middle energy, where its hand-overs meet it (as they are graded).
+          const ym = y(f.em);
+          quiet += `<line x1="${f1(x0)}" x2="${f1(x1)}" y1="${f1(ym)}" y2="${f1(ym)}"/>`;
+          ends[i] = { s: [x0, ym], e: [x1, ym] };
           continue;
         }
         const pts = FlowChartMath.filePoints(f).map(([t, e]) => [x0 + (x1 - x0) * t, y(e)]);
@@ -665,12 +669,12 @@ const Flow = (() => {
       const a = ends[i] && ends[i].e, b = ends[i + 1] && ends[i + 1].s;
       if (!a || !b) return;
       const fa = st.byId.get(order[i]), fb = st.byId.get(order[i + 1]);
-      const title = esc(`${GRADE_WORD[h.grade]}: ${shortName(fa) || `file ${i + 1}`} into ${shortName(fb) || `file ${i + 2}`}`);
+      const title = esc(handTitle(h, fa, fb, i));
       const c = Math.max(1, gap);
       svg += `<path class="flow-hand flow-hand-${h.grade}" d="M${f1(a[0])},${f1(a[1])} C${f1(a[0] + c)},${f1(a[1])} ${f1(b[0] - c)},${f1(b[1])} ${f1(b[0])},${f1(b[1])}"><title>${title}</title></path>`;
       if (h.grade === 'jump' && step >= 8) {
         const bx = (a[0] + b[0]) / 2, by = Math.max(7, Math.min(a[1], b[1]) - 10);
-        svg += `<g class="flow-badge"><title>${title}</title><circle cx="${f1(bx)}" cy="${f1(by)}" r="6.5"/><text x="${f1(bx)}" y="${f1(by + 3.4)}" text-anchor="middle">!</text></g>`;
+        svg += `<g class="flow-badge"><title>${title}</title><circle cx="${f1(bx)}" cy="${f1(by)}" r="6.5"/><text x="${f1(bx)}" y="${f1(by + 3.4)}" text-anchor="middle">${h.energyGrade !== 'jump' && h.tempoGrade === 'jump' ? '♩' : '!'}</text></g>`;
       }
     });
     if (jumpsDense) svg += `<path class="flow-hand flow-hand-jump" d="${jumpsDense}"/>`;
@@ -684,7 +688,7 @@ const Flow = (() => {
 
     const label = `Energy across the ${st.order ? 'Flow' : 'playlist'} order, ${pct(lo)} to ${pct(hi)}`;
     wrap.querySelector('.flow-chart-svg').innerHTML = `<svg class="flow-chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${svg}</svg>`;
-    st.geom = { W, H, L, R, TOP, PH, step, n, order, dense, lo, hi };
+    st.geom = { W, H, L, R, TOP, PH, step, n, order, dense, lo, hi, hand };
     namesRow(wrap, order, { L, step, dense, nowI });
     if (st.hot >= n) st.hot = -1;
     showHot(st.hot);
@@ -751,7 +755,12 @@ const Flow = (() => {
       try { c = s.chips(id) || []; } catch { c = []; }
       if (Array.isArray(c) && c.length) chips = `<span class="flow-chips">${c.filter(t => t && t.label).map(t => `<span class="flow-chip" style="--c:${safeColor(t.color) || 'var(--text-secondary)'}">${esc(t.label)}</span>`).join('')}</span>`;
     }
-    tip.innerHTML = `<span class="flow-tip-t">${i + 1}. ${esc(shortName(f) || 'Untitled')}</span><span class="flow-tip-m">${esc(line)}</span>${chips}`;
+    // The hand-over into this file, and why it got its grade.
+    const h = i > 0 && g.hand ? g.hand[i - 1] : null;
+    const into = h && h.grade !== 'none'
+      ? `<span class="flow-tip-h flow-tip-h-${h.grade}">From the file before: ${esc(`${GRADE_WORD[h.grade].replace(' hand-over', '')}. ${FlowOrder.handoverText(st.byId.get(g.order[i - 1]), f, h)}`)}</span>`
+      : '';
+    tip.innerHTML = `<span class="flow-tip-t">${i + 1}. ${esc(shortName(f) || 'Untitled')}</span><span class="flow-tip-m">${esc(line)}</span>${into}${chips}`;
     tip.hidden = false;
     // Beside the column, on the side with more room, so the column stays in view.
     const tw = tip.offsetWidth || 220;
@@ -933,8 +942,9 @@ const Flow = (() => {
       const i = Library.indexOf(media.id);
       const prev = i > 0 ? st.byId.get(Library.idAt(i - 1)) : null;
       if (prev) {
-        const g = FlowOrder.grade(FlowOrder.handoverCost(prev, f), prev, f);
-        if (g !== 'none') dot = `<span class="flow-join flow-join-${g}" title="${g === 'jump' ? 'A jump' : g === 'noticeable' ? 'A noticeable change' : 'A smooth hand-over'} from the file before"></span>`;
+        const h = FlowOrder.handover(prev, f);
+        const g = h.grade;
+        if (g !== 'none') dot = `<span class="flow-join flow-join-${g}" title="${esc(`${g === 'jump' ? 'A jump' : g === 'noticeable' ? 'A noticeable change' : 'A smooth hand-over'} from the file before. ${FlowOrder.handoverText(prev, f, h)}`)}"></span>`;
       }
     }
     let body;

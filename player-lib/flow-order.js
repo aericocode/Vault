@@ -9,6 +9,8 @@
        env (optional: the energy envelope, [[t, e], ...] with t 0..1 where in
        the file and e 0..1 on the same scale, about 10 points; absent for a row
        measured before it existed, which the chart draws from es, em, ee),
+       ei, eo (optional: the envelope's first and last energy, set with env;
+       hand-overs use them),
        name, title (optional: the file name, and the library's title when it
        has one, for the chart) }
 
@@ -16,7 +18,10 @@
    - targetsFor(shape, feats)    the energy each position aims for, across the
                                  collection's own range (null for Smooth only)
    - handoverCost(a, b)          how well the end of a flows into the start of b
-   - grade(cost, a, b)           smooth | noticeable | jump | none (no music)
+   - handover(a, b)              its grade and parts: { grade, energyGrade,
+                                 tempoGrade, dE, tempoPct }
+   - grade(a, b)                 smooth | noticeable | jump | none
+   - handoverText(a, b)          why, in plain words ("Energy drops 14 · same tempo")
    - planOrder(feats, o)         Flow order: least total cost, deterministic
    - PLACES, resolvePlace(ps)    where a stream tag puts a file (o.places)
    - summary(feats, order)       the hand-overs of an order, and its jumps
@@ -27,15 +32,25 @@
    The cost of an order:
      sum over neighbours of handoverCost(end of A, start of B)
    + 1.5 x sum over positions of |middle energy - the shape's target there|
-   handoverCost = 0.65 x |energy at A's end - energy at B's start|
-                + 0.35 x tempo distance, where the tempo distance is the
-                  smallest ratio between A's end BPM and B's start BPM, its
-                  double or its half (128 into 64 is a match), 0 at the same
-                  tempo and 1 at 16 % apart or more (0.5 when a tempo is
-                  unknown). A file with no music (or not measured yet) hands
-                  over at a flat 0.25 either way: it is placed by the shape
-                  alone.
-   Grades: smooth under 0.12, noticeable under 0.25, a jump from 0.25.
+   A hand-over has two parts, graded on their own:
+     energy  dE = energy at B's start - energy at A's end (the envelope's
+             first and last points when the file has one, as the chart's
+             line ends; else start and end; a file with no music: its
+             middle energy): smooth under 0.05 apart,
+             noticeable under 0.10, a jump from 0.10;
+     tempo   the smallest ratio between A's end BPM and B's start BPM, its
+             double or its half (128 into 64 is a match): smooth under 4 %
+             apart, noticeable under 10 %, a jump from 10 %. No tempo grade
+             when either side has no BPM.
+   The grade is the worse of the two. Music on one side only: the energy
+   alone. No music either side, or a side not measured (no energy): none.
+   handoverCost, each part as a share of its jump step (eN = |dE| / 0.10,
+   tN = tempo apart / 0.10, each at most 4; tN = 0.5 when both have music
+   but a tempo is unknown):
+     0.25 x (the larger + 0.3 x the smaller)
+   so a jump in either part costs about 0.25 or more, and both together
+   more again. Music on one side only: 0.25 x eN. No music either side, or
+   not measured: a flat 0.25 (placed by the shape alone).
 
    Files with nothing to place them by (not measured yet, couldn't be
    measured, no audio stream, silent) keep their playlist positions; the
@@ -77,12 +92,15 @@ const FlowOrder = (() => {
     { key: 'steady', label: 'Steady' },
   ];
   const SHAPE_KEYS = SHAPES.map(s => s.key);
-  const NEUTRAL = 0.25;            // a hand-over with no music on one side
-  const SMOOTH = 0.12;
-  const NOTICEABLE = 0.25;
-  const TEMPO_FULL = 0.16;         // 16 % apart is as far as tempo goes
-  const W_ENERGY = 0.65;
-  const W_TEMPO = 0.35;
+  const NEUTRAL = 0.25;            // a hand-over with nothing to grade (no music either side, not measured)
+  const E_SMOOTH = 0.05;           // energy apart: smooth under this, noticeable under E_JUMP
+  const E_JUMP = 0.10;
+  const T_SMOOTH = 0.04;           // tempo apart (a share): smooth under this, noticeable under T_JUMP
+  const T_JUMP = 0.10;
+  const PART_MAX = 4;              // a part's share of its jump step counts up to this
+  const W_HAND = 0.25;             // a jump in one part costs about this
+  const W_OTHER = 0.3;             // the smaller part's weight
+  const UNKNOWN_TEMPO = 0.5;       // both have music, a tempo is unknown: half a jump step
   const W_SHAPE = 1.5;             // a shape you picked outweighs a hand-over or two
   const UNKNOWN_SHAPE = 0.3;       // an unmeasured file's cost at any position (the same everywhere)
   const ALL_STARTS_MAX = 120;
@@ -91,7 +109,7 @@ const FlowOrder = (() => {
   const BUDGET_OPS = 2e6;          // cost terms the improvement pass may look at (deterministic, unlike a clock)
   const BUDGET_PER_FILE = 2000;    // ...plus this much per file, so a big collection still gets improved
   const BUDGET_MAX = 1.2e7;
-  const SHUFFLE_TEMP = 0.1;
+  const SHUFFLE_TEMP = 0.25;       // hand-over costs: a jump is about 0.25
   const SHUFFLE_FLOOR = 0.02;
 
   const PLACES = ['first', 'last', 'peak', 'after_peak', 'low', 'anywhere'];
@@ -166,18 +184,78 @@ const FlowOrder = (() => {
   const known = (f) => !!(f && f.measured && !f.failed && !f.noSound);
   const hasBeat = (f) => known(f) && !!f.music;
 
-  /** End of a into the start of b. */
+  /**
+   * Energy where a file starts and ends: ei / eo, the envelope's ends (fromRow
+   * sets them; they travel without the envelope, so the order worker grades
+   * as the page does), else start and end. A file with no music meets its
+   * neighbours at its middle energy (the chart draws it as a flat line there).
+   */
+  const eIn = (f) => (f.music ? f.ei ?? f.es ?? f.em : f.em);
+  const eOut = (f) => (f.music ? f.eo ?? f.ee ?? f.em : f.em);
+  const bpmOut = (f) => (f.music ? (f.be || f.bm || null) : null);
+  const bpmIn = (f) => (f.music ? (f.bs || f.bm || null) : null);
+
+  /** End of a into the start of b (see the top). Hot: no objects made. */
   function handoverCost(a, b) {
-    if (!hasBeat(a) || !hasBeat(b)) return NEUTRAL;
-    const e = Math.abs((a.ee ?? a.em) - (b.es ?? b.em));
-    const ab = a.be || a.bm, bb = b.bs || b.bm;
-    const t = ab && bb ? Math.min(1, tempoRatio(ab, bb) / TEMPO_FULL) : 0.5;
-    return W_ENERGY * e + W_TEMPO * t;
+    if (!known(a) || !known(b)) return NEUTRAL;
+    const ma = !!a.music, mb = !!b.music;
+    if (!ma && !mb) return NEUTRAL;
+    const eN = Math.min(PART_MAX, Math.abs(eOut(a) - eIn(b)) / E_JUMP);
+    if (!ma || !mb) return W_HAND * eN;
+    const ab = bpmOut(a), bb = bpmIn(b);
+    const tN = ab && bb ? Math.min(PART_MAX, tempoRatio(ab, bb) / T_JUMP) : UNKNOWN_TEMPO;
+    return W_HAND * (Math.max(eN, tN) + W_OTHER * Math.min(eN, tN));
   }
 
-  function grade(cost, a, b) {
-    if (a && b && (!hasBeat(a) || !hasBeat(b))) return 'none';
-    return cost < SMOOTH ? 'smooth' : cost < NOTICEABLE ? 'noticeable' : 'jump';
+  const RANK = { none: 0, smooth: 1, noticeable: 2, jump: 3 };
+  const partGrade = (v, smooth, jump) => (v < smooth ? 'smooth' : v < jump ? 'noticeable' : 'jump');
+
+  /**
+   * The hand-over from a into b, graded by part (see the top).
+   * @returns {{grade: string, energyGrade: string|null, tempoGrade: string|null, dE: number|null, tempoPct: number|null}}
+   *   dE signed (b's start - a's end), tempoPct in percent, both rounded; null when there is none
+   */
+  function handover(a, b) {
+    const out = { grade: 'none', energyGrade: null, tempoGrade: null, dE: null, tempoPct: null };
+    if (!known(a) || !known(b) || (!a.music && !b.music)) return out;
+    const dE = eIn(b) - eOut(a);
+    out.dE = Math.round(dE * 1000) / 1000;
+    out.energyGrade = partGrade(Math.abs(out.dE), E_SMOOTH, E_JUMP);
+    const ab = bpmOut(a), bb = bpmIn(b);
+    if (ab && bb) {
+      const r = tempoRatio(ab, bb);
+      out.tempoPct = Math.round(r * 1000) / 10;
+      out.tempoGrade = partGrade(r, T_SMOOTH, T_JUMP);
+    }
+    out.grade = !out.tempoGrade || RANK[out.energyGrade] >= RANK[out.tempoGrade] ? out.energyGrade : out.tempoGrade;
+    return out;
+  }
+
+  /** The hand-over's grade: smooth | noticeable | jump | none. */
+  const grade = (a, b) => handover(a, b).grade;
+
+  /**
+   * Why a hand-over got its grade, in plain words, the worse part first:
+   * "Energy drops 14 · same tempo", "Tempo 115 → 137 BPM (16% apart) · energy steady".
+   */
+  function handoverText(a, b, h = handover(a, b)) {
+    if (h.grade === 'none') return '';
+    const pts = Math.round(Math.abs(h.dE) * 100);
+    const energy = h.energyGrade === 'smooth' && pts < 3 ? 'energy steady'
+      : `energy ${h.dE < 0 ? 'drops' : 'rises'} ${pts}`;
+    let tempo;
+    if (h.tempoGrade) {
+      const ab = Math.round(bpmOut(a)), bb = Math.round(bpmIn(b));
+      const k = Math.abs(Math.log(bpmOut(a) / bpmIn(b))) > Math.log(1.5) ? (bpmOut(a) > bpmIn(b) ? ' (half time)' : ' (double time)') : '';
+      tempo = h.tempoPct < 1 && !k ? 'same tempo'
+        : h.tempoGrade === 'smooth' ? `tempo close, ${ab} → ${bb} BPM${k}`
+        : `tempo ${ab} → ${bb} BPM (${Math.round(h.tempoPct)}% apart)`;
+    } else if (!a.music || !b.music) {
+      tempo = !b.music ? 'no music in the next file' : 'no music in the file before';
+    } else tempo = 'tempo unknown';
+    const parts = h.tempoGrade && RANK[h.tempoGrade] > RANK[h.energyGrade] ? [tempo, energy] : [energy, tempo];
+    const s = parts.join(' · ');
+    return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
   function shapeCost(f, target) {
@@ -492,9 +570,9 @@ const FlowOrder = (() => {
     for (let i = 1; i < order.length; i++) {
       const a = by.get(order[i - 1]), b = by.get(order[i]);
       const cost = handoverCost(a, b);
-      const g = grade(cost, a, b);
-      if (g === 'jump') jumps++;
-      handovers.push({ cost: Math.round(cost * 1000) / 1000, grade: g });
+      const h = handover(a, b);
+      if (h.grade === 'jump') jumps++;
+      handovers.push({ cost: Math.round(cost * 1000) / 1000, ...h });
     }
     return { handovers, jumps };
   }
@@ -523,7 +601,7 @@ const FlowOrder = (() => {
 
   /**
    * Flow shuffle: a random order where each next file is drawn with weight
-   * exp(-handover cost / 0.1) + 0.02 from the one before. Soft, never a filter.
+   * exp(-handover cost / 0.25) + 0.02 from the one before. Soft, never a filter.
    * @param {object[]} feats
    * @param {{startId?: number, rng?: Function}} [o]
    * @returns {number[]} ids
@@ -585,11 +663,11 @@ const FlowOrder = (() => {
       ...withEnv(row.env),
     };
   }
-  const withEnv = (text) => { const env = parseEnv(text); return env ? { env } : {}; };
+  const withEnv = (text) => { const env = parseEnv(text); return env ? { env, ei: env[0][1], eo: env[env.length - 1][1] } : {}; };
 
   return {
-    SHAPES, SHAPE_KEYS, NEUTRAL, SMOOTH, NOTICEABLE, PLACES, resolvePlace,
-    shapeLabel, isShape, curve, targetsFor, tempoRatio, handoverCost, grade, planOrder, summary,
+    SHAPES, SHAPE_KEYS, NEUTRAL, E_SMOOTH, E_JUMP, T_SMOOTH, T_JUMP, PLACES, resolvePlace,
+    shapeLabel, isShape, curve, targetsFor, tempoRatio, handoverCost, handover, grade, handoverText, planOrder, summary,
     flowShuffle, pickFrom, seeded, energyWord, bpmText, flowText, fromRow, parseEnv, totalCost,
   };
 })();

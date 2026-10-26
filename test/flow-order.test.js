@@ -12,13 +12,22 @@ const m = (id, es, em, ee, bpm = 120, extra = {}) => ({ id, measured: true, musi
 const talk = (id, em = 0.4) => ({ id, measured: true, music: false, es: em, em, ee: em, bs: null, bm: null, be: null });
 const unmeasured = (id) => ({ id, measured: false, music: false, es: 0, em: 0, ee: 0, bs: null, bm: null, be: null });
 
-test('hand-over: same energy and tempo is free; energy and tempo gaps cost', () => {
+const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
+
+test('hand-over cost: each part as a share of its jump step, the larger counts fully, the smaller 0.3', () => {
   assert.strictEqual(F.handoverCost(m(1, 0.5, 0.5, 0.5), m(2, 0.5, 0.5, 0.5)), 0);
-  const e = F.handoverCost(m(1, 0, 0, 0.2), m(2, 0.6, 0.6, 0.6));
-  assert.ok(Math.abs(e - 0.65 * 0.4) < 1e-9);
-  // 16 % apart or more is the full tempo part
-  const t = F.handoverCost(m(1, 0.5, 0.5, 0.5, 100), m(2, 0.5, 0.5, 0.5, 140));
-  assert.ok(Math.abs(t - 0.35) < 1e-9);
+  // Energy 0.14 apart, same tempo: 1.4 jump steps.
+  assert.ok(near(F.handoverCost(m(1, 0.5, 0.5, 0.64), m(2, 0.5, 0.5, 0.5)), 0.25 * 1.4));
+  // Tempo 5 % apart, same energy: half a jump step.
+  assert.ok(near(F.handoverCost(m(1, 0.5, 0.5, 0.5, 120), m(2, 0.5, 0.5, 0.5, 126)), 0.25 * 0.5));
+  // Both: the larger plus 0.3 x the smaller.
+  assert.ok(near(F.handoverCost(m(1, 0.5, 0.5, 0.7), m(2, 0.5, 0.5, 0.5, 126)), 0.25 * (2 + 0.3 * 0.5)));
+  // A part counts up to 4 jump steps.
+  assert.ok(near(F.handoverCost(m(1, 0, 0, 0), m(2, 1, 1, 1)), 0.25 * 4));
+  // A big energy step now costs more than a small tempo change (it used to be the other way round).
+  assert.ok(F.handoverCost(m(1, 0.5, 0.5, 0.64), m(2, 0.5, 0.5, 0.5)) > F.handoverCost(m(1, 0.5, 0.5, 0.5, 120), m(2, 0.5, 0.5, 0.5, 128)));
+  // Unknown tempo with music both sides: half a jump step for tempo.
+  assert.ok(near(F.handoverCost(m(1, 0.5, 0.5, 0.5, null), m(2, 0.5, 0.5, 0.5)), 0.25 * 0.5));
 });
 
 test('hand-over: double and half time count as the same tempo', () => {
@@ -27,22 +36,66 @@ test('hand-over: double and half time count as the same tempo', () => {
   assert.ok(Math.abs(F.tempoRatio(120, 126) - 0.05) < 1e-9);
 });
 
-test('hand-over: the end of A meets the start of B (not the other way round)', () => {
+test('hand-over: the end of A meets the start of B (not the other way round), the envelope ends first', () => {
   const a = m(1, 0.1, 0.5, 0.9);
   const b = m(2, 0.9, 0.5, 0.4);
   assert.ok(F.handoverCost(a, b) < 1e-9);
-  assert.ok(Math.abs(F.handoverCost(b, a) - 0.65 * 0.3) < 1e-9);
+  assert.ok(near(F.handoverCost(b, a), 0.25 * 3));
+  // With an envelope, its first and last points (ei / eo, as the chart's line ends) are used.
+  const ea = { ...m(3, 0.5, 0.5, 0.5), ei: 0.5, eo: 0.8 };
+  const eb = { ...m(4, 0.5, 0.5, 0.5), ei: 0.8, eo: 0.5 };
+  assert.strictEqual(F.handover(ea, eb).dE, 0);
+  assert.strictEqual(F.handover(m(5, 0.5, 0.5, 0.5), eb).dE, 0.3);
+  const row = F.fromRow(6, { has_music: 1, lufs: -10, e_start: 0.5, e_mid: 0.5, e_end: 0.5, env: '[[0.05,0.61],[0.5,0.5],[0.95,0.42]]' });
+  assert.strictEqual(row.ei, 0.61);
+  assert.strictEqual(row.eo, 0.42);
 });
 
-test('grades: smooth under 0.12, noticeable under 0.25, then a jump; none with no music', () => {
-  assert.strictEqual(F.grade(0.05), 'smooth');
-  assert.strictEqual(F.grade(0.119), 'smooth');
-  assert.strictEqual(F.grade(0.12), 'noticeable');
-  assert.strictEqual(F.grade(0.249), 'noticeable');
-  assert.strictEqual(F.grade(0.25), 'jump');
-  assert.strictEqual(F.grade(F.handoverCost(talk(1), m(2, 0.5, 0.5, 0.5)), talk(1), m(2, 0.5, 0.5, 0.5)), 'none');
-  assert.strictEqual(F.handoverCost(talk(1), m(2, 0.9, 0.9, 0.9)), F.NEUTRAL);
+test('grades: energy and tempo apart, the worse wins', () => {
+  const g = (a, b) => { const h = F.handover(a, b); return [h.grade, h.energyGrade, h.tempoGrade]; };
+  // Energy: smooth under 0.05, noticeable under 0.10, a jump from 0.10.
+  assert.deepStrictEqual(g(m(1, 0.5, 0.5, 0.5), m(2, 0.54, 0.5, 0.5)), ['smooth', 'smooth', 'smooth']);
+  assert.deepStrictEqual(g(m(1, 0.5, 0.5, 0.5), m(2, 0.55, 0.5, 0.5)), ['noticeable', 'noticeable', 'smooth']);
+  assert.deepStrictEqual(g(m(1, 0.5, 0.5, 0.5), m(2, 0.59, 0.5, 0.5)), ['noticeable', 'noticeable', 'smooth']);
+  assert.deepStrictEqual(g(m(1, 0.5, 0.5, 0.5), m(2, 0.6, 0.5, 0.5)), ['jump', 'jump', 'smooth']);
+  assert.deepStrictEqual(g(m(1, 0.5, 0.5, 0.64), m(2, 0.5, 0.5, 0.5)), ['jump', 'jump', 'smooth'], 'a 14-point drop at the same tempo is a jump');
+  // Tempo: smooth under 4 %, noticeable under 10 %, a jump from 10 %.
+  assert.deepStrictEqual(g(m(1, 0.5, 0.5, 0.5, 120), m(2, 0.5, 0.5, 0.5, 124)), ['smooth', 'smooth', 'smooth']);
+  assert.deepStrictEqual(g(m(1, 0.5, 0.5, 0.5, 120), m(2, 0.5, 0.5, 0.5, 126)), ['noticeable', 'smooth', 'noticeable']);
+  assert.deepStrictEqual(g(m(1, 0.5, 0.5, 0.5, 120), m(2, 0.5, 0.5, 0.5, 133)), ['jump', 'smooth', 'jump']);
+  // The real hand-overs from the user's list.
+  assert.strictEqual(F.handover(m(1, 0.8, 0.8, 0.8, 115), m(2, 0.77, 0.77, 0.77, 137)).grade, 'jump');
+  assert.strictEqual(F.handover(m(1, 0.8, 0.8, 0.8, 126), m(2, 0.67, 0.67, 0.67, 139)).energyGrade, 'jump');
+  // A missing BPM on one side: no tempo grade.
+  assert.deepStrictEqual(g(m(1, 0.5, 0.5, 0.5, null), m(2, 0.57, 0.5, 0.5)), ['noticeable', 'noticeable', null]);
+  // Music on one side only: the energy alone. Neither, or not measured: none.
+  assert.deepStrictEqual(g(talk(1, 0.4), m(2, 0.55, 0.5, 0.5)), ['jump', 'jump', null]);
+  assert.deepStrictEqual(g(m(1, 0.42, 0.42, 0.42), talk(2, 0.4)), ['smooth', 'smooth', null]);
+  assert.strictEqual(F.grade(talk(1), talk(2)), 'none');
+  // A file with no music meets its neighbours at its middle energy (drawn flat there).
+  assert.strictEqual(F.handover({ ...talk(1, 0.5), es: 0.1, ee: 0.9, ei: 0.1, eo: 0.9 }, m(2, 0.5, 0.5, 0.5)).dE, 0);
+  assert.strictEqual(F.grade(unmeasured(1), m(2, 0.5, 0.5, 0.5)), 'none');
+  assert.strictEqual(F.handoverCost(talk(1), talk(2)), F.NEUTRAL);
   assert.strictEqual(F.handoverCost(unmeasured(1), m(2, 0.9, 0.9, 0.9)), F.NEUTRAL);
+  // One side only costs by energy, like its grade.
+  assert.ok(near(F.handoverCost(talk(1, 0.4), m(2, 0.55, 0.5, 0.5)), 0.25 * 1.5));
+  // The summary carries the parts.
+  const s = F.summary([m(1, 0.5, 0.5, 0.64, 120), m(2, 0.5, 0.5, 0.5, 132)], [1, 2]);
+  assert.deepStrictEqual(Object.keys(s.handovers[0]).sort(), ['cost', 'dE', 'energyGrade', 'grade', 'tempoGrade', 'tempoPct']);
+  assert.strictEqual(s.handovers[0].dE, -0.14);
+  assert.strictEqual(s.handovers[0].tempoPct, 10);
+  assert.strictEqual(s.jumps, 1);
+});
+
+test('handoverText: the reason in plain words, the worse part first', () => {
+  const t = (a, b) => F.handoverText(a, b);
+  assert.strictEqual(t(m(1, 0.5, 0.5, 0.64), m(2, 0.5, 0.5, 0.5)), 'Energy drops 14 · same tempo');
+  assert.strictEqual(t(m(1, 0.8, 0.8, 0.8, 115), m(2, 0.8, 0.8, 0.8, 137)), 'Tempo 115 → 137 BPM (19% apart) · energy steady');
+  assert.strictEqual(t(m(1, 0.5, 0.5, 0.5, 120), m(2, 0.58, 0.5, 0.5, 122)), 'Energy rises 8 · tempo close, 120 → 122 BPM');
+  assert.strictEqual(t(m(1, 0.5, 0.5, 0.5, 128), m(2, 0.5, 0.5, 0.5, 64)), 'Energy steady · tempo close, 128 → 64 BPM (half time)');
+  assert.strictEqual(t(m(1, 0.7, 0.7, 0.7), talk(2, 0.4)), 'Energy drops 30 · no music in the next file');
+  assert.strictEqual(t(talk(1, 0.4), talk(2, 0.4)), '');
+  for (const s of [t(m(1, 0.5, 0.5, 0.64), m(2, 0.5, 0.5, 0.5)), t(m(1, 0.7, 0.7, 0.7), talk(2, 0.4))]) assert.ok(!s.includes('—'), 'no em dashes');
 });
 
 const mixed = () => [
@@ -107,7 +160,7 @@ test('deterministic: the same files and shape give the same order, ties keep the
   assert.deepStrictEqual(F.planOrder(same, { shape: 'steady' }).order, [5, 3, 9]);
 });
 
-test('no music and unmeasured files are placed by the shape alone, with a neutral hand-over', () => {
+test('no music and unmeasured files: placed by the shape (talk by its energy too), graded on energy or not at all', () => {
   const f = [m(1, 0.2, 0.2, 0.2), m(2, 0.5, 0.5, 0.5), m(3, 0.8, 0.8, 0.8), talk(4, 0.21), unmeasured(5)];
   const { order } = F.planOrder(f, { shape: 'build' });
   assert.strictEqual(order.length, 5);
@@ -116,7 +169,9 @@ test('no music and unmeasured files are placed by the shape alone, with a neutra
   const s = F.summary(f, order);
   assert.strictEqual(s.handovers.length, 4);
   for (let i = 1; i < order.length; i++) {
-    if ([4, 5].includes(order[i]) || [4, 5].includes(order[i - 1])) assert.strictEqual(s.handovers[i - 1].grade, 'none');
+    // Not measured: nothing to grade. The talk (no music): graded on its energy alone.
+    if (order[i] === 5 || order[i - 1] === 5) assert.strictEqual(s.handovers[i - 1].grade, 'none');
+    else if (order[i] === 4 || order[i - 1] === 4) assert.strictEqual(s.handovers[i - 1].tempoGrade, null);
   }
 });
 
