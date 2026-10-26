@@ -48,6 +48,7 @@ const VAULT_ICONS = {
   // Dock
   play: '<path d="M7.5 5v14l11-7z"/>',
   flag: '<path d="M5.5 21V4M5.5 4.5h11l-2.2 4.2 2.2 4.3h-11"/>',
+  tag: '<path d="M3.5 12.6V4.5a1 1 0 0 1 1-1h8.1l7.9 7.9a1.5 1.5 0 0 1 0 2.1l-6.4 6.4a1.5 1.5 0 0 1-2.1 0z"/><circle cx="8" cy="8" r="1.4"/>',
   copy: '<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>',
   // Up next (player-lib/up-next.js): the list with a plus (add to the end),
   // and the list with a play mark at its top (play next)
@@ -162,7 +163,7 @@ const VAULT_EMOJI_ICONS = {
   '🎵': 'audio', '🎬': 'video', '🎛': 'mix', '🎚': 'editor', '🖼': 'image', '🎞': 'gif',
   '💾': 'save', '📤': 'upload', '⬆': 'upload', '⬇': 'download', '📦': 'box', '⚡': 'zap', '⚖': 'scale',
   '⬅': 'back', '🔀': 'shuffle', '⏱': 'timer', '🧩': 'puzzle', '▶': 'play', '🔍': 'search',
-  '🚩': 'flag', '🏳': 'flag', '✂': 'scissors', '👤': 'person', '🏢': 'building', '▤': 'stack', '▦': 'grid',
+  '🚩': 'flag', '🏳': 'flag', '🏷': 'tag','✂': 'scissors', '👤': 'person', '🏢': 'building', '▤': 'stack', '▦': 'grid',
   '＋': 'plus', '➕': 'plus', '❓': 'help', '🔗': 'link', '🎮': 'games', '💦': 'done', '⚙': 'gear', '🕘': 'clock',
   // Status glyphs and the rest of the app's chrome emoji (UI audit, 3.9)
   '⚠': 'alert', '❗': 'alert', '✓': 'check', '✔': 'check', '✅': 'check', '✕': 'close', '✖': 'close', '❌': 'close',

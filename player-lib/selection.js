@@ -208,6 +208,8 @@ function closeSelectionPopovers() {
   if (typeof closeBarCollectionPicker === 'function') closeBarCollectionPicker();
   // The Studio menu is studios.js's; close it only when it was opened from the bar.
   if (document.querySelector('#selectionBar .sel-studio.on') && typeof stClosePops === 'function') stClosePops();
+  // The Stream tag menu acts on the selection too (player-lib/stream-tags.js).
+  if (typeof StreamTags !== 'undefined') StreamTags.closeMenu();
 }
 
 /**
@@ -433,6 +435,7 @@ function renderSelectionBar() {
     <button class="sel-btn sel-upnext" onclick="upNextAddSelection('end')" title="Add the selected files to the end of Up next (U)">${vaultIconSwap('＋ ', 'queue')}Up next</button>`}
     ${musicBtns}
     ${typeof studiosSelectionButton === 'function' ? studiosSelectionButton() : ''}
+    ${typeof streamTagsSelectionButton === 'function' ? streamTagsSelectionButton() : ''}
     ${typeof facesSelectionButton === 'function' ? facesSelectionButton(counts.faceable) : ''}
     ${retryBtn}
     ${refreshBtn}

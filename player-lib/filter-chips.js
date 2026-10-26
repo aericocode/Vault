@@ -46,6 +46,8 @@ const FCHIP_DEFS = {
   content:     { label: 'Content type', type: 'select',   el: 'filterContent',   def: '',  search: true },
   quality:     { label: 'Quality',      type: 'select',   el: 'filterQuality',   def: '',  search: false },
   song:        { label: 'Song',         type: 'select',   el: 'filterSong',      def: '',  search: true },
+  // Your own stream tags (player-lib/stream-tags.js fills the list).
+  streamTag:   { label: 'Stream tag',   type: 'select',   el: 'filterStreamTag', def: '',  search: true },
   fave:        { label: 'Favorite',       type: 'tri', name: 'filterStarred',     def: '',  options: FCHIP_TRI },
   notes:       { label: 'Notes',        type: 'tri', name: 'filterHasNotes',    def: '',  options: FCHIP_TRI },
   flagged:     { label: 'Flagged',      type: 'tri', name: 'filterFlagged',     def: '',  options: FCHIP_TRI },
@@ -61,7 +63,7 @@ const FCHIP_DEFS = {
 };
 
 const FCHIP_FIXED = ['rating', 'duration', 'language', 'theme'];
-const FCHIP_EXTRA = ['content', 'quality', 'song', 'fave', 'notes', 'flagged',
+const FCHIP_EXTRA = ['content', 'quality', 'song', 'streamTag', 'fave', 'notes', 'flagged',
   'collections', 'trashed', 'dupes', 'unplayable', 'scan', 'missing', 'watchNew'];
 
 /* ── Duration ─────────────────────────────────────────────────────────── */
@@ -589,7 +591,7 @@ function openDurationPopover(anchor) {
    the state and the row immediately, and the sheet stays open. */
 
 const FCHIP_SHEET = [
-  { title: 'About the file', chips: ['content', 'song', 'quality'] },
+  { title: 'About the file', chips: ['content', 'song', 'quality', 'streamTag'] },
   { title: 'Your marks',     segs: ['fave', 'notes', 'flagged', 'collections'] },
   { title: 'Housekeeping',   segs: ['trashed', 'dupes', 'unplayable', 'scan'] },
 ];

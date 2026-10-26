@@ -620,6 +620,8 @@ function currentQuerySpec() {
       // The 📁 tri-filter only applies with no collection open (as before).
       collections: collectionOpen ? '' : getTriFilterValue('filterCollections'),
       song: Number(document.getElementById('filterSong')?.value || 0),
+      // A stream tag (player-lib/stream-tags.js fills the list).
+      streamTag: Number(document.getElementById('filterStreamTag')?.value || 0),
       starred: getTriFilterValue('filterStarred'),
       hasNotes: getTriFilterValue('filterHasNotes'),
       flagged: getTriFilterValue('filterFlagged'),

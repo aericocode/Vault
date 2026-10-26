@@ -76,6 +76,8 @@ const SHORTCUTS = [
   { ctx: 'mini', keys: ['U'], desc: 'Add to the end of Up next: the file you picked in the library, or else the file playing' },
   { ctx: 'mini', keys: [['Shift', 'U']], desc: 'Play next: the file you picked in the library, or else the file playing' },
   { ctx: 'mini', keys: ['Esc'], desc: 'Close the mini player' },
+  // stream-tags.js (the keys are yours: these are the Role lane's to start with)
+  { ctx: 'mini', keys: ['O', 'C', 'L', 'I', 'X'], desc: 'Stream tag keys, with the pointer over the Stage bar: put that tag on the file on Stage, or take it off' },
 
   // cards.js, selection.js
   { ctx: 'library', keys: ['PageDown', 'PageUp'], desc: 'Next or previous page (Pages layout)' },
@@ -84,6 +86,8 @@ const SHORTCUTS = [
   // up-next.js (two or more ticked files win over the preview pane's file)
   { ctx: 'library', keys: ['U'], desc: 'Add the picked or ticked files to the end of Up next' },
   { ctx: 'library', keys: [['Shift', 'U']], desc: 'Play the picked or ticked files next (front of Up next)' },
+  // stream-tags.js (set your own in Settings, Stage: Lanes and stream tags)
+  { ctx: 'library', keys: ['O', 'C', 'L', 'I', 'X'], desc: 'Stream tag keys (the Role lane\'s to start with): put that tag on the file under the pointer, or take it off. On a ticked file: every ticked file' },
   // saved-searches.js (the panel under the search box, Modern)
   { ctx: 'library', keys: ['Up', 'Down'], desc: 'In the empty search box: open your saved searches and move between them' },
   { ctx: 'library', keys: ['Enter'], desc: 'Run the highlighted saved search (nothing highlighted: search for what you typed)' },

@@ -457,6 +457,8 @@ async function openCollection(id) {
   if (typeof collectionSortEnter === 'function') collectionSortEnter();
   renderCollectionHeader();
   renderCollectionsTabBar();
+  // Its files' stream tags fresh from the server (player-lib/stream-tags.js).
+  if (typeof StreamTags !== 'undefined') StreamTags.refreshCollection(id);
   return applyFilters();
 }
 

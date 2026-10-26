@@ -148,7 +148,8 @@ function railBuild() {
     ${railSecHtml('about', 'About the file', false, `
       <div class="rail-sub">Content type</div><div class="rail-list" id="railContent"></div>
       <div class="rail-sub">Song</div><div class="rail-list" id="railSong"></div>
-      <div class="rail-sub">Quality</div><div class="rail-list" id="railQuality"></div>`)}
+      <div class="rail-sub">Quality</div><div class="rail-list" id="railQuality"></div>
+      <div class="rail-sub">Stream tag</div><div class="rail-list" id="railStreamTag"></div>`)}
     ${railSecHtml('marks', 'Your marks', false, '<div class="fsheet-rows" id="railMarks"></div>')}
     ${railSecHtml('housekeeping', 'Housekeeping', false, '<div class="fsheet-rows" id="railHousekeeping"></div>')}
     ${railSecHtml('ext', 'File extensions', false, '<div class="rail-pills" id="railExt"></div>')}`;
@@ -393,7 +394,8 @@ function railRenderLists() {
   railSet('railContent', railListHtml('content', RAIL_LIST_SHOWN));
   railSet('railSong', railListHtml('song', RAIL_LIST_SHOWN));
   railSet('railQuality', railListHtml('quality', RAIL_LIST_SHOWN));
-  const about = ['content', 'song', 'quality'].filter(fchipIsSet).length;
+  railSet('railStreamTag', railListHtml('streamTag', RAIL_LIST_SHOWN));
+  const about = ['content', 'song', 'quality', 'streamTag'].filter(fchipIsSet).length;
   railVal('about', about ? `${about} set` : '');
 }
 
