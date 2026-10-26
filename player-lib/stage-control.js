@@ -701,7 +701,7 @@ const StageControl = (() => {
       const data = miniOn && el ? (currentMediaState.currentMediaData || null) : null;
       const silent = typeof playerIsSilent === 'function' ? playerIsSilent() : !!(el && el.muted);
       return {
-        ...base, basic: true, hasFile: !!data, filename: data && data.filename, mediaType: data ? 'video' : null,
+        ...base, basic: true, hasFile: !!data, id: data && data.id, filename: data && data.filename, mediaType: data ? 'video' : null,
         t: el ? el.currentTime : 0, d: el && isFinite(el.duration) ? el.duration : 0, paused: !el || el.paused,
         hold: !!basicHold, finished: false, locked: false, loading: false, note: null,
         volume: typeof savedVolume !== 'undefined' ? savedVolume : 1, muted: silent,
@@ -712,7 +712,7 @@ const StageControl = (() => {
     const row = cur && cur.row;
     const n = note && (note.sticky || Date.now() < note.until) ? note.text : null;
     return {
-      ...base, basic: false, hasFile: !!row, filename: row && row.filename, mediaType: row && row.media_type,
+      ...base, basic: false, hasFile: !!row, id: row && row.id, filename: row && row.filename, mediaType: row && row.media_type,
       t, d, paused, hold, finished, locked, note: n,
       loading: !!(cur && statusKey !== cur.key && loadingSince && Date.now() - loadingSince > LOADING_NOTE_MS),
       pictureLive: !!(cur && statusKey === cur.key),
@@ -721,9 +721,13 @@ const StageControl = (() => {
     };
   }
 
+  /** The bar's still: the file's grid thumbnail, at the grid's own URL (StageBarRules.thumbSrc). */
   function thumbFor(row) {
-    if (!row || !row.id || typeof canShowThumb !== 'function' || typeof staticThumbSrc !== 'function' || !canShowThumb(row)) return '';
-    return staticThumbSrc(row.id) || '';
+    if (!row || !row.id || typeof canShowThumb !== 'function' || typeof thumbUrl !== 'function') return '';
+    const libRow = (typeof Library !== 'undefined' && Library.row && Library.row(row.id))
+      || (typeof getMediaById === 'function' && getMediaById(row.id)) || null;
+    const blob = typeof thumbsEncrypted === 'function' && thumbsEncrypted() && typeof getThumbBlob === 'function' ? getThumbBlob(row.id) : null;
+    return StageBarRules.thumbSrc(row, { libRow, canShow: canShowThumb, url: thumbUrl, blob });
   }
 
   /** Draw the bar from what is on Stage now. */
@@ -794,7 +798,7 @@ const StageControl = (() => {
     }
     const check = (p) => (p === size ? '<span class="sm-check" aria-hidden="true">✓</span>' : '<span class="sm-check" aria-hidden="true"></span>');
     const item = (act, label, sub) => `<button type="button" role="menuitemradio" aria-checked="${act === size}" data-stage-act="${act}">${check(act)}<span class="sm-l">${esc(label)}</span>${sub ? `<span class="sm-s">${esc(sub)}</span>` : ''}</button>`;
-    // A bar too narrow for Repeat and Hold has them here instead (StageBarRules.fit).
+    // A bar too narrow for Repeat and Hold has them here instead (StageBarRules.layout).
     const v = typeof StageBarRules !== 'undefined' ? StageBarRules.view(barState()) : null;
     const dropped = bar() && bar().dropped ? bar().dropped() : {};
     const extra = !v ? '' : `${dropped.repeat ? `<button type="button" role="menuitem" data-stage-act="repeat"><span class="sm-check"></span><span class="sm-l">${esc(v.repeat.label)}</span><span class="sm-s">click to change</span></button>` : ''}${dropped.hold ? `<button type="button" role="menuitem" data-stage-act="hold"><span class="sm-check" aria-hidden="true">${v.hold.on ? '✓' : ''}</span><span class="sm-l">Hold</span><span class="sm-s">${basic ? 'pause and mute' : 'black and silent'} (H)</span></button>` : ''}`;
@@ -1024,11 +1028,22 @@ const StageControl = (() => {
     const type = mediaData && mediaData.media_type;
     const listStart = basicListStart;
     basicListStart = false;
-    if (!StageRules.basicPlays(type)) {
+    // This file's own row (by id, else by path): never the file playing now.
+    const lib = typeof Library !== 'undefined' ? Library : null;
+    const known = (mediaData && mediaData.id && lib && lib.row && lib.row(Number(mediaData.id)))
+      || (mediaData && mediaData.filepath && lib && lib.rowByPath && lib.rowByPath(mediaData.filepath)) || mediaData;
+    const dead = type === 'video' && typeof isKnownBadMedia === 'function' && isKnownBadMedia(known);
+    if (dead && !(listStart || o.source === 'auto' || o.fromUpNext)) {
+      showToast(`Skipped “${nameOf(mediaData)}”: it can’t be played here.`);
+      return true;
+    }
+    if (!StageRules.basicPlays(type) || dead) {
       if (listStart && typeof getCurrentMediaIndex === 'function' && typeof queueNav === 'function') {
         // Play on Stage's list starts with something Basic cannot show: on to its first video.
         const from = getCurrentMediaIndex(mediaData.filepath);
-        const passed = [mediaData];
+        // A video that cannot play here is named for what it is, not as "videos only".
+        if (dead) showToast(`Skipped “${nameOf(mediaData)}”: it can’t be played here.`);
+        const passed = dead ? [] : [mediaData];
         queueNav(async () => {
           const i = await nextPlayableIndex(from, 1, passed);
           notePassed(passed, { end: i === -1 });
@@ -1036,7 +1051,8 @@ const StageControl = (() => {
         });
         return true;
       }
-      showToast(o.source === 'auto' || o.fromUpNext
+      showToast(dead ? `Skipped “${nameOf(mediaData)}”: it can’t be played here.`
+        : o.source === 'auto' || o.fromUpNext
         ? `Skipped “${nameOf(mediaData)}”: Basic Stage plays videos only.`
         : 'Basic Stage plays videos only. Close Stage to open this here.');
       return true;
@@ -1050,6 +1066,36 @@ const StageControl = (() => {
     if (opts) opts.stayMini = true;
     setTimeout(basicSettle, 0);
     return false;
+  }
+
+  /**
+   * A video failed while Basic Stage is open (player-core.js
+   * handleMediaError): step over it the way the queue was going (Previous
+   * goes back past it), say so, and keep the picture-in-picture window,
+   * which stays on the file before until the next one loads. Nothing left
+   * to play: Stage closes as the mini player does. True when handled.
+   */
+  function basicMediaFailed(dead) {
+    if (!basic) return false;
+    // Known now: the queue walks past it from here on (Previous included).
+    const row = dead && dead.id && typeof Library !== 'undefined' && Library.row ? Library.row(dead.id) : null;
+    if (row) row.playback_failed = 1;
+    if (dead) dead.playback_failed = 1;
+    const back = typeof lastQueueDir !== 'undefined' && lastQueueDir === 'prev' && typeof lastPlaySource !== 'undefined' && lastPlaySource === 'auto';
+    const said = `Skipped “${nameOf(dead)}”: it can’t be played here.`;
+    const move = back && typeof queueNav === 'function' && typeof queueMove === 'function'
+      ? queueNav(() => queueMove('prev', false))
+      : (typeof playNextMediaOrWrap === 'function' ? playNextMediaOrWrap() : Promise.resolve(false));
+    Promise.resolve(move).then((moved) => {
+      if (moved) {
+        if (typeof noteSkippedThisSession === 'function') noteSkippedThisSession(dead, 'it can’t be played here');
+        showToast(said);
+      } else {
+        showToast(`${said} Nothing more that Basic Stage can play.`);
+        if (typeof closeMediaPlayer === 'function') closeMediaPlayer();
+      }
+    }, () => {});
+    return true;
   }
 
   function basicToggleHold() {
@@ -1213,7 +1259,7 @@ const StageControl = (() => {
   boot();
 
   return {
-    proxy, intercept, on: () => open && remoteShown, isOpen: () => open, basicOn: () => basic, lockStop, passOver, notePassed, miniClosing,
+    proxy, intercept, on: () => open && remoteShown, isOpen: () => open, basicOn: () => basic, lockStop, passOver, notePassed, miniClosing, basicMediaFailed,
     openStage, openFromPlayer, playCollectionOnStage, stageButton, closeStage, menu, front, setSize,
     toggleHold, setVolume, toggleMute, paintVolume: paint, key, hideRemote,
     upNextChanged, repeatChanged, showTips,

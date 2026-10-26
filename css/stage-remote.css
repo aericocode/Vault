@@ -34,7 +34,10 @@ body.stage-bar-on .ft-selbar { bottom: calc(24px + var(--stagebar-h, 0px)); }
   bottom: 0;
   z-index: 190;               /* over the grid, the rail and the dock (150), under the selection bar (195) and every dialog (200+) */
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(min-content, 1.4fr) auto;
+  /* The sides are always equal, so the transport is in the middle of the
+     window; stage-bar.js sets --sb-mid so the right side holds its buttons
+     (StageBarRules.layout). sb-uncentered: too narrow to centre at all. */
+  grid-template-columns: minmax(0, 1fr) var(--sb-mid, auto) minmax(0, 1fr);
   gap: 14px;
   align-items: center;
   padding: 8px 14px 9px;
@@ -47,6 +50,7 @@ body.stage-bar-on .ft-selbar { bottom: calc(24px + var(--stagebar-h, 0px)); }
   -webkit-user-select: none;
 }
 .stage-bar[hidden] { display: none; }
+.stage-bar.sb-uncentered { grid-template-columns: minmax(0, 1fr) auto auto; }
 body.layout-modern .stage-bar {
   background: #131317;
   border-top-color: rgba(255, 255, 255, 0.12);
@@ -63,7 +67,9 @@ body.layout-modern .stage-bar {
   padding: 0;
   border: 1px solid var(--border, #333);
   border-radius: 4px;
-  background: #000;
+  /* No picture (yet): a plain surface with the Stage icon, never a black
+     box that reads as a black frame */
+  background: var(--bg-tertiary, #252525);
   color: var(--text-secondary, #a0a0a0);
   overflow: hidden;
   cursor: pointer;
@@ -71,10 +77,13 @@ body.layout-modern .stage-bar {
   place-items: center;
   font-size: 15px;
 }
-body.layout-modern .sb-thumb { border-color: rgba(255, 255, 255, 0.1); color: #8b8b97; }
-.sb-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+body.layout-modern .sb-thumb { border-color: rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.06); color: #8b8b97; }
+.sb-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
 .sb-thumb img[hidden] { display: none; }
-.sb-thumb img:not([hidden]) + .sb-thumb-ic { display: none; }
+/* The Stage icon shows unless a picture does: while the thumbnail is still
+   being made the shared retry (thumbs.js hideThumbImg) hides the img with
+   display: none and marks the box .thumb-fallback */
+.sb-thumb:not(.thumb-fallback) img:not([hidden]) + .sb-thumb-ic { display: none; }
 .sb-thumb .vi { width: 18px; height: 18px; }
 .sb-thumb:hover { border-color: var(--accent, #6366f1); }
 .sb-thumb:focus-visible { outline: 2px solid var(--accent-hover, #818cf8); outline-offset: 2px; }
@@ -141,6 +150,9 @@ body.layout-modern .sb-seekrow { color: #8b8b97; }
   touch-action: none;
   border-radius: 4px;
 }
+/* Its own width (StageBarRules.layout seek: never narrower for a wider window) */
+.stage-bar.sb-sized .sb-seek { flex: 0 0 var(--sb-seek); }
+.stage-bar.sb-sized .sb-seekrow { justify-content: center; }
 .sb-seek:focus-visible { outline: 2px solid var(--accent-hover, #818cf8); outline-offset: 1px; }
 .sb-track { position: relative; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.18); }
 .sb-fill { position: relative; height: 100%; width: 0%; border-radius: 2px; background: var(--accent, #6366f1); }
@@ -163,6 +175,35 @@ body.layout-modern .sb-fill { background: #fff; }
 .sb-seek:focus-visible .sb-fill::after,
 .sb-seek.scrubbing .sb-fill::after { opacity: 1; }
 .sb-seek.sb-seek-off { cursor: default; }
+
+/* The hover frame over the seek bar (stage-bar.js preview), above the time
+   the shared scrub helper shows (.seek-hover-time) */
+.sb-preview {
+  position: absolute;
+  bottom: calc(100% + 20px);
+  left: 0;
+  width: 160px;
+  aspect-ratio: 16 / 9;
+  transform: translateX(-50%);
+  border: 2px solid var(--border, #444);
+  border-radius: 6px;
+  background: #111;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  z-index: 4;
+}
+body.layout-modern .sb-preview { border-color: #fff; border-radius: 8px; }
+.sb-preview.on { opacity: 1; }
+.sb-preview.sb-pv-none { display: none; }
+.sb-preview img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* Privacy mode, thumbnails blurred (css/settings.css body.pm-thumbs): the
+   bar's still and hover frames too */
+body.pm-thumbs #stageBarThumbImg,
+body.pm-thumbs .sb-preview img { filter: blur(14px); }
 .sb-seek.sb-seek-off .sb-fill::after { display: none; }
 
 /* Right: Up next, Repeat, Hold, the volume, the Stage menu, Close */
@@ -222,7 +263,7 @@ body.layout-modern .sb-btn.on { background: var(--accent-bg, rgba(99, 102, 241, 
 .sb-vol-slider { width: 70px; margin: 0; accent-color: var(--accent, #6366f1); cursor: pointer; }
 body.layout-modern .sb-vol-slider { accent-color: #fff; }
 
-/* Narrow windows (stage-bar.js StageBarRules.fit): one row always, the
+/* Narrow windows (stage-bar.js StageBarRules.layout): one row always, the
    least needed pieces go first */
 .stage-bar.sb-no-skip .sb-skip { display: none; }
 .stage-bar.sb-no-label .sb-un-label { display: none; }
@@ -244,7 +285,7 @@ body.pm-names #stageBarTitle {
 
 @media (prefers-reduced-motion: reduce) {
   .sb-pill.sb-pill-live > i { animation: none; }
-  .sb-btn, .sb-fill::after { transition: none; }
+  .sb-btn, .sb-fill::after, .sb-preview { transition: none; }
 }
 
 /* ── The Stage button's menu ─────────────────────────────────────────── */

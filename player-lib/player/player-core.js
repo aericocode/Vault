@@ -199,8 +199,12 @@ async function playListStep(step, from, wrap) {
   return said(await playIndexHandsFree(first));
 }
 
+/** The way the queue last moved ('next' or 'prev'): Basic Stage steps past a dead file the same way. */
+let lastQueueDir = 'next';
+
 /** One move through Up next and the list (Next, Previous, a file ending). */
 async function queueMove(dir, auto) {
+  lastQueueDir = dir;
   // A change to Up next still on its way (Shift+U just pressed) lands first,
   // but a slow server never holds the player up for more than a moment:
   // past that the move is decided from Up next as shown.
@@ -1407,6 +1411,12 @@ function handleMediaError(filepath, reason) {
   // users can copy the path themselves from the details panel.
   consecutivePlayFailures++;
   const queueLength = Library.length() || 1;
+  // Basic Stage: a video this browser cannot play is stepped over, as a
+  // picture is, and the picture-in-picture window stays (stage-control.js).
+  if (consecutivePlayFailures < queueLength && typeof StageControl !== 'undefined'
+      && StageControl.basicMediaFailed && StageControl.basicMediaFailed(currentMediaState.currentMediaData)) {
+    return;
+  }
   const giveUp = () => {
     consecutivePlayFailures = 0;
     closeMediaPlayer();
