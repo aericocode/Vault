@@ -1133,11 +1133,14 @@ function playMediaById(id) {
    preview pane docked: there a click picks the tile for the pane and a double
    click plays it (player-lib/dock.js). */
 function tileThumbClick(id) {
+  // Stage open: a click previews, it never puts the file on Stage (stage-preview.js).
+  if (typeof stagePreviewClick === 'function' && stagePreviewClick(id)) return;
   if (typeof dockSelectFromClick === 'function' && dockSelectFromClick(id)) return;
   playMediaById(id);
 }
 
 function tileThumbDblClick(id) {
+  if (typeof stagePreviewDblClick === 'function' && stagePreviewDblClick(id)) return;
   if (typeof dockIsShown === 'function' && dockIsShown()) playMediaById(id);
 }
 

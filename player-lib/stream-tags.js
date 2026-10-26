@@ -17,6 +17,8 @@
        files have it), Clear stream tags and Edit lanes... (Settings, Stage).
      - The Stage bar's + Tag button (StageBar.paint calls paintStage).
      - Chips on tiles (two, then +n) and in the table's Title cell.
+     - The preview pane and the details: the file's tags by lane, + Tag
+       (the menu), kept up to date; keys over the pane tag the file it shows.
      - The Stream tag filter (filters.js reads #filterStreamTag; the chip,
        the More sheet and the rail list come from filter-chips.js).
 
@@ -33,6 +35,7 @@
    Hooks other files call (guarded with typeof):
      streamTagTileHtml(media)     cards.js renderTile
      streamTagRowHtml(media)      table-view.js Title cell
+     streamTagBlockHtml(media)    dock.js pane, detail-view.js details
      streamTagsSelectionButton()  selection.js renderSelectionBar
      StreamTags.paintStage(id)    stage-bar.js paint
      StreamTags.stageMenu(btn)    stage-bar.js act('tag')
@@ -57,6 +60,7 @@ const StreamTags = (() => {
     loading: null,
     subs: new Set(),
     hoverId: null,           // the tile or row under the pointer
+    overDock: false,         // the pointer is over the preview pane
     overBar: false,          // the pointer is over the Stage bar
     stageId: null,           // the file on Stage (paintStage)
   };
@@ -161,6 +165,7 @@ const StreamTags = (() => {
   /** Something changed: the files whose tags changed (null: maybe any). */
   function changed(mediaIds) {
     repaintTiles(mediaIds);
+    paintBlocks(mediaIds);
     paintStage(st.stageId);
     renderFilterOptions();
     // The shortcuts list shows the keys the tags really have.
@@ -262,6 +267,43 @@ const StreamTags = (() => {
       else if (row) { const name = host.querySelector('.tv-name'); if (name) name.after(el); else host.appendChild(el); }
       else host.appendChild(el);
     });
+  }
+
+  /* ── A file's tags by lane (the preview pane, the details) ─────── */
+
+  /** The block: each lane the file has tags in, its chips, and + Tag (the menu). */
+  function blockInner(id) {
+    const mine = tagsOf(id);
+    const rows = st.lanes.map((l) => {
+      const ts = mine.filter(t => t.laneId === l.id);
+      return ts.length ? `<div class="stag-lane"><span class="stag-lane-name">${esc(l.name)}</span><span class="stag-lane-chips">${ts.map(chipHtml).join('')}</span></div>` : '';
+    }).join('');
+    return `<div class="stag-block-head"><span class="stag-block-title">Stream tags</span>
+        <button type="button" class="stag-edit" onclick="StreamTags.blockMenu(this, ${Number(id)})" aria-haspopup="menu" title="Add or remove stream tags">+ Tag</button></div>
+      ${rows || '<div class="stag-none">None yet. Use + Tag to add one.</div>'}`;
+  }
+
+  function blockHtml(media) {
+    if (!media || media.id == null) return '';
+    return `<div class="stag-block" data-stag-block="${Number(media.id)}">${blockInner(media.id)}</div>`;
+  }
+
+  /** Every block on screen for these files (null: all), drawn again. */
+  function paintBlocks(mediaIds) {
+    const want = mediaIds ? new Set(mediaIds.map(Number)) : null;
+    document.querySelectorAll('[data-stag-block]').forEach((el) => {
+      const id = Number(el.dataset.stagBlock);
+      if (want && !want.has(id)) return;
+      const html = blockInner(id);
+      if (el.innerHTML !== html) el.innerHTML = html;
+    });
+  }
+
+  function blockMenu(btn, id) {
+    if (menuEl && menuEl._opener && menuEl._opener.isConnected && menuEl._opener.closest('[data-stag-block]') === btn.closest('[data-stag-block]')) { closeMenu(); return; }
+    // The button is drawn again with every change: the block is the opener.
+    const block = btn.closest('[data-stag-block]') || btn;
+    openMenu(laneItems([id]), { rect: btn.getBoundingClientRect() }, block, () => laneItems([id]));
   }
 
   /* ── The menu (right-click, the selection bar, the Stage bar) ───── */
@@ -534,6 +576,12 @@ const StreamTags = (() => {
     return st.stageId;
   }
 
+  /** The pointer over the preview pane: the file it shows (dock.js). */
+  function dockTarget() {
+    if (!st.overDock || typeof dockIsShown !== 'function' || !dockIsShown()) return null;
+    return typeof _dockSelectedId !== 'undefined' && _dockSelectedId != null ? Number(_dockSelectedId) : null;
+  }
+
   function hoveredTile() {
     // The hover popover (cards.js) speaks for the tile it belongs to, even where it covers another.
     const pop = document.querySelector('#tilePopover.visible');
@@ -551,11 +599,12 @@ const StreamTags = (() => {
     const miniOn = !!document.querySelector('#miniPlayer.active');
     if (miniOn && MINI_KEYS.has(e.key.toUpperCase())) return;
     const stage = stageTarget();
-    const tile = stage == null ? hoveredTile() : null;
-    if (stage == null && tile == null) return;
+    const docked = stage == null ? dockTarget() : null;
+    const tile = stage == null && docked == null ? hoveredTile() : null;
+    if (stage == null && docked == null && tile == null) return;
     e.preventDefault();
     e.stopPropagation();
-    apply(t.id, stage != null ? [stage] : targetsFor(tile), 'toggle');
+    apply(t.id, stage != null ? [stage] : docked != null ? [docked] : targetsFor(tile), 'toggle');
   }
 
   /* ── The filter (#filterStreamTag) ──────────────────────────────── */
@@ -583,6 +632,7 @@ const StreamTags = (() => {
       const tile = e.target instanceof Element ? e.target.closest('.media-tile[data-id]:not(.tile-skel)') : null;
       st.hoverId = tile ? Number(tile.dataset.id) : null;
       st.overBar = !!(e.target instanceof Element && e.target.closest('#stageBar'));
+      st.overDock = !!(e.target instanceof Element && e.target.closest('#libraryDock'));
     });
     document.addEventListener('keydown', onKey);
     // Right-click on a tile or row: this menu (with the face search items
@@ -621,7 +671,7 @@ const StreamTags = (() => {
   return {
     PLACE_LABELS, load, reloadLanes, refreshCollection, apply, clearFiles, tagsOf, tagIdsOf, hasAny,
     lanes: () => st.lanes, tag: (id) => st.tags.get(id) || null, loaded: () => st.loaded,
-    tileHtml, rowHtml, selectionButton, selectionMenu, paintStage, stageMenu, closeMenu, openEditor,
+    tileHtml, rowHtml, blockHtml, blockMenu, selectionButton, selectionMenu, paintStage, stageMenu, closeMenu, openEditor,
     onChange: (cb) => { if (typeof cb === 'function') st.subs.add(cb); },
     changed,
   };
@@ -646,4 +696,5 @@ window.FlowLaneSource = {
 
 function streamTagTileHtml(media) { return StreamTags.tileHtml(media); }
 function streamTagRowHtml(media) { return StreamTags.rowHtml(media); }
+function streamTagBlockHtml(media) { return StreamTags.blockHtml(media); }
 function streamTagsSelectionButton() { return StreamTags.loaded() ? StreamTags.selectionButton() : ''; }

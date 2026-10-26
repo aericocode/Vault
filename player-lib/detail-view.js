@@ -147,6 +147,7 @@ function renderDetailBody(media, opts = {}) {
 
       ${typeof renderMetaTools === 'function' ? renderMetaTools(media) : ''}
       ${typeof renderStarRatingSection === 'function' ? renderStarRatingSection(media) : ''}
+      ${typeof streamTagBlockHtml === 'function' ? streamTagBlockHtml(media) : ''}
 
       <!-- The trash button (only) stays off mixes: a mix is virtual, assembled
            from its sources, so there is no file on disk to move. Its records
@@ -475,6 +476,7 @@ function renderDetailPanel(media, opts = {}) {
   /* ── Details ── */
   const details = `
     ${typeof renderStarRatingSection === 'function' ? renderStarRatingSection(media) : ''}
+    ${typeof streamTagBlockHtml === 'function' ? `<div class="detail-section mpp-sec">${streamTagBlockHtml(media)}</div>` : ''}
     <div class="detail-section mpp-sec">
       <h3 class="mpp-lbl">Description ${editBtn('description', 'description')}</h3>
       <div class="field-content">
