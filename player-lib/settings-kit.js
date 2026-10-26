@@ -94,6 +94,7 @@ const SETTINGS_PAGES_MODERN = [
     { id: 'general', title: 'General', icon: 'gear' },
     { id: 'privacy', title: 'Privacy and security', icon: 'lock' },
     { id: 'shortcuts', title: 'Keyboard shortcuts', icon: 'keyboard' },
+    { id: 'stage', title: 'Stage', icon: 'stage' },
   ] },
   { group: 'Library', pages: [
     { id: 'library', title: 'Library and files', icon: 'library' },

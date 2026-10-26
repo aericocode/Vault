@@ -66,7 +66,7 @@ function loadSettings(look, stored = {}) {
   ctx.addEventListener = noop;
   ctx.dispatchEvent = noop;
   vm.createContext(ctx);
-  for (const f of ['icons.js', 'shortcuts.js', 'settings-kit.js', 'thumb-settings-ui.js', 'watchers-ui.js', 'scan-settings-ui.js', 'settings.js', 'faces.js']) {
+  for (const f of ['icons.js', 'shortcuts.js', 'settings-kit.js', 'thumb-settings-ui.js', 'watchers-ui.js', 'scan-settings-ui.js', 'stage-settings-ui.js', 'settings.js', 'faces.js']) {
     vm.runInContext(read(f), ctx);
   }
   ctx.__shell = () => shell;
@@ -115,9 +115,9 @@ test('Modern menu: You, Library, AI, Help, each page with a line icon', () => {
   const K = loadKit();
   assert.deepStrictEqual(plain(K.SETTINGS_PAGES_MODERN.map(g => g.group)), ['You', 'Library', 'AI', 'Help']);
   assert.deepStrictEqual(plain(K.SETTINGS_PAGE_IDS_MODERN),
-    ['general', 'privacy', 'shortcuts', 'library', 'faces', 'models', 'servers', 'seedpacks', 'guides', 'about']);
+    ['general', 'privacy', 'shortcuts', 'stage', 'library', 'faces', 'models', 'servers', 'seedpacks', 'guides', 'about']);
   const titles = K.SETTINGS_PAGES_MODERN.flatMap(g => g.pages.map(p => p.title));
-  assert.deepStrictEqual(plain(titles), ['General', 'Privacy and security', 'Keyboard shortcuts', 'Library and files',
+  assert.deepStrictEqual(plain(titles), ['General', 'Privacy and security', 'Keyboard shortcuts', 'Stage', 'Library and files',
     'Face search', 'Models and scanning', 'AI servers', 'Seed packs', 'Guides', 'About']);
   const ctx = { console, Math, JSON, Array, Object, String, Number, Boolean, Map, Set, RegExp };
   ctx.window = ctx;
@@ -130,12 +130,12 @@ test('Modern menu: You, Library, AI, Help, each page with a line icon', () => {
 
 test('page map: old ids land on the new pages, and new ids on the old ones', () => {
   const K = loadKit();
-  const classic = ['settings', 'library', 'faces', 'shortcuts', 'guides', 'models', 'seedpacks', 'backend', 'about'];
+  const classic = ['settings', 'library', 'faces', 'shortcuts', 'stage', 'guides', 'models', 'seedpacks', 'backend', 'about'];
   const m = (id) => K.settingsResolvePage(id, 'modern', K.SETTINGS_PAGE_IDS_MODERN);
   const c = (id) => K.settingsResolvePage(id, 'classic', classic);
   assert.strictEqual(m('settings'), 'general');
   assert.strictEqual(m('backend'), 'servers');
-  for (const id of ['library', 'faces', 'shortcuts', 'guides', 'models', 'seedpacks', 'about']) {
+  for (const id of ['library', 'faces', 'shortcuts', 'stage', 'guides', 'models', 'seedpacks', 'about']) {
     assert.strictEqual(m(id), id, `${id} kept its id`);
     assert.strictEqual(c(id), id);
   }
@@ -156,9 +156,9 @@ test('settings.js: each look lists its own pages, and any id renders its page', 
   const c = loadSettings('classic');
   const m = loadSettings('modern');
   assert.deepStrictEqual(plain(c.vaultSettingsPageIds()),
-    ['settings', 'library', 'faces', 'shortcuts', 'guides', 'models', 'seedpacks', 'backend', 'about']);
+    ['settings', 'library', 'faces', 'shortcuts', 'stage', 'guides', 'models', 'seedpacks', 'backend', 'about']);
   assert.deepStrictEqual(plain(m.vaultSettingsPageIds()),
-    ['general', 'privacy', 'shortcuts', 'library', 'faces', 'models', 'servers', 'seedpacks', 'guides', 'about']);
+    ['general', 'privacy', 'shortcuts', 'stage', 'library', 'faces', 'models', 'servers', 'seedpacks', 'guides', 'about']);
   assert.strictEqual(m.vaultSettingsResolvePage('backend'), 'servers');
   assert.strictEqual(m.vaultSettingsResolvePage('settings'), 'general');
   assert.strictEqual(c.vaultSettingsResolvePage('servers'), 'backend');

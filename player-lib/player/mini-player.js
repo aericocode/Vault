@@ -45,6 +45,8 @@ function _miniBox() { return document.getElementById('miniPlayer'); }
 
 /** The element whose clock the mini player follows (a mix: its master). */
 function miniMediaEl() {
+  // The remote of an open Stage follows Stage's clock (player-lib/stage-control.js).
+  if (typeof StageControl !== 'undefined' && StageControl.on()) return StageControl.proxy;
   const box = document.getElementById('miniPlayerMedia');
   return box ? box.querySelector('[data-mix-master], video, audio') : null;
 }
@@ -208,6 +210,7 @@ function _miniVolumeMax() {
 }
 
 function updateMiniVolume() {
+  if (typeof StageControl !== 'undefined' && StageControl.on()) { StageControl.paintVolume(); return; }
   const btn = document.getElementById('miniMuteBtn');
   const slider = document.getElementById('miniVolSlider');
   const silent = playerIsSilent();
@@ -236,6 +239,8 @@ function miniSkip(seconds) {
 function miniSetVolume(value) {
   const v = parseFloat(value);
   if (!isFinite(v)) return;
+  // While Stage is open the slider is Stage's volume.
+  if (typeof StageControl !== 'undefined' && StageControl.on()) { StageControl.setVolume(v); return; }
   savedVolume = v;
   // Reaching for the slider is how you unmute without finding the button.
   if (v > 0) {
@@ -248,6 +253,7 @@ function miniSetVolume(value) {
 }
 
 function miniToggleMute() {
+  if (typeof StageControl !== 'undefined' && StageControl.on()) { StageControl.toggleMute(); return; }
   togglePlayerMute();
   if (typeof applyVolume === 'function') applyVolume(sliderToVolume(savedVolume, _miniVolumeMax()));
   updateMiniVolume();

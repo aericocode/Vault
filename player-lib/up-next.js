@@ -314,6 +314,27 @@ const UpNext = (() => {
   }
 
   /**
+   * Stage played this file from Up next by itself (player-lib/stage-control.js):
+   * take it out quietly, as shift() would have, wherever it sits now.
+   */
+  function take(id) {
+    const target = Number(id);
+    return enqueue(async () => {
+      if (!ids().includes(target)) return;
+      shiftLog.push(target);
+      taken.add(target);
+      setItems(items.filter(it => it.id !== target));
+      try {
+        await send('remove', { ids: [target] });
+      } catch {
+        await send('get').catch(() => {});
+      } finally {
+        taken.delete(target);
+      }
+    });
+  }
+
+  /**
    * Put a file shift() took back at the front (its row could not be loaded,
    * so it never played).
    */
@@ -463,6 +484,8 @@ const UpNext = (() => {
     refreshThen();
     // The lists changed size: toasts move clear of them (utils.js).
     if (typeof vaultPlaceToasts === 'function') vaultPlaceToasts();
+    // Stage moves on by itself: it is told what comes next now.
+    if (typeof StageControl !== 'undefined') StageControl.upNextChanged();
   }
 
   /* ── The list above the mini player ────────────────────────────────── */
@@ -709,7 +732,7 @@ const UpNext = (() => {
 
   return {
     _limits: LIMITS,   // tests shorten these
-    count, ids, positionOf, load, settled, add, removeId, clear, move, shift, unshift,
+    count, ids, positionOf, load, settled, add, removeId, clear, move, shift, unshift, take, items: () => items.slice(),
     render, playerChanged: render, tileTag, libraryTargets, orderedSelection,
     togglePopover, openPopover, closePopover, positionPopover,
     panelPaneHtml, classicSectionHtml, sidebarOnlyHtml, dockButtonHtml, openPanel,

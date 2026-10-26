@@ -18,6 +18,8 @@
   <link rel="stylesheet" href="./css/notes.css">
   <link rel="stylesheet" href="./css/saved-searches.css">
   <link rel="stylesheet" href="./css/mini-player.css">
+  <!-- The mini player as Stage's remote, its menu and tips (player-lib/stage-control.js) -->
+  <link rel="stylesheet" href="./css/stage-remote.css">
   <link rel="stylesheet" href="./css/sidebar.css">
   <!-- Docked preview pane (Modern look), scoped under body.dock-shown -->
   <link rel="stylesheet" href="./css/dock.css">
@@ -459,6 +461,8 @@
     <div class="mini-pip-note" id="miniPipNote" hidden>Playing in picture-in-picture</div>
     <div class="mini-overlay" id="miniOverlay">
       <div class="mini-player-controls mini-top">
+        <!-- While Stage is open (player-lib/stage-control.js): what Stage shows -->
+        <span class="mini-stage-pill mini-stage-only" id="miniStagePill"><i aria-hidden="true"></i><span class="msp-word">On Stage</span></span>
         <div class="mini-vol" id="miniVol">
           <button type="button" class="mini-ctrl" id="miniMuteBtn" onclick="miniToggleMute()" title="Mute" aria-label="Mute"></button>
           <input type="range" class="mini-vol-slider" id="miniVolSlider" min="0" max="1" step="0.01" value="1"
@@ -466,9 +470,13 @@
         </div>
         <!-- Up next (player-lib/up-next.js): opens its list above the box -->
         <button type="button" class="mini-ctrl mini-upnext" id="miniUpNextBtn" onclick="UpNext.togglePopover()" title="Up next" aria-label="Up next" aria-haspopup="dialog" aria-expanded="false"><span class="vi-w" data-vi="queue">☰</span><span class="mini-un-label">Up next</span><span class="mini-un-badge" id="miniUpNextCount" hidden>0</span></button>
-        <button type="button" class="mini-ctrl" id="miniPipBtn" onclick="miniTogglePip()" title="Pop out over other windows" aria-label="Pop out over other windows" hidden><span class="vi-w" data-vi="pip">⧉</span></button>
-        <button type="button" class="mini-ctrl" onclick="maximizePlayer()" title="Back to the full player (Q)" aria-label="Back to the full player"><span class="vi-w" data-vi="expand">⤢︎</span></button>
-        <button type="button" class="mini-ctrl mini-close" onclick="closeMiniPlayer()" title="Close (Esc)" aria-label="Close the mini player"><span class="vi-w" data-vi="close">✕</span></button>
+        <button type="button" class="mini-ctrl mini-stage-only" id="miniRepeatBtn" onclick="cycleRepeatMode()" title="Repeat" aria-label="Repeat"><span class="vi-w" data-vi="repeat">🔁</span></button>
+        <button type="button" class="mini-ctrl mini-stage-only" id="miniHoldBtn" onclick="StageControl.toggleHold()" title="Hold: Stage goes black and silent (H)" aria-label="Hold" aria-pressed="false"><span class="vi-w" data-vi="hold">⬛</span></button>
+        <button type="button" class="mini-ctrl mini-stage-hide" id="miniPipBtn" onclick="miniTogglePip()" title="Pop out over other windows" aria-label="Pop out over other windows" hidden><span class="vi-w" data-vi="pip">⧉</span></button>
+        <!-- Stage: the window you share in Discord. Click opens or closes it, right-click has the rest -->
+        <button type="button" class="mini-ctrl mini-stage-btn" id="miniStageBtn" onclick="StageControl.stageButton(event)" oncontextmenu="StageControl.menu(event)" title="Open Stage, the window you share in Discord" aria-label="Open Stage"><span class="vi-w" data-vi="stage">📺</span></button>
+        <button type="button" class="mini-ctrl mini-stage-hide" onclick="maximizePlayer()" title="Back to the full player (Q)" aria-label="Back to the full player"><span class="vi-w" data-vi="expand">⤢︎</span></button>
+        <button type="button" class="mini-ctrl mini-close mini-stage-hide" onclick="closeMiniPlayer()" title="Close (Esc)" aria-label="Close the mini player"><span class="vi-w" data-vi="close">✕</span></button>
       </div>
       <div class="mini-center">
         <button type="button" class="mini-ctrl mini-round mini-file" data-mini-act="prev" title="Previous file (P)" aria-label="Previous file"><span class="vi-w" data-vi="prev-file">⏮︎</span></button>
@@ -548,6 +556,9 @@
   <script src="./player-lib/player/player-document.js"></script>
   <script src="./player-lib/player/player-mix.js"></script>
   <script src="./player-lib/up-next.js"></script>
+  <!-- Stage: the window shared in Discord, run from the mini player as its remote -->
+  <script src="./player-lib/stage-rules.js"></script>
+  <script src="./player-lib/stage-control.js"></script>
   <!-- Modern player: the dock's geometry (pure) and the dock itself -->
   <script src="./player-lib/player/dock-geometry.js"></script>
   <script src="./player-lib/player/player-modern.js"></script>
@@ -575,6 +586,8 @@
   <script src="./player-lib/watchers-ui.js"></script>
   <!-- Settings > Models > Scanning (mounted from settings.js with one line) -->
   <script src="./player-lib/scan-settings-ui.js"></script>
+  <!-- Settings › Stage (both looks); before settings.js, which draws it -->
+  <script src="./player-lib/stage-settings-ui.js"></script>
   <script src="./player-lib/settings.js"></script>
   <!-- Settings search: one index of every setting, plus the shortcuts table -->
   <script src="./player-lib/settings-search.js"></script>

@@ -58,6 +58,9 @@ const VAULT_ICONS = {
   close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
   expand: '<path d="M14 4.5h5.5V10M10 19.5H4.5V14M19.5 4.5 13 11M4.5 19.5 11 13"/>',
   pip: '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="11" width="6.5" height="5.5" rx="1"/>',
+  // Stage (player-lib/stage-control.js): the window shared in Discord, and Hold (black, silent).
+  stage: '<rect x="3" y="4" width="18" height="12.5" rx="1.5"/><path d="M8.5 20.5h7M12 16.5v4"/><path d="M10.25 7.75v5l4.25-2.5z" fill="currentColor"/>',
+  hold: '<rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="M10 9v6M14 9v6"/>',
   rewind: '<path d="M11 7l-5 5 5 5M18 7l-5 5 5 5"/>',
   volume: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
   mute: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="m16 9.5 5 5M21 9.5l-5 5"/>',

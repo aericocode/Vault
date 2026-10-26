@@ -3328,6 +3328,21 @@ app.use('/api/watch', require('./watch-routes').buildRouter());
 //    both /api/playback|/api/stream and the /stream/:id/* media URLs) ────────
 app.use(require('./stream-routes').buildRouter());
 
+// ── Stage (the frameless window shared in Discord, run from the mini player
+//    remote, see lib/stage/). /stage is the page; /api/stage/* is gated. ──
+const stageRouter = require('./stage-routes').buildRouter({
+  sendPage: (res) => {
+    if (seaAssets) {
+      try {
+        res.set('Content-Type', ASSET_TYPES['.html']);
+        return res.end(Buffer.from(seaAssets.getAsset('player-lib/stage.html')));
+      } catch { /* not embedded: the disk copy below */ }
+    }
+    res.sendFile('stage.html', { root: path.join(ROOT, 'player-lib') });
+  },
+});
+app.use(stageRouter);
+
 // ── Library search (server-side query, facets, id lists — see
 //    lib/library-query.js and SERVER_SEARCH_SPEC) ─────────────────────────
 app.use('/api/library', libraryRoutes.buildRouter());
@@ -3927,4 +3942,4 @@ if (require.main === module) {
 // Tests only: swap the Save As window for a fake (null puts the real one back).
 function _setSaveDialogForTest(fn) { _saveDialog = fn || _defaultSaveDialog; }
 
-module.exports = { app, start, run: start, isLockGatedPath, _setSaveDialogForTest };
+module.exports = { app, start, run: start, isLockGatedPath, _setSaveDialogForTest, _stageRouter: stageRouter };

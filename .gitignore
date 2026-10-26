@@ -54,3 +54,7 @@ beatbar_userscript.js
 
 # agent state
 /.claude/
+
+# Stage window: WebView2 SDK files (copied in by hand / by the release build), its profile
+/runtime/
+/stage-webview/
