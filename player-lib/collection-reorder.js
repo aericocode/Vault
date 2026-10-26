@@ -124,7 +124,8 @@ function renderReorderNote() {
   const reason = reorderBlockedReason();
   let html = '';
   // Flow order shows: the order bar (flow.js) instead of the note.
-  const flowBar = typeof flowOrderOn === 'function' && flowOrderOn() && typeof flowOrderBarHtml === 'function' ? flowOrderBarHtml() : '';
+  // A shuffle on screen wins: its note shows (a shuffle leaves Flow order anyway).
+  const flowBar = !Library.shuffled && typeof flowOrderOn === 'function' && flowOrderOn() && typeof flowOrderBarHtml === 'function' ? flowOrderBarHtml() : '';
   el.classList.toggle('flow-orderbar', !!flowBar);
   if (flowBar) {
     html = flowBar;

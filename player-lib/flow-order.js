@@ -28,6 +28,10 @@
    - flowShuffle(feats, o)       a shuffle that leans toward good hand-overs
    - flowText(f)                 "128 BPM · energy high" (the Stage bar)
    - parseEnv(text)              media_flow.env as the features' env (2 decimals), or null
+   - reconcileOrder(order, members)  an order kept to a collection's files
+   - moveBlock(order, ids, before)   a drag in Flow order: the new order, or null
+   - parseRemembered(text)       a remembered Flow order from storage, or null
+   - nextAfter(playing, o)       the file that plays next (Up next, else the list)
 
    The cost of an order:
      sum over neighbours of handoverCost(end of A, start of B)
@@ -658,6 +662,71 @@ const FlowOrder = (() => {
     return out.length >= 2 ? out : null;
   }
 
+  /**
+   * An order kept to a collection's files: ids that are not members (and
+   * repeats) dropped, members it lacks added at the end in members' order.
+   */
+  function reconcileOrder(order, members) {
+    const inMembers = new Set(members);
+    const seen = new Set();
+    const out = [];
+    for (const id of order || []) if (inMembers.has(id) && !seen.has(id)) { seen.add(id); out.push(id); }
+    for (const id of members) if (!seen.has(id)) { seen.add(id); out.push(id); }
+    return out;
+  }
+
+  /**
+   * Move ids (as a block, in the order's own order) to sit right before
+   * `before` (null: the end). Null when nothing moves, before is one of
+   * them, or before is not in the order.
+   */
+  function moveBlock(order, ids, before) {
+    const moving = new Set(ids);
+    const block = order.filter(id => moving.has(id));
+    if (!block.length || (before != null && moving.has(before))) return null;
+    const rest = order.filter(id => !moving.has(id));
+    const at = before == null ? rest.length : rest.indexOf(before);
+    if (at < 0) return null;
+    const next = [...rest.slice(0, at), ...block, ...rest.slice(at)];
+    return next.every((id, i) => id === order[i]) ? null : next;
+  }
+
+  /**
+   * A remembered Flow order (localStorage text) as { shape, places, edited },
+   * or null when there is none or it is not exactly that shape (the caller
+   * removes it then): a plain object, a known shape, places true / false /
+   * null, edited null or a list of whole positive ids.
+   */
+  function parseRemembered(text) {
+    if (typeof text !== 'string' || !text) return null;
+    let v;
+    try { v = JSON.parse(text); } catch { return null; }
+    if (!v || typeof v !== 'object' || Array.isArray(v) || Object.getPrototypeOf(v) !== Object.prototype) return null;
+    if (!isShape(v.shape)) return null;
+    if (v.places != null && typeof v.places !== 'boolean') return null;
+    let edited = null;
+    if (v.edited != null) {
+      if (!Array.isArray(v.edited) || !v.edited.every(id => Number.isInteger(id) && id > 0)) return null;
+      edited = v.edited.length ? [...new Set(v.edited)] : null;
+    }
+    return { shape: v.shape, places: v.places == null ? null : v.places, edited };
+  }
+
+  /**
+   * The file that plays after `playing`: Up next's first file when it has
+   * one ({ upNext: true }), else the next in the list, else null.
+   * @param {number|null} playing
+   * @param {{upNext?: number[], indexOf: Function, idAt: Function}} o
+   */
+  function nextAfter(playing, { upNext = [], indexOf, idAt }) {
+    if (upNext.length) return { id: upNext[0], upNext: true };
+    if (playing == null) return null;
+    const i = indexOf(playing);
+    if (i < 0) return null;
+    const id = idAt(i + 1);
+    return id != null ? { id, upNext: false } : null;
+  }
+
   /** A media_flow row (or null) as features. */
   function fromRow(id, row) {
     if (!row || row.error) return { id, measured: false, failed: !!(row && row.error), music: false, es: 0, em: 0, ee: 0, bs: null, bm: null, be: null };
@@ -676,6 +745,7 @@ const FlowOrder = (() => {
     SHAPES, SHAPE_KEYS, NEUTRAL, E_SMOOTH, E_JUMP, T_SMOOTH, T_JUMP, PLACES, resolvePlace,
     shapeLabel, isShape, curve, targetsFor, tempoRatio, handoverCost, handover, grade, handoverText, planOrder, summary,
     flowShuffle, pickFrom, seeded, energyWord, bpmText, flowText, fromRow, parseEnv, totalCost,
+    reconcileOrder, moveBlock, parseRemembered, nextAfter,
   };
 })();
 

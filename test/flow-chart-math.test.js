@@ -121,3 +121,17 @@ test('tempoShare: 70 BPM calm .. 170 fast, clamped', () => {
   assert.strictEqual(M.tempoShare(200), 1);
   assert.strictEqual(M.tempoShare(40), 0);
 });
+
+test('linearAt: the dense chart\'s straight lines; nothing where nothing is drawn', () => {
+  const pts = [[10, 100], [20, 50], [30, 70]];
+  assert.strictEqual(M.linearAt(pts, 10), 100);
+  assert.strictEqual(M.linearAt(pts, 15), 75);
+  assert.strictEqual(M.linearAt(pts, 25), 60);
+  assert.strictEqual(M.linearAt(pts, 30), 70);
+  assert.strictEqual(M.linearAt(pts, 5), null, 'before the first point');
+  assert.strictEqual(M.linearAt(pts, 31), null, 'after the last');
+  // A lone music file between files with no music draws nothing: no y.
+  assert.strictEqual(M.linearAt([[10, 40]], 10), null);
+  assert.strictEqual(M.linearAt([], 1), null);
+  assert.strictEqual(M.linearAt(null, 1), null);
+});

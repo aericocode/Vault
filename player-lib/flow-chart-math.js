@@ -15,6 +15,7 @@
                              cubic (Fritsch-Carlson), so it never overshoots
                              between points (no bumps the music does not have)
    - monotoneAt(pts, x)      the y of that same curve at x (the Flow chart's playhead)
+   - linearAt(pts, x)        the y of straight lines through pts, or null (nothing drawn)
    - tempoShare(bpm)         a BPM as 0..1 for the Tempo lane's colour
    ========================================================================= */
 
@@ -121,10 +122,24 @@ const FlowChartMath = (() => {
       + (-2 * t3 + 3 * t2) * pts[i + 1][1] + (t3 - t2) * h * m[i + 1];
   }
 
+  /**
+   * The y of straight lines through pts at x (the dense chart's one simplified
+   * path), or null where nothing is drawn: outside the points, or a lone
+   * point (a path of one point draws nothing).
+   */
+  function linearAt(pts, x) {
+    if (!pts || pts.length < 2) return null;
+    if (x < pts[0][0] || x > pts[pts.length - 1][0]) return null;
+    let i = 0;
+    while (i < pts.length - 2 && x > pts[i + 1][0]) i++;
+    const [xa, ya] = pts[i], [xb, yb] = pts[i + 1];
+    return xb === xa ? ya : ya + (yb - ya) * (x - xa) / (xb - xa);
+  }
+
   /** 70 BPM (calm) .. 170 BPM (fast) as 0..1. */
   const tempoShare = (bpm) => clamp01((bpm - 70) / 100);
 
-  return { yRange, filePoints, smoothed, slopes, monotonePath, monotoneAt, tempoShare };
+  return { yRange, filePoints, smoothed, slopes, monotonePath, monotoneAt, linearAt, tempoShare };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = FlowChartMath;
