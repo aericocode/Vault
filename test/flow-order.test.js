@@ -311,3 +311,44 @@ test('places: deterministic, and a big collection stays quick', () => {
   assert.deepStrictEqual(a.order.slice(0, firsts.length).sort((x, y) => x - y), firsts.sort((x, y) => x - y));
   assert.strictEqual(a.placed, Object.keys(places).length);
 });
+
+test('places with unmeasured files: worked out on the whole order (a peak is never put on a low target)', () => {
+  // The repro: file 2 unmeasured keeps its spot, so the peak takes the highest target left.
+  const r = F.planOrder([m(1, 0.5, 0.5, 0.5), unmeasured(2), m(3, 0.6, 0.6, 0.6)], { shape: 'build', places: { 1: 'peak', 3: 'after_peak' } });
+  assert.deepStrictEqual(r.order, [3, 2, 1]);
+  assert.strictEqual(r.targets[r.order.indexOf(1)], Math.max(...r.targets));
+  // Room for both: the After a peak follows its peak.
+  const s = F.planOrder([m(1, 0.5, 0.5, 0.5), unmeasured(2), m(3, 0.6, 0.6, 0.6), m(4, 0.4, 0.4, 0.4)], { shape: 'build', places: { 1: 'peak', 3: 'after_peak' } });
+  assert.strictEqual(s.order.indexOf(3), s.order.indexOf(1) + 1, String(s.order));
+});
+
+test('places with unmeasured files: peaks sit at or above the mean target, and After a peak follows a peak where it can', () => {
+  for (let seed = 1; seed <= 40; seed++) {
+    const rng = F.seeded(seed);
+    const n = 8 + Math.floor(rng() * 20);
+    const feats = [];
+    for (let i = 1; i <= n; i++) {
+      const e = rng();
+      feats.push(rng() < 0.25 ? unmeasured(i) : m(i, e, e, e, 90 + Math.round(rng() * 60)));
+    }
+    const measured = feats.filter(f => f.measured).map(f => f.id);
+    const places = {};
+    const nPeak = 1 + Math.floor(rng() * 3);
+    const nAfter = Math.floor(rng() * (nPeak + 1));
+    const pick = measured.slice().sort((a, b) => (rng() - 0.5) || a - b);
+    const peaks = pick.slice(0, nPeak), afters = pick.slice(nPeak, nPeak + nAfter);
+    for (const id of peaks) places[id] = 'peak';
+    for (const id of afters) places[id] = 'after_peak';
+    for (const shape of ['build', 'waves', 'peak']) {
+      const r = F.planOrder(feats, { shape, places });
+      assert.strictEqual(new Set(r.order).size, n);
+      const mean = r.targets.reduce((x, y) => x + y, 0) / n;
+      for (const id of peaks) assert.ok(r.targets[r.order.indexOf(id)] >= mean - 1e-9, `seed ${seed} ${shape}: peak ${id} at ${r.order.indexOf(id)}`);
+      // A peak can be followed when the slot after it is not an unmeasured file's or another peak's.
+      const aside = new Set(feats.filter(f => !f.measured).map(f => f.id));
+      const roomy = peaks.filter(id => { const p = r.order.indexOf(id); return p < n - 1 && !aside.has(r.order[p + 1]) && !peaks.includes(r.order[p + 1]); }).length;
+      const followed = afters.filter(id => { const p = r.order.indexOf(id); return p > 0 && peaks.includes(r.order[p - 1]); }).length;
+      assert.ok(followed >= Math.min(afters.length, roomy), `seed ${seed} ${shape}: ${followed} of ${afters.length} follow a peak (${roomy} could): ${r.order}`);
+    }
+  }
+});
