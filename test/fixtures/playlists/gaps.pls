@@ -1,0 +1,12 @@
+[playlist]
+PlaylistName=Morning
+File1=C:\Music\one.mp3
+Title1=One
+Length1=200
+File3=..\Music\three.mp3
+Title3=Three
+Length3=-1
+File4=http://stream.example.com:8000/live
+Title4=Live
+NumberOfEntries=4
+Version=2

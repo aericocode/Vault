@@ -1,0 +1,11 @@
+﻿#EXTM3U
+#PLAYLIST:Road trip
+#EXTINF:61,First
+file:///C:/My%20Videos/Caf%C3%A9%20100%25.mp4
+#EXTINF:-1,On a share
+file://nas/media/Clips/a%23b.mp4
+file://localhost/D:/x/y.mp4
+file:///home/me/clip.mp4
+C:\Media\100% real.mp4
+rtsp://cam.local/live
+file:///C:/bad%E9.mp4

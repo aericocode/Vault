@@ -113,7 +113,9 @@
       any = true;
       // The real button's words ("📁 Picker open…" while busy), with a line
       // icon in place of its emoji: this menu is Modern only.
-      const text = real.textContent.trim();
+      // data-menu-text: a fuller name than the button's own (Classic's short
+      // "Playlist…" is "Import playlist…" here).
+      const text = (real.dataset.menuText || real.textContent).trim();
       if (item.dataset.addText !== text) {
         item.dataset.addText = text;
         const words = typeof vaultStripLeadingEmoji === 'function' ? vaultStripLeadingEmoji(text) : text;

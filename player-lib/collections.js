@@ -174,6 +174,7 @@ function renderCollectionsTabBar() {
       ${viewAll}
       <button class="coll-newbtn" onclick="createFromTab('folder')">${ICON.plus} New folder</button>
       <button class="coll-newbtn" onclick="createFromTab('collection')">${ICON.plus} New collection</button>
+      <button class="coll-newbtn" onclick="window.vaultImportPlaylist && window.vaultImportPlaylist()" title="Make a collection from a VLC or PotPlayer playlist">${ICON.plus} Import playlist…</button>
     </div>`;
 }
 

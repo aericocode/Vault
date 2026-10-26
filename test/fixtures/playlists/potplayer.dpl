@@ -1,0 +1,14 @@
+﻿DAUMPLAYLIST
+playname=D:\Videos\b clip.mkv
+playtime=40500
+topindex=0
+saveplaypos=0
+1*file*D:\Videos\a clip.mp4
+1*duration2*120000
+1*start*0
+3*file*https://example.com/stream.m3u8
+2*file*D:\Videos\b clip.mkv
+2*title*My B title
+2*played*1
+4*file*Clips\rel é.mp4
+4*title*Relative one

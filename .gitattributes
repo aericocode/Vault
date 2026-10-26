@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Playlist fixtures are byte-exact (LF vs CRLF, BOM, ANSI bytes are what the tests read)
+test/fixtures/playlists/** -text

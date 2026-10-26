@@ -43,7 +43,8 @@ body.layout-modern .header {
 body.layout-modern #totalCount,
 body.layout-modern #dbFileName,
 body.layout-modern #addFilesBtn,
-body.layout-modern #addFolderBtn {
+body.layout-modern #addFolderBtn,
+body.layout-modern #importPlaylistBtn {
   display: none;
 }
 

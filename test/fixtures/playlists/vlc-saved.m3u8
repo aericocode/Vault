@@ -1,0 +1,10 @@
+#EXTM3U
+#EXTINF:95,Café clip
+Videos/Café clip.mp4
+#EXTINF:12,Beta
+#EXTVLCOPT:start-time=5
+C:\Media\Beta.mkv
+#EXTINF:-1,Live radio
+https://radio.example.com/stream.mp3
+#EXTINF:30,Up one
+..\Other\up one.mp4
