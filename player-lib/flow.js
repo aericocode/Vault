@@ -208,7 +208,7 @@ const Flow = (() => {
     const c = st.status.collection;
     if (!c || c.tooMany) { paint(); return; }
     const count = countKey(c);
-    // Measuring, or measuring again (stale: an older method, for the chart's detail).
+    // Measuring, or updating measurements (stale: measured by an older method).
     const active = (c.left > 0 || c.stale > 0) && st.status.queue.state !== 'idle';
     if (count !== st.lastCount) await refetch(!active);
     paint();
@@ -341,7 +341,7 @@ const Flow = (() => {
         : q.reason === 'stage' ? 'Waiting while Stage plays'
         : q.reason === 'locked' ? 'Waiting: Vault is locked'
         : null;
-      const why = again ? (wait ? `${wait}: adding detail,` : 'Adding detail to the chart:') : (wait || 'Measuring');
+      const why = again ? (wait ? `${wait}: updating measurements,` : 'Updating measurements:') : (wait || 'Measuring');
       const n = again ? c.measured - c.stale : done;
       const of = again ? c.measured : c.measurable;
       const pct = Math.round((n / Math.max(1, of)) * 100);
