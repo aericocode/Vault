@@ -662,6 +662,32 @@ test('stream tokens: Stage\u2019s "stage-" + UUID tokens get the Wall\u2019s clo
   assert.strictEqual(ring.isWallToken(`stagex-${crypto.randomUUID()}`), false);
 });
 
+test('the Stage window has no title-bar style (title-bar tools add no buttons) but keeps resize, Snap, the system menu and the taskbar button', { skip: process.platform !== 'win32' && 'Windows only' }, () => {
+  const { SCRIPT } = require('../lib/stage/host-script');
+  const m = SCRIPT.match(/\/\/ <stage-style>([\s\S]*?)\/\/ <\/stage-style>/);
+  assert.ok(m, 'the style class is marked');
+  assert.match(SCRIPT, /cp\.Style = VaultStageStyle\.Style\(cp\.Style\)/, 'the form takes it in CreateParams');
+  assert.match(SCRIPT, /cp\.ExStyle = VaultStageStyle\.ExStyle\(cp\.ExStyle\)/);
+  // The C# itself, compiled and run: WinForms' Sizable style in, the Stage's out.
+  const { execFileSync } = require('node:child_process');
+  const ps = `Add-Type -TypeDefinition @'\nusing System;\n${m[1]}\n'@\n`
+    + "foreach ($s in @(0x06CF0000, 0x16CF0000, 0x00C00000, 0)) { '{0} {1}' -f [VaultStageStyle]::Style([int]$s), [VaultStageStyle]::ExStyle(0x100) }";
+  const out = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { encoding: 'utf8', windowsHide: true })
+    .trim().split(/\r?\n/).map(l => l.trim().split(' ').map(Number));
+  assert.strictEqual(out.length, 4);
+  const WS = { BORDER: 0x00800000, DLGFRAME: 0x00400000, SYSMENU: 0x00080000, THICKFRAME: 0x00040000, MINIMIZEBOX: 0x00020000, MAXIMIZEBOX: 0x00010000, VISIBLE: 0x10000000 };
+  for (const [style, ex] of out) {
+    assert.strictEqual(style & WS.BORDER, 0, 'no WS_BORDER');
+    assert.strictEqual(style & WS.DLGFRAME, 0, 'no WS_DLGFRAME (together they are WS_CAPTION)');
+    for (const k of ['SYSMENU', 'THICKFRAME', 'MINIMIZEBOX', 'MAXIMIZEBOX']) assert.ok(style & WS[k], k);
+    assert.ok(ex & 0x00040000, 'WS_EX_APPWINDOW: the taskbar button');
+    assert.ok(ex & 0x100, 'other extended styles kept');
+  }
+  // WinForms Sizable: WS_CLIPCHILDREN | WS_CLIPSIBLINGS | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | min/max boxes.
+  assert.strictEqual(out[0][0], 0x060F0000, 'Sizable less the caption, everything else kept');
+  assert.ok(out[1][0] & WS.VISIBLE, 'bits it does not touch stay');
+});
+
 /* ── The routes, on the real app ────────────────────────────────────────── */
 
 const db = require('../lib/database');
