@@ -15,6 +15,9 @@
    - gifLoopSeconds(bytes)  how long one loop of a GIF takes
    - pictureMs(item, s, g)  how long a picture or GIF stays on Stage
    - nameText(filename)     the name shown as a file starts
+   - playerChoice(o)        which Stage runs: mpv, or Basic (the browser's
+                            picture-in-picture, no extra program)
+   - basicPlays(type)       what Basic Stage can show (videos only)
    ========================================================================= */
 
 const StageRules = (() => {
@@ -159,9 +162,26 @@ const StageRules = (() => {
     return base.trim();
   }
 
+  const PLAYERS = ['auto', 'basic'];
+
+  /**
+   * Which Stage runs. setting: 'auto' (mpv when it is found, else Basic) or
+   * 'basic' (always Basic). Anything else counts as 'auto'.
+   */
+  function playerChoice({ setting = 'auto', mpvFound = false } = {}) {
+    if (setting === 'basic') return 'basic';
+    return mpvFound === true ? 'mpv' : 'basic';
+  }
+
+  /** Basic Stage is the browser's video picture-in-picture: videos only. */
+  function basicPlays(mediaType) {
+    return mediaType === 'video';
+  }
+
   return {
-    RESUME_MIN_S, RESUME_MAX_FRACTION, DWELL_MS,
+    RESUME_MIN_S, RESUME_MAX_FRACTION, DWELL_MS, PLAYERS,
     upcoming, resumeAt, positionToSave, viewCounts, gifLoopSeconds, pictureMs, nameText,
+    playerChoice, basicPlays,
   };
 })();
 

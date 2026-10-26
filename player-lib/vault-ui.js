@@ -178,6 +178,8 @@
   function haltAllPlayback() {
     // Vibe FIRST — it's a physical device; stop it the instant we lock.
     try { window.LovenseSync?.lockStop?.(); } catch {}
+    // Basic Stage: out of picture-in-picture and paused, so no picture stays on screen.
+    try { if (typeof StageControl !== 'undefined') StageControl.lockStop(); } catch {}
     // Active game → pause (also persists its save).
     try { if (typeof gamesPauseIfActive === 'function') gamesPauseIfActive(); } catch {}
     // Wall tab: release every clip and clear the board.

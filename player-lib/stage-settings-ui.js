@@ -17,11 +17,13 @@
 
 const STAGE_SETTINGS_DEFAULTS = {
   showName: true, nameSeconds: 3, windowName: 'Vault Stage', imageSeconds: 8,
-  cursorSeconds: 1, openSize: 'free', muteVault: true, tips: true,
+  cursorSeconds: 1, openSize: 'free', muteVault: true, tips: true, player: 'auto',
 };
+
+const STAGE_BASIC_WORDS = 'Basic (picture-in-picture): no extra program. It shows the address and controls when your mouse is over it, plays videos only, and stays on top.';
 let _stageSettings = { ...STAGE_SETTINGS_DEFAULTS };
 let _stageSettingsLoaded = false;
-let _stageMpv = null;          // { found, path, version, source, chosen, chosenProblem, canChoose }
+let _stageMpv = null;          // { found, path, version, source, chosen, chosenProblem, canChoose, choice }
 
 /** What the Player row says about mpv. */
 function _stageMpvHtml() {
@@ -35,8 +37,11 @@ function _stageMpvHtml() {
     lines.push('<span class="stage-mpv-line stage-mpv-missing">mpv was not found.</span>');
   }
   if (m.chosenProblem) lines.push(`<span class="stage-mpv-line stage-mpv-missing">The mpv you chose can’t be used: ${_stEsc(m.chosenProblem)}</span>`);
+  // Which Stage opens now.
+  const basic = m.choice === 'basic';
+  lines.push(`<span class="stage-mpv-line stage-mpv-use">Stage uses: ${basic ? _stEsc(STAGE_BASIC_WORDS) : 'mpv, its own window (the full Stage).'}</span>`);
   if (!m.found) {
-    lines.push('<span class="stage-mpv-line stage-mpv-how">Stage plays in mpv, a free video player. Install it from mpv.io; Vault looks in Program Files and on PATH. If it is somewhere else, choose mpv.exe here.</span>');
+    lines.push('<span class="stage-mpv-line stage-mpv-how">For the full Stage (its own window, pictures, a black Hold, sizes), install mpv, a free video player, from mpv.io. Vault looks in Program Files and on PATH. If it is somewhere else, choose mpv.exe here.</span>');
   }
   return lines.join('');
 }
@@ -45,7 +50,12 @@ function _stageMpvButtons() {
   const m = _stageMpv || {};
   const can = m.canChoose !== false;
   const off = can ? '' : ' disabled title="This copy of Vault cannot open the Windows file picker."';
+  const p = _stageSettings.player === 'basic' ? 'basic' : 'auto';
   return `<span class="stage-mpv-acts">
+          <select class="settings-sel" data-stage-player aria-label="Which Stage">
+            <option value="auto"${p === 'auto' ? ' selected' : ''}>Auto: mpv when found, else Basic</option>
+            <option value="basic"${p === 'basic' ? ' selected' : ''}>Basic only</option>
+          </select>
           <button type="button" class="settings-btn settings-btn-quiet" data-stage-mpv="choose"${off}>Choose mpv…</button>
           ${m.chosen ? '<button type="button" class="settings-btn settings-btn-quiet" data-stage-mpv="forget" title="Forget the mpv you chose and find it again">Find it again</button>' : ''}
         </span>`;
@@ -186,6 +196,13 @@ function stageSettingsWire(root) {
       const b = e.target.closest('[data-stage-mpv]');
       if (!b || b.disabled) return;
       _stageMpvAct(b.dataset.stageMpv, root);
+    });
+    // Auto or Basic only: saved, then the row says which Stage opens now.
+    root.addEventListener('change', async (e) => {
+      const sel = e.target.closest('[data-stage-player]');
+      if (!sel) return;
+      await _stageSettingsSave({ player: sel.value === 'basic' ? 'basic' : 'auto' }, root);
+      _stageMpvLoad(root);
     });
   }
   if (!_stageSettingsLoaded) {

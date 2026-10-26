@@ -474,7 +474,7 @@ document.addEventListener('keydown', (e) => {
   const miniPlayer = document.getElementById('miniPlayer');
   if (miniPlayer && miniPlayer.classList.contains('active')) {
     // The remote of an open Stage has its own answers for Esc, Q and 0 to 9.
-    if (typeof StageControl !== 'undefined' && StageControl.on() && StageControl.key(e)) return;
+    if (typeof StageControl !== 'undefined' && (StageControl.on() || StageControl.basicOn()) && StageControl.key(e)) return;
     if (e.key === 'Escape') {
       closeMiniPlayer();
       return;

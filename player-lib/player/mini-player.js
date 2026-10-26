@@ -330,6 +330,9 @@ function miniPipCarry(oldEl) {
   return true;
 }
 
+/** Is a picture-in-picture window being handed to the next file right now? (Basic Stage asks.) */
+function miniPipCarrying() { return !!_miniPipCarryFrom; }
+
 function _miniPipCarryDone(exit) {
   clearTimeout(_miniPipCarryTimer);
   const old = _miniPipCarryFrom;

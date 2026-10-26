@@ -61,7 +61,17 @@ function queueNav(fn) {
  * The next index in the results that is not known-bad, walking `step` at a
  * time from `from` (exclusive). Resolves -1 when there is none.
  */
-async function nextPlayableIndex(from, step) {
+/** Basic Stage (stage-control.js) passes over what it cannot show: videos only. */
+function queuePassesOver(type) {
+  return typeof StageControl !== 'undefined' && typeof StageControl.passOver === 'function' && StageControl.passOver(type);
+}
+
+/**
+ * The next file the queue can play from `from`, going `step` (1 or -1), or
+ * -1. passed (optional): an array that gets the rows Basic Stage walked past,
+ * so they can be named.
+ */
+async function nextPlayableIndex(from, step, passed) {
   // Past the first page the walk needs the id list.
   if (!Library.known() && from + step >= Library.firstPageIds.length) await Library.waitIds();
   const n = Library.length();
@@ -74,6 +84,7 @@ async function nextPlayableIndex(from, step) {
       await Library.rowsForRange(a, a + NAV_WINDOW);
       row = Library.rowAt(i);
     }
+    if (row && queuePassesOver(row.media_type)) { if (passed) passed.push(row); continue; }
     if (row && !isKnownBadMedia(row)) return i;
   }
   return -1;
@@ -140,6 +151,8 @@ async function playUpNextHead(wait) {
     }
     const type = (row && row.media_type) || item.media_type;
     if (!row || type === 'document' || isKnownBadMedia(row)) continue;
+    // Basic Stage cannot show it: used up, as a file that cannot play is, and named.
+    if (queuePassesOver(type)) { StageControl.notePassed([row]); continue; }
     playMedia({ id: row.id, filepath: row.filepath, filename: row.filename, media_type: row.media_type },
       { source: 'auto', fromUpNext: true });
     refreshSidebarIfOpen();
@@ -166,18 +179,24 @@ async function upNextListContinuation() {
 
 /** Walk the list as UpNextRule.plan said. Resolves true if a file opened. */
 async function playListStep(step, from, wrap) {
-  const i = await nextPlayableIndex(from, step);
-  if (i !== -1) return playIndexHandsFree(i);
-  if (!wrap) return false;
+  // Basic Stage walks past what it cannot show; it says what (and when nothing is left).
+  const passed = [];
+  const said = (ok) => {
+    if (passed.length && typeof StageControl !== 'undefined' && StageControl.notePassed) StageControl.notePassed(passed, { end: !ok });
+    return ok;
+  };
+  const i = await nextPlayableIndex(from, step, passed);
+  if (i !== -1) return said(await playIndexHandsFree(i));
+  if (!wrap) return said(false);
   // A one-item list would "wrap" onto itself, which is repeat-one's job, not
   // this one's.
-  if (Library.length() < 2) return false;
+  if (Library.length() < 2) return said(false);
   // Wrapping starts at the top of the list, skipping any known-bad files there
   // just as the forward walk does. Landing back on the file that just ended is
   // repeat-one's job, so that one does not count as a wrap.
-  const first = await nextPlayableIndex(-1, 1);
-  if (first === -1 || first === from) return false;
-  return playIndexHandsFree(first);
+  const first = await nextPlayableIndex(-1, 1, passed);
+  if (first === -1 || first === from) return said(false);
+  return said(await playIndexHandsFree(first));
 }
 
 /** One move through Up next and the list (Next, Previous, a file ending). */
@@ -525,7 +544,9 @@ function playMedia(mediaData, opts = {}) {
      no to. Only a deliberate open (a tile in the library) or Maximize brings
      the full player back, and only the types the mini player can show. */
   const wasMini = currentMediaState.miniMode === true;
-  const keepMini = wasMini && lastPlaySource === 'auto'
+  // Basic Stage (stage-control.js) keeps every file in the mini player, whose
+  // picture-in-picture window is the Stage: opts.stayMini.
+  const keepMini = wasMini && (lastPlaySource === 'auto' || (opts && opts.stayMini === true))
     && (isVideoLike(media_type) || media_type === 'audio');
 
   // Moving from one picture to the next in the same box (full player to full
@@ -1643,6 +1664,8 @@ function maximizePlayer() {
 function closeMiniPlayer() {
   // The remote of an open Stage: only hidden (a lock), Stage carries on.
   if (typeof StageControl !== 'undefined' && StageControl.on()) { StageControl.hideRemote(); return; }
+  // Basic Stage is this mini player's picture-in-picture: closing it closes Stage.
+  if (typeof StageControl !== 'undefined' && StageControl.basicOn && StageControl.basicOn()) StageControl.miniClosing();
   const miniPlayer = document.getElementById('miniPlayer');
   const miniMedia = document.getElementById('miniPlayerMedia');
 
