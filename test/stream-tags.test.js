@@ -297,3 +297,28 @@ test('the lock gate (423) and the CSRF guard cover the routes', async () => {
   assert.strictEqual(r.status, 403);
   assert.ok(!(await lanes()).some(l => l.name === 'Evil'));
 });
+
+test('Unicode: keys stay one key in either case; names compare in any case and composition; invisible names refused', async () => {
+  const d = db.get();
+  const H = (v) => { try { return tags.cleanHotkey(v); } catch (e) { return e.code || 'BAD'; } };
+  // One key upper case and lower case: ß (SS), ŉ (ʼN), ﬁ (FI) are not.
+  for (const k of ['ß', 'ŉ', 'ﬁ', '́', '​', '‮', ' ']) assert.strictEqual(H(k), 'BAD_REQUEST', JSON.stringify(k));
+  assert.strictEqual(H('é'), 'É');
+  assert.strictEqual(H('é'), 'É', 'a composed key is one key');
+  assert.strictEqual(H('ж'), 'Ж');
+  const N = (v) => { try { return tags.cleanName(v, 'Tag'); } catch (e) { return e.code; } };
+  for (const v of ['​', '​‍⁠', '‮‭', '́̂', 'ㅤ', ' ﻿ ']) assert.strictEqual(N(v), 'BAD_REQUEST', JSON.stringify(v));
+  // Bidi overrides are taken out of names.
+  assert.strictEqual(N('Clo‮ser'), 'Closer');
+  assert.strictEqual(N('Café'), 'Café');
+  // Taken in any case and composition, not only A to Z.
+  const lane = await json(await post('/api/stream-tags/lanes', { name: 'Ärger' }));
+  assert.strictEqual((await json(await post('/api/stream-tags/lanes', { name: 'ärger' }), 409)).code, 'NAME_TAKEN');
+  assert.strictEqual((await json(await post('/api/stream-tags/lanes', { name: 'ÄRGER' }), 409)).code, 'NAME_TAKEN');
+  const t = await json(await post('/api/stream-tags/tags', { laneId: lane.id, name: 'Café', color: '#123456', hotkey: 'ж' }));
+  assert.strictEqual((await json(await post('/api/stream-tags/tags', { laneId: lane.id, name: 'CAFÉ', color: '#123456' }), 409)).code, 'NAME_TAKEN');
+  assert.strictEqual((await json(await post('/api/stream-tags/tags', { laneId: lane.id, name: 'Other', color: '#123456', hotkey: 'Ж' }), 409)).code, 'HOTKEY_TAKEN');
+  await json(await del(`/api/stream-tags/tags/${t.id}`));
+  await json(await del(`/api/stream-tags/lanes/${lane.id}`));
+  assert.ok(d);
+});
