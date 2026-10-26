@@ -1331,6 +1331,8 @@ const StageControl = (() => {
     openStage, openFromPlayer, playCollectionOnStage, stageButton, closeStage, closeStageAndStop, menu, front, setSize,
     toggleHold, setVolume, toggleMute, paintVolume: paint, key, hideRemote,
     upNextChanged, repeatChanged, showTips,
+    /** The id of the file on Stage now, or null (the Flow chart's playhead reads proxy for its time). */
+    currentId: () => (cur && cur.row ? cur.row.id : null),
     _state: () => ({ open, basic, basicHold: !!basicHold, remoteShown, mpv, cur: cur && { key: cur.key, id: cur.row && cur.row.id }, t, d, paused, hold, finished, volume, muted, note: note && note.text }),
   };
 })();

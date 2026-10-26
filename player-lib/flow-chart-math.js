@@ -14,6 +14,7 @@
    - monotonePath(pts, o)    an SVG path through [[x, y], ...]: a monotone
                              cubic (Fritsch-Carlson), so it never overshoots
                              between points (no bumps the music does not have)
+   - monotoneAt(pts, x)      the y of that same curve at x (the Flow chart's playhead)
    - tempoShare(bpm)         a BPM as 0..1 for the Tempo lane's colour
    ========================================================================= */
 
@@ -68,11 +69,9 @@ const FlowChartMath = (() => {
    * @param {{move?: boolean}} [o]  move: false continues a path (no M)
    * @returns {string}
    */
-  function monotonePath(pts, { move = true } = {}) {
+  /** Fritsch-Carlson tangents for the points (x increasing): the curve's slope at each one. */
+  function slopes(pts) {
     const n = pts.length;
-    if (!n) return '';
-    let d = move ? `M${fx(pts[0][0])},${fx(pts[0][1])}` : `L${fx(pts[0][0])},${fx(pts[0][1])}`;
-    if (n === 1) return d;
     const dx = [], s = [], m = new Array(n);
     for (let i = 0; i < n - 1; i++) {
       dx.push(pts[i + 1][0] - pts[i][0]);
@@ -86,6 +85,15 @@ const FlowChartMath = (() => {
       const a = m[i] / s[i], b = m[i + 1] / s[i], q = a * a + b * b;
       if (q > 9) { const t = 3 / Math.sqrt(q); m[i] = t * a * s[i]; m[i + 1] = t * b * s[i]; }
     }
+    return { dx, m };
+  }
+
+  function monotonePath(pts, { move = true } = {}) {
+    const n = pts.length;
+    if (!n) return '';
+    let d = move ? `M${fx(pts[0][0])},${fx(pts[0][1])}` : `L${fx(pts[0][0])},${fx(pts[0][1])}`;
+    if (n === 1) return d;
+    const { dx, m } = slopes(pts);
     for (let i = 0; i < n - 1; i++) {
       const h = dx[i] / 3;
       d += ` C${fx(pts[i][0] + h)},${fx(pts[i][1] + m[i] * h)} ${fx(pts[i + 1][0] - h)},${fx(pts[i + 1][1] - m[i + 1] * h)} ${fx(pts[i + 1][0])},${fx(pts[i + 1][1])}`;
@@ -93,10 +101,30 @@ const FlowChartMath = (() => {
     return d;
   }
 
+  /**
+   * The y of monotonePath's curve at x (the same cubic: Bezier handles at a
+   * third of each step are the Hermite form of these tangents). Outside the
+   * points: the nearest end. sl: slopes(pts), when the caller keeps it.
+   */
+  function monotoneAt(pts, x, sl = null) {
+    const n = pts.length;
+    if (!n) return NaN;
+    if (n === 1 || x <= pts[0][0]) return pts[0][1];
+    if (x >= pts[n - 1][0]) return pts[n - 1][1];
+    const { dx, m } = sl || slopes(pts);
+    let i = 0;
+    while (i < n - 2 && x > pts[i + 1][0]) i++;
+    const h = dx[i];
+    if (!h) return pts[i][1];
+    const t = (x - pts[i][0]) / h, t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * pts[i][1] + (t3 - 2 * t2 + t) * h * m[i]
+      + (-2 * t3 + 3 * t2) * pts[i + 1][1] + (t3 - t2) * h * m[i + 1];
+  }
+
   /** 70 BPM (calm) .. 170 BPM (fast) as 0..1. */
   const tempoShare = (bpm) => clamp01((bpm - 70) / 100);
 
-  return { yRange, filePoints, smoothed, monotonePath, tempoShare };
+  return { yRange, filePoints, smoothed, slopes, monotonePath, monotoneAt, tempoShare };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = FlowChartMath;

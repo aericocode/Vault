@@ -91,6 +91,30 @@ test('monotonePath: through every point, never past the points either side of a 
   assert.match(M.monotonePath([[1, 1], [2, 2]], { move: false }), /^L1,1 C/);
 });
 
+test('monotoneAt: the y of the very curve monotonePath draws (the playhead rides it)', () => {
+  const pts = [[0, 50], [10, 10], [20, 12], [30, 80], [40, 80], [50, 0]];
+  // Points along the drawn Bezier path, against monotoneAt at their x.
+  const nums = M.monotonePath(pts).match(/-?[\d.]+/g).map(Number);
+  let [x, y] = nums.slice(0, 2);
+  for (let i = 2; i + 6 <= nums.length; i += 6) {
+    const [x1, y1, x2, y2, x3, y3] = nums.slice(i, i + 6);
+    for (let k = 0; k <= 10; k++) {
+      const t = k / 10, u = 1 - t;
+      const bx = u * u * u * x + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3;
+      const by = u * u * u * y + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3;
+      assert.ok(Math.abs(M.monotoneAt(pts, bx) - by) < 0.15, `at x ${bx}: ${M.monotoneAt(pts, bx)} vs drawn ${by}`);
+    }
+    x = x3; y = y3;
+  }
+  // Through every point; the ends outside; a flat stretch stays flat; with kept slopes the same.
+  for (const [px, py] of pts) assert.ok(Math.abs(M.monotoneAt(pts, px) - py) < 1e-9);
+  assert.strictEqual(M.monotoneAt(pts, -5), 50);
+  assert.strictEqual(M.monotoneAt(pts, 99), 0);
+  assert.strictEqual(M.monotoneAt([[0, 5], [10, 5], [20, 5]], 13), 5);
+  assert.strictEqual(M.monotoneAt(pts, 23, M.slopes(pts)), M.monotoneAt(pts, 23));
+  assert.ok(Number.isNaN(M.monotoneAt([], 1)));
+});
+
 test('tempoShare: 70 BPM calm .. 170 fast, clamped', () => {
   assert.strictEqual(M.tempoShare(70), 0);
   assert.strictEqual(M.tempoShare(120), 0.5);

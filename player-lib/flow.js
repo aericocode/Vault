@@ -105,6 +105,7 @@ const Flow = (() => {
   }
 
   async function toggle(cid) {
+    phStart();
     if (st.open && st.cid === cid) { close(); return; }
     if (st.cid !== cid) reset();
     st.cid = cid;
@@ -685,19 +686,158 @@ const Flow = (() => {
     if (nowI >= 0) svg += `<circle class="flow-now-dot" cx="${f1(cx(nowI))}" cy="5" r="3"><title>Playing now</title></circle>`;
 
     if (lanes.length) svg += lanesSvg(lanes, order, { L, step, laneY, dense });
+    // The playhead (moved by phPlace only; hidden until something of this order plays).
+    svg += `<g class="flow-playhead" visibility="hidden" pointer-events="none"><line class="flow-ph-line" x1="0" x2="0" y1="0" y2="${H}"/><circle class="flow-ph-glow" r="8"/><circle class="flow-ph-dot" r="4"/></g>`;
 
     const label = `Energy across the ${st.order ? 'Flow' : 'playlist'} order, ${pct(lo)} to ${pct(hi)}`;
     wrap.querySelector('.flow-chart-svg').innerHTML = `<svg class="flow-chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${svg}</svg>`;
-    st.geom = { W, H, L, R, TOP, PH, step, n, order, dense, lo, hi, hand };
+    st.geom = { W, H, L, R, TOP, PH, step, n, order, dense, lo, hi, hand, gap, y };
     namesRow(wrap, order, { L, step, dense, nowI });
     if (st.hot >= n) st.hot = -1;
     showHot(st.hot);
+    phTick();
     // Measured while the page may still be settling (a scrollbar coming or
     // going): look again once it has, and redraw if the width moved.
     requestAnimationFrame(() => {
       const w = document.getElementById('flowChartWrap');
       if (w && w.clientWidth !== st.drawnW && st.open && isMine()) drawChart();
     });
+  }
+
+  /* ── The playhead ───────────────────────────────────────────────────
+     While a file of the shown order plays (on Stage, Basic Stage, the
+     player or the mini player), a dot rides its line: across its column by
+     the time played, up and down on the same smoothed monotone curve the
+     chart draws (FlowChartMath.monotoneAt), with a faint line through the
+     column. No music: on its dotted line. A file with no line: the column
+     line only. Not in the shown order: nothing.
+
+     Only the dot's own element moves: a check every PH_TICK_MS (and on
+     play / pause / seek) finds what plays and where; while it plays, a
+     requestAnimationFrame loop moves the dot between position reports
+     (mpv reports a few times a second). The loop stops while paused, when
+     the panel is closed or hidden, and when the tab is hidden. The dot lets
+     clicks through, so clicking it jumps to the file like its column. */
+
+  const PH_TICK_MS = 400;
+  const ph = { timer: null, raf: 0, src: null, raw: NaN, t0: 0, wall: 0, d: 0, paused: true, key: null, index: -1, curve: null };
+
+  /** What plays now, and its clock: { id, el } (el has currentTime, duration, paused), or null. */
+  function playSource() {
+    const stage = typeof StageControl !== 'undefined' ? StageControl : null;
+    // Stage (mpv): its proxy carries the clock the Stage bar shows.
+    if (stage && stage.isOpen() && !stage.basicOn() && typeof stage.currentId === 'function') {
+      const id = stage.currentId();
+      return id ? { id, el: stage.proxy } : null;
+    }
+    // The player, the mini player, Basic Stage: the page's own media element.
+    if (typeof currentMediaState === 'undefined' || !currentMediaState) return null;
+    const el = currentMediaState.element;
+    if (!el || !el.isConnected || typeof el.currentTime !== 'number' || !(el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) return null;
+    const id = currentMediaState.playbackMediaId || (currentMediaState.currentMediaData && currentMediaState.currentMediaData.id) || null;
+    return id ? { id, el } : null;
+  }
+
+  /** Read the clock; a new reading re-anchors the interpolation. */
+  function phRead(src) {
+    const el = src.el;
+    const raw = Number(el.currentTime) || 0;
+    if (src.el !== (ph.src && ph.src.el) || src.id !== (ph.src && ph.src.id) || raw !== ph.raw) {
+      ph.raw = raw; ph.t0 = raw; ph.wall = performance.now();
+    }
+    ph.src = src;
+    ph.d = Number(el.duration) > 0 && Number.isFinite(Number(el.duration)) ? Number(el.duration) : 0;
+    ph.paused = !!el.paused || !!el.ended;
+  }
+
+  /** Seconds played now: the last reading, carried forward while playing (never more than 2 s ahead). */
+  function phTime() {
+    if (ph.paused) return ph.t0;
+    const t = ph.t0 + Math.min(2, (performance.now() - ph.wall) / 1000);
+    return ph.d > 0 ? Math.min(ph.d, t) : t;
+  }
+
+  function phHide() {
+    const g = document.querySelector('#flowChartWrap .flow-playhead');
+    if (g) g.setAttribute('visibility', 'hidden');
+  }
+
+  /** Put the dot where the playing file is now. */
+  function phPlace() {
+    const g = st.geom;
+    const node = document.querySelector('#flowChartWrap .flow-playhead');
+    if (!g || !node || !ph.src) { phHide(); return; }
+    // Where the file is in the shown order (looked up again only when the chart or the file changes).
+    const key = `${ph.src.id}|${g.order.length}|${g.W}|${g.lo}|${g.hi}|${st.order}`;
+    if (ph.key !== key || ph.geom !== g) {
+      ph.key = key; ph.geom = g;
+      ph.index = g.order.indexOf(ph.src.id);
+      ph.curve = null;
+      if (ph.index >= 0) {
+        const f = st.byId.get(ph.src.id);
+        const x0 = g.L + ph.index * g.step + g.gap, x1 = g.L + (ph.index + 1) * g.step - g.gap;
+        let pts = null, flat = null;
+        if (drawable(f) && f.music && !g.dense) pts = FlowChartMath.filePoints(f).map(([t, e]) => [x0 + (x1 - x0) * t, g.y(e)]);
+        else if (drawable(f)) flat = g.y(f.em);                      // no music (a dotted line), or one simplified path
+        ph.curve = { x0, x1, pts, sl: pts ? FlowChartMath.slopes(pts) : null, flat };
+      }
+    }
+    if (ph.index < 0 || !ph.curve) { phHide(); return; }
+    const c = ph.curve;
+    const p = ph.d > 0 ? Math.max(0, Math.min(1, phTime() / ph.d)) : 0;
+    const x = c.x0 + (c.x1 - c.x0) * p;
+    const yv = c.pts ? FlowChartMath.monotoneAt(c.pts, x, c.sl) : c.flat;
+    const [line, glow, dot] = node.children;
+    line.setAttribute('x1', f1(x)); line.setAttribute('x2', f1(x));
+    const show = yv != null && Number.isFinite(yv) ? 'visible' : 'hidden';
+    for (const ci of [glow, dot]) { ci.setAttribute('cx', f1(x)); ci.setAttribute('cy', f1(yv || 0)); ci.setAttribute('visibility', show); }
+    node.setAttribute('visibility', 'visible');
+  }
+
+  function phFrame() {
+    ph.raf = 0;
+    if (!phShouldRun()) { phPlace(); return; }
+    phRead(ph.src);
+    phPlace();
+    ph.raf = requestAnimationFrame(phFrame);
+  }
+
+  function phShouldRun() {
+    return !!(ph.src && !ph.paused && !document.hidden && st.open && isMine() && st.geom && ph.index >= 0
+      && document.getElementById('flowChartWrap') && panel() && !panel().hidden);
+  }
+
+  /** Find what plays, mark it, place the dot, and run or stop the loop. */
+  function phTick() {
+    const on = st.open && isMine() && !!st.geom && !document.hidden;
+    const src = on ? playSource() : null;
+    if (on) {
+      const stageOpen = typeof StageControl !== 'undefined' && StageControl.isOpen();
+      // The name highlight follows what plays (Stage also tells stageCurrent).
+      const id = src ? src.id : null;
+      if ((src || !stageOpen) && id !== st.nowId) { st.nowId = id; scheduleDraw(); }
+    }
+    if (!src) {
+      ph.src = null;
+      if (ph.raf) { cancelAnimationFrame(ph.raf); ph.raf = 0; }
+      phHide();
+      return;
+    }
+    phRead(src);
+    phPlace();
+    if (phShouldRun()) { if (!ph.raf) ph.raf = requestAnimationFrame(phFrame); }
+    else if (ph.raf) { cancelAnimationFrame(ph.raf); ph.raf = 0; }
+  }
+
+  function phStart() {
+    if (ph.timer) return;
+    ph.timer = setInterval(() => { if (st.open) phTick(); else if (ph.raf || ph.src) phTick(); }, PH_TICK_MS);
+    // Play, pause and seeks answer at once, not at the next check.
+    for (const ev of ['play', 'pause', 'seeked', 'ended', 'loadedmetadata']) document.addEventListener(ev, () => { if (st.open) phTick(); }, true);
+    if (typeof StageControl !== 'undefined' && StageControl.proxy) {
+      for (const ev of ['play', 'pause', 'durationchange', 'ended']) StageControl.proxy.addEventListener(ev, () => { if (st.open) phTick(); });
+    }
+    document.addEventListener('visibilitychange', () => phTick());
   }
 
   function namesRow(wrap, order, { L, step, dense, nowI }) {

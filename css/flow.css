@@ -128,6 +128,10 @@
 .flow-chart .flow-badge circle { fill: var(--bg-secondary); stroke: var(--flow-bad); stroke-width: 1.5; }
 .flow-chart .flow-badge text { font-size: 9.5px; font-weight: 700; fill: var(--flow-bad); }
 .flow-chart .flow-now-dot { fill: var(--accent); }
+/* The playhead: rides the playing file's line (flow.js phPlace) */
+.flow-chart .flow-ph-line { stroke: var(--accent); stroke-width: 1; opacity: 0.35; }
+.flow-chart .flow-ph-glow { fill: var(--accent); opacity: 0.28; }
+.flow-chart .flow-ph-dot { fill: var(--accent-hover); stroke: #fff; stroke-width: 1.25; }
 .flow-chart .flow-lane-empty { fill: var(--flow-lane-empty); }
 .flow-chart .flow-lane-label { font-size: 9.5px; font-weight: 600; fill: var(--text-secondary); pointer-events: auto; }
 
