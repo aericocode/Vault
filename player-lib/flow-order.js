@@ -5,7 +5,11 @@
 
    A file's features (from media_flow, lib/flow/analyze.js):
      { id, measured, music, es, em, ee (energy 0..1 at start, middle, end),
-       bs, bm, be (BPM at start, middle, end, or null) }
+       bs, bm, be (BPM at start, middle, end, or null),
+       env (optional: the energy envelope, [[t, e], ...] with t 0..1 where in
+       the file and e 0..1 on the same scale, about 10 points; absent for a row
+       measured before it existed, which the chart draws from es, em, ee),
+       name (optional: the file name, for the chart) }
 
    - SHAPES, shapeLabel(k)       the shapes you pick from
    - targetsFor(shape, feats)    the energy each position aims for, across the
@@ -16,6 +20,7 @@
    - summary(feats, order)       the hand-overs of an order, and its jumps
    - flowShuffle(feats, o)       a shuffle that leans toward good hand-overs
    - flowText(f)                 "128 BPM · energy high" (the Stage bar)
+   - parseEnv(text)              media_flow.env as the features' env (2 decimals), or null
 
    The cost of an order:
      sum over neighbours of handoverCost(end of A, start of B)
@@ -400,6 +405,20 @@ const FlowOrder = (() => {
     return `${bpmText(f)} BPM · energy ${energyWord(f.em)}`;
   }
 
+  /** media_flow.env (JSON pairs) as the features carry it: rounded to 2 decimals, or null. */
+  function parseEnv(text) {
+    if (!text) return null;
+    let a;
+    try { a = typeof text === 'string' ? JSON.parse(text) : text; } catch { return null; }
+    if (!Array.isArray(a) || a.length < 2) return null;
+    const out = [];
+    for (const p of a) {
+      if (!Array.isArray(p) || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null;
+      out.push([Math.round(p[0] * 100) / 100, Math.round(p[1] * 100) / 100]);
+    }
+    return out;
+  }
+
   /** A media_flow row (or null) as features. */
   function fromRow(id, row) {
     if (!row || row.error) return { id, measured: false, failed: !!(row && row.error), music: false, es: 0, em: 0, ee: 0, bs: null, bm: null, be: null };
@@ -409,13 +428,15 @@ const FlowOrder = (() => {
       noSound: !!row.no_audio || row.lufs == null,
       es: row.e_start ?? 0, em: row.e_mid ?? 0, ee: row.e_end ?? 0,
       bs: row.bpm_start, bm: row.bpm_mid, be: row.bpm_end, lufs: row.lufs,
+      ...withEnv(row.env),
     };
   }
+  const withEnv = (text) => { const env = parseEnv(text); return env ? { env } : {}; };
 
   return {
     SHAPES, SHAPE_KEYS, NEUTRAL, SMOOTH, NOTICEABLE,
     shapeLabel, isShape, curve, targetsFor, tempoRatio, handoverCost, grade, planOrder, summary,
-    flowShuffle, pickFrom, seeded, energyWord, bpmText, flowText, fromRow, totalCost,
+    flowShuffle, pickFrom, seeded, energyWord, bpmText, flowText, fromRow, parseEnv, totalCost,
   };
 })();
 

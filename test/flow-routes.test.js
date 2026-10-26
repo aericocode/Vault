@@ -89,7 +89,7 @@ test('GET /api/flow/collections/:id: Build up orders by energy, talk placed by s
   assert.deepStrictEqual(j.playlistOrder, ids);
   assert.strictEqual(j.targets.length, 6);
   assert.strictEqual(j.handovers.length, 5);
-  assert.deepStrictEqual(j.counts, { total: 6, measurable: 5, measured: 5, music: 4, noMusic: 1, failed: 0, left: 0, max: 5000, tooMany: false });
+  assert.deepStrictEqual(j.counts, { total: 6, measurable: 5, measured: 5, music: 4, noMusic: 1, failed: 0, left: 0, stale: 0, max: 5000, tooMany: false });
   const pic = j.features.find(f => f.id === ids[5]);
   assert.strictEqual(pic.kind, 'other');
 });
@@ -109,6 +109,40 @@ test('GET /api/flow/media/:id: the Stage bar line', async () => {
   assert.strictEqual(j.text, '140 BPM · energy high');
   assert.strictEqual((await (await get(`/api/flow/media/${ids[4]}`)).json()).text, 'no music');
   assert.strictEqual((await get('/api/flow/media/99999')).status, 404);
+});
+
+test("the chart's data: each file's name, and its envelope (2 decimals) when it has one", async () => {
+  const d = db.get();
+  d.prepare('UPDATE media_flow SET env = ? WHERE media_id = ?').run('[[0.05,0.8123],[0.5,0.9],[0.95,0.886]]', ids[0]);
+  // A shape not asked for yet (the order cache knows nothing of a direct write).
+  const j = await (await get(`/api/flow/collections/${coll}?shape=steady`)).json();
+  const f0 = j.features.find(f => f.id === ids[0]);
+  assert.deepStrictEqual(f0.env, [[0.05, 0.81], [0.5, 0.9], [0.95, 0.89]]);
+  assert.strictEqual(f0.name, 'f0.mp4');
+  const f1 = j.features.find(f => f.id === ids[1]);
+  assert.ok(!('env' in f1), 'no envelope: the chart draws start, middle and end');
+  assert.strictEqual(j.features.find(f => f.id === ids[5]).name, 'f5.mp4');
+  d.prepare('UPDATE media_flow SET env = NULL WHERE media_id = ?').run(ids[0]);
+});
+
+test('a row from the previous method (no envelope) is used meanwhile, counted stale, and measured again', async () => {
+  const d = db.get();
+  d.prepare('UPDATE media_flow SET version = 2 WHERE media_id = ?').run(ids[2]);
+  await new Promise(res => setTimeout(res, 1100));             // the counts cache
+  const j = await (await get(`/api/flow/collections/${coll}?shape=peak`)).json();
+  assert.strictEqual(j.counts.measured, 5);
+  assert.strictEqual(j.counts.stale, 1);
+  assert.strictEqual(j.counts.left, 0);
+  const f2 = j.features.find(f => f.id === ids[2]);
+  assert.strictEqual(f2.measured, true);
+  assert.strictEqual(f2.em, 0.5);
+  const m = await (await post(`/api/flow/collections/${coll}/measure`)).json();
+  assert.strictEqual(m.added, 1, 'queued to be measured again');
+  // The file is not on disk: wait for that answer, then put the row back.
+  const t0 = Date.now();
+  while (store.get(d, ids[2]) && store.get(d, ids[2]).stale && Date.now() - t0 < 5000) await new Promise(res => setTimeout(res, 50));
+  await new Promise(res => setTimeout(res, 300));
+  store.save(d, ids[2], store.srcOf({ filesize_bytes: 1000, file_mtime_ms: 5 }), { lufs: -20, peak_db: -6, has_music: 1, e_start: 0.5, e_mid: 0.5, e_end: 0.5, bpm_start: 120, bpm_mid: 120, bpm_end: 120, bpm_conf: 0.9 });
 });
 
 test('measure: queues only what is not measured; status counts it', async () => {
