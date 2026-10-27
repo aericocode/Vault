@@ -196,6 +196,11 @@ function dockInfoOpen() {
 }
 function dockInfoToggled(el) {
   try { localStorage.setItem(DOCK_INFO_KEY, el.open ? '1' : '0'); } catch {}
+  // What dockPatchParts compares against says open or closed too: follow the
+  // click, so a same-file update does not rebuild the part (and drop focus).
+  if (typeof el._dockHtml === 'string') {
+    el._dockHtml = el._dockHtml.replace(/(data-dock-part="info")( open)?/, el.open ? '$1 open' : '$1');
+  }
 }
 
 /** The pane for one file as [part name, outer HTML] in order, top to bottom. */

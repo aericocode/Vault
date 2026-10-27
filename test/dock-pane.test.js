@@ -136,3 +136,14 @@ test('File info and path: storage that throws is closed, and toggling does not t
   assert.doesNotThrow(() => D.dockInfoToggled({ open: true }));
   assert.doesNotMatch(D.dockPartsHtml(FILE).find(([k]) => k === 'info')[1], / open /);
 });
+
+test('File info and path: a toggle keeps the saved HTML in step, so a same-file update leaves it alone', () => {
+  const D = load();
+  const html = D.dockPartsHtml(FILE).find(([k]) => k === 'info')[1];
+  const el = { open: true, _dockHtml: html };
+  D.dockInfoToggled(el);
+  assert.strictEqual(el._dockHtml, D.dockPartsHtml(FILE).find(([k]) => k === 'info')[1], 'opened: matches what a repaint would make');
+  el.open = false;
+  D.dockInfoToggled(el);
+  assert.strictEqual(el._dockHtml, html, 'closed again: back to the closed HTML');
+});
