@@ -319,3 +319,16 @@ test('ffmpeg or ffprobe that cannot be started: code SPAWN, said as such (not as
     await assert.rejects(dsp.extractPCM(f, { duration: 1 }), (e) => e.code === 'SPAWN' && /^couldn't run ffmpeg \(ENOENT\)$/.test(e.message));
   } finally { locate.resolve = real; }
 });
+
+const haveFfprobe = require('node:child_process').spawnSync('ffprobe', ['-version']).status === 0;
+test('a file ffprobe cannot read: DECODE with ffprobe\'s own last line, not a generic failure', { skip: !haveFfprobe && 'ffprobe not on PATH' }, async () => {
+  const dsp = require('../lib/audio/dsp');
+  const f = path.join(tmp, 'junk.mp4');
+  fs.writeFileSync(f, Buffer.alloc(4096, 7));
+  await assert.rejects(dsp.probeAudio(f), (e) => {
+    assert.strictEqual(e.code, 'DECODE');
+    assert.match(e.message, /Invalid data|could not find|moov atom/i);
+    assert.doesNotMatch(e.message, /^ffprobe failed/);
+    return true;
+  });
+});
