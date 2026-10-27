@@ -1175,6 +1175,7 @@ const StageControl = (() => {
         else if (act === 'close') closeStage();
         else if (act === 'repeat') { if (typeof cycleRepeatMode === 'function') cycleRepeatMode(); }
         else if (act === 'hold') toggleHold();
+        else if (act === 'return') backToStage();
         else setSize(act);
       });
     }
@@ -1183,7 +1184,8 @@ const StageControl = (() => {
     // A bar too narrow for Repeat and Hold has them here instead (StageBarRules.layout).
     const v = typeof StageBarRules !== 'undefined' ? StageBarRules.view(barState()) : null;
     const dropped = bar() && bar().dropped ? bar().dropped() : {};
-    const extra = !v ? '' : `${dropped.repeat ? `<button type="button" role="menuitem" data-stage-act="repeat"><span class="sm-check"></span><span class="sm-l">${esc(v.repeat.label)}</span><span class="sm-s">click to change</span></button>` : ''}${dropped.hold ? `<button type="button" role="menuitem" data-stage-act="hold"><span class="sm-check" aria-hidden="true">${v.hold.on ? '✓' : ''}</span><span class="sm-l">Hold</span><span class="sm-s">${basic ? 'pause and mute' : 'black and silent'} (H)</span></button>` : ''}`;
+    const backItem = dropped.back && canGoBack() ? `<button type="button" role="menuitem" data-stage-act="return"><span class="sm-check" aria-hidden="true">↩</span><span class="sm-l">Back to Stage</span><span class="sm-s">where it is playing from</span></button>` : '';
+    const extra = !v ? '' : `${backItem}${dropped.repeat ? `<button type="button" role="menuitem" data-stage-act="repeat"><span class="sm-check"></span><span class="sm-l">${esc(v.repeat.label)}</span><span class="sm-s">click to change</span></button>` : ''}${dropped.hold ? `<button type="button" role="menuitem" data-stage-act="hold"><span class="sm-check" aria-hidden="true">${v.hold.on ? '✓' : ''}</span><span class="sm-l">Hold</span><span class="sm-s">${basic ? 'pause and mute' : 'black and silent'} (H)</span></button>` : ''}`;
     el.innerHTML = basic ? `
       <div class="sm-h">Basic Stage</div>
       <button type="button" role="menuitem" data-stage-act="front"><span class="sm-check"></span><span class="sm-l">Show the picture-in-picture window</span></button>

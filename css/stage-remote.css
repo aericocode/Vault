@@ -133,6 +133,7 @@ body.layout-modern .sb-sub { color: #8b8b97; }
   flex: none;
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   height: 20px;
   padding: 0 8px;
   border-radius: 99px;
@@ -151,8 +152,10 @@ body.layout-modern .sb-sub { color: #8b8b97; }
 .sb-chip:focus-visible { outline: 2px solid var(--accent-hover, #818cf8); outline-offset: 2px; }
 .sb-chip.sb-reopen { border-color: rgba(234, 179, 8, 0.6); background: rgba(234, 179, 8, 0.12); color: #fcd34d; }
 .sb-chip.sb-reopen:hover { background: rgba(234, 179, 8, 0.3); color: #fff; }
-/* A narrow bar keeps the arrow only (StageBarRules.layout backLabel) */
+/* A narrow bar keeps the arrow only (StageBarRules.layout backLabel); one
+   too narrow to centre has Back to Stage in the Stage menu instead */
 .stage-bar.sb-no-backlabel .sb-return-label { display: none; }
+.stage-bar.sb-no-back #stageBarReturn { display: none; }
 
 /* Middle: the transport, the seek bar under it */
 .sb-mid { display: grid; gap: 3px; min-width: 0; }

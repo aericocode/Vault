@@ -25,7 +25,7 @@ const R = require('../player-lib/stage-bar.js');
 /* Sizes as measured in each look (Classic's buttons carry a border and emoji glyphs). */
 const SIZES = { right: 380, unLabel: 58, volSlider: 76, repeat: 38, hold: 38, ctrls: 190, skip: 76, times: 84, pad: 28, gap: 14 };
 const SIZES_CLASSIC = { ...SIZES, right: 374, ctrls: 196, unLabel: 56 };
-const ALL = { countTime: true, count: true, skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true, backLabel: true };
+const ALL = { countTime: true, count: true, skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true, back: true, backLabel: true };
 
 /** What a plan takes up: [right cluster, transport row, seek row]. */
 function used(l, m) {
@@ -51,16 +51,16 @@ test('layout: the transport is in the middle of the window: both sides the same 
   assert.deepStrictEqual(R.layout(1100, SIZES).show, ALL, '1100: everything');
 });
 
-test('layout: narrower bars drop the track count (its time first), the 10 s buttons, then the Up next word, then the volume slider, then the times, Repeat and Hold, before the seek bar gives way', () => {
+test('layout: narrower bars drop the 10 s buttons, then the Up next word, the track count (its time first), then the volume slider, then the times, Repeat and Hold, before the seek bar gives way', () => {
   const noCount = { countTime: false, count: false };
-  assert.deepStrictEqual(R.layout(1000, SIZES).show, { ...ALL, ...noCount, skip: false, unLabel: false });
+  assert.deepStrictEqual(R.layout(1000, SIZES).show, { ...ALL, skip: false, unLabel: false });
   assert.deepStrictEqual(R.layout(900, SIZES).show, { ...ALL, ...noCount, skip: false, unLabel: false, volSlider: false });
   assert.strictEqual(R.layout(900, SIZES).seek, R.seekWant(900), 'the seek bar keeps the width it wants while pieces can still go');
   assert.deepStrictEqual(R.layout(760, SIZES).show, { ...ALL, ...noCount, skip: false, unLabel: false, volSlider: false, times: false, backLabel: false });
-  const none = { countTime: false, count: false, skip: false, unLabel: false, volSlider: false, times: false, repeat: false, hold: false, backLabel: false };
+  const none = { countTime: false, count: false, skip: false, unLabel: false, volSlider: false, times: false, repeat: false, hold: false, back: true, backLabel: false };
   assert.deepStrictEqual(R.layout(600, SIZES).show, { ...none, thumb: true, hold: true });
   // Too narrow to centre at all: everything optional gone, the seek bar at its minimum, nothing overflows
-  assert.deepStrictEqual(R.layout(480, SIZES), { show: { ...none, thumb: false }, mid: null, seek: R.SEEK_MIN, side: null });
+  assert.deepStrictEqual(R.layout(480, SIZES), { show: { ...none, thumb: false, back: false }, mid: null, seek: R.SEEK_MIN, side: null }, 'Back to Stage goes into the Stage menu');
   assert.deepStrictEqual(R.layout(0), { show: ALL, mid: null, seek: null, side: null }, 'not measured yet: everything');
   assert.ok(R.layout(1100).mid > 0, 'the nominal sizes stand in before the bar is measured');
 });
@@ -402,7 +402,7 @@ test('a narrow bar has Repeat and Hold in the Stage menu instead; dropped() says
   const p = fakePage();
   p.els.stageBar.clientWidth = 390;
   p.SB.show();
-  assert.deepStrictEqual({ ...p.SB.dropped() }, { countTime: true, count: true, skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true, backLabel: true });
+  assert.deepStrictEqual({ ...p.SB.dropped() }, { countTime: true, count: true, skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true, back: true, backLabel: true });
   for (const c of ['sb-no-times', 'sb-no-repeat', 'sb-no-hold']) assert.ok(p.els.stageBar._cls.has(c), c);
   p.SB.hide();
   assert.deepStrictEqual({ ...p.SB.dropped() }, {}, 'nothing while hidden');
@@ -567,7 +567,7 @@ test('Basic Stage: a video already known not to play here is not tried: a pick o
 
 /* ── Back to Stage and the track count ─────────────────────────────────── */
 
-test('layout: the track count goes first (its time, then the rest), before the 10 s buttons; Back to Stage keeps its words only on a wide bar', () => {
+test('layout: the track count goes after the 10 s buttons and the Up next word (its time, then the rest), before the volume slider; Back to Stage keeps its words only on a wide bar', () => {
   // As measured with "Track 12 of 40 · 2:14:30 left" showing (the right cluster holds it).
   const M = { ...SIZES, right: SIZES.right + 176, count: 176, countTime: 92 };
   const at = (w) => R.layout(w, M).show;
@@ -575,9 +575,9 @@ test('layout: the track count goes first (its time, then the rest), before the 1
   const w1 = [...Array(200).keys()].map(k => 2000 - 5 * k).find(w => !at(w).countTime);
   assert.ok(w1, 'the time goes at some width');
   assert.strictEqual(at(w1).count, true, 'the count stays when only its time goes');
-  assert.strictEqual(at(w1).skip, true, 'before anything else');
+  assert.deepStrictEqual([at(w1).skip, at(w1).unLabel, at(w1).volSlider], [false, false, true], 'after the 10 s buttons and the Up next word, before the volume slider');
   const w2 = [...Array(400).keys()].map(k => w1 - 5 * k).find(w => !at(w).count);
-  assert.strictEqual(at(w2).skip, true, 'the whole count goes before the 10 s buttons');
+  assert.strictEqual(at(w2).volSlider, true, 'the whole count goes before the volume slider');
   // Every column still holds its content with the count in it.
   for (let w = 520; w <= 2000; w += 10) {
     const l = R.layout(w, M);
@@ -586,7 +586,7 @@ test('layout: the track count goes first (its time, then the rest), before the 1
     for (const k of ['unLabel', 'volSlider', 'repeat', 'hold']) if (!l.show[k]) right -= M[k];
     if (l.mid != null) assert.ok(l.side >= right, `${w}: ${l.side} >= ${right}`);
   }
-  assert.deepStrictEqual(R.DROP_ORDER.slice(0, 3), ['countTime', 'count', 'skip']);
+  assert.deepStrictEqual(R.DROP_ORDER.slice(0, 5), ['skip', 'unLabel', 'countTime', 'count', 'volSlider']);
   assert.strictEqual(R.layout(R.BACK_LABEL_WIDTH, M).show.backLabel, true);
   assert.strictEqual(R.layout(R.BACK_LABEL_WIDTH - 1, M).show.backLabel, false, 'narrower: just the arrow');
   const css = read('css/stage-remote.css');
@@ -607,6 +607,9 @@ test('view: Back to Stage, the track count and Basic\'s reopen button; a lock hi
   const html = read('db-viewer.html');
   assert.match(html, /id="stageBarReturn" data-sb-act="return"[^>]*hidden>.*↩.*Back to Stage/);
   assert.match(html, /id="stageBarReopen" data-sb-act="reopen" hidden>Picture-in-picture closed, click to reopen</);
+  // Too narrow to centre: Back to Stage is in the Stage menu instead.
+  assert.match(read('player-lib/stage-control.js'), /dropped\.back && canGoBack\(\) \? .*data-stage-act="return"/);
+  assert.match(read('player-lib/stage-control.js'), /else if \(act === 'return'\) backToStage\(\);/);
   // The count sits left of + Tag.
   assert.ok(html.indexOf('id="stageBarCount"') < html.indexOf('id="stageBarTag"'));
   assert.ok(html.indexOf('<script src="./player-lib/stage-count.js"') < html.indexOf('<script src="./player-lib/flow.js"'), 'loads before flow.js and stage-control.js');

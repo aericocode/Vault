@@ -33,9 +33,9 @@ const StageBarRules = (() => {
      the window widens (seekWant: about 160 px at 900, 200 at 1100, 450 at
      1600, up to 560), and the middle is just wide enough for it and the
      transport. When the window is too narrow for that, the least needed
-     pieces go first, one row always: the time left by the track count, then
-     the whole count, then the 10 s buttons, then the Up next word
-     (icon and count stay), then the volume slider (the button stays), then
+     pieces go first, one row always: the 10 s buttons, then the Up next word
+     (icon and count stay), then the time left by the track count, then the
+     whole count, then the volume slider (the button stays), then
      the seek bar's times, then Repeat, then Hold (those two move into the
      Stage menu). Only with all of them gone does the seek bar get narrower
      than it wants (never under SEEK_MIN), and only when even the transport
@@ -54,7 +54,7 @@ const StageBarRules = (() => {
   const SEEK_MAX = 560;
   const THUMB_MIN = 560;              // below this the still goes (the left side is the name's)
   const NOMINAL = { right: 380, countTime: 0, count: 0, unLabel: 58, volSlider: 76, repeat: 38, hold: 38, ctrls: 190, skip: 76, times: 84, pad: 28, gap: 14 };
-  const DROP_ORDER = ['countTime', 'count', 'skip', 'unLabel', 'volSlider', 'times', 'repeat', 'hold'];
+  const DROP_ORDER = ['skip', 'unLabel', 'countTime', 'count', 'volSlider', 'times', 'repeat', 'hold'];
   // Back to Stage keeps its words on a bar at least this wide (the left side
   // then has room for the still, the pill and the button, about 300 px);
   // narrower, just its arrow. By the width, so it never comes and goes as
@@ -79,7 +79,7 @@ const StageBarRules = (() => {
   function layout(width, sizes, want) {
     const w = Number(width) || 0;
     const m = { ...NOMINAL, ...(sizes || {}) };
-    const show = { countTime: true, count: true, skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true, backLabel: true };
+    const show = { countTime: true, count: true, skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true, back: true, backLabel: true };
     if (!(w > 0)) return { show, mid: null, seek: null, side: null };
     show.thumb = w >= THUMB_MIN;
     show.backLabel = w >= BACK_LABEL_WIDTH;
@@ -99,7 +99,12 @@ const StageBarRules = (() => {
     if (space() < need()) {
       // Everything optional is gone: the seek bar gives way, down to its minimum.
       if (space() >= Math.max(ctrls, SEEK_MIN)) seek = Math.min(seek, Math.floor(space()));
-      else return { show, mid: null, seek: SEEK_MIN, side: null };
+      else {
+        // Not centred: the left part is only what is left over, too little
+        // for Back to Stage as well (it moves into the Stage menu).
+        show.back = false;
+        return { show, mid: null, seek: SEEK_MIN, side: null };
+      }
     }
     const mid = Math.max(ctrls, seek + times);
     return { show, mid, seek, side: (w - m.pad - 2 * m.gap - mid) / 2 };
@@ -315,7 +320,7 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
 
   const NO_CLASSES = {
     countTime: 'sb-no-counttime', count: 'sb-no-count', skip: 'sb-no-skip', unLabel: 'sb-no-label', volSlider: 'sb-no-volslider',
-    thumb: 'sb-no-thumb', times: 'sb-no-times', repeat: 'sb-no-repeat', hold: 'sb-no-hold', backLabel: 'sb-no-backlabel',
+    thumb: 'sb-no-thumb', times: 'sb-no-times', repeat: 'sb-no-repeat', hold: 'sb-no-hold', back: 'sb-no-back', backLabel: 'sb-no-backlabel',
   };
 
   /** The pieces' widths, with everything showing (StageBarRules.layout sizes). */
