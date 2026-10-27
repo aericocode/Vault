@@ -2464,7 +2464,10 @@ foreach ($rt in @("$env:ProgramFiles\\GPSoftware\\Directory Opus\\dopusrt.exe",
     Start-Sleep -Milliseconds 50
   }
   try {
-    [xml]$x = Get-Content $tmp -Raw
+    # Load() reads the file as its XML declaration says (UTF-8): Get-Content would
+    # read it as the ANSI code page and garble names with emoji or other scripts.
+    $x = New-Object xml
+    $x.Load($tmp)
     foreach ($tabItems in @($x.results.items)) {
       $sel = @()
       foreach ($it in @($tabItems.item)) { if ($it.sel -eq '1' -and $it.path) { $sel += $it.path } }
@@ -2501,7 +2504,12 @@ try {
 
 # One JSON array-of-arrays on stdout (PS 5.1 may flatten singletons — the
 # server normalizes).
-if ($sources.Count) { ConvertTo-Json -Depth 3 @($sources) -Compress } else { '[]' }
+# Every non-ASCII character goes out as a \\u escape: PowerShell 5.1 writes
+# stdout in the console code page, which would turn emoji into '?', and the
+# path would then match nothing. Emoji are two UTF-16 units, escaped one by one,
+# which is still valid JSON.
+$json = if ($sources.Count) { ConvertTo-Json -Depth 3 @($sources) -Compress } else { '[]' }
+[regex]::Replace($json, '[^\\x00-\\x7F]', { param($m) '\\u{0:x4}' -f [int][char]$m.Value })
 `;
 
 // Resolver runs are short-lived (seconds, no dialog) — one at a time, killed
