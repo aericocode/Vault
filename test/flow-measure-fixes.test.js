@@ -329,6 +329,7 @@ test('a file ffprobe cannot read: DECODE with ffprobe\'s own last line, not a ge
     assert.strictEqual(e.code, 'DECODE');
     assert.match(e.message, /Invalid data|could not find|moov atom/i);
     assert.doesNotMatch(e.message, /^ffprobe failed/);
+    assert.ok(!e.message.includes(f), 'without the file path in front');
     return true;
   });
 });
