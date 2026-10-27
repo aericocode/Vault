@@ -148,6 +148,11 @@ const Flow = (() => {
     const on = st.open && isMine();
     b.classList.toggle('on', on);
     b.setAttribute('aria-pressed', String(on));
+    b.title = flowButtonTitle(on);
+    const chev = b.querySelector('.flow-chev');
+    if (chev) chev.textContent = on ? '▴' : '▾';
+    // The order bar shows Show and a sparkline only while the panel is closed.
+    if (typeof renderReorderNote === 'function') renderReorderNote();
   }
 
   /* ── Data ───────────────────────────────────────────────────────── */
@@ -529,11 +534,27 @@ const Flow = (() => {
     let status = 'Not saved';
     const d = st.data;
     if (d && d.counts && d.counts.music >= 2) status += ` · ${plural(orderSummary().jumps, 'jump', 'jumps')}, was ${d.playlistJumps.toLocaleString()}`;
+    const closed = !st.open;
+    const spark = closed ? sparkHtml() : '';
     return `<span class="flow-ob-pill">Flow order: ${esc(name)}</span>
       <span class="flow-ob-status">${esc(status)}</span>
-      <span class="flow-sp"></span>
+      ${spark || '<span class="flow-sp"></span>'}
       <button type="button" class="flow-btn flow-btn-sm" onclick="Flow.usePlaylistOrder()">Back to playlist order</button>
-      <button type="button" class="flow-btn flow-btn-sm flow-ob-save" onclick="Flow.saveOrder()">Save as playlist order</button>`;
+      <button type="button" class="flow-btn flow-btn-sm flow-ob-save" onclick="Flow.saveOrder()">Save as playlist order</button>
+      ${closed ? `<button type="button" class="flow-btn flow-btn-sm flow-ob-show" onclick="Flow.toggle(${Number(st.cid)})" title="Show the Flow panel">Show ▾</button>` : ''}`;
+  }
+
+  /** The order bar's sparkline: the working order's middle energies (decoration only). */
+  const SPARK_W = 300, SPARK_H = 24;
+  function sparkHtml() {
+    if (!st.data) return '';
+    const vals = workingOrder().map((id) => {
+      const f = st.byId.get(id);
+      return drawable(f) && f.music ? f.em : null;
+    });
+    const d = FlowChartMath.sparkPath(vals, SPARK_W, SPARK_H);
+    if (!d) return '';
+    return `<span class="flow-ob-spark" aria-hidden="true"><svg viewBox="0 0 ${SPARK_W} ${SPARK_H}" preserveAspectRatio="none" focusable="false"><path d="${d}"/></svg></span>`;
   }
 
   /* ── Tile marks ─────────────────────────────────────────────────────
@@ -713,6 +734,35 @@ const Flow = (() => {
   const NUM_PX = 22;           // px between the numbers shown
   const LANE_ROW = 14;
   const LANES_KEY = 'vault.flow.lanes';
+  const CHART_H_KEY = 'vault.flow.chartHeight';
+  const CHART_H_STEP = 10;     // px an arrow key moves the grip
+
+  /* The plot's height: the user's (the grip under the chart, remembered on
+     this computer), or by width when they have not picked one. */
+  const defaultChartH = (W) => (W < 560 ? 110 : W < 1000 ? 130 : 150);
+  let chartH = (() => {
+    try { return FlowChartMath.clampChartHeight(localStorage.getItem(CHART_H_KEY)); } catch { return null; }
+  })();
+  function setChartH(px, save) {
+    chartH = px == null ? null : FlowChartMath.clampChartHeight(px);
+    if (save) {
+      try {
+        if (chartH == null) localStorage.removeItem(CHART_H_KEY);
+        else localStorage.setItem(CHART_H_KEY, String(chartH));
+      } catch {}
+    }
+    if (st.open && isMine()) drawChart();
+    const grip = document.querySelector('#flowPanel .flow-grip');
+    if (grip) grip.setAttribute('aria-valuenow', String(currentChartH()));
+  }
+  const currentChartH = () => chartH || (st.geom ? st.geom.PH : defaultChartH(document.getElementById('flowChartWrap')?.clientWidth || 800));
+
+  function gripHtml() {
+    if (!st.data || !st.data.features.length) return '';
+    return `<div class="flow-grip" role="separator" aria-orientation="horizontal" tabindex="0"
+        aria-label="Chart height" aria-valuemin="${FlowChartMath.CHART_H_MIN}" aria-valuemax="${FlowChartMath.CHART_H_MAX}" aria-valuenow="${currentChartH()}"
+        title="Drag to make the chart taller or shorter. Double click to reset."><i></i></div>`;
+  }
 
   const eColor = (v) => `color-mix(in oklab, var(--flow-e-lo), var(--flow-e-hi) ${Math.round(Math.max(0, Math.min(1, v)) * 100)}%)`;
   const GRADE_VAR = { smooth: 'var(--flow-ok)', noticeable: 'var(--flow-warn)', jump: 'var(--flow-bad)' };
@@ -897,7 +947,7 @@ const Flow = (() => {
     const longest = lanes.reduce((m, l) => Math.max(m, Math.min(14, l.label.length)), 3);
     const L = Math.round(Math.max(30, Math.min(96, longest * 5.6 + 10)));
     const R = 8, TOP = 16;
-    const PH = W < 560 ? 110 : W < 1000 ? 130 : 150;
+    const PH = chartH || defaultChartH(W);
     const laneY = TOP + PH + 10;
     const H = laneY + lanes.length * LANE_ROW + (lanes.length ? 0 : -6);
     const step = (W - L - R) / n;
@@ -1360,7 +1410,9 @@ const Flow = (() => {
     if (!el) return;
     if (!st.open || !isMine()) { el.hidden = true; el.innerHTML = ''; st.geom = null; return; }
     el.hidden = false;
-    if (tooMany()) { el.innerHTML = `<div class="flow-row"><span class="flow-title">Flow</span>${progressHtml()}</div>`; st.geom = null; return; }
+    const hideBtn = '<button type="button" class="flow-btn flow-btn-sm flow-hide" data-flow-hide title="Hide the Flow panel">Hide ▴</button>';
+    if (tooMany()) { el.innerHTML = `<div class="flow-row"><span class="flow-title">Flow</span>${progressHtml()}<span class="flow-sp"></span>${hideBtn}</div>`; st.geom = null; return; }
+    const gripFocused = !!document.activeElement?.matches?.('#flowPanel .flow-grip');
     const shapes = FlowOrder.SHAPES.map(s => `<button type="button" data-flow-shape="${s.key}" aria-pressed="${String(st.order && st.shape === s.key)}">${esc(s.label)}</button>`).join('');
     // The chart's host is kept across repaints (polls repaint often): an empty
     // host would shrink the panel for a moment, and a page scrollbar going
@@ -1379,9 +1431,11 @@ const Flow = (() => {
         ${placesHtml()}
         <span class="flow-opt"><span class="flow-seg-label">Shape</span>
         <span class="flow-seg flow-shapes" role="group" aria-label="Shape">${shapes}</span></span>
+        ${hideBtn}
       </div>
       ${lanesRowHtml()}
       ${chartHtml(!!keep)}
+      ${gripHtml()}
       <div class="flow-row">
         ${legendHtml()}
         <span class="flow-sp"></span>
@@ -1392,6 +1446,52 @@ const Flow = (() => {
     if (slot && keep) slot.replaceWith(keep);
     st.geom = null;
     drawChart();
+    if (gripFocused) el.querySelector('.flow-grip')?.focus({ preventScroll: true });
+  }
+
+  /* The grip under the chart: drag up or down for a shorter or taller chart,
+     arrows do the same from the keyboard, a double click goes back to the
+     size for the panel's width. The drag listens on the window: a poll can
+     paint the panel (and a new grip) mid drag. */
+  function wireGrip(el) {
+    el.addEventListener('pointerdown', (e) => {
+      const grip = e.target.closest('.flow-grip');
+      if (!grip || e.button !== 0) return;
+      e.preventDefault();
+      const y0 = e.clientY;
+      const h0 = currentChartH();
+      let queued = false, want = h0;
+      document.body.classList.add('flow-grip-dragging');
+      const move = (ev) => {
+        want = h0 + (ev.clientY - y0);
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(() => { queued = false; setChartH(want, false); });
+      };
+      const end = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', end);
+        window.removeEventListener('pointercancel', end);
+        document.body.classList.remove('flow-grip-dragging');
+        if (want !== h0) setChartH(want, true);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', end);
+      window.addEventListener('pointercancel', end);
+    });
+    el.addEventListener('dblclick', (e) => {
+      if (!e.target.closest('.flow-grip')) return;
+      setChartH(null, true);
+    });
+    el.addEventListener('keydown', (e) => {
+      if (!e.target.closest('.flow-grip')) return;
+      const d = e.key === 'ArrowUp' ? -CHART_H_STEP : e.key === 'ArrowDown' ? CHART_H_STEP : 0;
+      if (!d) return;
+      // The arrows are the grid's too (dock.js): this one is the grip's.
+      e.preventDefault();
+      e.stopPropagation();
+      setChartH(currentChartH() + d, true);
+    });
   }
 
   function wire() {
@@ -1410,6 +1510,7 @@ const Flow = (() => {
       const ln = e.target.closest('[data-flow-lane]');
       if (ln) { toggleLane(ln.dataset.flowLane); return; }
       if (e.target.closest('[data-flow-save]')) { saveOrder(); return; }
+      if (e.target.closest('[data-flow-hide]')) { close(); return; }
       if (e.target.closest('#flowChartWrap') && st.geom) {
         const i = colAt(e);
         if (i >= 0) revealFile(st.geom.order[i]);
@@ -1421,6 +1522,7 @@ const Flow = (() => {
       if (i !== st.hot) showHot(i);
     });
     el.addEventListener('pointerleave', () => { if (st.hot >= 0) showHot(-1); });
+    wireGrip(el);
     if (typeof ResizeObserver === 'function') {
       new ResizeObserver(() => {
         const wrap = document.getElementById('flowChartWrap');
@@ -1543,8 +1645,10 @@ window.Flow = Flow;
 function flowButtonHtml(c) {
   if (!c || c.kind === 'folder') return '';
   const on = Flow.isOpen();
-  return `<button class="coll-action coll-flow${on ? ' on' : ''}" id="collFlowBtn" aria-pressed="${on}" onclick="Flow.toggle(${c.id})" title="Order these files so each one flows into the next">Flow…</button>`;
+  const icon = typeof vaultIcon === 'function' ? vaultIcon('wave', 'modern-only vi-gap') : '';
+  return `<button class="coll-action coll-flow${on ? ' on' : ''}" id="collFlowBtn" aria-pressed="${on}" onclick="Flow.toggle(${c.id})" title="${flowButtonTitle(on)}">${icon}Flow <span class="flow-chev" aria-hidden="true">${on ? '▴' : '▾'}</span></button>`;
 }
+function flowButtonTitle(open) { return open ? 'Hide the Flow panel' : 'Show the Flow panel'; }
 function flowTileHtml(media) { return Flow.tileHtml(media); }
 function flowQueryRanked() { return Flow.queryRanked(); }
 function flowOrderOn() { return Flow.orderOn(); }

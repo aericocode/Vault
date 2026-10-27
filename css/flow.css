@@ -23,6 +23,10 @@
   background: var(--accent-bg);
   color: var(--accent-hover);
 }
+/* The Flow button: wave (Modern), "Flow", and a chevron that flips while open. */
+.coll-action.coll-flow .vi { width: 15px; height: 15px; vertical-align: -3px; }
+.coll-action.coll-flow .flow-chev { margin-left: 0.1em; font-size: 1em; line-height: 1; opacity: 0.75; }
+.coll-action.coll-flow.on .flow-chev { opacity: 1; }
 
 .flow-panel {
   display: grid;
@@ -89,6 +93,31 @@
 }
 .flow-btn:hover { border-color: var(--accent); }
 .flow-btn-sm { padding: 0.15rem 0.6rem; font-size: 0.74rem; }
+
+/* Under the chart: drag to make it taller or shorter (flow.js wireGrip). */
+.flow-grip {
+  display: grid;
+  place-items: center;
+  height: 12px;
+  margin: -4px 0 -2px;
+  border-radius: 4px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.flow-grip > i {
+  width: 36px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--text-muted);
+  opacity: 0.6;
+  transition: opacity 0.12s, background 0.12s;
+}
+.flow-grip:hover > i,
+.flow-grip:focus-visible > i,
+body.flow-grip-dragging .flow-grip > i { opacity: 1; background: var(--accent); }
+.flow-grip:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
+body.flow-grip-dragging { user-select: none; cursor: ns-resize; }
+@media (prefers-reduced-motion: reduce) { .flow-grip > i { transition: none; } }
 
 .flow-prog {
   width: 140px;
@@ -327,6 +356,10 @@ body.layout-modern .flow-tile-note { color: var(--m-muted); }
 .flow-ob-status { font-variant-numeric: tabular-nums; }
 .flow-orderbar .flow-btn-sm { padding: 0.2rem 0.65rem; }
 .flow-orderbar .flow-ob-save { border-color: color-mix(in oklab, var(--flow-e-hi) 50%, transparent); }
+/* Panel closed: a small sparkline of the order's energy, and Show. */
+.flow-ob-spark { flex: 1 1 60px; min-width: 60px; max-width: 360px; height: 22px; margin-right: auto; }
+.flow-ob-spark svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.flow-ob-spark path { fill: none; stroke: var(--flow-e-hi); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 body.layout-modern .coll-reorder-note.flow-orderbar { border-radius: var(--m-radius-sm, 8px); font-size: 12.5px; color: var(--m-text-2); }
 
 /* ── Tile marks (flow.js paintMarks): Playing / Next, progress, "3 · was 7" ── */
