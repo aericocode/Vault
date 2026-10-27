@@ -251,11 +251,12 @@ const Flow = (() => {
     // Measuring, updating measurements (stale: measured by an older method),
     // or measuring this collection's files again (Try again, Measure again).
     const active = (c.left > 0 || c.stale > 0 || (c.queued || 0) > 0) && st.status.queue.state !== 'idle';
-    // Measure again changes numbers, not counts: the chart follows each file done.
+    // Measure again and Try again change numbers and reasons, not always counts:
+    // the chart follows each of this collection's files done (and the last one).
     const moved = `${count}|${c.queued || 0}`;
-    const again = c.again > 0 && moved !== st.lastMoved;
+    const done = st.lastMoved != null && moved !== st.lastMoved;
     st.lastMoved = moved;
-    if (count !== st.lastCount || again) await refetch(!active);
+    if (count !== st.lastCount || done) await refetch(!active);
     paint();
     // Keep going while something is still being measured for this collection.
     if (active) schedulePoll();
@@ -397,6 +398,9 @@ const Flow = (() => {
     } catch (err) { toastErr(err, act === 'pause' ? 'pausing' : 'measuring for Flow'); }
     if (act !== 'pause') {
       try { st.status = await api(`/api/flow/status?collection=${st.cid}`); } catch {}
+      // What the poll compares with, so a run that is over before the first poll still refetches.
+      const c = st.status && st.status.collection;
+      if (c && !c.tooMany && act !== 'resume') st.lastMoved = `${countKey(c)}|${c.queued || 0}|asked`;
       schedulePoll();
     }
     paint();
@@ -772,7 +776,7 @@ const Flow = (() => {
     if (!st.showWhy) return '';
     const groups = failGroups();
     if (!groups.length) return '';
-    const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+    const cap = (t) => (/^ff(mpeg|probe) /.test(t) ? t : t.charAt(0).toUpperCase() + t.slice(1));
     const items = groups.map(g => {
       const more = g.n > g.names.length ? `, and ${g.n - g.names.length} more` : '';
       return `<li title="${esc(g.names.join(', ') + more)}"><span>${esc(cap(g.reason))}</span> <span class="flow-sub">${plural(g.n, 'file', 'files')}</span></li>`;
