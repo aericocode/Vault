@@ -1,6 +1,6 @@
 {
   "name": "vault",
-  "version": "3.10.0-beta.1",
+  "version": "3.10.0-beta.2",
   "description": "Local AI-powered media categorization - supports video, images, documents, and audio",
   "main": "vault.js",
   "repository": "github:aericocode/Vault",
