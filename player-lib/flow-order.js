@@ -17,6 +17,8 @@
    - SHAPES, shapeLabel(k)       the shapes you pick from
    - targetsFor(shape, feats)    the energy each position aims for, across the
                                  collection's own range (null for Smooth only)
+   - guideTargets(shape, data)   the chart's dashed guide for the shape picked
+                                 (the server's targets when they are for it)
    - handoverCost(a, b)          how well the end of a flows into the start of b
    - handover(a, b)              its grade and parts: { grade, energyGrade,
                                  tempoGrade, dE, tempoPct }
@@ -170,6 +172,22 @@ const FlowOrder = (() => {
     const out = [];
     for (let i = 0; i < n; i++) out.push(lo + (hi - lo) * curve(shape, n === 1 ? 0 : i / (n - 1)));
     return out;
+  }
+
+  /**
+   * The Flow chart's dashed guide: the targets of the shape picked now. The
+   * server's answer carries them for the shape it was asked for; an answer
+   * for another shape (one still on its way when the shape changed) gets
+   * them worked out here from its files, the same way the server does.
+   * @param {string} shape
+   * @param {{shape?: string, targets?: number[]|null, features?: object[]}|null} data
+   * @returns {number[]|null}
+   */
+  function guideTargets(shape, data) {
+    if (!data || !isShape(shape)) return null;
+    const feats = Array.isArray(data.features) ? data.features : [];
+    if (data.shape === shape && Array.isArray(data.targets) && data.targets.length === feats.length) return data.targets;
+    return targetsFor(shape, feats);
   }
 
   /**
@@ -743,7 +761,7 @@ const FlowOrder = (() => {
 
   return {
     SHAPES, SHAPE_KEYS, NEUTRAL, E_SMOOTH, E_JUMP, T_SMOOTH, T_JUMP, PLACES, resolvePlace,
-    shapeLabel, isShape, curve, targetsFor, tempoRatio, handoverCost, handover, grade, handoverText, planOrder, summary,
+    shapeLabel, isShape, curve, targetsFor, guideTargets, tempoRatio, handoverCost, handover, grade, handoverText, planOrder, summary,
     flowShuffle, pickFrom, seeded, energyWord, bpmText, flowText, fromRow, parseEnv, totalCost,
     reconcileOrder, moveBlock, parseRemembered, nextAfter,
   };

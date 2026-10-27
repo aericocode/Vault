@@ -483,3 +483,19 @@ test('nextAfter: Up next first, else the next file in the list, else none', () =
   assert.deepStrictEqual(F.nextAfter(10, { ...o, upNext: [30, 20] }), { id: 30, upNext: true });
   assert.deepStrictEqual(F.nextAfter(null, { ...o, upNext: [30] }), { id: 30, upNext: true });
 });
+
+test('guideTargets: the picked shape\'s guide, from the answer when it is for that shape, else worked out the same way', () => {
+  const f = [m(1, 0.2, 0.2, 0.2), m(2, 0.5, 0.5, 0.5), m(3, 0.9, 0.9, 0.9), talk(4), unmeasured(5)];
+  const served = { shape: 'waves', targets: F.targetsFor('waves', f).map(t => Math.round(t * 1000) / 1000), features: f };
+  // The server's own targets for the shape picked.
+  assert.strictEqual(F.guideTargets('waves', served), served.targets);
+  // An answer for another shape (or with no targets: Smooth only) still gives the picked shape's guide.
+  assert.deepStrictEqual(F.guideTargets('waves', { shape: 'smooth', targets: null, features: f }), F.targetsFor('waves', f));
+  assert.deepStrictEqual(F.guideTargets('build', served), F.targetsFor('build', f));
+  // Worked out here, it matches the server's to its rounding.
+  F.guideTargets('waves', { shape: 'build', targets: null, features: f }).forEach((t, i) => assert.ok(Math.abs(t - served.targets[i]) < 0.001));
+  // Smooth only has no guide; no answer yet, or no shape, none either.
+  assert.strictEqual(F.guideTargets('smooth', served), null);
+  assert.strictEqual(F.guideTargets('waves', null), null);
+  assert.strictEqual(F.guideTargets('nope', served), null);
+});
