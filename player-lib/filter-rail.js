@@ -160,6 +160,14 @@ function railToggle() {
   if (railOnCollections()) window.vaultSetCollFiltersOpen?.(!railCollFiltersOpen());
   else window.vaultSetRailOpen?.(!railOpenWanted());
   railSync();
+  // Filters asked for as chip rows (no rail here): they live in the search
+  // section, so a collapsed one (the Search button) opens to show them.
+  const section = document.querySelector('.search-section');
+  if (railOpenWanted() && !_railShown && section?.classList.contains('collapsed')
+      && typeof setSearchCollapsed === 'function') {
+    setSearchCollapsed(false);
+    window.vaultRelayoutLibrary?.();
+  }
 }
 
 /* ── Rendering ─────────────────────────────────────────────────────────── */

@@ -700,9 +700,10 @@ function openSearchOptionsPopover(anchor) {
 /* ── Clear filters ────────────────────────────────────────────────────── */
 
 /**
- * How many filters are narrowing the grid (search text and its options
- * aside), counted as the rail's "in use" list counts them: each set chip,
- * the type pick, the file extensions and Plays here.
+ * How many filters are narrowing the grid: each set chip, the type pick,
+ * the file extensions and Plays here. The search text and the search options
+ * (Metadata only, Fuzzy...) are left out, unlike the rail's "in use" list:
+ * they change what a search matches, they hide nothing without search text.
  */
 function activeFilterCount() {
   let n = Object.keys(FCHIP_DEFS).filter(fchipIsSet).length;
