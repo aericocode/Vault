@@ -72,15 +72,20 @@
    end's skip. Skips are whole 5 s pieces, at most a quarter of the file
    each, and only where the 15 s after them was measured.
      off    the edges as they are (exactly as before there was a setting)
-     15, 30 that many seconds each end
+     15, 30 that many seconds each end (calm or not)
      auto   per edge: the run of calm pieces from the edge, when it is
             followed by the file's body; up to 45 s. A piece is calm when
             silent, or both EDGE_CALM_E under the body's energy (the
             envelope's median, else the middle) and EDGE_CALM_LU quieter than
             the file's loudness; the 15 s after the run must be within
             EDGE_BODY_E of the body, or nothing is skipped. So a quiet song
-            (calm all through) and a song that starts soft and builds (a beat
-            a few LU under the chorus, or a slow climb) are left alone.
+            (calm all through) and a song that starts soft with its beat (a
+            few LU under the chorus) are left alone, and so is a calm run
+            that ends on more calm. A slow fade-in is mostly looked past: its
+            quiet pieces count as calm, and once the 15 s after them reach
+            the body (a 45 s climb: about 30 s in) that is the skip.
+     Wherever the mode lands, an edge whose 15 s after was not measured
+     (null) is looked at as it is.
      45 s covers a music video's intro or the credits after the song; a
      longer calm stretch is more likely part of the music, and 60 s each end
      (45 + the 15 after) is what is measured. A row without edge pieces (from
@@ -813,11 +818,13 @@ const FlowOrder = (() => {
         let run = 0;
         while (run < s.l.length && calm(run)) run++;
         n = Math.min(run, EDGE_AUTO_MAX_S / EDGE_PIECE_S, most);
-        // Past it there must be the file's body (not more calm, nor a slow climb).
+        // Past it there must be the file's body (not more calm, nor a climb still well under it).
         if (n > 0 && !(s.w[n] != null && s.w[n] >= bodyE - EDGE_BODY_E)) n = 0;
       } else {
         n = Math.min(Number(mode) / EDGE_PIECE_S, most);
       }
+      // Nothing measured after the skip: the edge as it is.
+      if (n > 0 && s.w[n] == null) n = 0;
       out[k] = n * EDGE_PIECE_S;
     }
     return out;

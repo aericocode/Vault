@@ -54,7 +54,7 @@ test('Auto: a calm intro and calm credits are looked past; their after is the bo
   assert.strictEqual(f.em, 0.6, 'the middle is not touched');
 });
 
-test('Auto leaves alone: no calm edge, a quiet song, a soft start that builds, a slow climb, no music', () => {
+test('Auto leaves alone: no calm edge, a quiet song, a soft start that builds, a calm run still well under the body, no music', () => {
   // No calm edge.
   assert.deepStrictEqual(skips(row({ d: 200, start: side(0), end: side(0) }), 'auto'), [0, 0]);
   // Calm all through: the body is calm too (energy 0.1 at -40 LUFS), so nothing is calmer than it.
@@ -64,9 +64,12 @@ test('Auto leaves alone: no calm edge, a quiet song, a soft start that builds, a
   // Starts soft with its beat (6 LU under the file, energy 0.42): not calm enough on loudness.
   const soft = side(0, { l: [-20, -20, -20, -20, -20, -14, -14, -14, -14, -14, -14, -14], e: [0.42, 0.42, 0.42, 0.42, 0.42, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6] });
   assert.deepStrictEqual(skips(row({ d: 200, start: soft, end: side(0) }), 'auto'), [0, 0]);
-  // Quiet enough, but a slow climb: the 15 s after the calm run is still well under the body.
+  // Quiet enough, but the 15 s after the calm run is still well under the body (more climb to come): nothing.
   const climb = side(3, { w: [0.1, 0.2, 0.3, 0.4, 0.45, 0.5, 0.55, 0.6, 0.6, 0.6] });
   assert.deepStrictEqual(skips(row({ d: 200, start: climb, end: side(0) }), 'auto'), [0, 0]);
+  // A slow fade-in that reaches the body: its quiet part is looked past (6 calm pieces, then the body: 30 s).
+  const fade = side(6, { e: [0.1, 0.1, 0.15, 0.2, 0.25, 0.3, 0.45, 0.55, 0.6, 0.6, 0.6, 0.6], l: [-40, -38, -36, -34, -30, -26, -20, -16, -14, -14, -14, -14], w: [0.15, 0.2, 0.25, 0.35, 0.42, 0.48, 0.55, 0.6, 0.6, 0.6] });
+  assert.deepStrictEqual(skips(row({ d: 200, start: fade, end: side(0) }), 'auto'), [30, 0]);
   // No music: looked at as it is, whatever the mode.
   for (const m of FlowOrder.EDGE_MODES) assert.deepStrictEqual(skips(row({ d: 200, start: side(4), end: side(4) }, { has_music: 0 }), m), [0, 0], m);
 });
@@ -93,6 +96,12 @@ test('15 s and 30 s: always that much, never more than a quarter of the file or 
   // Only 3 measured afters (0, 5, 10 s): 10 s at most whatever the length.
   const few = { ...side(0), w: [0.6, 0.6, 0.6], b: [128, 128, 128] };
   assert.deepStrictEqual(skips(row({ d: 200, start: few, end: few }), '30'), [10, 10]);
+  // Nothing measured after the skip (null): that edge is looked at as it is, never read as no energy.
+  const holes = { ...side(0), w: [0.6, 0.6, 0.6, null, 0.6, 0.6, null, 0.6, 0.6, 0.6] };
+  const fh = FlowOrder.fromRow(1, row({ d: 200, start: holes, end: side(0) }), '15');
+  assert.deepStrictEqual(fh.skip, [0, 15]);
+  assert.deepStrictEqual([fh.es, fh.ei, fh.bs], [0.2, 0.1, 90]);
+  assert.deepStrictEqual(skips(row({ d: 200, start: holes, end: holes }), '30'), [0, 0]);
   // A fixed skip reads the energy after it, calm edge or not.
   const f = FlowOrder.fromRow(1, row({ d: 200, start: side(6), end: side(0) }), '15');
   assert.strictEqual(f.ei, side(6).w[3]);

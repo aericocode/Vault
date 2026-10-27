@@ -30,7 +30,9 @@
    to the features (player-lib/flow-order.js, Calm edges). The chart shades
    the parts of a file Flow looks past (f.cut) and draws its line there
    dashed and dimmer; hand-overs meet the line where those parts end.
-   Changing the setting asks for the order again (flowSettingsChanged).
+   Changing the setting makes what Flow holds out of date, panel open or not
+   (flowSettingsChanged, settingsChanged): a Flow order the grid shows is
+   asked for and applied again, Flow shuffle asks afresh.
 
    Hooks other files call (guarded with typeof):
      flowButtonHtml(c)            collections.js renderCollectionHeader
@@ -849,14 +851,20 @@ const Flow = (() => {
   const GRADE_WORD = { smooth: 'Smooth hand-over', noticeable: 'Noticeable hand-over', jump: 'Jump' };
   /** A hand-over in words: "Jump: A into B. Energy drops 14 · same tempo". */
   const handTitle = (h, fa, fb, i) => `${GRADE_WORD[h.grade]}: ${shortName(fa) || `file ${i + 1}`} into ${shortName(fb) || `file ${i + 2}`}. ${FlowOrder.handoverText(fa, fb, h)}${skipNote(fa, fb)}`;
-  /** " Looks past a calm end (20 s) and a calm start (15 s)." when Flow skipped part of either side, else ''. */
+  /** Auto found the parts Flow looks past (they are calm); 15 s and 30 s skip them whatever they are. */
+  const calmSkips = () => !!(st.data && st.data.edges === 'auto');
+  /**
+   * ". Looks past a calm end (20 s) and a calm start (15 s)" when Flow skipped
+   * part of either side (". Looks past the end (15 s)..." for 15 s and 30 s), else ''.
+   */
   const skipNote = (fa, fb) => {
     const end = fa && fa.skip ? fa.skip[1] : 0, start = fb && fb.skip ? fb.skip[0] : 0;
-    const parts = [end ? `a calm end (${end} s)` : '', start ? `a calm start (${start} s)` : ''].filter(Boolean);
-    return parts.length ? ` Looks past ${parts.join(' and ')}.` : '';
+    const calm = calmSkips() ? 'a calm' : 'the';
+    const parts = [end ? `${calm} end (${end} s)` : '', start ? `${calm} start (${start} s)` : ''].filter(Boolean);
+    return parts.length ? `. Looks past ${parts.join(' and ')}` : '';
   };
   /** The chart's words for a file's ignored parts. */
-  const ignoredTitle = (f, side) => `${shortName(f) || 'This file'}: Flow looks past its ${side === 0 ? `first ${f.skip[0]} s` : `last ${f.skip[1]} s`} (a calm ${side === 0 ? 'intro' : 'end'})`;
+  const ignoredTitle = (f, side) => `${shortName(f) || 'This file'}: Flow looks past its ${side === 0 ? `first ${f.skip[0]} s` : `last ${f.skip[1]} s`}${calmSkips() ? ` (a calm ${side === 0 ? 'intro' : 'end'})` : ''}`;
   const plural = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
   const f1 = (v) => (Math.round(v * 10) / 10).toString();
   const pct = (v) => Math.round(Math.max(0, Math.min(1, v)) * 100);
@@ -1519,7 +1527,7 @@ const Flow = (() => {
           <span><i class="flow-key-line" style="background:var(--flow-bad)"></i>Jump</span>
           ${guide() ? '<span><i class="flow-key-dash flow-key-target"></i>Shape you picked</span>' : ''}
           ${anyQuiet ? '<span><i class="flow-key-dots"></i>No music</span>' : ''}
-          ${anyCut ? '<span><i class="flow-key-ignored"></i>Calm intro or end, looked past</span>' : ''}
+          ${anyCut ? `<span><i class="flow-key-ignored"></i>${calmSkips() ? 'Calm intro or end, looked past' : 'Start or end, looked past'}</span>` : ''}
         </div>`;
   }
 
@@ -1689,6 +1697,24 @@ const Flow = (() => {
 
   /* ── Flow shuffle ───────────────────────────────────────────────── */
 
+  /**
+   * Ignore calm intros and credits changed (nothing is measured): what Flow
+   * holds is out of date, open or not. The open panel, or a Flow order the
+   * grid shows, asks again at once (the order is applied anew); otherwise
+   * the answer is dropped, so Flow shuffle and the next open ask afresh. A
+   * Flow order kept for a collection that is not open now is forgotten here
+   * and restored (and asked for) when that collection opens again.
+   */
+  function settingsChanged() {
+    if (st.cid == null) return null;
+    if (!isMine()) { reset(); return null; }
+    if (st.open || st.order) return refetch(true);
+    st.data = null;
+    st.byId = new Map();
+    st.lastCount = -1;
+    return null;
+  }
+
   async function shuffleCollection(cid) {
     // Any shuffle (Flow shuffle or not) leaves Flow order, and forgets it.
     if (st.order && st.cid === cid) { leave(); paint(); }
@@ -1762,8 +1788,7 @@ const Flow = (() => {
     leaveOrder: () => { if (st.order) { leave(); paint(); } },
     workingOrder: () => (st.order && isMine() ? workingOrder().slice() : null),
     moveInOrder, orderBarHtml,
-    // Ignore calm intros and credits changed: the open panel asks for the order again (nothing is measured).
-    settingsChanged: () => { if (st.open && isMine()) refetch(true); },
+    settingsChanged,
     _state: () => ({ ...st, byId: st.byId.size, data: st.data && { order: st.data.order, counts: st.data.counts, jumps: st.data.jumps } }),
   };
 })();
@@ -1788,4 +1813,4 @@ function flowWorkingOrder() { return Flow.workingOrder(); }
 function flowMoveInOrder(ids, before) { return Flow.moveInOrder(ids, before); }
 function flowOrderBarHtml() { return Flow.orderBarHtml(); }
 function flowStageCurrent(row) { Flow.stageCurrent(row); }
-function flowSettingsChanged() { Flow.settingsChanged(); }
+function flowSettingsChanged() { return Flow.settingsChanged(); }
