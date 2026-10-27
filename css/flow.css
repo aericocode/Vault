@@ -16,6 +16,7 @@
   --flow-label: rgba(255, 255, 255, 0.4);
   --flow-col-hot: rgba(139, 140, 255, 0.1);
   --flow-lane-empty: rgba(255, 255, 255, 0.05);
+  --flow-ignored: rgba(255, 255, 255, 0.05);
 }
 
 .coll-action.coll-flow.on {
@@ -160,6 +161,9 @@ body.flow-grip-dragging { user-select: none; cursor: ns-resize; }
 .flow-chart .flow-col-hot { fill: var(--flow-col-hot); }
 .flow-chart .flow-line { fill: none; stroke: url(#flowEg); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .flow-chart .flow-line-dense { stroke-width: 1.25; }
+/* Where Flow looks past a calm intro or end: a faint band, the line dashed and dimmer. */
+.flow-chart .flow-ignored rect { fill: var(--flow-ignored); }
+.flow-chart .flow-line-skipped { stroke-dasharray: 3 4; opacity: 0.45; }
 .flow-chart .flow-fill { fill: url(#flowEg); }
 .flow-chart .flow-quiet { stroke: var(--flow-quiet); stroke-width: 1.5; stroke-dasharray: 1.5 4; stroke-linecap: round; }
 .flow-chart .flow-target { fill: none; stroke: var(--flow-target); stroke-width: 1.5; stroke-dasharray: 5 5; stroke-linecap: round; }
@@ -265,6 +269,7 @@ body.flow-grip-dragging { user-select: none; cursor: ns-resize; }
 .flow-legend .flow-key-energy { background: linear-gradient(90deg, var(--flow-e-lo), var(--flow-e-hi)); }
 .flow-legend .flow-key-dash { height: 0; border-radius: 0; border-top: 2px dashed; }
 .flow-legend .flow-key-target { border-color: var(--flow-target); }
+.flow-legend .flow-key-ignored { background: var(--flow-ignored); border: 1px dashed var(--flow-quiet); height: 8px; }
 .flow-legend .flow-key-dots { height: 0; border-radius: 0; border-top: 2px dotted var(--flow-quiet); }
 
 /* Tiles: energy start / middle / end, the BPM, the hand-over dot */

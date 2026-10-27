@@ -99,7 +99,7 @@ test('no music: a held tone and silence; no audio stream is its own answer', opt
   await assert.rejects(analyze.measureFile(noAudio, { duration: 5 }), (e) => e.code === 'NO_AUDIO');
 });
 
-test('a long file reads only the start, middle and end windows plus a few loudness samples', async () => {
+test('a long file reads only the start and end (60 s each, for the edge pieces), the middle window and a few loudness samples', async () => {
   const calls = [];
   const sr = 22050;
   const click = (seconds) => {
@@ -116,12 +116,19 @@ test('a long file reads only the start, middle and end windows plus a few loudne
   const probe = async () => ({ channels: 2, layout: 'stereo', sampleRate: 48000, duration: 3600 });
   const r = await analyze.measureFile('x.mkv', { duration: null, extract, probe });
   const [start, mid, end, ...samples] = calls;
-  assert.deepStrictEqual(start, [0, 30]);
+  assert.deepStrictEqual(start, [0, 60]);
   assert.deepStrictEqual(mid, [1800 - 22.5, 45]);
-  assert.deepStrictEqual(end, [3570, 30]);
+  assert.deepStrictEqual(end, [3540, 60]);
   assert.ok(samples.length >= 4 && samples.length <= 6, `${samples.length} samples`);
   assert.ok(samples.every(([, d]) => d === 8));
-  assert.ok(calls.reduce((s, c) => s + c[1], 0) < 160, 'about two and a half minutes decoded in all');
+  assert.ok(calls.reduce((s, c) => s + c[1], 0) <= 213, 'about three and a half minutes decoded in all');
+  // The edge pieces: 12 a side, the 15 s after each skip of 0..45 s.
+  for (const side of ['start', 'end']) {
+    assert.strictEqual(r.edges[side].l.length, 12);
+    assert.strictEqual(r.edges[side].w.length, 10);
+    assert.ok(r.edges[side].b.every(b => Math.abs(b - 120) <= 1));
+  }
+  assert.strictEqual(r.edges.d, 3600);
   assert.strictEqual(r.has_music, 1);
   assert.ok(Math.abs(r.bpm_mid - 120) <= 1);
   assert.strictEqual(r.peak_db, -6);
