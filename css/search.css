@@ -333,7 +333,9 @@
   body.layout-modern .sort-control select { padding: 0.4rem 0.5rem; }
 }
 
-/* With the rail open the chip rows under the search box are gone: no empty
-   band under the search row. */
-body.rail-shown .search-section .search-row { margin-bottom: 0; }
-body.rail-shown .search-note { margin: 0.6rem 0 0; }
+/* With the rail open, or the Collections tab's filters off, the chip rows
+   under the search box are gone: no empty band under the search row. */
+body.rail-shown .search-section .search-row,
+body.coll-filters-hidden .search-section .search-row { margin-bottom: 0; }
+body.rail-shown .search-note,
+body.coll-filters-hidden .search-note { margin: 0.6rem 0 0; }
