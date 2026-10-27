@@ -163,3 +163,50 @@ test('the route refuses folders (400), unknown ids (404) and bad ids (400)', asy
   res = await post('/api/collections/abc/duplicate');
   assert.strictEqual(res.status, 400);
 });
+
+test('collections made after a duplicate show last, however many times', () => {
+  const f = db.createCollection('Later', { kind: 'folder' }).id;
+  const a = db.createCollection('A', { parentId: f }).id;
+  db.createCollection('B', { parentId: f });
+  db.createCollection('C', { parentId: f });
+  db.duplicateCollection(a);
+  db.createCollection('NEW1', { parentId: f });
+  db.createCollection('NEW2', { parentId: f });
+  assert.deepStrictEqual(names(f), ['A', 'A copy', 'B', 'C', 'NEW1', 'NEW2']);
+  db.duplicateCollection(a);
+  db.createCollection('NEW3', { parentId: f });
+  assert.deepStrictEqual(names(f), ['A', 'A copy 2', 'A copy', 'B', 'C', 'NEW1', 'NEW2', 'NEW3']);
+});
+
+test('a collection moved into a folder after a duplicate lands last there', () => {
+  const f = db.createCollection('Dest', { kind: 'folder' }).id;
+  const g = db.createCollection('Src', { kind: 'folder' }).id;
+  const a = db.createCollection('Q', { parentId: f }).id;
+  db.createCollection('R', { parentId: f });
+  db.duplicateCollection(a);
+  const mv = db.createCollection('Mover', { parentId: g }).id;
+  db.duplicateCollection(mv);   // numbers Src, so Mover keeps a low number
+  db.updateCollection(mv, { parent_id: f });
+  assert.deepStrictEqual(names(f), ['Q', 'Q copy', 'R', 'Mover']);
+  // Moving to the top level puts it last there as well.
+  db.updateCollection(mv, { parent_id: null });
+  assert.strictEqual(names(null).pop(), 'Mover');
+});
+
+test('an untouched library (all sort_order 0) lists in creation order', () => {
+  const f = db.createCollection('Plain', { kind: 'folder' }).id;
+  for (const n of ['x1', 'x2', 'x3']) db.createCollection(n, { parentId: f });
+  assert.deepStrictEqual(names(f), ['x1', 'x2', 'x3']);
+  // Rows as an older library has them: all 0, ordered by creation then id.
+  db.get().prepare('UPDATE collections SET sort_order = 0').run();
+  const ids = db.getCollections().filter(c => c.parent_id === f).map(c => c.id);
+  assert.deepStrictEqual(ids, ids.slice().sort((p, q) => p - q));
+  const n = db.createCollection('x4', { parentId: f });
+  assert.deepStrictEqual(names(f), ['x1', 'x2', 'x3', 'x4']);
+  assert.ok(n.sort_order >= 1);
+});
+
+test('a name with trailing space does not get a double space in the copy', () => {
+  const a = db.createCollection('Film ').id;
+  assert.strictEqual(db.duplicateCollection(a).name, 'Film copy');
+});
