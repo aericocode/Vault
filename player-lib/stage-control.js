@@ -485,8 +485,20 @@ const StageControl = (() => {
   }
 
   /** The id of the file on Stage (either Stage), or null. */
+  /**
+   * The file Basic Stage plays: its row in the results, or (a file from Up
+   * next that is not in them, which has none there) the library's row for it.
+   */
+  function basicRow() {
+    if (currentMediaState.currentMediaData) return currentMediaState.currentMediaData;
+    const p = typeof playingMedia !== 'undefined' && playingMedia ? playingMedia : null;
+    const id = currentMediaState.playbackMediaId;
+    if (typeof Library === 'undefined') return null;
+    return (id && Library.row && Library.row(id)) || (p && p.filepath && Library.rowByPath && Library.rowByPath(p.filepath)) || null;
+  }
+
   function stageFileId() {
-    if (basic) return (currentMediaState.currentMediaData && currentMediaState.currentMediaData.id) || null;
+    if (basic) { const r = basicRow(); return (r && r.id) || null; }
     return cur && cur.row ? cur.row.id : null;
   }
 
@@ -1078,7 +1090,7 @@ const StageControl = (() => {
     if (basic) {
       const el = basicEl();
       const miniOn = !!$('miniPlayer')?.classList.contains('active');
-      const data = miniOn && el ? (currentMediaState.currentMediaData || null) : null;
+      const data = miniOn && el ? basicRow() : null;
       const silent = typeof playerIsSilent === 'function' ? playerIsSilent() : !!(el && el.muted);
       return {
         ...base, basic: true, hasFile: !!data, id: data && data.id, filename: data && data.filename, mediaType: data ? 'video' : null,
