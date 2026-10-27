@@ -811,10 +811,14 @@ function toggleFlagDelete(filepath) {
 /**
  * Render the star + rating control HTML.
  * Used in modal, info overlay, and (compactly) on cards.
+ * compact (the preview pane, dock.js): a small heart toggle next to the
+ * stars on one line, no words. A refresh keeps the variant it replaces.
  * @param {object} media - The media record
+ * @param {{compact?: boolean}} [opts]
  * @returns {string} HTML string
  */
-function renderStarRatingSection(media) {
+function renderStarRatingSection(media, opts) {
+  const compact = !!(opts && opts.compact);
   const starred = media.user_starred ? 1 : 0;
   const rating = media.user_rating || 0;
   const escapedPath = escapeHtml(media.filepath).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -827,6 +831,17 @@ function renderStarRatingSection(media) {
   for (let i = 1; i <= 5; i++) {
     const filled = i <= rating;
     ratingHtml += `<button class="rating-star ${filled ? 'filled' : ''}" onclick="setRating('${escapedPath}', ${i === rating ? 0 : i})" title="${i === rating ? 'Clear rating' : i + '/5'}">${filled ? '★' : '☆'}</button>`;
+  }
+
+  if (compact) {
+    const favTitle = starred ? 'Unfavorite' : 'Favorite';
+    return `
+    <div class="star-rating-section star-rating-compact" data-star-rating-for="${escapeHtml(media.filepath)}">
+      <button class="${starClass}" onclick="toggleStar('${escapedPath}')" title="${favTitle}" aria-label="${favTitle}" aria-pressed="${starred ? 'true' : 'false'}">${starIcon}</button>
+      <div class="rating-stars" role="group" aria-label="Rating">${ratingHtml}</div>
+      ${rating > 0 ? `<span class="rating-value">${rating}/5</span>` : ''}
+    </div>
+  `;
   }
 
   return `
@@ -870,7 +885,7 @@ function refreshAllStarRatingSections(filepath) {
   const sections = document.querySelectorAll(`.star-rating-section[data-star-rating-for="${CSS.escape(filepath)}"]`);
   sections.forEach(section => {
     const temp = document.createElement('div');
-    temp.innerHTML = renderStarRatingSection(media);
+    temp.innerHTML = renderStarRatingSection(media, { compact: section.classList.contains('star-rating-compact') });
     const newSection = temp.firstElementChild;
     section.replaceWith(newSection);
   });

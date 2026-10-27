@@ -175,6 +175,29 @@ function dockEmptyHtml() {
     </div>`;
 }
 
+/** The one muted line under the name: type, picture size, file size, views
+ *  (whatever the file has). The length sits on the picture instead. */
+function dockMetaParts(m) {
+  if (!m) return [];
+  const type = m.media_type ? String(m.media_type) : '';
+  const views = Number(m.view_count) || 0;
+  return [
+    type ? type.charAt(0).toUpperCase() + type.slice(1) : '',
+    m.width && m.height ? `${m.width}×${m.height}` : '',
+    m.filesize_bytes ? formatFileSize(m.filesize_bytes) : '',
+    views > 0 ? `${views.toLocaleString()} ${views === 1 ? 'view' : 'views'}` : '',
+  ].filter(Boolean);
+}
+
+/* "File info and path" folds away at the bottom; open or closed is remembered. */
+const DOCK_INFO_KEY = 'vault.dock.infoOpen';
+function dockInfoOpen() {
+  try { return localStorage.getItem(DOCK_INFO_KEY) === '1'; } catch { return false; }
+}
+function dockInfoToggled(el) {
+  try { localStorage.setItem(DOCK_INFO_KEY, el.open ? '1' : '0'); } catch {}
+}
+
 /** The pane for one file as [part name, outer HTML] in order, top to bottom. */
 function dockPartsHtml(m) {
   // Classic's emoji, Modern's line icons (player-lib/icons.js)
@@ -186,34 +209,39 @@ function dockPartsHtml(m) {
     ? `<img class="tile-img dock-img" ${thumbImgAttrs(m)} alt=""
          onerror="this.parentElement.classList.add('thumb-fallback'); this.remove();">`
     : '';
+  const length = m.duration_seconds ? formatDuration(m.duration_seconds) : '';
   const facts = [
     ['Type', m.media_type || ''],
-    ['Length', m.duration_seconds ? formatDuration(m.duration_seconds) : ''],
+    ['Length', length],
     ['Size', m.width && m.height ? `${m.width}×${m.height}` : ''],
     ['File', m.filesize_bytes ? formatFileSize(m.filesize_bytes) : ''],
     ['Views', String(m.view_count || 0)],
     ['Added', m.processed_at ? String(m.processed_at).slice(0, 10) : ''],
   ].filter(([, v]) => v);
+  const meta = dockMetaParts(m);
   const escapedPath = escapeHtml(m.filepath).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   const flagged = !!m.user_flagged_delete;
+  const flagTitle = flagged ? 'Unflag' : 'Flag this file';
 
   const parts = [
     ['thumb', `<div class="dock-thumb tile-thumb ${canThumb ? '' : 'thumb-fallback'}" data-dock-part="thumb"
          ondblclick="dockPlayPick(${m.id})" title="Double click to play">
       ${thumb}
       <span class="tile-type-icon">${icon}</span>
+      ${length ? `<span class="tile-duration dock-len">${escapeHtml(length)}</span>` : ''}
     </div>`],
     ['name', `<div class="dock-name" data-dock-part="name">${escapeHtml(m.filename)}</div>`],
+    ['meta', `<div class="dock-meta" data-dock-part="meta">${meta.map(v => `<span>${escapeHtml(v)}</span>`).join('')}</div>`],
     ['actions', `<div class="dock-actions" data-dock-part="actions">
       <button class="dock-btn dock-btn-primary" onclick="dockPlayPick(${m.id})">${vaultIconSwap('▶ ', 'play')}Play</button>
       ${typeof UpNext === 'undefined' ? '' : `<button class="dock-btn" onclick="upNextAddFrom(${m.id}, 'next', 'dock')" title="Play this file after the one playing now (Shift+U)">Play next</button>
       <button class="dock-btn" onclick="upNextAddFrom(${m.id}, 'end', 'dock')" title="Add this file to the end of Up next (U)">+ Up next</button>`}
-      <button class="dock-btn" onclick="showDetailsById(${m.id})">Details</button>
-      <button class="dock-btn ${flagged ? 'is-on' : ''}" onclick="toggleFlagDelete(mediaPathById(${m.id}))"
-              title="${flagged ? 'Unflag' : 'Flag this file'}" aria-label="${flagged ? 'Unflag' : 'Flag this file'}">${vaultIconSwap('🚩', 'flag')}</button>
-      <button class="dock-btn" onclick="copyPath('${escapedPath}')" title="Copy the full path">${vaultIcon('copy', 'modern-only vi-gap')}Copy path</button>
+      <button class="dock-btn dock-btn-icon" onclick="showDetailsById(${m.id})" title="Details" aria-label="Details">${vaultIconSwap('ℹ️', 'info')}</button>
+      <button class="dock-btn dock-btn-icon ${flagged ? 'is-on' : ''}" onclick="toggleFlagDelete(mediaPathById(${m.id}))"
+              title="${flagTitle}" aria-label="${flagTitle}">${vaultIconSwap('🚩', 'flag')}</button>
+      <button class="dock-btn dock-btn-icon" onclick="copyPath('${escapedPath}')" title="Copy the full path" aria-label="Copy path">${vaultIconSwap('📋', 'copy')}</button>
     </div>`],
-    ['rating', `<div class="dock-rating" data-dock-part="rating">${typeof renderStarRatingSection === 'function' ? renderStarRatingSection(m) : ''}</div>`],
+    ['rating', `<div class="dock-rating" data-dock-part="rating">${typeof renderStarRatingSection === 'function' ? renderStarRatingSection(m, { compact: true }) : ''}</div>`],
   ];
   // Stage open: how to put a file on Stage from here (stage-preview.js).
   const stageHint = typeof stagePreviewHintHtml === 'function' ? stagePreviewHintHtml() : '';
@@ -223,10 +251,14 @@ function dockPartsHtml(m) {
   if (typeof dockEditPartHtml === 'function') {
     for (const key of DOCK_EDIT_PARTS) parts.push([key, dockEditPartHtml(m, key)]);
   }
-  parts.push(['facts', `<dl class="dock-facts" data-dock-part="facts">
-      ${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}
-    </dl>`]);
-  parts.push(['path', `<div class="detail-path dock-path" data-dock-part="path">${escapeHtml(m.filepath)}</div>`]);
+  // Everything else about the file, folded away (open or closed is remembered).
+  parts.push(['info', `<details class="dock-info" data-dock-part="info"${dockInfoOpen() ? ' open' : ''} ontoggle="dockInfoToggled(this)">
+      <summary>File info and path</summary>
+      <dl class="dock-facts">
+        ${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}
+      </dl>
+      <div class="detail-path dock-path">${escapeHtml(m.filepath)}</div>
+    </details>`]);
   return parts;
 }
 
