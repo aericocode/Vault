@@ -74,11 +74,13 @@ const StageRules = (() => {
         fromList++;
       }
       // ...and round again until count is reached: Stage left on its own
-      // for hours (the Vault tab frozen in the background) keeps going.
+      // for hours (the Vault tab frozen in the background) keeps going. Each
+      // lap is the list in its order from just after the anchor.
       if (!alone && fromList >= 2) {
         while (out.length < count) {
           let added = 0;
-          for (let i = 0; i < n && out.length < count; i++) {
+          for (let k = 0; k < n && out.length < count; k++) {
+            const i = (anchor + 1 + k) % n;
             const v = ok(i);
             if (v === null) return out;
             if (v !== false) { out.push({ via: 'list', index: i }); added++; }

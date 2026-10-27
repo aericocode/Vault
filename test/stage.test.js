@@ -60,6 +60,11 @@ test('upcoming: the end of the list with Repeat off is the end; Repeat all start
   // (Stage left on its own for hours keeps going).
   assert.deepStrictEqual(Rules.upcoming({ anchor: 1, length: 2, repeat: 'all', count: 3 }), [{ via: 'list', index: 0 }, { via: 'list', index: 1 }, { via: 'list', index: 0 }]);
   assert.deepStrictEqual(Rules.upcoming({ anchor: 1, length: 3, okAt: (i) => i !== 2, repeat: 'all', count: 5 }).map(p => p.index), [0, 1, 0, 1, 0]);
+  // Each lap is the list in its order from just after the anchor: nothing twice in a row.
+  assert.deepStrictEqual(Rules.upcoming({ anchor: 2, length: 5, repeat: 'all', count: 12 }).map(p => p.index), [3, 4, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4]);
+  const lap = Rules.upcoming({ anchor: 1, length: 4, okAt: (i) => i !== 0, repeat: 'all', count: 9 }).map(p => p.index);
+  assert.deepStrictEqual(lap, [2, 3, 1, 2, 3, 1, 2, 3, 1]);
+  for (let k = 1; k < lap.length; k++) assert.notStrictEqual(lap[k], lap[k - 1], 'never the same file twice in a row');
 });
 
 test('upcoming: a file not known yet (its row has not loaded) ends the answer: nothing is passed over unseen', () => {

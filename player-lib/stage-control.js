@@ -557,18 +557,18 @@ const StageControl = (() => {
     }
     // The lengths: the rest of the list (up to TIME_CAP) and Up next, from the rows Vault has.
     const rest = [];
-    let restTotal = 0;
+    const restTotal = Math.max(0, countMemo.all - countMemo.before);
     const missing = [];
-    for (let i = Math.max(0, anchor + 1); i < n; i++) {
-      const type = typeAt(i);
-      if (!StageCount.plays(type, basic)) continue;
-      restTotal++;
-      if (restTotal > StageCount.TIME_CAP) continue;
-      const r = L.rowAt(i);
-      if (!r) missing.push(L.idAt(i));
-      rest.push(r ? { type: r.media_type, duration: r.duration_seconds } : null);
-    }
     const upItems = typeof UpNext !== 'undefined' && UpNext.items ? UpNext.items() : [];
+    // Past TIME_CAP files there is no time to show: their rows are not looked at.
+    if (restTotal + upItems.length <= StageCount.TIME_CAP) {
+      for (let i = Math.max(0, anchor + 1); i < n && rest.length < restTotal; i++) {
+        if (!StageCount.plays(typeAt(i), basic)) continue;
+        const r = L.rowAt(i);
+        if (!r) missing.push(L.idAt(i));
+        rest.push(r ? { type: r.media_type, duration: r.duration_seconds } : null);
+      }
+    }
     const upNext = upItems.map((u) => {
       const r = Library.row(u.id);
       if (!r) missing.push(u.id);
