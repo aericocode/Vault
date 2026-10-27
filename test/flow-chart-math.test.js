@@ -135,3 +135,41 @@ test('linearAt: the dense chart\'s straight lines; nothing where nothing is draw
   assert.strictEqual(M.linearAt([], 1), null);
   assert.strictEqual(M.linearAt(null, 1), null);
 });
+
+test('clampChartHeight: the grip keeps the plot inside 70..360 px, junk is null', () => {
+  assert.strictEqual(M.CHART_H_MIN, 70);
+  assert.strictEqual(M.CHART_H_MAX, 360);
+  assert.strictEqual(M.clampChartHeight(150), 150);
+  assert.strictEqual(M.clampChartHeight(149.6), 150);
+  assert.strictEqual(M.clampChartHeight(10), 70);
+  assert.strictEqual(M.clampChartHeight(-50), 70);
+  assert.strictEqual(M.clampChartHeight(9999), 360);
+  assert.strictEqual(M.clampChartHeight('200'), 200, 'as read back from localStorage');
+  for (const junk of [null, undefined, '', ' ', '\t', 'tall', NaN, Infinity]) assert.strictEqual(M.clampChartHeight(junk), null, String(junk));
+});
+
+test('sparkPath: a path across the whole width, inside the height, nulls skipped', () => {
+  const nums = (d) => (d.match(/-?\d+(\.\d+)?/g) || []).map(Number);
+  const d = M.sparkPath([0.2, 0.8, null, 0.5, 0.3], 300, 24);
+  assert.match(d, /^M0,/);
+  const xs = nums(d).filter((_, i) => i % 2 === 0), ys = nums(d).filter((_, i) => i % 2 === 1);
+  assert.ok(Math.max(...xs) <= 300 + 1e-9 && Math.min(...xs) >= -1e-9, 'inside the width');
+  assert.ok(/ 300,[\d.]+$/.test(d), 'ends at the right edge');
+  for (const y of ys) assert.ok(y >= 0 && y <= 24, `y ${y} inside the height`);
+  // The highest energy is drawn highest (smallest y).
+  const p0 = nums(d).slice(0, 2);
+  assert.ok(p0[1] > 2, 'the low first file is not at the top');
+  // Too little to draw.
+  assert.strictEqual(M.sparkPath([0.5], 300, 24), '');
+  assert.strictEqual(M.sparkPath([null, 0.5, null], 300, 24), '');
+  assert.strictEqual(M.sparkPath([], 300, 24), '');
+  assert.strictEqual(M.sparkPath(null, 300, 24), '');
+  assert.strictEqual(M.sparkPath([0.1, 0.9], 0, 24), '');
+});
+
+test('sparkPath: thousands of files stay a small path', () => {
+  const vals = Array.from({ length: 5000 }, (_, i) => 0.5 + 0.4 * Math.sin(i / 300));
+  const d = M.sparkPath(vals, 300, 24);
+  const segs = (d.match(/C/g) || []).length;
+  assert.ok(segs > 10 && segs <= 60, `${segs} curve segments`);
+});

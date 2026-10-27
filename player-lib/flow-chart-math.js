@@ -17,6 +17,11 @@
    - monotoneAt(pts, x)      the y of that same curve at x (the Flow chart's playhead)
    - linearAt(pts, x)        the y of straight lines through pts, or null (nothing drawn)
    - tempoShare(bpm)         a BPM as 0..1 for the Tempo lane's colour
+   - clampChartHeight(px)    the plot height the resize grip asks for, kept
+                             inside CHART_H_MIN..CHART_H_MAX (null: junk)
+   - sparkPath(values, w, h) a small path through one value a file (null =
+                             not drawn), at most about 60 points, zoomed to
+                             the values' own range: the order bar's sparkline
    ========================================================================= */
 
 const FlowChartMath = (() => {
@@ -139,7 +144,35 @@ const FlowChartMath = (() => {
   /** 70 BPM (calm) .. 170 BPM (fast) as 0..1. */
   const tempoShare = (bpm) => clamp01((bpm - 70) / 100);
 
-  return { yRange, filePoints, smoothed, slopes, monotonePath, monotoneAt, linearAt, tempoShare };
+  const CHART_H_MIN = 70;
+  const CHART_H_MAX = 360;
+  function clampChartHeight(px) {
+    const v = Number(px);
+    if (px == null || (typeof px === 'string' && !px.trim()) || !Number.isFinite(v)) return null;
+    return Math.round(Math.max(CHART_H_MIN, Math.min(CHART_H_MAX, v)));
+  }
+
+  function sparkPath(values, w, h, { maxPts = 60, pad = 2 } = {}) {
+    const vals = [];
+    (values || []).forEach((v, i) => { if (v != null && Number.isFinite(v)) vals.push([i, v]); });
+    if (vals.length < 2 || !(w > 0) || !(h > 0)) return '';
+    const n = values.length;
+    // Long lists: the mean of each run of files, so the path stays small.
+    const per = Math.max(1, Math.ceil(vals.length / maxPts));
+    const pts = [];
+    for (let k = 0; k < vals.length; k += per) {
+      const run = vals.slice(k, k + per);
+      pts.push([run.reduce((a, r) => a + r[0], 0) / run.length, run.reduce((a, r) => a + r[1], 0) / run.length]);
+    }
+    if (pts.length < 2) return '';
+    const { lo, hi } = yRange(pts.map(p => p[1]));
+    const x = (i) => (n > 1 ? (i / (n - 1)) * w : 0);
+    const y = (v) => pad + (1 - (v - lo) / (hi - lo)) * (h - 2 * pad);
+    return monotonePath(pts.map(([i, v]) => [x(i), y(v)]));
+  }
+
+  return { yRange, filePoints, smoothed, slopes, monotonePath, monotoneAt, linearAt, tempoShare,
+    CHART_H_MIN, CHART_H_MAX, clampChartHeight, sparkPath };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = FlowChartMath;
