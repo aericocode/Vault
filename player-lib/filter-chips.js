@@ -482,6 +482,8 @@ function renderFilterChipRow() {
 
   updateClearFiltersButton();
   updateSearchOptionsButton();
+  // The Filters button counts filters the Collections tab is hiding (player-lib/filter-rail.js).
+  if (typeof railUpdateToggle === 'function') railUpdateToggle();
   // The Modern look's left rail shows the same filters (player-lib/filter-rail.js).
   if (typeof renderFilterRail === 'function') renderFilterRail();
 }
@@ -697,13 +699,22 @@ function openSearchOptionsPopover(anchor) {
 
 /* ── Clear filters ────────────────────────────────────────────────────── */
 
+/**
+ * How many filters are narrowing the grid (search text and its options
+ * aside), counted as the rail's "in use" list counts them: each set chip,
+ * the type pick, the file extensions and Plays here.
+ */
+function activeFilterCount() {
+  let n = Object.keys(FCHIP_DEFS).filter(fchipIsSet).length;
+  if (typeof selectedMediaTypes !== 'undefined' && selectedMediaTypes.length) n++;
+  if (typeof selectedExtensions !== 'undefined' && selectedExtensions.length) n++;
+  if (typeof safeOnly !== 'undefined' && safeOnly) n++;
+  return n;
+}
+
 /** Is anything at all narrowing the grid (search text aside)? */
 function anyFilterIsSet() {
-  if (Object.keys(FCHIP_DEFS).some(fchipIsSet)) return true;
-  if (typeof selectedMediaTypes !== 'undefined' && selectedMediaTypes.length) return true;
-  if (typeof selectedExtensions !== 'undefined' && selectedExtensions.length) return true;
-  if (typeof safeOnly !== 'undefined' && safeOnly) return true;
-  return false;
+  return activeFilterCount() > 0;
 }
 
 /* Clear filters clears the filters and keeps the search text (app.js). With
