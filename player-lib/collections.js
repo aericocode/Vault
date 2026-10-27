@@ -8,7 +8,7 @@
 
    Surfaces (flat, emoji-free, app dark tokens):
    - Collections TAB: breadcrumb chips + folder cards + collection mosaic cards,
-     drill in/out, per-card ⋯ menu (Rename / Move to… / Delete).
+     drill in/out, per-card ⋯ menu (Rename / Move to… / Duplicate / Delete).
    - Add-to-collection PICKER: instant tree from cache, square checkboxes,
      type-ahead, + New collection / + New folder, optimistic toggle.
    ========================================================================= */
@@ -315,7 +315,7 @@ function collectionCardHtml(c, showPath) {
     </div>`;
 }
 
-/* ── Per-card ⋯ menu: Rename / Move to… / Delete ───────────────────────── */
+/* ── Per-card ⋯ menu: Rename / Move to… / Duplicate / Delete ─────────────── */
 
 let _cardMenuEl = null;
 
@@ -328,6 +328,7 @@ function openCardMenu(id, btn) {
   menu.innerHTML = `
     <button class="coll-menu-item" onclick="cardRename(${id})">Rename</button>
     <button class="coll-menu-item" onclick="cardMoveMenu(${id})">Move to…</button>
+    ${c.kind === 'folder' ? '' : `<button class="coll-menu-item" onclick="cardDuplicate(${id})">Duplicate</button>`}
     <button class="coll-menu-item coll-menu-danger" onclick="cardDelete(${id}, this)">Delete</button>`;
   document.body.appendChild(menu);
   _cardMenuEl = menu;
@@ -407,6 +408,26 @@ async function cardMove(id, parentId) {
   renderResults();
   renderCollectionsTabBar();
   showToast('Moved');
+}
+
+async function cardDuplicate(id) {
+  closeCardMenu();
+  const resp = await fetch(`/api/collections/${id}/duplicate`, { method: 'POST' });
+  if (!resp.ok) {
+    collErrorToast(await collResponseError(resp), 'duplicating it');
+    return;
+  }
+  const copy = await resp.json();
+  // A saved Flow order is remembered in this browser per collection (flow.js).
+  try {
+    const flow = localStorage.getItem(`vault.flow.order.${id}`);
+    if (flow) localStorage.setItem(`vault.flow.order.${copy.id}`, flow);
+  } catch {}
+  collectionsList = await fetch('/api/collections').then(r => r.json());
+  renderResults();
+  renderCollectionsTabBar();
+  showToast('Duplicated');
+  cardRename(copy.id);   // so the copy can be named straight away
 }
 
 async function cardDelete(id, btn) {
