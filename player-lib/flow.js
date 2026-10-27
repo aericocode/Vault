@@ -43,11 +43,12 @@
 const Flow = (() => {
   const POLL_MS = 1500;
   const REFETCH_MS = 2500;
+  const DEFAULT_SHAPE = 'smooth';
   const st = {
     cid: null,          // the collection the panel belongs to
     open: false,
     order: false,       // Flow order is what the grid shows
-    shape: 'smooth',
+    shape: DEFAULT_SHAPE,
     data: null,         // GET /api/flow/collections/:id
     byId: new Map(),    // id -> features
     status: null,       // GET /api/flow/status
@@ -105,6 +106,9 @@ const Flow = (() => {
     st.pollTimer = null;
     st.cid = null; st.open = false; st.order = false; st.data = null; st.byId = new Map();
     st.status = null; st.lastCount = -1; st.appliedOrder = null; st.fetchFails = 0; st.toasted = false;
+    // Each collection starts from the default shape (or its remembered one,
+    // restore / toggle): never the shape picked on the one before.
+    st.shape = DEFAULT_SHAPE;
     st.places = null;
     st.edited = null;
     st.membersRef = null;
