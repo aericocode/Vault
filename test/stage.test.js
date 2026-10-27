@@ -36,7 +36,7 @@ const ROOT = path.join(__dirname, '..');
 const Rules = require('../player-lib/stage-rules');
 const stageSettings = require('../lib/stage/settings');
 const geometry = require('../lib/stage/geometry');
-const { createHub, validateCommand, validateReport } = require('../lib/stage/hub');
+const { createHub, validateCommand, validateReport, MAX_UPCOMING } = require('../lib/stage/hub');
 
 /* ── Upcoming: what Stage moves on to by itself ─────────────────────────── */
 
@@ -56,8 +56,21 @@ test('upcoming: files that cannot play are passed over, in Up next and in the li
 test('upcoming: the end of the list with Repeat off is the end; Repeat all starts over', () => {
   assert.deepStrictEqual(Rules.upcoming({ anchor: 4, length: 5, repeat: 'off' }), []);
   assert.deepStrictEqual(Rules.upcoming({ anchor: 4, length: 5, repeat: 'all', count: 2 }), [{ via: 'list', index: 0 }, { via: 'list', index: 1 }]);
-  // A whole lap comes back round to the anchor itself.
-  assert.deepStrictEqual(Rules.upcoming({ anchor: 1, length: 2, repeat: 'all', count: 3 }), [{ via: 'list', index: 0 }, { via: 'list', index: 1 }]);
+  // A whole lap comes back round to the anchor itself, and then round again until count is reached
+  // (Stage left on its own for hours keeps going).
+  assert.deepStrictEqual(Rules.upcoming({ anchor: 1, length: 2, repeat: 'all', count: 3 }), [{ via: 'list', index: 0 }, { via: 'list', index: 1 }, { via: 'list', index: 0 }]);
+  assert.deepStrictEqual(Rules.upcoming({ anchor: 1, length: 3, okAt: (i) => i !== 2, repeat: 'all', count: 5 }).map(p => p.index), [0, 1, 0, 1, 0]);
+  // Each lap is the list in its order from just after the anchor: nothing twice in a row.
+  assert.deepStrictEqual(Rules.upcoming({ anchor: 2, length: 5, repeat: 'all', count: 12 }).map(p => p.index), [3, 4, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4]);
+  const lap = Rules.upcoming({ anchor: 1, length: 4, okAt: (i) => i !== 0, repeat: 'all', count: 9 }).map(p => p.index);
+  assert.deepStrictEqual(lap, [2, 3, 1, 2, 3, 1, 2, 3, 1]);
+  for (let k = 1; k < lap.length; k++) assert.notStrictEqual(lap[k], lap[k - 1], 'never the same file twice in a row');
+});
+
+test('upcoming: a file not known yet (its row has not loaded) ends the answer: nothing is passed over unseen', () => {
+  assert.deepStrictEqual(Rules.upcoming({ anchor: 0, length: 6, okAt: (i) => (i === 2 ? false : i < 4 ? true : null), repeat: 'off', count: 9 }).map(p => p.index), [1, 3]);
+  assert.deepStrictEqual(Rules.upcoming({ anchor: 3, length: 4, okAt: (i) => (i === 1 ? null : true), repeat: 'all', count: 9 }).map(p => p.index), [0]);
+  assert.strictEqual(Rules.upcoming({ anchor: 0, length: 1000, repeat: 'off', count: 500 }).length, 500, 'a long list for Stage to play on its own');
 });
 
 test('upcoming: a list of one, or one that only has the anchor to play, does not wrap onto itself', () => {
@@ -208,7 +221,7 @@ test('commands are checked: shapes, keys, ranges, unknown types', () => {
   assert.strictEqual(validateCommand({ type: 'load', item: { ...item('a1', 1), media_type: 'document' } }).ok, false);
   assert.strictEqual(validateCommand({ type: 'load', item: item('bad key!', 1) }).ok, false);
   assert.strictEqual(validateCommand({ type: 'load', item: item('a1', -3) }).ok, false);
-  assert.strictEqual(validateCommand({ type: 'load', item: item('a1', 1), upcoming: new Array(5).fill(item('b', 2)) }).ok, false);
+  assert.strictEqual(validateCommand({ type: 'load', item: item('a1', 1), upcoming: new Array(MAX_UPCOMING + 1).fill(item('b', 2)) }).ok, false);
   assert.strictEqual(validateCommand({ type: 'load', item: item('a1', 1), repeat: 'sometimes' }).ok, false);
   assert.strictEqual(validateCommand({ type: 'seek', t: -1 }).ok, false);
   assert.strictEqual(validateCommand({ type: 'volume', volume: 1.5 }).ok, false);

@@ -571,10 +571,55 @@ const Flow = (() => {
     const spark = closed ? sparkHtml() : '';
     return `<span class="flow-ob-pill">Flow order: ${esc(name)}</span>
       <span class="flow-ob-status">${esc(status)}</span>
+      <span class="flow-ob-count" data-flow-count>${esc(orderCountText())}</span>
       ${spark || '<span class="flow-sp"></span>'}
       <button type="button" class="flow-btn flow-btn-sm" onclick="Flow.usePlaylistOrder()">Back to playlist order</button>
       <button type="button" class="flow-btn flow-btn-sm flow-ob-save" onclick="Flow.saveOrder()">Save as playlist order</button>
       ${closed ? `<button type="button" class="flow-btn flow-btn-sm flow-ob-show" onclick="Flow.showFromBar()" title="Show the Flow panel">Show ▾</button>` : ''}`;
+  }
+
+  /**
+   * The order bar's count (player-lib/stage-count.js): "Track 12 of 40 ·
+   * 2:14:30 left" while Stage plays this collection (StageControl.countFor),
+   * else "40 files · 2:41:05": the files in the order and their lengths
+   * added up (videos and sound; pictures have none here), "about" when some
+   * are not known yet. Rows not loaded are fetched once, then it is drawn
+   * again. Over StageCount.TIME_CAP files: the number only.
+   */
+  let countRowsKey = '';
+  function orderCountText() {
+    if (typeof StageCount === 'undefined' || typeof Library === 'undefined') return '';
+    const onStage = typeof StageControl !== 'undefined' && StageControl.countFor ? StageControl.countFor(st.cid) : null;
+    if (onStage) return onStage;
+    const n = Library.length();
+    if (!Library.known() || n > StageCount.TIME_CAP) return StageCount.listText(n, null);
+    let secs = 0, unknown = 0, timed = 0;
+    const missing = [];
+    for (let i = 0; i < n; i++) {
+      const r = Library.rowAt(i);
+      if (!r) { missing.push(Library.idAt(i)); unknown++; continue; }
+      if (r.media_type !== 'video' && r.media_type !== 'audio') continue;
+      timed++;
+      if (Number(r.duration_seconds) > 0) secs += Number(r.duration_seconds); else unknown++;
+    }
+    if (missing.length) {
+      const key = `${st.cid}|${n}|${missing.length}`;
+      if (key !== countRowsKey) {
+        countRowsKey = key;
+        Library.fetchRows(missing).then(paintCount, () => {});
+      }
+    }
+    if (!timed && !missing.length) return StageCount.listText(n, null);
+    if (unknown * 2 > Math.max(1, timed + missing.length)) return StageCount.listText(n, null);
+    return StageCount.listText(n, Math.round(secs), unknown > 0);
+  }
+
+  /** Draw the order bar's count again (each second while Stage plays, stage-control.js paint). */
+  function paintCount() {
+    const el = document.querySelector('[data-flow-count]');
+    if (!el) return;
+    const text = orderCountText();
+    if (el.textContent !== text) el.textContent = text;
   }
 
   /** The order bar's sparkline: the working order's middle energies (decoration only). */
@@ -1721,7 +1766,7 @@ const Flow = (() => {
     countText: () => (st.order && isMine() && st.appliedOrder ? `Flow order: ${FlowOrder.shapeLabel(st.shape).toLowerCase()}${st.edited ? ', edited' : ''}` : null),
     leaveOrder: () => { if (st.order) { leave(); paint(); } },
     workingOrder: () => (st.order && isMine() ? workingOrder().slice() : null),
-    moveInOrder, orderBarHtml,
+    moveInOrder, orderBarHtml, paintCount,
     _state: () => ({ ...st, byId: st.byId.size, data: st.data && { order: st.data.order, counts: st.data.counts, jumps: st.data.jumps } }),
   };
 })();

@@ -367,6 +367,9 @@ body.layout-modern .flow-tile-note { color: var(--m-muted); }
   white-space: nowrap;
 }
 .flow-ob-status { font-variant-numeric: tabular-nums; }
+/* "Track 12 of 40 · 2:14:30 left" / "40 files · 2:41:05" (flow.js orderCountText) */
+.flow-ob-count { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.flow-ob-count:empty { display: none; }
 .flow-orderbar .flow-btn-sm { padding: 0.2rem 0.65rem; }
 .flow-orderbar .flow-ob-save { border-color: color-mix(in oklab, var(--flow-e-hi) 50%, transparent); }
 /* Panel closed: a small sparkline of the order's energy, and Show. */

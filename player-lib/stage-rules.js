@@ -52,19 +52,41 @@ const StageRules = (() => {
     }
     const n = Number.isInteger(m.length) && m.length > 0 ? m.length : 0;
     const anchor = Number.isInteger(m.anchor) && m.anchor >= -1 ? Math.min(m.anchor, n - 1) : -1;
-    const ok = (i) => typeof m.okAt !== 'function' || m.okAt(i) !== false;
+    // okAt: true, false (passed over), or null: not known yet (its row has not
+    // loaded). The answer ends at an unknown file rather than skip it unseen.
+    const ok = (i) => (typeof m.okAt !== 'function' ? true : m.okAt(i));
     let fromList = 0;
     for (let i = anchor + 1; i < n && out.length < count; i++) {
-      if (ok(i)) { out.push({ via: 'list', index: i }); fromList++; }
+      const v = ok(i);
+      if (v === null) return out;
+      if (v !== false) { out.push({ via: 'list', index: i }); fromList++; }
     }
     // Repeat all starts the list over (a list of one is repeat one's job, and
     // so is coming back round to the anchor when nothing else in it plays).
     if (m.repeat === 'all' && n >= 2) {
+      let alone = false;
       for (let i = 0; i <= anchor && out.length < count; i++) {
-        if (!ok(i)) continue;
-        if (i === anchor && fromList === 0) break;
+        const v = ok(i);
+        if (v === null) return out;
+        if (v === false) continue;
+        if (i === anchor && fromList === 0) { alone = true; break; }
         out.push({ via: 'list', index: i });
         fromList++;
+      }
+      // ...and round again until count is reached: Stage left on its own
+      // for hours (the Vault tab frozen in the background) keeps going. Each
+      // lap is the list in its order from just after the anchor.
+      if (!alone && fromList >= 2) {
+        while (out.length < count) {
+          let added = 0;
+          for (let k = 0; k < n && out.length < count; k++) {
+            const i = (anchor + 1 + k) % n;
+            const v = ok(i);
+            if (v === null) return out;
+            if (v !== false) { out.push({ via: 'list', index: i }); added++; }
+          }
+          if (!added) break;
+        }
       }
     }
     return out;

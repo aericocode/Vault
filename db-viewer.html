@@ -514,6 +514,10 @@
         <div class="sb-title" id="stageBarTitle">Stage is open</div>
         <div class="sb-sub">
           <span class="sb-pill sb-pill-live" id="stageBarPill"><i aria-hidden="true"></i><span class="sb-pill-word">On Stage</span></span>
+          <!-- Back to Stage: only while the user is away from the list Stage plays (StageControl.backToStage) -->
+          <button type="button" class="sb-chip sb-return" id="stageBarReturn" data-sb-act="return" title="Back to the list Stage is playing from" aria-label="Back to the list Stage is playing from" hidden><span aria-hidden="true">↩</span><span class="sb-return-label">Back to Stage</span></button>
+          <!-- Basic Stage: its picture-in-picture window went away; a click opens it again -->
+          <button type="button" class="sb-chip sb-reopen" id="stageBarReopen" data-sb-act="reopen" hidden>Picture-in-picture closed, click to reopen</button>
           <span class="sb-note" id="stageBarNote" role="status"></span>
           <!-- Flow order fills this: StageBar.setFlowText('tempo · energy') -->
           <span class="stagebar-flow" id="stageBarFlow" hidden></span>
@@ -537,6 +541,8 @@
       </div>
     </div>
     <div class="sb-right">
+      <!-- Track 12 of 40 · 2:14:30 left (player-lib/stage-count.js) -->
+      <span class="sb-count" id="stageBarCount" hidden><span id="stageBarCountTrack"></span><span class="sb-count-time" id="stageBarCountTime" hidden></span></span>
       <!-- The file on Stage's stream tags (player-lib/stream-tags.js) -->
       <button type="button" class="sb-btn sb-wide sb-tag" id="stageBarTag" data-sb-act="tag" title="Add a stream tag to the file on Stage" aria-label="Stream tags" aria-haspopup="menu" disabled><span class="sb-tag-plus">+ Tag</span><span class="sb-tag-chips" id="stageBarTagChips"></span></button>
       <button type="button" class="sb-btn sb-wide" id="stageBarUpNext" data-sb-act="upnext" title="Up next" aria-label="Up next" aria-haspopup="dialog" aria-expanded="false"><span class="vi-w" data-vi="queue">☰</span><span class="sb-un-label">Up next</span><span class="sb-badge" id="stageBarUpNextCount" hidden>0</span></button>
@@ -589,6 +595,8 @@
   <!-- Flow: order a collection so each file flows into the next (pure rules, then the panel) -->
   <script src="./player-lib/flow-order.js"></script>
   <script src="./player-lib/flow-chart-math.js"></script>
+  <!-- Track count and time left (Stage bar, Flow order bar) -->
+  <script src="./player-lib/stage-count.js"></script>
   <script src="./player-lib/flow.js"></script>
   <!-- Stream tags: lanes, keys, menus, chips, and window.FlowLaneSource for the Flow chart -->
   <script src="./player-lib/stream-tags.js"></script>
