@@ -702,3 +702,26 @@ test('the list Stage plays from: a file from outside any list leaves none (no Ba
   p.ctx.activeCollectionId = 9; p.lib.cid = 9;
   assert.strictEqual(p.SC.queueList(), null);
 });
+
+test('the list Stage plays from: an Up next file that is also on screen (the Library tab) never takes it over, ended on its own or by Next', async () => {
+  for (const auto of [true, false]) {
+    const p = sourceVm();
+    await openBasic(p);
+    p.SC.fileOpened({});
+    // Away on the Library tab, which holds every file (the Up next one too).
+    p.ctx.currentTab = 'library'; p.ctx.activeCollectionId = null; p.lib.cid = null;
+    // The Up next file plays: it is in the Library's results, so it has a place on screen.
+    p.ctx.currentMediaState.currentIndex = 3;
+    p.SC.fileOpened({ fromUpNext: true, auto });
+    const L = p.SC.queueList();
+    assert.ok(L, `${auto ? 'ended' : 'Next'}: still collection 7's list`);
+    assert.strictEqual(L.length(), 3);
+    p.SC.paintVolume();
+    assert.strictEqual(p.painted.at(-1).back.show, true, 'Back to Stage still there');
+    assert.strictEqual(p.painted.at(-1).count.track, 'Track 2 of 4', 'the Up next file is a track between collection 7 files');
+  }
+  // Both ways reach fileOpened with fromUpNext (player-core.js).
+  const core = read('player-lib/player/player-core.js');
+  assert.match(core, /StageControl\.fileOpened\(\{ inStageList, fromUpNext, keep: keepAnchor, auto: source === 'auto' \}\)/);
+  assert.match(core, /playMedia\(\{ id: row\.id, filepath: row\.filepath, filename: row\.filename, media_type: row\.media_type \},\s*\{ source: 'auto', fromUpNext: true \}\);/);
+});

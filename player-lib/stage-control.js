@@ -339,6 +339,8 @@ const StageControl = (() => {
     // still goes (never an empty one in its place); the change's own answer
     // (sendUpcoming) replaces it.
     const my = ++upGen;
+    loadingKey = item.key;
+    upAfterLoad = false;
     const computing = computeUpcoming();
     computing.catch(() => {});
     const quick = new Promise((resolve) => setTimeout(() => resolve(null), 400));
@@ -348,7 +350,13 @@ const StageControl = (() => {
       syncPrivacy();
       cmd({ type: 'load', item, paused: startPaused, upcoming: list, repeat: currentRepeat() }, { tries: CMD_RETRY_MS })
         .then((r) => {
-          if (!r || Array.isArray(upcoming) || my !== upGen) return;
+          if (loadingKey === item.key) loadingKey = null;
+          // A newer list (an Up next edit) waited for this load: it goes now.
+          const waiting = upAfterLoad;
+          upAfterLoad = false;
+          if (!r || !open || !cur || cur.key !== item.key) return;
+          if (waiting || my !== upGen) { sendUpcoming(); return; }
+          if (Array.isArray(upcoming)) return;
           computing.then((later) => {
             if (my === upGen && open && cur && cur.key === item.key) sendList(later, item.key);
           }, () => sendUpcoming());
@@ -450,9 +458,11 @@ const StageControl = (() => {
    * queue moved on in it while the user was elsewhere); keep: the same file
    * opened again.
    */
-  function fileOpened({ inStageList = false, fromUpNext = false, keep = false } = {}) {
+  function fileOpened({ inStageList = false, fromUpNext = false, keep = false, auto = false } = {}) {
     if (!stageOn()) return;
-    if (!inStageList && !(keep && source)) {
+    // An Up next file plays between list files: it never changes the list,
+    // even when it is also in what is on screen (the Library tab, say).
+    if (!inStageList && !(keep && source) && !(fromUpNext && source)) {
       const v = viewNow();
       if (currentMediaState.currentIndex >= 0 && libraryIsView(v)) takeSource(v);
       else if (!fromUpNext) { source = null; upPlayed = 0; lastListIndex = -1; }
@@ -462,7 +472,7 @@ const StageControl = (() => {
     if (typeof StageCount === 'undefined' || !source) return;
     const index = typeof listAnchorIndex === 'function' ? listAnchorIndex() : -1;
     const via = fromUpNext ? 'upnext' : (index >= 0 ? 'list' : 'user');
-    upPlayed = StageCount.nextUpPlayed(upPlayed, { via, index, lastIndex: lastListIndex });
+    upPlayed = StageCount.nextUpPlayed(upPlayed, { via, index, lastIndex: lastListIndex, auto });
     if (via === 'list') lastListIndex = index;
   }
 
@@ -655,6 +665,14 @@ const StageControl = (() => {
   /** Hand Stage a worked-out list for the file on it (forKey), with tries. */
   async function sendList(list, forKey) {
     const r = await cmd({ type: 'upcoming', upcoming: list, repeat: currentRepeat(), forKey }, { tries: CMD_RETRY_MS });
+    // The server is not on that file yet (its load still on the way, or Stage
+    // moved on and its report is coming): worked out again shortly, a few times.
+    if (r && r.stale && open && cur && cur.key === forKey && staleTries < 3) {
+      staleTries++;
+      setTimeout(() => { if (cur && cur.key === forKey) sendUpcoming(); }, 500);
+      return r;
+    }
+    if (r && !r.stale) staleTries = 0;
     // Finished, and now there is something to play: carry on.
     if (r && finished && list.length) finished = false;
     paint();
@@ -668,6 +686,9 @@ const StageControl = (() => {
    * it is tried again a little later.
    */
   let upFails = 0;
+  let loadingKey = null;              // the file whose load is on its way to Stage
+  let upAfterLoad = false;            // a list for it waits for that load
+  let staleTries = 0;
   function sendUpcoming() {
     clearTimeout(upTimer);
     upTimer = setTimeout(async () => {
@@ -687,6 +708,9 @@ const StageControl = (() => {
       }
       upFails = 0;
       if (my !== upGen || !open || !cur || cur.key !== forKey) return;
+      // Its file's load is still on the way: this list goes right after it
+      // (sent first, the server would drop it as being for a file it is not on).
+      if (loadingKey === forKey) { upAfterLoad = true; return; }
       await sendList(list, forKey);
     }, 60);
   }
@@ -757,6 +781,8 @@ const StageControl = (() => {
     const wasPaused = proxy.paused;
     const oldD = d;
     statusKey = r.key;
+    // Stage reports the file: its load got there (even if the answer to it has not).
+    if (loadingKey === r.key) { loadingKey = null; if (upAfterLoad) { upAfterLoad = false; sendUpcoming(); } }
     t = r.t; d = r.d || d; paused = r.paused; hold = r.hold; state = r.state;
     if (state !== 'loading') loadingSince = 0;
     if (state === 'black') finished = true;

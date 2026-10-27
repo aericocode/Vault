@@ -85,3 +85,15 @@ test('upPlayed: Up next plays add one; a list file one step on keeps them; a jum
   assert.strictEqual(C.nextUpPlayed(2, { via: 'list', index: 20, lastIndex: 5 }), 0, 'a jump');
   assert.strictEqual(C.nextUpPlayed(2, { via: 'user' }), 0);
 });
+
+test('upPlayed: the queue moving on by itself past files that do not play (a picture on Basic, a document) keeps the count', () => {
+  assert.strictEqual(C.nextUpPlayed(1, { via: 'list', index: 2, lastIndex: 0, auto: true }), 1);
+  assert.strictEqual(C.nextUpPlayed(1, { via: 'list', index: 2, lastIndex: 0, auto: false }), 0, 'a file picked further on is a jump');
+  assert.strictEqual(C.nextUpPlayed(1, { via: 'list', index: 0, lastIndex: 2, auto: true }), 0, 'Previous or the list starting over');
+  // Basic: [video, image, video] and one Up next file played between them: Track 3 of 3, not Track 2 of 2.
+  const types = ['video', 'image', 'video'];
+  const up = C.nextUpPlayed(C.nextUpPlayed(0, { via: 'list', index: 0, lastIndex: -1, auto: false }), { via: 'upnext' });
+  const after = C.nextUpPlayed(up, { via: 'list', index: 2, lastIndex: 0, auto: true });
+  const s = C.summary({ types, length: 3, anchor: 2, upPlayed: after, basic: true, rest: [], current: { t: 0, d: 10 } });
+  assert.deepStrictEqual([s.index, s.total], [3, 3]);
+});

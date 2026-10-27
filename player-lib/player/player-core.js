@@ -50,13 +50,17 @@ function isKnownBadMedia(row) {
 const NAV_WINDOW = 40;          // rows fetched per step of a walk
 const NAV_STEP_MS = 20000;      // one move that never settles stops holding up the ones after it
 let _navChain = Promise.resolve();
+let _navHung = null;            // a move that gave way (queueNav) but has not settled yet
 
 /**
  * Run queue moves one after another, never two at once. A move that hangs
  * (a request the server never answers, the id list never arriving) gives
  * way after NAV_STEP_MS: it fails with a TimeoutError, so hands-free
  * playback can try again (autoAdvanceOnEnded), and the moves queued behind
- * it run instead of waiting for good.
+ * it run instead of waiting for good. The move itself may still finish
+ * later and open its file: _navHung holds it until it settles, and
+ * autoAdvance waits for it before trying again, so one file ending never
+ * opens two.
  */
 function queueNav(fn) {
   const step = () => {
@@ -68,7 +72,14 @@ function queueNav(fn) {
         reject(err);
       }, NAV_STEP_MS);
     });
-    return Promise.race([Promise.resolve().then(fn), late]).finally(() => clearTimeout(timer));
+    const work = Promise.resolve().then(fn);
+    return Promise.race([work, late]).catch((err) => {
+      if (err && err.name === 'TimeoutError') {
+        _navHung = work;
+        work.catch(() => {}).then(() => { if (_navHung === work) _navHung = null; });
+      }
+      throw err;
+    }).finally(() => clearTimeout(timer));
   };
   const run = _navChain.then(step, step);
   _navChain = run.catch(() => {});
@@ -577,7 +588,7 @@ function noteFileOpened(mediaData, { source = 'user', fromUpNext = false, keepAn
   if (!keepAnchor) playingFromUpNext = !!fromUpNext;
   // Stage: which list it plays now, and its track count.
   if (typeof StageControl !== 'undefined' && typeof StageControl.fileOpened === 'function') {
-    StageControl.fileOpened({ inStageList, fromUpNext, keep: keepAnchor });
+    StageControl.fileOpened({ inStageList, fromUpNext, keep: keepAnchor, auto: source === 'auto' });
   }
   pinPlayerNeighbours(currentMediaState.currentIndex);
   // Remember it so the library can mark this tile on close (keeps the user's place)
@@ -1036,7 +1047,15 @@ function autoAdvance(attempt = 0) {
     }
     setTimeout(() => { if (my === _autoAdvanceGen && opened === _fileOpenedSeq) autoAdvance(attempt + 1); }, AUTO_RETRY_MS[attempt]);
   };
-  return playNextMediaOrWrap().then((moved) => { if (moved === 'stopped') again(); }, again);
+  const go = () => {
+    if (my !== _autoAdvanceGen || opened !== _fileOpenedSeq) return undefined;
+    return playNextMediaOrWrap().then((moved) => { if (moved === 'stopped') again(); }, again);
+  };
+  // A move that gave way is waited for (a while): it may still open the
+  // next file, and then this one stands down (opened changed).
+  const hung = _navHung;
+  if (!hung) return go();
+  return Promise.race([hung.catch(() => {}), new Promise(r => setTimeout(r, NAV_STEP_MS))]).then(go);
 }
 
 /**

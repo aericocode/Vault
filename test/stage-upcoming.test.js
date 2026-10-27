@@ -52,7 +52,8 @@ function fakeLibrary(n) {
 }
 
 /** stage-control.js in a VM, mpv Stage open with the list's first file playing. */
-function page({ n = 40, upNext = [] } = {}) {
+function page({ n = 40, upNext = [], hub = null, loadFailures = 0, loadDelay = 0 } = {}) {
+  let fails = loadFailures;
   const sent = [];
   const streams = [];
   const lib = fakeLibrary(n);
@@ -61,6 +62,7 @@ function page({ n = 40, upNext = [] } = {}) {
   const UpNext = {
     items: () => un.slice(), count: () => un.length, ids: () => un.map(i => i.id),
     take: (id) => new Promise((resolve) => { takes.push(() => { un = un.filter(i => i.id !== id); resolve(); }); }),
+    add: (id) => { un.push({ id }); },
     playerChanged() {}, closePopover() {},
   };
   class FakeEventSource {
@@ -97,7 +99,16 @@ function page({ n = 40, upNext = [] } = {}) {
       const ok = (data) => ({ ok: true, status: 200, json: async () => data });
       if (url === '/api/stage/state') return ok({ open: stageOpen, mpv: { found: true, choice: 'mpv' }, settings: { tips: false } });
       if (url === '/api/stage/open') { stageOpen = true; return ok({ ok: true, mode: 'mpv' }); }
-      if (url === '/api/stage/cmd') { sent.push(JSON.parse(o.body)); return ok({ ok: true }); }
+      if (url === '/api/stage/cmd') {
+        const body = JSON.parse(o.body);
+        if (body.type === 'load' && loadDelay) await wait(loadDelay);
+        if (body.type === 'load' && fails > 0) { fails--; return { ok: false, status: 503, json: async () => ({ error: 'busy' }) }; }
+        sent.push(body);
+        if (!hub) return ok({ ok: true });
+        // The real hub's rules (a list for a file it is not on is stale).
+        const r = hub.command(body);
+        return { ok: r.status < 400, status: r.status, json: async () => r.body };
+      }
       return ok({});
     },
   };
@@ -297,4 +308,64 @@ test('Basic Stage: the next video loads into the same element (its picture-in-pi
   // Its sound keeps running through the audio graph it already has.
   assert.match(src, /const had = video\._boost;/);
   assert.match(coreSrc, /!\(reuseEl && reuseEl\._boost && reuseEl\._boost\.audioContext === currentMediaState\.audioContext\)/);
+});
+
+/* ── Verifier follow-ups ────────────────────────────────────────────────── */
+
+for (const [name, opts] of [['the load answered 503 once, then tried again', { loadFailures: 1 }], ['a slow load (300 ms)', { loadDelay: 300 }]]) {
+  test(`an Up next edit while the file's load is on its way (${name}): Stage ends with the edited list (the real hub's stale rule)`, async () => {
+    const { createHub } = require('../lib/stage/hub');
+    const hub = createHub({ heartbeatMs: 0, settings: { get: () => ({}), sizes: ['free'] }, stage: { alive: () => true, command() {} } });
+    hub.opened('mpv');
+    // Stage is on the file before.
+    hub.command({ type: 'load', item: { key: 'k0', id: 101, media_type: 'video', filename: '101.mp4' }, upcoming: [] });
+    const p = page({ n: 20, hub, ...opts });
+    await wait(10);
+    await p.SC.openStage();
+    p.stream().emit('sync', { open: true, volume: 1, current: null, status: null });
+    await wait(50);
+    p.SC.intercept({ id: 104, filepath: 'C:/clips/104.mp4', filename: '104.mp4', media_type: 'video' }, {});
+    await wait(20);
+    p.UpNext.add(50);
+    p.SC.upNextChanged();
+    await wait(2500);
+    const st = hub.state();
+    assert.strictEqual(st.current.id, 104);
+    assert.strictEqual(st.upcoming[0] && st.upcoming[0].id, 50, `the edit is on Stage: ${JSON.stringify(st.upcoming.slice(0, 3).map(u => u.id))}`);
+    assert.ok(st.upcoming.length >= 16);
+  });
+}
+
+test('hub: a load sent twice (tried again after a network error the first got through) plays once; a bad item says what is wrong', () => {
+  const { createHub, validateCommand, MAX_UPCOMING } = require('../lib/stage/hub');
+  const cmds = [];
+  const hub = createHub({ heartbeatMs: 0, settings: { get: () => ({}), sizes: ['free'] }, stage: { alive: () => true, command: (c) => cmds.push(c.type) } });
+  hub.opened('mpv');
+  const load = { type: 'load', item: { key: 'kA', id: 1, media_type: 'video', filename: 'a.mp4' }, upcoming: [] };
+  assert.strictEqual(hub.command(load).status, 200);
+  assert.deepStrictEqual(hub.command(load).body, { ok: true, duplicate: true });
+  assert.deepStrictEqual(cmds, ['load'], 'the engine got it once: the file is not restarted');
+  assert.strictEqual(hub.command({ ...load, item: { ...load.item, key: 'kB' } }).status, 200, 'a new load (new key) still goes');
+  const good = { key: 'k1', id: 1, media_type: 'video', filename: 'a.mp4' };
+  const e1 = validateCommand({ type: 'upcoming', upcoming: [good, { ...good, key: 'k2', media_type: 'document' }] });
+  assert.match(e1.error, /^upcoming item 2 is not a file Stage can play/);
+  const e2 = validateCommand({ type: 'upcoming', upcoming: new Array(MAX_UPCOMING + 1).fill(good) });
+  assert.strictEqual(e2.error, `upcoming has ${MAX_UPCOMING + 1} items; Stage takes up to ${MAX_UPCOMING}.`);
+  assert.strictEqual(validateCommand({ type: 'upcoming', upcoming: 'x' }).error, 'upcoming must be a list of items.');
+});
+
+test('queueNav gave way, then the move finished after all: the retry waits for it and stands down (one file ended, one move)', async () => {
+  const src = read('player-lib/player/player-core.js').replace(/\r/g, '');
+  const opened = [];
+  let anchor = 0;
+  let calls = 0;
+  const ctx = { setTimeout, clearTimeout, Promise, Error, console, showToast() {},
+    queueMove: async () => { calls++; const from = anchor; await wait(calls === 1 ? 80 : 5); anchor = from + 1; opened.push(from + 1); ctx.__q.opened(); return true; } };
+  vm.createContext(ctx);
+  const nav = src.slice(src.indexOf('const NAV_STEP_MS'), src.indexOf('function queueList(')).replace('const NAV_STEP_MS = 20000;', 'const NAV_STEP_MS = 50;');
+  vm.runInContext(`${nav}\nlet _fileOpenedSeq = 0;\nlet _autoAdvanceGen = 0;\n${grab(src, 'function playNextMediaOrWrap(')}\nconst AUTO_RETRY_MS = [10, 10, 10, 10];\n${grab(src, 'function autoAdvance(')}\nglobalThis.__q = { autoAdvance, opened: () => { _fileOpenedSeq++; } };`, ctx);
+  await ctx.__q.autoAdvance();
+  await wait(300);
+  assert.deepStrictEqual(opened, [1]);
+  assert.strictEqual(calls, 1);
 });

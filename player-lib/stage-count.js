@@ -147,14 +147,18 @@ const StageCount = (() => {
 
   /**
    * The Up next files played so far, after a file started on Stage. via:
-   * where it came from ('upnext', 'list', 'user'); a list file one step on
-   * from the last one keeps the count, anything else (a jump, the list
-   * starting over) starts it again.
+   * where it came from ('upnext', 'list', 'user'). A list file one step on
+   * from the last one keeps the count, and so does one further on that the
+   * queue moved to by itself (auto: it passed over files that do not play
+   * there, a picture on Basic Stage, a document, a file that cannot play);
+   * anything else (a file picked further on, Previous, the list starting
+   * over) starts it again.
    */
-  function nextUpPlayed(prev, { via, index = -1, lastIndex = -1 } = {}) {
+  function nextUpPlayed(prev, { via, index = -1, lastIndex = -1, auto = false } = {}) {
     const p = Math.max(0, Number(prev) || 0);
     if (via === 'upnext') return p + 1;
     if (via === 'list' && index === lastIndex + 1 && lastIndex >= 0) return p;
+    if (via === 'list' && auto && lastIndex >= 0 && index > lastIndex) return p;
     if (via === 'list' && index === lastIndex) return p;
     return 0;
   }
