@@ -211,9 +211,10 @@ test('measure: queues only what is not measured; status counts it', async () => 
   } while (s.collection.failed === 0 && Date.now() - t0 < 5000);
   assert.strictEqual(s.collection.failed, 1);
   assert.match(store.get(d, ids[3]).error, /not where the library says/);
-  // Try again queues it once more.
+  assert.strictEqual(store.get(d, ids[3]).error_code, 'MISSING');
+  // Try again queues it once more (and the file that kept its numbers in the test before).
   const again = await (await post(`/api/flow/collections/${coll}/measure`, { retry: true })).json();
-  assert.strictEqual(again.added, 1);
+  assert.strictEqual(again.added, 2);
   // Put the row back for the tests after.
   await new Promise(res => setTimeout(res, 300));
   store.save(d, ids[3], store.srcOf({ filesize_bytes: 1000, file_mtime_ms: 5 }), { lufs: -20, has_music: 1, e_start: 0.3, e_mid: 0.3, e_end: 0.3, bpm_start: 100, bpm_mid: 100, bpm_end: 100 });
