@@ -133,6 +133,13 @@ const Flow = (() => {
     if (typeof renderResults === 'function') renderResults();
   }
 
+  /** Show on the order bar: open the panel and put focus on its Hide button. */
+  function showFromBar() {
+    const p = toggle(st.cid);
+    panel()?.querySelector('[data-flow-hide]')?.focus({ preventScroll: true });
+    return p;
+  }
+
   function close() {
     st.open = false;
     clearTimeout(st.pollTimer);
@@ -541,7 +548,7 @@ const Flow = (() => {
       ${spark || '<span class="flow-sp"></span>'}
       <button type="button" class="flow-btn flow-btn-sm" onclick="Flow.usePlaylistOrder()">Back to playlist order</button>
       <button type="button" class="flow-btn flow-btn-sm flow-ob-save" onclick="Flow.saveOrder()">Save as playlist order</button>
-      ${closed ? `<button type="button" class="flow-btn flow-btn-sm flow-ob-show" onclick="Flow.toggle(${Number(st.cid)})" title="Show the Flow panel">Show ▾</button>` : ''}`;
+      ${closed ? `<button type="button" class="flow-btn flow-btn-sm flow-ob-show" onclick="Flow.showFromBar()" title="Show the Flow panel">Show ▾</button>` : ''}`;
   }
 
   /** The order bar's sparkline: the working order's middle energies (decoration only). */
@@ -1412,7 +1419,9 @@ const Flow = (() => {
     el.hidden = false;
     const hideBtn = '<button type="button" class="flow-btn flow-btn-sm flow-hide" data-flow-hide title="Hide the Flow panel">Hide ▴</button>';
     if (tooMany()) { el.innerHTML = `<div class="flow-row"><span class="flow-title">Flow</span>${progressHtml()}<span class="flow-sp"></span>${hideBtn}</div>`; st.geom = null; return; }
-    const gripFocused = !!document.activeElement?.matches?.('#flowPanel .flow-grip');
+    // Keyboard focus on the grip or Hide stays there across repaints (polls repaint often).
+    const KEEP_FOCUS = ['.flow-grip', '[data-flow-hide]'];
+    const keepFocus = KEEP_FOCUS.find(sel => document.activeElement?.matches?.(`#flowPanel ${sel}`));
     const shapes = FlowOrder.SHAPES.map(s => `<button type="button" data-flow-shape="${s.key}" aria-pressed="${String(st.order && st.shape === s.key)}">${esc(s.label)}</button>`).join('');
     // The chart's host is kept across repaints (polls repaint often): an empty
     // host would shrink the panel for a moment, and a page scrollbar going
@@ -1446,7 +1455,7 @@ const Flow = (() => {
     if (slot && keep) slot.replaceWith(keep);
     st.geom = null;
     drawChart();
-    if (gripFocused) el.querySelector('.flow-grip')?.focus({ preventScroll: true });
+    if (keepFocus) el.querySelector(keepFocus)?.focus({ preventScroll: true });
   }
 
   /* The grip under the chart: drag up or down for a shorter or taller chart,
@@ -1510,7 +1519,12 @@ const Flow = (() => {
       const ln = e.target.closest('[data-flow-lane]');
       if (ln) { toggleLane(ln.dataset.flowLane); return; }
       if (e.target.closest('[data-flow-save]')) { saveOrder(); return; }
-      if (e.target.closest('[data-flow-hide]')) { close(); return; }
+      if (e.target.closest('[data-flow-hide]')) {
+        close();
+        // Focus goes back to the toolbar button that opens it again.
+        document.getElementById('collFlowBtn')?.focus({ preventScroll: true });
+        return;
+      }
       if (e.target.closest('#flowChartWrap') && st.geom) {
         const i = colAt(e);
         if (i >= 0) revealFile(st.geom.order[i]);
@@ -1627,7 +1641,7 @@ const Flow = (() => {
   else setTimeout(watchTags, 0);
 
   return {
-    toggle, close, pickShape, useFlowOrder, usePlaylistOrder, saveOrder, refetch,
+    toggle, close, pickShape, showFromBar, useFlowOrder, usePlaylistOrder, saveOrder, refetch,
     tileHtml, queryRanked, shuffleCollection, stageCurrent,
     isOpen: () => st.open && isMine(),
     orderOn: () => st.order && isMine() && !!st.appliedOrder,

@@ -117,6 +117,8 @@
 body.flow-grip-dragging .flow-grip > i { opacity: 1; background: var(--accent); }
 .flow-grip:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
 body.flow-grip-dragging { user-select: none; cursor: ns-resize; }
+/* Hide: at the far right of the panel's first row, wherever that row wraps. */
+.flow-row > .flow-hide { margin-left: auto; }
 @media (prefers-reduced-motion: reduce) { .flow-grip > i { transition: none; } }
 
 .flow-prog {
@@ -357,7 +359,8 @@ body.layout-modern .flow-tile-note { color: var(--m-muted); }
 .flow-orderbar .flow-btn-sm { padding: 0.2rem 0.65rem; }
 .flow-orderbar .flow-ob-save { border-color: color-mix(in oklab, var(--flow-e-hi) 50%, transparent); }
 /* Panel closed: a small sparkline of the order's energy, and Show. */
-.flow-ob-spark { flex: 1 1 60px; min-width: 60px; max-width: 360px; height: 22px; margin-right: auto; }
+/* Gives way first: it shrinks to nothing before the buttons would wrap. */
+.flow-ob-spark { flex: 1 1 0; min-width: 0; max-width: 360px; height: 22px; margin-right: auto; overflow: hidden; }
 .flow-ob-spark svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .flow-ob-spark path { fill: none; stroke: var(--flow-e-hi); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 body.layout-modern .coll-reorder-note.flow-orderbar { border-radius: var(--m-radius-sm, 8px); font-size: 12.5px; color: var(--m-text-2); }
