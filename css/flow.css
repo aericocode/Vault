@@ -52,6 +52,17 @@
 .flow-title { font-weight: 700; font-size: 0.9rem; }
 .flow-sub { color: var(--text-secondary); font-size: 0.78rem; }
 .flow-failed { color: var(--flow-bad); }
+/* Why files couldn't be measured (the Why? button), one line a reason. */
+.flow-why {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border-left: 2px solid var(--flow-bad);
+  display: grid;
+  gap: 2px;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
 .flow-sp { flex: 1; }
 .flow-seg-label { color: var(--text-secondary); font-size: 0.75rem; }
 

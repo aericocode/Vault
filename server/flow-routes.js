@@ -2,9 +2,12 @@
  * Flow routes (lib/flow/service.js): measure a collection's music and put it
  * in Flow order.
  *
- *   GET  /api/flow/status[?collection=ID]   the queue (and that collection's counts)
+ *   GET  /api/flow/status[?collection=ID]   the queue (and that collection's counts,
+ *        with queued / queuedFailed / again: its files still to do), workerError
  *   GET  /api/flow/collections/:id?shape=build&first=ID&places=1
- *        Flow order: { shape, order, playlistOrder, features, targets,
+ *        Flow order: { shape, order, playlistOrder, features (a file that
+ *        could not be measured has reason, in plain words, and error, as
+ *        ffmpeg said it), targets,
  *        handovers, jumps, playlistJumps, counts, places, placesOn }.
  *        places=1: files with a placed stream tag go where it says (First,
  *        Last, At a peak... lib/stream-tags.js); the answer's places is every
@@ -12,7 +15,10 @@
  *        thread, cached until something changes) from what is measured so far;
  *        files not measured yet are placed by the shape alone. 413 TOO_MANY
  *        over 5,000 files (status says so too: counts.tooMany).
- *   POST /api/flow/collections/:id/measure  { retry? }  queue what is not measured
+ *   POST /api/flow/collections/:id/measure  { retry?, all? }  queue what is not
+ *        measured; retry: the ones that failed too (Try again); all: every
+ *        file again, measured or not (Measure again: measured ones keep their
+ *        numbers until the new measurement succeeds)
  *   POST /api/flow/pause | /api/flow/resume | /api/flow/cancel
  *   GET  /api/flow/media/:id                one file (the Stage bar's line)
  *
@@ -73,7 +79,8 @@ function buildRouter() {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'bad id' });
     try {
-      res.json(flow.requestCollection(id, { retry: !!(req.body && req.body.retry === true) }));
+      const b = req.body || {};
+      res.json(flow.requestCollection(id, { retry: b.retry === true, all: b.all === true }));
     } catch (err) { fail(res, err); }
   });
 

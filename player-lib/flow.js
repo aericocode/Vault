@@ -106,6 +106,7 @@ const Flow = (() => {
     st.pollTimer = null;
     st.cid = null; st.open = false; st.order = false; st.data = null; st.byId = new Map();
     st.status = null; st.lastCount = -1; st.appliedOrder = null; st.fetchFails = 0; st.toasted = false;
+    st.showWhy = false; st.lastMoved = null;
     // Each collection starts from the default shape (or its remembered one,
     // restore / toggle): never the shape picked on the one before.
     st.shape = DEFAULT_SHAPE;
@@ -247,9 +248,15 @@ const Flow = (() => {
     const c = st.status.collection;
     if (!c || c.tooMany) { paint(); return; }
     const count = countKey(c);
-    // Measuring, or updating measurements (stale: measured by an older method).
-    const active = (c.left > 0 || c.stale > 0) && st.status.queue.state !== 'idle';
-    if (count !== st.lastCount) await refetch(!active);
+    // Measuring, updating measurements (stale: measured by an older method),
+    // or measuring this collection's files again (Try again, Measure again).
+    const active = (c.left > 0 || c.stale > 0 || (c.queued || 0) > 0) && st.status.queue.state !== 'idle';
+    // Measure again and Try again change numbers and reasons, not always counts:
+    // the chart follows each of this collection's files done (and the last one).
+    const moved = `${count}|${c.queued || 0}`;
+    const done = st.lastMoved != null && moved !== st.lastMoved;
+    st.lastMoved = moved;
+    if (count !== st.lastCount || done) await refetch(!active);
     paint();
     // Keep going while something is still being measured for this collection.
     if (active) schedulePoll();
@@ -386,10 +393,14 @@ const Flow = (() => {
   async function queueAct(act) {
     try {
       if (act === 'retry') st.status = await post(`/api/flow/collections/${st.cid}/measure`, { retry: true });
+      else if (act === 'again') st.status = await post(`/api/flow/collections/${st.cid}/measure`, { all: true });
       else st.status = await post(`/api/flow/${act === 'pause' ? 'pause' : 'resume'}`, {});
     } catch (err) { toastErr(err, act === 'pause' ? 'pausing' : 'measuring for Flow'); }
     if (act !== 'pause') {
       try { st.status = await api(`/api/flow/status?collection=${st.cid}`); } catch {}
+      // What the poll compares with, so a run that is over before the first poll still refetches.
+      const c = st.status && st.status.collection;
+      if (c && !c.tooMany && act !== 'resume') st.lastMoved = `${countKey(c)}|${c.queued || 0}|asked`;
       schedulePoll();
     }
     paint();
@@ -700,18 +711,23 @@ const Flow = (() => {
     if (!c) return '<span class="flow-sub">Looking…</span>';
     const done = c.measured + c.failed;
     const q = s && s.queue;
+    const busy = !!(q && q.state !== 'idle');
+    const queued = busy ? c.queued || 0 : 0;
+    // Files being tried again (Try again, Measure again): not counted as failed meanwhile.
+    const redo = queued > 0 && ((c.queuedFailed || 0) > 0 || (c.again || 0) > 0);
+    const failed = Math.max(0, c.failed - (busy ? c.queuedFailed || 0 : 0));
     const parts = [];
     if (c.measurable === 0) {
       parts.push('<span class="flow-sub">No videos or audio here to measure</span>');
-    } else if ((c.left > 0 || c.stale > 0) && q && q.state !== 'idle') {
-      // Measuring, or (everything measured by an older method) adding the chart's detail.
-      const again = !(c.left > 0);
+    } else if ((c.left > 0 || c.stale > 0 || queued > 0) && busy) {
+      // Measuring, measuring again, or (everything measured by an older method) adding the chart's detail.
+      const again = !redo && !(c.left > 0);
       const wait = q.reason === 'paused' ? 'Paused'
         : q.reason === 'stage' ? 'Waiting while Stage plays'
         : q.reason === 'locked' ? 'Waiting: Vault is locked'
         : null;
-      const why = again ? (wait ? `${wait}: updating measurements,` : 'Updating measurements:') : (wait || 'Measuring');
-      const n = again ? c.measured - c.stale : done;
+      const why = again ? (wait ? `${wait}: updating measurements,` : 'Updating measurements:') : (wait || (c.again > 0 ? 'Measuring again' : 'Measuring'));
+      const n = again ? c.measured - c.stale : redo ? c.measurable - queued : done;
       const of = again ? c.measured : c.measurable;
       const pct = Math.round((n / Math.max(1, of)) * 100);
       parts.push(`<span class="flow-sub">${why} ${n.toLocaleString()} of ${plural(of, 'file', 'files')}</span>`);
@@ -723,14 +739,49 @@ const Flow = (() => {
       parts.push(`<span class="flow-sub">${c.measured.toLocaleString()} of ${plural(c.measurable, 'file', 'files')} measured</span>`);
       if (c.left > 0) parts.push('<button type="button" class="flow-btn flow-btn-sm" data-flow-q="retry">Measure the rest</button>');
     }
-    if (c.failed > 0) {
-      parts.push(`<span class="flow-sub flow-failed">${plural(c.failed, 'file', 'files')} couldn’t be measured</span>`);
+    if (failed > 0) {
+      const groups = failGroups();
+      const tip = groups.length ? `Why: ${groups.slice(0, 3).map(g => `${g.reason} (${g.n})`).join('; ')}` : '';
+      parts.push(`<span class="flow-sub flow-failed"${tip ? ` title="${esc(tip)}"` : ''}>${plural(failed, 'file', 'files')} couldn’t be measured</span>`);
+      if (groups.length) parts.push(`<button type="button" class="flow-btn flow-btn-sm flow-why-btn" data-flow-why aria-expanded="${String(!!st.showWhy)}">${st.showWhy ? 'Hide why' : 'Why?'}</button>`);
     }
     if (c.kept > 0) {
       parts.push(`<span class="flow-sub">${plural(c.kept, 'file', 'files')} kept ${c.kept === 1 ? 'its' : 'their'} older measurements (couldn’t measure again)</span>`);
     }
-    if ((c.failed > 0 || c.kept > 0) && !(q && q.state !== 'idle')) parts.push('<button type="button" class="flow-btn flow-btn-sm" data-flow-q="retry">Try again</button>');
+    // Flow's measuring itself failed (not the files): those files were left for later.
+    if (s && s.workerError && !busy && c.left > 0) {
+      parts.push(`<span class="flow-sub flow-failed" title="${esc(s.workerError)}">Measuring stopped working, so some files were left for later</span>`);
+    }
+    if ((failed > 0 || c.kept > 0) && !busy) parts.push('<button type="button" class="flow-btn flow-btn-sm" data-flow-q="retry">Try again</button>');
+    if (!busy && c.measurable > 0 && done > 0) parts.push('<button type="button" class="flow-btn flow-btn-sm" data-flow-q="again" title="Measure every file in this collection again">Measure again</button>');
     return parts.join('');
+  }
+
+  /** Why files couldn't be measured, grouped by reason, most first: [{ reason, n, names }]. */
+  function failGroups() {
+    const by = new Map();
+    for (const f of (st.data && st.data.features) || []) {
+      if (!f.failed) continue;
+      const reason = f.reason || 'no reason given';
+      let g = by.get(reason);
+      if (!g) by.set(reason, (g = { reason, n: 0, names: [] }));
+      g.n++;
+      if (g.names.length < 10) g.names.push(shortName(f) || f.name || `file ${f.id}`);
+    }
+    return [...by.values()].sort((a, b) => b.n - a.n);
+  }
+
+  /** The reasons, listed under the panel's first row while Why? is open. */
+  function whyHtml() {
+    if (!st.showWhy) return '';
+    const groups = failGroups();
+    if (!groups.length) return '';
+    const cap = (t) => (/^ff(mpeg|probe) /.test(t) ? t : t.charAt(0).toUpperCase() + t.slice(1));
+    const items = groups.map(g => {
+      const more = g.n > g.names.length ? `, and ${g.n - g.names.length} more` : '';
+      return `<li title="${esc(g.names.join(', ') + more)}"><span>${esc(cap(g.reason))}</span> <span class="flow-sub">${plural(g.n, 'file', 'files')}</span></li>`;
+    }).join('');
+    return `<ul class="flow-why" aria-label="Why files couldn’t be measured">${items}</ul>`;
   }
 
   /* ── The chart ──────────────────────────────────────────────────────
@@ -1318,7 +1369,7 @@ const Flow = (() => {
     const f = st.byId.get(id);
     let line;
     if (!f || f.kind === 'other') line = 'Not a video or audio file';
-    else if (f.failed) line = 'Couldn’t be measured';
+    else if (f.failed) line = f.reason ? `Couldn’t be measured: ${f.reason}` : 'Couldn’t be measured';
     else if (!f.measured) line = 'Not measured yet';
     else if (f.noSound) line = 'No sound';
     else if (!f.music) line = `No music · energy ${pct(f.em)}`;
@@ -1462,6 +1513,7 @@ const Flow = (() => {
         <span class="flow-seg flow-shapes" role="group" aria-label="Shape">${shapes}</span></span>
         ${hideBtn}
       </div>
+      ${whyHtml()}
       ${lanesRowHtml()}
       ${chartHtml(!!keep)}
       ${gripHtml()}
@@ -1534,6 +1586,7 @@ const Flow = (() => {
       if (o) { if (o.dataset.flowOrder === 'flow') useFlowOrder(); else usePlaylistOrder(); return; }
       const q = e.target.closest('[data-flow-q]');
       if (q) { queueAct(q.dataset.flowQ); return; }
+      if (e.target.closest('[data-flow-why]')) { st.showWhy = !st.showWhy; paint(); return; }
       const pl = e.target.closest('[data-flow-places]');
       if (pl) { pickPlaces(pl.dataset.flowPlaces === '1'); return; }
       const ln = e.target.closest('[data-flow-lane]');
@@ -1583,7 +1636,7 @@ const Flow = (() => {
     }
     let body;
     if (f.kind === 'other') body = '';
-    else if (f.failed) body = '<span class="flow-tile-note">couldn’t measure</span>';
+    else if (f.failed) body = `<span class="flow-tile-note"${f.reason ? ` title="${esc(`Couldn’t be measured: ${f.reason}`)}"` : ''}>couldn’t measure</span>`;
     else if (!f.measured) body = '<span class="flow-tile-note">not measured yet</span>';
     else if (!f.music) body = '<span class="flow-tile-note">no music</span>';
     else {
