@@ -18,13 +18,21 @@
 const STAGE_SETTINGS_DEFAULTS = {
   showName: true, nameSeconds: 3, windowName: 'Vault Stage', imageSeconds: 8,
   cursorSeconds: 1, openSize: 'free', muteVault: true, tips: true, player: 'auto',
-  evenLoudness: true, flowMeasure: 'use', flowShuffle: false,
+  evenLoudness: true, flowMeasure: 'use', flowShuffle: false, flowEdges: 'auto',
 };
 
 const STAGE_FLOW_MEASURE_OPTIONS = [
   { value: 'use', label: 'Only when I use Flow' },
   { value: 'new', label: 'New files too' },
   { value: 'all', label: 'Whole library now' },
+];
+
+// Ignore calm intros and credits (player-lib/flow-order.js, Calm edges).
+const STAGE_FLOW_EDGES_OPTIONS = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'off', label: 'Off' },
+  { value: '15', label: '15 s' },
+  { value: '30', label: '30 s' },
 ];
 
 const STAGE_BASIC_WORDS = 'Basic (picture-in-picture): no extra program. It shows the address and controls when your mouse is over it, plays videos only, and stays on top.';
@@ -130,6 +138,10 @@ function stageSettingsHtml() {
   const measureSel = `<select class="settings-sel" data-stage-sel="flowMeasure" aria-label="Measure for Flow">
           ${STAGE_FLOW_MEASURE_OPTIONS.map(o => `<option value="${o.value}"${s.flowMeasure === o.value ? ' selected' : ''}>${_stEsc(o.label)}</option>`).join('')}
         </select>`;
+  const edgesSel = `<select class="settings-sel" data-stage-sel="flowEdges" aria-label="Ignore calm intros and credits">
+          ${STAGE_FLOW_EDGES_OPTIONS.map(o => `<option value="${o.value}"${s.flowEdges === o.value ? ' selected' : ''}>${_stEsc(o.label)}</option>`).join('')}
+        </select>`;
+  const edgesDesc = 'When Flow orders files, look past a quiet start or end. Playback is not changed.';
   const loudDesc = 'Quiet files are turned up and loud ones down, so viewers don’t reach for the volume. mpv Stage only: Basic can’t.';
   const measureDesc = 'Vault listens to each file’s music for Flow order on a collection, on this PC at low priority, and waits while Stage plays. Only when I use Flow measures a collection when you open Flow on it.';
   const shuffleDesc = 'A collection’s Shuffle lines files up so each one tends to flow into the next, instead of pure random. It still mixes things up.';
@@ -159,6 +171,7 @@ function stageSettingsHtml() {
       + settingsRowHtml({ tag: 'label', sfind: 'stageTips', title: 'Tips when Stage opens', desc: 'How to share it in Discord.', control: _stSwitch('tips', s.tips) })
       + settingsRowHtml({ tag: 'label', sfind: 'stageEvenLoudness', title: 'Even out loudness on Stage', desc: loudDesc, control: _stSwitch('evenLoudness', s.evenLoudness) })
       + settingsRowHtml({ sfind: 'stageFlowMeasure', title: 'Measure for Flow', desc: measureDesc, control: measureSel })
+      + settingsRowHtml({ sfind: 'stageFlowEdges', title: 'Ignore calm intros and credits', desc: edgesDesc, control: edgesSel })
       + settingsRowHtml({ tag: 'label', sfind: 'stageFlowShuffle', title: 'Flow shuffle', desc: shuffleDesc, control: _stSwitch('flowShuffle', s.flowShuffle) });
     return `<p class="settings-note stage-set-lead">Stage is the window you share in Discord. Open it from the mini player, the full player, or Play on Stage on a collection.</p>`
       + settingsCardHtml({ title: 'Stage', sfind: 'stage', body: rows }) + lanes;
@@ -179,6 +192,7 @@ function stageSettingsHtml() {
       ${settingsRowHtml({ tag: 'label', sfind: 'stageTips', title: 'Tips when Stage opens', control: _stSwitch('tips', s.tips) })}
       ${settingsRowHtml({ tag: 'label', sfind: 'stageEvenLoudness', title: 'Even out loudness on Stage', desc: loudDesc, control: _stSwitch('evenLoudness', s.evenLoudness) })}
       ${settingsRowHtml({ sfind: 'stageFlowMeasure', title: 'Measure for Flow', desc: measureDesc, control: measureSel })}
+      ${settingsRowHtml({ sfind: 'stageFlowEdges', title: 'Ignore calm intros and credits', desc: edgesDesc, control: edgesSel })}
       ${settingsRowHtml({ tag: 'label', sfind: 'stageFlowShuffle', title: 'Flow shuffle', desc: shuffleDesc, control: _stSwitch('flowShuffle', s.flowShuffle) })}
       ${lanes}`;
 }
@@ -192,6 +206,8 @@ async function _stageSettingsSave(patch, root) {
     if (!r.ok) throw Object.assign(new Error(data.error || `Server returned ${r.status}`), { status: r.status });
     _stageSettings = { ..._stageSettings, ...data };
     if (typeof showToast === 'function') showToast('Saved');
+    // An open Flow panel works its order out again (no measuring: player-lib/flow.js).
+    if ('flowEdges' in patch && typeof flowSettingsChanged === 'function') flowSettingsChanged();
   } catch (err) {
     if (typeof showErrorToast === 'function') showErrorToast(err, 'saving the Stage settings');
   }

@@ -11,6 +11,9 @@
        measured before it existed, which the chart draws from es, em, ee),
        ei, eo (optional: the envelope's first and last energy, set with env;
        hand-overs use them),
+       skip, cut (optional: set only when Flow looks past a calm intro or
+       credits, see "Calm edges" below: [start, end] in seconds, and the
+       same as shares of the file 0..1, for the chart),
        name, title (optional: the file name, and the library's title when it
        has one, for the chart) }
 
@@ -30,6 +33,8 @@
    - flowShuffle(feats, o)       a shuffle that leans toward good hand-overs
    - flowText(f)                 "128 BPM · energy high" (the Stage bar)
    - parseEnv(text)              media_flow.env as the features' env (2 decimals), or null
+   - EDGE_MODES, edgeSkips(...)  how far Flow looks past each edge (Calm edges)
+   - fromRow(id, row, mode)      a media_flow row as features, with the edges mode applied
    - reconcileOrder(order, members)  an order kept to a collection's files
    - moveBlock(order, ids, before)   a drag in Flow order: the new order, or null
    - parseRemembered(text)       a remembered Flow order from storage, or null
@@ -57,6 +62,30 @@
    so a jump in either part costs about 0.25 or more, and both together
    more again. Music on one side only: 0.25 x eN. No music either side, or
    not measured: a flat 0.25 (placed by the shape alone).
+
+   Calm edges (Settings › Stage, "Ignore calm intros and credits"; the mode
+   is fromRow's third argument, so the order, the grades, Flow shuffle and
+   Places all see the same thing; playback is not changed). A row with edge
+   pieces (media_flow.edges, lib/flow/analyze.js) can have its start and end
+   looked at past a skip: its start energy and tempo (es, ei, bs) become the
+   15 s right after the skip, its end (ee, eo, be) the 15 s right before the
+   end's skip. Skips are whole 5 s pieces, at most a quarter of the file
+   each, and only where the 15 s after them was measured.
+     off    the edges as they are (exactly as before there was a setting)
+     15, 30 that many seconds each end
+     auto   per edge: the run of calm pieces from the edge, when it is
+            followed by the file's body; up to 45 s. A piece is calm when
+            silent, or both EDGE_CALM_E under the body's energy (the
+            envelope's median, else the middle) and EDGE_CALM_LU quieter than
+            the file's loudness; the 15 s after the run must be within
+            EDGE_BODY_E of the body, or nothing is skipped. So a quiet song
+            (calm all through) and a song that starts soft and builds (a beat
+            a few LU under the chorus, or a slow climb) are left alone.
+     45 s covers a music video's intro or the credits after the song; a
+     longer calm stretch is more likely part of the music, and 60 s each end
+     (45 + the 15 after) is what is measured. A row without edge pieces (from
+     before version 5, a file under 20 s) and a file with no music are
+     looked at as they are, whatever the mode.
 
    Files with nothing to place them by (not measured yet, couldn't be
    measured, no audio stream, silent) keep their playlist positions; the
@@ -117,6 +146,13 @@ const FlowOrder = (() => {
   const BUDGET_MAX = 1.2e7;
   const SHUFFLE_TEMP = 0.25;       // hand-over costs: a jump is about 0.25
   const SHUFFLE_FLOOR = 0.02;
+  const EDGE_MODES = ['auto', 'off', '15', '30'];
+  const EDGE_PIECE_S = 5;          // lib/flow/analyze.js PIECE_S
+  const EDGE_AUTO_MAX_S = 45;
+  const EDGE_SHARE = 0.25;         // a skip is at most this share of the file
+  const EDGE_CALM_E = 0.15;        // calm: this far under the body's energy...
+  const EDGE_CALM_LU = 9;          // ...and this many LU quieter than the file
+  const EDGE_BODY_E = 0.10;        // what comes after the skip is this close to the body
 
   const PLACES = ['first', 'last', 'peak', 'after_peak', 'low', 'anywhere'];
   // Group codes for positions and files: 0 free, 1 o.firstId, then one per place.
@@ -745,10 +781,55 @@ const FlowOrder = (() => {
     return id != null ? { id, upNext: false } : null;
   }
 
-  /** A media_flow row (or null) as features. */
-  function fromRow(id, row) {
+  /** media_flow.edges (JSON) as an object, or null when it is not { d, start, end } with the lists edgeSkips reads. */
+  function parseEdges(text) {
+    if (!text) return null;
+    let x;
+    try { x = typeof text === 'string' ? JSON.parse(text) : text; } catch { return null; }
+    const list = (a) => Array.isArray(a) && a.every(v => v === null || Number.isFinite(v));
+    const side = (s) => !!s && list(s.l) && list(s.e) && list(s.w) && list(s.b);
+    return x && Number(x.d) > 0 && side(x.start) && side(x.end) ? x : null;
+  }
+
+  /**
+   * How far Flow looks past each edge (see "Calm edges" at the top), in
+   * seconds: { start, end }, 0 for an edge looked at as it is.
+   * @param {object} edges   parseEdges' answer
+   * @param {string} mode    EDGE_MODES
+   * @param {{bodyE: number, bodyLufs: number|null}} body  the file's usual energy and loudness
+   */
+  function edgeSkips(edges, mode, { bodyE, bodyLufs }) {
+    const out = { start: 0, end: 0 };
+    if (!edges || !EDGE_MODES.includes(mode) || mode === 'off') return out;
+    const share = Math.floor((edges.d * EDGE_SHARE) / EDGE_PIECE_S + 1e-9);
+    for (const k of ['start', 'end']) {
+      const s = edges[k];
+      // Pieces skipped at most: a quarter of the file, and the 15 s after must have been measured.
+      const most = Math.min(share, s.w.length - 1);
+      if (most <= 0) continue;
+      let n;
+      if (mode === 'auto') {
+        const calm = (i) => s.l[i] == null || (bodyLufs != null && s.e[i] != null && s.e[i] <= bodyE - EDGE_CALM_E && s.l[i] <= bodyLufs - EDGE_CALM_LU);
+        let run = 0;
+        while (run < s.l.length && calm(run)) run++;
+        n = Math.min(run, EDGE_AUTO_MAX_S / EDGE_PIECE_S, most);
+        // Past it there must be the file's body (not more calm, nor a slow climb).
+        if (n > 0 && !(s.w[n] != null && s.w[n] >= bodyE - EDGE_BODY_E)) n = 0;
+      } else {
+        n = Math.min(Number(mode) / EDGE_PIECE_S, most);
+      }
+      out[k] = n * EDGE_PIECE_S;
+    }
+    return out;
+  }
+
+  /**
+   * A media_flow row (or null) as features. mode: the calm edges setting
+   * (EDGE_MODES; 'off' or none: the edges as they are).
+   */
+  function fromRow(id, row, mode = 'off') {
     if (!row || row.error) return { id, measured: false, failed: !!(row && row.error), music: false, es: 0, em: 0, ee: 0, bs: null, bm: null, be: null };
-    return {
+    const f = {
       id, measured: true, failed: false, music: !!row.has_music, noAudio: !!row.no_audio,
       // No audio stream, or nothing above -70 LUFS: no energy to place it by.
       noSound: !!row.no_audio || row.lufs == null,
@@ -756,13 +837,38 @@ const FlowOrder = (() => {
       bs: row.bpm_start, bm: row.bpm_mid, be: row.bpm_end, lufs: row.lufs,
       ...withEnv(row.env),
     };
+    if (mode && mode !== 'off' && f.music && !f.noSound) withSkips(f, parseEdges(row.edges), mode);
+    return f;
   }
   const withEnv = (text) => { const env = parseEnv(text); return env ? { env, ei: env[0][1], eo: env[env.length - 1][1] } : {}; };
+
+  /** Look past f's edges as the mode says (sets es, ei, bs / ee, eo, be, and skip, cut). */
+  function withSkips(f, edges, mode) {
+    if (!edges) return;
+    const body = { bodyE: f.env ? median(f.env.map(p => p[1])) : f.em, bodyLufs: f.lufs };
+    const sk = edgeSkips(edges, mode, body);
+    if (!sk.start && !sk.end) return;
+    const at = (side, s) => ({ e: edges[side].w[s / EDGE_PIECE_S], b: edges[side].b[s / EDGE_PIECE_S] });
+    if (sk.start) {
+      const a = at('start', sk.start);
+      f.es = f.ei = a.e;
+      if (a.b) f.bs = a.b;
+    }
+    if (sk.end) {
+      const z = at('end', sk.end);
+      f.ee = f.eo = z.e;
+      if (z.b) f.be = z.b;
+    }
+    const r3 = (v) => Math.round(Math.min(1, v / edges.d) * 1000) / 1000;
+    f.skip = [sk.start, sk.end];
+    f.cut = [r3(sk.start), r3(sk.end)];
+  }
 
   return {
     SHAPES, SHAPE_KEYS, NEUTRAL, E_SMOOTH, E_JUMP, T_SMOOTH, T_JUMP, PLACES, resolvePlace,
     shapeLabel, isShape, curve, targetsFor, guideTargets, tempoRatio, handoverCost, handover, grade, handoverText, planOrder, summary,
     flowShuffle, pickFrom, seeded, energyWord, bpmText, flowText, fromRow, parseEnv, totalCost,
+    EDGE_MODES, parseEdges, edgeSkips,
     reconcileOrder, moveBlock, parseRemembered, nextAfter,
   };
 })();

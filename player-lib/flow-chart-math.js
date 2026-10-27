@@ -8,6 +8,10 @@
                              t stretched to 0..1: its envelope (about 10
                              points, smoothed for display) or, without one,
                              start / middle / end
+   - ignoredSpan(f)          where Flow looks past a calm intro or credits
+                             (f.cut, player-lib/flow-order.js), on filePoints'
+                             stretched 0..1: { a, b } (ignored before a and
+                             after b), or null when nothing is
    - smoothed(es)            0.25 / 0.5 / 0.25 over the inside values, once
                              (one dipping slice is not drawn as a needle);
                              the ends are kept, so hand-overs still meet them
@@ -65,6 +69,23 @@ const FlowChartMath = (() => {
     const span = t1 - t0;
     if (!(span > 0)) return env.map((p, k) => [k / (env.length - 1), es[k]]);
     return env.map((p, k) => [(p[0] - t0) / span, es[k]]);
+  }
+
+  /**
+   * The ignored parts of a file's line, on the same 0..1 as filePoints (so a
+   * band ends where the line passes the cut): { a, b }, or null when the
+   * file has no cut. a <= b always (a short file's bands never cross).
+   */
+  function ignoredSpan(f) {
+    const c = f && Array.isArray(f.cut) ? f.cut : null;
+    if (!c || !(c[0] > 0 || c[1] > 0)) return null;
+    const env = Array.isArray(f.env) && f.env.length >= 2 ? f.env : null;
+    const t0 = env ? env[0][0] : 0, t1 = env ? env[env.length - 1][0] : 1;
+    const span = t1 - t0;
+    const at = (t) => (span > 0 ? clamp01((t - t0) / span) : t);
+    const a = c[0] > 0 ? at(clamp01(c[0])) : 0;
+    const b = c[1] > 0 ? at(1 - clamp01(c[1])) : 1;
+    return b >= a ? { a, b } : { a: (a + b) / 2, b: (a + b) / 2 };
   }
 
   const fx = (v) => (Math.round(v * 10) / 10).toString();
@@ -171,7 +192,7 @@ const FlowChartMath = (() => {
     return monotonePath(pts.map(([i, v]) => [x(i), y(v)]));
   }
 
-  return { yRange, filePoints, smoothed, slopes, monotonePath, monotoneAt, linearAt, tempoShare,
+  return { yRange, filePoints, ignoredSpan, smoothed, slopes, monotonePath, monotoneAt, linearAt, tempoShare,
     CHART_H_MIN, CHART_H_MAX, clampChartHeight, sparkPath };
 })();
 

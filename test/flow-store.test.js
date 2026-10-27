@@ -45,7 +45,7 @@ test('an older media_flow gets the env column; its rows survive', () => {
 });
 
 test('a version 2 row is used meanwhile (stale, no envelope); failed, older or changed ones are not', () => {
-  assert.strictEqual(analyze.VERSION, 4);
+  assert.strictEqual(analyze.VERSION, 5);
   assert.strictEqual(analyze.MIN_VERSION, 2);
   const d = oldDb();
   store.ensureSchema(d);

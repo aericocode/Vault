@@ -275,6 +275,33 @@ test('Settings › Stage: Even out loudness on, Measure for Flow, Flow shuffle o
   await post('/api/stage/settings', { flowMeasure: 'use', flowShuffle: false, evenLoudness: true });
 });
 
+test('Ignore calm intros and credits: Auto by default; changing it changes the features at once, nothing is measured', async () => {
+  const d = db.get();
+  // ids[2] gets edge pieces with a calm 20 s intro (energy 0.1, -40 LUFS) before its body (0.5, -20 LUFS).
+  const side = (calm) => ({
+    l: Array.from({ length: 12 }, (_, k) => (calm && k < 4 ? -40 : -20)),
+    e: Array.from({ length: 12 }, (_, k) => (calm && k < 4 ? 0.1 : 0.5)),
+    w: Array.from({ length: 10 }, (_, k) => (calm && k < 4 ? 0.1 : 0.5)),
+    b: Array(10).fill(120),
+  });
+  d.prepare('UPDATE media_flow SET e_start = 0.1, edges = ? WHERE media_id = ?').run(JSON.stringify({ d: 200, start: side(true), end: side(false) }), ids[2]);
+  const f2 = async () => (await (await get(`/api/flow/collections/${coll}?shape=smooth&places=0`)).json()).features.find(f => f.id === ids[2]);
+  assert.strictEqual((await (await get('/api/stage/settings')).json()).flowEdges, 'auto');
+  let f = await f2();
+  assert.deepStrictEqual([f.skip, f.cut, f.es], [[20, 0], [0.1, 0], 0.5]);
+  assert.strictEqual((await post('/api/stage/settings', { flowEdges: 'off' })).status, 200);
+  f = await f2();
+  assert.strictEqual(f.skip, undefined);
+  assert.strictEqual(f.es, 0.1);
+  assert.strictEqual((await post('/api/stage/settings', { flowEdges: '30' })).status, 200);
+  assert.deepStrictEqual((await f2()).skip, [30, 30]);
+  assert.strictEqual((await post('/api/stage/settings', { flowEdges: 'sometimes' })).status, 400);
+  const q = (await (await get('/api/flow/status')).json()).queue;
+  assert.deepStrictEqual([q.pending, q.current], [0, null], 'nothing measured');
+  await post('/api/stage/settings', { flowEdges: 'auto' });
+  d.prepare('UPDATE media_flow SET e_start = 0.5, edges = NULL WHERE media_id = ?').run(ids[2]);
+});
+
 /* ── Even out loudness reaching mpv (a fake mpv) ─────────────────────── */
 
 function fakeMpv() {
