@@ -192,6 +192,35 @@ try {
   console.log(`${files} assets: ${(before / 1024).toFixed(0)} KB → ${(after / 1024).toFixed(0)} KB`);
 } catch (e) { die('minify client assets', e); }
 
+/* 3b ── worker threads that load their own file, bundled on their own */
+// new Worker(path) needs a file on disk, and the exe has none: each worker is
+// bundled by itself and embedded as an asset; its pool starts it from that
+// source with eval: true (lib/flow/pool.js). Keys are not under css/,
+// player-lib/ or images/, so the asset route never serves them.
+step('bundle worker threads (embedded)');
+try {
+  const esbuild = require(path.join(NM, 'esbuild'));
+  for (const [key, entry] of [['flow-worker.js', 'lib/flow/worker.js']]) {
+    const out = path.join(BUILD, 'workers', key);
+    const r = esbuild.buildSync({
+      absWorkingDir: REPO,
+      entryPoints: [entry],
+      bundle: true,
+      platform: 'node',
+      format: 'cjs',
+      target: 'node24',
+      outfile: out,
+      external: ['better-sqlite3', 'better-sqlite3-multiple-ciphers', 'onnxruntime-node', 'onnxruntime-common'],
+      minify: true,
+      sourcemap: false,
+      logLevel: 'warning',
+    });
+    if (r.errors && r.errors.length) die('esbuild reported errors for ' + entry);
+    seaAssets[key] = path.join('workers', key);
+    console.log(`${key}: ${(fs.statSync(out).size / 1024).toFixed(0)} KB`);
+  }
+} catch (e) { die('bundle worker threads', e); }
+
 /* 4 ── SEA blob (bundle + embedded assets) */
 step('SEA blob');
 try {
