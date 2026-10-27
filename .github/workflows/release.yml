@@ -112,6 +112,10 @@ jobs:
         with:
           files: ${{ steps.package.outputs.zip }}
           draft: true          # review the notes, then hit Publish yourself
+          # A tag with a suffix (v3.10.0-beta.1) is a pre-release: GitHub's
+          # "latest release" skips it, so the in-app update check never offers
+          # it to people on a stable version.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           body: |
             **Portable build — no installer.** Unzip anywhere and run `Vault.exe`.
