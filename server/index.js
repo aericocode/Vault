@@ -3128,6 +3128,20 @@ app.patch('/api/collections/:id', (req, res) => {
   }
 });
 
+// Duplicate a collection (items, order and folder kept) and answer the new
+// row. Per-collection settings that live in the browser are copied there.
+app.post('/api/collections/:id/duplicate', (req, res) => {
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'bad id' });
+  try {
+    res.json(db.duplicateCollection(id));
+  } catch (err) {
+    const status = COLL_ERR_STATUS[err.code];
+    if (status) return res.status(status).json({ error: err.message, code: err.code });
+    throw err;
+  }
+});
+
 app.delete('/api/collections/:id', (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'bad id' });
