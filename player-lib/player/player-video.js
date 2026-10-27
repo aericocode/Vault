@@ -2,20 +2,36 @@
 // PLAYER VIDEO - Video player rendering and controls
 // =========================================================================
 
-function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filename, hasPrev, hasNext) {
-  content.innerHTML = `
+/**
+ * reuse: an existing <video> to play this file in instead of a new one
+ * (Basic Stage's element, which holds the picture-in-picture window:
+ * playMedia). It stays where it is; its listeners from the file before
+ * are taken off first, so nothing (an 'ended' moving the queue on) runs
+ * twice, and its sound keeps the volume boost it already has.
+ */
+function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filename, hasPrev, hasNext, { reuse = null } = {}) {
+  let video;
+  if (reuse) {
+    video = reuse;
+    _unbindVideoPlayer(video);
+    delete video.dataset.maximizeAt;
+    delete video.dataset.maximizePaused;
+    content.innerHTML = '';
+  } else {
+    content.innerHTML = `
     <video id="mediaVideo">
       Your browser doesn't support video playback.
     </video>
   `;
-  bindMediaError(document.getElementById('mediaVideo'), filepath);
+    video = document.getElementById('mediaVideo');
+  }
+  bindMediaError(video, filepath);
 
   // Kept so the controls can be drawn again without touching the video (the
   // look switched in Settings with the player open: rerenderVideoControls).
   currentMediaState.videoCtl = { filepath, filename, hasPrev, hasNext };
   controlsContainer.innerHTML = videoControlsHtml(currentMediaState.videoCtl);
 
-  const video = document.getElementById('mediaVideo');
   currentMediaState.element = video;
 
   // Repeat preference (A-B loop takes over while active)
@@ -40,49 +56,50 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
   updateSpeedDisplay();
   attachTailWatchdog(video);
 
-  video.addEventListener('loadedmetadata', () => {
-    updateTotalTimeLabel();
-    // Init AB loop overlay (needed if loop was somehow preserved)
-    if (typeof updateAbLoopOverlay === 'function') updateAbLoopOverlay();
-  });
-
-  video.addEventListener('timeupdate', () => {
-    const progressBar = document.getElementById('videoProgressBar');
-    const currentTimeEl = document.getElementById('currentTime');
-    if (progressBar) {
-      const progress = (video.currentTime / video.duration) * 100;
-      progressBar.style.width = progress + '%';
-    }
-    if (currentTimeEl) {
-      // formatDuration(0/NaN) returns '' — keep the label readable while
-      // the stream is still at 0:00 (or stalled)
-      currentTimeEl.textContent = formatDuration(video.currentTime) || '0:00';
-    }
-    updateTotalTimeLabel();
-    // The Modern dock's song segments and knob
-    if (typeof ModernDock !== 'undefined') ModernDock.update();
-    // AB loop check
-    if (typeof checkAbLoop === 'function') {
-      checkAbLoop(video);
-    }
-  });
-
-  video.addEventListener('play', () => {
-    syncPlayPauseButton();
-    // Playback resuming has to re-arm the idle hide: the chrome now stays put
-    // while paused, so without this a pause-then-play from the native element
-    // or from autoplay would leave the bar up for good.
-    if (typeof scheduleHideControls === 'function') scheduleHideControls();
-  });
-
-  video.addEventListener('pause', () => {
-    syncPlayPauseButton();
-  });
-
-  video.addEventListener('ended', () => {
-    syncPlayPauseButton();
-    if (typeof autoAdvanceOnEnded === 'function') autoAdvanceOnEnded();
-  });
+  // Kept on the element, so a file loaded into it later (reuse) takes them off.
+  const handlers = {
+    loadedmetadata: () => {
+      updateTotalTimeLabel();
+      // Init AB loop overlay (needed if loop was somehow preserved)
+      if (typeof updateAbLoopOverlay === 'function') updateAbLoopOverlay();
+    },
+    timeupdate: () => {
+      const progressBar = document.getElementById('videoProgressBar');
+      const currentTimeEl = document.getElementById('currentTime');
+      if (progressBar) {
+        const progress = (video.currentTime / video.duration) * 100;
+        progressBar.style.width = progress + '%';
+      }
+      if (currentTimeEl) {
+        // formatDuration(0/NaN) returns '' — keep the label readable while
+        // the stream is still at 0:00 (or stalled)
+        currentTimeEl.textContent = formatDuration(video.currentTime) || '0:00';
+      }
+      updateTotalTimeLabel();
+      // The Modern dock's song segments and knob
+      if (typeof ModernDock !== 'undefined') ModernDock.update();
+      // AB loop check
+      if (typeof checkAbLoop === 'function') {
+        checkAbLoop(video);
+      }
+    },
+    play: () => {
+      syncPlayPauseButton();
+      // Playback resuming has to re-arm the idle hide: the chrome now stays put
+      // while paused, so without this a pause-then-play from the native element
+      // or from autoplay would leave the bar up for good.
+      if (typeof scheduleHideControls === 'function') scheduleHideControls();
+    },
+    pause: () => {
+      syncPlayPauseButton();
+    },
+    ended: () => {
+      syncPlayPauseButton();
+      if (typeof autoAdvanceOnEnded === 'function') autoAdvanceOnEnded();
+    },
+  };
+  for (const [ev, fn] of Object.entries(handlers)) video.addEventListener(ev, fn);
+  video._vpHandlers = handlers;
 
   video.addEventListener('click', handleVideoClick);
   video.addEventListener('dblclick', handleVideoDoubleClick);
@@ -99,6 +116,14 @@ function renderVideoPlayer(content, controlsContainer, fileUrl, filepath, filena
     filepath,
     fileUrl,
   );
+}
+
+/** Take renderVideoPlayer's own listeners off an element that plays another file next. */
+function _unbindVideoPlayer(video) {
+  const h = video && video._vpHandlers;
+  if (!h) return;
+  for (const [ev, fn] of Object.entries(h)) video.removeEventListener(ev, fn);
+  delete video._vpHandlers;
 }
 
 /**
@@ -606,6 +631,17 @@ function setupAudioBoost(video) {
     return;
   }
   
+  // An element kept for the next file (Basic Stage) is already wired: an
+  // element can feed only one audio graph, ever, so it keeps its own.
+  const had = video._boost;
+  if (had && had.audioContext && had.audioContext.state !== 'closed') {
+    currentMediaState.audioContext = had.audioContext;
+    currentMediaState.gainNode = had.gainNode;
+    currentMediaState.mediaSource = had.mediaSource;
+    if (had.audioContext.state === 'suspended') video.addEventListener('play', () => { had.audioContext.resume().catch(() => {}); }, { once: true });
+    return;
+  }
+
   try {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     
@@ -629,7 +665,8 @@ function setupAudioBoost(video) {
     currentMediaState.audioContext = audioContext;
     currentMediaState.gainNode = gainNode;
     currentMediaState.mediaSource = source;
-    
+    video._boost = { audioContext, gainNode, mediaSource: source };
+
   } catch (e) {
     console.warn('Web Audio API not available for volume boost:', e);
     currentMediaState.audioContext = null;

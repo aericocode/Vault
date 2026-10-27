@@ -12,19 +12,24 @@
    The link goes through the server (lib/stage/hub.js): commands out
    (/api/stage/cmd), Stage's reports in over an event stream. Stage moves on
    by itself when a file ends, because this tab is often in the background
-   (the streamer is in Discord) where the browser slows its timers: every
-   file sent goes with the upcoming files (Up next first, then the list,
-   player-lib/stage-rules.js upcoming()), the server lines the next one up
-   in mpv, and when Stage reports that one of them started, the queue here
-   catches up (Up next, the list's anchor) and sends the next ones.
+   (the streamer is in Discord) where the browser slows its timers or
+   freezes the page: every file sent goes with a long list of what comes
+   after (Up next first, then the rest of the list, round again with Repeat
+   all, player-lib/stage-rules.js upcoming(), UPCOMING_COUNT), the server
+   lines the next one up in mpv, and when Stage reports that one of them
+   started, the queue here catches up (Up next, the list's anchor) and
+   sends a fresh list. A list that cannot be worked out is never sent short
+   or empty: Stage keeps the one it has.
 
    Basic Stage, when mpv is not there (or Settings › Stage says Basic): the
    browser's own picture-in-picture of the mini player's video, in this
    page. No extra program; the mini player keeps playing (its own element,
    volume, Up next, Next and Previous), hidden under the Stage bar, which
    runs it with the Stage pill, Repeat, Hold and the Stage menu. The queue
-   moves on with player-core's own logic, and the picture-in-picture window
-   is handed from one file to the next (mini-player.js miniPipCarry).
+   moves on with player-core's own logic, each video loaded into the same
+   element (player-core.js playMedia reuseEl), so the picture-in-picture
+   window never has to move or be asked for again. If the browser closes
+   it anyway, Stage stays open and the bar offers to reopen it (pipLeft).
    Videos only: anything else the queue reaches is passed over and said.
    Hold pauses and mutes (it cannot go black). A lock leaves
    picture-in-picture at once.
@@ -43,7 +48,11 @@
 
 const StageControl = (() => {
   const STAGEABLE = new Set(['video', 'image', 'gif', 'audio']);
-  const UPCOMING_COUNT = 2;
+  // How much Stage is handed to play on its own (lib/stage/hub.js
+  // MAX_UPCOMING): the rest of the list and Up next, so it keeps going for
+  // hours while this tab is in the background, throttled or frozen.
+  const UPCOMING_COUNT = 500;
+  const SENT_MAX = 3 * UPCOMING_COUNT;
   const LOADING_NOTE_MS = 700;        // "Getting ... ready" only for a file that takes a moment
   const NOTE_MS = 7000;               // how long "Skipped ..." stays
 
@@ -117,13 +126,31 @@ const StageControl = (() => {
     return data;
   }
 
-  function cmd(body) {
-    return api('/api/stage/cmd', body).catch((err) => {
-      if (err.status === 423) return null;
-      if (err.code === 'STAGE_CLOSED') { if (open && !basic) stageGone({ how: 'gone' }); return null; }
-      console.warn('[Stage] command failed:', body.type, err.message);
-      return null;
-    });
+  /**
+   * One command to Stage. Resolves its answer, or null when it did not get
+   * there. tries: waits (ms) before each further try after a network or
+   * server error (a busy or restarting server); load and upcoming use them,
+   * since a lost one leaves Stage without its next files. A refusal (4xx)
+   * is never tried again.
+   */
+  const CMD_RETRY_MS = [500, 1500, 4000];
+  async function cmd(body, { tries = [] } = {}) {
+    const gen = closeGen;
+    for (let k = 0; ; k++) {
+      try {
+        return await api('/api/stage/cmd', body);
+      } catch (err) {
+        if (err.status === 423) return null;
+        if (err.code === 'STAGE_CLOSED') { if (open && !basic) stageGone({ how: 'gone' }); return null; }
+        const again = k < tries.length && !(err.status >= 400 && err.status < 500) && gen === closeGen && open;
+        if (!again) {
+          console.warn('[Stage] command failed:', body.type, err.message);
+          return null;
+        }
+        await new Promise(r => setTimeout(r, tries[k]));
+        if (gen !== closeGen || !open) return null;
+      }
+    }
   }
 
   async function refreshState() {
@@ -271,7 +298,7 @@ const StageControl = (() => {
       via, index,
     };
     sent.set(key, { row, via, index });
-    if (sent.size > 200) sent.delete(sent.keys().next().value);
+    if (sent.size > SENT_MAX) sent.delete(sent.keys().next().value);
     return item;
   }
 
@@ -306,15 +333,26 @@ const StageControl = (() => {
     showRemote();
     paint();
     // The upcoming files go with it when they are quick to work out (a file
-    // that cannot play moves straight on to them); else they follow.
+    // that cannot play moves straight on to them); else they follow as soon
+    // as they are worked out, straight from that answer: no timer, which a
+    // background tab would slow down. A list worked out before a change
+    // still goes (never an empty one in its place); the change's own answer
+    // (sendUpcoming) replaces it.
     const my = ++upGen;
+    const computing = computeUpcoming();
+    computing.catch(() => {});
     const quick = new Promise((resolve) => setTimeout(() => resolve(null), 400));
-    Promise.race([computeUpcoming().catch(() => null), quick]).then((upcoming) => {
+    Promise.race([computing.catch(() => null), quick]).then((upcoming) => {
       if (!open || !cur || cur.key !== item.key) return;
-      const list = my === upGen && Array.isArray(upcoming) ? upcoming : [];
+      const list = Array.isArray(upcoming) ? upcoming : [];
       syncPrivacy();
-      cmd({ type: 'load', item, paused: startPaused, upcoming: list, repeat: currentRepeat() })
-        .then(() => { if (!list.length || my !== upGen) sendUpcoming(); });
+      cmd({ type: 'load', item, paused: startPaused, upcoming: list, repeat: currentRepeat() }, { tries: CMD_RETRY_MS })
+        .then((r) => {
+          if (!r || Array.isArray(upcoming) || my !== upGen) return;
+          computing.then((later) => {
+            if (my === upGen && open && cur && cur.key === item.key) sendList(later, item.key);
+          }, () => sendUpcoming());
+        });
     });
     if (typeof UpNext !== 'undefined') UpNext.playerChanged();
   }
@@ -328,53 +366,316 @@ const StageControl = (() => {
 
   function currentRepeat() { return typeof repeatMode === 'function' ? repeatMode() : 'off'; }
 
-  /** What Stage moves on to by itself, worked out from Up next and the list as they are now. */
+  /* ── The list Stage plays from ────────────────────────────────────────
+     Stage keeps playing the list it was started from while the user looks
+     around (another collection, the Library tab, the Wall): the queue
+     (player-core.js queueList: Next, Previous, Basic Stage moving on) and
+     what mpv is handed (computeUpcoming) walk that list's order as it was
+     last on screen, until the user is back on it; then the grid's own list
+     is used again (a reorder there included). Back to Stage on the bar goes
+     back to it. A file opened from outside any list (a person's page in
+     Faces, the Wall) leaves no list: the queue goes on with what is on
+     screen, as it always did, and there is nowhere to go back to. */
+
+  let source = null;                  // { kind: 'collection' | 'library' | null, tab, cid, ids, types }
+  let sourceList = null;              // the list object made from source.ids (snapshotList)
+
+  const stageOn = () => open || basic;
+
+  function viewNow() {
+    const tab = typeof currentTab !== 'undefined' ? currentTab : 'library';
+    const cid = typeof activeCollectionId !== 'undefined' && activeCollectionId != null ? activeCollectionId : null;
+    return { tab, cid };
+  }
+  const sameView = (a, b) => !!a && !!b && a.tab === b.tab && a.cid === b.cid;
+  /** The grid holds the view's own result (not the one before it, in the middle of a switch). */
+  function libraryIsView(v) {
+    const spec = typeof Library !== 'undefined' ? Library.spec : null;
+    return !spec || (spec.collectionId == null ? null : spec.collectionId) === v.cid;
+  }
+
+  function takeSource(v) {
+    const kind = v.cid != null ? (v.tab === 'collections' ? 'collection' : null) : (v.tab === 'library' ? 'library' : null);
+    if (!source || !sameView(source, v)) { upPlayed = 0; lastListIndex = -1; }
+    source = { kind, tab: v.tab, cid: v.cid, ids: Library.ids || null, types: Library.types || null };
+    if (source.ids) return;
+    const s = source;
+    Library.waitIds().then((ids) => {
+      if (source === s && ids && sameView(viewNow(), s) && libraryIsView(s)) { s.ids = ids; s.types = Library.types; }
+    }).catch(() => {});
+  }
+
+  /** The list's order as kept, walked the way player-core.js walks Library. */
+  function snapshotList(s) {
+    if (sourceList && sourceList.ids === s.ids) return sourceList;
+    const ids = s.ids, types = s.types;
+    const names = Library.TYPE_NAMES || [];
+    sourceList = {
+      ids, types,
+      known: () => true,
+      get firstPageIds() { return ids; },
+      waitIds: () => Promise.resolve(ids),
+      length: () => ids.length,
+      idAt: (i) => (i >= 0 ? ids[i] : undefined),
+      indexOf: (id) => (id ? ids.indexOf(Number(id)) : -1),
+      typeAt: (i) => (types ? names[types[i]] || '' : ((Library.row(ids[i]) || {}).media_type || '')),
+      rowAt: (i) => Library.row(ids[i]),
+      rowsForRange: (a, b, opts) => {
+        const from = Math.max(0, a), to = Math.min(ids.length, b);
+        return Library.fetchRows(Array.from(ids.subarray ? ids.subarray(from, Math.max(from, to)) : ids.slice(from, to)), opts);
+      },
+    };
+    return sourceList;
+  }
+
+  /**
+   * player-core.js queueList: the list the queue walks while Stage plays
+   * one the user has browsed away from, or null (the grid's own, Library).
+   */
+  function queueList() {
+    if (!stageOn() || !source) return null;
+    const v = viewNow();
+    if (sameView(source, v) && libraryIsView(v)) {
+      // On it: the grid's own list, kept for when the user looks elsewhere.
+      if (Library.ids) { source.ids = Library.ids; source.types = Library.types; }
+      return null;
+    }
+    return source.ids ? snapshotList(source) : null;
+  }
+  const listNow = () => queueList() || Library;
+
+  /**
+   * player-core.js noteFileOpened, after the list's anchor moved: which list
+   * Stage plays now. inStageList: the file was found in the kept list (the
+   * queue moved on in it while the user was elsewhere); keep: the same file
+   * opened again.
+   */
+  function fileOpened({ inStageList = false, fromUpNext = false, keep = false } = {}) {
+    if (!stageOn()) return;
+    if (!inStageList && !(keep && source)) {
+      const v = viewNow();
+      if (currentMediaState.currentIndex >= 0 && libraryIsView(v)) takeSource(v);
+      else if (!fromUpNext) { source = null; upPlayed = 0; lastListIndex = -1; }
+    }
+    if (keep) return;
+    // The track count: Up next files played so far (StageCount.nextUpPlayed).
+    if (typeof StageCount === 'undefined' || !source) return;
+    const index = typeof listAnchorIndex === 'function' ? listAnchorIndex() : -1;
+    const via = fromUpNext ? 'upnext' : (index >= 0 ? 'list' : 'user');
+    upPlayed = StageCount.nextUpPlayed(upPlayed, { via, index, lastIndex: lastListIndex });
+    if (via === 'list') lastListIndex = index;
+  }
+
+  function forgetSource() { source = null; sourceList = null; upPlayed = 0; lastListIndex = -1; }
+
+  /** Back to Stage shows: Stage plays a collection, or the Library tab, that is not on screen. */
+  function canGoBack() {
+    if (!stageOn() || !source || !source.kind) return false;
+    if (source.kind === 'collection' && typeof getCollectionById === 'function' && !getCollectionById(source.cid)) return false;
+    return !sameView(source, viewNow());
+  }
+
+  function backTitle() {
+    if (!source) return '';
+    if (source.kind === 'collection') {
+      const c = typeof getCollectionById === 'function' ? getCollectionById(source.cid) : null;
+      return c && c.name ? `Back to “${c.name}”, where Stage is playing from` : 'Back to the collection Stage is playing from';
+    }
+    return 'Back to the Library, where Stage is playing from';
+  }
+
+  /** The id of the file on Stage (either Stage), or null. */
+  function stageFileId() {
+    if (basic) return (currentMediaState.currentMediaData && currentMediaState.currentMediaData.id) || null;
+    return cur && cur.row ? cur.row.id : null;
+  }
+
+  /** Back to Stage: the collection (or the Library tab) Stage plays from, its file on screen and lit up. */
+  async function backToStage() {
+    if (!canGoBack()) return;
+    const s = source;
+    const id = stageFileId();
+    try {
+      if (s.kind === 'collection') {
+        if (typeof currentTab !== 'undefined' && currentTab !== 'collections' && typeof switchTab === 'function') switchTab('collections');
+        if (activeCollectionId !== s.cid && typeof openCollection === 'function') await openCollection(s.cid);
+      } else if (typeof switchTab === 'function') {
+        switchTab('library');
+      }
+    } catch (err) {
+      console.warn('[Stage] back to Stage:', err && err.message);
+    }
+    paint();
+    if (!id) return;
+    await Library.waitIds().catch(() => null);
+    const i = Library.indexOf(id);
+    if (i < 0) return;
+    if (typeof revealMediaIndex === 'function') revealMediaIndex(i);
+    setTimeout(() => { if (typeof highlightCard === 'function') highlightCard(i); }, 150);
+  }
+
+  /* ── Track count and time left (player-lib/stage-count.js) ──────────── */
+
+  let upPlayed = 0;                   // Up next files played on Stage since the list started
+  let lastListIndex = -1;             // the list file played last
+  let countMemo = null;               // { key, before, all } the list's counted files
+  let countFetchKey = '';
+
+  /** "Track 12 of 40" and "2:14:30 left" for the file on Stage now ({ track: '', time: '' }: nothing to count). */
+  function countText() {
+    const none = { track: '', time: '' };
+    if (typeof StageCount === 'undefined' || !stageOn() || !source) return none;
+    const L = listNow();
+    if (!L.known || !L.known()) return none;
+    const n = L.length();
+    const anchor = typeof listAnchorIndex === 'function' ? listAnchorIndex() : -1;
+    const ids = L === Library ? Library.ids : L.ids;
+    const types = L === Library ? Library.types : L.types;
+    const names = Library.TYPE_NAMES || [];
+    const typeAt = types ? (i) => names[types[i]] || '' : (i) => L.typeAt(i);
+    // Counting the list's files is a walk over all of it: once per list, place and Stage.
+    if (!countMemo || countMemo.ids !== ids || countMemo.anchor !== anchor || countMemo.basic !== basic || countMemo.n !== n) {
+      let before = 0, all = 0;
+      for (let i = 0; i < n; i++) {
+        if (!StageCount.plays(typeAt(i), basic)) continue;
+        all++;
+        if (i <= anchor) before++;
+      }
+      countMemo = { ids, anchor, basic, n, before, all };
+    }
+    // The lengths: the rest of the list (up to TIME_CAP) and Up next, from the rows Vault has.
+    const rest = [];
+    let restTotal = 0;
+    const missing = [];
+    for (let i = Math.max(0, anchor + 1); i < n; i++) {
+      const type = typeAt(i);
+      if (!StageCount.plays(type, basic)) continue;
+      restTotal++;
+      if (restTotal > StageCount.TIME_CAP) continue;
+      const r = L.rowAt(i);
+      if (!r) missing.push(L.idAt(i));
+      rest.push(r ? { type: r.media_type, duration: r.duration_seconds } : null);
+    }
+    const upItems = typeof UpNext !== 'undefined' && UpNext.items ? UpNext.items() : [];
+    const upNext = upItems.map((u) => {
+      const r = Library.row(u.id);
+      if (!r) missing.push(u.id);
+      return r ? { type: r.media_type, duration: r.duration_seconds } : { type: u.media_type || 'video', duration: null };
+    });
+    if (missing.length && restTotal + upNext.length <= StageCount.TIME_CAP) {
+      const key = `${anchor}|${missing.length}|${missing[0]}`;
+      if (key !== countFetchKey) {
+        countFetchKey = key;
+        Library.fetchRows(missing).then(() => paint(), () => {});
+      }
+    }
+    let ct = 0, cd = 0;
+    if (basic) {
+      const el = basicEl();
+      ct = el ? el.currentTime : 0;
+      cd = el && isFinite(el.duration) ? el.duration : 0;
+    } else { ct = t; cd = d; }
+    const sum = StageCount.summary({
+      types: typeAt, length: n, anchor, counts: countMemo, upPlayed, upNext, rest, restTotal,
+      current: { t: ct, d: cd }, repeat: currentRepeat(), basic,
+      imageSeconds: settings.imageSeconds,
+    });
+    return StageCount.text(sum);
+  }
+
+  /** The Flow order bar (flow.js): Stage's count while it plays this collection, else null. */
+  function countFor(cid) {
+    if (!stageOn() || !source || source.kind !== 'collection' || source.cid !== cid) return null;
+    const c = countText();
+    if (!c.track) return null;
+    return c.time ? `${c.track} · ${c.time}` : c.track;
+  }
+
+  /**
+   * What Stage moves on to by itself, worked out from Up next and the list
+   * as they are now: the rest of the list (round again with Repeat all) and
+   * Up next, up to UPCOMING_COUNT files. It fails, rather than answer with a
+   * shorter list, when the rows it needs cannot be loaded (the server busy
+   * or restarting): Stage then keeps the list it has. A list file whose row
+   * is still unknown ends the answer there; it is never passed over unseen.
+   */
   async function computeUpcoming() {
     const repeat = currentRepeat();
     if (repeat === 'one') return [];
-    const unItems = typeof UpNext !== 'undefined' && UpNext.items ? UpNext.items().slice(0, 6) : [];
-    const unRows = unItems.length ? await Library.fetchRows(unItems.map(i => i.id)).catch(() => []) : [];
+    const L = listNow();
+    const unItems = typeof UpNext !== 'undefined' && UpNext.items ? UpNext.items().slice(0, UPCOMING_COUNT) : [];
+    const unRows = unItems.length ? await Library.fetchRows(unItems.map(i => i.id), { strict: true }) : [];
     const byId = new Map((unRows || []).filter(Boolean).map(r => [r.id, r]));
     const okRow = (r) => !!r && STAGEABLE.has(r.media_type) && !(typeof isKnownBadMedia === 'function' && isKnownBadMedia(r));
     const upNext = unItems.map(i => ({ id: i.id, ok: okRow(byId.get(i.id)) }));
-    if (!Library.known()) await Library.waitIds().catch(() => {});
-    const length = Library.length();
+    if (!L.known()) {
+      const ids = await L.waitIds();
+      if (!ids) throw new Error('The list changed while Stage was working out what comes next');
+    }
+    const length = L.length();
     const anchor = typeof listAnchorIndex === 'function' ? listAnchorIndex() : -1;
-    // The rows just after the anchor, and the top of the list for a wrap.
-    const want = 24;
-    if (length) {
-      await Library.rowsForRange(Math.max(0, anchor + 1), Math.min(length, anchor + 1 + want)).catch(() => {});
-      if (repeat === 'all') await Library.rowsForRange(0, Math.min(length, want)).catch(() => {});
+    // The rows after the anchor (with some to spare for files passed over),
+    // and the top of the list for Repeat all.
+    const want = Math.max(0, UPCOMING_COUNT - upNext.length) + 50;
+    if (length && want) {
+      await L.rowsForRange(Math.max(0, anchor + 1), Math.min(length, anchor + 1 + want), { strict: true });
+      if (repeat === 'all') await L.rowsForRange(0, Math.min(length, Math.max(0, anchor + 1), want), { strict: true });
     }
     const okAt = (i) => {
-      const type = Library.typeAt(i);
+      const type = L.typeAt(i);
       if (type === 'document') return false;
-      const r = Library.rowAt(i);
-      return okRow(r);
+      const r = L.rowAt(i);
+      if (r) return okRow(r);
+      // No row: gone from the library (the server said so) is passed over;
+      // not loaded yet is unknown, and the answer ends there.
+      const id = L.idAt(i);
+      return id && typeof Library.needsFetch === 'function' && !Library.needsFetch(id) ? false : null;
     };
     const plan = StageRules.upcoming({ upNext, anchor, length, okAt, repeat, count: UPCOMING_COUNT });
     const out = [];
     for (const p of plan) {
-      const row = p.via === 'upnext' ? byId.get(p.id) : Library.rowAt(p.index);
+      const row = p.via === 'upnext' ? byId.get(p.id) : L.rowAt(p.index);
       if (row) out.push(itemFor(row, { via: p.via, index: p.via === 'list' ? p.index : -1 }));
     }
     return out;
   }
 
-  /** Tell Stage what comes next (soon after any change; one answer at a time). */
+  /** Hand Stage a worked-out list for the file on it (forKey), with tries. */
+  async function sendList(list, forKey) {
+    const r = await cmd({ type: 'upcoming', upcoming: list, repeat: currentRepeat(), forKey }, { tries: CMD_RETRY_MS });
+    // Finished, and now there is something to play: carry on.
+    if (r && finished && list.length) finished = false;
+    paint();
+    return r;
+  }
+
+  /**
+   * Tell Stage what comes next (soon after any change; one answer at a
+   * time). When it cannot be worked out, nothing is sent (Stage keeps the
+   * list it has: an empty or cut-short one would end the stream early) and
+   * it is tried again a little later.
+   */
+  let upFails = 0;
   function sendUpcoming() {
     clearTimeout(upTimer);
     upTimer = setTimeout(async () => {
       if (!open || !cur) return;
       const my = ++upGen;
       const forKey = cur.key;
-      let list = [];
-      try { list = await computeUpcoming(); } catch (err) { console.warn('[Stage] upcoming:', err); }
+      let list;
+      try {
+        list = await computeUpcoming();
+      } catch (err) {
+        console.warn('[Stage] upcoming:', err && err.message);
+        if (my === upGen && open && cur && cur.key === forKey) {
+          upFails++;
+          setTimeout(() => { if (my === upGen) sendUpcoming(); }, Math.min(30000, 2000 * upFails));
+        }
+        return;
+      }
+      upFails = 0;
       if (my !== upGen || !open || !cur || cur.key !== forKey) return;
-      await cmd({ type: 'upcoming', upcoming: list, repeat: currentRepeat(), forKey });
-      // Finished, and now there is something to play: carry on.
-      if (finished && list.length) finished = false;
-      paint();
+      await sendList(list, forKey);
     }, 60);
   }
 
@@ -474,7 +775,10 @@ const StageControl = (() => {
       if (!row) { try { [row] = await Library.fetchRows([item.id]); } catch {} }
       if (!row || gen !== closeGen || !open) return;
       const fromUpNext = item.via === 'upnext';
-      if (fromUpNext && typeof UpNext !== 'undefined') UpNext.take(item.id);
+      // Up next gives the file up first (the server's Up next is what the
+      // next list is worked out from): a list worked out before that would
+      // still have it, and Stage would play it again.
+      const took = fromUpNext && typeof UpNext !== 'undefined' ? UpNext.take(item.id) : null;
       noteFileOpened({ id: row.id, filepath: row.filepath, filename: row.filename, media_type: row.media_type },
         { source: 'auto', fromUpNext });
       currentMediaState.type = row.media_type;
@@ -485,7 +789,9 @@ const StageControl = (() => {
       paint();
       if (typeof UpNext !== 'undefined') UpNext.playerChanged();
       if (typeof refreshSidebarIfOpen === 'function') refreshSidebarIfOpen();
-      sendUpcoming();
+      // Stage already has what comes after (its long list): no hurry, so the
+      // new list waits for the take, outside the queue's turn.
+      Promise.resolve(took).catch(() => {}).then(() => sendUpcoming());
     });
   }
 
@@ -494,8 +800,8 @@ const StageControl = (() => {
     const row = (meta && meta.row) || item;
     setNote(`Skipped “${nameOf(row)}”: it can’t be played.`);
     // A file from Up next that cannot play is used up, as the player does.
-    if (item && item.via === 'upnext' && typeof UpNext !== 'undefined') UpNext.take(item.id);
-    if (cur && key === cur.key) sendUpcoming();
+    const took = item && item.via === 'upnext' && typeof UpNext !== 'undefined' ? UpNext.take(item.id) : null;
+    if (cur && key === cur.key) Promise.resolve(took).catch(() => {}).then(() => sendUpcoming());
   }
 
   function onFinished() {
@@ -619,6 +925,7 @@ const StageControl = (() => {
     if (!open && !remoteShown) return;
     closeGen++;
     open = false;
+    forgetSource();
     sentHideNames = null;
     hideTips();
     closeMenu();
@@ -651,6 +958,7 @@ const StageControl = (() => {
     const row = cur && cur.row;
     closeGen++;
     open = false;
+    forgetSource();
     sentHideNames = null;
     hideTips();
     closeMenu();
@@ -762,7 +1070,11 @@ const StageControl = (() => {
   function barState() {
     const repeat = currentRepeat();
     const upNext = typeof UpNext !== 'undefined' && UpNext.count ? UpNext.count() : 0;
-    const base = { namesHidden: namesHidden(), repeat, upNext, fmt: typeof formatDuration === 'function' ? formatDuration : null };
+    const count = countText();
+    const base = {
+      namesHidden: namesHidden(), repeat, upNext, fmt: typeof formatDuration === 'function' ? formatDuration : null,
+      back: canGoBack(), backTitle: backTitle(), countTrack: count.track, countTime: count.time,
+    };
     if (basic) {
       const el = basicEl();
       const miniOn = !!$('miniPlayer')?.classList.contains('active');
@@ -771,7 +1083,7 @@ const StageControl = (() => {
       return {
         ...base, basic: true, hasFile: !!data, id: data && data.id, filename: data && data.filename, mediaType: data ? 'video' : null,
         t: el ? el.currentTime : 0, d: el && isFinite(el.duration) ? el.duration : 0, paused: !el || el.paused,
-        hold: !!basicHold, finished: false, locked: false, loading: false, note: null,
+        hold: !!basicHold, finished: false, locked: false, loading: false, note: null, pipClosed: !!data && pipClosed,
         volume: typeof savedVolume !== 'undefined' ? savedVolume : 1, muted: silent,
         volumeMax: typeof _miniVolumeMax === 'function' ? _miniVolumeMax() : 1,
         thumbRow: data,
@@ -806,6 +1118,8 @@ const StageControl = (() => {
     if (typeof StageBarRules === 'undefined') return;
     b.paint(StageBarRules.view(s), { thumb: thumbFor(s.thumbRow) });
     if (remoteShown && typeof miniUpdateTimeline === 'function') miniUpdateTimeline();
+    // The Flow order bar's track count follows Stage's (flow.js).
+    if (typeof Flow !== 'undefined' && typeof Flow.paintCount === 'function') Flow.paintCount();
   }
 
   function setNote(text, { sticky = false } = {}) {
@@ -1024,6 +1338,7 @@ const StageControl = (() => {
     basic = true;
     open = true;
     basicHold = null;
+    pipClosed = false;
     document.body.classList.add('stage-basic');
     if (local && local.mediaData.media_type !== 'video') {
       showToast('Basic Stage plays videos only. Play a video to show it there.');
@@ -1066,6 +1381,9 @@ const StageControl = (() => {
     const go = () => {
       if (!basic || basicEl() !== el || document.pictureInPictureElement === el) return;
       el.requestPictureInPicture().catch(() => {
+        // Asked without a click (the next file, this tab in the background):
+        // the bar's Picture-in-picture closed button is the way back then.
+        if (pipClosed) { paintBasic(); return; }
         showToast('Press the picture on the Stage bar to show Stage.');
       });
     };
@@ -1154,7 +1472,11 @@ const StageControl = (() => {
     const move = back && typeof queueNav === 'function' && typeof queueMove === 'function'
       ? queueNav(() => queueMove('prev', false))
       : (typeof playNextMediaOrWrap === 'function' ? playNextMediaOrWrap() : Promise.resolve(false));
+    // The next file not loading (or the move hanging) is not the end: it is
+    // tried again shortly (player-core.js autoAdvance), Stage stays open.
+    const later = () => { if (basic && typeof autoAdvance === 'function') autoAdvance(1); };
     Promise.resolve(move).then((moved) => {
+      if (moved === 'stopped') { later(); return; }
       if (moved) {
         if (typeof noteSkippedThisSession === 'function') noteSkippedThisSession(dead, 'it can’t be played here');
         showToast(said);
@@ -1162,7 +1484,7 @@ const StageControl = (() => {
         showToast(`${said} Nothing more that Basic Stage can play.`);
         if (typeof closeMediaPlayer === 'function') closeMediaPlayer();
       }
-    }, () => {});
+    }, later);
     return true;
   }
 
@@ -1198,6 +1520,8 @@ const StageControl = (() => {
     if (!basic) return;
     basic = false;
     open = false;
+    pipClosed = false;
+    forgetSource();
     const el = basicEl();
     if (basicHold && el) el.muted = basicHold.muted;
     basicHold = null;
@@ -1217,19 +1541,28 @@ const StageControl = (() => {
   }
 
   // The picture-in-picture window closed (its own close button, the browser
-  // giving up handing it to the next file, its element taken out of the
-  // page): Stage is closed. leavepictureinpicture fires on the element, which
-  // may already be out of the page then, so each element that enters
-  // picture-in-picture is watched itself. Moving the window to the next file
-  // is not a close (the next element holds it at once).
+  // dropping it): Stage stays open and the video plays on in the page, so the
+  // bar says so ("Not showing") with a button that opens the window again
+  // (the browser wants a click for that). It never just closes: with one
+  // element for every file (playMedia reuseEl) the window has no reason to
+  // go, and when it does, closing Stage under a stream would be worse.
+  // leavepictureinpicture fires on the element, which may already be out of
+  // the page then, so each element that enters picture-in-picture is
+  // watched itself.
+  let pipClosed = false;
   function pipLeft() {
     setTimeout(() => {
       if (!basic || document.pictureInPictureElement || pipCarrying()) return;
-      closeBasic({ how: 'pip' });
+      if (!pipClosed) {
+        pipClosed = true;
+        showToast('The picture-in-picture window closed, so Stage is not showing. Press “Picture-in-picture closed” on the Stage bar to show it again.');
+      }
+      paintBasic();
     }, 400);
   }
   document.addEventListener('enterpictureinpicture', (e) => {
     const el = e.target;
+    if (basic && el === basicEl()) { pipClosed = false; paintBasic(); }
     if (!el || el._stageWatched) return;
     el._stageWatched = true;
     el.addEventListener('leavepictureinpicture', () => { el._stageWatched = false; pipLeft(); }, { once: true });
@@ -1310,7 +1643,7 @@ const StageControl = (() => {
   }
 
   // Keep the loading note and the picture countdown moving even with no reports.
-  setInterval(() => { if (remoteShown) paint(); }, 1000);
+  setInterval(() => { if (remoteShown || basic) paint(); }, 1000);
   // A seek from the bar (the proxy's clock moves at once).
   proxy.addEventListener('timeupdate', () => paint());
 
@@ -1331,6 +1664,7 @@ const StageControl = (() => {
     openStage, openFromPlayer, playCollectionOnStage, stageButton, closeStage, closeStageAndStop, menu, front, setSize,
     toggleHold, setVolume, toggleMute, paintVolume: paint, key, hideRemote,
     upNextChanged, repeatChanged, showTips,
+    queueList, fileOpened, backToStage, countFor, countText,
     /** The id of the file on Stage now, or null (the Flow chart's playhead reads proxy for its time). */
     currentId: () => (cur && cur.row ? cur.row.id : null),
     _state: () => ({ open, basic, basicHold: !!basicHold, remoteShown, mpv, cur: cur && { key: cur.key, id: cur.row && cur.row.id }, t, d, paused, hold, finished, volume, muted, note: note && note.text }),

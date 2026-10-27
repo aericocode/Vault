@@ -25,7 +25,7 @@ const R = require('../player-lib/stage-bar.js');
 /* Sizes as measured in each look (Classic's buttons carry a border and emoji glyphs). */
 const SIZES = { right: 380, unLabel: 58, volSlider: 76, repeat: 38, hold: 38, ctrls: 190, skip: 76, times: 84, pad: 28, gap: 14 };
 const SIZES_CLASSIC = { ...SIZES, right: 374, ctrls: 196, unLabel: 56 };
-const ALL = { skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true };
+const ALL = { countTime: true, count: true, skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true, backLabel: true };
 
 /** What a plan takes up: [right cluster, transport row, seek row]. */
 function used(l, m) {
@@ -51,12 +51,13 @@ test('layout: the transport is in the middle of the window: both sides the same 
   assert.deepStrictEqual(R.layout(1100, SIZES).show, ALL, '1100: everything');
 });
 
-test('layout: narrower bars drop the 10 s buttons, then the Up next word, then the volume slider, then the times, Repeat and Hold, before the seek bar gives way', () => {
-  assert.deepStrictEqual(R.layout(1000, SIZES).show, { ...ALL, skip: false, unLabel: false });
-  assert.deepStrictEqual(R.layout(900, SIZES).show, { ...ALL, skip: false, unLabel: false, volSlider: false });
+test('layout: narrower bars drop the track count (its time first), the 10 s buttons, then the Up next word, then the volume slider, then the times, Repeat and Hold, before the seek bar gives way', () => {
+  const noCount = { countTime: false, count: false };
+  assert.deepStrictEqual(R.layout(1000, SIZES).show, { ...ALL, ...noCount, skip: false, unLabel: false });
+  assert.deepStrictEqual(R.layout(900, SIZES).show, { ...ALL, ...noCount, skip: false, unLabel: false, volSlider: false });
   assert.strictEqual(R.layout(900, SIZES).seek, R.seekWant(900), 'the seek bar keeps the width it wants while pieces can still go');
-  assert.deepStrictEqual(R.layout(760, SIZES).show, { ...ALL, skip: false, unLabel: false, volSlider: false, times: false });
-  const none = { skip: false, unLabel: false, volSlider: false, times: false, repeat: false, hold: false };
+  assert.deepStrictEqual(R.layout(760, SIZES).show, { ...ALL, ...noCount, skip: false, unLabel: false, volSlider: false, times: false, backLabel: false });
+  const none = { countTime: false, count: false, skip: false, unLabel: false, volSlider: false, times: false, repeat: false, hold: false, backLabel: false };
   assert.deepStrictEqual(R.layout(600, SIZES).show, { ...none, thumb: true, hold: true });
   // Too narrow to centre at all: everything optional gone, the seek bar at its minimum, nothing overflows
   assert.deepStrictEqual(R.layout(480, SIZES), { show: { ...none, thumb: false }, mid: null, seek: R.SEEK_MIN, side: null });
@@ -401,7 +402,7 @@ test('a narrow bar has Repeat and Hold in the Stage menu instead; dropped() says
   const p = fakePage();
   p.els.stageBar.clientWidth = 390;
   p.SB.show();
-  assert.deepStrictEqual({ ...p.SB.dropped() }, { skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true });
+  assert.deepStrictEqual({ ...p.SB.dropped() }, { countTime: true, count: true, skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true, backLabel: true });
   for (const c of ['sb-no-times', 'sb-no-repeat', 'sb-no-hold']) assert.ok(p.els.stageBar._cls.has(c), c);
   p.SB.hide();
   assert.deepStrictEqual({ ...p.SB.dropped() }, {}, 'nothing while hidden');
@@ -562,4 +563,139 @@ test('Basic Stage: a video already known not to play here is not tried: a pick o
   assert.ok(err.indexOf('StageControl.basicMediaFailed') > 0 && err.indexOf('StageControl.basicMediaFailed') < err.indexOf('giveUp();'), 'asked before the player gives up');
   assert.match(core, /async function queueMove\(dir, auto\) \{\s*lastQueueDir = dir;/);
   assert.match(core, /if \(row && !isKnownBadMedia\(row\)\) return i;/, 'the queue walk (Next and Previous) passes over known-bad files');
+});
+
+/* ── Back to Stage and the track count ─────────────────────────────────── */
+
+test('layout: the track count goes first (its time, then the rest), before the 10 s buttons; Back to Stage keeps its words only on a wide bar', () => {
+  // As measured with "Track 12 of 40 · 2:14:30 left" showing (the right cluster holds it).
+  const M = { ...SIZES, right: SIZES.right + 176, count: 176, countTime: 92 };
+  const at = (w) => R.layout(w, M).show;
+  assert.deepStrictEqual(at(2000), ALL);
+  const w1 = [...Array(200).keys()].map(k => 2000 - 5 * k).find(w => !at(w).countTime);
+  assert.ok(w1, 'the time goes at some width');
+  assert.strictEqual(at(w1).count, true, 'the count stays when only its time goes');
+  assert.strictEqual(at(w1).skip, true, 'before anything else');
+  const w2 = [...Array(400).keys()].map(k => w1 - 5 * k).find(w => !at(w).count);
+  assert.strictEqual(at(w2).skip, true, 'the whole count goes before the 10 s buttons');
+  // Every column still holds its content with the count in it.
+  for (let w = 520; w <= 2000; w += 10) {
+    const l = R.layout(w, M);
+    let right = M.right;
+    if (!l.show.count) right -= M.count; else if (!l.show.countTime) right -= M.countTime;
+    for (const k of ['unLabel', 'volSlider', 'repeat', 'hold']) if (!l.show[k]) right -= M[k];
+    if (l.mid != null) assert.ok(l.side >= right, `${w}: ${l.side} >= ${right}`);
+  }
+  assert.deepStrictEqual(R.DROP_ORDER.slice(0, 3), ['countTime', 'count', 'skip']);
+  assert.strictEqual(R.layout(R.BACK_LABEL_WIDTH, M).show.backLabel, true);
+  assert.strictEqual(R.layout(R.BACK_LABEL_WIDTH - 1, M).show.backLabel, false, 'narrower: just the arrow');
+  const css = read('css/stage-remote.css');
+  assert.match(css, /\.stage-bar\.sb-no-counttime \.sb-count-time,\s*\.stage-bar\.sb-no-count \.sb-count \{ display: none; \}/);
+  assert.match(css, /\.stage-bar\.sb-no-backlabel \.sb-return-label \{ display: none; \}/);
+});
+
+test('view: Back to Stage, the track count and Basic\'s reopen button; a lock hides them all; plain words, no em dashes', () => {
+  const base = { hasFile: true, filename: 'a.mp4', mediaType: 'video', t: 1, d: 10, repeat: 'off', upNext: 0 };
+  const v = R.view({ ...base, back: true, backTitle: 'Back to “Mix”, where Stage is playing from', countTrack: 'Track 12 of 40', countTime: '2:14:30 left' });
+  assert.deepStrictEqual(v.back, { show: true, title: 'Back to “Mix”, where Stage is playing from' });
+  assert.deepStrictEqual(v.count, { track: 'Track 12 of 40', time: '2:14:30 left' });
+  assert.strictEqual(v.reopen.show, false);
+  const locked = R.view({ ...base, locked: true, back: true, countTrack: 'Track 1 of 2' });
+  assert.deepStrictEqual([locked.back.show, locked.count.track], [false, '']);
+  const pip = R.view({ ...base, basic: true, pipClosed: true });
+  assert.deepStrictEqual([pip.reopen.show, pip.reopen.label, pip.pill.word, pip.pill.live, pip.note], [true, 'Picture-in-picture closed, click to reopen', 'Not showing', false, '']);
+  const html = read('db-viewer.html');
+  assert.match(html, /id="stageBarReturn" data-sb-act="return"[^>]*hidden>.*↩.*Back to Stage/);
+  assert.match(html, /id="stageBarReopen" data-sb-act="reopen" hidden>Picture-in-picture closed, click to reopen</);
+  // The count sits left of + Tag.
+  assert.ok(html.indexOf('id="stageBarCount"') < html.indexOf('id="stageBarTag"'));
+  assert.ok(html.indexOf('<script src="./player-lib/stage-count.js"') < html.indexOf('<script src="./player-lib/flow.js"'), 'loads before flow.js and stage-control.js');
+  for (const f of ['player-lib/stage-bar.js', 'player-lib/stage-control.js', 'player-lib/stage-count.js']) assert.ok(!read(f).includes('—'), `${f}: no em dash`);
+});
+
+/** Basic Stage playing collection 7 (ids 1, 2, 3); the page can browse elsewhere. */
+function sourceVm() {
+  const lists = { 7: { ids: Uint32Array.from([1, 2, 3]), types: Uint8Array.from([1, 1, 1]) }, 9: { ids: Uint32Array.from([5, 6]), types: Uint8Array.from([1, 1]) }, null: { ids: Uint32Array.from([1, 2, 3, 5, 6]), types: Uint8Array.from([1, 1, 1, 1, 1]) } };
+  const rows = { 1: { id: 1, media_type: 'video', duration_seconds: 60 }, 2: { id: 2, media_type: 'video', duration_seconds: 120 }, 3: { id: 3, media_type: 'video', duration_seconds: 30 } };
+  const calls = [];
+  const lib = {
+    TYPE_NAMES: ['', 'video', 'audio', 'image', 'gif', 'mix', 'document'],
+    cid: 7,
+    get spec() { return { collectionId: lib.cid }; },
+    get ids() { return lists[lib.cid].ids; },
+    get types() { return lists[lib.cid].types; },
+    known: () => true, length: () => lists[lib.cid].ids.length,
+    indexOf: (id) => lists[lib.cid].ids.indexOf(id),
+    waitIds: async () => lists[lib.cid].ids,
+    row: (id) => rows[id] || null,
+    rowAt: (i) => rows[lists[lib.cid].ids[i]] || null,
+    idAt: (i) => lists[lib.cid].ids[i],
+    typeAt: () => 'video',
+    fetchRows: async (ids) => ids.map(id => rows[id] || null),
+  };
+  const p = basicVm({
+    Library: lib, StageCount: require('../player-lib/stage-count.js'),
+    currentTab: 'collections', activeCollectionId: 7,
+    getCollectionById: (id) => ({ 7: { id: 7, name: 'Mix' }, 9: { id: 9, name: 'Other' } }[id] || null),
+    listAnchorIndex: () => 0,
+    switchTab: (t) => { calls.push(`tab ${t}`); p.ctx.currentTab = t; },
+    openCollection: async (id) => { calls.push(`open ${id}`); p.ctx.activeCollectionId = id; lib.cid = id; },
+    revealMediaIndex: (i) => calls.push(`reveal ${i}`),
+    highlightCard: (i) => calls.push(`light ${i}`),
+  });
+  p.ctx.currentMediaState.currentIndex = 0;
+  p.ctx.currentMediaState.currentMediaData = { id: 1, filename: 'one.mp4', media_type: 'video' };
+  return { ...p, lib, calls };
+}
+
+test('the list Stage plays from: kept while the user browses elsewhere (the queue walks it), Back to Stage returns to it and lights the file up', async () => {
+  const p = sourceVm();
+  await openBasic(p);
+  p.SC.fileOpened({});
+  assert.strictEqual(p.SC.queueList(), null, 'on the list: the grid\'s own');
+  p.SC.paintVolume();
+  assert.strictEqual(p.painted.at(-1).back.show, false, 'no Back to Stage while looking at it');
+  assert.deepStrictEqual({ ...p.painted.at(-1).count }, { track: 'Track 1 of 3', time: '2:48 left' }, 'the rest of this one (30 - 12 s) and the two after (120 + 30 s)');
+  // Another collection: the queue keeps walking collection 7's order.
+  p.ctx.activeCollectionId = 9; p.lib.cid = 9;
+  const L = p.SC.queueList();
+  assert.deepStrictEqual([L.length(), L.indexOf(2), L.typeAt(2), L.idAt(1)], [3, 1, 'video', 2]);
+  p.SC.paintVolume();
+  assert.deepStrictEqual({ ...p.painted.at(-1).back }, { show: true, title: 'Back to “Mix”, where Stage is playing from' });
+  assert.strictEqual(p.painted.at(-1).count.track, 'Track 1 of 3', 'still collection 7\'s count');
+  // In the middle of switching back (the grid still shows 9): still the kept list.
+  p.ctx.activeCollectionId = 7;
+  assert.ok(p.SC.queueList(), 'not the grid until it holds the collection');
+  p.ctx.activeCollectionId = 9;
+  await p.SC.backToStage();
+  await new Promise(r => setTimeout(r, 200));
+  assert.deepStrictEqual(p.calls, ['open 7', 'reveal 0', 'light 0']);
+  assert.strictEqual(p.SC.queueList(), null);
+  p.SC.paintVolume();
+  assert.strictEqual(p.painted.at(-1).back.show, false);
+  // From the Library tab: back switches tabs first.
+  p.ctx.currentTab = 'library'; p.ctx.activeCollectionId = null; p.lib.cid = null;
+  p.calls.length = 0;
+  await p.SC.backToStage();
+  assert.deepStrictEqual(p.calls.slice(0, 2), ['tab collections', 'open 7']);
+});
+
+test('the list Stage plays from: a file from outside any list leaves none (no Back to Stage, the queue on screen as before); closing Stage forgets it', async () => {
+  const p = sourceVm();
+  await openBasic(p);
+  p.SC.fileOpened({});
+  p.ctx.currentMediaState.currentIndex = -1;
+  p.SC.fileOpened({ fromUpNext: true });
+  p.ctx.activeCollectionId = 9; p.lib.cid = 9;
+  assert.ok(p.SC.queueList(), 'Up next between list files keeps the list');
+  p.SC.fileOpened({});
+  assert.strictEqual(p.SC.queueList(), null, 'a file from nowhere: no list kept');
+  p.SC.paintVolume();
+  assert.strictEqual(p.painted.at(-1).back.show, false);
+  // Kept list, then Stage closes.
+  p.ctx.activeCollectionId = 7; p.lib.cid = 7; p.ctx.currentMediaState.currentIndex = 0;
+  p.SC.fileOpened({});
+  p.SC.miniClosing();
+  p.ctx.activeCollectionId = 9; p.lib.cid = 9;
+  assert.strictEqual(p.SC.queueList(), null);
 });

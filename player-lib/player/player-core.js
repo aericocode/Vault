@@ -48,11 +48,29 @@ function isKnownBadMedia(row) {
    move goes through one chain so pressing Next twice moves twice. */
 
 const NAV_WINDOW = 40;          // rows fetched per step of a walk
+const NAV_STEP_MS = 20000;      // one move that never settles stops holding up the ones after it
 let _navChain = Promise.resolve();
 
-/** Run queue moves one after another, never two at once. */
+/**
+ * Run queue moves one after another, never two at once. A move that hangs
+ * (a request the server never answers, the id list never arriving) gives
+ * way after NAV_STEP_MS: it fails with a TimeoutError, so hands-free
+ * playback can try again (autoAdvanceOnEnded), and the moves queued behind
+ * it run instead of waiting for good.
+ */
 function queueNav(fn) {
-  const run = _navChain.then(fn, fn);
+  const step = () => {
+    let timer;
+    const late = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const err = new Error('The move took too long');
+        err.name = 'TimeoutError';
+        reject(err);
+      }, NAV_STEP_MS);
+    });
+    return Promise.race([Promise.resolve().then(fn), late]).finally(() => clearTimeout(timer));
+  };
+  const run = _navChain.then(step, step);
   _navChain = run.catch(() => {});
   return run;
 }
@@ -61,6 +79,18 @@ function queueNav(fn) {
  * The next index in the results that is not known-bad, walking `step` at a
  * time from `from` (exclusive). Resolves -1 when there is none.
  */
+/**
+ * The list the queue walks: the results on screen (Library), or, while Stage
+ * plays a list the user has browsed away from, that list as it was last on
+ * screen (stage-control.js queueList), so Next, Previous and Stage moving on
+ * stay in it. Both answer the same calls (known, length, typeAt, rowAt,
+ * rowsForRange, indexOf ...).
+ */
+function queueList() {
+  const L = typeof StageControl !== 'undefined' && typeof StageControl.queueList === 'function' ? StageControl.queueList() : null;
+  return L || Library;
+}
+
 /** Basic Stage (stage-control.js) passes over what it cannot show: videos only. */
 function queuePassesOver(type) {
   return typeof StageControl !== 'undefined' && typeof StageControl.passOver === 'function' && StageControl.passOver(type);
@@ -72,17 +102,18 @@ function queuePassesOver(type) {
  * so they can be named.
  */
 async function nextPlayableIndex(from, step, passed) {
+  const L = queueList();
   // Past the first page the walk needs the id list.
-  if (!Library.known() && from + step >= Library.firstPageIds.length) await Library.waitIds();
-  const n = Library.length();
+  if (!L.known() && from + step >= L.firstPageIds.length) await L.waitIds();
+  const n = L.length();
   for (let i = from + step; i >= 0 && i < n; i += step) {
-    const type = Library.typeAt(i);
-    if (type === 'document' || (Library.types && !type)) continue;   // not media
-    let row = Library.rowAt(i);
+    const type = L.typeAt(i);
+    if (type === 'document' || (L.types && !type)) continue;   // not media
+    let row = L.rowAt(i);
     if (!row) {
       const a = step > 0 ? i : Math.max(0, i - NAV_WINDOW + 1);
-      await Library.rowsForRange(a, a + NAV_WINDOW);
-      row = Library.rowAt(i);
+      await L.rowsForRange(a, a + NAV_WINDOW);
+      row = L.rowAt(i);
     }
     if (row && queuePassesOver(row.media_type)) { if (passed) passed.push(row); continue; }
     if (row && !isKnownBadMedia(row)) return i;
@@ -92,9 +123,10 @@ async function nextPlayableIndex(from, step, passed) {
 
 /** Open the file at this result position as a hands-free move. */
 async function playIndexHandsFree(i) {
-  const [media] = await Library.rowsForRange(i, i + 1);
+  const [media] = await queueList().rowsForRange(i, i + 1);
   if (!media) return false;
   playMedia({
+    id: media.id,
     filepath: media.filepath,
     filename: media.filename,
     media_type: media.media_type
@@ -115,7 +147,7 @@ let playingFromUpNext = false;
 
 /** Where the list stands: the anchor's position in the results, or -1. */
 function listAnchorIndex() {
-  return UpNextRule.anchorIndex(listAnchor, (id) => Library.indexOf(id));
+  return UpNextRule.anchorIndex(listAnchor, (id) => queueList().indexOf(id));
 }
 
 function upNextCount() {
@@ -124,7 +156,7 @@ function upNextCount() {
 
 /** Does Next have somewhere to go from the file on screen (Up next, or the list)? */
 function playerHasNext() {
-  return upNextCount() > 0 || !Library.known() || listAnchorIndex() < Library.length() - 1;
+  return upNextCount() > 0 || !queueList().known() || listAnchorIndex() < queueList().length() - 1;
 }
 
 /**
@@ -168,12 +200,12 @@ async function playUpNextHead(wait) {
 async function upNextListContinuation() {
   const from = listAnchorIndex();
   let i = await nextPlayableIndex(from, 1);
-  if (i === -1 && repeatMode() === 'all' && Library.length() >= 2) {
+  if (i === -1 && repeatMode() === 'all' && queueList().length() >= 2) {
     i = await nextPlayableIndex(-1, 1);
     if (i === from) i = -1;
   }
   if (i === -1) return null;
-  const [row] = await Library.rowsForRange(i, i + 1);
+  const [row] = await queueList().rowsForRange(i, i + 1);
   return row || null;
 }
 
@@ -190,7 +222,7 @@ async function playListStep(step, from, wrap) {
   if (!wrap) return said(false);
   // A one-item list would "wrap" onto itself, which is repeat-one's job, not
   // this one's.
-  if (Library.length() < 2) return said(false);
+  if (queueList().length() < 2) return said(false);
   // Wrapping starts at the top of the list, skipping any known-bad files there
   // just as the forward walk does. Landing back on the file that just ended is
   // repeat-one's job, so that one does not count as a wrap.
@@ -202,7 +234,12 @@ async function playListStep(step, from, wrap) {
 /** The way the queue last moved ('next' or 'prev'): Basic Stage steps past a dead file the same way. */
 let lastQueueDir = 'next';
 
-/** One move through Up next and the list (Next, Previous, a file ending). */
+/**
+ * One move through Up next and the list (Next, Previous, a file ending).
+ * Resolves true when a file opened, false when there was nowhere to go, and
+ * 'stopped' when the next file's details could not be loaded (it is still
+ * there: trying again later can play it).
+ */
 async function queueMove(dir, auto) {
   lastQueueDir = dir;
   // A change to Up next still on its way (Shift+U just pressed) lands first,
@@ -221,7 +258,7 @@ async function queueMove(dir, auto) {
   });
   if (plan.take === 'upnext') {
     const head = await playUpNextHead(left);
-    if (head === 'stopped') return false;
+    if (head === 'stopped') return 'stopped';
     if (head) return true;
     // Up next held nothing that could play: the list carries on.
     return playListStep(1, listAnchorIndex(), !!auto && repeatMode() === 'all');
@@ -499,14 +536,34 @@ let playingMedia = null;
  * the results and its row, the id the playback decision uses, the list's
  * anchor (Up next), the pinned neighbours and the last-opened marks.
  */
+let _fileOpenedSeq = 0;         // bumped by every file opened (autoAdvance's retries stand down)
+
 function noteFileOpened(mediaData, { source = 'user', fromUpNext = false, keepAnchor = false } = {}) {
   const { filepath, filename, media_type } = mediaData;
+  _fileOpenedSeq++;
   playingMedia = { filepath, filename, media_type };
   lastPlaySource = source === 'auto' ? 'auto' : 'user';
   // Find current index and store full media data
   currentMediaState.currentIndex = getCurrentMediaIndex(filepath);
   currentMediaState.currentMediaData = currentMediaState.currentIndex >= 0
     ? Library.rowByPath(filepath) : null;
+  // Stage playing a list the user has browsed away from (queueList): a file
+  // the queue moved to by itself, or one not on screen, has its place in
+  // that list, so the list carries on from it there.
+  let anchorId = currentMediaState.currentMediaData ? currentMediaState.currentMediaData.id : null;
+  let anchorAt = currentMediaState.currentIndex;
+  let inStageList = false;
+  const Q = queueList();
+  if (Q !== Library && (source === 'auto' || anchorAt < 0)) {
+    const row = Library.rowByPath(filepath) || (Number(mediaData.id) > 0 ? Library.row(Number(mediaData.id)) : null);
+    const qi = row ? Q.indexOf(row.id) : -1;
+    if (qi >= 0) {
+      anchorId = row.id;
+      anchorAt = qi;
+      inStageList = true;
+      if (!currentMediaState.currentMediaData) currentMediaState.currentMediaData = row;
+    }
+  }
   // The row id the playback decision uses (remux or native, player-stream.js).
   // Unlike currentMediaData it is set for any library file, in the current
   // results or not (a Wall collection, a saved search), so a file that needs
@@ -515,11 +572,13 @@ function noteFileOpened(mediaData, { source = 'user', fromUpNext = false, keepAn
   // Up next: a file from the list moves the list's anchor, one from Up next
   // (or the same file reopened) leaves it.
   listAnchor = UpNextRule.anchorAfterPlay(listAnchor, {
-    fromUpNext, keep: keepAnchor,
-    id: currentMediaState.currentMediaData ? currentMediaState.currentMediaData.id : null,
-    index: currentMediaState.currentIndex,
+    fromUpNext, keep: keepAnchor, id: anchorId, index: anchorAt,
   });
   if (!keepAnchor) playingFromUpNext = !!fromUpNext;
+  // Stage: which list it plays now, and its track count.
+  if (typeof StageControl !== 'undefined' && typeof StageControl.fileOpened === 'function') {
+    StageControl.fileOpened({ inStageList, fromUpNext, keep: keepAnchor });
+  }
   pinPlayerNeighbours(currentMediaState.currentIndex);
   // Remember it so the library can mark this tile on close (keeps the user's place)
   if (currentMediaState.currentMediaData) lastOpenedMediaId = currentMediaState.currentMediaData.id;
@@ -553,11 +612,23 @@ function playMedia(mediaData, opts = {}) {
   const keepMini = wasMini && (lastPlaySource === 'auto' || (opts && opts.stayMini === true))
     && (isVideoLike(media_type) || media_type === 'audio');
 
+  // Basic Stage (stage-control.js) is the mini player's video in the
+  // browser's picture-in-picture window, which is what Discord shares. The
+  // window belongs to that one element: a new element per file has to ask
+  // for the window again, which a browser refuses without a click when this
+  // tab is not in front, and the window (and the stream) closes. So while
+  // Basic Stage is open the next video loads into the same element (its
+  // source changes, the element stays), and the window never moves.
+  const miniBoxEl = wasMini ? document.querySelector('#miniPlayerMedia video') : null;
+  const reuseEl = keepMini && media_type === 'video' && miniBoxEl
+    && typeof StageControl !== 'undefined' && typeof StageControl.basicOn === 'function' && StageControl.basicOn()
+    ? miniBoxEl : null;
+
   // Moving from one picture to the next in the same box (full player to full
   // player, mini to mini): keep the outgoing picture up until the new one has
   // painted. Opening from the library, or changing box, has nothing to hold.
   const holdBox = wasMini
-    ? (keepMini ? document.getElementById('miniPlayerMedia') : null)
+    ? (keepMini && !reuseEl ? document.getElementById('miniPlayerMedia') : null)
     : (document.getElementById('mediaPlayerOverlay')?.classList.contains('active')
       ? document.getElementById('mediaPlayerContent') : null);
   const holdStill = holdBox && ['video', 'image', 'gif'].includes(media_type)
@@ -571,10 +642,18 @@ function playMedia(mediaData, opts = {}) {
     // Popped out and the queue moving on inside the mini player: keep the
     // browser's picture-in-picture window open and hand it to the next file
     // (mini-player.js). Anything else leaves picture-in-picture here.
-    const carryPip = keepMini && media_type === 'video' && miniPipCarry(miniEl);
-    miniPlayerTeardown({ keepPip: carryPip });
-    stopMediaElement(miniEl);
-    miniMedia.innerHTML = '';
+    const carryPip = !reuseEl && keepMini && media_type === 'video' && miniPipCarry(miniEl);
+    miniPlayerTeardown({ keepPip: carryPip || !!reuseEl });
+    if (reuseEl) {
+      // Stopped (its spot saved, its download ended) but kept in the page and
+      // in picture-in-picture; the next file's source goes into it below.
+      reuseEl._keepForNext = true;
+      stopMediaElement(reuseEl);
+      for (const n of [...miniMedia.childNodes]) if (n !== reuseEl) n.remove();
+    } else {
+      stopMediaElement(miniEl);
+      miniMedia.innerHTML = '';
+    }
     miniPlayer.classList.remove('active', 'mini-audio');
     // The corner and size the user chose are remembered (mini-player.js), so
     // nothing to put back here.
@@ -586,7 +665,7 @@ function playMedia(mediaData, opts = {}) {
   // connections pile up against the browser's ~6-per-host limit and after
   // enough video-to-video jumps the NEXT video black-screens for minutes
   // waiting for a free connection.
-  if (currentMediaState.element) stopMediaElement(currentMediaState.element);
+  if (currentMediaState.element && currentMediaState.element !== reuseEl) stopMediaElement(currentMediaState.element);
   if (typeof stopMixPlayer === 'function') stopMixPlayer(); // all mix tracks, not just master
 
   const fileUrl = pathToFileUrl(filepath);
@@ -604,8 +683,9 @@ function playMedia(mediaData, opts = {}) {
   const content = document.getElementById('mediaPlayerContent');
   const controls = document.getElementById('mediaPlayerControls');
   
-  // Clean up previous audio context (may already be closed — don't throw)
-  if (currentMediaState.audioContext) {
+  // Clean up previous audio context (may already be closed — don't throw).
+  // A kept element (Basic Stage) keeps its own: its sound runs through it.
+  if (currentMediaState.audioContext && !(reuseEl && reuseEl._boost && reuseEl._boost.audioContext === currentMediaState.audioContext)) {
     try { currentMediaState.audioContext.close().catch(() => {}); } catch {}
   }
 
@@ -652,7 +732,7 @@ function playMedia(mediaData, opts = {}) {
 
   // Render based on media type
   if (media_type === 'video') {
-    renderVideoPlayer(content, controls, fileUrl, filepath, filename, hasPrev, hasNext);
+    renderVideoPlayer(content, controls, fileUrl, filepath, filename, hasPrev, hasNext, { reuse: reuseEl });
   } else if (media_type === 'image') {
     renderImagePlayer(content, controls, fileUrl, filepath, hasPrev, hasNext);
   } else if (media_type === 'gif') {
@@ -933,7 +1013,30 @@ function autoAdvanceOnEnded() {
   // 'one' repeats through the element's own loop flag, which means no 'ended'
   // at all — but a stale listener must not advance past the file either.
   if (isRepeatOne()) return;
-  playNextMediaOrWrap();
+  autoAdvance();
+}
+
+/* A file ended (or failed) and the move to the next one could not be made:
+   the next file's details did not load (the server busy or restarting), or
+   the move hung. Hands-free playback must not just stop there, so it tries
+   again a few times, a little later each time, as long as nothing else has
+   played meanwhile. Nowhere to go (the end of the list) is not retried. */
+const AUTO_RETRY_MS = [2000, 5000, 10000, 20000];
+let _autoAdvanceGen = 0;
+
+function autoAdvance(attempt = 0) {
+  const my = ++_autoAdvanceGen;
+  const opened = _fileOpenedSeq;
+  const again = () => {
+    // Something else played since (Next pressed, a tile clicked): that wins.
+    if (my !== _autoAdvanceGen || opened !== _fileOpenedSeq) return;
+    if (attempt >= AUTO_RETRY_MS.length) {
+      showToast('Playback stopped: Vault could not open the next file. Is Vault still running?', { type: 'error' });
+      return;
+    }
+    setTimeout(() => { if (my === _autoAdvanceGen && opened === _fileOpenedSeq) autoAdvance(attempt + 1); }, AUTO_RETRY_MS[attempt]);
+  };
+  return playNextMediaOrWrap().then((moved) => { if (moved === 'stopped') again(); }, again);
 }
 
 /**
@@ -1426,14 +1529,18 @@ function handleMediaError(filepath, reason) {
     // Capture the file that just died before the queue moves off it.
     const dead = currentMediaState.currentMediaData;
     const why = reason || 'it cannot play';
+    // The next file not loading (or the move hanging) is not the end of the
+    // list: it is tried again shortly (autoAdvance) rather than closing.
+    const later = () => { consecutivePlayFailures = 0; autoAdvance(1); };
     playNextMediaOrWrap().then((moved) => {
+      if (moved === 'stopped') { later(); return; }
       if (moved) {
         noteSkippedThisSession(dead, why);
         showToast(`Skipped ${skippedDisplayName(dead)}: ${why}`);
       } else {
         giveUp();
       }
-    }, giveUp);
+    }, later);
     return;
   }
   giveUp();
@@ -1493,8 +1600,11 @@ function stopMediaElement(el) {
   // watching any more.
   if (typeof destroyStream === 'function') destroyStream();
   // Picture-in-picture would be left showing a frozen frame, unless the mini
-  // player is handing the window on to the next file (mini-player.js).
-  if (document.pictureInPictureElement === el && !el._pipCarry) document.exitPictureInPicture().catch(() => {});
+  // player is handing the window on to the next file (mini-player.js), or
+  // the element itself plays the next file (Basic Stage, playMedia reuseEl).
+  const keep = el._keepForNext === true;
+  delete el._keepForNext;
+  if (document.pictureInPictureElement === el && !el._pipCarry && !keep) document.exitPictureInPicture().catch(() => {});
   try { el.onerror = null; el.removeAttribute('onerror'); } catch {}
   try { el.pause(); } catch {}
   try { el.removeAttribute('src'); el.load(); } catch {}
@@ -1581,8 +1691,14 @@ function minimizePlayer() {
     element.removeEventListener('dblclick', handleVideoDoubleClick);
     element.style.width = '100%';
     element.removeAttribute('id'); // avoid duplicate ID conflicts
-    miniMedia.innerHTML = '';
-    miniMedia.appendChild(element);
+    if (element.parentNode === miniMedia) {
+      // Already here (Basic Stage's kept element): taking it out of the page,
+      // even for a moment, would close its picture-in-picture window.
+      for (const n of [...miniMedia.childNodes]) if (n !== element) n.remove();
+    } else {
+      miniMedia.innerHTML = '';
+      miniMedia.appendChild(element);
+    }
   } else if (type === 'audio') {
     // Audio has nothing to show: the <audio> rides along hidden and the box
     // shows the file's art, or the type icon (mini-player.js).

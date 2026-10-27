@@ -197,7 +197,7 @@ function walker(types, { basic = true } = {}) {
     StageControl: { passOver: (t) => basic && t !== 'video', notePassed: (list, o) => noted.push({ names: list.map(r => r.filename), end: !!(o && o.end) }) },
   };
   vm.createContext(ctx);
-  vm.runInContext(`${grab('function queuePassesOver(')}\n${grab('async function nextPlayableIndex(')}\n${grab('async function playListStep(')}\nglobalThis.__w = { nextPlayableIndex, playListStep };`, ctx);
+  vm.runInContext(`${grab('function queueList(')}\n${grab('function queuePassesOver(')}\n${grab('async function nextPlayableIndex(')}\n${grab('async function playListStep(')}\nglobalThis.__w = { nextPlayableIndex, playListStep };`, ctx);
   return { ...ctx.__w, played, noted };
 }
 
@@ -317,19 +317,21 @@ for (const classic of [false, true]) {
   });
 }
 
-test('Basic: the window going without the user (its element out of the page, a failed hand-over) closes Stage cleanly; so does the mini player closing (2)', async () => {
+test('Basic: the window going without the user leaves Stage open, says so, and offers it back; the mini player closing closes Stage (2)', async () => {
   const p = page();
   await p.wait(10);
   await p.SC.openStage();
   await p.wait(30);
-  // The element leaves picture-in-picture once it is out of the page: only the element hears it.
+  // The element leaves picture-in-picture: only the element hears it.
   p.doc.pictureInPictureElement = null;
   p.video.dispatchEvent(new Event('leavepictureinpicture'));
   await p.wait(500);
-  assert.deepStrictEqual(isOpen(p), [false, false], 'not half-open');
-  assert.match(p.toasts.pop(), /Stage closed/);
-  await p.SC.openStage();
-  await p.wait(30);
+  assert.deepStrictEqual(isOpen(p), [true, true], 'Stage stays open: never a silent close under a stream while the video plays on');
+  assert.match(p.toasts.pop(), /picture-in-picture window closed/);
+  // Back in picture-in-picture (the bar's button is a click): as before.
+  p.doc.pictureInPictureElement = p.video;
+  p.video.dispatchEvent(new Event('enterpictureinpicture', { bubbles: true }));
+  await p.wait(10);
   assert.deepStrictEqual(isOpen(p), [true, true]);
   p.SC.miniClosing();                          // a give-up, the playing file trashed, closeMiniPlayer()
   assert.deepStrictEqual(isOpen(p), [false, false]);
