@@ -738,20 +738,9 @@ function _parseRepoSlug(repo) {
   return null;
 }
 
-// Segment-wise numeric semver compare: is `latest` newer than `current`?
-// Non-numeric segments never count as newer (avoids a garbage tag masquerading
-// as an upgrade).
-function _isNewer(latest, current) {
-  const a = String(latest).split('.');
-  const b = String(current).split('.');
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const x = parseInt(a[i], 10), y = parseInt(b[i], 10);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
-    if (x > y) return true;
-    if (x < y) return false;
-  }
-  return false;
-}
+// Is `latest` newer than `current`? Pre-releases (3.10.0-beta.1) sort before
+// their release (lib/version-compare.js).
+const { isNewer: _isNewer } = require('../lib/version-compare');
 
 app.get('/api/update-check', async (req, res) => {
   const current = pkg.version;
