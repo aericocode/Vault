@@ -43,11 +43,12 @@
 const Flow = (() => {
   const POLL_MS = 1500;
   const REFETCH_MS = 2500;
+  const DEFAULT_SHAPE = 'smooth';
   const st = {
     cid: null,          // the collection the panel belongs to
     open: false,
     order: false,       // Flow order is what the grid shows
-    shape: 'smooth',
+    shape: DEFAULT_SHAPE,
     data: null,         // GET /api/flow/collections/:id
     byId: new Map(),    // id -> features
     status: null,       // GET /api/flow/status
@@ -105,6 +106,9 @@ const Flow = (() => {
     st.pollTimer = null;
     st.cid = null; st.open = false; st.order = false; st.data = null; st.byId = new Map();
     st.status = null; st.lastCount = -1; st.appliedOrder = null; st.fetchFails = 0; st.toasted = false;
+    // Each collection starts from the default shape (or its remembered one,
+    // restore / toggle): never the shape picked on the one before.
+    st.shape = DEFAULT_SHAPE;
     st.places = null;
     st.edited = null;
     st.membersRef = null;
@@ -115,7 +119,13 @@ const Flow = (() => {
   async function toggle(cid) {
     phStart();
     if (st.open && st.cid === cid) { close(); return; }
-    if (st.cid !== cid) reset();
+    if (st.cid !== cid) {
+      reset();
+      // Opened before the grid's first answer could restore it (a quick
+      // click after opening the collection): take the remembered order now.
+      const m = recalled(cid);
+      if (m) adopt(m);
+    }
     st.cid = cid;
     st.open = true;
     paint();
@@ -435,6 +445,15 @@ const Flow = (() => {
     return v;
   }
 
+  /** Show a remembered Flow order (recalled) for st.cid: its shape, its switch and its edits. */
+  function adopt(m) {
+    st.shape = m.shape;
+    st.places = m.places;
+    st.edited = m.edited;
+    st.order = true;
+    st.appliedOrder = null;
+  }
+
   /** The collection just opened: show Flow order again if it was showing. */
   let restoring = null;
   async function restore(cid) {
@@ -444,11 +463,7 @@ const Flow = (() => {
     try {
       if (st.cid !== cid) reset();
       st.cid = cid;
-      st.shape = m.shape;
-      st.places = m.places;
-      st.edited = m.edited;
-      st.order = true;
-      st.appliedOrder = null;
+      adopt(m);
       await refetch(true);
     } finally {
       restoring = null;
@@ -732,6 +747,11 @@ const Flow = (() => {
     return d ? (st.order ? workingOrder() : d.playlistOrder) : [];
   }
 
+  /** The dashed guide: the picked shape's targets in Flow order (edited or not), else null. */
+  function guide() {
+    return st.order && st.data ? FlowOrder.guideTargets(st.shape, st.data) : null;
+  }
+
   function chartHandovers(order) {
     const d = st.data;
     return st.order ? orderSummary().handovers : FlowOrder.summary(d.features, order).handovers;
@@ -904,7 +924,7 @@ const Flow = (() => {
     const dense = step < DENSE_PX;
     const gap = dense ? 0 : Math.min(8, step * 0.12);
     const base = TOP + PH;
-    const targets = st.order && d.targets ? d.targets : null;
+    const targets = guide();
 
     // The height range: the list's own values (and the targets).
     const vals = [];
@@ -1350,7 +1370,7 @@ const Flow = (() => {
           <span><i class="flow-key-line" style="background:var(--flow-ok)"></i>Smooth hand-over</span>
           <span><i class="flow-key-dash" style="border-color:var(--flow-warn)"></i>Noticeable</span>
           <span><i class="flow-key-line" style="background:var(--flow-bad)"></i>Jump</span>
-          ${st.order && d && d.targets ? '<span><i class="flow-key-dash flow-key-target"></i>Shape you picked</span>' : ''}
+          ${guide() ? '<span><i class="flow-key-dash flow-key-target"></i>Shape you picked</span>' : ''}
           ${anyQuiet ? '<span><i class="flow-key-dots"></i>No music</span>' : ''}
         </div>`;
   }

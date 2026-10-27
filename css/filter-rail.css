@@ -33,6 +33,12 @@ body.rail-shown #typeFilterContainer,
 body.rail-shown #savedSearchesBar,
 body.rail-shown #searchOptionsBtn { display: none !important; }
 
+/* The Collections tab with its filters off (the default): no filter rows at
+   all, the grid gets the room. The Filters button brings them back. */
+body.coll-filters-hidden #filterChipRow,
+body.coll-filters-hidden #typeFilterContainer,
+body.coll-filters-hidden #savedSearchesBar { display: none !important; }
+
 /* Things pinned bottom-left move clear of the rail. */
 body.rail-shown .selection-bar {
   left: calc(var(--rail-w) + 18px);
@@ -281,7 +287,8 @@ body.pm-searches .rail-saved-row { filter: blur(7px); pointer-events: none; user
   outline-offset: -2px;
 }
 
-/* ── Toolbar toggle (Modern only; .modern-only hides it in Classic) ── */
+/* ── Toolbar toggle: Modern always, Classic on the Collections tab only ── */
+body:not(.layout-modern):not(.coll-tab) #railToggleBtn { display: none; }
 .rail-toggle-btn {
   padding: 0.25rem 0.6rem;
   margin-right: 0.6rem;
@@ -299,9 +306,14 @@ body.pm-searches .rail-saved-row { filter: blur(7px); pointer-events: none; user
   border-color: var(--accent);
   color: var(--text-primary);
 }
+/* Filters on, hidden on the Collections tab: the count, in the accent. */
+.rail-toggle-btn.has-hidden { border-color: var(--accent); color: var(--text-primary); }
+.rail-toggle-n { color: var(--accent); font-weight: 600; }
+.rail-toggle-n[hidden] { display: none; }
 /* No rail on Faces (its pages hide the filters), and none below the width
-   filter-rail.js RAIL_MIN_WINDOW allows. */
+   filter-rail.js RAIL_MIN_WINDOW allows. The Collections tab keeps the
+   button there: it shows and hides that tab's chip rows. */
 #mainContainer.faces-on .rail-toggle-btn { display: none; }
 @media (max-width: 899px) {
-  .rail-toggle-btn { display: none; }
+  body:not(.coll-tab) .rail-toggle-btn { display: none; }
 }

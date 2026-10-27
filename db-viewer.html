@@ -323,9 +323,11 @@
     <!-- Results Info -->
     <div class="results-info">
       <div class="results-count">
-        <!-- Modern look only: open / close the left filter rail (player-lib/filter-rail.js) -->
-        <button type="button" class="rail-toggle-btn modern-only" id="railToggleBtn" aria-pressed="false"
-                aria-controls="filterRail" title="Show or hide the filter panel"><span class="vi-w" data-vi="filter">☰ </span>Filters</button>
+        <!-- Open / close the filters (player-lib/filter-rail.js): the left rail
+             in Modern, and on the Collections tab (filters off there by default)
+             the chip rows too, so Classic shows it on that tab. -->
+        <button type="button" class="rail-toggle-btn" id="railToggleBtn" aria-pressed="false"
+                aria-controls="filterRail" title="Show or hide the filter panel"><span class="vi-w" data-vi="filter">☰ </span>Filters<span class="rail-toggle-n" id="railToggleN" hidden></span></button>
         <button class="search-collapse-btn" id="searchCollapseBtn" title="Show/hide search &amp; filters" aria-expanded="true"><span class="vi-w" data-vi="search">▲ </span>Search<span class="vi-w" data-vi="chevron"></span></button>
         <!-- Select page / Select all already carry the counts, so no separate
              "Showing N of M results" line: it said the same thing twice. -->

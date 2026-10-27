@@ -73,6 +73,7 @@
     dockOpen: false,        // Modern: is the docked preview pane open (player-lib/dock.js)
     dockWidth: 380,         // Modern: its width in px, clamped to 300..50% of the window
     railOpen: null,         // Modern: left filter rail open (true/false); null = by window width
+    collectionFiltersOpen: false, // Collections tab: filters shown (rail or chip rows); off by default
     wall: {},               // Wall tab controls (validated in wall.js)
     _lastMediaId: null,     // internal: id for restoreSession
   };
@@ -395,6 +396,14 @@
   window.vaultRailOpen = () => (settings.railOpen === true || settings.railOpen === false ? settings.railOpen : null);
   window.vaultSetRailOpen = function (open) {
     settings.railOpen = !!open;
+    save();
+  };
+  /* The Collections tab keeps its own choice, off by default: collections
+     are already picked by hand, so the grid gets the room until Filters is
+     clicked there (the rail in Modern when it fits, else the chip rows). */
+  window.vaultCollFiltersOpen = () => settings.collectionFiltersOpen === true;
+  window.vaultSetCollFiltersOpen = function (open) {
+    settings.collectionFiltersOpen = !!open;
     save();
   };
 

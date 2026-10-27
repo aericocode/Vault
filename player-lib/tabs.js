@@ -62,6 +62,8 @@ function switchTab(tab) {
     // Show/hide the Collections-tab breadcrumb + New actions for the new tab
     if (typeof renderCollectionsTabBar === 'function') renderCollectionsTabBar();
   }
+  // The Collections tab has its own Filters choice (player-lib/filter-rail.js).
+  if (typeof railSync === 'function') railSync();
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
   try { localStorage.setItem('viewer_tab', tab); } catch {}
 }

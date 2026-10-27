@@ -24,10 +24,20 @@
    indented under their parents); picking one opens it on the right, as a
    card click does. The filters below it still narrow an open collection.
 
+   The Collections tab keeps its own Filters choice (settings
+   collectionFiltersOpen, off by default): collections are already picked by
+   hand, so with it off no filter UI shows there at all (body
+   .coll-filters-hidden hides the chip row, type bar and saved-search bar)
+   and the Filters button counts any filter still on. With it on, the rail
+   shows where it can (Modern, wide enough), else the chip rows as in the
+   Library. Classic gets the Filters button on that tab too (body .coll-tab).
+
    Hooks other modules call (all guarded with typeof at the call site):
    - renderFilterRail()   filter-chips.js renderFilterChipRow, saved-searches.js
                           renderSavedSearches, collections.js renderCollectionsTabBar
    - railIsShown()        is the rail on screen right now
+   - railSync()           tabs.js switchTab (the tab decides which choice applies)
+   - railUpdateToggle()   filter-chips.js renderFilterChipRow (the hidden-filter count)
    ========================================================================= */
 
 const RAIL_AUTO_OPEN_MIN = 1300;  // never chosen: open from this window width up
@@ -36,6 +46,7 @@ const RAIL_TAGS_SHOWN = 40;       // tags listed before "type to find more"
 const RAIL_LIST_SHOWN = 30;       // other long lists (language, content, song)
 
 let _railShown = false;
+let _railRowsHidden = false;      // the Collections tab with its filters off
 let _railQueued = false;
 let _railBuilt = false;
 let _railTagQuery = '';
@@ -44,7 +55,17 @@ let _railTagTimer = null;
 
 function railIsShown() { return _railShown; }
 
+/** The Collections tab on screen. Its filters have their own on / off choice. */
+function railOnCollections() {
+  return railTabFits() && typeof currentTab !== 'undefined' && currentTab === 'collections';
+}
+
+function railCollFiltersOpen() {
+  return typeof window.vaultCollFiltersOpen === 'function' && window.vaultCollFiltersOpen();
+}
+
 function railOpenWanted() {
+  if (railOnCollections()) return railCollFiltersOpen();
   const v = typeof window.vaultRailOpen === 'function' ? window.vaultRailOpen() : null;
   return v == null ? window.innerWidth >= RAIL_AUTO_OPEN_MIN : v;
 }
@@ -71,27 +92,64 @@ function railUpdateTop() {
   document.documentElement.style.setProperty('--rail-top', `${Math.round(bottom)}px`);
 }
 
-/** Put the rail on or off screen to match the settings, the window and the tab. */
+/**
+ * The Filters button. While the Collections tab hides its filters, it says
+ * how many are on ("Filters · 2"), so a hidden filter never hides files
+ * without a word. Called on every filter change (renderFilterChipRow).
+ */
+function railUpdateToggle() {
+  const btn = document.getElementById('railToggleBtn');
+  if (!btn) return;
+  const onColl = railOnCollections();
+  btn.setAttribute('aria-pressed', railOpenWanted() ? 'true' : 'false');
+  const n = _railRowsHidden && typeof activeFilterCount === 'function' ? activeFilterCount() : 0;
+  const count = document.getElementById('railToggleN');
+  if (count) {
+    const text = n ? ` · ${n}` : '';
+    if (count.textContent !== text) count.textContent = text;
+    count.hidden = !n;
+  }
+  btn.classList.toggle('has-hidden', n > 0);
+  btn.title = n ? `${n} filter${n === 1 ? '' : 's'} on. Show filters`
+    : onColl ? (railOpenWanted() ? 'Hide filters' : 'Show filters')
+    : 'Show or hide the filter panel';
+}
+
+/** Put the rail (and the Collections tab's chip rows) on or off screen to match the settings, the window and the tab. */
 function railSync(opts) {
   const rail = document.getElementById('filterRail');
-  const btn = document.getElementById('railToggleBtn');
-  if (btn) btn.setAttribute('aria-pressed', railOpenWanted() ? 'true' : 'false');
+  const onColl = railOnCollections();
+  // Classic has a Filters button on the Collections tab only (css/filter-rail.css).
+  document.body.classList.toggle('coll-tab', onColl);
+  const rowsHidden = onColl && !railCollFiltersOpen();
   const show = railShouldShow();
   if (show) railUpdateTop();
-  if (show === _railShown) return;
-  _railShown = show;
-  document.body.classList.toggle('rail-shown', show);
-  if (rail) rail.hidden = !show;
-  if (show) {
-    // The More sheet hangs off the chip row, which the rail replaces.
-    if (typeof filtersAreOpen === 'function' && filtersAreOpen() && typeof setFiltersOpen === 'function') {
+  const rowsChanged = rowsHidden !== _railRowsHidden;
+  _railRowsHidden = rowsHidden;
+  railUpdateToggle();
+  if (show === _railShown && !rowsChanged) return;
+  if (rowsChanged) {
+    document.body.classList.toggle('coll-filters-hidden', rowsHidden);
+    // The More sheet hangs off the chip row.
+    if (rowsHidden && typeof filtersAreOpen === 'function' && filtersAreOpen() && typeof setFiltersOpen === 'function') {
       setFiltersOpen(false);
     }
-    railRenderNow();
-  } else if (typeof renderFilterChipRow === 'function') {
-    // The chip row was hidden while the rail showed: fit it to its width again.
-    renderFilterChipRow();
   }
+  if (show !== _railShown) {
+    _railShown = show;
+    document.body.classList.toggle('rail-shown', show);
+    if (rail) rail.hidden = !show;
+    if (show) {
+      // The More sheet hangs off the chip row, which the rail replaces.
+      if (typeof filtersAreOpen === 'function' && filtersAreOpen() && typeof setFiltersOpen === 'function') {
+        setFiltersOpen(false);
+      }
+      railRenderNow();
+    }
+  }
+  // The chip row was hidden (by the rail or the Collections tab) and is back:
+  // fit it to its width again.
+  if (!show && !rowsHidden && typeof renderFilterChipRow === 'function') renderFilterChipRow();
   // The grid's width and top just changed: re-lay now, not on the observer's
   // next tick, so the columns never flash at the old count. Not at boot: the
   // library has not loaded yet and its first render lays out.
@@ -99,8 +157,17 @@ function railSync(opts) {
 }
 
 function railToggle() {
-  window.vaultSetRailOpen?.(!railOpenWanted());
+  if (railOnCollections()) window.vaultSetCollFiltersOpen?.(!railCollFiltersOpen());
+  else window.vaultSetRailOpen?.(!railOpenWanted());
   railSync();
+  // Filters asked for as chip rows (no rail here): they live in the search
+  // section, so a collapsed one (the Search button) opens to show them.
+  const section = document.querySelector('.search-section');
+  if (railOpenWanted() && !_railShown && section?.classList.contains('collapsed')
+      && typeof setSearchCollapsed === 'function') {
+    setSearchCollapsed(false);
+    window.vaultRelayoutLibrary?.();
+  }
 }
 
 /* ── Rendering ─────────────────────────────────────────────────────────── */
@@ -534,7 +601,8 @@ function railOnClick(e) {
 function railInit() {
   document.getElementById('railToggleBtn')?.addEventListener('click', railToggle);
   document.getElementById('railCloseBtn')?.addEventListener('click', () => {
-    window.vaultSetRailOpen?.(false);
+    if (railOnCollections()) window.vaultSetCollFiltersOpen?.(false);
+    else window.vaultSetRailOpen?.(false);
     railSync();
   });
   const body = document.getElementById('filterRailBody');
