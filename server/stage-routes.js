@@ -215,6 +215,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     const out = await h.start(found.path, (ipcPath) => buildArgs({
       ipcPath, title: s.windowName, bounds, maximized: w.max === true && !preset,
       cursorSeconds: s.cursorSeconds, volume: session.volume, muted: session.muted, forceMute, quiet,
+      hwdec: s.hwDecoding !== false, mpvVersion: found.version,
     }), { mpvVersion: found.version });
     if (!out.ok) {
       if (host === h) { host = null; engine = null; }

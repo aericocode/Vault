@@ -36,7 +36,7 @@ const ROOT = path.join(__dirname, '..');
 const Rules = require('../player-lib/stage-rules');
 const stageSettings = require('../lib/stage/settings');
 const geometry = require('../lib/stage/geometry');
-const { createHub, validateCommand, validateReport } = require('../lib/stage/hub');
+const { createHub, validateCommand, validateReport, MAX_UPCOMING } = require('../lib/stage/hub');
 
 /* ── Upcoming: what Stage moves on to by itself ─────────────────────────── */
 
@@ -208,7 +208,7 @@ test('commands are checked: shapes, keys, ranges, unknown types', () => {
   assert.strictEqual(validateCommand({ type: 'load', item: { ...item('a1', 1), media_type: 'document' } }).ok, false);
   assert.strictEqual(validateCommand({ type: 'load', item: item('bad key!', 1) }).ok, false);
   assert.strictEqual(validateCommand({ type: 'load', item: item('a1', -3) }).ok, false);
-  assert.strictEqual(validateCommand({ type: 'load', item: item('a1', 1), upcoming: new Array(5).fill(item('b', 2)) }).ok, false);
+  assert.strictEqual(validateCommand({ type: 'load', item: item('a1', 1), upcoming: new Array(MAX_UPCOMING + 1).fill(item('b', 2)) }).ok, false);
   assert.strictEqual(validateCommand({ type: 'load', item: item('a1', 1), repeat: 'sometimes' }).ok, false);
   assert.strictEqual(validateCommand({ type: 'seek', t: -1 }).ok, false);
   assert.strictEqual(validateCommand({ type: 'volume', volume: 1.5 }).ok, false);

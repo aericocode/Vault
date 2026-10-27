@@ -25,7 +25,7 @@ const path = require('node:path');
 const { EventEmitter } = require('node:events');
 
 const find = require('../lib/stage/mpv-find');
-const { buildArgs, titleArg, geometryArg, FIXED } = require('../lib/stage/mpv-args');
+const { buildArgs, titleArg, geometryArg, hwdecArg, FIXED } = require('../lib/stage/mpv-args');
 const { MpvIpc, MpvTimeout, MpvDisconnected, MpvError } = require('../lib/stage/mpv-ipc');
 const { makeIpcPath, loadfileTakesIndex, createMpvHost } = require('../lib/stage/mpv-host');
 const Overlay = require('../lib/stage/mpv-overlay');
@@ -140,7 +140,7 @@ test('arguments: the hardening is all there', () => {
   const args = buildArgs({ ipcPath: '\\\\.\\pipe\\vault-stage-abc', title: 'Vault Stage' });
   for (const a of [
     '--no-config', '--idle=yes', '--force-window=yes', '--keep-open=yes', '--border=no', '--window-dragging=yes',
-    '--osc=no', '--osd-level=0', '--hwdec=auto-safe', '--prefetch-playlist=yes', '--background-color=#000000',
+    '--osc=no', '--osd-level=0', '--hwdec=auto-copy-safe', '--prefetch-playlist=yes', '--background-color=#000000',
     '--keepaspect-window=no', '--auto-window-resize=no', '--focus-on=never', '--ontop=no', '--media-controls=no',
     '--terminal=no', '--msg-level=all=no', '--load-scripts=no', '--ytdl=no', '--input-default-bindings=no',
     '--input-builtin-bindings=no', '--access-references=no', '--demuxer-lavf-o=protocol_whitelist=[file]',
@@ -160,7 +160,7 @@ test('arguments: the window name is shown as typed, never expanded (no ${path})'
   const dyn = buildArgs({ ipcPath: 'p', title: 'T', bounds: { x: -1900.4, y: 20, w: 1280, h: 720 }, cursorSeconds: 3, volume: 0.5, muted: true });
   for (const a of dyn) {
     if (FIXED.includes(a)) continue;
-    assert.match(a, /^--(input-ipc-server=p|title=T|cursor-autohide=3000|volume=50|mute=yes|geometry=1280x720\+-1900\+20)$/, a);
+    assert.match(a, /^--(hwdec=auto-copy-safe|input-ipc-server=p|title=T|cursor-autohide=3000|volume=50|mute=yes|geometry=1280x720\+-1900\+20)$/, a);
   }
 });
 
@@ -174,6 +174,28 @@ test('arguments: test switches (silent, off every screen) and sizes', () => {
   assert.strictEqual(geometryArg({ w: 'x', h: 3 }), null);
   assert.strictEqual(geometryArg({ w: 1920, h: 1080 }), '1920x1080');
   assert.strictEqual(buildArgs({ ipcPath: 'p', cursorSeconds: 999 }).find(a => a.startsWith('--cursor-autohide=')), '--cursor-autohide=60000');
+});
+
+test('arguments: hardware decoding copies frames back (no green edge from padded d3d11va frames); off is --hwdec=no; old mpv gets auto-copy', () => {
+  const hw = (o) => buildArgs({ ipcPath: 'p', ...o }).filter(a => a.startsWith('--hwdec='));
+  assert.deepStrictEqual(hw({}), ['--hwdec=auto-copy-safe'], 'on by default, one --hwdec only');
+  assert.deepStrictEqual(hw({ hwdec: true, mpvVersion: '0.41.0' }), ['--hwdec=auto-copy-safe']);
+  assert.deepStrictEqual(hw({ hwdec: false, mpvVersion: '0.41.0' }), ['--hwdec=no']);
+  assert.ok(!buildArgs({ ipcPath: 'p' }).some(a => /^--hwdec=(auto|auto-safe|d3d11va|dxva2)$/.test(a)), 'never a direct (zero-copy) mode');
+  assert.strictEqual(hwdecArg(true, 'v0.29.1'), '--hwdec=auto-copy', 'before auto-copy-safe existed');
+  assert.strictEqual(hwdecArg(true, '0.30.0'), '--hwdec=auto-copy-safe');
+  assert.strictEqual(hwdecArg(true, 'UNKNOWN'), '--hwdec=auto-copy-safe', 'a version Vault cannot read is taken as recent');
+  assert.strictEqual(hwdecArg(true, null), '--hwdec=auto-copy-safe');
+  assert.strictEqual(hwdecArg(false, '0.29.0'), '--hwdec=no');
+  // The setting: on by default, a boolean, kept with the other Stage settings.
+  const S = require('../lib/stage/settings');
+  assert.strictEqual(S.DEFAULTS.hwDecoding, true);
+  assert.strictEqual(S.normalize({ hwDecoding: false }).hwDecoding, false);
+  assert.strictEqual(S.normalize({ hwDecoding: 'no' }, { hwDecoding: false }).hwDecoding, false, 'a bad value keeps what was there');
+  assert.strictEqual(S.validatePatch({ hwDecoding: 'off' }).ok, false);
+  assert.strictEqual(S.validatePatch({ hwDecoding: false }).settings.hwDecoding, false);
+  // The route passes it to mpv when Stage opens.
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'server', 'stage-routes.js'), 'utf8'), /hwdec: s.hwDecoding !== false, mpvVersion: found.version/);
 });
 
 /* ── The pipe and the process ───────────────────────────────────────────── */
@@ -714,6 +736,71 @@ test('race: when the new list arrives before mpv starts the lined-up file, that 
   await e.settle(); await e.settle(); await e.settle();
   assert.ok(!e.mpv.playlist.some(x => x.file === PATHS[2]), 'B is gone from mpv');
   assert.ok(e.mpv.playlist.some(x => x.file === PATHS[3]), 'C is lined up');
+});
+
+test('race: Up next changes while mpv is still answering the append of the next file: the stale entry comes out and the new first file is lined up', async () => {
+  const e = engineFor();
+  // mpv takes its time answering appends (the next file is opened as it is added).
+  const held = [];
+  const loadfile = e.mpv.loadfile;
+  e.mpv.loadfile = (file, mode, opts) => (mode === 'append'
+    ? new Promise((resolve) => held.push(() => resolve(loadfile.call(e.mpv, file, mode, opts))))
+    : loadfile.call(e.mpv, file, mode, opts));
+  const release = async () => { while (held.length) { held.shift()(); await e.settle(); await e.settle(); } };
+  e.engine.command({ type: 'load', item: it('A', 1), upcoming: [it('B', 2)], repeat: 'off' });
+  await e.settle(); await e.settle();
+  assert.strictEqual(held.length, 1, 'B is on its way into mpv');
+  // The user takes B out of Up next before mpv answered.
+  e.engine.command({ type: 'upcoming', upcoming: [it('C', 3)], repeat: 'off' });
+  await e.settle();
+  await release();
+  await release();
+  assert.ok(!e.mpv.playlist.some(x => x.file === PATHS[2]), 'B is not left in mpv to play next');
+  assert.ok(e.mpv.playlist.some(x => x.file === PATHS[3]), 'C is lined up');
+  assert.strictEqual(e.engine._state().next.key, 'C');
+  // The same file first under Control's newer key: kept, nothing reloaded.
+  const e2 = engineFor();
+  const held2 = [];
+  const lf2 = e2.mpv.loadfile;
+  e2.mpv.loadfile = (file, mode, opts) => (mode === 'append'
+    ? new Promise((resolve) => held2.push(() => resolve(lf2.call(e2.mpv, file, mode, opts))))
+    : lf2.call(e2.mpv, file, mode, opts));
+  e2.engine.command({ type: 'load', item: it('A', 1), upcoming: [it('B', 2)], repeat: 'off' });
+  await e2.settle(); await e2.settle();
+  e2.engine.command({ type: 'upcoming', upcoming: [it('B2', 2), it('C', 3)], repeat: 'off' });
+  await e2.settle();
+  while (held2.length) { held2.shift()(); await e2.settle(); await e2.settle(); }
+  assert.strictEqual(e2.engine._state().next.key, 'B2');
+  assert.strictEqual(e2.mpv.log.filter(l => l[0] === 'loadfile' && l[2] === 'append').length, 1, 'B once');
+});
+
+test('a long list from Control: Stage plays through it on its own (the Vault tab silent the whole time) and only then waits, then black', async () => {
+  const { MAX_UPCOMING, validateCommand } = require('../lib/stage/hub');
+  assert.ok(MAX_UPCOMING >= 100, 'deep enough for hours with the tab frozen');
+  const many = (n) => Array.from({ length: n }, (_, i) => it(`k${i}`, 1 + (i % 3)));
+  assert.strictEqual(validateCommand({ type: 'upcoming', upcoming: many(MAX_UPCOMING) }).ok, true);
+  assert.strictEqual(validateCommand({ type: 'upcoming', upcoming: many(MAX_UPCOMING + 1) }).ok, false);
+  const e = engineFor();
+  const list = many(30);
+  e.engine.command({ type: 'load', item: it('first', 1), upcoming: list, repeat: 'off' });
+  await e.settle(); await e.settle();
+  let entry = e.mpv.playlist[0].id;
+  await e.ev({ event: 'start-file', playlist_entry_id: entry });
+  await e.ev({ event: 'file-loaded' });
+  for (const item of list) {
+    const nextEntry = e.mpv.playlist.find(x => x.id !== entry).id;
+    await e.ev({ event: 'end-file', reason: 'eof', playlist_entry_id: entry });
+    e.mpv.playlist = e.mpv.playlist.filter(x => x.id !== entry);
+    await e.ev({ event: 'start-file', playlist_entry_id: nextEntry });
+    await e.ev({ event: 'file-loaded' });
+    assert.strictEqual(e.engine._state().cur.key, item.key);
+    entry = nextEntry;
+  }
+  assert.strictEqual(e.reports.filter(r => r.type === 'started' && r.auto).length, 30);
+  assert.ok(!e.reports.some(r => r.type === 'finished'));
+  await e.prop('eof-reached', true);
+  await e.clock.tick(WAIT_UPCOMING_MS + 10);
+  assert.ok(e.reports.some(r => r.type === 'finished'), 'nothing next at all: the end as before');
 });
 
 test('the pipe must answer with the pid of the mpv Vault started, or Vault refuses to drive it', async () => {
