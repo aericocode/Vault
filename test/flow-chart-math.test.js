@@ -145,7 +145,7 @@ test('clampChartHeight: the grip keeps the plot inside 70..360 px, junk is null'
   assert.strictEqual(M.clampChartHeight(-50), 70);
   assert.strictEqual(M.clampChartHeight(9999), 360);
   assert.strictEqual(M.clampChartHeight('200'), 200, 'as read back from localStorage');
-  for (const junk of [null, undefined, '', 'tall', NaN, Infinity]) assert.strictEqual(M.clampChartHeight(junk), null, String(junk));
+  for (const junk of [null, undefined, '', ' ', '\t', 'tall', NaN, Infinity]) assert.strictEqual(M.clampChartHeight(junk), null, String(junk));
 });
 
 test('sparkPath: a path across the whole width, inside the height, nulls skipped', () => {

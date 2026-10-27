@@ -148,7 +148,7 @@ const FlowChartMath = (() => {
   const CHART_H_MAX = 360;
   function clampChartHeight(px) {
     const v = Number(px);
-    if (px == null || px === '' || !Number.isFinite(v)) return null;
+    if (px == null || (typeof px === 'string' && !px.trim()) || !Number.isFinite(v)) return null;
     return Math.round(Math.max(CHART_H_MIN, Math.min(CHART_H_MAX, v)));
   }
 
