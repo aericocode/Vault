@@ -159,6 +159,15 @@ body.flow-grip-dragging { user-select: none; cursor: ns-resize; }
 .flow-chart .flow-grid { stroke: var(--flow-grid); stroke-width: 1; }
 .flow-chart .flow-axis { font-size: 10px; fill: var(--flow-label); }
 .flow-chart .flow-col-hot { fill: var(--flow-col-hot); }
+/* Dragging a column to move its file (flow.js, "Dragging a column"): grab on a
+   column while a move is possible; the faded column at the pointer, where it
+   lands (an outline and a line) and "Move to 4 of 12". */
+.flow-chart-wrap.flow-can-drag { cursor: grab; }
+body.flow-col-dragging, body.flow-col-dragging * { cursor: grabbing !important; user-select: none; }
+.flow-chart .flow-drag-ghost { fill: var(--accent); opacity: 0.18; stroke: var(--accent); stroke-opacity: 0.6; stroke-width: 1; stroke-dasharray: 4 3; }
+.flow-chart .flow-drag-land { fill: var(--flow-col-hot); stroke: var(--accent); stroke-opacity: 0.55; stroke-width: 1; }
+.flow-chart .flow-drag-ins { stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; }
+.flow-chart .flow-drag-label { font-size: 10.5px; font-weight: 600; fill: var(--text-primary); paint-order: stroke; stroke: var(--bg-secondary); stroke-width: 3px; }
 .flow-chart .flow-line { fill: none; stroke: url(#flowEg); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .flow-chart .flow-line-dense { stroke-width: 1.25; }
 /* Where Flow looks past a calm intro or end: a faint band, the line dashed and dimmer. */
