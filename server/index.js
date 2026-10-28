@@ -3477,6 +3477,10 @@ const stageRouter = require('./stage-routes').buildRouter({
     mergeHeatmap: (id, buckets) => { db.mergeHeatmap(id, buckets); },
     touch: () => vault.touch(),
     isLocked: () => vault.isLocked(),
+    // The set log (lib/stage/setlog.js): kept in the database, names read from the library.
+    db: () => db.get(),
+    titleFor: (id) => { const row = db.getById(id); return row ? row.filename : null; },
+    inLibrary: (id) => { const row = db.getById(id); return !!row && !row.user_trashed; },
     // Even out loudness: the gain for a file from its Flow measurement (lib/flow/loudness.js).
     loudnessGain: (id) => flowService.gainFor(id),
   },
