@@ -152,6 +152,13 @@ function stageSettingsHtml() {
   // Lanes and stream tags (player-lib/stream-tags-settings.js), after the Stage rows.
   const lanes = typeof streamLanesSettingsHtml === 'function' ? streamLanesSettingsHtml(modern) : '';
 
+  // The set log (player-lib/stage-setlog.js): old sets, Stage open or not.
+  const setLogRow = settingsRowHtml({
+    sfind: 'stageSetLog', title: 'Set log',
+    desc: 'What Stage played, with the times, for when someone asks what a video was. The last 20 sets are kept. Never shown on Stage.',
+    control: '<button type="button" class="settings-btn settings-btn-quiet" data-stage-setlog>Open set log</button>',
+  });
+
   const playerRow = settingsRowHtml({
     sfind: 'stagePlayer', title: 'Player', cls: 'stage-mpv-row',
     extra: `<span class="settings-toggle-desc stage-mpv-box" data-stage-mpv-box>${_stageMpvHtml()}</span>`,
@@ -159,7 +166,7 @@ function stageSettingsHtml() {
   });
 
   if (modern) {
-    const rows = playerRow + settingsRowHtml({
+    const rows = playerRow + setLogRow + settingsRowHtml({
       sfind: 'stageShowName', title: 'Show the name as a file starts', desc: 'Bottom left, over the picture.',
       control: `<span class="stage-set-pair">${_stNum('nameSeconds', s.nameSeconds, 1, 30, 'Seconds the name shows')}
         <label class="stage-set-sw" title="Show the name">${_stSwitch('showName', s.showName)}</label></span>`,
@@ -185,6 +192,7 @@ function stageSettingsHtml() {
       <h3 class="settings-h" data-sfind="stage">${typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel('🎬 Stage', { icon: false }) : '🎬 Stage'}</h3>
       <p class="settings-note">The window you share in Discord. Open it from the mini player, the full player, or Play on Stage on a collection.</p>
       ${playerRow}
+      ${setLogRow}
       ${settingsRowHtml({ sfind: 'stageShowName', title: lbl('Show the name as a file starts, for', _stNum('nameSeconds', s.nameSeconds, 1, 30, 'Seconds the name shows')), desc: 'Bottom left, over the picture.', control: `<label class="stage-set-sw">${_stSwitch('showName', s.showName)}</label>` })}
       ${settingsRowHtml({ sfind: 'stageWindowName', title: 'Window name', desc: 'What Discord lists, and may show on the stream.', control: nameField })}
       ${settingsRowHtml({ sfind: 'stageImageSeconds', title: lbl('Show pictures for', _stNum('imageSeconds', s.imageSeconds, 1, 600, 'Seconds a picture shows')), desc: 'GIFs play at least one full loop.' })}
@@ -236,6 +244,10 @@ function stageSettingsWire(root) {
   if (!root._stageMpvWired) {
     root._stageMpvWired = true;
     root.addEventListener('click', (e) => {
+      if (e.target.closest('[data-stage-setlog]')) {
+        if (typeof SetLog !== 'undefined' && SetLog) SetLog.show();
+        return;
+      }
       const b = e.target.closest('[data-stage-mpv]');
       if (!b || b.disabled) return;
       _stageMpvAct(b.dataset.stageMpv, root);

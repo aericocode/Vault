@@ -545,6 +545,8 @@
       <span class="sb-count" id="stageBarCount" hidden><span id="stageBarCountTrack"></span><span class="sb-count-time" id="stageBarCountTime" hidden></span></span>
       <!-- The file on Stage's stream tags (player-lib/stream-tags.js) -->
       <button type="button" class="sb-btn sb-wide sb-tag" id="stageBarTag" data-sb-act="tag" title="Add a stream tag to the file on Stage" aria-label="Stream tags" aria-haspopup="menu" disabled><span class="sb-tag-plus">+ Tag</span><span class="sb-tag-chips" id="stageBarTagChips"></span></button>
+      <!-- What Stage played this set, for the streamer only (player-lib/stage-setlog.js) -->
+      <button type="button" class="sb-btn sb-wide sb-log" id="stageBarLog" data-sb-act="log" title="Set log: what Stage played, with the times" aria-label="Set log" aria-haspopup="dialog" aria-expanded="false">Log</button>
       <button type="button" class="sb-btn sb-wide" id="stageBarUpNext" data-sb-act="upnext" title="Up next" aria-label="Up next" aria-haspopup="dialog" aria-expanded="false"><span class="vi-w" data-vi="queue">☰</span><span class="sb-un-label">Up next</span><span class="sb-badge" id="stageBarUpNextCount" hidden>0</span></button>
       <button type="button" class="sb-btn" id="stageBarRepeat" data-sb-act="repeat" title="Repeat" aria-label="Repeat: off"><span class="sb-g"></span></button>
       <button type="button" class="sb-btn" id="stageBarHold" data-sb-act="hold" title="Hold: Stage goes black and silent (H)" aria-label="Hold" aria-pressed="false"><span class="vi-w" data-vi="hold">⬛</span></button>
@@ -633,6 +635,8 @@
   <script src="./player-lib/stage-control.js"></script>
   <!-- Stage open: a click previews, a double click plays on Stage -->
   <script src="./player-lib/stage-preview.js"></script>
+  <!-- The set log: what Stage played (Log on the Stage bar, Settings › Stage) -->
+  <script src="./player-lib/stage-setlog.js"></script>
   <!-- Modern player: the dock's geometry (pure) and the dock itself -->
   <script src="./player-lib/player/dock-geometry.js"></script>
   <script src="./player-lib/player/player-modern.js"></script>

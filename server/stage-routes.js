@@ -36,6 +36,7 @@ const { createMpvHost, volumeGainSupported } = require('../lib/stage/mpv-host');
 const { buildArgs } = require('../lib/stage/mpv-args');
 const mpvFind = require('../lib/stage/mpv-find');
 const StageRules = require('../player-lib/stage-rules.js');
+const { createSetLog } = require('../lib/stage/setlog');
 
 /**
  * @param {object} opts
@@ -46,9 +47,14 @@ const StageRules = require('../player-lib/stage-rules.js');
  * @param {Function} [opts.hostFactory]  createMpvHost (tests)
  * @param {Function} [opts.find]         mpvFind.findMpv (tests)
  * @param {(settings: object) => void} [opts.onSettingsSaved]  after Settings › Stage saves (Flow's "Measure for Flow")
+ * @param {object} [opts.setlog]  the set log (lib/stage/setlog.js); made from lib.db when not given
  */
-function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = process.env, hostFactory = createMpvHost, find: findReal = mpvFind.findMpv, platform = process.platform } = {}) {
+function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = process.env, hostFactory = createMpvHost, find: findReal = mpvFind.findMpv, platform = process.platform, setlog: givenLog = null } = {}) {
   const router = express.Router();
+  // What Stage played (Log on the Stage bar, Settings › Stage). Kept in Vault's database.
+  const setlog = givenLog || (typeof lib.db === 'function'
+    ? createSetLog({ db: lib.db, titleFor: lib.titleFor, isLocked: typeof lib.isLocked === 'function' ? lib.isLocked : () => false })
+    : null);
   // VAULT_STAGE_NO_MPV=1 (checks only): mpv is never found, so Stage runs Basic.
   const find = (o) => (env.VAULT_STAGE_NO_MPV === '1' ? Promise.resolve({ found: false }) : findReal(o));
 
@@ -156,6 +162,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     stage: runner,
     settings: { get: readSettings, sizes: stageSettings.OPEN_SIZES },
     forceMute,
+    log: setlog,
   });
 
   async function status() {
@@ -229,7 +236,11 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
 
   vault.onChange((e) => {
     if (e === 'locked') hub.lock();
-    else if (e === 'unlocked') hub.unlock();
+    else if (e === 'unlocked') {
+      // What the set log could not write while locked, written now.
+      if (setlog && typeof setlog.flush === 'function') { try { setlog.flush(); } catch {} }
+      hub.unlock();
+    }
   });
   if (vault.isLocked()) hub.lock();
 
@@ -304,12 +315,66 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     try { res.json({ ok: true, mpv: await status() }); } catch { res.json({ ok: true }); }
   });
 
+  /* ── The set log ─────────────────────────────────────────────────── */
+
+  const noLog = (res) => res.status(503).json({ error: 'The set log is not available.' });
+
+  router.get('/api/stage/setlog', (req, res) => {
+    if (!setlog) return noLog(res);
+    try { res.json({ sets: setlog.sets() }); } catch { res.status(500).json({ error: 'Could not read the set log.' }); }
+  });
+
+  router.get('/api/stage/setlog/:id', (req, res) => {
+    if (!setlog) return noLog(res);
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Not a set.' });
+    let out;
+    try { out = setlog.setById(id); } catch { return res.status(500).json({ error: 'Could not read the set log.' }); }
+    if (!out) return res.status(404).json({ error: 'That set is no longer kept.' });
+    // A file since removed from the library shows its stored name, not clickable.
+    const has = typeof lib.inLibrary === 'function' ? lib.inLibrary : () => true;
+    for (const e of out.entries) { try { e.inLibrary = !!has(e.mediaId); } catch { e.inLibrary = false; } }
+    res.json(out);
+  });
+
+  // Basic Stage plays in the page, so the page says what it plays:
+  // start (a file began playing), playing, paused, beat (still there, every
+  // 20 s), stopped, closed (Stage closed). Only ever about Basic's own file
+  // (lib/stage/setlog.js basic): the page cannot change what mpv Stage logs.
+  const BASIC_STATES = new Set(['start', 'playing', 'paused', 'beat', 'stopped', 'closed']);
+  router.post('/api/stage/setlog/basic', (req, res) => {
+    if (!setlog) return noLog(res);
+    const b = req.body || {};
+    if (!BASIC_STATES.has(b.state)) return res.status(400).json({ error: 'state must be start, playing, paused, beat, stopped or closed.' });
+    if (b.state === 'start') {
+      if (!Number.isSafeInteger(b.id) || b.id <= 0) return res.status(400).json({ error: 'start needs the file id.' });
+      if (b.title !== undefined && (typeof b.title !== 'string' || b.title.length > 1024)) return res.status(400).json({ error: 'title must be text.' });
+      // Only files in the library; their names come from the library, not the page.
+      // A file the library doesn't know still means the one before has stopped:
+      // its time must not run on under this one.
+      if (typeof lib.inLibrary === 'function' && !lib.inLibrary(b.id)) {
+        setlog.basic('stopped');
+        return res.status(404).json({ error: 'That file is not in the library.' });
+      }
+      setlog.basic('start', { id: b.id, title: typeof lib.titleFor === 'function' ? '' : (b.title || '') });
+    } else setlog.basic(b.state);
+    res.json({ ok: true });
+  });
+
+  // Every 15 s: a Basic page gone quiet has stopped, a set idle 30 minutes
+  // has ended, and the file playing has its time written down.
+  if (setlog && typeof setlog.tick === 'function') {
+    const timer = setInterval(() => { try { setlog.tick(); } catch {} }, 15000);
+    if (timer.unref) timer.unref();
+  }
+
   /** mpv Stage is open and playing (not paused, not on Hold, not locked): Flow waits. */
   router.isPlaying = () => {
     const s = hub._session();
     return !!(s.open && s.mode === 'mpv' && alive() && !s.paused && !s.hold && !s.locked);
   };
   router._hub = hub;
+  router._setlog = setlog;
   router._runner = runner;
   router._engine = () => engine;
   router._host = () => host;

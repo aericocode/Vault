@@ -464,3 +464,90 @@ body.layout-modern .stage-tips .st-btn:not(.st-pri) { background: var(--m-btn, r
 /* ── Basic Stage (picture-in-picture, player-lib/stage-control.js) ───── */
 
 .stage-menu .sm-note { padding: 4px 12px 8px; font-size: 12px; line-height: 1.35; color: var(--text-secondary, #a1a1aa); max-width: 260px; }
+
+/* ── The set log (player-lib/stage-setlog.js): what Stage played, above
+      the Stage bar's Log button, or in the middle from Settings › Stage ── */
+
+.slog-pop {
+  position: fixed;
+  z-index: 9002;              /* over the Stage bar, the Up next list and Settings */
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary, #1a1a1a);
+  border: 1px solid var(--border, #333);
+  border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6);
+  color: var(--text-primary, #e0e0e0);
+  overflow: hidden;
+  font-size: 13px;
+}
+.slog-pop[hidden] { display: none; }
+body.layout-modern .slog-pop { background: #17171b; border-color: #34343c; color: var(--m-text, #ececf1); }
+.slog-head, .slog-tools, .slog-foot {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+}
+.slog-head { padding-bottom: 2px; }
+.slog-tools, .slog-foot { border-bottom: 1px solid var(--border, #333); }
+.slog-foot { border-bottom: 0; border-top: 1px solid var(--border, #333); }
+.slog-foot[hidden] { display: none; }
+body.layout-modern .slog-tools, body.layout-modern .slog-foot { border-color: #34343c; }
+.slog-title { font-size: 14px; }
+.slog-pill, .slog-earlier span { color: var(--text-muted, #8b8b97); }
+.slog-sp { flex: 1; }
+.slog-x {
+  background: none; border: 0; color: var(--text-muted, #8b8b97);
+  cursor: pointer; font: inherit; padding: 2px 6px; border-radius: 6px;
+}
+.slog-x:hover { color: inherit; background: rgba(255, 255, 255, 0.07); }
+.slog-search, .slog-sel {
+  border: 1px solid var(--border, #333);
+  border-radius: 7px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+  font: inherit;
+  min-width: 0;
+}
+.slog-search { flex: 1 1 140px; }
+.slog-earlier { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.slog-sel { max-width: 260px; }
+.slog-btn {
+  border: 1px solid var(--border, #333);
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font: inherit;
+  cursor: pointer;
+  flex: none;
+  white-space: nowrap;
+  width: auto;
+}
+.slog-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.09); }
+.slog-btn:disabled { opacity: 0.45; cursor: default; }
+.slog-list { flex: 1; min-height: 0; overflow-y: auto; }
+.slog-row {
+  display: grid;
+  grid-template-columns: 70px 64px minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.slog-row[data-sl-media] { cursor: pointer; }
+.slog-row[data-sl-media]:hover, .slog-row[data-sl-media]:focus-visible { background: rgba(99, 102, 241, 0.12); outline: none; }
+.slog-row.slog-skip { opacity: 0.5; }
+.slog-row.slog-gone .slog-nm { color: var(--text-muted, #8b8b97); font-style: italic; }
+.slog-o, .slog-r { color: var(--text-muted, #8b8b97); font-variant-numeric: tabular-nums; }
+.slog-t { font-variant-numeric: tabular-nums; }
+.slog-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slog-row.slog-now .slog-r { color: var(--accent, #6366f1); }
+.slog-empty { padding: 14px 12px; color: var(--text-muted, #8b8b97); }
+/* Privacy mode (file names hidden): the names blurred, like the Stage bar's. */
+body.pm-names .slog-nm {
+  filter: blur(7px);
+  user-select: none;
+}

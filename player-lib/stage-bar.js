@@ -402,6 +402,8 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
       case 'fwd': if (typeof miniSkip === 'function') miniSkip(10); break;
       case 'play': if (typeof miniTogglePlay === 'function') miniTogglePlay(); break;
       case 'upnext': if (typeof UpNext !== 'undefined') UpNext.togglePopover(); break;
+      // The set log (player-lib/stage-setlog.js): what Stage played, for the streamer.
+      case 'log': if (typeof SetLog !== 'undefined' && SetLog) SetLog.toggle({ bar: true }); break;
       case 'repeat': if (typeof cycleRepeatMode === 'function') cycleRepeatMode(); break;
       case 'hold': if (SC) SC.toggleHold(); break;
       case 'mute':
@@ -426,7 +428,7 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
       act(b.dataset.sbAct, e);
       // A mouse press leaves no focus on the button, so Space, N and P
       // (app.js) go to Stage, not to the last button pressed.
-      if (e.detail > 0 && b.dataset.sbAct !== 'menu' && b.dataset.sbAct !== 'upnext' && b.dataset.sbAct !== 'tag') b.blur();
+      if (e.detail > 0 && b.dataset.sbAct !== 'menu' && b.dataset.sbAct !== 'upnext' && b.dataset.sbAct !== 'tag' && b.dataset.sbAct !== 'log') b.blur();
     });
     $('stageBarMenu')?.addEventListener('contextmenu', (e) => act('menu', e));
     const slider = $('stageBarVol');
@@ -676,7 +678,7 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
     const bar = $('stageBar');
     if (!on || !bar) return null;
     const b = bar.getBoundingClientRect();
-    const btn = kind === 'upnext' ? $('stageBarUpNext') : kind === 'menu' ? $('stageBarMenu') : null;
+    const btn = kind === 'upnext' ? $('stageBarUpNext') : kind === 'menu' ? $('stageBarMenu') : kind === 'log' ? $('stageBarLog') : null;
     const r = btn ? btn.getBoundingClientRect() : { left: b.right - 380, right: b.right - 12 };
     return { left: r.left, right: r.right, top: b.top, bottom: b.bottom, width: r.right - r.left, height: b.height };
   }
