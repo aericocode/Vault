@@ -509,31 +509,36 @@ body.layout-modern .coll-reorder-note.flow-orderbar { border-radius: var(--m-rad
 .flow-chart .flow-col-sel { fill: var(--accent-bg); stroke: var(--accent); stroke-opacity: 0.55; stroke-width: 1; pointer-events: none; }
 .flow-chart .flow-hand.flow-hand-sel { stroke-width: 4.5; opacity: 1; }
 
-/* The strip under the chart: the file (or hand-over) picked. */
+/* The strip under the names: the file (or hand-over) picked, on one line
+   (two when the buttons wrap). Each part keeps to one line; the whole why
+   of a hand-over is in its tooltip. */
 .flow-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 8px 18px;
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 12px;
   max-height: 26vh;
   overflow-y: auto;
-  padding: 8px 12px;
+  padding: 4px 10px;
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--bg-primary);
+  font-size: 0.74rem;
+  line-height: 1.35;
 }
-.flow-st-main { display: grid; gap: 3px; min-width: 0; }
-.flow-st-k { font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-secondary); }
-.flow-st-name { font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.flow-st-hands { display: grid; gap: 4px; min-width: 0; color: var(--text-secondary); font-size: 0.78rem; }
-.flow-st-h { padding-left: 8px; border-left: 2px solid var(--border); }
+.flow-strip > * { white-space: nowrap; }
+.flow-st-k { font-size: 0.66rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-secondary); }
+.flow-st-name { font-weight: 600; font-size: 0.8rem; min-width: 0; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; }
+.flow-strip .flow-sub { font-size: inherit; font-variant-numeric: tabular-nums; }
+.flow-st-h { padding-left: 6px; border-left: 2px solid var(--border); color: var(--text-secondary); min-width: 0; max-width: 46ch; overflow: hidden; text-overflow: ellipsis; }
+.flow-st-why { flex: 1 1 18ch; max-width: none; }
 .flow-st-h-smooth { border-left-color: var(--flow-ok); }
 .flow-st-h-noticeable { border-left-color: var(--flow-warn); }
 .flow-st-h-jump { border-left-color: var(--flow-bad); }
 .flow-st-h b { color: var(--text-primary); font-weight: 600; }
-.flow-st-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
-/* Nothing picked: one short line. */
-.flow-strip:has(> .flow-st-hint) { padding: 5px 12px; }
+.flow-st-acts { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-left: auto; }
+.flow-st-acts .flow-btn-sm { padding: 0.05rem 0.5rem; font-size: 0.72rem; }
+.flow-st-hint { white-space: normal; }
 
 /* The hover card by the pointer. */
 .flow-hcard {
@@ -596,13 +601,7 @@ body.layout-modern .flow-strip {
 }
 body.layout-modern .flow-hcard { box-shadow: var(--m-shadow); color: var(--m-text); }
 body.layout-modern .flow-hc-m,
-body.layout-modern .flow-st-hands,
+body.layout-modern .flow-st-h,
 body.layout-modern .flow-st-k { color: var(--m-muted); }
-@media (max-width: 900px) {
-  .flow-st-acts { justify-content: flex-start; }
-}
-/* A short window: a tighter strip. */
-@media (max-height: 800px) {
-  .flow-strip { gap: 4px 14px; padding: 6px 10px; }
-  .flow-st-hands { font-size: 0.74rem; gap: 2px; }
-}
+body.layout-modern .flow-strip { font-size: 12px; }
+body.layout-modern .flow-st-acts .flow-btn-sm { min-height: 20px; font-size: 11.5px; }

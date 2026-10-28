@@ -136,6 +136,7 @@ const Flow = (() => {
     st.edited = null;
     st.membersRef = null;
     st.sel = null; st.selHand = -1;
+    st.follow = true;
     session++;
     paint();
   }
@@ -152,6 +153,7 @@ const Flow = (() => {
     }
     st.cid = cid;
     st.open = true;
+    st.follow = true;
     // The tiles show Flow's marks while it is open: the next answer draws the grid.
     st.tilesKey = null;
     paint();
@@ -1558,11 +1560,12 @@ const Flow = (() => {
     st.hot = i;
     const wrap = document.getElementById('flowChartWrap');
     const g = st.geom;
-    if (!wrap || !g) return;
+    if (!wrap || !g) { hoverWatch(); return; }
     const col = wrap.querySelector('.flow-col-hot');
     wrap.querySelectorAll('.flow-nm.hot, .flow-card.hot').forEach(x => x.classList.remove('hot'));
     if (i < 0 || i >= g.n) {
       if (col) col.setAttribute('visibility', 'hidden');
+      hoverWatch();
       return;
     }
     if (col) {
@@ -1572,6 +1575,7 @@ const Flow = (() => {
     }
     wrap.querySelector(`.flow-nm[data-i="${i}"]`)?.classList.add('hot');
     cardEls.get(g.order[i])?.classList.add('hot');
+    hoverWatch();
   }
 
   function colAt(e) {
@@ -1819,8 +1823,10 @@ const Flow = (() => {
     if (tooMany()) { el.innerHTML = `<div class="flow-row"><span class="flow-title">Flow</span>${progressHtml()}<span class="flow-sp"></span>${hideBtn}</div>`; st.geom = null; return; }
     // Keyboard focus on the grip, Hide, Fit / Zoom or a strip button stays there across repaints (polls repaint often).
     const KEEP_FOCUS = ['.flow-grip', '[data-flow-hide]', '[data-flow-zoom="0"]', '[data-flow-zoom="1"]'];
-    const act = document.activeElement?.matches?.('#flowPanel [data-flow-act]') ? document.activeElement.dataset.flowAct : null;
-    const keepFocus = act ? `[data-flow-act="${act}"]` : KEEP_FOCUS.find(sel => document.activeElement?.matches?.(`#flowPanel ${sel}`));
+    const a = document.activeElement;
+    const act = a?.matches?.('#flowPanel [data-flow-act]') ? `[data-flow-act="${a.dataset.flowAct}"]`
+      : a?.matches?.('#flowPanel [data-flow-pick]') ? `[data-flow-pick="${a.dataset.flowPick}"]` : null;
+    const keepFocus = act || KEEP_FOCUS.find(sel => a?.matches?.(`#flowPanel ${sel}`));
     const shapes = FlowOrder.SHAPES.map(s => `<button type="button" data-flow-shape="${s.key}" aria-pressed="${String(st.order && st.shape === s.key)}">${esc(s.label)}</button>`).join('');
     // The chart's host is kept across repaints (polls repaint often): an empty
     // host would shrink the panel for a moment, and a page scrollbar going
@@ -2286,6 +2292,7 @@ const Flow = (() => {
     scrubbed = el;
     if (p.url && p.url !== el._src) setImg(el, p.url);
     el._bar.style.width = `${f1(Math.max(0, Math.min(1, frac)) * 100)}%`;
+    hoverWatch();
   }
 
   /** The card scrubbed goes back to its first frame. */
@@ -2293,6 +2300,7 @@ const Flow = (() => {
     const el = scrubbed;
     if (!el) return;
     scrubbed = null;
+    hoverWatch();
     el._scrub = false;
     el._bar.style.width = '0';
     if (el._src !== el._want) setImg(el, el._want || '');
@@ -2316,6 +2324,31 @@ const Flow = (() => {
   function hideCard() {
     hov.key = '';
     if (card && !card.hidden) card.hidden = true;
+    hoverWatch();
+  }
+
+  /*
+   * While something shows for the pointer (the hover card, a column lit, a
+   * card scrubbed), a scroll anywhere (the page, the chart, an ancestor)
+   * moves things from under it: all of it goes until the pointer moves
+   * again. The listener is there only while something shows (passive,
+   * capture: element scrolls do not bubble), so a library scroll with
+   * nothing hovered costs Flow nothing.
+   */
+  let hoverWatched = false;
+  function onHoverScroll() {
+    if (drag && drag.on) return;
+    hideCard();
+    unscrub();
+    if (st.hot >= 0) showHot(-1);
+    hoverWatch();
+  }
+  function hoverWatch() {
+    const on = !!((card && !card.hidden) || st.hot >= 0 || scrubbed);
+    if (on === hoverWatched) return;
+    hoverWatched = on;
+    if (on) window.addEventListener('scroll', onHoverScroll, { capture: true, passive: true });
+    else window.removeEventListener('scroll', onHoverScroll, { capture: true, passive: true });
   }
 
   /** Pointer moved over the chart: the hover card or a preview card's frame, next frame. */
@@ -2391,7 +2424,8 @@ const Flow = (() => {
       const h = g.hand && g.hand[hit.i];
       key = `h:${a}:${b}:${h ? h.grade : ''}`;
       if (key !== hov.key) {
-        const out = frameUrl(a, 4) || stillUrl(a), inn = frameUrl(b, 0) || stillUrl(b);
+        // Blurred thumbnails (pm-thumbs): no frame from inside a file, only its first.
+        const out = frameUrl(a, thumbsBlurred() ? 0 : 4) || stillUrl(a), inn = frameUrl(b, 0) || stillUrl(b);
         const fa = st.byId.get(a), fb = st.byId.get(b);
         const graded = h && h.grade !== 'none';
         const why = graded ? `${FlowOrder.handoverText(fa, fb, h)}${skipNote(fa, fb)}` : 'Not graded: one side has no measured sound';
@@ -2434,6 +2468,7 @@ const Flow = (() => {
       hov.h = el.offsetHeight || 180;
     }
     el.hidden = false;
+    hoverWatch();
     // Beside the pointer, flipped to stay in the window.
     const vw = window.innerWidth || 1280, vh = window.innerHeight || 720;
     let x = hov.x + 18, y = hov.y + 18;
@@ -2452,8 +2487,14 @@ const Flow = (() => {
     const word = GRADE_WORD[h.grade].replace(' hand-over', '');
     const bpm = (v) => (v ? `${Math.round(v)} BPM` : 'no tempo');
     const ends = `energy ${pct(fa.ee)} to ${pct(fb.es)}${fa.music && fb.music ? `, ${bpm(fa.be || fa.bm)} to ${bpm(fb.bs || fb.bm)}` : ''}`;
-    return { grade: h.grade, text: `${word}: ${FlowOrder.handoverText(fa, fb, h)}${skipNote(fa, fb)} (${ends})` };
+    return { grade: h.grade, short: `${word}: ${FlowOrder.handoverText(fa, fb, h)}`, text: `${word}: ${FlowOrder.handoverText(fa, fb, h)}${skipNote(fa, fb)} (${ends})` };
   }
+
+  /** "In: Smooth: energy steady" (the whole why in its tooltip). */
+  const handHtml = (label, h, none) => (h
+    ? `<span class="flow-st-h flow-st-h-${h.grade}" title="${esc(h.text)}"><b>${label}:</b> ${esc(h.short || h.text)}</span>`
+    : `<span class="flow-st-h flow-st-h-none"><b>${label}:</b> ${none}</span>`);
+  const CLOSE_BTN = '<button type="button" class="flow-btn flow-btn-sm flow-st-x" data-flow-pick="-1" title="Close the details" aria-label="Close the details">✕</button>';
 
   function stripHtml() {
     const g = st.geom;
@@ -2462,10 +2503,10 @@ const Flow = (() => {
     if (st.selHand >= 0 && st.selHand + 1 < n) {
       const i = st.selHand, a = order[i], b = order[i + 1];
       const w = handWhy(a, b);
-      return `<div class="flow-st-main"><span class="flow-st-k">Hand-over · ${i + 1} into ${i + 2} of ${n}</span>
-          <span class="flow-st-name"><span class="flow-pm-name">${esc(shortName(st.byId.get(a)) || 'file')}</span> into <span class="flow-pm-name">${esc(shortName(st.byId.get(b)) || 'file')}</span></span></div>
-        <div class="flow-st-hands"><span class="flow-st-h flow-st-h-${w.grade}">${esc(w.text)}</span></div>
-        <div class="flow-st-acts"><button type="button" class="flow-btn flow-btn-sm" data-flow-pick="${i}">Show ${i + 1}</button><button type="button" class="flow-btn flow-btn-sm" data-flow-pick="${i + 1}">Show ${i + 2}</button><button type="button" class="flow-btn flow-btn-sm flow-st-x" data-flow-pick="-1" title="Close the details" aria-label="Close the details">✕</button></div>`;
+      return `<span class="flow-st-k">Hand-over · ${i + 1} into ${i + 2} of ${n}</span>
+        <span class="flow-st-name"><span class="flow-pm-name">${esc(shortName(st.byId.get(a)) || 'file')}</span> into <span class="flow-pm-name">${esc(shortName(st.byId.get(b)) || 'file')}</span></span>
+        <span class="flow-st-h flow-st-h-${w.grade} flow-st-why" title="${esc(w.text)}">${esc(w.text)}</span>
+        <span class="flow-st-acts"><button type="button" class="flow-btn flow-btn-sm" data-flow-pick="${i}">Show ${i + 1}</button><button type="button" class="flow-btn flow-btn-sm" data-flow-pick="${i + 1}">Show ${i + 2}</button>${CLOSE_BTN}</span>`;
     }
     const i = st.sel != null ? order.indexOf(st.sel) : -1;
     if (i < 0) return '<span class="flow-sub flow-st-hint">Click a file to see it here, or a hand-over to see why. Double-click a file to play it.</span>';
@@ -2475,21 +2516,19 @@ const Flow = (() => {
     const hout = i + 1 < n ? handWhy(id, order[i + 1]) : null;
     const play = stageOpen() ? 'Play on Stage' : 'Play';
     const inColl = typeof openPlainCollection === 'function' ? !!openPlainCollection() : true;
-    return `<div class="flow-st-main"><span class="flow-st-k">Selected · ${i + 1} of ${n}</span>
-        <span class="flow-st-name flow-pm-name">${esc(shortName(f) || 'Untitled')}</span>
-        <span class="flow-sub">${esc(metaText(id))}</span>${chipsHtml(id)}</div>
-      <div class="flow-st-hands">
-        <span class="flow-st-h flow-st-h-${hin ? hin.grade : 'none'}"><b>In:</b> ${esc(hin ? hin.text : 'First in the order')}</span>
-        <span class="flow-st-h flow-st-h-${hout ? hout.grade : 'none'}"><b>Out:</b> ${esc(hout ? hout.text : 'Last in the order')}</span>
-      </div>
-      <div class="flow-st-acts">
+    return `<span class="flow-st-k">Selected · ${i + 1} of ${n}</span>
+      <span class="flow-st-name flow-pm-name" title="${esc(titleName(f, 'Untitled'))}">${esc(shortName(f) || 'Untitled')}</span>
+      <span class="flow-sub">${esc(metaText(id))}</span>
+      ${handHtml('In', hin, 'First in the order')}
+      ${handHtml('Out', hout, 'Last in the order')}
+      <span class="flow-st-acts">
         <button type="button" class="flow-btn flow-btn-sm" data-flow-act="preview" title="${stageOpen() ? 'Show it in the preview pane, never on Stage' : 'Show it in the preview pane or its details'}">Preview</button>
         <button type="button" class="flow-btn flow-btn-sm" data-flow-act="play">${play}</button>
         <button type="button" class="flow-btn flow-btn-sm" data-flow-act="reveal" title="Scroll the list below to this file">Show in list</button>
         ${typeof upNextAddFrom === 'function' ? '<button type="button" class="flow-btn flow-btn-sm" data-flow-act="next" title="Play it after the file playing now">Play next</button>' : ''}
-        ${inColl ? '<button type="button" class="flow-btn flow-btn-sm" data-flow-act="remove">Remove from this collection</button>' : ''}
-        <button type="button" class="flow-btn flow-btn-sm flow-st-x" data-flow-pick="-1" title="Close the details" aria-label="Close the details">✕</button>
-      </div>`;
+        ${inColl ? '<button type="button" class="flow-btn flow-btn-sm" data-flow-act="remove" title="Remove from this collection">Remove</button>' : ''}
+        ${CLOSE_BTN}
+      </span>`;
   }
 
   function paintStrip() {
@@ -2591,13 +2630,15 @@ const Flow = (() => {
   }
 
   /* The cards' length badges and frames need each file's row (its length
-     and kind): rows the page has not loaded yet are asked for once an order. */
-  let rowsAsked = '';
+     and kind): rows the page has not loaded yet are asked for once a list of
+     the collection's files (a new list, files added or taken out, asks again;
+     a drag's preview order or a reorder of the same files does not). */
+  let rowsAsked = null;
   function fetchMissingRows(order) {
     if (typeof Library === 'undefined' || typeof Library.fetchRows !== 'function') return;
-    const key = `${st.cid}|${order.length}`;
-    if (key === rowsAsked) return;
-    rowsAsked = key;
+    const members = (typeof collectionMembers !== 'undefined' && collectionMembers.get(st.cid)) || (st.data && st.data.features);
+    if (members === rowsAsked) return;
+    rowsAsked = members;
     const missing = [];
     for (const id of order) {
       if (missing.length >= 3000) break;
@@ -2606,8 +2647,10 @@ const Flow = (() => {
     if (missing.length) Library.fetchRows(missing).then(() => { if (st.open && isMine()) { paintStrip(); scheduleDraw(); } }, () => {});
   }
 
-  /** Zoom while something plays: keep it in view, until the user scrolls themselves. */
+  /** Zoom while something plays: keep it in view, until the user scrolls themselves (till the next file). */
+  let followId = null;
   function follow() {
+    if (ph.src && ph.src.id !== followId) { followId = ph.src.id; st.follow = true; }
     if (!st.zoom || !st.follow || !st.geom || !ph.src || ph.paused) return;
     const wrap = document.getElementById('flowChartWrap');
     const g = st.geom;
@@ -2640,8 +2683,8 @@ const Flow = (() => {
     wrap.addEventListener('scroll', () => {
       // Flow's own scrolls set autoLeft first.
       if (Math.abs(wrap.scrollLeft - st.autoLeft) > 2 && performance.now() - userAt < USER_SCROLL_MS) st.follow = false;
-      // The chart moved under the pointer: the card waits for the next pointer move.
-      if (!(drag && drag.on)) { hideCard(); unscrub(); }
+      // The chart moved under the pointer: the card, the scrub and the lit column wait for the next pointer move.
+      if (!(drag && drag.on)) { hideCard(); unscrub(); if (st.hot >= 0) showHot(-1); }
       // Preview cards scrolled into view load their pictures (next frame).
       scheduleCardsLoad();
     }, { passive: true });
@@ -2837,7 +2880,8 @@ const Flow = (() => {
       cards: () => [...cardEls.values()].map(el => ({ id: el._id, i: Number(el.dataset.i), src: el._src, loaded: !!el._loaded, bar: el._bar.style.width, len: el._len.textContent })),
       cardsLoad, scrub: scrubCard, unscrub, tagKey, follow,
       zoom: (on) => setZoom(!!on),
-      state: () => ({ zoom: st.zoom, sel: st.sel, selHand: st.selHand, follow: st.follow }),
+      hot: showHot,
+      state: () => ({ zoom: st.zoom, sel: st.sel, selHand: st.selHand, follow: st.follow, hot: st.hot }),
     },
     orderOn: () => st.order && isMine() && !!st.appliedOrder,
     countText: () => (st.order && isMine() && st.appliedOrder ? `Flow order: ${FlowOrder.shapeLabel(st.shape).toLowerCase()}${st.edited ? ', edited' : ''}` : null),

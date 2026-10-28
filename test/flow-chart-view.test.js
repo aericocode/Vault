@@ -148,7 +148,7 @@ function fakeEl(over = {}) {
     querySelector: () => fakeEl(), querySelectorAll: () => [],
     closest: () => null,
     getBoundingClientRect: () => ({ left: 0, top: 0, right: 800, bottom: 300, width: 800, height: 300 }),
-    matches: () => false, getClientRects: () => [1],
+    matches: () => false, getClientRects: () => [1], contains: () => false,
     ...over,
   };
   return el;
@@ -206,7 +206,8 @@ function page({ wrapW = 800, stage = false, extra = {}, win = {}, n = 5, store =
     },
   };
   ctx.window = {
-    addEventListener: (type, fn) => winListeners.push({ type, fn }),
+    addEventListener: (type, fn, opt) => winListeners.push({ type, fn, opt }),
+    removeEventListener: (type, fn) => { const i = winListeners.findIndex(l => l.type === type && l.fn === fn); if (i >= 0) winListeners.splice(i, 1); },
     dispatchEvent() {}, innerWidth: 1280, innerHeight: 720, scrollY: 0, scrollTo() {}, ...win,
   };
   vm.createContext(ctx);
@@ -287,14 +288,58 @@ test('lanes have one set of picks (the panel\'s): the old full screen key is nev
   assert.strictEqual(store['vault.flow.fsLanes'], JSON.stringify({ tempo: true }), 'left as it was');
 });
 
-test('nothing listens to the page\'s scroll or wheel, and the chart takes no wheel', async () => {
+test('nothing listens to the page\'s scroll or wheel while nothing is hovered, and the chart takes no wheel', async () => {
   const p = page({ wrapW: 400 });
   await p.Flow.toggle(3);
   p.V.zoom(true);
+  p.V.pick(1);
   const types = p.winListeners.map(l => l.type).concat(p.docListeners.map(l => l.type));
   assert.ok(!types.includes('scroll') && !types.includes('wheel'), `window and document: ${types.join(', ')}`);
   assert.deepStrictEqual(Object.keys(p.wrapListeners).sort(), ['keydown', 'pointerdown', 'scroll', 'wheel'], 'the chart: its own scroll, and the user\'s hand on it');
   for (const t of ['wheel', 'scroll']) assert.strictEqual(p.wrapOpts[t].passive, true, `${t} is only heard, never taken`);
+});
+
+test('a page scroll while something is hovered clears it all; the listener is there only meanwhile', async () => {
+  const p = page({ wrapW: 1000 });
+  await p.Flow.toggle(3);
+  const scrolls = () => p.winListeners.filter(l => l.type === 'scroll');
+  assert.strictEqual(scrolls().length, 0);
+  // A lit column and a scrubbed card (the pointer over a column).
+  p.V.hot(2);
+  p.V.scrub(2, 0.6);
+  assert.strictEqual(scrolls().length, 1, 'heard while something shows');
+  assert.deepStrictEqual({ capture: scrolls()[0].opt.capture, passive: scrolls()[0].opt.passive }, { capture: true, passive: true }, 'every scroll (element scrolls do not bubble), never taken');
+  assert.strictEqual(p.V.cards().find(c => c.i === 2).bar, '60%');
+  scrolls()[0].fn({ type: 'scroll' });   // the page scrolls under the still pointer
+  assert.strictEqual(p.V.state().hot, -1, 'the column is not lit any more');
+  assert.strictEqual(p.V.cards().find(c => c.i === 2).bar, '0', 'the card is back on its first frame');
+  assert.strictEqual(scrolls().length, 0, 'and the listener is gone');
+  // The chart itself scrolling under a still pointer clears the same.
+  p.V.hot(3);
+  for (const fn of p.wrapListeners.scroll) fn();
+  assert.strictEqual(p.V.state().hot, -1);
+  assert.strictEqual(scrolls().length, 0);
+  // Leaving the hover by itself takes the listener away too.
+  p.V.hot(1);
+  assert.strictEqual(scrolls().length, 1);
+  p.V.hot(-1);
+  assert.strictEqual(scrolls().length, 0);
+});
+
+test('a strip button with keyboard focus keeps it across repaints: Show N and close too', async () => {
+  const p = page();
+  await p.Flow.toggle(3);
+  p.V.pickHand(1);
+  for (const sel of ['[data-flow-pick="-1"]', '[data-flow-pick="2"]', '[data-flow-act="play"]']) {
+    const [attr, val] = sel.slice(1, -1).split('=');
+    const btn = fakeEl({ dataset: attr === 'data-flow-pick' ? { flowPick: JSON.parse(val) } : { flowAct: JSON.parse(val) },
+      matches: (q) => q === `#flowPanel [${attr}]` });
+    p.ctx.document.activeElement = btn;
+    const focused = [];
+    p.panelEl.querySelector = (q) => fakeEl({ focus: () => focused.push(q) });
+    await p.Flow.refetch(true);           // a poll's repaint
+    assert.ok(focused.length >= 1 && focused.every(q => q === sel), `${sel} keeps focus: ${focused}`);
+  }
 });
 
 test('a poll answer that changes nothing on the tiles does not draw the grid; opening and closing do', async () => {
@@ -468,6 +513,19 @@ test('Zoom while something plays keeps it in view, until the user scrolls the ch
   assert.strictEqual(p.V.state().follow, false);
   p.fire('play');
   assert.strictEqual(p.wrap.scrollLeft, 0);
+  // The next file playing: followed again.
+  p.ctx.currentMediaState.playbackMediaId = 21;
+  p.fire('play');
+  assert.strictEqual(p.V.state().follow, true, 'a new file re-arms it');
+  assert.ok(p.wrap.scrollLeft > 0);
+  // Stopped again by the user, then the panel hidden and shown: followed again.
+  for (const fn of p.wrapListeners.pointerdown) fn();
+  p.wrap.scrollLeft = 0;
+  for (const fn of p.wrapListeners.scroll) fn();
+  assert.strictEqual(p.V.state().follow, false);
+  p.Flow.close();
+  await p.Flow.toggle(3);
+  assert.strictEqual(p.V.state().follow, true, 'showing the panel again re-arms it');
   // Fit: nothing to follow.
   const q = page({ wrapW: 400, n: 12, extra: { currentMediaState: { element: el, playbackMediaId: 20 } } });
   await q.Flow.toggle(3);

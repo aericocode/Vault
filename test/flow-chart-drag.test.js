@@ -133,7 +133,7 @@ function page({ ready = true, flowOrder = false } = {}) {
       return ok({ collection: { total: 5, measurable: 5, measured: 5, failed: 0, left: 0, stale: 0 }, queue: { state: 'idle' } });
     },
   };
-  ctx.window = { addEventListener() {}, dispatchEvent() {} };
+  ctx.window = { addEventListener() {}, removeEventListener() {}, dispatchEvent() {} };
   vm.createContext(ctx);
   vm.runInContext(SRC, ctx);
   const Flow = ctx.window.Flow;
