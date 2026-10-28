@@ -1314,12 +1314,19 @@
   }
 
   /* ── Path mode (folders + files): record locations, copy nothing ──────── */
-  async function addPaths(entries) {
+  /**
+   * @param {Array<{path, name}>} entries
+   * @param {{collectionId?: number|null}} [opts] collectionId: the open
+   *   collection a drop goes into too (dropTargetCollection), new files and
+   *   ones already in the library, at the end of its playlist order
+   */
+  async function addPaths(entries, { collectionId = null } = {}) {
     const panel = importPanel(entries.length, '📁 Adding');
     const refreshGrid = makeGridRefresher();
     const imported = [];
     const skipped = { unsupported: 0, existing: 0, missing: 0 };
     let queued = false;
+    let inColl = 0, collAnswer = null, collLost = false;
 
     const CHUNK = 500;
     for (let i = 0; i < entries.length; i += CHUNK) {
@@ -1328,11 +1335,19 @@
       try {
         const resp = await fetch('/api/import/add-paths', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ paths: chunk.map(e => e.path) }),
+          body: JSON.stringify({ paths: chunk.map(e => e.path), ...(collectionId != null ? { collectionId } : {}) }),
         });
         const data = await resp.json().catch(() => ({}));
+        // The collection went away (or became a folder) mid-drop: the rest go to the library only.
+        if (!resp.ok && collectionId != null && (data.code === 'NOT_FOUND' || data.code === 'FOLDER_TARGET')) {
+          collectionId = null;
+          collLost = true;
+          i -= CHUNK;
+          continue;
+        }
         if (!resp.ok) { panel.fail(plural(chunk.length, 'file'), errWords(replyErr(resp, data), 'adding these files')); continue; }
         queued = queued || data.queued;
+        if (data.collection) { inColl += data.collection.added || 0; collAnswer = data.collection; }
         for (const k of Object.keys(skipped)) skipped[k] += data.skipped?.[k] || 0;
         for (const a of (data.added || [])) {
           imported.push({ id: a.id, mediaType: a.mediaType });
@@ -1344,6 +1359,8 @@
       }
     }
 
+    if (collAnswer) await afterCollectionDrop(collAnswer, inColl);
+    else if (collLost) showToast('That collection is not there any more, so the files were added to the library only.');
     refreshGrid(true);
     const skips = [];
     if (skipped.existing) skips.push(`${fmtN(skipped.existing)} already in the library`);
@@ -1365,6 +1382,33 @@
     // than in the modal so loose-file drops (which skip the modal) are covered.
     watchScanQueue({ fresh: true });
     return { imported };
+  }
+
+  /* ── Drops into an open collection ────────────────────────────────────
+     Files dropped while a collection (not a folder) is open go into it too,
+     at the end of its playlist order, in the order dropped: add-paths does
+     both in one go (collectionId), the files already in the library as well
+     as the new ones. The collection is the one open when the drop landed. */
+  function dropTargetCollection() {
+    if (typeof activeCollectionId === 'undefined' || activeCollectionId == null) return null;
+    const c = typeof getCollectionById === 'function' ? getCollectionById(activeCollectionId) : null;
+    return c && c.kind !== 'folder' ? c.id : null;
+  }
+
+  /** add-paths put files in the collection: the page's copy, the bar, Flow and the toast follow. */
+  async function afterCollectionDrop(answer, n) {
+    const id = answer.id;
+    const c = typeof getCollectionById === 'function' ? getCollectionById(id) : null;
+    if (c) {
+      c.item_count = answer.item_count;
+      if (Array.isArray(answer.first_ids)) c.first_ids = answer.first_ids;
+    }
+    try { if (typeof fetchCollectionMembers === 'function') await fetchCollectionMembers(id, true); } catch {}
+    if (typeof flowMembersChanged === 'function') flowMembersChanged(id);
+    if (typeof activeCollectionId !== 'undefined' && activeCollectionId === id && typeof renderCollectionHeader === 'function') renderCollectionHeader();
+    const name = c ? c.name : 'the collection';
+    if (n > 0) showToast(`Added ${plural(n, 'file')} to ${name}`);
+    else if (answer.ids && answer.ids.length) showToast(`${answer.ids.length === 1 ? 'That file is' : 'Those files are'} already in ${name}`);
   }
 
   /* ── Native picker → scan → preview modal ─────────────────────────────── */
@@ -1453,7 +1497,8 @@
   }
 
   /* ── Native multi-file picker → record paths in place (no copy) ────────── */
-  async function pickAndAddFiles() {
+  /** collectionId: the drop's fallback (the collection open when it landed, dropTargetCollection). */
+  async function pickAndAddFiles({ collectionId = null } = {}) {
     const btn = document.getElementById('addFilesBtn');
     if (btn?.disabled) return;
     const busy = pickerBusy(btn, 'files');
@@ -1473,12 +1518,12 @@
 
       // Real on-disk paths — hand straight to add-paths (in place, no copy).
       const entries = picked.paths.map(p => ({ path: p, name: p.split(/[\\/]/).pop() || p }));
-      await addPaths(entries);
+      await addPaths(entries, { collectionId });
     } finally {
       busy.done();
     }
   }
-  window.pickAndAddFiles = pickAndAddFiles;
+  window.pickAndAddFiles = () => pickAndAddFiles();
 
   /* ── Preview computation for the modal ─────────────────────────────────── */
   function computePreview(collected, includeSubs) {
@@ -1769,7 +1814,7 @@
     filesBtn.className = 'header-btn';
     filesBtn.textContent = '📄 Add files';
     filesBtn.title = 'Add single files to the library. They stay where they are, nothing is copied';
-    filesBtn.addEventListener('click', pickAndAddFiles);
+    filesBtn.addEventListener('click', () => pickAndAddFiles());
     btns.insertBefore(filesBtn, btns.firstChild);
   });
 
@@ -1782,9 +1827,9 @@
      files go straight to add-paths (same as the file picker); anything with
      folders opens the preview modal — each folder is scanned and loose files
      ride along at depth 0. */
-  async function addResolvedDrop({ files = [], dirs = [] }) {
+  async function addResolvedDrop({ files = [], dirs = [] }, { collectionId = null } = {}) {
     if (!dirs.length) {
-      await addPaths(files.map(f => ({ path: f.path, name: f.path.split(/[\\/]/).pop() || f.path })));
+      await addPaths(files.map(f => ({ path: f.path, name: f.path.split(/[\\/]/).pop() || f.path })), { collectionId });
       return;
     }
     if (dirs.length === 1 && !files.length) { await openFolderImport(dirs[0]); return; }
@@ -1856,6 +1901,8 @@
       else if (entry?.name) files.push({ name: entry.name, size: null });
     }
     if (!files.length && !dirs.length) return;
+    // The collection open as the drop lands is the one the files go into.
+    const collectionId = dropTargetCollection();
 
     // A playlist file (VLC / PotPlayer) imports as a collection instead
     // (player-lib/playlist-import.js). Media dropped with it adds as usual.
@@ -1876,7 +1923,7 @@
       if (resp.ok) r = await resp.json().catch(() => null);
     } catch {}
     if (r && (r.files?.length || r.dirs?.length)) {
-      await addResolvedDrop(r);
+      await addResolvedDrop(r, { collectionId });
       return;
     }
 
@@ -1888,6 +1935,6 @@
       return;
     }
     showToast('📄 Vault could not tell where those files are. Pick them in the file picker.');
-    pickAndAddFiles();
+    pickAndAddFiles({ collectionId });
   });
 })();

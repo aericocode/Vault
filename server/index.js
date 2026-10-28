@@ -2650,15 +2650,35 @@ app.post('/api/import/scan-folder', (req, res) => {
 // 'unscanned' stubs, playable immediately; AI scan queues per file.
 // Duration/dimensions are probed in the BACKGROUND so adding a
 // 500-file folder returns instantly.
+// collectionId (optional): files dropped while a collection is open go into
+// it too, appended to its playlist order in the order given, the ones already
+// in the library as well as the new ones (a file already in the collection
+// stays where it is). Checked before anything is added, and added in the same
+// turn as the rows, so no scan or probe comes between.
 app.post('/api/import/add-paths', (req, res) => {
   const paths = Array.isArray(req.body?.paths) ? req.body.paths.map(String) : [];
   if (!paths.length) return res.status(400).json({ error: 'paths required' });
+  const rawColl = req.body?.collectionId;
+  let collId = null;
+  if (rawColl != null) {
+    collId = parseId(rawColl);
+    if (!collId) return res.status(400).json({ error: 'bad collection id', code: 'BAD_COLLECTION' });
+    const kind = db.collectionKind(collId);
+    if (!kind) return res.status(404).json({ error: 'That collection is not there any more.', code: 'NOT_FOUND' });
+    if (kind === 'folder') return res.status(400).json({ error: 'folders hold collections, not media', code: 'FOLDER_TARGET' });
+  }
 
   // Shared with the folder watchers (lib/import-add.js): stubs, then the AI
   // scan queue, then a background probe + thumbnails.
   const importAdd = require('../lib/import-add');
-  const { added, skipped } = importAdd.addPaths(paths);
-  res.json({ added, skipped, queued: true });
+  const { added, skipped, ids } = importAdd.addPaths(paths);
+  let collection;
+  if (collId) {
+    const n = ids.length ? db.addToCollection(collId, ids) : 0;
+    if (gamifyEnabled && n > 0) require('../lib/quests').onCollect(n);
+    collection = { id: collId, added: n, ids, item_count: db.collectionItemCount(collId), first_ids: db.collectionFirstIds(collId) };
+  }
+  res.json({ added, skipped, queued: true, ...(collection ? { collection } : {}) });
   setImmediate(() => { importAdd.probeAndThumb(added, { isLocked: () => vault.isLocked(), requireProbe: true }); });
 });
 
