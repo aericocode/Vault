@@ -689,6 +689,9 @@ function renderContinuous() {
   virt.style.height = `${Math.max(0, totalRows * stride - GRID_GAP)}px`;
 
   contState = { cols, stride, totalRows, first: -1, last: -1 };
+  // A new result, sort or filter draws every row afresh; only a scroll keeps
+  // the rows it already has (renderContinuousWindow).
+  virt.textContent = '';
   renderContinuousWindow();
 
   renderPagination();
@@ -711,7 +714,14 @@ function renderContinuousWindow() {
   contState.first = r.first;
   contState.last = r.last;
 
-  let html = '';
+  // Rows drawn for another column count or row height sit in the wrong place.
+  const shape = `${cols}|${stride}`;
+  if (virt.dataset.rowShape !== shape) {
+    virt.textContent = '';
+    virt.dataset.rowShape = shape;
+  }
+
+  const want = new Map();
   let missing = 0;
   const shownIds = [];
   const total = Library.length();
@@ -722,10 +732,11 @@ function renderContinuousWindow() {
     const tiles = tilesHtml(start, end);
     missing += tiles.missing;
     shownIds.push(...tiles.ids);
-    html += `<div class="grid-row" style="top:${(row * stride).toFixed(1)}px;grid-template-columns:repeat(${cols},1fr)">`
-      + tiles.html + '</div>';
+    want.set(row, tiles.html);
   }
-  virt.innerHTML = html;
+  syncVirtRows(virt, want, (row, html) =>
+    `<div class="grid-row" data-row="${row}" style="top:${(row * stride).toFixed(1)}px;grid-template-columns:repeat(${cols},1fr)">`
+    + html + '</div>');
   hydrateThumbs(virt);
   Library.pin('grid', shownIds);
   if (missing) fillRowsThen(Math.max(0, r.first) * cols, (r.last + 1) * cols, renderContinuousWindow);
@@ -745,6 +756,74 @@ function renderContinuousWindow() {
 
   if (typeof renderSelectionBar === 'function') renderSelectionBar();
   if (typeof dockAfterGridRender === 'function') dockAfterGridRender();
+}
+
+/* ── Keeping rows across a scroll ─────────────────────────────────────────
+   A scroll that brings a new row in used to throw every row away and parse
+   them all again; with 50 cards on a big screen that is a dropped frame on
+   every row line crossed. Now each pass works out every row's markup (cheap:
+   strings) and touches only the rows whose markup differs from what is on the
+   page: rows that left the window go, rows that came in are drawn, and a row
+   whose tiles read differently now (a skeleton whose data came in, a new
+   count, a selection) is drawn again. Everything else stays as it is, so a
+   row the user is hovering, dragging from or tabbing through is not swapped
+   out from under them by a scroll. */
+
+/* row element -> { key, html }: which row it is and the markup it was drawn
+   from. An element not in here (anything innerHTML put there) is redrawn. */
+const _virtRows = new WeakMap();
+
+/**
+ * Which rows to take out and which to draw.
+ * @param {Map<number,string>} have rows on the page: key -> the markup drawn
+ * @param {Map<number,string>} want rows the window needs now, same shape
+ * @returns {{remove: number[], add: number[]}} keys; add is ascending
+ */
+function continuousRowDiff(have, want) {
+  const remove = [];
+  const add = [];
+  for (const [key, html] of have) if (want.get(key) !== html) remove.push(key);
+  for (const [key, html] of want) if (have.get(key) !== html) add.push(key);
+  add.sort((a, b) => a - b);
+  return { remove, add };
+}
+
+/**
+ * Make `virt`'s children match `want` (key -> markup), in key order, keeping
+ * every child whose markup has not changed.
+ * @param {(key: number, html: string) => string} wrap the element for one row;
+ *        it must be exactly one element.
+ */
+function syncVirtRows(virt, want, wrap) {
+  const have = new Map();
+  const els = new Map();
+  for (const el of [...virt.children]) {
+    const r = _virtRows.get(el);
+    if (!r || els.has(r.key)) { el.remove(); continue; }
+    have.set(r.key, r.html);
+    els.set(r.key, el);
+  }
+  const { remove, add } = continuousRowDiff(have, want);
+  for (const key of remove) els.get(key).remove();
+
+  // Insert each run of new rows in one parse, before the first kept row
+  // that comes after it.
+  let next = virt.firstElementChild;
+  let i = 0;
+  while (i < add.length) {
+    while (next && _virtRows.get(next).key < add[i]) next = next.nextElementSibling;
+    const anchorKey = next ? _virtRows.get(next).key : Infinity;
+    let j = i;
+    let html = '';
+    while (j < add.length && add[j] < anchorKey) { html += wrap(add[j], want.get(add[j])); j++; }
+    if (next) next.insertAdjacentHTML('beforebegin', html);
+    else virt.insertAdjacentHTML('beforeend', html);
+    let el = next ? next.previousElementSibling : virt.lastElementChild;
+    for (let k = j - 1; k >= i; k--, el = el.previousElementSibling) {
+      _virtRows.set(el, { key: add[k], html: want.get(add[k]) });
+    }
+    i = j;
+  }
 }
 
 /** Where the viewport sits, expressed as a tile plus a pixel offset. */

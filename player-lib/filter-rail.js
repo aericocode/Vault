@@ -85,11 +85,18 @@ function railShouldShow() {
     && railTabFits();
 }
 
-/** The rail sits under the sticky header; follow its bottom edge. */
+/** The rail sits under the sticky header; follow its bottom edge. This runs
+    on every scrolled frame, and a custom property written on :root restyles
+    the whole page even when the value is the same, so it writes only when
+    the edge actually moved. */
+let _railTop = '';
 function railUpdateTop() {
   const header = document.getElementById('appHeader');
   const bottom = header ? Math.max(0, header.getBoundingClientRect().bottom) : 0;
-  document.documentElement.style.setProperty('--rail-top', `${Math.round(bottom)}px`);
+  const top = `${Math.round(bottom)}px`;
+  if (top === _railTop) return;
+  _railTop = top;
+  document.documentElement.style.setProperty('--rail-top', top);
 }
 
 /**
@@ -101,7 +108,8 @@ function railUpdateToggle() {
   const btn = document.getElementById('railToggleBtn');
   if (!btn) return;
   const onColl = railOnCollections();
-  btn.setAttribute('aria-pressed', railOpenWanted() ? 'true' : 'false');
+  const pressed = railOpenWanted() ? 'true' : 'false';
+  if (btn.getAttribute('aria-pressed') !== pressed) btn.setAttribute('aria-pressed', pressed);
   const n = _railRowsHidden && typeof activeFilterCount === 'function' ? activeFilterCount() : 0;
   const count = document.getElementById('railToggleN');
   if (count) {
@@ -110,9 +118,10 @@ function railUpdateToggle() {
     count.hidden = !n;
   }
   btn.classList.toggle('has-hidden', n > 0);
-  btn.title = n ? `${n} filter${n === 1 ? '' : 's'} on. Show filters`
+  const title = n ? `${n} filter${n === 1 ? '' : 's'} on. Show filters`
     : onColl ? (railOpenWanted() ? 'Hide filters' : 'Show filters')
     : 'Show or hide the filter panel';
+  if (btn.title !== title) btn.title = title;   // runs every scrolled frame
 }
 
 /** Put the rail (and the Collections tab's chip rows) on or off screen to match the settings, the window and the tab. */
@@ -631,8 +640,7 @@ function railInit() {
     queued = true;
     requestAnimationFrame(() => {
       queued = false;
-      railSync();
-      if (_railShown) railUpdateTop();
+      railSync();   // follows the header's edge too while the rail shows
     });
   };
   window.addEventListener('resize', onResizeOrScroll);

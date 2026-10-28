@@ -297,6 +297,7 @@ function tvRenderContinuous(grid) {
   contState = { cols: 1, stride: TV_ROW_H, totalRows: total, first: -1, last: -1 };
   pageSize = Math.max(1, Math.floor(window.innerHeight / TV_ROW_H));
   gridMetrics = { cols: 1, rows: pageSize, tileW: 0, natH: TV_ROW_H, rowH: TV_ROW_H };
+  virt.textContent = '';   // every row afresh; a scroll keeps what it can
   tvRenderWindow();
   renderPagination();
 }
@@ -309,8 +310,17 @@ function tvRenderWindow() {
   const r = continuousRange(stride, totalRows);
   contState.first = r.first;
   contState.last = r.last;
-  const rows = tvRowsHtml(Math.max(0, r.first), Math.min(totalRows, r.last + 1), true);
-  virt.innerHTML = rows.html;
+  // One row per file, each drawn only when it is new or reads differently
+  // (cards.js, syncVirtRows).
+  const want = new Map();
+  const rows = { missing: 0, ids: [] };
+  for (let i = Math.max(0, r.first); i < Math.min(totalRows, r.last + 1); i++) {
+    const one = tvRowsHtml(i, i + 1, true);
+    rows.missing += one.missing;
+    rows.ids.push(...one.ids);
+    want.set(i, one.html);
+  }
+  syncVirtRows(virt, want, (i, html) => html);
   hydrateThumbs(virt);
   Library.pin('grid', rows.ids);
   if (rows.missing) fillRowsThen(Math.max(0, r.first), r.last + 1, tvRenderWindow);
