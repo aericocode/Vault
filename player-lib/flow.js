@@ -47,6 +47,7 @@
      flowOrderBarHtml()           collection-reorder.js renderReorderNote (the order bar)
      flowStageCurrent(row)        stage-control.js setCurrent
      flowSettingsChanged()        stage-settings-ui.js (Ignore calm intros and credits)
+     flowMembersChanged(cid)      collection-reorder.js, collections.js, importer.js (order or files changed)
    ========================================================================= */
 
 const Flow = (() => {
@@ -1760,6 +1761,38 @@ const Flow = (() => {
     return null;
   }
 
+  /**
+   * The collection's playlist order or its files changed on the server (a
+   * drag or Alt+arrows in playlist order, Undo, files added or taken out:
+   * collection-reorder.js, collections.js, importer.js). The open panel's
+   * chart, jumps and counts, and a Flow order the grid shows, follow at
+   * once: a pure reorder is drawn straight from the page's copy, then the
+   * server is asked (as a poll does: the chart is kept, no flicker). Panel
+   * closed and no Flow order: the held answer is dropped (Flow shuffle and
+   * the next open ask afresh), nothing is fetched.
+   */
+  function membersChanged(cid) {
+    if (st.cid == null || cid !== st.cid) return null;
+    if (!isMine()) { reset(); return null; }
+    if (!st.open && !st.order) {
+      st.data = null;
+      st.byId = new Map();
+      st.lastCount = -1;
+      return null;
+    }
+    const m = typeof collectionMembers !== 'undefined' ? collectionMembers.get(cid) : null;
+    const d = st.data;
+    if (d && Array.isArray(m) && m.length === d.playlistOrder.length) {
+      const had = new Set(d.playlistOrder);
+      if (m.every(id => had.has(id)) && !m.every((id, i) => id === d.playlistOrder[i])) {
+        st.data = { ...d, playlistOrder: m.slice(), playlistJumps: FlowOrder.summary(d.features, m).jumps };
+        paint();
+        if (typeof renderReorderNote === 'function') renderReorderNote();
+      }
+    }
+    return refetch(true);
+  }
+
   async function shuffleCollection(cid) {
     // Any shuffle (Flow shuffle or not) leaves Flow order, and forgets it.
     if (st.order && st.cid === cid) { leave(); paint(); }
@@ -1833,8 +1866,8 @@ const Flow = (() => {
     leaveOrder: () => { if (st.order) { leave(); paint(); } },
     workingOrder: () => (st.order && isMine() ? workingOrder().slice() : null),
     moveInOrder, orderBarHtml, paintCount,
-    settingsChanged,
-    _state: () => ({ ...st, byId: st.byId.size, data: st.data && { order: st.data.order, counts: st.data.counts, jumps: st.data.jumps } }),
+    settingsChanged, membersChanged,
+    _state: () => ({ ...st, byId: st.byId.size, data: st.data && { order: st.data.order, counts: st.data.counts, jumps: st.data.jumps, playlistOrder: st.data.playlistOrder, playlistJumps: st.data.playlistJumps } }),
   };
 })();
 
@@ -1859,3 +1892,4 @@ function flowMoveInOrder(ids, before) { return Flow.moveInOrder(ids, before); }
 function flowOrderBarHtml() { return Flow.orderBarHtml(); }
 function flowStageCurrent(row) { Flow.stageCurrent(row); }
 function flowSettingsChanged() { return Flow.settingsChanged(); }
+function flowMembersChanged(cid) { return Flow.membersChanged(cid); }

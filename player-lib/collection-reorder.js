@@ -26,7 +26,9 @@
      librarySortValue()         saved-searches.js (the sort to remember)
      renderReorderNote()        collections.js renderCollectionHeader, shuffle
 
-   Edge auto-scroll while dragging: player-lib/drag-autoscroll.js (the maths).
+   Calls out: flowMembersChanged(id) (flow.js) after every order change
+   here, so the open Flow panel follows. Edge auto-scroll while dragging:
+   player-lib/drag-autoscroll.js (the maths).
    ========================================================================= */
 
 const PLAYLIST_SORT_VALUE = 'playlist_asc';
@@ -196,6 +198,8 @@ async function _installOrder(collId, data) {
     c.item_count = data.item_count;
     if (Array.isArray(data.first_ids)) c.first_ids = data.first_ids;
   }
+  // The open Flow panel's chart and counts follow the new order (flow.js).
+  if (typeof flowMembersChanged === 'function') flowMembersChanged(collId);
   if (activeCollectionId === collId) await applyFilters({ keepPage: true });
 }
 
@@ -234,6 +238,7 @@ async function reorderMove(ids, before) {
     // Whatever the server holds now is what the grid should show.
     if (typeof fetchCollectionMembers === 'function') {
       fetchCollectionMembers(collId, true).then(() => {
+        if (typeof flowMembersChanged === 'function') flowMembersChanged(collId);
         if (activeCollectionId === collId) applyFilters({ keepPage: true });
       }).catch(() => {});
     }
