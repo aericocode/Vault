@@ -288,7 +288,7 @@ test('lanes have one set of picks (the panel\'s): the old full screen key is nev
   assert.strictEqual(store['vault.flow.fsLanes'], JSON.stringify({ tempo: true }), 'left as it was');
 });
 
-test('nothing listens to the page\'s scroll or wheel while nothing is hovered, and the chart takes no wheel', async () => {
+test('nothing listens to the page\'s scroll or wheel while nothing is hovered', async () => {
   const p = page({ wrapW: 400 });
   await p.Flow.toggle(3);
   p.V.zoom(true);
@@ -296,7 +296,36 @@ test('nothing listens to the page\'s scroll or wheel while nothing is hovered, a
   const types = p.winListeners.map(l => l.type).concat(p.docListeners.map(l => l.type));
   assert.ok(!types.includes('scroll') && !types.includes('wheel'), `window and document: ${types.join(', ')}`);
   assert.deepStrictEqual(Object.keys(p.wrapListeners).sort(), ['keydown', 'pointerdown', 'scroll', 'wheel'], 'the chart: its own scroll, and the user\'s hand on it');
-  for (const t of ['wheel', 'scroll']) assert.strictEqual(p.wrapOpts[t].passive, true, `${t} is only heard, never taken`);
+  assert.strictEqual(p.wrapOpts.scroll.passive, true, 'the scroll is only heard');
+  assert.strictEqual(p.wrapOpts.wheel.passive, false, 'the wheel may move the chart sideways');
+});
+
+test('an up/down wheel over a chart wider than its view scrolls it sideways, and the page at either end', async () => {
+  const p = page({ wrapW: 400 });
+  await p.Flow.toggle(3);
+  p.V.zoom(true);
+  p.wrap.scrollWidth = 1400; p.wrap.clientWidth = 400; p.wrap.scrollLeft = 100;
+  const wheel = (o) => {
+    const e = { deltaX: 0, deltaY: 0, deltaMode: 0, shiftKey: false, ctrlKey: false, taken: false, preventDefault() { this.taken = true; }, ...o };
+    for (const fn of p.wrapListeners.wheel) fn(e);
+    return e;
+  };
+  let e = wheel({ deltaY: 120 });
+  assert.ok(e.taken);
+  assert.strictEqual(p.wrap.scrollLeft, 220, 'down moves right');
+  e = wheel({ deltaY: -3, deltaMode: 1 });
+  assert.ok(e.taken);
+  assert.strictEqual(p.wrap.scrollLeft, 100, 'lines count as 40px');
+  assert.ok(!wheel({ deltaY: 100, shiftKey: true }).taken, 'Shift is the browser\'s own sideways scroll');
+  assert.ok(!wheel({ deltaY: 100, ctrlKey: true }).taken, 'Ctrl is zoom');
+  assert.ok(!wheel({ deltaX: 50, deltaY: 10 }).taken, 'a sideways trackpad swipe is the browser\'s');
+  p.wrap.scrollLeft = 0;
+  assert.ok(!wheel({ deltaY: -100 }).taken, 'at the start, up scrolls the page');
+  p.wrap.scrollLeft = 1000;
+  assert.ok(!wheel({ deltaY: 100 }).taken, 'at the end, down scrolls the page');
+  p.wrap.scrollWidth = 400;
+  p.wrap.scrollLeft = 0;
+  assert.ok(!wheel({ deltaY: 100 }).taken, 'a chart that fits (Fit) leaves the wheel to the page');
 });
 
 test('a page scroll while something is hovered clears it all; the listener is there only meanwhile', async () => {
@@ -507,7 +536,7 @@ test('Zoom while something plays keeps it in view, until the user scrolls the ch
   for (const fn of p.wrapListeners.scroll) fn();
   assert.strictEqual(p.V.state().follow, true, 'not the user');
   // The user scrolls the chart (a wheel over it, then the scroll): following stops.
-  for (const fn of p.wrapListeners.wheel) fn();
+  for (const fn of p.wrapListeners.wheel) fn({ deltaX: 40, deltaY: 0, deltaMode: 0, preventDefault() {} });
   p.wrap.scrollLeft = 0;
   for (const fn of p.wrapListeners.scroll) fn();
   assert.strictEqual(p.V.state().follow, false);

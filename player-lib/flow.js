@@ -1998,8 +1998,9 @@ const Flow = (() => {
 
   /* ── Under the chart: tag rows, preview cards, the strip ─────────────
      Fit puts the whole list in the panel's width; Zoom gives each file
-     ZOOM_COL_PX and the chart scrolls sideways (the scrollbar, a trackpad or
-     Shift and the wheel; the page's own wheel scrolling is never taken).
+     ZOOM_COL_PX and the chart scrolls sideways (the wheel over it, the
+     scrollbar, a trackpad or Shift and the wheel; at either end the wheel
+     scrolls the page again).
      Columns CARD_PX or wider get the lanes as rows of readable tags and a
      preview card each above the names (scrubbed by the pointer); narrower
      ones keep the colour bars and no cards. Clicking a column (or its card)
@@ -2010,7 +2011,7 @@ const Flow = (() => {
      without preview cards, for a column: the file's frame at the time under
      the pointer (the seek bars' hover frames, /scrub/:id/:idx).
 
-     Nothing here listens to the page's scroll or wheel. While something
+     Nothing here listens to the page's own scroll or wheel. While something
      plays in Zoom, the 400 ms playhead check keeps it in view until the
      user scrolls the chart themselves. */
 
@@ -2670,16 +2671,34 @@ const Flow = (() => {
    * The wrap's own listeners (once a wrap): a scroll by the user stops
    * following. The user's: one soon after their wheel, press or key on the
    * chart (the browser also moves the scroll itself, keeping it inside a
-   * chart whose view just got a little wider, which is not theirs). The
-   * wheel is only heard (passive), never taken.
+   * chart whose view just got a little wider, which is not theirs). A
+   * plain up/down wheel over a chart wider than its view scrolls it sideways
+   * (the page keeps it once the chart is at that end).
    */
   const USER_SCROLL_MS = 1500;
+
+  /** How far a wheel moves the chart sideways, or 0 to leave it to the page. */
+  function wheelSideways(e, wrap) {
+    if (e.ctrlKey || e.shiftKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return 0;
+    const room = wrap.scrollWidth - wrap.clientWidth;
+    if (!(room > 1)) return 0;
+    const dx = e.deltaY * (e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? wrap.clientWidth : 1);
+    if (dx < 0 ? wrap.scrollLeft <= 0 : wrap.scrollLeft >= room - 1) return 0;
+    return dx;
+  }
   let userAt = -Infinity;
   function wireWrap(wrap) {
     if (!wrap || wrap._flowWired) return;
     wrap._flowWired = true;
     const intent = () => { userAt = performance.now(); };
-    for (const t of ['wheel', 'pointerdown', 'keydown']) wrap.addEventListener(t, intent, { passive: true });
+    for (const t of ['pointerdown', 'keydown']) wrap.addEventListener(t, intent, { passive: true });
+    wrap.addEventListener('wheel', (e) => {
+      intent();
+      const dx = wheelSideways(e, wrap);
+      if (!dx) return;
+      e.preventDefault();
+      wrap.scrollLeft += dx;
+    }, { passive: false });
     wrap.addEventListener('scroll', () => {
       // Flow's own scrolls set autoLeft first.
       if (Math.abs(wrap.scrollLeft - st.autoLeft) > 2 && performance.now() - userAt < USER_SCROLL_MS) st.follow = false;
