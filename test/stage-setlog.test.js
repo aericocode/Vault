@@ -621,6 +621,19 @@ test('routes: bad input is refused', async () => {
   assert.strictEqual((await post('/api/stage/setlog/basic', { state: 'start', id: 987654 })).status, 404, 'not in the library');
 });
 
+test('routes: a file the library refuses stops the one before, so it gets none of that time', async () => {
+  const d = db.get();
+  const id = Number(d.prepare('INSERT INTO media (filepath, filename, media_type) VALUES (?, ?, ?)').run('C:/clips/before.mp4', 'before.mp4', 'video').lastInsertRowid);
+  assert.strictEqual((await post('/api/stage/setlog/basic', { state: 'start', id })).status, 200);
+  assert.strictEqual((await post('/api/stage/setlog/basic', { state: 'start', id: 876543 })).status, 404);
+  const { sets } = (await getJson('/api/stage/setlog')).body;
+  const one = (await getJson(`/api/stage/setlog/${sets[0].id}`)).body;
+  const e = one.entries.find(x => x.title === 'before.mp4');
+  assert.ok(e, 'logged');
+  assert.strictEqual(e.now, false, 'no longer playing');
+  assert.strictEqual((await post('/api/stage/setlog/basic', { state: 'closed' })).status, 200);
+});
+
 test('routes: the open log\'s poll does not count as the user being there (auto-lock still comes)', async () => {
   const vault = require('../lib/vault');
   vault._lastActivity = 0;

@@ -350,7 +350,12 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
       if (!Number.isSafeInteger(b.id) || b.id <= 0) return res.status(400).json({ error: 'start needs the file id.' });
       if (b.title !== undefined && (typeof b.title !== 'string' || b.title.length > 1024)) return res.status(400).json({ error: 'title must be text.' });
       // Only files in the library; their names come from the library, not the page.
-      if (typeof lib.inLibrary === 'function' && !lib.inLibrary(b.id)) return res.status(404).json({ error: 'That file is not in the library.' });
+      // A file the library doesn't know still means the one before has stopped:
+      // its time must not run on under this one.
+      if (typeof lib.inLibrary === 'function' && !lib.inLibrary(b.id)) {
+        setlog.basic('stopped');
+        return res.status(404).json({ error: 'That file is not in the library.' });
+      }
       setlog.basic('start', { id: b.id, title: typeof lib.titleFor === 'function' ? '' : (b.title || '') });
     } else setlog.basic(b.state);
     res.json({ ok: true });
