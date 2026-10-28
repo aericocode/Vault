@@ -176,13 +176,13 @@ function fakeEl(over = {}) {
     querySelector: () => fakeEl(), querySelectorAll: () => [],
     closest: () => null,
     getBoundingClientRect: () => ({ left: 0, top: 0, right: 800, bottom: 300, width: 800, height: 300 }),
-    matches: () => false,
+    matches: () => false, getClientRects: () => [1],
     ...over,
   };
   return el;
 }
 
-function page({ wrapW = 800, wrapH = 500, vh = 720, stage = false, extra = {}, win = {}, n = 5, strip: stripEl = null } = {}) {
+function page({ wrapW = 800, wrapH = 500, vh = 720, stage = false, extra = {}, win = {}, n = 5, strip: stripEl = null, layout = null } = {}) {
   const ids = Array.from({ length: n }, (_, i) => 11 + i);
   const feats = ids.map((id, i) => ({ id, name: `file${id}.mp4`, measured: true, music: true, es: 0.2 + 0.1 * i, em: 0.25 + 0.1 * i, ee: 0.3 + 0.1 * i, bs: 120, bm: 120, be: 120 }));
   const answer = () => ({ shape: 'smooth', edges: 'off', order: ids.slice().reverse(), playlistOrder: ids.slice(), features: feats, targets: null,
@@ -198,6 +198,11 @@ function page({ wrapW = 800, wrapH = 500, vh = 720, stage = false, extra = {}, w
   // A view whose height is what the strip leaves (wrapH a function of the strip), or a fixed one.
   Object.defineProperty(wrap, 'clientHeight', { get: () => (typeof wrapH === 'function' ? wrapH(strip) : wrapH) });
   const panelEl = fakeEl();
+  if (layout) {
+    // A laid-out panel (flow.js fsRoom): its height, a top row, the wrap, the strip, the legend.
+    panelEl.clientHeight = layout.h;
+    panelEl.children = [fakeEl({ offsetHeight: 40 }), wrap, strip, fakeEl({ offsetHeight: 20 })];
+  }
   const classes = new Set();
   const body = fakeEl({ classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c), toggle() {}, contains: (c) => classes.has(c) } });
   const keyListeners = [];         // window keydown listeners in the order added: { fn, capture }
@@ -225,6 +230,7 @@ function page({ wrapW = 800, wrapH = 500, vh = 720, stage = false, extra = {}, w
     playMediaById: (id) => played.push(id),
     StageControl: { isOpen: () => stage, basicOn: () => false },
     isTypingTarget: (el) => !!(el && el.tagName === 'INPUT'),
+    ...(layout ? { getComputedStyle: () => ({ paddingTop: '10px', paddingBottom: '10px', rowGap: '8px' }) } : {}),
     ...extra,
     fetch: async (url) => {
       if (/\/api\/flow\/collections\/\d+\?/.test(url)) return ok(answer());
@@ -673,32 +679,63 @@ test('Hide file names: tag rows name no file, and the cards are blurred', async 
 
 /* ── Verifier fixes: a stable first pick, privacy, badges, scroll, unloading, keys ── */
 
-test('a first pick never moves the chart or the cards: the strip holds a picked file\'s height from the start', async () => {
-  // A strip whose height is its content's (a pick: 105 px, the hint: 32 px), at least its min-height;
-  // the view gets what the strip leaves.
-  const strip = fakeEl();
-  Object.defineProperty(strip, 'offsetHeight', { get: () => Math.max(parseFloat(strip.style.minHeight) || 0, /Selected/.test(strip.innerHTML) ? 105 : 32) });
-  const p = page({ wrapW: 1000, wrapH: (s) => 560 - s.offsetHeight, strip });
+/** A laid-out full screen panel: a 40 px top row, the wrap, the strip (its height from its content: the hint 32, a pick 105, a long hand-over 160, or a fixed one), a 20 px legend. */
+function laidOut(stripH = null) {
+  const strip = fakeEl({ id: 'flowStrip' });
+  Object.defineProperty(strip, 'offsetHeight', { get: () => (stripH != null ? stripH : /Hand-over/.test(strip.innerHTML) ? 160 : /Selected/.test(strip.innerHTML) ? 105 : 32) });
+  return { strip, layout: { h: 600 } };
+}
+
+test('the strip is under the cards and never moves them: any pick, a long hand-over, a tall strip from the start', async () => {
+  const { strip, layout } = laidOut();
+  const p = page({ wrapW: 1000, strip, layout, wrapH: 999 });
   await p.Flow.toggle(3);
   p.F.toggle();
   p.F.zoom(true);
-  assert.strictEqual(p.F.stripMin(), 105, 'measured with a file picked');
-  assert.strictEqual(strip.style.minHeight, '105px');
-  assert.doesNotMatch(strip.innerHTML, /Selected/, 'the hint shows until a pick');
-  const at = () => ({ PH: p.geom().PH, cards: p.F.cards().map(c => [c.i, c.id]) });
+  // 600 less padding 20, the top row 40, the legend 20, three gaps of 8 and the strip's least 64.
+  assert.strictEqual(p.F.room(), 600 - 20 - 40 - 20 - 3 * 8 - 64);
+  const at = () => ({ PH: p.geom().PH, cardsOn: p.geom().cards, cards: p.F.cards().map(c => [c.i, c.id]) });
   const before = at();
-  p.F.pick(2);
-  assert.match(strip.innerHTML, /Selected · 3 of 5/);
-  assert.deepStrictEqual(at(), before, 'the first click of a double click lands where it pressed');
-  p.F.pick(-1);
-  assert.deepStrictEqual(at(), before, 'nor does letting go of the pick');
+  assert.strictEqual(before.cardsOn, true);
+  for (const i of [2, 0, 4]) {
+    p.F.pick(i);
+    assert.match(strip.innerHTML, /Selected/);
+    assert.deepStrictEqual(at(), before, `picking file ${i + 1} moves nothing`);
+  }
   p.F.pickHand(1);
+  assert.match(strip.innerHTML, /Hand-over/);
+  assert.deepStrictEqual(at(), before, 'nor a long hand-over');
+  p.F.pick(-1);
   assert.deepStrictEqual(at(), before);
   // Two clicks on one card: the second still finds it, and it plays.
   const card = (i) => ({ dataset: { i: String(i) }, closest: (q) => (q.split(', ').includes('.flow-card') ? card(i) : null) });
   p.F.click({ target: card(3), clientX: 0, clientY: 0 });
   p.F.click({ target: card(3), clientX: 0, clientY: 0 });
   assert.deepStrictEqual(p.played, [p.geom().order[3]]);
+
+  // A tall strip with nothing picked (the mini player squeezing it): the cards stay, the plot too.
+  const tall = laidOut(160);
+  const q = page({ wrapW: 1000, strip: tall.strip, layout: tall.layout, wrapH: 999 });
+  await q.Flow.toggle(3);
+  q.F.toggle();
+  q.F.zoom(true);
+  assert.deepStrictEqual({ PH: q.geom().PH, cardsOn: q.geom().cards }, { PH: before.PH, cardsOn: true });
+});
+
+test('one file: the plot\'s height does not depend on the strip', async () => {
+  const ph = async (stripH) => {
+    const { strip, layout } = laidOut(stripH);
+    const p = page({ wrapW: 1000, n: 1, strip, layout, wrapH: 999 });
+    await p.Flow.toggle(3);
+    p.F.toggle();
+    const a = p.geom().PH;
+    p.F.pick(0);
+    assert.strictEqual(p.geom().PH, a, 'a pick changes nothing');
+    return a;
+  };
+  const short = await ph(32), tall = await ph(160);
+  assert.strictEqual(tall, short);
+  assert.ok(tall > 200 && tall <= M.fsChartHeight(720), `plot ${tall}`);
 });
 
 test('blurred thumbnails (pm-thumbs): cards stay on their first frame and blur; the floating card blurs too', async () => {

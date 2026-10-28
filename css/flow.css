@@ -482,15 +482,18 @@ body.flow-fs-on .flow-fs-spacer { display: block; margin-top: 0.5rem; }
 }
 .flow-fs-orderbar .flow-ob-save { border-color: color-mix(in oklab, var(--flow-e-hi) 50%, transparent); }
 
-/* The chart takes what height is left; Zoom scrolls it sideways. */
+/* The chart, its tag rows and the cards take the height flow.js fsRoom gives
+   them (the strip never changes it); Zoom scrolls them sideways. The strip
+   under them takes what is left: its own height, shrinking (it scrolls) to
+   FS_STRIP_MIN in a short view. */
 body.flow-fs-on #flowPanel > .flow-chart-wrap {
-  flex: 1 1 0;
-  min-height: 0;
+  flex: none;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
 }
 body.flow-fs-on .flow-names { font-size: 0.78rem; }
+body.flow-fs-on #flowPanel > .flow-strip { flex: 0 1 auto; min-height: 64px; }
 /* Tag rows under the plot (full screen, wide columns; flow.js tagRows): a
    tag's name on its colour, Tempo as a number and a meter, dashed when empty. */
 .flow-ltags { position: relative; margin-top: 6px; }
@@ -583,7 +586,6 @@ body.flow-fs-on .flow-names { font-size: 0.78rem; }
 
 /* The strip under the chart: the file (or hand-over) picked. */
 .flow-strip {
-  box-sizing: border-box;          /* flow.js reserveStrip sets min-height from offsetHeight */
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 8px 18px;

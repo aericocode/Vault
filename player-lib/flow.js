@@ -1124,7 +1124,7 @@ const Flow = (() => {
     const full = st.full;
     let W = Math.max(200, Math.floor(wrap.clientWidth));
     st.drawnW = wrap.clientWidth;
-    st.drawnH = wrap.clientHeight;
+    st.drawnH = full ? fsRoom(wrap) : wrap.clientHeight;
     const order = chartOrder();
     const n = order.length;
     if (!n) return;
@@ -1143,7 +1143,7 @@ const Flow = (() => {
       // wide columns get tag rows as text and a preview card each (fsRows).
       const lay = FlowChartMath.fsLayout(wrap.clientWidth, n, L, R, st.zoom);
       W = lay.W; step = lay.step;
-      rows = FlowChartMath.fsRows(wrap.clientHeight, window.innerHeight, {
+      rows = FlowChartMath.fsRows(st.drawnH, window.innerHeight, {
         step, lanes: lanes.length, cards: thumbsShown(), bar: W > wrap.clientWidth ? 14 : 0, top: TOP,
       });
       PH = rows.PH;
@@ -1304,7 +1304,7 @@ const Flow = (() => {
     // going): look again once it has, and redraw if the width moved.
     requestAnimationFrame(() => {
       const w = document.getElementById('flowChartWrap');
-      if (w && (w.clientWidth !== st.drawnW || (st.full && w.clientHeight !== st.drawnH)) && st.open && isMine()) drawChart();
+      if (w && (w.clientWidth !== st.drawnW || (st.full && fsRoom(w) !== st.drawnH)) && st.open && isMine()) drawChart();
     });
   }
 
@@ -2010,7 +2010,7 @@ const Flow = (() => {
     el.addEventListener('pointerleave', () => { if (st.hot >= 0) showHot(-1); hideCard(); unscrub(); });
     // Full screen: F and Esc (after the listeners that take Esc first: drags above, Up next's list).
     window.addEventListener('keydown', fsKey, true);
-    window.addEventListener('resize', () => { if (st.full) { fsMeasure(); restrip(); scheduleDraw(); } });
+    window.addEventListener('resize', () => { if (st.full) { fsMeasure(); scheduleDraw(); } });
     window.addEventListener('vault:stage-bar', () => { if (st.full) { fsMeasure(); scheduleDraw(); } });
     window.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape' || !drag || !drag.on) return;
@@ -2022,7 +2022,7 @@ const Flow = (() => {
     if (typeof ResizeObserver === 'function') {
       new ResizeObserver(() => {
         const wrap = document.getElementById('flowChartWrap');
-        if (wrap && (wrap.clientWidth !== st.drawnW || (st.full && wrap.clientHeight !== st.drawnH))) scheduleDraw();
+        if (wrap && (wrap.clientWidth !== st.drawnW || (st.full && fsRoom(wrap) !== st.drawnH))) scheduleDraw();
       }).observe(el);
     }
   }
@@ -2057,6 +2057,29 @@ const Flow = (() => {
      once on the way out). */
 
   const FS_NAMES_PX = 30;      // full screen: px a column to name it
+  const FS_STRIP_MIN = 64;     // full screen: the strip's least height (css/flow.css, the same)
+
+  /**
+   * The height the chart, its tag rows and the cards may take: the panel's,
+   * less its padding, every other row and the gaps, and FS_STRIP_MIN for the
+   * strip. The strip is under the cards and takes what is left, so what it
+   * shows (a pick, a long hand-over) never moves anything above it. Without
+   * a laid-out panel (a test page): the wrap's own height.
+   */
+  function fsRoom(wrap) {
+    const el = panel();
+    if (!wrap) return 0;
+    if (!el || !el.children || typeof getComputedStyle !== 'function') return wrap.clientHeight;
+    const cs = getComputedStyle(el);
+    let h = el.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+    let items = 0;
+    for (const c of el.children) {
+      if (!(c.getClientRects && c.getClientRects().length)) continue;     // display: none
+      items++;
+      if (c !== wrap && c.id !== 'flowStrip') h -= c.offsetHeight;
+    }
+    return Math.max(0, Math.floor(h - (parseFloat(cs.rowGap) || 0) * Math.max(0, items - 1) - FS_STRIP_MIN));
+  }
   const HAND_PX = 8;           // px either side of a hand-over that picks it
   const DBL_MS = 450;          // two clicks on one column this close: play it
 
@@ -2567,30 +2590,7 @@ const Flow = (() => {
     const el = document.getElementById('flowStrip');
     if (!el) return;
     el.innerHTML = stripHtml();
-    if (st.full) reserveStrip(el);
   }
-
-  /* The strip keeps the height a picked file's details take from the start,
-     and never gives height back while full screen stays open: a first pick
-     (the first click of a double click) must not move the chart and the
-     cards under the pointer. Measured again when the view's width changes. */
-  let stripMin = 0;
-  function reserveStrip(el) {
-    if (!stripMin) {
-      el.style.minHeight = '';
-      const order = st.geom ? st.geom.order : chartOrder();
-      if (order.length) {
-        // A picked file's details (the first file's), drawn for a moment to be measured.
-        const was = el.innerHTML, sel = st.sel, hand = st.selHand;
-        st.sel = sel != null && order.includes(sel) ? sel : order[0];
-        st.selHand = -1;
-        try { el.innerHTML = stripHtml(); stripMin = el.offsetHeight || 0; } finally { st.sel = sel; st.selHand = hand; el.innerHTML = was; }
-      }
-    }
-    stripMin = Math.max(stripMin, el.offsetHeight || 0);
-    el.style.minHeight = stripMin ? `${stripMin}px` : '';
-  }
-  function restrip() { stripMin = 0; paintStrip(); }
 
   /** The strip's buttons, for the file picked. */
   async function stripAct(act) {
@@ -2698,7 +2698,6 @@ const Flow = (() => {
     st.full = true;
     st.follow = true;
     st.hot = -1;
-    stripMin = 0;
     hideCard();
     // A library tile's hover popover (cards.js) would sit over the view.
     if (typeof hideTilePopover === 'function') hideTilePopover();
@@ -2731,7 +2730,6 @@ const Flow = (() => {
     const el = panel();
     if (el) for (const k of ['top', 'left', 'right', 'bottom', 'mini-l', 'mini-r']) el.style.removeProperty(`--flow-fs-${k}`);
     fsBox = '';
-    stripMin = 0;
     unscrub();
     document.getElementById('flowFsSpacer')?.remove();
     if (st.gridStale) {
@@ -2785,8 +2783,6 @@ const Flow = (() => {
     el.style.setProperty('--flow-fs-left', `${left}px`);
     el.style.setProperty('--flow-fs-right', `${right}px`);
     el.style.setProperty('--flow-fs-bottom', `${bottom}px`);
-    // The strip's width may have changed (the mini player came or went): its reserve too.
-    if (document.getElementById('flowStrip')) { restrip(); scheduleDraw(); }
   }
 
   /** Zoom while something plays: keep it in view, until the user scrolls themselves. */
@@ -3057,7 +3053,7 @@ const Flow = (() => {
       on: fsOn, toggle: fsToggle, key: fsKey, click: fsClick, pick, pickHand, strip: stripHtml, act: stripAct, play: playHere,
       // The preview cards: what each shows, loading what is in view, scrubbing.
       cards: () => [...cardEls.values()].map(el => ({ id: el._id, i: Number(el.dataset.i), src: el._src, loaded: !!el._loaded, bar: el._bar.style.width, len: el._len.textContent })),
-      cardsLoad, scrub: scrubCard, unscrub, tagKey, stripMin: () => stripMin,
+      cardsLoad, scrub: scrubCard, unscrub, tagKey, room: () => fsRoom(document.getElementById('flowChartWrap')),
       zoom: (on) => { st.zoom = !!on; st.follow = true; paint(); },
       state: () => ({ full: st.full, zoom: st.zoom, sel: st.sel, selHand: st.selHand, follow: st.follow, gridStale: st.gridStale }),
     },
