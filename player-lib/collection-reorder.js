@@ -25,6 +25,8 @@
      collectionSortLeave()      collections.js, wherever a collection closes
      librarySortValue()         saved-searches.js (the sort to remember)
      renderReorderNote()        collections.js renderCollectionHeader, shuffle
+
+   Edge auto-scroll while dragging: player-lib/drag-autoscroll.js (the maths).
    ========================================================================= */
 
 const PLAYLIST_SORT_VALUE = 'playlist_asc';
@@ -295,7 +297,85 @@ function _clearDropMark() {
 function _endReorderDrag() {
   document.querySelectorAll('#resultsGrid .reorder-dragging').forEach(t => t.classList.remove('reorder-dragging'));
   _clearDropMark();
+  _stopEdgeScroll();
   _reorderDrag = null;
+}
+
+/** Fade the dragged files' tiles, including rows the table draws as the page scrolls. */
+function _markDragging() {
+  if (!_reorderDrag) return;
+  document.querySelectorAll('#resultsGrid .media-tile[data-id]').forEach(t => {
+    if (_reorderDrag.set.has(Number(t.dataset.id))) t.classList.add('reorder-dragging');
+  });
+}
+
+/* ── Edge auto-scroll while dragging ──────────────────────────────────
+   Near the top or bottom of the files (under the sticky header and the
+   table's header row, over the Stage bar) the page scrolls, faster the
+   nearer the edge (DragAutoScroll.speed, player-lib/drag-autoscroll.js).
+   Each dragover says where the pointer is; a frame loop scrolls the window
+   and stops on drop, dragend, leaving the band, or when no dragover has
+   come for EDGE_STALE_MS (the pointer left the window). Tiles and rows the
+   grid draws as it scrolls take the drop like any other (the listeners are
+   on the document). The mouse wheel scrolls as usual meanwhile. */
+
+const EDGE_STALE_MS = 150;
+let _edge = null;   // { y, at, raf, last } while scrolling
+
+/** The visible files' top and bottom edges, in viewport pixels. */
+function _edgeBounds() {
+  let top = 0;
+  const header = document.getElementById('appHeader');
+  if (header) top = Math.max(top, header.getBoundingClientRect().bottom);
+  // The table's header row while it sticks under the app header (continuous table).
+  const head = _isTableView() ? document.querySelector('#resultsGrid .tv-head') : null;
+  if (head) {
+    const r = head.getBoundingClientRect();
+    if (r.height > 0 && r.top <= top + 1) top = Math.max(top, r.bottom);
+  }
+  let bottom = window.innerHeight;
+  const bar = document.body.classList.contains('stage-bar-on') ? document.querySelector('.stage-bar') : null;
+  if (bar) {
+    const r = bar.getBoundingClientRect();
+    if (r.height > 0 && r.top < bottom) bottom = Math.max(0, r.top);
+  }
+  top = Math.max(0, Math.min(top, window.innerHeight / 2));
+  return { top, bottom: Math.max(top, bottom) };
+}
+
+function _edgeSpeed(y) {
+  if (typeof DragAutoScroll === 'undefined') return 0;
+  const b = _edgeBounds();
+  return DragAutoScroll.speed(y, b.top, b.bottom);
+}
+
+/** A dragover at clientY: start, steer or stop the scrolling. */
+function _edgeScrollAt(y) {
+  const now = performance.now();
+  if (!_edgeSpeed(y)) { _stopEdgeScroll(); return; }
+  if (_edge) { _edge.y = y; _edge.at = now; return; }
+  _edge = { y, at: now, last: now, raf: 0 };
+  _edge.raf = requestAnimationFrame(_edgeTick);
+}
+
+function _edgeTick(now) {
+  const e = _edge;
+  if (!e) return;
+  if (!_reorderDrag || now - e.at > EDGE_STALE_MS) { _stopEdgeScroll(); return; }
+  const dt = Math.min(50, Math.max(0, now - e.last));
+  e.last = now;
+  const v = _edgeSpeed(e.y);
+  if (!v) { _stopEdgeScroll(); return; }
+  const before = window.scrollY;
+  window.scrollBy(0, (v * dt) / 1000);
+  // Rows and tiles drawn for the new scroll position get the faded mark too.
+  if (window.scrollY !== before) _markDragging();
+  e.raf = requestAnimationFrame(_edgeTick);
+}
+
+function _stopEdgeScroll() {
+  if (_edge && _edge.raf) cancelAnimationFrame(_edge.raf);
+  _edge = null;
 }
 
 /** Before or after the tile under the pointer: its left / right half (rows: top / bottom). */
@@ -327,17 +407,17 @@ document.addEventListener('dragstart', (e) => {
   } catch {}
   if (typeof hideTilePopover === 'function') hideTilePopover();
   if (typeof stopScrub === 'function') stopScrub();
+  // The grid can redraw the dragged tile away (the table's rows as it
+  // scrolls): dragend then never reaches the document, so listen on it too.
+  const drag = _reorderDrag;
+  tile.addEventListener('dragend', () => { if (_reorderDrag === drag) _endReorderDrag(); }, { once: true });
   // Mark after the browser has taken its drag picture, so the picture is not faded.
-  setTimeout(() => {
-    if (!_reorderDrag) return;
-    document.querySelectorAll('#resultsGrid .media-tile[data-id]').forEach(t => {
-      if (_reorderDrag.set.has(Number(t.dataset.id))) t.classList.add('reorder-dragging');
-    });
-  }, 0);
+  setTimeout(_markDragging, 0);
 });
 
 document.addEventListener('dragover', (e) => {
   if (!_reorderDrag) return;
+  _edgeScrollAt(e.clientY);
   const tile = _gridTile(e.target);
   if (!tile || _reorderDrag.set.has(Number(tile.dataset.id))) { _clearDropMark(); return; }
   e.preventDefault();
