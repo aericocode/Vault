@@ -150,6 +150,14 @@ body.flow-grip-dragging { user-select: none; cursor: ns-resize; }
   overflow-x: clip;
   cursor: pointer;
 }
+/* Zoom (flow.js colLayout): wider than the panel, scrolled sideways. */
+.flow-chart-wrap.flow-zoomed {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-muted) transparent;
+}
 .flow-chart { display: block; overflow: hidden; }
 .flow-chart text {
   font-family: inherit;
@@ -215,27 +223,6 @@ body.flow-col-dragging, body.flow-col-dragging * { cursor: grabbing !important; 
 .flow-nm.now { color: var(--text-primary); }
 .flow-nm.now b { color: var(--accent-hover); }
 
-.flow-tip {
-  position: absolute;
-  z-index: 5;
-  pointer-events: none;
-  display: grid;
-  gap: 3px;
-  min-width: 170px;
-  max-width: 280px;
-  padding: 7px 10px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  font-size: 0.75rem;
-}
-.flow-tip[hidden] { display: none; }
-.flow-tip-t { font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.flow-tip-m { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
-.flow-tip-h { color: var(--text-secondary); padding-left: 8px; border-left: 2px solid var(--flow-ok); }
-.flow-tip-h-noticeable { border-left-color: var(--flow-warn); }
-.flow-tip-h-jump { border-left-color: var(--flow-bad); }
 .flow-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
 .flow-chip {
   display: inline-flex;
@@ -341,15 +328,6 @@ body.layout-modern .flow-chart .flow-lane-label { fill: var(--m-text-2); }
 body.layout-modern .flow-tg-l { color: var(--m-text-2); }
 body.layout-modern .flow-card:not(.sel):not(.hot) { border-color: var(--m-border); }
 body.layout-modern .flow-chart .flow-badge circle { fill: var(--m-surface-solid); }
-body.layout-modern .flow-tip {
-  background: var(--m-surface-solid);
-  border-color: var(--m-border);
-  border-radius: var(--m-radius-sm, 8px);
-  box-shadow: var(--m-shadow);
-  font-size: 12px;
-}
-body.layout-modern .flow-tip-t { color: var(--m-text); }
-body.layout-modern .flow-tip-m { color: var(--m-text-2); }
 body.layout-modern .tile-flow { color: var(--m-muted); font-size: 11px; }
 body.layout-modern .flow-tile-note { color: var(--m-muted); }
 
@@ -437,64 +415,11 @@ body.layout-modern .coll-reorder-note.flow-orderbar { border-radius: var(--m-rad
 .media-tile.tv-row.flow-mk-playing { background: color-mix(in oklab, var(--accent) 8%, transparent); }
 @media (prefers-reduced-motion: reduce) { .flow-mk-pos { transition: none; } }
 
-/* ── Full screen (flow.js "Full screen"): the panel fixed over the library's
-   files, between the header and the Stage bar, beside the rail and the
-   preview pane (flow.js fsMeasure sets --flow-fs-*). Under the header's
-   menus (100), the pane (150) and the Stage bar (190). A spacer keeps the
-   panel's place in the page, and the page itself does not scroll under it
-   (the gutter is kept, so nothing behind changes width). ── */
-html:has(> body.flow-fs-on) { overflow: hidden; scrollbar-gutter: stable; }
-body.flow-fs-on #flowPanel.flow-panel {
-  position: fixed;
-  top: var(--flow-fs-top, 0px);
-  left: var(--flow-fs-left, 0px);
-  right: var(--flow-fs-right, 0px);
-  bottom: var(--flow-fs-bottom, 0px);
-  z-index: 95;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 16px;
-  border-radius: 0;
-  border-width: 1px 0 0;
-  overflow: hidden;
-  overscroll-behavior: contain;
-  background: var(--bg-secondary);
-}
-/* Modern's surface is see-through: laid over the page's own background here. */
-body.layout-modern.flow-fs-on #flowPanel.flow-panel { background: linear-gradient(var(--m-surface), var(--m-surface)), var(--bg-primary); border-radius: 0; }
-body.flow-fs-on #flowPanel > * { flex: none; }
-.flow-fs-spacer { display: none; }
-body.flow-fs-on .flow-fs-spacer { display: block; margin-top: 0.5rem; }
-.flow-row > .flow-full-btn { margin-left: auto; }
-.flow-row > .flow-full-btn + .flow-hide { margin-left: 0; }
-.flow-fs-top .flow-title { font-size: 1rem; }
-.flow-fs-cname { font-weight: 600; }
-.flow-fs-top .flow-fs-count { color: var(--text-secondary); font-size: 0.8rem; }
-.flow-fs-exit { white-space: nowrap; }
-.flow-fs-orderbar {
-  padding: 5px 8px 5px 10px;
-  border: 1px solid color-mix(in oklab, var(--flow-e-hi) 35%, transparent);
-  border-radius: 9px;
-  background: color-mix(in oklab, var(--flow-e-hi) 7%, transparent);
-  color: var(--text-secondary);
-}
-.flow-fs-orderbar .flow-ob-save { border-color: color-mix(in oklab, var(--flow-e-hi) 50%, transparent); }
+/* Fit / Zoom beside Hide (at the right, wherever the row wraps). */
+.flow-row > .flow-zoom { margin-left: auto; }
+.flow-row > .flow-zoom + .flow-hide { margin-left: 0; }
 
-/* The chart, its tag rows and the cards take the height flow.js fsRoom gives
-   them (the strip never changes it); Zoom scrolls them sideways. The strip
-   under them takes what is left: its own height, shrinking (it scrolls) to
-   FS_STRIP_MIN in a short view. */
-body.flow-fs-on #flowPanel > .flow-chart-wrap {
-  flex: none;
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
-}
-body.flow-fs-on .flow-names { font-size: 0.78rem; }
-body.flow-fs-on #flowPanel > .flow-strip { flex: 0 1 auto; min-height: 64px; }
-/* Tag rows under the plot (full screen, wide columns; flow.js tagRows): a
+/* Tag rows under the plot (wide columns; flow.js tagRows): a
    tag's name on its colour, Tempo as a number and a meter, dashed when empty. */
 .flow-ltags { position: relative; margin-top: 6px; }
 .flow-ltags[hidden] { display: none; }
@@ -584,34 +509,38 @@ body.flow-fs-on #flowPanel > .flow-strip { flex: 0 1 auto; min-height: 64px; }
 .flow-chart .flow-col-sel { fill: var(--accent-bg); stroke: var(--accent); stroke-opacity: 0.55; stroke-width: 1; pointer-events: none; }
 .flow-chart .flow-hand.flow-hand-sel { stroke-width: 4.5; opacity: 1; }
 
-/* The strip under the chart: the file (or hand-over) picked. */
+/* The strip under the names: the file (or hand-over) picked, on one line
+   (two when the buttons wrap). Each part keeps to one line; the whole why
+   of a hand-over is in its tooltip. */
 .flow-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 8px 18px;
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 12px;
   max-height: 26vh;
   overflow-y: auto;
-  padding: 8px 12px;
-  /* Room beside the floating mini player (flow.js fsMeasure). */
-  margin-left: var(--flow-fs-mini-l, 0px);
-  margin-right: var(--flow-fs-mini-r, 0px);
+  padding: 4px 10px;
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--bg-primary);
+  font-size: 0.74rem;
+  line-height: 1.35;
 }
-.flow-st-main { display: grid; gap: 3px; min-width: 0; }
-.flow-st-k { font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-secondary); }
-.flow-st-name { font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.flow-st-hands { display: grid; gap: 4px; min-width: 0; color: var(--text-secondary); font-size: 0.78rem; }
-.flow-st-h { padding-left: 8px; border-left: 2px solid var(--border); }
+.flow-strip > * { white-space: nowrap; }
+.flow-st-k { font-size: 0.66rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-secondary); }
+.flow-st-name { font-weight: 600; font-size: 0.8rem; min-width: 0; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; }
+.flow-strip .flow-sub { font-size: inherit; font-variant-numeric: tabular-nums; }
+.flow-st-h { padding-left: 6px; border-left: 2px solid var(--border); color: var(--text-secondary); min-width: 0; max-width: 46ch; overflow: hidden; text-overflow: ellipsis; }
+.flow-st-why { flex: 1 1 18ch; max-width: none; }
 .flow-st-h-smooth { border-left-color: var(--flow-ok); }
 .flow-st-h-noticeable { border-left-color: var(--flow-warn); }
 .flow-st-h-jump { border-left-color: var(--flow-bad); }
 .flow-st-h b { color: var(--text-primary); font-weight: 600; }
-.flow-st-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+.flow-st-acts { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-left: auto; }
+.flow-st-acts .flow-btn-sm { padding: 0.05rem 0.5rem; font-size: 0.72rem; }
+.flow-st-hint { white-space: normal; }
 
-/* The hover card by the pointer (full screen), and the small panel's frame. */
+/* The hover card by the pointer. */
 .flow-hcard {
   position: fixed;
   left: 0;
@@ -655,21 +584,14 @@ body.flow-fs-on #flowPanel > .flow-strip { flex: 0 1 auto; min-height: 64px; }
 .flow-hc-noticeable { color: var(--flow-warn); }
 .flow-hc-jump { color: var(--flow-bad); }
 .flow-hc-m { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
-.flow-tip-img { display: block; width: 160px; aspect-ratio: 16 / 9; margin-bottom: 2px; border-radius: 5px; overflow: hidden; background: #000; }
-.flow-tip-img img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.flow-tip-img img:not([src]) { visibility: hidden; }
-
 /* Hide file names (Settings › Privacy): blurred, as the tiles' names are. */
 body.pm-names .flow-nm-t,
 body.pm-names .flow-pm-name { filter: blur(7px); user-select: none; }
 body.pm-names .flow-card img { filter: blur(12px); }
-/* Thumbnails blurred (settings.css body.pm-thumbs, no hover reveal): the cards,
-   the floating card and the small panel's frame too; flow.js does not scrub. */
+/* Thumbnails blurred (settings.css body.pm-thumbs, no hover reveal): the cards
+   and the floating card too; flow.js does not scrub. */
 body.pm-thumbs .flow-card img,
-body.pm-thumbs .flow-hcard img,
-body.pm-thumbs .flow-tip-img img { filter: blur(14px); }
-/* A library tile's hover popover never shows over full screen. */
-body.flow-fs-on #tilePopover { display: none !important; }
+body.pm-thumbs .flow-hcard img { filter: blur(14px); }
 
 body.layout-modern .flow-hcard,
 body.layout-modern .flow-strip {
@@ -679,22 +601,7 @@ body.layout-modern .flow-strip {
 }
 body.layout-modern .flow-hcard { box-shadow: var(--m-shadow); color: var(--m-text); }
 body.layout-modern .flow-hc-m,
-body.layout-modern .flow-st-hands,
+body.layout-modern .flow-st-h,
 body.layout-modern .flow-st-k { color: var(--m-muted); }
-body.layout-modern .flow-fs-orderbar { border-radius: var(--m-radius-sm, 8px); color: var(--m-text-2); }
-body.flow-fs-on #flowPanel > .flow-row:last-child { margin-left: var(--flow-fs-mini-l, 0px); margin-right: var(--flow-fs-mini-r, 0px); }
-@media (max-width: 900px) {
-  .flow-st-acts { justify-content: flex-start; }
-}
-/* A short window: a tighter strip, so the plot keeps its height. */
-@media (max-height: 800px) {
-  .flow-strip { gap: 4px 14px; padding: 6px 10px; }
-  .flow-st-hands { font-size: 0.74rem; gap: 2px; }
-  body.flow-fs-on #flowPanel.flow-panel { gap: 6px; padding-top: 8px; padding-bottom: 8px; }
-}
-/* Very short (1280x560 and less): the legend row goes and the strip is shorter. */
-@media (max-height: 640px) {
-  body.flow-fs-on #flowPanel > .flow-row:last-child { display: none; }
-  .flow-strip { max-height: 20vh; }
-  body.flow-fs-on #flowPanel .flow-names { margin-top: 0; }
-}
+body.layout-modern .flow-strip { font-size: 12px; }
+body.layout-modern .flow-st-acts .flow-btn-sm { min-height: 20px; font-size: 11.5px; }

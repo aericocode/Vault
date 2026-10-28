@@ -89,7 +89,7 @@ function fakeEl(over = {}) {
     clientWidth: 800, offsetWidth: 200, offsetHeight: 20, isConnected: true,
     classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
     setAttribute() {}, getAttribute: () => null, removeAttribute() {}, addEventListener() {}, removeEventListener() {},
-    appendChild() {}, remove() {}, replaceWith() {}, insertAdjacentHTML() {}, focus() {},
+    appendChild() {}, append() {}, remove() {}, replaceWith() {}, insertAdjacentHTML() {}, focus() {},
     setPointerCapture() {}, releasePointerCapture() {},
     querySelector: () => fakeEl(), querySelectorAll: () => [],
     closest: () => null,
@@ -119,7 +119,7 @@ function page({ ready = true, flowOrder = false } = {}) {
       readyState: 'complete', body, activeElement: null,
       getElementById: (id) => (id === 'flowPanel' ? panelEl : id === 'flowChartWrap' ? wrap : null),
       querySelector: (q) => (q === '#flowChartWrap svg' ? svg : null),
-      querySelectorAll: () => [], addEventListener() {},
+      querySelectorAll: () => [], addEventListener() {}, createElement: () => fakeEl(),
     },
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
@@ -133,7 +133,7 @@ function page({ ready = true, flowOrder = false } = {}) {
       return ok({ collection: { total: 5, measurable: 5, measured: 5, failed: 0, left: 0, stale: 0 }, queue: { state: 'idle' } });
     },
   };
-  ctx.window = { addEventListener() {}, dispatchEvent() {} };
+  ctx.window = { addEventListener() {}, removeEventListener() {}, dispatchEvent() {} };
   vm.createContext(ctx);
   vm.runInContext(SRC, ctx);
   const Flow = ctx.window.Flow;

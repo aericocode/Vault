@@ -1,15 +1,16 @@
 /**
- * Full-screen Flow (player-lib/flow.js "Full screen"):
+ * The Flow panel's chart view (player-lib/flow.js "Under the chart"):
  *  - the pure parts (player-lib/flow-chart-math.js): Fit and Zoom geometry,
- *    the plot's height, what is under the pointer (a column and where in
- *    it, or a hand-over), the pointer's place as a time and a hover frame
- *    (as the seek bars pick them), keeping the playing column in view, and
- *    the sideways scroll while a drag sits near an edge;
- *  - flow.js in a vm with a permissive fake page: in and out (the button's
- *    toggle, F, Esc, never while typing or when another listener took Esc),
- *    the order and picks kept, the grid not drawn on every poll while full
- *    screen covers it, picking a file or a hand-over for the strip, and a
- *    column drag in Zoom (also after the chart scrolled sideways).
+ *    when tag rows and preview cards show and how tall the cards row is,
+ *    what is under the pointer (a column and where in it, or a hand-over),
+ *    the pointer's place as a time and a hover frame (as the seek bars pick
+ *    them), keeping the playing column in view, and the sideways scroll
+ *    while a drag sits near an edge;
+ *  - flow.js in a vm with a permissive fake page: Fit / Zoom (remembered),
+ *    the plot keeping the grip's height, tag rows, preview cards, picking a
+ *    file or a hand-over for the strip under the names, Show in list, a
+ *    column drag in Zoom (also after the chart scrolled sideways), following
+ *    what plays, and nothing listening to the page's scroll or wheel.
  */
 
 const test = require('node:test');
@@ -24,61 +25,32 @@ const DockGeom = require('../player-lib/player/dock-geometry.js');
 
 /* ── The pure parts ───────────────────────────────────────────────────── */
 
-test('Fit puts the whole list in the width; Zoom gives each file FS_COL_PX and widens the chart', () => {
-  const fit = M.fsLayout(1200, 40, 40, 8, false);
+test('Fit puts the whole list in the width; Zoom gives each file ZOOM_COL_PX and widens the chart', () => {
+  const fit = M.colLayout(1200, 40, 40, 8, false);
   assert.strictEqual(fit.W, 1200);
   assert.strictEqual(fit.step, (1200 - 48) / 40);
-  const zoom = M.fsLayout(1200, 40, 40, 8, true);
-  assert.strictEqual(zoom.step, M.FS_COL_PX);
-  assert.strictEqual(zoom.W, 48 + 40 * M.FS_COL_PX, 'scrolled sideways');
-  // A short list is already wider than FS_COL_PX a file: Zoom changes nothing.
-  assert.deepStrictEqual(M.fsLayout(1200, 4, 40, 8, true), M.fsLayout(1200, 4, 40, 8, false));
-  assert.strictEqual(M.fsLayout(50, 3, 40, 8, false).W, 200, 'never narrower than 200');
+  const zoom = M.colLayout(1200, 40, 40, 8, true);
+  assert.strictEqual(zoom.step, M.ZOOM_COL_PX);
+  assert.strictEqual(M.ZOOM_COL_PX, 140);
+  assert.strictEqual(zoom.W, 48 + 40 * M.ZOOM_COL_PX, 'scrolled sideways');
+  // A short list is already wider than ZOOM_COL_PX a file: Zoom changes nothing.
+  assert.deepStrictEqual(M.colLayout(1200, 4, 40, 8, true), M.colLayout(1200, 4, 40, 8, false));
+  assert.strictEqual(M.colLayout(50, 3, 40, 8, false).W, 200, 'never narrower than 200');
 });
 
-test('the plot gets the height the lanes, names, cards and scrollbar leave, never under 80', () => {
-  const plain = M.fsPlotHeight(600, { lanes: 0 });
-  const lanes = M.fsPlotHeight(600, { lanes: 3 });
-  assert.strictEqual(plain - lanes, 3 * 14);
-  const cards = M.fsPlotHeight(600, { lanes: 3, thumbs: M.fsCardHeight(140), bar: 14 });
-  assert.strictEqual(lanes - cards, M.fsCardHeight(140) + 14);
-  assert.strictEqual(M.fsPlotHeight(60, { lanes: 5 }), 80);
-  assert.ok(M.fsCardHeight(140) > 60 && M.fsCardHeight(140) < 100, '16:9 in a 140 px column');
-  assert.strictEqual(M.fsCardWidth(1000), M.FS_CARD_MAX_W, 'a very wide column: the card stops growing');
-  assert.strictEqual(M.fsCardHeight(1000), Math.round(M.FS_CARD_MAX_W * 9 / 16) + 8);
-});
-
-test('full screen chart height: about a third of the window, 140 to 260 px', () => {
-  assert.strictEqual(M.fsChartHeight(720), Math.round(720 * 0.34));
-  assert.strictEqual(M.fsChartHeight(600), Math.round(600 * 0.34));
-  assert.strictEqual(M.fsChartHeight(1080), 260, 'a tall window no longer stretches the curve');
-  assert.strictEqual(M.fsChartHeight(2160), M.FS_CHART_MAX);
-  assert.strictEqual(M.fsChartHeight(300), M.FS_CHART_MIN);
-  assert.strictEqual(M.fsChartHeight(0), 140);
-  assert.strictEqual(M.fsChartHeight(NaN), 140);
-  // fsRows: the plot is never taller than that, whatever room the view has.
-  assert.strictEqual(M.fsRows(2000, 1080, { step: 140, lanes: 3 }).PH, 260);
-  assert.strictEqual(M.fsRows(2000, 720, { step: 140, lanes: 3 }).PH, 245);
-  // ...and shorter when the rows under it need the room.
-  const tight = M.fsRows(430, 720, { step: 140, lanes: 3, bar: 14 });
-  assert.ok(tight.cardsOn && tight.PH < 245 && tight.PH >= M.FS_PLOT_MIN, `plot ${tight.PH}`);
-});
-
-test('narrow columns: under FS_CARD_PX no tag text and no cards; cards go first in a short view', () => {
-  assert.strictEqual(M.FS_CARD_PX, 70);
-  const narrow = M.fsRows(800, 1080, { step: 69.9, lanes: 3 });
-  assert.deepStrictEqual({ rich: narrow.rich, cardsOn: narrow.cardsOn, laneRow: narrow.laneRow, cardH: narrow.cardH }, { rich: false, cardsOn: false, laneRow: 14, cardH: 0 });
-  const wide = M.fsRows(800, 1080, { step: 70, lanes: 3 });
-  assert.deepStrictEqual({ rich: wide.rich, cardsOn: wide.cardsOn, laneRow: wide.laneRow }, { rich: true, cardsOn: true, laneRow: M.FS_TAG_ROW });
-  assert.strictEqual(wide.cardH, M.fsCardHeight(70));
-  assert.strictEqual(M.fsRows(800, 1080, { step: 140, lanes: 3, cards: false }).cardsOn, false, 'thumbnails off: no cards');
-  const tighter = M.fsRows(330, 720, { step: 140, lanes: 3, bar: 14 });
-  assert.ok(tighter.cardsOn && tighter.cardH < M.fsCardHeight(140) && tighter.cardH >= M.FS_CARD_MIN_H, 'tight: smaller cards first');
-  assert.strictEqual(tighter.PH, M.FS_PLOT_MIN, 'with the plot at its least');
-  assert.ok(M.fsCardWidth(140, tighter.cardH) < M.fsCardWidth(140), 'a smaller card keeps 16:9');
-  const short = M.fsRows(260, 720, { step: 140, lanes: 2, bar: 14 });
-  assert.strictEqual(short.cardsOn, false, 'short: the cards row goes');
-  assert.strictEqual(short.rich, true, 'the tags stay readable');
+test('under CARD_PX a column: colour bars and no cards; wider: tag rows and a card row of at most CARD_ROW_MAX', () => {
+  assert.strictEqual(M.CARD_PX, 70);
+  assert.deepStrictEqual(M.cardRows(69.9), { rich: false, cardsOn: false, cardH: 0 });
+  const at70 = M.cardRows(70);
+  assert.deepStrictEqual({ rich: at70.rich, cardsOn: at70.cardsOn }, { rich: true, cardsOn: true });
+  assert.strictEqual(at70.cardH, Math.round(62 * 9 / 16) + 8, '16:9 in a 70 px column');
+  assert.strictEqual(M.cardRows(140).cardH, 82, 'Zoom: 16:9 in a 140 px column');
+  assert.strictEqual(M.cardRows(600).cardH, M.CARD_ROW_MAX, 'a wide Fit column: the row stops growing');
+  assert.ok(M.CARD_ROW_MAX >= 80 && M.CARD_ROW_MAX <= 90, 'a modest row: the panel sits over the library');
+  assert.deepStrictEqual(M.cardRows(140, false), { rich: true, cardsOn: false, cardH: 0 }, 'thumbnails off: tags, no cards');
+  assert.strictEqual(M.cardWidth(600, M.CARD_ROW_MAX), Math.round((M.CARD_ROW_MAX - 8) * 16 / 9), 'a capped card keeps 16:9');
+  assert.strictEqual(M.cardWidth(140), 132);
+  assert.strictEqual(M.cardWidth(10), 24, 'never thinner than 24');
 });
 
 test('a card: the pointer x across it picks the nearest of the five frames; at rest the first', () => {
@@ -176,61 +148,57 @@ function fakeEl(over = {}) {
     querySelector: () => fakeEl(), querySelectorAll: () => [],
     closest: () => null,
     getBoundingClientRect: () => ({ left: 0, top: 0, right: 800, bottom: 300, width: 800, height: 300 }),
-    matches: () => false, getClientRects: () => [1],
+    matches: () => false, getClientRects: () => [1], contains: () => false,
     ...over,
   };
   return el;
 }
 
-function page({ wrapW = 800, wrapH = 500, vh = 720, stage = false, extra = {}, win = {}, n = 5, strip: stripEl = null, layout = null } = {}) {
+function page({ wrapW = 800, stage = false, extra = {}, win = {}, n = 5, store = {}, grid = null } = {}) {
   const ids = Array.from({ length: n }, (_, i) => 11 + i);
   const feats = ids.map((id, i) => ({ id, name: `file${id}.mp4`, measured: true, music: true, es: 0.2 + 0.1 * i, em: 0.25 + 0.1 * i, ee: 0.3 + 0.1 * i, bs: 120, bm: 120, be: 120 }));
-  const answer = () => ({ shape: 'smooth', edges: 'off', order: ids.slice().reverse(), playlistOrder: ids.slice(), features: feats, targets: null,
+  const answer = () => ({ shape: 'smooth', edges: 'off', order: ids.slice().reverse(), playlistOrder: ids.slice(), features: feats.map(f => ({ ...f })), targets: null,
     handovers: [], jumps: 0, playlistJumps: 0, counts: { measured: n, failed: 0, music: n }, places: {}, placesOn: false });
-  const moves = [], played = [], renders = [];
+  const moves = [], played = [], renders = [], revealed = [];
   const svgBox = { left: 0 };
   const svg = fakeEl({ getBoundingClientRect: () => ({ left: svgBox.left, top: 0, right: svgBox.left + 800, bottom: 300, width: 800, height: 300 }) });
   const parts = new Map();          // the wrap's own children, kept (what was drawn can be read)
-  const wrapListeners = {};        // the wrap's own listeners (scroll, wheel)
+  const wrapListeners = {};        // the wrap's own listeners (scroll, and the user's wheel, press or key)
+  const wrapOpts = {};
+  const wrapClasses = new Set();
   const wrap = fakeEl({ clientWidth: wrapW, querySelector: (q) => (q === 'svg' ? svg : (parts.get(q) || parts.set(q, fakeEl()).get(q))),
-    addEventListener: (t, fn) => { (wrapListeners[t] = wrapListeners[t] || []).push(fn); } });
-  const strip = stripEl || fakeEl();
-  // A view whose height is what the strip leaves (wrapH a function of the strip), or a fixed one.
-  Object.defineProperty(wrap, 'clientHeight', { get: () => (typeof wrapH === 'function' ? wrapH(strip) : wrapH) });
+    addEventListener: (t, fn, o) => { (wrapListeners[t] = wrapListeners[t] || []).push(fn); wrapOpts[t] = o; },
+    classList: { add: (c) => wrapClasses.add(c), remove: (c) => wrapClasses.delete(c), toggle: (c, on) => (on ? wrapClasses.add(c) : wrapClasses.delete(c)), contains: (c) => wrapClasses.has(c) } });
+  const strip = fakeEl({ id: 'flowStrip' });
   const panelEl = fakeEl();
-  if (layout) {
-    // A laid-out panel (flow.js fsRoom): its height, a top row, the wrap, the strip, the legend.
-    panelEl.clientHeight = layout.h;
-    panelEl.children = [fakeEl({ offsetHeight: 40 }), wrap, strip, fakeEl({ offsetHeight: 20 })];
-  }
   const classes = new Set();
   const body = fakeEl({ classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c), toggle() {}, contains: (c) => classes.has(c) } });
-  const keyListeners = [];         // window keydown listeners in the order added: { fn, capture }
+  const winListeners = [];         // window listeners: { type, fn }
+  const docListeners = [];         // document listeners: { type, fn }
   const ok = (b) => ({ ok: true, status: 200, json: async () => b });
   const ctx = {
     console, FlowOrder, FlowChartMath: M, DragAutoScroll,
     activeCollectionId: 3,
     collectionMembers: new Map([[3, ids.slice()]]),
     document: {
-      readyState: 'complete', body, activeElement: null,
-      getElementById: (id) => (id === 'flowPanel' ? panelEl : id === 'flowChartWrap' ? wrap : id === 'flowStrip' ? strip : null),
+      readyState: 'complete', body, activeElement: null, hidden: false,
+      getElementById: (id) => (id === 'flowPanel' ? panelEl : id === 'flowChartWrap' ? wrap : id === 'flowStrip' ? strip : id === 'resultsGrid' ? grid : null),
       querySelector: (q) => (q === '#flowChartWrap svg' ? svg : null),
-      querySelectorAll: () => [], addEventListener() {}, createElement: () => fakeEl(),
+      querySelectorAll: () => [], addEventListener: (type, fn) => docListeners.push({ type, fn }), createElement: () => fakeEl(),
       documentElement: { clientWidth: 1280 },
     },
-    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    localStorage: { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } },
     setTimeout: (fn) => { fn(); return 0; }, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
     requestAnimationFrame: () => 0, cancelAnimationFrame() {},
     performance: { now: () => Date.now() },
     applyFilters: async () => {},
     renderResults: () => renders.push(1),
-    Library: { indexOf: () => -1 },
+    Library: { indexOf: (id) => ids.indexOf(id) },
+    revealMediaIndex: (i) => revealed.push(i),
     reorderReady: () => true,
     reorderMove: async (moveIds, before) => { moves.push({ ids: moveIds, before }); return true; },
     playMediaById: (id) => played.push(id),
     StageControl: { isOpen: () => stage, basicOn: () => false },
-    isTypingTarget: (el) => !!(el && el.tagName === 'INPUT'),
-    ...(layout ? { getComputedStyle: () => ({ paddingTop: '10px', paddingBottom: '10px', rowGap: '8px' }) } : {}),
     ...extra,
     fetch: async (url) => {
       if (/\/api\/flow\/collections\/\d+\?/.test(url)) return ok(answer());
@@ -238,21 +206,21 @@ function page({ wrapW = 800, wrapH = 500, vh = 720, stage = false, extra = {}, w
     },
   };
   ctx.window = {
-    addEventListener: (type, fn, opt) => { if (type === 'keydown') keyListeners.push({ fn, capture: opt === true || !!(opt && opt.capture) }); },
-    dispatchEvent() {}, innerWidth: 1280, innerHeight: vh, scrollY: 0, scrollTo() {}, ...win,
+    addEventListener: (type, fn, opt) => winListeners.push({ type, fn, opt }),
+    removeEventListener: (type, fn) => { const i = winListeners.findIndex(l => l.type === type && l.fn === fn); if (i >= 0) winListeners.splice(i, 1); },
+    dispatchEvent() {}, innerWidth: 1280, innerHeight: 720, scrollY: 0, scrollTo() {}, ...win,
   };
   vm.createContext(ctx);
   vm.runInContext(SRC, ctx);
   const Flow = ctx.window.Flow;
-  const F = Flow._full;
+  const V = Flow._view;
   const key = (k, over = {}) => {
     const e = { key: k, target: body, defaultPrevented: false, ctrlKey: false, metaKey: false, altKey: false, repeat: false,
       preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}, ...over };
-    // As the browser runs them on window: capture listeners in the order added, then the rest.
-    const order = [...keyListeners.filter(l => l.capture), ...keyListeners.filter(l => !l.capture)];
-    for (const l of (over.reverse ? order.reverse() : order)) l.fn(e);
+    for (const l of winListeners.filter(x => x.type === 'keydown')) l.fn(e);
     return e;
   };
+  const fire = (type) => { for (const l of docListeners.filter(x => x.type === type)) l.fn({ type }); };
   const geom = () => Flow._state().geom;
   const colX = (i) => svgBox.left + geom().L + (i + 0.5) * geom().step;
   const gapX = (s) => svgBox.left + geom().L + s * geom().step;
@@ -260,106 +228,197 @@ function page({ wrapW = 800, wrapH = 500, vh = 720, stage = false, extra = {}, w
   const D = Flow._drag;
   const press = (x) => D.down({ button: 0, target, clientX: x, clientY: 100, pointerId: 1 });
   const moveTo = (x) => D.move({ pointerId: 1, buttons: 1, clientX: x, clientY: 100, preventDefault() {} });
-  return { ctx, Flow, F, D, key, classes, strip, wrap, wrapListeners, parts, svgBox, moves, played, renders, geom, colX, gapX, press, moveTo, target };
+  return { ctx, Flow, V, D, key, fire, wrapOpts, classes, strip, panelEl, wrap, wrapClasses, wrapListeners, winListeners, docListeners, parts, svgBox, moves, played, renders, revealed, store, geom, colX, gapX, press, moveTo, target };
 }
 
-test('in and out: the button, F, Esc; never while typing, or when Esc was taken first', async () => {
-  const p = page();
+test('Fit and Zoom in the panel: Zoom widens the chart past the view and scrolls it; the choice is remembered', async () => {
+  const store = {};
+  const p = page({ wrapW: 500, store });
   await p.Flow.toggle(3);
-  assert.strictEqual(p.Flow.isFull(), false);
-  assert.strictEqual(p.F.toggle(), true, 'the ⛶ button');
-  assert.strictEqual(p.Flow.isFull(), true);
-  assert.ok(p.classes.has('flow-fs-on'));
-  p.F.toggle();                          // Exit full screen
-  assert.strictEqual(p.Flow.isFull(), false);
-  assert.ok(!p.classes.has('flow-fs-on'));
-
-  assert.ok(p.key('f').defaultPrevented, 'F opens it');
-  assert.strictEqual(p.Flow.isFull(), true);
-  p.key('F');
-  assert.strictEqual(p.Flow.isFull(), false, 'F again closes it');
-  p.key('f');
-  p.key('Escape');
-  assert.strictEqual(p.Flow.isFull(), false, 'Esc closes it');
-  assert.strictEqual(p.key('Escape').defaultPrevented, false, 'Esc while not full screen is left to the page');
-
-  p.key('f', { target: { tagName: 'INPUT' } });
-  assert.strictEqual(p.Flow.isFull(), false, 'typing an f in a box');
-  p.key('f', { ctrlKey: true });
-  assert.strictEqual(p.Flow.isFull(), false, 'Ctrl+F is the browser\'s');
-  p.key('f');
-  p.key('Escape', { defaultPrevented: true });
-  assert.strictEqual(p.Flow.isFull(), true, 'an Esc another listener took (a drag, Up next\'s list) does not close it');
-  p.key('Escape');
-  assert.strictEqual(p.Flow.isFull(), false);
-});
-
-test('F does nothing while the panel is closed; hiding the panel leaves full screen', async () => {
-  const p = page();
-  p.key('f');
-  assert.strictEqual(p.Flow.isFull(), false);
-  await p.Flow.toggle(3);
-  p.key('f');
-  assert.strictEqual(p.Flow.isFull(), true);
-  p.Flow.close();
-  assert.strictEqual(p.Flow.isFull(), false);
-  assert.ok(!p.classes.has('flow-fs-on'));
-});
-
-test('the order, edits and picks are the same in full screen and back', async () => {
-  const p = page();
-  await p.Flow.toggle(3);
-  await p.Flow.pickShape('waves');
-  await p.Flow.moveInOrder([11], 15);
-  const before = { ...p.Flow._state() };
-  p.F.toggle();
-  assert.deepStrictEqual([...p.geom().order], [...before.edited], 'full screen draws the edited Flow order');
-  p.F.pick(2);
-  p.F.zoom(true);
-  p.F.toggle();
-  const after = p.Flow._state();
-  assert.strictEqual(after.order, true);
-  assert.strictEqual(after.shape, 'waves');
-  assert.deepStrictEqual([...after.edited], [...before.edited]);
-  assert.deepStrictEqual([...p.geom().order], [...before.edited]);
-  p.F.toggle();
-  assert.strictEqual(p.F.state().zoom, true, 'Zoom is kept for next time');
-  assert.strictEqual(p.F.state().sel, before.edited[2], 'and the file picked');
-});
-
-test('a poll while full screen covers the grid does not draw the grid; leaving draws it once', async () => {
-  const p = page();
-  await p.Flow.toggle(3);
-  p.F.toggle();
-  const n = p.renders.length;
-  await p.Flow.refetch(true);
-  await p.Flow.refetch(true);
-  assert.strictEqual(p.renders.length, n, 'no grid redraw');
-  assert.strictEqual(p.F.state().gridStale, true);
-  p.F.toggle();
-  assert.strictEqual(p.renders.length, n + 1, 'once on the way out');
-  await p.Flow.refetch(true);
-  assert.strictEqual(p.renders.length, n + 2, 'the small panel draws it as before');
-});
-
-test('Fit and Zoom geometry in the page: Zoom widens the chart past the view', async () => {
-  const p = page({ wrapW: 500 });
-  await p.Flow.toggle(3);
-  p.F.toggle();
+  assert.strictEqual(p.V.state().zoom, false, 'Fit by default');
   assert.strictEqual(p.geom().W, 500);
   assert.ok(Math.abs(p.geom().step * 5 + p.geom().L + p.geom().R - 500) < 1e-9);
-  p.F.zoom(true);
-  assert.strictEqual(p.geom().step, M.FS_COL_PX);
-  assert.strictEqual(p.geom().W, p.geom().L + p.geom().R + 5 * M.FS_COL_PX);
-  assert.ok(p.geom().PH >= 80);
+  assert.strictEqual(p.wrapClasses.has('flow-zoomed'), false);
+  p.V.zoom(true);
+  assert.strictEqual(p.geom().step, M.ZOOM_COL_PX);
+  assert.strictEqual(p.geom().W, p.geom().L + p.geom().R + 5 * M.ZOOM_COL_PX);
+  assert.strictEqual(p.wrapClasses.has('flow-zoomed'), true, 'the wrap scrolls sideways');
+  assert.strictEqual(store['vault.flow.zoom'], '1');
+  // A new page (a reload) starts in Zoom.
+  const q = page({ wrapW: 500, store });
+  await q.Flow.toggle(3);
+  assert.strictEqual(q.V.state().zoom, true);
+  assert.strictEqual(q.geom().step, M.ZOOM_COL_PX);
+  q.V.zoom(false);
+  assert.strictEqual(store['vault.flow.zoom'], '0');
+});
+
+test('the plot keeps the panel\'s own height (the grip\'s, or by width), whatever the window or Zoom', async () => {
+  const p = page({ wrapW: 1200 });
+  await p.Flow.toggle(3);
+  assert.strictEqual(p.geom().PH, 150, 'the default for a wide panel');
+  p.V.zoom(true);
+  assert.strictEqual(p.geom().PH, 150, 'Zoom changes the width only');
+  const q = page({ wrapW: 1200, store: { 'vault.flow.chartHeight': '220' } });
+  await q.Flow.toggle(3);
+  assert.strictEqual(q.geom().PH, 220, 'the height the grip left');
+});
+
+test('the panel\'s first row: Fit / Zoom and Hide; no full screen button or key', async () => {
+  const p = page();
+  await p.Flow.toggle(3);
+  const html = p.panelEl.innerHTML;
+  assert.match(html, /data-flow-zoom="0"[^>]*>Fit</);
+  assert.match(html, /data-flow-zoom="1"[^>]*>Zoom</);
+  assert.match(html, /data-flow-hide/);
+  assert.doesNotMatch(html, /data-flow-full|⛶|Full screen/);
+  assert.match(html, /id="flowStrip"/, 'the strip under the names');
+  assert.doesNotMatch(html, /—/, 'no em dashes');
+  assert.strictEqual(p.key('f').defaultPrevented, false, 'F is left to the page');
+  assert.strictEqual(p.Flow.isFull, undefined);
+  assert.strictEqual(p.Flow.toggleFull, undefined);
+});
+
+test('lanes have one set of picks (the panel\'s): the old full screen key is never read or written', async () => {
+  const store = { 'vault.flow.fsLanes': JSON.stringify({ tempo: true }) };
+  const p = page({ wrapW: 900, store, win: roleLane });
+  await p.Flow.toggle(3);
+  assert.doesNotMatch(p.parts.get('.flow-ltags').innerHTML, />Tempo</, 'Tempo is off by default, whatever the old key says');
+  assert.match(p.parts.get('.flow-ltags').innerHTML, />Role</);
+  assert.strictEqual(store['vault.flow.fsLanes'], JSON.stringify({ tempo: true }), 'left as it was');
+});
+
+test('nothing listens to the page\'s scroll or wheel while nothing is hovered, and the chart takes no wheel', async () => {
+  const p = page({ wrapW: 400 });
+  await p.Flow.toggle(3);
+  p.V.zoom(true);
+  p.V.pick(1);
+  const types = p.winListeners.map(l => l.type).concat(p.docListeners.map(l => l.type));
+  assert.ok(!types.includes('scroll') && !types.includes('wheel'), `window and document: ${types.join(', ')}`);
+  assert.deepStrictEqual(Object.keys(p.wrapListeners).sort(), ['keydown', 'pointerdown', 'scroll', 'wheel'], 'the chart: its own scroll, and the user\'s hand on it');
+  for (const t of ['wheel', 'scroll']) assert.strictEqual(p.wrapOpts[t].passive, true, `${t} is only heard, never taken`);
+});
+
+test('a page scroll while something is hovered clears it all; the listener is there only meanwhile', async () => {
+  const p = page({ wrapW: 1000 });
+  await p.Flow.toggle(3);
+  const scrolls = () => p.winListeners.filter(l => l.type === 'scroll');
+  assert.strictEqual(scrolls().length, 0);
+  // A lit column and a scrubbed card (the pointer over a column).
+  p.V.hot(2);
+  p.V.scrub(2, 0.6);
+  assert.strictEqual(scrolls().length, 1, 'heard while something shows');
+  assert.deepStrictEqual({ capture: scrolls()[0].opt.capture, passive: scrolls()[0].opt.passive }, { capture: true, passive: true }, 'every scroll (element scrolls do not bubble), never taken');
+  assert.strictEqual(p.V.cards().find(c => c.i === 2).bar, '60%');
+  scrolls()[0].fn({ type: 'scroll' });   // the page scrolls under the still pointer
+  assert.strictEqual(p.V.state().hot, -1, 'the column is not lit any more');
+  assert.strictEqual(p.V.cards().find(c => c.i === 2).bar, '0', 'the card is back on its first frame');
+  assert.strictEqual(scrolls().length, 0, 'and the listener is gone');
+  // The chart itself scrolling under a still pointer clears the same.
+  p.V.hot(3);
+  for (const fn of p.wrapListeners.scroll) fn();
+  assert.strictEqual(p.V.state().hot, -1);
+  assert.strictEqual(scrolls().length, 0);
+  // Leaving the hover by itself takes the listener away too.
+  p.V.hot(1);
+  assert.strictEqual(scrolls().length, 1);
+  p.V.hot(-1);
+  assert.strictEqual(scrolls().length, 0);
+});
+
+test('a strip button with keyboard focus keeps it across repaints: Show N and close too', async () => {
+  const p = page();
+  await p.Flow.toggle(3);
+  p.V.pickHand(1);
+  for (const sel of ['[data-flow-pick="-1"]', '[data-flow-pick="2"]', '[data-flow-act="play"]']) {
+    const [attr, val] = sel.slice(1, -1).split('=');
+    const btn = fakeEl({ dataset: attr === 'data-flow-pick' ? { flowPick: JSON.parse(val) } : { flowAct: JSON.parse(val) },
+      matches: (q) => q === `#flowPanel [${attr}]` });
+    p.ctx.document.activeElement = btn;
+    const focused = [];
+    p.panelEl.querySelector = (q) => fakeEl({ focus: () => focused.push(q) });
+    await p.Flow.refetch(true);           // a poll's repaint
+    assert.ok(focused.length >= 1 && focused.every(q => q === sel), `${sel} keeps focus: ${focused}`);
+  }
+});
+
+test('a poll answer that changes nothing on the tiles does not draw the grid; opening and closing do', async () => {
+  const p = page();
+  await p.Flow.toggle(3);
+  const n = p.renders.length;
+  assert.strictEqual(n, 1, 'opening draws the tiles with their Flow row, once');
+  await p.Flow.refetch(true);
+  await p.Flow.refetch(true);
+  assert.strictEqual(p.renders.length, n, 'same measurements: no grid redraw');
+  p.Flow.close();
+  assert.strictEqual(p.renders.length, n + 1, 'closing takes the Flow row off');
+  await p.Flow.toggle(3);
+  assert.strictEqual(p.renders.length, n + 2, 'opening again draws it once');
+});
+
+test('a measurement landing rewrites only the Flow row of the tiles on screen, never the whole grid', async () => {
+  let measured = false;
+  const tile = (id) => {
+    const t = fakeEl({ dataset: { id: String(id) }, rows: [] });
+    t.querySelector = (q) => (q === ':scope > .tile-flow' ? t.rows[0] || null : null);
+    t.insertAdjacentHTML = (where, html) => { const r = fakeEl({ html }); r.remove = () => { t.rows = t.rows.filter(x => x !== r); }; t.rows.push(r); };
+    return t;
+  };
+  const tiles = [11, 12, 13].map(tile);
+  const grid = fakeEl({ querySelectorAll: (q) => (q === '.media-tile[data-id]:not(.tv-row)' ? tiles : []) });
+  const p = page({ grid, extra: { Library: { indexOf: (id) => id - 11, idAt: (i) => 11 + i } } });
+  const realFetch = p.ctx.fetch;
+  p.ctx.fetch = async (url) => {
+    const r = await realFetch(url);
+    if (!/\/api\/flow\/collections\/\d+\?/.test(url) || !measured) return r;
+    const b = await r.json();
+    b.features[0].em = 0.9;
+    return { ok: true, status: 200, json: async () => b };
+  };
+  await p.Flow.toggle(3);
+  const n = p.renders.length;
+  measured = true;
+  await p.Flow.refetch(true);
+  assert.strictEqual(p.renders.length, n, 'no grid redraw while measuring');
+  for (const t of tiles) assert.strictEqual(t.rows.length, 1, 'each tile has one Flow row');
+  assert.match(tiles[0].rows[0].html, /flow-ebar/);
+  assert.match(tiles[0].rows[0].html, /height:11px/, 'the new measurement (0.9 energy) on the tile');
+  // The same answer again: nothing rewritten.
+  const before = tiles.map(t => t.rows[0]);
+  await p.Flow.refetch(true);
+  assert.deepStrictEqual(tiles.map(t => t.rows[0]), before);
+});
+
+test('the grid is drawn when the order it shows changes (Flow order), through the filters, once', async () => {
+  let flip = false;
+  const filters = [];
+  const p = page({ extra: { applyFilters: async () => { filters.push(1); } } });
+  const realFetch = p.ctx.fetch;
+  p.ctx.fetch = async (url) => {
+    const r = await realFetch(url);
+    if (!/\/api\/flow\/collections\/\d+\?/.test(url) || !flip) return r;
+    const b = await r.json();
+    b.order = b.order.slice().reverse();
+    return { ok: true, status: 200, json: async () => b };
+  };
+  await p.Flow.toggle(3);
+  await p.Flow.useFlowOrder();
+  const f = filters.length, n = p.renders.length;
+  await p.Flow.refetch(true);
+  assert.strictEqual(filters.length, f, 'the same order: nothing drawn');
+  flip = true;
+  await p.Flow.refetch(true);
+  assert.strictEqual(filters.length, f + 1, 'a new order: the grid gets it');
+  assert.strictEqual(p.renders.length, n, 'and no second, direct grid redraw');
 });
 
 test('picking a column fills the strip; a hand-over explains itself; Play says Stage when Stage is open', async () => {
   const p = page();
   await p.Flow.toggle(3);
-  p.F.toggle();
-  p.F.pick(2);
-  let html = p.F.strip();
+  assert.match(p.strip.innerHTML, /Click a file to see it here/, 'a short hint while nothing is picked');
+  p.V.pick(2);
+  let html = p.V.strip();
+  assert.strictEqual(p.strip.innerHTML, html);
   assert.match(html, /Selected · 3 of 5/);
   assert.match(html, /file13/);
   assert.match(html, /<b>In:<\/b>/);
@@ -367,41 +426,45 @@ test('picking a column fills the strip; a hand-over explains itself; Play says S
   assert.match(html, /energy \d+ to \d+, 120 BPM to 120 BPM/, 'the why: both ends');
   assert.match(html, />Play</);
   assert.match(html, /data-flow-act="preview"/);
-  assert.match(html, /Play next|data-flow-act="remove"/);
+  assert.match(html, /data-flow-act="reveal"[^>]*>Show in list</);
+  assert.match(html, /data-flow-pick="-1"/, 'a way to close it');
   assert.doesNotMatch(html, /—/, 'no em dashes');
-  p.F.pickHand(0);
-  html = p.F.strip();
+  p.V.pickHand(0);
+  html = p.V.strip();
   assert.match(html, /Hand-over · 1 into 2 of 5/);
   assert.match(html, /file11.*into.*file12/s);
+  p.V.pick(-1);
+  assert.match(p.strip.innerHTML, /Click a file/);
 
   const q = page({ stage: true });
   await q.Flow.toggle(3);
-  q.F.toggle();
-  q.F.pick(0);
-  assert.match(q.F.strip(), />Play on Stage</);
-  assert.match(q.F.strip(), /First in the order/);
+  q.V.pick(0);
+  assert.match(q.V.strip(), />Play on Stage</);
+  assert.match(q.V.strip(), /First in the order/);
 });
 
-test('a click picks a column, two quick clicks on it play it, a click near a boundary picks the hand-over', async () => {
+test('a click picks a column (the page does not scroll), two quick clicks play it, a click near a boundary picks the hand-over; Show in list scrolls', async () => {
   const p = page();
   await p.Flow.toggle(3);
-  p.F.toggle();
   const g = p.geom();
-  p.F.click({ clientX: p.colX(1), clientY: 100, target: {} });
-  assert.strictEqual(p.F.state().sel, g.order[1]);
-  p.F.click({ clientX: p.colX(1), clientY: 100, target: {} });
+  p.V.click({ clientX: p.colX(1), clientY: 100, target: {} });
+  assert.strictEqual(p.V.state().sel, g.order[1]);
+  assert.deepStrictEqual(p.revealed, [], 'a click no longer scrolls the list away from the panel');
+  p.V.click({ clientX: p.colX(1), clientY: 100, target: {} });
   assert.deepStrictEqual(p.played, [g.order[1]], 'a double click plays it, as a tile\'s does');
-  p.F.click({ clientX: p.gapX(3) + 2, clientY: 100, target: {} });
-  assert.strictEqual(p.F.state().selHand, 2);
+  p.V.click({ clientX: p.gapX(3) + 2, clientY: 100, target: {} });
+  assert.strictEqual(p.V.state().selHand, 2);
   assert.deepStrictEqual(p.played, [g.order[1]]);
+  p.V.pick(3);
+  await p.V.act('reveal');
+  assert.deepStrictEqual(p.revealed, [g.order[3] - 11], 'Show in list: the old click, on a button');
 });
 
-test('Zoom: a column drag lands where it would in the small chart, also after the chart scrolled sideways', async () => {
+test('Zoom: a column drag lands where it would in Fit, also after the chart scrolled sideways', async () => {
   const p = page({ wrapW: 400 });
   await p.Flow.toggle(3);
-  p.F.toggle();
-  p.F.zoom(true);
-  assert.strictEqual(p.geom().step, M.FS_COL_PX);
+  p.V.zoom(true);
+  assert.strictEqual(p.geom().step, M.ZOOM_COL_PX);
   p.press(p.colX(1));                    // file 12
   p.moveTo(p.colX(1) + 2);
   assert.strictEqual(p.D.state().on, false, 'the same threshold');
@@ -416,42 +479,58 @@ test('Zoom: a column drag lands where it would in the small chart, also after th
   assert.deepStrictEqual(p.moves.map(m => [[...m.ids], m.before]), [[[12], 15], [[15], 13]]);
 });
 
-test('Esc during a column drag cancels the drag only, whichever listener hears it first', async () => {
-  for (const reverse of [false, true]) {
-    const p = page({ wrapW: 400 });
-    await p.Flow.toggle(3);
-    p.F.toggle();
-    p.press(p.colX(1));
-    p.moveTo(p.gapX(4) + 3);
-    assert.strictEqual(p.D.state().on, true);
-    const e = p.key('Escape', { reverse });
-    assert.ok(e.defaultPrevented);
-    assert.strictEqual(p.D.state(), null, 'the drag is cancelled');
-    assert.strictEqual(p.Flow.isFull(), true, `still full screen (${reverse ? 'full screen listener first' : 'drag listener first'})`);
-    assert.strictEqual(await p.D.drop(), false);
-    assert.deepStrictEqual(p.moves, []);
-    p.key('Escape');
-    assert.strictEqual(p.Flow.isFull(), false, 'the next Esc leaves full screen');
-  }
+test('Esc during a column drag cancels the drag', async () => {
+  const p = page({ wrapW: 400 });
+  await p.Flow.toggle(3);
+  p.press(p.colX(1));
+  p.moveTo(p.gapX(4) + 3);
+  assert.strictEqual(p.D.state().on, true);
+  const e = p.key('Escape');
+  assert.ok(e.defaultPrevented);
+  assert.strictEqual(p.D.state(), null, 'the drag is cancelled');
+  assert.strictEqual(await p.D.drop(), false);
+  assert.deepStrictEqual(p.moves, []);
+  assert.strictEqual(p.key('Escape').defaultPrevented, false, 'without a drag Esc is the page\'s');
 });
 
-test("F and Esc are left to More filters, a filter popover, Up next's list or a menu over the view", async () => {
-  let sheet = true;
-  const p = page({ extra: { filtersAreOpen: () => sheet } });
+test('Zoom while something plays keeps it in view, until the user scrolls the chart', async () => {
+  const el = { currentTime: 10, duration: 100, paused: false, ended: false, isConnected: true, tagName: 'VIDEO' };
+  const p = page({ wrapW: 400, n: 12, store: { 'vault.flow.zoom': '1' }, extra: { currentMediaState: { element: el, playbackMediaId: 20 } } });
   await p.Flow.toggle(3);
-  p.key('f');
-  assert.strictEqual(p.Flow.isFull(), false, 'F types nothing and opens nothing under the sheet');
-  sheet = false;
-  p.key('f');
-  assert.strictEqual(p.Flow.isFull(), true);
-  sheet = true;
-  assert.strictEqual(p.key('Escape').defaultPrevented, false, 'the sheet takes Esc');
-  assert.strictEqual(p.Flow.isFull(), true);
-  sheet = false;
-  const q = page({ extra: { filterPopoverIsOpen: () => true } });
+  const i = p.geom().order.indexOf(20);
+  assert.ok(p.geom().L + i * M.ZOOM_COL_PX > 400, 'the playing file starts off to the right');
+  p.fire('play');                        // the playhead check
+  assert.strictEqual(p.wrap.scrollLeft, M.followScroll(p.geom().L + i * M.ZOOM_COL_PX, p.geom().L + (i + 1) * M.ZOOM_COL_PX, 0, 400));
+  assert.ok(p.wrap.scrollLeft > 0);
+  // The browser moving the scroll by itself (a view a little wider) is not the user.
+  p.wrap.scrollLeft -= 15;
+  for (const fn of p.wrapListeners.scroll) fn();
+  assert.strictEqual(p.V.state().follow, true, 'not the user');
+  // The user scrolls the chart (a wheel over it, then the scroll): following stops.
+  for (const fn of p.wrapListeners.wheel) fn();
+  p.wrap.scrollLeft = 0;
+  for (const fn of p.wrapListeners.scroll) fn();
+  assert.strictEqual(p.V.state().follow, false);
+  p.fire('play');
+  assert.strictEqual(p.wrap.scrollLeft, 0);
+  // The next file playing: followed again.
+  p.ctx.currentMediaState.playbackMediaId = 21;
+  p.fire('play');
+  assert.strictEqual(p.V.state().follow, true, 'a new file re-arms it');
+  assert.ok(p.wrap.scrollLeft > 0);
+  // Stopped again by the user, then the panel hidden and shown: followed again.
+  for (const fn of p.wrapListeners.pointerdown) fn();
+  p.wrap.scrollLeft = 0;
+  for (const fn of p.wrapListeners.scroll) fn();
+  assert.strictEqual(p.V.state().follow, false);
+  p.Flow.close();
+  await p.Flow.toggle(3);
+  assert.strictEqual(p.V.state().follow, true, 'showing the panel again re-arms it');
+  // Fit: nothing to follow.
+  const q = page({ wrapW: 400, n: 12, extra: { currentMediaState: { element: el, playbackMediaId: 20 } } });
   await q.Flow.toggle(3);
-  q.key('f');
-  assert.strictEqual(q.Flow.isFull(), false);
+  q.fire('play');
+  assert.strictEqual(q.wrap.scrollLeft, 0);
 });
 
 test("Hide file names: no names in the chart's tooltips or the Remove toast", async () => {
@@ -464,37 +543,20 @@ test("Hide file names: no names in the chart's tooltips or the Remove toast", as
   };
   const p = page({ extra: ext });
   await p.Flow.toggle(3);
-  p.F.toggle();
   const svgHtml = () => p.parts.get('.flow-chart-svg').innerHTML;
   assert.match(svgHtml(), /<title>[^<]*file1[1-5]/, 'names in the tooltips normally');
   p.classes.add('pm-names');
-  p.F.pick(1);                           // draws again
+  p.V.pick(1);                           // draws again
   assert.doesNotMatch(svgHtml(), /file1[1-5]/, 'no file names in any tooltip');
-  await p.F.act('remove');
+  await p.V.act('remove');
   assert.deepStrictEqual(toasts, ['Removed this file from Set']);
   p.classes.delete('pm-names');
-  p.F.pick(2);
-  await p.F.act('remove');
+  p.V.pick(2);
+  await p.V.act('remove');
   assert.match(toasts[1], /Removed “file1[0-9]” from Set/);
 });
 
-test('a short view drops the preview cards before the plot gets short', async () => {
-  const tall = page({ wrapW: 400, wrapH: 500 });
-  await tall.Flow.toggle(3);
-  tall.F.toggle();
-  tall.F.zoom(true);
-  assert.strictEqual(tall.parts.get('.flow-cards').hidden, false, 'room: the cards show');
-  const short = page({ wrapW: 400, wrapH: 260 });
-  await short.Flow.toggle(3);
-  short.F.toggle();
-  short.F.zoom(true);
-  assert.strictEqual(short.parts.get('.flow-cards').hidden, true, 'short: no cards row');
-  assert.ok(short.geom().PH >= M.FS_PLOT_MIN, `plot ${short.geom().PH} px`);
-  assert.strictEqual(M.fsCardsFit(M.FS_PLOT_MIN), true);
-  assert.strictEqual(M.fsCardsFit(M.FS_PLOT_MIN - 1), false);
-});
-
-test('Play keeps full screen: videos go to the mini player; Stage open plays on Stage', async () => {
+test('Play keeps the panel in view: videos go to the mini player; Stage open plays on Stage', async () => {
   const calls = [];
   const row = (id) => ({ id, filepath: `/v/${id}.mp4`, filename: `${id}.mp4`, media_type: 'video' });
   const mk = (stage, mini) => page({ stage, extra: {
@@ -504,20 +566,20 @@ test('Play keeps full screen: videos go to the mini player; Stage open plays on 
     currentMediaState: { miniMode: mini },
   } });
   let p = mk(false, false);
-  p.F.play(12);
+  p.V.play(12);
   assert.deepStrictEqual([...p.played], [12]);
   assert.deepStrictEqual(calls.splice(0), [['minimize']], 'opened, then to the mini player');
   p = mk(false, true);
-  p.F.play(13);
+  p.V.play(13);
   assert.deepStrictEqual([...p.played], []);
   assert.deepStrictEqual(calls.splice(0), [['playMedia', 13, true]], 'the mini player plays it in place');
   p = mk(true, false);
-  p.F.play(14);
+  p.V.play(14);
   assert.deepStrictEqual([...p.played], [14], "Stage: as a tile's double click");
   assert.deepStrictEqual(calls, []);
 });
 
-/* ── Option A: the shorter chart, tag rows and preview cards ──────────── */
+/* ── Tag rows and preview cards ───────────────────────────────────────── */
 
 /** A Role lane (FlowLaneSource, as stream-tags.js gives it): file 11 is a Peak, the rest have none. */
 const roleLane = {
@@ -529,25 +591,11 @@ const roleLane = {
   },
 };
 
-test('full screen: the plot is about a third of the window, not the whole view', async () => {
-  const p = page({ wrapW: 1200, wrapH: 900, vh: 1080 });
-  await p.Flow.toggle(3);
-  p.F.toggle();
-  assert.strictEqual(p.geom().PH, 260, 'a 1080 px window: 260, though the view has room for more');
-  const q = page({ wrapW: 1000, wrapH: 520, vh: 720 });
-  await q.Flow.toggle(3);
-  q.F.toggle();
-  assert.strictEqual(q.geom().PH, Math.round(720 * 0.34));
-  q.F.toggle();
-  assert.notStrictEqual(q.geom().PH, Math.round(720 * 0.34), 'the small panel keeps its own height');
-});
-
 test('tag rows: names on their colours, Tempo as a number and a meter, a dashed slot when empty', async () => {
   const menus = [];
   const StreamTags = { blockMenu: (el, id) => menus.push([el.dataset.i, id]), loaded: () => true, onChange() {}, tagsOf: () => [] };
-  const p = page({ wrapW: 900, win: roleLane, extra: { StreamTags } });
+  const p = page({ wrapW: 900, win: roleLane, extra: { StreamTags }, store: { 'vault.flow.lanes': JSON.stringify({ tempo: true }) } });
   await p.Flow.toggle(3);
-  p.F.toggle();
   const order = p.geom().order;
   const html = p.parts.get('.flow-ltags').innerHTML;
   assert.strictEqual(p.parts.get('.flow-ltags').hidden, false);
@@ -560,14 +608,13 @@ test('tag rows: names on their colours, Tempo as a number and a meter, a dashed 
   assert.doesNotMatch(p.parts.get('.flow-chart-svg').innerHTML, /flow-lane-label/, 'no colour bars in the chart as well');
   // A tag lane's cell opens the stream tag menu for its file (empty or not).
   const cell = (i) => ({ dataset: { i: String(i) }, closest: (q) => (q === '[data-flow-tag]' ? cell(i) : null) });
-  p.F.click({ target: cell(2), clientX: 0, clientY: 0 });
+  p.V.click({ target: cell(2), clientX: 0, clientY: 0 });
   assert.deepStrictEqual(menus, [['2', order[2]]]);
-  assert.strictEqual(p.F.state().sel, null, 'the menu, not a pick');
+  assert.strictEqual(p.V.state().sel, null, 'the menu, not a pick');
 
   // No stream tags (or not loaded yet): the slot is only shown.
   const q = page({ wrapW: 900, win: roleLane });
   await q.Flow.toggle(3);
-  q.F.toggle();
   const plain = q.parts.get('.flow-ltags').innerHTML;
   assert.match(plain, /flow-tg flow-tg-empty/);
   assert.doesNotMatch(plain, /data-flow-tag|\+ Role/);
@@ -579,9 +626,8 @@ test('preview cards: the first frame at rest, a frame from where the pointer is,
   const Library = { indexOf: () => -1, row: (id) => ({ id, media_type: kinds[id], duration_seconds: 300 }) };
   const p = page({ wrapW: 1000, extra: { Library, formatDuration: (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` } });
   await p.Flow.toggle(3);
-  p.F.toggle();
   assert.strictEqual(p.parts.get('.flow-cards').hidden, false);
-  const byId = () => new Map(p.F.cards().map(c => [c.id, c]));
+  const byId = () => new Map(p.V.cards().map(c => [c.id, c]));
   let c = byId();
   assert.strictEqual(c.size, 5, 'one card a file');
   assert.strictEqual(c.get(11).src, '/scrub/11/0', 'a video: its first hover frame');
@@ -590,47 +636,62 @@ test('preview cards: the first frame at rest, a frame from where the pointer is,
   const i11 = p.geom().order.indexOf(11);
   assert.strictEqual(c.get(11).i, i11, 'in its column');
   // Scrub: the pointer x across the card picks the frame, the bar shows where.
-  p.F.scrub(i11, M.cardScrub(80, 160, 300).frac);
+  p.V.scrub(i11, M.cardScrub(80, 160, 300).frac);
   c = byId();
   assert.strictEqual(c.get(11).src, '/scrub/11/2');
   assert.strictEqual(c.get(11).bar, '50%');
-  p.F.scrub(i11, M.cardScrub(159, 160, 300).frac);
+  p.V.scrub(i11, M.cardScrub(159, 160, 300).frac);
   assert.strictEqual(byId().get(11).src, '/scrub/11/4');
-  p.F.unscrub();
+  p.V.unscrub();
   c = byId();
   assert.strictEqual(c.get(11).src, '/scrub/11/0', 'leaving: the first frame again');
   assert.strictEqual(c.get(11).bar, '0');
   // Another card scrubbed: the first goes back.
-  p.F.scrub(i11, 1);
-  p.F.scrub(p.geom().order.indexOf(12), 0.5);
+  p.V.scrub(i11, 1);
+  p.V.scrub(p.geom().order.indexOf(12), 0.5);
   assert.strictEqual(byId().get(11).src, '/scrub/11/0');
   assert.strictEqual(byId().get(12).src, '/scrub/12/2');
 });
 
-test('preview cards ask for pictures only in view (and a column either side), the rest when scrolled to', async () => {
-  const p = page({ wrapW: 400 });
+test('the cards row stays modest in the panel: a wide Fit column gets a capped card', async () => {
+  const p = page({ wrapW: 1600 });
   await p.Flow.toggle(3);
-  p.F.zoom(true);
-  p.F.toggle();                          // straight into Zoom
-  const loaded = () => [...p.F.cards().filter(c => c.loaded).map(c => c.i)].sort();
+  assert.ok(p.geom().step > 300, `step ${p.geom().step}`);
+  assert.strictEqual(p.parts.get('.flow-cards').style.height, `${M.CARD_ROW_MAX}px`);
+});
+
+test('the cards ask for the rows they need (lengths, kinds) once an order, not on every draw', async () => {
+  const asked = [];
+  const Library = { indexOf: () => -1, row: () => null, fetchRows: (ids) => { asked.push(ids.slice()); return Promise.resolve(); } };
+  const p = page({ wrapW: 1000, extra: { Library } });
+  await p.Flow.toggle(3);
+  p.V.pick(1);
+  p.V.pick(2);
+  assert.strictEqual(asked.length, 1);
+  assert.deepStrictEqual([...asked[0]].sort(), [11, 12, 13, 14, 15]);
+});
+
+test('preview cards ask for pictures only in view (and a column either side), the rest when scrolled to', async () => {
+  const p = page({ wrapW: 400, store: { 'vault.flow.zoom': '1' } });
+  await p.Flow.toggle(3);                // straight into Zoom
+  const loaded = () => [...p.V.cards().filter(c => c.loaded).map(c => c.i)].sort();
   assert.deepStrictEqual(loaded(), [0, 1, 2, 3], 'the fifth card is past the view and its margin');
-  assert.strictEqual(p.F.cards().find(c => c.i === 4).src, '');
+  assert.strictEqual(p.V.cards().find(c => c.i === 4).src, '');
   p.wrap.scrollLeft = 300;
-  p.F.cardsLoad();
+  p.V.cardsLoad();
   assert.deepStrictEqual(loaded(), [0, 1, 2, 3, 4]);
 });
 
 test('narrow columns (Fit, many files): colour bars without text and no cards; Zoom has room', async () => {
   const p = page({ wrapW: 360, win: roleLane });
   await p.Flow.toggle(3);
-  p.F.toggle();
-  assert.ok(p.geom().step < M.FS_CARD_PX, `step ${p.geom().step}`);
+  assert.ok(p.geom().step < M.CARD_PX, `step ${p.geom().step}`);
   assert.strictEqual(p.parts.get('.flow-ltags').hidden, true, 'no tag text');
   assert.strictEqual(p.parts.get('.flow-cards').hidden, true, 'no cards');
   assert.strictEqual(p.geom().cards, false);
   assert.match(p.parts.get('.flow-chart-svg').innerHTML, /flow-lane-label[^>]*><title>Role/, 'the lanes as colour bars, as before');
-  p.F.zoom(true);
-  assert.strictEqual(p.geom().step, M.FS_COL_PX);
+  p.V.zoom(true);
+  assert.strictEqual(p.geom().step, M.ZOOM_COL_PX);
   assert.strictEqual(p.parts.get('.flow-ltags').hidden, false);
   assert.strictEqual(p.parts.get('.flow-cards').hidden, false);
   assert.match(p.parts.get('.flow-ltags').innerHTML, />Peak</);
@@ -639,13 +700,12 @@ test('narrow columns (Fit, many files): colour bars without text and no cards; Z
 test('a card is its column: a click picks it, two play it, and dragging it moves the file', async () => {
   const p = page({ wrapW: 400 });
   await p.Flow.toggle(3);
-  p.F.toggle();
-  p.F.zoom(true);
+  p.V.zoom(true);
   const order = p.geom().order.slice();
   const card = (i) => ({ dataset: { i: String(i) }, closest: (q) => (q === '#flowChartWrap' ? p.wrap : q.split(', ').includes('.flow-card') ? card(i) : null) });
-  p.F.click({ target: card(1), clientX: 0, clientY: 0 });
-  assert.strictEqual(p.F.state().sel, order[1], 'a click selects (the strip)');
-  p.F.click({ target: card(1), clientX: 0, clientY: 0 });
+  p.V.click({ target: card(1), clientX: 0, clientY: 0 });
+  assert.strictEqual(p.V.state().sel, order[1], 'a click selects (the strip)');
+  p.V.click({ target: card(1), clientX: 0, clientY: 0 });
   assert.deepStrictEqual(p.played, [order[1]], 'a double click plays it');
   // Dragged from the card: the column drag's own threshold and drop.
   p.D.down({ button: 0, target: card(1), clientX: p.colX(1), clientY: 100, pointerId: 1 });
@@ -665,10 +725,9 @@ test('a card is its column: a click picks it, two play it, and dragging it moves
 test('Hide file names: tag rows name no file, and the cards are blurred', async () => {
   const p = page({ wrapW: 900, win: roleLane });
   await p.Flow.toggle(3);
-  p.F.toggle();
   assert.match(p.parts.get('.flow-ltags').innerHTML, /title="\d\. file1\d/, 'names in the tag tooltips normally');
   p.classes.add('pm-names');
-  p.F.pick(0);
+  p.V.pick(0);
   const html = p.parts.get('.flow-ltags').innerHTML;
   assert.doesNotMatch(html, /file1\d/);
   assert.match(html, /title="\d\. File \d: /);
@@ -677,83 +736,41 @@ test('Hide file names: tag rows name no file, and the cards are blurred', async 
   assert.match(css, /body\.pm-names \.flow-nm-t,/);
 });
 
-/* ── Verifier fixes: a stable first pick, privacy, badges, scroll, unloading, keys ── */
-
-/** A laid-out full screen panel: a 40 px top row, the wrap, the strip (its height from its content: the hint 32, a pick 105, a long hand-over 160, or a fixed one), a 20 px legend. */
-function laidOut(stripH = null) {
-  const strip = fakeEl({ id: 'flowStrip' });
-  Object.defineProperty(strip, 'offsetHeight', { get: () => (stripH != null ? stripH : /Hand-over/.test(strip.innerHTML) ? 160 : /Selected/.test(strip.innerHTML) ? 105 : 32) });
-  return { strip, layout: { h: 600 } };
-}
-
-test('the strip is under the cards and never moves them: any pick, a long hand-over, a tall strip from the start', async () => {
-  const { strip, layout } = laidOut();
-  const p = page({ wrapW: 1000, strip, layout, wrapH: 999 });
+test('picking a file or a hand-over moves nothing above the strip', async () => {
+  const p = page({ wrapW: 1000 });
   await p.Flow.toggle(3);
-  p.F.toggle();
-  p.F.zoom(true);
-  // 600 less padding 20, the top row 40, the legend 20, three gaps of 8 and the strip's least 64.
-  assert.strictEqual(p.F.room(), 600 - 20 - 40 - 20 - 3 * 8 - 64);
-  const at = () => ({ PH: p.geom().PH, cardsOn: p.geom().cards, cards: p.F.cards().map(c => [c.i, c.id]) });
+  p.V.zoom(true);
+  const at = () => ({ PH: p.geom().PH, cardsOn: p.geom().cards, cards: p.V.cards().map(c => [c.i, c.id]) });
   const before = at();
   assert.strictEqual(before.cardsOn, true);
   for (const i of [2, 0, 4]) {
-    p.F.pick(i);
-    assert.match(strip.innerHTML, /Selected/);
+    p.V.pick(i);
     assert.deepStrictEqual(at(), before, `picking file ${i + 1} moves nothing`);
   }
-  p.F.pickHand(1);
-  assert.match(strip.innerHTML, /Hand-over/);
-  assert.deepStrictEqual(at(), before, 'nor a long hand-over');
-  p.F.pick(-1);
-  assert.deepStrictEqual(at(), before);
+  p.V.pickHand(1);
+  assert.deepStrictEqual(at(), before, 'nor a hand-over');
   // Two clicks on one card: the second still finds it, and it plays.
   const card = (i) => ({ dataset: { i: String(i) }, closest: (q) => (q.split(', ').includes('.flow-card') ? card(i) : null) });
-  p.F.click({ target: card(3), clientX: 0, clientY: 0 });
-  p.F.click({ target: card(3), clientX: 0, clientY: 0 });
+  p.V.click({ target: card(3), clientX: 0, clientY: 0 });
+  p.V.click({ target: card(3), clientX: 0, clientY: 0 });
   assert.deepStrictEqual(p.played, [p.geom().order[3]]);
-
-  // A tall strip with nothing picked (the mini player squeezing it): the cards stay, the plot too.
-  const tall = laidOut(160);
-  const q = page({ wrapW: 1000, strip: tall.strip, layout: tall.layout, wrapH: 999 });
-  await q.Flow.toggle(3);
-  q.F.toggle();
-  q.F.zoom(true);
-  assert.deepStrictEqual({ PH: q.geom().PH, cardsOn: q.geom().cards }, { PH: before.PH, cardsOn: true });
-});
-
-test('one file: the plot\'s height does not depend on the strip', async () => {
-  const ph = async (stripH) => {
-    const { strip, layout } = laidOut(stripH);
-    const p = page({ wrapW: 1000, n: 1, strip, layout, wrapH: 999 });
-    await p.Flow.toggle(3);
-    p.F.toggle();
-    const a = p.geom().PH;
-    p.F.pick(0);
-    assert.strictEqual(p.geom().PH, a, 'a pick changes nothing');
-    return a;
-  };
-  const short = await ph(32), tall = await ph(160);
-  assert.strictEqual(tall, short);
-  assert.ok(tall > 200 && tall <= M.fsChartHeight(720), `plot ${tall}`);
 });
 
 test('blurred thumbnails (pm-thumbs): cards stay on their first frame and blur; the floating card blurs too', async () => {
   const p = page({ wrapW: 1000 });
   await p.Flow.toggle(3);
-  p.F.toggle();
   p.classes.add('pm-thumbs');
-  p.F.scrub(1, 0.9);
-  const c = p.F.cards().find(x => x.i === 1);
+  p.V.scrub(1, 0.9);
+  const c = p.V.cards().find(x => x.i === 1);
   assert.match(c.src, /^\/scrub\/\d+\/0$/, 'no frame from the pointer');
   assert.strictEqual(c.bar, '90%', 'the bar still says where');
-  p.F.unscrub();
+  p.V.unscrub();
   p.classes.delete('pm-thumbs');
-  p.F.scrub(1, 0.9);
-  assert.match(p.F.cards().find(x => x.i === 1).src, /^\/scrub\/\d+\/4$/, 'without it the pointer scrubs');
+  p.V.scrub(1, 0.9);
+  assert.match(p.V.cards().find(x => x.i === 1).src, /^\/scrub\/\d+\/4$/, 'without it the pointer scrubs');
   const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'flow.css'), 'utf8');
-  for (const sel of ['.flow-card img', '.flow-hcard img', '.flow-tip-img img']) assert.ok(css.includes(`body.pm-thumbs ${sel}`), sel);
-  assert.match(css, /body\.flow-fs-on #tilePopover \{ display: none !important; \}/, 'no library hover popover over full screen');
+  for (const sel of ['.flow-card img', '.flow-hcard img']) assert.ok(css.includes(`body.pm-thumbs ${sel}`), sel);
+  assert.doesNotMatch(css, /flow-fs|flow-tip/, 'no full screen or in-chart tooltip styles left');
 });
 
 test('the length badge is the grid\'s: none for pictures or under a second', async () => {
@@ -762,57 +779,50 @@ test('the length badge is the grid\'s: none for pictures or under a second', asy
   const formatDuration = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
   const p = page({ wrapW: 1000, extra: { Library, formatDuration } });
   await p.Flow.toggle(3);
-  p.F.toggle();
-  const len = new Map(p.F.cards().map(c => [c.id, c.len]));
+  const len = new Map(p.V.cards().map(c => [c.id, c.len]));
   assert.deepStrictEqual([11, 12, 13, 14, 15].map(id => len.get(id)), ['5:00', '', '', '1:01', '']);
   // cards.js's own rule when it is there.
   const q = page({ wrapW: 1000, extra: { Library, formatDuration, tileDurationText: (m) => `T${m.id}` } });
   await q.Flow.toggle(3);
-  q.F.toggle();
-  assert.strictEqual(q.F.cards().find(c => c.id === 12).len, 'T12');
+  assert.strictEqual(q.V.cards().find(c => c.id === 12).len, 'T12');
 });
 
 test('scrolling the chart ends a scrub (the card under the pointer is another one now)', async () => {
-  const p = page({ wrapW: 400 });
+  const p = page({ wrapW: 400, store: { 'vault.flow.zoom': '1' } });
   await p.Flow.toggle(3);
-  p.F.zoom(true);
-  p.F.toggle();
-  p.F.scrub(1, 0.5);
-  assert.strictEqual(p.F.cards().find(c => c.i === 1).bar, '50%');
+  p.V.scrub(1, 0.5);
+  assert.strictEqual(p.V.cards().find(c => c.i === 1).bar, '50%');
   for (const fn of p.wrapListeners.scroll || []) fn();
-  const c = p.F.cards().find(x => x.i === 1);
+  const c = p.V.cards().find(x => x.i === 1);
   assert.strictEqual(c.bar, '0');
   assert.match(c.src, /\/0$/, 'its first frame again');
 });
 
 test('a big list in Zoom: cards far from the view let their pictures go, and get them back when scrolled to', async () => {
-  const p = page({ wrapW: 400, n: 40 });
+  const p = page({ wrapW: 400, n: 40, store: { 'vault.flow.zoom': '1' } });
   await p.Flow.toggle(3);
-  p.F.zoom(true);
-  p.F.toggle();
-  const loaded = () => [...p.F.cards().filter(c => c.loaded && c.src).map(c => c.i)].sort((a, b) => a - b);
+  const loaded = () => [...p.V.cards().filter(c => c.loaded && c.src).map(c => c.i)].sort((a, b) => a - b);
   assert.deepStrictEqual(loaded(), [0, 1, 2, 3]);
   p.wrap.scrollLeft = 4000;
-  p.F.cardsLoad();
+  p.V.cardsLoad();
   const far = loaded();
   assert.ok(!far.includes(0) && !far.includes(3), `the first cards dropped theirs: ${far}`);
-  assert.ok(far.includes(Math.floor((4000 + 200) / M.FS_COL_PX)), 'the cards in view have theirs');
-  assert.strictEqual(p.F.cards().find(c => c.i === 0).src, '');
+  assert.ok(far.includes(Math.floor((4000 + 200) / M.ZOOM_COL_PX)), 'the cards in view have theirs');
+  assert.strictEqual(p.V.cards().find(c => c.i === 0).src, '');
   // Nearby cards (within a few views) keep theirs: scrolling a little back loads nothing again and drops nothing.
   p.wrap.scrollLeft = 3600;
-  p.F.cardsLoad();
+  p.V.cardsLoad();
   for (const i of far) assert.ok(loaded().includes(i), `card ${i} kept its picture`);
   p.wrap.scrollLeft = 0;
-  p.F.cardsLoad();
+  p.V.cardsLoad();
   assert.deepStrictEqual(loaded().filter(i => i < 4), [0, 1, 2, 3], 'back at the start: loaded again');
 });
 
 test('a tag cell that opens the menu is a button for the keyboard: Enter or Space opens it', async () => {
   const menus = [];
   const StreamTags = { blockMenu: (el, id) => menus.push([el.dataset.i, id]), loaded: () => true, onChange() {}, tagsOf: () => [] };
-  const p = page({ wrapW: 900, win: roleLane, extra: { StreamTags } });
+  const p = page({ wrapW: 900, win: roleLane, extra: { StreamTags }, store: { 'vault.flow.lanes': JSON.stringify({ tempo: true }) } });
   await p.Flow.toggle(3);
-  p.F.toggle();
   const html = p.parts.get('.flow-ltags').innerHTML;
   const editable = html.match(/<span class="flow-tg[^"]*"[^>]*data-flow-tag[^>]*>/g) || [];
   assert.strictEqual(editable.length, 5);
@@ -821,10 +831,10 @@ test('a tag cell that opens the menu is a button for the keyboard: Enter or Spac
   const cell = (i) => ({ dataset: { i: String(i) }, closest: (q) => (q === '[data-flow-tag]' ? cell(i) : null) });
   const ev = (k) => ({ key: k, target: cell(3), preventDefault() { this.prevented = true; }, stopPropagation() {} });
   const e = ev('Enter');
-  assert.strictEqual(p.F.tagKey(e), true);
+  assert.strictEqual(p.V.tagKey(e), true);
   assert.ok(e.prevented);
-  p.F.tagKey(ev(' '));
-  assert.strictEqual(p.F.tagKey(ev('a')), false);
+  p.V.tagKey(ev(' '));
+  assert.strictEqual(p.V.tagKey(ev('a')), false);
   const order = p.geom().order;
   assert.deepStrictEqual(menus, [['3', order[3]], ['3', order[3]]]);
 });

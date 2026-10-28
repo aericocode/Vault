@@ -38,25 +38,16 @@
                              it lands where it is
    - movedOrder(order, from, to)  the order with that file moved (the preview)
 
-   Full screen (flow.js "Full screen"):
-   - fsLayout(wrapW, n, L, R, zoom)  the chart's width and column step: Fit
+   Fit / Zoom, tag rows and preview cards (flow.js drawChart):
+   - colLayout(wrapW, n, L, R, zoom)  the chart's width and column step: Fit
                              puts the whole list in the width, Zoom gives each
-                             file at least FS_COL_PX and scrolls sideways
-   - fsChartHeight(vh)       the plot's height for a window vh tall: about a
-                             third of it, FS_CHART_MIN..FS_CHART_MAX (a tall
-                             window no longer stretches the curve)
-   - fsCardHeight(step)      the preview cards row's height (16:9 in a column,
-                             at most FS_CARD_MAX_W wide); fsCardWidth(step, h)
-                             a card's width (in a shrunk row, 16:9 of its height)
-   - fsCardsFit(ph)          does the plot keep FS_PLOT_MIN with the cards row?
-                             (a short view drops the row first)
-   - fsPlotHeight(wrapH, o)  what the view has left for the plot after the
-                             lane rows, the names and the cards
-   - fsRows(wrapH, vh, o)    full screen's rows from all of that: the plot's
-                             height, readable tag rows and preview cards when
-                             a column is FS_CARD_PX or wider (narrower: the
-                             colour bars and no cards), smaller cards or none
-                             in a short view
+                             file at least ZOOM_COL_PX and scrolls sideways
+   - cardRows(step, cards)   what goes under the plot: readable tag rows and
+                             a preview card each when a column is CARD_PX or
+                             wider (narrower: the colour bars and no cards);
+                             the cards row CARD_ROW_MAX tall at most
+   - cardWidth(step, h)      a card's width in a column step px wide, 16:9 of
+                             the row's height h at most
    - cardScrub(x, w, d)      the pointer x px across a card w wide: how far
                              across (0..1), and the frame and time there (frameAt)
    - inkOn(hex)              text colour for a tag's label on its own colour
@@ -266,13 +257,11 @@ const FlowChartMath = (() => {
     return out;
   }
 
-  /* ── Full screen (flow.js) ───────────────────────────────────────── */
+  /* ── Fit / Zoom, tag rows and preview cards (flow.js) ──────────────── */
 
-  const FS_COL_PX = 140;
-  const FS_NAMES_H = 24;       // the names row and its margin
-  const FS_PH_MIN = 80;
+  const ZOOM_COL_PX = 140;
 
-  function fsLayout(wrapW, n, L, R, zoom, colPx = FS_COL_PX) {
+  function colLayout(wrapW, n, L, R, zoom, colPx = ZOOM_COL_PX) {
     const W0 = Math.max(200, Math.floor(Number(wrapW) || 0));
     const cols = Math.max(1, n || 0);
     const fit = (W0 - L - R) / cols;
@@ -280,59 +269,24 @@ const FlowChartMath = (() => {
     return { W: Math.ceil(L + R + cols * colPx), step: colPx };
   }
 
-  /** The plot's height the cards row must leave (else the row is dropped). */
-  const FS_PLOT_MIN = 140;
-  const fsCardsFit = (plotWithCards) => plotWithCards >= FS_PLOT_MIN;
-
-  /* About a third of the window, kept between FS_CHART_MIN and FS_CHART_MAX. */
-  const FS_CHART_SHARE = 0.34;
-  const FS_CHART_MIN = 140;
-  const FS_CHART_MAX = 260;
-  function fsChartHeight(vh) {
-    const v = Number(vh) > 0 ? Number(vh) * FS_CHART_SHARE : 0;
-    return Math.round(Math.max(FS_CHART_MIN, Math.min(FS_CHART_MAX, v)));
-  }
-
   /* A column this wide or wider gets readable tags and a preview card. */
-  const FS_CARD_PX = 70;
-  const FS_CARD_MAX_W = 240;
-  const FS_TAG_ROW = 24;
-  const FS_CARD_MIN_H = 44;    // the least a cards row shrinks to (a 36 px picture) before it goes
+  const CARD_PX = 70;
+  const TAG_ROW = 24;
+  /* The cards row's most (an 80 px picture, 142 px wide): the panel sits
+     over the library's files, so it never grows past this. */
+  const CARD_ROW_MAX = 88;
   /** A card's width in a column step px wide; with the row's height h, no wider than 16:9 of it. */
-  function fsCardWidth(step, h = 0) {
-    const w = Math.max(24, Math.min(FS_CARD_MAX_W, step - 8));
+  function cardWidth(step, h = 0) {
+    const w = Math.max(24, step - 8);
     return h > 8 ? Math.min(w, Math.round((h - 8) * 16 / 9)) : w;
   }
-  const fsCardHeight = (step) => Math.round(fsCardWidth(step) * 9 / 16) + 8;
 
-  /** o: { top, lanes (rows), laneRow (px a row), names (px), thumbs (px), bar (a sideways scrollbar, px) } */
-  function fsPlotHeight(wrapH, { top = 16, lanes = 0, laneRow = 14, names = FS_NAMES_H, thumbs = 0, bar = 0 } = {}) {
-    const h = Math.floor(Number(wrapH) || 0) - top - 10 - lanes * laneRow - names - thumbs - bar - 4;
-    return Math.max(FS_PH_MIN, h);
-  }
-
-  /**
-   * o: { step, lanes (rows), cards (thumbnails can show), bar (px), top }.
-   * Returns { PH, rich, cardsOn, laneRow, cardH }: rich (FS_CARD_PX a column
-   * or more) draws tags as text, a row FS_TAG_ROW tall. A short view takes
-   * from the cards first: smaller cards (the plot at FS_PLOT_MIN), down to
-   * FS_CARD_MIN_H, then none. The plot is never over fsChartHeight(vh).
-   */
-  function fsRows(wrapH, vh, { step = 0, lanes = 0, cards = true, bar = 0, top = 16 } = {}) {
-    const rich = step >= FS_CARD_PX;
-    const laneRow = rich ? FS_TAG_ROW : 14;
-    const cap = fsChartHeight(vh);
-    const want = rich && cards ? fsCardHeight(step) : 0;
-    const room = (c) => fsPlotHeight(wrapH, { top, lanes, laneRow, thumbs: c, bar });
-    let cardH = 0;
-    if (want > 0) {
-      if (fsCardsFit(Math.min(cap, room(want)))) cardH = want;
-      else {
-        const fit = room(0) - FS_PLOT_MIN;     // what the cards can have with the plot at its least
-        if (fit >= FS_CARD_MIN_H) cardH = Math.min(want, fit);
-      }
-    }
-    return { PH: Math.min(cap, room(cardH)), rich, cardsOn: cardH > 0, laneRow, cardH };
+  /** { rich, cardsOn, cardH }: rich draws the lanes as tag rows (TAG_ROW a row); cards: thumbnails can show. */
+  function cardRows(step, cards = true) {
+    const rich = step >= CARD_PX;
+    const cardsOn = rich && !!cards;
+    const cardH = cardsOn ? Math.min(CARD_ROW_MAX, Math.round(cardWidth(step) * 9 / 16) + 8) : 0;
+    return { rich, cardsOn, cardH };
   }
 
   /** The pointer x px across a card w px wide (a file d s long): { frac, t, idx }. */
@@ -385,8 +339,7 @@ const FlowChartMath = (() => {
     return Math.max(0, Math.min(Math.max(0, max), next));
   }
 
-  return { FS_COL_PX, FS_NAMES_H, FS_PLOT_MIN, fsCardsFit, fsLayout, fsCardHeight, fsCardWidth, fsPlotHeight,
-    FS_CHART_MIN, FS_CHART_MAX, fsChartHeight, FS_CARD_PX, FS_CARD_MAX_W, FS_CARD_MIN_H, FS_TAG_ROW, fsRows, cardScrub, inkOn, chartHit, frameAt, followScroll, scrollStep,
+  return { ZOOM_COL_PX, colLayout, CARD_PX, TAG_ROW, CARD_ROW_MAX, cardWidth, cardRows, cardScrub, inkOn, chartHit, frameAt, followScroll, scrollStep,
     DRAG_THRESHOLD, dragPassed, dragSlot, dragTarget, movedOrder, yRange, filePoints, ignoredSpan, smoothed, slopes, monotonePath, monotoneAt, linearAt, tempoShare,
     CHART_H_MIN, CHART_H_MAX, clampChartHeight, sparkPath };
 })();
