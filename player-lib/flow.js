@@ -551,7 +551,7 @@ const Flow = (() => {
     const f = st.byId.get(block[0]);
     // selection.js showUndoToast takes HTML: the name is escaped.
     const msg = block.length === 1
-      ? `Moved “${esc(shortName(f) || 'file')}” to position ${n} in Flow order`
+      ? (namesHidden() ? `Moved this file to position ${n} in Flow order` : `Moved “${esc(shortName(f) || 'file')}” to position ${n} in Flow order`)
       : `Moved ${block.length} files to position ${n} in Flow order`;
     const undo = async () => {
       if (!sameSession(made) || !st.data) return;      // another collection, or Flow order left since
@@ -850,7 +850,7 @@ const Flow = (() => {
     const cap = (t) => (/^ff(mpeg|probe) /.test(t) ? t : t.charAt(0).toUpperCase() + t.slice(1));
     const items = groups.map(g => {
       const more = g.n > g.names.length ? `, and ${g.n - g.names.length} more` : '';
-      return `<li title="${esc(g.names.join(', ') + more)}"><span>${esc(cap(g.reason))}</span> <span class="flow-sub">${plural(g.n, 'file', 'files')}</span></li>`;
+      return `<li${namesHidden() ? '' : ` title="${esc(g.names.join(', ') + more)}"`}><span>${esc(cap(g.reason))}</span> <span class="flow-sub">${plural(g.n, 'file', 'files')}</span></li>`;
     }).join('');
     return `<ul class="flow-why" aria-label="Why files couldn’t be measured">${items}</ul>`;
   }
@@ -912,7 +912,7 @@ const Flow = (() => {
   const GRADE_VAR = { smooth: 'var(--flow-ok)', noticeable: 'var(--flow-warn)', jump: 'var(--flow-bad)' };
   const GRADE_WORD = { smooth: 'Smooth hand-over', noticeable: 'Noticeable hand-over', jump: 'Jump' };
   /** A hand-over in words: "Jump: A into B. Energy drops 14 · same tempo". */
-  const handTitle = (h, fa, fb, i) => `${GRADE_WORD[h.grade]}: ${shortName(fa) || `file ${i + 1}`} into ${shortName(fb) || `file ${i + 2}`}. ${FlowOrder.handoverText(fa, fb, h)}${skipNote(fa, fb)}`;
+  const handTitle = (h, fa, fb, i) => `${GRADE_WORD[h.grade]}: ${titleName(fa, `file ${i + 1}`)} into ${titleName(fb, `file ${i + 2}`)}. ${FlowOrder.handoverText(fa, fb, h)}${skipNote(fa, fb)}`;
   /** Auto found the parts Flow looks past (they are calm); 15 s and 30 s skip them whatever they are. */
   const calmSkips = () => !!(st.data && st.data.edges === 'auto');
   /**
@@ -926,12 +926,14 @@ const Flow = (() => {
     return parts.length ? `. Looks past ${parts.join(' and ')}` : '';
   };
   /** The chart's words for a file's ignored parts. */
-  const ignoredTitle = (f, side) => `${shortName(f) || 'This file'}: Flow looks past its ${side === 0 ? `first ${f.skip[0]} s` : `last ${f.skip[1]} s`}${calmSkips() ? ` (a calm ${side === 0 ? 'intro' : 'end'})` : ''}`;
+  const ignoredTitle = (f, side) => `${titleName(f, 'This file')}: Flow looks past its ${side === 0 ? `first ${f.skip[0]} s` : `last ${f.skip[1]} s`}${calmSkips() ? ` (a calm ${side === 0 ? 'intro' : 'end'})` : ''}`;
   const plural = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
   const f1 = (v) => (Math.round(v * 10) / 10).toString();
   const pct = (v) => Math.round(Math.max(0, Math.min(1, v)) * 100);
   /** What the chart calls a file: the library's title, or the file name without its extension. */
   const shortName = (f) => (f && f.title) || String((f && f.name) || '').replace(/\.[a-z0-9]{1,5}$/i, '');
+  /** A name for a native tooltip (it cannot be blurred): none while Hide file names is on. */
+  const titleName = (f, fallback) => (namesHidden() ? fallback : shortName(f) || fallback);
   /** Drawn as a line: measured, with sound (no audio stream, or silent: nothing). */
   const drawable = (f) => !!(f && f.measured && !f.failed && !f.noSound);
 
@@ -1081,7 +1083,7 @@ const Flow = (() => {
           const gapX = k > 1 ? Math.min(1, cellW / k / 4) : 0;
           const sw = (cellW - gapX * (k - 1)) / k;
           tags.forEach((t, j) => {
-            svg += `<rect x="${f1(x0 + j * (sw + gapX))}" y="${ry}" width="${f1(Math.max(0.5, sw))}" height="8" rx="${f1(Math.min(4, sw / 2))}" fill="${esc(t.color)}"><title>${esc(`${i + 1}. ${shortName(st.byId.get(order[i]))}: ${t.label}`)}</title></rect>`;
+            svg += `<rect x="${f1(x0 + j * (sw + gapX))}" y="${ry}" width="${f1(Math.max(0.5, sw))}" height="8" rx="${f1(Math.min(4, sw / 2))}" fill="${esc(t.color)}"><title>${esc(`${i + 1}. ${titleName(st.byId.get(order[i]), `File ${i + 1}`)}: ${t.label}`)}</title></rect>`;
           });
         });
       }
@@ -1138,12 +1140,14 @@ const Flow = (() => {
       // the wrap scrolls sideways), and the plot takes the height that is left.
       const lay = FlowChartMath.fsLayout(wrap.clientWidth, n, L, R, st.zoom);
       W = lay.W; step = lay.step;
-      thumbsOn = st.zoom && thumbsShown();
-      PH = FlowChartMath.fsPlotHeight(wrap.clientHeight, {
+      const ph = (thumbs) => FlowChartMath.fsPlotHeight(wrap.clientHeight, {
         top: TOP, lanes: lanes.length, laneRow: LANE_ROW,
-        thumbs: thumbsOn ? FlowChartMath.fsThumbHeight(step) : 0,
+        thumbs: thumbs ? FlowChartMath.fsThumbHeight(step) : 0,
         bar: W > wrap.clientWidth ? 14 : 0,
       });
+      // The thumbnails go first when the view is short: the plot keeps FS_PLOT_MIN.
+      thumbsOn = st.zoom && thumbsShown() && FlowChartMath.fsThumbsFit(ph(true));
+      PH = ph(thumbsOn);
     }
     const laneY = TOP + PH + 10;
     const H = laneY + lanes.length * LANE_ROW + (lanes.length ? 0 : -6);
@@ -1439,8 +1443,14 @@ const Flow = (() => {
   }
 
   /** Find what plays, mark it, place the dot, and run or stop the loop. */
+  let namesWere = null;
   function phTick() {
     if (st.full) fsMeasure();
+    if (st.open && isMine()) {
+      const nh = namesHidden();
+      if (namesWere !== null && nh !== namesWere) schedulePaint();
+      namesWere = nh;
+    }
     const on = st.open && isMine() && !!st.geom && !document.hidden;
     const src = on ? playSource() : null;
     if (on) {
@@ -2336,12 +2346,28 @@ const Flow = (() => {
       if (typeof dockSelectFromClick === 'function' && dockSelectFromClick(id)) return;
       if (typeof showDetailsById === 'function') showDetailsById(id);
     } else if (act === 'play') {
-      if (typeof playMediaById === 'function') playMediaById(id);
+      playHere(id);
     } else if (act === 'next') {
       if (typeof upNextAddFrom === 'function') upNextAddFrom(id, 'next', 'library');
     } else if (act === 'remove') {
       await removeOne(id);
     }
+  }
+
+  /**
+   * Play from full screen: on Stage when it is open (as a tile's double click);
+   * otherwise videos and sound go to the mini player, so the view stays (the
+   * full player would cover it). Other files open in the player.
+   */
+  function playHere(id) {
+    if (typeof playMediaById !== 'function') return;
+    const m = typeof getMediaById === 'function' ? getMediaById(id) : libRow(id);
+    const av = m && (m.media_type === 'video' || m.media_type === 'audio');
+    if (stageOpen() || !av || typeof playMedia !== 'function') { playMediaById(id); return; }
+    const mini = typeof currentMediaState !== 'undefined' && currentMediaState && currentMediaState.miniMode === true;
+    if (mini) { playMedia({ id: m.id, filepath: m.filepath, filename: m.filename, media_type: m.media_type }, { stayMini: true }); return; }
+    playMediaById(id);
+    if (typeof minimizePlayer === 'function') minimizePlayer();
   }
 
   /** Remove from this collection, with the selection bar's Undo (collections.js). */
@@ -2354,7 +2380,7 @@ const Flow = (() => {
     if (!ok) return;
     if (st.sel === id) { st.sel = null; paintStrip(); }
     // selection.js showUndoToast takes HTML: the names are escaped.
-    const msg = `Removed “${esc(shortName(f) || 'file')}” from ${esc(c.name)}`;
+    const msg = namesHidden() ? `Removed this file from ${esc(c.name)}` : `Removed “${esc(shortName(f) || 'file')}” from ${esc(c.name)}`;
     if (typeof showUndoToast === 'function' && typeof undoRemoveFromCollection === 'function') showUndoToast(msg, () => undoRemoveFromCollection(c.id, [id], order));
   }
 
@@ -2387,7 +2413,7 @@ const Flow = (() => {
     const t = typeof performance !== 'undefined' ? performance.now() : Date.now();
     if (lastClick.id === id && t - lastClick.at < DBL_MS) {
       lastClick = { id: null, at: 0 };
-      if (typeof playMediaById === 'function') playMediaById(id);
+      playHere(id);
       return;
     }
     lastClick = { id, at: t };
@@ -2438,7 +2464,7 @@ const Flow = (() => {
     hideCard();
     document.body.classList.remove('flow-fs-on');
     const el = panel();
-    if (el) for (const k of ['top', 'left', 'right', 'bottom']) el.style.removeProperty(`--flow-fs-${k}`);
+    if (el) for (const k of ['top', 'left', 'right', 'bottom', 'mini-l', 'mini-r']) el.style.removeProperty(`--flow-fs-${k}`);
     fsBox = '';
     document.getElementById('flowFsSpacer')?.remove();
     if (st.gridStale) {
@@ -2472,9 +2498,22 @@ const Flow = (() => {
     const left = rail && !rail.hidden ? Math.max(0, Math.round(rail.getBoundingClientRect().right)) : 0;
     const right = dock && !dock.hidden ? Math.max(0, Math.round(vw - dock.getBoundingClientRect().left)) : 0;
     const bottom = bar && !bar.hidden ? Math.max(0, Math.round(vh - bar.getBoundingClientRect().top)) : 0;
-    const box = `${top}|${left}|${right}|${bottom}`;
+    // The floating mini player (over everything): the strip and the bottom row make room beside it.
+    const mini = document.getElementById('miniPlayer');
+    let miniL = 0, miniR = 0;
+    if (mini && mini.classList.contains('active')) {
+      const m = mini.getBoundingClientRect();
+      if (m.width && m.bottom > top && m.top < vh - bottom) {
+        const pl = left, pr = vw - right;
+        if (m.left - pl > pr - m.right) miniR = Math.max(0, Math.round(pr - m.left + 8));
+        else miniL = Math.max(0, Math.round(m.right - pl + 8));
+      }
+    }
+    const box = `${top}|${left}|${right}|${bottom}|${miniL}|${miniR}`;
     if (box === fsBox) return;
     fsBox = box;
+    el.style.setProperty('--flow-fs-mini-l', `${miniL}px`);
+    el.style.setProperty('--flow-fs-mini-r', `${miniR}px`);
     el.style.setProperty('--flow-fs-top', `${top}px`);
     el.style.setProperty('--flow-fs-left', `${left}px`);
     el.style.setProperty('--flow-fs-right', `${right}px`);
@@ -2505,6 +2544,8 @@ const Flow = (() => {
     wrap.addEventListener('scroll', () => {
       // Reads one number, no layout: Flow's own scrolls set autoLeft first.
       if (st.full && Math.abs(wrap.scrollLeft - st.autoLeft) > 2) st.follow = false;
+      // The chart moved under the pointer: the card waits for the next pointer move.
+      if (!(drag && drag.on)) hideCard();
     }, { passive: true });
     wrap.addEventListener('wheel', (e) => {
       if (!st.full || !st.zoom || e.ctrlKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
@@ -2547,13 +2588,32 @@ const Flow = (() => {
   }
   function stopEdge() { if (edge.raf) { cancelAnimationFrame(edge.raf); edge.raf = 0; } }
 
+  /** Is a sheet, popover or menu open over the view? Asked only on F and Esc. */
+  function somethingAbove() {
+    if (typeof filtersAreOpen === 'function' && filtersAreOpen()) return true;
+    if (typeof filterPopoverIsOpen === 'function' && filterPopoverIsOpen()) return true;
+    const pop = document.getElementById('upNextPop');
+    if (pop && !pop.hidden) return true;
+    for (const m of document.querySelectorAll('[role="menu"], [role="listbox"]')) {
+      if (!m.hidden && m.getClientRects && m.getClientRects().length && !(panel() && panel().contains(m))) return true;
+    }
+    return false;
+  }
+
   /** F and Esc: in and out (never while typing, under a dialog, or in the player). */
   function fsKey(e) {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
     const isF = e.key === 'f' || e.key === 'F';
     if (!isF && e.key !== 'Escape') return;
+    // A column drag: Esc cancels the drag and nothing else (whichever listener hears it first), F does nothing.
+    if (drag && drag.on) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelDrag(); }
+      return;
+    }
     if (e.key === 'Escape' && !st.full) return;
     if (!st.open || !isMine() || panel()?.hidden) return;
+    // Something over the panel (More filters, a filter's popover, Up next's list, a menu) takes the key.
+    if (somethingAbove()) return;
     if (isF && e.repeat) return;
     const t = e.target;
     const typing = typeof isTypingTarget === 'function' ? isTypingTarget(t)
@@ -2723,7 +2783,7 @@ const Flow = (() => {
     toggleFull: fsToggle,
     // Full screen (tests): in and out, keys, picks, the strip.
     _full: {
-      on: fsOn, toggle: fsToggle, key: fsKey, click: fsClick, pick, pickHand, strip: stripHtml, act: stripAct,
+      on: fsOn, toggle: fsToggle, key: fsKey, click: fsClick, pick, pickHand, strip: stripHtml, act: stripAct, play: playHere,
       zoom: (on) => { st.zoom = !!on; st.follow = true; paint(); },
       state: () => ({ full: st.full, zoom: st.zoom, sel: st.sel, selHand: st.selHand, follow: st.follow, gridStale: st.gridStale }),
     },

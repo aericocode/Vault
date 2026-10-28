@@ -508,9 +508,12 @@ body.flow-fs-on .flow-names { font-size: 0.78rem; }
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 8px 18px;
   align-items: start;
-  max-height: 32vh;
+  max-height: 26vh;
   overflow-y: auto;
-  padding: 10px 12px;
+  padding: 8px 12px;
+  /* Room beside the floating mini player (flow.js fsMeasure). */
+  margin-left: var(--flow-fs-mini-l, 0px);
+  margin-right: var(--flow-fs-mini-r, 0px);
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--bg-primary);
@@ -589,6 +592,19 @@ body.layout-modern .flow-hc-m,
 body.layout-modern .flow-st-hands,
 body.layout-modern .flow-st-k { color: var(--m-muted); }
 body.layout-modern .flow-fs-orderbar { border-radius: var(--m-radius-sm, 8px); color: var(--m-text-2); }
+body.flow-fs-on #flowPanel > .flow-row:last-child { margin-left: var(--flow-fs-mini-l, 0px); margin-right: var(--flow-fs-mini-r, 0px); }
 @media (max-width: 900px) {
   .flow-st-acts { justify-content: flex-start; }
+}
+/* A short window: a tighter strip, so the plot keeps its height. */
+@media (max-height: 800px) {
+  .flow-strip { gap: 4px 14px; padding: 6px 10px; }
+  .flow-st-hands { font-size: 0.74rem; gap: 2px; }
+  body.flow-fs-on #flowPanel.flow-panel { gap: 6px; padding-top: 8px; padding-bottom: 8px; }
+}
+/* Very short (1280x560 and less): the legend row goes and the strip is shorter. */
+@media (max-height: 640px) {
+  body.flow-fs-on #flowPanel > .flow-row:last-child { display: none; }
+  .flow-strip { max-height: 20vh; }
+  body.flow-fs-on #flowPanel .flow-names { margin-top: 0; }
 }

@@ -37,6 +37,28 @@
                              the end, as reorderMove takes it), or null when
                              it lands where it is
    - movedOrder(order, from, to)  the order with that file moved (the preview)
+
+   Full screen (flow.js "Full screen"):
+   - fsLayout(wrapW, n, L, R, zoom)  the chart's width and column step: Fit
+                             puts the whole list in the width, Zoom gives each
+                             file at least FS_COL_PX and scrolls sideways
+   - fsThumbHeight(step)     the Zoom thumbnail row's height (16:9 in a column)
+   - fsThumbsFit(ph)         does the plot keep FS_PLOT_MIN with the thumbnail
+                             row? (a short view drops the row first)
+   - fsPlotHeight(wrapH, o)  the plot's height: what the view has left after
+                             the lane rows, the names and the thumbnails
+   - chartHit(x, y, g)       what is under a point of the chart: a hand-over
+                             (near the line between two columns, in the plot)
+                             { kind: 'hand', i } (file i into i + 1), or a
+                             column { kind: 'col', i, frac } (frac: 0..1 across
+                             the file's own line, so it lines up with it)
+   - frameAt(frac, duration) the time under the pointer and the nearest of a
+                             file's five hover frames (as the seek bars pick
+                             them, DockGeom.scrubFrameIndex)
+   - followScroll(x0, x1, left, viewW)  the scroll that brings the column x0..x1
+                             back into view (centred), or null when it is in view
+   - scrollStep(left, speed, dtMs, max)  the next scroll while a drag sits near
+                             an edge (speed from DragAutoScroll.speed)
    ========================================================================= */
 
 const FlowChartMath = (() => {
@@ -245,6 +267,10 @@ const FlowChartMath = (() => {
     return { W: Math.ceil(L + R + cols * colPx), step: colPx };
   }
 
+  /** The plot's height the thumbnail row must leave (else the row is dropped). */
+  const FS_PLOT_MIN = 140;
+  const fsThumbsFit = (plotWithThumbs) => plotWithThumbs >= FS_PLOT_MIN;
+
   const fsThumbHeight = (step) => Math.round(Math.max(24, Math.min(180, step - 10)) * 9 / 16) + 8;
 
   /** o: { top, lanes (rows), laneRow (px a row), names (px), thumbs (px), bar (a sideways scrollbar, px) } */
@@ -288,7 +314,7 @@ const FlowChartMath = (() => {
     return Math.max(0, Math.min(Math.max(0, max), next));
   }
 
-  return { FS_COL_PX, FS_NAMES_H, fsLayout, fsThumbHeight, fsPlotHeight, chartHit, frameAt, followScroll, scrollStep,
+  return { FS_COL_PX, FS_NAMES_H, FS_PLOT_MIN, fsThumbsFit, fsLayout, fsThumbHeight, fsPlotHeight, chartHit, frameAt, followScroll, scrollStep,
     DRAG_THRESHOLD, dragPassed, dragSlot, dragTarget, movedOrder, yRange, filePoints, ignoredSpan, smoothed, slopes, monotonePath, monotoneAt, linearAt, tempoShare,
     CHART_H_MIN, CHART_H_MAX, clampChartHeight, sparkPath };
 })();

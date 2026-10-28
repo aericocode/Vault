@@ -125,7 +125,7 @@ function fakeEl(over = {}) {
   return el;
 }
 
-function page({ wrapW = 800, stage = false } = {}) {
+function page({ wrapW = 800, wrapH = 500, stage = false, extra = {} } = {}) {
   const ids = [11, 12, 13, 14, 15];
   const feats = ids.map((id, i) => ({ id, name: `file${id}.mp4`, measured: true, music: true, es: 0.2 + 0.1 * i, em: 0.25 + 0.1 * i, ee: 0.3 + 0.1 * i, bs: 120, bm: 120, be: 120 }));
   const answer = () => ({ shape: 'smooth', edges: 'off', order: ids.slice().reverse(), playlistOrder: ids.slice(), features: feats, targets: null,
@@ -133,12 +133,13 @@ function page({ wrapW = 800, stage = false } = {}) {
   const moves = [], played = [], renders = [];
   const svgBox = { left: 0 };
   const svg = fakeEl({ getBoundingClientRect: () => ({ left: svgBox.left, top: 0, right: svgBox.left + 800, bottom: 300, width: 800, height: 300 }) });
-  const wrap = fakeEl({ clientWidth: wrapW, querySelector: (q) => (q === 'svg' ? svg : fakeEl()) });
+  const parts = new Map();          // the wrap's own children, kept (what was drawn can be read)
+  const wrap = fakeEl({ clientWidth: wrapW, clientHeight: wrapH, querySelector: (q) => (q === 'svg' ? svg : (parts.get(q) || parts.set(q, fakeEl()).get(q))) });
   const strip = fakeEl();
   const panelEl = fakeEl();
   const classes = new Set();
   const body = fakeEl({ classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c), toggle() {}, contains: (c) => classes.has(c) } });
-  const keyListeners = [];
+  const keyListeners = [];         // window keydown listeners in the order added: { fn, capture }
   const ok = (b) => ({ ok: true, status: 200, json: async () => b });
   const ctx = {
     console, FlowOrder, FlowChartMath: M, DragAutoScroll,
@@ -163,13 +164,14 @@ function page({ wrapW = 800, stage = false } = {}) {
     playMediaById: (id) => played.push(id),
     StageControl: { isOpen: () => stage, basicOn: () => false },
     isTypingTarget: (el) => !!(el && el.tagName === 'INPUT'),
+    ...extra,
     fetch: async (url) => {
       if (/\/api\/flow\/collections\/\d+\?/.test(url)) return ok(answer());
       return ok({ collection: { total: 5, measurable: 5, measured: 5, failed: 0, left: 0, stale: 0 }, queue: { state: 'idle' } });
     },
   };
   ctx.window = {
-    addEventListener: (type, fn) => { if (type === 'keydown') keyListeners.push(fn); },
+    addEventListener: (type, fn, opt) => { if (type === 'keydown') keyListeners.push({ fn, capture: opt === true || !!(opt && opt.capture) }); },
     dispatchEvent() {}, innerWidth: 1280, innerHeight: 720, scrollY: 0, scrollTo() {},
   };
   vm.createContext(ctx);
@@ -179,7 +181,9 @@ function page({ wrapW = 800, stage = false } = {}) {
   const key = (k, over = {}) => {
     const e = { key: k, target: body, defaultPrevented: false, ctrlKey: false, metaKey: false, altKey: false, repeat: false,
       preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}, ...over };
-    for (const fn of keyListeners) fn(e);
+    // As the browser runs them on window: capture listeners in the order added, then the rest.
+    const order = [...keyListeners.filter(l => l.capture), ...keyListeners.filter(l => !l.capture)];
+    for (const l of (over.reverse ? order.reverse() : order)) l.fn(e);
     return e;
   };
   const geom = () => Flow._state().geom;
@@ -189,7 +193,7 @@ function page({ wrapW = 800, stage = false } = {}) {
   const D = Flow._drag;
   const press = (x) => D.down({ button: 0, target, clientX: x, clientY: 100, pointerId: 1 });
   const moveTo = (x) => D.move({ pointerId: 1, buttons: 1, clientX: x, clientY: 100, preventDefault() {} });
-  return { ctx, Flow, F, D, key, classes, strip, wrap, svgBox, moves, played, renders, geom, colX, gapX, press, moveTo, target };
+  return { ctx, Flow, F, D, key, classes, strip, wrap, parts, svgBox, moves, played, renders, geom, colX, gapX, press, moveTo, target };
 }
 
 test('in and out: the button, F, Esc; never while typing, or when Esc was taken first', async () => {
@@ -343,4 +347,105 @@ test('Zoom: a column drag lands where it would in the small chart, also after th
   p.moveTo(p.gapX(2) + 1);
   await p.D.drop();
   assert.deepStrictEqual(p.moves.map(m => [[...m.ids], m.before]), [[[12], 15], [[15], 13]]);
+});
+
+test('Esc during a column drag cancels the drag only, whichever listener hears it first', async () => {
+  for (const reverse of [false, true]) {
+    const p = page({ wrapW: 400 });
+    await p.Flow.toggle(3);
+    p.F.toggle();
+    p.press(p.colX(1));
+    p.moveTo(p.gapX(4) + 3);
+    assert.strictEqual(p.D.state().on, true);
+    const e = p.key('Escape', { reverse });
+    assert.ok(e.defaultPrevented);
+    assert.strictEqual(p.D.state(), null, 'the drag is cancelled');
+    assert.strictEqual(p.Flow.isFull(), true, `still full screen (${reverse ? 'full screen listener first' : 'drag listener first'})`);
+    assert.strictEqual(await p.D.drop(), false);
+    assert.deepStrictEqual(p.moves, []);
+    p.key('Escape');
+    assert.strictEqual(p.Flow.isFull(), false, 'the next Esc leaves full screen');
+  }
+});
+
+test("F and Esc are left to More filters, a filter popover, Up next's list or a menu over the view", async () => {
+  let sheet = true;
+  const p = page({ extra: { filtersAreOpen: () => sheet } });
+  await p.Flow.toggle(3);
+  p.key('f');
+  assert.strictEqual(p.Flow.isFull(), false, 'F types nothing and opens nothing under the sheet');
+  sheet = false;
+  p.key('f');
+  assert.strictEqual(p.Flow.isFull(), true);
+  sheet = true;
+  assert.strictEqual(p.key('Escape').defaultPrevented, false, 'the sheet takes Esc');
+  assert.strictEqual(p.Flow.isFull(), true);
+  sheet = false;
+  const q = page({ extra: { filterPopoverIsOpen: () => true } });
+  await q.Flow.toggle(3);
+  q.key('f');
+  assert.strictEqual(q.Flow.isFull(), false);
+});
+
+test("Hide file names: no names in the chart's tooltips or the Remove toast", async () => {
+  const toasts = [];
+  const ext = {
+    openPlainCollection: () => ({ id: 3, name: 'Set', kind: 'collection' }),
+    changeCollectionMembership: async () => true,
+    undoRemoveFromCollection: async () => {},
+    showUndoToast: (msg) => toasts.push(msg),
+  };
+  const p = page({ extra: ext });
+  await p.Flow.toggle(3);
+  p.F.toggle();
+  const svgHtml = () => p.parts.get('.flow-chart-svg').innerHTML;
+  assert.match(svgHtml(), /<title>[^<]*file1[1-5]/, 'names in the tooltips normally');
+  p.classes.add('pm-names');
+  p.F.pick(1);                           // draws again
+  assert.doesNotMatch(svgHtml(), /file1[1-5]/, 'no file names in any tooltip');
+  await p.F.act('remove');
+  assert.deepStrictEqual(toasts, ['Removed this file from Set']);
+  p.classes.delete('pm-names');
+  p.F.pick(2);
+  await p.F.act('remove');
+  assert.match(toasts[1], /Removed “file1[0-9]” from Set/);
+});
+
+test('a short view drops the thumbnail row before the plot gets short', async () => {
+  const tall = page({ wrapW: 400, wrapH: 500 });
+  await tall.Flow.toggle(3);
+  tall.F.toggle();
+  tall.F.zoom(true);
+  assert.strictEqual(tall.parts.get('.flow-thumbs').hidden, false, 'room: the thumbnails show');
+  const short = page({ wrapW: 400, wrapH: 260 });
+  await short.Flow.toggle(3);
+  short.F.toggle();
+  short.F.zoom(true);
+  assert.strictEqual(short.parts.get('.flow-thumbs').hidden, true, 'short: no thumbnail row');
+  assert.ok(short.geom().PH >= M.FS_PLOT_MIN, `plot ${short.geom().PH} px`);
+  assert.strictEqual(M.fsThumbsFit(M.FS_PLOT_MIN), true);
+  assert.strictEqual(M.fsThumbsFit(M.FS_PLOT_MIN - 1), false);
+});
+
+test('Play keeps full screen: videos go to the mini player; Stage open plays on Stage', async () => {
+  const calls = [];
+  const row = (id) => ({ id, filepath: `/v/${id}.mp4`, filename: `${id}.mp4`, media_type: 'video' });
+  const mk = (stage, mini) => page({ stage, extra: {
+    getMediaById: row,
+    playMedia: (m, o) => calls.push(['playMedia', m.id, o && o.stayMini]),
+    minimizePlayer: () => calls.push(['minimize']),
+    currentMediaState: { miniMode: mini },
+  } });
+  let p = mk(false, false);
+  p.F.play(12);
+  assert.deepStrictEqual([...p.played], [12]);
+  assert.deepStrictEqual(calls.splice(0), [['minimize']], 'opened, then to the mini player');
+  p = mk(false, true);
+  p.F.play(13);
+  assert.deepStrictEqual([...p.played], []);
+  assert.deepStrictEqual(calls.splice(0), [['playMedia', 13, true]], 'the mini player plays it in place');
+  p = mk(true, false);
+  p.F.play(14);
+  assert.deepStrictEqual([...p.played], [14], "Stage: as a tile's double click");
+  assert.deepStrictEqual(calls, []);
 });
