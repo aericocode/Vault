@@ -1009,7 +1009,7 @@ const Flow = (() => {
        window.FlowLaneSource = {
          lanes(): Array<{ key: string, label: string }>,            // available tag lanes, in order
          cells(laneKey: string, mediaIds: number[]): Array<Array<{ color: string, label: string }>>,  // per file, the tags in that lane ([] = none)
-         chips(mediaId: number): Array<{ color: string, label: string }>, // all of a file's stream tags (for the hover card and the strip)
+         chips(mediaId: number): Array<{ color: string, label: string }>, // all of a file's stream tags (for the hover card)
          onChange(cb: () => void): void                            // call cb to redraw when tags change
        }
 
