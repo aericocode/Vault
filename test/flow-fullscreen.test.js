@@ -182,17 +182,21 @@ function fakeEl(over = {}) {
   return el;
 }
 
-function page({ wrapW = 800, wrapH = 500, vh = 720, stage = false, extra = {}, win = {} } = {}) {
-  const ids = [11, 12, 13, 14, 15];
+function page({ wrapW = 800, wrapH = 500, vh = 720, stage = false, extra = {}, win = {}, n = 5, strip: stripEl = null } = {}) {
+  const ids = Array.from({ length: n }, (_, i) => 11 + i);
   const feats = ids.map((id, i) => ({ id, name: `file${id}.mp4`, measured: true, music: true, es: 0.2 + 0.1 * i, em: 0.25 + 0.1 * i, ee: 0.3 + 0.1 * i, bs: 120, bm: 120, be: 120 }));
   const answer = () => ({ shape: 'smooth', edges: 'off', order: ids.slice().reverse(), playlistOrder: ids.slice(), features: feats, targets: null,
-    handovers: [], jumps: 0, playlistJumps: 0, counts: { measured: 5, failed: 0, music: 5 }, places: {}, placesOn: false });
+    handovers: [], jumps: 0, playlistJumps: 0, counts: { measured: n, failed: 0, music: n }, places: {}, placesOn: false });
   const moves = [], played = [], renders = [];
   const svgBox = { left: 0 };
   const svg = fakeEl({ getBoundingClientRect: () => ({ left: svgBox.left, top: 0, right: svgBox.left + 800, bottom: 300, width: 800, height: 300 }) });
   const parts = new Map();          // the wrap's own children, kept (what was drawn can be read)
-  const wrap = fakeEl({ clientWidth: wrapW, clientHeight: wrapH, querySelector: (q) => (q === 'svg' ? svg : (parts.get(q) || parts.set(q, fakeEl()).get(q))) });
-  const strip = fakeEl();
+  const wrapListeners = {};        // the wrap's own listeners (scroll, wheel)
+  const wrap = fakeEl({ clientWidth: wrapW, querySelector: (q) => (q === 'svg' ? svg : (parts.get(q) || parts.set(q, fakeEl()).get(q))),
+    addEventListener: (t, fn) => { (wrapListeners[t] = wrapListeners[t] || []).push(fn); } });
+  const strip = stripEl || fakeEl();
+  // A view whose height is what the strip leaves (wrapH a function of the strip), or a fixed one.
+  Object.defineProperty(wrap, 'clientHeight', { get: () => (typeof wrapH === 'function' ? wrapH(strip) : wrapH) });
   const panelEl = fakeEl();
   const classes = new Set();
   const body = fakeEl({ classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c), toggle() {}, contains: (c) => classes.has(c) } });
@@ -224,7 +228,7 @@ function page({ wrapW = 800, wrapH = 500, vh = 720, stage = false, extra = {}, w
     ...extra,
     fetch: async (url) => {
       if (/\/api\/flow\/collections\/\d+\?/.test(url)) return ok(answer());
-      return ok({ collection: { total: 5, measurable: 5, measured: 5, failed: 0, left: 0, stale: 0 }, queue: { state: 'idle' } });
+      return ok({ collection: { total: n, measurable: n, measured: n, failed: 0, left: 0, stale: 0 }, queue: { state: 'idle' } });
     },
   };
   ctx.window = {
@@ -250,7 +254,7 @@ function page({ wrapW = 800, wrapH = 500, vh = 720, stage = false, extra = {}, w
   const D = Flow._drag;
   const press = (x) => D.down({ button: 0, target, clientX: x, clientY: 100, pointerId: 1 });
   const moveTo = (x) => D.move({ pointerId: 1, buttons: 1, clientX: x, clientY: 100, preventDefault() {} });
-  return { ctx, Flow, F, D, key, classes, strip, wrap, parts, svgBox, moves, played, renders, geom, colX, gapX, press, moveTo, target };
+  return { ctx, Flow, F, D, key, classes, strip, wrap, wrapListeners, parts, svgBox, moves, played, renders, geom, colX, gapX, press, moveTo, target };
 }
 
 test('in and out: the button, F, Esc; never while typing, or when Esc was taken first', async () => {
@@ -665,4 +669,125 @@ test('Hide file names: tag rows name no file, and the cards are blurred', async 
   const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'flow.css'), 'utf8');
   assert.match(css, /body\.pm-names \.flow-card img \{ filter: blur\(\d+px\); \}/, 'the card pictures blur as names do');
   assert.match(css, /body\.pm-names \.flow-nm-t,/);
+});
+
+/* ── Verifier fixes: a stable first pick, privacy, badges, scroll, unloading, keys ── */
+
+test('a first pick never moves the chart or the cards: the strip holds a picked file\'s height from the start', async () => {
+  // A strip whose height is its content's (a pick: 105 px, the hint: 32 px), at least its min-height;
+  // the view gets what the strip leaves.
+  const strip = fakeEl();
+  Object.defineProperty(strip, 'offsetHeight', { get: () => Math.max(parseFloat(strip.style.minHeight) || 0, /Selected/.test(strip.innerHTML) ? 105 : 32) });
+  const p = page({ wrapW: 1000, wrapH: (s) => 560 - s.offsetHeight, strip });
+  await p.Flow.toggle(3);
+  p.F.toggle();
+  p.F.zoom(true);
+  assert.strictEqual(p.F.stripMin(), 105, 'measured with a file picked');
+  assert.strictEqual(strip.style.minHeight, '105px');
+  assert.doesNotMatch(strip.innerHTML, /Selected/, 'the hint shows until a pick');
+  const at = () => ({ PH: p.geom().PH, cards: p.F.cards().map(c => [c.i, c.id]) });
+  const before = at();
+  p.F.pick(2);
+  assert.match(strip.innerHTML, /Selected · 3 of 5/);
+  assert.deepStrictEqual(at(), before, 'the first click of a double click lands where it pressed');
+  p.F.pick(-1);
+  assert.deepStrictEqual(at(), before, 'nor does letting go of the pick');
+  p.F.pickHand(1);
+  assert.deepStrictEqual(at(), before);
+  // Two clicks on one card: the second still finds it, and it plays.
+  const card = (i) => ({ dataset: { i: String(i) }, closest: (q) => (q.split(', ').includes('.flow-card') ? card(i) : null) });
+  p.F.click({ target: card(3), clientX: 0, clientY: 0 });
+  p.F.click({ target: card(3), clientX: 0, clientY: 0 });
+  assert.deepStrictEqual(p.played, [p.geom().order[3]]);
+});
+
+test('blurred thumbnails (pm-thumbs): cards stay on their first frame and blur; the floating card blurs too', async () => {
+  const p = page({ wrapW: 1000 });
+  await p.Flow.toggle(3);
+  p.F.toggle();
+  p.classes.add('pm-thumbs');
+  p.F.scrub(1, 0.9);
+  const c = p.F.cards().find(x => x.i === 1);
+  assert.match(c.src, /^\/scrub\/\d+\/0$/, 'no frame from the pointer');
+  assert.strictEqual(c.bar, '90%', 'the bar still says where');
+  p.F.unscrub();
+  p.classes.delete('pm-thumbs');
+  p.F.scrub(1, 0.9);
+  assert.match(p.F.cards().find(x => x.i === 1).src, /^\/scrub\/\d+\/4$/, 'without it the pointer scrubs');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'flow.css'), 'utf8');
+  for (const sel of ['.flow-card img', '.flow-hcard img', '.flow-tip-img img']) assert.ok(css.includes(`body.pm-thumbs ${sel}`), sel);
+  assert.match(css, /body\.flow-fs-on #tilePopover \{ display: none !important; \}/, 'no library hover popover over full screen');
+});
+
+test('the length badge is the grid\'s: none for pictures or under a second', async () => {
+  const rows = { 11: ['video', 300], 12: ['image', 0], 13: ['video', 0.4], 14: ['audio', 61], 15: ['image', 12] };
+  const Library = { indexOf: () => -1, row: (id) => ({ id, media_type: rows[id][0], duration_seconds: rows[id][1] }) };
+  const formatDuration = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+  const p = page({ wrapW: 1000, extra: { Library, formatDuration } });
+  await p.Flow.toggle(3);
+  p.F.toggle();
+  const len = new Map(p.F.cards().map(c => [c.id, c.len]));
+  assert.deepStrictEqual([11, 12, 13, 14, 15].map(id => len.get(id)), ['5:00', '', '', '1:01', '']);
+  // cards.js's own rule when it is there.
+  const q = page({ wrapW: 1000, extra: { Library, formatDuration, tileDurationText: (m) => `T${m.id}` } });
+  await q.Flow.toggle(3);
+  q.F.toggle();
+  assert.strictEqual(q.F.cards().find(c => c.id === 12).len, 'T12');
+});
+
+test('scrolling the chart ends a scrub (the card under the pointer is another one now)', async () => {
+  const p = page({ wrapW: 400 });
+  await p.Flow.toggle(3);
+  p.F.zoom(true);
+  p.F.toggle();
+  p.F.scrub(1, 0.5);
+  assert.strictEqual(p.F.cards().find(c => c.i === 1).bar, '50%');
+  for (const fn of p.wrapListeners.scroll || []) fn();
+  const c = p.F.cards().find(x => x.i === 1);
+  assert.strictEqual(c.bar, '0');
+  assert.match(c.src, /\/0$/, 'its first frame again');
+});
+
+test('a big list in Zoom: cards far from the view let their pictures go, and get them back when scrolled to', async () => {
+  const p = page({ wrapW: 400, n: 40 });
+  await p.Flow.toggle(3);
+  p.F.zoom(true);
+  p.F.toggle();
+  const loaded = () => [...p.F.cards().filter(c => c.loaded && c.src).map(c => c.i)].sort((a, b) => a - b);
+  assert.deepStrictEqual(loaded(), [0, 1, 2, 3]);
+  p.wrap.scrollLeft = 4000;
+  p.F.cardsLoad();
+  const far = loaded();
+  assert.ok(!far.includes(0) && !far.includes(3), `the first cards dropped theirs: ${far}`);
+  assert.ok(far.includes(Math.floor((4000 + 200) / M.FS_COL_PX)), 'the cards in view have theirs');
+  assert.strictEqual(p.F.cards().find(c => c.i === 0).src, '');
+  // Nearby cards (within a few views) keep theirs: scrolling a little back loads nothing again and drops nothing.
+  p.wrap.scrollLeft = 3600;
+  p.F.cardsLoad();
+  for (const i of far) assert.ok(loaded().includes(i), `card ${i} kept its picture`);
+  p.wrap.scrollLeft = 0;
+  p.F.cardsLoad();
+  assert.deepStrictEqual(loaded().filter(i => i < 4), [0, 1, 2, 3], 'back at the start: loaded again');
+});
+
+test('a tag cell that opens the menu is a button for the keyboard: Enter or Space opens it', async () => {
+  const menus = [];
+  const StreamTags = { blockMenu: (el, id) => menus.push([el.dataset.i, id]), loaded: () => true, onChange() {}, tagsOf: () => [] };
+  const p = page({ wrapW: 900, win: roleLane, extra: { StreamTags } });
+  await p.Flow.toggle(3);
+  p.F.toggle();
+  const html = p.parts.get('.flow-ltags').innerHTML;
+  const editable = html.match(/<span class="flow-tg[^"]*"[^>]*data-flow-tag[^>]*>/g) || [];
+  assert.strictEqual(editable.length, 5);
+  for (const t of editable) assert.match(t, /role="button" tabindex="0"/);
+  assert.doesNotMatch(html.match(/<span class="flow-tg flow-tg-num"[^>]*>/)[0], /tabindex/, 'Tempo is not a button');
+  const cell = (i) => ({ dataset: { i: String(i) }, closest: (q) => (q === '[data-flow-tag]' ? cell(i) : null) });
+  const ev = (k) => ({ key: k, target: cell(3), preventDefault() { this.prevented = true; }, stopPropagation() {} });
+  const e = ev('Enter');
+  assert.strictEqual(p.F.tagKey(e), true);
+  assert.ok(e.prevented);
+  p.F.tagKey(ev(' '));
+  assert.strictEqual(p.F.tagKey(ev('a')), false);
+  const order = p.geom().order;
+  assert.deepStrictEqual(menus, [['3', order[3]], ['3', order[3]]]);
 });

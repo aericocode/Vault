@@ -542,6 +542,7 @@ body.flow-fs-on .flow-names { font-size: 0.78rem; }
   opacity: 0.7;
 }
 .flow-tg[data-flow-tag] { cursor: pointer; }
+.flow-tg[data-flow-tag]:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 1px; border-radius: 5px; }
 .flow-tg-empty[data-flow-tag]:hover { opacity: 1; color: var(--text-secondary); border-color: var(--accent); }
 .flow-tg-num { align-items: center; gap: 6px; font-size: 0.72rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .flow-tg-num > i { flex: 1; min-width: 12px; max-width: 80px; height: 5px; border-radius: 3px; background: var(--flow-lane-empty); overflow: hidden; }
@@ -582,6 +583,7 @@ body.flow-fs-on .flow-names { font-size: 0.78rem; }
 
 /* The strip under the chart: the file (or hand-over) picked. */
 .flow-strip {
+  box-sizing: border-box;          /* flow.js reserveStrip sets min-height from offsetHeight */
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 8px 18px;
@@ -659,6 +661,13 @@ body.flow-fs-on .flow-names { font-size: 0.78rem; }
 body.pm-names .flow-nm-t,
 body.pm-names .flow-pm-name { filter: blur(7px); user-select: none; }
 body.pm-names .flow-card img { filter: blur(12px); }
+/* Thumbnails blurred (settings.css body.pm-thumbs, no hover reveal): the cards,
+   the floating card and the small panel's frame too; flow.js does not scrub. */
+body.pm-thumbs .flow-card img,
+body.pm-thumbs .flow-hcard img,
+body.pm-thumbs .flow-tip-img img { filter: blur(14px); }
+/* A library tile's hover popover never shows over full screen. */
+body.flow-fs-on #tilePopover { display: none !important; }
 
 body.layout-modern .flow-hcard,
 body.layout-modern .flow-strip {

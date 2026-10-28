@@ -1449,8 +1449,9 @@ const Flow = (() => {
   function phTick() {
     if (st.full) fsMeasure();
     if (st.open && isMine()) {
-      const nh = namesHidden();
-      if (namesWere !== null && nh !== namesWere) schedulePaint();
+      // Hide file names or blurred thumbnails changed (Settings, Privacy): drawn again, no frame left scrubbed.
+      const nh = `${namesHidden()}|${thumbsBlurred()}`;
+      if (namesWere !== null && nh !== namesWere) { unscrub(); schedulePaint(); }
       namesWere = nh;
     }
     const on = st.open && isMine() && !!st.geom && !document.hidden;
@@ -1884,9 +1885,10 @@ const Flow = (() => {
     const slot = el.querySelector('#flowChartSlot');
     if (slot && keep) slot.replaceWith(keep);
     st.geom = null;
+    // Full screen: the strip first, so the chart is drawn in the room it leaves.
+    if (st.full) paintStrip();
     drawChart();
     if (st.full) {
-      paintStrip();
       // Put back the sideways scroll the repaint took (the wrap was out of the page).
       const w = document.getElementById('flowChartWrap');
       if (w && keepLeft) setScroll(w, keepLeft);
@@ -1982,6 +1984,7 @@ const Flow = (() => {
       }
     });
     el.addEventListener('pointerdown', dragDown);
+    el.addEventListener('keydown', tagKey);
     el.addEventListener('pointermove', (e) => {
       if (dragMove(e)) return;
       const wrap = e.target.closest('#flowChartWrap');
@@ -2007,7 +2010,7 @@ const Flow = (() => {
     el.addEventListener('pointerleave', () => { if (st.hot >= 0) showHot(-1); hideCard(); unscrub(); });
     // Full screen: F and Esc (after the listeners that take Esc first: drags above, Up next's list).
     window.addEventListener('keydown', fsKey, true);
-    window.addEventListener('resize', () => { if (st.full) { fsMeasure(); scheduleDraw(); } });
+    window.addEventListener('resize', () => { if (st.full) { fsMeasure(); restrip(); scheduleDraw(); } });
     window.addEventListener('vault:stage-bar', () => { if (st.full) { fsMeasure(); scheduleDraw(); } });
     window.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape' || !drag || !drag.on) return;
@@ -2063,6 +2066,8 @@ const Flow = (() => {
   const durOf = (id) => { const r = libRow(id); return r && Number(r.duration_seconds) > 0 ? Number(r.duration_seconds) : 0; };
   const lenText = (id) => { const d = durOf(id); return d && typeof formatDuration === 'function' ? formatDuration(d) : ''; };
   const thumbsShown = () => !(typeof thumbsOff === 'function' && thumbsOff());
+  /** Privacy: thumbnails blurred, no hover reveal (settings.js pm-thumbs): no frames from the pointer either. */
+  const thumbsBlurred = () => !!(document.body && document.body.classList && document.body.classList.contains('pm-thumbs'));
 
   /** The file's still: its thumbnail as the tiles show it, or '' (none, thumbnails off). */
   function stillUrl(id) {
@@ -2146,7 +2151,7 @@ const Flow = (() => {
       order.forEach((id, i) => {
         const pos = `left:${f1(L + i * step + inset)}px;top:${top}px;width:${f1(w)}px`;
         const who = `${i + 1}. ${titleName(st.byId.get(id), `File ${i + 1}`)}`;
-        const ed = canEdit ? ` data-flow-tag="${esc(lane.key)}"` : '';
+        const ed = canEdit ? ` data-flow-tag="${esc(lane.key)}" role="button" tabindex="0" aria-haspopup="menu"` : '';
         if (tempo) {
           const f = st.byId.get(id);
           const bpm = f && drawable(f) && f.music ? (f.bm || f.bs || f.be) : null;
@@ -2158,14 +2163,32 @@ const Flow = (() => {
         const tags = cells[i];
         if (!tags.length) {
           html += canEdit
-            ? `<span class="flow-tg flow-tg-empty" data-i="${i}"${ed} style="${pos}" title="${esc(`${who}: add a ${lane.label} tag`)}">+ ${esc(lane.label)}</span>`
+            ? `<span class="flow-tg flow-tg-empty" data-i="${i}"${ed} style="${pos}" title="${esc(`${who}: add a ${lane.label} tag`)}" aria-label="${esc(`${titleName(st.byId.get(id), `File ${i + 1}`)}: add a ${lane.label} tag`)}">+ ${esc(lane.label)}</span>`
             : `<span class="flow-tg flow-tg-empty" data-i="${i}" style="${pos}"></span>`;
           return;
         }
-        html += `<span class="flow-tg" data-i="${i}"${ed} style="${pos}">${tags.map(t => `<span class="flow-tg-t" style="background:${esc(t.color)};color:${FlowChartMath.inkOn(t.color)}" title="${esc(`${who}: ${t.label}`)}">${esc(t.label)}</span>`).join('')}</span>`;
+        html += `<span class="flow-tg" data-i="${i}"${ed} style="${pos}"${canEdit ? ` aria-label="${esc(`${titleName(st.byId.get(id), `File ${i + 1}`)}, ${lane.label}: ${tags.map(t => t.label).join(', ')}`)}"` : ''}>${tags.map(t => `<span class="flow-tg-t" style="background:${esc(t.color)};color:${FlowChartMath.inkOn(t.color)}" title="${esc(`${who}: ${t.label}`)}">${esc(t.label)}</span>`).join('')}</span>`;
       });
     });
+    // A cell with keyboard focus keeps it (polls redraw often).
+    const f = document.activeElement;
+    const had = f && el.contains && el.contains(f) && f.dataset && f.dataset.flowTag ? [f.dataset.flowTag, f.dataset.i] : null;
     el.innerHTML = html;
+    if (had) el.querySelector(`[data-flow-tag="${had[0]}"][data-i="${had[1]}"]`)?.focus({ preventScroll: true });
+  }
+
+  /** Enter or Space on a tag cell opens its menu, as a click does. */
+  function tagKey(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return false;
+    const tg = e.target && e.target.closest && e.target.closest('[data-flow-tag]');
+    const g = st.geom;
+    if (!tg || !g || !tagEditor() || e.ctrlKey || e.metaKey || e.altKey) return false;
+    const id = g.order[Number(tg.dataset.i)];
+    if (id == null) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    StreamTags.blockMenu(tg, id);
+    return true;
   }
 
   /* ── Preview cards (full screen, FS_CARD_PX a column or wider) ──
@@ -2177,9 +2200,19 @@ const Flow = (() => {
      (or a column either side) ask for their picture. */
 
   const CARD_LOAD_PAD = 140;       // px either side of the view whose cards load too
+  const CARD_KEEP_VIEWS = 3;       // views either side whose cards keep their picture (further: dropped)
   const cardEls = new Map();       // id -> card element
   let cardsHost = null;            // the .flow-cards those belong to
   let scrubbed = null;             // the card being scrubbed
+
+  /** The length badge as the grid's tiles show it (cards.js tileDurationText): none for pictures or under 1 s. */
+  function cardLen(id) {
+    const r = libRow(id);
+    if (!r) return '';
+    if (typeof tileDurationText === 'function') return tileDurationText(r);
+    const d = Number(r.duration_seconds) || 0;
+    return r.media_type !== 'image' && d >= 1 && typeof formatDuration === 'function' ? formatDuration(d) : '';
+  }
 
   /** A card's resting picture: the first hover frame, else the still, else ''. */
   function firstUrl(id) {
@@ -2248,7 +2281,7 @@ const Flow = (() => {
       el.classList.toggle('now', i === g.nowI);
       const want = firstUrl(id);
       if (want !== el._want) { el._want = want; el._loaded = false; }
-      const len = lenText(id);
+      const len = cardLen(id);
       if (el._len.textContent !== len) el._len.textContent = len;
     });
     for (const [id, el] of cardEls) {
@@ -2261,13 +2294,26 @@ const Flow = (() => {
     cardsLoad();
   }
 
-  /** Cards in view (or near it) that have not asked for their picture yet ask now. */
+  /**
+   * Cards in view (or near it) that have not asked for their picture yet ask
+   * now; cards more than CARD_KEEP_VIEWS views away drop theirs (a big
+   * collection in Zoom never holds thousands of pictures). Between the two
+   * a picture stays, so scrolling back and forth or a redraw never flickers.
+   */
   function cardsLoad() {
     const wrap = document.getElementById('flowChartWrap');
     if (!wrap || !cardEls.size) return;
-    const a = wrap.scrollLeft - CARD_LOAD_PAD, b = wrap.scrollLeft + wrap.clientWidth + CARD_LOAD_PAD;
+    const left = wrap.scrollLeft, vw = wrap.clientWidth;
+    const a = left - CARD_LOAD_PAD, b = left + vw + CARD_LOAD_PAD;
+    const keep = Math.max(1200, vw * CARD_KEEP_VIEWS);
     for (const el of cardEls.values()) {
-      if (el._loaded || el._scrub || el._x + el._w < a || el._x > b) continue;
+      if (el._scrub) continue;
+      const x0 = el._x, x1 = el._x + el._w;
+      if (el._loaded) {
+        if (x1 < left - keep || x0 > left + vw + keep) { el._loaded = false; setImg(el, ''); }
+        continue;
+      }
+      if (x1 < a || x0 > b) continue;
       el._loaded = true;
       if (el._src !== el._want) setImg(el, el._want);
     }
@@ -2287,8 +2333,9 @@ const Flow = (() => {
     const el = id != null ? cardEls.get(id) : null;
     if (scrubbed && scrubbed !== el) unscrub();
     if (!el) return;
-    warmFrames(id);
-    const p = pictureAt(id, frac);
+    const blur = thumbsBlurred();
+    if (!blur) warmFrames(id);
+    const p = blur ? { url: el._want } : pictureAt(id, frac);
     el._scrub = true;
     el._loaded = true;
     scrubbed = el;
@@ -2375,7 +2422,7 @@ const Flow = (() => {
     const id = st.geom.order[hit.i];
     if (String(id) !== tip.dataset.id) return;
     warmFrames(id);
-    const p = pictureAt(id, hit.frac);
+    const p = pictureAt(id, thumbsBlurred() ? 0 : hit.frac);
     if (p.url && img.getAttribute('src') !== p.url) img.src = p.url;
   }
 
@@ -2423,7 +2470,7 @@ const Flow = (() => {
       const id = g.order[hit.i];
       key = `c:${id}:${hit.i}`;
       warmFrames(id);
-      const p = pictureAt(id, hit.frac);
+      const p = pictureAt(id, thumbsBlurred() ? 0 : hit.frac);
       if (key !== hov.key) {
         const f = st.byId.get(id);
         el.innerHTML = `<span class="flow-hc-img flow-hc-one"><img alt="" draggable="false"><i class="flow-hc-time"></i></span>
@@ -2518,8 +2565,32 @@ const Flow = (() => {
 
   function paintStrip() {
     const el = document.getElementById('flowStrip');
-    if (el) el.innerHTML = stripHtml();
+    if (!el) return;
+    el.innerHTML = stripHtml();
+    if (st.full) reserveStrip(el);
   }
+
+  /* The strip keeps the height a picked file's details take from the start,
+     and never gives height back while full screen stays open: a first pick
+     (the first click of a double click) must not move the chart and the
+     cards under the pointer. Measured again when the view's width changes. */
+  let stripMin = 0;
+  function reserveStrip(el) {
+    if (!stripMin) {
+      el.style.minHeight = '';
+      const order = st.geom ? st.geom.order : chartOrder();
+      if (order.length) {
+        // A picked file's details (the first file's), drawn for a moment to be measured.
+        const was = el.innerHTML, sel = st.sel, hand = st.selHand;
+        st.sel = sel != null && order.includes(sel) ? sel : order[0];
+        st.selHand = -1;
+        try { el.innerHTML = stripHtml(); stripMin = el.offsetHeight || 0; } finally { st.sel = sel; st.selHand = hand; el.innerHTML = was; }
+      }
+    }
+    stripMin = Math.max(stripMin, el.offsetHeight || 0);
+    el.style.minHeight = stripMin ? `${stripMin}px` : '';
+  }
+  function restrip() { stripMin = 0; paintStrip(); }
 
   /** The strip's buttons, for the file picked. */
   async function stripAct(act) {
@@ -2573,14 +2644,14 @@ const Flow = (() => {
     const g = st.geom;
     st.selHand = -1;
     st.sel = g && i >= 0 && i < g.n ? g.order[i] : null;
-    drawChart();
     paintStrip();
+    drawChart();
   }
 
   function pickHand(i) {
     st.selHand = i;
-    drawChart();
     paintStrip();
+    drawChart();
   }
 
   let lastClick = { id: null, at: 0 };
@@ -2627,7 +2698,10 @@ const Flow = (() => {
     st.full = true;
     st.follow = true;
     st.hot = -1;
+    stripMin = 0;
     hideCard();
+    // A library tile's hover popover (cards.js) would sit over the view.
+    if (typeof hideTilePopover === 'function') hideTilePopover();
     document.body.classList.add('flow-fs-on');
     fsMeasure();
     paint();
@@ -2657,6 +2731,8 @@ const Flow = (() => {
     const el = panel();
     if (el) for (const k of ['top', 'left', 'right', 'bottom', 'mini-l', 'mini-r']) el.style.removeProperty(`--flow-fs-${k}`);
     fsBox = '';
+    stripMin = 0;
+    unscrub();
     document.getElementById('flowFsSpacer')?.remove();
     if (st.gridStale) {
       st.gridStale = false;
@@ -2709,6 +2785,8 @@ const Flow = (() => {
     el.style.setProperty('--flow-fs-left', `${left}px`);
     el.style.setProperty('--flow-fs-right', `${right}px`);
     el.style.setProperty('--flow-fs-bottom', `${bottom}px`);
+    // The strip's width may have changed (the mini player came or went): its reserve too.
+    if (document.getElementById('flowStrip')) { restrip(); scheduleDraw(); }
   }
 
   /** Zoom while something plays: keep it in view, until the user scrolls themselves. */
@@ -2736,7 +2814,7 @@ const Flow = (() => {
       // Reads one number, no layout: Flow's own scrolls set autoLeft first.
       if (st.full && Math.abs(wrap.scrollLeft - st.autoLeft) > 2) st.follow = false;
       // The chart moved under the pointer: the card waits for the next pointer move.
-      if (!(drag && drag.on)) hideCard();
+      if (!(drag && drag.on)) { hideCard(); unscrub(); }
       // Preview cards scrolled into view load their pictures (next frame).
       scheduleCardsLoad();
     }, { passive: true });
@@ -2978,8 +3056,8 @@ const Flow = (() => {
     _full: {
       on: fsOn, toggle: fsToggle, key: fsKey, click: fsClick, pick, pickHand, strip: stripHtml, act: stripAct, play: playHere,
       // The preview cards: what each shows, loading what is in view, scrubbing.
-      cards: () => [...cardEls.values()].map(el => ({ id: el._id, i: Number(el.dataset.i), src: el._src, loaded: !!el._loaded, bar: el._bar.style.width })),
-      cardsLoad, scrub: scrubCard, unscrub,
+      cards: () => [...cardEls.values()].map(el => ({ id: el._id, i: Number(el.dataset.i), src: el._src, loaded: !!el._loaded, bar: el._bar.style.width, len: el._len.textContent })),
+      cardsLoad, scrub: scrubCard, unscrub, tagKey, stripMin: () => stripMin,
       zoom: (on) => { st.zoom = !!on; st.follow = true; paint(); },
       state: () => ({ full: st.full, zoom: st.zoom, sel: st.sel, selHand: st.selHand, follow: st.follow, gridStale: st.gridStale }),
     },
