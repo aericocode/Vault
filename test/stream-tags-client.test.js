@@ -123,3 +123,95 @@ test('chips escape the names; at most two, then +n', async () => {
   assert.match(html, /\+1</);
   assert.strictEqual(ctx.StreamTags.tileHtml({ id: 99 }), '');
 });
+
+test('table rows: as many chips as fit the Title cell, then +n; tiles keep two', async () => {
+  const { ctx } = load();
+  await ctx.StreamTags.load();
+  await ctx.StreamTags.apply(7, [10], 'add');            // file 10: Opener, Closer, and the Mood tag
+  const chips = (html) => (html.match(/class="stag-chip"/g) || []).length;
+  const more = (html) => (/stag-more[^>]*>\+(\d+)</.exec(html) || [])[1];
+  ctx.tvStagBudget = () => 2000;
+  let row = ctx.StreamTags.rowHtml({ id: 10 });
+  assert.strictEqual(chips(row), 3, 'room for all three');
+  assert.strictEqual(more(row), undefined);
+  ctx.tvStagBudget = () => 0;
+  row = ctx.StreamTags.rowHtml({ id: 10 });
+  assert.strictEqual(chips(row), 1, 'never fewer than one');
+  assert.strictEqual(more(row), '2');
+  assert.match(row, /title="Closer, &lt;img/, 'the rest are in the +n tooltip, escaped');
+  ctx.tvStagBudget = () => null;                          // the table not drawn yet
+  assert.strictEqual(chips(ctx.StreamTags.rowHtml({ id: 10 })), 2);
+  ctx.tvStagBudget = () => 2000;
+  assert.strictEqual(chips(ctx.StreamTags.tileHtml({ id: 10 })), 2, 'a tile keeps two, then +n');
+});
+
+test('the fit rule: everything when it fits, else what fits beside +n, at least one', async () => {
+  const { ctx } = load();
+  const fit = ctx.StreamTags.fitChipCount;
+  const more = () => 30;
+  assert.strictEqual(fit([], 100, more, 4), 0);
+  assert.strictEqual(fit([50, 50, 50], 158, more, 4), 3, '50+4+50+4+50 = 158: all fit, no +n needed');
+  assert.strictEqual(fit([50, 50, 50], 157, more, 4), 2, 'one px short of all three: two beside +1 (50+4+50+4+30 = 138)');
+  assert.strictEqual(fit([50, 50, 50, 50], 150, more, 4), 2, '50+4+50+4+30 = 138');
+  assert.strictEqual(fit([50, 50, 50, 50], 137, more, 4), 1, 'one short of two beside +n');
+  assert.strictEqual(fit([200, 50], 100, more, 4), 1, 'a long first chip still shows (it shortens)');
+  assert.strictEqual(fit([40, 40, 40], 0, more, 4), 1);
+});
+
+test('table view: the Title column\'s width, and the chips\' share of it, from the table width', () => {
+  const noop = () => {};
+  const ctx = {
+    console, Math, Number, parseFloat, RegExp,
+    document: { readyState: 'complete', getElementById: () => null, querySelectorAll: () => [], addEventListener: noop },
+    window: { addEventListener: noop },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'table-view.js'), 'utf8')
+    + '\nthis.T = { TV_COLUMNS, tvTitleWidth, tvStagBudgetFor, tvFitColumns };', ctx);
+  const { TV_COLUMNS, tvTitleWidth, tvStagBudgetFor } = ctx.T;
+  // 1400 px: sel 32 + padding 16 + 7 gaps of 12 + fixed 72+80+92+80+100 = 556; 844 shared 3:2.
+  assert.ok(Math.abs(tvTitleWidth(1400, TV_COLUMNS) - 844 * 3 / 5) < 0.01);
+  // Narrow: Tags at its 140 minimum, Title takes the rest (not under its own 160).
+  const narrow = 32 + 16 + 7 * 12 + 424 + 140 + 200;
+  assert.ok(Math.abs(tvTitleWidth(narrow, TV_COLUMNS) - 200) < 0.01, String(tvTitleWidth(narrow, TV_COLUMNS)));
+  // Title alone takes everything.
+  assert.ok(Math.abs(tvTitleWidth(600, TV_COLUMNS.filter(c => c.key === 'title')) - (600 - 32 - 16 - 12)) < 0.01);
+  // A long name keeps 40% (at least 120 px), 40 px goes to the spacing and marks; the rest is the chips'.
+  assert.strictEqual(tvStagBudgetFor(500), 260);
+  assert.strictEqual(tvStagBudgetFor(500, false, 900), 260);
+  assert.strictEqual(tvStagBudgetFor(200), 40);
+  assert.strictEqual(tvStagBudgetFor(150), 0);
+  assert.strictEqual(tvStagBudgetFor(500, true), 164, 'Flow order: room for its position mark too');
+  // A short name keeps only what it needs.
+  assert.strictEqual(tvStagBudgetFor(500, false, 100), 360);
+});
+
+test('table view: a row\'s room for chips follows its name, measured once per name, no layout read', () => {
+  const noop = () => {};
+  let measured = 0;
+  const canvas = { getContext: () => ({ font: '', measureText: (s) => { measured++; return { width: s.length * 7 }; } }) };
+  const nameEl = {};
+  const ctx = {
+    console, Math, Number, parseFloat, RegExp, String, Map,
+    document: { readyState: 'complete', getElementById: () => null, querySelectorAll: () => [], addEventListener: noop, createElement: () => canvas },
+    window: { addEventListener: noop },
+    getComputedStyle: (el) => { assert.strictEqual(el, nameEl, 'only the name element is read, once'); return { fontStyle: 'normal', fontWeight: '400', fontSize: '13.76px', fontFamily: 'Segoe UI' }; },
+    Library: { row: (id) => (id === 7 ? { filename: 'b.mp4' } : null) },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'table-view.js'), 'utf8')
+    + '\nthis.T = { tvStagBudget, tvLearnNameFont, setTitleW: (w) => { _tvTitleW = w; } };', ctx);
+  const T = ctx.T;
+  assert.strictEqual(T.tvStagBudget({ id: 1, filename: 'a.mp4' }), null, 'not drawn yet');
+  T.setTitleW(500);
+  assert.strictEqual(T.tvStagBudget({ id: 1, filename: 'a.mp4' }), 260, 'no font known yet: the 40% rule');
+  let reads = 0;
+  T.tvLearnNameFont({ querySelector: () => { reads++; return nameEl; } });
+  T.tvLearnNameFont({ querySelector: () => { reads++; return nameEl; } });
+  assert.strictEqual(reads, 1, 'the font is learned once');
+  assert.strictEqual(T.tvStagBudget({ id: 1, filename: 'a.mp4' }), 500 - 35 - 40);
+  assert.strictEqual(T.tvStagBudget({ id: 1, filename: 'a.mp4' }), 425);
+  assert.strictEqual(measured, 1, 'one measure per name');
+  assert.strictEqual(T.tvStagBudget({ id: 7 }), 425, 'a repaint with only the id finds the name');
+  assert.strictEqual(T.tvStagBudget({ id: 2, filename: 'x'.repeat(100) }), 260, 'a long name keeps its 40%');
+});

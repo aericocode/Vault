@@ -100,7 +100,7 @@ function fakeEl(over = {}) {
   return el;
 }
 
-function page({ ready = true, flowOrder = false } = {}) {
+function page({ ready = true, flowOrder = false, views = null } = {}) {
   const ids = [11, 12, 13, 14, 15];
   const feats = ids.map((id, i) => ({ id, measured: true, music: true, es: 0.2 + 0.1 * i, em: 0.2 + 0.1 * i, ee: 0.2 + 0.1 * i, bs: 120, bm: 120, be: 120 }));
   const answer = () => ({ shape: 'smooth', edges: 'off', order: ids.slice().reverse(), playlistOrder: ids.slice(), features: feats, targets: null,
@@ -118,14 +118,16 @@ function page({ ready = true, flowOrder = false } = {}) {
     document: {
       readyState: 'complete', body, activeElement: null,
       getElementById: (id) => (id === 'flowPanel' ? panelEl : id === 'flowChartWrap' ? wrap : null),
-      querySelector: (q) => (q === '#flowChartWrap svg' ? svg : null),
+      querySelector: (q) => (q === '#flowChartWrap svg' ? svg : views && q.startsWith('#resultsGrid') ? views.tile : null),
       querySelectorAll: () => [], addEventListener() {}, createElement: () => fakeEl(),
     },
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
     requestAnimationFrame: () => 0,
     applyFilters: async () => {},
-    Library: { indexOf: () => -1 },
+    Library: { indexOf: () => (views ? 2 : -1) },
+    revealMediaIndex: (i) => { if (views) views.log.push(`revealMediaIndex ${i}`); },
+    dockReveal: (i) => { if (views) views.log.push(`dockReveal ${i}`); },
     reorderReady: () => ready,
     reorderMove: async (moveIds, before) => { moves.push({ ids: moveIds, before }); return true; },
     fetch: async (url) => {
@@ -134,6 +136,10 @@ function page({ ready = true, flowOrder = false } = {}) {
     },
   };
   ctx.window = { addEventListener() {}, removeEventListener() {}, dispatchEvent() {} };
+  if (views) {
+    for (const fn of ['scrollTo', 'scrollBy', 'scroll']) ctx.window[fn] = () => views.log.push(`window.${fn}`);
+    ctx.scrollTo = ctx.window.scrollTo; ctx.scrollBy = ctx.window.scrollBy;
+  }
   vm.createContext(ctx);
   vm.runInContext(SRC, ctx);
   const Flow = ctx.window.Flow;
@@ -224,4 +230,22 @@ test('Flow order shown: the drag moves in that order through the same reorderMov
   p.moveTo(p.gapX(2) + 1);
   await p.D.drop();
   assert.deepStrictEqual(p.moves.map(m => [[...m.ids], m.before]), [[[15], 13]]);
+});
+
+test('a drop leaves the view where it was: the list is not scrolled to the file, nothing in it takes focus', async () => {
+  const log = [];
+  const tile = fakeEl({
+    scrollIntoView: () => log.push('tile.scrollIntoView'),
+    focus: () => log.push('tile.focus'),
+  });
+  for (const flowOrder of [false, true]) {
+    const p = page({ views: { log, tile } });
+    await p.Flow.toggle(3);
+    if (flowOrder) await p.Flow.useFlowOrder();
+    p.press(p.colX(1));
+    p.moveTo(p.gapX(4) + 3);
+    assert.strictEqual(await p.D.drop(), true, 'the file moved');
+    assert.strictEqual(p.moves.length, 1);
+  }
+  assert.deepStrictEqual(log, [], 'no scroll, reveal or focus on the drop');
 });

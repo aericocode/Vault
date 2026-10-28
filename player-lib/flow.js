@@ -1635,8 +1635,8 @@ const Flow = (() => {
      pointercancel or losing the pointer cancels. The drop is the grid's own
      move (collection-reorder.js reorderMove: saved with Undo in playlist
      order, part of the try in Flow order); the chart keeps the new order
-     drawn until the move is in, then the list scrolls to the file and
-     lights it up. The pointer is captured on the panel, which every repaint
+     drawn until the move is in. Nothing scrolls on the drop: the view stays
+     where it was and only the chart and the list's contents change. The pointer is captured on the panel, which every repaint
      keeps (the chart's own host is moved during one). */
 
   let drag = null;   // { pointerId, x0, y0, from, id, order, on, slot, x, preview, hold }
@@ -1751,7 +1751,7 @@ const Flow = (() => {
     if (d.on) { endDragUi(d); drawChart(); }
   }
 
-  /** Let go: the move goes the grid's way; the chart keeps showing the new order until it is in. */
+  /** Let go: the move goes the grid's way; the chart keeps showing the new order until it is in. Nothing scrolls. */
   async function dropDrag() {
     const d = drag;
     if (!d || !d.on) { drag = null; return false; }
@@ -1767,7 +1767,8 @@ const Flow = (() => {
       if (drag === d) drag = null;
       drawChart();
     }
-    if (moved && typeof Library !== 'undefined' && Library.indexOf(d.id) >= 0) revealFile(d.id);
+    // The view stays where it was: only the chart and the grid's contents
+    // change. Show in list on the file's card is how to go to it.
     return moved;
   }
 

@@ -51,12 +51,15 @@
 .tile-thumb > .tile-stags .stag-chip { flex: 0 1 auto; backdrop-filter: blur(4px); }
 .tile-thumb:has(.tile-hotdone) > .tile-stags { bottom: 28px; }
 
-/* In the table: after the name in the Title cell. */
+/* In the table: after the name in the Title cell. As many chips as fit
+   (stream-tags.js rowHtml); they keep their width and the name gives way,
+   up to the room table-view.js worked out (the box's max-width). */
 .tv-c-title > .tv-stags {
   display: inline-flex;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   gap: 4px;
   min-width: 0;
+  max-width: 50%;
   margin-left: 0.4rem;
   align-self: center;
 }

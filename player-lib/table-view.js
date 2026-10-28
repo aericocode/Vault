@@ -74,6 +74,83 @@ function tvVisibleColumns() {
   return _tvShown || tvChosenColumns();
 }
 
+/** The Title column's width in a table `width` px wide, the way the grid shares out its fr columns. */
+function tvTitleWidth(width, cols) {
+  let free = width - TV_PAD - TV_SEL_W - cols.length * TV_GAP;
+  let flex = [];
+  for (const c of cols) {
+    const m = /^minmax\((\d+)px,\s*([\d.]+)fr\)$/.exec(c.width);
+    if (m) flex.push({ c, min: Number(m[1]), fr: Number(m[2]) });
+    else free -= parseFloat(c.width) || c.min || 0;
+  }
+  // A column whose share is under its minimum takes the minimum; the rest share what is left.
+  for (;;) {
+    const fr = flex.reduce((n, f) => n + f.fr, 0);
+    const under = flex.filter(f => (free / fr) * f.fr < f.min);
+    if (!under.length) break;
+    for (const f of under) free -= f.min;
+    flex = flex.filter(f => !under.includes(f));
+    if (!flex.length) break;
+  }
+  const t = flex.find(f => f.c.key === 'title');
+  if (t) return (free / flex.reduce((n, f) => n + f.fr, 0)) * t.fr;
+  return (cols.find(c => c.key === 'title') || { min: 160 }).min;
+}
+
+/* Room for stream tag chips in a row's Title cell (stream-tags.js rowHtml
+   reads it). The Title column's width is worked out once per table width
+   (tableViewRender), never read off a row. Of it, the name keeps what it
+   needs up to 40% (120px or more; a longer name ends in "..."), a little
+   goes to the spacing and a Favorite or New mark, and in Flow order to the
+   "12 · was 40" mark (flow.js paintMarks); the chips get the rest. A name's
+   width is its text measured on a canvas, kept per name: no layout read. */
+const TV_STAG_MARKS = 40;        // spacing, the Favorite heart, a New or Missing mark
+const TV_STAG_FLOW = 96;         // Flow order's position mark
+let _tvTitleW = 0;               // 0 until the table is drawn
+let _tvFlowMarks = false;
+
+function tvStagBudgetFor(titleW, flowOrder = false, nameW = Infinity) {
+  const other = TV_STAG_MARKS + (flowOrder ? TV_STAG_FLOW : 0);
+  const name = Math.min(nameW, Math.max(120, titleW * 0.4));
+  return Math.max(0, Math.floor(titleW - name - other));
+}
+
+let _tvNameFont = null;          // the CSS font of a row's name, read once off a drawn row
+let _tvNameCtx = null;
+const _tvNameW = new Map();      // file name -> px
+function tvNameWidth(name) {
+  if (!_tvNameFont) return Infinity;
+  let w = _tvNameW.get(name);
+  if (w == null) {
+    if (!_tvNameCtx) {
+      try { _tvNameCtx = document.createElement('canvas').getContext('2d'); } catch {}
+      if (!_tvNameCtx) return Infinity;
+      _tvNameCtx.font = _tvNameFont;
+    }
+    w = Math.ceil(_tvNameCtx.measureText(String(name)).width);
+    if (_tvNameW.size > 5000) _tvNameW.clear();
+    _tvNameW.set(name, w);
+  }
+  return w;
+}
+
+/** Px for this row's chips, or null before the table is drawn. */
+function tvStagBudget(media) {
+  if (!_tvTitleW) return null;
+  let name = media && media.filename;
+  if (name == null && media && typeof Library !== 'undefined') name = Library.row(media.id)?.filename;
+  return tvStagBudgetFor(_tvTitleW, _tvFlowMarks, name == null ? Infinity : tvNameWidth(name));
+}
+
+/** Once a row is drawn: the font its name is in, for tvNameWidth (rows drawn before it keep the 40% rule). */
+function tvLearnNameFont(grid) {
+  if (_tvNameFont) return;
+  const el = grid.querySelector('.tv-row .tv-name');
+  if (!el) return;
+  const cs = getComputedStyle(el);
+  _tvNameFont = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+}
+
 function tableViewActive() {
   if (!(typeof isModernLayout === 'function' && isModernLayout())) return false;
   if (!(typeof window.vaultLibraryView === 'function' && window.vaultLibraryView() === 'table')) return false;
@@ -107,12 +184,20 @@ function tableViewRender() {
   grid.style.removeProperty('grid-template-columns');
   // The grid's continuous skeleton is not ours: make it rebuild when it is back.
   delete grid.dataset.gridShape;
-  _tvShown = tvFitColumns(grid.clientWidth);
+  const gridW = grid.clientWidth;
+  _tvShown = tvFitColumns(gridW);
+  _tvTitleW = tvTitleWidth(gridW, _tvShown);
+  _tvFlowMarks = typeof flowOrderOn === 'function' && flowOrderOn();
   grid.style.setProperty('--tv-cols',['32px', ...tvVisibleColumns().map(c => c.width)].join(' '));
   const header = document.getElementById('appHeader');
   grid.style.setProperty('--tv-sticky-top', `${Math.round(header ? header.getBoundingClientRect().height : 0)}px`);
-  if (cont) tvRenderContinuous(grid);
-  else tvRenderPages(grid);
+  const draw = () => { if (cont) tvRenderContinuous(grid); else tvRenderPages(grid); };
+  draw();
+  // The first rows ever drawn say what font names are in: draw once more with it.
+  if (!_tvNameFont) {
+    tvLearnNameFont(grid);
+    if (_tvNameFont) draw();
+  }
   return true;
 }
 

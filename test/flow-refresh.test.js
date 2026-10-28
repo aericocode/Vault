@@ -74,6 +74,21 @@ test('a move in playlist order tells Flow, with the new order already in the pag
   assert.ok(p.calls.indexOf('flow:5:4,1,2,3') < p.calls.lastIndexOf('grid'), 'Flow hears before the grid query finishes');
 });
 
+test('a move from Flow (reorderMove) scrolls nothing and focuses nothing in the grid', async () => {
+  for (const flowOrder of [false, true]) {
+    const p = reorderPage({ flowOrder });
+    const log = [];
+    const tile = { focus: () => log.push('focus'), scrollIntoView: () => log.push('scrollIntoView'), classList: { add() {}, remove() {} } };
+    for (const fn of ['scrollTo', 'scrollBy', 'scroll']) p.ctx.window[fn] = () => log.push(fn);
+    p.ctx.document.querySelector = () => tile;
+    p.ctx.document.querySelectorAll = () => [tile];
+    p.ctx.dockReveal = () => log.push('dockReveal');
+    p.ctx.revealMediaIndex = () => log.push('revealMediaIndex');
+    assert.strictEqual(await p.ctx.reorderMove([4], 1), true);
+    assert.deepStrictEqual(log, [], flowOrder ? 'Flow order' : 'playlist order');
+  }
+});
+
 test('Undo of a move tells Flow too', async () => {
   const p = reorderPage();
   await p.ctx.reorderMove([1], null);
