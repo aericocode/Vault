@@ -144,7 +144,7 @@ function page({ ready = true, flowOrder = false } = {}) {
   const gapX = (s) => geom().L + s * geom().step;
   const D = Flow._drag;
   const press = (x) => D.down({ button: 0, target, clientX: x, clientY: 100, pointerId: 1 });
-  const moveTo = (x, y = 100) => D.move({ pointerId: 1, clientX: x, clientY: y, preventDefault() {} });
+  const moveTo = (x, y = 100) => D.move({ pointerId: 1, buttons: 1, clientX: x, clientY: y, preventDefault() {} });
   return { ctx, Flow, D, moves, press, moveTo, colX, gapX, geom, flowOrder };
 }
 
@@ -190,6 +190,16 @@ test('let go where it already is, under the threshold, or after Escape: nothing 
   p.moveTo(p.gapX(0));
   p.D.cancel();                          // Escape / pointercancel
   assert.strictEqual(p.D.state(), null);
+  assert.strictEqual(await p.D.drop(), false);
+  assert.deepStrictEqual(p.moves, []);
+});
+
+test('a press let go outside the panel never turns a later hover into a drag', async () => {
+  const p = page();
+  await p.Flow.toggle(3);
+  p.press(p.colX(1));                    // the pointerup lands outside the panel, unheard
+  p.D.move({ pointerId: 1, buttons: 0, clientX: p.gapX(4), clientY: 100, preventDefault() {} });
+  assert.strictEqual(p.D.state(), null, 'a hover with no button ends the press');
   assert.strictEqual(await p.D.drop(), false);
   assert.deepStrictEqual(p.moves, []);
 });

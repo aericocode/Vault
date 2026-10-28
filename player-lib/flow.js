@@ -1621,6 +1621,8 @@ const Flow = (() => {
   function dragMove(e) {
     if (!drag || drag.hold || e.pointerId !== drag.pointerId) return false;
     if (!drag.on) {
+      // The button came up somewhere we didn't hear: the press is over, not a drag.
+      if (!(e.buttons & 1)) { drag = null; return false; }
       if (!FlowChartMath.dragPassed(e.clientX - drag.x0, e.clientY - drag.y0)) return true;
       // The chart changed under the press (a poll): no drag from a stale column.
       if (!st.geom || st.geom.order.length !== drag.order.length || !dragAllowed()) { drag = null; return false; }
@@ -1857,6 +1859,8 @@ const Flow = (() => {
       setTimeout(() => { dragClicked = false; }, 0);
       dropDrag();
     });
+    // A press let go outside the panel before it became a drag.
+    window.addEventListener('pointerup', (e) => { if (drag && !drag.on && e.pointerId === drag.pointerId) drag = null; });
     el.addEventListener('pointercancel', cancelDrag);
     el.addEventListener('lostpointercapture', () => { if (drag && drag.on) cancelDrag(); });
     el.addEventListener('pointerleave', () => { if (st.hot >= 0) showHot(-1); });
