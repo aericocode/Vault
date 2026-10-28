@@ -1651,7 +1651,7 @@ const Flow = (() => {
     return svg ? e.clientX - svg.getBoundingClientRect().left : NaN;
   }
 
-  /** The faded column at the pointer, the line where it lands and its label (drawn over the chart). */
+  /** The faded column at the pointer, where it lands and its label (drawn over the chart). */
   function paintDrag() {
     const svg = document.querySelector('#flowChartWrap svg');
     if (!svg) return;
@@ -1668,8 +1668,10 @@ const Flow = (() => {
       const gx = Math.max(g.L, Math.min(g.W - g.R - w, drag.x - w / 2));
       html += `<rect class="flow-drag-land" x="${f1(g.L + to * g.step + 1)}" y="${g.TOP}" width="${f1(Math.max(2, g.step - 2))}" height="${g.PH}" rx="4"/>`;
       html += `<rect class="flow-drag-ghost" x="${f1(gx)}" y="${g.TOP}" width="${f1(w)}" height="${g.PH}" rx="4"/>`;
+    } else {
+      // Columns too thin for the highlight: a line marks where it lands.
+      html += `<line class="flow-drag-ins" x1="${f1(lx)}" x2="${f1(lx)}" y1="${g.TOP - 2}" y2="${base}"/>`;
     }
-    html += `<line class="flow-drag-ins" x1="${f1(lx)}" x2="${f1(lx)}" y1="${g.TOP - 2}" y2="${base}"/>`;
     const label = `Move to ${(to + 1).toLocaleString()} of ${g.n.toLocaleString()}`;
     const anchor = lx > g.W - 90 ? 'end' : lx < g.L + 90 ? 'start' : 'middle';
     const tx = anchor === 'end' ? lx - 6 : anchor === 'start' ? lx + 6 : lx;
