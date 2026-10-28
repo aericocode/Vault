@@ -1000,6 +1000,8 @@ async function changeCollectionMembership(id, mediaIds, adding, { quiet = false 
     // The grid's query above ran before the server had the change (it can
     // come back with the files still in): once more, now that it has.
     _applyToggleSideEffects(id);
+    // The open Flow panel follows, now that the server has the change (flow.js).
+    if (typeof flowMembersChanged === 'function') flowMembersChanged(id);
     if (!quiet) showToast(adding ? `📁 Added to ${c.name}` : `Removed from ${c.name}`);
     return true;
   } catch {
@@ -1009,6 +1011,7 @@ async function changeCollectionMembership(id, mediaIds, adding, { quiet = false 
     _patchPickerRow(id);
     _patchAncestorCounts(id);
     _applyToggleSideEffects(id);
+    if (typeof flowMembersChanged === 'function') flowMembersChanged(id);
     // They are back in the grid: ticked again, as they were.
     if (unticked.length) _retick(unticked);
     showErrorToast(null, adding ? `adding to ${c.name}` : `taking files out of ${c.name}`);
@@ -1111,6 +1114,7 @@ async function undoRemoveFromCollection(id, ids, order) {
     if (!resp.ok) throw await collResponseError(resp);
     const data = await resp.json();
     collectionMembers.set(id, data.order);
+    if (typeof flowMembersChanged === 'function') flowMembersChanged(id);
     c.item_count = data.item_count;
     if (Array.isArray(data.first_ids)) c.first_ids = data.first_ids;
     _patchAncestorCounts(id);

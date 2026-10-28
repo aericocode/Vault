@@ -65,6 +65,7 @@ test('the bar and the Select page / Select all row both ask selectionGridShowing
 function fakeTile(id) {
   const tile = { dataset: { id: String(id) }, kids: [], classList: { add() {}, remove() {}, toggle() {} } };
   tile.hasAttribute = (a) => a === 'draggable';
+  tile.addEventListener = () => {};
   tile.contains = (el) => el === tile || tile.kids.includes(el);
   tile.closest = (q) => (q.startsWith('.media-tile') ? tile : q === '#resultsGrid' ? {} : null);
   const part = (tag, cls, inActions = false) => {

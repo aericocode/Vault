@@ -26,6 +26,17 @@
    - sparkPath(values, w, h) a small path through one value a file (null =
                              not drawn), at most about 60 points, zoomed to
                              the values' own range: the order bar's sparkline
+   - dragPassed(dx, dy)      has a press moved far enough to be a drag of a
+                             column (DRAG_THRESHOLD px), not a click
+   - dragSlot(x, g)          the gap a dragged column lands in, 0..n (0:
+                             before the first column, n: after the last),
+                             from the pointer's x and the chart's L / step / n
+   - dragTarget(order, from, slot)  what dropping the file at index from
+                             into that gap does: { to, before } (its new
+                             index, and the id it goes in front of, null for
+                             the end, as reorderMove takes it), or null when
+                             it lands where it is
+   - movedOrder(order, from, to)  the order with that file moved (the preview)
    ========================================================================= */
 
 const FlowChartMath = (() => {
@@ -192,7 +203,35 @@ const FlowChartMath = (() => {
     return monotonePath(pts.map(([i, v]) => [x(i), y(v)]));
   }
 
-  return { yRange, filePoints, ignoredSpan, smoothed, slopes, monotonePath, monotoneAt, linearAt, tempoShare,
+  /* ── Dragging a column to move its file (flow.js) ───────────────────── */
+
+  const DRAG_THRESHOLD = 5;
+  const dragPassed = (dx, dy, threshold = DRAG_THRESHOLD) => Math.hypot(dx || 0, dy || 0) >= threshold;
+
+  function dragSlot(x, { L, step, n }) {
+    if (!(n > 0) || !(step > 0) || !Number.isFinite(x)) return 0;
+    return Math.max(0, Math.min(n, Math.round((x - L) / step)));
+  }
+
+  function dragTarget(order, from, slot) {
+    const n = order.length;
+    if (!(from >= 0 && from < n)) return null;
+    const s = Math.max(0, Math.min(n, slot));
+    // The gaps either side of the file itself: it stays where it is.
+    if (s === from || s === from + 1) return null;
+    // Moving right, the file leaves a gap behind it: one place less.
+    const to = s > from ? s - 1 : s;
+    return { to, before: s < n ? order[s] : null };
+  }
+
+  function movedOrder(order, from, to) {
+    const out = order.slice();
+    const [id] = out.splice(from, 1);
+    out.splice(to, 0, id);
+    return out;
+  }
+
+  return { DRAG_THRESHOLD, dragPassed, dragSlot, dragTarget, movedOrder, yRange, filePoints, ignoredSpan, smoothed, slopes, monotonePath, monotoneAt, linearAt, tempoShare,
     CHART_H_MIN, CHART_H_MAX, clampChartHeight, sparkPath };
 })();
 

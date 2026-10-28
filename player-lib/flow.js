@@ -47,6 +47,11 @@
      flowOrderBarHtml()           collection-reorder.js renderReorderNote (the order bar)
      flowStageCurrent(row)        stage-control.js setCurrent
      flowSettingsChanged()        stage-settings-ui.js (Ignore calm intros and credits)
+     flowMembersChanged(cid)      collection-reorder.js, collections.js, importer.js (order or files changed)
+
+   Calls out (guarded): reorderReady() and reorderMove(ids, before)
+   (collection-reorder.js) for dragging a column in the chart to move its
+   file ("Dragging a column to move its file" below).
    ========================================================================= */
 
 const Flow = (() => {
@@ -920,6 +925,7 @@ const Flow = (() => {
 
   function chartOrder() {
     const d = st.data;
+    if (d && dragOrder()) return dragOrder();
     return d ? (st.order ? workingOrder() : d.playlistOrder) : [];
   }
 
@@ -930,6 +936,8 @@ const Flow = (() => {
 
   function chartHandovers(order) {
     const d = st.data;
+    // A column being dragged: the hand-overs of the order it would make, graded live.
+    if (dragOrder()) return FlowOrder.summary(d.features, order).handovers;
     return st.order ? orderSummary().handovers : FlowOrder.summary(d.features, order).handovers;
   }
 
@@ -1238,7 +1246,8 @@ const Flow = (() => {
     st.geom = { W, H, L, R, TOP, PH, step, n, order, dense, lo, hi, hand, gap, y };
     namesRow(wrap, order, { L, step, dense, nowI });
     if (st.hot >= n) st.hot = -1;
-    showHot(st.hot);
+    showHot(drag && drag.on ? -1 : st.hot);
+    paintDrag();
     phTick();
     // Measured while the page may still be settling (a scrollbar coming or
     // going): look again once it has, and redraw if the width moved.
@@ -1533,6 +1542,141 @@ const Flow = (() => {
     st.flashTimer = setInterval(tick, 120);
   }
 
+  /* ── Dragging a column to move its file ───────────────────────────────
+     Wherever a drag in the grid could move files (reorderReady: playlist
+     order, or an unsaved Flow order), a file's column in the chart (or its
+     name) can be dragged too. A press only becomes a drag once the pointer
+     has moved FlowChartMath.DRAG_THRESHOLD px, so a click still shows the
+     file below. While dragging, the chart is drawn as it would be with the
+     file moved (its hand-overs graded live), a faded column follows the
+     pointer, a line marks where it lands and a label says "Move to 4 of 12";
+     in a big collection (one thin line) only the line and the label. Escape,
+     pointercancel or losing the pointer cancels. The drop is the grid's own
+     move (collection-reorder.js reorderMove: saved with Undo in playlist
+     order, part of the try in Flow order); the chart keeps the new order
+     drawn until the move is in, then the list scrolls to the file and
+     lights it up. The pointer is captured on the panel, which every repaint
+     keeps (the chart's own host is moved during one). */
+
+  let drag = null;   // { pointerId, x0, y0, from, id, order, on, slot, x, preview, hold }
+  let dragClicked = false;
+
+  /** Can a column be dragged now? Exactly when the grid would take a move, in the order the chart shows. */
+  function dragAllowed() {
+    if (!st.open || !isMine() || !st.geom || !st.data) return false;
+    if (typeof reorderReady !== 'function' || !reorderReady()) return false;
+    if (typeof _reorderBusy !== 'undefined' && _reorderBusy) return false;
+    const flowShown = !!(st.order && st.appliedOrder);
+    return flowShown === !!st.order;
+  }
+
+  /** The order the chart draws while a drag shows (or holds) its preview, else null. */
+  const dragOrder = () => (drag && (drag.hold || (drag.on && drag.preview))) || null;
+
+  function svgX(e) {
+    const svg = document.querySelector('#flowChartWrap svg');
+    return svg ? e.clientX - svg.getBoundingClientRect().left : NaN;
+  }
+
+  /** The faded column at the pointer, the line where it lands and its label (drawn over the chart). */
+  function paintDrag() {
+    const svg = document.querySelector('#flowChartWrap svg');
+    if (!svg) return;
+    svg.querySelector('.flow-drag-layer')?.remove();
+    const g = st.geom;
+    if (!drag || !drag.on || !g) return;
+    const t = FlowChartMath.dragTarget(drag.order, drag.from, drag.slot);
+    const to = t ? t.to : drag.from;
+    const base = g.TOP + g.PH;
+    const lx = g.L + (to + 0.5) * g.step;
+    let html = '';
+    if (!g.dense) {
+      const w = Math.max(4, g.step - 2 * g.gap);
+      const gx = Math.max(g.L, Math.min(g.W - g.R - w, drag.x - w / 2));
+      html += `<rect class="flow-drag-land" x="${f1(g.L + to * g.step + 1)}" y="${g.TOP}" width="${f1(Math.max(2, g.step - 2))}" height="${g.PH}" rx="4"/>`;
+      html += `<rect class="flow-drag-ghost" x="${f1(gx)}" y="${g.TOP}" width="${f1(w)}" height="${g.PH}" rx="4"/>`;
+    }
+    html += `<line class="flow-drag-ins" x1="${f1(lx)}" x2="${f1(lx)}" y1="${g.TOP - 2}" y2="${base}"/>`;
+    const label = `Move to ${(to + 1).toLocaleString()} of ${g.n.toLocaleString()}`;
+    const anchor = lx > g.W - 90 ? 'end' : lx < g.L + 90 ? 'start' : 'middle';
+    const tx = anchor === 'end' ? lx - 6 : anchor === 'start' ? lx + 6 : lx;
+    html += `<text class="flow-drag-label" x="${f1(tx)}" y="${g.TOP - 4}" text-anchor="${anchor}">${esc(label)}</text>`;
+    svg.insertAdjacentHTML('beforeend', `<g class="flow-drag-layer" pointer-events="none">${html}</g>`);
+  }
+
+  let dragDrawQueued = false;
+  function scheduleDragDraw() {
+    if (dragDrawQueued) return;
+    dragDrawQueued = true;
+    requestAnimationFrame(() => { dragDrawQueued = false; if (st.open && isMine()) drawChart(); });
+  }
+
+  function dragDown(e) {
+    if (e.button !== 0 || drag || !e.target.closest('#flowChartWrap') || !dragAllowed()) return;
+    const i = colAt(e);
+    if (i < 0) return;
+    drag = { pointerId: e.pointerId, x0: e.clientX, y0: e.clientY, from: i, id: st.geom.order[i], order: st.geom.order.slice(), on: false, slot: i, x: svgX(e), preview: null, hold: null };
+  }
+
+  function dragMove(e) {
+    if (!drag || drag.hold || e.pointerId !== drag.pointerId) return false;
+    if (!drag.on) {
+      // The button came up somewhere we didn't hear: the press is over, not a drag.
+      if (!(e.buttons & 1)) { drag = null; return false; }
+      if (!FlowChartMath.dragPassed(e.clientX - drag.x0, e.clientY - drag.y0)) return true;
+      // The chart changed under the press (a poll): no drag from a stale column.
+      if (!st.geom || st.geom.order.length !== drag.order.length || !dragAllowed()) { drag = null; return false; }
+      drag.on = true;
+      showHot(-1);
+      try { panel()?.setPointerCapture(e.pointerId); } catch {}
+      document.body.classList.add('flow-col-dragging');
+    }
+    e.preventDefault();
+    drag.x = svgX(e);
+    const g = st.geom;
+    const slot = FlowChartMath.dragSlot(drag.x, { L: g.L, step: g.step, n: drag.order.length });
+    if (slot !== drag.slot || !drag.preview) {
+      drag.slot = slot;
+      const t = FlowChartMath.dragTarget(drag.order, drag.from, slot);
+      drag.preview = t ? FlowChartMath.movedOrder(drag.order, drag.from, t.to) : drag.order;
+      scheduleDragDraw();
+    } else paintDrag();
+    return true;
+  }
+
+  /** Off the page's drag look and the pointer let go (set drag.on false or drag null first: losing the capture cancels). */
+  function endDragUi(d) {
+    document.body.classList.remove('flow-col-dragging');
+    try { panel()?.releasePointerCapture(d.pointerId); } catch {}
+  }
+
+  function cancelDrag() {
+    const d = drag;
+    if (!d) return;
+    drag = null;
+    if (d.on) { endDragUi(d); drawChart(); }
+  }
+
+  /** Let go: the move goes the grid's way; the chart keeps showing the new order until it is in. */
+  async function dropDrag() {
+    const d = drag;
+    if (!d || !d.on) { drag = null; return false; }
+    d.on = false;
+    const t = FlowChartMath.dragTarget(d.order, d.from, d.slot);
+    if (t) d.hold = FlowChartMath.movedOrder(d.order, d.from, t.to);
+    endDragUi(d);
+    if (!t || typeof reorderMove !== 'function') { drag = null; drawChart(); return false; }
+    let moved = false;
+    try {
+      moved = await reorderMove([d.id], t.before);
+    } finally {
+      if (drag === d) drag = null;
+      drawChart();
+    }
+    if (moved && typeof Library !== 'undefined' && Library.indexOf(d.id) >= 0) revealFile(d.id);
+    return moved;
+  }
+
   // Redraw when the panel changes size (throttled), and when lanes change.
   let drawQueued = false, lastDraw = 0;
   function scheduleDraw() {
@@ -1692,16 +1836,40 @@ const Flow = (() => {
         return;
       }
       if (e.target.closest('#flowChartWrap') && st.geom) {
+        // The click that ends a column drag is not a click on the column.
+        if (dragClicked) { dragClicked = false; return; }
         const i = colAt(e);
         if (i >= 0) revealFile(st.geom.order[i]);
       }
     });
+    el.addEventListener('pointerdown', dragDown);
     el.addEventListener('pointermove', (e) => {
-      if (!e.target.closest('#flowChartWrap')) { if (st.hot >= 0) showHot(-1); return; }
+      if (dragMove(e)) return;
+      const wrap = e.target.closest('#flowChartWrap');
+      if (!wrap) { if (st.hot >= 0) showHot(-1); return; }
       const i = colAt(e);
+      wrap.classList.toggle('flow-can-drag', i >= 0 && dragAllowed());
       if (i !== st.hot) showHot(i);
     });
+    el.addEventListener('pointerup', (e) => {
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      if (!drag.on) { drag = null; return; }
+      // The browser follows with a click on the panel: not a click on a column.
+      dragClicked = true;
+      setTimeout(() => { dragClicked = false; }, 0);
+      dropDrag();
+    });
+    // A press let go outside the panel before it became a drag.
+    window.addEventListener('pointerup', (e) => { if (drag && !drag.on && e.pointerId === drag.pointerId) drag = null; });
+    el.addEventListener('pointercancel', cancelDrag);
+    el.addEventListener('lostpointercapture', () => { if (drag && drag.on) cancelDrag(); });
     el.addEventListener('pointerleave', () => { if (st.hot >= 0) showHot(-1); });
+    window.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !drag || !drag.on) return;
+      e.preventDefault();
+      e.stopPropagation();
+      cancelDrag();
+    }, true);
     wireGrip(el);
     if (typeof ResizeObserver === 'function') {
       new ResizeObserver(() => {
@@ -1758,6 +1926,38 @@ const Flow = (() => {
     st.byId = new Map();
     st.lastCount = -1;
     return null;
+  }
+
+  /**
+   * The collection's playlist order or its files changed on the server (a
+   * drag or Alt+arrows in playlist order, Undo, files added or taken out:
+   * collection-reorder.js, collections.js, importer.js). The open panel's
+   * chart, jumps and counts, and a Flow order the grid shows, follow at
+   * once: a pure reorder is drawn straight from the page's copy, then the
+   * server is asked (as a poll does: the chart is kept, no flicker). Panel
+   * closed and no Flow order: the held answer is dropped (Flow shuffle and
+   * the next open ask afresh), nothing is fetched.
+   */
+  function membersChanged(cid) {
+    if (st.cid == null || cid !== st.cid) return null;
+    if (!isMine()) { reset(); return null; }
+    if (!st.open && !st.order) {
+      st.data = null;
+      st.byId = new Map();
+      st.lastCount = -1;
+      return null;
+    }
+    const m = typeof collectionMembers !== 'undefined' ? collectionMembers.get(cid) : null;
+    const d = st.data;
+    if (d && Array.isArray(m) && m.length === d.playlistOrder.length) {
+      const had = new Set(d.playlistOrder);
+      if (m.every(id => had.has(id)) && !m.every((id, i) => id === d.playlistOrder[i])) {
+        st.data = { ...d, playlistOrder: m.slice(), playlistJumps: FlowOrder.summary(d.features, m).jumps };
+        paint();
+        if (typeof renderReorderNote === 'function') renderReorderNote();
+      }
+    }
+    return refetch(true);
   }
 
   async function shuffleCollection(cid) {
@@ -1833,8 +2033,10 @@ const Flow = (() => {
     leaveOrder: () => { if (st.order) { leave(); paint(); } },
     workingOrder: () => (st.order && isMine() ? workingOrder().slice() : null),
     moveInOrder, orderBarHtml, paintCount,
-    settingsChanged,
-    _state: () => ({ ...st, byId: st.byId.size, data: st.data && { order: st.data.order, counts: st.data.counts, jumps: st.data.jumps } }),
+    settingsChanged, membersChanged,
+    // Column drags (tests): the press, the moves, the drop.
+    _drag: { allowed: dragAllowed, down: dragDown, move: dragMove, drop: dropDrag, cancel: cancelDrag, state: () => drag },
+    _state: () => ({ ...st, byId: st.byId.size, data: st.data && { order: st.data.order, counts: st.data.counts, jumps: st.data.jumps, playlistOrder: st.data.playlistOrder, playlistJumps: st.data.playlistJumps } }),
   };
 })();
 
@@ -1859,3 +2061,4 @@ function flowMoveInOrder(ids, before) { return Flow.moveInOrder(ids, before); }
 function flowOrderBarHtml() { return Flow.orderBarHtml(); }
 function flowStageCurrent(row) { Flow.stageCurrent(row); }
 function flowSettingsChanged() { return Flow.settingsChanged(); }
+function flowMembersChanged(cid) { return Flow.membersChanged(cid); }
