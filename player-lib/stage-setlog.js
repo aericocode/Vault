@@ -51,17 +51,26 @@ const SetLogRules = (() => {
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const dayKey = (d) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 
+  // A night runs from 5 PM to 5 AM: it is named for the day it began on.
+  const NIGHT_FROM = 17;
+  const NIGHT_TO = 5;
+  const isNight = (d) => d.getHours() >= NIGHT_FROM || d.getHours() < NIGHT_TO;
+  const nightKey = (ms) => dayKey(new Date(ms - NIGHT_TO * 3600 * 1000));
+
   /**
-   * Which day a set is: "Tonight" (today, from 5 PM, or a set still going
-   * that started yesterday evening), "Today", else a plain date ("Tue Oct 27",
-   * with the year when it is not this year's).
+   * Which day a set is: "Tonight" (it started this night, and it is night
+   * now: 11 PM seen at 1 AM too), "Last night" (the night before), "Today"
+   * (started today in the daytime), else a plain date ("Tue Oct 27", with
+   * the year when it is not this year's).
    */
-  function day(startMs, nowMs, open = false) {
+  function day(startMs, nowMs) {
     const d = new Date(startMs);
     const n = new Date(nowMs);
-    if (dayKey(d) === dayKey(n)) return d.getHours() >= 17 || d.getHours() < 5 ? 'Tonight' : 'Today';
-    const y = new Date(n.getFullYear(), n.getMonth(), n.getDate() - 1);
-    if (open && dayKey(d) === dayKey(y)) return 'Tonight';
+    if (isNight(d)) {
+      if (isNight(n) && nightKey(startMs) === nightKey(nowMs)) return 'Tonight';
+      if (nightKey(startMs) === nightKey(nowMs - 24 * 3600 * 1000)) return 'Last night';
+    }
+    if (dayKey(d) === dayKey(n)) return 'Today';
     const base = `${DAYS[d.getDay()]} ${MONTHS[d.getMonth()]} ${d.getDate()}`;
     return d.getFullYear() === n.getFullYear() ? base : `${base} ${d.getFullYear()}`;
   }
@@ -78,18 +87,18 @@ const SetLogRules = (() => {
   /** "Tonight · started 8:02 PM · 14 played". */
   function header(set, nowMs) {
     if (!set) return 'Nothing played on Stage yet';
-    return `${day(set.startedAt, nowMs, set.open)} · started ${clock(set.startedAt)} · ${set.played} played`;
+    return `${day(set.startedAt, nowMs)} · started ${clock(set.startedAt)} · ${set.played} played`;
   }
 
   /** One set in the Earlier sets picker: "Tue Oct 27 · 2h 41m". */
   function setLabel(set, nowMs) {
-    const d = day(set.startedAt, nowMs, set.open);
-    return `${d}${d === 'Tonight' || d === 'Today' ? ` ${clock(set.startedAt)}` : ''} · ${set.open ? 'now playing' : length(set.duration)}`;
+    const d = day(set.startedAt, nowMs);
+    return `${d}${d === 'Tonight' || d === 'Today' || d === 'Last night' ? ` ${clock(set.startedAt)}` : ''} · ${set.open ? 'now playing' : length(set.duration)}`;
   }
 
   /** The right side of a row. */
   function right(e) {
-    if (e.now) return 'Playing now';
+    if (e.now) return e.paused ? 'Paused' : 'Playing now';
     if (e.skipped) return `skipped after ${dur(e.played)}`;
     return dur(e.played);
   }
@@ -136,7 +145,8 @@ const SetLog = (typeof document === 'undefined') ? null : (() => {
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   async function get(url) {
-    const r = await fetch(url, { headers: { Accept: 'application/json' } });
+    // A timed poll, not the user being there: it never holds off auto-lock.
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'X-Vault-Background': '1' } });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
   }
@@ -173,6 +183,8 @@ const SetLog = (typeof document === 'undefined') ? null : (() => {
       const v = Number(e.target.value);
       setId = sets.length && v === sets[0].id ? null : v;
       data = null;
+      gen += 1;             // a reply still on its way is for the set shown before
+      paintList();
       refresh();
     });
     el.addEventListener('keydown', (e) => {
@@ -251,23 +263,44 @@ const SetLog = (typeof document === 'undefined') ? null : (() => {
     box.innerHTML = rows.map((e) => {
       const can = e.inLibrary !== false;
       const cls = `slog-row${e.skipped ? ' slog-skip' : ''}${e.now ? ' slog-now' : ''}${can ? '' : ' slog-gone'}`;
-      const attrs = can ? ` data-sl-media="${e.mediaId}" tabindex="0" title="Preview ${esc(R.name(e))}"` : ' title="No longer in the library"';
+      // No name in the tooltip: hidden file names (privacy) blur .slog-nm, a tooltip would show it.
+      const attrs = can ? ` data-sl-media="${e.mediaId}" tabindex="0" title="Preview this file"` : ' title="No longer in the library"';
       return `<div class="${cls}" role="listitem"${attrs}><span class="slog-t">${esc(R.clock(e.startedAt))}</span><span class="slog-o">${esc(R.hms(e.offset))}</span><span class="slog-nm">${esc(R.name(e))}</span><span class="slog-r">${esc(R.right(e))}</span></div>`;
     }).join('');
   }
 
+  // One refresh at a time; a change of set while one is on its way makes
+  // its reply stale (gen), and another refresh follows for the new one.
+  let busy = false;
+  let again = false;
+  let gen = 0;
   async function refresh() {
     if (!open) return;
+    if (busy) { again = true; return; }
+    busy = true;
+    const g = gen;
     try {
-      const out = await get('/api/stage/setlog');
-      sets = Array.isArray(out.sets) ? out.sets : [];
+      let failed = false;
+      let nextSets = sets;
+      let nextData = null;
+      try {
+        const out = await get('/api/stage/setlog');
+        nextSets = Array.isArray(out.sets) ? out.sets : [];
+        const want = setId != null && nextSets.some(s => s.id === setId) ? setId : (nextSets[0] && nextSets[0].id);
+        nextData = want != null ? await get(`/api/stage/setlog/${want}`) : null;
+      } catch { failed = true; }
+      if (!open || g !== gen) return;
+      if (failed) {
+        if (!data) el.querySelector('[data-sl="list"]').innerHTML = '<div class="slog-empty">Could not load the set log.</div>';
+        return;
+      }
+      sets = nextSets;
       if (setId != null && !sets.some(s => s.id === setId)) setId = null;
-      const id = setId != null ? setId : (sets[0] && sets[0].id);
-      data = id != null ? await get(`/api/stage/setlog/${id}`) : null;
-    } catch {
-      if (!data) { el.querySelector('[data-sl="list"]').innerHTML = '<div class="slog-empty">Could not load the set log.</div>'; return; }
+      data = nextData;
+    } finally {
+      busy = false;
+      if (again && open) { again = false; refresh(); }
     }
-    if (!open) return;
     paintHead();
     paintList();
     position();
@@ -311,6 +344,7 @@ const SetLog = (typeof document === 'undefined') ? null : (() => {
     el.hidden = false;
     setId = null;
     data = null;
+    gen += 1;
     query = '';
     el.querySelector('.slog-search').value = '';
     paintList();

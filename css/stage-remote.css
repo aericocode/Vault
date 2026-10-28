@@ -546,3 +546,8 @@ body.layout-modern .slog-tools, body.layout-modern .slog-foot { border-color: #3
 .slog-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .slog-row.slog-now .slog-r { color: var(--accent, #6366f1); }
 .slog-empty { padding: 14px 12px; color: var(--text-muted, #8b8b97); }
+/* Privacy mode (file names hidden): the names blurred, like the Stage bar's. */
+body.pm-names .slog-nm {
+  filter: blur(7px);
+  user-select: none;
+}

@@ -1624,8 +1624,29 @@ const StageControl = (() => {
         this: the server hears it from mpv. ─────────────────────────────── */
 
   let logFresh = false;       // a new file went into the video: its first 'playing' starts a log entry
-  function logBasic(state, extra) {
-    api('/api/stage/setlog/basic', { state, ...(extra || {}) }).catch(() => {});
+  let logBeatAt = 0;
+  // background: a timed report (the beat), not the user being there, so it
+  // never holds off auto-lock. keepalive: still sent as the page goes.
+  function logBasic(state, extra, { background = false, keepalive = false } = {}) {
+    logBeatAt = Date.now();
+    const headers = { 'Content-Type': 'application/json' };
+    if (background) headers['X-Vault-Background'] = '1';
+    try {
+      fetch('/api/stage/setlog/basic', { method: 'POST', headers, keepalive, body: JSON.stringify({ state, ...(extra || {}) }) }).catch(() => {});
+    } catch {}
+  }
+  // The server takes a Basic file as stopped when the page goes quiet
+  // (closed, reloaded, crashed), so the page says it is still there:
+  // while playing on the video's own clock (it runs in a background tab),
+  // and a slower timer for a paused file.
+  const LOG_BEAT_MS = 20000;
+  const logBeat = () => { if (basic && Date.now() - logBeatAt >= LOG_BEAT_MS) logBasic('beat', null, { background: true }); };
+  const logBeatTimer = setInterval(logBeat, LOG_BEAT_MS);
+  if (logBeatTimer && logBeatTimer.unref) logBeatTimer.unref();
+  document.addEventListener('timeupdate', (e) => { if (isBasicEl(e)) logBeat(); }, true);
+  // The page going away (a reload, the tab closed): Basic's file has stopped.
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('pagehide', () => { if (basic) logBasic('stopped', null, { background: true, keepalive: true }); });
   }
   function logBasicStart() {
     const r = basicRow();
@@ -1653,7 +1674,8 @@ const StageControl = (() => {
     if (logFresh || src !== logSrc) { logFresh = false; logSrc = src; logBasicStart(); } else logBasic('playing');
   }, true);
   document.addEventListener('pause', (e) => { if (isBasicEl(e) && !e.target.ended) logBasic('paused'); }, true);
-  document.addEventListener('ended', (e) => { if (isBasicEl(e)) logBasic('stopped'); }, true);
+  // Ended: the entry ends, and playing it again (same video, same file) is a new one.
+  document.addEventListener('ended', (e) => { if (isBasicEl(e)) { logFresh = true; logBasic('stopped'); } }, true);
 
   // Play pressed while Held: Hold ends and the sound comes back.
   document.addEventListener('play', (e) => {

@@ -26,18 +26,19 @@ process.env.VAULT_DISABLE_NATIVE_PICKER = '1';
 delete process.env.VAULT_DB_PASSWORD;
 
 const Database = require('better-sqlite3');
-const { ensureSchema, createSetLog, IDLE_MS, KEEP_SETS } = require('../lib/stage/setlog');
+const vm = require('node:vm');
+const { ensureSchema, createSetLog, IDLE_MS, KEEP_SETS, FLUSH_MS, BASIC_STALE_MS } = require('../lib/stage/setlog');
 const { createHub } = require('../lib/stage/hub');
 const R = require('../player-lib/stage-setlog.js');
 
 const MIN = 60 * 1000;
 const T0 = new Date(2026, 9, 27, 20, 2, 0).getTime();   // Tue Oct 27 2026, 8:02 PM
 
-function rig({ titles = {} } = {}) {
+function rig({ titles = {}, locked = null } = {}) {
   const mem = new Database(':memory:');
   ensureSchema(mem);
   const clock = { t: T0 };
-  const log = createSetLog({ db: () => mem, now: () => clock.t, titleFor: (id) => titles[id] || null });
+  const log = createSetLog({ db: () => mem, now: () => clock.t, titleFor: (id) => titles[id] || null, isLocked: () => !!(locked && locked.on) });
   const at = (ms) => { clock.t = ms; };
   const step = (ms) => { clock.t += ms; };
   const newest = () => log.setById(log.sets()[0].id);
@@ -188,6 +189,242 @@ test('a set left open by an earlier run ends where its last file did', () => {
   assert.strictEqual(b.setById(s.id).entries[0].played, 120);
 });
 
+test('what plays is written every so often, so a crash keeps it (not "skipped after 0:00")', () => {
+  const { log, step, mem, clock } = rig();
+  log.start({ id: 1, title: 'A', key: 'a', playing: true });
+  const row = () => mem.prepare('SELECT played_s, seen_at, ended_at FROM stage_set_entries').get();
+  step(FLUSH_MS - 1000);
+  log.tick();
+  assert.strictEqual(row().played_s, 0, 'not yet');
+  step(1000);
+  log.tick();
+  assert.strictEqual(row().played_s, FLUSH_MS / 1000);
+  step(FLUSH_MS);
+  log.playing(true, 'a');                 // mpv's status reports write it too
+  assert.strictEqual(row().played_s, 2 * FLUSH_MS / 1000);
+  const seen = clock.t;
+  step(10000);                            // then Vault dies: these 10 s are never written
+  step(3600 * 1000);
+  const after = createSetLog({ db: () => mem, now: () => clock.t });
+  const [set] = after.sets();
+  assert.strictEqual(set.open, false);
+  assert.strictEqual(set.endedAt, seen, 'the set ends where the file was last written');
+  const [e] = after.setById(set.id).entries;
+  assert.strictEqual(e.played, 2 * FLUSH_MS / 1000);
+  assert.strictEqual(e.skipped, false);
+  assert.strictEqual(row().ended_at, seen);
+  assert.strictEqual(R.chapters(after.setById(set.id).entries), '00:00 A', 'kept in the copies');
+});
+
+test('Basic: a page that goes quiet has stopped where it was last heard of; the idle rule then works', () => {
+  const { log, step, newest } = rig();
+  log.basic('start', { id: 3, title: 'B' });
+  for (let i = 0; i < 3; i++) { step(20000); log.basic('beat'); }
+  step(BASIC_STALE_MS - 1000);
+  log.tick();
+  assert.strictEqual(newest().entries[0].now, true, 'not yet');
+  step(1000);
+  log.tick();
+  const [e] = newest().entries;
+  assert.strictEqual(e.now, false);
+  assert.strictEqual(e.played, 60, 'played until the last beat, not until now');
+  step(IDLE_MS);
+  log.tick();
+  assert.strictEqual(log.sets()[0].open, false, '30 minutes after it went quiet, the set has ended');
+  assert.strictEqual(log.sets()[0].endedAt, T0 + 60000);
+});
+
+test('Basic: a paused page that keeps beating stays one entry; play after a quiet spell is a new entry', () => {
+  const { log, step, newest } = rig();
+  log.basic('start', { id: 3, title: 'B' });
+  step(40000);
+  log.basic('paused');
+  for (let i = 0; i < 6; i++) { step(20000); log.basic('beat'); log.tick(); }
+  log.basic('playing');
+  step(10000);
+  let es = newest().entries;
+  assert.strictEqual(es.length, 1);
+  assert.strictEqual(es[0].played, 50);
+  // asleep (a frozen tab), then plays on: the old entry ended, a new one for the same file
+  step(BASIC_STALE_MS + 1000);
+  log.tick();
+  log.basic('playing');
+  es = newest().entries;
+  assert.deepStrictEqual(es.map(x => [x.mediaId, x.now]), [[3, true], [3, false]]);
+});
+
+test('Basic: replaying after it ended is a new entry', () => {
+  const { log, step, newest } = rig();
+  log.basic('start', { id: 3, title: 'B' });
+  step(40000);
+  log.basic('stopped');
+  log.basic('start', { id: 3, title: 'B' });
+  step(5000);
+  assert.deepStrictEqual(newest().entries.map(x => [x.mediaId, x.now, x.played]), [[3, true, 5], [3, false, 40]]);
+});
+
+test('Basic reports never change what mpv Stage is playing', () => {
+  const { log, step, newest } = rig();
+  log.start({ id: 5, title: 'mpv file', key: 'k1', playing: true });
+  step(10000);
+  log.basic('paused');
+  log.basic('stopped');
+  log.basic('closed');
+  log.basic('start', { id: 9, title: 'page' });
+  step(10000);
+  const { set, entries } = newest();
+  assert.strictEqual(set.open, true);
+  assert.deepStrictEqual(entries.map(x => [x.mediaId, x.now, x.played]), [[5, true, 20]]);
+});
+
+test('paused shows as paused, not playing', () => {
+  const { log, step, newest } = rig();
+  log.start({ id: 5, title: 'A', key: 'k1', playing: true });
+  step(5000);
+  log.playing(false, 'k1');
+  const [e] = newest().entries;
+  assert.deepStrictEqual([e.now, e.paused, R.right(e)], [true, true, 'Paused']);
+});
+
+test('while locked, writes wait and are done in order after the unlock', () => {
+  const locked = { on: false };
+  const { log, step, mem } = rig({ locked });
+  log.start({ id: 1, title: 'A', key: 'a', playing: true });
+  step(40000);
+  locked.on = true;                      // Vault locks: Stage paused, then closed while locked
+  log.playing(false, 'a');
+  step(5000);
+  log.close();
+  step(60000);                           // a new set started and closed while still locked
+  log.start({ id: 2, title: 'B', key: 'b', playing: true });
+  step(45000);
+  log.close();
+  assert.strictEqual(mem.prepare('SELECT COUNT(*) n FROM stage_sets').get().n, 1, 'nothing written while locked');
+  assert.strictEqual(mem.prepare('SELECT ended_at FROM stage_sets').get().ended_at, null);
+  assert.ok(log._pending() > 0);
+  locked.on = false;
+  log.flush();
+  const sets = mem.prepare('SELECT started_at, ended_at FROM stage_sets ORDER BY id').all();
+  assert.deepStrictEqual(sets.map(x => ({ ...x })), [
+    { started_at: T0, ended_at: T0 + 45000 },
+    { started_at: T0 + 105000, ended_at: T0 + 150000 },
+  ]);
+  const ents = mem.prepare('SELECT media_id, played_s, ended_at FROM stage_set_entries ORDER BY id').all();
+  assert.deepStrictEqual(ents.map(x => ({ ...x })), [
+    { media_id: 1, played_s: 40, ended_at: T0 + 45000 },
+    { media_id: 2, played_s: 45, ended_at: T0 + 150000 },
+  ]);
+  assert.strictEqual(log._pending(), 0);
+});
+
+test('an older table gets the seen_at column', () => {
+  const mem = new Database(':memory:');
+  mem.exec("CREATE TABLE stage_set_entries (id INTEGER PRIMARY KEY, set_id INTEGER NOT NULL, media_id INTEGER NOT NULL, title TEXT NOT NULL DEFAULT '', started_at INTEGER NOT NULL, played_s REAL NOT NULL DEFAULT 0, ended_at INTEGER)");
+  ensureSchema(mem);
+  ensureSchema(mem);
+  assert.ok(mem.prepare('PRAGMA table_info(stage_set_entries)').all().some(c => c.name === 'seen_at'));
+});
+
+/* ── Basic Stage's page tells the server (player-lib/stage-control.js) ──── */
+
+function basicPage() {
+  const ROOT = path.join(__dirname, '..');
+  const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const docListeners = {};
+  const winListeners = {};
+  const posts = [];
+  const intervals = [];
+  class FakeVideo extends EventTarget {
+    constructor() {
+      super();
+      Object.assign(this, { tagName: 'VIDEO', readyState: 4, paused: false, muted: false, currentTime: 0, currentSrc: 'http://127.0.0.1/media/41', isConnected: true, ended: false });
+    }
+    requestPictureInPicture() { return Promise.resolve(); }
+    pause() { this.paused = true; }
+    play() { this.paused = false; return Promise.resolve(); }
+    closest() { return null; }
+  }
+  const video = new FakeVideo();
+  const mini = { classList: { add() {}, remove() {}, contains: () => false } };
+  const classes = new Set();
+  const doc = {
+    body: { classList: { contains: (c) => classes.has(c), add: (...c) => c.forEach(x => classes.add(x)), remove: (...c) => c.forEach(x => classes.delete(x)), toggle() {} } },
+    pictureInPictureEnabled: true,
+    pictureInPictureElement: null,
+    exitPictureInPicture: () => Promise.resolve(),
+    addEventListener: (t, fn) => { (docListeners[t] = docListeners[t] || []).push(fn); },
+    removeEventListener: () => {},
+    getElementById: (id) => (id === 'miniPlayer' ? mini : id === 'miniPlayerMedia' ? { innerHTML: '' } : null),
+    querySelector: (q) => (q === '#miniPlayerMedia video' ? video : null),
+    querySelectorAll: () => [],
+    createElement: () => ({ addEventListener() {}, setAttribute() {}, querySelector: () => null, hidden: true, style: {} }),
+  };
+  const ctx = {
+    document: doc,
+    window: { addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); } },
+    console: { ...console, warn() {} },
+    setTimeout,
+    clearTimeout,
+    setInterval: (fn, ms) => { intervals.push({ fn, ms }); return { unref() {} }; },
+    Promise, JSON, Math, Date, Error, TypeError, Event, EventTarget, Map, Set,
+    MutationObserver: class { observe() {} },
+    HTMLMediaElement: FakeVideo,
+    EventSource: class { addEventListener() {} close() {} },
+    sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    requestAnimationFrame: (fn) => fn(),
+    showToast() {},
+    currentMediaState: { type: 'video', miniMode: true, currentMediaData: { id: 41, filename: 'a.mp4', media_type: 'video' } },
+    Library: { fetchRows: async () => [], known: () => true, length: () => 0, waitIds: async () => [], rowsForRange: async () => [] },
+    noteFileOpened() {},
+    queueNav: (fn) => fn(),
+    miniPlayerOpen() {},
+    playMedia() {},
+    minimizePlayer() {},
+    closeMiniPlayer() {},
+    fetch: async (url, o) => {
+      if (url === '/api/stage/setlog/basic') posts.push({ ...JSON.parse(o.body), bg: !!(o.headers && o.headers['X-Vault-Background']), keepalive: !!o.keepalive });
+      const data = url === '/api/stage/state' ? { open: false, mpv: { found: false, choice: 'basic' }, settings: { tips: false } } : { ok: true };
+      return { ok: true, status: 200, json: async () => data };
+    },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(read('player-lib/stage-rules.js') + '\n' + read('player-lib/stage-control.js') + '\nglobalThis.__sc = StageControl;', ctx);
+  const fire = (type) => { for (const fn of docListeners[type] || []) fn({ target: video, type }); };
+  return { SC: ctx.__sc, video, fire, posts, intervals, winListeners };
+}
+
+test('Basic page: a new file starts an entry; playing it again after it ended is a new one too', async () => {
+  const p = basicPage();
+  await p.SC.openStage();
+  await new Promise(r => setTimeout(r, 20));
+  assert.strictEqual(p.SC.basicOn(), true);
+  p.posts.length = 0;
+  p.fire('loadstart');
+  p.fire('playing');
+  p.video.paused = true; p.fire('pause');
+  p.video.paused = false; p.fire('playing');
+  p.video.ended = true; p.video.paused = true; p.fire('pause'); p.fire('ended');
+  p.video.ended = false; p.video.paused = false; p.fire('playing');      // replay: same video, same file, no loadstart
+  assert.deepStrictEqual(p.posts.map(x => x.state + (x.id ? ' ' + x.id : '')), ['start 41', 'paused', 'playing', 'stopped', 'start 41']);
+});
+
+test('Basic page: it beats in the background (never holding off auto-lock), and says stopped as the page goes', async () => {
+  const p = basicPage();
+  await p.SC.openStage();
+  await new Promise(r => setTimeout(r, 20));
+  p.posts.length = 0;
+  const beat = p.intervals.find(i => i.ms === 20000);
+  assert.ok(beat, 'a 20 s beat');
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 60000;
+    beat.fn();
+    p.fire('timeupdate');                // just beat: not again
+  } finally { Date.now = realNow; }
+  for (const fn of p.winListeners.pagehide || []) fn({});
+  assert.deepStrictEqual(p.posts.map(x => [x.state, x.bg, x.keepalive]), [['beat', true, false], ['stopped', true, true]]);
+});
+
 /* ── The hub tells it what mpv Stage plays ──────────────────────────────── */
 
 test('hub: started, status, finished and Close reach the set log', () => {
@@ -246,6 +483,7 @@ test('times: offsets h:mm:ss, lengths m:ss, clock times', () => {
 test('the right side: length played, Playing now, skipped after', () => {
   assert.strictEqual(R.right({ played: 238 }), '3:58');
   assert.strictEqual(R.right({ played: 10, now: true }), 'Playing now');
+  assert.strictEqual(R.right({ played: 10, now: true, paused: true }), 'Paused');
   assert.strictEqual(R.right({ played: 28, skipped: true }), 'skipped after 0:28');
 });
 
@@ -258,8 +496,16 @@ test('the header: Tonight for this evening, a plain date for older sets', () => 
   assert.strictEqual(R.header({ startedAt: T0, played: 2 }, days), 'Tue Oct 27 · started 8:02 PM · 2 played');
   // Past midnight, the set still going: still tonight's.
   const pastMidnight = new Date(2026, 9, 28, 1, 0).getTime();
-  assert.strictEqual(R.day(T0, pastMidnight, true), 'Tonight');
-  assert.strictEqual(R.day(T0, pastMidnight, false), 'Tue Oct 27');
+  assert.strictEqual(R.day(T0, pastMidnight), 'Tonight', '8 PM seen at 1 AM');
+  const elevenPm = new Date(2026, 9, 27, 23, 0).getTime();
+  assert.strictEqual(R.day(elevenPm, pastMidnight), 'Tonight', '11 PM to 12:30 AM, seen at 1 AM');
+  const twoAm = new Date(2026, 9, 28, 2, 0).getTime();
+  const threePm = new Date(2026, 9, 28, 15, 0).getTime();
+  assert.strictEqual(R.day(twoAm, threePm), 'Last night', 'a 2 AM set seen at 3 PM');
+  assert.strictEqual(R.day(T0, threePm), 'Last night', 'yesterday evening, seen the next afternoon');
+  assert.strictEqual(R.day(T0, new Date(2026, 9, 28, 21, 0).getTime()), 'Last night', 'yesterday evening, seen this evening');
+  assert.strictEqual(R.day(T0, new Date(2026, 9, 29, 21, 0).getTime()), 'Tue Oct 27');
+  assert.strictEqual(R.day(morning, new Date(2026, 9, 27, 13, 0).getTime()), 'Today');
   assert.strictEqual(R.day(new Date(2025, 0, 2, 20).getTime(), later), 'Thu Jan 2 2025');
   assert.strictEqual(R.setLabel({ startedAt: T0, duration: 9660 }, days), 'Tue Oct 27 · 2h 41m');
   assert.strictEqual(R.setLabel({ startedAt: T0, duration: 9660, open: true }, later), 'Tonight 8:02 PM · now playing');
@@ -370,4 +616,35 @@ test('routes: bad input is refused', async () => {
   assert.strictEqual((await post('/api/stage/setlog/basic', { state: 'start', id: 1, title: 5 })).status, 400);
   assert.strictEqual((await getJson('/api/stage/setlog/abc')).status, 400);
   assert.strictEqual((await getJson('/api/stage/setlog/99999')).status, 404);
+  assert.strictEqual((await post('/api/stage/setlog/basic', { state: 'start', id: 1e300 })).status, 400, 'not a safe integer');
+  assert.strictEqual((await post('/api/stage/setlog/basic', { state: 'start', id: 2 ** 53 })).status, 400);
+  assert.strictEqual((await post('/api/stage/setlog/basic', { state: 'start', id: 987654 })).status, 404, 'not in the library');
+});
+
+test('routes: the open log\'s poll does not count as the user being there (auto-lock still comes)', async () => {
+  const vault = require('../lib/vault');
+  vault._lastActivity = 0;
+  const r = await fetch(base + '/api/stage/setlog', { headers: { 'X-Vault-Background': '1' } });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(vault._lastActivity, 0);
+  const src = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'stage-setlog.js'), 'utf8');
+  assert.match(src, /'X-Vault-Background': '1'/, 'the popover sends it');
+  vault.touch();
+});
+
+test('routes: a page title is not used; the library name is', async () => {
+  const d = db.get();
+  const id = Number(d.prepare('INSERT INTO media (filepath, filename, media_type) VALUES (?, ?, ?)').run('C:/clips/real.mp4', 'real.mp4', 'video').lastInsertRowid);
+  assert.strictEqual((await post('/api/stage/setlog/basic', { state: 'start', id, title: 'made up by a page' })).status, 200);
+  const { sets } = (await getJson('/api/stage/setlog')).body;
+  const one = (await getJson('/api/stage/setlog/' + sets[0].id)).body;
+  assert.strictEqual(one.entries[0].title, 'real.mp4');
+  await post('/api/stage/setlog/basic', { state: 'closed' });
+});
+
+test('hidden file names: the set log blurs its names and its rows carry no name in a tooltip', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'stage-remote.css'), 'utf8');
+  assert.match(css, /body\.pm-names \.slog-nm\s*\{[^}]*filter:\s*blur/);
+  const src = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'stage-setlog.js'), 'utf8');
+  assert.ok(!/title="Preview \$\{/.test(src), 'no file name in the row tooltip');
 });

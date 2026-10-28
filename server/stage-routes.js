@@ -236,7 +236,11 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
 
   vault.onChange((e) => {
     if (e === 'locked') hub.lock();
-    else if (e === 'unlocked') hub.unlock();
+    else if (e === 'unlocked') {
+      // What the set log could not write while locked, written now.
+      if (setlog && typeof setlog.flush === 'function') { try { setlog.flush(); } catch {} }
+      hub.unlock();
+    }
   });
   if (vault.isLocked()) hub.lock();
 
@@ -334,24 +338,30 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
   });
 
   // Basic Stage plays in the page, so the page says what it plays:
-  // start (a file began playing), playing, paused, stopped, closed (Stage closed).
-  const BASIC_STATES = new Set(['start', 'playing', 'paused', 'stopped', 'closed']);
-  let basicPlay = 0;
+  // start (a file began playing), playing, paused, beat (still there, every
+  // 20 s), stopped, closed (Stage closed). Only ever about Basic's own file
+  // (lib/stage/setlog.js basic): the page cannot change what mpv Stage logs.
+  const BASIC_STATES = new Set(['start', 'playing', 'paused', 'beat', 'stopped', 'closed']);
   router.post('/api/stage/setlog/basic', (req, res) => {
     if (!setlog) return noLog(res);
     const b = req.body || {};
-    if (!BASIC_STATES.has(b.state)) return res.status(400).json({ error: 'state must be start, playing, paused, stopped or closed.' });
+    if (!BASIC_STATES.has(b.state)) return res.status(400).json({ error: 'state must be start, playing, paused, beat, stopped or closed.' });
     if (b.state === 'start') {
-      if (!Number.isInteger(b.id) || b.id <= 0) return res.status(400).json({ error: 'start needs the file id.' });
+      if (!Number.isSafeInteger(b.id) || b.id <= 0) return res.status(400).json({ error: 'start needs the file id.' });
       if (b.title !== undefined && (typeof b.title !== 'string' || b.title.length > 1024)) return res.status(400).json({ error: 'title must be text.' });
-      basicPlay += 1;
-      setlog.start({ id: b.id, title: b.title || '', key: `basic-${basicPlay}`, playing: true });
-    } else if (b.state === 'playing') setlog.playing(true);
-    else if (b.state === 'paused') setlog.playing(false);
-    else if (b.state === 'stopped') setlog.stop();
-    else setlog.close();
+      // Only files in the library; their names come from the library, not the page.
+      if (typeof lib.inLibrary === 'function' && !lib.inLibrary(b.id)) return res.status(404).json({ error: 'That file is not in the library.' });
+      setlog.basic('start', { id: b.id, title: typeof lib.titleFor === 'function' ? '' : (b.title || '') });
+    } else setlog.basic(b.state);
     res.json({ ok: true });
   });
+
+  // Every 15 s: a Basic page gone quiet has stopped, a set idle 30 minutes
+  // has ended, and the file playing has its time written down.
+  if (setlog && typeof setlog.tick === 'function') {
+    const timer = setInterval(() => { try { setlog.tick(); } catch {} }, 15000);
+    if (timer.unref) timer.unref();
+  }
 
   /** mpv Stage is open and playing (not paused, not on Hold, not locked): Flow waits. */
   router.isPlaying = () => {
