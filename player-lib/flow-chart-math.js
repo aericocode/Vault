@@ -231,7 +231,65 @@ const FlowChartMath = (() => {
     return out;
   }
 
-  return { DRAG_THRESHOLD, dragPassed, dragSlot, dragTarget, movedOrder, yRange, filePoints, ignoredSpan, smoothed, slopes, monotonePath, monotoneAt, linearAt, tempoShare,
+  /* ── Full screen (flow.js) ───────────────────────────────────────── */
+
+  const FS_COL_PX = 140;
+  const FS_NAMES_H = 24;       // the names row and its margin
+  const FS_PH_MIN = 80;
+
+  function fsLayout(wrapW, n, L, R, zoom, colPx = FS_COL_PX) {
+    const W0 = Math.max(200, Math.floor(Number(wrapW) || 0));
+    const cols = Math.max(1, n || 0);
+    const fit = (W0 - L - R) / cols;
+    if (!zoom || fit >= colPx) return { W: W0, step: fit };
+    return { W: Math.ceil(L + R + cols * colPx), step: colPx };
+  }
+
+  const fsThumbHeight = (step) => Math.round(Math.max(24, Math.min(180, step - 10)) * 9 / 16) + 8;
+
+  /** o: { top, lanes (rows), laneRow (px a row), names (px), thumbs (px), bar (a sideways scrollbar, px) } */
+  function fsPlotHeight(wrapH, { top = 16, lanes = 0, laneRow = 14, names = FS_NAMES_H, thumbs = 0, bar = 0 } = {}) {
+    const h = Math.floor(Number(wrapH) || 0) - top - 10 - lanes * laneRow - names - thumbs - bar - 4;
+    return Math.max(FS_PH_MIN, h);
+  }
+
+  function chartHit(x, y, g, handPx = 8) {
+    if (!g || !(g.n > 0) || !(g.step > 0) || !Number.isFinite(x)) return null;
+    if (x < g.L || x >= g.W - g.R) return null;
+    const pos = (x - g.L) / g.step;
+    const i = Math.max(0, Math.min(g.n - 1, Math.floor(pos)));
+    const b = Math.round(pos);
+    const tol = Math.min(handPx, g.step * 0.2);
+    const inPlot = Number.isFinite(y) && y >= g.TOP && y <= g.TOP + g.PH;
+    if (!g.dense && inPlot && b > 0 && b < g.n && Math.abs(x - (g.L + b * g.step)) <= tol) return { kind: 'hand', i: b - 1 };
+    const gap = g.gap || 0;
+    const x0 = g.L + i * g.step + gap, x1 = g.L + (i + 1) * g.step - gap;
+    const frac = x1 > x0 ? clamp01((x - x0) / (x1 - x0)) : 0.5;
+    return { kind: 'col', i, frac };
+  }
+
+  function frameAt(frac, duration, count = 5) {
+    const f = clamp01(Number(frac) || 0);
+    const d = Number(duration) > 0 ? Number(duration) : 0;
+    const idx = Math.max(0, Math.min(count - 1, Math.round(f * (count + 1)) - 1));
+    return { t: f * d, idx };
+  }
+
+  function followScroll(x0, x1, left, viewW, margin = 40) {
+    if (!(viewW > 0)) return null;
+    const m = Math.min(margin, Math.max(0, (viewW - (x1 - x0)) / 2));
+    if (x0 >= left + m && x1 <= left + viewW - m) return null;
+    return Math.max(0, Math.round((x0 + x1) / 2 - viewW / 2));
+  }
+
+  function scrollStep(left, speed, dtMs, max) {
+    const dt = Math.max(0, Math.min(50, Number(dtMs) || 0));
+    const next = (Number(left) || 0) + (Number(speed) || 0) * dt / 1000;
+    return Math.max(0, Math.min(Math.max(0, max), next));
+  }
+
+  return { FS_COL_PX, FS_NAMES_H, fsLayout, fsThumbHeight, fsPlotHeight, chartHit, frameAt, followScroll, scrollStep,
+    DRAG_THRESHOLD, dragPassed, dragSlot, dragTarget, movedOrder, yRange, filePoints, ignoredSpan, smoothed, slopes, monotonePath, monotoneAt, linearAt, tempoShare,
     CHART_H_MIN, CHART_H_MAX, clampChartHeight, sparkPath };
 })();
 
