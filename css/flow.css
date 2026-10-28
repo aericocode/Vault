@@ -434,3 +434,177 @@ body.layout-modern .coll-reorder-note.flow-orderbar { border-radius: var(--m-rad
 .tv-c-title > .flow-marks .flow-mk-prog { position: static; display: inline-block; width: 48px; height: 3px; border-radius: 2px; }
 .media-tile.tv-row.flow-mk-playing { background: color-mix(in oklab, var(--accent) 8%, transparent); }
 @media (prefers-reduced-motion: reduce) { .flow-mk-pos { transition: none; } }
+
+/* ── Full screen (flow.js "Full screen"): the panel fixed over the library's
+   files, between the header and the Stage bar, beside the rail and the
+   preview pane (flow.js fsMeasure sets --flow-fs-*). Under the header's
+   menus (100), the pane (150) and the Stage bar (190). A spacer keeps the
+   panel's place in the page, and the page itself does not scroll under it
+   (the gutter is kept, so nothing behind changes width). ── */
+html:has(> body.flow-fs-on) { overflow: hidden; scrollbar-gutter: stable; }
+body.flow-fs-on #flowPanel.flow-panel {
+  position: fixed;
+  top: var(--flow-fs-top, 0px);
+  left: var(--flow-fs-left, 0px);
+  right: var(--flow-fs-right, 0px);
+  bottom: var(--flow-fs-bottom, 0px);
+  z-index: 95;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 0;
+  border-width: 1px 0 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: var(--bg-secondary);
+}
+/* Modern's surface is see-through: laid over the page's own background here. */
+body.layout-modern.flow-fs-on #flowPanel.flow-panel { background: linear-gradient(var(--m-surface), var(--m-surface)), var(--bg-primary); border-radius: 0; }
+body.flow-fs-on #flowPanel > * { flex: none; }
+.flow-fs-spacer { display: none; }
+body.flow-fs-on .flow-fs-spacer { display: block; margin-top: 0.5rem; }
+.flow-row > .flow-full-btn { margin-left: auto; }
+.flow-row > .flow-full-btn + .flow-hide { margin-left: 0; }
+.flow-fs-top .flow-title { font-size: 1rem; }
+.flow-fs-cname { font-weight: 600; }
+.flow-fs-top .flow-fs-count { color: var(--text-secondary); font-size: 0.8rem; }
+.flow-fs-exit { white-space: nowrap; }
+.flow-fs-orderbar {
+  padding: 5px 8px 5px 10px;
+  border: 1px solid color-mix(in oklab, var(--flow-e-hi) 35%, transparent);
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--flow-e-hi) 7%, transparent);
+  color: var(--text-secondary);
+}
+.flow-fs-orderbar .flow-ob-save { border-color: color-mix(in oklab, var(--flow-e-hi) 50%, transparent); }
+
+/* The chart takes what height is left; Zoom scrolls it sideways. */
+body.flow-fs-on #flowPanel > .flow-chart-wrap {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+body.flow-fs-on .flow-names { font-size: 0.78rem; }
+.flow-thumbs { position: relative; margin-top: 2px; }
+.flow-thumbs[hidden] { display: none; }
+.flow-thumbs img {
+  position: absolute;
+  top: 4px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+}
+.flow-chart .flow-col-sel { fill: var(--accent-bg); stroke: var(--accent); stroke-opacity: 0.55; stroke-width: 1; pointer-events: none; }
+.flow-chart .flow-hand.flow-hand-sel { stroke-width: 4.5; opacity: 1; }
+
+/* The strip under the chart: the file (or hand-over) picked. */
+.flow-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px 18px;
+  align-items: start;
+  max-height: 26vh;
+  overflow-y: auto;
+  padding: 8px 12px;
+  /* Room beside the floating mini player (flow.js fsMeasure). */
+  margin-left: var(--flow-fs-mini-l, 0px);
+  margin-right: var(--flow-fs-mini-r, 0px);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-primary);
+}
+.flow-st-main { display: grid; gap: 3px; min-width: 0; }
+.flow-st-k { font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-secondary); }
+.flow-st-name { font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-st-hands { display: grid; gap: 4px; min-width: 0; color: var(--text-secondary); font-size: 0.78rem; }
+.flow-st-h { padding-left: 8px; border-left: 2px solid var(--border); }
+.flow-st-h-smooth { border-left-color: var(--flow-ok); }
+.flow-st-h-noticeable { border-left-color: var(--flow-warn); }
+.flow-st-h-jump { border-left-color: var(--flow-bad); }
+.flow-st-h b { color: var(--text-primary); font-weight: 600; }
+.flow-st-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+
+/* The hover card by the pointer (full screen), and the small panel's frame. */
+.flow-hcard {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  width: 260px;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  pointer-events: none;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  color: var(--text-primary);
+  font-size: 12px;
+  will-change: transform;
+}
+.flow-hcard[hidden] { display: none; }
+.flow-hcard:has(.flow-hc-pair) { width: 360px; }
+.flow-hc-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.flow-hc-img { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: #000; }
+.flow-hc-img img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.flow-hc-img i, .flow-hc-time {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-style: normal;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.flow-hc-time:empty { display: none; }
+.flow-hc-noimg { display: none; }
+.flow-hc-t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-hc-t b { color: var(--text-secondary); font-weight: 600; }
+.flow-hc-smooth { color: var(--flow-ok); }
+.flow-hc-noticeable { color: var(--flow-warn); }
+.flow-hc-jump { color: var(--flow-bad); }
+.flow-hc-m { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.flow-tip-img { display: block; width: 160px; aspect-ratio: 16 / 9; margin-bottom: 2px; border-radius: 5px; overflow: hidden; background: #000; }
+.flow-tip-img img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.flow-tip-img img:not([src]) { visibility: hidden; }
+
+/* Hide file names (Settings › Privacy): blurred, as the tiles' names are. */
+body.pm-names .flow-nm-t,
+body.pm-names .flow-pm-name { filter: blur(7px); user-select: none; }
+
+body.layout-modern .flow-hcard,
+body.layout-modern .flow-strip {
+  background: var(--m-surface-solid);
+  border-color: var(--m-border);
+  border-radius: var(--m-radius-sm, 8px);
+}
+body.layout-modern .flow-hcard { box-shadow: var(--m-shadow); color: var(--m-text); }
+body.layout-modern .flow-hc-m,
+body.layout-modern .flow-st-hands,
+body.layout-modern .flow-st-k { color: var(--m-muted); }
+body.layout-modern .flow-fs-orderbar { border-radius: var(--m-radius-sm, 8px); color: var(--m-text-2); }
+body.flow-fs-on #flowPanel > .flow-row:last-child { margin-left: var(--flow-fs-mini-l, 0px); margin-right: var(--flow-fs-mini-r, 0px); }
+@media (max-width: 900px) {
+  .flow-st-acts { justify-content: flex-start; }
+}
+/* A short window: a tighter strip, so the plot keeps its height. */
+@media (max-height: 800px) {
+  .flow-strip { gap: 4px 14px; padding: 6px 10px; }
+  .flow-st-hands { font-size: 0.74rem; gap: 2px; }
+  body.flow-fs-on #flowPanel.flow-panel { gap: 6px; padding-top: 8px; padding-bottom: 8px; }
+}
+/* Very short (1280x560 and less): the legend row goes and the strip is shorter. */
+@media (max-height: 640px) {
+  body.flow-fs-on #flowPanel > .flow-row:last-child { display: none; }
+  .flow-strip { max-height: 20vh; }
+  body.flow-fs-on #flowPanel .flow-names { margin-top: 0; }
+}
