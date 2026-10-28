@@ -1101,8 +1101,9 @@ const Flow = (() => {
     if (reuse) return '<div id="flowChartSlot"></div>';
     return `<div class="flow-chart-wrap" id="flowChartWrap">
         <div class="flow-chart-svg"></div>
+        <div class="flow-ltags" hidden></div>
+        <div class="flow-cards" hidden></div>
         <div class="flow-names"></div>
-        <div class="flow-thumbs" hidden></div>
         <div class="flow-tip" hidden></div>
       </div>`;
   }
@@ -1130,27 +1131,27 @@ const Flow = (() => {
     if (full) wireWrap(wrap);
     const lanes = allLanes().filter(l => laneOn(l.key));
     const longest = lanes.reduce((m, l) => Math.max(m, Math.min(14, l.label.length)), 3);
-    const L = Math.round(Math.max(30, Math.min(96, longest * 5.6 + 10)));
+    // Full screen's tag rows label in HTML text, a little wider than the svg's.
+    const L = full ? Math.round(Math.max(34, Math.min(110, longest * 6.6 + 14))) : Math.round(Math.max(30, Math.min(96, longest * 5.6 + 10)));
     const R = 8, TOP = 16;
     let step = (W - L - R) / n;
     let PH = chartH || defaultChartH(W);
-    let thumbsOn = false;
+    let rows = null;
     if (full) {
       // Full screen: Fit (the whole list in the width) or Zoom (wide columns,
-      // the wrap scrolls sideways), and the plot takes the height that is left.
+      // the wrap scrolls sideways). The plot is about a third of the window;
+      // wide columns get tag rows as text and a preview card each (fsRows).
       const lay = FlowChartMath.fsLayout(wrap.clientWidth, n, L, R, st.zoom);
       W = lay.W; step = lay.step;
-      const ph = (thumbs) => FlowChartMath.fsPlotHeight(wrap.clientHeight, {
-        top: TOP, lanes: lanes.length, laneRow: LANE_ROW,
-        thumbs: thumbs ? FlowChartMath.fsThumbHeight(step) : 0,
-        bar: W > wrap.clientWidth ? 14 : 0,
+      rows = FlowChartMath.fsRows(wrap.clientHeight, window.innerHeight, {
+        step, lanes: lanes.length, cards: thumbsShown(), bar: W > wrap.clientWidth ? 14 : 0, top: TOP,
       });
-      // The thumbnails go first when the view is short: the plot keeps FS_PLOT_MIN.
-      thumbsOn = st.zoom && thumbsShown() && FlowChartMath.fsThumbsFit(ph(true));
-      PH = ph(thumbsOn);
+      PH = rows.PH;
     }
+    // Readable tag rows (full screen, wide columns) sit under the svg, not in it.
+    const svgLanes = rows && rows.rich ? [] : lanes;
     const laneY = TOP + PH + 10;
-    const H = laneY + lanes.length * LANE_ROW + (lanes.length ? 0 : -6);
+    const H = laneY + svgLanes.length * LANE_ROW + (svgLanes.length ? 0 : -6);
     const dense = step < DENSE_PX;
     const gap = dense ? 0 : Math.min(8, step * 0.12);
     const base = TOP + PH;
@@ -1285,15 +1286,16 @@ const Flow = (() => {
     const nowI = st.nowId != null ? order.indexOf(st.nowId) : -1;
     if (nowI >= 0) svg += `<circle class="flow-now-dot" cx="${f1(cx(nowI))}" cy="5" r="3"><title>Playing now</title></circle>`;
 
-    if (lanes.length) svg += lanesSvg(lanes, order, { L, step, laneY, dense });
+    if (svgLanes.length) svg += lanesSvg(svgLanes, order, { L, step, laneY, dense });
     // The playhead (moved by phPlace only; hidden until something of this order plays).
     svg += `<g class="flow-playhead" visibility="hidden" pointer-events="none"><line class="flow-ph-line" x1="0" x2="0" y1="0" y2="${H}"/><circle class="flow-ph-glow" r="8"/><circle class="flow-ph-dot" r="4"/></g>`;
 
     const label = `Energy across the ${st.order ? 'Flow' : 'playlist'} order, ${pct(lo)} to ${pct(hi)}`;
     wrap.querySelector('.flow-chart-svg').innerHTML = `<svg class="flow-chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${svg}</svg>`;
-    st.geom = { W, H, L, R, TOP, PH, step, n, order, dense, lo, hi, hand, gap, y };
+    st.geom = { W, H, L, R, TOP, PH, step, n, order, dense, lo, hi, hand, gap, y, cards: !!(rows && rows.cardsOn) };
+    tagRows(wrap, rows && rows.rich ? lanes : null, order, { L, step, W });
+    cardsRow(wrap, order, rows && rows.cardsOn ? { L, step, W, h: rows.cardH, selI, nowI } : null);
     namesRow(wrap, order, { L, step, dense, nowI, W: full ? W : 0 });
-    thumbsRow(wrap, order, thumbsOn ? { L, step, gap, W } : null);
     if (st.hot >= n) st.hot = -1;
     showHot(drag && drag.on ? -1 : st.hot);
     paintDrag();
@@ -1514,7 +1516,7 @@ const Flow = (() => {
     if (!wrap || !g) return;
     const col = wrap.querySelector('.flow-col-hot');
     const tip = wrap.querySelector('.flow-tip');
-    wrap.querySelectorAll('.flow-nm.hot').forEach(x => x.classList.remove('hot'));
+    wrap.querySelectorAll('.flow-nm.hot, .flow-card.hot').forEach(x => x.classList.remove('hot'));
     if (i < 0 || i >= g.n) {
       if (col) col.setAttribute('visibility', 'hidden');
       tip.hidden = true;
@@ -1527,7 +1529,12 @@ const Flow = (() => {
     }
     const nm = wrap.querySelector(`.flow-nm[data-i="${i}"]`);
     if (nm) nm.classList.add('hot');
-    if (st.full) { tip.hidden = true; return; }
+    if (st.full) {
+      const cd = cardEls.get(g.order[i]);
+      if (cd) cd.classList.add('hot');
+      tip.hidden = true;
+      return;
+    }
     const id = g.order[i];
     const f = st.byId.get(id);
     let line;
@@ -1566,8 +1573,9 @@ const Flow = (() => {
     const wrap = document.getElementById('flowChartWrap');
     const g = st.geom;
     if (!wrap || !g) return -1;
-    const nm = e.target.closest && e.target.closest('.flow-nm');
-    if (nm) return Number(nm.dataset.i);
+    // A name, a preview card or a tag cell is its column.
+    const nm = e.target.closest && e.target.closest('.flow-nm, .flow-card, .flow-tg');
+    if (nm && nm.dataset.i != null) return Number(nm.dataset.i);
     const svg = wrap.querySelector('svg');
     if (!svg) return -1;
     const r = svg.getBoundingClientRect();
@@ -1693,6 +1701,7 @@ const Flow = (() => {
       drag.on = true;
       showHot(-1);
       hideCard();
+      unscrub();
       try { panel()?.setPointerCapture(e.pointerId); } catch {}
       document.body.classList.add('flow-col-dragging');
     }
@@ -1976,7 +1985,7 @@ const Flow = (() => {
     el.addEventListener('pointermove', (e) => {
       if (dragMove(e)) return;
       const wrap = e.target.closest('#flowChartWrap');
-      if (!wrap) { if (st.hot >= 0) showHot(-1); hideCard(); return; }
+      if (!wrap) { if (st.hot >= 0) showHot(-1); hideCard(); unscrub(); return; }
       const i = colAt(e);
       wrap.classList.toggle('flow-can-drag', i >= 0 && dragAllowed());
       if (i !== st.hot) showHot(i);
@@ -1995,7 +2004,7 @@ const Flow = (() => {
     window.addEventListener('pointerup', (e) => { if (drag && !drag.on && e.pointerId === drag.pointerId) drag = null; });
     el.addEventListener('pointercancel', cancelDrag);
     el.addEventListener('lostpointercapture', () => { if (drag && drag.on) cancelDrag(); });
-    el.addEventListener('pointerleave', () => { if (st.hot >= 0) showHot(-1); hideCard(); });
+    el.addEventListener('pointerleave', () => { if (st.hot >= 0) showHot(-1); hideCard(); unscrub(); });
     // Full screen: F and Esc (after the listeners that take Esc first: drags above, Up next's list).
     window.addEventListener('keydown', fsKey, true);
     window.addEventListener('resize', () => { if (st.full) { fsMeasure(); scheduleDraw(); } });
@@ -2025,13 +2034,18 @@ const Flow = (() => {
      where it was (the page scroll is put back too).
 
      There: names on every column there is room for, every lane (its own
-     picks), the plot as tall as the view allows; Fit or Zoom (FS_COL_PX a
-     column, scrolled sideways, a thumbnail row under the names). Clicking a
-     column picks its file for the strip under the chart (a double click
-     plays it, as a tile's would); clicking a hand-over explains it there.
-     Hovering shows a card by the pointer: the file's frame at the time
-     under the pointer (the seek bars' hover frames, /scrub/:id/:idx), or
-     for a hand-over the end of one file beside the start of the next.
+     picks), the plot about a third of the window (FlowChartMath.fsRows);
+     Fit or Zoom (FS_COL_PX a column, scrolled sideways). Columns
+     FS_CARD_PX or wider get the lanes as rows of readable tags and a
+     preview card each above the names (scrubbed by the pointer); narrower
+     ones keep the colour bars and no cards. Clicking a column (or its card)
+     picks its file for the strip under the chart (a double click plays it,
+     as a tile's would); clicking a hand-over explains it there; dragging a
+     card moves its file as dragging the column does. Hovering shows a card
+     by the pointer for a hand-over (the end of one file beside the start of
+     the next), and, without preview cards, for a column: the file's frame
+     at the time under the pointer (the seek bars' hover frames,
+     /scrub/:id/:idx).
 
      Nothing runs while it is closed. While open: the 400 ms playhead check
      also measures where the view goes (only writing what changed) and, in
@@ -2100,47 +2114,202 @@ const Flow = (() => {
     return '<span class="flow-tip-img"><img alt="" draggable="false"></span>';
   }
 
-  /** Thumbnails under the names (full screen Zoom): one img a column, kept by id across draws. */
-  function thumbsRow(wrap, order, g) {
-    const el = wrap.querySelector('.flow-thumbs');
+  /* ── Tag rows (full screen, FS_CARD_PX a column or wider) ──
+     Each lane shown is a row under the plot, labelled at the left: a tag
+     lane's tags as their names on their colours (ellipsis when tight),
+     Tempo as the BPM and a small meter, a faint dashed slot where a file has
+     nothing. With stream tags loaded, a tag lane's cell (empty or not) opens
+     the stream tag menu for its file, as the preview pane's + Tag does. */
+
+  /** Can a tag lane's cell open the stream tag menu (player-lib/stream-tags.js)? */
+  const tagEditor = () => typeof StreamTags !== 'undefined' && typeof StreamTags.blockMenu === 'function'
+    && !(typeof StreamTags.loaded === 'function' && !StreamTags.loaded());
+
+  function tagRows(wrap, lanes, order, { L, step, W }) {
+    const el = wrap.querySelector('.flow-ltags');
     if (!el) return;
-    if (!g) { if (!el.hidden) { el.hidden = true; el.innerHTML = ''; } return; }
+    if (!lanes || !lanes.length) { if (!el.hidden) { el.hidden = true; el.innerHTML = ''; } return; }
+    const ROW = FlowChartMath.FS_TAG_ROW;
     el.hidden = false;
-    el.style.width = `${g.W}px`;
-    const h = FlowChartMath.fsThumbHeight(g.step);
-    el.style.height = `${h}px`;
-    const have = new Map();
-    for (const im of el.querySelectorAll('img[data-id]')) have.set(Number(im.dataset.id), im);
-    const w = Math.max(8, g.step - 2 * Math.max(3, g.gap));
+    el.style.width = `${W}px`;
+    el.style.height = `${lanes.length * ROW}px`;
+    const inset = 3, w = Math.max(4, step - 2 * inset);
+    const edit = tagEditor();
+    let html = '';
+    lanes.forEach((lane, r) => {
+      const top = r * ROW;
+      const label = lane.label.length > 14 ? `${lane.label.slice(0, 13)}…` : lane.label;
+      html += `<span class="flow-tg-l" style="top:${top}px;width:${L - 6}px" title="${esc(lane.label)}">${esc(label)}</span>`;
+      const tempo = lane.key === 'tempo';
+      const canEdit = edit && !tempo;
+      const cells = tempo ? null : laneCells(lane, order);
+      order.forEach((id, i) => {
+        const pos = `left:${f1(L + i * step + inset)}px;top:${top}px;width:${f1(w)}px`;
+        const who = `${i + 1}. ${titleName(st.byId.get(id), `File ${i + 1}`)}`;
+        const ed = canEdit ? ` data-flow-tag="${esc(lane.key)}"` : '';
+        if (tempo) {
+          const f = st.byId.get(id);
+          const bpm = f && drawable(f) && f.music ? (f.bm || f.bs || f.be) : null;
+          if (!bpm) { html += `<span class="flow-tg flow-tg-empty" data-i="${i}" style="${pos}"></span>`; return; }
+          const share = FlowChartMath.tempoShare(bpm);
+          html += `<span class="flow-tg flow-tg-num" data-i="${i}" style="${pos}" title="${esc(`${who}: ${Math.round(bpm)} BPM`)}"><span>${Math.round(bpm)}</span><i><b style="width:${pct(share)}%;background:${esc(eColor(share))}"></b></i></span>`;
+          return;
+        }
+        const tags = cells[i];
+        if (!tags.length) {
+          html += canEdit
+            ? `<span class="flow-tg flow-tg-empty" data-i="${i}"${ed} style="${pos}" title="${esc(`${who}: add a ${lane.label} tag`)}">+ ${esc(lane.label)}</span>`
+            : `<span class="flow-tg flow-tg-empty" data-i="${i}" style="${pos}"></span>`;
+          return;
+        }
+        html += `<span class="flow-tg" data-i="${i}"${ed} style="${pos}">${tags.map(t => `<span class="flow-tg-t" style="background:${esc(t.color)};color:${FlowChartMath.inkOn(t.color)}" title="${esc(`${who}: ${t.label}`)}">${esc(t.label)}</span>`).join('')}</span>`;
+      });
+    });
+    el.innerHTML = html;
+  }
+
+  /* ── Preview cards (full screen, FS_CARD_PX a column or wider) ──
+     A 16:9 card under each column: the file's first hover frame (a picture
+     that is not a video: its thumbnail), its length in the corner. Pointing
+     at it (or at its column over the plot) scrubs the five frames, a thin
+     bar showing where; leaving puts the first frame back. Cards are kept by
+     id across draws (a drag redraws every frame), and only cards in view
+     (or a column either side) ask for their picture. */
+
+  const CARD_LOAD_PAD = 140;       // px either side of the view whose cards load too
+  const cardEls = new Map();       // id -> card element
+  let cardsHost = null;            // the .flow-cards those belong to
+  let scrubbed = null;             // the card being scrubbed
+
+  /** A card's resting picture: the first hover frame, else the still, else ''. */
+  function firstUrl(id) {
+    const u = frameUrl(id, 0);
+    if (u && !failed.has(u)) return u;
+    const s = stillUrl(id);
+    return s && !failed.has(s) ? s : '';
+  }
+
+  function setImg(el, url) {
+    el._src = url;
+    if (!url) { el._img.style.visibility = 'hidden'; el._img.removeAttribute('src'); return; }
+    el._img.style.visibility = '';
+    el._img.src = url;
+  }
+
+  function makeCard(id) {
+    const el = document.createElement('div');
+    el.className = 'flow-card';
+    el.dataset.id = String(id);
+    const im = document.createElement('img');
+    im.alt = '';
+    im.draggable = false;
+    im.decoding = 'async';
+    const len = document.createElement('i');
+    len.className = 'flow-card-len';
+    const bar = document.createElement('b');
+    bar.className = 'flow-card-bar';
+    el.append(im, len, bar);
+    Object.assign(el, { _id: id, _img: im, _len: len, _bar: bar, _src: '', _want: null, _loaded: false, _scrub: false });
+    // A frame that does not load: the next best picture (the still), or none.
+    im.onerror = () => {
+      if (el._src) failed.add(el._src);
+      const next = el._scrub ? '' : firstUrl(id);
+      if (!el._scrub) el._want = next;
+      setImg(el, next && next !== el._src ? next : '');
+    };
+    return el;
+  }
+
+  function cardsRow(wrap, order, g) {
+    const host = wrap.querySelector('.flow-cards');
+    if (!host) return;
+    if (host !== cardsHost) { cardEls.clear(); cardsHost = host; scrubbed = null; }
+    if (!g) {
+      if (!host.hidden || cardEls.size) { host.hidden = true; host.innerHTML = ''; cardEls.clear(); scrubbed = null; }
+      return;
+    }
+    host.hidden = false;
+    host.style.width = `${g.W}px`;
+    host.style.height = `${g.h}px`;
+    const w = FlowChartMath.fsCardWidth(g.step, g.h), h = g.h - 8;
+    const seen = new Set();
     const add = [];
     order.forEach((id, i) => {
-      const url = stillUrl(id);
-      let im = have.get(id);
-      have.delete(id);
-      if (!url) { if (im) im.remove(); return; }
-      if (!im) {
-        im = document.createElement('img');
-        im.dataset.id = String(id);
-        im.alt = '';
-        im.draggable = false;
-        im.loading = 'lazy';
-        im.decoding = 'async';
-        im.onerror = () => { im.style.visibility = 'hidden'; };
-        im.src = url;
-        add.push(im);
-      }
-      im.style.left = `${f1(g.L + i * g.step + (g.step - w) / 2)}px`;
-      im.style.width = `${f1(w)}px`;
-      im.style.height = `${h - 8}px`;
+      seen.add(id);
+      let el = cardEls.get(id);
+      if (!el) { el = makeCard(id); cardEls.set(id, el); add.push(el); }
+      const x = g.L + i * g.step + (g.step - w) / 2;
+      el._x = x; el._w = w;
+      el.dataset.i = String(i);
+      el.style.left = `${f1(x)}px`;
+      el.style.width = `${f1(w)}px`;
+      el.style.height = `${h}px`;
+      el.classList.toggle('sel', i === g.selI);
+      el.classList.toggle('now', i === g.nowI);
+      const want = firstUrl(id);
+      if (want !== el._want) { el._want = want; el._loaded = false; }
+      const len = lenText(id);
+      if (el._len.textContent !== len) el._len.textContent = len;
     });
-    for (const im of have.values()) im.remove();
-    if (add.length) el.append(...add);
+    for (const [id, el] of cardEls) {
+      if (seen.has(id)) continue;
+      el.remove();
+      cardEls.delete(id);
+      if (scrubbed === el) scrubbed = null;
+    }
+    if (add.length) host.append(...add);
+    cardsLoad();
+  }
+
+  /** Cards in view (or near it) that have not asked for their picture yet ask now. */
+  function cardsLoad() {
+    const wrap = document.getElementById('flowChartWrap');
+    if (!wrap || !cardEls.size) return;
+    const a = wrap.scrollLeft - CARD_LOAD_PAD, b = wrap.scrollLeft + wrap.clientWidth + CARD_LOAD_PAD;
+    for (const el of cardEls.values()) {
+      if (el._loaded || el._scrub || el._x + el._w < a || el._x > b) continue;
+      el._loaded = true;
+      if (el._src !== el._want) setImg(el, el._want);
+    }
+  }
+
+  let cardsLoadQueued = false;
+  function scheduleCardsLoad() {
+    if (cardsLoadQueued || !cardEls.size) return;
+    cardsLoadQueued = true;
+    requestAnimationFrame(() => { cardsLoadQueued = false; cardsLoad(); });
+  }
+
+  /** Card i shows its frame at frac across the file, the bar at frac. */
+  function scrubCard(i, frac) {
+    const g = st.geom;
+    const id = g ? g.order[i] : null;
+    const el = id != null ? cardEls.get(id) : null;
+    if (scrubbed && scrubbed !== el) unscrub();
+    if (!el) return;
+    warmFrames(id);
+    const p = pictureAt(id, frac);
+    el._scrub = true;
+    el._loaded = true;
+    scrubbed = el;
+    if (p.url && p.url !== el._src) setImg(el, p.url);
+    el._bar.style.width = `${f1(Math.max(0, Math.min(1, frac)) * 100)}%`;
+  }
+
+  /** The card scrubbed goes back to its first frame. */
+  function unscrub() {
+    const el = scrubbed;
+    if (!el) return;
+    scrubbed = null;
+    el._scrub = false;
+    el._bar.style.width = '0';
+    if (el._src !== el._want) setImg(el, el._want || '');
   }
 
   /* ── The hover card ── */
 
   let card = null;             // the element (on body, so repaints never touch it)
-  const hov = { x: 0, y: 0, queued: false, key: '', w: 0, h: 0, src: '' };
+  const hov = { x: 0, y: 0, target: null, queued: false, key: '', w: 0, h: 0, src: '' };
 
   function cardEl() {
     if (card && card.isConnected) return card;
@@ -2159,7 +2328,7 @@ const Flow = (() => {
 
   /** Pointer moved over the chart: the card (full screen) or the tooltip's frame, next frame. */
   function hoverAt(e) {
-    hov.x = e.clientX; hov.y = e.clientY;
+    hov.x = e.clientX; hov.y = e.clientY; hov.target = e.target;
     if (hov.queued) return;
     hov.queued = true;
     requestAnimationFrame(hoverFrame);
@@ -2176,9 +2345,24 @@ const Flow = (() => {
 
   function hoverFrame() {
     hov.queued = false;
-    if (!st.geom || !st.open || !isMine() || (drag && drag.on)) { hideCard(); return; }
+    if (!st.geom || !st.open || !isMine() || (drag && drag.on)) { hideCard(); unscrub(); return; }
     const hit = hoverHit(hov.x, hov.y);
     if (!st.full) { tipFrame(hit); return; }
+    if (st.geom.cards) {
+      // Preview cards under the chart: a column's preview is its card (scrubbed
+      // by the pointer, on the card or over the column); the floating card is
+      // left for hand-overs, so two previews never show at once.
+      const cd = hov.target && hov.target.closest ? hov.target.closest('.flow-card') : null;
+      if (cd && cd.dataset.i != null) {
+        hideCard();
+        const r = cd.getBoundingClientRect();
+        const i = Number(cd.dataset.i);
+        scrubCard(i, FlowChartMath.cardScrub(hov.x - r.left, r.width, durOf(st.geom.order[i])).frac);
+        return;
+      }
+      if (hit && hit.kind === 'col') { hideCard(); scrubCard(hit.i, hit.frac); return; }
+      unscrub();
+    }
     if (!hit) { hideCard(); return; }
     paintCard(hit);
   }
@@ -2404,9 +2588,16 @@ const Flow = (() => {
   function fsClick(e) {
     const g = st.geom;
     if (!g) return;
-    const nm = e.target && e.target.closest && e.target.closest('.flow-nm, .flow-thumbs img');
-    const hit = nm ? { kind: 'col', i: nm.dataset.i != null ? Number(nm.dataset.i) : g.order.indexOf(Number(nm.dataset.id)) }
-      : hoverHit(e.clientX, e.clientY);
+    // A tag lane's cell: the stream tag menu for that file (the preview pane's + Tag).
+    const tg = e.target && e.target.closest && e.target.closest('[data-flow-tag]');
+    if (tg && tagEditor()) {
+      lastClick = { id: null, at: 0 };
+      const id = g.order[Number(tg.dataset.i)];
+      if (id != null) StreamTags.blockMenu(tg, id);
+      return;
+    }
+    const nm = e.target && e.target.closest && e.target.closest('.flow-nm, .flow-card');
+    const hit = nm ? { kind: 'col', i: Number(nm.dataset.i) } : hoverHit(e.clientX, e.clientY);
     if (!hit || !(hit.i >= 0)) return;
     if (hit.kind === 'hand') { lastClick = { id: null, at: 0 }; pickHand(hit.i); return; }
     const id = g.order[hit.i];
@@ -2449,7 +2640,7 @@ const Flow = (() => {
         seen.add(id);
         if (!libRow(id)) missing.push(id);
       }
-      if (missing.length) Library.fetchRows(missing).then(() => { if (st.full) paintStrip(); }, () => {});
+      if (missing.length) Library.fetchRows(missing).then(() => { if (st.full) { paintStrip(); scheduleDraw(); } }, () => {});
     }
     panel()?.querySelector('[data-flow-full]')?.focus({ preventScroll: true });
     return true;
@@ -2546,6 +2737,8 @@ const Flow = (() => {
       if (st.full && Math.abs(wrap.scrollLeft - st.autoLeft) > 2) st.follow = false;
       // The chart moved under the pointer: the card waits for the next pointer move.
       if (!(drag && drag.on)) hideCard();
+      // Preview cards scrolled into view load their pictures (next frame).
+      scheduleCardsLoad();
     }, { passive: true });
     wrap.addEventListener('wheel', (e) => {
       if (!st.full || !st.zoom || e.ctrlKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
@@ -2784,6 +2977,9 @@ const Flow = (() => {
     // Full screen (tests): in and out, keys, picks, the strip.
     _full: {
       on: fsOn, toggle: fsToggle, key: fsKey, click: fsClick, pick, pickHand, strip: stripHtml, act: stripAct, play: playHere,
+      // The preview cards: what each shows, loading what is in view, scrubbing.
+      cards: () => [...cardEls.values()].map(el => ({ id: el._id, i: Number(el.dataset.i), src: el._src, loaded: !!el._loaded, bar: el._bar.style.width })),
+      cardsLoad, scrub: scrubCard, unscrub,
       zoom: (on) => { st.zoom = !!on; st.follow = true; paint(); },
       state: () => ({ full: st.full, zoom: st.zoom, sel: st.sel, selHand: st.selHand, follow: st.follow, gridStale: st.gridStale }),
     },

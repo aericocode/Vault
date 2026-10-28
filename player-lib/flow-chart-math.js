@@ -42,11 +42,24 @@
    - fsLayout(wrapW, n, L, R, zoom)  the chart's width and column step: Fit
                              puts the whole list in the width, Zoom gives each
                              file at least FS_COL_PX and scrolls sideways
-   - fsThumbHeight(step)     the Zoom thumbnail row's height (16:9 in a column)
-   - fsThumbsFit(ph)         does the plot keep FS_PLOT_MIN with the thumbnail
-                             row? (a short view drops the row first)
-   - fsPlotHeight(wrapH, o)  the plot's height: what the view has left after
-                             the lane rows, the names and the thumbnails
+   - fsChartHeight(vh)       the plot's height for a window vh tall: about a
+                             third of it, FS_CHART_MIN..FS_CHART_MAX (a tall
+                             window no longer stretches the curve)
+   - fsCardHeight(step)      the preview cards row's height (16:9 in a column,
+                             at most FS_CARD_MAX_W wide); fsCardWidth(step, h)
+                             a card's width (in a shrunk row, 16:9 of its height)
+   - fsCardsFit(ph)          does the plot keep FS_PLOT_MIN with the cards row?
+                             (a short view drops the row first)
+   - fsPlotHeight(wrapH, o)  what the view has left for the plot after the
+                             lane rows, the names and the cards
+   - fsRows(wrapH, vh, o)    full screen's rows from all of that: the plot's
+                             height, readable tag rows and preview cards when
+                             a column is FS_CARD_PX or wider (narrower: the
+                             colour bars and no cards), smaller cards or none
+                             in a short view
+   - cardScrub(x, w, d)      the pointer x px across a card w wide: how far
+                             across (0..1), and the frame and time there (frameAt)
+   - inkOn(hex)              text colour for a tag's label on its own colour
    - chartHit(x, y, g)       what is under a point of the chart: a hand-over
                              (near the line between two columns, in the plot)
                              { kind: 'hand', i } (file i into i + 1), or a
@@ -267,16 +280,74 @@ const FlowChartMath = (() => {
     return { W: Math.ceil(L + R + cols * colPx), step: colPx };
   }
 
-  /** The plot's height the thumbnail row must leave (else the row is dropped). */
+  /** The plot's height the cards row must leave (else the row is dropped). */
   const FS_PLOT_MIN = 140;
-  const fsThumbsFit = (plotWithThumbs) => plotWithThumbs >= FS_PLOT_MIN;
+  const fsCardsFit = (plotWithCards) => plotWithCards >= FS_PLOT_MIN;
 
-  const fsThumbHeight = (step) => Math.round(Math.max(24, Math.min(180, step - 10)) * 9 / 16) + 8;
+  /* About a third of the window, kept between FS_CHART_MIN and FS_CHART_MAX. */
+  const FS_CHART_SHARE = 0.34;
+  const FS_CHART_MIN = 140;
+  const FS_CHART_MAX = 260;
+  function fsChartHeight(vh) {
+    const v = Number(vh) > 0 ? Number(vh) * FS_CHART_SHARE : 0;
+    return Math.round(Math.max(FS_CHART_MIN, Math.min(FS_CHART_MAX, v)));
+  }
+
+  /* A column this wide or wider gets readable tags and a preview card. */
+  const FS_CARD_PX = 70;
+  const FS_CARD_MAX_W = 240;
+  const FS_TAG_ROW = 24;
+  const FS_CARD_MIN_H = 44;    // the least a cards row shrinks to (a 36 px picture) before it goes
+  /** A card's width in a column step px wide; with the row's height h, no wider than 16:9 of it. */
+  function fsCardWidth(step, h = 0) {
+    const w = Math.max(24, Math.min(FS_CARD_MAX_W, step - 8));
+    return h > 8 ? Math.min(w, Math.round((h - 8) * 16 / 9)) : w;
+  }
+  const fsCardHeight = (step) => Math.round(fsCardWidth(step) * 9 / 16) + 8;
 
   /** o: { top, lanes (rows), laneRow (px a row), names (px), thumbs (px), bar (a sideways scrollbar, px) } */
   function fsPlotHeight(wrapH, { top = 16, lanes = 0, laneRow = 14, names = FS_NAMES_H, thumbs = 0, bar = 0 } = {}) {
     const h = Math.floor(Number(wrapH) || 0) - top - 10 - lanes * laneRow - names - thumbs - bar - 4;
     return Math.max(FS_PH_MIN, h);
+  }
+
+  /**
+   * o: { step, lanes (rows), cards (thumbnails can show), bar (px), top }.
+   * Returns { PH, rich, cardsOn, laneRow, cardH }: rich (FS_CARD_PX a column
+   * or more) draws tags as text, a row FS_TAG_ROW tall. A short view takes
+   * from the cards first: smaller cards (the plot at FS_PLOT_MIN), down to
+   * FS_CARD_MIN_H, then none. The plot is never over fsChartHeight(vh).
+   */
+  function fsRows(wrapH, vh, { step = 0, lanes = 0, cards = true, bar = 0, top = 16 } = {}) {
+    const rich = step >= FS_CARD_PX;
+    const laneRow = rich ? FS_TAG_ROW : 14;
+    const cap = fsChartHeight(vh);
+    const want = rich && cards ? fsCardHeight(step) : 0;
+    const room = (c) => fsPlotHeight(wrapH, { top, lanes, laneRow, thumbs: c, bar });
+    let cardH = 0;
+    if (want > 0) {
+      if (fsCardsFit(Math.min(cap, room(want)))) cardH = want;
+      else {
+        const fit = room(0) - FS_PLOT_MIN;     // what the cards can have with the plot at its least
+        if (fit >= FS_CARD_MIN_H) cardH = Math.min(want, fit);
+      }
+    }
+    return { PH: Math.min(cap, room(cardH)), rich, cardsOn: cardH > 0, laneRow, cardH };
+  }
+
+  /** The pointer x px across a card w px wide (a file d s long): { frac, t, idx }. */
+  function cardScrub(x, w, d) {
+    const frac = w > 0 && Number.isFinite(x) ? clamp01(x / w) : 0;
+    return { frac, ...frameAt(frac, d) };
+  }
+
+  /** Dark text on a light tag colour, light text on a dark one (#rgb or #rrggbb). */
+  function inkOn(hex) {
+    let h = String(hex || '').trim().replace(/^#/, '');
+    if (h.length === 3) h = h.replace(/./g, c => c + c);
+    if (!/^[0-9a-f]{6}$/i.test(h)) return '#fff';
+    const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    return (r * 299 + g * 587 + b * 114) / 1000 >= 140 ? '#111' : '#fff';
   }
 
   function chartHit(x, y, g, handPx = 8) {
@@ -314,7 +385,8 @@ const FlowChartMath = (() => {
     return Math.max(0, Math.min(Math.max(0, max), next));
   }
 
-  return { FS_COL_PX, FS_NAMES_H, FS_PLOT_MIN, fsThumbsFit, fsLayout, fsThumbHeight, fsPlotHeight, chartHit, frameAt, followScroll, scrollStep,
+  return { FS_COL_PX, FS_NAMES_H, FS_PLOT_MIN, fsCardsFit, fsLayout, fsCardHeight, fsCardWidth, fsPlotHeight,
+    FS_CHART_MIN, FS_CHART_MAX, fsChartHeight, FS_CARD_PX, FS_CARD_MAX_W, FS_CARD_MIN_H, FS_TAG_ROW, fsRows, cardScrub, inkOn, chartHit, frameAt, followScroll, scrollStep,
     DRAG_THRESHOLD, dragPassed, dragSlot, dragTarget, movedOrder, yRange, filePoints, ignoredSpan, smoothed, slopes, monotonePath, monotoneAt, linearAt, tempoShare,
     CHART_H_MIN, CHART_H_MAX, clampChartHeight, sparkPath };
 })();

@@ -36,14 +36,71 @@ test('Fit puts the whole list in the width; Zoom gives each file FS_COL_PX and w
   assert.strictEqual(M.fsLayout(50, 3, 40, 8, false).W, 200, 'never narrower than 200');
 });
 
-test('the plot gets the height the lanes, names, thumbnails and scrollbar leave, never under 80', () => {
+test('the plot gets the height the lanes, names, cards and scrollbar leave, never under 80', () => {
   const plain = M.fsPlotHeight(600, { lanes: 0 });
   const lanes = M.fsPlotHeight(600, { lanes: 3 });
   assert.strictEqual(plain - lanes, 3 * 14);
-  const thumbs = M.fsPlotHeight(600, { lanes: 3, thumbs: M.fsThumbHeight(140), bar: 14 });
-  assert.strictEqual(lanes - thumbs, M.fsThumbHeight(140) + 14);
+  const cards = M.fsPlotHeight(600, { lanes: 3, thumbs: M.fsCardHeight(140), bar: 14 });
+  assert.strictEqual(lanes - cards, M.fsCardHeight(140) + 14);
   assert.strictEqual(M.fsPlotHeight(60, { lanes: 5 }), 80);
-  assert.ok(M.fsThumbHeight(140) > 60 && M.fsThumbHeight(140) < 100, '16:9 in a 140 px column');
+  assert.ok(M.fsCardHeight(140) > 60 && M.fsCardHeight(140) < 100, '16:9 in a 140 px column');
+  assert.strictEqual(M.fsCardWidth(1000), M.FS_CARD_MAX_W, 'a very wide column: the card stops growing');
+  assert.strictEqual(M.fsCardHeight(1000), Math.round(M.FS_CARD_MAX_W * 9 / 16) + 8);
+});
+
+test('full screen chart height: about a third of the window, 140 to 260 px', () => {
+  assert.strictEqual(M.fsChartHeight(720), Math.round(720 * 0.34));
+  assert.strictEqual(M.fsChartHeight(600), Math.round(600 * 0.34));
+  assert.strictEqual(M.fsChartHeight(1080), 260, 'a tall window no longer stretches the curve');
+  assert.strictEqual(M.fsChartHeight(2160), M.FS_CHART_MAX);
+  assert.strictEqual(M.fsChartHeight(300), M.FS_CHART_MIN);
+  assert.strictEqual(M.fsChartHeight(0), 140);
+  assert.strictEqual(M.fsChartHeight(NaN), 140);
+  // fsRows: the plot is never taller than that, whatever room the view has.
+  assert.strictEqual(M.fsRows(2000, 1080, { step: 140, lanes: 3 }).PH, 260);
+  assert.strictEqual(M.fsRows(2000, 720, { step: 140, lanes: 3 }).PH, 245);
+  // ...and shorter when the rows under it need the room.
+  const tight = M.fsRows(430, 720, { step: 140, lanes: 3, bar: 14 });
+  assert.ok(tight.cardsOn && tight.PH < 245 && tight.PH >= M.FS_PLOT_MIN, `plot ${tight.PH}`);
+});
+
+test('narrow columns: under FS_CARD_PX no tag text and no cards; cards go first in a short view', () => {
+  assert.strictEqual(M.FS_CARD_PX, 70);
+  const narrow = M.fsRows(800, 1080, { step: 69.9, lanes: 3 });
+  assert.deepStrictEqual({ rich: narrow.rich, cardsOn: narrow.cardsOn, laneRow: narrow.laneRow, cardH: narrow.cardH }, { rich: false, cardsOn: false, laneRow: 14, cardH: 0 });
+  const wide = M.fsRows(800, 1080, { step: 70, lanes: 3 });
+  assert.deepStrictEqual({ rich: wide.rich, cardsOn: wide.cardsOn, laneRow: wide.laneRow }, { rich: true, cardsOn: true, laneRow: M.FS_TAG_ROW });
+  assert.strictEqual(wide.cardH, M.fsCardHeight(70));
+  assert.strictEqual(M.fsRows(800, 1080, { step: 140, lanes: 3, cards: false }).cardsOn, false, 'thumbnails off: no cards');
+  const tighter = M.fsRows(330, 720, { step: 140, lanes: 3, bar: 14 });
+  assert.ok(tighter.cardsOn && tighter.cardH < M.fsCardHeight(140) && tighter.cardH >= M.FS_CARD_MIN_H, 'tight: smaller cards first');
+  assert.strictEqual(tighter.PH, M.FS_PLOT_MIN, 'with the plot at its least');
+  assert.ok(M.fsCardWidth(140, tighter.cardH) < M.fsCardWidth(140), 'a smaller card keeps 16:9');
+  const short = M.fsRows(260, 720, { step: 140, lanes: 2, bar: 14 });
+  assert.strictEqual(short.cardsOn, false, 'short: the cards row goes');
+  assert.strictEqual(short.rich, true, 'the tags stay readable');
+});
+
+test('a card: the pointer x across it picks the nearest of the five frames; at rest the first', () => {
+  assert.deepStrictEqual(M.cardScrub(0, 160, 300), { frac: 0, t: 0, idx: 0 }, 'the left edge: the first frame');
+  assert.strictEqual(M.cardScrub(80, 160, 300).idx, 2);
+  assert.strictEqual(M.cardScrub(80, 160, 300).t, 150);
+  assert.strictEqual(M.cardScrub(160, 160, 300).idx, 4);
+  assert.strictEqual(M.cardScrub(500, 160, 300).frac, 1, 'past the right edge: the end');
+  assert.strictEqual(M.cardScrub(-20, 160, 300).frac, 0);
+  assert.deepStrictEqual(M.cardScrub(40, 0, 300), { frac: 0, t: 0, idx: 0 }, 'no width: the first frame');
+  for (let x = 0; x <= 160; x += 4) {
+    const s = M.cardScrub(x, 160, 240);
+    assert.strictEqual(s.idx, DockGeom.scrubFrameIndex(s.t, 240), 'as the seek bars pick them');
+  }
+});
+
+test('a tag\'s text colour: dark on light colours, light on dark ones', () => {
+  assert.strictEqual(M.inkOn('#f5a524'), '#111');
+  assert.strictEqual(M.inkOn('#fff'), '#111');
+  assert.strictEqual(M.inkOn('#1e3a8a'), '#fff');
+  assert.strictEqual(M.inkOn('#000'), '#fff');
+  assert.strictEqual(M.inkOn('red'), '#fff', 'not a hex colour: light');
 });
 
 test('hit: a column and how far across its line, or a hand-over near the line between two', () => {
@@ -125,7 +182,7 @@ function fakeEl(over = {}) {
   return el;
 }
 
-function page({ wrapW = 800, wrapH = 500, stage = false, extra = {} } = {}) {
+function page({ wrapW = 800, wrapH = 500, vh = 720, stage = false, extra = {}, win = {} } = {}) {
   const ids = [11, 12, 13, 14, 15];
   const feats = ids.map((id, i) => ({ id, name: `file${id}.mp4`, measured: true, music: true, es: 0.2 + 0.1 * i, em: 0.25 + 0.1 * i, ee: 0.3 + 0.1 * i, bs: 120, bm: 120, be: 120 }));
   const answer = () => ({ shape: 'smooth', edges: 'off', order: ids.slice().reverse(), playlistOrder: ids.slice(), features: feats, targets: null,
@@ -172,7 +229,7 @@ function page({ wrapW = 800, wrapH = 500, stage = false, extra = {} } = {}) {
   };
   ctx.window = {
     addEventListener: (type, fn, opt) => { if (type === 'keydown') keyListeners.push({ fn, capture: opt === true || !!(opt && opt.capture) }); },
-    dispatchEvent() {}, innerWidth: 1280, innerHeight: 720, scrollY: 0, scrollTo() {},
+    dispatchEvent() {}, innerWidth: 1280, innerHeight: vh, scrollY: 0, scrollTo() {}, ...win,
   };
   vm.createContext(ctx);
   vm.runInContext(SRC, ctx);
@@ -411,20 +468,20 @@ test("Hide file names: no names in the chart's tooltips or the Remove toast", as
   assert.match(toasts[1], /Removed “file1[0-9]” from Set/);
 });
 
-test('a short view drops the thumbnail row before the plot gets short', async () => {
+test('a short view drops the preview cards before the plot gets short', async () => {
   const tall = page({ wrapW: 400, wrapH: 500 });
   await tall.Flow.toggle(3);
   tall.F.toggle();
   tall.F.zoom(true);
-  assert.strictEqual(tall.parts.get('.flow-thumbs').hidden, false, 'room: the thumbnails show');
+  assert.strictEqual(tall.parts.get('.flow-cards').hidden, false, 'room: the cards show');
   const short = page({ wrapW: 400, wrapH: 260 });
   await short.Flow.toggle(3);
   short.F.toggle();
   short.F.zoom(true);
-  assert.strictEqual(short.parts.get('.flow-thumbs').hidden, true, 'short: no thumbnail row');
+  assert.strictEqual(short.parts.get('.flow-cards').hidden, true, 'short: no cards row');
   assert.ok(short.geom().PH >= M.FS_PLOT_MIN, `plot ${short.geom().PH} px`);
-  assert.strictEqual(M.fsThumbsFit(M.FS_PLOT_MIN), true);
-  assert.strictEqual(M.fsThumbsFit(M.FS_PLOT_MIN - 1), false);
+  assert.strictEqual(M.fsCardsFit(M.FS_PLOT_MIN), true);
+  assert.strictEqual(M.fsCardsFit(M.FS_PLOT_MIN - 1), false);
 });
 
 test('Play keeps full screen: videos go to the mini player; Stage open plays on Stage', async () => {
@@ -448,4 +505,164 @@ test('Play keeps full screen: videos go to the mini player; Stage open plays on 
   p.F.play(14);
   assert.deepStrictEqual([...p.played], [14], "Stage: as a tile's double click");
   assert.deepStrictEqual(calls, []);
+});
+
+/* ── Option A: the shorter chart, tag rows and preview cards ──────────── */
+
+/** A Role lane (FlowLaneSource, as stream-tags.js gives it): file 11 is a Peak, the rest have none. */
+const roleLane = {
+  FlowLaneSource: {
+    lanes: () => [{ key: 'lane:1', label: 'Role' }],
+    cells: (key, mediaIds) => mediaIds.map(id => (id === 11 ? [{ color: '#f5a524', label: 'Peak' }] : [])),
+    chips: () => [],
+    onChange() {},
+  },
+};
+
+test('full screen: the plot is about a third of the window, not the whole view', async () => {
+  const p = page({ wrapW: 1200, wrapH: 900, vh: 1080 });
+  await p.Flow.toggle(3);
+  p.F.toggle();
+  assert.strictEqual(p.geom().PH, 260, 'a 1080 px window: 260, though the view has room for more');
+  const q = page({ wrapW: 1000, wrapH: 520, vh: 720 });
+  await q.Flow.toggle(3);
+  q.F.toggle();
+  assert.strictEqual(q.geom().PH, Math.round(720 * 0.34));
+  q.F.toggle();
+  assert.notStrictEqual(q.geom().PH, Math.round(720 * 0.34), 'the small panel keeps its own height');
+});
+
+test('tag rows: names on their colours, Tempo as a number and a meter, a dashed slot when empty', async () => {
+  const menus = [];
+  const StreamTags = { blockMenu: (el, id) => menus.push([el.dataset.i, id]), loaded: () => true, onChange() {}, tagsOf: () => [] };
+  const p = page({ wrapW: 900, win: roleLane, extra: { StreamTags } });
+  await p.Flow.toggle(3);
+  p.F.toggle();
+  const order = p.geom().order;
+  const html = p.parts.get('.flow-ltags').innerHTML;
+  assert.strictEqual(p.parts.get('.flow-ltags').hidden, false);
+  assert.match(html, /class="flow-tg-l"[^>]*>Role</, 'the lane\'s label at the left');
+  assert.match(html, /class="flow-tg-l"[^>]*>Tempo</);
+  assert.match(html, /<span class="flow-tg-t" style="background:#f5a524;color:#111"[^>]*>Peak<\/span>/, 'the tag\'s name on its colour');
+  assert.match(html, /class="flow-tg flow-tg-num"[^>]*><span>120<\/span><i><b style="width:50%;/, 'Tempo: the value and a meter');
+  const empties = html.match(/flow-tg flow-tg-empty" data-i="\d" data-flow-tag="tag:lane:1"[^>]*>\+ Role</g) || [];
+  assert.strictEqual(empties.length, order.length - 1, 'every file without a Role: a slot to add one');
+  assert.doesNotMatch(p.parts.get('.flow-chart-svg').innerHTML, /flow-lane-label/, 'no colour bars in the chart as well');
+  // A tag lane's cell opens the stream tag menu for its file (empty or not).
+  const cell = (i) => ({ dataset: { i: String(i) }, closest: (q) => (q === '[data-flow-tag]' ? cell(i) : null) });
+  p.F.click({ target: cell(2), clientX: 0, clientY: 0 });
+  assert.deepStrictEqual(menus, [['2', order[2]]]);
+  assert.strictEqual(p.F.state().sel, null, 'the menu, not a pick');
+
+  // No stream tags (or not loaded yet): the slot is only shown.
+  const q = page({ wrapW: 900, win: roleLane });
+  await q.Flow.toggle(3);
+  q.F.toggle();
+  const plain = q.parts.get('.flow-ltags').innerHTML;
+  assert.match(plain, /flow-tg flow-tg-empty/);
+  assert.doesNotMatch(plain, /data-flow-tag|\+ Role/);
+  assert.doesNotMatch(html + plain, /—/, 'no em dashes');
+});
+
+test('preview cards: the first frame at rest, a frame from where the pointer is, back to the first on leaving', async () => {
+  const kinds = { 11: 'video', 12: 'video', 13: 'image', 14: 'video', 15: 'audio' };
+  const Library = { indexOf: () => -1, row: (id) => ({ id, media_type: kinds[id], duration_seconds: 300 }) };
+  const p = page({ wrapW: 1000, extra: { Library, formatDuration: (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` } });
+  await p.Flow.toggle(3);
+  p.F.toggle();
+  assert.strictEqual(p.parts.get('.flow-cards').hidden, false);
+  const byId = () => new Map(p.F.cards().map(c => [c.id, c]));
+  let c = byId();
+  assert.strictEqual(c.size, 5, 'one card a file');
+  assert.strictEqual(c.get(11).src, '/scrub/11/0', 'a video: its first hover frame');
+  assert.strictEqual(c.get(13).src, '/thumb/13', 'a picture: its thumbnail');
+  assert.strictEqual(c.get(15).src, '/thumb/15', 'audio: its still');
+  const i11 = p.geom().order.indexOf(11);
+  assert.strictEqual(c.get(11).i, i11, 'in its column');
+  // Scrub: the pointer x across the card picks the frame, the bar shows where.
+  p.F.scrub(i11, M.cardScrub(80, 160, 300).frac);
+  c = byId();
+  assert.strictEqual(c.get(11).src, '/scrub/11/2');
+  assert.strictEqual(c.get(11).bar, '50%');
+  p.F.scrub(i11, M.cardScrub(159, 160, 300).frac);
+  assert.strictEqual(byId().get(11).src, '/scrub/11/4');
+  p.F.unscrub();
+  c = byId();
+  assert.strictEqual(c.get(11).src, '/scrub/11/0', 'leaving: the first frame again');
+  assert.strictEqual(c.get(11).bar, '0');
+  // Another card scrubbed: the first goes back.
+  p.F.scrub(i11, 1);
+  p.F.scrub(p.geom().order.indexOf(12), 0.5);
+  assert.strictEqual(byId().get(11).src, '/scrub/11/0');
+  assert.strictEqual(byId().get(12).src, '/scrub/12/2');
+});
+
+test('preview cards ask for pictures only in view (and a column either side), the rest when scrolled to', async () => {
+  const p = page({ wrapW: 400 });
+  await p.Flow.toggle(3);
+  p.F.zoom(true);
+  p.F.toggle();                          // straight into Zoom
+  const loaded = () => [...p.F.cards().filter(c => c.loaded).map(c => c.i)].sort();
+  assert.deepStrictEqual(loaded(), [0, 1, 2, 3], 'the fifth card is past the view and its margin');
+  assert.strictEqual(p.F.cards().find(c => c.i === 4).src, '');
+  p.wrap.scrollLeft = 300;
+  p.F.cardsLoad();
+  assert.deepStrictEqual(loaded(), [0, 1, 2, 3, 4]);
+});
+
+test('narrow columns (Fit, many files): colour bars without text and no cards; Zoom has room', async () => {
+  const p = page({ wrapW: 360, win: roleLane });
+  await p.Flow.toggle(3);
+  p.F.toggle();
+  assert.ok(p.geom().step < M.FS_CARD_PX, `step ${p.geom().step}`);
+  assert.strictEqual(p.parts.get('.flow-ltags').hidden, true, 'no tag text');
+  assert.strictEqual(p.parts.get('.flow-cards').hidden, true, 'no cards');
+  assert.strictEqual(p.geom().cards, false);
+  assert.match(p.parts.get('.flow-chart-svg').innerHTML, /flow-lane-label[^>]*><title>Role/, 'the lanes as colour bars, as before');
+  p.F.zoom(true);
+  assert.strictEqual(p.geom().step, M.FS_COL_PX);
+  assert.strictEqual(p.parts.get('.flow-ltags').hidden, false);
+  assert.strictEqual(p.parts.get('.flow-cards').hidden, false);
+  assert.match(p.parts.get('.flow-ltags').innerHTML, />Peak</);
+});
+
+test('a card is its column: a click picks it, two play it, and dragging it moves the file', async () => {
+  const p = page({ wrapW: 400 });
+  await p.Flow.toggle(3);
+  p.F.toggle();
+  p.F.zoom(true);
+  const order = p.geom().order.slice();
+  const card = (i) => ({ dataset: { i: String(i) }, closest: (q) => (q === '#flowChartWrap' ? p.wrap : q.split(', ').includes('.flow-card') ? card(i) : null) });
+  p.F.click({ target: card(1), clientX: 0, clientY: 0 });
+  assert.strictEqual(p.F.state().sel, order[1], 'a click selects (the strip)');
+  p.F.click({ target: card(1), clientX: 0, clientY: 0 });
+  assert.deepStrictEqual(p.played, [order[1]], 'a double click plays it');
+  // Dragged from the card: the column drag's own threshold and drop.
+  p.D.down({ button: 0, target: card(1), clientX: p.colX(1), clientY: 100, pointerId: 1 });
+  assert.strictEqual(p.D.state().from, 1);
+  p.moveTo(p.colX(1) + 2);
+  assert.strictEqual(p.D.state().on, false, 'under the threshold: still a click');
+  p.moveTo(p.gapX(4) + 3);
+  assert.strictEqual(p.D.state().on, true);
+  await p.D.drop();
+  assert.deepStrictEqual(p.moves.map(m => [[...m.ids], m.before]), [[[order[1]], order[4]]]);
+  // A press whose button came up unheard is not a drag (e.buttons).
+  p.D.down({ button: 0, target: card(2), clientX: p.colX(2), clientY: 100, pointerId: 2 });
+  p.D.move({ pointerId: 2, buttons: 0, clientX: p.gapX(4), clientY: 100, preventDefault() {} });
+  assert.strictEqual(p.D.state(), null);
+});
+
+test('Hide file names: tag rows name no file, and the cards are blurred', async () => {
+  const p = page({ wrapW: 900, win: roleLane });
+  await p.Flow.toggle(3);
+  p.F.toggle();
+  assert.match(p.parts.get('.flow-ltags').innerHTML, /title="\d\. file1\d/, 'names in the tag tooltips normally');
+  p.classes.add('pm-names');
+  p.F.pick(0);
+  const html = p.parts.get('.flow-ltags').innerHTML;
+  assert.doesNotMatch(html, /file1\d/);
+  assert.match(html, /title="\d\. File \d: /);
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'flow.css'), 'utf8');
+  assert.match(css, /body\.pm-names \.flow-card img \{ filter: blur\(\d+px\); \}/, 'the card pictures blur as names do');
+  assert.match(css, /body\.pm-names \.flow-nm-t,/);
 });

@@ -338,6 +338,8 @@ body.layout-modern .flow-names { color: var(--m-muted); font-size: 11.5px; }
 body.layout-modern .flow-nm.hot,
 body.layout-modern .flow-nm.now { color: var(--m-text); }
 body.layout-modern .flow-chart .flow-lane-label { fill: var(--m-text-2); }
+body.layout-modern .flow-tg-l { color: var(--m-text-2); }
+body.layout-modern .flow-card:not(.sel):not(.hot) { border-color: var(--m-border); }
 body.layout-modern .flow-chart .flow-badge circle { fill: var(--m-surface-solid); }
 body.layout-modern .flow-tip {
   background: var(--m-surface-solid);
@@ -489,16 +491,92 @@ body.flow-fs-on #flowPanel > .flow-chart-wrap {
   overscroll-behavior-x: contain;
 }
 body.flow-fs-on .flow-names { font-size: 0.78rem; }
-.flow-thumbs { position: relative; margin-top: 2px; }
-.flow-thumbs[hidden] { display: none; }
-.flow-thumbs img {
+/* Tag rows under the plot (full screen, wide columns; flow.js tagRows): a
+   tag's name on its colour, Tempo as a number and a meter, dashed when empty. */
+.flow-ltags { position: relative; margin-top: 6px; }
+.flow-ltags[hidden] { display: none; }
+.flow-tg-l {
   position: absolute;
-  top: 4px;
-  object-fit: cover;
-  border-radius: 6px;
-  background: var(--bg-tertiary);
-  cursor: pointer;
+  left: 0;
+  height: 20px;
+  line-height: 20px;
+  text-align: right;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
+.flow-tg {
+  position: absolute;
+  box-sizing: border-box;
+  height: 20px;
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+}
+.flow-tg-t {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 20px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.flow-tg-empty {
+  display: block;
+  padding: 0 6px;
+  border: 1px dashed color-mix(in oklab, var(--text-muted, #888) 40%, transparent);
+  border-radius: 5px;
+  color: var(--text-muted, #888);
+  font-size: 0.7rem;
+  line-height: 18px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0.7;
+}
+.flow-tg[data-flow-tag] { cursor: pointer; }
+.flow-tg-empty[data-flow-tag]:hover { opacity: 1; color: var(--text-secondary); border-color: var(--accent); }
+.flow-tg-num { align-items: center; gap: 6px; font-size: 0.72rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.flow-tg-num > i { flex: 1; min-width: 12px; max-width: 80px; height: 5px; border-radius: 3px; background: var(--flow-lane-empty); overflow: hidden; }
+.flow-tg-num > i > b { display: block; height: 100%; border-radius: 3px; }
+
+/* Preview cards (flow.js cardsRow): the first hover frame, scrubbed by the pointer. */
+.flow-cards { position: relative; }
+.flow-cards[hidden] { display: none; }
+.flow-card {
+  position: absolute;
+  top: 6px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+}
+.flow-card img { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.flow-card.hot { border-color: color-mix(in oklab, var(--accent) 60%, var(--border)); }
+.flow-card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.flow-card-len {
+  position: absolute;
+  right: 4px;
+  bottom: 5px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-style: normal;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.flow-card-len:empty { display: none; }
+.flow-card-bar { position: absolute; left: 0; bottom: 0; width: 0; height: 3px; background: var(--accent); pointer-events: none; }
 .flow-chart .flow-col-sel { fill: var(--accent-bg); stroke: var(--accent); stroke-opacity: 0.55; stroke-width: 1; pointer-events: none; }
 .flow-chart .flow-hand.flow-hand-sel { stroke-width: 4.5; opacity: 1; }
 
@@ -580,6 +658,7 @@ body.flow-fs-on .flow-names { font-size: 0.78rem; }
 /* Hide file names (Settings › Privacy): blurred, as the tiles' names are. */
 body.pm-names .flow-nm-t,
 body.pm-names .flow-pm-name { filter: blur(7px); user-select: none; }
+body.pm-names .flow-card img { filter: blur(12px); }
 
 body.layout-modern .flow-hcard,
 body.layout-modern .flow-strip {
