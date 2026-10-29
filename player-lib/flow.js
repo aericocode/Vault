@@ -491,6 +491,36 @@ const Flow = (() => {
     return st.edited || st.data.order;
   }
 
+  /*
+   * The files the grid shows. The library query applies the search and the
+   * filters on top of Flow order (and of the playlist order), so the grid,
+   * the table and what Next, Previous and Stage play can hold fewer files
+   * than the collection. The chart, its hand-overs and jumps, the guide and
+   * the tiles' positions are kept to the same files, so every one of them
+   * reads one order: a file the grid hides is not a column either.
+   */
+  let gridMemo = { ids: null, set: null };
+  /** The grid's files as a Set, or null: no answer for this collection yet. */
+  function gridSet() {
+    if (typeof Library === 'undefined' || !isMine()) return null;
+    const spec = Library.spec, ids = Library.ids;
+    if (!spec || spec.collectionId !== st.cid || !ids) return null;
+    if (gridMemo.ids !== ids) gridMemo = { ids, set: new Set(ids) };
+    return gridMemo.set;
+  }
+  const shownMemo = new WeakMap();   // order -> { set, list }
+  /** An order kept to the files the grid shows (the same array when it shows them all). */
+  function shown(order) {
+    const set = gridSet();
+    if (!set || !order) return order;
+    const m = shownMemo.get(order);
+    if (m && m.set === set) return m.list;
+    const kept = order.filter(id => set.has(id));
+    const list = kept.length === order.length ? order : kept;
+    shownMemo.set(order, { set, list });
+    return list;
+  }
+
   /** The edited order kept to the collection's files (gone dropped, new at the end). */
   const reconcile = (edited, base) => FlowOrder.reconcileOrder(edited, base);
 
@@ -503,14 +533,26 @@ const Flow = (() => {
   const sessionNow = () => ({ cid: st.cid, gen: session });
   const sameSession = (s) => s.cid === st.cid && s.gen === session && st.order && isMine();
 
-  let sumMemo = { edited: null, data: null, value: null };
-  /** Hand-overs and jumps of what Flow order shows now. */
+  let sumMemo = { order: null, data: null, value: null };
+  /** Hand-overs and jumps of what Flow order shows now (in the grid). */
   function orderSummary() {
     const d = st.data;
     if (!d) return { handovers: [], jumps: 0 };
-    if (!st.edited) return { handovers: d.handovers, jumps: d.jumps };
-    if (sumMemo.edited !== st.edited || sumMemo.data !== d) sumMemo = { edited: st.edited, data: d, value: FlowOrder.summary(d.features, st.edited) };
+    const w = shown(workingOrder());
+    if (w === d.order) return { handovers: d.handovers, jumps: d.jumps };
+    if (sumMemo.order !== w || sumMemo.data !== d) sumMemo = { order: w, data: d, value: FlowOrder.summary(d.features, w) };
     return sumMemo.value;
+  }
+
+  let plMemo = { order: null, data: null, jumps: 0 };
+  /** Jumps in the playlist order, kept to the files the grid shows. */
+  function playlistJumps() {
+    const d = st.data;
+    if (!d) return 0;
+    const p = shown(d.playlistOrder);
+    if (p === d.playlistOrder) return d.playlistJumps;
+    if (plMemo.order !== p || plMemo.data !== d) plMemo = { order: p, data: d, jumps: FlowOrder.summary(d.features, p).jumps };
+    return plMemo.jumps;
   }
 
   function remember() {
@@ -629,7 +671,7 @@ const Flow = (() => {
     const name = `${FlowOrder.shapeLabel(st.shape)}${st.edited ? ', edited' : ''}`;
     let status = 'Not saved';
     const d = st.data;
-    if (d && d.counts && d.counts.music >= 2) status += ` · ${plural(orderSummary().jumps, 'jump', 'jumps')}, was ${d.playlistJumps.toLocaleString()}`;
+    if (d && d.counts && d.counts.music >= 2) status += ` · ${plural(orderSummary().jumps, 'jump', 'jumps')}, was ${playlistJumps().toLocaleString()}`;
     const closed = !st.open;
     const spark = closed ? sparkHtml() : '';
     return `<span class="flow-ob-pill">Flow order: ${esc(name)}</span>
@@ -689,7 +731,7 @@ const Flow = (() => {
   const SPARK_W = 300, SPARK_H = 24;
   function sparkHtml() {
     if (!st.data) return '';
-    const vals = workingOrder().map((id) => {
+    const vals = shown(workingOrder()).map((id) => {
       const f = st.byId.get(id);
       return drawable(f) && f.music ? f.em : null;
     });
@@ -743,7 +785,7 @@ const Flow = (() => {
     const s = marksState();
     let pos = null, was = null;
     if (s.flowOn) {
-      const w = workingOrder(), p = st.data.playlistOrder;
+      const w = shown(workingOrder()), p = shown(st.data.playlistOrder);
       if (posMemo.w !== w || posMemo.p !== p) {
         posMemo = { w, p, pos: new Map(w.map((id, i) => [id, i])), was: new Map(p.map((id, i) => [id, i])) };
       }
@@ -1018,12 +1060,19 @@ const Flow = (() => {
   function chartOrder() {
     const d = st.data;
     if (d && dragOrder()) return dragOrder();
-    return d ? (st.order ? workingOrder() : d.playlistOrder) : [];
+    return d ? shown(st.order ? workingOrder() : d.playlistOrder) : [];
   }
 
   /** The dashed guide: the picked shape's targets in Flow order (edited or not), else null. */
   function guide() {
-    return st.order && st.data ? FlowOrder.guideTargets(st.shape, st.data) : null;
+    if (!st.order || !st.data) return null;
+    const t = FlowOrder.guideTargets(st.shape, st.data);
+    const w = workingOrder(), s = shown(w);
+    if (!t || s === w) return t;
+    // The grid hides some files: each shown column keeps its position's target.
+    const at = new Map(w.map((id, i) => [id, i]));
+    const out = s.map(id => t[at.get(id)]);
+    return out.every(v => typeof v === 'number') ? out : null;
   }
 
   function chartHandovers(order) {
@@ -1827,9 +1876,15 @@ const Flow = (() => {
   function summaryText() {
     const d = st.data;
     if (!d) return '';
-    const jumps = st.order ? orderSummary().jumps : d.playlistJumps;
-    if (d.counts.music < 2) return '';
-    return jumps ? `${plural(jumps, 'jump', 'jumps')} between files` : 'Every hand-over is smooth or close';
+    const jumps = st.order ? orderSummary().jumps : playlistJumps();
+    // Files the search or filters hide are not in the grid, so not on the chart either.
+    const all = st.order ? workingOrder() : d.playlistOrder;
+    const grid = gridSet();
+    const hidden = grid ? all.filter(id => st.byId.has(id) && !grid.has(id)).length : 0;
+    const note = hidden ? `${plural(hidden, 'file', 'files')} hidden by the search or filters` : '';
+    if (d.counts.music < 2) return note;
+    const text = jumps ? `${plural(jumps, 'jump', 'jumps')} between files` : 'Every hand-over is smooth or close';
+    return note ? `${text} · ${note}` : text;
   }
 
   function legendHtml() {
@@ -2902,7 +2957,16 @@ const Flow = (() => {
 
   /* ── Leaving the collection ─────────────────────────────────────── */
 
+  /** The grid's files changed (a search or filter, or its id list came in): the chart follows. */
+  function gridChanged() {
+    if (!st.open || !isMine() || !st.data || !st.geom || dragOrder()) return;
+    const want = chartOrder(), had = st.geom.order;
+    if (want.length !== had.length || want.some((id, i) => id !== had[i])) schedulePaint();
+  }
+  window.addEventListener('vault:results-counted', gridChanged);
+
   window.addEventListener('vault:results-changed', () => {
+    gridChanged();
     if (st.cid != null && st.cid !== activeId()) reset();
     else renderHeaderButton();
     // A collection that was showing Flow order when it was left (or the page reloaded): show it again.
@@ -2925,7 +2989,7 @@ const Flow = (() => {
   else setTimeout(watchTags, 0);
 
   return {
-    toggle, close, pickShape, showFromBar, useFlowOrder, usePlaylistOrder, saveOrder, refetch,
+    toggle, close, pickShape, pickPlaces, showFromBar, useFlowOrder, usePlaylistOrder, saveOrder, refetch,
     tileHtml, queryRanked, shuffleCollection, stageCurrent,
     isOpen: () => st.open && isMine(),
     // The chart (tests): clicks, picks, the strip, Fit / Zoom.
@@ -2937,6 +3001,7 @@ const Flow = (() => {
       zoom: (on) => setZoom(!!on),
       hot: showHot,
       state: () => ({ zoom: st.zoom, sel: st.sel, selHand: st.selHand, follow: st.follow, hot: st.hot }),
+      order: () => chartOrder().slice(), guide, summary: summaryText,
     },
     orderOn: () => st.order && isMine() && !!st.appliedOrder,
     countText: () => (st.order && isMine() && st.appliedOrder ? `Flow order: ${FlowOrder.shapeLabel(st.shape).toLowerCase()}${st.edited ? ', edited' : ''}` : null),

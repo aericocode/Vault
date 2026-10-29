@@ -81,8 +81,9 @@ function page({ n = 40, upNext = [], hub = null, loadFailures = 0, loadDelay = 0
     createElement: () => ({ addEventListener() {}, setAttribute() {}, querySelector: () => null, hidden: true, style: {} }),
   };
   let stageOpen = false;
+  const winListeners = {};
   const ctx = {
-    document: doc, window: { addEventListener() {} }, console: { ...console, warn() {} }, setTimeout, clearTimeout, setInterval: () => 0,
+    document: doc, window: { addEventListener: (type, fn) => { (winListeners[type] ||= []).push(fn); } }, console: { ...console, warn() {} }, setTimeout, clearTimeout, setInterval: () => 0,
     Promise, JSON, Math, Date, Error, TypeError, Event, EventTarget, Map, Set, Uint32Array, Uint8Array, Array,
     MutationObserver: class { observe() {} },
     EventSource: FakeEventSource,
@@ -122,7 +123,8 @@ function page({ n = 40, upNext = [], hub = null, loadFailures = 0, loadDelay = 0
     await wait(150);
   }
   const lists = () => sent.filter(c => c.type === 'upcoming');
-  return { SC: ctx.__sc, ctx, lib, sent, lists, stream, open, takes, UpNext };
+  const emit = (type) => (winListeners[type] || []).forEach(fn => fn({}));
+  return { SC: ctx.__sc, ctx, lib, sent, lists, stream, open, takes, UpNext, emit };
 }
 
 test('Stage is handed the rest of the list (and Up next) at once, not two files: it plays on with this tab asleep', async () => {
@@ -134,6 +136,24 @@ test('Stage is handed the rest of the list (and Up next) at once, not two files:
   assert.deepStrictEqual(l.upcoming.slice(0, 3).map(u => u.id), [50, 102, 103], 'Up next first, then the list from its anchor');
   assert.strictEqual(l.upcoming.length, 40, 'Up next and every list file after the one on Stage');
   assert.deepStrictEqual([...new Set(l.upcoming.map(u => u.key))].length, 40, 'each with its own key');
+});
+
+test('the grid order changes under Stage (a Flow shape, a drag): what Stage lines up next follows it', async () => {
+  const p = page({ n: 8 });
+  await p.open();
+  assert.deepStrictEqual(p.lists().at(-1).upcoming.slice(0, 3).map(u => u.id), [102, 103, 104]);
+  const before = p.lists().length;
+  // The grid's new answer: the file on Stage stays first, the rest reversed.
+  const ids = Uint32Array.from([101, 108, 107, 106, 105, 104, 103, 102]);
+  p.lib.ids = ids;
+  p.lib.idAt = (i) => ids[i];
+  p.lib.indexOf = (id) => ids.indexOf(id);
+  p.lib.rowAt = (i) => p.lib.row(ids[i]);
+  p.lib.rowsForRange = async (a, b, o) => p.lib.fetchRows([...ids.subarray(a, b)], o);
+  p.emit('vault:results-changed');
+  await wait(200);
+  assert.strictEqual(p.lists().length, before + 1, 'a fresh list went');
+  assert.deepStrictEqual(p.lists().at(-1).upcoming.map(u => u.id), [108, 107, 106, 105, 104, 103, 102], 'in the grid order now');
 });
 
 test('rows that cannot be loaded: nothing is sent (never a shorter or empty list over a good one), and it is tried again', async () => {

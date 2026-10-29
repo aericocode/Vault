@@ -1750,6 +1750,13 @@ const StageControl = (() => {
     if (basic) { paint(); return; }
     if (open && cur) { paint(); sendUpcoming(); }
   }
+  // The list Stage plays is the grid on screen and the grid's order changed
+  // (a Flow shape or Place tagged files, a drag, a filter): what Stage lines
+  // up next follows it, as Next and Previous do (they read the grid itself).
+  window.addEventListener('vault:results-changed', () => {
+    // queueList() null: Stage plays the grid itself (not a list kept from another view).
+    if (open && cur && !basic && !queueList()) sendUpcoming();
+  });
 
   // Keep the loading note and the picture countdown moving even with no reports.
   setInterval(() => { if (remoteShown || basic) paint(); }, 1000);
