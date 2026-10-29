@@ -316,22 +316,23 @@ const StreamTags = (() => {
 
   /* In a table row (css/stream-tags.css) the chips sit in a box of their
      own, +n beside it: when the row turns out to have less room than worked
-     out (the row's buttons on hover, a mark painted before the chips are
-     fitted again), the box gives way first and the chips that no longer fit
-     drop out of sight whole, the last first; +n and the marks never give
-     way. The name's data-mk (table-view.js) is the Flow marks the room
-     was worked out for: flow.js paintMarks fits the name and chips again
-     when the marks it paints differ. `used` is the chips' width, estimated: the name is held
-     to what is left (table-view.js tvNameBounds), so a long name gives way
-     to them and not the other way round. With less room than +n itself
-     (`room`: the name at its least), the row shows no chips. */
+     out (an estimate a few px short, or a mark painted before the chips
+     are fitted again), the box gives way first and the chips that no
+     longer fit drop out of sight whole, the last first; +n and the marks
+     never give way. The row's buttons on hover sit over the cell's end
+     (css/table-view.css), left free for them, so hovering never changes
+     which chips show. The name's data-mk (table-view.js) is the Flow marks
+     the room was worked out for: flow.js paintMarks fits the name and chips
+     again when the marks it paints differ. `used` is the chips' width,
+     estimated: the name is held to what is left (table-view.js
+     tvNameBounds), so a long name gives way to them and not the other way
+     round. Every tag is a chip in sight or
+     counted in +n: with no room for a chip, +n alone stands for them all. */
   function rowFit(media) {
     const none = { html: '', used: 0 };
-    if (!media) return none;
+    if (!media || !tagsOf(media.id).length) return none;
     const fit = typeof tvStagFit === 'function' ? tvStagFit(media) : null;
     const p = chipsParts(media.id, 2, fit ? fit.budget : null);
-    if (!p) return none;
-    if (fit && fit.room < moreWidth(tagsOf(media.id).length)) return none;
     return {
       html: `<span class="tile-stags tv-stags" aria-label="Stream tags">${p[0].length ? `<span class="tv-stags-list">${p[0].join('')}</span>` : ''}${p[1]}</span>`,
       used: p[2],

@@ -113,6 +113,11 @@ function tvTitleWidth(width, cols) {
 const TV_NAME_MIN = 120;         // px a name keeps (or all of a shorter one)
 const TV_NAME_FLOOR = 24;        // its first letters, when the marks leave less
 const TV_PROG_W = 48;            // the Playing mark's progress line (css/flow.css)
+// The row's buttons on hover (css/table-view.css .tv-actions: two 24px
+// buttons, 0.25rem apart, 0.4rem before them). They sit over the cell's end
+// and move nothing; the chips and the name stop short of them, so nothing
+// a row shows (a chip, +n) hides under them.
+const tvActionsWidth = (rem) => 48 + 0.65 * rem;
 let _tvTitleW = 0;               // 0 until the table is drawn
 
 let _tvFont = null;              // { family, rem, name } once learned off a drawn row
@@ -179,48 +184,48 @@ const tvStagSpacing = (rem) => 0.8 * rem + 2;
 
 /**
  * The least a row's name shrinks to: min(its width, 120px). Less only when
- * the marks would not fit beside even that (a narrow table with Playing and
- * a Flow position on the row): the marks stay whole and the name keeps its
- * first letters (24px).
+ * what must stay whole after it (the marks, and +n when the row has stream
+ * tags) would not fit beside even that, on a narrow table with Playing and
+ * a Flow position on the row: the name then keeps its first letters (24px).
  */
-function tvNameMinFor(nameW, marksW, titleW) {
-  return Math.max(Math.min(nameW, TV_NAME_FLOOR), Math.min(TV_NAME_MIN, nameW, Math.floor(titleW - marksW - 2)));
+function tvNameMinFor(nameW, otherW, titleW) {
+  return Math.max(Math.min(nameW, TV_NAME_FLOOR), Math.min(TV_NAME_MIN, nameW, Math.floor(titleW - otherW - 2)));
 }
+const TV_MORE_W = 32;            // +n, with room for two digits
 
-/** This row, its marks and their widths, or null before the table is drawn. */
-function tvRowShape(media) {
+/** This row, its marks and their widths (`tags`: it shows +n or chips), or null before the table is drawn. */
+function tvRowShape(media, tags = false) {
   if (!_tvTitleW || !media) return null;
   const m = media.filename != null ? media : (typeof Library !== 'undefined' && Library.row(media.id)) || media;
   const marks = typeof flowMarksFor === 'function' ? flowMarksFor(m.id) : null;
   const nameW = m.filename == null ? Infinity : tvNameWidth(m.filename);
   const marksW = tvMarksWidth(m, marks);
-  return { nameW, marksW, nameMin: tvNameMinFor(nameW, marksW, _tvTitleW), rem: _tvFont ? _tvFont.rem : 16 };
+  const rem = _tvFont ? _tvFont.rem : 16;
+  const whole = marksW + (tags ? TV_MORE_W + tvStagSpacing(rem) : 0);
+  return { nameW, marksW, nameMin: tvNameMinFor(nameW, whole, _tvTitleW), rem };
 }
 
 /**
- * Room for this row's chips (stream-tags.js rowFit), or null before the
- * table is drawn: `budget` with the name keeping its share, `room` with
- * only its minimum (below the width of +n, the row shows no chips at all).
+ * Room for the chips of a row that has stream tags (stream-tags.js rowFit),
+ * or null before the table is drawn, with the name keeping its share and
+ * the row's buttons' place at the end left free (they show there on hover).
  */
 function tvStagFit(media) {
-  const r = tvRowShape(media);
+  const r = tvRowShape(media, true);
   if (!r) return null;
-  return {
-    budget: tvStagBudgetFor(_tvTitleW, r.nameW, r.marksW, r.rem),
-    room: Math.max(0, Math.floor(_tvTitleW - r.nameMin - r.marksW - tvStagSpacing(r.rem))),
-  };
+  return { budget: tvStagBudgetFor(_tvTitleW - tvActionsWidth(r.rem), r.nameW, r.marksW, r.rem) };
 }
 
 /**
  * A row's name: the least it shrinks to, and the most it takes, what its
- * chips (`used` px, stream-tags.js rowFit) and marks leave. Without the
- * most, a long name, the wider item, would make the chips give way first
- * when a row runs short.
+ * chips (`used` px, stream-tags.js rowFit) and marks leave, short of where
+ * the row's buttons show on hover. Without the most, a long name, the wider
+ * item, would make the chips give way first when a row runs short.
  */
 function tvNameBounds(media, used = 0) {
-  const r = tvRowShape(media);
+  const r = tvRowShape(media, used > 0);
   if (!r) return null;
-  const left = _tvTitleW - r.marksW - (used ? used + tvStagSpacing(r.rem) : 0);
+  const left = _tvTitleW - tvActionsWidth(r.rem) - r.marksW - (used ? used + tvStagSpacing(r.rem) : 0);
   return { min: r.nameMin, max: Math.max(r.nameMin, Math.floor(left)) };
 }
 
