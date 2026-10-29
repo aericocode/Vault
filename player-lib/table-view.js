@@ -74,6 +74,186 @@ function tvVisibleColumns() {
   return _tvShown || tvChosenColumns();
 }
 
+/** The Title column's width in a table `width` px wide, the way the grid shares out its fr columns. */
+function tvTitleWidth(width, cols) {
+  let free = width - TV_PAD - TV_SEL_W - cols.length * TV_GAP;
+  let flex = [];
+  for (const c of cols) {
+    const m = /^minmax\((\d+)px,\s*([\d.]+)fr\)$/.exec(c.width);
+    if (m) flex.push({ c, min: Number(m[1]), fr: Number(m[2]) });
+    else free -= parseFloat(c.width) || c.min || 0;
+  }
+  // A column whose share is under its minimum takes the minimum; the rest share what is left.
+  for (;;) {
+    const fr = flex.reduce((n, f) => n + f.fr, 0);
+    const under = flex.filter(f => (free / fr) * f.fr < f.min);
+    if (!under.length) break;
+    for (const f of under) free -= f.min;
+    flex = flex.filter(f => !under.includes(f));
+    if (!flex.length) break;
+  }
+  const t = flex.find(f => f.c.key === 'title');
+  if (t) return (free / flex.reduce((n, f) => n + f.fr, 0)) * t.fr;
+  return (cols.find(c => c.key === 'title') || { min: 160 }).min;
+}
+
+/* Room for stream tag chips in a row's Title cell (stream-tags.js rowHtml
+   reads it). The Title column's width is worked out once per table width
+   (tableViewRender), never read off a row. Of it, the name keeps what it
+   needs up to 40% (120px or more; a longer name ends in "..."), the marks
+   this row shows take theirs (New or Missing, the Favorite heart, the
+   deletion flag, and Flow's "12 · was 40", Playing and Next: flow.js
+   flowMarksFor), and the chips get the rest. Widths are text measured on a
+   canvas (names and mark texts kept per text): no layout is read per row.
+
+   The layout does not lean on the estimate alone (css/stream-tags.css): the
+   marks never shrink, the name keeps at least min(its width, 120px)
+   (tvNameMinFor), and the chips give way first, a chip that no longer fits
+   dropping out of sight before +n does. */
+const TV_NAME_MIN = 120;         // px a name keeps (or all of a shorter one)
+const TV_PROG_W = 48;            // the Playing mark's progress line (css/flow.css)
+// The row's buttons on hover (css/table-view.css .tv-actions: two 24px
+// buttons, 0.25rem apart, 0.4rem before them). They sit over the cell's end,
+// which the cell keeps free as padding of this width: the name, the chips,
+// +n and the marks are laid out short of it, so nothing hides under them.
+const tvActionsWidth = (rem) => 48 + 0.65 * rem;
+let _tvTitleW = 0;               // 0 until the table is drawn
+
+let _tvFont = null;              // { family, rem, name } once learned off a drawn row
+let _tvCtx = null, _tvCtxFont = '';
+const _tvTextW = new Map();      // font + text -> px
+function tvTextWidth(text, font) {
+  const key = `${font}\n${text}`;
+  let w = _tvTextW.get(key);
+  if (w == null) {
+    if (!_tvCtx) {
+      try { _tvCtx = document.createElement('canvas').getContext('2d'); } catch {}
+      if (!_tvCtx) return Infinity;
+    }
+    if (_tvCtxFont !== font) { _tvCtx.font = font; _tvCtxFont = font; }
+    w = Math.ceil(_tvCtx.measureText(String(text)).width);
+    if (_tvTextW.size > 5000) _tvTextW.clear();
+    _tvTextW.set(key, w);
+  }
+  return w;
+}
+
+/** A name's width in px (Infinity until the font is known). */
+function tvNameWidth(name) {
+  return _tvFont ? tvTextWidth(name, _tvFont.name) : Infinity;
+}
+
+/** The least a name shrinks to: all of it when short, else 120px. */
+function tvNameMin(name) {
+  return Math.min(TV_NAME_MIN, tvNameWidth(name == null ? '' : name));
+}
+
+/** A mark's text width: `size` in rem, at the row's font. */
+function tvMarkText(s, weight, size) {
+  const rem = _tvFont ? _tvFont.rem : 16;
+  return _tvFont ? tvTextWidth(s, `${weight} ${size * rem}px ${_tvFont.family}`) : s.length * size * rem * 0.62;
+}
+
+/** Px the marks after the name take in this row: each with the cell's gap before it. */
+function tvMarksWidth(m, marks) {
+  const rem = _tvFont ? _tvFont.rem : 16;
+  const gap = 0.4 * rem;
+  const t = tvMarkText;
+  let w = 0;
+  // css/watchers.css: 0.62rem 600, letter-spacing 0.02em, padding 0.35rem each side, margin-left 0.4rem.
+  if (m.missing_since || m.watch_new) {
+    const s = m.missing_since ? 'Missing' : 'New';
+    w += gap + 0.4 * rem + t(s, 600, 0.62) + s.length * 0.02 * 0.62 * rem + 0.7 * rem;
+  }
+  if (m.user_starred) w += gap + 0.75 * rem;               // the heart (0.75rem)
+  if (m.user_flagged_delete) w += gap + 0.75 * rem;        // the flag
+  if (marks) {
+    // css/flow.css: margin-left 8px, 6px between; position 0.7rem 700 padding 6px; badges 0.66rem 700 padding 7px.
+    const parts = [];
+    if (marks.pos) parts.push(t(marks.pos, 700, 0.7) + 12);
+    if (marks.playing) parts.push(t('Playing', 700, 0.66) + 14, TV_PROG_W);
+    else if (marks.next) parts.push(t('Next', 700, 0.66) + 14);
+    if (parts.length) w += gap + 8 + parts.reduce((n, p) => n + p, 0) + 6 * (parts.length - 1);
+  }
+  return w;
+}
+
+/** Px of Flow's marks that give way before the name does (css/stream-tags.css): Playing's line, then the faint "· was 8". */
+function tvMarksGive(marks) {
+  if (!marks) return 0;
+  let give = marks.playing ? TV_PROG_W : 0;
+  if (marks.pos) give += Math.max(0, tvMarkText(marks.pos, 700, 0.7) - tvMarkText(marks.pos.split(' ')[0], 700, 0.7));
+  return give;
+}
+
+/** The chips' room: what the name keeps (`nameW` its width), the marks and the chips' own spacing taken off. */
+function tvStagBudgetFor(titleW, nameW = Infinity, marksW = 0, rem = 16) {
+  const name = Math.min(nameW, Math.max(TV_NAME_MIN, titleW * 0.4));
+  return Math.max(0, Math.floor(titleW - name - marksW - tvStagSpacing(rem)));
+}
+// The cell's gap before the chips and their margin, and a pixel or two for rounding.
+const tvStagSpacing = (rem) => 0.8 * rem + 2;
+
+/**
+ * The least a row's name shrinks to: min(its width, 120px), less only when
+ * what must stay whole after it would not fit beside even that in `freeW`
+ * (the cell short of the row's buttons): the marks, and +n when the row has
+ * stream tags. The name then takes what is left.
+ */
+function tvNameMinFor(nameW, otherW, freeW) {
+  return Math.max(0, Math.min(TV_NAME_MIN, nameW, Math.floor(freeW - otherW - 2)));
+}
+const TV_MORE_W = 32;            // +n, with room for two digits
+
+/** The Title cell's width short of the row's buttons (css/table-view.css keeps it free as padding). */
+const tvFreeW = (rem) => _tvTitleW - tvActionsWidth(rem);
+
+/** This row, its marks and their widths (`tags`: it shows +n or chips), or null before the table is drawn. */
+function tvRowShape(media, tags = false) {
+  if (!_tvTitleW || !media) return null;
+  const m = media.filename != null ? media : (typeof Library !== 'undefined' && Library.row(media.id)) || media;
+  const marks = typeof flowMarksFor === 'function' ? flowMarksFor(m.id) : null;
+  const nameW = m.filename == null ? Infinity : tvNameWidth(m.filename);
+  const marksW = tvMarksWidth(m, marks);
+  const rem = _tvFont ? _tvFont.rem : 16;
+  const whole = marksW - tvMarksGive(marks) + (tags ? TV_MORE_W + tvStagSpacing(rem) : 0);
+  return { nameW, marksW, nameMin: tvNameMinFor(nameW, whole, tvFreeW(rem)), rem };
+}
+
+/**
+ * Room for the chips of a row that has stream tags (stream-tags.js rowFit),
+ * or null before the table is drawn, with the name keeping its share and
+ * the row's buttons' place at the end left free (they show there on hover).
+ */
+function tvStagFit(media) {
+  const r = tvRowShape(media, true);
+  if (!r) return null;
+  return { budget: tvStagBudgetFor(tvFreeW(r.rem), r.nameW, r.marksW, r.rem) };
+}
+
+/**
+ * A row's name: the least it shrinks to, and the most it takes, what its
+ * chips (`used` px, stream-tags.js rowFit) and marks leave, short of where
+ * the row's buttons show on hover. Without the most, a long name, the wider
+ * item, would make the chips give way first when a row runs short.
+ */
+function tvNameBounds(media, used = 0) {
+  const r = tvRowShape(media, used > 0);
+  if (!r) return null;
+  const left = tvFreeW(r.rem) - r.marksW - (used ? used + tvStagSpacing(r.rem) : 0);
+  return { min: r.nameMin, max: Math.max(r.nameMin, Math.floor(left)) };
+}
+
+/** Once a row is drawn: the fonts it uses, for the widths above (rows drawn before keep the 40% rule). */
+function tvLearnNameFont(grid) {
+  if (_tvFont) return;
+  const el = grid.querySelector('.tv-row .tv-name');
+  if (!el) return;
+  const cs = getComputedStyle(el);
+  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  _tvFont = { family: cs.fontFamily, rem, name: `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}` };
+}
+
 function tableViewActive() {
   if (!(typeof isModernLayout === 'function' && isModernLayout())) return false;
   if (!(typeof window.vaultLibraryView === 'function' && window.vaultLibraryView() === 'table')) return false;
@@ -107,12 +287,19 @@ function tableViewRender() {
   grid.style.removeProperty('grid-template-columns');
   // The grid's continuous skeleton is not ours: make it rebuild when it is back.
   delete grid.dataset.gridShape;
-  _tvShown = tvFitColumns(grid.clientWidth);
+  const gridW = grid.clientWidth;
+  _tvShown = tvFitColumns(gridW);
+  _tvTitleW = tvTitleWidth(gridW, _tvShown);
   grid.style.setProperty('--tv-cols',['32px', ...tvVisibleColumns().map(c => c.width)].join(' '));
   const header = document.getElementById('appHeader');
   grid.style.setProperty('--tv-sticky-top', `${Math.round(header ? header.getBoundingClientRect().height : 0)}px`);
-  if (cont) tvRenderContinuous(grid);
-  else tvRenderPages(grid);
+  const draw = () => { if (cont) tvRenderContinuous(grid); else tvRenderPages(grid); };
+  draw();
+  // The first rows ever drawn say what font names are in: draw once more with it.
+  if (!_tvFont) {
+    tvLearnNameFont(grid);
+    if (_tvFont) draw();
+  }
   return true;
 }
 
@@ -154,10 +341,12 @@ function tvCellHtml(c, m) {
     }
     case 'title': {
       const pmNames = document.body.classList.contains('pm-names');
+      const tags = typeof streamTagRowFit === 'function' ? streamTagRowFit(m) : { html: '', used: 0 };
+      const nb = tvNameBounds(m, tags.used);
       return `<div class="tv-cell tv-c-title">
-          <span class="tile-name tv-name" onclick="tileThumbClick(${id})" ondblclick="tileThumbDblClick(${id}, event)"
+          <span class="tile-name tv-name" style="${nb ? `min-width:${nb.min}px;max-width:${nb.max}px` : `min-width:${tvNameMin(m.filename)}px`}" data-mk="${escapeHtml(typeof flowMarksKey === 'function' ? flowMarksKey(id) : '')}" onclick="tileThumbClick(${id})" ondblclick="tileThumbDblClick(${id}, event)"
                 ${pmNames ? '' : `title="${escapeHtml(m.filename)}"`}>${escapeHtml(m.filename)}</span>
-          ${typeof streamTagRowHtml === 'function' ? streamTagRowHtml(m) : ''}
+          ${tags.html}
           ${typeof watchTagHtml === 'function' ? watchTagHtml(m) : ''}
           ${m.user_starred ? `<span class="tv-fave" title="Favorite">${vaultIconSwap('❤', 'heart')}</span>` : ''}
           ${m.user_flagged_delete ? `<span class="tv-flag" title="Flagged for deletion">${vaultIconSwap('🚩', 'flag')}</span>` : ''}

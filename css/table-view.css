@@ -146,6 +146,11 @@ body.dock-shown .grid-table .media-tile.tv-row.tile-docked {
   align-items: center;
   gap: 0.4rem;
   overflow: hidden;
+  position: relative;      /* the row's buttons sit over its end */
+  /* Kept free for those buttons (table-view.js tvActionsWidth): the name,
+     the chips, +n and the marks are laid out short of them, so hovering
+     covers nothing they show. */
+  padding-right: calc(48px + 0.65rem);
 }
 .grid-table .tv-name {
   min-width: 0;
@@ -158,11 +163,24 @@ body.dock-shown .grid-table .media-tile.tv-row.tile-docked {
 .grid-table .tv-name:hover { text-decoration: underline; }
 .grid-table .tv-fave { color: #f472b6; font-size: 0.75rem; }
 .grid-table .tv-flag { font-size: 0.75rem; }
+/* The row's buttons, on hover or focus: over the end of the Title cell, on
+   the row's own colour, so they cover what is under them and move nothing
+   (the name, the stream tag chips and +n, the marks keep their places). */
+.grid-table .media-tile.tv-row { --tv-row-bg: var(--bg-secondary); }
+.grid-table .media-tile.tv-row.flow-mk-playing { --tv-row-bg: linear-gradient(color-mix(in oklab, var(--accent) 8%, transparent), color-mix(in oklab, var(--accent) 8%, transparent)), var(--bg-secondary); }
+.grid-table .media-tile.tv-row:hover { --tv-row-bg: var(--bg-hover); }
+.grid-table .media-tile.tv-row.tile-selected,
+.grid-table .media-tile.tv-row:has(.tile-select:checked),
+body.dock-shown .grid-table .media-tile.tv-row.tile-docked { --tv-row-bg: linear-gradient(var(--accent-bg), var(--accent-bg)), var(--bg-secondary); }
 .grid-table .tv-actions {
   display: none;
   gap: 0.25rem;
-  margin-left: auto;
-  flex: none;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  padding-left: 0.4rem;
+  background: var(--tv-row-bg);
 }
 .grid-table .tv-row:hover .tv-actions,
 .grid-table .tv-row:focus-within .tv-actions { display: inline-flex; }

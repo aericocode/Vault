@@ -732,21 +732,50 @@ const Flow = (() => {
     return { src, playing, next: nx && !nx.upNext ? nx.id : null, flowOn };
   }
 
-  function paintMarks() {
-    const grid = document.getElementById('resultsGrid');
-    if (!grid) return;
+  /* The marks as they are now, looked at once per task (a table draws many
+     rows in one go and asks for each: flowMarksFor). The position maps are
+     kept while the orders are the same arrays (an order is replaced, never
+     changed in place). */
+  let marksMemo = null;
+  let posMemo = { w: null, p: null, pos: null, was: null };
+  function marksNow() {
+    if (marksMemo) return marksMemo;
     const s = marksState();
     let pos = null, was = null;
     if (s.flowOn) {
-      pos = new Map(workingOrder().map((id, i) => [id, i]));
-      was = new Map(st.data.playlistOrder.map((id, i) => [id, i]));
+      const w = workingOrder(), p = st.data.playlistOrder;
+      if (posMemo.w !== w || posMemo.p !== p) {
+        posMemo = { w, p, pos: new Map(w.map((id, i) => [id, i])), was: new Map(p.map((id, i) => [id, i])) };
+      }
+      pos = posMemo.pos;
+      was = posMemo.was;
     }
+    marksMemo = { s, pos, was };
+    Promise.resolve().then(() => { marksMemo = null; });
+    return marksMemo;
+  }
+
+  /** The marks a file shows: { pos: '3 · was 7' or null, playing, next }, or null for none. */
+  function marksFor(id) {
+    const { s, pos, was } = marksNow();
+    const moved = pos && pos.has(id) && was.has(id) && pos.get(id) !== was.get(id);
+    const out = { pos: moved ? `${pos.get(id) + 1} · was ${was.get(id) + 1}` : null, playing: id === s.playing, next: id !== s.playing && id === s.next };
+    return out.pos || out.playing || out.next ? out : null;
+  }
+  const marksSig = (m) => (m ? `${m.pos || ''}|${m.playing ? 'p' : ''}${m.next ? 'n' : ''}` : '');
+
+  function paintMarks() {
+    const grid = document.getElementById('resultsGrid');
+    if (!grid) return;
+    marksMemo = null;
+    const { s, pos, was } = marksNow();
     marksKey = `${s.playing}|${s.next}|${s.flowOn ? workingOrder().length + ':' + (st.edited ? 'e' : '') + st.shape : ''}`;
     // Nothing to mark and nothing marked: the grid's own redraws (a scroll
     // through a long list draws rows) cost no walk over the tiles.
     const any = s.playing != null || s.next != null || !!pos;
     if (!any && !marksOn) return;
     marksOn = any;
+    const refit = [];
     for (const tile of grid.querySelectorAll('.media-tile[data-id]')) {
       const id = Number(tile.dataset.id);
       let html = '';
@@ -757,6 +786,9 @@ const Flow = (() => {
       else if (id === s.next) html += '<span class="flow-mk-badge flow-mk-next">Next</span>';
       const host = tile.querySelector('.tile-thumb') || tile.querySelector('.tv-c-title');
       if (!host) continue;
+      // A table row's name and chips were fitted around other marks: fit them again.
+      const name = host.querySelector(':scope > .tv-name');
+      if (name && name.dataset.mk != null && name.dataset.mk !== marksSig(marksFor(id))) refit.push(id);
       let mk = host.querySelector(':scope > .flow-marks');
       tile.classList.toggle('flow-mk-playing', id === s.playing);
       if (!html) { if (mk) mk.remove(); continue; }
@@ -769,6 +801,7 @@ const Flow = (() => {
       mk.dataset.k = html;
       mk.innerHTML = html;
     }
+    if (refit.length && typeof StreamTags !== 'undefined' && StreamTags.repaintTiles) StreamTags.repaintTiles(refit);
     paintProgress(s);
   }
 
@@ -1635,8 +1668,8 @@ const Flow = (() => {
      pointercancel or losing the pointer cancels. The drop is the grid's own
      move (collection-reorder.js reorderMove: saved with Undo in playlist
      order, part of the try in Flow order); the chart keeps the new order
-     drawn until the move is in, then the list scrolls to the file and
-     lights it up. The pointer is captured on the panel, which every repaint
+     drawn until the move is in. Nothing scrolls on the drop: the view stays
+     where it was and only the chart and the list's contents change. The pointer is captured on the panel, which every repaint
      keeps (the chart's own host is moved during one). */
 
   let drag = null;   // { pointerId, x0, y0, from, id, order, on, slot, x, preview, hold }
@@ -1751,7 +1784,7 @@ const Flow = (() => {
     if (d.on) { endDragUi(d); drawChart(); }
   }
 
-  /** Let go: the move goes the grid's way; the chart keeps showing the new order until it is in. */
+  /** Let go: the move goes the grid's way; the chart keeps showing the new order until it is in. Nothing scrolls. */
   async function dropDrag() {
     const d = drag;
     if (!d || !d.on) { drag = null; return false; }
@@ -1767,7 +1800,8 @@ const Flow = (() => {
       if (drag === d) drag = null;
       drawChart();
     }
-    if (moved && typeof Library !== 'undefined' && Library.indexOf(d.id) >= 0) revealFile(d.id);
+    // The view stays where it was: only the chart and the grid's contents
+    // change. Show in list on the file's card is how to go to it.
     return moved;
   }
 
@@ -1830,7 +1864,10 @@ const Flow = (() => {
     const shapes = FlowOrder.SHAPES.map(s => `<button type="button" data-flow-shape="${s.key}" aria-pressed="${String(st.order && st.shape === s.key)}">${esc(s.label)}</button>`).join('');
     // The chart's host is kept across repaints (polls repaint often): an empty
     // host would shrink the panel for a moment, and a page scrollbar going
-    // with it would make the chart measure too wide.
+    // with it would make the chart measure too wide. The strip is drawn with
+    // its text for the same reason: empty while drawChart measures, the page
+    // was a line shorter for that moment, and a page scrolled to its end lost
+    // its place (the browser clamps the scroll to the shorter page).
     const keep = document.getElementById('flowChartWrap');
     const keepLeft = keep ? keep.scrollLeft : 0;
     // A tag cell with keyboard focus keeps it (taking the host out of the page drops it).
@@ -1857,7 +1894,7 @@ const Flow = (() => {
       ${lanesRowHtml()}
       ${chartHtml(!!keep)}
       ${gripHtml()}
-      ${chart ? `<div class="flow-strip" id="flowStrip" aria-live="polite"></div>` : ''}
+      ${chart ? `<div class="flow-strip" id="flowStrip" aria-live="polite">${stripHtml()}</div>` : ''}
       <div class="flow-row">
         ${legendHtml()}
         <span class="flow-sp"></span>
@@ -2907,6 +2944,7 @@ const Flow = (() => {
     workingOrder: () => (st.order && isMine() ? workingOrder().slice() : null),
     moveInOrder, orderBarHtml, paintCount,
     settingsChanged, membersChanged,
+    marksFor, marksKey: (id) => marksSig(marksFor(id)),
     // Column drags (tests): the press, the moves, the drop.
     _drag: { allowed: dragAllowed, down: dragDown, move: dragMove, drop: dropDrag, cancel: cancelDrag, state: () => drag },
     _state: () => ({ ...st, byId: st.byId.size, data: st.data && { order: st.data.order, counts: st.data.counts, jumps: st.data.jumps, playlistOrder: st.data.playlistOrder, playlistJumps: st.data.playlistJumps } }),
@@ -2935,3 +2973,6 @@ function flowOrderBarHtml() { return Flow.orderBarHtml(); }
 function flowStageCurrent(row) { Flow.stageCurrent(row); }
 function flowSettingsChanged() { return Flow.settingsChanged(); }
 function flowMembersChanged(cid) { return Flow.membersChanged(cid); }
+/** The marks a table row shows after its name (table-view.js works out the chips' room around them). */
+function flowMarksFor(id) { return Flow.marksFor(id); }
+function flowMarksKey(id) { return Flow.marksKey(id); }
