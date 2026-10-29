@@ -300,7 +300,7 @@ test('nothing listens to the page\'s scroll or wheel while nothing is hovered', 
   assert.strictEqual(p.wrapOpts.wheel.passive, false, 'the wheel may move the chart sideways');
 });
 
-test('an up/down wheel over a chart wider than its view scrolls it sideways, and the page at either end', async () => {
+test('an up/down wheel over a chart wider than its view scrolls it sideways, and stays with it at either end', async () => {
   const p = page({ wrapW: 400 });
   await p.Flow.toggle(3);
   p.V.zoom(true);
@@ -320,9 +320,9 @@ test('an up/down wheel over a chart wider than its view scrolls it sideways, and
   assert.ok(!wheel({ deltaY: 100, ctrlKey: true }).taken, 'Ctrl is zoom');
   assert.ok(!wheel({ deltaX: 50, deltaY: 10 }).taken, 'a sideways trackpad swipe is the browser\'s');
   p.wrap.scrollLeft = 0;
-  assert.ok(!wheel({ deltaY: -100 }).taken, 'at the start, up scrolls the page');
+  assert.ok(wheel({ deltaY: -100 }).taken, 'at the start, up stays with the chart');
   p.wrap.scrollLeft = 1000;
-  assert.ok(!wheel({ deltaY: 100 }).taken, 'at the end, down scrolls the page');
+  assert.ok(wheel({ deltaY: 100 }).taken, 'at the end, down stays with the chart');
   p.wrap.scrollWidth = 400;
   p.wrap.scrollLeft = 0;
   assert.ok(!wheel({ deltaY: 100 }).taken, 'a chart that fits (Fit) leaves the wheel to the page');

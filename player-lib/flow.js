@@ -1999,8 +1999,8 @@ const Flow = (() => {
   /* ── Under the chart: tag rows, preview cards, the strip ─────────────
      Fit puts the whole list in the panel's width; Zoom gives each file
      ZOOM_COL_PX and the chart scrolls sideways (the wheel over it, the
-     scrollbar, a trackpad or Shift and the wheel; at either end the wheel
-     scrolls the page again).
+     scrollbar, a trackpad or Shift and the wheel; the wheel stays with
+     the chart at either end, so the page doesn't move under it).
      Columns CARD_PX or wider get the lanes as rows of readable tags and a
      preview card each above the names (scrubbed by the pointer); narrower
      ones keep the colour bars and no cards. Clicking a column (or its card)
@@ -2672,8 +2672,8 @@ const Flow = (() => {
    * following. The user's: one soon after their wheel, press or key on the
    * chart (the browser also moves the scroll itself, keeping it inside a
    * chart whose view just got a little wider, which is not theirs). A
-   * plain up/down wheel over a chart wider than its view scrolls it sideways
-   * (the page keeps it once the chart is at that end).
+   * plain up/down wheel over a chart wider than its view scrolls it sideways,
+   * and stays with it at either end (the page never starts moving instead).
    */
   const USER_SCROLL_MS = 1500;
 
@@ -2683,8 +2683,7 @@ const Flow = (() => {
     const room = wrap.scrollWidth - wrap.clientWidth;
     if (!(room > 1)) return 0;
     const dx = e.deltaY * (e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? wrap.clientWidth : 1);
-    if (dx < 0 ? wrap.scrollLeft <= 0 : wrap.scrollLeft >= room - 1) return 0;
-    return dx;
+    return dx || 0;
   }
   let userAt = -Infinity;
   function wireWrap(wrap) {
