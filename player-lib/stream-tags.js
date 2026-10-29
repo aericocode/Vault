@@ -35,7 +35,7 @@
 
    Hooks other files call (guarded with typeof):
      streamTagTileHtml(media)     cards.js renderTile
-     streamTagRowHtml(media)      table-view.js Title cell
+     streamTagRowFit(media)       table-view.js Title cell ({ html, used })
      streamTagBlockHtml(media)    dock.js pane, detail-view.js details
      streamTagsSelectionButton()  selection.js renderSelectionBar
      StreamTags.paintStage(id)    stage-bar.js paint
@@ -231,13 +231,14 @@ const StreamTags = (() => {
   const laneName = (t) => (st.lanesById.get(t.laneId) || {}).name || '';
 
   /* A table row shows as many chips as fit its Title cell (table-view.js
-     tvStagBudget says how much room, from the column width it works out
+     tvStagFit says how much room, from the column width it works out
      once per table width). Chip widths come from the text, measured on a
      canvas once per tag name: no layout is read per row, so drawing rows as
      the page scrolls stays cheap. */
   const CHIP_GAP = 4;               // .tv-stags gap
   const CHIP_CHROME = 24;           // padding 5 + 7, the dot 6 + gap 4, border 2
   const MORE_CHROME = 14;           // padding 6 + 6, border 2
+  const CHIP_MIN = 40;              // a shortened chip still worth showing: the dot and a few letters
   const chipW = new Map();          // tag name -> px
   let chipFont = null, chipCanvas = null;
 
@@ -266,7 +267,8 @@ const StreamTags = (() => {
   /**
    * How many of these chips (widths in px, in order) to show in `budget` px:
    * all when they fit; otherwise as many as fit beside a "+N" chip for the
-   * rest, and never fewer than one (it shortens with an ellipsis).
+   * rest. The first chip shows (shortened, with an ellipsis) when at least
+   * CHIP_MIN px of it fits beside +n; with less room, +n alone says them all.
    */
   function fitChipCount(widths, budget, more = () => 28, gap = CHIP_GAP) {
     const n = widths.length;
@@ -282,33 +284,60 @@ const StreamTags = (() => {
       used = next;
       k++;
     }
-    return Math.max(1, k);
+    if (k === 0 && CHIP_MIN + gap + more(n - 1) <= budget) k = 1;
+    return k;
   }
 
-  /** A file's chips: `max` of them, or as many as fit `budget` px, then +n. */
-  function chipsHtml(id, max = 2, budget = null) {
+  /**
+   * A file's chips, as [their html (each chip), the +n chip, their width]:
+   * `max` of them, or as many as fit `budget` px (the width, estimated, only
+   * then).
+   */
+  function chipsParts(id, max = 2, budget = null) {
     const list = tagsOf(id);
-    if (!list.length) return '';
-    if (budget != null) max = fitChipCount(list.map(t => chipWidth(t.name)), budget, moreWidth);
-    const shown = list.slice(0, max).map(chipHtml).join('');
+    if (!list.length) return null;
+    let used = 0;
+    if (budget != null) {
+      const widths = list.map(t => chipWidth(t.name));
+      max = fitChipCount(widths, budget, moreWidth);
+      for (let i = 0; i < max; i++) used += widths[i] + (i ? CHIP_GAP : 0);
+      if (list.length > max) used += (max ? CHIP_GAP : 0) + moreWidth(list.length - max);
+    }
+    const shown = list.slice(0, max).map(chipHtml);
     const more = list.length > max
       ? `<span class="stag-chip stag-more" title="${esc(list.slice(max).map(t => t.name).join(', '))}">+${list.length - max}</span>` : '';
-    return shown + more;
+    return [shown, more, used];
   }
 
   function tileHtml(media) {
-    const html = media ? chipsHtml(media.id) : '';
-    return html ? `<span class="tile-stags" aria-label="Stream tags">${html}</span>` : '';
+    const p = media ? chipsParts(media.id) : null;
+    return p ? `<span class="tile-stags" aria-label="Stream tags">${p[0].join('')}${p[1]}</span>` : '';
   }
 
-  function rowHtml(media) {
-    if (!media) return '';
-    const budget = typeof tvStagBudget === 'function' ? tvStagBudget(media) : null;
-    const html = chipsHtml(media.id, 2, budget);
-    // The box keeps its chips' width, up to the room it was given: the name gives way first.
-    const cap = budget != null ? ` style="max-width:${Math.max(budget, 40)}px"` : '';
-    return html ? `<span class="tile-stags tv-stags" aria-label="Stream tags"${cap}>${html}</span>` : '';
+  /* In a table row (css/stream-tags.css) the chips sit in a box of their
+     own, +n beside it: when the row turns out to have less room than worked
+     out (the row's buttons on hover, a mark painted before the chips are
+     fitted again), the box gives way first and the chips that no longer fit
+     drop out of sight whole, the last first; +n and the marks never give
+     way. The name's data-mk (table-view.js) is the Flow marks the room
+     was worked out for: flow.js paintMarks fits the name and chips again
+     when the marks it paints differ. `used` is the chips' width, estimated: the name is held
+     to what is left (table-view.js tvNameBounds), so a long name gives way
+     to them and not the other way round. With less room than +n itself
+     (`room`: the name at its least), the row shows no chips. */
+  function rowFit(media) {
+    const none = { html: '', used: 0 };
+    if (!media) return none;
+    const fit = typeof tvStagFit === 'function' ? tvStagFit(media) : null;
+    const p = chipsParts(media.id, 2, fit ? fit.budget : null);
+    if (!p) return none;
+    if (fit && fit.room < moreWidth(tagsOf(media.id).length)) return none;
+    return {
+      html: `<span class="tile-stags tv-stags" aria-label="Stream tags">${p[0].length ? `<span class="tv-stags-list">${p[0].join('')}</span>` : ''}${p[1]}</span>`,
+      used: p[2],
+    };
   }
+  const rowHtml = (media) => rowFit(media).html;
 
   /** Chips on the tiles and rows on screen (only these files, or all). */
   function repaintTiles(mediaIds) {
@@ -319,7 +348,15 @@ const StreamTags = (() => {
       const row = tile.classList.contains('tv-row');
       const host = row ? tile.querySelector('.tv-c-title') : tile.querySelector('.tile-thumb');
       if (!host) return;
-      const html = row ? rowHtml({ id }) : tileHtml({ id });
+      const fit = row ? rowFit({ id }) : null;
+      if (row) {
+        // The name's bounds follow the chips (and the marks they were fitted around).
+        const name = host.querySelector(':scope > .tv-name');
+        const b = name && typeof tvNameBounds === 'function' ? tvNameBounds({ id }, fit.used) : null;
+        if (b) { name.style.minWidth = `${b.min}px`; name.style.maxWidth = `${b.max}px`; }
+        if (name) name.dataset.mk = typeof flowMarksKey === 'function' ? flowMarksKey(id) : '';
+      }
+      const html = row ? fit.html : tileHtml({ id });
       const old = host.querySelector(':scope > .tile-stags');
       if (!html) { if (old) old.remove(); return; }
       const tmp = document.createElement('div');
@@ -733,7 +770,7 @@ const StreamTags = (() => {
   return {
     PLACE_LABELS, load, reloadLanes, refreshCollection, apply, clearFiles, tagsOf, tagIdsOf, hasAny,
     lanes: () => st.lanes, tag: (id) => st.tags.get(id) || null, loaded: () => st.loaded,
-    tileHtml, rowHtml, fitChipCount, blockHtml, blockMenu, selectionButton, selectionMenu, paintStage, stageMenu, closeMenu, openEditor,
+    tileHtml, rowHtml, rowFit, fitChipCount, repaintTiles, blockHtml, blockMenu, selectionButton, selectionMenu, paintStage, stageMenu, closeMenu, openEditor,
     onChange: (cb) => { if (typeof cb === 'function') st.subs.add(cb); },
     changed,
   };
@@ -758,5 +795,6 @@ window.FlowLaneSource = {
 
 function streamTagTileHtml(media) { return StreamTags.tileHtml(media); }
 function streamTagRowHtml(media) { return StreamTags.rowHtml(media); }
+function streamTagRowFit(media) { return StreamTags.rowFit(media); }
 function streamTagBlockHtml(media) { return StreamTags.blockHtml(media); }
 function streamTagsSelectionButton() { return StreamTags.loaded() ? StreamTags.selectionButton() : ''; }

@@ -51,18 +51,33 @@
 .tile-thumb > .tile-stags .stag-chip { flex: 0 1 auto; backdrop-filter: blur(4px); }
 .tile-thumb:has(.tile-hotdone) > .tile-stags { bottom: 28px; }
 
-/* In the table: after the name in the Title cell. As many chips as fit
-   (stream-tags.js rowHtml); they keep their width and the name gives way,
-   up to the room table-view.js worked out (the box's max-width). */
-.tv-c-title > .tv-stags {
-  display: inline-flex;
-  flex: 0 0 auto;
-  gap: 4px;
+/* In the table: after the name in the Title cell, as many chips as fit
+   (stream-tags.js rowFit, table-view.js tvStagFit), then +n. The box is an
+   item of the cell itself (.tv-stags is display: contents). When a row has
+   less room than worked out (the row's buttons on hover, a mark painted
+   before the chips are fitted again), the box gives way first (its large
+   flex-shrink): the chips that no longer fit wrap onto a second line that
+   is out of sight, whole, the last chip first. +n is beside the box and the
+   marks after it; neither shrinks. The name keeps its least width (an
+   inline min-width, table-view.js tvNameBounds). */
+.tv-c-title > .tv-stags { display: contents; }
+.tv-stags > .tv-stags-list {
+  display: flex;
+  flex: 0 1000 auto;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 8px 4px;
   min-width: 0;
-  max-width: 50%;
+  height: calc(0.68rem * 1.35 + 4px);
+  overflow: hidden;
   margin-left: 0.4rem;
   align-self: center;
 }
+.tv-stags > .stag-more { flex: none; align-self: center; margin-left: calc(4px - 0.4rem); }
+.tv-stags > .stag-more:first-child { margin-left: 0.4rem; }   /* +n alone: where the chips would start */
+.tv-c-title > .flow-marks,
+.grid-table .tv-c-title > .tv-fave,
+.grid-table .tv-c-title > .tv-flag { flex: none; }
 .tv-stags .stag-chip { color: var(--text-primary, #eee); background: color-mix(in oklab, var(--c) 22%, transparent); }
 
 /* ── The menu ──────────────────────────────────────────────────────────── */

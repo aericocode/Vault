@@ -249,3 +249,14 @@ test('a drop leaves the view where it was: the list is not scrolled to the file,
   }
   assert.deepStrictEqual(log, [], 'no scroll, reveal or focus on the drop');
 });
+
+test('the marks a table row shows (table-view.js fits the chips around them): Flow order positions, none in playlist order', async () => {
+  const p = page();
+  await p.Flow.toggle(3);
+  assert.strictEqual(p.Flow.marksFor(11), null, 'playlist order, nothing playing: no marks');
+  assert.strictEqual(p.Flow.marksKey(11), '');
+  await p.Flow.useFlowOrder();           // 15 14 13 12 11 against 11 12 13 14 15
+  assert.deepStrictEqual({ ...p.Flow.marksFor(11) }, { pos: '5 · was 1', playing: false, next: false });
+  assert.strictEqual(p.Flow.marksFor(13), null, 'the middle file keeps its place');
+  assert.strictEqual(p.Flow.marksKey(11), '5 · was 1|');
+});
