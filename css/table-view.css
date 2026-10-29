@@ -147,6 +147,10 @@ body.dock-shown .grid-table .media-tile.tv-row.tile-docked {
   gap: 0.4rem;
   overflow: hidden;
   position: relative;      /* the row's buttons sit over its end */
+  /* Kept free for those buttons (table-view.js tvActionsWidth): the name,
+     the chips, +n and the marks are laid out short of them, so hovering
+     covers nothing they show. */
+  padding-right: calc(48px + 0.65rem);
 }
 .grid-table .tv-name {
   min-width: 0;

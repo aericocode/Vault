@@ -111,12 +111,11 @@ function tvTitleWidth(width, cols) {
    (tvNameMinFor), and the chips give way first, a chip that no longer fits
    dropping out of sight before +n does. */
 const TV_NAME_MIN = 120;         // px a name keeps (or all of a shorter one)
-const TV_NAME_FLOOR = 24;        // its first letters, when the marks leave less
 const TV_PROG_W = 48;            // the Playing mark's progress line (css/flow.css)
 // The row's buttons on hover (css/table-view.css .tv-actions: two 24px
-// buttons, 0.25rem apart, 0.4rem before them). They sit over the cell's end
-// and move nothing; the chips and the name stop short of them, so nothing
-// a row shows (a chip, +n) hides under them.
+// buttons, 0.25rem apart, 0.4rem before them). They sit over the cell's end,
+// which the cell keeps free as padding of this width: the name, the chips,
+// +n and the marks are laid out short of it, so nothing hides under them.
 const tvActionsWidth = (rem) => 48 + 0.65 * rem;
 let _tvTitleW = 0;               // 0 until the table is drawn
 
@@ -149,12 +148,17 @@ function tvNameMin(name) {
   return Math.min(TV_NAME_MIN, tvNameWidth(name == null ? '' : name));
 }
 
+/** A mark's text width: `size` in rem, at the row's font. */
+function tvMarkText(s, weight, size) {
+  const rem = _tvFont ? _tvFont.rem : 16;
+  return _tvFont ? tvTextWidth(s, `${weight} ${size * rem}px ${_tvFont.family}`) : s.length * size * rem * 0.62;
+}
+
 /** Px the marks after the name take in this row: each with the cell's gap before it. */
 function tvMarksWidth(m, marks) {
   const rem = _tvFont ? _tvFont.rem : 16;
-  const fam = _tvFont ? _tvFont.family : 'sans-serif';
   const gap = 0.4 * rem;
-  const t = (s, weight, size) => (_tvFont ? tvTextWidth(s, `${weight} ${size * rem}px ${fam}`) : s.length * size * rem * 0.62);
+  const t = tvMarkText;
   let w = 0;
   // css/watchers.css: 0.62rem 600, letter-spacing 0.02em, padding 0.35rem each side, margin-left 0.4rem.
   if (m.missing_since || m.watch_new) {
@@ -174,6 +178,14 @@ function tvMarksWidth(m, marks) {
   return w;
 }
 
+/** Px of Flow's marks that give way before the name does (css/stream-tags.css): Playing's line, then the faint "· was 8". */
+function tvMarksGive(marks) {
+  if (!marks) return 0;
+  let give = marks.playing ? TV_PROG_W : 0;
+  if (marks.pos) give += Math.max(0, tvMarkText(marks.pos, 700, 0.7) - tvMarkText(marks.pos.split(' ')[0], 700, 0.7));
+  return give;
+}
+
 /** The chips' room: what the name keeps (`nameW` its width), the marks and the chips' own spacing taken off. */
 function tvStagBudgetFor(titleW, nameW = Infinity, marksW = 0, rem = 16) {
   const name = Math.min(nameW, Math.max(TV_NAME_MIN, titleW * 0.4));
@@ -183,15 +195,18 @@ function tvStagBudgetFor(titleW, nameW = Infinity, marksW = 0, rem = 16) {
 const tvStagSpacing = (rem) => 0.8 * rem + 2;
 
 /**
- * The least a row's name shrinks to: min(its width, 120px). Less only when
- * what must stay whole after it (the marks, and +n when the row has stream
- * tags) would not fit beside even that, on a narrow table with Playing and
- * a Flow position on the row: the name then keeps its first letters (24px).
+ * The least a row's name shrinks to: min(its width, 120px), less only when
+ * what must stay whole after it would not fit beside even that in `freeW`
+ * (the cell short of the row's buttons): the marks, and +n when the row has
+ * stream tags. The name then takes what is left.
  */
-function tvNameMinFor(nameW, otherW, titleW) {
-  return Math.max(Math.min(nameW, TV_NAME_FLOOR), Math.min(TV_NAME_MIN, nameW, Math.floor(titleW - otherW - 2)));
+function tvNameMinFor(nameW, otherW, freeW) {
+  return Math.max(0, Math.min(TV_NAME_MIN, nameW, Math.floor(freeW - otherW - 2)));
 }
 const TV_MORE_W = 32;            // +n, with room for two digits
+
+/** The Title cell's width short of the row's buttons (css/table-view.css keeps it free as padding). */
+const tvFreeW = (rem) => _tvTitleW - tvActionsWidth(rem);
 
 /** This row, its marks and their widths (`tags`: it shows +n or chips), or null before the table is drawn. */
 function tvRowShape(media, tags = false) {
@@ -201,8 +216,8 @@ function tvRowShape(media, tags = false) {
   const nameW = m.filename == null ? Infinity : tvNameWidth(m.filename);
   const marksW = tvMarksWidth(m, marks);
   const rem = _tvFont ? _tvFont.rem : 16;
-  const whole = marksW + (tags ? TV_MORE_W + tvStagSpacing(rem) : 0);
-  return { nameW, marksW, nameMin: tvNameMinFor(nameW, whole, _tvTitleW), rem };
+  const whole = marksW - tvMarksGive(marks) + (tags ? TV_MORE_W + tvStagSpacing(rem) : 0);
+  return { nameW, marksW, nameMin: tvNameMinFor(nameW, whole, tvFreeW(rem)), rem };
 }
 
 /**
@@ -213,7 +228,7 @@ function tvRowShape(media, tags = false) {
 function tvStagFit(media) {
   const r = tvRowShape(media, true);
   if (!r) return null;
-  return { budget: tvStagBudgetFor(_tvTitleW - tvActionsWidth(r.rem), r.nameW, r.marksW, r.rem) };
+  return { budget: tvStagBudgetFor(tvFreeW(r.rem), r.nameW, r.marksW, r.rem) };
 }
 
 /**
@@ -225,7 +240,7 @@ function tvStagFit(media) {
 function tvNameBounds(media, used = 0) {
   const r = tvRowShape(media, used > 0);
   if (!r) return null;
-  const left = _tvTitleW - tvActionsWidth(r.rem) - r.marksW - (used ? used + tvStagSpacing(r.rem) : 0);
+  const left = tvFreeW(r.rem) - r.marksW - (used ? used + tvStagSpacing(r.rem) : 0);
   return { min: r.nameMin, max: Math.max(r.nameMin, Math.floor(left)) };
 }
 

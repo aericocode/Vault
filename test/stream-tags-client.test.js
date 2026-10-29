@@ -188,7 +188,7 @@ function tableView({ withFont = true, rows = {}, flowMarks = null } = {}) {
   if (flowMarks) ctx.flowMarksFor = (id) => flowMarks[id] || null;
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'table-view.js'), 'utf8')
-    + '\nthis.T = { TV_COLUMNS, tvTitleWidth, tvStagBudgetFor, tvStagBudget: (m) => { const f = tvStagFit(m); return f && f.budget; }, tvStagFit, tvNameMinFor, tvNameBounds, tvMarksWidth, tvNameMin, tvLearnNameFont, tvCellHtml, setTitleW: (w) => { _tvTitleW = w; } };', ctx);
+    + '\nthis.T = { TV_COLUMNS, tvTitleWidth, tvStagBudgetFor, tvStagBudget: (m) => { const f = tvStagFit(m); return f && f.budget; }, tvStagFit, tvNameMinFor, tvNameBounds, tvMarksWidth, tvMarksGive, tvNameMin, tvLearnNameFont, tvCellHtml, setTitleW: (w) => { _tvTitleW = w; } };', ctx);
   if (withFont) ctx.T.tvLearnNameFont({ querySelector: () => nameEl });
   return { T: ctx.T, counts, ctx, nameEl };
 }
@@ -213,48 +213,73 @@ test('table view: the Title column\'s width, and the chips\' share of it, from t
   assert.strictEqual(tvStagBudgetFor(500, 100), 385);
 });
 
-test('table view: the name keeps min(its width, 120px) whatever else the row shows', () => {
-  const { T } = tableView();
-  assert.strictEqual(T.tvNameMin('a.mp4'), 35, 'a short name keeps all of it');
-  assert.strictEqual(T.tvNameMin('x'.repeat(60)), 120, 'a long one keeps 120px');
-  const cell = T.tvCellHtml({ key: 'title' }, { id: 3, filename: 'b.mp4' });
-  assert.match(cell, /class="tile-name tv-name" style="min-width:35px"/);
-  // The Flow marks the row was fitted around ride along on the name, for flow.js paintMarks to compare.
-  assert.match(cell, /data-mk=""/);
-  // Before the font is known: 120px, never less.
-  const cold = tableView({ withFont: false });
-  assert.strictEqual(cold.T.tvNameMin('a.mp4'), 120);
-});
-
 test('table view: the name keeps min(its width, 120px); the marks stay whole; a long name gives way to the chips', () => {
   const flowMarks = { 5: { pos: '123 · was 340', playing: true, next: false } };
   const long = 'x'.repeat(100);            // 700 px
   const rows = { 1: { id: 1, filename: long }, 2: { id: 2, filename: 'a.mp4' }, 5: { id: 5, filename: long, user_starred: 1 } };
   const { T } = tableView({ rows, flowMarks });
-  // The least: all of a short name, 120px of a long one; under that only when the marks need it, never under 24px.
+  // The least: all of a short name, 120px of a long one; under that only when what must stay whole needs it.
   assert.strictEqual(T.tvNameMinFor(35, 0, 400), 35);
   assert.strictEqual(T.tvNameMinFor(700, 0, 400), 120);
   assert.strictEqual(T.tvNameMinFor(700, 300, 400), 98, 'the marks take 300 of 400');
-  assert.strictEqual(T.tvNameMinFor(700, 390, 400), 24, 'never under its first letters');
+  assert.strictEqual(T.tvNameMinFor(700, 390, 400), 8, 'the name takes what is left');
+  assert.strictEqual(T.tvNameMinFor(700, 420, 400), 0);
   T.setTitleW(431);
   // A long name is held to what its chips leave, so the chips do not give way to it.
   const b = T.tvNameBounds(rows[1], 150);
   assert.strictEqual(b.min, 120);
   assert.strictEqual(b.max, Math.floor(431 - ACT - 150 - 14.8));
   assert.strictEqual(T.tvNameBounds(rows[1], 0).max, Math.floor(431 - ACT), 'no chips: all of it but where the buttons go on hover');
-  // Playing, a Flow position and the heart on a narrow table: the name gives way, the marks keep their room.
-  T.setTitleW(320);
-  const r5 = T.tvNameBounds(rows[5], 0);
+  // Playing, a Flow position and the heart: the name gives way, the marks keep their room
+  // (all but Playing's progress line and the faint "· was 340", which give way first), short of the buttons.
   const marks = T.tvMarksWidth(rows[5], flowMarks[5]);
-  assert.ok(r5.min < 120 && r5.min >= 24, String(r5.min));
-  assert.ok(r5.min + marks <= 320, `name ${r5.min} + marks ${marks} fit 320`);
+  const marksLeast = marks - T.tvMarksGive(flowMarks[5]);
+  assert.ok(T.tvMarksGive(flowMarks[5]) > 48, 'the line and "· was 340"');
+  T.setTitleW(280);
+  const r5 = T.tvNameBounds(rows[5], 0);
+  assert.ok(r5.min < 120, String(r5.min));
+  assert.ok(r5.min + marksLeast <= 280 - ACT, `name ${r5.min} + marks ${marksLeast} fit ${280 - ACT}`);
   // With stream tags, +n stays whole too: the name gives way a little more.
-  T.setTitleW(360);
-  const r5b = T.tvNameBounds(rows[5], 0);
   const t5 = T.tvNameBounds(rows[5], 32);
-  assert.ok(t5.min < r5b.min && t5.min >= 24, `${t5.min} < ${r5b.min}`);
-  assert.ok(t5.min + marks + 32 + 14.8 <= 360, `name ${t5.min} + marks + +n fit 360`);
+  assert.ok(t5.min < r5.min, `${t5.min} < ${r5.min}`);
+  assert.ok(t5.min + marksLeast + 32 + 14.8 <= 280 - ACT, `name ${t5.min} + marks + +n fit ${280 - ACT}`);
   assert.strictEqual(T.tvStagFit(rows[5]).budget, 0, 'no room for a chip: +n alone');
+});
+
+test('table view: name, chips, +n and marks fit the Title cell short of the row\'s buttons, at any width', () => {
+  const flowMarks = { 5: { pos: '12 · was 40', playing: true, next: false }, 6: { pos: '3 · was 9', playing: false, next: true } };
+  const rows = {
+    1: { id: 1, filename: 'x'.repeat(80) },
+    2: { id: 2, filename: 'a.mp4' },
+    3: { id: 3, filename: 'x'.repeat(30), user_starred: 1, user_flagged_delete: 1, watch_new: 1 },
+    5: { id: 5, filename: 'x'.repeat(40), user_starred: 1 },
+    6: { id: 6, filename: 'b.mp4', user_starred: 1, user_flagged_delete: 1, watch_new: 1 },
+  };
+  const { T } = tableView({ rows, flowMarks });
+  const spacing = 14.8, more = 32;
+  for (let titleW = 160; titleW <= 900; titleW += 7) {
+    T.setTitleW(titleW);
+    const free = titleW - ACT;
+    for (const id of Object.keys(rows).map(Number)) {
+      const m = rows[id], fm = flowMarks[id] || null;
+      const marks = T.tvMarksWidth(m, fm);
+      const marksLeast = marks - T.tvMarksGive(fm);   // Playing's line and "· was N" give way first
+      const at = `title ${titleW} row ${id}`;
+      // The name at its least beside the marks and +n: inside the free width, or, with no room, the name takes what is left.
+      const nb = T.tvNameBounds(m, more);
+      if (Math.floor(free - marksLeast - more - spacing - 2) >= 0) assert.ok(nb.min + marksLeast + more + spacing <= free, `${at}: least ${nb.min}`);
+      else assert.strictEqual(nb.min, 0, at);
+      // The chips' room comes out of the free width, the name keeping its share.
+      const { budget } = T.tvStagFit(m);
+      const share = Math.min(7 * m.filename.length, Math.max(120, free * 0.4));
+      if (budget > 0) assert.ok(share + marks + spacing + budget <= free + 1, `${at}: budget ${budget}`);
+      // With chips of that width, the name is held to what is left of the free width.
+      if (budget > 0) {
+        const b = T.tvNameBounds(m, budget);
+        assert.ok(b.max === b.min || b.max + marks + spacing + budget <= free + 1, `${at}: name max ${b.max}`);
+      }
+    }
+  }
 });
 
 test('table view: the room for chips leaves out only the marks a row shows', () => {
