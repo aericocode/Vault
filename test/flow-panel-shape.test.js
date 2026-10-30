@@ -102,3 +102,29 @@ test('a collection with a remembered Flow order gets its own shape back when Flo
   assert.strictEqual(s.shape, 'peak');
   assert.ok(p.urls.filter(u => u.startsWith('/api/flow/collections/1?')).every(u => u.includes('shape=peak')));
 });
+
+test('Waves: the count of peaks is asked for, remembered with the shape, and an old entry reads as 2', async () => {
+  const p = page();
+  p.ctx.activeCollectionId = 3;
+  await p.Flow.toggle(3);
+  p.urls.length = 0;
+  await p.Flow.pickWaves(4);
+  assert.strictEqual(p.Flow._state().shape, 'waves');
+  assert.strictEqual(p.Flow._state().waves, 4);
+  assert.ok(p.urls.some(u => u.startsWith('/api/flow/collections/3?shape=waves') && u.includes('waves=4')), p.urls.join(', '));
+  assert.deepStrictEqual(JSON.parse(p.store.get('vault.flow.order.3')), { shape: 'waves', waves: 4, places: null, edited: null });
+  // Another shape keeps the count for later, and does not ask with it.
+  p.urls.length = 0;
+  await p.Flow.pickShape('build');
+  assert.ok(p.urls.filter(u => u.startsWith('/api/flow/collections/3?')).every(u => !u.includes('waves=')));
+  await p.Flow.pickShape('waves');
+  assert.strictEqual(p.Flow._state().waves, 4);
+
+  // A remembered entry from before counts: 2.
+  p.store.set('vault.flow.order.1', JSON.stringify({ shape: 'waves', places: null, edited: null }));
+  p.ctx.activeCollectionId = 1;
+  p.urls.length = 0;
+  await p.Flow.toggle(1);
+  assert.strictEqual(p.Flow._state().waves, 2);
+  assert.ok(p.urls.filter(u => u.startsWith('/api/flow/collections/1?')).every(u => u.includes('waves=2')));
+});

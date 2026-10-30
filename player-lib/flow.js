@@ -65,6 +65,7 @@ const Flow = (() => {
     open: false,
     order: false,       // Flow order is what the grid shows
     shape: DEFAULT_SHAPE,
+    waves: FlowOrder.WAVES_DEFAULT,  // Waves: how many peaks (1..6)
     data: null,         // GET /api/flow/collections/:id
     byId: new Map(),    // id -> features
     status: null,       // GET /api/flow/status
@@ -132,6 +133,7 @@ const Flow = (() => {
     // Each collection starts from the default shape (or its remembered one,
     // restore / toggle): never the shape picked on the one before.
     st.shape = DEFAULT_SHAPE;
+    st.waves = FlowOrder.WAVES_DEFAULT;
     st.places = null;
     st.edited = null;
     st.membersRef = null;
@@ -221,7 +223,8 @@ const Flow = (() => {
     st.fetching = true;
     const cid = st.cid;
     try {
-      const data = await api(`/api/flow/collections/${cid}?shape=${encodeURIComponent(st.shape)}&places=${placesOn() ? 1 : 0}`);
+      const waves = st.shape === 'waves' ? `&waves=${st.waves}` : '';
+      const data = await api(`/api/flow/collections/${cid}?shape=${encodeURIComponent(st.shape)}&places=${placesOn() ? 1 : 0}${waves}`);
       if (cid !== st.cid) return;
       st.data = data;
       if (typeof collectionMembers !== 'undefined' && collectionMembers.get(cid)) st.membersRef = collectionMembers.get(cid);
@@ -361,11 +364,16 @@ const Flow = (() => {
     else if (typeof applyFilters === 'function') await applyFilters({ keepPage: true });
   }
 
-  async function pickShape(shape) {
+  /** The shape and switches picked now, for Undo (offerUndoEdits). */
+  const picks = () => ({ shape: st.shape, waves: st.waves, places: st.places });
+
+  /** Pick a shape (waves: Waves' peaks, kept as they are when not given): Flow order worked out afresh. */
+  async function pickShape(shape, waves = st.waves) {
     if (!FlowOrder.isShape(shape)) return;
-    const dropped = st.order ? st.edited : null, prevShape = st.shape, prevPlaces = st.places;
+    const dropped = st.order ? st.edited : null, prev = picks();
     session++;
     st.shape = shape;
+    st.waves = FlowOrder.wavesCount(waves);
     st.order = true;
     st.edited = null;
     remember();
@@ -374,11 +382,14 @@ const Flow = (() => {
     st.appliedOrder = null;
     await applyOrder();
     paint();
-    offerUndoEdits(dropped, prevShape, prevPlaces, `Worked out ${FlowOrder.shapeLabel(shape)} afresh`);
+    offerUndoEdits(dropped, prev, `Worked out ${FlowOrder.shapeLabel(shape)} afresh`);
   }
 
+  /** Waves with this many peaks (1..6): the same as picking the shape. */
+  const pickWaves = (n) => pickShape('waves', n);
+
   async function pickPlaces(on) {
-    const dropped = st.order ? st.edited : null, prevShape = st.shape, prevPlaces = st.places;
+    const dropped = st.order ? st.edited : null, prev = picks();
     session++;
     st.places = !!on;
     st.order = true;
@@ -389,7 +400,18 @@ const Flow = (() => {
     st.appliedOrder = null;
     await applyOrder();
     paint();
-    offerUndoEdits(dropped, prevShape, prevPlaces, `Place tagged files is ${on ? 'on' : 'off'} now`);
+    offerUndoEdits(dropped, prev, `Place tagged files is ${on ? 'on' : 'off'} now`);
+  }
+
+  /** Waves' peaks, 1..6: only while Flow order shows Waves. */
+  function wavesHtml() {
+    if (!st.order || st.shape !== 'waves') return '';
+    let btns = '';
+    for (let n = FlowOrder.WAVES_MIN; n <= FlowOrder.WAVES_MAX; n++) {
+      btns += `<button type="button" data-flow-waves="${n}" aria-pressed="${String(st.waves === n)}" title="${n === 1 ? 'One peak' : `${n} peaks`}">${n}</button>`;
+    }
+    return `<span class="flow-opt"><span class="flow-seg-label">Waves</span>
+        <span class="flow-seg flow-waves" role="group" aria-label="How many waves">${btns}</span></span>`;
   }
 
   /** The Place tagged files switch: only for a collection with placed tags (or once used). */
@@ -478,7 +500,7 @@ const Flow = (() => {
      out afresh and drops the edits, with Undo.
 
      Remembered per collection on this computer (localStorage
-     vault.flow.order.<id>: { shape, places, edited }): while the key is
+     vault.flow.order.<id>: { shape, waves, places, edited }): while the key is
      there, opening the collection (or reloading) shows Flow order again.
      Going back, saving or shuffling removes it. An edited order is kept
      valid when files come or go: gone ones dropped, new ones at the end. */
@@ -559,7 +581,7 @@ const Flow = (() => {
     if (st.cid == null) return;
     try {
       if (!st.order) localStorage.removeItem(MEM_PREFIX + st.cid);
-      else localStorage.setItem(MEM_PREFIX + st.cid, JSON.stringify({ shape: st.shape, places: st.places, edited: st.edited }));
+      else localStorage.setItem(MEM_PREFIX + st.cid, JSON.stringify({ shape: st.shape, waves: st.waves, places: st.places, edited: st.edited }));
     } catch {}
   }
 
@@ -576,6 +598,7 @@ const Flow = (() => {
   /** Show a remembered Flow order (recalled) for st.cid: its shape, its switch and its edits. */
   function adopt(m) {
     st.shape = m.shape;
+    st.waves = FlowOrder.wavesCount(m.waves);
     st.places = m.places;
     st.edited = m.edited;
     st.order = true;
@@ -645,13 +668,14 @@ const Flow = (() => {
   }
 
   /** Picking a shape or Place tagged files again dropped the edits: Undo puts them (and the old pick) back. */
-  function offerUndoEdits(dropped, prevShape, prevPlaces, what) {
+  function offerUndoEdits(dropped, prev, what) {
     if (!dropped || typeof showUndoToast !== 'function') return;
     const made = sessionNow();
     showUndoToast(`${what}, so your moves in Flow order were dropped`, async () => {
       if (!sameSession(made)) return;                  // Back, Save, another collection or another pick since
-      st.shape = prevShape;
-      st.places = prevPlaces;
+      st.shape = prev.shape;
+      st.waves = prev.waves;
+      st.places = prev.places;
       st.order = true;
       await refetch(true);
       if (!st.data) return;
@@ -688,8 +712,11 @@ const Flow = (() => {
    * 2:14:30 left" while Stage plays this collection (StageControl.countFor),
    * else "40 files · 2:41:05": the files in the order and their lengths
    * added up (videos and sound; pictures have none here), "about" when some
-   * are not known yet. Rows not loaded are fetched once, then it is drawn
-   * again. Over StageCount.TIME_CAP files: the number only.
+   * are not known yet. The grid showing the whole collection (no search or
+   * filter): the server's total, any size (collections.js
+   * collectionShowsWhole). Narrowed: the rows the grid shows, added up here;
+   * rows not loaded are fetched once, then it is drawn again, and over
+   * StageCount.TIME_CAP files it is the number only.
    */
   let countRowsKey = '';
   function orderCountText() {
@@ -697,6 +724,11 @@ const Flow = (() => {
     const onStage = typeof StageControl !== 'undefined' && StageControl.countFor ? StageControl.countFor(st.cid) : null;
     if (onStage) return onStage;
     const n = Library.length();
+    const c = typeof getCollectionById === 'function' ? getCollectionById(st.cid) : null;
+    if (c && typeof collectionShowsWhole === 'function' && collectionShowsWhole(c)) {
+      const t = StageCount.collectionTime(c);
+      return StageCount.listText(Library.known() ? n : (c.listed_count ?? c.item_count), t ? t.seconds : null, !!(t && t.about));
+    }
     if (!Library.known() || n > StageCount.TIME_CAP) return StageCount.listText(n, null);
     let secs = 0, unknown = 0, timed = 0;
     const missing = [];
@@ -1066,7 +1098,7 @@ const Flow = (() => {
   /** The dashed guide: the picked shape's targets in Flow order (edited or not), else null. */
   function guide() {
     if (!st.order || !st.data) return null;
-    const t = FlowOrder.guideTargets(st.shape, st.data);
+    const t = FlowOrder.guideTargets(st.shape, st.data, st.waves);
     const w = workingOrder(), s = shown(w);
     if (!t || s === w) return t;
     // The grid hides some files: each shown column keeps its position's target.
@@ -1942,6 +1974,7 @@ const Flow = (() => {
         ${placesHtml()}
         <span class="flow-opt"><span class="flow-seg-label">Shape</span>
         <span class="flow-seg flow-shapes" role="group" aria-label="Shape">${shapes}</span></span>
+        ${wavesHtml()}
         ${zoomHtml()}
         ${hideBtn}
       </div>
@@ -2020,6 +2053,8 @@ const Flow = (() => {
     el.addEventListener('click', (e) => {
       const s = e.target.closest('[data-flow-shape]');
       if (s) { pickShape(s.dataset.flowShape); return; }
+      const wv = e.target.closest('[data-flow-waves]');
+      if (wv) { pickWaves(Number(wv.dataset.flowWaves)); return; }
       const o = e.target.closest('[data-flow-order]');
       if (o) { if (o.dataset.flowOrder === 'flow') useFlowOrder(); else usePlaylistOrder(); return; }
       const q = e.target.closest('[data-flow-q]');
@@ -2974,6 +3009,8 @@ const Flow = (() => {
     if (cid != null && st.cid == null && recalled(cid)) restore(cid);
     scheduleMarks();
   });
+  // The exact count arrived: the order bar's count may now read the server's total (or no longer).
+  window.addEventListener('vault:results-counted', () => paintCount());
   document.addEventListener('DOMContentLoaded', wire);
   if (document.readyState !== 'loading') wire();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startMarks);
@@ -2989,7 +3026,7 @@ const Flow = (() => {
   else setTimeout(watchTags, 0);
 
   return {
-    toggle, close, pickShape, pickPlaces, showFromBar, useFlowOrder, usePlaylistOrder, saveOrder, refetch,
+    toggle, close, pickShape, pickWaves, pickPlaces, showFromBar, useFlowOrder, usePlaylistOrder, saveOrder, refetch,
     tileHtml, queryRanked, shuffleCollection, stageCurrent,
     isOpen: () => st.open && isMine(),
     // The chart (tests): clicks, picks, the strip, Fit / Zoom.

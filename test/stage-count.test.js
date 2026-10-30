@@ -73,6 +73,10 @@ test('text: "Track 12 of 40 · 2:14:30 left" in parts, the closed form "40 files
   assert.strictEqual(C.listText(40, 2 * 3600 + 41 * 60 + 5), '40 files · 2:41:05');
   assert.strictEqual(C.listText(1, 30, true), '1 file · about 0:30');
   assert.strictEqual(C.listText(12, null), '12 files');
+  assert.strictEqual(C.clock(86400 + 2 * 3600 + 14 * 60 + 30), '1:02:14:30', 'a day or more: days first');
+  assert.strictEqual(C.clock(3 * 86400 + 5), '3:00:00:05');
+  assert.strictEqual(C.clock(86399), '23:59:59');
+  assert.strictEqual(C.listText(900, 2 * 86400 + 3600), '900 files · 2:01:00:00');
   assert.strictEqual(C.listText(0, 50), '0 files');
   const src = require('node:fs').readFileSync(require.resolve('../player-lib/stage-count.js'), 'utf8');
   assert.ok(!src.includes('—'), 'no em dash anywhere');
@@ -96,4 +100,16 @@ test('upPlayed: the queue moving on by itself past files that do not play (a pic
   const after = C.nextUpPlayed(up, { via: 'list', index: 2, lastIndex: 0, auto: true });
   const s = C.summary({ types, length: 3, anchor: 2, upPlayed: after, basic: true, rest: [], current: { t: 0, d: 10 } });
   assert.deepStrictEqual([s.index, s.total], [3, 3]);
+});
+
+test('a whole collection\'s length from the server: any size, "about" with some unknown, none with most unknown', () => {
+  const c = (timed, total, unknown, files = timed) => ({ item_count: files, timed_count: timed, total_seconds: total, unknown_seconds_count: unknown });
+  // 640 files, far past TIME_CAP: still timed.
+  assert.deepStrictEqual(C.collectionTime(c(640, 148328, 0)), { seconds: 148328, about: false });
+  assert.strictEqual(C.listText(640, 148328), '640 files · 1:17:12:08');
+  assert.deepStrictEqual(C.collectionTime(c(10, 600, 5)), { seconds: 600, about: true }, 'half unknown: about');
+  assert.strictEqual(C.collectionTime(c(10, 500, 6)), null, 'more than half unknown');
+  assert.strictEqual(C.collectionTime(c(0, 0, 0, 12)), null, 'pictures only');
+  assert.strictEqual(C.collectionTime({ item_count: 4 }), null, 'nothing from the server (yet)');
+  assert.strictEqual(C.collectionTime(null), null);
 });

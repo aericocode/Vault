@@ -4,8 +4,9 @@
  *
  *   GET  /api/flow/status[?collection=ID]   the queue (and that collection's counts,
  *        with queued / queuedFailed / again: its files still to do), workerError
- *   GET  /api/flow/collections/:id?shape=build&first=ID&places=1
- *        Flow order: { shape, order, playlistOrder, features (a file that
+ *   GET  /api/flow/collections/:id?shape=build&first=ID&places=1&waves=3
+ *        (waves: Waves' peaks, 1..6, 2 when missing or not one of those)
+ *        Flow order: { shape, waves, order, playlistOrder, features (a file that
  *        could not be measured has reason, in plain words, and error, as
  *        ffmpeg said it), targets,
  *        handovers, jumps, playlistJumps, counts, places, placesOn }.
@@ -32,6 +33,7 @@
 
 const express = require('express');
 const flow = require('../lib/flow/service');
+const FlowOrder = require('../player-lib/flow-order.js');
 
 const ERR = { NOT_FOUND: 404, FOLDER: 400, TOO_MANY: 413, VAULT_LOCKED: 423 };
 
@@ -62,16 +64,18 @@ function buildRouter() {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'bad id' });
     const shape = String(req.query.shape || 'smooth');
-    if (!require('../player-lib/flow-order.js').isShape(shape)) return res.status(400).json({ error: 'shape must be smooth, build, waves, peak or steady' });
+    if (!FlowOrder.isShape(shape)) return res.status(400).json({ error: 'shape must be smooth, build, waves, peak or steady' });
     let first = null;
     if (req.query.first != null && req.query.first !== '') {
       first = parseId(req.query.first);
       if (!first) return res.status(400).json({ error: 'bad first id' });
     }
+    // Waves: how many peaks, 1..6 (2 when missing or anything else).
+    const waves = FlowOrder.wavesCount(req.query.waves == null ? null : String(req.query.waves));
     const places = req.query.places == null || req.query.places === '' ? '0' : String(req.query.places);
     if (places !== '0' && places !== '1') return res.status(400).json({ error: 'places must be 0 or 1' });
     try {
-      res.json(await flow.collectionFlow(id, { shape, firstId: first, places: places === '1' }));
+      res.json(await flow.collectionFlow(id, { shape, waves, firstId: first, places: places === '1' }));
     } catch (err) { fail(res, err); }
   });
 

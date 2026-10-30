@@ -54,7 +54,7 @@ test('layout: the transport is in the middle of the window: both sides the same 
 test('layout: narrower bars drop the 10 s buttons, then the Up next word, the track count (its time first), then the volume slider, then the times, Repeat and Hold, before the seek bar gives way', () => {
   const noCount = { countTime: false, count: false };
   assert.deepStrictEqual(R.layout(1000, SIZES).show, { ...ALL, skip: false, unLabel: false });
-  assert.deepStrictEqual(R.layout(900, SIZES).show, { ...ALL, ...noCount, skip: false, unLabel: false, volSlider: false });
+  assert.deepStrictEqual(R.layout(900, SIZES).show, { ...ALL, ...noCount, skip: false, unLabel: false, volSlider: false, backLabel: false });
   assert.strictEqual(R.layout(900, SIZES).seek, R.seekWant(900), 'the seek bar keeps the width it wants while pieces can still go');
   assert.deepStrictEqual(R.layout(760, SIZES).show, { ...ALL, ...noCount, skip: false, unLabel: false, volSlider: false, times: false, backLabel: false });
   const none = { countTime: false, count: false, skip: false, unLabel: false, volSlider: false, times: false, repeat: false, hold: false, back: true, backLabel: false };
@@ -591,7 +591,32 @@ test('layout: the track count goes after the 10 s buttons and the Up next word (
   assert.strictEqual(R.layout(R.BACK_LABEL_WIDTH - 1, M).show.backLabel, false, 'narrower: just the arrow');
   const css = read('css/stage-remote.css');
   assert.match(css, /\.stage-bar\.sb-no-counttime \.sb-count-time,\s*\.stage-bar\.sb-no-count \.sb-count \{ display: none; \}/);
-  assert.match(css, /\.stage-bar\.sb-no-backlabel \.sb-return-label \{ display: none; \}/);
+  assert.match(css, /\.stage-bar\.sb-no-backlabel \.sb-return-label,\s*\.stage-bar\.sb-no-backlabel \.sb-show-label \{ display: none; \}/);
+});
+
+test('Preview: beside the pill while a file is on Stage, the same chip as Back to Stage, its words and its place by the same widths', () => {
+  const base = { hasFile: true, id: 7, filename: 'a.mp4', mediaType: 'video', t: 1, d: 10, repeat: 'off', upNext: 0 };
+  assert.deepStrictEqual(R.view(base).preview, { show: true, title: 'Show the file on Stage in the preview' });
+  assert.strictEqual(R.view({ ...base, hasFile: false, id: null }).preview.show, false, 'nothing on Stage');
+  assert.strictEqual(R.view({ ...base, locked: true }).preview.show, false, 'locked');
+  assert.strictEqual(R.view({ ...base, id: null }).preview.show, false, 'no id to show');
+  // Words on a wide bar, the icon below BACK_LABEL_WIDTH (the same flag as Back to Stage),
+  // and with the bar not centred both go into the Stage menu (show.back).
+  const html = read('db-viewer.html');
+  assert.match(html, /<button type="button" class="sb-chip sb-show" id="stageBarPreview" data-sb-act="preview"[^>]*hidden><span class="vi-w" data-vi="eye" aria-hidden="true">[^<]+<\/span><span class="sb-show-label">Preview<\/span><\/button>/);
+  assert.ok(html.indexOf('id="stageBarPill"') < html.indexOf('id="stageBarPreview"') && html.indexOf('id="stageBarPreview"') < html.indexOf('id="stageBarReturn"'), 'after the pill, before Back to Stage (which comes and goes)');
+  const css = read('css/stage-remote.css');
+  assert.match(css, /\.stage-bar\.sb-no-back #stageBarReturn,\s*\.stage-bar\.sb-no-back #stageBarPreview \{ display: none; \}/);
+  const sc = read('player-lib/stage-control.js');
+  assert.match(sc, /const previewItem = dropped\.back && v && v\.preview && v\.preview\.show \? .*data-stage-act="preview".*Preview/);
+  assert.match(sc, /\$\{previewItem\}\$\{backItem\}/, 'beside Back to Stage in the menu');
+  assert.match(sc, /else if \(act === 'preview'\) \{ const id = stageFileId\(\); if \(id && typeof StagePreview !== 'undefined'\) StagePreview\.previewPlaying\(id\); \}/);
+  assert.match(read('player-lib/stage-bar.js'), /case 'preview': if \(last && last\.id && typeof StagePreview !== 'undefined'\) StagePreview\.previewPlaying\(last\.id\); break;/);
+  // Every bar wide enough for the words and centred has a left side for the still, the pill and both chips.
+  for (let w = R.BACK_LABEL_WIDTH; w <= 2000; w += 10) {
+    const l = R.layout(w, SIZES);
+    assert.ok(l.mid != null && l.side >= 330, `${w}: left side ${l.side}`);
+  }
 });
 
 test('view: Back to Stage, the track count and Basic\'s reopen button; a lock hides them all; plain words, no em dashes', () => {

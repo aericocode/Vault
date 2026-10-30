@@ -116,12 +116,14 @@ const StageCount = (() => {
     return out;
   }
 
-  /** 2:14:30, or 4:05 under an hour. */
+  /** 4:05 under an hour, 2:14:30 under a day, 3:02:14:30 (days first) past it. */
   function clock(s) {
     const v = Math.max(0, Math.round(Number(s) || 0));
-    const h = Math.floor(v / 3600);
+    const d = Math.floor(v / 86400);
+    const h = Math.floor((v % 86400) / 3600);
     const mm = Math.floor((v % 3600) / 60);
     const ss = String(v % 60).padStart(2, '0');
+    if (d) return `${d}:${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${ss}`;
     return h ? `${h}:${String(mm).padStart(2, '0')}:${ss}` : `${mm}:${ss}`;
   }
 
@@ -146,6 +148,20 @@ const StageCount = (() => {
   }
 
   /**
+   * A whole collection's length as the server added it up (GET
+   * /api/collections: timed_count, total_seconds, unknown_seconds_count):
+   * { seconds, about }, or null when there is nothing to time or more than
+   * half the lengths are not known (the same rules as a list counted here).
+   * Any size: the server adds it up, so TIME_CAP does not apply.
+   */
+  function collectionTime(c) {
+    if (!c || !Number.isFinite(c.total_seconds)) return null;
+    const timed = Number(c.timed_count) || 0, unknown = Number(c.unknown_seconds_count) || 0;
+    if (!(timed > 0) || unknown * 2 > timed) return null;
+    return { seconds: Math.round(c.total_seconds), about: unknown > 0 };
+  }
+
+  /**
    * The Up next files played so far, after a file started on Stage. via:
    * where it came from ('upnext', 'list', 'user'). A list file one step on
    * from the last one keeps the count, and so does one further on that the
@@ -163,7 +179,7 @@ const StageCount = (() => {
     return 0;
   }
 
-  return { TIME_CAP, plays, fileSeconds, summary, clock, text, listText, nextUpPlayed };
+  return { TIME_CAP, plays, fileSeconds, summary, clock, text, listText, collectionTime, nextUpPlayed };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = StageCount;

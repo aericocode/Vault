@@ -1214,6 +1214,7 @@ const StageControl = (() => {
         else if (act === 'repeat') { if (typeof cycleRepeatMode === 'function') cycleRepeatMode(); }
         else if (act === 'hold') toggleHold();
         else if (act === 'return') backToStage();
+        else if (act === 'preview') { const id = stageFileId(); if (id && typeof StagePreview !== 'undefined') StagePreview.previewPlaying(id); }
         else setSize(act);
       });
     }
@@ -1223,7 +1224,9 @@ const StageControl = (() => {
     const v = typeof StageBarRules !== 'undefined' ? StageBarRules.view(barState()) : null;
     const dropped = bar() && bar().dropped ? bar().dropped() : {};
     const backItem = dropped.back && canGoBack() ? `<button type="button" role="menuitem" data-stage-act="return"><span class="sm-check" aria-hidden="true">↩</span><span class="sm-l">Back to Stage</span><span class="sm-s">where it is playing from</span></button>` : '';
-    const extra = !v ? '' : `${backItem}${dropped.repeat ? `<button type="button" role="menuitem" data-stage-act="repeat"><span class="sm-check"></span><span class="sm-l">${esc(v.repeat.label)}</span><span class="sm-s">click to change</span></button>` : ''}${dropped.hold ? `<button type="button" role="menuitem" data-stage-act="hold"><span class="sm-check" aria-hidden="true">${v.hold.on ? '✓' : ''}</span><span class="sm-l">Hold</span><span class="sm-s">${basic ? 'pause and mute' : 'black and silent'} (H)</span></button>` : ''}`;
+    // Preview goes with Back to Stage (the bar's left side had no room for either).
+    const previewItem = dropped.back && v && v.preview && v.preview.show ? `<button type="button" role="menuitem" data-stage-act="preview"><span class="sm-check" aria-hidden="true"></span><span class="sm-l">Preview</span><span class="sm-s">the file on Stage</span></button>` : '';
+    const extra = !v ? '' : `${previewItem}${backItem}${dropped.repeat ? `<button type="button" role="menuitem" data-stage-act="repeat"><span class="sm-check"></span><span class="sm-l">${esc(v.repeat.label)}</span><span class="sm-s">click to change</span></button>` : ''}${dropped.hold ? `<button type="button" role="menuitem" data-stage-act="hold"><span class="sm-check" aria-hidden="true">${v.hold.on ? '✓' : ''}</span><span class="sm-l">Hold</span><span class="sm-s">${basic ? 'pause and mute' : 'black and silent'} (H)</span></button>` : ''}`;
     el.innerHTML = basic ? `
       <div class="sm-h">Basic Stage</div>
       <button type="button" role="menuitem" data-stage-act="front"><span class="sm-check"></span><span class="sm-l">Show the picture-in-picture window</span></button>

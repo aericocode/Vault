@@ -18,10 +18,15 @@
        has one, for the chart) }
 
    - SHAPES, shapeLabel(k)       the shapes you pick from
-   - targetsFor(shape, feats)    the energy each position aims for, across the
-                                 collection's own range (null for Smooth only)
-   - guideTargets(shape, data)   the chart's dashed guide for the shape picked
-                                 (the server's targets when they are for it)
+   - WAVES_MIN..WAVES_MAX, wavesCount(v)  how many peaks Waves has (default 2)
+   - targetsFor(shape, feats, o) the energy each position aims for, across the
+                                 collection's own range (null for Smooth only;
+                                 o.waves: the peaks of Waves)
+   - shapeOutliers(feats)        the files off the playlist's tempo, which the
+                                 shape leaves out (see "Off tempo" below)
+   - markOffTempo(feats, shape)  the files as planOrder plans them (Off tempo)
+   - guideTargets(shape, data, waves)  the chart's dashed guide for the shape
+                                 picked (the server's targets when they are for it)
    - handoverCost(a, b)          how well the end of a flows into the start of b
    - handover(a, b)              its grade and parts: { grade, energyGrade,
                                  tempoGrade, dE, tempoPct }
@@ -92,6 +97,23 @@
      before version 5, a file under 20 s) and a file with no music are
      looked at as they are, whatever the mode.
 
+   Off tempo (shapeOutliers). Energy is partly tempo (lib/flow/analyze.js),
+   so a few files far off the playlist's tempo would stretch the shape's
+   range and leave most files bunched in a band the line hardly follows.
+   With at least OFF_MIN music files that have a tempo, a file whose middle
+   tempo is more than OFF_RATIO off the median (as it is, not folded: a
+   median of 128 makes under about 95 or over about 173 off tempo) is off
+   tempo. Off-tempo files are left out of the range, which is then the 5th
+   to 95th percentile of the others' middle energies (not their lowest and
+   highest). For the shape they count with their energy kept inside that
+   range (clamped to lo..hi), at the usual weight, so a calm one is drawn to
+   a low part of the curve and a hot one to a high part (Build up starts on
+   the calm ones and ends on the hot ones); a Place tag still wins. Their
+   hand-overs cost by energy alone in planOrder: a tempo jump either side
+   would cost the most there is and push them to the ends of the order,
+   where they have one neighbour. The grades and their words still say it. A
+   smaller playlist uses every file and the full range.
+
    Files with nothing to place them by (not measured yet, couldn't be
    measured, no audio stream, silent) keep their playlist positions; the
    rest are ordered around them.
@@ -128,7 +150,7 @@ const FlowOrder = (() => {
     { key: 'smooth', label: 'Smooth only' },
     { key: 'build', label: 'Build up' },
     { key: 'waves', label: 'Waves' },
-    { key: 'peak', label: 'Peak then cool down' },
+    { key: 'peak', label: 'Peak' },
     { key: 'steady', label: 'Steady' },
   ];
   const SHAPE_KEYS = SHAPES.map(s => s.key);
@@ -143,6 +165,10 @@ const FlowOrder = (() => {
   const UNKNOWN_TEMPO = 0.5;       // both have music, a tempo is unknown: half a jump step
   const W_SHAPE = 1.5;             // a shape you picked outweighs a hand-over or two
   const UNKNOWN_SHAPE = 0.3;       // an unmeasured file's cost at any position (the same everywhere)
+  const WAVES_MIN = 1, WAVES_MAX = 6, WAVES_DEFAULT = 2;   // Waves: how many peaks
+  const OFF_MIN = 12;              // Off tempo: music files with a tempo needed before any is left out
+  const OFF_RATIO = 1.35;          // ...this far off the median tempo (as it is, not folded)
+  const RANGE_PCT = 0.05;          // the shape's range then: this percentile to its mirror
   const ALL_STARTS_MAX = 120;
   const FULL_SWAP_MAX = 600;       // up to here every pair is tried; above, pairs within a window
   const RELOCATE_MAX = 150;        // up to here a file may move anywhere; above, within 20 places
@@ -174,11 +200,21 @@ const FlowOrder = (() => {
   const shapeLabel = (k) => (SHAPES.find(s => s.key === k) || SHAPES[0]).label;
   const isShape = (k) => SHAPE_KEYS.includes(k);
 
-  /** The shape's curve at t (0 first .. 1 last), 0..1, or null (Smooth only). */
-  function curve(shape, t) {
+  /** How many peaks Waves has: a whole number WAVES_MIN..WAVES_MAX, else the default (2). */
+  function wavesCount(v) {
+    const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+    return Number.isInteger(n) && n >= WAVES_MIN && n <= WAVES_MAX ? n : WAVES_DEFAULT;
+  }
+
+  /**
+   * The shape's curve at t (0 first .. 1 last), 0..1, or null (Smooth only).
+   * Waves: sin((2N - 1) pi t) has N crests on 0..1 (2, the default, is the
+   * curve Waves always had).
+   */
+  function curve(shape, t, waves = WAVES_DEFAULT) {
     switch (shape) {
       case 'build': return t;
-      case 'waves': return 0.5 + 0.5 * Math.sin(t * Math.PI * 3);
+      case 'waves': return 0.5 + 0.5 * Math.sin(t * Math.PI * (2 * wavesCount(waves) - 1));
       case 'peak': return t < 0.7 ? t / 0.7 : 1 - (t - 0.7) / 0.3 * 0.85;
       case 'steady': return 0.5;
       default: return null;
@@ -192,26 +228,65 @@ const FlowOrder = (() => {
     return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
   }
 
+  /** The p quantile (0..1) of numbers sorted low to high, between neighbours. */
+  function quantile(s, p) {
+    const x = (s.length - 1) * p, i = Math.floor(x);
+    return i + 1 < s.length ? s[i] + (s[i + 1] - s[i]) * (x - i) : s[i];
+  }
+
   /**
-   * Target energy per position for n files: the shape stretched over the
-   * collection's own range of middle energies (so Build up climbs from its
-   * calmest file to its most intense), Steady holds the median.
-   * @returns {number[]|null}
+   * Off tempo (see the top): the files the shape leaves out, as a Set of
+   * ids; empty under OFF_MIN music files with a tempo.
    */
-  function targetsFor(shape, feats) {
-    const n = feats.length;
-    if (!isShape(shape) || shape === 'smooth' || !n) return null;
-    const ems = feats.filter(f => known(f) && f.music).map(f => f.em);
+  function shapeOutliers(feats) {
+    const out = new Set();
+    const timed = feats.filter(f => hasBeat(f) && bpmOk(f.bm));
+    if (timed.length < OFF_MIN) return out;
+    const med = median(timed.map(f => f.bm));
+    for (const f of timed) if (f.bm > med * OFF_RATIO || f.bm < med / OFF_RATIO) out.add(f.id);
+    return out;
+  }
+
+  /**
+   * The shape's range, { lo, hi, median }: the middle energies of the music
+   * files that are not off tempo (of every measured file when there is no
+   * music), from the 5th to the 95th percentile with OFF_MIN music files
+   * with a tempo or more, else lowest to highest; at least 0.15 wide.
+   */
+  function shapeRange(feats, off) {
+    const music = feats.filter(hasBeat);
+    const ems = music.filter(f => !off.has(f.id)).map(f => f.em);
     const pool = ems.length ? ems : feats.filter(known).map(f => f.em);
-    if (shape === 'steady') { const m = median(pool); return feats.map(() => m); }
-    let lo = pool.length ? Math.min(...pool) : 0.2;
-    let hi = pool.length ? Math.max(...pool) : 0.8;
+    const sorted = pool.slice().sort((a, b) => a - b);
+    // A smaller playlist (under OFF_MIN with a tempo) keeps its lowest to its highest.
+    const trim = music.filter(f => bpmOk(f.bm)).length >= OFF_MIN ? RANGE_PCT : 0;
+    let lo = sorted.length ? quantile(sorted, trim) : 0.2;
+    let hi = sorted.length ? quantile(sorted, 1 - trim) : 0.8;
     if (hi - lo < 0.15) {
       const c = (hi + lo) / 2;
       lo = Math.max(0, c - 0.075); hi = Math.min(1, c + 0.075);
     }
+    return { lo, hi, median: median(pool) };
+  }
+
+  /**
+   * Target energy per position for n files: the shape stretched over the
+   * collection's own range of middle energies (so Build up climbs from its
+   * calmest file to its most intense), Steady holds the median. With
+   * OFF_MIN music files or more the range leaves out the off-tempo ones and
+   * runs from the 5th to the 95th percentile (see the top).
+   * o.waves: Waves' peaks; o.off: shapeOutliers(feats) when worked out already.
+   * @returns {number[]|null}
+   */
+  function targetsFor(shape, feats, o = {}) {
+    const n = feats.length;
+    if (!isShape(shape) || shape === 'smooth' || !n) return null;
+    const off = o.off || shapeOutliers(feats);
+    const { lo, hi, median: m } = shapeRange(feats, off);
+    if (shape === 'steady') return feats.map(() => m);
     const out = [];
-    for (let i = 0; i < n; i++) out.push(lo + (hi - lo) * curve(shape, n === 1 ? 0 : i / (n - 1)));
+    const waves = wavesCount(o.waves);
+    for (let i = 0; i < n; i++) out.push(lo + (hi - lo) * curve(shape, n === 1 ? 0 : i / (n - 1), waves));
     return out;
   }
 
@@ -220,15 +295,18 @@ const FlowOrder = (() => {
    * server's answer carries them for the shape it was asked for; an answer
    * for another shape (one still on its way when the shape changed) gets
    * them worked out here from its files, the same way the server does.
+   * The same goes for an answer for Waves with another count of peaks.
    * @param {string} shape
-   * @param {{shape?: string, targets?: number[]|null, features?: object[]}|null} data
+   * @param {{shape?: string, waves?: number, targets?: number[]|null, features?: object[]}|null} data
+   * @param {number} [waves]  Waves' peaks picked now
    * @returns {number[]|null}
    */
-  function guideTargets(shape, data) {
+  function guideTargets(shape, data, waves = WAVES_DEFAULT) {
     if (!data || !isShape(shape)) return null;
     const feats = Array.isArray(data.features) ? data.features : [];
-    if (data.shape === shape && Array.isArray(data.targets) && data.targets.length === feats.length) return data.targets;
-    return targetsFor(shape, feats);
+    const sameWaves = shape !== 'waves' || wavesCount(data.waves) === wavesCount(waves);
+    if (data.shape === shape && sameWaves && Array.isArray(data.targets) && data.targets.length === feats.length) return data.targets;
+    return targetsFor(shape, feats, { waves });
   }
 
   /**
@@ -270,7 +348,9 @@ const FlowOrder = (() => {
     const ma = !!a.music, mb = !!b.music;
     if (!ma && !mb) return NEUTRAL;
     const eN = Math.min(PART_MAX, Math.abs(eOut(a) - eIn(b)) / E_JUMP);
-    if (!ma || !mb) return W_HAND * eN;
+    // Music on one side only, or an off-tempo file either side (planOrder
+    // marks its copies offTempo; see "Off tempo"): the energy alone.
+    if (!ma || !mb || a.offTempo || b.offTempo) return W_HAND * eN;
     const ab = bpmOut(a), bb = bpmIn(b);
     const tN = ab && bb ? Math.min(PART_MAX, tempoRatio(ab, bb) / T_JUMP) : UNKNOWN_TEMPO;
     return W_HAND * (Math.max(eN, tN) + W_OTHER * Math.min(eN, tN));
@@ -328,10 +408,13 @@ const FlowOrder = (() => {
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
+  /** The energy the shape reads for a file: an off-tempo file's kept inside the range (planOrder sets emShape). */
+  const shapeEm = (f) => (f.emShape != null ? f.emShape : f.em);
+
   function shapeCost(f, target) {
     if (target == null) return 0;
     if (!known(f)) return UNKNOWN_SHAPE;
-    return W_SHAPE * Math.abs(f.em - target);
+    return W_SHAPE * Math.abs(shapeEm(f) - target);
   }
 
   function totalCost(seq, feats, targets) {
@@ -435,24 +518,49 @@ const FlowOrder = (() => {
   }
 
   /**
+   * The files as planOrder plans them: off-tempo ones (see the top) as
+   * copies with their energies kept inside the shape's range (emShape for
+   * the shape; their start and end for the hand-overs, which cost by energy
+   * alone: offTempo). The caller's files are not changed, so the grades and
+   * their words (summary, handover) still say the real jump, tempo and
+   * energy. { feats (the same array when there are none), off: Set of ids }.
+   */
+  function markOffTempo(feats, shape) {
+    const off = !isShape(shape) || shape === 'smooth' ? new Set() : shapeOutliers(feats);
+    if (!off.size) return { feats, off };
+    const { lo, hi } = shapeRange(feats, off);
+    const keep = (v) => (v == null ? v : Math.max(lo, Math.min(hi, v)));
+    return {
+      off,
+      feats: feats.map(f => (off.has(f.id)
+        ? { ...f, offTempo: true, emShape: keep(f.em), es: keep(f.es), ee: keep(f.ee), ei: keep(f.ei), eo: keep(f.eo) }
+        : f)),
+    };
+  }
+
+  /**
    * Flow order.
    * @param {object[]} feats  in playlist order (ties keep it)
    * @param {object} [o]
    * @param {string} [o.shape='smooth']
    * @param {number} [o.firstId]  keep this file first
    * @param {Map|object} [o.places]  id -> place (or a list of places): stream tags
+   * @param {number} [o.waves=2]  Waves: how many peaks
    * @returns {{order: number[], targets: number[]|null, cost: number, placed: number}}
    */
   function planOrder(feats, o = {}) {
     const shape = isShape(o.shape) ? o.shape : 'smooth';
     const firstId = o.firstId != null && feats.some(f => f.id === o.firstId) ? o.firstId : null;
     const places = placesFor(feats, o.places, shape, firstId);
+    const waves = wavesCount(o.waves);
+    let off;
+    ({ feats, off } = markOffTempo(feats, shape));
     // Files with nothing to place them by (not measured yet, couldn't be
     // measured, no sound) stay where they are in the playlist; the rest are
     // ordered around them. A file with a place is ordered all the same.
     const aside = [], placed = [];
     feats.forEach((f, i) => ((known(f) || f.id === firstId || places.has(f.id)) ? placed : aside).push(i));
-    const opts = { ...o, shape, firstId, places };
+    const opts = { ...o, shape, firstId, places, waves, off };
     if (!aside.length || placed.length < 2) return { ...planCore(feats, opts), placed: places.size };
     const n = feats.length;
     const slots = new Array(n);
@@ -465,7 +573,7 @@ const FlowOrder = (() => {
       if (p >= n - tail) { p = n - tail - 1; while (slots[p] !== undefined) p--; }
       slots[p] = feats[i].id;
     }
-    const targets = targetsFor(shape, feats);
+    const targets = targetsFor(shape, feats, { waves, off });
     // With places, the rest is planned against the positions it will really
     // take: the shape's targets at those slots of the whole order, and which
     // of them sit side by side (a peak and its After a peak must, and an
@@ -569,11 +677,11 @@ const FlowOrder = (() => {
    * of the slots these files will take in the whole order, and which slots
    * sit side by side, instead of the shape over these files alone.
    */
-  function planCore(feats, { shape = 'smooth', firstId = null, budget = null, places = null, targets: given, adj = null, meanTarget = null } = {}) {
+  function planCore(feats, { shape = 'smooth', firstId = null, budget = null, places = null, targets: given, adj = null, meanTarget = null, waves, off } = {}) {
     const n = feats.length;
     if (!isShape(shape)) shape = 'smooth';
-    if (n <= 1) return { order: feats.map(f => f.id), targets: targetsFor(shape, feats), cost: 0 };
-    const targets = given !== undefined ? given : targetsFor(shape, feats);
+    if (n <= 1) return { order: feats.map(f => f.id), targets: targetsFor(shape, feats, { waves, off }), cost: 0 };
+    const targets = given !== undefined ? given : targetsFor(shape, feats, { waves, off });
     const fixed = firstId != null ? feats.findIndex(f => f.id === firstId) : -1;
     const G = places && places.size && feats.some(f => places.has(f.id)) ? pinGroups(feats, targets, places, fixed, adj, meanTarget) : null;
     const startOk = (s) => !G || G.file[s] === G.pos[0];
@@ -617,6 +725,11 @@ const FlowOrder = (() => {
    */
   function rankFit(feats, targets, fixed, G = null) {
     const n = feats.length;
+    // Unmeasured files rank as the middle (the shape does not place them).
+    // Off-tempo ones rank by their own energy: clamped, the calm ones would
+    // tie at lo with the calmest files in the range and land among them, a
+    // jump either side; by rank they go first (and the hot ones last), which
+    // the clamped cost agrees with.
     const mid = median(feats.filter(known).map(f => f.em));
     const em = (i) => (known(feats[i]) ? feats[i].em : mid);
     const seq = new Array(n);
@@ -751,10 +864,11 @@ const FlowOrder = (() => {
   }
 
   /**
-   * A remembered Flow order (localStorage text) as { shape, places, edited },
-   * or null when there is none or it is not exactly that shape (the caller
-   * removes it then): a plain object, a known shape, places true / false /
-   * null, edited null or a list of whole positive ids.
+   * A remembered Flow order (localStorage text) as { shape, places, edited,
+   * waves }, or null when there is none or it is not exactly that shape (the
+   * caller removes it then): a plain object, a known shape, places true /
+   * false / null, edited null or a list of whole positive ids. Waves' peaks
+   * read as 2 when missing or not 1..6 (an entry from before they existed).
    */
   function parseRemembered(text) {
     if (typeof text !== 'string' || !text) return null;
@@ -768,7 +882,7 @@ const FlowOrder = (() => {
       if (!Array.isArray(v.edited) || !v.edited.every(id => Number.isInteger(id) && id > 0)) return null;
       edited = v.edited.length ? [...new Set(v.edited)] : null;
     }
-    return { shape: v.shape, places: v.places == null ? null : v.places, edited };
+    return { shape: v.shape, places: v.places == null ? null : v.places, edited, waves: wavesCount(v.waves) };
   }
 
   /**
@@ -873,6 +987,7 @@ const FlowOrder = (() => {
 
   return {
     SHAPES, SHAPE_KEYS, NEUTRAL, E_SMOOTH, E_JUMP, T_SMOOTH, T_JUMP, PLACES, resolvePlace,
+    WAVES_MIN, WAVES_MAX, WAVES_DEFAULT, wavesCount, shapeOutliers, markOffTempo,
     shapeLabel, isShape, curve, targetsFor, guideTargets, tempoRatio, handoverCost, handover, grade, handoverText, planOrder, summary,
     flowShuffle, pickFrom, seeded, energyWord, bpmText, flowText, fromRow, parseEnv, totalCost,
     EDGE_MODES, parseEdges, edgeSkips,

@@ -432,6 +432,32 @@ test('Flow order is worked out once per change, not on every ask', async () => {
   assert.ok(Number(process.hrtime.bigint() - t0) / 1e6 < 100);
 });
 
+test('Waves: the count of peaks comes back with the answer, 2 when missing or not 1..6, and moves the targets', async () => {
+  const FlowOrder = require('../player-lib/flow-order.js');
+  const two = await (await get(`/api/flow/collections/${coll}?shape=waves`)).json();
+  assert.strictEqual(two.waves, 2);
+  for (const bad of ['0', '7', 'x', '2.5']) {
+    const r = await get(`/api/flow/collections/${coll}?shape=waves&waves=${bad}`);
+    assert.strictEqual(r.status, 200, bad);
+    const j = await r.json();
+    assert.strictEqual(j.waves, 2, bad);
+    assert.deepStrictEqual(j.targets, two.targets, bad);
+  }
+  const four = await (await get(`/api/flow/collections/${coll}?shape=waves&waves=4`)).json();
+  assert.strictEqual(four.waves, 4);
+  assert.deepStrictEqual(four.targets, FlowOrder.targetsFor('waves', four.features, { waves: 4 }).map(t => Math.round(t * 1000) / 1000));
+  assert.notDeepStrictEqual(four.targets, two.targets);
+});
+
+test('Waves\' count is only in a Waves answer (another shape\'s cached answer never carries one)', async () => {
+  const asked = await (await get(`/api/flow/collections/${coll}?shape=build&waves=5`)).json();
+  assert.ok(!('waves' in asked), JSON.stringify(Object.keys(asked)));
+  const plain = await (await get(`/api/flow/collections/${coll}?shape=build`)).json();
+  assert.ok(!('waves' in plain));
+  assert.deepStrictEqual(plain.order, asked.order);
+  assert.strictEqual((await (await get(`/api/flow/collections/${coll}?shape=waves&waves=5`)).json()).waves, 5);
+});
+
 test('Stage: switching Even out loudness while a file plays is file-local; the lined-up file is put there again', async () => {
   let cfg = { evenLoudness: true };
   const mpv = fakeMpv();

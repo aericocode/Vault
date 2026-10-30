@@ -2676,7 +2676,7 @@ app.post('/api/import/add-paths', (req, res) => {
   if (collId) {
     const n = ids.length ? db.addToCollection(collId, ids) : 0;
     if (gamifyEnabled && n > 0) require('../lib/quests').onCollect(n);
-    collection = { id: collId, added: n, ids, item_count: db.collectionItemCount(collId), first_ids: db.collectionFirstIds(collId) };
+    collection = { id: collId, added: n, ids, item_count: db.collectionItemCount(collId), first_ids: db.collectionFirstIds(collId), ...db.collectionLength(collId) };
   }
   res.json({ added, skipped, queued: true, ...(collection ? { collection } : {}) });
   setImmediate(() => { importAdd.probeAndThumb(added, { isLocked: () => vault.isLocked(), requireProbe: true }); });
@@ -3172,7 +3172,7 @@ app.delete('/api/collections/:id', (req, res) => {
 app.get('/api/collections/:id', (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'bad id' });
-  res.json({ media_ids: db.getCollectionItems(id) });
+  res.json({ media_ids: db.getCollectionItems(id), ...db.collectionLength(id) });
 });
 
 // Per-collection membership counts for a set of media ids — the picker derives
@@ -3197,7 +3197,7 @@ app.post('/api/collections/:id/items', (req, res) => {
   }
   // Curator quests count NEWLY added pairs only (re-adds are conflict-ignored)
   if (gamifyEnabled && added > 0) require('../lib/quests').onCollect(added);
-  res.json({ added, item_count: db.collectionItemCount(id), first_ids: db.collectionFirstIds(id) });
+  res.json({ added, item_count: db.collectionItemCount(id), first_ids: db.collectionFirstIds(id), ...db.collectionLength(id) });
 });
 
 app.delete('/api/collections/:id/items', (req, res) => {
@@ -3205,7 +3205,7 @@ app.delete('/api/collections/:id/items', (req, res) => {
   const ids = parseIdList(req.body);
   if (!id || ids.length === 0) return res.status(400).json({ error: 'id + ids required' });
   const removed = db.removeFromCollection(id, ids);
-  res.json({ removed, item_count: db.collectionItemCount(id), first_ids: db.collectionFirstIds(id) });
+  res.json({ removed, item_count: db.collectionItemCount(id), first_ids: db.collectionFirstIds(id), ...db.collectionLength(id) });
 });
 
 // Rearrange the playlist order: { move: [ids], before: id | null } moves a
@@ -3222,7 +3222,7 @@ app.post('/api/collections/:id/order', (req, res) => {
     if (status) return res.status(status).json({ error: err.message, code: err.code });
     throw err;
   }
-  res.json({ order, item_count: order.length, first_ids: order.slice(0, 4) });
+  res.json({ order, item_count: order.length, first_ids: order.slice(0, 4), ...db.collectionLength(id) });
 });
 
 // ── Up next (PLAYLISTS_SPEC step 4) ───────────────────────────────────────
