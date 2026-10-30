@@ -608,14 +608,28 @@ function liftScrollTopPill(pill) {
   pill.style.bottom = `${Math.max(0, Math.min(lift, ceiling))}px`;
 }
 
-function updateScrollTopPill() {
+/* What the pill was last set to (null: never). A scroll runs this every
+   frame, and only a change of state is worth writing: the class, tabindex and
+   bottom it would write again are the ones already there. */
+let _pillShown = null;
+
+/**
+ * @param {boolean} [scrolled] a scroll frame: nothing but the scroll moved,
+ *        so the mini player is where it was and the lift needs no new look.
+ */
+function updateScrollTopPill(scrolled) {
   const pill = document.getElementById('scrollTopPill');
   if (!pill) return;
   const show = scrollTopPillShouldShow();
-  pill.classList.toggle('visible', show);
-  // The fade takes 140ms to put `visibility` back; the tab order should not
-  // wait for it, and should not depend on a frame being painted at all.
-  pill.tabIndex = show ? 0 : -1;
+  const changed = show !== _pillShown;
+  if (!changed && scrolled === true) return;
+  _pillShown = show;
+  if (changed) {
+    pill.classList.toggle('visible', show);
+    // The fade takes 140ms to put `visibility` back; the tab order should not
+    // wait for it, and should not depend on a frame being painted at all.
+    pill.tabIndex = show ? 0 : -1;
+  }
   if (show) liftScrollTopPill(pill);
 }
 
@@ -914,7 +928,7 @@ function initGridObservers() {
     scrollQueued = true;
     requestAnimationFrame(() => {
       scrollQueued = false;
-      updateScrollTopPill();
+      updateScrollTopPill(true);
       if (libraryLayoutMode() !== 'continuous') return;
       const r = continuousRange(contState.stride, contState.totalRows);
       if (r.first === contState.first && r.last === contState.last) return;

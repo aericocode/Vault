@@ -215,6 +215,7 @@ const ModernDock = (() => {
       menu: null, fold: -1, frameIdx: -1,
     };
     overlay()?.classList.add('mp-modern');
+    dock.addEventListener('wheel', onSpeedWheel, { passive: false });
 
     bindTimeline();
     const el = videoEl();
@@ -1055,12 +1056,16 @@ const ModernDock = (() => {
     if (typeof rerenderVideoControls === 'function') rerenderVideoControls();
   });
 
-  /* Scrolling on the speed label steps the speed, like < and >. */
-  document.addEventListener('wheel', (e) => {
+  /* Scrolling on the speed label steps the speed, like < and >. Bound to the
+     dock (mount), not the document: a wheel listener that can cancel makes
+     the browser ask the page before every scroll it covers, so one on the
+     document held up every scroll of the library behind whatever the page
+     was busy with. */
+  function onSpeedWheel(e) {
     if (!mounted() || !(e.target instanceof Element) || !e.target.closest('#speedDisplay.mp-pill')) return;
     e.preventDefault();
     cycleSpeed(e.deltaY < 0 ? 1 : -1);
-  }, { passive: false });
+  }
 
   return {
     mounted, mount, unmount, update, refreshMarks, rebuild, drawAb,
