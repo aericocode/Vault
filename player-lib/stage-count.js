@@ -116,12 +116,14 @@ const StageCount = (() => {
     return out;
   }
 
-  /** 2:14:30, or 4:05 under an hour. */
+  /** 4:05 under an hour, 2:14:30 under a day, 3:02:14:30 (days first) past it. */
   function clock(s) {
     const v = Math.max(0, Math.round(Number(s) || 0));
-    const h = Math.floor(v / 3600);
+    const d = Math.floor(v / 86400);
+    const h = Math.floor((v % 86400) / 3600);
     const mm = Math.floor((v % 3600) / 60);
     const ss = String(v % 60).padStart(2, '0');
+    if (d) return `${d}:${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${ss}`;
     return h ? `${h}:${String(mm).padStart(2, '0')}:${ss}` : `${mm}:${ss}`;
   }
 

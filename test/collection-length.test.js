@@ -1,7 +1,7 @@
 /**
  * A collection's total length (db.collectionLength): the server adds up the
  * lengths of its videos and sound files, so the count over the grid can show
- * "640 files · 41:12:08" at any size. Carried by GET /api/collections, GET
+ * "640 files · 1:17:12:08" at any size. Carried by GET /api/collections, GET
  * /api/collections/:id and the answers that change its files.
  */
 
