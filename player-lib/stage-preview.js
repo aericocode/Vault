@@ -26,6 +26,7 @@
      stagePreviewDblClick(id)  cards.js tileThumbDblClick: true = handled here
      stagePreviewForcing()     dock.js: the pane shows for Stage
      stagePreviewHintHtml()    dock.js: the line in the pane
+     StagePreview.previewPlaying(id)  stage-bar.js / the Stage menu: Preview
    stage-bar.js fires 'vault:stage-bar' ({ on }) when the bar shows and hides.
    ========================================================================= */
 
@@ -69,6 +70,35 @@ const StagePreview = (() => {
     if (typeof dockIsShown === 'function' && dockIsShown() && typeof dockSelect === 'function') dockSelect(id);
     else if (typeof showDetailsById === 'function') showDetailsById(id);   // too narrow for the pane
     hintOnce();
+    return true;
+  }
+
+  /**
+   * The Stage bar's Preview: the file on Stage, the way a click on its tile
+   * shows it. With the pane showing and the file in the results, in the pane,
+   * its tile brought on screen; else (a file the grid does not list, a
+   * window too narrow for the pane) its details, by id.
+   */
+  async function previewPlaying(id) {
+    if (!stageOn() || !id) return false;
+    if (typeof hideTilePopover === 'function') hideTilePopover();
+    if (!forcing) setForcing(true);
+    const pane = typeof dockIsShown === 'function' && dockIsShown() && typeof dockSelect === 'function';
+    let inResults = pane && typeof dockPickInResults === 'function' ? dockPickInResults(id) : false;
+    // Only the first page's ids are here yet: the full list says.
+    if (inResults == null) {
+      const ids = await Library.waitIds().catch(() => null);
+      inResults = !!(ids && ids.includes(id));
+    }
+    if (!pane || !inResults) {
+      // A file the grid does not list may have no row here yet.
+      if (!Library.row(id)) await Library.fetchRows([id]).catch(() => null);
+      if (typeof showDetailsById === 'function') showDetailsById(id);
+      return true;
+    }
+    dockSelect(id);
+    const i = Library.indexOf(id);
+    if (i >= 0 && typeof dockReveal === 'function') dockReveal(i);
     return true;
   }
 
@@ -126,7 +156,7 @@ const StagePreview = (() => {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watch); else watch();
   }
 
-  return { click, dblClick, hintHtml, onControl, noteLayout, forcing: () => forcing && stageOn(), stageOn };
+  return { click, dblClick, previewPlaying, hintHtml, onControl, noteLayout, forcing: () => forcing && stageOn(), stageOn };
 })();
 
 function stagePreviewClick(id) { return StagePreview.click(id); }

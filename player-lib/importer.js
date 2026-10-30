@@ -1402,6 +1402,7 @@
     if (c) {
       c.item_count = answer.item_count;
       if (Array.isArray(answer.first_ids)) c.first_ids = answer.first_ids;
+      if (typeof takeCollectionLength === 'function') takeCollectionLength(c, answer);
     }
     try { if (typeof fetchCollectionMembers === 'function') await fetchCollectionMembers(id, true); } catch {}
     if (typeof flowMembersChanged === 'function') flowMembersChanged(id);

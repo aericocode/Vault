@@ -197,6 +197,7 @@ async function _installOrder(collId, data) {
   if (c) {
     c.item_count = data.item_count;
     if (Array.isArray(data.first_ids)) c.first_ids = data.first_ids;
+    if (typeof takeCollectionLength === 'function') takeCollectionLength(c, data);
   }
   // The open Flow panel's chart and counts follow the new order (flow.js).
   if (typeof flowMembersChanged === 'function') flowMembersChanged(collId);

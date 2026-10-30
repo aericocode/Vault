@@ -139,7 +139,7 @@ const mixed = () => [
   m(7, 0.10, 0.12, 0.15, 84),
 ];
 
-test('Build up climbs and Peak then cool down rises then falls', () => {
+test('Build up climbs and Peak rises then falls', () => {
   const f = mixed();
   const by = new Map(f.map(x => [x.id, x]));
   const build = F.planOrder(f, { shape: 'build' }).order.map(id => by.get(id).em);
@@ -229,10 +229,12 @@ test('planOrder improves on the greedy pass and stays quick on a big collection'
   assert.deepStrictEqual(F.planOrder(f, { shape: 'build' }).order, a.order, 'the same order again');
   assert.strictEqual(new Set(a.order).size, 300);
   // Better than the playlist order by a long way.
+  // (Tempos 80..170: the off-tempo files as planOrder plans them.)
   const targets = F.targetsFor('build', f);
+  const g = F.markOffTempo(f, 'build').feats;
   const idx = new Map(f.map((x, i) => [x.id, i]));
-  assert.ok(a.cost < F.totalCost(f.map((_, i) => i), f, targets) / 3);
-  assert.ok(Math.abs(a.cost - F.totalCost(a.order.map(id => idx.get(id)), f, targets)) < 1e-9);
+  assert.ok(a.cost < F.totalCost(f.map((_, i) => i), g, targets) / 3);
+  assert.ok(Math.abs(a.cost - F.totalCost(a.order.map(id => idx.get(id)), g, targets)) < 1e-9);
 });
 
 test('Flow shuffle: every file once, leaning toward good hand-overs, never a hard filter', () => {
@@ -463,9 +465,12 @@ test('moveBlock: a drag in Flow order (a block, before a file or at the end), nu
 });
 
 test('parseRemembered: only a plain object with a known shape, places true / false / null, whole ids', () => {
-  assert.deepStrictEqual(F.parseRemembered('{"shape":"waves","places":null,"edited":[3,1,3]}'), { shape: 'waves', places: null, edited: [3, 1] });
-  assert.deepStrictEqual(F.parseRemembered('{"shape":"build","places":true}'), { shape: 'build', places: true, edited: null });
-  assert.deepStrictEqual(F.parseRemembered('{"shape":"peak","edited":[]}'), { shape: 'peak', places: null, edited: null });
+  assert.deepStrictEqual(F.parseRemembered('{"shape":"waves","places":null,"edited":[3,1,3]}'), { shape: 'waves', places: null, edited: [3, 1], waves: 2 });
+  assert.deepStrictEqual(F.parseRemembered('{"shape":"build","places":true}'), { shape: 'build', places: true, edited: null, waves: 2 });
+  assert.deepStrictEqual(F.parseRemembered('{"shape":"peak","edited":[]}'), { shape: 'peak', places: null, edited: null, waves: 2 });
+  // Waves' peaks: kept when 1..6; an entry from before (none) or a bad count reads as 2, the entry kept.
+  assert.strictEqual(F.parseRemembered('{"shape":"waves","waves":5}').waves, 5);
+  for (const w of ['0', '7', '2.5', 'null', '[]', '"many"']) assert.strictEqual(F.parseRemembered(`{"shape":"waves","waves":${w}}`).waves, 2, w);
   for (const bad of [null, '', 'nope', '[]', '[{"shape":"waves"}]', '"waves"', '42', '{"shape":"wobbly"}', '{}',
     '{"shape":"waves","places":"yes"}', '{"shape":"waves","edited":"1,2"}', '{"shape":"waves","edited":[1,-2]}',
     '{"shape":"waves","edited":[1.5]}', '{"shape":"waves","edited":[null]}']) {
@@ -498,4 +503,150 @@ test('guideTargets: the picked shape\'s guide, from the answer when it is for th
   assert.strictEqual(F.guideTargets('smooth', served), null);
   assert.strictEqual(F.guideTargets('waves', null), null);
   assert.strictEqual(F.guideTargets('nope', served), null);
+});
+
+test('Waves: N peaks for 1..6, 2 by default and exactly the curve it always had', () => {
+  for (let i = 0; i <= 100; i++) {
+    const t = i / 100;
+    assert.strictEqual(F.curve('waves', t), 0.5 + 0.5 * Math.sin(t * Math.PI * 3), `t ${t}`);
+    assert.strictEqual(F.curve('waves', t, 2), F.curve('waves', t));
+  }
+  const crests = (w) => {
+    let k = 0;
+    const y = (i) => F.curve('waves', i / 1000, w);
+    for (let i = 1; i < 1000; i++) if (y(i) > y(i - 1) && y(i) >= y(i + 1) && y(i) > 0.99) k++;
+    return k;
+  };
+  for (let w = 1; w <= 6; w++) assert.strictEqual(crests(w), w, `${w} waves`);
+  // A bad count is the default.
+  for (const bad of [0, 7, 2.5, null, undefined, 'x', '', NaN]) assert.strictEqual(F.wavesCount(bad), 2, String(bad));
+  assert.strictEqual(F.wavesCount('4'), 4, 'a query string number');
+  assert.strictEqual(F.wavesCount(6), 6);
+  // The targets and the order follow the count; other shapes ignore it.
+  const f = [];
+  for (let i = 1; i <= 30; i++) f.push(m(i, i / 31, i / 31, i / 31));
+  const t2 = F.targetsFor('waves', f), t5 = F.targetsFor('waves', f, { waves: 5 });
+  assert.deepStrictEqual(F.targetsFor('waves', f, { waves: 2 }), t2);
+  assert.notDeepStrictEqual(t5, t2);
+  assert.notDeepStrictEqual(F.planOrder(f, { shape: 'waves', waves: 5 }).order, F.planOrder(f, { shape: 'waves' }).order);
+  assert.deepStrictEqual(F.planOrder(f, { shape: 'waves', waves: 5 }).targets, t5);
+  assert.deepStrictEqual(F.targetsFor('build', f, { waves: 5 }), F.targetsFor('build', f));
+});
+
+test('guideTargets: an answer for Waves with another count of peaks is worked out again', () => {
+  const f = [];
+  for (let i = 1; i <= 20; i++) f.push(m(i, i / 21, i / 21, i / 21));
+  const served = { shape: 'waves', waves: 3, targets: F.targetsFor('waves', f, { waves: 3 }), features: f };
+  assert.strictEqual(F.guideTargets('waves', served, 3), served.targets);
+  assert.deepStrictEqual(F.guideTargets('waves', served, 4), F.targetsFor('waves', f, { waves: 4 }));
+  // An answer from before counts (no waves) is for 2.
+  const old = { shape: 'waves', targets: F.targetsFor('waves', f), features: f };
+  assert.strictEqual(F.guideTargets('waves', old), old.targets);
+  assert.deepStrictEqual(F.guideTargets('waves', old, 6), F.targetsFor('waves', f, { waves: 6 }));
+});
+
+/** 57 files near 120 BPM with middle energies 0.4..0.8, and three far off that tempo with energies far out. */
+function offTempo() {
+  const f = [];
+  for (let i = 1; i <= 57; i++) {
+    const e = 0.4 + 0.4 * ((i * 7) % 57) / 56;
+    f.push(m(i, e, e, e, 114 + (i % 13)));
+  }
+  // 88 and 84 BPM: more than 1.35 under 120; 170: more than 1.35 over it.
+  f.push(m(58, 0.05, 0.05, 0.05, 88), m(59, 0.1, 0.1, 0.1, 84), m(60, 0.98, 0.98, 0.98, 170));
+  return f;
+}
+
+test('off tempo: more than 1.35 off the median tempo as it is (not folded), and only from 12 files with a tempo', () => {
+  const f = offTempo();
+  assert.deepStrictEqual([...F.shapeOutliers(f)].sort((a, b) => a - b), [58, 59, 60]);
+  // Half and double time are off tempo too now; just inside 1.35 is not; no tempo or no music never is.
+  const g = f.concat([m(61, 0.5, 0.5, 0.5, 60), m(62, 0.5, 0.5, 0.5, 240), m(63, 0.5, 0.5, 0.5, 92), m(64, 0.5, 0.5, 0.5, 160), talk(65), m(66, 0.5, 0.5, 0.5, null)]);
+  assert.deepStrictEqual([...F.shapeOutliers(g)].sort((a, b) => a - b), [58, 59, 60, 61, 62]);
+  // Under 12 music files with a tempo: none.
+  assert.strictEqual(F.shapeOutliers(f.slice(0, 8).concat(f.slice(57))).size, 0);
+});
+
+test('off tempo: three outliers among 60 leave the range to the other 57 (5th to 95th percentile)', () => {
+  const f = offTempo();
+  const rest = f.slice(0, 57);
+  const ems = rest.map(x => x.em).sort((a, b) => a - b);
+  const q = (p) => { const x = (ems.length - 1) * p, i = Math.floor(x); return ems[i] + (ems[Math.min(i + 1, ems.length - 1)] - ems[i]) * (x - i); };
+  // Every shape keeps inside it and reaches its top (Waves and Peak: within a step of the crest),
+  // and the outliers' energies do not move it.
+  const moved = f.map(x => (x.id >= 58 ? { ...x, em: 1 - x.em } : x));
+  for (const shape of ['build', 'waves', 'peak']) {
+    const t = F.targetsFor(shape, f);
+    assert.ok(t.every(v => v >= q(0.05) - 1e-9 && v <= q(0.95) + 1e-9), shape);
+    assert.ok(Math.max(...t) > q(0.95) - 0.02, shape);
+    assert.deepStrictEqual(F.targetsFor(shape, moved), t, shape);
+  }
+  // Build up's ends: exactly the percentiles, the same as for the 57 alone.
+  const b = F.targetsFor('build', f), alone = F.targetsFor('build', rest);
+  assert.ok(near(b[0], q(0.05)) && near(b[59], q(0.95)));
+  assert.ok(near(alone[0], b[0]) && near(alone[56], b[59]));
+  // Without leaving them out, the range would run 0.05..0.98.
+  assert.ok(b[0] > 0.4 && b[59] < 0.8);
+  // Steady: the 57's median.
+  assert.ok(near(F.targetsFor('steady', f)[0], ems[28]));
+});
+
+test('off tempo: the shape reads an outlier\'s energy clamped into the range, at the usual weight; a Place still wins', () => {
+  const f = offTempo();
+  const plan = F.planOrder(f, { shape: 'build' });
+  assert.strictEqual(new Set(plan.order).size, 60);
+  const lo = plan.targets[0], hi = plan.targets[59];
+  // planOrder plans 58 and 59 at lo and 60 at hi: the shape, and the hand-overs (by energy alone).
+  const marked = F.markOffTempo(f, 'build').feats;
+  assert.deepStrictEqual(marked.slice(57).map(x => [x.offTempo, x.emShape, x.es, x.ee]), [[true, lo, lo, lo], [true, lo, lo, lo], [true, hi, hi, hi]]);
+  assert.ok(near(F.handoverCost(marked[0], marked[57]), 0.25 * Math.abs(marked[0].ee - lo) / 0.1), 'energy alone, no tempo part');
+  const idx = new Map(f.map((x, i) => [x.id, i]));
+  assert.ok(near(F.totalCost(plan.order.map(id => idx.get(id)), marked, plan.targets), plan.cost));
+  // 58 (energy 0.05) at a target: 1.5 x its distance from lo, not from 0.05; 60 (0.98) the same from hi.
+  for (const t of [lo, 0.6, hi]) {
+    assert.ok(near(F.totalCost([57], marked, [t]), 1.5 * Math.abs(lo - t)), `58 at ${t}`);
+    assert.ok(near(F.totalCost([59], marked, [t]), 1.5 * Math.abs(hi - t)), `60 at ${t}`);
+  }
+  // The caller's files are not changed.
+  assert.ok(f.every(x => !('emShape' in x)));
+  // A Last tag on a calm outlier still puts it last.
+  const placed = F.planOrder(f, { shape: 'build', places: { 58: 'last' } });
+  assert.strictEqual(placed.order[59], 58);
+  // A small playlist (under 12 with a tempo) keeps its lowest to highest range.
+  const small = [m(1, 0.1, 0.1, 0.1, 120), m(2, 0.5, 0.5, 0.5, 60), m(3, 0.9, 0.9, 0.9, 200)];
+  const st = F.targetsFor('build', small);
+  assert.ok(near(st[0], 0.1) && near(st[2], 0.9));
+});
+
+test('off tempo: Build up starts on the calm outliers and ends on the hot one, never on the calmest', () => {
+  const f = offTempo();
+  const order = F.planOrder(f, { shape: 'build' }).order;
+  const at = (id) => order.indexOf(id);
+  assert.ok(at(58) < 6 && at(59) < 6, `calm outliers near the start: ${at(58)}, ${at(59)}`);
+  assert.ok(at(60) >= 54, `the hot outlier near the end: ${at(60)}`);
+  assert.ok(!order.slice(-5).some(id => id === 58 || id === 59), 'no calm outlier in the last places');
+  // The same in a bigger playlist with the outliers scattered through it.
+  const g = offTempo().map((x, i) => ({ ...x, id: 1000 + ((i * 37) % 60) }));
+  const calm = g.filter(x => x.em < 0.2).map(x => x.id), hot = g.find(x => x.em > 0.9).id;
+  const o2 = F.planOrder(g, { shape: 'build' }).order;
+  assert.ok(calm.every(id => o2.indexOf(id) < 6) && o2.indexOf(hot) >= 54, o2.join());
+});
+
+test('off tempo: Peak and Waves put the hot outlier on a high part of the curve and the calm ones on a low part, not at the ends', () => {
+  const f = offTempo();
+  for (const o of [{ shape: 'peak' }, { shape: 'waves', waves: 2 }]) {
+    const plan = F.planOrder(f, o);
+    const t = plan.targets, lo = Math.min(...t), hi = Math.max(...t);
+    const at = (id) => plan.order.indexOf(id);
+    const name = `${o.shape} ${o.waves || ''}`;
+    assert.ok(t[at(60)] >= lo + 0.8 * (hi - lo), `${name}: the hot one at ${at(60)}, target ${t[at(60)]}`);
+    for (const id of [58, 59]) assert.ok(t[at(id)] <= lo + 0.2 * (hi - lo), `${name}: calm ${id} at ${at(id)}, target ${t[at(id)]}`);
+    for (const id of [58, 59, 60]) assert.ok(at(id) > 0 && at(id) < 59, `${name}: ${id} not at an end (${at(id)})`);
+    // The grades still say the tempo jump into and out of an outlier (the caller's files, unchanged).
+    const s = F.summary(f, plan.order);
+    assert.strictEqual(s.handovers[at(60) - 1].tempoGrade, 'jump', name);
+    assert.match(F.handoverText(f.find(x => x.id === plan.order[at(60) - 1]), f[59]), /% apart/);
+  }
+  // A place tag still wins over the curve.
+  assert.strictEqual(F.planOrder(f, { shape: 'peak', places: { 60: 'first' } }).order[0], 60);
 });

@@ -126,9 +126,10 @@ body.layout-modern .sb-sub { color: #8b8b97; }
 .sb-pill.sb-pill-live > i { background: #ef4444; animation: stage-live 1.6s ease-in-out infinite; }
 @keyframes stage-live { 50% { opacity: 0.35; } }
 
-/* Back to Stage (only while the user is away from the list Stage plays) and
-   Basic Stage's way back into picture-in-picture: small chips beside the
-   pill, never squeezed (the note and the Flow text give way first) */
+/* Preview (while a file is on Stage), Back to Stage (only while the user is
+   away from the list Stage plays) and Basic Stage's way back into
+   picture-in-picture: small chips beside the pill, never squeezed (the note
+   and the Flow text give way first) */
 .sb-chip {
   flex: none;
   display: inline-flex;
@@ -152,10 +153,12 @@ body.layout-modern .sb-sub { color: #8b8b97; }
 .sb-chip:focus-visible { outline: 2px solid var(--accent-hover, #818cf8); outline-offset: 2px; }
 .sb-chip.sb-reopen { border-color: rgba(234, 179, 8, 0.6); background: rgba(234, 179, 8, 0.12); color: #fcd34d; }
 .sb-chip.sb-reopen:hover { background: rgba(234, 179, 8, 0.3); color: #fff; }
-/* A narrow bar keeps the arrow only (StageBarRules.layout backLabel); one
-   too narrow to centre has Back to Stage in the Stage menu instead */
-.stage-bar.sb-no-backlabel .sb-return-label { display: none; }
-.stage-bar.sb-no-back #stageBarReturn { display: none; }
+/* A narrow bar keeps the icons only (StageBarRules.layout backLabel); one
+   too narrow to centre has Preview and Back to Stage in the Stage menu instead */
+.stage-bar.sb-no-backlabel .sb-return-label,
+.stage-bar.sb-no-backlabel .sb-show-label { display: none; }
+.stage-bar.sb-no-back #stageBarReturn,
+.stage-bar.sb-no-back #stageBarPreview { display: none; }
 
 /* Middle: the transport, the seek bar under it */
 .sb-mid { display: grid; gap: 3px; min-width: 0; }

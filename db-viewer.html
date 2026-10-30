@@ -514,6 +514,8 @@
         <div class="sb-title" id="stageBarTitle">Stage is open</div>
         <div class="sb-sub">
           <span class="sb-pill sb-pill-live" id="stageBarPill"><i aria-hidden="true"></i><span class="sb-pill-word">On Stage</span></span>
+          <!-- Preview: the file on Stage in the preview pane, or its details (StagePreview.previewPlaying) -->
+          <button type="button" class="sb-chip sb-show" id="stageBarPreview" data-sb-act="preview" title="Show the file on Stage in the preview" aria-label="Show the file on Stage in the preview" hidden><span class="vi-w" data-vi="eye" aria-hidden="true">👁</span><span class="sb-show-label">Preview</span></button>
           <!-- Back to Stage: only while the user is away from the list Stage plays (StageControl.backToStage) -->
           <button type="button" class="sb-chip sb-return" id="stageBarReturn" data-sb-act="return" title="Back to the list Stage is playing from" aria-label="Back to the list Stage is playing from" hidden><span aria-hidden="true">↩</span><span class="sb-return-label">Back to Stage</span></button>
           <!-- Basic Stage: its picture-in-picture window went away; a click opens it again -->

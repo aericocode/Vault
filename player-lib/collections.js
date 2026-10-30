@@ -36,6 +36,65 @@ function collFiles(n) {
   return `${v.toLocaleString()} ${v === 1 ? 'file' : 'files'}`;
 }
 
+/**
+ * A collection's total length as the server added it up (its videos and
+ * sound files the library lists by default: not trashed; GET
+ * /api/collections, /api/collections/:id and the answers that change its
+ * files carry it, with listed_count, how many members the grid lists with no
+ * filter set): kept on the collection's entry.
+ */
+function takeCollectionLength(c, data) {
+  if (!c || !data || !Number.isFinite(data.total_seconds)) return;
+  c.listed_count = data.listed_count;
+  c.timed_count = data.timed_count;
+  c.total_seconds = data.total_seconds;
+  c.unknown_seconds_count = data.unknown_seconds_count;
+}
+
+/**
+ * Does the grid list this open collection as it is with no search and no
+ * filter set (trashed files hidden, as by default)? Then its length is the
+ * server's total of those members; else the count adds up the files the grid
+ * shows (flow.js orderCountText). Once the exact count is in, it must be the
+ * server's listed_count too.
+ */
+function collectionShowsWhole(c) {
+  if (!c || typeof Library === 'undefined') return false;
+  const spec = Library.spec;
+  if (!spec || spec.collectionId !== c.id) return false;
+  if ((spec.search && spec.search.text) || (typeof anyFilterIsSet === 'function' && anyFilterIsSet())) return false;
+  return !Library.known() || Library.length() === (c.listed_count ?? c.item_count);
+}
+
+/*
+ * The open collection's length follows the library: a file probed after it
+ * was added (its length now known), trashed or put back moves the library
+ * version, and the grid's answer comes again. Then its numbers are asked
+ * for once (GET /api/collections/:id), not on opening (openCollection reads
+ * them) and not again for the same version.
+ */
+let _collLengthKey = null;
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('vault:results-changed', () => {
+    const id = typeof activeCollectionId !== 'undefined' ? activeCollectionId : null;
+    const v = typeof Library !== 'undefined' ? Library.version : null;
+    if (id == null || v == null) return;
+    const key = `${id}|${v}`, before = _collLengthKey;
+    if (key === before) return;
+    _collLengthKey = key;
+    if (!before || !before.startsWith(`${id}|`)) return;   // just opened: already read
+    fetch(`/api/collections/${id}`).then(r => (r.ok ? r.json() : null)).then((data) => {
+      const c = getCollectionById(id);
+      if (!data || !c) return;
+      takeCollectionLength(c, data);
+      if (activeCollectionId === id) {
+        renderCollectionCount();
+        if (typeof renderReorderNote === 'function') renderReorderNote();
+      }
+    }).catch(() => {});
+  });
+}
+
 /** A collections request that failed, as an Error friendlyError can read. */
 async function collResponseError(resp) {
   const body = await resp.json().catch(() => ({}));
@@ -86,6 +145,8 @@ async function fetchCollectionMembers(id, force = false) {
   const data = await fetch(`/api/collections/${id}`).then(r => r.json());
   const before = id === activeCollectionId && collectionMembers.has(id) ? collectionMembers.get(id).slice() : null;
   collectionMembers.set(id, data.media_ids || []);
+  // (Guarded: tests run single functions of this file.)
+  if (typeof takeCollectionLength === 'function') takeCollectionLength(getCollectionById(id), data);
   // Read again while open (a change made elsewhere): files that left are unticked.
   if (before) _untickLeftOpenCollection(before);
   return collectionMembers.get(id);
@@ -495,13 +556,19 @@ function closeCollection() {
 }
 
 /**
- * The count line: "8 files · playlist order" while the grid shows the saved
- * order, otherwise what it is sorted by, in the sort menu's own words
- * ("8 files · sorted by name"), or "· shuffled" after Shuffle. Folders say
- * "· folder".
+ * The count line: "8 files · 41:12 · playlist order" while the grid shows the
+ * saved order, otherwise what it is sorted by, in the sort menu's own words
+ * ("8 files · 41:12 · sorted by name"), or "· shuffled" after Shuffle. Folders
+ * say "· folder". The files and their total length are the whole
+ * collection's, whatever the grid shows (StageCount.collectionTime: "about"
+ * when some lengths are not known yet, none when most are not).
  */
 function collectionCountText(c) {
-  const n = collFiles(c.item_count);
+  const t = typeof StageCount !== 'undefined' ? StageCount.collectionTime(c) : null;
+  // With a time, the count is of the files that time covers (the ones the
+  // grid lists: a trashed member stays in the collection but not in either).
+  const listed = c.listed_count != null ? c.listed_count : c.item_count;
+  const n = t ? StageCount.listText(listed, t.seconds, t.about) : collFiles(c.item_count);
   if (c.kind === 'folder') return `${n} · folder`;
   if (typeof Library !== 'undefined' && Library.shuffled) return `${n} · shuffled`;
   const flow = typeof flowCountText === 'function' ? flowCountText() : null;
@@ -995,6 +1062,8 @@ async function changeCollectionMembership(id, mediaIds, adding, { quiet = false 
     // True-up authoritative count + mosaic from the response (no follow-up GET).
     c.item_count = data.item_count;
     if (Array.isArray(data.first_ids)) c.first_ids = data.first_ids;
+    if (typeof takeCollectionLength === 'function') takeCollectionLength(c, data);
+    if (activeCollectionId === id && typeof renderCollectionCount === 'function') renderCollectionCount();
     _patchPickerRow(id);
     _patchAncestorCounts(id);
     // The grid's query above ran before the server had the change (it can
@@ -1117,6 +1186,7 @@ async function undoRemoveFromCollection(id, ids, order) {
     if (typeof flowMembersChanged === 'function') flowMembersChanged(id);
     c.item_count = data.item_count;
     if (Array.isArray(data.first_ids)) c.first_ids = data.first_ids;
+    if (typeof takeCollectionLength === 'function') takeCollectionLength(c, data);
     _patchAncestorCounts(id);
     if (activeCollectionId === id) {
       renderCollectionHeader();

@@ -9,6 +9,8 @@
    Three parts, left to right:
      - what is on Stage: a small still (a click brings Stage to the front),
        the name, the status pill (On Stage / Holding / Finished / Locked),
+       Preview (the file on Stage in the preview pane, StagePreview), Back
+       to Stage,
        the status line (skipped, getting ready, end of the list ...) and the
        Flow text spot (setFlowText, filled by the Flow order work)
      - Previous file, back 10 s, Play / Pause, forward 10 s, Next file, and
@@ -55,11 +57,13 @@ const StageBarRules = (() => {
   const THUMB_MIN = 560;              // below this the still goes (the left side is the name's)
   const NOMINAL = { right: 380, countTime: 0, count: 0, unLabel: 58, volSlider: 76, repeat: 38, hold: 38, ctrls: 190, skip: 76, times: 84, pad: 28, gap: 14 };
   const DROP_ORDER = ['skip', 'unLabel', 'countTime', 'count', 'volSlider', 'times', 'repeat', 'hold'];
-  // Back to Stage keeps its words on a bar at least this wide (the left side
-  // then has room for the still, the pill and the button, about 300 px);
-  // narrower, just its arrow. By the width, so it never comes and goes as
-  // the other pieces do.
-  const BACK_LABEL_WIDTH = 900;
+  // Back to Stage and Preview keep their words on a bar at least this wide
+  // (the left side is then at least 330 px with the nominal sizes: the
+  // still, the pill and both chips with their words, about 327 px measured);
+  // narrower, just their icons. By the width, so they never come and go as
+  // the other pieces do. A bar that cannot be centred has both in the Stage
+  // menu (show.back).
+  const BACK_LABEL_WIDTH = 980;
 
   /** The seek bar's width at a bar this wide, before anything has to give: never smaller for a wider bar. */
   function seekWant(width) {
@@ -188,6 +192,7 @@ const StageBarRules = (() => {
    *   s.fmt          optional time formatter (formatDuration), else m:ss
    *   s.back         Back to Stage shows (the user is away from the list
    *                  Stage plays); s.backTitle its tooltip
+   *   s.id           the file on Stage (Preview shows while there is one)
    *   s.countTrack, s.countTime   "Track 12 of 40", "2:14:30 left"
    *                  (player-lib/stage-count.js), '' when there is none
    *   s.pipClosed    Basic Stage's picture-in-picture window went away while
@@ -253,6 +258,7 @@ const StageBarRules = (() => {
       upNext: { count: n, label: n ? `Up next, ${n === 1 ? '1 file' : `${n} files`}` : 'Up next' },
       front: s.basic ? 'Show the picture-in-picture window' : 'Bring Stage to the front',
       back: { show: !!s.back && !s.locked, title: String(s.backTitle || 'Back to the list Stage is playing from') },
+      preview: { show: !!s.hasFile && !!s.id && !s.locked, title: 'Show the file on Stage in the preview' },
       reopen: { show: !!s.basic && !!s.pipClosed && !s.locked, label: 'Picture-in-picture closed, click to reopen' },
       count: s.countTrack && !s.locked ? { track: String(s.countTrack), time: s.countTime ? String(s.countTime) : '' } : { track: '', time: '' },
     };
@@ -396,6 +402,8 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
       case 'return': if (SC) SC.backToStage(); break;
       // Basic Stage's picture-in-picture went away: this click may open it again.
       case 'reopen': if (SC) SC.front(); break;
+      // Preview: the file on Stage in the preview pane (or its details), as a tile click does.
+      case 'preview': if (last && last.id && typeof StagePreview !== 'undefined') StagePreview.previewPlaying(last.id); break;
       case 'prev': if (last && last.hasFile && typeof playPreviousMedia === 'function') playPreviousMedia(); break;
       case 'next': if (last && last.hasFile && typeof playNextMedia === 'function') playNextMedia(); break;
       case 'back': if (typeof miniSkip === 'function') miniSkip(-10); break;
@@ -548,6 +556,9 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
       back.title = v.back.title;
       back.setAttribute('aria-label', v.back.title);
     }
+    // Preview: while a file is on Stage.
+    const preview = $('stageBarPreview');
+    if (preview && v.preview) preview.hidden = !v.preview.show;
     const reopen = $('stageBarReopen');
     if (reopen && v.reopen) {
       reopen.hidden = !v.reopen.show;

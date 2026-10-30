@@ -143,3 +143,55 @@ test('outside Stage: tileThumbDblClick ignores its controls too (cards.js)', () 
   const tv = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'table-view.js'), 'utf8');
   assert.strictEqual((tv.match(/tileThumbDblClick\(\$\{id\}, event\)/g) || []).length, 2);
 });
+
+/* ── The Stage bar's Preview (StagePreview.previewPlaying) ──────────────── */
+
+/** The page's results: these ids (full: the whole list is here; else only the first page). */
+function results(p, ids, { full = true, rows = ids } = {}) {
+  const have = new Set(rows);
+  p.ctx.Library = {
+    indexOf: (id) => (full ? ids.indexOf(id) : -1),
+    waitIds: async () => ids,
+    row: (id) => (have.has(id) ? { id } : null),
+    fetchRows: async (list) => { p.calls.push(['rows', list]); list.forEach(id => have.add(id)); return list.map(id => ({ id })); },
+  };
+  p.ctx.dockPickInResults = (id) => (ids.includes(id) ? true : full ? false : null);
+  p.ctx.dockReveal = (i) => p.calls.push(['reveal', i]);
+}
+const previewPlaying = (p, id) => vm.runInContext('StagePreview', p.ctx).previewPlaying(id);
+
+test('Preview on the Stage bar: the file on Stage in the pane, its tile brought on screen; never played', async () => {
+  const p = load();
+  p.stage(true);
+  results(p, [4, 9, 12]);
+  p.calls.length = 0;
+  assert.strictEqual(await previewPlaying(p, 12), true);
+  assert.deepStrictEqual(p.calls, [['preview', 12], ['reveal', 2]]);
+  assert.deepStrictEqual(p.plays(), []);
+  // Past the first page with the full list still on its way: it waits for it, then the same.
+  results(p, [4, 9, 12], { full: false });
+  p.calls.length = 0;
+  await previewPlaying(p, 9);
+  assert.deepStrictEqual(p.calls, [['preview', 9]], 'in the list (indexOf still on the first page: nothing to reveal yet)');
+});
+
+test('Preview on the Stage bar: a file the grid does not list, or no room for the pane: its details by id (its row fetched)', async () => {
+  const p = load();
+  p.stage(true);
+  results(p, [4, 9], { rows: [4, 9] });
+  p.calls.length = 0;
+  await previewPlaying(p, 30);
+  assert.strictEqual(JSON.stringify(p.calls), JSON.stringify([['rows', [30]], ['details', 30]]));
+  const narrow = load({ wide: false });
+  narrow.stage(true);
+  results(narrow, [4, 9]);
+  narrow.calls.length = 0;
+  await previewPlaying(narrow, 9);
+  assert.deepStrictEqual(narrow.calls, [['details', 9]]);
+  // Stage closed or nothing on it: nothing.
+  const off = load();
+  results(off, [4]);
+  assert.strictEqual(await previewPlaying(off, 4), false);
+  off.stage(true);
+  assert.strictEqual(await previewPlaying(off, null), false);
+});
