@@ -48,7 +48,11 @@
   pointer-events: none;
   z-index: 2;
 }
-.tile-thumb > .tile-stags .stag-chip { flex: 0 1 auto; backdrop-filter: blur(4px); }
+/* No backdrop-filter: every chip on every tile was its own blurred layer for
+   the GPU to redo while the grid scrolled. A darker base keeps the label
+   readable over a busy picture instead. */
+.tile-thumb > .tile-stags .stag-chip { flex: 0 1 auto; background: color-mix(in oklab, var(--c) 30%, rgba(0, 0, 0, 0.72)); }
+.tile-thumb > .tile-stags .stag-chip.stag-more { background: rgba(0, 0, 0, 0.72); }
 .tile-thumb:has(.tile-hotdone) > .tile-stags { bottom: 28px; }
 
 /* In the table: after the name in the Title cell, as many chips as fit

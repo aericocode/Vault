@@ -70,9 +70,19 @@ function dockShouldShow() {
     && dockGridTabVisible();
 }
 
+/* Both run on every scrolled frame while the pane shows, and a custom
+   property written on :root restyles the whole page even when the value is
+   the same (as in filter-rail.js), so each writes only when its value moved. */
+let _dockW = '';
+let _dockTop = '';
+
 function dockApplyWidth(px) {
   const w = dockClampWidth(px);
-  document.documentElement.style.setProperty('--dock-w', `${w}px`);
+  const v = `${w}px`;
+  if (v !== _dockW) {
+    _dockW = v;
+    document.documentElement.style.setProperty('--dock-w', v);
+  }
   return w;
 }
 
@@ -80,7 +90,10 @@ function dockApplyWidth(px) {
 function dockUpdateTop() {
   const header = document.getElementById('appHeader');
   const bottom = header ? Math.max(0, header.getBoundingClientRect().bottom) : 0;
-  document.documentElement.style.setProperty('--dock-top', `${Math.round(bottom)}px`);
+  const v = `${Math.round(bottom)}px`;
+  if (v === _dockTop) return;
+  _dockTop = v;
+  document.documentElement.style.setProperty('--dock-top', v);
 }
 
 /** Put the pane on or off screen to match the settings, the window and the tab. */
