@@ -861,3 +861,10 @@ test('the toast after a save says what was left out and what uses a full path', 
   assert.ok(/pathsFromEncrypted && !acknowledged\) return;/.test(src), 'no save without the tick');
   assert.ok(/pathsFromEncrypted \? \{ links, allowPaths: true \} : \{ links \}/.test(src), 'consent sent only for paths from an encrypted library');
 });
+
+test('the dialog offers Full path and Relative only: Vault links only played while Vault ran on this PC', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'collection-export.js'), 'utf8');
+  assert.match(src, /const COLL_EXPORT_LINKS = \['full', 'relative'\];/);
+  assert.ok(!src.includes('Through Vault'));
+  assert.ok(!/_collExportChoice\('collExportLinks', 'vault'/.test(src));
+});
