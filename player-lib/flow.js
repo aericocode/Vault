@@ -976,10 +976,11 @@ const Flow = (() => {
   function chipHtml(s) {
     const on = st.order && s.id === st.savedActive;
     const edited = on && savedEdited();
-    const title = `${s.name}: ${shapeText(s)}${s.places ? ', tagged files placed' : ''}${edited ? ' (moved since, Update keeps it)' : ''}`;
-    return `<span class="flow-chip${on ? ' on' : ''}" data-flow-chip="${s.id}">`
+    const title = `${s.name}: ${shapeText(s)}${s.places ? ', tagged files placed' : ''}${edited ? '. Edited since it was saved: ⋯ › Update keeps the moves' : ''}`;
+    // Edited: a dot on the chip (Update is in its ⋯ menu; nothing under the chart).
+    return `<span class="flow-chip${on ? ' on' : ''}${edited ? ' is-edited' : ''}" data-flow-chip="${s.id}">`
       + `<button type="button" class="flow-chip-main" data-flow-saved="${s.id}" aria-pressed="${String(on)}" title="${esc(title)}">`
-      + `<span class="flow-chip-name">${esc(s.name)}</span><span class="flow-chip-shape">${esc(shapeText(s))}</span></button>`
+      + `${edited ? '<span class="flow-chip-dot" aria-label="edited"></span>' : ''}<span class="flow-chip-name">${esc(s.name)}</span><span class="flow-chip-shape">${esc(shapeText(s))}</span></button>`
       + `<button type="button" class="flow-chip-more" data-flow-saved-menu="${s.id}" aria-label="${esc(`More for ${s.name}`)}" aria-haspopup="menu" title="Rename, update or delete">⋯</button></span>`;
   }
 
@@ -1010,7 +1011,7 @@ const Flow = (() => {
       <span class="flow-ob-count" data-flow-count>${esc(orderCountText())}</span>
       ${spark || '<span class="flow-sp"></span>'}
       <button type="button" class="flow-btn flow-btn-sm" onclick="Flow.usePlaylistOrder()">Back to playlist order</button>
-      <button type="button" class="flow-btn flow-btn-sm flow-ob-save" onclick="Flow.saveOrder()">Save as playlist order</button>
+      <button type="button" class="flow-btn flow-btn-sm flow-ob-save" onclick="Flow.saveOrder()" title="Keep this order as the collection's playlist order">Make this the playlist order</button>
       ${closed ? `<button type="button" class="flow-btn flow-btn-sm flow-ob-show" onclick="Flow.showFromBar()" title="Show the Flow panel">Show ▾</button>` : ''}`;
   }
 
@@ -2279,9 +2280,6 @@ const Flow = (() => {
       ? `[data-flow-tag="${document.activeElement.dataset.flowTag}"][data-i="${document.activeElement.dataset.i}"]` : null;
     if (keep) keep.remove();
     const chart = !!(st.data && st.data.features.length);
-    const sv = savedNow();
-    const updateBtn = sv && savedEdited()
-      ? `<button type="button" class="flow-btn flow-btn-saved" data-flow-saved-update title="Keep these moves in the saved order “${esc(sv.name)}”">Update “${esc(sv.name)}”</button>` : '';
     const html = `
       <div class="flow-row">
         <span class="flow-title">Flow</span>
@@ -2307,8 +2305,6 @@ const Flow = (() => {
         ${legendHtml()}
         <span class="flow-sp"></span>
         <span class="flow-sub" id="flowSummary">${esc(summaryText())}</span>
-        ${st.order && st.data ? updateBtn : ''}
-        ${st.order && st.data ? '<button type="button" class="flow-btn" data-flow-save>Save as playlist order</button>' : ''}
       </div>`;
     painting = true;
     try { el.innerHTML = html; } finally { painting = false; }
@@ -2387,7 +2383,6 @@ const Flow = (() => {
       const sm = e.target.closest('[data-flow-saved-menu]');
       if (sm) { savedMenu(Number(sm.dataset.flowSavedMenu), { rect: sm.getBoundingClientRect() }, sm); return; }
       if (e.target.closest('[data-flow-saved-new]')) { startNaming('new'); return; }
-      if (e.target.closest('[data-flow-saved-update]')) { if (st.savedActive != null) updateSaved(st.savedActive); return; }
       if (e.target.closest('[data-flow-saved-input]')) return;
       const wv = e.target.closest('[data-flow-waves]');
       if (wv) { pickWaves(Number(wv.dataset.flowWaves)); return; }
@@ -2400,7 +2395,6 @@ const Flow = (() => {
       if (pl) { pickPlaces(pl.dataset.flowPlaces === '1'); return; }
       const ln = e.target.closest('[data-flow-lane]');
       if (ln) { toggleLane(ln.dataset.flowLane); return; }
-      if (e.target.closest('[data-flow-save]')) { saveOrder(); return; }
       const z = e.target.closest('[data-flow-zoom]');
       if (z) { setZoom(z.dataset.flowZoom === '1'); return; }
       const act = e.target.closest('[data-flow-act]');

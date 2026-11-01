@@ -135,6 +135,9 @@ test('save the working order under a name, then load it back fitted to the files
   assert.strictEqual(p.Flow.saved.edited(), true);
   assert.strictEqual(pill(p), 'Flow order: Friday set, edited');
   assert.strictEqual(p.Flow.countText(), 'Flow order: Friday set, edited');
+  // Edited shows on the chip as a dot; Update is in its ⋯ menu, not under the chart.
+  assert.match(p.Flow.saved.html(), /flow-chip on is-edited/);
+  assert.match(p.Flow.saved.html(), /flow-chip-dot/);
   const moved = p.Flow.workingOrder();
   await p.Flow.saved.update(srv.saved[0].id);
   assert.deepStrictEqual(srv.saved[0].order, moved);
@@ -226,4 +229,11 @@ test('switching between saved orders offers Undo only for moves that were not sa
   assert.match(p.undos.at(-1).m, /Switched to “B”, so your moves/);
   await p.undos.at(-1).fn();
   assert.strictEqual(pill(p), 'Flow order: A, edited');
+});
+
+test('nothing under the chart saves: Update is in the chip menu, the bar says Make this the playlist order', () => {
+  const src = require('node:fs').readFileSync(require.resolve('../player-lib/flow.js'), 'utf8');
+  assert.ok(!src.includes('data-flow-save>') && !src.includes('data-flow-saved-update'), 'no save buttons in the panel');
+  assert.ok(src.includes('>Make this the playlist order</button>'));
+  assert.ok(!src.includes('>Save as playlist order<'));
 });
