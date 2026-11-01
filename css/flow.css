@@ -656,7 +656,9 @@ button.flow-chip-add:focus-visible { outline: 2px solid var(--accent-hover); out
   font-size: 0.78rem;
 }
 .flow-chip-input:focus { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
-.flow-btn-saved { max-width: 28ch; overflow: hidden; text-overflow: ellipsis; }
+/* Moved since it was saved: ⋯ › Update keeps the moves. */
+.flow-chip-main { align-items: center; }
+.flow-chip-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--flow-warn, #fcd34d); align-self: center; }
 body.layout-modern .flow-chip,
 body.layout-modern button.flow-chip-add { border-color: var(--m-border-strong); }
 body.layout-modern .flow-chip.on { border-color: var(--accent); }
