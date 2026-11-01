@@ -1910,10 +1910,14 @@ const Flow = (() => {
     if (!d) return '';
     const jumps = st.order ? orderSummary().jumps : playlistJumps();
     // Files the search or filters hide are not in the grid, so not on the chart either.
+    // With neither set, the ones left out are what the grid never lists (a
+    // document, a trashed file): no note, nothing is hidden by the user.
     const all = st.order ? workingOrder() : d.playlistOrder;
     const grid = gridSet();
     const hidden = grid ? all.filter(id => st.byId.has(id) && !grid.has(id)).length : 0;
-    const note = hidden ? `${plural(hidden, 'file', 'files')} hidden by the search or filters` : '';
+    const spec = typeof Library !== 'undefined' ? Library.spec : null;
+    const filtering = !!(spec && spec.search && spec.search.text) || (typeof anyFilterIsSet === 'function' && anyFilterIsSet());
+    const note = hidden && filtering ? `${plural(hidden, 'file', 'files')} hidden by the search or filters` : '';
     if (d.counts.music < 2) return note;
     const text = jumps ? `${plural(jumps, 'jump', 'jumps')} between files` : 'Every hand-over is smooth or close';
     return note ? `${text} · ${note}` : text;
