@@ -32,6 +32,14 @@ const Overlay = require('../lib/stage/mpv-overlay');
 const { parseLine, watchWindow } = require('../lib/stage/mpv-window');
 const { createEngine, WAIT_UPCOMING_MS, LOAD_TIMEOUT_MS } = require('../lib/stage/engine');
 
+// mpv-ipc's connect and reconnect retry timers are unref'd (they must never
+// hold Vault open), and in the server something always holds the event loop.
+// Here nothing does: on Windows the runner's stdio pipes happen to, on Linux
+// they do not, and every test from the first pipe wait on was cancelled with
+// "event loop already resolved". Hold the loop for this file, as the server would.
+const holdLoop = setInterval(() => {}, 60 * 60 * 1000);
+test.after(() => clearInterval(holdLoop));
+
 /* ── Finding mpv ────────────────────────────────────────────────────────── */
 
 /** A fake file system: path -> { size, mtimeMs, real?, dir? } (Windows paths, compared case-blind). */

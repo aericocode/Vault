@@ -241,9 +241,11 @@ function vaultTypeIcon(mediaType) {
 /* Emoji and the pictographic symbols the app leads its messages with
    (⚠ ✓ ✔ ✗ ✕ ↻ ⬇ ⬆ ♻ ✂ ▶ ＋), each as a whole sequence: variation selectors,
    skin tones, keycaps, tags, flags and ZWJ joins (👍🏽, 👨‍👩‍👧, 🏳️‍🌈). Stars are a
-   rating, not decoration, so ★ ☆ are left alone. */
+   rating, not decoration, so ★ ☆ are left alone. The Misc Symbols block
+   (U+2600-26FF) is listed by hand: Unicode 17 (ICU 78, in newer Node and
+   browsers) took most of it out of Extended_Pictographic, ⛶ included. */
 const VAULT_EMOJI_ONE = '(?:\\p{Regional_Indicator}{2}|[0-9#*]\\uFE0F?\\u20E3'
-  + '|(?:\\p{Extended_Pictographic}|\\p{Emoji_Modifier}|[\\u2190-\\u21FF\\u2300-\\u23FF\\u25A0-\\u25FF\\u2700-\\u27BF\\u2B00-\\u2BFF\\uFF0B])'
+  + '|(?:\\p{Extended_Pictographic}|\\p{Emoji_Modifier}|[\\u2190-\\u21FF\\u2300-\\u23FF\\u25A0-\\u25FF\\u2600-\\u26FF\\u2700-\\u27BF\\u2B00-\\u2BFF\\uFF0B])'
   + '[\\uFE0E\\uFE0F\\u20E3\\p{Emoji_Modifier}\\u{E0020}-\\u{E007F}]*)';
 const VAULT_EMOJI_SEQ = `${VAULT_EMOJI_ONE}(?:\\u200D${VAULT_EMOJI_ONE})*`;
 const VAULT_LEADING_EMOJI = new RegExp(`^(?:${VAULT_EMOJI_SEQ}\\s*)+`, 'u');

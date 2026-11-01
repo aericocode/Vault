@@ -65,8 +65,11 @@ test('matching: path first, name+size only when unique on both sides, never a gu
   ];
   const r = M.matchItems(rows, M.buildCoveIndex(cove), M.parseMaps(['D:\\Media=/media']));
   const got = Object.fromEntries(r.matches.map(m => [m.row.id, [m.item.id, m.how]]));
-  assert.deepStrictEqual(got, { 11: [1, 'path'], 12: [2, 'name_size'] });
-  assert.deepStrictEqual(r.unmatched.map(u => u.vaultId), [14]);
+  // The name match ignores case where Vault's file system does (Windows,
+  // macOS): b.mp4 finds Cove's B.mp4. On Linux those are two different names.
+  const caseBlind = process.platform === 'win32' || process.platform === 'darwin';
+  assert.deepStrictEqual(got, caseBlind ? { 11: [1, 'path'], 12: [2, 'name_size'] } : { 11: [1, 'path'] });
+  assert.deepStrictEqual(r.unmatched.map(u => u.vaultId), caseBlind ? [14] : [12, 14]);
   assert.deepStrictEqual(r.ambiguous.map(a => a.vaultId).sort(), [13, 15, 16]);
 });
 

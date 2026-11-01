@@ -12,7 +12,8 @@ const sf = require('../lib/scan-failures');
 test('current messages are plain: no em dash, no install commands', () => {
   for (const msg of [perr.FFPROBE_MISSING, perr.WHISPER_MISSING, perr.WHISPER_NO_PYTHON]) {
     assert.ok(!/[–—]/.test(msg), msg);
-    assert.ok(!/pip install|winget|on PATH/i.test(msg), msg);
+    // No install command for any one platform: the banner picks the right one.
+    assert.ok(!/pip install|winget|apt install|dnf install|brew install|on PATH/i.test(msg), msg);
     assert.match(msg, /^[A-Z].*\.$/, 'a full sentence: ' + msg);
   }
 });

@@ -332,8 +332,11 @@ test('lms ps throwing: nothing is loaded and files go out', async () => {
 test('a slow lms ps never holds up adding files, and is asked once', async () => {
   await fresh({ scanModel: 'vis', whenNotLoaded: 'room' }, { canLoad: true, ps: [{ identifier: 'my-vis', modelKey: 'vis' }], psDelay: 300 });
   await lmStudio([['my-vis', 'vlm']]);
+  // The files and rows are made first: only enqueue is timed. addFile's
+  // write + insert can cost tens of ms each where fsync is slow (WSL, ext4).
+  const files = Array.from({ length: 20 }, () => addFile());
   const t0 = Date.now();
-  for (let i = 0; i < 20; i++) queue.enqueue(addFile());
+  for (const f of files) queue.enqueue(f);
   assert.ok(Date.now() - t0 < 1000, 'enqueue does not wait for lms');
   assert.ok(await until(() => queue.status().done === 20));
   assert.strictEqual(psCalls, 1);

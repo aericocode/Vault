@@ -137,7 +137,8 @@ if (isSea && (!command || command.startsWith('--'))) {
   const flags = process.argv.slice(2);
   if (!flags.includes('--no-browser')) {
     const port = require('./config').server.port;
-    require('child_process').exec(`start "" "http://127.0.0.1:${port}"`);
+    // start on Windows, open on macOS, xdg-open on Linux (lib/platform.js).
+    require('./lib/platform').openUrl(`http://127.0.0.1:${port}`);
   }
   require('./server/index').run(flags.filter(f => f !== '--no-browser'));
   return;

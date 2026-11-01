@@ -126,9 +126,9 @@ test('isLocalEndpoint accepts only this PC', () => {
 /* ── Where lms is looked for ─────────────────────────────────────────────── */
 
 test('findLms prefers PATH over the LM Studio bin folder', () => {
-  const onPath = path.join('C:\\tools', 'lms.exe');
-  const inBin = path.join('C:\\Users\\me', '.lmstudio', 'bin', 'lms.exe');
-  const env = { PATH: ['C:\\other', 'C:\\tools'].join(path.delimiter), PATHEXT: '.EXE', USERPROFILE: 'C:\\Users\\me' };
+  const onPath = path.win32.join('C:\\tools', 'lms.exe');
+  const inBin = path.win32.join('C:\\Users\\me', '.lmstudio', 'bin', 'lms.exe');
+  const env = { PATH: ['C:\\other', 'C:\\tools'].join(path.win32.delimiter), PATHEXT: '.EXE', USERPROFILE: 'C:\\Users\\me' };
   // PATHEXT is upper case on a real machine and NTFS does not care, so the
   // stub file system must not care either.
   const has = (p) => [onPath, inBin].some(k => k.toLowerCase() === p.toLowerCase());
@@ -137,7 +137,7 @@ test('findLms prefers PATH over the LM Studio bin folder', () => {
 });
 
 test('findLms falls back to the LM Studio bin folder', () => {
-  const inBin = path.join('C:\\Users\\me', '.lmstudio', 'bin', 'lms.exe');
+  const inBin = path.win32.join('C:\\Users\\me', '.lmstudio', 'bin', 'lms.exe');
   const env = { PATH: 'C:\\other', PATHEXT: '.EXE', USERPROFILE: 'C:\\Users\\me' };
   assert.strictEqual(
     lms._findLmsIn({ env, platform: 'win32', exists: p => p.toLowerCase() === inBin.toLowerCase() }),
@@ -146,11 +146,11 @@ test('findLms falls back to the LM Studio bin folder', () => {
 });
 
 test('findLms uses the extension-less name off Windows', () => {
-  const inBin = path.join('/home/me', '.lmstudio', 'bin', 'lms');
-  const env = { PATH: ['/usr/bin', '/usr/local/bin'].join(path.delimiter), HOME: '/home/me' };
+  const inBin = path.posix.join('/home/me', '.lmstudio', 'bin', 'lms');
+  const env = { PATH: ['/usr/bin', '/usr/local/bin'].join(path.posix.delimiter), HOME: '/home/me' };
   assert.strictEqual(
-    lms._findLmsIn({ env, platform: 'linux', exists: p => p === path.join('/usr/local/bin', 'lms') }),
-    path.join('/usr/local/bin', 'lms'),
+    lms._findLmsIn({ env, platform: 'linux', exists: p => p === path.posix.join('/usr/local/bin', 'lms') }),
+    path.posix.join('/usr/local/bin', 'lms'),
   );
   assert.strictEqual(
     lms._findLmsIn({ env, platform: 'linux', exists: p => p === inBin }),

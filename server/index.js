@@ -543,34 +543,106 @@ app.post('/api/settings/app', (req, res) => {
    screen to be wrong; once every tool is ok the cache is served untouched and
    the healthy path costs nothing. (A PATH install is still invisible until a
    restart — a running process can never see a new PATH entry — which is why
-   the winget row keeps its "then restart Vault".) */
+   the install-command row keeps its "then restart Vault".) */
 
-const FFMPEG_INSTALL = {
-  winget: 'winget install ffmpeg',
-  url: 'https://www.gyan.dev/ffmpeg/builds/',
-};
-
-/* Everything the one-click downloader knows how to fetch. `entry` matches the
-   binary inside the zip by suffix, so a version bump in the archive's top-level
-   folder name doesn't break extraction; `files` are the fixed basenames WE
-   write into ROOT — zip entry names are untrusted input, never joined into a
-   path. `verify` must prove the extracted binary actually runs. */
-const DOWNLOADABLE_TOOLS = {
+/* What to tell someone who installs a tool by hand, per platform: a Linux user
+   must never be shown winget. `cmd` is the one line they can copy (null when
+   there is no single sane one), `cmdNote` a caveat shown next to it (the
+   other big distro family), `url` the always-there manual download page. */
+const INSTALL_HINTS = {
   ffmpeg: {
-    url: 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip',
-    sizeMB: 90,
-    files: ['ffmpeg.exe', 'ffprobe.exe'],
-    entry: (name) => (e) => e.entryName.toLowerCase().endsWith(`/bin/${name}`),
-    verify: () => require('../lib/media-info').isAvailable(),
+    win32: { cmd: 'winget install ffmpeg', cmdNote: null, url: 'https://www.gyan.dev/ffmpeg/builds/' },
+    linux: {
+      cmd: 'sudo apt install ffmpeg',
+      cmdNote: 'On Fedora: sudo dnf install ffmpeg-free',
+      url: 'https://ffmpeg.org/download.html#build-linux',
+    },
+    darwin: { cmd: 'brew install ffmpeg', cmdNote: null, url: 'https://ffmpeg.org/download.html#build-mac' },
+    other: { cmd: null, cmdNote: null, url: 'https://ffmpeg.org/download.html' },
   },
   fpcalc: {
-    url: 'https://github.com/acoustid/chromaprint/releases/download/v1.5.1/chromaprint-fpcalc-1.5.1-windows-x86_64.zip',
-    sizeMB: 1,
-    files: ['fpcalc.exe'],
-    entry: (name) => (e) => e.entryName.toLowerCase().endsWith(`/${name}`),
-    verify: async () => (await require('../lib/musicid/fingerprint').checkTools()).fpcalcVersion !== null,
+    win32: { cmd: null, cmdNote: null, url: 'https://acoustid.org/chromaprint' },
+    linux: {
+      cmd: 'sudo apt install libchromaprint-tools',
+      cmdNote: 'On Fedora: sudo dnf install chromaprint-tools',
+      url: 'https://acoustid.org/chromaprint',
+    },
+    darwin: { cmd: 'brew install chromaprint', cmdNote: null, url: 'https://acoustid.org/chromaprint' },
+    other: { cmd: null, cmdNote: null, url: 'https://acoustid.org/chromaprint' },
   },
 };
+
+const installHint = (tool) => INSTALL_HINTS[tool][process.platform] || INSTALL_HINTS[tool].other;
+
+const FFMPEG_INSTALL = installHint('ffmpeg');
+
+/* Everything the one-click downloader knows how to fetch, per platform-arch.
+   `entry` matches the binary inside the archive by path suffix, so a version
+   bump in the archive's top-level folder name doesn't break extraction;
+   `files` are the fixed basenames WE write into ROOT — archive entry names are
+   untrusted input, never joined into a path. `archive` picks the extractor:
+   'zip' goes through adm-zip, the tar kinds through the system `tar`.
+   `verify` must prove the extracted binary actually runs. */
+const PLATFORM_KEY = `${process.platform}-${process.arch}`;
+
+const TOOL_DOWNLOADS = {
+  ffmpeg: {
+    verify: () => require('../lib/media-info').isAvailable(),
+    platforms: {
+      'win32-x64': {
+        url: 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip',
+        archive: 'zip',
+        sizeMB: 90,
+        files: ['ffmpeg.exe', 'ffprobe.exe'],
+        entry: (name) => (p) => p.toLowerCase().endsWith(`/bin/${name}`),
+      },
+      // BtbN's static build: gpl, so NVENC and libx264 are there for PMV export.
+      'linux-x64': {
+        url: 'https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-linux64-gpl.tar.xz',
+        archive: 'tar.xz',
+        sizeMB: 123,   // 128,518,284 bytes measured 2026-09
+        files: ['ffmpeg', 'ffprobe'],
+        entry: (name) => (p) => p.toLowerCase().endsWith(`/bin/${name}`),
+      },
+    },
+  },
+  fpcalc: {
+    verify: async () => (await require('../lib/musicid/fingerprint').checkTools()).fpcalcVersion !== null,
+    platforms: {
+      'win32-x64': {
+        url: 'https://github.com/acoustid/chromaprint/releases/download/v1.5.1/chromaprint-fpcalc-1.5.1-windows-x86_64.zip',
+        archive: 'zip',
+        sizeMB: 1,
+        files: ['fpcalc.exe'],
+        entry: (name) => (p) => p.toLowerCase().endsWith(`/${name}`),
+      },
+      'linux-x64': {
+        url: 'https://github.com/acoustid/chromaprint/releases/download/v1.5.1/chromaprint-fpcalc-1.5.1-linux-x86_64.tar.gz',
+        archive: 'tar.gz',
+        sizeMB: 3,     // 2,752,946 bytes measured 2026-09
+        files: ['fpcalc'],
+        entry: (name) => (p) => p.toLowerCase().endsWith(`/${name}`),
+      },
+    },
+  },
+};
+
+/* Resolved once, at startup: what THIS machine can fetch. A tool with no entry
+   for this platform-arch (macOS, linux-arm64) is null: the banner hides its
+   button and the POST route says so, rather than fetching a binary that
+   cannot run here. */
+const DOWNLOADABLE_TOOLS = Object.fromEntries(
+  Object.entries(TOOL_DOWNLOADS).map(([name, t]) => {
+    const v = t.platforms[PLATFORM_KEY];
+    return [name, v ? { ...v, verify: t.verify } : null];
+  })
+);
+
+const NO_DOWNLOAD_HERE =
+  'Automatic download is not available on this computer. Install it with the command shown, then restart Vault.';
+
+/** The name a tool's binary has in ROOT here (see lib/ffmpeg-locate.js). */
+const localToolName = (tool) => (process.platform === 'win32' ? `${tool}.exe` : tool);
 
 let _toolsCache = null;
 
@@ -586,21 +658,21 @@ function checkTools({ refresh = false } = {}) {
       feature: 'scanning and thumbnails',
       needed: 'scanning, thumbnails and video length. New files can\'t be processed without them',
       install: FFMPEG_INSTALL,
-      downloadable: true,
-      sizeMB: DOWNLOADABLE_TOOLS.ffmpeg.sizeMB,
+      downloadable: !!DOWNLOADABLE_TOOLS.ffmpeg,
+      sizeMB: DOWNLOADABLE_TOOLS.ffmpeg ? DOWNLOADABLE_TOOLS.ffmpeg.sizeMB : null,
     },
     fpcalc: {
       // existsSync, not a spawn: this runs on every /api/setup-check and the
       // full probe forks two processes. The download path re-verifies properly.
-      ok: fs.existsSync(path.join(ROOT, 'fpcalc.exe'))
+      ok: fs.existsSync(path.join(ROOT, localToolName('fpcalc')))
         || (() => { try { require('child_process').execSync('fpcalc -version', { windowsHide: true, stdio: 'ignore' }); return true; } catch { return false; } })(),
       required: false,
       label: 'Music ID helper (fpcalc)',
       feature: 'Music ID',
       needed: 'Music ID, which recognizes songs in your files. Everything else works without it',
-      install: { winget: null, url: 'https://acoustid.org/chromaprint' },
-      downloadable: true,
-      sizeMB: DOWNLOADABLE_TOOLS.fpcalc.sizeMB,
+      install: installHint('fpcalc'),
+      downloadable: !!DOWNLOADABLE_TOOLS.fpcalc,
+      sizeMB: DOWNLOADABLE_TOOLS.fpcalc ? DOWNLOADABLE_TOOLS.fpcalc.sizeMB : null,
     },
   };
   return _toolsCache;
@@ -628,28 +700,57 @@ app.post('/api/setup/hidden', (req, res) => {
 /* ── One-click tool downloads (the Stash onboarding model) ────────────────
    Stash checks PATH, then beside its config, and offers to fetch missing
    tools there — so Windows users never open a terminal. Same here: the
-   banner's button calls this, the zip lands in a temp file, the binaries are
-   extracted next to Vault.exe (ROOT — where ffmpeg-locate looks), and every
+   banner's button calls this, the archive lands in a temp file, the binaries
+   are extracted next to Vault (ROOT — where ffmpeg-locate looks), and every
    later spawn picks them up with NO restart, because file resolution —
    unlike PATH — is re-checked per spawn.
 
    User-initiated only, which matters twice over: it keeps the no-silent-egress
    posture (purpose 'tool' in lib/net.js, same consent shape as the manual
    update check), and it keeps GPL ffmpeg out of the release zip — the USER
-   fetches it from gyan.dev; Vault never distributes it.
+   fetches it from the upstream build; Vault never distributes it.
 
    One job per tool: two clicks share one download rather than racing to write
-   the same exe. State survives until the next click, so the client can poll
+   the same binary. State survives until the next click, so the client can poll
    after the fact. */
 
 const _toolJobs = new Map();  // tool -> { state: 'downloading'|'extracting'|'done'|'error', pct, error }
 
-app.post('/api/setup/download/:tool', (req, res) => {
-  const tool = DOWNLOADABLE_TOOLS[req.params.tool];    // registry lookup — no path from input
-  if (!tool) return res.status(404).json({ error: 'unknown tool' });
-  if (process.platform !== 'win32') {
-    return res.status(400).json({ error: 'Automatic download is Windows-only. Install it with your package manager.' });
+const ARCHIVE_EXT = { zip: '.zip', 'tar.gz': '.tar.gz', 'tar.xz': '.tar.xz' };
+
+/** Every file under `dir`, as paths relative to it with forward slashes. */
+function _walkRel(dir, base = dir, out = []) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) _walkRel(full, base, out);
+    else if (e.isFile()) out.push(path.relative(base, full).split(path.sep).join('/'));
   }
+  return out;
+}
+
+/* Tars go through the system `tar` (GNU tar and bsdtar both take -xf and
+   sniff the compression themselves). Extraction lands in a throwaway temp
+   folder, never in ROOT: entry names in the archive are untrusted, and a
+   `../` in one must not be able to write next to the app. Only afterwards are
+   the files we asked for copied, to the fixed basenames from `files`. */
+function _tarExtract(archivePath, destDir) {
+  return new Promise((ok, bad) => {
+    const p = require('child_process').spawn('tar', ['-xf', archivePath, '-C', destDir], { stdio: 'ignore' });
+    p.on('error', (err) => bad(new Error(
+      err.code === 'ENOENT'
+        ? 'The tar program is missing, so the download could not be unpacked. Install it, or use one of the other ways to install'
+        : `The download could not be unpacked (${err.message})`
+    )));
+    p.on('close', (code) => (code === 0 ? ok() : bad(new Error(`The download could not be unpacked (tar stopped with code ${code})`))));
+  });
+}
+
+app.post('/api/setup/download/:tool', (req, res) => {
+  // hasOwn, not truthiness: 'constructor' and friends are inherited properties,
+  // and a plain lookup would sail past this into a job that cannot work.
+  if (!Object.hasOwn(TOOL_DOWNLOADS, req.params.tool)) return res.status(404).json({ error: 'unknown tool' });
+  const tool = DOWNLOADABLE_TOOLS[req.params.tool];    // registry lookup — no path from input
+  if (!tool) return res.status(400).json({ error: NO_DOWNLOAD_HERE });
   const live = _toolJobs.get(req.params.tool);
   if (live && ['downloading', 'extracting'].includes(live.state)) {
     return res.json({ started: false, ...live });       // already in flight — attach
@@ -661,13 +762,14 @@ app.post('/api/setup/download/:tool', (req, res) => {
 
   (async () => {
     const os = require('os');
-    const tmp = path.join(os.tmpdir(), `vault-${req.params.tool}-${process.pid}.zip`);
+    const tmp = path.join(os.tmpdir(), `vault-${req.params.tool}-${process.pid}${ARCHIVE_EXT[tool.archive]}`);
+    let tmpDir = null;
     try {
       const resp = await netFetch(tool.url, { purpose: 'tool' });
       if (!resp.ok) throw new Error(`The download failed (the server answered ${resp.status})`);
 
-      // Stream to disk with progress — ffmpeg's zip is ~90 MB and adm-zip
-      // needs a file anyway; buffering it whole in memory helps nobody.
+      // Stream to disk with progress — ffmpeg's archive is 90 MB or more, and
+      // adm-zip and tar both need a file anyway; buffering it whole helps nobody.
       const total = Number(resp.headers.get('content-length')) || 0;
       let got = 0;
       const out = fs.createWriteStream(tmp);
@@ -679,18 +781,33 @@ app.post('/api/setup/download/:tool', (req, res) => {
       await new Promise((ok, bad) => out.end(err => err ? bad(err) : ok()));
 
       job.state = 'extracting';
-      const AdmZip = require('adm-zip');
-      const zip = new AdmZip(tmp);
-      for (const name of tool.files) {
-        const entry = zip.getEntries().find(e => !e.isDirectory && tool.entry(name)(e));
-        if (!entry) throw new Error(`The download did not contain ${name}`);
-        fs.writeFileSync(path.join(ROOT, name), entry.getData());
+      if (tool.archive === 'zip') {
+        const AdmZip = require('adm-zip');
+        const zip = new AdmZip(tmp);
+        for (const name of tool.files) {
+          const entry = zip.getEntries().find(e => !e.isDirectory && tool.entry(name)(e.entryName));
+          if (!entry) throw new Error(`The download did not contain ${name}`);
+          fs.writeFileSync(path.join(ROOT, name), entry.getData());
+        }
+      } else {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `vault-${req.params.tool}-`));
+        await _tarExtract(tmp, tmpDir);
+        const found = _walkRel(tmpDir);
+        for (const name of tool.files) {
+          const rel = found.find(p => tool.entry(name)(p));
+          if (!rel) throw new Error(`The download did not contain ${name}`);
+          const dest = path.join(ROOT, name);       // fixed basename, never the archive's
+          fs.copyFileSync(path.join(tmpDir, rel), dest);
+          fs.chmodSync(dest, 0o755);                // the archive's mode bits do not survive the copy
+        }
       }
 
       // Prove the binary actually runs before declaring victory.
       require('../lib/ffmpeg-locate').invalidate();
       if (!(await tool.verify())) {
-        throw new Error('The downloaded tool would not start. Your antivirus may have blocked it');
+        throw new Error(process.platform === 'win32'
+          ? 'The downloaded tool would not start. Your antivirus may have blocked it'
+          : 'The downloaded tool would not start');
       }
       checkTools({ refresh: true });
       // Files that failed only because this tool was missing are now fixable —
@@ -705,6 +822,7 @@ app.post('/api/setup/download/:tool', (req, res) => {
       console.warn(`[Setup] ${req.params.tool} download failed: ${job.error}`);
     } finally {
       try { fs.unlinkSync(tmp); } catch {}
+      if (tmpDir) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} }
     }
   })();
 });
@@ -1181,6 +1299,11 @@ app.post('/api/ai/open-lmstudio', (req, res) => {
 });
 
 function _openLmStudio() {
+  // LM Studio on Linux is an AppImage saved wherever the user put it: there
+  // is no usual place to look, so say what to do instead of "not found".
+  if (process.platform !== 'win32' && process.platform !== 'darwin') {
+    return { ok: false, error: 'Vault cannot open LM Studio for you here. Open LM Studio yourself, then try again.' };
+  }
   const candidates = [];
   if (process.platform === 'win32') {
     const local = process.env.LOCALAPPDATA;
@@ -1191,7 +1314,11 @@ function _openLmStudio() {
     candidates.push('/Applications/LM Studio.app');
   }
   const exe = candidates.find(p => { try { return fs.existsSync(p); } catch { return false; } });
-  if (!exe) return { ok: false, error: 'LM Studio was not found in its usual place. Open it from the Start menu.' };
+  if (!exe) {
+    return { ok: false, error: process.platform === 'darwin'
+      ? 'LM Studio was not found in its usual place. Open it from your Applications folder.'
+      : 'LM Studio was not found in its usual place. Open it from the Start menu.' };
+  }
   try {
     const { spawn } = require('child_process');
     const child = process.platform === 'darwin'
@@ -3778,10 +3905,14 @@ function _installShutdownHooks() {
     try {
       if (require('../lib/exists-check').hasStuckWorkers()) process.kill(process.pid, 'SIGKILL');
     } catch {}
-    process.exit(signal === 'SIGTERM' ? 143 : 130);
+    process.exit(signal === 'SIGTERM' ? 143 : signal === 'SIGHUP' ? 129 : 130);
   };
   process.on('SIGINT', () => onExit('SIGINT'));
   process.on('SIGTERM', () => onExit('SIGTERM'));
+  // Closing the terminal Vault runs in sends SIGHUP (Linux, macOS). Without
+  // this the temp wipe, the asset close and the stream stop above never ran.
+  // (Windows only raises it for a closed console window, and is left as it was.)
+  if (process.platform !== 'win32') process.on('SIGHUP', () => onExit('SIGHUP'));
 }
 
 // One-time idempotent boot repair: images/gifs imported through the viewer's
@@ -4042,7 +4173,7 @@ function start(args = process.argv.slice(2)) {
   _bootMark('db-open-housekeeping');
 
   const { host, port } = config.server;
-  app.listen(port, host, () => {
+  const server = app.listen(port, host, () => {
     _bootMark('listen-ready');
     _bootReport();
     console.log('');
@@ -4095,16 +4226,40 @@ function start(args = process.argv.slice(2)) {
         console.log('  ┌──────────────────────────────────────────────────────┐');
         console.log('  │  ⚠  ffmpeg / ffprobe not found on PATH               │');
         console.log('  └──────────────────────────────────────────────────────┘');
-        console.log('  Scanning, thumbnails and duration all need it. Install with:');
-        console.log('');
-        console.log(`      ${FFMPEG_INSTALL.winget}`);
-        console.log('');
-        console.log(`  …or grab a build from ${FFMPEG_INSTALL.url}`);
-        console.log('  Easiest: the viewer that just opened has a ⬇ Download button in the');
-        console.log('  banner at the top. It fetches ffmpeg next to Vault, no restart needed.');
+        if (FFMPEG_INSTALL.cmd) {
+          console.log('  Scanning, thumbnails and duration all need it. Install with:');
+          console.log('');
+          console.log(`      ${FFMPEG_INSTALL.cmd}`);
+          if (FFMPEG_INSTALL.cmdNote) console.log(`      (${FFMPEG_INSTALL.cmdNote})`);
+          console.log('');
+          console.log(`  …or grab a build from ${FFMPEG_INSTALL.url}`);
+        } else {
+          console.log('  Scanning, thumbnails and duration all need it.');
+          console.log(`  Grab a build from ${FFMPEG_INSTALL.url}`);
+        }
+        // Only where the button exists: where no build can be fetched (macOS,
+        // Linux on ARM), pointing at it would send the user hunting for nothing.
+        if (tools.ffmpeg.downloadable) {
+          console.log('  Easiest: the viewer that just opened has a ⬇ Download button in the');
+          console.log('  banner at the top. It fetches ffmpeg next to Vault, no restart needed.');
+        }
         console.log('');
       }
     });
+  });
+  // A second Vault, or another program on the port: say so plainly and stop,
+  // rather than crash with a stack trace.
+  server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.error('');
+      console.error(`  Vault could not start: port ${port} is already in use.`);
+      console.error(`  Vault may already be running. Open http://${host}:${port} in your browser.`);
+      console.error('  Or close the program using that port, then start Vault again.');
+      console.error('');
+    } else {
+      console.error(`  Vault could not start: ${err && err.message}`);
+    }
+    process.exit(1);
   });
 }
 

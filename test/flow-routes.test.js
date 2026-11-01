@@ -529,21 +529,24 @@ test('a disconnected drive and a pile of silent videos: the server keeps answeri
   const r = await (await post(`/api/flow/collections/${pile}/measure`)).json();
   assert.strictEqual(r.added, 4000);
   let worst = 0, s;
-  const t0 = Date.now();
-  const { monitorEventLoopDelay } = require('node:perf_hooks');
+  // performance.now, not Date.now: durations need a clock that never steps.
+  // WSL2's wall clock is corrected by ~12 s jumps now and then, which read as
+  // a 12 s answer (slower than the whole drain) or end the wait early.
+  const { monitorEventLoopDelay, performance } = require('node:perf_hooks');
+  const t0 = performance.now();
   const h = monitorEventLoopDelay({ resolution: 5 }); h.enable();
   do {
-    const a = Date.now();
+    const a = performance.now();
     s = await (await get(`/api/flow/status?collection=${pile}`)).json();
-    worst = Math.max(worst, Date.now() - a);
-  } while ((s.collection.measured + s.collection.failed) < 4000 && Date.now() - t0 < 30000);
+    worst = Math.max(worst, Math.round(performance.now() - a));
+  } while ((s.collection.measured + s.collection.failed) < 4000 && performance.now() - t0 < 30000);
   h.disable();
   assert.strictEqual(s.collection.failed, 2000, 'the missing ones');
   assert.strictEqual(s.collection.measured, 2000, 'the silent ones (no audio)');
   // Generous bounds: the full suite runs many files at once on a shared CPU and
   // disk (alone this drains in about 1.5 s with stalls near 10 ms).
   // Before the fix the server answered nothing for the whole drain (16 s).
-  assert.ok(worst < 3000, `slowest answer while draining: ${worst} ms (all drained in ${Date.now() - t0} ms)`);
+  assert.ok(worst < 3000, `slowest answer while draining: ${worst} ms (all drained in ${Math.round(performance.now() - t0)} ms)`);
   assert.ok(h.max / 1e6 < 2000, `longest event-loop stall ${(h.max / 1e6).toFixed(0)} ms`);
 });
 

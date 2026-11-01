@@ -37,7 +37,8 @@ function harness({ ms = 15, ...o } = {}) {
     }),
     ...o.queueOpts,
   });
-  const until = async (fn, limit = 2000) => { const t0 = Date.now(); while (!fn()) { if (Date.now() - t0 > limit) throw new Error('timed out'); await tick(); } };
+  // performance.now: a wall clock that steps (WSL2's time sync) timed this out at once.
+  const until = async (fn, limit = 2000) => { const t0 = performance.now(); while (!fn()) { if (performance.now() - t0 > limit) throw new Error('timed out'); await tick(); } };
   return { q, env, ran, finished, aborted, until, max: () => maxRunning };
 }
 

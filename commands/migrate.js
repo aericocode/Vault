@@ -73,6 +73,7 @@ const path = require('path');
 const db = require('../lib/database');
 const dupes = require('../lib/dupes');
 const scanner = require('../lib/file-scanner');
+const { CASE_INSENSITIVE_PATHS } = require('../lib/platform');
 
 const IS_WIN = process.platform === 'win32';
 const SEP = IS_WIN ? '\\' : '/';
@@ -96,6 +97,15 @@ function stripTrailing(p) {
 /** Case-folded key — Windows paths compare case-insensitively. */
 function key(p) {
   return IS_WIN ? String(p).toLowerCase() : String(p);
+}
+
+/**
+ * The row that already holds this path. Case-blind where the file system is
+ * (Windows, macOS: K:\Media\x.mp4 and k:\media\x.mp4 are one file); exact on
+ * Linux, where A.mp4 and a.mp4 are two files and two rows.
+ */
+function findOccupant(p) {
+  return CASE_INSENSITIVE_PATHS ? db.findByPathInsensitive(p) : db.getByPath(p);
 }
 
 function exists(p) {
@@ -345,7 +355,7 @@ function classify(row, newPath, report, claimed, reason) {
     return;
   }
 
-  const occupant = db.findByPathInsensitive(newPath);
+  const occupant = findOccupant(newPath);
 
   if (!occupant || occupant.id === row.id) {
     claimed.add(key(newPath));
@@ -456,7 +466,7 @@ async function matchRows(candidateRows, ctx, report, claimed, pace, prog) {
     if (losers.length && report.rewrite.length + report.absorb.length > before) {
       const stubIds = [];
       for (const l of losers) {
-        const occ = db.findByPathInsensitive(l.path);
+        const occ = findOccupant(l.path);
         if (occ && occ.processing_error === db.UNSCANNED_MARKER) stubIds.push(occ.id);
       }
       if (stubIds.length) report.dupeLink.push({ rowId: row.id, stubIds });
