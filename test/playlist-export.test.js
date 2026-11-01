@@ -504,6 +504,9 @@ test('a really encrypted library refuses file paths (child process)', {
     out.opened = opened;
     const v = await fetch(b + '/api/collections/' + c + '/export?links=vault');
     out.getVault = [v.status, (await v.text()).includes('/media/' + id)];
+    // With the user's consent the paths come out.
+    const f = await fetch(b + '/api/collections/' + c + '/export?links=full&allowPaths=1');
+    out.getFullConsent = [f.status, (await f.text()).includes('a.mp4')];
     await new Promise((r) => srv.close(r));
     await vault.lock({ force: true });
     console.log('@@' + JSON.stringify(out));
@@ -526,6 +529,7 @@ test('a really encrypted library refuses file paths (child process)', {
       save: [[403, 'FILES_ENCRYPTED'], [403, 'FILES_ENCRYPTED']],
       opened: false,
       getVault: [200, true],
+      getFullConsent: [200, true],
     });
   } finally {
     try { fs.rmSync(work, { recursive: true, force: true }); } catch {}
@@ -537,8 +541,96 @@ test('both routes are 423 while the vault is locked', async () => {
   try {
     assert.strictEqual((await exp(coll, 'links=vault')).status, 423);
     assert.strictEqual((await save(coll, { links: 'vault' })).status, 423);
+    // Consent to file paths changes nothing about the lock.
+    assert.strictEqual((await exp(coll, 'links=full&allowPaths=1')).status, 423);
+    assert.strictEqual((await save(coll, { links: 'full', allowPaths: true })).status, 423);
   } finally {
     vault._locked = false;
+  }
+});
+
+// ── File paths from an encrypted library, with the user's consent ─────────
+
+test('encrypted library: file paths only with explicit consent (allowPaths true / =1), nothing looser', async () => {
+  const seen = {};
+  server._setSaveDialogForTest(fakeDialog('::CANCEL::', seen));
+  const real = vault.isEncrypted;
+  vault.isEncrypted = () => true;
+  try {
+    // GET: only allowPaths=1 counts.
+    for (const q of ['', '&allowPaths=true', '&allowPaths=0', '&allowPaths=', '&allowPaths=1&allowPaths=1', '&allowpaths=1', '&allowPaths[]=1']) {
+      const res = await exp(coll, `links=full${q}`);
+      assert.strictEqual(res.status, 403, q);
+      assert.strictEqual((await res.json()).code, 'FILES_ENCRYPTED', q);
+    }
+    let res = await exp(coll, 'links=full&allowPaths=1');
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(locs(await res.text()), LIB);
+    // Relative still needs the save route, consent or not.
+    res = await exp(coll, 'links=relative&allowPaths=1');
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual((await res.json()).code, 'RELATIVE_NEEDS_SAVE');
+
+    // Save: only the boolean true counts, and no window opens without it.
+    for (const links of ['full', 'relative']) {
+      for (const allowPaths of [undefined, 'true', 1, '1', [true], { yes: true }, false, null]) {
+        res = await save(coll, { links, allowPaths });
+        assert.strictEqual(res.status, 403, `${links} ${JSON.stringify(allowPaths)}`);
+        assert.strictEqual((await res.json()).code, 'FILES_ENCRYPTED');
+      }
+    }
+    assert.strictEqual(seen.opened, undefined, 'no window without consent');
+    for (const links of ['full', 'relative', 'vault']) {
+      res = await save(coll, { links, allowPaths: true });
+      assert.strictEqual(res.status, 200, links);
+      assert.deepStrictEqual(await res.json(), { canceled: true });
+    }
+    assert.strictEqual(seen.opened, 3);
+    // Bad links are still bad with consent.
+    res = await save(coll, { links: 'files', allowPaths: true });
+    assert.strictEqual(res.status, 400);
+  } finally {
+    vault.isEncrypted = real;
+    server._setSaveDialogForTest(null);
+  }
+  // A plain library ignores the field.
+  const res = await exp(coll, 'links=full&allowPaths=1');
+  assert.strictEqual(res.status, 200);
+  assert.deepStrictEqual(locs(await res.text()), LIB);
+});
+
+test('encrypted library with consent: full and relative paths are written where the window said', { skip: onWindows }, async () => {
+  const real = vault.isEncrypted;
+  vault.isEncrypted = () => true;
+  const full = path.join(tmp, 'out', 'enc full.m3u8');
+  const rel = path.join(tmp, 'out', 'enc rel.m3u8');
+  fs.mkdirSync(path.dirname(full), { recursive: true });
+  try {
+    server._setSaveDialogForTest(fakeDialog(full));
+    let res = await save(coll, { links: 'full', allowPaths: true });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual((await res.json()).count, 4);
+    assert.deepStrictEqual(locs(fs.readFileSync(full, 'utf8')), LIB);
+
+    server._setSaveDialogForTest(fakeDialog(rel));
+    res = await save(coll, { links: 'relative', allowPaths: true });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(locs(fs.readFileSync(rel, 'utf8')).length, 4);
+
+    // Consent is checked again after the window: a request without it that
+    // got as far as the window (the library was plain then) writes nothing.
+    vault.isEncrypted = () => false;
+    const late = path.join(tmp, 'out', 'enc late.m3u8');
+    server._setSaveDialogForTest((r, env, onClose) => {
+      vault.isEncrypted = () => true;
+      onClose({ code: 0, out: late, errOut: '', finish: (s, b) => r.status(s).json(b) });
+    });
+    res = await save(coll, { links: 'full' });
+    assert.strictEqual(res.status, 403);
+    assert.ok(!fs.existsSync(late));
+  } finally {
+    vault.isEncrypted = real;
+    server._setSaveDialogForTest(null);
   }
 });
 
@@ -762,4 +854,10 @@ test('the toast after a save says what was left out and what uses a full path', 
   assert.strictEqual(t({ path: 'D:\\a.m3u8', fullPathCount: 3 }),
     'Saved playlist to D:\\a.m3u8. 3 files use a full path instead.');
   assert.ok(!/\u2014/.test(src), 'no em dashes in the dialog');
+  // The encrypted-library warning, in plain words, and the consent it gates.
+  const warning = vm.runInContext('COLL_EXPORT_PATHS_WARNING', ctx);
+  assert.strictEqual(warning, 'This playlist will list where your files are, in a plain file anyone can open. Keep it somewhere safe.');
+  assert.ok(/I understand/.test(src));
+  assert.ok(/pathsFromEncrypted && !acknowledged\) return;/.test(src), 'no save without the tick');
+  assert.ok(/pathsFromEncrypted \? \{ links, allowPaths: true \} : \{ links \}/.test(src), 'consent sent only for paths from an encrypted library');
 });
