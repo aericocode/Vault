@@ -2,15 +2,17 @@
    COLLECTION EXPORT - save an open collection as an M3U8 playlist
    (PLAYLISTS_SPEC, build step 2; Modern UI review items 2 and 11)
 
-   Export exists so VLC / PotPlayer can play a collection. The collection
-   bar's Export… button opens a small dialog with one choice, how each file is
-   written: Full path, Relative to the playlist, or Through Vault. Save
+   Export exists so VLC / PotPlayer can play a collection when Vault is not
+   there (it is closed, or on another device). The collection bar's Export…
+   button opens a small dialog with one choice, how each file is written:
+   Full path or Relative to the playlist. (Vault links, which only play
+   while Vault runs on this PC, are no longer offered; import still reads
+   them, lib/playlist/parse.js vaultMediaId.) Save
    playlist calls POST /api/collections/:id/export/save, which opens the
    native Save As window on the server and writes the file there. The path
    only ever comes from that window.
 
-   In an encrypted library all three are offered, Through Vault preselected.
-   Full path or Relative shows a warning (the playlist is a plain file that
+   In an encrypted library either one shows a warning (the playlist is a plain file that
    says where the files are) and Save stays off until "I understand" is
    ticked; only then does the request carry allowPaths: true. The server
    refuses those two without it (403 FILES_ENCRYPTED), whatever this page
@@ -20,7 +22,7 @@
    ========================================================================= */
 
 const COLL_EXPORT_PREFS_KEY = 'collExportPrefs';
-const COLL_EXPORT_LINKS = ['full', 'relative', 'vault'];
+const COLL_EXPORT_LINKS = ['full', 'relative'];
 
 function _collExportPrefs() {
   try {
@@ -92,7 +94,6 @@ async function openCollectionExport(id) {
   if (!c || document.getElementById('collExportModal')) return;
   const encrypted = await _collExportEncrypted();
   const prefs = _collExportPrefs();
-  if (encrypted) prefs.links = 'vault';
 
   const ov = document.createElement('div');
   ov.id = 'collExportModal';
@@ -107,10 +108,6 @@ async function openCollectionExport(id) {
         ${_collExportChoice('collExportLinks', 'relative', 'Relative to the playlist',
           'Keeps working if you move the playlist and the files together, for example to another drive or PC.',
           { checked: prefs.links === 'relative' })}
-        ${_collExportChoice('collExportLinks', 'vault', 'Through Vault', 'Plays through Vault, so Vault must be open and unlocked.', {
-          checked: prefs.links === 'vault',
-          extra: encrypted ? 'The playlist file itself is not encrypted. It lists file names.' : '',
-        })}
       </fieldset>
       ${encrypted ? `
       <div class="coll-export-warn" id="collExportWarn" role="alert" hidden>
@@ -147,8 +144,8 @@ const COLL_EXPORT_PATHS_WARNING = 'This playlist will list where your files are,
 
 /** The links chosen, and whether they write paths from an encrypted library. */
 function _collExportChosen(ov) {
-  const links = ov.querySelector('input[name="collExportLinks"]:checked')?.value || 'vault';
-  const pathsFromEncrypted = ov.dataset.encrypted === '1' && links !== 'vault';
+  const links = ov.querySelector('input[name="collExportLinks"]:checked')?.value || 'full';
+  const pathsFromEncrypted = ov.dataset.encrypted === '1';
   const ack = ov.querySelector('#collExportAck');
   return { links, pathsFromEncrypted, acknowledged: !!(ack && ack.checked) };
 }
