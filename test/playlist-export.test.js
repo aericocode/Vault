@@ -162,6 +162,54 @@ test('relative locations: same folder, subfolders, parents, case, prefixes, shar
   assert.strictEqual(R('D:\\Media\\#tag\\a.mp4', 'D:\\Media'), '.\\#tag\\a.mp4');
 });
 
+// Linux and macOS libraries: the writer goes by the path's own form, not the
+// OS it runs on, so these run everywhere.
+test('M3U8 with relative paths from a Linux or macOS library: "../" and "/" only, never a backslash', () => {
+  const items = [
+    { id: 1, title: 'a', durationSec: 3, filePath: '/home/me/Media/a b.mp4' },
+    { id: 2, title: 'c', durationSec: 4, filePath: '/home/me/Lists/Mine/Sub/c.mp4' },
+    { id: 3, title: 'd', durationSec: 5, filePath: '/home/me/Lists/Mine/d.mp4' },
+    { id: 4, title: 'e', durationSec: 6, filePath: '/mnt/media/Shows/e.mkv' },
+    { id: 5, title: 'w', durationSec: 7, filePath: 'D:\\Media\\w.mp4' },
+  ];
+  const { text, fullPathCount } = buildM3U8({ title: 'Mine', links: 'relative', playlistDir: '/home/me/Lists/Mine', items });
+  assert.deepStrictEqual(text.split('\r\n').filter((l) => l && !l.startsWith('#')), [
+    '../../Media/a b.mp4',
+    'Sub/c.mp4',
+    'd.mp4',
+    '../../../../mnt/media/Shows/e.mkv',     // one root on Linux: another disk is still relative
+    'D:\\Media\\w.mp4',                       // a Windows path cannot be relative to a Linux folder
+  ]);
+  assert.strictEqual(fullPathCount, 1);
+  assert.ok(!/\.\.\\/.test(text), 'no ..\\ in a Linux playlist');
+  // A playlist saved at the top of the file system.
+  assert.strictEqual(relativeLocation('/srv/a.mp4', '/'), 'srv/a.mp4');
+  // A trailing slash on the folder changes nothing.
+  assert.strictEqual(relativeLocation('/home/me/v/a.mp4', '/home/me/lists/'), '../v/a.mp4');
+  // "\" is an ordinary character in a Linux name: kept as it is, never a separator.
+  assert.strictEqual(relativeLocation('/home/me/Media/a\\b.mp4', '/home/me/Lists'), '../Media/a\\b.mp4');
+  // Names that differ only in case are two folders on Linux.
+  assert.strictEqual(relativeLocation('/home/me/Media/x.mp4', '/home/me/media'), '../Media/x.mp4');
+  // A name starting with "#": "./" in front, the Linux way.
+  assert.strictEqual(relativeLocation('/home/me/#1 hit.mp4', '/home/me'), './#1 hit.mp4');
+  // "." and ".." are refused, as on Windows.
+  assert.strictEqual(relativeLocation('/home/me/../x.mp4', '/home/me'), null);
+});
+
+test('M3U8 with full paths from a Linux library: written as they are; odd ones as file URIs', () => {
+  const text = toM3U8({ title: 'L', links: 'full', items: [
+    { id: 1, title: 'x', filePath: '/mnt/media/Été/x y.mp4' },
+    { id: 2, title: 'b', filePath: '/mnt/media/a\\b.mp4' },
+    { id: 3, title: 't', filePath: '/mnt/media/tab\there.mp4' },
+  ] });
+  assert.deepStrictEqual(text.split('\r\n').filter((l) => l && !l.startsWith('#')), [
+    '/mnt/media/Été/x y.mp4',
+    '/mnt/media/a\\b.mp4',
+    'file:///mnt/media/tab%09here.mp4',
+  ]);
+  assert.strictEqual(fileUri('/mnt/media/a\\b.mp4'), 'file:///mnt/media/a%5Cb.mp4');
+});
+
 test('file URIs (used when a path cannot sit on a line as it is)', () => {
   assert.strictEqual(fileUri('C:\\Videos\\a b#1 50%.mp4'), 'file:///C:/Videos/a%20b%231%2050%25.mp4');
   assert.strictEqual(fileUri('C:\\Музыка\\日本.mp3'), 'file:///C:/%D0%9C%D1%83%D0%B7%D1%8B%D0%BA%D0%B0/%E6%97%A5%E6%9C%AC.mp3');
