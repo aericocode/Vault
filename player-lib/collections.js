@@ -801,12 +801,26 @@ function openCollectionPicker(ids, anchorEl) {
   const left = r ? Math.min(window.innerWidth - panel.offsetWidth - 12, r.left) : 120;
   panel.style.top = `${Math.max(8, top)}px`;
   panel.style.left = `${Math.max(8, left)}px`;
+  // It grows (a new collection, an open folder): it moves up to stay on screen.
+  if (typeof ResizeObserver === 'function') {
+    _pickerFit = new ResizeObserver(() => _pickerKeepOnScreen(panel));
+    _pickerFit.observe(panel);
+  }
 
   setTimeout(() => document.addEventListener('pointerdown', _pickerOutside, true), 0);
   document.addEventListener('keydown', _pickerEsc, true);
 
   // ONE background request to true-up any drifted row states.
   refreshPickerMembership();
+}
+
+let _pickerFit = null;   // the ResizeObserver keeping the open picker on screen
+
+/** Move the picker up so its bottom stays 12px above the window's (never past the top). */
+function _pickerKeepOnScreen(panel) {
+  if (!panel.isConnected) return;
+  const over = panel.getBoundingClientRect().bottom - (window.innerHeight - 12);
+  if (over > 0) panel.style.top = `${Math.max(8, (parseFloat(panel.style.top) || 0) - over)}px`;
 }
 
 function _pickerOutside(e) {
@@ -835,6 +849,7 @@ let _pickerFromBarWas = false;
 function closeCollectionPicker() {
   _pickerFromBarWas = _pickerFromBar;
   _pickerFromBar = false;
+  if (_pickerFit) { _pickerFit.disconnect(); _pickerFit = null; }
   document.getElementById('collectionPicker')?.remove();
   document.removeEventListener('pointerdown', _pickerOutside, true);
   document.removeEventListener('keydown', _pickerEsc, true);
