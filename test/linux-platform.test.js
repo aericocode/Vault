@@ -198,6 +198,60 @@ test('/proc/mounts is read with its escapes; volumes are mount points under /med
   assert.strictEqual(vol('/mnt/usb/a.mp4'), '/mnt/usb');
   assert.strictEqual(vol('/home/me/Videos/a.mp4'), '/');
   assert.strictEqual(vol('/media/a.mp4'), '/', 'a file right in /media is on the root disk');
+  assert.strictEqual(vol('/proc/x'), '/proc', 'any mount is a volume, not only removable ones');
+});
+
+test('volumes come from the mount table at any depth: /mnt/disks/usb1, /media/Disk; autofs alone is not mounted', () => {
+  const sweep = require('../lib/missing-sweep');
+  const vol = (p, more = []) => sweep.linuxVolumeOf(p, [{ dir: '/', type: 'ext4' }, { dir: '/run', type: 'tmpfs' }, ...more]);
+  assert.strictEqual(vol('/mnt/disks/usb1/a.mp4', [{ dir: '/mnt/disks/usb1', type: 'ext4' }]), '/mnt/disks/usb1');
+  assert.strictEqual(vol('/mnt/disks/usb1/a.mp4'), '/mnt/disks', 'unplugged: not a mount point, so offline');
+  assert.strictEqual(vol('/media/Disk/a.mp4', [{ dir: '/media/Disk', type: 'ext4' }]), '/media/Disk');
+  assert.strictEqual(vol('/media/Disk/a.mp4'), '/media/Disk');
+  assert.strictEqual(vol('/run/media/me/USB/a.mp4'), '/run/media/me/USB', 'only /run holds it: unplugged');
+  assert.strictEqual(vol('/mnt/usb/a.mp4', [{ dir: '/mnt/usb', type: 'autofs' }]), '/mnt/usb');
+  assert.strictEqual(vol('/mnt/usb/a.mp4', [{ dir: '/mnt', type: 'ext4' }]), '/mnt', 'a disk mounted on /mnt itself');
+  assert.strictEqual(sweep.linuxVolumeOf('/mnt/usb/a.mp4', []), '/mnt/usb', '/proc/mounts unread: under /mnt counts as unplugged');
+});
+
+test('a disk mounted deeper than one level and unplugged (its empty folder left behind): nothing on it is marked', { skip: !LINUX }, async () => {
+  const sweep = require('../lib/missing-sweep');
+  const rows = [
+    { id: 1, filepath: '/mnt/disks/usb1/a.mp4', missing_since: null },
+    { id: 2, filepath: '/mnt/disks/usb1/sub/b.mp4', missing_since: null },
+    { id: 3, filepath: '/home/me/c.mp4', missing_since: null },
+  ];
+  const marked = [];
+  const out = await sweep.sweep(fakeSweepDeps(rows, {
+    mounts: [{ dir: '/', type: 'ext4' }],
+    exist: new Set(['/', '/mnt/disks', '/mnt/disks/usb1']),    // the folders are there, the files are not
+    marked,
+  }));
+  assert.deepStrictEqual(marked, [3], 'only the file on / is marked');
+  assert.ok(out.skipped.includes('/mnt/disks'));
+});
+
+test('a disk mounted one level under /media (fstab, usbmount): a deleted file is marked while it is mounted, nothing when it is not', { skip: !LINUX }, async () => {
+  const sweep = require('../lib/missing-sweep');
+  const rows = [
+    { id: 1, filepath: '/media/Disk/a.mp4', missing_since: null },
+    { id: 2, filepath: '/media/Disk/clips/b.mp4', missing_since: null },
+  ];
+  const mounted = [];
+  await sweep.sweep(fakeSweepDeps(rows, {
+    mounts: [{ dir: '/', type: 'ext4' }, { dir: '/media/Disk', type: 'ext4' }],
+    exist: new Set(['/', '/media/Disk', '/media/Disk/clips/b.mp4']),
+    marked: mounted,
+  }));
+  assert.deepStrictEqual(mounted, [1], 'mounted: the deleted file is marked, the other is not');
+  const absent = [];
+  const out = await sweep.sweep(fakeSweepDeps(rows, {
+    mounts: [{ dir: '/', type: 'ext4' }],
+    exist: new Set(['/', '/media/Disk']),
+    marked: absent,
+  }));
+  assert.deepStrictEqual(absent, [], 'not mounted: nothing marked');
+  assert.ok(out.skipped.includes('/media/Disk'));
 });
 
 /** Deps for sweep(): rows in a fake DB, a fake checker, marks recorded. */

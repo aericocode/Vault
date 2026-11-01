@@ -762,9 +762,12 @@ app.post('/api/setup/download/:tool', (req, res) => {
 
   (async () => {
     const os = require('os');
-    const tmp = path.join(os.tmpdir(), `vault-${req.params.tool}-${process.pid}${ARCHIVE_EXT[tool.archive]}`);
-    let tmpDir = null;
+    // A fresh private folder for the archive and what comes out of it, never a
+    // name anyone could guess and plant first in a shared temp folder (/tmp).
+    let dlDir = null;
     try {
+      dlDir = fs.mkdtempSync(path.join(os.tmpdir(), `vault-${req.params.tool}-`));
+      const tmp = path.join(dlDir, `download${ARCHIVE_EXT[tool.archive]}`);
       const resp = await netFetch(tool.url, { purpose: 'tool' });
       if (!resp.ok) throw new Error(`The download failed (the server answered ${resp.status})`);
 
@@ -790,7 +793,8 @@ app.post('/api/setup/download/:tool', (req, res) => {
           fs.writeFileSync(path.join(ROOT, name), entry.getData());
         }
       } else {
-        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `vault-${req.params.tool}-`));
+        const tmpDir = path.join(dlDir, 'unpacked');
+        fs.mkdirSync(tmpDir);
         await _tarExtract(tmp, tmpDir);
         const found = _walkRel(tmpDir);
         for (const name of tool.files) {
@@ -821,8 +825,7 @@ app.post('/api/setup/download/:tool', (req, res) => {
       Object.assign(job, { state: 'error', pct: 0, error: String(err.message).slice(0, 300) });
       console.warn(`[Setup] ${req.params.tool} download failed: ${job.error}`);
     } finally {
-      try { fs.unlinkSync(tmp); } catch {}
-      if (tmpDir) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} }
+      if (dlDir) { try { fs.rmSync(dlDir, { recursive: true, force: true }); } catch {} }
     }
   })();
 });
@@ -4173,7 +4176,11 @@ function start(args = process.argv.slice(2)) {
   _bootMark('db-open-housekeeping');
 
   const { host, port } = config.server;
-  const server = app.listen(port, host, () => {
+  // Express 5 calls this on a failed listen too, with the error. Then nothing
+  // here runs (no banner saying Vault is up): the 'error' handler below says
+  // what went wrong.
+  const server = app.listen(port, host, (err) => {
+    if (err) return;
     _bootMark('listen-ready');
     _bootReport();
     console.log('');

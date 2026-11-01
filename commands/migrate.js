@@ -94,9 +94,9 @@ function stripTrailing(p) {
   return p.replace(/[\\/]+$/, '');
 }
 
-/** Case-folded key — Windows paths compare case-insensitively. */
+/** Case-folded key where paths ignore case (Windows, macOS), as findOccupant() is. */
 function key(p) {
-  return IS_WIN ? String(p).toLowerCase() : String(p);
+  return CASE_INSENSITIVE_PATHS ? String(p).toLowerCase() : String(p);
 }
 
 /**
