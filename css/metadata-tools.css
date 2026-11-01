@@ -655,6 +655,13 @@ body.dock-shown #resultsGrid .media-tile.tile-docked.reorder-drop-after { box-sh
   font-size: 0.76rem;
 }
 .coll-picker-add:hover { border-color: var(--accent); }
+.coll-picker-add.is-on { border-color: var(--accent); color: var(--accent); }
+/* The top box while it names a new collection or folder. */
+.coll-picker-filter.is-naming { border-color: var(--accent); }
+/* "New collection \"typed\"": the find text offered as a new one. */
+.coll-picker-newrow { color: var(--accent); }
+.coll-picker-newrow .coll-picker-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coll-newrow-ic { flex: none; width: 16px; display: inline-flex; justify-content: center; }
 
 /* Shared inline create/rename input (tab + picker + card) */
 .coll-create-input {
@@ -937,6 +944,10 @@ body.layout-modern .coll-picker-add {
   font-size: 12px;
 }
 body.layout-modern .coll-picker-add:hover { background: var(--m-btn-hover); border-color: rgba(255, 255, 255, 0.22); }
+body.layout-modern .coll-picker-add.is-on,
+body.layout-modern .coll-picker-filter.is-naming { border-color: var(--accent-hover); }
+body.layout-modern .coll-picker-add.is-on { color: var(--m-text); background: var(--m-btn-hover); }
+body.layout-modern .coll-picker-newrow { color: var(--accent-hover); }
 body.layout-modern .coll-picker-add:focus-visible,
 body.layout-modern .coll-menu-item:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
 body.layout-modern .coll-card-menu { padding: 4px; }

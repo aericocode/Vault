@@ -36,7 +36,7 @@ function serverOrder(shape, places) {
   return o;
 }
 
-function page({ hidden = [] } = {}) {
+function page({ hidden = [], filtering = true } = {}) {
   const listeners = {};
   const store = new Map();
   const hide = new Set(hidden);
@@ -52,6 +52,7 @@ function page({ hidden = [] } = {}) {
     console,
     FlowOrder,
     Library,
+    anyFilterIsSet: () => filtering && hide.size > 0,
     activeCollectionId: 3,
     document: { readyState: 'complete', getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], addEventListener() {} },
     localStorage: {
@@ -152,4 +153,12 @@ test('drags in the chart and in the grid keep the chart and the grid on one orde
   await p.Flow.usePlaylistOrder();
   await p.ctx.applyFilters();
   assertOneOrder(p, 'playlist order');
+});
+
+test('files the grid never lists (a document, a trashed file) are left off the chart without blaming a filter', async () => {
+  const p = page({ hidden: [1, 3], filtering: false });
+  await p.Flow.toggle(3);
+  await p.Flow.pickShape('waves');
+  assertOneOrder(p, 'waves');
+  assert.doesNotMatch(p.Flow._view.summary(), /hidden/);
 });
