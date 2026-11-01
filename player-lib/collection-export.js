@@ -9,9 +9,12 @@
    native Save As window on the server and writes the file there. The path
    only ever comes from that window.
 
-   In an encrypted library only Through Vault is offered (the server refuses
-   the other two as well, whatever this page sends). The last choice is
-   remembered in localStorage, but a disabled choice is never preselected.
+   In an encrypted library all three are offered, Through Vault preselected.
+   Full path or Relative shows a warning (the playlist is a plain file that
+   says where the files are) and Save stays off until "I understand" is
+   ticked; only then does the request carry allowPaths: true. The server
+   refuses those two without it (403 FILES_ENCRYPTED), whatever this page
+   does. The last choice is remembered in localStorage.
 
    Same dialog in both looks (it reuses the vault-modal styles).
    ========================================================================= */
@@ -90,7 +93,6 @@ async function openCollectionExport(id) {
   const encrypted = await _collExportEncrypted();
   const prefs = _collExportPrefs();
   if (encrypted) prefs.links = 'vault';
-  const NO_PATHS = 'Not available for an encrypted library. The playlist would show where your files are on disk.';
 
   const ov = document.createElement('div');
   ov.id = 'collExportModal';
@@ -100,17 +102,24 @@ async function openCollectionExport(id) {
       <h3 id="collExportTitle"></h3>
       <fieldset class="coll-export-group">
         <legend>How each file is written in the playlist</legend>
-        ${_collExportChoice('collExportLinks', 'full', 'Full path',
-          encrypted ? NO_PATHS : 'Works from anywhere on this PC.',
-          { checked: prefs.links === 'full', disabled: encrypted })}
+        ${_collExportChoice('collExportLinks', 'full', 'Full path', 'Works from anywhere on this PC.',
+          { checked: prefs.links === 'full' })}
         ${_collExportChoice('collExportLinks', 'relative', 'Relative to the playlist',
-          encrypted ? NO_PATHS : 'Keeps working if you move the playlist and the files together, for example to another drive or PC.',
-          { checked: prefs.links === 'relative', disabled: encrypted })}
+          'Keeps working if you move the playlist and the files together, for example to another drive or PC.',
+          { checked: prefs.links === 'relative' })}
         ${_collExportChoice('collExportLinks', 'vault', 'Through Vault', 'Plays through Vault, so Vault must be open and unlocked.', {
           checked: prefs.links === 'vault',
           extra: encrypted ? 'The playlist file itself is not encrypted. It lists file names.' : '',
         })}
       </fieldset>
+      ${encrypted ? `
+      <div class="coll-export-warn" id="collExportWarn" role="alert" hidden>
+        <p>${COLL_EXPORT_PATHS_WARNING}</p>
+        <label class="coll-export-ack">
+          <input type="checkbox" id="collExportAck">
+          <span>I understand</span>
+        </label>
+      </div>` : ''}
       <div class="vault-modal-actions">
         <button type="button" class="vault-btn" id="collExportCancel">Cancel</button>
         <button type="button" class="vault-btn vault-btn-primary" id="collExportSave">Save playlist</button>
@@ -123,13 +132,46 @@ async function openCollectionExport(id) {
   ov.addEventListener('mousedown', (e) => { if (e.target === ov) closeCollectionExport(); });
   ov.querySelector('#collExportCancel').addEventListener('click', closeCollectionExport);
   ov.querySelector('#collExportSave').addEventListener('click', () => _collExportSave(id, ov));
+  if (encrypted) {
+    ov.dataset.encrypted = '1';
+    ov.querySelector('.coll-export-group').addEventListener('change', () => _collExportSyncWarning(ov));
+    ov.querySelector('#collExportAck').addEventListener('change', () => _collExportSyncWarning(ov));
+    _collExportSyncWarning(ov);
+  }
   document.addEventListener('keydown', _collExportKey, true);
   ov.querySelector('#collExportSave').focus();
 }
 
+/** The warning shown before a plain file lists where an encrypted library's files are. */
+const COLL_EXPORT_PATHS_WARNING = 'This playlist will list where your files are, in a plain file anyone can open. Keep it somewhere safe.';
+
+/** The links chosen, and whether they write paths from an encrypted library. */
+function _collExportChosen(ov) {
+  const links = ov.querySelector('input[name="collExportLinks"]:checked')?.value || 'vault';
+  const pathsFromEncrypted = ov.dataset.encrypted === '1' && links !== 'vault';
+  const ack = ov.querySelector('#collExportAck');
+  return { links, pathsFromEncrypted, acknowledged: !!(ack && ack.checked) };
+}
+
+/**
+ * Encrypted library: Full path or Relative shows the warning, and Save stays
+ * off until "I understand" is ticked. Changing the choice clears the tick.
+ */
+function _collExportSyncWarning(ov) {
+  const warn = ov.querySelector('#collExportWarn');
+  const ack = ov.querySelector('#collExportAck');
+  const save = ov.querySelector('#collExportSave');
+  if (!warn || !ack || !save || ov.dataset.busy === '1') return;
+  const { links, pathsFromEncrypted } = _collExportChosen(ov);
+  if (ov.dataset.warnFor !== links) { ack.checked = false; ov.dataset.warnFor = links; }
+  warn.hidden = !pathsFromEncrypted;
+  save.disabled = pathsFromEncrypted && !ack.checked;
+}
+
 async function _collExportSave(id, ov) {
   if (ov.dataset.busy === '1') return;
-  const links = ov.querySelector('input[name="collExportLinks"]:checked:not(:disabled)')?.value || 'vault';
+  const { links, pathsFromEncrypted, acknowledged } = _collExportChosen(ov);
+  if (pathsFromEncrypted && !acknowledged) return;
   _saveCollExportPrefs({ links });
 
   const saveBtn = ov.querySelector('#collExportSave');
@@ -148,7 +190,8 @@ async function _collExportSave(id, ov) {
     resp = await fetch(`/api/collections/${id}/export/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ links }),
+      // allowPaths only after the warning was acknowledged (checked above).
+      body: JSON.stringify(pathsFromEncrypted ? { links, allowPaths: true } : { links }),
     });
     data = await resp.json().catch(() => ({}));
   } catch (err) {
@@ -172,6 +215,7 @@ async function _collExportSave(id, ov) {
   saveBtn.disabled = false;
   cancelBtn.disabled = false;
   saveBtn.textContent = 'Save playlist';
+  _collExportSyncWarning(ov);
   if (resp && resp.status === 423) return;   // the lock screen takes over
   // The collections error toast (collections.js): the server's own sentence
   // when it has one (a picker already open), else plain words.

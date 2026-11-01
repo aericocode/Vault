@@ -543,6 +543,27 @@
 .coll-export-text b { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); }
 .coll-export-hint { font-size: 0.76rem; line-height: 1.4; color: var(--text-secondary); }
 .coll-export-note { color: var(--text-muted, var(--text-secondary)); }
+/* Encrypted library, Full path or Relative chosen: the warning and its tick box. */
+.coll-export-warn {
+  display: grid;
+  gap: 6px;
+  padding: 0.55rem 0.7rem;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  border-radius: 8px;
+}
+.coll-export-warn[hidden] { display: none; }
+.coll-export-warn p { margin: 0; font-size: 0.8rem; line-height: 1.4; color: var(--text-primary); }
+.coll-export-ack {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.coll-export-ack input { margin: 0; accent-color: var(--warning); }
 
 /* ── Rearranging an open collection (player-lib/collection-reorder.js) ── */
 .coll-reorder-note {

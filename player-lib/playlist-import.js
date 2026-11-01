@@ -20,8 +20,12 @@
                                     these files; each lands at its playlist
                                     place as soon as its row exists
      Not found (n)                  Find in folder… looks for them by name
-     Left out                       web links, Vault's trash, other kinds of
-                                    file, entries listed twice
+     Left out                       web links, Vault links to files not in
+                                    this library, Vault's trash, other kinds
+                                    of file, entries listed twice
+   A Vault link (an export "Through Vault") is matched by its id in this
+   library, or by its title when the id names another file
+   (lib/playlist/import.js matchVaultLinks); it is never opened.
    Then: a new collection named after the playlist, or add to one. A toast
    offers Undo (the collection goes, or the added files come out; files added
    to the library stay).
@@ -262,7 +266,7 @@
     const lib = group('library', 'In your library', r.library.length, {
       note: `These go into the collection.${r.offline ? ` ${plural(r.offline, 'file is', 'files are')} offline right now (the drive may not be connected). ${r.offline === 1 ? 'It goes' : 'They go'} in anyway.` : ''}`,
       rows: r.library,
-      rowHtml: (x) => `<li>${num(x.index)}<span class="pli-name-cell" title="${esc(x.name)}">${esc(x.title || x.name)}</span>${x.offline ? '<span class="pli-tag">Offline</span>' : ''}${x.how === 'folder' ? '<span class="pli-tag">Found in folder</span>' : ''}</li>`,
+      rowHtml: (x) => `<li>${num(x.index)}<span class="pli-name-cell" title="${esc(x.name)}">${esc(x.title || x.name)}</span>${x.offline ? '<span class="pli-tag">Offline</span>' : ''}${x.how === 'folder' ? '<span class="pli-tag">Found in folder</span>' : ''}${x.how === 'name' ? '<span class="pli-tag" title="Matched by the name the playlist gives it">Found by name</span>' : ''}</li>`,
     });
 
     const disk = group('disk', 'On disk, not in your library', r.disk.length, {
@@ -304,10 +308,12 @@
 
     const left = [];
     if (r.skipped.length) {
-      const web = r.skipped.filter(s => s.reason === 'web').length;
-      const other = r.skipped.length - web;
-      if (web) left.push({ key: 'web', label: `${plural(web, 'web link')}. Vault does not follow links.`, rows: r.skipped.filter(s => s.reason === 'web') });
-      if (other) left.push({ key: 'other', label: `${plural(other, 'entry', 'entries')} that ${other === 1 ? 'is' : 'are'} not a file on this PC.`, rows: r.skipped.filter(s => s.reason !== 'web') });
+      const web = r.skipped.filter(s => s.reason === 'web');
+      const vaultLinks = r.skipped.filter(s => s.reason === 'vault');
+      const other = r.skipped.filter(s => s.reason !== 'web' && s.reason !== 'vault');
+      if (vaultLinks.length) left.push({ key: 'vault', label: `${plural(vaultLinks.length, 'Vault link')} to ${vaultLinks.length === 1 ? 'a file that is' : 'files that are'} not in this library.`, rows: vaultLinks });
+      if (web.length) left.push({ key: 'web', label: `${plural(web.length, 'web link')}. Vault does not follow links.`, rows: web });
+      if (other.length) left.push({ key: 'other', label: `${plural(other.length, 'entry', 'entries')} that ${other.length === 1 ? 'is' : 'are'} not a file on this PC.`, rows: other });
     }
     if (r.trashed.length) left.push({ key: 'trashed', label: `${plural(r.trashed.length, 'file')} in Vault's trash. Restore ${r.trashed.length === 1 ? 'it' : 'them'} first to have ${r.trashed.length === 1 ? 'it' : 'them'} in the collection.`, rows: r.trashed });
     if (r.unsupported.length) left.push({ key: 'unsupported', label: `${plural(r.unsupported.length, 'file')} Vault cannot play.`, rows: r.unsupported });

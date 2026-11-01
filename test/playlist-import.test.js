@@ -604,3 +604,133 @@ test('a big or hostile playlist file is read in a worker thread, off the event l
   const direct = await pi.parseInWorker(fs.readFileSync(path.join(__dirname, 'fixtures', 'playlists', 'vlc.xspf')), 'vlc.xspf');
   assert.deepStrictEqual(direct.entries.map((e) => e.path), ['C:\\Media\\Café clip.mp4', '\\\\nas\\media\\Beta two.mkv', 'Sub/rel one.mp4', null]);
 });
+
+// ── Vault links (an export "Through Vault") ────────────────────────────────
+
+const { nameKey } = require('../lib/dupes');
+const { parsePlaylist } = require('../lib/playlist/parse');
+
+/** A row with its name key set, as the scanner writes it (the name lookup reads it). */
+function insertNamed(filepath, extra = {}) {
+  const id = insert(filepath, extra);
+  const name = extra.filename || path.win32.basename(filepath);
+  db.get().prepare('UPDATE media SET name_key = ? WHERE id = ?').run(nameKey(name), id);
+  return id;
+}
+
+/** Every fetch while `fn` runs is counted: reading a playlist must never follow a link. */
+async function noFetch(fn) {
+  const real = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (...a) => { calls++; return real(...a); };
+  try { return { out: await fn(), calls: () => calls }; } finally { globalThis.fetch = real; }
+}
+
+test('Vault links: the id when the title agrees, else the title as a file name, else left out', async () => {
+  const sunset = insertNamed('C:\\VL\\Sunset beach.mp4');
+  const night = insertNamed('C:\\VL\\Night.city.final.mkv');
+  const twinA = insertNamed('C:\\VL\\A\\Twin.mp4');
+  const twinB = insertNamed('D:\\VL\\B\\twin.mp4');
+  const doc = insertNamed('C:\\VL\\Notes.pdf', { type: 'document' });
+  const mix = insertNamed('mix://vl', { type: 'mix', filename: 'Road mix' });
+  const old = insertNamed('C:\\Trash\\vl-old.mp4', { filename: 'Old.mp4', trashed: true, original: 'C:\\VL\\Old.mp4' });
+  const gone = 999999901;
+  const link = (id, host = '127.0.0.1:8766') => `http://${host}/media/${id}`;
+  const text = [
+    '#EXTM3U',
+    '#EXTINF:5,Sunset beach', link(sunset),                         // 0 id, title agrees
+    '#EXTINF:5,  SUNSET   beach.MP4 ', link(sunset, 'localhost:1'), // 1 id, title agrees (case, spaces, extension)
+    link(night, '[::1]:8766'),                                      // 2 id, no title
+    '#EXTINF:5,Night.city.final', link(sunset),                     // 3 id names another file: by name
+    '#EXTINF:5,Something else entirely', link(sunset),              // 4 id names another file, name not here
+    link(gone),                                                     // 5 no such id, no title
+    '#EXTINF:5,Sunset beach', link(gone),                           // 6 no such id: by name
+    '#EXTINF:5,Twin', link(gone),                                   // 7 two files of that name: pick one
+    '#EXTINF:5,Notes', link(doc),                                   // 8 a document: never
+    '#EXTINF:5,Road mix', link(mix),                                // 9 a mix: never
+    '#EXTINF:5,Old', link(old),                                     // 10 in Vault's trash
+    '#EXTINF:5,Sunset beach', `http://127.0.0.1.evil.com/media/${sunset}`,  // 11 a lookalike: a web link
+    '#EXTINF:5,Sunset beach', `https://example.com/media/${sunset}`,        // 12 a web link
+    '#EXTINF:5,Sunset beach', `http://127.0.0.1:8766/media/${sunset}/../x`, // 13 a web link
+  ].join('\r\n');
+  const parsed = parsePlaylist(Buffer.from(text), { fileName: 'VL.m3u8' });
+  const { out: r, calls } = await noFetch(() => pi.matchEntries(parsed.entries, { playlistDir: lists }));
+  assert.strictEqual(calls(), 0, 'no link was fetched');
+  assert.deepStrictEqual(r.map((x) => [x.kind, x.how || x.reason || null, x.mediaId || null]), [
+    ['library', 'vault', sunset],
+    ['library', 'vault', sunset],
+    ['library', 'vault', night],
+    ['library', 'name', night],
+    ['skipped', 'vault', null],
+    ['skipped', 'vault', null],
+    ['library', 'name', sunset],
+    ['ambiguous', null, null],
+    ['skipped', 'vault', null],
+    ['skipped', 'vault', null],
+    ['trashed', 'vault', old],
+    ['skipped', 'web', null],
+    ['skipped', 'web', null],
+    ['skipped', 'web', null],
+  ]);
+  assert.deepStrictEqual(r[7].options.map((o) => o.mediaId), [twinA, twinB]);
+
+  // Through a session: the review's groups, and picking one of the two.
+  const file = write(path.join(lists, 'VL.m3u8'), Buffer.from(text, 'utf8'));
+  const rv = await pi.openPlaylist(file);
+  assert.deepStrictEqual(rv.library.map((x) => [x.id, x.how]), [[sunset, 'vault'], [night, 'vault']]);
+  assert.strictEqual(rv.duplicates, 3, 'entries 1, 3 and 6 name files already listed');
+  assert.deepStrictEqual(rv.skipped.map((x) => [x.index, x.reason]),
+    [[4, 'vault'], [5, 'vault'], [8, 'vault'], [9, 'vault'], [11, 'web'], [12, 'web'], [13, 'web']]);
+  assert.deepStrictEqual(rv.trashed.map((x) => x.index), [10]);
+  assert.deepStrictEqual(rv.ambiguous.map((x) => [x.index, x.options.map((o) => o.id)]), [[7, [twinA, twinB]]]);
+  pi.choose(rv.session, 7, 1);
+  const after = pi.review(rv.session);
+  assert.deepStrictEqual(after.library.map((x) => [x.id, x.how]), [[sunset, 'vault'], [night, 'vault'], [twinB, 'name']]);
+  pi.close(rv.session);
+  db.get().prepare(`DELETE FROM media WHERE id IN (${[sunset, night, twinA, twinB, doc, mix, old].join(',')})`).run();
+});
+
+test('Vault links round trip: export a collection Through Vault, import the file, same files in the same order', async () => {
+  const c = db.createCollection('Round trip').id;
+  const order = [ids.gamma, ids.offline, ids.alpha, ids.beta, ids.delta];
+  db.addToCollection(c, order);
+  const res = await fetch(`${base}/api/collections/${c}/export?links=vault`);
+  assert.strictEqual(res.status, 200);
+  const text = await res.text();
+  assert.strictEqual((text.match(/\/media\/\d+\r\n/g) || []).length, order.length);
+  const file = write(path.join(lists, 'Round trip.m3u8'), Buffer.from(text, 'utf8'));
+  const { out: rv, calls } = await noFetch(() => pi.openPlaylist(file));
+  assert.strictEqual(calls(), 0, 'no link was fetched');
+  assert.strictEqual(rv.name, 'Round trip');
+  assert.deepStrictEqual(rv.library.map((x) => x.id), order);
+  assert.ok(rv.library.every((x) => x.how === 'vault'));
+  assert.strictEqual(rv.offline, 1);
+  assert.deepStrictEqual([rv.skipped, rv.missing, rv.disk, rv.trashed, rv.ambiguous], [[], [], [], [], []]);
+  const out = await pi.commit(rv.session, { target: 'new', name: 'Round trip (2)' });
+  assert.strictEqual(out.added, order.length);
+  assert.strictEqual(out.skipped, 0);
+  assert.deepStrictEqual(memberOrder(out.collectionId), order);
+  pi.undo(out.importId);
+  db.deleteCollection(c);
+});
+
+test('Vault links: batched id and name lookups, never one query per entry', async () => {
+  const conn = db.get();
+  const plan = (sql, ...a) => conn.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...a).map((x) => x.detail).join(' | ');
+  assert.match(plan('SELECT id FROM media WHERE id IN (?,?)', 1, 2), /USING INTEGER PRIMARY KEY/);
+  assert.match(plan('SELECT id FROM media WHERE name_key IN (?,?)', 'a', 'b'), /USING (COVERING )?INDEX idx_media_name_key/);
+  const made = [];
+  const ins = conn.prepare("INSERT INTO media (filepath, filename, media_type, name_key) VALUES (?, ?, 'video', ?)");
+  conn.transaction(() => {
+    for (let i = 0; i < 1000; i++) made.push(Number(ins.run(`C:\\VLBulk\\clip ${i}.mp4`, `clip ${i}.mp4`, nameKey(`clip ${i}.mp4`)).lastInsertRowid));
+  })();
+  // Half by id (title agrees), half by name (the id is not a row here).
+  const entries = made.map((id, i) => ({
+    index: i, raw: 'x', path: null, url: 'x', title: `clip ${i}`, vaultId: i % 2 ? id : 999000000 + i,
+  }));
+  const before = pi._queryCount();
+  const r = await pi.matchEntries(entries, { playlistDir: lists });
+  assert.ok(r.every((x, i) => x.kind === 'library' && x.mediaId === made[i]));
+  assert.strictEqual(pi._queryCount() - before, 3 + 2, 'ceil(1000 / 400) id batches, ceil(500 / 400) name batches');
+  conn.prepare("DELETE FROM media WHERE filepath LIKE 'C:\\VLBulk\\%'").run();
+});

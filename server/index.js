@@ -3255,11 +3255,11 @@ for (const op of ['add', 'move', 'remove', 'clear', 'replace']) {
 
 // ── Export a collection as a playlist file (PLAYLISTS_SPEC step 2) ────────
 // M3U8 only (for VLC / PotPlayer). links: full | relative | vault.
-// GET  /api/collections/:id/export?links=full|vault
+// GET  /api/collections/:id/export?links=full|vault[&allowPaths=1]
 //      → the playlist text (preview, tests). Relative links are worked out
 //        from where the playlist is saved, so GET answers 400
 //        RELATIVE_NEEDS_SAVE for them.
-// POST /api/collections/:id/export/save  { links }
+// POST /api/collections/:id/export/save  { links, allowPaths? }
 //      → opens a native Save As window and writes the file where the user
 //        chose: { path, count, skipped, fullPathCount } | { canceled: true }
 //        (fullPathCount: relative entries written as full paths because the
@@ -3269,6 +3269,11 @@ for (const op of ['add', 'move', 'remove', 'clear', 'replace']) {
 // playlist would spell out where the files are, in a plain file next to an
 // encrypted library), 409 a picker is already open, 423 locked (the gate
 // above, and again after the window closes), 501 not Windows.
+// allowPaths: the user read the dialog's warning and still wants full or
+// relative links from an encrypted library. Only the exact values count
+// (body: true, query: '1'); anything else is no consent, so FILES_ENCRYPTED
+// stays the answer by default. It changes nothing for Vault links, a plain
+// library, or the lock.
 const playlistExport = require('../lib/playlist/export');
 const { M3U8: PLAYLIST_M3U8 } = require('../lib/playlist/formats');
 const EXPORT_ERR_STATUS = { BAD_LINKS: 400, RELATIVE_NEEDS_SAVE: 400, NOT_FOUND: 404 };
@@ -3287,8 +3292,9 @@ function sendExportErr(res, err) {
   return res.status(500).json({ error: 'could not build the playlist, see the server log' });
 }
 
-// Any written path (full or relative) shows where the files are on disk.
-const filesRefused = (links) => links !== 'vault' && vault.isEncrypted();
+// Any written path (full or relative) shows where the files are on disk:
+// refused in an encrypted library unless the user said yes to that.
+const filesRefused = (links, allowPaths) => links !== 'vault' && vault.isEncrypted() && allowPaths !== true;
 const FILES_ENCRYPTED_BODY = {
   error: 'file paths are not available for an encrypted library',
   code: 'FILES_ENCRYPTED',
@@ -3296,20 +3302,20 @@ const FILES_ENCRYPTED_BODY = {
 
 /** Shared checks for both routes. Answers the error itself and returns null,
  *  or returns { id, coll }. */
-function exportPrecheck(req, res, links, { saving = false } = {}) {
+function exportPrecheck(req, res, links, { saving = false, allowPaths = false } = {}) {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'bad id' }); return null; }
   try {
     playlistExport.checkLinks(links, { saving });
     const coll = playlistExport.collectionRow(id);
-    if (filesRefused(links)) { res.status(403).json(FILES_ENCRYPTED_BODY); return null; }
+    if (filesRefused(links, allowPaths)) { res.status(403).json(FILES_ENCRYPTED_BODY); return null; }
     return { id, coll };
   } catch (err) { sendExportErr(res, err); return null; }
 }
 
 app.get('/api/collections/:id/export', (req, res) => {
   const { links } = req.query;
-  const pre = exportPrecheck(req, res, links);
+  const pre = exportPrecheck(req, res, links, { allowPaths: req.query.allowPaths === '1' });
   if (!pre) return;
   let out;
   try { out = playlistExport.buildExport(pre.id, { links, baseUrl: exportBaseUrl(req) }); }
@@ -3351,7 +3357,8 @@ let _saveDialog = _defaultSaveDialog;
 app.post('/api/collections/:id/export/save', (req, res) => {
   const body = req.body && typeof req.body === 'object' ? req.body : {};
   const { links } = body;
-  const pre = exportPrecheck(req, res, links, { saving: true });
+  const allowPaths = body.allowPaths === true;
+  const pre = exportPrecheck(req, res, links, { saving: true, allowPaths });
   if (!pre) return;
   const baseUrl = exportBaseUrl(req);
   const env = { VAULT_SAVE_NAME: `${playlistExport.safeFileName(pre.coll.name)}.${PLAYLIST_M3U8.ext}` };
@@ -3384,7 +3391,7 @@ app.post('/api/collections/:id/export/save', (req, res) => {
     }
     // The window can stay open for minutes: look again before writing.
     if (vault.isLocked()) return finish(423, { error: 'vault is locked', code: 'VAULT_LOCKED' });
-    if (filesRefused(links)) return finish(403, FILES_ENCRYPTED_BODY);
+    if (filesRefused(links, allowPaths)) return finish(403, FILES_ENCRYPTED_BODY);
     let built;
     try {
       // Relative links start from the folder the user chose in the window.

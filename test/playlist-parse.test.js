@@ -189,3 +189,72 @@ test('the parser runs the same from its own source (the worker thread form)', ()
     assert.deepStrictEqual(again.parsePlaylist(bytes, { fileName: name }), parsePlaylist(bytes, { fileName: name }), name);
   }
 });
+
+// ── Vault links (an export "Through Vault") ────────────────────────────────
+
+test('Vault links: loopback hosts, any port, exactly /media/<id>; lookalikes stay web links', () => {
+  const { vaultMediaId } = require('../lib/playlist/parse');
+  const yes = {
+    'http://127.0.0.1:8766/media/4183': 4183,
+    'http://127.0.0.1/media/7': 7,
+    'HTTP://LocalHost:1/media/12': 12,
+    'http://[::1]:8766/media/3': 3,
+    'https://127.0.0.1:8766/media/5': 5,
+    'http://127.0.0.1:8766/media/9?t=10': 9,
+    'http://127.0.0.1:8766/media/9#x': 9,
+  };
+  for (const [u, id] of Object.entries(yes)) assert.strictEqual(vaultMediaId(u), id, u);
+  for (const u of [
+    'http://127.0.0.1.evil.com/media/1',     // a host that only starts like loopback
+    'http://localhost.evil.com/media/1',
+    'http://evil.com/127.0.0.1/media/1',
+    'http://evil@127.0.0.1/media/1',          // user info
+    'http://127.0.0.1@evil.com/media/1',
+    'http://127.0.0.1\@evil.com/media/1',
+    'http://127.0.0.2/media/1',               // other loopback spellings are not what Vault writes
+    'http://localhost./media/1',
+    'http://[::1/media/1',
+    'http://::1/media/1',
+    'https://example.com/media/1',
+    'http://127.0.0.1/media/abc',
+    'http://127.0.0.1/media/1/../x',          // dot segments
+    'http://127.0.0.1/media/1/',
+    'http://127.0.0.1/media/%31',             // escapes
+    'http://127.0.0.1/media/0',
+    'http://127.0.0.1/media/01',
+    'http://127.0.0.1/media/-1',
+    'http://127.0.0.1/media/1.5',
+    'http://127.0.0.1/media/99999999999999999',  // not a safe integer
+    'http://127.0.0.1/MEDIA/1',
+    'http://127.0.0.1/api/media/1',
+    'http://127.0.0.1/media',
+    'http://127.0.0.1:99999/media/1',
+    'http://127.0.0.1:/media/1',
+    'http://127.0.0.1:8766/media/5\nx',
+    'ftp://127.0.0.1/media/1',
+    'file:///media/1',
+    '/media/1',
+    '',
+    null,
+  ]) assert.strictEqual(vaultMediaId(u), null, JSON.stringify(u));
+});
+
+test('our own M3U8 export with Vault links reads back as entries with their ids, not web links', () => {
+  const items = [
+    { id: 41, title: 'One', durationSec: 5, filePath: 'D:\Media\one.mp4' },
+    { id: 7, title: 'Two, again', durationSec: null, filePath: 'D:\Media\two.mkv' },
+  ];
+  const text = buildM3U8({ title: 'Mine', links: 'vault', baseUrl: 'http://127.0.0.1:8766', items }).text
+    + 'http://127.0.0.1.evil.com/media/41\r\nhttps://example.com/media/1\r\n';
+  const pl = parsePlaylist(Buffer.from(text), { fileName: 'Mine.m3u8' });
+  assert.deepStrictEqual(pl.entries.map((e) => [e.vaultId ?? null, e.path, e.title]),
+    [[41, null, 'One'], [7, null, 'Two, again'], [null, null, null], [null, null, null]]);
+  assert.strictEqual(pl.entries[0].url, 'http://127.0.0.1:8766/media/41');
+  assert.deepStrictEqual(pl.skipped.map((s) => [s.index, s.reason]), [[2, 'web'], [3, 'web']]);
+  // XSPF and PLS hold them the same way.
+  const xspf = parsePlaylist(Buffer.from('<?xml version="1.0"?><playlist><trackList><track><location>http://localhost:9/media/3</location><title>T</title></track></trackList></playlist>'), { fileName: 'a.xspf' });
+  assert.deepStrictEqual(xspf.entries.map((e) => [e.vaultId, e.title]), [[3, 'T']]);
+  const pls = parsePlaylist(Buffer.from('[playlist]\r\nFile1=http://[::1]:8766/media/8\r\nTitle1=P\r\n'), { fileName: 'a.pls' });
+  assert.deepStrictEqual(pls.entries.map((e) => [e.vaultId, e.title]), [[8, 'P']]);
+  assert.deepStrictEqual(pls.skipped, []);
+});
