@@ -1,9 +1,9 @@
 /* =========================================================================
-   STAGE COUNT - "Track 12 of 40 · 2:14:30 left" on the Stage bar and the
-   Flow order bar, and "40 files · 2:41:05" on the Flow order bar while
-   Stage is closed. Pure: no DOM, no network, so test/stage-count.test.js
-   runs it in Node. stage-control.js gathers what it needs (the list Stage
-   plays, Up next, the rows' lengths) and flow.js draws it.
+   STAGE COUNT - "Track 12 of 40 · 2:14:30 left" on the Stage bar, and
+   "40 files · 2:41:05" on an open collection's count line. Pure: no DOM,
+   no network, so test/stage-count.test.js runs it in Node. stage-control.js
+   gathers what it needs (the list Stage plays, Up next, the rows' lengths)
+   and draws the bar; collections.js draws the count line.
 
    How it counts (what Vault would really play, so the numbers come true):
    - The list is the list Stage plays from, in its order. A document is
@@ -136,7 +136,7 @@ const StageCount = (() => {
   }
 
   /**
-   * The Flow order bar while Stage is closed: "40 files · 2:41:05". files:
+   * A collection's count line (collections.js): "40 files · 2:41:05". files:
    * how many; seconds: their length added up (null: not known, left out);
    * about: some lengths were not known.
    */

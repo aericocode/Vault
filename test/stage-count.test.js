@@ -1,7 +1,7 @@
 /**
  * Track count and time left (player-lib/stage-count.js): "Track 12 of 40 ·
- * 2:14:30 left" on the Stage bar and the Flow order bar, "40 files ·
- * 2:41:05" on the Flow order bar while Stage is closed. Pure.
+ * 2:14:30 left" on the Stage bar, "40 files · 2:41:05" on a collection's
+ * count line. Pure.
  */
 
 const test = require('node:test');

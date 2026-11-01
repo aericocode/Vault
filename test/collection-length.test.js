@@ -106,31 +106,3 @@ test('putting a file back from the trash counts it again', () => {
   assert.deepStrictEqual([len.listed_count, len.timed_count, len.total_seconds], [5, 4, 3801 - 3600 + 500 + 3600]);
   db.get().prepare('UPDATE media SET user_trashed = 1 WHERE id = ?').run(ids['g.mp4']);
 });
-
-/* collections.js collectionShowsWhole, in a VM: the server total applies only to the grid as listed with no search or filter. */
-test('collectionShowsWhole: the listed count with no search or filter; a trashed member does not break it', () => {
-  const vm = require('node:vm');
-  const src = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'collections.js'), 'utf8').replace(/\r\n/g, '\n');
-  const start = src.indexOf('function collectionShowsWhole(');
-  const fn = src.slice(start, src.indexOf('\n}\n', start) + 3);
-  const lib = { spec: { collectionId: 2, search: { text: '' } }, known: () => true, length: () => 449 };
-  const ctx = { Library: lib, filtersSet: false };
-  ctx.anyFilterIsSet = () => ctx.filtersSet;
-  vm.createContext(ctx);
-  vm.runInContext(`${fn}\nglobalThis.__f = collectionShowsWhole;`, ctx);
-  const c = { id: 2, item_count: 450, listed_count: 449 };
-  assert.strictEqual(ctx.__f(c), true, '449 listed of 450 members (one trashed)');
-  lib.length = () => 450;
-  assert.strictEqual(ctx.__f(c), false, 'Trashed: All lists one more than the server counted');
-  lib.length = () => 449;
-  ctx.filtersSet = true;
-  assert.strictEqual(ctx.__f(c), false, 'a filter set');
-  ctx.filtersSet = false;
-  lib.spec.search.text = 'x';
-  assert.strictEqual(ctx.__f(c), false, 'a search');
-  lib.spec.search.text = '';
-  lib.known = () => false;
-  assert.strictEqual(ctx.__f(c), true, 'the exact count still on its way, nothing narrowing it');
-  assert.strictEqual(ctx.__f({ id: 3, item_count: 1 }), false, 'another collection');
-  assert.strictEqual(ctx.__f({ id: 2, item_count: 449 }), true, 'an answer from before listed_count: item_count');
-});

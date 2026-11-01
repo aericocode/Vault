@@ -2,7 +2,7 @@
  * Saved Flow orders in the panel (player-lib/flow.js "Saved orders"): saving
  * the working order under a name, loading it again (fitted to the files the
  * collection has now: a removed file dropped, an added one at the end), the
- * order bar's name ("Flow order: Friday set", ", edited" after a move), a
+ * order's name ("Flow order: Friday set", ", edited" after a move), a
  * built-in shape letting go of it, Delete with Undo, and a reload coming
  * back to it (vault.flow.order.<id> keeps its id).
  *
@@ -102,7 +102,8 @@ function page(srv) {
 }
 
 const grid = (p) => Array.from(p.Library.ids);
-const pill = (p) => /flow-ob-pill">([^<]*)</.exec(p.Flow.orderBarHtml())[1];
+// What the order is called (the count line says it too, lower case for a shape: countText).
+const pill = (p) => `Flow order: ${p.Flow.saved.name()}`;
 const settle = async () => { for (let i = 0; i < 20; i++) await new Promise(r => setImmediate(r)); };
 
 test('save the working order under a name, then load it back fitted to the files there are now', async () => {
@@ -231,7 +232,7 @@ test('switching between saved orders offers Undo only for moves that were not sa
   assert.strictEqual(pill(p), 'Flow order: A, edited');
 });
 
-test('nothing under the chart saves: Update is in the chip menu, the bar says Make this the playlist order', () => {
+test('nothing under the chart saves: Update is in the chip menu, the top row says Make this the playlist order', () => {
   const src = require('node:fs').readFileSync(require.resolve('../player-lib/flow.js'), 'utf8');
   assert.ok(!src.includes('data-flow-save>') && !src.includes('data-flow-saved-update'), 'no save buttons in the panel');
   assert.ok(src.includes('>Make this the playlist order</button>'));

@@ -4,7 +4,7 @@
 
    While a collection (not a folder) is open and the grid is in playlist
    order (or Flow order: then a move edits Flow's working order in memory,
-   player-lib/flow.js, and the note line is Flow's order bar), tiles (and table rows) can be dragged to a new spot, and the
+   player-lib/flow.js, and the note line says nothing), tiles (and table rows) can be dragged to a new spot, and the
    selected file moves one place with Alt+arrows. Each move is one call to
    POST /api/collections/:id/order, then the grid re-runs its query in place
    and a toast offers Undo (selection.js showUndoToast; Undo sends the whole
@@ -127,12 +127,12 @@ function renderReorderNote() {
   if (!el) return;
   const reason = reorderBlockedReason();
   let html = '';
-  // Flow order shows: the order bar (flow.js) instead of the note.
+  // Flow order shows: no note. The count line names the order (collections.js),
+  // the Flow panel switches back and saves it (flow.js).
   // A shuffle on screen wins: its note shows (a shuffle leaves Flow order anyway).
-  const flowBar = !Library.shuffled && typeof flowOrderOn === 'function' && flowOrderOn() && typeof flowOrderBarHtml === 'function' ? flowOrderBarHtml() : '';
-  el.classList.toggle('flow-orderbar', !!flowBar);
-  if (flowBar) {
-    html = flowBar;
+  const flowOn = !Library.shuffled && typeof flowOrderOn === 'function' && flowOrderOn();
+  if (flowOn) {
+    html = '';
   } else if (reason === null) {
     html = 'Drag tiles to rearrange, or select one and press Alt+arrows. Saves as you go.';
   } else if (reason === 'sort') {
@@ -220,7 +220,7 @@ async function reorderMove(ids, before) {
   const moving = new Set(ids);
   if (!ids.length || (before != null && moving.has(before))) return false;
   if (_sameOrder(_plannedOrder(prev, moving, before), prev)) return false;
-  // Flow order: the working order changes, in memory, until Save as playlist order.
+  // Flow order: the working order changes, in memory, until Make this the playlist order.
   if (typeof flowOrderOn === 'function' && flowOrderOn() && typeof flowMoveInOrder === 'function') return flowMoveInOrder(ids, before);
   _reorderBusy = true;
   try {
