@@ -465,9 +465,12 @@ test('moveBlock: a drag in Flow order (a block, before a file or at the end), nu
 });
 
 test('parseRemembered: only a plain object with a known shape, places true / false / null, whole ids', () => {
-  assert.deepStrictEqual(F.parseRemembered('{"shape":"waves","places":null,"edited":[3,1,3]}'), { shape: 'waves', places: null, edited: [3, 1], waves: 2 });
-  assert.deepStrictEqual(F.parseRemembered('{"shape":"build","places":true}'), { shape: 'build', places: true, edited: null, waves: 2 });
-  assert.deepStrictEqual(F.parseRemembered('{"shape":"peak","edited":[]}'), { shape: 'peak', places: null, edited: null, waves: 2 });
+  assert.deepStrictEqual(F.parseRemembered('{"shape":"waves","places":null,"edited":[3,1,3]}'), { shape: 'waves', places: null, edited: [3, 1], waves: 2, saved: null });
+  assert.deepStrictEqual(F.parseRemembered('{"shape":"build","places":true}'), { shape: 'build', places: true, edited: null, waves: 2, saved: null });
+  assert.deepStrictEqual(F.parseRemembered('{"shape":"peak","edited":[]}'), { shape: 'peak', places: null, edited: null, waves: 2, saved: null });
+  // The saved order it was loaded from: a whole positive id, else none.
+  assert.strictEqual(F.parseRemembered('{"shape":"waves","saved":7}').saved, 7);
+  for (const sv of ['0', '-2', '1.5', '"7"', 'null', '[]']) assert.strictEqual(F.parseRemembered(`{"shape":"waves","saved":${sv}}`).saved, null, sv);
   // Waves' peaks: kept when 1..6; an entry from before (none) or a bad count reads as 2, the entry kept.
   assert.strictEqual(F.parseRemembered('{"shape":"waves","waves":5}').waves, 5);
   for (const w of ['0', '7', '2.5', 'null', '[]', '"many"']) assert.strictEqual(F.parseRemembered(`{"shape":"waves","waves":${w}}`).waves, 2, w);

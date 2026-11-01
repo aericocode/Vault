@@ -605,3 +605,64 @@ body.layout-modern .flow-st-h,
 body.layout-modern .flow-st-k { color: var(--m-muted); }
 body.layout-modern .flow-strip { font-size: 12px; }
 body.layout-modern .flow-st-acts .flow-btn-sm { min-height: 20px; font-size: 11.5px; }
+
+/* Saved orders: chips on the Lanes row (flow.js savedHtml), the same height
+   as the lane buttons beside them, so the row does not grow. */
+.flow-saved {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.flow-chip {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  max-width: 100%;
+}
+.flow-chip.on { border-color: var(--accent); background: var(--accent-bg); }
+.flow-chip > button,
+button.flow-chip-add {
+  background: none;
+  border: 0;
+  padding: 5px 9px;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+button.flow-chip-add { border: 1px dashed var(--border); border-radius: 8px; }
+.flow-chip > button:hover,
+button.flow-chip-add:hover { color: var(--text-primary); background: var(--bg-hover); }
+.flow-chip.on > button { color: var(--text-primary); }
+.flow-chip-main { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; }
+.flow-chip-name { max-width: 16ch; overflow: hidden; text-overflow: ellipsis; }
+.flow-chip-shape { color: var(--text-muted); font-size: 0.7rem; }
+.flow-chip-more { padding-left: 5px !important; padding-right: 7px !important; border-left: 1px solid var(--border) !important; }
+.flow-chip > button:focus-visible,
+button.flow-chip-add:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: -2px; }
+.flow-chip-input {
+  width: 16ch;
+  padding: 4px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg-primary, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.78rem;
+}
+.flow-chip-input:focus { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
+.flow-btn-saved { max-width: 28ch; overflow: hidden; text-overflow: ellipsis; }
+body.layout-modern .flow-chip,
+body.layout-modern button.flow-chip-add { border-color: var(--m-border-strong); }
+body.layout-modern .flow-chip.on { border-color: var(--accent); }
+body.layout-modern .flow-chip > button,
+body.layout-modern button.flow-chip-add,
+body.layout-modern .flow-chip-input { color: var(--m-text-2); font-size: 13px; }
+body.layout-modern .flow-chip.on > button,
+body.layout-modern .flow-chip-input { color: var(--m-text); }
+body.layout-modern .flow-chip-shape { color: var(--m-muted); font-size: 11.5px; }

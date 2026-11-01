@@ -772,6 +772,8 @@ const StreamTags = (() => {
     PLACE_LABELS, load, reloadLanes, refreshCollection, apply, clearFiles, tagsOf, tagIdsOf, hasAny,
     lanes: () => st.lanes, tag: (id) => st.tags.get(id) || null, loaded: () => st.loaded,
     tileHtml, rowHtml, rowFit, fitChipCount, repaintTiles, blockHtml, blockMenu, selectionButton, selectionMenu, paintStage, stageMenu, closeMenu, openEditor,
+    // The menu itself, for other menus that look and work the same (flow.js saved orders).
+    openMenu,
     onChange: (cb) => { if (typeof cb === 'function') st.subs.add(cb); },
     changed,
   };
