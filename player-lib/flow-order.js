@@ -865,10 +865,12 @@ const FlowOrder = (() => {
 
   /**
    * A remembered Flow order (localStorage text) as { shape, places, edited,
-   * waves }, or null when there is none or it is not exactly that shape (the
+   * waves, saved }, or null when there is none or it is not exactly that shape (the
    * caller removes it then): a plain object, a known shape, places true /
    * false / null, edited null or a list of whole positive ids. Waves' peaks
    * read as 2 when missing or not 1..6 (an entry from before they existed).
+   * saved: the saved order it was loaded from (its id), null when none or
+   * not a whole positive number.
    */
   function parseRemembered(text) {
     if (typeof text !== 'string' || !text) return null;
@@ -882,7 +884,8 @@ const FlowOrder = (() => {
       if (!Array.isArray(v.edited) || !v.edited.every(id => Number.isInteger(id) && id > 0)) return null;
       edited = v.edited.length ? [...new Set(v.edited)] : null;
     }
-    return { shape: v.shape, places: v.places == null ? null : v.places, edited, waves: wavesCount(v.waves) };
+    const saved = Number.isSafeInteger(v.saved) && v.saved > 0 ? v.saved : null;
+    return { shape: v.shape, places: v.places == null ? null : v.places, edited, waves: wavesCount(v.waves), saved };
   }
 
   /**

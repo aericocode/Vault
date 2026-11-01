@@ -112,7 +112,7 @@ test('Waves: the count of peaks is asked for, remembered with the shape, and an 
   assert.strictEqual(p.Flow._state().shape, 'waves');
   assert.strictEqual(p.Flow._state().waves, 4);
   assert.ok(p.urls.some(u => u.startsWith('/api/flow/collections/3?shape=waves') && u.includes('waves=4')), p.urls.join(', '));
-  assert.deepStrictEqual(JSON.parse(p.store.get('vault.flow.order.3')), { shape: 'waves', waves: 4, places: null, edited: null });
+  assert.deepStrictEqual(JSON.parse(p.store.get('vault.flow.order.3')), { shape: 'waves', waves: 4, places: null, edited: null, saved: null });
   // Another shape keeps the count for later, and does not ask with it.
   p.urls.length = 0;
   await p.Flow.pickShape('build');

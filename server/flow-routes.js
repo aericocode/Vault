@@ -23,6 +23,14 @@
  *   POST /api/flow/pause | /api/flow/resume | /api/flow/cancel
  *   GET  /api/flow/media/:id                one file (the Stage bar's line)
  *
+ * Saved Flow orders (lib/flow/saved.js), named per collection:
+ *   GET    /api/flow/collections/:id/saved   [{ id, name, shape, waves, places, order, ... }]
+ *   POST   /api/flow/collections/:id/saved   { name, shape, waves?, places?, order } the new one
+ *   PUT    /api/flow/saved/:sid              { name?, shape?, waves?, places?, order? } rename and / or replace
+ *   DELETE /api/flow/saved/:sid              { ok: true }
+ *   400 BAD (with the reason), 404 NOT_FOUND, 409 NAME_TAKEN (names are
+ *   unique per collection, ignoring case) or FULL (30 a collection).
+ *
  * Saving Flow order as the playlist order is the existing
  * POST /api/collections/:id/order { order } (and Undo the same, with the old
  * order), so nothing here writes a collection.
@@ -34,8 +42,10 @@
 const express = require('express');
 const flow = require('../lib/flow/service');
 const FlowOrder = require('../player-lib/flow-order.js');
+const db = require('../lib/database');
+const saved = require('../lib/flow/saved');
 
-const ERR = { NOT_FOUND: 404, FOLDER: 400, TOO_MANY: 413, VAULT_LOCKED: 423 };
+const ERR = { NOT_FOUND: 404, FOLDER: 400, TOO_MANY: 413, VAULT_LOCKED: 423, BAD: 400, NAME_TAKEN: 409, FULL: 409 };
 
 function parseId(v) {
   const n = Number(v);
@@ -99,6 +109,34 @@ function buildRouter() {
       const f = flow.mediaFeatures(id);
       if (!f) return res.status(404).json({ error: 'not in the library' });
       res.json(f);
+    } catch (err) { fail(res, err); }
+  });
+
+  /* Saved Flow orders. */
+  router.get('/api/flow/collections/:id/saved', (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'bad id' });
+    try { res.json(saved.list(db.get(), id)); } catch (err) { fail(res, err); }
+  });
+
+  router.post('/api/flow/collections/:id/saved', (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'bad id' });
+    try { res.json(saved.create(db.get(), id, req.body)); } catch (err) { fail(res, err); }
+  });
+
+  router.put('/api/flow/saved/:sid', (req, res) => {
+    const sid = parseId(req.params.sid);
+    if (!sid) return res.status(400).json({ error: 'bad id' });
+    try { res.json(saved.update(db.get(), sid, req.body)); } catch (err) { fail(res, err); }
+  });
+
+  router.delete('/api/flow/saved/:sid', (req, res) => {
+    const sid = parseId(req.params.sid);
+    if (!sid) return res.status(400).json({ error: 'bad id' });
+    try {
+      if (!saved.remove(db.get(), sid)) return res.status(404).json({ error: 'saved order not found', code: 'NOT_FOUND' });
+      res.json({ ok: true });
     } catch (err) { fail(res, err); }
   });
 
