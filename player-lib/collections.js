@@ -763,6 +763,9 @@ async function playCollection(id, shuffle) {
 
 let _pickerIds = [];
 let _pickerFilter = '';
+// 'collection' | 'folder' while the one box at the top names a new one
+// (New collection / New folder), else null: the box finds collections.
+let _pickerNaming = null;
 const COLL_ID_CHUNK = 50000;   // ids per request: well under the 2 MB JSON limit
 const PICKER_EXPANDED_KEY = 'collPickerExpanded';
 
@@ -784,6 +787,7 @@ function openCollectionPicker(ids, anchorEl) {
   if (typeof stClosePops === 'function') stClosePops();
   _pickerFromBar = !!(anchorEl && anchorEl.closest && anchorEl.closest('#selectionBar'));
   _pickerFilter = '';
+  _pickerNaming = null;
 
   // Open INSTANTLY from the local cache — no awaited requests.
   const panel = document.createElement('div');
@@ -818,6 +822,8 @@ function _pickerOutside(e) {
 function _pickerEsc(e) {
   if (e.key !== 'Escape' || !document.getElementById('collectionPicker')) return;
   if (e.target && e.target.classList && e.target.classList.contains('coll-create-input')) return;
+  // Naming a new one in the top box: Esc goes back to finding (onPickerFilterKey).
+  if (_pickerNaming && e.target && e.target.id === 'collPickerFilter') return;
   e.preventDefault();
   e.stopPropagation();
   const back = document.querySelector('#selectionBar .sel-collect');
@@ -855,23 +861,46 @@ function _checkboxHtml(state) {
 function buildPickerHtml() {
   return `
     <div class="coll-picker-head">${_pickerIds.length > 1 ? `Add ${collFiles(_pickerIds.length)} to a collection` : 'Add to a collection'}</div>
-    <input type="text" class="coll-picker-filter" id="collPickerFilter" placeholder="Filter collections…"
-      oninput="onPickerFilter(this.value)" value="${escapeHtml(_pickerFilter)}">
+    <input type="text" class="coll-picker-filter" id="collPickerFilter" placeholder="Find a collection or type a new name"
+      autocomplete="off" spellcheck="false"
+      oninput="onPickerFilter(this.value)" onkeydown="onPickerFilterKey(event)" value="${escapeHtml(_pickerFilter)}">
     <div class="coll-picker-list" id="collPickerList">${buildPickerRows()}</div>
     <div class="coll-picker-topbar" id="collPickerTopBar" data-crumb-parent="">${ICON.folder}<span>Move to top level</span></div>
     <div class="coll-picker-footer">
-      <button class="coll-picker-add" onclick="pickerCreate('collection')">${ICON.plus} New collection</button>
-      <button class="coll-picker-add" onclick="pickerCreate('folder')">${ICON.plus} New folder</button>
+      <button class="coll-picker-add" data-kind="collection" onclick="pickerCreate('collection')">${ICON.plus} New collection</button>
+      <button class="coll-picker-add" data-kind="folder" onclick="pickerCreate('folder')">${ICON.plus} New folder</button>
     </div>
   `;
 }
 
+/** Collections whose name holds the find text (folders are not picked). */
+function _pickerMatches() {
+  const q = _pickerFilter.toLowerCase();
+  return collectionsList.filter(c => c.kind !== 'folder' && c.name.toLowerCase().includes(q));
+}
+
+/** A collection named exactly this (any case), or null. */
+function _pickerExact(name) {
+  const q = name.trim().toLowerCase();
+  return collectionsList.find(c => c.kind !== 'folder' && c.name.toLowerCase() === q) || null;
+}
+
 function buildPickerRows() {
+  if (_pickerNaming) {
+    const name = _pickerFilter;
+    const what = _pickerNaming === 'folder' ? 'folder' : 'collection';
+    return `<div class="coll-picker-empty">${name
+      ? `Enter makes the ${what} “${escapeHtml(name)}”${what === 'collection' ? ' with these files' : ''}.`
+      : `Type a name for the new ${what}.`} Esc goes back.</div>`;
+  }
   if (_pickerFilter) {
-    const q = _pickerFilter.toLowerCase();
-    const matches = collectionsList.filter(c => c.kind !== 'folder' && c.name.toLowerCase().includes(q));
-    if (matches.length === 0) return '<div class="coll-picker-empty">No matches</div>';
-    return matches.map(c => pickerCollRow(c, 0, true)).join('');
+    const matches = _pickerMatches();
+    // Typed text that is no collection's name yet: offer it as a new one.
+    const newRow = _pickerExact(_pickerFilter) ? '' : `<div class="coll-picker-row coll-picker-newrow" onclick="pickerCreateNamed('collection')">
+      <span class="coll-newrow-ic">${ICON.plus}</span>
+      <span class="coll-picker-name">New collection “${escapeHtml(_pickerFilter)}”</span>
+    </div>`;
+    return matches.map(c => pickerCollRow(c, 0, true)).join('') + newRow;
   }
   const expanded = _pickerExpanded();
   const out = [];
@@ -915,6 +944,49 @@ function pickerCollRow(c, depth, showPath) {
 
 function onPickerFilter(v) {
   _pickerFilter = v.trim();
+  const list = document.getElementById('collPickerList');
+  if (list) list.innerHTML = buildPickerRows();
+}
+
+/**
+ * Enter in the top box. Naming: makes the new one. Finding: the collection
+ * named exactly that, or the only match, is ticked or unticked; with no match
+ * at all the text becomes a new collection. Esc while naming goes back to
+ * finding, the text kept.
+ */
+function onPickerFilterKey(e) {
+  if (e.key === 'Escape' && _pickerNaming) {
+    e.preventDefault();
+    e.stopPropagation();
+    _pickerSetNaming(null);
+    return;
+  }
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  if (_pickerNaming) { pickerCreateNamed(_pickerNaming); return; }
+  if (!_pickerFilter) return;
+  const exact = _pickerExact(_pickerFilter);
+  const matches = _pickerMatches();
+  if (exact) togglePickerCollection(exact.id);
+  else if (matches.length === 1) togglePickerCollection(matches[0].id);
+  else if (matches.length === 0) pickerCreateNamed('collection');
+}
+
+/** The top box finds (null) or names a new collection or folder. */
+function _pickerSetNaming(kind) {
+  _pickerNaming = kind;
+  const input = document.getElementById('collPickerFilter');
+  if (input) {
+    input.classList.toggle('is-naming', !!kind);
+    input.placeholder = kind === 'folder' ? 'Name the new folder'
+      : kind ? 'Name the new collection' : 'Find a collection or type a new name';
+    input.focus();
+    const end = input.value.length;
+    try { input.setSelectionRange(end, end); } catch { /* not a text box */ }
+  }
+  document.querySelectorAll('#collectionPicker .coll-picker-add').forEach((b) => {
+    b.classList.toggle('is-on', b.dataset.kind === kind);
+  });
   const list = document.getElementById('collPickerList');
   if (list) list.innerHTML = buildPickerRows();
 }
@@ -1202,24 +1274,40 @@ async function undoRemoveFromCollection(id, ids, order) {
   }
 }
 
+/**
+ * New collection / New folder: the one box at the top takes the name,
+ * starting from what was typed to find one. Pressed again: back to finding.
+ */
 function pickerCreate(kind) {
-  const footer = document.querySelector('#collectionPicker .coll-picker-footer');
-  if (!footer || footer.querySelector('.coll-create-input')) return;
-  const input = document.createElement('input');
-  input.className = 'coll-create-input';
-  input.placeholder = kind === 'folder' ? 'New folder name…' : 'New collection name…';
-  input.addEventListener('keydown', async (e) => {
-    if (e.key === 'Escape') { _rebuildPicker(); return; }
-    if (e.key !== 'Enter') return;
-    const name = input.value.trim();
-    if (!name) { _rebuildPicker(); return; }
-    const created = await apiCreateCollection(name, kind, null); // new items at root
-    _rebuildPicker();
-    if (created && kind === 'collection') await togglePickerCollection(created.id); // add the items now
-  });
-  footer.innerHTML = '';
-  footer.appendChild(input);
-  input.focus();
+  if (!document.getElementById('collectionPicker')) return;
+  _pickerSetNaming(_pickerNaming === kind ? null : kind);
+}
+
+let _pickerCreating = false;   // one make at a time (Enter held, a double click)
+
+/** Make a collection or folder named as the top box says (at the top level). */
+async function pickerCreateNamed(kind) {
+  const name = _pickerFilter.trim();
+  if (!name || _pickerCreating) {
+    document.getElementById('collPickerFilter')?.focus();
+    return;
+  }
+  _pickerCreating = true;
+  let created = null;
+  try {
+    created = await apiCreateCollection(name, kind, null);
+  } finally {
+    _pickerCreating = false;
+  }
+  // Not made (the name is taken, ...): the toast says why, the text stays to fix.
+  if (!created) { document.getElementById('collPickerFilter')?.focus(); return; }
+  _pickerFilter = '';
+  _pickerNaming = null;
+  if (typeof renderCollectionsTabBar === 'function') renderCollectionsTabBar();
+  if (!document.getElementById('collectionPicker')) return;
+  _rebuildPicker();
+  document.getElementById('collPickerFilter')?.focus();
+  if (kind === 'collection') await togglePickerCollection(created.id); // add the files now
 }
 
 /** Inline "create inside this folder" from a folder row's +/folder+ button.
