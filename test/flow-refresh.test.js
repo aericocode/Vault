@@ -105,6 +105,27 @@ test('in Flow order a move goes to Flow\'s working order (nothing is saved)', as
   assert.deepStrictEqual(p.server, [1, 2, 3, 4], 'the playlist order is untouched');
 });
 
+test('the note over the grid says nothing in Flow order (no order bar); the other notes stay', () => {
+  const noteFor = (flowOrder, over = {}) => {
+    const p = reorderPage({ flowOrder });
+    const note = { innerHTML: 'old', hidden: false, classList: { toggle() {} } };
+    p.ctx.document.getElementById = (id) => (id === 'collReorderNote' ? note : null);
+    Object.assign(p.ctx.Library, over);
+    p.ctx.renderReorderNote();
+    return note;
+  };
+  const flow = noteFor(true);
+  assert.strictEqual(flow.innerHTML, '');
+  assert.strictEqual(flow.hidden, true);
+  const plain = noteFor(false);
+  assert.match(plain.innerHTML, /Drag tiles to rearrange/);
+  assert.strictEqual(plain.hidden, false);
+  // A shuffle on screen still says so (it leaves Flow order anyway).
+  assert.match(noteFor(true, { shuffled: true }).innerHTML, /Showing a shuffled order/);
+  const src = read('player-lib/collection-reorder.js') + read('player-lib/flow.js') + read('css/flow.css');
+  assert.doesNotMatch(src, /flowOrderBarHtml|orderBarHtml|flow-orderbar|flow-ob-/, 'the order bar is gone');
+});
+
 /* ── collections.js: taking files out, putting them back ──────────────── */
 
 function grab(src, name) {

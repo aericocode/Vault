@@ -170,7 +170,8 @@ function page({ wrapW = 800, stage = false, extra = {}, win = {}, n = 5, store =
     addEventListener: (t, fn, o) => { (wrapListeners[t] = wrapListeners[t] || []).push(fn); wrapOpts[t] = o; },
     classList: { add: (c) => wrapClasses.add(c), remove: (c) => wrapClasses.delete(c), toggle: (c, on) => (on ? wrapClasses.add(c) : wrapClasses.delete(c)), contains: (c) => wrapClasses.has(c) } });
   const strip = fakeEl({ id: 'flowStrip' });
-  const panelEl = fakeEl();
+  const panelListeners = {};       // the panel's own listeners (its clicks)
+  const panelEl = fakeEl({ addEventListener: (t, fn) => { (panelListeners[t] = panelListeners[t] || []).push(fn); } });
   const classes = new Set();
   const body = fakeEl({ classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c), toggle() {}, contains: (c) => classes.has(c) } });
   const winListeners = [];         // window listeners: { type, fn }
@@ -228,7 +229,7 @@ function page({ wrapW = 800, stage = false, extra = {}, win = {}, n = 5, store =
   const D = Flow._drag;
   const press = (x) => D.down({ button: 0, target, clientX: x, clientY: 100, pointerId: 1 });
   const moveTo = (x) => D.move({ pointerId: 1, buttons: 1, clientX: x, clientY: 100, preventDefault() {} });
-  return { ctx, Flow, V, D, key, fire, wrapOpts, classes, strip, panelEl, wrap, wrapClasses, wrapListeners, winListeners, docListeners, parts, svgBox, moves, played, renders, revealed, store, geom, colX, gapX, press, moveTo, target };
+  return { ctx, Flow, V, D, key, fire, wrapOpts, classes, strip, panelEl, panelListeners, wrap, wrapClasses, wrapListeners, winListeners, docListeners, parts, svgBox, moves, played, renders, revealed, store, geom, colX, gapX, press, moveTo, target };
 }
 
 test('Fit and Zoom in the panel: Zoom widens the chart past the view and scrolls it; the choice is remembered', async () => {
@@ -277,6 +278,30 @@ test('the panel\'s first row: Fit / Zoom and Hide; no full screen button or key'
   assert.strictEqual(p.key('f').defaultPrevented, false, 'F is left to the page');
   assert.strictEqual(p.Flow.isFull, undefined);
   assert.strictEqual(p.Flow.toggleFull, undefined);
+});
+
+test('the panel\'s first row: Make this the playlist order only while Flow order shows, right after the switch; it saves and goes back', async () => {
+  const p = page();
+  await p.Flow.toggle(3);
+  const firstRow = () => p.panelEl.innerHTML.split('</div>')[0];
+  if (p.Flow._state().order) await p.Flow.usePlaylistOrder();
+  assert.doesNotMatch(p.panelEl.innerHTML, /Make this the playlist order|data-flow-save-order/, 'not in playlist order');
+  await p.Flow.useFlowOrder();
+  assert.match(firstRow(), /data-flow-order="flow"[^>]*>Flow order<\/button>\s*<\/span>\s*<button[^>]*class="flow-btn flow-btn-sm flow-save-order"[^>]*data-flow-save-order[^>]*>Make this the playlist order<\/button>/);
+  // A click on it saves the working order as the playlist order and goes back to it.
+  const want = p.Flow.workingOrder();
+  const posts = [];
+  const fetch0 = p.ctx.fetch;
+  p.ctx.fetch = async (url, opts = {}) => {
+    if (/\/api\/collections\/3\/order$/.test(url)) { const b = JSON.parse(opts.body); posts.push(b.order); return { ok: true, status: 200, json: async () => ({ order: b.order }) }; }
+    return fetch0(url, opts);
+  };
+  const btn = { closest: (q) => (q === '[data-flow-save-order]' ? btn : null) };
+  for (const fn of p.panelListeners.click) fn({ target: btn, preventDefault() {}, stopPropagation() {} });
+  for (let i = 0; i < 20; i++) await new Promise(r => setImmediate(r));
+  assert.deepStrictEqual(posts, [want]);
+  assert.strictEqual(p.Flow._state().order, false, 'playlist order again');
+  assert.doesNotMatch(p.panelEl.innerHTML, /data-flow-save-order/);
 });
 
 test('lanes have one set of picks (the panel\'s): the old full screen key is never read or written', async () => {

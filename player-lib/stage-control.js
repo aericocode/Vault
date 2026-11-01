@@ -605,14 +605,6 @@ const StageControl = (() => {
     return StageCount.text(sum);
   }
 
-  /** The Flow order bar (flow.js): Stage's count while it plays this collection, else null. */
-  function countFor(cid) {
-    if (!stageOn() || !source || source.kind !== 'collection' || source.cid !== cid) return null;
-    const c = countText();
-    if (!c.track) return null;
-    return c.time ? `${c.track} · ${c.time}` : c.track;
-  }
-
   /**
    * What Stage moves on to by itself, worked out from Up next and the list
    * as they are now: the rest of the list (round again with Repeat all) and
@@ -1156,8 +1148,6 @@ const StageControl = (() => {
     if (typeof StageBarRules === 'undefined') return;
     b.paint(StageBarRules.view(s), { thumb: thumbFor(s.thumbRow) });
     if (remoteShown && typeof miniUpdateTimeline === 'function') miniUpdateTimeline();
-    // The Flow order bar's track count follows Stage's (flow.js).
-    if (typeof Flow !== 'undefined' && typeof Flow.paintCount === 'function') Flow.paintCount();
   }
 
   function setNote(text, { sticky = false } = {}) {
@@ -1783,7 +1773,7 @@ const StageControl = (() => {
     openStage, openFromPlayer, playCollectionOnStage, stageButton, closeStage, closeStageAndStop, menu, front, setSize,
     toggleHold, setVolume, toggleMute, paintVolume: paint, key, hideRemote,
     upNextChanged, repeatChanged, showTips,
-    queueList, fileOpened, backToStage, countFor, countText,
+    queueList, fileOpened, backToStage, countText,
     /** The id of the file on Stage now, or null (the Flow chart's playhead reads proxy for its time). */
     currentId: () => (cur && cur.row ? cur.row.id : null),
     _state: () => ({ open, basic, basicHold: !!basicHold, remoteShown, mpv, cur: cur && { key: cur.key, id: cur.row && cur.row.id }, t, d, paused, hold, finished, volume, muted, note: note && note.text }),

@@ -51,21 +51,6 @@ function takeCollectionLength(c, data) {
   c.unknown_seconds_count = data.unknown_seconds_count;
 }
 
-/**
- * Does the grid list this open collection as it is with no search and no
- * filter set (trashed files hidden, as by default)? Then its length is the
- * server's total of those members; else the count adds up the files the grid
- * shows (flow.js orderCountText). Once the exact count is in, it must be the
- * server's listed_count too.
- */
-function collectionShowsWhole(c) {
-  if (!c || typeof Library === 'undefined') return false;
-  const spec = Library.spec;
-  if (!spec || spec.collectionId !== c.id) return false;
-  if ((spec.search && spec.search.text) || (typeof anyFilterIsSet === 'function' && anyFilterIsSet())) return false;
-  return !Library.known() || Library.length() === (c.listed_count ?? c.item_count);
-}
-
 /*
  * The open collection's length follows the library: a file probed after it
  * was added (its length now known), trashed or put back moves the library
@@ -558,7 +543,9 @@ function closeCollection() {
 /**
  * The count line: "8 files · 41:12 · playlist order" while the grid shows the
  * saved order, otherwise what it is sorted by, in the sort menu's own words
- * ("8 files · 41:12 · sorted by name"), or "· shuffled" after Shuffle. Folders
+ * ("8 files · 41:12 · sorted by name"), or "· shuffled" after Shuffle. Flow
+ * order (flow.js countText) names the shape or the saved order, ", edited"
+ * once moved: "8 files · 41:12 · Flow order: Friday set, edited". Folders
  * say "· folder". The files and their total length are the whole
  * collection's, whatever the grid shows (StageCount.collectionTime: "about"
  * when some lengths are not known yet, none when most are not).

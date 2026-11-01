@@ -15,8 +15,10 @@
    Playlist order / Flow order: Flow order is a play order you switch to. The
    grid (and so Play all, Play on Stage and Up next's "the list carries on")
    follows it: the library query gets the order as rankedIds (filters.js
-   currentQuerySpec), so a search or filter still applies on top. "Save as
-   playlist order" writes it with POST /api/collections/:id/order, with Undo.
+   currentQuerySpec), so a search or filter still applies on top. "Make this
+   the playlist order" (the panel's top row, while Flow order shows) writes
+   it with POST /api/collections/:id/order, with Undo. The collection's count
+   line says which order shows ("Flow order: Friday set, edited").
 
    Saved orders: a collection keeps named versions of its Flow order (the
    chips on the Lanes row, ＋ Save this order; see "Saved orders" below and
@@ -50,7 +52,6 @@
      flowShuffleCollection(id)    collections.js playCollection (Shuffle)
      flowWorkingOrder()           collection-reorder.js (drags in Flow order)
      flowMoveInOrder(ids, before) collection-reorder.js reorderMove
-     flowOrderBarHtml()           collection-reorder.js renderReorderNote (the order bar)
      flowStageCurrent(row)        stage-control.js setCurrent
      flowSettingsChanged()        stage-settings-ui.js (Ignore calm intros and credits)
      flowMembersChanged(cid)      collection-reorder.js, collections.js, importer.js (order or files changed)
@@ -184,13 +185,6 @@ const Flow = (() => {
     schedulePoll();
   }
 
-  /** Show on the order bar: open the panel and put focus on its Hide button. */
-  function showFromBar() {
-    const p = toggle(st.cid);
-    panel()?.querySelector('[data-flow-hide]')?.focus({ preventScroll: true });
-    return p;
-  }
-
   function close() {
     st.open = false;
     clearTimeout(st.pollTimer);
@@ -209,8 +203,6 @@ const Flow = (() => {
     b.title = flowButtonTitle(on);
     const chev = b.querySelector('.flow-chev');
     if (chev) chev.textContent = on ? '▴' : '▾';
-    // The order bar shows Show and a sparkline only while the panel is closed.
-    if (typeof renderReorderNote === 'function') renderReorderNote();
   }
 
   /* ── Data ───────────────────────────────────────────────────────── */
@@ -508,13 +500,14 @@ const Flow = (() => {
     paint();
   }
 
-  /* ── The working Flow order: edits, the bar, remembering ────────────
+  /* ── The working Flow order: edits, saving, remembering ─────────────
      While Flow order shows, dragging tiles (or Alt+arrows,
      collection-reorder.js) edits the working order here, in memory: the
-     bar says "edited", the chart, hand-overs and jumps follow it, and
-     nothing is saved until Save as playlist order. Back to playlist order
-     drops it; picking a shape (or Place tagged files) again works the order
-     out afresh and drops the edits, with Undo.
+     collection's count line says "edited", the chart, hand-overs and jumps
+     follow it, and nothing is saved until Make this the playlist order (on
+     the panel's top row while Flow order shows). Playlist order drops it;
+     picking a shape (or Place tagged files) again works the order out
+     afresh and drops the edits, with Undo.
 
      Remembered per collection on this computer (localStorage
      vault.flow.order.<id>: { shape, waves, places, edited }): while the key is
@@ -633,7 +626,7 @@ const Flow = (() => {
       if (st.cid !== cid) reset();
       st.cid = cid;
       adopt(m);
-      // The saved order's name, for the order bar ("Flow order: Friday set").
+      // The saved order's name, for the count line ("Flow order: Friday set").
       if (st.savedCid !== cid) loadSaved(cid);
       await refetch(true);
     } finally {
@@ -724,10 +717,11 @@ const Flow = (() => {
      there are now (fetchOnce, FlowOrder.reconcileOrder: gone files dropped,
      new ones at the end).
 
-     st.savedActive is the one it came from. The order bar names it ("Flow
-     order: Friday set"), with ", edited" once the order is no longer what
-     was saved; the panel then offers Update "Friday set". Picking a shape,
-     Place tagged files, Back, Save as playlist order or Shuffle let go of it
+     st.savedActive is the one it came from. The collection's count line
+     names it ("Flow order: Friday set", collections.js collectionCountText),
+     with ", edited" once the order is no longer what was saved; the panel
+     then offers Update "Friday set". Picking a shape, Place tagged files,
+     Playlist order, Make this the playlist order or Shuffle let go of it
      (pickShape, pickPlaces, leave). It is remembered with the rest
      (remember: saved), so a reload comes back to it. */
 
@@ -748,7 +742,7 @@ const Flow = (() => {
     return !sameIds(st.edited, reconcile(s.order, st.edited));
   }
 
-  /** What the order bar calls the order: the saved order's name, else the shape. */
+  /** What the count line calls the order: the saved order's name, else the shape. */
   function orderName() {
     const s = savedNow();
     if (s) return `${s.name}${savedEdited() ? ', edited' : ''}`;
@@ -758,7 +752,8 @@ const Flow = (() => {
   const shapeText = (s) => `${FlowOrder.shapeLabel(s.shape)}${s.shape === 'waves' ? ` ${s.waves}` : ''}`;
   const toast = (msg) => { if (typeof showToast === 'function') showToast(msg); };
   const nameTaken = (name, exceptId = null) => savedList().some(s => s.id !== exceptId && s.name.toLowerCase() === name.toLowerCase());
-  const repaintBar = () => { if (typeof renderReorderNote === 'function') renderReorderNote(); };
+  // The collection's count line names the saved order (renderReorderNote draws it again).
+  const repaintCount = () => { if (typeof renderReorderNote === 'function') renderReorderNote(); };
 
   /** The collection's saved orders, from the server. */
   async function loadSaved(cid) {
@@ -774,7 +769,7 @@ const Flow = (() => {
       return;
     }
     paint();
-    repaintBar();
+    repaintCount();
   }
 
   /** Switch to a saved order: its shape, peaks, Place tagged files and its order. */
@@ -796,7 +791,7 @@ const Flow = (() => {
     st.appliedOrder = null;
     await applyOrder();
     paint();
-    repaintBar();
+    repaintCount();
     offerUndoEdits(dropped, prev, `Switched to “${esc(s.name)}”`);
   }
 
@@ -830,7 +825,7 @@ const Flow = (() => {
       remember();
     }
     paint();
-    repaintBar();
+    repaintCount();
     toast(`Saved “${name}”`);
     return true;
   }
@@ -852,7 +847,7 @@ const Flow = (() => {
     st.saved = savedList().map(x => (x.id === id ? row : x));
     st.savedInput = null;
     paint();
-    repaintBar();
+    repaintCount();
     return true;
   }
 
@@ -872,14 +867,14 @@ const Flow = (() => {
     st.edited = order;
     remember();
     paint();
-    repaintBar();
+    repaintCount();
     const undo = async () => {
       let back;
       try { back = await put(was); } catch (err) { toastErr(err, 'putting the saved order back'); return; }
       if (cid !== st.cid || st.savedCid !== cid) return;
       st.saved = savedList().map(x => (x.id === id ? back : x));
       paint();
-      repaintBar();
+      repaintCount();
     };
     // selection.js showUndoToast takes HTML: the name is escaped.
     if (typeof showUndoToast === 'function') showUndoToast(`Updated “${esc(s.name)}” with this order`, undo);
@@ -900,7 +895,7 @@ const Flow = (() => {
     if (wasActive) { st.savedActive = null; remember(); }
     if (st.savedInput && st.savedInput.id === id) st.savedInput = null;
     paint();
-    repaintBar();
+    repaintCount();
     const undo = async () => {
       let row;
       try {
@@ -915,7 +910,7 @@ const Flow = (() => {
       // Still showing the order it was loaded from (nothing else picked since): it is that one again.
       if (wasActive && st.order && st.savedActive == null && st.edited) { st.savedActive = row.id; remember(); }
       paint();
-      repaintBar();
+      repaintCount();
     };
     if (typeof showUndoToast === 'function') showUndoToast(`Deleted the saved order “${esc(s.name)}”`, undo);
     else toast(`Deleted “${s.name}”`);
@@ -995,89 +990,6 @@ const Flow = (() => {
     if (!chips && !add) return '';
     return `<span class="flow-sp"></span>
         <span class="flow-saved" role="group" aria-label="Saved orders">${list.length ? '<span class="flow-seg-label">Saved</span>' : ''}${chips}${add}</span>`;
-  }
-
-  /** The order bar over the grid while Flow order shows (collection-reorder.js renderReorderNote). */
-  function orderBarHtml() {
-    if (!st.order || !isMine()) return '';
-    const name = orderName();
-    let status = 'Not saved';
-    const d = st.data;
-    if (d && d.counts && d.counts.music >= 2) status += ` · ${plural(orderSummary().jumps, 'jump', 'jumps')}, was ${playlistJumps().toLocaleString()}`;
-    const closed = !st.open;
-    const spark = closed ? sparkHtml() : '';
-    return `<span class="flow-ob-pill">Flow order: ${esc(name)}</span>
-      <span class="flow-ob-status">${esc(status)}</span>
-      <span class="flow-ob-count" data-flow-count>${esc(orderCountText())}</span>
-      ${spark || '<span class="flow-sp"></span>'}
-      <button type="button" class="flow-btn flow-btn-sm" onclick="Flow.usePlaylistOrder()">Back to playlist order</button>
-      <button type="button" class="flow-btn flow-btn-sm flow-ob-save" onclick="Flow.saveOrder()" title="Keep this order as the collection's playlist order">Make this the playlist order</button>
-      ${closed ? `<button type="button" class="flow-btn flow-btn-sm flow-ob-show" onclick="Flow.showFromBar()" title="Show the Flow panel">Show ▾</button>` : ''}`;
-  }
-
-  /**
-   * The order bar's count (player-lib/stage-count.js): "Track 12 of 40 ·
-   * 2:14:30 left" while Stage plays this collection (StageControl.countFor),
-   * else "40 files · 2:41:05": the files in the order and their lengths
-   * added up (videos and sound; pictures have none here), "about" when some
-   * are not known yet. The grid showing the whole collection (no search or
-   * filter): the server's total, any size (collections.js
-   * collectionShowsWhole). Narrowed: the rows the grid shows, added up here;
-   * rows not loaded are fetched once, then it is drawn again, and over
-   * StageCount.TIME_CAP files it is the number only.
-   */
-  let countRowsKey = '';
-  function orderCountText() {
-    if (typeof StageCount === 'undefined' || typeof Library === 'undefined') return '';
-    const onStage = typeof StageControl !== 'undefined' && StageControl.countFor ? StageControl.countFor(st.cid) : null;
-    if (onStage) return onStage;
-    const n = Library.length();
-    const c = typeof getCollectionById === 'function' ? getCollectionById(st.cid) : null;
-    if (c && typeof collectionShowsWhole === 'function' && collectionShowsWhole(c)) {
-      const t = StageCount.collectionTime(c);
-      return StageCount.listText(Library.known() ? n : (c.listed_count ?? c.item_count), t ? t.seconds : null, !!(t && t.about));
-    }
-    if (!Library.known() || n > StageCount.TIME_CAP) return StageCount.listText(n, null);
-    let secs = 0, unknown = 0, timed = 0;
-    const missing = [];
-    for (let i = 0; i < n; i++) {
-      const r = Library.rowAt(i);
-      if (!r) { missing.push(Library.idAt(i)); unknown++; continue; }
-      if (r.media_type !== 'video' && r.media_type !== 'audio') continue;
-      timed++;
-      if (Number(r.duration_seconds) > 0) secs += Number(r.duration_seconds); else unknown++;
-    }
-    if (missing.length) {
-      const key = `${st.cid}|${n}|${missing.length}`;
-      if (key !== countRowsKey) {
-        countRowsKey = key;
-        Library.fetchRows(missing).then(paintCount, () => {});
-      }
-    }
-    if (!timed && !missing.length) return StageCount.listText(n, null);
-    if (unknown * 2 > Math.max(1, timed + missing.length)) return StageCount.listText(n, null);
-    return StageCount.listText(n, Math.round(secs), unknown > 0);
-  }
-
-  /** Draw the order bar's count again (each second while Stage plays, stage-control.js paint). */
-  function paintCount() {
-    const els = document.querySelectorAll('[data-flow-count]');
-    if (!els.length) return;
-    const text = orderCountText();
-    for (const el of els) if (el.textContent !== text) el.textContent = text;
-  }
-
-  /** The order bar's sparkline: the working order's middle energies (decoration only). */
-  const SPARK_W = 300, SPARK_H = 24;
-  function sparkHtml() {
-    if (!st.data) return '';
-    const vals = shown(workingOrder()).map((id) => {
-      const f = st.byId.get(id);
-      return drawable(f) && f.music ? f.em : null;
-    });
-    const d = FlowChartMath.sparkPath(vals, SPARK_W, SPARK_H);
-    if (!d) return '';
-    return `<span class="flow-ob-spark" aria-hidden="true"><svg viewBox="0 0 ${SPARK_W} ${SPARK_H}" preserveAspectRatio="none" focusable="false"><path d="${d}"/></svg></span>`;
   }
 
   /* ── Tile marks ─────────────────────────────────────────────────────
@@ -2288,6 +2200,7 @@ const Flow = (() => {
           <button type="button" data-flow-order="playlist" aria-pressed="${String(!st.order)}">Playlist order</button>
           <button type="button" data-flow-order="flow" aria-pressed="${String(st.order)}">Flow order</button>
         </span>
+        ${st.order && st.data ? `<button type="button" class="flow-btn flow-btn-sm flow-save-order" data-flow-save-order title="Keep this order as the collection's playlist order">Make this the playlist order</button>` : ''}
         <span class="flow-sp"></span>
         ${placesHtml()}
         <span class="flow-opt"><span class="flow-seg-label">Shape</span>
@@ -2388,6 +2301,7 @@ const Flow = (() => {
       if (wv) { pickWaves(Number(wv.dataset.flowWaves)); return; }
       const o = e.target.closest('[data-flow-order]');
       if (o) { if (o.dataset.flowOrder === 'flow') useFlowOrder(); else usePlaylistOrder(); return; }
+      if (e.target.closest('[data-flow-save-order]')) { saveOrder(); return; }
       const q = e.target.closest('[data-flow-q]');
       if (q) { queueAct(q.dataset.flowQ); return; }
       if (e.target.closest('[data-flow-why]')) { st.showWhy = !st.showWhy; paint(); return; }
@@ -3368,8 +3282,6 @@ const Flow = (() => {
     if (cid != null && st.cid == null && recalled(cid)) restore(cid);
     scheduleMarks();
   });
-  // The exact count arrived: the order bar's count may now read the server's total (or no longer).
-  window.addEventListener('vault:results-counted', () => paintCount());
   document.addEventListener('DOMContentLoaded', wire);
   if (document.readyState !== 'loading') wire();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startMarks);
@@ -3385,7 +3297,7 @@ const Flow = (() => {
   else setTimeout(watchTags, 0);
 
   return {
-    toggle, close, pickShape, pickWaves, pickPlaces, showFromBar, useFlowOrder, usePlaylistOrder, saveOrder, refetch,
+    toggle, close, pickShape, pickWaves, pickPlaces, useFlowOrder, usePlaylistOrder, saveOrder, refetch,
     tileHtml, queryRanked, shuffleCollection, stageCurrent,
     isOpen: () => st.open && isMine(),
     // The chart (tests): clicks, picks, the strip, Fit / Zoom.
@@ -3403,7 +3315,7 @@ const Flow = (() => {
     countText: () => (st.order && isMine() && st.appliedOrder ? `Flow order: ${savedNow() ? orderName() : orderName().toLowerCase()}` : null),
     leaveOrder: () => { if (st.order) { leave(); paint(); } },
     workingOrder: () => (st.order && isMine() ? workingOrder().slice() : null),
-    moveInOrder, orderBarHtml, paintCount,
+    moveInOrder,
     // Saved orders (the chips; tests drive them here as the clicks do).
     saved: {
       load: loadSaved, use: useSaved, save: saveNamed, rename: renameSaved, update: updateSaved, remove: deleteSaved,
@@ -3435,7 +3347,6 @@ function flowCountText() { return Flow.countText(); }
 function flowShuffleCollection(id) { return Flow.shuffleCollection(id); }
 function flowWorkingOrder() { return Flow.workingOrder(); }
 function flowMoveInOrder(ids, before) { return Flow.moveInOrder(ids, before); }
-function flowOrderBarHtml() { return Flow.orderBarHtml(); }
 function flowStageCurrent(row) { Flow.stageCurrent(row); }
 function flowSettingsChanged() { return Flow.settingsChanged(); }
 function flowMembersChanged(cid) { return Flow.membersChanged(cid); }
