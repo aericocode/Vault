@@ -662,18 +662,20 @@ test('hidden file names: the set log blurs its names and its rows carry no name 
   assert.ok(!/title="Preview \$\{/.test(src), 'no file name in the row tooltip');
 });
 
-test('a picture, a GIF or a short clip shown to its end is played, not skipped', () => {
+test('only videos are logged; a short video played to its end is played, not skipped', () => {
   const { mem, log, step, newest } = rig();
   mem.exec("CREATE TABLE media (id INTEGER PRIMARY KEY, media_type TEXT, duration_seconds REAL)");
-  mem.exec("INSERT INTO media VALUES (1,'image',NULL),(2,'gif',2.5),(3,'video',20),(4,'video',600),(5,'image',NULL)");
+  mem.exec("INSERT INTO media VALUES (1,'image',NULL),(2,'gif',2.5),(3,'video',20),(4,'video',600),(5,'audio',200),(6,'video',600)");
   const play = (id, ms) => { log.start({ id, title: 'f' + id, key: 'k' + id, playing: true }); step(ms); };
-  play(1, 8000);    // a picture for its 8 seconds
-  play(2, 8000);    // a GIF
+  play(6, 60000);   // a video, then a picture: the video ends where the picture starts
+  play(1, 8000);
+  play(2, 8000);
   play(3, 19000);   // a 20 s clip to (nearly) its end
+  play(5, 60000);   // a sound file
   play(4, 25000);   // a long video left after 25 s: a skip
-  play(5, 1000);    // a picture passed over at once: a skip
   log.stop();
-  const byId = Object.fromEntries(newest().entries.map(e => [e.mediaId, e.skipped]));
-  assert.deepStrictEqual(byId, { 1: false, 2: false, 3: false, 4: true, 5: true });
-  assert.strictEqual(newest().set.played, 3);
+  const { entries, set } = newest();
+  assert.deepStrictEqual(entries.map(e => [e.mediaId, e.skipped]), [[4, true], [3, false], [6, false]]);
+  assert.strictEqual(entries.find(e => e.mediaId === 6).played, 60, 'the picture after it does not count');
+  assert.strictEqual(set.played, 2);
 });
