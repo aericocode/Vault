@@ -479,7 +479,8 @@ test('GET /api/stage/state: closed, whether mpv is there, the settings', async (
   const s = await (await fetch(base + '/api/stage/state')).json();
   assert.strictEqual(s.open, false);
   assert.strictEqual(typeof s.mpv.found, 'boolean');
-  assert.strictEqual(s.mpv.canChoose, false, 'test servers never open the picker');
+  // Windows: test servers never open the picker. Elsewhere Vault's own folder browser always works.
+  assert.strictEqual(s.mpv.canChoose, process.platform !== 'win32', 'test servers never open the Windows picker');
   assert.strictEqual(s.settings.windowName, 'Vault Stage');
   assert.ok(!('how' in s) && !('popupBounds' in s));
 });
@@ -546,8 +547,20 @@ test('Settings › Stage: read, saved, checked; the mpv path is not a setting a 
 
 test('Choose mpv: the native picker only (never a path from the request); off on test servers; Find it again forgets the pick', async () => {
   const r = await post('/api/stage/mpv/choose', { path: 'C:\\Windows\\System32\\calc.exe' });
-  assert.strictEqual(r.status, 409, 'VAULT_DISABLE_NATIVE_PICKER: the picker does not open');
+  if (process.platform === 'win32') assert.strictEqual(r.status, 409, 'VAULT_DISABLE_NATIVE_PICKER: the picker does not open');
+  // Off Windows a path from Vault's own folder browser is checked like a picked one: not mpv, refused.
+  else assert.strictEqual(r.status, 400);
   assert.ok(!(appSettings.all().stageMpv && appSettings.all().stageMpv.path));
+  if (process.platform !== 'win32') {
+    // No path: the page is sent to the in-app browser, in the programs mode.
+    const j = await (await post('/api/stage/mpv/choose', {})).json();
+    assert.strictEqual(j.fallback, true);
+    assert.strictEqual(j.mode, 'exe');
+    for (const bad of ['/bin/sh', '/proc/self/exe', 'mpv', '/usr/bin/../bin/mpv']) {
+      assert.strictEqual((await post('/api/stage/mpv/choose', { path: bad })).status, 400, bad);
+    }
+    assert.ok(!(appSettings.all().stageMpv && appSettings.all().stageMpv.path));
+  }
   appSettings.set({ stageMpv: { path: 'C:\\nowhere\\mpv.exe' } });
   const m = await (await fetch(base + '/api/stage/mpv')).json();
   assert.strictEqual(m.chosen, 'C:\\nowhere\\mpv.exe');

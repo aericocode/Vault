@@ -183,14 +183,24 @@ async function _collExportSave(id, ov) {
   let resp = null;
   let data = {};
   let netErr = null;
+  // allowPaths only after the warning was acknowledged (checked above).
+  const body = pathsFromEncrypted ? { links, allowPaths: true } : { links };
+  const send = (b) => fetch(`/api/collections/${id}/export/save`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b),
+  });
   try {
-    resp = await fetch(`/api/collections/${id}/export/save`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      // allowPaths only after the warning was acknowledged (checked above).
-      body: JSON.stringify(pathsFromEncrypted ? { links, allowPaths: true } : { links }),
-    });
+    resp = await send(body);
     data = await resp.json().catch(() => ({}));
+    // Off Windows with no desktop dialog: choose the place in Vault's own
+    // folder browser (fs-picker.js), then save there.
+    if (resp.ok && data.fallback && window.vaultFsPicker) {
+      const p = await window.vaultFsPicker.fromReply(data, { kind: 'save' });
+      if (p == null) data = { canceled: true };
+      else {
+        resp = await send({ ...body, path: p });
+        data = await resp.json().catch(() => ({}));
+      }
+    }
   } catch (err) {
     resp = null;
     netErr = err;

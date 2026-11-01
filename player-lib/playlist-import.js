@@ -67,32 +67,43 @@
   }
 
   /** Picker → review. */
-  async function importPlaylist() {
-    if (_busy) return;
+  /** POST the pick route: its answer, or null once a problem has been shown. */
+  async function pickRequest(body) {
     setBusy(true);
-    const hint = setTimeout(() => showToast('Waiting for the file picker. It may be behind this window.'), 900);
-    let resp, data;
+    const hint = body ? null : setTimeout(() => showToast('Waiting for the file picker. It may be behind this window.'), 900);
     try {
-      resp = await fetch('/api/playlists/import/pick', { method: 'POST' });
+      const resp = await fetch('/api/playlists/import/pick', body
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+        : { method: 'POST' });
       clearTimeout(hint);
       if (!resp.ok) {
         const err = await replyError(resp);
-        if (resp.status === 423) return;
+        if (resp.status === 423) return null;
         let msg = errWords(err, 'opening the playlist');
-        if (/cannot open the Windows file picker/i.test(msg)) msg += ' You can drop the playlist file onto this window instead.';
+        if (/cannot open the (?:Windows )?file picker/i.test(msg)) msg += ' You can drop the playlist file onto this window instead.';
         showToast(msg, { type: 'error' });
-        return;
+        return null;
       }
-      data = await resp.json();
+      return await resp.json();
     } catch (err) {
-      clearTimeout(hint);
       showToast(errWords(err, 'opening the playlist'), { type: 'error' });
-      return;
+      return null;
     } finally {
       clearTimeout(hint);
       setBusy(false);
     }
-    if (data.canceled) return;
+  }
+
+  async function importPlaylist() {
+    if (_busy) return;
+    let data = await pickRequest(null);
+    // Off Windows with no desktop dialog: Vault's own folder browser (fs-picker.js).
+    if (data && data.fallback && window.vaultFsPicker) {
+      const p = await window.vaultFsPicker.fromReply(data, { kind: 'playlist' });
+      if (p == null) return;
+      data = await pickRequest({ path: p });
+    }
+    if (!data || data.canceled) return;
     openReview(data);
   }
   window.vaultImportPlaylist = importPlaylist;
@@ -104,7 +115,8 @@
     try {
       const resp = await fetch('/api/playlists/import/drop', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: file.name, size: file.size == null ? null : file.size }),
+        // path: off Windows, the one the file manager put on the drag (importer.js).
+        body: JSON.stringify({ name: file.name, size: file.size == null ? null : file.size, ...(file.path ? { path: file.path } : {}) }),
       });
       if (resp.status === 423) return;
       if (resp.ok) data = await resp.json();
@@ -390,9 +402,17 @@
     if (!_review) return;
     setModalBusy(true, 'Pick a folder in the folder picker…');
     let resp, data;
+    const url = `/api/playlists/import/${_review.session}/find-in-folder`;
     try {
-      resp = await fetch(`/api/playlists/import/${_review.session}/find-in-folder`, { method: 'POST' });
+      resp = await fetch(url, { method: 'POST' });
       data = await resp.json().catch(() => ({}));
+      // Off Windows with no desktop dialog: Vault's own folder browser (fs-picker.js).
+      if (resp.ok && data.fallback && window.vaultFsPicker) {
+        const p = await window.vaultFsPicker.fromReply(data, { kind: 'findFolder' });
+        if (p == null) { setModalBusy(false); return; }
+        resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: p }) });
+        data = await resp.json().catch(() => ({}));
+      }
     } catch (err) {
       setModalBusy(false);
       showToast(errWords(err, 'looking in the folder'), { type: 'error' });
@@ -402,7 +422,8 @@
       setModalBusy(false);
       if (resp.status === 423) return;
       let msg = errWords({ error: data.error, status: resp.status }, 'looking in the folder');
-      if (/cannot open the Windows file picker/i.test(msg)) msg = 'This copy of Vault cannot open the Windows folder picker.';
+      const off = /cannot open the (Windows )?file picker/i.exec(msg);
+      if (off) msg = `This copy of Vault cannot open the ${off[1] ? 'Windows ' : ''}folder picker.`;
       showToast(msg, { type: 'error' });
       if (data.code === 'NOT_FOUND') closeReview({ forget: false });
       return;

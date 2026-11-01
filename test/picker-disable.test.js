@@ -47,12 +47,23 @@ test('spawnPicker checks VAULT_DISABLE_NATIVE_PICKER before anything else', () =
   assert.ok(guarded, 'the switch must be the first thing spawnPicker does');
 });
 
-for (const route of ['/api/import/pick-files', '/api/import/pick-folder']) {
-  test(`${route} answers 409 while pickers are off`, { skip: !guarded && 'switch missing: not risking a real picker' }, async () => {
+for (const [route, mode] of [['/api/import/pick-files', 'files'], ['/api/import/pick-folder', 'folder']]) {
+  test(`${route} answers 409 while pickers are off (Windows)`, { skip: (!guarded && 'switch missing: not risking a real picker') || (process.platform !== 'win32' && 'Windows only') }, async () => {
     assert.strictEqual(process.env.VAULT_DISABLE_NATIVE_PICKER, '1', 'never run this without the switch');
     const res = await fetch(base + route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     assert.strictEqual(res.status, 409);
     const j = await res.json();
     assert.strictEqual(j.error, 'This copy of Vault cannot open the Windows file picker.');
+  });
+  // Off Windows the page opens Vault's own folder browser instead, which is
+  // not a desktop window, so the switch sends it there.
+  test(`${route} sends the page to the in-app browser while pickers are off (Linux, macOS)`, { skip: (!guarded && 'switch missing: not risking a real picker') || (process.platform === 'win32' && 'not Windows') }, async () => {
+    assert.strictEqual(process.env.VAULT_DISABLE_NATIVE_PICKER, '1', 'never run this without the switch');
+    const res = await fetch(base + route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    assert.strictEqual(res.status, 200);
+    const j = await res.json();
+    assert.strictEqual(j.fallback, true);
+    assert.strictEqual(j.mode, mode);
+    assert.ok(typeof j.start === 'string' && j.start.startsWith('/'), j.start);
   });
 }

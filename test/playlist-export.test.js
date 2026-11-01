@@ -689,8 +689,11 @@ test('save: relative paths from the folder the window chose; other drives get a 
   }
 });
 
-test('save: Vault links for a folder, and overwriting a file the window confirmed', { skip: onWindows }, async () => {
+// Vault links carry no file paths, so this runs off Windows too (the window
+// there is the desktop's own dialog, or Vault's folder browser).
+test('save: Vault links for a folder, and overwriting a file the window confirmed', async () => {
   const chosen = path.join(tmp, 'out', 'box.M3U8');
+  fs.mkdirSync(path.dirname(chosen), { recursive: true });
   fs.writeFileSync(chosen, 'old');
   const seen = {};
   server._setSaveDialogForTest(fakeDialog(`${chosen}\r\n`, seen));
@@ -719,7 +722,8 @@ test('save: cancel writes nothing; a broken or odd answer from the window is ref
     const bad = [
       '',                                         // the shim broke
       'relative\\x.m3u8',                         // not absolute
-      '/tmp/x.m3u8',                              // not a Windows path
+      // not a path of this system (off Windows a POSIX path is the right kind)
+      process.platform === 'win32' ? '/tmp/x.m3u8' : 'C:\\Temp\\x.m3u8',
       path.join(tmp, 'wrong.txt'),                // wrong extension
       path.join(tmp, 'x.xspf'),                   // not M3U8
       `${path.join(tmp, 'a.m3u8')}\n${path.join(tmp, 'b.m3u8')}`,   // two lines
@@ -754,8 +758,9 @@ test('save: strict parameters, unknown collection, before any window opens', asy
   }
 });
 
-test('save: the library locked or encrypted while the window was open writes nothing', { skip: onWindows }, async () => {
+test('save: the library locked or encrypted while the window was open writes nothing', async () => {
   const chosen = path.join(tmp, 'out', 'late.m3u8');
+  fs.mkdirSync(path.dirname(chosen), { recursive: true });
   const real = vault.isEncrypted;
   try {
     for (const links of ['full', 'relative']) {
@@ -781,6 +786,40 @@ test('save: the library locked or encrypted while the window was open writes not
   } finally {
     vault.isEncrypted = real;
     vault._locked = false;
+    server._setSaveDialogForTest(null);
+  }
+});
+
+// Off Windows with no desktop dialog, the first answer is { fallback: true }
+// and the page sends the place chosen in Vault's own folder browser.
+test('save off Windows: the place chosen in Vault\'s folder browser, checked like the window\'s', { skip: process.platform === 'win32' && 'Windows never takes a path from the page' }, async () => {
+  const outDir = path.join(tmp, 'in-page');
+  fs.mkdirSync(outDir, { recursive: true });
+  let opened = 0;
+  server._setSaveDialogForTest(() => { opened++; });
+  try {
+    const target = path.join(outDir, 'From page.m3u8');
+    let res = await save(coll, { links: 'vault', path: target });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual((await res.json()).path, target);
+    assert.ok(fs.readFileSync(target, 'utf8').startsWith('#EXTM3U'));
+    fs.symlinkSync('/dev/null', path.join(outDir, 'link.m3u8'));
+    for (const bad of ['/proc/x.m3u8', '/dev/x.m3u8', 'rel.m3u8', `${outDir}/../in-page/x.m3u8`, path.join(outDir, 'x.txt'),
+      path.join(outDir, 'nope', 'x.m3u8'), path.join(outDir, 'link.m3u8'), '', 5]) {
+      res = await save(coll, { links: 'vault', path: bad });
+      assert.strictEqual(res.status, 400, String(bad));
+      assert.strictEqual((await res.json()).code, 'BAD_PATH', String(bad));
+    }
+    assert.strictEqual(opened, 0, 'no window opened for a path from the page');
+    // Encrypted: path links stay refused, whoever chose the place.
+    const real = vault.isEncrypted;
+    vault.isEncrypted = () => true;
+    try {
+      res = await save(coll, { links: 'full', path: path.join(outDir, 'enc.m3u8') });
+      assert.strictEqual(res.status, 403);
+      assert.ok(!fs.existsSync(path.join(outDir, 'enc.m3u8')));
+    } finally { vault.isEncrypted = real; }
+  } finally {
     server._setSaveDialogForTest(null);
   }
 });
