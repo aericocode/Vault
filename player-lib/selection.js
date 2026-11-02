@@ -972,7 +972,12 @@ function _dqRender(now = false) {
   let verbing, verbed;
   if (_dq.ops.restore) { verbing = 'Restoring'; verbed = 'Restored'; }
   else if (_dq.ops.hard) { verbing = 'Deleting (permanent)'; verbed = 'Deleted'; }
-  else if (_dq.ops.recycle) { verbing = 'Recycling'; verbed = 'Recycled'; }
+  else if (_dq.ops.recycle) {
+    // "Recycling" is the Windows word; Linux and macOS move files to the Trash.
+    const pw = typeof vaultPlatformWords === 'function' ? vaultPlatformWords() : null;
+    if (!pw || pw.recycleBin === 'Recycle Bin') { verbing = 'Recycling'; verbed = 'Recycled'; }
+    else { verbing = `Moving to ${pw.recycleBinChoice}`; verbed = `Moved to ${pw.recycleBinChoice}`; }
+  }
   else { verbing = 'Moving to trash'; verbed = 'Moved to trash'; }
 
   const ICON = _dqIconSet();
@@ -1203,24 +1208,27 @@ function failuresToast(failures, verbed) {
 async function _destructiveDelete(ids, mode) {
   const n = ids.length;
   const needConfirm = n > 1 || mode === 'hard';
+  // Recycle Bin on Windows, System Trash on Linux and macOS (platform-words.js).
+  // "System" because Vault's own trash folder is "the trash" in these toasts too.
+  const bin = typeof vaultPlatformWords === 'function' ? vaultPlatformWords().recycleBinChoice : 'Recycle Bin';
   if (needConfirm) {
     const ok = mode === 'hard'
       ? await vaultConfirm(`Delete ${n === 1 ? 'this file' : selFiles(n)} from disk for good? This cannot be undone.`,
         { title: 'Delete permanently', okLabel: 'Delete permanently', danger: true })
-      : await vaultConfirm(`Move ${n} files to the Recycle Bin?`,
-        { title: 'Move to Recycle Bin', okLabel: 'Move to Recycle Bin' });
+      : await vaultConfirm(`Move ${n} files to the ${bin}?`,
+        { title: `Move to ${bin}`, okLabel: `Move to ${bin}` });
     if (!ok) return { okIds: [], failures: [], cancelled: true };
   }
   try {
     const { okIds, skippedIds, failures } = await _dqEnqueue(ids, 'delete', { mode });
     if (failures.length) {
-      failuresToast(failures, mode === 'hard' ? 'deleted' : 'moved to the Recycle Bin');
+      failuresToast(failures, mode === 'hard' ? 'deleted' : `moved to the ${bin}`);
       console.warn('[Delete] failures:', failures);
     }
     if (okIds.length) {
       showToast((mode === 'hard'
         ? `🗑 Deleted ${selFiles(okIds.length)} for good`
-        : `♻ Moved ${selFiles(okIds.length)} to the Recycle Bin`) +
+        : `♻ Moved ${selFiles(okIds.length)} to the ${bin}`) +
         (skippedIds.length ? `. Kept ${skippedIds.length.toLocaleString()} that went to the trash in the meantime.` : '.'));
     } else if (skippedIds.length) {
       showToast(`Nothing deleted. ${selFiles(skippedIds.length)} went to the trash in the meantime and stayed there.`);

@@ -7,7 +7,8 @@ local AI server (LM Studio or Ollama).
 
 ## 1. Quick start (5 minutes)
 
-No installer, no dev tools, nothing to configure.
+No installer, no dev tools, nothing to configure. These steps are for
+Windows. **On Linux, see [§1b](#1b-linux).**
 
 1. **Download `Vault-v*-win-x64.zip`** from the
    [Releases page](../../releases/latest).
@@ -63,7 +64,156 @@ without them and Vault explains exactly what's missing and how to install it.
 Vault looks for `faster-whisper` in whichever Python `PYTHON_PATH` names, or
 plain `python` from PATH if that's unset, so if you install into a **virtual
 environment**, point `PYTHON_PATH` at `…\venv\Scripts\python.exe` or Vault won't
-find it.
+find it. (On Linux and macOS Vault finds a `venv` folder next to itself on its
+own, see §1b.)
+
+---
+
+## 1b. Linux
+
+Supported: x64 with Ubuntu 22.04, Debian 12, Fedora 38, Mint 21 or newer
+(anything with glibc 2.35 or later), GNOME or KDE, X11 or Wayland.
+
+### Install and run
+
+1. **Download `Vault-v*-linux-x64.tar.gz`** from the
+   [Releases page](../../releases/latest).
+2. **Extract it and start it** from a terminal:
+
+   ```bash
+   tar -xzf Vault-v*-linux-x64.tar.gz
+   cd Vault
+   ./Vault
+   ```
+
+   The terminal is the server. Leave it open: closing it (or Ctrl+C) stops
+   Vault and locks the library. The viewer opens in your browser at
+   **http://127.0.0.1:8765**. If no browser opens (a headless or minimal
+   install), open that address yourself, or start with `./Vault --no-browser`.
+3. **"Permission denied"?** The program lost its run permission, which
+   happens when the folder is copied through a zip file or a Windows (NTFS or
+   exFAT) drive. Fix it with `chmod +x Vault`. Keep the folder on a Linux file
+   system (ext4, btrfs, xfs) so the permission sticks.
+4. Everything else (password offer, Download banner, adding folders) works as
+   in §1. Like on Windows, everything Vault creates lives in this folder.
+
+### Programs from your distro
+
+Vault downloads **ffmpeg, ffprobe and fpcalc** itself (the ⬇ Download banner),
+so you can skip them. If you prefer the distro packages:
+
+| Program | Ubuntu, Debian, Mint | Fedora | Arch |
+|---|---|---|---|
+| ffmpeg + ffprobe (optional) | `sudo apt install ffmpeg` | `sudo dnf install ffmpeg-free` | `sudo pacman -S ffmpeg` |
+| fpcalc, for Music ID (optional) | `sudo apt install libchromaprint-tools` | `sudo dnf install chromaprint-tools` | `sudo pacman -S chromaprint` |
+| **mpv**, for the full Stage | `sudo apt install mpv` | `sudo dnf install mpv` | `sudo pacman -S mpv` |
+| Python, for subtitles | `sudo apt install python3 python3-venv` | `sudo dnf install python3` | `sudo pacman -S python` |
+
+mpv is not downloaded by Vault on Linux: every distro packages it. Use the
+distro package, not the Flatpak: Flatpak mpv runs in a sandbox that Vault
+cannot start by path.
+
+For subtitles, most distros refuse a plain `pip install` into the system
+Python. Make a Python of Vault's own in Vault's folder, which Vault finds by
+itself (no `PYTHON_PATH` needed):
+
+```bash
+python3 -m venv venv && venv/bin/pip install faster-whisper
+```
+
+### Deleting to the Trash
+
+The delete mode **System Trash** (Settings › Library) moves files to your
+desktop's Trash, the same one your file manager shows, so you can restore
+them there. Files on another drive go to that drive's own Trash folder
+(`.Trash-<your user id>` at the top of the drive), as the desktop standard
+says. Vault's own **Trash folder** mode works the same as on Windows.
+
+### Stage on Wayland
+
+Ubuntu and Fedora log in to a **Wayland** session by default. Wayland does not
+let a program place its own window or keep it on top of others, so the mpv
+Stage may open in the middle of the screen and fall behind other windows. If
+that matters to you, pick an **X11** or **Xorg** session on the login screen
+(the gear icon, before you type your password); Stage then has full control.
+Basic Stage (the browser's picture-in-picture) works on both, though on GNOME
+Wayland it may not stay on top either.
+
+### Watching big folders (inotify)
+
+Linux limits how many folders one user's programs can watch at once
+(`fs.inotify.max_user_watches`). A watched folder with many subfolders can hit
+it, and Vault then says the limit is reached. Raise it, for now and after a
+restart:
+
+```bash
+echo fs.inotify.max_user_watches=524288 | sudo tee /etc/sysctl.d/90-vault.conf
+sudo sysctl --system
+```
+
+### Moving a library from Windows
+
+Your library (tags, notes, ratings, collections, thumbnails) moves with its
+files; nothing needs scanning again.
+
+1. On Windows, empty Vault's trash or restore what you want to keep: files in
+   it are recorded under the old Windows folder. Then close Vault.
+2. Copy the library files from the Windows Vault folder into the Linux
+   `Vault` folder: everything except `Vault.exe`, the `runtime` folder and
+   the downloaded tools (`ffmpeg.exe`, `ffprobe.exe`, `fpcalc.exe`). That
+   includes `vault.db` (and any `vault.db-wal`, `vault.db-shm` or
+   `vault.db-journal` next to it, which can hold recent changes),
+   `secure_assets.db`, `vault-settings.json` and the `thumbnails` and
+   `models` folders.
+3. Make your media reachable on Linux (copy it, or mount the drive).
+4. The library still holds Windows paths (`K:\Media\...`). Repoint them with
+   the `migrate` command, from the Linux `Vault` folder. Try it with
+   `--dry-run` first, which only reports what it would change:
+
+   ```bash
+   ./Vault migrate "K:\Media" /mnt/media --dry-run
+   ./Vault migrate "K:\Media" /mnt/media
+   ```
+
+   A record moves only when its file is really there at the new path. If your
+   folders were also renamed or reorganized, `./Vault migrate --relink /mnt/media`
+   matches files by name and size instead (see `node vault.js --help`).
+   The same two tools are in the viewer: Settings › Library › **Moved your
+   files?** (Quick move and Deep search).
+
+A password-protected library moves the same way; unlock it with the same
+password on Linux.
+
+Playlists exported on Windows keep their Windows paths and will not match on
+Linux. Import them again after the move, or export them again from Linux.
+
+### From source on Linux
+
+See §6. In short:
+
+```bash
+sudo apt install build-essential python3     # Fedora: sudo dnf install gcc-c++ make python3
+git clone https://github.com/aericocode/Vault.git
+cd Vault
+ONNXRUNTIME_NODE_INSTALL=skip npm install
+./start.sh                                    # or: node vault.js serve
+```
+
+Needs Node.js 20 or newer (`node -v`). The build tools matter on **Node 24**:
+there are no ready-made SQLite modules for it on Linux, so `npm install`
+compiles them. Without build tools the optional encryption module
+(`better-sqlite3-multiple-ciphers`) is skipped silently, and then an encrypted
+library cannot open and no password can be set; Vault says so and names the
+packages to install. Node 22 downloads ready-made modules and needs no build
+tools.
+
+### macOS
+
+There is no macOS build and macOS is not supported. Running from source may
+work: install the Xcode command line tools (`xcode-select --install`) and
+`brew install node ffmpeg mpv chromaprint`, then follow §6 and start with
+`./start.sh`. Deleting to the Trash, the Finder's Trash, and opening the
+browser work there. Nothing else is tested.
 
 ---
 
@@ -187,7 +337,9 @@ set EMBEDDING_MODEL=nomic-embed-text
 start.bat
 ```
 
-(Or set them once in System → Environment Variables so start.bat always sees them.)
+(Or set them once in System → Environment Variables so start.bat always sees them.
+On Linux, use `export NAME=value` instead of `set`, or put the lines in a `.env`
+file next to Vault, which works on every system.)
 
 ### Multi-GPU
 
@@ -233,7 +385,7 @@ as a fallback, so an existing `.env` keeps working.
 | `LM_STUDIO_URLS` | `http://localhost:1234/v1/chat/completions` | AI endpoint(s), comma-separated |
 | `AI_MODEL` | *(unset)* | Model name per request, **required for Ollama**, ignored by LM Studio |
 | `EMBEDDING_MODEL` | `text-embedding-nomic-embed-text-v1.5` | Semantic-search embedding model |
-| `PYTHON_PATH` | `python` (from PATH) | Which Python runs the transcription / translation / diarization sidecars: point it at `…\venv\Scripts\python.exe` if you installed `faster-whisper` into a virtual environment |
+| `PYTHON_PATH` | Windows: `python` (from PATH). Linux, macOS: `venv/bin/python` next to Vault, then `python3`, then `python` | Which Python runs the transcription / translation / diarization sidecars: point it at `…\venv\Scripts\python.exe` (Windows) or `…/venv/bin/python` (Linux, macOS) if you installed `faster-whisper` into a virtual environment somewhere else |
 | `WHISPER_MODEL` | `large-v3-turbo` | Transcription model (`small` for low VRAM) |
 | `WHISPER_IDLE_MINUTES` | `5` | `0` = once loaded, Whisper stays loaded; `N` = unload the sidecars after N idle minutes (low-VRAM boxes) |
 | `WHISPER_VAD` | `1` | Voice-activity filter: only decode speech, skip music/silence (faster transcription on padded content). `0` to disable |
@@ -244,7 +396,7 @@ as a fallback, so an existing `.env` keeps working.
 | `VAULT_TRASH` | `./trash` | Trash folder (opaque filenames) |
 | `VAULT_THUMBS` | `./thumbnails` | Thumbnail/cache folder |
 | `FRAME_WORKERS` / `VISION_WORKERS` / `PIPELINE_DEPTH` | `4` / `1` / `2` | Scan parallelism (see §3) |
-| `VAULT_DISABLE_NATIVE_PICKER` | *(unset)* | `1` = no native Windows dialogs: the file pickers, Save As and Choose mpv answer with a message (for test and scratch servers) |
+| `VAULT_DISABLE_NATIVE_PICKER` | *(unset)* | `1` = no native Windows dialogs (Windows only): the file pickers, Save As and Choose mpv answer with a message (for test and scratch servers) |
 | `VAULT_STAGE_MUTE` | *(unset)* | `1` = Stage (mpv) never makes a sound: it runs with no audio output (test servers) |
 | `VAULT_STAGE_TEST_QUIET` | *(unset)* | `1` = checks only: Stage's mpv window opens far off every screen and never takes the focus |
 | `VAULT_STAGE_NO_MPV` | *(unset)* | `1` = checks only: mpv is never found, so Stage runs as Basic (picture-in-picture) |
@@ -275,6 +427,12 @@ when it is set.
 | Subtitles fail to generate | Press ▶ Generate. Vault says exactly what's missing. Usually `pip install faster-whisper`; if you used a venv, set `PYTHON_PATH` to its interpreter |
 | Diarization/subtitles report that downloads are off | Either pre-install the models (`whisper` / OPUS-MT / `models/diarize` dirs) or set `SUB_ALLOW_DOWNLOADS=1` (and ensure `VAULT_OFFLINE` is unset) |
 | Upgraded from v3.5.0 or earlier and the library looks empty | Your old library is still there under its old name. See "Upgrading from v3.5.0 or earlier" just below |
+| Linux: `./Vault: Permission denied` | `chmod +x Vault`, and keep the folder on a Linux file system (§1b) |
+| Linux: no browser opened | Open http://127.0.0.1:8765 yourself. Vault uses `xdg-open`, which minimal installs lack |
+| Linux: Vault says the folder watching limit is reached | Raise `fs.inotify.max_user_watches` (§1b, "Watching big folders") |
+| Linux: Stage opens in the wrong place or falls behind other windows | That is Wayland. Use an X11 session for full Stage control (§1b, "Stage on Wayland") |
+| Linux, from source: an encrypted library will not open, or no password can be set | The encryption module did not build. Install the build tools (`sudo apt install build-essential python3`), then run `npm install` again (§1b, "From source on Linux") |
+| Something else, on any system | Settings › About › **Copy diagnostics** copies your Vault version, system, graphics card and helper programs (no file names). Paste it into your bug report |
 
 ### Upgrading from v3.5.0 or earlier
 
@@ -315,17 +473,24 @@ packaged exe. **These files are in the repository, not in the release zip.**
 Clone or download the repo first; the zip contains only `Vault.exe` and its
 runtime.
 
-1. **Install [Node.js](https://nodejs.org)** (LTS).
+1. **Install [Node.js](https://nodejs.org)** (LTS, version 20 or newer).
+   On **Linux with Node 24**, also install the build tools first
+   (`sudo apt install build-essential python3`; Fedora:
+   `sudo dnf install gcc-c++ make python3`; Arch: `sudo pacman -S base-devel python`):
+   `npm install` compiles the SQLite modules there. Without them the
+   optional encryption module is skipped and encrypted libraries cannot open.
 2. In the repo folder, run **`npm install`** once.
    On **Linux x64**, run it as `ONNXRUNTIME_NODE_INSTALL=skip npm install`
    (same for `npm ci`). Otherwise the face-search runtime (onnxruntime-node)
    also downloads its NVIDIA CUDA add-ons, several hundred MB that Vault never
    uses (face search runs on the CPU, see §7). Windows and macOS skip this by
    themselves.
-3. Double-click **`start.bat`**: it starts the local server and opens the
-   viewer in your browser (same UI, same `http://127.0.0.1:8765`).
+3. Double-click **`start.bat`** (Windows) or run **`./start.sh`** (Linux,
+   macOS): it starts the local server and opens the viewer in your browser
+   (same UI, same `http://127.0.0.1:8765`).
 4. **Drag media files onto the window** to add them (playable immediately),
-   or run **`scan.bat`** for the interactive wizard that indexes whole folders:
+   or run **`scan.bat`** (`./scan.sh` on Linux and macOS) for the interactive
+   wizard that indexes whole folders:
    pick a directory (it remembers your history), toggle options with the arrow
    keys, go. It prints the equivalent flag command before each run.
 
@@ -333,8 +498,9 @@ Flag-style usage works everywhere:
 
 ```bash
 node vault.js scan /path/to/media --recursive --all-types
-node vault.js serve            # same as start.bat
+node vault.js serve            # same as start.bat / ./start.sh
 node vault.js status           # library stats
+node vault.js migrate <old> <new> --dry-run   # repoint moved files (see §1b)
 ```
 
 Everything in §2–§5 applies unchanged: the source checkout and the exe read

@@ -1,0 +1,57 @@
+# Runs the test suite on Linux, the main guard against Windows-only changes
+# slipping in now that Vault ships for Linux too (LINUX_SPEC WP7).
+#
+# Triggers: every push to dev, and every pull request.
+#
+# Two Node versions, because people run Vault from source on either:
+#   • 24, the runtime the packaged builds ship. Its native SQLite addons are
+#     compiled against Node 24.18.1 headers, the same pin as release.yml
+#     (nodejs/node#65446); there is no Linux prebuilt for that, so node-gyp
+#     builds them with the runner's gcc.
+#   • 22, the older LTS, which installs prebuilt addons.
+name: Linux tests
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # ONNXRUNTIME_NODE_INSTALL=skip: no CUDA download, the tests use the CPU runtime.
+      - name: Install dependencies (Node 24, pinned headers)
+        if: matrix.node == '24'
+        run: npm ci
+        env:
+          npm_config_target: '24.18.1'
+          npm_config_disturl: 'https://nodejs.org/dist'
+          ONNXRUNTIME_NODE_INSTALL: 'skip'
+
+      - name: Install dependencies (Node 22)
+        if: matrix.node == '22'
+        run: npm ci
+        env:
+          ONNXRUNTIME_NODE_INSTALL: 'skip'
+
+      # package.json "test": node --test "test/*.test.js"
+      - name: Run tests
+        run: npm test

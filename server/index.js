@@ -554,7 +554,7 @@ const INSTALL_HINTS = {
     win32: { cmd: 'winget install ffmpeg', cmdNote: null, url: 'https://www.gyan.dev/ffmpeg/builds/' },
     linux: {
       cmd: 'sudo apt install ffmpeg',
-      cmdNote: 'On Fedora: sudo dnf install ffmpeg-free',
+      cmdNote: 'On Fedora: sudo dnf install ffmpeg-free. On Arch: sudo pacman -S ffmpeg',
       url: 'https://ffmpeg.org/download.html#build-linux',
     },
     darwin: { cmd: 'brew install ffmpeg', cmdNote: null, url: 'https://ffmpeg.org/download.html#build-mac' },
@@ -564,7 +564,7 @@ const INSTALL_HINTS = {
     win32: { cmd: null, cmdNote: null, url: 'https://acoustid.org/chromaprint' },
     linux: {
       cmd: 'sudo apt install libchromaprint-tools',
-      cmdNote: 'On Fedora: sudo dnf install chromaprint-tools',
+      cmdNote: 'On Fedora: sudo dnf install chromaprint-tools. On Arch: sudo pacman -S chromaprint',
       url: 'https://acoustid.org/chromaprint',
     },
     darwin: { cmd: 'brew install chromaprint', cmdNote: null, url: 'https://acoustid.org/chromaprint' },
@@ -837,9 +837,25 @@ app.get('/api/setup/download/:tool', (req, res) => {
 // App identity for the Settings → About section. The name is the PRODUCT name,
 // deliberately not pkg.name — that is the npm package id (lowercase `vault`) and
 // rendering it would put "vault" in the panel instead of "Vault". Version still
-// tracks package.json so a release bump shows up here for free.
+// tracks package.json so a release bump shows up here for free. `platform` is
+// the SERVER's OS (process.platform): the viewer may be a browser on another
+// machine, and words like Recycle Bin / Trash follow the machine that holds
+// the files (player-lib/platform-words.js).
 app.get('/api/about', (req, res) => {
-  res.json({ name: 'Vault', version: pkg.version });
+  res.json({ name: 'Vault', version: pkg.version, platform: process.platform });
+});
+
+// Settings › About › Copy diagnostics: a plain-text report (version, OS,
+// distro, desktop session, GPU, tool versions) for bug reports. Read only,
+// and behind the same gates as every /api route (host check, fetch metadata,
+// lock). No library paths; the home folder and account name are redacted
+// (lib/diagnostics.js).
+app.get('/api/diagnostics', async (req, res) => {
+  try {
+    res.json({ text: await require('../lib/diagnostics').report() });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not gather diagnostics: ' + err.message });
+  }
 });
 
 // Manual update check — MANUAL ONLY. This makes exactly ONE request to

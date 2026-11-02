@@ -872,10 +872,19 @@ function subtitlesShowPrereqModal(info = {}) {
   const isWin = plat === 'win32';
   const venvSetup = 'python3 -m venv venv && venv/bin/pip install faster-whisper';
   const inVenv = /[\\/]venv[\\/]/.test(pyCmd);
+  // The one-line installs live in player-lib/platform-words.js (winget, apt
+  // with the dnf and pacman lines after it, brew). The fallbacks are the same
+  // lines, for when that file is not loaded.
+  const pyLine = typeof vaultInstallLine === 'function' ? vaultInstallLine('python', plat) : null;
+  const pyCmdLine = pyLine ? pyLine.cmd
+    : isWin ? 'winget install Python.Python.3.12' : plat === 'darwin' ? 'brew install python' : 'sudo apt install python3 python3-venv';
+  const pyAlts = pyLine ? pyLine.alts
+    : (isWin || plat === 'darwin' ? [] : [{ on: 'Fedora', cmd: 'sudo dnf install python3' }]);
+  const pyAltsHtml = pyAlts.map(a => `On ${escapeHtml(a.on)}: <code>${escapeHtml(a.cmd)}</code>`).join('. ');
   const steps = isWin
     ? (noPython
       ? `<li>Install Python 3.9 or newer. In its installer, tick <b>Add python.exe to PATH</b>.
-         ${cmd('winget install Python.Python.3.12')}
+         ${cmd(pyCmdLine)}
          Or download it from <a href="https://www.python.org/downloads/" target="_blank" rel="noopener">python.org</a>.</li>
        <li>Then add the speech-to-text package:
          ${cmd('pip install faster-whisper')}</li>
@@ -885,8 +894,8 @@ function subtitlesShowPrereqModal(info = {}) {
        <li>Press <b>Generate</b> again. No restart needed.</li>`)
     : (noPython
       ? `<li>Install Python 3.9 or newer:
-         ${cmd(plat === 'darwin' ? 'brew install python' : 'sudo apt install python3 python3-venv')}
-         ${plat === 'darwin' ? '' : 'On Fedora: <code>sudo dnf install python3</code>'}</li>
+         ${cmd(pyCmdLine)}
+         ${pyAltsHtml}</li>
        <li>Then, in Vault's folder, add the speech-to-text package:
          ${cmd(venvSetup)}</li>
        <li>Restart Vault, so it can find the new Python.</li>`
