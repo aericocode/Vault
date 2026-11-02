@@ -82,6 +82,8 @@
   <link rel="stylesheet" href="./css/beatbar-modern.css">
   <!-- In-app alert / confirm / prompt (player-lib/vault-dialogs.js), both looks -->
   <link rel="stylesheet" href="./css/dialogs.css">
+  <!-- Vault's own folder browser (player-lib/fs-picker.js): Linux without a desktop dialog, macOS -->
+  <link rel="stylesheet" href="./css/fs-picker.css">
 
   <link rel="icon" type="image/svg+xml" href="./images/favicon.svg">
 </head>
@@ -581,6 +583,8 @@
   <script src="./player-lib/platform-words.js"></script>
   <!-- In-app alert / confirm / prompt; before shortcuts.js so its key guard runs first -->
   <script src="./player-lib/vault-dialogs.js"></script>
+  <!-- Vault's own folder browser (Linux, macOS); its key guard also runs before shortcuts.js -->
+  <script src="./player-lib/fs-picker.js"></script>
   <!-- Keyboard shortcuts list (?) and isBrowserChord; early so its key listener runs first -->
   <script src="./player-lib/shortcuts.js"></script>
   <script src="./player-lib/state.js"></script>

@@ -138,8 +138,16 @@ async function _stageMpvLoad(root) {
 
 async function _stageMpvAct(act, root) {
   try {
-    const r = await fetch(`/api/stage/mpv/${act === 'forget' ? 'forget' : 'choose'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-    const data = await r.json().catch(() => ({}));
+    const url = `/api/stage/mpv/${act === 'forget' ? 'forget' : 'choose'}`;
+    let r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    let data = await r.json().catch(() => ({}));
+    // Off Windows with no desktop dialog: pick mpv in Vault's own folder browser (fs-picker.js).
+    if (r.ok && data.fallback && window.vaultFsPicker) {
+      const p = await window.vaultFsPicker.fromReply(data, { kind: 'mpv' });
+      if (p == null) { _stageMpvPaint(root); return; }
+      r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: p }) });
+      data = await r.json().catch(() => ({}));
+    }
     if (!r.ok) throw Object.assign(new Error(data.error || `Server returned ${r.status}`), { status: r.status });
     if (data.mpv) _stageMpv = data.mpv;
     if (!data.canceled && typeof showToast === 'function') showToast(act === 'forget' ? 'Vault finds mpv by itself again' : 'Stage will use this mpv');

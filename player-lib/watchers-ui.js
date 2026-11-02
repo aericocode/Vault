@@ -279,8 +279,14 @@
     try {
       const r = await api('POST', '/api/import/pick-folder');
       if (!r.ok) { errToast(replyErr(r), 'opening the folder picker'); return; }
-      if (r.data.canceled || !r.data.path) return;
-      await addWatch({ path: r.data.path });
+      let picked = r.data;
+      // Off Windows with no desktop dialog: Vault's own folder browser (fs-picker.js).
+      if (picked.fallback && window.vaultFsPicker) {
+        const p = await window.vaultFsPicker.fromReply(picked, { kind: 'folder' });
+        picked = p == null ? { canceled: true } : { path: p };
+      }
+      if (picked.canceled || !picked.path) return;
+      await addWatch({ path: picked.path });
     } catch (err) {
       errToast(err, 'opening the folder picker');
     } finally {

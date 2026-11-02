@@ -35,6 +35,7 @@ const { createEngine } = require('../lib/stage/engine');
 const { createMpvHost, volumeGainSupported } = require('../lib/stage/mpv-host');
 const { buildArgs, displayPlan } = require('../lib/stage/mpv-args');
 const mpvFind = require('../lib/stage/mpv-find');
+const fsBrowse = require('../lib/fs-browse');
 const StageRules = require('../player-lib/stage-rules.js');
 const { createSetLog } = require('../lib/stage/setlog');
 
@@ -179,7 +180,8 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
       sandboxed: f.sandboxed || null,
       platform,
       display: displayPlan({ platform, env, xwayland: readSettings().xwayland }),
-      canChoose: platform === 'win32' && env.VAULT_DISABLE_NATIVE_PICKER !== '1' && typeof pickMpv === 'function',
+      // Off Windows there is always a way: the desktop's dialog, or Vault's own folder browser.
+      canChoose: typeof pickMpv === 'function' && (platform !== 'win32' || env.VAULT_DISABLE_NATIVE_PICKER !== '1'),
       // Which Stage opens: mpv, or Basic (picture-in-picture in the Vault page).
       choice: StageRules.playerChoice({ setting: readSettings().player, mpvFound: f.found === true }),
     };
@@ -299,16 +301,35 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
   });
 
   // The only way a path reaches the mpv setting: the user picks the file in
-  // the native picker this server opens. Nothing in the request is used.
+  // the native picker this server opens. On Windows nothing in the request
+  // is used. Off Windows, when there is no desktop dialog, the picker answers
+  // { fallback: true } and the page asks again with the file chosen in
+  // Vault's own folder browser ({ path }); it gets the same checks
+  // (mpvFind.checkPath: named mpv, a file, runnable, and off Windows owned
+  // by root or this user in folders nobody else can write to; then it must
+  // answer --version as mpv). Only a same-origin page can send that path:
+  // the Host allowlist, Fetch Metadata and CSRF guards in server/index.js
+  // run before this router.
   router.post('/api/stage/mpv/choose', (req, res) => {
     if (typeof pickMpv !== 'function') return res.status(501).json({ error: 'Choosing mpv works on Windows only. Install mpv so it is on PATH.' });
-    pickMpv(res, async (pick, finish) => {
+    const given = platform !== 'win32' && req.body && typeof req.body === 'object' ? req.body.path : undefined;
+    // One plain absolute path (normalized, not in /proc, /sys or /dev) before anything looks at it.
+    if (given !== undefined && !fsBrowse.plainAbsolute(given)) return res.status(400).json({ error: 'Choose the mpv program by its full path.' });
+    const open = given !== undefined
+      ? (r, done) => done({ path: typeof given === 'string' ? given : '' }, (status, body) => r.status(status).json(body))
+      : pickMpv;
+    // The picker can stay open for minutes: nothing is run or saved once the vault has locked.
+    const locked = () => typeof lib.isLocked === 'function' && lib.isLocked();
+    const LOCKED = { error: 'Vault is locked. Unlock it first.', code: 'VAULT_LOCKED' };
+    open(res, async (pick, finish) => {
       try {
+        if (locked()) return finish(423, LOCKED);
         if (pick.canceled) return finish(200, { canceled: true, mpv: await status() });
         const c = mpvFind.checkPath(pick.path, { platform });
         if (!c.ok) return finish(400, { error: c.error });
         const v = await mpvFind.askVersion(c.real, c.stat);
-        if (!v) return finish(400, { error: 'That program did not answer as mpv. Choose mpv.exe from your mpv folder.' });
+        if (!v) return finish(400, { error: `That program did not answer as mpv. Choose ${platform === 'win32' ? 'mpv.exe from your mpv folder' : 'the mpv program, usually /usr/bin/mpv'}.` });
+        if (locked()) return finish(423, LOCKED);
         appSettings.set({ stageMpv: { path: c.real } });
         finish(200, { ok: true, mpv: await status() });
       } catch {
