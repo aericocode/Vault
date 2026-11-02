@@ -33,7 +33,7 @@ const geometry = require('../lib/stage/geometry');
 const { createHub, ROLES } = require('../lib/stage/hub');
 const { createEngine } = require('../lib/stage/engine');
 const { createMpvHost, volumeGainSupported } = require('../lib/stage/mpv-host');
-const { buildArgs } = require('../lib/stage/mpv-args');
+const { buildArgs, displayPlan } = require('../lib/stage/mpv-args');
 const mpvFind = require('../lib/stage/mpv-find');
 const StageRules = require('../player-lib/stage-rules.js');
 const { createSetLog } = require('../lib/stage/setlog');
@@ -175,6 +175,10 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
       source: f.found ? f.source : null,
       chosen,
       chosenProblem: f.chosenProblem || null,
+      // Linux: an mpv in a sandbox Vault cannot use (Flatpak, Snap), and how the window meets the desktop.
+      sandboxed: f.sandboxed || null,
+      platform,
+      display: displayPlan({ platform, env, xwayland: readSettings().xwayland }),
       canChoose: platform === 'win32' && env.VAULT_DISABLE_NATIVE_PICKER !== '1' && typeof pickMpv === 'function',
       // Which Stage opens: mpv, or Basic (picture-in-picture in the Vault page).
       choice: StageRules.playerChoice({ setting: readSettings().player, mpvFound: f.found === true }),
@@ -183,7 +187,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
 
   async function launch() {
     if (readSettings().player === 'basic') return { status: 200, body: { ok: true, mode: 'basic' } };
-    const found = await find({ chosen: readChosen() });
+    const found = await find({ chosen: readChosen(), withOptions: true });
     if (!found.found) {
       // The page runs Basic Stage itself (picture-in-picture); nothing to start here.
       return { status: 409, body: { error: 'mpv was not found on this computer, so Stage runs as Basic (picture-in-picture).', code: 'MPV_MISSING', mode: 'basic' } };
@@ -219,11 +223,14 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     });
     host = h;
     engine = createEngine({ mpv: h, report: (r) => hub.report(r), settings: readSettings, lib, forceMute, volumeGain: volumeGainSupported(found.version) });
-    const out = await h.start(found.path, (ipcPath) => buildArgs({
+    // A Wayland desktop: mpv on XWayland (placed, kept in front); its own Wayland window if that will not start.
+    const plan = displayPlan({ platform, env, xwayland: s.xwayland });
+    const argsFor = (x11) => (ipcPath) => buildArgs({
       ipcPath, title: s.windowName, bounds, maximized: w.max === true && !preset,
       cursorSeconds: s.cursorSeconds, volume: session.volume, muted: session.muted, forceMute, quiet,
-      hwdec: s.hwDecoding !== false, mpvVersion: found.version,
-    }), { mpvVersion: found.version });
+      hwdec: s.hwDecoding !== false, mpvVersion: found.version, mpvOptions: found.options, x11,
+    });
+    const out = await h.start(found.path, argsFor(plan.x11), { mpvVersion: found.version, fallbackArgsFor: plan.x11 ? argsFor(false) : null });
     if (!out.ok) {
       if (host === h) { host = null; engine = null; }
       try { h.kill(); } catch {}
