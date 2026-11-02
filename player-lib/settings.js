@@ -41,7 +41,7 @@
      Windows words stand in if that file is not loaded (tests run this file alone). */
   const settingsPlatformWords = () => (typeof vaultPlatformWords === 'function'
     ? vaultPlatformWords()
-    : { recycleBin: 'Recycle Bin', recycleBinChoice: 'Recycle Bin', recoverFrom: 'the Recycle Bin on the desktop', examplePath: 'C:\\Media', examplePathNew: 'D:\\Media' });
+    : { recycleBin: 'Recycle Bin', recycleBinChoice: 'Recycle Bin', isRecovered: 'is recovered from Windows', canBeRecovered: 'can be recovered by Windows', examplePath: 'C:\\Media', examplePathNew: 'D:\\Media' });
   const REPEAT_MODES = ['off', 'all', 'one'];  // player repeat button, in cycle order
 
   const DEFAULTS = {
@@ -1657,8 +1657,8 @@
       cls: 'settings-seg-row', sfind: 'deleteMode', titleId: 'segLabel_deleteMode',
       title: modern ? 'When I delete a file' : 'Delete mode',
       desc: modern
-        ? `Trash folder can be undone. ${pw.recycleBinChoice} is recovered from ${pw.recoverFrom}. Permanent cannot be undone.`
-        : `What the 🗑 button does. Soft can be undone from the trash. ${pw.recycleBinChoice} can be recovered from ${pw.recoverFrom}. Permanent erases the file from disk straight away.`,
+        ? `Trash folder can be undone. ${pw.recycleBinChoice} ${pw.isRecovered}. Permanent cannot be undone.`
+        : `What the 🗑 button does. Soft can be undone from the trash. ${pw.recycleBinChoice} ${pw.canBeRecovered}. Permanent erases the file from disk straight away.`,
       control: `<span class="settings-seg" role="group" aria-labelledby="segLabel_deleteMode">
           ${opts.map(o => `
             <button type="button" class="settings-seg-btn" data-delete-mode="${o.value}"

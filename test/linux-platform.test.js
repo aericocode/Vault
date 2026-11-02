@@ -327,6 +327,47 @@ test('reapStale: ends an mpv whose Vault is gone, only if it is that mpv; leaves
   assert.ok(fs.existsSync(live) && fs.existsSync(nopid) && fs.existsSync(other), 'the rest left alone');
 });
 
+test('reapStale: only this user\'s own folders, never another user\'s or a link', () => {
+  const { reapStale } = require('../lib/stage/mpv-host');
+  const base = fs.mkdtempSync(path.join(tmp, 'stage-own-'));
+  const mk = (name, rec) => {
+    const dir = path.join(base, name);
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, 'mpv.pid'), JSON.stringify(rec));
+    return dir;
+  };
+  const mine = mk('vault-stage-mine00', { vault: 301, mpv: 401 });
+  const theirs = mk('vault-stage-theirs', { vault: 302, mpv: 402 });
+  // A link named like a socket folder, pointing at a folder with a pid file.
+  const target = fs.mkdtempSync(path.join(tmp, 'stage-target-'));
+  fs.writeFileSync(path.join(target, 'mpv.pid'), JSON.stringify({ vault: 303, mpv: 403 }));
+  const link = path.join(base, 'vault-stage-linked');
+  let linked = true;
+  try { fs.symlinkSync(target, link, 'junction'); } catch { linked = false; }
+  const ME = 1000;
+  const OTHER = 1001;
+  // The real folders, reported as this user's except the one that is someone else's.
+  const lstat = (p) => {
+    const st = fs.lstatSync(p);
+    const uid = path.basename(p) === 'vault-stage-theirs' ? OTHER : ME;
+    return { isDirectory: () => st.isDirectory(), isSymbolicLink: () => st.isSymbolicLink(), uid };
+  };
+  const asked = [];
+  const killed = [];
+  const n = reapStale(base, {
+    uid: ME, lstat,
+    isAlive: (pid) => { asked.push(pid); return pid >= 400; },
+    cmdline: (pid) => `mpv --input-ipc-server=${path.join(pid === 401 ? mine : pid === 402 ? theirs : link, 'mpv.sock')}`,
+    kill: (pid) => killed.push(pid),
+  });
+  assert.strictEqual(n, 1);
+  assert.deepStrictEqual(killed, [401]);
+  assert.ok(!asked.includes(302) && !asked.includes(303), 'no pid file read but this user\'s own');
+  assert.ok(!fs.existsSync(mine), 'this user\'s stale folder removed');
+  assert.ok(fs.existsSync(path.join(theirs, 'mpv.pid')), 'another user\'s folder left alone');
+  if (linked) assert.ok(fs.existsSync(path.join(target, 'mpv.pid')), 'nothing removed through a link');
+});
+
 test('the mpv socket path fits sun_path: a long TMPDIR falls back to /tmp', () => {
   const { socketBase } = require('../lib/stage/mpv-host');
   assert.strictEqual(socketBase('/tmp'), '/tmp');

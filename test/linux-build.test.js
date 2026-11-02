@@ -157,9 +157,15 @@ for (const look of ['classic', 'modern']) {
     assert.match(win, /Recycle Bin/);
     assert.match(win, /placeholder="C:\\Media"/);
     assert.doesNotMatch(win, /System Trash/);
+    // The Windows text word for word as it was before Linux.
+    const winDelete = look === 'modern'
+      ? 'Trash folder can be undone. Recycle Bin is recovered from Windows. Permanent cannot be undone.'
+      : 'What the 🗑 button does. Soft can be undone from the trash. Recycle Bin can be recovered by Windows. Permanent erases the file from disk straight away.';
+    assert.ok(win.includes(winDelete), 'Windows delete mode text unchanged');
 
     // Without platform-words.js (older tests load settings.js alone): the Windows words, unchanged
     const bare = loadSettings(look, null).vaultSettingsPageHtml('library');
+    assert.ok(bare.includes(winDelete));
     assert.match(bare, /Recycle Bin/);
     assert.match(bare, /placeholder="C:\\Media"/);
   });
@@ -172,6 +178,30 @@ for (const look of ['classic', 'modern']) {
     assert.doesNotMatch(html, /—/, 'no em dashes');
   });
 }
+
+test('Settings search: the delete mode and mpv lines read as before on Windows', () => {
+  const descs = (platform) => {
+    const ctx = { console, Math, JSON, Array, Object, String, Number, Boolean, Map, Set, RegExp, Date, Promise,
+      navigator: { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }, fetch: async () => ({ ok: false }),
+      window: { addEventListener: noop }, document: { addEventListener: noop, getElementById: () => null, querySelector: () => null } };
+    vm.createContext(ctx);
+    const files = ['shortcuts.js', 'settings-kit.js', 'settings-search.js'];
+    if (platform) files.unshift('platform-words.js');
+    for (const f of files) vm.runInContext(fs.readFileSync(path.join(LIB, f), 'utf8'), ctx);
+    if (platform) vm.runInContext(`vaultSetServerPlatform(${JSON.stringify(platform)})`, ctx);
+    vm.runInContext('globalThis.__i = SETTINGS_INDEX', ctx);
+    const by = (id) => ctx.__i.find(e => e.id === id).desc;
+    return { del: by('deleteMode'), mpv: by('stagePlayer') };
+  };
+  for (const w of [descs('win32'), descs(null)]) {
+    assert.strictEqual(w.del, 'What the trash button does: soft to the trash folder, the Recycle Bin, or permanent.');
+    assert.match(w.mpv, /Choose mpv\.exe if Vault does not find it\.$/);
+  }
+  const lin = descs('linux');
+  assert.match(lin.del, /the System Trash/);
+  assert.doesNotMatch(lin.del, /Recycle Bin/);
+  assert.match(lin.mpv, /Choose the mpv program if Vault does not find it\.$/);
+});
 
 /* ── lib/diagnostics.js ─────────────────────────────────────────────────── */
 

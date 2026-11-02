@@ -132,12 +132,23 @@ says. Vault's own **Trash folder** mode works the same as on Windows.
 ### Stage on Wayland
 
 Ubuntu and Fedora log in to a **Wayland** session by default. Wayland does not
-let a program place its own window or keep it on top of others, so the mpv
-Stage may open in the middle of the screen and fall behind other windows. If
-that matters to you, pick an **X11** or **Xorg** session on the login screen
-(the gear icon, before you type your password); Stage then has full control.
+let a program place its own window or bring it to the front, so on a Wayland
+desktop Vault opens the mpv Stage through **XWayland** (the X11 support those
+desktops include). Stage then opens where you last left it and comes to the
+front when you ask, with nothing to set up.
+
+- If the Stage window does not show up or misbehaves, turn off
+  **Settings › Stage › Use XWayland for the Stage window**. Stage then uses
+  its own Wayland window, and the desktop decides where it opens and whether
+  it comes to the front.
+- On a Wayland desktop without XWayland, the same is true: Stage works, but
+  the desktop may ignore where it should open.
+- To set it outside the app, start Vault with `VAULT_STAGE_XWAYLAND=1`
+  (always XWayland) or `VAULT_STAGE_XWAYLAND=0` (never). This overrides the
+  switch in Settings.
+
 Basic Stage (the browser's picture-in-picture) works on both, though on GNOME
-Wayland it may not stay on top either.
+Wayland it may not stay on top.
 
 ### Watching big folders (inotify)
 
@@ -430,7 +441,7 @@ when it is set.
 | Linux: `./Vault: Permission denied` | `chmod +x Vault`, and keep the folder on a Linux file system (§1b) |
 | Linux: no browser opened | Open http://127.0.0.1:8765 yourself. Vault uses `xdg-open`, which minimal installs lack |
 | Linux: Vault says the folder watching limit is reached | Raise `fs.inotify.max_user_watches` (§1b, "Watching big folders") |
-| Linux: Stage opens in the wrong place or falls behind other windows | That is Wayland. Use an X11 session for full Stage control (§1b, "Stage on Wayland") |
+| Linux: Stage opens in the wrong place or does not come to the front | Check that **Settings › Stage › Use XWayland for the Stage window** is on (it only shows on a Wayland desktop). A Wayland desktop without XWayland may ignore where Stage opens (§1b, "Stage on Wayland") |
 | Linux, from source: an encrypted library will not open, or no password can be set | The encryption module did not build. Install the build tools (`sudo apt install build-essential python3`), then run `npm install` again (§1b, "From source on Linux") |
 | Something else, on any system | Settings › About › **Copy diagnostics** copies your Vault version, system, graphics card and helper programs (no file names). Paste it into your bug report |
 

@@ -419,11 +419,13 @@ Programs Vault uses:
   - python3 + faster-whisper transcription and subtitles. Separate install,
                              see SETUP.md
 
-Stage on Wayland (the default on Ubuntu and Fedora): Wayland does not let a
-program place its own window or keep it on top, so Stage may open in the
-middle of the screen and fall behind other windows. Logging in to an "X11"
-or "Xorg" session (the gear icon on the login screen) gives Stage full
-control. Basic Stage (picture-in-picture in the browser) works on both.
+Stage on Wayland (the default on Ubuntu and Fedora): Vault opens the mpv
+Stage through XWayland, so it opens where you left it and comes to the
+front, with nothing to set up. If the Stage window does not show up or
+misbehaves, turn off Settings > Stage > "Use XWayland for the Stage window".
+On a Wayland desktop without XWayland, Stage works but the desktop may
+ignore where it should open. Basic Stage (picture-in-picture in the
+browser) works on both.
 
 Watching big folders: Linux limits how many folders one program can watch.
 If Vault says the limit is reached, raise it with:

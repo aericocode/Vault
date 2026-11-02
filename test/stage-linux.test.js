@@ -134,12 +134,25 @@ test('parseOptions: mpv’s list, or null for anything else', () => {
 
 /* ── Finding mpv on Linux and macOS ─────────────────────────────────────── */
 
-/** A fake POSIX file system: path -> { real?, dir? }. */
+/**
+ * A fake POSIX file system: path -> { real?, dir? }. Every folder above a
+ * listed path is there too. All of it is root's and 0755, like a package's
+ * files, so checkPath's ownership check (untrustedPosix) lets it through.
+ */
 function fakeFs(files) {
+  const above = new Set();
+  for (const p of Object.keys(files)) {
+    if (!p.startsWith('/')) continue;
+    for (let d = path.posix.dirname(p); !above.has(d); d = path.posix.dirname(d)) {
+      above.add(d);
+      if (d === '/') break;
+    }
+  }
   const stat = (p) => {
-    const f = files[p];
+    const f = files[p] || (above.has(p) ? { dir: true } : null);
     if (!f) { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; }
-    return { isFile: () => !f.dir, size: 1, mtimeMs: 1 };
+    return { isFile: () => !f.dir, isDirectory: () => !!f.dir, size: 1, mtimeMs: 1,
+      uid: 0, gid: 0, mode: f.dir ? 0o40755 : 0o100755 };
   };
   const realpath = (p) => { const f = files[p]; if (!f) throw new Error('ENOENT'); return f.real || p; };
   return { statSync: stat, realpathSync: realpath, accessSync: () => {} };

@@ -583,7 +583,8 @@ const FFMPEG_INSTALL = installHint('ffmpeg');
    untrusted input, never joined into a path. `archive` picks the extractor:
    'zip' goes through adm-zip, the tar kinds through the system `tar`.
    `verify` must prove the extracted binary actually runs. */
-const PLATFORM_KEY = `${process.platform}-${process.arch}`;
+// Windows on ARM runs the x64 builds under emulation, as it always has here.
+const PLATFORM_KEY = process.platform === 'win32' ? 'win32-x64' : `${process.platform}-${process.arch}`;
 
 const TOOL_DOWNLOADS = {
   ffmpeg: {

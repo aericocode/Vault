@@ -7,8 +7,9 @@
    the browser's own OS is the guess, which is right whenever Vault runs on
    the same computer (nearly always).
 
-   - vaultPlatformWords()       → { recycleBin, recycleBinChoice, recoverFrom,
-                                    filePicker, examplePath, examplePathNew }
+   - vaultPlatformWords()       → { recycleBin, recycleBinChoice, isRecovered,
+                                    canBeRecovered, filePicker, examplePath,
+                                    examplePathNew }
    - vaultInstallLine(tool)     → { cmd, alts: [{ on, cmd }] } or null
    - vaultInstallNote(tool)     → "On Fedora: … On Arch: …" or ''
    - vaultServerPlatform()      → 'win32' | 'linux' | 'darwin' | …
@@ -23,7 +24,9 @@ const VAULT_PLATFORM_WORDS = {
   win32: {
     recycleBin: 'Recycle Bin',
     recycleBinChoice: 'Recycle Bin',
-    recoverFrom: 'the Recycle Bin on the desktop',
+    // The Delete mode text (Modern, Classic), word for word as before Linux.
+    isRecovered: 'is recovered from Windows',
+    canBeRecovered: 'can be recovered by Windows',
     filePicker: 'file picker',
     examplePath: 'C:\\Media',
     examplePathNew: 'D:\\Media',
@@ -31,7 +34,8 @@ const VAULT_PLATFORM_WORDS = {
   linux: {
     recycleBin: 'Trash',
     recycleBinChoice: 'System Trash',
-    recoverFrom: 'the Trash in your file manager',
+    isRecovered: 'is recovered from the Trash in your file manager',
+    canBeRecovered: 'can be recovered from the Trash in your file manager',
     filePicker: 'file picker',
     examplePath: '/home/you/Videos',
     examplePathNew: '/media/you/Drive/Videos',
@@ -39,7 +43,8 @@ const VAULT_PLATFORM_WORDS = {
   darwin: {
     recycleBin: 'Trash',
     recycleBinChoice: 'System Trash',
-    recoverFrom: 'the Trash in the Dock',
+    isRecovered: 'is recovered from the Trash in the Dock',
+    canBeRecovered: 'can be recovered from the Trash in the Dock',
     filePicker: 'file picker',
     examplePath: '/Users/you/Movies',
     examplePathNew: '/Volumes/Drive/Movies',

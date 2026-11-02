@@ -25,7 +25,10 @@ fi
 
 if [ ! -d node_modules ]; then
   echo "  First run: installing dependencies..."
-  if ! npm install; then
+  # onnxruntime-node ships its CPU build in the package; without this its
+  # install step also fetches several hundred MB of CUDA add-ons on Linux x64.
+  # Set ONNXRUNTIME_NODE_INSTALL yourself to override (for example cuda12).
+  if ! ONNXRUNTIME_NODE_INSTALL="${ONNXRUNTIME_NODE_INSTALL:-skip}" npm install; then
     echo
     echo "  npm install failed, see the errors above."
     echo "  On Linux this usually means the build tools are missing:"
