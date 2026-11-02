@@ -686,3 +686,34 @@ test('the remote: a second Open while Stage is opening waits for it (its then ru
   const ui = fs.readFileSync(path.join(ROOT, 'player-lib', 'stage-settings-ui.js'), 'utf8');
   assert.ok(ui.includes('mpv found: ') && !ui.includes('Full (mpv)'));
 });
+
+test('Choose mpv: a vault that locked while the picker was open saves nothing and runs nothing', async () => {
+  let locked = false;
+  let asked = 0;
+  const router = buildRouter({
+    hostFactory: fakeHostFactory([]), find: async () => ({ found: false }), env: {}, platform: 'linux',
+    lib: { isLocked: () => locked },
+    // The picker "stays open" while the vault locks, then answers with a path.
+    pickMpv: (res, done) => { asked++; locked = true; done({ path: '/usr/bin/mpv' }, (status, body) => res.status(status).json(body)); },
+  });
+  const app4 = express();
+  app4.use(express.json());
+  app4.use(router);
+  const srv = await new Promise((resolve) => { const s = app4.listen(0, '127.0.0.1', () => resolve(s)); });
+  const at = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    appSettings.set({ stageMpv: null });
+    const r = await post('/api/stage/mpv/choose', {}, {}, at);
+    assert.strictEqual(asked, 1);
+    assert.strictEqual(r.status, 423);
+    assert.strictEqual((await r.json()).code, 'VAULT_LOCKED');
+    assert.ok(!(appSettings.all().stageMpv && appSettings.all().stageMpv.path));
+    // A path from the page while locked (the server's lock gate is not in this
+    // bare router, so the route's own check answers).
+    const r2 = await post('/api/stage/mpv/choose', { path: '/usr/bin/mpv' }, {}, at);
+    assert.strictEqual(r2.status, 423);
+    assert.ok(!(appSettings.all().stageMpv && appSettings.all().stageMpv.path));
+  } finally {
+    await new Promise((resolve) => srv.close(resolve));
+  }
+});

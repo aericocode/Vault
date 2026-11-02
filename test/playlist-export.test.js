@@ -877,6 +877,63 @@ test('the request guards cover the playlist routes: the app passes, another site
   assert.deepStrictEqual(locs(await after.text()).map((u) => Number(u.split('/').pop())), [m[0], m[1], m[2], m[3]]);
 });
 
+// The routes that take a path from the page off Windows (Linux pickers):
+// the real server's guards run before every one of them. Another site, a
+// rebinding Host, and the lock all stop the request before the route.
+test('the request guards cover every route that takes a path from the page off Windows', async () => {
+  const http = require('node:http');
+  const outDir = path.join(tmp, 'guarded');
+  fs.mkdirSync(outDir, { recursive: true });
+  const target = path.join(outDir, 'x.m3u8');
+  const routes = [
+    ['GET', `/api/fs/list?path=${encodeURIComponent(outDir)}`, undefined],
+    ['POST', `/api/collections/${coll}/export/save`, { links: 'vault', path: target }],
+    ['POST', '/api/playlists/import/pick', { path: target }],
+    ['POST', '/api/stage/mpv/choose', { path: '/usr/bin/mpv' }],
+    ['POST', '/api/import/resolve-drop', { files: [], dirs: [], paths: [outDir] }],
+  ];
+  const raw = (method, p, headers, body) => new Promise((resolve, reject) => {
+    const data = body === undefined ? null : JSON.stringify(body);
+    const req = http.request({ host: '127.0.0.1', port, method, path: p,
+      headers: { ...(data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {}), ...headers } }, (r) => {
+      let s = ''; r.setEncoding('utf8'); r.on('data', (c) => { s += c; });
+      r.on('end', () => resolve({ status: r.statusCode, text: s }));
+    });
+    req.on('error', reject);
+    req.end(data || undefined);
+  });
+  let opened = 0;
+  server._setSaveDialogForTest(() => { opened++; });
+  try {
+    for (const [method, p, body] of routes) {
+      const own = { Host: `127.0.0.1:${port}` };
+      for (const h of [
+        { Origin: 'https://evil.example' },
+        { Origin: 'null' },
+        { 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'cors' },
+        { 'Sec-Fetch-Site': 'same-site' },
+      ]) {
+        // The Origin check is for writes; a cross-site GET is refused by Fetch Metadata.
+        if (method === 'GET' && h.Origin) continue;
+        const r = await raw(method, p, { ...own, ...h }, body);
+        assert.strictEqual(r.status, 403, `${method} ${p} ${JSON.stringify(h)}`);
+      }
+      const rebound = await raw(method, p, { Host: 'evil.example' }, body);
+      assert.strictEqual(rebound.status, 403, `${method} ${p}: DNS rebinding Host`);
+      vault._locked = true;
+      try {
+        const r = await raw(method, p, own, body);
+        assert.strictEqual(r.status, 423, `${method} ${p}: locked`);
+        assert.ok(!r.text.includes(outDir), 'nothing about the disk while locked');
+      } finally { vault._locked = false; }
+    }
+    assert.ok(!fs.existsSync(target), 'nothing written by a refused request');
+    assert.strictEqual(opened, 0, 'no window for a refused request');
+  } finally {
+    server._setSaveDialogForTest(null);
+  }
+});
+
 // ── The dialog's toast (player-lib/collection-export.js, run in a VM) ──────
 
 test('the toast after a save says what was left out and what uses a full path', () => {

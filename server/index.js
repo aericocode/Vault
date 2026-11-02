@@ -2613,6 +2613,9 @@ function spawnDesktopPicker(res, spec, onClose) {
   d.result.then((r) => {
     if (sent) return;
     try {
+      // The dialog can stay open for minutes: a vault that locked meanwhile
+      // gets nothing back from it, not even the path.
+      if (vault.isLocked()) return finish(423, { error: 'Vault is locked. Unlock it first.', code: 'VAULT_LOCKED' });
       if (r.status === 'picked') {
         _pickedDirs.set(spec.key, spec.mode === 'folder' ? r.paths[0] : path.posix.dirname(r.paths[0]));
         return onClose({ code: 0, out: r.paths.join('\n'), errOut: '', finish });
@@ -2632,7 +2635,8 @@ function spawnDesktopPicker(res, spec, onClose) {
 // report that loudly instead of pretending the user canceled.
 app.post('/api/import/pick-folder', (req, res) => {
   spawnPicker(res, PICKER_PS1, 'folder', ({ code, out, errOut, finish }) => {
-    const raw = out.trim();
+    // Off Windows a folder name may really end in a space: only a line end comes off.
+    const raw = process.platform === 'win32' ? out.trim() : out.replace(/\r?\n$/, '');
     if (raw === PICK_CANCEL) return finish(200, { canceled: true });
     if (raw) return finish(200, { path: raw });
     console.warn('[Import] folder picker failed:', (errOut.trim() || `exit ${code}, no output`).split('\n')[0]);
@@ -2646,9 +2650,11 @@ app.post('/api/import/pick-folder', (req, res) => {
 // real { canceled } so the client can toast instead of failing silently.
 app.post('/api/import/pick-files', (req, res) => {
   spawnPicker(res, PICKER_FILES_PS1, 'file', ({ code, out, errOut, finish }) => {
-    const raw = out.trim();
+    const win = process.platform === 'win32';
+    // Off Windows a file name may really end in a space: only line ends come off.
+    const raw = win ? out.trim() : out.replace(/\r?\n$/, '');
     if (raw === PICK_CANCEL) return finish(200, { canceled: true });
-    const paths = raw.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    const paths = (win ? raw.split(/\r?\n/).map((s) => s.trim()) : raw.split('\n')).filter(Boolean);
     if (paths.length) return finish(200, { paths });
     if (code === 0 && !errOut.trim()) return finish(200, { paths: [] });
     console.warn('[Import] file picker failed:', (errOut.trim() || `exit ${code}, no output`).split('\n')[0]);
@@ -3644,7 +3650,10 @@ app.post('/api/collections/:id/export/save', (req, res) => {
       return finish(500, { error: 'could not build the playlist, see the server log' });
     }
     try {
-      fs.writeFileSync(target, built.text, 'utf8');
+      // Off Windows the folder may be one other users can write to: the
+      // write never follows a link or opens a FIFO put there since the check.
+      if (process.platform === 'win32') fs.writeFileSync(target, built.text, 'utf8');
+      else fsBrowse.writePlaylistFile(target, built.text);
     } catch (err) {
       return finish(500, { error: `could not write the playlist (${err.code || err.message})` });
     }

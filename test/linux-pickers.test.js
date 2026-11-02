@@ -493,3 +493,117 @@ test('dropPaths: real files and folders come back in resolve-drop\'s shape; syst
   assert.deepStrictEqual(fsb.dropPaths(undefined), { unresolved: 'unsupported' });
   assert.deepStrictEqual(fsb.dropPaths(['/proc/1']), { unresolved: 'no readable paths' });
 });
+
+/* ── Security review hardening ─────────────────────────────────────────── */
+
+test('several picked paths: a file name holding a line break stays one path and cannot add a second, absolute one', () => {
+  // A name can hold "\n" but never "/", so a line that does not start with "/" is the rest of the name above.
+  assert.deepStrictEqual(nd.splitPaths('/a/b.mp4\n/a/c.mp4'), ['/a/b.mp4', '/a/c.mp4']);
+  assert.deepStrictEqual(nd.splitPaths('/a/evil\netc.mp4\n/a/c.mp4'), ['/a/evil\netc.mp4', '/a/c.mp4']);
+  assert.deepStrictEqual(nd.splitPaths('/a/x\n\n/a/y'), ['/a/x\n', '/a/y'], 'a name ending in a line break');
+  assert.deepStrictEqual(nd.interpret({ code: 0, out: '/a/two\nlines.mp4\n/a/c.mp4\n' }, 'files'),
+    { status: 'picked', paths: ['/a/two\nlines.mp4', '/a/c.mp4'] });
+  for (const p of nd.interpret({ code: 0, out: '/v/x\n../../home/u/.ssh/id_rsa\n' }, 'files').paths) {
+    assert.ok(p.startsWith('/v/'), `stays inside the picked folder: ${JSON.stringify(p)}`);
+  }
+});
+
+test('kdialog: the folder argument is always absolute, so it never reads as an option', () => {
+  const was = process.env.HOME;
+  try {
+    for (const home of ['-x', 'relative', '']) {
+      process.env.HOME = home;
+      const a = nd.buildArgs('kdialog', { mode: 'folder', title: 'T' });
+      assert.strictEqual(a[a.length - 1], '/', home);
+      const s = nd.buildArgs('kdialog', { mode: 'save', title: 'T', name: 'x.m3u8' });
+      assert.strictEqual(s[s.indexOf('--getsavefilename') + 1], '/x.m3u8', home);
+    }
+  } finally {
+    if (was === undefined) delete process.env.HOME; else process.env.HOME = was;
+  }
+});
+
+test('network shares: found anywhere in /proc/mounts, never statted for Places, not counted from outside', () => {
+  const mounts = `${MOUNTS}nas:/export /srv/media nfs4 rw 0 0\n//box/x /home/u/Box smb3 rw 0 0\n`;
+  assert.deepStrictEqual(fsb.networkMounts(mounts), ['/mnt/nas', '/srv/media', '/home/u/Box']);
+  const looked = [];
+  const isDir = (p) => { looked.push(p); return p === '/home/u'; };
+  const g = fsb.places({ home: '/home/u', mountsText: mounts, libraryRoots: ['/srv/media/films', '/gone'], isDir });
+  for (const p of looked) assert.ok(!fsb.networkMounts(mounts).some((m) => p === m || p.startsWith(`${m}/`)), `statted a share: ${p}`);
+  const drives = g.find((x) => x.group === 'Drives').items.map((x) => x.path);
+  assert.ok(drives.includes('/mnt/nas'), 'a share is still listed');
+  assert.deepStrictEqual(g.find((x) => x.group === 'In your library').items.map((x) => x.path), ['/srv/media/films']);
+});
+
+test('listDir: a folder that is a network share is listed but not counted, unless the user is inside it', { skip: LINUX }, () => {
+  const root = makeTree();
+  const v = path.join(root, 'Videos');
+  const clips = path.join(v, 'Clips');
+  const r = fsb.listDir(v, { mode: 'folder', remote: [clips] });
+  assert.deepStrictEqual(r.entries.find((e) => e.name === 'Clips'), { name: 'Clips', dir: true, counted: false });
+  assert.strictEqual(r.entries.find((e) => e.name === 'Empty').counted, true);
+  const inside = fsb.listDir(v, { mode: 'folder', remote: [v] });
+  assert.strictEqual(inside.entries.find((e) => e.name === 'Clips').counted, true, 'already inside the share');
+});
+
+test('Save As off Windows: never follows a link, never waits on a FIFO, never replaces a hard-linked or someone else\'s file', { skip: LINUX }, () => {
+  const { execFileSync } = require('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-save-'));
+  try {
+    // A plain new file, then a replaced one (all of the old text gone).
+    const fresh = path.join(dir, 'new.m3u8');
+    fsb.writePlaylistFile(fresh, '#EXTM3U\na\n');
+    assert.strictEqual(fs.readFileSync(fresh, 'utf8'), '#EXTM3U\na\n');
+    fs.writeFileSync(fresh, 'x'.repeat(5000));
+    fsb.writePlaylistFile(fresh, '#EXTM3U\n');
+    assert.strictEqual(fs.readFileSync(fresh, 'utf8'), '#EXTM3U\n');
+
+    // A link put there after the check: the write fails and the file it points at is untouched.
+    const victim = path.join(dir, 'victim.txt');
+    fs.writeFileSync(victim, 'keep me');
+    const link = path.join(dir, 'link.m3u8');
+    fs.symlinkSync(victim, link);
+    assert.throws(() => fsb.writePlaylistFile(link, 'bad'), (e) => e.code === 'ELOOP');
+    assert.strictEqual(fs.readFileSync(victim, 'utf8'), 'keep me');
+
+    // A second name for another file.
+    const hard = path.join(dir, 'hard.m3u8');
+    fs.linkSync(victim, hard);
+    assert.strictEqual(fsb.checkSavePath(hard), null);
+    assert.throws(() => fsb.writePlaylistFile(hard, 'bad'), (e) => e.code === 'EBADFILE');
+    assert.strictEqual(fs.readFileSync(victim, 'utf8'), 'keep me');
+
+    // Someone else's file (as seen by a different user id).
+    const mine = path.join(dir, 'mine.m3u8');
+    fs.writeFileSync(mine, 'old');
+    const other = process.getuid() + 1;
+    assert.strictEqual(fsb.checkSavePath(mine, { uid: other }), null);
+    assert.throws(() => fsb.writePlaylistFile(mine, 'bad', { uid: other }), (e) => e.code === 'EBADFILE');
+    assert.strictEqual(fs.readFileSync(mine, 'utf8'), 'old');
+
+    // A FIFO: no reader, so it fails at once (ENXIO) instead of hanging the server.
+    const fifo = path.join(dir, 'pipe.m3u8');
+    execFileSync('mkfifo', [fifo]);
+    assert.strictEqual(fsb.checkSavePath(fifo), null);
+    const t0 = Date.now();
+    assert.throws(() => fsb.writePlaylistFile(fifo, 'bad'), (e) => e.code === 'ENXIO' || e.code === 'EBADFILE');
+    assert.ok(Date.now() - t0 < 2000);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('playlist import: a FIFO named like a playlist is refused at once, never read', { skip: LINUX }, async () => {
+  const { execFileSync } = require('node:child_process');
+  const playlistImport = require('../lib/playlist/import');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-fifo-'));
+  try {
+    const fifo = path.join(dir, 'list.m3u8');
+    execFileSync('mkfifo', [fifo]);
+    const t0 = Date.now();
+    await assert.rejects(playlistImport.openPlaylist(fifo), (e) => e.code === 'BAD_FILE');
+    assert.ok(Date.now() - t0 < 2000);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

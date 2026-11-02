@@ -298,8 +298,11 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
   // is used. Off Windows, when there is no desktop dialog, the picker answers
   // { fallback: true } and the page asks again with the file chosen in
   // Vault's own folder browser ({ path }); it gets the same checks
-  // (mpvFind.checkPath: named mpv, a file, runnable; then it must answer
-  // --version as mpv).
+  // (mpvFind.checkPath: named mpv, a file, runnable, and off Windows owned
+  // by root or this user in folders nobody else can write to; then it must
+  // answer --version as mpv). Only a same-origin page can send that path:
+  // the Host allowlist, Fetch Metadata and CSRF guards in server/index.js
+  // run before this router.
   router.post('/api/stage/mpv/choose', (req, res) => {
     if (typeof pickMpv !== 'function') return res.status(501).json({ error: 'Choosing mpv works on Windows only. Install mpv so it is on PATH.' });
     const given = platform !== 'win32' && req.body && typeof req.body === 'object' ? req.body.path : undefined;
@@ -308,13 +311,18 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     const open = given !== undefined
       ? (r, done) => done({ path: typeof given === 'string' ? given : '' }, (status, body) => r.status(status).json(body))
       : pickMpv;
+    // The picker can stay open for minutes: nothing is run or saved once the vault has locked.
+    const locked = () => typeof lib.isLocked === 'function' && lib.isLocked();
+    const LOCKED = { error: 'Vault is locked. Unlock it first.', code: 'VAULT_LOCKED' };
     open(res, async (pick, finish) => {
       try {
+        if (locked()) return finish(423, LOCKED);
         if (pick.canceled) return finish(200, { canceled: true, mpv: await status() });
         const c = mpvFind.checkPath(pick.path, { platform });
         if (!c.ok) return finish(400, { error: c.error });
         const v = await mpvFind.askVersion(c.real, c.stat);
         if (!v) return finish(400, { error: `That program did not answer as mpv. Choose ${platform === 'win32' ? 'mpv.exe from your mpv folder' : 'the mpv program, usually /usr/bin/mpv'}.` });
+        if (locked()) return finish(423, LOCKED);
         appSettings.set({ stageMpv: { path: c.real } });
         finish(200, { ok: true, mpv: await status() });
       } catch {
