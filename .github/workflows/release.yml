@@ -1,9 +1,16 @@
-# Builds the portable Windows exe and publishes it as a GitHub Release.
+# Builds the portable Windows exe and the portable Linux build, and publishes
+# both as assets of one GitHub Release.
 #
 # Triggers:
 #   • pushing a tag like v3.3.0  → builds and publishes a release for that tag
-#   • the "Run workflow" button   → builds and uploads the zip as a build
-#     artifact only (no release), so the pipeline can be tested without tagging
+#   • the "Run workflow" button   → builds and uploads the zip and the tarball
+#     as build artifacts only (no release), so the pipeline can be tested
+#     without tagging
+#
+# Jobs: `build` (windows-latest, the zip) and `build-linux` (ubuntu-22.04, the
+# tar.gz) each upload their package as an artifact; `release` (tags only)
+# waits for both and publishes them together, so a release never goes out
+# with one platform missing and two jobs never race to create the same draft.
 #
 # The exe is produced by tools/sea/build-app.js (Node SEA). That script copies
 # the *running* node binary and injects the bundle into it, so the Node version
@@ -97,20 +104,107 @@ jobs:
           Write-Host "Vault.exe confirmed inside the archive ($($entries.Count) entries)"
 
       # Manual runs stop here: the zip is downloadable from the run's summary
-      # page for ~90 days. Useful for testing the pipeline before you tag.
+      # page. Useful for testing the pipeline before you tag. On a tag push the
+      # release job below picks it up from here.
       - name: Upload build artifact
-        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.package.outputs.zip }}
           path: ${{ steps.package.outputs.zip }}
           retention-days: 14
 
+  # The Linux build. ubuntu-22.04, not ubuntu-latest: the node binary inside
+  # the program and the native addons link against the build machine's glibc,
+  # and 2.35 (22.04) is the oldest Vault supports (Ubuntu 22.04+, Debian 12+,
+  # Fedora 38+, Mint 21+). A newer runner would make a build that refuses to
+  # start on those.
+  build-linux:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      # Same pin as the Windows job (nodejs/node#65446, see there). On Linux
+      # better-sqlite3 and better-sqlite3-multiple-ciphers have no prebuilt
+      # for these headers, so node-gyp compiles them; the runner has gcc, make
+      # and python3. ONNXRUNTIME_NODE_INSTALL=skip: onnxruntime-node's
+      # postinstall would otherwise download its CUDA libraries (hundreds of
+      # MB), and the build ships only the CPU runtime (build-app.js ONNX_FILES).
+      - name: Install dependencies
+        run: npm ci
+        env:
+          npm_config_target: '24.18.1'
+          npm_config_disturl: 'https://nodejs.org/dist'
+          ONNXRUNTIME_NODE_INSTALL: 'skip'
+
+      # Makes dist/Vault/Vault (mode 755) and dist/Vault-v<version>-linux-x64.tar.gz
+      - name: Build portable Linux build
+        run: npm run build:exe
+
+      - name: Verify package
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          tgz="dist/Vault-v${version}-linux-x64.tar.gz"
+          test -f "$tgz" || { echo "::error::Build did not produce $tgz"; exit 1; }
+          mb=$(( $(stat -c %s "$tgz") / 1048576 ))
+          echo "$tgz = ${mb} MB"
+          if [ "$mb" -lt 30 ]; then echo "::error::Package is only ${mb} MB, the program is probably missing"; exit 1; fi
+          # The program must be inside, under Vault/, and executable.
+          tar -tvzf "$tgz" | grep -E '^-rwx.* Vault/Vault$' \
+            || { echo "::error::Vault/Vault is missing from $tgz or not executable"; tar -tvzf "$tgz" | head -50; exit 1; }
+          echo "tgz=$(basename "$tgz")" >> "$GITHUB_OUTPUT"
+          cp "$tgz" .
+
+      # Extract and start it the way a user would. `status` loads the native
+      # SQLite addons from runtime/ (glibc and ABI check) and, with no library
+      # yet, prints "No database found" and exits.
+      - name: Smoke test the extracted program
+        shell: bash
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          tar -xzf '${{ steps.package.outputs.tgz }}' -C "$work"
+          cd "$work/Vault"
+          timeout 120 ./Vault status | tee out.txt
+          grep -q 'Using encrypted SQLite' out.txt || { echo "::error::the encryption module did not load"; exit 1; }
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.tgz }}
+          path: ${{ steps.package.outputs.tgz }}
+          retention-days: 14
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, build-linux]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: List release assets
+        shell: bash
+        run: ls -la release-assets
+
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.package.outputs.zip }}
+          files: |
+            release-assets/*.zip
+            release-assets/*.tar.gz
+          fail_on_unmatched_files: true
           draft: true          # review the notes, then hit Publish yourself
           # A tag with a suffix (v3.10.0-beta.1) is a pre-release: GitHub's
           # "latest release" skips it, so the in-app update check never offers
@@ -118,12 +212,18 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           body: |
-            **Portable build — no installer.** Unzip anywhere and run `Vault.exe`.
-            Your library (database, thumbnails, models) is created next to the exe,
+            **Portable builds, no installer.** Pick the one for your system:
+
+            - **Windows:** `Vault-v*-win-x64.zip`. Unzip anywhere and run `Vault.exe`.
+              The exe is unsigned, so Windows SmartScreen will warn on first run:
+              *More info, then Run anyway*.
+            - **Linux (x64):** `Vault-v*-linux-x64.tar.gz`. Extract it and run `./Vault`
+              in the `Vault` folder (`tar -xzf Vault-v*-linux-x64.tar.gz && cd Vault && ./Vault`).
+              Needs Ubuntu 22.04, Debian 12, Fedora 38 or newer (glibc 2.35+).
+              For Stage, install mpv from your distro (`sudo apt install mpv`).
+
+            Your library (database, thumbnails, models) is created next to the program,
             so the folder can be moved or copied wholesale.
 
-            The exe is unsigned, so Windows SmartScreen will warn on first run:
-            *More info → Run anyway*.
-
-            Requires a local AI endpoint (LM Studio / Ollama / vLLM) for scanning —
-            see SETUP.md.
+            Requires a local AI endpoint (LM Studio / Ollama / vLLM) for scanning.
+            See SETUP.md.

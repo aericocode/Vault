@@ -16,13 +16,15 @@ For PMV fans there is more: find every clip that shares a song and play them in 
 
 100% local. No account, no cloud, no telemetry.
 
-[**⬇ Download for Windows**](../../releases/latest) · [Setup guide](SETUP.md) · [Full feature list](https://aericocode.github.io/Vault/)
+[**⬇ Download for Windows or Linux**](../../releases/latest) · [Setup guide](SETUP.md) · [Full feature list](https://aericocode.github.io/Vault/)
 
 Made with 🌿 by [aericocode](https://ko-fi.com/aericocode)
 
 ![Vault](og.png)
 
 ## Quick start
+
+### Windows
 
 1. Download `Vault-v*-win-x64.zip` from [Releases](../../releases/latest).
 2. Unzip it anywhere. It's portable, there is no installer.
@@ -31,10 +33,35 @@ Made with 🌿 by [aericocode](https://ko-fi.com/aericocode)
 The exe is unsigned, so Windows SmartScreen will warn you the first time:
 **More info → Run anyway**.
 
-The unzipped folder also contains `SETUP.md` (the full guide) and `LICENSE`.
+### Linux
 
-All app data (database, thumbnails, models, trash) is created next to the exe, so
+Ubuntu 22.04, Debian 12, Fedora 38, Mint 21 or newer, on x64.
+
+1. Download `Vault-v*-linux-x64.tar.gz` from [Releases](../../releases/latest).
+2. Extract it and start it from a terminal:
+
+   ```bash
+   tar -xzf Vault-v*-linux-x64.tar.gz
+   cd Vault
+   ./Vault
+   ```
+
+3. For Stage, install mpv from your distro: `sudo apt install mpv`
+   (Fedora: `sudo dnf install mpv`, Arch: `sudo pacman -S mpv`). ffmpeg is
+   optional: Vault offers to download it.
+
+More Linux notes (Wayland, folder watching, moving a library from Windows) are
+in [SETUP.md](SETUP.md#1b-linux).
+
+### Both
+
+The unpacked folder also contains `SETUP.md` (the full guide) and `LICENSE`.
+
+All app data (database, thumbnails, models, trash) is created next to the program, so
 the whole folder can be moved, copied, or backed up wholesale.
+
+macOS has no packaged build. Running from source may work, see
+[Run from source](#run-from-source).
 
 ## What you need
 
@@ -83,7 +110,7 @@ See [SETUP.md](SETUP.md) for the full walkthrough and model recommendations by V
 <details>
 <summary><b>🖥️ Local web viewer</b></summary>
 
-Start with `start.bat` to launch a full browser UI, works in any browser, media streams over HTTP with seeking.
+Start with `start.bat` (Windows) or `./start.sh` (Linux, macOS) to launch a full browser UI, works in any browser, media streams over HTTP with seeking.
 
 - **Instant library visibility**: new files appear in the viewer (⏳ "not scanned" badge) the moment a scan starts. Click "Scan now" backfills any file on demand from the sidebar
 - **Powerful Search**: boolean (AND/OR/NOT), fuzzy matching, metadata-only mode, and 🧠 semantic ("crimson" finds red images)
@@ -196,10 +223,10 @@ For developers, or anyone who'd rather run the Node app directly than the packag
 These files and commands come with a repository checkout (clone or download the repo);
 they are not in the release zip, which ships only the exe and its runtime.
 
-**No flags needed.** Double-click `scan.bat` (or run `node vault.js`
-with no arguments) for the interactive wizard: pick a directory (remembers
-your history), toggle options with arrow keys, and go. It prints the
-equivalent flag command before each run.
+**No flags needed.** Double-click `scan.bat` (Windows), run `./scan.sh`
+(Linux, macOS), or run `node vault.js` with no arguments for the interactive
+wizard: pick a directory (remembers your history), toggle options with arrow
+keys, and go. It prints the equivalent flag command before each run.
 
 Flag-style usage still works everywhere:
 
@@ -209,7 +236,26 @@ node vault scan /path/to/media --recursive --all-types
 node vault scan /path/to/media --recursive --transcribe-video --type video
 ```
 
+**On Linux:** needs Node.js 20 or newer. On Node 24, `npm install` compiles the
+SQLite modules, so install the build tools first: `sudo apt install build-essential python3`
+(Fedora: `sudo dnf install gcc-c++ make python3`, Arch: `sudo pacman -S base-devel python`).
+Without them the encryption module is skipped and password-protected libraries
+cannot open. Node 22 downloads ready-made modules and needs no build tools.
+Then:
+
+```bash
+git clone https://github.com/aericocode/Vault.git
+cd Vault
+ONNXRUNTIME_NODE_INSTALL=skip npm install
+./start.sh                    # or: node vault.js serve
+```
+
+**On macOS:** not supported, but a source install may work the same way
+(`xcode-select --install` for the build tools, `brew install node ffmpeg mpv chromaprint`).
+
 **Music ID (optional):** needs `fpcalc` (Chromaprint CLI) on PATH or `FPCALC_PATH`.
+Linux: `sudo apt install libchromaprint-tools` (Fedora: `sudo dnf install chromaprint-tools`),
+or use the one-click download in the viewer.
 Windows: grab `chromaprint-fpcalc-*-windows-x86_64.zip` from
 https://github.com/acoustid/chromaprint/releases and drop `fpcalc.exe` somewhere
 on PATH. Verify with `node vault.js music check-tools`.
@@ -252,7 +298,7 @@ node vault.js scan ./media --recursive --workers 2
 
 **Step 3: Launch the Viewer**
 
-Double-click **`start.bat`**, or run:
+Double-click **`start.bat`** (Windows), run **`./start.sh`** (Linux, macOS), or run:
 
 ```bash
 npm run viewer
@@ -385,7 +431,7 @@ Options:
 ### serve: launch the local web viewer
 
 ```bash
-node vault.js serve [options]     # same as start.bat
+node vault.js serve [options]     # same as start.bat / ./start.sh
 
 Options:
   --gamify        Re-enable the local Obsession Score tracker (it is on by
@@ -404,6 +450,7 @@ node vault.js json                # Export to JSON
 node vault.js embed                # Backfill semantic-search embeddings
 node vault.js clean               # Rebuild normalized themes/tags/locations (no AI)
 node vault.js mark-executed       # Mark moves complete
+node vault.js migrate <old> <new> --dry-run   # Repoint the library at moved files (also from Windows to Linux, see SETUP.md)
 node vault.js export-cove --cove http://127.0.0.1:5073   # Copy your library's metadata into Cove (see SETUP.md, "Moving to Cove")
 ```
 
@@ -415,7 +462,8 @@ node vault.js export-cove --cove http://127.0.0.1:5073   # Copy your library's m
 ```
 Vault/
 ├── vault.js                 # CLI entry
-├── start.bat                # One-click viewer launcher
+├── start.bat                # One-click viewer launcher (Windows)
+├── start.sh                 # The same for Linux and macOS (./start.sh)
 ├── db-viewer.html           # Viewer UI shell
 ├── config/
 │   ├── index.js             # Settings (endpoints, frames, paths, server, thumbnails)
