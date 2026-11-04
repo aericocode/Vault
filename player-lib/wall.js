@@ -2,13 +2,22 @@
    WALL - a screen-filling collage of the library (LIBRARY_LAYOUT_SPEC Part 2
    and Round 2)
 
-   Masonry columns of blocks that keep each file's shape. A few videos play
-   muted at once, the rest of the blocks show pictures. Two modes:
+   Blocks that keep each file's shape. A few videos play muted at once, the
+   rest of the blocks show pictures. Two layouts (the "Layout" choice):
+
+   - Columns: masonry, every block one column wide (a wide file spans two).
+   - Slices: full-width rows of different heights. A slice takes files
+     until they fill the width at a target height (the block size, varied
+     at random and nudged by the first file's resolution), then its exact
+     height is solved so the row ends flush (sliceRow).
+
+   Two modes:
 
    - Grid: a still board. Blocks change their content on a timer (pictures
      every "Pictures" seconds, clips after "Clips" seconds), crossfading.
    - Scroll: the board drifts upward. New files join at the bottom of the
-     shortest column, files that leave the top are released and dropped.
+     shortest column (Slices: as a whole new slice), files that leave the
+     top are released and dropped.
 
    Ambient, so smoothness wins over features:
 
@@ -199,8 +208,9 @@ const Wall = (() => {
 
   let blocks = [];             // in placement order
   // The plan: column count and width, x of each column, and each column's
-  // next free y (its content bottom plus one gap).
-  const lay = { W: 0, H: 0, cols: 0, cw: 0, gap: 0, colX: [], tops: [] };
+  // next free y (its content bottom plus one gap). Slices (layout 'slices',
+  // cols 0) has one next free y, `bottom`, and the base slice height `base`.
+  const lay = { layout: 'columns', W: 0, H: 0, cols: 0, cw: 0, gap: 0, colX: [], tops: [], base: 0, bottom: 0 };
   let hoverBlock = null;
   // A primary-button press that only closed the popover or turned sound on:
   // the click that follows it is swallowed. Any later press, or a click
@@ -582,7 +592,7 @@ const Wall = (() => {
     const cw = (W - gap * (cols - 1)) / cols;
     const colX = [];
     for (let c = 0; c < cols; c++) colX.push(c * (cw + gap));
-    return { cols, cw, gap, colX, tops: new Array(cols).fill(0) };
+    return { layout: 'columns', cols, cw, gap, colX, tops: new Array(cols).fill(0) };
   }
 
   /**
@@ -624,11 +634,109 @@ const Wall = (() => {
     for (let c = s.col; c < s.col + s.span; c++) plan.tops[c] = s.y + s.h + plan.gap;
   }
 
-  /** The content bottom of the shortest column. */
+  /** The content bottom of the shortest column (Slices: of the last slice). */
   function minBottom(plan) {
+    if (plan.layout === 'slices') return plan.bottom - plan.gap;
     let m = Infinity;
     for (const t of plan.tops) m = Math.min(m, t - plan.gap);
     return m;
+  }
+
+  /*
+   * Slices: full-width rows of different heights instead of columns. A slice
+   * takes files until their shapes, at the slice's target height, fill the
+   * width, then its exact height is solved so the row ends flush at the
+   * right edge. Every file keeps its exact shape, so the fixed slots and the
+   * swap pick work as they do for columns. The plan has one bottom edge.
+   */
+  const SLICE_MIN = 0.45;            // a slice's height, as a share of the block size
+  const SLICE_MAX = 2.2;
+  const SLICE_ITEMS = 24;            // the most files one slice holds
+
+  /**
+   * The Slices plan. `blockSize` is the base slice height; on a narrow board
+   * it is capped so a 16:9 file at that height still fits the width.
+   */
+  function planSlices(W, blockSize, gap) {
+    const base = Math.max(40, Math.min(blockSize, W / 1.8));
+    return { layout: 'slices', cols: 0, cw: 0, gap, colX: [], tops: [], base, bottom: 0 };
+  }
+
+  /**
+   * One slice (pure). `cands` are the files it may use, best first, as
+   * { a: aspect, px: the short side in pixels, 0 when unknown }. `o` gives
+   * { W, base, gap, variety (0..1), byRes, rand () => [0, 1) }.
+   *
+   * The target height is the block size times a random variety factor
+   * (0.3x to 1.7x at full variety), nudged up for a high-resolution first
+   * file and down for a small one. Files join in order until the solved
+   * height drops to the target; the last one joins only if that lands closer
+   * to the target. A file that would make the slice shorter than the floor
+   * waits for a later slice. When the candidates run out, the slice's own
+   * files repeat (the caller passes on-screen files first when the buffer is
+   * short), so a slice is always full width.
+   *
+   * Returns { picks: indices into cands (a repeat appears twice), h, target, lo, hi }.
+   * h is exact: (W - gaps) / sum of the aspects. It is outside lo..hi only
+   * when no choice of the files given can do better (one file wider than
+   * the board at the floor height).
+   */
+  function sliceRow(cands, o) {
+    if (!cands.length) return null;
+    const { W, base, gap } = o;
+    const lo = base * SLICE_MIN;
+    const hi = base * SLICE_MAX;
+    const hOf = (sum, n) => (W - gap * (n - 1)) / sum;
+    // The first file: the first one that can start a slice at least lo tall.
+    let first = cands.findIndex(c => hOf(c.a, 1) >= lo);
+    if (first < 0) first = 0;
+    const f = 1 + (o.rand() * 2 - 1) * clamp(o.variety, 0, 1) * 0.7;
+    let target = base * Math.max(0.45, f);
+    const px = cands[first].px;
+    if (o.byRes && px > 0) target *= clamp(Math.pow(px / 720, 0.35), 0.7, 1.35);
+    target = clamp(target, lo, hi);
+
+    const picks = [first];
+    const used = new Set(picks);
+    let sum = cands[first].a;
+    let h = hOf(sum, 1);
+    let next = 0;
+    let rep = 0;
+    for (let tries = 0; h > target && picks.length < SLICE_ITEMS && tries < SLICE_ITEMS * 3; tries++) {
+      while (next < cands.length && used.has(next)) next++;
+      const j = next < cands.length ? next++ : picks[rep++ % picks.length];
+      used.add(j);
+      const hn = hOf(sum + cands[j].a, picks.length + 1);
+      const stopOk = h <= hi;
+      const addOk = hn >= lo;
+      // Past the target with it: it joins if that lands closer, or if stopping is no option.
+      if (hn < target && !(addOk && (!stopOk || Math.log(target / hn) < Math.log(h / target)))) {
+        if (stopOk) break;
+        continue;             // too wide for this slice: it waits
+      }
+      picks.push(j);
+      sum += cands[j].a;
+      h = hn;
+    }
+    return { picks, h, target, lo, hi };
+  }
+
+  /**
+   * The slots of one slice of height h at the plan's bottom edge (aspects
+   * in order), and the bottom edge moved below it. The last slot ends
+   * exactly at the right edge.
+   */
+  function placeSlice(plan, aspects, h, W) {
+    const y = plan.bottom;
+    const out = [];
+    let x = 0;
+    aspects.forEach((a, k) => {
+      const w = k === aspects.length - 1 ? Math.max(1, W - x) : a * h;
+      out.push({ x, y, w, h });
+      x += w + plan.gap;
+    });
+    plan.bottom = y + h + plan.gap;
+    return out;
   }
 
   /**
@@ -751,9 +859,9 @@ const Wall = (() => {
       </label>`;
   }
 
-  function popSlider(id, label, key) {
+  function popSlider(id, label, key, hint = '') {
     const r = RANGES[key];
-    return `<label class="wall-pop-row">
+    return `<label class="wall-pop-row" id="${id}Row"${hint ? ` title="${hint}"` : ''}>
         <span class="wall-label">${label}</span>
         <input type="range" id="${id}" min="${r.min}" max="${r.max}" step="${r.step}">
         <output id="${id}Out"></output>
@@ -788,8 +896,18 @@ const Wall = (() => {
         <button type="button" class="wall-btn" id="wallFullBtn">Full screen</button>
         <div class="wall-pop" id="wallPop" role="dialog" aria-label="More settings" hidden>
           ${popSlider('wallPlaying', 'Videos at once', 'playing')}
+          <label class="wall-pop-row" title="Columns: blocks of the same width. Slices: full-width rows of different heights.">
+            <span class="wall-label">Layout</span>
+            <select id="wallLayout" class="m-select">
+              <option value="columns">Columns</option>
+              <option value="slices">Slices</option>
+            </select>
+          </label>
           ${popSlider('wallColWidth', 'Block size', 'colWidth')}
           ${popSlider('wallGap', 'Gap', 'gap')}
+          ${popSlider('wallVariety', 'Height variety', 'sliceVariety', 'How much the heights of the slices differ. 0 makes them all about the same.')}
+          <label class="wall-check" id="wallByResRow" title="Slices that start with a high-resolution file are taller, and ones that start with a small file are shorter.">
+            <input type="checkbox" id="wallByRes" class="m-check"> Bigger for high resolution</label>
           <label class="wall-pop-row">
             <span class="wall-label">Show</span>
             <select id="wallMix" class="m-select">
@@ -847,8 +965,11 @@ const Wall = (() => {
       gear: $('wallGearBtn'),
       pop: $('wallPop'),
       playing: $('wallPlaying'), playingOut: $('wallPlayingOut'),
-      colWidth: $('wallColWidth'), colWidthOut: $('wallColWidthOut'),
+      layout: $('wallLayout'),
+      colWidth: $('wallColWidth'), colWidthOut: $('wallColWidthOut'), colWidthRow: $('wallColWidthRow'),
       gap: $('wallGap'), gapOut: $('wallGapOut'),
+      variety: $('wallVariety'), varietyOut: $('wallVarietyOut'), varietyRow: $('wallVarietyRow'),
+      byRes: $('wallByRes'), byResRow: $('wallByResRow'),
       mix: $('wallMix'),
       order: $('wallOrder'),
       sound: $('wallSound'),
@@ -892,6 +1013,15 @@ const Wall = (() => {
     els.colWidthOut.textContent = `${cfg.colWidth} px`;
     els.gap.value = String(cfg.gap);
     els.gapOut.textContent = `${cfg.gap} px`;
+    const slices = cfg.layout === 'slices';
+    els.layout.value = cfg.layout;
+    // Block size is a column's width in Columns and a slice's usual height in Slices.
+    els.colWidthRow.title = slices ? 'About how tall a slice is.' : 'How wide a column is.';
+    els.variety.value = String(cfg.sliceVariety);
+    els.varietyOut.textContent = `${cfg.sliceVariety}%`;
+    els.byRes.checked = cfg.sliceByRes;
+    els.varietyRow.hidden = !slices;
+    els.byResRow.hidden = !slices;
     els.mix.value = cfg.mix;
     els.order.value = cfg.order;
     els.sound.value = cfg.sound;
@@ -991,6 +1121,31 @@ const Wall = (() => {
       });
     }
     for (const input of [els.pic, els.clip, els.speed, els.playing]) input.addEventListener('change', saveCfg);
+
+    // Layout and the Slices settings plan the board again, like block size.
+    els.layout.addEventListener('change', () => {
+      const v = R.LAYOUTS.includes(els.layout.value) ? els.layout.value : 'columns';
+      if (v === cfg.layout) return;
+      cfg.layout = v;
+      saveCfg();
+      syncControls();
+      replan(true);
+    });
+    els.variety.addEventListener('input', () => {
+      els.varietyOut.textContent = `${clampNum(els.variety.value, RANGES.sliceVariety)}%`;
+    });
+    els.variety.addEventListener('change', () => {
+      const v = clampNum(els.variety.value, RANGES.sliceVariety);
+      if (v === cfg.sliceVariety) return;
+      cfg.sliceVariety = v;
+      saveCfg();
+      replanSoon();
+    });
+    els.byRes.addEventListener('change', () => {
+      cfg.sliceByRes = els.byRes.checked;
+      saveCfg();
+      replan(true);
+    });
 
     els.source.addEventListener('change', () => { cfg.source = els.source.value; saveCfg(); rebuild(); });
     els.mix.addEventListener('change', () => { cfg.mix = els.mix.value; saveCfg(); rebuild(); });
@@ -1328,15 +1483,71 @@ const Wall = (() => {
     return blocks[Math.floor(Math.random() * blocks.length)].item;
   }
 
-  /** Put one more block on the board at the next place the plan has for it. */
-  function addBlock(item) {
-    const s = slotFor(lay, aspectOf(item));
-    placeSlot(lay, s);
+  /** Put one more block on the board at the next place the plan has for it (or at `slot`). */
+  function addBlock(item, slot) {
+    const s = slot || slotFor(lay, aspectOf(item));
+    if (!slot) placeSlot(lay, s);
     const b = makeBlock(s);
     blocks.push(b);
     els.track.appendChild(b.el);
     showStill(b, item);
     return b;
+  }
+
+  /** A file's short side in pixels (0 when not stored), for "Bigger for high resolution". */
+  function shortSide(row) {
+    const w = Number(row.width) || 0;
+    const h = Number(row.height) || 0;
+    return w > 0 && h > 0 ? Math.min(w, h) : 0;
+  }
+
+  /**
+   * Slices: put one more full-width slice on the board. Its candidates are
+   * the front of the buffer, preferred the way buildIndex prefers them (not
+   * on screen, shape known, early). A short buffer is padded with files the
+   * board already shows, so the slice is still full. Returns its blocks
+   * ([] when there is nothing to show).
+   */
+  function addSlice() {
+    const pool = [];
+    for (let i = 0; i < Math.min(LOOKAHEAD, ready.length); i++) {
+      const r = ready[i];
+      pool.push({ r, fromReady: true, score: i * 0.01 + (isOnScreen(r) ? 10 : 0) + (shapeKnown(r) ? 0 : 3) });
+    }
+    pool.sort((p, q) => p.score - q.score);
+    if (pool.length < 12) {
+      fill();
+      const seen = new Set(pool.map(p => p.r.id));
+      for (let t = 0; t < 40 && pool.length < 12 && blocks.length; t++) {
+        const item = blocks[Math.floor(Math.random() * blocks.length)].item;
+        if (item && !seen.has(item.id)) { seen.add(item.id); pool.push({ r: item, fromReady: false }); }
+      }
+    }
+    if (!pool.length) return [];
+    const row = sliceRow(pool.map(p => ({ a: aspectOf(p.r), px: shortSide(p.r) })), {
+      W: lay.W, base: lay.base, gap: lay.gap,
+      variety: cfg.sliceVariety / 100, byRes: cfg.sliceByRes, rand: Math.random,
+    });
+    const items = row.picks.map(k => pool[k].r);
+    // The buffer files it uses leave the buffer (each once, found again by
+    // identity: a take can drop stale rows and move the others).
+    const taken = new Set();
+    for (const k of row.picks) {
+      const p = pool[k];
+      if (!p.fromReady || taken.has(p.r)) continue;
+      taken.add(p.r);
+      const i = ready.indexOf(p.r);
+      if (i >= 0) take(i);
+    }
+    const slots = placeSlice(lay, items.map(aspectOf), row.h, lay.W);
+    return items.map((item, k) => addBlock(item, slots[k]));
+  }
+
+  /** Grow the board once: one block (Columns) or one whole slice (Slices). Returns the new blocks. */
+  function growOnce() {
+    if (lay.layout === 'slices') return addSlice();
+    const item = nextBuildItem();
+    return item ? [addBlock(item)] : [];
   }
 
   /** How far the columns must reach: the screen (Grid) or a screen and a half (Scroll). */
@@ -1348,6 +1559,7 @@ const Wall = (() => {
    * Build the board from the buffer: columns planned from the board width,
    * blocks added to the shortest column until every column passes the
    * bottom edge (Scroll: half a screen further, for what drifts in next).
+   * Slices: whole slices added until the last one passes that line.
    */
   function layout() {
     layoutGen++;
@@ -1357,15 +1569,14 @@ const Wall = (() => {
     // the board dirty and it is laid out on the way back in).
     if (!W || !H) return false;
     teardownBlocks();
-    Object.assign(lay, planColumns(W, cfg.colWidth, cfg.gap), { W, H });
+    const plan = cfg.layout === 'slices' ? planSlices(W, cfg.colWidth, cfg.gap) : planColumns(W, cfg.colWidth, cfg.gap);
+    Object.assign(lay, { base: 0, bottom: 0 }, plan, { W, H });
     drift.offset = 0;
     applyOffset();
 
     const line = fillLine();
     while (blocks.length < MAX_BLOCKS && minBottom(lay) < line) {
-      const item = nextBuildItem();
-      if (!item) break;
-      addBlock(item);
+      if (!growOnce().length) break;
     }
 
     const t = now();
@@ -1497,7 +1708,7 @@ const Wall = (() => {
 
   /**
    * Keep the drifting board stocked: drop blocks that have left the top,
-   * add blocks to the shortest column below the fold, and every so often
+   * add blocks to the shortest column (or a whole slice) below the fold, and every so often
    * move the coordinates back toward zero (same frame, so nothing jumps).
    */
   function maintainScroll() {
@@ -1512,17 +1723,19 @@ const Wall = (() => {
       drift.removed += removed;
     }
     const line = fillLine();
-    for (let n = 0; n < 3 && blocks.length < MAX_BLOCKS && minBottom(lay) < line; n++) {
-      const item = nextBuildItem();
-      if (!item) break;
-      const b = addBlock(item);
-      setDue(b, Infinity);
+    // Up to three blocks a frame, or one whole slice.
+    const perFrame = lay.layout === 'slices' ? 1 : 3;
+    for (let n = 0; n < perFrame && blocks.length < MAX_BLOCKS && minBottom(lay) < line; n++) {
+      const added = growOnce();
+      if (!added.length) break;
+      for (const b of added) setDue(b, Infinity);
     }
     if (removed) { pinOnScreen(); updateStatus(); }
     if (drift.offset > REBASE_AT) {
       const s = Math.floor(drift.offset);
       drift.offset -= s;
       for (let c = 0; c < lay.tops.length; c++) lay.tops[c] -= s;
+      if (lay.layout === 'slices') lay.bottom -= s;
       for (const b of blocks) {
         b.y -= s;
         b.el.style.top = `${b.y.toFixed(2)}px`;
@@ -2613,7 +2826,7 @@ const Wall = (() => {
   return {
     enter, leave, lockStop, startAt,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { emptyMessage, cfgFrom, takeStart, nearestStep, planColumns, slotFor, placeSlot, minBottom, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, mostlyInView, scrollLeftMs, scrollFreePlan, MOSTLY, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
+    _pure: { emptyMessage, cfgFrom, takeStart, nearestStep, planColumns, slotFor, placeSlot, minBottom, planSlices, sliceRow, placeSlice, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, mostlyInView, scrollLeftMs, scrollFreePlan, MOSTLY, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
     _audio: () => {
       const t = now();
@@ -2657,7 +2870,8 @@ const Wall = (() => {
       offset: drift.offset,
       rebases: drift.rebases,
       removed: drift.removed,
-      lay: { W: lay.W, H: lay.H, cols: lay.cols, cw: lay.cw, gap: lay.gap, minBottom: lay.tops.length ? minBottom(lay) : 0 },
+      lay: { layout: lay.layout, W: lay.W, H: lay.H, cols: lay.cols, cw: lay.cw, gap: lay.gap, base: lay.base,
+        minBottom: lay.tops.length || lay.layout === 'slices' ? minBottom(lay) : 0 },
       ...stats,
     }),
     _blocks: () => blocks.map(b => ({

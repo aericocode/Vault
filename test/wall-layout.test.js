@@ -3,7 +3,8 @@
  * Settings migration from the first Wall (picSpeed / clipLen / blockSize),
  * clamping, and the masonry plan: equal columns, exact shapes, files wider
  * than 2.5:1 spanning two columns, and a board that always reaches the
- * bottom edge whatever the shapes and sizes.
+ * bottom edge whatever the shapes and sizes. Slices: full-width rows that
+ * end flush, files at their exact shape, heights within the clamps.
  */
 
 require('./helpers/no-real-lm');   // never the user's own LM Studio
@@ -444,6 +445,176 @@ test('Scroll: only as many leaving clips stop as a clip needs, and none when tha
   assert.strictEqual(plan(1, false, 0, true, []), null);
   // The leaving remux plus one free slot already covers a remux clip.
   assert.deepStrictEqual(plan(2, true, 1, false, [n, r]), [1]);
+});
+
+/* Slices: full-width rows of different heights. */
+
+/** A seeded random source, so a slice can be drawn again exactly. */
+function seeded(seed) {
+  let s = seed >>> 0;
+  return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+}
+
+const PXS = [360, 480, 720, 1080, 1440, 2160];
+
+/** Fill a Slices plan the way the Wall does: whole slices until the bottom passes H. */
+function fillSlices(Wd, H, blockSize, gap, o = {}) {
+  const rnd = seeded(o.seed || 1);
+  const plan = W.planSlices(Wd, blockSize, gap);
+  const rows = [];
+  let k = 0;
+  while (W.minBottom(plan) < H && rows.length < 2000) {
+    const n = o.queue != null ? o.queue : 24;
+    const cands = [];
+    for (let i = 0; i < n; i++, k++) {
+      const shapes = o.shapes || SHAPES;
+      cands.push({ a: shapes[k % shapes.length], px: PXS[(k * 7) % PXS.length] });
+    }
+    const row = W.sliceRow(cands, { W: Wd, base: plan.base, gap, variety: o.variety != null ? o.variety : 0.6, byRes: o.byRes !== false, rand: rnd });
+    const aspects = [...row.picks].map(i => cands[i].a);
+    const slots = W.placeSlice(plan, aspects, row.h, Wd);
+    rows.push({ row, aspects, slots: [...slots] });
+  }
+  return { plan, rows };
+}
+
+test('slices: every slice fills the width exactly, with no overlap', () => {
+  for (const [Wd, H] of [[1280, 760], [1920, 1040], [3440, 1400], [500, 700]]) {
+    for (const bs of [120, 260, 390, 640, 1280]) {
+      for (const gap of [0, 4, 12]) {
+        for (const shapes of [SHAPES, [4], [9 / 16], [0.25], [32 / 9, 1]]) {
+          const { plan, rows } = fillSlices(Wd, H, bs, gap, { shapes });
+          assert.ok(W.minBottom(plan) >= H, `full at ${Wd}x${H} block ${bs} gap ${gap}`);
+          const all = [];
+          for (const { slots } of rows) {
+            assert.strictEqual(slots[0].x, 0, 'starts at the left edge');
+            const last = slots[slots.length - 1];
+            assert.ok(Math.abs(last.x + last.w - Wd) < 1e-6, `ends at the right edge (${last.x + last.w} vs ${Wd})`);
+            for (let i = 1; i < slots.length; i++) {
+              assert.ok(Math.abs(slots[i].x - (slots[i - 1].x + slots[i - 1].w + gap)) < 1e-6, 'one gap between neighbours');
+            }
+            all.push(...slots);
+          }
+          for (let i = 1; i < rows.length; i++) {
+            const above = rows[i - 1].slots[0];
+            assert.ok(Math.abs(rows[i].slots[0].y - (above.y + above.h + gap)) < 1e-6, 'one gap between slices');
+          }
+          for (let i = 0; i < all.length; i++) {
+            for (let j = i + 1; j < all.length && all[j].y < all[i].y + all[i].h; j++) {
+              const a = all[i], b = all[j];
+              const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+              const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+              assert.ok(!(ox > 0.01 && oy > 0.01), 'no overlap');
+            }
+          }
+        }
+      }
+    }
+  }
+});
+
+test('slices: every file keeps its shape, and heights stay within the clamps', () => {
+  for (const [Wd, bs, gap] of [[1920, 390, 4], [1280, 260, 0], [3440, 120, 12], [2560, 640, 4]]) {
+    for (const variety of [0, 0.6, 1]) {
+      const { plan, rows } = fillSlices(Wd, 20000, bs, gap, { variety, seed: Wd + bs });
+      for (const { row, aspects, slots } of rows) {
+        aspects.forEach((a, k) => {
+          // The last slot is trimmed to the edge: only rounding can differ.
+          assert.ok(Math.abs(Math.log((slots[k].w / slots[k].h) / a)) < 1e-6, 'shape kept');
+        });
+        assert.ok(row.h >= plan.base * W.SLICE_MIN - 1e-6, `not below the floor (${row.h} at base ${plan.base})`);
+        assert.ok(row.h <= plan.base * W.SLICE_MAX + 1e-6, `not above the ceiling (${row.h} at base ${plan.base})`);
+        assert.ok(row.target >= row.lo && row.target <= row.hi);
+      }
+    }
+  }
+});
+
+test('slices: a very wide file', () => {
+  // The base is capped on a narrow board so the widest shape the Wall uses
+  // (4:1, aspectOf's clamp) still reaches the floor height on its own.
+  const plan = W.planSlices(500, 1280, 4);
+  assert.ok(plan.base < 1280, 'the base is capped on a narrow board');
+  const row = W.sliceRow([{ a: 4, px: 1080 }], { W: 500, base: plan.base, gap: 4, variety: 0, byRes: true, rand: () => 0.5 });
+  assert.deepStrictEqual([...row.picks], [0]);
+  assert.strictEqual(row.h, 125, 'alone, flush: 500 px wide at 4:1');
+  assert.ok(row.h >= row.lo - 1e-9);
+  // Wider than the board at the floor (an uncapped base): with another file
+  // to start on, the wide one waits for a later slice...
+  const o = { W: 500, base: 400, gap: 4, variety: 0, byRes: false, rand: () => 0.5 };
+  const row2 = W.sliceRow([{ a: 4, px: 1080 }, { a: 1, px: 1080 }], o);
+  assert.strictEqual(row2.picks[0], 1);
+  assert.ok(![...row2.picks].includes(0), 'too wide for this slice');
+  // ...and with nothing else, it takes the slice alone at its own shape.
+  const row3 = W.sliceRow([{ a: 4, px: 1080 }], o);
+  assert.deepStrictEqual([...row3.picks], [0]);
+  assert.strictEqual(row3.h, 125);
+});
+
+test('slices: a short queue repeats its own files so the slice is still full width', () => {
+  const row = W.sliceRow([{ a: 9 / 16, px: 1080 }], { W: 1920, base: 300, gap: 4, variety: 0, byRes: false, rand: () => 0.5 });
+  assert.ok(row.picks.length > 1, 'the one portrait file repeats');
+  assert.ok(row.picks.every(i => i === 0));
+  assert.ok(Math.abs(row.h * (9 / 16) * row.picks.length + 4 * (row.picks.length - 1) - 1920) < 1e-6, 'flush');
+  assert.ok(row.h <= row.hi);
+  assert.strictEqual(W.sliceRow([], { W: 1920, base: 300, gap: 4, variety: 0, byRes: false, rand: () => 0.5 }), null);
+  // Grid: a tiny source still covers the board to the bottom edge.
+  const { plan } = fillSlices(1920, 1080, 390, 4, { queue: 1, shapes: [16 / 9] });
+  assert.ok(W.minBottom(plan) >= 1080);
+});
+
+test('slices: a high-resolution first file makes a taller slice than a low-resolution one', () => {
+  const cands = (px) => [{ a: 16 / 9, px }, ...Array.from({ length: 23 }, () => ({ a: 16 / 9, px: 720 }))];
+  let hiSum = 0, loSum = 0;
+  for (let d = 0; d < 50; d++) {
+    const draw = (px) => {
+      const r = seeded(100 + d);
+      return W.sliceRow(cands(px), { W: 1920, base: 300, gap: 4, variety: 0.6, byRes: true, rand: r });
+    };
+    const big = draw(2160), small = draw(360);
+    assert.ok(big.target > small.target, 'the 4K file aims higher at the same draw');
+    assert.ok(big.h >= small.h, `4K ${big.h} vs 360p ${small.h}`);
+    hiSum += big.h;
+    loSum += small.h;
+  }
+  assert.ok(hiSum > loSum * 1.3, 'clearly taller on average');
+  // Turned off, resolution makes no difference.
+  const off = (px) => W.sliceRow(cands(px), { W: 1920, base: 300, gap: 4, variety: 0.6, byRes: false, rand: seeded(7) });
+  assert.strictEqual(off(2160).h, off(360).h);
+});
+
+test('slices: no height variety gives slices of about the same height', () => {
+  const spread = (variety) => {
+    const { plan, rows } = fillSlices(1920, 30000, 300, 4, { variety, byRes: false, seed: 3 });
+    const logs = rows.map(r => Math.log(r.row.h / plan.base));
+    if (variety === 0) {
+      for (const r of rows) assert.strictEqual(r.row.target, plan.base, 'one target for every slice');
+      for (const l of logs) assert.ok(Math.abs(l) < Math.log(1.6), `near the block size (${Math.exp(l)})`);
+    }
+    const mean = logs.reduce((s, l) => s + l, 0) / logs.length;
+    return Math.sqrt(logs.reduce((s, l) => s + (l - mean) ** 2, 0) / logs.length);
+  };
+  assert.ok(spread(0) < spread(1) * 0.75, 'full variety spreads the heights much more');
+});
+
+test('settings: Layout and the Slices settings default and fall back', () => {
+  for (const raw of [undefined, {}, { v: 2 }, { layout: 'diagonal', sliceVariety: 'x', sliceByRes: 'no' }, { layout: 3, sliceVariety: [] }]) {
+    const c = W.cfgFrom(raw);
+    assert.strictEqual(c.layout, 'columns', 'nothing existing changes');
+    assert.strictEqual(c.sliceVariety, 60);
+    assert.strictEqual(c.sliceByRes, true);
+  }
+  const c = W.cfgFrom({ v: 2, layout: 'slices', sliceVariety: 250, sliceByRes: false });
+  assert.strictEqual(c.layout, 'slices');
+  assert.strictEqual(c.sliceVariety, 100);
+  assert.strictEqual(c.sliceByRes, false);
+  assert.strictEqual(W.cfgFrom({ sliceVariety: -5 }).sliceVariety, 0);
+  assert.strictEqual(W.cfgFrom({ sliceVariety: '35' }).sliceVariety, 35);
+  assert.deepStrictEqual(W.cfgFrom(JSON.parse(JSON.stringify(c))), c, 'saving and loading again changes nothing');
+  // Columns plans are untouched.
+  assert.strictEqual(W.planColumns(1280, 390, 4).layout, 'columns');
+  assert.strictEqual(W.minBottom(W.planColumns(1280, 390, 4)), -4);
+  assert.strictEqual(W.minBottom(W.planSlices(1280, 390, 4)), -4);
 });
 
 test('continue in the player: the clip time applies only to the same file, before it expires', () => {

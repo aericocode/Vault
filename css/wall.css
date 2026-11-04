@@ -328,6 +328,8 @@ body.wall-active { overflow: hidden; }
 .wall-soundnote[hidden],
 .wall-pop[hidden],
 .wall-field[hidden],
+.wall-pop-row[hidden],
+.wall-check[hidden],
 .wall-note[hidden] { display: none; }
 
 /* ── Modern controls (UI audit X6 / G4) ────────────────────────────────

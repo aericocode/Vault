@@ -18,6 +18,7 @@ const WallRules = (() => {
     colWidth:    { min: 120, max: 1280, step: 10, def: 390 },
     gap:         { min: 0, max: 12, step: 1, def: 4 },
     scrollSpeed: { min: 1, max: 10, step: 1, def: 4 },
+    sliceVariety: { min: 0, max: 100, step: 1, def: 60 }, // Slices: how much slice heights differ (%)
   };
   // The speed sliders move along these, faster to the right. The stored value
   // stays in seconds and is kept exactly until the slider is moved.
@@ -27,6 +28,7 @@ const WallRules = (() => {
   const MIXES = ['both', 'videos', 'pictures'];
   const ORDERS = ['shuffle', 'order'];
   const SOUNDS = ['off', 'hover', 'auto'];
+  const LAYOUTS = ['columns', 'slices'];
 
   /** A stored number (or numeric string); anything else (true, [], '') is NaN. */
   function toNum(v) {
@@ -68,6 +70,10 @@ const WallRules = (() => {
     out.gap = clampNum(raw.gap, RANGES.gap);
     out.scrollSpeed = clampNum(raw.scrollSpeed, RANGES.scrollSpeed);
     out.mode = MODES.includes(raw.mode) ? raw.mode : 'grid';
+    // Columns (masonry) or Slices (full-width rows). A blob from before Slices has none: Columns.
+    out.layout = LAYOUTS.includes(raw.layout) ? raw.layout : 'columns';
+    out.sliceVariety = clampNum(raw.sliceVariety, RANGES.sliceVariety);
+    out.sliceByRes = raw.sliceByRes !== false;
     out.mix = MIXES.includes(raw.mix) ? raw.mix : 'both';
     out.order = ORDERS.includes(raw.order) ? raw.order : 'shuffle';
     out.source = typeof raw.source === 'string' && /^(library|c:\d+|s:\d+)$/.test(raw.source) ? raw.source : 'library';
@@ -111,7 +117,7 @@ const WallRules = (() => {
   }
 
   return {
-    CFG_VERSION, RANGES, PIC_STEPS, CLIP_STEPS, MODES, MIXES, ORDERS, SOUNDS,
+    CFG_VERSION, RANGES, PIC_STEPS, CLIP_STEPS, MODES, MIXES, ORDERS, SOUNDS, LAYOUTS,
     toNum, clampNum, cfgFrom, visibilityAction,
   };
 })();
