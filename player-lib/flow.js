@@ -337,18 +337,16 @@ const Flow = (() => {
      rearranges again while the playlist is still in the shape, else it is
      kept for the next pick.
 
-     Custom is the user's own order. Picking a shape while Custom is lit
-     keeps the order from before as the custom one, on the server
-     (lib/flow/custom.js, sent as flow with the order); shape to shape keeps
-     it; Custom puts it back (files gone since dropped, new ones at the end).
-     Exactly one of Custom and the shapes is lit: a shape while the playlist
-     order is still what it wrote (st.custom.shaped, kept to the files there
-     are), Custom otherwise. What the server keeps is only replaced by a
-     shape picked while Custom is lit, or put back by that pick's Undo; any
-     other change to the order (a drag, a saved order loaded, Custom itself,
-     Remove's Undo) leaves it alone: Custom is lit, and if the order comes
-     back to the shaped one (an Undo), the shape is lit again with its kept
-     custom order.
+     Custom is the user's own order. Exactly one of Custom and the shapes
+     is lit, and the server says which (lib/flow/custom.js: the row's mode,
+     st.custom.lit); nothing is worked out by comparing orders. Each write
+     says what the user did (flow, with the order): a shape picked while
+     Custom is lit keeps the order from before as the custom one; shape to
+     shape keeps it; Custom ({ custom: true }) has the server put it back
+     (files gone since dropped, new ones at the end); a drag or a saved
+     order loaded ({ manual: true }) lights Custom. Every Undo sends back
+     the row from before the write ({ restore, rev }). Remove, Add and
+     their Undos say nothing and change nothing.
 
      The shape last picked, its peaks and Place tagged files are remembered
      per collection on this computer (localStorage vault.flow.shape.<id>) as
@@ -375,14 +373,10 @@ const Flow = (() => {
     return sameIds(d.order, playlistNow());
   }
 
-  /** The shape the playlist order is in ({ shape, waves, places, custom, shaped }), or null: Custom is lit. */
+  /** The shape the server has lit ({ mode, shape, waves, places, kept, custom, rev }), or null: Custom is lit. */
   function litShape() {
-    const c = st.custom, p = playlistNow();
-    if (!c || !Array.isArray(c.shaped) || !c.shaped.length || !p || !p.length) return null;
-    // A shaped order with none of these files (all gone since) is never lit.
-    const members = new Set(p);
-    if (!c.shaped.some(id => members.has(id))) return null;
-    return sameIds(p, reconcile(c.shaped, p)) ? c : null;
+    const c = st.custom;
+    return c && c.lit ? c : null;
   }
 
   /** The playlist order is still the shape picked here (its peaks and Place tagged files too). */
@@ -400,8 +394,7 @@ const Flow = (() => {
     return true;
   }
 
-  /** What the server kept before a shape pick, as its Undo sends it back: exactly that row, or null (there was none). */
-  const flowBack = (was) => (was ? { shape: was.shape, waves: was.waves, places: was.places, custom: was.custom, shaped: was.shaped } : null);
+  const undoFlow = (data) => flowUndoOf(data);
 
   function rememberShape() {
     if (st.cid == null) return;
@@ -451,9 +444,9 @@ const Flow = (() => {
   /*
    * Write an order (and, when given, exactly these skips) as the
    * collection's playlist order, in one request: POST
-   * /api/collections/:id/order { order, skips?, flow? }. flow (a shape
-   * picked, or its Undo) replaces what lib/flow/custom.js keeps; left out,
-   * that is left alone. Kept to the
+   * /api/collections/:id/order { order, skips?, flow? }. flow says what
+   * the user did (lib/flow/custom.js); order null: none sent (Custom, the
+   * server writes the kept order). Kept to the
    * files it has right now (gone ones dropped, new ones at the end), so a
    * file added or taken out since is never lost; a 400 (the files changed
    * on the way): ask again, keep to them, try once more. The answer goes
@@ -463,7 +456,8 @@ const Flow = (() => {
   async function writePlaylist(cid, order, skips, flow) {
     const attempt = async () => {
       const members = await freshMembers(cid);
-      const body = { order: members ? reconcile(order, members) : order.slice() };
+      const body = {};
+      if (order) body.order = members ? reconcile(order, members) : order.slice();
       if (Array.isArray(skips)) body.skips = skips.slice();
       if (flow !== undefined) body.flow = flow;
       const p = post(`/api/collections/${cid}/order`, body);
@@ -474,7 +468,7 @@ const Flow = (() => {
       if (!err || err.status !== 400) throw err;
       data = await attempt();
     }
-    if (cid === st.cid && data && data.flow_custom !== undefined) st.custom = data.flow_custom;
+    customAnswer(cid, data);
     if (typeof _installOrder === 'function') await _installOrder(cid, data);
     else {
       if (typeof collectionMembers !== 'undefined' && Array.isArray(data.order)) collectionMembers.set(cid, data.order);
@@ -502,7 +496,7 @@ const Flow = (() => {
     if (sorted || (typeof Library !== 'undefined' && Library.shuffled)) await switchToPlaylistOrder();
   }
 
-  /** An Undo that puts back an order (and skips, when given) written here, and (flow, a shape pick's Undo) what the server kept before it. */
+  /** An Undo that puts back an order (and skips, when given) written here, and (flow: undoFlow) the row the server kept before it. */
   const undoWrite = (cid, order, skips, flow) => () => inTurn(async () => {
     try {
       await writePlaylist(cid, order, skips, flow);
@@ -589,43 +583,43 @@ const Flow = (() => {
     rememberShape();
     await showPlaylist(cid);
     paint();
-    // Worked out the same as it was: nothing to Undo (the shape is lit now all the same).
-    if (sameIds(order, before)) {
+    const same = sameIds(written.order || order, before);
+    const back = undoFlow(written);
+    // Worked out the same as it was and nothing kept changed: nothing to Undo.
+    if (same && back === undefined) {
       toast(`The playlist order is already ${label}`);
       return false;
     }
-    const undo = undoWrite(cid, before, undefined, flowBack(written.flow_custom_was));
+    // The order may be the same (a tiny collection) while the shape is lit now: that is undoable too.
+    const msg = same ? `The playlist order is already ${label}` : `Rearranged the playlist order: ${label}`;
     // selection.js showUndoToast takes HTML.
-    if (typeof showUndoToast === 'function') showUndoToast(`Rearranged the playlist order: ${esc(label)}`, undo);
-    else toast(`Rearranged the playlist order: ${label}`);
-    return true;
+    if (typeof showUndoToast === 'function') showUndoToast(esc(msg), undoWrite(cid, before, undefined, back));
+    else toast(msg);
+    return !same;
   }
 
-  /** Custom: the order kept from before the shape goes back in as the playlist order, with Undo. Nothing while Custom is lit. */
+  /** Custom: the server puts the kept order back in as the playlist order, with Undo. Nothing while Custom is lit. */
   function pickCustom() {
     return inTurn(async () => {
       if (!isMine()) return false;
       const cid = st.cid;
       // Custom lit here: the panel may be behind (a change in another window), so it is read again and drawn.
       if (!litShape()) { await resync(cid); return false; }
-      let c;
-      try { c = (await api(`/api/flow/collections/${cid}/custom`)).custom; } catch (err) { toastErr(err, 'reading your custom order'); return false; }
-      if (cid !== st.cid) return false;
-      // Changed elsewhere meanwhile (another window): nothing kept, or Custom lit already.
-      if (!c || !c.lit) { st.custom = c; await resync(cid); return false; }
       const before = (await freshMembers(cid)) || playlistNow().slice();
       if (cid !== st.cid) return false;
-      // Written without flow: what the server keeps stays (dormant while
-      // Custom is lit), so this Undo lights the shape again with it.
-      try { await writePlaylist(cid, c.custom); } catch (err) {
+      let data;
+      try { data = await writePlaylist(cid, null, undefined, { custom: true }); } catch (err) {
         toastErr(err, 'putting your custom order back');
         paint();
         resync(cid);
         return false;
       }
+      const back = undoFlow(data);
+      // Custom was lit on the server already (another window): nothing written; drawn from the server.
+      if (back === undefined) { await resync(cid); return false; }
       await showPlaylist(cid);
       paint();
-      const undo = undoWrite(cid, before);
+      const undo = undoWrite(cid, before, undefined, back);
       if (typeof showUndoToast === 'function') showUndoToast('Back to your custom order', undo);
       else toast('Back to your custom order');
       return true;
@@ -823,7 +817,7 @@ const Flow = (() => {
       const before = await freshMembers(cid);
       const skips = Array.isArray(s.skips) ? s.skips : undefined;
       let data;
-      try { data = await writePlaylist(cid, s.order.length ? s.order : (before || []), skips); } catch (err) {
+      try { data = await writePlaylist(cid, s.order.length ? s.order : (before || []), skips, { manual: true }); } catch (err) {
         toastErr(err, 'loading the saved order');
         paint();
         return false;
@@ -834,8 +828,8 @@ const Flow = (() => {
       const wasSkips = skips ? (Array.isArray(data.was_skipped_ids) ? data.was_skipped_ids : []) : undefined;
       const back = before || (st.data ? st.data.playlistOrder.slice() : null);
       const msg = `Loaded “${esc(s.name)}” into the playlist order`;
-      // A shape lit before comes back lit (what the server keeps for Custom was left alone).
-      if (back && typeof showUndoToast === 'function') showUndoToast(msg, undoWrite(cid, back, wasSkips));
+      // Loaded by hand: Custom is lit; the Undo puts back the row from before too (a shape lit comes back lit).
+      if (back && typeof showUndoToast === 'function') showUndoToast(msg, undoWrite(cid, back, wasSkips, undoFlow(data)));
       else toast(`Loaded “${s.name}” into the playlist order`);
       return true;
     });
@@ -3220,6 +3214,13 @@ const Flow = (() => {
    * server keeps for Custom is read again (another window may have picked a
    * shape or Custom).
    */
+  /** An order write's answer (here, or a drag: collection-reorder.js _installOrder): which of Custom and the shapes is lit now. */
+  function customAnswer(cid, data) {
+    if (cid !== st.cid || !data || data.flow_custom === undefined) return;
+    st.custom = data.flow_custom;
+    if (!inPick) adoptLit();
+  }
+
   function orderSynced(cid) {
     if (!st.open || !isMine() || cid !== st.cid) return;
     paint();
@@ -3344,7 +3345,7 @@ const Flow = (() => {
       load: loadSaved, use: useSaved, save: saveNamed, rename: renameSaved, update: updateSaved, remove: deleteSaved,
       list: () => savedList().slice(), active: () => (savedNow() ? savedNow().id : null), html: savedHtml,
     },
-    settingsChanged, membersChanged, savedStale, orderSynced,
+    settingsChanged, membersChanged, savedStale, orderSynced, customAnswer,
     marksFor, marksKey: (id) => marksSig(marksFor(id)),
     // Column drags (tests): the press, the moves, the drop.
     _drag: { allowed: dragAllowed, down: dragDown, move: dragMove, drop: dropDrag, cancel: cancelDrag, state: () => drag },
@@ -3369,6 +3370,21 @@ function flowSettingsChanged() { return Flow.settingsChanged(); }
 function flowMembersChanged(cid) { return Flow.membersChanged(cid); }
 function flowSavedStale(cid) { return Flow.savedStale(cid); }
 function flowOrderSynced(cid) { return Flow.orderSynced(cid); }
+function flowCustomAnswer(cid, data) { return Flow.customAnswer(cid, data); }
+/**
+ * The flow an Undo of an order write sends (POST /api/collections/:id/order,
+ * lib/flow/custom.js): the row from before it, over the row it left (rev),
+ * or undefined when the write changed nothing the server keeps.
+ */
+function flowUndoOf(data) {
+  const was = (data && data.flow_custom_was) || null, now = (data && data.flow_custom) || null;
+  if (!was && !now) return undefined;
+  if (was && now && was.rev === now.rev) return undefined;
+  return {
+    restore: was ? { mode: was.mode, shape: was.shape, waves: was.waves, places: was.places, kept: was.kept, rev: was.rev } : null,
+    rev: now ? now.rev : null,
+  };
+}
 /** The marks a table row shows after its name (table-view.js works out the chips' room around them). */
 function flowMarksFor(id) { return Flow.marksFor(id); }
 function flowMarksKey(id) { return Flow.marksKey(id); }

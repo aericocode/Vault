@@ -93,11 +93,11 @@ function page(srv) {
       }
       if (/\/api\/collections\/3\/order$/.test(url)) {
         srv.orders.push(body);
-        const same = body.order.length === srv.members.length && body.order.every(id => srv.members.includes(id));
+        const same = !body.order || (body.order.length === srv.members.length && body.order.every(id => srv.members.includes(id)));
         if (!same) return fail(400, { error: 'order must list every file in the collection exactly once', code: 'BAD_ORDER' });
-        const before = srv.members.slice();
-        srv.members = body.order.slice();
-        const out = { order: srv.members.slice(), item_count: srv.members.length, ...srv.custom.write(before, srv.members, body) };
+        const r = srv.custom.post(srv.members.slice(), body);
+        srv.members = r.order.slice();
+        const out = { ...r, item_count: srv.members.length };
         if (body.skips) {
           out.was_skipped_ids = srv.skips.slice();
           srv.skips = srv.members.filter(id => body.skips.includes(id));
@@ -128,11 +128,12 @@ function page(srv) {
   return { ctx, Flow: ctx.window.Flow, Library, S, toasts, undos };
 }
 
-/** A drag as collection-reorder.js makes it: written, the page's copy, then Flow told. */
+/** A drag as collection-reorder.js makes it: written by hand, the page's copy, then Flow told. */
 async function drag(p, srv, order) {
-  srv.custom.write(srv.members.slice(), order, {});   // the route: a write without flow
+  const r = srv.custom.post(srv.members.slice(), { order, flow: { manual: true } });
   srv.members = order.slice();
   p.ctx.collectionMembers.set(CID, order.slice());
+  p.ctx.flowCustomAnswer(CID, r);
   await p.ctx.flowMembersChanged(CID);
   await p.ctx.applyFilters();
 }
@@ -178,7 +179,7 @@ test('clicking a chip loads it into the playlist order (order and skips, one req
   p.S.take(CID, [6]); srv.skips = [6];
   assert.strictEqual(lit(p), null);
   assert.strictEqual(await p.Flow.saved.use(srv.saved[0].id), true);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [8, 7, 6, 5, 4, 3, 2, 1], skips: [1, 2] });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [8, 7, 6, 5, 4, 3, 2, 1], skips: [1, 2], flow: { manual: true } });
   assert.strictEqual(srv.orders.length, 1, 'one request');
   assert.deepStrictEqual(srv.members, [8, 7, 6, 5, 4, 3, 2, 1]);
   assert.deepStrictEqual(p.ctx.collectionMembers.get(CID), [8, 7, 6, 5, 4, 3, 2, 1]);
@@ -207,7 +208,7 @@ test('a saved order from before (a shape, no skips of its own) loads its stored 
   await p.ctx.applyFilters();
   assert.match(p.Flow.saved.html(), /Old<\/span><span class="flow-chip-shape">Waves 3</);
   await p.Flow.saved.use(50);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [2, 1, 3, 4, 5, 6, 7, 9] }, 'gone file dropped, new one at the end, no skips sent');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [2, 1, 3, 4, 5, 6, 7, 9], flow: { manual: true } }, 'gone file dropped, new one at the end, no skips sent, by hand');
   assert.deepStrictEqual(srv.members, [2, 1, 3, 4, 5, 6, 7, 9]);
   assert.deepStrictEqual([...p.S.setFor(CID)], [5], "the playlist's skips stay");
   assert.strictEqual(lit(p), 50);
@@ -318,7 +319,7 @@ test('the panel has one order: no switch, no Make this the playlist order, no wo
   assert.ok(!/—/.test(src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')), 'no em dash in what the user reads');
 });
 
-test('a chip loaded while a shape is lit: Custom lit, the kept order waits; its Undo lights the shape again and Custom still brings the kept order back', async () => {
+test('a chip loaded while a shape is lit is a hand order: Custom lit; its Undo puts back the order and the row exactly (Peak lit), and Custom still brings the kept order back', async () => {
   const srv = server();
   srv.saved.push({ id: 60, collectionId: CID, name: 'Mine', shape: 'playlist', waves: 2, places: false, order: [8, 1, 7, 2, 6, 3, 5, 4], skips: null, createdAt: 1, updatedAt: 1 });
   const p = page(srv);
@@ -326,19 +327,47 @@ test('a chip loaded while a shape is lit: Custom lit, the kept order waits; its 
   await p.ctx.applyFilters();
   await p.Flow.pickShape('peak');
   const peak = srv.members.slice();
+  const row = srv.custom.state(srv.members);
   assert.strictEqual(p.Flow.shape().lit, true);
   assert.strictEqual(await p.Flow.saved.use(60), true);
   assert.deepStrictEqual(srv.members, [8, 1, 7, 2, 6, 3, 5, 4]);
+  assert.deepStrictEqual(srv.orders.at(-1).flow, { manual: true }, 'a chip is loaded by hand');
   assert.strictEqual(p.Flow.shape().custom, true);
-  assert.strictEqual(srv.orders.at(-1).flow, undefined, 'a chip sends no flow');
-  const kept = srv.custom.state(srv.members);
-  assert.deepStrictEqual([kept.lit, kept.custom], [false, [1, 2, 3, 4, 5, 6, 7, 8]], 'the kept order waits, not lit');
+  const now = srv.custom.state(srv.members);
+  assert.deepStrictEqual([now.mode, now.custom], ['custom', [1, 2, 3, 4, 5, 6, 7, 8]], 'Custom lit, the kept order stays in the row');
   assert.strictEqual(await p.Flow.pickCustom(), false, 'Custom is lit: nothing to bring back');
   await p.undos.at(-1).fn();
   assert.deepStrictEqual(srv.members, peak);
-  assert.strictEqual(p.Flow.shape().custom, false);
+  assert.deepStrictEqual(srv.custom.state(srv.members), row, 'the row exactly as before the chip');
   assert.strictEqual(p.Flow.shape().shape, 'peak');
   assert.strictEqual(p.Flow.shape().lit, true);
   assert.strictEqual(await p.Flow.pickCustom(), true);
   assert.deepStrictEqual(srv.members, [1, 2, 3, 4, 5, 6, 7, 8], 'Custom brings the kept order back exactly');
+});
+
+test('Peak lit, saved as a chip, Custom, a drag, the chip loaded: Custom lit (Peak is not); the kept order comes back to use only after a shape is picked, and then it is the chip order', async () => {
+  const srv = server();
+  const p = page(srv);
+  await p.Flow.toggle(CID);
+  await p.ctx.applyFilters();
+  await p.Flow.pickShape('peak');
+  const peak = srv.members.slice();
+  await p.Flow.saved.save('Peak night');
+  const chip = srv.saved.at(-1);
+  assert.deepStrictEqual(chip.order, peak);
+  assert.strictEqual(await p.Flow.pickCustom(), true);
+  assert.deepStrictEqual(srv.members, [1, 2, 3, 4, 5, 6, 7, 8]);
+  await drag(p, srv, [2, 1, 3, 4, 5, 6, 7, 8]);
+  assert.strictEqual(await p.Flow.saved.use(chip.id), true);
+  assert.deepStrictEqual(srv.members, peak, 'the chip is the Peak order');
+  assert.strictEqual(p.Flow.shape().custom, true, 'Custom lit: a chip is a hand order, even one that matches a shape');
+  assert.strictEqual(p.Flow.shape().lit, false, 'Peak is not lit');
+  const w = srv.orders.length;
+  assert.strictEqual(await p.Flow.pickCustom(), false, 'Custom does nothing: it is lit');
+  assert.strictEqual(srv.orders.length, w);
+  // A shape picked now keeps the chip order as the custom one.
+  await p.Flow.pickShape('waves');
+  assert.deepStrictEqual(srv.custom.state(srv.members).kept, peak);
+  assert.strictEqual(await p.Flow.pickCustom(), true);
+  assert.deepStrictEqual(srv.members, peak);
 });

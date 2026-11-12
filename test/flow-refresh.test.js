@@ -94,6 +94,45 @@ test('Undo of a move tells Flow too', async () => {
   assert.ok(p.calls.includes('flow:5:1,2,3,4'));
 });
 
+test('a move is a hand order (flow manual) and Flow hears the answer; its Undo sends back the row from before, so a shape lit before is lit again', async () => {
+  const { flowCustomFake } = require('./helpers/flow-custom-fake');
+  const p = reorderPage();
+  const fake = flowCustomFake(5);
+  // Peak was picked (the order before it, 1..4, is kept).
+  fake.post([1, 2, 3, 4], { order: [3, 1, 4, 2], flow: { shape: 'peak' } });
+  p.server.splice(0, 4, 3, 1, 4, 2);
+  p.ctx.collectionMembers.set(5, [3, 1, 4, 2]);
+  const bodies = [], heard = [];
+  p.ctx.fetch = async (url, o) => {
+    const body = JSON.parse(o.body);
+    bodies.push(body);
+    const r = fake.post(p.server.slice(), body);
+    p.server.splice(0, p.server.length, ...r.order);
+    return json({ ...r, item_count: r.order.length, first_ids: r.order.slice(0, 4) });
+  };
+  p.ctx.flowCustomAnswer = (id, data) => heard.push([id, data.flow_custom && data.flow_custom.mode]);
+  // flow.js's helper, as the page has it.
+  vm.runInContext(/function flowUndoOf[\s\S]*?\n}\r?\n/.exec(read('player-lib/flow.js'))[0], p.ctx);
+  const peakRow = fake.state(p.server.slice());
+  assert.strictEqual(await p.ctx.reorderMove([2], 3), true);
+  assert.deepStrictEqual(bodies[0], { move: [2], before: 3, flow: { manual: true } });
+  assert.deepStrictEqual(heard.at(-1), [5, 'custom'], 'Custom lit');
+  await p.undos[0]();
+  assert.deepStrictEqual(bodies[1].order, [3, 1, 4, 2]);
+  assert.deepStrictEqual(bodies[1].flow.restore.mode, 'shape');
+  assert.deepStrictEqual(heard.at(-1), [5, 'shape'], 'Peak lit again');
+  assert.deepStrictEqual(fake.state(p.server.slice()), peakRow, 'the row exactly');
+  // With nothing kept, a move's Undo sends no flow.
+  const q = reorderPage();
+  q.ctx.flowUndoOf = p.ctx.flowUndoOf;
+  const sent = [];
+  const f2 = flowCustomFake(5);
+  q.ctx.fetch = async (url, o) => { const b = JSON.parse(o.body); sent.push(b); const r = f2.post(q.server.slice(), b); q.server.splice(0, 4, ...r.order); return json({ ...r, item_count: 4 }); };
+  await q.ctx.reorderMove([1], null);
+  await q.undos[0]();
+  assert.deepStrictEqual(sent[1], { order: [1, 2, 3, 4] });
+});
+
 test('the note over the grid: Drag tiles to rearrange in playlist order, the shuffle note after a shuffle', () => {
   const noteFor = (over = {}) => {
     const p = reorderPage();

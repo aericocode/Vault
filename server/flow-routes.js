@@ -36,8 +36,8 @@
  *   unique per collection, ignoring case) or FULL (30 a collection).
  *
  * Custom (lib/flow/custom.js): the collection's own order kept while a shape
- * is in. The Flow order answer above adds custom: { custom, shape, waves,
- * places, shaped, lit } or null (no shape put in).
+ * is in. The Flow order answer above adds custom: { mode, shape, waves,
+ * places, kept, custom, lit, rev } or null (no shape put in; Custom lit).
  *   GET    /api/flow/collections/:id/custom  { custom: the same, or null }
  *
  * A shape picked, Custom, or a saved order loaded, is written as the
