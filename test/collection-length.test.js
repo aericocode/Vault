@@ -18,6 +18,8 @@ process.env.VAULT_OFFLINE = '1';
 delete process.env.VAULT_DB_PASSWORD;
 
 const db = require('../lib/database');
+// Nothing skipped (Skip on tracks: the skipped_* fields, test/collection-skips.test.js).
+const NO_SKIPS = { skipped_count: 0, skipped_timed_count: 0, skipped_seconds: 0, skipped_unknown_count: 0 };
 const { app } = require('../server/index');
 
 let server, base, coll, folder, inner;
@@ -55,12 +57,12 @@ const json = async (p, opts) => (await fetch(base + p, opts)).json();
 const send = (method, p, body) => json(p, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 test('collectionLength: videos and sound files with a length added up, the rest counted as unknown', () => {
-  assert.deepStrictEqual(db.collectionLength(coll), { listed_count: 5, timed_count: 4, total_seconds: 3801, unknown_seconds_count: 2 });
+  assert.deepStrictEqual(db.collectionLength(coll), { listed_count: 5, timed_count: 4, total_seconds: 3801, unknown_seconds_count: 2, ...NO_SKIPS });
   assert.strictEqual(db.collectionItemCount(coll), 7, 'item_count is still every member');
   // A folder: each file across its subtree once.
-  assert.deepStrictEqual(db.collectionLength(folder), { listed_count: 2, timed_count: 2, total_seconds: 3801, unknown_seconds_count: 0 });
+  assert.deepStrictEqual(db.collectionLength(folder), { listed_count: 2, timed_count: 2, total_seconds: 3801, unknown_seconds_count: 0, ...NO_SKIPS });
   const empty = db.createCollection('Empty').id;
-  assert.deepStrictEqual(db.collectionLength(empty), { listed_count: 0, timed_count: 0, total_seconds: 0, unknown_seconds_count: 0 });
+  assert.deepStrictEqual(db.collectionLength(empty), { listed_count: 0, timed_count: 0, total_seconds: 0, unknown_seconds_count: 0, ...NO_SKIPS });
 });
 
 test('GET /api/collections and /api/collections/:id carry it', async () => {
@@ -91,7 +93,7 @@ test('one query, quick on a big collection', () => {
   const t0 = process.hrtime.bigint();
   const len = db.collectionLength(big);
   assert.ok(Number(process.hrtime.bigint() - t0) / 1e6 < 100);
-  assert.deepStrictEqual(len, { listed_count: 5000, timed_count: 5000, total_seconds: 900000, unknown_seconds_count: 0 });
+  assert.deepStrictEqual(len, { listed_count: 5000, timed_count: 5000, total_seconds: 900000, unknown_seconds_count: 0, ...NO_SKIPS });
   const plan = d.prepare(`EXPLAIN QUERY PLAN SELECT 1 FROM collection_items ci JOIN media m ON m.id = ci.media_id WHERE ci.collection_id = ?`).all(big);
   assert.ok(plan.every(r => !/^SCAN (ci|collection_items)\b/.test(r.detail)), JSON.stringify(plan));
 });

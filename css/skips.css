@@ -1,0 +1,29 @@
+/* Skip on tracks (player-lib/collection-skips.js): a skipped file keeps its
+   place in an open collection, dimmed and marked, and playback passes over
+   it. Both looks. */
+
+/* The tile: picture dimmed, name struck through, "Skipped" over the picture. */
+.media-tile.tile-skipped .tile-img,
+.media-tile.tile-skipped .tile-type-icon { opacity: 0.35; filter: grayscale(0.7); }
+.media-tile.tile-skipped .tile-name { color: var(--text-muted); text-decoration: line-through; }
+.tile-skip-tag {
+  position: absolute; left: 50%; top: 50%; z-index: 2;
+  transform: translate(-50%, -50%);
+  padding: 0.1rem 0.5rem; border-radius: 4px;
+  background: rgba(0, 0, 0, 0.78); color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em; line-height: 1.4;
+  pointer-events: none;
+}
+.tile-btn.active-skip { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* Table rows (Modern): the same dimming; the Skip button joins the row's
+   buttons, so the Title cell keeps room for three (table-view.js tvActionsWidth). */
+.media-tile.tv-row.tile-skipped .tv-c-thumb { opacity: 0.4; }
+.media-tile.tv-row.tile-skipped .tv-name { color: var(--text-muted); text-decoration: line-through; }
+.grid-table.tv-skips .tv-c-title { padding-right: calc(72px + 0.9rem); }
+
+/* Unskip all, beside the collection's count line. */
+.coll-skips { display: inline-flex; align-items: center; margin-left: 0.5rem; }
+.coll-skips[hidden] { display: none; }
+.coll-skips .coll-unskip { font-size: 0.78rem; }

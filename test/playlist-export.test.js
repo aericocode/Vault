@@ -648,7 +648,7 @@ test('save: full paths, written where the window said and nowhere the request sa
       path: decoy, filePath: decoy, target: decoy, fileName: decoy, name: decoy, dir: tmp, playlistDir: tmp,
     });
     assert.strictEqual(res.status, 200);
-    assert.deepStrictEqual(await res.json(), { path: chosen, count: 4, skipped: 0, fullPathCount: 0 });
+    assert.deepStrictEqual(await res.json(), { path: chosen, count: 4, skipped: 0, skippedByYou: 0, fullPathCount: 0 });
     assert.ok(!fs.existsSync(decoy), 'nothing at the path the request named');
     // The window was offered the collection's own name, and nothing from the body.
     assert.deepStrictEqual(seen.env, { VAULT_SAVE_NAME: 'Trip.m3u8' });

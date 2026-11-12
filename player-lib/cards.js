@@ -1158,11 +1158,12 @@ function renderTile(media) {
   }
 
   return `
-    <div class="media-tile ${media.missing_since ? 'tile-missing' : ''} ${isFlagged ? 'tile-flagged' : ''} ${isTrashed ? 'tile-trashed' : ''} ${isSelected ? 'tile-selected' : ''} ${cannotPlay ? 'tile-failed' : ''} ${media.id === lastOpenedMediaId ? 'tile-last-opened' : ''}${typeof nowPlayingTileClass === 'function' ? nowPlayingTileClass(media.id) : ''} ${(typeof isCardBusy === 'function' && isCardBusy(media.id)) ? 'tile-busy' : ''}${typeof dockTileClass === 'function' ? dockTileClass(media.id) : ''}" data-id="${media.id}"${typeof reorderTileAttr === 'function' ? reorderTileAttr() : ''}>
+    <div class="media-tile ${media.missing_since ? 'tile-missing' : ''} ${isFlagged ? 'tile-flagged' : ''} ${isTrashed ? 'tile-trashed' : ''} ${isSelected ? 'tile-selected' : ''} ${cannotPlay ? 'tile-failed' : ''} ${media.id === lastOpenedMediaId ? 'tile-last-opened' : ''}${typeof nowPlayingTileClass === 'function' ? nowPlayingTileClass(media.id) : ''} ${(typeof isCardBusy === 'function' && isCardBusy(media.id)) ? 'tile-busy' : ''}${typeof dockTileClass === 'function' ? dockTileClass(media.id) : ''}${typeof skipTileClass === 'function' ? skipTileClass(media.id) : ''}" data-id="${media.id}"${typeof reorderTileAttr === 'function' ? reorderTileAttr() : ''}>
       <div class="tile-thumb ${canThumb ? '' : 'thumb-fallback'}" onclick="tileThumbClick(${media.id})" ondblclick="tileThumbDblClick(${media.id}, event)">
         ${thumb}
         <span class="tile-type-icon">${icon}</span>
         ${watchTagHtml(media)}
+        ${typeof skipTileTag === 'function' ? skipTileTag(media.id) : ''}
         ${typeof upNextTileTag === 'function' ? upNextTileTag(media.id) : ''}
         ${duration ? `<span class="tile-duration">${duration}</span>` : ''}
         ${hotDone ? `<span class="tile-hotdone">${hotDone}</span>` : ''}
@@ -1175,6 +1176,7 @@ function renderTile(media) {
         <div class="tile-actions" onclick="event.stopPropagation()">
           <button class="tile-btn ${media.user_starred ? 'active-star' : ''}" onclick="toggleStar(mediaPathById(${media.id}))" title="${media.user_starred ? 'Remove from favorites' : 'Favorite'}" aria-label="${media.user_starred ? 'Remove from favorites' : 'Favorite'}">${ic(media.user_starred ? '❤' : '🤍', 'heart')}</button>
           <button class="tile-btn ${isFlagged ? 'active-flag' : ''}" onclick="toggleFlagDelete(mediaPathById(${media.id}))" title="${isFlagged ? 'Unflag' : 'Flag'}" aria-label="${isFlagged ? 'Unflag' : 'Flag'}">${ic('🚩', 'flag')}</button>
+          ${typeof skipTileButton === 'function' ? skipTileButton(media.id) : ''}
           ${trashBtn}
           <button class="tile-btn" onclick="showDetailsById(${media.id})" title="Details" aria-label="Details">${ic('ⓘ', 'info')}</button>
         </div>

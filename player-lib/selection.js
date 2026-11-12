@@ -441,7 +441,10 @@ function renderSelectionBar() {
     >${vaultEmojiLabel(`🔄 ${selBtnLabel('Force refresh', errored)}`)}</button>`;
 
   // A collection is open: its ticked files can be taken out of it (collections.js).
-  const inCollection = typeof selectedInOpenCollection === 'function' ? selectedInOpenCollection().length : 0;
+  const inCollIds = typeof selectedInOpenCollection === 'function' ? selectedInOpenCollection() : [];
+  const inCollection = inCollIds.length;
+  // Skip / Unskip them (collection-skips.js): they keep their places, playback passes over them.
+  const skipBtn = typeof skipSelectionButton === 'function' ? skipSelectionButton(inCollIds) : '';
   const uncollectBtn = inCollection === 0 ? '' : `<button class="sel-btn sel-uncollect" onclick="removeSelectedFromCollection()"
     title="Take ${selFiles(inCollection)} out of this collection. The files themselves are not touched"
     >${vaultEmojiLabel(`➖ ${selBtnLabel('Remove from this collection', inCollection)}`)}</button>`;
@@ -449,6 +452,7 @@ function renderSelectionBar() {
   bar.innerHTML = `
     <span class="sel-count">${selectedIds.size.toLocaleString()} selected</span>
     ${uncollectBtn}
+    ${skipBtn}
     ${typeof UpNext === 'undefined' ? '' : `<button class="sel-btn sel-upnext" onclick="upNextAddSelection('next')" title="Play the selected files after the one playing now (Shift+U)">${vaultIconSwap('⤴ ', 'play-next')}Play next</button>
     <button class="sel-btn sel-upnext" onclick="upNextAddSelection('end')" title="Add the selected files to the end of Up next (U)">${vaultIconSwap('＋ ', 'queue')}Up next</button>`}
     ${musicBtns}

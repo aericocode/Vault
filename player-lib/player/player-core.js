@@ -108,18 +108,35 @@ function queuePassesOver(type) {
 }
 
 /**
+ * The files skipped in the list the queue walks (Skip on tracks,
+ * player-lib/collection-skips.js): the open collection's, or, for the list
+ * Stage keeps playing while the user looks elsewhere, the ones it had when
+ * it was taken (stage-control.js snapshotList). A Set, or null for none.
+ */
+function queueSkipSet(L = queueList()) {
+  if (L !== Library) return L.skips && L.skips.size ? L.skips : null;
+  if (typeof Skips === 'undefined') return null;
+  const spec = Library.spec;
+  const s = spec && spec.collectionId != null ? Skips.setFor(spec.collectionId) : null;
+  return s && s.size ? s : null;
+}
+
+/**
  * The next file the queue can play from `from`, going `step` (1 or -1), or
  * -1. passed (optional): an array that gets the rows Basic Stage walked past,
- * so they can be named.
+ * so they can be named. Skipped files are passed over without a word: the
+ * user chose that.
  */
 async function nextPlayableIndex(from, step, passed) {
   const L = queueList();
   // Past the first page the walk needs the id list.
   if (!L.known() && from + step >= L.firstPageIds.length) await L.waitIds();
   const n = L.length();
+  const skips = typeof queueSkipSet === 'function' ? queueSkipSet(L) : null;
   for (let i = from + step; i >= 0 && i < n; i += step) {
     const type = L.typeAt(i);
     if (type === 'document' || (L.types && !type)) continue;   // not media
+    if (skips && skips.has(L.idAt(i))) continue;
     let row = L.rowAt(i);
     if (!row) {
       const a = step > 0 ? i : Math.max(0, i - NAV_WINDOW + 1);
@@ -312,13 +329,15 @@ function playRandomMedia() {
     const n = Library.length();
     if (n < 2) return;
     const cur = currentQueueIndex();
-    // Draw from the files that can actually play, minus the one on screen.
-    // The rows are fetched for a handful of random picks at once; with most
-    // of a list known-bad, a walk from a random spot takes over.
+    // Draw from the files that can actually play, minus the one on screen
+    // and the skipped ones (Skip on tracks). The rows are fetched for a
+    // handful of random picks at once; with most of a list known-bad, a walk
+    // from a random spot takes over.
+    const skips = typeof queueSkipSet === 'function' ? queueSkipSet(Library) : null;
     const picks = [];
     for (let k = 0; k < RANDOM_TRIES; k++) {
       const i = Math.floor(Math.random() * n);
-      if (i !== cur && !picks.includes(i)) picks.push(i);
+      if (i !== cur && !picks.includes(i) && !(skips && skips.has(Library.idAt(i)))) picks.push(i);
     }
     await Library.fetchRows(picks.map(i => Library.idAt(i)));
     for (const i of picks) {

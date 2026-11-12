@@ -20,6 +20,7 @@ const FlowChartMath = require('../player-lib/flow-chart-math.js');
 
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'flow.js'), 'utf8');
 const CID = 3;
+const SKIPS_SRC = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'collection-skips.js'), 'utf8');
 
 const feat = (id) => ({ id, measured: true, music: true, es: 0.2 + (id % 4) * 0.2, em: 0.2 + (id % 3) * 0.3, ee: 0.2 + (id % 5) * 0.15, bs: 120, bm: 120, be: 120 });
 
@@ -28,7 +29,7 @@ function server(ids = [1, 2, 3, 4, 5, 6, 7, 8]) {
   return { members: ids.slice(), saved: [], nextId: 1, posts: [], store: new Map() };
 }
 
-function page(srv) {
+function page(srv, { skips = false } = {}) {
   const listeners = {};
   const ok = (body) => ({ ok: true, status: 200, json: async () => body });
   const fail = (status, body) => ({ ok: false, status, json: async () => body });
@@ -71,7 +72,7 @@ function page(srv) {
       if (m && method === 'POST') {
         srv.posts.push(body);
         if (srv.saved.some(s => s.name.toLowerCase() === body.name.toLowerCase())) return fail(409, { error: 'taken', code: 'NAME_TAKEN' });
-        const row = { id: srv.nextId++, collectionId: CID, name: body.name, shape: body.shape, waves: body.waves, places: !!body.places, order: body.order.slice(), createdAt: srv.nextId, updatedAt: srv.nextId };
+        const row = { id: srv.nextId++, collectionId: CID, name: body.name, shape: body.shape, waves: body.waves, places: !!body.places, order: body.order.slice(), skips: body.skips === undefined ? null : body.skips, createdAt: srv.nextId, updatedAt: srv.nextId };
         srv.saved.push(row);
         return ok({ ...row });
       }
@@ -80,6 +81,7 @@ function page(srv) {
         const i = srv.saved.findIndex(s => s.id === Number(m[1]));
         if (i < 0) return fail(404, { error: 'not found', code: 'NOT_FOUND' });
         if (method === 'DELETE') { srv.saved.splice(i, 1); return ok({ ok: true }); }
+        (srv.puts ||= []).push(body);
         Object.assign(srv.saved[i], body);
         return ok({ ...srv.saved[i] });
       }
@@ -98,6 +100,7 @@ function page(srv) {
   ctx.window = { addEventListener: (type, fn) => { (listeners[type] ||= []).push(fn); }, dispatchEvent() {} };
   vm.createContext(ctx);
   vm.runInContext(SRC, ctx);
+  if (skips) vm.runInContext(`${SKIPS_SRC}\nglobalThis.__Skips = Skips;`, ctx);
   return { ctx, Flow: ctx.window.Flow, Library, toasts, undos, emit: (t) => (listeners[t] || []).forEach(fn => fn({})) };
 }
 
@@ -237,4 +240,128 @@ test('nothing under the chart saves: Update is in the chip menu, the top row say
   assert.ok(!src.includes('data-flow-save>') && !src.includes('data-flow-saved-update'), 'no save buttons in the panel');
   assert.ok(src.includes('>Make this the playlist order</button>'));
   assert.ok(!src.includes('>Save as playlist order<'));
+});
+
+/* ── Saved from Playlist order (a variation of the playlist) ─────────── */
+
+test('in Playlist order, Save this order keeps the playlist order as it is on screen, and Playlist order stays on', async () => {
+  const srv = server();
+  const p = page(srv);
+  await p.Flow.toggle(CID);
+  if (p.Flow._state().order) await p.Flow.usePlaylistOrder();
+  // The playlist as rearranged on screen (collection-reorder.js keeps the page's copy).
+  const mine = [3, 1, 2, 8, 7, 6, 5, 4];
+  p.ctx.collectionMembers = new Map([[CID, mine]]);
+  p.Library.spec = { collectionId: CID, rankedIds: null };
+  p.Library.ids = Uint32Array.from(mine);
+  assert.match(p.Flow.saved.html(), /data-flow-saved-new[^>]*title="Keep the playlist order as it is now/, 'the chip shows in Playlist order too');
+  assert.strictEqual(await p.Flow.saved.save('My mix'), true);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.posts[0])), { name: 'My mix', shape: 'playlist', waves: 2, places: false, order: mine });
+  assert.strictEqual(p.Flow._state().order, false, 'still Playlist order');
+  assert.strictEqual(p.Flow.saved.active(), null);
+  assert.match(p.Flow.saved.html(), /My mix<\/span><span class="flow-chip-shape">from playlist</);
+  assert.doesNotMatch(p.Flow.saved.html(), /flow-chip on/);
+
+  // Clicking it shows that order; no shape is taken from it.
+  const shapeBefore = p.Flow._state().shape;
+  await p.Flow.saved.use(srv.saved[0].id);
+  assert.deepStrictEqual(p.Flow.workingOrder(), mine);
+  assert.deepStrictEqual(grid(p), mine, 'the grid plays it');
+  assert.strictEqual(p.Flow._state().shape, shapeBefore);
+  assert.strictEqual(p.Flow.countText(), 'Flow order: My mix');
+
+  // Flow order on the switch: the shape worked out afresh, the saved one let go.
+  await p.Flow.useFlowOrder();
+  assert.strictEqual(p.Flow.saved.active(), null);
+  const feats = srv.members.map(feat);
+  assert.deepStrictEqual(p.Flow.workingOrder(), FlowOrder.planOrder(feats, { shape: shapeBefore, waves: 2 }).order);
+});
+
+test('in Playlist order, Update with this order puts the playlist order in a saved one and stays', async () => {
+  const srv = server();
+  const p = page(srv);
+  await p.Flow.toggle(CID);
+  await p.Flow.pickShape('peak');
+  await p.Flow.saved.save('Peak');
+  await p.Flow.usePlaylistOrder();
+  const mine = [8, 7, 6, 5, 4, 3, 2, 1];
+  p.ctx.collectionMembers = new Map([[CID, mine]]);
+  p.Library.spec = { collectionId: CID, rankedIds: null };
+  p.Library.ids = Uint32Array.from(mine);
+  await p.Flow.saved.update(srv.saved[0].id);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.puts.at(-1))), { shape: 'playlist', waves: 2, places: false, order: mine });
+  assert.strictEqual(p.Flow._state().order, false);
+  // Undo puts the shape and the order back.
+  await p.undos.at(-1).fn();
+  assert.strictEqual(srv.saved[0].shape, 'peak');
+});
+
+test('Save this order and Update keep the order on screen: a sort or a shuffle as shown; files a search hides keep their place', async () => {
+  const srv = server();
+  const p = page(srv);
+  await p.Flow.toggle(CID);
+  if (p.Flow._state().order) await p.Flow.usePlaylistOrder();
+  p.ctx.collectionMembers = new Map([[CID, [1, 2, 3, 4, 5, 6, 7, 8]]]);
+  // Sorted by name (or shuffled): the grid shows another order than the playlist's.
+  const shown = [5, 4, 8, 6, 7, 1, 2, 3];
+  p.Library.spec = { collectionId: CID, rankedIds: null };
+  p.Library.ids = Uint32Array.from(shown);
+  assert.strictEqual(await p.Flow.saved.save('By name'), true);
+  assert.deepStrictEqual(srv.posts.at(-1).order, shown);
+  // A search shows 3 of them, in the order 7, 2, 5: those take their own slots (2, 5, 7) in that order, the rest stay.
+  p.Library.ids = Uint32Array.from([7, 2, 5]);
+  assert.strictEqual(await p.Flow.saved.save('Searched'), true);
+  assert.deepStrictEqual(srv.posts.at(-1).order, [1, 7, 3, 4, 2, 6, 5, 8]);
+  // Update follows the same rule.
+  p.Library.ids = Uint32Array.from([8, 7, 6, 5, 4, 3, 2, 1]);
+  await p.Flow.saved.update(srv.saved[0].id);
+  assert.deepStrictEqual(srv.puts.at(-1).order, [8, 7, 6, 5, 4, 3, 2, 1]);
+  // Another collection's results on screen: the playlist order.
+  p.Library.spec = { collectionId: 99 };
+  assert.strictEqual(await p.Flow.saved.save('Elsewhere'), true);
+  assert.deepStrictEqual(srv.posts.at(-1).order, [1, 2, 3, 4, 5, 6, 7, 8]);
+});
+
+test("a saved order keeps its own skips: copied when saved, changed while it shows, the playlist's left alone", async () => {
+  const srv = server();
+  const p = page(srv, { skips: true });
+  const S = p.ctx.__Skips;
+  S.take(CID, [1]);                       // the playlist's own skips
+  await p.Flow.toggle(CID);
+  await p.Flow.pickShape('smooth');
+  await p.Flow.saved.save('Night');
+  assert.deepStrictEqual(srv.posts[0].skips, [1], 'the skips in use are copied');
+  // Showing it: its skips are the ones read and written.
+  await S.set(CID, [2], true);
+  assert.deepStrictEqual(srv.puts.at(-1), { skips: [1, 2] });
+  assert.deepStrictEqual([...S.setFor(CID)].sort(), [1, 2]);
+  assert.deepStrictEqual([...S._byColl.get(CID)], [1], "the playlist's skips untouched");
+  // Unskip all and Undo, on the saved order.
+  await S.unskipAll(CID);
+  assert.deepStrictEqual(srv.puts.at(-1), { skips: [] });
+  assert.strictEqual(S.setFor(CID).size, 0);
+  assert.match(p.undos.at(-1).m, /Unskipped 2 files in “Night”/);
+  await p.undos.at(-1).fn();
+  assert.deepStrictEqual([...S.setFor(CID)].sort(), [1, 2]);
+  // Back to Playlist order: the playlist's skips again.
+  await p.Flow.usePlaylistOrder();
+  assert.deepStrictEqual([...S.setFor(CID)], [1]);
+  await S.set(CID, [3], true).catch(() => {});   // the playlist's: the collection route, not the saved order
+  assert.deepStrictEqual(srv.puts.at(-1), { skips: [1, 2] }, 'nothing written to the saved order');
+});
+
+test("a saved order from before skips plays with the playlist's until the first change gives it its own", async () => {
+  const srv = server();
+  srv.saved.push({ id: 50, collectionId: CID, name: 'Old', shape: 'build', waves: 2, places: false, order: [2, 1, 3, 4, 5, 6, 7, 8], skips: null, createdAt: 1, updatedAt: 1 });
+  const p = page(srv, { skips: true });
+  const S = p.ctx.__Skips;
+  S.take(CID, [4]);
+  await p.Flow.toggle(CID);
+  await p.Flow.saved.load(CID);
+  await p.Flow.saved.use(50);
+  assert.deepStrictEqual([...S.setFor(CID)], [4], "the playlist's");
+  await S.set(CID, [5], true);
+  assert.deepStrictEqual(srv.puts.at(-1), { skips: [4, 5] });
+  assert.deepStrictEqual([...S.setFor(CID)].sort(), [4, 5]);
+  assert.deepStrictEqual([...S._byColl.get(CID)], [4]);
 });
