@@ -209,9 +209,14 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
    * sized; mpv's own Wayland window loses it, so mpv's edges work).
    */
   async function checkWindowSystem(h) {
-    const ask = (name) => h.get(name).then((v) => v, () => null);
+    // Every answer has its own short limit, and the whole wait a hard end: an mpv that stalls is left alone.
+    const ask = (name) => Promise.race([
+      h.get(name).then((v) => v, () => null),
+      new Promise((res) => { const t = setTimeout(() => res(null), 1000); if (t.unref) t.unref(); }),
+    ]);
+    const end = Date.now() + checkWindowMs + 1000;
     let vo = null;
-    for (let waited = 0; waited <= checkWindowMs; waited += 100) {
+    for (let waited = 0; waited <= checkWindowMs && Date.now() <= end; waited += 100) {
       if (host !== h) return;
       vo = await ask('current-vo');
       if (vo) break;
@@ -370,7 +375,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     const argsFor = (k) => (ipcPath) => buildArgs({
       ipcPath, title: s.windowName, bounds, maximized: w.max === true && !preset,
       cursorSeconds: s.cursorSeconds, volume: session.volume, muted: session.muted, forceMute, quiet,
-      hwdec: s.hwDecoding !== false, mpvVersion: found.version, mpvOptions: found.options, x11: k.x11, wayland: k.wayland,
+      hwdec: s.hwDecoding !== false, mpvVersion: found.version, mpvOptions: found.options, x11: k.x11, wayland: k.wayland, pinWayland: k.pin === true,
       framed: sizeMode === 'free' && k.frameAtFree, keepAspect: plan.keepAspect,
     });
     const out = await h.start(found.path, argsFor(plan.first), { mpvVersion: found.version, fallbackArgsFor: plan.fallback ? argsFor(plan.fallback) : null });

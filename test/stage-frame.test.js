@@ -70,7 +70,7 @@ test('windowPlan: Wayland with XWayland, default frame: Free size is mpv\'s own 
   const free = windowPlan({ platform: 'linux', env: WAYLAND, size: 'free' });
   assert.strictEqual(free.frame, 'wayland');
   assert.strictEqual(free.keepAspect, true);
-  assert.deepStrictEqual(free.first, { x11: false, wayland: true, frameAtFree: false, borderOnly: false });
+  assert.deepStrictEqual(free.first, { x11: false, wayland: true, frameAtFree: false, borderOnly: false, pin: true });
   // If that mpv will not start: XWayland with the desktop's frame.
   assert.deepStrictEqual(free.fallback, { x11: true, wayland: false, frameAtFree: true, borderOnly: false });
   const preset = windowPlan({ platform: 'linux', env: WAYLAND, size: '1080p' });
@@ -506,7 +506,19 @@ test('Windows: bare as before, never shape-fitted, the size menu never touches b
 test('arguments: mpv\'s own Wayland window pins the Wayland drawing context; X11 pins x11egl; Windows neither', () => {
   assert.strictEqual(WAYLAND_CONTEXT, '--gpu-context=wayland');
   const plan = windowPlan({ platform: 'linux', env: WAYLAND });
-  const own = buildArgs({ ipcPath: 'p', x11: plan.first.x11, wayland: plan.first.wayland });
+  const own = buildArgs({ ipcPath: 'p', x11: plan.first.x11, wayland: plan.first.wayland, pinWayland: plan.first.pin === true });
+  // Only the Free size window chosen over XWayland is pinned. With no XWayland to fall to, as the
+  // fallback of an XWayland launch, or with the switch off, mpv picks its own context (Vulkan included).
+  const unpinned = [
+    windowPlan({ platform: 'linux', env: { WAYLAND_DISPLAY: 'wayland-0' } }).first,
+    windowPlan({ platform: 'linux', env: WAYLAND, size: '1080p' }).fallback,
+    windowPlan({ platform: 'linux', env: WAYLAND, xwayland: false }).first,
+  ];
+  for (const k of unpinned) {
+    assert.strictEqual(k.wayland, true);
+    const a = buildArgs({ ipcPath: 'p', x11: k.x11, wayland: k.wayland, pinWayland: k.pin === true });
+    assert.deepStrictEqual(a.filter((x) => x.startsWith('--gpu-context=')), [], JSON.stringify(k));
+  }
   assert.deepStrictEqual(own.filter((a) => a.startsWith('--gpu-context=')), ['--gpu-context=wayland']);
   const x = buildArgs({ ipcPath: 'p', x11: plan.fallback.x11, wayland: plan.fallback.wayland });
   assert.deepStrictEqual(x.filter((a) => a.startsWith('--gpu-context=')), ['--gpu-context=x11egl']);
