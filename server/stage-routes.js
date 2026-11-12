@@ -33,7 +33,9 @@ const geometry = require('../lib/stage/geometry');
 const { createHub, ROLES } = require('../lib/stage/hub');
 const { createEngine } = require('../lib/stage/engine');
 const { createMpvHost, volumeGainSupported } = require('../lib/stage/mpv-host');
-const { buildArgs, displayPlan, framedWindow } = require('../lib/stage/mpv-args');
+const { buildArgs, displayPlan, windowPlan } = require('../lib/stage/mpv-args');
+const { createWindowFit } = require('../lib/stage/window-fit');
+const x11Hints = require('../lib/stage/x11-hints');
 const mpvFind = require('../lib/stage/mpv-find');
 const fsBrowse = require('../lib/fs-browse');
 const StageRules = require('../player-lib/stage-rules.js');
@@ -50,7 +52,7 @@ const { createSetLog } = require('../lib/stage/setlog');
  * @param {(settings: object) => void} [opts.onSettingsSaved]  after Settings › Stage saves (Flow's "Measure for Flow")
  * @param {object} [opts.setlog]  the set log (lib/stage/setlog.js); made from lib.db when not given
  */
-function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = process.env, hostFactory = createMpvHost, find: findReal = mpvFind.findMpv, platform = process.platform, setlog: givenLog = null } = {}) {
+function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = process.env, hostFactory = createMpvHost, find: findReal = mpvFind.findMpv, platform = process.platform, setlog: givenLog = null, borderOnly = x11Hints.setBorderOnly, fitTiming = {} } = {}) {
   const router = express.Router();
   // What Stage played (Log on the Stage bar, Settings › Stage). Kept in Vault's database.
   const setlog = givenLog || (typeof lib.db === 'function'
@@ -82,9 +84,13 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
   let opening = null;        // a launch in progress (one at a time)
   // The size chosen last ('free' or a preset). Off Windows nothing reports
   // the window's size, so this is what Stage knows there, and it says
-  // whether the window has the desktop's frame (framedWindow).
+  // whether the window has the desktop's frame (windowPlan).
   let sizeMode = 'free';
-  const framable = framedWindow({ platform, size: 'free' });
+  // Linux and other X11/Wayland systems: frame, shape and wheel handled here
+  // (windowPlan, window-fit.js). Windows and macOS: as they always were.
+  const framable = platform !== 'win32' && platform !== 'darwin';
+  let kind = null;           // the window mpv made (windowPlan first or fallback)
+  let fit = null;            // window-fit.js for that window
 
   const alive = () => !!host && host.alive();
 
@@ -112,6 +118,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     const w = Math.round(r.w), h = Math.round(r.h);
     if (!(w > 0) || !(h > 0)) return;
     const pos = Number.isFinite(r.x) && Number.isFinite(r.y) ? `+${Math.round(r.x)}+${Math.round(r.y)}` : '';
+    if (fit) fit.noteGeometry({ w, h });
     host.set('geometry', `${w}x${h}${pos}`).catch(() => {});
   }
 
@@ -123,8 +130,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
   async function applySize(preset) {
     if (!alive()) return;
     if (stageSettings.OPEN_SIZES.includes(preset)) sizeMode = preset;
-    // Linux: the desktop's frame at Free size (to size it with the mouse), the bare picture at a preset.
-    if (framable && !quiet) await host.set('border', framedWindow({ platform, size: sizeMode })).catch(() => {});
+    if (framable) { await applySizeLinux(preset); return; }
     if (lastBounds && lastBounds.max) {
       await host.set('window-maximized', false).catch(() => {});
     }
@@ -141,6 +147,56 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     // Remember the free size the first time a preset replaces it.
     if (now === 'free') saveWindow({ freeBounds: win });
     setGeometry(geometry.windowRectForClient(size, win, win, lastBounds.work));
+  }
+
+  /**
+   * The same off Windows, where nothing reports the window's spot: the
+   * desktop's frame on (Free size) or off (a preset) where this window has
+   * one, out of maximised first, then the preset's size, or back to the size
+   * Free size had (this session, or the last one).
+   */
+  async function applySizeLinux(preset) {
+    const free = sizeMode === 'free';
+    const freeBefore = fit ? fit.freeSize() : null;
+    if (fit) fit.setEnabled(false);
+    if (kind && kind.frameAtFree) await host.set('border', free).catch(() => {});
+    if (fit && fit.isMaximized()) await host.set('window-maximized', false).catch(() => {});
+    if (free) {
+      const back = freeBefore || savedFreeSize();
+      if (back) setGeometry(back);
+      if (kind && kind.borderOnly) borderOnlySoon();
+      if (fit) fit.setEnabled(!quiet);
+      return;
+    }
+    const size = stageSettings.SIZE_PRESETS[preset];
+    if (size) setGeometry({ w: size.w, h: size.h });
+  }
+
+  /** The size Free size had when Stage was last open (Linux), or null. */
+  function savedFreeSize() {
+    const f = readWindow().linuxFreeSize;
+    if (!f || !Number.isInteger(f.w) || !Number.isInteger(f.h)) return null;
+    if (f.w < geometry.MIN_CLIENT.w || f.h < geometry.MIN_CLIENT.h || f.w > 16384 || f.h > 16384) return null;
+    return { w: f.w, h: f.h };
+  }
+
+  /**
+   * VAULT_STAGE_LINUX_FRAME=border: ask for a frame without a title bar,
+   * after mpv has put its own frame up (mpv writes the same property).
+   */
+  let saidNoXprop = false;
+  function borderOnlySoon() {
+    const h = host;
+    const t = setTimeout(() => {
+      if (host !== h || !alive() || sizeMode !== 'free') return;
+      borderOnly({ wid: h.hwnd, env }).then((res) => {
+        if (res === 'no-xprop' && !saidNoXprop) {
+          saidNoXprop = true;
+          console.warn('[Stage] VAULT_STAGE_LINUX_FRAME=border needs xprop (package x11-utils); the window keeps its title bar.');
+        }
+      }).catch(() => {});
+    }, 250);
+    if (t.unref) t.unref();
   }
 
   /** Bring Stage above other windows (without taking the focus from Vault). */
@@ -209,6 +265,8 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     const saved = geometry.usableBounds(w.bounds);
     let bounds = saved;
     if (preset) bounds = saved ? { x: saved.x, y: saved.y, w: preset.w, h: preset.h } : { w: preset.w, h: preset.h };
+    // Linux never learns the window's spot; Free size opens at the size it had last.
+    else if (!saved && framable && !quiet) bounds = savedFreeSize();
     const session = hub.state();
     lastBounds = null;
     fixedOnce = false;
@@ -219,6 +277,12 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
           hub.closeRequested();
           return;
         }
+        // Linux: the mouse wheel over the picture (mpv-host.js WHEEL_BINDINGS).
+        if (msg && msg.event === 'client-message' && Array.isArray(msg.args) && msg.args[0] === 'vault-stage' && (msg.args[1] === 'grow' || msg.args[1] === 'shrink')) {
+          if (fit && host === h) fit.step(msg.args[1] === 'grow' ? 1 : -1).catch(() => {});
+          return;
+        }
+        if (fit && host === h && msg && msg.event === 'property-change') fit.onProperty(msg.name, msg.data);
         if (engine) engine.onEvent(msg);
       },
       onWindow,
@@ -228,26 +292,47 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
           engine = null;
           host = null;
           lastBounds = null;
+          if (fit) fit.stop();
+          fit = null;
+          kind = null;
         }
         hub.stageExited({ byUser: asked });
       },
     });
     host = h;
+    if (fit) fit.stop();
+    kind = null;
+    // Linux: the window kept to the video's shape (made now: mpv reports sizes as soon as it is up).
+    fit = framable ? createWindowFit({
+      ...fitTiming,
+      setGeometry: (size) => { if (host === h) h.set('geometry', `${size.w}x${size.h}`).catch(() => {}); },
+      getScreen: async () => {
+        const [dw, dh] = await Promise.all([h.get('display-width'), h.get('display-height')]);
+        return Number.isFinite(dw) && Number.isFinite(dh) && dw > 0 && dh > 0 ? { w: dw, h: dh } : null;
+      },
+      onSettled: (size) => { if (sizeMode === 'free' && host === h) saveWindow({ linuxFreeSize: size }); },
+    }) : null;
     engine = createEngine({ mpv: h, report: (r) => hub.report(r), settings: readSettings, lib, forceMute, volumeGain: volumeGainSupported(found.version) });
-    // A Wayland desktop: mpv on XWayland (placed, kept in front); its own Wayland window if that will not start.
-    const plan = displayPlan({ platform, env, xwayland: s.xwayland });
-    const framed = framedWindow({ platform, size: sizeMode });
-    const argsFor = (x11) => (ipcPath) => buildArgs({
+    // A Wayland desktop: mpv on XWayland (placed, kept in front), or mpv's own
+    // Wayland window (Linux Free size, mpv-args.js windowPlan); the other one if
+    // the first will not start.
+    const plan = windowPlan({ platform, env, xwayland: s.xwayland, size: sizeMode, quiet });
+    const argsFor = (k) => (ipcPath) => buildArgs({
       ipcPath, title: s.windowName, bounds, maximized: w.max === true && !preset,
       cursorSeconds: s.cursorSeconds, volume: session.volume, muted: session.muted, forceMute, quiet,
-      hwdec: s.hwDecoding !== false, mpvVersion: found.version, mpvOptions: found.options, x11,
-      framed,
+      hwdec: s.hwDecoding !== false, mpvVersion: found.version, mpvOptions: found.options, x11: k.x11,
+      framed: sizeMode === 'free' && k.frameAtFree, keepAspect: plan.keepAspect,
     });
-    const out = await h.start(found.path, argsFor(plan.x11), { mpvVersion: found.version, fallbackArgsFor: plan.x11 ? argsFor(false) : null });
+    const out = await h.start(found.path, argsFor(plan.first), { mpvVersion: found.version, fallbackArgsFor: plan.fallback ? argsFor(plan.fallback) : null });
     if (!out.ok) {
-      if (host === h) { host = null; engine = null; }
+      if (host === h) { host = null; engine = null; if (fit) fit.stop(); fit = null; }
       try { h.kill(); } catch {}
       return { status: 500, body: { error: 'Stage could not open: mpv did not start.', code: 'MPV_FAILED' } };
+    }
+    if (fit && host === h) {
+      kind = out.fellBack && plan.fallback ? plan.fallback : plan.first;
+      fit.setEnabled(sizeMode === 'free' && !quiet);
+      if (sizeMode === 'free' && kind.borderOnly) borderOnlySoon();
     }
     engine.started(session);
     hub.opened('mpv');
