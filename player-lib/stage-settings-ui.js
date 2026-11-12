@@ -19,7 +19,22 @@ const STAGE_SETTINGS_DEFAULTS = {
   showName: true, nameSeconds: 3, windowName: 'Vault Stage', imageSeconds: 8,
   cursorSeconds: 1, openSize: 'free', muteVault: true, tips: true, player: 'auto',
   evenLoudness: true, flowMeasure: 'use', flowShuffle: false, hwDecoding: true, flowEdges: 'auto',
+  warnOn: false, warnMinutes: [30, 15, 10], countdownOn: false, countdownMinutes: 5,
+  countdownCorner: 'top-right', countdownSize: 'medium',
 };
+
+// The countdown on mpv Stage's picture (player-lib/stage-countdown.js).
+const STAGE_CORNER_OPTIONS = [
+  { value: 'top-right', label: 'Top right' },
+  { value: 'top-left', label: 'Top left' },
+  { value: 'bottom-right', label: 'Bottom right' },
+  { value: 'bottom-left', label: 'Bottom left' },
+];
+const STAGE_COUNTDOWN_SIZE_OPTIONS = [
+  { value: 'small', label: 'Small' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'large', label: 'Large' },
+];
 
 const STAGE_FLOW_MEASURE_OPTIONS = [
   { value: 'use', label: 'Only when I use Flow' },
@@ -121,11 +136,57 @@ function _stSwitch(key, on) {
         <span class="settings-switch" aria-hidden="true"></span>`;
 }
 
-function _stNum(key, value, min, max, label) {
+function _stNum(key, value, min, max, label, unit = 's') {
   return `<span class="settings-num-wrap">
           <input class="settings-num" type="number" min="${min}" max="${max}" step="1" data-stage-num="${key}" value="${value}" aria-label="${_stEsc(label)}">
-          <span class="settings-num-unit">s</span>
+          <span class="settings-num-unit">${unit}</span>
         </span>`;
+}
+
+function _stSel(key, options, value, label) {
+  return `<select class="settings-sel" data-stage-sel="${key}" aria-label="${_stEsc(label)}">
+          ${options.map(o => `<option value="${o.value}"${value === o.value ? ' selected' : ''}>${_stEsc(o.label)}</option>`).join('')}
+        </select>`;
+}
+
+/** The warning minutes as typed: "30, 15, 10". */
+function _stWarnText(list) {
+  return typeof StageCountdown !== 'undefined' ? StageCountdown.minutesText(list) : (Array.isArray(list) ? list.join(', ') : '');
+}
+
+/** The countdown rows (both looks): warnings, the clock, where it shows. */
+function _stageCountdownRows(s, modern) {
+  const warnField = `<span class="settings-num-wrap stage-warn-wrap">
+          <input class="settings-text stage-warn-text" type="text" inputmode="numeric" maxlength="60" spellcheck="false" autocomplete="off"
+            data-stage-warn placeholder="30, 15, 10" value="${_stEsc(_stWarnText(s.warnMinutes))}" aria-label="Minutes before the end, for example 30, 15, 10">
+          <span class="settings-num-unit">min</span>
+        </span>`;
+  const warnErr = '<span class="stage-warn-err" data-stage-warn-err role="alert" hidden></span>';
+  const warnDesc = 'A short message on Stage, like “10 minutes left”, at these minutes before the list ends. Separate them with commas.';
+  const clockDesc = 'A clock on Stage that counts down to the end of the list, from this many minutes before it.';
+  const lookDesc = 'Where the countdown and warnings show on Stage. Only times show, never a name. mpv Stage only: Basic shows the time left on the Stage bar only.';
+  const where = `<span class="stage-set-pair">${_stSel('countdownCorner', STAGE_CORNER_OPTIONS, s.countdownCorner, 'Countdown corner')}${_stSel('countdownSize', STAGE_COUNTDOWN_SIZE_OPTIONS, s.countdownSize, 'Countdown size')}</span>`;
+  if (modern) {
+    return settingsRowHtml({
+      sfind: 'stageWarnings', title: 'Warnings before the end', desc: warnDesc, extra: warnErr,
+      control: `<span class="stage-set-pair">${warnField}<label class="stage-set-sw" title="Show warnings">${_stSwitch('warnOn', s.warnOn)}</label></span>`,
+    })
+      + settingsRowHtml({
+        sfind: 'stageCountdown', title: 'Countdown to the end', desc: clockDesc,
+        control: `<span class="stage-set-pair">${_stNum('countdownMinutes', s.countdownMinutes, 1, 60, 'Minutes before the end the countdown starts', 'min')}
+        <label class="stage-set-sw" title="Show the countdown">${_stSwitch('countdownOn', s.countdownOn)}</label></span>`,
+      })
+      + settingsRowHtml({ sfind: 'stageCountdownLook', title: 'Countdown corner and size', desc: lookDesc, control: where });
+  }
+  return settingsRowHtml({
+    sfind: 'stageWarnings', title: `Warnings before the end, at ${warnField}`, desc: warnDesc, extra: warnErr,
+    control: `<label class="stage-set-sw">${_stSwitch('warnOn', s.warnOn)}</label>`,
+  })
+    + settingsRowHtml({
+      sfind: 'stageCountdown', title: `Countdown to the end, for the last ${_stNum('countdownMinutes', s.countdownMinutes, 1, 60, 'Minutes before the end the countdown starts', 'min')}`,
+      desc: clockDesc, control: `<label class="stage-set-sw">${_stSwitch('countdownOn', s.countdownOn)}</label>`,
+    })
+    + settingsRowHtml({ sfind: 'stageCountdownLook', title: 'Countdown corner and size', desc: lookDesc, control: where });
 }
 
 /** The Stage page, in the look that is on. */
@@ -171,6 +232,7 @@ function stageSettingsHtml() {
       control: `<span class="stage-set-pair">${_stNum('nameSeconds', s.nameSeconds, 1, 30, 'Seconds the name shows')}
         <label class="stage-set-sw" title="Show the name">${_stSwitch('showName', s.showName)}</label></span>`,
     })
+      + _stageCountdownRows(s, true)
       + settingsRowHtml({ sfind: 'stageWindowName', title: 'Window name', desc: 'What Discord lists, and may show on the stream.', control: nameField })
       + settingsRowHtml({ sfind: 'stageImageSeconds', title: 'Show pictures for', desc: 'GIFs play at least one full loop.', control: _stNum('imageSeconds', s.imageSeconds, 1, 600, 'Seconds a picture shows') })
       + settingsRowHtml({ sfind: 'stageCursor', title: 'Hide the cursor', desc: 'After it stops moving over Stage.', control: _stNum('cursorSeconds', s.cursorSeconds, 1, 60, 'Seconds before the cursor hides') })
@@ -194,6 +256,7 @@ function stageSettingsHtml() {
       ${playerRow}
       ${setLogRow}
       ${settingsRowHtml({ sfind: 'stageShowName', title: lbl('Show the name as a file starts, for', _stNum('nameSeconds', s.nameSeconds, 1, 30, 'Seconds the name shows')), desc: 'Bottom left, over the picture.', control: `<label class="stage-set-sw">${_stSwitch('showName', s.showName)}</label>` })}
+      ${_stageCountdownRows(s, false)}
       ${settingsRowHtml({ sfind: 'stageWindowName', title: 'Window name', desc: 'What Discord lists, and may show on the stream.', control: nameField })}
       ${settingsRowHtml({ sfind: 'stageImageSeconds', title: lbl('Show pictures for', _stNum('imageSeconds', s.imageSeconds, 1, 600, 'Seconds a picture shows')), desc: 'GIFs play at least one full loop.' })}
       ${settingsRowHtml({ sfind: 'stageCursor', title: lbl('Hide the cursor after', _stNum('cursorSeconds', s.cursorSeconds, 1, 60, 'Seconds before the cursor hides')) })}
@@ -233,6 +296,34 @@ function _stageSettingsPaint(root) {
   root.querySelectorAll('[data-stage-num]').forEach((el) => { if (document.activeElement !== el) el.value = String(s[el.dataset.stageNum]); });
   root.querySelectorAll('[data-stage-text]').forEach((el) => { if (document.activeElement !== el) el.value = s[el.dataset.stageText]; });
   root.querySelectorAll('[data-stage-sel]').forEach((el) => { el.value = s[el.dataset.stageSel]; });
+  root.querySelectorAll('[data-stage-warn]').forEach((el) => { if (document.activeElement !== el) el.value = _stWarnText(s.warnMinutes); });
+}
+
+/**
+ * The warning minutes field: checked as typed (whole minutes, 1 to 600, up
+ * to 8), saved sorted and without repeats when it is left or Enter is
+ * pressed. A mistake is said under the row and nothing is saved.
+ */
+function _stageWarnWire(root) {
+  root.querySelectorAll('[data-stage-warn]').forEach((el) => {
+    const row = el.closest('.settings-toggle');
+    const err = row ? row.querySelector('[data-stage-warn-err]') : null;
+    const check = () => {
+      const r = typeof StageCountdown !== 'undefined' ? StageCountdown.parseMinutes(el.value) : { ok: true, minutes: [] };
+      if (err) { err.textContent = r.ok ? '' : r.error; err.hidden = r.ok; }
+      el.setAttribute('aria-invalid', r.ok ? 'false' : 'true');
+      return r;
+    };
+    const save = () => {
+      const r = check();
+      if (!r.ok) return;
+      const same = r.minutes.join(',') === (_stageSettings.warnMinutes || []).join(',');
+      el.value = _stWarnText(r.minutes);
+      if (!same) _stageSettingsSave({ warnMinutes: r.minutes }, root);
+    };
+    el.addEventListener('input', check);
+    el.addEventListener('change', save);       // left, or Enter
+  });
 }
 
 /** Wire the page drawn into root (settings.js calls this after drawing it). */
@@ -284,6 +375,7 @@ function stageSettingsWire(root) {
   root.querySelectorAll('[data-stage-sel]').forEach((el) => {
     el.addEventListener('change', () => _stageSettingsSave({ [el.dataset.stageSel]: el.value }, root));
   });
+  _stageWarnWire(root);
   root.querySelectorAll('[data-stage-text]').forEach((el) => {
     let timer = null;
     let last = el.value;

@@ -67,7 +67,8 @@ const StageControl = (() => {
   let t = 0, d = 0, paused = false, hold = false, state = null, finished = false, locked = false;
   let volume = 1, muted = false;
   let statusKey = null;
-  let closeGen = 0;                   // bumped when Stage closes here: a reply still on its way is dropped
+  let stageLeft = null;               // { left, about }: mpv Stage's seconds to the end (its status), or null
+  let closeGen = 0;                  // bumped when Stage closes here: a reply still on its way is dropped
   let loadingSince = 0;
   let note = null;                    // { text, until }
   let noteTimer = null;
@@ -348,7 +349,8 @@ const StageControl = (() => {
       if (!open || !cur || cur.key !== item.key) return;
       const list = Array.isArray(upcoming) ? upcoming : [];
       syncPrivacy();
-      cmd({ type: 'load', item, paused: startPaused, upcoming: list, repeat: currentRepeat() }, { tries: CMD_RETRY_MS })
+      // Not worked out in time: an empty list for now, never taken as the end (complete false).
+      cmd({ type: 'load', item, paused: startPaused, upcoming: list, repeat: currentRepeat(), complete: list.complete === true }, { tries: CMD_RETRY_MS })
         .then((r) => {
           if (loadingKey === item.key) loadingKey = null;
           // A newer list (an Up next edit) waited for this load: it goes now.
@@ -368,6 +370,7 @@ const StageControl = (() => {
   function setCurrent(key, row) {
     cur = { key, row };
     statusKey = null;
+    stageLeft = null;
     paint();
     if (typeof flowStageCurrent === 'function') flowStageCurrent(row);   // the Stage bar's tempo and energy (flow.js)
   }
@@ -554,9 +557,10 @@ const StageControl = (() => {
   /** "Track 12 of 40" and "2:14:30 left" for the file on Stage now ({ track: '', time: '' }: nothing to count). */
   function countText() {
     const none = { track: '', time: '' };
-    if (typeof StageCount === 'undefined' || !stageOn() || !source) return none;
+    if (typeof StageCount === 'undefined' || !stageOn()) return none;
+    if (!source) return withTimeLeft(null);
     const L = listNow();
-    if (!L.known || !L.known()) return none;
+    if (!L.known || !L.known()) return withTimeLeft(null);
     const n = L.length();
     const anchor = typeof listAnchorIndex === 'function' ? listAnchorIndex() : -1;
     const ids = L === Library ? Library.ids : L.ids;
@@ -613,7 +617,29 @@ const StageControl = (() => {
       current: { t: ct, d: cd }, repeat: currentRepeat(), basic,
       imageSeconds: settings.imageSeconds,
     });
-    return StageCount.text(sum);
+    return withTimeLeft(sum);
+  }
+
+  /**
+   * The bar's words for a count (StageCount.summary, or null with no list):
+   * the track, and the time left with the clock time it ends at ("12:00
+   * left · ends 10:42 PM"). mpv Stage says its own time left with each
+   * status (the same number its countdown on the picture uses: everything
+   * it was handed, a file played on its own too); this page's count is the
+   * fallback. Basic Stage: at the video's speed. Nothing once the list is over.
+   */
+  function withTimeLeft(sum) {
+    const words = StageCount.text(sum);
+    let tl = sum && sum.left != null ? { left: sum.left, about: !!sum.about } : null;
+    if (!basic && cur && statusKey === cur.key && stageLeft) tl = stageLeft;
+    else if (basic && tl) {
+      const el = basicEl();
+      const rate = el && Number(el.playbackRate) > 0 ? Number(el.playbackRate) : 1;
+      if (rate !== 1) tl = { left: Math.round(tl.left / rate), about: tl.about };
+    }
+    if (!tl || (!basic && finished)) return { track: words.track, time: '', ends: '' };
+    const ends = typeof StageCountdown !== 'undefined' ? StageCountdown.endsAt(tl.left) : null;
+    return { track: words.track, time: `${tl.about ? 'about ' : ''}${StageCount.clock(tl.left)} left`, ends: ends || '' };
   }
 
   /**
@@ -659,18 +685,23 @@ const StageControl = (() => {
       const id = L.idAt(i);
       return id && typeof Library.needsFetch === 'function' && !Library.needsFetch(id) ? false : null;
     };
-    const plan = StageRules.upcoming({ upNext, anchor, length, okAt, repeat, count: UPCOMING_COUNT });
+    const plan = StageRules.upcomingPlan({ upNext, anchor, length, okAt, repeat, count: UPCOMING_COUNT });
     const out = [];
-    for (const p of plan) {
+    let complete = plan.complete;
+    for (const p of plan.list) {
       const row = p.via === 'upnext' ? byId.get(p.id) : L.rowAt(p.index);
       if (row) out.push(itemFor(row, { via: p.via, index: p.via === 'list' ? p.index : -1 }));
+      else complete = false;
     }
+    // complete: this is all Stage will play (Repeat off, nothing cut off), so
+    // the end of it is the end of the stream (the countdown on Stage).
+    out.complete = complete;
     return out;
   }
 
   /** Hand Stage a worked-out list for the file on it (forKey), with tries. */
   async function sendList(list, forKey) {
-    const r = await cmd({ type: 'upcoming', upcoming: list, repeat: currentRepeat(), forKey }, { tries: CMD_RETRY_MS });
+    const r = await cmd({ type: 'upcoming', upcoming: list, repeat: currentRepeat(), forKey, complete: list.complete === true }, { tries: CMD_RETRY_MS });
     // The server is not on that file yet (its load still on the way, or Stage
     // moved on and its report is coming): worked out again shortly, a few times.
     if (r && r.stale && open && cur && cur.key === forKey && staleTries < 3) {
@@ -790,6 +821,8 @@ const StageControl = (() => {
     // Stage reports the file: its load got there (even if the answer to it has not).
     if (loadingKey === r.key) { loadingKey = null; if (upAfterLoad) { upAfterLoad = false; sendUpcoming(); } }
     t = r.t; d = r.d || d; paused = r.paused; hold = r.hold; state = r.state;
+    // Stage's own count to the end of what it was handed (the countdown on its picture).
+    stageLeft = Number.isFinite(r.left) ? { left: r.left, about: r.about === true } : null;
     if (state !== 'loading') loadingSince = 0;
     if (state === 'black') finished = true;
     else if (state === 'playing' || state === 'picture') finished = false;
@@ -1117,7 +1150,7 @@ const StageControl = (() => {
     const count = countText();
     const base = {
       namesHidden: namesHidden(), repeat, upNext, fmt: typeof formatDuration === 'function' ? formatDuration : null,
-      back: canGoBack(), backTitle: backTitle(), countTrack: count.track, countTime: count.time,
+      back: canGoBack(), backTitle: backTitle(), countTrack: count.track, countTime: count.time, countEnds: count.ends || '',
     };
     if (basic) {
       const el = basicEl();

@@ -302,7 +302,7 @@ body.layout-modern .sb-btn.on { background: var(--accent-bg, rgba(99, 102, 241, 
   font-variant-numeric: tabular-nums;
 }
 body.layout-modern .sb-count { color: #8b8b97; }
-.sb-count[hidden], .sb-count-time[hidden] { display: none; }
+.sb-count[hidden], .sb-count-time[hidden], .sb-count-ends[hidden] { display: none; }
 
 .sb-vol { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .sb-vol-slider { width: 70px; margin: 0; accent-color: var(--accent, #6366f1); cursor: pointer; }
@@ -312,6 +312,8 @@ body.layout-modern .sb-vol-slider { accent-color: #fff; }
    least needed pieces go first */
 .stage-bar.sb-no-counttime .sb-count-time,
 .stage-bar.sb-no-count .sb-count { display: none; }
+.stage-bar.sb-no-countends .sb-count-ends,
+.stage-bar.sb-no-counttime .sb-count-ends { display: none; }
 .stage-bar.sb-no-skip .sb-skip { display: none; }
 .stage-bar.sb-no-label .sb-un-label { display: none; }
 .stage-bar.sb-no-label .sb-wide { padding: 0 8px; }
@@ -463,6 +465,12 @@ body.layout-modern .stage-tips .st-btn:not(.st-pri) { background: var(--m-btn, r
 .stage-mpv-ver { opacity: 0.7; font-size: 0.92em; }
 .stage-mpv-missing { color: var(--warning, #e0a040); }
 .stage-mpv-acts { display: inline-flex; gap: 8px; flex: none; flex-wrap: wrap; justify-content: flex-end; }
+/* The countdown's warning minutes: "30, 15, 10" min, and what is wrong with them */
+.stage-warn-wrap { display: inline-flex; align-items: center; gap: 6px; }
+.settings-toggle-title .stage-warn-wrap { vertical-align: middle; margin: 0 2px; }
+.stage-warn-text { width: 8.5rem; }
+.stage-warn-err { display: block; margin-top: 3px; font-size: 0.8rem; color: var(--warning, #e0a040); }
+.stage-warn-err[hidden] { display: none; }
 
 /* ── Basic Stage (picture-in-picture, player-lib/stage-control.js) ───── */
 

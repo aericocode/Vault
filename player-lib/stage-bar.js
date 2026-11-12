@@ -35,7 +35,8 @@ const StageBarRules = (() => {
      the window widens (seekWant: about 160 px at 900, 200 at 1100, 450 at
      1600, up to 560), and the middle is just wide enough for it and the
      transport. When the window is too narrow for that, the least needed
-     pieces go first, one row always: the 10 s buttons, then the Up next word
+     pieces go first, one row always: the end time ("· ends 10:42 PM"),
+     then the 10 s buttons, then the Up next word
      (icon and count stay), then the time left by the track count, then the
      whole count, then the volume slider (the button stays), then
      the seek bar's times, then Repeat, then Hold (those two move into the
@@ -46,8 +47,9 @@ const StageBarRules = (() => {
 
      Sizes in px, measured from the bar by stage-bar.js (NOMINAL until then):
        right      the right cluster with everything in it
-       countTime, count, unLabel, volSlider, repeat, hold   what each one
-                  adds to it (count: the whole track count, its time in it)
+       countEnds, countTime, count, unLabel, volSlider, repeat, hold   what
+                  each one adds to it (count: the whole track count, its
+                  time and end time in it)
        ctrls      the transport row with everything in it; skip: what the
                   two 10 s buttons add
        times      what the two seek times (and their gaps) add to the seek row
@@ -55,8 +57,10 @@ const StageBarRules = (() => {
   const SEEK_MIN = 60;
   const SEEK_MAX = 560;
   const THUMB_MIN = 560;              // below this the still goes (the left side is the name's)
-  const NOMINAL = { right: 380, countTime: 0, count: 0, unLabel: 58, volSlider: 76, repeat: 38, hold: 38, ctrls: 190, skip: 76, times: 84, pad: 28, gap: 14 };
-  const DROP_ORDER = ['skip', 'unLabel', 'countTime', 'count', 'volSlider', 'times', 'repeat', 'hold'];
+  const NOMINAL = { right: 380, countEnds: 0, countTime: 0, count: 0, unLabel: 58, volSlider: 76, repeat: 38, hold: 38, ctrls: 190, skip: 76, times: 84, pad: 28, gap: 14 };
+  // countEnds ("· ends 10:42 PM" after the time left) is the first to go: a
+  // bar that had room for everything before it came still shows the same.
+  const DROP_ORDER = ['countEnds', 'skip', 'unLabel', 'countTime', 'count', 'volSlider', 'times', 'repeat', 'hold'];
   // Back to Stage and Preview keep their words on a bar at least this wide
   // (the left side is then at least 330 px with the nominal sizes: the
   // still, the pill and both chips with their words, about 327 px measured);
@@ -83,7 +87,7 @@ const StageBarRules = (() => {
   function layout(width, sizes, want) {
     const w = Number(width) || 0;
     const m = { ...NOMINAL, ...(sizes || {}) };
-    const show = { countTime: true, count: true, skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true, back: true, backLabel: true };
+    const show = { countEnds: true, countTime: true, count: true, skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true, back: true, backLabel: true };
     if (!(w > 0)) return { show, mid: null, seek: null, side: null };
     show.thumb = w >= THUMB_MIN;
     show.backLabel = w >= BACK_LABEL_WIDTH;
@@ -96,8 +100,8 @@ const StageBarRules = (() => {
       show[k] = false;
       if (k === 'skip') ctrls -= m.skip;
       else if (k === 'times') times = 0;
-      // The count's time went first: what is left of the count goes now.
-      else if (k === 'count') right -= Math.max(0, m.count - m.countTime);
+      // The count's end time and time went first: what is left of the count goes now.
+      else if (k === 'count') right -= Math.max(0, m.count - m.countTime - (m.countEnds || 0));
       else right -= m[k];
     }
     if (space() < need()) {
@@ -193,8 +197,11 @@ const StageBarRules = (() => {
    *   s.back         Back to Stage shows (the user is away from the list
    *                  Stage plays); s.backTitle its tooltip
    *   s.id           the file on Stage (Preview shows while there is one)
-   *   s.countTrack, s.countTime   "Track 12 of 40", "2:14:30 left"
-   *                  (player-lib/stage-count.js), '' when there is none
+   *   s.countTrack, s.countTime, s.countEnds   "Track 12 of 40", "2:14:30
+   *                  left", "ends 10:42 PM" (player-lib/stage-count.js,
+   *                  stage-control.js withTimeLeft), '' when there is none;
+   *                  the track or the time can be alone, the end time only
+   *                  goes with the time
    *   s.pipClosed    Basic Stage's picture-in-picture window went away while
    *                  Stage is still open (a click on the bar opens it again)
    */
@@ -260,7 +267,15 @@ const StageBarRules = (() => {
       back: { show: !!s.back && !s.locked, title: String(s.backTitle || 'Back to the list Stage is playing from') },
       preview: { show: !!s.hasFile && !!s.id && !s.locked, title: 'Show the file on Stage in the preview' },
       reopen: { show: !!s.basic && !!s.pipClosed && !s.locked, label: 'Picture-in-picture closed, click to reopen' },
-      count: s.countTrack && !s.locked ? { track: String(s.countTrack), time: s.countTime ? String(s.countTime) : '' } : { track: '', time: '' },
+      // The time can show without a track count (a file played on its own on
+      // mpv Stage); the end time only with the time.
+      count: (s.countTrack || s.countTime) && !s.locked
+        ? {
+          track: s.countTrack ? String(s.countTrack) : '',
+          time: s.countTime ? String(s.countTime) : '',
+          ends: s.countTime && s.countEnds ? String(s.countEnds) : '',
+        }
+        : { track: '', time: '', ends: '' },
     };
   }
 
@@ -325,7 +340,7 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
   }
 
   const NO_CLASSES = {
-    countTime: 'sb-no-counttime', count: 'sb-no-count', skip: 'sb-no-skip', unLabel: 'sb-no-label', volSlider: 'sb-no-volslider',
+    countEnds: 'sb-no-countends', countTime: 'sb-no-counttime', count: 'sb-no-count', skip: 'sb-no-skip', unLabel: 'sb-no-label', volSlider: 'sb-no-volslider',
     thumb: 'sb-no-thumb', times: 'sb-no-times', repeat: 'sb-no-repeat', hold: 'sb-no-hold', back: 'sb-no-back', backLabel: 'sb-no-backlabel',
   };
 
@@ -351,6 +366,7 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
       // The track count (nothing while it is hidden): all of it with its gap, and its time.
       count: countW ? countW + 6 : 0,
       countTime: countW ? width($('stageBarCountTime')) : 0,
+      countEnds: countW ? width($('stageBarCountEnds')) : 0,
       unLabel: width(label) + 6 + 4,  // the word, its gap, and the button's narrower padding without it
       volSlider: width($('stageBarVol')) + 6,
       repeat: width($('stageBarRepeat')) + 6,
@@ -572,12 +588,16 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
     if (count && v.count) {
       const trackEl = $('stageBarCountTrack');
       const timeEl = $('stageBarCountTime');
-      const was = `${count.hidden ? '' : `${trackEl ? trackEl.textContent : ''}${timeEl ? timeEl.textContent : ''}`}`;
+      const endsEl = $('stageBarCountEnds');
+      const ends = v.count.ends || '';
+      const was = `${count.hidden ? '' : `${trackEl ? trackEl.textContent : ''}${timeEl ? timeEl.textContent : ''}${endsEl ? endsEl.textContent : ''}`}`;
+      const sep = v.count.track ? ' · ' : '';
       if (trackEl) trackEl.textContent = v.count.track;
-      if (timeEl) { timeEl.textContent = v.count.time ? ` · ${v.count.time}` : ''; timeEl.hidden = !v.count.time; }
-      count.hidden = !v.count.track;
-      count.title = v.count.track ? `${v.count.track}${v.count.time ? `, ${v.count.time}` : ''}` : '';
-      const now = count.hidden ? '' : `${v.count.track}${v.count.time ? ` · ${v.count.time}` : ''}`;
+      if (timeEl) { timeEl.textContent = v.count.time ? `${sep}${v.count.time}` : ''; timeEl.hidden = !v.count.time; }
+      if (endsEl) { endsEl.textContent = ends ? ` · ${ends}` : ''; endsEl.hidden = !ends; }
+      count.hidden = !(v.count.track || v.count.time);
+      count.title = [v.count.track, v.count.time, ends].filter(Boolean).join(', ');
+      const now = count.hidden ? '' : `${v.count.track}${v.count.time ? `${sep}${v.count.time}` : ''}${ends ? ` · ${ends}` : ''}`;
       if (was.length !== now.length && on) relayout();
     }
 
