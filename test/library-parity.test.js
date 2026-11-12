@@ -263,14 +263,14 @@ function browserResult(ctx, st) {
     if (scanStatus && scanStatusOf(m) !== scanStatus) return false;
     if (triDuplicates === '1' && !isDuplicate(m.filepath)) return false;
     if (triDuplicates === '0' && duplicateExtras.has(m.filepath)) return false;
-    if (minRatingValue === 'unrated' && (m.user_rating || 0) > 0) return false;
-    // Exactly that star (the Rating filter's own rows since the "and up"
-    // ones moved under them; '1'..'5' keep meaning "and up").
-    if (/^eq[1-5]$/.test(minRatingValue)) {
-      if ((m.user_rating || 0) !== Number(minRatingValue.slice(2))) return false;
-    } else if (minRatingValue !== '0' && minRatingValue !== 'unrated') {
-      const minRating = parseInt(minRatingValue) || 0;
-      if (minRating > 0 && (m.user_rating || 0) < minRating) return false;
+    // The Rating filter: any of the picked stars ('unrated', 'eq1'..'eq5',
+    // joined by commas); the old '1'..'5' keep meaning "and up".
+    if (/^[1-5]$/.test(minRatingValue)) {
+      if ((m.user_rating || 0) < Number(minRatingValue)) return false;
+    } else if (minRatingValue !== '0') {
+      const r = m.user_rating || 0;
+      const any = minRatingValue.split(',').some(p => (p === 'unrated' ? !(r > 0) : r === Number(p.slice(2))));
+      if (!any) return false;
     }
     const duration = m.duration_seconds || 0;
     if (durMinM > 0 && duration < durMinM * 60) return false;
@@ -347,6 +347,7 @@ const FILTER_VARIANTS = [
   { quality: 'low' }, { theme: 'romance' }, { theme: 'Romance' }, { theme: 'sea' }, { theme: '5' },
   { minRating: 'unrated' }, { minRating: '1' }, { minRating: '3' }, { minRating: '5' },
   { minRating: 'eq1' }, { minRating: 'eq2' }, { minRating: 'eq3' }, { minRating: 'eq4' }, { minRating: 'eq5' },
+  { minRating: 'eq4,eq5' }, { minRating: 'unrated,eq1' }, { minRating: 'eq1,eq3,eq5' }, { minRating: 'unrated,eq1,eq2,eq3,eq4,eq5' },
   { durMin: 1 }, { durMin: 2 }, { durMax: 0 }, { durMax: 1 }, { durMin: 1, durMax: 60 }, { durMax: 200 },
   { collections: '1' }, { collections: '0' },
   { starred: '1' }, { starred: '0' }, { hasNotes: '1' }, { hasNotes: '0' },
@@ -410,6 +411,10 @@ test('eq ratings with every sort', async () => {
       await check(ctx, { sort, filters: { minRating } }, 'eq rating, sort');
     }
     await check(ctx, { sort, filters: { minRating: 'eq3', mediaTypes: ['video'], trashed: '' } }, 'eq rating, sort, filtered');
+    // Several stars picked: any of them.
+    for (const minRating of ['eq4,eq5', 'eq2,eq3', 'unrated,eq5']) {
+      await check(ctx, { sort, filters: { minRating } }, 'several stars, sort');
+    }
   }
 });
 

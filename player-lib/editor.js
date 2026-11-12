@@ -584,11 +584,13 @@ async function editorDeleteSong(songId, btn) {
 }
 
 function editorShowSongInLibrary(songId) {
+  // The Library first: the filters on screen are then the Library's own
+  // (each view keeps its own, filters.js SearchScopes).
+  switchTab('library');
   const sel = document.getElementById('filterSong');
   if (sel) {
     sel.value = String(songId);
   }
-  switchTab('library');
   applyFilters();
 }
 

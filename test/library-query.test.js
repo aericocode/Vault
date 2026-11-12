@@ -448,6 +448,23 @@ test('Rating eq3 is exactly three stars; 3 stays three and up (older saved searc
   assert.throws(() => q.normalizeSpec({ filters: { minRating: 'eq0' } }), (e) => e.status === 400);
 });
 
+test('Rating with several stars picked returns files with any of them', async () => {
+  const set = async (minRating) => new Set(await ids({ filters: { minRating } }));
+  const both = await set('eq3,eq5');
+  assert.deepStrictEqual([...both].sort(), [ID.star1, ID.star2, ID.rated5].sort(), 'three and five, the same files as "3 and up" here');
+  assert.deepStrictEqual([...await set('eq5,eq3')].sort(), [...both].sort(), 'the order picked does not matter');
+  const unratedToo = await set('unrated,eq5');
+  assert.ok(unratedToo.has(ID.rated5), 'the five-star file');
+  assert.ok(!unratedToo.has(ID.star1), 'not a three-star one');
+  const unrated = await set('unrated');
+  assert.strictEqual(unratedToo.size, unrated.size + 1, 'every unrated file plus the five-star one');
+  // Kept in order, the same way however it was sent.
+  assert.strictEqual(q.normalizeSpec({ filters: { minRating: 'eq5,unrated,eq5' } }).filters.minRating, 'unrated,eq5');
+  for (const v of ['eq3,', 'eq3,3', '3,4', 'eq3, eq4', '', 'eq6,eq1']) {
+    assert.throws(() => q.normalizeSpec({ filters: { minRating: v } }), (e) => e.status === 400, v);
+  }
+});
+
 // ── Validation ────────────────────────────────────────────────────────────
 
 test('invalid specs are rejected with the field named', () => {

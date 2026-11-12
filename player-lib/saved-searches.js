@@ -35,6 +35,21 @@ function captureCurrentFilterState() {
     metadataOnly: document.getElementById('metadataOnly')?.checked || false,
     fuzzySearch: document.getElementById('fuzzySearch')?.checked || false,
     semanticSearch: document.getElementById('semanticSearch')?.checked || false,
+    ...captureFilterControls(),
+    // The library's sort, not an open collection's playlist order
+    sortValue: typeof librarySortValue === 'function' ? librarySortValue() : (currentSort || 'processed_desc'),
+    favesFirst: typeof favesFirst !== 'undefined' ? favesFirst : false,
+  };
+}
+
+/**
+ * The filters part of the saved state: everything that narrows the list,
+ * without the search text, the search options and the sort. Each view (the
+ * Library, each open collection) keeps its own copy of it (filters.js
+ * SearchScopes); a saved search stores it inside the whole state.
+ */
+function captureFilterControls() {
+  return {
     mediaTypes: typeof selectedMediaTypes !== 'undefined' ? [...selectedMediaTypes] : [],
     safeOnly: typeof safeOnly !== 'undefined' ? safeOnly : false,
     filterContent: document.getElementById('filterContent')?.value || '',
@@ -51,9 +66,6 @@ function captureCurrentFilterState() {
     durMin: typeof durMinM !== 'undefined' ? durMinM : 0,
     durMax: typeof durMaxM !== 'undefined' ? durMaxM : null,
     selectedExtensions: selectedExtensions ? [...selectedExtensions] : [],
-    // The library's sort, not an open collection's playlist order
-    sortValue: typeof librarySortValue === 'function' ? librarySortValue() : (currentSort || 'processed_desc'),
-    favesFirst: typeof favesFirst !== 'undefined' ? favesFirst : false,
   };
 }
 
@@ -73,11 +85,34 @@ function restoreFilterState(state) {
   const semantic = document.getElementById('semanticSearch');
   if (semantic) semantic.checked = state.semanticSearch || false;
 
+  restoreFilterControls(state);
+
+  if (state.sortValue) {
+    // Legacy saves: 'starred_desc' was a sort option before ❤ became a toggle
+    if (state.sortValue.startsWith('starred')) {
+      currentSort = 'rating_desc';
+      favesFirst = true;
+    } else {
+      currentSort = state.sortValue;
+    }
+  }
+  if (typeof state.favesFirst === 'boolean') favesFirst = state.favesFirst;
+  // An open collection shows this sort and puts it back on close (collection-reorder.js)
+  if (state.sortValue && typeof collectionSortAdopt === 'function') collectionSortAdopt();
+  if (typeof syncSortControls === 'function') syncSortControls();
+
+  return applyFilters();
+}
+
+/**
+ * Set the filter controls from a saved state (captureFilterControls' fields;
+ * a missing one means not set). Does not run the search.
+ */
+function restoreFilterControls(state) {
   // Dropdown selects
   const selects = {
     filterContent: state.filterContent || '',
     filterLanguage: state.filterLanguage || '',
-    filterMinRating: state.filterMinRating || '0',
     filterTheme: state.filterTheme || '',
     filterQuality: state.filterQuality || '',
   };
@@ -89,6 +124,14 @@ function restoreFilterState(state) {
     if (el && typeof ensureSelectOption === 'function') ensureSelectOption(el, value);
     if (el) el.value = value;
   });
+
+  // Rating: the stars picked. A search saved when it meant "3 and up" comes
+  // back as 3, 4 and 5 picked: the same files, shown as the list has them.
+  const rating = document.getElementById('filterMinRating');
+  if (rating) {
+    const v = state.filterMinRating || '0';
+    rating.value = typeof ratingNormalize === 'function' ? ratingNormalize(v) : v;
+  }
 
   // Media-type bubbles + safe toggle (legacy saves stored filterType single)
   if (typeof selectedMediaTypes !== 'undefined') {
@@ -125,22 +168,6 @@ function restoreFilterState(state) {
     selectedExtensions = state.selectedExtensions || [];
     renderTypeExtensionFilter();
   }
-
-  if (state.sortValue) {
-    // Legacy saves: 'starred_desc' was a sort option before ❤ became a toggle
-    if (state.sortValue.startsWith('starred')) {
-      currentSort = 'rating_desc';
-      favesFirst = true;
-    } else {
-      currentSort = state.sortValue;
-    }
-  }
-  if (typeof state.favesFirst === 'boolean') favesFirst = state.favesFirst;
-  // An open collection shows this sort and puts it back on close (collection-reorder.js)
-  if (state.sortValue && typeof collectionSortAdopt === 'function') collectionSortAdopt();
-  if (typeof syncSortControls === 'function') syncSortControls();
-
-  return applyFilters();
 }
 
 // ── Save / Delete / Activate ────────────────────────────────────────────

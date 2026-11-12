@@ -204,17 +204,6 @@ body.rail-shown.dock-shown .selection-bar {
   font-variant-numeric: tabular-nums;
 }
 .rail-opt.is-on .rail-count { color: var(--text-secondary); }
-/* A line over the first row of a second group (Rating: the "and up" rows). */
-.rail-opt.rail-opt-divider { position: relative; margin-top: 0.45rem; }
-.rail-opt.rail-opt-divider::before {
-  content: '';
-  position: absolute;
-  left: 0.5rem;
-  right: 0.5rem;
-  top: -0.25rem;
-  border-top: 1px solid var(--border);
-  pointer-events: none;
-}
 
 /* Pills: types, duration presets, extensions. */
 .rail-pills { display: flex; flex-wrap: wrap; gap: 0.35rem; }

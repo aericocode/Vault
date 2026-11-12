@@ -947,7 +947,9 @@ function startAudioSimilarity(anchorId) {
       document.getElementById('mediaPlayerOverlay')?.classList.contains('active')) {
     closeMediaPlayer();
   }
-  if (typeof switchTab === 'function') switchTab('library');
+  // The ranking is the Library view's (a collection opened from the rail closes).
+  if (typeof goToLibraryView === 'function') goToLibraryView();
+  else if (typeof switchTab === 'function') switchTab('library');
   renderAudioSimBar();
   applyFilters();
   const m = getMediaById(anchorId);
@@ -972,7 +974,8 @@ function renderAudioSimBar() {
     bar.className = 'audiosim-bar';
     grid.parentElement.insertBefore(bar, grid);
   }
-  if (!audioSimScores) {
+  // Hidden (not ended) while a collection is open: the ranking is the Library's.
+  if (!audioSimScores || (typeof libraryOverridesOff === 'function' && libraryOverridesOff())) {
     bar.style.display = 'none';
     bar.innerHTML = '';
     return;

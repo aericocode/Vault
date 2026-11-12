@@ -211,24 +211,11 @@
 
         <select id="filterContent"><option value="">All Content</option></select>
         <select id="filterLanguage"><option value="">All Languages</option></select>
-        <!-- eq1..eq5: exactly that star. 1..4: that star and up (kept for
-             saved searches made before, and offered under the exact ones);
-             5 is the old "5", the same files as eq5 (filter-chips.js
-             leaves it out of the list). -->
-        <select id="filterMinRating">
-          <option value="0">Any</option>
-          <option value="unrated">Unrated</option>
-          <option value="eq1">★ 1</option>
-          <option value="eq2">★★ 2</option>
-          <option value="eq3">★★★ 3</option>
-          <option value="eq4">★★★★ 4</option>
-          <option value="eq5">★★★★★ 5</option>
-          <option value="1">★ 1 and up</option>
-          <option value="2">★★ 2 and up</option>
-          <option value="3">★★★ 3 and up</option>
-          <option value="4">★★★★ 4 and up</option>
-          <option value="5">★★★★★ 5</option>
-        </select>
+        <!-- The Rating filter: '0' (any), or the stars picked, any of them:
+             'unrated' and 'eq1'..'eq5' joined by commas ('eq4,eq5'). Several
+             can be on at once, so it is a value, not a list (filter-chips.js
+             RATING_CHOICES draws the rows). -->
+        <input type="hidden" id="filterMinRating" value="0" autocomplete="off">
         <select id="filterTheme"><option value="">All Themes</option></select>
         <select id="filterQuality"><option value="">All Quality</option></select>
         <select id="filterSong"><option value="">All Songs</option></select>

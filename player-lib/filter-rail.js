@@ -246,10 +246,11 @@ function railCount(n) {
   return n == null ? '' : `<span class="rail-count">${Number(n).toLocaleString()}</span>`;
 }
 
-/** One pickable row of a list filter. Clicking the picked row again clears it. */
+/** One pickable row of a list filter. Clicking the picked row again clears it.
+    `selected` is the value, or a list of them where several can be on (Rating). */
 function railOptHtml(key, it, selected) {
-  const on = it.value === selected;
-  return `<button type="button" class="rail-opt${on ? ' is-on' : ''}${it.divider ? ' rail-opt-divider' : ''}" data-rail-key="${key}"
+  const on = Array.isArray(selected) ? selected.includes(it.value) : it.value === selected;
+  return `<button type="button" class="rail-opt${on ? ' is-on' : ''}" data-rail-key="${key}"
       data-rail-value="${escapeHtml(String(it.value))}" aria-pressed="${on ? 'true' : 'false'}">
       <span class="rail-opt-label">${escapeHtml(String(it.label))}</span>${railCount(it.count)}</button>`;
 }
@@ -382,7 +383,9 @@ function railRenderTypes() {
 }
 
 function railRenderRating() {
-  const selected = fchipValue('rating');
+  // Any number of stars on at once; none on is Any.
+  const picks = ratingPicks(fchipValue('rating'));
+  const selected = picks.length ? picks : [FCHIP_DEFS.rating.def];
   railSet('railRating', fchipItems('rating').map(it => railOptHtml('rating', it, selected)).join(''));
   railVal('rating', fchipIsSet('rating') ? fchipValueLabel('rating') : '');
 }
@@ -521,6 +524,11 @@ function railRenderNow() {
 function railPick(key, value) {
   const d = FCHIP_DEFS[key];
   if (!d) return;
+  // Rating: each star turns on or off by itself; Any turns them all off.
+  if (d.type === 'multi') {
+    fchipSet(key, value === d.def ? d.def : ratingToggle(fchipValue(key), value));
+    return;
+  }
   // Picking the row that is already on clears it, which a list with no
   // visible "Any" row needs.
   if (fchipValue(key) === value && value !== d.def) { fchipClear(key); return; }

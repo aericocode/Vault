@@ -454,9 +454,11 @@ const Wall = (() => {
       const s = (typeof savedSearches !== 'undefined' ? savedSearches : []).find(x => x.id === id);
       return s ? savedSearchSpec(s) : null;
     }
-    // The library as the controls describe it right now.
+    // The Library view's own search and filters, whichever tab or
+    // collection was on screen before the Wall (each view keeps its own,
+    // filters.js SearchScopes). A collection is its own source (c:<id>).
     if (typeof currentQuerySpec === 'function') {
-      const spec = currentQuerySpec();
+      const spec = currentQuerySpec({ library: true });
       spec.search = { ...spec.search, subtitles: false };
       return spec;
     }
@@ -1212,10 +1214,10 @@ const Wall = (() => {
   }
 
   function showEmpty() {
-    const n = typeof libraryNarrowing === 'function' ? libraryNarrowing() : {};
+    // The Library view's, not the controls on screen (see baseSpec).
     const m = emptyMessage({
       source: cfg.source,
-      narrowed: !!(n.text || n.filters || n.focus || n.similar || n.collection),
+      narrowed: typeof libraryNarrowed === 'function' && libraryNarrowed(),
       libraryEmpty: typeof Library !== 'undefined' && Library.known() && Library.length() === 0,
     });
     if (m.kind !== 'library') { showMsg(m.hint); return; }

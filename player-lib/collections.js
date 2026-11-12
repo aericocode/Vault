@@ -521,11 +521,19 @@ async function cardDelete(id, btn) {
   if (!list) return;
   collectionsList = list;
   collectionMembers.delete(id);
-  if (activeCollectionId === id) {
+  // The card menu only shows on the cards, with no collection open, so this
+  // is a guard: if it was open, the cards view's search and filters come
+  // back through applyFilters (filters.js syncSearchScope).
+  const wasOpen = activeCollectionId === id;
+  if (wasOpen) {
     activeCollectionId = null;
     if (typeof collectionSortLeave === 'function') collectionSortLeave();
+    applyFilters();
+  } else {
+    renderResults();
   }
-  renderResults();
+  // What its view held goes with it (after the switch above, which keeps it).
+  if (typeof searchScopeForget === 'function') searchScopeForget(id);
   renderCollectionsTabBar();
   showToast(collDeletedText(c));
 }
@@ -760,6 +768,8 @@ async function deleteCollectionTwoStep(id, btn) {
   renderCollectionHeader();
   renderCollectionsTabBar();
   applyFilters();
+  // What its view held goes with it (after applyFilters left that view).
+  if (typeof searchScopeForget === 'function') searchScopeForget(id);
   showToast(collDeletedText(c));
 }
 

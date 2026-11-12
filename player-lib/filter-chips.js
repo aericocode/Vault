@@ -39,7 +39,8 @@ const FCHIP_SCAN = [
    `def` is the value that counts as "not set" — Trashed is the odd one out,
    because hiding the trash is the default, not showing everything. */
 const FCHIP_DEFS = {
-  rating:      { label: 'Rating',       type: 'select',   el: 'filterMinRating', def: '0', search: false, anyLabel: 'Any' },
+  // Several stars can be on at once (ratingToggle below).
+  rating:      { label: 'Rating',       type: 'multi',    el: 'filterMinRating', def: '0', search: false, anyLabel: 'Any' },
   duration:    { label: 'Duration',     type: 'duration', def: null },
   language:    { label: 'Language',     type: 'select',   el: 'filterLanguage',  def: '',  search: true },
   theme:       { label: 'Theme',        type: 'select',   el: 'filterTheme',     def: '',  search: true },
@@ -112,10 +113,63 @@ function fchipDurationLabel() {
 
 /* ── Reading and writing one filter ───────────────────────────────────── */
 
+/* ── Rating: one star or several ─────────────────────────────────────────
+   Each star is a row of its own, and any number can be on: 4 and 5 on shows
+   the files rated 4 or 5 ("4 and up" is two clicks). The value is the picks
+   joined by commas, in this order ('eq4,eq5'), or '0' for any rating; one
+   pick alone is the value it always was ('eq3', 'unrated'). Searches saved
+   before hold '1'..'5', meaning that star and up: they come back as the
+   same stars picked (3 is 3, 4 and 5). */
+const RATING_CHOICES = [
+  { value: 'unrated', label: 'Unrated' },
+  { value: 'eq1', label: '★ 1' },
+  { value: 'eq2', label: '★★ 2' },
+  { value: 'eq3', label: '★★★ 3' },
+  { value: 'eq4', label: '★★★★ 4' },
+  { value: 'eq5', label: '★★★★★ 5' },
+];
+
+/** The picks a Rating value holds, in list order ([] for any rating). */
+function ratingPicks(value) {
+  const all = RATING_CHOICES.map(c => c.value);
+  const v = String(value == null ? '0' : value);
+  if (/^[1-5]$/.test(v)) return all.slice(all.indexOf(`eq${v}`));   // old "and up"
+  const parts = v.split(',');
+  return all.filter(p => parts.includes(p));
+}
+
+/** The Rating value for these picks. All six on is every file: any rating. */
+function ratingValue(picks) {
+  const on = RATING_CHOICES.map(c => c.value).filter(p => picks.includes(p));
+  return on.length && on.length < RATING_CHOICES.length ? on.join(',') : '0';
+}
+
+/** A Rating value as the list shows it (an old "3 and up" becomes 3, 4 and 5). */
+function ratingNormalize(value) {
+  return ratingValue(ratingPicks(value));
+}
+
+/** One row clicked: on if it was off, off if it was on. */
+function ratingToggle(value, pick) {
+  const picks = ratingPicks(value);
+  return ratingValue(picks.includes(pick) ? picks.filter(p => p !== pick) : picks.concat(pick));
+}
+
+/** The words on a set Rating chip: "★★★ 3", "4 or 5 stars", "Unrated or 1 star". */
+function ratingLabel(value) {
+  const picks = ratingPicks(value);
+  if (!picks.length) return 'Any';
+  if (picks.length === 1) return RATING_CHOICES.find(c => c.value === picks[0]).label;
+  const stars = picks.filter(p => p !== 'unrated').map(p => Number(p.slice(2)));
+  const words = (picks.includes('unrated') ? ['Unrated'] : []).concat(stars.map(String));
+  const list = words.length > 1 ? `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}` : words[0];
+  return stars.length ? `${list} ${stars.length === 1 && stars[0] === 1 ? 'star' : 'stars'}` : list;
+}
+
 function fchipValue(key) {
   const d = FCHIP_DEFS[key];
   if (!d) return null;
-  if (d.type === 'select') return document.getElementById(d.el)?.value ?? d.def;
+  if (d.type === 'select' || d.type === 'multi') return document.getElementById(d.el)?.value ?? d.def;
   if (d.type === 'tri') return getTriFilterValue(d.name);
   if (d.type === 'duration') {
     const { min, max } = fchipDurationRange();
@@ -134,6 +188,7 @@ function fchipValueLabel(key) {
   if (d.type === 'duration') return fchipDurationLabel();
   const v = fchipValue(key);
   if (d.type === 'tri') return (d.options.find(o => o.value === v)?.label) || v;
+  if (d.type === 'multi') return ratingLabel(v);
   const sel = document.getElementById(d.el);
   if (!sel) return v;
   const opt = [...sel.options].find(o => o.value === v);
@@ -201,21 +256,9 @@ function fchipRatingCounts(total, up) {
   const r = (i) => Number(up && up[i]) || 0;
   const out = { '0': total, unrated: r('unrated') };
   for (let i = 1; i <= 5; i++) {
-    out[i] = r(i);
     out[`eq${i}`] = Math.max(0, r(i) - (i < 5 ? r(i + 1) : 0));
   }
   return out;
-}
-
-/**
- * The Rating list: Any, Unrated, each star on its own, then "and up" under a
- * line. The old "5" (saved before, the same files as exactly 5) shows only
- * while it is the one set.
- */
-function fchipRatingItems(opts, selected) {
-  return opts
-    .filter(o => o.value !== '5' || selected === '5')
-    .map(o => ({ value: o.value, label: o.label, ...(o.value === '1' ? { divider: true } : {}) }));
 }
 
 /** { optionValue: count } for one filter, or null when it does not do counts. */
@@ -253,13 +296,10 @@ function fchipItems(key) {
     : list;
 
   if (d.type === 'tri') return tally(d.options.slice());
+  if (d.type === 'multi') return tally([{ value: d.def, label: d.anyLabel }].concat(RATING_CHOICES));
   const sel = document.getElementById(d.el);
   if (!sel) return [];
   const opts = [...sel.options];
-  if (key === 'rating') {
-    // This select's own labels are already the ones the list shows.
-    return tally(fchipRatingItems(opts.map(o => ({ value: o.value, label: o.textContent.trim() })), sel.value));
-  }
   // Option 0 is the "All Languages" placeholder — it becomes plain "Any".
   return tally([{ value: d.def, label: d.anyLabel || 'Any' }]
     .concat(opts.slice(1).map(o => ({ value: o.value, label: o.textContent.trim() }))));
@@ -269,7 +309,7 @@ function fchipItems(key) {
 function fchipSet(key, value) {
   const d = FCHIP_DEFS[key];
   if (!d) return;
-  if (d.type === 'select') {
+  if (d.type === 'select' || d.type === 'multi') {
     const sel = document.getElementById(d.el);
     if (!sel) return;
     sel.value = value;
@@ -530,6 +570,20 @@ function openChipPopover(key, anchor) {
   if (!d) return;
   if (d.type === 'duration') return openDurationPopover(anchor);
   if (key === 'theme' && themeChipWaiting()) return;
+  if (d.type === 'multi') {
+    // Each star row turns on or off and the list stays open, so several can
+    // be picked; Any clears them and closes it.
+    const picked = () => { const p = ratingPicks(fchipValue(key)); return p.length ? p : [d.def]; };
+    openFilterPopover(anchor, {
+      title: d.label,
+      items: fchipItems(key),
+      selected: picked(),
+      multi: { clearValue: d.def, selected: picked },
+      searchable: false,
+      onPick: (v) => fchipSet(key, v === d.def ? d.def : ratingToggle(fchipValue(key), v)),
+    });
+    return;
+  }
   const sortable = FCHIP_SORTABLE.includes(key);
   openFilterPopover(anchor, {
     title: d.label,
