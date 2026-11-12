@@ -899,13 +899,18 @@ body.pm-thumbs .tile-img {
    the library detail modal. Blurred rather than removed: these are headings and
    layout anchors, and a grid of nameless tiles is unusable to navigate.
    The tile `title=` tooltip is a native one and cannot be styled, so cards.js
-   omits the attribute outright while this class is on. */
+   omits the attribute outright while this class is on.
+   The mini player's title stays clickable (it finds the file's tile,
+   player-lib/now-playing.js); only its text is blurred. */
 body.pm-names .tile-name,
 body.pm-names #mediaPlayerTitle,
-body.pm-names #miniPlayerTitle,
 body.pm-names #modalTitle {
   filter: blur(7px);
   pointer-events: none;
+  user-select: none;
+}
+body.pm-names #miniPlayerTitle {
+  filter: blur(7px);
   user-select: none;
 }
 

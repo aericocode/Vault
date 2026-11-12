@@ -388,13 +388,13 @@ test('opening Stage from the mini player\'s own Stage button: focus leaves the n
   assert.match(read('db-viewer.html'), /id="stageBar" role="region" aria-label="Stage" tabindex="-1"/, 'the bar can take focus');
 });
 
-test('privacy mode: the bar title has no name in its tooltip, and the CSS blurs it like the players\' titles', () => {
+test('privacy mode: the bar title has no name in its tooltip (only what a click does), and the CSS blurs it like the players\' titles', () => {
   const p = fakePage({ pmNames: true });
   p.SB.paint(R.view({ ...playing, namesHidden: false }));
-  assert.strictEqual(p.els.stageBarTitle.title, '', 'no name in the tooltip even from a stale view');
+  assert.strictEqual(p.els.stageBarTitle.title, 'Show this file in the library', 'no name in the tooltip even from a stale view, only what a click does');
   const q = fakePage();
   q.SB.paint(R.view(playing));
-  assert.strictEqual(q.els.stageBarTitle.title, 'clip.mp4');
+  assert.strictEqual(q.els.stageBarTitle.title, 'clip.mp4\nShow this file in the library');
   assert.match(read('css/stage-remote.css'), /body\.pm-names #stageBarTitle \{\s*filter: blur\(7px\);/);
 });
 

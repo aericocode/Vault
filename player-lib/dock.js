@@ -247,12 +247,12 @@ function dockPartsHtml(m) {
       ${thumb}
       <span class="tile-type-icon">${icon}</span>
       ${length ? `<span class="tile-duration dock-len">${escapeHtml(length)}</span>` : ''}
+      ${dockStageButtonHtml(m)}
     </div>`],
     ['name', `<div class="dock-name" data-dock-part="name">${escapeHtml(m.filename)}</div>`],
     ['meta', `<div class="dock-meta" data-dock-part="meta">${meta.map(v => `<span>${escapeHtml(v)}</span>`).join('')}</div>`],
     ['actions', `<div class="dock-actions" data-dock-part="actions">
       <button class="dock-btn dock-btn-primary" onclick="dockPlayPick(${m.id})">${vaultIconSwap('▶ ', 'play')}Play</button>
-      ${dockStageButtonHtml(m)}
       ${typeof UpNext === 'undefined' ? '' : `<button class="dock-btn" onclick="upNextAddFrom(${m.id}, 'next', 'dock')" title="Play this file after the one playing now (Shift+U)">Play next</button>
       <button class="dock-btn" onclick="upNextAddFrom(${m.id}, 'end', 'dock')" title="Add this file to the end of Up next (U)">+ Up next</button>`}
       <button class="dock-btn dock-btn-icon" onclick="showDetailsById(${m.id})" title="Details" aria-label="Details">${vaultIconSwap('ℹ️', 'info')}</button>
@@ -290,7 +290,11 @@ function dockPartsHtml(m) {
    already go to Stage while it is open. */
 function dockStageButtonHtml(m) {
   if (typeof StageControl === 'undefined' || !m || m.media_type !== 'video') return '';
-  return `<button class="dock-btn dock-stage-play" onclick="dockPlayOnStage(${m.id})"
+  // On the preview picture, over its bottom left corner: the row of buttons
+  // under the name has no room left at the pane's usual width. A double
+  // click on it is not the picture's (which plays here).
+  return `<button type="button" class="dock-btn dock-stage-play" onclick="event.stopPropagation(); dockPlayOnStage(${m.id})"
+      ondblclick="event.stopPropagation()"
       title="Open Stage, the window you share in Discord, and play this there">${vaultIconSwap('📺 ', 'stage')}Play on Stage</button>`;
 }
 

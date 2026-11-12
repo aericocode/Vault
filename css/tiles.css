@@ -77,28 +77,53 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
-/* The file playing now (player-lib/now-playing.js): a clear accent ring just
-   outside the tile while the mini player or Stage is up (Stage keeps the mini
-   player's box, hidden). An outline, so it shows over the selected and
-   previewed tiles' own borders instead of fighting them. */
+/* The file playing now (player-lib/now-playing.js): a green ring just
+   outside the tile and a "Now playing" label on its picture, while the mini
+   player or Stage is up (Stage keeps the mini player's box, hidden). Green,
+   not the indigo of the selected and previewed tiles, and it wins over both:
+   a tile that is previewed and playing shows as playing. */
 body:has(#miniPlayer.active) .media-tile.tile-now-playing {
-  border-color: var(--accent);
-  outline: 3px solid var(--accent-hover);
+  border-color: var(--now-playing);
+  box-shadow: none;
+  outline: 3px solid var(--now-playing);
   outline-offset: 1px;
 }
+body:has(#miniPlayer.active) .media-tile.tile-now-playing .tile-thumb::before {
+  content: 'Now playing';
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--now-playing);
+  color: #052e16;
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Room under the grid for the mini player, set when a click on the name
+   found a tile in the last rows under it (now-playing.js clearOfMini). Gone
+   with the mini player. */
+body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom: var(--np-reserve); }
 
 /* A click on the playing file's name: a short glow on its tile. */
 .media-tile.tile-np-glow { animation: tile-np-glow 1.6s ease-out; }
 @keyframes tile-np-glow {
-  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-hover) 90%, transparent); }
-  35%  { box-shadow: 0 0 22px 8px color-mix(in srgb, var(--accent-hover) 75%, transparent); }
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--now-playing) 90%, transparent); }
+  35%  { box-shadow: 0 0 22px 8px color-mix(in srgb, var(--now-playing) 75%, transparent); }
   100% { box-shadow: 0 0 0 0 transparent; }
 }
-/* No movement asked for: a steady ring for the same time instead. */
+/* No movement asked for: a steady ring for the same time instead (as strong
+   as the now playing rule above, which would otherwise take its shadow away). */
 @media (prefers-reduced-motion: reduce) {
-  .media-tile.tile-np-glow {
+  .media-tile.tile-np-glow,
+  body:has(#miniPlayer.active) .media-tile.tile-np-glow {
     animation: none;
-    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-hover) 70%, transparent);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--now-playing) 70%, transparent);
   }
 }
 

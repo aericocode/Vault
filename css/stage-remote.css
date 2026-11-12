@@ -339,10 +339,10 @@ body.layout-modern .sb-vol-slider { accent-color: #fff; }
 .stage-bar:focus { outline: none; }   /* takes focus from a hidden mini player control, not drawn */
 
 /* Privacy mode (file names hidden): the bar's name is blurred like the
-   players' titles (css/settings.css); stage-bar.js already writes "this file". */
+   players' titles (css/settings.css); stage-bar.js already writes "this file".
+   It stays clickable: a click still finds the file's tile. */
 body.pm-names #stageBarTitle {
   filter: blur(7px);
-  pointer-events: none;
   user-select: none;
 }
 

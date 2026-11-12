@@ -42,23 +42,24 @@ function load({ stage = true } = {}) {
 }
 
 const VIDEO = { id: 7, filename: 'a.mp4', filepath: 'D:\\a.mp4', media_type: 'video', duration_seconds: 60 };
-const actions = (D, m) => D.dockPartsHtml(m).find(([k]) => k === 'actions')[1];
+const part = (D, m, key) => D.dockPartsHtml(m).find(([k]) => k === key)[1];
 
-test('a video in the pane has Play on Stage, right after Play', () => {
+test('a video in the pane has Play on Stage, on its picture (the row of buttons has no room)', () => {
   const D = load();
-  const html = actions(D, VIDEO);
-  assert.match(html, /class="dock-btn dock-stage-play" onclick="dockPlayOnStage\(7\)"/);
-  assert.match(html, /<svg class="vi vi-stage"><\/svg>Play on Stage<\/button>/, 'Modern icon, Classic emoji');
-  assert.ok(html.indexOf('Play on Stage') > html.indexOf('>Play</button>'), 'after Play');
-  assert.ok(!/\u2014/.test(html), 'no em dash');
+  const html = part(D, VIDEO, 'thumb');
+  assert.ok(html.includes('class="dock-btn dock-stage-play" onclick="event.stopPropagation(); dockPlayOnStage(7)"'));
+  assert.ok(html.includes('ondblclick="event.stopPropagation()"'), 'a double click on it does not play here');
+  assert.ok(html.includes('<svg class="vi vi-stage"></svg>Play on Stage</button>'), 'Modern icon, Classic emoji');
+  assert.doesNotMatch(part(D, VIDEO, 'actions'), /dock-stage-play/, 'not in the row of buttons');
+  assert.ok(!html.includes('—'), 'no em dash');
 });
 
 test('no Play on Stage for a picture, a sound or a document, or with no Stage at all', () => {
   const D = load();
   for (const media_type of ['image', 'gif', 'audio', 'document', 'mix']) {
-    assert.doesNotMatch(actions(D, { ...VIDEO, media_type }), /dock-stage-play/, media_type);
+    assert.doesNotMatch(part(D, { ...VIDEO, media_type }, 'thumb'), /dock-stage-play/, media_type);
   }
-  assert.doesNotMatch(actions(load({ stage: false }), VIDEO), /dock-stage-play/);
+  assert.doesNotMatch(part(load({ stage: false }), VIDEO, 'thumb'), /dock-stage-play/);
 });
 
 test('a press opens Stage, then plays the pick there', () => {

@@ -89,11 +89,13 @@ body.dock-shown .grid-table .media-tile.tv-row.tile-docked {
   background: var(--accent-bg);
   box-shadow: inset 3px 0 0 var(--accent);
 }
-/* The file playing now (player-lib/now-playing.js): a thick bar and a thin
-   frame inside the row (a ring outside would be cut off by the table). */
+/* The file playing now (player-lib/now-playing.js): a thick green bar and a
+   thin green frame inside the row (a ring outside would be cut off by the
+   table), over the previewed row's indigo bar. No "Now playing" label in a
+   row (it only goes on the tiles' pictures). */
 body:has(#miniPlayer.active) .grid-table .media-tile.tv-row.tile-now-playing {
   outline: none;
-  box-shadow: inset 5px 0 0 var(--accent-hover), inset 0 0 0 1px var(--accent);
+  box-shadow: inset 5px 0 0 var(--now-playing), inset 0 0 0 1px var(--now-playing);
 }
 .grid-table .media-tile.tv-row.tile-trashed { opacity: 0.55; }
 .grid-table .media-tile.tile-skel {

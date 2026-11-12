@@ -538,8 +538,10 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
     const title = $('stageBarTitle');
     if (title) {
       title.textContent = v.title;
-      // Privacy mode: no name in the tooltip, whatever the view says (the CSS blurs the text too).
-      title.title = document.body.classList.contains('pm-names') ? '' : v.title;
+      // The name finds the file's tile (case 'find'). Privacy mode: no name in
+      // the tooltip, whatever the view says (the CSS blurs the text too).
+      const find = v.hasFile ? 'Show this file in the library' : '';
+      title.title = document.body.classList.contains('pm-names') ? find : [v.title, find].filter(Boolean).join('\n');
     }
     const pill = $('stageBarPill');
     if (pill) {

@@ -1776,6 +1776,8 @@ const StageControl = (() => {
     queueList, fileOpened, backToStage, countText,
     /** The id of the file on Stage now, or null (the Flow chart's playhead reads proxy for its time). */
     currentId: () => (cur && cur.row ? cur.row.id : null),
+    /** Where Stage plays from: { cid } (a collection), { cid: null } (the Library tab), or null (not known). */
+    playingFrom: () => (stageOn() && source && source.kind ? { cid: source.kind === 'collection' ? source.cid : null } : null),
     _state: () => ({ open, basic, basicHold: !!basicHold, remoteShown, mpv, cur: cur && { key: cur.key, id: cur.row && cur.row.id }, t, d, paused, hold, finished, volume, muted, note: note && note.text }),
   };
 })();

@@ -346,6 +346,7 @@ const FILTER_VARIANTS = [
   { language: 'Chinese' }, { language: 'Portuguese' }, { language: 'Martian' },
   { quality: 'low' }, { theme: 'romance' }, { theme: 'Romance' }, { theme: 'sea' }, { theme: '5' },
   { minRating: 'unrated' }, { minRating: '1' }, { minRating: '3' }, { minRating: '5' },
+  { minRating: 'eq1' }, { minRating: 'eq2' }, { minRating: 'eq3' }, { minRating: 'eq4' }, { minRating: 'eq5' },
   { durMin: 1 }, { durMin: 2 }, { durMax: 0 }, { durMax: 1 }, { durMin: 1, durMax: 60 }, { durMax: 200 },
   { collections: '1' }, { collections: '0' },
   { starred: '1' }, { starred: '0' }, { hasNotes: '1' }, { hasNotes: '0' },
@@ -397,6 +398,18 @@ test('every sort, both directions, with and without faves first', async () => {
     await check(ctx, { sort }, 'sort');
     await check(ctx, { sort, filters: { trashed: '' } }, 'sort, all rows');
     await check(ctx, { sort, filters: { mediaTypes: ['image'], starred: '0' } }, 'sort, filtered');
+  }
+});
+
+// Exactly N stars (the eq values) under every sort: the exact match drives
+// the rating index the same way 'N and up' does, so order must still agree.
+test('eq ratings with every sort', async () => {
+  const ctx = browserContext();
+  for (const sort of SORTS) {
+    for (const minRating of ['eq1', 'eq2', 'eq3', 'eq4', 'eq5']) {
+      await check(ctx, { sort, filters: { minRating } }, 'eq rating, sort');
+    }
+    await check(ctx, { sort, filters: { minRating: 'eq3', mediaTypes: ['video'], trashed: '' } }, 'eq rating, sort, filtered');
   }
 });
 
