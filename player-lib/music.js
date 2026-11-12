@@ -972,7 +972,8 @@ function renderAudioSimBar() {
     bar.className = 'audiosim-bar';
     grid.parentElement.insertBefore(bar, grid);
   }
-  if (!audioSimScores) {
+  // Hidden (not ended) while a collection is open: the ranking is the Library's.
+  if (!audioSimScores || (typeof libraryOverridesOff === 'function' && libraryOverridesOff())) {
     bar.style.display = 'none';
     bar.innerHTML = '';
     return;

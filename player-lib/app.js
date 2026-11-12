@@ -349,8 +349,10 @@ document.getElementById('clearFiltersBtn').addEventListener('click', () => {
   if (typeof activeSavedSearchId !== 'undefined') {
     activeSavedSearchId = null;
   }
-  // Clear an active audio-similarity ranking too
-  if (typeof audioSimScores !== 'undefined' && audioSimScores) {
+  // Clear an active audio-similarity ranking too (the Library's: not from
+  // inside a collection, which only clears its own filters)
+  if (typeof audioSimScores !== 'undefined' && audioSimScores
+      && !(typeof libraryOverridesOff === 'function' && libraryOverridesOff())) {
     audioSimAnchorId = null;
     audioSimScores = null;
     if (typeof renderAudioSimBar === 'function') renderAudioSimBar();

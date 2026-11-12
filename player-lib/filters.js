@@ -132,7 +132,8 @@ function clearFocusIds() {
 function renderFocusBar() {
   const bar = document.getElementById('focusFilterBar');
   if (!bar) return;
-  if (!focusIds) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+  // Hidden (not ended) while a collection is open: the focus is the Library's.
+  if (!focusIds || libraryOverridesOff()) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
   bar.style.display = '';
   bar.className = 'focus-banner';   // a custom banner may have added its own class
   if (focusOpts && typeof focusOpts.renderBanner === 'function') { focusOpts.renderBanner(bar); return; }
@@ -145,23 +146,35 @@ function renderFocusBar() {
 // Handed to the settings modal, which has no other way to reach the grid.
 window.vaultShowMediaIds = setFocusIds;
 
-// ── Each view keeps its own search text ───────────────────────────────────
+// ── Each view keeps its own search and filters ────────────────────────────
 //
 // The Library, the Collections tab's cards and each open collection have
-// their own words in the search box: search the Library for a file, add it
-// to a collection, open the collection to put it in order (its box starts
-// empty, so the whole collection shows), and back in the Library the search
-// is still there. Only the text is per view. The filters, the search options
-// (Fuzzy, Metadata only...) and saved searches stay shared, as before.
-// The Faces tab shares the Library's text (a person's page ignores it).
+// their own search text AND their own filters (type, rating, tags, duration,
+// every chip and every row of the More sheet), plus which saved search is
+// lit: search and filter the Library for a file, add it to a collection,
+// open the collection to put it in order (nothing set there, so the whole
+// collection shows), and back in the Library everything is as it was.
+// Nothing set in one view narrows another.
+// Shared by every view, as before: the search options (Fuzzy, Metadata
+// only...), the saved searches themselves, the sort and the layout.
+// The Faces tab shares the Library's (a person's page ignores them).
 //
-// Kept in memory only: the Library's text is what is remembered for the
-// next launch (persistSearchState), exactly as before; a collection's is
-// forgotten on reload, so nothing new is written to the browser's storage.
+// One mechanism: the controls on screen always hold the view on screen.
+// Before every search (applyFilters) syncSearchScope notices a new view,
+// keeps what the controls hold for the view being left, and puts the new
+// view's in (nothing set, for a view never visited).
+//
+// Kept in memory only: the Library's state is what is remembered for the
+// next launch (persistSearchState), exactly as before, even when it is not
+// on screen; a collection's is forgotten on reload, so nothing new is
+// written to the browser's storage.
 
-const SearchScopes = { key: 'library', texts: new Map() };
+const SearchScopes = { key: 'library', views: new Map() };
 
-/** Which view's search the box holds: 'library', 'collections' (the cards) or 'c:<id>' (an open collection). */
+/** A view never visited: no search, no filters, no saved search lit. */
+const SEARCH_SCOPE_EMPTY = Object.freeze({ text: '', filters: null, savedId: null });
+
+/** Which view the box and filters hold: 'library', 'collections' (the cards) or 'c:<id>' (an open collection). */
 function searchScopeKey(tab, collectionId) {
   if (collectionId != null) return `c:${collectionId}`;
   if (tab === 'collections') return 'collections';
@@ -169,34 +182,96 @@ function searchScopeKey(tab, collectionId) {
 }
 
 /**
- * Move the box to another view. Keeps `boxText` as the view being left's
- * text and returns the text the box shows for `nextKey` ('' for a view
- * never searched), or null when the view did not change.
+ * Move to another view. `here` ({ text, filters, savedId }) is what the
+ * view being left has now, and is kept for it. Returns what `nextKey` had
+ * (SEARCH_SCOPE_EMPTY for a view never visited), or null when the view did
+ * not change.
  */
-function searchScopeSwitch(store, nextKey, boxText) {
+function searchScopeSwitch(store, nextKey, here) {
   if (store.key === nextKey) return null;
-  if (boxText) store.texts.set(store.key, boxText);
-  else store.texts.delete(store.key);
+  store.views.set(store.key, here);
   store.key = nextKey;
-  return store.texts.get(nextKey) || '';
+  return store.views.get(nextKey) || SEARCH_SCOPE_EMPTY;
 }
 
 /** The Library's own text, wherever the box is now. */
 function searchScopeLibraryText(store, boxText) {
-  return store.key === 'library' ? boxText : (store.texts.get('library') || '');
+  return store.key === 'library' ? boxText : ((store.views.get('library') || SEARCH_SCOPE_EMPTY).text || '');
 }
 
-/** Put the right view's text in the box (called before every search runs). */
+/**
+ * The state to remember for the next launch: `state` is what the controls
+ * hold now (captureCurrentFilterState). With another view on screen, its
+ * search text and the fields named in `filterKeys` (the filters) are the
+ * Library's own instead (unset when the Library had none); the search
+ * options and the sort are shared, so they stay.
+ */
+function searchScopePersisted(store, state, filterKeys) {
+  if (store.key === 'library') return state;
+  const lib = store.views.get('library') || SEARCH_SCOPE_EMPTY;
+  const out = { ...state, searchText: lib.text || '' };
+  const f = lib.filters || {};
+  for (const k of filterKeys) {
+    if (Object.prototype.hasOwnProperty.call(f, k)) out[k] = f[k];
+    else delete out[k];
+  }
+  return out;
+}
+
+// The filters a saved search does not store, but a view keeps too. Their
+// "not set" values: Trashed hides the trash unless asked.
+const VIEW_FILTER_SELECTS = { filterSong: '', filterStreamTag: '' };
+const VIEW_FILTER_TRIS = { filterTrashed: '0', filterFailed: '', filterMissing: '', filterWatchNew: '' };
+
+/** Every filter the controls hold now (captureFilterControls plus the ones above). */
+function captureViewFilters() {
+  const out = typeof captureFilterControls === 'function' ? captureFilterControls() : {};
+  for (const id of Object.keys(VIEW_FILTER_SELECTS)) out[id] = document.getElementById(id)?.value || '';
+  for (const name of Object.keys(VIEW_FILTER_TRIS)) out[name] = getTriFilterValue(name);
+  return out;
+}
+
+/** Set every filter control to `filters` (null: nothing set). Does not run the search. */
+function applyViewFilters(filters) {
+  const f = filters || {};
+  if (typeof restoreFilterControls === 'function') restoreFilterControls(f);
+  for (const [id, def] of Object.entries(VIEW_FILTER_SELECTS)) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    // A song or stream tag deleted since reads as not set (no such option).
+    el.value = f[id] != null ? String(f[id]) : def;
+  }
+  for (const [name, def] of Object.entries(VIEW_FILTER_TRIS)) {
+    setTriFilterValue(name, f[name] != null ? f[name] : def);
+  }
+}
+
+/** Put the right view's search and filters in the controls (called before every search runs). */
 function syncSearchScope() {
   const input = document.getElementById('searchInput');
   if (!input) return;
   const key = searchScopeKey(typeof currentTab !== 'undefined' ? currentTab : 'library',
     typeof activeCollectionId !== 'undefined' ? activeCollectionId : null);
-  const text = searchScopeSwitch(SearchScopes, key, input.value);
-  if (text == null || input.value === text) return;
-  input.value = text;
+  if (key === SearchScopes.key) return;
+  const next = searchScopeSwitch(SearchScopes, key, {
+    text: input.value,
+    filters: captureViewFilters(),
+    savedId: typeof activeSavedSearchId !== 'undefined' ? activeSavedSearchId : null,
+  });
+  input.value = next.text || '';
+  applyViewFilters(next.filters);
+  if (typeof activeSavedSearchId !== 'undefined') activeSavedSearchId = next.savedId != null ? next.savedId : null;
   if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
   if (typeof updateSearchStarButton === 'function') updateSearchStarButton();
+  // A focus set and the audio similarity ranking belong to the Library
+  // (both go there to start): their bars hide while a collection is open.
+  renderFocusBar();
+  if (typeof renderAudioSimBar === 'function') renderAudioSimBar();
+}
+
+/** A collection is open: the Library-only overrides (focus, audio similarity) stay out of it. */
+function libraryOverridesOff() {
+  return typeof activeCollectionId !== 'undefined' && activeCollectionId != null;
 }
 
 // Extensions that browsers can natively play/render (no plugin needed)
@@ -696,13 +771,15 @@ function currentQuerySpec() {
       dir: dir === 'asc' ? 'asc' : 'desc',
       favesFirst: typeof favesFirst !== 'undefined' && !!favesFirst,
     },
-    // An active focus set answers for the whole chain (see setFocusIds).
-    onlyIds: focusIds ? [...focusIds] : null,
+    // An active focus set answers for the whole chain (see setFocusIds). It
+    // is the Library's: an open collection is not narrowed by it.
+    onlyIds: focusIds && !collectionOpen ? [...focusIds] : null,
     // ≈ Audio-similarity: files sharing songs with the anchor (plus the
     // anchor itself), ranked most-similar first; filters still apply.
     rankedIds: null,
   };
-  if (typeof audioSimScores !== 'undefined' && audioSimScores) {
+  // The Library's too (startAudioSimilarity goes there first).
+  if (typeof audioSimScores !== 'undefined' && audioSimScores && !collectionOpen) {
     spec.rankedIds = [{ id: audioSimAnchorId, score: 2 }];
     for (const [id, score] of audioSimScores) if (id !== audioSimAnchorId) spec.rankedIds.push({ id, score });
   }
@@ -710,7 +787,7 @@ function currentQuerySpec() {
   const flowRanked = typeof flowQueryRanked === 'function' ? flowQueryRanked() : null;
   if (flowRanked && spec.collectionId != null && !spec.rankedIds) spec.rankedIds = flowRanked;
   // A ranked focus (a person search) orders the grid by its own scores.
-  if (focusIds && focusRanked) spec.rankedIds = focusRanked;
+  if (focusIds && focusRanked && !collectionOpen) spec.rankedIds = focusRanked;
   // A person open in the Faces tab: exactly their files, in their order. The
   // library's search box and filters are out of sight there, so they stay out.
   const person = typeof facesPersonQuery === 'function' ? facesPersonQuery() : null;
@@ -954,9 +1031,10 @@ const LS_SEARCH_STATE = 'viewer_last_search_state';
 function persistSearchState() {
   if (typeof captureCurrentFilterState !== 'function') return;
   try {
-    const state = captureCurrentFilterState();
-    // The Library's search is the one remembered, even with a collection open.
-    state.searchText = searchScopeLibraryText(SearchScopes, state.searchText);
+    // The Library's search and filters are the ones remembered, even with a
+    // collection open.
+    const state = searchScopePersisted(SearchScopes, captureCurrentFilterState(),
+      Object.keys(captureFilterControls()));
     // Closing during the index build must not forget the held search
     if (_searchLock && _searchLock.text && !state.searchText) state.searchText = _searchLock.text;
     localStorage.setItem(LS_SEARCH_STATE, JSON.stringify(state));
@@ -968,6 +1046,17 @@ function restoreLastSearchState() {
   let state;
   try { state = JSON.parse(localStorage.getItem(LS_SEARCH_STATE)); } catch {}
   if (!state || typeof restoreFilterState !== 'function') return false;
+  // The saved state is the Library's. If another view is already on screen
+  // (the Collections tab came back first), it waits for the Library, and
+  // only the shared parts (search options, sort) are put on screen now.
+  syncSearchScope();
+  if (SearchScopes.key !== 'library') {
+    const input = document.getElementById('searchInput');
+    const filters = {};
+    for (const k of Object.keys(captureFilterControls())) if (k in state) filters[k] = state[k];
+    SearchScopes.views.set('library', { text: state.searchText || '', filters, savedId: null });
+    state = { ...state, ...captureFilterControls(), searchText: input ? input.value : '' };
+  }
   const run = restoreFilterState(state); // sets every control + calls applyFilters
   if (typeof updateSearchStarButton === 'function') updateSearchStarButton();
   if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
