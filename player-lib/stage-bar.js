@@ -8,7 +8,8 @@
 
    Three parts, left to right:
      - what is on Stage: a small still (a click brings Stage to the front),
-       the name, the status pill (On Stage / Holding / Finished / Locked),
+       the name (a click shows its tile in the grid, player-lib/now-playing.js),
+       the status pill (On Stage / Holding / Finished / Locked),
        Preview (the file on Stage in the preview pane, StagePreview), Back
        to Stage,
        the status line (skipped, getting ready, end of the list ...) and the
@@ -404,6 +405,8 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
       case 'reopen': if (SC) SC.front(); break;
       // Preview: the file on Stage in the preview pane (or its details), as a tile click does.
       case 'preview': if (last && last.id && typeof StagePreview !== 'undefined') StagePreview.previewPlaying(last.id); break;
+      // The name: the file's tile on screen, with a short glow (player-lib/now-playing.js).
+      case 'find': if (last && last.hasFile && typeof NowPlaying !== 'undefined') NowPlaying.reveal(); break;
       case 'prev': if (last && last.hasFile && typeof playPreviousMedia === 'function') playPreviousMedia(); break;
       case 'next': if (last && last.hasFile && typeof playNextMedia === 'function') playNextMedia(); break;
       case 'back': if (typeof miniSkip === 'function') miniSkip(-10); break;

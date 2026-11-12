@@ -77,6 +77,31 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
+/* The file playing now (player-lib/now-playing.js): a clear accent ring just
+   outside the tile while the mini player or Stage is up (Stage keeps the mini
+   player's box, hidden). An outline, so it shows over the selected and
+   previewed tiles' own borders instead of fighting them. */
+body:has(#miniPlayer.active) .media-tile.tile-now-playing {
+  border-color: var(--accent);
+  outline: 3px solid var(--accent-hover);
+  outline-offset: 1px;
+}
+
+/* A click on the playing file's name: a short glow on its tile. */
+.media-tile.tile-np-glow { animation: tile-np-glow 1.6s ease-out; }
+@keyframes tile-np-glow {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-hover) 90%, transparent); }
+  35%  { box-shadow: 0 0 22px 8px color-mix(in srgb, var(--accent-hover) 75%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+/* No movement asked for: a steady ring for the same time instead. */
+@media (prefers-reduced-motion: reduce) {
+  .media-tile.tile-np-glow {
+    animation: none;
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-hover) 70%, transparent);
+  }
+}
+
 /* A file that failed to play — deep red border so bad files are easy to spot
    and skip. Wins over the last-opened marker if it's both. */
 .media-tile.tile-failed {

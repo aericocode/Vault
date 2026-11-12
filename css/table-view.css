@@ -89,6 +89,12 @@ body.dock-shown .grid-table .media-tile.tv-row.tile-docked {
   background: var(--accent-bg);
   box-shadow: inset 3px 0 0 var(--accent);
 }
+/* The file playing now (player-lib/now-playing.js): a thick bar and a thin
+   frame inside the row (a ring outside would be cut off by the table). */
+body:has(#miniPlayer.active) .grid-table .media-tile.tv-row.tile-now-playing {
+  outline: none;
+  box-shadow: inset 5px 0 0 var(--accent-hover), inset 0 0 0 1px var(--accent);
+}
 .grid-table .media-tile.tv-row.tile-trashed { opacity: 0.55; }
 .grid-table .media-tile.tile-skel {
   background: linear-gradient(90deg, transparent 0%, var(--bg-hover) 50%, transparent 100%);

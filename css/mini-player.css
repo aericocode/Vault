@@ -417,6 +417,20 @@ body.layout-modern .mini-seek-fill { background: #fff; }
   text-overflow: ellipsis;
 }
 .mini-player.mini-tiny .mini-player-title { visibility: hidden; }
+/* The name is a button: a click shows the file's tile (player-lib/now-playing.js). */
+button.mini-player-title {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-shadow: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.mini-player-title:hover { text-decoration: underline; }
+button.mini-player-title:focus-visible { outline: 2px solid var(--accent-hover, #818cf8); outline-offset: 2px; }
 
 .mini-time {
   flex: none;

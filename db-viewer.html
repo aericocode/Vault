@@ -506,7 +506,8 @@
           <div class="mini-seek-track" id="miniSeekTrack"><div class="mini-seek-fill" id="miniSeekFill"></div></div>
         </div>
         <div class="mini-meta">
-          <span class="mini-player-title" id="miniPlayerTitle">filename.mp4</span>
+          <!-- A click brings this file's tile on screen (player-lib/now-playing.js) -->
+          <button type="button" class="mini-player-title" id="miniPlayerTitle" title="Show this file in the library">filename.mp4</button>
           <span class="mini-time" id="miniTime">0:00 / 0:00</span>
         </div>
       </div>
@@ -520,7 +521,8 @@
     <div class="sb-now">
       <button type="button" class="sb-thumb" id="stageBarFront" data-sb-act="front" title="Bring Stage to the front" aria-label="Bring Stage to the front"><img id="stageBarThumbImg" alt="" draggable="false" hidden><span class="sb-thumb-ic" aria-hidden="true"><span class="vi-w" data-vi="stage">📺</span></span></button>
       <div class="sb-text">
-        <div class="sb-title" id="stageBarTitle">Stage is open</div>
+        <!-- A click brings the file's tile on screen (player-lib/now-playing.js) -->
+        <button type="button" class="sb-title" id="stageBarTitle" data-sb-act="find">Stage is open</button>
         <div class="sb-sub">
           <span class="sb-pill sb-pill-live" id="stageBarPill"><i aria-hidden="true"></i><span class="sb-pill-word">On Stage</span></span>
           <!-- Preview: the file on Stage in the preview pane, or its details (StagePreview.previewPlaying) -->
@@ -646,6 +648,8 @@
   <script src="./player-lib/stage-control.js"></script>
   <!-- Stage open: a click previews, a double click plays on Stage -->
   <script src="./player-lib/stage-preview.js"></script>
+  <!-- The playing file's tile: its border, and the way back to it -->
+  <script src="./player-lib/now-playing.js"></script>
   <!-- The set log: what Stage played (Log on the Stage bar, Settings › Stage) -->
   <script src="./player-lib/stage-setlog.js"></script>
   <!-- Modern player: the dock's geometry (pure) and the dock itself -->
