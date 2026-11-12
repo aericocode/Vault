@@ -152,6 +152,7 @@ const Flow = (() => {
     st.sel = null; st.selHand = -1;
     st.follow = true;
     session++;
+    syncSkips();
     paint();
   }
 
@@ -352,6 +353,8 @@ const Flow = (() => {
 
   async function useFlowOrder() {
     if (!isMine()) return;
+    // A saved order shows: Flow order is the picked shape worked out afresh (Undo for moves not saved).
+    if (savedNow()) { await pickShape(st.shape); return; }
     st.order = true;
     remember();
     if (!st.data) await refetch(true);
@@ -414,7 +417,7 @@ const Flow = (() => {
 
   /** Waves' peaks, 1..6: only while Flow order shows Waves. */
   function wavesHtml() {
-    if (!st.order || st.shape !== 'waves') return '';
+    if (!st.order || st.shape !== 'waves' || fromPlaylistNow()) return '';
     let btns = '';
     for (let n = FlowOrder.WAVES_MIN; n <= FlowOrder.WAVES_MAX; n++) {
       btns += `<button type="button" data-flow-waves="${n}" aria-pressed="${String(st.waves === n)}" title="${n === 1 ? 'One peak' : `${n} peaks`}">${n}</button>`;
@@ -588,6 +591,7 @@ const Flow = (() => {
   }
 
   function remember() {
+    syncSkips();
     if (st.cid == null) return;
     try {
       if (!st.order) localStorage.removeItem(MEM_PREFIX + st.cid);
@@ -723,9 +727,24 @@ const Flow = (() => {
      then offers Update "Friday set". Picking a shape, Place tagged files,
      Playlist order, Make this the playlist order or Shuffle let go of it
      (pickShape, pickPlaces, leave). It is remembered with the rest
-     (remember: saved), so a reload comes back to it. */
+     (remember: saved), so a reload comes back to it.
+
+     Saved from Playlist order too: ＋ Save this order shows in both orders.
+     In Playlist order it keeps the playlist order as it is now (shape
+     'playlist', lib/flow/saved.js: no shape picked; the chip says "from
+     playlist"), and Playlist order stays on. While a saved order shows, the
+     switch's Flow order is not pressed (the chip is): clicking Flow order
+     then works the picked shape out afresh, as picking the shape does.
+
+     Own skips: a saved order keeps its own skipped files (Skip on tracks,
+     row.skips; null in one saved before skips or never changed: it plays
+     with the playlist's). While it shows, Skips (collection-skips.js) reads
+     and writes its skips instead of the playlist's (syncSkips), so Stage,
+     Next and the count line follow them. Saving one copies the skips in
+     use; the playlist's own skips are not touched. */
 
   const SAVED_MAX = 30;
+  const SHAPE_PLAYLIST = 'playlist';   // lib/flow/saved.js SHAPE_PLAYLIST
   const savedList = () => (st.saved && st.savedCid === st.cid ? st.saved : []);
   const sameIds = (a, b) => a.length === b.length && a.every((id, i) => id === b[i]);
 
@@ -733,6 +752,50 @@ const Flow = (() => {
   function savedNow() {
     if (st.savedActive == null || !st.order) return null;
     return savedList().find(s => s.id === st.savedActive) || null;
+  }
+
+  /** A saved order from Playlist order shows (no shape is picked then). */
+  function fromPlaylistNow() {
+    const s = savedNow();
+    return !!s && s.shape === SHAPE_PLAYLIST;
+  }
+
+  /** What a save or Update records as the shape: 'playlist' unless a shape is picked. */
+  const shapeToSave = () => (!st.order || fromPlaylistNow() ? SHAPE_PLAYLIST : st.shape);
+
+  /** The order a save or Update keeps: Flow order's working order, or the playlist order as it is now. */
+  async function orderToSave(cid) {
+    if (st.order) return workingOrder().slice();
+    return (await freshMembers(cid)) || (st.data ? st.data.playlistOrder.slice() : []);
+  }
+
+  /** The skips in use now (the saved order's own while one shows), for a new saved order. */
+  const skipsToSave = (cid) => (typeof Skips !== 'undefined' ? { skips: [...Skips.setFor(cid)] } : {});
+
+  /**
+   * Point Skips at the saved order showing (its own skips), or back at the
+   * playlist's. Called on every change of what shows (remember, reset,
+   * loadSaved) and after its skips change.
+   */
+  function syncSkips() {
+    if (typeof Skips === 'undefined' || typeof Skips.useVariant !== 'function') return;
+    const s = st.cid != null ? savedNow() : null;
+    if (!s) { Skips.useVariant(null); return; }
+    const cid = st.cid;
+    Skips.useVariant({
+      cid, sid: s.id, name: s.name,
+      skips: Array.isArray(s.skips) ? s.skips : null,
+      length: s.length || null,
+      save: async (skips) => {
+        const row = await api(`/api/flow/saved/${s.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ skips }) });
+        if (st.savedCid === cid) {
+          st.saved = savedList().map(x => (x.id === row.id ? row : x));
+          syncSkips();
+          paint();
+        }
+        return row;
+      },
+    });
   }
 
   /** Moved since it was loaded (or saved): the working order is not the saved one fitted to today's files. */
@@ -749,7 +812,7 @@ const Flow = (() => {
     return `${FlowOrder.shapeLabel(st.shape)}${st.edited ? ', edited' : ''}`;
   }
 
-  const shapeText = (s) => `${FlowOrder.shapeLabel(s.shape)}${s.shape === 'waves' ? ` ${s.waves}` : ''}`;
+  const shapeText = (s) => (s.shape === SHAPE_PLAYLIST ? 'from playlist' : `${FlowOrder.shapeLabel(s.shape)}${s.shape === 'waves' ? ` ${s.waves}` : ''}`);
   const toast = (msg) => { if (typeof showToast === 'function') showToast(msg); };
   const nameTaken = (name, exceptId = null) => savedList().some(s => s.id !== exceptId && s.name.toLowerCase() === name.toLowerCase());
   // The collection's count line names the saved order (renderReorderNote draws it again).
@@ -768,6 +831,7 @@ const Flow = (() => {
       if (cid === st.cid) toastErr(err, 'loading the saved orders');
       return;
     }
+    syncSkips();
     paint();
     repaintCount();
   }
@@ -778,9 +842,12 @@ const Flow = (() => {
     if (!s || !isMine()) return;
     const dropped = unsavedEdits(), prev = picks();
     session++;
-    st.shape = s.shape;
-    st.waves = FlowOrder.wavesCount(s.waves);
-    st.places = !!s.places;
+    // One from Playlist order has no shape: the picked one stays (Flow order works it out on a click).
+    if (s.shape !== SHAPE_PLAYLIST) {
+      st.shape = s.shape;
+      st.waves = FlowOrder.wavesCount(s.waves);
+      st.places = !!s.places;
+    }
     st.order = true;
     st.savedActive = s.id;
     st.edited = s.order.length ? s.order.slice() : null;
@@ -795,18 +862,24 @@ const Flow = (() => {
     offerUndoEdits(dropped, prev, `Switched to “${esc(s.name)}”`);
   }
 
-  /** Keep the order Flow order shows now under a name. @returns {Promise<boolean>} saved */
+  /**
+   * Keep the order on screen under a name: Flow order's working order, or in
+   * Playlist order the playlist order as it is now (Playlist order stays on).
+   * @returns {Promise<boolean>} saved
+   */
   async function saveNamed(raw) {
-    if (!st.order || !st.data || !isMine()) return false;
+    if (!st.data || !isMine()) return false;
     const name = String(raw || '').trim();
     if (!name) return false;
     if (nameTaken(name)) { toast(`There is already a saved order called “${name}”. Pick another name.`); return false; }
     if (savedList().length >= SAVED_MAX) { toast(`A collection keeps up to ${SAVED_MAX} saved orders. Delete one to save this.`); return false; }
     const cid = st.cid;
-    const order = workingOrder().slice();
+    const shape = shapeToSave();
+    const order = await orderToSave(cid);
+    if (cid !== st.cid) return false;
     let row;
     try {
-      row = await post(`/api/flow/collections/${cid}/saved`, { name, shape: st.shape, waves: st.waves, places: placesOn(), order });
+      row = await post(`/api/flow/collections/${cid}/saved`, { name, shape, waves: st.waves, places: shape === SHAPE_PLAYLIST ? false : placesOn(), order, ...skipsToSave(cid) });
     } catch (err) {
       if (err.code === 'NAME_TAKEN') toast(`There is already a saved order called “${name}”. Pick another name.`);
       else if (err.code === 'FULL') toast(`A collection keeps up to ${SAVED_MAX} saved orders. Delete one to save this.`);
@@ -851,20 +924,29 @@ const Flow = (() => {
     return true;
   }
 
-  /** Put the order Flow order shows now into a saved order (and carry on from it), with Undo. */
+  /**
+   * Put the order on screen into a saved order, with Undo: Flow order's
+   * working order (and carry on from it), or in Playlist order the playlist
+   * order as it is now (Playlist order stays on). Its own skips stay as they are.
+   */
   async function updateSaved(id) {
     const s = savedList().find(x => x.id === id);
-    if (!s || !st.order || !st.data || !isMine()) return;
+    if (!s || !st.data || !isMine()) return;
     const cid = st.cid;
-    const order = workingOrder().slice();
+    const inOrder = st.order;
+    const shape = shapeToSave();
+    const order = await orderToSave(cid);
+    if (cid !== st.cid) return;
     const was = { shape: s.shape, waves: s.waves, places: s.places, order: s.order };
     const put = (body) => api(`/api/flow/saved/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     let row;
-    try { row = await put({ shape: st.shape, waves: st.waves, places: placesOn(), order }); } catch (err) { toastErr(err, 'updating the saved order'); return; }
+    try { row = await put({ shape, waves: st.waves, places: shape === SHAPE_PLAYLIST ? false : placesOn(), order }); } catch (err) { toastErr(err, 'updating the saved order'); return; }
     if (cid !== st.cid) return;
     st.saved = savedList().map(x => (x.id === id ? row : x));
-    st.savedActive = id;
-    st.edited = order;
+    if (inOrder && st.order) {
+      st.savedActive = id;
+      st.edited = order;
+    }
     remember();
     paint();
     repaintCount();
@@ -899,7 +981,7 @@ const Flow = (() => {
     const undo = async () => {
       let row;
       try {
-        row = await post(`/api/flow/collections/${cid}/saved`, { name: s.name, shape: s.shape, waves: s.waves, places: s.places, order: s.order });
+        row = await post(`/api/flow/collections/${cid}/saved`, { name: s.name, shape: s.shape, waves: s.waves, places: s.places, order: s.order, ...(Array.isArray(s.skips) ? { skips: s.skips } : {}) });
       } catch (err) {
         if (err.code === 'NAME_TAKEN') toast(`Could not bring back “${s.name}”: another saved order has that name now.`);
         else toastErr(err, 'bringing back the saved order');
@@ -922,7 +1004,7 @@ const Flow = (() => {
     if (!s) return;
     const items = [
       { label: 'Rename', run: () => startNaming('rename', id) },
-      { label: 'Update with this order', disabled: !(st.order && st.data), run: () => updateSaved(id) },
+      { label: 'Update with this order', disabled: !st.data, run: () => updateSaved(id) },
       { sep: true },
       { label: 'Delete', run: () => deleteSaved(id) },
     ];
@@ -931,7 +1013,7 @@ const Flow = (() => {
 
   /** Open the name box: for a new saved order ('new') or in place of a chip ('rename'). */
   function startNaming(mode, id = null) {
-    if (mode === 'new' && !(st.order && st.data)) return;
+    if (mode === 'new' && !st.data) return;
     const s = id != null ? savedList().find(x => x.id === id) : null;
     if (mode === 'rename' && !s) return;
     st.savedInput = { mode, id, value: s ? s.name : '', focus: true };
@@ -966,7 +1048,7 @@ const Flow = (() => {
     return `<input type="text" class="flow-chip-input" data-flow-saved-input maxlength="80" placeholder="Name this order" aria-label="${label}" value="${esc(inp.value || '')}">`;
   }
 
-  const addChipHtml = () => '<button type="button" class="flow-chip flow-chip-add" data-flow-saved-new title="Keep this Flow order under a name, to come back to it">＋ Save this order</button>';
+  const addChipHtml = () => `<button type="button" class="flow-chip flow-chip-add" data-flow-saved-new title="${st.order ? 'Keep this Flow order under a name, to come back to it' : 'Keep the playlist order as it is now under a name, to come back to it'}">＋ Save this order</button>`;
 
   function chipHtml(s) {
     const on = st.order && s.id === st.savedActive;
@@ -985,8 +1067,8 @@ const Flow = (() => {
     const inp = st.savedInput;
     const chips = list.map(s => (inp && inp.mode === 'rename' && inp.id === s.id ? namingHtml() : chipHtml(s))).join('');
     let add = '';
-    if (inp && inp.mode === 'new' && st.order) add = namingHtml();
-    else if (st.order && st.data) add = addChipHtml();
+    if (inp && inp.mode === 'new') add = namingHtml();
+    else if (st.data) add = addChipHtml();
     if (!chips && !add) return '';
     return `<span class="flow-sp"></span>
         <span class="flow-saved" role="group" aria-label="Saved orders">${list.length ? '<span class="flow-seg-label">Saved</span>' : ''}${chips}${add}</span>`;
@@ -2180,7 +2262,7 @@ const Flow = (() => {
     const naming = a?.matches?.('#flowPanel [data-flow-saved-input]') ? { s: a.selectionStart, e: a.selectionEnd } : null;
     if (naming && st.savedInput) st.savedInput.value = a.value;
     const keepFocus = act || ['[data-flow-saved-new]', ...KEEP_FOCUS].find(sel => a?.matches?.(`#flowPanel ${sel}`));
-    const shapes = FlowOrder.SHAPES.map(s => `<button type="button" data-flow-shape="${s.key}" aria-pressed="${String(st.order && st.shape === s.key)}">${esc(s.label)}</button>`).join('');
+    const shapes = FlowOrder.SHAPES.map(s => `<button type="button" data-flow-shape="${s.key}" aria-pressed="${String(st.order && !fromPlaylistNow() && st.shape === s.key)}">${esc(s.label)}</button>`).join('');
     // The chart's host is kept across repaints (polls repaint often): an empty
     // host would shrink the panel for a moment, and a page scrollbar going
     // with it would make the chart measure too wide. The strip is drawn with
@@ -2200,7 +2282,7 @@ const Flow = (() => {
         ${progressHtml()}
         <span class="flow-seg" role="group" aria-label="Order">
           <button type="button" data-flow-order="playlist" aria-pressed="${String(!st.order)}">Playlist order</button>
-          <button type="button" data-flow-order="flow" aria-pressed="${String(st.order)}">Flow order</button>
+          <button type="button" data-flow-order="flow" aria-pressed="${String(st.order && !savedNow())}"${savedNow() ? ' title="Work out Flow order from the shape again"' : ''}>Flow order</button>
         </span>
         ${st.order && st.data ? `<button type="button" class="flow-btn flow-btn-sm flow-save-order" data-flow-save-order title="Keep this order as the collection's playlist order">Make this the playlist order</button>` : ''}
         <span class="flow-sp"></span>

@@ -242,6 +242,26 @@ test('the count line\'s skip part: what plays, and what the skips take off', () 
   assert.strictEqual(page().skipCountParts(page().coll), null, 'nothing skipped: nothing said');
 });
 
+test('a saved order showing with its own skips: they are read, the count line uses its length and names it', () => {
+  const p = page({ skipped: [1], counts: { skipped_count: 1, skipped_seconds: 300, skipped_unknown_count: 0 } });
+  p.Skips.useVariant({ cid: 7, sid: 4, name: 'Night', skips: [2, 3], length: { skipped_count: 2, skipped_seconds: 600, skipped_unknown_count: 0 }, save: async () => {} });
+  assert.deepStrictEqual([...p.Skips.setFor(7)], [2, 3]);
+  assert.deepStrictEqual(p.events, [7], 'the page hears of the change');
+  const parts = p.skipCountParts(p.coll);
+  assert.deepStrictEqual([parts.seconds, parts.note], [7225 - 600, '10:00 skipped']);
+  assert.match(parts.title, /2 files skipped in “Night”/);
+  // The same again: nothing to tell.
+  p.Skips.useVariant({ cid: 7, sid: 4, name: 'Night', skips: [3, 2], length: { skipped_count: 2, skipped_seconds: 600 }, save: async () => {} });
+  assert.deepStrictEqual(p.events, [7]);
+  // None of its own: the playlist's, with the collection's numbers.
+  p.Skips.useVariant({ cid: 7, sid: 5, name: 'Old', skips: null, length: null, save: async () => {} });
+  assert.deepStrictEqual([...p.Skips.setFor(7)], [1]);
+  assert.strictEqual(p.skipCountParts(p.coll).note, '5:00 skipped');
+  // Back to the playlist.
+  p.Skips.useVariant(null);
+  assert.deepStrictEqual([...p.Skips.setFor(7)], [1]);
+});
+
 test('collectionCountText puts it together: "40 files · 1:42:05, 18:20 skipped · playlist order"', () => {
   const p = page({ skipped: [1, 2, 3], counts: { skipped_count: 3, skipped_seconds: 1100 } });
   const src = read('player-lib/collections.js');

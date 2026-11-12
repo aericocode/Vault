@@ -24,9 +24,13 @@
  *   GET  /api/flow/media/:id                one file (the Stage bar's line)
  *
  * Saved Flow orders (lib/flow/saved.js), named per collection:
- *   GET    /api/flow/collections/:id/saved   [{ id, name, shape, waves, places, order, ... }]
- *   POST   /api/flow/collections/:id/saved   { name, shape, waves?, places?, order } the new one
- *   PUT    /api/flow/saved/:sid              { name?, shape?, waves?, places?, order? } rename and / or replace
+ *   GET    /api/flow/collections/:id/saved   [{ id, name, shape, waves, places, order, skips, length?, ... }]
+ *   POST   /api/flow/collections/:id/saved   { name, shape, waves?, places?, order, skips? } the new one
+ *   PUT    /api/flow/saved/:sid              { name?, shape?, waves?, places?, order?, skips? } rename and / or replace
+ *   shape may be 'playlist' (saved from Playlist order). skips: the saved
+ *   order's own skipped files, or null (none of its own: the playlist's).
+ *   A row with its own skips comes with length: the collection's length
+ *   fields (database.js collectionLength) with those skips, for the count line.
  *   DELETE /api/flow/saved/:sid              { ok: true }
  *   400 BAD (with the reason), 404 NOT_FOUND, 409 NAME_TAKEN (names are
  *   unique per collection, ignoring case) or FULL (30 a collection).
@@ -113,22 +117,30 @@ function buildRouter() {
   });
 
   /* Saved Flow orders. */
+  // A row with its own skips: what the collection plays for with them.
+  const withLength = (row) => {
+    if (row && Array.isArray(row.skips) && typeof db.collectionLengthWithSkips === 'function') {
+      row.length = db.collectionLengthWithSkips(row.collectionId, row.skips);
+    }
+    return row;
+  };
+
   router.get('/api/flow/collections/:id/saved', (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'bad id' });
-    try { res.json(saved.list(db.get(), id)); } catch (err) { fail(res, err); }
+    try { res.json(saved.list(db.get(), id).map(withLength)); } catch (err) { fail(res, err); }
   });
 
   router.post('/api/flow/collections/:id/saved', (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'bad id' });
-    try { res.json(saved.create(db.get(), id, req.body)); } catch (err) { fail(res, err); }
+    try { res.json(withLength(saved.create(db.get(), id, req.body))); } catch (err) { fail(res, err); }
   });
 
   router.put('/api/flow/saved/:sid', (req, res) => {
     const sid = parseId(req.params.sid);
     if (!sid) return res.status(400).json({ error: 'bad id' });
-    try { res.json(saved.update(db.get(), sid, req.body)); } catch (err) { fail(res, err); }
+    try { res.json(withLength(saved.update(db.get(), sid, req.body))); } catch (err) { fail(res, err); }
   });
 
   router.delete('/api/flow/saved/:sid', (req, res) => {

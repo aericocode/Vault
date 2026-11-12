@@ -13,6 +13,12 @@
    collection: a file can be skipped in one collection and not another. A
    folder has none of its own and plays every file.
 
+   A saved order (flow.js "Saved orders") keeps its own skips. While one
+   shows, flow.js hands it here (Skips.useVariant): its skips are the ones
+   read and written, the playlist's are left alone. One with none of its own
+   yet (saved before skips) shows the playlist's until the first change,
+   which gives it its own copy.
+
    Where: a Skip button on each tile and table row of an open collection,
    Skip / Unskip in the selection bar, and "Unskip all" next to the
    collection's count line (with Undo). The count line says how long the
@@ -31,10 +37,15 @@
 const Skips = (() => {
   const EMPTY = new Set();
   const byColl = new Map();     // collection id -> Set of skipped ids (replaced, never changed in place)
+  // The saved order showing, with its own skips: { cid, sid, name, own, set, length, save(ids) }, or null.
+  let variant = null;
+  const variantFor = (cid) => (variant && variant.cid === cid ? variant : null);
 
   /** The skipped files of a collection (a Set; the same object until they change). */
   function setFor(cid) {
     if (cid == null) return EMPTY;
+    const v = variantFor(cid);
+    if (v && v.own) return v.set;
     return byColl.get(cid) || EMPTY;
   }
   const has = (cid, id) => setFor(cid).has(Number(id));
@@ -49,6 +60,40 @@ const Skips = (() => {
     byColl.set(cid, next);
     return true;
   }
+
+  const sameSet = (a, b) => a.size === b.size && [...a].every(id => b.has(id));
+
+  /**
+   * The saved order showing (flow.js syncSkips): { cid, sid, name, skips
+   * (ids, or null: none of its own), length (its length fields, or null),
+   * save(ids) -> Promise<row> }, or null for the playlist's own skips.
+   */
+  function useVariant(v) {
+    const before = variant;
+    const beforeSet = before ? setFor(before.cid) : null;
+    variant = v && v.cid != null ? {
+      cid: v.cid, sid: v.sid, name: v.name || '', own: Array.isArray(v.skips),
+      set: new Set((v.skips || []).map(Number)), length: v.length || null, save: v.save,
+    } : null;
+    // Tell only when what plays changed (flow.js calls this on every repaint of what shows).
+    const cids = new Set([before && before.cid, variant && variant.cid].filter(c => c != null));
+    for (const cid of cids) {
+      const was = before && before.cid === cid ? beforeSet : (byColl.get(cid) || EMPTY);
+      const lenWas = before && before.cid === cid ? before.length : null;
+      const lenNow = variant && variant.cid === cid ? variant.length : null;
+      if (!sameSet(was, setFor(cid)) || (lenWas && lenWas.skipped_seconds) !== (lenNow && lenNow.skipped_seconds)
+        || (before && before.cid === cid ? before.sid : null) !== (variant && variant.cid === cid ? variant.sid : null)) changed(cid);
+    }
+  }
+
+  /** The length fields the count line reads: the saved order's own while it has its own skips, else the collection's. */
+  function lengthFor(c) {
+    const v = c ? variantFor(c.id) : null;
+    return v && v.own && v.length ? v.length : c;
+  }
+
+  /** The name of the saved order whose skips these are, or null for the playlist's. */
+  const variantName = (cid) => { const v = variantFor(cid); return v ? v.name : null; };
 
   function changed(cid) {
     if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
@@ -81,10 +126,21 @@ const Skips = (() => {
     else if (typeof showToast === 'function') showToast(`Could not finish ${what}.`, { type: 'error' });
   };
 
+  /** A saved order's skips, all of them (its save answers with the row; flow.js hands it back here). */
+  async function saveVariant(v, ids) {
+    await v.save(ids);
+  }
+
   /** Skip (on true) or un-skip these files. @returns {Promise<boolean>} done */
   async function set(cid, ids, on) {
     const list = (ids || []).map(Number).filter(Boolean);
     if (cid == null || !list.length) return false;
+    const v = variantFor(cid);
+    if (v && typeof v.save === 'function') {
+      const next = new Set(setFor(cid));
+      for (const id of list) { if (on) next.add(id); else next.delete(id); }
+      try { await saveVariant(v, [...next]); return true; } catch (err) { toastErr(err, on ? 'skipping that' : 'unskipping that'); return false; }
+    }
     try {
       install(cid, await send('POST', cid, { ids: list, skip: !!on }));
       return true;
@@ -95,6 +151,17 @@ const Skips = (() => {
   async function unskipAll(cid) {
     const was = [...setFor(cid)];
     if (cid == null || !was.length) return false;
+    const v = variantFor(cid);
+    if (v && typeof v.save === 'function') {
+      try { await saveVariant(v, []); } catch (err) { toastErr(err, 'unskipping the files'); return false; }
+      const msg = `Unskipped ${was.length === 1 ? '1 file' : `${was.length.toLocaleString()} files`} in “${v.name}”`;
+      const undo = async () => {
+        try { await saveVariant(v, was); if (typeof showToast === 'function') showToast('Skips put back'); } catch (err) { toastErr(err, 'putting the skips back'); }
+      };
+      if (typeof showUndoToast === 'function') showUndoToast(typeof escapeHtml === 'function' ? escapeHtml(msg) : msg, undo);
+      else if (typeof showToast === 'function') showToast(msg);
+      return true;
+    }
     let data;
     try { data = await send('PUT', cid, { ids: [] }); } catch (err) { toastErr(err, 'unskipping the files'); return false; }
     install(cid, data);
@@ -112,7 +179,7 @@ const Skips = (() => {
     return true;
   }
 
-  return { setFor, has, count, take, set, unskipAll, changed, _byColl: byColl };
+  return { setFor, has, count, take, set, unskipAll, changed, useVariant, lengthFor, variantName, _byColl: byColl };
 })();
 
 if (typeof window !== 'undefined') window.Skips = Skips;
@@ -170,20 +237,24 @@ function toggleSkipFile(id) {
  */
 function skipCountParts(c) {
   if (!c || c.kind === 'folder') return null;
-  const n = Number(c.skipped_count) || Skips.count(c.id);
+  const L = Skips.lengthFor(c);
+  const n = Number(L.skipped_count) || Skips.count(c.id);
   if (!(n > 0)) return null;
+  // A saved order's own skips: the tooltip says whose.
+  const vName = Skips.variantName(c.id);
+  const whose = vName ? ` in “${vName}”` : '';
   const files = `${n.toLocaleString()} ${n === 1 ? 'file' : 'files'}`;
   const clock = typeof StageCount !== 'undefined' ? StageCount.clock : (s) => `${Math.round(s)} s`;
   const all = typeof StageCount !== 'undefined' ? StageCount.collectionTime(c) : null;
-  const sSec = Number(c.skipped_seconds) || 0;
-  if (!all || !(sSec > 0)) return { seconds: null, note: `${files} skipped`, title: `${files} skipped: playback passes over ${n === 1 ? 'it' : 'them'}.` };
-  const about = all.about || (Number(c.skipped_unknown_count) || 0) > 0;
+  const sSec = Number(L.skipped_seconds) || 0;
+  if (!all || !(sSec > 0)) return { seconds: null, note: `${files} skipped`, title: `${files} skipped${whose}: playback passes over ${n === 1 ? 'it' : 'them'}.` };
+  const about = all.about || (Number(L.skipped_unknown_count) || 0) > 0;
   const plays = Math.max(0, all.seconds - sSec);
   return {
     seconds: plays,
     about,
     note: `${about ? 'about ' : ''}${clock(sSec)} skipped`,
-    title: `${files} skipped. It plays for ${about ? 'about ' : ''}${clock(plays)}; with ${n === 1 ? 'it' : 'them'} it would be ${clock(all.seconds)}.`,
+    title: `${files} skipped${whose}. It plays for ${about ? 'about ' : ''}${clock(plays)}; with ${n === 1 ? 'it' : 'them'} it would be ${clock(all.seconds)}.`,
   };
 }
 
