@@ -30,7 +30,9 @@ const NowPlaying = (() => {
 
   /** The class a tile render adds (cards.js, table-view.js). */
   function tileClass(tileId) {
-    return id != null && tileId === id ? ' tile-now-playing' : '';
+    if (id == null || tileId !== id) return '';
+    // A redraw while the glow runs (see show) draws the tile glowing.
+    return glowId === id && Date.now() < glowUntil ? ' tile-now-playing tile-np-glow' : ' tile-now-playing';
   }
 
   /** A new file is playing: move the border to its tile. */
@@ -63,7 +65,39 @@ const NowPlaying = (() => {
     el.classList.remove('tile-np-glow');
     void el.offsetWidth;                       // start the animation again on a second click
     el.classList.add('tile-np-glow');
-    setTimeout(() => el.classList.remove('tile-np-glow'), GLOW_MS);
+  }
+
+  let glowId = null;
+  let glowUntil = 0;
+  const tileNow = (want) => document.querySelector(`#resultsGrid .media-tile[data-id="${want}"]:not(.tile-skel)`);
+
+  /**
+   * Scroll to the tile and make it glow, and keep to it while the glow runs:
+   * coming from another tab the grid may draw once more with the new list
+   * (a new element for the same file), and the glow and the place on screen
+   * must not be lost with the old one.
+   */
+  function show(want, first) {
+    const until = Date.now() + GLOW_MS;
+    glowId = want;
+    glowUntil = until;
+    let last = null;
+    const step = () => {
+      if (glowUntil !== until) return;                         // a later click took over
+      const over = want !== id || Date.now() >= until;
+      const el = over ? null : (last && last.isConnected !== false ? last : tileNow(want));
+      if (el && el !== last) {
+        el.scrollIntoView({ block: 'center', behavior: last || reduced() ? 'auto' : 'smooth' });
+        glow(el);
+        last = el;
+      }
+      if (!over) { requestAnimationFrame(step); return; }
+      glowId = null;
+      tiles('.tile-np-glow').forEach(t => t.classList.remove('tile-np-glow'));
+    };
+    last = null;
+    if (first) { first.scrollIntoView({ block: 'center', behavior: reduced() ? 'auto' : 'smooth' }); glow(first); last = first; }
+    requestAnimationFrame(step);
   }
 
   const tabNow = () => (typeof currentTab !== 'undefined' ? currentTab : 'library');
@@ -161,9 +195,9 @@ const NowPlaying = (() => {
     if (typeof revealMediaIndex === 'function') revealMediaIndex(i);
     const el = await waitForTile(want);
     if (!el || want !== id) return;
-    el.scrollIntoView({ block: 'center', behavior: reduced() ? 'auto' : 'smooth' });
-    glow(el);
-    setTimeout(() => clearOfMini(el), reduced() ? 0 : SCROLL_MS);
+    show(want, el);
+    // The tile as it is by then: a redraw may have put a new element in its place.
+    setTimeout(() => { const now = want === id ? tileNow(want) : null; if (now) clearOfMini(now); }, reduced() ? 0 : SCROLL_MS);
   }
 
   /**
