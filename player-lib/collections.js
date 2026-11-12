@@ -766,13 +766,33 @@ function _setPickerExpanded(set) {
 
 let _pickerFromBar = false;      // opened from the selection bar: goes with the selection
 
+/* Files ticked in the grid and added from the selection bar: once the picker
+   closes after an add went through, the ticks are cleared, so the next
+   search starts with nothing selected. While it is open more collections can
+   still be ticked, and a misclick unticked (that add then no longer counts).
+   A press on another selection bar button (Trash, Music ID...) closes the
+   picker but keeps the ticks for that button. */
+let _pickerRun = null;           // { fromBar, added: Set of collection ids, closed, keep }
+
+/** Clear the ticks now? Only for a picker from the selection bar with an add still standing. */
+function pickerRunClears(run) {
+  return !!(run && run.fromBar && run.closed && !run.keep && run.added && run.added.size > 0);
+}
+
+function pickerRunFinish(run) {
+  if (!pickerRunClears(run)) return;
+  run.added.clear();               // once
+  if (typeof selectedIds !== 'undefined' && selectedIds.size && typeof clearSelection === 'function') clearSelection();
+}
+
 function openCollectionPicker(ids, anchorEl) {
   _pickerIds = ids.filter(Boolean);
   if (_pickerIds.length === 0) return;
-  closeCollectionPicker();
+  closeCollectionPicker({ keepSelection: true });
   // One menu at a time: the Studio menu (studios.js) closes when this opens.
   if (typeof stClosePops === 'function') stClosePops();
   _pickerFromBar = !!(anchorEl && anchorEl.closest && anchorEl.closest('#selectionBar'));
+  _pickerRun = { fromBar: _pickerFromBar, added: new Set(), closed: false, keep: false };
   _pickerFilter = '';
   _pickerNaming = null;
 
@@ -812,7 +832,8 @@ function _pickerKeepOnScreen(panel) {
 
 function _pickerOutside(e) {
   if (e.target.closest('#collectionPicker')) return;
-  closeCollectionPicker();
+  // Another selection bar button acts on the ticked files: they stay for it.
+  closeCollectionPicker({ keepSelection: !!e.target.closest('#selectionBar') });
 }
 
 /**
@@ -833,13 +854,20 @@ function _pickerEsc(e) {
 }
 let _pickerFromBarWas = false;
 
-function closeCollectionPicker() {
+function closeCollectionPicker({ keepSelection = false } = {}) {
   _pickerFromBarWas = _pickerFromBar;
   _pickerFromBar = false;
   if (_pickerFit) { _pickerFit.disconnect(); _pickerFit = null; }
   document.getElementById('collectionPicker')?.remove();
   document.removeEventListener('pointerdown', _pickerOutside, true);
   document.removeEventListener('keydown', _pickerEsc, true);
+  const run = _pickerRun;
+  _pickerRun = null;
+  if (run) {
+    run.closed = true;
+    run.keep = run.keep || keepSelection;
+    pickerRunFinish(run);
+  }
 }
 
 /** The selection went away (or its bar hid): a picker opened from the bar goes too. */
@@ -1085,7 +1113,13 @@ function _applyToggleSideEffects(id) {
 async function togglePickerCollection(id) {
   const c = getCollectionById(id);
   if (!c) return;
-  await changeCollectionMembership(id, _pickerIds, _collectionState(c) !== 'all');
+  const run = _pickerRun;
+  const adding = _collectionState(c) !== 'all';
+  const ok = await changeCollectionMembership(id, _pickerIds, adding);
+  if (!ok || !run) return;
+  if (adding) run.added.add(id); else run.added.delete(id);
+  // The picker closed while this add was on its way: clear the ticks now.
+  pickerRunFinish(run);
 }
 
 /**
