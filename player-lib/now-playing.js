@@ -89,6 +89,8 @@ const NowPlaying = (() => {
       if (el && el !== last) {
         el.scrollIntoView({ block: 'center', behavior: last || reduced() ? 'auto' : 'smooth' });
         glow(el);
+        // A replaced tile was centred again: out from under the mini player again too.
+        if (last) clearOfMini(el);
         last = el;
       }
       if (!over) { requestAnimationFrame(step); return; }
