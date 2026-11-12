@@ -4,12 +4,11 @@
  * hidden and shown again):
  *  - collection-reorder.js calls flowMembersChanged after a move (drag or
  *    Alt+arrows: reorderMove) and after Undo, with the server's order in
- *    the page's copy by then; in Flow order a move goes to flowMoveInOrder;
+ *    the page's copy by then (there is one order: a move always saves);
  *  - collections.js calls it after files are taken out (and put back);
  *  - flow.js membersChanged: panel open, the chart's playlist order and
- *    jumps change at once and the server is asked once; Flow order shown,
- *    the same; panel closed and no Flow order, nothing is asked and the
- *    held answer is dropped.
+ *    jumps change at once and the server is asked once; panel closed,
+ *    nothing is asked and the held answer is dropped.
  * Each browser script runs in a vm with a bare page.
  */
 
@@ -26,7 +25,7 @@ const json = (data, ok = true, status = 200) => ({ ok, status, json: async () =>
 
 /* ── collection-reorder.js ────────────────────────────────────────────── */
 
-function reorderPage({ flowOrder = false } = {}) {
+function reorderPage() {
   const server = [1, 2, 3, 4];
   const calls = [];
   const undos = [];
@@ -45,9 +44,6 @@ function reorderPage({ flowOrder = false } = {}) {
     collErrorToast() {},
     showUndoToast: (msg, fn) => undos.push(fn),
     flowMembersChanged: (id) => calls.push(`flow:${id}:${ctx.collectionMembers.get(id).join(',')}`),
-    flowOrderOn: () => flowOrder,
-    flowWorkingOrder: () => (flowOrder ? [4, 3, 2, 1] : null),
-    flowMoveInOrder: async (ids, before) => { calls.push(`flowMove:${ids}:${before}`); return true; },
     fetch: async (url, o) => {
       const body = JSON.parse(o.body);
       let order;
@@ -75,8 +71,8 @@ test('a move in playlist order tells Flow, with the new order already in the pag
 });
 
 test('a move from Flow (reorderMove) scrolls nothing and focuses nothing in the grid', async () => {
-  for (const flowOrder of [false, true]) {
-    const p = reorderPage({ flowOrder });
+  {
+    const p = reorderPage();
     const log = [];
     const tile = { focus: () => log.push('focus'), scrollIntoView: () => log.push('scrollIntoView'), classList: { add() {}, remove() {} } };
     for (const fn of ['scrollTo', 'scrollBy', 'scroll']) p.ctx.window[fn] = () => log.push(fn);
@@ -85,7 +81,7 @@ test('a move from Flow (reorderMove) scrolls nothing and focuses nothing in the 
     p.ctx.dockReveal = () => log.push('dockReveal');
     p.ctx.revealMediaIndex = () => log.push('revealMediaIndex');
     assert.strictEqual(await p.ctx.reorderMove([4], 1), true);
-    assert.deepStrictEqual(log, [], flowOrder ? 'Flow order' : 'playlist order');
+    assert.deepStrictEqual(log, []);
   }
 });
 
@@ -98,32 +94,21 @@ test('Undo of a move tells Flow too', async () => {
   assert.ok(p.calls.includes('flow:5:1,2,3,4'));
 });
 
-test('in Flow order a move goes to Flow\'s working order (nothing is saved)', async () => {
-  const p = reorderPage({ flowOrder: true });
-  assert.strictEqual(await p.ctx.reorderMove([1], 4), true);
-  assert.deepStrictEqual(p.calls, ['flowMove:1:4']);
-  assert.deepStrictEqual(p.server, [1, 2, 3, 4], 'the playlist order is untouched');
-});
-
-test('the note over the grid says nothing in Flow order (no order bar); the other notes stay', () => {
-  const noteFor = (flowOrder, over = {}) => {
-    const p = reorderPage({ flowOrder });
+test('the note over the grid: Drag tiles to rearrange in playlist order, the shuffle note after a shuffle', () => {
+  const noteFor = (over = {}) => {
+    const p = reorderPage();
     const note = { innerHTML: 'old', hidden: false, classList: { toggle() {} } };
     p.ctx.document.getElementById = (id) => (id === 'collReorderNote' ? note : null);
     Object.assign(p.ctx.Library, over);
     p.ctx.renderReorderNote();
     return note;
   };
-  const flow = noteFor(true);
-  assert.strictEqual(flow.innerHTML, '');
-  assert.strictEqual(flow.hidden, true);
-  const plain = noteFor(false);
+  const plain = noteFor();
   assert.match(plain.innerHTML, /Drag tiles to rearrange/);
   assert.strictEqual(plain.hidden, false);
-  // A shuffle on screen still says so (it leaves Flow order anyway).
-  assert.match(noteFor(true, { shuffled: true }).innerHTML, /Showing a shuffled order/);
-  const src = read('player-lib/collection-reorder.js') + read('player-lib/flow.js') + read('css/flow.css');
-  assert.doesNotMatch(src, /flowOrderBarHtml|orderBarHtml|flow-orderbar|flow-ob-/, 'the order bar is gone');
+  assert.match(noteFor({ shuffled: true }).innerHTML, /Showing a shuffled order/);
+  const src = read('player-lib/collection-reorder.js') + read('player-lib/flow.js') + read('player-lib/filters.js') + read('player-lib/collections.js');
+  assert.doesNotMatch(src, /flowOrderOn|flowWorkingOrder|flowMoveInOrder|flowLeaveOrder|flowQueryRanked|flowCountText/, 'no second order to ask about');
 });
 
 /* ── collections.js: taking files out, putting them back ──────────────── */
@@ -245,20 +230,11 @@ test('panel open: files taken out are asked for (the chart loses them)', async (
   assert.deepStrictEqual(p.Flow._state().data.playlistOrder, [1, 3]);
 });
 
-test('Flow order shown with the panel closed: asked again; nothing shown: nothing asked, the answer dropped', async () => {
-  const p = flowPage();
-  await p.Flow.toggle(3);
-  await p.Flow.useFlowOrder();
-  p.Flow.close();
-  let n = p.asks();
-  p.ctx.collectionMembers.set(3, [3, 2, 1]);
-  await p.ctx.flowMembersChanged(3);
-  assert.strictEqual(p.asks(), n + 1);
-
+test('panel closed: nothing asked, the answer dropped', async () => {
   const q = flowPage();
   await q.Flow.toggle(3);
   q.Flow.close();
-  n = q.asks();
+  const n = q.asks();
   q.ctx.collectionMembers.set(3, [3, 2, 1]);
   assert.strictEqual(q.ctx.flowMembersChanged(3), null);
   assert.strictEqual(q.asks(), n, 'nothing asked while nothing shows it');

@@ -41,8 +41,6 @@
    - EDGE_MODES, edgeSkips(...)  how far Flow looks past each edge (Calm edges)
    - fromRow(id, row, mode)      a media_flow row as features, with the edges mode applied
    - reconcileOrder(order, members)  an order kept to a collection's files
-   - moveBlock(order, ids, before)   a drag in Flow order: the new order, or null
-   - parseRemembered(text)       a remembered Flow order from storage, or null
    - nextAfter(playing, o)       the file that plays next (Up next, else the list)
 
    The cost of an order:
@@ -848,47 +846,6 @@ const FlowOrder = (() => {
   }
 
   /**
-   * Move ids (as a block, in the order's own order) to sit right before
-   * `before` (null: the end). Null when nothing moves, before is one of
-   * them, or before is not in the order.
-   */
-  function moveBlock(order, ids, before) {
-    const moving = new Set(ids);
-    const block = order.filter(id => moving.has(id));
-    if (!block.length || (before != null && moving.has(before))) return null;
-    const rest = order.filter(id => !moving.has(id));
-    const at = before == null ? rest.length : rest.indexOf(before);
-    if (at < 0) return null;
-    const next = [...rest.slice(0, at), ...block, ...rest.slice(at)];
-    return next.every((id, i) => id === order[i]) ? null : next;
-  }
-
-  /**
-   * A remembered Flow order (localStorage text) as { shape, places, edited,
-   * waves, saved }, or null when there is none or it is not exactly that shape (the
-   * caller removes it then): a plain object, a known shape, places true /
-   * false / null, edited null or a list of whole positive ids. Waves' peaks
-   * read as 2 when missing or not 1..6 (an entry from before they existed).
-   * saved: the saved order it was loaded from (its id), null when none or
-   * not a whole positive number.
-   */
-  function parseRemembered(text) {
-    if (typeof text !== 'string' || !text) return null;
-    let v;
-    try { v = JSON.parse(text); } catch { return null; }
-    if (!v || typeof v !== 'object' || Array.isArray(v) || Object.getPrototypeOf(v) !== Object.prototype) return null;
-    if (!isShape(v.shape)) return null;
-    if (v.places != null && typeof v.places !== 'boolean') return null;
-    let edited = null;
-    if (v.edited != null) {
-      if (!Array.isArray(v.edited) || !v.edited.every(id => Number.isInteger(id) && id > 0)) return null;
-      edited = v.edited.length ? [...new Set(v.edited)] : null;
-    }
-    const saved = Number.isSafeInteger(v.saved) && v.saved > 0 ? v.saved : null;
-    return { shape: v.shape, places: v.places == null ? null : v.places, edited, waves: wavesCount(v.waves), saved };
-  }
-
-  /**
    * The file that plays after `playing`: Up next's first file when it has
    * one ({ upNext: true }), else the next in the list, else null.
    * @param {number|null} playing
@@ -998,7 +955,7 @@ const FlowOrder = (() => {
     shapeLabel, isShape, curve, targetsFor, guideTargets, tempoRatio, handoverCost, handover, grade, handoverText, planOrder, summary,
     flowShuffle, pickFrom, seeded, energyWord, bpmText, flowText, fromRow, parseEnv, totalCost,
     EDGE_MODES, parseEdges, edgeSkips,
-    reconcileOrder, moveBlock, parseRemembered, nextAfter,
+    reconcileOrder, nextAfter,
   };
 })();
 

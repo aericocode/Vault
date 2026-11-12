@@ -575,10 +575,8 @@ function closeCollection() {
 /**
  * The count line: "8 files · 41:12 · playlist order" while the grid shows the
  * saved order, otherwise what it is sorted by, in the sort menu's own words
- * ("8 files · 41:12 · sorted by name"), or "· shuffled" after Shuffle. Flow
- * order (flow.js countText) names the shape or the saved order, ", edited"
- * once moved: "8 files · 41:12 · Flow order: Friday set, edited". Folders
- * say "· folder". The files and their total length are the whole
+ * ("8 files · 41:12 · sorted by name"), or "· shuffled" after Shuffle.
+ * Folders say "· folder". The files and their total length are the whole
  * collection's, whatever the grid shows (StageCount.collectionTime: "about"
  * when some lengths are not known yet, none when most are not).
  */
@@ -593,8 +591,6 @@ function collectionCountText(c) {
   if (sk) n += `, ${sk.note}`;
   if (c.kind === 'folder') return `${n} · folder`;
   if (typeof Library !== 'undefined' && Library.shuffled) return `${n} · shuffled`;
-  const flow = typeof flowCountText === 'function' ? flowCountText() : null;
-  if (flow) return `${n} · ${flow}`;
   const field = typeof currentSortField === 'function' ? currentSortField() : 'playlist';
   if (field === 'playlist') return `${n} · playlist order`;
   const opt = document.querySelector(`#sortSelect option[value="${field}"]`);

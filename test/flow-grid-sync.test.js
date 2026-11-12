@@ -1,7 +1,8 @@
 /**
  * The Flow chart and the grid read one order (player-lib/flow.js). The grid
  * is the library query, which applies the search and the filters on top of
- * Flow order, so it can show fewer files than the collection; Next, Previous
+ * the playlist order (a shape picked rearranges that), so it can show fewer
+ * files than the collection; Next, Previous
  * and Stage walk the grid's list. The chart (its columns, guide, jumps and
  * the tiles' positions) is kept to the files the grid shows.
  *
@@ -11,8 +12,8 @@
  * MOMMY went to glasses: three surfaces, two orders.
  *
  * flow.js runs in a vm with a bare page; the library query is played here:
- * applyFilters takes Flow's rankedIds (flowQueryRanked, as filters.js does)
- * or the playlist order, and drops what the filter hides.
+ * applyFilters takes the playlist order (POST /api/collections/:id/order
+ * changes it) and drops what the filter hides.
  */
 
 const test = require('node:test');
@@ -38,6 +39,7 @@ function serverOrder(shape, places) {
 
 function page({ hidden = [], filtering = true } = {}) {
   const listeners = {};
+  const server = { playlist: PLAYLIST.slice(), writes: 0 };
   const store = new Map();
   const hide = new Set(hidden);
   const ok = (body) => ({ ok: true, status: 200, json: async () => body });
@@ -54,6 +56,7 @@ function page({ hidden = [], filtering = true } = {}) {
     Library,
     anyFilterIsSet: () => filtering && hide.size > 0,
     activeCollectionId: 3,
+    collectionMembers: new Map([[3, PLAYLIST.slice()]]),
     document: { readyState: 'complete', getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], addEventListener() {} },
     localStorage: {
       getItem: (k) => (store.has(k) ? store.get(k) : null),
@@ -62,22 +65,26 @@ function page({ hidden = [], filtering = true } = {}) {
     },
     setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
     requestAnimationFrame: () => 0,
-    // The library query: Flow's rankedIds when it gives them, else the playlist order; the filter on top.
+    // The library query: the playlist order, the filter on top.
     applyFilters: async () => {
-      const ranked = ctx.flowQueryRanked();
-      const order = ranked ? ranked.slice().sort((a, b) => b.score - a.score).map(r => r.id) : PLAYLIST;
-      Library.spec = { collectionId: 3, rankedIds: ranked };
-      Library.ids = Uint32Array.from(order.filter(id => !hide.has(id)));
+      Library.spec = { collectionId: 3, rankedIds: null };
+      Library.ids = Uint32Array.from(server.playlist.filter(id => !hide.has(id)));
       emit('vault:results-changed');
     },
-    fetch: async (url) => {
+    fetch: async (url, opts = {}) => {
+      if (/\/api\/collections\/3\/order$/.test(url)) {
+        const b = JSON.parse(opts.body);
+        server.playlist = b.order.slice();
+        server.writes++;
+        return ok({ order: server.playlist.slice(), item_count: server.playlist.length });
+      }
       const m = /\/api\/flow\/collections\/(\d+)\?shape=(\w+)&places=(\d)/.exec(url);
       if (m) {
         const shape = m[2], on = m[3] === '1';
         const order = serverOrder(shape, on);
         const sum = FlowOrder.summary(feats, order);
-        return ok({ shape, order, playlistOrder: PLAYLIST, features: feats, targets: FlowOrder.targetsFor(shape, feats),
-          handovers: sum.handovers, jumps: sum.jumps, playlistJumps: FlowOrder.summary(feats, PLAYLIST).jumps,
+        return ok({ shape, order, playlistOrder: server.playlist.slice(), features: feats, targets: FlowOrder.targetsFor(shape, feats),
+          handovers: sum.handovers, jumps: sum.jumps, playlistJumps: FlowOrder.summary(feats, server.playlist).jumps,
           counts: { measured: IDS.length, failed: 0, music: IDS.length }, places: PLACES, placesOn: on });
       }
       return ok(status);
@@ -86,7 +93,7 @@ function page({ hidden = [], filtering = true } = {}) {
   ctx.window = { addEventListener: (type, fn) => { (listeners[type] ||= []).push(fn); }, dispatchEvent() {} };
   vm.createContext(ctx);
   vm.runInContext(SRC, ctx);
-  return { ctx, Flow: ctx.window.Flow, Library, emit };
+  return { ctx, Flow: ctx.window.Flow, Library, emit, server };
 }
 
 /** The chart's order, the grid's order and Next from each file all agree. */
@@ -107,12 +114,15 @@ for (const hidden of [[], [1, 3]]) {
   test(`chart, grid and Next read one order: Places on and off, every shape (${label})`, async () => {
     const p = page({ hidden });
     await p.Flow.toggle(3);
+    await p.ctx.applyFilters();
     for (const places of [true, false, true]) {
       await p.Flow.pickPlaces(places);
       assert.strictEqual(p.Flow._state().places, places);
       assertOneOrder(p, `${label}, places ${places} switched`);
       for (const shape of FlowOrder.SHAPES.map(s => s.key)) {
         await p.Flow.pickShape(shape);
+        assert.deepStrictEqual(p.server.playlist, serverOrder(shape, places), `${shape}: written as the playlist order`);
+        assert.strictEqual(p.Flow.shape().lit, true);
         assertOneOrder(p, `${label}, places ${places}, ${shape}`);
       }
     }
@@ -135,24 +145,43 @@ test('the Waves report: Places on, long Openers filtered out, Waves picked', asy
   assert.match(p.Flow._view.summary(), /2 files hidden by the search or filters/);
 });
 
-test('drags in the chart and in the grid keep the chart and the grid on one order (filter on)', async () => {
+test('a move after a shape: the chart and the grid stay on one order, the shape lets go and never snaps back', async () => {
   const p = page({ hidden: [1, 3] });
   await p.Flow.toggle(3);
   await p.Flow.pickShape('waves');
-  const grid = Array.from(p.Library.ids);
-  // A move the way the grid (or the chart's drop) asks for it: before a shown file.
-  await p.Flow.moveInOrder([grid[grid.length - 1]], grid[0]);
-  assertOneOrder(p, 'after a move to the top');
-  assert.strictEqual(p.Flow._view.order()[0], grid[grid.length - 1]);
-  await p.Flow.moveInOrder([grid[1]], null);
-  assertOneOrder(p, 'after a move to the end');
-  // A refetch (a measuring update) keeps the edited order and the grid together.
-  await p.Flow.refetch(true);
-  assertOneOrder(p, 'after a refetch');
-  // Back to playlist order: the chart draws the playlist order the grid shows.
-  await p.Flow.usePlaylistOrder();
+  assert.strictEqual(p.Flow.shape().lit, true);
+  // A drag as collection-reorder.js makes it: written, the page's copy, then Flow told.
+  const next = p.server.playlist.slice();
+  next.push(next.shift());
+  p.server.playlist = next;
+  p.ctx.collectionMembers.set(3, next.slice());
+  await p.ctx.flowMembersChanged(3);
   await p.ctx.applyFilters();
-  assertOneOrder(p, 'playlist order');
+  assertOneOrder(p, 'after a move');
+  assert.strictEqual(p.Flow.shape().lit, false, 'no longer the shape');
+  assert.strictEqual(p.Flow._view.guide(), null, 'no guide for a shape the playlist is not in');
+  const w = p.server.writes;
+  await p.Flow.refetch(true);
+  assert.strictEqual(p.server.writes, w, 'a measuring update writes nothing');
+  assert.deepStrictEqual(p.server.playlist, next);
+  assertOneOrder(p, 'after a refetch');
+});
+
+test('the lit shape picked again leaves the playlist order as it is (no second rearrange)', async () => {
+  const p = page();
+  await p.Flow.toggle(3);
+  await p.Flow.pickShape('waves', 2);
+  assert.strictEqual(p.Flow.shape().lit, true);
+  const once = p.server.playlist.slice(), w = p.server.writes;
+  await p.Flow.pickShape('waves', 2);
+  await p.Flow.pickWaves(2);
+  assert.strictEqual(p.server.writes, w, 'nothing written');
+  assert.deepStrictEqual(p.server.playlist, once);
+  assert.strictEqual(p.Flow.shape().lit, true);
+  // Another peak count is a new pick.
+  await p.Flow.pickWaves(3);
+  assert.strictEqual(p.Flow.shape().waves, 3);
+  assert.strictEqual(p.Flow.shape().lit, true);
 });
 
 test('files the grid never lists (a document, a trashed file) are left off the chart without blaming a filter', async () => {

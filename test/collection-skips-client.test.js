@@ -242,24 +242,11 @@ test('the count line\'s skip part: what plays, and what the skips take off', () 
   assert.strictEqual(page().skipCountParts(page().coll), null, 'nothing skipped: nothing said');
 });
 
-test('a saved order showing with its own skips: they are read, the count line uses its length and names it', () => {
+test('the skips are the playlist\'s only: no saved order reads or writes them (Skips has no other set)', () => {
   const p = page({ skipped: [1], counts: { skipped_count: 1, skipped_seconds: 300, skipped_unknown_count: 0 } });
-  p.Skips.useVariant({ cid: 7, sid: 4, name: 'Night', skips: [2, 3], length: { skipped_count: 2, skipped_seconds: 600, skipped_unknown_count: 0 }, save: async () => {} });
-  assert.deepStrictEqual([...p.Skips.setFor(7)], [2, 3]);
-  assert.deepStrictEqual(p.events, [7], 'the page hears of the change');
-  const parts = p.skipCountParts(p.coll);
-  assert.deepStrictEqual([parts.seconds, parts.note], [7225 - 600, '10:00 skipped']);
-  assert.match(parts.title, /2 files skipped in “Night”/);
-  // The same again: nothing to tell.
-  p.Skips.useVariant({ cid: 7, sid: 4, name: 'Night', skips: [3, 2], length: { skipped_count: 2, skipped_seconds: 600 }, save: async () => {} });
-  assert.deepStrictEqual(p.events, [7]);
-  // None of its own: the playlist's, with the collection's numbers.
-  p.Skips.useVariant({ cid: 7, sid: 5, name: 'Old', skips: null, length: null, save: async () => {} });
+  assert.strictEqual(p.Skips.useVariant, undefined);
   assert.deepStrictEqual([...p.Skips.setFor(7)], [1]);
-  assert.strictEqual(p.skipCountParts(p.coll).note, '5:00 skipped');
-  // Back to the playlist.
-  p.Skips.useVariant(null);
-  assert.deepStrictEqual([...p.Skips.setFor(7)], [1]);
+  assert.doesNotMatch(p.skipCountParts(p.coll).title, /in “|none of its own/);
 });
 
 test('collectionCountText puts it together: "40 files · 1:42:05, 18:20 skipped · playlist order"', () => {
@@ -334,52 +321,12 @@ test('skipped tiles and rows are styled in both looks, with a [hidden] rule for 
 
 /* ── Fix round: stale skips, quick clicks, the count line's order ──────── */
 
-test('a saved order\'s skips of files gone: the server\'s 0 is believed, Unskip all goes, the page\'s count leaves gone files out', () => {
-  const p = page({ counts: { skipped_count: 0, skipped_seconds: 0 } });
+test('skips of files gone: the server\'s 0 is believed, Unskip all goes, the page\'s count leaves gone files out', () => {
+  const p = page({ skipped: [6], counts: { skipped_count: 0, skipped_seconds: 0 } });
   p.ctx.collectionMembers = new Map([[7, [1, 2, 3, 4, 5]]]);
-  // Its own skips still hold file 6 (taken out since); its length from the server says none.
-  p.Skips.useVariant({ cid: 7, sid: 4, name: 'Smooth A', skips: [6], length: { skipped_count: 0, skipped_seconds: 0, skipped_unknown_count: 0 }, save: async () => {} });
   assert.strictEqual(p.skipCountParts(p.coll), null, 'nothing skipped is said');
   assert.strictEqual(p.Skips.count(7), 0);
   assert.strictEqual(p.skipHeaderHtml(p.coll), '', 'no Unskip all');
-});
-
-test('the tooltip says whose skips they are: the saved order\'s own, or the playlist\'s while it has none of its own', () => {
-  const p = page({ skipped: [1, 2, 3, 4], counts: { skipped_count: 4, skipped_seconds: 1200, skipped_unknown_count: 0 } });
-  p.Skips.useVariant({ cid: 7, sid: 4, name: 'Smooth A', skips: null, length: null, save: async () => {} });
-  const t = p.skipCountParts(p.coll).title;
-  assert.doesNotMatch(t, /skipped in “Smooth A”/);
-  assert.match(t, /4 files skipped \(the playlist's skips; “Smooth A” has none of its own yet\)/);
-  p.Skips.useVariant({ cid: 7, sid: 4, name: 'Smooth A', skips: [1], length: { skipped_count: 1, skipped_seconds: 300 }, save: async () => {} });
-  assert.match(p.skipCountParts(p.coll).title, /1 file skipped in “Smooth A”/);
-});
-
-test('two quick skips in a saved order both count (its writes go one after another)', async () => {
-  const p = page();
-  const sent = [];
-  let own = [];
-  const v = () => ({
-    cid: 7, sid: 4, name: 'Night', skips: own, length: null,
-    // Slow, like the server: each write answers later, then the page takes the row (flow.js syncSkips).
-    save: async (ids) => {
-      sent.push(ids.slice());
-      await new Promise(r => setTimeout(r, 20));
-      own = ids.slice();
-      p.Skips.useVariant(v());
-      return { skips: own };
-    },
-  });
-  p.Skips.useVariant(v());
-  await Promise.all([p.toggleSkipFile(5), p.toggleSkipFile(7)]);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(sent)), [[5], [5, 7]]);
-  assert.deepStrictEqual([...p.Skips.setFor(7)].sort((a, b) => a - b), [5, 7]);
-  // A failed write does not stop the next one.
-  let fail = true;
-  const base = v();
-  p.Skips.useVariant({ ...base, save: async (ids) => { if (fail) { fail = false; throw new Error('no'); } return base.save(ids); } });
-  const r = await Promise.all([p.Skips.set(7, [9], true), p.Skips.set(7, [8], true)]);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(r)), [false, true]);
-  assert.deepStrictEqual([...p.Skips.setFor(7)].sort((a, b) => a - b), [5, 7, 8]);
 });
 
 // collections.js takeCollectionAnswer, the one place a collection answer is taken ('' where it is not there yet).

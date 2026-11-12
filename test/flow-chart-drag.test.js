@@ -221,42 +221,24 @@ test('no drag while the grid would not take a move (another sort, a shuffle, a r
   assert.deepStrictEqual(p.moves, []);
 });
 
-test('Flow order shown: the drag moves in that order through the same reorderMove', async () => {
-  const p = page();
-  await p.Flow.toggle(3);
-  await p.Flow.useFlowOrder();           // the chart shows Flow order: 15 14 13 12 11
-  assert.strictEqual(p.D.allowed(), true);
-  p.press(p.colX(0));                    // file 15
-  p.moveTo(p.gapX(2) + 1);
-  await p.D.drop();
-  assert.deepStrictEqual(p.moves.map(m => [[...m.ids], m.before]), [[[15], 13]]);
-});
-
 test('a drop leaves the view where it was: the list is not scrolled to the file, nothing in it takes focus', async () => {
   const log = [];
   const tile = fakeEl({
     scrollIntoView: () => log.push('tile.scrollIntoView'),
     focus: () => log.push('tile.focus'),
   });
-  for (const flowOrder of [false, true]) {
-    const p = page({ views: { log, tile } });
-    await p.Flow.toggle(3);
-    if (flowOrder) await p.Flow.useFlowOrder();
-    p.press(p.colX(1));
-    p.moveTo(p.gapX(4) + 3);
-    assert.strictEqual(await p.D.drop(), true, 'the file moved');
-    assert.strictEqual(p.moves.length, 1);
-  }
+  const p = page({ views: { log, tile } });
+  await p.Flow.toggle(3);
+  p.press(p.colX(1));
+  p.moveTo(p.gapX(4) + 3);
+  assert.strictEqual(await p.D.drop(), true, 'the file moved');
+  assert.strictEqual(p.moves.length, 1);
   assert.deepStrictEqual(log, [], 'no scroll, reveal or focus on the drop');
 });
 
-test('the marks a table row shows (table-view.js fits the chips around them): Flow order positions, none in playlist order', async () => {
+test('the marks a table row shows (table-view.js fits the chips around them): no position marks, there is one order', async () => {
   const p = page();
   await p.Flow.toggle(3);
-  assert.strictEqual(p.Flow.marksFor(11), null, 'playlist order, nothing playing: no marks');
+  assert.strictEqual(p.Flow.marksFor(11), null, 'nothing playing: no marks');
   assert.strictEqual(p.Flow.marksKey(11), '');
-  await p.Flow.useFlowOrder();           // 15 14 13 12 11 against 11 12 13 14 15
-  assert.deepStrictEqual({ ...p.Flow.marksFor(11) }, { pos: '5 · was 1', playing: false, next: false });
-  assert.strictEqual(p.Flow.marksFor(13), null, 'the middle file keeps its place');
-  assert.strictEqual(p.Flow.marksKey(11), '5 · was 1|');
 });
