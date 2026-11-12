@@ -219,8 +219,10 @@ async function reorderMove(ids, before) {
     const msg = ids.length === 1
       ? `Moved “${escapeHtml(_fileName(ids[0]))}” to position ${n}`
       : `Moved ${ids.length} files to position ${n}`;
-    // The Undo puts back what Flow kept before the move too (a shape lit comes back lit).
-    const flow = typeof flowUndoOf === 'function' ? flowUndoOf(data) : undefined;
+    // The Undo puts back what Flow kept before the move too (a shape lit comes
+    // back lit), or checks the row is still as the move left it (flow.js
+    // flowGuardOf): refused when another window changed it since.
+    const flow = typeof flowGuardOf === 'function' ? flowGuardOf(data) : undefined;
     showUndoToast(msg, () => reorderUndo(collId, prev, flow));
     return true;
   } catch (err) {
@@ -248,7 +250,11 @@ async function reorderUndo(collId, order, flow) {
     await _installOrder(collId, data);
     showToast('Order put back');
   } catch (err) {
-    collErrorToast(err, 'putting the order back');
+    // Another window changed the order since (409 STALE): nothing was written; the page reads it again.
+    if (err && err.code === 'STALE') {
+      showToast(typeof STALE_UNDO_TEXT === 'string' ? STALE_UNDO_TEXT : err.message);
+      if (typeof collectionResync === 'function') await collectionResync(collId);
+    } else collErrorToast(err, 'putting the order back');
   } finally {
     _reorderBusy = false;
   }

@@ -168,6 +168,28 @@ async function loadCollections() {
 }
 
 
+/**
+ * The check Remove's Undo sends: what Flow keeps for Custom as the
+ * collection's last remove answer gave it (DELETE /api/collections/:id/items,
+ * kept on the collection's entry as _flowRow), back unchanged (flow.js
+ * flowKeepOf), so the Undo is refused when another window changed it since.
+ * undefined: the server said nothing about it.
+ */
+function collectionUndoGuard(id) {
+  const c = getCollectionById(id);
+  return c && c._flowRow !== undefined && typeof flowKeepOf === 'function' ? flowKeepOf(c._flowRow) : undefined;
+}
+
+/** Read a collection again from the server and redraw what shows it (after a refused write). */
+async function collectionResync(id) {
+  try { await fetchCollectionMembers(id, true); } catch { return; }
+  if (typeof flowMembersChanged === 'function') flowMembersChanged(id);
+  if (typeof activeCollectionId !== 'undefined' && activeCollectionId === id) {
+    if (typeof renderCollectionHeader === 'function') renderCollectionHeader();
+    if (typeof applyFilters === 'function') await applyFilters({ keepPage: true });
+  }
+}
+
 async function fetchCollectionMembers(id, force = false) {
   if (!force && collectionMembers.has(id)) return collectionMembers.get(id);
   const data = await fetch(`/api/collections/${id}`).then(r => r.json());
@@ -1190,6 +1212,7 @@ async function changeCollectionMembership(id, mediaIds, adding, { quiet = false 
     // True-up authoritative count + mosaic from the response (no follow-up GET).
     c.item_count = data.item_count;
     if (Array.isArray(data.first_ids)) c.first_ids = data.first_ids;
+    if (!adding) c._flowRow = data.flow_custom;
     takeCollectionAnswer(id, data, { filesChanged: true });
     _patchPickerRow(id);
     _patchAncestorCounts(id);
@@ -1281,15 +1304,21 @@ async function removeSelectedFromCollection() {
   const order = (collectionMembers.get(c.id) || []).slice();
   const ok = await changeCollectionMembership(c.id, ids, false, { quiet: true });
   if (!ok) return;
+  const guard = typeof collectionUndoGuard === 'function' ? collectionUndoGuard(c.id) : undefined;
   // Ticked files the collection never held (a search can hide them) stay ticked.
   ids.forEach(m => selectedIds.delete(m));
   _selectionRedraw();
   const what = ids.length === 1 ? '1 file' : `${ids.length.toLocaleString()} files`;
-  showUndoToast(`Removed ${what} from ${escapeHtml(c.name)}`, () => undoRemoveFromCollection(c.id, ids, order));
+  showUndoToast(`Removed ${what} from ${escapeHtml(c.name)}`, () => undoRemoveFromCollection(c.id, ids, order, guard));
 }
 
-/** Undo: the files go back in, then the whole earlier order is put back. */
-async function undoRemoveFromCollection(id, ids, order) {
+/**
+ * Undo: the files go back in, then the whole earlier order is put back.
+ * flow: the check of what Flow keeps (collectionUndoGuard). Another window
+ * changed it since (409 STALE): the files are back, at the end, and the
+ * order is left as that window made it.
+ */
+async function undoRemoveFromCollection(id, ids, order, flow) {
   const c = getCollectionById(id);
   if (!c) return;
   const write = (p) => (typeof Library !== 'undefined' && Library.ownWrite ? Library.ownWrite(p) : p);
@@ -1305,9 +1334,18 @@ async function undoRemoveFromCollection(id, ids, order) {
     const resp = await write(fetch(`/api/collections/${id}/order`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order }),
+      body: JSON.stringify(flow === undefined ? { order } : { order, flow }),
     }));
-    if (!resp.ok) throw await collResponseError(resp);
+    if (!resp.ok) {
+      const err = await collResponseError(resp);
+      if (err.code === 'STALE') {
+        showToast(`Put back in ${c.name}. The order was changed in another window, so they are at the end.`);
+        if (typeof collectionResync === 'function') await collectionResync(id);
+        _patchAncestorCounts(id);
+        return;
+      }
+      throw err;
+    }
     const data = await resp.json();
     collectionMembers.set(id, data.order);
     if (typeof flowMembersChanged === 'function') flowMembersChanged(id);

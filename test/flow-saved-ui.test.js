@@ -192,7 +192,7 @@ test('clicking a chip loads it into the playlist order (order and skips, one req
   assert.strictEqual(srv.orders.length, 1);
   // Undo: the order and the skips from before.
   await p.undos.at(-1).fn();
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [1, 2, 3, 4, 5, 6, 7, 8], skips: [6] });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [1, 2, 3, 4, 5, 6, 7, 8], skips: [6], flow: { restore: null, rev: null } }, 'with the check that nothing is kept still');
   assert.deepStrictEqual([...p.S.setFor(CID)], [6]);
   assert.strictEqual(lit(p), null);
   assert.strictEqual(p.toasts.at(-1), 'Playlist order put back');
@@ -215,7 +215,7 @@ test('a saved order from before (a shape, no skips of its own) loads its stored 
   const st = p.Flow._state();
   assert.deepStrictEqual([st.shape, st.places], ['smooth', null], 'loading takes no shape or switch from it');
   await p.undos.at(-1).fn();
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [1, 2, 3, 4, 5, 6, 7, 9] });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [1, 2, 3, 4, 5, 6, 7, 9], flow: { restore: null, rev: null } });
 });
 
 test('saving while the playlist is still a shape records the shape; a chip shows it', async () => {

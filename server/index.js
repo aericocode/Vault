@@ -3107,7 +3107,9 @@ app.get('/api/collections', (req, res) => {
 const COLL_ERR_STATUS = { NAME_TAKEN: 409, BAD_PARENT: 400, BAD_KIND: 400, CYCLE: 400, FOLDER_TARGET: 400,
   // POST /api/collections/:id/order (lib/collection-order.js)
   NOT_FOUND: 404, BAD_MOVE: 400, BAD_BEFORE: 400, NOT_MEMBER: 400, BEFORE_IN_MOVE: 400,
-  BEFORE_NOT_MEMBER: 400, BAD_ORDER: 400 };
+  BEFORE_NOT_MEMBER: 400, BAD_ORDER: 400,
+  // An Undo over what Flow keeps for Custom after another window changed it (lib/flow/custom.js): nothing written.
+  STALE: 409 };
 
 app.post('/api/collections', (req, res) => {
   const name = (req.body?.name || '').toString().trim();
@@ -3249,7 +3251,8 @@ app.delete('/api/collections/:id/items', (req, res) => {
   const ids = parseIdList(req.body);
   if (!id || ids.length === 0) return res.status(400).json({ error: 'id + ids required' });
   const removed = db.removeFromCollection(id, ids);
-  res.json({ removed, item_count: db.collectionItemCount(id), first_ids: db.collectionFirstIds(id), ...db.collectionLength(id) });
+  // What Flow keeps for Custom (not touched by a remove): Remove's Undo sends it back as a check, so it is refused if another window changed it since.
+  res.json({ removed, item_count: db.collectionItemCount(id), first_ids: db.collectionFirstIds(id), flow_custom: flowCustom.state(db.get(), id), ...db.collectionLength(id) });
 });
 
 // Rearrange the playlist order: { move: [ids], before: id | null } moves a

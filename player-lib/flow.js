@@ -404,7 +404,8 @@ const Flow = (() => {
     return true;
   }
 
-  const undoFlow = (data) => flowUndoOf(data);
+  // What an Undo sends: the row before, or the row unchanged as a check (flowGuardOf), so a stale Undo is refused.
+  const undoFlow = (data) => flowGuardOf(data);
 
   function rememberShape() {
     if (st.cid == null) return;
@@ -513,13 +514,26 @@ const Flow = (() => {
     if (sorted || (typeof Library !== 'undefined' && Library.shuffled)) await switchToPlaylistOrder();
   }
 
-  /** An Undo that puts back an order (and skips, when given) written here, and (flow: undoFlow) the row the server kept before it. */
+  /**
+   * An Undo that puts back an order (and skips, when given) written here,
+   * and (flow: undoFlow) the row the server kept before it. Another window
+   * changed what Flow keeps since (409 STALE): nothing was written; a plain
+   * toast, and the page reads the collection again (grid, lit button, files).
+   */
   const undoWrite = (cid, order, skips, flow) => () => inTurn(async () => {
     try {
       await writePlaylist(cid, order, skips, flow);
       await showPlaylist(cid);
       toast('Playlist order put back');
-    } catch (err) { toastErr(err, 'putting the order back'); }
+    } catch (err) {
+      if (err && err.code === 'STALE') {
+        toast(STALE_UNDO_TEXT);
+        if (cid === st.cid) await resync(cid);
+        else if (typeof fetchCollectionMembers === 'function') { try { await fetchCollectionMembers(cid, true); } catch {} }
+        return;
+      }
+      toastErr(err, 'putting the order back');
+    }
     // The shape that is lit again is the one picked (its peaks, Place tagged files).
     if (cid === st.cid && adoptLit()) refetch(true);
     paint();
@@ -603,7 +617,7 @@ const Flow = (() => {
     const same = sameIds(written.order || order, before);
     const back = undoFlow(written);
     // Worked out the same as it was and nothing kept changed: nothing to Undo.
-    if (same && back === undefined) {
+    if (same && flowUndoOf(written) === undefined) {
       toast(`The playlist order is already ${label}`);
       return false;
     }
@@ -633,7 +647,7 @@ const Flow = (() => {
       }
       const back = undoFlow(data);
       // Custom was lit on the server already (another window): nothing written; drawn from the server.
-      if (back === undefined) { await resync(cid); return false; }
+      if (flowUndoOf(data) === undefined) { await resync(cid); return false; }
       await showPlaylist(cid);
       paint();
       const undo = undoWrite(cid, before, undefined, back);
@@ -3003,10 +3017,11 @@ const Flow = (() => {
     const f = st.byId.get(id);
     const ok = await changeCollectionMembership(c.id, [id], false, { quiet: true });
     if (!ok) return;
+    const guard = typeof collectionUndoGuard === 'function' ? collectionUndoGuard(c.id) : undefined;
     if (st.sel === id) { st.sel = null; paintStrip(); }
     // selection.js showUndoToast takes HTML: the names are escaped.
     const msg = namesHidden() ? `Removed this file from ${esc(c.name)}` : `Removed “${esc(shortName(f) || 'file')}” from ${esc(c.name)}`;
-    if (typeof showUndoToast === 'function' && typeof undoRemoveFromCollection === 'function') showUndoToast(msg, () => undoRemoveFromCollection(c.id, [id], order));
+    if (typeof showUndoToast === 'function' && typeof undoRemoveFromCollection === 'function') showUndoToast(msg, () => undoRemoveFromCollection(c.id, [id], order, guard));
   }
 
   /** Pick column i (or none) for the strip. */
@@ -3410,6 +3425,26 @@ function flowCustomAnswer(cid, data, opts) { return Flow.customAnswer(cid, data,
  * lib/flow/custom.js): the row from before it, over the row it left (rev),
  * or undefined when the write changed nothing the server keeps.
  */
+/** The toast for an Undo refused because another window changed the order since (409 STALE). */
+const STALE_UNDO_TEXT = 'This order was changed in another window, so there was nothing to undo.';
+/**
+ * The flow an Undo of an order write sends: flowUndoOf when the write
+ * changed the row, else the row as it is now, unchanged ({ restore: row,
+ * rev: its rev }, or { restore: null, rev: null } for no row). The server
+ * refuses the Undo as a whole when the row is no longer that one, so an
+ * order never goes back under a mode that does not describe it.
+ * undefined: an answer from a server that says nothing about the row.
+ */
+function flowGuardOf(data) {
+  if (!data || data.flow_custom === undefined) return undefined;
+  return flowUndoOf(data) || flowKeepOf(data.flow_custom);
+}
+/** The row unchanged, as an Undo's check: { restore: row | null, rev }. */
+function flowKeepOf(row) {
+  return row
+    ? { restore: { mode: row.mode, shape: row.shape, waves: row.waves, places: row.places, kept: row.kept, rev: row.rev }, rev: row.rev }
+    : { restore: null, rev: null };
+}
 function flowUndoOf(data) {
   const was = (data && data.flow_custom_was) || null, now = (data && data.flow_custom) || null;
   if (!was && !now) return undefined;
