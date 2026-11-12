@@ -143,6 +143,11 @@ function _fpopSortItems(items, mode) {
    buttons so arrow-key navigation can move a single "active" marker without
    moving DOM focus away from the search box the user is typing in. */
 
+/** Is this row picked? `selected` is one value, or a list of them (several picked). */
+function _fpopIsSelected(value, selected) {
+  return Array.isArray(selected) ? selected.includes(value) : value === selected;
+}
+
 function _fpopRenderList(host, items, query, selectedValue) {
   const q = (query || '').trim().toLowerCase();
   const shown = q ? items.filter(i => i.label.toLowerCase().includes(q)) : items;
@@ -151,8 +156,8 @@ function _fpopRenderList(host, items, query, selectedValue) {
     return [];
   }
   host.innerHTML = shown.map((it, i) => `
-    <div class="fpop-opt${it.divider && !q ? ' fpop-opt-divider' : ''}" role="option" id="fpopOpt${i}" data-idx="${i}"
-         aria-selected="${it.value === selectedValue ? 'true' : 'false'}">
+    <div class="fpop-opt" role="option" id="fpopOpt${i}" data-idx="${i}"
+         aria-selected="${_fpopIsSelected(it.value, selectedValue) ? 'true' : 'false'}">
       <span class="fpop-opt-label">${escapeHtml(it.label)}</span>
       ${it.count != null ? `<span class="fpop-opt-count">${escapeHtml(String(it.count))}</span>` : ''}
     </div>`).join('');
@@ -165,10 +170,15 @@ function _fpopRenderList(host, items, query, selectedValue) {
  * opts:
  *   title          heading text (the filter's name)
  *   items          [{ value, label, count }] — rendered as a listbox
- *   selected       the currently set value, marked aria-selected
+ *   selected       the currently set value, marked aria-selected (a list
+ *                  of values when several can be picked)
  *   searchable     force the "type to filter" box on/off (default: by length)
  *   sort           { mode, onChange(mode) } — adds the A to Z / Count toggle
  *   onPick(value)  called when a row is chosen; the popover closes first
+ *   multi          { clearValue, selected() }: several rows can be on. A
+ *                  row other than clearValue is onPick'ed with the popover
+ *                  left open, and the rows marked again from selected();
+ *                  clearValue (Any) closes it as a normal pick does
  *   remoteSearch(q) optional: resolves [{ value, label, count }] for what is
  *                  typed, for a list too long to carry whole (themes)
  *   body           extra HTML appended under the list (the duration picker)
@@ -206,7 +216,7 @@ function openFilterPopover(anchor, opts) {
   el.innerHTML = `
     <div class="fpop-title">${escapeHtml(opts.title || '')}</div>
     ${topRow}
-    ${rawItems.length ? `<div class="fpop-list" role="listbox" aria-label="${escapeHtml(opts.title || 'Options')}"></div>` : ''}
+    ${rawItems.length ? `<div class="fpop-list" role="listbox"${opts.multi ? ' aria-multiselectable="true"' : ''} aria-label="${escapeHtml(opts.title || 'Options')}"></div>` : ''}
     ${opts.body || ''}`;
   document.body.appendChild(el);
 
@@ -230,6 +240,17 @@ function openFilterPopover(anchor, opts) {
   const pick = (i) => {
     const it = shown[i];
     if (!it) return;
+    if (opts.multi && it.value !== opts.multi.clearValue) {
+      // One of several: turn it on or off, and stay open for the next.
+      opts.onPick?.(it.value, it);
+      if (!_fpop || _fpop.el !== el) return;
+      opts.selected = opts.multi.selected();
+      list.querySelectorAll('.fpop-opt').forEach((row) => {
+        const on = _fpopIsSelected(shown[Number(row.dataset.idx)]?.value, opts.selected);
+        row.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      return;
+    }
     closeFilterPopover();
     opts.onPick?.(it.value, it);
   };
@@ -238,7 +259,7 @@ function openFilterPopover(anchor, opts) {
     shown = _fpopRenderList(list, items, '', opts.selected);
     // The set value starts active, so Enter on an untouched popover repeats it
     // rather than jumping to the top of the list.
-    setActive(Math.max(0, shown.findIndex(i => i.value === opts.selected)));
+    setActive(Math.max(0, shown.findIndex(i => _fpopIsSelected(i.value, opts.selected))));
     list.addEventListener('click', (e) => {
       const row = e.target.closest('.fpop-opt');
       if (row) pick(Number(row.dataset.idx));

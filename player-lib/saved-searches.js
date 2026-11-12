@@ -113,7 +113,6 @@ function restoreFilterControls(state) {
   const selects = {
     filterContent: state.filterContent || '',
     filterLanguage: state.filterLanguage || '',
-    filterMinRating: state.filterMinRating || '0',
     filterTheme: state.filterTheme || '',
     filterQuality: state.filterQuality || '',
   };
@@ -125,6 +124,14 @@ function restoreFilterControls(state) {
     if (el && typeof ensureSelectOption === 'function') ensureSelectOption(el, value);
     if (el) el.value = value;
   });
+
+  // Rating: the stars picked. A search saved when it meant "3 and up" comes
+  // back as 3, 4 and 5 picked: the same files, shown as the list has them.
+  const rating = document.getElementById('filterMinRating');
+  if (rating) {
+    const v = state.filterMinRating || '0';
+    rating.value = typeof ratingNormalize === 'function' ? ratingNormalize(v) : v;
+  }
 
   // Media-type bubbles + safe toggle (legacy saves stored filterType single)
   if (typeof selectedMediaTypes !== 'undefined') {
