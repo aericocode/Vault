@@ -55,6 +55,7 @@
      flowStageCurrent(row)        stage-control.js setCurrent
      flowSettingsChanged()        stage-settings-ui.js (Ignore calm intros and credits)
      flowMembersChanged(cid)      collection-reorder.js, collections.js, importer.js (order or files changed)
+     flowSavedStale(cid)          collections.js fetchCollectionMembers (files came or went)
 
    Calls out (guarded): reorderReady() and reorderMove(ids, before)
    (collection-reorder.js) for dragging a column in the chart to move its
@@ -763,10 +764,38 @@ const Flow = (() => {
   /** What a save or Update records as the shape: 'playlist' unless a shape is picked. */
   const shapeToSave = () => (!st.order || fromPlaylistNow() ? SHAPE_PLAYLIST : st.shape);
 
-  /** The order a save or Update keeps: Flow order's working order, or the playlist order as it is now. */
+  /** The grid's whole result list for this collection, in the order on screen, or null (not this collection's, or not here). */
+  async function screenIds(cid) {
+    if (typeof Library === 'undefined' || !Library.spec || Library.spec.collectionId !== cid) return null;
+    const ids = typeof Library.waitIds === 'function' ? await Library.waitIds() : Library.ids;
+    return ids && Library.spec.collectionId === cid ? Array.from(ids) : null;
+  }
+
+  /**
+   * The whole collection in the order on screen: the files the grid shows
+   * take their slots in the order it shows them (a sort, a shuffle, a drag),
+   * and files the grid hides (a search, a filter, the trash) keep their
+   * place in `base`.
+   */
+  function onScreenOrder(base, screen) {
+    if (!screen) return base;
+    const inBase = new Set(base);
+    const seq = screen.filter(id => inBase.has(id));
+    const shownSet = new Set(seq);
+    let k = 0;
+    return base.map(id => (shownSet.has(id) ? seq[k++] : id));
+  }
+
+  /**
+   * The order a save or Update keeps: the order on screen (onScreenOrder),
+   * over Flow order's working order or the playlist order as it is now.
+   */
   async function orderToSave(cid) {
-    if (st.order) return workingOrder().slice();
-    return (await freshMembers(cid)) || (st.data ? st.data.playlistOrder.slice() : []);
+    const base = st.order ? workingOrder().slice()
+      : ((await freshMembers(cid)) || (st.data ? st.data.playlistOrder.slice() : []));
+    // Flow order not handed to the grid yet: the grid still shows the playlist, the working order is what shows next.
+    const flowShown = !st.order || (typeof Library !== 'undefined' && Library.spec && Library.spec.rankedIds);
+    return onScreenOrder(base, flowShown ? await screenIds(cid) : null);
   }
 
   /** The skips in use now (the saved order's own while one shows), for a new saved order. */
@@ -3285,9 +3314,15 @@ const Flow = (() => {
    * closed and no Flow order: the held answer is dropped (Flow shuffle and
    * the next open ask afresh), nothing is fetched.
    */
+  /** Files left or came: the saved orders are read again (their own skips are kept to the files there are). */
+  function savedStale(cid) {
+    if (st.cid != null && cid === st.cid && st.savedCid === cid && savedList().length) loadSaved(cid);
+  }
+
   function membersChanged(cid) {
     if (st.cid == null || cid !== st.cid) return null;
     if (!isMine()) { reset(); return null; }
+    savedStale(cid);
     if (!st.open && !st.order) {
       st.data = null;
       st.byId = new Map();
@@ -3405,7 +3440,7 @@ const Flow = (() => {
       load: loadSaved, use: useSaved, save: saveNamed, rename: renameSaved, update: updateSaved, remove: deleteSaved,
       list: () => savedList().slice(), active: () => (savedNow() ? savedNow().id : null), edited: savedEdited, name: orderName, html: savedHtml,
     },
-    settingsChanged, membersChanged,
+    settingsChanged, membersChanged, savedStale,
     marksFor, marksKey: (id) => marksSig(marksFor(id)),
     // Column drags (tests): the press, the moves, the drop.
     _drag: { allowed: dragAllowed, down: dragDown, move: dragMove, drop: dropDrag, cancel: cancelDrag, state: () => drag },
@@ -3434,6 +3469,7 @@ function flowMoveInOrder(ids, before) { return Flow.moveInOrder(ids, before); }
 function flowStageCurrent(row) { Flow.stageCurrent(row); }
 function flowSettingsChanged() { return Flow.settingsChanged(); }
 function flowMembersChanged(cid) { return Flow.membersChanged(cid); }
+function flowSavedStale(cid) { return Flow.savedStale(cid); }
 /** The marks a table row shows after its name (table-view.js works out the chips' room around them). */
 function flowMarksFor(id) { return Flow.marksFor(id); }
 function flowMarksKey(id) { return Flow.marksKey(id); }

@@ -252,6 +252,8 @@ test('in Playlist order, Save this order keeps the playlist order as it is on sc
   // The playlist as rearranged on screen (collection-reorder.js keeps the page's copy).
   const mine = [3, 1, 2, 8, 7, 6, 5, 4];
   p.ctx.collectionMembers = new Map([[CID, mine]]);
+  p.Library.spec = { collectionId: CID, rankedIds: null };
+  p.Library.ids = Uint32Array.from(mine);
   assert.match(p.Flow.saved.html(), /data-flow-saved-new[^>]*title="Keep the playlist order as it is now/, 'the chip shows in Playlist order too');
   assert.strictEqual(await p.Flow.saved.save('My mix'), true);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.posts[0])), { name: 'My mix', shape: 'playlist', waves: 2, places: false, order: mine });
@@ -284,12 +286,40 @@ test('in Playlist order, Update with this order puts the playlist order in a sav
   await p.Flow.usePlaylistOrder();
   const mine = [8, 7, 6, 5, 4, 3, 2, 1];
   p.ctx.collectionMembers = new Map([[CID, mine]]);
+  p.Library.spec = { collectionId: CID, rankedIds: null };
+  p.Library.ids = Uint32Array.from(mine);
   await p.Flow.saved.update(srv.saved[0].id);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.puts.at(-1))), { shape: 'playlist', waves: 2, places: false, order: mine });
   assert.strictEqual(p.Flow._state().order, false);
   // Undo puts the shape and the order back.
   await p.undos.at(-1).fn();
   assert.strictEqual(srv.saved[0].shape, 'peak');
+});
+
+test('Save this order and Update keep the order on screen: a sort or a shuffle as shown; files a search hides keep their place', async () => {
+  const srv = server();
+  const p = page(srv);
+  await p.Flow.toggle(CID);
+  if (p.Flow._state().order) await p.Flow.usePlaylistOrder();
+  p.ctx.collectionMembers = new Map([[CID, [1, 2, 3, 4, 5, 6, 7, 8]]]);
+  // Sorted by name (or shuffled): the grid shows another order than the playlist's.
+  const shown = [5, 4, 8, 6, 7, 1, 2, 3];
+  p.Library.spec = { collectionId: CID, rankedIds: null };
+  p.Library.ids = Uint32Array.from(shown);
+  assert.strictEqual(await p.Flow.saved.save('By name'), true);
+  assert.deepStrictEqual(srv.posts.at(-1).order, shown);
+  // A search shows 3 of them, in the order 7, 2, 5: those take their own slots (2, 5, 7) in that order, the rest stay.
+  p.Library.ids = Uint32Array.from([7, 2, 5]);
+  assert.strictEqual(await p.Flow.saved.save('Searched'), true);
+  assert.deepStrictEqual(srv.posts.at(-1).order, [1, 7, 3, 4, 2, 6, 5, 8]);
+  // Update follows the same rule.
+  p.Library.ids = Uint32Array.from([8, 7, 6, 5, 4, 3, 2, 1]);
+  await p.Flow.saved.update(srv.saved[0].id);
+  assert.deepStrictEqual(srv.puts.at(-1).order, [8, 7, 6, 5, 4, 3, 2, 1]);
+  // Another collection's results on screen: the playlist order.
+  p.Library.spec = { collectionId: 99 };
+  assert.strictEqual(await p.Flow.saved.save('Elsewhere'), true);
+  assert.deepStrictEqual(srv.posts.at(-1).order, [1, 2, 3, 4, 5, 6, 7, 8]);
 });
 
 test("a saved order keeps its own skips: copied when saved, changed while it shows, the playlist's left alone", async () => {
