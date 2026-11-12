@@ -120,7 +120,7 @@ test('countdown: warnings already passed when the run starts never fire (a short
   assert.deepStrictEqual(warnings(feed(cd2, down(200, 0))), [], 'a 3 minute list: no warning at all');
 });
 
-test('countdown: a jump across a warning fires nothing; seeking back and forth across one fires it once at most', () => {
+test('countdown: a jump across a warning fires nothing; seeking back above it and playing across fires it again, a wobble near it never does', () => {
   const cd = C.create();
   let at = 0;
   const step = (left) => cd.update({ left, at: (at += 1000), settings: ON });
@@ -132,10 +132,46 @@ test('countdown: a jump across a warning fires nothing; seeking back and forth a
   for (let l = 639; l >= 590; l--) outs.push(step(l));
   assert.strictEqual(warnings(outs)[0], '10 minutes left', 'played across it: fires now (it never had)');
   assert.ok(!outs.at(-1).warning, 'and has gone again');
-  // Back and forth across it again, three times: never a second time.
+  // A little back and forth around it (under REARM_S): never a second time.
   const after = [];
-  for (let k = 0; k < 3; k++) { step(620); for (let l = 619; l >= 590; l--) after.push(step(l)); }
+  for (let k = 0; k < 3; k++) { step(605); for (let l = 604; l >= 590; l--) after.push(step(l)); }
   assert.deepStrictEqual(warnings(after), []);
+  // A real seek back above it, then played across: it fires again, once each time.
+  const again = [];
+  for (let k = 0; k < 2; k++) { step(640); for (let l = 639; l >= 590; l--) again.push(step(l)); }
+  assert.strictEqual(again.filter((o, i) => o.warning && !(i && again[i - 1].warning)).length, 2);
+});
+
+test('countdown: the list grows past a warning (Up next added), then playback crosses it: it fires', () => {
+  const cd = C.create();
+  let at = 0;
+  const step = (left) => cd.update({ left, at: (at += 1000), settings: ON });
+  for (let l = 400; l >= 380; l--) assert.strictEqual(step(l).warning, null, 'a short list: below every warning');
+  step(1000);                      // 10 minutes of files added to Up next
+  const outs = [];
+  for (let l = 999; l >= 590; l--) outs.push(step(l));
+  assert.deepStrictEqual([...new Set(warnings(outs))], ['15 minutes left', '10 minutes left']);
+  assert.strictEqual(999 - outs.findIndex(o => o.warning === '15 minutes left'), 900, 'at 15:00 left');
+});
+
+test('countdown: a run that starts below a warning never fires it, even with a tick that comes late', () => {
+  const cd = C.create();
+  let at = 0;
+  const outs = [];
+  for (let l = 599; l >= 500; l--) outs.push(cd.update({ left: l, at: (at += 1000), settings: ON }));
+  assert.deepStrictEqual(warnings(outs), []);
+  assert.deepStrictEqual(cd._run().armed, []);
+});
+
+test('countdown: a short dip in the time left (under 2 s, faster than time went by) is a jump, not a crossing', () => {
+  const cd = C.create();
+  cd.update({ left: 601.5, at: 0, settings: ON });
+  assert.strictEqual(cd.update({ left: 599.8, at: 200, settings: ON }).warning, null, 'down 1.7 s in 0.2 s');
+  assert.strictEqual(cd.update({ left: 601.4, at: 400, settings: ON }).warning, null);
+  const outs = [];
+  for (let i = 1; i <= 4; i++) outs.push(cd.update({ left: 601.4 - i, at: 400 + i * 1000, settings: ON }));
+  assert.deepStrictEqual(warnings(outs).slice(0, 1), ['10 minutes left'], 'fires when playback really gets there');
+  assert.strictEqual(outs.findIndex(o => o.warning), 1, 'at 599.4, not before 600');
 });
 
 test('countdown: paused holds the clock and fires nothing; a faster speed is a jump; two at once show the nearer', () => {
@@ -167,11 +203,19 @@ test('countdown: the running clock from N minutes before the end, m:ss, and noth
   assert.deepStrictEqual(C.create().update({ left: 200, at: 0 }), { clock: null, warning: null }, 'default settings: off');
 });
 
-test('countdown: a length not known draws nothing but keeps the run; an unknown end starts a new one', () => {
+test('countdown: a length not known draws nothing but keeps the run, coming out of it is a jump; an unknown end starts a new one', () => {
   const cd = C.create();
   feed(cd, down(605, 598));                     // 10 fires
   cd.update({ left: 597, about: true, at: 9000, settings: ON });
-  assert.deepStrictEqual(cd._run().fired.sort(), [10, 15, 30], 'kept');
+  assert.deepStrictEqual(cd._run().fired, [10], 'kept (15 and 30 were below from the start)');
+  // Known again far lower: a jump, nothing fires late.
+  const late = C.create();
+  let at = 0;
+  late.update({ left: 1000, at, settings: ON });
+  for (let i = 1; i <= 500; i++) late.update({ left: 1000, about: true, at: (at += 1000), settings: ON });
+  const back = [];
+  for (let l = 500; l >= 490; l--) back.push(late.update({ left: l, at: (at += 1000), settings: ON }));
+  assert.deepStrictEqual(warnings(back), [], 'no "10 minutes left" at 8:20 left');
   assert.deepStrictEqual(cd.update({ left: 590, about: true, at: 10000, settings: ON }), { clock: null, warning: null });
   cd.update({ left: null, at: 11000, settings: ON });
   assert.strictEqual(cd._run(), null, 'unknown end: the run is over');
@@ -372,6 +416,45 @@ test('engine: the time left is the rest of the file plus what follows, sent with
   assert.match(e.drawn(), /\}4:59/);
 });
 
+test('engine: an automatic hand-over to a file with a saved spot counts from 0 (mpv starts it there), never a dip', async () => {
+  const e = engineFor();
+  await playing(e, { duration: 60, upcoming: [{ ...vid('b', 2, 600), startAt: 120 }] });
+  await e.at(50);
+  assert.strictEqual(e.lastStatus().left, 610);
+  const appended = e.mpv.playlist.find(p => p.id === 2);
+  assert.ok(appended, 'b lined up in mpv');
+  const lefts = [];
+  for (let t = 51; t <= 60; t++) { await e.at(t); lefts.push(e.lastStatus().left); }
+  await e.ev({ event: 'end-file', reason: 'eof', playlist_entry_id: 1 });
+  await e.ev({ event: 'start-file', playlist_entry_id: 2 });
+  e.engine.sendStatus(true); lefts.push(e.lastStatus().left);
+  await e.prop('duration', 600); e.engine.sendStatus(true); lefts.push(e.lastStatus().left);
+  await e.ev({ event: 'file-loaded' }); e.engine.sendStatus(true); lefts.push(e.lastStatus().left);
+  for (let t = 0; t <= 3; t++) { await e.at(t); lefts.push(e.lastStatus().left); }
+  assert.ok(!lefts.some(l => l < 597), `no dip to the saved spot: ${lefts.join(' ')}`);
+  assert.strictEqual(lefts.at(-1), 597);
+  assert.ok(!e.overlays.some(d => /}8:00/.test(d)), 'the picture never showed 8:00');
+  // A hand-picked file with a saved spot really starts there: counted from it.
+  const h = engineFor();
+  h.engine.command({ type: 'load', item: { ...vid('c', 3, 600), startAt: 120 }, upcoming: [], repeat: 'off', paused: false, complete: true });
+  await h.settle();
+  await h.ev({ event: 'start-file', playlist_entry_id: 1 });
+  h.engine.sendStatus(true);
+  assert.strictEqual(h.lastStatus().left, 480, 'started at 2:00 of 10:00');
+});
+
+test('engine: the last file ends: the picture clears at once (no 0:00 while Stage waits a moment)', async () => {
+  const e = engineFor({ settings: { countdownMinutes: 5 } });
+  await playing(e, { duration: 100, upcoming: [] });
+  await e.at(98);
+  assert.match(e.drawn(), /}0:02$/);
+  await e.prop('eof-reached', true);
+  assert.strictEqual(e.engine._state().waiting, true, 'waiting for Control');
+  assert.strictEqual(e.drawn(), '', 'cleared while waiting');
+  e.engine.sendStatus(true);
+  assert.strictEqual(e.drawn(), '');
+});
+
 test('engine: Repeat, a list that is not complete, Hold and a lock draw nothing; the bar still gets what is known', async () => {
   const rep = engineFor();
   await playing(rep, { repeat: 'all', duration: 200, upcoming: [] });
@@ -449,7 +532,8 @@ test('Stage bar: the time left shows on its own (a file played with no list), an
   assert.deepStrictEqual(StageBarRules.view({ ...base, countTime: '4:00 left', countEnds: 'ends 10:42 PM' }).count, { track: '', time: '4:00 left', ends: 'ends 10:42 PM' });
   assert.deepStrictEqual(StageBarRules.view({ ...base, countTrack: 'Track 2 of 9', countTime: '', countEnds: 'ends 10:42 PM' }).count, { track: 'Track 2 of 9', time: '', ends: '' }, 'no time, no end time');
   assert.deepStrictEqual(StageBarRules.view({ ...base, countTime: '4:00 left', countEnds: 'ends 10:42 PM', locked: true }).count, { track: '', time: '', ends: '' }, 'locked: nothing');
-  assert.strictEqual(StageBarRules.DROP_ORDER[0], 'countEnds', 'a narrow bar drops the end time first');
+  assert.deepStrictEqual(StageBarRules.TIME_PIECES, ['countTime', 'countEnds'], 'laid out last, only where they fit');
+  assert.match(read('player-lib/stage-bar.js'), /count\.title = \[v\.count\.track, v\.count\.time, ends\]/, 'the full text on hover');
   const ctl = read('player-lib/stage-control.js');
   assert.match(ctl, /function withTimeLeft\(sum\)/);
   assert.match(ctl, /complete: list\.complete === true/);
