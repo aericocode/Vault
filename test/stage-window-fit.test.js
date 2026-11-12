@@ -458,6 +458,48 @@ test('watcher: a desktop that answers every request with another size in shape: 
   }
 });
 
+/** A drag as mpv reports it: many sizes, close together, ending at w x h. */
+async function drag(r, fromW, fromH, w, h, steps = 12) {
+  for (let i = 1; i <= steps; i++) {
+    r.size(Math.round(fromW + ((w - fromW) * i) / steps), Math.round(fromH + ((h - fromH) * i) / steps));
+    await r.advance(30);
+  }
+}
+
+test('watcher: quick drags and wheel steps one after another never turn keep-in-step off', async () => {
+  // A desktop that holds the shape while dragging (X11 with the aspect hint) and gives every size asked for.
+  const r = rig({ screen: { w: 2560, h: 1440 } });
+  r.fit.setEnabled(true);
+  r.video(1920, 1080);
+  r.size(1280, 720);
+  await r.advance(1000);
+  let at = { w: 1280, h: 720 };
+  const sizes = [[1024, 576], [1600, 900], [800, 450], [1440, 810], [960, 540], [1120, 630], [640, 360], [1360, 765]];
+  for (const [i, [w, h]] of sizes.entries()) {
+    await drag(r, at.w, at.h, w, h);
+    at = { w, h };
+    await r.advance([600, 1000, 3000, 4500][i % 4]);          // the next one comes soon after
+    assert.strictEqual(r.sets[r.sets.length - 1], `${w}x${h}`, `drag ${i + 1}: mpv geometry follows: ${r.sets.join(' ')}`);
+    if (i % 3 === 2) {                                        // and a wheel step now and then
+      await r.fit.step(1);
+      const [sw, sh] = r.sets[r.sets.length - 1].split('x').map(Number);
+      r.size(sw, sh);
+      at = { w: sw, h: sh };
+      await r.advance(800);
+    }
+  }
+  // Maximise and back by a double click: one jump each way, known, not held against it.
+  r.fit.onProperty('window-maximized', true);
+  r.size(2560, 1400);
+  await r.advance(1000);
+  r.fit.onProperty('window-maximized', false);
+  r.size(at.w, at.h);
+  await r.advance(1000);
+  await drag(r, at.w, at.h, 1200, 675);
+  await r.advance(1000);
+  assert.strictEqual(r.sets[r.sets.length - 1], '1200x675', r.sets.join(' '));
+});
+
 test('watcher: a request the desktop ignored does not swallow a drag by the user soon after', async () => {
   for (const afterMs of [1000, 5000, 9900]) {
     const r = rig();
