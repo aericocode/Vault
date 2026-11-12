@@ -31,7 +31,7 @@ process.env.VAULT_DISABLE_NATIVE_PICKER = '1';
 delete process.env.VAULT_DB_PASSWORD;
 
 const express = require('express');
-const { buildArgs, windowPlan, linuxFrame, fitOptions, FIXED, NEWER_OPTIONS, LINUX_FRAMES, DEFAULT_LINUX_FRAME } = require('../lib/stage/mpv-args');
+const { buildArgs, windowPlan, windowSystemOf, actualKind, linuxFrame, fitOptions, FIXED, NEWER_OPTIONS, LINUX_FRAMES, DEFAULT_LINUX_FRAME, WAYLAND_CONTEXT } = require('../lib/stage/mpv-args');
 const { createMpvHost, OBSERVED, OBSERVED_LINUX, WHEEL_BINDINGS } = require('../lib/stage/mpv-host');
 const { borderOnlyArgs, setBorderOnly } = require('../lib/stage/x11-hints');
 const appSettings = require('../lib/app-settings');
@@ -60,7 +60,7 @@ test('windowPlan: Windows and macOS are as they were, whatever the environment s
     for (const f of [undefined, ...LINUX_FRAMES]) {
       for (const size of ['free', '720p']) {
         const env = { ...WAYLAND, VAULT_STAGE_XWAYLAND: '1', ...(f ? { VAULT_STAGE_LINUX_FRAME: f } : {}) };
-        assert.deepStrictEqual(windowPlan({ platform, env, size }), { frame: null, keepAspect: false, first: bare, fallback: null }, `${platform} ${f} ${size}`);
+        assert.deepStrictEqual(windowPlan({ platform, env, size }), { frame: null, keepAspect: false, first: bare, fallback: null, x11Kind: null, waylandKind: null }, `${platform} ${f} ${size}`);
       }
     }
   }
@@ -254,7 +254,7 @@ test('host: Windows follows and binds exactly what it did; Linux adds the video 
 
 /* ── The routes: opening and the size menu ──────────────────────────────── */
 
-function fakeHostFactory(log, { hwnd = 0x3a00007 } = {}) {
+function fakeHostFactory(log, { hwnd = 0x3a00007, props = {} } = {}) {
   return (opts) => {
     let alive = false;
     const host = {
@@ -267,7 +267,10 @@ function fakeHostFactory(log, { hwnd = 0x3a00007 } = {}) {
       alive: () => alive,
       command: async (cmd) => { log.push({ cmd }); return null; },
       set: async (name, value) => { log.push({ set: [name, value] }); return null; },
-      get: async (name) => (name === 'display-width' ? 1920 : name === 'display-height' ? 1080 : null),
+      get: async (name) => {
+        if (Object.prototype.hasOwnProperty.call(props, name)) return props[name];
+        return name === 'display-width' ? 1920 : name === 'display-height' ? 1080 : null;
+      },
       loadfile: async () => ({ playlist_entry_id: 1 }),
       quit: () => { alive = false; setImmediate(() => opts.onExit({ code: 0, asked: true })); },
       kill: () => { alive = false; },
@@ -279,11 +282,11 @@ function fakeHostFactory(log, { hwnd = 0x3a00007 } = {}) {
   };
 }
 
-async function withRouter({ platform, env = {} }, fn) {
+async function withRouter({ platform, env = {}, props = {}, hwnd = 0x3a00007 }, fn) {
   const log = [];
   const borderOnlyCalls = [];
   const router = buildRouter({
-    hostFactory: fakeHostFactory(log), platform, env: { VAULT_STAGE_MUTE: '1', ...env },
+    hostFactory: fakeHostFactory(log, { hwnd, props }), platform, checkWindowMs: 300, env: { VAULT_STAGE_MUTE: '1', ...env },
     find: async () => ({ found: true, path: platform === 'win32' ? 'C:\\mpv\\mpv.exe' : '/usr/bin/mpv', version: 'v0.41.0', source: 'default' }),
     lib: { isLocked: () => false },
     borderOnly: async (o) => { borderOnlyCalls.push(o.wid); return 'ok'; },
@@ -315,7 +318,7 @@ test('Linux, Wayland, default: Free size opens as mpv\'s own Wayland window, bar
   await withRouter({ platform: 'linux', env: WAYLAND }, async ({ log, post, state }) => {
     assert.strictEqual((await post('/api/stage/open', {})).status, 200);
     const start = log.find((l) => l.start);
-    assert.ok(start.args.includes('--border=no') && !start.args.some((a) => a.startsWith('--gpu-context=')));
+    assert.ok(start.args.includes('--border=no') && start.args.includes('--gpu-context=wayland') && !start.args.includes('--gpu-context=x11egl'));
     assert.ok(start.args.includes('--keepaspect-window=yes'));
     assert.ok(start.fallback.includes('--border=yes') && start.fallback.includes('--gpu-context=x11egl') && start.fallback.includes('--keepaspect-window=yes'));
     assert.strictEqual((await state()).size, 'free');
@@ -495,5 +498,143 @@ test('Windows: bare as before, never shape-fitted, the size menu never touches b
     assert.deepStrictEqual(borderSets(log), []);
     // No watcher line yet: 'free', as it always said.
     assert.strictEqual((await state()).size, 'free');
+  });
+});
+
+/* ── The window mpv really made ─────────────────────────────────────────── */
+
+test('arguments: mpv\'s own Wayland window pins the Wayland drawing context; X11 pins x11egl; Windows neither', () => {
+  assert.strictEqual(WAYLAND_CONTEXT, '--gpu-context=wayland');
+  const plan = windowPlan({ platform: 'linux', env: WAYLAND });
+  const own = buildArgs({ ipcPath: 'p', x11: plan.first.x11, wayland: plan.first.wayland });
+  assert.deepStrictEqual(own.filter((a) => a.startsWith('--gpu-context=')), ['--gpu-context=wayland']);
+  const x = buildArgs({ ipcPath: 'p', x11: plan.fallback.x11, wayland: plan.fallback.wayland });
+  assert.deepStrictEqual(x.filter((a) => a.startsWith('--gpu-context=')), ['--gpu-context=x11egl']);
+  assert.ok(!buildArgs({ ipcPath: 'p' }).some((a) => a.startsWith('--gpu-context=')));
+  assert.ok(!own.some((a) => a.startsWith('--vo=')), 'the video output stays mpv\'s choice');
+});
+
+test('windowSystemOf: the drawing context first, then the video output, then a window id; else unknown', () => {
+  assert.strictEqual(windowSystemOf({ context: 'wayland', vo: 'gpu-next' }), 'wayland');
+  assert.strictEqual(windowSystemOf({ context: 'waylandvk' }), 'wayland');
+  assert.strictEqual(windowSystemOf({ context: 'x11egl', vo: 'gpu', windowId: 5 }), 'x11');
+  assert.strictEqual(windowSystemOf({ context: 'x11vk' }), 'x11');
+  assert.strictEqual(windowSystemOf({ context: 'glx' }), 'x11');
+  assert.strictEqual(windowSystemOf({ vo: 'wlshm' }), 'wayland');
+  assert.strictEqual(windowSystemOf({ vo: 'dmabuf-wayland' }), 'wayland');
+  for (const vo of ['x11', 'xv', 'vdpau', 'vaapi']) assert.strictEqual(windowSystemOf({ vo }), 'x11', vo);
+  // mpv 0.36/0.37 (no current-gpu-context): only X11 windows have a window id.
+  assert.strictEqual(windowSystemOf({ vo: 'gpu', windowId: 0x3a00007 }), 'x11');
+  assert.strictEqual(windowSystemOf({ vo: 'gpu' }), null);
+  assert.strictEqual(windowSystemOf({ vo: 'sdl' }), null);
+  assert.strictEqual(windowSystemOf({}), null);
+  assert.strictEqual(windowSystemOf({ vo: 'gpu', windowId: -1 }), null);
+});
+
+test('actualKind: the other kind than asked gets that kind\'s frame; the same kind or unknown keeps the plan', () => {
+  for (const f of LINUX_FRAMES) {
+    const plan = windowPlan({ platform: 'linux', env: { ...WAYLAND, VAULT_STAGE_LINUX_FRAME: f } });
+    const own = plan.first.wayland ? plan.first : plan.fallback;
+    const x = plan.first.wayland ? plan.fallback : plan.first;
+    // Asked for mpv's own Wayland window, got XWayland: framed (unless none), so it can be sized.
+    assert.deepStrictEqual(actualKind(plan, own, 'x11'), { x11: true, wayland: false, frameAtFree: f !== 'none', borderOnly: f === 'border' }, f);
+    // Asked for XWayland, got Wayland: never framed.
+    assert.deepStrictEqual(actualKind(plan, x, 'wayland'), { x11: false, wayland: true, frameAtFree: false, borderOnly: false }, f);
+    assert.strictEqual(actualKind(plan, own, 'wayland'), own);
+    assert.strictEqual(actualKind(plan, own, null), own);
+    assert.strictEqual(actualKind(plan, x, 'x11'), x);
+  }
+  // An X11 session never turns into Wayland.
+  const x11only = windowPlan({ platform: 'linux', env: { DISPLAY: ':0' } });
+  assert.strictEqual(actualKind(x11only, x11only.first, 'wayland'), x11only.first);
+});
+
+test('Linux, default: mpv drew its own Wayland window through XWayland after all: the frame goes on so it can be sized', async () => {
+  appSettings.set({ stage: { openSize: 'free' }, stageWindow: null });
+  const warn = console.warn; const said = [];
+  console.warn = (...a) => said.push(a.join(' '));
+  try {
+    await withRouter({ platform: 'linux', env: WAYLAND, props: { 'current-vo': 'gpu-next', 'current-gpu-context': 'x11egl' } }, async ({ log, post, state }) => {
+      await post('/api/stage/open', {});
+      await tick(80);
+      assert.deepStrictEqual(borderSets(log), [true]);
+      assert.ok(said.some((l) => /an X11 window \(gpu-next, x11egl\)/.test(l)), said.join('|'));
+      // The size menu now treats it as the framed XWayland window.
+      await post('/api/stage/cmd', { type: 'size', preset: '720p' });
+      await tick();
+      assert.deepStrictEqual(borderSets(log), [true, false]);
+      const st = await state();
+      assert.strictEqual(st.mpv.display.placement, true);
+    });
+  } finally { console.warn = warn; }
+});
+
+test('Linux, default: an older mpv (no context property) that made an X11 window is found by its window id', async () => {
+  appSettings.set({ stage: { openSize: 'free' }, stageWindow: null });
+  const warn = console.warn; console.warn = () => {};
+  try {
+    await withRouter({ platform: 'linux', env: WAYLAND, props: { 'current-vo': 'gpu', 'window-id': 0x3a00007 } }, async ({ log, post }) => {
+      await post('/api/stage/open', {});
+      await tick(80);
+      assert.deepStrictEqual(borderSets(log), [true]);
+    });
+  } finally { console.warn = warn; }
+});
+
+test('Linux, default: a real Wayland window, or one that cannot be told, is left as planned', async () => {
+  for (const props of [{ 'current-vo': 'gpu-next', 'current-gpu-context': 'wayland' }, { 'current-vo': 'wlshm' }, { 'current-vo': 'sdl' }, {}]) {
+    appSettings.set({ stage: { openSize: 'free' }, stageWindow: null });
+    await withRouter({ platform: 'linux', env: WAYLAND, props, hwnd: null }, async ({ log, post }) => {
+      await post('/api/stage/open', {});
+      await tick(props['current-vo'] ? 80 : 400);
+      assert.deepStrictEqual(borderSets(log), [], JSON.stringify(props));
+    });
+  }
+});
+
+test('Linux, titled: an XWayland window that came out as Wayland loses the frame (mpv\'s own edges need none)', async () => {
+  appSettings.set({ stage: { openSize: 'free' }, stageWindow: null });
+  const warn = console.warn; console.warn = () => {};
+  try {
+    await withRouter({ platform: 'linux', env: { ...WAYLAND, VAULT_STAGE_LINUX_FRAME: 'titled' }, props: { 'current-vo': 'wlshm' } }, async ({ log, post }) => {
+      await post('/api/stage/open', {});
+      assert.ok(log.find((l) => l.start).args.includes('--border=yes'));
+      await tick(80);
+      assert.deepStrictEqual(borderSets(log), [false]);
+    });
+  } finally { console.warn = warn; }
+});
+
+/* ── What Settings › Stage is told ──────────────────────────────────────── */
+
+test('status: on Wayland, the plan shown is the window that opens at the size Stage opens at', async () => {
+  const display = async (env, stage) => {
+    appSettings.set({ stage: { openSize: 'free', xwayland: true, ...stage }, stageWindow: null });
+    let d = null;
+    await withRouter({ platform: 'linux', env }, async ({ state }) => { d = (await state()).mpv.display; });
+    return d;
+  };
+  // Default, Free size: mpv's own Wayland window, so not placed (the warning in Settings shows).
+  let d = await display(WAYLAND, {});
+  assert.deepStrictEqual([d.wayland, d.xwayland, d.x11, d.placement, d.freeOwnWindow, d.frame], [true, true, false, false, true, 'wayland']);
+  // A fixed open size: XWayland, placed.
+  d = await display(WAYLAND, { openSize: '1080p' });
+  assert.deepStrictEqual([d.x11, d.placement, d.freeOwnWindow], [true, true, true]);
+  // titled: XWayland at Free size too.
+  d = await display({ ...WAYLAND, VAULT_STAGE_LINUX_FRAME: 'titled' }, {});
+  assert.deepStrictEqual([d.x11, d.placement, d.freeOwnWindow, d.frame], [true, true, false, 'titled']);
+  // XWayland off: own window everywhere; the switch is not what moves Free size.
+  d = await display(WAYLAND, { xwayland: false, openSize: '720p' });
+  assert.deepStrictEqual([d.x11, d.placement, d.freeOwnWindow], [false, false, false]);
+  // An X11 session: placed.
+  d = await display({ DISPLAY: ':0' }, {});
+  assert.deepStrictEqual([d.wayland, d.placement], [false, true]);
+  appSettings.set({ stage: { openSize: 'free', xwayland: true } });
+});
+
+test('status: Windows reports the display plan exactly as before', async () => {
+  appSettings.set({ stage: { openSize: 'free' }, stageWindow: null });
+  await withRouter({ platform: 'win32', env: WAYLAND }, async ({ state }) => {
+    assert.deepStrictEqual((await state()).mpv.display, { wayland: false, xwayland: false, x11: false, placement: true, forced: false });
   });
 });
