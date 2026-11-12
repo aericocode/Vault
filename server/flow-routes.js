@@ -35,9 +35,10 @@
  *   400 BAD (with the reason), 404 NOT_FOUND, 409 NAME_TAKEN (names are
  *   unique per collection, ignoring case) or FULL (30 a collection).
  *
- * Saving Flow order as the playlist order is the existing
- * POST /api/collections/:id/order { order } (and Undo the same, with the old
- * order), so nothing here writes a collection.
+ * A shape picked, or a saved order loaded, is written as the playlist order
+ * with the existing POST /api/collections/:id/order { order, skips? } (and
+ * Undo the same, with the old order and skips), so nothing here writes a
+ * collection.
  *
  * Everything is under /api: the lock gate (423 while locked) and the CSRF /
  * Host / Fetch Metadata guards in server/index.js cover it.

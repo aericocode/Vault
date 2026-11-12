@@ -280,28 +280,29 @@ test('the panel\'s first row: Fit / Zoom and Hide; no full screen button or key'
   assert.strictEqual(p.Flow.toggleFull, undefined);
 });
 
-test('the panel\'s first row: Make this the playlist order only while Flow order shows, right after the switch; it saves and goes back', async () => {
-  const p = page();
+test('the panel\'s first row: no order switch, no Make this the playlist order; a shape rearranges the playlist order, lit, with Undo', async () => {
+  const undos = [];
+  const p = page({ extra: { showUndoToast: (m, fn) => undos.push({ m, fn }) } });
   await p.Flow.toggle(3);
   const firstRow = () => p.panelEl.innerHTML.split('</div>')[0];
-  if (p.Flow._state().order) await p.Flow.usePlaylistOrder();
-  assert.doesNotMatch(p.panelEl.innerHTML, /Make this the playlist order|data-flow-save-order/, 'not in playlist order');
-  await p.Flow.useFlowOrder();
-  assert.match(firstRow(), /data-flow-order="flow"[^>]*>Flow order<\/button>\s*<\/span>\s*<button[^>]*class="flow-btn flow-btn-sm flow-save-order"[^>]*data-flow-save-order[^>]*>Make this the playlist order<\/button>/);
-  // A click on it saves the working order as the playlist order and goes back to it.
-  const want = p.Flow.workingOrder();
+  assert.doesNotMatch(p.panelEl.innerHTML, /Make this the playlist order|data-flow-save-order|data-flow-order=|>Flow order</);
+  assert.match(firstRow(), /data-flow-shape="smooth" aria-pressed="false" title="Rearrange the playlist order as Smooth only \(you can Undo\)"/);
   const posts = [];
   const fetch0 = p.ctx.fetch;
   p.ctx.fetch = async (url, opts = {}) => {
-    if (/\/api\/collections\/3\/order$/.test(url)) { const b = JSON.parse(opts.body); posts.push(b.order); return { ok: true, status: 200, json: async () => ({ order: b.order }) }; }
+    if (/\/api\/collections\/3\/order$/.test(url)) { const b = JSON.parse(opts.body); posts.push(b); return { ok: true, status: 200, json: async () => ({ order: b.order }) }; }
     return fetch0(url, opts);
   };
-  const btn = { closest: (q) => (q === '[data-flow-save-order]' ? btn : null) };
+  const btn = { dataset: { flowShape: 'smooth' }, closest: (q) => (q === '[data-flow-shape]' ? btn : null) };
   for (const fn of p.panelListeners.click) fn({ target: btn, preventDefault() {}, stopPropagation() {} });
-  for (let i = 0; i < 20; i++) await new Promise(r => setImmediate(r));
-  assert.deepStrictEqual(posts, [want]);
-  assert.strictEqual(p.Flow._state().order, false, 'playlist order again');
-  assert.doesNotMatch(p.panelEl.innerHTML, /data-flow-save-order/);
+  for (let i = 0; i < 30; i++) await new Promise(r => setImmediate(r));
+  assert.deepStrictEqual(posts, [{ order: [15, 14, 13, 12, 11] }], 'the shape, written as the playlist order');
+  assert.deepStrictEqual(p.ctx.collectionMembers.get(3), [15, 14, 13, 12, 11]);
+  assert.match(firstRow(), /data-flow-shape="smooth" aria-pressed="true"/, 'lit while the playlist is in it');
+  assert.match(undos.at(-1).m, /Rearranged the playlist order: Smooth only/);
+  await undos.at(-1).fn();
+  assert.deepStrictEqual(posts.at(-1), { order: [11, 12, 13, 14, 15] }, 'Undo: the order from before');
+  assert.match(firstRow(), /data-flow-shape="smooth" aria-pressed="false"/);
 });
 
 test('lanes have one set of picks (the panel\'s): the old full screen key is never read or written', async () => {
@@ -443,7 +444,7 @@ test('a measurement landing rewrites only the Flow row of the tiles on screen, n
   assert.deepStrictEqual(tiles.map(t => t.rows[0]), before);
 });
 
-test('the grid is drawn when the order it shows changes (Flow order), through the filters, once', async () => {
+test('a new Flow answer never hands the grid another order (there is one order: the playlist\'s)', async () => {
   let flip = false;
   const filters = [];
   const p = page({ extra: { applyFilters: async () => { filters.push(1); } } });
@@ -456,14 +457,10 @@ test('the grid is drawn when the order it shows changes (Flow order), through th
     return { ok: true, status: 200, json: async () => b };
   };
   await p.Flow.toggle(3);
-  await p.Flow.useFlowOrder();
-  const f = filters.length, n = p.renders.length;
-  await p.Flow.refetch(true);
-  assert.strictEqual(filters.length, f, 'the same order: nothing drawn');
+  const f = filters.length;
   flip = true;
   await p.Flow.refetch(true);
-  assert.strictEqual(filters.length, f + 1, 'a new order: the grid gets it');
-  assert.strictEqual(p.renders.length, n, 'and no second, direct grid redraw');
+  assert.strictEqual(filters.length, f);
 });
 
 test('picking a column fills the strip; a hand-over explains itself; Play says Stage when Stage is open', async () => {

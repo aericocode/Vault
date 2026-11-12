@@ -183,6 +183,35 @@ test('routes: skip, unskip, replace (Unskip all and its Undo), and GET carries t
   await send('PUT', `/api/collections/${coll}/skips`, { ids: [] });
 });
 
+test('POST .../order with skips: the order and exactly those skips in one go (a saved order loaded), and its Undo', async () => {
+  const before = db.getCollectionItems(coll);
+  db.replaceCollectionSkips(coll, [m[1]]);
+  const want = before.slice().reverse();
+  let r = await send('POST', `/api/collections/${coll}/order`, { order: want, skips: [m[0], m[2], 999999] });
+  assert.strictEqual(r.status, 200);
+  let body = await r.json();
+  assert.deepStrictEqual(body.order, want);
+  assert.deepStrictEqual(body.skipped_ids, [m[2], m[0]].filter(id => want.includes(id)).sort((a, b) => want.indexOf(a) - want.indexOf(b)), 'in the new order, non-members left out');
+  assert.deepStrictEqual(body.was_skipped_ids, [m[1]]);
+  assert.strictEqual(body.skipped_seconds, 60 + 180, 'the length fields count the new skips');
+  assert.deepStrictEqual(db.getCollectionItems(coll), want);
+  // Undo: the order and the skips from before.
+  body = await (await send('POST', `/api/collections/${coll}/order`, { order: before, skips: body.was_skipped_ids })).json();
+  assert.deepStrictEqual([db.getCollectionItems(coll), db.getCollectionSkips(coll)], [before, [m[1]]]);
+  // Without skips the answer is as it was (the skips untouched, not in it).
+  body = await (await send('POST', `/api/collections/${coll}/order`, { order: before })).json();
+  assert.strictEqual(body.skipped_ids, undefined);
+  assert.deepStrictEqual(db.getCollectionSkips(coll), [m[1]]);
+  // A bad order changes neither (one transaction); bad skips are refused.
+  r = await send('POST', `/api/collections/${coll}/order`, { order: want.slice(1), skips: [] });
+  assert.strictEqual(r.status, 400);
+  assert.deepStrictEqual([db.getCollectionItems(coll), db.getCollectionSkips(coll)], [before, [m[1]]]);
+  assert.strictEqual((await send('POST', `/api/collections/${coll}/order`, { order: want, skips: 'x' })).status, 400);
+  assert.strictEqual((await send('POST', `/api/collections/${folder}/order`, { order: [], skips: [] })).status, 400);
+  assert.deepStrictEqual(db.getCollectionItems(coll), before);
+  db.replaceCollectionSkips(coll, []);
+});
+
 test('routes refuse what is not right', async () => {
   const bad = [
     ['POST', coll, { ids: [m[0]] }, 400],                 // no skip

@@ -1,8 +1,8 @@
 /**
  * Ignore calm intros and credits changing while Flow holds an answer
- * (player-lib/flow.js settingsChanged): with the panel open or closed, a
- * Flow order the grid shows is asked for and applied again, Flow shuffle
- * asks afresh, and a collection that is not open forgets what it held.
+ * (player-lib/flow.js settingsChanged): the open panel asks again, the
+ * playlist order is never rearranged by it, Flow shuffle asks afresh, and a
+ * collection that is not open forgets what it held.
  * flow.js runs in a vm with a bare page; the server's answer here depends on
  * the setting, as the real one does (lib/flow/service.js).
  */
@@ -51,20 +51,19 @@ function page() {
   vm.runInContext(SRC, ctx);
   return { ctx, Flow: ctx.window.Flow, urls, server, shuffled };
 }
-const ranked = (p) => (p.Flow.queryRanked() || []).map(r => r.id);
 const asks = (p) => p.urls.filter(u => /\/api\/flow\/collections\//.test(u)).length;
 
-test('Flow order with the panel closed: a setting change asks again and the grid gets the new order', async () => {
+test('a setting change never rearranges the playlist order (a shape was picked before)', async () => {
   const p = page();
   await p.Flow.toggle(3);
-  await p.Flow.useFlowOrder();
-  assert.deepStrictEqual(ranked(p), [2, 1, 3]);
-  p.Flow.close();
-  assert.strictEqual(p.Flow.isOpen(), false);
+  await p.Flow.pickShape('smooth');
+  const writes = () => p.urls.filter(u => u.includes('/order')).length;
+  const w = writes();
   p.server.edges = 'off';
   await p.ctx.flowSettingsChanged();
-  assert.deepStrictEqual(ranked(p), [3, 1, 2], 'the order the new setting gives');
-  assert.strictEqual(p.Flow.orderOn(), true);
+  p.Flow.close();
+  await p.ctx.flowSettingsChanged();
+  assert.strictEqual(writes(), w);
 });
 
 test('panel open: the chart data follow the setting at once', async () => {
@@ -91,12 +90,11 @@ test('panel closed, no Flow order: the held answer is dropped, so Flow shuffle a
 test('a collection that is not open any more forgets what Flow held for it', async () => {
   const p = page();
   await p.Flow.toggle(3);
-  await p.Flow.useFlowOrder();
   p.ctx.activeCollectionId = 1;
   p.server.edges = 'off';
   await p.ctx.flowSettingsChanged();
   const s = p.Flow._state();
   assert.strictEqual(s.cid, null);
   assert.strictEqual(s.data, null);
-  assert.strictEqual(s.appliedOrder, null);
+  assert.strictEqual(s.applied, null);
 });

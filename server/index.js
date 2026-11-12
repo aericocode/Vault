@@ -3498,18 +3498,26 @@ app.delete('/api/collections/:id/items', (req, res) => {
 // Rearrange the playlist order: { move: [ids], before: id | null } moves a
 // block (null = to the end), { order: [ids] } sets the whole order (Undo).
 // One transaction rewrites positions 0..n-1. Answers the new order.
+// With skips: [ids] too (a saved order loaded, player-lib/flow.js), those
+// become exactly the skipped files in the same transaction; the answer adds
+// skipped_ids and was_skipped_ids (the skips before, for Undo).
 app.post('/api/collections/:id/order', (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'bad id' });
-  let order;
+  const withSkips = req.body && req.body.skips !== undefined;
+  const skips = withSkips ? skipIds({ ids: req.body.skips }) : null;
+  if (withSkips && !skips) return res.status(400).json({ error: 'skips must be a list of file ids' });
+  let order, skipped = null;
   try {
-    order = db.reorderCollection(id, req.body);
+    if (withSkips) ({ order, ...skipped } = db.reorderCollectionWithSkips(id, req.body, skips));
+    else order = db.reorderCollection(id, req.body);
   } catch (err) {
     const status = COLL_ERR_STATUS[err.code];
     if (status) return res.status(status).json({ error: err.message, code: err.code });
     throw err;
   }
-  res.json({ order, item_count: order.length, first_ids: order.slice(0, 4), ...db.collectionLength(id) });
+  const more = skipped ? { skipped_ids: skipped.skipped, was_skipped_ids: skipped.was } : {};
+  res.json({ order, item_count: order.length, first_ids: order.slice(0, 4), ...more, ...db.collectionLength(id) });
 });
 
 // ── Up next (PLAYLISTS_SPEC step 4) ───────────────────────────────────────

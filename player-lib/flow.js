@@ -12,20 +12,21 @@
    each. Clicking a column picks its file for the strip under the names
    (Preview, Play, Show in list...; see "Under the chart" below).
 
-   Playlist order / Flow order: Flow order is a play order you switch to. The
-   grid (and so Play all, Play on Stage and Up next's "the list carries on")
-   follows it: the library query gets the order as rankedIds (filters.js
-   currentQuerySpec), so a search or filter still applies on top. "Make this
-   the playlist order" (the panel's top row, while Flow order shows) writes
-   it with POST /api/collections/:id/order, with Undo. The collection's count
-   line says which order shows ("Flow order: Friday set, edited").
+   One order: a collection has one play order, its playlist order
+   (collection_items.position). Everything here that changes the order
+   changes that one, on the server, at once, with Undo: picking a Shape
+   (and Waves' peaks, Place tagged files) rearranges the playlist into it
+   ("Shapes" below), dragging a column moves a file in it, and clicking a
+   saved order loads it into the playlist ("Saved orders" below). The grid,
+   Play all, Stage and the count line read the playlist order, so they need
+   nothing from here.
 
-   Saved orders: a collection keeps named versions of its Flow order (the
-   chips on the Lanes row, ＋ Save this order; see "Saved orders" below and
-   lib/flow/saved.js), each its shape, peaks, Place tagged files and order.
+   Saved orders: snapshots of the playlist order (and its skips) to keep and
+   bring back (the chips on the Lanes row, ＋ Save this order; see "Saved
+   orders" below and lib/flow/saved.js).
 
    Place tagged files (On / Off, shown once a file in the collection has a
-   stream tag with a Place, on by default then): Flow order puts those files
+   stream tag with a Place, on by default then): a shape puts those files
    where their tag says (First, Last, At a peak...; FlowOrder.planOrder).
 
    While the panel is open, tiles show a small energy start/middle/end bar
@@ -39,19 +40,13 @@
    the parts of a file Flow looks past (f.cut) and draws its line there
    dashed and dimmer; hand-overs meet the line where those parts end.
    Changing the setting makes what Flow holds out of date, panel open or not
-   (flowSettingsChanged, settingsChanged): a Flow order the grid shows is
-   asked for and applied again, Flow shuffle asks afresh.
+   (flowSettingsChanged, settingsChanged): the open panel asks again, Flow
+   shuffle asks afresh. It never rearranges the playlist by itself.
 
    Hooks other files call (guarded with typeof):
      flowButtonHtml(c)            collections.js renderCollectionHeader
      flowTileHtml(media)          cards.js renderTile
-     flowQueryRanked()            filters.js currentQuerySpec
-     flowOrderOn()                collection-reorder.js reorderBlockedReason
-     flowLeaveOrder()             collection-reorder.js switchToPlaylistOrder
-     flowCountText()              collections.js collectionCountText
      flowShuffleCollection(id)    collections.js playCollection (Shuffle)
-     flowWorkingOrder()           collection-reorder.js (drags in Flow order)
-     flowMoveInOrder(ids, before) collection-reorder.js reorderMove
      flowStageCurrent(row)        stage-control.js setCurrent
      flowSettingsChanged()        stage-settings-ui.js (Ignore calm intros and credits)
      flowMembersChanged(cid)      collection-reorder.js, collections.js, importer.js (order or files changed)
@@ -69,8 +64,7 @@ const Flow = (() => {
   const st = {
     cid: null,          // the collection the panel belongs to
     open: false,
-    order: false,       // Flow order is what the grid shows
-    shape: DEFAULT_SHAPE,
+    shape: DEFAULT_SHAPE, // the shape last picked (what st.data.order is worked out for)
     waves: FlowOrder.WAVES_DEFAULT,  // Waves: how many peaks (1..6)
     data: null,         // GET /api/flow/collections/:id
     byId: new Map(),    // id -> features
@@ -79,8 +73,8 @@ const Flow = (() => {
     lastCount: -1,
     lastFetch: 0,
     fetching: false,
-    appliedOrder: null, // the order last handed to the query
-    places: null,       // Place tagged files: true / false as picked, null = on when any file has a placed tag
+    applied: null,      // the shape last put into the playlist here: { shape, waves, places, order }
+    places: null,      // Place tagged files: true / false as picked, null = on when any file has a placed tag
     hot: -1,            // the chart column under the pointer
     geom: null,         // the chart as last drawn (columns, range) for hover and click
     drawnW: 0,
@@ -88,9 +82,7 @@ const Flow = (() => {
     lanePrefs: null,    // which lane rows show (localStorage)
     hookedSource: null, // the FlowLaneSource whose onChange we listen to
     flashTimer: null,
-    membersRef: null,   // the collection's member list last worked from (watchMembers)
-    edited: null,       // the working Flow order after drags (ids), or null: as worked out
-    zoom: false,        // Zoom (wide columns, sideways scroll) or Fit (localStorage, see zoomPref)
+    zoom: false,       // Zoom (wide columns, sideways scroll) or Fit (localStorage, see zoomPref)
     sel: null,          // the file picked (id), shown in the strip
     selHand: -1,        // the hand-over picked (file i into i + 1), or -1
     follow: true,       // Zoom: keep the playing file in view (until the user scrolls)
@@ -98,8 +90,7 @@ const Flow = (() => {
     tilesKey: null,     // what the grid's tiles were last drawn from (tilesKeyNow)
     saved: null,        // the collection's saved orders (GET .../saved), for savedCid
     savedCid: null,
-    savedActive: null,  // the saved order Flow order was loaded from (its id), or null
-    savedInput: null,   // the name box: { mode: 'new' | 'rename', id, value, focus }, or null
+    savedInput: null,  // the name box: { mode: 'new' | 'rename', id, value, focus }, or null
   };
 
   const esc = (s) => (typeof escapeHtml === 'function' ? escapeHtml(String(s)) : String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])));
@@ -139,21 +130,17 @@ const Flow = (() => {
   function reset() {
     clearTimeout(st.pollTimer);
     st.pollTimer = null;
-    st.cid = null; st.open = false; st.order = false; st.data = null; st.byId = new Map();
-    st.status = null; st.lastCount = -1; st.appliedOrder = null; st.fetchFails = 0; st.toasted = false;
+    st.cid = null; st.open = false; st.data = null; st.byId = new Map();
+    st.status = null; st.lastCount = -1; st.applied = null; st.fetchFails = 0; st.toasted = false;
     st.showWhy = false; st.lastMoved = null;
     // Each collection starts from the default shape (or its remembered one,
-    // restore / toggle): never the shape picked on the one before.
+    // toggle): never the shape picked on the one before.
     st.shape = DEFAULT_SHAPE;
     st.waves = FlowOrder.WAVES_DEFAULT;
     st.places = null;
-    st.edited = null;
-    st.saved = null; st.savedCid = null; st.savedActive = null; st.savedInput = null;
-    st.membersRef = null;
+    st.saved = null; st.savedCid = null; st.savedInput = null;
     st.sel = null; st.selHand = -1;
     st.follow = true;
-    session++;
-    syncSkips();
     paint();
   }
 
@@ -162,10 +149,10 @@ const Flow = (() => {
     if (st.open && st.cid === cid) { close(); return; }
     if (st.cid !== cid) {
       reset();
-      // Opened before the grid's first answer could restore it (a quick
-      // click after opening the collection): take the remembered order now.
-      const m = recalled(cid);
-      if (m) adopt(m);
+      // The shape (and its switches) last picked in this collection, as the
+      // starting point: only a hint, the playlist order is never touched.
+      const m = recalledShape(cid);
+      if (m) { st.shape = m.shape; st.waves = m.waves; st.places = m.places; }
     }
     st.cid = cid;
     st.open = true;
@@ -225,44 +212,44 @@ const Flow = (() => {
     if (again) { again = false; await refetch(true); }
   }
 
+  /** The question for the server: the shape picked, its peaks and Place tagged files. */
+  const flowUrl = (cid) => `/api/flow/collections/${cid}?shape=${encodeURIComponent(st.shape)}&places=${placesOn() ? 1 : 0}${st.shape === 'waves' ? `&waves=${st.waves}` : ''}`;
+
+  /** An answer about st.cid, kept. */
+  function takeData(data) {
+    st.data = data;
+    st.byId = new Map(data.features.map(f => [f.id, f]));
+    st.lastFetch = Date.now();
+    st.lastCount = countKey(data.counts);
+    st.fetchFails = 0;
+  }
+
   async function fetchOnce() {
     st.fetching = true;
     const cid = st.cid;
     try {
-      const waves = st.shape === 'waves' ? `&waves=${st.waves}` : '';
-      const data = await api(`/api/flow/collections/${cid}?shape=${encodeURIComponent(st.shape)}&places=${placesOn() ? 1 : 0}${waves}`);
+      const url = flowUrl(cid);
+      const data = await api(url);
       if (cid !== st.cid) return;
-      st.data = data;
-      if (typeof collectionMembers !== 'undefined' && collectionMembers.get(cid)) st.membersRef = collectionMembers.get(cid);
-      if (st.edited) {
-        const kept = reconcile(st.edited, data.order);
-        const same = kept.length === st.edited.length && kept.every((id, i) => id === st.edited[i]);
-        st.edited = kept;
-        if (!same) remember();
-      }
+      // Another shape picked meanwhile: this answer is for the one before; ask again.
+      if (url !== flowUrl(cid)) { again = true; return; }
+      takeData(data);
       // Asked before the answer said which files have a placed tag: ask again.
       if (placesOn() !== !!data.placesOn) again = true;
-      st.byId = new Map(data.features.map(f => [f.id, f]));
-      st.lastFetch = Date.now();
-      st.lastCount = countKey(data.counts);
-      st.fetchFails = 0;
-      if (st.order) await applyOrder();
     } catch (err) {
       // Counted as a fetch all the same (so a poll does not ask again at once),
       // backing off, and said once, not on every try.
       st.lastFetch = Date.now();
       st.fetchFails = (st.fetchFails || 0) + 1;
       if (err.status === 413 && st.status && st.status.collection) st.status.collection.tooMany = true;
-      if (err.status !== 423 && !st.toasted) { st.toasted = true; toastErr(err, 'working out Flow order'); }
+      if (err.status !== 423 && !st.toasted) { st.toasted = true; toastErr(err, 'working out the Flow chart'); }
     } finally {
       st.fetching = false;
     }
     paint();
-    if (typeof renderReorderNote === 'function') renderReorderNote();
     // The open panel's tiles show what Flow measured. The grid is drawn again
     // only for the first answer after opening (every tile gains its Flow row,
-    // so its rows are measured again) and when the order it shows changed
-    // (applyOrder, through applyFilters). A measurement landing while the
+    // so its rows are measured again). A measurement landing while the
     // panel is open only rewrites the Flow row of the tiles on screen: a whole
     // grid drawn on every answer cost 80 to 170 ms with 50 cards showing.
     const tk = tilesKeyNow();
@@ -334,108 +321,87 @@ const Flow = (() => {
     if (active) schedulePoll();
   }
 
-  /* ── Order ──────────────────────────────────────────────────────── */
+  /* ── Shapes ─────────────────────────────────────────────────────────
+     A shape (Smooth, Build up, Waves, Peak, Steady) is something done to
+     the playlist order, not a second order: picking one asks the server for
+     the collection in that shape (GET /api/flow/collections/:id, worked out
+     from what is measured so far; files not measured yet keep their place)
+     and writes it as the playlist order at once, with Undo (the order from
+     right before, exactly). Waves' peaks are part of the pick: a peak count
+     rearranges into Waves with that many peaks. Place tagged files
+     rearranges again while the playlist is still in the shape, else it is
+     kept for the next pick.
 
-  /** The order the grid shows, as rankedIds (null: not in Flow order). */
-  function queryRanked() {
-    if (!st.order || !isMine() || !st.appliedOrder) return null;
-    const n = st.appliedOrder.length;
-    return st.appliedOrder.map((id, i) => ({ id, score: n - i }));
+     Nothing holds on to the shape afterwards: a drag, a saved order or a
+     measurement landing never brings it back. Its button is lit (and the
+     chart draws its dashed guide) only while the playlist order is still
+     exactly that shape (shapeLit). The shape last picked, its peaks and
+     Place tagged files are remembered per collection on this computer
+     (localStorage vault.flow.shape.<id>) as where the panel starts, never as
+     an order. */
+
+  const SHAPE_PREFIX = 'vault.flow.shape.';
+  // The working Flow order kept before there was one order: removed, never shown.
+  const OLD_ORDER_PREFIX = 'vault.flow.order.';
+  const sameIds = (a, b) => !!a && !!b && a.length === b.length && a.every((id, i) => id === b[i]);
+  const toast = (msg) => { if (typeof showToast === 'function') showToast(msg); };
+  const shapeName = (shape, waves) => `${FlowOrder.shapeLabel(shape)}${shape === 'waves' ? ` ${waves}` : ''}`;
+
+  /** The playlist order as the page has it now (the server's last answer), or null. */
+  function playlistNow() {
+    const m = typeof collectionMembers !== 'undefined' && st.cid != null ? collectionMembers.get(st.cid) : null;
+    return m || (st.data ? st.data.playlistOrder : null);
   }
 
-  async function applyOrder() {
-    if (!st.data) return;
-    const next = workingOrder();
-    if (st.appliedOrder && st.appliedOrder.length === next.length && st.appliedOrder.every((id, i) => id === next[i])) return;
-    st.appliedOrder = next.slice();
-    if (typeof applyFilters === 'function') await applyFilters({ keepPage: true });
-    if (typeof renderReorderNote === 'function') renderReorderNote();
+  /** The answer's order (the picked shape worked out) is the playlist order, so the shape's guide lines up with it. */
+  function guideFits() {
+    const d = st.data;
+    if (!d || d.shape !== st.shape || (st.shape === 'waves' && FlowOrder.wavesCount(d.waves) !== st.waves)) return false;
+    return sameIds(d.order, playlistNow());
   }
 
-  async function useFlowOrder() {
-    if (!isMine()) return;
-    // A saved order shows: Flow order is the picked shape worked out afresh (Undo for moves not saved).
-    if (savedNow()) { await pickShape(st.shape); return; }
-    st.order = true;
-    remember();
-    if (!st.data) await refetch(true);
-    st.appliedOrder = null;
-    await applyOrder();
-    paint();
+  /** The playlist order is still the shape picked (put in here and not changed since, or worked out the same). */
+  function shapeLit() {
+    const a = st.applied;
+    if (a && a.shape === st.shape && a.waves === st.waves && a.places === placesOn() && sameIds(a.order, playlistNow())) return true;
+    return guideFits();
   }
 
-  async function usePlaylistOrder() {
-    if (!st.order) return;
-    leave();
-    paint();
-    if (typeof switchToPlaylistOrder === 'function') await switchToPlaylistOrder();
-    else if (typeof applyFilters === 'function') await applyFilters({ keepPage: true });
+  function rememberShape() {
+    if (st.cid == null) return;
+    try { localStorage.setItem(SHAPE_PREFIX + st.cid, JSON.stringify({ shape: st.shape, waves: st.waves, places: st.places })); } catch {}
   }
 
-  /** The shape and switches picked now, for Undo (offerUndoEdits). */
-  const picks = () => ({ shape: st.shape, waves: st.waves, places: st.places, saved: st.savedActive });
-
-  /** The moves a pick would drop: the edited order, unless it is a saved order as it was saved (nothing is lost then). */
-  const unsavedEdits = () => (st.order && st.edited && (!savedNow() || savedEdited()) ? st.edited : null);
-
-  /** Pick a shape (waves: Waves' peaks, kept as they are when not given): Flow order worked out afresh. */
-  async function pickShape(shape, waves = st.waves) {
-    if (!FlowOrder.isShape(shape)) return;
-    const dropped = unsavedEdits(), prev = picks();
-    session++;
-    st.shape = shape;
-    st.waves = FlowOrder.wavesCount(waves);
-    st.order = true;
-    st.edited = null;
-    st.savedActive = null;
-    remember();
-    paint();
-    await refetch(true);
-    st.appliedOrder = null;
-    await applyOrder();
-    paint();
-    offerUndoEdits(dropped, prev, `Worked out ${FlowOrder.shapeLabel(shape)} afresh`);
+  /** The shape last picked in a collection ({ shape, waves, places }), or null. */
+  function recalledShape(cid) {
+    let v = null;
+    try { v = JSON.parse(localStorage.getItem(SHAPE_PREFIX + cid) || 'null'); } catch { return null; }
+    if (!v || typeof v !== 'object' || !FlowOrder.isShape(v.shape)) return null;
+    return { shape: v.shape, waves: FlowOrder.wavesCount(v.waves), places: typeof v.places === 'boolean' ? v.places : null };
   }
 
-  /** Waves with this many peaks (1..6): the same as picking the shape. */
-  const pickWaves = (n) => pickShape('waves', n);
-
-  async function pickPlaces(on) {
-    const dropped = unsavedEdits(), prev = picks();
-    session++;
-    st.places = !!on;
-    st.order = true;
-    st.edited = null;
-    st.savedActive = null;
-    remember();
-    paint();
-    await refetch(true);
-    st.appliedOrder = null;
-    await applyOrder();
-    paint();
-    offerUndoEdits(dropped, prev, `Place tagged files is ${on ? 'on' : 'off'} now`);
+  /** Remove the working Flow orders an older Vault kept on this computer (vault.flow.order.<id>). */
+  function forgetOldOrders() {
+    try {
+      const gone = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(OLD_ORDER_PREFIX)) gone.push(k);
+      }
+      gone.forEach(k => localStorage.removeItem(k));
+    } catch {}
   }
 
-  /** Waves' peaks, 1..6: only while Flow order shows Waves. */
-  function wavesHtml() {
-    if (!st.order || st.shape !== 'waves' || fromPlaylistNow()) return '';
-    let btns = '';
-    for (let n = FlowOrder.WAVES_MIN; n <= FlowOrder.WAVES_MAX; n++) {
-      btns += `<button type="button" data-flow-waves="${n}" aria-pressed="${String(st.waves === n)}" title="${n === 1 ? 'One peak' : `${n} peaks`}">${n}</button>`;
-    }
-    return `<span class="flow-opt"><span class="flow-seg-label">Waves</span>
-        <span class="flow-seg flow-waves" role="group" aria-label="How many waves">${btns}</span></span>`;
-  }
-
-  /** The Place tagged files switch: only for a collection with placed tags (or once used). */
-  function placesHtml() {
-    if (st.places == null && !hasPlaced()) return '';
-    const on = placesOn();
-    return `<span class="flow-opt"><span class="flow-seg-label">Place tagged files</span>
-        <span class="flow-seg" role="group" aria-label="Place tagged files" title="Files with a stream tag that has a Place (Opener, Closer...) go where it says">
-          <button type="button" data-flow-places="1" aria-pressed="${String(on)}">On</button>
-          <button type="button" data-flow-places="0" aria-pressed="${String(!on)}">Off</button>
-        </span></span>`;
+  /*
+   * Changes to the playlist order made here go one after another (a second
+   * pick waits for the first to be written), so each Undo puts back the
+   * order from right before it.
+   */
+  let turn = Promise.resolve();
+  function inTurn(fn) {
+    const p = turn.then(fn);
+    turn = p.catch(() => {});
+    return p;
   }
 
   /** The collection's files now, from the server (the page's copy can be behind). */
@@ -446,46 +412,156 @@ const Flow = (() => {
     return (typeof collectionMembers !== 'undefined' && collectionMembers.get(cid)) || null;
   }
 
-  /**
-   * Write an order as the playlist order, kept to the files the collection
-   * has right now (a file added or removed since is never a stale list). A
-   * 400 (the members changed on the way): ask again, keep to them, try once more.
+  /*
+   * Write an order (and, when given, exactly these skips) as the
+   * collection's playlist order, in one request: POST
+   * /api/collections/:id/order { order, skips? }. Kept to the files it has
+   * right now (gone ones dropped, new ones at the end), so a file added or
+   * taken out since is never lost; a 400 (the files changed on the way):
+   * ask again, keep to them, try once more. The answer goes where every
+   * rearrange's goes (collection-reorder.js _installOrder: the page's copy,
+   * the count line, the skips, the grid and this panel).
    */
-  async function saveMembersOrder(cid, order) {
+  async function writePlaylist(cid, order, skips) {
     const attempt = async () => {
       const members = await freshMembers(cid);
-      const list = members ? reconcile(order, members) : order.slice();
-      const saved = await post(`/api/collections/${cid}/order`, { order: list });
-      // The page's copy of the playlist order (rearranging reads it).
-      if (typeof collectionMembers !== 'undefined') collectionMembers.set(cid, Array.isArray(saved.order) ? saved.order : list);
-      return saved;
+      const body = { order: members ? reconcile(order, members) : order.slice() };
+      if (Array.isArray(skips)) body.skips = skips.slice();
+      const p = post(`/api/collections/${cid}/order`, body);
+      return typeof Library !== 'undefined' && typeof Library.ownWrite === 'function' ? Library.ownWrite(p) : p;
     };
-    try { return await attempt(); } catch (err) {
-      if (err && err.status === 400) return attempt();
-      throw err;
+    let data;
+    try { data = await attempt(); } catch (err) {
+      if (!err || err.status !== 400) throw err;
+      data = await attempt();
     }
+    if (typeof _installOrder === 'function') await _installOrder(cid, data);
+    else {
+      if (typeof collectionMembers !== 'undefined' && Array.isArray(data.order)) collectionMembers.set(cid, data.order);
+      if (typeof takeCollectionAnswer === 'function') takeCollectionAnswer(cid, data);
+      membersChanged(cid);
+      if (activeId() === cid && typeof applyFilters === 'function') await applyFilters({ keepPage: true });
+    }
+    return data;
   }
 
-  async function saveOrder() {
-    if (!st.data || !isMine()) return;
-    const cid = st.cid;
-    const before = st.data.playlistOrder.slice();
+  /** The grid shows another sort or a shuffle: back to playlist order, so what just changed is what shows. */
+  async function showPlaylist(cid) {
+    if (activeId() !== cid || typeof switchToPlaylistOrder !== 'function') return;
+    const sorted = typeof currentSortField === 'function' && currentSortField() !== 'playlist';
+    if (sorted || (typeof Library !== 'undefined' && Library.shuffled)) await switchToPlaylistOrder();
+  }
+
+  /** An Undo that puts back an order (and skips, when given) written here. */
+  const undoWrite = (cid, order, skips) => () => inTurn(async () => {
     try {
-      await saveMembersOrder(cid, workingOrder());
-    } catch (err) { toastErr(err, 'saving the order'); return; }
-    leave();
-    await refetch(true);
-    if (typeof switchToPlaylistOrder === 'function') await switchToPlaylistOrder();
-    const undo = async () => {
-      try {
-        await saveMembersOrder(cid, before);
-        if (cid === st.cid) await refetch(true);
-        if (typeof applyFilters === 'function') await applyFilters({ keepPage: true });
-        if (typeof showToast === 'function') showToast('Playlist order put back');
-      } catch (err) { toastErr(err, 'putting the order back'); }
-    };
-    if (typeof showUndoToast === 'function') showUndoToast('Saved as the playlist order', undo);
-    else if (typeof showToast === 'function') showToast('Saved as the playlist order');
+      await writePlaylist(cid, order, skips);
+      await showPlaylist(cid);
+      toast('Playlist order put back');
+    } catch (err) { toastErr(err, 'putting the order back'); }
+    paint();
+  });
+
+  /** Pick a shape (waves: Waves' peaks): the playlist order is rearranged into it, with Undo. */
+  function pickShape(shape, waves = st.waves) {
+    if (!FlowOrder.isShape(shape)) return Promise.resolve(false);
+    return inTurn(() => applyShape(shape, waves, st.places));
+  }
+
+  /** Waves with this many peaks (1..6): the same as picking the shape. */
+  const pickWaves = (n) => pickShape('waves', n);
+
+  /** Place tagged files on or off: the playlist rearranged again while it is still in the shape, else kept for the next pick. */
+  function pickPlaces(on) {
+    return inTurn(async () => {
+      if (!isMine()) return false;
+      if (shapeLit()) return applyShape(st.shape, st.waves, !!on);
+      st.places = !!on;
+      rememberShape();
+      paint();
+      await refetch(true);
+      return false;
+    });
+  }
+
+  /** @returns {Promise<boolean>} whether the playlist order changed */
+  async function applyShape(shape, waves, places) {
+    if (!isMine()) return false;
+    const cid = st.cid;
+    // The lit shape picked again: asking again could rearrange it once more
+    // (the plan starts from the order it is given), so it stays as it is.
+    if (shapeLit() && shape === st.shape && FlowOrder.wavesCount(waves) === st.waves && places === st.places) {
+      toast(`The playlist order is already ${shapeName(st.shape, st.waves)}`);
+      return false;
+    }
+    st.shape = shape;
+    st.waves = FlowOrder.wavesCount(waves);
+    st.places = places;
+    rememberShape();
+    paint();
+    let data;
+    try {
+      data = await api(flowUrl(cid));
+      if (cid !== st.cid) return false;
+      takeData(data);
+      // The answer said which files have a placed tag, and that changes the question: ask once more.
+      if (placesOn() !== !!data.placesOn) {
+        data = await api(flowUrl(cid));
+        if (cid !== st.cid) return false;
+        takeData(data);
+      }
+    } catch (err) {
+      toastErr(err, 'working out the order');
+      paint();
+      return false;
+    }
+    const label = shapeName(st.shape, st.waves);
+    const before = (await freshMembers(cid)) || data.playlistOrder.slice();
+    if (cid !== st.cid) return false;
+    const order = reconcile(data.order, before);
+    const pick = { shape: st.shape, waves: st.waves, places: placesOn() };
+    if (sameIds(order, before)) {
+      st.applied = { ...pick, order };
+      paint();
+      toast(`The playlist order is already ${label}`);
+      return false;
+    }
+    let written;
+    try { written = await writePlaylist(cid, order); } catch (err) {
+      toastErr(err, 'rearranging the playlist order');
+      paint();
+      return false;
+    }
+    st.applied = { ...pick, order: Array.isArray(written.order) ? written.order : order };
+    await showPlaylist(cid);
+    paint();
+    // selection.js showUndoToast takes HTML.
+    if (typeof showUndoToast === 'function') showUndoToast(`Rearranged the playlist order: ${esc(label)}`, undoWrite(cid, before));
+    else toast(`Rearranged the playlist order: ${label}`);
+    return true;
+  }
+
+  /** Waves' peaks, 1..6: while Waves is the shape picked. */
+  function wavesHtml() {
+    if (st.shape !== 'waves') return '';
+    const lit = shapeLit();
+    let btns = '';
+    for (let n = FlowOrder.WAVES_MIN; n <= FlowOrder.WAVES_MAX; n++) {
+      btns += `<button type="button" data-flow-waves="${n}" aria-pressed="${String(lit && st.waves === n)}" title="${n === 1 ? 'One peak' : `${n} peaks`}: rearrange the playlist order (you can Undo)">${n}</button>`;
+    }
+    return `<span class="flow-opt"><span class="flow-seg-label">Waves</span>
+        <span class="flow-seg flow-waves" role="group" aria-label="How many waves">${btns}</span></span>`;
+  }
+
+  /** The Place tagged files switch: only for a collection with placed tags (or once used). */
+  function placesHtml() {
+    if (st.places == null && !hasPlaced()) return '';
+    const on = placesOn();
+    return `<span class="flow-opt"><span class="flow-seg-label">Place tagged files</span>
+        <span class="flow-seg" role="group" aria-label="Place tagged files" title="Files with a stream tag that has a Place (Opener, Closer...) go where it says when you pick a shape">
+          <button type="button" data-flow-places="1" aria-pressed="${String(on)}">On</button>
+          <button type="button" data-flow-places="0" aria-pressed="${String(!on)}">Off</button>
+        </span></span>`;
   }
 
   async function queueAct(act) {
@@ -504,36 +580,13 @@ const Flow = (() => {
     paint();
   }
 
-  /* ── The working Flow order: edits, saving, remembering ─────────────
-     While Flow order shows, dragging tiles (or Alt+arrows,
-     collection-reorder.js) edits the working order here, in memory: the
-     collection's count line says "edited", the chart, hand-overs and jumps
-     follow it, and nothing is saved until Make this the playlist order (on
-     the panel's top row while Flow order shows). Playlist order drops it;
-     picking a shape (or Place tagged files) again works the order out
-     afresh and drops the edits, with Undo.
-
-     Remembered per collection on this computer (localStorage
-     vault.flow.order.<id>: { shape, waves, places, edited }): while the key is
-     there, opening the collection (or reloading) shows Flow order again.
-     Going back, saving or shuffling removes it. An edited order is kept
-     valid when files come or go: gone ones dropped, new ones at the end. */
-
-  const MEM_PREFIX = 'vault.flow.order.';
-
-  /** The order Flow order shows: the edited one, or the one worked out. */
-  function workingOrder() {
-    if (!st.data) return [];
-    return st.edited || st.data.order;
-  }
-
   /*
    * The files the grid shows. The library query applies the search and the
-   * filters on top of Flow order (and of the playlist order), so the grid,
-   * the table and what Next, Previous and Stage play can hold fewer files
-   * than the collection. The chart, its hand-overs and jumps, the guide and
-   * the tiles' positions are kept to the same files, so every one of them
-   * reads one order: a file the grid hides is not a column either.
+   * filters on top of the playlist order, so the grid, the table and what
+   * Next, Previous and Stage play can hold fewer files than the collection.
+   * The chart, its hand-overs and jumps and the guide are kept to the same
+   * files, so every one of them reads one order: a file the grid hides is
+   * not a column either.
    */
   let gridMemo = { ids: null, set: null };
   /** The grid's files as a Set, or null: no answer for this collection yet. */
@@ -557,28 +610,8 @@ const Flow = (() => {
     return list;
   }
 
-  /** The edited order kept to the collection's files (gone dropped, new at the end). */
-  const reconcile = (edited, base) => FlowOrder.reconcileOrder(edited, base);
-
-  /*
-   * A Flow session: bumped when Flow order is left (Back, Save, Shuffle), the
-   * collection changes, or the order is worked out afresh. An Undo made in
-   * one session does nothing in another (or in another collection).
-   */
-  let session = 0;
-  const sessionNow = () => ({ cid: st.cid, gen: session });
-  const sameSession = (s) => s.cid === st.cid && s.gen === session && st.order && isMine();
-
-  let sumMemo = { order: null, data: null, value: null };
-  /** Hand-overs and jumps of what Flow order shows now (in the grid). */
-  function orderSummary() {
-    const d = st.data;
-    if (!d) return { handovers: [], jumps: 0 };
-    const w = shown(workingOrder());
-    if (w === d.order) return { handovers: d.handovers, jumps: d.jumps };
-    if (sumMemo.order !== w || sumMemo.data !== d) sumMemo = { order: w, data: d, value: FlowOrder.summary(d.features, w) };
-    return sumMemo.value;
-  }
+  /** An order kept to the collection's files (gone dropped, new at the end). */
+  const reconcile = (order, base) => FlowOrder.reconcileOrder(order, base);
 
   let plMemo = { order: null, data: null, jumps: 0 };
   /** Jumps in the playlist order, kept to the files the grid shows. */
@@ -591,178 +624,49 @@ const Flow = (() => {
     return plMemo.jumps;
   }
 
-  function remember() {
-    syncSkips();
-    if (st.cid == null) return;
-    try {
-      if (!st.order) localStorage.removeItem(MEM_PREFIX + st.cid);
-      else localStorage.setItem(MEM_PREFIX + st.cid, JSON.stringify({ shape: st.shape, waves: st.waves, places: st.places, edited: st.edited, saved: st.savedActive }));
-    } catch {}
-  }
-
-  /** The remembered Flow order for a collection, or null (one that is not valid is removed). */
-  function recalled(cid) {
-    let text = null;
-    try { text = localStorage.getItem(MEM_PREFIX + cid); } catch { return null; }
-    if (text == null) return null;
-    const v = FlowOrder.parseRemembered(text);
-    if (!v) { try { localStorage.removeItem(MEM_PREFIX + cid); } catch {} }
-    return v;
-  }
-
-  /** Show a remembered Flow order (recalled) for st.cid: its shape, its switch and its edits. */
-  function adopt(m) {
-    st.shape = m.shape;
-    st.waves = FlowOrder.wavesCount(m.waves);
-    st.places = m.places;
-    st.edited = m.edited;
-    st.savedActive = m.saved || null;
-    st.order = true;
-    st.appliedOrder = null;
-  }
-
-  /** The collection just opened: show Flow order again if it was showing. */
-  let restoring = null;
-  async function restore(cid) {
-    const m = recalled(cid);
-    if (!m || restoring === cid) return;
-    restoring = cid;
-    try {
-      if (st.cid !== cid) reset();
-      st.cid = cid;
-      adopt(m);
-      // The saved order's name, for the count line ("Flow order: Friday set").
-      if (st.savedCid !== cid) loadSaved(cid);
-      await refetch(true);
-    } finally {
-      restoring = null;
-    }
-  }
-
-  /** Leave Flow order (Back, Save, Shuffle...): edits dropped, nothing remembered. */
-  function leave() {
-    session++;
-    st.order = false;
-    st.appliedOrder = null;
-    st.edited = null;
-    st.savedActive = null;
-    if (st.savedInput && st.savedInput.mode === 'new') st.savedInput = null;
-    remember();
-  }
-
-  /**
-   * A drag or Alt+arrows in Flow order: move `ids` to sit before `before`
-   * (null: the end) in the working order. In memory only, with Undo.
-   * @returns {Promise<boolean>} whether the order changed
-   */
-  async function moveInOrder(ids, before) {
-    if (!st.order || !st.data || !isMine()) return false;
-    const prev = workingOrder().slice();
-    const prevEdited = st.edited;
-    const next = FlowOrder.moveBlock(prev, ids, before);
-    if (!next) return false;
-    const moving = new Set(ids);
-    const block = next.filter(id => moving.has(id));
-    const made = sessionNow();
-    st.edited = next;
-    remember();
-    await applyOrder();
-    paint();
-    if (typeof renderReorderNote === 'function') renderReorderNote();
-    const n = next.indexOf(block[0]) + 1;
-    const f = st.byId.get(block[0]);
-    // selection.js showUndoToast takes HTML: the name is escaped.
-    const msg = block.length === 1
-      ? (namesHidden() ? `Moved this file to position ${n} in Flow order` : `Moved “${esc(shortName(f) || 'file')}” to position ${n} in Flow order`)
-      : `Moved ${block.length} files to position ${n} in Flow order`;
-    const undo = async () => {
-      if (!sameSession(made) || !st.data) return;      // another collection, or Flow order left since
-      st.edited = prevEdited ? reconcile(prevEdited, st.data.order) : null;
-      remember();
-      await applyOrder();
-      paint();
-      if (typeof renderReorderNote === 'function') renderReorderNote();
-    };
-    if (typeof showUndoToast === 'function') showUndoToast(msg, undo);
-    return true;
-  }
-
-  /** Picking a shape or Place tagged files again dropped the edits: Undo puts them (and the old pick) back. */
-  function offerUndoEdits(dropped, prev, what) {
-    if (!dropped || typeof showUndoToast !== 'function') return;
-    const made = sessionNow();
-    showUndoToast(`${what}, so your moves in Flow order were dropped`, async () => {
-      if (!sameSession(made)) return;                  // Back, Save, another collection or another pick since
-      st.shape = prev.shape;
-      st.waves = prev.waves;
-      st.places = prev.places;
-      st.savedActive = prev.saved;
-      st.order = true;
-      await refetch(true);
-      if (!st.data) return;
-      if (!sameSession(made)) return;
-      st.edited = reconcile(dropped, st.data.order);
-      st.appliedOrder = null;
-      remember();
-      await applyOrder();
-      paint();
-      if (typeof renderReorderNote === 'function') renderReorderNote();
-    });
-  }
-
   /* ── Saved orders ───────────────────────────────────────────────────
-     A collection keeps named versions of its Flow order (server: lib/flow/
-     saved.js, in the library database): each holds the shape, Waves' peaks,
-     Place tagged files on or off, and the whole collection's order as it was
-     (workingOrder, not the files the grid shows). They are the chips on the
-     Lanes row. Clicking one switches to Flow order with all of that: the
-     order becomes the working order exactly as an edited one does
-     (st.edited), so the chart, the grid, Next, Stage and the marks follow
-     it with nothing else to know. The server's answer fits it to the files
-     there are now (fetchOnce, FlowOrder.reconcileOrder: gone files dropped,
-     new ones at the end).
+     Snapshots of the playlist order to keep and bring back (server:
+     lib/flow/saved.js, in the library database): the chips on the Lanes
+     row. Each holds the whole collection's order as it was saved, the skips
+     then (row.skips; null in one saved before skips: it has none of its
+     own), and the shape it was made with when the playlist was still
+     exactly a shape (else shape 'playlist'; the chip shows the shape's name
+     only).
 
-     st.savedActive is the one it came from. The collection's count line
-     names it ("Flow order: Friday set", collections.js collectionCountText),
-     with ", edited" once the order is no longer what was saved; the panel
-     then offers Update "Friday set". Picking a shape, Place tagged files,
-     Playlist order, Make this the playlist order or Shuffle let go of it
-     (pickShape, pickPlaces, leave). It is remembered with the rest
-     (remember: saved), so a reload comes back to it.
+     ＋ Save this order keeps the order on screen (orderToSave: the playlist
+     order, or a sort or shuffle as shown; a search keeps the files it hides
+     in their place) and the skips now. Clicking a chip loads it into the
+     playlist order, order and skips in one request (writePlaylist), with
+     Undo (the order and skips from right before). It is fitted to the files
+     the collection has now: gone files dropped, new ones at the end. One
+     with no skips of its own leaves the playlist's skips as they are.
 
-     Saved from Playlist order too: ＋ Save this order shows in both orders.
-     In Playlist order it keeps the playlist order as it is now (shape
-     'playlist', lib/flow/saved.js: no shape picked; the chip says "from
-     playlist"), and Playlist order stays on. While a saved order shows, the
-     switch's Flow order is not pressed (the chip is): clicking Flow order
-     then works the picked shape out afresh, as picking the shape does.
-
-     Own skips: a saved order keeps its own skipped files (Skip on tracks,
-     row.skips; null in one saved before skips or never changed: it plays
-     with the playlist's). While it shows, Skips (collection-skips.js) reads
-     and writes its skips instead of the playlist's (syncSkips), so Stage,
-     Next and the count line follow them. Saving one copies the skips in
-     use; the playlist's own skips are not touched. */
+     A chip is lit while the playlist order (and skips, when it has its own)
+     is still what it holds (savedLit); any change lets go of it. The chip
+     menu: Rename, Update with this order (the order on screen and the skips
+     now go into it, with Undo), Delete (with Undo). */
 
   const SAVED_MAX = 30;
   const SHAPE_PLAYLIST = 'playlist';   // lib/flow/saved.js SHAPE_PLAYLIST
   const savedList = () => (st.saved && st.savedCid === st.cid ? st.saved : []);
-  const sameIds = (a, b) => a.length === b.length && a.every((id, i) => id === b[i]);
 
-  /** The saved order Flow order was loaded from, or null. */
-  function savedNow() {
-    if (st.savedActive == null || !st.order) return null;
-    return savedList().find(s => s.id === st.savedActive) || null;
+  /** The playlist order (and its skips, when the saved order has its own) is still this saved order. */
+  function savedLit(s) {
+    const p = playlistNow();
+    if (!s || !p) return false;
+    if (!sameIds(p, reconcile(s.order, p))) return false;
+    if (!Array.isArray(s.skips)) return true;
+    const members = new Set(p);
+    const want = new Set(s.skips.filter(id => members.has(id)));
+    const now = typeof Skips !== 'undefined' ? [...Skips.setFor(st.cid)].filter(id => members.has(id)) : [];
+    return now.length === want.size && now.every(id => want.has(id));
   }
 
-  /** A saved order from Playlist order shows (no shape is picked then). */
-  function fromPlaylistNow() {
-    const s = savedNow();
-    return !!s && s.shape === SHAPE_PLAYLIST;
-  }
+  /** The saved order the playlist order is now, or null. */
+  const savedNow = () => savedList().find(savedLit) || null;
 
-  /** What a save or Update records as the shape: 'playlist' unless a shape is picked. */
-  const shapeToSave = () => (!st.order || fromPlaylistNow() ? SHAPE_PLAYLIST : st.shape);
+  /** What a save or Update records as the shape: the shape picked while the playlist is still exactly it, else 'playlist'. */
+  const shapeToSave = (order) => (shapeLit() && sameIds(order, playlistNow()) ? st.shape : SHAPE_PLAYLIST);
 
   /** The grid's whole result list for this collection, in the order on screen, or null (not this collection's, or not here). */
   async function screenIds(cid) {
@@ -786,66 +690,18 @@ const Flow = (() => {
     return base.map(id => (shownSet.has(id) ? seq[k++] : id));
   }
 
-  /**
-   * The order a save or Update keeps: the order on screen (onScreenOrder),
-   * over Flow order's working order or the playlist order as it is now.
-   */
+  /** The order a save or Update keeps: the order on screen (onScreenOrder) over the playlist order as it is now. */
   async function orderToSave(cid) {
-    const base = st.order ? workingOrder().slice()
-      : ((await freshMembers(cid)) || (st.data ? st.data.playlistOrder.slice() : []));
-    // Flow order not handed to the grid yet: the grid still shows the playlist, the working order is what shows next.
-    const flowShown = !st.order || (typeof Library !== 'undefined' && Library.spec && Library.spec.rankedIds);
-    return onScreenOrder(base, flowShown ? await screenIds(cid) : null);
+    const base = (await freshMembers(cid)) || (st.data ? st.data.playlistOrder.slice() : []);
+    return onScreenOrder(base, await screenIds(cid));
   }
 
-  /** The skips in use now (the saved order's own while one shows), for a new saved order. */
+  /** The playlist's skips now, for a save or Update. */
   const skipsToSave = (cid) => (typeof Skips !== 'undefined' ? { skips: [...Skips.setFor(cid)] } : {});
 
-  /**
-   * Point Skips at the saved order showing (its own skips), or back at the
-   * playlist's. Called on every change of what shows (remember, reset,
-   * loadSaved) and after its skips change.
-   */
-  function syncSkips() {
-    if (typeof Skips === 'undefined' || typeof Skips.useVariant !== 'function') return;
-    const s = st.cid != null ? savedNow() : null;
-    if (!s) { Skips.useVariant(null); return; }
-    const cid = st.cid;
-    Skips.useVariant({
-      cid, sid: s.id, name: s.name,
-      skips: Array.isArray(s.skips) ? s.skips : null,
-      length: s.length || null,
-      save: async (skips) => {
-        const row = await api(`/api/flow/saved/${s.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ skips }) });
-        if (st.savedCid === cid) {
-          st.saved = savedList().map(x => (x.id === row.id ? row : x));
-          syncSkips();
-          paint();
-        }
-        return row;
-      },
-    });
-  }
-
-  /** Moved since it was loaded (or saved): the working order is not the saved one fitted to today's files. */
-  function savedEdited() {
-    const s = savedNow();
-    if (!s || !st.edited) return false;
-    return !sameIds(st.edited, reconcile(s.order, st.edited));
-  }
-
-  /** What the count line calls the order: the saved order's name, else the shape. */
-  function orderName() {
-    const s = savedNow();
-    if (s) return `${s.name}${savedEdited() ? ', edited' : ''}`;
-    return `${FlowOrder.shapeLabel(st.shape)}${st.edited ? ', edited' : ''}`;
-  }
-
-  const shapeText = (s) => (s.shape === SHAPE_PLAYLIST ? 'from playlist' : `${FlowOrder.shapeLabel(s.shape)}${s.shape === 'waves' ? ` ${s.waves}` : ''}`);
-  const toast = (msg) => { if (typeof showToast === 'function') showToast(msg); };
+  /** What the chip says under the name: the shape it was made with, or nothing. */
+  const shapeText = (s) => (s.shape === SHAPE_PLAYLIST ? '' : shapeName(s.shape, s.waves));
   const nameTaken = (name, exceptId = null) => savedList().some(s => s.id !== exceptId && s.name.toLowerCase() === name.toLowerCase());
-  // The collection's count line names the saved order (renderReorderNote draws it again).
-  const repaintCount = () => { if (typeof renderReorderNote === 'function') renderReorderNote(); };
 
   /** The collection's saved orders, from the server. */
   async function loadSaved(cid) {
@@ -854,46 +710,47 @@ const Flow = (() => {
       if (cid !== st.cid) return;
       st.saved = Array.isArray(list) ? list : [];
       st.savedCid = cid;
-      // One deleted elsewhere (or a Duplicate's copy of the remembered state): the order stays, the name goes.
-      if (st.savedActive != null && !st.saved.some(s => s.id === st.savedActive)) { st.savedActive = null; remember(); }
     } catch (err) {
       if (cid === st.cid) toastErr(err, 'loading the saved orders');
       return;
     }
-    syncSkips();
     paint();
-    repaintCount();
-  }
-
-  /** Switch to a saved order: its shape, peaks, Place tagged files and its order. */
-  async function useSaved(id) {
-    const s = savedList().find(x => x.id === id);
-    if (!s || !isMine()) return;
-    const dropped = unsavedEdits(), prev = picks();
-    session++;
-    // One from Playlist order has no shape: the picked one stays (Flow order works it out on a click).
-    if (s.shape !== SHAPE_PLAYLIST) {
-      st.shape = s.shape;
-      st.waves = FlowOrder.wavesCount(s.waves);
-      st.places = !!s.places;
-    }
-    st.order = true;
-    st.savedActive = s.id;
-    st.edited = s.order.length ? s.order.slice() : null;
-    st.savedInput = null;
-    remember();
-    paint();
-    await refetch(true);
-    st.appliedOrder = null;
-    await applyOrder();
-    paint();
-    repaintCount();
-    offerUndoEdits(dropped, prev, `Switched to “${esc(s.name)}”`);
   }
 
   /**
-   * Keep the order on screen under a name: Flow order's working order, or in
-   * Playlist order the playlist order as it is now (Playlist order stays on).
+   * Load a saved order into the playlist order: its order (fitted to the
+   * files there are now) and its skips, in one request, with Undo.
+   * @returns {Promise<boolean>} whether the playlist changed
+   */
+  function useSaved(id) {
+    return inTurn(async () => {
+      const s = savedList().find(x => x.id === id);
+      if (!s || !isMine()) return false;
+      const cid = st.cid;
+      st.savedInput = null;
+      if (savedLit(s)) { paint(); return false; }
+      const before = await freshMembers(cid);
+      const skips = Array.isArray(s.skips) ? s.skips : undefined;
+      let data;
+      try { data = await writePlaylist(cid, s.order.length ? s.order : (before || []), skips); } catch (err) {
+        toastErr(err, 'loading the saved order');
+        paint();
+        return false;
+      }
+      await showPlaylist(cid);
+      paint();
+      // Undo: the order from before, and the skips from before when they were changed (the server's list).
+      const wasSkips = skips ? (Array.isArray(data.was_skipped_ids) ? data.was_skipped_ids : []) : undefined;
+      const back = before || (st.data ? st.data.playlistOrder.slice() : null);
+      const msg = `Loaded “${esc(s.name)}” into the playlist order`;
+      if (back && typeof showUndoToast === 'function') showUndoToast(msg, undoWrite(cid, back, wasSkips));
+      else toast(`Loaded “${s.name}” into the playlist order`);
+      return true;
+    });
+  }
+
+  /**
+   * Keep the order on screen and the skips now under a name.
    * @returns {Promise<boolean>} saved
    */
   async function saveNamed(raw) {
@@ -903,9 +760,9 @@ const Flow = (() => {
     if (nameTaken(name)) { toast(`There is already a saved order called “${name}”. Pick another name.`); return false; }
     if (savedList().length >= SAVED_MAX) { toast(`A collection keeps up to ${SAVED_MAX} saved orders. Delete one to save this.`); return false; }
     const cid = st.cid;
-    const shape = shapeToSave();
     const order = await orderToSave(cid);
     if (cid !== st.cid) return false;
+    const shape = shapeToSave(order);
     let row;
     try {
       row = await post(`/api/flow/collections/${cid}/saved`, { name, shape, waves: st.waves, places: shape === SHAPE_PLAYLIST ? false : placesOn(), order, ...skipsToSave(cid) });
@@ -919,15 +776,7 @@ const Flow = (() => {
     st.saved = [...savedList(), row];
     st.savedCid = cid;
     st.savedInput = null;
-    if (st.order) {
-      // From now on this order is the saved one: what Flow works out later (a
-      // measurement landing) does not move it.
-      st.savedActive = row.id;
-      st.edited = order;
-      remember();
-    }
     paint();
-    repaintCount();
     toast(`Saved “${name}”`);
     return true;
   }
@@ -949,43 +798,30 @@ const Flow = (() => {
     st.saved = savedList().map(x => (x.id === id ? row : x));
     st.savedInput = null;
     paint();
-    repaintCount();
     return true;
   }
 
-  /**
-   * Put the order on screen into a saved order, with Undo: Flow order's
-   * working order (and carry on from it), or in Playlist order the playlist
-   * order as it is now (Playlist order stays on). Its own skips stay as they are.
-   */
+  /** Put the order on screen and the skips now into a saved order, with Undo (it is put back as it was). */
   async function updateSaved(id) {
     const s = savedList().find(x => x.id === id);
     if (!s || !st.data || !isMine()) return;
     const cid = st.cid;
-    const inOrder = st.order;
-    const shape = shapeToSave();
     const order = await orderToSave(cid);
     if (cid !== st.cid) return;
-    const was = { shape: s.shape, waves: s.waves, places: s.places, order: s.order };
+    const shape = shapeToSave(order);
+    const was = { shape: s.shape, waves: s.waves, places: s.places, order: s.order, skips: Array.isArray(s.skips) ? s.skips : null };
     const put = (body) => api(`/api/flow/saved/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     let row;
-    try { row = await put({ shape, waves: st.waves, places: shape === SHAPE_PLAYLIST ? false : placesOn(), order }); } catch (err) { toastErr(err, 'updating the saved order'); return; }
+    try { row = await put({ shape, waves: st.waves, places: shape === SHAPE_PLAYLIST ? false : placesOn(), order, ...skipsToSave(cid) }); } catch (err) { toastErr(err, 'updating the saved order'); return; }
     if (cid !== st.cid) return;
     st.saved = savedList().map(x => (x.id === id ? row : x));
-    if (inOrder && st.order) {
-      st.savedActive = id;
-      st.edited = order;
-    }
-    remember();
     paint();
-    repaintCount();
     const undo = async () => {
       let back;
       try { back = await put(was); } catch (err) { toastErr(err, 'putting the saved order back'); return; }
       if (cid !== st.cid || st.savedCid !== cid) return;
       st.saved = savedList().map(x => (x.id === id ? back : x));
       paint();
-      repaintCount();
     };
     // selection.js showUndoToast takes HTML: the name is escaped.
     if (typeof showUndoToast === 'function') showUndoToast(`Updated “${esc(s.name)}” with this order`, undo);
@@ -1001,12 +837,9 @@ const Flow = (() => {
       if (err.status !== 404) { toastErr(err, 'deleting the saved order'); return; }
     }
     if (cid !== st.cid) return;
-    const wasActive = st.savedActive === id;
     st.saved = savedList().filter(x => x.id !== id);
-    if (wasActive) { st.savedActive = null; remember(); }
     if (st.savedInput && st.savedInput.id === id) st.savedInput = null;
     paint();
-    repaintCount();
     const undo = async () => {
       let row;
       try {
@@ -1018,10 +851,7 @@ const Flow = (() => {
       }
       if (cid !== st.cid || st.savedCid !== cid) return;
       st.saved = [...savedList(), row].sort((a, b) => (a.createdAt - b.createdAt) || (a.id - b.id));
-      // Still showing the order it was loaded from (nothing else picked since): it is that one again.
-      if (wasActive && st.order && st.savedActive == null && st.edited) { st.savedActive = row.id; remember(); }
       paint();
-      repaintCount();
     };
     if (typeof showUndoToast === 'function') showUndoToast(`Deleted the saved order “${esc(s.name)}”`, undo);
     else toast(`Deleted “${s.name}”`);
@@ -1067,7 +897,10 @@ const Flow = (() => {
     inp.busy = true;
     try {
       const ok = inp.mode === 'rename' ? await renameSaved(inp.id, inp.value) : await saveNamed(inp.value);
-      if (ok) panel()?.querySelector(`[data-flow-saved="${inp.mode === 'rename' ? inp.id : st.savedActive}"]`)?.focus({ preventScroll: true });
+      if (ok) {
+        const sel = inp.mode === 'rename' ? `[data-flow-saved="${inp.id}"]` : '[data-flow-saved-new]';
+        panel()?.querySelector(sel)?.focus({ preventScroll: true });
+      }
     } finally { inp.busy = false; }
   }
 
@@ -1077,16 +910,15 @@ const Flow = (() => {
     return `<input type="text" class="flow-chip-input" data-flow-saved-input maxlength="80" placeholder="Name this order" aria-label="${label}" value="${esc(inp.value || '')}">`;
   }
 
-  const addChipHtml = () => `<button type="button" class="flow-chip flow-chip-add" data-flow-saved-new title="${st.order ? 'Keep this Flow order under a name, to come back to it' : 'Keep the playlist order as it is now under a name, to come back to it'}">＋ Save this order</button>`;
+  const addChipHtml = () => '<button type="button" class="flow-chip flow-chip-add" data-flow-saved-new title="Keep the playlist order as it is now (and its skips) under a name, to bring it back later">＋ Save this order</button>';
 
   function chipHtml(s) {
-    const on = st.order && s.id === st.savedActive;
-    const edited = on && savedEdited();
-    const title = `${s.name}: ${shapeText(s)}${s.places ? ', tagged files placed' : ''}${edited ? '. Edited since it was saved: ⋯ › Update keeps the moves' : ''}`;
-    // Edited: a dot on the chip (Update is in its ⋯ menu; nothing under the chart).
-    return `<span class="flow-chip${on ? ' on' : ''}${edited ? ' is-edited' : ''}" data-flow-chip="${s.id}">`
+    const on = savedLit(s);
+    const sub = shapeText(s);
+    const title = `${s.name}${sub ? `: ${sub}${s.places ? ', tagged files placed' : ''}` : ''}. ${on ? 'This is the playlist order now.' : 'Click to make this the playlist order (you can Undo).'}`;
+    return `<span class="flow-chip${on ? ' on' : ''}" data-flow-chip="${s.id}">`
       + `<button type="button" class="flow-chip-main" data-flow-saved="${s.id}" aria-pressed="${String(on)}" title="${esc(title)}">`
-      + `${edited ? '<span class="flow-chip-dot" aria-label="edited"></span>' : ''}<span class="flow-chip-name">${esc(s.name)}</span><span class="flow-chip-shape">${esc(shapeText(s))}</span></button>`
+      + `<span class="flow-chip-name">${esc(s.name)}</span>${sub ? `<span class="flow-chip-shape">${esc(sub)}</span>` : ''}</button>`
       + `<button type="button" class="flow-chip-more" data-flow-saved-menu="${s.id}" aria-label="${esc(`More for ${s.name}`)}" aria-haspopup="menu" title="Rename, update or delete">⋯</button></span>`;
   }
 
@@ -1107,11 +939,10 @@ const Flow = (() => {
      On the open collection's tiles and table rows, in every order: a
      "Playing" mark and a thin progress line on the file playing (the same
      clock as the playhead), and "Next" on the file the list plays next
-     (Up next's own tag already marks its files). While Flow order shows,
-     a file whose place changed shows its position and the old one faint
-     ("3 · was 7"). Painted onto whatever the grid drew (a watch on the
-     grid, and a check every PH_TICK_MS), so cards.js and table-view.js
-     need nothing; only the progress line's width changes between paints. */
+     (Up next's own tag already marks its files). Painted onto whatever the
+     grid drew (a watch on the grid, and a check every PH_TICK_MS), so
+     cards.js and table-view.js need nothing; only the progress line's width
+     changes between paints. */
 
   function nextFrom(playing) {
     if (typeof Library === 'undefined') return null;
@@ -1135,39 +966,24 @@ const Flow = (() => {
     const src = inColl ? playSource() : null;
     const playing = src ? src.id : null;
     const nx = inColl ? nextFrom(playing) : null;
-    const flowOn = !!(st.order && isMine() && st.data && st.appliedOrder);
-    return { src, playing, next: nx && !nx.upNext ? nx.id : null, flowOn };
+    return { src, playing, next: nx && !nx.upNext ? nx.id : null };
   }
 
   /* The marks as they are now, looked at once per task (a table draws many
-     rows in one go and asks for each: flowMarksFor). The position maps are
-     kept while the orders are the same arrays (an order is replaced, never
-     changed in place). */
+     rows in one go and asks for each: flowMarksFor). */
   let marksMemo = null;
-  let posMemo = { w: null, p: null, pos: null, was: null };
   function marksNow() {
     if (marksMemo) return marksMemo;
-    const s = marksState();
-    let pos = null, was = null;
-    if (s.flowOn) {
-      const w = shown(workingOrder()), p = shown(st.data.playlistOrder);
-      if (posMemo.w !== w || posMemo.p !== p) {
-        posMemo = { w, p, pos: new Map(w.map((id, i) => [id, i])), was: new Map(p.map((id, i) => [id, i])) };
-      }
-      pos = posMemo.pos;
-      was = posMemo.was;
-    }
-    marksMemo = { s, pos, was };
+    marksMemo = { s: marksState() };
     Promise.resolve().then(() => { marksMemo = null; });
     return marksMemo;
   }
 
-  /** The marks a file shows: { pos: '3 · was 7' or null, playing, next }, or null for none. */
+  /** The marks a file shows: { pos: null, playing, next }, or null for none (pos: table-view.js reads it). */
   function marksFor(id) {
-    const { s, pos, was } = marksNow();
-    const moved = pos && pos.has(id) && was.has(id) && pos.get(id) !== was.get(id);
-    const out = { pos: moved ? `${pos.get(id) + 1} · was ${was.get(id) + 1}` : null, playing: id === s.playing, next: id !== s.playing && id === s.next };
-    return out.pos || out.playing || out.next ? out : null;
+    const { s } = marksNow();
+    const out = { pos: null, playing: id === s.playing, next: id !== s.playing && id === s.next };
+    return out.playing || out.next ? out : null;
   }
   const marksSig = (m) => (m ? `${m.pos || ''}|${m.playing ? 'p' : ''}${m.next ? 'n' : ''}` : '');
 
@@ -1175,20 +991,17 @@ const Flow = (() => {
     const grid = document.getElementById('resultsGrid');
     if (!grid) return;
     marksMemo = null;
-    const { s, pos, was } = marksNow();
-    marksKey = `${s.playing}|${s.next}|${s.flowOn ? workingOrder().length + ':' + (st.edited ? 'e' : '') + st.shape : ''}`;
+    const { s } = marksNow();
+    marksKey = `${s.playing}|${s.next}`;
     // Nothing to mark and nothing marked: the grid's own redraws (a scroll
     // through a long list draws rows) cost no walk over the tiles.
-    const any = s.playing != null || s.next != null || !!pos;
+    const any = s.playing != null || s.next != null;
     if (!any && !marksOn) return;
     marksOn = any;
     const refit = [];
     for (const tile of grid.querySelectorAll('.media-tile[data-id]')) {
       const id = Number(tile.dataset.id);
       let html = '';
-      if (pos && pos.has(id) && was.has(id) && pos.get(id) !== was.get(id)) {
-        html += `<span class="flow-mk-pos" title="Position ${pos.get(id) + 1} in Flow order, ${was.get(id) + 1} in the playlist order">${pos.get(id) + 1}<s> · was ${was.get(id) + 1}</s></span>`;
-      }
       if (id === s.playing) html += '<span class="flow-mk-badge flow-mk-now">Playing</span><span class="flow-mk-prog"><i></i></span>';
       else if (id === s.next) html += '<span class="flow-mk-badge flow-mk-next">Next</span>';
       const host = tile.querySelector('.tile-thumb') || tile.querySelector('.tv-c-title');
@@ -1221,29 +1034,11 @@ const Flow = (() => {
     if (bar.style.width !== w) bar.style.width = w;            // written only when it moved
   }
 
-  /** Every PH_TICK_MS: repaint the marks when what plays (or the order) changed, else move the progress line. */
-  /*
-   * The collection's files changed while Flow order shows (added, removed,
-   * the picker, Import...: every change puts a new list in collectionMembers):
-   * keep the edited order to them and work Flow order out again, panel open
-   * or not, so a new file shows and Save never sends a stale list.
-   */
-  function watchMembers() {
-    if (!st.order || !isMine() || typeof collectionMembers === 'undefined') return;
-    const m = collectionMembers.get(st.cid);
-    if (!m || m === st.membersRef) return;
-    const first = st.membersRef == null;
-    st.membersRef = m;
-    if (first) return;
-    if (st.edited) { st.edited = reconcile(st.edited, m); remember(); }
-    refetch(true);
-  }
-
+  /** Every PH_TICK_MS: repaint the marks when what plays changed, else move the progress line. */
   function marksTick() {
-    watchMembers();
     if (document.hidden) return;
     const s = marksState();
-    const key = `${s.playing}|${s.next}|${s.flowOn ? workingOrder().length + ':' + (st.edited ? 'e' : '') + st.shape : ''}`;
+    const key = `${s.playing}|${s.next}`;
     if (key !== marksKey) paintMarks();
     else paintProgress(s);
   }
@@ -1350,7 +1145,7 @@ const Flow = (() => {
        - hand-overs on the line: a short curve from the end of one file to the
          start of the next (smooth faint green, noticeable amber dashed, jump
          red with a "!" badge);
-       - Flow order with a shape: the target as a dashed curve;
+       - the playlist order still in the shape picked: its target as a dashed curve;
        - lane rows under the plot (Tempo, and tag lanes from FlowLaneSource):
          colour bars, or with wide columns tag rows in text and a preview
          card each ("Under the chart");
@@ -1425,14 +1220,14 @@ const Flow = (() => {
   function chartOrder() {
     const d = st.data;
     if (d && dragOrder()) return dragOrder();
-    return d ? shown(st.order ? workingOrder() : d.playlistOrder) : [];
+    return d ? shown(d.playlistOrder) : [];
   }
 
-  /** The dashed guide: the picked shape's targets in Flow order (edited or not), else null. */
+  /** The dashed guide: the picked shape's targets while the playlist order is still that shape, else null. */
   function guide() {
-    if (!st.order || !st.data) return null;
+    if (!st.data || !guideFits()) return null;
     const t = FlowOrder.guideTargets(st.shape, st.data, st.waves);
-    const w = workingOrder(), s = shown(w);
+    const w = st.data.order, s = shown(w);
     if (!t || s === w) return t;
     // The grid hides some files: each shown column keeps its position's target.
     const at = new Map(w.map((id, i) => [id, i]));
@@ -1441,10 +1236,8 @@ const Flow = (() => {
   }
 
   function chartHandovers(order) {
-    const d = st.data;
-    // A column being dragged: the hand-overs of the order it would make, graded live.
-    if (dragOrder()) return FlowOrder.summary(d.features, order).handovers;
-    return st.order ? orderSummary().handovers : FlowOrder.summary(d.features, order).handovers;
+    // The order drawn (a column being dragged: the order it would make), graded live.
+    return FlowOrder.summary(st.data.features, order).handovers;
   }
 
   /* ── Lane rows ───────────────────────────────────────────────────────
@@ -1687,7 +1480,7 @@ const Flow = (() => {
 
     // The plot: nothing in it is drawn outside it (lane rows and labels sit below and left).
     svg += '<g clip-path="url(#flowClip)">';
-    // The target (Flow order with a shape).
+    // The target (the playlist order still in the shape picked).
     if (targets && targets.length) {
       const every = Math.max(1, Math.ceil(targets.length / Math.max(2, (W - L - R) / 4)));
       const pts = [];
@@ -1785,7 +1578,7 @@ const Flow = (() => {
     // The playhead (moved by phPlace only; hidden until something of this order plays).
     svg += `<g class="flow-playhead" visibility="hidden" pointer-events="none"><line class="flow-ph-line" x1="0" x2="0" y1="0" y2="${H}"/><circle class="flow-ph-glow" r="8"/><circle class="flow-ph-dot" r="4"/></g>`;
 
-    const label = `Energy across the ${st.order ? 'Flow' : 'playlist'} order, ${pct(lo)} to ${pct(hi)}`;
+    const label = `Energy across the playlist order, ${pct(lo)} to ${pct(hi)}`;
     wrap.querySelector('.flow-chart-svg').innerHTML = `<svg class="flow-chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${svg}</svg>`;
     st.geom = { W, H, L, R, TOP, PH, step, n, order, dense, lo, hi, hand, gap, y, cards: rows.cardsOn };
     tagRows(wrap, rows.rich ? lanes : null, order, { L, step, W });
@@ -1870,7 +1663,7 @@ const Flow = (() => {
     const node = document.querySelector('#flowChartWrap .flow-playhead');
     if (!g || !node || !ph.src) { phHide(); return; }
     // Where the file is in the shown order (looked up again only when the chart or the file changes).
-    const key = `${ph.src.id}|${g.order.length}|${g.W}|${g.lo}|${g.hi}|${st.order}`;
+    const key = `${ph.src.id}|${g.order.length}|${g.W}|${g.lo}|${g.hi}`;
     if (ph.key !== key || ph.geom !== g) {
       ph.key = key; ph.geom = g;
       ph.index = g.order.indexOf(ph.src.id);
@@ -2073,7 +1866,7 @@ const Flow = (() => {
 
   /* ── Dragging a column to move its file ───────────────────────────────
      Wherever a drag in the grid could move files (reorderReady: playlist
-     order, or an unsaved Flow order), a file's column in the chart (or its
+     order, no search ranking it), a file's column in the chart (or its
      name) can be dragged too. A press only becomes a drag once the pointer
      has moved FlowChartMath.DRAG_THRESHOLD px, so a click still shows the
      file below. While dragging, the chart is drawn as it would be with the
@@ -2081,8 +1874,8 @@ const Flow = (() => {
      pointer, a line marks where it lands and a label says "Move to 4 of 12";
      in a big collection (one thin line) only the line and the label. Escape,
      pointercancel or losing the pointer cancels. The drop is the grid's own
-     move (collection-reorder.js reorderMove: saved with Undo in playlist
-     order, part of the try in Flow order); the chart keeps the new order
+     move (collection-reorder.js reorderMove: saved to the playlist order
+     with Undo); the chart keeps the new order
      drawn until the move is in. Nothing scrolls on the drop: the view stays
      where it was and only the chart and the list's contents change. The pointer is captured on the panel, which every repaint
      keeps (the chart's own host is moved during one). */
@@ -2094,9 +1887,7 @@ const Flow = (() => {
   function dragAllowed() {
     if (!st.open || !isMine() || !st.geom || !st.data) return false;
     if (typeof reorderReady !== 'function' || !reorderReady()) return false;
-    if (typeof _reorderBusy !== 'undefined' && _reorderBusy) return false;
-    const flowShown = !!(st.order && st.appliedOrder);
-    return flowShown === !!st.order;
+    return !(typeof _reorderBusy !== 'undefined' && _reorderBusy);
   }
 
   /** The order the chart draws while a drag shows (or holds) its preview, else null. */
@@ -2242,11 +2033,11 @@ const Flow = (() => {
   function summaryText() {
     const d = st.data;
     if (!d) return '';
-    const jumps = st.order ? orderSummary().jumps : playlistJumps();
+    const jumps = playlistJumps();
     // Files the search or filters hide are not in the grid, so not on the chart either.
     // With neither set, the ones left out are what the grid never lists (a
     // document, a trashed file): no note, nothing is hidden by the user.
-    const all = st.order ? workingOrder() : d.playlistOrder;
+    const all = d.playlistOrder;
     const grid = gridSet();
     const hidden = grid ? all.filter(id => st.byId.has(id) && !grid.has(id)).length : 0;
     const spec = typeof Library !== 'undefined' ? Library.spec : null;
@@ -2286,12 +2077,17 @@ const Flow = (() => {
     const act = a?.matches?.('#flowPanel [data-flow-act]') ? `[data-flow-act="${a.dataset.flowAct}"]`
       : a?.matches?.('#flowPanel [data-flow-pick]') ? `[data-flow-pick="${a.dataset.flowPick}"]`
       : a?.matches?.('#flowPanel [data-flow-saved]') ? `[data-flow-saved="${a.dataset.flowSaved}"]`
-      : a?.matches?.('#flowPanel [data-flow-saved-menu]') ? `[data-flow-saved-menu="${a.dataset.flowSavedMenu}"]` : null;
+      : a?.matches?.('#flowPanel [data-flow-saved-menu]') ? `[data-flow-saved-menu="${a.dataset.flowSavedMenu}"]`
+      : a?.matches?.('#flowPanel [data-flow-shape]') ? `[data-flow-shape="${a.dataset.flowShape}"]`
+      : a?.matches?.('#flowPanel [data-flow-waves]') ? `[data-flow-waves="${a.dataset.flowWaves}"]`
+      : a?.matches?.('#flowPanel [data-flow-places]') ? `[data-flow-places="${a.dataset.flowPlaces}"]` : null;
     // The name box keeps what is typed, the focus and the caret across repaints.
     const naming = a?.matches?.('#flowPanel [data-flow-saved-input]') ? { s: a.selectionStart, e: a.selectionEnd } : null;
     if (naming && st.savedInput) st.savedInput.value = a.value;
     const keepFocus = act || ['[data-flow-saved-new]', ...KEEP_FOCUS].find(sel => a?.matches?.(`#flowPanel ${sel}`));
-    const shapes = FlowOrder.SHAPES.map(s => `<button type="button" data-flow-shape="${s.key}" aria-pressed="${String(st.order && !fromPlaylistNow() && st.shape === s.key)}">${esc(s.label)}</button>`).join('');
+    // Each shape rearranges the playlist order; the one it is still in is lit (shapeLit).
+    const lit = shapeLit();
+    const shapes = FlowOrder.SHAPES.map(s => `<button type="button" data-flow-shape="${s.key}" aria-pressed="${String(lit && st.shape === s.key)}" title="${esc(lit && st.shape === s.key ? `The playlist order is ${s.label} now` : `Rearrange the playlist order as ${s.label} (you can Undo)`)}">${esc(s.label)}</button>`).join('');
     // The chart's host is kept across repaints (polls repaint often): an empty
     // host would shrink the panel for a moment, and a page scrollbar going
     // with it would make the chart measure too wide. The strip is drawn with
@@ -2309,11 +2105,6 @@ const Flow = (() => {
       <div class="flow-row">
         <span class="flow-title">Flow</span>
         ${progressHtml()}
-        <span class="flow-seg" role="group" aria-label="Order">
-          <button type="button" data-flow-order="playlist" aria-pressed="${String(!st.order)}">Playlist order</button>
-          <button type="button" data-flow-order="flow" aria-pressed="${String(st.order && !savedNow())}"${savedNow() ? ' title="Work out Flow order from the shape again"' : ''}>Flow order</button>
-        </span>
-        ${st.order && st.data ? `<button type="button" class="flow-btn flow-btn-sm flow-save-order" data-flow-save-order title="Keep this order as the collection's playlist order">Make this the playlist order</button>` : ''}
         <span class="flow-sp"></span>
         ${placesHtml()}
         <span class="flow-opt"><span class="flow-seg-label">Shape</span>
@@ -2412,9 +2203,6 @@ const Flow = (() => {
       if (e.target.closest('[data-flow-saved-input]')) return;
       const wv = e.target.closest('[data-flow-waves]');
       if (wv) { pickWaves(Number(wv.dataset.flowWaves)); return; }
-      const o = e.target.closest('[data-flow-order]');
-      if (o) { if (o.dataset.flowOrder === 'flow') useFlowOrder(); else usePlaylistOrder(); return; }
-      if (e.target.closest('[data-flow-save-order]')) { saveOrder(); return; }
       const q = e.target.closest('[data-flow-q]');
       if (q) { queueAct(q.dataset.flowQ); return; }
       if (e.target.closest('[data-flow-why]')) { st.showWhy = !st.showWhy; paint(); return; }
@@ -2462,7 +2250,7 @@ const Flow = (() => {
       if (!inp || inp.busy || box.value.trim()) return;
       st.savedInput = null;
       const s = inp.mode === 'rename' ? savedList().find(x => x.id === inp.id) : null;
-      const html = s ? chipHtml(s) : (st.order && st.data ? addChipHtml() : '');
+      const html = s ? chipHtml(s) : (st.data ? addChipHtml() : '');
       box.outerHTML = html;
     });
     el.addEventListener('contextmenu', (e) => {
@@ -3288,16 +3076,14 @@ const Flow = (() => {
 
   /**
    * Ignore calm intros and credits changed (nothing is measured): what Flow
-   * holds is out of date, open or not. The open panel, or a Flow order the
-   * grid shows, asks again at once (the order is applied anew); otherwise
-   * the answer is dropped, so Flow shuffle and the next open ask afresh. A
-   * Flow order kept for a collection that is not open now is forgotten here
-   * and restored (and asked for) when that collection opens again.
+   * holds is out of date, open or not. The open panel asks again at once;
+   * otherwise the answer is dropped, so Flow shuffle and the next open ask
+   * afresh. The playlist order is not touched.
    */
   function settingsChanged() {
     if (st.cid == null) return null;
     if (!isMine()) { reset(); return null; }
-    if (st.open || st.order) return refetch(true);
+    if (st.open) return refetch(true);
     st.data = null;
     st.byId = new Map();
     st.lastCount = -1;
@@ -3307,12 +3093,12 @@ const Flow = (() => {
   /**
    * The collection's playlist order or its files changed on the server (a
    * drag or Alt+arrows in playlist order, Undo, files added or taken out:
-   * collection-reorder.js, collections.js, importer.js). The open panel's
-   * chart, jumps and counts, and a Flow order the grid shows, follow at
-   * once: a pure reorder is drawn straight from the page's copy, then the
-   * server is asked (as a poll does: the chart is kept, no flicker). Panel
-   * closed and no Flow order: the held answer is dropped (Flow shuffle and
-   * the next open ask afresh), nothing is fetched.
+   * collection-reorder.js, collections.js, importer.js, and the shapes and
+   * saved orders here). The open panel's chart, jumps, counts, lit shape and
+   * chips follow at once: a pure reorder is drawn straight from the page's
+   * copy, then the server is asked (as a poll does: the chart is kept, no
+   * flicker). Panel closed: the held answer is dropped (Flow shuffle and the
+   * next open ask afresh), nothing is fetched.
    */
   /** Files left or came: the saved orders are read again (their own skips are kept to the files there are). */
   function savedStale(cid) {
@@ -3323,7 +3109,7 @@ const Flow = (() => {
     if (st.cid == null || cid !== st.cid) return null;
     if (!isMine()) { reset(); return null; }
     savedStale(cid);
-    if (!st.open && !st.order) {
+    if (!st.open) {
       st.data = null;
       st.byId = new Map();
       st.lastCount = -1;
@@ -3335,16 +3121,14 @@ const Flow = (() => {
       const had = new Set(d.playlistOrder);
       if (m.every(id => had.has(id)) && !m.every((id, i) => id === d.playlistOrder[i])) {
         st.data = { ...d, playlistOrder: m.slice(), playlistJumps: FlowOrder.summary(d.features, m).jumps };
-        paint();
-        if (typeof renderReorderNote === 'function') renderReorderNote();
       }
     }
+    // Files came or went: the chart waits for the answer below; the shape and chips light from the page's copy now.
+    paint();
     return refetch(true);
   }
 
   async function shuffleCollection(cid) {
-    // Any shuffle (Flow shuffle or not) leaves Flow order, and forgets it.
-    if (st.order && st.cid === cid) { leave(); paint(); }
     let on = false;
     try { on = !!(await api('/api/stage/settings')).flowShuffle; } catch { return false; }
     if (!on) return false;
@@ -3396,11 +3180,13 @@ const Flow = (() => {
     gridChanged();
     if (st.cid != null && st.cid !== activeId()) reset();
     else renderHeaderButton();
-    // A collection that was showing Flow order when it was left (or the page reloaded): show it again.
-    const cid = activeId();
-    if (cid != null && st.cid == null && recalled(cid)) restore(cid);
     scheduleMarks();
   });
+  // The skips changed: a saved order's chip lights or lets go (savedLit).
+  window.addEventListener('vault:skips-changed', (e) => {
+    if (st.open && isMine() && e && e.detail && e.detail.cid === st.cid && savedList().length) schedulePaint();
+  });
+  forgetOldOrders();
   document.addEventListener('DOMContentLoaded', wire);
   if (document.readyState !== 'loading') wire();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startMarks);
@@ -3416,8 +3202,10 @@ const Flow = (() => {
   else setTimeout(watchTags, 0);
 
   return {
-    toggle, close, pickShape, pickWaves, pickPlaces, useFlowOrder, usePlaylistOrder, saveOrder, refetch,
-    tileHtml, queryRanked, shuffleCollection, stageCurrent,
+    toggle, close, pickShape, pickWaves, pickPlaces, refetch,
+    tileHtml, shuffleCollection, stageCurrent,
+    /** The shape picked, and whether the playlist order is still exactly it (its button lit). */
+    shape: () => ({ shape: st.shape, waves: st.waves, places: placesOn(), lit: shapeLit() }),
     isOpen: () => st.open && isMine(),
     // The chart (tests): clicks, picks, the strip, Fit / Zoom.
     _view: {
@@ -3430,15 +3218,10 @@ const Flow = (() => {
       state: () => ({ zoom: st.zoom, sel: st.sel, selHand: st.selHand, follow: st.follow, hot: st.hot }),
       order: () => chartOrder().slice(), guide, summary: summaryText,
     },
-    orderOn: () => st.order && isMine() && !!st.appliedOrder,
-    countText: () => (st.order && isMine() && st.appliedOrder ? `Flow order: ${savedNow() ? orderName() : orderName().toLowerCase()}` : null),
-    leaveOrder: () => { if (st.order) { leave(); paint(); } },
-    workingOrder: () => (st.order && isMine() ? workingOrder().slice() : null),
-    moveInOrder,
     // Saved orders (the chips; tests drive them here as the clicks do).
     saved: {
       load: loadSaved, use: useSaved, save: saveNamed, rename: renameSaved, update: updateSaved, remove: deleteSaved,
-      list: () => savedList().slice(), active: () => (savedNow() ? savedNow().id : null), edited: savedEdited, name: orderName, html: savedHtml,
+      list: () => savedList().slice(), active: () => (savedNow() ? savedNow().id : null), html: savedHtml,
     },
     settingsChanged, membersChanged, savedStale,
     marksFor, marksKey: (id) => marksSig(marksFor(id)),
@@ -3459,13 +3242,7 @@ function flowButtonHtml(c) {
 }
 function flowButtonTitle(open) { return open ? 'Hide the Flow panel' : 'Show the Flow panel'; }
 function flowTileHtml(media) { return Flow.tileHtml(media); }
-function flowQueryRanked() { return Flow.queryRanked(); }
-function flowOrderOn() { return Flow.orderOn(); }
-function flowLeaveOrder() { Flow.leaveOrder(); }
-function flowCountText() { return Flow.countText(); }
 function flowShuffleCollection(id) { return Flow.shuffleCollection(id); }
-function flowWorkingOrder() { return Flow.workingOrder(); }
-function flowMoveInOrder(ids, before) { return Flow.moveInOrder(ids, before); }
 function flowStageCurrent(row) { Flow.stageCurrent(row); }
 function flowSettingsChanged() { return Flow.settingsChanged(); }
 function flowMembersChanged(cid) { return Flow.membersChanged(cid); }

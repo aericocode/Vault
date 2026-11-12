@@ -57,7 +57,7 @@ test('a shape picked on one collection is not carried to another with nothing re
   p.ctx.activeCollectionId = 3;
   await p.Flow.toggle(3);
   await p.Flow.pickShape('waves');
-  assert.strictEqual(JSON.parse(p.store.get('vault.flow.order.3')).shape, 'waves');
+  assert.strictEqual(JSON.parse(p.store.get('vault.flow.shape.3')).shape, 'waves');
 
   // Another collection opens (the grid's answer says so), then Flow on it.
   p.ctx.activeCollectionId = 1;
@@ -67,12 +67,10 @@ test('a shape picked on one collection is not carried to another with nothing re
   const asked = p.urls.filter(u => u.startsWith('/api/flow/collections/1?'));
   assert.ok(asked.length > 0);
   assert.ok(asked.every(u => u.includes('shape=smooth')), `asked with the other collection's shape: ${asked.join(', ')}`);
-
-  await p.Flow.useFlowOrder();
   assert.strictEqual(p.Flow._state().shape, 'smooth');
-  assert.strictEqual(JSON.parse(p.store.get('vault.flow.order.1')).shape, 'smooth');
+  assert.strictEqual(p.store.has('vault.flow.shape.1'), false, 'nothing picked there yet');
   // The first collection keeps its own.
-  assert.strictEqual(JSON.parse(p.store.get('vault.flow.order.3')).shape, 'waves');
+  assert.strictEqual(JSON.parse(p.store.get('vault.flow.shape.3')).shape, 'waves');
 });
 
 test('opening Flow straight on another collection (no grid answer between) starts from the default shape too', async () => {
@@ -84,26 +82,24 @@ test('opening Flow straight on another collection (no grid answer between) start
   p.urls.length = 0;
   await p.Flow.toggle(1);
   assert.ok(p.urls.filter(u => u.startsWith('/api/flow/collections/1?')).every(u => u.includes('shape=smooth')));
-  assert.strictEqual(p.Flow._state().order, false);
   assert.strictEqual(p.Flow._state().shape, 'smooth');
 });
 
-test('a collection with a remembered Flow order gets its own shape back when Flow opens', async () => {
+test('a collection gets the shape last picked in it back when Flow opens (a starting point, not an order)', async () => {
   const p = page();
-  p.store.set('vault.flow.order.1', JSON.stringify({ shape: 'peak', places: null, edited: null }));
+  p.store.set('vault.flow.shape.1', JSON.stringify({ shape: 'peak', waves: 2, places: null }));
   p.ctx.activeCollectionId = 3;
   await p.Flow.toggle(3);
   await p.Flow.pickShape('waves');
   p.ctx.activeCollectionId = 1;
   p.urls.length = 0;
   await p.Flow.toggle(1);
-  const s = p.Flow._state();
-  assert.strictEqual(s.order, true);
-  assert.strictEqual(s.shape, 'peak');
+  assert.strictEqual(p.Flow._state().shape, 'peak');
   assert.ok(p.urls.filter(u => u.startsWith('/api/flow/collections/1?')).every(u => u.includes('shape=peak')));
+  assert.ok(!p.urls.some(u => u.includes('/order')), 'opening writes no order');
 });
 
-test('Waves: the count of peaks is asked for, remembered with the shape, and an old entry reads as 2', async () => {
+test('Waves: the count of peaks is asked for and remembered with the shape; a bad entry reads as 2', async () => {
   const p = page();
   p.ctx.activeCollectionId = 3;
   await p.Flow.toggle(3);
@@ -112,7 +108,7 @@ test('Waves: the count of peaks is asked for, remembered with the shape, and an 
   assert.strictEqual(p.Flow._state().shape, 'waves');
   assert.strictEqual(p.Flow._state().waves, 4);
   assert.ok(p.urls.some(u => u.startsWith('/api/flow/collections/3?shape=waves') && u.includes('waves=4')), p.urls.join(', '));
-  assert.deepStrictEqual(JSON.parse(p.store.get('vault.flow.order.3')), { shape: 'waves', waves: 4, places: null, edited: null, saved: null });
+  assert.deepStrictEqual(JSON.parse(p.store.get('vault.flow.shape.3')), { shape: 'waves', waves: 4, places: null });
   // Another shape keeps the count for later, and does not ask with it.
   p.urls.length = 0;
   await p.Flow.pickShape('build');
@@ -120,11 +116,33 @@ test('Waves: the count of peaks is asked for, remembered with the shape, and an 
   await p.Flow.pickShape('waves');
   assert.strictEqual(p.Flow._state().waves, 4);
 
-  // A remembered entry from before counts: 2.
-  p.store.set('vault.flow.order.1', JSON.stringify({ shape: 'waves', places: null, edited: null }));
+  p.store.set('vault.flow.shape.1', JSON.stringify({ shape: 'waves', waves: 9 }));
   p.ctx.activeCollectionId = 1;
   p.urls.length = 0;
   await p.Flow.toggle(1);
   assert.strictEqual(p.Flow._state().waves, 2);
   assert.ok(p.urls.filter(u => u.startsWith('/api/flow/collections/1?')).every(u => u.includes('waves=2')));
+});
+
+test('a working Flow order an older Vault kept on this computer is removed when the page loads, never shown', async () => {
+  const store = new Map([['vault.flow.order.1', JSON.stringify({ shape: 'peak', places: null, edited: [3, 2, 1] })], ['vault.flow.order.7', '{}'], ['vault.flow.lanes', '["tempo"]']]);
+  const ctx = {
+    console, FlowOrder, activeCollectionId: 1,
+    document: { readyState: 'complete', getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], addEventListener() {} },
+    localStorage: {
+      get length() { return store.size; },
+      key: (i) => [...store.keys()][i] ?? null,
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    },
+    setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {}, requestAnimationFrame: () => 0,
+    applyFilters: async () => { throw new Error('the grid is not asked for another order'); },
+    fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }),
+  };
+  ctx.window = { addEventListener() {}, dispatchEvent() {} };
+  vm.createContext(ctx);
+  vm.runInContext(SRC, ctx);
+  assert.deepStrictEqual([...store.keys()], ['vault.flow.lanes']);
+  assert.strictEqual(ctx.window.Flow._state().shape, 'smooth');
 });

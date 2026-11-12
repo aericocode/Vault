@@ -825,9 +825,6 @@ function currentQuerySpec(opts) {
     if (focusIds && focusRanked) spec.rankedIds = focusRanked;
     return spec;
   }
-  // Flow order on an open collection (player-lib/flow.js): the order it worked out.
-  const flowRanked = typeof flowQueryRanked === 'function' ? flowQueryRanked() : null;
-  if (flowRanked && spec.collectionId != null && !spec.rankedIds) spec.rankedIds = flowRanked;
   // A ranked focus (a person search) orders the grid by its own scores.
   if (focusIds && focusRanked && overrides) spec.rankedIds = focusRanked;
   // A person open in the Faces tab: exactly their files, in their order. The
