@@ -83,14 +83,11 @@
 .tv-stags > .stag-more:first-child { margin-left: 0.4rem; }   /* +n alone: where the chips would start */
 .grid-table .tv-c-title > .tv-fave,
 .grid-table .tv-c-title > .tv-flag { flex: none; }
-/* Flow's marks in the most crowded row (a narrow table, Playing and a
-   position, New, the heart and the flag): rather than be cut at the cell's
-   edge, Playing's progress line gives way first, then the faint "· was 8"
-   (with "..."). The position's number and the badges stay whole. */
+/* Flow's marks in the most crowded row (a narrow table, Playing, New, the
+   heart and the flag): rather than be cut at the cell's edge, Playing's
+   progress line gives way first. The badges stay whole. */
 .tv-c-title > .flow-marks { flex: 0 1 auto; min-width: 0; }
 .tv-c-title > .flow-marks > .flow-mk-badge { flex: none; white-space: nowrap; }
-.tv-c-title > .flow-marks > .flow-mk-pos { display: inline-flex; flex: 0 1 auto; min-width: 0; white-space: nowrap; }
-.tv-c-title > .flow-marks > .flow-mk-pos s { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
 .tv-c-title > .flow-marks > .flow-mk-prog { flex: 0 100 48px; width: auto; min-width: 0; }
 .tv-stags .stag-chip { color: var(--text-primary, #eee); background: color-mix(in oklab, var(--c) 22%, transparent); }
 

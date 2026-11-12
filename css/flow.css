@@ -336,23 +336,8 @@ body.layout-modern .flow-tile-note { color: var(--m-muted); }
   .flow-prog { width: 90px; }
 }
 
-/* ── Tile marks (flow.js paintMarks): Playing / Next, progress, "3 · was 7" ── */
+/* ── Tile marks (flow.js paintMarks): Playing / Next, progress ── */
 .tile-thumb > .flow-marks { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
-.flow-mk-pos {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  padding: 0 6px;
-  border-radius: 5px;
-  background: rgba(0, 0, 0, 0.62);
-  color: #fff;
-  font-size: 0.7rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  transition: opacity 0.12s;
-}
-.flow-mk-pos s { text-decoration: none; font-weight: 500; color: rgba(255, 255, 255, 0.55); }
-.media-tile:hover .tile-thumb > .flow-marks .flow-mk-pos { opacity: 0; }   /* the tile's buttons sit there on hover */
 .flow-mk-badge {
   position: absolute;
   top: 6px;
@@ -370,13 +355,9 @@ body.layout-modern .flow-tile-note { color: var(--m-muted); }
 .media-tile.flow-mk-playing:not(.tv-row) { box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 60%, transparent); }
 /* Table rows: inline, after the name */
 .tv-c-title > .flow-marks { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; position: relative; pointer-events: none; }
-.tv-c-title > .flow-marks .flow-mk-pos,
 .tv-c-title > .flow-marks .flow-mk-badge { position: static; }
-.tv-c-title > .flow-marks .flow-mk-pos { background: var(--bg-tertiary); color: var(--text-primary); }
-.tv-c-title > .flow-marks .flow-mk-pos s { color: var(--text-secondary); }
 .tv-c-title > .flow-marks .flow-mk-prog { position: static; display: inline-block; width: 48px; height: 3px; border-radius: 2px; }
 .media-tile.tv-row.flow-mk-playing { background: color-mix(in oklab, var(--accent) 8%, transparent); }
-@media (prefers-reduced-motion: reduce) { .flow-mk-pos { transition: none; } }
 
 /* Fit / Zoom beside Hide (at the right, wherever the row wraps). */
 .flow-row > .flow-zoom { margin-left: auto; }
@@ -621,7 +602,6 @@ button.flow-chip-add:focus-visible { outline: 2px solid var(--accent-hover); out
 .flow-chip-input:focus { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
 /* Moved since it was saved: ⋯ › Update keeps the moves. */
 .flow-chip-main { align-items: center; }
-.flow-chip-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--flow-warn, #fcd34d); align-self: center; }
 body.layout-modern .flow-chip,
 body.layout-modern button.flow-chip-add { border-color: var(--m-border-strong); }
 body.layout-modern .flow-chip.on { border-color: var(--accent); }

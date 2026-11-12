@@ -22,6 +22,7 @@ const M = require('../player-lib/flow-chart-math.js');
 const FlowOrder = require('../player-lib/flow-order.js');
 const DragAutoScroll = require('../player-lib/drag-autoscroll.js');
 const DockGeom = require('../player-lib/player/dock-geometry.js');
+const { flowCustomFake } = require('./helpers/flow-custom-fake');
 
 /* ── The pure parts ───────────────────────────────────────────────────── */
 
@@ -287,22 +288,47 @@ test('the panel\'s first row: no order switch, no Make this the playlist order; 
   const firstRow = () => p.panelEl.innerHTML.split('</div>')[0];
   assert.doesNotMatch(p.panelEl.innerHTML, /Make this the playlist order|data-flow-save-order|data-flow-order=|>Flow order</);
   assert.match(firstRow(), /data-flow-shape="smooth" aria-pressed="false" title="Rearrange the playlist order as Smooth only \(you can Undo\)"/);
+  // Custom comes first and is lit: the order is the user's own.
+  assert.match(firstRow(), /<button type="button" data-flow-custom aria-pressed="true" title="Your own order. It is the playlist order now.">Custom<\/button><button type="button" data-flow-shape="smooth"/);
   const posts = [];
   const fetch0 = p.ctx.fetch;
+  const custom = flowCustomFake(3);
   p.ctx.fetch = async (url, opts = {}) => {
-    if (/\/api\/collections\/3\/order$/.test(url)) { const b = JSON.parse(opts.body); posts.push(b); return { ok: true, status: 200, json: async () => ({ order: b.order }) }; }
+    if (/\/api\/collections\/3\/order$/.test(url)) {
+      const b = JSON.parse(opts.body);
+      posts.push(b);
+      const before = p.ctx.collectionMembers.get(3).slice();
+      return { ok: true, status: 200, json: async () => ({ order: b.order, ...custom.write(before, b.order, b) }) };
+    }
+    if (/\/api\/flow\/collections\/3\/custom$/.test(url)) return { ok: true, status: 200, json: async () => ({ custom: custom.state(p.ctx.collectionMembers.get(3)) }) };
     return fetch0(url, opts);
   };
+  const click = async (btn) => {
+    for (const fn of p.panelListeners.click) fn({ target: btn, preventDefault() {}, stopPropagation() {} });
+    for (let i = 0; i < 30; i++) await new Promise(r => setImmediate(r));
+  };
   const btn = { dataset: { flowShape: 'smooth' }, closest: (q) => (q === '[data-flow-shape]' ? btn : null) };
-  for (const fn of p.panelListeners.click) fn({ target: btn, preventDefault() {}, stopPropagation() {} });
-  for (let i = 0; i < 30; i++) await new Promise(r => setImmediate(r));
-  assert.deepStrictEqual(posts, [{ order: [15, 14, 13, 12, 11] }], 'the shape, written as the playlist order');
+  await click(btn);
+  assert.deepStrictEqual(posts, [{ order: [15, 14, 13, 12, 11], flow: { shape: 'smooth', waves: 2, places: false } }], 'the shape, written as the playlist order');
   assert.deepStrictEqual(p.ctx.collectionMembers.get(3), [15, 14, 13, 12, 11]);
   assert.match(firstRow(), /data-flow-shape="smooth" aria-pressed="true"/, 'lit while the playlist is in it');
+  assert.match(firstRow(), /data-flow-custom aria-pressed="false" title="Your own order. Come back to it after trying a shape."/);
   assert.match(undos.at(-1).m, /Rearranged the playlist order: Smooth only/);
   await undos.at(-1).fn();
-  assert.deepStrictEqual(posts.at(-1), { order: [11, 12, 13, 14, 15] }, 'Undo: the order from before');
+  assert.deepStrictEqual(posts.at(-1), { order: [11, 12, 13, 14, 15], flow: null }, 'Undo: the order from before');
   assert.match(firstRow(), /data-flow-shape="smooth" aria-pressed="false"/);
+  assert.match(firstRow(), /data-flow-custom aria-pressed="true"/);
+  // The shape again, then Custom from the panel: the order from before, with Undo.
+  await click(btn);
+  const cbtn = { dataset: {}, closest: (q) => (q === '[data-flow-custom]' ? cbtn : null) };
+  await click(cbtn);
+  assert.deepStrictEqual(posts.at(-1), { order: [11, 12, 13, 14, 15], flow: null });
+  assert.match(firstRow(), /data-flow-custom aria-pressed="true"/);
+  assert.match(undos.at(-1).m, /Back to your custom order/);
+  // Custom while it is lit: nothing.
+  const n = posts.length;
+  await click(cbtn);
+  assert.strictEqual(posts.length, n);
 });
 
 test('lanes have one set of picks (the panel\'s): the old full screen key is never read or written', async () => {

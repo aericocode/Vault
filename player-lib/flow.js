@@ -73,7 +73,7 @@ const Flow = (() => {
     lastCount: -1,
     lastFetch: 0,
     fetching: false,
-    applied: null,      // the shape last put into the playlist here: { shape, waves, places, order }
+    custom: null,       // what the server keeps for Custom (lib/flow/custom.js): { custom, shape, waves, places, shaped, lit } or null
     places: null,      // Place tagged files: true / false as picked, null = on when any file has a placed tag
     hot: -1,            // the chart column under the pointer
     geom: null,         // the chart as last drawn (columns, range) for hover and click
@@ -131,7 +131,7 @@ const Flow = (() => {
     clearTimeout(st.pollTimer);
     st.pollTimer = null;
     st.cid = null; st.open = false; st.data = null; st.byId = new Map();
-    st.status = null; st.lastCount = -1; st.applied = null; st.fetchFails = 0; st.toasted = false;
+    st.status = null; st.lastCount = -1; st.custom = null; st.fetchFails = 0; st.toasted = false;
     st.showWhy = false; st.lastMoved = null;
     // Each collection starts from the default shape (or its remembered one,
     // toggle): never the shape picked on the one before.
@@ -222,6 +222,7 @@ const Flow = (() => {
     st.lastFetch = Date.now();
     st.lastCount = countKey(data.counts);
     st.fetchFails = 0;
+    if (data.custom !== undefined) st.custom = data.custom;
   }
 
   async function fetchOnce() {
@@ -234,6 +235,9 @@ const Flow = (() => {
       // Another shape picked meanwhile: this answer is for the one before; ask again.
       if (url !== flowUrl(cid)) { again = true; return; }
       takeData(data);
+      // A shape lit on the server (after a reload, or put in elsewhere) is the
+      // one picked: ask again for it, so the guide and the peaks match.
+      if (!inPick && adoptLit()) { again = true; return; }
       // Asked before the answer said which files have a placed tag: ask again.
       if (placesOn() !== !!data.placesOn) again = true;
     } catch (err) {
@@ -321,7 +325,7 @@ const Flow = (() => {
     if (active) schedulePoll();
   }
 
-  /* ── Shapes ─────────────────────────────────────────────────────────
+  /* ── Shapes and Custom ──────────────────────────────────────────────
      A shape (Smooth, Build up, Waves, Peak, Steady) is something done to
      the playlist order, not a second order: picking one asks the server for
      the collection in that shape (GET /api/flow/collections/:id, worked out
@@ -332,13 +336,21 @@ const Flow = (() => {
      rearranges again while the playlist is still in the shape, else it is
      kept for the next pick.
 
-     Nothing holds on to the shape afterwards: a drag, a saved order or a
-     measurement landing never brings it back. Its button is lit (and the
-     chart draws its dashed guide) only while the playlist order is still
-     exactly that shape (shapeLit). The shape last picked, its peaks and
-     Place tagged files are remembered per collection on this computer
-     (localStorage vault.flow.shape.<id>) as where the panel starts, never as
-     an order. */
+     Custom is the user's own order. Picking a shape while Custom is lit
+     keeps the order from before as the custom one, on the server
+     (lib/flow/custom.js, sent as flow with the order); shape to shape keeps
+     it; Custom puts it back (files gone since dropped, new ones at the end).
+     Exactly one of Custom and the shapes is lit: a shape while the playlist
+     order is still what it wrote (st.custom.shaped, kept to the files there
+     are), Custom otherwise. Any other change to the order (a drag, a saved
+     order loaded, Custom itself) makes that order the custom one, so the
+     server drops what it kept. Every Undo here puts back the order and what
+     the server kept, so the lit button comes back with it.
+
+     The shape last picked, its peaks and Place tagged files are remembered
+     per collection on this computer (localStorage vault.flow.shape.<id>) as
+     where the panel starts while Custom is lit; a lit shape comes from the
+     server. */
 
   const SHAPE_PREFIX = 'vault.flow.shape.';
   // The working Flow order kept before there was one order: removed, never shown.
@@ -360,12 +372,30 @@ const Flow = (() => {
     return sameIds(d.order, playlistNow());
   }
 
-  /** The playlist order is still the shape picked (put in here and not changed since, or worked out the same). */
-  function shapeLit() {
-    const a = st.applied;
-    if (a && a.shape === st.shape && a.waves === st.waves && a.places === placesOn() && sameIds(a.order, playlistNow())) return true;
-    return guideFits();
+  /** The shape the playlist order is in ({ shape, waves, places, custom, shaped }), or null: Custom is lit. */
+  function litShape() {
+    const c = st.custom, p = playlistNow();
+    if (!c || !Array.isArray(c.shaped) || !p) return null;
+    return sameIds(p, reconcile(c.shaped, p)) ? c : null;
   }
+
+  /** The playlist order is still the shape picked here (its peaks and Place tagged files too). */
+  function shapeLit() {
+    const l = litShape();
+    return !!l && l.shape === st.shape && (st.shape !== 'waves' || l.waves === st.waves) && l.places === placesOn();
+  }
+
+  /** A lit shape is the one picked: the buttons, the peaks and the guide follow it (after a reload, an Undo). */
+  function adoptLit() {
+    const l = litShape();
+    if (!l || shapeLit()) return false;
+    st.shape = l.shape; st.waves = FlowOrder.wavesCount(l.waves); st.places = l.places;
+    rememberShape();
+    return true;
+  }
+
+  /** What the server kept before a write, as an Undo sends it back: the lit shape, or null (Custom was lit). */
+  const flowBack = (was) => (was && was.lit ? { shape: was.shape, waves: was.waves, places: was.places, custom: was.custom } : null);
 
   function rememberShape() {
     if (st.cid == null) return;
@@ -415,17 +445,18 @@ const Flow = (() => {
   /*
    * Write an order (and, when given, exactly these skips) as the
    * collection's playlist order, in one request: POST
-   * /api/collections/:id/order { order, skips? }. Kept to the files it has
-   * right now (gone ones dropped, new ones at the end), so a file added or
-   * taken out since is never lost; a 400 (the files changed on the way):
-   * ask again, keep to them, try once more. The answer goes where every
-   * rearrange's goes (collection-reorder.js _installOrder: the page's copy,
-   * the count line, the skips, the grid and this panel).
+   * /api/collections/:id/order { order, skips?, flow }. flow: the shape
+   * put in, or null (Custom: what lib/flow/custom.js keeps). Kept to the
+   * files it has right now (gone ones dropped, new ones at the end), so a
+   * file added or taken out since is never lost; a 400 (the files changed
+   * on the way): ask again, keep to them, try once more. The answer goes
+   * where every rearrange's goes (collection-reorder.js _installOrder: the
+   * page's copy, the count line, the skips, the grid and this panel).
    */
-  async function writePlaylist(cid, order, skips) {
+  async function writePlaylist(cid, order, skips, flow = null) {
     const attempt = async () => {
       const members = await freshMembers(cid);
-      const body = { order: members ? reconcile(order, members) : order.slice() };
+      const body = { order: members ? reconcile(order, members) : order.slice(), flow };
       if (Array.isArray(skips)) body.skips = skips.slice();
       const p = post(`/api/collections/${cid}/order`, body);
       return typeof Library !== 'undefined' && typeof Library.ownWrite === 'function' ? Library.ownWrite(p) : p;
@@ -435,6 +466,7 @@ const Flow = (() => {
       if (!err || err.status !== 400) throw err;
       data = await attempt();
     }
+    if (cid === st.cid && data && data.flow_custom !== undefined) st.custom = data.flow_custom;
     if (typeof _installOrder === 'function') await _installOrder(cid, data);
     else {
       if (typeof collectionMembers !== 'undefined' && Array.isArray(data.order)) collectionMembers.set(cid, data.order);
@@ -452,13 +484,15 @@ const Flow = (() => {
     if (sorted || (typeof Library !== 'undefined' && Library.shuffled)) await switchToPlaylistOrder();
   }
 
-  /** An Undo that puts back an order (and skips, when given) written here. */
-  const undoWrite = (cid, order, skips) => () => inTurn(async () => {
+  /** An Undo that puts back an order (and skips, when given) written here, and what the server kept with it (flow). */
+  const undoWrite = (cid, order, skips, flow = null) => () => inTurn(async () => {
     try {
-      await writePlaylist(cid, order, skips);
+      await writePlaylist(cid, order, skips, flow);
       await showPlaylist(cid);
       toast('Playlist order put back');
     } catch (err) { toastErr(err, 'putting the order back'); }
+    // The shape that is lit again is the one picked (its peaks, Place tagged files).
+    if (cid === st.cid && adoptLit()) refetch(true);
     paint();
   });
 
@@ -484,8 +518,15 @@ const Flow = (() => {
     });
   }
 
-  /** @returns {Promise<boolean>} whether the playlist order changed */
+  // True while a shape is being put in: an answer landing meanwhile does not move the picked shape (adoptLit).
+  let inPick = false;
   async function applyShape(shape, waves, places) {
+    inPick = true;
+    try { return await putShape(shape, waves, places); } finally { inPick = false; }
+  }
+
+  /** @returns {Promise<boolean>} whether the playlist order changed */
+  async function putShape(shape, waves, places) {
     if (!isMine()) return false;
     const cid = st.cid;
     // The lit shape picked again: asking again could rearrange it once more
@@ -494,10 +535,18 @@ const Flow = (() => {
       toast(`The playlist order is already ${shapeName(st.shape, st.waves)}`);
       return false;
     }
+    // Kept only once the shape is in: a failed pick leaves the panel as it was.
+    const prev = { shape: st.shape, waves: st.waves, places: st.places };
+    const giveUp = (err, what) => {
+      if (cid === st.cid) { st.shape = prev.shape; st.waves = prev.waves; st.places = prev.places; }
+      toastErr(err, what);
+      paint();
+      if (cid === st.cid) refetch(true);
+      return false;
+    };
     st.shape = shape;
     st.waves = FlowOrder.wavesCount(waves);
     st.places = places;
-    rememberShape();
     paint();
     let data;
     try {
@@ -510,35 +559,54 @@ const Flow = (() => {
         if (cid !== st.cid) return false;
         takeData(data);
       }
-    } catch (err) {
-      toastErr(err, 'working out the order');
-      paint();
-      return false;
-    }
+    } catch (err) { return giveUp(err, 'working out the order'); }
     const label = shapeName(st.shape, st.waves);
     const before = (await freshMembers(cid)) || data.playlistOrder.slice();
     if (cid !== st.cid) return false;
     const order = reconcile(data.order, before);
-    const pick = { shape: st.shape, waves: st.waves, places: placesOn() };
+    const flow = { shape: st.shape, waves: st.waves, places: placesOn() };
+    let written;
+    try { written = await writePlaylist(cid, order, undefined, flow); } catch (err) { return giveUp(err, 'rearranging the playlist order'); }
+    rememberShape();
+    await showPlaylist(cid);
+    paint();
+    // Worked out the same as it was: nothing to Undo (the shape is lit now all the same).
     if (sameIds(order, before)) {
-      st.applied = { ...pick, order };
-      paint();
       toast(`The playlist order is already ${label}`);
       return false;
     }
-    let written;
-    try { written = await writePlaylist(cid, order); } catch (err) {
-      toastErr(err, 'rearranging the playlist order');
-      paint();
-      return false;
-    }
-    st.applied = { ...pick, order: Array.isArray(written.order) ? written.order : order };
-    await showPlaylist(cid);
-    paint();
+    const undo = undoWrite(cid, before, undefined, flowBack(written.flow_custom_was));
     // selection.js showUndoToast takes HTML.
-    if (typeof showUndoToast === 'function') showUndoToast(`Rearranged the playlist order: ${esc(label)}`, undoWrite(cid, before));
+    if (typeof showUndoToast === 'function') showUndoToast(`Rearranged the playlist order: ${esc(label)}`, undo);
     else toast(`Rearranged the playlist order: ${label}`);
     return true;
+  }
+
+  /** Custom: the order kept from before the shape goes back in as the playlist order, with Undo. Nothing while Custom is lit. */
+  function pickCustom() {
+    return inTurn(async () => {
+      if (!isMine() || !litShape()) return false;
+      const cid = st.cid;
+      let c;
+      try { c = (await api(`/api/flow/collections/${cid}/custom`)).custom; } catch (err) { toastErr(err, 'reading your custom order'); return false; }
+      if (cid !== st.cid) return false;
+      // Changed elsewhere meanwhile (another window): nothing kept, or Custom lit already.
+      if (!c || !c.lit) { st.custom = c; paint(); return false; }
+      const before = (await freshMembers(cid)) || playlistNow().slice();
+      if (cid !== st.cid) return false;
+      let written;
+      try { written = await writePlaylist(cid, c.custom, undefined, null); } catch (err) {
+        toastErr(err, 'putting your custom order back');
+        paint();
+        return false;
+      }
+      await showPlaylist(cid);
+      paint();
+      const undo = undoWrite(cid, before, undefined, flowBack(written.flow_custom_was));
+      if (typeof showUndoToast === 'function') showUndoToast('Back to your custom order', undo);
+      else toast('Back to your custom order');
+      return true;
+    });
   }
 
   /** Waves' peaks, 1..6: while Waves is the shape picked. */
@@ -743,7 +811,8 @@ const Flow = (() => {
       const wasSkips = skips ? (Array.isArray(data.was_skipped_ids) ? data.was_skipped_ids : []) : undefined;
       const back = before || (st.data ? st.data.playlistOrder.slice() : null);
       const msg = `Loaded “${esc(s.name)}” into the playlist order`;
-      if (back && typeof showUndoToast === 'function') showUndoToast(msg, undoWrite(cid, back, wasSkips));
+      // A shape lit before comes back lit with it (and its custom order).
+      if (back && typeof showUndoToast === 'function') showUndoToast(msg, undoWrite(cid, back, wasSkips, flowBack(data.flow_custom_was)));
       else toast(`Loaded “${s.name}” into the playlist order`);
       return true;
     });
@@ -1225,10 +1294,17 @@ const Flow = (() => {
 
   /** The dashed guide: the picked shape's targets while the playlist order is still that shape, else null. */
   function guide() {
-    if (!st.data || !guideFits()) return null;
+    if (!st.data) return null;
+    // The targets go by position, so a lit shape (put in here, or after a
+    // reload) draws them on the playlist order even when working it out
+    // again from that order would give another one.
+    const fits = guideFits();
+    if (!fits && !shapeLit()) return null;
     const t = FlowOrder.guideTargets(st.shape, st.data, st.waves);
-    const w = st.data.order, s = shown(w);
-    if (!t || s === w) return t;
+    const w = fits ? st.data.order : playlistNow();
+    if (!t || !w || t.length !== w.length) return null;
+    const s = shown(w);
+    if (s === w) return t;
     // The grid hides some files: each shown column keeps its position's target.
     const at = new Map(w.map((id, i) => [id, i]));
     const out = s.map(id => t[at.get(id)]);
@@ -2079,15 +2155,23 @@ const Flow = (() => {
       : a?.matches?.('#flowPanel [data-flow-saved]') ? `[data-flow-saved="${a.dataset.flowSaved}"]`
       : a?.matches?.('#flowPanel [data-flow-saved-menu]') ? `[data-flow-saved-menu="${a.dataset.flowSavedMenu}"]`
       : a?.matches?.('#flowPanel [data-flow-shape]') ? `[data-flow-shape="${a.dataset.flowShape}"]`
+      : a?.matches?.('#flowPanel [data-flow-custom]') ? '[data-flow-custom]'
       : a?.matches?.('#flowPanel [data-flow-waves]') ? `[data-flow-waves="${a.dataset.flowWaves}"]`
       : a?.matches?.('#flowPanel [data-flow-places]') ? `[data-flow-places="${a.dataset.flowPlaces}"]` : null;
     // The name box keeps what is typed, the focus and the caret across repaints.
     const naming = a?.matches?.('#flowPanel [data-flow-saved-input]') ? { s: a.selectionStart, e: a.selectionEnd } : null;
     if (naming && st.savedInput) st.savedInput.value = a.value;
     const keepFocus = act || ['[data-flow-saved-new]', ...KEEP_FOCUS].find(sel => a?.matches?.(`#flowPanel ${sel}`));
-    // Each shape rearranges the playlist order; the one it is still in is lit (shapeLit).
-    const lit = shapeLit();
-    const shapes = FlowOrder.SHAPES.map(s => `<button type="button" data-flow-shape="${s.key}" aria-pressed="${String(lit && st.shape === s.key)}" title="${esc(lit && st.shape === s.key ? `The playlist order is ${s.label} now` : `Rearrange the playlist order as ${s.label} (you can Undo)`)}">${esc(s.label)}</button>`).join('');
+    // Each shape rearranges the playlist order; the one it is still in is lit
+    // (litShape), else Custom is: exactly one of them.
+    const lit = litShape();
+    const custom = `<button type="button" data-flow-custom aria-pressed="${String(!lit)}" title="${esc(lit
+      ? 'Your own order. Come back to it after trying a shape.'
+      : 'Your own order. It is the playlist order now.')}">Custom</button>`;
+    const shapes = custom + FlowOrder.SHAPES.map(s => {
+      const on = !!lit && lit.shape === s.key;
+      return `<button type="button" data-flow-shape="${s.key}" aria-pressed="${String(on)}" title="${esc(on ? `The playlist order is ${s.label} now` : `Rearrange the playlist order as ${s.label} (you can Undo)`)}">${esc(s.label)}</button>`;
+    }).join('');
     // The chart's host is kept across repaints (polls repaint often): an empty
     // host would shrink the panel for a moment, and a page scrollbar going
     // with it would make the chart measure too wide. The strip is drawn with
@@ -2194,6 +2278,7 @@ const Flow = (() => {
     el.addEventListener('click', (e) => {
       const s = e.target.closest('[data-flow-shape]');
       if (s) { pickShape(s.dataset.flowShape); return; }
+      if (e.target.closest('[data-flow-custom]')) { pickCustom(); return; }
       // Saved orders (the chips on the Lanes row).
       const sv = e.target.closest('[data-flow-saved]');
       if (sv) { useSaved(Number(sv.dataset.flowSaved)); return; }
@@ -3202,10 +3287,10 @@ const Flow = (() => {
   else setTimeout(watchTags, 0);
 
   return {
-    toggle, close, pickShape, pickWaves, pickPlaces, refetch,
+    toggle, close, pickShape, pickWaves, pickPlaces, pickCustom, refetch,
     tileHtml, shuffleCollection, stageCurrent,
-    /** The shape picked, and whether the playlist order is still exactly it (its button lit). */
-    shape: () => ({ shape: st.shape, waves: st.waves, places: placesOn(), lit: shapeLit() }),
+    /** The shape picked, whether the playlist order is still exactly it (its button lit), and whether Custom is lit instead. */
+    shape: () => ({ shape: st.shape, waves: st.waves, places: placesOn(), lit: shapeLit(), custom: !litShape() }),
     isOpen: () => st.open && isMine(),
     // The chart (tests): clicks, picks, the strip, Fit / Zoom.
     _view: {
