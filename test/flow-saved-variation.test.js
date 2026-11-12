@@ -116,6 +116,7 @@ test('a library from before: flow_saved_orders without skip_json gets the column
   const Database = require('better-sqlite3');
   const file = path.join(tmp, 'old.db');
   const old = new Database(file);
+  old.exec('CREATE TABLE collection_items (collection_id INTEGER, media_id INTEGER, position INTEGER)');
   old.exec(`CREATE TABLE flow_saved_orders (id INTEGER PRIMARY KEY, collection_id INTEGER NOT NULL, name TEXT NOT NULL, shape TEXT NOT NULL,
     waves INTEGER, places INTEGER NOT NULL DEFAULT 0, order_json TEXT NOT NULL, created_at INTEGER, updated_at INTEGER)`);
   old.prepare('INSERT INTO flow_saved_orders (collection_id, name, shape, waves, places, order_json, created_at, updated_at) VALUES (1, ?, ?, 2, 0, ?, 1, 1)')
@@ -131,4 +132,42 @@ test('a library from before: flow_saved_orders without skip_json gets the column
     .run('From 3.10', 'smooth', '[1]');
   assert.strictEqual(saved.list(old, 1)[1].skips, null);
   old.close();
+});
+
+test('own skips are kept to the collection\'s files: other files are not stored, a file taken out or deleted is pruned, an old row with a gone file reads without it', async () => {
+  const ins = db.get().prepare('INSERT INTO media (filepath, filename, media_type, duration_seconds) VALUES (?, ?, ?, ?)');
+  const a = Number(ins.run(path.join(tmp, 'p1.mp4'), 'p1.mp4', 'video', 30).lastInsertRowid);
+  const b = Number(ins.run(path.join(tmp, 'p2.mp4'), 'p2.mp4', 'video', 30).lastInsertRowid);
+  const c = Number(ins.run(path.join(tmp, 'p3.mp4'), 'p3.mp4', 'video', 30).lastInsertRowid);
+  const outsider = Number(ins.run(path.join(tmp, 'p4.mp4'), 'p4.mp4', 'video', 30).lastInsertRowid);
+  const pc = db.createCollection('Prune').id;
+  db.addToCollection(pc, [a, b, c]);
+  // A file of another collection is not stored (create and update).
+  let r = await send('POST', `/api/flow/collections/${pc}/saved`, { name: 'P', shape: 'playlist', order: [a, b, c], skips: [a, outsider] });
+  const row = await r.json();
+  assert.deepStrictEqual(row.skips, [a]);
+  r = await send('PUT', `/api/flow/saved/${row.id}`, { skips: [b, c, outsider] });
+  assert.deepStrictEqual((await r.json()).skips, [b, c]);
+  assert.deepStrictEqual(JSON.parse(db.get().prepare('SELECT skip_json FROM flow_saved_orders WHERE id = ?').get(row.id).skip_json), [b, c]);
+
+  // Taken out of the collection: gone from its skips, and the length says so.
+  db.removeFromCollection(pc, [b]);
+  assert.deepStrictEqual(JSON.parse(db.get().prepare('SELECT skip_json FROM flow_saved_orders WHERE id = ?').get(row.id).skip_json), [c]);
+  // Added back later: not skipped again.
+  db.addToCollection(pc, [b]);
+  let listed = await (await send('GET', `/api/flow/collections/${pc}/saved`)).json();
+  assert.deepStrictEqual(listed[0].skips, [c]);
+  assert.deepStrictEqual([listed[0].length.skipped_count, listed[0].length.skipped_seconds], [1, 30]);
+
+  // Deleted from the library: pruned too.
+  db.deleteRecords([c]);
+  listed = await (await send('GET', `/api/flow/collections/${pc}/saved`)).json();
+  assert.deepStrictEqual(listed[0].skips, []);
+  assert.strictEqual(listed[0].length.skipped_count, 0);
+
+  // A row from before still holding a file gone since: read without it.
+  db.get().prepare('UPDATE flow_saved_orders SET skip_json = ? WHERE id = ?').run(JSON.stringify([outsider, a, 999999]), row.id);
+  listed = await (await send('GET', `/api/flow/collections/${pc}/saved`)).json();
+  assert.deepStrictEqual(listed[0].skips, [a]);
+  assert.strictEqual(listed[0].length.skipped_count, 1);
 });

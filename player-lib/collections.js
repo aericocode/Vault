@@ -134,10 +134,15 @@ async function fetchCollectionMembers(id, force = false) {
   const data = await fetch(`/api/collections/${id}`).then(r => r.json());
   const before = id === activeCollectionId && collectionMembers.has(id) ? collectionMembers.get(id).slice() : null;
   collectionMembers.set(id, data.media_ids || []);
+  // (Guarded: tests run single functions of this file.) The lengths first: the redraw below reads them.
+  if (typeof takeCollectionLength === 'function') takeCollectionLength(getCollectionById(id), data);
   // Its skipped files (player-lib/collection-skips.js); an older server sends none.
   if (typeof Skips !== 'undefined' && Array.isArray(data.skipped_ids) && Skips.take(id, data.skipped_ids)) Skips.changed(id);
-  // (Guarded: tests run single functions of this file.)
-  if (typeof takeCollectionLength === 'function') takeCollectionLength(getCollectionById(id), data);
+  // Files came or went: a saved order's own skips (and their length) are read again (flow.js).
+  if (before && typeof flowSavedStale === 'function') {
+    const now = new Set(collectionMembers.get(id));
+    if (now.size !== before.length || before.some(m => !now.has(m))) flowSavedStale(id);
+  }
   // Read again while open (a change made elsewhere): files that left are unticked.
   if (before) _untickLeftOpenCollection(before);
   return collectionMembers.get(id);

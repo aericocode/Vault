@@ -1,7 +1,7 @@
 /* =========================================================================
    PLAYLIST TIME - how long a playlist plays once its skipped files are left
    out, and how much of it is left from where it stands now. Pure: no DOM,
-   no network (test/playlist-time.test.js runs it in Node).
+   no network (test/collection-skips-client.test.js runs it in Node).
 
    Built for Skip on tracks (player-lib/collection-skips.js) and for anything
    that counts down to the end of a stream (the Stage bar's "2:14:30 left",

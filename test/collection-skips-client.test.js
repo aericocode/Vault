@@ -331,3 +331,86 @@ test('skipped tiles and rows are styled in both looks, with a [hidden] rule for 
   assert.match(html, /player-lib\/collection-skips\.js/);
   assert.ok(!/—/.test(read('player-lib/collection-skips.js').replace(/\/\*[\s\S]*?\*\//g, '')), 'no em dash in what the user reads');
 });
+
+/* ── Fix round: stale skips, quick clicks, the count line's order ──────── */
+
+test('a saved order\'s skips of files gone: the server\'s 0 is believed, Unskip all goes, the page\'s count leaves gone files out', () => {
+  const p = page({ counts: { skipped_count: 0, skipped_seconds: 0 } });
+  p.ctx.collectionMembers = new Map([[7, [1, 2, 3, 4, 5]]]);
+  // Its own skips still hold file 6 (taken out since); its length from the server says none.
+  p.Skips.useVariant({ cid: 7, sid: 4, name: 'Smooth A', skips: [6], length: { skipped_count: 0, skipped_seconds: 0, skipped_unknown_count: 0 }, save: async () => {} });
+  assert.strictEqual(p.skipCountParts(p.coll), null, 'nothing skipped is said');
+  assert.strictEqual(p.Skips.count(7), 0);
+  assert.strictEqual(p.skipHeaderHtml(p.coll), '', 'no Unskip all');
+});
+
+test('the tooltip says whose skips they are: the saved order\'s own, or the playlist\'s while it has none of its own', () => {
+  const p = page({ skipped: [1, 2, 3, 4], counts: { skipped_count: 4, skipped_seconds: 1200, skipped_unknown_count: 0 } });
+  p.Skips.useVariant({ cid: 7, sid: 4, name: 'Smooth A', skips: null, length: null, save: async () => {} });
+  const t = p.skipCountParts(p.coll).title;
+  assert.doesNotMatch(t, /skipped in “Smooth A”/);
+  assert.match(t, /4 files skipped \(the playlist's skips; “Smooth A” has none of its own yet\)/);
+  p.Skips.useVariant({ cid: 7, sid: 4, name: 'Smooth A', skips: [1], length: { skipped_count: 1, skipped_seconds: 300 }, save: async () => {} });
+  assert.match(p.skipCountParts(p.coll).title, /1 file skipped in “Smooth A”/);
+});
+
+test('two quick skips in a saved order both count (its writes go one after another)', async () => {
+  const p = page();
+  const sent = [];
+  let own = [];
+  const v = () => ({
+    cid: 7, sid: 4, name: 'Night', skips: own, length: null,
+    // Slow, like the server: each write answers later, then the page takes the row (flow.js syncSkips).
+    save: async (ids) => {
+      sent.push(ids.slice());
+      await new Promise(r => setTimeout(r, 20));
+      own = ids.slice();
+      p.Skips.useVariant(v());
+      return { skips: own };
+    },
+  });
+  p.Skips.useVariant(v());
+  await Promise.all([p.toggleSkipFile(5), p.toggleSkipFile(7)]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sent)), [[5], [5, 7]]);
+  assert.deepStrictEqual([...p.Skips.setFor(7)].sort((a, b) => a - b), [5, 7]);
+  // A failed write does not stop the next one.
+  let fail = true;
+  const base = v();
+  p.Skips.useVariant({ ...base, save: async (ids) => { if (fail) { fail = false; throw new Error('no'); } return base.save(ids); } });
+  const r = await Promise.all([p.Skips.set(7, [9], true), p.Skips.set(7, [8], true)]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(r)), [false, true]);
+  assert.deepStrictEqual([...p.Skips.setFor(7)].sort((a, b) => a - b), [5, 7, 8]);
+});
+
+test('fetchCollectionMembers stores the new lengths before the skips redraw the count line', async () => {
+  const src = read('player-lib/collections.js');
+  const order = [];
+  const coll = { id: 3 };
+  const ctx = vm.createContext({
+    collectionMembers: new Map([[3, [1, 2]]]), activeCollectionId: 3,
+    fetch: async () => ({ json: async () => ({ media_ids: [1], skipped_ids: [], skipped_count: 0, total_seconds: 30 }) }),
+    getCollectionById: () => coll,
+    takeCollectionLength: (c, d) => { order.push('length'); c.skipped_count = d.skipped_count; },
+    Skips: { take: () => true, changed: () => order.push(`redraw sees skipped_count=${coll.skipped_count}`) },
+    _untickLeftOpenCollection: () => {},
+    flowSavedStale: (id) => order.push(`saved orders read again ${id}`),
+  });
+  coll.skipped_count = 1;
+  vm.runInContext(`${grab(src, 'async function fetchCollectionMembers(')}\nglobalThis.__f = fetchCollectionMembers;`, ctx);
+  await ctx.__f(3, true);
+  assert.deepStrictEqual(order, ['length', 'redraw sees skipped_count=0', 'saved orders read again 3']);
+});
+
+test('Stage\'s count: a skipped file played by hand is counted (the bar does not go blank)', () => {
+  const src = read('player-lib/stage-control.js');
+  assert.match(src, /const typeAt = skips \? \(i\) => \(i !== anchor && skips\.has\(ids\[i\]\) \? 'skipped' : typeOf\(i\)\) : typeOf;/);
+  const StageCount = require('../player-lib/stage-count.js');
+  // Files 1..4, file 1 skipped and playing: counted as the anchor, "Track 1 of 4".
+  const skips = new Set([1]);
+  const ids = [1, 2, 3, 4];
+  const anchor = 0;
+  const typeAt = (i) => (i !== anchor && skips.has(ids[i]) ? 'skipped' : 'video');
+  const sum = StageCount.summary({ types: typeAt, length: 4, anchor, upNext: [], rest: [{ type: 'video', duration: 30 }, { type: 'video', duration: 30 }, { type: 'video', duration: 30 }], current: { t: 0, d: 30 } });
+  assert.ok(sum, 'something to show');
+  assert.deepStrictEqual([sum.index, sum.total, sum.left], [1, 4, 120]);
+});

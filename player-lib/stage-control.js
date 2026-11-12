@@ -563,9 +563,9 @@ const StageControl = (() => {
     const types = L === Library ? Library.types : L.types;
     const names = Library.TYPE_NAMES || [];
     const typeOf = types ? (i) => names[types[i]] || '' : (i) => L.typeAt(i);
-    // Skipped files (collection-skips.js) never play, so they are not counted.
+    // Skipped files (collection-skips.js) never play, so they are not counted; one played by hand (the anchor) is.
     const skips = typeof queueSkipSet === 'function' ? queueSkipSet(L) : null;
-    const typeAt = skips ? (i) => (skips.has(ids[i]) ? 'skipped' : typeOf(i)) : typeOf;
+    const typeAt = skips ? (i) => (i !== anchor && skips.has(ids[i]) ? 'skipped' : typeOf(i)) : typeOf;
     // Counting the list's files is a walk over all of it: once per list, place, skips and Stage.
     if (!countMemo || countMemo.ids !== ids || countMemo.anchor !== anchor || countMemo.basic !== basic || countMemo.n !== n || countMemo.skips !== skips) {
       let before = 0, all = 0;
