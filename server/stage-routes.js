@@ -33,8 +33,9 @@ const geometry = require('../lib/stage/geometry');
 const { createHub, ROLES } = require('../lib/stage/hub');
 const { createEngine } = require('../lib/stage/engine');
 const { createMpvHost, volumeGainSupported } = require('../lib/stage/mpv-host');
-const { buildArgs } = require('../lib/stage/mpv-args');
+const { buildArgs, displayPlan, framedWindow } = require('../lib/stage/mpv-args');
 const mpvFind = require('../lib/stage/mpv-find');
+const fsBrowse = require('../lib/fs-browse');
 const StageRules = require('../player-lib/stage-rules.js');
 const { createSetLog } = require('../lib/stage/setlog');
 
@@ -79,6 +80,11 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
   let lastBounds = null;     // the window watcher's latest line: { win, max, min, work }
   let fixedOnce = false;     // a window opened off every screen was brought back once
   let opening = null;        // a launch in progress (one at a time)
+  // The size chosen last ('free' or a preset). Off Windows nothing reports
+  // the window's size, so this is what Stage knows there, and it says
+  // whether the window has the desktop's frame (framedWindow).
+  let sizeMode = 'free';
+  const framable = framedWindow({ platform, size: 'free' });
 
   const alive = () => !!host && host.alive();
 
@@ -116,6 +122,9 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
    */
   async function applySize(preset) {
     if (!alive()) return;
+    if (stageSettings.OPEN_SIZES.includes(preset)) sizeMode = preset;
+    // Linux: the desktop's frame at Free size (to size it with the mouse), the bare picture at a preset.
+    if (framable && !quiet) await host.set('border', framedWindow({ platform, size: sizeMode })).catch(() => {});
     if (lastBounds && lastBounds.max) {
       await host.set('window-maximized', false).catch(() => {});
     }
@@ -175,7 +184,12 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
       source: f.found ? f.source : null,
       chosen,
       chosenProblem: f.chosenProblem || null,
-      canChoose: platform === 'win32' && env.VAULT_DISABLE_NATIVE_PICKER !== '1' && typeof pickMpv === 'function',
+      // Linux: an mpv in a sandbox Vault cannot use (Flatpak, Snap), and how the window meets the desktop.
+      sandboxed: f.sandboxed || null,
+      platform,
+      display: displayPlan({ platform, env, xwayland: readSettings().xwayland }),
+      // Off Windows there is always a way: the desktop's dialog, or Vault's own folder browser.
+      canChoose: typeof pickMpv === 'function' && (platform !== 'win32' || env.VAULT_DISABLE_NATIVE_PICKER !== '1'),
       // Which Stage opens: mpv, or Basic (picture-in-picture in the Vault page).
       choice: StageRules.playerChoice({ setting: readSettings().player, mpvFound: f.found === true }),
     };
@@ -183,7 +197,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
 
   async function launch() {
     if (readSettings().player === 'basic') return { status: 200, body: { ok: true, mode: 'basic' } };
-    const found = await find({ chosen: readChosen() });
+    const found = await find({ chosen: readChosen(), withOptions: true });
     if (!found.found) {
       // The page runs Basic Stage itself (picture-in-picture); nothing to start here.
       return { status: 409, body: { error: 'mpv was not found on this computer, so Stage runs as Basic (picture-in-picture).', code: 'MPV_MISSING', mode: 'basic' } };
@@ -191,6 +205,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     const s = readSettings();
     const w = readWindow();
     const preset = stageSettings.SIZE_PRESETS[s.openSize] || null;
+    sizeMode = preset ? s.openSize : 'free';
     const saved = geometry.usableBounds(w.bounds);
     let bounds = saved;
     if (preset) bounds = saved ? { x: saved.x, y: saved.y, w: preset.w, h: preset.h } : { w: preset.w, h: preset.h };
@@ -219,11 +234,16 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     });
     host = h;
     engine = createEngine({ mpv: h, report: (r) => hub.report(r), settings: readSettings, lib, forceMute, volumeGain: volumeGainSupported(found.version) });
-    const out = await h.start(found.path, (ipcPath) => buildArgs({
+    // A Wayland desktop: mpv on XWayland (placed, kept in front); its own Wayland window if that will not start.
+    const plan = displayPlan({ platform, env, xwayland: s.xwayland });
+    const framed = framedWindow({ platform, size: sizeMode });
+    const argsFor = (x11) => (ipcPath) => buildArgs({
       ipcPath, title: s.windowName, bounds, maximized: w.max === true && !preset,
       cursorSeconds: s.cursorSeconds, volume: session.volume, muted: session.muted, forceMute, quiet,
-      hwdec: s.hwDecoding !== false, mpvVersion: found.version,
-    }), { mpvVersion: found.version });
+      hwdec: s.hwDecoding !== false, mpvVersion: found.version, mpvOptions: found.options, x11,
+      framed,
+    });
+    const out = await h.start(found.path, argsFor(plan.x11), { mpvVersion: found.version, fallbackArgsFor: plan.x11 ? argsFor(false) : null });
     if (!out.ok) {
       if (host === h) { host = null; engine = null; }
       try { h.kill(); } catch {}
@@ -254,7 +274,9 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     try { mpv = await status(); } catch { mpv = { found: false }; }
     res.json({
       ...hub.state(), mpv, settings: readSettings(),
-      size: lastBounds && !lastBounds.max ? geometry.presetOf(lastBounds.win, stageSettings.SIZE_PRESETS) : 'free',
+      size: lastBounds && !lastBounds.max ? geometry.presetOf(lastBounds.win, stageSettings.SIZE_PRESETS)
+        // Off Windows nothing reports the window: the size chosen last.
+        : (framable && alive() ? sizeMode : 'free'),
     });
   });
 
@@ -292,16 +314,35 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
   });
 
   // The only way a path reaches the mpv setting: the user picks the file in
-  // the native picker this server opens. Nothing in the request is used.
+  // the native picker this server opens. On Windows nothing in the request
+  // is used. Off Windows, when there is no desktop dialog, the picker answers
+  // { fallback: true } and the page asks again with the file chosen in
+  // Vault's own folder browser ({ path }); it gets the same checks
+  // (mpvFind.checkPath: named mpv, a file, runnable, and off Windows owned
+  // by root or this user in folders nobody else can write to; then it must
+  // answer --version as mpv). Only a same-origin page can send that path:
+  // the Host allowlist, Fetch Metadata and CSRF guards in server/index.js
+  // run before this router.
   router.post('/api/stage/mpv/choose', (req, res) => {
     if (typeof pickMpv !== 'function') return res.status(501).json({ error: 'Choosing mpv works on Windows only. Install mpv so it is on PATH.' });
-    pickMpv(res, async (pick, finish) => {
+    const given = platform !== 'win32' && req.body && typeof req.body === 'object' ? req.body.path : undefined;
+    // One plain absolute path (normalized, not in /proc, /sys or /dev) before anything looks at it.
+    if (given !== undefined && !fsBrowse.plainAbsolute(given)) return res.status(400).json({ error: 'Choose the mpv program by its full path.' });
+    const open = given !== undefined
+      ? (r, done) => done({ path: typeof given === 'string' ? given : '' }, (status, body) => r.status(status).json(body))
+      : pickMpv;
+    // The picker can stay open for minutes: nothing is run or saved once the vault has locked.
+    const locked = () => typeof lib.isLocked === 'function' && lib.isLocked();
+    const LOCKED = { error: 'Vault is locked. Unlock it first.', code: 'VAULT_LOCKED' };
+    open(res, async (pick, finish) => {
       try {
+        if (locked()) return finish(423, LOCKED);
         if (pick.canceled) return finish(200, { canceled: true, mpv: await status() });
         const c = mpvFind.checkPath(pick.path, { platform });
         if (!c.ok) return finish(400, { error: c.error });
         const v = await mpvFind.askVersion(c.real, c.stat);
-        if (!v) return finish(400, { error: 'That program did not answer as mpv. Choose mpv.exe from your mpv folder.' });
+        if (!v) return finish(400, { error: `That program did not answer as mpv. Choose ${platform === 'win32' ? 'mpv.exe from your mpv folder' : 'the mpv program, usually /usr/bin/mpv'}.` });
+        if (locked()) return finish(423, LOCKED);
         appSettings.set({ stageMpv: { path: c.real } });
         finish(200, { ok: true, mpv: await status() });
       } catch {

@@ -56,11 +56,17 @@
   function toolRow(key, t) {
     const { name, tech } = splitLabel(t.label);
     const what = tech || name;
+    /* install.cmd is the server's platform's one-line install (winget on
+       Windows, the distro package on Linux, Homebrew on macOS), null when
+       there is no single one; install.cmdNote is a caveat beside it. The
+       server picks both, so nothing here assumes Windows. */
+    const cmd = t.install.cmd;
     const manual = [
-      t.install.winget ? `<div class="setup-banner-desc">Run this command, then restart Vault:
-          <code class="setup-cmd" data-cmd="${escapeHtml(t.install.winget)}">${escapeHtml(t.install.winget)}</code>
-          <button class="setup-banner-btn" data-copy="${escapeHtml(t.install.winget)}" title="Copy this command">Copy</button></div>` : '',
-      t.install.url ? `<div class="setup-banner-desc">${t.install.winget ? 'Or download' : 'Download'} ${escapeHtml(what)} yourself from
+      cmd ? `<div class="setup-banner-desc">Run this command, then restart Vault:
+          <code class="setup-cmd" data-cmd="${escapeHtml(cmd)}">${escapeHtml(cmd)}</code>
+          <button class="setup-banner-btn" data-copy="${escapeHtml(cmd)}" title="Copy this command">Copy</button></div>` : '',
+      cmd && t.install.cmdNote ? `<div class="setup-banner-desc">${escapeHtml(t.install.cmdNote)}</div>` : '',
+      t.install.url ? `<div class="setup-banner-desc">${cmd ? 'Or download' : 'Download'} ${escapeHtml(what)} yourself from
           <a href="${escapeHtml(t.install.url)}" target="_blank" rel="noopener" title="${escapeHtml(t.install.url)}">${escapeHtml(hostOf(t.install.url))}</a>.</div>` : '',
     ].join('');
     return `

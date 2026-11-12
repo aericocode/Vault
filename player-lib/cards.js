@@ -1136,7 +1136,9 @@ function renderTile(media) {
   // Custom mixes are virtual files — nothing on disk to trash
   const dMode = typeof getDeleteMode === 'function' ? getDeleteMode() : 'soft';
   const delTitle = dMode === 'hard' ? 'Delete permanently (no undo)'
-    : dMode === 'recycle' ? 'Delete to Recycle Bin' : 'Move to trash';
+    : dMode === 'recycle'
+      ? `Delete to ${typeof vaultPlatformWords === 'function' ? vaultPlatformWords().recycleBinChoice : 'Recycle Bin'}`
+      : 'Move to trash';
   const trashBtn = isMix ? '' : (isTrashed
     ? `<button class="tile-btn" onclick="restoreSingle(${media.id})" title="Restore from trash" aria-label="Restore from trash">${ic('♻', 'rescan')}</button>`
     : `<button class="tile-btn ${dMode !== 'soft' ? 'tile-btn-danger' : ''}" onclick="trashSingle(${media.id})" title="${delTitle}" aria-label="${delTitle}">${ic('🗑', 'trash')}</button>`);

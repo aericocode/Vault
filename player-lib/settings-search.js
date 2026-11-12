@@ -60,6 +60,11 @@ function settingsSearchPageOf(entry, look) {
  * Classic page; mpage: its Modern page when that is not just the Classic
  * page renamed. look: 'modern' or 'classic' for a row only one look shows.
  */
+/* The few index lines that read differently on Windows follow the server's
+   OS, like the Settings rows (player-lib/platform-words.js). Without that
+   file loaded they read as on Windows. */
+const settingsSearchOnWindows = () => typeof vaultServerPlatform !== 'function' || vaultServerPlatform() === 'win32';
+
 const SETTINGS_INDEX = [
   // Settings
   { page: 'settings', mpage: 'privacy', id: 'privacyMode', label: 'Privacy mode',
@@ -147,8 +152,12 @@ const SETTINGS_INDEX = [
     desc: 'See how much space thumbnails take and delete saved ones.',
     keywords: ['disk', 'storage', 'space', 'delete', 'clean', 'cache', 'size', 'free up'] },
   { page: 'library', id: 'deleteMode', label: 'Delete mode',
-    desc: 'What the trash button does: soft to the trash folder, the Recycle Bin, or permanent.',
-    keywords: ['trash', 'recycle bin', 'remove', 'erase', 'permanent'] },
+    get desc() {
+      return settingsSearchOnWindows()
+        ? 'What the trash button does: soft to the trash folder, the Recycle Bin, or permanent.'
+        : 'What the trash button does: soft to the trash folder, the System Trash, or permanent.';
+    },
+    keywords: ['trash', 'recycle bin', 'system trash', 'remove', 'erase', 'permanent'] },
   { page: 'library', id: 'mig-prefix', label: 'Quick move',
     desc: 'Moved your files to a new drive or folder? Change the start of their paths, no rescan.',
     keywords: ['relink', 'move', 'moved', 'migrate', 'drive', 'path', 'prefix', 'moved your files'] },
@@ -184,7 +193,10 @@ const SETTINGS_INDEX = [
 
   // Stage, the window shared in Discord (player-lib/stage-settings-ui.js)
   { page: 'stage', id: 'stagePlayer', label: 'Player: mpv or Basic',
-    desc: 'Which Stage opens: mpv (the full Stage) or Basic (picture-in-picture, no extra program). Choose mpv.exe if Vault does not find it.',
+    get desc() {
+      return 'Which Stage opens: mpv (the full Stage) or Basic (picture-in-picture, no extra program). '
+        + (settingsSearchOnWindows() ? 'Choose mpv.exe if Vault does not find it.' : 'Choose the mpv program if Vault does not find it.');
+    },
     keywords: ['stage', 'mpv', 'player', 'basic', 'picture-in-picture', 'pip', 'path', 'program', 'discord'] },
   { page: 'stage', id: 'stageShowName', label: 'Show the name as a file starts',
     desc: 'The name of the file, bottom left over the picture, for a few seconds.',
@@ -311,6 +323,9 @@ const SETTINGS_INDEX = [
   { page: 'about', id: 'setupNotices', label: 'Setup notices',
     desc: 'Show again the setup notices you hid with "Don\'t show again".',
     keywords: ['ffmpeg', 'missing tools', 'banner', 'hidden', 'notice'] },
+  { page: 'about', id: 'diagnostics', label: 'Copy diagnostics',
+    desc: 'Copy your version, system, graphics card and helper programs for a bug report.',
+    keywords: ['bug', 'report', 'support', 'debug', 'system info', 'linux', 'discord', 'help'] },
 ];
 
 /** How many keyboard shortcut rows show before "Show all". */

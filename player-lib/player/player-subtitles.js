@@ -863,16 +863,49 @@ function subtitlesShowPrereqModal(info = {}) {
   // unavailable" for both sends half the users to the wrong place.
   const cmd = (text) => `<div class="subs-prereq-cmd"><code>${escapeHtml(text)}</code>
            <button class="vault-btn subs-prereq-copy" data-copy="${escapeHtml(text)}">Copy</button></div>`;
-  const steps = noPython
-    ? `<li>Install Python 3.9 or newer. In its installer, tick <b>Add python.exe to PATH</b>.
-         ${cmd('winget install Python.Python.3.12')}
+  /* The install steps depend on the SERVER's platform (the viewer can be a
+     browser on another machine); checkTranscriber() sends it. Off Windows,
+     the system Python refuses a plain pip install (Ubuntu 23.04 and later,
+     Homebrew), so the package goes into a venv in Vault's folder, which
+     Vault finds by itself (lib/python-cmd.js). */
+  const plat = info.platform || 'win32';
+  const isWin = plat === 'win32';
+  const venvSetup = 'python3 -m venv venv && venv/bin/pip install faster-whisper';
+  const inVenv = /[\\/]venv[\\/]/.test(pyCmd);
+  // The one-line installs live in player-lib/platform-words.js (winget, apt
+  // with the dnf and pacman lines after it, brew). The fallbacks are the same
+  // lines, for when that file is not loaded.
+  const pyLine = typeof vaultInstallLine === 'function' ? vaultInstallLine('python', plat) : null;
+  const pyCmdLine = pyLine ? pyLine.cmd
+    : isWin ? 'winget install Python.Python.3.12' : plat === 'darwin' ? 'brew install python' : 'sudo apt install python3 python3-venv';
+  const pyAlts = pyLine ? pyLine.alts
+    : (isWin || plat === 'darwin' ? [] : [{ on: 'Fedora', cmd: 'sudo dnf install python3' }]);
+  const pyAltsHtml = pyAlts.map(a => `On ${escapeHtml(a.on)}: <code>${escapeHtml(a.cmd)}</code>`).join('. ');
+  const steps = isWin
+    ? (noPython
+      ? `<li>Install Python 3.9 or newer. In its installer, tick <b>Add python.exe to PATH</b>.
+         ${cmd(pyCmdLine)}
          Or download it from <a href="https://www.python.org/downloads/" target="_blank" rel="noopener">python.org</a>.</li>
        <li>Then add the speech-to-text package:
          ${cmd('pip install faster-whisper')}</li>
        <li>Restart Vault, so it can find the new Python.</li>`
-    : `<li>Add it to the Python Vault uses:
+      : `<li>Add it to the Python Vault uses:
          ${cmd(`${pyCmd} -m pip install faster-whisper`)}</li>
-       <li>Press <b>Generate</b> again. No restart needed.</li>`;
+       <li>Press <b>Generate</b> again. No restart needed.</li>`)
+    : (noPython
+      ? `<li>Install Python 3.9 or newer:
+         ${cmd(pyCmdLine)}
+         ${pyAltsHtml}</li>
+       <li>Then, in Vault's folder, add the speech-to-text package:
+         ${cmd(venvSetup)}</li>
+       <li>Restart Vault, so it can find the new Python.</li>`
+      : inVenv
+        ? `<li>Add it to the Python Vault uses:
+         ${cmd(`${pyCmd} -m pip install faster-whisper`)}</li>
+       <li>Press <b>Generate</b> again. No restart needed.</li>`
+        : `<li>In Vault's folder, add the package to a Python of its own:
+         ${cmd(venvSetup)}</li>
+       <li>Restart Vault, so it can find it.</li>`);
 
   const ov = document.createElement('div');
   ov.id = 'subsPrereqModal';
@@ -889,7 +922,7 @@ function subtitlesShowPrereqModal(info = {}) {
       <details class="vault-modal-hint subs-prereq-more">
         <summary>For advanced setups</summary>
         <p>Using a virtual environment? Set <code>PYTHON_PATH</code> to that
-        environment's python.exe, then restart Vault. SETUP.md has the details.</p>
+        environment's ${isWin ? 'python.exe' : 'python (for example <code>/home/you/venvs/whisper/bin/python</code>)'}, then restart Vault. SETUP.md has the details.</p>
       </details>
       <div class="vault-modal-actions">
         <button class="vault-btn vault-btn-primary" id="subsPrereqClose">Got it</button>

@@ -1445,8 +1445,17 @@
    *  say what still works: dropping files onto the window. */
   function pickerFailed(err, kind) {
     let msg = errWords(err, `opening the ${kind === 'folder' ? 'folder' : 'file'} picker`);
-    if (/cannot open the Windows file picker/i.test(msg)) msg += ' You can drag files or a folder onto this window instead.';
+    if (/cannot open the (?:Windows )?file picker/i.test(msg)) msg += ' You can drag files or a folder onto this window instead.';
     showToast(msg, { type: 'error' });
+  }
+
+  /** Off Windows with no desktop dialog the server answers { fallback: true }:
+   *  Vault's own folder browser (fs-picker.js) asks instead. */
+  async function pickInPage(picked, kind) {
+    if (!picked || !picked.fallback || !window.vaultFsPicker) return picked;
+    const p = await window.vaultFsPicker.fromReply(picked, { kind });
+    if (p == null) return { canceled: true };
+    return kind === 'files' ? { paths: p } : { path: p };
   }
 
   async function pickAndAddFolder() {
@@ -1463,6 +1472,7 @@
         picked = await resp.json().catch(() => ({}));
         if (!resp.ok) { pickerFailed(replyErr(resp, picked), 'folder'); return; }
       } catch (err) { busy.answered(); pickerFailed(err, 'folder'); return; }
+      picked = await pickInPage(picked, 'folder');
       if (picked.canceled || !picked.path) return;
       await openFolderImport(picked.path);
     } finally {
@@ -1511,6 +1521,7 @@
         picked = await resp.json().catch(() => ({}));
         if (!resp.ok) { pickerFailed(replyErr(resp, picked), 'files'); return; }
       } catch (err) { busy.answered(); pickerFailed(err, 'files'); return; }
+      picked = await pickInPage(picked, 'files');
       if (picked.canceled) return;                 // real cancel — stay quiet
       if (!picked.paths?.length) {                 // OK'd but nothing usable came back
         showToast('⚠ The file picker returned no files. Nothing was added.');
@@ -1902,6 +1913,11 @@
       else if (entry?.name) files.push({ name: entry.name, size: null });
     }
     if (!files.length && !dirs.length) return;
+    // Linux file managers (Nautilus, Dolphin and most others) also put the
+    // real paths on the drag as file:// URIs. Read now, with the rest; the
+    // server only uses them off Windows (fs-picker.js decodeUriList).
+    let paths = [];
+    try { paths = decodeUriList(e.dataTransfer.getData('text/uri-list')); } catch { paths = []; }
     // The collection open as the drop lands is the one the files go into.
     const collectionId = dropTargetCollection();
 
@@ -1910,7 +1926,8 @@
     const isList = (f) => /\.(m3u8?|xspf|pls|dpl)$/i.test(f.name || '');
     if (!dirs.length && files.length && files.every(isList) && typeof window.vaultImportPlaylistDrop === 'function') {
       if (files.length > 1) { showToast('⚠ Drop one playlist at a time.'); return; }
-      window.vaultImportPlaylistDrop(files[0]);
+      const listPath = paths.find(p => p.split('/').pop() === files[0].name);
+      window.vaultImportPlaylistDrop(listPath ? { ...files[0], path: listPath } : files[0]);
       return;
     }
 
@@ -1919,12 +1936,18 @@
     try {
       const resp = await fetch('/api/import/resolve-drop', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files, dirs }),
+        body: JSON.stringify(paths.length ? { files, dirs, paths } : { files, dirs }),
       });
       if (resp.ok) r = await resp.json().catch(() => null);
     } catch {}
     if (r && (r.files?.length || r.dirs?.length)) {
       await addResolvedDrop(r, { collectionId });
+      return;
+    }
+    // Off Windows, a drop that came without its paths (some browsers and
+    // file managers leave them out): the pickers still work.
+    if (r && r.unresolved === 'unsupported') {
+      showToast('Vault cannot see where dropped files are on this computer. Use Add folder or Add files instead.');
       return;
     }
 

@@ -73,6 +73,7 @@ const path = require('path');
 const db = require('../lib/database');
 const dupes = require('../lib/dupes');
 const scanner = require('../lib/file-scanner');
+const { CASE_INSENSITIVE_PATHS } = require('../lib/platform');
 
 const IS_WIN = process.platform === 'win32';
 const SEP = IS_WIN ? '\\' : '/';
@@ -93,9 +94,31 @@ function stripTrailing(p) {
   return p.replace(/[\\/]+$/, '');
 }
 
-/** Case-folded key — Windows paths compare case-insensitively. */
+/** Case-folded key where paths ignore case (Windows, macOS), as findOccupant() is. */
 function key(p) {
-  return IS_WIN ? String(p).toLowerCase() : String(p);
+  return CASE_INSENSITIVE_PATHS ? String(p).toLowerCase() : String(p);
+}
+
+/**
+ * A library carried from Windows to Linux or macOS: its rows still hold
+ * Windows paths (K:\Media\Sub\x.mp4) and the new prefix is a POSIX one
+ * (/mnt/media). The rest of each path then takes "/" ("\" was the separator
+ * there; here it would be part of a name), and the old prefix matches in any
+ * case, as it did on Windows. Never on Windows, never for a POSIX old prefix.
+ */
+const WIN_PREFIX = /^(?:[A-Za-z]:(?:[\\/]|$)|\\\\[^\\])/;
+function crossesToPosix(oldPrefix, newPrefix) {
+  return !IS_WIN && WIN_PREFIX.test(oldPrefix) && newPrefix.startsWith('/');
+}
+const posixRest = (rest) => rest.replace(/\\/g, '/');
+
+/**
+ * The row that already holds this path. Case-blind where the file system is
+ * (Windows, macOS: K:\Media\x.mp4 and k:\media\x.mp4 are one file); exact on
+ * Linux, where A.mp4 and a.mp4 are two files and two rows.
+ */
+function findOccupant(p) {
+  return CASE_INSENSITIVE_PATHS ? db.findByPathInsensitive(p) : db.getByPath(p);
 }
 
 function exists(p) {
@@ -345,7 +368,7 @@ function classify(row, newPath, report, claimed, reason) {
     return;
   }
 
-  const occupant = db.findByPathInsensitive(newPath);
+  const occupant = findOccupant(newPath);
 
   if (!occupant || occupant.id === row.id) {
     claimed.add(key(newPath));
@@ -376,7 +399,10 @@ function classify(row, newPath, report, claimed, reason) {
 async function planPrefix(oldPrefixRaw, newPrefixRaw, { onTick = () => {} } = {}) {
   const oldPrefix = stripTrailing(normalize(oldPrefixRaw));
   const newPrefix = stripTrailing(normalize(newPrefixRaw));
-  const oldKey = key(oldPrefix);
+  const toPosix = crossesToPosix(oldPrefix, newPrefix);
+  // Either slash, any case: the old rows are Windows paths, whatever was typed.
+  const prefixKey = toPosix ? (p) => String(p).toLowerCase().replace(/\//g, '\\') : key;
+  const oldKey = prefixKey(oldPrefix);
 
   const report = emptyReport('prefix');
   report.oldPrefix = oldPrefix;
@@ -393,7 +419,7 @@ async function planPrefix(oldPrefixRaw, newPrefixRaw, { onTick = () => {} } = {}
   // scan; the per-row disk work below only ever runs for the matches anyway.
   const matches = [];
   for (const row of rows) {
-    if (!key(row.filepath).startsWith(oldKey)) continue;
+    if (!prefixKey(row.filepath).startsWith(oldKey)) continue;
     const rest = row.filepath.slice(oldPrefix.length);
     // "K:\Media" must not swallow "K:\MediaBackup\x.mp4" — what follows the
     // prefix has to start at a path boundary (or be nothing, for the prefix
@@ -408,7 +434,7 @@ async function planPrefix(oldPrefixRaw, newPrefixRaw, { onTick = () => {} } = {}
     seen++;
     await pace(seen, matches.length, 'matching');
     report.considered++;
-    classify(row, newPrefix + rest, report, claimed, 'prefix');
+    classify(row, newPrefix + (toPosix ? posixRest(rest) : rest), report, claimed, 'prefix');
   }
   onTick(matches.length, matches.length, 'matching');
 
@@ -456,7 +482,7 @@ async function matchRows(candidateRows, ctx, report, claimed, pace, prog) {
     if (losers.length && report.rewrite.length + report.absorb.length > before) {
       const stubIds = [];
       for (const l of losers) {
-        const occ = db.findByPathInsensitive(l.path);
+        const occ = findOccupant(l.path);
         if (occ && occ.processing_error === db.UNSCANNED_MARKER) stubIds.push(occ.id);
       }
       if (stubIds.length) report.dupeLink.push({ rowId: row.id, stubIds });
@@ -828,7 +854,8 @@ async function planAuto(newRootRaw, { onProgress = () => {}, onTick = () => {} }
     const rule = accepted.find(r => underPrefix(row.filepath, r.oldPrefix));
     if (!rule) { leftovers.push(row); continue; }
 
-    const mapped = rule.newPrefix + row.filepath.slice(rule.oldPrefix.length);
+    const tail = row.filepath.slice(rule.oldPrefix.length);
+    const mapped = rule.newPrefix + (crossesToPosix(rule.oldPrefix, rule.newPrefix) ? posixRest(tail) : tail);
     if (!exists(mapped)) { leftovers.push(row); continue; }
 
     // A conflict here is REPORTED, not retried: the destination is genuinely

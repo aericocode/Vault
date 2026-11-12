@@ -36,6 +36,12 @@
 (function () {
   const LS_KEY = 'vault_settings';
   const POP_SORTS = ['az', 'count'];   // filter popover option order
+
+  /* Words that follow the server's OS (player-lib/platform-words.js). The
+     Windows words stand in if that file is not loaded (tests run this file alone). */
+  const settingsPlatformWords = () => (typeof vaultPlatformWords === 'function'
+    ? vaultPlatformWords()
+    : { recycleBin: 'Recycle Bin', recycleBinChoice: 'Recycle Bin', isRecovered: 'is recovered from Windows', canBeRecovered: 'can be recovered by Windows', examplePath: 'C:\\Media', examplePathNew: 'D:\\Media' });
   const REPEAT_MODES = ['off', 'all', 'one'];  // player repeat button, in cycle order
 
   const DEFAULTS = {
@@ -1640,17 +1646,19 @@
   function deleteModeRow() {
     const cur = typeof getDeleteMode === 'function' ? getDeleteMode() : 'soft';
     const modern = settingsIsModern();
+    // Recycle Bin on Windows, System Trash on Linux and macOS (player-lib/platform-words.js)
+    const pw = settingsPlatformWords();
     const opts = [
       { value: 'soft',    label: modern ? 'Trash folder' : 'Soft to trash folder' },
-      { value: 'recycle', label: 'Recycle Bin' },
+      { value: 'recycle', label: pw.recycleBinChoice },
       { value: 'hard',    label: 'Permanent' },
     ];
     return settingsRowHtml({
       cls: 'settings-seg-row', sfind: 'deleteMode', titleId: 'segLabel_deleteMode',
       title: modern ? 'When I delete a file' : 'Delete mode',
       desc: modern
-        ? 'Trash folder can be undone. Recycle Bin is recovered from Windows. Permanent cannot be undone.'
-        : 'What the 🗑 button does. Soft can be undone from the trash. Recycle Bin can be recovered by Windows. Permanent erases the file from disk straight away.',
+        ? `Trash folder can be undone. ${pw.recycleBinChoice} ${pw.isRecovered}. Permanent cannot be undone.`
+        : `What the 🗑 button does. Soft can be undone from the trash. ${pw.recycleBinChoice} ${pw.canBeRecovered}. Permanent erases the file from disk straight away.`,
       control: `<span class="settings-seg" role="group" aria-labelledby="segLabel_deleteMode">
           ${opts.map(o => `
             <button type="button" class="settings-seg-btn" data-delete-mode="${o.value}"
@@ -1699,14 +1707,14 @@
           title: 'Same folders, new place',
           blurb: 'Use this when only the start of the path changed. Instant.',
           fields: `
-            ${migField('migOldPrefix', 'Old path prefix', 'C:\\Media')}
-            ${migField('migNewPrefix', 'New path prefix', 'D:\\Media')}`,
+            ${migField('migOldPrefix', 'Old path prefix', settingsPlatformWords().examplePath)}
+            ${migField('migNewPrefix', 'New path prefix', settingsPlatformWords().examplePathNew)}`,
         }) })
       + settingsDialogHtml({ id: 'migDeepDlg', title: 'Deep search', wide: true, body: migCard({
           mode: 'auto',
           title: 'Find renamed and shuffled files',
           blurb: 'Point this at your new main folder. Vault scans every file in it, subfolders included, and checks each match against the file contents. Slow on big drives.',
-          fields: migField('migNewRoot', 'Search this folder', 'D:\\Media'),
+          fields: migField('migNewRoot', 'Search this folder', settingsPlatformWords().examplePathNew),
         }) }) })}
       ${settingsCardHtml({ title: 'Playback support', id: 'pbCard', sfind: 'playbackCheck', body: settingsRowHtml({
         title: 'Check which files play in the browser',
@@ -1757,8 +1765,8 @@
         title: 'Quick move',
         blurb: 'Same folders, new place. Use this when only the start of the path changed. Instant.',
         fields: `
-          ${migField('migOldPrefix', 'Old path prefix', 'C:\\Media')}
-          ${migField('migNewPrefix', 'New path prefix', 'D:\\Media')}`,
+          ${migField('migOldPrefix', 'Old path prefix', settingsPlatformWords().examplePath)}
+          ${migField('migNewPrefix', 'New path prefix', settingsPlatformWords().examplePathNew)}`,
       })}
 
       <button class="mig-expander" id="migDeepToggle" type="button" aria-expanded="false"
@@ -1771,7 +1779,7 @@
           mode: 'auto',
           title: 'Deep search',
           blurb: 'Point this at your new main folder. Vault scans every file in it (subfolders included) and matches your records to what it finds, even renamed files. Every match is checked against the file contents. Slow on big drives.',
-          fields: migField('migNewRoot', 'Search this folder', 'D:\\Media'),
+          fields: migField('migNewRoot', 'Search this folder', settingsPlatformWords().examplePathNew),
         })}
       </div>
 
@@ -2955,7 +2963,7 @@
   function coveMapRowHtml(m) {
     return `
       <div class="cove-map-row">
-        <input type="text" class="mig-input" data-cove-map="from" aria-label="Vault folder" placeholder="Vault folder, for example D:\\Media"
+        <input type="text" class="mig-input" data-cove-map="from" aria-label="Vault folder" placeholder="Vault folder, for example ${esc(settingsPlatformWords().examplePathNew)}"
                spellcheck="false" autocomplete="off" value="${esc(m.from)}">
         <span class="mig-field-label">is</span>
         <input type="text" class="mig-input" data-cove-map="to" aria-label="Cove folder" placeholder="Cove folder, for example /media"
@@ -3574,6 +3582,12 @@
         <p class="settings-note">Check for updates makes one request to api.github.com to compare versions.
         Nothing else is sent. The network is only used when you allow it, for model downloads and update checks.</p>
         <p class="settings-note">Free for personal use. Proprietary and source available: see the LICENSE file next to the app.</p>` })
+      + settingsCardHtml({ title: 'Help', sfind: 'diagnostics', body: settingsRowHtml({
+        title: 'Copy diagnostics',
+        desc: 'Copies your Vault version, system, graphics card and which helper programs Vault can find, to paste into a bug report. No file names or folders from your library.',
+        extra: '<span class="settings-toggle-desc" id="settingsDiagMsg"></span>',
+        control: '<button class="settings-btn settings-btn-quiet" id="settingsDiagBtn" type="button">Copy diagnostics</button>',
+      }) })
       + settingsCardHtml({ title: 'Setup notices', id: 'settingsSetupNotices', sfind: 'setupNotices', cls: 'settings-notices', hidden: true, body: `
         <div id="settingsSetupNoticesList"></div>
         <p class="settings-note settings-notices-note">Required tools like ffmpeg are always shown when missing.</p>` });
@@ -3594,6 +3608,11 @@
           <a href="https://github.com/aericocode/Vault" target="_blank" rel="noopener">GitHub repo ↗</a>
           <a href="https://ko-fi.com/aericocode" target="_blank" rel="noopener">Ko-fi ↗</a>
         </div>
+        <div class="settings-update" data-sfind="diagnostics">
+          <button class="settings-btn" id="settingsDiagBtn" type="button">Copy diagnostics</button>
+          <span class="settings-note settings-update-msg" id="settingsDiagMsg"></span>
+        </div>
+        <p class="settings-note">For bug reports: your Vault version, system, graphics card and which helper programs Vault can find. No file names or folders from your library.</p>
       </div>
       <div class="settings-notices" id="settingsSetupNotices" data-sfind="setupNotices" hidden>
         <h3 class="settings-h settings-h-mt">Setup notices</h3>
@@ -3651,8 +3670,51 @@
       const verEl = document.getElementById('settingsAboutVer');
       if (nameEl && info.name) nameEl.textContent = info.name;
       if (verEl && info.version) verEl.textContent = `v${info.version}`;
+      if (typeof vaultSetServerPlatform === 'function') vaultSetServerPlatform(info.platform);
     } catch { /* server unreachable - leave the static fallback */ }
     wireUpdateCheck();
+    wireDiagnostics();
+  }
+
+  async function settingsCopyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch { /* not a secure page: the old way */ }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return !!ok;
+    } catch { return false; }
+  }
+
+  // Copy diagnostics: GET /api/diagnostics (read only) builds the text on the
+  // server, where the OS, GPU and tools are. Fires only on click.
+  function wireDiagnostics() {
+    const btn = document.getElementById('settingsDiagBtn');
+    const msg = document.getElementById('settingsDiagMsg');
+    if (!btn || !msg || btn.dataset.wired) return;
+    btn.dataset.wired = '1';
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      msg.textContent = 'Gathering…';
+      try {
+        const resp = await fetch('/api/diagnostics');
+        const info = await resp.json();
+        if (!resp.ok || !info.text) throw new Error(info.error || `HTTP ${resp.status}`);
+        msg.textContent = (await settingsCopyText(info.text))
+          ? 'Copied. Paste it into your bug report.'
+          : 'Could not copy. Your browser blocked the clipboard.';
+      } catch {
+        msg.textContent = 'Could not gather diagnostics. Is Vault still running?';
+      } finally {
+        btn.disabled = false;
+      }
+    });
   }
 
   // Manual update check — fires ONLY on click; nothing polls in the background.

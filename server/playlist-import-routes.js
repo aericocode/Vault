@@ -25,11 +25,18 @@
  * Where paths come from: only from the native pickers' output, from the drop
  * resolver (a file the user selected and dragged, matched by name and size
  * and checked on disk), and from parsing the playlist file found that way.
- * No route takes a path from the page: the page names a playlist only by the
- * session id these routes handed out, and an entry only by its number. So a
- * page cannot get Vault to read or stat a file of its choosing. (The Add
- * window the review opens posts its files to /api/import/add-paths like any
- * other Add, which records rows and reads nothing but what it adds.)
+ * On Windows no route takes a path from the page: the page names a playlist
+ * only by the session id these routes handed out, and an entry only by its
+ * number. (The Add window the review opens posts its files to
+ * /api/import/add-paths like any other Add, which records rows and reads
+ * nothing but what it adds.)
+ *
+ * Off Windows there may be no desktop dialog at all. Then the pick routes
+ * answer { fallback: true, ... }, the page opens Vault's own folder browser
+ * (which can already list any folder, GET /api/fs/list), and sends the
+ * chosen path back as { path } to the same route. A drop sends the path
+ * the file manager put on it. Those paths get the same checks as a
+ * picker's (checkPickedPath).
  *
  * Every route here sits behind the server's global guards: the Host
  * allowlist, Fetch Metadata, the cross-origin write check (CSRF) and the
@@ -39,8 +46,10 @@
 'use strict';
 
 const express = require('express');
+const fs = require('fs');
 const path = require('path');
 const playlistImport = require('../lib/playlist/import');
+const fsBrowse = require('../lib/fs-browse');
 
 const STATUS = {
   NOT_FOUND: 404, BAD_TARGET: 400, NAME_TAKEN: 409, BAD_FILE: 400, TOO_BIG: 413,
@@ -54,9 +63,12 @@ const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 /**
  * A path a picker printed, if it is one Vault will use: one line, an absolute
- * Windows path (drive or UNC). Anything else is refused, never repaired.
+ * Windows path (drive or UNC). Off Windows: one absolute, already normalized
+ * POSIX path, not inside /proc, /sys or /dev. Anything else is refused,
+ * never repaired.
  */
-function checkPickedPath(raw) {
+function checkPickedPath(raw, platform = process.platform) {
+  if (platform !== 'win32') return fsBrowse.plainAbsolute(raw) ? raw : null;
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > 32767) return null;
   if (/[\u0000-\u001f]/.test(raw)) return null;
   if (!/^(?:[A-Za-z]:\\|\\\\[^\\])/.test(raw) || !path.win32.isAbsolute(raw)) return null;
@@ -84,10 +96,27 @@ function sendErr(res, err, what) {
  */
 function buildRouter(deps) {
   const router = express.Router();
+  const platform = deps.platform || process.platform;
+  const natives = deps.nativeSpecs || {};
   const defaults = {
-    pickPlaylist: (res, onClose) => deps.spawnPicker(res, deps.playlistScript, 'file', onClose),
-    pickFolder: (res, onClose) => deps.spawnPicker(res, deps.folderScript, 'folder', onClose),
+    pickPlaylist: (res, onClose) => deps.spawnPicker(res, deps.playlistScript, 'file', onClose, { native: natives.playlist }),
+    pickFolder: (res, onClose) => deps.spawnPicker(res, deps.folderScript, 'folder', onClose, { native: natives.folder }),
     resolve: (cb) => deps.runResolver(cb),
+  };
+
+  /**
+   * Off Windows only: the path the user chose in Vault's own folder browser
+   * (after a { fallback } answer), as a picker that has already closed.
+   * null when there is none, so the real picker opens.
+   */
+  const chosenInPage = (req) => {
+    if (platform === 'win32') return null;
+    const p = req.body && typeof req.body === 'object' ? req.body.path : undefined;
+    if (p === undefined) return null;
+    return (res, onClose) => {
+      if (typeof p !== 'string' || !p) return res.status(400).json({ error: 'path must be a full path', code: 'BAD_PATH' });
+      return onClose({ code: 0, out: p, errOut: '', finish: (status, body) => res.status(status).json(body) });
+    };
   };
   dialogs = { ...defaults };
   resetDialogs = () => { dialogs = { ...defaults }; };
@@ -97,13 +126,14 @@ function buildRouter(deps) {
     try {
       open(res, ({ code, out, errOut, finish }) => {
         try {
-          const raw = String(out || '').trim();
+          // Off Windows a name may really end in a space: only a line end comes off.
+          const raw = platform === 'win32' ? String(out || '').trim() : String(out || '').replace(/\r?\n$/, '');
           if (raw === deps.pickCancel) return finish(200, { canceled: true });
           if (!raw) {
             console.warn('[Playlist import] picker failed:', (String(errOut || '').trim() || `exit ${code}, no output`).split('\n')[0]);
             return finish(500, { error: 'The picker could not open. Try again.' });
           }
-          const p = checkPickedPath(raw);
+          const p = checkPickedPath(raw, platform);
           if (!p) return finish(400, { error: 'The picker returned a path Vault cannot use.', code: 'BAD_PATH' });
           // A picker can stay open for minutes: look again.
           if (deps.isLocked()) return finish(423, { error: 'Vault is locked. Unlock it first.', code: 'VAULT_LOCKED' });
@@ -133,7 +163,7 @@ function buildRouter(deps) {
     .catch((err) => finishErr(finish, err, 'reading the playlist'));
 
   router.post('/api/playlists/import/pick', (req, res) => {
-    withPicked(res, dialogs.pickPlaylist, (p, finish) => {
+    withPicked(res, chosenInPage(req) || dialogs.pickPlaylist, (p, finish) => {
       if (!playlistImport.playlistExt(p)) {
         return finish(400, { error: 'That is not a playlist file Vault can read (.m3u, .m3u8, .xspf, .pls, .dpl).', code: 'BAD_FILE' });
       }
@@ -151,7 +181,17 @@ function buildRouter(deps) {
     if (size !== null && !(Number.isSafeInteger(size) && size >= 0)) {
       return res.status(400).json({ error: 'size must be a number of bytes', code: 'BAD_FILE' });
     }
-    if (process.platform !== 'win32' && dialogs.resolve === defaults.resolve) return res.json({ unresolved: 'unsupported' });
+    if (platform !== 'win32' && b.path !== undefined) {
+      // The path the file manager put on the drag (text/uri-list): the same
+      // checks as a picked path, and it must be the file that was dropped.
+      const p = checkPickedPath(b.path, platform);
+      if (!p || path.posix.basename(p) !== name || !playlistImport.playlistExt(p)) return res.json({ unresolved: 'no matching path' });
+      let st;
+      try { st = fs.statSync(p); } catch { return res.json({ unresolved: 'no matching path' }); }
+      if (!st.isFile() || (size !== null && st.size !== size)) return res.json({ unresolved: 'no matching path' });
+      return openAndReview(p, (status, body) => res.status(status).json(body));
+    }
+    if (platform !== 'win32' && dialogs.resolve === defaults.resolve) return res.json({ unresolved: 'unsupported' });
     let answered = false;
     const reply = (status, body) => { if (!answered) { answered = true; res.status(status).json(body); } };
     try {
@@ -164,7 +204,7 @@ function buildRouter(deps) {
             if (m && m.files.length === 1) found.set(m.files[0].path, m.files[0].path);
           }
           if (found.size !== 1) return reply(200, { unresolved: found.size ? 'ambiguous' : 'no matching selection' });
-          const p = checkPickedPath(found.values().next().value);
+          const p = checkPickedPath(found.values().next().value, platform);
           if (!p || !playlistImport.playlistExt(p)) return reply(200, { unresolved: 'no matching selection' });
           if (deps.isLocked()) return reply(423, { error: 'Vault is locked. Unlock it first.', code: 'VAULT_LOCKED' });
           return openAndReview(p, reply);
@@ -196,7 +236,7 @@ function buildRouter(deps) {
     const id = sid(req, res);
     if (!id) return;
     try { playlistImport.review(id); } catch (err) { return sendErr(res, err, 'finding the files'); }
-    withPicked(res, dialogs.pickFolder, (folder, finish) => playlistImport.findInFolder(id, folder)
+    withPicked(res, chosenInPage(req) || dialogs.pickFolder, (folder, finish) => playlistImport.findInFolder(id, folder)
       .then((found) => (deps.isLocked() ? finish(423, LOCKED_BODY) : finish(200, { ...playlistImport.review(id), found })))
       .catch((err) => finishErr(finish, err, 'looking in the folder')));
   });

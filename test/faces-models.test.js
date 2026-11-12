@@ -112,8 +112,15 @@ function resetLibrary() {
   locked = false; migrating = false;
 }
 
+// The switch job's retry timer is unref'd (it must never hold Vault open), and
+// in the server something always holds the event loop. Here nothing does: on
+// Windows the runner's stdio pipes happen to, on Linux they do not, and a test
+// waiting on that timer was cancelled with "event loop already resolved".
+// Hold the loop for this file, as the server would.
+const holdLoop = setInterval(() => {}, 60 * 60 * 1000);
 test.before(() => { db.init(); });
 test.after(() => {
+  clearInterval(holdLoop);
   db.close();
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
 });

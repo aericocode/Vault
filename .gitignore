@@ -28,10 +28,13 @@ video_metadata.db-shm
 /vault-settings.json
 /.env
 
-# downloaded tools (GPL)
+# downloaded tools (GPL): .exe on Windows, bare names on Linux
 /ffmpeg.exe
 /ffprobe.exe
 /fpcalc.exe
+/ffmpeg
+/ffprobe
+/fpcalc
 
 # licensing
 /keys

@@ -543,34 +543,107 @@ app.post('/api/settings/app', (req, res) => {
    screen to be wrong; once every tool is ok the cache is served untouched and
    the healthy path costs nothing. (A PATH install is still invisible until a
    restart — a running process can never see a new PATH entry — which is why
-   the winget row keeps its "then restart Vault".) */
+   the install-command row keeps its "then restart Vault".) */
 
-const FFMPEG_INSTALL = {
-  winget: 'winget install ffmpeg',
-  url: 'https://www.gyan.dev/ffmpeg/builds/',
-};
-
-/* Everything the one-click downloader knows how to fetch. `entry` matches the
-   binary inside the zip by suffix, so a version bump in the archive's top-level
-   folder name doesn't break extraction; `files` are the fixed basenames WE
-   write into ROOT — zip entry names are untrusted input, never joined into a
-   path. `verify` must prove the extracted binary actually runs. */
-const DOWNLOADABLE_TOOLS = {
+/* What to tell someone who installs a tool by hand, per platform: a Linux user
+   must never be shown winget. `cmd` is the one line they can copy (null when
+   there is no single sane one), `cmdNote` a caveat shown next to it (the
+   other big distro family), `url` the always-there manual download page. */
+const INSTALL_HINTS = {
   ffmpeg: {
-    url: 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip',
-    sizeMB: 90,
-    files: ['ffmpeg.exe', 'ffprobe.exe'],
-    entry: (name) => (e) => e.entryName.toLowerCase().endsWith(`/bin/${name}`),
-    verify: () => require('../lib/media-info').isAvailable(),
+    win32: { cmd: 'winget install ffmpeg', cmdNote: null, url: 'https://www.gyan.dev/ffmpeg/builds/' },
+    linux: {
+      cmd: 'sudo apt install ffmpeg',
+      cmdNote: 'On Fedora: sudo dnf install ffmpeg-free. On Arch: sudo pacman -S ffmpeg',
+      url: 'https://ffmpeg.org/download.html#build-linux',
+    },
+    darwin: { cmd: 'brew install ffmpeg', cmdNote: null, url: 'https://ffmpeg.org/download.html#build-mac' },
+    other: { cmd: null, cmdNote: null, url: 'https://ffmpeg.org/download.html' },
   },
   fpcalc: {
-    url: 'https://github.com/acoustid/chromaprint/releases/download/v1.5.1/chromaprint-fpcalc-1.5.1-windows-x86_64.zip',
-    sizeMB: 1,
-    files: ['fpcalc.exe'],
-    entry: (name) => (e) => e.entryName.toLowerCase().endsWith(`/${name}`),
-    verify: async () => (await require('../lib/musicid/fingerprint').checkTools()).fpcalcVersion !== null,
+    win32: { cmd: null, cmdNote: null, url: 'https://acoustid.org/chromaprint' },
+    linux: {
+      cmd: 'sudo apt install libchromaprint-tools',
+      cmdNote: 'On Fedora: sudo dnf install chromaprint-tools. On Arch: sudo pacman -S chromaprint',
+      url: 'https://acoustid.org/chromaprint',
+    },
+    darwin: { cmd: 'brew install chromaprint', cmdNote: null, url: 'https://acoustid.org/chromaprint' },
+    other: { cmd: null, cmdNote: null, url: 'https://acoustid.org/chromaprint' },
   },
 };
+
+const installHint = (tool) => INSTALL_HINTS[tool][process.platform] || INSTALL_HINTS[tool].other;
+
+const FFMPEG_INSTALL = installHint('ffmpeg');
+
+/* Everything the one-click downloader knows how to fetch, per platform-arch.
+   `entry` matches the binary inside the archive by path suffix, so a version
+   bump in the archive's top-level folder name doesn't break extraction;
+   `files` are the fixed basenames WE write into ROOT — archive entry names are
+   untrusted input, never joined into a path. `archive` picks the extractor:
+   'zip' goes through adm-zip, the tar kinds through the system `tar`.
+   `verify` must prove the extracted binary actually runs. */
+// Windows on ARM runs the x64 builds under emulation, as it always has here.
+const PLATFORM_KEY = process.platform === 'win32' ? 'win32-x64' : `${process.platform}-${process.arch}`;
+
+const TOOL_DOWNLOADS = {
+  ffmpeg: {
+    verify: () => require('../lib/media-info').isAvailable(),
+    platforms: {
+      'win32-x64': {
+        url: 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip',
+        archive: 'zip',
+        sizeMB: 90,
+        files: ['ffmpeg.exe', 'ffprobe.exe'],
+        entry: (name) => (p) => p.toLowerCase().endsWith(`/bin/${name}`),
+      },
+      // BtbN's static build: gpl, so NVENC and libx264 are there for PMV export.
+      'linux-x64': {
+        url: 'https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-linux64-gpl.tar.xz',
+        archive: 'tar.xz',
+        sizeMB: 123,   // 128,518,284 bytes measured 2026-09
+        files: ['ffmpeg', 'ffprobe'],
+        entry: (name) => (p) => p.toLowerCase().endsWith(`/bin/${name}`),
+      },
+    },
+  },
+  fpcalc: {
+    verify: async () => (await require('../lib/musicid/fingerprint').checkTools()).fpcalcVersion !== null,
+    platforms: {
+      'win32-x64': {
+        url: 'https://github.com/acoustid/chromaprint/releases/download/v1.5.1/chromaprint-fpcalc-1.5.1-windows-x86_64.zip',
+        archive: 'zip',
+        sizeMB: 1,
+        files: ['fpcalc.exe'],
+        entry: (name) => (p) => p.toLowerCase().endsWith(`/${name}`),
+      },
+      'linux-x64': {
+        url: 'https://github.com/acoustid/chromaprint/releases/download/v1.5.1/chromaprint-fpcalc-1.5.1-linux-x86_64.tar.gz',
+        archive: 'tar.gz',
+        sizeMB: 3,     // 2,752,946 bytes measured 2026-09
+        files: ['fpcalc'],
+        entry: (name) => (p) => p.toLowerCase().endsWith(`/${name}`),
+      },
+    },
+  },
+};
+
+/* Resolved once, at startup: what THIS machine can fetch. A tool with no entry
+   for this platform-arch (macOS, linux-arm64) is null: the banner hides its
+   button and the POST route says so, rather than fetching a binary that
+   cannot run here. */
+const DOWNLOADABLE_TOOLS = Object.fromEntries(
+  Object.entries(TOOL_DOWNLOADS).map(([name, t]) => {
+    const v = t.platforms[PLATFORM_KEY];
+    return [name, v ? { ...v, verify: t.verify } : null];
+  })
+);
+
+const NO_DOWNLOAD_HERE =
+  'Automatic download is not available on this computer. Install it with the command shown, then restart Vault.';
+
+/** The name a tool's binary has in ROOT here (see lib/ffmpeg-locate.js). */
+const localToolName = (tool) => (process.platform === 'win32' ? `${tool}.exe` : tool);
 
 let _toolsCache = null;
 
@@ -586,21 +659,21 @@ function checkTools({ refresh = false } = {}) {
       feature: 'scanning and thumbnails',
       needed: 'scanning, thumbnails and video length. New files can\'t be processed without them',
       install: FFMPEG_INSTALL,
-      downloadable: true,
-      sizeMB: DOWNLOADABLE_TOOLS.ffmpeg.sizeMB,
+      downloadable: !!DOWNLOADABLE_TOOLS.ffmpeg,
+      sizeMB: DOWNLOADABLE_TOOLS.ffmpeg ? DOWNLOADABLE_TOOLS.ffmpeg.sizeMB : null,
     },
     fpcalc: {
       // existsSync, not a spawn: this runs on every /api/setup-check and the
       // full probe forks two processes. The download path re-verifies properly.
-      ok: fs.existsSync(path.join(ROOT, 'fpcalc.exe'))
+      ok: fs.existsSync(path.join(ROOT, localToolName('fpcalc')))
         || (() => { try { require('child_process').execSync('fpcalc -version', { windowsHide: true, stdio: 'ignore' }); return true; } catch { return false; } })(),
       required: false,
       label: 'Music ID helper (fpcalc)',
       feature: 'Music ID',
       needed: 'Music ID, which recognizes songs in your files. Everything else works without it',
-      install: { winget: null, url: 'https://acoustid.org/chromaprint' },
-      downloadable: true,
-      sizeMB: DOWNLOADABLE_TOOLS.fpcalc.sizeMB,
+      install: installHint('fpcalc'),
+      downloadable: !!DOWNLOADABLE_TOOLS.fpcalc,
+      sizeMB: DOWNLOADABLE_TOOLS.fpcalc ? DOWNLOADABLE_TOOLS.fpcalc.sizeMB : null,
     },
   };
   return _toolsCache;
@@ -628,28 +701,57 @@ app.post('/api/setup/hidden', (req, res) => {
 /* ── One-click tool downloads (the Stash onboarding model) ────────────────
    Stash checks PATH, then beside its config, and offers to fetch missing
    tools there — so Windows users never open a terminal. Same here: the
-   banner's button calls this, the zip lands in a temp file, the binaries are
-   extracted next to Vault.exe (ROOT — where ffmpeg-locate looks), and every
+   banner's button calls this, the archive lands in a temp file, the binaries
+   are extracted next to Vault (ROOT — where ffmpeg-locate looks), and every
    later spawn picks them up with NO restart, because file resolution —
    unlike PATH — is re-checked per spawn.
 
    User-initiated only, which matters twice over: it keeps the no-silent-egress
    posture (purpose 'tool' in lib/net.js, same consent shape as the manual
    update check), and it keeps GPL ffmpeg out of the release zip — the USER
-   fetches it from gyan.dev; Vault never distributes it.
+   fetches it from the upstream build; Vault never distributes it.
 
    One job per tool: two clicks share one download rather than racing to write
-   the same exe. State survives until the next click, so the client can poll
+   the same binary. State survives until the next click, so the client can poll
    after the fact. */
 
 const _toolJobs = new Map();  // tool -> { state: 'downloading'|'extracting'|'done'|'error', pct, error }
 
-app.post('/api/setup/download/:tool', (req, res) => {
-  const tool = DOWNLOADABLE_TOOLS[req.params.tool];    // registry lookup — no path from input
-  if (!tool) return res.status(404).json({ error: 'unknown tool' });
-  if (process.platform !== 'win32') {
-    return res.status(400).json({ error: 'Automatic download is Windows-only. Install it with your package manager.' });
+const ARCHIVE_EXT = { zip: '.zip', 'tar.gz': '.tar.gz', 'tar.xz': '.tar.xz' };
+
+/** Every file under `dir`, as paths relative to it with forward slashes. */
+function _walkRel(dir, base = dir, out = []) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) _walkRel(full, base, out);
+    else if (e.isFile()) out.push(path.relative(base, full).split(path.sep).join('/'));
   }
+  return out;
+}
+
+/* Tars go through the system `tar` (GNU tar and bsdtar both take -xf and
+   sniff the compression themselves). Extraction lands in a throwaway temp
+   folder, never in ROOT: entry names in the archive are untrusted, and a
+   `../` in one must not be able to write next to the app. Only afterwards are
+   the files we asked for copied, to the fixed basenames from `files`. */
+function _tarExtract(archivePath, destDir) {
+  return new Promise((ok, bad) => {
+    const p = require('child_process').spawn('tar', ['-xf', archivePath, '-C', destDir], { stdio: 'ignore' });
+    p.on('error', (err) => bad(new Error(
+      err.code === 'ENOENT'
+        ? 'The tar program is missing, so the download could not be unpacked. Install it, or use one of the other ways to install'
+        : `The download could not be unpacked (${err.message})`
+    )));
+    p.on('close', (code) => (code === 0 ? ok() : bad(new Error(`The download could not be unpacked (tar stopped with code ${code})`))));
+  });
+}
+
+app.post('/api/setup/download/:tool', (req, res) => {
+  // hasOwn, not truthiness: 'constructor' and friends are inherited properties,
+  // and a plain lookup would sail past this into a job that cannot work.
+  if (!Object.hasOwn(TOOL_DOWNLOADS, req.params.tool)) return res.status(404).json({ error: 'unknown tool' });
+  const tool = DOWNLOADABLE_TOOLS[req.params.tool];    // registry lookup — no path from input
+  if (!tool) return res.status(400).json({ error: NO_DOWNLOAD_HERE });
   const live = _toolJobs.get(req.params.tool);
   if (live && ['downloading', 'extracting'].includes(live.state)) {
     return res.json({ started: false, ...live });       // already in flight — attach
@@ -661,13 +763,17 @@ app.post('/api/setup/download/:tool', (req, res) => {
 
   (async () => {
     const os = require('os');
-    const tmp = path.join(os.tmpdir(), `vault-${req.params.tool}-${process.pid}.zip`);
+    // A fresh private folder for the archive and what comes out of it, never a
+    // name anyone could guess and plant first in a shared temp folder (/tmp).
+    let dlDir = null;
     try {
+      dlDir = fs.mkdtempSync(path.join(os.tmpdir(), `vault-${req.params.tool}-`));
+      const tmp = path.join(dlDir, `download${ARCHIVE_EXT[tool.archive]}`);
       const resp = await netFetch(tool.url, { purpose: 'tool' });
       if (!resp.ok) throw new Error(`The download failed (the server answered ${resp.status})`);
 
-      // Stream to disk with progress — ffmpeg's zip is ~90 MB and adm-zip
-      // needs a file anyway; buffering it whole in memory helps nobody.
+      // Stream to disk with progress — ffmpeg's archive is 90 MB or more, and
+      // adm-zip and tar both need a file anyway; buffering it whole helps nobody.
       const total = Number(resp.headers.get('content-length')) || 0;
       let got = 0;
       const out = fs.createWriteStream(tmp);
@@ -679,18 +785,34 @@ app.post('/api/setup/download/:tool', (req, res) => {
       await new Promise((ok, bad) => out.end(err => err ? bad(err) : ok()));
 
       job.state = 'extracting';
-      const AdmZip = require('adm-zip');
-      const zip = new AdmZip(tmp);
-      for (const name of tool.files) {
-        const entry = zip.getEntries().find(e => !e.isDirectory && tool.entry(name)(e));
-        if (!entry) throw new Error(`The download did not contain ${name}`);
-        fs.writeFileSync(path.join(ROOT, name), entry.getData());
+      if (tool.archive === 'zip') {
+        const AdmZip = require('adm-zip');
+        const zip = new AdmZip(tmp);
+        for (const name of tool.files) {
+          const entry = zip.getEntries().find(e => !e.isDirectory && tool.entry(name)(e.entryName));
+          if (!entry) throw new Error(`The download did not contain ${name}`);
+          fs.writeFileSync(path.join(ROOT, name), entry.getData());
+        }
+      } else {
+        const tmpDir = path.join(dlDir, 'unpacked');
+        fs.mkdirSync(tmpDir);
+        await _tarExtract(tmp, tmpDir);
+        const found = _walkRel(tmpDir);
+        for (const name of tool.files) {
+          const rel = found.find(p => tool.entry(name)(p));
+          if (!rel) throw new Error(`The download did not contain ${name}`);
+          const dest = path.join(ROOT, name);       // fixed basename, never the archive's
+          fs.copyFileSync(path.join(tmpDir, rel), dest);
+          fs.chmodSync(dest, 0o755);                // the archive's mode bits do not survive the copy
+        }
       }
 
       // Prove the binary actually runs before declaring victory.
       require('../lib/ffmpeg-locate').invalidate();
       if (!(await tool.verify())) {
-        throw new Error('The downloaded tool would not start. Your antivirus may have blocked it');
+        throw new Error(process.platform === 'win32'
+          ? 'The downloaded tool would not start. Your antivirus may have blocked it'
+          : 'The downloaded tool would not start');
       }
       checkTools({ refresh: true });
       // Files that failed only because this tool was missing are now fixable —
@@ -704,7 +826,7 @@ app.post('/api/setup/download/:tool', (req, res) => {
       Object.assign(job, { state: 'error', pct: 0, error: String(err.message).slice(0, 300) });
       console.warn(`[Setup] ${req.params.tool} download failed: ${job.error}`);
     } finally {
-      try { fs.unlinkSync(tmp); } catch {}
+      if (dlDir) { try { fs.rmSync(dlDir, { recursive: true, force: true }); } catch {} }
     }
   })();
 });
@@ -716,9 +838,25 @@ app.get('/api/setup/download/:tool', (req, res) => {
 // App identity for the Settings → About section. The name is the PRODUCT name,
 // deliberately not pkg.name — that is the npm package id (lowercase `vault`) and
 // rendering it would put "vault" in the panel instead of "Vault". Version still
-// tracks package.json so a release bump shows up here for free.
+// tracks package.json so a release bump shows up here for free. `platform` is
+// the SERVER's OS (process.platform): the viewer may be a browser on another
+// machine, and words like Recycle Bin / Trash follow the machine that holds
+// the files (player-lib/platform-words.js).
 app.get('/api/about', (req, res) => {
-  res.json({ name: 'Vault', version: pkg.version });
+  res.json({ name: 'Vault', version: pkg.version, platform: process.platform });
+});
+
+// Settings › About › Copy diagnostics: a plain-text report (version, OS,
+// distro, desktop session, GPU, tool versions) for bug reports. Read only,
+// and behind the same gates as every /api route (host check, fetch metadata,
+// lock). No library paths; the home folder and account name are redacted
+// (lib/diagnostics.js).
+app.get('/api/diagnostics', async (req, res) => {
+  try {
+    res.json({ text: await require('../lib/diagnostics').report() });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not gather diagnostics: ' + err.message });
+  }
 });
 
 // Manual update check — MANUAL ONLY. This makes exactly ONE request to
@@ -1181,6 +1319,11 @@ app.post('/api/ai/open-lmstudio', (req, res) => {
 });
 
 function _openLmStudio() {
+  // LM Studio on Linux is an AppImage saved wherever the user put it: there
+  // is no usual place to look, so say what to do instead of "not found".
+  if (process.platform !== 'win32' && process.platform !== 'darwin') {
+    return { ok: false, error: 'Vault cannot open LM Studio for you here. Open LM Studio yourself, then try again.' };
+  }
   const candidates = [];
   if (process.platform === 'win32') {
     const local = process.env.LOCALAPPDATA;
@@ -1191,7 +1334,11 @@ function _openLmStudio() {
     candidates.push('/Applications/LM Studio.app');
   }
   const exe = candidates.find(p => { try { return fs.existsSync(p); } catch { return false; } });
-  if (!exe) return { ok: false, error: 'LM Studio was not found in its usual place. Open it from the Start menu.' };
+  if (!exe) {
+    return { ok: false, error: process.platform === 'darwin'
+      ? 'LM Studio was not found in its usual place. Open it from your Applications folder.'
+      : 'LM Studio was not found in its usual place. Open it from the Start menu.' };
+  }
   try {
     const { spawn } = require('child_process');
     const child = process.platform === 'darwin'
@@ -2356,16 +2503,17 @@ Add-Type -TypeDefinition $src
 let _picker = null;          // live child process, or null
 // opts.env: extra environment for the child (the save dialog takes its
 // inputs this way, never inside the script text).
+// opts.native: the same dialog off Windows (see NATIVE_SPECS below).
 function spawnPicker(res, script, kind, onClose, opts = {}) {
   // Test and scratch servers set this so nothing driving the page (a test
   // run, an automated check) can put a native dialog on the user's desktop.
-  // Read per request; off unless set to 1.
+  // Read per request; off unless set to 1. Off Windows the page then opens
+  // Vault's own folder browser, which is not a desktop window.
   if (process.env.VAULT_DISABLE_NATIVE_PICKER === '1') {
+    if (process.platform !== 'win32') return res.json(pickerFallback(nativeSpec(kind, opts)));
     return res.status(409).json({ error: 'This copy of Vault cannot open the Windows file picker.' });
   }
-  if (process.platform !== 'win32') {
-    return res.status(501).json({ error: `The ${kind} picker only works on Windows. Drop files onto the window instead.` });
-  }
+  if (process.platform !== 'win32') return spawnDesktopPicker(res, nativeSpec(kind, opts), onClose);
   // Busy only when the child is genuinely alive — a crashed/killed picker can
   // never wedge the button again.
   if (_picker && _picker.exitCode === null) {
@@ -2407,12 +2555,108 @@ function spawnPicker(res, script, kind, onClose, opts = {}) {
   }, 10 * 60 * 1000);
 }
 
+// ── Pickers off Windows (Linux, macOS) ──────────────────────────────────────
+// Linux opens the desktop's own dialog (zenity or kdialog, lib/native-dialog-linux.js).
+// When there is none (no display, no tool, it would not start, or macOS),
+// the request answers { fallback: true, mode, start, ... } and the page opens
+// Vault's in-app folder browser (player-lib/fs-picker.js, GET /api/fs/list).
+// Whatever the dialog prints goes through the caller's onClose exactly like
+// the Windows script's output: a path per line, or PICK_CANCEL.
+const nativeDialog = require('../lib/native-dialog-linux');
+const fsBrowse = require('../lib/fs-browse');
+
+// mode: the desktop dialog's; browse: the in-app browser's, when it differs.
+// key: which remembered folder it opens in.
+const NATIVE_SPECS = {
+  folder: { mode: 'folder', key: 'media', title: 'Add a folder to Vault' },
+  files: { mode: 'files', key: 'media', title: 'Add files to Vault' },
+  playlist: { mode: 'file', key: 'playlist', title: 'Import a playlist from VLC or PotPlayer',
+    filter: { label: 'Playlists', exts: ['m3u', 'm3u8', 'xspf', 'pls', 'dpl'] } },
+  findFolder: { mode: 'folder', key: 'media', title: 'Find the missing files of the playlist in a folder' },
+  save: { mode: 'save', key: 'playlist', title: 'Save playlist', filter: { label: 'Playlists', exts: ['m3u8', 'm3u'] } },
+  mpv: { mode: 'file', browse: 'exe', key: 'mpv', title: 'Choose mpv, the player Stage runs in' },
+};
+function nativeSpec(kind, opts) {
+  if (opts && opts.native) return opts.native;
+  return kind === 'folder' ? NATIVE_SPECS.folder : NATIVE_SPECS.files;
+}
+
+const _pickedDirs = new Map();       // spec key → the folder the last pick was in (this run only)
+function pickerStart(spec) {
+  return _pickedDirs.get(spec.key) || fsBrowse.defaultStart(spec.browse || spec.mode);
+}
+
+/** The answer that sends the page to the in-app folder browser. */
+function pickerFallback(spec, start = pickerStart(spec)) {
+  const body = { fallback: true, mode: spec.browse || spec.mode, title: spec.title, start };
+  if (spec.filter) body.ext = spec.filter.exts.join(',');
+  if (spec.name) body.name = spec.name;
+  return body;
+}
+
+let _noDesktopDialogLogged = false;
+function spawnDesktopPicker(res, spec, onClose) {
+  if (_picker && _picker.exitCode === null) {
+    return res.status(409).json({ error: 'A file picker is already open. It may be behind this window.' });
+  }
+  const start = pickerStart(spec);
+  const d = nativeDialog.openDialog({ ...spec, startDir: start });
+  if (d.unavailable) {
+    if (!_noDesktopDialogLogged) {
+      _noDesktopDialogLogged = true;
+      console.log(`[Picker] no desktop file dialog (${d.unavailable}), using Vault's own folder browser`);
+    }
+    return res.json(pickerFallback(spec, start));
+  }
+  _picker = d.child;
+  let sent = false;
+  const finish = (status, body) => {
+    if (sent) return;
+    sent = true;
+    _picker = null;
+    clearTimeout(watchdog);
+    res.status(status).json(body);
+  };
+  // The page went away (reload, tab closed): close the dialog with it.
+  res.on('close', () => {
+    if (sent) return;
+    sent = true;
+    _picker = null;
+    clearTimeout(watchdog);
+    try { d.child.kill('SIGTERM'); } catch {}
+  });
+  // Same 10 minutes as the Windows dialogs.
+  const watchdog = setTimeout(() => {
+    try { d.child.kill('SIGKILL'); } catch {}
+    finish(200, { canceled: true, timeout: true });
+  }, 10 * 60 * 1000);
+  d.result.then((r) => {
+    if (sent) return;
+    try {
+      // The dialog can stay open for minutes: a vault that locked meanwhile
+      // gets nothing back from it, not even the path.
+      if (vault.isLocked()) return finish(423, { error: 'Vault is locked. Unlock it first.', code: 'VAULT_LOCKED' });
+      if (r.status === 'picked') {
+        _pickedDirs.set(spec.key, spec.mode === 'folder' ? r.paths[0] : path.posix.dirname(r.paths[0]));
+        return onClose({ code: 0, out: r.paths.join('\n'), errOut: '', finish });
+      }
+      if (r.status === 'cancel') return onClose({ code: 1, out: PICK_CANCEL, errOut: '', finish });
+      console.warn(`[Picker] the ${d.tool} dialog did not open (${r.reason}), using Vault's own folder browser`);
+      return finish(200, pickerFallback(spec, start));
+    } catch (err) {
+      console.warn('[Picker] after the dialog:', err && err.message);
+      return finish(500, { error: 'Something went wrong after the file picker closed. See the server log.' });
+    }
+  });
+}
+
 // A healthy shim always prints path(s) or the PICK_CANCEL sentinel, so an
 // empty stdout can only mean the shim itself broke (compile/COM error) —
 // report that loudly instead of pretending the user canceled.
 app.post('/api/import/pick-folder', (req, res) => {
   spawnPicker(res, PICKER_PS1, 'folder', ({ code, out, errOut, finish }) => {
-    const raw = out.trim();
+    // Off Windows a folder name may really end in a space: only a line end comes off.
+    const raw = process.platform === 'win32' ? out.trim() : out.replace(/\r?\n$/, '');
     if (raw === PICK_CANCEL) return finish(200, { canceled: true });
     if (raw) return finish(200, { path: raw });
     console.warn('[Import] folder picker failed:', (errOut.trim() || `exit ${code}, no output`).split('\n')[0]);
@@ -2426,9 +2670,11 @@ app.post('/api/import/pick-folder', (req, res) => {
 // real { canceled } so the client can toast instead of failing silently.
 app.post('/api/import/pick-files', (req, res) => {
   spawnPicker(res, PICKER_FILES_PS1, 'file', ({ code, out, errOut, finish }) => {
-    const raw = out.trim();
+    const win = process.platform === 'win32';
+    // Off Windows a file name may really end in a space: only line ends come off.
+    const raw = win ? out.trim() : out.replace(/\r?\n$/, '');
     if (raw === PICK_CANCEL) return finish(200, { canceled: true });
-    const paths = raw.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    const paths = (win ? raw.split(/\r?\n/).map((s) => s.trim()) : raw.split('\n')).filter(Boolean);
     if (paths.length) return finish(200, { paths });
     if (code === 0 && !errOut.trim()) return finish(200, { paths: [] });
     console.warn('[Import] file picker failed:', (errOut.trim() || `exit ${code}, no output`).split('\n')[0]);
@@ -2591,7 +2837,7 @@ function matchSelection(selPaths, wantFiles, wantDirs) {
 // unique match, or { unresolved: <reason> } — the client then falls back to
 // the pickers, so this endpoint never guesses.
 app.post('/api/import/resolve-drop', (req, res) => {
-  if (process.platform !== 'win32') return res.json({ unresolved: 'unsupported' });
+  if (process.platform !== 'win32') return res.json(fsBrowse.dropPaths(req.body && req.body.paths));
   const wantFiles = Array.isArray(req.body?.files) ? req.body.files.slice(0, 2000) : [];
   const wantDirs = Array.isArray(req.body?.dirs)
     ? req.body.dirs.slice(0, 200).map((d) => String(d)) : [];
@@ -3376,8 +3622,14 @@ app.get('/api/collections/:id/export', (req, res) => {
  * The path the Save As window printed, if it is one we will write to: one
  * line, an absolute Windows path (drive or UNC), ending in .m3u8. Anything
  * else is refused, never repaired.
+ *
+ * Off Windows (the desktop's dialog or Vault's own folder browser): an
+ * absolute, already normalized path ending in .m3u or .m3u8, in a folder
+ * that exists, not inside /proc, /sys or /dev (also not through a symlink),
+ * and, when the file is already there, a regular file (never a link to one).
  */
-function checkSavePath(raw) {
+function checkSavePath(raw, platform = process.platform) {
+  if (platform !== 'win32') return fsBrowse.checkSavePath(raw);
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > 32767) return null;
   if (/[\u0000-\u001f]/.test(raw)) return null;
   if (!/^(?:[A-Za-z]:\\|\\\\[^\\])/.test(raw) || !path.win32.isAbsolute(raw)) return null;
@@ -3385,14 +3637,16 @@ function checkSavePath(raw) {
   return raw;
 }
 
-// The Save As window. The default opens the real one (Windows only); tests
-// swap it, since the real one is a desktop window. Whatever runs here, the
-// path written to only ever comes from what it reports, never the request.
+// The Save As window. The default opens the real one (Windows, or the
+// desktop's own on Linux); tests swap it, since the real one is a desktop
+// window. On Windows the path written to only ever comes from what it
+// reports, never the request. Off Windows, when there is no desktop dialog,
+// it is the path the user chose in Vault's own folder browser (body.path),
+// checked the same way.
 const _defaultSaveDialog = (res, env, onClose) => {
-  if (process.platform !== 'win32') {
-    return res.status(501).json({ error: 'saving a playlist is Windows-only for now', code: 'UNSUPPORTED' });
-  }
-  spawnPicker(res, SAVER_PS1, 'save', onClose, { env });
+  spawnPicker(res, SAVER_PS1, 'save', onClose, {
+    env, native: { ...NATIVE_SPECS.save, name: env.VAULT_SAVE_NAME },
+  });
 };
 let _saveDialog = _defaultSaveDialog;
 
@@ -3404,6 +3658,18 @@ app.post('/api/collections/:id/export/save', (req, res) => {
   if (!pre) return;
   const baseUrl = exportBaseUrl(req);
   const env = { VAULT_SAVE_NAME: `${playlistExport.safeFileName(pre.coll.name)}.${PLAYLIST_M3U8.ext}` };
+  // Off Windows, with no desktop dialog: the place chosen in Vault's own
+  // folder browser (the first answer was { fallback: true }).
+  if (process.platform !== 'win32' && body.path !== undefined) {
+    if (!checkSavePath(body.path)) {
+      return res.status(400).json({ error: 'Vault cannot save a playlist there. Choose a folder you can write to and a name ending in .m3u8 or .m3u.', code: 'BAD_PATH' });
+    }
+    const finish = (status, b) => res.status(status).json(b);
+    try { return onSaveDialogClosed({ code: 0, out: body.path, errOut: '', finish }); } catch (err) {
+      console.warn('[Export] could not save the playlist:', err && err.message);
+      return finish(500, { error: 'could not save the playlist, see the server log' });
+    }
+  }
   try {
     // This runs from the child process's close event, outside Express: an
     // error thrown there would take the server down, so it is caught here.
@@ -3420,7 +3686,8 @@ app.post('/api/collections/:id/export/save', (req, res) => {
   }
 
   function onSaveDialogClosed({ code, out, errOut, finish }) {
-    const raw = String(out || '').trim();
+    // Off Windows a file name may really end in a space: only a line end is taken off.
+    const raw = process.platform === 'win32' ? String(out || '').trim() : String(out || '').replace(/\r?\n$/, '');
     if (raw === PICK_CANCEL) return finish(200, { canceled: true });
     if (!raw) {
       console.warn('[Export] save window failed:', (String(errOut || '').trim() || `exit ${code}, no output`).split('\n')[0]);
@@ -3437,7 +3704,7 @@ app.post('/api/collections/:id/export/save', (req, res) => {
     let built;
     try {
       // Relative links start from the folder the user chose in the window.
-      built = playlistExport.buildExport(pre.id, { links, baseUrl, playlistDir: path.win32.dirname(target) });
+      built = playlistExport.buildExport(pre.id, { links, baseUrl, playlistDir: (process.platform === 'win32' ? path.win32 : path.posix).dirname(target) });
     } catch (err) {
       const status = EXPORT_ERR_STATUS[err && err.code];
       if (status) return finish(status, { error: err.message, code: err.code });
@@ -3445,7 +3712,10 @@ app.post('/api/collections/:id/export/save', (req, res) => {
       return finish(500, { error: 'could not build the playlist, see the server log' });
     }
     try {
-      fs.writeFileSync(target, built.text, 'utf8');
+      // Off Windows the folder may be one other users can write to: the
+      // write never follows a link or opens a FIFO put there since the check.
+      if (process.platform === 'win32') fs.writeFileSync(target, built.text, 'utf8');
+      else fsBrowse.writePlaylistFile(target, built.text);
     } catch (err) {
       return finish(500, { error: `could not write the playlist (${err.code || err.message})` });
     }
@@ -3463,6 +3733,7 @@ app.use(playlistImportRoutes.buildRouter({
   pickCancel: PICK_CANCEL,
   playlistScript: PLAYLIST_PICKER_PS1,
   folderScript: FIND_FOLDER_PICKER_PS1,
+  nativeSpecs: { playlist: NATIVE_SPECS.playlist, folder: NATIVE_SPECS.findFolder },
   runResolver,
   normalizeSelections,
   matchSelection,
@@ -3470,6 +3741,38 @@ app.use(playlistImportRoutes.buildRouter({
 }));
 // An open playlist's review lists paths: it does not outlive a lock.
 vault.onChange((e) => { if (e === 'locked') require('../lib/playlist/import').clearSessions(); });
+
+// ── In-app folder browser (Linux and macOS: what the pickers fall back to
+//    when there is no desktop file dialog; server/fs-routes.js) ────────────
+app.use(require('./fs-routes').buildRouter({ libraryRoots: () => libraryRootFolders() }));
+
+/**
+ * The library's own top folders, for the browser's "In your library" list:
+ * the watched folders, then the shortest folders that hold the library's
+ * files. It skips through the filepath index one folder at a time, so a big
+ * library costs a bounded number of small queries, never a full scan.
+ */
+function libraryRootFolders() {
+  const out = new Set();
+  try { for (const f of require('../lib/watchers/store').listFolders()) if (f.path) out.add(f.path); } catch {}
+  const next = db.get().prepare("SELECT filepath FROM media WHERE filepath > ? AND filepath LIKE '/%' ORDER BY filepath LIMIT 1");
+  const folders = [];
+  let after = '/';
+  const t0 = Date.now();
+  for (let i = 0; i < 400 && Date.now() - t0 < 100; i++) {
+    const row = next.get(after);
+    if (!row) break;
+    const dir = path.posix.dirname(row.filepath);
+    folders.push(dir);
+    after = `${dir}/￿`;          // past every file under this folder
+  }
+  // Keep the folders that are not inside another one on the list.
+  folders.sort((a, b) => a.length - b.length);
+  const roots = [];
+  for (const d of folders) if (!roots.some((r) => d === r || d.startsWith(`${r}/`))) roots.push(d);
+  for (const r of roots) out.add(r);
+  return [...out].slice(0, 12);
+}
 
 app.get('/api/media/:id/collections', (req, res) => {
   const id = parseId(req.params.id);
@@ -3543,7 +3846,7 @@ const stageRouter = require('./stage-routes').buildRouter({
     if (raw && !/[\r\n]/.test(raw)) return done({ path: raw }, finish);
     console.warn('[Stage] mpv picker failed:', (errOut.trim() || `exit ${code}, no output`).split('\n')[0]);
     finish(500, { error: 'The file picker could not open. Try again.' });
-  }),
+  }, { native: NATIVE_SPECS.mpv }),
 });
 app.use(stageRouter);
 
@@ -3820,10 +4123,14 @@ function _installShutdownHooks() {
     try {
       if (require('../lib/exists-check').hasStuckWorkers()) process.kill(process.pid, 'SIGKILL');
     } catch {}
-    process.exit(signal === 'SIGTERM' ? 143 : 130);
+    process.exit(signal === 'SIGTERM' ? 143 : signal === 'SIGHUP' ? 129 : 130);
   };
   process.on('SIGINT', () => onExit('SIGINT'));
   process.on('SIGTERM', () => onExit('SIGTERM'));
+  // Closing the terminal Vault runs in sends SIGHUP (Linux, macOS). Without
+  // this the temp wipe, the asset close and the stream stop above never ran.
+  // (Windows only raises it for a closed console window, and is left as it was.)
+  if (process.platform !== 'win32') process.on('SIGHUP', () => onExit('SIGHUP'));
 }
 
 // One-time idempotent boot repair: images/gifs imported through the viewer's
@@ -4084,7 +4391,11 @@ function start(args = process.argv.slice(2)) {
   _bootMark('db-open-housekeeping');
 
   const { host, port } = config.server;
-  app.listen(port, host, () => {
+  // Express 5 calls this on a failed listen too, with the error. Then nothing
+  // here runs (no banner saying Vault is up): the 'error' handler below says
+  // what went wrong.
+  const server = app.listen(port, host, (err) => {
+    if (err) return;
     _bootMark('listen-ready');
     _bootReport();
     console.log('');
@@ -4137,16 +4448,40 @@ function start(args = process.argv.slice(2)) {
         console.log('  ┌──────────────────────────────────────────────────────┐');
         console.log('  │  ⚠  ffmpeg / ffprobe not found on PATH               │');
         console.log('  └──────────────────────────────────────────────────────┘');
-        console.log('  Scanning, thumbnails and duration all need it. Install with:');
-        console.log('');
-        console.log(`      ${FFMPEG_INSTALL.winget}`);
-        console.log('');
-        console.log(`  …or grab a build from ${FFMPEG_INSTALL.url}`);
-        console.log('  Easiest: the viewer that just opened has a ⬇ Download button in the');
-        console.log('  banner at the top. It fetches ffmpeg next to Vault, no restart needed.');
+        if (FFMPEG_INSTALL.cmd) {
+          console.log('  Scanning, thumbnails and duration all need it. Install with:');
+          console.log('');
+          console.log(`      ${FFMPEG_INSTALL.cmd}`);
+          if (FFMPEG_INSTALL.cmdNote) console.log(`      (${FFMPEG_INSTALL.cmdNote})`);
+          console.log('');
+          console.log(`  …or grab a build from ${FFMPEG_INSTALL.url}`);
+        } else {
+          console.log('  Scanning, thumbnails and duration all need it.');
+          console.log(`  Grab a build from ${FFMPEG_INSTALL.url}`);
+        }
+        // Only where the button exists: where no build can be fetched (macOS,
+        // Linux on ARM), pointing at it would send the user hunting for nothing.
+        if (tools.ffmpeg.downloadable) {
+          console.log('  Easiest: the viewer that just opened has a ⬇ Download button in the');
+          console.log('  banner at the top. It fetches ffmpeg next to Vault, no restart needed.');
+        }
         console.log('');
       }
     });
+  });
+  // A second Vault, or another program on the port: say so plainly and stop,
+  // rather than crash with a stack trace.
+  server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.error('');
+      console.error(`  Vault could not start: port ${port} is already in use.`);
+      console.error(`  Vault may already be running. Open http://${host}:${port} in your browser.`);
+      console.error('  Or close the program using that port, then start Vault again.');
+      console.error('');
+    } else {
+      console.error(`  Vault could not start: ${err && err.message}`);
+    }
+    process.exit(1);
   });
 }
 

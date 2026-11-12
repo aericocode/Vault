@@ -26,6 +26,13 @@
  * The exe is UNSIGNED (Phase 5 skipped) — postject's "signature seems
  * corrupted" warning is expected: injecting invalidates node.exe's original
  * Microsoft signature. SmartScreen may warn on other machines.
+ *
+ * Linux (run the same command on Linux): the program is dist/Vault/Vault (no
+ * .exe, mode 755), README.txt has the Linux text, and the folder is packed as
+ * dist/Vault-v<version>-linux-x64.tar.gz with a top-level Vault/ folder (tar
+ * keeps the exec bit; a zip would lose it). Build on the OLDEST glibc you
+ * want to support (CI: ubuntu-22.04), since the node binary and the native
+ * addons link against the build machine's glibc. Windows output is unchanged.
  */
 
 const fs = require('fs');
@@ -37,6 +44,9 @@ const OUT = path.join(REPO, 'dist', 'Vault');
 const BUILD = path.join(REPO, 'dist', '.build');
 const NM = path.join(REPO, 'node_modules');
 const SENTINEL = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
+const IS_WIN = process.platform === 'win32';
+// The program's file name: Vault.exe on Windows, plain Vault elsewhere.
+const EXE_NAME = IS_WIN ? 'Vault.exe' : 'Vault';
 
 // Native addons + their runtime deps (flat closure, verified by the Phase 0
 // spike incl. an isolation test with repo node_modules hidden).
@@ -234,14 +244,19 @@ try {
 } catch (e) { die('sea blob', e); }
 
 /* 5 ── copy node.exe + inject */
-step('assemble Vault.exe (copy node + postject inject)');
-const EXE = path.join(OUT, 'Vault.exe');
+step(`assemble ${EXE_NAME} (copy node + postject inject)`);
+const EXE = path.join(OUT, EXE_NAME);
 try {
   fs.copyFileSync(process.execPath, EXE);
+  // copyFileSync keeps the mode on Linux, but a node from a read-only or
+  // oddly-permissioned install can be 0555/0700: make it writable for the
+  // inject, then 755 so anyone who extracts the tarball can run it.
+  if (!IS_WIN) fs.chmodSync(EXE, 0o755);
   const postject = path.join(NM, '.bin', process.platform === 'win32' ? 'postject.cmd' : 'postject');
   execFileSync(postject, [EXE, 'NODE_SEA_BLOB', path.join(BUILD, 'sea-prep.blob'),
     '--sentinel-fuse', SENTINEL, '--overwrite'],
     { stdio: 'inherit', shell: process.platform === 'win32' });
+  if (!IS_WIN) fs.chmodSync(EXE, 0o755);
 } catch (e) { die('inject', e); }
 
 /* 6 ── runtime native sidecar */
@@ -287,7 +302,7 @@ try {
 /* 9 ── README */
 step('README.txt');
 const version = require(path.join(REPO, 'package.json')).version;
-fs.writeFileSync(path.join(OUT, 'README.txt'), `Vault v${version} — portable build
+if (IS_WIN) fs.writeFileSync(path.join(OUT, 'README.txt'), `Vault v${version} — portable build
 ================================${'='.repeat(String(version).length)}
 
 Double-click Vault.exe to start. A console window opens (that's the server —
@@ -321,9 +336,103 @@ Full guide, model recommendations and every setting: SETUP.md (in this folder).
 This build is unsigned; Windows SmartScreen may warn on first run
 ("More info" → "Run anyway").
 `);
+else fs.writeFileSync(path.join(OUT, 'README.txt'), linuxReadme(version));
+
+/* 9b ── Linux: the tarball (tar keeps the exec bit; a zip does not) */
+const TARBALL = IS_WIN ? null : path.join(REPO, 'dist', `Vault-v${version}-${process.platform}-${process.arch}.tar.gz`);
+if (TARBALL) {
+  step(path.basename(TARBALL));
+  try {
+    fs.rmSync(TARBALL, { force: true });
+    // -C dist Vault: one top-level Vault/ folder, so extracting never spills
+    // files into the current folder. --owner/--group 0: no build-machine user
+    // names in the archive.
+    execFileSync('tar', ['--owner=0', '--group=0', '-czf', TARBALL, '-C', path.dirname(OUT), path.basename(OUT)], { stdio: 'inherit' });
+    console.log(`${path.relative(REPO, TARBALL)}: ${(fs.statSync(TARBALL).size / 1048576).toFixed(1)} MB`);
+  } catch (e) { die('tarball', e); }
+}
 
 /* 10 ── summary */
 step('done');
 const size = (fs.statSync(EXE).size / (1024 * 1024)).toFixed(1);
-console.log(`dist/Vault/Vault.exe — ${size} MB, built in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-console.log('Run it:  dist\\Vault\\Vault.exe   (test OUTSIDE the repo tree for true isolation)');
+console.log(`dist/Vault/${EXE_NAME} — ${size} MB, built in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+console.log(IS_WIN
+  ? 'Run it:  dist\\Vault\\Vault.exe   (test OUTSIDE the repo tree for true isolation)'
+  : 'Run it:  dist/Vault/Vault   (test OUTSIDE the repo tree for true isolation)');
+
+/** README.txt for the Linux folder. Plain words, no Windows steps. */
+function linuxReadme(v) {
+  const title = `Vault v${v} for Linux, portable build`;
+  return `${title}
+${'='.repeat(title.length)}
+
+To start Vault, open a terminal in this folder and run:
+
+    ./Vault
+
+The terminal window is the server: closing it (or Ctrl+C) stops Vault and
+locks the library. The viewer opens in your default browser at
+http://127.0.0.1:8765, or whatever port you set in Settings. If no browser
+opens, open that address yourself.
+
+If you get "Permission denied", the file lost its run permission (this
+happens when it is copied through a zip or a Windows drive). Fix it with:
+
+    chmod +x Vault
+
+Everything Vault creates (library database, thumbnails, trash, models)
+lives HERE, next to the Vault program. Move or copy this whole folder
+anywhere. Nothing is installed elsewhere on the system. Keep it on a Linux
+file system (ext4, btrfs, xfs): on an NTFS or exFAT drive the run permission
+may not stick.
+
+On first launch Vault offers to set a password. It is optional and it
+encrypts the library database. There is NO recovery if you lose it.
+
+Optional flags:  ./Vault --no-gamify   turn the Obsession tracker off
+                                       entirely (it is on by default)
+                 ./Vault --no-browser  start the server without opening a tab
+                 ./Vault wizard        interactive scan setup
+                 ./Vault status        library stats in the terminal
+                 ./Vault migrate       move a library's paths (for example a
+                                       library brought over from Windows);
+                                       see SETUP.md
+
+Programs Vault uses:
+  - ffmpeg / ffprobe         thumbnails, video length, beat bar, subtitles,
+                             Music ID. Optional to install yourself: when
+                             they are missing, the viewer shows a Download
+                             button that puts them next to Vault, no restart.
+                             Or use your distro's package:
+                               Ubuntu, Debian, Mint:  sudo apt install ffmpeg
+                               Fedora:                sudo dnf install ffmpeg-free
+                               Arch:                  sudo pacman -S ffmpeg
+  - fpcalc (Chromaprint)     Music ID. Same Download button, or
+                             sudo apt install libchromaprint-tools
+  - mpv                      Stage (the full-screen player window). Install
+                             it from your distro, Vault does not download it:
+                               sudo apt install mpv   (Fedora: sudo dnf install mpv,
+                               Arch: sudo pacman -S mpv)
+                             The Flatpak mpv runs in a sandbox and cannot be
+                             started by Vault; use the distro package.
+  - LM Studio (or Ollama)    AI scanning and semantic search. Separate install
+  - python3 + faster-whisper transcription and subtitles. Separate install,
+                             see SETUP.md
+
+Stage on Wayland (the default on Ubuntu and Fedora): Vault opens the mpv
+Stage through XWayland, so it opens where you left it and comes to the
+front, with nothing to set up. If the Stage window does not show up or
+misbehaves, turn off Settings > Stage > "Use XWayland for the Stage window".
+On a Wayland desktop without XWayland, Stage works but the desktop may
+ignore where it should open. Basic Stage (picture-in-picture in the
+browser) works on both.
+
+Watching big folders: Linux limits how many folders one program can watch.
+If Vault says the limit is reached, raise it with:
+
+    echo fs.inotify.max_user_watches=524288 | sudo tee /etc/sysctl.d/90-vault.conf
+    sudo sysctl --system
+
+Full guide, model recommendations and every setting: SETUP.md (in this folder).
+`;
+}

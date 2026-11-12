@@ -734,3 +734,68 @@ test('Vault links: batched id and name lookups, never one query per entry', asyn
   assert.strictEqual(pi._queryCount() - before, 3 + 2, 'ceil(1000 / 400) id batches, ceil(500 / 400) name batches');
   conn.prepare("DELETE FROM media WHERE filepath LIKE 'C:\\VLBulk\\%'").run();
 });
+
+// ── Linux and macOS paths ──────────────────────────────────────────────────
+
+// The path helpers take the OS as an argument, so these run everywhere.
+test('POSIX paths: "/" only, ".." resolved, case kept, "\\" is part of a name', () => {
+  const N = (p) => pi.normalizePath(p, false);
+  assert.strictEqual(N('/home/me//Media/./x.mp4'), '/home/me/Media/x.mp4');
+  assert.strictEqual(N('/home/me/Lists/../Media/x.mp4'), '/home/me/Media/x.mp4');
+  assert.strictEqual(N('/mnt/media/'), '/mnt/media');
+  assert.strictEqual(N('/'), '/');
+  assert.strictEqual(N('/home/me/a\\b.mp4'), '/home/me/a\\b.mp4', 'a backslash is not a separator');
+  assert.strictEqual(N('/home/me/Été.mp4'), '/home/me/Été.mp4');
+  assert.strictEqual(N('relative/x.mp4'), null);
+  assert.strictEqual(N('C:\\Media\\x.mp4'), null, 'a Windows path is not a path on Linux');
+  assert.strictEqual(N('\\\\nas\\media\\x.mp4'), null);
+  assert.strictEqual(N('/a\u0000b'), null);
+  assert.strictEqual(pi.isAbsolute('/mnt/media/x.mp4', false), true);
+  assert.strictEqual(pi.isAbsolute('C:\\x.mp4', false), false);
+  assert.strictEqual(pi.isAbsolute('\\\\nas\\share\\x.mp4', false), false);
+  assert.strictEqual(pi.isAbsolute('Sub/x.mp4', false), false);
+  // Linux file systems keep case: A.mp4 and a.mp4 are two files, two keys.
+  assert.notStrictEqual(pi.pathKey('/m/A.mp4', false), pi.pathKey('/m/a.mp4', false));
+  assert.notStrictEqual(pi.pathKey('/m/été.mp4', false), pi.pathKey('/m/ÉTÉ.mp4', false));
+});
+
+// The matcher reads the OS it runs on (and the disk), so this one runs on Linux.
+const onLinux = process.platform === 'linux' ? false : 'Linux paths on a case-sensitive file system';
+
+test('matcher on Linux: exact, normalised, relative with "../", case kept, "\\" in a name, Windows-style entries', { skip: onLinux }, async () => {
+  const px = path.join(disk, 'px');
+  const one = insert(write(path.join(px, 'posix one.mp4')));
+  const upper = insert(write(path.join(px, 'Case.mp4'), 'AA'));
+  const lower = insert(write(path.join(px, 'case.mp4'), 'a'));
+  write(path.join(px, 'back\\slash.mp4'), 'abc');
+  const made = [one, upper, lower];
+  try {
+    const entries = [
+      path.join(px, 'posix one.mp4'),                    // exact
+      `${disk}//px/./sub/../posix one.mp4`,              // normalised
+      '../Media/px/posix one.mp4',                       // relative to the playlist folder
+      path.join(px, 'Case.mp4'),                         // two files that differ only in case:
+      path.join(px, 'case.mp4'),                         //   each finds its own row
+      path.join(px, 'POSIX ONE.mp4'),                    // another case of a file: not the same file here
+      path.join(px, 'back\\slash.mp4'),                  // "\" in a name, on disk
+      '..\\Media\\px\\posix one.mp4',                    // a Windows-style relative entry: "\" is a name character
+      'C:\\PlTest\\Lib\\alpha.mp4',                      // a Windows path: relative on Linux, so nothing there
+    ].map((p, i) => entry(i, p));
+    const r = await pi.matchEntries(entries, { playlistDir: lists });
+    assert.deepStrictEqual(r.map((x) => [x.kind, x.how || null, x.mediaId || null]), [
+      ['library', 'exact', one],
+      ['library', 'normalised', one],
+      ['library', 'relative', one],
+      ['library', 'exact', upper],
+      ['library', 'exact', lower],
+      ['missing', null, null],
+      ['disk', 'normalised', null],
+      ['missing', null, null],
+      ['missing', null, null],
+    ]);
+    assert.strictEqual(r[6].diskPath, path.join(px, 'back\\slash.mp4'));
+    assert.strictEqual(r[5].resolved, path.join(px, 'POSIX ONE.mp4'));
+  } finally {
+    db.get().prepare(`DELETE FROM media WHERE id IN (${made.join(',')})`).run();
+  }
+});

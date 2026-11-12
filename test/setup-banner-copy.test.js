@@ -34,11 +34,11 @@ async function renderBanner(tools) {
 
 const FFMPEG = {
   ok: false, required: true, label: 'Video tools (ffmpeg)', needed: 'scanning and thumbnails',
-  install: { winget: 'winget install ffmpeg', url: 'https://www.gyan.dev/ffmpeg/builds/' }, downloadable: true, sizeMB: 90,
+  install: { cmd: 'winget install ffmpeg', cmdNote: null, url: 'https://www.gyan.dev/ffmpeg/builds/' }, downloadable: true, sizeMB: 90,
 };
 const FPCALC = {
   ok: false, required: false, label: 'Music ID helper (fpcalc)', needed: 'Music ID',
-  install: { winget: null, url: 'https://acoustid.org/chromaprint' }, downloadable: true, sizeMB: 1,
+  install: { cmd: null, cmdNote: null, url: 'https://acoustid.org/chromaprint' }, downloadable: true, sizeMB: 1,
 };
 
 test('titles use the plain name with the right verb; the program name stays in the fold', async () => {
@@ -49,7 +49,7 @@ test('titles use the plain name with the right verb; the program name stays in t
   assert.match(html, /Download \(90 MB\)/);
   assert.match(html, /Other ways to install/);
   assert.match(html, /Or download ffmpeg yourself from/);
-  assert.match(html, /Download fpcalc yourself from/, 'no winget: the link is the only manual way');
+  assert.match(html, /Download fpcalc yourself from/, 'no command: the link is the only manual way');
   assert.match(html, />gyan\.dev<\/a>/, 'the link shows the site, not the whole URL');
   assert.doesNotMatch(html, /—/, 'no em dashes');
 });
@@ -57,4 +57,22 @@ test('titles use the plain name with the right verb; the program name stays in t
 test('an older server label without a program name is used as it is', async () => {
   const html = await renderBanner({ ffmpeg: { ...FFMPEG, label: 'ffmpeg / ffprobe' } });
   assert.match(html, /setup-banner-title">ffmpeg \/ ffprobe is missing</);
+});
+
+test('Linux and macOS: the server picks the install line; no winget, the caveat shown beside it', async () => {
+  const linux = {
+    ...FFMPEG,
+    install: { cmd: 'sudo apt install ffmpeg', cmdNote: 'On Fedora: sudo dnf install ffmpeg-free', url: 'https://ffmpeg.org/download.html#build-linux' },
+  };
+  const html = await renderBanner({ ffmpeg: linux });
+  assert.match(html, /data-copy="sudo apt install ffmpeg"/);
+  assert.match(html, /On Fedora: sudo dnf install ffmpeg-free/);
+  assert.match(html, /Or download ffmpeg yourself from/);
+  assert.doesNotMatch(html, /winget/);
+  assert.doesNotMatch(html, /—/, 'no em dashes');
+  // macOS: no download for this platform, so no Download button; brew is the way.
+  const mac = await renderBanner({ ffmpeg: { ...FFMPEG, downloadable: false, sizeMB: null,
+    install: { cmd: 'brew install ffmpeg', cmdNote: null, url: 'https://ffmpeg.org/download.html#build-mac' } } });
+  assert.doesNotMatch(mac, /data-dl=/);
+  assert.match(mac, /data-copy="brew install ffmpeg"/);
 });

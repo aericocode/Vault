@@ -162,6 +162,54 @@ test('relative locations: same folder, subfolders, parents, case, prefixes, shar
   assert.strictEqual(R('D:\\Media\\#tag\\a.mp4', 'D:\\Media'), '.\\#tag\\a.mp4');
 });
 
+// Linux and macOS libraries: the writer goes by the path's own form, not the
+// OS it runs on, so these run everywhere.
+test('M3U8 with relative paths from a Linux or macOS library: "../" and "/" only, never a backslash', () => {
+  const items = [
+    { id: 1, title: 'a', durationSec: 3, filePath: '/home/me/Media/a b.mp4' },
+    { id: 2, title: 'c', durationSec: 4, filePath: '/home/me/Lists/Mine/Sub/c.mp4' },
+    { id: 3, title: 'd', durationSec: 5, filePath: '/home/me/Lists/Mine/d.mp4' },
+    { id: 4, title: 'e', durationSec: 6, filePath: '/mnt/media/Shows/e.mkv' },
+    { id: 5, title: 'w', durationSec: 7, filePath: 'D:\\Media\\w.mp4' },
+  ];
+  const { text, fullPathCount } = buildM3U8({ title: 'Mine', links: 'relative', playlistDir: '/home/me/Lists/Mine', items });
+  assert.deepStrictEqual(text.split('\r\n').filter((l) => l && !l.startsWith('#')), [
+    '../../Media/a b.mp4',
+    'Sub/c.mp4',
+    'd.mp4',
+    '../../../../mnt/media/Shows/e.mkv',     // one root on Linux: another disk is still relative
+    'D:\\Media\\w.mp4',                       // a Windows path cannot be relative to a Linux folder
+  ]);
+  assert.strictEqual(fullPathCount, 1);
+  assert.ok(!/\.\.\\/.test(text), 'no ..\\ in a Linux playlist');
+  // A playlist saved at the top of the file system.
+  assert.strictEqual(relativeLocation('/srv/a.mp4', '/'), 'srv/a.mp4');
+  // A trailing slash on the folder changes nothing.
+  assert.strictEqual(relativeLocation('/home/me/v/a.mp4', '/home/me/lists/'), '../v/a.mp4');
+  // "\" is an ordinary character in a Linux name: kept as it is, never a separator.
+  assert.strictEqual(relativeLocation('/home/me/Media/a\\b.mp4', '/home/me/Lists'), '../Media/a\\b.mp4');
+  // Names that differ only in case are two folders on Linux.
+  assert.strictEqual(relativeLocation('/home/me/Media/x.mp4', '/home/me/media'), '../Media/x.mp4');
+  // A name starting with "#": "./" in front, the Linux way.
+  assert.strictEqual(relativeLocation('/home/me/#1 hit.mp4', '/home/me'), './#1 hit.mp4');
+  // "." and ".." are refused, as on Windows.
+  assert.strictEqual(relativeLocation('/home/me/../x.mp4', '/home/me'), null);
+});
+
+test('M3U8 with full paths from a Linux library: written as they are; odd ones as file URIs', () => {
+  const text = toM3U8({ title: 'L', links: 'full', items: [
+    { id: 1, title: 'x', filePath: '/mnt/media/Été/x y.mp4' },
+    { id: 2, title: 'b', filePath: '/mnt/media/a\\b.mp4' },
+    { id: 3, title: 't', filePath: '/mnt/media/tab\there.mp4' },
+  ] });
+  assert.deepStrictEqual(text.split('\r\n').filter((l) => l && !l.startsWith('#')), [
+    '/mnt/media/Été/x y.mp4',
+    '/mnt/media/a\\b.mp4',
+    'file:///mnt/media/tab%09here.mp4',
+  ]);
+  assert.strictEqual(fileUri('/mnt/media/a\\b.mp4'), 'file:///mnt/media/a%5Cb.mp4');
+});
+
 test('file URIs (used when a path cannot sit on a line as it is)', () => {
   assert.strictEqual(fileUri('C:\\Videos\\a b#1 50%.mp4'), 'file:///C:/Videos/a%20b%231%2050%25.mp4');
   assert.strictEqual(fileUri('C:\\Музыка\\日本.mp3'), 'file:///C:/%D0%9C%D1%83%D0%B7%D1%8B%D0%BA%D0%B0/%E6%97%A5%E6%9C%AC.mp3');
@@ -689,8 +737,11 @@ test('save: relative paths from the folder the window chose; other drives get a 
   }
 });
 
-test('save: Vault links for a folder, and overwriting a file the window confirmed', { skip: onWindows }, async () => {
+// Vault links carry no file paths, so this runs off Windows too (the window
+// there is the desktop's own dialog, or Vault's folder browser).
+test('save: Vault links for a folder, and overwriting a file the window confirmed', async () => {
   const chosen = path.join(tmp, 'out', 'box.M3U8');
+  fs.mkdirSync(path.dirname(chosen), { recursive: true });
   fs.writeFileSync(chosen, 'old');
   const seen = {};
   server._setSaveDialogForTest(fakeDialog(`${chosen}\r\n`, seen));
@@ -719,7 +770,8 @@ test('save: cancel writes nothing; a broken or odd answer from the window is ref
     const bad = [
       '',                                         // the shim broke
       'relative\\x.m3u8',                         // not absolute
-      '/tmp/x.m3u8',                              // not a Windows path
+      // not a path of this system (off Windows a POSIX path is the right kind)
+      process.platform === 'win32' ? '/tmp/x.m3u8' : 'C:\\Temp\\x.m3u8',
       path.join(tmp, 'wrong.txt'),                // wrong extension
       path.join(tmp, 'x.xspf'),                   // not M3U8
       `${path.join(tmp, 'a.m3u8')}\n${path.join(tmp, 'b.m3u8')}`,   // two lines
@@ -754,8 +806,9 @@ test('save: strict parameters, unknown collection, before any window opens', asy
   }
 });
 
-test('save: the library locked or encrypted while the window was open writes nothing', { skip: onWindows }, async () => {
+test('save: the library locked or encrypted while the window was open writes nothing', async () => {
   const chosen = path.join(tmp, 'out', 'late.m3u8');
+  fs.mkdirSync(path.dirname(chosen), { recursive: true });
   const real = vault.isEncrypted;
   try {
     for (const links of ['full', 'relative']) {
@@ -781,6 +834,40 @@ test('save: the library locked or encrypted while the window was open writes not
   } finally {
     vault.isEncrypted = real;
     vault._locked = false;
+    server._setSaveDialogForTest(null);
+  }
+});
+
+// Off Windows with no desktop dialog, the first answer is { fallback: true }
+// and the page sends the place chosen in Vault's own folder browser.
+test('save off Windows: the place chosen in Vault\'s folder browser, checked like the window\'s', { skip: process.platform === 'win32' && 'Windows never takes a path from the page' }, async () => {
+  const outDir = path.join(tmp, 'in-page');
+  fs.mkdirSync(outDir, { recursive: true });
+  let opened = 0;
+  server._setSaveDialogForTest(() => { opened++; });
+  try {
+    const target = path.join(outDir, 'From page.m3u8');
+    let res = await save(coll, { links: 'vault', path: target });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual((await res.json()).path, target);
+    assert.ok(fs.readFileSync(target, 'utf8').startsWith('#EXTM3U'));
+    fs.symlinkSync('/dev/null', path.join(outDir, 'link.m3u8'));
+    for (const bad of ['/proc/x.m3u8', '/dev/x.m3u8', 'rel.m3u8', `${outDir}/../in-page/x.m3u8`, path.join(outDir, 'x.txt'),
+      path.join(outDir, 'nope', 'x.m3u8'), path.join(outDir, 'link.m3u8'), '', 5]) {
+      res = await save(coll, { links: 'vault', path: bad });
+      assert.strictEqual(res.status, 400, String(bad));
+      assert.strictEqual((await res.json()).code, 'BAD_PATH', String(bad));
+    }
+    assert.strictEqual(opened, 0, 'no window opened for a path from the page');
+    // Encrypted: path links stay refused, whoever chose the place.
+    const real = vault.isEncrypted;
+    vault.isEncrypted = () => true;
+    try {
+      res = await save(coll, { links: 'full', path: path.join(outDir, 'enc.m3u8') });
+      assert.strictEqual(res.status, 403);
+      assert.ok(!fs.existsSync(path.join(outDir, 'enc.m3u8')));
+    } finally { vault.isEncrypted = real; }
+  } finally {
     server._setSaveDialogForTest(null);
   }
 });
@@ -836,6 +923,63 @@ test('the request guards cover the playlist routes: the app passes, another site
   // The order no refused request could change
   const after = await exp(coll, 'links=vault');
   assert.deepStrictEqual(locs(await after.text()).map((u) => Number(u.split('/').pop())), [m[0], m[1], m[2], m[3]]);
+});
+
+// The routes that take a path from the page off Windows (Linux pickers):
+// the real server's guards run before every one of them. Another site, a
+// rebinding Host, and the lock all stop the request before the route.
+test('the request guards cover every route that takes a path from the page off Windows', async () => {
+  const http = require('node:http');
+  const outDir = path.join(tmp, 'guarded');
+  fs.mkdirSync(outDir, { recursive: true });
+  const target = path.join(outDir, 'x.m3u8');
+  const routes = [
+    ['GET', `/api/fs/list?path=${encodeURIComponent(outDir)}`, undefined],
+    ['POST', `/api/collections/${coll}/export/save`, { links: 'vault', path: target }],
+    ['POST', '/api/playlists/import/pick', { path: target }],
+    ['POST', '/api/stage/mpv/choose', { path: '/usr/bin/mpv' }],
+    ['POST', '/api/import/resolve-drop', { files: [], dirs: [], paths: [outDir] }],
+  ];
+  const raw = (method, p, headers, body) => new Promise((resolve, reject) => {
+    const data = body === undefined ? null : JSON.stringify(body);
+    const req = http.request({ host: '127.0.0.1', port, method, path: p,
+      headers: { ...(data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {}), ...headers } }, (r) => {
+      let s = ''; r.setEncoding('utf8'); r.on('data', (c) => { s += c; });
+      r.on('end', () => resolve({ status: r.statusCode, text: s }));
+    });
+    req.on('error', reject);
+    req.end(data || undefined);
+  });
+  let opened = 0;
+  server._setSaveDialogForTest(() => { opened++; });
+  try {
+    for (const [method, p, body] of routes) {
+      const own = { Host: `127.0.0.1:${port}` };
+      for (const h of [
+        { Origin: 'https://evil.example' },
+        { Origin: 'null' },
+        { 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'cors' },
+        { 'Sec-Fetch-Site': 'same-site' },
+      ]) {
+        // The Origin check is for writes; a cross-site GET is refused by Fetch Metadata.
+        if (method === 'GET' && h.Origin) continue;
+        const r = await raw(method, p, { ...own, ...h }, body);
+        assert.strictEqual(r.status, 403, `${method} ${p} ${JSON.stringify(h)}`);
+      }
+      const rebound = await raw(method, p, { Host: 'evil.example' }, body);
+      assert.strictEqual(rebound.status, 403, `${method} ${p}: DNS rebinding Host`);
+      vault._locked = true;
+      try {
+        const r = await raw(method, p, own, body);
+        assert.strictEqual(r.status, 423, `${method} ${p}: locked`);
+        assert.ok(!r.text.includes(outDir), 'nothing about the disk while locked');
+      } finally { vault._locked = false; }
+    }
+    assert.ok(!fs.existsSync(target), 'nothing written by a refused request');
+    assert.strictEqual(opened, 0, 'no window for a refused request');
+  } finally {
+    server._setSaveDialogForTest(null);
+  }
 });
 
 // ── The dialog's toast (player-lib/collection-export.js, run in a VM) ──────

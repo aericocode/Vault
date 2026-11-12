@@ -112,7 +112,7 @@ test('banner: nothing renders when the only missing tool is hidden', async () =>
   assert.strictEqual(visible.inserted.length, 1);
   assert.match(visible.inserted[0].innerHTML, /data-hide="fpcalc"/, 'optional row offers Don\'t show again');
 
-  const required = await loadBanner({ ffmpeg: { ...TOOLS.ffmpeg, install: { url: 'u', winget: 'w' } } });
+  const required = await loadBanner({ ffmpeg: { ...TOOLS.ffmpeg, install: { url: 'u', cmd: 'w' } } });
   assert.strictEqual(required.inserted.length, 1);
   assert.doesNotMatch(required.inserted[0].innerHTML, /data-hide=/, 'required row has no Don\'t show again');
 });

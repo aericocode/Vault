@@ -74,9 +74,11 @@ function addFiles(n, prefix) {
   return { cid, ids, names: ids.map((_, i) => `${prefix}${i}.mp4`) };
 }
 
+// performance.now: a wall clock that steps forward (WSL2's time sync) ended
+// this wait early, with most of the run still to come.
 const idle = async () => {
-  const t0 = Date.now();
-  while (svc._queue().status().state !== 'idle' && Date.now() - t0 < 5000) await new Promise(r => setTimeout(r, 10));
+  const t0 = performance.now();
+  while (svc._queue().status().state !== 'idle' && performance.now() - t0 < 5000) await new Promise(r => setTimeout(r, 10));
   svc._flushQuick();
 };
 const counts = async (cid) => {

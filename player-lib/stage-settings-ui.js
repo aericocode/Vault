@@ -19,6 +19,7 @@ const STAGE_SETTINGS_DEFAULTS = {
   showName: true, nameSeconds: 3, windowName: 'Vault Stage', imageSeconds: 8,
   cursorSeconds: 1, openSize: 'free', muteVault: true, tips: true, player: 'auto',
   evenLoudness: true, flowMeasure: 'use', flowShuffle: false, hwDecoding: true, flowEdges: 'auto',
+  xwayland: true,
 };
 
 const STAGE_FLOW_MEASURE_OPTIONS = [
@@ -38,7 +39,25 @@ const STAGE_FLOW_EDGES_OPTIONS = [
 const STAGE_BASIC_WORDS = 'Basic (picture-in-picture): no extra program. It shows the address and controls when your mouse is over it, plays videos only, and stays on top.';
 let _stageSettings = { ...STAGE_SETTINGS_DEFAULTS };
 let _stageSettingsLoaded = false;
-let _stageMpv = null;          // { found, path, version, source, chosen, chosenProblem, canChoose, choice }
+let _stageMpv = null;          // { found, path, version, source, chosen, chosenProblem, canChoose, choice, sandboxed, platform, display }
+
+/** How to get mpv, in this system's words (the server says which system). */
+function _stageMpvHowTo(m) {
+  const full = 'For the full Stage (its own window, pictures, a black Hold, sizes), install mpv, a free video player';
+  if (m.platform === 'darwin') {
+    return `${full}, with Homebrew: brew install mpv. Vault looks in /opt/homebrew/bin, /usr/local/bin, /Applications/mpv.app and on PATH.`;
+  }
+  if (m.platform && m.platform !== 'win32') {
+    return `${full}, from your distribution: sudo apt install mpv (Ubuntu, Debian, Mint), sudo dnf install mpv (Fedora, with RPM Fusion turned on) or sudo pacman -S mpv (Arch). Vault looks in /usr/bin, /usr/local/bin and on PATH. The Flatpak and Snap versions of mpv run in a sandbox that Vault cannot use, so install your distribution’s package instead.`;
+  }
+  return `${full}, from mpv.io. Vault looks in Program Files and on PATH. If it is somewhere else, choose mpv.exe here.`;
+}
+
+/** An mpv that is there but in a sandbox (Linux). */
+const STAGE_SANDBOXED_WORDS = {
+  flatpak: 'Found mpv as a Flatpak (io.mpv.Mpv). Vault cannot start a Flatpak app itself, and its sandbox keeps it away from your files, so Stage cannot use it.',
+  snap: 'Found mpv as a Snap. A Snap app only reaches files in your home folder and keeps its own temporary folder, so Stage cannot use it.',
+};
 
 /** What the Player row says about mpv. */
 function _stageMpvHtml() {
@@ -49,14 +68,22 @@ function _stageMpvHtml() {
     const where = m.source === 'chosen' ? ', the one you chose' : '';
     lines.push(`<span class="stage-mpv-line">mpv found: <code class="stage-mpv-path">${_stEsc(m.path)}</code>${m.version ? ` <span class="stage-mpv-ver">(${_stEsc(m.version)}${where})</span>` : (where ? ` <span class="stage-mpv-ver">(${where.slice(2)})</span>` : '')}</span>`);
   } else {
-    lines.push('<span class="stage-mpv-line stage-mpv-missing">mpv was not found.</span>');
+    const sandboxed = STAGE_SANDBOXED_WORDS[m.sandboxed];
+    lines.push(`<span class="stage-mpv-line stage-mpv-missing">${sandboxed ? _stEsc(sandboxed) : 'mpv was not found.'}</span>`);
   }
   if (m.chosenProblem) lines.push(`<span class="stage-mpv-line stage-mpv-missing">The mpv you chose can’t be used: ${_stEsc(m.chosenProblem)}</span>`);
   // Which Stage opens now.
   const basic = m.choice === 'basic';
-  lines.push(`<span class="stage-mpv-line stage-mpv-use">Stage uses: ${basic ? _stEsc(STAGE_BASIC_WORDS) : 'mpv, its own window (the full Stage).'}</span>`);
+  // Linux: a Wayland desktop (GNOME) may not keep the browser's picture-in-picture window on top.
+  const basicWords = m.platform && m.platform !== 'win32' && m.platform !== 'darwin'
+    ? STAGE_BASIC_WORDS.replace('and stays on top.', 'and stays on top where the desktop allows it.')
+    : STAGE_BASIC_WORDS;
+  lines.push(`<span class="stage-mpv-line stage-mpv-use">Stage uses: ${basic ? _stEsc(basicWords) : 'mpv, its own window (the full Stage).'}</span>`);
   if (!m.found) {
-    lines.push('<span class="stage-mpv-line stage-mpv-how">For the full Stage (its own window, pictures, a black Hold, sizes), install mpv, a free video player, from mpv.io. Vault looks in Program Files and on PATH. If it is somewhere else, choose mpv.exe here.</span>');
+    lines.push(`<span class="stage-mpv-line stage-mpv-how">${_stEsc(_stageMpvHowTo(m))}</span>`);
+  } else if (!basic && m.display && m.display.wayland && !m.display.placement) {
+    // A Wayland desktop without XWayland (or with it turned off below): the desktop places the window.
+    lines.push('<span class="stage-mpv-line stage-mpv-how">On this desktop, Stage may not open where you last left it, and bringing Stage to the front may do nothing. That is up to the desktop, not Vault.</span>');
   }
   return lines.join('');
 }
@@ -64,7 +91,7 @@ function _stageMpvHtml() {
 function _stageMpvButtons() {
   const m = _stageMpv || {};
   const can = m.canChoose !== false;
-  const off = can ? '' : ' disabled title="This copy of Vault cannot open the Windows file picker."';
+  const off = can ? '' : ` disabled title="${m.platform && m.platform !== 'win32' ? 'This copy of Vault cannot open a file picker.' : 'This copy of Vault cannot open the Windows file picker.'}"`;
   const p = _stageSettings.player === 'basic' ? 'basic' : 'auto';
   return `<span class="stage-mpv-acts">
           <select class="settings-sel" data-stage-player aria-label="Which Stage">
@@ -76,12 +103,29 @@ function _stageMpvButtons() {
         </span>`;
 }
 
+const STAGE_XWAYLAND_DESC = 'On a Wayland desktop (GNOME, KDE Plasma and most others), Stage opens through XWayland so it can open where you left it and come to the front. Turn this off if the Stage window does not show up. Takes effect the next time Stage opens.';
+
+/** Use XWayland for the Stage window: only on a Wayland desktop that has XWayland. */
+function _stageXwaylandRowHtml() {
+  const d = _stageMpv && _stageMpv.display;
+  if (!d || !d.wayland || !d.xwayland || typeof settingsRowHtml !== 'function') return '';
+  const fixed = d.forced ? ' Set by VAULT_STAGE_XWAYLAND for now.' : '';
+  return settingsRowHtml({
+    tag: 'label', sfind: 'stageXwayland', title: 'Use XWayland for the Stage window',
+    desc: STAGE_XWAYLAND_DESC + fixed,
+    control: `<input type="checkbox" data-stage-xw ${_stageSettings.xwayland !== false ? 'checked' : ''}${d.forced ? ' disabled' : ''}>
+        <span class="settings-switch" aria-hidden="true"></span>`,
+  });
+}
+
 function _stageMpvPaint(root) {
   if (!root) return;
   const box = root.querySelector('[data-stage-mpv-box]');
   if (box) box.innerHTML = _stageMpvHtml();
   const acts = root.querySelector('[data-stage-mpv-acts]');
   if (acts) acts.innerHTML = _stageMpvButtons();
+  const xw = root.querySelector('[data-stage-xwayland-row]');
+  if (xw) xw.innerHTML = _stageXwaylandRowHtml();
 }
 
 async function _stageMpvLoad(root) {
@@ -94,8 +138,16 @@ async function _stageMpvLoad(root) {
 
 async function _stageMpvAct(act, root) {
   try {
-    const r = await fetch(`/api/stage/mpv/${act === 'forget' ? 'forget' : 'choose'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-    const data = await r.json().catch(() => ({}));
+    const url = `/api/stage/mpv/${act === 'forget' ? 'forget' : 'choose'}`;
+    let r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    let data = await r.json().catch(() => ({}));
+    // Off Windows with no desktop dialog: pick mpv in Vault's own folder browser (fs-picker.js).
+    if (r.ok && data.fallback && window.vaultFsPicker) {
+      const p = await window.vaultFsPicker.fromReply(data, { kind: 'mpv' });
+      if (p == null) { _stageMpvPaint(root); return; }
+      r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: p }) });
+      data = await r.json().catch(() => ({}));
+    }
     if (!r.ok) throw Object.assign(new Error(data.error || `Server returned ${r.status}`), { status: r.status });
     if (data.mpv) _stageMpv = data.mpv;
     if (!data.canceled && typeof showToast === 'function') showToast(act === 'forget' ? 'Vault finds mpv by itself again' : 'Stage will use this mpv');
@@ -159,6 +211,9 @@ function stageSettingsHtml() {
     control: '<button type="button" class="settings-btn settings-btn-quiet" data-stage-setlog>Open set log</button>',
   });
 
+  // Linux on a Wayland desktop only; filled in once the server has said so (_stageMpvPaint).
+  const xwRow = `<div data-stage-xwayland-row style="display:contents">${_stageXwaylandRowHtml()}</div>`;
+
   const playerRow = settingsRowHtml({
     sfind: 'stagePlayer', title: 'Player', cls: 'stage-mpv-row',
     extra: `<span class="settings-toggle-desc stage-mpv-box" data-stage-mpv-box>${_stageMpvHtml()}</span>`,
@@ -179,6 +234,7 @@ function stageSettingsHtml() {
       + settingsRowHtml({ tag: 'label', sfind: 'stageTips', title: 'Tips when Stage opens', desc: 'How to share it in Discord.', control: _stSwitch('tips', s.tips) })
       + settingsRowHtml({ tag: 'label', sfind: 'stageEvenLoudness', title: 'Even out loudness on Stage', desc: loudDesc, control: _stSwitch('evenLoudness', s.evenLoudness) })
       + settingsRowHtml({ tag: 'label', sfind: 'stageHwDecoding', title: 'Hardware decoding', desc: hwDesc, control: _stSwitch('hwDecoding', s.hwDecoding) })
+      + xwRow
       + settingsRowHtml({ sfind: 'stageFlowMeasure', title: 'Measure for Flow', desc: measureDesc, control: measureSel })
       + settingsRowHtml({ sfind: 'stageFlowEdges', title: 'Ignore calm intros and credits', desc: edgesDesc, control: edgesSel })
       + settingsRowHtml({ tag: 'label', sfind: 'stageFlowShuffle', title: 'Flow shuffle', desc: shuffleDesc, control: _stSwitch('flowShuffle', s.flowShuffle) });
@@ -202,6 +258,7 @@ function stageSettingsHtml() {
       ${settingsRowHtml({ tag: 'label', sfind: 'stageTips', title: 'Tips when Stage opens', control: _stSwitch('tips', s.tips) })}
       ${settingsRowHtml({ tag: 'label', sfind: 'stageEvenLoudness', title: 'Even out loudness on Stage', desc: loudDesc, control: _stSwitch('evenLoudness', s.evenLoudness) })}
       ${settingsRowHtml({ tag: 'label', sfind: 'stageHwDecoding', title: 'Hardware decoding', desc: hwDesc, control: _stSwitch('hwDecoding', s.hwDecoding) })}
+      ${xwRow}
       ${settingsRowHtml({ sfind: 'stageFlowMeasure', title: 'Measure for Flow', desc: measureDesc, control: measureSel })}
       ${settingsRowHtml({ sfind: 'stageFlowEdges', title: 'Ignore calm intros and credits', desc: edgesDesc, control: edgesSel })}
       ${settingsRowHtml({ tag: 'label', sfind: 'stageFlowShuffle', title: 'Flow shuffle', desc: shuffleDesc, control: _stSwitch('flowShuffle', s.flowShuffle) })}
@@ -233,6 +290,7 @@ function _stageSettingsPaint(root) {
   root.querySelectorAll('[data-stage-num]').forEach((el) => { if (document.activeElement !== el) el.value = String(s[el.dataset.stageNum]); });
   root.querySelectorAll('[data-stage-text]').forEach((el) => { if (document.activeElement !== el) el.value = s[el.dataset.stageText]; });
   root.querySelectorAll('[data-stage-sel]').forEach((el) => { el.value = s[el.dataset.stageSel]; });
+  root.querySelectorAll('[data-stage-xw]').forEach((el) => { el.checked = s.xwayland !== false; });
 }
 
 /** Wire the page drawn into root (settings.js calls this after drawing it). */
@@ -254,6 +312,9 @@ function stageSettingsWire(root) {
     });
     // Auto or Basic only: saved, then the row says which Stage opens now.
     root.addEventListener('change', async (e) => {
+      // Drawn after the page (once the server says it is a Wayland desktop), so wired here.
+      const xw = e.target.closest('[data-stage-xw]');
+      if (xw) { await _stageSettingsSave({ xwayland: xw.checked }, root); _stageMpvLoad(root); return; }
       const sel = e.target.closest('[data-stage-player]');
       if (!sel) return;
       await _stageSettingsSave({ player: sel.value === 'basic' ? 'basic' : 'auto' }, root);

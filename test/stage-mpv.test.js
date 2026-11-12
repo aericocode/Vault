@@ -32,6 +32,21 @@ const Overlay = require('../lib/stage/mpv-overlay');
 const { parseLine, watchWindow } = require('../lib/stage/mpv-window');
 const { createEngine, WAIT_UPCOMING_MS, LOAD_TIMEOUT_MS } = require('../lib/stage/engine');
 
+// mpv-ipc's connect and reconnect retry timers are unref'd (they must never
+// hold Vault open), and in the server something always holds the event loop.
+// Here nothing does: on Windows the runner's stdio pipes happen to, on Linux
+// they do not, and every test from the first pipe wait on was cancelled with
+// "event loop already resolved". Each pipe test holds the loop while it runs,
+// as the server would, and lets go in its own after hook, pass or fail. A
+// hold for the whole file could outlive a failed test and keep the run open
+// for good. Pipe tests also carry a time limit, so a wait that never ends
+// fails instead of hanging.
+const PIPE_TEST = { timeout: 20000 };
+function holdLoop(t) {
+  const h = setInterval(() => {}, 60 * 60 * 1000);
+  t.after(() => clearInterval(h));
+}
+
 /* ── Finding mpv ────────────────────────────────────────────────────────── */
 
 /** A fake file system: path -> { size, mtimeMs, real?, dir? } (Windows paths, compared case-blind). */
@@ -40,7 +55,8 @@ function fakeFs(files) {
   const stat = (p) => {
     const f = get(p);
     if (!f) { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; }
-    return { isFile: () => !f.dir, size: f.size || 1, mtimeMs: f.mtimeMs || 1 };
+    return { isFile: () => !f.dir, isDirectory: () => !!f.dir, size: f.size || 1, mtimeMs: f.mtimeMs || 1,
+      uid: f.uid || 0, gid: f.gid || 0, mode: f.mode != null ? f.mode : (f.dir ? 0o40755 : 0o100755) };
   };
   const realpath = (p) => { const f = get(p); if (!f) throw new Error('ENOENT'); return f.real || p; };
   realpath.native = realpath;
@@ -82,8 +98,64 @@ test('checkPath: only a local, absolute file named mpv.exe whose real path is na
   assert.strictEqual(ok('C:\\Program Files\\mpv\\mpv.com'), false, 'mpv.com is not mpv.exe');
   assert.strictEqual(ok('C:\\Program Files\\mpv\\mpv.exe\u0000.txt'), false, 'control characters');
   assert.strictEqual(ok(42), false);
-  assert.strictEqual(find.checkPath('/usr/bin/mpv', { platform: 'linux', fsx: fakeFs({ '/usr/bin/mpv': {} }) }).ok, true);
+  const usr = { '/': { dir: true }, '/usr': { dir: true }, '/usr/bin': { dir: true } };
+  assert.strictEqual(find.checkPath('/usr/bin/mpv', { platform: 'linux', fsx: fakeFs({ ...usr, '/usr/bin/mpv': {} }) }).ok, true);
   assert.strictEqual(find.checkPath('/usr/bin/vlc', { platform: 'linux', fsx: fakeFs({ '/usr/bin/vlc': {} }) }).ok, false);
+});
+
+test('off Windows: mpv and every folder above it must be root\'s or this user\'s and not writable by others', () => {
+  const ME = 1000, MYGID = 1000, OTHER = 1001;
+  const base = { '/': { dir: true }, '/usr': { dir: true }, '/usr/bin': { dir: true }, '/usr/bin/mpv': {},
+    '/home': { dir: true }, '/home/me': { dir: true, uid: ME, gid: MYGID }, '/home/me/bin': { dir: true, uid: ME, gid: MYGID } };
+  const check = (files, p, o = {}) => find.checkPath(p, { platform: o.platform || 'linux', fsx: fakeFs({ ...base, ...files }), uid: ME, gid: MYGID });
+  const why = (files, p, o) => { const c = check(files, p, o); return c.ok ? null : c.error; };
+  // Allowed: a package's mpv, the user's own, a sticky shared folder above a folder of the user's own.
+  assert.strictEqual(why({}, '/usr/bin/mpv'), null);
+  assert.strictEqual(why({ '/home/me/bin/mpv': { uid: ME, gid: MYGID } }, '/home/me/bin/mpv'), null);
+  assert.strictEqual(why({ '/tmp': { dir: true, mode: 0o41777 }, '/tmp/mine': { dir: true, uid: ME, mode: 0o40700 }, '/tmp/mine/mpv': { uid: ME } }, '/tmp/mine/mpv'), null);
+  assert.strictEqual(why({ '/home/me/bin': { dir: true, uid: ME, gid: MYGID, mode: 0o40775 }, '/home/me/bin/mpv': { uid: ME, gid: MYGID, mode: 0o100775 } }, '/home/me/bin/mpv'), null,
+    'group write by the user\'s own group');
+  // Refused: someone else's file or folder, or one others can write to.
+  assert.match(why({ '/tmp': { dir: true, mode: 0o41777 }, '/tmp/x': { dir: true, uid: OTHER, mode: 0o40755 }, '/tmp/x/mpv': { uid: OTHER } }, '/tmp/x/mpv'), /another user/);
+  assert.match(why({ '/tmp': { dir: true, mode: 0o41777 }, '/tmp/mpv': { uid: OTHER } }, '/tmp/mpv'), /another user/, 'planted straight in /tmp');
+  assert.match(why({ '/tmp': { dir: true, mode: 0o41777 }, '/tmp/x': { dir: true, uid: ME, mode: 0o40777 }, '/tmp/x/mpv': { uid: ME } }, '/tmp/x/mpv'), /Other users can change the folder/,
+    'a world-writable folder that is not sticky');
+  assert.match(why({ '/home/me/bin/mpv': { uid: ME, mode: 0o100777 } }, '/home/me/bin/mpv'), /Other users can change that mpv/);
+  assert.match(why({ '/home/me/bin/mpv': { uid: ME, mode: 0o101777 } }, '/home/me/bin/mpv'), /Other users can change that mpv/, 'sticky means nothing on a file');
+  assert.match(why({ '/home/me/bin': { dir: true, uid: ME, gid: 100, mode: 0o40775 }, '/home/me/bin/mpv': { uid: ME } }, '/home/me/bin/mpv'), /Other users can change the folder/,
+    'group write by a shared group');
+  assert.match(why({ '/opt': { dir: true, uid: OTHER }, '/opt/mpv': { dir: true }, '/opt/mpv/mpv': {} }, '/opt/mpv/mpv'), /another user/, 'any folder above it');
+  assert.match(why({ '/usr/bin/mpv': { uid: OTHER } }, '/usr/bin/mpv'), /another user/);
+  // The real path is what is checked: a link from a safe place to an unsafe one is refused.
+  assert.match(why({ '/tmp': { dir: true, mode: 0o41777 }, '/tmp/x': { dir: true, uid: OTHER }, '/tmp/x/mpv': { uid: OTHER },
+    '/home/me/bin/mpv': { real: '/tmp/x/mpv' } }, '/home/me/bin/mpv'), /another user/);
+  // macOS: /Applications and Homebrew are group-writable by admin (gid 80).
+  const mac = { '/Applications': { dir: true, gid: 80, mode: 0o40775 }, '/Applications/mpv': { dir: true, uid: ME, gid: 80, mode: 0o40775 },
+    '/Applications/mpv/mpv': { uid: ME, gid: 80 } };
+  assert.strictEqual(why(mac, '/Applications/mpv/mpv', { platform: 'darwin' }), null);
+  assert.match(why(mac, '/Applications/mpv/mpv', { platform: 'linux' }), /Other users can change the folder/, 'gid 80 means nothing special on Linux');
+  // Windows is unchanged: no owner check there.
+  assert.strictEqual(find.checkPath('C:\\Program Files\\mpv\\mpv.exe', { platform: 'win32', fsx: fakeFs({ 'C:\\Program Files\\mpv\\mpv.exe': { uid: OTHER, mode: 0o100777 } }) }).ok, true);
+});
+
+test('off Windows on a real disk: a runnable mpv in a private folder passes, the same folder opened to everyone does not', { skip: process.platform === 'win32' && 'POSIX owners and modes' }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-mpv-trust-'));
+  try {
+    const exe = path.join(dir, 'mpv');
+    fs.writeFileSync(exe, '#!/bin/sh\necho mpv 0.38.0\n', { mode: 0o755 });
+    fs.chmodSync(exe, 0o755);
+    fs.chmodSync(dir, 0o700);
+    assert.strictEqual(find.untrustedPosix(fs.realpathSync(exe)), null);
+    fs.chmodSync(dir, 0o777);
+    assert.match(find.untrustedPosix(fs.realpathSync(exe)), /Other users can change the folder/);
+    assert.strictEqual(find.checkPath(exe).ok, false);
+    fs.chmodSync(dir, 0o700);
+    fs.chmodSync(exe, 0o757);
+    assert.match(find.untrustedPosix(fs.realpathSync(exe)), /Other users can change that mpv/);
+  } finally {
+    fs.chmodSync(dir, 0o700);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('parseVersion: only mpv’s own first line counts', () => {
@@ -219,7 +291,8 @@ test('loadfile: the index form from mpv 0.38 on, the old form before', () => {
   assert.strictEqual(loadfileTakesIndex('af9c81fa1'), true);
 });
 
-test('mpv is spawned without a shell and never detached (Windows ends it with Vault through Node’s kill-on-close job)', async () => {
+test('mpv is spawned without a shell and never detached (Windows ends it with Vault through Node’s kill-on-close job)', PIPE_TEST, async (t) => {
+  holdLoop(t);
   const seen = [];
   const child = new EventEmitter();
   child.exitCode = null;
@@ -239,8 +312,11 @@ test('mpv is spawned without a shell and never detached (Windows ends it with Va
   assert.strictEqual(seen[0].opts.stdio, 'ignore');
 });
 
-/** A fake mpv on a real pipe (or socket): answers commands, can send events, can hang. */
-function fakeMpvServer(pipePath, { onCommand } = {}) {
+/**
+ * A fake mpv on a real pipe (or socket): answers commands, can send events, can hang.
+ * It is closed in the test's after hook too, so a failed assertion never leaves it open.
+ */
+function fakeMpvServer(t, pipePath, { onCommand } = {}) {
   const socks = new Set();
   const server = net.createServer((sock) => {
     socks.add(sock);
@@ -260,25 +336,33 @@ function fakeMpvServer(pipePath, { onCommand } = {}) {
       }
     });
   });
-  return new Promise((resolve) => server.listen(pipePath, () => resolve({
-    server,
-    emit: (ev) => { for (const s of socks) s.write(`${JSON.stringify(ev)}\n`); },
-    dropAll: () => { for (const s of socks) s.destroy(); },
-    close: () => new Promise((r) => { for (const s of socks) s.destroy(); server.close(() => r()); }),
-  })));
+  let closing = null;
+  const close = () => closing || (closing = new Promise((r) => { for (const s of socks) s.destroy(); server.close(() => r()); }));
+  t.after(close);
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(pipePath, () => resolve({
+      server,
+      emit: (ev) => { for (const s of socks) s.write(`${JSON.stringify(ev)}\n`); },
+      dropAll: () => { for (const s of socks) s.destroy(); },
+      close,
+    }));
+  });
 }
 
 const testPipe = () => (process.platform === 'win32'
   ? `\\\\.\\pipe\\vault-stage-test-${process.pid}-${Math.random().toString(16).slice(2)}`
   : path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vst-')), 's.sock'));
 
-test('IPC: requests get their own answers, errors are errors, events come as events', async () => {
+test('IPC: requests get their own answers, errors are errors, events come as events', PIPE_TEST, async (t) => {
+  holdLoop(t);
   const p = testPipe();
-  const srv = await fakeMpvServer(p, {
+  const srv = await fakeMpvServer(t, p, {
     onCommand: (cmd) => (cmd[0] === 'get_property' && cmd[1] === 'volume' ? { error: 'success', data: 80 }
       : cmd[0] === 'bad' ? { error: 'invalid parameter' } : { error: 'success', data: null }),
   });
   const ipc = new MpvIpc(p, { connectTimeoutMs: 2000 });
+  t.after(() => ipc.close());
   await ipc.connect();
   const [v, n] = await Promise.all([ipc.get('volume'), ipc.command(['set_property', 'pause', true])]);
   assert.strictEqual(v, 80);
@@ -293,12 +377,18 @@ test('IPC: requests get their own answers, errors are errors, events come as eve
   await srv.close();
 });
 
-test('IPC: a request mpv never answers times out; the pipe not there yet is waited for', async () => {
+test('IPC: a request mpv never answers times out; the pipe not there yet is waited for', PIPE_TEST, async (t) => {
+  holdLoop(t);
   const p = testPipe();
-  const ipc = new MpvIpc(p, { connectTimeoutMs: 3000, requestTimeoutMs: 150 });
+  const ipc = new MpvIpc(p, { connectTimeoutMs: 10000, requestTimeoutMs: 150 });
+  t.after(() => ipc.close());
+  // Nothing awaits the connect until the fake is listening. Should it fail
+  // in that gap (a slow, busy machine), it fails this test, not the process
+  // with an unhandled rejection.
   const connecting = ipc.connect();
+  connecting.catch(() => {});
   await new Promise(r => setTimeout(r, 200));      // mpv opens its pipe a moment later
-  const srv = await fakeMpvServer(p, { onCommand: () => 'hang' });
+  const srv = await fakeMpvServer(t, p, { onCommand: () => 'hang' });
   await connecting;
   await assert.rejects(ipc.command(['get_property', 'pause']), (e) => e instanceof MpvTimeout);
   assert.strictEqual(ipc.pending.size, 0);
@@ -307,11 +397,13 @@ test('IPC: a request mpv never answers times out; the pipe not there yet is wait
   await assert.rejects(new MpvIpc(testPipe(), { connectTimeoutMs: 100 }).connect(), (e) => e instanceof MpvDisconnected);
 });
 
-test('IPC: a dropped connection fails what was waiting, reconnects while mpv lives, and watches its properties again', async () => {
+test('IPC: a dropped connection fails what was waiting, reconnects while mpv lives, and watches its properties again', PIPE_TEST, async (t) => {
+  holdLoop(t);
   const p = testPipe();
   const commands = [];
-  const srv = await fakeMpvServer(p, { onCommand: (cmd) => { commands.push(cmd); return cmd[0] === 'get_property' ? 'hang' : { error: 'success', data: null }; } });
+  const srv = await fakeMpvServer(t, p, { onCommand: (cmd) => { commands.push(cmd); return cmd[0] === 'get_property' ? 'hang' : { error: 'success', data: null }; } });
   const ipc = new MpvIpc(p, { connectTimeoutMs: 2000, requestTimeoutMs: 5000, shouldReconnect: () => true });
+  t.after(() => ipc.close());
   await ipc.connect();
   await ipc.observe('time-pos');
   const waiting = ipc.command(['get_property', 'pause']);
@@ -325,10 +417,12 @@ test('IPC: a dropped connection fails what was waiting, reconnects while mpv liv
   await srv.close();
 });
 
-test('IPC: no reconnect once mpv is gone; close() ends it for good', async () => {
+test('IPC: no reconnect once mpv is gone; close() ends it for good', PIPE_TEST, async (t) => {
+  holdLoop(t);
   const p = testPipe();
-  const srv = await fakeMpvServer(p);
+  const srv = await fakeMpvServer(t, p);
   const ipc = new MpvIpc(p, { connectTimeoutMs: 2000, shouldReconnect: () => false });
+  t.after(() => ipc.close());
   await ipc.connect();
   await ipc.command(['get_property', 'pause']);   // the fake has the connection now
   const closed = new Promise((resolve) => ipc.once('close', resolve));
@@ -803,10 +897,11 @@ test('a long list from Control: Stage plays through it on its own (the Vault tab
   assert.ok(e.reports.some(r => r.type === 'finished'), 'nothing next at all: the end as before');
 });
 
-test('the pipe must answer with the pid of the mpv Vault started, or Vault refuses to drive it', async () => {
+test('the pipe must answer with the pid of the mpv Vault started, or Vault refuses to drive it', PIPE_TEST, async (t) => {
+  holdLoop(t);
   for (const [answer, ok] of [[4242, true], [999, false], [null, false]]) {
     const p = testPipe();
-    const srv = await fakeMpvServer(p, { onCommand: (cmd) => (cmd[0] === 'get_property' && cmd[1] === 'pid' ? { error: 'success', data: answer } : { error: 'success', data: null }) });
+    const srv = await fakeMpvServer(t, p, { onCommand: (cmd) => (cmd[0] === 'get_property' && cmd[1] === 'pid' ? { error: 'success', data: answer } : { error: 'success', data: null }) });
     const child = new EventEmitter();
     child.exitCode = null; child.signalCode = null; child.pid = 4242;
     let killed = false;
