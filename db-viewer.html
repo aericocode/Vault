@@ -557,8 +557,8 @@
       </div>
     </div>
     <div class="sb-right">
-      <!-- Track 12 of 40 · 2:14:30 left (player-lib/stage-count.js) -->
-      <span class="sb-count" id="stageBarCount" hidden><span id="stageBarCountTrack"></span><span class="sb-count-time" id="stageBarCountTime" hidden></span></span>
+      <!-- Track 12 of 40 · 2:14:30 left · ends 10:42 PM (player-lib/stage-count.js, stage-countdown.js) -->
+      <span class="sb-count" id="stageBarCount" hidden><span id="stageBarCountTrack"></span><span class="sb-count-time" id="stageBarCountTime" hidden></span><span class="sb-count-ends" id="stageBarCountEnds" hidden></span></span>
       <!-- The file on Stage's stream tags (player-lib/stream-tags.js) -->
       <button type="button" class="sb-btn sb-wide sb-tag" id="stageBarTag" data-sb-act="tag" title="Add a stream tag to the file on Stage" aria-label="Stream tags" aria-haspopup="menu" disabled><span class="sb-tag-plus">+ Tag</span><span class="sb-tag-chips" id="stageBarTagChips"></span></button>
       <!-- What Stage played this set, for the streamer only (player-lib/stage-setlog.js) -->
@@ -622,6 +622,8 @@
   <!-- Track count and time left (Stage bar, a collection's count line) -->
   <script src="./player-lib/stage-count.js"></script>
   <script src="./player-lib/playlist-time.js"></script>
+  <!-- The countdown to the end of what Stage plays (its settings, the bar's "ends 10:42 PM") -->
+  <script src="./player-lib/stage-countdown.js"></script>
   <script src="./player-lib/collection-skips.js"></script>
   <script src="./player-lib/flow.js"></script>
   <!-- Stream tags: lanes, keys, menus, chips, and window.FlowLaneSource for the Flow chart -->

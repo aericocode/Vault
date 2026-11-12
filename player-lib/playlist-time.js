@@ -16,12 +16,14 @@
      PlaylistTime.totals(items, { imageSeconds })
        -> { files, seconds, about, skipped: { files, seconds, about } }
           seconds: what plays (skipped files left out)
-     PlaylistTime.timeLeft(items, { index, position, imageSeconds })
+     PlaylistTime.timeLeft(items, { index, position, imageSeconds, speed })
        -> { seconds, about, files }  from `position` seconds into items[index]
           to the end of the list, skipped files left out. The file at index
           counts from position even when it is skipped (it is playing: a
           click on a skipped file still plays it). index -1: nothing playing
-          yet, the whole list is left.
+          yet, the whole list is left. speed (default 1): clock time at that
+          playback speed (videos and sound files only; pictures keep theirs).
+          The Stage countdown (lib/stage/engine.js) uses it on the server.
 
    items: [{ type: 'video' | 'audio' | 'image' | 'gif' | ..., duration: seconds
    or null, skipped: boolean }] in play order.
@@ -63,8 +65,22 @@ const PlaylistTime = (() => {
     };
   }
 
-  /** From `position` seconds into items[index] to the end, skipped files left out. */
-  function timeLeft(items, { index = -1, position = 0, imageSeconds = 8 } = {}) {
+  /**
+   * From `position` seconds into items[index] to the end, skipped files left
+   * out. speed: the playback speed (1 = normal); the answer is clock time at
+   * that speed (2x: half as long). Pictures are timed by the clock, not the
+   * speed, so only video and sound files are divided.
+   */
+  function timeLeft(items, { index = -1, position = 0, imageSeconds = 8, speed = 1 } = {}) {
+    const rate = Number(speed) > 0 ? Number(speed) : 1;
+    if (rate !== 1) {
+      const scaled = (items || []).map((f) => (f && (f.type === 'video' || f.type === 'audio') && Number(f.duration) > 0
+        ? { ...f, duration: Number(f.duration) / rate } : f));
+      const i0 = Number.isInteger(index) ? index : -1;
+      const cur = i0 >= 0 ? (items || [])[i0] : null;
+      const pos = cur && (cur.type === 'video' || cur.type === 'audio') ? (Number(position) || 0) / rate : position;
+      return timeLeft(scaled, { index, position: pos, imageSeconds, speed: 1 });
+    }
     const list = items || [];
     const acc = { files: 0, seconds: 0, about: false };
     const i0 = Number.isInteger(index) ? index : -1;

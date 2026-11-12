@@ -7,7 +7,8 @@
                             first, then the list carries on from its anchor,
                             wrapping only with Repeat all (the same rule as
                             player-lib/up-next-rule.js plan() for a file that
-                            ends on its own)
+                            ends on its own); upcomingPlan(o) says too
+                            whether that is all there is (the countdown)
    - resumeAt(row)          where a file opens: its saved spot, as the player
                             does (player-lib/viewtracker.js)
    - positionToSave(t, d)   the spot to store (0 once nearly finished)
@@ -42,13 +43,27 @@ const StageRules = (() => {
    * Repeat one gives nothing: the file on Stage loops.
    */
   function upcoming(o) {
+    return upcomingPlan(o).list;
+  }
+
+  /**
+   * upcoming() and whether that is everything Stage will play: { list,
+   * complete }. complete only with Repeat off, when the walk reached the end
+   * of the list (not cut at count, not stopped at a file not known yet). The
+   * countdown to the end of the stream (stage-countdown.js) needs it: a list
+   * cut short must never look like the end.
+   */
+  function upcomingPlan(o) {
     const m = o || {};
     const count = Number.isInteger(m.count) && m.count > 0 ? m.count : 2;
-    if (m.repeat === 'one') return [];
+    if (m.repeat === 'one') return { list: [], complete: false };
     const out = [];
+    const cut = () => ({ list: out, complete: false });
     for (const u of m.upNext || []) {
-      if (out.length >= count) return out;
-      if (u && Number.isInteger(u.id) && u.ok !== false) out.push({ via: 'upnext', id: u.id });
+      if (u && Number.isInteger(u.id) && u.ok !== false) {
+        if (out.length >= count) return cut();
+        out.push({ via: 'upnext', id: u.id });
+      }
     }
     const n = Number.isInteger(m.length) && m.length > 0 ? m.length : 0;
     const anchor = Number.isInteger(m.anchor) && m.anchor >= -1 ? Math.min(m.anchor, n - 1) : -1;
@@ -56,18 +71,23 @@ const StageRules = (() => {
     // loaded). The answer ends at an unknown file rather than skip it unseen.
     const ok = (i) => (typeof m.okAt !== 'function' ? true : m.okAt(i));
     let fromList = 0;
-    for (let i = anchor + 1; i < n && out.length < count; i++) {
+    for (let i = anchor + 1; i < n; i++) {
       const v = ok(i);
-      if (v === null) return out;
-      if (v !== false) { out.push({ via: 'list', index: i }); fromList++; }
+      if (v === null) return cut();
+      if (v === false) continue;
+      if (out.length >= count) return cut();
+      out.push({ via: 'list', index: i });
+      fromList++;
     }
+    if (m.repeat !== 'all') return { list: out, complete: true };
     // Repeat all starts the list over (a list of one is repeat one's job, and
     // so is coming back round to the anchor when nothing else in it plays).
-    if (m.repeat === 'all' && n >= 2) {
+    // It never ends, so it is never complete.
+    if (n >= 2) {
       let alone = false;
       for (let i = 0; i <= anchor && out.length < count; i++) {
         const v = ok(i);
-        if (v === null) return out;
+        if (v === null) return cut();
         if (v === false) continue;
         if (i === anchor && fromList === 0) { alone = true; break; }
         out.push({ via: 'list', index: i });
@@ -82,14 +102,14 @@ const StageRules = (() => {
           for (let k = 0; k < n && out.length < count; k++) {
             const i = (anchor + 1 + k) % n;
             const v = ok(i);
-            if (v === null) return out;
+            if (v === null) return cut();
             if (v !== false) { out.push({ via: 'list', index: i }); added++; }
           }
           if (!added) break;
         }
       }
     }
-    return out;
+    return cut();
   }
 
   /** Where a file opens on Stage: its saved spot, unless it is near the start or nearly done. */
@@ -202,7 +222,7 @@ const StageRules = (() => {
 
   return {
     RESUME_MIN_S, RESUME_MAX_FRACTION, DWELL_MS, PLAYERS,
-    upcoming, resumeAt, positionToSave, viewCounts, gifLoopSeconds, pictureMs, nameText,
+    upcoming, upcomingPlan, resumeAt, positionToSave, viewCounts, gifLoopSeconds, pictureMs, nameText,
     playerChoice, basicPlays,
   };
 })();

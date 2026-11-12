@@ -25,7 +25,7 @@ const R = require('../player-lib/stage-bar.js');
 /* Sizes as measured in each look (Classic's buttons carry a border and emoji glyphs). */
 const SIZES = { right: 380, unLabel: 58, volSlider: 76, repeat: 38, hold: 38, ctrls: 190, skip: 76, times: 84, pad: 28, gap: 14 };
 const SIZES_CLASSIC = { ...SIZES, right: 374, ctrls: 196, unLabel: 56 };
-const ALL = { countTime: true, count: true, skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true, back: true, backLabel: true };
+const ALL = { countEnds: true, countTime: true, count: true, skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true, back: true, backLabel: true };
 
 /** What a plan takes up: [right cluster, transport row, seek row]. */
 function used(l, m) {
@@ -52,12 +52,12 @@ test('layout: the transport is in the middle of the window: both sides the same 
 });
 
 test('layout: narrower bars drop the 10 s buttons, then the Up next word, the track count (its time first), then the volume slider, then the times, Repeat and Hold, before the seek bar gives way', () => {
-  const noCount = { countTime: false, count: false };
-  assert.deepStrictEqual(R.layout(1000, SIZES).show, { ...ALL, skip: false, unLabel: false });
+  const noCount = { countEnds: false, countTime: false, count: false };
+  assert.deepStrictEqual(R.layout(1000, SIZES).show, { ...ALL, countEnds: false, skip: false, unLabel: false });
   assert.deepStrictEqual(R.layout(900, SIZES).show, { ...ALL, ...noCount, skip: false, unLabel: false, volSlider: false, backLabel: false });
   assert.strictEqual(R.layout(900, SIZES).seek, R.seekWant(900), 'the seek bar keeps the width it wants while pieces can still go');
   assert.deepStrictEqual(R.layout(760, SIZES).show, { ...ALL, ...noCount, skip: false, unLabel: false, volSlider: false, times: false, backLabel: false });
-  const none = { countTime: false, count: false, skip: false, unLabel: false, volSlider: false, times: false, repeat: false, hold: false, back: true, backLabel: false };
+  const none = { countEnds: false, countTime: false, count: false, skip: false, unLabel: false, volSlider: false, times: false, repeat: false, hold: false, back: true, backLabel: false };
   assert.deepStrictEqual(R.layout(600, SIZES).show, { ...none, thumb: true, hold: true });
   // Too narrow to centre at all: everything optional gone, the seek bar at its minimum, nothing overflows
   assert.deepStrictEqual(R.layout(480, SIZES), { show: { ...none, thumb: false, back: false }, mid: null, seek: R.SEEK_MIN, side: null }, 'Back to Stage goes into the Stage menu');
@@ -402,7 +402,7 @@ test('a narrow bar has Repeat and Hold in the Stage menu instead; dropped() says
   const p = fakePage();
   p.els.stageBar.clientWidth = 390;
   p.SB.show();
-  assert.deepStrictEqual({ ...p.SB.dropped() }, { countTime: true, count: true, skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true, back: true, backLabel: true });
+  assert.deepStrictEqual({ ...p.SB.dropped() }, { countEnds: true, countTime: true, count: true, skip: true, unLabel: true, volSlider: true, thumb: true, times: true, repeat: true, hold: true, back: true, backLabel: true });
   for (const c of ['sb-no-times', 'sb-no-repeat', 'sb-no-hold']) assert.ok(p.els.stageBar._cls.has(c), c);
   p.SB.hide();
   assert.deepStrictEqual({ ...p.SB.dropped() }, {}, 'nothing while hidden');
@@ -586,7 +586,7 @@ test('layout: the track count goes after the 10 s buttons and the Up next word (
     for (const k of ['unLabel', 'volSlider', 'repeat', 'hold']) if (!l.show[k]) right -= M[k];
     if (l.mid != null) assert.ok(l.side >= right, `${w}: ${l.side} >= ${right}`);
   }
-  assert.deepStrictEqual(R.DROP_ORDER.slice(0, 5), ['skip', 'unLabel', 'countTime', 'count', 'volSlider']);
+  assert.deepStrictEqual(R.DROP_ORDER.slice(0, 6), ['countEnds', 'skip', 'unLabel', 'countTime', 'count', 'volSlider'], 'the end time goes first');
   assert.strictEqual(R.layout(R.BACK_LABEL_WIDTH, M).show.backLabel, true);
   assert.strictEqual(R.layout(R.BACK_LABEL_WIDTH - 1, M).show.backLabel, false, 'narrower: just the arrow');
   const css = read('css/stage-remote.css');
@@ -623,7 +623,7 @@ test('view: Back to Stage, the track count and Basic\'s reopen button; a lock hi
   const base = { hasFile: true, filename: 'a.mp4', mediaType: 'video', t: 1, d: 10, repeat: 'off', upNext: 0 };
   const v = R.view({ ...base, back: true, backTitle: 'Back to “Mix”, where Stage is playing from', countTrack: 'Track 12 of 40', countTime: '2:14:30 left' });
   assert.deepStrictEqual(v.back, { show: true, title: 'Back to “Mix”, where Stage is playing from' });
-  assert.deepStrictEqual(v.count, { track: 'Track 12 of 40', time: '2:14:30 left' });
+  assert.deepStrictEqual(v.count, { track: 'Track 12 of 40', time: '2:14:30 left', ends: '' });
   assert.strictEqual(v.reopen.show, false);
   const locked = R.view({ ...base, locked: true, back: true, countTrack: 'Track 1 of 2' });
   assert.deepStrictEqual([locked.back.show, locked.count.track], [false, '']);
@@ -683,7 +683,8 @@ test('the list Stage plays from: kept while the user browses elsewhere (the queu
   assert.strictEqual(p.SC.queueList(), null, 'on the list: the grid\'s own');
   p.SC.paintVolume();
   assert.strictEqual(p.painted.at(-1).back.show, false, 'no Back to Stage while looking at it');
-  assert.deepStrictEqual({ ...p.painted.at(-1).count }, { track: 'Track 1 of 3', time: '2:48 left' }, 'the rest of this one (30 - 12 s) and the two after (120 + 30 s)');
+  const cnt = p.painted.at(-1).count;
+  assert.deepStrictEqual({ track: cnt.track, time: cnt.time }, { track: 'Track 1 of 3', time: '2:48 left' }, 'the rest of this one (30 - 12 s) and the two after (120 + 30 s)');
   // Another collection: the queue keeps walking collection 7's order.
   p.ctx.activeCollectionId = 9; p.lib.cid = 9;
   const L = p.SC.queueList();

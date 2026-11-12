@@ -192,6 +192,20 @@ test('a file Up next played is given up before the next list is worked out: it n
   assert.ok(!l.upcoming.some(u => u.id === 50), 'the file just played is not in it');
 });
 
+test('the list says whether it is all Stage will play (the countdown to the end needs it)', async () => {
+  const p = page({ n: 40, upNext: [50] });
+  await p.open();
+  assert.strictEqual(p.lists().at(-1).complete, true, 'the rest of the list and Up next: all of it');
+  const big = page({ n: 700 });
+  await big.open();
+  assert.strictEqual(big.lists().at(-1).upcoming.length, 500);
+  assert.strictEqual(big.lists().at(-1).complete, false, 'cut at 500: not the end');
+  p.ctx.repeatMode = () => 'all';
+  p.SC.repeatChanged();
+  await wait(200);
+  assert.strictEqual(p.lists().at(-1).complete, false, 'Repeat all: no end');
+});
+
 test('a list file whose row is not loaded yet ends the list there (never passed over unseen)', () => {
   const R = require('../player-lib/stage-rules.js');
   const plan = R.upcoming({ anchor: 0, length: 10, okAt: (i) => (i < 5 ? true : null), repeat: 'off', count: 500 });
