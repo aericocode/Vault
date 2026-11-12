@@ -183,7 +183,7 @@ function collectionsVm({ failDelete = false } = {}) {
   };
   ctx.getCollectionById = (id) => ctx.collectionsList.find(c => c.id === id);
   vm.createContext(ctx);
-  const names = ['fetchCollectionMembers', 'changeCollectionMembership', '_openMembersNow', '_untickLeftOpenCollection', '_retick',
+  const names = ['takeCollectionAnswer', 'takeCollectionLength', 'fetchCollectionMembers', 'changeCollectionMembership', '_openMembersNow', '_untickLeftOpenCollection', '_retick',
     '_selectionRedraw', 'openPlainCollection', 'selectedInOpenCollection', 'removeSelectedFromCollection', 'undoRemoveFromCollection'];
   vm.runInContext(names.map(n => grab(coll, n)).join('\n') + `\nglobalThis.__c = { ${names.join(', ')} };`, ctx);
   return { ctx, c: ctx.__c, server, requests, toasts, undos, refreshed: () => refreshed };

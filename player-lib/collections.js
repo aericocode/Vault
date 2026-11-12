@@ -55,6 +55,42 @@ function takeCollectionLength(c, data) {
   }
 }
 
+/**
+ * What the page keeps of a collection, from any server answer about it, in
+ * one place and in this order, so no refresh path does half of it:
+ *   1. its length fields (takeCollectionLength; the count line reads them),
+ *   2. its files (media_ids, when the answer has them),
+ *   3. its playlist skips (skipped_ids, collection-skips.js),
+ *   4. then what follows: the count line (and the tiles, when the skips
+ *      changed), and its saved orders read again when files came or went
+ *      (their own skips and length, flow.js flowSavedStale).
+ * filesChanged: the caller knows files came or went (an answer without media_ids).
+ * @returns {boolean} whether its files changed
+ */
+function takeCollectionAnswer(id, data, { filesChanged = false } = {}) {
+  if (!data) return false;
+  const c = getCollectionById(id);
+  if (c) takeCollectionLength(c, data);
+  let moved = !!filesChanged;
+  let before = null;
+  if (Array.isArray(data.media_ids)) {
+    before = collectionMembers.has(id) ? collectionMembers.get(id).slice() : null;
+    collectionMembers.set(id, data.media_ids);
+    if (before) {
+      const now = new Set(data.media_ids);
+      if (now.size !== before.length || before.some(m => !now.has(m))) moved = true;
+    }
+  }
+  const active = typeof activeCollectionId !== 'undefined' && activeCollectionId === id;
+  // Skips.changed redraws the count line, tiles and selection bar (collection-skips.js).
+  if (typeof Skips !== 'undefined' && Array.isArray(data.skipped_ids) && Skips.take(id, data.skipped_ids)) Skips.changed(id);
+  else if (active && typeof renderCollectionCount === 'function') renderCollectionCount();
+  if (moved && typeof flowSavedStale === 'function') flowSavedStale(id);
+  // Read again while open (a change made elsewhere): files that left are unticked.
+  if (active && before && moved && typeof _untickLeftOpenCollection === 'function') _untickLeftOpenCollection(before);
+  return moved;
+}
+
 /*
  * The open collection's length follows the library: a file probed after it
  * was added (its length now known), trashed or put back moves the library
@@ -73,13 +109,10 @@ if (typeof window !== 'undefined' && window.addEventListener) {
     _collLengthKey = key;
     if (!before || !before.startsWith(`${id}|`)) return;   // just opened: already read
     fetch(`/api/collections/${id}`).then(r => (r.ok ? r.json() : null)).then((data) => {
-      const c = getCollectionById(id);
-      if (!data || !c) return;
-      takeCollectionLength(c, data);
-      if (activeCollectionId === id) {
-        renderCollectionCount();
-        if (typeof renderReorderNote === 'function') renderReorderNote();
-      }
+      if (!data || !getCollectionById(id)) return;
+      // Its files and skips too (another window or client may have changed them).
+      takeCollectionAnswer(id, data);
+      if (activeCollectionId === id && typeof renderReorderNote === 'function') renderReorderNote();
     }).catch(() => {});
   });
 }
@@ -132,19 +165,7 @@ async function loadCollections() {
 async function fetchCollectionMembers(id, force = false) {
   if (!force && collectionMembers.has(id)) return collectionMembers.get(id);
   const data = await fetch(`/api/collections/${id}`).then(r => r.json());
-  const before = id === activeCollectionId && collectionMembers.has(id) ? collectionMembers.get(id).slice() : null;
-  collectionMembers.set(id, data.media_ids || []);
-  // (Guarded: tests run single functions of this file.) The lengths first: the redraw below reads them.
-  if (typeof takeCollectionLength === 'function') takeCollectionLength(getCollectionById(id), data);
-  // Its skipped files (player-lib/collection-skips.js); an older server sends none.
-  if (typeof Skips !== 'undefined' && Array.isArray(data.skipped_ids) && Skips.take(id, data.skipped_ids)) Skips.changed(id);
-  // Files came or went: a saved order's own skips (and their length) are read again (flow.js).
-  if (before && typeof flowSavedStale === 'function') {
-    const now = new Set(collectionMembers.get(id));
-    if (now.size !== before.length || before.some(m => !now.has(m))) flowSavedStale(id);
-  }
-  // Read again while open (a change made elsewhere): files that left are unticked.
-  if (before) _untickLeftOpenCollection(before);
+  takeCollectionAnswer(id, { ...data, media_ids: data.media_ids || [] });
   return collectionMembers.get(id);
 }
 
@@ -1171,8 +1192,7 @@ async function changeCollectionMembership(id, mediaIds, adding, { quiet = false 
     // True-up authoritative count + mosaic from the response (no follow-up GET).
     c.item_count = data.item_count;
     if (Array.isArray(data.first_ids)) c.first_ids = data.first_ids;
-    if (typeof takeCollectionLength === 'function') takeCollectionLength(c, data);
-    if (activeCollectionId === id && typeof renderCollectionCount === 'function') renderCollectionCount();
+    takeCollectionAnswer(id, data, { filesChanged: true });
     _patchPickerRow(id);
     _patchAncestorCounts(id);
     // The grid's query above ran before the server had the change (it can
@@ -1295,7 +1315,7 @@ async function undoRemoveFromCollection(id, ids, order) {
     if (typeof flowMembersChanged === 'function') flowMembersChanged(id);
     c.item_count = data.item_count;
     if (Array.isArray(data.first_ids)) c.first_ids = data.first_ids;
-    if (typeof takeCollectionLength === 'function') takeCollectionLength(c, data);
+    takeCollectionAnswer(id, data, { filesChanged: true });
     _patchAncestorCounts(id);
     if (activeCollectionId === id) {
       renderCollectionHeader();

@@ -124,9 +124,12 @@ const Skips = (() => {
 
   /** An answer from the server: the list and the collection's length fields. */
   function install(cid, data) {
-    take(cid, data.skipped_ids || []);
+    // collections.js takeCollectionAnswer: the lengths, then the skips, in one place.
+    // (It tells the page when the skips changed, and redraws the count line when only the lengths did.)
+    if (typeof takeCollectionAnswer === 'function') { takeCollectionAnswer(cid, { ...data, skipped_ids: data.skipped_ids || [] }); return; }
     const c = typeof getCollectionById === 'function' ? getCollectionById(cid) : null;
     if (c && typeof takeCollectionLength === 'function') takeCollectionLength(c, data);
+    take(cid, data.skipped_ids || []);
     changed(cid);
   }
 
