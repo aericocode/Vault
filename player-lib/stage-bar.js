@@ -35,15 +35,15 @@ const StageBarRules = (() => {
      the window widens (seekWant: about 160 px at 900, 200 at 1100, 450 at
      1600, up to 560), and the middle is just wide enough for it and the
      transport. When the window is too narrow for that, the least needed
-     pieces go first, one row always: the end time ("· ends 10:42 PM"),
-     then the 10 s buttons, then the Up next word
-     (icon and count stay), then the time left by the track count, then the
-     whole count, then the volume slider (the button stays), then
+     pieces go first, one row always: the 10 s buttons, then the Up next word
+     (icon and count stay), then the track count, then the volume slider
+     (the button stays), then
      the seek bar's times, then Repeat, then Hold (those two move into the
      Stage menu). Only with all of them gone does the seek bar get narrower
      than it wants (never under SEEK_MIN), and only when even the transport
      does not fit does the bar give up centring (the middle then sits beside
-     the left part, nothing overflows).
+     the left part, nothing overflows). The track count's time left and end
+     time are laid out last, only where they fit (TIME_PIECES).
 
      Sizes in px, measured from the bar by stage-bar.js (NOMINAL until then):
        right      the right cluster with everything in it
@@ -58,9 +58,15 @@ const StageBarRules = (() => {
   const SEEK_MAX = 560;
   const THUMB_MIN = 560;              // below this the still goes (the left side is the name's)
   const NOMINAL = { right: 380, countEnds: 0, countTime: 0, count: 0, unLabel: 58, volSlider: 76, repeat: 38, hold: 38, ctrls: 190, skip: 76, times: 84, pad: 28, gap: 14 };
-  // countEnds ("· ends 10:42 PM" after the time left) is the first to go: a
-  // bar that had room for everything before it came still shows the same.
-  const DROP_ORDER = ['countEnds', 'skip', 'unLabel', 'countTime', 'count', 'volSlider', 'times', 'repeat', 'hold'];
+  const COUNT_GAP = 6;                // the right cluster's gap the count brings with it
+  // Everything but the time, first to go first.
+  const DROP_ORDER = ['skip', 'unLabel', 'count', 'volSlider', 'times', 'repeat', 'hold'];
+  // The time left by the track count, then its end time ("· ends 10:42 PM"):
+  // laid out after the rest has its room. Each comes in only where it fits,
+  // with the Up next word given up for it if that is what it takes (the time
+  // matters more than the word), never the 10 s buttons or anything else. So
+  // a bar never loses a piece to the time unless the time shows.
+  const TIME_PIECES = ['countTime', 'countEnds'];
   // Back to Stage and Preview keep their words on a bar at least this wide
   // (the left side is then at least 330 px with the nominal sizes: the
   // still, the pill and both chips with their words, about 327 px measured);
@@ -91,19 +97,41 @@ const StageBarRules = (() => {
     if (!(w > 0)) return { show, mid: null, seek: null, side: null };
     show.thumb = w >= THUMB_MIN;
     show.backLabel = w >= BACK_LABEL_WIDTH;
-    let right = m.right, ctrls = m.ctrls, times = m.times;
+    // The count's time left and end time are laid out last, on top of the
+    // rest: they only come in where they fit, so they never cost a piece
+    // unless they show (see TIME_PIECES).
+    const tW = Math.max(0, Number(m.countTime) || 0);
+    const eW = Math.max(0, Number(m.countEnds) || 0);
+    const countAll = Math.max(0, Number(m.count) || 0);
+    const trackW = Math.max(0, countAll - tW - eW);   // the track count and its gap
+    // No track count, only the time ("12:34 left" with no list): the count is the time's own.
+    const timeOnly = countAll > 0 && (m.countTrack != null ? !(m.countTrack > 0) : trackW <= COUNT_GAP);
+    let right = m.right - tW - eW - (timeOnly ? trackW : 0), ctrls = m.ctrls, times = m.times;
+    if (timeOnly) show.count = false;
     let seek = seekWant(Number(want) > 0 ? Number(want) : w);
     const space = () => w - m.pad - 2 * m.gap - 2 * right;
     const need = () => Math.max(ctrls, seek + times);
     for (const k of DROP_ORDER) {
       if (space() >= need()) break;
+      if (k === 'count' && timeOnly) continue;
       show[k] = false;
       if (k === 'skip') ctrls -= m.skip;
       else if (k === 'times') times = 0;
-      // The count's end time and time went first: what is left of the count goes now.
-      else if (k === 'count') right -= Math.max(0, m.count - m.countTime - (m.countEnds || 0));
+      else if (k === 'count') right -= trackW;
       else right -= m[k];
     }
+    // Room for a piece of the time, giving up the Up next word for it at most
+    // (never the 10 s buttons or anything else).
+    const fitsWith = (extra) => w - m.pad - 2 * m.gap - 2 * (right + extra) >= need();
+    const take = (extra) => {
+      if (!(space() >= need())) return false;
+      if (fitsWith(extra)) { right += extra; return true; }
+      if (show.unLabel && fitsWith(extra - m.unLabel)) { show.unLabel = false; right += extra - m.unLabel; return true; }
+      return false;
+    };
+    show.countTime = (timeOnly || show.count) && take(tW + (timeOnly ? trackW : 0));
+    show.countEnds = show.countTime && take(eW);
+    if (timeOnly) show.count = show.countTime;
     if (space() < need()) {
       // Everything optional is gone: the seek bar gives way, down to its minimum.
       if (space() >= Math.max(ctrls, SEEK_MIN)) seek = Math.min(seek, Math.floor(space()));
@@ -279,7 +307,7 @@ const StageBarRules = (() => {
     };
   }
 
-  return { SEEK_MIN, SEEK_MAX, NOMINAL, DROP_ORDER, BACK_LABEL_WIDTH, seekWant, layout, previewAt, thumbSrc, reserve, view, clock };
+  return { SEEK_MIN, SEEK_MAX, NOMINAL, DROP_ORDER, TIME_PIECES, BACK_LABEL_WIDTH, seekWant, layout, previewAt, thumbSrc, reserve, view, clock };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = StageBarRules;
@@ -365,6 +393,7 @@ const StageBar = (typeof document === 'undefined') ? null : (() => {
       right: r,
       // The track count (nothing while it is hidden): all of it with its gap, and its time.
       count: countW ? countW + 6 : 0,
+      countTrack: countW ? width($('stageBarCountTrack')) : 0,
       countTime: countW ? width($('stageBarCountTime')) : 0,
       countEnds: countW ? width($('stageBarCountEnds')) : 0,
       unLabel: width(label) + 6 + 4,  // the word, its gap, and the button's narrower padding without it

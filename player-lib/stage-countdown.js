@@ -22,18 +22,21 @@
    - A run starts the first time the end is known, and again whenever the
      caller says so (reset: a file picked by hand) or after the end was not
      known for a moment. Nothing carries over from one run to the next.
-   - Each warning fires at most once per run. A warning whose time had
-     already passed when the run started (or when it was added, or warnings
-     were switched on) never fires in that run: a 12 minute list with
-     30, 15, 10 only says "10 minutes left".
-   - It fires when playback carries the time left across it: down by about
-     as much time as went by. A jump across it (a seek forward, a file
-     dropped from the list, a faster speed) fires nothing; seeking back over
-     it and playing across it again fires it then, if it never fired. So
-     seeking back and forth over one fires it once at most.
+   - A warning is armed while the time left is above it. It fires once when
+     playback carries the time left down across it: down by about as much
+     time as went by. A jump across it (a seek forward, a file dropped from
+     the list) fires nothing.
+   - A run that starts below a warning never fires it: a 12 minute list
+     with 30, 15, 10 only says "10 minutes left". Once the time left is
+     above it again by a real change (Up next grew past it, a seek back),
+     it is armed again and fires when playback crosses it.
+   - After it fires, it stays quiet until the time left is more than
+     REARM_S above it again, so seeking back and forth a little around it,
+     or a moment's wobble in the time, never fires it twice.
    - Two warnings crossed in the same moment show only the nearer one.
-   - "about" (a length not known) draws nothing and fires nothing, but keeps
-     the run: what fired stays fired.
+   - "about" (a length not known) draws nothing and fires nothing. Coming
+     out of it is treated like a jump: the time left starts afresh there,
+     so a warning far behind is never shown late.
    ========================================================================= */
 
 const StageCountdown = (() => {
@@ -45,7 +48,9 @@ const StageCountdown = (() => {
   const CORNERS = Object.freeze(['top-right', 'top-left', 'bottom-right', 'bottom-left']);
   const SIZES = Object.freeze(['small', 'medium', 'large']);
   const WARN_MS = 6000;               // how long a warning stays up
-  const SLACK_S = 2;                  // how far off "as much time as went by" may be
+  const SLACK_S = 2;                  // how far the time left may rise and still count as playing on
+  const AHEAD_S = 1;                  // how much more than the time gone by it may fall
+  const REARM_S = 10;                 // how far above a fired warning the time left must go to arm it again
   const DEFAULTS = Object.freeze({
     warnOn: false,
     warnMinutes: Object.freeze([30, 15, 10]),
@@ -136,7 +141,7 @@ const StageCountdown = (() => {
    * left' | null }.
    */
   function create() {
-    let run = null;          // { seen, fired, prevLeft, prevAt }
+    let run = null;          // { armed, fired, prevLeft, prevAt }
     let warn = null;         // { text, until }
 
     function reset() { run = null; warn = null; }
@@ -151,30 +156,34 @@ const StageCountdown = (() => {
     function update({ left = null, about = false, at = 0, settings = {} } = {}) {
       const s = settingsOf(settings);
       if (left == null || !Number.isFinite(Number(left))) { reset(); return { clock: null, warning: null }; }
-      if (about) return { clock: null, warning: null };
-      const L = Math.max(0, Number(left));
-      if (!run) run = { seen: new Set(), fired: new Set(), prevLeft: null, prevAt: 0 };
-      const mins = s.warnOn ? s.warnMinutes : [];
-      // Passed already when first seen (run start, a new minute, switched on): never fires this run.
-      for (const m of mins) {
-        if (run.seen.has(m)) continue;
-        run.seen.add(m);
-        if (m * 60 >= L) run.fired.add(m);
+      if (about) {
+        // Nothing known to count from: the next known time left starts afresh.
+        if (run) run.prevLeft = null;
+        return { clock: null, warning: null };
       }
+      const L = Math.max(0, Number(left));
+      if (!run) run = { armed: new Set(), fired: new Set(), prevLeft: null, prevAt: 0 };
+      const mins = s.warnOn ? s.warnMinutes : [];
       if (run.prevLeft !== null) {
         const went = Math.max(0, (Number(at) - run.prevAt) / 1000);
         const drop = run.prevLeft - L;
-        const natural = drop >= -SLACK_S && drop <= went + SLACK_S;
+        const natural = drop >= -SLACK_S && drop <= went + AHEAD_S;
         if (natural) {
           let hit = null;
           for (const m of mins) {
             const T = m * 60;
-            if (run.fired.has(m) || !(run.prevLeft > T && L <= T)) continue;
+            if (!run.armed.has(m) || !(run.prevLeft > T && L <= T)) continue;
+            run.armed.delete(m);
             run.fired.add(m);
             if (hit === null || m < hit) hit = m;
           }
           if (hit !== null) warn = { text: warningText(hit), until: Number(at) + WARN_MS };
         }
+      }
+      // Armed while above it (a fired one only once well above it again).
+      for (const m of mins) {
+        const T = m * 60;
+        if (L > T + (run.fired.has(m) ? REARM_S : 0)) { run.armed.add(m); run.fired.delete(m); }
       }
       run.prevLeft = L;
       run.prevAt = Number(at);
@@ -186,7 +195,7 @@ const StageCountdown = (() => {
       };
     }
 
-    return { update, reset, _run: () => run && { fired: [...run.fired], seen: [...run.seen], prevLeft: run.prevLeft } };
+    return { update, reset, _run: () => run && { fired: [...run.fired], armed: [...run.armed], prevLeft: run.prevLeft } };
   }
 
   return {
