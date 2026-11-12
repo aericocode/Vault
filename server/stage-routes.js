@@ -33,7 +33,7 @@ const geometry = require('../lib/stage/geometry');
 const { createHub, ROLES } = require('../lib/stage/hub');
 const { createEngine } = require('../lib/stage/engine');
 const { createMpvHost, volumeGainSupported } = require('../lib/stage/mpv-host');
-const { buildArgs, displayPlan } = require('../lib/stage/mpv-args');
+const { buildArgs, displayPlan, framedWindow } = require('../lib/stage/mpv-args');
 const mpvFind = require('../lib/stage/mpv-find');
 const fsBrowse = require('../lib/fs-browse');
 const StageRules = require('../player-lib/stage-rules.js');
@@ -80,6 +80,11 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
   let lastBounds = null;     // the window watcher's latest line: { win, max, min, work }
   let fixedOnce = false;     // a window opened off every screen was brought back once
   let opening = null;        // a launch in progress (one at a time)
+  // The size chosen last ('free' or a preset). Off Windows nothing reports
+  // the window's size, so this is what Stage knows there, and it says
+  // whether the window has the desktop's frame (framedWindow).
+  let sizeMode = 'free';
+  const framable = framedWindow({ platform, size: 'free' });
 
   const alive = () => !!host && host.alive();
 
@@ -117,6 +122,9 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
    */
   async function applySize(preset) {
     if (!alive()) return;
+    if (stageSettings.OPEN_SIZES.includes(preset)) sizeMode = preset;
+    // Linux: the desktop's frame at Free size (to size it with the mouse), the bare picture at a preset.
+    if (framable && !quiet) await host.set('border', framedWindow({ platform, size: sizeMode })).catch(() => {});
     if (lastBounds && lastBounds.max) {
       await host.set('window-maximized', false).catch(() => {});
     }
@@ -197,6 +205,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     const s = readSettings();
     const w = readWindow();
     const preset = stageSettings.SIZE_PRESETS[s.openSize] || null;
+    sizeMode = preset ? s.openSize : 'free';
     const saved = geometry.usableBounds(w.bounds);
     let bounds = saved;
     if (preset) bounds = saved ? { x: saved.x, y: saved.y, w: preset.w, h: preset.h } : { w: preset.w, h: preset.h };
@@ -227,10 +236,12 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     engine = createEngine({ mpv: h, report: (r) => hub.report(r), settings: readSettings, lib, forceMute, volumeGain: volumeGainSupported(found.version) });
     // A Wayland desktop: mpv on XWayland (placed, kept in front); its own Wayland window if that will not start.
     const plan = displayPlan({ platform, env, xwayland: s.xwayland });
+    const framed = framedWindow({ platform, size: sizeMode });
     const argsFor = (x11) => (ipcPath) => buildArgs({
       ipcPath, title: s.windowName, bounds, maximized: w.max === true && !preset,
       cursorSeconds: s.cursorSeconds, volume: session.volume, muted: session.muted, forceMute, quiet,
       hwdec: s.hwDecoding !== false, mpvVersion: found.version, mpvOptions: found.options, x11,
+      framed,
     });
     const out = await h.start(found.path, argsFor(plan.x11), { mpvVersion: found.version, fallbackArgsFor: plan.x11 ? argsFor(false) : null });
     if (!out.ok) {
@@ -263,7 +274,9 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     try { mpv = await status(); } catch { mpv = { found: false }; }
     res.json({
       ...hub.state(), mpv, settings: readSettings(),
-      size: lastBounds && !lastBounds.max ? geometry.presetOf(lastBounds.win, stageSettings.SIZE_PRESETS) : 'free',
+      size: lastBounds && !lastBounds.max ? geometry.presetOf(lastBounds.win, stageSettings.SIZE_PRESETS)
+        // Off Windows nothing reports the window: the size chosen last.
+        : (framable && alive() ? sizeMode : 'free'),
     });
   });
 
