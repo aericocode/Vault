@@ -231,7 +231,7 @@ test('diagnostics: every line a tester needs, in plain text', () => {
   assert.match(t, /^Distro: Ubuntu 24\.04\.1 LTS$/m);
   assert.match(t, /^Desktop: ubuntu:GNOME$/m);
   assert.match(t, /^Session: wayland \(WAYLAND_DISPLAY set, DISPLAY set\)$/m);
-  assert.match(t, /^GPU: GPU \(NVENC h264\); NVENC yes, CUDA decode yes$/m);
+  assert.match(t, /^GPU: GPU \(NVENC h264\); NVENC yes, CUDA decode not tested \(ffmpeg has it\)$/m);
   assert.match(t, /^ {2}ffmpeg: 6\.1\.1-3ubuntu5 \(on PATH\)$/m);
   assert.match(t, /^ {2}ffprobe: 6\.1\.1-3ubuntu5 \(next to Vault\)$/m);
   assert.match(t, /^ {2}fpcalc: missing$/m);
@@ -275,6 +275,136 @@ test('diagnostics: the home folder becomes ~ and the account name <user>', () =>
   assert.strictEqual(diag.redact('/home/alice2/x', { home: '/home/alice', user: null, platform: 'linux' }), '/home/alice2/x');
   // A user name inside another word is left alone
   assert.strictEqual(diag.redact('palace', { home: '/x', user: 'ala', platform: 'linux' }), 'palace');
+});
+
+// The tester's machine: Ubuntu in a VM, no NVIDIA card, account "vault".
+const VM = {
+  vaultVersion: '3.10.0', node: 'v24.22.2', sea: true, platform: 'linux', arch: 'x64',
+  osRelease: '7.0.0-43-generic', osVersion: '#43-Ubuntu SMP PREEMPT_DYNAMIC Fri Oct 23 13:25:25 UTC 2026',
+  distro: 'Ubuntu 26.04.1 LTS', wsl: false,
+  desktop: 'ubuntu:GNOME', sessionType: 'wayland', waylandDisplay: true, x11Display: true,
+  gpu: { label: 'CPU (libx264), NVENC failed validation', nvenc: false, nvencFailed: true, nvdec: false, cudaListed: true },
+  tools: {
+    ffmpeg: { found: true, version: '8.0.1-3ubuntu2', where: 'on PATH' },
+    ffprobe: { found: true, version: '8.0.1-3ubuntu2', where: 'on PATH' },
+    fpcalc: { found: true, version: '1.5.1', where: 'next to Vault' },
+    mpv: { found: true, version: 'v0.41.0', where: 'standard folder' },
+    zenity: { found: true, version: '4.2.1', where: 'on PATH' },
+    kdialog: { found: false },
+  },
+};
+
+test('diagnostics: an account called "vault" (or like any other fixed word) leaves Vault\'s own text alone', () => {
+  const t = diag.format(VM, { home: '/home/vault', user: 'vault' });
+  assert.strictEqual(t, [
+    'Vault diagnostics',
+    'Vault: 3.10.0 (packaged app)',
+    'Node: v24.22.2',
+    'OS: Linux x64, #43-Ubuntu SMP PREEMPT_DYNAMIC Fri Oct 23 13:25:25 UTC 2026, release 7.0.0-43-generic',
+    'Distro: Ubuntu 26.04.1 LTS',
+    'Desktop: ubuntu:GNOME',
+    'Session: wayland (WAYLAND_DISPLAY set, DISPLAY set)',
+    'GPU: CPU (libx264), NVENC failed validation; NVENC no, CUDA decode no (ffmpeg has it, but the NVIDIA test failed)',
+    'Tools:',
+    '  ffmpeg: 8.0.1-3ubuntu2 (on PATH)',
+    '  ffprobe: 8.0.1-3ubuntu2 (on PATH)',
+    '  fpcalc: 1.5.1 (next to Vault)',
+    '  mpv: v0.41.0 (standard folder)',
+    '  zenity: 4.2.1 (on PATH)',
+    '  kdialog: missing',
+  ].join('\n'));
+
+  // Other names that are also fixed words in the report: the fixed words stay
+  const fixedLines = (s) => s.split('\n').filter(l => !/^(OS|Distro|Desktop|Session):/.test(l));
+  const base = fixedLines(diag.format(VM, { home: '/home/zz', user: 'zz' }));
+  for (const user of ['vault', 'VAULT', 'node', 'linux', 'x64', 'on', 'path', 'gpu', 'cpu', 'nvenc', 'cuda',
+    'tools', 'missing', 'unknown', 'next', 'to', 'standard', 'folder', 'packaged', 'app', 'diagnostics', 'v']) {
+    const lines = fixedLines(diag.format(VM, { home: `/home/${user}`, user }));
+    assert.deepStrictEqual(lines, base, `account "${user}"`);
+    assert.doesNotMatch(lines.join('\n'), /<user>/, `account "${user}"`);
+  }
+  // A missing value still reads "unknown" for an account called "unknown"
+  assert.match(diag.format({ platform: 'linux' }, { home: '/home/unknown', user: 'unknown' }), /^Distro: unknown$/m);
+});
+
+test('diagnostics: the account name is still hidden in values from the system', () => {
+  const opts = { home: '/home/vault', user: 'vault', platform: 'linux' };
+  // Linux, Windows and mac style paths, home or not
+  assert.strictEqual(diag.redact('/home/vault/bin/ffmpeg', opts), '~/bin/ffmpeg');
+  assert.strictEqual(diag.redact('/srv/vault/ffmpeg and /home/Vault/x', opts), '/srv/<user>/ffmpeg and /home/<user>/x');
+  assert.strictEqual(diag.redact('C:\\Users\\vault\\ffmpeg.exe', opts), 'C:\\Users\\<user>\\ffmpeg.exe');
+  assert.strictEqual(diag.redact('/Users/vault/Applications/mpv', opts), '/Users/<user>/Applications/mpv');
+  assert.strictEqual(diag.redact('C:\\Users\\Vault\\AppData\\x', { home: 'C:\\Users\\Vault', user: 'Vault', platform: 'win32' }), '~\\AppData\\x');
+  assert.strictEqual(diag.redact('/Users/vault/x', { home: '/Users/vault', user: 'vault', platform: 'darwin' }), '~/x');
+  // A whole token in a host or version string
+  assert.strictEqual(diag.redact('#1 SMP vault-pc 6.8', opts), '#1 SMP <user>-pc 6.8');
+  assert.strictEqual(diag.redact('build by VAULT', opts), 'build by <user>');
+
+  // And in the report: each system value is hidden, the fixed text is not
+  const t = diag.format({
+    ...VM,
+    osVersion: '#43-Ubuntu SMP vault@vault-vm', distro: 'Vault OS', desktop: 'vault', sessionType: 'x11',
+    gpu: { label: 'CPU (libx264)', nvenc: false, error: 'spawn /home/vault/ffmpeg ENOENT' },
+    tools: { ffmpeg: { found: true, version: '8.0-vault', where: 'next to Vault' } },
+  }, { home: '/home/vault', user: 'vault' });
+  assert.match(t, /^OS: Linux x64, #43-Ubuntu SMP <user>@<user>-vm, release/m);
+  assert.match(t, /^Distro: <user> OS$/m);
+  assert.match(t, /^Desktop: <user>$/m);
+  assert.match(t, /ffmpeg check failed: spawn ~\/ffmpeg ENOENT$/m);
+  assert.match(t, /^ {2}ffmpeg: 8\.0-<user> \(next to Vault\)$/m);
+  assert.match(t, /^Vault diagnostics$/m);
+  assert.doesNotMatch(t.replace(/Vault/g, ''), /vault/i, 'no other vault left anywhere');
+  assert.match(diag.format({ platform: 'linux', gpu: { error: 'Command failed: /home/vault/ffmpeg' } }, { home: '/home/vault', user: 'vault' }),
+    /^GPU: unknown \(Command failed: ~\/ffmpeg\)$/m);
+});
+
+test('diagnostics: names with regex characters, and short names inside other words', () => {
+  // Regex characters are matched as plain text
+  const meta = 'a.b+c(d)[e]$^|*?{1}\\';
+  assert.strictEqual(diag.redact(`/srv/${meta}/y and axbbc`, { home: '/nohome', user: meta, platform: 'linux' }), '/srv/<user>/y and axbbc');
+  assert.strictEqual(diag.redact('j.r and jxr', { home: '/x', user: 'j.r', platform: 'linux' }), '<user> and jxr');
+  assert.strictEqual(diag.redact('/home/o\'brien/y', { home: '/x', user: 'o\'brien', platform: 'linux' }), '/home/<user>/y');
+  // Not inside a longer word, accented letters and digits included
+  const al = { home: '/x', user: 'al', platform: 'linux' };
+  assert.strictEqual(diag.redact('alpha pal 2al al2 al_ alé éal /al/ al', al), 'alpha pal 2al al2 al_ alé éal /<user>/ <user>');
+  assert.strictEqual(diag.redact('gnome-shell gnome', { home: '/x', user: 'gnome', platform: 'linux' }), '<user>-shell <user>');
+  assert.strictEqual(diag.redact('3ubuntu2 #43-Ubuntu', { home: '/x', user: 'ubuntu', platform: 'linux' }), '3ubuntu2 #43-<user>');
+  // A one-letter name is not hidden as a word; its home folder still is
+  assert.strictEqual(diag.redact('/home/v/x v x64', { home: '/home/v', user: 'v', platform: 'linux' }), '~/x v x64');
+  // Windows output for an ordinary account is what it always was
+  const w = diag.format({ ...FULL, platform: 'win32', osVersion: 'Windows 11 Pro', osRelease: '10.0.26200', gpu: { label: 'GPU (NVENC h264)', nvenc: true, nvdec: true, cudaListed: true } },
+    { home: 'C:\\Users\\bob', user: 'bob' });
+  assert.match(w, /^Vault diagnostics\nVault: 3\.10\.0 \(packaged app\)\nNode: v24\.18\.1\nOS: Windows x64, Windows 11 Pro, release 10\.0\.26200\nGPU: GPU \(NVENC h264\); NVENC yes, CUDA decode not tested \(ffmpeg has it\)\nTools:\n/);
+  assert.match(w, /^ {2}ffprobe: 6\.1\.1-3ubuntu5 \(next to Vault\)$/m);
+});
+
+test('diagnostics: CUDA decode is never claimed from the ffmpeg listing alone', async () => {
+  const gpuDetect = require('../lib/pmv/gpu-detect');
+  const fake = (nvencWorks) => async (cmd, args) => {
+    if (args[0] === '-encoders') return { stdout: ' V....D h264_nvenc  NVIDIA NVENC H.264 encoder\n', stderr: '' };
+    if (args[0] === '-hwaccels') return { stdout: 'Hardware acceleration methods:\nvdpau\ncuda\nvaapi\n', stderr: '' };
+    if (nvencWorks) return { stdout: '', stderr: '' };
+    throw Object.assign(new Error('Command failed'), { stderr: '[h264_nvenc @ 0x1] dl_fn->cuda_dl->cuInit(0) failed -> CUDA_ERROR_NO_DEVICE' });
+  };
+  // No NVIDIA card (the VM): NVENC fails its test encode, so no CUDA decode either
+  const none = await gpuDetect.detectGPU({ run: fake(false) });
+  assert.strictEqual(none.nvenc, false);
+  assert.strictEqual(none.nvencFailed, true);
+  assert.strictEqual(none.cudaListed, true);
+  assert.strictEqual(none.nvdec, false);
+  assert.deepStrictEqual(none.hwaccelArgs, []);
+  assert.match(diag.format({ platform: 'linux', gpu: none }), /^GPU: CPU \(libx264\), NVENC failed validation; NVENC no, CUDA decode no \(ffmpeg has it, but the NVIDIA test failed\)$/m);
+  // A working NVIDIA card: unchanged, NVENC yes; decode is listed but never tried
+  const ok = await gpuDetect.detectGPU({ run: fake(true) });
+  assert.strictEqual(ok.nvenc, true);
+  assert.strictEqual(ok.nvdec, true);
+  assert.deepStrictEqual(ok.hwaccelArgs, ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda']);
+  assert.match(diag.format({ platform: 'win32', gpu: ok }), /^GPU: GPU \(NVENC h264\); NVENC yes, CUDA decode not tested \(ffmpeg has it\)$/m);
+  // An ffmpeg without cuda: plain no
+  assert.match(diag.format({ platform: 'linux', gpu: { label: 'CPU (libx264)', nvenc: false, cudaListed: false } }), /CUDA decode no$/m);
+  // An ffmpeg without NVENC that lists cuda: not tested, never yes
+  assert.match(diag.format({ platform: 'linux', gpu: { label: 'CPU (libx264)', nvenc: false, cudaListed: true } }), /CUDA decode not tested \(ffmpeg has it\)$/m);
+  assert.doesNotMatch(diag.format({ platform: 'linux', gpu: ok }), /CUDA decode yes/);
 });
 
 test('diagnostics: /etc/os-release and tool version lines', () => {
