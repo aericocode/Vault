@@ -150,6 +150,12 @@ body.pm-names .dock-name { filter: blur(7px); pointer-events: none; user-select:
 .dock-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .dock-btn-primary:hover { background: var(--accent-hover); }
 .dock-btn.is-on { border-color: var(--danger); }
+/* Play on Stage (dock.js dockStageButtonHtml): only while nothing plays.
+   The full player, the mini player or Stage (either kind) being up hides it. */
+body.stage-open .dock-stage-play,
+body.stage-basic .dock-stage-play,
+body:has(#miniPlayer.active) .dock-stage-play,
+body:has(#mediaPlayerOverlay.active) .dock-stage-play { display: none; }
 
 /* Favorite as a small heart next to the stars, one line (notes.js
    renderStarRatingSection compact; the Details view keeps the big button). */

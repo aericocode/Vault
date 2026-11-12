@@ -252,6 +252,7 @@ function dockPartsHtml(m) {
     ['meta', `<div class="dock-meta" data-dock-part="meta">${meta.map(v => `<span>${escapeHtml(v)}</span>`).join('')}</div>`],
     ['actions', `<div class="dock-actions" data-dock-part="actions">
       <button class="dock-btn dock-btn-primary" onclick="dockPlayPick(${m.id})">${vaultIconSwap('▶ ', 'play')}Play</button>
+      ${dockStageButtonHtml(m)}
       ${typeof UpNext === 'undefined' ? '' : `<button class="dock-btn" onclick="upNextAddFrom(${m.id}, 'next', 'dock')" title="Play this file after the one playing now (Shift+U)">Play next</button>
       <button class="dock-btn" onclick="upNextAddFrom(${m.id}, 'end', 'dock')" title="Add this file to the end of Up next (U)">+ Up next</button>`}
       <button class="dock-btn dock-btn-icon" onclick="showDetailsById(${m.id})" title="Details" aria-label="Details">${vaultIconSwap('ℹ️', 'info')}</button>
@@ -278,6 +279,26 @@ function dockPartsHtml(m) {
       <div class="detail-path dock-path">${escapeHtml(m.filepath)}</div>
     </details>`]);
   return parts;
+}
+
+/* Play on Stage: straight to Stage from the pane, rather than playing here
+   first and pressing Stage in the player. For videos, the one kind both
+   Stages play (mpv, or Basic Stage's picture-in-picture when mpv is not
+   there: StageControl.openStage picks, as the player's own Stage button
+   does). It shows only while nothing plays: once the player, the mini player
+   or Stage is up, the CSS hides it (css/dock.css), and Play / a double click
+   already go to Stage while it is open. */
+function dockStageButtonHtml(m) {
+  if (typeof StageControl === 'undefined' || !m || m.media_type !== 'video') return '';
+  return `<button class="dock-btn dock-stage-play" onclick="dockPlayOnStage(${m.id})"
+      title="Open Stage, the window you share in Discord, and play this there">${vaultIconSwap('📺 ', 'stage')}Play on Stage</button>`;
+}
+
+function dockPlayOnStage(id) {
+  if (id == null || typeof StageControl === 'undefined') return;
+  // Opens Stage (or Basic Stage), then plays the pick there: playMedia goes
+  // to Stage once it is open (StageControl.intercept).
+  StageControl.openStage({ then: () => dockPlayPick(id) });
 }
 
 function dockBodyHtml(m) {
