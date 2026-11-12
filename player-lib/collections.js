@@ -73,12 +73,14 @@ function takeCollectionAnswer(id, data, { filesChanged = false } = {}) {
   if (c) takeCollectionLength(c, data);
   let moved = !!filesChanged;
   let before = null;
+  let reordered = false;
   if (Array.isArray(data.media_ids)) {
     before = collectionMembers.has(id) ? collectionMembers.get(id).slice() : null;
     collectionMembers.set(id, data.media_ids);
     if (before) {
       const now = new Set(data.media_ids);
       if (now.size !== before.length || before.some(m => !now.has(m))) moved = true;
+      reordered = moved || before.some((m, i) => m !== data.media_ids[i]);
     }
   }
   const active = typeof activeCollectionId !== 'undefined' && activeCollectionId === id;
@@ -86,6 +88,8 @@ function takeCollectionAnswer(id, data, { filesChanged = false } = {}) {
   if (typeof Skips !== 'undefined' && Array.isArray(data.skipped_ids) && Skips.take(id, data.skipped_ids)) Skips.changed(id);
   else if (active && typeof renderCollectionCount === 'function') renderCollectionCount();
   if (moved && typeof flowSavedStale === 'function') flowSavedStale(id);
+  // The order read from the server differs (another window, the library check): the Flow panel's lit button follows.
+  if (reordered && typeof flowOrderSynced === 'function') flowOrderSynced(id);
   // Read again while open (a change made elsewhere): files that left are unticked.
   if (active && before && moved && typeof _untickLeftOpenCollection === 'function') _untickLeftOpenCollection(before);
   return moved;

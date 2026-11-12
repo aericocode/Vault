@@ -19,11 +19,11 @@ function flowCustomFake(collectionId) {
   d.prepare('INSERT INTO collections (id) VALUES (?)').run(collectionId);
   custom.ensureSchema(d);
   return {
-    /** After a playlist order write: the answer's flow fields (only when the page sent flow, as the route does). */
+    /** After a playlist order write: the answer's flow fields, as the route gives them. */
     write(before, after, body) {
       const sent = body && body.flow !== undefined;
       const r = custom.afterWrite(d, collectionId, before, after, sent ? custom.cleanFlow(body.flow) : undefined);
-      return sent ? { flow_custom: r.now ? { ...r.now, lit: true } : null, flow_custom_was: r.was } : {};
+      return { flow_custom: r.now, flow_custom_was: r.was };
     },
     state: (playlist) => custom.state(d, collectionId, playlist),
     db: d,

@@ -61,7 +61,7 @@ test('the table: one row per collection, nothing in it until a shape is put in',
   custom.ensureSchema(db.get());   // twice is fine
 });
 
-test('a shape from Custom keeps the order from before; shape to shape keeps it; Custom (flow null) drops it; each answer says what was', async () => {
+test('a shape from Custom keeps the order from before; shape to shape keeps it; Custom (no flow) leaves it waiting; Undo puts back exactly what was', async () => {
   const mine = order();
   const waves = [m[4], m[2], m[0], m[1], m[3]];
   let r = await send('POST', `/api/collections/${coll}/order`, { order: waves, flow: { shape: 'waves', waves: 3, places: false } });
@@ -72,23 +72,118 @@ test('a shape from Custom keeps the order from before; shape to shape keeps it; 
   const peak = [m[0], m[4], m[2], m[3], m[1]];
   r = await send('POST', `/api/collections/${coll}/order`, { order: peak, flow: { shape: 'peak' } });
   assert.deepStrictEqual(r.body.flow_custom.custom, mine, 'shape to shape keeps the custom order');
-  assert.deepStrictEqual(r.body.flow_custom_was, { custom: mine, shape: 'waves', waves: 3, places: false, shaped: waves, lit: true });
-  // Custom: the kept order written back with flow null.
+  const wasWaves = r.body.flow_custom_was;
+  assert.deepStrictEqual(wasWaves, { custom: mine, shape: 'waves', waves: 3, places: false, shaped: waves, lit: true });
+  // Custom: the kept order written back without flow: the row stays, not lit.
+  r = await send('POST', `/api/collections/${coll}/order`, { order: mine });
+  assert.deepStrictEqual(r.body.flow_custom, { custom: mine, shape: 'peak', waves: 2, places: false, shaped: peak, lit: false });
+  assert.deepStrictEqual(order(), mine);
+  // Its Undo (the peak order, no flow): lit again.
+  r = await send('POST', `/api/collections/${coll}/order`, { order: peak });
+  assert.strictEqual(r.body.flow_custom.lit, true);
+  // Undo of Peak: the waves order and exactly the row from before it.
+  r = await send('POST', `/api/collections/${coll}/order`, { order: waves, flow: { shape: wasWaves.shape, waves: wasWaves.waves, places: wasWaves.places, custom: wasWaves.custom, shaped: wasWaves.shaped } });
+  assert.deepStrictEqual(await kept(), { custom: mine, shape: 'waves', waves: 3, places: false, shaped: waves, lit: true });
+  // Undo of Waves (there was no row before it): flow null removes it.
   r = await send('POST', `/api/collections/${coll}/order`, { order: mine, flow: null });
   assert.strictEqual(r.body.flow_custom, null);
-  assert.strictEqual(r.body.flow_custom_was.shape, 'peak');
   assert.strictEqual(await kept(), null);
-  assert.deepStrictEqual(order(), mine);
-  // Its Undo: the peak order and exactly what was kept.
+});
+
+test('an exact restore keeps a waiting row waiting: the Undo of a shape picked over it gives back the old kept order and its old shaped order', async () => {
+  const mine = order();
+  const smooth = mine.slice().reverse();
+  await send('POST', `/api/collections/${coll}/order`, { order: smooth, flow: { shape: 'smooth' } });
+  const dragged = [smooth[1], smooth[0], ...smooth.slice(2)];
+  await send('POST', `/api/collections/${coll}/order`, { order: dragged });   // a drag: the row waits
+  assert.strictEqual((await kept()).lit, false);
+  const build = [dragged[2], ...dragged.filter((_, i) => i !== 2)];
+  let r = await send('POST', `/api/collections/${coll}/order`, { order: build, flow: { shape: 'build' } });
+  assert.deepStrictEqual(r.body.flow_custom.custom, dragged, 'picked over a waiting row: the order before is the custom one');
   const was = r.body.flow_custom_was;
-  r = await send('POST', `/api/collections/${coll}/order`, { order: peak, flow: { shape: was.shape, waves: was.waves, places: was.places, custom: was.custom } });
-  assert.deepStrictEqual(await kept(), { custom: mine, shape: 'peak', waves: 2, places: false, shaped: peak, lit: true });
-  // Without flow (a drag, its Undo): that order is the custom one, nothing kept, and the answer has no flow fields.
-  r = await send('POST', `/api/collections/${coll}/order`, { move: [m[1]], before: m[0] });
-  assert.strictEqual(r.status, 200);
-  assert.strictEqual(r.body.flow_custom, undefined);
-  assert.strictEqual(await kept(), null);
+  assert.deepStrictEqual([was.custom, was.shaped, was.lit], [mine, smooth, false]);
+  r = await send('POST', `/api/collections/${coll}/order`, { order: dragged, flow: { shape: was.shape, waves: was.waves, places: was.places, custom: was.custom, shaped: was.shaped } });
+  assert.deepStrictEqual(await kept(), { custom: mine, shape: 'smooth', waves: 2, places: false, shaped: smooth, lit: false });
+  // Dragged back to the smooth order by hand: lit again, Custom gives mine.
+  await send('POST', `/api/collections/${coll}/order`, { order: smooth });
+  assert.deepStrictEqual([(await kept()).lit, (await kept()).custom], [true, mine]);
+  await send('POST', `/api/collections/${coll}/order`, { order: mine, flow: null });
+});
+
+test('the kept order survives every write that is not a shape pick (real routes): Remove and its Undo, Add, a drag and its Undo, a saved order with skips, a plain order from another client', async () => {
+  const mine = order();
+  const peak = [mine[2], mine[0], mine[4], mine[1], mine[3]];
+  await send('POST', `/api/collections/${coll}/order`, { order: peak, flow: { shape: 'peak' } });
+  const restored = async (what) => {
+    assert.deepStrictEqual(order(), peak, what);
+    const c = await kept();
+    assert.strictEqual(c.lit, true, `${what}: Peak lit again`);
+    assert.deepStrictEqual(c.custom, mine, `${what}: the kept order, exactly`);
+  };
+  // Remove, then its Undo (collections.js undoRemoveFromCollection: add back, then the old order without flow).
+  await send('DELETE', `/api/collections/${coll}/items`, { ids: [peak[1]] });
+  assert.strictEqual((await kept()).lit, true, 'a file taken out: still the shape');
+  await send('POST', `/api/collections/${coll}/items`, { ids: [peak[1]] });
+  assert.strictEqual((await kept()).lit, false, 'back at the end: not the shape');
+  await send('POST', `/api/collections/${coll}/order`, { order: peak });
+  await restored('Remove and its Undo');
+  // A drag (move) and its Undo (the whole order).
+  await send('POST', `/api/collections/${coll}/order`, { move: [peak[4]], before: peak[0] });
+  assert.strictEqual((await kept()).lit, false);
+  await send('POST', `/api/collections/${coll}/order`, { order: peak });
+  await restored('a drag and its Undo');
+  // A saved order loaded (order and skips together) and its Undo.
+  await send('POST', `/api/collections/${coll}/order`, { order: mine.slice().reverse(), skips: [mine[0]] });
+  await send('POST', `/api/collections/${coll}/order`, { order: peak, skips: [] });
+  await restored('a saved order and its Undo');
+  // Add a file (at the end): still lit; taken out again: still lit.
+  await send('POST', `/api/collections/${coll}/items`, { ids: [m[5]] });
+  assert.strictEqual((await kept()).lit, true, 'a file added at the end keeps the shape');
+  assert.deepStrictEqual((await kept()).custom, [...mine, m[5]], 'and Custom would put it at the end');
+  await send('DELETE', `/api/collections/${coll}/items`, { ids: [m[5]] });
+  await restored('a file added and taken out');
+  // Custom (no flow) and its Undo.
   await send('POST', `/api/collections/${coll}/order`, { order: mine });
+  await send('POST', `/api/collections/${coll}/order`, { order: peak });
+  await restored('Custom and its Undo');
+  // A playlist import into the collection (lib/playlist/import.js onRowsAdded, its statements word for word:
+  // the file in at -1, then every position written), then its Undo (the file taken out).
+  const d = db.get();
+  d.prepare('INSERT INTO collection_items (collection_id, media_id, position) VALUES (?, ?, ?)').run(coll, m[5], -1);
+  const setPos = d.prepare('UPDATE collection_items SET position = ? WHERE collection_id = ? AND media_id = ? AND position IS NOT ?');
+  [...peak.slice(0, 2), m[5], ...peak.slice(2)].forEach((id, i) => setPos.run(i, coll, id, i));
+  assert.strictEqual((await kept()).lit, false, 'placed mid-way: not the shape');
+  db.removeFromCollection(coll, [m[5]]);
+  await restored('an import and its Undo');
+  await send('POST', `/api/collections/${coll}/order`, { order: mine, flow: null });
+});
+
+test('a shaped list that cannot be read, is empty, or has none of the files is never lit', () => {
+  const d = db.get();
+  const mine = order();
+  const put = (shaped) => d.prepare(`INSERT OR REPLACE INTO flow_custom_orders (collection_id, order_json, shape, waves, places, shaped_json, updated_at)
+    VALUES (?, ?, 'peak', 2, 0, ?, 0)`).run(coll, JSON.stringify(mine), shaped);
+  for (const shaped of ['garbage', '[]', 'null', '[999998,999999]', '{"a":1}']) {
+    put(shaped);
+    assert.strictEqual(custom.state(d, coll).lit, false, shaped);
+  }
+  put(JSON.stringify(mine));
+  assert.strictEqual(custom.state(d, coll).lit, true, 'a good one is');
+  custom.removeFor(d, coll);
+});
+
+test('the custom order keeps only files of the collection: one added later goes at the end when Custom brings it back', async () => {
+  const mine = order();
+  const shaped = mine.slice().reverse();
+  // An Undo sending a list with a file that is not in the collection (m[5]) and one that is in no library row.
+  await send('POST', `/api/collections/${coll}/order`, { order: shaped, flow: { shape: 'peak', custom: [m[5], mine[3], 999999, ...mine], shaped: [999999, ...shaped] } });
+  const row = db.get().prepare('SELECT order_json, shaped_json FROM flow_custom_orders WHERE collection_id = ?').get(coll);
+  assert.deepStrictEqual(JSON.parse(row.order_json), [mine[3], mine[0], mine[1], mine[2], mine[4]], 'only members, in the order sent');
+  assert.deepStrictEqual(JSON.parse(row.shaped_json), shaped);
+  await send('POST', `/api/collections/${coll}/items`, { ids: [m[5]] });
+  assert.deepStrictEqual((await kept()).custom, [mine[3], mine[0], mine[1], mine[2], mine[4], m[5]], 'the new file at the end');
+  await send('DELETE', `/api/collections/${coll}/items`, { ids: [m[5]] });
+  await send('POST', `/api/collections/${coll}/order`, { order: mine, flow: null });
 });
 
 test('a kept row the playlist is no longer in (an older Vault wrote the order): not lit, and the next shape keeps the order there now', async () => {
@@ -102,7 +197,7 @@ test('a kept row the playlist is no longer in (an older Vault wrote the order): 
   assert.strictEqual((await kept()).lit, false);
   const r = await send('POST', `/api/collections/${coll}/order`, { order: mine, flow: { shape: 'build' } });
   assert.deepStrictEqual(r.body.flow_custom.custom, other, 'the order before this write, not the stale one');
-  assert.strictEqual(r.body.flow_custom_was.lit, false, 'an Undo of this goes back to Custom');
+  assert.strictEqual(r.body.flow_custom_was.lit, false, 'an Undo of this puts back a waiting row: Custom lit');
   await send('POST', `/api/collections/${coll}/order`, { order: mine, flow: null });
 });
 
@@ -128,7 +223,7 @@ test('flow never changes the skips; bad flow is refused and nothing is written',
   assert.deepStrictEqual(db.getCollectionSkips(coll), [mine[2]]);
   await send('POST', `/api/collections/${coll}/order`, { order: mine, flow: null });
   assert.deepStrictEqual(db.getCollectionSkips(coll), [mine[2]]);
-  for (const flow of ['waves', { shape: 'zigzag' }, { shape: 'waves', waves: 9 }, { shape: 'peak', places: 'yes' }, { shape: 'peak', custom: [0] }, [1]]) {
+  for (const flow of ['waves', { shape: 'zigzag' }, { shape: 'waves', waves: 9 }, { shape: 'peak', places: 'yes' }, { shape: 'peak', custom: [0] }, { shape: 'peak', shaped: [1] }, { shape: 'peak', custom: [1], shaped: 'x' }, [1]]) {
     const r = await send('POST', `/api/collections/${coll}/order`, { order: mine.slice().reverse(), flow });
     assert.strictEqual(r.status, 400, JSON.stringify(flow));
   }

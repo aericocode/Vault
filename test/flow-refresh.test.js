@@ -165,6 +165,30 @@ test('taking files out of a collection, and Undo, tell Flow once the server has 
   assert.deepStrictEqual(flow, ['5:1,3,4,5', '5:1,2,3,4,5']);
 });
 
+test('an order read again from the server that differs (another window) tells Flow; the same order does not', () => {
+  const synced = [];
+  const ctx = {
+    console, Set, Map,
+    activeCollectionId: 5,
+    collectionsList: [{ id: 5, kind: 'collection', name: 'Mix' }],
+    collectionMembers: new Map([[5, [1, 2, 3]]]),
+    flowOrderSynced: (id) => synced.push(id),
+    renderCollectionCount() {},
+  };
+  ctx.getCollectionById = (id) => ctx.collectionsList.find(c => c.id === id);
+  vm.createContext(ctx);
+  const coll = read('player-lib/collections.js');
+  vm.runInContext(['takeCollectionAnswer', 'takeCollectionLength'].map(n => grab(coll, n)).join('\n') + '\nglobalThis.__t = takeCollectionAnswer;', ctx);
+  ctx.__t(5, { media_ids: [1, 2, 3] });
+  assert.deepStrictEqual(synced, [], 'the same order');
+  ctx.__t(5, { media_ids: [3, 1, 2] });
+  assert.deepStrictEqual(synced, [5], 'reordered elsewhere');
+  ctx.__t(5, { media_ids: [3, 1, 2, 4] });
+  assert.deepStrictEqual(synced, [5, 5], 'a file came');
+  ctx.__t(5, { order: [1, 2, 3, 4] });
+  assert.deepStrictEqual(synced, [5, 5], 'an answer to this page\'s own write (no media_ids) is not a sync');
+});
+
 /* ── flow.js membersChanged ───────────────────────────────────────────── */
 
 function flowPage() {
