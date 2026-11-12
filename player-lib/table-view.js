@@ -384,7 +384,8 @@ function tvRowHtml(m, style) {
     isSelected ? 'tile-selected' : '',
     m.id === lastOpenedMediaId ? 'tile-last-opened' : '',
     (typeof isCardBusy === 'function' && isCardBusy(m.id)) ? 'tile-busy' : '',
-  ].filter(Boolean).join(' ') + (typeof dockTileClass === 'function' ? dockTileClass(m.id) : '');
+  ].filter(Boolean).join(' ') + (typeof dockTileClass === 'function' ? dockTileClass(m.id) : '')
+    + (typeof nowPlayingTileClass === 'function' ? nowPlayingTileClass(m.id) : '');
   const drag = typeof reorderTileAttr === 'function' ? reorderTileAttr() : '';
   return `<div class="${cls}" data-id="${m.id}" role="row"${style ? ` style="${style}"` : ''}${drag}>
       <div class="tv-cell tv-c-sel"><input type="checkbox" class="tile-select" ${isSelected ? 'checked' : ''}

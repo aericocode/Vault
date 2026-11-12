@@ -597,6 +597,11 @@ function noteFileOpened(mediaData, { source = 'user', fromUpNext = false, keepAn
   if (typeof vaultRecordLastOpened === 'function' && currentMediaState.currentMediaData) {
     vaultRecordLastOpened(currentMediaState.currentMediaData.id);
   }
+  // The playing file's tile gets its border (player-lib/now-playing.js).
+  if (typeof NowPlaying !== 'undefined') {
+    NowPlaying.set(currentMediaState.playbackMediaId
+      || (currentMediaState.currentMediaData && currentMediaState.currentMediaData.id) || Number(mediaData.id) || null);
+  }
 }
 
 // Main playMedia function

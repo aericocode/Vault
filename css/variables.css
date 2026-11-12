@@ -31,6 +31,10 @@
   --success: #22c55e;
   --warning: #f59e0b;
   --danger: #ef4444;
+  /* The file playing now (css/tiles.css .tile-now-playing): a "live" green,
+     apart from the indigo of selected and previewed tiles and the red of
+     failed or flagged ones. */
+  --now-playing: #22c55e;
   
   /* Component-specific */
   --tag-bg: #333;

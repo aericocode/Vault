@@ -90,6 +90,22 @@ body.layout-modern .sb-thumb { border-color: rgba(255, 255, 255, 0.1); backgroun
 
 .sb-text { min-width: 0; display: grid; gap: 2px; }
 .sb-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The name is a button: a click shows the file's tile (player-lib/now-playing.js). */
+button.sb-title {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+button.sb-title:hover { text-decoration: underline; }
+button.sb-title:focus-visible { outline: 2px solid var(--accent-hover, #818cf8); outline-offset: 2px; }
 .sb-sub {
   display: flex;
   align-items: center;
@@ -323,10 +339,10 @@ body.layout-modern .sb-vol-slider { accent-color: #fff; }
 .stage-bar:focus { outline: none; }   /* takes focus from a hidden mini player control, not drawn */
 
 /* Privacy mode (file names hidden): the bar's name is blurred like the
-   players' titles (css/settings.css); stage-bar.js already writes "this file". */
+   players' titles (css/settings.css); stage-bar.js already writes "this file".
+   It stays clickable: a click still finds the file's tile. */
 body.pm-names #stageBarTitle {
   filter: blur(7px);
-  pointer-events: none;
   user-select: none;
 }
 

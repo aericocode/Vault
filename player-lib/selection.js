@@ -518,7 +518,9 @@ function wireSelectionBar(bar) {
   bar._selWired = true;
   bar.addEventListener('click', (e) => {
     const btn = e.target.closest && e.target.closest('button');
-    if (btn && !btn.classList.contains('sel-collect') && typeof closeCollectionPicker === 'function') closeCollectionPicker();
+    // The ticked files stay for the button pressed (collections.js clears
+    // them after an add only when the picker is closed some other way).
+    if (btn && !btn.classList.contains('sel-collect') && typeof closeCollectionPicker === 'function') closeCollectionPicker({ keepSelection: true });
   }, true);
 }
 

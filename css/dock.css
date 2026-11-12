@@ -150,6 +150,26 @@ body.pm-names .dock-name { filter: blur(7px); pointer-events: none; user-select:
 .dock-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .dock-btn-primary:hover { background: var(--accent-hover); }
 .dock-btn.is-on { border-color: var(--danger); }
+/* Play on Stage (dock.js dockStageButtonHtml): on the picture, bottom left
+   (the length is bottom right), so the row above keeps to one line. Only
+   while nothing plays: the full player, the mini player or Stage (either
+   kind) being up hides it. */
+.dock-thumb .dock-stage-play {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 1;
+  gap: 0.3rem;
+  background: rgba(0, 0, 0, 0.72);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #fff;
+  cursor: pointer;
+}
+.dock-thumb .dock-stage-play:hover { background: rgba(0, 0, 0, 0.88); border-color: var(--accent-hover); }
+body.stage-open .dock-stage-play,
+body.stage-basic .dock-stage-play,
+body:has(#miniPlayer.active) .dock-stage-play,
+body:has(#mediaPlayerOverlay.active) .dock-stage-play { display: none; }
 
 /* Favorite as a small heart next to the stars, one line (notes.js
    renderStarRatingSection compact; the Details view keeps the big button). */

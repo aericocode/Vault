@@ -247,6 +247,7 @@ function dockPartsHtml(m) {
       ${thumb}
       <span class="tile-type-icon">${icon}</span>
       ${length ? `<span class="tile-duration dock-len">${escapeHtml(length)}</span>` : ''}
+      ${dockStageButtonHtml(m)}
     </div>`],
     ['name', `<div class="dock-name" data-dock-part="name">${escapeHtml(m.filename)}</div>`],
     ['meta', `<div class="dock-meta" data-dock-part="meta">${meta.map(v => `<span>${escapeHtml(v)}</span>`).join('')}</div>`],
@@ -278,6 +279,30 @@ function dockPartsHtml(m) {
       <div class="detail-path dock-path">${escapeHtml(m.filepath)}</div>
     </details>`]);
   return parts;
+}
+
+/* Play on Stage: straight to Stage from the pane, rather than playing here
+   first and pressing Stage in the player. For videos, the one kind both
+   Stages play (mpv, or Basic Stage's picture-in-picture when mpv is not
+   there: StageControl.openStage picks, as the player's own Stage button
+   does). It shows only while nothing plays: once the player, the mini player
+   or Stage is up, the CSS hides it (css/dock.css), and Play / a double click
+   already go to Stage while it is open. */
+function dockStageButtonHtml(m) {
+  if (typeof StageControl === 'undefined' || !m || m.media_type !== 'video') return '';
+  // On the preview picture, over its bottom left corner: the row of buttons
+  // under the name has no room left at the pane's usual width. A double
+  // click on it is not the picture's (which plays here).
+  return `<button type="button" class="dock-btn dock-stage-play" onclick="event.stopPropagation(); dockPlayOnStage(${m.id})"
+      ondblclick="event.stopPropagation()"
+      title="Open Stage, the window you share in Discord, and play this there">${vaultIconSwap('📺 ', 'stage')}Play on Stage</button>`;
+}
+
+function dockPlayOnStage(id) {
+  if (id == null || typeof StageControl === 'undefined') return;
+  // Opens Stage (or Basic Stage), then plays the pick there: playMedia goes
+  // to Stage once it is open (StageControl.intercept).
+  StageControl.openStage({ then: () => dockPlayPick(id) });
 }
 
 function dockBodyHtml(m) {

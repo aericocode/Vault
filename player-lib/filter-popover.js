@@ -151,7 +151,7 @@ function _fpopRenderList(host, items, query, selectedValue) {
     return [];
   }
   host.innerHTML = shown.map((it, i) => `
-    <div class="fpop-opt" role="option" id="fpopOpt${i}" data-idx="${i}"
+    <div class="fpop-opt${it.divider && !q ? ' fpop-opt-divider' : ''}" role="option" id="fpopOpt${i}" data-idx="${i}"
          aria-selected="${it.value === selectedValue ? 'true' : 'false'}">
       <span class="fpop-opt-label">${escapeHtml(it.label)}</span>
       ${it.count != null ? `<span class="fpop-opt-count">${escapeHtml(String(it.count))}</span>` : ''}

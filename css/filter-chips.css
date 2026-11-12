@@ -226,6 +226,19 @@
   background: rgba(99, 102, 241, 0.25);
 }
 .fpop-opt-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A line over the first row of a second group (Rating: the "and up" rows).
+   A list with two groups is short and fixed: tall enough to show it all. */
+.fpop-list:has(.fpop-opt-divider) { max-height: 420px; }
+.fpop-opt.fpop-opt-divider { position: relative; margin-top: 0.5rem; }
+.fpop-opt.fpop-opt-divider::before {
+  content: '';
+  position: absolute;
+  left: 0.55rem;
+  right: 0.55rem;
+  top: -0.3rem;
+  border-top: 1px solid var(--border, #444);
+  pointer-events: none;
+}
 
 /* How many files carry this value. Tabular figures so the column of numbers
    lines up, muted so the value stays the thing you read first. */

@@ -249,7 +249,7 @@ function railCount(n) {
 /** One pickable row of a list filter. Clicking the picked row again clears it. */
 function railOptHtml(key, it, selected) {
   const on = it.value === selected;
-  return `<button type="button" class="rail-opt${on ? ' is-on' : ''}" data-rail-key="${key}"
+  return `<button type="button" class="rail-opt${on ? ' is-on' : ''}${it.divider ? ' rail-opt-divider' : ''}" data-rail-key="${key}"
       data-rail-value="${escapeHtml(String(it.value))}" aria-pressed="${on ? 'true' : 'false'}">
       <span class="rail-opt-label">${escapeHtml(String(it.label))}</span>${railCount(it.count)}</button>`;
 }
