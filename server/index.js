@@ -3172,7 +3172,48 @@ app.delete('/api/collections/:id', (req, res) => {
 app.get('/api/collections/:id', (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'bad id' });
-  res.json({ media_ids: db.getCollectionItems(id), ...db.collectionLength(id) });
+  res.json({ media_ids: db.getCollectionItems(id), skipped_ids: db.getCollectionSkips(id), ...db.collectionLength(id) });
+});
+
+// Skip on tracks (db.setCollectionSkips): a skipped file keeps its place and
+// playback passes over it. Both answer { skipped_ids, ...the length fields }.
+//   POST /api/collections/:id/skips  { ids, skip: true | false }
+//   PUT  /api/collections/:id/skips  { ids }  exactly these (Unskip all: [],
+//        its Undo the list from before; the answer adds was_ids)
+// 404 NOT_FOUND, 400 FOLDER_TARGET (a folder plays every file).
+function skipIds(body) {
+  const ids = body && body.ids;
+  if (!Array.isArray(ids) || ids.length > 200000 || !ids.every(n => Number.isSafeInteger(n) && n > 0)) return null;
+  return [...new Set(ids)];
+}
+
+app.post('/api/collections/:id/skips', (req, res) => {
+  const id = parseId(req.params.id);
+  const ids = skipIds(req.body);
+  if (!id || !ids || ids.length === 0) return res.status(400).json({ error: 'id + ids required' });
+  if (typeof req.body.skip !== 'boolean') return res.status(400).json({ error: 'skip must be true or false' });
+  try {
+    const skipped = db.setCollectionSkips(id, ids, req.body.skip);
+    res.json({ skipped_ids: skipped, ...db.collectionLength(id) });
+  } catch (err) {
+    const status = COLL_ERR_STATUS[err.code];
+    if (status) return res.status(status).json({ error: err.message, code: err.code });
+    throw err;
+  }
+});
+
+app.put('/api/collections/:id/skips', (req, res) => {
+  const id = parseId(req.params.id);
+  const ids = skipIds(req.body);
+  if (!id || !ids) return res.status(400).json({ error: 'id + ids required' });
+  try {
+    const r = db.replaceCollectionSkips(id, ids);
+    res.json({ skipped_ids: r.skipped, was_ids: r.was, ...db.collectionLength(id) });
+  } catch (err) {
+    const status = COLL_ERR_STATUS[err.code];
+    if (status) return res.status(status).json({ error: err.message, code: err.code });
+    throw err;
+  }
 });
 
 // Per-collection membership counts for a set of media ids — the picker derives
@@ -3326,6 +3367,7 @@ app.get('/api/collections/:id/export', (req, res) => {
     'X-Content-Type-Options': 'nosniff',
     'X-Vault-Count': String(out.count),
     'X-Vault-Skipped': String(out.skipped),
+    'X-Vault-Skipped-By-You': String(out.skippedByYou),
   });
   res.send(out.text);
 });
@@ -3407,7 +3449,7 @@ app.post('/api/collections/:id/export/save', (req, res) => {
     } catch (err) {
       return finish(500, { error: `could not write the playlist (${err.code || err.message})` });
     }
-    finish(200, { path: target, count: built.count, skipped: built.skipped, fullPathCount: built.fullPathCount });
+    finish(200, { path: target, count: built.count, skipped: built.skipped, skippedByYou: built.skippedByYou, fullPathCount: built.fullPathCount });
   }
 });
 

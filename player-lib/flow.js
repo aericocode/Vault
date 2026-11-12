@@ -1005,7 +1005,9 @@ const Flow = (() => {
   function nextFrom(playing) {
     if (typeof Library === 'undefined') return null;
     const upNext = typeof UpNext !== 'undefined' && UpNext.count() > 0 ? UpNext.ids() : [];
-    return FlowOrder.nextAfter(playing, { upNext, indexOf: (id) => Library.indexOf(id), idAt: (i) => Library.idAt(i) });
+    // Skipped files (collection-skips.js) are passed over, as the queue does.
+    const skipped = typeof queueSkipSet === 'function' ? queueSkipSet(Library) : null;
+    return FlowOrder.nextAfter(playing, { upNext, indexOf: (id) => Library.indexOf(id), idAt: (i) => Library.idAt(i), skipped });
   }
 
   let marksKey = '';

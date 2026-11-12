@@ -894,13 +894,17 @@ const FlowOrder = (() => {
    * @param {number|null} playing
    * @param {{upNext?: number[], indexOf: Function, idAt: Function}} o
    */
-  function nextAfter(playing, { upNext = [], indexOf, idAt }) {
+  function nextAfter(playing, { upNext = [], indexOf, idAt, skipped = null }) {
     if (upNext.length) return { id: upNext[0], upNext: true };
     if (playing == null) return null;
     const i = indexOf(playing);
     if (i < 0) return null;
-    const id = idAt(i + 1);
-    return id != null ? { id, upNext: false } : null;
+    // skipped (optional, a Set): files the list passes over (Skip on tracks).
+    for (let k = i + 1; ; k++) {
+      const id = idAt(k);
+      if (id == null) return null;
+      if (!(skipped && skipped.has(id))) return { id, upNext: false };
+    }
   }
 
   /** media_flow.edges (JSON) as an object, or null when it is not { d, start, end } with the lists edgeSkips reads. */

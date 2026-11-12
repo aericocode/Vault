@@ -113,10 +113,13 @@ function tvTitleWidth(width, cols) {
 const TV_NAME_MIN = 120;         // px a name keeps (or all of a shorter one)
 const TV_PROG_W = 48;            // the Playing mark's progress line (css/flow.css)
 // The row's buttons on hover (css/table-view.css .tv-actions: two 24px
-// buttons, 0.25rem apart, 0.4rem before them). They sit over the cell's end,
-// which the cell keeps free as padding of this width: the name, the chips,
-// +n and the marks are laid out short of it, so nothing hides under them.
-const tvActionsWidth = (rem) => 48 + 0.65 * rem;
+// buttons, 0.25rem apart, 0.4rem before them; three in an open collection,
+// where Skip joins them: collection-skips.js, .grid-table.tv-skips). They sit
+// over the cell's end, which the cell keeps free as padding of this width:
+// the name, the chips, +n and the marks are laid out short of it, so nothing
+// hides under them.
+const tvSkipsShown = () => typeof skipOpenCollection === 'function' && !!skipOpenCollection();
+const tvActionsWidth = (rem) => (tvSkipsShown() ? 72 + 0.9 * rem : 48 + 0.65 * rem);
 let _tvTitleW = 0;               // 0 until the table is drawn
 
 let _tvFont = null;              // { family, rem, name } once learned off a drawn row
@@ -273,7 +276,7 @@ function tableViewRender() {
   if (colsBtn) colsBtn.hidden = !on;
   if (!on) {
     if (grid && grid.classList.contains('grid-table')) {
-      grid.classList.remove('grid-table', 'tv-continuous');
+      grid.classList.remove('grid-table', 'tv-continuous', 'tv-skips');
       grid.style.removeProperty('--tv-cols');
       delete grid.dataset.tvShape;
     }
@@ -283,6 +286,7 @@ function tableViewRender() {
   grid.classList.remove('grid-pages', 'grid-continuous');
   grid.classList.add('grid-table');
   grid.classList.toggle('tv-continuous', cont);
+  grid.classList.toggle('tv-skips', tvSkipsShown());
   grid.style.removeProperty('--tile-h');
   grid.style.removeProperty('grid-template-columns');
   // The grid's continuous skeleton is not ours: make it rebuild when it is back.
@@ -353,6 +357,7 @@ function tvCellHtml(c, m) {
           <span class="tv-actions" onclick="event.stopPropagation()">
             <button type="button" class="tile-btn ${m.user_starred ? 'active-star' : ''}" onclick="toggleStar(mediaPathById(${id}))"
                     title="${m.user_starred ? 'Remove from favorites' : 'Add to favorites'}" aria-label="${m.user_starred ? 'Remove from favorites' : 'Add to favorites'}">${vaultIconSwap(m.user_starred ? '❤' : '🤍', 'heart')}</button>
+            ${typeof skipTileButton === 'function' ? skipTileButton(id) : ''}
             <button type="button" class="tile-btn" onclick="showDetailsById(${id})" title="Details" aria-label="Details">${vaultIconSwap('ⓘ', 'info')}</button>
           </span>
         </div>`;
@@ -384,7 +389,8 @@ function tvRowHtml(m, style) {
     isSelected ? 'tile-selected' : '',
     m.id === lastOpenedMediaId ? 'tile-last-opened' : '',
     (typeof isCardBusy === 'function' && isCardBusy(m.id)) ? 'tile-busy' : '',
-  ].filter(Boolean).join(' ') + (typeof dockTileClass === 'function' ? dockTileClass(m.id) : '');
+  ].filter(Boolean).join(' ') + (typeof dockTileClass === 'function' ? dockTileClass(m.id) : '')
+    + (typeof skipTileClass === 'function' ? skipTileClass(m.id) : '');
   const drag = typeof reorderTileAttr === 'function' ? reorderTileAttr() : '';
   return `<div class="${cls}" data-id="${m.id}" role="row"${style ? ` style="${style}"` : ''}${drag}>
       <div class="tv-cell tv-c-sel"><input type="checkbox" class="tile-select" ${isSelected ? 'checked' : ''}

@@ -173,6 +173,7 @@ const VAULT_EMOJI_ICONS = {
   '🏅': 'award', '🏆': 'award', '📈': 'trend', '📊': 'chart', '🗺': 'map', '🎨': 'palette', '🎭': 'mask',
   '📸': 'camera', '📷': 'camera', '🔥': 'flame', '📋': 'copy', '➖': 'minus', '⛶': 'fullscreen', '↩': 'undo',
   'ℹ': 'info', '📂': 'folder', '⭳': 'download',
+  '⏭': 'next-file',   // Skip on tracks (collection-skips.js)
 };
 
 /**

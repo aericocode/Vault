@@ -56,7 +56,9 @@ function collExportSavedText(data) {
   let msg = `Saved playlist to ${data.path}.`;
   const left = Number(data.skipped) || 0;
   const full = Number(data.fullPathCount) || 0;
+  const skips = Number(data.skippedByYou) || 0;
   if (left > 0) msg += ` ${_collExportFiles(left)} left out.`;
+  if (skips > 0) msg += ` ${skips === 1 ? '1 skipped file' : `${skips} skipped files`} left out.`;
   // Usually files on another drive or share, but not only, so no reason given.
   if (full > 0) msg += full === 1 ? ' 1 file uses a full path instead.' : ` ${full} files use a full path instead.`;
   return msg;

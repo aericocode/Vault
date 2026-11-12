@@ -405,7 +405,7 @@ const StageControl = (() => {
   function takeSource(v) {
     const kind = v.cid != null ? (v.tab === 'collections' ? 'collection' : null) : (v.tab === 'library' ? 'library' : null);
     if (!source || !sameView(source, v)) { upPlayed = 0; lastListIndex = -1; }
-    source = { kind, tab: v.tab, cid: v.cid, ids: Library.ids || null, types: Library.types || null };
+    source = { kind, tab: v.tab, cid: v.cid, ids: Library.ids || null, types: Library.types || null, skips: skipsNow(v.cid) };
     if (source.ids) return;
     const s = source;
     Library.waitIds().then((ids) => {
@@ -413,13 +413,20 @@ const StageControl = (() => {
     }).catch(() => {});
   }
 
+  /** The files skipped in this collection now (collection-skips.js), or null. */
+  function skipsNow(cid) {
+    return cid != null && typeof Skips !== 'undefined' ? Skips.setFor(cid) : null;
+  }
+
   /** The list's order as kept, walked the way player-core.js walks Library. */
   function snapshotList(s) {
-    if (sourceList && sourceList.ids === s.ids) return sourceList;
+    if (sourceList && sourceList.ids === s.ids && sourceList.skips === s.skips) return sourceList;
     const ids = s.ids, types = s.types;
     const names = Library.TYPE_NAMES || [];
     sourceList = {
       ids, types,
+      // Its skipped files as they were when the user left it (player-core.js queueSkipSet).
+      cid: s.cid, skips: s.skips || null,
       known: () => true,
       get firstPageIds() { return ids; },
       waitIds: () => Promise.resolve(ids),
@@ -446,6 +453,7 @@ const StageControl = (() => {
     if (sameView(source, v) && libraryIsView(v)) {
       // On it: the grid's own list, kept for when the user looks elsewhere.
       if (Library.ids) { source.ids = Library.ids; source.types = Library.types; }
+      source.skips = skipsNow(source.cid);
       return null;
     }
     return source.ids ? snapshotList(source) : null;
@@ -554,16 +562,19 @@ const StageControl = (() => {
     const ids = L === Library ? Library.ids : L.ids;
     const types = L === Library ? Library.types : L.types;
     const names = Library.TYPE_NAMES || [];
-    const typeAt = types ? (i) => names[types[i]] || '' : (i) => L.typeAt(i);
-    // Counting the list's files is a walk over all of it: once per list, place and Stage.
-    if (!countMemo || countMemo.ids !== ids || countMemo.anchor !== anchor || countMemo.basic !== basic || countMemo.n !== n) {
+    const typeOf = types ? (i) => names[types[i]] || '' : (i) => L.typeAt(i);
+    // Skipped files (collection-skips.js) never play, so they are not counted.
+    const skips = typeof queueSkipSet === 'function' ? queueSkipSet(L) : null;
+    const typeAt = skips ? (i) => (skips.has(ids[i]) ? 'skipped' : typeOf(i)) : typeOf;
+    // Counting the list's files is a walk over all of it: once per list, place, skips and Stage.
+    if (!countMemo || countMemo.ids !== ids || countMemo.anchor !== anchor || countMemo.basic !== basic || countMemo.n !== n || countMemo.skips !== skips) {
       let before = 0, all = 0;
       for (let i = 0; i < n; i++) {
         if (!StageCount.plays(typeAt(i), basic)) continue;
         all++;
         if (i <= anchor) before++;
       }
-      countMemo = { ids, anchor, basic, n, before, all };
+      countMemo = { ids, anchor, basic, n, before, all, skips };
     }
     // The lengths: the rest of the list (up to TIME_CAP) and Up next, from the rows Vault has.
     const rest = [];
@@ -635,9 +646,12 @@ const StageControl = (() => {
       await L.rowsForRange(Math.max(0, anchor + 1), Math.min(length, anchor + 1 + want), { strict: true });
       if (repeat === 'all') await L.rowsForRange(0, Math.min(length, Math.max(0, anchor + 1), want), { strict: true });
     }
+    // Skipped files (collection-skips.js) are never lined up.
+    const skips = typeof queueSkipSet === 'function' ? queueSkipSet(L) : null;
     const okAt = (i) => {
       const type = L.typeAt(i);
       if (type === 'document') return false;
+      if (skips && skips.has(L.idAt(i))) return false;
       const r = L.rowAt(i);
       if (r) return okRow(r);
       // No row: gone from the library (the server said so) is passed over;
@@ -1749,6 +1763,15 @@ const StageControl = (() => {
   window.addEventListener('vault:results-changed', () => {
     // queueList() null: Stage plays the grid itself (not a list kept from another view).
     if (open && cur && !basic && !queueList()) sendUpcoming();
+  });
+  // A file skipped or unskipped (collection-skips.js) in the list Stage plays:
+  // what it lines up next and the bar's count follow.
+  window.addEventListener('vault:skips-changed', (e) => {
+    const cid = e.detail && e.detail.cid;
+    if (source && source.cid === cid) source.skips = skipsNow(cid);
+    if (!stageOn()) return;
+    paint();
+    if (open && cur && !basic) sendUpcoming();
   });
 
   // Keep the loading note and the picture countdown moving even with no reports.

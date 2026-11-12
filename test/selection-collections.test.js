@@ -241,7 +241,8 @@ test('files that leave the open collection any other way (the picker, a read-bac
 
 test('the selection bar offers Remove from this collection only for the ticked files the open collection holds', () => {
   const bar = grab(sel, 'renderSelectionBar');
-  assert.match(bar, /const inCollection = typeof selectedInOpenCollection === 'function' \? selectedInOpenCollection\(\)\.length : 0;/);
+  assert.match(bar, /const inCollIds = typeof selectedInOpenCollection === 'function' \? selectedInOpenCollection\(\) : \[\];/);
+  assert.match(bar, /const inCollection = inCollIds\.length;/);
   assert.match(bar, /inCollection === 0 \? '' :/);
   assert.match(bar, /onclick="removeSelectedFromCollection\(\)"/);
   assert.match(bar, /Remove from this collection/);

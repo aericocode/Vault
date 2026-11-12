@@ -49,6 +49,10 @@ function takeCollectionLength(c, data) {
   c.timed_count = data.timed_count;
   c.total_seconds = data.total_seconds;
   c.unknown_seconds_count = data.unknown_seconds_count;
+  // What the skipped files take off (collection-skips.js); an older server sends none.
+  for (const k of ['skipped_count', 'skipped_timed_count', 'skipped_seconds', 'skipped_unknown_count']) {
+    if (Number.isFinite(data[k])) c[k] = data[k];
+  }
 }
 
 /*
@@ -130,6 +134,8 @@ async function fetchCollectionMembers(id, force = false) {
   const data = await fetch(`/api/collections/${id}`).then(r => r.json());
   const before = id === activeCollectionId && collectionMembers.has(id) ? collectionMembers.get(id).slice() : null;
   collectionMembers.set(id, data.media_ids || []);
+  // Its skipped files (player-lib/collection-skips.js); an older server sends none.
+  if (typeof Skips !== 'undefined' && Array.isArray(data.skipped_ids) && Skips.take(id, data.skipped_ids)) Skips.changed(id);
   // (Guarded: tests run single functions of this file.)
   if (typeof takeCollectionLength === 'function') takeCollectionLength(getCollectionById(id), data);
   // Read again while open (a change made elsewhere): files that left are unticked.
@@ -555,7 +561,10 @@ function collectionCountText(c) {
   // With a time, the count is of the files that time covers (the ones the
   // grid lists: a trashed member stays in the collection but not in either).
   const listed = c.listed_count != null ? c.listed_count : c.item_count;
-  const n = t ? StageCount.listText(listed, t.seconds, t.about) : collFiles(c.item_count);
+  // Skipped files (collection-skips.js): the time is what plays, then what the skips take off.
+  const sk = typeof skipCountParts === 'function' ? skipCountParts(c) : null;
+  let n = t ? StageCount.listText(listed, sk && sk.seconds != null ? sk.seconds : t.seconds, sk && sk.seconds != null ? sk.about : t.about) : collFiles(c.item_count);
+  if (sk) n += `, ${sk.note}`;
   if (c.kind === 'folder') return `${n} · folder`;
   if (typeof Library !== 'undefined' && Library.shuffled) return `${n} · shuffled`;
   const flow = typeof flowCountText === 'function' ? flowCountText() : null;
@@ -574,6 +583,15 @@ function renderCollectionCount() {
   if (!el || !c) return;
   const text = collectionCountText(c);
   if (el.textContent !== text) el.textContent = text;
+  // The skips: what they take off, in words on hover, and Unskip all beside it.
+  const sk = typeof skipCountParts === 'function' ? skipCountParts(c) : null;
+  const title = sk ? sk.title : '';
+  if (el.title !== title) el.title = title;
+  const btn = document.getElementById('collSkips');
+  if (btn) {
+    const html = typeof skipHeaderHtml === 'function' ? skipHeaderHtml(c) : '';
+    if (btn._html !== html) { btn._html = html; btn.innerHTML = html; btn.hidden = !html; }
+  }
 }
 
 /** Header strip shown while a collection/folder is open (in #collectionsBar). */
@@ -596,6 +614,7 @@ function renderCollectionHeader() {
         <span class="coll-head-title">${isFolder ? `<span class="coll-head-folder">${ICON.folder}</span>` : ''}${escapeHtml(c.name)}</span>
         <button class="field-edit-btn" onclick="editCollectionName(${c.id})" title="Rename" aria-label="Rename">${collGlyph('✎', 'edit')}</button>
         <span class="coll-count" id="collHeadCount">${collectionCountText(c)}</span>
+        <span class="coll-skips" id="collSkips" hidden></span>
       </div>
       <div class="coll-head-desc" id="collHeadDesc" onclick="editCollectionDesc(${c.id})" title="Click to edit description">
         ${c.description ? escapeHtml(c.description) : '<span class="field-empty">Add a description…</span>'}
@@ -610,6 +629,8 @@ function renderCollectionHeader() {
       <button class="coll-action coll-delete" id="collDeleteBtn" onclick="deleteCollectionTwoStep(${c.id}, this)">Delete</button>
     </div>
   `;
+  // The count line's hover words and Unskip all (collection-skips.js).
+  if (typeof renderCollectionCount === 'function') renderCollectionCount();
 }
 
 /** Classic's glyph, Modern's line icon (player-lib/icons.js). */
@@ -741,7 +762,16 @@ async function playCollection(id, shuffle) {
     // goes back to playlist order first, so the grid shows what will play.
     await switchToPlaylistOrder();
   }
-  const [first] = await Library.rowsForRange(0, 1);
+  // The first file that is not skipped (collection-skips.js): Skip only
+  // changes what plays by itself, and Play all is that.
+  let at = 0;
+  const skips = typeof Skips !== 'undefined' && getCollectionById(id)?.kind !== 'folder' ? Skips.setFor(id) : null;
+  if (skips && skips.size) {
+    const ids = await Library.waitIds();
+    at = ids ? Array.prototype.findIndex.call(ids, m => !skips.has(m)) : 0;
+    if (at < 0) { showToast('Every file here is skipped. Unskip some to play them.'); return; }
+  }
+  const [first] = await Library.rowsForRange(at, at + 1);
   if (!first) return;
   playMedia({ filepath: first.filepath, filename: first.filename, media_type: first.media_type });
 }
