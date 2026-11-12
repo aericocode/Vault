@@ -322,7 +322,7 @@ test('the panel\'s first row: no order switch, no Make this the playlist order; 
   await click(btn);
   const cbtn = { dataset: {}, closest: (q) => (q === '[data-flow-custom]' ? cbtn : null) };
   await click(cbtn);
-  assert.deepStrictEqual(posts.at(-1), { order: [11, 12, 13, 14, 15], flow: null });
+  assert.deepStrictEqual(posts.at(-1), { order: [11, 12, 13, 14, 15] }, 'Custom writes no flow: what is kept stays');
   assert.match(firstRow(), /data-flow-custom aria-pressed="true"/);
   assert.match(undos.at(-1).m, /Back to your custom order/);
   // Custom while it is lit: nothing.
