@@ -33,7 +33,7 @@ const geometry = require('../lib/stage/geometry');
 const { createHub, ROLES } = require('../lib/stage/hub');
 const { createEngine } = require('../lib/stage/engine');
 const { createMpvHost, volumeGainSupported } = require('../lib/stage/mpv-host');
-const { buildArgs, displayPlan, windowPlan } = require('../lib/stage/mpv-args');
+const { buildArgs, displayPlan, windowPlan, windowSystemOf, actualKind, linuxFrame } = require('../lib/stage/mpv-args');
 const { createWindowFit } = require('../lib/stage/window-fit');
 const x11Hints = require('../lib/stage/x11-hints');
 const mpvFind = require('../lib/stage/mpv-find');
@@ -52,7 +52,7 @@ const { createSetLog } = require('../lib/stage/setlog');
  * @param {(settings: object) => void} [opts.onSettingsSaved]  after Settings › Stage saves (Flow's "Measure for Flow")
  * @param {object} [opts.setlog]  the set log (lib/stage/setlog.js); made from lib.db when not given
  */
-function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = process.env, hostFactory = createMpvHost, find: findReal = mpvFind.findMpv, platform = process.platform, setlog: givenLog = null, borderOnly = x11Hints.setBorderOnly, fitTiming = {} } = {}) {
+function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = process.env, hostFactory = createMpvHost, find: findReal = mpvFind.findMpv, platform = process.platform, setlog: givenLog = null, borderOnly = x11Hints.setBorderOnly, fitTiming = {}, checkWindowMs = 3000 } = {}) {
   const router = express.Router();
   // What Stage played (Log on the Stage bar, Settings › Stage). Kept in Vault's database.
   const setlog = givenLog || (typeof lib.db === 'function'
@@ -89,7 +89,8 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
   // Linux and other X11/Wayland systems: frame, shape and wheel handled here
   // (windowPlan, window-fit.js). Windows and macOS: as they always were.
   const framable = platform !== 'win32' && platform !== 'darwin';
-  let kind = null;           // the window mpv made (windowPlan first or fallback)
+  let kind = null;           // the window mpv made (windowPlan first or fallback, as mpv says it is)
+  let launchPlan = null;     // windowPlan of the open Stage
   let fit = null;            // window-fit.js for that window
 
   const alive = () => !!host && host.alive();
@@ -199,6 +200,36 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     if (t.unref) t.unref();
   }
 
+  /**
+   * Linux: is mpv's window the kind Vault asked for? mpv may make the other
+   * one (no Wayland drawing here, so its X11 output through XWayland, or the
+   * other way round) and still run, so it is asked once its window is up
+   * (mpv-args.js windowSystemOf). The other kind: its frame put right (an
+   * XWayland window at Free size gets the desktop's frame, so it can be
+   * sized; mpv's own Wayland window loses it, so mpv's edges work).
+   */
+  async function checkWindowSystem(h) {
+    const ask = (name) => h.get(name).then((v) => v, () => null);
+    let vo = null;
+    for (let waited = 0; waited <= checkWindowMs; waited += 100) {
+      if (host !== h) return;
+      vo = await ask('current-vo');
+      if (vo) break;
+      await new Promise((res) => { const t = setTimeout(res, 100); if (t.unref) t.unref(); });
+    }
+    if (host !== h || !vo) return;
+    const [context, windowId] = await Promise.all([ask('current-gpu-context'), ask('window-id')]);
+    if (host !== h) return;
+    const was = kind;
+    const now = actualKind(launchPlan, was, windowSystemOf({ vo, context, windowId }));
+    if (!now || now === was) return;
+    kind = now;
+    console.warn('[Stage] mpv opened ' + (now.wayland ? 'its own Wayland window' : 'an X11 window') + ' (' + [vo, context].filter(Boolean).join(', ') + '), not the kind asked for; the frame follows the window it got.');
+    if (sizeMode !== 'free') return;
+    if (now.frameAtFree !== (was.frameAtFree === true)) await host.set('border', now.frameAtFree).catch(() => {});
+    if (now.borderOnly) borderOnlySoon();
+  }
+
   /** Bring Stage above other windows (without taking the focus from Vault). */
   function front() {
     if (!alive()) return;
@@ -230,6 +261,24 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     log: setlog,
   });
 
+  /**
+   * How Stage's window meets the desktop, for Settings › Stage: the window
+   * that is open, or the one that would open at the size Stage opens at.
+   * placement: Vault can place it and bring it to the front (false for mpv's
+   * own Wayland window); freeOwnWindow: Free size uses mpv's own Wayland
+   * window whatever the XWayland setting says (VAULT_STAGE_LINUX_FRAME
+   * wayland, the default); frame: that variable's value.
+   */
+  function shownDisplay() {
+    const s = readSettings();
+    const d = displayPlan({ platform, env, xwayland: s.xwayland });
+    if (!framable) return d;
+    const size = alive() ? sizeMode : (stageSettings.SIZE_PRESETS[s.openSize] ? s.openSize : 'free');
+    const k = alive() && kind ? kind : windowPlan({ platform, env, xwayland: s.xwayland, size, quiet }).first;
+    const atFree = windowPlan({ platform, env, xwayland: s.xwayland, size: 'free', quiet }).first;
+    return { ...d, x11: !!k.x11, placement: !k.wayland, freeOwnWindow: d.x11 && atFree.wayland, frame: linuxFrame(env) };
+  }
+
   async function status() {
     const chosen = readChosen();
     const f = await find({ chosen });
@@ -243,7 +292,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
       // Linux: an mpv in a sandbox Vault cannot use (Flatpak, Snap), and how the window meets the desktop.
       sandboxed: f.sandboxed || null,
       platform,
-      display: displayPlan({ platform, env, xwayland: readSettings().xwayland }),
+      display: shownDisplay(),
       // Off Windows there is always a way: the desktop's dialog, or Vault's own folder browser.
       canChoose: typeof pickMpv === 'function' && (platform !== 'win32' || env.VAULT_DISABLE_NATIVE_PICKER !== '1'),
       // Which Stage opens: mpv, or Basic (picture-in-picture in the Vault page).
@@ -295,6 +344,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
           if (fit) fit.stop();
           fit = null;
           kind = null;
+          launchPlan = null;
         }
         hub.stageExited({ byUser: asked });
       },
@@ -320,7 +370,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     const argsFor = (k) => (ipcPath) => buildArgs({
       ipcPath, title: s.windowName, bounds, maximized: w.max === true && !preset,
       cursorSeconds: s.cursorSeconds, volume: session.volume, muted: session.muted, forceMute, quiet,
-      hwdec: s.hwDecoding !== false, mpvVersion: found.version, mpvOptions: found.options, x11: k.x11,
+      hwdec: s.hwDecoding !== false, mpvVersion: found.version, mpvOptions: found.options, x11: k.x11, wayland: k.wayland,
       framed: sizeMode === 'free' && k.frameAtFree, keepAspect: plan.keepAspect,
     });
     const out = await h.start(found.path, argsFor(plan.first), { mpvVersion: found.version, fallbackArgsFor: plan.fallback ? argsFor(plan.fallback) : null });
@@ -330,9 +380,11 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
       return { status: 500, body: { error: 'Stage could not open: mpv did not start.', code: 'MPV_FAILED' } };
     }
     if (fit && host === h) {
+      launchPlan = plan;
       kind = out.fellBack && plan.fallback ? plan.fallback : plan.first;
       fit.setEnabled(sizeMode === 'free' && !quiet);
       if (sizeMode === 'free' && kind.borderOnly) borderOnlySoon();
+      if (!quiet) checkWindowSystem(h).catch(() => {});
     }
     engine.started(session);
     hub.opened('mpv');

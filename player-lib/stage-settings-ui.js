@@ -103,7 +103,9 @@ function _stageMpvButtons() {
         </span>`;
 }
 
-const STAGE_XWAYLAND_DESC = 'On a Wayland desktop (GNOME, KDE Plasma and most others), Stage opens through XWayland so it can open where you left it and come to the front. Turn this off if the Stage window does not show up. Takes effect the next time Stage opens.';
+const STAGE_XWAYLAND_DESC = 'On a Wayland desktop (GNOME, KDE Plasma and most others), Stage opens through XWayland, so Vault can place it and bring it to the front. Turn this off if the Stage window does not show up. Takes effect the next time Stage opens.';
+// The default on such a desktop: Free size uses mpv's own Wayland window whatever this switch says (mpv-args.js windowPlan).
+const STAGE_XWAYLAND_DESC_FREE = 'On a Wayland desktop (GNOME, KDE Plasma and most others), Stage at a fixed size (720p, 1080p, 1440p) opens through XWayland, so Vault can place it and bring it to the front. At Free size Stage uses its own window instead: it has no title bar and you resize it by dragging its edges, but it may not open where you left it or come to the front. Turn this off if the Stage window does not show up at a fixed size. Takes effect the next time Stage opens.';
 
 /** Use XWayland for the Stage window: only on a Wayland desktop that has XWayland. */
 function _stageXwaylandRowHtml() {
@@ -112,7 +114,7 @@ function _stageXwaylandRowHtml() {
   const fixed = d.forced ? ' Set by VAULT_STAGE_XWAYLAND for now.' : '';
   return settingsRowHtml({
     tag: 'label', sfind: 'stageXwayland', title: 'Use XWayland for the Stage window',
-    desc: STAGE_XWAYLAND_DESC + fixed,
+    desc: (d.freeOwnWindow ? STAGE_XWAYLAND_DESC_FREE : STAGE_XWAYLAND_DESC) + fixed,
     control: `<input type="checkbox" data-stage-xw ${_stageSettings.xwayland !== false ? 'checked' : ''}${d.forced ? ' disabled' : ''}>
         <span class="settings-switch" aria-hidden="true"></span>`,
   });

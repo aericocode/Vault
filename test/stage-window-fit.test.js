@@ -9,7 +9,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { createWindowFit, fitSize, fitsAspect, stepSize, videoAspect, MIN_SIDE, ANSWER_MS } = require('../lib/stage/window-fit');
+const { createWindowFit, fitSize, fitsAspect, stepSize, videoAspect, MIN_SIDE, AWAIT_MAX_MS, BUDGET } = require('../lib/stage/window-fit');
 
 const A169 = 16 / 9;
 const A43 = 4 / 3;
@@ -115,14 +115,14 @@ test('stepSize: one wheel notch about 10% bigger or smaller, in the video shape 
 /* ── The watcher ────────────────────────────────────────────────────────── */
 
 /** A watcher on fake timers and a fake clock; `sets` collects the geometry it asks for. */
-function rig({ screen = null } = {}) {
+function rig({ screen = null, onSet = null } = {}) {
   let clock = 1_000_000;
   const timers = new Map();
   let nextId = 1;
   const sets = [];
   const settled = [];
   const fit = createWindowFit({
-    setGeometry: (s) => sets.push(`${s.w}x${s.h}`),
+    setGeometry: (s) => { sets.push(`${s.w}x${s.h}`); if (onSet) onSet(s, clock); },
     getScreen: async () => screen,
     onSettled: (s) => settled.push(`${s.w}x${s.h}`),
     now: () => clock,
@@ -140,7 +140,7 @@ function rig({ screen = null } = {}) {
   }
   const size = (w, h) => { fit.onProperty('osd-width', w); fit.onProperty('osd-height', h); };
   const video = (dw, dh, rotate = 0) => fit.onProperty('video-out-params', { dw, dh, rotate });
-  return { fit, sets, settled, advance, size, video, pending: () => timers.size };
+  return { fit, sets, settled, advance, size, video, pending: () => timers.size, now: () => clock };
 }
 
 test('watcher: off until Free size is on; then the first video sets the shape', async () => {
@@ -244,7 +244,7 @@ test('watcher: a desktop that rounds by a pixel, even late, never starts another
   // Answers one pixel off, after the answer window (so they look like the user's own changes).
   for (const [dw, dh] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
     r.size(w + dw, h + dh);
-    await r.advance(ANSWER_MS + 1000);
+    await r.advance(2500);
     // Anything set now is only the window's own size (mpv geometry kept in step): nothing moves on screen.
     for (const s of r.sets.slice(1)) assert.ok(['-1', '0', '1'].includes(String(Number(s.split('x')[0]) - w)), s);
     assert.strictEqual(r.sets[r.sets.length - 1] === r.sets[0] || r.sets[r.sets.length - 1] === `${w + dw}x${h + dh}`, true, r.sets.join(' '));
@@ -361,4 +361,102 @@ test('watcher: stop() ends it: no timers left, nothing more asked', async () => 
   await r.advance(5000);
   assert.deepStrictEqual(r.sets, []);
   assert.strictEqual(r.pending(), 0);
+});
+
+/* ── Slow and stubborn desktops (verifier scenario) ─────────────────────── */
+
+/**
+ * A desktop that answers every geometry request late and with a steady
+ * offset. 120 s of simulated time in 100 ms steps, after one drag by the user.
+ */
+async function slowDesktop({ delayMs, offset }) {
+  const due = [];
+  const r = rig({ screen: { w: 2560, h: 1440 }, onSet: (s, at) => due.push({ at: at + delayMs, w: s.w + offset, h: s.h }) });
+  r.fit.setEnabled(true);
+  r.video(1920, 1080);
+  r.size(1280, 720);
+  await r.advance(1000);
+  r.size(1333, 720);                         // the user drags the right edge a little
+  for (let t = 0; t < 120000; t += 100) {
+    await r.advance(100);
+    while (due.length && due[0].at <= r.now()) { const a = due.shift(); r.size(a.w, a.h); }
+  }
+  // Vault's requests after the user's drag (the first set is only the starting size kept in step).
+  const widths = r.sets.slice(1).map((x) => Number(x.split('x')[0]));
+  return { r, widths };
+}
+
+for (const delayMs of [1100, 1500, 3000]) {
+  test(`watcher: a desktop answering in ${delayMs} ms with a steady +7 px: a bounded number of requests, no creep`, async () => {
+    const { r, widths } = await slowDesktop({ delayMs, offset: 7 });
+    assert.ok(r.sets.length <= 3, r.sets.join(' '));
+    assert.ok(Math.max(...widths) - Math.min(...widths) <= 20, r.sets.join(' '));
+    assert.ok(Math.max(...widths) < 1400, r.sets.join(' '));
+  });
+}
+
+test('watcher: a desktop that always adds 30 px (more than the slack): the budget stops it', async () => {
+  for (const delayMs of [300, 1100, 3000]) {
+    const { r, widths } = await slowDesktop({ delayMs, offset: 30 });
+    assert.ok(r.sets.length <= BUDGET + 2, `${delayMs}: ${r.sets.join(' ')}`);
+    assert.ok(Math.max(...widths) < 1333 + 30 * (BUDGET + 2), `${delayMs}: ${r.sets.join(' ')}`);
+  }
+});
+
+test('watcher: a request the desktop never answers is given up after a while, so a later drag is fitted', async () => {
+  const r = rig();
+  r.fit.setEnabled(true);
+  r.video(1920, 1080);
+  r.size(1280, 720);
+  await r.advance(1000);
+  r.size(1600, 720);
+  await r.advance(1000);
+  assert.deepStrictEqual(r.sets, ['1280x720', '1600x900']);
+  await r.advance(AWAIT_MAX_MS + 1000);      // no answer at all
+  r.size(1000, 900);                         // a later drag
+  await r.advance(1000);
+  assert.deepStrictEqual(r.sets.slice(-1), ['1000x563']);
+});
+
+/* ── Odd input ──────────────────────────────────────────────────────────── */
+
+test('fitSize: a tiny or broken display size is ignored, never a non-finite size', () => {
+  for (const screen of [{ w: 1, h: 1 }, { w: 0.5, h: 1080 }, { w: 1920, h: 0 }, { w: NaN, h: 1080 }, { w: Infinity, h: Infinity }, { w: 100, h: 100 }, 'x', null]) {
+    for (const aspect of [A169, A916, 1, 1e-6, 1e6]) {
+      const t = fitSize({ win: { w: 1000, h: 700 }, aspect, prev: { w: 900, h: 700 }, screen });
+      if (t === null) continue;
+      assert.ok(Number.isFinite(t.w) && Number.isFinite(t.h) && Number.isInteger(t.w) && Number.isInteger(t.h), JSON.stringify({ screen, aspect, t }));
+    }
+  }
+  assert.deepStrictEqual(fitSize({ win: { w: 1000, h: 700 }, aspect: A169, prev: { w: 900, h: 700 }, screen: { w: 1, h: 1 } }), { w: 1000, h: 563 });
+});
+
+test('watcher: never sends a non-finite geometry', async () => {
+  const r = rig({ screen: { w: 0.3, h: NaN } });
+  r.fit.setEnabled(true);
+  r.video(1920, 1080);
+  r.size(1000, 700);
+  await r.advance(1000);
+  await r.fit.step(1);
+  for (const s of r.sets) assert.match(s, /^\d+x\d+$/);
+});
+
+test('stepSize: wheel down at the smallest size, or up at the screen size, does nothing', () => {
+  // A short side under about 176 px: one notch down goes to the smallest size, never back up.
+  assert.deepStrictEqual(stepSize({ win: { w: 302, h: 170 }, aspect: A169, dir: -1 }), { w: 284, h: 160 });
+  assert.strictEqual(stepSize({ win: { w: 284, h: 160 }, aspect: A169, dir: -1 }), null);
+  const screen = { w: 1920, h: 1080 };
+  assert.strictEqual(stepSize({ win: { w: 1824, h: 1026 }, aspect: A169, dir: 1, screen }), null);
+  assert.ok(stepSize({ win: { w: 1280, h: 720 }, aspect: A169, dir: -1 }).w < 1280);
+});
+
+test('watcher: wheel down at the smallest size sends nothing', async () => {
+  const r = rig();
+  r.fit.setEnabled(true);
+  r.video(1920, 1080);
+  r.size(284, 160);
+  await r.advance(1000);
+  const n = r.sets.length;
+  await r.fit.step(-1);
+  assert.strictEqual(r.sets.length, n);
 });
