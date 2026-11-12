@@ -91,6 +91,11 @@ function setFocusIds(ids, label, opts) {
     if (typeof showToast === 'function') showToast('There are no files to show.');
     return;
   }
+  // The focus shows in the Library tab: go there first, so the search text it
+  // clears (and puts back when it ends) is the Library's own (searchScope below).
+  if (typeof switchTab === 'function' && typeof currentTab !== 'undefined' && currentTab !== 'library') {
+    switchTab('library');
+  }
   const search = document.getElementById('searchInput');
   // Re-setting the same opts (a new match width) keeps the search text saved
   // when the focus began; anything else ends the focus that was showing.
@@ -106,9 +111,6 @@ function setFocusIds(ids, label, opts) {
   if (search) search.value = '';
   renderFocusBar();
   applyFilters();
-  if (typeof switchTab === 'function' && typeof currentTab !== 'undefined' && currentTab !== 'library') {
-    switchTab('library');
-  }
 }
 
 function clearFocusIds() {
@@ -142,6 +144,60 @@ function renderFocusBar() {
 
 // Handed to the settings modal, which has no other way to reach the grid.
 window.vaultShowMediaIds = setFocusIds;
+
+// ── Each view keeps its own search text ───────────────────────────────────
+//
+// The Library, the Collections tab's cards and each open collection have
+// their own words in the search box: search the Library for a file, add it
+// to a collection, open the collection to put it in order (its box starts
+// empty, so the whole collection shows), and back in the Library the search
+// is still there. Only the text is per view. The filters, the search options
+// (Fuzzy, Metadata only...) and saved searches stay shared, as before.
+// The Faces tab shares the Library's text (a person's page ignores it).
+//
+// Kept in memory only: the Library's text is what is remembered for the
+// next launch (persistSearchState), exactly as before; a collection's is
+// forgotten on reload, so nothing new is written to the browser's storage.
+
+const SearchScopes = { key: 'library', texts: new Map() };
+
+/** Which view's search the box holds: 'library', 'collections' (the cards) or 'c:<id>' (an open collection). */
+function searchScopeKey(tab, collectionId) {
+  if (collectionId != null) return `c:${collectionId}`;
+  if (tab === 'collections') return 'collections';
+  return 'library';
+}
+
+/**
+ * Move the box to another view. Keeps `boxText` as the view being left's
+ * text and returns the text the box shows for `nextKey` ('' for a view
+ * never searched), or null when the view did not change.
+ */
+function searchScopeSwitch(store, nextKey, boxText) {
+  if (store.key === nextKey) return null;
+  if (boxText) store.texts.set(store.key, boxText);
+  else store.texts.delete(store.key);
+  store.key = nextKey;
+  return store.texts.get(nextKey) || '';
+}
+
+/** The Library's own text, wherever the box is now. */
+function searchScopeLibraryText(store, boxText) {
+  return store.key === 'library' ? boxText : (store.texts.get('library') || '');
+}
+
+/** Put the right view's text in the box (called before every search runs). */
+function syncSearchScope() {
+  const input = document.getElementById('searchInput');
+  if (!input) return;
+  const key = searchScopeKey(typeof currentTab !== 'undefined' ? currentTab : 'library',
+    typeof activeCollectionId !== 'undefined' ? activeCollectionId : null);
+  const text = searchScopeSwitch(SearchScopes, key, input.value);
+  if (text == null || input.value === text) return;
+  input.value = text;
+  if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
+  if (typeof updateSearchStarButton === 'function') updateSearchStarButton();
+}
 
 // Extensions that browsers can natively play/render (no plugin needed)
 const BROWSER_PLAYABLE_EXTENSIONS = new Set([
@@ -695,6 +751,8 @@ function applyFilters(opts) {
   // Event, not an options object) still resets to page 1 as before.
   const keepPage = !!(opts && opts.keepPage === true);
   const seq = ++_applySeq;
+  // A tab or collection change brings that view's own search text.
+  syncSearchScope();
   // Search bar locked for the first-launch index build: text set meanwhile
   // (a saved search clicked) waits in the hold instead of searching.
   if (_searchLock) _holdLockedSearchText(document.getElementById('searchInput'));
@@ -897,6 +955,8 @@ function persistSearchState() {
   if (typeof captureCurrentFilterState !== 'function') return;
   try {
     const state = captureCurrentFilterState();
+    // The Library's search is the one remembered, even with a collection open.
+    state.searchText = searchScopeLibraryText(SearchScopes, state.searchText);
     // Closing during the index build must not forget the held search
     if (_searchLock && _searchLock.text && !state.searchText) state.searchText = _searchLock.text;
     localStorage.setItem(LS_SEARCH_STATE, JSON.stringify(state));
