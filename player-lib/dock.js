@@ -300,6 +300,10 @@ function dockStageButtonHtml(m) {
 
 function dockPlayOnStage(id) {
   if (id == null || typeof StageControl === 'undefined') return;
+  // A double click is one press.
+  const now = Date.now();
+  if (now - (dockPlayOnStage.at || 0) < 700) return;
+  dockPlayOnStage.at = now;
   // Opens Stage (or Basic Stage), then plays the pick there: playMedia goes
   // to Stage once it is open (StageControl.intercept).
   StageControl.openStage({ then: () => dockPlayPick(id) });

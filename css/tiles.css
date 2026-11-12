@@ -88,6 +88,9 @@ body:has(#miniPlayer.active) .media-tile.tile-now-playing {
   outline: 3px solid var(--now-playing);
   outline-offset: 1px;
 }
+/* Flow already marks this tile "Playing" in the same spot (css/flow.css
+   .flow-mk-now): the green ring stays, one label is enough. */
+body:has(#miniPlayer.active) .media-tile.tile-now-playing.flow-mk-playing .tile-thumb::before { display: none; }
 body:has(#miniPlayer.active) .media-tile.tile-now-playing .tile-thumb::before {
   content: 'Now playing';
   position: absolute;
