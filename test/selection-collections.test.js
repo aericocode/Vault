@@ -184,7 +184,7 @@ function collectionsVm({ failDelete = false } = {}) {
   ctx.getCollectionById = (id) => ctx.collectionsList.find(c => c.id === id);
   vm.createContext(ctx);
   const names = ['takeCollectionAnswer', 'takeCollectionLength', 'fetchCollectionMembers', 'changeCollectionMembership', '_openMembersNow', '_untickLeftOpenCollection', '_retick',
-    '_selectionRedraw', 'openPlainCollection', 'selectedInOpenCollection', 'removeSelectedFromCollection', 'undoRemoveFromCollection'];
+    '_selectionRedraw', 'openPlainCollection', 'selectedInOpenCollection', 'removeSelectedFromCollection', 'undoRemoveFromCollection', '_undoRemoveNow'];
   vm.runInContext(names.map(n => grab(coll, n)).join('\n') + `\nglobalThis.__c = { ${names.join(', ')} };`, ctx);
   return { ctx, c: ctx.__c, server, requests, toasts, undos, refreshed: () => refreshed };
 }
@@ -235,7 +235,7 @@ test('Remove\'s Undo sends what Flow kept as a check; refused (another window ch
   await v.c.removeSelectedFromCollection();
   // The fitting Undo: the order with the check.
   await v.undos[0].fn();
-  assert.deepStrictEqual(sent.at(-1), { order: [1, 2, 3, 4, 5], flow: { restore: row, rev: 9 } });
+  assert.deepStrictEqual(sent.at(-1), { order: [1, 2, 3, 4, 5], seen: [1, 3, 4, 5, 2], flow: { restore: row, rev: 9 } }, 'with the order the page showed: the files back at the end');
   assert.deepStrictEqual(v.server.get(5), [1, 2, 3, 4, 5]);
   // Again, and this time another window changed the row.
   v.ctx.selectedIds = new Set([2]);

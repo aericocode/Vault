@@ -116,7 +116,7 @@ test('a move is a hand order (flow manual: over a shape, edited) and Flow hears 
   vm.runInContext(['flowGuardOf', 'flowKeepOf', 'flowUndoOf'].map(n => new RegExp(`function ${n}[\\s\\S]*?\\n}\\r?\\n`).exec(fsrc)[0]).join('\n'), p.ctx);
   const peakRow = fake.state(p.server.slice());
   assert.strictEqual(await p.ctx.reorderMove([2], 3), true);
-  assert.deepStrictEqual(bodies[0], { move: [2], before: 3, flow: { manual: true } });
+  assert.deepStrictEqual(bodies[0], { move: [2], before: 3, flow: { manual: true }, seen: [3, 1, 4, 2] });
   assert.deepStrictEqual(heard.at(-1), [5, 'edited'], 'a shape changed by hand: nothing lit');
   await p.undos[0]();
   assert.deepStrictEqual(bodies[1].order, [3, 1, 4, 2]);
@@ -131,7 +131,7 @@ test('a move is a hand order (flow manual: over a shape, edited) and Flow hears 
   q.ctx.fetch = async (url, o) => { const b = JSON.parse(o.body); sent.push(b); const r = f2.post(q.server.slice(), b); q.server.splice(0, 4, ...r.order); return json({ ...r, item_count: 4 }); };
   await q.ctx.reorderMove([1], null);
   await q.undos[0]();
-  assert.deepStrictEqual(sent[1], { order: [1, 2, 3, 4], flow: { restore: null, rev: null } });
+  assert.deepStrictEqual(sent[1], { order: [1, 2, 3, 4], seen: [2, 3, 4, 1], flow: { restore: null, rev: null } });
 });
 
 test('a move\'s Undo after another window changed what Flow keeps: refused (409), a plain toast, nothing installed, the collection read again', async () => {
@@ -233,7 +233,7 @@ test('taking files out of a collection, and Undo, tell Flow once the server has 
   vm.createContext(ctx);
   const coll = read('player-lib/collections.js');
   const names = ['takeCollectionAnswer', 'takeCollectionLength', 'fetchCollectionMembers', 'changeCollectionMembership', '_openMembersNow', '_untickLeftOpenCollection', '_retick',
-    '_selectionRedraw', 'openPlainCollection', 'selectedInOpenCollection', 'removeSelectedFromCollection', 'undoRemoveFromCollection'];
+    '_selectionRedraw', 'openPlainCollection', 'selectedInOpenCollection', 'removeSelectedFromCollection', 'undoRemoveFromCollection', '_undoRemoveNow'];
   vm.runInContext(names.map(n => grab(coll, n)).join('\n') + `\nglobalThis.__c = { ${names.join(', ')} };`, ctx);
   await ctx.__c.removeSelectedFromCollection();
   assert.deepStrictEqual(flow, ['5:1,3,4,5'], 'after the server took it out');

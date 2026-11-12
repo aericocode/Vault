@@ -20,9 +20,16 @@ function flowCustomFake(collectionId) {
   d.prepare('INSERT INTO collections (id) VALUES (?)').run(collectionId);
   custom.ensureSchema(d);
   return {
-    /** The order route on a playlist `before`: throws { code: 'BAD' } for a bad flow, as the route answers 400. */
+    /**
+     * The order route on a playlist `before`: throws { code: 'BAD' } for a
+     * bad flow (the route answers 400), { code: 'STALE' } when seen is not
+     * `before` or an Undo's rev no longer fits (the route answers 409).
+     */
     post(before, body) {
       const flow = body && body.flow !== undefined ? custom.cleanFlow(body.flow) : undefined;
+      if (body && Array.isArray(body.seen) && (body.seen.length !== before.length || body.seen.some((id, i) => id !== before[i]))) {
+        throw Object.assign(new Error('This playlist was changed in another window.'), { code: 'STALE' });
+      }
       return d.transaction(() => {
         const order = collectionOrder.planReorder(before, custom.planBody(d, collectionId, before, body, flow));
         const r = custom.afterWrite(d, collectionId, before, order, flow);

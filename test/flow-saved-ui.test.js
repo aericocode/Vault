@@ -93,9 +93,14 @@ function page(srv) {
       }
       if (/\/api\/collections\/3\/order$/.test(url)) {
         srv.orders.push(body);
+        // As the server: seen is checked first (lib/database.js reorderCollectionFull).
+        if (Array.isArray(body.seen) && (body.seen.length !== srv.members.length || body.seen.some((id, i) => id !== srv.members[i]))) {
+          return fail(409, { error: 'This playlist was changed in another window.', code: 'STALE' });
+        }
         const same = !body.order || (body.order.length === srv.members.length && body.order.every(id => srv.members.includes(id)));
         if (!same) return fail(400, { error: 'order must list every file in the collection exactly once', code: 'BAD_ORDER' });
-        const r = srv.custom.post(srv.members.slice(), body);
+        let r;
+        try { r = srv.custom.post(srv.members.slice(), body); } catch (err) { return fail(err.code === 'STALE' ? 409 : 400, { error: err.message, code: err.code }); }
         srv.members = r.order.slice();
         const out = { ...r, item_count: srv.members.length };
         if (body.skips) {
@@ -179,7 +184,7 @@ test('clicking a chip loads it into the playlist order (order and skips, one req
   p.S.take(CID, [6]); srv.skips = [6];
   assert.strictEqual(lit(p), null);
   assert.strictEqual(await p.Flow.saved.use(srv.saved[0].id), true);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [8, 7, 6, 5, 4, 3, 2, 1], skips: [1, 2], flow: { manual: true } });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [8, 7, 6, 5, 4, 3, 2, 1], skips: [1, 2], flow: { manual: true }, seen: [1, 2, 3, 4, 5, 6, 7, 8] });
   assert.strictEqual(srv.orders.length, 1, 'one request');
   assert.deepStrictEqual(srv.members, [8, 7, 6, 5, 4, 3, 2, 1]);
   assert.deepStrictEqual(p.ctx.collectionMembers.get(CID), [8, 7, 6, 5, 4, 3, 2, 1]);
@@ -192,7 +197,7 @@ test('clicking a chip loads it into the playlist order (order and skips, one req
   assert.strictEqual(srv.orders.length, 1);
   // Undo: the order and the skips from before.
   await p.undos.at(-1).fn();
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [1, 2, 3, 4, 5, 6, 7, 8], skips: [6], flow: { restore: null, rev: null } }, 'with the check that nothing is kept still');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [1, 2, 3, 4, 5, 6, 7, 8], skips: [6], flow: { restore: null, rev: null }, seen: [8, 7, 6, 5, 4, 3, 2, 1] }, 'with the check that nothing is kept still, and the order the page showed');
   assert.deepStrictEqual([...p.S.setFor(CID)], [6]);
   assert.strictEqual(lit(p), null);
   assert.strictEqual(p.toasts.at(-1), 'Playlist order put back');
@@ -208,14 +213,14 @@ test('a saved order from before (a shape, no skips of its own) loads its stored 
   await p.ctx.applyFilters();
   assert.match(p.Flow.saved.html(), /Old<\/span><span class="flow-chip-shape">Waves 3</);
   await p.Flow.saved.use(50);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [2, 1, 3, 4, 5, 6, 7, 9], flow: { manual: true } }, 'gone file dropped, new one at the end, no skips sent, by hand');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [2, 1, 3, 4, 5, 6, 7, 9], flow: { manual: true }, seen: [1, 2, 3, 4, 5, 6, 7, 9] }, 'gone file dropped, new one at the end, no skips sent, by hand');
   assert.deepStrictEqual(srv.members, [2, 1, 3, 4, 5, 6, 7, 9]);
   assert.deepStrictEqual([...p.S.setFor(CID)], [5], "the playlist's skips stay");
   assert.strictEqual(lit(p), 50);
   const st = p.Flow._state();
   assert.deepStrictEqual([st.shape, st.places], ['smooth', null], 'loading takes no shape or switch from it');
   await p.undos.at(-1).fn();
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [1, 2, 3, 4, 5, 6, 7, 9], flow: { restore: null, rev: null } });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [1, 2, 3, 4, 5, 6, 7, 9], flow: { restore: null, rev: null }, seen: [2, 1, 3, 4, 5, 6, 7, 9] });
 });
 
 test('saving while the playlist is still a shape records the shape; a chip shows it', async () => {
@@ -294,18 +299,23 @@ test('Save this order and Update keep the order on screen: a sort or a shuffle a
   assert.deepStrictEqual(srv.posts.at(-1).order, [1, 2, 3, 4, 5, 6, 7, 8]);
 });
 
-test('a chip clicked while files came and went: a 400 is asked again with the files there are now', async () => {
+test('a chip clicked while the page is behind another window: refused (409), nothing written, plain words, the page reads it again; clicked again it loads', async () => {
   const srv = server([1, 2, 3, 4]);
   srv.saved.push({ id: 9, collectionId: CID, name: 'Mix', shape: 'playlist', waves: 2, places: false, order: [4, 3, 2, 1], skips: [1], createdAt: 1, updatedAt: 1 });
   const p = page(srv);
   await p.Flow.toggle(CID);
-  // The page still thinks 1..4; the server has 1..5 by now (another window added 5).
+  // The page still shows 1..4; the server has 1..5 by now (another window added 5).
   srv.members = [1, 2, 3, 4, 5];
-  // The first two reads (the order Undo puts back, the first try) are behind.
-  let reads = 0;
-  p.ctx.fetchCollectionMembers = async () => { if (++reads <= 2) return [1, 2, 3, 4]; p.ctx.collectionMembers.set(CID, srv.members.slice()); return srv.members.slice(); };
+  p.ctx.fetchCollectionMembers = async () => { p.ctx.collectionMembers.set(CID, srv.members.slice()); return srv.members.slice(); };
+  const u = p.undos.length;
+  assert.strictEqual(await p.Flow.saved.use(9), false);
+  assert.deepStrictEqual(srv.orders.at(-1).seen, [1, 2, 3, 4]);
+  assert.deepStrictEqual(srv.members, [1, 2, 3, 4, 5], 'nothing written');
+  assert.deepStrictEqual(srv.skips, [], 'skips neither');
+  assert.strictEqual(p.toasts.at(-1), 'This playlist was changed in another window. It is up to date now, so try that again.');
+  assert.strictEqual(p.undos.length, u, 'no Undo');
+  assert.deepStrictEqual(p.ctx.collectionMembers.get(CID), [1, 2, 3, 4, 5], 'read again');
   assert.strictEqual(await p.Flow.saved.use(9), true);
-  assert.deepStrictEqual(srv.orders.map(o => o.order), [[4, 3, 2, 1], [4, 3, 2, 1, 5]]);
   assert.deepStrictEqual(srv.members, [4, 3, 2, 1, 5], 'no file lost');
   assert.deepStrictEqual(srv.skips, [1]);
 });

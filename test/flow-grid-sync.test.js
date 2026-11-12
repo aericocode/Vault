@@ -290,7 +290,7 @@ test('Custom, Waves, Peak, then Custom: the order from before the first shape co
   assert.deepStrictEqual(rowPeak.kept, MINE, 'shape to shape keeps it');
   assert.strictEqual(panel(p), 'peak');
   assert.strictEqual(await p.Flow.pickCustom(), true);
-  assert.deepStrictEqual(p.server.bodies.at(-1), { flow: { custom: true } }, 'Custom sends no order: the server writes the kept one');
+  assert.deepStrictEqual(p.server.bodies.at(-1), { flow: { custom: true }, seen: peak }, 'Custom sends no order: the server writes the kept one');
   assert.deepStrictEqual(p.server.playlist, MINE);
   assert.strictEqual(panel(p), 'custom');
   assert.strictEqual(row(p).mode, 'custom');
@@ -366,7 +366,7 @@ test('a drag while a shape is lit: nothing lit, the kept order stays; the drag u
   await dragTo(p, dragged);
   const edited = row(p);
   assert.strictEqual(await p.Flow.pickCustom(), true);
-  assert.deepStrictEqual(p.server.bodies.at(-1), { flow: { custom: true } });
+  assert.deepStrictEqual(p.server.bodies.at(-1), { flow: { custom: true }, seen: dragged });
   assert.deepStrictEqual(p.server.playlist, MINE, 'Custom brings the kept order back exactly');
   assert.strictEqual(panel(p), 'custom');
   await p.undos.at(-1).fn();
@@ -488,6 +488,74 @@ test('the checker\'s two-window repro: A Smooth, B Peak, A Custom, B\'s Undo of 
   assert.deepStrictEqual(row(a).kept, MINE);
   assert.strictEqual(await a.Flow.pickCustom(), true);
   assert.deepStrictEqual(server.playlist, MINE, 'Custom gives the own order');
+});
+
+const STALE_ACTION = 'This playlist was changed in another window. It is up to date now, so try that again.';
+
+test('the putShape race: another window changed the order and this page has not read it yet; Peak picked here is refused (409), nothing written, plain words, no Undo, the panel as the server has it; picked again it goes', async () => {
+  const server = newServer();
+  const a = page({ server });
+  await a.Flow.toggle(3);
+  await dragTo(a, MINE);
+  await a.Flow.pickShape('smooth');
+  const smooth = server.playlist.slice();
+  // Another window: Custom (MINE back). This page still shows Smooth.
+  postOrder(server, { flow: { custom: true }, seen: smooth });
+  assert.deepStrictEqual(a.ctx.collectionMembers.get(3), smooth);
+  const w = server.writes, r = row(a), u = a.undos.length;
+  assert.strictEqual(await a.Flow.pickShape('peak'), false);
+  assert.deepStrictEqual(server.bodies.at(-1).seen, smooth, 'sent with the order the page showed');
+  assert.strictEqual(server.writes, w, 'nothing written');
+  assert.deepStrictEqual(server.playlist, MINE);
+  assert.deepStrictEqual(row(a), r, 'the row as the other window left it');
+  assert.strictEqual(a.toasts.at(-1), STALE_ACTION);
+  assert.strictEqual(a.undos.length, u, 'no Undo');
+  await settle();
+  assert.deepStrictEqual(a.ctx.collectionMembers.get(3), MINE, 'read again');
+  assert.strictEqual(panel(a), 'custom', 'the panel as the server has it, not Peak');
+  await a.Flow.pickShape('peak');
+  assert.strictEqual(panel(a), 'peak');
+  assert.strictEqual(await a.Flow.pickCustom(), true);
+  assert.deepStrictEqual(server.playlist, MINE, 'Custom still gives the own order');
+});
+
+test('Custom clicked on a page behind another window: refused (409), nothing written, plain words, no Undo, the panel follows the server', async () => {
+  const server = newServer();
+  const a = page({ server });
+  await a.Flow.toggle(3);
+  await dragTo(a, MINE);
+  await a.Flow.pickShape('smooth');
+  // Another window picks Peak; this page still shows Smooth lit.
+  const peak = serverOrder('peak', true);
+  postOrder(server, { order: peak, flow: { shape: 'peak', waves: 2, places: true } });
+  const w = server.writes, u = a.undos.length;
+  assert.strictEqual(await a.Flow.pickCustom(), false);
+  assert.strictEqual(server.writes, w);
+  assert.deepStrictEqual(server.playlist, peak);
+  assert.strictEqual(a.toasts.at(-1), STALE_ACTION);
+  assert.strictEqual(a.undos.length, u);
+  await settle();
+  assert.strictEqual(panel(a), 'peak');
+  assert.strictEqual(await a.Flow.pickCustom(), true);
+  assert.deepStrictEqual(server.playlist, MINE);
+});
+
+test('one window, quick: shapes picked one after another without waiting all go through (no 409), each Undo exact', async () => {
+  const p = await mine();
+  // The page's turn for order writes (collections.js), as the page has it.
+  const coll = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'collections.js'), 'utf8');
+  const at = coll.indexOf('function collectionOrderTurn(');
+  vm.runInContext(coll.slice(at, coll.indexOf('\n}\n', at) + 2), p.ctx);
+  const slow = p.ctx.fetch;
+  p.ctx.fetch = async (url, o) => { await new Promise(r => setTimeout(r, 3)); return slow(url, o); };
+  await Promise.all([p.Flow.pickShape('waves'), p.Flow.pickShape('peak'), p.Flow.pickShape('smooth')]);
+  await settle();
+  assert.deepStrictEqual(p.server.bodies.slice(-3).map(b => b.flow.shape), ['waves', 'peak', 'smooth']);
+  assert.ok(p.server.bodies.every(b => b.seen === undefined || Array.isArray(b.seen)));
+  assert.strictEqual(p.toasts.filter(t => t === STALE_ACTION).length, 0, 'no refusal');
+  assert.strictEqual(panel(p), p.Flow._state().shape);
+  assert.strictEqual(await p.Flow.pickCustom(), true);
+  assert.deepStrictEqual(p.server.playlist, MINE);
 });
 
 test('every Undo here that meets a changed row is refused the same way: Custom\'s Undo and a saved order\'s Undo', async () => {

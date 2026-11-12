@@ -56,6 +56,50 @@ function takeCollectionLength(c, data) {
 }
 
 /**
+ * This page's writes of a collection's order or files go one after another
+ * (a drag, Alt+arrows, a shape, Custom, a saved order loaded, Add, Remove,
+ * every Undo): each starts once the one before has its answer in, so the
+ * order it says it saw (seen, POST /api/collections/:id/order) is the order
+ * the page's own last write left, never one in between. A held-down key or
+ * quick drags then never trip the server's check on the page's own writes.
+ * The counter (seq) moves when a write starts and when it ends: a read of
+ * the collection that began before (collectionReadToken) is not taken as
+ * the page's copy (collectionReadFresh), so a slow read never puts an older
+ * order back under the page.
+ */
+function collectionOrderTurn(fn) {
+  const t = collectionOrderTurn;
+  const run = async () => {
+    t.seq = (t.seq || 0) + 1;
+    try { return await fn(); } finally { t.seq++; }
+  };
+  const p = (t.tail || Promise.resolve()).then(run, run);
+  t.tail = p.catch(() => {});
+  return p;
+}
+
+/** Taken when a read of a collection starts: { id, seq, n }. */
+function collectionReadToken(id) {
+  const t = collectionOrderTurn;
+  t.reads = (t.reads || 0) + 1;
+  return { id, seq: t.seq || 0, n: t.reads };
+}
+
+/**
+ * The read can stand as the page's copy: no write of this page started or
+ * ended since it began, and no later read of the same collection was taken
+ * already. A collection the page has no copy of yet always takes it.
+ */
+function collectionReadFresh(token) {
+  const t = collectionOrderTurn;
+  if (!token || typeof collectionMembers === 'undefined' || !collectionMembers.has(token.id)) return true;
+  const last = (t.lastRead || (t.lastRead = new Map())).get(token.id) || 0;
+  if (token.seq !== (t.seq || 0) || token.n < last) return false;
+  t.lastRead.set(token.id, token.n);
+  return true;
+}
+
+/**
  * What the page keeps of a collection, from any server answer about it, in
  * one place and in this order, so no refresh path does half of it:
  *   1. its length fields (takeCollectionLength; the count line reads them),
@@ -65,10 +109,17 @@ function takeCollectionLength(c, data) {
  *      changed), and its saved orders read again when files came or went
  *      (their own skips and length, flow.js flowSavedStale).
  * filesChanged: the caller knows files came or went (an answer without media_ids).
+ * read: a read's token (collectionReadToken); a stale read gives its lengths
+ * and skips but not its files or what Flow keeps.
  * @returns {boolean} whether its files changed
  */
-function takeCollectionAnswer(id, data, { filesChanged = false } = {}) {
+function takeCollectionAnswer(id, data, { filesChanged = false, read } = {}) {
   if (!data) return false;
+  if (read && typeof collectionReadFresh === 'function' && !collectionReadFresh(read)) {
+    data = { ...data };
+    delete data.media_ids;
+    delete data.flow_custom;
+  }
   const c = getCollectionById(id);
   if (c) takeCollectionLength(c, data);
   let moved = !!filesChanged;
@@ -114,10 +165,11 @@ if (typeof window !== 'undefined' && window.addEventListener) {
     if (key === before) return;
     _collLengthKey = key;
     if (!before || !before.startsWith(`${id}|`)) return;   // just opened: already read
+    const read = typeof collectionReadToken === 'function' ? collectionReadToken(id) : undefined;
     fetch(`/api/collections/${id}`).then(r => (r.ok ? r.json() : null)).then((data) => {
       if (!data || !getCollectionById(id)) return;
       // Its files and skips too (another window or client may have changed them).
-      takeCollectionAnswer(id, data);
+      takeCollectionAnswer(id, data, { read });
       if (activeCollectionId === id && typeof renderReorderNote === 'function') renderReorderNote();
     }).catch(() => {});
   });
@@ -192,8 +244,9 @@ async function collectionResync(id) {
 
 async function fetchCollectionMembers(id, force = false) {
   if (!force && collectionMembers.has(id)) return collectionMembers.get(id);
+  const read = typeof collectionReadToken === 'function' ? collectionReadToken(id) : undefined;
   const data = await fetch(`/api/collections/${id}`).then(r => r.json());
-  takeCollectionAnswer(id, { ...data, media_ids: data.media_ids || [] });
+  takeCollectionAnswer(id, { ...data, media_ids: data.media_ids || [] }, { read });
   return collectionMembers.get(id);
 }
 
@@ -1170,7 +1223,11 @@ async function togglePickerCollection(id) {
  * above and the dock pane (dock-edit.js) both use it.
  * @returns {Promise<boolean>} whether the server made the change
  */
-async function changeCollectionMembership(id, mediaIds, adding, { quiet = false } = {}) {
+async function changeCollectionMembership(id, mediaIds, adding, { quiet = false, inTurn = false } = {}) {
+  // In the page's turn for order writes (collectionOrderTurn), so a drag right after it sees what it left.
+  if (!inTurn && typeof collectionOrderTurn === 'function') {
+    return collectionOrderTurn(() => changeCollectionMembership(id, mediaIds, adding, { quiet, inTurn: true }));
+  }
   const c = getCollectionById(id);
   if (!c) return false;
 
@@ -1212,7 +1269,8 @@ async function changeCollectionMembership(id, mediaIds, adding, { quiet = false 
     // True-up authoritative count + mosaic from the response (no follow-up GET).
     c.item_count = data.item_count;
     if (Array.isArray(data.first_ids)) c.first_ids = data.first_ids;
-    if (!adding) c._flowRow = data.flow_custom;
+    // A remove answers the order right before it (the server's, the one its Undo puts back) and what Flow keeps.
+    if (!adding) { c._flowRow = data.flow_custom; c._removeBefore = Array.isArray(data.order_before) ? data.order_before : undefined; }
     takeCollectionAnswer(id, data, { filesChanged: true });
     _patchPickerRow(id);
     _patchAncestorCounts(id);
@@ -1301,10 +1359,12 @@ async function removeSelectedFromCollection() {
   if (!c) return;
   const ids = selectedInOpenCollection();
   if (!ids.length) { showToast('None of the selected files are in this collection.'); return; }
-  const order = (collectionMembers.get(c.id) || []).slice();
+  const cached = (collectionMembers.get(c.id) || []).slice();
   const ok = await changeCollectionMembership(c.id, ids, false, { quiet: true });
   if (!ok) return;
   const guard = typeof collectionUndoGuard === 'function' ? collectionUndoGuard(c.id) : undefined;
+  // The server's order right before the remove (the page's copy may have been behind another window).
+  const order = Array.isArray(c._removeBefore) ? c._removeBefore.slice() : cached;
   // Ticked files the collection never held (a search can hide them) stay ticked.
   ids.forEach(m => selectedIds.delete(m));
   _selectionRedraw();
@@ -1313,12 +1373,20 @@ async function removeSelectedFromCollection() {
 }
 
 /**
- * Undo: the files go back in, then the whole earlier order is put back.
- * flow: the check of what Flow keeps (collectionUndoGuard). Another window
- * changed it since (409 STALE): the files are back, at the end, and the
- * order is left as that window made it.
+ * Undo: the files go back in, then the earlier order (the server's order
+ * from right before the remove) is put back, kept to the files there are
+ * (files added since go at the end), in the page's turn for order writes.
+ * The order write says what the page saw (seen: its copy plus the files
+ * just put back at the end, as the server appends them) and carries flow,
+ * the check of what Flow keeps (collectionUndoGuard). Another window
+ * changed either since (409 STALE): the files are back, at the end, and
+ * the order is left as that window made it.
  */
-async function undoRemoveFromCollection(id, ids, order, flow) {
+function undoRemoveFromCollection(id, ids, order, flow) {
+  if (typeof collectionOrderTurn === 'function') return collectionOrderTurn(() => _undoRemoveNow(id, ids, order, flow));
+  return _undoRemoveNow(id, ids, order, flow);
+}
+async function _undoRemoveNow(id, ids, order, flow) {
   const c = getCollectionById(id);
   if (!c) return;
   const write = (p) => (typeof Library !== 'undefined' && Library.ownWrite ? Library.ownWrite(p) : p);
@@ -1331,10 +1399,20 @@ async function undoRemoveFromCollection(id, ids, order, flow) {
       }));
       if (!resp.ok) throw await collResponseError(resp);
     }
+    // The page's copy with the files back at the end, as the server put them.
+    const had = (collectionMembers.get(id) || []).slice();
+    const hadSet = new Set(had);
+    const seen = had.concat(ids.filter((m, i) => !hadSet.has(m) && ids.indexOf(m) === i));
+    collectionMembers.set(id, seen);
+    // The order from before, kept to those files: gone ones dropped, new ones at the end.
+    const inSeen = new Set(seen), put = new Set();
+    const want = order.filter(m => inSeen.has(m) && !put.has(m) && put.add(m)).concat(seen.filter(m => !put.has(m)));
+    const body = { order: want, seen };
+    if (flow !== undefined) body.flow = flow;
     const resp = await write(fetch(`/api/collections/${id}/order`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(flow === undefined ? { order } : { order, flow }),
+      body: JSON.stringify(body),
     }));
     if (!resp.ok) {
       const err = await collResponseError(resp);

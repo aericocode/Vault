@@ -3250,9 +3250,16 @@ app.delete('/api/collections/:id/items', (req, res) => {
   const id = parseId(req.params.id);
   const ids = parseIdList(req.body);
   if (!id || ids.length === 0) return res.status(400).json({ error: 'id + ids required' });
+  // The order right before the remove and right after it (one synchronous
+  // run, nothing in between): Remove's Undo puts back order_before (the
+  // server's, not the page's copy, which can be behind another window), and
+  // the page takes media_ids as its copy now.
+  const orderBefore = db.getCollectionItems(id);
   const removed = db.removeFromCollection(id, ids);
+  const mediaIds = db.getCollectionItems(id);
   // What Flow keeps for Custom (not touched by a remove): Remove's Undo sends it back as a check, so it is refused if another window changed it since.
-  res.json({ removed, item_count: db.collectionItemCount(id), first_ids: db.collectionFirstIds(id), flow_custom: flowCustom.state(db.get(), id), ...db.collectionLength(id) });
+  res.json({ removed, item_count: db.collectionItemCount(id), first_ids: db.collectionFirstIds(id), media_ids: mediaIds, order_before: orderBefore,
+    flow_custom: flowCustom.state(db.get(), id, mediaIds), ...db.collectionLength(id) });
 });
 
 // Rearrange the playlist order: { move: [ids], before: id | null } moves a
@@ -3265,14 +3272,23 @@ app.delete('/api/collections/:id/items', (req, res) => {
 // (lib/flow/custom.js): { shape, waves?, places? } a Flow shape picked,
 // { custom: true } Custom (no order needed: the server writes the kept one),
 // { manual: true } an order put in by hand (a drag, a saved order loaded),
-// { restore, rev } an Undo. Any write without flow (Remove's Undo, an
-// import, an older Vault) leaves it alone.
+// { restore, rev } an Undo. Any write without flow (an import, an older
+// Vault) leaves it alone.
+// seen: the whole order the page was showing when the user acted (every
+// write this Vault's page sends). Checked in the write's transaction: not
+// the order on disk now (another window changed it) -> 409 STALE, nothing
+// written. Without seen (an older Vault, an import) it is not checked.
 app.post('/api/collections/:id/order', (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'bad id' });
   const withSkips = req.body && req.body.skips !== undefined;
   const skips = withSkips ? skipIds({ ids: req.body.skips }) : null;
   if (withSkips && !skips) return res.status(400).json({ error: 'skips must be a list of file ids' });
+  const withSeen = req.body && req.body.seen !== undefined;
+  const seen = withSeen ? req.body.seen : undefined;
+  if (withSeen && (!Array.isArray(seen) || seen.length > 200000 || !seen.every(n => Number.isSafeInteger(n) && n > 0))) {
+    return res.status(400).json({ error: 'seen must be a list of file ids', code: 'BAD_SEEN' });
+  }
   const withFlow = req.body && req.body.flow !== undefined;
   let flow;
   if (withFlow) {
@@ -3280,7 +3296,7 @@ app.post('/api/collections/:id/order', (req, res) => {
   }
   let r;
   try {
-    r = db.reorderCollectionFull(id, req.body, { skips: withSkips ? skips : undefined, flow });
+    r = db.reorderCollectionFull(id, req.body, { skips: withSkips ? skips : undefined, flow, seen });
   } catch (err) {
     const status = COLL_ERR_STATUS[err.code];
     if (status) return res.status(status).json({ error: err.message, code: err.code });

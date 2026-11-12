@@ -127,6 +127,11 @@ const Flow = (() => {
     if (typeof showErrorToast === 'function') showErrorToast(err, what);
     else if (typeof showToast === 'function') showToast(`Flow: ${err.message}`);
   };
+  // An action (not an Undo) refused because another window changed the order first (409 STALE): plain words; the caller reads it again.
+  const actionErr = (err, what) => {
+    if (err && err.code === 'STALE') { if (typeof showToast === 'function') showToast(STALE_ACTION_TEXT); return; }
+    toastErr(err, what);
+  };
 
   /* ── Open / close ───────────────────────────────────────────────── */
 
@@ -458,34 +463,38 @@ const Flow = (() => {
   /*
    * Write an order (and, when given, exactly these skips) as the
    * collection's playlist order, in one request: POST
-   * /api/collections/:id/order { order, skips?, flow? }. flow says what
-   * the user did (lib/flow/custom.js); order null: none sent (Custom, the
-   * server writes the kept order). Kept to the
-   * files it has right now (gone ones dropped, new ones at the end), so a
-   * file added or taken out since is never lost; a 400 (the files changed
-   * on the way): ask again, keep to them, try once more. The answer goes
-   * where every rearrange's goes (collection-reorder.js _installOrder: the
-   * page's copy, the count line, the skips, the grid and this panel).
+   * /api/collections/:id/order { order, skips?, flow?, seen }. flow says
+   * what the user did (lib/flow/custom.js); order null: none sent (Custom,
+   * the server writes the kept order). seen is the order this page shows
+   * (its copy, collectionMembers), taken in the page's turn for order
+   * writes (collections.js collectionOrderTurn: after every write of its
+   * own is in), so the server refuses the write (409 STALE) when another
+   * window changed the order since. The order is kept to seen (files gone
+   * dropped, new ones at the end). The answer carries pageSeen: that same
+   * list, the order before this write, which is what its Undo puts back.
+   * The answer goes where every rearrange's goes (collection-reorder.js
+   * _installOrder: the page's copy, the count line, the skips, the grid
+   * and this panel).
    */
   async function writePlaylist(cid, order, skips, flow) {
-    writing++;
-    try { return await writeNow(cid, order, skips, flow); } finally { writing--; }
+    const run = async () => {
+      writing++;
+      try { return await writeNow(cid, order, skips, flow); } finally { writing--; }
+    };
+    return typeof collectionOrderTurn === 'function' ? collectionOrderTurn(run) : run();
   }
   async function writeNow(cid, order, skips, flow) {
-    const attempt = async () => {
-      const members = await freshMembers(cid);
-      const body = {};
-      if (order) body.order = members ? reconcile(order, members) : order.slice();
-      if (Array.isArray(skips)) body.skips = skips.slice();
-      if (flow !== undefined) body.flow = flow;
-      const p = post(`/api/collections/${cid}/order`, body);
-      return typeof Library !== 'undefined' && typeof Library.ownWrite === 'function' ? Library.ownWrite(p) : p;
-    };
-    let data;
-    try { data = await attempt(); } catch (err) {
-      if (!err || err.status !== 400) throw err;
-      data = await attempt();
-    }
+    let seen = (typeof collectionMembers !== 'undefined' && collectionMembers.get(cid)) || null;
+    if (!seen) seen = await freshMembers(cid);
+    seen = seen ? seen.slice() : null;
+    const body = {};
+    if (order) body.order = seen ? reconcile(order, seen) : order.slice();
+    if (Array.isArray(skips)) body.skips = skips.slice();
+    if (flow !== undefined) body.flow = flow;
+    if (seen) body.seen = seen;
+    const p = post(`/api/collections/${cid}/order`, body);
+    const data = await (typeof Library !== 'undefined' && typeof Library.ownWrite === 'function' ? Library.ownWrite(p) : p);
+    data.pageSeen = seen;
     customAnswer(cid, data);
     if (typeof _installOrder === 'function') await _installOrder(cid, data);
     else {
@@ -582,7 +591,7 @@ const Flow = (() => {
     const prev = { shape: st.shape, waves: st.waves, places: st.places };
     const giveUp = (err, what) => {
       if (cid === st.cid) { st.shape = prev.shape; st.waves = prev.waves; st.places = prev.places; }
-      toastErr(err, what);
+      actionErr(err, what);
       paint();
       // The write may have been kept with its answer lost: the panel follows what the server holds.
       if (cid === st.cid) resync(cid);
@@ -605,12 +614,13 @@ const Flow = (() => {
       }
     } catch (err) { return giveUp(err, 'working out the order'); }
     const label = shapeName(st.shape, st.waves);
-    const before = (await freshMembers(cid)) || data.playlistOrder.slice();
     if (cid !== st.cid) return false;
-    const order = reconcile(data.order, before);
+    const order = data.order;
     const flow = { shape: st.shape, waves: st.waves, places: placesOn() };
     let written;
     try { written = await writePlaylist(cid, order, undefined, flow); } catch (err) { return giveUp(err, 'rearranging the playlist order'); }
+    // The order this write started from (the order the page showed, checked by the server): what Undo puts back.
+    const before = written.pageSeen || data.playlistOrder.slice();
     rememberShape();
     await showPlaylist(cid);
     paint();
@@ -636,11 +646,9 @@ const Flow = (() => {
       const cid = st.cid;
       // Custom lit here: the panel may be behind (a change in another window), so it is read again and drawn.
       if (customLit()) { await resync(cid); return false; }
-      const before = (await freshMembers(cid)) || playlistNow().slice();
-      if (cid !== st.cid) return false;
       let data;
       try { data = await writePlaylist(cid, null, undefined, { custom: true }); } catch (err) {
-        toastErr(err, 'putting your custom order back');
+        actionErr(err, 'putting your custom order back');
         paint();
         resync(cid);
         return false;
@@ -650,6 +658,7 @@ const Flow = (() => {
       if (flowUndoOf(data) === undefined) { await resync(cid); return false; }
       await showPlaylist(cid);
       paint();
+      const before = data.pageSeen || playlistNow().slice();
       const undo = undoWrite(cid, before, undefined, back);
       if (typeof showUndoToast === 'function') showUndoToast('Back to your custom order', undo);
       else toast('Back to your custom order');
@@ -845,14 +854,15 @@ const Flow = (() => {
       const cid = st.cid;
       st.savedInput = null;
       if (savedLit(s)) { paint(); return false; }
-      const before = await freshMembers(cid);
       const skips = Array.isArray(s.skips) ? s.skips : undefined;
       let data;
-      try { data = await writePlaylist(cid, s.order.length ? s.order : (before || []), skips, { manual: true }); } catch (err) {
-        toastErr(err, 'loading the saved order');
+      try { data = await writePlaylist(cid, s.order.length ? s.order : (playlistNow() || []), skips, { manual: true }); } catch (err) {
+        actionErr(err, 'loading the saved order');
         paint();
+        if (err && err.code === 'STALE') await resync(cid);
         return false;
       }
+      const before = data.pageSeen;
       await showPlaylist(cid);
       paint();
       // Undo: the order from before, and the skips from before when they were changed (the server's list).
@@ -3018,10 +3028,12 @@ const Flow = (() => {
     const ok = await changeCollectionMembership(c.id, [id], false, { quiet: true });
     if (!ok) return;
     const guard = typeof collectionUndoGuard === 'function' ? collectionUndoGuard(c.id) : undefined;
+    // The server's order right before the remove: what its Undo puts back.
+    const back = Array.isArray(c._removeBefore) ? c._removeBefore.slice() : order;
     if (st.sel === id) { st.sel = null; paintStrip(); }
     // selection.js showUndoToast takes HTML: the names are escaped.
     const msg = namesHidden() ? `Removed this file from ${esc(c.name)}` : `Removed “${esc(shortName(f) || 'file')}” from ${esc(c.name)}`;
-    if (typeof showUndoToast === 'function' && typeof undoRemoveFromCollection === 'function') showUndoToast(msg, () => undoRemoveFromCollection(c.id, [id], order, guard));
+    if (typeof showUndoToast === 'function' && typeof undoRemoveFromCollection === 'function') showUndoToast(msg, () => undoRemoveFromCollection(c.id, [id], back, guard));
   }
 
   /** Pick column i (or none) for the strip. */
@@ -3427,6 +3439,8 @@ function flowCustomAnswer(cid, data, opts) { return Flow.customAnswer(cid, data,
  */
 /** The toast for an Undo refused because another window changed the order since (409 STALE). */
 const STALE_UNDO_TEXT = 'This order was changed in another window, so there was nothing to undo.';
+/** The toast for an action refused the same way (a drag, Alt+arrows, a shape, Custom, a saved order loaded). */
+const STALE_ACTION_TEXT = 'This playlist was changed in another window. It is up to date now, so try that again.';
 /**
  * The flow an Undo of an order write sends: flowUndoOf when the write
  * changed the row, else the row as it is now, unchanged ({ restore: row,
