@@ -9,7 +9,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { createWindowFit, fitSize, fitsAspect, stepSize, videoAspect, MIN_SIDE, AWAIT_MAX_MS, BUDGET } = require('../lib/stage/window-fit');
+const { createWindowFit, fitSize, fitsAspect, stepSize, videoAspect, MIN_SIDE, AWAIT_MAX_MS, BUDGET, ECHO_STRIKES } = require('../lib/stage/window-fit');
 
 const A169 = 16 / 9;
 const A43 = 4 / 3;
@@ -247,7 +247,8 @@ test('watcher: a desktop that rounds by a pixel, even late, never starts another
     await r.advance(2500);
     // Anything set now is only the window's own size (mpv geometry kept in step): nothing moves on screen.
     for (const s of r.sets.slice(1)) assert.ok(['-1', '0', '1'].includes(String(Number(s.split('x')[0]) - w)), s);
-    assert.strictEqual(r.sets[r.sets.length - 1] === r.sets[0] || r.sets[r.sets.length - 1] === `${w + dw}x${h + dh}`, true, r.sets.join(' '));
+    // And only a few of them: a desktop that keeps answering with another size is no longer asked (ECHO_STRIKES).
+    assert.ok(r.sets.length <= 1 + ECHO_STRIKES, r.sets.join(' '));
   }
 });
 
@@ -390,7 +391,8 @@ for (const delayMs of [1100, 1500, 3000]) {
   test(`watcher: a desktop answering in ${delayMs} ms with a steady +7 px: a bounded number of requests, no creep`, async () => {
     const { r, widths } = await slowDesktop({ delayMs, offset: 7 });
     assert.ok(r.sets.length <= 3, r.sets.join(' '));
-    assert.ok(Math.max(...widths) - Math.min(...widths) <= 20, r.sets.join(' '));
+    // (The late answer to the starting size may be fitted once as if it were a resize: still bounded.)
+    assert.ok(Math.max(...widths) - Math.min(...widths) <= 60, r.sets.join(' '));
     assert.ok(Math.max(...widths) < 1400, r.sets.join(' '));
   });
 }
@@ -416,6 +418,65 @@ test('watcher: a request the desktop never answers is given up after a while, so
   r.size(1000, 900);                         // a later drag
   await r.advance(1000);
   assert.deepStrictEqual(r.sets.slice(-1), ['1000x563']);
+});
+
+/**
+ * A desktop that answers every geometry request with a size in the video's
+ * shape but not the one asked (a scale mismatch, a steady offset): the answer
+ * to a keep-in-step request then looks like a resize by the user.
+ */
+async function echoDesktop({ delayMs, answer, seconds = 60, screen = { w: 1920, h: 1080 } }) {
+  const due = [];
+  const r = rig({ screen, onSet: (s, at) => due.push({ at: at + delayMs, ...answer(s) }) });
+  r.fit.setEnabled(true);
+  r.video(1920, 1080);
+  r.size(800, 450);
+  for (let t = 0; t < seconds * 1000; t += 100) {
+    await r.advance(100);
+    while (due.length && due[0].at <= r.now()) { const a = due.shift(); r.size(a.w, a.h); }
+  }
+  return r;
+}
+
+test('watcher: a desktop that answers every request with another size in shape: a few requests, then none (no creep)', async () => {
+  const answers = {
+    '+16/+9': (s) => ({ w: s.w + 16, h: s.h + 9 }),
+    '+7/+4': (s) => ({ w: s.w + 7, h: s.h + 4 }),
+    '+2/+1': (s) => ({ w: s.w + 2, h: s.h + 1 }),
+    '2% bigger': (s) => ({ w: Math.round(s.w * 1.02), h: Math.round(s.h * 1.02) }),
+    '0.8x': (s) => ({ w: Math.round(s.w * 0.8), h: Math.round(s.h * 0.8) }),
+    '2x': (s) => ({ w: s.w * 2, h: s.h * 2 }),
+  };
+  for (const [name, answer] of Object.entries(answers)) {
+    for (const delayMs of [50, 300, 1100, 3000]) {
+      const r = await echoDesktop({ delayMs, answer });
+      assert.ok(r.sets.length <= ECHO_STRIKES + BUDGET, `${name} after ${delayMs} ms: ${r.sets.length} requests: ${r.sets.slice(0, 8).join(' ')}`);
+      const n = r.sets.length;
+      for (let i = 0; i < 100; i++) await r.advance(100);
+      assert.strictEqual(r.sets.length, n, `${name} after ${delayMs} ms: still asking`);
+    }
+  }
+});
+
+test('watcher: a request the desktop ignored does not swallow a drag by the user soon after', async () => {
+  for (const afterMs of [1000, 5000, 9900]) {
+    const r = rig();
+    r.fit.setEnabled(true);
+    r.video(1920, 1080);
+    r.size(1280, 720);
+    await r.advance(1000);
+    r.size(1333, 720);                       // a drag; Vault asks for 1333x750 and the desktop ignores it
+    await r.advance(1000);
+    assert.deepStrictEqual(r.sets.slice(-1), ['1333x750']);
+    await r.advance(afterMs);
+    r.size(800, 300);                        // the user drags it well away
+    await r.advance(1000);
+    const [w, h] = r.sets[r.sets.length - 1].split('x').map(Number);
+    assert.ok(fitsAspect({ w, h }, A169) && w <= 800 && w >= 500, `after ${afterMs} ms: ${r.sets.join(' ')}`);
+    r.size(w, h);
+    await r.advance(5000);
+    assert.deepStrictEqual(r.sets.slice(-1), [`${w}x${h}`], 'and that is the end of it');
+  }
 });
 
 /* ── Odd input ──────────────────────────────────────────────────────────── */
