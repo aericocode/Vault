@@ -186,7 +186,8 @@ async function _installOrder(collId, data) {
     if (typeof takeCollectionAnswer === 'function') takeCollectionAnswer(collId, data);
     else if (typeof takeCollectionLength === 'function') takeCollectionLength(c, data);
   }
-  // The open Flow panel's chart and counts follow the new order (flow.js).
+  // The open Flow panel's chart and counts follow the new order, and which of Custom and the shapes is lit (flow.js).
+  if (typeof flowCustomAnswer === 'function') flowCustomAnswer(collId, data);
   if (typeof flowMembersChanged === 'function') flowMembersChanged(collId);
   if (activeCollectionId === collId) await applyFilters({ keepPage: true });
 }
@@ -209,7 +210,8 @@ async function reorderMove(ids, before) {
   if (_sameOrder(_plannedOrder(prev, moving, before), prev)) return false;
   _reorderBusy = true;
   try {
-    const data = await Library.ownWrite(_postOrder(collId, { move: ids, before }));
+    // A hand reorder: Flow's Custom is lit now (flow.js, lib/flow/custom.js).
+    const data = await Library.ownWrite(_postOrder(collId, { move: ids, before, flow: { manual: true } }));
     await _installOrder(collId, data);
     const first = data.order.findIndex(id => moving.has(id));
     const n = first + 1;
@@ -217,7 +219,9 @@ async function reorderMove(ids, before) {
     const msg = ids.length === 1
       ? `Moved “${escapeHtml(_fileName(ids[0]))}” to position ${n}`
       : `Moved ${ids.length} files to position ${n}`;
-    showUndoToast(msg, () => reorderUndo(collId, prev));
+    // The Undo puts back what Flow kept before the move too (a shape lit comes back lit).
+    const flow = typeof flowUndoOf === 'function' ? flowUndoOf(data) : undefined;
+    showUndoToast(msg, () => reorderUndo(collId, prev, flow));
     return true;
   } catch (err) {
     collErrorToast(err, 'moving that');
@@ -234,13 +238,13 @@ async function reorderMove(ids, before) {
   }
 }
 
-async function reorderUndo(collId, order) {
+async function reorderUndo(collId, order, flow) {
   // One change at a time: wait out a move still on its way, then hold off
   // drags and keys until the order is back.
   while (_reorderBusy) await new Promise(r => setTimeout(r, 50));
   _reorderBusy = true;
   try {
-    const data = await Library.ownWrite(_postOrder(collId, { order }));
+    const data = await Library.ownWrite(_postOrder(collId, flow === undefined ? { order } : { order, flow }));
     await _installOrder(collId, data);
     showToast('Order put back');
   } catch (err) {

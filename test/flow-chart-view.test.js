@@ -298,7 +298,8 @@ test('the panel\'s first row: no order switch, no Make this the playlist order; 
       const b = JSON.parse(opts.body);
       posts.push(b);
       const before = p.ctx.collectionMembers.get(3).slice();
-      return { ok: true, status: 200, json: async () => ({ order: b.order, ...custom.write(before, b.order, b) }) };
+      const r = custom.post(before, b);
+      return { ok: true, status: 200, json: async () => r };
     }
     if (/\/api\/flow\/collections\/3\/custom$/.test(url)) return { ok: true, status: 200, json: async () => ({ custom: custom.state(p.ctx.collectionMembers.get(3)) }) };
     return fetch0(url, opts);
@@ -315,14 +316,16 @@ test('the panel\'s first row: no order switch, no Make this the playlist order; 
   assert.match(firstRow(), /data-flow-custom aria-pressed="false" title="Your own order. Come back to it after trying a shape."/);
   assert.match(undos.at(-1).m, /Rearranged the playlist order: Smooth only/);
   await undos.at(-1).fn();
-  assert.deepStrictEqual(posts.at(-1), { order: [11, 12, 13, 14, 15], flow: null }, 'Undo: the order from before');
+  const undoFlow = posts.at(-1).flow;
+  assert.deepStrictEqual([posts.at(-1).order, undoFlow.restore, typeof undoFlow.rev], [[11, 12, 13, 14, 15], null, 'number'], 'Undo: the order from before, and no row (there was none)');
   assert.match(firstRow(), /data-flow-shape="smooth" aria-pressed="false"/);
   assert.match(firstRow(), /data-flow-custom aria-pressed="true"/);
   // The shape again, then Custom from the panel: the order from before, with Undo.
   await click(btn);
   const cbtn = { dataset: {}, closest: (q) => (q === '[data-flow-custom]' ? cbtn : null) };
   await click(cbtn);
-  assert.deepStrictEqual(posts.at(-1), { order: [11, 12, 13, 14, 15] }, 'Custom writes no flow: what is kept stays');
+  assert.deepStrictEqual(posts.at(-1), { flow: { custom: true } }, 'Custom: the server writes the kept order');
+  assert.deepStrictEqual(p.ctx.collectionMembers.get(3), [11, 12, 13, 14, 15]);
   assert.match(firstRow(), /data-flow-custom aria-pressed="true"/);
   assert.match(undos.at(-1).m, /Back to your custom order/);
   // Custom while it is lit: nothing.

@@ -3256,10 +3256,12 @@ app.delete('/api/collections/:id/items', (req, res) => {
 // With skips: [ids] too (a saved order loaded, player-lib/flow.js), those
 // become exactly the skipped files in the same transaction; the answer adds
 // skipped_ids and was_skipped_ids (the skips before, for Undo).
-// flow: null | { shape, waves?, places?, custom?, shaped? } (a Flow shape
-// picked, or its Undo, lib/flow/custom.js) replaces or removes what the
-// collection keeps for Custom. Any write without flow (a drag, Custom, a
-// saved order, Remove's Undo...) leaves it alone.
+// flow says what the user did, for what the collection keeps for Custom
+// (lib/flow/custom.js): { shape, waves?, places? } a Flow shape picked,
+// { custom: true } Custom (no order needed: the server writes the kept one),
+// { manual: true } an order put in by hand (a drag, a saved order loaded),
+// { restore, rev } an Undo. Any write without flow (Remove's Undo, an
+// import, an older Vault) leaves it alone.
 app.post('/api/collections/:id/order', (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'bad id' });
@@ -3281,9 +3283,8 @@ app.post('/api/collections/:id/order', (req, res) => {
   }
   const order = r.order;
   const more = withSkips ? { skipped_ids: r.skipped, was_skipped_ids: r.was } : {};
-  // What Flow keeps for Custom, after and before this write, each with lit
-  // (always: a write without flow leaves it alone, and the page still
-  // learns whether a shape is lit).
+  // What Flow keeps for Custom, after and before this write (always: the
+  // page learns which is lit, and an Undo sends the row before back).
   more.flow_custom = r.custom;
   more.flow_custom_was = r.customWas;
   res.json({ order, item_count: order.length, first_ids: order.slice(0, 4), ...more, ...db.collectionLength(id) });
