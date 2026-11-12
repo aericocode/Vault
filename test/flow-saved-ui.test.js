@@ -319,7 +319,7 @@ test('the panel has one order: no switch, no Make this the playlist order, no wo
   assert.ok(!/—/.test(src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')), 'no em dash in what the user reads');
 });
 
-test('a chip loaded while a shape is lit is a hand order: Custom lit; its Undo puts back the order and the row exactly (Peak lit), and Custom still brings the kept order back', async () => {
+test('a chip loaded while a shape is lit is a hand order over a shape: nothing lit, the kept order stays; a shape then keeps it, and Custom brings it back; each Undo puts back the order and the row exactly', async () => {
   const srv = server();
   srv.saved.push({ id: 60, collectionId: CID, name: 'Mine', shape: 'playlist', waves: 2, places: false, order: [8, 1, 7, 2, 6, 3, 5, 4], skips: null, createdAt: 1, updatedAt: 1 });
   const p = page(srv);
@@ -330,19 +330,32 @@ test('a chip loaded while a shape is lit is a hand order: Custom lit; its Undo p
   const row = srv.custom.state(srv.members);
   assert.strictEqual(p.Flow.shape().lit, true);
   assert.strictEqual(await p.Flow.saved.use(60), true);
-  assert.deepStrictEqual(srv.members, [8, 1, 7, 2, 6, 3, 5, 4]);
+  const chipOrder = [8, 1, 7, 2, 6, 3, 5, 4];
+  assert.deepStrictEqual(srv.members, chipOrder);
   assert.deepStrictEqual(srv.orders.at(-1).flow, { manual: true }, 'a chip is loaded by hand');
-  assert.strictEqual(p.Flow.shape().custom, true);
-  const now = srv.custom.state(srv.members);
-  assert.deepStrictEqual([now.mode, now.custom], ['custom', [1, 2, 3, 4, 5, 6, 7, 8]], 'Custom lit, the kept order stays in the row');
-  assert.strictEqual(await p.Flow.pickCustom(), false, 'Custom is lit: nothing to bring back');
+  assert.strictEqual(p.Flow.shape().custom, false, 'Custom is not lit');
+  assert.strictEqual(p.Flow.shape().lit, false, 'nor Peak');
+  const edited = srv.custom.state(srv.members);
+  assert.deepStrictEqual([edited.mode, edited.custom], ['edited', [1, 2, 3, 4, 5, 6, 7, 8]], 'the kept order stays in the row');
+  // The chip's Undo: Peak, lit, the row exactly.
   await p.undos.at(-1).fn();
   assert.deepStrictEqual(srv.members, peak);
   assert.deepStrictEqual(srv.custom.state(srv.members), row, 'the row exactly as before the chip');
   assert.strictEqual(p.Flow.shape().shape, 'peak');
   assert.strictEqual(p.Flow.shape().lit, true);
+  // The chip again, then Steady: the kept order is still the own one, not the chip.
+  assert.strictEqual(await p.Flow.saved.use(60), true);
+  const edited2 = srv.custom.state(srv.members);
+  await p.Flow.pickShape('steady');
+  assert.deepStrictEqual(srv.custom.state(srv.members).kept, [1, 2, 3, 4, 5, 6, 7, 8]);
+  await p.undos.at(-1).fn();
+  assert.deepStrictEqual(srv.members, chipOrder);
+  assert.deepStrictEqual(srv.custom.state(srv.members), edited2, 'Steady undone: the edited row exactly');
+  await p.Flow.pickShape('steady');
+  // Custom, long after: the own order.
   assert.strictEqual(await p.Flow.pickCustom(), true);
   assert.deepStrictEqual(srv.members, [1, 2, 3, 4, 5, 6, 7, 8], 'Custom brings the kept order back exactly');
+  assert.strictEqual(p.Flow.shape().custom, true);
 });
 
 test('Peak lit, saved as a chip, Custom, a drag, the chip loaded: Custom lit (Peak is not); the kept order comes back to use only after a shape is picked, and then it is the chip order', async () => {

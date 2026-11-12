@@ -94,7 +94,7 @@ test('Undo of a move tells Flow too', async () => {
   assert.ok(p.calls.includes('flow:5:1,2,3,4'));
 });
 
-test('a move is a hand order (flow manual) and Flow hears the answer; its Undo sends back the row from before, so a shape lit before is lit again', async () => {
+test('a move is a hand order (flow manual: over a shape, edited) and Flow hears the answer; its Undo sends back the row from before, so a shape lit before is lit again', async () => {
   const { flowCustomFake } = require('./helpers/flow-custom-fake');
   const p = reorderPage();
   const fake = flowCustomFake(5);
@@ -116,7 +116,7 @@ test('a move is a hand order (flow manual) and Flow hears the answer; its Undo s
   const peakRow = fake.state(p.server.slice());
   assert.strictEqual(await p.ctx.reorderMove([2], 3), true);
   assert.deepStrictEqual(bodies[0], { move: [2], before: 3, flow: { manual: true } });
-  assert.deepStrictEqual(heard.at(-1), [5, 'custom'], 'Custom lit');
+  assert.deepStrictEqual(heard.at(-1), [5, 'edited'], 'a shape changed by hand: nothing lit');
   await p.undos[0]();
   assert.deepStrictEqual(bodies[1].order, [3, 1, 4, 2]);
   assert.deepStrictEqual(bodies[1].flow.restore.mode, 'shape');
@@ -226,6 +226,30 @@ test('an order read again from the server that differs (another window) tells Fl
   assert.deepStrictEqual(synced, [5, 5], 'a file came');
   ctx.__t(5, { order: [1, 2, 3, 4] });
   assert.deepStrictEqual(synced, [5, 5], 'an answer to this page\'s own write (no media_ids) is not a sync');
+});
+
+test('the collection read again hands Flow what it keeps for Custom, even when no file moved (another window changed only which button is lit)', () => {
+  const told = [];
+  const ctx = {
+    console, Set, Map,
+    activeCollectionId: 5,
+    collectionsList: [{ id: 5, kind: 'collection', name: 'Mix' }],
+    collectionMembers: new Map([[5, [1, 2, 3]]]),
+    flowOrderSynced() {},
+    flowCustomAnswer: (id, data, opts) => told.push([id, data.flow_custom && data.flow_custom.mode, opts]),
+    renderCollectionCount() {},
+  };
+  ctx.getCollectionById = (id) => ctx.collectionsList.find(c => c.id === id);
+  vm.createContext(ctx);
+  const coll = read('player-lib/collections.js');
+  vm.runInContext(['takeCollectionAnswer', 'takeCollectionLength'].map(n => grab(coll, n)).join('\n') + '\nglobalThis.__t = takeCollectionAnswer;', ctx);
+  ctx.__t(5, { media_ids: [1, 2, 3], flow_custom: { mode: 'edited' } });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(told)), [[5, 'edited', { read: true }]]);
+  ctx.__t(5, { media_ids: [1, 2, 3], flow_custom: null });
+  assert.strictEqual(told.length, 2, 'no row is an answer too (Custom lit)');
+  ctx.__t(5, { media_ids: [1, 2, 3] });
+  ctx.__t(5, { order: [1, 2, 3], flow_custom: null });
+  assert.strictEqual(told.length, 2, 'an older server, or this page\'s own write answer (taken elsewhere): not a read');
 });
 
 /* ── flow.js membersChanged ───────────────────────────────────────────── */

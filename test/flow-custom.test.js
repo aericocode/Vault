@@ -131,51 +131,178 @@ test('the checker\'s repro: Peak lit, a file taken out and added again at the en
   await clear(mine);
 });
 
-test('by hand ({ manual: true }): Custom lit, the kept order stays; the shaped order by hand stays Custom; Undo puts the shape back; a stale Undo leaves the row', async () => {
+test('by hand over a shape ({ manual: true }): edited, nothing lit, the kept order stays; again stays edited; the shaped order by hand stays edited; each Undo puts back the row exactly; a stale Undo leaves the row', async () => {
   const mine = order();
   const smooth = mine.slice().reverse();
   const s = await post({ order: smooth, flow: { shape: 'smooth' } });
-  // A drag (the move route, collection-reorder.js).
+  // A drag (the move route, collection-reorder.js): shape -> edited.
   const d = await post({ move: [smooth[4]], before: smooth[0], flow: { manual: true } });
-  assert.strictEqual(d.body.flow_custom.mode, 'custom');
-  assert.deepStrictEqual(d.body.flow_custom.kept, mine);
-  // Dragged back to the smooth order by hand: still Custom.
+  assert.deepStrictEqual(strip(d.body.flow_custom), { mode: 'edited', shape: 'smooth', waves: 2, places: false, kept: mine, custom: mine, lit: false });
+  assert.notStrictEqual(d.body.flow_custom.rev, s.body.flow_custom.rev);
+  assert.deepStrictEqual(d.body.flow_custom_was, s.body.flow_custom);
+  // Another drag, and dragged back to the smooth order by hand: edited -> edited, the row not touched.
+  const d2 = await post({ move: [smooth[0]], before: null, flow: { manual: true } });
+  assert.strictEqual(d2.body.flow_custom.mode, 'edited');
+  assert.strictEqual(d2.body.flow_custom.rev, d.body.flow_custom.rev, 'already edited: the row is not touched');
   const back = await post({ order: smooth, flow: { manual: true } });
-  assert.strictEqual(back.body.flow_custom.mode, 'custom');
-  assert.strictEqual(back.body.flow_custom.rev, d.body.flow_custom.rev, 'already Custom: the row is not touched');
-  // Custom while Custom is lit: nothing.
-  const c = await post({ flow: { custom: true } });
-  assert.deepStrictEqual(c.body.order, smooth);
-  // The drag's Undo: the order and the row exactly (Smooth lit, mine kept).
+  assert.strictEqual(back.body.flow_custom.mode, 'edited');
+  assert.strictEqual(back.body.flow_custom.rev, d.body.flow_custom.rev);
+  assert.deepStrictEqual(back.body.flow_custom.kept, mine, 'the kept order is never touched by hand');
+  // Undo of the edited-to-edited drag: no row change to send back.
+  assert.strictEqual(back.body.flow_custom_was.rev, back.body.flow_custom.rev);
+  // The first drag's Undo: the order and the row exactly (Smooth lit, mine kept).
   await post({ order: smooth, flow: undoOf(d.body) });
+  assert.deepStrictEqual(order(), smooth);
   assert.deepStrictEqual(await kept(), s.body.flow_custom);
-  // A stale Undo (the drag's again, after the row changed back): the order goes back, the row is left as it is.
+  // A stale Undo (the drag's again, after the row changed): the order goes back, the row is left as it is.
   const later = await post({ move: [smooth[0]], before: null, flow: { manual: true } });
+  assert.strictEqual(later.status, 200);
   const now = await kept();
-  assert.strictEqual(now.mode, 'custom');
+  assert.strictEqual(now.mode, 'edited');
   await post({ order: smooth, flow: undoOf(d.body) });
   assert.deepStrictEqual(order(), smooth);
   assert.deepStrictEqual(await kept(), now, 'the row the later drag left');
-  assert.ok(later.status === 200);
-  // A shape picked from Custom: the playlist order there now is the custom one (the one deliberate replacement).
-  const b = await post({ order: mine, flow: { shape: 'build' } });
-  assert.deepStrictEqual(b.body.flow_custom.kept, smooth);
-  assert.strictEqual(b.body.flow_custom_was.mode, 'custom');
   await clear(mine);
 });
 
-test('a saved order loaded ({ manual: true } with skips): Custom lit; its Undo puts back the order, the skips and the row', async () => {
+test('the owner\'s case: own order A, Smooth, a nudge, Peak: the kept order is still A, and Custom brings A back after Undo is gone; each Undo exact', async () => {
+  const A = order();
+  const smooth = A.slice().reverse();
+  const s = await post({ order: smooth, flow: { shape: 'smooth' } });
+  const nudge = await post({ move: [smooth[2]], before: smooth[0], flow: { manual: true } });
+  assert.strictEqual(nudge.body.flow_custom.mode, 'edited');
+  const nudged = order();
+  // edited + a shape: mode shape, the kept order untouched (A, not the nudged Smooth).
+  const peak = [A[2], A[0], A[4], A[1], A[3]];
+  const p = await post({ order: peak, flow: { shape: 'peak' } });
+  assert.deepStrictEqual(strip(p.body.flow_custom), { mode: 'shape', shape: 'peak', waves: 2, places: false, kept: A, custom: A, lit: true });
+  assert.deepStrictEqual(p.body.flow_custom_was, nudge.body.flow_custom);
+  // Undo of that pick: the nudged order and the edited row exactly.
+  await post({ order: nudged, flow: undoOf(p.body) });
+  assert.deepStrictEqual(order(), nudged);
+  assert.deepStrictEqual(await kept(), nudge.body.flow_custom);
+  // Peak again, no Undo this time; Custom: A back.
+  await post({ order: peak, flow: { shape: 'peak' } });
+  const c = await post({ flow: { custom: true } });
+  assert.deepStrictEqual(c.body.order, A);
+  assert.strictEqual(c.body.flow_custom.mode, 'custom');
+  // A shape picked from Custom: the playlist order there now is kept (the one deliberate replacement).
+  await post({ move: [A[0]], before: null, flow: { manual: true } });
+  const own = order();
+  assert.strictEqual((await kept()).mode, 'custom', 'a drag over Custom stays custom');
+  const b = await post({ order: A, flow: { shape: 'build' } });
+  assert.deepStrictEqual(b.body.flow_custom.kept, own);
+  assert.strictEqual(b.body.flow_custom_was.mode, 'custom');
+  assert.ok(s.status === 200);
+  await clear(A);
+});
+
+test('edited + Custom: the kept order back (kept files in kept order, others after them, gone ones dropped), mode custom; its Undo puts back the edited row and the order', async () => {
+  const mine = order();
+  const smooth = mine.slice().reverse();
+  await post({ order: smooth, flow: { shape: 'smooth' } });
+  const d = await post({ move: [smooth[4]], before: smooth[0], flow: { manual: true } });
+  const dragged = order();
+  // A file taken out and a new one added while edited: the row is not touched, as for a shape.
+  db.removeFromCollection(coll, [mine[1]]);
+  db.addToCollection(coll, [m[5]]);
+  const k = await kept();
+  assert.strictEqual(k.rev, d.body.flow_custom.rev);
+  assert.strictEqual(k.mode, 'edited');
+  assert.strictEqual(k.lit, false);
+  assert.deepStrictEqual(k.custom, [mine[0], ...mine.slice(2), m[5]]);
+  const before = order();
+  const c = await post({ flow: { custom: true } });
+  assert.deepStrictEqual(c.body.order, [mine[0], ...mine.slice(2), m[5]]);
+  assert.strictEqual(c.body.flow_custom.mode, 'custom');
+  assert.deepStrictEqual(c.body.flow_custom.kept, mine, 'the gone file keeps its kept slot');
+  await post({ order: before, flow: undoOf(c.body) });
+  assert.deepStrictEqual(order(), before);
+  assert.deepStrictEqual(await kept(), k);
+  // The file put back while edited: it goes back to its kept place when Custom is clicked.
+  db.removeFromCollection(coll, [m[5]]);
+  db.addToCollection(coll, [mine[1]]);
+  const k2 = await kept();
+  assert.strictEqual(k2.mode, 'edited');
+  assert.deepStrictEqual(k2.custom, mine);
+  const c2 = await post({ flow: { custom: true } });
+  assert.deepStrictEqual(c2.body.order, mine);
+  assert.ok(dragged.length === 5);
+  await clear(mine);
+});
+
+test('a saved order loaded ({ manual: true } with skips) over a shape: edited, the kept order stays; a shape then keeps it; its Undo puts back the order, the skips and the row', async () => {
   const mine = order();
   const peak = [mine[2], mine[0], mine[4], mine[1], mine[3]];
   const p = await post({ order: peak, flow: { shape: 'peak' } });
   const chip = await post({ order: mine.slice().reverse(), skips: [mine[0]], flow: { manual: true } });
   assert.deepStrictEqual(chip.body.skipped_ids, [mine[0]]);
-  assert.strictEqual((await kept()).mode, 'custom');
+  assert.strictEqual((await kept()).mode, 'edited');
+  assert.deepStrictEqual((await kept()).kept, mine);
+  // A shape after the chip: the kept order is still mine.
+  const s = await post({ order: mine, flow: { shape: 'steady' } });
+  assert.deepStrictEqual(s.body.flow_custom.kept, mine);
+  await post({ order: mine.slice().reverse(), flow: undoOf(s.body) });
+  assert.deepStrictEqual(await kept(), chip.body.flow_custom);
   await post({ order: peak, skips: chip.body.was_skipped_ids, flow: undoOf(chip.body) });
   assert.deepStrictEqual(order(), peak);
   assert.deepStrictEqual(db.getCollectionSkips(coll), []);
   assert.deepStrictEqual(await kept(), p.body.flow_custom);
   await clear(mine);
+});
+
+test('Custom over Custom by hand: a drag keeps Custom lit and the row untouched', async () => {
+  const mine = order();
+  const p = await post({ order: mine.slice().reverse(), flow: { shape: 'peak' } });
+  const c = await post({ flow: { custom: true } });
+  const d = await post({ move: [mine[0]], before: null, flow: { manual: true } });
+  assert.strictEqual(d.body.flow_custom.mode, 'custom');
+  assert.strictEqual(d.body.flow_custom.rev, c.body.flow_custom.rev);
+  assert.ok(p.status === 200);
+  await clear(mine);
+});
+
+test('restore takes mode edited; an unknown mode in a row reads as edited (nothing lit, the kept order safe from a shape pick and from drags)', async () => {
+  const mine = order();
+  const k = [mine[4], mine[3], mine[2], mine[1], mine[0]];
+  const r = await post({ order: mine, flow: { restore: { mode: 'edited', shape: 'build', kept: k, rev: 11 }, rev: null } });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+  assert.deepStrictEqual(strip(await kept()), { mode: 'edited', shape: 'build', waves: 2, places: false, kept: k, custom: k, lit: false });
+  assert.strictEqual((await kept()).rev, 11);
+  // A later Vault's mode.
+  db.get().prepare("UPDATE flow_custom_orders SET mode = 'something-new' WHERE collection_id = ?").run(coll);
+  const u = await kept();
+  assert.strictEqual(u.mode, 'edited');
+  assert.strictEqual(u.lit, false);
+  await post({ move: [mine[0]], before: null, flow: { manual: true } });
+  assert.deepStrictEqual((await kept()).kept, k);
+  const p = await post({ order: mine.slice().reverse(), flow: { shape: 'peak' } });
+  assert.deepStrictEqual(p.body.flow_custom.kept, k, 'a shape from an unknown mode keeps the kept order');
+  assert.strictEqual(p.body.flow_custom.mode, 'shape');
+  const c = await post({ flow: { custom: true } });
+  assert.deepStrictEqual(c.body.order, k);
+  await clear(mine);
+});
+
+test('a row change bumps the library version (another window reads the collection again); a write that changes nothing in it does not add a bump of its own', async () => {
+  const mine = order();
+  const v = () => require('../lib/library-index').version(db.get());
+  const v0 = v();
+  await post({ order: mine, flow: { shape: 'peak' } });   // no file moves, the row is new
+  const v1 = v();
+  assert.ok(v1 > v0, 'a row put in moves the version');
+  await post({ order: mine, flow: { shape: 'peak' } });   // the same shape again: nothing
+  assert.strictEqual(v(), v1);
+  await post({ order: mine, flow: { manual: true } });     // shape -> edited, no file moved
+  const v2 = v();
+  assert.ok(v2 > v1);
+  // GET /api/collections/:id carries the row, for another window's panel.
+  const g = await send('GET', `/api/collections/${coll}`);
+  assert.strictEqual(g.body.flow_custom.mode, 'edited');
+  assert.deepStrictEqual(g.body.media_ids, mine);
+  await clear(mine);
+  assert.ok(v() > v2, 'removing the row moves it too');
+  assert.strictEqual((await send('GET', `/api/collections/${coll}`)).body.flow_custom, null);
 });
 
 test('every write that says nothing leaves the row alone (real routes): Remove and its Undo, Add, a plain order and skips from another client, an import', async () => {

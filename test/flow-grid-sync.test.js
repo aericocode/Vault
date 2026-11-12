@@ -151,7 +151,8 @@ async function dragTo(p, list) {
   return () => orderWrite(p, prev, flow);
 }
 
-const panel = (p) => { const s = p.Flow.shape(); return s.custom ? 'custom' : (s.lit ? s.shape : '?'); };
+/** What the panel lights: 'custom', a shape, or 'none' (a shape changed by hand: neither). */
+const panel = (p) => { const s = p.Flow.shape(); return s.custom ? 'custom' : (s.lit ? s.shape : 'none'); };
 const row = (p) => p.server.custom.state(p.server.playlist);
 
 /** The chart's order, the grid's order and Next from each file all agree. */
@@ -230,7 +231,7 @@ test('files the grid never lists (a document, a trashed file) are left off the c
 });
 
 
-test('a move after a shape: the chart and the grid stay on one order, Custom is lit and the shape never snaps back', async () => {
+test('a move after a shape: the chart and the grid stay on one order, nothing is lit and the shape never snaps back', async () => {
   const p = page({ hidden: [1, 3] });
   await p.Flow.toggle(3);
   await p.Flow.pickShape('waves');
@@ -240,6 +241,7 @@ test('a move after a shape: the chart and the grid stay on one order, Custom is 
   await dragTo(p, next);
   assertOneOrder(p, 'after a move');
   assert.strictEqual(p.Flow.shape().lit, false, 'no longer the shape');
+  assert.strictEqual(panel(p), 'none', 'nor the kept order: Custom is not lit');
   assert.strictEqual(p.Flow._view.guide(), null, 'no guide for a shape the playlist is not in');
   const w = p.server.writes;
   await p.Flow.refetch(true);
@@ -249,6 +251,8 @@ test('a move after a shape: the chart and the grid stay on one order, Custom is 
 });
 
 /* ── Custom: the user's own order, kept while a shape is in (lib/flow/custom.js) ── */
+
+const settle = async () => { for (let i = 0; i < 30; i++) await new Promise(r => setImmediate(r)); };
 
 const MINE = [8, 1, 7, 2, 6, 3, 5, 4];
 
@@ -326,61 +330,109 @@ test('the checker\'s repro: Peak lit, a file taken out and added again (at the e
   assert.deepStrictEqual(p.server.playlist, MINE, 'file 5 back in its kept place');
 });
 
-test('no relighting by coincidence: a drag back by hand to the shaped order stays Custom, and Custom does nothing', async () => {
+test('no relighting by coincidence: a drag back by hand to the shaped order stays edited (nothing lit), and Custom brings the kept order back', async () => {
   const p = await mine();
   await p.Flow.pickShape('smooth');
   const shaped = p.server.playlist.slice();
   await dragTo(p, shaped.slice(1).concat(shaped[0]));
-  assert.strictEqual(panel(p), 'custom');
+  assert.strictEqual(panel(p), 'none');
   await dragTo(p, shaped);
   assert.deepStrictEqual(p.server.playlist, shaped);
-  assert.strictEqual(panel(p), 'custom', 'the shaped order by hand is a hand order');
-  const w = p.server.writes;
-  assert.strictEqual(await p.Flow.pickCustom(), false);
-  assert.strictEqual(p.server.writes, w, 'nothing written');
-  assert.deepStrictEqual(row(p).kept, MINE, 'the kept order is still there for the next shape pick... ');
-  // ...and the next shape pick takes the hand order as the custom one (from Custom).
+  assert.strictEqual(panel(p), 'none', 'the shaped order by hand is a hand order');
+  assert.deepStrictEqual(row(p).kept, MINE, 'the kept order is still there');
+  // The next shape pick keeps it (the order was a shape changed by hand, not the user's own).
   await p.Flow.pickShape('peak');
-  await p.Flow.pickCustom();
-  assert.deepStrictEqual(p.server.playlist, shaped);
+  assert.deepStrictEqual(row(p).kept, MINE);
+  assert.strictEqual(await p.Flow.pickCustom(), true);
+  assert.deepStrictEqual(p.server.playlist, MINE);
 });
 
-test('a drag while a shape is lit: Custom lit, the kept order stays; the drag undone puts the shape back lit and Custom restores it', async () => {
+test('a drag while a shape is lit: nothing lit, the kept order stays; the drag undone puts the shape back lit; Custom restores the kept order and its Undo puts back the dragged order, nothing lit', async () => {
   const p = await mine();
   await p.Flow.pickShape('smooth');
   const shaped = p.server.playlist.slice();
   const before = row(p);
-  const undo = await dragTo(p, shaped.slice(1).concat(shaped[0]));
+  const dragged = shaped.slice(1).concat(shaped[0]);
+  const undo = await dragTo(p, dragged);
   assert.deepStrictEqual(p.server.bodies.at(-1).flow, { manual: true });
-  assert.strictEqual(panel(p), 'custom', 'Custom lit after a drag');
+  assert.strictEqual(panel(p), 'none', 'neither the shape nor Custom after a drag');
+  assert.strictEqual(row(p).mode, 'edited');
   assert.deepStrictEqual(row(p).kept, MINE, 'kept');
-  const w = p.server.writes;
-  assert.strictEqual(await p.Flow.pickCustom(), false, 'Custom is lit: nothing to bring back');
-  assert.strictEqual(p.server.writes, w);
   await undo();
   assert.deepStrictEqual(p.server.playlist, shaped);
   assert.deepStrictEqual(row(p), before, 'the row exactly as before the drag');
   assert.strictEqual(panel(p), 'smooth', 'the shape is lit again');
+  // Drag again, then Custom from the edited order.
+  await dragTo(p, dragged);
+  const edited = row(p);
   assert.strictEqual(await p.Flow.pickCustom(), true);
-  assert.deepStrictEqual(p.server.playlist, MINE, 'and Custom brings the kept order back exactly');
+  assert.deepStrictEqual(p.server.bodies.at(-1), { flow: { custom: true } });
+  assert.deepStrictEqual(p.server.playlist, MINE, 'Custom brings the kept order back exactly');
+  assert.strictEqual(panel(p), 'custom');
+  await p.undos.at(-1).fn();
+  assert.deepStrictEqual(p.server.playlist, dragged);
+  assert.deepStrictEqual(row(p), edited, 'the edited row exactly');
+  assert.strictEqual(panel(p), 'none');
 });
 
-test('a drag while shaped and no Undo, then another shape: the dragged order is the custom one now; that pick\'s Undo puts back the row from before', async () => {
+test('the owner\'s case: own order, a shape, a nudge, another shape: the kept order is still the own one (not the nudged shape); that pick\'s Undo puts back the edited row', async () => {
   const p = await mine();
   await p.Flow.pickShape('waves');
   const shaped = p.server.playlist.slice();
   const dragged = shaped.slice(1).concat(shaped[0]);
   await dragTo(p, dragged);
   const rowDragged = row(p);
+  assert.strictEqual(rowDragged.mode, 'edited');
   await p.Flow.pickShape('peak');
-  assert.deepStrictEqual(row(p).kept, dragged, 'replaced: a shape picked from Custom');
+  assert.strictEqual(panel(p), 'peak');
+  assert.deepStrictEqual(row(p).kept, MINE, 'kept: a shape changed by hand never replaces it');
   await p.undos.at(-1).fn();
   assert.deepStrictEqual(p.server.playlist, dragged);
-  assert.deepStrictEqual(row(p), rowDragged, 'MINE kept again, mode custom');
-  assert.strictEqual(panel(p), 'custom');
+  assert.deepStrictEqual(row(p), rowDragged, 'the edited row exactly');
+  assert.strictEqual(panel(p), 'none');
   await p.Flow.pickShape('peak');
-  await p.Flow.pickCustom();
-  assert.deepStrictEqual(p.server.playlist, dragged);
+  // No Undo used: Custom still gives the own order.
+  assert.strictEqual(await p.Flow.pickCustom(), true);
+  assert.deepStrictEqual(p.server.playlist, MINE);
+  assert.strictEqual(panel(p), 'custom');
+});
+
+test('while edited, a file taken out and put back: the row is not touched, nothing lit, and Custom puts the file back in its kept place', async () => {
+  const p = await mine();
+  await p.Flow.pickShape('peak');
+  const shaped = p.server.playlist.slice();
+  await dragTo(p, shaped.slice().reverse());
+  const r = row(p);
+  const now = p.server.playlist.slice();
+  await members(p, now.filter(id => id !== 7));
+  assert.strictEqual(panel(p), 'none');
+  await members(p, now.filter(id => id !== 7).concat(7));
+  assert.strictEqual(row(p).rev, r.rev, 'the row is not touched');
+  assert.strictEqual(panel(p), 'none');
+  assert.strictEqual(await p.Flow.pickCustom(), true);
+  assert.deepStrictEqual(p.server.playlist, MINE, 'file 7 back in its kept place');
+});
+
+test('another window changes only which button is lit (no file moves): this panel repaints from the collection read again', async () => {
+  const server = newServer();
+  const a = page({ server });
+  await a.Flow.toggle(3);
+  await dragTo(a, MINE);
+  // Another window: Peak worked out to this very order would move nothing; a hand-made row says the same.
+  const r = postOrder(server, { order: MINE.slice(), flow: { shape: 'peak' } });
+  assert.deepStrictEqual(r.body.order, MINE);
+  assert.strictEqual(panel(a), 'custom', 'a has not heard yet');
+  // The library check (collections.js takeCollectionAnswer): the same files, the row read again.
+  const read = () => a.ctx.flowCustomAnswer(3, { media_ids: server.playlist.slice(), flow_custom: server.custom.state(server.playlist) }, { read: true });
+  read();
+  await settle();
+  assert.strictEqual(panel(a), 'peak');
+  postOrder(server, { order: MINE.slice(), flow: { manual: true } });
+  read();
+  assert.strictEqual(panel(a), 'none');
+  postOrder(server, { flow: { custom: true } });
+  read();
+  assert.strictEqual(panel(a), 'custom');
 });
 
 test('a stale Undo after later actions cannot destroy the kept order: the order goes back, the row is left as it is now', async () => {
@@ -388,12 +440,12 @@ test('a stale Undo after later actions cannot destroy the kept order: the order 
   await p.Flow.pickShape('peak');
   const peakUndo = p.undos.at(-1).fn;   // would remove the row (there was none before Peak)
   const shaped = p.server.playlist.slice();
-  await dragTo(p, shaped.slice().reverse());   // a later change of the row (mode custom)
+  await dragTo(p, shaped.slice().reverse());   // a later change of the row (mode edited)
   const now = row(p);
   await peakUndo();
   assert.deepStrictEqual(p.server.playlist, MINE, 'the order from before Peak');
   assert.deepStrictEqual(row(p), now, 'the row is not touched: MINE still kept');
-  assert.strictEqual(panel(p), 'custom');
+  assert.strictEqual(panel(p), 'none');
 });
 
 /* Membership changes and order writes that say nothing leave the row alone. */
@@ -443,7 +495,7 @@ test('files added and taken out while a shape is lit: the shape stays lit, Custo
   assert.strictEqual(panel(p), 'custom');
 });
 
-test('a shape pick that changes nothing on screen: undoable when it lights the shape, nothing at all when it is lit already', async () => {
+test('a shape pick that changes nothing on screen: undoable (and said so) when it lights the shape, nothing at all when it is lit already', async () => {
   const p = page();
   await p.Flow.toggle(3);
   // The playlist is already what Peak works out (by hand).
@@ -452,7 +504,7 @@ test('a shape pick that changes nothing on screen: undoable when it lights the s
   assert.strictEqual(await p.Flow.pickShape('peak'), false, 'the order did not change');
   assert.strictEqual(panel(p), 'peak');
   assert.strictEqual(p.undos.length, n + 1, 'but Peak lit now: with Undo');
-  assert.match(p.undos.at(-1).m, /already Peak/);
+  assert.strictEqual(p.undos.at(-1).m, 'Peak is picked. The files were already in that order.');
   await p.undos.at(-1).fn();
   assert.strictEqual(panel(p), 'custom');
   assert.strictEqual(row(p), null);
@@ -463,6 +515,7 @@ test('a shape pick that changes nothing on screen: undoable when it lights the s
   assert.strictEqual(p.server.writes, w);
   assert.strictEqual(p.undos.length, u);
   assert.deepStrictEqual(row(p), r);
+  assert.strictEqual(p.toasts.at(-1), 'The playlist order is already Peak', 'said with no Undo');
 });
 
 test('after a reload the lit shape comes from the server, and Custom still brings the kept order back', async () => {
@@ -518,7 +571,6 @@ test('a shape that could not be written leaves the panel (and this computer) as 
   assert.strictEqual(panel(p), 'build');
 });
 
-const settle = async () => { for (let i = 0; i < 30; i++) await new Promise(r => setImmediate(r)); };
 
 test('a shape written on the server with its answer lost: the panel follows what the server holds', async () => {
   const p = await mine();

@@ -88,6 +88,8 @@ function takeCollectionAnswer(id, data, { filesChanged = false } = {}) {
   if (typeof Skips !== 'undefined' && Array.isArray(data.skipped_ids) && Skips.take(id, data.skipped_ids)) Skips.changed(id);
   else if (active && typeof renderCollectionCount === 'function') renderCollectionCount();
   if (moved && typeof flowSavedStale === 'function') flowSavedStale(id);
+  // What Flow keeps for Custom, read again with the files: the panel's lit button follows even when no file moved (another window).
+  if (Array.isArray(data.media_ids) && data.flow_custom !== undefined && typeof flowCustomAnswer === 'function') flowCustomAnswer(id, data, { read: true });
   // The order read from the server differs (another window, the library check): the Flow panel's lit button follows.
   if (reordered && typeof flowOrderSynced === 'function') flowOrderSynced(id);
   // Read again while open (a change made elsewhere): files that left are unticked.

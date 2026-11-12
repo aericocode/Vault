@@ -3173,7 +3173,9 @@ app.delete('/api/collections/:id', (req, res) => {
 app.get('/api/collections/:id', (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'bad id' });
-  res.json({ media_ids: db.getCollectionItems(id), skipped_ids: db.getCollectionSkips(id), ...db.collectionLength(id) });
+  const mediaIds = db.getCollectionItems(id);
+  // What Flow keeps for Custom (lib/flow/custom.js): another window's panel lights the right button from it.
+  res.json({ media_ids: mediaIds, skipped_ids: db.getCollectionSkips(id), flow_custom: flowCustom.state(db.get(), id, mediaIds), ...db.collectionLength(id) });
 });
 
 // Skip on tracks (db.setCollectionSkips): a skipped file keeps its place and
