@@ -382,6 +382,9 @@ test('two quick skips in a saved order both count (its writes go one after anoth
   assert.deepStrictEqual([...p.Skips.setFor(7)].sort((a, b) => a - b), [5, 7, 8]);
 });
 
+// collections.js takeCollectionAnswer, the one place a collection answer is taken ('' where it is not there yet).
+const answerFn = (src) => (src.includes('function takeCollectionAnswer(') ? grab(src, 'function takeCollectionAnswer(') : '');
+
 test('fetchCollectionMembers stores the new lengths before the skips redraw the count line', async () => {
   const src = read('player-lib/collections.js');
   const order = [];
@@ -396,9 +399,59 @@ test('fetchCollectionMembers stores the new lengths before the skips redraw the 
     flowSavedStale: (id) => order.push(`saved orders read again ${id}`),
   });
   coll.skipped_count = 1;
-  vm.runInContext(`${grab(src, 'async function fetchCollectionMembers(')}\nglobalThis.__f = fetchCollectionMembers;`, ctx);
+  vm.runInContext(`${answerFn(src)}\n${grab(src, 'async function fetchCollectionMembers(')}\nglobalThis.__f = fetchCollectionMembers;`, ctx);
   await ctx.__f(3, true);
   assert.deepStrictEqual(order, ['length', 'redraw sees skipped_count=0', 'saved orders read again 3']);
+});
+
+/*
+ * The library-version refresh (collections.js, the vault:results-changed
+ * listener: a change made in another window or client, then focus) goes
+ * through takeCollectionAnswer too: lengths, files, the playlist's skips
+ * and the saved orders, not the lengths alone.
+ */
+function versionRefresh(answer, { skipped = [], members = [1, 2, 3, 4, 5, 6, 7, 8] } = {}) {
+  const src = read('player-lib/collections.js');
+  const listener = src.slice(src.indexOf('let _collLengthKey = null;'), src.indexOf('/** A collections request that failed'));
+  assert.ok(listener.includes("'vault:results-changed'"));
+  const p = page({ skipped, counts: { skipped_count: skipped.length, skipped_seconds: skipped.length * 30 } });
+  const listeners = [];
+  const stale = [];
+  const ctx = p.ctx;
+  Object.assign(ctx, {
+    collectionMembers: new Map([[7, members.slice()]]),
+    Library: { spec: { collectionId: 7 }, version: 1 },
+    flowSavedStale: (id) => stale.push(id),
+    renderCollectionCount: () => {},
+    _untickLeftOpenCollection: () => {},
+    takeCollectionLength: (c, d) => { for (const k of ['skipped_count', 'skipped_seconds', 'total_seconds']) if (k in d) c[k] = d[k]; },
+    fetch: async () => ({ ok: true, json: async () => answer }),
+  });
+  ctx.window.addEventListener = (type, fn) => listeners.push([type, fn]);
+  vm.runInContext(`${answerFn(src)}\n${listener}`, ctx);
+  const fire = async (v) => { ctx.Library.version = v; for (const [t, fn] of listeners) if (t === 'vault:results-changed') fn(); for (let i = 0; i < 10; i++) await new Promise(r => setImmediate(r)); };
+  return { p, fire, stale, ctx };
+}
+
+test('outside change, a saved order with its own skips showing: the version refresh reads its saved orders again', async () => {
+  // File 7 taken out by another client: the answer has 7 files.
+  const r = versionRefresh({ media_ids: [1, 2, 3, 4, 5, 6, 8], skipped_ids: [], total_seconds: 210, skipped_count: 0, skipped_seconds: 0 });
+  await r.fire(1);            // the collection just opened: already read
+  assert.deepStrictEqual(r.stale, []);
+  await r.fire(2);            // the library moved (focus after the outside change)
+  assert.deepStrictEqual(r.stale, [7], 'its saved orders (own skips, their length) are read again');
+  assert.deepStrictEqual(r.ctx.collectionMembers.get(7), [1, 2, 3, 4, 5, 6, 8], 'its files too');
+});
+
+test('outside change, Playlist order: the only skipped file taken out elsewhere, Unskip all goes', async () => {
+  const r = versionRefresh({ media_ids: [1, 2, 3, 4, 5, 6, 8], skipped_ids: [], total_seconds: 210, skipped_count: 0, skipped_seconds: 0 }, { skipped: [7] });
+  assert.match(r.p.skipHeaderHtml(r.p.coll), /Unskip all/);
+  await r.fire(1);
+  await r.fire(2);
+  assert.strictEqual(r.p.Skips.count(7), 0);
+  assert.strictEqual(r.p.skipHeaderHtml(r.p.coll), '', 'no Unskip all');
+  assert.strictEqual(r.p.skipCountParts(r.p.coll), null, 'nothing skipped is said');
+  assert.deepStrictEqual(r.p.events, [7], 'the page hears of it (tiles and count line redrawn)');
 });
 
 test('Stage\'s count: a skipped file played by hand is counted (the bar does not go blank)', () => {
