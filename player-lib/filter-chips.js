@@ -192,6 +192,32 @@ function themeChipWaiting() {
   return typeof Library !== 'undefined' && Library.index && Library.index.state !== 'ready';
 }
 
+/**
+ * The Rating list's counts. The server counts "N and up" (a 4-star file
+ * counts towards 1 to 4, lib/library-facets.js); exactly N is N and up less
+ * N+1 and up.
+ */
+function fchipRatingCounts(total, up) {
+  const r = (i) => Number(up && up[i]) || 0;
+  const out = { '0': total, unrated: r('unrated') };
+  for (let i = 1; i <= 5; i++) {
+    out[i] = r(i);
+    out[`eq${i}`] = Math.max(0, r(i) - (i < 5 ? r(i + 1) : 0));
+  }
+  return out;
+}
+
+/**
+ * The Rating list: Any, Unrated, each star on its own, then "and up" under a
+ * line. The old "5" (saved before, the same files as exactly 5) shows only
+ * while it is the one set.
+ */
+function fchipRatingItems(opts, selected) {
+  return opts
+    .filter(o => o.value !== '5' || selected === '5')
+    .map(o => ({ value: o.value, label: o.label, ...(o.value === '1' ? { divider: true } : {}) }));
+}
+
 /** { optionValue: count } for one filter, or null when it does not do counts. */
 function fchipCountsFor(key) {
   const c = fchipCountMaps();
@@ -203,8 +229,7 @@ function fchipCountsFor(key) {
     case 'language':   return fromMap(c.language);
     case 'quality':    return fromMap(c.quality);
     case 'theme':      return fromMap(c.theme);
-    case 'rating':     return { '0': c.total, unrated: c.rating.unrated, 1: c.rating[1],
-                                2: c.rating[2], 3: c.rating[3], 4: c.rating[4], 5: c.rating[5] };
+    case 'rating':     return fchipRatingCounts(c.total, c.rating);
     case 'fave':       return tri(c.fave);
     case 'notes':      return tri(c.notes);
     case 'flagged':    return tri(c.flagged);
@@ -232,8 +257,8 @@ function fchipItems(key) {
   if (!sel) return [];
   const opts = [...sel.options];
   if (key === 'rating') {
-    // This select's own labels are already the ones the mock asks for.
-    return tally(opts.map(o => ({ value: o.value, label: o.textContent.trim() })));
+    // This select's own labels are already the ones the list shows.
+    return tally(fchipRatingItems(opts.map(o => ({ value: o.value, label: o.textContent.trim() })), sel.value));
   }
   // Option 0 is the "All Languages" placeholder — it becomes plain "Any".
   return tally([{ value: d.def, label: d.anyLabel || 'Any' }]

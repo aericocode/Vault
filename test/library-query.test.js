@@ -430,6 +430,24 @@ test('binary id list layout', async () => {
   }
 });
 
+// ── Rating: exactly a star, or that star and up ───────────────────────────
+
+test('Rating eq3 is exactly three stars; 3 stays three and up (older saved searches)', async () => {
+  const set = async (minRating) => new Set(await ids({ filters: { minRating } }));
+  const eq3 = await set('eq3');
+  assert.ok(eq3.has(ID.star1) && eq3.has(ID.star2), 'the three-star files');
+  assert.ok(!eq3.has(ID.rated5), 'not the five-star one');
+  assert.strictEqual(eq3.size, 2);
+  const up3 = await set('3');
+  assert.ok(up3.has(ID.star1) && up3.has(ID.star2) && up3.has(ID.rated5), '3 and up, as it always was');
+  assert.strictEqual(up3.size, 3);
+  assert.deepStrictEqual([...await set('eq5')], [ID.rated5]);
+  assert.deepStrictEqual([...await set('5')], [ID.rated5]);
+  assert.strictEqual((await set('eq1')).size, 0, 'no one-star files in this library');
+  assert.throws(() => q.normalizeSpec({ filters: { minRating: 'eq6' } }), (e) => e.status === 400);
+  assert.throws(() => q.normalizeSpec({ filters: { minRating: 'eq0' } }), (e) => e.status === 400);
+});
+
 // ── Validation ────────────────────────────────────────────────────────────
 
 test('invalid specs are rejected with the field named', () => {

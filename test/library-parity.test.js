@@ -264,7 +264,11 @@ function browserResult(ctx, st) {
     if (triDuplicates === '1' && !isDuplicate(m.filepath)) return false;
     if (triDuplicates === '0' && duplicateExtras.has(m.filepath)) return false;
     if (minRatingValue === 'unrated' && (m.user_rating || 0) > 0) return false;
-    if (minRatingValue !== '0' && minRatingValue !== 'unrated') {
+    // Exactly that star (the Rating filter's own rows since the "and up"
+    // ones moved under them; '1'..'5' keep meaning "and up").
+    if (/^eq[1-5]$/.test(minRatingValue)) {
+      if ((m.user_rating || 0) !== Number(minRatingValue.slice(2))) return false;
+    } else if (minRatingValue !== '0' && minRatingValue !== 'unrated') {
       const minRating = parseInt(minRatingValue) || 0;
       if (minRating > 0 && (m.user_rating || 0) < minRating) return false;
     }
