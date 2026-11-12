@@ -947,7 +947,9 @@ function startAudioSimilarity(anchorId) {
       document.getElementById('mediaPlayerOverlay')?.classList.contains('active')) {
     closeMediaPlayer();
   }
-  if (typeof switchTab === 'function') switchTab('library');
+  // The ranking is the Library view's (a collection opened from the rail closes).
+  if (typeof goToLibraryView === 'function') goToLibraryView();
+  else if (typeof switchTab === 'function') switchTab('library');
   renderAudioSimBar();
   applyFilters();
   const m = getMediaById(anchorId);

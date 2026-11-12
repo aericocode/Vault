@@ -258,8 +258,10 @@ function openFilterPopover(anchor, opts) {
   if (list) {
     shown = _fpopRenderList(list, items, '', opts.selected);
     // The set value starts active, so Enter on an untouched popover repeats it
-    // rather than jumping to the top of the list.
-    setActive(Math.max(0, shown.findIndex(i => _fpopIsSelected(i.value, opts.selected))));
+    // rather than jumping to the top of the list. Where several can be on,
+    // Enter there would turn that one off, so nothing starts active (Enter
+    // then just closes, below; the arrows start at the top).
+    setActive(opts.multi ? -1 : Math.max(0, shown.findIndex(i => _fpopIsSelected(i.value, opts.selected))));
     list.addEventListener('click', (e) => {
       const row = e.target.closest('.fpop-opt');
       if (row) pick(Number(row.dataset.idx));
@@ -329,6 +331,8 @@ function openFilterPopover(anchor, opts) {
     // Enter on the order toggle presses that button; it does not choose the
     // active row out from under the user.
     else if (e.key === 'Enter' && e.target.closest?.('[data-fpop-sort]')) { /* the button's own */ }
+    // Several can be on and no row is active yet: Enter changes nothing, it closes.
+    else if (e.key === 'Enter' && opts.multi && active < 0) { e.preventDefault(); closeFilterPopover(); }
     else if (e.key === 'Enter') { e.preventDefault(); pick(active); }
   });
 

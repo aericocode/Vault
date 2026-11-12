@@ -112,7 +112,7 @@ test('saved searches: capture stores the value as it is, restore turns an old on
   assert.match(ss, /filterMinRating: document\.getElementById\('filterMinRating'\)\?\.value \|\| '0'/);
   assert.match(grab(ss, 'restoreFilterControls'), /ratingNormalize\(v\)/);
   // ...and the query sends the value as it is.
-  assert.match(read('player-lib/filters.js'), /minRating: document\.getElementById\('filterMinRating'\)\?\.value \|\| '0'/);
+  assert.match(grab(read('player-lib/filters.js'), 'viewFiltersSpec'), /minRating: str\('filterMinRating', '0'\) \|\| '0'/);
 });
 
 test('the popover and the rail let several stars be on, and Any clears them', () => {
@@ -127,4 +127,14 @@ test('the popover and the rail let several stars be on, and Any clears them', ()
   assert.strictEqual(c2.f('eq4', ['eq4', 'eq5']), true);
   assert.strictEqual(c2.f('eq3', ['eq4', 'eq5']), false);
   assert.strictEqual(c2.f('eq3', 'eq3'), true);
+});
+
+test('Enter on an untouched Rating popover changes nothing; other popovers keep repeating their value', () => {
+  const open = grab(read('player-lib/filter-popover.js'), 'openFilterPopover');
+  // Nothing starts active where several can be on; one value starts on its row.
+  assert.match(open, /setActive\(opts\.multi \? -1 : Math\.max\(0, shown\.findIndex\(i => _fpopIsSelected\(i\.value, opts\.selected\)\)\)\)/);
+  // Enter with no active row in a multi list closes it, before the plain pick.
+  const close = open.indexOf("e.key === 'Enter' && opts.multi && active < 0) { e.preventDefault(); closeFilterPopover(); }");
+  const pick = open.indexOf("e.key === 'Enter') { e.preventDefault(); pick(active); }");
+  assert.ok(close > 0 && close < pick, 'the multi Enter is handled first');
 });

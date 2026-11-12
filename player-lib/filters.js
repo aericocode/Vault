@@ -91,11 +91,10 @@ function setFocusIds(ids, label, opts) {
     if (typeof showToast === 'function') showToast('There are no files to show.');
     return;
   }
-  // The focus shows in the Library tab: go there first, so the search text it
-  // clears (and puts back when it ends) is the Library's own (searchScope below).
-  if (typeof switchTab === 'function' && typeof currentTab !== 'undefined' && currentTab !== 'library') {
-    switchTab('library');
-  }
+  // The focus shows in the Library view: go there first (closing a collection
+  // opened from the rail too), so the search text it clears (and puts back
+  // when it ends) is the Library's own (searchScope below).
+  goToLibraryView();
   const search = document.getElementById('searchInput');
   // Re-setting the same opts (a new match width) keeps the search text saved
   // when the focus began; anything else ends the focus that was showing.
@@ -269,9 +268,26 @@ function syncSearchScope() {
   if (typeof renderAudioSimBar === 'function') renderAudioSimBar();
 }
 
-/** A collection is open: the Library-only overrides (focus, audio similarity) stay out of it. */
+/** Another view than the Library holds the controls (an open collection, or
+ *  the Collections cards): the Library-only overrides (focus, audio
+ *  similarity) are hidden and stay out of it. */
 function libraryOverridesOff() {
-  return typeof activeCollectionId !== 'undefined' && activeCollectionId != null;
+  return SearchScopes.key !== 'library';
+}
+
+/** A collection was deleted: forget what its view held (an id can come back). */
+function searchScopeForget(collectionId) {
+  SearchScopes.views.delete(searchScopeKey('collections', collectionId));
+}
+
+/** Go to the Library view: its tab, with no collection open (one opened from the rail closes). */
+function goToLibraryView() {
+  if (typeof currentTab !== 'undefined' && currentTab !== 'library') {
+    if (typeof switchTab === 'function') switchTab('library');
+  } else if (typeof activeCollectionId !== 'undefined' && activeCollectionId != null
+      && typeof closeCollection === 'function') {
+    closeCollection();
+  }
 }
 
 // Extensions that browsers can natively play/render (no plugin needed)
@@ -725,45 +741,69 @@ function semanticEnabled() {
 
 const QUERY_SORT_FIELDS = ['processed', 'name', 'size', 'duration', 'rating', 'views', 'done'];
 
-/** The 6.1 query spec for what the controls say right now. */
-function currentQuerySpec() {
-  const [field, dir] = String(currentSort || 'processed_desc').split('_');
-  const collectionOpen = typeof activeCollectionId !== 'undefined' && activeCollectionId != null;
+/**
+ * The filters part of a query spec, from a view's filters as
+ * captureViewFilters gives them (null: nothing set). One mapping for the
+ * view on screen and for the Library's stored view (libraryQuerySpec).
+ */
+function viewFiltersSpec(filters, collectionOpen) {
+  const f = filters || {};
+  const str = (k, def = '') => (f[k] != null ? String(f[k]) : def);
+  const tri = (k) => str(k, VIEW_FILTER_TRIS[k] || '');
+  return {
+    mediaTypes: Array.isArray(f.mediaTypes) ? [...f.mediaTypes] : [],
+    safeOnly: !!f.safeOnly,
+    extensions: Array.isArray(f.selectedExtensions) ? [...f.selectedExtensions] : [],
+    content: str('filterContent'),
+    language: str('filterLanguage'),
+    quality: str('filterQuality'),
+    theme: str('filterTheme'),
+    minRating: str('filterMinRating', '0') || '0',
+    durMin: f.durMin || 0,
+    durMax: f.durMax == null ? null : f.durMax,
+    // The 📁 tri-filter only applies with no collection open (as before).
+    collections: collectionOpen ? '' : str('filterCollections'),
+    song: Number(f.filterSong || 0),
+    // A stream tag (player-lib/stream-tags.js fills the list).
+    streamTag: Number(f.filterStreamTag || 0),
+    starred: str('filterStarred'),
+    hasNotes: str('filterHasNotes'),
+    flagged: str('filterFlagged'),
+    trashed: tri('filterTrashed'),
+    failed: str('filterFailed'),
+    duplicates: str('filterDuplicates'),
+    scanStatus: str('filterScanStatus'),
+    // Folder watchers: gone from disk / added since you last looked
+    missing: str('filterMissing'),
+    watchNew: str('filterWatchNew'),
+  };
+}
+
+/**
+ * The 6.1 query spec for what the controls say right now, or with
+ * opts.library, for the Library view whatever is on screen: its own search
+ * text and filters (kept in SearchScopes while another view holds the
+ * controls), its sort, no collection, and its focus and audio similarity.
+ * The Wall's "Current library filter" source asks for that.
+ */
+function currentQuerySpec(opts) {
+  const library = !!(opts && opts.library);
+  const libraryHere = SearchScopes.key === 'library';
+  const stored = library && !libraryHere ? (SearchScopes.views.get('library') || SEARCH_SCOPE_EMPTY) : null;
+  const sortValue = library && typeof librarySortValue === 'function' ? librarySortValue() : currentSort;
+  const [field, dir] = String(sortValue || 'processed_desc').split('_');
+  const collectionOpen = !library && typeof activeCollectionId !== 'undefined' && activeCollectionId != null;
+  // Focus and audio similarity are the Library view's alone.
+  const overrides = library || libraryHere;
   const spec = {
     search: {
-      text: document.getElementById('searchInput').value.trim(),
+      text: (stored ? stored.text || '' : document.getElementById('searchInput').value).trim(),
       metadataOnly: document.getElementById('metadataOnly')?.checked || false,
       fuzzy: document.getElementById('fuzzySearch')?.checked || false,
       semantic: semanticEnabled(),
       subtitles: typeof subtitleSearchOn === 'function' ? subtitleSearchOn() : false,
     },
-    filters: {
-      mediaTypes: [...selectedMediaTypes],
-      safeOnly: !!safeOnly,
-      extensions: [...selectedExtensions],
-      content: document.getElementById('filterContent').value,
-      language: document.getElementById('filterLanguage').value,
-      quality: document.getElementById('filterQuality').value,
-      theme: document.getElementById('filterTheme').value,
-      minRating: document.getElementById('filterMinRating')?.value || '0',
-      durMin: durMinM || 0,
-      durMax: durMaxM == null ? null : durMaxM,
-      // The 📁 tri-filter only applies with no collection open (as before).
-      collections: collectionOpen ? '' : getTriFilterValue('filterCollections'),
-      song: Number(document.getElementById('filterSong')?.value || 0),
-      // A stream tag (player-lib/stream-tags.js fills the list).
-      streamTag: Number(document.getElementById('filterStreamTag')?.value || 0),
-      starred: getTriFilterValue('filterStarred'),
-      hasNotes: getTriFilterValue('filterHasNotes'),
-      flagged: getTriFilterValue('filterFlagged'),
-      trashed: getTriFilterValue('filterTrashed'),
-      failed: getTriFilterValue('filterFailed'),
-      duplicates: getTriFilterValue('filterDuplicates'),
-      scanStatus: getTriFilterValue('filterScanStatus'),
-      // Folder watchers: gone from disk / added since you last looked
-      missing: getTriFilterValue('filterMissing'),
-      watchNew: getTriFilterValue('filterWatchNew'),
-    },
+    filters: viewFiltersSpec(stored ? stored.filters : captureViewFilters(), collectionOpen),
     collectionId: collectionOpen ? activeCollectionId : null,
     sort: {
       // 'playlist': the open collection's saved order (collection-reorder.js)
@@ -771,23 +811,25 @@ function currentQuerySpec() {
       dir: dir === 'asc' ? 'asc' : 'desc',
       favesFirst: typeof favesFirst !== 'undefined' && !!favesFirst,
     },
-    // An active focus set answers for the whole chain (see setFocusIds). It
-    // is the Library's: an open collection is not narrowed by it.
-    onlyIds: focusIds && !collectionOpen ? [...focusIds] : null,
+    // An active focus set answers for the whole chain (see setFocusIds).
+    onlyIds: focusIds && overrides ? [...focusIds] : null,
     // ≈ Audio-similarity: files sharing songs with the anchor (plus the
     // anchor itself), ranked most-similar first; filters still apply.
     rankedIds: null,
   };
-  // The Library's too (startAudioSimilarity goes there first).
-  if (typeof audioSimScores !== 'undefined' && audioSimScores && !collectionOpen) {
+  if (typeof audioSimScores !== 'undefined' && audioSimScores && overrides) {
     spec.rankedIds = [{ id: audioSimAnchorId, score: 2 }];
     for (const [id, score] of audioSimScores) if (id !== audioSimAnchorId) spec.rankedIds.push({ id, score });
+  }
+  if (library) {
+    if (focusIds && focusRanked) spec.rankedIds = focusRanked;
+    return spec;
   }
   // Flow order on an open collection (player-lib/flow.js): the order it worked out.
   const flowRanked = typeof flowQueryRanked === 'function' ? flowQueryRanked() : null;
   if (flowRanked && spec.collectionId != null && !spec.rankedIds) spec.rankedIds = flowRanked;
   // A ranked focus (a person search) orders the grid by its own scores.
-  if (focusIds && focusRanked && !collectionOpen) spec.rankedIds = focusRanked;
+  if (focusIds && focusRanked && overrides) spec.rankedIds = focusRanked;
   // A person open in the Faces tab: exactly their files, in their order. The
   // library's search box and filters are out of sight there, so they stay out.
   const person = typeof facesPersonQuery === 'function' ? facesPersonQuery() : null;
@@ -809,6 +851,14 @@ function currentQuerySpec() {
     spec.rankedIds = null;
   }
   return spec;
+}
+
+/** The Library view is narrowed (search text, a filter, a focus or audio
+ *  similarity), whatever is on screen: the Wall's empty message asks. */
+function libraryNarrowed() {
+  const spec = currentQuerySpec({ library: true });
+  return !!(spec.search.text || spec.onlyIds || spec.rankedIds
+    || JSON.stringify(spec.filters) !== JSON.stringify(viewFiltersSpec(null, false)));
 }
 
 /** True on the Collections tab with no collection open: cards only, no media. */

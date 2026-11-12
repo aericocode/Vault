@@ -81,6 +81,28 @@ function page() {
     ${grab('captureViewFilters')}
     ${grab('applyViewFilters')}
     ${grab('syncSearchScope')}
+    ${grab('libraryOverridesOff')}
+    ${grab('searchScopeForget')}
+    ${grabConst('QUERY_SORT_FIELDS')}
+    let focusIds = null;
+    let focusRanked = null;
+    let audioSimScores = null;
+    let audioSimAnchorId = null;
+    let currentSort = 'processed_desc';
+    let favesFirst = false;
+    let libSort = 'processed_desc';
+    function librarySortValue() { return libSort; }
+    function semanticEnabled() { return false; }
+    ${grab('viewFiltersSpec')}
+    ${grab('currentQuerySpec')}
+    ${grab('libraryNarrowed')}
+    globalThis.specStr = (opts) => JSON.stringify(currentQuerySpec(opts));
+    globalThis.setFocus = (ids) => { focusIds = ids ? new Set(ids) : null; };
+    globalThis.setSim = (anchor, pairs) => { audioSimAnchorId = anchor; audioSimScores = pairs ? new Map(pairs) : null; };
+    globalThis.sorts = (cur, lib) => { currentSort = cur; libSort = lib; };
+    globalThis.narrowed = () => libraryNarrowed();
+    globalThis.overridesOff = () => libraryOverridesOff();
+    globalThis.forget = (id) => searchScopeForget(id);
     globalThis.go = (tab, coll) => { currentTab = tab; activeCollectionId = coll; syncSearchScope(); return els.searchInput.value; };
     globalThis.types = (t) => { if (t) selectedMediaTypes = t; return [...selectedMediaTypes]; };
     globalThis.saved = (id) => { if (id !== undefined) activeSavedSearchId = id; return activeSavedSearchId; };
@@ -88,6 +110,7 @@ function page() {
     globalThis.persisted = (state) => JSON.parse(JSON.stringify(
       searchScopePersisted(SearchScopes, state, Object.keys(captureFilterControls()))));
   `, ctx);
+  ctx.spec = (opts) => JSON.parse(ctx.specStr(opts));
   return ctx;
 }
 
@@ -220,22 +243,99 @@ test('every search syncs first, and things that go to the Library go there befor
   assert.ok(apply.indexOf('syncSearchScope();') >= 0, 'applyFilters syncs');
   assert.ok(apply.indexOf('syncSearchScope();') < apply.indexOf('currentQuerySpec()'), 'before the spec is read');
   const focus = grab('setFocusIds');
-  assert.ok(focus.indexOf("switchTab('library')") < focus.indexOf("getElementById('searchInput')"),
+  assert.ok(focus.indexOf('goToLibraryView();') >= 0 && focus.indexOf('goToLibraryView();') < focus.indexOf("getElementById('searchInput')"),
     'the focus clears (and later restores) the Library\'s own text');
+  // ...the Library view: its tab, or the rail's open collection closed.
+  const go = grab('goToLibraryView');
+  assert.match(go, /switchTab\('library'\)/);
+  assert.match(go, /closeCollection\(\)/);
+  const music = fs.readFileSync(path.join(ROOT, 'player-lib', 'music.js'), 'utf8');
+  assert.match(grab('startAudioSimilarity', music), /goToLibraryView\(\)/);
   const editor = fs.readFileSync(path.join(ROOT, 'player-lib', 'editor.js'), 'utf8');
   const song = grab('editorShowSongInLibrary', editor);
   assert.ok(song.indexOf("switchTab('library')") < song.indexOf("getElementById('filterSong')"),
     'Show in library sets the Library\'s own Song filter');
 });
 
-test('the Library\'s focus and audio similarity stay out of an open collection', () => {
-  const spec = grab('currentQuerySpec');
-  assert.match(spec, /onlyIds: focusIds && !collectionOpen \?/);
-  assert.match(spec, /audioSimScores && !collectionOpen/);
-  assert.match(spec, /focusIds && focusRanked && !collectionOpen/);
+test('the Library\'s focus and audio similarity: only in the Library view, not a collection or the cards', () => {
+  const ctx = page();
+  ctx.setFocus([1, 2, 3]);
+  ctx.setSim(1, [[1, 1], [5, 0.5]]);
+  assert.deepStrictEqual(ctx.spec().onlyIds, [1, 2, 3], 'the Library on screen');
+  assert.ok(ctx.spec().rankedIds, 'ranked');
+  assert.strictEqual(ctx.overridesOff(), false);
+  for (const [tab, coll] of [['collections', null], ['collections', 4], ['library', 4]]) {
+    ctx.go(tab, coll);
+    const s = ctx.spec();
+    assert.strictEqual(s.onlyIds, null, `${tab} ${coll}: no focus`);
+    assert.strictEqual(s.rankedIds, null, `${tab} ${coll}: no audio similarity`);
+    assert.strictEqual(ctx.overridesOff(), true, `${tab} ${coll}: the bars hide`);
+    // ...but the Library's own spec (the Wall) still has them.
+    assert.deepStrictEqual(ctx.spec({ library: true }).onlyIds, [1, 2, 3]);
+    assert.ok(ctx.spec({ library: true }).rankedIds);
+  }
   assert.match(grab('renderFocusBar'), /libraryOverridesOff\(\)/);
   const music = fs.readFileSync(path.join(ROOT, 'player-lib', 'music.js'), 'utf8');
   assert.match(grab('renderAudioSimBar', music), /libraryOverridesOff\(\)/);
+});
+
+test('the Library\'s own query (the Wall\'s "Current library filter"), whatever view holds the controls', () => {
+  const ctx = page();
+  const { els } = ctx;
+  ctx.sorts('name_asc', 'name_asc');
+  els.searchInput.value = 'beach';
+  els.filterMinRating.value = 'eq4,eq5';
+  const here = ctx.spec({ library: true });
+  assert.strictEqual(here.search.text, 'beach');
+  assert.strictEqual(here.filters.minRating, 'eq4,eq5');
+  assert.deepStrictEqual(here, ctx.spec(), 'on the Library: the same as the grid\'s');
+  assert.strictEqual(ctx.narrowed(), true);
+
+  // The Collections cards (the reported case), then an open collection with its own.
+  for (const coll of [null, 4]) {
+    ctx.go('collections', coll);
+    if (coll) { els.searchInput.value = 'intro'; els.filterMinRating.value = 'eq1'; ctx.sorts('playlist_asc', 'name_asc'); }
+    const s = ctx.spec({ library: true });
+    assert.strictEqual(s.search.text, 'beach', 'the Library\'s text');
+    assert.strictEqual(s.filters.minRating, 'eq4,eq5', 'the Library\'s filters, not "0"');
+    assert.strictEqual(s.filters.trashed, '0', 'the trash hidden, as the Library had it');
+    assert.strictEqual(s.collectionId, null, 'never a collection');
+    assert.deepStrictEqual(s.sort, { field: 'name', dir: 'asc', favesFirst: false }, 'the Library\'s sort');
+    assert.strictEqual(ctx.narrowed(), true);
+  }
+  // The grid's own spec is still the collection's.
+  const grid = ctx.spec();
+  assert.strictEqual(grid.collectionId, 4);
+  assert.strictEqual(grid.filters.minRating, 'eq1');
+
+  // A Library with nothing set is not narrowed, from anywhere.
+  ctx.go('library', null);
+  els.searchInput.value = '';
+  els.filterMinRating.value = '0';
+  ctx.go('collections', null);
+  assert.strictEqual(ctx.narrowed(), false);
+  assert.strictEqual(ctx.spec({ library: true }).filters.minRating, '0');
+
+  const wall = fs.readFileSync(path.join(ROOT, 'player-lib', 'wall.js'), 'utf8');
+  assert.match(wall, /currentQuerySpec\(\{ library: true \}\)/);
+  assert.match(wall, /narrowed: typeof libraryNarrowed === 'function' && libraryNarrowed\(\)/);
+});
+
+test('a deleted collection\'s view is forgotten', () => {
+  const ctx = page();
+  ctx.go('collections', 4);
+  ctx.els.filterQuality.value = 'low';
+  ctx.go('collections', null);
+  ctx.forget(4);
+  ctx.go('collections', 4);
+  assert.strictEqual(ctx.els.filterQuality.value, '', 'a collection with the same id starts unfiltered');
+  const coll = fs.readFileSync(path.join(ROOT, 'player-lib', 'collections.js'), 'utf8');
+  for (const fn of ['cardDelete', 'deleteCollectionTwoStep']) {
+
+    const body = grab(fn, coll);
+    assert.ok(body.indexOf('applyFilters()') < body.indexOf('searchScopeForget(id)'), `${fn}: forgets after leaving the view`);
+  }
+  assert.match(grab('cardDelete', coll), /searchScopeForget\(id\)/);
 });
 
 test('the launch restore puts the remembered state in the Library, even when Collections came back first', () => {
