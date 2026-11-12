@@ -96,5 +96,5 @@ test('a collection that is not open any more forgets what Flow held for it', asy
   const s = p.Flow._state();
   assert.strictEqual(s.cid, null);
   assert.strictEqual(s.data, null);
-  assert.strictEqual(s.applied, null);
+  assert.strictEqual(s.custom, null);
 });

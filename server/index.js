@@ -23,6 +23,7 @@ const fs = require('fs');
 const express = require('express');
 const config = require('../config');
 const db = require('../lib/database');
+const flowCustom = require('../lib/flow/custom');
 const thumbnails = require('../lib/thumbnails');
 const thumbSettings = require('../lib/thumb-settings');
 const trash = require('../lib/trash');
@@ -3255,22 +3256,35 @@ app.delete('/api/collections/:id/items', (req, res) => {
 // With skips: [ids] too (a saved order loaded, player-lib/flow.js), those
 // become exactly the skipped files in the same transaction; the answer adds
 // skipped_ids and was_skipped_ids (the skips before, for Undo).
+// With flow: null | { shape, waves?, places?, custom? } (Flow's shapes and
+// Custom, lib/flow/custom.js) the answer adds flow_custom and
+// flow_custom_was (what the collection keeps for Custom, after and before).
+// Any write without flow (a drag, its Undo) makes this order the custom one.
 app.post('/api/collections/:id/order', (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'bad id' });
   const withSkips = req.body && req.body.skips !== undefined;
   const skips = withSkips ? skipIds({ ids: req.body.skips }) : null;
   if (withSkips && !skips) return res.status(400).json({ error: 'skips must be a list of file ids' });
-  let order, skipped = null;
+  const withFlow = req.body && req.body.flow !== undefined;
+  let flow;
+  if (withFlow) {
+    try { flow = flowCustom.cleanFlow(req.body.flow); } catch (err) { return res.status(400).json({ error: err.message, code: err.code }); }
+  }
+  let r;
   try {
-    if (withSkips) ({ order, ...skipped } = db.reorderCollectionWithSkips(id, req.body, skips));
-    else order = db.reorderCollection(id, req.body);
+    r = db.reorderCollectionFull(id, req.body, { skips: withSkips ? skips : undefined, flow });
   } catch (err) {
     const status = COLL_ERR_STATUS[err.code];
     if (status) return res.status(status).json({ error: err.message, code: err.code });
     throw err;
   }
-  const more = skipped ? { skipped_ids: skipped.skipped, was_skipped_ids: skipped.was } : {};
+  const order = r.order;
+  const more = withSkips ? { skipped_ids: r.skipped, was_skipped_ids: r.was } : {};
+  if (withFlow) {
+    more.flow_custom = r.custom ? { ...r.custom, lit: true } : null;
+    more.flow_custom_was = r.customWas;
+  }
   res.json({ order, item_count: order.length, first_ids: order.slice(0, 4), ...more, ...db.collectionLength(id) });
 });
 

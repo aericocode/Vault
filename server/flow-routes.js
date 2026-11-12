@@ -35,10 +35,15 @@
  *   400 BAD (with the reason), 404 NOT_FOUND, 409 NAME_TAKEN (names are
  *   unique per collection, ignoring case) or FULL (30 a collection).
  *
- * A shape picked, or a saved order loaded, is written as the playlist order
- * with the existing POST /api/collections/:id/order { order, skips? } (and
- * Undo the same, with the old order and skips), so nothing here writes a
- * collection.
+ * Custom (lib/flow/custom.js): the collection's own order kept while a shape
+ * is in. The Flow order answer above adds custom: { custom, shape, waves,
+ * places, shaped, lit } or null (no shape put in).
+ *   GET    /api/flow/collections/:id/custom  { custom: the same, or null }
+ *
+ * A shape picked, Custom, or a saved order loaded, is written as the
+ * playlist order with the existing POST /api/collections/:id/order
+ * { order, skips?, flow? } (and Undo the same, with the old order, skips
+ * and flow), so nothing here writes a collection.
  *
  * Everything is under /api: the lock gate (423 while locked) and the CSRF /
  * Host / Fetch Metadata guards in server/index.js cover it.
@@ -49,6 +54,7 @@ const flow = require('../lib/flow/service');
 const FlowOrder = require('../player-lib/flow-order.js');
 const db = require('../lib/database');
 const saved = require('../lib/flow/saved');
+const custom = require('../lib/flow/custom');
 
 const ERR = { NOT_FOUND: 404, FOLDER: 400, TOO_MANY: 413, VAULT_LOCKED: 423, BAD: 400, NAME_TAKEN: 409, FULL: 409 };
 
@@ -90,8 +96,16 @@ function buildRouter() {
     const places = req.query.places == null || req.query.places === '' ? '0' : String(req.query.places);
     if (places !== '0' && places !== '1') return res.status(400).json({ error: 'places must be 0 or 1' });
     try {
-      res.json(await flow.collectionFlow(id, { shape, waves, firstId: first, places: places === '1' }));
+      const answer = await flow.collectionFlow(id, { shape, waves, firstId: first, places: places === '1' });
+      // The answer can be a cached one: Custom is read fresh and added to a copy.
+      res.json({ ...answer, custom: custom.state(db.get(), id, answer.playlistOrder) });
     } catch (err) { fail(res, err); }
+  });
+
+  router.get('/api/flow/collections/:id/custom', (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'bad id' });
+    try { res.json({ custom: custom.state(db.get(), id) }); } catch (err) { fail(res, err); }
   });
 
   router.post('/api/flow/collections/:id/measure', (req, res) => {

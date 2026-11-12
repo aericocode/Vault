@@ -496,11 +496,7 @@ async function cardDuplicate(id) {
     return;
   }
   const copy = await resp.json();
-  // A saved Flow order is remembered in this browser per collection (flow.js).
-  try {
-    const flow = localStorage.getItem(`vault.flow.order.${id}`);
-    if (flow) localStorage.setItem(`vault.flow.order.${copy.id}`, flow);
-  } catch {}
+  // Its saved Flow orders and Custom order are copied on the server (database.js duplicateCollection).
   collectionsList = await fetch('/api/collections').then(r => r.json());
   renderResults();
   renderCollectionsTabBar();

@@ -18,6 +18,7 @@ const path = require('path');
 const vm = require('vm');
 const FlowOrder = require('../player-lib/flow-order.js');
 const FlowChartMath = require('../player-lib/flow-chart-math.js');
+const { flowCustomFake } = require('./helpers/flow-custom-fake');
 
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'flow.js'), 'utf8');
 const SKIPS_SRC = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'collection-skips.js'), 'utf8');
@@ -27,7 +28,7 @@ const feat = (id) => ({ id, measured: true, music: true, es: 0.2 + (id % 4) * 0.
 
 /** The server: the collection's playlist order and skips, and its saved orders. */
 function server(ids = [1, 2, 3, 4, 5, 6, 7, 8]) {
-  return { members: ids.slice(), skips: [], saved: [], nextId: 1, posts: [], puts: [], orders: [], store: new Map() };
+  return { members: ids.slice(), skips: [], saved: [], nextId: 1, posts: [], puts: [], orders: [], store: new Map(), custom: flowCustomFake(CID) };
 }
 
 function page(srv) {
@@ -94,8 +95,9 @@ function page(srv) {
         srv.orders.push(body);
         const same = body.order.length === srv.members.length && body.order.every(id => srv.members.includes(id));
         if (!same) return fail(400, { error: 'order must list every file in the collection exactly once', code: 'BAD_ORDER' });
+        const before = srv.members.slice();
         srv.members = body.order.slice();
-        const out = { order: srv.members.slice(), item_count: srv.members.length };
+        const out = { order: srv.members.slice(), item_count: srv.members.length, ...srv.custom.write(before, srv.members, body) };
         if (body.skips) {
           out.was_skipped_ids = srv.skips.slice();
           srv.skips = srv.members.filter(id => body.skips.includes(id));
@@ -103,6 +105,7 @@ function page(srv) {
         }
         return ok(out);
       }
+      if (/\/api\/flow\/collections\/3\/custom$/.test(url)) return ok({ custom: srv.custom.state(srv.members) });
       m = /\/api\/flow\/collections\/(\d+)\?shape=(\w+)&places=(\d)(?:&waves=(\d))?/.exec(url);
       if (m) {
         const shape = m[2], on = m[3] === '1', waves = m[4] ? Number(m[4]) : 2;
@@ -110,7 +113,8 @@ function page(srv) {
         const order = FlowOrder.planOrder(feats, { shape, waves }).order;
         const sum = FlowOrder.summary(feats, order);
         return ok({ shape, waves, order, playlistOrder: srv.members.slice(), features: feats, targets: FlowOrder.targetsFor(shape, feats),
-          handovers: sum.handovers, jumps: sum.jumps, playlistJumps: 0, counts: { measured: feats.length, failed: 0, music: feats.length }, places: {}, placesOn: on });
+          handovers: sum.handovers, jumps: sum.jumps, playlistJumps: 0, counts: { measured: feats.length, failed: 0, music: feats.length }, places: {}, placesOn: on,
+          custom: srv.custom.state(srv.members) });
       }
       return ok({ collection: { total: srv.members.length, measured: srv.members.length, failed: 0, left: 0, stale: 0 }, queue: { state: 'idle' } });
     },
@@ -126,6 +130,7 @@ function page(srv) {
 
 /** A drag as collection-reorder.js makes it: written, the page's copy, then Flow told. */
 async function drag(p, srv, order) {
+  srv.custom.write(srv.members.slice(), order, {});   // the route: a write without flow
   srv.members = order.slice();
   p.ctx.collectionMembers.set(CID, order.slice());
   await p.ctx.flowMembersChanged(CID);
@@ -173,7 +178,7 @@ test('clicking a chip loads it into the playlist order (order and skips, one req
   p.S.take(CID, [6]); srv.skips = [6];
   assert.strictEqual(lit(p), null);
   assert.strictEqual(await p.Flow.saved.use(srv.saved[0].id), true);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [8, 7, 6, 5, 4, 3, 2, 1], skips: [1, 2] });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [8, 7, 6, 5, 4, 3, 2, 1], flow: null, skips: [1, 2] });
   assert.strictEqual(srv.orders.length, 1, 'one request');
   assert.deepStrictEqual(srv.members, [8, 7, 6, 5, 4, 3, 2, 1]);
   assert.deepStrictEqual(p.ctx.collectionMembers.get(CID), [8, 7, 6, 5, 4, 3, 2, 1]);
@@ -186,7 +191,7 @@ test('clicking a chip loads it into the playlist order (order and skips, one req
   assert.strictEqual(srv.orders.length, 1);
   // Undo: the order and the skips from before.
   await p.undos.at(-1).fn();
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [1, 2, 3, 4, 5, 6, 7, 8], skips: [6] });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [1, 2, 3, 4, 5, 6, 7, 8], flow: null, skips: [6] });
   assert.deepStrictEqual([...p.S.setFor(CID)], [6]);
   assert.strictEqual(lit(p), null);
   assert.strictEqual(p.toasts.at(-1), 'Playlist order put back');
@@ -202,14 +207,14 @@ test('a saved order from before (a shape, no skips of its own) loads its stored 
   await p.ctx.applyFilters();
   assert.match(p.Flow.saved.html(), /Old<\/span><span class="flow-chip-shape">Waves 3</);
   await p.Flow.saved.use(50);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [2, 1, 3, 4, 5, 6, 7, 9] }, 'gone file dropped, new one at the end, no skips sent');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [2, 1, 3, 4, 5, 6, 7, 9], flow: null }, 'gone file dropped, new one at the end, no skips sent');
   assert.deepStrictEqual(srv.members, [2, 1, 3, 4, 5, 6, 7, 9]);
   assert.deepStrictEqual([...p.S.setFor(CID)], [5], "the playlist's skips stay");
   assert.strictEqual(lit(p), 50);
   const st = p.Flow._state();
   assert.deepStrictEqual([st.shape, st.places], ['smooth', null], 'loading takes no shape or switch from it');
   await p.undos.at(-1).fn();
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [1, 2, 3, 4, 5, 6, 7, 9] });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(srv.orders.at(-1))), { order: [1, 2, 3, 4, 5, 6, 7, 9], flow: null });
 });
 
 test('saving while the playlist is still a shape records the shape; a chip shows it', async () => {
@@ -311,4 +316,25 @@ test('the panel has one order: no switch, no Make this the playlist order, no wo
   assert.ok(!src.includes('data-flow-save-order'));
   assert.ok(!/localStorage\.setItem\(OLD_ORDER_PREFIX/.test(src));
   assert.ok(!/—/.test(src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')), 'no em dash in what the user reads');
+});
+
+test('a chip loaded while a shape is lit: that order is the custom one (Custom lit, nothing old kept); its Undo lights the shape again', async () => {
+  const srv = server();
+  srv.saved.push({ id: 60, collectionId: CID, name: 'Mine', shape: 'playlist', waves: 2, places: false, order: [8, 1, 7, 2, 6, 3, 5, 4], skips: null, createdAt: 1, updatedAt: 1 });
+  const p = page(srv);
+  await p.Flow.toggle(CID);
+  await p.ctx.applyFilters();
+  await p.Flow.pickShape('peak');
+  const peak = srv.members.slice();
+  assert.strictEqual(p.Flow.shape().lit, true);
+  assert.strictEqual(await p.Flow.saved.use(60), true);
+  assert.deepStrictEqual(srv.members, [8, 1, 7, 2, 6, 3, 5, 4]);
+  assert.strictEqual(p.Flow.shape().custom, true);
+  assert.strictEqual(srv.custom.state(srv.members), null, 'the order from before the shape is dropped');
+  await p.undos.at(-1).fn();
+  assert.deepStrictEqual(srv.members, peak);
+  assert.strictEqual(p.Flow.shape().custom, false);
+  assert.strictEqual(p.Flow.shape().shape, 'peak');
+  assert.strictEqual(p.Flow.shape().lit, true);
+  assert.deepStrictEqual(srv.custom.state(srv.members).custom, [1, 2, 3, 4, 5, 6, 7, 8], 'and the custom order with it');
 });
