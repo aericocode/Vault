@@ -184,7 +184,7 @@ function collectionsVm({ failDelete = false } = {}) {
   ctx.getCollectionById = (id) => ctx.collectionsList.find(c => c.id === id);
   vm.createContext(ctx);
   const names = ['takeCollectionAnswer', 'takeCollectionLength', 'fetchCollectionMembers', 'changeCollectionMembership', '_openMembersNow', '_untickLeftOpenCollection', '_retick',
-    '_selectionRedraw', 'openPlainCollection', 'selectedInOpenCollection', 'removeSelectedFromCollection', 'undoRemoveFromCollection'];
+    '_selectionRedraw', 'openPlainCollection', 'selectedInOpenCollection', 'removeSelectedFromCollection', 'undoRemoveFromCollection', '_undoRemoveNow'];
   vm.runInContext(names.map(n => grab(coll, n)).join('\n') + `\nglobalThis.__c = { ${names.join(', ')} };`, ctx);
   return { ctx, c: ctx.__c, server, requests, toasts, undos, refreshed: () => refreshed };
 }
@@ -205,6 +205,46 @@ test('Remove from this collection: the ticked files leave it, are unticked, and 
   assert.deepStrictEqual(v.server.get(5), [1, 2, 3, 4, 5], 'back in, in the old order');
   assert.deepStrictEqual(v.ctx.collectionMembers.get(5), [1, 2, 3, 4, 5]);
   assert.strictEqual(v.toasts.pop(), 'Put back in Road <trip>');
+});
+
+test('Remove\'s Undo sends what Flow kept as a check; refused (another window changed it): the files are back at the end, a plain toast, the collection read again', async () => {
+  const v = collectionsVm();
+  const row = { mode: 'shape', shape: 'peak', waves: 2, places: false, kept: [1, 2, 3, 4, 5], rev: 9 };
+  const fetch0 = v.ctx.fetch;
+  const sent = [];
+  let stale = false;
+  v.ctx.fetch = async (url, o = {}) => {
+    const body = o.body ? JSON.parse(o.body) : null;
+    if (url === '/api/collections/5/items' && o.method === 'DELETE') {
+      const r = await fetch0(url, o);
+      const d = await r.json();
+      return { ok: true, status: 200, json: async () => ({ ...d, flow_custom: row }) };
+    }
+    if (url === '/api/collections/5/order') {
+      sent.push(body);
+      if (stale) return { ok: false, status: 409, json: async () => ({ error: 'This order was changed in another window, so there was nothing to undo.', code: 'STALE' }) };
+    }
+    return fetch0(url, o);
+  };
+  v.ctx.collResponseError = async (resp) => { const b = await resp.json(); return Object.assign(new Error(b.error), { status: resp.status, code: b.code }); };
+  const resynced = [];
+  v.ctx.collectionResync = async (id) => resynced.push(id);
+  v.ctx.flowKeepOf = (r) => (r ? { restore: { ...r }, rev: r.rev } : { restore: null, rev: null });
+  vm.runInContext(grab(read('player-lib/collections.js'), 'collectionUndoGuard'), v.ctx);
+  v.ctx.selectedIds = new Set([2]);
+  await v.c.removeSelectedFromCollection();
+  // The fitting Undo: the order with the check.
+  await v.undos[0].fn();
+  assert.deepStrictEqual(sent.at(-1), { order: [1, 2, 3, 4, 5], seen: [1, 3, 4, 5, 2], flow: { restore: row, rev: 9 } }, 'with the order the page showed: the files back at the end');
+  assert.deepStrictEqual(v.server.get(5), [1, 2, 3, 4, 5]);
+  // Again, and this time another window changed the row.
+  v.ctx.selectedIds = new Set([2]);
+  await v.c.removeSelectedFromCollection();
+  stale = true;
+  await v.undos[1].fn();
+  assert.deepStrictEqual(v.server.get(5), [1, 3, 4, 5, 2], 'the file is back, at the end; the order is not written');
+  assert.strictEqual(v.toasts.at(-1), 'Put back in Road <trip>. The order was changed in another window, so they are at the end.');
+  assert.deepStrictEqual(resynced, [5]);
 });
 
 test('Remove from this collection: nothing for a folder; a refused change leaves the files ticked', async () => {

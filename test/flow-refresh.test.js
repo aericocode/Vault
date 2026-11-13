@@ -94,7 +94,7 @@ test('Undo of a move tells Flow too', async () => {
   assert.ok(p.calls.includes('flow:5:1,2,3,4'));
 });
 
-test('a move is a hand order (flow manual) and Flow hears the answer; its Undo sends back the row from before, so a shape lit before is lit again', async () => {
+test('a move is a hand order (flow manual: over a shape, edited) and Flow hears the answer; its Undo sends back the row from before, so a shape lit before is lit again', async () => {
   const { flowCustomFake } = require('./helpers/flow-custom-fake');
   const p = reorderPage();
   const fake = flowCustomFake(5);
@@ -112,25 +112,62 @@ test('a move is a hand order (flow manual) and Flow hears the answer; its Undo s
   };
   p.ctx.flowCustomAnswer = (id, data) => heard.push([id, data.flow_custom && data.flow_custom.mode]);
   // flow.js's helper, as the page has it.
-  vm.runInContext(/function flowUndoOf[\s\S]*?\n}\r?\n/.exec(read('player-lib/flow.js'))[0], p.ctx);
+  const fsrc = read('player-lib/flow.js');
+  vm.runInContext(['flowGuardOf', 'flowKeepOf', 'flowUndoOf'].map(n => new RegExp(`function ${n}[\\s\\S]*?\\n}\\r?\\n`).exec(fsrc)[0]).join('\n'), p.ctx);
   const peakRow = fake.state(p.server.slice());
   assert.strictEqual(await p.ctx.reorderMove([2], 3), true);
-  assert.deepStrictEqual(bodies[0], { move: [2], before: 3, flow: { manual: true } });
-  assert.deepStrictEqual(heard.at(-1), [5, 'custom'], 'Custom lit');
+  assert.deepStrictEqual(bodies[0], { move: [2], before: 3, flow: { manual: true }, seen: [3, 1, 4, 2] });
+  assert.deepStrictEqual(heard.at(-1), [5, 'edited'], 'a shape changed by hand: nothing lit');
   await p.undos[0]();
   assert.deepStrictEqual(bodies[1].order, [3, 1, 4, 2]);
   assert.deepStrictEqual(bodies[1].flow.restore.mode, 'shape');
   assert.deepStrictEqual(heard.at(-1), [5, 'shape'], 'Peak lit again');
   assert.deepStrictEqual(fake.state(p.server.slice()), peakRow, 'the row exactly');
-  // With nothing kept, a move's Undo sends no flow.
+  // With nothing kept, a move's Undo checks there is still nothing kept.
   const q = reorderPage();
-  q.ctx.flowUndoOf = p.ctx.flowUndoOf;
+  for (const n of ['flowUndoOf', 'flowGuardOf', 'flowKeepOf']) q.ctx[n] = p.ctx[n];
   const sent = [];
   const f2 = flowCustomFake(5);
   q.ctx.fetch = async (url, o) => { const b = JSON.parse(o.body); sent.push(b); const r = f2.post(q.server.slice(), b); q.server.splice(0, 4, ...r.order); return json({ ...r, item_count: 4 }); };
   await q.ctx.reorderMove([1], null);
   await q.undos[0]();
-  assert.deepStrictEqual(sent[1], { order: [1, 2, 3, 4] });
+  assert.deepStrictEqual(sent[1], { order: [1, 2, 3, 4], seen: [2, 3, 4, 1], flow: { restore: null, rev: null } });
+});
+
+test('a move\'s Undo after another window changed what Flow keeps: refused (409), a plain toast, nothing installed, the collection read again', async () => {
+  const { flowCustomFake } = require('./helpers/flow-custom-fake');
+  const p = reorderPage();
+  const fsrc = read('player-lib/flow.js');
+  vm.runInContext(['flowGuardOf', 'flowKeepOf', 'flowUndoOf'].map(n => new RegExp(`function ${n}[\\s\\S]*?\\n}\\r?\\n`).exec(fsrc)[0]).join('\n') +
+    `\nvar STALE_UNDO_TEXT = ${JSON.stringify(/const STALE_UNDO_TEXT = '([^']+)'/.exec(fsrc)[1])};`, p.ctx);
+  const fake = flowCustomFake(5);
+  const toasts = [], resynced = [], installed = [];
+  p.ctx.showToast = (m) => toasts.push(m);
+  p.ctx.collectionResync = async (id) => resynced.push(id);
+  // collections.js collResponseError: the error with the server's code.
+  p.ctx.collResponseError = async (resp) => { const b = await resp.json(); return Object.assign(new Error(b.error), { status: resp.status, code: b.code }); };
+  p.ctx.fetch = async (url, o) => {
+    let r;
+    try { r = fake.post(p.server.slice(), JSON.parse(o.body)); } catch (err) {
+      return { ok: false, status: err.code === 'STALE' ? 409 : 400, json: async () => ({ error: err.message, code: err.code }) };
+    }
+    p.server.splice(0, p.server.length, ...r.order);
+    installed.push(r.order.slice());
+    return json({ ...r, item_count: r.order.length, first_ids: r.order.slice(0, 4) });
+  };
+  // A drag with Custom lit and nothing kept.
+  assert.strictEqual(await p.ctx.reorderMove([1], null), true);
+  const dragged = p.server.slice();
+  // Another window picks Peak (a row appears) and moves the files.
+  const other = fake.post(p.server.slice(), { order: [4, 3, 2, 1], flow: { shape: 'peak' } });
+  p.server.splice(0, p.server.length, ...other.order);
+  const n = installed.length;
+  await p.undos[0]();
+  assert.deepStrictEqual(p.server, [4, 3, 2, 1], 'nothing written');
+  assert.strictEqual(installed.length, n);
+  assert.deepStrictEqual(fake.state(p.server.slice()).kept, dragged, 'the kept order is the dragged one, still');
+  assert.strictEqual(toasts.at(-1), 'This order was changed in another window, so there was nothing to undo.');
+  assert.deepStrictEqual(resynced, [5], 'the collection read again');
 });
 
 test('the note over the grid: Drag tiles to rearrange in playlist order, the shuffle note after a shuffle', () => {
@@ -196,7 +233,7 @@ test('taking files out of a collection, and Undo, tell Flow once the server has 
   vm.createContext(ctx);
   const coll = read('player-lib/collections.js');
   const names = ['takeCollectionAnswer', 'takeCollectionLength', 'fetchCollectionMembers', 'changeCollectionMembership', '_openMembersNow', '_untickLeftOpenCollection', '_retick',
-    '_selectionRedraw', 'openPlainCollection', 'selectedInOpenCollection', 'removeSelectedFromCollection', 'undoRemoveFromCollection'];
+    '_selectionRedraw', 'openPlainCollection', 'selectedInOpenCollection', 'removeSelectedFromCollection', 'undoRemoveFromCollection', '_undoRemoveNow'];
   vm.runInContext(names.map(n => grab(coll, n)).join('\n') + `\nglobalThis.__c = { ${names.join(', ')} };`, ctx);
   await ctx.__c.removeSelectedFromCollection();
   assert.deepStrictEqual(flow, ['5:1,3,4,5'], 'after the server took it out');
@@ -226,6 +263,30 @@ test('an order read again from the server that differs (another window) tells Fl
   assert.deepStrictEqual(synced, [5, 5], 'a file came');
   ctx.__t(5, { order: [1, 2, 3, 4] });
   assert.deepStrictEqual(synced, [5, 5], 'an answer to this page\'s own write (no media_ids) is not a sync');
+});
+
+test('the collection read again hands Flow what it keeps for Custom, even when no file moved (another window changed only which button is lit)', () => {
+  const told = [];
+  const ctx = {
+    console, Set, Map,
+    activeCollectionId: 5,
+    collectionsList: [{ id: 5, kind: 'collection', name: 'Mix' }],
+    collectionMembers: new Map([[5, [1, 2, 3]]]),
+    flowOrderSynced() {},
+    flowCustomAnswer: (id, data, opts) => told.push([id, data.flow_custom && data.flow_custom.mode, opts]),
+    renderCollectionCount() {},
+  };
+  ctx.getCollectionById = (id) => ctx.collectionsList.find(c => c.id === id);
+  vm.createContext(ctx);
+  const coll = read('player-lib/collections.js');
+  vm.runInContext(['takeCollectionAnswer', 'takeCollectionLength'].map(n => grab(coll, n)).join('\n') + '\nglobalThis.__t = takeCollectionAnswer;', ctx);
+  ctx.__t(5, { media_ids: [1, 2, 3], flow_custom: { mode: 'edited' } });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(told)), [[5, 'edited', { read: true }]]);
+  ctx.__t(5, { media_ids: [1, 2, 3], flow_custom: null });
+  assert.strictEqual(told.length, 2, 'no row is an answer too (Custom lit)');
+  ctx.__t(5, { media_ids: [1, 2, 3] });
+  ctx.__t(5, { order: [1, 2, 3], flow_custom: null });
+  assert.strictEqual(told.length, 2, 'an older server, or this page\'s own write answer (taken elsewhere): not a read');
 });
 
 /* ── flow.js membersChanged ───────────────────────────────────────────── */

@@ -52,6 +52,8 @@
      flowMembersChanged(cid)      collection-reorder.js, collections.js, importer.js (order or files changed)
      flowSavedStale(cid)          collections.js fetchCollectionMembers (files came or went)
      flowOrderSynced(cid)         collections.js takeCollectionAnswer (the order read again differs)
+     flowCustomAnswer(cid, data, { read }?)  collection-reorder.js _installOrder (an order write's answer),
+                                  collections.js takeCollectionAnswer (read: the collection read again)
 
    Calls out (guarded): reorderReady() and reorderMove(ids, before)
    (collection-reorder.js) for dragging a column in the chart to move its
@@ -124,6 +126,11 @@ const Flow = (() => {
     if (err && err.status === 423) return;          // the lock screen takes over
     if (typeof showErrorToast === 'function') showErrorToast(err, what);
     else if (typeof showToast === 'function') showToast(`Flow: ${err.message}`);
+  };
+  // An action (not an Undo) refused because another window changed the order first (409 STALE): plain words; the caller reads it again.
+  const actionErr = (err, what) => {
+    if (err && err.code === 'STALE') { if (typeof showToast === 'function') showToast(STALE_ACTION_TEXT); return; }
+    toastErr(err, what);
   };
 
   /* ── Open / close ───────────────────────────────────────────────── */
@@ -337,16 +344,18 @@ const Flow = (() => {
      rearranges again while the playlist is still in the shape, else it is
      kept for the next pick.
 
-     Custom is the user's own order. Exactly one of Custom and the shapes
+     Custom is the user's own order. At most one of Custom and the shapes
      is lit, and the server says which (lib/flow/custom.js: the row's mode,
-     st.custom.lit); nothing is worked out by comparing orders. Each write
+     st.custom.mode); nothing is worked out by comparing orders. Each write
      says what the user did (flow, with the order): a shape picked while
      Custom is lit keeps the order from before as the custom one; shape to
      shape keeps it; Custom ({ custom: true }) has the server put it back
      (files gone since dropped, new ones at the end); a drag or a saved
-     order loaded ({ manual: true }) lights Custom. Every Undo sends back
-     the row from before the write ({ restore, rev }). Remove, Add and
-     their Undos say nothing and change nothing.
+     order loaded ({ manual: true }) over a shape leaves nothing lit (mode
+     'edited': neither the shape nor the kept order), and a shape picked
+     then keeps the kept order as it is; over Custom, Custom stays lit.
+     Every Undo sends back the row from before the write ({ restore, rev }).
+     Remove, Add and their Undos say nothing and change nothing.
 
      The shape last picked, its peaks and Place tagged files are remembered
      per collection on this computer (localStorage vault.flow.shape.<id>) as
@@ -373,10 +382,16 @@ const Flow = (() => {
     return sameIds(d.order, playlistNow());
   }
 
-  /** The shape the server has lit ({ mode, shape, waves, places, kept, custom, rev }), or null: Custom is lit. */
+  /** The shape the server has lit ({ mode, shape, waves, places, kept, custom, rev }), or null: Custom or nothing is lit. */
   function litShape() {
     const c = st.custom;
     return c && c.lit ? c : null;
+  }
+
+  /** Custom is lit: no row, or the row says so ('edited', a shape changed by hand: nothing is lit). */
+  function customLit() {
+    const c = st.custom;
+    return !c || c.mode === 'custom';
   }
 
   /** The playlist order is still the shape picked here (its peaks and Place tagged files too). */
@@ -394,7 +409,8 @@ const Flow = (() => {
     return true;
   }
 
-  const undoFlow = (data) => flowUndoOf(data);
+  // What an Undo sends: the row before, or the row unchanged as a check (flowGuardOf), so a stale Undo is refused.
+  const undoFlow = (data) => flowGuardOf(data);
 
   function rememberShape() {
     if (st.cid == null) return;
@@ -441,33 +457,44 @@ const Flow = (() => {
     return (typeof collectionMembers !== 'undefined' && collectionMembers.get(cid)) || null;
   }
 
+  // Order writes of this page on their way (customAnswer leaves a read answer landing meanwhile out).
+  let writing = 0;
+
   /*
    * Write an order (and, when given, exactly these skips) as the
    * collection's playlist order, in one request: POST
-   * /api/collections/:id/order { order, skips?, flow? }. flow says what
-   * the user did (lib/flow/custom.js); order null: none sent (Custom, the
-   * server writes the kept order). Kept to the
-   * files it has right now (gone ones dropped, new ones at the end), so a
-   * file added or taken out since is never lost; a 400 (the files changed
-   * on the way): ask again, keep to them, try once more. The answer goes
-   * where every rearrange's goes (collection-reorder.js _installOrder: the
-   * page's copy, the count line, the skips, the grid and this panel).
+   * /api/collections/:id/order { order, skips?, flow?, seen }. flow says
+   * what the user did (lib/flow/custom.js); order null: none sent (Custom,
+   * the server writes the kept order). seen is the order this page shows
+   * (its copy, collectionMembers), taken in the page's turn for order
+   * writes (collections.js collectionOrderTurn: after every write of its
+   * own is in), so the server refuses the write (409 STALE) when another
+   * window changed the order since. The order is kept to seen (files gone
+   * dropped, new ones at the end). The answer carries pageSeen: that same
+   * list, the order before this write, which is what its Undo puts back.
+   * The answer goes where every rearrange's goes (collection-reorder.js
+   * _installOrder: the page's copy, the count line, the skips, the grid
+   * and this panel).
    */
   async function writePlaylist(cid, order, skips, flow) {
-    const attempt = async () => {
-      const members = await freshMembers(cid);
-      const body = {};
-      if (order) body.order = members ? reconcile(order, members) : order.slice();
-      if (Array.isArray(skips)) body.skips = skips.slice();
-      if (flow !== undefined) body.flow = flow;
-      const p = post(`/api/collections/${cid}/order`, body);
-      return typeof Library !== 'undefined' && typeof Library.ownWrite === 'function' ? Library.ownWrite(p) : p;
+    const run = async () => {
+      writing++;
+      try { return await writeNow(cid, order, skips, flow); } finally { writing--; }
     };
-    let data;
-    try { data = await attempt(); } catch (err) {
-      if (!err || err.status !== 400) throw err;
-      data = await attempt();
-    }
+    return typeof collectionOrderTurn === 'function' ? collectionOrderTurn(run) : run();
+  }
+  async function writeNow(cid, order, skips, flow) {
+    let seen = (typeof collectionMembers !== 'undefined' && collectionMembers.get(cid)) || null;
+    if (!seen) seen = await freshMembers(cid);
+    seen = seen ? seen.slice() : null;
+    const body = {};
+    if (order) body.order = seen ? reconcile(order, seen) : order.slice();
+    if (Array.isArray(skips)) body.skips = skips.slice();
+    if (flow !== undefined) body.flow = flow;
+    if (seen) body.seen = seen;
+    const p = post(`/api/collections/${cid}/order`, body);
+    const data = await (typeof Library !== 'undefined' && typeof Library.ownWrite === 'function' ? Library.ownWrite(p) : p);
+    data.pageSeen = seen;
     customAnswer(cid, data);
     if (typeof _installOrder === 'function') await _installOrder(cid, data);
     else {
@@ -496,13 +523,26 @@ const Flow = (() => {
     if (sorted || (typeof Library !== 'undefined' && Library.shuffled)) await switchToPlaylistOrder();
   }
 
-  /** An Undo that puts back an order (and skips, when given) written here, and (flow: undoFlow) the row the server kept before it. */
+  /**
+   * An Undo that puts back an order (and skips, when given) written here,
+   * and (flow: undoFlow) the row the server kept before it. Another window
+   * changed what Flow keeps since (409 STALE): nothing was written; a plain
+   * toast, and the page reads the collection again (grid, lit button, files).
+   */
   const undoWrite = (cid, order, skips, flow) => () => inTurn(async () => {
     try {
       await writePlaylist(cid, order, skips, flow);
       await showPlaylist(cid);
       toast('Playlist order put back');
-    } catch (err) { toastErr(err, 'putting the order back'); }
+    } catch (err) {
+      if (err && err.code === 'STALE') {
+        toast(STALE_UNDO_TEXT);
+        if (cid === st.cid) await resync(cid);
+        else if (typeof fetchCollectionMembers === 'function') { try { await fetchCollectionMembers(cid, true); } catch {} }
+        return;
+      }
+      toastErr(err, 'putting the order back');
+    }
     // The shape that is lit again is the one picked (its peaks, Place tagged files).
     if (cid === st.cid && adoptLit()) refetch(true);
     paint();
@@ -551,7 +591,7 @@ const Flow = (() => {
     const prev = { shape: st.shape, waves: st.waves, places: st.places };
     const giveUp = (err, what) => {
       if (cid === st.cid) { st.shape = prev.shape; st.waves = prev.waves; st.places = prev.places; }
-      toastErr(err, what);
+      actionErr(err, what);
       paint();
       // The write may have been kept with its answer lost: the panel follows what the server holds.
       if (cid === st.cid) resync(cid);
@@ -574,24 +614,25 @@ const Flow = (() => {
       }
     } catch (err) { return giveUp(err, 'working out the order'); }
     const label = shapeName(st.shape, st.waves);
-    const before = (await freshMembers(cid)) || data.playlistOrder.slice();
     if (cid !== st.cid) return false;
-    const order = reconcile(data.order, before);
+    const order = data.order;
     const flow = { shape: st.shape, waves: st.waves, places: placesOn() };
     let written;
     try { written = await writePlaylist(cid, order, undefined, flow); } catch (err) { return giveUp(err, 'rearranging the playlist order'); }
+    // The order this write started from (the order the page showed, checked by the server): what Undo puts back.
+    const before = written.pageSeen || data.playlistOrder.slice();
     rememberShape();
     await showPlaylist(cid);
     paint();
     const same = sameIds(written.order || order, before);
     const back = undoFlow(written);
     // Worked out the same as it was and nothing kept changed: nothing to Undo.
-    if (same && back === undefined) {
+    if (same && flowUndoOf(written) === undefined) {
       toast(`The playlist order is already ${label}`);
       return false;
     }
-    // The order may be the same (a tiny collection) while the shape is lit now: that is undoable too.
-    const msg = same ? `The playlist order is already ${label}` : `Rearranged the playlist order: ${label}`;
+    // No file moved, but the shape is lit now (and Custom kept): that is undoable too.
+    const msg = same ? `${label} is picked. The files were already in that order.` : `Rearranged the playlist order: ${label}`;
     // selection.js showUndoToast takes HTML.
     if (typeof showUndoToast === 'function') showUndoToast(esc(msg), undoWrite(cid, before, undefined, back));
     else toast(msg);
@@ -604,21 +645,20 @@ const Flow = (() => {
       if (!isMine()) return false;
       const cid = st.cid;
       // Custom lit here: the panel may be behind (a change in another window), so it is read again and drawn.
-      if (!litShape()) { await resync(cid); return false; }
-      const before = (await freshMembers(cid)) || playlistNow().slice();
-      if (cid !== st.cid) return false;
+      if (customLit()) { await resync(cid); return false; }
       let data;
       try { data = await writePlaylist(cid, null, undefined, { custom: true }); } catch (err) {
-        toastErr(err, 'putting your custom order back');
+        actionErr(err, 'putting your custom order back');
         paint();
         resync(cid);
         return false;
       }
       const back = undoFlow(data);
       // Custom was lit on the server already (another window): nothing written; drawn from the server.
-      if (back === undefined) { await resync(cid); return false; }
+      if (flowUndoOf(data) === undefined) { await resync(cid); return false; }
       await showPlaylist(cid);
       paint();
+      const before = data.pageSeen || playlistNow().slice();
       const undo = undoWrite(cid, before, undefined, back);
       if (typeof showUndoToast === 'function') showUndoToast('Back to your custom order', undo);
       else toast('Back to your custom order');
@@ -814,14 +854,15 @@ const Flow = (() => {
       const cid = st.cid;
       st.savedInput = null;
       if (savedLit(s)) { paint(); return false; }
-      const before = await freshMembers(cid);
       const skips = Array.isArray(s.skips) ? s.skips : undefined;
       let data;
-      try { data = await writePlaylist(cid, s.order.length ? s.order : (before || []), skips, { manual: true }); } catch (err) {
-        toastErr(err, 'loading the saved order');
+      try { data = await writePlaylist(cid, s.order.length ? s.order : (playlistNow() || []), skips, { manual: true }); } catch (err) {
+        actionErr(err, 'loading the saved order');
         paint();
+        if (err && err.code === 'STALE') await resync(cid);
         return false;
       }
+      const before = data.pageSeen;
       await showPlaylist(cid);
       paint();
       // Undo: the order from before, and the skips from before when they were changed (the server's list).
@@ -2180,11 +2221,13 @@ const Flow = (() => {
     if (naming && st.savedInput) st.savedInput.value = a.value;
     const keepFocus = act || ['[data-flow-saved-new]', ...KEEP_FOCUS].find(sel => a?.matches?.(`#flowPanel ${sel}`));
     // Each shape rearranges the playlist order; the one it is still in is lit
-    // (litShape), else Custom is: exactly one of them.
+    // (litShape), or Custom is (customLit), or neither: a shape's order
+    // changed by hand since.
     const lit = litShape();
-    const custom = `<button type="button" data-flow-custom aria-pressed="${String(!lit)}" title="${esc(lit
-      ? 'Your own order. Come back to it after trying a shape.'
-      : 'Your own order. It is the playlist order now.')}">Custom</button>`;
+    const cLit = customLit();
+    const custom = `<button type="button" data-flow-custom aria-pressed="${String(cLit)}" title="${esc(cLit
+      ? 'Your own order. It is the playlist order now.'
+      : 'Your own order. Come back to it after trying a shape.')}">Custom</button>`;
     const shapes = custom + FlowOrder.SHAPES.map(s => {
       const on = !!lit && lit.shape === s.key;
       return `<button type="button" data-flow-shape="${s.key}" aria-pressed="${String(on)}" title="${esc(on ? `The playlist order is ${s.label} now` : `Rearrange the playlist order as ${s.label} (you can Undo)`)}">${esc(s.label)}</button>`;
@@ -2984,10 +3027,13 @@ const Flow = (() => {
     const f = st.byId.get(id);
     const ok = await changeCollectionMembership(c.id, [id], false, { quiet: true });
     if (!ok) return;
+    const guard = typeof collectionUndoGuard === 'function' ? collectionUndoGuard(c.id) : undefined;
+    // The server's order right before the remove: what its Undo puts back.
+    const back = Array.isArray(c._removeBefore) ? c._removeBefore.slice() : order;
     if (st.sel === id) { st.sel = null; paintStrip(); }
     // selection.js showUndoToast takes HTML: the names are escaped.
     const msg = namesHidden() ? `Removed this file from ${esc(c.name)}` : `Removed “${esc(shortName(f) || 'file')}” from ${esc(c.name)}`;
-    if (typeof showUndoToast === 'function' && typeof undoRemoveFromCollection === 'function') showUndoToast(msg, () => undoRemoveFromCollection(c.id, [id], order));
+    if (typeof showUndoToast === 'function' && typeof undoRemoveFromCollection === 'function') showUndoToast(msg, () => undoRemoveFromCollection(c.id, [id], back, guard));
   }
 
   /** Pick column i (or none) for the strip. */
@@ -3192,6 +3238,46 @@ const Flow = (() => {
     return null;
   }
 
+  /** Files left or came: the saved orders are read again (their own skips are kept to the files there are). */
+  function savedStale(cid) {
+    if (st.cid != null && cid === st.cid && st.savedCid === cid && savedList().length) loadSaved(cid);
+  }
+
+  const customKey = (c) => (c ? `${c.mode}|${c.shape}|${c.waves}|${c.places}|${c.rev}` : '');
+
+  /**
+   * Which of Custom and the shapes is lit now, from an order write's answer
+   * (here, or a drag: collection-reorder.js _installOrder), or (read: true)
+   * from the collection read again (collections.js takeCollectionAnswer: the
+   * library check after a change in another window, which may have moved no
+   * file at all). A read is drawn at once when it changed anything; one
+   * landing while a write of this page is on its way is left out (the
+   * write's own answer is newer).
+   */
+  function customAnswer(cid, data, { read = false } = {}) {
+    if (cid !== st.cid || !data || data.flow_custom === undefined) return;
+    if (read && writing) return;
+    const changed = customKey(st.custom) !== customKey(data.flow_custom);
+    st.custom = data.flow_custom;
+    const adopted = !inPick && adoptLit();
+    if (!read || !changed || !st.open || !isMine()) return;
+    paint();
+    if (adopted) refetch(true);
+  }
+
+  /**
+   * The collection's order or files were read again from the server
+   * (collections.js takeCollectionAnswer: a change in another window, the
+   * library check): the lit button is drawn from it at once, and what the
+   * server keeps for Custom is read again (another window may have picked a
+   * shape or Custom).
+   */
+  function orderSynced(cid) {
+    if (!st.open || !isMine() || cid !== st.cid) return;
+    paint();
+    refetch(true);
+  }
+
   /**
    * The collection's playlist order or its files changed on the server (a
    * drag or Alt+arrows in playlist order, Undo, files added or taken out:
@@ -3202,31 +3288,6 @@ const Flow = (() => {
    * flicker). Panel closed: the held answer is dropped (Flow shuffle and the
    * next open ask afresh), nothing is fetched.
    */
-  /** Files left or came: the saved orders are read again (their own skips are kept to the files there are). */
-  function savedStale(cid) {
-    if (st.cid != null && cid === st.cid && st.savedCid === cid && savedList().length) loadSaved(cid);
-  }
-
-  /**
-   * The collection's order or files were read again from the server
-   * (collections.js takeCollectionAnswer: a change in another window, the
-   * library check): the lit button is drawn from it at once, and what the
-   * server keeps for Custom is read again (another window may have picked a
-   * shape or Custom).
-   */
-  /** An order write's answer (here, or a drag: collection-reorder.js _installOrder): which of Custom and the shapes is lit now. */
-  function customAnswer(cid, data) {
-    if (cid !== st.cid || !data || data.flow_custom === undefined) return;
-    st.custom = data.flow_custom;
-    if (!inPick) adoptLit();
-  }
-
-  function orderSynced(cid) {
-    if (!st.open || !isMine() || cid !== st.cid) return;
-    paint();
-    refetch(true);
-  }
-
   function membersChanged(cid) {
     if (st.cid == null || cid !== st.cid) return null;
     if (!isMine()) { reset(); return null; }
@@ -3327,7 +3388,7 @@ const Flow = (() => {
     toggle, close, pickShape, pickWaves, pickPlaces, pickCustom, refetch,
     tileHtml, shuffleCollection, stageCurrent,
     /** The shape picked, whether the playlist order is still exactly it (its button lit), and whether Custom is lit instead. */
-    shape: () => ({ shape: st.shape, waves: st.waves, places: placesOn(), lit: shapeLit(), custom: !litShape() }),
+    shape: () => ({ shape: st.shape, waves: st.waves, places: placesOn(), lit: shapeLit(), custom: customLit() }),
     isOpen: () => st.open && isMine(),
     // The chart (tests): clicks, picks, the strip, Fit / Zoom.
     _view: {
@@ -3370,12 +3431,34 @@ function flowSettingsChanged() { return Flow.settingsChanged(); }
 function flowMembersChanged(cid) { return Flow.membersChanged(cid); }
 function flowSavedStale(cid) { return Flow.savedStale(cid); }
 function flowOrderSynced(cid) { return Flow.orderSynced(cid); }
-function flowCustomAnswer(cid, data) { return Flow.customAnswer(cid, data); }
+function flowCustomAnswer(cid, data, opts) { return Flow.customAnswer(cid, data, opts); }
 /**
  * The flow an Undo of an order write sends (POST /api/collections/:id/order,
  * lib/flow/custom.js): the row from before it, over the row it left (rev),
  * or undefined when the write changed nothing the server keeps.
  */
+/** The toast for an Undo refused because another window changed the order since (409 STALE). */
+const STALE_UNDO_TEXT = 'This order was changed in another window, so there was nothing to undo.';
+/** The toast for an action refused the same way (a drag, Alt+arrows, a shape, Custom, a saved order loaded). */
+const STALE_ACTION_TEXT = 'This playlist was changed in another window. It is up to date now, so try that again.';
+/**
+ * The flow an Undo of an order write sends: flowUndoOf when the write
+ * changed the row, else the row as it is now, unchanged ({ restore: row,
+ * rev: its rev }, or { restore: null, rev: null } for no row). The server
+ * refuses the Undo as a whole when the row is no longer that one, so an
+ * order never goes back under a mode that does not describe it.
+ * undefined: an answer from a server that says nothing about the row.
+ */
+function flowGuardOf(data) {
+  if (!data || data.flow_custom === undefined) return undefined;
+  return flowUndoOf(data) || flowKeepOf(data.flow_custom);
+}
+/** The row unchanged, as an Undo's check: { restore: row | null, rev }. */
+function flowKeepOf(row) {
+  return row
+    ? { restore: { mode: row.mode, shape: row.shape, waves: row.waves, places: row.places, kept: row.kept, rev: row.rev }, rev: row.rev }
+    : { restore: null, rev: null };
+}
 function flowUndoOf(data) {
   const was = (data && data.flow_custom_was) || null, now = (data && data.flow_custom) || null;
   if (!was && !now) return undefined;

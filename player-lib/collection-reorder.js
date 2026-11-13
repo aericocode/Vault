@@ -166,6 +166,33 @@ function _plannedOrder(order, moving, before) {
 
 const _sameOrder = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
+/** An order kept to the files there are: gone ones dropped, files added since at the end. */
+function _fitOrder(order, members) {
+  const inMembers = new Set(members), put = new Set(), out = [];
+  for (const id of order) if (inMembers.has(id) && !put.has(id)) { put.add(id); out.push(id); }
+  for (const id of members) if (!put.has(id)) { put.add(id); out.push(id); }
+  return out;
+}
+
+/** In the page's turn for order writes (collections.js collectionOrderTurn), or at once without one. */
+const _inOrderTurn = (fn) => (typeof collectionOrderTurn === 'function' ? collectionOrderTurn(fn) : fn());
+
+/** Another window changed the order first (409 STALE): plain words, nothing moved here, the page reads it again. */
+async function _staleAction(collId) {
+  showToast(typeof STALE_ACTION_TEXT === 'string' ? STALE_ACTION_TEXT : 'This playlist was changed in another window. It is up to date now, so try that again.');
+  await _readAgain(collId);
+}
+
+/** Whatever the server holds now is what the grid and Flow show. */
+async function _readAgain(collId) {
+  if (typeof collectionResync === 'function') { await collectionResync(collId); return; }
+  if (typeof fetchCollectionMembers === 'function') {
+    try { await fetchCollectionMembers(collId, true); } catch { return; }
+    if (typeof flowMembersChanged === 'function') flowMembersChanged(collId);
+    if (activeCollectionId === collId) await applyFilters({ keepPage: true });
+  }
+}
+
 async function _postOrder(collId, body) {
   const resp = await fetch(`/api/collections/${collId}/order`, {
     method: 'POST',
@@ -204,14 +231,30 @@ function _fileName(id) {
  */
 async function reorderMove(ids, before) {
   const collId = activeCollectionId;
-  const prev = _members().slice();
   const moving = new Set(ids);
   if (!ids.length || (before != null && moving.has(before))) return false;
-  if (_sameOrder(_plannedOrder(prev, moving, before), prev)) return false;
+  if (_sameOrder(_plannedOrder(_members(), moving, before), _members())) return false;
   _reorderBusy = true;
   try {
-    // A hand reorder: Flow's Custom is lit now (flow.js, lib/flow/custom.js).
-    const data = await Library.ownWrite(_postOrder(collId, { move: ids, before, flow: { manual: true } }));
+    return await _inOrderTurn(() => _moveNow(collId, ids, before));
+  } finally {
+    _reorderBusy = false;
+  }
+}
+
+/**
+ * The move itself, in the page's turn: prev is the order the page shows
+ * now (its copy, after its own writes before this one). It goes as seen,
+ * so the server refuses the move when another window changed the order
+ * (409 STALE), and the same list is what the Undo puts back.
+ */
+async function _moveNow(collId, ids, before) {
+  const prev = _members().slice();
+  const moving = new Set(ids);
+  if (_sameOrder(_plannedOrder(prev, moving, before), prev)) return false;
+  try {
+    // A hand reorder: over a shape nothing is lit then (flow.js, lib/flow/custom.js).
+    const data = await Library.ownWrite(_postOrder(collId, { move: ids, before, flow: { manual: true }, seen: prev }));
     await _installOrder(collId, data);
     const first = data.order.findIndex(id => moving.has(id));
     const n = first + 1;
@@ -219,11 +262,14 @@ async function reorderMove(ids, before) {
     const msg = ids.length === 1
       ? `Moved “${escapeHtml(_fileName(ids[0]))}” to position ${n}`
       : `Moved ${ids.length} files to position ${n}`;
-    // The Undo puts back what Flow kept before the move too (a shape lit comes back lit).
-    const flow = typeof flowUndoOf === 'function' ? flowUndoOf(data) : undefined;
+    // The Undo puts back what Flow kept before the move too (a shape lit comes
+    // back lit), or checks the row is still as the move left it (flow.js
+    // flowGuardOf): refused when another window changed it since.
+    const flow = typeof flowGuardOf === 'function' ? flowGuardOf(data) : undefined;
     showUndoToast(msg, () => reorderUndo(collId, prev, flow));
     return true;
   } catch (err) {
+    if (err && err.code === 'STALE') { await _staleAction(collId); return false; }
     collErrorToast(err, 'moving that');
     // Whatever the server holds now is what the grid should show.
     if (typeof fetchCollectionMembers === 'function') {
@@ -233,24 +279,40 @@ async function reorderMove(ids, before) {
       }).catch(() => {});
     }
     return false;
-  } finally {
-    _reorderBusy = false;
   }
 }
 
+/**
+ * Undo of a move: the order from before it (kept to the files there are
+ * now: files added since at the end), with seen (the order the page shows
+ * now) and flow (what Flow kept), both checked by the server.
+ */
 async function reorderUndo(collId, order, flow) {
   // One change at a time: wait out a move still on its way, then hold off
   // drags and keys until the order is back.
   while (_reorderBusy) await new Promise(r => setTimeout(r, 50));
   _reorderBusy = true;
   try {
-    const data = await Library.ownWrite(_postOrder(collId, flow === undefined ? { order } : { order, flow }));
+    await _inOrderTurn(() => _undoNow(collId, order, flow));
+  } finally {
+    _reorderBusy = false;
+  }
+}
+
+async function _undoNow(collId, order, flow) {
+  try {
+    const seen = _members().slice();
+    const body = { order: _fitOrder(order, seen), seen };
+    if (flow !== undefined) body.flow = flow;
+    const data = await Library.ownWrite(_postOrder(collId, body));
     await _installOrder(collId, data);
     showToast('Order put back');
   } catch (err) {
-    collErrorToast(err, 'putting the order back');
-  } finally {
-    _reorderBusy = false;
+    // Another window changed the order since (409 STALE): nothing was written; the page reads it again.
+    if (err && err.code === 'STALE') {
+      showToast(typeof STALE_UNDO_TEXT === 'string' ? STALE_UNDO_TEXT : err.message);
+      await _readAgain(collId);
+    } else collErrorToast(err, 'putting the order back');
   }
 }
 

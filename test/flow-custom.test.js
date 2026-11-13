@@ -131,51 +131,388 @@ test('the checker\'s repro: Peak lit, a file taken out and added again at the en
   await clear(mine);
 });
 
-test('by hand ({ manual: true }): Custom lit, the kept order stays; the shaped order by hand stays Custom; Undo puts the shape back; a stale Undo leaves the row', async () => {
+test('by hand over a shape ({ manual: true }): edited, nothing lit, the kept order stays; again stays edited; the shaped order by hand stays edited; each Undo puts back the row exactly; a stale Undo is refused', async () => {
   const mine = order();
   const smooth = mine.slice().reverse();
   const s = await post({ order: smooth, flow: { shape: 'smooth' } });
-  // A drag (the move route, collection-reorder.js).
+  // A drag (the move route, collection-reorder.js): shape -> edited.
   const d = await post({ move: [smooth[4]], before: smooth[0], flow: { manual: true } });
-  assert.strictEqual(d.body.flow_custom.mode, 'custom');
-  assert.deepStrictEqual(d.body.flow_custom.kept, mine);
-  // Dragged back to the smooth order by hand: still Custom.
+  assert.deepStrictEqual(strip(d.body.flow_custom), { mode: 'edited', shape: 'smooth', waves: 2, places: false, kept: mine, custom: mine, lit: false });
+  assert.notStrictEqual(d.body.flow_custom.rev, s.body.flow_custom.rev);
+  assert.deepStrictEqual(d.body.flow_custom_was, s.body.flow_custom);
+  // Another drag, and dragged back to the smooth order by hand: edited -> edited, the row not touched.
+  const d2 = await post({ move: [smooth[0]], before: null, flow: { manual: true } });
+  assert.strictEqual(d2.body.flow_custom.mode, 'edited');
+  assert.strictEqual(d2.body.flow_custom.rev, d.body.flow_custom.rev, 'already edited: the row is not touched');
   const back = await post({ order: smooth, flow: { manual: true } });
-  assert.strictEqual(back.body.flow_custom.mode, 'custom');
-  assert.strictEqual(back.body.flow_custom.rev, d.body.flow_custom.rev, 'already Custom: the row is not touched');
-  // Custom while Custom is lit: nothing.
-  const c = await post({ flow: { custom: true } });
-  assert.deepStrictEqual(c.body.order, smooth);
-  // The drag's Undo: the order and the row exactly (Smooth lit, mine kept).
-  await post({ order: smooth, flow: undoOf(d.body) });
-  assert.deepStrictEqual(await kept(), s.body.flow_custom);
-  // A stale Undo (the drag's again, after the row changed back): the order goes back, the row is left as it is.
-  const later = await post({ move: [smooth[0]], before: null, flow: { manual: true } });
-  const now = await kept();
-  assert.strictEqual(now.mode, 'custom');
+  assert.strictEqual(back.body.flow_custom.mode, 'edited');
+  assert.strictEqual(back.body.flow_custom.rev, d.body.flow_custom.rev);
+  assert.deepStrictEqual(back.body.flow_custom.kept, mine, 'the kept order is never touched by hand');
+  // Undo of the edited-to-edited drag: no row change to send back.
+  assert.strictEqual(back.body.flow_custom_was.rev, back.body.flow_custom.rev);
+  // The first drag's Undo: the order and the row exactly (Smooth lit, mine kept).
   await post({ order: smooth, flow: undoOf(d.body) });
   assert.deepStrictEqual(order(), smooth);
+  assert.deepStrictEqual(await kept(), s.body.flow_custom);
+  // A stale Undo (the drag's again, after the row changed): refused as a whole (409), nothing written.
+  const later = await post({ move: [smooth[0]], before: null, flow: { manual: true } });
+  assert.strictEqual(later.status, 200);
+  const now = await kept(), was = order();
+  assert.strictEqual(now.mode, 'edited');
+  const stale = await post({ order: smooth, flow: undoOf(d.body) });
+  assert.strictEqual(stale.status, 409);
+  assert.strictEqual(stale.body.code, 'STALE');
+  assert.deepStrictEqual(order(), was, 'the order is not written');
   assert.deepStrictEqual(await kept(), now, 'the row the later drag left');
-  assert.ok(later.status === 200);
-  // A shape picked from Custom: the playlist order there now is the custom one (the one deliberate replacement).
-  const b = await post({ order: mine, flow: { shape: 'build' } });
-  assert.deepStrictEqual(b.body.flow_custom.kept, smooth);
-  assert.strictEqual(b.body.flow_custom_was.mode, 'custom');
   await clear(mine);
 });
 
-test('a saved order loaded ({ manual: true } with skips): Custom lit; its Undo puts back the order, the skips and the row', async () => {
+test('the owner\'s case: own order A, Smooth, a nudge, Peak: the kept order is still A, and Custom brings A back after Undo is gone; each Undo exact', async () => {
+  const A = order();
+  const smooth = A.slice().reverse();
+  const s = await post({ order: smooth, flow: { shape: 'smooth' } });
+  const nudge = await post({ move: [smooth[2]], before: smooth[0], flow: { manual: true } });
+  assert.strictEqual(nudge.body.flow_custom.mode, 'edited');
+  const nudged = order();
+  // edited + a shape: mode shape, the kept order untouched (A, not the nudged Smooth).
+  const peak = [A[2], A[0], A[4], A[1], A[3]];
+  const p = await post({ order: peak, flow: { shape: 'peak' } });
+  assert.deepStrictEqual(strip(p.body.flow_custom), { mode: 'shape', shape: 'peak', waves: 2, places: false, kept: A, custom: A, lit: true });
+  assert.deepStrictEqual(p.body.flow_custom_was, nudge.body.flow_custom);
+  // Undo of that pick: the nudged order and the edited row exactly.
+  await post({ order: nudged, flow: undoOf(p.body) });
+  assert.deepStrictEqual(order(), nudged);
+  assert.deepStrictEqual(await kept(), nudge.body.flow_custom);
+  // Peak again, no Undo this time; Custom: A back.
+  await post({ order: peak, flow: { shape: 'peak' } });
+  const c = await post({ flow: { custom: true } });
+  assert.deepStrictEqual(c.body.order, A);
+  assert.strictEqual(c.body.flow_custom.mode, 'custom');
+  // A shape picked from Custom: the playlist order there now is kept (the one deliberate replacement).
+  await post({ move: [A[0]], before: null, flow: { manual: true } });
+  const own = order();
+  assert.strictEqual((await kept()).mode, 'custom', 'a drag over Custom stays custom');
+  const b = await post({ order: A, flow: { shape: 'build' } });
+  assert.deepStrictEqual(b.body.flow_custom.kept, own);
+  assert.strictEqual(b.body.flow_custom_was.mode, 'custom');
+  assert.ok(s.status === 200);
+  await clear(A);
+});
+
+test('edited + Custom: the kept order back (kept files in kept order, others after them, gone ones dropped), mode custom; its Undo puts back the edited row and the order', async () => {
+  const mine = order();
+  const smooth = mine.slice().reverse();
+  await post({ order: smooth, flow: { shape: 'smooth' } });
+  const d = await post({ move: [smooth[4]], before: smooth[0], flow: { manual: true } });
+  const dragged = order();
+  // A file taken out and a new one added while edited: the row is not touched, as for a shape.
+  db.removeFromCollection(coll, [mine[1]]);
+  db.addToCollection(coll, [m[5]]);
+  const k = await kept();
+  assert.strictEqual(k.rev, d.body.flow_custom.rev);
+  assert.strictEqual(k.mode, 'edited');
+  assert.strictEqual(k.lit, false);
+  assert.deepStrictEqual(k.custom, [mine[0], ...mine.slice(2), m[5]]);
+  const before = order();
+  const c = await post({ flow: { custom: true } });
+  assert.deepStrictEqual(c.body.order, [mine[0], ...mine.slice(2), m[5]]);
+  assert.strictEqual(c.body.flow_custom.mode, 'custom');
+  assert.deepStrictEqual(c.body.flow_custom.kept, mine, 'the gone file keeps its kept slot');
+  await post({ order: before, flow: undoOf(c.body) });
+  assert.deepStrictEqual(order(), before);
+  assert.deepStrictEqual(await kept(), k);
+  // The file put back while edited: it goes back to its kept place when Custom is clicked.
+  db.removeFromCollection(coll, [m[5]]);
+  db.addToCollection(coll, [mine[1]]);
+  const k2 = await kept();
+  assert.strictEqual(k2.mode, 'edited');
+  assert.deepStrictEqual(k2.custom, mine);
+  const c2 = await post({ flow: { custom: true } });
+  assert.deepStrictEqual(c2.body.order, mine);
+  assert.ok(dragged.length === 5);
+  await clear(mine);
+});
+
+test('a saved order loaded ({ manual: true } with skips) over a shape: edited, the kept order stays; a shape then keeps it; its Undo puts back the order, the skips and the row', async () => {
   const mine = order();
   const peak = [mine[2], mine[0], mine[4], mine[1], mine[3]];
   const p = await post({ order: peak, flow: { shape: 'peak' } });
   const chip = await post({ order: mine.slice().reverse(), skips: [mine[0]], flow: { manual: true } });
   assert.deepStrictEqual(chip.body.skipped_ids, [mine[0]]);
-  assert.strictEqual((await kept()).mode, 'custom');
+  assert.strictEqual((await kept()).mode, 'edited');
+  assert.deepStrictEqual((await kept()).kept, mine);
+  // A shape after the chip: the kept order is still mine.
+  const s = await post({ order: mine, flow: { shape: 'steady' } });
+  assert.deepStrictEqual(s.body.flow_custom.kept, mine);
+  await post({ order: mine.slice().reverse(), flow: undoOf(s.body) });
+  assert.deepStrictEqual(await kept(), chip.body.flow_custom);
   await post({ order: peak, skips: chip.body.was_skipped_ids, flow: undoOf(chip.body) });
   assert.deepStrictEqual(order(), peak);
   assert.deepStrictEqual(db.getCollectionSkips(coll), []);
   assert.deepStrictEqual(await kept(), p.body.flow_custom);
   await clear(mine);
+});
+
+test('Custom over Custom by hand: a drag keeps Custom lit and the row untouched', async () => {
+  const mine = order();
+  const p = await post({ order: mine.slice().reverse(), flow: { shape: 'peak' } });
+  const c = await post({ flow: { custom: true } });
+  const d = await post({ move: [mine[0]], before: null, flow: { manual: true } });
+  assert.strictEqual(d.body.flow_custom.mode, 'custom');
+  assert.strictEqual(d.body.flow_custom.rev, c.body.flow_custom.rev);
+  assert.ok(p.status === 200);
+  await clear(mine);
+});
+
+test('restore takes mode edited; an unknown mode in a row reads as edited (nothing lit, the kept order safe from a shape pick and from drags)', async () => {
+  const mine = order();
+  const k = [mine[4], mine[3], mine[2], mine[1], mine[0]];
+  const r = await post({ order: mine, flow: { restore: { mode: 'edited', shape: 'build', kept: k, rev: 11 }, rev: null } });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+  assert.deepStrictEqual(strip(await kept()), { mode: 'edited', shape: 'build', waves: 2, places: false, kept: k, custom: k, lit: false });
+  assert.strictEqual((await kept()).rev, 11);
+  // A later Vault's mode.
+  db.get().prepare("UPDATE flow_custom_orders SET mode = 'something-new' WHERE collection_id = ?").run(coll);
+  const u = await kept();
+  assert.strictEqual(u.mode, 'edited');
+  assert.strictEqual(u.lit, false);
+  await post({ move: [mine[0]], before: null, flow: { manual: true } });
+  assert.deepStrictEqual((await kept()).kept, k);
+  const p = await post({ order: mine.slice().reverse(), flow: { shape: 'peak' } });
+  assert.deepStrictEqual(p.body.flow_custom.kept, k, 'a shape from an unknown mode keeps the kept order');
+  assert.strictEqual(p.body.flow_custom.mode, 'shape');
+  const c = await post({ flow: { custom: true } });
+  assert.deepStrictEqual(c.body.order, k);
+  await clear(mine);
+});
+
+test('an Undo over a row that changed since is refused as a whole (409 STALE): no order, no skips, no row, no version move, in each stale case', async () => {
+  const mine = order();
+  const v = () => require('../lib/library-index').version(db.get());
+  const snap = async () => ({ order: order(), skips: db.getCollectionSkips(coll), row: await kept(), v: v() });
+  const refused = async (body, what) => {
+    const before = await snap();
+    const r = await post(body);
+    assert.strictEqual(r.status, 409, `${what}: ${JSON.stringify(r.body)}`);
+    assert.strictEqual(r.body.code, 'STALE');
+    assert.strictEqual(r.body.error, 'This order was changed in another window, so there was nothing to undo.');
+    assert.deepStrictEqual(await snap(), before, `${what}: nothing written`);
+  };
+  const reversed = mine.slice().reverse();
+  // 1. A row that changed since (another rev).
+  const p = await post({ order: reversed, flow: { shape: 'peak' } });
+  const s = await post({ order: mine, flow: { shape: 'steady' } });
+  await refused({ order: mine, skips: [mine[1]], flow: undoOf(p.body) }, 'a later rev');
+  // 2. No row expected, but there is one now (Peak's Undo would delete it).
+  await refused({ order: reversed, flow: { restore: null, rev: null } }, 'a row where none was');
+  // 3. A row expected, but it is gone (deleted by an Undo in another window).
+  await post({ order: reversed, flow: undoOf(s.body) });
+  const k = await kept();
+  await post({ order: mine, flow: { restore: null, rev: k.rev } });
+  assert.strictEqual(await kept(), null);
+  await refused({ order: reversed, flow: undoOf(p.body) }, 'no row where one was');
+  // A drag's or Remove's check (the row unchanged): refused the same way when it no longer fits.
+  await refused({ order: reversed, flow: { restore: { mode: 'shape', shape: 'peak', kept: mine, rev: 77 }, rev: 77 } }, 'a check of a row that is gone');
+  // And the fitting Undo still works.
+  assert.strictEqual((await post({ order: mine, flow: { restore: null, rev: null } })).status, 200);
+  assert.deepStrictEqual(order(), mine);
+});
+
+test('the checker\'s two-window repro on the routes: A Smooth, B Peak, A Custom, B\'s Undo of Peak refused; Waves then Custom gives A0', async () => {
+  const A0 = order();
+  const smooth = A0.slice().reverse();
+  await post({ order: smooth, flow: { shape: 'smooth' } });                          // A
+  const peak = [A0[2], A0[0], A0[4], A0[1], A0[3]];
+  const bPeak = await post({ order: peak, flow: { shape: 'peak' } });               // B, its Undo kept
+  const c = await post({ flow: { custom: true } });                                  // A
+  assert.deepStrictEqual(c.body.order, A0);
+  const stale = await post({ order: smooth, flow: undoOf(bPeak.body) });             // B's Undo
+  assert.strictEqual(stale.status, 409);
+  assert.deepStrictEqual(order(), A0, 'the Smooth order is not written under Custom');
+  assert.strictEqual((await kept()).mode, 'custom');
+  const w = await post({ order: smooth, flow: { shape: 'waves' } });
+  assert.deepStrictEqual(w.body.flow_custom.kept, A0, 'A0 kept');
+  const back = await post({ flow: { custom: true } });
+  assert.deepStrictEqual(back.body.order, A0);
+  await clear(A0);
+});
+
+test('Remove answers what Flow keeps; Remove\'s Undo with that check puts the order back, and is refused when another window changed the row since (the files stay added)', async () => {
+  const mine = order();
+  const peak = [mine[2], mine[0], mine[4], mine[1], mine[3]];
+  await post({ order: peak, flow: { shape: 'peak' } });
+  const rm = await send('DELETE', `/api/collections/${coll}/items`, { ids: [peak[1]] });
+  assert.strictEqual(rm.body.flow_custom.mode, 'shape');
+  const guard = { restore: { mode: rm.body.flow_custom.mode, shape: rm.body.flow_custom.shape, waves: rm.body.flow_custom.waves, places: rm.body.flow_custom.places, kept: rm.body.flow_custom.kept, rev: rm.body.flow_custom.rev }, rev: rm.body.flow_custom.rev };
+  // Undo as collections.js undoRemoveFromCollection does it: add back, then the order with the check.
+  await send('POST', `/api/collections/${coll}/items`, { ids: [peak[1]] });
+  const ok = await post({ order: peak, flow: guard });
+  assert.strictEqual(ok.status, 200);
+  assert.deepStrictEqual(order(), peak);
+  assert.strictEqual((await kept()).rev, rm.body.flow_custom.rev, 'the row not touched');
+  // Again, with another window's Custom in between.
+  const rm2 = await send('DELETE', `/api/collections/${coll}/items`, { ids: [peak[1]] });
+  const g2 = { restore: { ...guard.restore, rev: rm2.body.flow_custom.rev }, rev: rm2.body.flow_custom.rev };
+  await post({ flow: { custom: true } });
+  const now = order();
+  await send('POST', `/api/collections/${coll}/items`, { ids: [peak[1]] });
+  const r = await post({ order: peak, flow: g2 });
+  assert.strictEqual(r.status, 409);
+  assert.deepStrictEqual(order(), [...now, peak[1]], 'the custom order, the file put back at the end');
+  assert.strictEqual((await kept()).mode, 'custom');
+  await clear(mine);
+});
+
+test('seen (the order the page showed) not the order on disk: every kind of write refused (409 STALE), nothing written; without seen accepted; a bad seen is 400', async () => {
+  const mine = order();
+  const v = () => require('../lib/library-index').version(db.get());
+  const snap = async () => ({ order: order(), skips: db.getCollectionSkips(coll), row: await kept(), v: v() });
+  const reversed = mine.slice().reverse();
+  const peak = [mine[2], mine[0], mine[4], mine[1], mine[3]];
+  // A change to be stale against: Peak lit over mine.
+  const p = await post({ order: peak, flow: { shape: 'peak' }, seen: mine });
+  assert.strictEqual(p.status, 200, JSON.stringify(p.body));
+  const refused = async (body, what, seen = mine) => {
+    const before = await snap();
+    const r = await post({ ...body, seen });
+    assert.strictEqual(r.status, 409, `${what}: ${JSON.stringify(r.body)}`);
+    assert.strictEqual(r.body.code, 'STALE');
+    assert.strictEqual(r.body.error, 'This playlist was changed in another window.');
+    assert.deepStrictEqual(await snap(), before, `${what}: nothing written`);
+  };
+  await refused({ order: reversed, flow: { shape: 'smooth' } }, 'a shape');
+  await refused({ flow: { custom: true } }, 'Custom');
+  await refused({ move: [mine[4]], before: mine[0], flow: { manual: true } }, 'a drag');
+  await refused({ order: reversed, skips: [mine[0]], flow: { manual: true } }, 'a saved order with skips');
+  await refused({ order: mine, flow: undoOf(p.body) }, 'an Undo whose rev still fits');
+  await refused({ order: reversed }, 'a plain order');
+  await refused({ order: reversed }, 'seen missing a file', peak.slice(1));
+  await refused({ order: reversed }, 'seen with a file too many', peak.concat(m[5]));
+  // The same Undo with the order on disk as seen goes through.
+  const ok = await post({ order: mine, flow: undoOf(p.body), seen: peak });
+  assert.strictEqual(ok.status, 200);
+  assert.deepStrictEqual(order(), mine);
+  assert.strictEqual(await kept(), null);
+  // Without seen (an older Vault, an import): not checked.
+  const plain = await post({ order: reversed });
+  assert.strictEqual(plain.status, 200);
+  assert.deepStrictEqual(order(), reversed);
+  // A bad seen: 400, nothing written.
+  for (const bad of [5, 'x', null, {}, [0], [-1], [1.5], ['1'], new Array(200001).fill(1)]) {
+    const before = await snap();
+    const r = await post({ order: mine, seen: bad });
+    assert.strictEqual(r.status, 400, JSON.stringify(bad).slice(0, 30));
+    assert.strictEqual(r.body.code, 'BAD_SEEN');
+    assert.deepStrictEqual(await snap(), before);
+  }
+  await post({ order: mine, seen: reversed });
+  assert.deepStrictEqual(order(), mine);
+});
+
+test('Remove answers the order right before it and right after it (order_before, media_ids)', async () => {
+  const mine = order();
+  const peak = [mine[2], mine[0], mine[4], mine[1], mine[3]];
+  await post({ order: peak, flow: { shape: 'peak' } });
+  const rm = await send('DELETE', `/api/collections/${coll}/items`, { ids: [peak[1]] });
+  assert.deepStrictEqual(rm.body.order_before, peak);
+  assert.deepStrictEqual(rm.body.media_ids, peak.filter(id => id !== peak[1]));
+  assert.strictEqual(rm.body.item_count, 4);
+  assert.deepStrictEqual(rm.body.first_ids, rm.body.media_ids.slice(0, 4));
+  await send('POST', `/api/collections/${coll}/items`, { ids: [peak[1]] });
+  await clear(mine);
+});
+
+test('the r1 repro on the routes (drag): A Smooth, B catches up, A Custom, B drags from the Smooth order: refused; Waves then Custom gives A0', async () => {
+  const A0 = order();
+  const smooth = A0.slice().reverse();
+  await post({ order: smooth, flow: { shape: 'smooth' }, seen: A0 });                 // A
+  const bSees = order();                                                               // B catches up
+  const c = await post({ flow: { custom: true }, seen: smooth });                       // A
+  assert.deepStrictEqual(c.body.order, A0);
+  // B, still showing Smooth, drags.
+  const drag = await post({ move: [bSees[4]], before: bSees[0], flow: { manual: true }, seen: bSees });
+  assert.strictEqual(drag.status, 409);
+  assert.deepStrictEqual(order(), A0, 'the Smooth order is not written under Custom');
+  assert.strictEqual((await kept()).mode, 'custom');
+  // B reads again and drags: fine now; its Undo puts back A0 with Custom lit.
+  const d2 = await post({ move: [A0[4]], before: A0[0], flow: { manual: true }, seen: A0 });
+  assert.strictEqual(d2.status, 200);
+  const fr = d2.body.flow_custom;
+  const u = await post({ order: A0, seen: d2.body.order, flow: { restore: { mode: fr.mode, shape: fr.shape, waves: fr.waves, places: fr.places, kept: fr.kept, rev: fr.rev }, rev: fr.rev } });
+  assert.strictEqual(u.status, 200, JSON.stringify(u.body));
+  assert.deepStrictEqual(order(), A0);
+  assert.strictEqual(u.body.flow_custom.mode, 'custom');
+  const w = await post({ order: smooth, flow: { shape: 'waves' }, seen: A0 });
+  assert.deepStrictEqual(w.body.flow_custom.kept, A0, 'A0 kept');
+  const back = await post({ flow: { custom: true }, seen: order() });
+  assert.deepStrictEqual(back.body.order, A0);
+  await clear(A0);
+});
+
+test('the r1 repro on the routes (Remove): B, showing Smooth, removes a file after A\'s Custom; its Undo puts back the server\'s order (A0), not B\'s; Waves then Custom gives A0', async () => {
+  const A0 = order();
+  const smooth = A0.slice().reverse();
+  await post({ order: smooth, flow: { shape: 'smooth' }, seen: A0 });                 // A
+  await post({ flow: { custom: true }, seen: smooth });                                // A
+  // B still shows Smooth; Remove is not refused (it does not depend on the order).
+  const gone = smooth[1];
+  const rm = await send('DELETE', `/api/collections/${coll}/items`, { ids: [gone] });
+  assert.strictEqual(rm.status, 200);
+  assert.deepStrictEqual(rm.body.order_before, A0, 'the order right before, from the server');
+  // Its Undo, as collections.js does it: put back, then order_before with seen and the check.
+  await send('POST', `/api/collections/${coll}/items`, { ids: [gone] });
+  const seen = rm.body.media_ids.concat(gone);
+  const fr = rm.body.flow_custom;
+  const u = await post({ order: rm.body.order_before, seen, flow: { restore: { mode: fr.mode, shape: fr.shape, waves: fr.waves, places: fr.places, kept: fr.kept, rev: fr.rev }, rev: fr.rev } });
+  assert.strictEqual(u.status, 200, JSON.stringify(u.body));
+  assert.deepStrictEqual(order(), A0);
+  assert.strictEqual(u.body.flow_custom.mode, 'custom', 'the lit button (Custom) matches the order');
+  const w = await post({ order: smooth, flow: { shape: 'waves' }, seen: A0 });
+  assert.deepStrictEqual(w.body.flow_custom.kept, A0);
+  const back = await post({ flow: { custom: true }, seen: order() });
+  assert.deepStrictEqual(back.body.order, A0);
+  await clear(A0);
+});
+
+test('the probe3 mirror on the routes: Peak lit over A0, A drags, B (still showing Peak) drags: refused; nothing lit, matching the order; Custom gives A0', async () => {
+  const A0 = order();
+  const peak = [A0[2], A0[0], A0[4], A0[1], A0[3]];
+  await post({ order: peak, flow: { shape: 'peak' }, seen: A0 });
+  const a = await post({ move: [peak[4]], before: peak[0], flow: { manual: true }, seen: peak });   // A
+  assert.strictEqual(a.status, 200);
+  assert.strictEqual(a.body.flow_custom.mode, 'edited', 'edited: nothing lit');
+assert.strictEqual(a.body.flow_custom.lit, false);
+  const b = await post({ move: [peak[0]], before: null, flow: { manual: true }, seen: peak });     // B, stale
+  assert.strictEqual(b.status, 409);
+  assert.deepStrictEqual(order(), a.body.order);
+  const k = await kept();
+  assert.strictEqual(k.lit, false);
+  assert.strictEqual(k.mode, 'edited');
+  assert.deepStrictEqual(k.kept, A0);
+  const back = await post({ flow: { custom: true }, seen: order() });
+  assert.deepStrictEqual(back.body.order, A0);
+  await clear(A0);
+});
+
+test('a row change bumps the library version (another window reads the collection again); a write that changes nothing in it does not add a bump of its own', async () => {
+  const mine = order();
+  const v = () => require('../lib/library-index').version(db.get());
+  const v0 = v();
+  await post({ order: mine, flow: { shape: 'peak' } });   // no file moves, the row is new
+  const v1 = v();
+  assert.ok(v1 > v0, 'a row put in moves the version');
+  await post({ order: mine, flow: { shape: 'peak' } });   // the same shape again: nothing
+  assert.strictEqual(v(), v1);
+  await post({ order: mine, flow: { manual: true } });     // shape -> edited, no file moved
+  const v2 = v();
+  assert.ok(v2 > v1);
+  // GET /api/collections/:id carries the row, for another window's panel.
+  const g = await send('GET', `/api/collections/${coll}`);
+  assert.strictEqual(g.body.flow_custom.mode, 'edited');
+  assert.deepStrictEqual(g.body.media_ids, mine);
+  await clear(mine);
+  assert.ok(v() > v2, 'removing the row moves it too');
+  assert.strictEqual((await send('GET', `/api/collections/${coll}`)).body.flow_custom, null);
 });
 
 test('every write that says nothing leaves the row alone (real routes): Remove and its Undo, Add, a plain order and skips from another client, an import', async () => {
