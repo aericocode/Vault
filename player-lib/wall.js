@@ -349,6 +349,7 @@ const Wall = (() => {
   let poolKey = '';
   let poolIds = null;
   let poolCursor = 0;
+  let poolWrapped = false;          // the cursor has been round the whole source (it is small)
   let poolGen = 0;
   let ready = [];
   const skipCounts = new WeakMap(); // buffered row → how often a take passed it over
@@ -613,6 +614,7 @@ const Wall = (() => {
     ready = [];
     poolIds = null;
     poolCursor = 0;
+    poolWrapped = false;
     poolHasEligible = false;
     fillPromise = null;
     const spec = sourceSpec();
@@ -662,6 +664,7 @@ const Wall = (() => {
           scanned++;
           if (poolCursor >= poolIds.length) {
             poolCursor = 0;
+            poolWrapped = true;
             if (cfg.order === 'shuffle') shuffleInPlace(poolIds);
           }
         }
@@ -784,6 +787,17 @@ const Wall = (() => {
     });
   }
 
+  /**
+   * The gap between two rects { x, y, w, h } (pure): the larger of the
+   * horizontal and vertical distance, so 0 or a gap's width means they
+   * touch (corners too) and a negative value that they overlap.
+   */
+  function rectGap(a, b) {
+    const dx = Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w);
+    const dy = Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h);
+    return Math.max(dx, dy);
+  }
+
   function placeSlot(plan, s) {
     for (let c = s.col; c < s.col + s.span; c++) plan.tops[c] = s.y + s.h + plan.gap;
   }
@@ -826,14 +840,17 @@ const Wall = (() => {
    * file and down for a small one. Files join in order until the solved
    * height drops to the target; the last one joins only if that lands closer
    * to the target. A file that would make the slice shorter than the floor
-   * waits for a later slice. When the candidates run out, the slice's own
-   * files repeat (the caller passes on-screen files first when the buffer is
-   * short), so a slice is always full width.
+   * waits for a later slice. A file never appears twice in a slice: when the
+   * candidates run out the slice stops where it is, even taller than the
+   * ceiling (Grid scales the board down to fit). Only with `o.repeat` (the
+   * caller passed every file the source has) do the slice's own files
+   * repeat, in turn, so each copy is as far from the other as the slice
+   * allows.
    *
    * Returns { picks: indices into cands (a repeat appears twice), h, target, lo, hi }.
    * h is exact: (W - gaps) / sum of the aspects. It is outside lo..hi only
    * when no choice of the files given can do better (one file wider than
-   * the board at the floor height).
+   * the board at the floor height, or too few files).
    */
   function sliceRow(cands, o) {
     if (!cands.length) return null;
@@ -874,7 +891,9 @@ const Wall = (() => {
     let spare = -1;            // the last Grid slice: the file to add if nothing keeps it at or above the target
     for (let tries = 0; h > target && picks.length < SLICE_ITEMS && tries < SLICE_ITEMS * 3; tries++) {
       while (next < cands.length && used.has(next)) next++;
-      const j = next < cands.length ? next++ : picks[rep++ % picks.length];
+      // Out of files: stop if the slice can, or a spare can end it; repeat only when allowed.
+      if (next >= cands.length && (!o.repeat || h <= hi || spare >= 0)) break;
+      const j =next < cands.length ? next++ : picks[rep++ % picks.length];
       used.add(j);
       const hn = hOf(sum + cands[j].a, picks.length + 1);
       const stopOk = h <= hi;
@@ -906,6 +925,56 @@ const Wall = (() => {
   }
 
   /**
+   * The candidates for the next slice, best first (pure). `front` is the
+   * front of the buffer (rows with an id), `shown` the blocks on the board
+   * as { item, x, y, w, h }, `o` gives { known(r): shape known, W, max,
+   * wrapped: the buffer has been round the whole source }.
+   *
+   * Each file comes once. Files not on screen come first, in buffer order
+   * (a shape still being read later). Then files already on screen, the
+   * ones farthest above the bottom edge first; the files of the slice
+   * directly above (which the new slice touches) come last, those at its
+   * right end first, as the new slice fills from the left. At most `max`.
+   *
+   * Returns { pool: [{ r, fromReady }], repeat }. repeat is true when the
+   * pool holds every file there is to show (a small source the buffer has
+   * been round), so sliceRow may repeat files rather than leave the slice
+   * short. A buffer that is short for now does not count.
+   */
+  function slicePool(front, shown, o) {
+    let lastY = -Infinity;
+    let edge = 0;
+    for (const b of shown) { lastY = Math.max(lastY, b.y); edge = Math.max(edge, b.y + b.h); }
+    const lowest = new Map();      // id -> the lowest bottom of its blocks
+    const above = new Map();       // id -> its rightmost center in the slice above
+    for (const b of shown) {
+      if (!b.item) continue;
+      const id = b.item.id;
+      lowest.set(id, Math.max(lowest.get(id) || 0, b.y + b.h));
+      if (Math.abs(b.y - lastY) < 0.5) above.set(id, Math.max(above.get(id) || 0, b.x + b.w / 2));
+    }
+    const repeatScore = (id) => {
+      if (above.has(id)) return 100 + (1 - above.get(id) / Math.max(1, o.W));
+      if (lowest.has(id)) return 10 + Math.min(1, lowest.get(id) / Math.max(1, edge));
+      return 0;
+    };
+    const seen = new Set();
+    const pool = [];
+    front.forEach((r, i) => {
+      if (seen.has(r.id)) return;
+      seen.add(r.id);
+      pool.push({ r, fromReady: true, score: i * 0.01 + (o.known(r) ? 0 : 3) + repeatScore(r.id) });
+    });
+    for (const b of shown) {
+      if (!b.item || seen.has(b.item.id)) continue;
+      seen.add(b.item.id);
+      pool.push({ r: b.item, fromReady: false, score: repeatScore(b.item.id) });
+    }
+    pool.sort((p, q) => p.score - q.score);
+    return { pool: pool.slice(0, o.max), repeat: !!o.wrapped && pool.length <= o.max };
+  }
+
+  /**
    * The slots of one slice of height h at the plan's bottom edge (aspects
    * in order), and the bottom edge moved below it. The last slot ends
    * exactly at the right edge.
@@ -926,18 +995,20 @@ const Wall = (() => {
   /**
    * Index of the best next item for the board being built: early in the
    * queue, not already on screen, and (for a wide file) only where its two
-   * columns are close to level.
+   * columns are close to level. A file on screen comes after every file
+   * that is not, and one shown in a block its slot would touch
+   * (`touches(r, slot)`) after those.
    */
-  function buildIndex(plan, list, isOnScreen) {
+  function buildIndex(plan, list, isOnScreen, touches) {
     const n = Math.min(LOOKAHEAD, list.length);
     let best = -1;
     let bestScore = Infinity;
     for (let i = 0; i < n; i++) {
       const r = list[i];
       let score = i * 0.01;
-      if (isOnScreen(r)) score += 10;
       if (!shapeKnown(r)) score += 3;
       const s = slotFor(plan, aspectOf(r));
+      if (isOnScreen(r)) score += touches && touches(r, s) ? 40 : 10;
       // A wide file waits for two columns that are near level.
       if (s.span === 2 && s.hole > plan.cw * 0.12) score += 5 + s.hole / plan.cw;
       else if (s.span === 1 && plan.cols >= 2 && aspectOf(r) > WIDE && !plan.noSpan) score += 6;
@@ -963,11 +1034,14 @@ const Wall = (() => {
 
   /**
    * Index of the file a swap should bring into a slot of shape `aspect`
-   * (pure: `o` gives aspectOf(r), usable(r), onScreen(r), currentId, order).
+   * (pure: `o` gives aspectOf(r), usable(r), onScreen(r), touching(r),
+   * currentId, order). touching(r): a block next to the slot shows r.
    *
    * Any file within the tolerance fits, wherever it sits in the buffer; a
-   * file not on screen beats one that is, and the slot's current file comes
-   * last. The position only chooses among fits, never whether one fits:
+   * file not on screen beats one that is, one shown next to the slot comes
+   * after those, and the slot's current file comes last. A fresh or
+   * elsewhere-shown file is cropped in rather than a fitting one placed next
+   * to its copy. The position only chooses among fits, never whether one fits:
    * "In order" takes the fit closest to the front, Shuffle weighs a closer
    * shape against a place further back (a perfect fit is worth about 70
    * places), so the buffer is used from the front. `fit` is false when
@@ -985,7 +1059,8 @@ const Wall = (() => {
       // A file whose shape is not known yet (still being read) waits: as a
       // guess it could be anything, and the slot would crop it badly.
       if (!o.usable(r)) continue;
-      const dup = (o.currentId != null && r.id === o.currentId) ? 2 : (o.onScreen(r) ? 1 : 0);
+      const dup = (o.currentId != null && r.id === o.currentId) ? 3
+        : !o.onScreen(r) ? 0 : (o.touching && o.touching(r)) ? 2 : 1;
       const d = Math.abs(Math.log(o.aspectOf(r) / aspect));
       if (d <= SHAPE_TOL) {
         const key = o.order === 'order' ? i : d + i * 0.002;
@@ -994,17 +1069,21 @@ const Wall = (() => {
       // Nothing fits: the closest shape, so the crop is as small as it can be.
       if (dup < cropDup || (dup === cropDup && d < cropKey)) { crop = i; cropDup = dup; cropKey = d; }
     }
-    // The slot's own file again only when everything else would be a repeat too.
-    if (best >= 0 && (bestDup < 2 || cropDup >= 1)) return { i: best, fit: true };
+    // A file next to its copy only when every other file would be too; the
+    // slot's own file again only when everything else would be a repeat.
+    if (best >= 0 && (bestDup <= 1 || (bestDup === 2 && cropDup >= 2) || (bestDup === 3 && cropDup >= 1))) {
+      return { i: best, fit: true };
+    }
     return { i: crop, fit: false };
   }
 
-  function swapIndex(list, aspect, current) {
-    return pickSwap(list, aspect, {
+  function swapIndex(list, b) {
+    return pickSwap(list, b.aspect, {
       aspectOf,
       usable: (r) => !badIds.has(r.id) && shapeKnown(r),
       onScreen: isOnScreen,
-      currentId: current ? current.id : null,
+      touching: (r) => touchesCopy(r.id, b, b),
+      currentId: b.item ? b.item.id : null,
       order: cfg.order,
     });
   }
@@ -1655,17 +1734,36 @@ const Wall = (() => {
 
   const isOnScreen = (r) => onScreen.has(r.id);
 
+  /** How far apart (px) the nearest block showing file `id` is from `rect` (skipping block `except`). */
+  function nearestCopy(id, rect, except) {
+    let d = Infinity;
+    for (const b of blocks) if (b !== except && b.item && b.item.id === id) d = Math.min(d, rectGap(b, rect));
+    return d;
+  }
+
+  /** A block showing file `id` touches `rect` (shares an edge or a corner, across the gap). */
+  const touchesCopy = (id, rect, except) => nearestCopy(id, rect, except) <= lay.gap + 2;
+
   /**
    * The next file for the board being built. When the queue is empty (a
    * tiny source, or the next batch not fetched yet) the board repeats what
-   * it already shows, so it is always full.
+   * it already shows, the file whose copy is farthest from where it goes,
+   * so it is always full.
    */
   function nextBuildItem() {
-    const i = buildIndex(lay, ready, isOnScreen);
+    const i = buildIndex(lay, ready, isOnScreen, (r, s) => touchesCopy(r.id, s));
     if (i >= 0) return take(i);
     fill();
-    if (!blocks.length) return null;
-    return blocks[Math.floor(Math.random() * blocks.length)].item;
+    let best = null;
+    let bestD = -Infinity;
+    const seen = new Set();
+    for (const b of blocks) {
+      if (!b.item || seen.has(b.item.id)) continue;
+      seen.add(b.item.id);
+      const d = nearestCopy(b.item.id, slotFor(lay, aspectOf(b.item)));
+      if (d > bestD) { bestD = d; best = b.item; }
+    }
+    return best;
   }
 
   /** Put one more block on the board at the next place the plan has for it (or at `slot`). */
@@ -1690,28 +1788,16 @@ const Wall = (() => {
    * Slices: put one more full-width slice on the board. Its candidates are
    * the front of the buffer, preferred the way buildIndex prefers them (not
    * on screen, shape known, early). A short buffer is padded with files the
-   * board already shows, so the slice is still full. Returns its blocks
+   * board already shows, away from the slice above (slicePool). Returns its blocks
    * ([] when there is nothing to show).
    */
   function addSlice() {
-    const pool = [];
-    for (let i = 0; i < Math.min(LOOKAHEAD, ready.length); i++) {
-      const r = ready[i];
-      pool.push({ r, fromReady: true, score: i * 0.01 + (isOnScreen(r) ? 10 : 0) + (shapeKnown(r) ? 0 : 3) });
-    }
-    pool.sort((p, q) => p.score - q.score);
-    if (pool.length < 12) {
-      fill();
-      const seen = new Set(pool.map(p => p.r.id));
-      for (let t = 0; t < 40 && pool.length < 12 && blocks.length; t++) {
-        const item = blocks[Math.floor(Math.random() * blocks.length)].item;
-        if (item && !seen.has(item.id)) { seen.add(item.id); pool.push({ r: item, fromReady: false }); }
-      }
-    }
+    if (ready.length < SLICE_ITEMS) fill();
+    const { pool, repeat } = slicePool(ready.slice(0, LOOKAHEAD), blocks, { known: shapeKnown, W: lay.W, max: SLICE_ITEMS, wrapped: poolWrapped });
     if (!pool.length) return [];
     const row = sliceRow(pool.map(p => ({ a: aspectOf(p.r), px: shortSide(p.r) })), {
       W: lay.W, base: lay.base, gap: lay.gap,
-      variety: varietyPct() / 100, byRes: true, rand: Math.random,
+      variety: varietyPct() / 100, byRes: true, rand: Math.random, repeat,
       fitLeft: lay.fitH ? lay.fitH - lay.bottom : undefined,
     });
     const items = row.picks.map(k => pool[k].r);
@@ -2795,7 +2881,7 @@ const Wall = (() => {
    * picture's time is up (Grid), or a clip ended or its time is up.
    */
   function advance(b) {
-    const { i, fit } = swapIndex(ready, b.aspect, b.item);
+    const { i, fit } = swapIndex(ready, b);
     if (i < 0) { fill(); setDue(b, now() + 2000); return; }
     if (!fit && !b.fitWait && ready.length < READY_CAP) {
       // Nothing of this shape in the buffer: fetch one more batch (never past
@@ -3113,7 +3199,7 @@ const Wall = (() => {
   return {
     enter, leave, lockStop, startAt,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { emptyMessage, cfgFrom, takeStart, planColumns, colSpread, slotFor, placeSlot, minBottom, planSlices, sliceRow, placeSlice, fitGrid, fitScore, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, rotatePick, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, inView, scrollLeftMs, scrollRank, leavingFor, scrollFreePlan, autoStep, START_FRAC, HEAR_FRAC, AUTO_START, AUTO_MIN, AUTO_MAX, AUTO_HOLD_MS, READY_CAP, STALE_SKIPS },
+    _pure: { emptyMessage, cfgFrom, takeStart, planColumns, colSpread, slotFor, placeSlot, minBottom, planSlices, sliceRow, slicePool, rectGap, placeSlice, fitGrid, fitScore, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, rotatePick, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, inView, scrollLeftMs, scrollRank, leavingFor, scrollFreePlan, autoStep, START_FRAC, HEAR_FRAC, AUTO_START, AUTO_MIN, AUTO_MAX, AUTO_HOLD_MS, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
     _audio: () => {
       const t = now();

@@ -210,6 +210,11 @@ test('swap: In order takes the fit closest to the front; repeats come last', () 
   // Only the slot's own file fits, but a fresh file can be cropped in: crop.
   const own = W.pickSwap([{ id: 7, a: 1 }, { id: 8, a: 16 / 9 }], 16 / 9, swapOpts({ currentId: 8 }));
   assert.deepStrictEqual({ ...own }, { i: 0, fit: false });
+  // A fit shown next to the slot loses to any other fit, and to a crop of a file not next to it.
+  const near = swapOpts({ onScreen: (r) => r.id !== 3, touching: (r) => r.id === 1 });
+  assert.strictEqual(W.pickSwap([{ id: 1, a: 16 / 9 }, { id: 2, a: 1.7 }], 16 / 9, near).i, 1);
+  assert.deepStrictEqual({ ...W.pickSwap([{ id: 1, a: 16 / 9 }, { id: 3, a: 1 }], 16 / 9, near) }, { i: 1, fit: false });
+  assert.deepStrictEqual({ ...W.pickSwap([{ id: 1, a: 16 / 9 }], 16 / 9, near) }, { i: 0, fit: true }, 'no other choice');
   // Nothing fits: the closest shape is cropped in.
   const crop = W.pickSwap([{ id: 1, a: 4 }, { id: 2, a: 1 }, { id: 3, a: 0.5 }], 16 / 9, swapOpts());
   assert.deepStrictEqual({ ...crop }, { i: 1, fit: false });
@@ -400,8 +405,12 @@ test('slices: a very wide file', () => {
   assert.strictEqual(row3.h, 125);
 });
 
-test('slices: a short queue repeats its own files so the slice is still full width', () => {
-  const row = W.sliceRow([{ a: 9 / 16, px: 1080 }], { W: 1920, base: 300, gap: 4, variety: 0, byRes: false, rand: () => 0.5 });
+test('slices: a file never repeats in a slice; only a whole tiny source repeats, to stay full width', () => {
+  const o1 = { W: 1920, base: 300, gap: 4, variety: 0, byRes: false, rand: () => 0.5 };
+  const alone = W.sliceRow([{ a: 9 / 16, px: 1080 }], o1);
+  assert.deepStrictEqual([...alone.picks], [0], 'out of files: the slice stops, too tall');
+  assert.ok(alone.h > alone.hi);
+  const row = W.sliceRow([{ a: 9 / 16, px: 1080 }], { ...o1, repeat: true });
   assert.ok(row.picks.length > 1, 'the one portrait file repeats');
   assert.ok(row.picks.every(i => i === 0));
   assert.ok(Math.abs(row.h * (9 / 16) * row.picks.length + 4 * (row.picks.length - 1) - 1920) < 1e-6, 'flush');
@@ -410,6 +419,116 @@ test('slices: a short queue repeats its own files so the slice is still full wid
   // Grid: a tiny source still covers the board to the bottom edge.
   const { plan } = fillSlices(1920, 1080, 390, 4, { queue: 1, shapes: [16 / 9] });
   assert.ok(W.minBottom(plan) >= 1080);
+});
+
+/** A source of n files (id k, shape SHAPES[k % 10]) on a Slices board, built the way the Wall builds it. */
+function wallSlices(Wd, H, bs, gap, n, o = {}) {
+  const rnd = seeded(o.seed || 1);
+  const plan = W.planSlices(Wd, bs, gap);
+  const files = Array.from({ length: n }, (_, k) => ({ id: k, a: SHAPES[(k * 3 + (o.seed || 0)) % SHAPES.length] }));
+  let cursor = 0;
+  const ready = [];
+  const blocks = [];
+  const rows = [];
+  while (W.minBottom(plan) < H && rows.length < 400) {
+    // The buffer walks round a small source more than once, as fill() does.
+    while (ready.length < (o.buffer || 40)) ready.push(files[cursor++ % n]);
+    const { pool, repeat } = W.slicePool(ready.slice(0, 24), blocks, { known: () => true, W: Wd, max: 24, wrapped: cursor >= n });
+    const draw = rnd();
+    const cands = pool.map(p => ({ a: p.r.a, px: 1080 }));
+    const opts = { W: Wd, base: plan.base, gap, variety: 0.6, byRes: false, rand: () => draw, repeat,
+      fitLeft: o.fit ? H - plan.bottom : undefined };
+    const row = W.sliceRow(cands, opts);
+    const items = row.picks.map(k => pool[k].r);
+    for (const k of new Set(row.picks)) if (pool[k].fromReady) ready.splice(ready.indexOf(pool[k].r), 1);
+    const slots = W.placeSlice(plan, items.map(r => r.a), row.h, Wd);
+    const placed = items.map((item, k) => ({ item, ...slots[k] }));
+    rows.push({ row, items, placed, repeat, cands, opts });
+    blocks.push(...placed);
+  }
+  return { plan, rows, blocks };
+}
+
+const BOARDS = [[1920, 1040, 120], [1920, 1040, 260], [1280, 760, 390], [3440, 1400, 120], [500, 700, 260]];
+
+test('slices: no file twice in a slice unless the source has too few files to fill it', () => {
+  for (const [Wd, H, bs] of BOARDS) {
+    for (let n = 1; n <= 30; n++) {
+      for (const buffer of [1, 5, 24, 40]) {
+        for (const fit of [false, true]) {
+          const { rows } = wallSlices(Wd, H, bs, 4, n, { buffer, fit, seed: n });
+          for (const { row, items, repeat, cands, opts } of rows) {
+            const ids = items.map(r => r.id);
+            const label = `${Wd}x${H} block ${bs}, ${n} files, buffer ${buffer}${fit ? ', Grid' : ''}`;
+            if (new Set(ids).size < ids.length) {
+              // Only a whole small source repeats, and only when without a repeat the slice could not stop.
+              assert.ok(repeat && n <= 24, `${label}: a repeat in [${ids}]`);
+              const alone = W.sliceRow(cands, { ...opts, repeat: false });
+              assert.ok(alone.h > alone.hi, `${label}: a repeat in [${ids}] though [${[...alone.picks]}] could stop`);
+              assert.ok(alone.picks.length < ids.length);
+            }
+            // A tiny source repeats, but never side by side (unless it is one file).
+            for (let k = 1; k < ids.length && n > 1; k++) assert.notStrictEqual(ids[k], ids[k - 1], `${label}: copies side by side [${ids}]`);
+            assert.ok(row.picks.length >= 1);
+          }
+        }
+      }
+    }
+  }
+});
+
+test('slices: a file is never in two touching blocks while the source has files enough', () => {
+  const touching = (a, b) => a.y === b.y || (Math.abs(b.y - (a.y + a.h + 4)) < 1e-6
+    && Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > -4.01);
+  for (const [Wd, H, bs] of BOARDS) {
+    for (const n of [6, 10, 13, 20, 30, 60]) {
+      for (const fit of [false, true]) {
+        const { rows } = wallSlices(Wd, H * 3, bs, 4, n, { fit, seed: n + bs });
+        for (let i = 0; i < rows.length; i++) {
+          const prev = i > 0 ? rows[i - 1].placed : [];
+          const cur = rows[i].placed;
+          // Enough files: more than this slice and the one above hold together.
+          if (n < cur.length + prev.length) continue;
+          for (let k = 0; k < cur.length; k++) {
+            for (const other of [...prev, ...cur.slice(0, k)]) {
+              assert.ok(!(other.item.id === cur[k].item.id && touching(other, cur[k])),
+                `${Wd}x${H} block ${bs}, ${n} files, slice ${i}: file ${cur[k].item.id} touches its copy`);
+            }
+          }
+        }
+      }
+    }
+  }
+});
+
+test('slices: a small Grid board still ends exactly at the bottom edge', () => {
+  for (const [Wd, H, bs] of BOARDS) {
+    for (const n of [1, 2, 3, 5, 13, 30]) {
+      const { plan, blocks } = wallSlices(Wd, H, bs, 4, n, { fit: true, seed: n });
+      const fitted = W.fitGrid(plan, blocks, H, Wd);
+      const bottom = Math.max(...fitted.map(s => s.y + s.h));
+      assert.ok(Math.abs(bottom - H) < 1e-6, `${Wd}x${H} block ${bs}, ${n} files: ends at the edge (${bottom})`);
+      assertNoOverlap(fitted);
+    }
+  }
+});
+
+test('slice pool: each file once; files of the slice above last, those on screen after fresh ones', () => {
+  const f = (id) => ({ id, a: 16 / 9 });
+  const shown = [
+    { item: f(1), x: 0, y: 0, w: 100, h: 50 }, { item: f(2), x: 104, y: 0, w: 100, h: 50 },
+    { item: f(3), x: 0, y: 54, w: 100, h: 50 }, { item: f(4), x: 104, y: 54, w: 100, h: 50 },
+  ];
+  const front = [f(3), f(5), f(5), f(1), f(6)];
+  const { pool, repeat } = W.slicePool(front, shown, { known: () => true, W: 204, max: 24 });
+  assert.deepStrictEqual([...pool.map(p => p.r.id)], [5, 6, 2, 1, 4, 3], 'fresh, then far on screen, then the slice above (right end first)');
+  assert.deepStrictEqual([...pool.map(p => p.fromReady)], [true, true, false, true, false, true]);
+  assert.strictEqual(repeat, false, 'the buffer has not been round the whole source yet');
+  assert.strictEqual(W.slicePool(front, shown, { known: () => true, W: 204, max: 24, wrapped: true }).repeat, true,
+    'every file there is: the slice may repeat');
+  const big = W.slicePool(Array.from({ length: 30 }, (_, i) => f(100 + i)), shown, { known: () => true, W: 204, max: 24, wrapped: true });
+  assert.strictEqual(big.pool.length, 24);
+  assert.strictEqual(big.repeat, false);
 });
 
 test('slices: a high-resolution first file makes a taller slice than a low-resolution one', () => {
