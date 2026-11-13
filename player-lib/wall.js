@@ -9,8 +9,8 @@
    checks them and moves an older blob to the nearest choices):
    Source and Order; Grid | Scroll; Layout (Horizontal | Vertical) with
    Size (base block 260 / 390 / 560 px) and Variety (Even / Mixed / Wild)
-   in the same menu; Pace (Grid: pictures change every 20 / 10 / 5 s,
-   Scroll: speed level 3 / 5 / 8); Clips (15 / 30 / 60 s or the whole
+   in the same menu; Pace (Grid: pictures change every 25 / 15 / 10 s,
+   Scroll: speed level 2 / 4 / 5); Clips (15 / 30 / 60 s or the whole
    clip); Sound (Off, On hover, Follow, Rotate); Videos (Auto or a fixed
    number). Under More: Show, Pause on hover, Only files that play without
    converting, Keep playing when this tab is hidden.
@@ -167,9 +167,9 @@ const Wall = (() => {
   const sizePx = () => SIZE_PX[cfg.size] || 390;
   const varietyPct = () => VARIETY_PCT[cfg.variety] != null ? VARIETY_PCT[cfg.variety] : 60;
   /** Grid: seconds between picture changes. */
-  const picSec = () => PACE_PIC_S[cfg.pace] || 10;
+  const picSec = () => PACE_PIC_S[cfg.pace] || 15;
   /** Scroll speed level (1 to 10) in pixels per second. */
-  const speedPx = () => 10 * Math.pow(1.4, (PACE_SPEED[cfg.pace] || 5) - 1);
+  const speedPx = () => 10 * Math.pow(1.4, (PACE_SPEED[cfg.pace] || 4) - 1);
 
   /**
    * The share of a block (top y, height h) on a board showing top..top+H,

@@ -28,8 +28,8 @@ const WallRules = (() => {
   // What each choice means.
   const SIZE_PX = { small: 260, medium: 390, large: 560 };         // the base block size
   const VARIETY_PCT = { even: 15, mixed: 60, wild: 100 };          // how much slice heights / column widths differ
-  const PACE_PIC_S = { slow: 20, medium: 10, fast: 5 };            // Grid: seconds between picture changes
-  const PACE_SPEED = { slow: 3, medium: 5, fast: 8 };              // Scroll: speed level (1 to 10)
+  const PACE_PIC_S = { slow: 25, medium: 15, fast: 10 };           // Grid: seconds between picture changes
+  const PACE_SPEED = { slow: 2, medium: 4, fast: 5 };              // Scroll: speed level (1 to 10; 10 * 1.4^(level-1) px/s)
 
   /** A stored number (or numeric string); anything else (true, [], '') is NaN. */
   function toNum(v) {

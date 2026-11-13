@@ -646,14 +646,17 @@ test('settings: Block size, Height variety, Pictures, Speed and Clips move to th
   // Pace comes from the mode that was in use: Pictures in Grid, Speed in Scroll.
   const grid = (picSpeed, scrollSpeed) => W.cfgFrom({ v: 2, mode: 'grid', picSpeed, scrollSpeed }).pace;
   assert.strictEqual(grid(60, 1), 'slow');
-  assert.strictEqual(grid(15, 9), 'slow');
-  assert.strictEqual(grid(8, 1), 'medium', 'the old default stays medium');
+  assert.strictEqual(grid(20, 9), 'slow');
+  assert.strictEqual(grid(15, 1), 'medium');
+  assert.strictEqual(grid(13), 'medium');
+  assert.strictEqual(grid(8, 1), 'fast', 'the old default 8 s is nearest 10 s');
   assert.strictEqual(grid(6), 'fast');
   assert.strictEqual(grid(2), 'fast');
   const scroll = (scrollSpeed, picSpeed) => W.cfgFrom({ v: 2, mode: 'scroll', scrollSpeed, picSpeed }).pace;
   assert.strictEqual(scroll(1, 2), 'slow');
-  assert.strictEqual(scroll(4, 60), 'slow', 'the old default speed 4 is nearer 3');
-  assert.strictEqual(scroll(5), 'medium');
+  assert.strictEqual(scroll(2, 60), 'slow');
+  assert.strictEqual(scroll(4, 60), 'medium', 'the old default speed 4 stays medium');
+  assert.strictEqual(scroll(5), 'fast');
   assert.strictEqual(scroll(7), 'fast');
   assert.strictEqual(scroll(10), 'fast');
   assert.strictEqual(scroll(undefined, 4), 'fast', 'no speed saved: the pictures setting');
@@ -687,7 +690,7 @@ test('settings: a first-Wall blob migrates and keeps its feel', () => {
     source: 'c:12', soundOnHover: true, directOnly: true, barOpen: false };
   const c = W.cfgFrom(old);
   assert.strictEqual(c.playing, 10);
-  assert.strictEqual(c.pace, 'medium', '13 s is nearest 10 s');
+  assert.strictEqual(c.pace, 'medium', '13 s is nearest 15 s');
   assert.strictEqual(c.clips, 30);
   assert.strictEqual(c.size, 'medium', 'row height 300 was a column about 450 wide');
   assert.strictEqual(c.layout, 'vertical');
