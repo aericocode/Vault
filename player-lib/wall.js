@@ -237,6 +237,7 @@ const Wall = (() => {
   const AUTO_MAX = 12;
   const AUTO_WINDOW_MS = 4000;
   const AUTO_HOLD_MS = 20000;
+  const STALL_GRACE_MS = 2000;       // a wait this soon after a clip starts is its start, not a stall
 
   /**
    * One Auto step (pure). `st` is { target, holdUntil }; `s` the window's
@@ -331,14 +332,14 @@ const Wall = (() => {
   let dbgSeq = 0;
 
   const drift = { offset: 0, raf: 0, lastT: 0, frames: [], rebases: 0, removed: 0 };
-  const stats = { swaps: 0, exact: 0, near: 0, crops: 0, worstCrop: 1, staleDropped: 0, moreFetches: 0, rowFetches: 0, replays: 0 };
+  const stats = { swaps: 0, exact: 0, near: 0, crops: 0, worstCrop: 1, staleDropped: 0, moreFetches: 0, rowFetches: 0, replays: 0, stalls: 0 };
 
   let liveCost = 0;            // slots held by live <video> elements
 
   // Videos at once, Auto: the target (see autoStep) and this window's counts.
   // stalls: playing clips that had to wait for data; frames/hitches: Scroll
   // animation frames, and those over 50 ms.
-  const auto = { target: AUTO_START, holdUntil: 0, windowAt: 0, stalls: 0, frames: 0, hitches: 0, lastSample: null };
+  const auto = { target: AUTO_START, holdUntil: 0, windowAt: 0, stalls: 0, frames: 0, hitches: 0, lastSample: null, log: [] };
   /** How many slots the clips may hold now. */
   const playCap = () => (cfg.playing === 'auto' ? auto.target : cfg.playing);
   let liveRemux = 0;
@@ -2155,8 +2156,13 @@ const Wall = (() => {
       updateStatus();
     }, { once: true });
     v.addEventListener('ended', () => { if (b.video === rec) setDue(b, 0); });
-    // A clip that already played and has to wait for data: a stall, for Auto.
-    v.addEventListener('waiting', () => { if (rec.startedAt && !rec.released && running) auto.stalls++; });
+    // A clip that has been playing a while and has to wait for data: a
+    // stall, for Auto (the first moments after a start do not count).
+    v.addEventListener('waiting', () => {
+      if (rec.released || !running || !rec.startedAt || now() - rec.startedAt < STALL_GRACE_MS) return;
+      auto.stalls++;
+      stats.stalls++;
+    });
     v.addEventListener('error', () => videoFailed(b, rec));
     v.addEventListener('pause', () => clipPaused(b, rec));
 
@@ -2859,6 +2865,8 @@ const Wall = (() => {
     };
     const next = autoStep(auto, sample, t);
     auto.lastSample = { ...sample, at: t, target: next.target };
+    auto.log.push(auto.lastSample);            // for Wall._stats() (debugging)
+    if (auto.log.length > 30) auto.log.shift();
     const changed = next.target !== auto.target;
     auto.target = next.target;
     auto.holdUntil = next.holdUntil;
@@ -3151,7 +3159,7 @@ const Wall = (() => {
       removed: drift.removed,
       lay: { layout: lay.layout, W: lay.W, H: lay.H, cols: lay.cols, cw: lay.cw, gap: lay.gap, base: lay.base,
         minBottom: lay.tops.length || lay.layout === 'slices' ? minBottom(lay) : 0 },
-      auto: { ...auto, cap: cfg ? playCap() : 0 },
+      auto: { ...auto, log: auto.log.slice(), cap: cfg ? playCap() : 0 },
       ...stats,
     }),
     _blocks: () => blocks.map(b => ({
