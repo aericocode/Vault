@@ -1,7 +1,9 @@
 /**
- * player-lib/wall.js (the Wall tab) in a VM: the pure pieces of Round 2.
- * Settings migration from the first Wall (picSpeed / clipLen / blockSize),
- * clamping, and the masonry plan: equal columns, exact shapes, files wider
+ * player-lib/wall.js (the Wall tab) in a VM: the pure pieces. Settings
+ * (Wall 3.11 choices, and the migration of Round 2 and first-Wall blobs),
+ * the Vertical plan (columns of different widths), the Grid fit (the board
+ * ends exactly at the bottom edge), Scroll's 10% start and slot order, the
+ * Videos Auto controller, Rotate sound, and the masonry plan: equal columns, exact shapes, files wider
  * than 2.5:1 spanning two columns, and a board that always reaches the
  * bottom edge whatever the shapes and sizes. Slices: full-width rows that
  * end flush, files at their exact shape, heights within the clamps.
@@ -37,45 +39,6 @@ test('empty wall: the filter hint only when a search or filter is on; an empty l
   assert.doesNotMatch(lib({}).hint, /filter/);
   assert.strictEqual(W.emptyMessage({ source: 'c:3', narrowed: true, libraryEmpty: true }).kind, 'source');
   for (const o of [{}, { narrowed: true }, { libraryEmpty: true }]) assert.doesNotMatch(JSON.stringify(lib(o)), /—|–/, 'no dashes');
-});
-
-test('settings: defaults for an empty or broken blob', () => {
-  for (const raw of [undefined, null, {}, 'junk', { playing: 'x', gap: NaN, mode: 'diagonal', source: 'drop table' }]) {
-    const c = W.cfgFrom(raw);
-    assert.strictEqual(c.v, 2);
-    assert.strictEqual(c.playing, 6);
-    assert.strictEqual(c.picSpeed, 8);
-    assert.strictEqual(c.clipLen, 20);
-    assert.strictEqual(c.colWidth, 390);
-    assert.strictEqual(c.gap, 4);
-    assert.strictEqual(c.scrollSpeed, 4);
-    assert.strictEqual(c.mode, 'grid');
-    assert.strictEqual(c.source, 'library');
-    assert.strictEqual(c.clipsToEnd, false);
-    assert.strictEqual(c.sound, 'off');
-    assert.strictEqual(c.pauseOnHover, true);
-  }
-});
-
-test('settings: the old Sound on hover checkbox migrates to the Sound choice', () => {
-  // A Round 2 blob saved before the Sound choice existed.
-  const on = W.cfgFrom({ v: 2, soundOnHover: true, mode: 'scroll' });
-  assert.strictEqual(on.sound, 'hover');
-  assert.strictEqual(on.pauseOnHover, true, 'existing users keep pause on hover');
-  assert.ok(!('soundOnHover' in on), 'the old key is not carried forward');
-  assert.strictEqual(W.cfgFrom({ v: 2, soundOnHover: false }).sound, 'off');
-  assert.strictEqual(W.cfgFrom({ v: 2, soundOnHover: 'yes' }).sound, 'off', 'only a real true counts');
-  // The new key wins over the old one, and junk falls back.
-  assert.strictEqual(W.cfgFrom({ v: 2, sound: 'auto', soundOnHover: false }).sound, 'auto');
-  assert.strictEqual(W.cfgFrom({ v: 2, sound: 'loud' }).sound, 'off');
-  assert.strictEqual(W.cfgFrom({ v: 2, sound: 'loud', soundOnHover: true }).sound, 'hover');
-  // Pause on hover is on unless it was turned off.
-  assert.strictEqual(W.cfgFrom({ v: 2, pauseOnHover: false }).pauseOnHover, false);
-  assert.strictEqual(W.cfgFrom({ v: 2, pauseOnHover: 0 }).pauseOnHover, true);
-  // Saving and loading again changes nothing.
-  for (const c of [on, W.cfgFrom({ v: 2, sound: 'auto', pauseOnHover: false })]) {
-    assert.deepStrictEqual(W.cfgFrom(JSON.parse(JSON.stringify(c))), c);
-  }
 });
 
 /* Auto sound: which playing clip is heard. */
@@ -139,58 +102,6 @@ test('grid clips: the first clips after a layout stop one by one over a clip len
   const runs = [6, 5, 4, 3, 2, 1, 0, -1].map(left => W.staggerRun(left, 6));
   assert.deepStrictEqual(runs.map(r => +r.toFixed(3)), [1, 0.833, 0.667, 0.5, 0.333, 0.167, 1, 1]);
   assert.strictEqual(W.staggerRun(3, 0), 1, 'never more than a whole clip');
-});
-
-test('settings: out-of-range values are clamped', () => {
-  const c = W.cfgFrom({ v: 2, playing: 99, picSpeed: 0, clipLen: 9999, colWidth: 5, gap: -3, scrollSpeed: 42 });
-  assert.strictEqual(c.playing, 16);
-  assert.strictEqual(c.picSpeed, 2);
-  assert.strictEqual(c.clipLen, 120);
-  assert.strictEqual(c.colWidth, 120);
-  assert.strictEqual(c.gap, 0);
-  assert.strictEqual(c.scrollSpeed, 10);
-});
-
-test('settings: a first-Wall blob migrates and keeps its feel', () => {
-  const old = { playing: 9, picSpeed: 13, clipLen: 35, blockSize: 300, gap: 7, mix: 'videos', order: 'order',
-    source: 'c:12', soundOnHover: true, directOnly: true, barOpen: false };
-  const c = W.cfgFrom(old);
-  assert.strictEqual(c.playing, 9);
-  assert.strictEqual(c.picSpeed, 13, 'seconds are kept exactly, not snapped to a slider step');
-  assert.strictEqual(c.clipLen, 35);
-  assert.strictEqual(c.clipsToEnd, false);
-  assert.strictEqual(c.colWidth, 450, 'row height 300 becomes column width 450');
-  assert.strictEqual(c.gap, 7);
-  assert.strictEqual(c.mix, 'videos');
-  assert.strictEqual(c.order, 'order');
-  assert.strictEqual(c.source, 'c:12');
-  assert.strictEqual(c.sound, 'hover', 'Sound on hover becomes the On hover choice');
-  assert.strictEqual(c.pauseOnHover, true);
-  assert.strictEqual(c.directOnly, true);
-  assert.strictEqual(c.mode, 'grid');
-  assert.ok(!('blockSize' in c) && !('barOpen' in c), 'old keys are not carried forward');
-  // The old default row height lands on the new default column width.
-  assert.strictEqual(W.cfgFrom({ blockSize: 260 }).colWidth, 390);
-  // Saving and loading again changes nothing.
-  assert.deepStrictEqual(W.cfgFrom(JSON.parse(JSON.stringify(c))), c);
-});
-
-test('settings: the old "Full clip" maximum becomes Play clips to the end', () => {
-  const c = W.cfgFrom({ clipLen: 120 });
-  assert.strictEqual(c.clipsToEnd, true);
-  // In a Round 2 blob, 120 is just 120 seconds.
-  const d = W.cfgFrom({ v: 2, clipLen: 120, clipsToEnd: false });
-  assert.strictEqual(d.clipsToEnd, false);
-  assert.strictEqual(d.clipLen, 120);
-});
-
-test('speed sliders run faster to the right', () => {
-  for (const steps of [W.PIC_STEPS, W.CLIP_STEPS]) {
-    for (let i = 1; i < steps.length; i++) assert.ok(steps[i] < steps[i - 1]);
-  }
-  assert.strictEqual(W.PIC_STEPS[W.nearestStep(W.PIC_STEPS, 8)], 8);
-  assert.strictEqual(W.PIC_STEPS[W.nearestStep(W.PIC_STEPS, 13)], 12);
-  assert.strictEqual(W.CLIP_STEPS[W.nearestStep(W.CLIP_STEPS, 35)], 30);
 });
 
 /** Fill a plan the way the Wall does: shortest column first, until every column passes H. */
@@ -271,17 +182,6 @@ test('masonry: a wide file goes where two columns are near level', () => {
   assert.strictEqual(s.col, 1);
   assert.strictEqual(s.y, 120);
   assert.strictEqual(s.hole, 20);
-});
-
-test('settings: non-numbers fall back to the defaults', () => {
-  const c = W.cfgFrom({ playing: [], gap: true, scrollSpeed: {}, blockSize: true });
-  assert.strictEqual(c.playing, 6);
-  assert.strictEqual(c.gap, 4);
-  assert.strictEqual(c.scrollSpeed, 4);
-  assert.strictEqual(c.colWidth, 390, 'blockSize: true is not a row height');
-  assert.strictEqual(W.cfgFrom({ blockSize: '' }).colWidth, 390);
-  assert.strictEqual(W.cfgFrom({ blockSize: [] }).colWidth, 390);
-  assert.strictEqual(W.cfgFrom({ playing: '9' }).playing, 9, 'a numeric string still counts');
 });
 
 /* The swap pick and the buffer. Rows are { id, a } with a known shape. */
@@ -374,58 +274,6 @@ test('pause on hover: a held block\'s remaining time follows every new swap time
   assert.strictEqual(free.holdLeft, 123);
 });
 
-test('settings: Block size reaches 1280 and stops there', () => {
-  assert.strictEqual(W.RANGES.colWidth.max, 1280);
-  assert.strictEqual(W.cfgFrom({ v: 2, colWidth: 1280 }).colWidth, 1280);
-  assert.strictEqual(W.cfgFrom({ v: 2, colWidth: 1000 }).colWidth, 1000, 'above the old 960 cap is kept');
-  assert.strictEqual(W.cfgFrom({ v: 2, colWidth: 5000 }).colWidth, 1280);
-  assert.strictEqual(W.cfgFrom({ blockSize: 800 }).colWidth, 1200, 'a first-Wall row height follows the new cap');
-  assert.strictEqual(W.cfgFrom({ blockSize: 2000 }).colWidth, 1280);
-});
-
-test('scroll: mostly in view = at least 66% of min(block, board) on the board', () => {
-  assert.strictEqual(W.MOSTLY, 0.66);
-  const H = 1000;
-  // A 300 px block fully on the board, then leaving the top.
-  assert.strictEqual(W.visibleFrac(100, 300, 0, H), 1);
-  assert.ok(W.mostlyInView(100, 300, 0, H));
-  assert.ok(W.mostlyInView(-102, 300, 0, H), '198 px of 300 (66%) still shows at the top');
-  assert.ok(!W.mostlyInView(-110, 300, 0, H), '190 px of 300 is not enough');
-  // Entering at the bottom.
-  assert.ok(W.mostlyInView(H - 198, 300, 0, H));
-  assert.ok(!W.mostlyInView(H - 150, 300, 0, H));
-  // Off the board either way.
-  assert.strictEqual(W.visibleFrac(-400, 300, 0, H), 0);
-  assert.strictEqual(W.visibleFrac(H + 10, 300, 0, H), 0);
-  assert.ok(!W.mostlyInView(H, 300, 0, H));
-  // The board's offset moves with the drift.
-  assert.ok(W.mostlyInView(5000, 300, 4900, H));
-  assert.ok(!W.mostlyInView(4700, 300, 4900, H));
-  // A block taller than the board counts against the board's height.
-  assert.strictEqual(W.visibleFrac(-200, 1500, 0, H), 1, 'it fills the whole board');
-  assert.ok(W.mostlyInView(-200, 1500, 0, H));
-  assert.ok(W.mostlyInView(-840, 1500, 0, H), '660 px of a 1000 px board');
-  assert.ok(!W.mostlyInView(-900, 1500, 0, H));
-  assert.ok(W.mostlyInView(H - 660, 1500, 0, H), 'its top part, entering');
-  assert.strictEqual(W.visibleFrac(0, 0, 0, H), 0, 'no height, no view');
-});
-
-test('scroll: time left runs out when the block stops being mostly in view at the top', () => {
-  const H = 1000, speed = 20;   // px per second
-  // y 100, h 300: 66% of 300 is 198, so it is mostly in view until offset 202.
-  assert.strictEqual(W.scrollLeftMs(100, 300, 0, H, speed), 202 / 20 * 1000);
-  const offAt = 0 + W.scrollLeftMs(100, 300, 0, H, speed) / 1000 * speed;
-  assert.ok(Math.abs(offAt - 202) < 1e-9);
-  assert.ok(W.mostlyInView(100, 300, offAt, H));
-  assert.ok(!W.mostlyInView(100, 300, offAt + 1, H));
-  // Already past: negative.
-  assert.ok(W.scrollLeftMs(100, 300, 300, H, speed) < 0);
-  // A block taller than the board: 66% of the board, not of the block.
-  assert.strictEqual(W.scrollLeftMs(0, 1500, 0, H, 10), (1500 - 660) / 10 * 1000);
-  // A block lower down has more time left than one near the top.
-  assert.ok(W.scrollLeftMs(600, 300, 0, H, speed) > W.scrollLeftMs(100, 300, 0, H, speed));
-});
-
 test('Scroll: only as many leaving clips stop as a clip needs, and none when that cannot help', () => {
   // Arrays from the VM: copy them into this realm before comparing.
   const plan = (...a) => { const v = W.scrollFreePlan(...a); return Array.isArray(v) ? [...v] : v; };
@@ -470,7 +318,8 @@ function fillSlices(Wd, H, blockSize, gap, o = {}) {
       const shapes = o.shapes || SHAPES;
       cands.push({ a: shapes[k % shapes.length], px: PXS[(k * 7) % PXS.length] });
     }
-    const row = W.sliceRow(cands, { W: Wd, base: plan.base, gap, variety: o.variety != null ? o.variety : 0.6, byRes: o.byRes !== false, rand: rnd });
+    const row = W.sliceRow(cands, { W: Wd, base: plan.base, gap, variety: o.variety != null ? o.variety : 0.6, byRes: o.byRes !== false, rand: rnd,
+      fitLeft: o.fit ? H - plan.bottom : undefined });
     const aspects = [...row.picks].map(i => cands[i].a);
     const slots = W.placeSlice(plan, aspects, row.h, Wd);
     rows.push({ row, aspects, slots: [...slots] });
@@ -597,24 +446,418 @@ test('slices: no height variety gives slices of about the same height', () => {
   assert.ok(spread(0) < spread(1) * 0.75, 'full variety spreads the heights much more');
 });
 
-test('settings: Layout and the Slices settings default and fall back', () => {
-  for (const raw of [undefined, {}, { v: 2 }, { layout: 'diagonal', sliceVariety: 'x', sliceByRes: 'no' }, { layout: 3, sliceVariety: [] }]) {
+/* ── Settings (Wall 3.11: short lists of choices) ─────────────────────── */
+
+test('settings: defaults for an empty or broken blob', () => {
+  for (const raw of [undefined, null, {}, 'junk', { v: 3, playing: 'x', layout: 'diagonal', mode: 'diagonal', source: 'drop table', clips: '30', size: 3 }]) {
     const c = W.cfgFrom(raw);
-    assert.strictEqual(c.layout, 'columns', 'nothing existing changes');
-    assert.strictEqual(c.sliceVariety, 60);
-    assert.strictEqual(c.sliceByRes, true);
+    assert.strictEqual(c.v, 3);
+    assert.strictEqual(c.mode, 'grid');
+    assert.strictEqual(c.layout, 'horizontal');
+    assert.strictEqual(c.size, 'medium');
+    assert.strictEqual(c.variety, 'mixed');
+    assert.strictEqual(c.pace, 'medium');
+    assert.strictEqual(c.clips, 30);
+    assert.strictEqual(c.playing, 'auto');
+    assert.strictEqual(c.sound, 'off');
+    assert.strictEqual(c.source, 'library');
+    assert.strictEqual(c.mix, 'both');
+    assert.strictEqual(c.order, 'shuffle');
+    assert.strictEqual(c.pauseOnHover, true);
+    assert.strictEqual(c.directOnly, false);
+    assert.strictEqual(c.keepPlaying2, true);
+    for (const k of ['gap', 'colWidth', 'picSpeed', 'clipLen', 'clipsToEnd', 'scrollSpeed', 'sliceVariety', 'sliceByRes']) {
+      assert.ok(!(k in c), `${k} is gone`);
+    }
   }
-  const c = W.cfgFrom({ v: 2, layout: 'slices', sliceVariety: 250, sliceByRes: false });
-  assert.strictEqual(c.layout, 'slices');
-  assert.strictEqual(c.sliceVariety, 100);
-  assert.strictEqual(c.sliceByRes, false);
-  assert.strictEqual(W.cfgFrom({ sliceVariety: -5 }).sliceVariety, 0);
-  assert.strictEqual(W.cfgFrom({ sliceVariety: '35' }).sliceVariety, 35);
+});
+
+test('settings: every choice of this version is kept, and saving changes nothing', () => {
+  const c = W.cfgFrom({ v: 3, mode: 'scroll', layout: 'vertical', size: 'large', variety: 'wild', pace: 'fast',
+    clips: 'whole', playing: 8, sound: 'rotate', mix: 'videos', order: 'order', source: 's:4',
+    pauseOnHover: false, directOnly: true, keepPlaying2: false });
+  assert.deepStrictEqual({ ...c }, { v: 3, mode: 'scroll', layout: 'vertical', size: 'large', variety: 'wild', pace: 'fast',
+    clips: 'whole', playing: 8, sound: 'rotate', mix: 'videos', order: 'order', source: 's:4',
+    pauseOnHover: false, directOnly: true, keepPlaying2: false });
+  assert.deepStrictEqual(W.cfgFrom(JSON.parse(JSON.stringify(c))), c);
+  // Only real choices: no 5 videos, no 20 s clips, no 'auto' sound in a new blob.
+  assert.strictEqual(W.cfgFrom({ v: 3, playing: 5 }).playing, 'auto');
+  assert.strictEqual(W.cfgFrom({ v: 3, clips: 20 }).clips, 30);
+  assert.strictEqual(W.cfgFrom({ v: 3, sound: 'auto' }).sound, 'off');
+  for (const n of [1, 2, 3, 4, 6, 8, 10, 12]) assert.strictEqual(W.cfgFrom({ v: 3, playing: n }).playing, n);
+});
+
+test('settings: the old Sound choices migrate (Auto becomes Follow, the hover checkbox On hover)', () => {
+  assert.strictEqual(W.cfgFrom({ v: 2, sound: 'auto' }).sound, 'follow');
+  assert.strictEqual(W.cfgFrom({ v: 2, sound: 'hover' }).sound, 'hover');
+  assert.strictEqual(W.cfgFrom({ v: 2, sound: 'off', soundOnHover: true }).sound, 'off', 'the newer key wins');
+  const on = W.cfgFrom({ v: 2, soundOnHover: true, mode: 'scroll' });
+  assert.strictEqual(on.sound, 'hover');
+  assert.ok(!('soundOnHover' in on), 'the old key is not carried forward');
+  assert.strictEqual(W.cfgFrom({ v: 2, soundOnHover: 'yes' }).sound, 'off', 'only a real true counts');
+  assert.strictEqual(W.cfgFrom({ v: 2, sound: 'loud' }).sound, 'off');
+  assert.strictEqual(W.cfgFrom({ v: 2, pauseOnHover: false }).pauseOnHover, false);
+  assert.strictEqual(W.cfgFrom({ v: 2, pauseOnHover: 0 }).pauseOnHover, true);
+});
+
+test('settings: Columns becomes Vertical, Slices Horizontal; a saved blob from before Layout keeps columns', () => {
+  assert.strictEqual(W.cfgFrom({ v: 2, layout: 'columns' }).layout, 'vertical');
+  assert.strictEqual(W.cfgFrom({ v: 2, layout: 'slices' }).layout, 'horizontal');
+  assert.strictEqual(W.cfgFrom({ v: 2, mode: 'grid' }).layout, 'vertical', 'Round 2 had only columns');
+  assert.strictEqual(W.cfgFrom({ playing: 9 }).layout, 'vertical', 'so did the first Wall');
+  assert.strictEqual(W.cfgFrom({}).layout, 'horizontal', 'a new user gets the new default');
+});
+
+test('settings: Block size, Height variety, Pictures, Speed and Clips move to the nearest choice', () => {
+  const size = (colWidth) => W.cfgFrom({ v: 2, colWidth }).size;
+  assert.strictEqual(size(120), 'small');
+  assert.strictEqual(size(300), 'small');
+  assert.strictEqual(size(330), 'medium');
+  assert.strictEqual(size(390), 'medium');
+  assert.strictEqual(size(460), 'medium');
+  assert.strictEqual(size(480), 'large');
+  assert.strictEqual(size(1280), 'large');
+  const variety = (sliceVariety) => W.cfgFrom({ v: 2, sliceVariety }).variety;
+  assert.strictEqual(variety(0), 'even');
+  assert.strictEqual(variety(35), 'even');
+  assert.strictEqual(variety(40), 'mixed');
+  assert.strictEqual(variety(60), 'mixed');
+  assert.strictEqual(variety(85), 'wild');
+  assert.strictEqual(variety(100), 'wild');
+  // Pace comes from the mode that was in use: Pictures in Grid, Speed in Scroll.
+  const grid = (picSpeed, scrollSpeed) => W.cfgFrom({ v: 2, mode: 'grid', picSpeed, scrollSpeed }).pace;
+  assert.strictEqual(grid(60, 1), 'slow');
+  assert.strictEqual(grid(15, 9), 'slow');
+  assert.strictEqual(grid(8, 1), 'medium', 'the old default stays medium');
+  assert.strictEqual(grid(6), 'fast');
+  assert.strictEqual(grid(2), 'fast');
+  const scroll = (scrollSpeed, picSpeed) => W.cfgFrom({ v: 2, mode: 'scroll', scrollSpeed, picSpeed }).pace;
+  assert.strictEqual(scroll(1, 2), 'slow');
+  assert.strictEqual(scroll(4, 60), 'slow', 'the old default speed 4 is nearer 3');
+  assert.strictEqual(scroll(5), 'medium');
+  assert.strictEqual(scroll(7), 'fast');
+  assert.strictEqual(scroll(10), 'fast');
+  assert.strictEqual(scroll(undefined, 4), 'fast', 'no speed saved: the pictures setting');
+  // Clips: the nearest length, or the whole clip.
+  const clips = (o) => W.cfgFrom({ v: 2, ...o }).clips;
+  assert.strictEqual(clips({ clipLen: 5 }), 15);
+  assert.strictEqual(clips({ clipLen: 20 }), 15);
+  assert.strictEqual(clips({ clipLen: 22 }), 30);
+  assert.strictEqual(clips({ clipLen: 45 }), 60);
+  assert.strictEqual(clips({ clipLen: 120 }), 60, 'in a Round 2 blob 120 is just 120 seconds');
+  assert.strictEqual(clips({ clipLen: 20, clipsToEnd: true }), 'whole');
+  assert.strictEqual(clips({ clipLen: 20, clipsToEnd: 'yes' }), 15);
+});
+
+test('settings: Videos at once keeps a number the user picked; the old default becomes Auto', () => {
+  const p = (playing) => W.cfgFrom({ v: 2, playing }).playing;
+  assert.strictEqual(p(6), 'auto');
+  assert.strictEqual(p(undefined), 'auto');
+  assert.strictEqual(p('junk'), 'auto');
+  assert.strictEqual(p(1), 1);
+  assert.strictEqual(p(5), 6);
+  assert.strictEqual(p(7), 8);
+  assert.strictEqual(p(9), 10);
+  assert.strictEqual(p(16), 12);
+  assert.strictEqual(p('3'), 3, 'a numeric string still counts');
+  assert.strictEqual(p(0), 1);
+});
+
+test('settings: a first-Wall blob migrates and keeps its feel', () => {
+  const old = { playing: 9, picSpeed: 13, clipLen: 35, blockSize: 300, gap: 7, mix: 'videos', order: 'order',
+    source: 'c:12', soundOnHover: true, directOnly: true, barOpen: false };
+  const c = W.cfgFrom(old);
+  assert.strictEqual(c.playing, 10);
+  assert.strictEqual(c.pace, 'medium', '13 s is nearest 10 s');
+  assert.strictEqual(c.clips, 30);
+  assert.strictEqual(c.size, 'medium', 'row height 300 was a column about 450 wide');
+  assert.strictEqual(c.layout, 'vertical');
+  assert.strictEqual(c.mix, 'videos');
+  assert.strictEqual(c.order, 'order');
+  assert.strictEqual(c.source, 'c:12');
+  assert.strictEqual(c.sound, 'hover');
+  assert.strictEqual(c.directOnly, true);
+  assert.ok(!('blockSize' in c) && !('barOpen' in c) && !('gap' in c), 'old keys are not carried forward');
+  assert.strictEqual(W.cfgFrom({ blockSize: 260 }).size, 'medium', 'the old default row height: Medium');
+  assert.strictEqual(W.cfgFrom({ clipLen: 120 }).clips, 'whole', 'the first Wall\'s "Full clip"');
+  assert.strictEqual(W.cfgFrom({ blockSize: true }).size, 'medium', 'blockSize: true is not a row height');
   assert.deepStrictEqual(W.cfgFrom(JSON.parse(JSON.stringify(c))), c, 'saving and loading again changes nothing');
-  // Columns plans are untouched.
-  assert.strictEqual(W.planColumns(1280, 390, 4).layout, 'columns');
-  assert.strictEqual(W.minBottom(W.planColumns(1280, 390, 4)), -4);
-  assert.strictEqual(W.minBottom(W.planSlices(1280, 390, 4)), -4);
+});
+
+/* ── Vertical: columns of different widths ───────────────────────────── */
+
+test('vertical: columns of different widths exactly span the board, around the block size', () => {
+  for (const [Wd, size] of [[1280, 390], [1920, 260], [3440, 560], [300, 560], [2560, 390]]) {
+    for (const spread of [0, W.colSpread(15), W.colSpread(60), W.colSpread(100)]) {
+      for (let seed = 1; seed < 20; seed++) {
+        const p = W.planColumns(Wd, size, 0, { spread, rand: seeded(seed) });
+        assert.strictEqual(p.cws.length, p.cols);
+        assert.strictEqual(p.colX[0], 0);
+        for (let c = 1; c < p.cols; c++) assert.ok(Math.abs(p.colX[c] - (p.colX[c - 1] + p.cws[c - 1])) < 1e-9, 'side by side');
+        const right = p.colX[p.cols - 1] + p.cws[p.cols - 1];
+        assert.strictEqual(right, Wd, 'the last column ends exactly at the edge');
+        const lo = Math.min(...p.cws), hi = Math.max(...p.cws);
+        if (spread === 0) assert.ok(hi - lo < 1e-9, 'no variety: equal widths');
+        else if (p.cols > 1) assert.ok(hi / lo <= (1 + spread) / (1 - spread) + 1e-9, 'within the spread');
+      }
+    }
+  }
+  assert.ok(W.colSpread(60) > 0.4 && W.colSpread(60) < 0.5, 'Mixed: about 0.55x to 1.45x');
+  assert.ok(W.colSpread(100) <= 0.6, 'Wild never makes a column narrower than 0.4x');
+  // Different widths do happen.
+  const p = W.planColumns(1920, 390, 0, { spread: W.colSpread(60), rand: seeded(3) });
+  assert.ok(Math.max(...p.cws) / Math.min(...p.cws) > 1.2);
+});
+
+/** Fill a Vertical plan the way the Wall does (shortest column first), optionally fitted (Grid). */
+function fillVertical(Wd, H, size, spread, shapes, o = {}) {
+  const plan = W.planColumns(Wd, size, 0, { spread, rand: seeded(o.seed || 1) });
+  if (o.grid) { plan.noSpan = true; plan.fitH = H; }
+  const placed = [];
+  let k = 0;
+  while (W.minBottom(plan) < H && placed.length < 5000) {
+    let a = shapes[k % shapes.length];
+    if (o.grid) {
+      // The Grid pick near the bottom: the best of the next few files (fitScore).
+      let best = 0, bestScore = Infinity;
+      for (let i = 0; i < 24; i++) {
+        const ai = shapes[(k + i) % shapes.length];
+        const s = W.slotFor(plan, ai);
+        const sc = i * 0.01 + W.fitScore(s.h, H - s.y, s.w);
+        if (sc < bestScore) { bestScore = sc; best = i; }
+      }
+      a = shapes[(k + best) % shapes.length];
+      k += best;
+    }
+    k++;
+    const s = W.slotFor(plan, a);
+    W.placeSlot(plan, s);
+    placed.push({ ...s, a });
+  }
+  return { plan, placed };
+}
+
+function assertNoOverlap(slots) {
+  for (let i = 0; i < slots.length; i++) {
+    for (let j = i + 1; j < slots.length; j++) {
+      const a = slots[i], b = slots[j];
+      const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+      const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+      assert.ok(!(ox > 0.01 && oy > 0.01), 'no overlap');
+    }
+  }
+}
+
+test('vertical: files keep their exact shape, never overlap, and fill past the bottom edge', () => {
+  for (const [Wd, H] of [[1280, 760], [1920, 1040], [500, 700]]) {
+    for (const spread of [0, W.colSpread(60), W.colSpread(100)]) {
+      for (const shapes of [SHAPES, [9 / 16], [32 / 9, 1]]) {
+        const { plan, placed } = fillVertical(Wd, H, 390, spread, shapes, { seed: Wd });
+        assert.ok(W.minBottom(plan) >= H);
+        for (const s of placed) {
+          assert.ok(Math.abs(s.w / s.h - s.a) < 1e-9, 'shape kept exactly');
+          assert.ok(s.x >= -1e-9 && s.x + s.w <= Wd + 1e-6, 'inside the width');
+          const want = s.span === 2 ? plan.cws[s.col] + plan.cws[s.col + 1] : plan.cws[s.col];
+          assert.ok(Math.abs(s.w - want) < 1e-9, 'as wide as its column (or two)');
+        }
+        assertNoOverlap(placed);
+      }
+    }
+  }
+});
+
+/* ── Grid fits the screen ────────────────────────────────────────────── */
+
+function assertFitted(fitted, Wd, H, label) {
+  for (const s of fitted) {
+    assert.ok(s.x >= -1e-6 && s.x + s.w <= Wd + 1e-6, `${label}: inside the width`);
+    assert.ok(s.y >= -1e-6 && s.y + s.h <= H + 1e-6, `${label}: nothing below the bottom edge (${s.y + s.h} vs ${H})`);
+    assert.ok(s.s > 0 && s.s <= 1 + 1e-12, `${label}: scaled down only`);
+  }
+  assertNoOverlap(fitted);
+}
+
+test('grid fit, horizontal: the board ends exactly at the bottom, rows centered, shapes kept', () => {
+  const scales = [];
+  for (const [Wd, H] of [[1280, 760], [1920, 1040], [3440, 1400], [500, 700], [1920, 300]]) {
+    for (const bs of [260, 390, 560]) {
+      for (const shapes of [SHAPES, [16 / 9], [9 / 16], [4], [32 / 9, 1]]) {
+        for (const variety of [0.15, 0.6, 1]) {
+          const { plan, rows } = fillSlices(Wd, H, bs, 0, { shapes, variety, seed: Wd + bs, fit: true });
+          const slots = rows.flatMap(r => r.slots);
+          const fitted = W.fitGrid(plan, slots, H, Wd);
+          const label = `${Wd}x${H} block ${bs} variety ${variety}`;
+          assertFitted(fitted, Wd, H, label);
+          const bottom = Math.max(...fitted.map(s => s.y + s.h));
+          assert.ok(Math.abs(bottom - H) < 1e-6, `${label}: ends at the edge (${bottom})`);
+          const s = fitted[0].s;
+          scales.push(s);
+          for (const f of fitted) assert.ok(Math.abs(f.s - s) < 1e-12, 'one scale for every slice');
+          fitted.forEach((f, i) => {
+            assert.ok(Math.abs(Math.log((f.w / f.h) / (slots[i].w / slots[i].h))) < 1e-9, 'shape kept');
+          });
+          // Each slice is centered: equal bars left and right.
+          for (const r of rows) {
+            const idx = r.slots.map(sl => slots.indexOf(sl));
+            const left = fitted[idx[0]].x;
+            const right = Wd - (fitted[idx[idx.length - 1]].x + fitted[idx[idx.length - 1]].w);
+            assert.ok(Math.abs(left - right) < 1e-6, 'centered');
+          }
+        }
+      }
+    }
+  }
+  scales.sort((a, b) => a - b);
+  const median = scales[Math.floor(scales.length / 2)];
+  assert.ok(median > 0.9, `usually only a small scale down (median ${median.toFixed(3)})`);
+});
+
+test('grid fit, vertical: each column ends exactly at the bottom, centered in its place, shapes kept', () => {
+  const mixed = [];
+  for (const [Wd, H] of [[1280, 760], [1920, 1040], [500, 700], [1920, 400]]) {
+    for (const spread of [W.colSpread(15), W.colSpread(60), W.colSpread(100)]) {
+      for (const shapes of [SHAPES, [16 / 9], [9 / 16], [4, 1]]) {
+        const { plan, placed } = fillVertical(Wd, H, 390, spread, shapes, { grid: true, seed: H });
+        assert.ok(placed.every(s => s.span === 1), 'no spanning in a fitted Grid');
+        const fitted = W.fitGrid(plan, placed, H, Wd);
+        const label = `${Wd}x${H} spread ${spread.toFixed(2)}`;
+        assertFitted(fitted, Wd, H, label);
+        for (let c = 0; c < plan.cols; c++) {
+          const col = fitted.filter(s => s.col === c);
+          if (!col.length) continue;
+          const bottom = Math.max(...col.map(s => s.y + s.h));
+          assert.ok(Math.abs(bottom - H) < 1e-6, `${label}: column ${c} ends at the edge (${bottom})`);
+          const left = col[0].x - plan.colX[c];
+          const right = plan.colX[c] + plan.cws[c] - (col[0].x + col[0].w);
+          assert.ok(Math.abs(left - right) < 1e-6 && left >= -1e-9, 'centered in its place');
+          if (shapes === SHAPES) mixed.push(col[0].s);
+        }
+        fitted.forEach((f, i) => {
+          assert.ok(Math.abs(Math.log((f.w / f.h) / placed[i].a)) < 1e-9, 'shape kept');
+        });
+      }
+    }
+  }
+  // A real library has many shapes to pick a last file from (a source of one shape cannot be helped).
+  mixed.sort((a, b) => a - b);
+  const median = mixed[Math.floor(mixed.length / 2)];
+  assert.ok(median > 0.9, `usually only a small scale down (median ${median.toFixed(3)})`);
+});
+
+test('grid fit: the last Grid slice stays at or above the height left', () => {
+  const o = { W: 1920, base: 390, gap: 0, variety: 0.6, byRes: true, rand: () => 0.5 };
+  const cands = Array.from({ length: 24 }, (_, i) => ({ a: [16 / 9, 4 / 3, 9 / 16, 1][i % 4], px: 1080 }));
+  for (const left of [180, 250, 390, 500, 700, 850]) {
+    const row = W.sliceRow(cands, { ...o, fitLeft: left });
+    if (left < row.lo) assert.ok(row.h >= row.lo - 1e-9, `left ${left}: a floor-height slice (${row.h})`);
+    // At or above what is left, unless every way to stop is too tall or short of it: then the nearest short one.
+    else assert.ok(row.h >= left - 1e-9 || (row.h >= left * 0.9 && row.picks.length > 1), `left ${left}: at the edge (${row.h})`);
+  }
+  // A slice before the last leaves room for a floor-height slice.
+  const row = W.sliceRow(cands, { ...o, fitLeft: 1000 });
+  assert.ok(row.target <= 1000 - row.lo + 1e-9);
+});
+
+/* ── Scroll: start at 10%, slots to the most in view ─────────────────── */
+
+test('scroll: a clip may start at 10% in view, and is heard at 50%', () => {
+  assert.strictEqual(W.START_FRAC, 0.1);
+  assert.strictEqual(W.HEAR_FRAC, 0.5);
+  const H = 1000;
+  assert.strictEqual(W.visibleFrac(100, 300, 0, H), 1);
+  // Entering at the bottom: 30 px of 300 is enough to start.
+  assert.ok(W.inView(H - 30, 300, 0, H, W.START_FRAC));
+  assert.ok(!W.inView(H - 20, 300, 0, H, W.START_FRAC));
+  assert.ok(!W.inView(H - 30, 300, 0, H, W.HEAR_FRAC), 'not heard yet');
+  assert.ok(W.inView(H - 150, 300, 0, H, W.HEAR_FRAC));
+  // A block taller than the board counts against the board's height.
+  assert.ok(W.inView(H - 100, 3000, 0, H, W.START_FRAC), '100 px of a 1000 px board');
+  assert.ok(!W.inView(H - 90, 3000, 0, H, W.START_FRAC));
+  assert.ok(!W.inView(H, 300, 0, H, W.START_FRAC), 'off the board');
+  assert.ok(!W.inView(0, 0, 0, H, W.START_FRAC), 'no height, no view');
+  // Time left for sound runs out at 50% at the top.
+  assert.strictEqual(W.scrollLeftMs(100, 300, 0, H, 20), (400 - 150) / 20 * 1000);
+  assert.strictEqual(W.scrollLeftMs(0, 1500, 0, H, 10), (1500 - 500) / 10 * 1000);
+  assert.ok(W.scrollLeftMs(100, 300, 300, H, 20) < 0);
+});
+
+test('scroll: slots go to the clips most in view; one leaving the top gives its slot first', () => {
+  const H = 1000;
+  const top = 0;
+  const mk = (id, y, h = 300, lastPlayedAt = 0) => ({ id, y, h, lastPlayedAt });
+  const ids = (a) => [...a].map(b => b.id);
+  // Ranking: most in view first; under 10% not at all.
+  const cands = [mk('enter10', H - 40), mk('mid', 400), mk('enter50', H - 150), mk('below', H - 10), mk('topHalf', -150)];
+  assert.deepStrictEqual(ids(W.scrollRank(cands, top, H)), ['mid', 'enter50', 'topHalf', 'enter10']);
+  // A tie: entering beats leaving, then the one that waited longest.
+  assert.deepStrictEqual(ids(W.scrollRank([mk('late', -150), mk('early', H - 150)], top, H)), ['early', 'late']);
+  assert.deepStrictEqual(ids(W.scrollRank([mk('a', 100, 300, 50), mk('b', 500, 300, 10)], top, H)), ['b', 'a']);
+  // Who gives a slot to a fully visible clip: leaving clips less in view, soonest gone first.
+  const playing = [mk('leaving20', -240), mk('leaving60', -120), mk('gone', -320), mk('entering15', H - 45), mk('full', 300)];
+  assert.deepStrictEqual(ids(W.leavingFor(mk('c', 400), playing, top, H)), ['gone', 'leaving20', 'leaving60']);
+  // An entering clip keeps its slot even when it is barely in view.
+  assert.ok(!ids(W.leavingFor(mk('c', 400), playing, top, H)).includes('entering15'));
+  // A clip only half in view takes only from clips leaving with less in view.
+  assert.deepStrictEqual(ids(W.leavingFor(mk('c', H - 150), playing, top, H)), ['gone', 'leaving20']);
+  // The board's offset moves with the drift.
+  assert.deepStrictEqual(ids(W.scrollRank([mk('x', 5300)], 5000, H)), ['x']);
+});
+
+/* ── Videos at once: Auto ────────────────────────────────────────────── */
+
+test('auto videos: raises one at a time while smooth and blocks are waiting', () => {
+  const st = { target: W.AUTO_START, holdUntil: 0 };
+  assert.strictEqual(W.AUTO_START, 4);
+  const smooth = { dropRate: 0.01, stalls: 0, hitchRate: 0, wanting: true };
+  let s = W.autoStep(st, smooth, 1000);
+  assert.strictEqual(s.target, 5);
+  s = W.autoStep(s, smooth, 5000);
+  assert.strictEqual(s.target, 6);
+  // Nothing waiting for a slot: no reason to raise.
+  assert.strictEqual(W.autoStep(s, { ...smooth, wanting: false }, 9000).target, 6);
+  // No frames decoded (nothing playing yet) counts as smooth.
+  assert.strictEqual(W.autoStep(s, { ...smooth, dropRate: null, hitchRate: null }, 9000).target, 7);
+  // Between smooth and not smooth: stays.
+  assert.strictEqual(W.autoStep(s, { ...smooth, dropRate: 0.03 }, 9000).target, 6);
+  assert.strictEqual(W.autoStep(s, { ...smooth, stalls: 1 }, 9000).target, 6);
+  // Never above the maximum.
+  assert.strictEqual(W.autoStep({ target: W.AUTO_MAX, holdUntil: 0 }, smooth, 9000).target, W.AUTO_MAX);
+  assert.strictEqual(W.AUTO_MAX, 12);
+});
+
+test('auto videos: lowers when playback stutters, holds off raising for a while, never below 2', () => {
+  const bad = [{ dropRate: 0.08, stalls: 0 }, { dropRate: 0, stalls: 2 }, { dropRate: 0, stalls: 0, hitchRate: 0.1 }];
+  for (const b of bad) {
+    const s = W.autoStep({ target: 6, holdUntil: 0 }, { ...b, wanting: true }, 10000);
+    assert.strictEqual(s.target, 5);
+    assert.strictEqual(s.holdUntil, 10000 + W.AUTO_HOLD_MS);
+  }
+  assert.strictEqual(W.AUTO_HOLD_MS, 20000);
+  // Hysteresis: smooth again, but no raise until the hold is over.
+  const smooth = { dropRate: 0, stalls: 0, hitchRate: 0, wanting: true };
+  let s = { target: 5, holdUntil: 30000 };
+  s = W.autoStep(s, smooth, 14000);
+  assert.strictEqual(s.target, 5);
+  s = W.autoStep(s, smooth, 26000);
+  assert.strictEqual(s.target, 5);
+  s = W.autoStep(s, smooth, 30000);
+  assert.strictEqual(s.target, 6, 'raises again once the hold is over');
+  // A run of bad windows walks down to the minimum and stays there.
+  let t = { target: 12, holdUntil: 0 };
+  for (let i = 0; i < 20; i++) t = W.autoStep(t, { dropRate: 0.5, stalls: 3, wanting: true }, i * 4000);
+  assert.strictEqual(t.target, W.AUTO_MIN);
+  assert.strictEqual(W.AUTO_MIN, 2);
+});
+
+/* ── Sound: Rotate ───────────────────────────────────────────────────── */
+
+test('rotate sound: moves to another playing clip with sound and time left; none, it stays', () => {
+  const cands = [clip('a', 9000, 1), clip('b', 4000, 2), clip('c', 12000, 3)];
+  assert.strictEqual(W.rotatePick(cands, 'c'), 'a', 'the most time left of the others');
+  assert.strictEqual(W.rotatePick(cands, 'a'), 'c');
+  assert.strictEqual(W.rotatePick([clip('a', 5000, 1)], 'a'), 'a', 'no other clip: it stays');
+  assert.strictEqual(W.rotatePick([clip('a', 5000, 1), clip('b', -100, 2)], 'a'), 'a', 'never to a clip about to stop');
+  assert.strictEqual(W.rotatePick([clip('a', 5000, 1), clip('b', 3000, 5), clip('c', 3000, 9)], 'a'), 'c', 'a tie goes to the most recent start');
 });
 
 test('continue in the player: the clip time applies only to the same file, before it expires', () => {

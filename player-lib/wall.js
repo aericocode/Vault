@@ -3,43 +3,74 @@
    and Round 2)
 
    Blocks that keep each file's shape. A few videos play muted at once, the
-   rest of the blocks show pictures. Two layouts (the "Layout" choice):
+   rest of the blocks show pictures. No gap between blocks.
 
-   - Columns: masonry, every block one column wide (a wide file spans two).
-   - Slices: full-width rows of different heights. A slice takes files
-     until they fill the width at a target height (the block size, varied
-     at random and nudged by the first file's resolution), then its exact
-     height is solved so the row ends flush (sliceRow).
+   Settings (Wall 3.11: chips in the bar, each a short list; wall-rules.js
+   checks them and moves an older blob to the nearest choices):
+   Source and Order; Grid | Scroll; Layout (Horizontal | Vertical) with
+   Size (base block 260 / 390 / 560 px) and Variety (Even / Mixed / Wild)
+   in the same menu; Pace (Grid: pictures change every 20 / 10 / 5 s,
+   Scroll: speed level 3 / 5 / 8); Clips (15 / 30 / 60 s or the whole
+   clip); Sound (Off, On hover, Follow, Rotate); Videos (Auto or a fixed
+   number). Under More: Show, Pause on hover, Only files that play without
+   converting, Keep playing when this tab is hidden.
+
+   Two layouts:
+
+   - Horizontal: full-width slices of different heights. A slice takes
+     files until they fill the width at a target height (the block size,
+     varied at random by Variety and nudged by the first file's
+     resolution), then its exact height is solved so the row ends flush
+     (sliceRow).
+   - Vertical: masonry columns of different widths (the block size times a
+     random factor from Variety, scaled so the columns exactly span the
+     board). Files stack down each column at their exact shape; in Scroll
+     a file wider than 2.5:1 may span two columns.
 
    Two modes:
 
-   - Grid: a still board. Blocks change their content on a timer (pictures
-     every "Pictures" seconds, clips after "Clips" seconds), crossfading.
+   - Grid: a still board that fits the screen exactly, nothing cut off at
+     the bottom (fitGrid). Horizontal: the last slice aims at the height
+     left, then every slice is scaled by one factor (at most 1) and
+     centered, leaving black bars at the sides. Vertical: no spanning;
+     each column picks a last file that ends near the bottom, then is
+     scaled on its own to end there and centered in its place. Blocks
+     change their content on a timer (pictures by Pace, clips by Clips),
+     crossfading.
    - Scroll: the board drifts upward. New files join at the bottom of the
-     shortest column (Slices: as a whole new slice), files that leave the
-     top are released and dropped.
+     shortest column (Horizontal: as a whole new slice), files that leave
+     the top are released and dropped.
+
+   Clips never loop: when one ends or its time is up the next file from
+   the source takes the block (advance), in both modes.
 
    Ambient, so smoothness wins over features:
 
-   - Fixed slots. The columns are planned once per board size; a block's
+   - Fixed slots. The board is planned once per board size; a block's
      place and size never change after it is placed. A swap brings in a file
      whose stored shape is within about 15% of the slot; when the queue has
      none, the incoming file is cropped into the slot (object-fit: cover).
      A real size the element reports later is remembered for later picks and
-     never moves anything. Block size, gap and window size changes plan the
-     board again, once, behind a short fade.
+     never moves anything. Layout, Size, Variety, mode and window size
+     changes plan the board again, once, behind a short fade.
    - Blocks are absolutely placed inside one track element. Scroll mode moves
      only the track (translate3d from requestAnimationFrame), so a frame does
      no layout. Blocks that leave the top go from the DOM; every so often the
      coordinates are rebased in the same frame so the numbers stay small.
-   - The playing cap is counted on live <video> elements, including one that
-     is still fading out. A remux (HLS) stream counts as 2 and only one runs
-     at a time: the server runs at most 2 FFmpeg sessions for the whole app
-     and a third would kill the main player's. In Scroll mode the slots go to
-     blocks mostly in view first (at least 66% of the block, or of the board
-     for a taller block, is on the board); a playing block that is no longer
-     mostly in view at the top, or is off the board, is the first to give its
-     slot to a block mostly in view that needs one.
+   - The playing cap (Videos) is counted on live <video> elements, including
+     one that is still fading out. A remux (HLS) stream counts as 2 and only
+     one runs at a time: the server runs at most 2 FFmpeg sessions for the
+     whole app and a third would kill the main player's. In Scroll mode a
+     clip may start once at least 10% of it (of the block, or of the board
+     for a taller block) is on the board; the slots go to the blocks most in
+     view, and a playing clip leaving at the top gives its slot first to a
+     block more in view than it is (scrollRank, leavingFor).
+   - Videos Auto (autoStep): starts at 4. Every 4 s the playing clips are
+     judged by their dropped frames (getVideoPlaybackQuality), stalls
+     ('waiting' after they played) and, in Scroll, animation frames over
+     50 ms. Smooth with blocks waiting for a slot: one more (up to 12). Not
+     smooth: one fewer (down to 2), and no raise for 20 s. Frozen while the
+     page is hidden. The chip shows the number now.
    - Every replaced <video> is released (pause, src removed, load(), hls
      destroyed, stream closed). Leaving the tab, opening the player, locking
      the library or closing the page releases them all. A hidden browser tab
@@ -48,20 +79,23 @@
      slots start again with fresh streams. The Pause button only pauses.
    - One 250 ms scheduler tick drives every block (no timer per block).
 
-   Sound (the "Sound" choice in the gear popover): Off, On hover (only the
-   hovered clip is heard), or Auto (exactly one playing clip that has an
-   audio track is heard; when it stops, the sound moves to the playing clip
-   with sound that has the most time left on the wall, and never away from
-   one that is still playing; no clip with sound, no sound and no badge).
-   Whether a clip has sound comes from the row's probe (audio_codec), else
-   from the element once it plays. Every handover is a short volume
-   crossfade, and at most two clips are ever partly audible (one fading out,
-   one fading in). Grid clips start staggered over the clip length, so they
-   never all stop together. The level and mute come from the player's
-   stored volume (vault_volume). In Auto, a hovered clip borrows the sound
-   while hovered when "Pause on hover" is on; with it off, hovering is only
-   the caption and Auto keeps its pick. A browser that refuses sound before
-   a click keeps the clip playing muted and asks for a click on the wall.
+   Sound (the Sound chip): Off, On hover (only the hovered clip is heard),
+   Follow (exactly one playing clip that has an audio track is heard; when
+   it stops, the sound moves to the playing clip with sound that has the
+   most time left on the wall, and never away from one that is still
+   playing; no clip with sound, no sound and no badge), or Rotate (Follow,
+   and every 20 s the sound also moves to another playing clip with sound
+   and time left; none, it stays). In Scroll only a clip at least half in
+   view is heard. Whether a clip has sound comes from the row's probe
+   (audio_codec), else from the element once it plays. Every handover is a
+   slow volume crossfade, and at most two clips are ever partly audible
+   (one fading out, one fading in). Grid clips start staggered over the
+   clip length, so they never all stop together. The level and mute come
+   from the player's stored volume (vault_volume). In Follow and Rotate, a
+   hovered clip borrows the sound while hovered when "Pause on hover" is
+   on; with it off, hovering is only the caption. A browser that refuses
+   sound before a click keeps the clip playing muted and asks for a click
+   on the wall.
 
    Sources go through the existing query API (Library.queryOnce: POST
    /api/library/query + the binary id list) and rows through Library.fetchRows
@@ -91,7 +125,7 @@
 
 const Wall = (() => {
   const R = typeof WallRules !== 'undefined' ? WallRules : (typeof window !== 'undefined' && window.WallRules);
-  const { RANGES, PIC_STEPS, CLIP_STEPS, SOUNDS, cfgFrom, clampNum } = R;
+  const { cfgFrom, SIZE_PX, VARIETY_PCT, PACE_PIC_S, PACE_SPEED } = R;
   const MIX_TYPES = { both: ['video', 'image', 'gif'], videos: ['video'], pictures: ['image', 'gif'] };
 
   const MAX_REMUX = 1;               // see the header: the server's FFmpeg cap is 2, app-wide
@@ -111,10 +145,12 @@ const Wall = (() => {
   const READY_CAP = 1500;            // the most rows the buffer holds
   const REBASE_AT = 20000;           // scroll offset (px) at which coordinates are rebased
   const FS_IDLE_MS = 3000;
-  // Scroll: a block is "mostly in view" while at least this share of its
-  // height (of the board's height, for a block taller than the board) is on
-  // the board, top or bottom part. It may play and be heard while it is.
-  const MOSTLY = 0.66;
+  // Scroll: a clip may start once at least START_FRAC of it (of its height,
+  // or of the board's height for a block taller than the board) is on the
+  // board, and may be heard (Follow, Rotate) while at least HEAR_FRAC is.
+  const START_FRAC = 0.10;
+  const HEAR_FRAC = 0.5;
+  const GAP = 0;                     // no gap between blocks (fixed)
 
   /* ── Settings ───────────────────────────────────────────────────────── */
 
@@ -128,17 +164,12 @@ const Wall = (() => {
     if (typeof window.vaultSetWallSettings === 'function') window.vaultSetWallSettings(cfg);
   }
 
-  /** The step index closest to a value in seconds (by ratio, not difference). */
-  function nearestStep(steps, sec) {
-    let best = 0;
-    for (let i = 1; i < steps.length; i++) {
-      if (Math.abs(Math.log(steps[i] / sec)) < Math.abs(Math.log(steps[best] / sec))) best = i;
-    }
-    return best;
-  }
-
+  const sizePx = () => SIZE_PX[cfg.size] || 390;
+  const varietyPct = () => VARIETY_PCT[cfg.variety] != null ? VARIETY_PCT[cfg.variety] : 60;
+  /** Grid: seconds between picture changes. */
+  const picSec = () => PACE_PIC_S[cfg.pace] || 10;
   /** Scroll speed level (1 to 10) in pixels per second. */
-  const speedPx = () => 10 * Math.pow(1.4, cfg.scrollSpeed - 1);
+  const speedPx = () => 10 * Math.pow(1.4, (PACE_SPEED[cfg.pace] || 5) - 1);
 
   /**
    * The share of a block (top y, height h) on a board showing top..top+H,
@@ -151,17 +182,81 @@ const Wall = (() => {
     return Math.max(0, Math.min(1, seen / base));
   }
 
-  /** Scroll: at least MOSTLY of the block is on the board (half a pixel of slack). */
-  function mostlyInView(y, h, top, H) {
-    return visibleFrac(y, h, top, H) * Math.min(h, H) >= MOSTLY * Math.min(h, H) - 0.5;
+  /** Scroll: at least `frac` of the block is on the board (half a pixel of slack). */
+  function inView(y, h, top, H, frac) {
+    const base = Math.min(h, H);
+    return base > 0 && visibleFrac(y, h, top, H) * base >= frac * base - 0.5;
   }
 
   /**
-   * Scroll: ms until a block drifting up at `pxPerSec` stops being mostly in
-   * view at the top (its bottom part shrinks below MOSTLY). Negative once past.
+   * Scroll: ms until a block drifting up at `pxPerSec` has less than `frac`
+   * (default HEAR_FRAC) of itself on the board at the top. Negative once past.
    */
-  function scrollLeftMs(y, h, offset, H, pxPerSec) {
-    return (y + h - MOSTLY * Math.min(h, H) - offset) / pxPerSec * 1000;
+  function scrollLeftMs(y, h, offset, H, pxPerSec, frac = HEAR_FRAC) {
+    return (y + h - frac * Math.min(h, H) - offset) / pxPerSec * 1000;
+  }
+
+  /**
+   * Scroll: the order in which waiting clips get a slot (pure). `cands` are
+   * { y, h, lastPlayedAt } of blocks that may play; returns those at least
+   * START_FRAC in view, most in view first; a tie goes to a block whose top
+   * is on the board (entering) over one whose top has passed, then to the
+   * one that waited longest, then the higher one.
+   */
+  function scrollRank(cands, top, H) {
+    const out = [];
+    for (const c of cands) {
+      const f = visibleFrac(c.y, c.h, top, H);
+      if (inView(c.y, c.h, top, H, START_FRAC)) out.push({ c, f, late: c.y < top ? 1 : 0 });
+    }
+    out.sort((a, b) => (b.f - a.f) || (a.late - b.late)
+      || ((a.c.lastPlayedAt || 0) - (b.c.lastPlayedAt || 0)) || (a.c.y - b.c.y));
+    return out.map(o => o.c);
+  }
+
+  /**
+   * Scroll: the playing clips that would give their slot to `cand` (pure),
+   * soonest gone first. A clip gives its slot when it is under START_FRAC in
+   * view (or off the board), or when it is leaving at the top (its top has
+   * passed) and is less in view than `cand`. A clip entering at the bottom
+   * keeps its slot: it is on its way into view.
+   */
+  function leavingFor(cand, playing, top, H) {
+    const fc = visibleFrac(cand.y, cand.h, top, H);
+    return playing.filter((p) => {
+      if (!inView(p.y, p.h, top, H, START_FRAC)) return true;
+      return p.y < top && visibleFrac(p.y, p.h, top, H) < fc;
+    }).sort((a, b) => (a.y + a.h) - (b.y + b.h));
+  }
+
+  /* Videos at once: Auto. Every AUTO_WINDOW_MS the clips' playback is
+     judged: smooth, with blocks waiting for a slot, raises the target by one;
+     not smooth lowers it by one and holds off raising for AUTO_HOLD_MS. */
+  const AUTO_START = 4;
+  const AUTO_MIN = 2;
+  const AUTO_MAX = 12;
+  const AUTO_WINDOW_MS = 4000;
+  const AUTO_HOLD_MS = 20000;
+
+  /**
+   * One Auto step (pure). `st` is { target, holdUntil }; `s` the window's
+   * sample: { dropRate (dropped / decoded frames, null with none decoded),
+   * stalls (playing clips that had to wait for data), hitchRate (Scroll
+   * frames over 50 ms, null outside Scroll), wanting (a block in view is
+   * waiting for a slot the target keeps from it) }. Returns the next state.
+   */
+  function autoStep(st, s, t) {
+    const drop = s.dropRate == null ? 0 : s.dropRate;
+    const hitch = s.hitchRate == null ? 0 : s.hitchRate;
+    const stalls = s.stalls || 0;
+    if (drop > 0.05 || stalls >= 2 || hitch > 0.05) {
+      return { target: Math.max(AUTO_MIN, st.target - 1), holdUntil: t + AUTO_HOLD_MS };
+    }
+    const smooth = drop < 0.02 && stalls === 0 && hitch < 0.02;
+    if (smooth && s.wanting && t >= st.holdUntil && st.target < AUTO_MAX) {
+      return { target: st.target + 1, holdUntil: st.holdUntil };
+    }
+    return { target: st.target, holdUntil: st.holdUntil };
   }
 
   /**
@@ -207,10 +302,11 @@ const Wall = (() => {
   let reducedDone = false;     // ...and that happens once per visit to Scroll
 
   let blocks = [];             // in placement order
-  // The plan: column count and width, x of each column, and each column's
+  // The plan: column count, each column's width and x, and each column's
   // next free y (its content bottom plus one gap). Slices (layout 'slices',
   // cols 0) has one next free y, `bottom`, and the base slice height `base`.
-  const lay = { layout: 'columns', W: 0, H: 0, cols: 0, cw: 0, gap: 0, colX: [], tops: [], base: 0, bottom: 0 };
+  // `fitH` is set in Grid mode: the board's height, which the plan is fitted to.
+  const lay = { layout: 'columns', W: 0, H: 0, cols: 0, cw: 0, cws: [], gap: 0, colX: [], tops: [], base: 0, bottom: 0, fitH: 0 };
   let hoverBlock = null;
   // A primary-button press that only closed the popover or turned sound on:
   // the click that follows it is swallowed. Any later press, or a click
@@ -238,6 +334,13 @@ const Wall = (() => {
   const stats = { swaps: 0, exact: 0, near: 0, crops: 0, worstCrop: 1, staleDropped: 0, moreFetches: 0, rowFetches: 0, replays: 0 };
 
   let liveCost = 0;            // slots held by live <video> elements
+
+  // Videos at once, Auto: the target (see autoStep) and this window's counts.
+  // stalls: playing clips that had to wait for data; frames/hitches: Scroll
+  // animation frames, and those over 50 ms.
+  const auto = { target: AUTO_START, holdUntil: 0, windowAt: 0, stalls: 0, frames: 0, hitches: 0, lastSample: null };
+  /** How many slots the clips may hold now. */
+  const playCap = () => (cfg.playing === 'auto' ? auto.target : cfg.playing);
   let liveRemux = 0;
 
   // The pool: every id the source matches, in play order, and a buffer of
@@ -499,7 +602,7 @@ const Wall = (() => {
   function readyTarget() {
     const W = (els && els.board.clientWidth) || window.innerWidth;
     const H = (els && els.board.clientHeight) || window.innerHeight;
-    const cw = Math.max(60, Math.min(W, cfg.colWidth));
+    const cw = Math.max(60, Math.min(W, sizePx() * 0.8));   // Variety makes some blocks smaller
     const est = Math.ceil((W * H * 1.6) / (cw * cw * 0.9));
     return Math.max(40, est + 40);
   }
@@ -587,13 +690,34 @@ const Wall = (() => {
 
   /* ── The plan (pure; also exercised by test/wall-layout.test.js) ────── */
 
-  function planColumns(W, colWidth, gap) {
+  /** Vertical: how far a column's width may stray from the block size (0.6 = 0.4x to 1.6x), from the Variety. */
+  const colSpread = (pct) => Math.min(0.6, Math.max(0, pct) * 0.0075);
+
+  /**
+   * The Vertical plan: columns of different widths. Each column's width is
+   * the block size times a random factor (1 +/- spread), then all are scaled
+   * so together they exactly span the board (o: { spread, rand }). With no
+   * spread every column is as wide (the Round 2 Columns layout).
+   */
+  function planColumns(W, colWidth, gap, o = {}) {
     const cols = Math.max(1, Math.round((W + gap) / (colWidth + gap)));
-    const cw = (W - gap * (cols - 1)) / cols;
+    const spread = clamp(o.spread || 0, 0, 0.6);
+    const rand = o.rand || Math.random;
+    const raw = [];
+    for (let c = 0; c < cols; c++) raw.push(spread ? 1 + (rand() * 2 - 1) * spread : 1);
+    const sum = raw.reduce((s, f) => s + f, 0);
+    const room = W - gap * (cols - 1);
+    const cws = raw.map(f => room * f / sum);
     const colX = [];
-    for (let c = 0; c < cols; c++) colX.push(c * (cw + gap));
-    return { layout: 'columns', cols, cw, gap, colX, tops: new Array(cols).fill(0) };
+    let x = 0;
+    for (let c = 0; c < cols; c++) { colX.push(x); x += cws[c] + gap; }
+    // The last column ends exactly at the right edge (no rounding sliver).
+    cws[cols - 1] = W - colX[cols - 1];
+    return { layout: 'columns', cols, cw: room / cols, cws, gap, colX, tops: new Array(cols).fill(0) };
   }
+
+  /** A column's width (plans from before per-column widths have only cw). */
+  const colW = (plan, c) => (plan.cws ? plan.cws[c] : plan.cw);
 
   /**
    * Where the next block of this shape goes: the shortest column, and for a
@@ -602,10 +726,12 @@ const Wall = (() => {
    * its lowest point whatever the shapes). `hole` is the space the lower
    * column leaves empty; the picker holds a wide file back while that hole
    * would be big, so in practice it lands where two bottoms are near level.
+   * A plan fitted to the screen (Grid, `noSpan`) never spans: each column
+   * is scaled on its own to end at the bottom edge.
    */
   function slotFor(plan, aspect) {
     const { cols, cw, gap, colX, tops } = plan;
-    let span = cols >= 2 && aspect > WIDE ? 2 : 1;
+    let span = cols >= 2 && aspect > WIDE && !plan.noSpan ? 2 : 1;
     let col = 0;
     let y = Infinity;
     let hole = 0;
@@ -626,8 +752,35 @@ const Wall = (() => {
         for (let c = 0; c < cols; c++) if (tops[c] < y) { y = tops[c]; col = c; }
       }
     }
-    const w = span * cw + (span - 1) * gap;
+    const w = span === 2 ? colW(plan, col) + colW(plan, col + 1) + gap : colW(plan, col);
     return { col, span, x: colX[col], y, w, h: w / aspect, hole };
+  }
+
+  /**
+   * Grid: the plan fitted to the screen (pure). Returns the slots moved so
+   * the board ends exactly at the bottom edge H, every file at its shape:
+   *  - Slices: every slice scaled by one factor s = H / content height
+   *    (never above 1, which would make the slices wider than the board),
+   *    each centered, leaving black bars at the sides.
+   *  - Columns: each column scaled on its own so it ends at H (never above
+   *    1), and centered in its place.
+   * Each slot gains `s`, the factor it was scaled by.
+   */
+  function fitGrid(plan, slots, H, W) {
+    if (plan.layout === 'slices') {
+      let bottom = 0;
+      for (const sl of slots) bottom = Math.max(bottom, sl.y + sl.h);
+      const s = bottom > 0 ? Math.min(1, H / bottom) : 1;
+      const ox = (W - W * s) / 2;
+      return slots.map(sl => ({ ...sl, x: ox + sl.x * s, y: sl.y * s, w: sl.w * s, h: sl.h * s, s }));
+    }
+    const bottoms = new Array(plan.cols).fill(0);
+    for (const sl of slots) bottoms[sl.col] = Math.max(bottoms[sl.col], sl.y + sl.h);
+    return slots.map((sl) => {
+      const s = bottoms[sl.col] > 0 ? Math.min(1, H / bottoms[sl.col]) : 1;
+      const w = sl.w * s;
+      return { ...sl, x: plan.colX[sl.col] + (colW(plan, sl.col) - w) / 2, y: sl.y * s, w, h: sl.h * s, s };
+    });
   }
 
   function placeSlot(plan, s) {
@@ -687,14 +840,29 @@ const Wall = (() => {
     const lo = base * SLICE_MIN;
     const hi = base * SLICE_MAX;
     const hOf = (sum, n) => (W - gap * (n - 1)) / sum;
+    // Grid (o.fitLeft: the height left above the bottom edge): the last
+    // slice aims at exactly what is left and stops at or above it, so the
+    // board needs only a small scale down to end at the edge; a slice
+    // before it leaves at least a floor-height slice of room.
+    const fit = o.fitLeft != null;
+    const last = fit && o.fitLeft <= hi;
+    let target = 0;
+    let first = -1;
+    if (last) {
+      target = clamp(o.fitLeft, lo, hi);
+      first = cands.findIndex(c => hOf(c.a, 1) >= target);
+    }
     // The first file: the first one that can start a slice at least lo tall.
-    let first = cands.findIndex(c => hOf(c.a, 1) >= lo);
+    if (first < 0) first = cands.findIndex(c => hOf(c.a, 1) >= lo);
     if (first < 0) first = 0;
-    const f = 1 + (o.rand() * 2 - 1) * clamp(o.variety, 0, 1) * 0.7;
-    let target = base * Math.max(0.45, f);
-    const px = cands[first].px;
-    if (o.byRes && px > 0) target *= clamp(Math.pow(px / 720, 0.35), 0.7, 1.35);
-    target = clamp(target, lo, hi);
+    if (!last) {
+      const f = 1 + (o.rand() * 2 - 1) * clamp(o.variety, 0, 1) * 0.7;
+      target = base * Math.max(0.45, f);
+      const px = cands[first].px;
+      if (o.byRes && px > 0) target *= clamp(Math.pow(px / 720, 0.35), 0.7, 1.35);
+      if (fit) target = Math.min(target, o.fitLeft - lo);
+      target = clamp(target, lo, hi);
+    }
 
     const picks = [first];
     const used = new Set(picks);
@@ -702,6 +870,7 @@ const Wall = (() => {
     let h = hOf(sum, 1);
     let next = 0;
     let rep = 0;
+    let spare = -1;            // the last Grid slice: the file to add if nothing keeps it at or above the target
     for (let tries = 0; h > target && picks.length < SLICE_ITEMS && tries < SLICE_ITEMS * 3; tries++) {
       while (next < cands.length && used.has(next)) next++;
       const j = next < cands.length ? next++ : picks[rep++ % picks.length];
@@ -709,14 +878,28 @@ const Wall = (() => {
       const hn = hOf(sum + cands[j].a, picks.length + 1);
       const stopOk = h <= hi;
       const addOk = hn >= lo;
-      // Past the target with it: it joins if that lands closer, or if stopping is no option.
-      if (hn < target && !(addOk && (!stopOk || Math.log(target / hn) < Math.log(h / target)))) {
+      // Past the target with it: it joins if that lands closer (never for
+      // the last Grid slice, which stays at or above it), or if stopping is no option.
+      const closer = !last && Math.log(target / hn) < Math.log(h / target);
+      if (last && hn < target && !stopOk) {
+        // Still too tall to stop, and this file would take it under the
+        // height left: look for one that does not, keeping this as a spare.
+        if (addOk && (spare < 0 || hn > hOf(sum + cands[spare].a, picks.length + 1))) spare = j;
+        continue;
+      }
+      if (hn < target && !(addOk && (!stopOk || closer))) {
         if (stopOk) break;
         continue;             // too wide for this slice: it waits
       }
       picks.push(j);
       sum += cands[j].a;
       h = hn;
+      spare = -1;
+    }
+    if (last && h > hi && spare >= 0) {
+      picks.push(spare);
+      sum += cands[spare].a;
+      h = hOf(sum, picks.length);
     }
     return { picks, h, target, lo, hi };
   }
@@ -756,10 +939,25 @@ const Wall = (() => {
       const s = slotFor(plan, aspectOf(r));
       // A wide file waits for two columns that are near level.
       if (s.span === 2 && s.hole > plan.cw * 0.12) score += 5 + s.hole / plan.cw;
-      else if (s.span === 1 && plan.cols >= 2 && aspectOf(r) > WIDE) score += 6;
+      else if (s.span === 1 && plan.cols >= 2 && aspectOf(r) > WIDE && !plan.noSpan) score += 6;
+      if (plan.fitH) score += fitScore(s.h, plan.fitH - s.y, s.w);
       if (score < bestScore) { bestScore = score; best = i; }
     }
     return best;
+  }
+
+  /**
+   * Grid, Vertical: how well a file of height h suits a column with `left`
+   * px to go to the bottom edge (pure; lower is better, 0 = no preference).
+   * Near the bottom the column is scaled down to end at the edge by
+   * (filled + h) / filled, so a last file that ends just past the edge is
+   * best; one that leaves a gap too small for any other file is worst.
+   */
+  function fitScore(h, left, w) {
+    if (left > w * 1.8) return 0;               // plenty of room yet
+    if (h >= left) return 2 * (h - left) / Math.max(left, w * 0.25);
+    if (left - h >= w * 0.5) return 0.1;        // room for one more file
+    return 1.5;
   }
 
   /**
@@ -851,21 +1049,48 @@ const Wall = (() => {
 
   /* ── DOM ────────────────────────────────────────────────────────────── */
 
-  function slider(id, label, min, max, step, hint, out = true) {
-    return `<label class="wall-field wall-slider" id="${id}Field" title="${hint}">
-        <span class="wall-label">${label}</span>
-        <input type="range" id="${id}" min="${min}" max="${max}" step="${step}">
-        ${out ? `<output id="${id}Out"></output>` : ''}
-      </label>`;
-  }
+  /*
+   * The bar: every common setting is a chip that shows its value and opens
+   * a short menu of choices under it (radio items, a check on the current
+   * one). Layout, Size and Variety share one chip. The rarely changed ones
+   * are under More.
+   */
+  const opt = (v, label, short = label) => ({ v, label, short });
+  const CHIPS = {
+    order: { label: 'Order', title: 'The order files go up in',
+      sections: [{ key: 'order', options: [opt('shuffle', 'Shuffle'), opt('order', 'In order')] }] },
+    layout: { label: 'Layout', title: 'How the blocks are laid out, and how big they are',
+      sections: [
+        { key: 'layout', title: 'Layout', options: [opt('horizontal', 'Horizontal: rows of different heights', 'Horizontal'), opt('vertical', 'Vertical: columns of different widths', 'Vertical')] },
+        { key: 'size', title: 'Size', options: [opt('small', 'Small'), opt('medium', 'Medium'), opt('large', 'Large')] },
+        { key: 'variety', title: 'Variety', options: [opt('even', 'Even'), opt('mixed', 'Mixed'), opt('wild', 'Wild')] },
+      ] },
+    pace: { label: 'Pace', title: '',
+      sections: [{ key: 'pace', options: [opt('slow', 'Slow'), opt('medium', 'Medium'), opt('fast', 'Fast')] }] },
+    clips: { label: 'Clips', title: 'How long each clip plays before the next file takes its place',
+      sections: [{ key: 'clips', options: [opt(15, '15 s'), opt(30, '30 s'), opt(60, '60 s'), opt('whole', 'Whole clip', 'Whole')] }] },
+    sound: { label: 'Sound', title: 'Which clip you hear',
+      sections: [{ key: 'sound', options: [
+        opt('off', 'Off'), opt('hover', 'On hover: the clip under the mouse', 'On hover'),
+        opt('follow', 'Follow one clip: one clip is heard until it stops', 'Follow'),
+        opt('rotate', 'Rotate: a different clip every 20 s', 'Rotate')] }] },
+    playing: { label: 'Videos', title: 'How many videos play at once. Auto adds videos while playback stays smooth and drops some when it stutters.',
+      sections: [{ key: 'playing', options: [opt('auto', 'Auto'), ...R.PLAYING.filter(n => n !== 'auto').map(n => opt(n, String(n)))] }] },
+  };
 
-  function popSlider(id, label, key, hint = '') {
-    const r = RANGES[key];
-    return `<label class="wall-pop-row" id="${id}Row"${hint ? ` title="${hint}"` : ''}>
-        <span class="wall-label">${label}</span>
-        <input type="range" id="${id}" min="${r.min}" max="${r.max}" step="${r.step}">
-        <output id="${id}Out"></output>
-      </label>`;
+  const caret = () => `${typeof vaultIcon === 'function' ? vaultIcon('chevron', 'modern-only wall-caret') : ''}<span class="classic-only wall-caret" aria-hidden="true">&#9662;</span>`;
+
+  function chipHtml(name) {
+    const d = CHIPS[name];
+    const cap = name[0].toUpperCase() + name.slice(1);
+    const items = d.sections.map((s, i) => `${i ? '<div class="wall-menu-sep" role="separator"></div>' : ''}${s.title ? `<div class="wall-menu-head" role="presentation">${s.title}</div>` : ''}${
+      s.options.map(o => `<button type="button" class="wall-menu-item" role="menuitemradio" aria-checked="false" tabindex="-1" data-key="${s.key}" data-value="${o.v}">${o.label}</button>`).join('')}`).join('');
+    return `<span class="wall-chip-wrap" id="wallChip${cap}Wrap">
+        <button type="button" class="wall-chip" id="wallChip${cap}" data-chip="${name}" aria-haspopup="menu" aria-expanded="false" aria-controls="wallMenu${cap}"${d.title ? ` title="${d.title}"` : ''}>
+          <span class="wall-chip-k">${d.label}</span><span class="wall-chip-v" id="wallChip${cap}Val"></span>${caret()}
+        </button>
+        <div class="wall-menu" id="wallMenu${cap}" role="menu" aria-label="${d.label}" hidden>${items}</div>
+      </span>`;
   }
 
   function ensureDom() {
@@ -874,40 +1099,28 @@ const Wall = (() => {
     root.classList.add('wall-root');
     root.innerHTML = `
       <div class="wall-bar" id="wallBar">
-        <label class="wall-field">
-          <span class="wall-label">Source</span>
-          <select id="wallSource" class="m-select"></select>
+        <label class="wall-chip wall-chip-select" title="What the wall shows">
+          <span class="wall-chip-k">Source</span>
+          <select id="wallSource" class="wall-chip-sel"></select>
         </label>
+        ${chipHtml('order')}
         <div class="wall-seg" role="group" aria-label="Wall mode">
           <button type="button" class="wall-seg-btn" id="wallModeGrid" data-mode="grid">Grid</button>
           <button type="button" class="wall-seg-btn" id="wallModeScroll" data-mode="scroll">Scroll</button>
         </div>
+        ${chipHtml('layout')}
+        ${chipHtml('pace')}
+        ${chipHtml('clips')}
+        ${chipHtml('sound')}
+        ${chipHtml('playing')}
         <button type="button" class="wall-btn" id="wallPauseBtn">Pause</button>
         <button type="button" class="wall-btn" id="wallShuffleBtn" title="Start over with a fresh shuffle">Shuffle</button>
-        ${slider('wallPic', 'Pictures', 0, PIC_STEPS.length - 1, 1, 'How often pictures change. Faster to the right.')}
-        ${slider('wallClip', 'Clips', 0, CLIP_STEPS.length - 1, 1, 'How long each clip plays. Faster to the right.')}
-        ${slider('wallSpeed', 'Speed', RANGES.scrollSpeed.min, RANGES.scrollSpeed.max, 1, 'How fast the wall scrolls. Faster to the right.', false)}
         <span class="wall-note" id="wallNote" hidden>Paused for reduced motion</span>
         <span class="wall-status" id="wallStatus"></span>
-        <button type="button" class="wall-btn wall-icon-btn" id="wallGearBtn" aria-label="More settings"
-          title="More settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="wallPop">
-          ${typeof vaultIcon === 'function' ? vaultIcon('gear', 'modern-only') : ''}<svg class="classic-only" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
-        </button>
+        <button type="button" class="wall-btn" id="wallMoreBtn" title="More settings"
+          aria-haspopup="dialog" aria-expanded="false" aria-controls="wallPop">More</button>
         <button type="button" class="wall-btn" id="wallFullBtn">Full screen</button>
         <div class="wall-pop" id="wallPop" role="dialog" aria-label="More settings" hidden>
-          ${popSlider('wallPlaying', 'Videos at once', 'playing')}
-          <label class="wall-pop-row" title="Columns: blocks of the same width. Slices: full-width rows of different heights.">
-            <span class="wall-label">Layout</span>
-            <select id="wallLayout" class="m-select">
-              <option value="columns">Columns</option>
-              <option value="slices">Slices</option>
-            </select>
-          </label>
-          ${popSlider('wallColWidth', 'Block size', 'colWidth')}
-          ${popSlider('wallGap', 'Gap', 'gap')}
-          ${popSlider('wallVariety', 'Height variety', 'sliceVariety', 'How much the heights of the slices differ. 0 makes them all about the same.')}
-          <label class="wall-check" id="wallByResRow" title="Slices that start with a high-resolution file are taller, and ones that start with a small file are shorter.">
-            <input type="checkbox" id="wallByRes" class="m-check"> Bigger for high resolution</label>
           <label class="wall-pop-row">
             <span class="wall-label">Show</span>
             <select id="wallMix" class="m-select">
@@ -916,26 +1129,10 @@ const Wall = (() => {
               <option value="pictures">Pictures only</option>
             </select>
           </label>
-          <label class="wall-pop-row">
-            <span class="wall-label">Order</span>
-            <select id="wallOrder" class="m-select">
-              <option value="shuffle">Shuffle</option>
-              <option value="order">In order</option>
-            </select>
-          </label>
-          <label class="wall-pop-row" title="Off: every clip is silent. On hover: the clip under the mouse is heard. Auto: one clip is always heard, the one with the most time left.">
-            <span class="wall-label">Sound</span>
-            <select id="wallSound" class="m-select">
-              <option value="off">Off</option>
-              <option value="hover">On hover</option>
-              <option value="auto">Auto</option>
-            </select>
-          </label>
           <label class="wall-check" title="Hovering a block holds it: its timer waits, and Scroll mode stops drifting.">
             <input type="checkbox" id="wallHoverPause" class="m-check"> Pause on hover</label>
           <label class="wall-check" title="Skip videos that need converting on the fly. They are heavier to play.">
             <input type="checkbox" id="wallDirect" class="m-check"> Only files that play without converting</label>
-          <label class="wall-check"><input type="checkbox" id="wallToEnd" class="m-check"> Play clips to the end</label>
           <label class="wall-check" title="On: the Wall keeps playing while you use another tab or window. Off: a hidden tab pauses it to save power.">
             <input type="checkbox" id="wallKeepPlaying" class="m-check"> Keep playing when this tab is hidden</label>
         </div>
@@ -959,75 +1156,57 @@ const Wall = (() => {
       source: $('wallSource'),
       modeGrid: $('wallModeGrid'),
       modeScroll: $('wallModeScroll'),
-      pic: $('wallPic'), picOut: $('wallPicOut'), picField: $('wallPicField'),
-      clip: $('wallClip'), clipOut: $('wallClipOut'), clipField: $('wallClipField'),
-      speed: $('wallSpeed'), speedField: $('wallSpeedField'),
-      gear: $('wallGearBtn'),
+      chips: {},
+      more: $('wallMoreBtn'),
       pop: $('wallPop'),
-      playing: $('wallPlaying'), playingOut: $('wallPlayingOut'),
-      layout: $('wallLayout'),
-      colWidth: $('wallColWidth'), colWidthOut: $('wallColWidthOut'), colWidthRow: $('wallColWidthRow'),
-      gap: $('wallGap'), gapOut: $('wallGapOut'),
-      variety: $('wallVariety'), varietyOut: $('wallVarietyOut'), varietyRow: $('wallVarietyRow'),
-      byRes: $('wallByRes'), byResRow: $('wallByResRow'),
       mix: $('wallMix'),
-      order: $('wallOrder'),
-      sound: $('wallSound'),
       hoverPause: $('wallHoverPause'),
       soundNote: $('wallSoundNote'),
       direct: $('wallDirect'),
-      toEnd: $('wallToEnd'),
       keep: $('wallKeepPlaying'),
       pauseBtn: $('wallPauseBtn'),
       shuffleBtn: $('wallShuffleBtn'),
       fullBtn: $('wallFullBtn'),
     };
+    for (const name of Object.keys(CHIPS)) {
+      const cap = name[0].toUpperCase() + name.slice(1);
+      els.chips[name] = { wrap: $(`wallChip${cap}Wrap`), btn: $(`wallChip${cap}`), val: $(`wallChip${cap}Val`), menu: $(`wallMenu${cap}`) };
+    }
     wireControls();
     wireBoard();
     syncControls();
   }
 
-  const SPEED_WORDS = ['', 'Slowest', 'Very slow', 'Slow', 'Easy', 'Medium', 'Brisk', 'Quick', 'Fast', 'Very fast', 'Fastest'];
+  /** The words a chip shows for a setting's value. */
+  function chipText(name) {
+    if (name === 'playing' && cfg.playing === 'auto') return `Auto (${auto.target})`;
+    const key = CHIPS[name].sections[0].key;
+    const o = CHIPS[name].sections[0].options.find(x => x.v === cfg[key]);
+    return o ? o.short : String(cfg[key]);
+  }
 
   function syncControls() {
     const scroll = cfg.mode === 'scroll';
     els.modeGrid.setAttribute('aria-pressed', String(!scroll));
     els.modeScroll.setAttribute('aria-pressed', String(scroll));
-    els.picField.hidden = scroll;
-    els.clipField.hidden = scroll;
-    els.speedField.hidden = !scroll;
-
-    els.pic.value = String(nearestStep(PIC_STEPS, cfg.picSpeed));
-    els.picOut.textContent = `${cfg.picSpeed} s`;
-    els.pic.setAttribute('aria-valuetext', `every ${cfg.picSpeed} seconds`);
-    els.clip.value = String(nearestStep(CLIP_STEPS, cfg.clipLen));
-    els.clip.disabled = cfg.clipsToEnd;
-    els.clipOut.textContent = cfg.clipsToEnd ? 'To the end' : `${cfg.clipLen} s`;
-    els.clip.setAttribute('aria-valuetext', cfg.clipsToEnd ? 'clips play to the end' : `${cfg.clipLen} seconds each`);
-    els.speed.value = String(cfg.scrollSpeed);
-    els.speed.setAttribute('aria-valuetext', SPEED_WORDS[cfg.scrollSpeed] || String(cfg.scrollSpeed));
-
-    els.playing.value = String(cfg.playing);
-    els.playingOut.textContent = String(cfg.playing);
-    els.colWidth.value = String(cfg.colWidth);
-    els.colWidthOut.textContent = `${cfg.colWidth} px`;
-    els.gap.value = String(cfg.gap);
-    els.gapOut.textContent = `${cfg.gap} px`;
-    const slices = cfg.layout === 'slices';
-    els.layout.value = cfg.layout;
-    // Block size is a column's width in Columns and a slice's usual height in Slices.
-    els.colWidthRow.title = slices ? 'About how tall a slice is.' : 'How wide a column is.';
-    els.variety.value = String(cfg.sliceVariety);
-    els.varietyOut.textContent = `${cfg.sliceVariety}%`;
-    els.byRes.checked = cfg.sliceByRes;
-    els.varietyRow.hidden = !slices;
-    els.byResRow.hidden = !slices;
+    for (const [name, c] of Object.entries(els.chips)) {
+      c.val.textContent = chipText(name);
+      for (const it of c.menu.querySelectorAll('.wall-menu-item')) {
+        const v = cfg[it.dataset.key];
+        it.setAttribute('aria-checked', String(String(v) === it.dataset.value));
+      }
+    }
+    const lay3 = els.chips.layout;
+    lay3.btn.title = `${CHIPS.layout.title}. Now: ${lay3.val.textContent}, ${cfg.size} size, ${cfg.variety} variety.`;
+    // Pace is how often pictures change in Grid, how fast the wall moves in Scroll.
+    els.chips.pace.btn.title = scroll ? 'How fast the wall scrolls' : `How often pictures change (now every ${picSec()} s)`;
+    // No clips to time when only pictures are shown.
+    els.chips.clips.wrap.hidden = cfg.mix === 'pictures';
+    els.chips.playing.wrap.hidden = cfg.mix === 'pictures';
+    els.chips.sound.wrap.hidden = cfg.mix === 'pictures';
     els.mix.value = cfg.mix;
-    els.order.value = cfg.order;
-    els.sound.value = cfg.sound;
     els.hoverPause.checked = cfg.pauseOnHover;
     els.direct.checked = cfg.directOnly;
-    els.toEnd.checked = cfg.clipsToEnd;
     els.keep.checked = cfg.keepPlaying2;
     els.note.hidden = !reducedNote;
   }
@@ -1082,92 +1261,44 @@ const Wall = (() => {
     evaluate();
   }
 
+  /** A chip's menu item was picked: store the value and do what it changes. */
+  function pickChoice(key, raw) {
+    const lists = { order: R.ORDERS, layout: R.LAYOUTS, size: R.SIZES, variety: R.VARIETIES, pace: R.PACES, clips: R.CLIPS, sound: R.SOUNDS, playing: R.PLAYING };
+    const v = (lists[key] || []).find(x => String(x) === raw);
+    if (v === undefined || v === cfg[key]) return;
+    cfg[key] = v;
+    saveCfg();
+    syncControls();
+    if (key === 'order') rebuild();
+    else if (key === 'layout' || key === 'size' || key === 'variety') replan(true);
+    else if (key === 'pace') retimeStills();
+    else if (key === 'clips') retimeClips();
+    else if (key === 'sound') syncAudio();
+    else if (key === 'playing') { trimVideos(); fillSlots(); }
+  }
+
   function wireControls() {
-    // Block size and gap: the label follows the drag, the board is planned
-    // again once, when the slider is let go (or a key press settles).
-    const replanSoon = debounce(() => replan(true), 150);
-
-    els.pic.addEventListener('input', () => {
-      cfg.picSpeed = PIC_STEPS[clamp(Number(els.pic.value) | 0, 0, PIC_STEPS.length - 1)];
-      syncControls();
-      retimeStills();
-    });
-    els.clip.addEventListener('input', () => {
-      cfg.clipLen = CLIP_STEPS[clamp(Number(els.clip.value) | 0, 0, CLIP_STEPS.length - 1)];
-      syncControls();
-      retimeClips();
-    });
-    els.speed.addEventListener('input', () => {
-      cfg.scrollSpeed = clampNum(els.speed.value, RANGES.scrollSpeed);
-      syncControls();
-    });
-    els.playing.addEventListener('input', () => {
-      cfg.playing = clampNum(els.playing.value, RANGES.playing);
-      els.playingOut.textContent = String(cfg.playing);
-      trimVideos();
-      fillSlots();
-    });
-    for (const key of ['colWidth', 'gap']) {
-      const input = els[key];
-      input.addEventListener('input', () => {
-        els[key + 'Out'].textContent = `${clampNum(input.value, RANGES[key])} px`;
+    for (const [name, c] of Object.entries(els.chips)) {
+      c.btn.addEventListener('click', () => setMenu(openMenu === name ? null : name));
+      c.menu.addEventListener('click', (e) => {
+        const it = e.target.closest('.wall-menu-item');
+        if (!it) return;
+        pickChoice(it.dataset.key, it.dataset.value);
+        setMenu(null);
+        c.btn.focus();
       });
-      input.addEventListener('change', () => {
-        const v = clampNum(input.value, RANGES[key]);
-        if (v === cfg[key]) return;
-        cfg[key] = v;
-        saveCfg();
-        replanSoon();
-      });
+      c.menu.addEventListener('keydown', (e) => menuKey(e, c.menu));
     }
-    for (const input of [els.pic, els.clip, els.speed, els.playing]) input.addEventListener('change', saveCfg);
-
-    // Layout and the Slices settings plan the board again, like block size.
-    els.layout.addEventListener('change', () => {
-      const v = R.LAYOUTS.includes(els.layout.value) ? els.layout.value : 'columns';
-      if (v === cfg.layout) return;
-      cfg.layout = v;
-      saveCfg();
-      syncControls();
-      replan(true);
-    });
-    els.variety.addEventListener('input', () => {
-      els.varietyOut.textContent = `${clampNum(els.variety.value, RANGES.sliceVariety)}%`;
-    });
-    els.variety.addEventListener('change', () => {
-      const v = clampNum(els.variety.value, RANGES.sliceVariety);
-      if (v === cfg.sliceVariety) return;
-      cfg.sliceVariety = v;
-      saveCfg();
-      replanSoon();
-    });
-    els.byRes.addEventListener('change', () => {
-      cfg.sliceByRes = els.byRes.checked;
-      saveCfg();
-      replan(true);
-    });
 
     els.source.addEventListener('change', () => { cfg.source = els.source.value; saveCfg(); rebuild(); });
-    els.mix.addEventListener('change', () => { cfg.mix = els.mix.value; saveCfg(); rebuild(); });
-    els.order.addEventListener('change', () => { cfg.order = els.order.value; saveCfg(); rebuild(); });
+    els.mix.addEventListener('change', () => { cfg.mix = els.mix.value; saveCfg(); syncControls(); rebuild(); });
     els.direct.addEventListener('change', () => { cfg.directOnly = els.direct.checked; saveCfg(); rebuild(); });
-    els.sound.addEventListener('change', () => {
-      cfg.sound = SOUNDS.includes(els.sound.value) ? els.sound.value : 'off';
-      saveCfg();
-      syncAudio();
-    });
     els.hoverPause.addEventListener('change', () => {
       cfg.pauseOnHover = els.hoverPause.checked;
       saveCfg();
       // A block hovered right now takes the new rule at once.
       const b = hoverBlock;
       if (b) { hoverEnd(b); hoverStart(b); }
-    });
-    els.toEnd.addEventListener('change', () => {
-      cfg.clipsToEnd = els.toEnd.checked;
-      saveCfg();
-      syncControls();
-      retimeClips();
     });
     els.keep.addEventListener('change', () => {
       cfg.keepPlaying2 = els.keep.checked;
@@ -1191,9 +1322,9 @@ const Wall = (() => {
     els.shuffleBtn.addEventListener('click', shuffleNow);
     els.fullBtn.addEventListener('click', toggleFullscreen);
 
-    // The gear popover: Escape or a click outside closes it. A click on the
-    // board that closes it only closes it (it does not also open a file).
-    els.gear.addEventListener('click', () => setPop(els.pop.hidden));
+    // The menus: Escape or a click outside closes them. A click on the
+    // board that closes one only closes it (it does not also open a file).
+    els.more.addEventListener('click', () => setMenu(openMenu === 'more' ? null : 'more'));
     // Only a primary-button press on the board is followed by a click to swallow.
     const swallowNext = (e) => {
       if (e.button === 0 && els.board.contains(e.target)) swallowUntil = now() + SWALLOW_MS;
@@ -1201,9 +1332,10 @@ const Wall = (() => {
     // Registered first, so every press ends what an earlier one left behind.
     document.addEventListener('pointerdown', () => { swallowUntil = 0; }, true);
     document.addEventListener('pointerdown', (e) => {
-      if (els.pop.hidden) return;
-      if (els.pop.contains(e.target) || els.gear.contains(e.target)) return;
-      setPop(false);
+      if (!openMenu) return;
+      const p = menuParts(openMenu);
+      if (p && (p.menu.contains(e.target) || p.btn.contains(e.target))) return;
+      setMenu(null);
       swallowNext(e);
     }, true);
     // The browser refused sound before a click: this click (a user gesture)
@@ -1251,23 +1383,66 @@ const Wall = (() => {
     if (mini) mo.observe(mini, { attributes: true, attributeFilter: ['class'] });
   }
 
-  function setPop(open) {
-    els.pop.hidden = !open;
-    els.gear.setAttribute('aria-expanded', String(open));
-    if (open) {
-      const first = els.pop.querySelector('input, select');
-      if (first) first.focus();
-    }
+  /*
+   * One menu open at a time: a chip's menu (by chip name) or 'more' (the
+   * More popover). Escape or a click outside closes it.
+   */
+  let openMenu = null;
+
+  function menuParts(name) {
+    if (name === 'more') return { btn: els.more, menu: els.pop };
+    const c = els.chips[name];
+    return c ? { btn: c.btn, menu: c.menu } : null;
   }
 
-  /** Escape closes the popover; Space pauses the wall (not while typing or on a control). */
+  function setMenu(name) {
+    if (openMenu && openMenu !== name) {
+      const p = menuParts(openMenu);
+      if (p) { p.menu.hidden = true; p.btn.setAttribute('aria-expanded', 'false'); }
+    }
+    openMenu = name || null;
+    const p = name ? menuParts(name) : null;
+    if (!p) return;
+    p.menu.hidden = false;
+    p.btn.setAttribute('aria-expanded', 'true');
+    if (name === 'more') {
+      const first = p.menu.querySelector('input, select');
+      if (first) first.focus();
+      return;
+    }
+    // Under its chip, kept inside the window.
+    p.menu.style.left = '';
+    p.menu.style.right = '';
+    const r = p.menu.getBoundingClientRect();
+    if (r.right > window.innerWidth - 4) { p.menu.style.left = 'auto'; p.menu.style.right = '0'; }
+    const cur = p.menu.querySelector('[aria-checked="true"]') || p.menu.querySelector('.wall-menu-item');
+    if (cur) cur.focus();
+  }
+
+  /** Arrow keys, Home and End move through a menu's items; Tab closes it. */
+  function menuKey(e, menu) {
+    const items = [...menu.querySelectorAll('.wall-menu-item')];
+    const i = items.indexOf(document.activeElement);
+    let j = -1;
+    if (e.key === 'ArrowDown') j = (i + 1) % items.length;
+    else if (e.key === 'ArrowUp') j = (i - 1 + items.length) % items.length;
+    else if (e.key === 'Home') j = 0;
+    else if (e.key === 'End') j = items.length - 1;
+    else if (e.key === 'Tab') { setMenu(null); return; }
+    if (j < 0) return;
+    e.preventDefault();
+    items[j].focus();
+  }
+
+  /** Escape closes a menu; Space pauses the wall (not while typing or on a control). */
   function onKey(e) {
     if (!active) return;
-    if (e.key === 'Escape' && !els.pop.hidden) {
+    if (e.key === 'Escape' && openMenu) {
       e.preventDefault();
       e.stopPropagation();
-      setPop(false);
-      els.gear.focus();
+      const p = menuParts(openMenu);
+      setMenu(null);
+      if (p) p.btn.focus();
       return;
     }
     if (e.code !== 'Space' && e.key !== ' ') return;
@@ -1279,9 +1454,9 @@ const Wall = (() => {
     if (t && t.closest && t.closest('input, textarea, select, button, a[href], [contenteditable]:not([contenteditable="false"])')) return;
     // Nor behind a dialog or overlay (Settings, the detail modal...): there
     // Space belongs to that layer, scrolling it for one. The generic check
-    // from dock.js; the Wall's own settings popover (a role=dialog too) is
-    // the one layer Space still pauses under.
-    if (els.pop.hidden && typeof dockModalLayerOpen === 'function' && dockModalLayerOpen()) return;
+    // from dock.js; the Wall's own menus (the More popover is a role=dialog
+    // too) are the one layer Space still pauses under.
+    if (!openMenu && typeof dockModalLayerOpen === 'function' && dockModalLayerOpen()) return;
     e.preventDefault();
     setPaused(!userPaused);
   }
@@ -1292,8 +1467,8 @@ const Wall = (() => {
     clearTimeout(fsTimer);
     fsTimer = setTimeout(function hide() {
       if (!els.root.classList.contains('wall-fs')) return;
-      // Kept while the popover is open or the mouse is on the bar.
-      if (!els.pop.hidden || els.bar.matches(':hover')) { fsTimer = setTimeout(hide, FS_IDLE_MS); return; }
+      // Kept while a menu is open or the mouse is on the bar.
+      if (openMenu || els.bar.matches(':hover')) { fsTimer = setTimeout(hide, FS_IDLE_MS); return; }
       els.root.classList.add('wall-bar-idle');
     }, FS_IDLE_MS);
   }
@@ -1421,7 +1596,7 @@ const Wall = (() => {
     el.appendChild(spk);
     const b = {
       el, cap,
-      x: slot.x, y: slot.y, w: slot.w, h: slot.h,
+      x: slot.x, y: slot.y, w: slot.w, h: slot.h, col: slot.col,
       aspect: slot.w / slot.h,  // the slot's shape, fixed for its life
       item: null,
       cropped: false,
@@ -1440,6 +1615,15 @@ const Wall = (() => {
     };
     el._wall = b;
     return b;
+  }
+
+  /** Grid: a block moved and scaled once, when the new board is fitted to the screen (same shape). */
+  function moveBlock(b, slot) {
+    b.x = slot.x; b.y = slot.y; b.w = slot.w; b.h = slot.h;
+    b.el.style.left = `${slot.x.toFixed(2)}px`;
+    b.el.style.top = `${slot.y.toFixed(2)}px`;
+    b.el.style.width = `${slot.w.toFixed(2)}px`;
+    b.el.style.height = `${slot.h.toFixed(2)}px`;
   }
 
   /** Release a block for good: its videos, its place in the counts, its DOM. */
@@ -1526,7 +1710,8 @@ const Wall = (() => {
     if (!pool.length) return [];
     const row = sliceRow(pool.map(p => ({ a: aspectOf(p.r), px: shortSide(p.r) })), {
       W: lay.W, base: lay.base, gap: lay.gap,
-      variety: cfg.sliceVariety / 100, byRes: cfg.sliceByRes, rand: Math.random,
+      variety: varietyPct() / 100, byRes: true, rand: Math.random,
+      fitLeft: lay.fitH ? lay.fitH - lay.bottom : undefined,
     });
     const items = row.picks.map(k => pool[k].r);
     // The buffer files it uses leave the buffer (each once, found again by
@@ -1569,8 +1754,12 @@ const Wall = (() => {
     // the board dirty and it is laid out on the way back in).
     if (!W || !H) return false;
     teardownBlocks();
-    const plan = cfg.layout === 'slices' ? planSlices(W, cfg.colWidth, cfg.gap) : planColumns(W, cfg.colWidth, cfg.gap);
-    Object.assign(lay, { base: 0, bottom: 0 }, plan, { W, H });
+    const plan = cfg.layout === 'horizontal'
+      ? planSlices(W, sizePx(), GAP)
+      : planColumns(W, sizePx(), GAP, { spread: colSpread(varietyPct()) });
+    // Grid fits the board to the screen: nothing is cut off at the bottom.
+    const grid = cfg.mode !== 'scroll';
+    Object.assign(lay, { base: 0, bottom: 0, cws: null }, plan, { W, H, fitH: grid ? H : 0, noSpan: grid });
     drift.offset = 0;
     applyOffset();
 
@@ -1578,14 +1767,18 @@ const Wall = (() => {
     while (blocks.length < MAX_BLOCKS && minBottom(lay) < line) {
       if (!growOnce().length) break;
     }
+    if (lay.fitH && blocks.length) {
+      const fitted = fitGrid(lay, blocks.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h, col: b.col })), H, W);
+      blocks.forEach((b, i) => moveBlock(b, fitted[i]));
+    }
 
     const t = now();
     for (const b of blocks) {
       // Staggered so the pictures never all change together.
-      setDue(b, t + (0.2 + Math.random() * 0.9) * cfg.picSpeed * 1000);
+      setDue(b, t + (0.2 + Math.random() * 0.9) * picSec() * 1000);
     }
     // ...and neither do the clips: the first ones get runs spread over the clip length.
-    staggerLeft = cfg.playing;
+    staggerLeft = playCap();
     staggerFrom = now();
     pinOnScreen();
     updateStatus();
@@ -1697,6 +1890,8 @@ const Wall = (() => {
     if (drift.lastT) {
       const raw = t - drift.lastT;
       drift.frames.push(raw);
+      auto.frames++;
+      if (raw > 50) auto.hitches++;
       if (drift.frames.length > 2000) drift.frames.splice(0, 1000);
       drift.offset += speedPx() * Math.min(100, raw) / 1000;
     }
@@ -1747,7 +1942,7 @@ const Wall = (() => {
   /* ── Stills (pictures, and videos waiting for a slot) ───────────────── */
 
   function stillDelay() {
-    return cfg.picSpeed * 1000 * (0.7 + Math.random() * 0.6);
+    return picSec() * 1000 * (0.7 + Math.random() * 0.6);
   }
 
   function setStillSrc(img, item, layer) {
@@ -1885,12 +2080,21 @@ const Wall = (() => {
 
   /* ── Videos ─────────────────────────────────────────────────────────── */
 
-  /** Clips loop (and run until their block leaves) in Scroll mode. */
-  const toEnd = () => cfg.clipsToEnd && cfg.mode !== 'scroll';
-
+  /**
+   * How long a clip plays (the Clips choice), in both modes. Clips never
+   * loop: when one ends or its time is up the next file takes the block.
+   */
   function clipMs() {
-    if (cfg.mode === 'scroll' || cfg.clipsToEnd) return Infinity;
-    return cfg.clipLen * 1000;
+    return cfg.clips === 'whole' ? Infinity : cfg.clips * 1000;
+  }
+
+  /** The clip's decoded and dropped frame counts so far (0s where the browser cannot tell). */
+  function frameCounts(v) {
+    try {
+      const q = typeof v.getVideoPlaybackQuality === 'function' ? v.getVideoPlaybackQuality() : null;
+      if (q) return { total: q.totalVideoFrames || 0, dropped: q.droppedVideoFrames || 0 };
+    } catch {}
+    return { total: 0, dropped: 0 };
   }
 
   function startVideo(b) {
@@ -1898,7 +2102,7 @@ const Wall = (() => {
     const mode = playMode(item);
     if (!mode || (mode === 'remux' && cfg.directOnly)) return false;
     const cost = mode === 'remux' ? REMUX_COST : 1;
-    if (liveCost + cost > cfg.playing) return false;
+    if (liveCost + cost > playCap()) return false;
     if (mode === 'remux' && liveRemux >= MAX_REMUX) return false;
 
     const v = document.createElement('video');
@@ -1906,7 +2110,7 @@ const Wall = (() => {
     v.muted = true;
     v.defaultMuted = true;
     v.playsInline = true;
-    v.loop = !toEnd();
+    v.loop = false;
     v.preload = 'auto';
     v.disablePictureInPicture = true;
     v.setAttribute('disableremoteplayback', '');
@@ -1929,7 +2133,7 @@ const Wall = (() => {
 
     // A random point, far enough from the end for a whole clip.
     const dur = Number(item.duration_seconds) || 0;
-    const clip = toEnd() ? 0 : cfg.clipLen;
+    const clip = cfg.clips === 'whole' ? 0 : cfg.clips;
     const start = clip && dur > clip + 1 ? Math.random() * (dur - clip) : 0;
 
     v.addEventListener('playing', () => {
@@ -1941,8 +2145,9 @@ const Wall = (() => {
       // length, the next a share less, and so on, so they stop one by one.
       // Only clips starting soon after the layout are staggered; later ones play in full.
       if (now() - staggerFrom > STAGGER_WINDOW_MS) staggerLeft = 0;
-      rec.run = staggerRun(staggerLeft, cfg.playing);
+      rec.run = cfg.mode === 'scroll' ? 1 : staggerRun(staggerLeft, playCap());
       if (staggerLeft > 0) staggerLeft--;
+      rec.q = frameCounts(v);   // Auto counts dropped frames from here
       setDue(b, b.startedAt + clipMs() * rec.run);
       learnAspect(item, v.videoWidth, v.videoHeight);
       reveal(b, layer);
@@ -1950,6 +2155,8 @@ const Wall = (() => {
       updateStatus();
     }, { once: true });
     v.addEventListener('ended', () => { if (b.video === rec) setDue(b, 0); });
+    // A clip that already played and has to wait for data: a stall, for Auto.
+    v.addEventListener('waiting', () => { if (rec.startedAt && !rec.released && running) auto.stalls++; });
     v.addEventListener('error', () => videoFailed(b, rec));
     v.addEventListener('pause', () => clipPaused(b, rec));
 
@@ -2155,80 +2362,74 @@ const Wall = (() => {
     && kindOf(b.item) === 'video' && !badIds.has(b.item.id);
 
   /**
-   * Free slots go to the video blocks that have waited longest. In Scroll
-   * mode blocks mostly visible come first (those whose top has passed after
-   * the rest of them), then blocks entering at the bottom. A playing block
-   * that is no longer mostly visible at the top (or is off the board) gives
-   * its slot to a mostly visible block that needs it, and only as many are
-   * stopped as that block needs to start.
+   * Free slots go to the video blocks that have waited longest (Grid). In
+   * Scroll a block may start once at least START_FRAC of it is on the board
+   * (scrollRank): the blocks most in view first. A playing clip that is
+   * leaving at the top gives its slot to a block more in view than it is
+   * (leavingFor), soonest gone first, and only as many stop as that block
+   * needs to start.
    */
   function fillSlots() {
     if (!running) return;
+    const cap = playCap();
     if (cfg.mode !== 'scroll') {
-      if (liveCost >= cfg.playing) return;
+      if (liveCost >= cap) return;
       // A still that is still loading does not hold its block back: the clip
       // layer goes on top of it either way.
       // Not the hovered block: Pause on hover asked it to stay as it is.
       const cands = blocks.filter(b => canPlay(b) && !b.held);
       cands.sort((a, c) => (a.lastPlayedAt - c.lastPlayedAt) || (a.rand - c.rand));
       for (const b of cands) {
-        if (liveCost >= cfg.playing) break;
+        if (liveCost >= cap) break;
         startVideo(b);
       }
       return;
     }
     const top = drift.offset;
-    const bottom = top + lay.H;
-    const mostly = (b) => mostlyInView(b.y, b.h, top, lay.H);
-    // Candidates: blocks whose top is on the board (one entering at the bottom
-    // may take a free slot before it is mostly in view), and "late" blocks
-    // whose top has passed but that are still mostly in view (most never got
-    // a slot while the cap was full). A late clip would leave soon and every
-    // start costs a seek on the drive, so late blocks come after the others
-    // that are mostly in view, take only slots that are free, and never hold
-    // slots back for themselves.
-    const late = (b) => b.y < top;
-    const cands = blocks.filter(b => canPlay(b) && b.y < bottom && (b.y >= top || mostly(b)));
-    cands.sort((a, c) => (mostly(c) - mostly(a)) || (late(a) - late(c))
-      || (a.lastPlayedAt - c.lastPlayedAt) || (a.y - c.y));
-    // Playing blocks that are leaving the top (or off the board), soonest gone
-    // first. Not the hovered one: Pause on hover asked it to stay.
-    const leaving = blocks.filter(b => b.video && !b.held && !mostly(b) && (b.y < top || b.y >= bottom))
-      .sort((a, c) => a.y - c.y);
+    // A block whose top has passed ("late") would leave soon and every start
+    // costs a seek on the drive, so it takes only slots that are free and
+    // never holds slots back for itself.
+    const cands = scrollRank(blocks.filter(canPlay), top, lay.H);
+    // Not the hovered one: Pause on hover asked it to stay.
+    const playing = blocks.filter(b => b.video && !b.held);
     for (const b of cands) {
       const mode = playMode(b.item);
       if (!mode || (mode === 'remux' && cfg.directOnly)) continue;   // never plays here
       const cost = mode === 'remux' ? REMUX_COST : 1;
-      if (cost > cfg.playing) continue;
-      // Only a block mostly in view whose top is on the board may have leaving
-      // clips stopped for it, and only as many as it needs to start.
-      const claims = mostly(b) && !late(b);
-      const pool = claims ? leaving : [];
-      const plan = scrollFreePlan(cost, mode === 'remux', cfg.playing - liveCost, liveRemux < MAX_REMUX,
+      if (cost > cap) continue;
+      const claims = b.y >= top;
+      const pool = claims ? leavingFor(b, playing, top, lay.H) : [];
+      const plan = scrollFreePlan(cost, mode === 'remux', cap - liveCost, liveRemux < MAX_REMUX,
         pool.map(l => ({ cost: l.video.cost, remux: l.video.mode === 'remux' })));
       // A clip that is staying holds the remux slot: wait, and let the others play.
       if (plan === 'remux') continue;
       if (plan === null) {
-        // Not enough room yet. A block mostly in view (top on the board)
-        // holds back the slots that free up next for itself, until it starts
-        // or its top passes the board top. At a cap of 2 this can leave a
-        // slot idle for a remux clip that never gets room; a known trade-off,
-        // without it remux clips in Scroll would hardly ever play.
+        // Not enough room yet. A block whose top is on the board holds back
+        // the slots that free up next for itself (it is the most in view of
+        // those waiting), until it starts or its top passes the board top.
+        // At a cap of 2 this can leave a slot idle for a remux clip that
+        // never gets room; a known trade-off, without it remux clips in
+        // Scroll would hardly ever play.
         if (claims) break;
         continue;
       }
-      for (const i of plan.slice().sort((x, y) => y - x)) stopVideo(pool.splice(i, 1)[0]);
+      for (const i of plan) {
+        const gone = pool[i];
+        stopVideo(gone);
+        playing.splice(playing.indexOf(gone), 1);
+      }
       startVideo(b);
     }
   }
 
-  /** "Videos at once" went down: stop the clips closest to their end (Scroll: nearest the top). */
+  /** Fewer videos at once: stop the clips closest to their end (Scroll: nearest the top). */
   function trimVideos() {
-    if (liveCost <= cfg.playing) return;
+    const cap = playCap();
+    if (liveCost <= cap) return;
     const playing = blocks.filter(b => b.video)
-      .sort(cfg.mode === 'scroll' ? (a, c) => a.y - c.y : (a, c) => a.dueAt - c.dueAt);
+      .sort(cfg.mode === 'scroll' ? (a, c) => (a.y + a.h) - (c.y + c.h) : (a, c) => a.dueAt - c.dueAt);
     for (const b of playing) {
-      if (liveCost <= cfg.playing) break;
+      if (liveCost <= cap) break;
       stopVideo(b);
     }
     updateStatus();
@@ -2237,7 +2438,7 @@ const Wall = (() => {
   function retimeStills() {
     if (cfg.mode === 'scroll') return;
     const t = now();
-    const max = cfg.picSpeed * 1000;
+    const max = picSec() * 1000;
     for (const b of blocks) {
       if (!b.video && b.dueAt - t > max) setDue(b, t + Math.random() * max);
     }
@@ -2245,9 +2446,7 @@ const Wall = (() => {
 
   function retimeClips() {
     for (const b of blocks) {
-      if (!b.video) continue;
-      b.video.v.loop = !toEnd();
-      if (b.startedAt) setDue(b, b.startedAt + clipMs() * b.video.run);
+      if (b.video && b.startedAt) setDue(b, b.startedAt + clipMs() * b.video.run);
     }
   }
 
@@ -2279,7 +2478,9 @@ const Wall = (() => {
   const AUDIO_FADE_MS = 1200;  // a handover is a slow, equal-power crossfade
   const AUTO_SETTLE_MS = 500;
   const RAMP_STEP_MS = 16;
-  let autoAt = -Infinity;      // when Auto's last handover began
+  let autoAt = -Infinity;      // when Follow's last handover began
+  let heardSince = 0;          // when the clip heard now was picked (Rotate)
+  const ROTATE_MS = 20000;
 
   /**
    * Which playing clip Auto should be heard (pure). `cands` are the clips
@@ -2305,6 +2506,20 @@ const Wall = (() => {
     }
     if (best && best.left <= 0 && cur) return current;
     return best ? best.key : null;
+  }
+
+  /**
+   * Rotate: the clip to hear next (pure). Of the playing clips other than
+   * `current`, the one with the most time left (a tie goes to the most
+   * recent start); only one with time left counts. None: `current` stays.
+   */
+  function rotatePick(cands, current) {
+    let best = null;
+    for (const c of cands) {
+      if (c.key === current || !(c.left > 0)) continue;
+      if (!best || c.left > best.left || (c.left === best.left && c.startedAt > best.startedAt)) best = c;
+    }
+    return best ? best.key : current;
   }
 
   /**
@@ -2386,9 +2601,8 @@ const Wall = (() => {
 
   /**
    * A block's clip that is playing now and can hold the sound. In Scroll, a
-   * clip for Auto must be mostly in view (once it is not, at the top, it may
-   * lose its slot any moment); with `onBoard` (the hovered clip) any part of
-   * it on the board will do.
+   * clip for Follow or Rotate must be at least HEAR_FRAC in view; with
+   * `onBoard` (the hovered clip) any part of it on the board will do.
    */
   function playingRec(b, onBoard) {
     const rec = b.video;
@@ -2397,7 +2611,7 @@ const Wall = (() => {
       const top = drift.offset;
       const seen = onBoard
         ? b.y < top + lay.H && b.y + b.h > top
-        : mostlyInView(b.y, b.h, top, lay.H);
+        : inView(b.y, b.h, top, lay.H, HEAR_FRAC);
       if (!seen) return null;
     }
     return rec;
@@ -2405,21 +2619,19 @@ const Wall = (() => {
 
   /**
    * How long (ms) this clip still plays on the wall, as far as the wall
-   * knows: Grid, until its swap or its end; Scroll, until it stops being
-   * mostly in view at the top (from then on it can lose its slot at any
-   * moment); Infinity while the drift is paused.
+   * knows: until its time is up or it ends, and in Scroll no longer than
+   * until less than HEAR_FRAC of it is left on the board at the top (no
+   * limit from the drift while it is paused).
    */
   function timeLeft(b, t) {
-    if (cfg.mode === 'scroll') {
-      if (!driftShouldRun()) return Infinity;
-      return scrollLeftMs(b.y, b.h, drift.offset, lay.H, speedPx());
-    }
+    let leaveIn = Infinity;
+    if (cfg.mode === 'scroll' && driftShouldRun()) leaveIn = scrollLeftMs(b.y, b.h, drift.offset, lay.H, speedPx());
     // A held block gets at least 1.5 s again when the mouse leaves (hoverEnd).
     const swapIn = b.held ? Math.max(1500, b.holdLeft) : b.dueAt - t;
     const v = b.video.v;
     let mediaLeft = Infinity;
     if (!v.loop && Number.isFinite(v.duration) && v.duration > 0) mediaLeft = (v.duration - v.currentTime) * 1000;
-    const left = Math.min(swapIn, mediaLeft);
+    const left = Math.min(leaveIn, swapIn, mediaLeft);
     return Number.isNaN(left) ? Infinity : left;
   }
 
@@ -2452,6 +2664,14 @@ const Wall = (() => {
     if (pick !== autoRec) {
       if (!settling) autoAt = t;
       autoRec = pick;
+      heardSince = t;
+    }
+    // Rotate: after ROTATE_MS the sound moves on to another playing clip
+    // with sound and time left (none: it stays). No settle window here, so
+    // the pick is not taken straight back by the clip with the most time.
+    if (cfg.sound === 'rotate' && autoRec && !settling && t - heardSince >= ROTATE_MS) {
+      const next = rotatePick(cands, autoRec);
+      if (next !== autoRec) { autoRec = next; heardSince = t; }
     }
     // A hovered clip borrows the sound while hovered (with Pause on hover on).
     // Only a clip known to have sound borrows it, so hovering a silent clip
@@ -2564,7 +2784,10 @@ const Wall = (() => {
 
   /* ── The scheduler ──────────────────────────────────────────────────── */
 
-  /** Grid mode: the block shows its next file, one whose shape fits the slot. */
+  /**
+   * The block shows its next file, one whose shape fits the slot: a
+   * picture's time is up (Grid), or a clip ended or its time is up.
+   */
   function advance(b) {
     const { i, fit } = swapIndex(ready, b.aspect, b.item);
     if (i < 0) { fill(); setDue(b, now() + 2000); return; }
@@ -2592,7 +2815,55 @@ const Wall = (() => {
       b.lastPlayedAt = now();
     }
     showStill(b, next);
-    setDue(b, now() + stillDelay());
+    // Scroll changes no pictures on a timer: a still waits for a slot or its way off the top.
+    setDue(b, cfg.mode === 'scroll' ? Infinity : now() + stillDelay());
+  }
+
+  /* Videos at once, Auto: the wiring around autoStep. */
+
+  /** Start a new window: counts back to zero, every playing clip's frame counts as the base. */
+  function autoReset(t) {
+    auto.windowAt = t;
+    auto.stalls = 0;
+    auto.frames = 0;
+    auto.hitches = 0;
+    for (const rec of liveRecs()) if (rec.startedAt) rec.q = frameCounts(rec.v);
+  }
+
+  /** A block that could play now is kept from it by the target alone. */
+  function autoWanting() {
+    if (liveCost + 1 <= auto.target) return false;
+    const free = blocks.filter(b => canPlay(b) && !b.held);
+    if (cfg.mode !== 'scroll') return free.length > 0;
+    return scrollRank(free, drift.offset, lay.H).length > 0;
+  }
+
+  /** From the tick: every AUTO_WINDOW_MS, judge the window and move the target. Frozen while hidden. */
+  function autoTick(t) {
+    if (cfg.playing !== 'auto' || document.visibilityState === 'hidden') { auto.windowAt = 0; return; }
+    if (!auto.windowAt) { autoReset(t); return; }
+    if (t - auto.windowAt < AUTO_WINDOW_MS) return;
+    let total = 0;
+    let dropped = 0;
+    for (const rec of liveRecs()) {
+      if (!rec.startedAt || !rec.q) continue;
+      const q = frameCounts(rec.v);
+      total += Math.max(0, q.total - rec.q.total);
+      dropped += Math.max(0, q.dropped - rec.q.dropped);
+    }
+    const sample = {
+      dropRate: total > 0 ? dropped / total : null,
+      stalls: auto.stalls,
+      hitchRate: cfg.mode === 'scroll' && auto.frames >= 20 ? auto.hitches / auto.frames : null,
+      wanting: autoWanting(),
+    };
+    const next = autoStep(auto, sample, t);
+    auto.lastSample = { ...sample, at: t, target: next.target };
+    const changed = next.target !== auto.target;
+    auto.target = next.target;
+    auto.holdUntil = next.holdUntil;
+    autoReset(t);
+    if (changed) { syncControls(); trimVideos(); }
   }
 
   function tick() {
@@ -2607,11 +2878,13 @@ const Wall = (() => {
       if (grid && t >= b.dueAt && !b.pending && swaps < 3) {
         advance(b);
         swaps++;
-      } else if (!grid && b.video && t >= b.dueAt) {
-        stopVideo(b);   // a clip that ended in Scroll mode
+      } else if (!grid && b.video && t >= b.dueAt && !b.pending && swaps < 3) {
+        advance(b);     // a clip that ended or whose time is up in Scroll mode
+        swaps++;
       }
     }
     if (pageAction('clip') === 'replay') replayHeld();
+    autoTick(t);
     fillSlots();
     updateStatus();
     syncAudio();
@@ -2620,6 +2893,7 @@ const Wall = (() => {
   function setRunning(on) {
     if (on === running) { syncDrift(); syncAudio(); return; }
     running = on;
+    auto.windowAt = 0;          // Auto judges only time spent running
     if (on) {
       const d = pausedAt ? now() - pausedAt : 0;
       for (const b of blocks) {
@@ -2807,7 +3081,7 @@ const Wall = (() => {
   function leave() {
     active = false;
     document.body.classList.remove('wall-active');
-    if (els) setPop(false);
+    if (els) setMenu(null);
     if (document.fullscreenElement === (els && els.root)) document.exitFullscreen().catch(() => {});
     evaluate();
   }
@@ -2831,7 +3105,7 @@ const Wall = (() => {
   return {
     enter, leave, lockStop, startAt,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { emptyMessage, cfgFrom, takeStart, nearestStep, planColumns, slotFor, placeSlot, minBottom, planSlices, sliceRow, placeSlice, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, mostlyInView, scrollLeftMs, scrollFreePlan, MOSTLY, PIC_STEPS, CLIP_STEPS, RANGES, READY_CAP, STALE_SKIPS },
+    _pure: { emptyMessage, cfgFrom, takeStart, planColumns, colSpread, slotFor, placeSlot, minBottom, planSlices, sliceRow, placeSlice, fitGrid, fitScore, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, rotatePick, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, inView, scrollLeftMs, scrollRank, leavingFor, scrollFreePlan, autoStep, START_FRAC, HEAR_FRAC, AUTO_START, AUTO_MIN, AUTO_MAX, AUTO_HOLD_MS, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
     _audio: () => {
       const t = now();
@@ -2877,6 +3151,7 @@ const Wall = (() => {
       removed: drift.removed,
       lay: { layout: lay.layout, W: lay.W, H: lay.H, cols: lay.cols, cw: lay.cw, gap: lay.gap, base: lay.base,
         minBottom: lay.tops.length || lay.layout === 'slices' ? minBottom(lay) : 0 },
+      auto: { ...auto, cap: cfg ? playCap() : 0 },
       ...stats,
     }),
     _blocks: () => blocks.map(b => ({

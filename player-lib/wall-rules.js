@@ -3,32 +3,33 @@
    (player-lib/wall.js) and the tests. No DOM, no network.
 
    - cfgFrom(raw)              the Wall's settings from a stored blob, every
-                               value clamped (an old blob migrated)
+                               value checked against its choices (an older
+                               blob migrated to the nearest choice)
    - visibilityAction(o)       whether the Wall stops when its page is hidden,
                                and whether a clip the browser paused by itself
                                is played again
    ========================================================================= */
 
 const WallRules = (() => {
-  const CFG_VERSION = 2;
-  const RANGES = {
-    playing:     { min: 1, max: 16, step: 1, def: 6 },
-    picSpeed:    { min: 2, max: 60, step: 1, def: 8 },     // seconds between picture changes
-    clipLen:     { min: 5, max: 120, step: 1, def: 20 },   // seconds a clip plays
-    colWidth:    { min: 120, max: 1280, step: 10, def: 390 },
-    gap:         { min: 0, max: 12, step: 1, def: 4 },
-    scrollSpeed: { min: 1, max: 10, step: 1, def: 4 },
-    sliceVariety: { min: 0, max: 100, step: 1, def: 60 }, // Slices: how much slice heights differ (%)
-  };
-  // The speed sliders move along these, faster to the right. The stored value
-  // stays in seconds and is kept exactly until the slider is moved.
-  const PIC_STEPS = [60, 45, 30, 20, 15, 12, 10, 8, 6, 5, 4, 3, 2];
-  const CLIP_STEPS = [120, 90, 60, 45, 30, 20, 15, 10, 8, 5];
+  const CFG_VERSION = 3;
+
+  // Every setting is a short list of choices (Wall 3.11: chips in the bar).
   const MODES = ['grid', 'scroll'];
+  const LAYOUTS = ['horizontal', 'vertical'];    // slices of different heights, or columns of different widths
+  const SIZES = ['small', 'medium', 'large'];
+  const VARIETIES = ['even', 'mixed', 'wild'];
+  const PACES = ['slow', 'medium', 'fast'];
+  const CLIPS = [15, 30, 60, 'whole'];
+  const PLAYING = ['auto', 1, 2, 3, 4, 6, 8, 10, 12];
+  const SOUNDS = ['off', 'hover', 'follow', 'rotate'];
   const MIXES = ['both', 'videos', 'pictures'];
   const ORDERS = ['shuffle', 'order'];
-  const SOUNDS = ['off', 'hover', 'auto'];
-  const LAYOUTS = ['columns', 'slices'];
+
+  // What each choice means.
+  const SIZE_PX = { small: 260, medium: 390, large: 560 };         // the base block size
+  const VARIETY_PCT = { even: 15, mixed: 60, wild: 100 };          // how much slice heights / column widths differ
+  const PACE_PIC_S = { slow: 20, medium: 10, fast: 5 };            // Grid: seconds between picture changes
+  const PACE_SPEED = { slow: 3, medium: 5, fast: 8 };              // Scroll: speed level (1 to 10)
 
   /** A stored number (or numeric string); anything else (true, [], '') is NaN. */
   function toNum(v) {
@@ -37,48 +38,72 @@ const WallRules = (() => {
     return NaN;
   }
 
-  function clampNum(v, r) {
-    const n = toNum(v);
-    if (!Number.isFinite(n)) return r.def;
-    return Math.min(r.max, Math.max(r.min, Math.round(n / r.step) * r.step));
+  /** The key of `table` whose value is nearest to n (by ratio when `log`), or null for no number. */
+  function nearestKey(table, n, log = true) {
+    if (!Number.isFinite(n) || (log && n <= 0)) return null;
+    let best = null;
+    let bestD = Infinity;
+    for (const [k, v] of Object.entries(table)) {
+      const d = log ? Math.abs(Math.log(v / n)) : Math.abs(v - n);
+      if (d < bestD) { best = k; bestD = d; }
+    }
+    return best;
   }
 
   /**
-   * Settings from the stored blob, every value clamped. A blob from before
-   * Round 2 (no `v`) is migrated so the wall keeps its feel: "Full clip" (the
-   * old clip maximum) becomes "Play clips to the end", and the old row height
-   * becomes a column width (blocks were on average about 1.5 times as wide
-   * as the row was tall).
+   * Settings from the stored blob. A blob of this version is checked
+   * against the choices; an older one (Round 2 sliders, or the first Wall)
+   * is moved to the nearest choices so the wall keeps its feel:
+   *  - Layout: Slices -> Horizontal, Columns (or a blob from before
+   *    Layout existed) -> Vertical.
+   *  - Block size (colWidth, or the first Wall's row height) -> Size.
+   *  - Height variety -> Variety.
+   *  - Pictures (Grid) or Speed (Scroll), whichever mode was in use -> Pace.
+   *  - Clip length, "Play clips to the end" -> Clips.
+   *  - Videos at once: the old default (6) becomes Auto, any other number
+   *    the nearest choice.
+   *  - Sound Auto -> Follow.
    */
   function cfgFrom(raw) {
     raw = raw && typeof raw === 'object' ? raw : {};
-    const old = raw.v !== CFG_VERSION;
+    const cur = raw.v === CFG_VERSION;
     const out = { v: CFG_VERSION };
-    out.playing = clampNum(raw.playing, RANGES.playing);
-    out.picSpeed = clampNum(raw.picSpeed, RANGES.picSpeed);
-    if (old && toNum(raw.clipLen) >= 120) {
-      out.clipLen = RANGES.clipLen.max;
-      out.clipsToEnd = true;
-    } else {
-      out.clipLen = clampNum(raw.clipLen, RANGES.clipLen);
-      out.clipsToEnd = raw.clipsToEnd === true;
-    }
-    const oldRow = toNum(raw.blockSize);
-    out.colWidth = old && raw.colWidth == null && Number.isFinite(oldRow)
-      ? clampNum(oldRow * 1.5, RANGES.colWidth)
-      : clampNum(raw.colWidth, RANGES.colWidth);
-    out.gap = clampNum(raw.gap, RANGES.gap);
-    out.scrollSpeed = clampNum(raw.scrollSpeed, RANGES.scrollSpeed);
     out.mode = MODES.includes(raw.mode) ? raw.mode : 'grid';
-    // Columns (masonry) or Slices (full-width rows). A blob from before Slices has none: Columns.
-    out.layout = LAYOUTS.includes(raw.layout) ? raw.layout : 'columns';
-    out.sliceVariety = clampNum(raw.sliceVariety, RANGES.sliceVariety);
-    out.sliceByRes = raw.sliceByRes !== false;
+
+    if (cur) {
+      out.layout = LAYOUTS.includes(raw.layout) ? raw.layout : 'horizontal';
+      out.size = SIZES.includes(raw.size) ? raw.size : 'medium';
+      out.variety = VARIETIES.includes(raw.variety) ? raw.variety : 'mixed';
+      out.pace = PACES.includes(raw.pace) ? raw.pace : 'medium';
+      out.clips = CLIPS.includes(raw.clips) ? raw.clips : 30;
+      out.playing = PLAYING.includes(raw.playing) ? raw.playing : 'auto';
+      out.sound = SOUNDS.includes(raw.sound) ? raw.sound : 'off';
+    } else {
+      const known = Object.keys(raw).length > 0;
+      out.layout = raw.layout === 'slices' ? 'horizontal' : (known ? 'vertical' : 'horizontal');
+      // Block size: Round 2's column width, or the first Wall's row height (blocks were about 1.5x as wide).
+      let px = toNum(raw.colWidth);
+      if (!Number.isFinite(px) && raw.v == null) px = toNum(raw.blockSize) * 1.5;
+      out.size = nearestKey(SIZE_PX, px) || 'medium';
+      out.variety = nearestKey(VARIETY_PCT, toNum(raw.sliceVariety), false) || 'mixed';
+      const fromPic = nearestKey(PACE_PIC_S, toNum(raw.picSpeed));
+      const fromSpeed = nearestKey(PACE_SPEED, toNum(raw.scrollSpeed), false);
+      out.pace = (out.mode === 'scroll' ? (fromSpeed || fromPic) : (fromPic || fromSpeed)) || 'medium';
+      const len = toNum(raw.clipLen);
+      if (raw.clipsToEnd === true || (raw.v == null && len >= 120)) out.clips = 'whole';
+      else out.clips = Number(nearestKey({ 15: 15, 30: 30, 60: 60 }, len)) || 30;
+      const n = Math.round(toNum(raw.playing));
+      if (!Number.isFinite(n) || n === 6) out.playing = 'auto';
+      else out.playing = Number(nearestKey({ 1: 1, 2: 2, 3: 3, 4: 4, 6: 6, 8: 8, 10: 10, 12: 12 }, Math.max(1, n)));
+      // "Sound on hover" (a checkbox) became the Sound choice; Auto became Follow.
+      if (raw.sound === 'auto') out.sound = 'follow';
+      else if (SOUNDS.includes(raw.sound)) out.sound = raw.sound;
+      else out.sound = raw.soundOnHover === true ? 'hover' : 'off';
+    }
+
     out.mix = MIXES.includes(raw.mix) ? raw.mix : 'both';
     out.order = ORDERS.includes(raw.order) ? raw.order : 'shuffle';
     out.source = typeof raw.source === 'string' && /^(library|c:\d+|s:\d+)$/.test(raw.source) ? raw.source : 'library';
-    // "Sound on hover" (a checkbox) became the Sound choice.
-    out.sound = SOUNDS.includes(raw.sound) ? raw.sound : (raw.soundOnHover === true ? 'hover' : 'off');
     out.pauseOnHover = raw.pauseOnHover !== false;
     out.directOnly = raw.directOnly === true;
     // On by default: the Wall keeps playing with another tab selected or its
@@ -117,8 +142,9 @@ const WallRules = (() => {
   }
 
   return {
-    CFG_VERSION, RANGES, PIC_STEPS, CLIP_STEPS, MODES, MIXES, ORDERS, SOUNDS, LAYOUTS,
-    toNum, clampNum, cfgFrom, visibilityAction,
+    CFG_VERSION, MODES, LAYOUTS, SIZES, VARIETIES, PACES, CLIPS, PLAYING, SOUNDS, MIXES, ORDERS,
+    SIZE_PX, VARIETY_PCT, PACE_PIC_S, PACE_SPEED,
+    toNum, nearestKey, cfgFrom, visibilityAction,
   };
 })();
 
