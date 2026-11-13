@@ -2276,9 +2276,9 @@ const Wall = (() => {
 
   /* ── Sound ──────────────────────────────────────────────────────────── */
 
-  const AUDIO_FADE_MS = 350;
+  const AUDIO_FADE_MS = 1200;  // a handover is a slow, equal-power crossfade
   const AUTO_SETTLE_MS = 500;
-  const RAMP_STEP_MS = 25;
+  const RAMP_STEP_MS = 16;
   let autoAt = -Infinity;      // when Auto's last handover began
 
   /**
@@ -2495,7 +2495,12 @@ const Wall = (() => {
     for (const rec of [...fadingRecs]) {
       if (rec.released) { fadingRecs.delete(rec); continue; }
       const k = Math.min(1, (t - rec.t0) / AUDIO_FADE_MS);
-      rec.gain = rec.from + (rec.to - rec.from) * k;
+      // Quarter-sine curves: the clip coming in and the one going out always
+      // sum to constant power, and each curve starts and ends gently.
+      const q = k * Math.PI / 2;
+      rec.gain = rec.to >= rec.from
+        ? rec.from + (rec.to - rec.from) * Math.sin(q)
+        : rec.to + (rec.from - rec.to) * Math.cos(q);
       if (k >= 1) { rec.gain = rec.to; fadingRecs.delete(rec); }
       applyGain(rec);
     }
