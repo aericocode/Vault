@@ -137,6 +137,20 @@ svg.wall-caret { width: 13px; height: 13px; }
 .wall-menu-item[aria-checked="true"]::before { content: "\2713"; }
 .wall-menu-item:hover,
 .wall-menu-item:focus-visible { background: var(--bg-hover); color: var(--text-primary); outline: none; }
+/* A choice's label, and a small sub-label on the right ("every 15 s", "now 4"). */
+.wall-menu-label { flex: 1 1 auto; }
+.wall-menu-sub { margin-left: 0.9rem; color: var(--text-muted); font-size: 0.72rem; }
+.wall-menu-sub:empty { display: none; }
+/* A line of explanation at the bottom of a menu. */
+.wall-menu-note {
+  max-width: 15rem;
+  padding: 0.3rem 0.55rem 0.15rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+  white-space: normal;
+}
+.wall-menu-note:empty { display: none; }
 
 .wall-btn {
   padding: 0.25rem 0.7rem;
@@ -398,6 +412,8 @@ svg.wall-caret { width: 13px; height: 13px; }
 .wall-soundnote[hidden],
 .wall-pop[hidden],
 .wall-menu[hidden],
+.wall-menu-item[hidden],
+.wall-menu-sep[hidden],
 .wall-chip-wrap[hidden],
 .wall-field[hidden],
 .wall-pop-row[hidden],

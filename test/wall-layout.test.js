@@ -3,7 +3,8 @@
  * (Wall 3.11 choices, and the migration of Round 2 and first-Wall blobs),
  * the Vertical plan (columns of different widths), the Grid fit (the board
  * ends exactly at the bottom edge), Scroll's 10% start and slot order, the
- * Videos Auto controller, Rotate sound, and the masonry plan: equal columns, exact shapes, files wider
+ * Videos Auto controller, Rotate sound (who is heard next, and when),
+ * where a clip starts (clips play to the end), and the masonry plan: equal columns, exact shapes, files wider
  * than 2.5:1 spanning two columns, and a board that always reaches the
  * bottom edge whatever the shapes and sizes. Slices: full-width rows that
  * end flush, files at their exact shape, heights within the clamps.
@@ -98,10 +99,43 @@ test('auto sound: at most one clip keeps fading out (never three partly audible)
   assert.strictEqual(W.fadeOutPick([a], null), a);
 });
 
-test('grid clips: the first clips after a layout stop one by one over a clip length', () => {
-  const runs = [6, 5, 4, 3, 2, 1, 0, -1].map(left => W.staggerRun(left, 6));
-  assert.deepStrictEqual(runs.map(r => +r.toFixed(3)), [1, 0.833, 0.667, 0.5, 0.333, 0.167, 1, 1]);
-  assert.strictEqual(W.staggerRun(3, 0), 1, 'never more than a whole clip');
+test('clips play to the end from a random point at least 30 s before it, so a fresh board\'s clips end apart', () => {
+  assert.strictEqual(W.MIN_RUN_S, 30);
+  assert.strictEqual(W.clipStart(0, 0.5), 0, 'no duration known: from the start');
+  assert.strictEqual(W.clipStart(45, 0.9), 0, 'a short clip plays whole');
+  assert.strictEqual(W.clipStart(60, 0.9), 0, 'up to twice the minimum run: whole');
+  assert.strictEqual(W.clipStart(600, 0), 0);
+  assert.strictEqual(W.clipStart(600, 0.5), 285);
+  for (const dur of [61, 120, 3600]) {
+    for (const r of [0, 0.3, 0.999999]) {
+      const s = W.clipStart(dur, r);
+      assert.ok(s >= 0 && dur - s >= W.MIN_RUN_S - 1e-9, `at least 30 s left (${dur}, ${r})`);
+    }
+  }
+  // Different random draws give different end times for the same file.
+  assert.notStrictEqual(600 - W.clipStart(600, 0.2), 600 - W.clipStart(600, 0.7));
+});
+
+test('grid clips: the first short clips on a fresh board start further in, one by one, so they do not all end together', () => {
+  const shares = [5, 4, 3, 2, 1, 0, -1].map(left => W.staggerShare(left, 5));
+  assert.deepStrictEqual(shares.map(r => +r.toFixed(3)), [1, 0.8, 0.6, 0.4, 0.2, 1, 1]);
+  assert.strictEqual(W.staggerShare(3, 0), 1, 'never more than a whole clip');
+  // Five 30 s clips started together end 6 s apart.
+  const ends = shares.slice(0, 5).map(s => 30 - W.clipStart(30, 0.5, s));
+  assert.deepStrictEqual(ends.map(e => +e.toFixed(3)), [30, 24, 18, 12, 6]);
+  assert.strictEqual(W.clipStart(0, 0.5, 0.4), 0, 'no duration known: from the start');
+  // A long clip already ends at a random time: its start ignores the share.
+  assert.strictEqual(W.clipStart(600, 0.5, 0.2), W.clipStart(600, 0.5));
+});
+
+test('wall.js: a clip keeps its block until it ends, loops when Loop clips is on, and the next file comes in by advance', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'wall.js'), 'utf8');
+  assert.match(src, /v\.loop = cfg\.loopClips;/, 'a new clip loops only with Loop clips on');
+  assert.match(src, /addEventListener\('ended', \(\) => \{ if \(b\.video === rec\) setDue\(b, 0\); \}\)/, 'an ended clip is due at once');
+  assert.match(src, /for \(const rec of liveRecs\(\)\) rec\.v\.loop = cfg\.loopClips;/, 'the checkbox reaches the clips playing now');
+  assert.doesNotMatch(src, /clipMs|cfg\.clips/, 'no clip timer is left');
+  assert.doesNotMatch(src, /wallShuffleBtn/, 'no Shuffle button in the bar');
+  assert.match(src, /if \(cfg\.order !== 'shuffle' \|\| !poolIds/, 'Shuffle again never runs In order');
 });
 
 /** Fill a plan the way the Wall does: shortest column first, until every column passes H. */
@@ -568,42 +602,63 @@ test('slices: no height variety gives slices of about the same height', () => {
 /* ── Settings (Wall 3.11: short lists of choices) ─────────────────────── */
 
 test('settings: defaults for an empty or broken blob', () => {
-  for (const raw of [undefined, null, {}, 'junk', { v: 3, playing: 'x', layout: 'diagonal', mode: 'diagonal', source: 'drop table', clips: '30', size: 3 }]) {
+  for (const raw of [undefined, null, {}, 'junk', { v: 4, playing: 'x', layout: 'diagonal', mode: 'diagonal', source: 'drop table', soundEvery: 15, loopClips: 'yes', size: 3 }]) {
     const c = W.cfgFrom(raw);
-    assert.strictEqual(c.v, 3);
+    assert.strictEqual(c.v, 4);
     assert.strictEqual(c.mode, 'grid');
     assert.strictEqual(c.layout, 'horizontal');
     assert.strictEqual(c.size, 'medium');
     assert.strictEqual(c.variety, 'mixed');
     assert.strictEqual(c.pace, 'medium');
-    assert.strictEqual(c.clips, 30);
     assert.strictEqual(c.playing, 'auto');
     assert.strictEqual(c.sound, 'off');
+    assert.strictEqual(c.soundEvery, 20);
+    assert.strictEqual(c.loopClips, false);
     assert.strictEqual(c.source, 'library');
     assert.strictEqual(c.mix, 'both');
     assert.strictEqual(c.order, 'shuffle');
     assert.strictEqual(c.pauseOnHover, true);
     assert.strictEqual(c.directOnly, false);
     assert.strictEqual(c.keepPlaying2, true);
-    for (const k of ['gap', 'colWidth', 'picSpeed', 'clipLen', 'clipsToEnd', 'scrollSpeed', 'sliceVariety', 'sliceByRes']) {
+    for (const k of ['gap', 'colWidth', 'picSpeed', 'clipLen', 'clipsToEnd', 'clips', 'scrollSpeed', 'sliceVariety', 'sliceByRes']) {
       assert.ok(!(k in c), `${k} is gone`);
     }
   }
 });
 
 test('settings: every choice of this version is kept, and saving changes nothing', () => {
-  const c = W.cfgFrom({ v: 3, mode: 'scroll', layout: 'vertical', size: 'large', variety: 'wild', pace: 'fast',
-    clips: 'whole', playing: 8, sound: 'rotate', mix: 'videos', order: 'order', source: 's:4',
-    pauseOnHover: false, directOnly: true, keepPlaying2: false });
-  assert.deepStrictEqual({ ...c }, { v: 3, mode: 'scroll', layout: 'vertical', size: 'large', variety: 'wild', pace: 'fast',
-    clips: 'whole', playing: 8, sound: 'rotate', mix: 'videos', order: 'order', source: 's:4',
-    pauseOnHover: false, directOnly: true, keepPlaying2: false });
+  const c = W.cfgFrom({ v: 4, mode: 'scroll', layout: 'vertical', size: 'large', variety: 'wild', pace: 'fast',
+    playing: 8, sound: 'rotate', soundEvery: 'mix', mix: 'videos', order: 'order', source: 's:4',
+    pauseOnHover: false, directOnly: true, loopClips: true, keepPlaying2: false });
+  assert.deepStrictEqual({ ...c }, { v: 4, mode: 'scroll', layout: 'vertical', size: 'large', variety: 'wild', pace: 'fast',
+    playing: 8, sound: 'rotate', soundEvery: 'mix', mix: 'videos', order: 'order', source: 's:4',
+    pauseOnHover: false, directOnly: true, loopClips: true, keepPlaying2: false });
   assert.deepStrictEqual(W.cfgFrom(JSON.parse(JSON.stringify(c))), c);
-  // Only real choices: no 5 videos, no 20 s clips, no 'auto' sound in a new blob.
-  assert.strictEqual(W.cfgFrom({ v: 3, playing: 5 }).playing, 'auto');
-  assert.strictEqual(W.cfgFrom({ v: 3, clips: 20 }).clips, 30);
-  assert.strictEqual(W.cfgFrom({ v: 3, sound: 'auto' }).sound, 'off');
-  for (const n of [1, 2, 3, 4, 6, 8, 10, 12]) assert.strictEqual(W.cfgFrom({ v: 3, playing: n }).playing, n);
+  // Only real choices: no 5 videos, no 15 s rotation, no 'auto' sound in a new blob.
+  assert.strictEqual(W.cfgFrom({ v: 4, playing: 5 }).playing, 'auto');
+  assert.strictEqual(W.cfgFrom({ v: 4, sound: 'auto' }).sound, 'off');
+  for (const n of [2, 3, 4, 6, 8, 10, 12]) assert.strictEqual(W.cfgFrom({ v: 4, playing: n }).playing, n);
+  for (const e of [10, 20, 30, 60, 'mix']) assert.strictEqual(W.cfgFrom({ v: 4, soundEvery: e }).soundEvery, e);
+  for (const e of [15, '20', 0, null, 'random']) assert.strictEqual(W.cfgFrom({ v: 4, soundEvery: e }).soundEvery, 20);
+  assert.strictEqual(W.cfgFrom({ v: 4, playing: 1 }).playing, 2, 'one video is no longer a choice: two');
+  assert.strictEqual(W.cfgFrom({ v: 4, loopClips: 1 }).loopClips, false, 'only a real true loops');
+});
+
+test('settings: a version 3 blob (the first chips) drops Clips, keeps the rest, and its Rotate is every 20 s', () => {
+  const old = { v: 3, mode: 'grid', layout: 'vertical', size: 'small', variety: 'even', pace: 'slow',
+    clips: 'whole', playing: 6, sound: 'rotate', mix: 'both', order: 'shuffle', source: 'c:2',
+    pauseOnHover: true, directOnly: false, keepPlaying2: true };
+  const c = W.cfgFrom(old);
+  assert.strictEqual(c.v, 4);
+  assert.ok(!('clips' in c), 'Clips is gone: clips always play to the end');
+  assert.strictEqual(c.sound, 'rotate');
+  assert.strictEqual(c.soundEvery, 20, 'Rotate was every 20 s');
+  assert.strictEqual(c.loopClips, false, 'clips change to a new file, as before');
+  assert.strictEqual(c.playing, 6, 'a v3 6 is a real pick (Auto existed then)');
+  assert.deepStrictEqual([c.layout, c.size, c.variety, c.pace, c.source], ['vertical', 'small', 'even', 'slow', 'c:2']);
+  assert.strictEqual(W.cfgFrom({ v: 3, sound: 'follow', clips: 15 }).sound, 'follow');
+  assert.strictEqual(W.cfgFrom({ v: 3, playing: 1 }).playing, 2);
+  for (const clips of [15, 30, 60, 'whole']) assert.ok(!('clips' in W.cfgFrom({ v: 3, clips })));
 });
 
 test('settings: the old Sound choices migrate (Auto becomes Follow, the hover checkbox On hover)', () => {
@@ -627,7 +682,7 @@ test('settings: Columns becomes Vertical, Slices Horizontal; a saved blob from b
   assert.strictEqual(W.cfgFrom({}).layout, 'horizontal', 'a new user gets the new default');
 });
 
-test('settings: Block size, Height variety, Pictures, Speed and Clips move to the nearest choice', () => {
+test('settings: Block size, Height variety, Pictures and Speed move to the nearest choice; Clips is dropped', () => {
   const size = (colWidth) => W.cfgFrom({ v: 2, colWidth }).size;
   assert.strictEqual(size(120), 'small');
   assert.strictEqual(size(300), 'small');
@@ -660,15 +715,12 @@ test('settings: Block size, Height variety, Pictures, Speed and Clips move to th
   assert.strictEqual(scroll(7), 'fast');
   assert.strictEqual(scroll(10), 'fast');
   assert.strictEqual(scroll(undefined, 4), 'fast', 'no speed saved: the pictures setting');
-  // Clips: the nearest length, or the whole clip.
-  const clips = (o) => W.cfgFrom({ v: 2, ...o }).clips;
-  assert.strictEqual(clips({ clipLen: 5 }), 15);
-  assert.strictEqual(clips({ clipLen: 20 }), 15);
-  assert.strictEqual(clips({ clipLen: 22 }), 30);
-  assert.strictEqual(clips({ clipLen: 45 }), 60);
-  assert.strictEqual(clips({ clipLen: 120 }), 60, 'in a Round 2 blob 120 is just 120 seconds');
-  assert.strictEqual(clips({ clipLen: 20, clipsToEnd: true }), 'whole');
-  assert.strictEqual(clips({ clipLen: 20, clipsToEnd: 'yes' }), 15);
+  // Clip length is dropped: clips always play to the end, and change to a new file.
+  for (const o of [{ clipLen: 5 }, { clipLen: 120 }, { clipLen: 20, clipsToEnd: true }]) {
+    const c = W.cfgFrom({ v: 2, ...o });
+    assert.ok(!('clips' in c) && !('clipLen' in c) && !('clipsToEnd' in c));
+    assert.strictEqual(c.loopClips, false);
+  }
 });
 
 test('settings: Videos at once keeps a number the user picked; the old default becomes Auto', () => {
@@ -676,13 +728,14 @@ test('settings: Videos at once keeps a number the user picked; the old default b
   assert.strictEqual(p(6), 'auto');
   assert.strictEqual(p(undefined), 'auto');
   assert.strictEqual(p('junk'), 'auto');
-  assert.strictEqual(p(1), 1);
+  assert.strictEqual(p(1), 2, 'one video is no longer a choice');
   assert.strictEqual(p(5), 6);
   assert.strictEqual(p(7), 8);
   assert.strictEqual(p(9), 10);
   assert.strictEqual(p(16), 12);
   assert.strictEqual(p('3'), 3, 'a numeric string still counts');
-  assert.strictEqual(p(0), 1);
+  assert.strictEqual(p(0), 2);
+  assert.strictEqual(W.cfgFrom({ v: 2, sound: 'auto' }).soundEvery, 20);
 });
 
 test('settings: a first-Wall blob migrates and keeps its feel', () => {
@@ -691,7 +744,7 @@ test('settings: a first-Wall blob migrates and keeps its feel', () => {
   const c = W.cfgFrom(old);
   assert.strictEqual(c.playing, 10);
   assert.strictEqual(c.pace, 'medium', '13 s is nearest 15 s');
-  assert.strictEqual(c.clips, 30);
+  assert.ok(!('clips' in c) && !('clipLen' in c));
   assert.strictEqual(c.size, 'medium', 'row height 300 was a column about 450 wide');
   assert.strictEqual(c.layout, 'vertical');
   assert.strictEqual(c.mix, 'videos');
@@ -701,7 +754,6 @@ test('settings: a first-Wall blob migrates and keeps its feel', () => {
   assert.strictEqual(c.directOnly, true);
   assert.ok(!('blockSize' in c) && !('barOpen' in c) && !('gap' in c), 'old keys are not carried forward');
   assert.strictEqual(W.cfgFrom({ blockSize: 260 }).size, 'medium', 'the old default row height: Medium');
-  assert.strictEqual(W.cfgFrom({ clipLen: 120 }).clips, 'whole', 'the first Wall\'s "Full clip"');
   assert.strictEqual(W.cfgFrom({ blockSize: true }).size, 'medium', 'blockSize: true is not a row height');
   assert.deepStrictEqual(W.cfgFrom(JSON.parse(JSON.stringify(c))), c, 'saving and loading again changes nothing');
 });
@@ -980,6 +1032,53 @@ test('rotate sound: moves to another playing clip with sound and time left; none
   assert.strictEqual(W.rotatePick([clip('a', 5000, 1)], 'a'), 'a', 'no other clip: it stays');
   assert.strictEqual(W.rotatePick([clip('a', 5000, 1), clip('b', -100, 2)], 'a'), 'a', 'never to a clip about to stop');
   assert.strictEqual(W.rotatePick([clip('a', 5000, 1), clip('b', 3000, 5), clip('c', 3000, 9)], 'a'), 'c', 'a tie goes to the most recent start');
+  // With a minimum: never to a clip about to stop or leave, even with nothing better.
+  const min = W.ROTATE_MIN_LEFT_MS;
+  assert.strictEqual(min, 5000);
+  assert.strictEqual(W.rotatePick([clip('a', 9000, 1), clip('b', min, 2)], 'a', min), 'a', 'exactly the minimum is not enough');
+  assert.strictEqual(W.rotatePick([clip('a', 9000, 1), clip('b', min + 1, 2)], 'a', min), 'b');
+  assert.strictEqual(W.rotatePick([clip('a', 900, 1), clip('b', 2000, 2), clip('c', Infinity, 3)], 'a', min), 'c', 'a looping clip has all the time in the world');
+  // The sound goes round: the clip not heard for longest first (never heard: first of all).
+  const h = (key, left, startedAt, heardAt) => ({ key, left, startedAt, heardAt });
+  const loops = [h('a', Infinity, 1, 500), h('b', Infinity, 2, 300), h('c', Infinity, 3, 0)];
+  assert.strictEqual(W.rotatePick(loops, 'a', min), 'c', 'never heard yet');
+  loops[2].heardAt = 600;
+  assert.strictEqual(W.rotatePick(loops, 'c', min), 'b', 'then the one heard longest ago, not back to a');
+  assert.strictEqual(W.rotatePick([h('a', 9000, 1, 0), h('b', 2000, 2, 0)], 'c', min), 'a', 'a tie on hearing goes to the most time left');
+  assert.strictEqual(W.rotatePick([h('a', 9000, 1, 900), h('b', 3000, 2, 0)], 'c', 4000), 'a', 'about to stop: skipped even if never heard');
+});
+
+test('rotate sound: how long a clip is heard (10, 20, 30, 60 s, or a fresh 10 to 40 s for Mix it up)', () => {
+  for (const n of [10, 20, 30, 60]) {
+    assert.strictEqual(W.rotateWaitMs(n, 0), n * 1000);
+    assert.strictEqual(W.rotateWaitMs(n, 0.99), n * 1000, 'a fixed wait ignores the draw');
+  }
+  assert.strictEqual(W.rotateWaitMs('mix', 0), 10000, 'Mix it up: never under 10 s');
+  assert.strictEqual(W.rotateWaitMs('mix', 0.5), 25000);
+  assert.ok(W.rotateWaitMs('mix', 0.999999) < 40000, 'and under 40 s');
+  assert.strictEqual(W.rotateWaitMs('mix', 7), 40000, 'a draw out of range is clamped');
+  assert.strictEqual(W.rotateWaitMs('mix', -1), 10000);
+  const r = seeded(7);
+  const waits = Array.from({ length: 500 }, () => W.rotateWaitMs('mix', r()));
+  assert.ok(waits.every(w => w >= 10000 && w <= 40000), 'every Mix it up wait is 10 to 40 s');
+  assert.ok(Math.min(...waits) < 13000 && Math.max(...waits) > 37000, 'spread over the whole range');
+  assert.ok(new Set(waits).size > 400, 'a fresh wait each time');
+  assert.strictEqual(W.rotateWaitMs(undefined, 0), 20000, 'no choice: 20 s');
+});
+
+test('rotate sound: the move falls due after the wait, never while settling or while the heard clip is held', () => {
+  const due = (o) => W.rotateDue({ t: 30000, since: 10000, wait: 20000, ...o });
+  assert.strictEqual(due({}), true, 'exactly the wait');
+  assert.strictEqual(due({ t: 29999 }), false, 'not before');
+  assert.strictEqual(due({ t: 45000 }), true, 'a move that could not happen yet stays due');
+  assert.strictEqual(due({ settling: true }), false, 'a Follow handover settles first');
+  assert.strictEqual(due({ held: true }), false, 'hovered with Pause on hover: it waits');
+  assert.strictEqual(due({ held: true, t: 90000 }), false, 'for as long as the hover lasts');
+  assert.strictEqual(due({ wait: 0 }), false, 'no wait drawn yet: nothing due');
+  // A Mix it up wait decides when it is due.
+  const wait = W.rotateWaitMs('mix', 0.25);
+  assert.strictEqual(W.rotateDue({ t: 1000 + wait - 1, since: 1000, wait }), false);
+  assert.strictEqual(W.rotateDue({ t: 1000 + wait, since: 1000, wait }), true);
 });
 
 test('continue in the player: the clip time applies only to the same file, before it expires', () => {

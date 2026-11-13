@@ -7,13 +7,15 @@
 
    Settings (Wall 3.11: chips in the bar, each a short list; wall-rules.js
    checks them and moves an older blob to the nearest choices):
-   Source and Order; Grid | Scroll; Layout (Horizontal | Vertical) with
-   Size (base block 260 / 390 / 560 px) and Variety (Even / Mixed / Wild)
-   in the same menu; Pace (Grid: pictures change every 25 / 15 / 10 s,
-   Scroll: speed level 2 / 4 / 5); Clips (15 / 30 / 60 s or the whole
-   clip); Sound (Off, On hover, Follow, Rotate); Videos (Auto or a fixed
-   number). Under More: Show, Pause on hover, Only files that play without
-   converting, Keep playing when this tab is hidden.
+   Source and Order (Shuffle | In order; with Shuffle the menu also has a
+   "Shuffle again" action); Grid | Scroll; Layout (Horizontal | Vertical)
+   with Size (base block 260 / 390 / 560 px) and Variety (Even / Mixed /
+   Wild) in the same menu; Pace (Grid: pictures change every 25 / 15 / 10
+   s, Scroll: speed level 2 / 4 / 5); Sound (Off, On hover, Follow, or
+   Rotate every 10 / 20 / 30 / 60 s or Mix it up); Videos (Auto or a fixed
+   number, 2 to 12). Under More: Show, Pause on hover, Only files that play
+   without converting, Keep playing when this tab is hidden, Loop clips
+   instead of changing them.
 
    Two layouts:
 
@@ -34,15 +36,21 @@
      left, then every slice is scaled by one factor (at most 1) and
      centered, leaving black bars at the sides. Vertical: no spanning;
      each column picks a last file that ends near the bottom, then is
-     scaled on its own to end there and centered in its place. Blocks
-     change their content on a timer (pictures by Pace, clips by Clips),
-     crossfading.
+     scaled on its own to end there and centered in its place. Pictures
+     change on a timer (Pace), clips when they end, crossfading.
    - Scroll: the board drifts upward. New files join at the bottom of the
      shortest column (Horizontal: as a whole new slice), files that leave
      the top are released and dropped.
 
-   Clips never loop: when one ends or its time is up the next file from
-   the source takes the block (advance), in both modes.
+   Clips play to the end: then the next file from the source whose shape
+   fits takes the block (advance), in both modes. A long clip starts at a
+   random point at least 30 s before its end; a short one from the start,
+   except the first clips on a fresh Grid board, which start further in
+   one by one (staggerShare) so they do not all end together (clipStart).
+   With "Loop clips instead of changing them" a clip loops in its block
+   instead and stays: in Grid until something stops it (fewer
+   Videos, a new board), in Scroll until it leaves the top. A very long
+   clip simply plays a long time; Rotate sound gives the variety.
 
    Ambient, so smoothness wins over features:
 
@@ -84,13 +92,15 @@
    it stops, the sound moves to the playing clip with sound that has the
    most time left on the wall, and never away from one that is still
    playing; no clip with sound, no sound and no badge), or Rotate (Follow,
-   and every 20 s the sound also moves to another playing clip with sound
-   and time left; none, it stays). In Scroll only a clip at least half in
+   and every 10 / 20 / 30 / 60 s, or after a fresh random 10 to 40 s for
+   Mix it up, the sound also moves to another playing clip with sound and
+   at least ROTATE_MIN_LEFT_MS left, the one not heard for longest;
+   none, it stays; a move that falls due while the heard clip is held by
+   Pause on hover waits; rotateWaitMs, rotateDue). In Scroll only a clip at least half in
    view is heard. Whether a clip has sound comes from the row's probe
    (audio_codec), else from the element once it plays. Every handover is a
    slow volume crossfade, and at most two clips are ever partly audible
-   (one fading out, one fading in). Grid clips start staggered over the
-   clip length, so they never all stop together. The level and mute come
+   (one fading out, one fading in). The level and mute come
    from the player's stored volume (vault_volume). In Follow and Rotate, a
    hovered clip borrows the sound while hovered when "Pause on hover" is
    on; with it off, hovering is only the caption. A browser that refuses
@@ -303,6 +313,11 @@ const Wall = (() => {
   let reducedDone = false;     // ...and that happens once per visit to Scroll
 
   let blocks = [];             // in placement order
+  // Grid: the first clips after a layout start further into the clip, one
+  // by one, so a fresh board's short clips do not all end together.
+  let staggerLeft = 0;
+  let staggerFrom = 0;
+  const STAGGER_WINDOW_MS = 4000;
   // The plan: column count, each column's width and x, and each column's
   // next free y (its content bottom plus one gap). Slices (layout 'slices',
   // cols 0) has one next free y, `bottom`, and the base slice height `base`.
@@ -315,11 +330,6 @@ const Wall = (() => {
   let swallowUntil = 0;
   // Long enough for a slow press; every new press clears it anyway.
   const SWALLOW_MS = 5000;
-  // Clips that start right after a layout get shorter first runs, spread
-  // over the clip length, so a Grid's clips never all stop together.
-  let staggerLeft = 0;
-  let staggerFrom = 0;
-  const STAGGER_WINDOW_MS = 4000;
 
   // Sound. `autoRec` is Auto's pick, `audioRec` the clip being heard now (or
   // fading in); clips being faded out are in `fadingRecs` until silent.
@@ -1132,39 +1142,63 @@ const Wall = (() => {
   /*
    * The bar: every common setting is a chip that shows its value and opens
    * a short menu of choices under it (radio items, a check on the current
-   * one). Layout, Size and Variety share one chip. The rarely changed ones
-   * are under More.
+   * one, a small sub-label on the right). A section with a title starts
+   * with it, one without starts after a line. Layout, Size and Variety
+   * share one chip. Sound's items set two settings (sound and soundEvery)
+   * through the made-up key 'soundPick'. Order ends in an action (Shuffle
+   * again), shown only with Shuffle. The rarely changed ones are under More.
    */
-  const opt = (v, label, short = label) => ({ v, label, short });
+  const opt = (v, label, short = label, sub = '') => ({ v, label, short, sub });
+  const PACE_SUB = {
+    grid: { slow: 'every 25 s', medium: 'every 15 s', fast: 'every 10 s' },
+    scroll: { slow: 'gentle', medium: 'steady', fast: 'brisk' },
+  };
   const CHIPS = {
     order: { label: 'Order', title: 'The order files go up in',
-      sections: [{ key: 'order', options: [opt('shuffle', 'Shuffle'), opt('order', 'In order')] }] },
+      sections: [{ key: 'order', options: [opt('shuffle', 'Shuffle'), opt('order', 'In order')] }],
+      action: { id: 'shuffleAgain', label: 'Shuffle again', title: 'Start over with a fresh shuffle' } },
     layout: { label: 'Layout', title: 'How the blocks are laid out, and how big they are',
       sections: [
-        { key: 'layout', title: 'Layout', options: [opt('horizontal', 'Horizontal: rows of different heights', 'Horizontal'), opt('vertical', 'Vertical: columns of different widths', 'Vertical')] },
+        { key: 'layout', title: 'Layout', options: [opt('horizontal', 'Horizontal', 'Horizontal', 'rows'), opt('vertical', 'Vertical', 'Vertical', 'columns')] },
         { key: 'size', title: 'Size', options: [opt('small', 'Small'), opt('medium', 'Medium'), opt('large', 'Large')] },
         { key: 'variety', title: 'Variety', options: [opt('even', 'Even'), opt('mixed', 'Mixed'), opt('wild', 'Wild')] },
       ] },
-    pace: { label: 'Pace', title: '',
+    // Sub-labels and the note depend on the mode (syncControls).
+    pace: { label: 'Pace', title: '', note: ' ',
       sections: [{ key: 'pace', options: [opt('slow', 'Slow'), opt('medium', 'Medium'), opt('fast', 'Fast')] }] },
-    clips: { label: 'Clips', title: 'How long each clip plays before the next file takes its place',
-      sections: [{ key: 'clips', options: [opt(15, '15 s'), opt(30, '30 s'), opt(60, '60 s'), opt('whole', 'Whole clip', 'Whole')] }] },
     sound: { label: 'Sound', title: 'Which clip you hear',
-      sections: [{ key: 'sound', options: [
-        opt('off', 'Off'), opt('hover', 'On hover: the clip under the mouse', 'On hover'),
-        opt('follow', 'Follow one clip: one clip is heard until it stops', 'Follow'),
-        opt('rotate', 'Rotate: a different clip every 20 s', 'Rotate')] }] },
-    playing: { label: 'Videos', title: 'How many videos play at once. Auto adds videos while playback stays smooth and drops some when it stutters.',
-      sections: [{ key: 'playing', options: [opt('auto', 'Auto'), ...R.PLAYING.filter(n => n !== 'auto').map(n => opt(n, String(n)))] }] },
+      sections: [
+        { key: 'soundPick', options: [opt('off', 'Off'), opt('hover', 'On hover'), opt('follow', 'Follow one clip', 'Follow', 'until it ends')] },
+        { key: 'soundPick', title: 'Rotate to another clip', options: [
+          ...[10, 20, 30, 60].map(n => opt(String(n), `Every ${n} s`)), opt('mix', 'Mix it up', 'Mix it up', '10 to 40 s')] },
+      ] },
+    // Auto's sub-label ("now N") follows the target (syncControls).
+    playing: { label: 'Videos', title: 'How many videos play at once',
+      note: 'Auto adds clips while playback is smooth and drops one when frames start to skip.',
+      sections: [
+        { key: 'playing', options: [opt('auto', 'Auto', 'Auto', ' ')] },
+        { key: 'playing', options: R.PLAYING.filter(n => n !== 'auto').map(n => opt(n, String(n))) },
+      ] },
   };
+
+  /** The value a menu item's key stands for (soundPick: the Sound choice as one value). */
+  function menuValue(key) {
+    if (key === 'soundPick') return cfg.sound === 'rotate' ? String(cfg.soundEvery) : cfg.sound;
+    return cfg[key];
+  }
 
   const caret = () => `${typeof vaultIcon === 'function' ? vaultIcon('chevron', 'modern-only wall-caret') : ''}<span class="classic-only wall-caret" aria-hidden="true">&#9662;</span>`;
 
   function chipHtml(name) {
     const d = CHIPS[name];
     const cap = name[0].toUpperCase() + name.slice(1);
-    const items = d.sections.map((s, i) => `${i ? '<div class="wall-menu-sep" role="separator"></div>' : ''}${s.title ? `<div class="wall-menu-head" role="presentation">${s.title}</div>` : ''}${
-      s.options.map(o => `<button type="button" class="wall-menu-item" role="menuitemradio" aria-checked="false" tabindex="-1" data-key="${s.key}" data-value="${o.v}">${o.label}</button>`).join('')}`).join('');
+    const sep = (attrs = '') => `<div class="wall-menu-sep" role="separator"${attrs}></div>`;
+    let items = d.sections.map((s, i) => `${i && !s.title ? sep() : ''}${s.title ? `<div class="wall-menu-head" role="presentation">${s.title}</div>` : ''}${
+      s.options.map(o => `<button type="button" class="wall-menu-item" role="menuitemradio" aria-checked="false" tabindex="-1" data-key="${s.key}" data-value="${o.v}"><span class="wall-menu-label">${o.label}</span><span class="wall-menu-sub">${o.sub.trim()}</span></button>`).join('')}`).join('');
+    if (d.note) items += `<div class="wall-menu-note" role="presentation">${d.note.trim()}</div>`;
+    if (d.action) {
+      items += `${sep(' data-action-sep')}<button type="button" class="wall-menu-item wall-menu-action" role="menuitem" tabindex="-1" data-action="${d.action.id}" title="${d.action.title}">${d.action.label}</button>`;
+    }
     return `<span class="wall-chip-wrap" id="wallChip${cap}Wrap">
         <button type="button" class="wall-chip" id="wallChip${cap}" data-chip="${name}" aria-haspopup="menu" aria-expanded="false" aria-controls="wallMenu${cap}"${d.title ? ` title="${d.title}"` : ''}>
           <span class="wall-chip-k">${d.label}</span><span class="wall-chip-v" id="wallChip${cap}Val"></span>${caret()}
@@ -1190,11 +1224,9 @@ const Wall = (() => {
         </div>
         ${chipHtml('layout')}
         ${chipHtml('pace')}
-        ${chipHtml('clips')}
         ${chipHtml('sound')}
         ${chipHtml('playing')}
         <button type="button" class="wall-btn" id="wallPauseBtn">Pause</button>
-        <button type="button" class="wall-btn" id="wallShuffleBtn" title="Start over with a fresh shuffle">Shuffle</button>
         <span class="wall-note" id="wallNote" hidden>Paused for reduced motion</span>
         <span class="wall-status" id="wallStatus"></span>
         <button type="button" class="wall-btn" id="wallMoreBtn" title="More settings"
@@ -1215,6 +1247,8 @@ const Wall = (() => {
             <input type="checkbox" id="wallDirect" class="m-check"> Only files that play without converting</label>
           <label class="wall-check" title="On: the Wall keeps playing while you use another tab or window. Off: a hidden tab pauses it to save power.">
             <input type="checkbox" id="wallKeepPlaying" class="m-check"> Keep playing when this tab is hidden</label>
+          <label class="wall-check" id="wallLoopRow" title="Off: when a clip ends, a new file that fits its block takes its place. On: the clip starts over and stays.">
+            <input type="checkbox" id="wallLoop" class="m-check"> Loop clips instead of changing them</label>
         </div>
       </div>
       <div class="wall-stage">
@@ -1245,7 +1279,8 @@ const Wall = (() => {
       direct: $('wallDirect'),
       keep: $('wallKeepPlaying'),
       pauseBtn: $('wallPauseBtn'),
-      shuffleBtn: $('wallShuffleBtn'),
+      loop: $('wallLoop'),
+      loopRow: $('wallLoopRow'),
       fullBtn: $('wallFullBtn'),
     };
     for (const name of Object.keys(CHIPS)) {
@@ -1261,8 +1296,12 @@ const Wall = (() => {
   function chipText(name) {
     if (name === 'playing' && cfg.playing === 'auto') return `Auto (${auto.target})`;
     const key = CHIPS[name].sections[0].key;
-    const o = CHIPS[name].sections[0].options.find(x => x.v === cfg[key]);
-    return o ? o.short : String(cfg[key]);
+    const v = menuValue(key);
+    for (const s of CHIPS[name].sections) {
+      const o = s.key === key && s.options.find(x => String(x.v) === String(v));
+      if (o) return o.short;
+    }
+    return String(v);
   }
 
   function syncControls() {
@@ -1271,23 +1310,34 @@ const Wall = (() => {
     els.modeScroll.setAttribute('aria-pressed', String(scroll));
     for (const [name, c] of Object.entries(els.chips)) {
       c.val.textContent = chipText(name);
-      for (const it of c.menu.querySelectorAll('.wall-menu-item')) {
-        const v = cfg[it.dataset.key];
+      for (const it of c.menu.querySelectorAll('.wall-menu-item[data-key]')) {
+        const v = menuValue(it.dataset.key);
         it.setAttribute('aria-checked', String(String(v) === it.dataset.value));
       }
     }
+    // Shuffle again: only with Shuffle (In order has nothing to shuffle).
+    const shuffling = cfg.order === 'shuffle';
+    for (const el of els.chips.order.menu.querySelectorAll('[data-action], [data-action-sep]')) el.hidden = !shuffling;
+    // Pace: what each choice means in this mode.
+    const paceSub = PACE_SUB[scroll ? 'scroll' : 'grid'];
+    for (const it of els.chips.pace.menu.querySelectorAll('.wall-menu-item[data-value]')) {
+      it.querySelector('.wall-menu-sub').textContent = paceSub[it.dataset.value] || '';
+    }
+    els.chips.pace.menu.querySelector('.wall-menu-note').textContent = scroll ? 'How fast the wall scrolls.' : 'How often pictures change.';
+    els.chips.playing.menu.querySelector('[data-value="auto"] .wall-menu-sub').textContent = `now ${auto.target}`;
     const lay3 = els.chips.layout;
     lay3.btn.title = `${CHIPS.layout.title}. Now: ${lay3.val.textContent}, ${cfg.size} size, ${cfg.variety} variety.`;
     // Pace is how often pictures change in Grid, how fast the wall moves in Scroll.
     els.chips.pace.btn.title = scroll ? 'How fast the wall scrolls' : `How often pictures change (now every ${picSec()} s)`;
-    // No clips to time when only pictures are shown.
-    els.chips.clips.wrap.hidden = cfg.mix === 'pictures';
+    // No clips when only pictures are shown.
+    els.loopRow.hidden = cfg.mix === 'pictures';
     els.chips.playing.wrap.hidden = cfg.mix === 'pictures';
     els.chips.sound.wrap.hidden = cfg.mix === 'pictures';
     els.mix.value = cfg.mix;
     els.hoverPause.checked = cfg.pauseOnHover;
     els.direct.checked = cfg.directOnly;
     els.keep.checked = cfg.keepPlaying2;
+    els.loop.checked = cfg.loopClips;
     els.note.hidden = !reducedNote;
   }
 
@@ -1343,7 +1393,20 @@ const Wall = (() => {
 
   /** A chip's menu item was picked: store the value and do what it changes. */
   function pickChoice(key, raw) {
-    const lists = { order: R.ORDERS, layout: R.LAYOUTS, size: R.SIZES, variety: R.VARIETIES, pace: R.PACES, clips: R.CLIPS, sound: R.SOUNDS, playing: R.PLAYING };
+    if (key === 'soundPick') {
+      // One value for the two Sound settings: off / hover / follow, or how often Rotate moves.
+      const every = R.SOUND_EVERY.find(x => String(x) === raw);
+      const sound = every !== undefined ? 'rotate' : R.SOUNDS.find(x => x === raw && x !== 'rotate');
+      if (!sound || (sound === cfg.sound && (every === undefined || every === cfg.soundEvery))) return;
+      cfg.sound = sound;
+      if (every !== undefined) cfg.soundEvery = every;
+      rotateWait = 0;   // a new Rotate timing starts from the clip heard now
+      saveCfg();
+      syncControls();
+      syncAudio();
+      return;
+    }
+    const lists = { order: R.ORDERS, layout: R.LAYOUTS, size: R.SIZES, variety: R.VARIETIES, pace: R.PACES, playing: R.PLAYING };
     const v = (lists[key] || []).find(x => String(x) === raw);
     if (v === undefined || v === cfg[key]) return;
     cfg[key] = v;
@@ -1352,8 +1415,6 @@ const Wall = (() => {
     if (key === 'order') rebuild();
     else if (key === 'layout' || key === 'size' || key === 'variety') replan(true);
     else if (key === 'pace') retimeStills();
-    else if (key === 'clips') retimeClips();
-    else if (key === 'sound') syncAudio();
     else if (key === 'playing') { trimVideos(); fillSlots(); }
   }
 
@@ -1363,7 +1424,8 @@ const Wall = (() => {
       c.menu.addEventListener('click', (e) => {
         const it = e.target.closest('.wall-menu-item');
         if (!it) return;
-        pickChoice(it.dataset.key, it.dataset.value);
+        if (it.dataset.action === 'shuffleAgain') shuffleNow();
+        else pickChoice(it.dataset.key, it.dataset.value);
         setMenu(null);
         c.btn.focus();
       });
@@ -1379,6 +1441,13 @@ const Wall = (() => {
       // A block hovered right now takes the new rule at once.
       const b = hoverBlock;
       if (b) { hoverEnd(b); hoverStart(b); }
+    });
+    els.loop.addEventListener('change', () => {
+      cfg.loopClips = els.loop.checked;
+      saveCfg();
+      // The clips playing now take it at once: a looping clip that stops
+      // looping plays on to its end, then the next file takes the block.
+      for (const rec of liveRecs()) rec.v.loop = cfg.loopClips;
     });
     els.keep.addEventListener('change', () => {
       cfg.keepPlaying2 = els.keep.checked;
@@ -1399,7 +1468,6 @@ const Wall = (() => {
     }
 
     els.pauseBtn.addEventListener('click', () => setPaused(!userPaused));
-    els.shuffleBtn.addEventListener('click', shuffleNow);
     els.fullBtn.addEventListener('click', toggleFullscreen);
 
     // The menus: Escape or a click outside closes them. A click on the
@@ -1501,7 +1569,7 @@ const Wall = (() => {
 
   /** Arrow keys, Home and End move through a menu's items; Tab closes it. */
   function menuKey(e, menu) {
-    const items = [...menu.querySelectorAll('.wall-menu-item')];
+    const items = [...menu.querySelectorAll('.wall-menu-item')].filter(it => !it.hidden);
     const i = items.indexOf(document.activeElement);
     let j = -1;
     if (e.key === 'ArrowDown') j = (i + 1) % items.length;
@@ -1864,9 +1932,9 @@ const Wall = (() => {
       // Staggered so the pictures never all change together.
       setDue(b, t + (0.2 + Math.random() * 0.9) * picSec() * 1000);
     }
-    // ...and neither do the clips: the first ones get runs spread over the clip length.
+    // ...and neither do the clips: the first ones start one by one further in (clipStart).
     staggerLeft = playCap();
-    staggerFrom = now();
+    staggerFrom = t;
     pinOnScreen();
     updateStatus();
     return true;
@@ -2167,12 +2235,30 @@ const Wall = (() => {
 
   /* ── Videos ─────────────────────────────────────────────────────────── */
 
+  const MIN_RUN_S = 30;     // a clip starts at least this far from its end (when it is long enough)
+
   /**
-   * How long a clip plays (the Clips choice), in both modes. Clips never
-   * loop: when one ends or its time is up the next file takes the block.
+   * Where a clip of `dur` seconds starts (pure; `rnd` in [0, 1)); it plays
+   * to the end from there. A long clip: at a random point at least
+   * MIN_RUN_S before the end, so the same files do not always open the same
+   * way and clips end at different times. A clip up to twice that long:
+   * from the start, or with `share` below 1 (a staggered start on a fresh
+   * board, staggerShare) only its last `share` plays.
    */
-  function clipMs() {
-    return cfg.clips === 'whole' ? Infinity : cfg.clips * 1000;
+  function clipStart(dur, rnd, share = 1) {
+    if (dur > 2 * MIN_RUN_S) return rnd * (dur - MIN_RUN_S);
+    return dur > 0 && share < 1 ? dur * (1 - Math.max(0, share)) : 0;
+  }
+
+  /**
+   * The share of a short clip the first clips on a fresh Grid board play
+   * (pure): the first `playing` to start get playing/playing,
+   * (playing-1)/playing, ... 1/playing, so they end one by one over one
+   * clip length; `left` is how many staggered starts remain. Every other
+   * clip plays from the start.
+   */
+  function staggerShare(left, playing) {
+    return left > 0 ? Math.min(1, left / Math.max(1, playing)) : 1;
   }
 
   /** The clip's decoded and dropped frame counts so far (0s where the browser cannot tell). */
@@ -2197,7 +2283,7 @@ const Wall = (() => {
     v.muted = true;
     v.defaultMuted = true;
     v.playsInline = true;
-    v.loop = false;
+    v.loop = cfg.loopClips;   // Loop clips: the clip starts over and keeps its block
     v.preload = 'auto';
     v.disablePictureInPicture = true;
     v.setAttribute('disableremoteplayback', '');
@@ -2207,40 +2293,39 @@ const Wall = (() => {
     b.el.insertBefore(layer, b.cap);
 
     // audio: whether the clip has sound, true/false from the probe, null until learned.
-    // run: the share of the clip length this clip plays (below 1 only for a staggered start).
     const rec = { v, layer, hls: null, token: null, cost, mode, id: item.id, released: false, replayAt: 0,
-      gain: 0, from: 0, to: 0, t0: 0, block: b, startedAt: 0, run: 1, audio: storedAudio(item) };
+      gain: 0, from: 0, to: 0, t0: 0, block: b, startedAt: 0, audio: storedAudio(item) };
     v._wallRec = rec;
     liveCost += cost;
     if (mode === 'remux') liveRemux++;
     b.video = rec;
     b.startedAt = 0;
+    // No timer for a clip: it keeps the block until it ends ('ended' below),
+    // or for good while it loops.
     setDue(b, Infinity);
     b.loadDeadline = now() + (mode === 'remux' ? REMUX_TIMEOUT_MS : LOAD_TIMEOUT_MS);
 
-    // A random point, far enough from the end for a whole clip.
-    const dur = Number(item.duration_seconds) || 0;
-    const clip = cfg.clips === 'whole' ? 0 : cfg.clips;
-    const start = clip && dur > clip + 1 ? Math.random() * (dur - clip) : 0;
+    // Grid, soon after a layout: a staggered start (a looping clip needs none).
+    let share = 1;
+    if (cfg.mode !== 'scroll' && !cfg.loopClips) {
+      if (now() - staggerFrom > STAGGER_WINDOW_MS) staggerLeft = 0;
+      share = staggerShare(staggerLeft, playCap());
+      if (staggerLeft > 0) staggerLeft--;
+    }
+    const start = clipStart(Number(item.duration_seconds) || 0, Math.random(), share);
 
     v.addEventListener('playing', () => {
       if (b.video !== rec || b.dead) return;
       b.loadDeadline = 0;
       b.startedAt = now();
       rec.startedAt = b.startedAt;
-      // The first clips after a layout: the first to start plays the whole
-      // length, the next a share less, and so on, so they stop one by one.
-      // Only clips starting soon after the layout are staggered; later ones play in full.
-      if (now() - staggerFrom > STAGGER_WINDOW_MS) staggerLeft = 0;
-      rec.run = cfg.mode === 'scroll' ? 1 : staggerRun(staggerLeft, playCap());
-      if (staggerLeft > 0) staggerLeft--;
       rec.q = frameCounts(v);   // Auto counts dropped frames from here
-      setDue(b, b.startedAt + clipMs() * rec.run);
       learnAspect(item, v.videoWidth, v.videoHeight);
       reveal(b, layer);
       syncAudio();
       updateStatus();
     }, { once: true });
+    // The clip ended (never while it loops): the next file takes the block.
     v.addEventListener('ended', () => { if (b.video === rec) setDue(b, 0); });
     // A clip that has been playing a while and has to wait for data: a
     // stall, for Auto (the first moments after a start do not count).
@@ -2514,12 +2599,19 @@ const Wall = (() => {
     }
   }
 
+  /** How long (ms) a block's clip still plays to its end: Infinity while it loops or is not known yet. */
+  function mediaLeftMs(b) {
+    const v = b.video && b.video.v;
+    if (!v || v.loop || !(Number.isFinite(v.duration) && v.duration > 0)) return Infinity;
+    return (v.duration - v.currentTime) * 1000;
+  }
+
   /** Fewer videos at once: stop the clips closest to their end (Scroll: nearest the top). */
   function trimVideos() {
     const cap = playCap();
     if (liveCost <= cap) return;
     const playing = blocks.filter(b => b.video)
-      .sort(cfg.mode === 'scroll' ? (a, c) => (a.y + a.h) - (c.y + c.h) : (a, c) => a.dueAt - c.dueAt);
+      .sort(cfg.mode === 'scroll' ? (a, c) => (a.y + a.h) - (c.y + c.h) : (a, c) => mediaLeftMs(a) - mediaLeftMs(c));
     for (const b of playing) {
       if (liveCost <= cap) break;
       stopVideo(b);
@@ -2533,12 +2625,6 @@ const Wall = (() => {
     const max = picSec() * 1000;
     for (const b of blocks) {
       if (!b.video && b.dueAt - t > max) setDue(b, t + Math.random() * max);
-    }
-  }
-
-  function retimeClips() {
-    for (const b of blocks) {
-      if (b.video && b.startedAt) setDue(b, b.startedAt + clipMs() * b.video.run);
     }
   }
 
@@ -2572,7 +2658,30 @@ const Wall = (() => {
   const RAMP_STEP_MS = 16;
   let autoAt = -Infinity;      // when Follow's last handover began
   let heardSince = 0;          // when the clip heard now was picked (Rotate)
-  const ROTATE_MS = 20000;
+  let rotateWait = 0;          // Rotate: how long (ms) it is heard before the sound moves on; 0 = draw one
+  const ROTATE_MIN_LEFT_MS = 5000;   // Rotate moves only to a clip with at least this long left after the crossfade
+  const MIX_MIN_MS = 10000;
+  const MIX_MAX_MS = 40000;
+
+  /**
+   * Rotate: how long (ms) the clip heard now keeps the sound (pure). `every`
+   * is the Rotate choice (10, 20, 30, 60 s, or 'mix'); for Mix it up `rnd`
+   * (in [0, 1)) gives a fresh wait between 10 and 40 s.
+   */
+  function rotateWaitMs(every, rnd) {
+    if (every === 'mix') return MIX_MIN_MS + Math.min(1, Math.max(0, Number(rnd) || 0)) * (MIX_MAX_MS - MIX_MIN_MS);
+    return (Number(every) || 20) * 1000;
+  }
+
+  /**
+   * Rotate: whether the sound moves on now (pure). o: { t, since (when the
+   * clip heard now was picked), wait (rotateWaitMs), settling (a Follow
+   * handover is still settling), held (the heard clip is hovered with Pause
+   * on hover: the move waits until the mouse leaves) }.
+   */
+  function rotateDue({ t, since, wait, settling = false, held = false }) {
+    return !settling && !held && wait > 0 && t - since >= wait;
+  }
 
   /**
    * Which playing clip Auto should be heard (pure). `cands` are the clips
@@ -2602,14 +2711,19 @@ const Wall = (() => {
 
   /**
    * Rotate: the clip to hear next (pure). Of the playing clips other than
-   * `current`, the one with the most time left (a tie goes to the most
-   * recent start); only one with time left counts. None: `current` stays.
+   * `current`, only one with more than `minLeft` ms left counts (not one
+   * about to stop or leave). Of those, the one not heard for longest
+   * (`heardAt`, 0 = never), so the sound goes round every clip on the wall
+   * (looping clips all have endless time left); a tie goes to the most time
+   * left, then the most recent start. None: `current` stays.
    */
-  function rotatePick(cands, current) {
+  function rotatePick(cands, current, minLeft = 0) {
     let best = null;
+    const heard = (c) => c.heardAt || 0;
     for (const c of cands) {
-      if (c.key === current || !(c.left > 0)) continue;
-      if (!best || c.left > best.left || (c.left === best.left && c.startedAt > best.startedAt)) best = c;
+      if (c.key === current || !(c.left > Math.max(0, minLeft))) continue;
+      if (!best || heard(c) < heard(best)
+        || (heard(c) === heard(best) && (c.left > best.left || (c.left === best.left && c.startedAt > best.startedAt)))) best = c;
     }
     return best ? best.key : current;
   }
@@ -2624,16 +2738,6 @@ const Wall = (() => {
       if (r !== want && (r.gain > 0 || r.to > 0) && (!out || r.gain > out.gain)) out = r;
     }
     return out;
-  }
-
-  /**
-   * The share of the clip length a clip plays (pure): after a layout, the
-   * first `playing` clips to start get playing/playing, (playing-1)/playing,
-   * ... 1/playing, so their swaps spread over one clip length; `left` is how
-   * many staggered starts remain. Every other clip plays the whole length.
-   */
-  function staggerRun(left, playing) {
-    return left > 0 ? Math.min(1, left / Math.max(1, playing)) : 1;
   }
 
   /** The app's volume as the player stores it (slider 0 to 1.5, curved); 0 when muted. */
@@ -2711,7 +2815,7 @@ const Wall = (() => {
 
   /**
    * How long (ms) this clip still plays on the wall, as far as the wall
-   * knows: until its time is up or it ends, and in Scroll no longer than
+   * knows: until it ends (never while it loops), and in Scroll no longer than
    * until less than HEAR_FRAC of it is left on the board at the top (no
    * limit from the drift while it is paused).
    */
@@ -2720,10 +2824,7 @@ const Wall = (() => {
     if (cfg.mode === 'scroll' && driftShouldRun()) leaveIn = scrollLeftMs(b.y, b.h, drift.offset, lay.H, speedPx());
     // A held block gets at least 1.5 s again when the mouse leaves (hoverEnd).
     const swapIn = b.held ? Math.max(1500, b.holdLeft) : b.dueAt - t;
-    const v = b.video.v;
-    let mediaLeft = Infinity;
-    if (!v.loop && Number.isFinite(v.duration) && v.duration > 0) mediaLeft = (v.duration - v.currentTime) * 1000;
-    const left = Math.min(leaveIn, swapIn, mediaLeft);
+    const left = Math.min(leaveIn, swapIn, mediaLeftMs(b));
     return Number.isNaN(left) ? Infinity : left;
   }
 
@@ -2740,7 +2841,7 @@ const Wall = (() => {
       if (b.video === rec) {
         if (!playingRec(b)) continue;
         // The handover starts a crossfade before the clip stops, so it is never cut off.
-        cands.push({ key: rec, left: timeLeft(b, t) - AUDIO_FADE_MS, startedAt: b.startedAt });
+        cands.push({ key: rec, left: timeLeft(b, t) - AUDIO_FADE_MS, startedAt: b.startedAt, heardAt: rec.heardAt || 0 });
       } else if (!b.dead) {
         // A Grid block's old clip, still playing under its next picture's fade:
         // no time left, but it keeps the sound until it really stops if
@@ -2756,14 +2857,22 @@ const Wall = (() => {
     if (pick !== autoRec) {
       if (!settling) autoAt = t;
       autoRec = pick;
+      if (pick) pick.heardAt = t;
       heardSince = t;
+      rotateWait = 0;
     }
-    // Rotate: after ROTATE_MS the sound moves on to another playing clip
-    // with sound and time left (none: it stays). No settle window here, so
-    // the pick is not taken straight back by the clip with the most time.
-    if (cfg.sound === 'rotate' && autoRec && !settling && t - heardSince >= ROTATE_MS) {
-      const next = rotatePick(cands, autoRec);
-      if (next !== autoRec) { autoRec = next; heardSince = t; }
+    // Rotate: once the wait is over the sound moves on to another playing
+    // clip with sound and time left (none: it stays, and tries again on the
+    // next tick). No settle window here, so the pick is not taken straight
+    // back by the clip with the most time. A heard clip held by Pause on
+    // hover keeps the sound until the mouse leaves.
+    if (cfg.sound === 'rotate' && autoRec) {
+      if (!rotateWait) rotateWait = rotateWaitMs(cfg.soundEvery, Math.random());
+      const held = !!(autoRec.block && autoRec.block.held);
+      if (rotateDue({ t, since: heardSince, wait: rotateWait, settling, held })) {
+        const next = rotatePick(cands, autoRec, ROTATE_MIN_LEFT_MS);
+        if (next !== autoRec) { autoRec = next; next.heardAt = t; heardSince = t; rotateWait = 0; }
+      }
     }
     // A hovered clip borrows the sound while hovered (with Pause on hover on).
     // Only a clip known to have sound borrows it, so hovering a silent clip
@@ -3064,8 +3173,9 @@ const Wall = (() => {
     evaluate();
   }
 
+  /** Shuffle again (the Order menu): a fresh shuffle of the source and a new board. Shuffle only. */
   function shuffleNow() {
-    if (!poolIds || !poolIds.length) return;
+    if (cfg.order !== 'shuffle' || !poolIds || !poolIds.length) return;
     poolGen++;
     fillPromise = null;
     shuffleInPlace(poolIds);
@@ -3199,7 +3309,7 @@ const Wall = (() => {
   return {
     enter, leave, lockStop, startAt,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { emptyMessage, cfgFrom, takeStart, planColumns, colSpread, slotFor, placeSlot, minBottom, planSlices, sliceRow, slicePool, rectGap, placeSlice, fitGrid, fitScore, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, rotatePick, fadeOutPick, staggerRun, storedAudio, setDue, visibleFrac, inView, scrollLeftMs, scrollRank, leavingFor, scrollFreePlan, autoStep, START_FRAC, HEAR_FRAC, AUTO_START, AUTO_MIN, AUTO_MAX, AUTO_HOLD_MS, READY_CAP, STALE_SKIPS },
+    _pure: { emptyMessage, cfgFrom, takeStart, planColumns, colSpread, slotFor, placeSlot, minBottom, planSlices, sliceRow, slicePool, rectGap, placeSlice, fitGrid, fitScore, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, rotatePick, rotateWaitMs, rotateDue, fadeOutPick, clipStart, staggerShare, storedAudio, setDue, visibleFrac, inView, scrollLeftMs, scrollRank, leavingFor, scrollFreePlan, autoStep, START_FRAC, HEAR_FRAC, ROTATE_MIN_LEFT_MS, MIN_RUN_S, AUTO_START, AUTO_MIN, AUTO_MAX, AUTO_HOLD_MS, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
     _audio: () => {
       const t = now();

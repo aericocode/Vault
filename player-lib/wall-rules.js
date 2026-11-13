@@ -11,7 +11,7 @@
    ========================================================================= */
 
 const WallRules = (() => {
-  const CFG_VERSION = 3;
+  const CFG_VERSION = 4;
 
   // Every setting is a short list of choices (Wall 3.11: chips in the bar).
   const MODES = ['grid', 'scroll'];
@@ -19,9 +19,9 @@ const WallRules = (() => {
   const SIZES = ['small', 'medium', 'large'];
   const VARIETIES = ['even', 'mixed', 'wild'];
   const PACES = ['slow', 'medium', 'fast'];
-  const CLIPS = [15, 30, 60, 'whole'];
-  const PLAYING = ['auto', 1, 2, 3, 4, 6, 8, 10, 12];
+  const PLAYING = ['auto', 2, 3, 4, 6, 8, 10, 12];
   const SOUNDS = ['off', 'hover', 'follow', 'rotate'];
+  const SOUND_EVERY = [10, 20, 30, 60, 'mix'];     // Rotate: seconds between moves, or 'mix' (a fresh 10 to 40 s each time)
   const MIXES = ['both', 'videos', 'pictures'];
   const ORDERS = ['shuffle', 'order'];
 
@@ -51,22 +51,25 @@ const WallRules = (() => {
   }
 
   /**
-   * Settings from the stored blob. A blob of this version is checked
-   * against the choices; an older one (Round 2 sliders, or the first Wall)
-   * is moved to the nearest choices so the wall keeps its feel:
+   * Settings from the stored blob. A blob of this version (or of version 3,
+   * the first chips) is checked against the choices; version 3's Clips
+   * length is dropped (clips always play to the end now) and its Rotate
+   * becomes Rotate every 20 s, as it was. An older one (Round 2 sliders,
+   * or the first Wall) is moved to the nearest choices so the wall keeps
+   * its feel:
    *  - Layout: Slices -> Horizontal, Columns (or a blob from before
    *    Layout existed) -> Vertical.
    *  - Block size (colWidth, or the first Wall's row height) -> Size.
    *  - Height variety -> Variety.
    *  - Pictures (Grid) or Speed (Scroll), whichever mode was in use -> Pace.
-   *  - Clip length, "Play clips to the end" -> Clips.
+   *  - Clip length, "Play clips to the end": dropped.
    *  - Videos at once: the old default (6) becomes Auto, any other number
-   *    the nearest choice.
+   *    the nearest choice (1 became 2).
    *  - Sound Auto -> Follow.
    */
   function cfgFrom(raw) {
     raw = raw && typeof raw === 'object' ? raw : {};
-    const cur = raw.v === CFG_VERSION;
+    const cur = raw.v === CFG_VERSION || raw.v === 3;
     const out = { v: CFG_VERSION };
     out.mode = MODES.includes(raw.mode) ? raw.mode : 'grid';
 
@@ -75,8 +78,7 @@ const WallRules = (() => {
       out.size = SIZES.includes(raw.size) ? raw.size : 'medium';
       out.variety = VARIETIES.includes(raw.variety) ? raw.variety : 'mixed';
       out.pace = PACES.includes(raw.pace) ? raw.pace : 'medium';
-      out.clips = CLIPS.includes(raw.clips) ? raw.clips : 30;
-      out.playing = PLAYING.includes(raw.playing) ? raw.playing : 'auto';
+      out.playing = raw.playing === 1 ? 2 : (PLAYING.includes(raw.playing) ? raw.playing : 'auto');
       out.sound = SOUNDS.includes(raw.sound) ? raw.sound : 'off';
     } else {
       const known = Object.keys(raw).length > 0;
@@ -89,23 +91,24 @@ const WallRules = (() => {
       const fromPic = nearestKey(PACE_PIC_S, toNum(raw.picSpeed));
       const fromSpeed = nearestKey(PACE_SPEED, toNum(raw.scrollSpeed), false);
       out.pace = (out.mode === 'scroll' ? (fromSpeed || fromPic) : (fromPic || fromSpeed)) || 'medium';
-      const len = toNum(raw.clipLen);
-      if (raw.clipsToEnd === true || (raw.v == null && len >= 120)) out.clips = 'whole';
-      else out.clips = Number(nearestKey({ 15: 15, 30: 30, 60: 60 }, len)) || 30;
       const n = Math.round(toNum(raw.playing));
       if (!Number.isFinite(n) || n === 6) out.playing = 'auto';
-      else out.playing = Number(nearestKey({ 1: 1, 2: 2, 3: 3, 4: 4, 6: 6, 8: 8, 10: 10, 12: 12 }, Math.max(1, n)));
+      else out.playing = Number(nearestKey({ 2: 2, 3: 3, 4: 4, 6: 6, 8: 8, 10: 10, 12: 12 }, Math.max(1, n)));
       // "Sound on hover" (a checkbox) became the Sound choice; Auto became Follow.
       if (raw.sound === 'auto') out.sound = 'follow';
       else if (SOUNDS.includes(raw.sound)) out.sound = raw.sound;
       else out.sound = raw.soundOnHover === true ? 'hover' : 'off';
     }
+    out.soundEvery = SOUND_EVERY.includes(raw.soundEvery) ? raw.soundEvery : 20;
 
     out.mix = MIXES.includes(raw.mix) ? raw.mix : 'both';
     out.order = ORDERS.includes(raw.order) ? raw.order : 'shuffle';
     out.source = typeof raw.source === 'string' && /^(library|c:\d+|s:\d+)$/.test(raw.source) ? raw.source : 'library';
     out.pauseOnHover = raw.pauseOnHover !== false;
     out.directOnly = raw.directOnly === true;
+    // Clips play to the end and the next file takes the block; with this on
+    // a clip loops in its block instead.
+    out.loopClips = raw.loopClips === true;
     // On by default: the Wall keeps playing with another tab selected or its
     // window covered (PLAYLISTS_SPEC "Stage host, final"). Turned off, a
     // hidden tab pauses it to save power. Stored as keepPlaying2: test builds
@@ -142,7 +145,7 @@ const WallRules = (() => {
   }
 
   return {
-    CFG_VERSION, MODES, LAYOUTS, SIZES, VARIETIES, PACES, CLIPS, PLAYING, SOUNDS, MIXES, ORDERS,
+    CFG_VERSION, MODES, LAYOUTS, SIZES, VARIETIES, PACES, PLAYING, SOUNDS, SOUND_EVERY, MIXES, ORDERS,
     SIZE_PX, VARIETY_PCT, PACE_PIC_S, PACE_SPEED,
     toNum, nearestKey, cfgFrom, visibilityAction,
   };
