@@ -32,7 +32,7 @@ delete process.env.VAULT_DB_PASSWORD;
 
 const express = require('express');
 const { buildArgs, windowPlan, windowSystemOf, actualKind, linuxFrame, fitOptions, FIXED, NEWER_OPTIONS, LINUX_FRAMES, DEFAULT_LINUX_FRAME, WAYLAND_CONTEXT } = require('../lib/stage/mpv-args');
-const { createMpvHost, OBSERVED, OBSERVED_LINUX, WHEEL_BINDINGS } = require('../lib/stage/mpv-host');
+const { createMpvHost, OBSERVED, OBSERVED_OPTIONAL, OBSERVED_LINUX, WHEEL_BINDINGS } = require('../lib/stage/mpv-host');
 const { borderOnlyArgs, setBorderOnly } = require('../lib/stage/x11-hints');
 const appSettings = require('../lib/app-settings');
 const { buildRouter } = require('../server/stage-routes');
@@ -183,7 +183,7 @@ test('x11-hints: xprop gets fixed arguments and mpv\'s window id; no xprop or no
 
 /* ── mpv's host: what it follows and binds, per platform ────────────────── */
 
-function recordingMpv(pipePath, pid) {
+function recordingMpv(pipePath, pid, { refuse = [] } = {}) {
   const cmds = [];
   const socks = new Set();
   const server = net.createServer((sock) => {
@@ -202,6 +202,7 @@ function recordingMpv(pipePath, pid) {
         let ans = { error: 'success', data: null };
         if (c[0] === 'get_property' && c[1] === 'pid') ans = { error: 'success', data: pid };
         else if (c[0] === 'get_property') ans = { error: 'property unavailable' };
+        else if (c[0] === 'observe_property' && refuse.includes(c[2])) ans = { error: 'property not found' };
         sock.write(`${JSON.stringify({ request_id: msg.request_id, ...ans })}\n`);
       }
     });
@@ -219,9 +220,9 @@ function pipePathFor(tag) {
   return { path: path.join(dir, 's'), cleanup: () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} } };
 }
 
-async function hostCommands(platform) {
+async function hostCommands(platform, o) {
   const ipc = pipePathFor(platform);
-  const srv = await recordingMpv(ipc.path, 7001);
+  const srv = await recordingMpv(ipc.path, 7001, o);
   const child = new EventEmitter();
   child.exitCode = null; child.signalCode = null; child.pid = 7001;
   child.kill = () => { if (child.exitCode !== null) return; child.exitCode = 0; child.emit('exit', 0); };
@@ -236,20 +237,27 @@ async function hostCommands(platform) {
   }
 }
 
-test('host: Windows follows and binds exactly what it did; Linux adds the video shape, full screen and the wheel', async () => {
+test('host: Windows follows and binds exactly what it did (and the mouse); Linux adds the video shape, full screen and the wheel', async () => {
   const observed = (cmds) => cmds.filter((c) => c[0] === 'observe_property').map((c) => c[2]);
   const binds = (cmds) => cmds.filter((c) => c[0] === 'keybind').map((c) => [c[1], c[2]]);
   const win = await hostCommands('win32');
-  assert.deepStrictEqual(observed(win), ['time-pos', 'duration', 'pause', 'eof-reached', 'idle-active', 'osd-width', 'osd-height', 'window-maximized']);
-  assert.deepStrictEqual(observed(win), OBSERVED);
+  assert.deepStrictEqual(observed(win), ['time-pos', 'duration', 'pause', 'eof-reached', 'idle-active', 'osd-width', 'osd-height', 'window-maximized', 'mouse-pos']);
+  assert.deepStrictEqual(observed(win), [...OBSERVED, ...OBSERVED_OPTIONAL]);
+  assert.deepStrictEqual(OBSERVED_OPTIONAL, ['mouse-pos']);
   assert.deepStrictEqual(binds(win), [['CLOSE_WIN', 'script-message vault-stage close'], ['MBTN_LEFT_DBL', 'cycle window-maximized']]);
   const lin = await hostCommands('linux');
-  assert.deepStrictEqual(observed(lin), [...OBSERVED, ...OBSERVED_LINUX]);
+  assert.deepStrictEqual(observed(lin), [...OBSERVED, ...OBSERVED_LINUX, ...OBSERVED_OPTIONAL]);
   assert.deepStrictEqual(OBSERVED_LINUX, ['video-out-params', 'fullscreen']);
   assert.deepStrictEqual(binds(lin), [['CLOSE_WIN', 'script-message vault-stage close'], ['MBTN_LEFT_DBL', 'cycle window-maximized'], ...WHEEL_BINDINGS]);
   const mac = await hostCommands('darwin');
-  assert.deepStrictEqual(observed(mac), OBSERVED);
+  assert.deepStrictEqual(observed(mac), [...OBSERVED, ...OBSERVED_OPTIONAL]);
   assert.deepStrictEqual(binds(mac), binds(win));
+});
+
+test('host: an mpv without mouse-pos (before 0.37) still opens; only the mouse reveal is missing', async () => {
+  const cmds = await hostCommands('win32', { refuse: ['mouse-pos'] });
+  assert.ok(cmds.some(c => c[0] === 'observe_property' && c[2] === 'mouse-pos'), 'asked for it');
+  assert.ok(cmds.some(c => c[0] === 'keybind' && c[1] === 'CLOSE_WIN'), 'and carried on with the bindings');
 });
 
 /* ── The routes: opening and the size menu ──────────────────────────────── */

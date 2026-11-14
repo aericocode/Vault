@@ -16,7 +16,7 @@
    ========================================================================= */
 
 const STAGE_SETTINGS_DEFAULTS = {
-  showName: true, nameSeconds: 3, windowName: 'Vault Stage', imageSeconds: 8,
+  showName: true, nameSeconds: 3, progressAlways: false, windowName: 'Vault Stage', imageSeconds: 8,
   cursorSeconds: 1, openSize: 'free', muteVault: true, tips: true, player: 'auto',
   evenLoudness: true, flowMeasure: 'use', flowShuffle: false, hwDecoding: true, flowEdges: 'auto',
   xwayland: true,
@@ -50,6 +50,10 @@ const STAGE_FLOW_EDGES_OPTIONS = [
   { value: '15', label: '15 s' },
   { value: '30', label: '30 s' },
 ];
+
+// The name, the time left beside it and the pink progress line (player-lib/track-progress.js).
+const STAGE_NAME_DESC = 'With the time left and a pink progress line. Bottom left on Stage, top left in the player. They come back when the mouse moves.';
+const STAGE_PROGRESS_DESC = 'The pink line along the top of the picture stays on in the player, on Stage and on the Wall. The name and time left still fade.';
 
 const STAGE_BASIC_WORDS = 'Basic (picture-in-picture): no extra program. It shows the address and controls when your mouse is over it, plays videos only, and stays on top.';
 let _stageSettings = { ...STAGE_SETTINGS_DEFAULTS };
@@ -285,10 +289,11 @@ function stageSettingsHtml() {
 
   if (modern) {
     const rows = playerRow + setLogRow + settingsRowHtml({
-      sfind: 'stageShowName', title: 'Show the name as a file starts', desc: 'Bottom left, over the picture.',
+      sfind: 'stageShowName', title: 'Show the name as a file starts', desc: STAGE_NAME_DESC,
       control: `<span class="stage-set-pair">${_stNum('nameSeconds', s.nameSeconds, 1, 30, 'Seconds the name shows')}
         <label class="stage-set-sw" title="Show the name">${_stSwitch('showName', s.showName)}</label></span>`,
     })
+      + settingsRowHtml({ tag: 'label', sfind: 'stageProgressAlways', title: 'Always show the progress line', desc: STAGE_PROGRESS_DESC, control: _stSwitch('progressAlways', s.progressAlways) })
       + _stageCountdownRows(s, true)
       + settingsRowHtml({ sfind: 'stageWindowName', title: 'Window name', desc: 'What Discord lists, and may show on the stream.', control: nameField })
       + settingsRowHtml({ sfind: 'stageImageSeconds', title: 'Show pictures for', desc: 'GIFs play at least one full loop.', control: _stNum('imageSeconds', s.imageSeconds, 1, 600, 'Seconds a picture shows') })
@@ -313,7 +318,8 @@ function stageSettingsHtml() {
       <p class="settings-note">The window you share in Discord. Open it from the mini player, the full player, or Play on Stage on a collection.</p>
       ${playerRow}
       ${setLogRow}
-      ${settingsRowHtml({ sfind: 'stageShowName', title: lbl('Show the name as a file starts, for', _stNum('nameSeconds', s.nameSeconds, 1, 30, 'Seconds the name shows')), desc: 'Bottom left, over the picture.', control: `<label class="stage-set-sw">${_stSwitch('showName', s.showName)}</label>` })}
+      ${settingsRowHtml({ sfind: 'stageShowName', title: lbl('Show the name as a file starts, for', _stNum('nameSeconds', s.nameSeconds, 1, 30, 'Seconds the name shows')), desc: STAGE_NAME_DESC, control: `<label class="stage-set-sw">${_stSwitch('showName', s.showName)}</label>` })}
+      ${settingsRowHtml({ tag: 'label', sfind: 'stageProgressAlways', title: 'Always show the progress line', desc: STAGE_PROGRESS_DESC, control: _stSwitch('progressAlways', s.progressAlways) })}
       ${_stageCountdownRows(s, false)}
       ${settingsRowHtml({ sfind: 'stageWindowName', title: 'Window name', desc: 'What Discord lists, and may show on the stream.', control: nameField })}
       ${settingsRowHtml({ sfind: 'stageImageSeconds', title: lbl('Show pictures for', _stNum('imageSeconds', s.imageSeconds, 1, 600, 'Seconds a picture shows')), desc: 'GIFs play at least one full loop.' })}
@@ -338,6 +344,7 @@ async function _stageSettingsSave(patch, root) {
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new Error(data.error || `Server returned ${r.status}`), { status: r.status });
     _stageSettings = { ..._stageSettings, ...data };
+    if (typeof TrackProgress !== 'undefined') TrackProgress.update(_stageSettings);
     if (typeof showToast === 'function') showToast('Saved');
     // An open Flow panel works its order out again (no measuring: player-lib/flow.js).
     if ('flowEdges' in patch && typeof flowSettingsChanged === 'function') flowSettingsChanged();
@@ -419,6 +426,7 @@ function stageSettingsWire(root) {
       if (!s) return;
       _stageSettings = { ...STAGE_SETTINGS_DEFAULTS, ...s };
       _stageSettingsLoaded = true;
+      if (typeof TrackProgress !== 'undefined') TrackProgress.update(_stageSettings);
       _stageSettingsPaint(root);
     }).catch(() => {});
   }
