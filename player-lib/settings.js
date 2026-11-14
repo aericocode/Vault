@@ -1407,7 +1407,7 @@
         'Vault describes, tags and titles your media with a vision model that runs on this computer. Nothing is uploaded. LM Studio is the default; Ollama works too.',
         `<b>1.</b> Get LM Studio from <a href="https://lmstudio.ai/download#lm-studio-download-heading" target="_blank" rel="noopener">lmstudio.ai/download</a>. You want the classic <b>LM Studio</b> (chat interface and programmable API), not the newer Bionic agent listed above it.<br>
          <b>2.</b> Download a vision model from <b>Model Search</b> in LM Studio's left sidebar. Models and scanning lists picks for your graphics card.<br>
-         <b>3.</b> Open the <b>Developer</b> tab, turn on manual load parameters, set the <b>context length to about 64k</b> (the default of about 4k is too small for vision) and load the model.<br>
+         <b>3.</b> Open the <b>Developer</b> tab, turn on manual load parameters, set the <b>context length to about 75k</b> (75000; the default of about 4k is too small for vision) and load the model.<br>
          <b>4.</b> Check the local server shows <b>Status: Running</b>, then drag folders or files into Vault to scan them.`,
       ],
       adv: '<code>SETUP.md</code>, next to the app and on GitHub, has the click by click version.' },
@@ -1463,7 +1463,7 @@
       <p class="settings-note">Short how-tos for the main features. See <code>SETUP.md</code> (next to the app, and on GitHub) for the full docs.</p>
       ${guide('🔍 AI scanning',
         'Vault describes, tags and titles your media with a local vision model. Point it at <b>LM Studio (default)</b> or <b>Ollama</b> serving a vision model - see the Models section for picks by GPU size, then drag folders or files into the window to scan them. Nothing is uploaded - the model runs on your machine.',
-        `Getting LM Studio: <a href="https://lmstudio.ai/download#lm-studio-download-heading" target="_blank" rel="noopener">lmstudio.ai/download</a> - you want the classic <b>LM Studio</b> ("Chat interface and programmable API"), <b>not the new Bionic</b> agent listed above it. Download a vision model from <b>Model Search</b> in LM Studio's left sidebar, then open the <b>Developer</b> tab and load it there. Turn on the toggle for manually choosing load parameters, set <b>context length ≈ 64k</b> (the ~4k default is too small for vision), and load. Finally, make sure the local server shows <b>Status: Running</b>. SETUP.md has the click-by-click version.`)}
+        `Getting LM Studio: <a href="https://lmstudio.ai/download#lm-studio-download-heading" target="_blank" rel="noopener">lmstudio.ai/download</a> - you want the classic <b>LM Studio</b> ("Chat interface and programmable API"), <b>not the new Bionic</b> agent listed above it. Download a vision model from <b>Model Search</b> in LM Studio's left sidebar, then open the <b>Developer</b> tab and load it there. Turn on the toggle for manually choosing load parameters, set <b>context length ≈ 75k</b> (75000; the ~4k default is too small for vision), and load. Finally, make sure the local server shows <b>Status: Running</b>. SETUP.md has the click-by-click version.`)}
       ${guide('🧠 Semantic search',
         'Tick <b>🧠 Semantic</b> next to the search box to find media by meaning instead of keywords ("crimson" finds red images). It uses a local embedding model. New scans embed automatically.')}
       ${guide('🎵 Music ID',
@@ -1559,7 +1559,7 @@
 
   function RENDERERS_models_modern() {
     return settingsCardHtml({ title: 'Model recommendations by GPU size', sfind: 'modelTable', body: `
-      <p class="settings-note">The vision model sets scan quality. Quantized (Q4) versions are the sweet spot, and about 64k of context is needed to read pictures reliably.</p>
+      <p class="settings-note">The vision model sets scan quality. Quantized (Q4) versions are the sweet spot, and about 75k of context (75000) is needed to read pictures reliably.</p>
       ${modelTiersHtml(MODEL_TIERS_MODERN, MODEL_HEADS_MODERN)}
       <p class="settings-note">Semantic search embeddings are tiny: <code>nomic-embed-text</code> (about 0.5 GB) runs anywhere.</p>
       ${settingsFoldHtml({ body: `<p>Subtitles: <code>WHISPER_MODEL=small</code> picks the small model for 6 to 8 GB cards; the full
@@ -1571,7 +1571,7 @@
     if (settingsIsModern()) return RENDERERS_models_modern();
     return `
       <h3 class="settings-h" data-sfind="modelTable">Model recommendations by GPU size</h3>
-      <p class="settings-note">Vision model = scan quality. Quantized (Q4) versions are the sweet spot. ~64k token context is required to handle vision reliably. </p>
+      <p class="settings-note">Vision model = scan quality. Quantized (Q4) versions are the sweet spot. ~75k token context (75000) is required to handle vision reliably. </p>
       ${modelTiersHtml(MODEL_TIERS)}
       <p class="settings-note">Semantic search embeddings are tiny - <code>nomic-embed-text</code> (~0.5 GB) runs anywhere.</p>
     `;
