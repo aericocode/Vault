@@ -49,9 +49,17 @@ const DragAutoScroll = (() => {
    * after the last tile and not after the one above. Left / right half in
    * the grid, top / bottom half for table rows (rows: true). Either side of a
    * gap means the same place in the order, so a tie does not matter.
+   *
+   * o.skip: indexes of the tiles being dragged. They still count for the
+   * rows and the nearest tile (so the geometry is what the user sees: the
+   * empty cells after a dragged last tile are on ITS row, not the one above),
+   * but the answer is never one of them: a place next to a dragged tile is
+   * moved to the same place in the order beside the nearest tile that is not
+   * dragged (after the one before it, else before the one after it).
    * @param {number} x @param {number} y pointer, viewport pixels
-   * @param {{left:number, top:number, right:number, bottom:number}[]} rects
-   * @returns {{index:number, side:'before'|'after'}|null} null for no rects
+   * @param {{left:number, top:number, right:number, bottom:number}[]} rects in order
+   * @returns {{index:number, side:'before'|'after'}|null} null for no rects,
+   *   or when every tile is being dragged
    */
   function nearestDrop(x, y, rects, o = {}) {
     if (!Number.isFinite(x) || !Number.isFinite(y) || !rects || !rects.length) return null;
@@ -68,7 +76,13 @@ const DragAutoScroll = (() => {
     const side = o.rows
       ? (y < (r.top + r.bottom) / 2 ? 'before' : 'after')
       : (x < (r.left + r.right) / 2 ? 'before' : 'after');
-    return { index: best, side };
+    const skip = o.skip ? (o.skip instanceof Set ? o.skip : new Set(o.skip)) : null;
+    if (!skip || !skip.has(best)) return { index: best, side };
+    // The place in the order: between slot - 1 and slot.
+    const slot = side === 'before' ? best : best + 1;
+    for (let i = slot - 1; i >= 0; i--) if (rects[i] && !skip.has(i)) return { index: i, side: 'after' };
+    for (let i = slot; i < rects.length; i++) if (rects[i] && !skip.has(i)) return { index: i, side: 'before' };
+    return null;
   }
 
   return { speed, nearestDrop, BAND, MIN_SPEED, MAX_SPEED };

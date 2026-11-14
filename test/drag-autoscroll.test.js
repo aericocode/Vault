@@ -248,6 +248,74 @@ test('nearestDrop: table rows go by top and bottom half', () => {
   assert.deepStrictEqual(S.nearestDrop(400, 10, rows, { rows: true }), { index: 0, side: 'before' });
 });
 
+/* Dragged tiles (o.skip) count for the geometry, never for the answer. */
+
+// n tiles of 100 x 80 with a 12 px gap, `cols` to a row.
+function grid(n, cols) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const left = (i % cols) * 112, top = Math.floor(i / cols) * 92;
+    out.push({ left, top, right: left + 100, bottom: top + 80 });
+  }
+  return out;
+}
+const G9 = grid(9, 4);     // rows: 0-3, 4-7, and 8 alone at y 184..264
+
+test('nearestDrop skip: the dragged tile alone on the last row, a drop in the empty cells after it stays put', () => {
+  // Tile 9 (index 8) dragged into the empty cell at row 3, column 3.
+  assert.deepStrictEqual(S.nearestDrop(280, 220, G9, { skip: [8] }), { index: 7, side: 'after' },
+    'after tile 8: the same order, not before tile 7');
+  // Tiles 8 and 9 (indexes 7, 8) together.
+  assert.deepStrictEqual(S.nearestDrop(280, 220, G9, { skip: [7, 8] }), { index: 6, side: 'after' },
+    'after tile 7: the same order, not before tile 6');
+  // Tile 9 dropped just under the grid.
+  assert.deepStrictEqual(S.nearestDrop(50, 280, G9, { skip: [8] }), { index: 7, side: 'after' },
+    'after tile 8, not before tile 5');
+});
+
+test('nearestDrop skip: the 7-column, 8-file grid from the report', () => {
+  const g = grid(8, 7);   // file 8 alone on row 2
+  assert.deepStrictEqual(S.nearestDrop(2 * 112 + 50, 130, g, { skip: [7] }), { index: 6, side: 'after' }, 'empty cell row 2 column 3');
+  assert.deepStrictEqual(S.nearestDrop(4 * 112 + 50, 92 + 80 + 15, g, { skip: [7] }), { index: 6, side: 'after' }, '15 px under column 5');
+});
+
+test('nearestDrop skip: the gap right next to a dragged tile in the middle of a row', () => {
+  // Tile 6 (index 5) dragged; the gap between it and tile 7 (x 212..224 of row 2).
+  assert.deepStrictEqual(S.nearestDrop(214, 120, G9, { skip: [5] }), { index: 4, side: 'after' },
+    'nearer the dragged tile: beside tile 5, where it already is');
+  assert.deepStrictEqual(S.nearestDrop(222, 120, G9, { skip: [5] }), { index: 6, side: 'before' },
+    'nearer tile 7: before it, the same place');
+  // The gap on its left (between tile 5 and it).
+  assert.deepStrictEqual(S.nearestDrop(102, 120, G9, { skip: [5] }), { index: 4, side: 'after' });
+  assert.deepStrictEqual(S.nearestDrop(110, 120, G9, { skip: [5] }), { index: 4, side: 'after' },
+    'nearer the dragged tile, its left half: after tile 5 still');
+});
+
+test('nearestDrop skip: several dragged tiles spread over rows', () => {
+  const skip = new Set([1, 5, 8]);   // tiles 2, 6 and 9
+  // Under the dragged tile 2's left half, in the row gap: before it means after tile 1.
+  assert.deepStrictEqual(S.nearestDrop(130, 84, G9, { skip }), { index: 0, side: 'after' });
+  // Right half of dragged tile 6 from the row gap below it: after it means after tile 5.
+  assert.deepStrictEqual(S.nearestDrop(190, 176, G9, { skip }), { index: 4, side: 'after' });
+  // The empty cells after dragged tile 9: after tile 8 (index 7).
+  assert.deepStrictEqual(S.nearestDrop(400, 220, G9, { skip }), { index: 7, side: 'after' });
+  // A tile not dragged is answered as before.
+  assert.deepStrictEqual(S.nearestDrop(340, 84, G9, { skip }), { index: 3, side: 'before' });
+  // The first tile dragged, a drop left of it: before the next one not dragged.
+  assert.deepStrictEqual(S.nearestDrop(-10, 40, G9, { skip: [0, 1] }), { index: 2, side: 'before' });
+});
+
+test('nearestDrop skip: a single-tile collection, or every tile dragged, has nowhere to drop', () => {
+  assert.strictEqual(S.nearestDrop(300, 40, grid(1, 4), { skip: [0] }), null);
+  assert.strictEqual(S.nearestDrop(300, 220, G9, { skip: [0, 1, 2, 3, 4, 5, 6, 7, 8] }), null);
+});
+
+test('nearestDrop skip: the empty cells after the last tile move a dragged tile from elsewhere to the end', () => {
+  assert.deepStrictEqual(S.nearestDrop(280, 220, G9, { skip: [1] }), { index: 8, side: 'after' });
+  assert.deepStrictEqual(S.nearestDrop(20, 280, G9, { skip: [1, 4] }), { index: 8, side: 'before' },
+    'under tile 9, left half: before it (the same place as before 9 in the order)');
+});
+
 test('nearestDrop: nothing to drop on, or no pointer', () => {
   assert.strictEqual(S.nearestDrop(10, 10, []), null);
   assert.strictEqual(S.nearestDrop(NaN, 10, TILES), null);

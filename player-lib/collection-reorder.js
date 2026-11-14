@@ -450,7 +450,11 @@ const REORDER_DROP_PAD = 24;
  * Where a drop at this pointer lands: { tile, side }, or null for no drop.
  * On a tile: that tile (none when it is one being dragged). In a gap between
  * tiles or rows, after the last one, or just outside the grid's edge: the
- * nearest tile not being dragged, so there is no dead space in the grid.
+ * nearest place in the order, so there is no dead space in the grid. The
+ * dragged tiles count for where the rows and the nearest tile are (what the
+ * user sees), but the mark goes on a tile not being dragged; a gap drop
+ * that would leave the order as it is (next to the dragged file's own tile)
+ * is no drop, so no mark shows there and nothing is saved.
  */
 function _dropAt(e) {
   const drag = _reorderDrag;
@@ -466,14 +470,22 @@ function _dropAt(e) {
   const g = grid.getBoundingClientRect();
   if (e.clientX < g.left - REORDER_DROP_PAD || e.clientX > g.right + REORDER_DROP_PAD
       || e.clientY < g.top - REORDER_DROP_PAD || e.clientY > g.bottom + REORDER_DROP_PAD) return null;
-  const tiles = [];
-  grid.querySelectorAll('.media-tile[data-id]').forEach((el) => {
-    if (!drag.set.has(Number(el.dataset.id))) tiles.push(el);
-  });
+  const tiles = [...grid.querySelectorAll('.media-tile[data-id]')];
+  const skip = new Set();
+  tiles.forEach((el, i) => { if (drag.set.has(Number(el.dataset.id))) skip.add(i); });
   const hit = typeof DragAutoScroll !== 'undefined' && DragAutoScroll.nearestDrop
-    ? DragAutoScroll.nearestDrop(e.clientX, e.clientY, tiles.map(el => el.getBoundingClientRect()), { rows: _isTableView() })
+    ? DragAutoScroll.nearestDrop(e.clientX, e.clientY, tiles.map(el => el.getBoundingClientRect()), { rows: _isTableView(), skip })
     : null;
-  return hit ? { tile: tiles[hit.index], side: hit.side } : null;
+  if (!hit) return null;
+  const at = { tile: tiles[hit.index], side: hit.side };
+  const order = _members();
+  return _sameOrder(_plannedOrder(order, drag.set, _dropBefore(at, drag)), order) ? null : at;
+}
+
+/** The file a drop at { tile, side } goes in front of (null: the end). */
+function _dropBefore(at, drag) {
+  const targetId = Number(at.tile.dataset.id);
+  return at.side === 'before' ? targetId : _beforeForAfter(_members(), drag.set, targetId);
 }
 
 // Where the press that may become a drag began. A press on a tile's tick box
@@ -526,10 +538,8 @@ document.addEventListener('drop', (e) => {
   const at = _dropAt(e);
   if (!at) { _endReorderDrag(); return; }
   e.preventDefault();
-  const targetId = Number(at.tile.dataset.id);
-  const side = at.side;
+  const before = _dropBefore(at, drag);
   _endReorderDrag();
-  const before = side === 'before' ? targetId : _beforeForAfter(_members(), drag.set, targetId);
   reorderMove(drag.ids, before);
 });
 
