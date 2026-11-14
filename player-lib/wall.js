@@ -15,7 +15,8 @@
    Rotate every 10 / 20 / 30 / 60 s or Mix it up); Videos (Auto or a fixed
    number, 2 to 12). Under More: Show, Pause on hover, Only files that play
    without converting, Keep playing when this tab is hidden, Loop clips
-   instead of changing them.
+   instead of changing them, Progress line (the whole file or the clip
+   being played: the pink line on a hovered block, trackBlock).
 
    Two layouts:
 
@@ -73,6 +74,14 @@
      for a taller block) is on the board; the slots go to the blocks most in
      view, and a playing clip leaving at the top gives its slot first to a
      block more in view than it is (scrollRank, leavingFor).
+   - Files that cannot play do not hold blocks. Converted (remux) files go
+     up no more often than they can play (convertedRoom): in Grid at most
+     one on the board, which goes first for the slots when the remux slot is
+     free (gridTurn); in Scroll none within a board height of another. Only
+     a source with too few other files gets more, rather than holes or
+     copies side by side. A file that failed (it would not load, start or
+     show a picture, or froze twice) is swapped soon in both modes,
+     wherever it shows.
    - Videos Auto (autoStep): starts at 4. Every 4 s the playing clips are
      judged by their dropped frames (getVideoPlaybackQuality), stalls
      ('waiting' after they played) and, in Scroll, animation frames over
@@ -306,6 +315,114 @@ const Wall = (() => {
     return free >= cost ? stops : null;
   }
 
+  /**
+   * Grid: what the block whose turn it is to play does (pure): 'start';
+   * 'skip' when it cannot play now whatever frees up (the remux slot is in
+   * use, or it costs more than the cap), so the next block goes; or 'wait'
+   * when it needs more free slots than there are, so they are kept for it
+   * as clips end. Without the wait the board's one converted clip would
+   * hardly ever play: a single free slot always goes to a direct clip.
+   * `waited` is how long (ms) slots have been kept for converted clips so
+   * far: a direct clip has no time limit, so the wait lasts at most
+   * GRID_WAIT_MS, then the slots go to direct clips for as long, and so on.
+   */
+  const GRID_WAIT_MS = 25000;
+  function gridTurn(cost, isRemux, free, remuxFree, cap, waited = 0) {
+    if (cost > cap || (isRemux && !remuxFree)) return 'skip';
+    if (free >= cost) return 'start';
+    return (Math.max(0, waited) % (2 * GRID_WAIT_MS)) < GRID_WAIT_MS ? 'wait' : 'skip';
+  }
+
+  /*
+   * Converted (remux) files on the board. Only MAX_REMUX of them can play at
+   * a time, so every other one would sit as a still that never plays. The
+   * board takes no more of them than can play: in Grid at most MAX_REMUX at
+   * once; in Scroll none within a board height of another, so two are never
+   * in view together. When the source has too few other files to fill the
+   * board, converted files still go up rather than leaving holes or putting
+   * copies side by side (they are only held back, never left out).
+   */
+
+  /**
+   * Whether a converted file may go into a place (pure). `o` gives { scroll,
+   * y, h: the place (h 0 for a slice not solved yet), H: the board height,
+   * conv: the other converted blocks as [{ y, h }], max }.
+   */
+  function convertedRoom(o) {
+    if (!o.scroll) return o.conv.length < o.max;
+    return o.conv.every(c => Math.max(c.y - (o.y + o.h), o.y - (c.y + c.h)) >= o.H);
+  }
+
+  /**
+   * The front of the buffer a build looks at (pure): the first `n` rows
+   * `ok(r)` lets go up now (called once per row, in order), then, if there
+   * are fewer, the rows it holds back, so the board is still filled. Returns
+   * [{ i: index in list, held }].
+   */
+  function pickFront(list, n, ok) {
+    const out = [];
+    const later = [];
+    for (let i = 0; i < list.length && out.length < n; i++) {
+      if (ok(list[i])) out.push({ i, held: false });
+      else if (later.length < n) later.push({ i, held: true });
+    }
+    for (const h of later) { if (out.length >= n) break; out.push(h); }
+    return out;
+  }
+
+  /**
+   * The swap pick with converted files held back (pure): pickSwap over the
+   * files `o.held(r)` does not hold back, unless that finds nothing, or only
+   * a repeat of a file on screen where a held file would not be one (the
+   * source is short of other files). Same result as pickSwap.
+   */
+  function pickPlayable(list, aspect, o) {
+    const all = pickSwap(list, aspect, o);
+    if (!o.held) return all;
+    const free = pickSwap(list, aspect, { ...o, usable: r => o.usable(r) && !o.held(r) });
+    if (free.i < 0) return all;
+    const rank = (r) => (o.currentId != null && r.id === o.currentId) ? 3
+      : !o.onScreen(r) ? 0 : (o.touching && o.touching(r)) ? 2 : 1;
+    if (all.i >= 0 && rank(list[all.i]) < rank(list[free.i])) return all;
+    return free;
+  }
+
+  /**
+   * How many buffered rows count toward the buffer's target (pure): every
+   * file that can go up any time, and at most 2 converted ones, since they
+   * go up only now and then.
+   */
+  function bufferCount(list, isConv) {
+    let n = 0;
+    let conv = 0;
+    for (const r of list) { if (isConv(r)) conv++; else n++; }
+    return n + Math.min(conv, 2);
+  }
+
+  const FILL_EXTRA = 3;              // fetches past the usual target one top-up may make
+  const BACKOFF_MIN_MS = 2000;
+  const BACKOFF_MAX_MS = 60000;
+
+  /**
+   * Whether a top-up fetches once more (pure). `o` gives { counted: the
+   * buffer's count (bufferCount), len: rows buffered, target, cap, extras:
+   * fetches this top-up made past the usual target, passed: this top-up has
+   * been round the whole source, quiet: extra fetches are backing off }.
+   * Below the target it always does, as before converted files counted
+   * less; past it (a buffer of mostly converted rows) only a few more times,
+   * never round the source twice, and not while backing off.
+   */
+  function fillGoOn(o) {
+    if (o.len >= o.cap || o.counted >= o.target) return false;
+    if (o.len < o.target) return true;
+    return !o.quiet && !o.passed && o.extras < FILL_EXTRA;
+  }
+
+  /** The next wait (ms) of a back-off that just failed again after `prev` ms (0: the first). */
+  function nextBackoff(prev) {
+    return prev > 0 ? Math.min(BACKOFF_MAX_MS, prev * 2) : BACKOFF_MIN_MS;
+  }
+
   /* ── State ──────────────────────────────────────────────────────────── */
 
   let els = null;
@@ -368,6 +485,7 @@ const Wall = (() => {
   /** How many slots the clips may hold now. */
   const playCap = () => (cfg.playing === 'auto' ? auto.target : cfg.playing);
   let liveRemux = 0;
+  let remuxWaitFrom = 0;       // Grid: since when slots are kept for a converted clip (gridTurn), 0: none
 
   // The pool: every id the source matches, in play order, and a buffer of
   // fetched, eligible rows waiting to go up on the wall.
@@ -380,6 +498,13 @@ const Wall = (() => {
   const skipCounts = new WeakMap(); // buffered row → how often a take passed it over
   let fillPromise = null;
   let poolHasEligible = false;
+  // Top-ups that found nothing back off (nextBackoff): `dead`, a whole pass
+  // of the source found nothing the wall can show; `quiet`, fetches past the
+  // usual target found nothing that counts.
+  let fillDeadUntil = 0;
+  let fillDeadMs = 0;
+  let fillQuietUntil = 0;
+  let fillQuietMs = 0;
   const onScreen = new Map();  // id → how many blocks show it
   const badIds = new Set();    // failed to load or play this session
   const freezeCounts = new Map(); // id → how often it froze on the wall this session
@@ -495,6 +620,24 @@ const Wall = (() => {
     }
     return true;
   }
+
+  /** A video that plays only converted (remux): few of them can play at once. */
+  function isConverted(row) {
+    return kindOf(row) === 'video' && playMode(row) === 'remux';
+  }
+
+  /** The converted blocks on the board, but `except`. */
+  function convertedBlocks(except) {
+    return blocks.filter(b => b !== except && !b.dead && b.item && isConverted(b.item));
+  }
+
+  /** Whether a converted file may go up at y (height h) now (convertedRoom). */
+  function convertedOkAt(y, h, except) {
+    return convertedRoom({ scroll: cfg.mode === 'scroll', y, h, H: lay.H, conv: convertedBlocks(except), max: MAX_REMUX });
+  }
+
+  /** The buffered rows that count toward its target (bufferCount). */
+  const bufferHeld = () => bufferCount(ready, isConverted);
 
   /** The stored shape (or one learned from the element earlier), clamped. */
   function aspectOf(row) {
@@ -692,6 +835,7 @@ const Wall = (() => {
     poolWrapped = false;
     poolHasEligible = false;
     fillPromise = null;
+    fillDeadUntil = 0; fillDeadMs = 0; fillQuietUntil = 0; fillQuietMs = 0;
     const spec = sourceSpec();
     if (!spec) return;
     let out;
@@ -721,17 +865,31 @@ const Wall = (() => {
    */
   function fill(more = false) {
     if (fillPromise) return fillPromise;
+    // Every file of the source failed or cannot go up: wait before looking again.
+    if (now() < fillDeadUntil) return Promise.resolve();
     const gen = poolGen;
     fillPromise = (async () => {
       if (!poolIds || !poolIds.length) return;
-      const target = fillTarget(ready.length, readyTarget(), more);
+      // Rows whose file failed since they were buffered count for nothing.
+      if (ready.some(r => badIds.has(r.id))) ready = ready.filter(r => !badIds.has(r.id));
+      const base = readyTarget();
+      const target = fillTarget(ready.length, base, more);
       const scanLimit = Math.min(8000, Math.max(target * 3, poolIds.length));
       let scanned = 0;
-      while (ready.length < target && scanned < scanLimit) {
+      let found = 0;
+      let extras = 0;
+      const before = bufferHeld();
+      // Converted files count only a little (bufferCount), so a source of
+      // mostly such files buffers more of the others: a few fetches past the
+      // usual target (fillGoOn), keeping only rows that count.
+      while (scanned < scanLimit && fillGoOn({ counted: bufferHeld(), len: ready.length, target, cap: READY_CAP,
+        extras, passed: scanned >= poolIds.length, quiet: now() < fillQuietUntil })) {
         // A whole pass found nothing: the source has nothing the wall can show.
         if (scanned >= poolIds.length && !poolHasEligible) break;
+        const extra = ready.length >= target;
+        if (extra) extras++;
         const ids = [];
-        const n = batchSize(ready.length, target, scanLimit - scanned);
+        const n = Math.min(READY_CAP - ready.length, extra ? Math.min(BATCH, scanLimit - scanned) : batchSize(ready.length, target, scanLimit - scanned));
         if (n <= 0) break;
         for (let i = 0; i < n; i++) {
           ids.push(poolIds[poolCursor]);
@@ -752,18 +910,43 @@ const Wall = (() => {
         }
         if (gen !== poolGen) return;
         for (const r of rowsOut) {
-          if (r && eligible(r)) { ready.push(r); poolHasEligible = true; probeShape(r); }
+          if (!r || !eligible(r)) continue;
+          found++;
+          poolHasEligible = true;
+          // Converted rows past the usual target would only wait (a converted
+          // file goes up now and then), so they are not kept.
+          if (isConverted(r) && ready.length >= base) continue;
+          ready.push(r);
+          probeShape(r);
         }
+        // A whole pass of the source and nothing it can show any more (every
+        // file failed this session): no more fetches for a while.
+        if (!found && scanned >= poolIds.length) {
+          fillDeadMs = nextBackoff(fillDeadMs);
+          fillDeadUntil = now() + fillDeadMs;
+          break;
+        }
+      }
+      if (found) fillDeadMs = 0;
+      // Fetches past the target that found nothing that counts: those back off.
+      if (extras) {
+        if (bufferHeld() > before) fillQuietMs = 0;
+        else { fillQuietMs = nextBackoff(fillQuietMs); fillQuietUntil = now() + fillQuietMs; }
       }
     })().finally(() => { if (gen === poolGen) fillPromise = null; });
     return fillPromise;
   }
 
+  /** How long (ms) until fill() looks at the source again after finding nothing it can show. */
+  const fillWaitLeft = () => Math.max(0, fillDeadUntil - now());
+
   function take(i) {
     const out = takeAt(ready, i, skipCounts);
     ready = out.list;
     stats.staleDropped += out.dropped;
-    if (ready.length < readyTarget() / 2) fill();
+    // Short of files that count (bufferCount): a top-up, unless those are
+    // backing off (the source has no more of them for now).
+    if (ready.length < readyTarget() / 2 || (bufferHeld() < readyTarget() / 2 && now() >= fillQuietUntil)) fill();
     return out.item;
   }
 
@@ -1003,7 +1186,8 @@ const Wall = (() => {
    * The candidates for the next slice, best first (pure). `front` is the
    * front of the buffer (rows with an id), `shown` the blocks on the board
    * as { item, x, y, w, h }, `o` gives { known(r): shape known, W, max,
-   * wrapped: the buffer has been round the whole source }.
+   * wrapped: the buffer has been round the whole source, held(r): a
+   * converted file held back, optional }.
    *
    * Each file comes once. Files not on screen come first, in buffer order
    * (a shape still being read later). Then files already on screen, the
@@ -1033,17 +1217,20 @@ const Wall = (() => {
       if (lowest.has(id)) return 10 + Math.min(1, lowest.get(id) / Math.max(1, edge));
       return 0;
     };
+    // A converted file held back (o.held, see convertedRoom) comes after every
+    // other fresh file, but before any repeat.
+    const heldScore = (r) => (o.held && o.held(r) ? 5 : 0);
     const seen = new Set();
     const pool = [];
     front.forEach((r, i) => {
       if (seen.has(r.id)) return;
       seen.add(r.id);
-      pool.push({ r, fromReady: true, score: i * 0.01 + (o.known(r) ? 0 : 3) + repeatScore(r.id) });
+      pool.push({ r, fromReady: true, score: i * 0.01 + (o.known(r) ? 0 : 3) + repeatScore(r.id) + heldScore(r) });
     });
     for (const b of shown) {
       if (!b.item || seen.has(b.item.id)) continue;
       seen.add(b.item.id);
-      pool.push({ r: b.item, fromReady: false, score: repeatScore(b.item.id) });
+      pool.push({ r: b.item, fromReady: false, score: repeatScore(b.item.id) + heldScore(b.item) });
     }
     pool.sort((p, q) => p.score - q.score);
     return { pool: pool.slice(0, o.max), repeat: !!o.wrapped && pool.length <= o.max };
@@ -1072,15 +1259,17 @@ const Wall = (() => {
    * queue, not already on screen, and (for a wide file) only where its two
    * columns are close to level. A file on screen comes after every file
    * that is not, and one shown in a block its slot would touch
-   * (`touches(r, slot)`) after those.
+   * (`touches(r, slot)`) after those. A converted file held back
+   * (`held(r)`, see convertedRoom) comes after every other fresh file.
    */
-  function buildIndex(plan, list, isOnScreen, touches) {
+  function buildIndex(plan, list, isOnScreen, touches, held) {
     const n = Math.min(LOOKAHEAD, list.length);
     let best = -1;
     let bestScore = Infinity;
     for (let i = 0; i < n; i++) {
       const r = list[i];
       let score = i * 0.01;
+      if (held && held(r)) score += 9;
       if (!shapeKnown(r)) score += 3;
       const s = slotFor(plan, aspectOf(r));
       if (isOnScreen(r)) score += touches && touches(r, s) ? 40 : 10;
@@ -1153,8 +1342,11 @@ const Wall = (() => {
   }
 
   function swapIndex(list, b) {
-    return pickSwap(list, b.aspect, {
+    // Converted files are held back unless one may go here (convertedRoom).
+    const convOk = convertedOkAt(b.y, b.h, b);
+    return pickPlayable(list, b.aspect, {
       aspectOf,
+      held: convOk ? null : isConverted,
       usable: (r) => !badIds.has(r.id) && shapeKnown(r),
       onScreen: isOnScreen,
       touching: (r) => touchesCopy(r.id, b, b),
@@ -1314,6 +1506,13 @@ const Wall = (() => {
             <input type="checkbox" id="wallKeepPlaying" class="m-check"> Keep playing when this tab is hidden</label>
           <label class="wall-check" id="wallLoopRow" title="Off: when a clip ends, a new file that fits its block takes its place. On: the clip starts over and stays.">
             <input type="checkbox" id="wallLoop" class="m-check"> Loop clips instead of changing them</label>
+          <label class="wall-pop-row" id="wallProgressRow" title="The pink line on the block under the mouse. Whole file: how far along the file is. Clip: fills as the block nears its change.">
+            <span class="wall-label">Progress line</span>
+            <select id="wallProgressOf" class="m-select">
+              <option value="file">Whole file</option>
+              <option value="clip">Clip being played</option>
+            </select>
+          </label>
         </div>
       </div>
       <div class="wall-stage">
@@ -1346,6 +1545,8 @@ const Wall = (() => {
       pauseBtn: $('wallPauseBtn'),
       loop: $('wallLoop'),
       loopRow: $('wallLoopRow'),
+      progressOf: $('wallProgressOf'),
+      progressRow: $('wallProgressRow'),
       fullBtn: $('wallFullBtn'),
     };
     for (const name of Object.keys(CHIPS)) {
@@ -1355,6 +1556,9 @@ const Wall = (() => {
     wireControls();
     wireBoard();
     syncControls();
+    // "Always show the progress line" (Settings > Stage): every playing block keeps its line.
+    syncTrackAlways();
+    window.addEventListener('vault-track-progress', () => { syncTrackAlways(); trackTick(now()); });
   }
 
   /** The words a chip shows for a setting's value. */
@@ -1396,6 +1600,8 @@ const Wall = (() => {
     els.chips.pace.btn.title = scroll ? 'How fast the wall scrolls' : `How often pictures change (now every ${picSec()} s)`;
     // No clips when only pictures are shown.
     els.loopRow.hidden = cfg.mix === 'pictures';
+    els.progressRow.hidden = cfg.mix === 'pictures';
+    els.progressOf.value = cfg.progressOf;
     els.chips.playing.wrap.hidden = cfg.mix === 'pictures';
     els.chips.sound.wrap.hidden = cfg.mix === 'pictures';
     els.mix.value = cfg.mix;
@@ -1518,6 +1724,11 @@ const Wall = (() => {
       cfg.keepPlaying2 = els.keep.checked;
       saveCfg();
       evaluate();
+    });
+    els.progressOf.addEventListener('change', () => {
+      cfg.progressOf = els.progressOf.value === 'clip' ? 'clip' : 'file';
+      saveCfg();
+      trackTick(now());
     });
 
     for (const btn of [els.modeGrid, els.modeScroll]) {
@@ -1835,16 +2046,31 @@ const Wall = (() => {
     el.style.top = `${slot.y.toFixed(2)}px`;
     el.style.width = `${slot.w.toFixed(2)}px`;
     el.style.height = `${slot.h.toFixed(2)}px`;
+    // The caption: the name, and the time left beside it while a clip plays
+    // (cut name, time in full); the pink progress line along the top (trackTick).
     const cap = document.createElement('div');
     cap.className = 'wall-cap';
+    const capName = document.createElement('span');
+    capName.className = 'wall-cap-n';
+    const capLeft = document.createElement('span');
+    capLeft.className = 'wall-cap-t';
+    cap.append(capName, capLeft);
     el.appendChild(cap);
+    const tp = document.createElement('div');
+    tp.className = 'wall-tp';
+    tp.setAttribute('aria-hidden', 'true');
+    const tpFill = document.createElement('i');
+    tp.appendChild(tpFill);
+    el.appendChild(tp);
     const spk = document.createElement('div');
     spk.className = 'wall-spk';
     spk.setAttribute('aria-hidden', 'true');
     spk.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" focusable="false"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4zm12.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>';
     el.appendChild(spk);
     const b = {
-      el, cap,
+      el, cap, capName, capLeft, tpFill,
+      tpOn: false,          // a clip plays: the line may show (.wall-playing)
+      tpFrac: -1,           // the line's fill as last drawn
       x: slot.x, y: slot.y, w: slot.w, h: slot.h, col: slot.col,
       aspect: slot.w / slot.h,  // the slot's shape, fixed for its life
       item: null,
@@ -1860,6 +2086,7 @@ const Wall = (() => {
       holdLeft: 0,
       rand: Math.random(),
       fitWait: false,
+      idle: false,          // the last swap found nothing to bring in (advance)
       dead: false,
     };
     el._wall = b;
@@ -1920,16 +2147,27 @@ const Wall = (() => {
    * so it is always full.
    */
   function nextBuildItem() {
-    const i = buildIndex(lay, ready, isOnScreen, (r, s) => touchesCopy(r.id, s));
-    if (i >= 0) return take(i);
+    // The front: converted files that could not play here are held back.
+    const conv = convertedBlocks();
+    const ok = (r) => {
+      if (!isConverted(r)) return true;
+      const s = slotFor(lay, aspectOf(r));
+      return convertedRoom({ scroll: cfg.mode === 'scroll', y: s.y, h: s.h, H: lay.H, conv, max: MAX_REMUX });
+    };
+    const front = pickFront(ready, LOOKAHEAD, ok);
+    const rows = front.map(f => ready[f.i]);
+    const held = new Set(front.filter(f => f.held).map(f => ready[f.i]));
+    const k = buildIndex(lay, rows, isOnScreen, (r, s) => touchesCopy(r.id, s), r => held.has(r));
+    if (k >= 0) return take(front[k].i);
     fill();
+    // A repeat: a file that can play here before one held back.
     let best = null;
     let bestD = -Infinity;
     const seen = new Set();
     for (const b of blocks) {
       if (!b.item || seen.has(b.item.id)) continue;
       seen.add(b.item.id);
-      const d = nearestCopy(b.item.id, slotFor(lay, aspectOf(b.item)));
+      const d = nearestCopy(b.item.id, slotFor(lay, aspectOf(b.item))) - (ok(b.item) ? 0 : 1e6);
       if (d > bestD) { bestD = d; best = b.item; }
     }
     return best;
@@ -1962,7 +2200,18 @@ const Wall = (() => {
    */
   function addSlice() {
     if (ready.length < SLICE_ITEMS) fill();
-    const { pool, repeat } = slicePool(ready.slice(0, LOOKAHEAD), blocks, { known: shapeKnown, W: lay.W, max: SLICE_ITEMS, wrapped: poolWrapped });
+    // At most one converted file per slice, and only where one may go
+    // (convertedRoom: the slice's top edge, its height not known yet).
+    let room = convertedOkAt(lay.bottom, 0) ? 1 : 0;
+    const front = pickFront(ready, LOOKAHEAD, r => !isConverted(r) || room-- > 0);
+    const rows = front.map(f => ready[f.i]);
+    const held = new Set(front.filter(f => f.held).map(f => ready[f.i]));
+    const inFront = new Set(rows);
+    const { pool, repeat } = slicePool(rows, blocks, {
+      known: shapeKnown, W: lay.W, max: SLICE_ITEMS, wrapped: poolWrapped,
+      // A repeat of a converted file on the board is held back the same way.
+      held: r => held.has(r) || (room <= 0 && !inFront.has(r) && isConverted(r)),
+    });
     if (!pool.length) return [];
     const row = sliceRow(pool.map(p => ({ a: aspectOf(p.r), px: shortSide(p.r) })), {
       W: lay.W, base: lay.base, gap: lay.gap,
@@ -2059,7 +2308,7 @@ const Wall = (() => {
     if (!active) { markDirty(keep); return; }
     const gen = ++layoutGen;
     const pg = poolGen;
-    for (let i = 0; i < 3 && ready.length < readyTarget(); i++) {
+    for (let i = 0; i < 3 && bufferHeld() < readyTarget(); i++) {
       await fill();
       if (gen !== layoutGen || pg !== poolGen || !built) return;
     }
@@ -2272,7 +2521,8 @@ const Wall = (() => {
     b.item = item;
     b.cropped = Math.abs(Math.log(aspectOf(item) / b.aspect)) > 0.01;
     onScreen.set(item.id, (onScreen.get(item.id) || 0) + 1);
-    b.cap.textContent = titleOf(item);
+    b.capName.textContent = titleOf(item);
+    b.capLeft.textContent = '';
     b.el.title = '';
 
     const layer = document.createElement('div');
@@ -2432,6 +2682,11 @@ const Wall = (() => {
       // A converted clip gives up its block (and the remux slot) after 3 minutes.
       if (mode === 'remux') setDue(b, clipDue(mode, b.startedAt));
       rec.q = frameCounts(v);   // Auto counts dropped frames from here
+      // Sound but no picture (Firefox plays the audio of a file whose video
+      // it cannot decode): it fails like a file that will not load.
+      if (!v.videoWidth) {
+        setTimeout(() => { if (b.video === rec && !rec.released && !v.videoWidth) videoFailed(b, rec); }, 1500);
+      }
       learnAspect(item, v.videoWidth, v.videoHeight);
       reveal(b, layer);
       syncAudio();
@@ -2613,7 +2868,9 @@ const Wall = (() => {
     releaseVideo(rec);
     if (b.video === rec) {
       b.video = null;
-      setDue(b, cfg.mode === 'scroll' ? Infinity : now() + 400);   // swap the block to something that works
+      // Swap the block to something that works, in Scroll too (its still
+      // would otherwise stay until it leaves the top).
+      setDue(b, now() + 400);
       b.lastPlayedAt = now();
     }
     updateStatus();
@@ -2675,12 +2932,28 @@ const Wall = (() => {
       // layer goes on top of it either way.
       // Not the hovered block: Pause on hover asked it to stay as it is.
       const cands = blocks.filter(b => canPlay(b) && !b.held);
-      // Back from the player, the clips that were playing go first.
-      cands.sort((a, c) => (!!c.resume - !!a.resume) || (a.lastPlayedAt - c.lastPlayedAt) || (a.rand - c.rand));
+      // Back from the player, the clips that were playing go first. Then the
+      // board's converted file while the remux slot is free: otherwise it
+      // would wait behind every direct clip and change before its turn.
+      const rx = (b) => (liveRemux < MAX_REMUX && isConverted(b.item) ? 0 : 1);
+      cands.sort((a, c) => (!!c.resume - !!a.resume) || (rx(a) - rx(c)) || (a.lastPlayedAt - c.lastPlayedAt) || (a.rand - c.rand));
       for (const b of cands) {
         if (liveCost >= cap) break;
-        startVideo(b);
+        const mode = playMode(b.item);
+        if (!mode || (mode === 'remux' && cfg.directOnly)) continue;   // never plays here
+        const waited = remuxWaitFrom ? now() - remuxWaitFrom : 0;
+        const turn = gridTurn(mode === 'remux' ? REMUX_COST : 1, mode === 'remux', cap - liveCost, liveRemux < MAX_REMUX, cap, waited);
+        // The slots that free up next are kept for it (looping clips never
+        // free theirs, so then the next block goes).
+        if (turn === 'wait') {
+          if (!remuxWaitFrom) remuxWaitFrom = now();
+          if (cfg.loopClips) continue;
+          break;
+        }
+        if (turn === 'start') startVideo(b);
       }
+      // No converted clip is kept waiting (it started, or none is in line): the next wait starts afresh.
+      if (liveRemux >= MAX_REMUX || !cands.some(b => !b.video && isConverted(b.item))) remuxWaitFrom = 0;
       return;
     }
     const top = drift.offset;
@@ -2760,6 +3033,7 @@ const Wall = (() => {
     hoverBlock = b;
     syncDrift();
     syncAudio();
+    trackBlock(b);
   }
 
   function hoverEnd(b) {
@@ -2770,6 +3044,58 @@ const Wall = (() => {
     if (hoverBlock === b) hoverBlock = null;
     syncDrift();
     syncAudio();
+  }
+
+  /* ── Progress line (player-lib/track-progress.js) ───────────────────── */
+
+  /*
+   * The 3 px pink line along the top of a block whose clip plays, and the
+   * time left beside the name in its caption: on the block under the mouse,
+   * and the line on every playing block with "Always show the progress line"
+   * (Settings > Stage, one switch for the player, Stage and the Wall). Drawn
+   * from the 250 ms tick and on a hover, never per animation frame, and only
+   * where it shows: many blocks may play at once.
+   * More > Progress line: the whole file (the clip's place in its file), or
+   * the clip being played (how much of its time on the wall has gone, until
+   * timeLeft: its end, a converted clip's 3 minutes, Scroll's leaving the top;
+   * a clip that loops for good has no end, so it shows the file).
+   */
+  function trackAlways() {
+    return typeof TrackProgress !== 'undefined' && TrackProgress.settings().always === true;
+  }
+
+  function syncTrackAlways() {
+    if (els) els.root.classList.toggle('wall-tp-always', trackAlways());
+  }
+
+  function trackBlock(b, t = now(), always = trackAlways()) {
+    if (typeof TrackProgress === 'undefined') return;
+    const rec = b.video;
+    const v = rec && !rec.released && b.startedAt && !b.dead ? rec.v : null;
+    const on = !!v;
+    if (on !== b.tpOn) { b.tpOn = on; b.el.classList.toggle('wall-playing', on); }
+    if (!on) {
+      if (b.capLeft.textContent) b.capLeft.textContent = '';
+      return;
+    }
+    if (!always && !b.hovered) return;
+    const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : Number(b.item && b.item.duration_seconds) || 0;
+    const p = TrackProgress.wallProgress(cfg.progressOf, {
+      t: v.currentTime, d: dur, elapsed: Math.max(0, t - b.startedAt) / 1000, leftMs: timeLeft(b, t),
+    });
+    if (!p) return;
+    const f = Math.round(p.frac * 1000) / 1000;
+    if (f !== b.tpFrac) { b.tpFrac = f; b.tpFill.style.transform = `scaleX(${f})`; }
+    if (b.hovered) {
+      const text = TrackProgress.leftText(p.left);
+      if (b.capLeft.textContent !== text) b.capLeft.textContent = text;
+    }
+  }
+
+  function trackTick(t) {
+    if (!els || typeof TrackProgress === 'undefined') return;
+    const always = trackAlways();
+    for (const b of blocks) trackBlock(b, t, always);
   }
 
   /* ── Sound ──────────────────────────────────────────────────────────── */
@@ -3110,7 +3436,15 @@ const Wall = (() => {
    */
   function advance(b) {
     const { i, fit } = swapIndex(ready, b);
-    if (i < 0) { fill(); setDue(b, now() + 2000); return; }
+    if (i < 0) {
+      // Nothing to bring in: try again later, after the source's back-off
+      // when it has nothing left to show (fill), and not sooner for a failed still.
+      fill();
+      b.idle = true;
+      setDue(b, now() + Math.max(2000, fillWaitLeft()));
+      return;
+    }
+    b.idle = false;
     if (!fit && !b.fitWait && ready.length < READY_CAP) {
       // Nothing of this shape in the buffer: fetch one more batch (never past
       // the cap) and try once more shortly, before falling back to a crop.
@@ -3236,12 +3570,16 @@ const Wall = (() => {
     for (const b of blocks) {
       if (b.dead || b.held) continue;
       if (b.video && b.loadDeadline && t > b.loadDeadline) { videoFailed(b, b.video); continue; }
+      // A still of a file that failed (here or in another block) is swapped
+      // soon, in both modes: it would never play.
+      const bad = !b.video && b.item && badIds.has(b.item.id);
+      if (bad && !b.idle && b.dueAt > t + 1500) setDue(b, t + 400 + Math.random() * 1000);
       // At most a few swaps per tick, so a burst of due blocks spreads out.
       if (grid && t >= b.dueAt && !b.pending && swaps < 3) {
         advance(b);
         swaps++;
-      } else if (!grid && b.video && t >= b.dueAt && !b.pending && swaps < 3) {
-        advance(b);     // a clip that ended or whose time is up in Scroll mode
+      } else if (!grid && (b.video || bad) && t >= b.dueAt && !b.pending && swaps < 3) {
+        advance(b);     // a clip that ended or whose time is up in Scroll mode, or a failed still
         swaps++;
       }
     }
@@ -3250,6 +3588,7 @@ const Wall = (() => {
     fillSlots();
     updateStatus();
     syncAudio();
+    trackTick(t);
   }
 
   function setRunning(on) {
@@ -3568,7 +3907,7 @@ const Wall = (() => {
   return {
     enter, leave, lockStop, startAt, playerStopped, underPlayer,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { emptyMessage, cfgFrom, takeStart, resumeAt, planColumns, colSpread, slotFor, placeSlot, minBottom, planSlices, sliceRow, slicePool, rectGap, placeSlice, fitGrid, fitScore, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, rotatePick, rotateWaitMs, rotateDue, fadeOutPick, clipStart, staggerShare, storedAudio, setDue, clipDue, clipLeft, shouldAdvance, freezeStep, REMUX_MAX_RUN_MS, FREEZE_MS, FREEZE_DT_MAX_MS, visibleFrac, inView, scrollLeftMs, scrollRank, leavingFor, scrollFreePlan, autoStep, START_FRAC, HEAR_FRAC, ROTATE_MIN_LEFT_MS, MIN_RUN_S, AUTO_START, AUTO_MIN, AUTO_MAX, AUTO_HOLD_MS, READY_CAP, STALE_SKIPS },
+    _pure: { emptyMessage, cfgFrom, gridTurn, GRID_WAIT_MS, fillGoOn, nextBackoff, FILL_EXTRA, convertedRoom, pickFront, pickPlayable, bufferCount, buildIndex, takeStart, resumeAt, planColumns, colSpread, slotFor, placeSlot, minBottom, planSlices, sliceRow, slicePool, rectGap, placeSlice, fitGrid, fitScore, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, rotatePick, rotateWaitMs, rotateDue, fadeOutPick, clipStart, staggerShare, storedAudio, setDue, clipDue, clipLeft, shouldAdvance, freezeStep, REMUX_MAX_RUN_MS, FREEZE_MS, FREEZE_DT_MAX_MS, visibleFrac, inView, scrollLeftMs, scrollRank, leavingFor, scrollFreePlan, autoStep, START_FRAC, HEAR_FRAC, ROTATE_MIN_LEFT_MS, MIN_RUN_S, AUTO_START, AUTO_MIN, AUTO_MAX, AUTO_HOLD_MS, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
     _audio: () => {
       const t = now();

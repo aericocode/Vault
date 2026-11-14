@@ -23,7 +23,11 @@
   /* Brand (Vault padlock + name). Follows the gamify theme when one is
      applied (gamify-ui.js sets --gamify-a on :root), otherwise the accent. */
   --brand: var(--gamify-a, var(--accent));
-  
+
+  /* The progress line along the top of the picture (player, Wall; mpv Stage
+     draws the same pink itself: lib/stage/mpv-overlay.js LINE_RGB). */
+  --track-progress: #ff4fa3;
+
   /* Border */
   --border: #333;
   

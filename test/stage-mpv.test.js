@@ -914,3 +914,126 @@ test('the pipe must answer with the pid of the mpv Vault started, or Vault refus
     await srv.close();
   }
 });
+
+/* ── Track progress: the name with the time left, and the pink line ─────── */
+
+/** A file on Stage, loaded, 100 s long, at 10 s, in a 1280x720 window. */
+async function trackEngine(settings = {}) {
+  const e = engineFor({ settings });
+  e.engine.command({ type: 'load', item: it('a', 1, { filename: 'city-night-drive.webm', duration: 100 }), upcoming: [], repeat: 'off' });
+  await e.settle(); await e.settle();
+  await e.prop('osd-width', 1280);
+  await e.prop('osd-height', 720);
+  await e.ev({ event: 'start-file', playlist_entry_id: 1 });
+  await e.ev({ event: 'file-loaded' });
+  await e.prop('duration', 100);
+  await e.prop('time-pos', 10);
+  return e;
+}
+const track = (e) => e.engine._state().track;
+
+test('track: as a file starts the name shows with the time left beside it and the pink line on top, then all fade', async () => {
+  const e = await trackEngine();
+  await e.clock.tick(400);
+  let s = track(e);
+  assert.strictEqual(s.fade, 1);
+  assert.match(s.label, /\}city-night-drive\\h\\h\\h\{\\b0[^}]*\}1:30 left$/);
+  assert.match(s.line, /^\{\\an7\\pos\(0,0\).*\\1c&H000000&.*m 0 0 l 1280 0 1280 3 0 3/);
+  assert.match(s.line, /\n.*\\1c&HA34FFF&.*m 0 0 l 128 0 128 3 0 3/, 'pink, filled to 10 %');
+  // It keeps up while it shows (the status tick draws it again).
+  await e.prop('time-pos', 50);
+  e.engine.sendStatus(true);
+  s = track(e);
+  assert.match(s.label, /0:50 left$/);
+  assert.match(s.line, /l 640 0 640 3 0 3/);
+  await e.clock.tick(3000 + 400 + 100);
+  s = track(e);
+  assert.deepStrictEqual([s.fade, s.label, s.line], [0, '', ''], 'gone after the name seconds');
+  assert.deepStrictEqual(e.mpv.log.filter(l => l[0] === 'named' && l[2] === Overlay.PROGRESS_ID).pop(), ['named', 'osd-overlay', Overlay.PROGRESS_ID, 'none']);
+});
+
+test('track: with Always show the progress line the line stays at rest and keeps moving; the name and time left still fade', async () => {
+  const e = await trackEngine({ progressAlways: true });
+  await e.clock.tick(4000);
+  let s = track(e);
+  assert.strictEqual(s.label, '');
+  assert.match(s.line, /l 128 0 128 3 0 3/);
+  await e.prop('time-pos', 75);
+  e.engine.sendStatus(true);
+  assert.match(track(e).line, /l 960 0 960 3 0 3/);
+  // Turned off from Settings: gone at once.
+  e.engine.settingsChanged({ showName: true, nameSeconds: 3, progressAlways: false });
+  assert.strictEqual(track(e).line, '');
+  // Hold (black) hides it; Hold off brings it back.
+  e.engine.settingsChanged({ showName: true, nameSeconds: 3, progressAlways: true });
+  e.engine.command({ type: 'hold', on: true });
+  assert.strictEqual(track(e).line, '');
+  e.engine.command({ type: 'hold', on: false });
+  e.engine.sendStatus(true);
+  assert.notStrictEqual(track(e).line, '');
+});
+
+test('track: a mouse move over the Stage window brings the three back for the name seconds; more moves keep them up', async () => {
+  const e = await trackEngine();
+  await e.clock.tick(4000);
+  assert.strictEqual(track(e).fade, 0);
+  await e.prop('mouse-pos', { x: 10, y: 10, hover: true });
+  await e.clock.tick(400);
+  assert.strictEqual(track(e).fade, 0, 'the first mouse-pos is where the mouse was, not a move');
+  await e.prop('mouse-pos', { x: 30, y: 12, hover: true });
+  await e.clock.tick(400);
+  assert.strictEqual(track(e).fade, 1);
+  assert.match(track(e).label, /city-night-drive.*1:30 left$/);
+  await e.clock.tick(2500);
+  await e.prop('mouse-pos', { x: 31, y: 12, hover: true });
+  await e.clock.tick(2500);
+  assert.strictEqual(track(e).fade, 1, 'a move pushes the fade on');
+  await e.clock.tick(1000);
+  assert.strictEqual(track(e).fade, 0);
+  // Outside the window (hover false) is not a move over it.
+  await e.prop('mouse-pos', { x: 900, y: 900, hover: false });
+  await e.clock.tick(400);
+  assert.strictEqual(track(e).fade, 0);
+});
+
+test('track: names off, no start moment; the mouse then shows only the time left and the line. Privacy keeps the name out', async () => {
+  const e = await trackEngine({ showName: false });
+  await e.clock.tick(400);
+  assert.strictEqual(track(e).fade, 0, 'no moment as the file starts');
+  await e.prop('mouse-pos', { x: 1, y: 1, hover: true });
+  await e.prop('mouse-pos', { x: 5, y: 1, hover: true });
+  await e.clock.tick(400);
+  assert.ok(!track(e).label.includes('city-night'));
+  assert.match(track(e).label, /1:30 left$/);
+  assert.notStrictEqual(track(e).line, '');
+
+  const p = await trackEngine();
+  p.engine.command({ type: 'privacy', hideNames: true });
+  await p.prop('mouse-pos', { x: 1, y: 1, hover: true });
+  await p.prop('mouse-pos', { x: 5, y: 1, hover: true });
+  await p.clock.tick(400);
+  assert.ok(!track(p).label.includes('city-night'));
+  assert.match(track(p).label, /1:30 left$/);
+});
+
+test('track: a picture shows only its name (no time left, no line); a long name is cut so the time left fits', async () => {
+  const e = engineFor({ settings: { progressAlways: true } });
+  e.engine.command({ type: 'load', item: it('p', 4, { media_type: 'image', filename: 'pic.jpg' }), upcoming: [], repeat: 'off' });
+  await e.settle(); await e.settle();
+  await e.ev({ event: 'start-file', playlist_entry_id: 1 });
+  await e.ev({ event: 'file-loaded' });
+  await e.clock.tick(400);
+  assert.match(track(e).label, /\}pic$/, 'the name as Stage shows it (no extension), nothing beside it');
+  assert.strictEqual(track(e).line, '');
+
+  const long = 'x'.repeat(200);
+  const ev = Overlay.nameEvent(long, 1, { left: '12:34 left', canvasW: 1280 });
+  assert.ok(ev.endsWith('12:34 left'));
+  const name = /\}(x+…)\\h/.exec(ev)[1];
+  assert.ok(Array.from(name).length <= Overlay.nameBudget(1280, '12:34 left'));
+  assert.ok(Overlay.nameBudget(640, '12:34 left') < Overlay.nameBudget(1280, '12:34 left'), 'a narrow window cuts more');
+  assert.strictEqual(Overlay.nameEvent('', 1, { left: '1:00 left', canvasW: 1280 }).endsWith('}{\\b0\\1a&H1A&}1:00 left'), true, 'no name: only the time left');
+  assert.strictEqual(Overlay.canvasWidth(1920, 1080), 1280);
+  assert.strictEqual(Overlay.canvasWidth(0, 1080), 0);
+  assert.match(Overlay.lineEvent(0.5, { canvasW: 1280, osdH: 1440 }), /m 0 0 l 1280 0 1280 1.5 0 1.5/, '3 window pixels on a 1440 high window');
+});

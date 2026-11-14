@@ -644,10 +644,10 @@ test('settings: defaults for an empty or broken blob', () => {
 test('settings: every choice of this version is kept, and saving changes nothing', () => {
   const c = W.cfgFrom({ v: 4, mode: 'scroll', layout: 'vertical', size: 'large', variety: 'wild', pace: 'fast',
     playing: 8, sound: 'rotate', soundEvery: 'mix', mix: 'videos', order: 'order', source: 's:4',
-    pauseOnHover: false, directOnly: true, loopClips: true, keepPlaying2: false });
+    pauseOnHover: false, directOnly: true, loopClips: true, keepPlaying2: false, progressOf: 'clip' });
   assert.deepStrictEqual({ ...c }, { v: 4, mode: 'scroll', layout: 'vertical', size: 'large', variety: 'wild', pace: 'fast',
     playing: 8, sound: 'rotate', soundEvery: 'mix', mix: 'videos', order: 'order', source: 's:4',
-    pauseOnHover: false, directOnly: true, loopClips: true, keepPlaying2: false });
+    pauseOnHover: false, directOnly: true, loopClips: true, keepPlaying2: false, progressOf: 'clip' });
   assert.deepStrictEqual(W.cfgFrom(JSON.parse(JSON.stringify(c))), c);
   // Only real choices: no 5 videos, no 15 s rotation, no 'auto' sound in a new blob.
   assert.strictEqual(W.cfgFrom({ v: 4, playing: 5 }).playing, 'auto');
@@ -1180,4 +1180,120 @@ test('freeze watchdog: 8 s standing still while it should move frees the clip', 
   assert.strictEqual(s.frozen, true);
   // A clock that went back adds nothing.
   assert.strictEqual(W.freezeStep(100, { moved: false, should: true, dt: -5000 }).still, 100);
+});
+
+/* Converted (remux) files: no more on the board than can play. */
+
+const plainOf = (v) => JSON.parse(JSON.stringify(v));   // arrays from the VM
+
+test('converted files: Grid takes at most the cap, Scroll keeps them a board height apart', () => {
+  const grid = (conv) => W.convertedRoom({ scroll: false, y: 0, h: 100, H: 900, conv, max: 1 });
+  assert.strictEqual(grid([]), true);
+  assert.strictEqual(grid([{ y: 500, h: 100 }]), false, 'one on the board already');
+  const scroll = (y, h, conv) => W.convertedRoom({ scroll: true, y, h, H: 900, conv, max: 1 });
+  assert.strictEqual(scroll(2000, 200, []), true);
+  assert.strictEqual(scroll(2000, 200, [{ y: 800, h: 300 }]), true, 'ends 900 px above: never in view together');
+  assert.strictEqual(scroll(2000, 200, [{ y: 801, h: 300 }]), false, 'a pixel closer');
+  assert.strictEqual(scroll(2000, 0, [{ y: 1500, h: 300 }]), false, 'a slice not solved yet: from its top edge');
+  assert.strictEqual(scroll(500, 200, [{ y: 1600, h: 300 }]), true, 'one below, far enough');
+  assert.strictEqual(scroll(500, 200, [{ y: 1500, h: 300 }]), false, 'one below, too near');
+  assert.strictEqual(scroll(500, 200, [{ y: 550, h: 100 }]), false, 'side by side in another column');
+});
+
+test('converted files: the build front holds them back but still fills', () => {
+  const conv = (id) => ({ id, conv: true });
+  const plain = (id) => ({ id });
+  const list = [conv(1), conv(2), plain(3), conv(4), plain(5), plain(6)];
+  const front = W.pickFront(list, 3, r => !r.conv);
+  assert.deepStrictEqual(plainOf(front.map(f => [list[f.i].id, f.held])), [[3, false], [5, false], [6, false]]);
+  // Too few others: the held ones pad the front, after them, in order.
+  const short = W.pickFront(list, 5, r => !r.conv);
+  assert.deepStrictEqual(plainOf(short.map(f => [list[f.i].id, f.held])), [[3, false], [5, false], [6, false], [1, true], [2, true]]);
+  // Room for one: the first converted file goes up as usual, the rest wait.
+  let room = 1;
+  const one = W.pickFront(list, 4, r => !r.conv || room-- > 0);
+  assert.deepStrictEqual(plainOf(one.map(f => [list[f.i].id, f.held])), [[1, false], [3, false], [5, false], [6, false]]);
+  assert.deepStrictEqual(plainOf(W.pickFront([], 4, () => true).map(f => f.i)), []);
+});
+
+test('converted files: a swap brings in a file that can play, a converted one only instead of a repeat', () => {
+  const held = (r) => !!r.conv;
+  // A converted fit loses to a playable fit, and to a playable crop.
+  const list = [{ id: 1, a: 16 / 9, conv: true }, { id: 2, a: 1.7 }];
+  assert.strictEqual(W.pickPlayable(list, 16 / 9, swapOpts({ held })).i, 1);
+  const crop = W.pickPlayable([{ id: 1, a: 16 / 9, conv: true }, { id: 2, a: 1 }], 16 / 9, swapOpts({ held }));
+  assert.deepStrictEqual({ ...crop }, { i: 1, fit: false });
+  // Without held it is the plain pick.
+  assert.strictEqual(W.pickPlayable(list, 16 / 9, swapOpts({ held: null })).i, 0);
+  // Only converted files: one goes up rather than nothing.
+  assert.strictEqual(W.pickPlayable([{ id: 1, a: 16 / 9, conv: true }], 16 / 9, swapOpts({ held })).i, 0);
+  // The only playable file is shown next to the slot: the converted one instead of a copy side by side.
+  const near = swapOpts({ held, onScreen: (r) => r.id === 2, touching: (r) => r.id === 2 });
+  assert.strictEqual(W.pickPlayable([{ id: 1, a: 16 / 9, conv: true }, { id: 2, a: 16 / 9 }], 16 / 9, near).i, 0);
+  // ...and one already elsewhere on the board too: the fresh converted file comes before a repeat.
+  const shown = swapOpts({ held, onScreen: (r) => r.id === 2 });
+  assert.strictEqual(W.pickPlayable([{ id: 1, a: 16 / 9, conv: true }, { id: 2, a: 16 / 9 }], 16 / 9, shown).i, 0);
+  // A converted file that is itself on screen does not win over a playable repeat.
+  const both = swapOpts({ held, onScreen: () => true });
+  assert.strictEqual(W.pickPlayable([{ id: 1, a: 16 / 9, conv: true }, { id: 2, a: 16 / 9 }], 16 / 9, both).i, 1);
+});
+
+test('converted files: they count only a little toward the buffer', () => {
+  const isConv = (r) => !!r.conv;
+  assert.strictEqual(W.bufferCount([], isConv), 0);
+  assert.strictEqual(W.bufferCount([{}, {}, { conv: true }], isConv), 3);
+  assert.strictEqual(W.bufferCount([{}, ...Array.from({ length: 50 }, () => ({ conv: true }))], isConv), 3);
+});
+
+test('converted files: the Vertical build puts a held one after every other fresh file, before a repeat', () => {
+  const plan = W.planColumns(1200, 300, 0);
+  const rows = [{ id: 1, width: 1920, height: 1080, media_type: 'video' }, { id: 2, width: 1920, height: 1080, media_type: 'video' }];
+  const held = (r) => r.id === 1;
+  assert.strictEqual(W.buildIndex(plan, rows, () => false, null, held), 1);
+  assert.strictEqual(W.buildIndex(plan, rows, () => false, null, null), 0);
+  assert.strictEqual(W.buildIndex(plan, rows, (r) => r.id === 2, null, held), 0, 'the other is on screen already');
+});
+
+test('converted files: slices put a held one after fresh files, before repeats', () => {
+  const f = (id) => ({ id });
+  const front = [f(1), f(2), f(3)];
+  const shown = [{ item: f(9), x: 0, y: 0, w: 100, h: 100 }];
+  const { pool } = W.slicePool(front, shown, { known: () => true, W: 200, max: 24, held: (r) => r.id === 1 });
+  assert.deepStrictEqual(plainOf(pool.map(p => p.r.id)), [2, 3, 1, 9]);
+});
+
+test('converted files: in Grid the free slots are kept for a converted clip whose turn it is', () => {
+  assert.strictEqual(W.gridTurn(1, false, 1, true, 4), 'start');
+  assert.strictEqual(W.gridTurn(2, true, 2, true, 4), 'start');
+  assert.strictEqual(W.gridTurn(2, true, 1, true, 4), 'wait', 'one slot free: kept until a second frees up');
+  assert.strictEqual(W.gridTurn(2, true, 4, false, 4), 'skip', 'the one remux slot is in use');
+  assert.strictEqual(W.gridTurn(2, true, 1, true, 1), 'skip', 'costs more than the cap');
+});
+
+test('converted files: the Grid wait for one lasts at most GRID_WAIT_MS, then direct clips get the slots as long', () => {
+  const L = W.GRID_WAIT_MS;
+  assert.ok(L >= 20000 && L <= 30000);
+  assert.strictEqual(W.gridTurn(2, true, 1, true, 4, 0), 'wait');
+  assert.strictEqual(W.gridTurn(2, true, 1, true, 4, L - 1), 'wait');
+  assert.strictEqual(W.gridTurn(2, true, 1, true, 4, L), 'skip', 'waited long enough: the next block goes');
+  assert.strictEqual(W.gridTurn(2, true, 1, true, 4, 2 * L - 1), 'skip');
+  assert.strictEqual(W.gridTurn(2, true, 1, true, 4, 2 * L), 'wait', 'then it is kept waiting again');
+  assert.strictEqual(W.gridTurn(2, true, 2, true, 4, L + 5), 'start', 'room for it: it starts whatever the time');
+});
+
+test('buffer: top-ups past the target are few, never round the source twice, and back off', () => {
+  const o = (x) => ({ counted: 10, len: 10, target: 80, cap: 1500, extras: 0, passed: false, quiet: false, ...x });
+  assert.strictEqual(W.fillGoOn(o()), true, 'below the target: as before');
+  assert.strictEqual(W.fillGoOn(o({ passed: true, quiet: true, extras: 9 })), true, 'below the target nothing stops it');
+  assert.strictEqual(W.fillGoOn(o({ counted: 80, len: 300 })), false, 'enough that counts');
+  assert.strictEqual(W.fillGoOn(o({ len: 1500 })), false, 'the cap');
+  // Past the target with too few rows that count (mostly converted rows).
+  assert.strictEqual(W.fillGoOn(o({ len: 90 })), true);
+  assert.strictEqual(W.fillGoOn(o({ len: 90, extras: W.FILL_EXTRA })), false, 'a few extra fetches at most');
+  assert.strictEqual(W.fillGoOn(o({ len: 90, passed: true })), false, 'a small source is not walked round again');
+  assert.strictEqual(W.fillGoOn(o({ len: 90, quiet: true })), false, 'backing off');
+  assert.strictEqual(W.nextBackoff(0), 2000);
+  assert.strictEqual(W.nextBackoff(2000), 4000);
+  assert.strictEqual(W.nextBackoff(50000), 60000);
+  assert.strictEqual(W.nextBackoff(60000), 60000);
 });

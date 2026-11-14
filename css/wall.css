@@ -333,13 +333,44 @@ svg.wall-caret { width: 13px; height: 13px; }
   font-size: 0.78rem;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
   opacity: 0;
   transition: opacity 0.2s;
   pointer-events: none;
 }
+/* The name is cut so the time left beside it always shows in full. */
+.wall-cap-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.wall-cap-t { flex: none; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.wall-cap-t:empty { display: none; }
 .wall-block.wall-hover .wall-cap { opacity: 1; }
 .wall-block.wall-hover { outline: 2px solid var(--accent); outline-offset: -2px; z-index: 1; }
+
+/* The progress line along the top of a playing block (wall.js trackBlock):
+   on the block under the mouse, and on every playing block with "Always
+   show the progress line" (Settings > Stage). */
+.wall-tp {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 3;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+.wall-tp > i {
+  display: block;
+  height: 100%;
+  background: var(--track-progress, #ff4fa3);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+}
+.wall-block.wall-playing.wall-hover .wall-tp,
+.wall-root.wall-tp-always .wall-block.wall-playing .wall-tp { opacity: 1; }
 
 /* The block being heard: a small speaker in its top-left corner. */
 .wall-spk {

@@ -24,6 +24,8 @@ const WallRules = (() => {
   const SOUND_EVERY = [10, 20, 30, 60, 'mix'];     // Rotate: seconds between moves, or 'mix' (a fresh 10 to 40 s each time)
   const MIXES = ['both', 'videos', 'pictures'];
   const ORDERS = ['shuffle', 'order'];
+  // The progress line on a block (player-lib/track-progress.js): the whole file, or the clip played on the wall.
+  const PROGRESS_OF = ['file', 'clip'];
 
   // What each choice means.
   const SIZE_PX = { small: 260, medium: 390, large: 560 };         // the base block size
@@ -115,6 +117,10 @@ const WallRules = (() => {
     // saved the earlier keepPlaying (off by default) on every save, so only a
     // choice made since it turned on by default counts.
     out.keepPlaying2 = raw.keepPlaying2 !== false;
+    // The progress line on a hovered block follows the whole file (the
+    // default) or the clip played on the wall, filling as the block nears
+    // its change.
+    out.progressOf = PROGRESS_OF.includes(raw.progressOf) ? raw.progressOf : 'file';
     return out;
   }
 
@@ -145,7 +151,7 @@ const WallRules = (() => {
   }
 
   return {
-    CFG_VERSION, MODES, LAYOUTS, SIZES, VARIETIES, PACES, PLAYING, SOUNDS, SOUND_EVERY, MIXES, ORDERS,
+    CFG_VERSION, MODES, LAYOUTS, SIZES, VARIETIES, PACES, PLAYING, SOUNDS, SOUND_EVERY, MIXES, ORDERS, PROGRESS_OF,
     SIZE_PX, VARIETY_PCT, PACE_PIC_S, PACE_SPEED,
     toNum, nearestKey, cfgFrom, visibilityAction,
   };

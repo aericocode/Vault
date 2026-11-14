@@ -82,7 +82,7 @@ function buildModernControls(ctl) {
   const top = `
     <div class="mp-top" id="mpTop">
       ${mpButton('chev-left', 'Back to the library (Esc)', 'onclick="closeMediaPlayer()"')}
-      <span class="mp-title" id="mpTitle">${mpEsc(ctl.filename || '')}</span>
+      <span class="tp-label mp-title-box"><span class="mp-title tp-name" id="mpTitle">${mpEsc(ctl.filename || '')}</span><span class="tp-left" id="mpLeft"></span></span>
       <span class="mp-sp"></span>
       <button type="button" class="mp-devchip" id="mpDevChip" hidden
         onclick="document.getElementById('lovenseChip')?.click()" title="Device connection and strength"></button>
