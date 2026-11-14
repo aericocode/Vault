@@ -62,7 +62,11 @@ document.addEventListener('keydown', (e) => {
   }
 
   // Don't capture keys when focused on inputs
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  // (typing fields only: Escape on the volume slider still steps out, which
+  // matters over the full-screen Wall, where the browser leaves Escape to us).
+  const typing = e.target.tagName === 'TEXTAREA' || (e.target.tagName === 'INPUT'
+    && !['range', 'checkbox', 'radio', 'button'].includes(e.target.type));
+  if (typing || (e.target.tagName === 'INPUT' && e.key !== 'Escape')) return;
 
   // Ctrl / Cmd with a letter or symbol is the browser's: Ctrl+R reloads
   // rather than picking a random file, Ctrl+= zooms the page, not the picture

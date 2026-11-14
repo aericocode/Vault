@@ -348,7 +348,9 @@ function shortcutsOpen() {
   ov.querySelector('[data-sk-close]').addEventListener('click', () => shortcutsClose());
   ov.querySelector('[data-sk-settings]').addEventListener('click', () => {
     shortcutsClose({ keepFocus: true });
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    // Every level: over the full-screen Wall one exit would leave the Wall on top of Settings.
+    if (typeof exitAllFullscreen === 'function') exitAllFullscreen();
+    else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     if (typeof window.vaultOpenSettings === 'function') window.vaultOpenSettings('shortcuts');
   });
   // Focus stays inside while it is open: anything that lands behind it
