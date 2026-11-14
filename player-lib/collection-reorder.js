@@ -448,19 +448,28 @@ const REORDER_DROP_PAD = 24;
 
 /**
  * Where a drop at this pointer lands: { tile, side }, or null for no drop.
- * On a tile: that tile (none when it is one being dragged). In a gap between
- * tiles or rows, after the last one, or just outside the grid's edge: the
- * nearest place in the order, so there is no dead space in the grid. The
- * dragged tiles count for where the rows and the nearest tile are (what the
- * user sees), but the mark goes on a tile not being dragged; a gap drop
- * that would leave the order as it is (next to the dragged file's own tile)
- * is no drop, so no mark shows there and nothing is saved.
+ * On a tile: that tile (none when it is one being dragged, or when the drop
+ * would leave the order as it is, as on the near half of the tile next to
+ * the dragged one). In a gap between tiles or rows, after the last one, or
+ * just outside the grid's edge: the nearest place in the order, so there is
+ * no dead space in the grid. The dragged tiles count for where the rows and
+ * the nearest tile are (what the user sees), but the mark goes on a tile not
+ * being dragged; a gap drop that would leave the SHOWN files in the order
+ * they are (next to the dragged file's own tile) is no drop, so no mark
+ * shows there and nothing is saved. Shown, not all: with a search or filter
+ * on, such a drop would only carry the file past hidden ones, a move the
+ * user cannot see. A drop right on a tile still may (it says where).
  */
 function _dropAt(e) {
   const drag = _reorderDrag;
   if (!drag) return null;
   const tile = _gridTile(e.target);
-  if (tile) return drag.set.has(Number(tile.dataset.id)) ? null : { tile, side: _dropSide(tile, e) };
+  if (tile) {
+    if (drag.set.has(Number(tile.dataset.id))) return null;
+    const at = { tile, side: _dropSide(tile, e) };
+    const order = _members();
+    return _sameOrder(_plannedOrder(order, drag.set, _dropBefore(at, drag)), order) ? null : at;
+  }
   const grid = document.getElementById('resultsGrid');
   const main = document.getElementById('mainContainer');
   const t = e.target;
@@ -479,7 +488,9 @@ function _dropAt(e) {
   if (!hit) return null;
   const at = { tile: tiles[hit.index], side: hit.side };
   const order = _members();
-  return _sameOrder(_plannedOrder(order, drag.set, _dropBefore(at, drag)), order) ? null : at;
+  const planned = _plannedOrder(order, drag.set, _dropBefore(at, drag));
+  const shown = (id) => drag.set.has(id) || _shown(id);
+  return DragAutoScroll.sameShownOrder(planned, order, shown) ? null : at;
 }
 
 /** The file a drop at { tile, side } goes in front of (null: the end). */

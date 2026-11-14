@@ -16,6 +16,11 @@
    - nearestDrop(x, y, rects)  where a drop lands when the pointer is in a
                                gap between tiles rather than on one: the
                                nearest tile and the side of it.
+   - sameShownOrder(a, b, shown)  whether two orders of the same files put
+                               the SHOWN ones (a search or filter can hide
+                               some) in the same order: a gap drop that would
+                               only carry the file past hidden ones changes
+                               nothing the user sees, so it is no drop.
    ========================================================================= */
 
 const DragAutoScroll = (() => {
@@ -85,7 +90,28 @@ const DragAutoScroll = (() => {
     return null;
   }
 
-  return { speed, nearestDrop, BAND, MIN_SPEED, MAX_SPEED };
+  /**
+   * Do orders a and b list the files shown(id) is true for in the same order?
+   * The common start and end are skipped first (the same in both), so a move
+   * only looks at the stretch it changes, and it stops at the first shown
+   * file that differs.
+   * @param {number[]} a @param {number[]} b @param {(id:number)=>boolean} shown
+   */
+  function sameShownOrder(a, b, shown) {
+    let lo = 0, hiA = a.length, hiB = b.length;
+    while (lo < hiA && lo < hiB && a[lo] === b[lo]) lo++;
+    while (hiA > lo && hiB > lo && a[hiA - 1] === b[hiB - 1]) { hiA--; hiB--; }
+    let i = lo, j = lo;
+    for (;;) {
+      while (i < hiA && !shown(a[i])) i++;
+      while (j < hiB && !shown(b[j])) j++;
+      if (i >= hiA || j >= hiB) return i >= hiA && j >= hiB;
+      if (a[i] !== b[j]) return false;
+      i++; j++;
+    }
+  }
+
+  return { speed, nearestDrop, sameShownOrder, BAND, MIN_SPEED, MAX_SPEED };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = DragAutoScroll;
