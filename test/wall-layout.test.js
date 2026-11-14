@@ -111,6 +111,7 @@ test('back from the player: each clip carries on from its own time, the opened f
   assert.strictEqual(W.resumeAt(mine, Infinity, 7, 0), 'ended', 'to the end, length unknown');
   assert.strictEqual(W.resumeAt(mine, 599.5, 7, 600), 'ended', 'within a second of the end');
   assert.strictEqual(W.resumeAt({ id: 7, time: 50 }, undefined, 7, 0), 50, 'length unknown: the time as it is');
+  assert.strictEqual(W.resumeAt({ id: 7, time: Infinity }, undefined, 7, 600), 'ended', 'the end in the player, handed to the block');
 });
 
 test('clips play to the end from a random point at least 30 s before it, so a fresh board\'s clips end apart', () => {

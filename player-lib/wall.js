@@ -1587,7 +1587,13 @@ const Wall = (() => {
     const mini = document.getElementById('miniPlayer');
     const watch = () => {
       const open = !!(ov && ov.classList.contains('active')) || !!(mini && mini.classList.contains('active'));
-      if (open !== playerOpen) { playerOpen = open; evaluate(); }
+      if (open !== playerOpen) {
+        // Opening: a fresh record of where the player leaves files. Closing:
+        // the player's times go to the blocks showing those files (keepPlayerTimes).
+        if (open) playerLeft.clear(); else keepPlayerTimes();
+        playerOpen = open;
+        evaluate();
+      }
     };
     const mo = new MutationObserver(watch);
     if (ov) mo.observe(ov, { attributes: true, attributeFilter: ['class'] });
@@ -2344,9 +2350,8 @@ const Wall = (() => {
     // Where the clip was before the player opened, or where the player left
     // this file. Used once. Watched to its end: the block takes a new file.
     const dur = Number(item.duration_seconds) || 0;
-    const back = resumeAt(b.resume, playerLeft.get(item.id), item.id, dur);
+    const back = resumeAt(b.resume, undefined, item.id, dur);
     b.resume = null;
-    playerLeft.delete(item.id);
     // (Scroll swaps only playing blocks: there the file just starts afresh.)
     if (back === 'ended' && cfg.mode !== 'scroll') { setDue(b, 0); return false; }
 
@@ -3392,7 +3397,6 @@ const Wall = (() => {
   const playerLeft = new Map();
 
   function rememberTimes() {
-    playerLeft.clear();
     for (const b of blocks) {
       b.resume = null;
       const rec = b.video;
@@ -3406,6 +3410,19 @@ const Wall = (() => {
   }
 
   /**
+   * The player closed: each block showing a file the player played carries
+   * on from the player's time. The rest of the record is dropped, so a file
+   * that comes up later starts fresh.
+   */
+  function keepPlayerTimes() {
+    for (const b of blocks) {
+      const id = b.item && b.item.id;
+      if (id != null && playerLeft.has(id)) b.resume = { id, time: playerLeft.get(id) };
+    }
+    playerLeft.clear();
+  }
+
+  /**
    * Where a block's clip starts on return from the player (pure): the
    * player's time for this file first, then the block's own. null = no
    * memory (a fresh start); 'ended' = within END_GAP_S of the end.
@@ -3414,7 +3431,7 @@ const Wall = (() => {
   function resumeAt(resume, left, id, dur) {
     let t = null;
     if (typeof left === 'number' && left >= 0) t = left;   // Infinity: watched to the end
-    else if (resume && resume.id === id && Number.isFinite(resume.time)) t = resume.time;
+    else if (resume && resume.id === id && typeof resume.time === 'number' && resume.time >= 0) t = resume.time;
     if (t == null) return null;
     if (t === Infinity || (dur > 0 && t > dur - END_GAP_S)) return 'ended';
     return t;
