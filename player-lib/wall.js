@@ -312,6 +312,7 @@ const Wall = (() => {
   let active = false;          // the Wall tab is showing
   let userPaused = false;
   let playerOpen = false;
+  let rootFs = false;          // the wall is full screen, maybe under the player (openItem)
   let running = false;
   let pausedAt = 0;
   let tickTimer = null;
@@ -1561,10 +1562,23 @@ const Wall = (() => {
     document.addEventListener('keydown', onKey);
 
     document.addEventListener('fullscreenchange', () => {
-      const fs = document.fullscreenElement === els.root;
-      els.root.classList.toggle('wall-fs', fs);
-      els.fullBtn.textContent = fs ? 'Leave full screen' : 'Full screen';
-      if (fs) showBarBriefly(); else { clearTimeout(fsTimer); els.root.classList.remove('wall-bar-idle'); }
+      // A clip opened from the full-screen wall goes full screen on top of it
+      // (openItem), and the wall stays full screen underneath: kept as is, so
+      // the board does not change size behind the player.
+      const top = document.fullscreenElement;
+      const was = rootFs;
+      rootFs = top === els.root || (rootFs && !!top && top === document.getElementById('mediaPlayerOverlay'));
+      els.root.classList.toggle('wall-fs', rootFs);
+      els.fullBtn.textContent = rootFs ? 'Leave full screen' : 'Full screen';
+      if (top === els.root) showBarBriefly();
+      else if (!rootFs) { clearTimeout(fsTimer); els.root.classList.remove('wall-bar-idle'); }
+      // In full screen the browser takes Escape for itself and leaves every
+      // level at once. Locking it (Chromium only) hands it to the page, so
+      // Escape can go back one step: the player to the wall, then the wall out
+      // of full screen. Holding Escape still leaves full screen.
+      const kb = navigator.keyboard;
+      if (rootFs && !was && kb && kb.lock) kb.lock(['Escape']).catch(() => {});
+      else if (!rootFs && was && kb && kb.unlock) kb.unlock();
     });
     els.root.addEventListener('mousemove', () => { if (els.root.classList.contains('wall-fs')) showBarBriefly(); });
     els.bar.addEventListener('focusin', () => { if (els.root.classList.contains('wall-fs')) showBarBriefly(); });
@@ -1651,7 +1665,11 @@ const Wall = (() => {
     items[j].focus();
   }
 
-  /** Escape closes a menu; Space pauses the wall (not while typing or on a control). */
+  /**
+   * Escape closes a menu, else leaves full screen (it only gets here in full
+   * screen with the Escape key locked); Space pauses the wall (not while
+   * typing or on a control).
+   */
   function onKey(e) {
     if (!active) return;
     if (e.key === 'Escape' && openMenu) {
@@ -1660,6 +1678,12 @@ const Wall = (() => {
       const p = menuParts(openMenu);
       setMenu(null);
       if (p) p.btn.focus();
+      return;
+    }
+    // The player over the wall takes its own Escape (player-controls.js).
+    if (e.key === 'Escape' && !e.defaultPrevented && document.fullscreenElement === els.root) {
+      e.preventDefault();
+      document.exitFullscreen().catch(() => {});
       return;
     }
     if (e.code !== 'Space' && e.key !== ' ') return;
@@ -3344,10 +3368,26 @@ const Wall = (() => {
       const t = rec.v.currentTime;
       if (Number.isFinite(t) && t > 0) pendingStart = { id: item.id, time: t, until: now() + START_TTL_MS };
     }
-    // The player lives outside the wall, so it cannot show over a full-screen wall.
-    if (document.fullscreenElement) { try { await document.exitFullscreen(); } catch {} }
+    // The player lives outside the wall, so over a full-screen wall it goes
+    // full screen too, on top: closing it then goes back to the full-screen
+    // wall (leaving full screen drops only the top level). Any other full
+    // screen is left first, as before.
+    const overWall = document.fullscreenElement === els.root;
+    if (document.fullscreenElement && !overWall) { try { await document.exitFullscreen(); } catch {} }
     if (!Library.row(item.id)) { try { await Library.fetchRows([item.id]); } catch {} }
     if (typeof playMediaById === 'function') playMediaById(item.id);
+    const ov = document.getElementById('mediaPlayerOverlay');
+    if (overWall && document.fullscreenElement === els.root && ov && ov.classList.contains('active')) {
+      // Refused (the click too long ago, say): leave full screen altogether
+      // rather than keep the player hidden behind the wall.
+      // (exitAllFullscreen is player-core.js's.)
+      ov.requestFullscreen().catch(() => exitAllFullscreen());
+    }
+  }
+
+  /** The player is full screen on top of the full-screen wall. */
+  function underPlayer() {
+    return rootFs && !!document.fullscreenElement && document.fullscreenElement !== (els && els.root);
   }
 
   /* ── Continue in the player ─────────────────────────────────────────── */
@@ -3498,7 +3538,7 @@ const Wall = (() => {
   }
 
   return {
-    enter, leave, lockStop, startAt, playerStopped,
+    enter, leave, lockStop, startAt, playerStopped, underPlayer,
     // Pure pieces, for test/wall-layout.test.js.
     _pure: { emptyMessage, cfgFrom, takeStart, resumeAt, planColumns, colSpread, slotFor, placeSlot, minBottom, planSlices, sliceRow, slicePool, rectGap, placeSlice, fitGrid, fitScore, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, rotatePick, rotateWaitMs, rotateDue, fadeOutPick, clipStart, staggerShare, storedAudio, setDue, clipDue, clipLeft, shouldAdvance, freezeStep, REMUX_MAX_RUN_MS, FREEZE_MS, FREEZE_DT_MAX_MS, visibleFrac, inView, scrollLeftMs, scrollRank, leavingFor, scrollFreePlan, autoStep, START_FRAC, HEAR_FRAC, ROTATE_MIN_LEFT_MS, MIN_RUN_S, AUTO_START, AUTO_MIN, AUTO_MAX, AUTO_HOLD_MS, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
@@ -3566,3 +3606,4 @@ function wallLeave() { Wall.leave(); }
 function wallLockStop() { Wall.lockStop(); }
 function wallStartAt(el) { return Wall.startAt(el); }
 function wallPlayerStopped(el) { Wall.playerStopped(el); }
+function wallUnderPlayer() { return Wall.underPlayer(); }

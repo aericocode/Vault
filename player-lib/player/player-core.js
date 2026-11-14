@@ -1673,9 +1673,9 @@ function handleMiniMediaError(e) {
 function minimizePlayer() {
   // Leaving fullscreen must be explicit — the mini player lives in the normal
   // page, and skipping this strands the browser in an empty fullscreen state.
-  if (document.fullscreenElement) {
-    document.exitFullscreen().catch(() => {});
-  }
+  // All of it: over the full-screen Wall, dropping one level would leave the
+  // mini player hidden behind the wall.
+  exitAllFullscreen();
   // Minimizing hides the sidebar/notes — save a half-typed note first.
   if (typeof flushPendingNotes === 'function') flushPendingNotes();
   // The overlay stays behind in the (hidden) main player — drop it
@@ -1979,7 +1979,11 @@ function closeMediaPlayer(event) {
 function toggleFullscreen() {
   const overlay = document.getElementById('mediaPlayerOverlay');
 
-  if (document.fullscreenElement) {
+  // Over the full-screen Wall (wall.js openItem), leaving only the player's
+  // level would hide the player behind the wall: leave full screen altogether.
+  if (typeof wallUnderPlayer === 'function' && wallUnderPlayer()) {
+    exitAllFullscreen();
+  } else if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {});
   } else {
     overlay.requestFullscreen().catch(() => {
@@ -1990,6 +1994,12 @@ function toggleFullscreen() {
       }
     });
   }
+}
+
+/** Leave every level of full screen (each exitFullscreen drops one). */
+function exitAllFullscreen() {
+  if (!document.fullscreenElement) return;
+  document.exitFullscreen().then(exitAllFullscreen, () => {});
 }
 
 // Listen for fullscreen changes
