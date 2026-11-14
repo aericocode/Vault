@@ -2341,6 +2341,15 @@ const Wall = (() => {
     if (liveCost + cost > playCap()) return false;
     if (mode === 'remux' && liveRemux >= MAX_REMUX) return false;
 
+    // Where the clip was before the player opened, or where the player left
+    // this file. Used once. Watched to its end: the block takes a new file.
+    const dur = Number(item.duration_seconds) || 0;
+    const back = resumeAt(b.resume, playerLeft.get(item.id), item.id, dur);
+    b.resume = null;
+    playerLeft.delete(item.id);
+    // (Scroll swaps only playing blocks: there the file just starts afresh.)
+    if (back === 'ended' && cfg.mode !== 'scroll') { setDue(b, 0); return false; }
+
     const v = document.createElement('video');
     v.className = 'wall-media';
     v.muted = true;
@@ -2368,14 +2377,15 @@ const Wall = (() => {
     setDue(b, Infinity);
     b.loadDeadline = now() + (mode === 'remux' ? REMUX_TIMEOUT_MS : LOAD_TIMEOUT_MS);
 
-    // Grid, soon after a layout: a staggered start (a looping clip needs none).
+    // Back from the player: the clip carries on where it was (resumeAt).
+    // Otherwise, Grid soon after a layout: a staggered start (a looping clip needs none).
     let share = 1;
-    if (cfg.mode !== 'scroll' && !cfg.loopClips) {
+    if (typeof back !== 'number' && cfg.mode !== 'scroll' && !cfg.loopClips) {
       if (now() - staggerFrom > STAGGER_WINDOW_MS) staggerLeft = 0;
       share = staggerShare(staggerLeft, playCap());
       if (staggerLeft > 0) staggerLeft--;
     }
-    const start = clipStart(Number(item.duration_seconds) || 0, Math.random(), share);
+    const start = typeof back === 'number' ? back : clipStart(dur, Math.random(), share);
 
     v.addEventListener('playing', () => {
       if (b.video !== rec || b.dead) return;
@@ -2628,7 +2638,8 @@ const Wall = (() => {
       // layer goes on top of it either way.
       // Not the hovered block: Pause on hover asked it to stay as it is.
       const cands = blocks.filter(b => canPlay(b) && !b.held);
-      cands.sort((a, c) => (a.lastPlayedAt - c.lastPlayedAt) || (a.rand - c.rand));
+      // Back from the player, the clips that were playing go first.
+      cands.sort((a, c) => (!!c.resume - !!a.resume) || (a.lastPlayedAt - c.lastPlayedAt) || (a.rand - c.rand));
       for (const b of cands) {
         if (liveCost >= cap) break;
         startVideo(b);
@@ -3244,7 +3255,11 @@ const Wall = (() => {
     const release = !active || playerOpen;
     // Hidden: pause and give up the converted clips, unless the Wall keeps playing.
     const hiddenStop = pageAction('page') === 'pause';
-    if (release && liveCost > 0) releaseAllVideos();
+    if (release && liveCost > 0) {
+      // Under the player the board stays: its clips carry on from here after.
+      if (active && playerOpen) rememberTimes();
+      releaseAllVideos();
+    }
     else if (hiddenStop && liveRemux > 0) releaseRemuxVideos();
     setRunning(active && built && !userPaused && !playerOpen && !hiddenStop);
     // Running in a hidden page: the tick comes from the worker (see workerTicks).
@@ -3367,6 +3382,53 @@ const Wall = (() => {
     return true;
   }
 
+  /* ── Keep clip times over the player ────────────────────────────────── */
+
+  // Opening a clip in the player releases every clip on the board. Each
+  // block remembers where its clip was (b.resume), and the player reports
+  // where it left each file it played (playerLeft, id -> seconds), so on
+  // return the same clips carry on from their own times and the opened one
+  // from where it was watched to.
+  const playerLeft = new Map();
+
+  function rememberTimes() {
+    playerLeft.clear();
+    for (const b of blocks) {
+      b.resume = null;
+      const rec = b.video;
+      if (!rec || rec.released || !b.startedAt) continue;
+      let t = NaN;
+      try { t = rec.v.currentTime; } catch {}
+      if (Number.isFinite(t) && t > 0) b.resume = { id: rec.id, time: t };
+      // A converted clip's 3-minute limit starts over when it comes back.
+      if (rec.mode === 'remux') setDue(b, Infinity);
+    }
+  }
+
+  /**
+   * Where a block's clip starts on return from the player (pure): the
+   * player's time for this file first, then the block's own. null = no
+   * memory (a fresh start); 'ended' = within END_GAP_S of the end.
+   */
+  const END_GAP_S = 1;
+  function resumeAt(resume, left, id, dur) {
+    let t = null;
+    if (typeof left === 'number' && left >= 0) t = left;   // Infinity: watched to the end
+    else if (resume && resume.id === id && Number.isFinite(resume.time)) t = resume.time;
+    if (t == null) return null;
+    if (t === Infinity || (dur > 0 && t > dur - END_GAP_S)) return 'ended';
+    return t;
+  }
+
+  /** player-core.js stopping a player element (viewtracker.js passes it on). */
+  function playerStopped(el) {
+    if (!playerOpen || !el || el.tagName !== 'VIDEO') return;
+    let id = Number(el.dataset && el.dataset.playbackMediaId) || null;
+    if (!id && typeof _mediaItemFromSrc === 'function') id = _mediaItemFromSrc(el.currentSrc || el.src)?.id || null;
+    const t = el.currentTime;
+    if (id && Number.isFinite(t)) playerLeft.set(id, el.ended ? Infinity : t);
+  }
+
   /* ── Tab hooks ──────────────────────────────────────────────────────── */
 
   function enter() {
@@ -3419,9 +3481,9 @@ const Wall = (() => {
   }
 
   return {
-    enter, leave, lockStop, startAt,
+    enter, leave, lockStop, startAt, playerStopped,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { emptyMessage, cfgFrom, takeStart, planColumns, colSpread, slotFor, placeSlot, minBottom, planSlices, sliceRow, slicePool, rectGap, placeSlice, fitGrid, fitScore, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, rotatePick, rotateWaitMs, rotateDue, fadeOutPick, clipStart, staggerShare, storedAudio, setDue, clipDue, clipLeft, shouldAdvance, freezeStep, REMUX_MAX_RUN_MS, FREEZE_MS, FREEZE_DT_MAX_MS, visibleFrac, inView, scrollLeftMs, scrollRank, leavingFor, scrollFreePlan, autoStep, START_FRAC, HEAR_FRAC, ROTATE_MIN_LEFT_MS, MIN_RUN_S, AUTO_START, AUTO_MIN, AUTO_MAX, AUTO_HOLD_MS, READY_CAP, STALE_SKIPS },
+    _pure: { emptyMessage, cfgFrom, takeStart, resumeAt, planColumns, colSpread, slotFor, placeSlot, minBottom, planSlices, sliceRow, slicePool, rectGap, placeSlice, fitGrid, fitScore, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, rotatePick, rotateWaitMs, rotateDue, fadeOutPick, clipStart, staggerShare, storedAudio, setDue, clipDue, clipLeft, shouldAdvance, freezeStep, REMUX_MAX_RUN_MS, FREEZE_MS, FREEZE_DT_MAX_MS, visibleFrac, inView, scrollLeftMs, scrollRank, leavingFor, scrollFreePlan, autoStep, START_FRAC, HEAR_FRAC, ROTATE_MIN_LEFT_MS, MIN_RUN_S, AUTO_START, AUTO_MIN, AUTO_MAX, AUTO_HOLD_MS, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
     _audio: () => {
       const t = now();
@@ -3486,3 +3548,4 @@ function wallEnter() { Wall.enter(); }
 function wallLeave() { Wall.leave(); }
 function wallLockStop() { Wall.lockStop(); }
 function wallStartAt(el) { return Wall.startAt(el); }
+function wallPlayerStopped(el) { Wall.playerStopped(el); }

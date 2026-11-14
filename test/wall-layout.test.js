@@ -100,6 +100,19 @@ test('auto sound: at most one clip keeps fading out (never three partly audible)
   assert.strictEqual(W.fadeOutPick([a], null), a);
 });
 
+test('back from the player: each clip carries on from its own time, the opened file from the player\'s', () => {
+  const mine = { id: 7, time: 42.5 };
+  assert.strictEqual(W.resumeAt(mine, undefined, 7, 600), 42.5, 'the clip where it was');
+  assert.strictEqual(W.resumeAt(mine, 130, 7, 600), 130, 'the player\'s time wins for the file it played');
+  assert.strictEqual(W.resumeAt(mine, 0, 7, 600), 0, 'rewound to the start in the player');
+  assert.strictEqual(W.resumeAt(mine, undefined, 8, 600), null, 'the block shows another file now: a fresh start');
+  assert.strictEqual(W.resumeAt(null, undefined, 7, 600), null, 'no memory: a fresh start');
+  assert.strictEqual(W.resumeAt(mine, Infinity, 7, 600), 'ended', 'watched to the end in the player');
+  assert.strictEqual(W.resumeAt(mine, Infinity, 7, 0), 'ended', 'to the end, length unknown');
+  assert.strictEqual(W.resumeAt(mine, 599.5, 7, 600), 'ended', 'within a second of the end');
+  assert.strictEqual(W.resumeAt({ id: 7, time: 50 }, undefined, 7, 0), 50, 'length unknown: the time as it is');
+});
+
 test('clips play to the end from a random point at least 30 s before it, so a fresh board\'s clips end apart', () => {
   assert.strictEqual(W.MIN_RUN_S, 30);
   assert.strictEqual(W.clipStart(0, 0.5), 0, 'no duration known: from the start');

@@ -202,6 +202,8 @@ if (typeof stopMediaElement === 'function') {
   const _origStopMediaElement = stopMediaElement;
   stopMediaElement = function (el, ...rest) {
     try { saveWatchNow(el); } catch (err) { console.warn('[Views] save at close failed:', err); }
+    // The Wall under the player carries this file on from here (player-lib/wall.js).
+    try { if (typeof wallPlayerStopped === 'function') wallPlayerStopped(el); } catch {}
     return _origStopMediaElement(el, ...rest);
   };
 }
