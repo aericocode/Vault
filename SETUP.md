@@ -280,6 +280,12 @@ Paste the model name into the search box, then pick the quant from the list on t
    silently truncates them into empty or garbage metadata.
 5. **Load the model.**
 
+When Vault loads the scan model itself (Settings, Scanning), it asks LM
+Studio for about 75k (75000) of context, so this step matters most for a model
+you load by hand. A model that is already loaded keeps its own context length
+until it is reloaded. If a model cannot take 75k, Vault loads it with LM
+Studio's own setting instead.
+
 ![Setup Part 2](https://raw.githubusercontent.com/aericocode/vault-assets/refs/heads/main/LM%20Studio/3.%20LM%20Studio%20Model%20Load.gif)
 
 **4. Start the local server.**

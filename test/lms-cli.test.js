@@ -238,3 +238,87 @@ test('jobs starts empty and pendingIdentifiers reports nothing', () => {
   assert.deepStrictEqual(lms.pendingIdentifiers(), []);
   assert.strictEqual(lms.activeJob('m'), null);
 });
+
+/* ── Loading a model from nothing ────────────────────────────────────────── */
+
+test('a fresh load asks for the 75k context length', () => {
+  assert.strictEqual(lms.LOAD_CONTEXT_LENGTH, 75000);
+  assert.deepStrictEqual(lms.freshLoadArgs('pub/vis', 'pub/vis'),
+    ['load', 'pub/vis', '--identifier', 'pub/vis', '-c', '75000', '-y']);
+  assert.deepStrictEqual(lms.freshLoadArgs('pub/vis', ''),
+    ['load', 'pub/vis', '--identifier', 'pub/vis', '-c', '75000', '-y'], 'the identifier defaults to the key');
+  assert.deepStrictEqual(lms.freshLoadArgs('pub/vis', 'pub/vis', null),
+    ['load', 'pub/vis', '--identifier', 'pub/vis', '-y'], 'the fallback leaves the size to LM Studio');
+});
+
+test('a clone still copies the running context length, not 75k', () => {
+  const args = lms.loadArgs({ modelKey: 'm', contextLength: 32768 }, 'm:2');
+  assert.strictEqual(args[args.indexOf('-c') + 1], '32768');
+});
+
+/** A stand-in lms: `load` answers from `loads` in turn, `ps` lists `loaded`. */
+function fakeLms(loads) {
+  const calls = [];
+  const loaded = [];
+  lms._setLmsPath('lms-fake');
+  lms._setRun((args, opts) => {
+    calls.push({ args, opts });
+    if (args[0] === 'ps') return { code: 0, stdout: JSON.stringify(loaded.map(identifier => ({ identifier }))), stderr: '' };
+    const r = loads.shift();
+    if (r.code === 0) loaded.push(args[args.indexOf('--identifier') + 1]);
+    return { stdout: '', stderr: '', ...r };
+  });
+  return calls.filter.bind(calls, c => c.args[0] === 'load');
+}
+
+function quiet(fn) {
+  return async () => {
+    const warn = console.warn;
+    const said = [];
+    console.warn = (...a) => said.push(a.join(' '));
+    try { await fn(said); } finally {
+      console.warn = warn;
+      lms._setRun(null);
+      lms._setLmsPath(undefined);
+    }
+  };
+}
+
+test('loadModel passes -c 75000 and does not retry when it works', quiet(async (said) => {
+  const loadCalls = fakeLms([{ code: 0 }]);
+  const r = await lms.loadModel({ modelKey: 'pub/vis', identifier: 'pub/vis', timeoutMs: 60_000 });
+  assert.deepStrictEqual(r, { ok: true, listed: true, error: null });
+  assert.deepStrictEqual(loadCalls().map(c => c.args),
+    [['load', 'pub/vis', '--identifier', 'pub/vis', '-c', '75000', '-y']]);
+  assert.deepStrictEqual(said, []);
+}));
+
+test('loadModel retries once without -c when the 75k load fails', quiet(async (said) => {
+  const loadCalls = fakeLms([{ code: 1, stderr: 'Error: context length exceeds the model maximum\nmore' }, { code: 0 }]);
+  const r = await lms.loadModel({ modelKey: 'pub/small', identifier: 'pub/small', timeoutMs: 60_000 });
+  assert.deepStrictEqual(r, { ok: true, listed: true, error: null });
+  const calls = loadCalls();
+  assert.deepStrictEqual(calls.map(c => c.args), [
+    ['load', 'pub/small', '--identifier', 'pub/small', '-c', '75000', '-y'],
+    ['load', 'pub/small', '--identifier', 'pub/small', '-y'],
+  ]);
+  assert.ok(calls[1].opts.timeoutMs <= 60_000 && calls[1].opts.timeoutMs > 0, 'the retry gets what is left of the time');
+  assert.strictEqual(said.length, 1, 'one plain line');
+  assert.match(said[0], /pub\/small.*75000.*exceeds the model maximum/);
+}));
+
+test('loadModel reports the second error when both loads fail', quiet(async (said) => {
+  fakeLms([{ code: 1, stderr: 'too big' }, { code: 1, stderr: 'not enough memory' }]);
+  const r = await lms.loadModel({ modelKey: 'pub/x', identifier: 'pub/x', timeoutMs: 60_000 });
+  assert.deepStrictEqual(r, { ok: false, listed: false, error: 'not enough memory' });
+  assert.strictEqual(said.length, 1);
+}));
+
+test('loadModel does not retry after a timeout', quiet(async (said) => {
+  // The first load may still be running in LM Studio: a second would race it.
+  const loadCalls = fakeLms([{ code: -1, stderr: 'lms did not answer in time', timedOut: true }]);
+  const r = await lms.loadModel({ modelKey: 'pub/x', identifier: 'pub/x', timeoutMs: 60_000 });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(loadCalls().length, 1);
+  assert.deepStrictEqual(said, []);
+}));
