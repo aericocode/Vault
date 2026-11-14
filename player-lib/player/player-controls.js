@@ -62,7 +62,11 @@ document.addEventListener('keydown', (e) => {
   }
 
   // Don't capture keys when focused on inputs
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  // (typing fields only: Escape on the volume slider still steps out, which
+  // matters over the full-screen Wall, where the browser leaves Escape to us).
+  const typing = e.target.tagName === 'TEXTAREA' || (e.target.tagName === 'INPUT'
+    && !['range', 'checkbox', 'radio', 'button'].includes(e.target.type));
+  if (typing || (e.target.tagName === 'INPUT' && e.key !== 'Escape')) return;
 
   // Ctrl / Cmd with a letter or symbol is the browser's: Ctrl+R reloads
   // rather than picking a random file, Ctrl+= zooms the page, not the picture
@@ -171,9 +175,15 @@ document.addEventListener('keydown', (e) => {
     case 'Escape':
       // Peel one layer at a time: fullscreen, then the sidebar, then the player.
       // Modern: a loop waiting for its B point is the first thing Esc drops.
+      // Opened from the full-screen Wall, the player is full screen on top of
+      // it (wall.js openItem): there Esc skips the fullscreen step and closing
+      // the player goes back to the full-screen wall. The Wall's own Escape
+      // (leave full screen) waits for the next press: preventDefault.
+      const overWall = typeof wallUnderPlayer === 'function' && wallUnderPlayer();
+      if (overWall) e.preventDefault();
       if (typeof ModernDock !== 'undefined' && ModernDock.mounted() && abLoopA !== null && abLoopB === null) {
         clearAbLoop();   // the A marker going away says it
-      } else if (document.fullscreenElement) {
+      } else if (document.fullscreenElement && !overWall) {
         document.exitFullscreen().catch(() => {});
       } else if (typeof sidebarOpen !== 'undefined' && sidebarOpen) {
         toggleSidebar();

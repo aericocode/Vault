@@ -83,7 +83,7 @@ test('wall.js: in a hidden page clips the browser pauses are played again, and t
   assert.match(src, /setInterval\(\(\) => postMessage\(0\), \$\{TICK_MS\}\)/, 'the worker does nothing but keep time');
   assert.match(src, /workerTicks\(running && document\.visibilityState === 'hidden'\)/);
   assert.match(src, /workerTicks\(false\)/, 'stopped with the Wall');
-  assert.match(src, /id="wallKeepPlaying"/, 'the setting stays in the gear popover');
+  assert.match(src, /id="wallKeepPlaying"/, 'the setting stays under More');
 });
 
 /* ── The Wall on Stage is gone ──────────────────────────────────────────── */
