@@ -644,10 +644,10 @@ test('settings: defaults for an empty or broken blob', () => {
 test('settings: every choice of this version is kept, and saving changes nothing', () => {
   const c = W.cfgFrom({ v: 4, mode: 'scroll', layout: 'vertical', size: 'large', variety: 'wild', pace: 'fast',
     playing: 8, sound: 'rotate', soundEvery: 'mix', mix: 'videos', order: 'order', source: 's:4',
-    pauseOnHover: false, directOnly: true, loopClips: true, keepPlaying2: false });
+    pauseOnHover: false, directOnly: true, loopClips: true, keepPlaying2: false, progressOf: 'clip' });
   assert.deepStrictEqual({ ...c }, { v: 4, mode: 'scroll', layout: 'vertical', size: 'large', variety: 'wild', pace: 'fast',
     playing: 8, sound: 'rotate', soundEvery: 'mix', mix: 'videos', order: 'order', source: 's:4',
-    pauseOnHover: false, directOnly: true, loopClips: true, keepPlaying2: false });
+    pauseOnHover: false, directOnly: true, loopClips: true, keepPlaying2: false, progressOf: 'clip' });
   assert.deepStrictEqual(W.cfgFrom(JSON.parse(JSON.stringify(c))), c);
   // Only real choices: no 5 videos, no 15 s rotation, no 'auto' sound in a new blob.
   assert.strictEqual(W.cfgFrom({ v: 4, playing: 5 }).playing, 'auto');

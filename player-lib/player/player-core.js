@@ -798,6 +798,8 @@ function playMedia(mediaData, opts = {}) {
 
   // Setup control visibility
   showMediaControls();
+  // The name and time left as the file starts, and the pink progress line (player-track.js).
+  if (typeof PlayerTrack !== 'undefined') PlayerTrack.fileStarted(media_type);
 
   // Wake the controls only for movement over the video area (bound to
   // .media-player-main, so the sidebar is excluded; the handler further

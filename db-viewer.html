@@ -433,7 +433,7 @@
   <!-- Media Player Overlay -->
   <div class="media-player-overlay" id="mediaPlayerOverlay">
     <div class="media-player-header">
-      <div class="media-player-title" id="mediaPlayerTitle">filename.mp4</div>
+      <div class="tp-label media-player-titlebox"><div class="media-player-title tp-name" id="mediaPlayerTitle">filename.mp4</div><span class="tp-left" id="mediaPlayerLeft"></span></div>
       <div class="media-player-header-btns">
         <button class="media-player-minimize" onclick="minimizePlayer()" title="Minimize (Q)">🗕</button>
         <button class="media-player-close" onclick="closeMediaPlayer()">✕ Close</button>
@@ -609,6 +609,8 @@
   <!-- Track count and time left (Stage bar, a collection's count line) -->
   <script src="./player-lib/stage-count.js"></script>
   <script src="./player-lib/playlist-time.js"></script>
+  <!-- The pink progress line and the name with the time left (player, Wall; mpv Stage draws its own) -->
+  <script src="./player-lib/track-progress.js"></script>
   <!-- The countdown to the end of what Stage plays (its settings, the bar's "ends 10:42 PM") -->
   <script src="./player-lib/stage-countdown.js"></script>
   <script src="./player-lib/collection-skips.js"></script>
@@ -637,6 +639,7 @@
   <script src="./player-lib/player/player-image.js"></script>
   <script src="./player-lib/player/player-document.js"></script>
   <script src="./player-lib/player/player-mix.js"></script>
+  <script src="./player-lib/player/player-track.js"></script>
   <script src="./player-lib/up-next.js"></script>
   <!-- Stage: the window shared in Discord, run from the Stage bar along the bottom -->
   <script src="./player-lib/stage-rules.js"></script>

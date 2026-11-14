@@ -206,3 +206,66 @@
 .player-hold-frame.releasing {
   opacity: 0;
 }
+
+/* ── Track progress (player-lib/player/player-track.js) ─────────────────
+   The name with the time left beside it at the top left (the header, with
+   the controls), and the 3 px pink line along the top of the picture. A
+   long name is cut so the time left always shows in full. */
+.media-player-titlebox {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  min-width: 0;
+  max-width: 80%;
+}
+.media-player-titlebox .media-player-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: none;
+}
+.media-player-overlay .tp-label { text-shadow: 0 0 3px rgba(0, 0, 0, 0.9), 0 1px 3px rgba(0, 0, 0, 0.9); }
+.media-player-overlay .tp-left {
+  flex: none;
+  color: #fff;
+  opacity: 0.85;
+  font-size: 0.9rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.media-player-overlay .tp-left:empty { display: none; }
+
+.tp-line {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 3px;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+.tp-line > i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--track-progress, #ff4fa3);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+}
+.media-player-overlay.tp-has.controls-visible .tp-line,
+.media-player-overlay.tp-has.tp-moment .tp-line,
+.media-player-overlay.tp-has.tp-always .tp-line { opacity: 1; }
+
+/* As a file starts (Settings > Stage, "Show the name as a file starts"):
+   the name and time left over the picture for a few seconds, without the
+   header's buttons or shade. */
+.media-player-overlay.tp-moment .media-player-header { opacity: 1; }
+.media-player-overlay.tp-moment:not(.controls-visible) .media-player-header { background: none; }
+.media-player-overlay.tp-moment:not(.controls-visible) .media-player-header-btns { visibility: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tp-line { transition: none; }
+}

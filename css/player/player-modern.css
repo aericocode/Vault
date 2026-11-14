@@ -646,3 +646,18 @@ body.layout-modern .toast {
 body.layout-modern .toast.active { transform: translate(-50%, 0); }
 body.layout-modern .toast.success { border-color: rgba(74, 222, 128, 0.45); background: rgba(22, 22, 27, 0.96); }
 body.layout-modern .toast.error { border-color: rgba(248, 113, 113, 0.55); background: rgba(22, 22, 27, 0.96); }
+
+/* ── Track progress: the time left beside the name in the top bar
+   (player-lib/player/player-track.js; the line is in player-base.css) ── */
+body.layout-modern .mp-title-box {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  max-width: 50%;
+}
+body.layout-modern .mp-title-box .mp-title { flex: 0 1 auto; max-width: none; }
+body.layout-modern .mp-title-box .tp-left { font-size: 15px; }
+body.layout-modern .tp-moment .mp-top { opacity: 1; }
+body.layout-modern .tp-moment:not(.controls-visible) .mp-top { background: none; }
+body.layout-modern .tp-moment:not(.controls-visible) .mp-top > :not(.mp-title-box) { visibility: hidden; }

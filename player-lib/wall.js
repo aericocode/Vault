@@ -15,7 +15,8 @@
    Rotate every 10 / 20 / 30 / 60 s or Mix it up); Videos (Auto or a fixed
    number, 2 to 12). Under More: Show, Pause on hover, Only files that play
    without converting, Keep playing when this tab is hidden, Loop clips
-   instead of changing them.
+   instead of changing them, Progress line (the whole file or the clip
+   being played: the pink line on a hovered block, trackBlock).
 
    Two layouts:
 
@@ -1505,6 +1506,13 @@ const Wall = (() => {
             <input type="checkbox" id="wallKeepPlaying" class="m-check"> Keep playing when this tab is hidden</label>
           <label class="wall-check" id="wallLoopRow" title="Off: when a clip ends, a new file that fits its block takes its place. On: the clip starts over and stays.">
             <input type="checkbox" id="wallLoop" class="m-check"> Loop clips instead of changing them</label>
+          <label class="wall-pop-row" id="wallProgressRow" title="The pink line on the block under the mouse. Whole file: how far along the file is. Clip: fills as the block nears its change.">
+            <span class="wall-label">Progress line</span>
+            <select id="wallProgressOf" class="m-select">
+              <option value="file">Whole file</option>
+              <option value="clip">Clip being played</option>
+            </select>
+          </label>
         </div>
       </div>
       <div class="wall-stage">
@@ -1537,6 +1545,8 @@ const Wall = (() => {
       pauseBtn: $('wallPauseBtn'),
       loop: $('wallLoop'),
       loopRow: $('wallLoopRow'),
+      progressOf: $('wallProgressOf'),
+      progressRow: $('wallProgressRow'),
       fullBtn: $('wallFullBtn'),
     };
     for (const name of Object.keys(CHIPS)) {
@@ -1546,6 +1556,9 @@ const Wall = (() => {
     wireControls();
     wireBoard();
     syncControls();
+    // "Always show the progress line" (Settings > Stage): every playing block keeps its line.
+    syncTrackAlways();
+    window.addEventListener('vault-track-progress', () => { syncTrackAlways(); trackTick(now()); });
   }
 
   /** The words a chip shows for a setting's value. */
@@ -1587,6 +1600,8 @@ const Wall = (() => {
     els.chips.pace.btn.title = scroll ? 'How fast the wall scrolls' : `How often pictures change (now every ${picSec()} s)`;
     // No clips when only pictures are shown.
     els.loopRow.hidden = cfg.mix === 'pictures';
+    els.progressRow.hidden = cfg.mix === 'pictures';
+    els.progressOf.value = cfg.progressOf;
     els.chips.playing.wrap.hidden = cfg.mix === 'pictures';
     els.chips.sound.wrap.hidden = cfg.mix === 'pictures';
     els.mix.value = cfg.mix;
@@ -1709,6 +1724,11 @@ const Wall = (() => {
       cfg.keepPlaying2 = els.keep.checked;
       saveCfg();
       evaluate();
+    });
+    els.progressOf.addEventListener('change', () => {
+      cfg.progressOf = els.progressOf.value === 'clip' ? 'clip' : 'file';
+      saveCfg();
+      trackTick(now());
     });
 
     for (const btn of [els.modeGrid, els.modeScroll]) {
@@ -2026,16 +2046,31 @@ const Wall = (() => {
     el.style.top = `${slot.y.toFixed(2)}px`;
     el.style.width = `${slot.w.toFixed(2)}px`;
     el.style.height = `${slot.h.toFixed(2)}px`;
+    // The caption: the name, and the time left beside it while a clip plays
+    // (cut name, time in full); the pink progress line along the top (trackTick).
     const cap = document.createElement('div');
     cap.className = 'wall-cap';
+    const capName = document.createElement('span');
+    capName.className = 'wall-cap-n';
+    const capLeft = document.createElement('span');
+    capLeft.className = 'wall-cap-t';
+    cap.append(capName, capLeft);
     el.appendChild(cap);
+    const tp = document.createElement('div');
+    tp.className = 'wall-tp';
+    tp.setAttribute('aria-hidden', 'true');
+    const tpFill = document.createElement('i');
+    tp.appendChild(tpFill);
+    el.appendChild(tp);
     const spk = document.createElement('div');
     spk.className = 'wall-spk';
     spk.setAttribute('aria-hidden', 'true');
     spk.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" focusable="false"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4zm12.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>';
     el.appendChild(spk);
     const b = {
-      el, cap,
+      el, cap, capName, capLeft, tpFill,
+      tpOn: false,          // a clip plays: the line may show (.wall-playing)
+      tpFrac: -1,           // the line's fill as last drawn
       x: slot.x, y: slot.y, w: slot.w, h: slot.h, col: slot.col,
       aspect: slot.w / slot.h,  // the slot's shape, fixed for its life
       item: null,
@@ -2486,7 +2521,8 @@ const Wall = (() => {
     b.item = item;
     b.cropped = Math.abs(Math.log(aspectOf(item) / b.aspect)) > 0.01;
     onScreen.set(item.id, (onScreen.get(item.id) || 0) + 1);
-    b.cap.textContent = titleOf(item);
+    b.capName.textContent = titleOf(item);
+    b.capLeft.textContent = '';
     b.el.title = '';
 
     const layer = document.createElement('div');
@@ -2997,6 +3033,7 @@ const Wall = (() => {
     hoverBlock = b;
     syncDrift();
     syncAudio();
+    trackBlock(b);
   }
 
   function hoverEnd(b) {
@@ -3007,6 +3044,58 @@ const Wall = (() => {
     if (hoverBlock === b) hoverBlock = null;
     syncDrift();
     syncAudio();
+  }
+
+  /* ── Progress line (player-lib/track-progress.js) ───────────────────── */
+
+  /*
+   * The 3 px pink line along the top of a block whose clip plays, and the
+   * time left beside the name in its caption: on the block under the mouse,
+   * and the line on every playing block with "Always show the progress line"
+   * (Settings > Stage, one switch for the player, Stage and the Wall). Drawn
+   * from the 250 ms tick and on a hover, never per animation frame, and only
+   * where it shows: many blocks may play at once.
+   * More > Progress line: the whole file (the clip's place in its file), or
+   * the clip being played (how much of its time on the wall has gone, until
+   * timeLeft: its end, a converted clip's 3 minutes, Scroll's leaving the top;
+   * a clip that loops for good has no end, so it shows the file).
+   */
+  function trackAlways() {
+    return typeof TrackProgress !== 'undefined' && TrackProgress.settings().always === true;
+  }
+
+  function syncTrackAlways() {
+    if (els) els.root.classList.toggle('wall-tp-always', trackAlways());
+  }
+
+  function trackBlock(b, t = now(), always = trackAlways()) {
+    if (typeof TrackProgress === 'undefined') return;
+    const rec = b.video;
+    const v = rec && !rec.released && b.startedAt && !b.dead ? rec.v : null;
+    const on = !!v;
+    if (on !== b.tpOn) { b.tpOn = on; b.el.classList.toggle('wall-playing', on); }
+    if (!on) {
+      if (b.capLeft.textContent) b.capLeft.textContent = '';
+      return;
+    }
+    if (!always && !b.hovered) return;
+    const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : Number(b.item && b.item.duration_seconds) || 0;
+    const p = TrackProgress.wallProgress(cfg.progressOf, {
+      t: v.currentTime, d: dur, elapsed: Math.max(0, t - b.startedAt) / 1000, leftMs: timeLeft(b, t),
+    });
+    if (!p) return;
+    const f = Math.round(p.frac * 1000) / 1000;
+    if (f !== b.tpFrac) { b.tpFrac = f; b.tpFill.style.transform = `scaleX(${f})`; }
+    if (b.hovered) {
+      const text = TrackProgress.leftText(p.left);
+      if (b.capLeft.textContent !== text) b.capLeft.textContent = text;
+    }
+  }
+
+  function trackTick(t) {
+    if (!els || typeof TrackProgress === 'undefined') return;
+    const always = trackAlways();
+    for (const b of blocks) trackBlock(b, t, always);
   }
 
   /* ── Sound ──────────────────────────────────────────────────────────── */
@@ -3499,6 +3588,7 @@ const Wall = (() => {
     fillSlots();
     updateStatus();
     syncAudio();
+    trackTick(t);
   }
 
   function setRunning(on) {
