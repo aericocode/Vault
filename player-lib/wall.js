@@ -1572,13 +1572,10 @@ const Wall = (() => {
       els.fullBtn.textContent = rootFs ? 'Leave full screen' : 'Full screen';
       if (top === els.root) showBarBriefly();
       else if (!rootFs) { clearTimeout(fsTimer); els.root.classList.remove('wall-bar-idle'); }
-      // In full screen the browser takes Escape for itself and leaves every
-      // level at once. Locking it (Chromium only) hands it to the page, so
-      // Escape can go back one step: the player to the wall, then the wall out
-      // of full screen. Holding Escape still leaves full screen.
-      const kb = navigator.keyboard;
-      if (rootFs && !was && kb && kb.lock) kb.lock(['Escape']).catch(() => {});
-      else if (!rootFs && was && kb && kb.unlock) kb.unlock();
+      // Escape is locked again on every change, not only the first: each
+      // level the browser enters or leaves is a chance for it to drop the lock.
+      if (rootFs) lockEscape();
+      else if (was) unlockEscape();
     });
     els.root.addEventListener('mousemove', () => { if (els.root.classList.contains('wall-fs')) showBarBriefly(); });
     els.bar.addEventListener('focusin', () => { if (els.root.classList.contains('wall-fs')) showBarBriefly(); });
@@ -3356,6 +3353,23 @@ const Wall = (() => {
     }
   }
 
+  /*
+   * In full screen the browser takes Escape for itself and leaves every
+   * level at once. Locking it (Keyboard Lock, Chromium only) hands it to the
+   * page, so Escape can go back one step: the player to the wall, then the
+   * wall out of full screen. Holding Escape still leaves full screen. Asked
+   * only while full screen (fullscreenchange, openItem): outside it the
+   * browser may ask the user first.
+   */
+  function lockEscape() {
+    const kb = navigator.keyboard;
+    if (kb && kb.lock && document.fullscreenElement) kb.lock(['Escape']).catch(() => {});
+  }
+  function unlockEscape() {
+    const kb = navigator.keyboard;
+    if (kb && kb.unlock) kb.unlock();
+  }
+
   async function openItem(b) {
     const item = b.item;
     if (!item) return;
@@ -3380,7 +3394,10 @@ const Wall = (() => {
     if (overWall && document.fullscreenElement === els.root && ov && ov.classList.contains('active')) {
       // Refused (the click too long ago, say): leave full screen altogether
       // rather than keep the player hidden behind the wall.
-      // (exitAllFullscreen is player-core.js's.)
+      // (exitAllFullscreen is player-core.js's.) Escape is locked just before,
+      // and again once the player is up (fullscreenchange), so the new level
+      // never runs without it.
+      lockEscape();
       ov.requestFullscreen().catch(() => exitAllFullscreen());
     }
   }
