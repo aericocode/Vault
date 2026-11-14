@@ -321,10 +321,15 @@ const Wall = (() => {
    * when it needs more free slots than there are, so they are kept for it
    * as clips end. Without the wait the board's one converted clip would
    * hardly ever play: a single free slot always goes to a direct clip.
+   * `waited` is how long (ms) slots have been kept for converted clips so
+   * far: a direct clip has no time limit, so the wait lasts at most
+   * GRID_WAIT_MS, then the slots go to direct clips for as long, and so on.
    */
-  function gridTurn(cost, isRemux, free, remuxFree, cap) {
+  const GRID_WAIT_MS = 25000;
+  function gridTurn(cost, isRemux, free, remuxFree, cap, waited = 0) {
     if (cost > cap || (isRemux && !remuxFree)) return 'skip';
-    return free >= cost ? 'start' : 'wait';
+    if (free >= cost) return 'start';
+    return (Math.max(0, waited) % (2 * GRID_WAIT_MS)) < GRID_WAIT_MS ? 'wait' : 'skip';
   }
 
   /*
@@ -393,6 +398,30 @@ const Wall = (() => {
     return n + Math.min(conv, 2);
   }
 
+  const FILL_EXTRA = 3;              // fetches past the usual target one top-up may make
+  const BACKOFF_MIN_MS = 2000;
+  const BACKOFF_MAX_MS = 60000;
+
+  /**
+   * Whether a top-up fetches once more (pure). `o` gives { counted: the
+   * buffer's count (bufferCount), len: rows buffered, target, cap, extras:
+   * fetches this top-up made past the usual target, passed: this top-up has
+   * been round the whole source, quiet: extra fetches are backing off }.
+   * Below the target it always does, as before converted files counted
+   * less; past it (a buffer of mostly converted rows) only a few more times,
+   * never round the source twice, and not while backing off.
+   */
+  function fillGoOn(o) {
+    if (o.len >= o.cap || o.counted >= o.target) return false;
+    if (o.len < o.target) return true;
+    return !o.quiet && !o.passed && o.extras < FILL_EXTRA;
+  }
+
+  /** The next wait (ms) of a back-off that just failed again after `prev` ms (0: the first). */
+  function nextBackoff(prev) {
+    return prev > 0 ? Math.min(BACKOFF_MAX_MS, prev * 2) : BACKOFF_MIN_MS;
+  }
+
   /* ── State ──────────────────────────────────────────────────────────── */
 
   let els = null;
@@ -455,6 +484,7 @@ const Wall = (() => {
   /** How many slots the clips may hold now. */
   const playCap = () => (cfg.playing === 'auto' ? auto.target : cfg.playing);
   let liveRemux = 0;
+  let remuxWaitFrom = 0;       // Grid: since when slots are kept for a converted clip (gridTurn), 0: none
 
   // The pool: every id the source matches, in play order, and a buffer of
   // fetched, eligible rows waiting to go up on the wall.
@@ -467,6 +497,13 @@ const Wall = (() => {
   const skipCounts = new WeakMap(); // buffered row → how often a take passed it over
   let fillPromise = null;
   let poolHasEligible = false;
+  // Top-ups that found nothing back off (nextBackoff): `dead`, a whole pass
+  // of the source found nothing the wall can show; `quiet`, fetches past the
+  // usual target found nothing that counts.
+  let fillDeadUntil = 0;
+  let fillDeadMs = 0;
+  let fillQuietUntil = 0;
+  let fillQuietMs = 0;
   const onScreen = new Map();  // id → how many blocks show it
   const badIds = new Set();    // failed to load or play this session
   const freezeCounts = new Map(); // id → how often it froze on the wall this session
@@ -797,6 +834,7 @@ const Wall = (() => {
     poolWrapped = false;
     poolHasEligible = false;
     fillPromise = null;
+    fillDeadUntil = 0; fillDeadMs = 0; fillQuietUntil = 0; fillQuietMs = 0;
     const spec = sourceSpec();
     if (!spec) return;
     let out;
@@ -826,19 +864,31 @@ const Wall = (() => {
    */
   function fill(more = false) {
     if (fillPromise) return fillPromise;
+    // Every file of the source failed or cannot go up: wait before looking again.
+    if (now() < fillDeadUntil) return Promise.resolve();
     const gen = poolGen;
     fillPromise = (async () => {
       if (!poolIds || !poolIds.length) return;
-      const target = fillTarget(ready.length, readyTarget(), more);
+      // Rows whose file failed since they were buffered count for nothing.
+      if (ready.some(r => badIds.has(r.id))) ready = ready.filter(r => !badIds.has(r.id));
+      const base = readyTarget();
+      const target = fillTarget(ready.length, base, more);
       const scanLimit = Math.min(8000, Math.max(target * 3, poolIds.length));
       let scanned = 0;
+      let found = 0;
+      let extras = 0;
+      const before = bufferHeld();
       // Converted files count only a little (bufferCount), so a source of
-      // mostly such files still buffers enough of the others, up to the cap.
-      while (bufferHeld() < target && ready.length < READY_CAP && scanned < scanLimit) {
+      // mostly such files buffers more of the others: a few fetches past the
+      // usual target (fillGoOn), keeping only rows that count.
+      while (scanned < scanLimit && fillGoOn({ counted: bufferHeld(), len: ready.length, target, cap: READY_CAP,
+        extras, passed: scanned >= poolIds.length, quiet: now() < fillQuietUntil })) {
         // A whole pass found nothing: the source has nothing the wall can show.
         if (scanned >= poolIds.length && !poolHasEligible) break;
+        const extra = ready.length >= target;
+        if (extra) extras++;
         const ids = [];
-        const n = Math.min(READY_CAP - ready.length, batchSize(bufferHeld(), target, scanLimit - scanned));
+        const n = Math.min(READY_CAP - ready.length, extra ? Math.min(BATCH, scanLimit - scanned) : batchSize(ready.length, target, scanLimit - scanned));
         if (n <= 0) break;
         for (let i = 0; i < n; i++) {
           ids.push(poolIds[poolCursor]);
@@ -859,18 +909,43 @@ const Wall = (() => {
         }
         if (gen !== poolGen) return;
         for (const r of rowsOut) {
-          if (r && eligible(r)) { ready.push(r); poolHasEligible = true; probeShape(r); }
+          if (!r || !eligible(r)) continue;
+          found++;
+          poolHasEligible = true;
+          // Converted rows past the usual target would only wait (a converted
+          // file goes up now and then), so they are not kept.
+          if (isConverted(r) && ready.length >= base) continue;
+          ready.push(r);
+          probeShape(r);
         }
+        // A whole pass of the source and nothing it can show any more (every
+        // file failed this session): no more fetches for a while.
+        if (!found && scanned >= poolIds.length) {
+          fillDeadMs = nextBackoff(fillDeadMs);
+          fillDeadUntil = now() + fillDeadMs;
+          break;
+        }
+      }
+      if (found) fillDeadMs = 0;
+      // Fetches past the target that found nothing that counts: those back off.
+      if (extras) {
+        if (bufferHeld() > before) fillQuietMs = 0;
+        else { fillQuietMs = nextBackoff(fillQuietMs); fillQuietUntil = now() + fillQuietMs; }
       }
     })().finally(() => { if (gen === poolGen) fillPromise = null; });
     return fillPromise;
   }
 
+  /** How long (ms) until fill() looks at the source again after finding nothing it can show. */
+  const fillWaitLeft = () => Math.max(0, fillDeadUntil - now());
+
   function take(i) {
     const out = takeAt(ready, i, skipCounts);
     ready = out.list;
     stats.staleDropped += out.dropped;
-    if (bufferHeld() < readyTarget() / 2) fill();
+    // Short of files that count (bufferCount): a top-up, unless those are
+    // backing off (the source has no more of them for now).
+    if (ready.length < readyTarget() / 2 || (bufferHeld() < readyTarget() / 2 && now() >= fillQuietUntil)) fill();
     return out.item;
   }
 
@@ -1976,6 +2051,7 @@ const Wall = (() => {
       holdLeft: 0,
       rand: Math.random(),
       fitWait: false,
+      idle: false,          // the last swap found nothing to bring in (advance)
       dead: false,
     };
     el._wall = b;
@@ -2829,12 +2905,19 @@ const Wall = (() => {
         if (liveCost >= cap) break;
         const mode = playMode(b.item);
         if (!mode || (mode === 'remux' && cfg.directOnly)) continue;   // never plays here
-        const turn = gridTurn(mode === 'remux' ? REMUX_COST : 1, mode === 'remux', cap - liveCost, liveRemux < MAX_REMUX, cap);
+        const waited = remuxWaitFrom ? now() - remuxWaitFrom : 0;
+        const turn = gridTurn(mode === 'remux' ? REMUX_COST : 1, mode === 'remux', cap - liveCost, liveRemux < MAX_REMUX, cap, waited);
         // The slots that free up next are kept for it (looping clips never
         // free theirs, so then the next block goes).
-        if (turn === 'wait') { if (cfg.loopClips) continue; break; }
+        if (turn === 'wait') {
+          if (!remuxWaitFrom) remuxWaitFrom = now();
+          if (cfg.loopClips) continue;
+          break;
+        }
         if (turn === 'start') startVideo(b);
       }
+      // No converted clip is kept waiting (it started, or none is in line): the next wait starts afresh.
+      if (liveRemux >= MAX_REMUX || !cands.some(b => !b.video && isConverted(b.item))) remuxWaitFrom = 0;
       return;
     }
     const top = drift.offset;
@@ -3264,7 +3347,15 @@ const Wall = (() => {
    */
   function advance(b) {
     const { i, fit } = swapIndex(ready, b);
-    if (i < 0) { fill(); setDue(b, now() + 2000); return; }
+    if (i < 0) {
+      // Nothing to bring in: try again later, after the source's back-off
+      // when it has nothing left to show (fill), and not sooner for a failed still.
+      fill();
+      b.idle = true;
+      setDue(b, now() + Math.max(2000, fillWaitLeft()));
+      return;
+    }
+    b.idle = false;
     if (!fit && !b.fitWait && ready.length < READY_CAP) {
       // Nothing of this shape in the buffer: fetch one more batch (never past
       // the cap) and try once more shortly, before falling back to a crop.
@@ -3393,7 +3484,7 @@ const Wall = (() => {
       // A still of a file that failed (here or in another block) is swapped
       // soon, in both modes: it would never play.
       const bad = !b.video && b.item && badIds.has(b.item.id);
-      if (bad && b.dueAt > t + 1500) setDue(b, t + 400 + Math.random() * 1000);
+      if (bad && !b.idle && b.dueAt > t + 1500) setDue(b, t + 400 + Math.random() * 1000);
       // At most a few swaps per tick, so a burst of due blocks spreads out.
       if (grid && t >= b.dueAt && !b.pending && swaps < 3) {
         advance(b);
@@ -3726,7 +3817,7 @@ const Wall = (() => {
   return {
     enter, leave, lockStop, startAt, playerStopped, underPlayer,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { emptyMessage, cfgFrom, gridTurn, convertedRoom, pickFront, pickPlayable, bufferCount, buildIndex, takeStart, resumeAt, planColumns, colSpread, slotFor, placeSlot, minBottom, planSlices, sliceRow, slicePool, rectGap, placeSlice, fitGrid, fitScore, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, rotatePick, rotateWaitMs, rotateDue, fadeOutPick, clipStart, staggerShare, storedAudio, setDue, clipDue, clipLeft, shouldAdvance, freezeStep, REMUX_MAX_RUN_MS, FREEZE_MS, FREEZE_DT_MAX_MS, visibleFrac, inView, scrollLeftMs, scrollRank, leavingFor, scrollFreePlan, autoStep, START_FRAC, HEAR_FRAC, ROTATE_MIN_LEFT_MS, MIN_RUN_S, AUTO_START, AUTO_MIN, AUTO_MAX, AUTO_HOLD_MS, READY_CAP, STALE_SKIPS },
+    _pure: { emptyMessage, cfgFrom, gridTurn, GRID_WAIT_MS, fillGoOn, nextBackoff, FILL_EXTRA, convertedRoom, pickFront, pickPlayable, bufferCount, buildIndex, takeStart, resumeAt, planColumns, colSpread, slotFor, placeSlot, minBottom, planSlices, sliceRow, slicePool, rectGap, placeSlice, fitGrid, fitScore, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, rotatePick, rotateWaitMs, rotateDue, fadeOutPick, clipStart, staggerShare, storedAudio, setDue, clipDue, clipLeft, shouldAdvance, freezeStep, REMUX_MAX_RUN_MS, FREEZE_MS, FREEZE_DT_MAX_MS, visibleFrac, inView, scrollLeftMs, scrollRank, leavingFor, scrollFreePlan, autoStep, START_FRAC, HEAR_FRAC, ROTATE_MIN_LEFT_MS, MIN_RUN_S, AUTO_START, AUTO_MIN, AUTO_MAX, AUTO_HOLD_MS, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
     _audio: () => {
       const t = now();

@@ -1269,3 +1269,31 @@ test('converted files: in Grid the free slots are kept for a converted clip whos
   assert.strictEqual(W.gridTurn(2, true, 4, false, 4), 'skip', 'the one remux slot is in use');
   assert.strictEqual(W.gridTurn(2, true, 1, true, 1), 'skip', 'costs more than the cap');
 });
+
+test('converted files: the Grid wait for one lasts at most GRID_WAIT_MS, then direct clips get the slots as long', () => {
+  const L = W.GRID_WAIT_MS;
+  assert.ok(L >= 20000 && L <= 30000);
+  assert.strictEqual(W.gridTurn(2, true, 1, true, 4, 0), 'wait');
+  assert.strictEqual(W.gridTurn(2, true, 1, true, 4, L - 1), 'wait');
+  assert.strictEqual(W.gridTurn(2, true, 1, true, 4, L), 'skip', 'waited long enough: the next block goes');
+  assert.strictEqual(W.gridTurn(2, true, 1, true, 4, 2 * L - 1), 'skip');
+  assert.strictEqual(W.gridTurn(2, true, 1, true, 4, 2 * L), 'wait', 'then it is kept waiting again');
+  assert.strictEqual(W.gridTurn(2, true, 2, true, 4, L + 5), 'start', 'room for it: it starts whatever the time');
+});
+
+test('buffer: top-ups past the target are few, never round the source twice, and back off', () => {
+  const o = (x) => ({ counted: 10, len: 10, target: 80, cap: 1500, extras: 0, passed: false, quiet: false, ...x });
+  assert.strictEqual(W.fillGoOn(o()), true, 'below the target: as before');
+  assert.strictEqual(W.fillGoOn(o({ passed: true, quiet: true, extras: 9 })), true, 'below the target nothing stops it');
+  assert.strictEqual(W.fillGoOn(o({ counted: 80, len: 300 })), false, 'enough that counts');
+  assert.strictEqual(W.fillGoOn(o({ len: 1500 })), false, 'the cap');
+  // Past the target with too few rows that count (mostly converted rows).
+  assert.strictEqual(W.fillGoOn(o({ len: 90 })), true);
+  assert.strictEqual(W.fillGoOn(o({ len: 90, extras: W.FILL_EXTRA })), false, 'a few extra fetches at most');
+  assert.strictEqual(W.fillGoOn(o({ len: 90, passed: true })), false, 'a small source is not walked round again');
+  assert.strictEqual(W.fillGoOn(o({ len: 90, quiet: true })), false, 'backing off');
+  assert.strictEqual(W.nextBackoff(0), 2000);
+  assert.strictEqual(W.nextBackoff(2000), 4000);
+  assert.strictEqual(W.nextBackoff(50000), 60000);
+  assert.strictEqual(W.nextBackoff(60000), 60000);
+});
