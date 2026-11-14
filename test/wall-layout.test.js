@@ -4,7 +4,8 @@
  * the Vertical plan (columns of different widths), the Grid fit (the board
  * ends exactly at the bottom edge), Scroll's 10% start and slot order, the
  * Videos Auto controller, Rotate sound (who is heard next, and when),
- * where a clip starts (clips play to the end), and the masonry plan: equal columns, exact shapes, files wider
+ * where a clip starts (clips play to the end), the 3-minute limit for
+ * converted clips, the freeze watchdog, and the masonry plan: equal columns, exact shapes, files wider
  * than 2.5:1 spanning two columns, and a board that always reaches the
  * bottom edge whatever the shapes and sizes. Slices: full-width rows that
  * end flush, files at their exact shape, heights within the clamps.
@@ -1090,4 +1091,79 @@ test('continue in the player: the clip time applies only to the same file, befor
   assert.strictEqual(W.takeStart(p, null, 999), null, 'no id (a mix, a stub)');
   assert.strictEqual(W.takeStart(null, 7, 999), null, 'nothing pending');
   assert.strictEqual(W.takeStart({ id: 7, time: 3 }, 7, 999), null, 'no expiry = never applies');
+});
+
+/* Converted (remux) clips: at most 3 minutes on the wall. */
+
+test('converted clips: a remux clip gives up its block 3 minutes after it started; direct clips never', () => {
+  assert.strictEqual(W.REMUX_MAX_RUN_MS, 180000);
+  assert.strictEqual(W.clipDue('remux', 1000), 181000);
+  assert.strictEqual(W.clipDue('native', 1000), Infinity, 'a direct clip plays to its end');
+  assert.strictEqual(W.clipDue('remux', 0), Infinity, 'not started yet: the load deadline applies, not the run limit');
+  assert.strictEqual(W.clipDue(null, 1000), Infinity);
+});
+
+test('converted clips: time left is the rest of the 3 minutes, so the sound hands over before it stops', () => {
+  const started = 5000;
+  const t = started + 170000;
+  // The block's swap time for a remux clip is clipDue; a long file has more media left.
+  const left = W.clipLeft({ dueIn: W.clipDue('remux', started) - t, mediaLeft: 600000 });
+  assert.strictEqual(left, 10000);
+  // Looping (no media end): the run limit still ends it.
+  assert.strictEqual(W.clipLeft({ dueIn: W.clipDue('remux', started) - t, mediaLeft: Infinity }), 10000);
+  // A short file ends first.
+  assert.strictEqual(W.clipLeft({ dueIn: W.clipDue('remux', started) - t, mediaLeft: 4000 }), 4000);
+  // A direct clip: only the file's end (or for good while it loops).
+  assert.strictEqual(W.clipLeft({ dueIn: W.clipDue('native', started) - t, mediaLeft: 4000 }), 4000);
+  assert.strictEqual(W.clipLeft({ dueIn: W.clipDue('native', started) - t }), Infinity);
+  // Scroll: leaving the board can come first.
+  assert.strictEqual(W.clipLeft({ dueIn: 10000, leaveIn: 3000 }), 3000);
+  // Held by Pause on hover: at least 1.5 s again once the mouse leaves.
+  assert.strictEqual(W.clipLeft({ dueIn: -500, held: true, holdLeft: -500 }), 1500);
+  assert.strictEqual(W.clipLeft({ dueIn: 9000, held: true, holdLeft: 9000 }), 9000);
+  assert.strictEqual(W.clipLeft({ mediaLeft: NaN }), Infinity);
+});
+
+/* The freeze watchdog. */
+
+test('freeze watchdog: a clip is expected to move only on a running wall, started, not ended, not held', () => {
+  const on = { running: true, started: true };
+  assert.strictEqual(W.shouldAdvance(on), true);
+  assert.strictEqual(W.shouldAdvance({ ...on, running: false }), false, 'the wall is paused');
+  assert.strictEqual(W.shouldAdvance({ ...on, started: false }), false, 'still loading: the load deadline applies');
+  assert.strictEqual(W.shouldAdvance({ ...on, ended: true }), false);
+  assert.strictEqual(W.shouldAdvance({ ...on, held: true }), false, 'Pause on hover');
+});
+
+test('freeze watchdog: a hidden page alone never makes a clip look stuck', () => {
+  const hid = { running: true, started: true, hidden: true };
+  assert.strictEqual(W.shouldAdvance({ ...hid, keepPlaying: true, othersMoving: false }), false, 'nothing moves: the browser holds media back');
+  assert.strictEqual(W.shouldAdvance({ ...hid, keepPlaying: true, othersMoving: true }), true, 'other clips play, this one does not');
+  assert.strictEqual(W.shouldAdvance({ ...hid, keepPlaying: false, othersMoving: true }), false);
+});
+
+test('freeze watchdog: 8 s standing still while it should move frees the clip', () => {
+  assert.strictEqual(W.FREEZE_MS, 8000);
+  let still = 0;
+  let frozen = false;
+  let ticks = 0;
+  while (!frozen && ticks < 100) {
+    ({ still, frozen } = W.freezeStep(still, { moved: false, should: true, dt: 250 }));
+    ticks++;
+  }
+  assert.strictEqual(ticks, 32, '8 s of 250 ms ticks');
+  // Moving starts the count over.
+  let s = W.freezeStep(7900, { moved: true, should: true, dt: 250 });
+  assert.deepStrictEqual({ ...s }, { still: 0, frozen: false });
+  // Time it was not expected to move starts the count over too.
+  s = W.freezeStep(7900, { moved: false, should: false, dt: 250 });
+  assert.deepStrictEqual({ ...s }, { still: 0, frozen: false });
+  // One late tick (a throttled timer, a sleeping laptop) counts at most 1 s.
+  s = W.freezeStep(0, { moved: false, should: true, dt: 60000 });
+  assert.strictEqual(s.still, W.FREEZE_DT_MAX_MS);
+  assert.strictEqual(s.frozen, false);
+  s = W.freezeStep(7000, { moved: false, should: true, dt: 60000 });
+  assert.strictEqual(s.frozen, true);
+  // A clock that went back adds nothing.
+  assert.strictEqual(W.freezeStep(100, { moved: false, should: true, dt: -5000 }).still, 100);
 });

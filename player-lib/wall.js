@@ -86,6 +86,15 @@
      idling out a minute later) and pauses the rest; on return the freed
      slots start again with fresh streams. The Pause button only pauses.
    - One 250 ms scheduler tick drives every block (no timer per block).
+   - Clips play to their end. A converted (remux) clip plays at most
+     3 minutes (REMUX_MAX_RUN_MS, clipDue), looping or not, then its block
+     takes a new file, so the one remux slot moves on.
+   - Freeze watchdog (from the tick: shouldAdvance, freezeStep): a clip that
+     should be playing (wall running, not held by Pause on hover; in a hidden
+     page only while other clips are seen moving) whose time stands still
+     for 8 s is freed like one that ended. A second freeze of the same file
+     in a session leaves it out. A clip the browser pauses in a visible page
+     gets one more play() first. Not counted as a stall for Auto.
 
    Sound (the Sound chip): Off, On hover (only the hovered clip is heard),
    Follow (exactly one playing clip that has an audio track is heard; when
@@ -148,6 +157,10 @@ const Wall = (() => {
   const WIDE = 2.5;                  // wider than this spans two columns
   const LOAD_TIMEOUT_MS = 12000;
   const REMUX_TIMEOUT_MS = 25000;
+  const REMUX_MAX_RUN_MS = 180000;   // a converted clip gives up the one remux slot after 3 minutes
+  const FREEZE_MS = 8000;            // a playing clip whose time stands still this long is stuck
+  const FREEZE_DT_MAX_MS = 1000;     // a late tick counts at most this much (sleep, throttled timers)
+  const FREEZES_BAD = 2;             // freezes in a session before a file is left out
   const ASPECT_MIN = 0.25;
   const ASPECT_MAX = 4;
   const DEFAULT_ASPECT = 16 / 9;
@@ -342,7 +355,7 @@ const Wall = (() => {
   let dbgSeq = 0;
 
   const drift = { offset: 0, raf: 0, lastT: 0, frames: [], rebases: 0, removed: 0 };
-  const stats = { swaps: 0, exact: 0, near: 0, crops: 0, worstCrop: 1, staleDropped: 0, moreFetches: 0, rowFetches: 0, replays: 0, stalls: 0 };
+  const stats = { swaps: 0, exact: 0, near: 0, crops: 0, worstCrop: 1, staleDropped: 0, moreFetches: 0, rowFetches: 0, replays: 0, stalls: 0, freezes: 0 };
 
   let liveCost = 0;            // slots held by live <video> elements
 
@@ -367,6 +380,8 @@ const Wall = (() => {
   let poolHasEligible = false;
   const onScreen = new Map();  // id → how many blocks show it
   const badIds = new Set();    // failed to load or play this session
+  const freezeCounts = new Map(); // id → how often it froze on the wall this session
+  let lastTickAt = 0;          // the freeze watchdog's last tick (0: none since the wall started running)
   const aspectCache = new Map(); // id → the real shape, learned from the element
   const modeCache = new Map();   // id → 'native' | 'remux' | null
 
@@ -382,6 +397,54 @@ const Wall = (() => {
   function setDue(b, t, at = now()) {
     b.dueAt = t;
     if (b.held) b.holdLeft = t - at;
+  }
+
+  /**
+   * When a clip that started playing at `startedAt` must give up its block
+   * (pure): a converted (remux) clip after REMUX_MAX_RUN_MS, even while it
+   * loops, so the one remux slot moves on; a direct clip never (it plays to
+   * its end, or for good while it loops).
+   */
+  function clipDue(mode, startedAt) {
+    return mode === 'remux' && startedAt > 0 ? startedAt + REMUX_MAX_RUN_MS : Infinity;
+  }
+
+  /**
+   * How long (ms) a clip still plays on the wall (pure), from: dueIn (its
+   * block's swap time from now, clipDue for a converted clip), held (Pause on
+   * hover, with holdLeft the swap time it keeps), leaveIn (Scroll: until it
+   * leaves the board) and mediaLeft (until the file ends).
+   */
+  function clipLeft({ dueIn = Infinity, held = false, holdLeft = Infinity, leaveIn = Infinity, mediaLeft = Infinity } = {}) {
+    // A held block gets at least 1.5 s again when the mouse leaves (hoverEnd).
+    const swapIn = held ? Math.max(1500, holdLeft) : dueIn;
+    const left = Math.min(leaveIn, swapIn, mediaLeft);
+    return Number.isNaN(left) ? Infinity : left;
+  }
+
+  /**
+   * Whether a clip's time is expected to move right now (pure): it started
+   * on a running wall, has not ended, and is not held by Pause on hover. In
+   * a hidden page (Keep playing when hidden) the browser may hold media back
+   * on its own, so a clip there counts only while another clip on the wall
+   * is seen moving: a hidden tab alone never makes a clip look stuck.
+   */
+  function shouldAdvance({ running = false, started = false, ended = false, held = false, hidden = false, keepPlaying = true, othersMoving = false } = {}) {
+    if (!running || !started || ended || held) return false;
+    if (hidden) return keepPlaying && othersMoving;
+    return true;
+  }
+
+  /**
+   * The freeze watchdog, one tick (pure). `still` is how long (ms) the clip
+   * has stood still while it should have moved; returns the new value and
+   * whether it is stuck now. Time it was not expected to move starts the
+   * count over, and one late tick adds at most FREEZE_DT_MAX_MS.
+   */
+  function freezeStep(still, { moved = false, should = false, dt = 0 } = {}) {
+    if (moved || !should) return { still: 0, frozen: false };
+    const next = (Number(still) || 0) + clamp(Number(dt) || 0, 0, FREEZE_DT_MAX_MS);
+    return { still: next, frozen: next >= FREEZE_MS };
   }
 
   /* ── What can go on the wall ────────────────────────────────────────── */
@@ -2300,8 +2363,8 @@ const Wall = (() => {
     if (mode === 'remux') liveRemux++;
     b.video = rec;
     b.startedAt = 0;
-    // No timer for a clip: it keeps the block until it ends ('ended' below),
-    // or for good while it loops.
+    // No timer for a direct clip: it keeps the block until it ends ('ended'
+    // below), or for good while it loops (a converted one: see 'playing').
     setDue(b, Infinity);
     b.loadDeadline = now() + (mode === 'remux' ? REMUX_TIMEOUT_MS : LOAD_TIMEOUT_MS);
 
@@ -2319,6 +2382,8 @@ const Wall = (() => {
       b.loadDeadline = 0;
       b.startedAt = now();
       rec.startedAt = b.startedAt;
+      // A converted clip gives up its block (and the remux slot) after 3 minutes.
+      if (mode === 'remux') setDue(b, clipDue(mode, b.startedAt));
       rec.q = frameCounts(v);   // Auto counts dropped frames from here
       learnAspect(item, v.videoWidth, v.videoHeight);
       reveal(b, layer);
@@ -2411,10 +2476,18 @@ const Wall = (() => {
     });
   }
 
-  /** A clip paused: the Wall's own pauses (setRunning, release) come with running off or released. */
+  /**
+   * A clip paused: the Wall's own pauses (setRunning, release) come with
+   * running off or released. In a visible page the browser gets one more
+   * play(); if the clip still does not move, the freeze watchdog frees it.
+   */
   function clipPaused(b, rec) {
     if (rec.released || b.dead || b.video !== rec || !running || rec.v.ended) return;
     if (pageAction('clip') === 'replay') replay(rec);
+    else if (document.visibilityState !== 'hidden' && !rec.kicked) {
+      rec.kicked = true;
+      replay(rec);
+    }
   }
 
   /**
@@ -2815,17 +2888,15 @@ const Wall = (() => {
 
   /**
    * How long (ms) this clip still plays on the wall, as far as the wall
-   * knows: until it ends (never while it loops), and in Scroll no longer than
+   * knows: until it ends (never while it loops), a converted clip no longer
+   * than its 3 minutes (clipDue, its block's swap time), and in Scroll no longer than
    * until less than HEAR_FRAC of it is left on the board at the top (no
    * limit from the drift while it is paused).
    */
   function timeLeft(b, t) {
     let leaveIn = Infinity;
     if (cfg.mode === 'scroll' && driftShouldRun()) leaveIn = scrollLeftMs(b.y, b.h, drift.offset, lay.H, speedPx());
-    // A held block gets at least 1.5 s again when the mouse leaves (hoverEnd).
-    const swapIn = b.held ? Math.max(1500, b.holdLeft) : b.dueAt - t;
-    const left = Math.min(leaveIn, swapIn, mediaLeftMs(b));
-    return Number.isNaN(left) ? Infinity : left;
+    return clipLeft({ dueIn: b.dueAt - t, held: b.held, holdLeft: b.holdLeft, leaveIn, mediaLeft: mediaLeftMs(b) });
   }
 
   /** The clip that should be heard right now, or null. Keeps Auto's pick up to date. */
@@ -3069,11 +3140,51 @@ const Wall = (() => {
     if (changed) { syncControls(); trimVideos(); }
   }
 
+  /**
+   * The freeze watchdog, from the tick: a clip that should be playing
+   * (shouldAdvance) and whose time has not moved for FREEZE_MS is freed like
+   * one that ended, and its block takes a new file. Only a second freeze of
+   * the same file in a session leaves it out (badIds).
+   */
+  function watchFrozen(t) {
+    const dt = lastTickAt ? t - lastTickAt : 0;
+    lastTickAt = t;
+    const hidden = document.visibilityState === 'hidden';
+    const seen = [];
+    let moving = 0;
+    for (const b of blocks) {
+      const rec = b.video;
+      if (!rec || rec.released || b.dead || rec.frozen) continue;
+      let pos = NaN;
+      try { pos = rec.v.currentTime; } catch {}
+      const moved = Number.isFinite(pos) && Number.isFinite(rec.wPos) && Math.abs(pos - rec.wPos) > 0.001;
+      if (Number.isFinite(pos)) rec.wPos = pos;
+      if (moved) moving++;
+      seen.push({ b, rec, moved });
+    }
+    for (const { b, rec, moved } of seen) {
+      const should = shouldAdvance({
+        running, started: !!b.startedAt, ended: rec.v.ended, held: b.held, hidden,
+        keepPlaying: !!cfg.keepPlaying2, othersMoving: moving - (moved ? 1 : 0) > 0,
+      });
+      const step = freezeStep(rec.still, { moved, should, dt });
+      rec.still = step.still;
+      if (!step.frozen) continue;
+      rec.frozen = true;
+      stats.freezes++;
+      const n = (freezeCounts.get(rec.id) || 0) + 1;
+      freezeCounts.set(rec.id, n);
+      if (n >= FREEZES_BAD) badIds.add(rec.id);
+      setDue(b, 0);   // the same way out as a clip that ended
+    }
+  }
+
   function tick() {
     if (!running) return;
     const t = now();
     const grid = cfg.mode !== 'scroll';
     let swaps = 0;
+    watchFrozen(t);
     for (const b of blocks) {
       if (b.dead || b.held) continue;
       if (b.video && b.loadDeadline && t > b.loadDeadline) { videoFailed(b, b.video); continue; }
@@ -3097,6 +3208,7 @@ const Wall = (() => {
     if (on === running) { syncDrift(); syncAudio(); return; }
     running = on;
     auto.windowAt = 0;          // Auto judges only time spent running
+    lastTickAt = 0;             // the freeze watchdog counts only time spent running
     if (on) {
       const d = pausedAt ? now() - pausedAt : 0;
       for (const b of blocks) {
@@ -3309,7 +3421,7 @@ const Wall = (() => {
   return {
     enter, leave, lockStop, startAt,
     // Pure pieces, for test/wall-layout.test.js.
-    _pure: { emptyMessage, cfgFrom, takeStart, planColumns, colSpread, slotFor, placeSlot, minBottom, planSlices, sliceRow, slicePool, rectGap, placeSlice, fitGrid, fitScore, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, rotatePick, rotateWaitMs, rotateDue, fadeOutPick, clipStart, staggerShare, storedAudio, setDue, visibleFrac, inView, scrollLeftMs, scrollRank, leavingFor, scrollFreePlan, autoStep, START_FRAC, HEAR_FRAC, ROTATE_MIN_LEFT_MS, MIN_RUN_S, AUTO_START, AUTO_MIN, AUTO_MAX, AUTO_HOLD_MS, READY_CAP, STALE_SKIPS },
+    _pure: { emptyMessage, cfgFrom, takeStart, planColumns, colSpread, slotFor, placeSlot, minBottom, planSlices, sliceRow, slicePool, rectGap, placeSlice, fitGrid, fitScore, SLICE_MIN, SLICE_MAX, pickSwap, fillTarget, batchSize, takeAt, pickAudible, rotatePick, rotateWaitMs, rotateDue, fadeOutPick, clipStart, staggerShare, storedAudio, setDue, clipDue, clipLeft, shouldAdvance, freezeStep, REMUX_MAX_RUN_MS, FREEZE_MS, FREEZE_DT_MAX_MS, visibleFrac, inView, scrollLeftMs, scrollRank, leavingFor, scrollFreePlan, autoStep, START_FRAC, HEAR_FRAC, ROTATE_MIN_LEFT_MS, MIN_RUN_S, AUTO_START, AUTO_MIN, AUTO_MAX, AUTO_HOLD_MS, READY_CAP, STALE_SKIPS },
     // Sound state, for tests and debugging: every live clip's element state.
     _audio: () => {
       const t = now();
