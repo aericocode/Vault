@@ -211,3 +211,44 @@ test('the bottom band sits over the Stage bar while it shows', () => {
   q.over(690);                      // no Stage bar: 110 px from the bottom, no scrolling
   assert.strictEqual(q.pending(), 0);
 });
+
+/* ── Drops in the gaps (nearestDrop) ───────────────────────────────────── */
+
+// A 3 x 2 grid of 100 x 80 tiles with a 12 px gap, the last row one short.
+const TILES = [];
+for (let row = 0; row < 2; row++) {
+  for (let col = 0; col < 3; col++) {
+    if (row === 1 && col === 2) continue;
+    const left = col * 112, top = row * 92;
+    TILES.push({ left, top, right: left + 100, bottom: top + 80 });
+  }
+}
+
+test('nearestDrop: in the gap between two tiles of a row, the place between them', () => {
+  const hit = S.nearestDrop(106, 40, TILES);         // between tile 0 and tile 1
+  // Either answer is the same place in the order: after 0 or before 1.
+  assert.ok((hit.index === 0 && hit.side === 'after') || (hit.index === 1 && hit.side === 'before'), JSON.stringify(hit));
+});
+
+test('nearestDrop: in the gap between two rows, the side of the tile above or below', () => {
+  assert.deepStrictEqual(S.nearestDrop(130, 85, TILES), { index: 1, side: 'before' });   // left half of column 1
+  assert.deepStrictEqual(S.nearestDrop(190, 86, TILES), { index: 1, side: 'after' });    // right half of it
+  assert.deepStrictEqual(S.nearestDrop(190, 89, TILES), { index: 4, side: 'after' }, 'nearer the row below');
+});
+
+test('nearestDrop: after the last tile, and past the grid edge', () => {
+  assert.deepStrictEqual(S.nearestDrop(300, 130, TILES), { index: 4, side: 'after' }, 'the empty cell after the last tile');
+  assert.deepStrictEqual(S.nearestDrop(190, 200, TILES), { index: 4, side: 'after' }, 'under the last row, right half');
+  assert.deepStrictEqual(S.nearestDrop(-10, 40, TILES), { index: 0, side: 'before' }, 'left of the first tile');
+});
+
+test('nearestDrop: table rows go by top and bottom half', () => {
+  const rows = [{ left: 0, top: 0, right: 800, bottom: 30 }, { left: 0, top: 30, right: 800, bottom: 60 }];
+  assert.deepStrictEqual(S.nearestDrop(400, 70, rows, { rows: true }), { index: 1, side: 'after' });
+  assert.deepStrictEqual(S.nearestDrop(400, 10, rows, { rows: true }), { index: 0, side: 'before' });
+});
+
+test('nearestDrop: nothing to drop on, or no pointer', () => {
+  assert.strictEqual(S.nearestDrop(10, 10, []), null);
+  assert.strictEqual(S.nearestDrop(NaN, 10, TILES), null);
+});

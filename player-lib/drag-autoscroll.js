@@ -13,6 +13,9 @@
                                past it, over a bar). The band is at most a
                                third of the visible height, so a short
                                window still has a middle that does not scroll.
+   - nearestDrop(x, y, rects)  where a drop lands when the pointer is in a
+                               gap between tiles rather than on one: the
+                               nearest tile and the side of it.
    ========================================================================= */
 
 const DragAutoScroll = (() => {
@@ -38,7 +41,37 @@ const DragAutoScroll = (() => {
     return dir * (min + (max - min) * t * t);
   }
 
-  return { speed, BAND, MIN_SPEED, MAX_SPEED };
+  /**
+   * The drop place for a pointer that is not over a tile (the gap between
+   * two tiles or rows, the space after the last one, the grid's edge): the
+   * nearest tile, and which side of it. Nearest means the nearest ROW first,
+   * then the nearest tile in it, so the empty cells after the last tile land
+   * after the last tile and not after the one above. Left / right half in
+   * the grid, top / bottom half for table rows (rows: true). Either side of a
+   * gap means the same place in the order, so a tie does not matter.
+   * @param {number} x @param {number} y pointer, viewport pixels
+   * @param {{left:number, top:number, right:number, bottom:number}[]} rects
+   * @returns {{index:number, side:'before'|'after'}|null} null for no rects
+   */
+  function nearestDrop(x, y, rects, o = {}) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !rects || !rects.length) return null;
+    let best = -1, bestDy = Infinity, bestDx = Infinity;
+    for (let i = 0; i < rects.length; i++) {
+      const r = rects[i];
+      if (!r) continue;
+      const dx = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
+      const dy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+      if (dy < bestDy - 0.5 || (Math.abs(dy - bestDy) <= 0.5 && dx < bestDx)) { bestDy = dy; bestDx = dx; best = i; }
+    }
+    if (best < 0) return null;
+    const r = rects[best];
+    const side = o.rows
+      ? (y < (r.top + r.bottom) / 2 ? 'before' : 'after')
+      : (x < (r.left + r.right) / 2 ? 'before' : 'after');
+    return { index: best, side };
+  }
+
+  return { speed, nearestDrop, BAND, MIN_SPEED, MAX_SPEED };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = DragAutoScroll;

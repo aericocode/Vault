@@ -442,6 +442,40 @@ function _dropSide(tile, e) {
   return e.clientX < r.left + r.width / 2 ? 'before' : 'after';
 }
 
+// How far outside the grid's own box a drop still counts (its edges, the
+// space under the last row before the pager).
+const REORDER_DROP_PAD = 24;
+
+/**
+ * Where a drop at this pointer lands: { tile, side }, or null for no drop.
+ * On a tile: that tile (none when it is one being dragged). In a gap between
+ * tiles or rows, after the last one, or just outside the grid's edge: the
+ * nearest tile not being dragged, so there is no dead space in the grid.
+ */
+function _dropAt(e) {
+  const drag = _reorderDrag;
+  if (!drag) return null;
+  const tile = _gridTile(e.target);
+  if (tile) return drag.set.has(Number(tile.dataset.id)) ? null : { tile, side: _dropSide(tile, e) };
+  const grid = document.getElementById('resultsGrid');
+  const main = document.getElementById('mainContainer');
+  const t = e.target;
+  if (!grid || !t || !t.closest) return null;
+  // The pager, the bars and anything else outside the files take no drop.
+  if (!grid.contains(t) && (!main || !main.contains(t) || t.closest('#pagination'))) return null;
+  const g = grid.getBoundingClientRect();
+  if (e.clientX < g.left - REORDER_DROP_PAD || e.clientX > g.right + REORDER_DROP_PAD
+      || e.clientY < g.top - REORDER_DROP_PAD || e.clientY > g.bottom + REORDER_DROP_PAD) return null;
+  const tiles = [];
+  grid.querySelectorAll('.media-tile[data-id]').forEach((el) => {
+    if (!drag.set.has(Number(el.dataset.id))) tiles.push(el);
+  });
+  const hit = typeof DragAutoScroll !== 'undefined' && DragAutoScroll.nearestDrop
+    ? DragAutoScroll.nearestDrop(e.clientX, e.clientY, tiles.map(el => el.getBoundingClientRect()), { rows: _isTableView() })
+    : null;
+  return hit ? { tile: tiles[hit.index], side: hit.side } : null;
+}
+
 // Where the press that may become a drag began. A press on a tile's tick box
 // or one of its buttons is a click, even when the mouse moves a few pixels
 // before it is let go: the tile is not dragged then (the browser would take
@@ -475,11 +509,11 @@ document.addEventListener('dragstart', (e) => {
 document.addEventListener('dragover', (e) => {
   if (!_reorderDrag) return;
   _edgeScrollAt(e.clientY);
-  const tile = _gridTile(e.target);
-  if (!tile || _reorderDrag.set.has(Number(tile.dataset.id))) { _clearDropMark(); return; }
+  const at = _dropAt(e);
+  if (!at) { _clearDropMark(); return; }
   e.preventDefault();
   try { e.dataTransfer.dropEffect = 'move'; } catch {}
-  const side = _dropSide(tile, e);
+  const { tile, side } = at;
   if (_reorderDropEl !== tile) _clearDropMark();
   _reorderDropEl = tile;
   tile.classList.toggle('reorder-drop-before', side === 'before');
@@ -489,11 +523,11 @@ document.addEventListener('dragover', (e) => {
 document.addEventListener('drop', (e) => {
   if (!_reorderDrag) return;
   const drag = _reorderDrag;
-  const tile = _gridTile(e.target);
-  if (!tile || drag.set.has(Number(tile.dataset.id))) { _endReorderDrag(); return; }
+  const at = _dropAt(e);
+  if (!at) { _endReorderDrag(); return; }
   e.preventDefault();
-  const targetId = Number(tile.dataset.id);
-  const side = _dropSide(tile, e);
+  const targetId = Number(at.tile.dataset.id);
+  const side = at.side;
   _endReorderDrag();
   const before = side === 'before' ? targetId : _beforeForAfter(_members(), drag.set, targetId);
   reorderMove(drag.ids, before);
