@@ -312,7 +312,8 @@ const Wall = (() => {
   let active = false;          // the Wall tab is showing
   let userPaused = false;
   let playerOpen = false;
-  let rootFs = false;          // the wall is full screen, maybe under the player (openItem)
+  let fsTop = null;            // the full-screen element at the last change
+  let rootFs = false;         // the wall is full screen, maybe under the player (openItem)
   let running = false;
   let pausedAt = 0;
   let tickTimer = null;
@@ -1567,7 +1568,10 @@ const Wall = (() => {
       // the board does not change size behind the player.
       const top = document.fullscreenElement;
       const was = rootFs;
-      rootFs = top === els.root || (rootFs && !!top && top === document.getElementById('mediaPlayerOverlay'));
+      const overlay = document.getElementById('mediaPlayerOverlay');
+      const fromPlayer = was && fsTop === overlay;
+      fsTop = top;
+      rootFs = top === els.root || (rootFs && !!top && top === overlay);
       els.root.classList.toggle('wall-fs', rootFs);
       els.fullBtn.textContent = rootFs ? 'Leave full screen' : 'Full screen';
       if (top === els.root) showBarBriefly();
@@ -1576,6 +1580,13 @@ const Wall = (() => {
       // level the browser enters or leaves is a chance for it to drop the lock.
       if (rootFs) lockEscape();
       else if (was) unlockEscape();
+      // Every level gone in one step from the player: the browser's own
+      // Escape (Firefox has no Escape lock; elsewhere, Escape held down).
+      // Escape means "back to the wall", as the player's X does, so the
+      // player closes. The page's own ways out (the player's full-screen
+      // button, minimize) leave one level at a time and keep the player.
+      if (fromPlayer && !top && overlay && overlay.classList.contains('active')
+          && typeof closeMediaPlayer === 'function') closeMediaPlayer();
     });
     els.root.addEventListener('mousemove', () => { if (els.root.classList.contains('wall-fs')) showBarBriefly(); });
     els.bar.addEventListener('focusin', () => { if (els.root.classList.contains('wall-fs')) showBarBriefly(); });
