@@ -196,3 +196,35 @@ test('held: renderResults, renderContinuous and the window passes draw nothing',
     assert.ok(calls.length > 0, `${fn} did not draw once let go`);
   }
 });
+
+/* Files in or out of the collection on screen keep the place, like a
+   reorder (collections.js _applyToggleSideEffects; every add and remove goes
+   through changeCollectionMembership, which calls it). */
+test('membership change: the open collection keeps its place, other views as before', () => {
+  const COLLS = read('collections.js');
+  const runs = [];
+  const ctx = {
+    activeCollectionId: 5, currentTab: 'collections',
+    collectionMembers: new Map(),
+    _isAncestorFolder: (folder, id) => folder === 9 && id === 5,
+    _folderAggregateIds: () => [],
+    renderCollectionHeader() {},
+    collectionsFilterValue: () => '',
+    applyFilters: (opts) => runs.push(opts === undefined ? "top" : JSON.stringify(opts)),
+    renderResults: () => runs.push('cards'),
+  };
+  vm.createContext(ctx);
+  vm.runInContext(between(COLLS, 'function _applyToggleSideEffects(id)', 'async function togglePickerCollection'), ctx);
+
+  ctx._applyToggleSideEffects(5);                       // the collection on screen
+  ctx.activeCollectionId = 9; ctx._applyToggleSideEffects(5);   // a folder holding it
+  assert.deepStrictEqual(runs, ['{"keepPage":true}', '{"keepPage":true}']);
+
+  runs.length = 0;
+  ctx.activeCollectionId = 7; ctx._applyToggleSideEffects(5);   // another collection open: nothing to redo
+  assert.deepStrictEqual(runs, []);
+  ctx.activeCollectionId = null; ctx.currentTab = 'library';
+  ctx.collectionsFilterValue = () => 'in';
+  ctx._applyToggleSideEffects(5);                       // the library's collection filter: as before
+  assert.deepStrictEqual(runs, ['top']);
+});
