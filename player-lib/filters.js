@@ -865,6 +865,34 @@ function collectionsHomeShowing() {
 }
 
 let _applySeq = 0;
+
+/* A keep-place re-run waiting for the full id list (the run's seq, or null),
+   and how long it waits before drawing with what it has. */
+let _keepPlaceHold = null;
+const KEEP_PLACE_WAIT_MS = 8000;
+
+/* A draw skipped while held (true until something draws), and the newest
+   run that ended without drawing (a 500, a stale answer). */
+let _keepPlaceMissed = false;
+let _noDrawSeq = 0;
+
+/** True while a keep-place re-run holds the continuous list as it is (see
+    install below). Callers skip their draw when it says so; that is noted. */
+function libraryDrawHeld() {
+  if (_keepPlaceHold == null) return false;
+  _keepPlaceMissed = true;
+  return true;
+}
+
+/* Make up, once, a draw skipped while held: when nothing holds any more and
+   the newest run has ended without drawing. A newest run still in flight
+   draws itself (afterResults) or ends here through failed(). */
+function _makeUpMissedDraw() {
+  if (_keepPlaceHold != null || !_keepPlaceMissed || _noDrawSeq !== _applySeq) return;
+  _keepPlaceMissed = false;
+  renderResults();
+}
+
 let _searchError = null;   // a 400 from the server, said under the search box
 
 function applyFilters(opts) {
@@ -906,12 +934,34 @@ function applyFilters(opts) {
 
   const needIds = keepPage && pageAnchor > 0;
   const install = (ok) => {
-    if (!ok || seq !== _applySeq) return null;
+    if (seq !== _applySeq) return null;
+    if (!ok) { _noDrawSeq = seq; _makeUpMissedDraw(); return null; }
     _searchError = null;
     _rerunFromTop = false;
-    // Holding a place past the first page needs the id list first.
-    if (keepPage && pageAnchor >= Library.firstPageIds.length && !Library.known()) {
-      return Library.waitIds().then(() => { if (seq === _applySeq) afterResults(keepPage); });
+    // Holding a place past the first page needs the id list first. In
+    // continuous mode that is any row drawn past it, not just the first one:
+    // drawn from the first answer alone, the list would be too short for the
+    // scroll position and the browser would pull the view up to its end (a
+    // drop near the bottom of a collection left the view mid-list).
+    const heldEnd = typeof libraryHeldEnd === 'function' ? libraryHeldEnd() : pageAnchor + 1;
+    if (keepPage && heldEnd > Library.firstPageIds.length && !Library.known()) {
+      // Continuous mode: until then nothing else draws either (cards.js
+      // libraryDrawHeld). A redraw meanwhile (the grid's resize observer when
+      // the header changes height, the count arriving, a window resize) would
+      // lay the list out from the first answer, just as short.
+      if (libraryLayoutMode() === 'continuous') _keepPlaceHold = seq;
+      // Bounded: an id list that never comes must not leave the old view up
+      // for good (and a collection drag waiting on this, busy).
+      let timer;
+      const late = new Promise(r => { timer = setTimeout(r, KEEP_PLACE_WAIT_MS); });
+      return Promise.race([Library.waitIds(), late]).then(() => {
+        clearTimeout(timer);
+        if (_keepPlaceHold === seq) _keepPlaceHold = null;
+        if (seq === _applySeq) afterResults(keepPage);
+        // Superseded: a redraw skipped meanwhile (the count arriving) is owed
+        // if the newer run has already ended without drawing.
+        else _makeUpMissedDraw();
+      });
     }
     afterResults(keepPage);
     return null;
@@ -929,6 +979,7 @@ function applyFilters(opts) {
 
   function failed(err) {
     if (seq !== _applySeq) return null;
+    _noDrawSeq = seq;
     if (err && err.status === 400) {
       // The server's sentence is meant for people ("Search is too long. Use
       // 16 words or fewer."): it goes under the search box, not in a toast.
@@ -938,6 +989,8 @@ function applyFilters(opts) {
       return null;
     }
     console.warn('[Search] failed:', err);
+    // Nothing draws for this run: a draw skipped for an older held run is owed.
+    _makeUpMissedDraw();
     if (err && err.status) {
       // The server answered with an error (a 500): asking again every few
       // seconds would only repeat it. Say so once; the next change the user
@@ -962,6 +1015,9 @@ let _rerunFromTop = false;
 
 /** The UI work that follows a new result. */
 function afterResults(keepPage) {
+  // Whatever run draws now, the view is no longer held for an older one.
+  _keepPlaceHold = null;
+  _keepPlaceMissed = false;   // this draw covers any skipped meanwhile
   // A new search or filter has no place to hold, so it starts at the top.
   if (!keepPage && typeof resetPageAnchor === 'function') resetPageAnchor();
   // Clamp: a mutation (trash/remove) can shrink the list under the anchor —

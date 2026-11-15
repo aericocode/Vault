@@ -1236,10 +1236,12 @@ async function refreshPickerMembership() {
 /** Side effects after a membership change (scoped — no blanket re-render). */
 function _applyToggleSideEffects(id) {
   // An open collection/folder whose contents changed must re-filter the grid.
+  // Same view, files in or out: it keeps the place, as a reorder does (a
+  // list that got shorter than the view settles at its new end).
   if (activeCollectionId != null && (activeCollectionId === id || _isAncestorFolder(activeCollectionId, id))) {
     if (activeCollectionId !== id) collectionMembers.set(activeCollectionId, _folderAggregateIds(activeCollectionId));
     renderCollectionHeader();
-    if (typeof applyFilters === 'function') applyFilters();
+    if (typeof applyFilters === 'function') applyFilters({ keepPage: true });
     return;
   }
   // Library 📁 tri-filter depends on membership too.

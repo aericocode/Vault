@@ -500,6 +500,7 @@ function tvRenderContinuous(grid) {
 
 /** Swap in the rows for the current scroll position (cards.js calls this on scroll). */
 function tvRenderWindow() {
+  if (typeof libraryDrawHeld === 'function' && libraryDrawHeld()) return;   // cards.js renderResults
   const virt = document.querySelector('#resultsGrid .grid-virt');
   if (!virt) return;
   const { stride, totalRows } = contState;
