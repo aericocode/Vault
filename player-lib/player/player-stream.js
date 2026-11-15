@@ -164,6 +164,32 @@ function _keepSessionSpeed(el) {
 }
 
 /**
+ * Start the player's element, and say so when the browser refuses. An
+ * AbortError (a teardown or a newer source) stays quiet as it always has.
+ * NotAllowedError is the browser's autoplay block: the file sits paused at
+ * its start and hands-free playback stops there, which used to happen
+ * without a word (Firefox blocks a start it does not count as the user's).
+ */
+function _startPlayback(el) {
+  let p;
+  try { p = el.play(); } catch (err) { _playRefused(el, err); return; }
+  if (p && typeof p.catch === 'function') p.catch((err) => _playRefused(el, err));
+}
+
+let _autoplayToastAt = 0;
+function _playRefused(el, err) {
+  if (!err || err.name !== 'NotAllowedError') return;
+  if (!el || !el.isConnected) return;
+  const auto = typeof lastPlaySource !== 'undefined' && lastPlaySource === 'auto';
+  console.warn(`[Vault next] The browser blocked this file from starting on its own (${auto ? 'moved on by itself' : 'opened by hand'}): ${err.message || err.name}`);
+  if (!auto || typeof showToast !== 'function') return;
+  // One toast a minute at most: the message is the same each time.
+  if (Date.now() - _autoplayToastAt < 60000) return;
+  _autoplayToastAt = Date.now();
+  showToast('The browser stopped the next file from starting on its own. Press play to carry on. To stop this, allow autoplay with sound for Vault in the browser (Firefox: the crossed-out play icon in the address bar).', { type: 'error' });
+}
+
+/**
  * Point a media element at whatever the server says will play.
  *
  * @param {HTMLMediaElement} el      the <video> or <audio>
@@ -182,7 +208,7 @@ async function attachPlaybackSource(el, mediaId, filepath, fallbackUrl, opts = {
     delete el.dataset.playbackMediaId;
     el.src = fallbackUrl;
     _keepSessionSpeed(el);
-    if (opts.autoplay !== false) el.play().catch(() => {});
+    if (opts.autoplay !== false) _startPlayback(el);
     return { mode: 'native' };
   }
 
@@ -199,7 +225,7 @@ async function attachPlaybackSource(el, mediaId, filepath, fallbackUrl, opts = {
     el.dataset.playbackMediaId = String(mediaId);
     el.src = fallbackUrl;
     _keepSessionSpeed(el);
-    if (opts.autoplay !== false) el.play().catch(() => {});
+    if (opts.autoplay !== false) _startPlayback(el);
     return { mode: 'native' };
   }
 
@@ -218,7 +244,7 @@ async function attachPlaybackSource(el, mediaId, filepath, fallbackUrl, opts = {
   el.dataset.playbackMediaId = String(mediaId);
   el.src = info.url || fallbackUrl;
   _keepSessionSpeed(el);
-  if (opts.autoplay !== false) el.play().catch(() => {});
+  if (opts.autoplay !== false) _startPlayback(el);
   return { mode: 'native', info };
 }
 
@@ -236,7 +262,7 @@ function _attachRemux(el, mediaId, filepath, info, opts) {
       _clientToken = token;
       el.src = url;
       _keepSessionSpeed(el);
-      if (opts.autoplay !== false) el.play().catch(() => {});
+      if (opts.autoplay !== false) _startPlayback(el);
       return { mode: 'remux', info };
     }
     _reportUnplayable(el, mediaId, filepath, {
@@ -264,7 +290,7 @@ function _attachRemux(el, mediaId, filepath, info, opts) {
   hls.loadSource(url);
   hls.attachMedia(el);
   if (opts.autoplay !== false) {
-    hls.on(Hls.Events.MANIFEST_PARSED, () => { el.play().catch(() => {}); });
+    hls.on(Hls.Events.MANIFEST_PARSED, () => { _startPlayback(el); });
   }
   return { mode: 'remux', info };
 }

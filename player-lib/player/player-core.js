@@ -1061,6 +1061,26 @@ function autoAdvanceOnEnded() {
 const AUTO_RETRY_MS = [2000, 5000, 10000, 20000];
 let _autoAdvanceGen = 0;
 
+/**
+ * One console line when a file ending did not move on to another file, with
+ * where the list stood, so a report of "it stopped" says which path it took.
+ * Never on a normal move. Never throws.
+ */
+function autoAdvanceDiag(what) {
+  try {
+    const L = queueList();
+    const skips = queueSkipSet(L);
+    console.warn(`[Vault next] A file ended but playback did not move on: ${what}.`, {
+      at: listAnchorIndex(), of: L.length(), countKnown: L.known(), idsLoaded: !!L.ids,
+      ownList: L !== Library, skipped: skips ? skips.size : 0, upNext: upNextCount(),
+      repeat: repeatMode(), collection: Library.spec ? Library.spec.collectionId : null,
+      tabHidden: typeof document !== 'undefined' ? document.hidden : null,
+    });
+  } catch (err) {
+    console.warn(`[Vault next] A file ended but playback did not move on: ${what}.`, err);
+  }
+}
+
 function autoAdvance(attempt = 0) {
   const my = ++_autoAdvanceGen;
   const opened = _fileOpenedSeq;
@@ -1075,7 +1095,11 @@ function autoAdvance(attempt = 0) {
   };
   const go = () => {
     if (my !== _autoAdvanceGen || opened !== _fileOpenedSeq) return undefined;
-    return playNextMediaOrWrap().then((moved) => { if (moved === 'stopped') again(); }, again);
+    const diag = (what) => { if (typeof autoAdvanceDiag === 'function') autoAdvanceDiag(what); };
+    return playNextMediaOrWrap().then((moved) => {
+      if (moved === 'stopped') { diag('the next file could not be loaded, trying again'); again(); }
+      else if (!moved) diag('nothing left to move on to');
+    }, (err) => { diag(`the move failed (${(err && (err.name || err.message)) || 'unknown'}), trying again`); again(); });
   };
   // A move that gave way is waited for (a while): it may still open the
   // next file, and then this one stands down (opened changed).
