@@ -168,6 +168,78 @@ test('a newer search that draws lets go of an older wait', async () => {
   assert.strictEqual(s.drawn.length, 1, 'the superseded run does not draw');
 });
 
+/* A newer re-run that fails (a 500) draws nothing. The count arriving for the
+   held run was skipped while held, and the held run, superseded, does not
+   draw either: the old rows stayed up in the old order until a scroll. The
+   skipped draw is made up once, when the hold lets go. */
+function failingRerun(s) {
+  s.ctx.showErrorToast = () => {};
+  s.ctx.console = { warn() {} };
+  s.ctx.Library.query = () => Promise.reject({ status: 500, message: 'boom' });
+}
+// What the results-counted handler does: renderContinuous, which skips while held.
+const countArrives = (s) => { if (!s.ctx.libraryDrawHeld()) s.drawn.push({ counted: true }); };
+
+test('superseded by a run that fails: the skipped redraw is made up once on release', async () => {
+  const s = setup({ layout: 'continuous', pageAnchor: 84, contState: { cols: 7, last: 17 }, realAfter: true });
+  const older = s.ctx.applyFilters({ keepPage: true });
+  await tick();
+  assert.strictEqual(s.ctx.libraryDrawHeld(), true);
+  failingRerun(s);
+  await s.ctx.applyFilters({ keepPage: true });   // the 500
+  assert.deepStrictEqual(s.drawn, [], 'still held: nothing draws yet');
+  countArrives(s);                                 // skipped: held
+  s.releaseIds();
+  await older;
+  assert.strictEqual(s.ctx.libraryDrawHeld(), false);
+  assert.deepStrictEqual(s.drawn, [{ known: true }], 'redrawn once from the full list');
+});
+
+test('superseded while the newer run is in flight: no make-up, the newer run draws', async () => {
+  const s = setup({ layout: 'continuous', pageAnchor: 84, contState: { cols: 7, last: 17 }, realAfter: true });
+  const older = s.ctx.applyFilters({ keepPage: true });
+  await tick();
+  let answer;
+  s.ctx.Library.query = () => new Promise(r => { answer = r; });
+  const newer = s.ctx.applyFilters({ keepPage: true });
+  countArrives(s);
+  s.releaseIds();
+  await older;
+  assert.deepStrictEqual(s.drawn, [], 'the newer run, still asking, draws for itself');
+  answer(true);
+  await newer;
+  assert.deepStrictEqual(s.drawn, [{ known: true }], 'drawn once, by the newer run');
+});
+
+test('superseded while in flight, then the newer run fails: made up once then', async () => {
+  const s = setup({ layout: 'continuous', pageAnchor: 84, contState: { cols: 7, last: 17 }, realAfter: true });
+  const older = s.ctx.applyFilters({ keepPage: true });
+  await tick();
+  let reject;
+  s.ctx.showErrorToast = () => {};
+  s.ctx.console = { warn() {} };
+  s.ctx.Library.query = () => new Promise((_, r) => { reject = r; });
+  const newer = s.ctx.applyFilters({ keepPage: true });
+  countArrives(s);
+  s.releaseIds();
+  await older;
+  assert.deepStrictEqual(s.drawn, []);
+  reject({ status: 500 });
+  await newer;
+  assert.deepStrictEqual(s.drawn, [{ known: true }]);
+});
+
+test('nothing skipped while held: a failed newer run does not redraw', async () => {
+  const s = setup({ layout: 'continuous', pageAnchor: 84, contState: { cols: 7, last: 17 }, realAfter: true });
+  const older = s.ctx.applyFilters({ keepPage: true });
+  await tick();
+  failingRerun(s);
+  await s.ctx.applyFilters({ keepPage: true });
+  s.releaseIds();
+  await older;
+  assert.deepStrictEqual(s.drawn, []);
+});
+
 /* The drawing side (cards.js, table-view.js): every way into a continuous
    draw stops while held, so no redraw path is missed. */
 test('held: renderResults, renderContinuous and the window passes draw nothing', () => {
