@@ -346,9 +346,17 @@ function dockRender() {
   if (!body || !_dockShown) return;
   const m = _dockSelectedId != null ? Library.row(_dockSelectedId) : null;
   if (_dockSelectedId != null && !m) {
-    // Not cached yet (arrowed onto a tile whose row has not arrived): fetch it.
+    // Not cached yet (arrowed onto a tile whose row has not arrived): fetch it,
+    // and paint again only if the row came back. A file just removed from the
+    // library has no row to fetch: Library answers at once with nothing, and
+    // painting again on that answer asked again forever, which froze the tab
+    // (remove from library with this file in the pane).
     const want = _dockSelectedId;
-    Library.fetchRows?.([want])?.then?.(() => { if (want === _dockSelectedId) dockRender(); }).catch?.(() => {});
+    if (typeof Library.needsFetch !== 'function' || Library.needsFetch(want)) {
+      Library.fetchRows?.([want])?.then?.((rows) => {
+        if (want === _dockSelectedId && rows && rows[0]) dockRender();
+      }).catch?.(() => {});
+    }
   }
   const sig = dockFieldSig(m);
   if (sig === _dockSig) return;

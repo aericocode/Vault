@@ -275,10 +275,16 @@ Paste the model name into the search box, then pick the quant from the list on t
 1. Open the **Developer** tab in the left sidebar and load the model from there.
 2. Turn on the toggle for **manually choosing load parameters**: without it you
    get the defaults and no chance to change them.
-3. Set **Context Length** to **~64000** tokens. The default (~4k) is far too
+3. Set **Context Length** to **~75000** tokens. The default (~4k) is far too
    small: every scan sends several frames plus the prompt, and a 4k context
    silently truncates them into empty or garbage metadata.
 5. **Load the model.**
+
+When Vault loads the scan model itself (Settings, Scanning), it asks LM
+Studio for about 75k (75000) of context, so this step matters most for a model
+you load by hand. A model that is already loaded keeps its own context length
+until it is reloaded. If a model cannot take 75k, Vault loads it with LM
+Studio's own setting instead.
 
 ![Setup Part 2](https://raw.githubusercontent.com/aericocode/vault-assets/refs/heads/main/LM%20Studio/3.%20LM%20Studio%20Model%20Load.gif)
 
@@ -431,7 +437,7 @@ when it is set.
 | Windows SmartScreen blocked the app | **More info → Run anyway**. The build is unsigned; the warning is expected |
 | `Node.js is required but was not found` | Install Node LTS from nodejs.org, reopen the terminal (§6, source checkout only) |
 | `No LM Studio endpoints available` / scan errors instantly | Start LM Studio's server (or Ollama) and check `LM_STUDIO_URLS`; for Ollama also set `AI_MODEL` |
-| Scans produce empty/garbage metadata | The loaded model isn't a **vision** model (load one from §3), or its **context length is at the ~4k default**: reload it at ~64k (§2, step 3) |
+| Scans produce empty/garbage metadata | The loaded model isn't a **vision** model (load one from §3), or its **context length is at the ~4k default**: reload it at ~75k (§2, step 3) |
 | `database is encrypted: password required` at boot | The Vault is locked: open the viewer and click the padlock, or set `VAULT_DB_PASSWORD` |
 | Thumbnails/duration missing on imports | ffmpeg missing: use the ⬇ banner in the viewer, or install to PATH |
 | Music ID says tools missing | fpcalc missing, same ⬇ banner |

@@ -211,3 +211,265 @@ test('the bottom band sits over the Stage bar while it shows', () => {
   q.over(690);                      // no Stage bar: 110 px from the bottom, no scrolling
   assert.strictEqual(q.pending(), 0);
 });
+
+/* ── Drops in the gaps (nearestDrop) ───────────────────────────────────── */
+
+// A 3 x 2 grid of 100 x 80 tiles with a 12 px gap, the last row one short.
+const TILES = [];
+for (let row = 0; row < 2; row++) {
+  for (let col = 0; col < 3; col++) {
+    if (row === 1 && col === 2) continue;
+    const left = col * 112, top = row * 92;
+    TILES.push({ left, top, right: left + 100, bottom: top + 80 });
+  }
+}
+
+test('nearestDrop: in the gap between two tiles of a row, the place between them', () => {
+  const hit = S.nearestDrop(106, 40, TILES);         // between tile 0 and tile 1
+  // Either answer is the same place in the order: after 0 or before 1.
+  assert.ok((hit.index === 0 && hit.side === 'after') || (hit.index === 1 && hit.side === 'before'), JSON.stringify(hit));
+});
+
+test('nearestDrop: in the gap between two rows, the side of the tile above or below', () => {
+  assert.deepStrictEqual(S.nearestDrop(130, 85, TILES), { index: 1, side: 'before' });   // left half of column 1
+  assert.deepStrictEqual(S.nearestDrop(190, 86, TILES), { index: 1, side: 'after' });    // right half of it
+  assert.deepStrictEqual(S.nearestDrop(190, 89, TILES), { index: 4, side: 'after' }, 'nearer the row below');
+});
+
+test('nearestDrop: after the last tile, and past the grid edge', () => {
+  assert.deepStrictEqual(S.nearestDrop(300, 130, TILES), { index: 4, side: 'after' }, 'the empty cell after the last tile');
+  assert.deepStrictEqual(S.nearestDrop(190, 200, TILES), { index: 4, side: 'after' }, 'under the last row, right half');
+  assert.deepStrictEqual(S.nearestDrop(-10, 40, TILES), { index: 0, side: 'before' }, 'left of the first tile');
+});
+
+test('nearestDrop: table rows go by top and bottom half', () => {
+  const rows = [{ left: 0, top: 0, right: 800, bottom: 30 }, { left: 0, top: 30, right: 800, bottom: 60 }];
+  assert.deepStrictEqual(S.nearestDrop(400, 70, rows, { rows: true }), { index: 1, side: 'after' });
+  assert.deepStrictEqual(S.nearestDrop(400, 10, rows, { rows: true }), { index: 0, side: 'before' });
+});
+
+/* Dragged tiles (o.skip) count for the geometry, never for the answer. */
+
+// n tiles of 100 x 80 with a 12 px gap, `cols` to a row.
+function grid(n, cols) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const left = (i % cols) * 112, top = Math.floor(i / cols) * 92;
+    out.push({ left, top, right: left + 100, bottom: top + 80 });
+  }
+  return out;
+}
+const G9 = grid(9, 4);     // rows: 0-3, 4-7, and 8 alone at y 184..264
+
+test('nearestDrop skip: the dragged tile alone on the last row, a drop in the empty cells after it stays put', () => {
+  // Tile 9 (index 8) dragged into the empty cell at row 3, column 3.
+  assert.deepStrictEqual(S.nearestDrop(280, 220, G9, { skip: [8] }), { index: 7, side: 'after' },
+    'after tile 8: the same order, not before tile 7');
+  // Tiles 8 and 9 (indexes 7, 8) together.
+  assert.deepStrictEqual(S.nearestDrop(280, 220, G9, { skip: [7, 8] }), { index: 6, side: 'after' },
+    'after tile 7: the same order, not before tile 6');
+  // Tile 9 dropped just under the grid.
+  assert.deepStrictEqual(S.nearestDrop(50, 280, G9, { skip: [8] }), { index: 7, side: 'after' },
+    'after tile 8, not before tile 5');
+});
+
+test('nearestDrop skip: the 7-column, 8-file grid from the report', () => {
+  const g = grid(8, 7);   // file 8 alone on row 2
+  assert.deepStrictEqual(S.nearestDrop(2 * 112 + 50, 130, g, { skip: [7] }), { index: 6, side: 'after' }, 'empty cell row 2 column 3');
+  assert.deepStrictEqual(S.nearestDrop(4 * 112 + 50, 92 + 80 + 15, g, { skip: [7] }), { index: 6, side: 'after' }, '15 px under column 5');
+});
+
+test('nearestDrop skip: the gap right next to a dragged tile in the middle of a row', () => {
+  // Tile 6 (index 5) dragged; the gap between it and tile 7 (x 212..224 of row 2).
+  assert.deepStrictEqual(S.nearestDrop(214, 120, G9, { skip: [5] }), { index: 4, side: 'after' },
+    'nearer the dragged tile: beside tile 5, where it already is');
+  assert.deepStrictEqual(S.nearestDrop(222, 120, G9, { skip: [5] }), { index: 6, side: 'before' },
+    'nearer tile 7: before it, the same place');
+  // The gap on its left (between tile 5 and it).
+  assert.deepStrictEqual(S.nearestDrop(102, 120, G9, { skip: [5] }), { index: 4, side: 'after' });
+  assert.deepStrictEqual(S.nearestDrop(110, 120, G9, { skip: [5] }), { index: 4, side: 'after' },
+    'nearer the dragged tile, its left half: after tile 5 still');
+});
+
+test('nearestDrop skip: several dragged tiles spread over rows', () => {
+  const skip = new Set([1, 5, 8]);   // tiles 2, 6 and 9
+  // Under the dragged tile 2's left half, in the row gap: before it means after tile 1.
+  assert.deepStrictEqual(S.nearestDrop(130, 84, G9, { skip }), { index: 0, side: 'after' });
+  // Right half of dragged tile 6 from the row gap below it: after it means after tile 5.
+  assert.deepStrictEqual(S.nearestDrop(190, 176, G9, { skip }), { index: 4, side: 'after' });
+  // The empty cells after dragged tile 9: after tile 8 (index 7).
+  assert.deepStrictEqual(S.nearestDrop(400, 220, G9, { skip }), { index: 7, side: 'after' });
+  // A tile not dragged is answered as before.
+  assert.deepStrictEqual(S.nearestDrop(340, 84, G9, { skip }), { index: 3, side: 'before' });
+  // The first tile dragged, a drop left of it: before the next one not dragged.
+  assert.deepStrictEqual(S.nearestDrop(-10, 40, G9, { skip: [0, 1] }), { index: 2, side: 'before' });
+});
+
+test('nearestDrop skip: a single-tile collection, or every tile dragged, has nowhere to drop', () => {
+  assert.strictEqual(S.nearestDrop(300, 40, grid(1, 4), { skip: [0] }), null);
+  assert.strictEqual(S.nearestDrop(300, 220, G9, { skip: [0, 1, 2, 3, 4, 5, 6, 7, 8] }), null);
+});
+
+test('nearestDrop skip: the empty cells after the last tile move a dragged tile from elsewhere to the end', () => {
+  assert.deepStrictEqual(S.nearestDrop(280, 220, G9, { skip: [1] }), { index: 8, side: 'after' });
+  assert.deepStrictEqual(S.nearestDrop(20, 280, G9, { skip: [1, 4] }), { index: 8, side: 'before' },
+    'under tile 9, left half: before it (the same place as before 9 in the order)');
+});
+
+test('nearestDrop: nothing to drop on, or no pointer', () => {
+  assert.strictEqual(S.nearestDrop(10, 10, []), null);
+  assert.strictEqual(S.nearestDrop(NaN, 10, TILES), null);
+});
+
+/* ── Gap drops with a search or filter on (sameShownOrder) ─────────────── */
+
+test('sameShownOrder: only the shown files count', () => {
+  const all = () => true;
+  assert.strictEqual(S.sameShownOrder([1, 2, 3], [1, 2, 3], all), true);
+  assert.strictEqual(S.sameShownOrder([2, 1, 3], [1, 2, 3], all), false);
+  const not2 = (id) => id !== 2;
+  assert.strictEqual(S.sameShownOrder([2, 1, 3, 4], [1, 2, 3, 4], not2), true, '1 jumped only past hidden 2');
+  assert.strictEqual(S.sameShownOrder([2, 3, 1, 4], [1, 2, 3, 4], not2), false, '1 went past shown 3');
+  assert.strictEqual(S.sameShownOrder([1, 3, 4, 2], [1, 2, 3, 4], not2), true, 'a hidden file moved alone');
+  assert.strictEqual(S.sameShownOrder([], [], all), true);
+  assert.strictEqual(S.sameShownOrder([1, 2], [1, 2, 3], all), false, 'a shown file only in one');
+});
+
+test('sameShownOrder: looks only at the stretch that changed', () => {
+  const asked = [];
+  const shown = (id) => { asked.push(id); return id !== 50; };
+  const a = Array.from({ length: 1000 }, (_, i) => i + 1);
+  const b = a.slice();
+  b.splice(48, 2, 50, 49);                            // 49 jumped past hidden 50
+  assert.strictEqual(S.sameShownOrder(b, a, shown), true);
+  assert.ok(asked.length <= 4, `asked about ${asked.length} files`);
+});
+
+/**
+ * A collection grid in the vm: `members` in order, `hidden` left out of the
+ * results (a search or filter), the rest drawn as 100 x 80 tiles with 12 px
+ * gaps, `cols` to a row, from (0, 300). Records the drop mark and the move.
+ */
+function gridPage({ members, hidden = [], cols = 4 }) {
+  const on = {};
+  const hide = new Set(hidden);
+  const visible = members.filter(id => !hide.has(id));
+  const mark = { id: null, side: null };
+  const tiles = visible.map((id, k) => {
+    const left = (k % cols) * 112, top = 300 + Math.floor(k / cols) * 92;
+    const tile = { dataset: { id: String(id) } };
+    tile.classList = {
+      add() {},
+      remove: () => { if (mark.id === id) { mark.id = null; mark.side = null; } },
+      toggle: (c, onOff) => { if (onOff) { mark.id = id; mark.side = c === 'reorder-drop-before' ? 'before' : 'after'; } },
+    };
+    tile.hasAttribute = (a) => a === 'draggable';
+    tile.contains = (el) => el === tile;
+    tile.closest = (q) => (q.startsWith('.media-tile') ? tile : q === '#resultsGrid' ? {} : null);
+    tile.addEventListener = () => {};
+    tile.getBoundingClientRect = () => ({ left, top, right: left + 100, bottom: top + 80, width: 100, height: 80 });
+    return tile;
+  });
+  const rows = Math.ceil(visible.length / cols);
+  const grid = {
+    contains: () => true,
+    querySelectorAll: () => tiles,
+    getBoundingClientRect: () => ({ left: 0, top: 300, right: cols * 112 - 12, bottom: 300 + rows * 92 - 12 }),
+  };
+  const doc = {
+    body: { classList: { contains: () => false } },
+    addEventListener: (t, fn) => { (on[t] = on[t] || []).push(fn); },
+    querySelectorAll: () => [],
+    querySelector: () => null,
+    getElementById: (id) => (id === 'resultsGrid' ? grid : null),
+  };
+  const moves = [];
+  const ctx = {
+    console, document: doc, window: { innerHeight: 2000, scrollY: 0, addEventListener() {}, scrollBy() {} },
+    DragAutoScroll: S,
+    setTimeout: () => 0,
+    performance: { now: () => 0 },
+    requestAnimationFrame: () => 1, cancelAnimationFrame() {},
+    activeCollectionId: 5,
+    collectionMembers: new Map([[5, members.slice()]]),
+    getCollectionById: () => ({ id: 5, kind: 'collection' }),
+    currentSortField: () => 'playlist',
+    Library: { shuffled: false, spec: { collectionId: 5 }, search: null, row: () => ({ filename: 'a.mp4' }), indexOf: (id) => visible.indexOf(id) },
+    selectedIds: new Set(),
+  };
+  vm.createContext(ctx);
+  vm.runInContext(SRC, ctx);
+  ctx.reorderMove = (ids, before) => { moves.push({ ids: [...ids], before }); return Promise.resolve(true); };
+  const fire = (type, e) => { for (const fn of on[type] || []) fn(e); };
+  const tileOf = (id) => tiles[visible.indexOf(id)];
+  const gap = { closest: () => null };
+  const ev = (x, y, target) => ({ target, clientX: x, clientY: y, preventDefault() {}, dataTransfer: {} });
+  return {
+    mark, moves,
+    start: (id) => fire('dragstart', { target: tileOf(id), dataTransfer: { setData() {}, effectAllowed: '' }, preventDefault() {} }),
+    /** The pointer over a gap (no onId) or right on tile onId. */
+    over: (x, y, onId) => fire('dragover', ev(x, y, onId != null ? tileOf(onId) : gap)),
+    drop: (x, y, onId) => fire('drop', ev(x, y, onId != null ? tileOf(onId) : gap)),
+  };
+}
+
+const NINE = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+test('filter on: a gap drop beside the dragged tile does not carry it past a hidden file', () => {
+  // 2 is hidden: the grid shows 1 3 4 5 / 6 7 8 9. Drag 1.
+  for (const [x, what] of [[-10, 'just left of tile 1'], [106, 'the gap between 1 and 3']]) {
+    const p = gridPage({ members: NINE, hidden: [2] });
+    p.start(1);
+    p.over(x, 340);
+    assert.strictEqual(p.mark.id, null, `${what}: no mark`);
+    p.drop(x, 340);
+    assert.deepStrictEqual(p.moves, [], `${what}: nothing saved`);
+  }
+});
+
+test('filter on: the last file dropped in the empty cells after it stays put past a hidden one', () => {
+  // 8 is hidden: the grid shows 1 2 3 4 5 / 6 7 9. Drag 9 into the cells after it.
+  const p = gridPage({ members: NINE, hidden: [8], cols: 5 });
+  p.start(9);
+  p.over(400, 420);
+  assert.strictEqual(p.mark.id, null);
+  p.drop(400, 420);
+  assert.deepStrictEqual(p.moves, []);
+});
+
+test('filter on: a real gap move lands where the mark says', () => {
+  const p = gridPage({ members: NINE, hidden: [2] });          // 1 3 4 5 / 6 7 8 9
+  p.start(1);
+  p.over(330, 340);                                            // the gap between 4 and 5
+  assert.deepStrictEqual({ ...p.mark }, { id: 4, side: 'after' });
+  p.drop(330, 340);
+  assert.deepStrictEqual(p.moves, [{ ids: [1], before: 5 }], 'shown order 3 4 1 5');
+
+  const q = gridPage({ members: NINE, hidden: [6] });          // 1 2 3 4 / 5 7 8 9
+  q.start(9);
+  q.over(-10, 432);                                            // just left of 5, the second row's start
+  assert.deepStrictEqual({ ...q.mark }, { id: 5, side: 'before' });
+  q.drop(-10, 432);
+  assert.deepStrictEqual(q.moves, [{ ids: [9], before: 5 }]);
+});
+
+test('a drop right on a tile may pass a hidden file; one that changes nothing shows no mark', () => {
+  const p = gridPage({ members: NINE, hidden: [2] });          // 1 3 4 5 / 6 7 8 9
+  p.start(1);
+  p.over(130, 340, 3);                                         // the left half of 3
+  assert.deepStrictEqual({ ...p.mark }, { id: 3, side: 'before' });
+  p.drop(130, 340, 3);
+  assert.deepStrictEqual(p.moves, [{ ids: [1], before: 3 }], 'past hidden 2, as the tile drop says');
+
+  const q = gridPage({ members: NINE });                       // 1 2 3 4 / 5 6 7 8 / 9
+  q.start(5);
+  q.over(350, 340, 4);                                         // the left half of 4: a real move
+  assert.deepStrictEqual({ ...q.mark }, { id: 4, side: 'before' });
+  q.over(420, 340, 4);                                         // the right half of 4: 5 is already there
+  assert.strictEqual(q.mark.id, null, 'no mark for a drop that changes nothing');
+  q.drop(420, 340, 4);
+  assert.deepStrictEqual(q.moves, []);
+  q.start(5);
+  q.over(130, 432, 6);                                         // the left half of 6: also where 5 is
+  assert.strictEqual(q.mark.id, null);
+});
