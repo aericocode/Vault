@@ -865,6 +865,15 @@ function collectionsHomeShowing() {
 }
 
 let _applySeq = 0;
+
+/* A keep-place re-run waiting for the full id list (the run's seq, or null),
+   and how long it waits before drawing with what it has. */
+let _keepPlaceHold = null;
+const KEEP_PLACE_WAIT_MS = 8000;
+
+/** True while a keep-place re-run holds the continuous list as it is (see install below). */
+function libraryDrawHeld() { return _keepPlaceHold != null; }
+
 let _searchError = null;   // a 400 from the server, said under the search box
 
 function applyFilters(opts) {
@@ -916,7 +925,20 @@ function applyFilters(opts) {
     // drop near the bottom of a collection left the view mid-list).
     const heldEnd = typeof libraryHeldEnd === 'function' ? libraryHeldEnd() : pageAnchor + 1;
     if (keepPage && heldEnd > Library.firstPageIds.length && !Library.known()) {
-      return Library.waitIds().then(() => { if (seq === _applySeq) afterResults(keepPage); });
+      // Continuous mode: until then nothing else draws either (cards.js
+      // libraryDrawHeld). A redraw meanwhile (the grid's resize observer when
+      // the header changes height, the count arriving, a window resize) would
+      // lay the list out from the first answer, just as short.
+      if (libraryLayoutMode() === 'continuous') _keepPlaceHold = seq;
+      // Bounded: an id list that never comes must not leave the old view up
+      // for good (and a collection drag waiting on this, busy).
+      let timer;
+      const late = new Promise(r => { timer = setTimeout(r, KEEP_PLACE_WAIT_MS); });
+      return Promise.race([Library.waitIds(), late]).then(() => {
+        clearTimeout(timer);
+        if (_keepPlaceHold === seq) _keepPlaceHold = null;
+        if (seq === _applySeq) afterResults(keepPage);
+      });
     }
     afterResults(keepPage);
     return null;
@@ -967,6 +989,8 @@ let _rerunFromTop = false;
 
 /** The UI work that follows a new result. */
 function afterResults(keepPage) {
+  // Whatever run draws now, the view is no longer held for an older one.
+  _keepPlaceHold = null;
   // A new search or filter has no place to hold, so it starts at the top.
   if (!keepPage && typeof resetPageAnchor === 'function') resetPageAnchor();
   // Clamp: a mutation (trash/remove) can shrink the list under the anchor —

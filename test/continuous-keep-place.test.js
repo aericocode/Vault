@@ -19,7 +19,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const read = (f) => fs.readFileSync(path.join(__dirname, '..', 'player-lib', f), 'utf8');
+const read = (f) => fs.readFileSync(path.join(__dirname, '..', 'player-lib', f), 'utf8').replace(/\r\n/g, '\n');
 const between = (src, a, b) => {
   const i = src.indexOf(a), j = src.indexOf(b, i);
   assert.ok(i >= 0 && j > i, `markers not found: ${a} / ${b}`);
@@ -28,10 +28,13 @@ const between = (src, a, b) => {
 const FILTERS = read('filters.js');
 const CARDS = read('cards.js');
 
-function setup({ layout, pageAnchor, contState, firstIds = 100, total = 120 }) {
+function setup({ layout, pageAnchor, contState, firstIds = 100, total = 120, realAfter = false }) {
   const drawn = [];
   let releaseIds;
   const idsPromise = new Promise(r => { releaseIds = r; });
+  // Timers by hand: a test fires the bounded wait's timeout when it wants.
+  const timers = new Map();
+  let timerSeq = 0;
   const lib = {
     known: false,
     firstPageIds: Array.from({ length: firstIds }, (_, i) => i + 1),
@@ -47,12 +50,21 @@ function setup({ layout, pageAnchor, contState, firstIds = 100, total = 120 }) {
     persistSearchState() {}, collectionsHomeShowing: () => false,
     afterResults: (keep) => drawn.push({ keep, known: lib.known }),
     showToast() {}, console,
+    setTimeout: (fn) => { timers.set(++timerSeq, fn); return timerSeq; },
+    clearTimeout: (t) => { timers.delete(t); },
   };
   vm.createContext(ctx);
   vm.runInContext(between(CARDS, 'function libraryHeldEnd()', '/** Where the viewport sits'), ctx);
-  vm.runInContext(between(FILTERS, 'let _applySeq = 0;', '/** The UI work that follows a new result. */')
-    + '\nvar _searchLock = null;', ctx);
-  return { ctx, drawn, releaseIds };
+  // realAfter: the real afterResults (it lets go of the hold), drawing through renderResults.
+  const filtersEnd = realAfter ? '/* ── First-launch index build' : '/** The UI work that follows a new result. */';
+  if (realAfter) {
+    delete ctx.afterResults;
+    ctx.renderSearchNote = () => {};
+    ctx.renderResults = () => drawn.push({ known: lib.known });
+  }
+  vm.runInContext(between(FILTERS, 'let _applySeq = 0;', filtersEnd) + '\nvar _searchLock = null;', ctx);
+  const fireTimers = () => { const fns = [...timers.values()]; timers.clear(); fns.forEach(fn => fn()); };
+  return { ctx, drawn, releaseIds, timers, fireTimers };
 }
 
 const tick = () => new Promise(r => setTimeout(r, 0));
@@ -102,4 +114,85 @@ test('libraryHeldEnd: continuous rows drawn, the table (one column) too', () => 
   assert.strictEqual(s.ctx.libraryHeldEnd(), 118);
   const t = setup({ layout: 'continuous', pageAnchor: 5, contState: { cols: 4, last: -1 } });
   assert.strictEqual(t.ctx.libraryHeldEnd(), 6, 'nothing drawn yet: the first tile');
+});
+
+/* While a keep-place re-run waits, nothing else may draw the continuous list
+   from the first answer: a sort change grows the collection header, the
+   grid's resize observer re-laid the list 100 results tall in the meantime,
+   and Firefox pulled the view up (2571 to 2393 with the id list 400 ms late). */
+
+test('continuous: the view is held while the re-run waits, and let go when it draws', async () => {
+  const s = setup({ layout: 'continuous', pageAnchor: 84, contState: { cols: 7, last: 17 } });
+  assert.strictEqual(s.ctx.libraryDrawHeld(), false);
+  const done = s.ctx.applyFilters({ keepPage: true });
+  await tick();
+  assert.strictEqual(s.ctx.libraryDrawHeld(), true, 'other redraws must wait too');
+  s.releaseIds();
+  await done;
+  assert.strictEqual(s.ctx.libraryDrawHeld(), false);
+  assert.deepStrictEqual(s.drawn, [{ keep: true, known: true }]);
+  assert.strictEqual(s.timers.size, 0, 'the timeout is cleared');
+});
+
+test('pages mode: a wait does not hold other redraws (placeholders fill in, as before)', async () => {
+  const s = setup({ layout: 'pages', pageAnchor: 100, contState: { cols: 7, last: -1 } });
+  const done = s.ctx.applyFilters({ keepPage: true });
+  await tick();
+  assert.strictEqual(s.ctx.libraryDrawHeld(), false);
+  s.releaseIds();
+  await done;
+});
+
+test('an id list that never comes: after the bounded wait the view draws and is let go', async () => {
+  const s = setup({ layout: 'continuous', pageAnchor: 84, contState: { cols: 7, last: 17 } });
+  const done = s.ctx.applyFilters({ keepPage: true });
+  await tick();
+  assert.strictEqual(s.ctx.libraryDrawHeld(), true);
+  assert.deepStrictEqual(s.drawn, []);
+  s.fireTimers();
+  await done;   // a collection drag awaiting this is free again
+  assert.strictEqual(s.ctx.libraryDrawHeld(), false);
+  assert.deepStrictEqual(s.drawn, [{ keep: true, known: false }]);
+});
+
+test('a newer search that draws lets go of an older wait', async () => {
+  const s = setup({ layout: 'continuous', pageAnchor: 84, contState: { cols: 7, last: 17 }, realAfter: true });
+  const older = s.ctx.applyFilters({ keepPage: true });
+  await tick();
+  assert.strictEqual(s.ctx.libraryDrawHeld(), true);
+  await s.ctx.applyFilters();   // a new search: draws at once
+  assert.strictEqual(s.ctx.libraryDrawHeld(), false);
+  assert.strictEqual(s.drawn.length, 1);
+  s.releaseIds();
+  await older;
+  assert.strictEqual(s.drawn.length, 1, 'the superseded run does not draw');
+});
+
+/* The drawing side (cards.js, table-view.js): every way into a continuous
+   draw stops while held, so no redraw path is missed. */
+test('held: renderResults, renderContinuous and the window passes draw nothing', () => {
+  const TABLE = read('table-view.js');
+  const calls = [];
+  const ctx = {
+    held: true,
+    libraryDrawHeld() { return ctx.held; },
+    renderEmptyState() { calls.push('drew'); return true; },
+    tableViewActive() { return false; },
+    document: { querySelector() { calls.push('drew'); return null; } },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(between(CARDS, 'function renderResults()', '/* ── Rows on demand'), ctx);
+  vm.runInContext(between(CARDS, 'function renderContinuous()', '/** Swap in the rows for the current scroll position. */'), ctx);
+  vm.runInContext(between(CARDS, 'function renderContinuousWindow()', '/* ── Keeping rows across a scroll'), ctx);
+  vm.runInContext(between(TABLE, 'function tvRenderWindow()', '\n}\n') + '\n}', ctx);
+  for (const fn of ['renderResults', 'renderContinuous', 'renderContinuousWindow', 'tvRenderWindow']) {
+    ctx[fn]();
+  }
+  assert.deepStrictEqual(calls, [], 'something drew while held');
+  ctx.held = false;
+  for (const fn of ['renderResults', 'renderContinuous', 'renderContinuousWindow', 'tvRenderWindow']) {
+    calls.length = 0;
+    ctx[fn]();
+    assert.ok(calls.length > 0, `${fn} did not draw once let go`);
+  }
 });

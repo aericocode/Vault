@@ -321,6 +321,11 @@ document.addEventListener('click', (e) => {
 let _inRenderCorrection = false;
 
 function renderResults() {
+  // A keep-place re-run is waiting for the id list: the view stays as it is
+  // and that run draws it (filters.js). Drawn from the first answer now, the
+  // continuous list would come out too short and the browser would move the
+  // view up to its end.
+  if (typeof libraryDrawHeld === 'function' && libraryDrawHeld()) return;
   if (renderEmptyState()) return;
   // Modern's table view draws rows with this same machinery (player-lib/table-view.js).
   if (typeof tableViewRender === 'function' && tableViewRender()) return;
@@ -673,6 +678,7 @@ function continuousRange(stride, totalRows) {
 }
 
 function renderContinuous() {
+  if (typeof libraryDrawHeld === 'function' && libraryDrawHeld()) return;   // see renderResults
   if (renderEmptyState()) return;
   if (typeof tableViewRender === 'function' && tableViewRender()) return;
   const m = measureGrid();
@@ -720,6 +726,10 @@ function renderContinuous() {
 
 /** Swap in the rows for the current scroll position. */
 function renderContinuousWindow() {
+  // Held (see renderResults): the result underneath is the new first answer,
+  // the rows on the page the old list; mixing them would put the wrong files
+  // in rows past the first answer.
+  if (typeof libraryDrawHeld === 'function' && libraryDrawHeld()) return;
   if (typeof tableViewActive === 'function' && tableViewActive()) return tvRenderWindow();
   const virt = document.querySelector('#resultsGrid .grid-virt');
   if (!virt) return;
