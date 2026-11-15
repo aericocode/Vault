@@ -840,6 +840,20 @@ function syncVirtRows(virt, want, wrap) {
   }
 }
 
+/**
+ * Just past the last result the view holds now. A re-run of the same query
+ * that keeps the place (filters.js applyFilters keepPage) needs the results
+ * up to here before it draws. Pages mode: the page's first tile (a page past
+ * the first answer draws placeholders and fills in). Continuous mode (grid
+ * and table): the end of the rows drawn, since the list must stay as tall as
+ * the scroll position needs.
+ */
+function libraryHeldEnd() {
+  const end = pageAnchor + 1;
+  if (libraryLayoutMode() !== 'continuous' || contState.last < 0) return end;
+  return Math.max(end, (contState.last + 1) * Math.max(1, contState.cols));
+}
+
 /** Where the viewport sits, expressed as a tile plus a pixel offset. */
 function continuousAnchorOffset() {
   const virt = document.querySelector('#resultsGrid .grid-virt');

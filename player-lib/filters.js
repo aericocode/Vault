@@ -909,8 +909,13 @@ function applyFilters(opts) {
     if (!ok || seq !== _applySeq) return null;
     _searchError = null;
     _rerunFromTop = false;
-    // Holding a place past the first page needs the id list first.
-    if (keepPage && pageAnchor >= Library.firstPageIds.length && !Library.known()) {
+    // Holding a place past the first page needs the id list first. In
+    // continuous mode that is any row drawn past it, not just the first one:
+    // drawn from the first answer alone, the list would be too short for the
+    // scroll position and the browser would pull the view up to its end (a
+    // drop near the bottom of a collection left the view mid-list).
+    const heldEnd = typeof libraryHeldEnd === 'function' ? libraryHeldEnd() : pageAnchor + 1;
+    if (keepPage && heldEnd > Library.firstPageIds.length && !Library.known()) {
       return Library.waitIds().then(() => { if (seq === _applySeq) afterResults(keepPage); });
     }
     afterResults(keepPage);
