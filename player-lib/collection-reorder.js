@@ -629,7 +629,7 @@ function inPlaceDragOver(e) {
     if (_fileDrop !== f) return;
     inPlaceFinish();
     // The drop overlay goes too (importer.js), so its words do not stay up.
-    try { window.dispatchEvent(new CustomEvent('vault:file-drag-quiet')); } catch {}
+    try { document.dispatchEvent(new CustomEvent('vault:file-drag-quiet')); } catch {}
   }, FILE_DROP_STALE_MS);
   _edgeScrollAt(e.clientY);
   f.dwell = DragAutoScroll.dwellStep(f.dwell, e.clientX, e.clientY, window.scrollY, performance.now());

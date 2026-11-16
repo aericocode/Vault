@@ -1922,7 +1922,7 @@
   });
   // Over an open collection no dragover came for a while: the drag ended
   // without a dragleave (collection-reorder.js), so the overlay goes.
-  window.addEventListener('vault:file-drag-quiet', () => { _depth = 0; showDropOverlay(false); });
+  document.addEventListener('vault:file-drag-quiet', () => { _depth = 0; showDropOverlay(false); });
   document.addEventListener('dragleave', (e) => {
     if (!hasFiles(e)) return;
     _depth = Math.max(0, _depth - 1);
