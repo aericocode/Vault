@@ -13,12 +13,12 @@ const WallRules = require('../player-lib/wall-rules.js');
 const stageSettings = require('../lib/stage/settings');
 
 test('time left: m:ss, h:mm:ss past an hour, rounded up so 0:00 is the very end', () => {
-  assert.strictEqual(TP.leftText(252), '4:12 left');
-  assert.strictEqual(TP.leftText(251.2), '4:12 left');
-  assert.strictEqual(TP.leftText(0.4), '0:01 left');
-  assert.strictEqual(TP.leftText(0), '0:00 left');
-  assert.strictEqual(TP.leftText(3723), '1:02:03 left');
-  assert.strictEqual(TP.leftText(59.9999999), '1:00 left');
+  assert.strictEqual(TP.leftText(252), '4:12');
+  assert.strictEqual(TP.leftText(251.2), '4:12');
+  assert.strictEqual(TP.leftText(0.4), '0:01');
+  assert.strictEqual(TP.leftText(0), '0:00');
+  assert.strictEqual(TP.leftText(3723), '1:02:03');
+  assert.strictEqual(TP.leftText(59.9999999), '1:00');
   assert.strictEqual(TP.leftText(NaN), '');
   assert.strictEqual(TP.leftText(Infinity), '');
   assert.strictEqual(TP.leftText(-1), '');

@@ -937,14 +937,14 @@ test('track: as a file starts the name shows with the time left beside it and th
   await e.clock.tick(400);
   let s = track(e);
   assert.strictEqual(s.fade, 1);
-  assert.match(s.label, /\}city-night-drive\\h\\h\\h\{\\b0[^}]*\}1:30 left$/);
+  assert.match(s.label, /\}city-night-drive\\h\\h\\h\{\\b0[^}]*\}1:30$/);
   assert.match(s.line, /^\{\\an7\\pos\(0,0\).*\\1c&H000000&.*m 0 0 l 1280 0 1280 3 0 3/);
   assert.match(s.line, /\n.*\\1c&HA34FFF&.*m 0 0 l 128 0 128 3 0 3/, 'pink, filled to 10 %');
   // It keeps up while it shows (the status tick draws it again).
   await e.prop('time-pos', 50);
   e.engine.sendStatus(true);
   s = track(e);
-  assert.match(s.label, /0:50 left$/);
+  assert.match(s.label, /0:50$/);
   assert.match(s.line, /l 640 0 640 3 0 3/);
   await e.clock.tick(3000 + 400 + 100);
   s = track(e);
@@ -983,7 +983,7 @@ test('track: a mouse move over the Stage window brings the three back for the na
   await e.prop('mouse-pos', { x: 30, y: 12, hover: true });
   await e.clock.tick(400);
   assert.strictEqual(track(e).fade, 1);
-  assert.match(track(e).label, /city-night-drive.*1:30 left$/);
+  assert.match(track(e).label, /city-night-drive.*1:30$/);
   await e.clock.tick(2500);
   await e.prop('mouse-pos', { x: 31, y: 12, hover: true });
   await e.clock.tick(2500);
@@ -1004,7 +1004,7 @@ test('track: names off, no start moment; the mouse then shows only the time left
   await e.prop('mouse-pos', { x: 5, y: 1, hover: true });
   await e.clock.tick(400);
   assert.ok(!track(e).label.includes('city-night'));
-  assert.match(track(e).label, /1:30 left$/);
+  assert.match(track(e).label, /1:30$/);
   assert.notStrictEqual(track(e).line, '');
 
   const p = await trackEngine();
@@ -1013,7 +1013,7 @@ test('track: names off, no start moment; the mouse then shows only the time left
   await p.prop('mouse-pos', { x: 5, y: 1, hover: true });
   await p.clock.tick(400);
   assert.ok(!track(p).label.includes('city-night'));
-  assert.match(track(p).label, /1:30 left$/);
+  assert.match(track(p).label, /1:30$/);
 });
 
 test('track: a picture shows only its name (no time left, no line); a long name is cut so the time left fits', async () => {
@@ -1027,12 +1027,12 @@ test('track: a picture shows only its name (no time left, no line); a long name 
   assert.strictEqual(track(e).line, '');
 
   const long = 'x'.repeat(200);
-  const ev = Overlay.nameEvent(long, 1, { left: '12:34 left', canvasW: 1280 });
-  assert.ok(ev.endsWith('12:34 left'));
+  const ev = Overlay.nameEvent(long, 1, { left: '12:34', canvasW: 1280 });
+  assert.ok(ev.endsWith('12:34'));
   const name = /\}(x+…)\\h/.exec(ev)[1];
-  assert.ok(Array.from(name).length <= Overlay.nameBudget(1280, '12:34 left'));
-  assert.ok(Overlay.nameBudget(640, '12:34 left') < Overlay.nameBudget(1280, '12:34 left'), 'a narrow window cuts more');
-  assert.strictEqual(Overlay.nameEvent('', 1, { left: '1:00 left', canvasW: 1280 }).endsWith('}{\\b0\\1a&H1A&}1:00 left'), true, 'no name: only the time left');
+  assert.ok(Array.from(name).length <= Overlay.nameBudget(1280, '12:34'));
+  assert.ok(Overlay.nameBudget(640, '12:34') < Overlay.nameBudget(1280, '12:34'), 'a narrow window cuts more');
+  assert.strictEqual(Overlay.nameEvent('', 1, { left: '1:00', canvasW: 1280 }).endsWith('}{\\b0\\1a&H1A&}1:00'), true, 'no name: only the time left');
   assert.strictEqual(Overlay.canvasWidth(1920, 1080), 1280);
   assert.strictEqual(Overlay.canvasWidth(0, 1080), 0);
   assert.match(Overlay.lineEvent(0.5, { canvasW: 1280, osdH: 1440 }), /m 0 0 l 1280 0 1280 1.5 0 1.5/, '3 window pixels on a 1440 high window');
