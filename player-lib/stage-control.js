@@ -558,9 +558,35 @@ const StageControl = (() => {
   function countText() {
     const none = { track: '', time: '' };
     if (typeof StageCount === 'undefined' || !stageOn()) return none;
-    if (!source) return withTimeLeft(null);
+    const o = countInputs();
+    return withTimeLeft(o ? StageCount.summary(o) : null);
+  }
+
+  /**
+   * The preview pane's "Plays in 12:30" for a file (StageCount.until, from
+   * the same inputs as the bar's count): "On Stage now" for the file on
+   * Stage, '' when there is no honest answer (or nothing on Stage).
+   */
+  function playsInText(id) {
+    if (typeof StageCount === 'undefined' || !stageOn() || id == null) return '';
+    if (!basic && finished) return '';
+    const cid = stageFileId();
+    if (cid == null) return '';
+    if (cid === id) return StageCount.untilText({ now: true });
+    const o = countInputs();
+    const u = o ? StageCount.until(o, id) : null;
+    // Basic Stage: at the video's speed, as the bar's time left.
+    const el = basic && u ? basicEl() : null;
+    const rate = el && Number(el.playbackRate) > 0 ? Number(el.playbackRate) : 1;
+    if (u && rate !== 1) u.seconds = Math.round(u.seconds / rate);
+    return StageCount.untilText(u);
+  }
+
+  /** What StageCount.summary / until take for the file on Stage now; null with no list to count. */
+  function countInputs() {
+    if (!source) return null;
     const L = listNow();
-    if (!L.known || !L.known()) return withTimeLeft(null);
+    if (!L.known || !L.known()) return null;
     const n = L.length();
     const anchor = typeof listAnchorIndex === 'function' ? listAnchorIndex() : -1;
     const ids = L === Library ? Library.ids : L.ids;
@@ -580,8 +606,12 @@ const StageControl = (() => {
       }
       countMemo = { ids, anchor, basic, n, before, all, skips };
     }
+    // A file Vault knows will not play (marked unplayable, or a codec this browser cannot decode) is
+    // passed over by the queue, so it adds no time and has no "Plays in" of its own.
+    const badRow = (r) => typeof isKnownBadMedia === 'function' && isKnownBadMedia(r);
     // The lengths: the rest of the list (up to TIME_CAP) and Up next, from the rows Vault has.
     const rest = [];
+    const restIds = [];
     const restTotal = Math.max(0, countMemo.all - countMemo.before);
     const missing = [];
     const upItems = typeof UpNext !== 'undefined' && UpNext.items ? UpNext.items() : [];
@@ -591,13 +621,14 @@ const StageControl = (() => {
         if (!StageCount.plays(typeAt(i), basic)) continue;
         const r = L.rowAt(i);
         if (!r) missing.push(L.idAt(i));
-        rest.push(r ? { type: r.media_type, duration: r.duration_seconds } : null);
+        rest.push(r ? { type: badRow(r) ? 'unplayable' : r.media_type, duration: r.duration_seconds } : null);
+        restIds.push(L.idAt(i));
       }
     }
     const upNext = upItems.map((u) => {
       const r = Library.row(u.id);
       if (!r) missing.push(u.id);
-      return r ? { type: r.media_type, duration: r.duration_seconds } : { type: u.media_type || 'video', duration: null };
+      return r ? { id: u.id, type: badRow(r) ? 'unplayable' : r.media_type, duration: r.duration_seconds } : { id: u.id, type: u.media_type || 'video', duration: null };
     });
     if (missing.length && restTotal + upNext.length <= StageCount.TIME_CAP) {
       const key = `${anchor}|${missing.length}|${missing[0]}`;
@@ -612,12 +643,11 @@ const StageControl = (() => {
       ct = el ? el.currentTime : 0;
       cd = el && isFinite(el.duration) ? el.duration : 0;
     } else { ct = t; cd = d; }
-    const sum = StageCount.summary({
-      types: typeAt, length: n, anchor, counts: countMemo, upPlayed, upNext, rest, restTotal,
-      current: { t: ct, d: cd }, repeat: currentRepeat(), basic,
+    return {
+      types: typeAt, length: n, anchor, counts: countMemo, upPlayed, upNext, rest, restIds, restTotal,
+      current: { t: ct, d: cd, id: stageFileId() }, repeat: currentRepeat(), basic,
       imageSeconds: settings.imageSeconds,
-    });
-    return withTimeLeft(sum);
+    };
   }
 
   /**
@@ -1829,7 +1859,7 @@ const StageControl = (() => {
     openStage, openFromPlayer, playCollectionOnStage, stageButton, closeStage, closeStageAndStop, menu, front, setSize,
     toggleHold, setVolume, toggleMute, paintVolume: paint, key, hideRemote,
     upNextChanged, repeatChanged, showTips,
-    queueList, fileOpened, backToStage, countText,
+    queueList, fileOpened, backToStage, countText, playsInText,
     /** The id of the file on Stage now, or null (the Flow chart's playhead reads proxy for its time). */
     currentId: () => (cur && cur.row ? cur.row.id : null),
     /** Where Stage plays from: { cid } (a collection), { cid: null } (the Library tab), or null (not known). */

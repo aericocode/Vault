@@ -1,7 +1,8 @@
 /* =========================================================================
    TRACK PROGRESS - the thin pink line along the top of the picture, and the
-   file's name with the time left beside it ("city-night-drive.webm  4:12
-   left"), for the player (player-lib/player/player-track.js), the Wall
+   file's name with the time left in it beside it ("city-night-drive.webm
+   4:12": just the clock, "left" is the word for the whole stream's time
+   left on the Stage bar), for the player (player-lib/player/player-track.js), the Wall
    (player-lib/wall.js) and mpv Stage (lib/stage/engine.js,
    lib/stage/mpv-overlay.js).
 
@@ -32,9 +33,13 @@ const TrackProgress = (() => {
     return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
   }
 
-  /** "4:12 left", or '' when the time left is not known. */
+  /**
+   * The time left in the file as it shows beside the name: "4:12", or ''
+   * when it is not known. Just the clock: the word "left" is kept for the
+   * stream's time left (the Stage bar's count, the countdown warnings).
+   */
   function leftText(seconds) {
-    return Number.isFinite(seconds) && seconds >= 0 ? `${clock(seconds)} left` : '';
+    return Number.isFinite(seconds) && seconds >= 0 ? clock(seconds) : '';
   }
 
   /**

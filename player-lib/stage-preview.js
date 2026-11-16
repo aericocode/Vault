@@ -26,6 +26,7 @@
      stagePreviewDblClick(id)  cards.js tileThumbDblClick: true = handled here
      stagePreviewForcing()     dock.js: the pane shows for Stage
      stagePreviewHintHtml()    dock.js: the line in the pane
+     stagePreviewPlaysInHtml(id)  dock.js: "Plays in 12:30" for the file
      StagePreview.previewPlaying(id)  stage-bar.js / the Stage menu: Preview
    stage-bar.js fires 'vault:stage-bar' ({ on }) when the bar shows and hides.
    ========================================================================= */
@@ -137,12 +138,47 @@ const StagePreview = (() => {
     if (typeof dockSync === 'function') dockSync();
   }
 
+  /* "Plays in 12:30": how long from now until the previewed file is up on
+     Stage (StageControl.playsInText, StageCount.until), under the file's
+     meta line. The part is in the pane for as long as Stage is open (empty
+     when there is no honest answer, and then hidden), so the clock below can
+     keep its words current without painting the pane again. */
+  const PLAYS_MS = 1000;
+  let playsTimer = null;
+
+  function playsText(id) {
+    if (!stageOn() || typeof StageControl === 'undefined' || !StageControl.playsInText) return '';
+    try { return StageControl.playsInText(Number(id)); } catch { return ''; }
+  }
+
+  function playsInHtml(id) {
+    if (!stageOn()) return '';
+    return `<div class="dock-stage-plays" data-dock-part="stageplays" data-id="${Number(id)}">${playsText(id)}</div>`;
+  }
+
+  /** Once a second while Stage is open: the line follows Stage, Up next and the list; the DOM only when the words change. */
+  function refreshPlays() {
+    if (typeof document === 'undefined') return;
+    const el = document.querySelector('#dockBody [data-dock-part="stageplays"]');
+    if (!el) return;
+    const text = playsText(el.dataset.id);
+    if (el.textContent !== text) el.textContent = text;
+  }
+
+  function playsClock(on) {
+    if (typeof setInterval !== 'function') return;   // the tests run this file without timers
+    clearInterval(playsTimer);
+    playsTimer = on ? setInterval(refreshPlays, PLAYS_MS) : null;
+  }
+
   // The pane comes with Stage, so the grid never moves under a click: on
   // when the Stage bar shows, back to the user's own setting when it goes.
   window.addEventListener('vault:stage-bar', (e) => {
     const on = !!(e.detail && e.detail.on);
     clicks = [];
     setForcing(on);
+    playsClock(on);
+    if (!on) refreshPlays();          // a pane that goes with Stage keeps no stale line
     // The pane's Stage line comes and goes with Stage, on the same file too.
     if (typeof dockIsShown === 'function' && dockIsShown() && typeof dockRepaintAll === 'function') dockRepaintAll();
   });
@@ -156,10 +192,11 @@ const StagePreview = (() => {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watch); else watch();
   }
 
-  return { click, dblClick, previewPlaying, hintHtml, onControl, noteLayout, forcing: () => forcing && stageOn(), stageOn };
+  return { click, dblClick, previewPlaying, hintHtml, playsInHtml, refreshPlays, onControl, noteLayout, forcing: () => forcing && stageOn(), stageOn };
 })();
 
 function stagePreviewClick(id) { return StagePreview.click(id); }
 function stagePreviewDblClick(id, ev) { return StagePreview.dblClick(id, ev); }
 function stagePreviewForcing() { return StagePreview.forcing(); }
 function stagePreviewHintHtml() { return StagePreview.hintHtml(); }
+function stagePreviewPlaysInHtml(id) { return StagePreview.playsInHtml(id); }

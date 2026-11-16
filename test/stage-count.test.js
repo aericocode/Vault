@@ -113,3 +113,74 @@ test('a whole collection\'s length from the server: any size, "about" with some 
   assert.strictEqual(C.collectionTime({ item_count: 4 }), null, 'nothing from the server (yet)');
   assert.strictEqual(C.collectionTime(null), null);
 });
+
+/* ── Plays in: how long until a file is up on Stage (the preview pane) ── */
+
+// A list of 6 videos (ids 1..6, 60 s each) standing on id 2, Stage 20 s into it.
+const plan = (o = {}) => ({
+  types: Array(6).fill('video'), length: 6, anchor: 1,
+  current: { id: 2, t: 20, d: 60 },
+  rest: vids(4), restIds: [3, 4, 5, 6], repeat: 'off',
+  ...o,
+});
+
+test('plays in: the rest of the file on Stage plus every file before it, Up next first', () => {
+  assert.deepStrictEqual(C.until(plan(), 3), { seconds: 40, about: false }, 'next in the list: the rest of this one');
+  assert.deepStrictEqual(C.until(plan(), 5), { seconds: 160, about: false });
+  const up = plan({ upNext: [{ id: 9, type: 'video', duration: 30 }, { id: 8, type: 'video', duration: 45 }] });
+  assert.deepStrictEqual(C.until(up, 9), { seconds: 40, about: false }, 'Up next plays first');
+  assert.deepStrictEqual(C.until(up, 8), { seconds: 70, about: false });
+  assert.deepStrictEqual(C.until(up, 3), { seconds: 115, about: false }, 'the list after Up next');
+  assert.strictEqual(C.untilText(C.until(up, 3)), 'Plays in 1:55');
+  assert.strictEqual(C.untilText({ seconds: 2 * 3600 + 14 * 60 + 30, about: false }), 'Plays in 2:14:30', 'the bar\'s clock');
+});
+
+test('plays in: the file on Stage is on now; a file ahead twice plays the first time', () => {
+  assert.deepStrictEqual(C.until(plan(), 2), { now: true });
+  assert.strictEqual(C.untilText(C.until(plan(), 2)), 'On Stage now');
+  const twice = plan({ upNext: [{ id: 9, type: 'video', duration: 30 }, { id: 5, type: 'video', duration: 60 }] });
+  assert.deepStrictEqual(C.until(twice, 5), { seconds: 70, about: false }, 'in Up next before its place in the list');
+});
+
+test('plays in: files that do not play are passed over and add no time; pictures add their seconds', () => {
+  const o = plan({
+    types: ['video', 'video', 'document', 'image', 'audio', 'video'],
+    rest: [{ type: 'document' }, { type: 'image' }, { type: 'audio', duration: 100 }, { type: 'video', duration: 60 }],
+    imageSeconds: 8,
+  });
+  assert.strictEqual(C.until(o, 3), null, 'a document never plays');
+  assert.deepStrictEqual(C.until(o, 5), { seconds: 48, about: false }, '40 s + the picture\'s 8');
+  assert.deepStrictEqual(C.until(o, 6), { seconds: 148, about: false });
+  // Basic Stage plays videos only: the picture and the sound file are passed over.
+  assert.strictEqual(C.until({ ...o, basic: true }, 4), null);
+  assert.deepStrictEqual(C.until({ ...o, basic: true }, 6), { seconds: 40, about: false });
+  // Skipped files reach it as a type that does not play (stage-control.js): not ahead.
+  const sk = plan({ rest: [{ type: 'skipped' }, ...vids(3)] });
+  assert.strictEqual(C.until(sk, 3), null);
+  assert.deepStrictEqual(C.until(sk, 4), { seconds: 40, about: false });
+});
+
+test('plays in: "about" when a length on the way is not known, not for ones after it', () => {
+  const o = plan({ rest: [{ type: 'video', duration: 60 }, null, ...vids(2)] });
+  assert.deepStrictEqual(C.until(o, 3), { seconds: 40, about: false });
+  assert.deepStrictEqual(C.until(o, 4), { seconds: 100, about: false }, 'its own length does not matter');
+  assert.deepStrictEqual(C.until(o, 5), { seconds: 100, about: true }, 'a row not loaded yet on the way (it adds nothing)');
+  assert.strictEqual(C.untilText(C.until(o, 5)), 'Plays in about 1:40');
+  assert.deepStrictEqual(C.until(plan({ current: { id: 2, t: 5, d: 0 } }), 3), { seconds: 0, about: true }, 'the file on Stage has no length yet');
+});
+
+test('plays in: no honest answer, nothing shown', () => {
+  assert.strictEqual(C.until(plan(), 1), null, 'already played');
+  assert.strictEqual(C.until(plan(), 42), null, 'not in the list');
+  assert.strictEqual(C.until(plan({ repeat: 'all' }), 3), null, 'Repeat all: the count gives no time');
+  assert.strictEqual(C.until(plan({ repeat: 'one' }), 3), null, 'Repeat this file');
+  assert.deepStrictEqual(C.until(plan({ repeat: 'one' }), 2), { now: true }, 'the file on Stage still is');
+  assert.strictEqual(C.until(plan({ current: {} }), 3), null, 'nothing on Stage');
+  assert.strictEqual(C.until(plan(), null), null);
+  assert.strictEqual(C.until(null, 3), null);
+  const big = C.TIME_CAP + 5;
+  assert.strictEqual(C.until(plan({ types: Array(big + 2).fill('video'), length: big + 2, rest: [], restIds: [], restTotal: big }), 3), null, 'past TIME_CAP');
+  const most = plan({ rest: [null, null, null, { type: 'video', duration: 60 }], restIds: [3, 4, 5, 6], current: { id: 2, t: 0, d: 0 } });
+  assert.strictEqual(C.until(most, 6), null, 'more than half the lengths not known');
+  assert.strictEqual(C.untilText(null), '');
+});

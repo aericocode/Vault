@@ -123,6 +123,15 @@ body.pm-names .dock-name { filter: blur(7px); pointer-events: none; user-select:
 .dock-meta:empty { display: none; }
 .dock-meta span + span::before { content: "·"; margin-right: 0.5rem; }
 
+/* Stage open: "Plays in 12:30" under the meta line, as quiet as it (stage-preview.js). */
+.dock-stage-plays {
+  margin-top: -0.3rem;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.dock-stage-plays:empty { display: none; }
+
 /* The length, on the picture (bottom right, like a tile's). */
 .dock-thumb .dock-len { font-size: 0.7rem; font-variant-numeric: tabular-nums; }
 

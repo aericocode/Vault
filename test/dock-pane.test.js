@@ -39,6 +39,7 @@ function load(opts = {}) {
     vaultIcon: (n) => `<svg class="vi vi-${n}"></svg>`,
     thumbImgAttrs: () => 'src="x"',
     UpNext: {},
+    ...(opts.globals || {}),
   };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(LIB, 'notes.js'), 'utf8'), ctx);
@@ -146,4 +147,16 @@ test('File info and path: a toggle keeps the saved HTML in step, so a same-file 
   el.open = false;
   D.dockInfoToggled(el);
   assert.strictEqual(el._dockHtml, html, 'closed again: back to the closed HTML');
+});
+
+test('Stage open: "Plays in" sits right under the meta line; no line without Stage', () => {
+  const D = load();
+  assert.ok(!D.dockPartsHtml(FILE).some(([k]) => k === 'stageplays'));
+  const S = load({ globals: {
+    stagePreviewHintHtml: () => '<div class=dock-stage-hint data-dock-part=stagehint>Stage is on</div>',
+    stagePreviewPlaysInHtml: (id) => `<div class="dock-stage-plays" data-dock-part="stageplays" data-id="${id}">Plays in 4:00</div>`,
+  } });
+  const keys = S.dockPartsHtml(FILE).map(([k]) => k);
+  assert.strictEqual(keys[keys.indexOf('meta') + 1], 'stageplays');
+  assert.match(S.dockPartsHtml(FILE).find(([k]) => k === 'stageplays')[1], /data-id="7">Plays in 4:00</);
 });

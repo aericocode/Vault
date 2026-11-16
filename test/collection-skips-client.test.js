@@ -139,7 +139,7 @@ test('stage-control: what mpv is handed next, and the bar\'s count, leave skippe
   const up = grab(sc, 'async function computeUpcoming(');
   assert.match(up, /const skips = typeof queueSkipSet === 'function' \? queueSkipSet\(L\) : null;/);
   assert.match(up, /if \(skips && skips\.has\(L\.idAt\(i\)\)\) return false;/);
-  const count = grab(sc, 'function countText(');
+  const count = grab(sc, 'function countInputs(');   // the count's inputs (countText and the pane's Plays in)
   assert.match(count, /skips\.has\(ids\[i\]\) \? 'skipped' : typeOf\(i\)/);
   assert.strictEqual(require('../player-lib/stage-count.js').plays('skipped'), false, 'a skipped file is not counted');
   assert.match(sc, /addEventListener\('vault:skips-changed'/);
