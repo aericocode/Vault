@@ -1947,6 +1947,8 @@
   });
   // Over an open collection no dragover came for a while: the drag ended
   // without a dragleave (collection-reorder.js), so the overlay goes.
+  // The mark moved or went between dragovers (the page scrolled): the words follow it.
+  document.addEventListener('vault:file-drop-mode', (e) => { if (_depth > 0) setDropOverlayMode(e.detail); });
   document.addEventListener('vault:file-drag-quiet', () => { clearTimeout(_quiet); _depth = 0; showDropOverlay(false); });
   document.addEventListener('dragleave', (e) => {
     if (!hasFiles(e)) return;

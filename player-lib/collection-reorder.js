@@ -396,7 +396,8 @@ function _edgeBounds(exact) {
     const r = head.getBoundingClientRect();
     if (r.height > 0 && r.top <= top + 1) top = Math.max(top, r.bottom);
   }
-  let bottom = window.innerHeight;
+  // exact: a horizontal scrollbar along the bottom covers files too.
+  let bottom = exact ? Math.min(window.innerHeight, document.documentElement.clientHeight || window.innerHeight) : window.innerHeight;
   const bar = document.body.classList.contains('stage-bar-on') ? document.querySelector('.stage-bar') : null;
   if (bar) {
     const r = bar.getBoundingClientRect();
@@ -659,12 +660,23 @@ function _fileMarkFollow() {
   const f = _fileDrop;
   if (!f || !f.placing || f.x == null) return;
   const at = _fileVisibleSpot(f.x, f.y);
-  if (!at) { _clearDropMark(); f.at = null; f.before = undefined; return; }
+  if (!at) { _clearDropMark(); f.at = null; f.before = undefined; _fileModeSay(); return; }
   f.before = at.before;
   if (!f.at || at.tile !== f.at.tile || at.side !== f.at.side || !at.tile.classList.contains(`reorder-drop-${at.side}`)) {
     f.at = at;
     _showFileMark(at);
   }
+  _fileModeSay();
+}
+
+/** The drop overlay's words follow the mark when it changes between dragovers (a scroll): importer.js listens. */
+function _fileModeSay() {
+  const f = _fileDrop;
+  if (!f) return;
+  const mode = f.placing && f.at ? 'placing' : 'waiting';
+  if (f.said === mode) return;
+  f.said = mode;
+  try { document.dispatchEvent(new CustomEvent('vault:file-drop-mode', { detail: mode })); } catch {}
 }
 
 // Drop mode while the page scrolls (edge scroll, the wheel, the browser's
