@@ -381,8 +381,12 @@ function _markDragging() {
 const EDGE_STALE_MS = 150;
 let _edge = null;   // { y, at, raf, last } while scrolling
 
-/** The visible files' top and bottom edges, in viewport pixels. */
-function _edgeBounds() {
+/**
+ * The visible files' top and bottom edges, in viewport pixels. exact: the real
+ * edges (what a header covers), without the cap that keeps the scroll bands
+ * usable in a very short window.
+ */
+function _edgeBounds(exact) {
   let top = 0;
   const header = document.getElementById('appHeader');
   if (header) top = Math.max(top, header.getBoundingClientRect().bottom);
@@ -398,7 +402,7 @@ function _edgeBounds() {
     const r = bar.getBoundingClientRect();
     if (r.height > 0 && r.top < bottom) bottom = Math.max(0, r.top);
   }
-  top = Math.max(0, Math.min(top, window.innerHeight / 2));
+  top = Math.max(0, exact ? top : Math.min(top, window.innerHeight / 2));
   return { top, bottom: Math.max(top, bottom) };
 }
 
@@ -621,7 +625,7 @@ function _fileVisibleSpot(x, y) {
   const grid = document.getElementById('resultsGrid');
   if (!grid) return null;
   const tiles = [...grid.querySelectorAll('.media-tile[data-id]')];
-  const hit = DragAutoScroll.visibleDrop(x, y, tiles.map(el => el.getBoundingClientRect()), _edgeBounds(), { rows: _isTableView() });
+  const hit = DragAutoScroll.visibleDrop(x, y, tiles.map(el => el.getBoundingClientRect()), _edgeBounds(true), { rows: _isTableView() });
   if (!hit) return null;
   const tile = tiles[hit.index];
   const before = DragAutoScroll.insertBefore(_members(), Number(tile.dataset.id), hit.side);
@@ -631,7 +635,7 @@ function _fileVisibleSpot(x, y) {
 /** Is the marked tile drawn and on screen (its middle in the visible files area), with its mark? */
 function _fileMarkShown(at) {
   if (!at || !at.tile.isConnected || !at.tile.classList.contains(`reorder-drop-${at.side}`)) return false;
-  return DragAutoScroll.onScreen(at.tile.getBoundingClientRect(), _edgeBounds(), _isTableView());
+  return DragAutoScroll.onScreen(at.tile.getBoundingClientRect(), _edgeBounds(true), _isTableView());
 }
 
 /** The file drag is still on the page: restart the "ended unseen" timer. */
@@ -707,7 +711,8 @@ function inPlaceDragOver(e) {
     const again = document.querySelector(`#resultsGrid .media-tile[data-id="${Number(f.at.tile.dataset.id)}"]`);
     if (again) { f.at = { ...f.at, tile: again }; _showFileMark(f.at); }
   }
-  return f.placing ? 'placing' : 'waiting';
+  // Drop mode with no row on screen to mark: a drop adds at the end, as the waiting words say.
+  return f.placing && f.at ? 'placing' : 'waiting';
 }
 
 /**
