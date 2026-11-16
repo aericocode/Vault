@@ -182,9 +182,61 @@ function upNextCount() {
   return typeof UpNext !== 'undefined' ? UpNext.count() : 0;
 }
 
-/** Does Next have somewhere to go from the file on screen (Up next, or the list)? */
+/**
+ * Would a walk of the list from `from` (exclusive), `step` at a time, find a
+ * file to play? The same tests nextPlayableIndex makes (not media, skipped,
+ * passed over by Basic Stage, known-bad), answered from what is loaded now:
+ * a file whose row is not loaded yet counts as one (the walk will look), so
+ * only a list known to hold nothing playable that way answers false.
+ */
+function listHasPlayable(from, step) {
+  const L = queueList();
+  const n = L.length();
+  const skips = queueSkipSet(L);
+  for (let i = from + step; i >= 0 && i < n; i += step) {
+    const type = L.typeAt(i);
+    if (type === 'document' || (L.types && !type)) continue;
+    const id = L.idAt(i);
+    if (id === undefined) return true;
+    if (skips && skips.has(id)) continue;
+    const row = L.rowAt(i);
+    if (!row) return true;
+    if (queuePassesOver(row.media_type)) continue;
+    if (!isKnownBadMedia(row)) return true;
+  }
+  return false;
+}
+
+/**
+ * Does Next have somewhere to go from the file on screen (Up next, or the
+ * list)? Pressed by hand, Next never wraps (UpNextRule.plan), whatever Repeat
+ * says, so neither does this.
+ */
 function playerHasNext() {
-  return upNextCount() > 0 || !queueList().known() || listAnchorIndex() < queueList().length() - 1;
+  if (upNextCount() > 0) return true;
+  if (!queueList().known()) return true;   // before the exact count is in there is always more to come
+  return listHasPlayable(listAnchorIndex(), 1);
+}
+
+/** Does Previous have somewhere to go (always the list, never Up next; UpNextRule.plan)? */
+function playerHasPrev() {
+  const anchor = listAnchorIndex();
+  if (anchor < 0) return false;
+  return listHasPlayable(playingFromUpNext ? anchor + 1 : anchor, -1);
+}
+
+/** Next and Previous on the open player follow the list (Up next, skips changing). */
+function refreshPlayerNavButtons() {
+  if (typeof document === 'undefined') return;
+  const overlay = document.getElementById('mediaPlayerOverlay');
+  if (!overlay || !overlay.classList.contains('active')) return;
+  const next = playerHasNext();
+  const prev = playerHasPrev();
+  document.querySelectorAll('#mpNext, #mediaPlayerControls [onclick^="playNextMedia"]').forEach((b) => { b.disabled = !next; });
+  document.querySelectorAll('#mpPrev, #mediaPlayerControls [onclick^="playPreviousMedia"]').forEach((b) => { b.disabled = !prev; });
+}
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('vault:skips-changed', () => refreshPlayerNavButtons());
 }
 
 /**
@@ -759,10 +811,9 @@ function playMedia(mediaData, opts = {}) {
   if (typeof ModernDock !== 'undefined') ModernDock.unmount();
 
   // Previous and Next follow the list's anchor (a file Up next played sits
-  // outside the list's order); Next also has Up next to go to.
-  const anchorAt = listAnchorIndex();
-  const hasPrev = anchorAt > 0 || (playingFromUpNext && anchorAt >= 0);
-  // Before the exact count is in there is always more to come.
+  // outside the list's order); Next also has Up next to go to. Skipped and
+  // known-bad files on the way do not count: the move would pass over them.
+  const hasPrev = playerHasPrev();
   const hasNext = playerHasNext();
 
   // Render based on media type
