@@ -265,6 +265,9 @@ function dockPartsHtml(m) {
   // Stage open: how to put a file on Stage from here (stage-preview.js).
   const stageHint = typeof stagePreviewHintHtml === 'function' ? stagePreviewHintHtml() : '';
   if (stageHint) parts.unshift(['stagehint', stageHint]);
+  // Stage open: how long until this file plays there, under the meta line (stage-preview.js).
+  const playsIn = typeof stagePreviewPlaysInHtml === 'function' ? stagePreviewPlaysInHtml(m.id) : '';
+  if (playsIn) parts.splice(parts.findIndex(([k]) => k === 'meta') + 1, 0, ['stageplays', playsIn]);
   // The file's stream tags, by lane, with + Tag (stream-tags.js).
   if (typeof streamTagBlockHtml === 'function') parts.push(['stags', `<div class="dock-stags" data-dock-part="stags">${streamTagBlockHtml(m)}</div>`]);
   if (typeof dockEditPartHtml === 'function') {

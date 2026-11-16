@@ -116,6 +116,62 @@ const StageCount = (() => {
     return out;
   }
 
+  /**
+   * How long from now until a file is up on Stage, for the preview pane's
+   * "Plays in 12:30". o: what summary() takes, with the ids to look for:
+   *   current.id   the file on Stage
+   *   upNext[k].id the Up next files
+   *   restIds      the ids of rest, in step with it (rest entries may be
+   *                null, rows not loaded yet, so the ids come apart)
+   * The order is summary()'s: the rest of the file on Stage, Up next, then
+   * the rest of the list, files that do not play passed over; a file ahead
+   * twice is up the first time. Answers { now: true } for the file on Stage,
+   * { seconds, about } (about: some length on the way is not known), or null
+   * when there is no honest answer: not ahead, nothing on Stage, or a count
+   * that gives no time itself (Repeat all or this file, past TIME_CAP, too
+   * many lengths not known).
+   */
+  function until(o, id) {
+    const m = o || {};
+    const cur = m.current || {};
+    if (id == null || cur.id == null) return null;
+    if (cur.id === id) return { now: true };
+    const sum = summary(m);
+    if (!sum || sum.left == null) return null;
+    const basic = !!m.basic;
+    let secs = 0, unknown = false;
+    const cd = Number(cur.d) > 0 ? Number(cur.d) : 0;
+    if (cd) secs += Math.max(0, cd - (Number(cur.t) || 0));
+    else unknown = true;
+    const add = (f) => {
+      const s = fileSeconds(f, m.imageSeconds);
+      if (s == null) unknown = true; else secs += s;
+    };
+    const hit = () => ({ seconds: Math.round(secs), about: unknown });
+    for (const u of m.upNext || []) {
+      if (!u || !plays(u.type, basic)) continue;
+      if (u.id === id) return hit();
+      add(u);
+    }
+    const restAll = Number.isInteger(m.restTotal) ? m.restTotal : (m.rest || []).length;
+    const rest = m.rest || [];
+    const ids = m.restIds || [];
+    for (let k = 0; k < restAll && k < rest.length; k++) {
+      const f = rest[k];
+      if (f && !plays(f.type, basic)) continue;
+      if (ids[k] === id) return hit();
+      add(f || null);
+    }
+    return null;
+  }
+
+  /** The preview pane's line for until(): "Plays in 12:30", "Plays in about 12:30", "On Stage now", or ''. */
+  function untilText(u) {
+    if (!u) return '';
+    if (u.now) return 'On Stage now';
+    return `Plays in ${u.about ? 'about ' : ''}${clock(u.seconds)}`;
+  }
+
   /** 4:05 under an hour, 2:14:30 under a day, 3:02:14:30 (days first) past it. */
   function clock(s) {
     const v = Math.max(0, Math.round(Number(s) || 0));
@@ -179,7 +235,7 @@ const StageCount = (() => {
     return 0;
   }
 
-  return { TIME_CAP, plays, fileSeconds, summary, clock, text, listText, collectionTime, nextUpPlayed };
+  return { TIME_CAP, plays, fileSeconds, summary, until, untilText, clock, text, listText, collectionTime, nextUpPlayed };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = StageCount;
