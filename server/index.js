@@ -1685,6 +1685,29 @@ app.post('/api/media/retry-errors', (req, res) => {
   res.json(out);
 });
 
+// Mark as playable: clear the "failed to play" mark on the selected files so
+// playback tries them again (the bulk bar's Mark as playable). Files without
+// the mark are left alone, so sending the whole selection is safe.
+app.post('/api/media/clear-playback-failed', (req, res) => {
+  const raw = req.body?.ids;
+  if (!Array.isArray(raw) || raw.length === 0) return res.status(400).json({ error: 'ids must be a non-empty array' });
+  const ids = [...new Set(raw.map(v => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v
+    : (typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? Number(v) : null))).filter(v => v !== null))];
+  if (ids.length === 0) return res.status(400).json({ error: 'no valid ids' });
+  const handle = db.get();
+  let cleared = 0;
+  handle.transaction(() => {
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      cleared += handle.prepare(
+        `UPDATE media SET playback_failed = 0
+          WHERE id IN (${chunk.map(() => '?').join(',')}) AND COALESCE(playback_failed, 0) <> 0`
+      ).run(...chunk).changes;
+    }
+  })();
+  res.json({ cleared });
+});
+
 // Force refresh: read files again (media info, thumbnail, hover frames) and
 // clear a stale processing error, without redoing the AI scan (lib/import-add.js
 // forceRefresh). A few files answer with the outcome; a big selection runs in

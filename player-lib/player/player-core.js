@@ -1592,7 +1592,7 @@ function handleMediaError(filepath, reason) {
   const giveUp = () => {
     consecutivePlayFailures = 0;
     closeMediaPlayer();
-    showToast(reason || 'Cannot play this file, marked as unplayable. Use “Copy Path” to locate it.');
+    showToast(reason || 'Cannot play this file. Use “Copy Path” to locate it.');
   };
   if (lastPlaySource === 'auto' && consecutivePlayFailures < queueLength) {
     // Capture the file that just died before the queue moves off it.

@@ -280,6 +280,13 @@ function _attachRemux(el, mediaId, filepath, info, opts) {
     if (!data || !data.fatal) return;
     if (_hls !== hls) return;
     destroyStream();
+    // The converted stream arrived and still would not decode: the file is
+    // the problem, so it is marked (selection.js only marks a native error
+    // once this retry has had its chance). A network error marks nothing.
+    if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+      const media = typeof getMediaById === 'function' ? getMediaById(mediaId) : null;
+      if (media && typeof _markPlaybackFailed === 'function') _markPlaybackFailed(media);
+    }
     if (typeof handleMediaError === 'function') handleMediaError(filepath);
   });
   // MSE attach runs the media load algorithm, which resets playbackRate — so

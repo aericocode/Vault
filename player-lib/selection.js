@@ -271,10 +271,11 @@ function bulkLoadFailed(err) {
 let _selCounts = { key: '', data: null, busy: false };
 
 function countRows(rows) {
-  const c = { trashed: 0, flagged: 0, errored: 0, unscanned: 0, av: 0, video: 0, faceable: 0 };
+  const c = { trashed: 0, flagged: 0, failed: 0, errored: 0, unscanned: 0, av: 0, video: 0, faceable: 0 };
   for (const m of rows) {
     if (m.user_trashed) c.trashed++;
     if (m.user_flagged_delete) c.flagged++;
+    if (m.playback_failed) c.failed++;
     if (m.processing_error === 'unscanned') c.unscanned++;
     else if (m.processing_error) c.errored++;
     if (m.media_type === 'video' || m.media_type === 'audio') c.av++;
@@ -316,7 +317,7 @@ function selectionCounts() {
         key: want,
         busy: false,
         data: {
-          count: s.count, trashed: s.trashed, flagged: s.flagged,
+          count: s.count, trashed: s.trashed, flagged: s.flagged, failed: s.failed || 0,
           errored: s.scan.failed, unscanned: s.scan.unscanned,
           av: (s.types.video || 0) + (s.types.audio || 0), video: s.types.video || 0,
           faceable: (s.types.image || 0) + (s.types.gif || 0) + (s.types.video || 0),
@@ -325,7 +326,7 @@ function selectionCounts() {
       renderSelectionBar();
     }, () => { _selCounts.busy = false; });
   }
-  return _selCounts.data || { count: selectedIds.size, trashed: 0, flagged: 0, errored: 0, unscanned: 0, av: 0, video: 0, faceable: 0 };
+  return _selCounts.data || { count: selectedIds.size, trashed: 0, flagged: 0, failed: 0, errored: 0, unscanned: 0, av: 0, video: 0, faceable: 0 };
 }
 
 /** POST ids to a bulk endpoint in chunks the body limit takes; sum the answers. */
@@ -440,6 +441,13 @@ function renderSelectionBar() {
     title="Read ${selFiles(errored)} with an error again and remake their thumbnails, without redoing the AI scan"
     >${vaultEmojiLabel(`🔄 ${selBtnLabel('Force refresh', errored)}`)}</button>`;
 
+  // Files marked as failed to play: clear the mark so playback tries them
+  // again (a drive that was asleep, a server restart mid-file). Only offered
+  // when the selection has some.
+  const failedBtn = !counts.failed ? '' : `<button class="sel-btn sel-playable" onclick="markPlayableSelected()"
+    title="${selFiles(counts.failed)} marked as unplayable. Clear the mark so playback tries ${counts.failed === 1 ? 'it' : 'them'} again"
+    >${vaultEmojiLabel(`▶ ${selBtnLabel('Mark as playable', counts.failed)}`)}</button>`;
+
   // A collection is open: its ticked files can be taken out of it (collections.js).
   const inCollIds = typeof selectedInOpenCollection === 'function' ? selectedInOpenCollection() : [];
   const inCollection = inCollIds.length;
@@ -461,6 +469,7 @@ function renderSelectionBar() {
     ${typeof facesSelectionButton === 'function' ? facesSelectionButton(counts.faceable) : ''}
     ${retryBtn}
     ${refreshBtn}
+    ${failedBtn}
     ${activeCount > 0 ? `<button class="sel-btn sel-trash" onclick="trashSelected()" title="Move ${selFiles(activeCount)} to the trash">${vaultEmojiLabel(`🗑 ${selBtnLabel('Trash', activeCount)}`)}</button>` : ''}
     ${trashedCount > 0 ? `<button class="sel-btn sel-restore" onclick="restoreSelected()" title="Take ${selFiles(trashedCount)} out of the trash">${vaultEmojiLabel(`♻ ${selBtnLabel('Restore', trashedCount)}`)}</button>` : ''}
     ${flagBtn}
@@ -562,6 +571,29 @@ async function retryErrorsSelected() {
     if (typeof window.vaultWatchScanQueue === 'function') window.vaultWatchScanQueue({ fresh: true });
   } catch (err) {
     showErrorToast(err, 'queueing the files for another scan');
+  }
+}
+
+/** Clear the "failed to play" mark on the selected files (the bar's Mark as playable). */
+async function markPlayableSelected() {
+  const ids = [...selectedIds];
+  if (!ids.length) return;
+  try {
+    const r = await postIdsChunked('/api/media/clear-playback-failed', ids);
+    if (!r.ok) { showErrorToast(selHttpError(r.status, r.error), 'clearing the unplayable mark'); return; }
+    // Cached rows change at once; the rest come back changed when the
+    // library notices the write (its version moved), which also re-runs an
+    // "Only unplayable" search so the cleared files leave it.
+    for (const m of selectedMedia()) {
+      if (m && m.playback_failed) { m.playback_failed = 0; Library.patchRow(m); }
+    }
+    selectionChanged();
+    renderResults();
+    renderSelectionBar();
+    showToast(r.cleared ? `Marked ${selFiles(r.cleared)} as playable. ${r.cleared === 1 ? 'This file' : 'These files'} will be tried again.`
+      : 'None of the selected files were marked as unplayable.');
+  } catch (err) {
+    showErrorToast(err, 'clearing the unplayable mark');
   }
 }
 
@@ -1550,19 +1582,71 @@ function _isCurrentPlayerMedia(el) {
   return media && media.id ? media : null;
 }
 
-document.addEventListener('error', (e) => {
-  const media = _isCurrentPlayerMedia(e.target);
-  if (media && !media.playback_failed) {
-    media.playback_failed = 1;
-    postFlags(media, { playback_failed: 1 });
-    // Privacy / streaming mode handles the same failure by skipping to the next
-    // file (handleMediaError in player-core.js) and says so itself. Two toasts
-    // for one dead file reads as two separate problems, so only the flag is
-    // set here and the message is left to the handler that acted on it.
-    if (!document.body.classList.contains('privacy-mode')) {
-      showToast('This file would not play, so it is marked as unplayable.', { type: 'error' });
-    }
+/**
+ * Does this error say the FILE cannot play here, or only that this attempt
+ * failed? The mark is kept for good (auto-advance, Up next, random play and
+ * Stage pass the file over), so it is only set when the file itself is the
+ * problem:
+ *   'mark'   the browser got the bytes and could not decode them
+ *   'probe'  "not supported", which browsers also say when the URL answered
+ *            with an HTTP error or not at all: ask the server first
+ *   'no'     anything else (a network drop, an aborted load, a server
+ *            restart, the browser out of decoders, a converted-stream retry
+ *            still to come). Playback still moves on; nothing is saved.
+ */
+function _playbackFailureKind(el) {
+  if (el.tagName === 'IMG') return 'probe';
+  // handleMediaError retries a native attempt through the converted stream
+  // once (retryThroughRemux). That retry gets its chance before any mark;
+  // if it fails too, player-stream.js marks it.
+  if (el.dataset && el.dataset.playbackFallback === 'remux') return 'no';
+  const err = el.error;
+  if (!err) return 'no';
+  // Firefox out of decoders / memory: the file is fine, the browser is busy.
+  if (/OUT_OF_MEMORY|allocat/i.test(err.message || '')) return 'no';
+  if (err.code === 3 /* MEDIA_ERR_DECODE */) return 'mark';
+  if (err.code === 4 /* MEDIA_ERR_SRC_NOT_SUPPORTED */) return 'probe';
+  return 'no';   // MEDIA_ERR_ABORTED, MEDIA_ERR_NETWORK
+}
+
+/** Did the server answer this URL with the file (2xx)? Any failure counts as no. */
+async function _sourceAnswers(url) {
+  if (!url || /^(blob|data):/i.test(url)) return false;
+  try {
+    const resp = await fetch(url, {
+      headers: { Range: 'bytes=0-0' },
+      cache: 'no-store',
+      signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
+    });
+    try { if (resp.body) resp.body.cancel(); } catch {}
+    return resp.ok;
+  } catch {
+    return false;
   }
+}
+
+function _markPlaybackFailed(media) {
+  if (!media || media.playback_failed) return;
+  media.playback_failed = 1;
+  postFlags(media, { playback_failed: 1 });
+  // Privacy / streaming mode handles the same failure by skipping to the next
+  // file (handleMediaError in player-core.js) and says so itself. Two toasts
+  // for one dead file reads as two separate problems, so only the flag is
+  // set here and the message is left to the handler that acted on it.
+  if (!document.body.classList.contains('privacy-mode')) {
+    showToast('This file would not play in this browser, so it is marked as unplayable.', { type: 'error' });
+  }
+}
+
+document.addEventListener('error', (e) => {
+  const el = e.target;
+  const media = _isCurrentPlayerMedia(el);
+  if (!media || media.playback_failed) return;
+  const kind = _playbackFailureKind(el);
+  if (kind === 'mark') { _markPlaybackFailed(media); return; }
+  if (kind !== 'probe') return;
+  const url = el.currentSrc || el.getAttribute('src') || '';
+  _sourceAnswers(url).then((ok) => { if (ok) _markPlaybackFailed(media); });
 }, true);
 
 /**

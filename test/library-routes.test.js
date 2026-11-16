@@ -127,7 +127,7 @@ test('version, facets, ids-summary and duplicates answer their shapes', async ()
   const u32 = Buffer.alloc(12);
   u32.writeUInt32LE(ids['a.mp4'], 0); u32.writeUInt32LE(ids['c.jpg'], 4); u32.writeUInt32LE(123456, 8);
   const s = await (await post('/api/library/ids-summary', u32, { 'Content-Type': 'application/octet-stream' })).json();
-  assert.deepStrictEqual(s, { count: 2, trashed: 1, flagged: 0, scan: { success: 1, failed: 1, unscanned: 0 }, types: { video: 1, image: 1 } });
+  assert.deepStrictEqual(s, { count: 2, trashed: 1, flagged: 0, failed: 0, scan: { success: 1, failed: 1, unscanned: 0 }, types: { video: 1, image: 1 } });
   // Big selections walk the sort index instead of looking rows up: same answer.
   const facetsLib = require('../lib/library-facets');
   facetsLib._tuning.summaryWalkMin = 0;
