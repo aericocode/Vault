@@ -92,8 +92,8 @@ test('countdown settings: rows in both looks, in Settings search, the error line
     assert.ok(ui.includes(`sfind: '${id}'`), `${id} row`);
     assert.ok(read('player-lib/settings-search.js').includes(`id: '${id}'`), `${id} in Settings search`);
   }
-  assert.match(ui, /_stageCountdownRows\(s, true\)/, 'Modern');
-  assert.match(ui, /_stageCountdownRows\(s, false\)/, 'Classic');
+  assert.match(ui, /_stageCountdownGroup\(s, true\)/, 'Modern');
+  assert.match(ui, /_stageCountdownGroup\(s, false\)/, 'Classic');
   assert.match(read('css/stage-remote.css'), /\.stage-warn-err\[hidden\] \{ display: none; \}/);
   for (const f of ['player-lib/stage-countdown.js', 'player-lib/stage-settings-ui.js', 'lib/stage/mpv-overlay.js']) assert.ok(!read(f).includes('—'), `${f}: no em dash`);
   const html = read('db-viewer.html');

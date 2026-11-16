@@ -586,6 +586,10 @@ function settingsSearchFocusTarget(el) {
     let el = body.querySelector(`[data-sfind="${anchor.replace(/["\\]/g, '\\$&')}"]`);
     const det = el && (el.tagName === 'DETAILS' ? el : el.closest('details'));
     if (det) det.open = true;
+    // On a tab that is not picked (Settings › Stage): pick it.
+    const panel = el && !visible(el) ? el.closest('[role="tabpanel"][hidden][id]') : null;
+    const tab = panel && body.querySelector(`[role="tab"][aria-controls="${panel.id}"]`);
+    if (tab) tab.click();
     // Folded behind a "show more" button (Deep search): unfold it.
     const fold = el && !visible(el) ? el.closest('[hidden][id]') : null;
     const opener = fold && body.querySelector(`[aria-controls="${fold.id}"][aria-expanded="false"]`);

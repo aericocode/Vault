@@ -11,6 +11,10 @@
    the server to open the native file picker (POST /api/stage/mpv/choose):
    the page never sends a path, and the server checks what was picked.
 
+   Four tabs (Window, On screen, Sound, Flow order) over the rows, in both
+   looks; Lanes and stream tags stay below them. Countdown and warnings is
+   one row whose Set up opens its three rows in place.
+
    Modern: a card of rows (settings-kit.js). Classic: its own heading and the
    same rows, the seconds inside the sentence ("for 3 s").
    ========================================================================= */
@@ -82,6 +86,15 @@ const STAGE_SANDBOXED_WORDS = {
 function _stageMpvHtml() {
   const m = _stageMpv;
   if (!m) return '<span class="stage-mpv-line">Looking for mpv…</span>';
+  const basic = m.choice === 'basic';
+  const placeWarn = !basic && m.display && m.display.wayland && !m.display.placement;
+  // All is well: one short line, the path on a quiet second line.
+  if (m.found && !m.chosenProblem && !basic && !placeWarn) {
+    const ver = m.version ? ` ${_stEsc(m.version)}` : '';
+    const where = m.source === 'chosen' ? ', the one you chose' : '';
+    return `<span class="stage-mpv-line stage-mpv-ok">mpv${ver} found${where}. Stage uses mpv, its own window (the full Stage).</span>`
+      + `<span class="stage-mpv-line stage-mpv-where" title="${_stEsc(m.path)}"><code class="stage-mpv-path">${_stEsc(m.path)}</code></span>`;
+  }
   const lines = [];
   if (m.found) {
     const where = m.source === 'chosen' ? ', the one you chose' : '';
@@ -92,7 +105,6 @@ function _stageMpvHtml() {
   }
   if (m.chosenProblem) lines.push(`<span class="stage-mpv-line stage-mpv-missing">The mpv you chose can’t be used: ${_stEsc(m.chosenProblem)}</span>`);
   // Which Stage opens now.
-  const basic = m.choice === 'basic';
   // Linux: a Wayland desktop (GNOME) may not keep the browser's picture-in-picture window on top.
   const basicWords = m.platform && m.platform !== 'win32' && m.platform !== 'darwin'
     ? STAGE_BASIC_WORDS.replace('and stays on top.', 'and stays on top where the desktop allows it.')
@@ -100,7 +112,7 @@ function _stageMpvHtml() {
   lines.push(`<span class="stage-mpv-line stage-mpv-use">Stage uses: ${basic ? _stEsc(basicWords) : 'mpv, its own window (the full Stage).'}</span>`);
   if (!m.found) {
     lines.push(`<span class="stage-mpv-line stage-mpv-how">${_stEsc(_stageMpvHowTo(m))}</span>`);
-  } else if (!basic && m.display && m.display.wayland && !m.display.placement) {
+  } else if (placeWarn) {
     // A Wayland desktop without XWayland (or with it turned off below): the desktop places the window.
     lines.push('<span class="stage-mpv-line stage-mpv-how">On this desktop, Stage may not open where you last left it, and bringing Stage to the front may do nothing. That is up to the desktop, not Vault.</span>');
   }
@@ -212,6 +224,11 @@ function _stWarnText(list) {
   return typeof StageCountdown !== 'undefined' ? StageCountdown.minutesText(list) : (Array.isArray(list) ? list.join(', ') : '');
 }
 
+/** A row's title attribute: the full help when the row shows a shorter line. */
+function _stTip(full) {
+  return full ? ` title="${_stEsc(full)}"` : '';
+}
+
 /** The countdown rows (both looks): warnings, the clock, where it shows. */
 function _stageCountdownRows(s, modern) {
   const warnField = `<span class="settings-num-wrap stage-warn-wrap">
@@ -220,37 +237,124 @@ function _stageCountdownRows(s, modern) {
           <span class="settings-num-unit">min</span>
         </span>`;
   const warnErr = '<span class="stage-warn-err" data-stage-warn-err role="alert" hidden></span>';
-  const warnDesc = 'A short message on Stage, like “10 minutes left”, at these minutes before the list ends. Separate them with commas.';
-  const clockDesc = 'A clock on Stage that counts down to the end of the list, from this many minutes before it.';
-  const lookDesc = 'Where the countdown and warnings show on Stage. Only times show, never a name. mpv Stage only: Basic shows the time left on the Stage bar only.';
+  const warnFull = 'A short message on Stage, like “10 minutes left”, at these minutes before the list ends. Separate them with commas.';
+  const warnDesc = 'Like “10 minutes left”. Separate the minutes with commas.';
+  const clockFull = 'A clock on Stage that counts down to the end of the list, from this many minutes before it.';
+  const clockDesc = 'A clock for the last minutes of the list.';
+  const lookFull = 'Where the countdown and warnings show on Stage. Only times show, never a name. mpv Stage only: Basic shows the time left on the Stage bar only.';
+  const lookDesc = 'Only times show, never a name. mpv Stage only: Basic shows the time left on its bar.';
   const where = `<span class="stage-set-pair">${_stSel('countdownCorner', STAGE_CORNER_OPTIONS, s.countdownCorner, 'Countdown corner')}${_stSel('countdownSize', STAGE_COUNTDOWN_SIZE_OPTIONS, s.countdownSize, 'Countdown size')}</span>`;
   if (modern) {
     return settingsRowHtml({
-      sfind: 'stageWarnings', title: 'Warnings before the end', desc: warnDesc, extra: warnErr,
+      sfind: 'stageWarnings', title: 'Warnings before the end', desc: warnDesc, extra: warnErr, attrs: _stTip(warnFull),
       control: `<span class="stage-set-pair">${warnField}<label class="stage-set-sw" title="Show warnings">${_stSwitch('warnOn', s.warnOn)}</label></span>`,
     })
       + settingsRowHtml({
-        sfind: 'stageCountdown', title: 'Countdown to the end', desc: clockDesc,
+        sfind: 'stageCountdown', title: 'Countdown to the end', desc: clockDesc, attrs: _stTip(clockFull),
         control: `<span class="stage-set-pair">${_stNum('countdownMinutes', s.countdownMinutes, 1, 60, 'Minutes before the end the countdown starts', 'min')}
         <label class="stage-set-sw" title="Show the countdown">${_stSwitch('countdownOn', s.countdownOn)}</label></span>`,
       })
-      + settingsRowHtml({ sfind: 'stageCountdownLook', title: 'Countdown corner and size', desc: lookDesc, control: where });
+      + settingsRowHtml({ sfind: 'stageCountdownLook', title: 'Countdown corner and size', desc: lookDesc, attrs: _stTip(lookFull), control: where });
   }
   return settingsRowHtml({
-    sfind: 'stageWarnings', title: `Warnings before the end, at ${warnField}`, desc: warnDesc, extra: warnErr,
+    sfind: 'stageWarnings', title: `Warnings before the end, at ${warnField}`, desc: warnDesc, extra: warnErr, attrs: _stTip(warnFull),
     control: `<label class="stage-set-sw">${_stSwitch('warnOn', s.warnOn)}</label>`,
   })
     + settingsRowHtml({
       sfind: 'stageCountdown', title: `Countdown to the end, for the last ${_stNum('countdownMinutes', s.countdownMinutes, 1, 60, 'Minutes before the end the countdown starts', 'min')}`,
-      desc: clockDesc, control: `<label class="stage-set-sw">${_stSwitch('countdownOn', s.countdownOn)}</label>`,
+      desc: clockDesc, attrs: _stTip(clockFull), control: `<label class="stage-set-sw">${_stSwitch('countdownOn', s.countdownOn)}</label>`,
     })
-    + settingsRowHtml({ sfind: 'stageCountdownLook', title: 'Countdown corner and size', desc: lookDesc, control: where });
+    + settingsRowHtml({ sfind: 'stageCountdownLook', title: 'Countdown corner and size', desc: lookDesc, attrs: _stTip(lookFull), control: where });
+}
+
+/** What the closed "Countdown and warnings" row says: what is on right now. */
+function _stageCountdownSummary(s) {
+  const clock = s.countdownOn ? `Countdown for the last ${Number(s.countdownMinutes) || 0} min` : '';
+  const mins = _stWarnText(s.warnMinutes);
+  const warn = s.warnOn ? (mins ? `warnings at ${mins} min` : 'warnings on') : '';
+  if (clock && warn) return `${clock}, ${warn}`;
+  if (clock) return `${clock}. Warnings off`;
+  if (warn) return `${warn.charAt(0).toUpperCase()}${warn.slice(1)}. Countdown off`;
+  return 'Off';
+}
+
+// The details under "Countdown and warnings" stay open while Settings is redrawn.
+let _stageCdOpen = false;
+
+/** "Countdown and warnings": one row; Set up opens its three rows in place. */
+function _stageCountdownGroup(s, modern) {
+  const open = _stageCdOpen;
+  return settingsRowHtml({
+    cls: 'stage-cd-row', title: 'Countdown and warnings',
+    desc: 'A clock and “10 minutes left” messages near the end of the list.',
+    control: `<span class="stage-cd-acts">
+          <span class="stage-cd-sum" data-stage-cd-sum${open ? ' hidden' : ''}>${_stEsc(_stageCountdownSummary(s))}</span>
+          <button type="button" class="settings-btn settings-btn-quiet" data-stage-cd-toggle aria-controls="stageCdMore" aria-expanded="${open}">${open ? 'Done' : 'Set up'}</button>
+        </span>`,
+  }) + `<div class="stage-cd-more" id="stageCdMore" data-stage-cd-more${open ? '' : ' hidden'}>${_stageCountdownRows(s, modern)}</div>`;
+}
+
+/** Open or close the countdown details. */
+function _stageCdSet(root, open) {
+  _stageCdOpen = !!open;
+  if (!root) return;
+  const more = root.querySelector('[data-stage-cd-more]');
+  if (more) more.hidden = !open;
+  const btn = root.querySelector('[data-stage-cd-toggle]');
+  if (btn) { btn.setAttribute('aria-expanded', open ? 'true' : 'false'); btn.textContent = open ? 'Done' : 'Set up'; }
+  const sum = root.querySelector('[data-stage-cd-sum]');
+  if (sum) { sum.hidden = !!open; sum.textContent = _stageCountdownSummary(_stageSettings); }
+}
+
+/* ── Tabs: Window, On screen, Sound, Flow order ──────────────────────────
+   Every row is drawn every time; the tabs not picked are [hidden], so every
+   control, repaint and Settings search anchor stays in the page (search
+   picks the tab a row is on: settings-search.js reveal). The last tab is
+   remembered per browser. */
+
+const STAGE_TABS = [
+  { id: 'window', label: 'Window' },
+  { id: 'screen', label: 'On screen' },
+  { id: 'sound', label: 'Sound' },
+  { id: 'flow', label: 'Flow order' },
+];
+const STAGE_TAB_KEY = 'vault_stage_settings_tab';
+
+function _stageTabNow() {
+  let t = null;
+  try { t = localStorage.getItem(STAGE_TAB_KEY); } catch {}
+  return STAGE_TABS.some(x => x.id === t) ? t : 'window';
+}
+
+function _stageTabsHtml(cur) {
+  return `<div class="settings-seg stage-tabs" role="tablist" aria-label="Stage settings">${STAGE_TABS.map(t => `
+          <button type="button" class="settings-seg-btn stage-tab" role="tab" id="stageTab-${t.id}" data-stage-tab="${t.id}"
+            aria-controls="stageTabPanel-${t.id}" aria-selected="${t.id === cur}" tabindex="${t.id === cur ? 0 : -1}">${t.label}</button>`).join('')}
+        </div>`;
+}
+
+function _stageTabPanelHtml(id, cur, body) {
+  return `<div class="stage-tab-panel" role="tabpanel" id="stageTabPanel-${id}" data-stage-panel="${id}" aria-labelledby="stageTab-${id}"${id === cur ? '' : ' hidden'}>${body}</div>`;
+}
+
+/** Show one tab (and remember it). focus: move the keyboard focus to its tab. */
+function _stageTabSelect(root, id, focus) {
+  if (!root || !STAGE_TABS.some(x => x.id === id)) return;
+  root.querySelectorAll('[data-stage-tab]').forEach((b) => {
+    const on = b.dataset.stageTab === id;
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+    b.tabIndex = on ? 0 : -1;
+    if (on && focus) b.focus();
+  });
+  root.querySelectorAll('[data-stage-panel]').forEach((p) => { p.hidden = p.dataset.stagePanel !== id; });
+  try { localStorage.setItem(STAGE_TAB_KEY, id); } catch {}
 }
 
 /** The Stage page, in the look that is on. */
 function stageSettingsHtml() {
   const s = _stageSettings;
   const modern = typeof settingsIsModern === 'function' && settingsIsModern();
+  const tab = _stageTabNow();
   const sizeSel = `<select class="settings-sel" data-stage-sel="openSize" aria-label="Size when Stage opens">
           ${STAGE_SIZE_OPTIONS.map(o => `<option value="${o.value}"${s.openSize === o.value ? ' selected' : ''}>${_stEsc(o.label)}</option>`).join('')}
         </select>`;
@@ -260,21 +364,30 @@ function stageSettingsHtml() {
   const edgesSel = `<select class="settings-sel" data-stage-sel="flowEdges" aria-label="Ignore calm intros and credits">
           ${STAGE_FLOW_EDGES_OPTIONS.map(o => `<option value="${o.value}"${s.flowEdges === o.value ? ' selected' : ''}>${_stEsc(o.label)}</option>`).join('')}
         </select>`;
+  // Short help on each row; where it is shorter than before, the full sentence is the row's tooltip.
   const edgesDesc = 'When Flow orders files, look past a quiet start or end. Playback is not changed.';
-  const loudDesc = 'Quiet files are turned up and loud ones down, so viewers don’t reach for the volume. mpv Stage only: Basic can’t.';
-  const hwDesc = 'The graphics card decodes videos, so the processor stays free. Turn it off if Stage shows a green line along an edge or the picture looks wrong. mpv Stage only. Takes effect the next time Stage opens.';
-  const measureDesc = 'Vault listens to each file’s music for Flow order on a collection, on this PC at low priority, and waits while Stage plays. Only when I use Flow measures a collection when you open Flow on it.';
-  const shuffleDesc = 'A collection’s Shuffle lines files up so each one tends to flow into the next, instead of pure random. It still mixes things up.';
+  const loudFull = 'Quiet files are turned up and loud ones down, so viewers don’t reach for the volume. mpv Stage only: Basic can’t.';
+  const loudDesc = 'Quiet files up, loud files down. mpv Stage only.';
+  const hwFull = 'The graphics card decodes videos, so the processor stays free. Turn it off if Stage shows a green line along an edge or the picture looks wrong. mpv Stage only. Takes effect the next time Stage opens.';
+  const hwDesc = 'Turn it off if the picture looks wrong. mpv Stage only. Takes effect the next time Stage opens.';
+  const measureFull = 'Vault listens to each file’s music for Flow order on a collection, on this PC at low priority, and waits while Stage plays. Only when I use Flow measures a collection when you open Flow on it.';
+  const measureDesc = 'When Vault listens to files for Flow order, on this PC at low priority.';
+  const shuffleFull = 'A collection’s Shuffle lines files up so each one tends to flow into the next, instead of pure random. It still mixes things up.';
+  const shuffleDesc = 'Shuffle that flows from file to file. It still mixes things up.';
+  const setLogFull = 'What Stage played, with the times, for when someone asks what a video was. The last 20 sets are kept. Never shown on Stage.';
+  const nameDesc = 'With the time left. Bottom left on Stage, top left in the player.';
+  const progressDesc = 'The pink line along the top stays on in the player, on Stage and on the Wall.';
+  const sizeFull = 'Free size keeps the size and spot you last left it at.';
   const nameField = `<input class="settings-text" type="text" maxlength="60" spellcheck="false" autocomplete="off"
           data-stage-text="windowName" placeholder="Vault Stage" value="${_stEsc(s.windowName)}" aria-label="Window name">`;
 
-  // Lanes and stream tags (player-lib/stream-tags-settings.js), after the Stage rows.
+  // Lanes and stream tags (player-lib/stream-tags-settings.js), after the Stage rows, on every tab.
   const lanes = typeof streamLanesSettingsHtml === 'function' ? streamLanesSettingsHtml(modern) : '';
 
   // The set log (player-lib/stage-setlog.js): old sets, Stage open or not.
   const setLogRow = settingsRowHtml({
-    sfind: 'stageSetLog', title: 'Set log',
-    desc: 'What Stage played, with the times, for when someone asks what a video was. The last 20 sets are kept. Never shown on Stage.',
+    sfind: 'stageSetLog', title: 'Set log', attrs: _stTip(setLogFull),
+    desc: 'What Stage played, with the times. The last 20 sets are kept.',
     control: '<button type="button" class="settings-btn settings-btn-quiet" data-stage-setlog>Open set log</button>',
   });
 
@@ -287,54 +400,65 @@ function stageSettingsHtml() {
     control: `<span data-stage-mpv-acts>${_stageMpvButtons()}</span>`,
   });
 
+  const panels = (rows) => STAGE_TABS.map(t => _stageTabPanelHtml(t.id, tab, rows[t.id])).join('');
+
   if (modern) {
-    const rows = playerRow + setLogRow + settingsRowHtml({
-      sfind: 'stageShowName', title: 'Show the name as a file starts', desc: STAGE_NAME_DESC,
-      control: `<span class="stage-set-pair">${_stNum('nameSeconds', s.nameSeconds, 1, 30, 'Seconds the name shows')}
+    const rows = {
+      window: playerRow
+        + settingsRowHtml({ sfind: 'stageOpenSize', title: 'Size when Stage opens', desc: (typeof vaultServerPlatform === 'function' && vaultServerPlatform() === 'linux')
+          ? 'Free size opens at the size you last left it at. Where it opens is up to the desktop.'
+          : sizeFull, control: sizeSel })
+        + settingsRowHtml({ sfind: 'stageWindowName', title: 'Window name', desc: 'What Discord lists, and may show on the stream.', control: nameField })
+        + settingsRowHtml({ tag: 'label', sfind: 'stageHwDecoding', title: 'Hardware decoding', desc: hwDesc, attrs: _stTip(hwFull), control: _stSwitch('hwDecoding', s.hwDecoding) })
+        + xwRow
+        + setLogRow
+        + settingsRowHtml({ tag: 'label', sfind: 'stageTips', title: 'Tips when Stage opens', desc: 'How to share it in Discord.', control: _stSwitch('tips', s.tips) }),
+      screen: settingsRowHtml({
+        sfind: 'stageShowName', title: 'Show the name as a file starts', desc: nameDesc, attrs: _stTip(STAGE_NAME_DESC),
+        control: `<span class="stage-set-pair">${_stNum('nameSeconds', s.nameSeconds, 1, 30, 'Seconds the name shows')}
         <label class="stage-set-sw" title="Show the name">${_stSwitch('showName', s.showName)}</label></span>`,
-    })
-      + settingsRowHtml({ tag: 'label', sfind: 'stageProgressAlways', title: 'Always show the progress line', desc: STAGE_PROGRESS_DESC, control: _stSwitch('progressAlways', s.progressAlways) })
-      + _stageCountdownRows(s, true)
-      + settingsRowHtml({ sfind: 'stageWindowName', title: 'Window name', desc: 'What Discord lists, and may show on the stream.', control: nameField })
-      + settingsRowHtml({ sfind: 'stageImageSeconds', title: 'Show pictures for', desc: 'GIFs play at least one full loop.', control: _stNum('imageSeconds', s.imageSeconds, 1, 600, 'Seconds a picture shows') })
-      + settingsRowHtml({ sfind: 'stageCursor', title: 'Hide the cursor', desc: 'After it stops moving over Stage.', control: _stNum('cursorSeconds', s.cursorSeconds, 1, 60, 'Seconds before the cursor hides') })
-      + settingsRowHtml({ sfind: 'stageOpenSize', title: 'Size when Stage opens', desc: (typeof vaultServerPlatform === 'function' && vaultServerPlatform() === 'linux')
-        ? 'Free size opens at the size you last left it at. Where it opens is up to the desktop.'
-        : 'Free size keeps the size and spot you last left it at.', control: sizeSel })
-      + settingsRowHtml({ tag: 'label', sfind: 'stageMuteVault', title: 'Mute Vault while Stage is open', desc: 'So viewers don’t hear the file twice.', control: _stSwitch('muteVault', s.muteVault) })
-      + settingsRowHtml({ tag: 'label', sfind: 'stageTips', title: 'Tips when Stage opens', desc: 'How to share it in Discord.', control: _stSwitch('tips', s.tips) })
-      + settingsRowHtml({ tag: 'label', sfind: 'stageEvenLoudness', title: 'Even out loudness on Stage', desc: loudDesc, control: _stSwitch('evenLoudness', s.evenLoudness) })
-      + settingsRowHtml({ tag: 'label', sfind: 'stageHwDecoding', title: 'Hardware decoding', desc: hwDesc, control: _stSwitch('hwDecoding', s.hwDecoding) })
-      + xwRow
-      + settingsRowHtml({ sfind: 'stageFlowMeasure', title: 'Measure for Flow', desc: measureDesc, control: measureSel })
-      + settingsRowHtml({ sfind: 'stageFlowEdges', title: 'Ignore calm intros and credits', desc: edgesDesc, control: edgesSel })
-      + settingsRowHtml({ tag: 'label', sfind: 'stageFlowShuffle', title: 'Flow shuffle', desc: shuffleDesc, control: _stSwitch('flowShuffle', s.flowShuffle) });
+      })
+        + settingsRowHtml({ tag: 'label', sfind: 'stageProgressAlways', title: 'Always show the progress line', desc: progressDesc, attrs: _stTip(STAGE_PROGRESS_DESC), control: _stSwitch('progressAlways', s.progressAlways) })
+        + settingsRowHtml({ sfind: 'stageImageSeconds', title: 'Show pictures for', desc: 'GIFs play at least one full loop.', control: _stNum('imageSeconds', s.imageSeconds, 1, 600, 'Seconds a picture shows') })
+        + settingsRowHtml({ sfind: 'stageCursor', title: 'Hide the cursor', desc: 'After it stops moving over Stage.', control: _stNum('cursorSeconds', s.cursorSeconds, 1, 60, 'Seconds before the cursor hides') })
+        + _stageCountdownGroup(s, true),
+      sound: settingsRowHtml({ tag: 'label', sfind: 'stageMuteVault', title: 'Mute Vault while Stage is open', desc: 'So viewers don’t hear the file twice.', control: _stSwitch('muteVault', s.muteVault) })
+        + settingsRowHtml({ tag: 'label', sfind: 'stageEvenLoudness', title: 'Even out loudness on Stage', desc: loudDesc, attrs: _stTip(loudFull), control: _stSwitch('evenLoudness', s.evenLoudness) }),
+      flow: settingsRowHtml({ sfind: 'stageFlowMeasure', title: 'Measure for Flow', desc: measureDesc, attrs: _stTip(measureFull), control: measureSel })
+        + settingsRowHtml({ sfind: 'stageFlowEdges', title: 'Ignore calm intros and credits', desc: edgesDesc, control: edgesSel })
+        + settingsRowHtml({ tag: 'label', sfind: 'stageFlowShuffle', title: 'Flow shuffle', desc: shuffleDesc, attrs: _stTip(shuffleFull), control: _stSwitch('flowShuffle', s.flowShuffle) }),
+    };
     return `<p class="settings-note stage-set-lead">Stage is the window you share in Discord. Open it from the mini player, the full player, or Play on Stage on a collection.</p>`
-      + settingsCardHtml({ title: 'Stage', sfind: 'stage', body: rows }) + lanes;
+      + _stageTabsHtml(tab)
+      + settingsCardHtml({ sfind: 'stage', cls: 'stage-set-card', body: panels(rows) }) + lanes;
   }
 
-  // Classic
+  // Classic: its own heading, the same tabs, the seconds inside the sentence.
   const lbl = (text, body) => `${text} ${body}`;
+  const rows = {
+    window: playerRow
+      + settingsRowHtml({ sfind: 'stageOpenSize', title: 'Size when Stage opens', control: sizeSel })
+      + settingsRowHtml({ sfind: 'stageWindowName', title: 'Window name', desc: 'What Discord lists, and may show on the stream.', control: nameField })
+      + settingsRowHtml({ tag: 'label', sfind: 'stageHwDecoding', title: 'Hardware decoding', desc: hwDesc, attrs: _stTip(hwFull), control: _stSwitch('hwDecoding', s.hwDecoding) })
+      + xwRow
+      + setLogRow
+      + settingsRowHtml({ tag: 'label', sfind: 'stageTips', title: 'Tips when Stage opens', control: _stSwitch('tips', s.tips) }),
+    screen: settingsRowHtml({ sfind: 'stageShowName', title: lbl('Show the name as a file starts, for', _stNum('nameSeconds', s.nameSeconds, 1, 30, 'Seconds the name shows')), desc: nameDesc, attrs: _stTip(STAGE_NAME_DESC), control: `<label class="stage-set-sw">${_stSwitch('showName', s.showName)}</label>` })
+      + settingsRowHtml({ tag: 'label', sfind: 'stageProgressAlways', title: 'Always show the progress line', desc: progressDesc, attrs: _stTip(STAGE_PROGRESS_DESC), control: _stSwitch('progressAlways', s.progressAlways) })
+      + settingsRowHtml({ sfind: 'stageImageSeconds', title: lbl('Show pictures for', _stNum('imageSeconds', s.imageSeconds, 1, 600, 'Seconds a picture shows')), desc: 'GIFs play at least one full loop.' })
+      + settingsRowHtml({ sfind: 'stageCursor', title: lbl('Hide the cursor after', _stNum('cursorSeconds', s.cursorSeconds, 1, 60, 'Seconds before the cursor hides')) })
+      + _stageCountdownGroup(s, false),
+    sound: settingsRowHtml({ tag: 'label', sfind: 'stageMuteVault', title: 'Mute Vault while Stage is open', control: _stSwitch('muteVault', s.muteVault) })
+      + settingsRowHtml({ tag: 'label', sfind: 'stageEvenLoudness', title: 'Even out loudness on Stage', desc: loudDesc, attrs: _stTip(loudFull), control: _stSwitch('evenLoudness', s.evenLoudness) }),
+    flow: settingsRowHtml({ sfind: 'stageFlowMeasure', title: 'Measure for Flow', desc: measureDesc, attrs: _stTip(measureFull), control: measureSel })
+      + settingsRowHtml({ sfind: 'stageFlowEdges', title: 'Ignore calm intros and credits', desc: edgesDesc, control: edgesSel })
+      + settingsRowHtml({ tag: 'label', sfind: 'stageFlowShuffle', title: 'Flow shuffle', desc: shuffleDesc, attrs: _stTip(shuffleFull), control: _stSwitch('flowShuffle', s.flowShuffle) }),
+  };
   return `
       <h3 class="settings-h" data-sfind="stage">${typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel('🎬 Stage', { icon: false }) : '🎬 Stage'}</h3>
       <p class="settings-note">The window you share in Discord. Open it from the mini player, the full player, or Play on Stage on a collection.</p>
-      ${playerRow}
-      ${setLogRow}
-      ${settingsRowHtml({ sfind: 'stageShowName', title: lbl('Show the name as a file starts, for', _stNum('nameSeconds', s.nameSeconds, 1, 30, 'Seconds the name shows')), desc: STAGE_NAME_DESC, control: `<label class="stage-set-sw">${_stSwitch('showName', s.showName)}</label>` })}
-      ${settingsRowHtml({ tag: 'label', sfind: 'stageProgressAlways', title: 'Always show the progress line', desc: STAGE_PROGRESS_DESC, control: _stSwitch('progressAlways', s.progressAlways) })}
-      ${_stageCountdownRows(s, false)}
-      ${settingsRowHtml({ sfind: 'stageWindowName', title: 'Window name', desc: 'What Discord lists, and may show on the stream.', control: nameField })}
-      ${settingsRowHtml({ sfind: 'stageImageSeconds', title: lbl('Show pictures for', _stNum('imageSeconds', s.imageSeconds, 1, 600, 'Seconds a picture shows')), desc: 'GIFs play at least one full loop.' })}
-      ${settingsRowHtml({ sfind: 'stageCursor', title: lbl('Hide the cursor after', _stNum('cursorSeconds', s.cursorSeconds, 1, 60, 'Seconds before the cursor hides')) })}
-      ${settingsRowHtml({ sfind: 'stageOpenSize', title: 'Size when Stage opens', control: sizeSel })}
-      ${settingsRowHtml({ tag: 'label', sfind: 'stageMuteVault', title: 'Mute Vault while Stage is open', control: _stSwitch('muteVault', s.muteVault) })}
-      ${settingsRowHtml({ tag: 'label', sfind: 'stageTips', title: 'Tips when Stage opens', control: _stSwitch('tips', s.tips) })}
-      ${settingsRowHtml({ tag: 'label', sfind: 'stageEvenLoudness', title: 'Even out loudness on Stage', desc: loudDesc, control: _stSwitch('evenLoudness', s.evenLoudness) })}
-      ${settingsRowHtml({ tag: 'label', sfind: 'stageHwDecoding', title: 'Hardware decoding', desc: hwDesc, control: _stSwitch('hwDecoding', s.hwDecoding) })}
-      ${xwRow}
-      ${settingsRowHtml({ sfind: 'stageFlowMeasure', title: 'Measure for Flow', desc: measureDesc, control: measureSel })}
-      ${settingsRowHtml({ sfind: 'stageFlowEdges', title: 'Ignore calm intros and credits', desc: edgesDesc, control: edgesSel })}
-      ${settingsRowHtml({ tag: 'label', sfind: 'stageFlowShuffle', title: 'Flow shuffle', desc: shuffleDesc, control: _stSwitch('flowShuffle', s.flowShuffle) })}
+      ${_stageTabsHtml(tab)}
+      ${panels(rows)}
       ${lanes}`;
 }
 
@@ -366,6 +490,7 @@ function _stageSettingsPaint(root) {
   root.querySelectorAll('[data-stage-sel]').forEach((el) => { el.value = s[el.dataset.stageSel]; });
   root.querySelectorAll('[data-stage-xw]').forEach((el) => { el.checked = s.xwayland !== false; });
   root.querySelectorAll('[data-stage-warn]').forEach((el) => { if (document.activeElement !== el) el.value = _stWarnText(s.warnMinutes); });
+  root.querySelectorAll('[data-stage-cd-sum]').forEach((el) => { el.textContent = _stageCountdownSummary(s); });
 }
 
 /**
@@ -380,6 +505,8 @@ function _stageWarnWire(root) {
     const check = () => {
       const r = typeof StageCountdown !== 'undefined' ? StageCountdown.parseMinutes(el.value) : { ok: true, minutes: [] };
       if (err) { err.textContent = r.ok ? '' : r.error; err.hidden = r.ok; }
+      // A mistake is never left behind closed countdown details.
+      if (!r.ok && !_stageCdOpen) _stageCdSet(root, true);
       el.setAttribute('aria-invalid', r.ok ? 'false' : 'true');
       return r;
     };
@@ -404,6 +531,9 @@ function stageSettingsWire(root) {
   if (!root._stageMpvWired) {
     root._stageMpvWired = true;
     root.addEventListener('click', (e) => {
+      const tab = e.target.closest('[data-stage-tab]');
+      if (tab) { _stageTabSelect(root, tab.dataset.stageTab, false); return; }
+      if (e.target.closest('[data-stage-cd-toggle]')) { _stageCdSet(root, !_stageCdOpen); return; }
       if (e.target.closest('[data-stage-setlog]')) {
         if (typeof SetLog !== 'undefined' && SetLog) SetLog.show();
         return;
@@ -411,6 +541,17 @@ function stageSettingsWire(root) {
       const b = e.target.closest('[data-stage-mpv]');
       if (!b || b.disabled) return;
       _stageMpvAct(b.dataset.stageMpv, root);
+    });
+    // The tabs: arrow keys, Home and End move between them (and show each one).
+    root.addEventListener('keydown', (e) => {
+      const tab = e.target.closest('[data-stage-tab]');
+      if (!tab) return;
+      const ids = STAGE_TABS.map(t => t.id);
+      const i = ids.indexOf(tab.dataset.stageTab);
+      const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: ids.length - 1 }[e.key];
+      if (to == null) return;
+      e.preventDefault();
+      _stageTabSelect(root, ids[(to + ids.length) % ids.length], true);
     });
     // Auto or Basic only: saved, then the row says which Stage opens now.
     root.addEventListener('change', async (e) => {

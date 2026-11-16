@@ -182,7 +182,9 @@ test('Modern pages: cards with headings, no emoji in names or buttons, no Planne
   const ctx = loadSettings('modern');
   for (const id of ctx.vaultSettingsPageIds()) {
     const html = ctx.vaultSettingsPageHtml(id);
-    assert.match(html, /<section class="settings-card[^"]*"[^>]*>\s*<h3 class="settings-card-h">/, `${id}: built from cards`);
+    // Stage: its tabs over one card of rows (stage-settings-ui.js); that card needs no heading.
+    if (id === 'stage') assert.match(html, /role="tablist"[\s\S]*<section class="settings-card stage-set-card"/, 'stage: tabs over a card');
+    else assert.match(html, /<section class="settings-card[^"]*"[^>]*>\s*<h3 class="settings-card-h">/, `${id}: built from cards`);
     assert.ok(!/class="settings-h[ "]/.test(html), `${id}: no Classic headings`);
     const names = [...shown(html).matchAll(/<(?:span class="settings-toggle-title"|h3[^>]*|button[^>]*|a [^>]*)>([\s\S]*?)<\/(?:span|h3|button|a)>/g)]
       .map(x => x[1].replace(/<[^>]+>/g, '').trim());

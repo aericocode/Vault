@@ -487,6 +487,21 @@ body.layout-modern .stage-tips .st-btn:not(.st-pri) { background: var(--m-btn, r
 .stage-warn-text { width: 8.5rem; }
 .stage-warn-err { display: block; margin-top: 3px; font-size: 0.8rem; color: var(--warning, #e0a040); }
 .stage-warn-err[hidden] { display: none; }
+.stage-mpv-where { opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stage-mpv-where .stage-mpv-path { word-break: normal; }
+/* The tabs: the Settings segmented control (settings.css .settings-seg), as a tab list */
+.stage-tabs { flex-wrap: wrap; margin: 0 0 12px; border-radius: 14px; max-width: 100%; }
+.stage-tabs .settings-seg-btn { font-size: 0.85rem; padding: 0.3rem 0.95rem; }
+.stage-tabs .settings-seg-btn[aria-selected="true"] { background: var(--accent); color: #fff; }
+.stage-tab-panel[hidden], .stage-cd-more[hidden], .stage-cd-sum[hidden] { display: none; }
+body.layout-modern .settings-card .stage-tab-panel > .settings-toggle:first-child { border-top: 0; }
+body:not(.layout-modern) .stage-tab-panel { margin-bottom: 1.25rem; }
+/* Countdown and warnings: what is on, then Set up; its rows open indented below */
+.stage-cd-row { cursor: default; align-items: center; }
+.stage-cd-acts { display: inline-flex; align-items: center; gap: 12px; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; }
+.stage-cd-sum { font-size: 0.8rem; color: var(--text-muted); text-align: right; }
+.stage-cd-more > .settings-toggle { padding-left: 1.5rem; }
+body.layout-modern .settings-card .stage-cd-more > .settings-toggle { padding-left: 1.5rem; }
 
 /* ── Basic Stage (picture-in-picture, player-lib/stage-control.js) ───── */
 
