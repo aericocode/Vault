@@ -65,8 +65,9 @@ const StageBarRules = (() => {
   // The time left by the track count, then its end time ("· ends 10:42 PM"):
   // laid out after the rest has its room. Each comes in only where it fits,
   // with the Up next word given up for it if that is what it takes (the time
-  // matters more than the word), never the 10 s buttons or anything else. So
-  // a bar never loses a piece to the time unless the time shows.
+  // matters more than the word), and for the time left the volume slider too
+  // (the button stays), never the 10 s buttons or anything else. So a bar
+  // never loses a piece to the time unless the time shows.
   const TIME_PIECES = ['countTime', 'countEnds'];
   // Back to Stage and Preview keep their words on a bar at least this wide
   // (the left side is then at least 330 px with the nominal sizes: the
@@ -121,17 +122,30 @@ const StageBarRules = (() => {
       else if (k === 'count') right -= trackW;
       else right -= m[k];
     }
-    // Room for a piece of the time, giving up the Up next word for it at most
-    // (never the 10 s buttons or anything else).
+    // Room for a piece of the time, giving up the Up next word for it, and
+    // for the time left itself the volume slider too (its button stays),
+    // never the 10 s buttons or anything else. Without the slider, a bar
+    // just wide enough to keep it lost the time over a stretch of widths
+    // (about 1330 to 1580 px) while narrower bars, which drop the slider
+    // anyway, showed it.
     const fitsWith = (extra) => w - m.pad - 2 * m.gap - 2 * (right + extra) >= need();
-    const take = (extra) => {
+    const take = (extra, givable) => {
       if (!(space() >= need())) return false;
       if (fitsWith(extra)) { right += extra; return true; }
-      if (show.unLabel && fitsWith(extra - m.unLabel)) { show.unLabel = false; right += extra - m.unLabel; return true; }
+      const options = givable.filter((k) => show[k]).map((k) => [k]);
+      if (options.length === 2) options.push(givable.slice());
+      for (const ks of options) {
+        const freed = ks.reduce((n, k) => n + m[k], 0);
+        if (fitsWith(extra - freed)) {
+          for (const k of ks) show[k] = false;
+          right += extra - freed;
+          return true;
+        }
+      }
       return false;
     };
-    show.countTime = (timeOnly || show.count) && take(tW + (timeOnly ? trackW : 0));
-    show.countEnds = show.countTime && take(eW);
+    show.countTime = (timeOnly || show.count) && take(tW + (timeOnly ? trackW : 0), ['unLabel', 'volSlider']);
+    show.countEnds = show.countTime && take(eW, ['unLabel']);
     if (timeOnly) show.count = show.countTime;
     if (space() < need()) {
       // Everything optional is gone: the seek bar gives way, down to its minimum.

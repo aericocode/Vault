@@ -595,7 +595,7 @@ const withCount = ({ track, time, ends }, base = SIZES) => {
   return count ? { right: base.right + count + 6, count: count + 6, countTrack: track ? TRACK : 0, countTime: time ? TIME : 0, countEnds: ends ? ENDS : 0 } : {};
 };
 
-test('layout: the time left and its end time come last and only where they fit, at the cost of the Up next word at most, never the 10 s buttons', () => {
+test('layout: the time left and its end time come last and only where they fit, at the cost of the Up next word and (the time left only) the volume slider at most, never the 10 s buttons', () => {
   assert.deepStrictEqual(R.DROP_ORDER, ['skip', 'unLabel', 'count', 'volSlider', 'times', 'repeat', 'hold']);
   assert.deepStrictEqual(R.TIME_PIECES, ['countTime', 'countEnds']);
   for (const [look, base] of [['Modern', SIZES], ['Classic', SIZES_CLASSIC]]) {
@@ -609,13 +609,17 @@ test('layout: the time left and its end time come last and only where they fit, 
         const at = `${look} ${track ? 'track + time' : 'time only'} ${w}`;
         const o = track ? oldLayout(w, old) : oldLayout(w, before);
         const shows = l.show.countTime;
-        // No piece the bar had before the countdown is lost unless the time shows; the only one the time
-        // may cost is the Up next word. (With a track count the time itself now gives way to the 10 s buttons.)
-        for (const k of ['skip', 'count', 'volSlider', 'times', 'repeat', 'hold']) {
+        // No piece the bar had before the countdown is lost unless the time shows; the only ones the time
+        // may cost are the Up next word and the volume slider (its button stays). (With a track count the
+        // time itself now gives way to the 10 s buttons.)
+        for (const k of ['skip', 'count', 'times', 'repeat', 'hold']) {
           if (!track && k === 'count') continue;
           assert.ok(!(o[k] && !l.show[k]), `${at}: ${k} lost`);
         }
         if (o.unLabel && !l.show.unLabel) assert.ok(shows, `${at}: the Up next word lost for nothing`);
+        if (o.volSlider && !l.show.volSlider) assert.ok(shows, `${at}: the volume slider lost for nothing`);
+        // Once the time shows, a wider bar shows it too (it used to go between about 1330 and 1580 px).
+        if (prev && prev.show.countTime) assert.ok(shows, `${at}: the time went as the bar widened`);
         if (!track) assert.strictEqual(l.show.count, shows, `${at}: the time alone is the count`);
         if (shows && !l.show.skip) assert.ok(!R.layout(w, before).show.skip, `${at}: the 10 s buttons went for the time`);
         if (l.show.countEnds) assert.ok(shows, `${at}: no end time without the time`);
@@ -632,6 +636,17 @@ test('layout: the time left and its end time come last and only where they fit, 
       assert.ok(R.layout(2600, full).show.countEnds, `${look}: a wide bar shows it all`);
     }
   }
+  // Measured in Chrome: a file on mpv Stage with the time left and no track count, Back to Stage
+  // and Up next showing. The time showed up to about 1320 px (the volume slider was gone anyway),
+  // then not until about 1580: a bar just wide enough to keep the slider had no room for the time.
+  const MEASURED = { right: 634.234375, count: 144.765625, countTrack: 0, countTime: 55.4375, countEnds: 83.328125, unLabel: 54.484375, volSlider: 76, repeat: 38, hold: 38, ctrls: 190, skip: 76, times: 87.96875, pad: 28, gap: 14 };
+  let first = null;
+  for (let w = 1000; w <= 2560; w += 1) {
+    const l = R.layout(w, MEASURED, w);
+    if (l.show.countTime && first == null) first = w;
+    if (first != null) assert.ok(l.show.countTime, `measured ${w}: the time shows (it did from ${first})`);
+  }
+  assert.ok(first != null && first <= 1300, `the time shows from ${first}`);
   // The verifier's case: a time alone between about 980 and 1200 px cost the 10 s buttons and the Up next word.
   const M = { ...SIZES, ...withCount({ track: false, time: true, ends: true }) };
   for (let w = 980; w <= 1200; w += 5) {
