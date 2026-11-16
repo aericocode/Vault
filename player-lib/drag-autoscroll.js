@@ -22,7 +22,7 @@
                                only carry the file past hidden ones changes
                                nothing the user sees, so it is no drop.
    - dwellStep(s, x, y, scroll, t)  hold-still timer for files dragged in
-                               from outside (the drop mark shows after
+                               from outside (drop mode starts after
                                DWELL_MS of resting).
    - insertBefore(order, id, side)  the member a drop beside a tile goes in
                                front of, in the full order.
@@ -122,7 +122,7 @@ const DragAutoScroll = (() => {
      every 50 ms, and the spec asks for it too), so "resting" is worked out
      from where each dragover is: the pointer staying within DWELL_TOL px of
      where it stopped, with the page not scrolled, for DWELL_MS. */
-  const DWELL_MS = 1000;    // how long to hold still before the drop mark shows
+  const DWELL_MS = 2000;    // how long to hold still before drop mode starts
   const DWELL_TOL = 8;      // px the pointer may wander and still count as still
 
   /**

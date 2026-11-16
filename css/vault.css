@@ -373,3 +373,9 @@
   max-width: calc(100% - 32px);
   text-align: center;
 }
+/* Drop mode (held still): the frame and the hint light up in the accent. */
+#vaultDropOverlay.in-place.placing { border-style: solid; }
+#vaultDropOverlay.in-place.placing .vdo-line {
+  background: var(--accent, #7aa8ff);
+  color: #fff;
+}

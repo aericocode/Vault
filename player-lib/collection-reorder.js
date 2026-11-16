@@ -427,8 +427,9 @@ function _edgeTick(now) {
   if (!v) { _stopEdgeScroll(); return; }
   const before = window.scrollY;
   window.scrollBy(0, (v * dt) / 1000);
-  // Rows and tiles drawn for the new scroll position get the faded mark too.
-  if (window.scrollY !== before) _markDragging();
+  // Rows and tiles drawn for the new scroll position get the faded mark too;
+  // a file drop's mark follows the content under a still pointer.
+  if (window.scrollY !== before) { _markDragging(); _fileMarkAfterScroll(); }
   e.raf = requestAnimationFrame(_edgeTick);
 }
 
@@ -570,17 +571,20 @@ document.addEventListener('dragend', () => { if (_reorderDrag) _endReorderDrag()
 /* ── Files dragged in from outside: drop them in place ────────────────
    Files dragged in from the file manager over an open collection in
    playlist order normally land at its end (importer.js addPaths). Holding
-   the pointer still over a spot for DragAutoScroll.DWELL_MS puts the same
-   drop mark a reorder shows there, and a drop then adds the files at that
-   place in the full order (add-paths `before`). Moving off the spot takes
-   the mark away until the pointer rests again; a drop with no mark adds at
-   the end as before. The page scrolls near the edges as in a reorder.
+   the pointer still over a spot for DragAutoScroll.DWELL_MS starts drop
+   mode: from then until the drag ends the same drop mark a reorder shows
+   follows the pointer to the nearest place (tiles and gaps), and a drop
+   adds the files at the mark's place in the full order (add-paths
+   `before`). Moving or scrolling does not leave drop mode; over a spot
+   with no place (a bar, outside the grid) the last mark stays. A drop
+   before drop mode adds at the end as before. The page scrolls near the
+   edges as in a reorder, before drop mode too (to reach the place first).
    Only while nothing hides any of the collection's files (a search or
    filter, another sort, a shuffle): then "here" means the same in the full
    order as on screen. importer.js calls inPlaceDragOver on each file
    dragover and inPlaceFinish when the drag drops or leaves the window. */
 
-let _fileDrop = null;   // { dwell, at, before } while files from outside are over the page
+let _fileDrop = null;   // { dwell, placing, at, before, x, y } while files from outside are over the page
 const FILE_DROP_STALE_MS = 1500;
 let _fileDropStale = 0;
 
@@ -611,16 +615,38 @@ function _showFileMark(at) {
   at.tile.classList.toggle('reorder-drop-after', at.side === 'after');
 }
 
+/** Drop mode: the mark goes to the place under the pointer (none there: the last one stays). */
+function _fileMarkFollow(e) {
+  const f = _fileDrop;
+  const at = _fileSpotAt(e);
+  if (!at) return;
+  f.before = at.before;
+  if (!f.at || at.tile !== f.at.tile || at.side !== f.at.side || !at.tile.classList.contains(`reorder-drop-${at.side}`)) {
+    f.at = at;
+    _showFileMark(at);
+  }
+}
+
+/** Drop mode with the page scrolling under a still pointer: the mark follows what is under it now. */
+function _fileMarkAfterScroll() {
+  const f = _fileDrop;
+  if (!f || !f.placing || f.x == null || typeof document.elementFromPoint !== 'function') return;
+  const target = document.elementFromPoint(f.x, f.y);
+  if (target) _fileMarkFollow({ target, clientX: f.x, clientY: f.y });
+}
+
 /**
- * A file dragover (importer.js). Steers the edge scroll and the hold-still
- * mark. @returns {'off'|'waiting'|'marked'} off: no in-place drop here (the
- * drop adds at the end as always), waiting: hold still to pick a spot,
- * marked: a drop now goes at the mark.
+ * A file dragover (importer.js). Steers the edge scroll, the hold-still
+ * timer and, in drop mode, the mark. @returns {'off'|'waiting'|'placing'}
+ * off: no in-place drop here (the drop adds at the end as always), waiting:
+ * hold still to start drop mode (a drop now adds at the end), placing: drop
+ * mode, a drop now goes at the mark.
  */
 function inPlaceDragOver(e) {
   if (!inPlaceReady()) { if (_fileDrop) inPlaceFinish(); return 'off'; }
-  if (!_fileDrop) _fileDrop = { dwell: null, at: null, before: undefined };
+  if (!_fileDrop) _fileDrop = { dwell: null, placing: false, at: null, before: undefined, x: null, y: null };
   const f = _fileDrop;
+  f.x = e.clientX; f.y = e.clientY;
   // dragover keeps coming while the files are over the page, even held
   // still: none for a while means the drag ended unseen (no dragleave), so
   // the mark is not left behind for the next drag.
@@ -632,23 +658,23 @@ function inPlaceDragOver(e) {
     try { document.dispatchEvent(new CustomEvent('vault:file-drag-quiet')); } catch {}
   }, FILE_DROP_STALE_MS);
   _edgeScrollAt(e.clientY);
-  f.dwell = DragAutoScroll.dwellStep(f.dwell, e.clientX, e.clientY, window.scrollY, performance.now());
-  if (f.at && f.dwell.moved) {
-    // Off the marked spot (another place in the order): the mark goes until the pointer rests again.
-    const now = _fileSpotAt(e);
-    if (!now || now.before !== f.before) { _clearDropMark(); f.at = null; f.before = undefined; }
-    else if (now.tile !== f.at.tile || now.side !== f.at.side) { f.at = now; _showFileMark(now); }
-  }
-  if (!f.at && f.dwell.settled) {
-    const at = _fileSpotAt(e);
-    if (at) { f.at = at; f.before = at.before; _showFileMark(at); }
+  if (f.placing) {
+    // Drop mode lasts until the drag ends: the mark follows the pointer.
+    _fileMarkFollow(e);
+  } else {
+    f.dwell = DragAutoScroll.dwellStep(f.dwell, e.clientX, e.clientY, window.scrollY, performance.now());
+    // Rested over a place in the order: drop mode starts there.
+    if (f.dwell.settled) {
+      const at = _fileSpotAt(e);
+      if (at) { f.placing = true; f.at = at; f.before = at.before; _showFileMark(at); }
+    }
   }
   // The grid can draw the marked tile again (continuous view, the table as it scrolls).
   if (f.at && !f.at.tile.isConnected) {
     const again = document.querySelector(`#resultsGrid .media-tile[data-id="${Number(f.at.tile.dataset.id)}"]`);
     if (again) { f.at = { ...f.at, tile: again }; _showFileMark(f.at); }
   }
-  return f.at ? 'marked' : 'waiting';
+  return f.placing ? 'placing' : 'waiting';
 }
 
 /**

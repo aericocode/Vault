@@ -74,14 +74,15 @@
      short line at the bottom) so the files and the drop mark show through.
      mode: collection-reorder.js inPlaceDragOver's answer. */
   const DROP_OVERLAY_WORDS = {
-    waiting: 'Hold still over a spot to drop the files there, or drop now to add them at the end.',
-    marked: 'Drop now to add the files at the mark.',
+    waiting: 'Hold still for a moment to pick where the files go, or drop now to add them at the end.',
+    placing: 'Move to the spot you want, then drop.',
   };
   function setDropOverlayMode(mode) {
     const ov = document.getElementById('vaultDropOverlay');
     if (!ov || ov.dataset.mode === mode) return;
     ov.dataset.mode = mode;
     ov.classList.toggle('in-place', mode !== 'off');
+    ov.classList.toggle('placing', mode === 'placing');
     ov.innerHTML = mode === 'off'
       ? `${ico('⬇ ', 'download')}Drop to add in place. Nothing is copied.`
       : `<span class="vdo-line">${DROP_OVERLAY_WORDS[mode] || ''}</span>`;
