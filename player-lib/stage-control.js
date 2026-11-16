@@ -606,6 +606,9 @@ const StageControl = (() => {
       }
       countMemo = { ids, anchor, basic, n, before, all, skips };
     }
+    // A file Vault knows will not play (marked unplayable, or a codec this browser cannot decode) is
+    // passed over by the queue, so it adds no time and has no "Plays in" of its own.
+    const badRow = (r) => typeof isKnownBadMedia === 'function' && isKnownBadMedia(r);
     // The lengths: the rest of the list (up to TIME_CAP) and Up next, from the rows Vault has.
     const rest = [];
     const restIds = [];
@@ -618,14 +621,14 @@ const StageControl = (() => {
         if (!StageCount.plays(typeAt(i), basic)) continue;
         const r = L.rowAt(i);
         if (!r) missing.push(L.idAt(i));
-        rest.push(r ? { type: r.media_type, duration: r.duration_seconds } : null);
+        rest.push(r ? { type: badRow(r) ? 'unplayable' : r.media_type, duration: r.duration_seconds } : null);
         restIds.push(L.idAt(i));
       }
     }
     const upNext = upItems.map((u) => {
       const r = Library.row(u.id);
       if (!r) missing.push(u.id);
-      return r ? { id: u.id, type: r.media_type, duration: r.duration_seconds } : { id: u.id, type: u.media_type || 'video', duration: null };
+      return r ? { id: u.id, type: badRow(r) ? 'unplayable' : r.media_type, duration: r.duration_seconds } : { id: u.id, type: u.media_type || 'video', duration: null };
     });
     if (missing.length && restTotal + upNext.length <= StageCount.TIME_CAP) {
       const key = `${anchor}|${missing.length}|${missing[0]}`;
