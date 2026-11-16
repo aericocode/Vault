@@ -489,9 +489,11 @@ body.layout-modern .stage-tips .st-btn:not(.st-pri) { background: var(--m-btn, r
 .stage-warn-err[hidden] { display: none; }
 .stage-mpv-where { opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stage-mpv-where .stage-mpv-path { word-break: normal; }
-/* The tabs: the Settings segmented control (settings.css .settings-seg), as a tab list */
-.stage-tabs { flex-wrap: wrap; margin: 0 0 12px; border-radius: 14px; max-width: 100%; }
-.stage-tabs .settings-seg-btn { font-size: 0.85rem; padding: 0.3rem 0.95rem; }
+/* The tabs: the Settings segmented control (settings.css .settings-seg), as a tab list.
+   Rounded rectangles, not pills: the buttons' corners are the strip's less its
+   1px border and 2px padding, so the two curves sit one inside the other. */
+.stage-tabs { flex-wrap: wrap; margin: 0 0 12px; border-radius: 10px; max-width: 100%; }
+.stage-tabs .settings-seg-btn { font-size: 0.85rem; padding: 0.3rem 0.95rem; border-radius: 7px; }
 .stage-tabs .settings-seg-btn[aria-selected="true"] { background: var(--accent); color: #fff; }
 .stage-tab-panel[hidden], .stage-cd-more[hidden], .stage-cd-sum[hidden] { display: none; }
 body.layout-modern .settings-card .stage-tab-panel > .settings-toggle:first-child { border-top: 0; }
