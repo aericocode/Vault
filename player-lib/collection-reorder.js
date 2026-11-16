@@ -24,6 +24,8 @@
      collectionSortLeave()      collections.js, wherever a collection closes
      librarySortValue()         saved-searches.js (the sort to remember)
      renderReorderNote()        collections.js renderCollectionHeader, shuffle
+     inPlaceDragOver(e)         importer.js, each dragover of files from outside
+     inPlaceFinish()            importer.js, on their drop or dragleave
 
    Calls out: flowMembersChanged(id) (flow.js) after every order change
    here, so the open Flow panel follows. Edge auto-scroll while dragging:
@@ -418,7 +420,7 @@ function _edgeScrollAt(y) {
 function _edgeTick(now) {
   const e = _edge;
   if (!e) return;
-  if (!_reorderDrag || now - e.at > EDGE_STALE_MS) { _stopEdgeScroll(); return; }
+  if ((!_reorderDrag && !_fileDrop) || now - e.at > EDGE_STALE_MS) { _stopEdgeScroll(); return; }
   const dt = Math.min(50, Math.max(0, now - e.last));
   e.last = now;
   const v = _edgeSpeed(e.y);
@@ -470,6 +472,20 @@ function _dropAt(e) {
     const order = _members();
     return _sameOrder(_plannedOrder(order, drag.set, _dropBefore(at, drag)), order) ? null : at;
   }
+  const at = _gapSpot(e, drag.set);
+  if (!at) return null;
+  const order = _members();
+  const planned = _plannedOrder(order, drag.set, _dropBefore(at, drag));
+  const shown = (id) => drag.set.has(id) || _shown(id);
+  return DragAutoScroll.sameShownOrder(planned, order, shown) ? null : at;
+}
+
+/**
+ * A pointer in a gap between tiles or rows, after the last one, or just
+ * outside the grid's edge: the nearest { tile, side }, null for no drop
+ * there (the pager, the bars). `dragged`: ids being dragged (never the answer).
+ */
+function _gapSpot(e, dragged) {
   const grid = document.getElementById('resultsGrid');
   const main = document.getElementById('mainContainer');
   const t = e.target;
@@ -481,16 +497,11 @@ function _dropAt(e) {
       || e.clientY < g.top - REORDER_DROP_PAD || e.clientY > g.bottom + REORDER_DROP_PAD) return null;
   const tiles = [...grid.querySelectorAll('.media-tile[data-id]')];
   const skip = new Set();
-  tiles.forEach((el, i) => { if (drag.set.has(Number(el.dataset.id))) skip.add(i); });
+  tiles.forEach((el, i) => { if (dragged.has(Number(el.dataset.id))) skip.add(i); });
   const hit = typeof DragAutoScroll !== 'undefined' && DragAutoScroll.nearestDrop
     ? DragAutoScroll.nearestDrop(e.clientX, e.clientY, tiles.map(el => el.getBoundingClientRect()), { rows: _isTableView(), skip })
     : null;
-  if (!hit) return null;
-  const at = { tile: tiles[hit.index], side: hit.side };
-  const order = _members();
-  const planned = _plannedOrder(order, drag.set, _dropBefore(at, drag));
-  const shown = (id) => drag.set.has(id) || _shown(id);
-  return DragAutoScroll.sameShownOrder(planned, order, shown) ? null : at;
+  return hit ? { tile: tiles[hit.index], side: hit.side } : null;
 }
 
 /** The file a drop at { tile, side } goes in front of (null: the end). */
@@ -555,6 +566,105 @@ document.addEventListener('drop', (e) => {
 });
 
 document.addEventListener('dragend', () => { if (_reorderDrag) _endReorderDrag(); });
+
+/* ── Files dragged in from outside: drop them in place ────────────────
+   Files dragged in from the file manager over an open collection in
+   playlist order normally land at its end (importer.js addPaths). Holding
+   the pointer still over a spot for DragAutoScroll.DWELL_MS puts the same
+   drop mark a reorder shows there, and a drop then adds the files at that
+   place in the full order (add-paths `before`). Moving off the spot takes
+   the mark away until the pointer rests again; a drop with no mark adds at
+   the end as before. The page scrolls near the edges as in a reorder.
+   Only while nothing hides any of the collection's files (a search or
+   filter, another sort, a shuffle): then "here" means the same in the full
+   order as on screen. importer.js calls inPlaceDragOver on each file
+   dragover and inPlaceFinish when the drag drops or leaves the window. */
+
+let _fileDrop = null;   // { dwell, at, before } while files from outside are over the page
+const FILE_DROP_STALE_MS = 1500;
+let _fileDropStale = 0;
+
+/** Can files dropped from outside go to a chosen spot right now? */
+function inPlaceReady() {
+  if (!reorderReady() || _reorderBusy || _reorderDrag) return false;
+  if (typeof Library === 'undefined' || !Library.known()) return false;
+  // The grid is covered (the player, a dialog): no spot to pick.
+  if (document.getElementById('mediaPlayerOverlay')?.classList.contains('active')) return false;
+  if (typeof dockModalLayerOpen === 'function' && dockModalLayerOpen()) return false;
+  const members = _members();
+  return members.length > 0 && Library.total === members.length;
+}
+
+/** Where a file drop at this pointer would go: { tile, side, before }, or null. */
+function _fileSpotAt(e) {
+  const tile = _gridTile(e.target);
+  const at = tile ? { tile, side: _dropSide(tile, e) } : _gapSpot(e, new Set());
+  if (!at) return null;
+  const before = DragAutoScroll.insertBefore(_members(), Number(at.tile.dataset.id), at.side);
+  return before === undefined ? null : { ...at, before };
+}
+
+function _showFileMark(at) {
+  if (_reorderDropEl !== at.tile) _clearDropMark();
+  _reorderDropEl = at.tile;
+  at.tile.classList.toggle('reorder-drop-before', at.side === 'before');
+  at.tile.classList.toggle('reorder-drop-after', at.side === 'after');
+}
+
+/**
+ * A file dragover (importer.js). Steers the edge scroll and the hold-still
+ * mark. @returns {'off'|'waiting'|'marked'} off: no in-place drop here (the
+ * drop adds at the end as always), waiting: hold still to pick a spot,
+ * marked: a drop now goes at the mark.
+ */
+function inPlaceDragOver(e) {
+  if (!inPlaceReady()) { if (_fileDrop) inPlaceFinish(); return 'off'; }
+  if (!_fileDrop) _fileDrop = { dwell: null, at: null, before: undefined };
+  const f = _fileDrop;
+  // dragover keeps coming while the files are over the page, even held
+  // still: none for a while means the drag ended unseen (no dragleave), so
+  // the mark is not left behind for the next drag.
+  clearTimeout(_fileDropStale);
+  _fileDropStale = setTimeout(() => {
+    if (_fileDrop !== f) return;
+    inPlaceFinish();
+    // The drop overlay goes too (importer.js), so its words do not stay up.
+    try { window.dispatchEvent(new CustomEvent('vault:file-drag-quiet')); } catch {}
+  }, FILE_DROP_STALE_MS);
+  _edgeScrollAt(e.clientY);
+  f.dwell = DragAutoScroll.dwellStep(f.dwell, e.clientX, e.clientY, window.scrollY, performance.now());
+  if (f.at && f.dwell.moved) {
+    // Off the marked spot (another place in the order): the mark goes until the pointer rests again.
+    const now = _fileSpotAt(e);
+    if (!now || now.before !== f.before) { _clearDropMark(); f.at = null; f.before = undefined; }
+    else if (now.tile !== f.at.tile || now.side !== f.at.side) { f.at = now; _showFileMark(now); }
+  }
+  if (!f.at && f.dwell.settled) {
+    const at = _fileSpotAt(e);
+    if (at) { f.at = at; f.before = at.before; _showFileMark(at); }
+  }
+  // The grid can draw the marked tile again (continuous view, the table as it scrolls).
+  if (f.at && !f.at.tile.isConnected) {
+    const again = document.querySelector(`#resultsGrid .media-tile[data-id="${Number(f.at.tile.dataset.id)}"]`);
+    if (again) { f.at = { ...f.at, tile: again }; _showFileMark(f.at); }
+  }
+  return f.at ? 'marked' : 'waiting';
+}
+
+/**
+ * The file drag dropped or left: clear the mark and the scrolling.
+ * @returns {{ collectionId:number, before:number|null }|null} the marked
+ *   place (before null: the end) when there was one, else null
+ */
+function inPlaceFinish() {
+  const f = _fileDrop;
+  _fileDrop = null;
+  clearTimeout(_fileDropStale);
+  _clearDropMark();
+  _stopEdgeScroll();
+  if (!f || !f.at || f.before === undefined || !collectionIsOpen()) return null;
+  return { collectionId: activeCollectionId, before: f.before };
+}
 
 /* ── Keyboard: Alt+arrows move the selected file one place ────────────── */
 

@@ -104,6 +104,55 @@ test('dropped into an open collection: new files and ones already in the library
   assert.deepStrictEqual(members(coll), [...want, idOf(fresh3)]);
 });
 
+test('dropped held over a spot (before): the new ones go in there as a block, in drop order', async () => {
+  const coll = db.createCollection('In place').id;
+  const [m1, m2, m3] = ['ip-1.mp3', 'ip-2.mp3', 'ip-3.mp3'].map(mk);
+  const known = mk('ip-known.mp3');
+  importAdd.addPaths([m1, m2, m3, known], { analyse: false });
+  db.addToCollection(coll, [idOf(m1), idOf(m2), idOf(m3)]);
+  const n1 = mk('ip-new1.mp3'), n2 = mk('ip-new2.jpg');
+
+  // m3 is already in the collection: it stays where it is. n1 twice: once.
+  const r = await post('/api/import/add-paths', { paths: [n1, known, m3, n2, n1], collectionId: coll, before: idOf(m2) });
+  assert.strictEqual(r.status, 200);
+  const want = [idOf(m1), idOf(n1), idOf(known), idOf(n2), idOf(m2), idOf(m3)];
+  assert.deepStrictEqual(members(coll), want);
+  assert.strictEqual(r.body.collection.added, 3);
+  assert.strictEqual(r.body.collection.item_count, 6);
+  assert.deepStrictEqual(r.body.collection.first_ids, want.slice(0, 4));
+
+  // A second chunk before the same member lands after the first one.
+  const n3 = mk('ip-new3.mp3');
+  await post('/api/import/add-paths', { paths: [n3], collectionId: coll, before: idOf(m2) });
+  assert.deepStrictEqual(members(coll), [...want.slice(0, 4), idOf(n3), idOf(m2), idOf(m3)]);
+
+  // Positions are 0..n-1 (no ties), so the order reads the same every way.
+  const pos = db.get().prepare('SELECT position FROM collection_items WHERE collection_id = ? ORDER BY position').pluck().all(coll);
+  assert.deepStrictEqual(pos, [0, 1, 2, 3, 4, 5, 6]);
+});
+
+test('before: a file not in the collection any more means the end; a bad one is refused first', async () => {
+  const coll = db.createCollection('Anchor gone').id;
+  const a = mk('ag-a.mp3'), gone = mk('ag-gone.mp3');
+  importAdd.addPaths([a, gone], { analyse: false });
+  db.addToCollection(coll, [idOf(a)]);
+  const n = mk('ag-new.mp3');
+  const r = await post('/api/import/add-paths', { paths: [n], collectionId: coll, before: idOf(gone) });
+  assert.strictEqual(r.status, 200);
+  assert.deepStrictEqual(members(coll), [idOf(a), idOf(n)]);
+
+  const p = mk('ag-refused.mp3');
+  for (const before of ['x', 0, -3, 2.5]) {
+    const bad = await post('/api/import/add-paths', { paths: [p], collectionId: coll, before });
+    assert.strictEqual(bad.status, 400, String(before));
+    assert.strictEqual(bad.body.code, 'BAD_BEFORE');
+  }
+  assert.ok(!db.getByPath(p), 'no row was made');
+  // Without a collection, before is ignored.
+  const plain = await post('/api/import/add-paths', { paths: [p], before: 'x' });
+  assert.strictEqual(plain.status, 200);
+});
+
 test('a bad, missing or folder collection id is refused, and nothing is added', async () => {
   const p = mk('refused.mp3');
   const folder = db.createCollection('A folder', { kind: 'folder' }).id;
