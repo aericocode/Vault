@@ -427,9 +427,8 @@ function _edgeTick(now) {
   if (!v) { _stopEdgeScroll(); return; }
   const before = window.scrollY;
   window.scrollBy(0, (v * dt) / 1000);
-  // Rows and tiles drawn for the new scroll position get the faded mark too;
-  // a file drop's mark follows the content under a still pointer.
-  if (window.scrollY !== before) { _markDragging(); _fileMarkAfterScroll(); }
+  // Rows and tiles drawn for the new scroll position get the faded mark too.
+  if (window.scrollY !== before) _markDragging();
   e.raf = requestAnimationFrame(_edgeTick);
 }
 
@@ -573,11 +572,13 @@ document.addEventListener('dragend', () => { if (_reorderDrag) _endReorderDrag()
    playlist order normally land at its end (importer.js addPaths). Holding
    the pointer still over a spot for DragAutoScroll.DWELL_MS starts drop
    mode: from then until the drag ends the same drop mark a reorder shows
-   follows the pointer to the nearest place (tiles and gaps), and a drop
-   adds the files at the mark's place in the full order (add-paths
-   `before`). Moving or scrolling does not leave drop mode; over a spot
-   with no place (a bar, outside the grid) the last mark stays. A drop
-   before drop mode adds at the end as before. The page scrolls near the
+   follows the pointer to the nearest place among the tiles ON SCREEN,
+   wherever the pointer is (over the header, a bar, a panel, an edge band
+   it sits on the nearest visible row; below the last tile it is after it),
+   so a mark always shows, and a drop adds the files at the mark's place in
+   the full order (add-paths `before`). Moving or scrolling (edge, wheel)
+   does not leave drop mode; the mark follows the content as it scrolls.
+   A drop before drop mode adds at the end as before. The page scrolls near the
    edges as in a reorder, before drop mode too (to reach the place first).
    Only while nothing hides any of the collection's files (a search or
    filter, another sort, a shuffle): then "here" means the same in the full
@@ -615,11 +616,33 @@ function _showFileMark(at) {
   at.tile.classList.toggle('reorder-drop-after', at.side === 'after');
 }
 
-/** Drop mode: the mark goes to the place under the pointer (none there: the last one stays). */
-function _fileMarkFollow(e) {
+/** Drop mode's place for a pointer at (x, y): the nearest spot among the tiles on screen, or null (none on screen). */
+function _fileVisibleSpot(x, y) {
+  const grid = document.getElementById('resultsGrid');
+  if (!grid) return null;
+  const tiles = [...grid.querySelectorAll('.media-tile[data-id]')];
+  const hit = DragAutoScroll.visibleDrop(x, y, tiles.map(el => el.getBoundingClientRect()), _edgeBounds(), { rows: _isTableView() });
+  if (!hit) return null;
+  const tile = tiles[hit.index];
+  const before = DragAutoScroll.insertBefore(_members(), Number(tile.dataset.id), hit.side);
+  return before === undefined ? null : { tile, side: hit.side, before };
+}
+
+/** Is the marked tile drawn and on screen (its middle in the visible files area), with its mark? */
+function _fileMarkShown(at) {
+  if (!at || !at.tile.isConnected || !at.tile.classList.contains(`reorder-drop-${at.side}`)) return false;
+  const r = at.tile.getBoundingClientRect();
+  const b = _edgeBounds();
+  const mid = (r.top + r.bottom) / 2;
+  return r.bottom > r.top && mid >= b.top && mid <= b.bottom;
+}
+
+/** Drop mode: the mark goes to the place for the last pointer position (no tile on screen: no mark, the drop adds at the end). */
+function _fileMarkFollow() {
   const f = _fileDrop;
-  const at = _fileSpotAt(e);
-  if (!at) return;
+  if (!f || !f.placing || f.x == null) return;
+  const at = _fileVisibleSpot(f.x, f.y);
+  if (!at) { _clearDropMark(); f.at = null; f.before = undefined; return; }
   f.before = at.before;
   if (!f.at || at.tile !== f.at.tile || at.side !== f.at.side || !at.tile.classList.contains(`reorder-drop-${at.side}`)) {
     f.at = at;
@@ -627,13 +650,14 @@ function _fileMarkFollow(e) {
   }
 }
 
-/** Drop mode with the page scrolling under a still pointer: the mark follows what is under it now. */
-function _fileMarkAfterScroll() {
-  const f = _fileDrop;
-  if (!f || !f.placing || f.x == null || typeof document.elementFromPoint !== 'function') return;
-  const target = document.elementFromPoint(f.x, f.y);
-  if (target) _fileMarkFollow({ target, clientX: f.x, clientY: f.y });
-}
+// Drop mode while the page scrolls (edge scroll, the wheel, the browser's
+// own drag scroll): the mark follows the content under the pointer, now and
+// once the grid has drawn the rows for the new position.
+document.addEventListener('scroll', () => {
+  if (!_fileDrop || !_fileDrop.placing) return;
+  _fileMarkFollow();
+  requestAnimationFrame(() => _fileMarkFollow());
+}, { capture: true, passive: true });
 
 /**
  * A file dragover (importer.js). Steers the edge scroll, the hold-still
@@ -660,7 +684,7 @@ function inPlaceDragOver(e) {
   _edgeScrollAt(e.clientY);
   if (f.placing) {
     // Drop mode lasts until the drag ends: the mark follows the pointer.
-    _fileMarkFollow(e);
+    _fileMarkFollow();
   } else {
     f.dwell = DragAutoScroll.dwellStep(f.dwell, e.clientX, e.clientY, window.scrollY, performance.now());
     // Rested over a place in the order: drop mode starts there.
@@ -684,6 +708,9 @@ function inPlaceDragOver(e) {
  */
 function inPlaceFinish() {
   const f = _fileDrop;
+  // The drop goes where a mark shows: a marked tile the grid drew away or
+  // scrolled off screen is looked up again for the last pointer position.
+  if (f && f.placing && !_fileMarkShown(f.at)) _fileMarkFollow();
   _fileDrop = null;
   clearTimeout(_fileDropStale);
   _clearDropMark();

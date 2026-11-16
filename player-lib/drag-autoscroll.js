@@ -24,6 +24,9 @@
    - dwellStep(s, x, y, scroll, t)  hold-still timer for files dragged in
                                from outside (drop mode starts after
                                DWELL_MS of resting).
+   - visibleDrop(x, y, rects, view)  drop mode's place: the nearest spot
+                               among the tiles on screen, wherever the
+                               pointer is (header, bars, panels, edges).
    - insertBefore(order, id, side)  the member a drop beside a tile goes in
                                front of, in the full order.
    ========================================================================= */
@@ -144,6 +147,34 @@ const DragAutoScroll = (() => {
   }
 
   /**
+   * Drop mode's place for a pointer anywhere on the page, from the tiles'
+   * boxes alone (not what is under the pointer): only tiles on screen count
+   * (their middle between view.top and view.bottom, the visible files area),
+   * the pointer is pulled into that area (over the header, a bar, a panel,
+   * an edge band it lands on the nearest visible row), and below the last
+   * tile, when it is on screen, means after it.
+   * @param {number} x @param {number} y pointer, viewport px
+   * @param {{left,top,right,bottom}[]} rects every rendered tile, in order
+   * @param {{top:number, bottom:number}} view the visible files area
+   * @returns {{index:number, side:'before'|'after'}|null} null: no tile on screen
+   */
+  function visibleDrop(x, y, rects, view, o = {}) {
+    if (!rects || !rects.length || !view || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const shown = [];
+    rects.forEach((r, i) => {
+      if (!r || r.bottom <= r.top) return;
+      const mid = (r.top + r.bottom) / 2;
+      if (mid >= view.top && mid <= view.bottom) shown.push(i);
+    });
+    if (!shown.length) return null;
+    const cy = Math.max(view.top, Math.min(view.bottom, y));
+    const last = rects.length - 1;
+    if (shown[shown.length - 1] === last && cy > rects[last].bottom) return { index: last, side: 'after' };
+    const hit = nearestDrop(x, cy, shown.map(i => rects[i]), { rows: o.rows });
+    return hit ? { index: shown[hit.index], side: hit.side } : null;
+  }
+
+  /**
    * The member a drop at { id, side } of a tile goes in front of, in the
    * collection's FULL order (not only the tiles loaded): the tile itself for
    * its near side, the member after it for its far side, null for the end.
@@ -157,7 +188,7 @@ const DragAutoScroll = (() => {
     return i + 1 < order.length ? order[i + 1] : null;
   }
 
-  return { speed, nearestDrop, sameShownOrder, dwellStep, insertBefore, BAND, MIN_SPEED, MAX_SPEED, DWELL_MS, DWELL_TOL };
+  return { speed, nearestDrop, sameShownOrder, dwellStep, visibleDrop, insertBefore, BAND, MIN_SPEED, MAX_SPEED, DWELL_MS, DWELL_TOL };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = DragAutoScroll;

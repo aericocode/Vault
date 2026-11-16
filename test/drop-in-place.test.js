@@ -51,6 +51,29 @@ test('dwellStep: small wobble counts as still; a move or a scroll starts the tim
   assert.strictEqual(run([[0, 0, 0, 0], [0, 0, 0, 300]], { ms: 300 }).settled, true, 'options');
 });
 
+/* ── Drop mode's place among the tiles on screen (visibleDrop) ────────── */
+
+test('visibleDrop: the pointer is pulled into the visible files; off-screen tiles never count', () => {
+  // Two rows of two: 0,1 at y 0..100, 2,3 at y 120..220.
+  const R = (l, t) => ({ left: l, right: l + 100, top: t, bottom: t + 100 });
+  const rects = [R(0, 0), R(110, 0), R(0, 120), R(110, 120)];
+  const all = { top: 0, bottom: 800 };
+  assert.deepStrictEqual(S.visibleDrop(20, 50, rects, all), { index: 0, side: 'before' }, 'on a tile: its half');
+  assert.deepStrictEqual(S.visibleDrop(105, 50, rects, all), { index: 0, side: 'after' }, 'a gap: the nearest tile');
+  // Row one scrolled under the header (view starts at 130): the pointer on the header lands on row two.
+  assert.deepStrictEqual(S.visibleDrop(20, 10, rects, { top: 130, bottom: 800 }), { index: 2, side: 'before' });
+  // Over a panel or a side gutter: still the nearest visible tile.
+  assert.deepStrictEqual(S.visibleDrop(900, 150, rects, all), { index: 3, side: 'after' });
+  // Below the last row with the last tile on screen: after it, whatever the x.
+  assert.deepStrictEqual(S.visibleDrop(5, 500, rects, all), { index: 3, side: 'after' });
+  // The bottom edge band with rows below the screen: the nearest visible row, not "after".
+  assert.deepStrictEqual(S.visibleDrop(5, 900, rects, { top: 0, bottom: 150 }), { index: 0, side: 'before' });
+  // Table rows: before / after by height.
+  assert.deepStrictEqual(S.visibleDrop(5, 90, rects, all, { rows: true }), { index: 0, side: 'after' });
+  assert.strictEqual(S.visibleDrop(5, 5, rects, { top: 400, bottom: 800 }), null, 'no tile on screen');
+  assert.strictEqual(S.visibleDrop(5, 5, [], all), null);
+});
+
 /* ── The place in the full order (insertBefore) ───────────────────────── */
 
 test('insertBefore: near side is the tile, far side the member after it in the FULL order, null at the end', () => {
@@ -92,7 +115,8 @@ test('planInsert: chunks sent one after another before the same member keep the 
 
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'collection-reorder.js'), 'utf8');
 
-function fakeTile(id, left) {
+/** Tile i of a grid three across, rows 120 px apart from y 300, moved up by geo.off (the page scrolled). */
+function fakeTile(id, i, geo = { off: 0 }) {
   const cls = new Set();
   const tile = {
     dataset: { id: String(id) }, isConnected: true, cls,
@@ -102,20 +126,31 @@ function fakeTile(id, left) {
     },
   };
   tile.closest = (q) => (q.startsWith('.media-tile') ? tile : q === '#resultsGrid' ? {} : null);
-  tile.getBoundingClientRect = () => ({ top: 300, bottom: 400, left, right: left + 100, height: 100, width: 100 });
+  tile.getBoundingClientRect = () => {
+    const left = (i % 3) * 112, top = 300 + Math.floor(i / 3) * 120 - geo.off;
+    return { top, bottom: top + 100, left, right: left + 100, height: 100, width: 100 };
+  };
   return tile;
 }
 
 function page({ members = [1, 2, 3], total = members.length, sort = 'playlist' } = {}) {
   const clock = { now: 0 };
+  const geo = { off: 0 };
   const win = { innerHeight: 800, scrollY: 0, addEventListener() {}, scrollBy() {} };
-  const tiles = members.map((id, i) => fakeTile(id, i * 112));
+  const tiles = members.map((id, i) => fakeTile(id, i, geo));
+  const every = tiles.slice();          // old ones too, for the marks
+  const listeners = {};
+  const grid = {
+    querySelectorAll: () => tiles.slice(),
+    contains: (t) => tiles.includes(t),
+    getBoundingClientRect: () => ({ top: 300 - geo.off, bottom: 800, left: 0, right: 330 }),
+  };
   const doc = {
     body: { classList: { contains: () => false } },
-    addEventListener() {},
+    addEventListener(type, fn) { listeners[type] = fn; },
     querySelectorAll: () => [],
     querySelector: () => null,
-    getElementById: () => null,
+    getElementById: (id) => (id === 'resultsGrid' ? grid : null),
   };
   const timers = new Map();
   let nextTimer = 1;
@@ -138,18 +173,24 @@ function page({ members = [1, 2, 3], total = members.length, sort = 'playlist' }
   // A dragover at x over tile i (left or right half by x), at time t.
   const over = (i, x, t) => {
     clock.now = t;
-    return vm.runInContext('inPlaceDragOver', ctx)({ target: tiles[i], clientX: x, clientY: 350 });
+    const r = tiles[i].getBoundingClientRect();
+    return vm.runInContext('inPlaceDragOver', ctx)({ target: tiles[i], clientX: x, clientY: r.top + 50 });
   };
   const overTarget = (target, x, y, t) => {
     clock.now = t;
     return vm.runInContext('inPlaceDragOver', ctx)({ target, clientX: x, clientY: y });
   };
-  const scrollTo = (y) => { win.scrollY = y; };
+  /** The page scrolled by y: the tiles move up, and the scroll listener runs (wheel, edge scroll). */
+  const scrollTo = (y) => { win.scrollY = y; geo.off = y; if (listeners.scroll) listeners.scroll(); };
+  /** The grid draws its tiles again (new elements, the old ones gone), without a dragover. */
+  const redraw = () => {
+    tiles.forEach((t, i) => { t.isConnected = false; tiles[i] = fakeTile(t.dataset.id, i, geo); every.push(tiles[i]); });
+  };
   const finish = () => vm.runInContext('inPlaceFinish', ctx)();
-  const marked = () => tiles.flatMap(t => [...t.cls].map(c => `${t.dataset.id}:${c.replace('reorder-drop-', '')}`));
+  const marked = () => every.filter(t => t.isConnected).flatMap(t => [...t.cls].map(c => `${t.dataset.id}:${c.replace('reorder-drop-', '')}`));
   /** The drag went quiet: run the timers waiting now. */
   const quiet = () => { const run = [...timers.values()]; timers.clear(); run.forEach(fn => fn()); };
-  return { over, overTarget, scrollTo, finish, marked, tiles, quiet };
+  return { over, overTarget, scrollTo, redraw, finish, marked, tiles, quiet };
 }
 
 /** Dragovers every 50 ms at the same spot from t0 for ms. */
@@ -197,18 +238,44 @@ test('page: in drop mode the mark follows every move at once, and moving never l
   assert.deepStrictEqual(JSON.parse(JSON.stringify(p.finish())), { collectionId: 5, before: 1 }, 'the drop goes at the showing mark');
 });
 
-test('page: in drop mode a spot with no place keeps the last mark; a page scroll does not leave drop mode', () => {
+const bar = { closest: () => null };   // a header, a bar, a floating panel: not a tile, not in the grid
+
+test('page: in drop mode a pointer over a bar or below the files still marks the nearest visible spot', () => {
   const p = page();
   rest(p, 2, 290, 0, S.DWELL_MS);
   assert.deepStrictEqual(p.marked(), ['3:after']);
-  // Over something that is not a tile and not in the grid (a bar): no place there.
-  const bar = { closest: () => null };
-  assert.strictEqual(p.overTarget(bar, 500, 20, S.DWELL_MS + 50), 'placing');
-  assert.deepStrictEqual(p.marked(), ['3:after'], 'the last mark stays');
+  assert.strictEqual(p.overTarget(bar, 10, 20, S.DWELL_MS + 50), 'placing', 'over the header');
+  assert.deepStrictEqual(p.marked(), ['1:before'], 'the nearest row, by the pointer x');
+  assert.strictEqual(p.overTarget(bar, 10, 700, S.DWELL_MS + 100), 'placing', 'below the last row');
+  assert.deepStrictEqual(p.marked(), ['3:after'], 'below the last tile: after it');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(p.finish())), { collectionId: 5, before: null }, 'after the last member: the end');
+});
+
+test('page: in drop mode only tiles on screen count; a scroll moves the mark with the content', () => {
+  const p = page({ members: [1, 2, 3, 4, 5, 6, 7, 8, 9] });
+  rest(p, 0, 10, 0, S.DWELL_MS);                  // tile 1, left half, pointer at y 350
+  assert.deepStrictEqual(p.marked(), ['1:before']);
+  p.scrollTo(120);                                // row two now under the still pointer
+  assert.deepStrictEqual(p.marked(), ['4:before'], 'the scroll alone moved the mark with the content');
+  // Scrolled 400: row one is above the screen, rows two and three at 20 and 140; the pointer is below them.
   p.scrollTo(400);
-  assert.strictEqual(p.over(0, 90, S.DWELL_MS + 100), 'placing', 'scrolled: still in drop mode');
-  assert.deepStrictEqual(p.marked(), ['1:after']);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(p.finish())), { collectionId: 5, before: 2 });
+  assert.deepStrictEqual(p.marked(), ['9:after'], 'below the last row: after the last tile');
+  assert.strictEqual(p.overTarget(bar, 10, 5, S.DWELL_MS + 50), 'placing', 'pointer on the header');
+  assert.deepStrictEqual(p.marked(), ['4:before'], 'not the off-screen row it is nearer to');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(p.finish())), { collectionId: 5, before: 4 });
+});
+
+test('page: at the drop, a marked tile the grid drew away is looked up again; nothing on screen means the end', () => {
+  const p = page({ members: [1, 2, 3, 4, 5, 6] });
+  rest(p, 4, 200, 0, S.DWELL_MS);                 // tile 5, right half: before 6
+  assert.deepStrictEqual(p.marked(), ['5:after']);
+  p.redraw();                                     // no dragover since
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(p.finish())), { collectionId: 5, before: 6 }, 'same place, from the new tiles');
+  const q = page({ members: [1, 2, 3, 4, 5, 6] });
+  rest(q, 4, 200, 0, S.DWELL_MS);
+  q.scrollTo(2000);                               // every tile off screen: no mark can show
+  assert.deepStrictEqual(q.marked(), []);
+  assert.strictEqual(q.finish(), null, 'no mark: the drop adds at the end');
 });
 
 test('page: a later drag starts fresh, not in drop mode', () => {

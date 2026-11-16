@@ -1910,10 +1910,26 @@
     _depth++;
     showDropOverlay(true);
   });
+  // A file dragover proves the drag is on the page: none for this long means
+  // it ended unseen (left the window with the enter/leave count off, as when
+  // the grid redraws the element under the pointer), so the overlay goes.
+  const FILE_DRAG_QUIET_MS = 1500;
+  let _quiet = 0;
+  const dragGone = () => {
+    clearTimeout(_quiet);
+    _depth = 0;
+    showDropOverlay(false);
+    if (typeof inPlaceFinish === 'function') inPlaceFinish();
+  };
   document.addEventListener('dragover', (e) => {
     if (!hasFiles(e)) return;
     e.preventDefault();                        // required to allow the drop
     e.dataTransfer.dropEffect = 'copy';
+    // The overlay comes back if a missed count took it away mid-drag.
+    _depth = Math.max(_depth, 1);
+    showDropOverlay(true);
+    clearTimeout(_quiet);
+    _quiet = setTimeout(dragGone, FILE_DRAG_QUIET_MS);
     // Over an open collection in playlist order: hold still to drop in place
     // (collection-reorder.js inPlaceDragOver), and the overlay says so.
     const own = e.target && typeof e.target.closest === 'function' && e.target.closest('[data-no-import-drop]');
@@ -1923,18 +1939,16 @@
   });
   // Over an open collection no dragover came for a while: the drag ended
   // without a dragleave (collection-reorder.js), so the overlay goes.
-  document.addEventListener('vault:file-drag-quiet', () => { _depth = 0; showDropOverlay(false); });
+  document.addEventListener('vault:file-drag-quiet', () => { clearTimeout(_quiet); _depth = 0; showDropOverlay(false); });
   document.addEventListener('dragleave', (e) => {
     if (!hasFiles(e)) return;
     _depth = Math.max(0, _depth - 1);
-    if (_depth === 0) {
-      showDropOverlay(false);
-      if (typeof inPlaceFinish === 'function') inPlaceFinish();
-    }
+    if (_depth === 0) dragGone();
   });
   document.addEventListener('drop', async (e) => {
     if (!hasFiles(e)) return;
     e.preventDefault();
+    clearTimeout(_quiet);
     _depth = 0;
     showDropOverlay(false);
     // The spot the files were held over, if any (taken now, with the mark).
