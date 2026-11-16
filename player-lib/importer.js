@@ -1909,6 +1909,7 @@
     e.preventDefault();
     _depth++;
     showDropOverlay(true);
+    dragAlive();
   });
   // A file dragover proves the drag is on the page: none for this long means
   // it ended unseen (left the window with the enter/leave count off, as when
@@ -1921,6 +1922,14 @@
     showDropOverlay(false);
     if (typeof inPlaceFinish === 'function') inPlaceFinish();
   };
+  // The drag is still on the page (a dragover, a dragenter, or the page
+  // scrolling under it: rows moving under a still pointer can bring
+  // dragenter and dragleave but no dragover).
+  function dragAlive() {
+    clearTimeout(_quiet);
+    _quiet = setTimeout(dragGone, FILE_DRAG_QUIET_MS);
+  }
+  document.addEventListener('scroll', () => { if (_depth > 0) dragAlive(); }, { capture: true, passive: true });
   document.addEventListener('dragover', (e) => {
     if (!hasFiles(e)) return;
     e.preventDefault();                        // required to allow the drop
@@ -1928,8 +1937,7 @@
     // The overlay comes back if a missed count took it away mid-drag.
     _depth = Math.max(_depth, 1);
     showDropOverlay(true);
-    clearTimeout(_quiet);
-    _quiet = setTimeout(dragGone, FILE_DRAG_QUIET_MS);
+    dragAlive();
     // Over an open collection in playlist order: hold still to drop in place
     // (collection-reorder.js inPlaceDragOver), and the overlay says so.
     const own = e.target && typeof e.target.closest === 'function' && e.target.closest('[data-no-import-drop]');

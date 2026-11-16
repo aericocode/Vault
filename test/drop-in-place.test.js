@@ -70,6 +70,14 @@ test('visibleDrop: the pointer is pulled into the visible files; off-screen tile
   assert.deepStrictEqual(S.visibleDrop(5, 900, rects, { top: 0, bottom: 150 }), { index: 0, side: 'before' });
   // Table rows: before / after by height.
   assert.deepStrictEqual(S.visibleDrop(5, 90, rects, all, { rows: true }), { index: 0, side: 'after' });
+  // A table row cut off by the sticky header or the window edge never takes
+  // the mark (its line would be hidden): the pointer on the header lands on
+  // the first row that shows whole, and at the bottom on the last such row.
+  const rows = [0, 48, 96, 144, 192].map(t => ({ left: 0, right: 600, top: t, bottom: t + 48 }));
+  assert.deepStrictEqual(S.visibleDrop(5, 0, rows, { top: 20, bottom: 230 }, { rows: true }), { index: 1, side: 'before' });
+  assert.deepStrictEqual(S.visibleDrop(5, 400, rows, { top: 20, bottom: 230 }, { rows: true }), { index: 3, side: 'after' });
+  assert.strictEqual(S.onScreen(rows[0], { top: 20, bottom: 230 }, true), false, 'a cut-off row');
+  assert.strictEqual(S.onScreen(rows[0], { top: 20, bottom: 230 }, false), true, 'a grid tile counts by its middle');
   assert.strictEqual(S.visibleDrop(5, 5, rects, { top: 400, bottom: 800 }), null, 'no tile on screen');
   assert.strictEqual(S.visibleDrop(5, 5, [], all), null);
 });

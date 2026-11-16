@@ -631,11 +631,24 @@ function _fileVisibleSpot(x, y) {
 /** Is the marked tile drawn and on screen (its middle in the visible files area), with its mark? */
 function _fileMarkShown(at) {
   if (!at || !at.tile.isConnected || !at.tile.classList.contains(`reorder-drop-${at.side}`)) return false;
-  const r = at.tile.getBoundingClientRect();
-  const b = _edgeBounds();
-  const mid = (r.top + r.bottom) / 2;
-  return r.bottom > r.top && mid >= b.top && mid <= b.bottom;
+  return DragAutoScroll.onScreen(at.tile.getBoundingClientRect(), _edgeBounds(), _isTableView());
 }
+
+/** The file drag is still on the page: restart the "ended unseen" timer. */
+function _fileDropAlive() {
+  const f = _fileDrop;
+  clearTimeout(_fileDropStale);
+  if (!f) return;
+  _fileDropStale = setTimeout(() => {
+    if (_fileDrop !== f) return;
+    inPlaceFinish();
+    // The drop overlay goes too (importer.js), so its words do not stay up.
+    try { document.dispatchEvent(new CustomEvent('vault:file-drag-quiet')); } catch {}
+  }, FILE_DROP_STALE_MS);
+}
+// While rows scroll under a still pointer some browsers send dragenter and
+// dragleave but no dragover: a dragenter also shows the drag is alive.
+document.addEventListener('dragenter', () => { if (_fileDrop) _fileDropAlive(); }, true);
 
 /** Drop mode: the mark goes to the place for the last pointer position (no tile on screen: no mark, the drop adds at the end). */
 function _fileMarkFollow() {
@@ -654,7 +667,9 @@ function _fileMarkFollow() {
 // own drag scroll): the mark follows the content under the pointer, now and
 // once the grid has drawn the rows for the new position.
 document.addEventListener('scroll', () => {
-  if (!_fileDrop || !_fileDrop.placing) return;
+  if (!_fileDrop) return;
+  _fileDropAlive();   // the page scrolling under the drag: it has not ended
+  if (!_fileDrop.placing) return;
   _fileMarkFollow();
   requestAnimationFrame(() => _fileMarkFollow());
 }, { capture: true, passive: true });
@@ -674,13 +689,7 @@ function inPlaceDragOver(e) {
   // dragover keeps coming while the files are over the page, even held
   // still: none for a while means the drag ended unseen (no dragleave), so
   // the mark is not left behind for the next drag.
-  clearTimeout(_fileDropStale);
-  _fileDropStale = setTimeout(() => {
-    if (_fileDrop !== f) return;
-    inPlaceFinish();
-    // The drop overlay goes too (importer.js), so its words do not stay up.
-    try { document.dispatchEvent(new CustomEvent('vault:file-drag-quiet')); } catch {}
-  }, FILE_DROP_STALE_MS);
+  _fileDropAlive();
   _edgeScrollAt(e.clientY);
   if (f.placing) {
     // Drop mode lasts until the drag ends: the mark follows the pointer.

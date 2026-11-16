@@ -147,6 +147,21 @@ const DragAutoScroll = (() => {
   }
 
   /**
+   * Does a tile count as on screen for drop mode? A grid tile when its middle
+   * is in the visible files area (its mark is a side edge, seen on the half
+   * that shows). A table row only when all of it is: its mark is a line on
+   * its top or bottom border, which a sticky header or the window edge hides
+   * on a row that is cut off.
+   * @param {{top:number,bottom:number}} r @param {{top:number,bottom:number}} view @param {boolean} [rows]
+   */
+  function onScreen(r, view, rows) {
+    if (!r || !view || r.bottom <= r.top) return false;
+    if (rows) return r.top >= view.top && r.bottom <= view.bottom;
+    const mid = (r.top + r.bottom) / 2;
+    return mid >= view.top && mid <= view.bottom;
+  }
+
+  /**
    * Drop mode's place for a pointer anywhere on the page, from the tiles'
    * boxes alone (not what is under the pointer): only tiles on screen count
    * (their middle between view.top and view.bottom, the visible files area),
@@ -161,11 +176,7 @@ const DragAutoScroll = (() => {
   function visibleDrop(x, y, rects, view, o = {}) {
     if (!rects || !rects.length || !view || !Number.isFinite(x) || !Number.isFinite(y)) return null;
     const shown = [];
-    rects.forEach((r, i) => {
-      if (!r || r.bottom <= r.top) return;
-      const mid = (r.top + r.bottom) / 2;
-      if (mid >= view.top && mid <= view.bottom) shown.push(i);
-    });
+    rects.forEach((r, i) => { if (onScreen(r, view, o.rows)) shown.push(i); });
     if (!shown.length) return null;
     const cy = Math.max(view.top, Math.min(view.bottom, y));
     const last = rects.length - 1;
@@ -188,7 +199,7 @@ const DragAutoScroll = (() => {
     return i + 1 < order.length ? order[i + 1] : null;
   }
 
-  return { speed, nearestDrop, sameShownOrder, dwellStep, visibleDrop, insertBefore, BAND, MIN_SPEED, MAX_SPEED, DWELL_MS, DWELL_TOL };
+  return { speed, nearestDrop, sameShownOrder, dwellStep, visibleDrop, onScreen, insertBefore, BAND, MIN_SPEED, MAX_SPEED, DWELL_MS, DWELL_TOL };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = DragAutoScroll;
