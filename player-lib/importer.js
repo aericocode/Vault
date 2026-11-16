@@ -74,14 +74,15 @@
      short line at the bottom) so the files and the drop mark show through.
      mode: collection-reorder.js inPlaceDragOver's answer. */
   const DROP_OVERLAY_WORDS = {
-    waiting: 'Hold still over a spot to drop the files there, or drop now to add them at the end.',
-    marked: 'Drop now to add the files at the mark.',
+    waiting: 'Hold still for a moment to pick where the files go, or drop now to add them at the end.',
+    placing: 'Move to the spot you want, then drop.',
   };
   function setDropOverlayMode(mode) {
     const ov = document.getElementById('vaultDropOverlay');
     if (!ov || ov.dataset.mode === mode) return;
     ov.dataset.mode = mode;
     ov.classList.toggle('in-place', mode !== 'off');
+    ov.classList.toggle('placing', mode === 'placing');
     ov.innerHTML = mode === 'off'
       ? `${ico('⬇ ', 'download')}Drop to add in place. Nothing is copied.`
       : `<span class="vdo-line">${DROP_OVERLAY_WORDS[mode] || ''}</span>`;
@@ -1908,11 +1909,35 @@
     e.preventDefault();
     _depth++;
     showDropOverlay(true);
+    dragAlive();
   });
+  // A file dragover proves the drag is on the page: none for this long means
+  // it ended unseen (left the window with the enter/leave count off, as when
+  // the grid redraws the element under the pointer), so the overlay goes.
+  const FILE_DRAG_QUIET_MS = 1500;
+  let _quiet = 0;
+  const dragGone = () => {
+    clearTimeout(_quiet);
+    _depth = 0;
+    showDropOverlay(false);
+    if (typeof inPlaceFinish === 'function') inPlaceFinish();
+  };
+  // The drag is still on the page (a dragover, a dragenter, or the page
+  // scrolling under it: rows moving under a still pointer can bring
+  // dragenter and dragleave but no dragover).
+  function dragAlive() {
+    clearTimeout(_quiet);
+    _quiet = setTimeout(dragGone, FILE_DRAG_QUIET_MS);
+  }
+  document.addEventListener('scroll', () => { if (_depth > 0) dragAlive(); }, { capture: true, passive: true });
   document.addEventListener('dragover', (e) => {
     if (!hasFiles(e)) return;
     e.preventDefault();                        // required to allow the drop
     e.dataTransfer.dropEffect = 'copy';
+    // The overlay comes back if a missed count took it away mid-drag.
+    _depth = Math.max(_depth, 1);
+    showDropOverlay(true);
+    dragAlive();
     // Over an open collection in playlist order: hold still to drop in place
     // (collection-reorder.js inPlaceDragOver), and the overlay says so.
     const own = e.target && typeof e.target.closest === 'function' && e.target.closest('[data-no-import-drop]');
@@ -1922,18 +1947,18 @@
   });
   // Over an open collection no dragover came for a while: the drag ended
   // without a dragleave (collection-reorder.js), so the overlay goes.
-  document.addEventListener('vault:file-drag-quiet', () => { _depth = 0; showDropOverlay(false); });
+  // The mark moved or went between dragovers (the page scrolled): the words follow it.
+  document.addEventListener('vault:file-drop-mode', (e) => { if (_depth > 0) setDropOverlayMode(e.detail); });
+  document.addEventListener('vault:file-drag-quiet', () => { clearTimeout(_quiet); _depth = 0; showDropOverlay(false); });
   document.addEventListener('dragleave', (e) => {
     if (!hasFiles(e)) return;
     _depth = Math.max(0, _depth - 1);
-    if (_depth === 0) {
-      showDropOverlay(false);
-      if (typeof inPlaceFinish === 'function') inPlaceFinish();
-    }
+    if (_depth === 0) dragGone();
   });
   document.addEventListener('drop', async (e) => {
     if (!hasFiles(e)) return;
     e.preventDefault();
+    clearTimeout(_quiet);
     _depth = 0;
     showDropOverlay(false);
     // The spot the files were held over, if any (taken now, with the mark).
