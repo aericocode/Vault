@@ -21,6 +21,11 @@
                                some) in the same order: a gap drop that would
                                only carry the file past hidden ones changes
                                nothing the user sees, so it is no drop.
+   - dwellStep(s, x, y, scroll, t)  hold-still timer for files dragged in
+                               from outside (the drop mark shows after
+                               DWELL_MS of resting).
+   - insertBefore(order, id, side)  the member a drop beside a tile goes in
+                               front of, in the full order.
    ========================================================================= */
 
 const DragAutoScroll = (() => {
@@ -111,7 +116,48 @@ const DragAutoScroll = (() => {
     }
   }
 
-  return { speed, nearestDrop, sameShownOrder, BAND, MIN_SPEED, MAX_SPEED };
+  /* ── Files dragged in from outside: hold still to pick a spot ──────────
+     A file drag from the file manager says nothing about its files until the
+     drop, and dragover keeps firing while the pointer rests (Firefox about
+     every 50 ms, and the spec asks for it too), so "resting" is worked out
+     from where each dragover is: the pointer staying within DWELL_TOL px of
+     where it stopped, with the page not scrolled, for DWELL_MS. */
+  const DWELL_MS = 1000;    // how long to hold still before the drop mark shows
+  const DWELL_TOL = 8;      // px the pointer may wander and still count as still
+
+  /**
+   * One dragover's step of the hold-still timer.
+   * @param {{x,y,scroll,since}|null} s the state from the last step (null: none yet)
+   * @param {number} x @param {number} y pointer, viewport px
+   * @param {number} scroll the page's scrollY (a scroll moves what is under a still pointer)
+   * @param {number} t now, ms
+   * @returns {{x,y,scroll,since,settled:boolean,moved:boolean}} moved: the
+   *   pointer left the spot it was resting on (the timer started again)
+   */
+  function dwellStep(s, x, y, scroll, t, o = {}) {
+    const ms = o.ms != null ? o.ms : DWELL_MS;
+    const tol = o.tol != null ? o.tol : DWELL_TOL;
+    const still = s && Number.isFinite(s.since)
+      && Math.abs(x - s.x) <= tol && Math.abs(y - s.y) <= tol && Math.abs(scroll - s.scroll) < 1;
+    if (!still) return { x, y, scroll, since: t, settled: false, moved: true };
+    return { x: s.x, y: s.y, scroll: s.scroll, since: s.since, settled: t - s.since >= ms, moved: false };
+  }
+
+  /**
+   * The member a drop at { id, side } of a tile goes in front of, in the
+   * collection's FULL order (not only the tiles loaded): the tile itself for
+   * its near side, the member after it for its far side, null for the end.
+   * undefined when the tile is not a member (no drop place).
+   * @param {number[]} order @param {number} id @param {'before'|'after'} side
+   */
+  function insertBefore(order, id, side) {
+    const i = order.indexOf(id);
+    if (i < 0) return undefined;
+    if (side === 'before') return id;
+    return i + 1 < order.length ? order[i + 1] : null;
+  }
+
+  return { speed, nearestDrop, sameShownOrder, dwellStep, insertBefore, BAND, MIN_SPEED, MAX_SPEED, DWELL_MS, DWELL_TOL };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = DragAutoScroll;

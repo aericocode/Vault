@@ -2923,7 +2923,7 @@ app.post('/api/import/scan-folder', (req, res) => {
 // collectionId (optional): files dropped while a collection is open go into
 // it too, appended to its playlist order in the order given, the ones already
 // in the library as well as the new ones (a file already in the collection
-// stays where it is). Checked before anything is added, and added in the same
+// stays where it is; with before, see below). Checked before anything is added, and added in the same
 // turn as the rows, so no scan or probe comes between.
 app.post('/api/import/add-paths', (req, res) => {
   const paths = Array.isArray(req.body?.paths) ? req.body.paths.map(String) : [];
@@ -2937,6 +2937,15 @@ app.post('/api/import/add-paths', (req, res) => {
     if (!kind) return res.status(404).json({ error: 'That collection is not there any more.', code: 'NOT_FOUND' });
     if (kind === 'folder') return res.status(400).json({ error: 'folders hold collections, not media', code: 'FOLDER_TARGET' });
   }
+  // before (optional, with collectionId): a drop "in place". The files new to
+  // the collection go in right before this member, in the order given; null,
+  // or a file that is not a member any more, means the end as usual.
+  const rawBefore = req.body?.before;
+  let before = null;
+  if (collId && rawBefore != null) {
+    before = parseId(rawBefore);
+    if (!before) return res.status(400).json({ error: 'before must be a file id', code: 'BAD_BEFORE' });
+  }
 
   // Shared with the folder watchers (lib/import-add.js): stubs, then the AI
   // scan queue, then a background probe + thumbnails.
@@ -2944,7 +2953,7 @@ app.post('/api/import/add-paths', (req, res) => {
   const { added, skipped, ids } = importAdd.addPaths(paths);
   let collection;
   if (collId) {
-    const n = ids.length ? db.addToCollection(collId, ids) : 0;
+    const n = ids.length ? db.addToCollection(collId, ids, { before }) : 0;
     if (gamifyEnabled && n > 0) require('../lib/quests').onCollect(n);
     collection = { id: collId, added: n, ids, item_count: db.collectionItemCount(collId), first_ids: db.collectionFirstIds(collId), ...db.collectionLength(collId) };
   }

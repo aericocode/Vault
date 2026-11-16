@@ -356,3 +356,20 @@
   font-size: 1.4rem; font-weight: 700; color: #fff;
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
 }
+/* Over an open collection: no cover, so the files and the drop mark show
+   (importer.js setDropOverlayMode); the hint sits at the bottom. */
+#vaultDropOverlay.in-place {
+  background: transparent;
+  align-items: flex-end;
+  padding-bottom: 28px;
+  font-size: 0.95rem; font-weight: 600;
+  text-shadow: none;
+}
+#vaultDropOverlay.in-place .vdo-line {
+  background: rgba(20, 24, 40, 0.92);
+  border: 1px solid var(--accent, #7aa8ff);
+  border-radius: 999px;
+  padding: 8px 18px;
+  max-width: calc(100% - 32px);
+  text-align: center;
+}

@@ -70,6 +70,23 @@
     }
   }
 
+  /* Over an open collection the overlay steps aside (no dark cover, a
+     short line at the bottom) so the files and the drop mark show through.
+     mode: collection-reorder.js inPlaceDragOver's answer. */
+  const DROP_OVERLAY_WORDS = {
+    waiting: 'Hold still over a spot to drop the files there, or drop now to add them at the end.',
+    marked: 'Drop now to add the files at the mark.',
+  };
+  function setDropOverlayMode(mode) {
+    const ov = document.getElementById('vaultDropOverlay');
+    if (!ov || ov.dataset.mode === mode) return;
+    ov.dataset.mode = mode;
+    ov.classList.toggle('in-place', mode !== 'off');
+    ov.innerHTML = mode === 'off'
+      ? `${ico('⬇ ', 'download')}Drop to add in place. Nothing is copied.`
+      : `<span class="vdo-line">${DROP_OVERLAY_WORDS[mode] || ''}</span>`;
+  }
+
   /* ── Progress panel (delete-queue look; hides behind the player) ──────── */
   function importPanel(total, verb = '⬆ Importing') {
     document.getElementById('importQueuePanel')?.remove();
@@ -1318,9 +1335,12 @@
    * @param {Array<{path, name}>} entries
    * @param {{collectionId?: number|null}} [opts] collectionId: the open
    *   collection a drop goes into too (dropTargetCollection), new files and
-   *   ones already in the library, at the end of its playlist order
+   *   ones already in the library, at the end of its playlist order; before:
+   *   a member of it the files go in front of instead (a drop held over a
+   *   spot, collection-reorder.js inPlaceFinish). Every chunk goes in front
+   *   of the same member, so the files keep the order they came in.
    */
-  async function addPaths(entries, { collectionId = null } = {}) {
+  async function addPaths(entries, { collectionId = null, before = null } = {}) {
     const panel = importPanel(entries.length, '📁 Adding');
     const refreshGrid = makeGridRefresher();
     const imported = [];
@@ -1335,7 +1355,11 @@
       try {
         const resp = await fetch('/api/import/add-paths', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ paths: chunk.map(e => e.path), ...(collectionId != null ? { collectionId } : {}) }),
+          body: JSON.stringify({
+            paths: chunk.map(e => e.path),
+            ...(collectionId != null ? { collectionId } : {}),
+            ...(collectionId != null && before != null ? { before } : {}),
+          }),
         });
         const data = await resp.json().catch(() => ({}));
         // The collection went away (or became a folder) mid-drop: the rest go to the library only.
@@ -1388,7 +1412,10 @@
      Files dropped while a collection (not a folder) is open go into it too,
      at the end of its playlist order, in the order dropped: add-paths does
      both in one go (collectionId), the files already in the library as well
-     as the new ones. The collection is the one open when the drop landed. */
+     as the new ones. The collection is the one open when the drop landed.
+     Held still over a spot first (collection-reorder.js inPlaceDragOver),
+     the files new to the collection go in at that spot instead (before);
+     files already in it stay where they are. */
   function dropTargetCollection() {
     if (typeof activeCollectionId === 'undefined' || activeCollectionId == null) return null;
     const c = typeof getCollectionById === 'function' ? getCollectionById(activeCollectionId) : null;
@@ -1509,8 +1536,8 @@
   }
 
   /* ── Native multi-file picker → record paths in place (no copy) ────────── */
-  /** collectionId: the drop's fallback (the collection open when it landed, dropTargetCollection). */
-  async function pickAndAddFiles({ collectionId = null } = {}) {
+  /** collectionId: the drop's fallback (the collection open when it landed, dropTargetCollection); before: the spot it was held over. */
+  async function pickAndAddFiles({ collectionId = null, before = null } = {}) {
     const btn = document.getElementById('addFilesBtn');
     if (btn?.disabled) return;
     const busy = pickerBusy(btn, 'files');
@@ -1531,7 +1558,7 @@
 
       // Real on-disk paths — hand straight to add-paths (in place, no copy).
       const entries = picked.paths.map(p => ({ path: p, name: p.split(/[\\/]/).pop() || p }));
-      await addPaths(entries, { collectionId });
+      await addPaths(entries, { collectionId, before });
     } finally {
       busy.done();
     }
@@ -1840,9 +1867,9 @@
      files go straight to add-paths (same as the file picker); anything with
      folders opens the preview modal — each folder is scanned and loose files
      ride along at depth 0. */
-  async function addResolvedDrop({ files = [], dirs = [] }, { collectionId = null } = {}) {
+  async function addResolvedDrop({ files = [], dirs = [] }, { collectionId = null, before = null } = {}) {
     if (!dirs.length) {
-      await addPaths(files.map(f => ({ path: f.path, name: f.path.split(/[\\/]/).pop() || f.path })), { collectionId });
+      await addPaths(files.map(f => ({ path: f.path, name: f.path.split(/[\\/]/).pop() || f.path })), { collectionId, before });
       return;
     }
     if (dirs.length === 1 && !files.length) { await openFolderImport(dirs[0]); return; }
@@ -1886,17 +1913,31 @@
     if (!hasFiles(e)) return;
     e.preventDefault();                        // required to allow the drop
     e.dataTransfer.dropEffect = 'copy';
+    // Over an open collection in playlist order: hold still to drop in place
+    // (collection-reorder.js inPlaceDragOver), and the overlay says so.
+    const own = e.target && typeof e.target.closest === 'function' && e.target.closest('[data-no-import-drop]');
+    const inPlace = !own && typeof inPlaceDragOver === 'function' ? inPlaceDragOver(e) : 'off';
+    if (own && typeof inPlaceFinish === 'function') inPlaceFinish();
+    setDropOverlayMode(inPlace);
   });
+  // Over an open collection no dragover came for a while: the drag ended
+  // without a dragleave (collection-reorder.js), so the overlay goes.
+  document.addEventListener('vault:file-drag-quiet', () => { _depth = 0; showDropOverlay(false); });
   document.addEventListener('dragleave', (e) => {
     if (!hasFiles(e)) return;
     _depth = Math.max(0, _depth - 1);
-    if (_depth === 0) showDropOverlay(false);
+    if (_depth === 0) {
+      showDropOverlay(false);
+      if (typeof inPlaceFinish === 'function') inPlaceFinish();
+    }
   });
   document.addEventListener('drop', async (e) => {
     if (!hasFiles(e)) return;
     e.preventDefault();
     _depth = 0;
     showDropOverlay(false);
+    // The spot the files were held over, if any (taken now, with the mark).
+    const placed = typeof inPlaceFinish === 'function' ? inPlaceFinish() : null;
     // A drop target of its own (face search's photo box) already took it.
     if (e.target instanceof Element && e.target.closest('[data-no-import-drop]')) return;
 
@@ -1921,6 +1962,8 @@
     try { paths = decodeUriList(e.dataTransfer.getData('text/uri-list')); } catch { paths = []; }
     // The collection open as the drop lands is the one the files go into.
     const collectionId = dropTargetCollection();
+    // Held over a spot in it: the files go there instead of at the end.
+    const before = placed && placed.collectionId === collectionId ? placed.before : null;
 
     // A playlist file (VLC / PotPlayer) imports as a collection instead
     // (player-lib/playlist-import.js). Media dropped with it adds as usual.
@@ -1942,7 +1985,7 @@
       if (resp.ok) r = await resp.json().catch(() => null);
     } catch {}
     if (r && (r.files?.length || r.dirs?.length)) {
-      await addResolvedDrop(r, { collectionId });
+      await addResolvedDrop(r, { collectionId, before });
       return;
     }
     // Off Windows, a drop that came without its paths (some browsers and
@@ -1960,6 +2003,6 @@
       return;
     }
     showToast('📄 Vault could not tell where those files are. Pick them in the file picker.');
-    pickAndAddFiles({ collectionId });
+    pickAndAddFiles({ collectionId, before });
   });
 })();
