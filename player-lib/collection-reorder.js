@@ -397,7 +397,7 @@ function _edgeBounds(exact) {
     if (r.height > 0 && r.top <= top + 1) top = Math.max(top, r.bottom);
   }
   // exact: a horizontal scrollbar along the bottom covers files too.
-  let bottom = exact ? Math.min(window.innerHeight, document.documentElement.clientHeight || window.innerHeight) : window.innerHeight;
+  let bottom = exact ? Math.min(window.innerHeight, (document.documentElement && document.documentElement.clientHeight) || window.innerHeight) : window.innerHeight;
   const bar = document.body.classList.contains('stage-bar-on') ? document.querySelector('.stage-bar') : null;
   if (bar) {
     const r = bar.getBoundingClientRect();
