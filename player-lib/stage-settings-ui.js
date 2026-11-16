@@ -298,7 +298,9 @@ function stageSettingsHtml() {
       + settingsRowHtml({ sfind: 'stageWindowName', title: 'Window name', desc: 'What Discord lists, and may show on the stream.', control: nameField })
       + settingsRowHtml({ sfind: 'stageImageSeconds', title: 'Show pictures for', desc: 'GIFs play at least one full loop.', control: _stNum('imageSeconds', s.imageSeconds, 1, 600, 'Seconds a picture shows') })
       + settingsRowHtml({ sfind: 'stageCursor', title: 'Hide the cursor', desc: 'After it stops moving over Stage.', control: _stNum('cursorSeconds', s.cursorSeconds, 1, 60, 'Seconds before the cursor hides') })
-      + settingsRowHtml({ sfind: 'stageOpenSize', title: 'Size when Stage opens', desc: 'Free size keeps the size and spot you last left it at.', control: sizeSel })
+      + settingsRowHtml({ sfind: 'stageOpenSize', title: 'Size when Stage opens', desc: (typeof vaultServerPlatform === 'function' && vaultServerPlatform() === 'linux')
+        ? 'Free size opens at the size you last left it at. Where it opens is up to the desktop.'
+        : 'Free size keeps the size and spot you last left it at.', control: sizeSel })
       + settingsRowHtml({ tag: 'label', sfind: 'stageMuteVault', title: 'Mute Vault while Stage is open', desc: 'So viewers don’t hear the file twice.', control: _stSwitch('muteVault', s.muteVault) })
       + settingsRowHtml({ tag: 'label', sfind: 'stageTips', title: 'Tips when Stage opens', desc: 'How to share it in Discord.', control: _stSwitch('tips', s.tips) })
       + settingsRowHtml({ tag: 'label', sfind: 'stageEvenLoudness', title: 'Even out loudness on Stage', desc: loudDesc, control: _stSwitch('evenLoudness', s.evenLoudness) })
