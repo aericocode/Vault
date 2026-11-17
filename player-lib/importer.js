@@ -2013,21 +2013,21 @@
       await addResolvedDrop(r, { collectionId, before });
       return;
     }
-    // Off Windows, a drop that came without its paths (some browsers and
-    // file managers leave them out): the pickers still work.
-    if (r && r.unresolved === 'unsupported') {
-      showToast('Vault cannot see where dropped files are on this computer. Use Add folder or Add files instead.');
-      return;
-    }
-
     // Couldn't trace the drop (exotic source app, ambiguous match…) — fall
-    // back to the native pickers, which always see real paths.
+    // back to the pickers, which always see real paths. Off Windows that is
+    // every drop for now: the browsers leave the paths out (seen with Firefox
+    // on Wayland), so the picker opens straight away.
+    const cannotSee = !!(r && r.unresolved === 'unsupported');
     if (dirs.length) {
-      showToast('📁 Vault could not tell where that folder is. Pick it in the folder picker.');
+      showToast(cannotSee
+        ? '📁 Vault cannot see where dropped folders are on this computer. Pick the folder here instead.'
+        : '📁 Vault could not tell where that folder is. Pick it in the folder picker.');
       pickAndAddFolder();
       return;
     }
-    showToast('📄 Vault could not tell where those files are. Pick them in the file picker.');
+    showToast(cannotSee
+      ? '📄 Vault cannot see where dropped files are on this computer. Pick them here instead.'
+      : '📄 Vault could not tell where those files are. Pick them in the file picker.');
     pickAndAddFiles({ collectionId, before });
   });
 })();
