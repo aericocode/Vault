@@ -679,3 +679,21 @@ test('only videos are logged; a short video played to its end is played, not ski
   assert.strictEqual(entries.find(e => e.mediaId === 6).played, 60, 'the picture after it does not count');
   assert.strictEqual(set.played, 2);
 });
+
+test('how long ago a file played, for the tooltip on its times', () => {
+  const R = require('../player-lib/stage-setlog.js');
+  const now = 1_700_000_000_000;
+  const min = 60_000;
+  assert.strictEqual(R.ago(now, now), 'just now');
+  assert.strictEqual(R.ago(now - 59_000, now), 'just now');
+  assert.strictEqual(R.ago(now - min, now), '1 min ago');
+  assert.strictEqual(R.ago(now - 35 * min - 40_000, now), '35 min ago');
+  assert.strictEqual(R.ago(now - 60 * min, now), '1 hr ago');
+  assert.strictEqual(R.ago(now - 65 * min, now), '1 hr 5 min ago');
+  assert.strictEqual(R.ago(now - 23 * 60 * min - 59 * min, now), '23 hr 59 min ago');
+  assert.strictEqual(R.ago(now - 24 * 60 * min, now), '1 day ago');
+  assert.strictEqual(R.ago(now - 73 * 60 * min, now), '3 days ago');
+  assert.strictEqual(R.ago(now + 5 * min, now), 'just now');   // a clock a little off never says "-5 min"
+  assert.strictEqual(R.ago(NaN, now), '');
+  assert.strictEqual(R.ago(undefined, now), '');
+});

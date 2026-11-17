@@ -84,6 +84,22 @@ const SetLogRules = (() => {
     return h ? `${h}h ${pad(m)}m` : `${m}m`;
   }
 
+  /**
+   * How long ago a file started, for the tooltip on its times ("what played
+   * 35 minutes ago?"): "just now", "35 min ago", "1 hr 5 min ago",
+   * "2 hr ago", "3 days ago". '' when either time is not known.
+   */
+  function ago(startMs, nowMs) {
+    if (!Number.isFinite(startMs) || !Number.isFinite(nowMs)) return '';
+    const m = Math.floor(Math.max(0, nowMs - startMs) / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return `${m} min ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return m % 60 ? `${h} hr ${m % 60} min ago` : `${h} hr ago`;
+    const d = Math.floor(h / 24);
+    return `${d} ${d === 1 ? 'day' : 'days'} ago`;
+  }
+
   /** "Tonight · started 8:02 PM · 14 played". */
   function header(set, nowMs) {
     if (!set) return 'Nothing played on Stage yet';
@@ -125,7 +141,7 @@ const SetLogRules = (() => {
     return kept(entries).map(e => `${clock(e.startedAt)}  ${name(e)}`).join('\n');
   }
 
-  return { hms, dur, chapterTime, clock, day, length, header, setLabel, right, name, filter, chapters, list };
+  return { hms, dur, chapterTime, clock, day, length, ago, header, setLabel, right, name, filter, chapters, list };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = SetLogRules;
@@ -260,13 +276,22 @@ const SetLog = (typeof document === 'undefined') ? null : (() => {
     if (!data) { box.innerHTML = `<div class="slog-empty">${sets.length ? 'Loading…' : 'Nothing played on Stage yet. Files Stage plays show here, with the time they played.'}</div>`; return; }
     const rows = R.filter(data.entries, query);
     if (!rows.length) { box.innerHTML = `<div class="slog-empty">${data.entries.length ? 'No file in this set has that name.' : 'Nothing played in this set.'}</div>`; return; }
-    box.innerHTML = rows.map((e) => {
+    const now = Date.now();
+    const html = rows.map((e) => {
       const can = e.inLibrary !== false;
       const cls = `slog-row${e.skipped ? ' slog-skip' : ''}${e.now ? ' slog-now' : ''}${can ? '' : ' slog-gone'}`;
       // No name in the tooltip: hidden file names (privacy) blur .slog-nm, a tooltip would show it.
       const attrs = can ? ` data-sl-media="${e.mediaId}" tabindex="0" title="Preview this file"` : ' title="No longer in the library"';
-      return `<div class="${cls}" role="listitem"${attrs}><span class="slog-t">${esc(R.clock(e.startedAt))}</span><span class="slog-o">${esc(R.hms(e.offset))}</span><span class="slog-nm">${esc(R.name(e))}</span><span class="slog-r">${esc(R.right(e))}</span></div>`;
+      // Hovering either time says how long ago that was ("Played 35 min ago").
+      const when = R.ago(Number(e.startedAt), now);
+      const tip = when ? ` title="${esc(e.now ? `Started ${when}` : `Played ${when}`)}"` : '';
+      return `<div class="${cls}" role="listitem"${attrs}><span class="slog-t"${tip}>${esc(R.clock(e.startedAt))}</span><span class="slog-o"${tip}>${esc(R.hms(e.offset))}</span><span class="slog-nm">${esc(R.name(e))}</span><span class="slog-r">${esc(R.right(e))}</span></div>`;
     }).join('');
+    // Only a change is written (the list is read again every 2 s): rows
+    // replaced under the pointer would drop the tooltip being read.
+    if (box._html === html && box.firstElementChild && !box.querySelector('.slog-empty')) return;
+    box._html = html;
+    box.innerHTML = html;
   }
 
   // One refresh at a time; a change of set while one is on its way makes
