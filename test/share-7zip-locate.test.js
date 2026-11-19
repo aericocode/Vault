@@ -110,6 +110,67 @@ test('built app: an explicit VAULT_7ZIP is still honoured', { skip }, () => {
   assert.strictEqual(sevenzip.locate(), vendorCopy);
 });
 
+test('built app: a byte changed AFTER the copy was accepted, size and time put back, is refused and never run', { skip }, async () => {
+  const { root, dst } = appFolder('flip', 'exact');
+  // A whole-second time, so putting it back gives the very same stat values.
+  const t = new Date(Math.floor(Date.now() / 1000) * 1000 - 3600 * 1000);
+  fs.utimesSync(dst, t, t);
+  sevenzip._setForTest({ packaged: true, root });
+  assert.strictEqual(sevenzip.locate(), dst, 'the good copy is accepted first');
+  assert.deepStrictEqual(runs, [dst], 'its version check ran');
+  const before = fs.statSync(dst);
+
+  // The verifier's counterexample: flip one byte, put the time back.
+  const fd = fs.openSync(dst, 'r+');
+  const at = before.size - 4096;
+  const b = Buffer.alloc(1);
+  fs.readSync(fd, b, 0, 1, at);
+  b[0] ^= 0xff;
+  fs.writeSync(fd, b, 0, 1, at);
+  fs.closeSync(fd);
+  fs.utimesSync(dst, t, t);
+  const after = fs.statSync(dst);
+  assert.strictEqual(after.size, before.size);
+  assert.strictEqual(after.mtimeMs, before.mtimeMs, 'size and time look unchanged');
+
+  runs.length = 0;
+  assert.strictEqual(sevenzip.locate(), null, 'refused when looked for again');
+  // Run it the way packing does (found by locate) and by an explicit path.
+  await assert.rejects(sevenzip.runSevenZip(['i'], { password: null }), { code: 'SEVENZIP_MISSING' });
+  await assert.rejects(sevenzip.runSevenZip(['i'], { password: null, program: dst }), { code: 'SEVENZIP_CHANGED' });
+  assert.strictEqual(sevenzip.checkVersion(dst).ok, false);
+  assert.deepStrictEqual(runs, [], 'the changed copy was never started');
+
+  // Put the byte back: accepted again (nothing about the bad copy was cached).
+  const fd2 = fs.openSync(dst, 'r+');
+  b[0] ^= 0xff;
+  fs.writeSync(fd2, b, 0, 1, at);
+  fs.closeSync(fd2);
+  assert.strictEqual(sevenzip.locate(), dst);
+});
+
+test('built app: the changed byte is caught right before a run, even with locate() not asked again', { skip }, async () => {
+  const { root, dst } = appFolder('flip-run', 'exact');
+  sevenzip._setForTest({ packaged: true, root });
+  assert.strictEqual(sevenzip.locate(), dst);
+  const st = fs.statSync(dst);
+  const fd = fs.openSync(dst, 'r+');
+  fs.writeSync(fd, Buffer.from([0x5a]), 0, 1, st.size - 100);
+  fs.closeSync(fd);
+  fs.utimesSync(dst, st.atime, st.mtime);
+  runs.length = 0;
+  await assert.rejects(sevenzip.runSevenZip(['i'], { password: null, program: dst }), { code: 'SEVENZIP_CHANGED' });
+  assert.deepStrictEqual(runs, []);
+});
+
+test('built app: a program that is neither the shipped copy nor VAULT_7ZIP is not started', { skip }, async () => {
+  const { root } = appFolder('other-prog', 'exact');
+  sevenzip._setForTest({ packaged: true, root });
+  runs.length = 0;
+  await assert.rejects(sevenzip.runSevenZip(['i'], { password: null, program: vendorCopy }), { code: 'SEVENZIP_MISSING' });
+  assert.deepStrictEqual(runs, []);
+});
+
 test('source checkout: a changed copy in 7-Zip/ is passed over without being run', { skip }, () => {
   const { root, dst } = appFolder('src-changed', 'changed');
   process.env.PATH = '';
