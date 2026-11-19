@@ -1,8 +1,8 @@
 /**
  * Share privately: packing and the archive checks with the REAL 7-Zip
- * program (lib/share/pack.js, lib/share/sevenzip.js). Skipped cleanly when no
- * 7-Zip is found (VAULT_7ZIP, the app folder, PATH, or the usual Windows
- * install folder).
+ * program (lib/share/pack.js, lib/share/sevenzip.js): the copy shipped in
+ * vendor/7zip/ on Windows x64 and Linux x64, or VAULT_7ZIP. Skipped cleanly
+ * when no 7-Zip is found at all.
  *
  * Covered: the password goes to 7-Zip on stdin and never into its arguments
  * (every spawn is recorded), header encryption (listing without the password
@@ -24,8 +24,8 @@ const childProcess = require('node:child_process');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-test-share-pack-'));
 process.env.VAULT_SHARE_TEMP = path.join(tmp, 'share_temp');
 process.env.VAULT_SETTINGS_FILE = path.join(tmp, 'settings.json');
-const WIN_7Z = 'C:\\Program Files\\7-Zip\\7z.exe';
-if (!process.env.VAULT_7ZIP && process.platform === 'win32' && fs.existsSync(WIN_7Z)) process.env.VAULT_7ZIP = WIN_7Z;
+// 7-Zip: VAULT_7ZIP when set (to try another build), else what the app itself
+// finds, which in a source checkout is the copy shipped in vendor/7zip/.
 
 // Record every spawn: the password must never be in an argument.
 const spawns = [];

@@ -29,8 +29,8 @@ process.env.VAULT_SETTINGS_FILE = path.join(tmp, 'settings.json');
 process.env.VAULT_SHARE_TEMP = path.join(tmp, 'share_temp');
 process.env.VAULT_OFFLINE = '1';
 delete process.env.VAULT_DB_PASSWORD;
-const WIN_7Z = 'C:\\Program Files\\7-Zip\\7z.exe';
-if (!process.env.VAULT_7ZIP && process.platform === 'win32' && fs.existsSync(WIN_7Z)) process.env.VAULT_7ZIP = WIN_7Z;
+// 7-Zip: VAULT_7ZIP when set, else the copy shipped in vendor/7zip/ (found
+// by lib/share/sevenzip.js like the app does).
 
 const config = require('../config');
 const db = require('../lib/database');
