@@ -4198,6 +4198,14 @@ function _installShutdownHooks() {
     // under tempDir, and the children have to be gone before the wipe, or one
     // still writes into the directory being cleared (or outlives the server).
     try { await require('../lib/stream/session').stopAll(); } catch {}
+    // Share privately: a 7-Zip still packing is stopped and its work folder
+    // (the list of original paths, staged copies, part files) deleted. Only
+    // when the share service was loaded; anything it cannot delete is left
+    // to the clean-up on the next unlocked start.
+    try {
+      const svc = require.cache[require.resolve('../lib/share/service')];
+      if (svc) await svc.exports.shutdown();
+    } catch {}
     try { wipeTempDir(); } catch {}
     try { secureAssets.close(); } catch {}
     // A missing-files probe stuck on an unreachable share would hold the exit

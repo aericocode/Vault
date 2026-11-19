@@ -319,6 +319,9 @@ test('X3 Delete twice on one share: the lock lands while the first DELETE is out
     unlockNow();
     if (outcome === 'gofile deleted it') {
       assert.strictEqual(statusOf(a.id), 'deleted');
+      // Its folder goes with the clean-up after the unlock; the record keeps
+      // the name until then.
+      await service._cleanupNow();
       assert.strictEqual(store.getShare(a.id).work_dir, null);
     } else {
       // Not known: left as it was, Delete still offered (a second Delete

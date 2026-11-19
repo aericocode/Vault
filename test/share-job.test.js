@@ -762,11 +762,15 @@ test('my shares: timer ran out is worked out from the clock; mark gone; remove a
   assert.deepStrictEqual(await service.remove(s.id, {}), { removed: true });
 });
 
-test('restart throws away shares that never reached the upload, with their files', () => {
+test('restart throws away shares that never reached the upload, with their files', async () => {
   const s = makeChecked();
   service._simulateRestart();
   service.ensureRecovered();
+  // Hidden at once ('removing'), gone once the clean-up has deleted its folder.
+  assert.throws(() => service.getShare(s.id), { code: 'NOT_FOUND' });
+  await service._idle();
   assert.strictEqual(store.getShare(s.id), null);
+  assert.ok(!fs.existsSync(s.wd.dir), 'its folder was deleted');
 });
 
 test('settings: custom part size 50 MB to 16 GB, a bad value keeps the last good one', () => {

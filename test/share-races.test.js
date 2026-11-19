@@ -502,8 +502,10 @@ test('a stop or remove cut short by a restart is finished on the next start', as
   assert.match(a.last_error, /Stop and delete did not finish/);
   assert.strictEqual(service.getShare(stopped.id).onGofile, true, 'Delete is offered');
   assert.strictEqual(statusOf(nothing.id), 'cancelled');
-  assert.strictEqual(store.getShare(removing.id), null);
+  assert.throws(() => service.getShare(removing.id), { code: 'NOT_FOUND' });
   await service._idle();
+  // The record goes once the clean-up has deleted the folder.
+  assert.strictEqual(store.getShare(removing.id), null);
   for (const s of [stopped, nothing, removing]) {
     for (let i = 0; i < 50 && fs.existsSync(s.wd.dir); i++) await new Promise(r => setTimeout(r, 10));
     assert.ok(!fs.existsSync(s.wd.dir), 'local parts deleted');
