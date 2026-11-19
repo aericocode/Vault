@@ -116,6 +116,9 @@ test('upload: multipart holds only the file and folderId, bearer token in the he
   assert.strictEqual(Number(c.headers.get('content-length')), c.body.length);
   assert.ok(!c.url.includes(TOKEN));
   const boundary = /boundary=(.+)$/.exec(c.headers.get('content-type'))[1];
+  // The boundary is random hex only: it does not name Vault (or anything).
+  assert.match(boundary, /^[0-9a-f]{48}$/);
+  assert.ok(!/vault/i.test(c.body.toString('latin1')), 'nothing in the body names Vault');
   const text = c.body.toString('latin1');
   const fields = [...text.matchAll(/Content-Disposition: form-data; name="([^"]+)"/g)].map(m => m[1]);
   assert.deepStrictEqual(fields, ['folderId', 'file']);
