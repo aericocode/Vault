@@ -137,6 +137,9 @@ const SEVENZIP = (() => {
   if (!r.expected) die(`vendor/7zip/${rel} is not listed in vendor/7zip/SHA256SUMS`);
   if (!r.actual) die(`vendor/7zip/${rel} is missing`);
   if (!r.ok) die(`vendor/7zip/${rel} does not match vendor/7zip/SHA256SUMS (expected ${r.expected}, got ${r.actual})`);
+  // The app checks its copy against the value built into lib/share/sevenzip.js
+  // before it first runs it; that value must be this one.
+  if (s.sha256 !== r.actual) die(`lib/share/sevenzip.js SHIPPED sha256 for ${rel} (${s.sha256}) does not match vendor/7zip/SHA256SUMS (${r.actual})`);
   if (!fs.existsSync(path.join(vendor7z.VENDOR_DIR, s.vendorDir, 'License.txt'))) die(`vendor/7zip/${s.vendorDir}/License.txt is missing`);
   console.log(`  vendor/7zip/${rel}: ok (sha256 ${r.actual})`);
   return { src: path.join(vendor7z.VENDOR_DIR, s.vendorDir), file: s.file, appDir: SHIPPED_APP_DIR, sha256: r.actual };
