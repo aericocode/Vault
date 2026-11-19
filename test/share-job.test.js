@@ -138,14 +138,14 @@ test('upload needs confirm === true, the feature on, and VAULT_OFFLINE off; refu
   const c = useClient(fakeClient());
   on();
   const s = makeChecked();
-  assert.throws(() => service.confirmUpload(s.id, {}), { code: 'CONFIRM_NEEDED' });
-  assert.throws(() => service.confirmUpload(s.id, { confirm: 'true' }), { code: 'CONFIRM_NEEDED' });
+  await assert.rejects(() => service.confirmUpload(s.id, {}), { code: 'CONFIRM_NEEDED' });
+  await assert.rejects(() => service.confirmUpload(s.id, { confirm: 'true' }), { code: 'CONFIRM_NEEDED' });
   on({ enabled: false });
-  assert.throws(() => service.confirmUpload(s.id, { confirm: true }), { code: 'FEATURE_OFF' });
+  await assert.rejects(() => service.confirmUpload(s.id, { confirm: true }), { code: 'FEATURE_OFF' });
   on();
   config.net.offline = true;
   try {
-    assert.throws(() => service.confirmUpload(s.id, { confirm: true }),
+    await assert.rejects(() => service.confirmUpload(s.id, { confirm: true }),
       { code: 'NET_OFF', message: 'Vault is set to stay offline (VAULT_OFFLINE=1), so nothing can be uploaded.' });
   } finally { config.net.offline = false; }
   assert.strictEqual(c.calls.length, 0);
@@ -157,13 +157,13 @@ test('only a checked share whose checks passed can be uploaded', async () => {
   on();
   const s = makeChecked();
   store.updateShare(s.id, { checks: JSON.stringify({ ok: false }) });
-  assert.throws(() => service.confirmUpload(s.id, { confirm: true }), { code: 'NOT_CHECKED' });
+  await assert.rejects(() => service.confirmUpload(s.id, { confirm: true }), { code: 'NOT_CHECKED' });
   store.updateShare(s.id, { checks: JSON.stringify({ ok: true }), status: 'packing' });
-  assert.throws(() => service.confirmUpload(s.id, { confirm: true }), { code: 'NOT_CHECKED' });
+  await assert.rejects(() => service.confirmUpload(s.id, { confirm: true }), { code: 'NOT_CHECKED' });
   // Parts changed after the checks: refused, deleted, nothing sent.
   store.updateShare(s.id, { status: 'checked' });
   fs.appendFileSync(path.join(s.wd.dir, s.list[0].fileName), 'tamper');
-  assert.throws(() => service.confirmUpload(s.id, { confirm: true }), { code: 'PARTS_CHANGED' });
+  await assert.rejects(() => service.confirmUpload(s.id, { confirm: true }), { code: 'PARTS_CHANGED' });
   assert.strictEqual(statusOf(s.id), 'failed');
   assert.strictEqual(c.calls.length, 0);
 });
@@ -287,7 +287,7 @@ test('restart with the parts missing: Resume marks it failed, the uploaded parts
   service._simulateRestart();
   service.ensureRecovered();
   fs.rmSync(s.wd.dir, { recursive: true, force: true });
-  assert.throws(() => service.resume(s.id), { code: 'PARTS_MISSING' });
+  await assert.rejects(() => service.resume(s.id), { code: 'PARTS_MISSING' });
   assert.strictEqual(statusOf(s.id), 'failed');
   const out = await service.deleteRemote(s.id);
   assert.strictEqual(out.status, 'deleted');
@@ -326,7 +326,7 @@ test('turning the feature off pauses a running upload', async () => {
   await waitFor(() => store.getParts(s.id)[1].status === 'uploading', 'in flight');
   await service.updateSettings({ enabled: false });
   assert.strictEqual(statusOf(s.id), 'paused');
-  assert.throws(() => service.resume(s.id), { code: 'FEATURE_OFF' });
+  await assert.rejects(() => service.resume(s.id), { code: 'FEATURE_OFF' });
 });
 
 test('stop and delete: gofile folder deleted, then local parts, then cancelled', async () => {
@@ -636,9 +636,9 @@ test('feature off, real client: delete, delete all and stop-and-delete send exac
   on({ enabled: false, onPartFail: 'ask' });
 
   // (b) Everything that would upload, make an account or set a timer: FEATURE_OFF, zero requests.
-  assert.throws(() => service.confirmUpload(fresh.id, { confirm: true }), { code: 'FEATURE_OFF' });
-  assert.throws(() => service.resume(paused.id), { code: 'FEATURE_OFF' });
-  assert.throws(() => service.retryPart(paused.id, 2), { code: 'FEATURE_OFF' });
+  await assert.rejects(() => service.confirmUpload(fresh.id, { confirm: true }), { code: 'FEATURE_OFF' });
+  await assert.rejects(() => service.resume(paused.id), { code: 'FEATURE_OFF' });
+  await assert.rejects(() => service.retryPart(paused.id, 2), { code: 'FEATURE_OFF' });
   await assert.rejects(service.retryTimer(up.id), { code: 'FEATURE_OFF' });
   assert.throws(() => service.start({ mediaIds: [1] }), { code: 'FEATURE_OFF' });
   await assert.rejects(f.client.createAccount(), { code: 'FEATURE_OFF' });
@@ -723,7 +723,7 @@ test('my shares: timer ran out is worked out from the clock; mark gone; remove a
   const t = makeChecked();
   store.updateShare(t.id, { status: 'uploaded', folder_id: 'f2', delete_after: Date.now() + 100000, link: 'https://gofile.io/d/Y' });
   await assert.rejects(service.remove(t.id, {}), { code: 'STILL_ONLINE' });
-  assert.strictEqual(service.markGone(t.id).status, 'gone');
+  assert.strictEqual((await service.markGone(t.id)).status, 'gone');
   assert.deepStrictEqual(await service.remove(t.id, {}), { removed: true });
   assert.strictEqual(store.getShare(t.id), null);
   assert.deepStrictEqual(await service.remove(s.id, {}), { removed: true });

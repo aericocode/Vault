@@ -41,6 +41,7 @@ const STATUS = {
   PARTS_CHANGED: 409, PARTS_MISSING: 409, STILL_ONLINE: 409, WARNING_NEEDED: 409, NO_ACCOUNT: 409,
   FILE_MISSING: 409, SEVENZIP_MISSING: 409, TEMP_NOT_OWNED: 409,
   NO_SPACE: 507,
+  VAULT_LOCKED: 423,
   GATE_LOCKED: 429,
   RATE_LIMIT: 503, NETWORK: 502, GOFILE_ERROR: 502, BAD_ANSWER: 502, SHARE_HOST: 502, UPLOAD_MISMATCH: 502,
 };
@@ -140,7 +141,7 @@ function buildRouter() {
   // promise 4). What they delete on gofile is only ever the folder stored on
   // the share row picked by :id (or every stored row, for delete-all): no
   // folder id or token is read from the body.
-  r.post('/shares/:id/mark-gone', h((req) => ({ share: service.markGone(req.params.id) })));
+  r.post('/shares/:id/mark-gone', h((req) => service.markGone(req.params.id).then(share => ({ share }))));
   r.post('/shares/:id/remove', h((req) => service.remove(req.params.id, { confirm: body(req).confirm })));
   r.post('/shares/:id/delete-remote', h((req) => service.deleteRemote(req.params.id).then(share => ({ share }))));
   r.post('/shares/:id/retry-timer', h((req) => service.retryTimer(req.params.id).then(share => ({ share }))));

@@ -88,6 +88,23 @@ test('guest account: POST /accounts with no body, token read from data', async (
   assert.strictEqual(fake.calls[0].purpose, 'share');
 });
 
+test('account and timer requests take an abort signal; an aborted one reads as ABORTED', async () => {
+  const seen = [];
+  const fetch = async (url, opts) => {
+    seen.push(opts.signal);
+    if (opts.signal && opts.signal.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+    return json(200, { status: 'ok', data: { token: TOKEN } });
+  };
+  const c = new GofileClient({ fetch, isEnabled: () => true, isOffline: () => false });
+  const ac = new AbortController();
+  await c.createAccount({ signal: ac.signal });
+  await c.setExpiry({ token: TOKEN, folderId: 'folder-1', expiresAtSec: 1, signal: ac.signal });
+  assert.deepStrictEqual(seen, [ac.signal, ac.signal]);
+  ac.abort();
+  await assert.rejects(c.createAccount({ signal: ac.signal }), { code: 'ABORTED' });
+  await assert.rejects(c.setExpiry({ token: TOKEN, folderId: 'folder-1', expiresAtSec: 1, signal: ac.signal }), { code: 'ABORTED' });
+});
+
 test('upload: multipart holds only the file and folderId, bearer token in the header, streamed with a length', async () => {
   const fake = fakeGofile({ 'POST https://upload.gofile.io/uploadfile': okUpload() });
   let seen = 0;
