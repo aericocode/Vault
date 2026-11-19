@@ -290,6 +290,18 @@ test('an open collection shows its members in playlist order, no faves-first', a
     [ID.party, ID.beach, ID.apple]);
 });
 
+test('Share privately from a collection card (share-ui.js shareOpenForCollection): skipped files are in, the trash and non-grid types are out', async () => {
+  const c = db.createCollection('Share me');
+  try {
+    db.addToCollection(c.id, [ID.party, ID.beach, ID.trashed, ID.doc, ID.apple]);
+    db.setCollectionSkips(c.id, [ID.beach], true);
+    const got = await ids({ collectionId: c.id, filters: { mediaTypes: ['video', 'audio', 'image', 'gif'], trashed: '0' } });
+    assert.deepStrictEqual([...got], [ID.party, ID.beach, ID.apple], 'the skipped file too, in playlist order');
+  } finally {
+    db.deleteCollection(c.id);
+  }
+});
+
 test('an open collection can be sorted like the library; playlist order is its default', async () => {
   const playlist = [ID.party, ID.beach, ID.apple];
   assert.deepStrictEqual([...await ids({ collectionId: ID.c1, sort: { field: 'playlist' } })], playlist);

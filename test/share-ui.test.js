@@ -6,7 +6,8 @@
  * to gofile.io; no share code puts a password in browser storage, the console
  * or a lasting global; the "My shares" privacy category blurs and takes the
  * list out of the keyboard order; the Settings page, its search entries, the
- * custom part size field and the copy format preview.
+ * custom part size field and the copy format preview; Share privately from a
+ * collection card, the folded file list, and the large share note and ask.
  */
 
 require('./helpers/no-real-lm');   // never the user's own LM Studio
@@ -630,11 +631,11 @@ function loadDom(opts) {
     L, top,
     esc() { const e = { key: 'Escape', preventDefault: noop, stopImmediatePropagation: noop }; [...keys].forEach(f => f(e)); },
     /** Press and release on the dim backdrop. */
-    outside(m = top()) { m.ov.fire('mousedown', { target: m.ov }); m.ov.fire('click', { target: m.ov }); },
+    outside(m = top()) { m.ov.fire('mousedown', { target: m.ov, preventDefault: noop }); m.ov.fire('click', { target: m.ov }); },
     /** A text selection: pressed inside the window, released outside. */
-    dragOut(m = top()) { m.ov.fire('mousedown', { target: m.box }); m.ov.fire('click', { target: m.ov }); },
+    dragOut(m = top()) { m.ov.fire('mousedown', { target: m.box, preventDefault: noop }); m.ov.fire('click', { target: m.ov }); },
     /** Pressed outside, released inside. */
-    dragIn(m = top()) { m.ov.fire('mousedown', { target: m.ov }); m.ov.fire('click', { target: m.box }); },
+    dragIn(m = top()) { m.ov.fire('mousedown', { target: m.ov, preventDefault: noop }); m.ov.fire('click', { target: m.box }); },
   };
 }
 
@@ -890,4 +891,256 @@ test('no long dashes in what the share files show', () => {
     const strings = read(f).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     assert.ok(!/[—–]/.test(strings), `${f}: a long dash in its strings`);
   }
+});
+
+/* ── A collection's share, the folded list and large shares ──────────── */
+
+const GB = 1024 ** 3;
+const COLL_SRC = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'collections.js'), 'utf8');
+
+/** One top-level function of collections.js, by its name. */
+function grabColl(name) {
+  let at = COLL_SRC.indexOf(`function ${name}(`);
+  assert.ok(at >= 0, `${name} is there`);
+  if (COLL_SRC.slice(at - 6, at) === 'async ') at -= 6;
+  let depth = 0;
+  for (let i = COLL_SRC.indexOf(') {', at) + 2; i < COLL_SRC.length; i++) {
+    if (COLL_SRC[i] === '{') depth++;
+    else if (COLL_SRC[i] === '}' && --depth === 0) return COLL_SRC.slice(at, i + 1);
+  }
+  throw new Error(`${name}: no end`);
+}
+
+/** The card menu (collections.js openCardMenu) for one card, with sharing on or off. */
+function cardMenu(kind, sharing) {
+  const shared = [];
+  const menu = { innerHTML: '', style: {}, offsetHeight: 100, offsetWidth: 160, removed: false, remove() { this.removed = true; } };
+  const ctx = {
+    collectionsList: [{ id: 4, name: 'Beach trip', kind }],
+    shareEnabled: () => sharing,
+    shareOpenForCollection: (id) => shared.push(id),
+    document: { createElement: () => menu, body: { appendChild: noop }, addEventListener: noop, removeEventListener: noop },
+    window: { innerHeight: 900, innerWidth: 1600 },
+    setTimeout: noop,
+  };
+  ctx.getCollectionById = (id) => ctx.collectionsList.find(c => c.id === id);
+  vm.createContext(ctx);
+  vm.runInContext(`let _cardMenuEl = null;\n${grabColl('openCardMenu')}\n${grabColl('_cardMenuOutside')}\n${grabColl('_cardMenuEsc')}\n${grabColl('closeCardMenu')}\n${grabColl('cardShare')}`, ctx);
+  vm.runInContext('openCardMenu(4, { getBoundingClientRect: () => ({ bottom: 100, left: 100 }) })', ctx);
+  const labels = [...menu.innerHTML.matchAll(/<button[^>]*>([^<]*)<\/button>|<div class="coll-menu-sep"/g)].map(m => m[1] || '---');
+  return { ctx, menu, labels, shared };
+}
+
+test('collection card menu: Share privately after Duplicate, a line, then Delete; only for a collection while sharing is on', () => {
+  const on = cardMenu('collection', true);
+  assert.deepStrictEqual(on.labels, ['Rename', 'Move to…', 'Duplicate', 'Share privately', '---', 'Delete']);
+  assert.match(on.menu.innerHTML, /<button class="coll-menu-item" data-coll-act="share" onclick="cardShare\(4\)">Share privately<\/button>/);
+  assert.ok(!cardMenu('collection', false).labels.includes('Share privately'), 'sharing off: not there');
+  assert.ok(!cardMenu('folder', true).labels.includes('Share privately'), 'a folder: never');
+  // The same condition as the selection bar's Share (selection.js SEL_ACTIONS).
+  assert.match(grabColl('openCardMenu'), /typeof shareEnabled === 'function' && shareEnabled\(\)/);
+  // A click closes the menu and opens the share window for that collection.
+  vm.runInContext('cardShare(4)', on.ctx);
+  assert.strictEqual(on.menu.removed, true, 'the menu closes');
+  assert.deepStrictEqual(on.shared, [4]);
+});
+
+const PREVIEW = (files, totalBytes, extra = {}) => ({
+  files, totalBytes, needBytes: Math.ceil(totalBytes * 1.02), enoughSpace: true, split: false, partBytes: null, partCount: 1,
+  nameMode: 'random', passwordChoice: 'random', deleteAfterDays: 7, savedPasswordSet: false, sevenZipFound: true, ...extra,
+});
+const fileRows = (n, size = 1000) => Array.from({ length: n }, (_, i) => ({ mediaId: i + 1, name: `clip${i + 1}.mp4`, nameInArchive: `clip${i + 1}.mp4`, sizeBytes: size }));
+
+/** The window opened from a collection, with a stand-in Library and a preview answer. */
+async function openFromCollection({ ids = [5, 6, 7], complete = true, preview = PREVIEW(fileRows(3), 3000), kind = 'collection' } = {}) {
+  const toasts = [];
+  const D = loadDom({ answers: { 'POST /api/share/preview': { status: 200, body: preview }, 'POST /api/share/shares': { status: 200, body: { share: { id: 9 } } } } });
+  const specs = [];
+  D.L.ctx.showToast = (msg) => toasts.push(msg);
+  D.L.ctx.getCollectionById = (id) => (id === 4 ? { id: 4, name: 'Beach <trip>', kind } : null);
+  D.L.ctx.Library = { queryOnce: async (spec, opts) => { specs.push({ spec, opts }); return { ids: Uint32Array.from(ids), complete, total: complete ? ids.length : null }; } };
+  await D.L.run('shareOpenForCollection(4)');
+  return { D, toasts, specs, previewCalls: () => D.L.calls.filter(c => c.url === '/api/share/preview') };
+}
+
+test('a collection share asks the server for every id (skipped ones too) and opens step 1 with all of them', async () => {
+  const { D, specs, previewCalls } = await openFromCollection({ ids: [5, 6, 7] });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(specs)), [{ spec: { collectionId: 4, filters: { mediaTypes: ['video', 'audio', 'image', 'gif'], trashed: '0' } }, opts: { pageSize: 1, allIds: true } }],
+    'the whole list from the server, not the drawn page, with no skip filter (test/library-query.test.js runs this spec)');
+  assert.deepStrictEqual(JSON.parse(previewCalls()[0].init.body), { mediaIds: [5, 6, 7] });
+  assert.strictEqual(D.L.run('_shareWin.step'), 'review');
+  assert.strictEqual(D.L.run('_shareWin.collectionName'), 'Beach <trip>');
+});
+
+test('a collection share: the name is on step 1 only, private, and never sent', async () => {
+  const { D } = await openFromCollection();
+  const html = D.L.run('shareReviewHtml(_shareWin)');
+  assert.match(html, /Collection: <span class="share-priv" data-share-private>Beach &lt;trip&gt;<\/span>\. Review what will be packed\. Nothing is uploaded yet\./);
+  const plain = D.L.run('_shareWin.collectionName = ""; shareReviewHtml(_shareWin)');
+  assert.match(plain, /<p class="vault-modal-hint share-sub">Review what will be packed\. Nothing is uploaded yet\.<\/p>/, 'not from a collection: as before');
+  D.L.run('_shareWin.collectionName = "Beach <trip>"');
+  await D.L.run('sharePack()');
+  const sent = D.L.calls.filter(c => c.init.body && c.init.body.includes('Beach'));
+  assert.deepStrictEqual(sent, [], 'the collection name is in no request');
+  const pack = D.L.calls.find(c => c.url === '/api/share/shares');
+  assert.ok(!('name' in JSON.parse(pack.init.body)), 'it does not name the archive');
+});
+
+test('a collection share: empty gives a toast and no window; a folder or a cut-short list does nothing', async () => {
+  let r = await openFromCollection({ ids: [] });
+  assert.deepStrictEqual(r.toasts, ['This collection has no files to share.']);
+  assert.strictEqual(r.D.L.run('_shareWin'), null);
+  assert.strictEqual(r.previewCalls().length, 0);
+  r = await openFromCollection({ kind: 'folder' });
+  assert.strictEqual(r.specs.length, 0, 'a folder is never shared');
+  r = await openFromCollection({ ids: [5], complete: false });
+  assert.strictEqual(r.D.L.run('_shareWin'), null, 'only the first page came: nothing opens');
+  assert.match(r.toasts[0], /Could not read this collection/);
+});
+
+test('step 1: more than 6 files fold to the first 3 and a real button opens the rest', () => {
+  const L = load();
+  setState(L);
+  L.ctx.__w = { preview: PREVIEW(fileRows(10), 10000), filesOpen: false, collectionName: '' };
+  const html = L.run('shareReviewHtml(__w)');
+  const rows = [...html.matchAll(/<div class="share-file"( hidden)?>/g)];
+  assert.strictEqual(rows.length, 10, 'every row is there');
+  assert.deepStrictEqual(rows.map(r => !!r[1]), [false, false, false, true, true, true, true, true, true, true]);
+  assert.match(html, /<button type="button" class="share-link-btn share-more-files" data-sh-more aria-controls="shFilesList" aria-expanded="false">and 7 more files<\/button>/);
+  L.ctx.__w.filesOpen = true;
+  const open = L.run('shareReviewHtml(__w)');
+  assert.ok(!/<div class="share-file" hidden>/.test(open));
+  assert.match(open, /aria-expanded="true">Show fewer<\/button>/);
+  // Six or fewer: no fold.
+  L.ctx.__w = { preview: PREVIEW(fileRows(6), 6000), filesOpen: false };
+  const six = L.run('shareReviewHtml(__w)');
+  assert.ok(!/data-sh-more/.test(six) && !/<div class="share-file" hidden>/.test(six));
+  // The button opens and closes the rows in place.
+  const rowEls = Array.from({ length: 10 }, (_, i) => ({ hidden: i >= 3 }));
+  const btn = { textContent: '', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } };
+  L.ctx.__w = { filesOpen: false, m: { box: { querySelectorAll: () => rowEls } } };
+  L.ctx.__btn = btn;
+  L.run('shareToggleFiles(__w, __btn)');
+  assert.ok(rowEls.every(r => !r.hidden));
+  assert.strictEqual(btn.textContent, 'Show fewer');
+  assert.strictEqual(btn.attrs['aria-expanded'], 'true');
+  L.run('shareToggleFiles(__w, __btn)');
+  assert.deepStrictEqual(rowEls.map(r => r.hidden), [false, false, false, true, true, true, true, true, true, true]);
+  assert.strictEqual(btn.textContent, 'and 7 more files');
+});
+
+test('step 1: at 10 GB or more the total is amber with a triangle and one note line; below, neither', () => {
+  const L = load();
+  setState(L);
+  L.ctx.vaultIcon = (n) => `<svg class="vi vi-${n}" aria-hidden="true"></svg>`;
+  assert.strictEqual(L.run('SHARE_LARGE_BYTES'), 10 * GB);
+  assert.strictEqual(L.run('SHARE_HUGE_BYTES'), 30 * GB);
+  const step1 = (bytes, extra) => { L.ctx.__w = { preview: PREVIEW(fileRows(2, bytes / 2), bytes, extra) }; return L.run('shareReviewHtml(__w)'); };
+  const below = step1(10 * GB - 1024 ** 2);
+  assert.ok(!/share-big/.test(below), 'just under 10 GB: no warning');
+  const at = step1(10 * GB, { needBytes: 10.2 * GB, split: true, partBytes: 2 * GB, partCount: 5 });
+  assert.match(at, /<span class="share-big-total"><svg[^>]*vi-alert[^]*?<span class="share-sr">Large share: <\/span>10 GB<\/span>/, 'amber, triangle, words for a screen reader');
+  assert.strictEqual((at.match(/data-sh-bignote/g) || []).length, 1, 'one note line');
+  const note = /data-sh-bignote>[^]*?<span>([^<]*)<\/span>/.exec(at)[1];
+  assert.strictEqual(note, 'Large share. Packing and uploading 10 GB can take a long time, and packing needs about 10.2 GB of free space. It will upload as 5 parts.');
+  assert.ok(!/data-sh-act="pack"[^>]*disabled/.test(at), 'nothing extra to click');
+  // Part count not known: that sentence is left out.
+  const unknown = step1(12 * GB, { partCount: undefined });
+  assert.match(unknown, /of free space\.<\/span>/);
+  assert.ok(!/upload as/.test(unknown));
+  assert.match(step1(40 * GB), /data-sh-bignote/, '30 GB and up shows it too');
+});
+
+/** The window at step 1 with a preview of this size. */
+async function bigWindow(bytes, extra = {}) {
+  const D = loadDom({ answers: {
+    'POST /api/share/preview': { status: 200, body: PREVIEW(fileRows(4, bytes / 4), bytes, { needBytes: bytes + GB, split: true, partBytes: 2 * GB, partCount: Math.ceil(bytes / (2 * GB)), ...extra }) },
+    'POST /api/share/shares': { status: 200, body: { share: { id: 9 } } },
+  } });
+  await D.L.run('shareOpenForIds([1, 2, 3, 4], { collectionName: "Beach trip" })');
+  const packs = () => D.L.calls.filter(c => c.url === '/api/share/shares').length;
+  return { D, packs };
+}
+
+test('Pack files under 30 GB packs straight away', async () => {
+  const { D, packs } = await bigWindow(29 * GB);
+  await D.L.run('sharePackClicked()');
+  assert.strictEqual(packs(), 1);
+  assert.strictEqual(D.L.run('_shareModals.length'), 1, 'no ask');
+});
+
+test('Pack files at 30 GB asks first: the words, the facts, Go back bottom right, Pack anyway bottom left', async () => {
+  const { D, packs } = await bigWindow(30 * GB);
+  D.L.run('sharePackClicked()');
+  const ask = D.top();
+  assert.notStrictEqual(ask, D.L.run('_shareWin.m'), 'a dialog over the window');
+  assert.strictEqual(packs(), 0, 'nothing started');
+  const html = ask.ov.innerHTML;
+  assert.match(html, /<h3 id="shareBigTitle">This share is very large<\/h3>/);
+  assert.match(html, /Packing and uploading this much can take a long time\. You can stop at any point, and parts already uploaded can be deleted\./);
+  const facts = [...html.matchAll(/<dt>([^<]*)<\/dt><dd[^>]*>([^]*?)<\/dd>/g)].map(m => [m[1], m[2].replace(/<[^>]+>/g, '')]);
+  assert.deepStrictEqual(facts, [['Collection', 'Beach trip'], ['Files', '4'], ['Total size', '30 GB'], ['Free space needed to pack', '31 GB'], ['Uploads as', '15 parts of up to 2 GB']]);
+  assert.match(html, /<dd class="share-big-total">30 GB<\/dd>/, 'the total is amber');
+  assert.match(html, /<dd><span class="share-priv" data-share-private>Beach trip<\/span><\/dd>/, 'the collection name is private');
+  const acts = /<div class="vault-modal-actions share-actions">([^]*?)<\/div>/.exec(html)[1];
+  assert.match(acts, /^\s*<button type="button" class="vault-btn share-btn-amber" data-sh-big="go">Pack 30 GB anyway<\/button>\s*<span class="share-sp"><\/span>\s*<button type="button" class="vault-btn vault-btn-primary" data-sh-big="back">Go back<\/button>\s*$/,
+    'Pack anyway first (left), a spacer, Go back last (right) and the main button');
+  assert.ok(!/<input/.test(html), 'no tick box');
+  // Not from a collection: no Collection row.
+  const plain = await bigWindow(30 * GB);
+  plain.D.L.run('_shareWin.collectionName = ""; sharePackClicked()');
+  assert.ok(!/Collection/.test(plain.D.top().ov.innerHTML));
+});
+
+test('the ask: a second click on Pack files, a click outside, Esc and Go back all leave step 1 with nothing started', async () => {
+  const { D, packs } = await bigWindow(31 * GB, { partCount: undefined });
+  D.L.run('sharePackClicked()');
+  const ask = D.top();
+  assert.ok(!/Uploads as/.test(ask.ov.innerHTML), 'a fact that is not known is left out');
+  D.L.run('sharePackClicked()');
+  assert.strictEqual(D.top(), ask, 'the second click of a double click lands on nothing');
+  assert.strictEqual(D.L.run('_shareModals.length'), 2);
+  D.outside(ask);
+  assert.strictEqual(ask.closed, false, 'a click outside does not confirm or close');
+  let kept = false;
+  ask.ov.fire('mousedown', { target: ask.ov, preventDefault: () => { kept = true; } });
+  assert.ok(kept, 'a press on the backdrop (the second click of a double click) leaves the focus on Go back');
+  D.esc();
+  assert.strictEqual(ask.closed, true, 'Esc goes back');
+  assert.strictEqual(D.L.run('_shareWin.step'), 'review', 'the window stays on step 1');
+  assert.strictEqual(D.L.run('_shareWin.bigAsk'), null);
+  D.L.run('sharePackClicked()');
+  const again = D.top();
+  assert.notStrictEqual(again, ask, 'it asks again next time');
+  again.box.querySelector('[data-sh-big="back"]').fire('click');
+  assert.strictEqual(again.closed, true, 'Go back');
+  await new Promise(r => setImmediate(r));
+  assert.strictEqual(packs(), 0, 'nothing packed');
+  assert.strictEqual(D.L.run('_shareWin.step'), 'review');
+});
+
+test('the ask: Pack anyway packs, once', async () => {
+  const { D, packs } = await bigWindow(30 * GB);
+  D.L.run('sharePackClicked()');
+  const ask = D.top();
+  const go = ask.box.querySelector('[data-sh-big="go"]');
+  go.fire('click');
+  go.fire('click');
+  await new Promise(r => setImmediate(r));
+  assert.strictEqual(ask.closed, true);
+  assert.strictEqual(packs(), 1, 'one pack');
+  assert.strictEqual(D.L.run('_shareWin.step'), 'packing');
+});
+
+test('the new words: no time figures and no long dashes', () => {
+  const src = read('share-ui.js').replace(/\r\n/g, '\n');
+  const pieces = ['shareBigNote', 'shareAskBig', 'shareOpenForCollection', 'shareToggleFiles', 'shareUploadsAs']
+    .map(f => src.split(`function ${f}(`)[1].split('\nfunction ')[0].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, ''));
+  pieces.push(/function shareReviewHtml\(w\) \{([^]*?)\n\}/.exec(src)[1]);
+  for (const p of pieces) {
+    const strings = [...p.matchAll(/'([^'\n]*)'|`([^`]*)`/g)].map(m => m[1] ?? m[2]).join(' | ');
+    assert.ok(!/\b(hours?|minutes?|seconds?|days?|hrs?|mins?)\b/i.test(strings), `a time figure in: ${strings.slice(0, 200)}`);
+    assert.ok(!/[—–]/.test(strings), 'no long dashes');
+  }
+  assert.ok(!/[—–]/.test(grabColl('openCardMenu')));
 });
