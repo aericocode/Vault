@@ -70,7 +70,7 @@ function shareSettingsHtml() {
     + row({ sfind: 'sharePasswordChoice', title: 'Password for a new share', control: _shSel('passwordChoice', SHARE_PASSWORD_CHOICE_OPTIONS, s.passwordChoice, 'Password for a new share') })
     + row({ sfind: 'shareDeleteAfter', title: 'Delete from gofile after', control: _shSel('deleteAfterDays', SHARE_DELETE_AFTER_OPTIONS, s.deleteAfterDays, 'Delete from gofile after') })
     + row({ sfind: 'shareSplit', title: 'Split big archives into parts of', control: _shSel('split', SHARE_SPLIT_OPTIONS, s.split, 'Split big archives into parts of') })
-    + (st.offline ? '<p class="settings-note">Vault is set to stay offline (VAULT_OFFLINE=1), so nothing can be uploaded.</p>' : '')
+    + (st.offline ? '<p class="settings-note">Vault is set to stay offline (VAULT_OFFLINE=1), so it cannot reach gofile.io. Uploads, deletes and delete timers are all blocked.</p>' : '')
     + (st.sevenZipFound === false ? '<p class="settings-note">Vault could not find its 7-Zip program, so it cannot pack files.</p>' : '');
 
   const groups = [

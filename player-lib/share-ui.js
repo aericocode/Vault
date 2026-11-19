@@ -787,7 +787,7 @@ function shareConfirmHtml(w) {
       <input type="checkbox" id="shTick" data-sh-first${w.ticked ? ' checked' : ''}>
       <span>I want to upload this archive to gofile.io, and these files are mine to share under gofile's terms.</span>
     </label>
-    ${offline ? `<p class="vault-modal-hint" data-sh-offline>Vault is set to stay offline (VAULT_OFFLINE=1), so nothing can be uploaded.</p>` : ''}
+    ${offline ? `<p class="vault-modal-hint" data-sh-offline>Vault is set to stay offline (VAULT_OFFLINE=1), so it cannot reach gofile.io. Uploads, deletes and delete timers are all blocked.</p>` : ''}
     <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
     <div class="vault-modal-actions share-actions">
       <button type="button" class="vault-btn" data-sh-act="cancel-archive">Cancel and delete archive</button>
