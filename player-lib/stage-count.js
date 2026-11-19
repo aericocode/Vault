@@ -19,6 +19,8 @@
      "Show pictures for" seconds, GIFs for at least one whole loop (as
      StageRules.pictureMs times them on Stage).
    - Repeat all and Repeat this file never end: the count shows, no time.
+     A file's "Plays in" still shows with Repeat all (the list comes round
+     again), not with Repeat this file (nothing else comes up).
    - A file whose length Vault does not know yet adds nothing and makes the
      time "about"; with more than half unknown, or more than TIME_CAP files
      still to play, no time is shown at all.
@@ -67,6 +69,22 @@ const StageCount = (() => {
    */
   function summary(o) {
     const m = o || {};
+    const out = count(m);
+    if (!out || m.repeat === 'all' || m.repeat === 'one') return out;
+    const lap = timeLeft(m, waitingOf(m), false);
+    if (!lap || lap.unknown * 2 > lap.counted) return out;
+    out.left = Math.round(lap.left);
+    out.about = lap.unknown > 0;
+    return out;
+  }
+
+  /** The Up next files Stage will play, in order. */
+  function waitingOf(m) {
+    return (m.upNext || []).filter(u => u && plays(u.type, !!m.basic));
+  }
+
+  /** summary() without the time: { index, total, left: null, about: false }, or null. */
+  function count(m) {
     const basic = !!m.basic;
     const n = Number.isInteger(m.length) && m.length > 0 ? m.length : 0;
     const typeAt = typeof m.types === 'function' ? m.types : (i) => (m.types ? m.types[i] : 'video');
@@ -83,16 +101,24 @@ const StageCount = (() => {
         if (i <= anchor) before++;
       }
     }
-    const waiting = (m.upNext || []).filter(u => u && plays(u.type, basic));
     const index = before + upPlayed;
-    const total = all + upPlayed + waiting.length;
+    const total = all + upPlayed + waitingOf(m).length;
     if (!n || index < 1 || total < index) return null;
-    const out = { index, total, left: null, about: false };
-    if (m.repeat === 'all' || m.repeat === 'one') return out;
+    return { index, total, left: null, about: false };
+  }
 
+  /**
+   * The time from now to the end of the list (to the anchor again, round
+   * the top, with wrap): the rest of the file on Stage, Up next (waiting),
+   * the rest of the list. { left, unknown, counted }, or null past TIME_CAP.
+   */
+  function timeLeft(m, waiting, wrap) {
+    const basic = !!m.basic;
     const restAll = Number.isInteger(m.restTotal) ? m.restTotal : (m.rest || []).length;
     const rest = (m.rest || []).slice(0, restAll);
-    if (restAll + waiting.length > TIME_CAP) return out;
+    const wrapAll = !wrap ? 0 : Number.isInteger(m.wrapTotal) ? m.wrapTotal : (m.wrap || []).length;
+    const top = (m.wrap || []).slice(0, wrapAll);
+    if (restAll + wrapAll + waiting.length > TIME_CAP) return null;
     let left = 0, unknown = 0, counted = 0;
     const cur = m.current || {};
     const cd = Number(cur.d) > 0 ? Number(cur.d) : 0;
@@ -105,15 +131,14 @@ const StageCount = (() => {
       if (s == null) unknown++; else left += s;
     };
     for (const u of waiting) add(u);
-    for (let k = 0; k < restAll; k++) {
-      const f = rest[k];
-      if (f && !plays(f.type, basic)) continue;
-      add(f || null);
+    for (const [list, all] of [[rest, restAll], [top, wrapAll]]) {
+      for (let k = 0; k < all; k++) {
+        const f = list[k];
+        if (f && !plays(f.type, basic)) continue;
+        add(f || null);
+      }
     }
-    if (unknown * 2 > counted) return out;
-    out.left = Math.round(left);
-    out.about = unknown > 0;
-    return out;
+    return { left, unknown, counted };
   }
 
   /**
@@ -123,22 +148,40 @@ const StageCount = (() => {
    *   upNext[k].id the Up next files
    *   restIds      the ids of rest, in step with it (rest entries may be
    *                null, rows not loaded yet, so the ids come apart)
+   *   wrap         Repeat all: [{ type, duration } | null] the list files
+   *                Stage comes back round to, from the top up to and
+   *                including the anchor, in order (only ones that play)
+   *   wrapIds      their ids, in step with wrap
+   *   wrapTotal    how many there are in all (wrap may be cut short)
    * The order is summary()'s: the rest of the file on Stage, Up next, then
-   * the rest of the list, files that do not play passed over; a file ahead
-   * twice is up the first time. Answers { now: true } for the file on Stage,
+   * the rest of the list, files that do not play passed over; with Repeat
+   * all, then the list from the top again (so a file already played this
+   * time round is up once the list comes back to it). A file ahead twice is
+   * up the first time. Answers { now: true } for the file on Stage,
    * { seconds, about } (about: some length on the way is not known), or null
-   * when there is no honest answer: not ahead, nothing on Stage, or a count
-   * that gives no time itself (Repeat all or this file, past TIME_CAP, too
-   * many lengths not known).
+   * when there is no honest answer: not ahead, nothing on Stage, Repeat this
+   * file (the file on Stage plays again and again, nothing else comes up),
+   * past TIME_CAP, or too many lengths not known. Repeat all gives no time
+   * left for the list (it never ends), but each file still has its time.
+   * TIME_CAP and "too many not known" look at the whole way to the end of
+   * the list, as summary() does: a file reached before the list comes round
+   * gets exactly its Repeat off answer; one in the part round the top, at
+   * the whole lap (up to the anchor again).
    */
   function until(o, id) {
     const m = o || {};
     const cur = m.current || {};
     if (id == null || cur.id == null) return null;
     if (cur.id === id) return { now: true };
-    const sum = summary(m);
-    if (!sum || sum.left == null) return null;
+    if (m.repeat === 'one') return null;
+    if (!count(m)) return null;
     const basic = !!m.basic;
+    const round = m.repeat === 'all';
+    const waiting = waitingOf(m);
+    const honest = (wrap) => {
+      const lap = timeLeft(m, waiting, wrap);
+      return !!lap && lap.unknown * 2 <= lap.counted;
+    };
     let secs = 0, unknown = false;
     const cd = Number(cur.d) > 0 ? Number(cur.d) : 0;
     if (cd) secs += Math.max(0, cd - (Number(cur.t) || 0));
@@ -147,20 +190,24 @@ const StageCount = (() => {
       const s = fileSeconds(f, m.imageSeconds);
       if (s == null) unknown = true; else secs += s;
     };
-    const hit = () => ({ seconds: Math.round(secs), about: unknown });
-    for (const u of m.upNext || []) {
-      if (!u || !plays(u.type, basic)) continue;
-      if (u.id === id) return hit();
+    const hit = (wrap) => (honest(wrap) ? { seconds: Math.round(secs), about: unknown } : null);
+    for (const u of waiting) {
+      if (u.id === id) return hit(false);
       add(u);
     }
     const restAll = Number.isInteger(m.restTotal) ? m.restTotal : (m.rest || []).length;
-    const rest = m.rest || [];
-    const ids = m.restIds || [];
-    for (let k = 0; k < restAll && k < rest.length; k++) {
-      const f = rest[k];
-      if (f && !plays(f.type, basic)) continue;
-      if (ids[k] === id) return hit();
-      add(f || null);
+    const parts = [[m.rest || [], m.restIds || [], restAll, false]];
+    // Round the top only after all of the rest: with some of it not given, the time to there is not known.
+    if (round && (m.rest || []).length >= restAll) {
+      parts.push([m.wrap || [], m.wrapIds || [], Number.isInteger(m.wrapTotal) ? m.wrapTotal : (m.wrap || []).length, true]);
+    }
+    for (const [list, ids, all, wrap] of parts) {
+      for (let k = 0; k < all && k < list.length; k++) {
+        const f = list[k];
+        if (f && !plays(f.type, basic)) continue;
+        if (ids[k] === id) return hit(wrap);
+        add(f || null);
+      }
     }
     return null;
   }

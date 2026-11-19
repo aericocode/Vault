@@ -573,7 +573,7 @@ const StageControl = (() => {
     const cid = stageFileId();
     if (cid == null) return '';
     if (cid === id) return StageCount.untilText({ now: true });
-    const o = countInputs();
+    const o = countInputs({ round: true });
     const u = o ? StageCount.until(o, id) : null;
     // Basic Stage: at the video's speed, as the bar's time left.
     const el = basic && u ? basicEl() : null;
@@ -582,8 +582,11 @@ const StageControl = (() => {
     return StageCount.untilText(u);
   }
 
-  /** What StageCount.summary / until take for the file on Stage now; null with no list to count. */
-  function countInputs() {
+  /**
+   * What StageCount.summary / until take for the file on Stage now; null with no list to count.
+   * round: also the part Repeat all comes back round to (only until() looks at it).
+   */
+  function countInputs({ round = false } = {}) {
     if (!source) return null;
     const L = listNow();
     if (!L.known || !L.known()) return null;
@@ -615,14 +618,40 @@ const StageControl = (() => {
     const restTotal = Math.max(0, countMemo.all - countMemo.before);
     const missing = [];
     const upItems = typeof UpNext !== 'undefined' && UpNext.items ? UpNext.items() : [];
+    const fileOf = (r) => (r ? { type: badRow(r) ? 'unplayable' : r.media_type, duration: r.duration_seconds } : null);
+    // Repeat all comes back round to the top of the list, up to and including the anchor:
+    // those files have a "Plays in" too. Whether anything comes round is StageRules.upcomingPlan's
+    // call (not with a list of one, nor when the anchor is all the list has that plays), asked
+    // with the files the count passes over; a row not loaded yet counts as one that plays.
+    const okAt = (i) => {
+      if (!StageCount.plays(typeAt(i), basic)) return false;
+      if (i === anchor && skips && skips.has(ids[i])) return false;
+      const r = L.rowAt(i);
+      return !r || !badRow(r);
+    };
+    const roundAgain = round && currentRepeat() === 'all' && anchor >= 0
+      && StageRules.upcomingPlan({ upNext: [], anchor, length: n, okAt, repeat: 'all', count: 1 }).list.length > 0;
+    const wrap = [];
+    const wrapIds = [];
     // Past TIME_CAP files there is no time to show: their rows are not looked at.
     if (restTotal + upItems.length <= StageCount.TIME_CAP) {
       for (let i = Math.max(0, anchor + 1); i < n && rest.length < restTotal; i++) {
         if (!StageCount.plays(typeAt(i), basic)) continue;
         const r = L.rowAt(i);
         if (!r) missing.push(L.idAt(i));
-        rest.push(r ? { type: badRow(r) ? 'unplayable' : r.media_type, duration: r.duration_seconds } : null);
+        rest.push(fileOf(r));
         restIds.push(L.idAt(i));
+      }
+    }
+    if (roundAgain && restTotal + countMemo.before + upItems.length <= StageCount.TIME_CAP) {
+      for (let i = 0; i <= anchor; i++) {
+        if (!StageCount.plays(typeAt(i), basic)) continue;
+        // A skipped file played by hand (the anchor) is passed over the next time round.
+        if (i === anchor && skips && skips.has(ids[i])) continue;
+        const r = L.rowAt(i);
+        if (!r) missing.push(L.idAt(i));
+        wrap.push(fileOf(r));
+        wrapIds.push(L.idAt(i));
       }
     }
     const upNext = upItems.map((u) => {
@@ -644,7 +673,7 @@ const StageControl = (() => {
       cd = el && isFinite(el.duration) ? el.duration : 0;
     } else { ct = t; cd = d; }
     return {
-      types: typeAt, length: n, anchor, counts: countMemo, upPlayed, upNext, rest, restIds, restTotal,
+      types: typeAt, length: n, anchor, counts: countMemo, upPlayed, upNext, rest, restIds, restTotal, wrap, wrapIds,
       current: { t: ct, d: cd, id: stageFileId() }, repeat: currentRepeat(), basic,
       imageSeconds: settings.imageSeconds,
     };

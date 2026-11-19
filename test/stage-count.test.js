@@ -172,8 +172,8 @@ test('plays in: "about" when a length on the way is not known, not for ones afte
 test('plays in: no honest answer, nothing shown', () => {
   assert.strictEqual(C.until(plan(), 1), null, 'already played');
   assert.strictEqual(C.until(plan(), 42), null, 'not in the list');
-  assert.strictEqual(C.until(plan({ repeat: 'all' }), 3), null, 'Repeat all: the count gives no time');
   assert.strictEqual(C.until(plan({ repeat: 'one' }), 3), null, 'Repeat this file');
+  assert.strictEqual(C.until(plan({ repeat: 'one', wrap: vids(2), wrapIds: [1, 2] }), 1), null, 'Repeat this file: nothing comes round');
   assert.deepStrictEqual(C.until(plan({ repeat: 'one' }), 2), { now: true }, 'the file on Stage still is');
   assert.strictEqual(C.until(plan({ current: {} }), 3), null, 'nothing on Stage');
   assert.strictEqual(C.until(plan(), null), null);
@@ -183,4 +183,157 @@ test('plays in: no honest answer, nothing shown', () => {
   const most = plan({ rest: [null, null, null, { type: 'video', duration: 60 }], restIds: [3, 4, 5, 6], current: { id: 2, t: 0, d: 0 } });
   assert.strictEqual(C.until(most, 6), null, 'more than half the lengths not known');
   assert.strictEqual(C.untilText(null), '');
+});
+
+// Repeat all: the list from the top up to the anchor comes round again after the rest of it.
+const round = (o = {}) => plan({ repeat: 'all', wrap: vids(2), wrapIds: [1, 2], ...o });
+
+test('plays in, Repeat all: files after the one on Stage as with Repeat off; the list total still has no time', () => {
+  assert.deepStrictEqual(C.until(round(), 3), { seconds: 40, about: false });
+  assert.deepStrictEqual(C.until(round(), 6), C.until(plan(), 6));
+  assert.strictEqual(C.summary(round()).left, null, 'the list never ends: no time left');
+  assert.strictEqual(C.text(C.summary(round())).time, '');
+});
+
+test('plays in, Repeat all: a file already played is up when the list comes round to it', () => {
+  assert.deepStrictEqual(C.until(round(), 1), { seconds: 280, about: false }, '40 s + the 4 after it');
+  assert.strictEqual(C.untilText(C.until(round(), 1)), 'Plays in 4:40');
+  assert.strictEqual(C.until(plan(), 1), null, 'Repeat off: already played, not again');
+  // On Stage from Up next: the anchor itself comes round too, after Up next and the rest.
+  const fromUp = round({ current: { id: 9, t: 0, d: 30 }, upNext: [{ id: 8, type: 'video', duration: 45 }] });
+  assert.deepStrictEqual(C.until(fromUp, 2), { seconds: 30 + 45 + 240 + 60, about: false });
+  assert.strictEqual(C.until(round(), 42), null, 'not in the list');
+});
+
+test('plays in, Repeat all: in the part that comes round, files that do not play add no time', () => {
+  const o = round({
+    wrap: [{ type: 'unplayable', duration: 60 }, { type: 'image' }, { type: 'video', duration: 60 }],
+    wrapIds: [10, 1, 2], imageSeconds: 8,
+  });
+  assert.strictEqual(C.until(o, 10), null, 'known not to play: no label');
+  assert.deepStrictEqual(C.until(o, 1), { seconds: 280, about: false }, 'the file that does not play adds nothing');
+  assert.deepStrictEqual(C.until({ ...o, current: { id: 9, t: 0, d: 30 } }, 2), { seconds: 30 + 240 + 8, about: false });
+});
+
+test('plays in, Repeat all: lengths not known in the part that comes round', () => {
+  const cur = { id: 9, t: 0, d: 30 };
+  const o = round({ current: cur, wrap: [null, { type: 'video', duration: 60 }], wrapIds: [1, 2] });
+  assert.deepStrictEqual(C.until(o, 1), { seconds: 270, about: false }, 'its own length does not matter');
+  assert.deepStrictEqual(C.until(o, 2), { seconds: 270, about: true }, 'one not known on the way');
+  const most = round({ current: cur, rest: [null, null, null, null], wrap: [null, { type: 'video', duration: 60 }] });
+  assert.strictEqual(C.until(most, 2), null, 'more than half the lengths not known');
+  assert.strictEqual(C.until(round({ rest: vids(2), restTotal: 4 }), 1), null, 'the rest not all given: no time round the top');
+  const big = C.TIME_CAP;
+  assert.strictEqual(C.until(round({ rest: vids(big - 1), restIds: [], restTotal: big - 1 }), 1), null, 'past TIME_CAP with the part round the top');
+});
+
+test('plays in, Repeat all: lengths not known at the top of the list leave the files ahead as with Repeat off', () => {
+  // 8 videos; ids 1-5 not probed yet; Stage on id 6 (100 s, 10 s in); ids 7 and 8 are 60 s.
+  const unk = { type: 'video', duration: null };
+  const base = {
+    types: Array(8).fill('video'), length: 8, anchor: 5,
+    current: { id: 6, t: 10, d: 100 },
+    rest: vids(2), restIds: [7, 8],
+    wrap: [unk, unk, unk, unk, unk, { type: 'video', duration: 100 }], wrapIds: [1, 2, 3, 4, 5, 6],
+  };
+  const off = { ...base, repeat: 'off' }, all = { ...base, repeat: 'all' };
+  assert.deepStrictEqual(C.until(off, 7), { seconds: 90, about: false });
+  assert.deepStrictEqual(C.until(off, 8), { seconds: 150, about: false });
+  for (const id of [7, 8]) assert.deepStrictEqual(C.until(all, id), C.until(off, id), `id ${id}`);
+  assert.strictEqual(C.untilText(C.until(all, 8)), 'Plays in 2:30');
+  // Round the top, the whole lap is mostly not known: no answer there.
+  for (const id of [1, 2, 3, 4, 5]) assert.strictEqual(C.until(all, id), null, `id ${id} round the top`);
+  // "about" too: one not known ahead, and the top mostly not known.
+  const about = { ...base, rest: [unk, { type: 'video', duration: 60 }] };
+  assert.deepStrictEqual(C.until({ ...about, repeat: 'all' }, 8), { seconds: 90, about: true });
+  assert.deepStrictEqual(C.until({ ...about, repeat: 'all' }, 8), C.until({ ...about, repeat: 'off' }, 8));
+  // TIME_CAP: the rest under it, with the top over it.
+  const long = { ...base, types: Array(500).fill('video'), length: 500, anchor: 249, current: { id: 250, t: 0, d: 60 },
+    rest: vids(250), restIds: Array.from({ length: 250 }, (_, k) => 251 + k),
+    wrap: vids(250), wrapIds: Array.from({ length: 250 }, (_, k) => 1 + k) };
+  assert.deepStrictEqual(C.until({ ...long, repeat: 'all' }, 500), C.until({ ...long, repeat: 'off' }, 500));
+  assert.ok(C.until({ ...long, repeat: 'all' }, 500), 'it has a time');
+  assert.strictEqual(C.until({ ...long, repeat: 'all' }, 5), null, 'round the top: past TIME_CAP');
+});
+
+test('plays in, Repeat all: every file ahead before the list comes round matches Repeat off (mixed lists)', () => {
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  for (let run = 0; run < 60; run++) {
+    const n = 2 + Math.floor(rnd() * 14);
+    const files = Array.from({ length: n }, (_, i) => {
+      const type = pick(['video', 'video', 'video', 'image', 'gif', 'audio', 'unplayable']);
+      const f = pick([null, 'row', 'row', 'row']) && { type, duration: pick([null, 30, 45, 90, 2]) };
+      return { id: i + 1, type, f };
+    });
+    const anchor = Math.floor(rnd() * n);
+    const plays = (x) => C.plays(x.type);
+    const after = files.slice(anchor + 1).filter(plays);
+    const top = files.slice(0, anchor + 1).filter(plays);
+    const upNext = Array.from({ length: Math.floor(rnd() * 3) }, (_, k) => ({ id: 100 + k, type: 'video', duration: pick([null, 20, 40]) }));
+    const base = {
+      types: files.map(x => x.type), length: n, anchor, upNext,
+      current: { id: 99, t: Math.floor(rnd() * 20), d: pick([0, 30, 60]) },
+      rest: after.map(x => x.f), restIds: after.map(x => x.id),
+      wrap: top.map(x => x.f), wrapIds: top.map(x => x.id),
+    };
+    for (const id of [...upNext.map(u => u.id), ...after.map(x => x.id)]) {
+      assert.deepStrictEqual(C.until({ ...base, repeat: 'all' }, id), C.until({ ...base, repeat: 'off' }, id), `run ${run}, id ${id}`);
+    }
+  }
+});
+
+/* ── stage-control.js gathers the inputs: what comes round with Repeat all ── */
+
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
+/** One top-level function of a browser script, by how it starts. */
+function grab(src, sig) {
+  const at = src.indexOf(sig);
+  assert.ok(at >= 0, `${sig} is there`);
+  let depth = 0;
+  for (let i = src.indexOf(') {', at) + 2; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}' && --depth === 0) return src.slice(at, i + 1);
+  }
+  throw new Error(`${sig}: no end`);
+}
+
+/** countInputs() from stage-control.js over a list of rows ({ id, bad }), Repeat all, a file from Up next on Stage. */
+function controlInputs(rows, anchor, opts) {
+  const sc = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'stage-control.js'), 'utf8');
+  const full = rows.map(r => ({ id: r.id, media_type: 'video', duration_seconds: 60, bad: !!r.bad }));
+  const L = {
+    ids: full.map(r => r.id), known: () => true, length: () => full.length,
+    typeAt: () => 'video', idAt: (i) => full[i].id, rowAt: (i) => full[i],
+  };
+  const ctx = {
+    source: {}, listNow: () => L, listAnchorIndex: () => anchor,
+    Library: { TYPE_NAMES: [], row: () => null, fetchRows: async () => [] },
+    isKnownBadMedia: (r) => !!r.bad, UpNext: { items: () => [] },
+    currentRepeat: () => 'all', basic: false, t: 0, d: 30, stageFileId: () => 99, upPlayed: 1,
+    settings: { imageSeconds: 8 }, paint: () => {}, Math, Number,
+    StageCount: C, StageRules: require('../player-lib/stage-rules.js'),
+  };
+  vm.createContext(ctx);
+  vm.runInContext(`let countMemo = null, countFetchKey = '';\n${grab(sc, 'function countInputs(')}\nglobalThis.__ci = countInputs;`, ctx);
+  return ctx.__ci(opts);
+}
+
+test('plays in, Repeat all: the anchor alone (the rest known not to play) does not come round, as StageRules says', () => {
+  const R = require('../player-lib/stage-rules.js');
+  // [A known not to play, B], the list on B, a file from Up next on Stage.
+  const o = controlInputs([{ id: 1, bad: true }, { id: 2 }], 1, { round: true });
+  assert.deepStrictEqual(R.upcomingPlan({ upNext: [], anchor: 1, length: 2, okAt: (i) => i === 1, repeat: 'all', count: 5 }).list, [], 'upcomingPlan: B is alone');
+  assert.strictEqual(o.wrap.length, 0, 'nothing comes round');
+  assert.strictEqual(C.until(o, 2), null, 'B has no "Plays in"');
+  // A plays: B comes round after it.
+  const ok = controlInputs([{ id: 1 }, { id: 2 }], 1, { round: true });
+  assert.deepStrictEqual(C.until(ok, 2), { seconds: 30 + 60, about: false });
+  // The bar's count does not ask for the part round the top.
+  assert.strictEqual(controlInputs([{ id: 1 }, { id: 2 }], 1).wrap.length, 0);
+  assert.strictEqual(ok.wrap.length, 2, 'until() gets it');
 });
