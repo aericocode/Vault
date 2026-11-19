@@ -200,6 +200,95 @@ test('7-Zip not found is a clear error', async () => {
   }
 });
 
+test('7-Zip version: the banner is read and anything below the floor is refused', () => {
+  assert.deepStrictEqual(sevenzip.MIN_VERSION, [26, 1]);
+  const banners = {
+    '\n7-Zip (a) 26.06 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-11-06\n': [26, 6],
+    '7-Zip 26.01 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-04-27\r\n': [26, 1],
+    '7-Zip (z) 26.06 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-11-06\n': [26, 6],
+    '7-Zip [64] 16.02 : Copyright (c) 1999-2016 Igor Pavlov : 2016-05-21\np7zip Version 16.02 (locale=C,Utf16=off,HugeFiles=on,64 bits)\n': [16, 2],
+    '7-Zip (z) 23.01 (x64) : Copyright (c) 1999-2023 Igor Pavlov : 2023-06-20\n': [23, 1],
+    '7-Zip 9.20  Copyright (c) 1999-2010 Igor Pavlov  2010-11-18\n': [9, 20],
+  };
+  for (const [b, v] of Object.entries(banners)) assert.deepStrictEqual(sevenzip.parseVersion(b), v, b);
+  for (const b of ['', 'Usage: 7z <command>', 'Not 7-Zip 26.06', '7-Zip x 26.06', '7-Zip 26.06beta']) {
+    assert.strictEqual(sevenzip.parseVersion(b), null, b);
+  }
+  for (const v of [[26, 1], [26, 6], [27, 0], [30, 0]]) assert.strictEqual(sevenzip.versionAccepted(v), true, String(v));
+  for (const v of [[26, 0], [25, 1], [23, 1], [16, 2], [9, 20], null]) assert.strictEqual(sevenzip.versionAccepted(v), false, String(v));
+});
+
+test('Linux looks only for 7zz and 7zzs; Windows names are unchanged', () => {
+  for (const plat of ['linux', 'darwin', 'freebsd']) {
+    assert.deepStrictEqual(sevenzip.candidateNames(plat), ['7zz', '7zzs']);
+    for (const old of ['7z', '7za', '7zr']) assert.ok(!sevenzip.candidateNames(plat).includes(old), `${plat} ${old}`);
+  }
+  assert.deepStrictEqual(sevenzip.candidateNames('win32'), ['7za.exe', '7zz.exe', '7z.exe']);
+});
+
+test('the 7-Zip actually found passes the version check', { skip }, () => {
+  const r = sevenzip.checkVersion(PROGRAM);
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  assert.ok(sevenzip.versionAccepted(sevenzip.parseVersion(`7-Zip ${r.version} `)), r.version);
+});
+
+test('VAULT_7ZIP is version-checked: a program that is not 7-Zip, or will not start, counts as not found', async () => {
+  const prev = process.env.VAULT_7ZIP;
+  const dir = fs.mkdtempSync(path.join(tmp, 'fake7z-'));
+  try {
+    // node itself: starts, exits 0, prints no 7-Zip banner.
+    process.env.VAULT_7ZIP = process.execPath;
+    assert.strictEqual(sevenzip.locate(), null);
+    assert.match(sevenzip.checkVersion(process.execPath).reason, /did not say its version/);
+    await assert.rejects(sevenzip.runSevenZip(['i'], {}), { code: 'SEVENZIP_MISSING' });
+    if (process.platform === 'win32') {
+      // A batch file is never started without a shell: refused, not run.
+      const cmd = path.join(dir, '7za.cmd');
+      fs.writeFileSync(cmd, '@echo 7-Zip (a) 26.06 (x64) : Copyright\r\n');
+      process.env.VAULT_7ZIP = cmd;
+      assert.strictEqual(sevenzip.locate(), null);
+    }
+  } finally {
+    if (prev === undefined) delete process.env.VAULT_7ZIP; else process.env.VAULT_7ZIP = prev;
+    sevenzip.invalidate();
+  }
+});
+
+test('fake 7-Zip programs: old p7zip and 23.01 are refused, 26.06 is used, a replaced file is checked again', (t) => {
+  if (process.platform === 'win32') return t.skip('shell-script programs need a POSIX system');
+  const prev = process.env.VAULT_7ZIP;
+  const dir = fs.mkdtempSync(path.join(tmp, 'fake7z-'));
+  const fake = (name, banner, code = 0) => {
+    const p = path.join(dir, name);
+    fs.writeFileSync(p, `#!/bin/sh\nprintf '%s\\n' '${banner}'\nexit ${code}\n`);
+    fs.chmodSync(p, 0o755);
+    return p;
+  };
+  try {
+    const p7zip = fake('7z', '7-Zip [64] 16.02 : Copyright (c) 1999-2016 Igor Pavlov : 2016-05-21');
+    process.env.VAULT_7ZIP = p7zip;
+    assert.strictEqual(sevenzip.locate(), null);
+    assert.match(sevenzip.checkVersion(p7zip).reason, /version 16\.02\. Vault needs 26\.01 or newer/);
+
+    const old = fake('7zz', '7-Zip (z) 23.01 (x64) : Copyright (c) 1999-2023 Igor Pavlov : 2023-06-20');
+    process.env.VAULT_7ZIP = old;
+    assert.strictEqual(sevenzip.locate(), null);
+
+    const failing = fake('7zzs', '7-Zip (z) 26.06 (x64) : Copyright', 2);
+    process.env.VAULT_7ZIP = failing;
+    assert.strictEqual(sevenzip.locate(), null, 'a non-zero exit is refused');
+
+    // The same path replaced by a newer program is checked again (new size).
+    fake('7zz', '7-Zip (z) 26.06 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-11-06 ');
+    process.env.VAULT_7ZIP = old;
+    assert.strictEqual(sevenzip.locate(), old);
+    assert.strictEqual(sevenzip.checkVersion(old).version, '26.06');
+  } finally {
+    if (prev === undefined) delete process.env.VAULT_7ZIP; else process.env.VAULT_7ZIP = prev;
+    sevenzip.invalidate();
+  }
+});
+
 test('temp delete guard: never outside share_temp, never a link, never a bad name', async () => {
   const root = temp.ensureRoot();
   assert.ok(fs.existsSync(path.join(root, '.vault-owned')));
