@@ -580,13 +580,19 @@ test('copy format preview: the default and a custom format, unknown pieces left 
 test('the selection bar and a file menu offer Share privately only while the feature is on', () => {
   const L = load();
   setState(L, { enabled: false });
-  assert.strictEqual(L.run('shareSelectionButton()'), '');
+  assert.strictEqual(L.run('shareEnabled()'), false);
   assert.strictEqual(L.run(`shareMenuItemHtml({ id: 3, media_type: 'video' })`), '');
   setState(L, { enabled: true });
-  assert.match(L.run('shareSelectionButton()'), /onclick="shareOpenForSelection\(\)"[^>]*>📤 Share privately<\/button>/);
+  assert.strictEqual(L.run('shareEnabled()'), true);
   assert.match(L.run(`shareMenuItemHtml({ id: 3, media_type: 'video' })`), /shareOpenForIds\(\[3\]\)/);
   assert.strictEqual(L.run(`shareDetailButtonHtml({ id: 3, media_type: 'mix' })`), '', 'a mix has no file');
-  assert.match(read('selection.js'), /shareSelectionButton\(\)/);
+  // The selection bar's Share (selection.js SEL_ACTIONS; the bar's own test runs it): only while on.
+  const sel = read('selection.js');
+  const at = sel.indexOf("{ id: 'share'");
+  const entry = sel.slice(at, sel.indexOf('},', at));
+  assert.match(entry, /bar: 'Share', menu: 'Share privately'/);
+  assert.match(entry, /visible: \(\) => typeof shareEnabled === 'function' && shareEnabled\(\)/);
+  assert.match(entry, /run: \(\) => shareOpenForSelection\(\)/);
 });
 
 /* ── Closing by a click outside or Esc ───────────────────────────────── */

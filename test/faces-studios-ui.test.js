@@ -1,6 +1,6 @@
 /**
- * UI audit (WP-H), pure helpers run in a VM: the selection bar's Faces label
- * (a count only when part of the selection can be checked), the Studio
+ * UI audit (WP-H), pure helpers run in a VM (the selection bar's Faces label
+ * and its count are in selection-bar.test.js now): the Studio
  * menu's take-out row (offered only when a selected file is in a studio, or
  * a row does not say), and the face setup size the Faces tab card quotes
  * (the same three models the consent downloads, from lib/faces/models.js).
@@ -33,13 +33,6 @@ function load(file, names) {
   vm.runInContext(`${src}\n;globalThis.__x = { ${names.join(', ')} };`, ctx);
   return ctx.__x;
 }
-
-test('Faces selection button: no count when every selected file can be checked', () => {
-  const { facesSelLabel } = load('faces.js', ['facesSelLabel']);
-  assert.strictEqual(facesSelLabel(3, 3), 'Faces');
-  assert.strictEqual(facesSelLabel(2, 3), 'Faces (2)');
-  assert.strictEqual(facesSelLabel(1200, 5000), 'Faces (1,200)');
-});
 
 test('face setup size: grunt models plus the chosen face model match lib/faces/models.js', () => {
   const f = load('faces.js', ['facesSetupMB', 'FACES_KEEPERS', 'FACES_GRUNT_MB']);

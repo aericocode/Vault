@@ -313,8 +313,8 @@ test('Games: the home title, game rows and save cards have no emoji in Modern', 
   assert.match(card, /aria-label="Delete this saved game"/);
 });
 
-test('selection bar: every button is words and a line icon in Modern', () => {
-  const bar = { innerHTML: '', classList: { add: noop, remove: noop, contains: () => false } };
+test('selection bar and its More menu: every button is words and a line icon in Modern', () => {
+  const bar = { innerHTML: '', classList: { add: noop, remove: noop, toggle: noop, contains: (c) => c === 'visible' } };
   const ctx = loadUi(['selection.js'], true);
   ctx.document.getElementById = (id) => (id === 'selectionBar' ? bar : null);
   vm.runInContext(`selectedIds = new Set([1, 2, 3]);
@@ -322,15 +322,21 @@ test('selection bar: every button is words and a line icon in Modern', () => {
     selectionCounts = () => ({ count: 3, trashed: 1, av: 3, video: 3, flagged: 0, errored: 1, unscanned: 0, faceable: 0 });
     fingerprintSelected = () => {};`, ctx);
   vm.runInContext('renderSelectionBar()', ctx);
-  // One name per action: "Remove from library" everywhere (not Forget), "Add to collection" (not Collect).
-  assert.match(bar.innerHTML, /Add to collection[\s\S]*Remove from library/);
-  assert.doesNotMatch(bar.innerHTML, /Forget|>Collect</);
-  const text = visibleModern(bar.innerHTML);
-  assert.ok(!MODERN_EMOJI.test(text), text);
-  assert.ok(!/✕/.test(text), 'the clear button is the line icon in Modern');
+  // The pinned buttons: the short words ("Collect"), the full ones in the tooltip and in More.
+  const barText = visibleModern(bar.innerHTML);
+  assert.match(barText, /Collect[\s\S]*Trash \(2\)[\s\S]*More/);
+  assert.match(bar.innerHTML, /title="Add to a collection\. Add the selected files to a collection"/);
+  assert.ok(!MODERN_EMOJI.test(barText), barText);
+  assert.ok(!/✕/.test(barText), 'the clear button is the line icon in Modern');
   assert.match(bar.innerHTML, /aria-label="Clear selection"/);
-  for (const w of ['Music ID', 'Stack', 'Grid', 'Retry errors', 'Trash', 'Restore', 'Flag']) assert.match(text, new RegExp(w));
-  // A count only when the button acts on part of the selection (3 selected).
+  // More: every action, one name per action ("Remove from library" everywhere, not Forget).
+  const menu = vm.runInContext('_selBar.c && selMenuHtml()', ctx);
+  assert.match(menu, /Add to a collection[\s\S]*Remove from library/);
+  assert.doesNotMatch(menu, /Forget/);
+  const text = visibleModern(menu);
+  assert.ok(!MODERN_EMOJI.test(text), text);
+  for (const w of ['Music ID', 'Stack in the Editor', 'Grid in the Editor', 'Retry errors', 'Trash', 'Restore', 'Flag']) assert.match(text, new RegExp(w));
+  // A count only when the action acts on part of the selection (3 selected).
   assert.match(text, /Trash \(2\)/, 'two of three are outside the trash');
   assert.match(text, /Restore \(1\)/);
   assert.match(text, /Retry errors \(1\)/);
