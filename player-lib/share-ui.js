@@ -47,6 +47,12 @@ function sharePrivate() {
     && document.body.classList.contains('pm-shares'));
 }
 
+/** Privacy mode with "File names" ticked (the global category). */
+function shareNamesPrivate() {
+  return !!(typeof document !== 'undefined' && document.body && document.body.classList
+    && document.body.classList.contains('pm-names'));
+}
+
 /**
  * Privacy turned on or off: the private parts (My shares list, the top bar
  * popup text, the share window's file list, every archive name, the link, the
@@ -57,17 +63,28 @@ function sharePrivate() {
  * holds readable text; it gets its own type back when privacy goes off. The
  * copy buttons read from the server or the share, never from the field, so
  * they keep working.
+ *
+ * Lists of the user's own file names (data-share-names: the step 1 list,
+ * folded rows included, and the files of a share in My shares) go the same
+ * way under "My shares" and also under the global "File names" category.
+ *
+ * A masked text field (data-share-secret, see shareSecretField) is not
+ * switched here: css/share.css keeps it as dots while "My shares" is on.
  */
 function sharePrivacyChanged(root) {
   if (typeof document === 'undefined') return;
   const scope = root || document;
   if (!scope.querySelectorAll) return;
   const on = sharePrivate();
-  scope.querySelectorAll('[data-share-private]').forEach((el) => {
-    el.inert = on;
-    if (on) el.setAttribute('aria-hidden', 'true'); else el.removeAttribute('aria-hidden');
-  });
+  const names = on || shareNamesPrivate();
+  const hide = (el, h) => {
+    el.inert = h;
+    if (h) el.setAttribute('aria-hidden', 'true'); else el.removeAttribute('aria-hidden');
+  };
+  scope.querySelectorAll('[data-share-private]').forEach((el) => hide(el, on));
+  scope.querySelectorAll('[data-share-names]').forEach((el) => hide(el, names));
   scope.querySelectorAll('[data-share-mask]').forEach((el) => {
+    if (el.dataset.shareSecret !== undefined) return;
     if (on) {
       if (el.dataset.shareType === undefined) el.dataset.shareType = el.type || 'text';
       el.type = 'password';
@@ -80,15 +97,38 @@ function sharePrivacyChanged(root) {
 
 /** Is this field showing its text (or would it, once privacy is off)? */
 function shareFieldShown(input) {
+  if (input.dataset && input.dataset.shareSecret !== undefined) return input.dataset.shareSecret === 'shown';
   const t = input.dataset && input.dataset.shareType !== undefined ? input.dataset.shareType : input.type;
   return t !== 'password';
 }
 
 /** Show or hide a password field. Under privacy it stays dots until privacy goes off. */
 function shareSetFieldShown(input, show) {
+  if (input.dataset && input.dataset.shareSecret !== undefined) { input.dataset.shareSecret = show ? 'shown' : 'hidden'; return; }
   const t = show ? 'text' : 'password';
   if (input.dataset && input.dataset.shareType !== undefined) input.dataset.shareType = t;
   else input.type = t;
+}
+
+/**
+ * A field for a new share password that the browser must not offer to save
+ * (a password manager would keep a copy outside Vault): a text field drawn as
+ * dots by css/share.css (data-share-secret="hidden"), so no password field is
+ * ever submitted or removed. Show and Hide go through shareSetFieldShown; with
+ * "My shares" on it stays dots whatever Show says. A browser that cannot draw
+ * a text field as dots gets a plain password field back (dots, a save offer
+ * at worst), never readable text.
+ */
+function shareSecretField(input) {
+  if (!input) return input;
+  const masks = typeof CSS !== 'undefined' && CSS && typeof CSS.supports === 'function'
+    && (CSS.supports('-webkit-text-security', 'disc') || CSS.supports('text-security', 'disc'));
+  if (!masks) {
+    input.type = 'password';
+    delete input.dataset.shareSecret;
+    if (input.parentNode) sharePrivacyChanged(input.parentNode);
+  }
+  return input;
 }
 
 /** A piece of text that privacy mode blurs (an archive name, in a line of other words). */
@@ -217,8 +257,9 @@ function shareWireShowButtons(root) {
     btn.addEventListener('click', () => {
       const input = root.querySelector(`#${btn.dataset.shShow}`);
       if (!input) return;
-      const show = input.type === 'password';
-      input.type = show ? 'text' : 'password';
+      // Through the helpers, so a field privacy mode hides stays dots.
+      const show = !shareFieldShown(input);
+      shareSetFieldShown(input, show);
       btn.textContent = show ? 'Hide' : 'Show';
       btn.setAttribute('aria-pressed', String(show));
     });
@@ -696,7 +737,7 @@ function shareReviewHtml(w) {
   return `
     ${shareHead('Step 1 of 4', 'Share privately', sub)}
     <div class="share-box share-files" data-share-private>
-      <div class="share-files-list" id="shFilesList">
+      <div class="share-files-list" id="shFilesList" data-share-names>
         ${files.map((f, i) => `<div class="share-file"${hideRow(i) ? ' hidden' : ''}><span class="share-file-name">${shEsc(f.nameInArchive || f.name)}</span><span class="share-mut">${shEsc(shareSize(f.sizeBytes))}</span></div>`).join('')}
       </div>
       ${fold ? `<button type="button" class="share-link-btn share-more-files" data-sh-more aria-controls="shFilesList" aria-expanded="${w.filesOpen ? 'true' : 'false'}">${w.filesOpen ? 'Show fewer' : `and ${more.toLocaleString()} more ${more === 1 ? 'file' : 'files'}`}</button>` : ''}

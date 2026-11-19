@@ -232,6 +232,23 @@ body.pm-shares [data-share-private] {
   pointer-events: none;
   user-select: none;
 }
+/* Lists of the user's own file names (the step 1 list, folded rows too, and
+   the files of a share in My shares): also under the global "File names"
+   category. share-ui.js takes them out of the keyboard order the same way. */
+body.pm-shares [data-share-names],
+body.pm-names [data-share-names] {
+  filter: blur(7px);
+  pointer-events: none;
+  user-select: none;
+}
+/* A new share password (Change saved password): a text field drawn as dots,
+   so the browser never offers to save it (share-ui.js shareSecretField).
+   Shown only after Show, and never while "My shares" privacy is on. */
+[data-share-secret="hidden"],
+body.pm-shares [data-share-secret] {
+  -webkit-text-security: disc;
+  text-security: disc;
+}
 /* An archive name inside a line of words: a box of its own so the blur
    applies to it alone. */
 .share-priv { display: inline-block; max-width: 100%; overflow-wrap: anywhere; vertical-align: bottom; }

@@ -337,7 +337,8 @@ function shareOpenChangePassword({ forChoice = false } = {}) {
         <div class="vault-field">
           <label class="vault-label" for="shCpNew">New share password</label>
           <div class="share-pw-row">
-            <input type="password" id="shCpNew" class="vault-input share-mono" autocomplete="new-password" spellcheck="false" autocapitalize="off" maxlength="128" aria-describedby="shCpNewNote">
+            <input type="text" id="shCpNew" class="vault-input share-mono" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" maxlength="128" aria-describedby="shCpNewNote"
+                   data-share-secret="hidden" data-share-mask data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
             <button type="button" class="vault-btn" data-sh-show="shCpNew" aria-pressed="false">Show</button>
             <button type="button" class="vault-btn" data-cp-act="random">Random</button>
             <button type="button" class="vault-btn" data-cp-act="copy">Copy</button>
@@ -351,9 +352,9 @@ function shareOpenChangePassword({ forChoice = false } = {}) {
           <button type="button" class="vault-btn vault-btn-primary" data-cp-act="save">Save password</button>
         </div>`,
     });
+    const newField = shareSecretField(m.q('#shCpNew'));
     shareWireShowButtons(m.box);
     const err = (msg) => shareSetError(m.q('[data-sh-err]'), msg);
-    const newField = m.q('#shCpNew');
     function finish() {
       if (m.closed) return;
       randomValue = null;
@@ -573,7 +574,7 @@ function shareRowHtml(share, list) {
       <tr class="share-fold-row"><td></td><td colspan="5">
         <div class="share-fold">
           ${files === null ? '<span class="share-mut">Loading…</span>'
-    : files.length ? files.map(f => `<div class="share-file"><span class="share-file-name">${shEsc(f.name)}</span><span class="share-mut">${shEsc(shareSize(f.sizeBytes))}</span></div>`).join('')
+    : files.length ? `<div class="share-fold-files" data-share-names>${files.map(f => `<div class="share-file"><span class="share-file-name">${shEsc(f.name)}</span><span class="share-mut">${shEsc(shareSize(f.sizeBytes))}</span></div>`).join('')}</div>`
       : '<span class="share-mut">Vault did not keep which files were in this share.</span>'}
           <div class="share-mut share-fold-foot">${share.partCount === 1 ? '1 part' : `${Number(share.partCount || 0)} parts`}${share.accountThisSession ? ', gofile account from this session' : ''}</div>
         </div>

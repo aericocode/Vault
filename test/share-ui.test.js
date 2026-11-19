@@ -1202,3 +1202,112 @@ test('Change saved password shows the same one-time warning', () => {
   const fn = src.split('function shareNoVaultPasswordWarning(')[1].split('\nfunction ')[0];
   assert.ok(fn.includes('SHARE_PLAIN_WARNING'));
 });
+
+/* ── Privacy: file names under "File names" too; the new saved password field ── */
+
+test('privacy: the step 1 list (folded rows too) and the files of a share in My shares also hide under "File names"', () => {
+  const L = load();
+  setState(L);
+  L.ctx.__w = { preview: PREVIEW(fileRows(10), 10000), filesOpen: false, collectionName: '' };
+  const step1 = L.run('shareReviewHtml(__w)');
+  const list = /<div class="share-files-list" id="shFilesList" data-share-names>([\s\S]*?)\n\s*<\/div>/.exec(step1);
+  assert.ok(list, 'the list is marked');
+  assert.strictEqual([...list[1].matchAll(/<div class="share-file"/g)].length, 10, 'every row, folded ones too, is inside it');
+  L.ctx.__list = { open: new Set([3]), files: new Map([[3, { files: [{ name: 'secret-holiday.mp4', sizeBytes: 5 }] }]]) };
+  const row = L.run("shareRowHtml({ id: 3, archiveName: 'a', status: 'uploaded', sizeBytes: 5, fileCount: 1, partCount: 1, timerSet: true }, __list)");
+  assert.match(row, /<div class="share-fold-files" data-share-names><div class="share-file"><span class="share-file-name">secret-holiday\.mp4<\/span>/);
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'share.css'), 'utf8');
+  const rule = /body\.pm-shares \[data-share-names\],\s*body\.pm-names \[data-share-names\] \{([^}]*)\}/.exec(css);
+  assert.ok(rule, 'blurred under either category');
+  assert.match(rule[1], /filter: blur\(7px\)/);
+  assert.match(rule[1], /pointer-events: none/);
+  assert.match(rule[1], /user-select: none/);
+});
+
+test('privacy: "File names" takes the name lists out of the keyboard order, but not the rest of My shares', () => {
+  const classes = new Set();
+  const L = load({ bodyClasses: classes });
+  const mk = () => ({ inert: false, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } });
+  const priv = [mk()];
+  const names = [mk(), mk()];
+  L.ctx.__root = { querySelectorAll: (sel) => (sel === '[data-share-private]' ? priv : sel === '[data-share-names]' ? names : []) };
+  classes.add('pm-names');
+  L.run('sharePrivacyChanged(__root)');
+  assert.ok(names.every(e => e.inert === true && e.attrs['aria-hidden'] === 'true'));
+  assert.strictEqual(priv[0].inert, false, 'My shares itself is not hidden by "File names"');
+  classes.delete('pm-names');
+  classes.add('pm-shares');
+  L.run('sharePrivacyChanged(__root)');
+  assert.ok([...priv, ...names].every(e => e.inert === true));
+  classes.clear();
+  L.run('sharePrivacyChanged(__root)');
+  assert.ok([...priv, ...names].every(e => e.inert === false && !('aria-hidden' in e.attrs)));
+});
+
+test('Change saved password: a masked text field the browser does not offer to save, with its label, note and Show button', () => {
+  const src = read('share-settings-ui.js');
+  const input = /<input [^>]*id="shCpNew"[^>]*>/.exec(src)[0];
+  assert.match(input, /type="text"/);
+  assert.match(input, /autocomplete="off"/);
+  assert.ok(!/new-password|current-password/.test(input));
+  assert.match(input, /data-share-secret="hidden"/);
+  assert.match(input, /data-share-mask/);
+  assert.match(input, /aria-describedby="shCpNewNote"/);
+  assert.match(src, /<label class="vault-label" for="shCpNew">New share password<\/label>/);
+  assert.match(src, /<button type="button" class="vault-btn" data-sh-show="shCpNew" aria-pressed="false">Show<\/button>/);
+  assert.match(src, /const newField = shareSecretField\(m\.q\('#shCpNew'\)\);/);
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'share.css'), 'utf8');
+  const rule = /\[data-share-secret="hidden"\],\s*body\.pm-shares \[data-share-secret\] \{([^}]*)\}/.exec(css);
+  assert.ok(rule, 'dots until Show, and always under "My shares"');
+  assert.match(rule[1], /-webkit-text-security: disc/);
+});
+
+/** A field and its Show button, wired by shareWireShowButtons. */
+function showPair(L, field) {
+  const btn = { dataset: { shShow: 'f' }, attrs: {}, textContent: 'Show', on: null,
+    addEventListener(t, fn) { this.on = fn; }, setAttribute(k, v) { this.attrs[k] = v; } };
+  L.ctx.__root = { querySelectorAll: (sel) => (sel === '[data-sh-show]' ? [btn] : sel === '[data-share-mask]' ? [field] : []), querySelector: () => field };
+  L.run('shareWireShowButtons(__root)');
+  return btn;
+}
+
+test('Show on the new saved password: shows and hides; with "My shares" privacy on it stays dots', () => {
+  const classes = new Set();
+  const L = load({ bodyClasses: classes });
+  L.ctx.CSS = { supports: (p) => p === '-webkit-text-security' };
+  const field = { type: 'text', value: 'Typed-Pass-123', dataset: { shareSecret: 'hidden' } };
+  L.ctx.__f = field;
+  assert.strictEqual(L.run('shareSecretField(__f)'), field);
+  assert.strictEqual(field.type, 'text', 'never a password field, so nothing offers to save it');
+  const btn = showPair(L, field);
+  btn.on();
+  assert.strictEqual(field.dataset.shareSecret, 'shown');
+  assert.strictEqual(btn.textContent, 'Hide');
+  assert.strictEqual(btn.attrs['aria-pressed'], 'true');
+  btn.on();
+  assert.strictEqual(field.dataset.shareSecret, 'hidden');
+  assert.strictEqual(btn.attrs['aria-pressed'], 'false');
+  // Privacy on: the field is left to the CSS (dots whatever Show says), its type untouched.
+  classes.add('pm-shares');
+  L.run('sharePrivacyChanged(__root)');
+  assert.strictEqual(field.type, 'text');
+});
+
+test('Show on the new saved password, in a browser that cannot draw dots: a password field, and Show keeps the dots under privacy', () => {
+  const classes = new Set(['pm-shares']);
+  const L = load({ bodyClasses: classes });
+  L.ctx.CSS = { supports: () => false };
+  const field = { type: 'text', value: 'Typed-Pass-123', dataset: { shareSecret: 'hidden' }, parentNode: null };
+  L.ctx.__f = field;
+  L.run('shareSecretField(__f)');
+  assert.strictEqual(field.type, 'password');
+  assert.ok(!('shareSecret' in field.dataset));
+  const btn = showPair(L, field);
+  L.run('sharePrivacyChanged(__root)');
+  btn.on();
+  assert.strictEqual(field.type, 'password', 'privacy keeps it dots');
+  assert.strictEqual(btn.attrs['aria-pressed'], 'true');
+  classes.clear();
+  L.run('sharePrivacyChanged(__root)');
+  assert.strictEqual(field.type, 'text', 'shown once privacy is off, as Show asked');
+});
