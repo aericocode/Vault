@@ -445,9 +445,9 @@ function shareSelect(id, options, value, extra = '') {
     `<option value="${shEsc(o.value)}"${String(o.value) === String(value) ? ' selected' : ''}${o.disabled ? ' disabled' : ''}>${shEsc(o.label)}</option>`).join('')}</select>`;
 }
 
-/** The archive as one line: "k7Qm2xVd9LpA.7z, 1.55 GB" or the first part and the count. */
+/** The archive as one line: "k7Qm2xVd9LpA.7z, 1.55 GB", or "k7Qm2xVd9LpA.7z, 4.2 GB in 3 parts" (never the .001 part name). */
 function shareArchiveLine(share, checks) {
-  const name = share ? share.archiveFileName || `${share.archiveName}.7z` : (checks && checks.archiveName ? `${checks.archiveName.value}.7z` : '');
+  const name = share ? share.archiveDisplayName || `${share.archiveName}.7z` : (checks && checks.archiveName ? `${checks.archiveName.value}.7z` : '');
   const bytes = checks && checks.parts && checks.parts.bytes ? checks.parts.bytes : share ? share.sizeBytes : 0;
   const count = checks && checks.parts ? checks.parts.count : share ? share.partCount : 1;
   return `${name}, ${shareSize(bytes)}${count > 1 ? ` in ${count} parts` : ''}`;

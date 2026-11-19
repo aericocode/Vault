@@ -115,6 +115,19 @@ test('errors carry the server words; NO_SPACE adds how much more is needed; prog
   await assert.rejects(L.run(`shareApi('POST', '/x', {})`), (e) => e.message === 'Something went wrong. Try again.');
 });
 
+test('a split archive is named without its part number, in the window and in My shares', () => {
+  const L = load();
+  setState(L);
+  L.ctx.__s = { id: 7, archiveName: 'Holiday', archiveFileName: 'Holiday.7z.001', archiveDisplayName: 'Holiday.7z', sizeBytes: 3 * 1024 ** 3,
+    partCount: 3, fileCount: 2, passwordKind: 'random', passwordKept: true, deleteAfterDays: 7, link: 'https://gofile.io/d/Ab12', status: 'uploaded', deleteAt: Date.now() + 86400000, timerSet: true };
+  const line = L.run('shareArchiveLine(__s, { parts: { count: 3, bytes: 3 * 1024 ** 3 } })');
+  assert.match(line, /^Holiday\.7z, .* in 3 parts$/);
+  L.ctx.__list = { open: new Set(), files: new Map() };
+  const row = L.run('shareRowHtml(__s, __list)');
+  assert.ok(row.includes('Holiday.7z'));
+  assert.ok(!line.includes('.001') && !row.includes('.001'), 'no part number');
+});
+
 /* ── Step 3: the tick box ────────────────────────────────────────────── */
 
 test('Upload stays disabled until the box is ticked', () => {
@@ -157,7 +170,7 @@ test('a hostile file name and archive name are escaped everywhere they are drawn
   L.ctx.__w = {
     preview: { files: [{ mediaId: 1, name: HOSTILE, nameInArchive: HOSTILE, sizeBytes: 1000 }], totalBytes: 1000, needBytes: 1050, enoughSpace: true,
       split: false, partBytes: 2 * 1024 ** 3, partCount: 1, nameMode: 'typed', passwordChoice: 'random', deleteAfterDays: 7, savedPasswordSet: true, sevenZipFound: true },
-    share: { id: 4, archiveName: HOSTILE_NAME, archiveFileName: `${HOSTILE_NAME}.7z`, sizeBytes: 1000, partCount: 1, fileCount: 1, passwordKind: 'random', passwordKept: true, deleteAfterDays: 7, link: 'https://gofile.io/d/Ab12', status: 'uploaded', deleteAt: Date.now() + 86400000 * 3, timerSet: true },
+    share: { id: 4, archiveName: HOSTILE_NAME, archiveFileName: `${HOSTILE_NAME}.7z`, archiveDisplayName: `${HOSTILE_NAME}.7z`, sizeBytes: 1000, partCount: 1, fileCount: 1, passwordKind: 'random', passwordKept: true, deleteAfterDays: 7, link: 'https://gofile.io/d/Ab12', status: 'uploaded', deleteAt: Date.now() + 86400000 * 3, timerSet: true },
     progress: { checks: { ok: true, test: { ok: true }, listWithoutPassword: { ok: true }, contents: { files: 1 }, parts: { count: 1, bytes: 1000 }, archiveName: { value: HOSTILE_NAME, typed: true } }, upload: { parts: [] } },
     ticked: false, failText: HOSTILE,
   };

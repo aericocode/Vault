@@ -538,7 +538,7 @@ function shareRowHtml(share, list) {
     return `<button type="button" class="vault-btn share-row-btn${danger ? ' share-btn-danger' : ''}" data-row-act="${key}" data-row-id="${id}"${disabled ? ' disabled title="Share privately is turned off. Turn it on in Settings first."' : ''}>${SHARE_ROW_LABEL[key]}</button>`;
   }).join('');
   const sub = `${Number(share.fileCount || 0).toLocaleString()} ${share.fileCount === 1 ? 'file' : 'files'}${share.partCount > 1 ? `, ${share.partCount} parts` : ''}`;
-  const name = share.archiveFileName || `${share.archiveName}.7z`;
+  const name = share.archiveDisplayName || `${share.archiveName}.7z`;
   let foldBody = '';
   if (open) {
     const d = list.files.get(id);
@@ -735,7 +735,7 @@ function shareOpenDeleteAll() {
       <h3 id="shareDelAllTitle">Delete ${n} ${n === 1 ? 'upload' : 'uploads'} from gofile?</h3>
       <p class="vault-modal-hint">Their links stop working for everyone and this cannot be undone. Your own files on this computer are not touched.</p>
       <div class="share-box share-delall-list" data-share-private data-del-list>
-        ${rows.map(s => `<div class="share-file" data-del-row="${Number(s.id)}"><span class="share-mono share-file-name">${shEsc(s.archiveFileName || `${s.archiveName}.7z`)}</span><span class="share-mut" data-del-res>${shEsc(`${shareSize(s.sizeBytes)}, ${shareWhen(s.uploadedAt || s.createdAt).replace(/^Today .*/, 'today').replace(/^Yesterday .*/, 'yesterday')}`)}</span></div>`).join('')}
+        ${rows.map(s => `<div class="share-file" data-del-row="${Number(s.id)}"><span class="share-mono share-file-name">${shEsc(s.archiveDisplayName || `${s.archiveName}.7z`)}</span><span class="share-mut" data-del-res>${shEsc(`${shareSize(s.sizeBytes)}, ${shareWhen(s.uploadedAt || s.createdAt).replace(/^Today .*/, 'today').replace(/^Yesterday .*/, 'yesterday')}`)}</span></div>`).join('')}
       </div>
       <label class="share-tick share-tick-danger"><input type="checkbox" id="shDelAllTick"><span>Yes, delete all ${n} from gofile</span></label>
       <div class="vault-modal-err" role="alert" data-sh-err hidden></div>

@@ -702,6 +702,18 @@ test('feature off and VAULT_OFFLINE, real client: delete, delete all and stop-an
   assert.ok(!/uploaded\.$|nothing can be uploaded/.test(err), err);
 });
 
+test('a split share is listed under its archive name without the part number', () => {
+  on();
+  const split = makeChecked({ parts: 3 });
+  const one = makeChecked({ parts: 1 });
+  const a = service.listShares().find(x => x.id === split.id);
+  assert.strictEqual(a.archiveFileName, `${split.name}.7z.001`, 'the first part on disk');
+  assert.strictEqual(a.archiveDisplayName, `${split.name}.7z`);
+  const b = service.getShare(one.id);
+  assert.strictEqual(b.archiveFileName, `${one.name}.7z`);
+  assert.strictEqual(b.archiveDisplayName, `${one.name}.7z`);
+});
+
 test('my shares: timer ran out is worked out from the clock; mark gone; remove asks first while it may be online', async () => {
   useClient(fakeClient());
   on();
