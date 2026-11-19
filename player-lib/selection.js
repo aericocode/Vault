@@ -222,9 +222,12 @@ function clearSelection() {
 function closeSelectionPopovers() {
   if (typeof closeSelMenu === 'function') closeSelMenu(false);
   if (typeof closeBarCollectionPicker === 'function') closeBarCollectionPicker();
-  // The Studio menu is studios.js's; close it only when it was opened from the
-  // bar (from its own button, or from More, which then stays lit the same way).
-  if (document.querySelector('#selectionBar .sel-studio.on, #selectionBar .sel-more.on') && typeof stClosePops === 'function') stClosePops();
+  // The Studio menu is studios.js's; close it only when the bar opened it
+  // (selRunAction keeps it: a class on a bar button would go with a repaint).
+  if (_selStudioPop) {
+    if (_selStudioPop.isConnected && typeof stClosePops === 'function') stClosePops();
+    _selStudioPop = null;
+  }
   // The Stream tag menu acts on the selection too (player-lib/stream-tags.js).
   if (typeof StreamTags !== 'undefined') StreamTags.closeMenu();
 }
@@ -495,7 +498,9 @@ const SEL_ACTIONS = [
     n: (c) => c.errored,
     title: (c) => `Read ${selFiles(c.errored)} with an error again and remake their thumbnails, without redoing the AI scan`,
     visible: (c) => c.errored > 0 && typeof window.vaultForceRefresh === 'function',
-    run: (c, el) => forceRefreshSelected(el) },
+    // One run at a time: the button and the menu row stay off until it answers.
+    busy: () => _selRefreshBusy,
+    run: () => forceRefreshSelected() },
   // Files marked as failed to play: clear the mark so playback tries them
   // again (a drive that was asleep, a server restart mid-file).
   { id: 'playable', group: 'library', bar: 'Mark as playable', emoji: '▶', cls: 'sel-playable',
@@ -679,16 +684,19 @@ function renderSelectionBar() {
 function selBarButtonHtml(a, c) {
   const cls = selVal(a.cls, c);
   const words = selActionWords(a, c, 'bar');
-  const full = selActionWords(a, c, 'menu');
+  // The tooltip says what the button does, in one sentence.
   const title = selVal(a.title, c);
+  const busy = a.busy && a.busy() ? ' disabled aria-busy="true"' : '';
   // The Studio button keeps the caret that says a menu opens.
   const caret = a.caret ? `<span class="vi-c"> ▾</span>${typeof vaultIcon === 'function' ? vaultIcon('caret', 'modern-only sel-caret') : ''}` : '';
-  return `<button type="button" class="sel-btn${cls ? ` ${cls}` : ''}" data-sel-act="${a.id}" title="${selAttr(full === words ? title : `${full}. ${title}`)}"${a.haspopup ? ' aria-haspopup="menu"' : ''}>${selActionLabelHtml(a, c, words)}${caret}</button>`;
+  return `<button type="button" class="sel-btn${cls ? ` ${cls}` : ''}" data-sel-act="${a.id}" title="${selAttr(title)}"${a.haspopup ? ' aria-haspopup="menu"' : ''}${busy}>${selActionLabelHtml(a, c, words)}${caret}</button>`;
 }
 
 function selBarHtml(c, pinned) {
-  const open = selMenuOpen();
-  const more = `<button type="button" class="sel-btn sel-more${open ? ' open' : ''}" data-sel-more aria-haspopup="menu" aria-expanded="${open ? 'true' : 'false'}" aria-controls="selMoreMenu" title="Everything you can do with the selected files">More<span class="vi-c"> ▴</span>${typeof vaultIcon === 'function' ? vaultIcon('caret', 'modern-only sel-caret sel-caret-up') : ''}</button>`;
+  // Open or not is set on the button (selSetMoreExpanded), not in this
+  // markup: More stays the same element while its menu opens and closes, so
+  // what it anchors (a picker opened from it) keeps its anchor.
+  const more = `<button type="button" class="sel-btn sel-more" data-sel-more aria-haspopup="menu" aria-expanded="false" aria-controls="selMoreMenu" title="Everything you can do with the selected files">More<span class="vi-c"> ▴</span>${typeof vaultIcon === 'function' ? vaultIcon('caret', 'modern-only sel-caret sel-caret-up') : ''}</button>`;
   return `<span class="sel-count">${selectedIds.size.toLocaleString()} selected</span>${pinned.map(a => selBarButtonHtml(a, c)).join('')}${more}${SEL_CLEAR_BTN}`;
 }
 
@@ -708,6 +716,7 @@ function writeSelBar(bar, html) {
 function fitSelectionBar(bar) {
   if (!bar.classList.contains('visible') || _selBar.mode !== 'library' || !_selBar.c) return;
   writeSelBar(bar, selBarHtml(_selBar.c, _selBar.pinned));
+  selSetMoreExpanded(selMenuOpen());
   const btns = typeof bar.querySelectorAll === 'function' ? [...bar.querySelectorAll('[data-sel-act]')] : [];
   for (const b of btns) b.hidden = false;
   // Hidden from the right until the last piece (the X) is back on the first line.
@@ -797,8 +806,12 @@ function selRunAction(id, el) {
   const a = SEL_ACTION_BY_ID.get(id);
   const c = _selBar.c;
   if (!a || !c || !selectedIds.size) return undefined;
-  return a.run(c, el || null);
+  const out = a.run(c, el || null);
+  // The Studio picker it opened: closeSelectionPopovers closes it with the bar.
+  if (a.id === 'studio') _selStudioPop = document.getElementById('stPop');
+  return out;
 }
+let _selStudioPop = null;
 
 /* ── More: every action for this selection ────────────────────────────────
    Modelled on the Stream tag menu the bar already opens (stream-tags.js
@@ -839,12 +852,19 @@ function openSelMenu(focusIndex = 0) {
   el.className = 'sel-menu';
   el.setAttribute('role', 'menu');
   el.setAttribute('aria-label', 'Everything you can do with the selected files');
+  el.tabIndex = -1;
   el.addEventListener('click', onSelMenuClick);
   el.addEventListener('keydown', onSelMenuKey);
+  // A press on a heading, a note or the padding leaves the focus on its row
+  // (it would go to the page, and the keys with it).
+  el.addEventListener('mousedown', (e) => { if (!(e.target.closest && e.target.closest('button'))) e.preventDefault(); });
+  el.addEventListener('focusin', (e) => { if (e.target !== el) el._lastFocus = e.target; });
   _selMenu = el;
   document.body.appendChild(el);
   renderSelMenu();
   selSetMoreExpanded(true);
+  // Only while it is open: Esc closes it wherever the focus is.
+  document.addEventListener('keydown', selMenuDocKey, true);
   setTimeout(() => { if (_selMenu === el) document.addEventListener('pointerdown', selMenuOutside, true); }, 0);
   const rows = selMenuRows();
   const at = rows[focusIndex < 0 ? rows.length - 1 : Math.min(focusIndex, rows.length - 1)];
@@ -857,12 +877,36 @@ function closeSelMenu(refocus) {
   const el = _selMenu;
   _selMenu = null;
   document.removeEventListener('pointerdown', selMenuOutside, true);
+  document.removeEventListener('keydown', selMenuDocKey, true);
   el.remove();
   selSetMoreExpanded(false);
   if (refocus) {
     const more = selMoreButton();
     if (more) { try { more.focus({ preventScroll: true }); } catch {} }
   }
+}
+
+/**
+ * Keys while the menu is open, wherever the focus is: Esc closes it. When the
+ * focus is not on one of its rows (it went to the page somehow), the arrows
+ * and Home / End take it back to the row it was on; on a row, onSelMenuKey
+ * has them.
+ */
+function selMenuDocKey(e) {
+  const el = _selMenu;
+  if (!el) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    closeSelMenu(true);
+    return;
+  }
+  const at = document.activeElement;
+  if ((at && at !== el && el.contains(at)) || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const back = (el._lastFocus && el.contains(el._lastFocus) && el._lastFocus) || selMenuRows()[0];
+  if (back) back.focus({ preventScroll: true });
 }
 
 function selMenuOutside(e) {
@@ -881,9 +925,12 @@ function selMenuRowHtml(a, c, pins) {
   const note = onBar ? 'On the bar' : pinned ? 'Pinned, no room' : '';
   const name = selVal(a.menu || a.bar, c);
   const pinName = pinned ? `Take ${name} off the bar` : `Put ${name} on the bar`;
-  const pinIcon = typeof vaultIconSwap === 'function' ? vaultIconSwap('📌', 'pin') : '📌';
+  // The emoji in a box of its own (Classic greys it when not pinned), the line icon in Modern.
+  const pinIcon = `<span class="vi-c"><span class="sel-pin-e">📌</span></span>${typeof vaultIcon === 'function' ? vaultIcon('pin', 'modern-only') : ''}`;
+  const busy = a.busy && a.busy();
+  // No tooltip: the row's words say what it does, and one would cover the row below.
   return `<div class="sel-mrow${a.danger ? ' sel-mrow-danger' : ''}" role="none">
-    <button type="button" role="menuitem" class="sel-mi" data-sel-mi="${a.id}" title="${selAttr(selVal(a.title, c))}">
+    <button type="button" role="menuitem" class="sel-mi" data-sel-mi="${a.id}"${busy ? ' aria-disabled="true" aria-busy="true"' : ''}>
       <span class="sel-mi-label">${selActionLabelHtml(a, c, words)}</span>
       ${note ? `<span class="sel-mi-note${onBar ? ' on' : ''}">${note}</span>` : ''}
       ${a.kbd ? `<kbd class="sel-mi-kbd">${a.kbd}</kbd>` : ''}
@@ -961,10 +1008,20 @@ function onSelMenuClick(e) {
   const mi = t.closest('[data-sel-mi]');
   if (!mi) return;
   const a = SEL_ACTION_BY_ID.get(mi.dataset.selMi);
-  if (!a) return;
+  if (!a || mi.getAttribute('aria-disabled') === 'true') return;
   // A menu or picker opens where More is, and takes the focus itself.
+  const menu = _selMenu;
   closeSelMenu(!a.popover);
   selRunAction(a.id, a.popover ? selMoreButton() : null);
+  // One that does not (the collection picker): its first box, or More, never the page.
+  if (a.popover) {
+    const at = document.activeElement;
+    if (!at || at === document.body || (menu && menu.contains(at))) {
+      const pick = document.getElementById('collectionPicker');
+      const to = (pick && pick.querySelector('input, button')) || selMoreButton();
+      if (to) { try { to.focus({ preventScroll: true }); } catch {} }
+    }
+  }
 }
 
 /**
@@ -1059,13 +1116,24 @@ async function markPlayableSelected() {
 }
 
 /** Force refresh the errored files in the selection (player-lib/importer.js does the work). */
-async function forceRefreshSelected(btn) {
+async function forceRefreshSelected() {
+  // One at a time, from the bar or from More: a second press before the
+  // first answers does nothing (the button and the row show it is busy).
+  if (_selRefreshBusy) return;
   // The whole selection goes (Select all can reach rows that are not loaded
   // here); the server keeps only the ones with an error.
   const ids = [...selectedIds];
   if (!ids.length) { showToast('Nothing to refresh in this selection'); return; }
-  await window.vaultForceRefresh(ids, btn, { onlyErrored: true });
+  _selRefreshBusy = true;
+  renderSelectionBar();
+  try {
+    await window.vaultForceRefresh(ids, null, { onlyErrored: true });
+  } finally {
+    _selRefreshBusy = false;
+    renderSelectionBar();
+  }
 }
+let _selRefreshBusy = false;
 
 /* ── Rescan the filtered set (🔍 Scan filter) ──────────────────────────── */
 //

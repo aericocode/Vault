@@ -380,7 +380,11 @@ body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom
   position: fixed;
   left: 18px;
   bottom: 18px;
-  max-width: calc(100vw - 36px - var(--sel-pager-room, 0px));
+  /* Never narrower than the count, More and the X on one line
+     (--sel-floor): on a narrow window the bar takes the pager's room and
+     sits over it rather than wrapping. The same in dock.css and filter-rail.css. */
+  --sel-floor: 280px;
+  max-width: max(min(var(--sel-floor), calc(100vw - 36px)), calc(100vw - 36px - var(--sel-pager-room, 0px)));
   /* Hidden: below the viewport edge whatever the bar's height (it wraps on
      narrow windows), and out of reach, so no sliver can ever take a click. */
   transform: translate(0, calc(100% + 24px));
@@ -431,6 +435,7 @@ body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom
 .selection-bar .sel-btn { white-space: nowrap; }
 
 .sel-btn:hover { border-color: var(--accent); }
+.selection-bar .sel-btn:disabled { opacity: 0.55; cursor: progress; }
 .sel-btn.sel-trash { border-color: var(--danger); color: #fca5a5; }
 .sel-btn.sel-restore { border-color: var(--success); color: #86efac; }
 .sel-btn.sel-clear { color: var(--text-secondary); padding: 0.35rem 0.55rem; }
@@ -564,6 +569,8 @@ body.layout-modern .sel-menu {
   text-align: left;
   cursor: pointer;
 }
+/* Busy (Force refresh while it runs): off until it answers. */
+.sel-mi[aria-disabled="true"] { opacity: 0.5; cursor: progress; }
 .sel-mi-label { flex: 1 1 auto; min-width: 5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.layout-modern .sel-mi-label { display: inline-flex; align-items: center; }
 body.layout-modern .sel-mi-label .vi { width: 16px; height: 16px; flex: none; }
@@ -595,11 +602,17 @@ body.layout-modern .sel-mi-label .vi-gap { margin-right: 8px; }
   color: var(--text-muted, #888);
   font: inherit;
   cursor: pointer;
-  opacity: 0.55;
 }
-.sel-pin .vi { width: 15px; height: 15px; }
-.sel-pin.on { color: var(--accent-hover, #818cf8); opacity: 1; }
-.sel-mrow:hover .sel-pin { opacity: 1; }
+.sel-pin .vi { width: 15px; height: 15px; opacity: 0.6; }
+/* Not pinned: a grey, faded pin that stays that way on a row hover (only the
+   pin's own hover lifts it a little). Pinned: the pin in full colour on an
+   accent tint, the line icon filled in the accent colour. */
+.sel-pin-e { filter: grayscale(1); opacity: 0.4; }
+.sel-pin:hover .sel-pin-e, .sel-pin:focus-visible .sel-pin-e,
+.sel-pin:hover .vi, .sel-pin:focus-visible .vi { opacity: 0.7; }
+.sel-pin.on { color: var(--accent-hover, #818cf8); background: rgba(129, 140, 248, 0.16); }
+.sel-pin.on .sel-pin-e { filter: none; opacity: 1; }
+.sel-pin.on .vi { opacity: 1; fill: currentColor; }
 .sel-mi:hover, .sel-mi:focus-visible,
 .sel-pin:hover, .sel-pin:focus-visible,
 .sel-menu-reset:hover, .sel-menu-reset:focus-visible { background: var(--bg-hover, #2a2a3e); outline: none; }
