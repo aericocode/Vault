@@ -1178,6 +1178,9 @@ test('first share with no Vault password: the warning offers Continue, Do not re
   assert.match(message, /passwords of past shares/);
   assert.match(message, /links and upload keys/);
   assert.match(message, /set a Vault password/i);
+  // "Do not remember passwords" leaves the warning due, so no "only once" promise.
+  assert.ok(!/only once/i.test(message), 'no promise it is shown only once');
+  assert.match(message, /shows it again when that is turned back on/);
   assert.ok(!/[—–]/.test(message + o.title + o.buttons.map(b => b.label).join(' ')), 'no long dashes');
   assert.ok(!/\b(hours?|minutes?|seconds?|days?)\b/i.test(message), 'no time figures');
   assert.deepStrictEqual(go.sent.map(s => s[0]), ['POST /api/share/shares', 'POST /api/share/shares']);

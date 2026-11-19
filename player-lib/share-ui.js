@@ -794,7 +794,7 @@ function shareReviewHtml(w) {
  */
 const SHARE_PLAIN_WARNING = 'There is no Vault password, so the library file is not encrypted. Anyone who can open it can read what Share privately keeps there: the saved password, the passwords of past shares, and their links and upload keys.\n\n'
   + 'To protect them, set a Vault password. Or turn off "Passwords of past shares" so share passwords are not kept (the ones already kept are deleted). Links and upload keys are still kept, so Vault can delete the uploads later.\n\n'
-  + 'Vault shows this warning only once.';
+  + 'If you go ahead, Vault does not show this again. If you turn off "Passwords of past shares" instead, Vault shows it again when that is turned back on.';
 
 /** Before the first share is stored. Resolves 'continue', 'forget' or 'cancel'. */
 function shareAskPlainWarning() {
