@@ -474,7 +474,7 @@ function collectionCardHtml(c, showPath) {
     </div>`;
 }
 
-/* ── Per-card ⋯ menu: Rename / Move to… / Duplicate / Delete ─────────────── */
+/* ── Per-card ⋯ menu: Rename / Move to… / Duplicate / Share privately / Delete ── */
 
 let _cardMenuEl = null;
 
@@ -484,10 +484,14 @@ function openCardMenu(id, btn) {
   if (!c) return;
   const menu = document.createElement('div');
   menu.className = 'coll-card-menu';
+  // Share privately (share-ui.js): collections only, and only while the feature is on, as on the selection bar.
+  const share = c.kind !== 'folder' && typeof shareEnabled === 'function' && shareEnabled();
   menu.innerHTML = `
     <button class="coll-menu-item" onclick="cardRename(${id})">Rename</button>
     <button class="coll-menu-item" onclick="cardMoveMenu(${id})">Move to…</button>
     ${c.kind === 'folder' ? '' : `<button class="coll-menu-item" onclick="cardDuplicate(${id})">Duplicate</button>`}
+    ${share ? `<button class="coll-menu-item" data-coll-act="share" onclick="cardShare(${id})">Share privately</button>` : ''}
+    <div class="coll-menu-sep" role="separator"></div>
     <button class="coll-menu-item coll-menu-danger" onclick="cardDelete(${id}, this)">Delete</button>`;
   document.body.appendChild(menu);
   _cardMenuEl = menu;
@@ -507,6 +511,12 @@ function closeCardMenu() {
   _cardMenuEl = null;
   document.removeEventListener('pointerdown', _cardMenuOutside, true);
   document.removeEventListener('keydown', _cardMenuEsc);
+}
+
+/** Share privately: every file in the collection, in the share window (share-ui.js). */
+function cardShare(id) {
+  closeCardMenu();
+  if (typeof shareOpenForCollection === 'function') shareOpenForCollection(id);
 }
 
 async function cardRename(id) {

@@ -823,6 +823,7 @@ body.dock-shown #resultsGrid .media-tile.tile-docked.reorder-drop-after { box-sh
 }
 .coll-menu-item:hover { background: var(--bg-hover); }
 .coll-menu-danger { color: var(--danger); }
+.coll-menu-sep { height: 1px; margin: 0.25rem 0.3rem; background: var(--border); }
 .coll-menu-danger.armed { background: rgba(239, 68, 68, 0.18); color: #fca5a5; }
 
 .coll-head-folder { display: inline-flex; vertical-align: -2px; margin-right: 0.3rem; color: var(--text-secondary); }
@@ -975,6 +976,7 @@ body.layout-modern .coll-card-menu { padding: 4px; }
 body.layout-modern .coll-menu-item { border-radius: var(--m-radius-sm); font-size: 13px; color: var(--m-text); }
 body.layout-modern .coll-menu-head { color: var(--m-muted); font-size: 12px; }
 body.layout-modern .coll-menu-danger { color: var(--m-danger-text); }
+body.layout-modern .coll-menu-sep { margin: 4px 6px; background: var(--m-border); }
 
 /* Open collection: the strip above its files */
 body.layout-modern .collections-bar {

@@ -60,6 +60,14 @@ async function shareApi(method, path, body, opts = {}) {
   return data || {};
 }
 
+/*
+ * Large shares (share-ui.js step 1). Binary GB, the way shareSize counts, so
+ * "10 GB" on screen is where the warning starts. These only warn: the server
+ * takes any size that fits on disk.
+ */
+const SHARE_LARGE_BYTES = 10 * 1024 ** 3;   // the total turns amber and a note says what it takes
+const SHARE_HUGE_BYTES = 30 * 1024 ** 3;    // Pack files asks first
+
 /** Bytes in plain words: "812 MB", "1.55 GB", "2 KB". */
 function shareSize(bytes) {
   const n = Number(bytes);

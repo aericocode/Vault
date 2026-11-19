@@ -1,6 +1,7 @@
 /* =========================================================================
    SHARE PRIVATELY: the share window (steps 1 to 4 and 3b), the top bar icon,
-   the entry points on the selection bar and on one file's menu, the Vault
+   the entry points on the selection bar, on one file's menu and on a
+   collection card's menu, the large share warning and ask, the Vault
    password prompt, and the privacy guard ("My shares" hide category).
 
    Steps (.notes/SHARE_PRIVATELY_SPEC.md section 4):
@@ -322,14 +323,19 @@ let _shareWin = null;   // the open window, or null
 
 const SHARE_PHASE_WORDS = { staging: 'Getting the files ready', packing: 'Packing', checking: 'Checking the archive' };
 
-/** Open the window for these library files (step 1). */
-async function shareOpenForIds(ids) {
-  const mediaIds = [...new Set((ids || []).map(Number).filter(n => Number.isInteger(n) && n > 0))];
+/**
+ * Open the window for these library files (step 1). collectionName: the share
+ * came from a collection's menu; step 1 names it. It stays on this page: it is
+ * never sent with the share and never names the archive.
+ */
+async function shareOpenForIds(ids, { collectionName = '' } = {}) {
+  const mediaIds = [...new Set(Array.from(ids || []).map(Number).filter(n => Number.isInteger(n) && n > 0))];
   if (!mediaIds.length) { shToast('Pick at least one file.'); return; }
   if (mediaIds.length > 5000) { shToast('Pick 5,000 files or fewer to share at once.', 'error'); return; }
   if (!shareEnabled()) { shToast('Share privately is turned off. Turn it on in Settings first.', 'error'); return; }
   const w = shareWindowOpen();
   w.mediaIds = mediaIds;
+  w.collectionName = String(collectionName || '');
   w.step = 'loading';
   shareWindowRender();
   try {
@@ -351,6 +357,35 @@ function shareOpenForSelection() {
   shareOpenForIds([...selectedIds]);
 }
 
+// The file types a collection's share takes: what its grid lists, without
+// mixes (a mix is not one file on disk) and without the trash.
+const SHARE_COLLECTION_TYPES = ['video', 'audio', 'image', 'gif'];
+
+/**
+ * A collection card's menu: every file in the collection, skipped ones too
+ * (a skip is about playback). The server answers the whole id list, so a big
+ * collection is not cut to the page the grid has drawn.
+ */
+async function shareOpenForCollection(id) {
+  const c = typeof getCollectionById === 'function' ? getCollectionById(id) : null;
+  if (!c || c.kind === 'folder') return;
+  if (!shareEnabled()) { shToast('Share privately is turned off. Turn it on in Settings first.', 'error'); return; }
+  let ids;
+  try {
+    const out = await Library.queryOnce({ collectionId: Number(id), filters: { mediaTypes: SHARE_COLLECTION_TYPES, trashed: '0' } },
+      { pageSize: 1, allIds: true });
+    // No total: the full list did not come, only the first page. Never share part of it.
+    if (!out || (!out.complete && out.total == null)) throw new Error('partial');
+    ids = Array.from(out.ids || []);
+  } catch {
+    shToast('Could not read this collection. Try again.', 'error');
+    return;
+  }
+  if (!ids.length) { shToast('This collection has no files to share.'); return; }
+  if (ids.length > 5000) { shToast('This collection has more than 5,000 files. Share privately takes up to 5,000 at once.', 'error'); return; }
+  return shareOpenForIds(ids, { collectionName: c.name });
+}
+
 /** Open the window on a share that already exists (top bar, My shares). */
 async function shareOpenShare(id) {
   const w = shareWindowOpen();
@@ -366,6 +401,7 @@ function shareWindowOpen() {
   const w = {
     id: null, mediaIds: [], preview: null, share: null, progress: null, step: 'loading',
     ticked: false, error: '', failText: '', failLocal: false, samples: [], timer: null, busy: false, partsSig: '',
+    collectionName: '', filesOpen: false, bigAsk: null,
   };
   // A click outside does nothing here: a stray click would drop what was typed
   // on step 1 or hide a running job. Esc asks to close, as Close does.
@@ -381,6 +417,7 @@ function shareWindowClose() {
   clearTimeout(w.timer);
   w.timer = null;
   _shareWin = null;
+  if (w.bigAsk) w.bigAsk.close();
   w.m.close();
   w.preview = null; w.share = null; w.progress = null;
 }
@@ -475,14 +512,18 @@ function shareRate(w) {
 
 /* Step markup pieces. */
 
-/** The step header. privName: an archive name after the title, blurred under privacy. */
+/**
+ * The step header. privName: an archive name after the title, blurred under
+ * privacy. sub: plain words, or { html } already escaped.
+ */
 function shareHead(kicker, title, sub, privName = '') {
+  const subHtml = sub && typeof sub === 'object' ? sub.html : shEsc(sub);
   return `
     <div class="share-head">
       <div class="share-head-text">
         ${kicker ? `<div class="share-kicker">${shEsc(kicker)}</div>` : ''}
         <h3 id="shareWinTitle">${shEsc(title)}${privName ? ` ${sharePrivSpan(privName)}` : ''}</h3>
-        ${sub ? `<p class="vault-modal-hint share-sub">${shEsc(sub)}</p>` : ''}
+        ${sub ? `<p class="vault-modal-hint share-sub">${subHtml}</p>` : ''}
       </div>
       <button type="button" class="share-x" data-sh-act="close" aria-label="Close" title="Close">${shIcon('close') || '&times;'}</button>
     </div>`;
@@ -544,6 +585,94 @@ function shareWindowRender() {
 
 /* Step 1: review. */
 
+// Over this many files the list folds to its first SHARE_FOLD_SHOW rows.
+const SHARE_FOLD_OVER = 6;
+const SHARE_FOLD_SHOW = 3;
+
+/** How the archive goes up, from the plan: "3 parts of up to 2 GB", "one part"; '' when not known. */
+function shareUploadsAs(p) {
+  const n = Number(p && p.partCount);
+  if (!Number.isInteger(n) || n < 1) return '';
+  if (n === 1) return 'one part';
+  return `${n.toLocaleString()} parts${p.partBytes ? ` of up to ${shareSize(p.partBytes)}` : ''}`;
+}
+
+/** The amber line on step 1 for a share of SHARE_LARGE_BYTES or more. Relative words only: speeds are not known. */
+function shareBigNote(p) {
+  const size = shareSize(p.totalBytes);
+  const space = p.needBytes ? `, and packing needs about ${shareSize(p.needBytes)} of free space` : '';
+  const n = Number(p.partCount);
+  const parts = Number.isInteger(n) && n >= 1 ? ` It will upload as ${n === 1 ? 'one part' : `${n.toLocaleString()} parts`}.` : '';
+  return `Large share. Packing and uploading ${size} can take a long time${space}.${parts}`;
+}
+
+/** "and N more files" / "Show fewer" on step 1. */
+function shareToggleFiles(w, btn) {
+  w.filesOpen = !w.filesOpen;
+  const rows = w.m.box.querySelectorAll('#shFilesList .share-file');
+  rows.forEach((row, i) => { row.hidden = !w.filesOpen && i >= SHARE_FOLD_SHOW; });
+  const more = rows.length - SHARE_FOLD_SHOW;
+  btn.textContent = w.filesOpen ? 'Show fewer' : `and ${more.toLocaleString()} more ${more === 1 ? 'file' : 'files'}`;
+  btn.setAttribute('aria-expanded', w.filesOpen ? 'true' : 'false');
+}
+
+/** Pack files: at SHARE_HUGE_BYTES or more it asks first, once per click. */
+function sharePackClicked() {
+  const w = _shareWin;
+  // The ask is open (a second click of a double click) or a request is out: nothing.
+  if (!w || w.busy || w.bigAsk || w.step !== 'review') return;
+  if ((Number(w.preview && w.preview.totalBytes) || 0) >= SHARE_HUGE_BYTES) { shareAskBig(w); return; }
+  sharePack();
+}
+
+/**
+ * "This share is very large": Go back is the main button (bottom right, and it
+ * has the focus); Pack anyway sits bottom left, away from where Pack files was
+ * clicked. Esc and Go back return to step 1 with nothing started; a click
+ * outside does nothing.
+ */
+function shareAskBig(w) {
+  const p = w.preview || {};
+  const size = shareSize(p.totalBytes);
+  const files = (p.files || []).length;
+  const uploads = shareUploadsAs(p);
+  const m = shareModal({
+    id: 'shareBigDlg', labelledBy: 'shareBigTitle', cls: 'share-dlg-small share-big-dlg',
+    onEsc: () => back(),
+    html: `
+      <h3 id="shareBigTitle">This share is very large</h3>
+      <p class="vault-modal-hint">Packing and uploading this much can take a long time. You can stop at any point, and parts already uploaded can be deleted.</p>
+      <dl class="share-box share-sum share-big-facts">
+        ${w.collectionName ? `<dt>Collection</dt><dd>${sharePrivSpan(w.collectionName)}</dd>` : ''}
+        <dt>Files</dt><dd>${files.toLocaleString()}</dd>
+        <dt>Total size</dt><dd class="share-big-total">${shEsc(size)}</dd>
+        ${p.needBytes ? `<dt>Free space needed to pack</dt><dd>${shEsc(shareSize(p.needBytes))}</dd>` : ''}
+        ${uploads ? `<dt>Uploads as</dt><dd>${shEsc(uploads.charAt(0).toUpperCase() + uploads.slice(1))}</dd>` : ''}
+      </dl>
+      <div class="vault-modal-actions share-actions">
+        <button type="button" class="vault-btn share-btn-amber" data-sh-big="go">Pack ${shEsc(size)} anyway</button>
+        <span class="share-sp"></span>
+        <button type="button" class="vault-btn vault-btn-primary" data-sh-big="back">Go back</button>
+      </div>`,
+  });
+  w.bigAsk = m;
+  // The second click of a double click on Pack files lands on the backdrop:
+  // it must not take the focus off Go back.
+  m.ov.addEventListener('mousedown', (e) => { if (e.target === m.ov) e.preventDefault(); });
+  function back() {
+    if (m.closed) return;
+    m.close();
+    if (w.bigAsk === m) w.bigAsk = null;
+  }
+  m.q('[data-sh-big="back"]').addEventListener('click', back);
+  m.q('[data-sh-big="go"]').addEventListener('click', () => {
+    if (m.closed) return;
+    back();
+    if (w === _shareWin && w.step === 'review') sharePack();
+  });
+  shareFocus(m.q('[data-sh-big="back"]'));
+}
+
 function shareReviewHtml(w) {
   const p = w.preview;
   const files = p.files || [];
@@ -557,14 +686,23 @@ function shareReviewHtml(w) {
   const space = p.needBytes ? `Packing needs about ${shareSize(p.needBytes)} of free space.` : '';
   const noSpace = p.enoughSpace === false;
   const blocked = noSpace || p.sevenZipFound === false;
+  const intro = 'Review what will be packed. Nothing is uploaded yet.';
+  const sub = w.collectionName ? { html: `Collection: ${sharePrivSpan(w.collectionName)}. ${shEsc(intro)}` } : intro;
+  const big = (Number(p.totalBytes) || 0) >= SHARE_LARGE_BYTES;
+  // A long list folds to its first few rows; "and N more files" opens the rest.
+  const fold = files.length > SHARE_FOLD_OVER;
+  const hideRow = (i) => fold && !w.filesOpen && i >= SHARE_FOLD_SHOW;
+  const more = files.length - SHARE_FOLD_SHOW;
   return `
-    ${shareHead('Step 1 of 4', 'Share privately', 'Review what will be packed. Nothing is uploaded yet.')}
+    ${shareHead('Step 1 of 4', 'Share privately', sub)}
     <div class="share-box share-files" data-share-private>
-      <div class="share-files-list">
-        ${files.map(f => `<div class="share-file"><span class="share-file-name">${shEsc(f.nameInArchive || f.name)}</span><span class="share-mut">${shEsc(shareSize(f.sizeBytes))}</span></div>`).join('')}
+      <div class="share-files-list" id="shFilesList">
+        ${files.map((f, i) => `<div class="share-file"${hideRow(i) ? ' hidden' : ''}><span class="share-file-name">${shEsc(f.nameInArchive || f.name)}</span><span class="share-mut">${shEsc(shareSize(f.sizeBytes))}</span></div>`).join('')}
       </div>
-      <div class="share-file share-file-total"><span>${files.length.toLocaleString()} ${files.length === 1 ? 'file' : 'files'}</span><span>${shEsc(shareSize(p.totalBytes))}</span></div>
+      ${fold ? `<button type="button" class="share-link-btn share-more-files" data-sh-more aria-controls="shFilesList" aria-expanded="${w.filesOpen ? 'true' : 'false'}">${w.filesOpen ? 'Show fewer' : `and ${more.toLocaleString()} more ${more === 1 ? 'file' : 'files'}`}</button>` : ''}
+      <div class="share-file share-file-total"><span>${files.length.toLocaleString()} ${files.length === 1 ? 'file' : 'files'}</span><span${big ? ' class="share-big-total"' : ''}>${big ? `${shIcon('alert')}<span class="share-sr">Large share: </span>` : ''}${shEsc(shareSize(p.totalBytes))}</span></div>
     </div>
+    ${big ? `<div class="share-big-note" data-sh-bignote>${shIcon('alert')}<span>${shEsc(shareBigNote(p))}</span></div>` : ''}
     <div class="share-block">
       <div class="share-label">What will leave this computer</div>
       <ul class="share-list">
@@ -1101,7 +1239,7 @@ function shareWireWindow(w) {
     btn.addEventListener('click', () => {
       const act = btn.dataset.shAct;
       if (act === 'close') return shareWindowRequestClose();
-      if (act === 'pack') return sharePack();
+      if (act === 'pack') return sharePackClicked();
       if (act === 'cancel-archive') return shareCancelArchive();
       if (act === 'to-confirm') { w.step = 'confirm'; w.ticked = false; return shareWindowRender(); }
       if (act === 'back') { w.step = 'checked'; return shareWindowRender(); }
@@ -1125,6 +1263,9 @@ function shareWireWindow(w) {
     const up = box.querySelector('[data-sh-act="upload"]');
     if (up) up.disabled = !shareUploadAllowed(w);
   });
+  // Step 1's folded list opens and closes in place (a new draw would drop what was typed).
+  const more = box.querySelector('[data-sh-more]');
+  if (more) more.addEventListener('click', () => shareToggleFiles(w, more));
   const name = box.querySelector('#shName');
   if (name) name.addEventListener('input', () => {
     const li = box.querySelector('[data-sh-namewords]');

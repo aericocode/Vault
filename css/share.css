@@ -51,6 +51,19 @@
 .share-file-name { min-width: 0; overflow-wrap: anywhere; }
 .share-file > .share-mut { flex: none; white-space: nowrap; }
 .share-file-total { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; font-weight: 600; }
+.share-file[hidden] { display: none; }
+.share-more-files { display: block; margin-top: 4px; font-size: 0.8rem; }
+
+/* Large shares (step 1 and the ask at 30 GB): amber, a triangle beside the total */
+.share-big-total { color: #fbbf24; }
+.share-file-total .share-big-total { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.share-big-total .vi { width: 14px; height: 14px; flex: none; }
+.share-big-note { display: flex; gap: 8px; align-items: flex-start; color: #fbbf24; font-size: 0.84rem; line-height: 1.5; }
+.share-big-note .vi { flex: none; width: 16px; height: 16px; margin-top: 2px; }
+.share-sum.share-big-facts { grid-template-columns: 11rem minmax(0, 1fr); }
+@media (max-width: 560px) { .share-sum.share-big-facts { grid-template-columns: 1fr; } }
+.share-btn-amber { border-color: var(--warning) !important; color: #fbbf24 !important; background: transparent !important; }
+.share-btn-amber:hover:not(:disabled) { background: rgba(245, 158, 11, 0.12) !important; }
 
 .share-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
 .share-grid .vault-input, .share-sel { width: 100%; box-sizing: border-box; min-width: 0; }
