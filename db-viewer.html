@@ -85,6 +85,8 @@
   <link rel="stylesheet" href="./css/dialogs.css">
   <!-- Vault's own folder browser (player-lib/fs-picker.js): Linux without a desktop dialog, macOS -->
   <link rel="stylesheet" href="./css/fs-picker.css">
+  <!-- Share privately: the share window, My shares, the top bar icon -->
+  <link rel="stylesheet" href="./css/share.css">
 
   <link rel="icon" type="image/svg+xml" href="./images/favicon.svg">
 </head>
@@ -685,6 +687,11 @@
   <!-- Settings › Stage (both looks); before settings.js, which draws it -->
   <script src="./player-lib/stage-settings-ui.js"></script>
   <script src="./player-lib/stream-tags-settings.js"></script>
+  <!-- Share privately: the one client for /api/share, the share window and top
+       bar icon, then Settings > Private sharing and My shares (before settings.js) -->
+  <script src="./player-lib/share-client.js"></script>
+  <script src="./player-lib/share-ui.js"></script>
+  <script src="./player-lib/share-settings-ui.js"></script>
   <script src="./player-lib/settings.js"></script>
   <!-- Settings search: one index of every setting, plus the shortcuts table -->
   <script src="./player-lib/settings-search.js"></script>

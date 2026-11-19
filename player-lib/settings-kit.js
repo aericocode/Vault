@@ -99,6 +99,7 @@ const SETTINGS_PAGES_MODERN = [
   { group: 'Library', pages: [
     { id: 'library', title: 'Library and files', icon: 'library' },
     { id: 'faces', title: 'Face search', icon: 'person' },
+    { id: 'sharing', title: 'Private sharing', icon: 'upload' },
   ] },
   { group: 'AI', pages: [
     { id: 'models', title: 'Models and scanning', icon: 'chip' },

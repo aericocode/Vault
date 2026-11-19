@@ -56,6 +56,7 @@
       importFolders: true,
       thumbnails: false,
       fileNames: false,
+      shares: true,         // My shares, the share top bar popup, the share window's file list (player-lib/share-ui.js)
     },
     resumePlayback: true,   // auto-seek to stored position on open (current behavior)
     restoreSession: false,  // reopen last media (paused) on launch, Stash-style
@@ -262,6 +263,15 @@
 
   // Read a setting from anywhere in the app.
   window.vaultSetting = (key) => settings[key];
+  // Set one "Hide while on" category (Share privately keeps "My shares" in
+  // step with its server-side setting, player-lib/share-ui.js).
+  window.vaultSetPrivacyHide = (key, on) => {
+    if (!(key in DEFAULTS.privacyHide)) return;
+    settings.privacyHide = { ...settings.privacyHide, [key]: !!on };
+    save();
+    applyPrivacyMode(settings.privacyMode);
+    syncPrivacyChipsUI();
+  };
 
   /* ── Library layout / card size ──────────────────────────────────────
      cards.js reads these on every layout pass, so changing one only has to
@@ -511,6 +521,7 @@
     importFolders: 'pm-imports',
     thumbnails:    'pm-thumbs',
     fileNames:     'pm-names',
+    shares:        'pm-shares',
   };
 
   // Order is the order they appear in the dropdown and in its summary line.
@@ -522,6 +533,7 @@
     { key: 'importFolders', label: 'Import folders',                        short: 'Import folders' },
     { key: 'thumbnails',    label: 'Thumbnails (blurred, no hover reveal)', short: 'Thumbnails' },
     { key: 'fileNames',     label: 'File names',                            short: 'File names' },
+    { key: 'shares',        label: 'My shares (Share privately)',           short: 'My shares' },
   ];
 
   // A category class is on only when privacy mode is on AND that box is ticked,
@@ -541,6 +553,11 @@
     // order, which must drop (or take back) the hidden pills right away.
     if (typeof ssdPrivacyChanged === 'function') {
       try { ssdPrivacyChanged(); } catch {}
+    }
+    // My shares, the share popup and the share window drop out of the
+    // keyboard order too (player-lib/share-ui.js).
+    if (typeof sharePrivacyChanged === 'function') {
+      try { sharePrivacyChanged(); } catch {}
     }
     // Repaint tiles so the filename `title=` tooltip (unstylable by CSS) is
     // added/removed — cards.js reads the body class when it builds each tile.
@@ -602,6 +619,8 @@
     { id: 'library',   label: '🗂 Library' },
     // Always listed: this is where face search is turned on (player-lib/faces.js).
     { id: 'faces',     label: '👤 Face search' },
+    // Share privately (player-lib/share-settings-ui.js): settings and My shares.
+    { id: 'sharing',   label: '📤 Private sharing' },
     // Read-only list from player-lib/shortcuts.js (the same table the ? window shows).
     { id: 'shortcuts', label: '⌨️ Keyboard shortcuts' },
     // The window shared in Discord (player-lib/stage-settings-ui.js).
@@ -761,6 +780,7 @@
     if (id === 'faces' && typeof facesWireSettings === 'function') facesWireSettings();
     if (id === 'shortcuts' && typeof shortcutsWireSettings === 'function') shortcutsWireSettings();
     if (id === 'stage' && typeof stageSettingsWire === 'function') stageSettingsWire(body);
+    if (id === 'sharing' && typeof shareSettingsWire === 'function') shareSettingsWire(body);
     if (id === 'seedpacks') wireSeedpacksSection();
     if (id === 'about') loadAbout();
     // The Move to Cove tab polls too, and only while it is on screen.
@@ -800,6 +820,8 @@
     if (!overlay || !overlay.classList.contains('active')) return false;
     overlay.classList.remove('active');
     stopBackendPoll();
+    // A saved share password shown on the page goes with the window.
+    if (typeof shareSettingsClosed === 'function') shareSettingsClosed();
     leaveCoveSection();
     // Only release the scroll lock if no other overlay still needs it.
     if (!document.querySelector('.modal-overlay.active, .media-player-overlay.active')) {
@@ -1284,6 +1306,8 @@
       settings.privacyHide = { ...settings.privacyHide, [key]: next };
       save();
       applyPrivacyMode(settings.privacyMode);
+      // The server keeps the same choice as "Hide My shares in privacy mode".
+      if (key === 'shares' && typeof shareHideInPrivacyChanged === 'function') shareHideInPrivacyChanged(next);
     };
     // Segmented controls (library layout, card size). The grid re-lays itself
     // from the saved value, so there is nothing to reload.
@@ -4415,6 +4439,7 @@
     faces:     () => (typeof facesSettingsHtml === 'function' ? facesSettingsHtml() : ''),
     shortcuts: () => (typeof shortcutsSettingsHtml === 'function' ? shortcutsSettingsHtml() : ''),
     stage:     () => (typeof stageSettingsHtml === 'function' ? stageSettingsHtml() : ''),
+    sharing:   () => (typeof shareSettingsHtml === 'function' ? shareSettingsHtml() : ''),
     guides:    RENDERERS_guides,
     models:    () => (window.vaultScanSettingsHtml ? window.vaultScanSettingsHtml() : '') + RENDERERS_models(),
     seedpacks: RENDERERS_seedpacks,
