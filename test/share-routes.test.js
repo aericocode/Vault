@@ -201,6 +201,7 @@ test('start -> packing -> checks pass; upload only with confirm, never while off
   const offline = await call('POST', `/api/share/shares/${shareId}/upload`, { confirm: true });
   assert.strictEqual(offline.status, 409);
   assert.strictEqual(offline.json.code, 'NET_OFF');
+  assert.strictEqual(offline.json.error, 'Vault is set to stay offline (VAULT_OFFLINE=1), so nothing can be uploaded.');
   assert.deepStrictEqual(c.calls, [], 'nothing sent before the confirmed upload');
 
   config.net.offline = false;
@@ -243,6 +244,7 @@ test('delete from gofile is refused while offline, then works; remove from list'
   const c = fakeClient();
   const off = await call('POST', `/api/share/shares/${shareId}/delete-remote`, {});
   assert.strictEqual(off.json.code, 'NET_OFF');
+  assert.strictEqual(off.json.error, 'Vault is set to stay offline (VAULT_OFFLINE=1), so nothing can be deleted from gofile.');
   config.net.offline = false;
   try {
     const del = await call('POST', `/api/share/shares/${shareId}/delete-remote`, {});
@@ -361,7 +363,9 @@ test('feature off: delete routes delete only the stored folder, whatever the bod
     const again = mk('uploaded', 'stored-offline');
     config.net.offline = true;
     assert.strictEqual((await call('POST', `/api/share/shares/${again}/delete-remote`, {})).json.code, 'NET_OFF');
-    assert.strictEqual((await call('POST', '/api/share/delete-all', { confirm: true })).json.code, 'NET_OFF');
+    const allOff = await call('POST', '/api/share/delete-all', { confirm: true });
+    assert.strictEqual(allOff.json.code, 'NET_OFF');
+    assert.match(allOff.json.error, /so nothing can be deleted from gofile\.$/);
     assert.deepStrictEqual(calls, []);
   } finally {
     config.net.offline = true;

@@ -200,7 +200,8 @@ test('feature off: delete makes exactly one DELETE /contents with the folder id 
 test('feature off and VAULT_OFFLINE: delete makes zero requests, also through the real netFetch', async () => {
   const fake = fakeGofile({ 'DELETE https://api.gofile.io/contents': () => json(200, { status: 'ok', data: {} }) });
   await assert.rejects(client(fake, { enabled: false, offline: true }).deleteContent({ token: TOKEN, folderId: 'folder-1' }), { code: 'NET_OFF' });
-  await assert.rejects(client(fake, { enabled: true, offline: true }).deleteContent({ token: TOKEN, folderId: 'folder-1' }), { code: 'NET_OFF' });
+  await assert.rejects(client(fake, { enabled: true, offline: true }).deleteContent({ token: TOKEN, folderId: 'folder-1' }),
+    { code: 'NET_OFF', message: 'Vault is set to stay offline (VAULT_OFFLINE=1), so nothing can be deleted from gofile.' });
   assert.strictEqual(fake.calls.length, 0);
 
   const prev = config.net.offline;
@@ -268,7 +269,11 @@ test('feature off: the delete still goes through the host list on every hop', as
 
 test('VAULT_OFFLINE: zero requests through the real netFetch too', async () => {
   const fake = fakeGofile({});
-  await assert.rejects(client(fake, { offline: true }).createAccount(), { code: 'NET_OFF' });
+  await assert.rejects(client(fake, { offline: true }).createAccount(),
+    { code: 'NET_OFF', message: 'Vault is set to stay offline (VAULT_OFFLINE=1), so nothing can be uploaded.' });
+  // The message names what was blocked.
+  await assert.rejects(client(fake, { offline: true }).setExpiry({ token: TOKEN, folderId: 'folder-1', expiresAtSec: 2000000000 }),
+    { code: 'NET_OFF', message: 'Vault is set to stay offline (VAULT_OFFLINE=1), so the timer cannot be set on gofile.' });
   assert.strictEqual(fake.calls.length, 0);
 
   // Default client: real netFetch, real config switch, global fetch counted.

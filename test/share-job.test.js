@@ -145,7 +145,8 @@ test('upload needs confirm === true, the feature on, and VAULT_OFFLINE off; refu
   on();
   config.net.offline = true;
   try {
-    assert.throws(() => service.confirmUpload(s.id, { confirm: true }), { code: 'NET_OFF' });
+    assert.throws(() => service.confirmUpload(s.id, { confirm: true }),
+      { code: 'NET_OFF', message: 'Vault is set to stay offline (VAULT_OFFLINE=1), so nothing can be uploaded.' });
   } finally { config.net.offline = false; }
   assert.strictEqual(c.calls.length, 0);
   assert.strictEqual(statusOf(s.id), 'checked');
@@ -538,8 +539,10 @@ test('delete all: one by one, a failing row stays with its reason', async () => 
   try {
     for (const enabled of [true, false]) {
       on({ enabled });
-      await assert.rejects(service.deleteRemote(b.id), { code: 'NET_OFF' });
-      await assert.rejects(service.deleteAll({ confirm: true }), { code: 'NET_OFF' });
+      // The message fits a delete, not an upload.
+      const delMsg = 'Vault is set to stay offline (VAULT_OFFLINE=1), so nothing can be deleted from gofile.';
+      await assert.rejects(service.deleteRemote(b.id), { code: 'NET_OFF', message: delMsg });
+      await assert.rejects(service.deleteAll({ confirm: true }), { code: 'NET_OFF', message: delMsg });
     }
   } finally { config.net.offline = false; on(); }
   assert.strictEqual(c.calls.length, n);
@@ -685,8 +688,8 @@ test('feature off and VAULT_OFFLINE, real client: delete, delete all and stop-an
   try {
     await assert.rejects(service.deleteRemote(up.id), { code: 'NET_OFF' });
     await assert.rejects(service.deleteAll({ confirm: true }), { code: 'NET_OFF' });
-    await assert.rejects(service.stop(paused.id, { confirm: true }), { code: 'NET_OFF' });
-    await assert.rejects(f.client.deleteContent({ token: `${TOKEN}-acc-off`, folderId: 'fo-o1' }), { code: 'NET_OFF' });
+    await assert.rejects(service.stop(paused.id, { confirm: true }), { code: 'NET_OFF', message: /so nothing can be deleted from gofile\.$/ });
+    await assert.rejects(f.client.deleteContent({ token: `${TOKEN}-acc-off`, folderId: 'fo-o1' }), { code: 'NET_OFF', message: /deleted from gofile/ });
   } finally {
     config.net.offline = false;
     on();
@@ -694,6 +697,9 @@ test('feature off and VAULT_OFFLINE, real client: delete, delete all and stop-an
   assert.strictEqual(f.calls.length, 0);
   assert.strictEqual(statusOf(up.id), 'uploaded');
   assert.strictEqual(statusOf(paused.id), 'failed');   // stopped; Delete in My shares can try again
+  const err = service.getShare(paused.id).error;
+  assert.match(err, /^Stopped\. Vault is set to stay offline \(VAULT_OFFLINE=1\), so the uploaded parts could not be deleted from gofile yet\./);
+  assert.ok(!/uploaded\.$|nothing can be uploaded/.test(err), err);
 });
 
 test('my shares: timer ran out is worked out from the clock; mark gone; remove asks first while it may be online', async () => {
