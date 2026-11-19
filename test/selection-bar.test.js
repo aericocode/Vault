@@ -148,7 +148,9 @@ function loadBar({ modern = true, counts = {}, size = 3, inColl = [], skip = nul
   Object.defineProperty(bar, 'lastElementChild', {
     get: () => ({ offsetTop: bar.kids.filter(k => k.dataset.selAct && !k.hidden).length > room ? 44 : 0 }),
   });
-  ctx.document.getElementById = (id) => (id === 'selectionBar' ? bar : null);
+  // Popovers a test opens (stPop, collectionPicker) by id.
+  ctx.__byId = {};
+  ctx.document.getElementById = (id) => (id === 'selectionBar' ? bar : ctx.__byId[id] || null);
   ctx.document.querySelector = (sel) => {
     if (sel.startsWith('#selectionBar')) return bar.querySelector(sel);
     return null;
@@ -168,6 +170,7 @@ function loadBar({ modern = true, counts = {}, size = 3, inColl = [], skip = nul
   ctx.__calls = calls;
   ctx.__pins = pins === undefined ? null : pins;
   vm.runInContext(`
+    var __realRefresh = forceRefreshSelected;
     selectedIds = new Set(Array.from({ length: ${size} }, (_, i) => i + 1));
     renderResultsSelect = () => {};
     selectionCounts = () => __counts;
@@ -277,11 +280,12 @@ test('the bar: the count, the pinned actions that apply with short words, More a
   assert.strictEqual(more.getAttribute('aria-haspopup'), 'menu');
   assert.strictEqual(more.getAttribute('aria-expanded'), 'false');
   assert.ok(b.bar.querySelector('.sel-clear'), 'the X');
-  // The full words stay in the tooltip.
-  assert.match(btn(b, 'collect').attrs.title, /^Add to a collection\. /);
-  assert.match(btn(b, 'uncollect').attrs.title, /^Remove from this collection\. Take 3 files out of this collection/);
-  assert.match(btn(b, 'share').attrs.title, /^Share privately\. Pack the selected files/);
+  // The tooltip says what the button does, once: no menu words in front of it.
+  assert.strictEqual(btn(b, 'collect').attrs.title, 'Add the selected files to a collection');
+  assert.strictEqual(btn(b, 'uncollect').attrs.title, 'Take 3 files out of this collection. The files themselves are not touched');
+  assert.match(btn(b, 'share').attrs.title, /^Pack the selected files/);
   assert.strictEqual(btn(b, 'playnext').attrs.title, 'Play the selected files after the one playing now (Shift+U)');
+  for (const k of b.bar.kids.filter(x => x.dataset.selAct)) assert.doesNotMatch(k.attrs.title, /—/, 'no em dashes');
   // The classes other code finds them by.
   assert.ok(btn(b, 'collect').classList.contains('sel-collect'));
   assert.ok(btn(b, 'trash').classList.contains('sel-trash'));
@@ -488,11 +492,158 @@ test('More: the collection picker, the studio picker and the stream tag menu ope
     assert.strictEqual(call[1], b.bar.querySelector('[data-sel-more]'), `${id}: anchored to More, inside the bar`);
     assert.ok(!b.run('selMenuOpen()'));
   }
-  // Force refresh from the menu has no button of its own to disable.
-  const r = loadBar({ counts: { errored: 1 } });
-  r.run('openSelMenu(0)');
-  r.menu().listeners.click.forEach(fn => fn({ target: row(r, 'refresh') }));
-  assert.deepStrictEqual([...r.calls.find(c => c[0] === 'refresh')], ['refresh', null]);
+});
+
+test('Force refresh runs once at a time, from the bar or from More; both show it is busy', async () => {
+  const b = loadBar({ counts: { errored: 2 }, pins: ['refresh'] });
+  b.run(`
+    forceRefreshSelected = __realRefresh;
+    var __answer = null;
+    window.vaultForceRefresh = (ids, btn, o) => { __calls.push(['vfr', ids.length, btn, o.onlyErrored]); return new Promise(r => { __answer = r; }); };
+  `);
+  const click = (el) => b.bar.listeners.click.forEach(fn => fn({ target: el }));
+  // From More first: no button of its own, the guard still holds.
+  b.run('openSelMenu(0)');
+  b.menu().listeners.click.forEach(fn => fn({ target: row(b, 'refresh') }));
+  assert.deepStrictEqual(b.calls.filter(c => c[0] === 'vfr').map(c => [...c]), [['vfr', 3, null, true]]);
+  // Busy: the bar button is off, and the row in a menu opened now is too.
+  assert.ok('disabled' in btn(b, 'refresh').attrs, 'the bar button is disabled');
+  assert.strictEqual(btn(b, 'refresh').getAttribute('aria-busy'), 'true');
+  b.run('openSelMenu(0)');
+  assert.strictEqual(row(b, 'refresh').getAttribute('aria-disabled'), 'true');
+  // A second press, from the row or the bar (the code path, as a disabled button sends no click): nothing.
+  b.menu().listeners.click.forEach(fn => fn({ target: row(b, 'refresh') }));
+  assert.ok(b.run('selMenuOpen()'), 'a busy row does nothing, the menu stays');
+  b.run("selRunAction('refresh', null)");
+  click(btn(b, 'refresh'));
+  assert.strictEqual(b.calls.filter(c => c[0] === 'vfr').length, 1, 'one request until the first answers');
+  // It answers: back on, and a new run can start.
+  b.run('__answer(null)');
+  await new Promise(r => setImmediate(r));
+  assert.ok(!('disabled' in btn(b, 'refresh').attrs));
+  assert.strictEqual(row(b, 'refresh').getAttribute('aria-disabled'), null);
+  b.run("selRunAction('refresh', null)");
+  assert.strictEqual(b.calls.filter(c => c[0] === 'vfr').length, 2);
+  // A request that throws frees it too.
+  let caught = null;
+  b.ctx.__done = (p) => p.catch((e) => { caught = e; });
+  b.run('__answer(null)');
+  await new Promise(r => setImmediate(r));
+  b.run("window.vaultForceRefresh = () => Promise.reject(new Error('down')); __done(forceRefreshSelected())");
+  await new Promise(r => setImmediate(r));
+  assert.ok(caught, 'the error is the caller\'s');
+  assert.ok(!('disabled' in btn(b, 'refresh').attrs), 'back on after a failure');
+});
+
+test('the other actions never needed their element: only the popovers get one, as an anchor', () => {
+  const b = loadBar();
+  const src = b.run("SEL_ACTIONS.filter(a => /\\(c, el\\)|\\(_, el\\)/.test(String(a.run))).map(a => a.id)");
+  assert.deepStrictEqual(src, ['collect', 'studio', 'streamtag']);
+});
+
+test('More: a picker that takes no focus itself (the collection picker) gets it, Esc still goes back to More', () => {
+  const b = loadBar();
+  const input = { focus() { b.ctx.document.activeElement = input; } };
+  b.ctx.__byId.collectionPicker = { querySelector: () => input };
+  b.run('openSelMenu(0)');
+  b.menu().listeners.click.forEach(fn => fn({ target: row(b, 'collect') }));
+  assert.strictEqual(b.ctx.document.activeElement, input, 'the picker\'s find box');
+  // No picker to focus: More, not the page.
+  const n = loadBar();
+  n.run('openSelMenu(0)');
+  n.menu().listeners.click.forEach(fn => fn({ target: row(n, 'collect') }));
+  assert.strictEqual(n.ctx.document.activeElement, n.bar.querySelector('[data-sel-more]'));
+  // A picker that focused itself keeps it (the studio picker's box).
+  const s = loadBar();
+  const own = { isConnected: true };
+  s.run('studiosSelectionPick = () => { document.activeElement = __own; }');
+  s.ctx.__own = own;
+  s.run('openSelMenu(0)');
+  s.menu().listeners.click.forEach(fn => fn({ target: row(s, 'studio') }));
+  assert.strictEqual(s.ctx.document.activeElement, own);
+  // Esc in the collection picker goes back to its anchor (collections.js _pickerEsc), which is More.
+  assert.match(read('collections.js'), /_pickerAnchor && _pickerAnchor\.isConnected && _pickerAnchor/);
+});
+
+test('More: a picker opened from it is closed with the bar even after the bar repaints', () => {
+  // Open More, pin something (the bar repaints with the menu open), open the
+  // Studio picker from its row, repaint again, then clear from code.
+  const b = loadBar();
+  const pop = { isConnected: true };
+  b.ctx.__pop = pop;
+  b.run(`
+    studiosSelectionPick = (el) => { el.classList.add('on'); __byId.stPop = __pop; };
+    var stClosePops = () => { if (__byId.stPop) { __byId.stPop.isConnected = false; __byId.stPop = null; } };
+    var clearSelection2 = () => { selectedIds.clear(); renderSelectionBar(); };
+  `);
+  b.run('openSelMenu(0)');
+  b.menu().listeners.click.forEach(fn => fn({ target: pin(b, 'flag') }));
+  // The bar was rewritten (a new button on it); the new More still says the menu is open.
+  assert.strictEqual(b.bar.querySelector('[data-sel-more]').getAttribute('aria-expanded'), 'true');
+  // A repaint that changes nothing keeps the same More button.
+  const more = b.bar.querySelector('[data-sel-more]');
+  b.run('renderSelectionBar()');
+  assert.strictEqual(b.bar.querySelector('[data-sel-more]'), more);
+  b.menu().listeners.click.forEach(fn => fn({ target: row(b, 'studio') }));
+  assert.ok(pop.isConnected);
+  b.ctx.__counts.flagged = 3;   // the bar's markup changes: a repaint
+  b.run('renderSelectionBar()');
+  assert.strictEqual(b.bar.querySelector('[data-sel-more]').getAttribute('aria-expanded'), 'false');
+  b.run('clearSelection2()');
+  assert.ok(!pop.isConnected, 'the studio picker went with the bar');
+  // A studio picker the bar did not open stays.
+  const o = loadBar();
+  const other = { isConnected: true };
+  o.ctx.__byId.stPop = other;
+  o.run('var stClosePops = () => { __byId.stPop.isConnected = false; }; selectedIds.clear(); renderSelectionBar()');
+  assert.ok(other.isConnected, 'not the bar\'s: left alone');
+  // The collection picker and the stream tag menu: closed when the bar hides.
+  const c = loadBar();
+  c.run('var __closed = []; var closeBarCollectionPicker = () => __closed.push("coll"); StreamTags.closeMenu = () => __closed.push("stags"); selectedIds.clear(); renderSelectionBar()');
+  assert.deepStrictEqual([...c.ctx.__closed], ['coll', 'stags']);
+});
+
+test('More: Esc closes it wherever the focus is; a press on a heading keeps the focus; no key listener while closed', () => {
+  const b = loadBar();
+  const doc = b.ctx.document;
+  assert.strictEqual((b.docListeners.keydown || []).length, 0, 'nothing listens while the menu is closed');
+  b.run('openSelMenu(0)');
+  const m = b.menu();
+  assert.strictEqual(m.tabIndex, -1);
+  assert.strictEqual(b.docListeners.keydown.length, 1);
+  const docKey = (k) => { let stopped = false; b.docListeners.keydown.forEach(fn => fn({ key: k, preventDefault: noop, stopPropagation: () => { stopped = true; } })); return stopped; };
+  // A press on a heading or the padding: the browser would move the focus; the menu stops it.
+  let prevented = false;
+  m.listeners.mousedown.forEach(fn => fn({ target: { closest: () => null }, preventDefault: () => { prevented = true; } }));
+  assert.ok(prevented, 'no focus change on a non-button');
+  prevented = false;
+  m.listeners.mousedown.forEach(fn => fn({ target: row(b, 'flag'), preventDefault: () => { prevented = true; } }));
+  assert.ok(!prevented, 'a row press is the browser\'s own');
+  // The focus went to the page anyway: the arrows bring it back to the last row.
+  const rows = m.querySelectorAll('.sel-mi, .sel-menu-reset');
+  m.listeners.focusin.forEach(fn => fn({ target: rows[2] }));
+  doc.activeElement = doc.body;
+  assert.ok(docKey('ArrowDown'));
+  assert.strictEqual(doc.activeElement, rows[2]);
+  // On a row, the arrows are the menu's own (not handled twice).
+  assert.ok(!docKey('ArrowDown'));
+  // Esc from the page closes it, back to More, and the key listener goes.
+  doc.activeElement = doc.body;
+  assert.ok(docKey('Escape'));
+  assert.ok(!b.run('selMenuOpen()'));
+  assert.strictEqual(doc.activeElement, b.bar.querySelector('[data-sel-more]'));
+  assert.strictEqual(b.docListeners.keydown.length, 0);
+});
+
+test('More: rows carry no tooltip (their words say it), the names stay', () => {
+  const b = loadBar({ counts: { errored: 1 } });
+  b.run('openSelMenu(0)');
+  for (const k of b.menu().kids.filter(x => x.dataset.selMi)) {
+    assert.ok(!('title' in k.attrs), `${k.dataset.selMi}: no title`);
+    assert.ok(text(k.inner).length > 2, 'its words are its name');
+  }
+  // The pins keep their names.
+  assert.match(pin(b, 'flag').getAttribute('aria-label'), /^Put Flag on the bar$/);
 });
 
 test('More: arrow keys, Home / End, Left / Right to the pin, Esc back to More', () => {

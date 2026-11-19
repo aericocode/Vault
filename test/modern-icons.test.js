@@ -322,10 +322,10 @@ test('selection bar and its More menu: every button is words and a line icon in 
     selectionCounts = () => ({ count: 3, trashed: 1, av: 3, video: 3, flagged: 0, errored: 1, unscanned: 0, faceable: 0 });
     fingerprintSelected = () => {};`, ctx);
   vm.runInContext('renderSelectionBar()', ctx);
-  // The pinned buttons: the short words ("Collect"), the full ones in the tooltip and in More.
+  // The pinned buttons: the short words ("Collect"), what it does in the tooltip, the full words in More.
   const barText = visibleModern(bar.innerHTML);
   assert.match(barText, /Collect[\s\S]*Trash \(2\)[\s\S]*More/);
-  assert.match(bar.innerHTML, /title="Add to a collection\. Add the selected files to a collection"/);
+  assert.match(bar.innerHTML, /title="Add the selected files to a collection"/);
   assert.ok(!MODERN_EMOJI.test(barText), barText);
   assert.ok(!/✕/.test(barText), 'the clear button is the line icon in Modern');
   assert.match(bar.innerHTML, /aria-label="Clear selection"/);
