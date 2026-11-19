@@ -136,6 +136,10 @@ function buildRouter() {
     const b = body(req);
     return service.copyBlock(req.params.id, { vaultPassword: b.vaultPassword, format: b.format });
   }));
+  // Delete, Delete all and Stop work with the feature off (spec section 1,
+  // promise 4). What they delete on gofile is only ever the folder stored on
+  // the share row picked by :id (or every stored row, for delete-all): no
+  // folder id or token is read from the body.
   r.post('/shares/:id/mark-gone', h((req) => ({ share: service.markGone(req.params.id) })));
   r.post('/shares/:id/remove', h((req) => service.remove(req.params.id, { confirm: body(req).confirm })));
   r.post('/shares/:id/delete-remote', h((req) => service.deleteRemote(req.params.id).then(share => ({ share }))));

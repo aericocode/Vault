@@ -8,7 +8,9 @@
  * Covered: the share-only request guard (custom header + JSON, same-origin
  * only) on top of the app-wide ones; feature off; settings; preview; start
  * -> packing -> checks -> upload with the explicit confirm only; offline
- * blocks the upload; cancel deletes the archive; copy block; delete; the
+ * blocks the upload; cancel deletes the archive; copy block; delete; with
+ * the feature off, Delete / Delete all / Stop delete only stored folders
+ * (body ids ignored) while the upload-side routes answer FEATURE_OFF; the
  * real Vault password gate (verifyPassword on an encrypted library) with its
  * lockout; 423 while locked; no password or token in any non-gated answer.
  */
@@ -36,6 +38,8 @@ const vault = require('../lib/vault');
 const gate = require('../lib/share/gate');
 const sevenzip = require('../lib/share/sevenzip');
 const service = require('../lib/share/service');
+const store = require('../lib/share/store');
+const { GofileClient } = require('../lib/share/gofile');
 const { app } = require('../server/index');
 
 const skip7z = sevenzip.locate() ? false : 'no 7-Zip program found';
@@ -299,6 +303,70 @@ test('423 while the library is locked', async () => {
     vault.unlock('vault-pass-1');
   }
   assert.strictEqual((await call('GET', '/api/share/state')).status, 200);
+});
+
+test('feature off: delete routes delete only the stored folder, whatever the body says; the rest answer FEATURE_OFF', async () => {
+  const calls = [];
+  const fakeFetch = async (url, opts) => {
+    calls.push({ method: opts.method, url, auth: new Headers(opts.headers).get('authorization'), body: JSON.parse(opts.body || 'null') });
+    return new Response(JSON.stringify({ status: 'ok', data: {} }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  // The real client: the real switch, the real offline setting, a fake fetch.
+  service._setForTest({ client: new GofileClient({ fetch: fakeFetch }), sleep: () => Promise.resolve() });
+  const acc = store.insertAccount(`${TOKEN}-stored`, 'old-session');
+  const mk = (status, folder) => store.insertShare({
+    archive_name: `R${folder}`, password_kind: 'random', size: 1, part_count: 1, part_size: 1, file_count: 1,
+    status, created_at: Date.now(), delete_after_days: 7, delete_after: Date.now() + 86400000, timer_set: 0,
+    folder_id: folder, account_id: acc, link: 'https://gofile.io/d/R1',
+  });
+  const one = mk('uploaded', 'stored-one');
+  const paused = mk('paused', 'stored-paused');
+  store.setParts(paused, [{ partNo: 1, fileName: 'Rstored-paused.7z', size: 1, mtimeMs: 1 }]);
+  store.updatePart(paused, 1, { status: 'failed' });
+  const other = mk('uploaded', 'stored-other');
+  const timerless = mk('uploaded', 'stored-timer');
+
+  const off = await call('POST', '/api/share/settings', { enabled: false });
+  assert.strictEqual(off.json.settings.enabled, false);
+  config.net.offline = false;
+  try {
+    const sneaky = { folderId: 'evil-folder', contentsId: 'evil-folder', folder_id: 'evil-folder', id: other, token: 'EVIL-TOKEN-123456', confirm: true };
+    // Upload-side routes: refused, nothing sent.
+    for (const [p, b] of [[`/api/share/shares/${paused}/resume`, {}], [`/api/share/shares/${paused}/parts/1/retry`, {}],
+      [`/api/share/shares/${timerless}/retry-timer`, {}], ['/api/share/shares', { mediaIds }]]) {
+      const r = await call('POST', p, b);
+      assert.strictEqual(r.status, 409, p);
+      assert.strictEqual(r.json.code, 'FEATURE_OFF', p);
+    }
+    assert.deepStrictEqual(calls, []);
+
+    const del = await call('POST', `/api/share/shares/${one}/delete-remote`, sneaky);
+    assert.strictEqual(del.status, 200, del.text);
+    assert.strictEqual(del.json.share.status, 'deleted');
+    const stop = await call('POST', `/api/share/shares/${paused}/stop`, sneaky);
+    assert.strictEqual(stop.status, 200, stop.text);
+    assert.strictEqual(stop.json.share.status, 'cancelled');
+    const all = await call('POST', '/api/share/delete-all', sneaky);
+    assert.strictEqual(all.status, 200, all.text);
+    assert.deepStrictEqual(calls.map(c => [c.method, c.url, c.auth, c.body]), [
+      ['DELETE', 'https://api.gofile.io/contents', `Bearer ${TOKEN}-stored`, { contentsId: 'stored-one' }],
+      ['DELETE', 'https://api.gofile.io/contents', `Bearer ${TOKEN}-stored`, { contentsId: 'stored-paused' }],
+      ...[[timerless, 'stored-timer'], [other, 'stored-other']].sort((a, b) => b[0] - a[0])
+        .map(([, f]) => ['DELETE', 'https://api.gofile.io/contents', `Bearer ${TOKEN}-stored`, { contentsId: f }]),
+    ]);
+    assert.ok(!JSON.stringify(calls).includes('evil') && !JSON.stringify(calls).includes('EVIL'));
+
+    // Offline: deletes too are refused, nothing sent.
+    calls.length = 0;
+    const again = mk('uploaded', 'stored-offline');
+    config.net.offline = true;
+    assert.strictEqual((await call('POST', `/api/share/shares/${again}/delete-remote`, {})).json.code, 'NET_OFF');
+    assert.strictEqual((await call('POST', '/api/share/delete-all', { confirm: true })).json.code, 'NET_OFF');
+    assert.deepStrictEqual(calls, []);
+  } finally {
+    config.net.offline = true;
+    await call('POST', '/api/share/settings', { enabled: true });
+  }
 });
 
 test('no token anywhere; the share password only in the gated answers', () => {

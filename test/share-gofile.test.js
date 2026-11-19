@@ -5,9 +5,11 @@
  * Covered: guest account, upload into a folder (what the multipart body
  * holds and does not hold), timer, delete, a rate limit answer (429 and
  * error-rateLimit), an error status with HTTP 200, the md5 check, feature
- * off and VAULT_OFFLINE making zero requests (the real netFetch with the
- * global fetch replaced by a counter), the host allowlist on every hop, and
- * tokens never appearing in an error message or a URL.
+ * off making zero requests for everything but the delete (which makes exactly
+ * one DELETE /contents and cannot be widened to another method, host or
+ * path), VAULT_OFFLINE making zero requests, deletes included (the real
+ * netFetch with the global fetch replaced by a counter), the host allowlist
+ * on every hop, and tokens never appearing in an error message or a URL.
  *
  * No request ever leaves this machine: the global fetch is replaced for the
  * whole file and fails the test if anything reaches it unexpectedly.
@@ -26,7 +28,7 @@ process.env.VAULT_SETTINGS_FILE = path.join(tmp, 'settings.json');
 
 const config = require('../config');
 const { netFetch, isShareUrl } = require('../lib/net');
-const { GofileClient, multipartBody, safeLink } = require('../lib/share/gofile');
+const { GofileClient, multipartBody, safeLink, _featureOffAllowsDeleteForTest } = require('../lib/share/gofile');
 
 const TOKEN = 'TOKEN-abcdefghijklmnop0123456789';
 const realFetch = globalThis.fetch;
@@ -168,14 +170,100 @@ test('an error status with HTTP 200 is an error; messages never hold the token',
   assert.ok(!e2.message.includes(TOKEN));
 });
 
-test('feature off: zero requests, from every call', async () => {
-  const fake = fakeGofile({});
+test('feature off: account, upload (first part or later) and timer make zero requests', async () => {
+  const fake = fakeGofile({
+    'POST https://api.gofile.io/accounts': () => json(200, { status: 'ok', data: { token: TOKEN } }),
+    'POST https://upload.gofile.io/uploadfile': okUpload(),
+    'PUT https://api.gofile.io/contents/:id/update': () => json(200, { status: 'ok', data: {} }),
+  });
   const c = client(fake, { enabled: false });
   await assert.rejects(c.createAccount(), { code: 'FEATURE_OFF' });
   await assert.rejects(c.uploadPart({ token: TOKEN, filePath: PART, fileName: 'Abc.7z.001', size: PART_SIZE }), { code: 'FEATURE_OFF' });
+  await assert.rejects(c.uploadPart({ token: TOKEN, filePath: PART, fileName: 'Abc.7z.001', size: PART_SIZE, folderId: 'folder-1' }), { code: 'FEATURE_OFF' });
   await assert.rejects(c.setExpiry({ token: TOKEN, folderId: 'f', expiresAtSec: 1 }), { code: 'FEATURE_OFF' });
-  await assert.rejects(c.deleteContent({ token: TOKEN, folderId: 'f' }), { code: 'FEATURE_OFF' });
   assert.strictEqual(fake.calls.length, 0);
+});
+
+test('feature off: delete makes exactly one DELETE /contents with the folder id and the bearer token', async () => {
+  const fake = fakeGofile({ 'DELETE https://api.gofile.io/contents': () => json(200, { status: 'ok', data: {} }) });
+  await client(fake, { enabled: false }).deleteContent({ token: TOKEN, folderId: 'folder-1' });
+  assert.strictEqual(fake.calls.length, 1);
+  const c = fake.calls[0];
+  assert.strictEqual(c.method, 'DELETE');
+  assert.strictEqual(c.url, 'https://api.gofile.io/contents');
+  assert.strictEqual(c.purpose, 'share');
+  assert.strictEqual(c.headers.get('authorization'), `Bearer ${TOKEN}`);
+  assert.deepStrictEqual(JSON.parse(c.body), { contentsId: 'folder-1' });
+  assert.ok(!c.url.includes(TOKEN));
+});
+
+test('feature off and VAULT_OFFLINE: delete makes zero requests, also through the real netFetch', async () => {
+  const fake = fakeGofile({ 'DELETE https://api.gofile.io/contents': () => json(200, { status: 'ok', data: {} }) });
+  await assert.rejects(client(fake, { enabled: false, offline: true }).deleteContent({ token: TOKEN, folderId: 'folder-1' }), { code: 'NET_OFF' });
+  await assert.rejects(client(fake, { enabled: true, offline: true }).deleteContent({ token: TOKEN, folderId: 'folder-1' }), { code: 'NET_OFF' });
+  assert.strictEqual(fake.calls.length, 0);
+
+  const prev = config.net.offline;
+  config.net.offline = true;
+  globalCalls = [];
+  try {
+    const real = new GofileClient({ isEnabled: () => false });
+    await assert.rejects(real.deleteContent({ token: TOKEN, folderId: 'folder-1' }), { code: 'NET_OFF' });
+  } finally {
+    config.net.offline = prev;
+  }
+  assert.strictEqual(globalCalls.length, 0);
+});
+
+test('the feature-off allowance is the delete call only: no other method, host or path, and no way to ask for it', async () => {
+  // The rule, against the delete's own operation token.
+  assert.strictEqual(_featureOffAllowsDeleteForTest('DELETE', 'https://api.gofile.io/contents'), true);
+  for (const [method, url] of [
+    ['POST', 'https://api.gofile.io/contents'], ['PUT', 'https://api.gofile.io/contents'],
+    ['GET', 'https://api.gofile.io/contents'], ['delete', 'https://api.gofile.io/contents'],
+    ['DELETE', 'https://upload.gofile.io/contents'], ['DELETE', 'https://upload.gofile.io/uploadfile'],
+    ['DELETE', 'https://api.gofile.io/accounts'], ['DELETE', 'https://api.gofile.io/contents/'],
+    ['DELETE', 'https://api.gofile.io/contents/folder-1'], ['DELETE', 'https://api.gofile.io/contents/folder-1/update'],
+    ['DELETE', 'https://api.gofile.io/contents?x=1'], ['DELETE', 'https://api.gofile.io/contents#x'],
+    ['DELETE', 'https://API.gofile.io/contents'], ['DELETE', 'http://api.gofile.io/contents'],
+    ['DELETE', 'https://api.gofile.io:443/contents'], ['DELETE', 'https://evil.example/contents'],
+    ['DELETE', 'https://api.gofile.io.evil.com/contents'], [undefined, 'https://api.gofile.io/contents'],
+  ]) {
+    assert.strictEqual(_featureOffAllowsDeleteForTest(method, url), false, `${method} ${url}`);
+  }
+
+  // _request is the path every other call takes: it never lifts the switch,
+  // whatever is passed after the options, the delete's exact request included.
+  const fake = fakeGofile({ 'DELETE https://api.gofile.io/contents': () => json(200, { status: 'ok', data: {} }) });
+  const c = client(fake, { enabled: false });
+  const del = { method: 'DELETE', headers: { Authorization: `Bearer ${TOKEN}` }, body: JSON.stringify({ contentsId: 'folder-1' }) };
+  for (const extra of [undefined, null, true, 'deleteContent', 'gofile.deleteContent', Symbol('gofile.deleteContent'), Symbol.for('gofile.deleteContent'), { op: 'delete' }]) {
+    await assert.rejects(c._request('https://api.gofile.io/contents', del, extra), { code: 'FEATURE_OFF' });
+    await assert.rejects(c._request('https://api.gofile.io/accounts', { method: 'POST' }, extra), { code: 'FEATURE_OFF' });
+  }
+  // The delete call sends one folder id only: a list or a path is refused before anything is sent.
+  for (const folderId of ['a,b', 'folder-1,folder-2', '../accounts', 'f/x', '', 'x'.repeat(65)]) {
+    await assert.rejects(c.deleteContent({ token: TOKEN, folderId }), { code: 'BAD_ANSWER' }, folderId);
+  }
+  assert.strictEqual(fake.calls.length, 0);
+});
+
+test('feature off: the delete still goes through the host list on every hop', async () => {
+  const prev = config.net.offline;
+  config.net.offline = false;
+  const seen = [];
+  globalThis.fetch = async (url, opts) => {
+    seen.push(`${opts && opts.method} ${String(url)}`);
+    return new Response(null, { status: 307, headers: { Location: 'https://evil.example/contents' } });
+  };
+  try {
+    const real = new GofileClient({ isEnabled: () => false });
+    await assert.rejects(real.deleteContent({ token: TOKEN, folderId: 'folder-1' }), { code: 'SHARE_HOST' });
+  } finally {
+    config.net.offline = prev;
+    globalThis.fetch = async (url) => { globalCalls.push(String(url)); throw new Error('real fetch must not be reached in this test'); };
+  }
+  assert.deepStrictEqual(seen, ['DELETE https://api.gofile.io/contents']);
 });
 
 test('VAULT_OFFLINE: zero requests through the real netFetch too', async () => {

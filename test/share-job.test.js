@@ -8,7 +8,10 @@
  * time, one after a rate limit), retries per the setting, a failed part
  * waiting for the user while the others go on, restart with parts present
  * and with parts missing, pause on lock with no resume on unlock, stop and
- * delete, offline and feature off making zero requests, confirm required,
+ * delete, offline making zero requests (deletes included), feature off
+ * making zero requests except the deletes of uploads Vault already made
+ * (spec section 1, promise 4; the real gofile client with a fake fetch),
+ * confirm required,
  * the gate (right, wrong, lockout, no password set), copy formats, what is
  * kept when "remember" settings are off, delete all with per-row results,
  * and that no password or token is in any page-facing answer.
@@ -36,6 +39,7 @@ const temp = require('../lib/share/temp');
 const gate = require('../lib/share/gate');
 const names = require('../lib/share/names');
 const service = require('../lib/share/service');
+const { GofileClient } = require('../lib/share/gofile');
 
 const TOKEN = 'TOKEN-secret-0123456789abcdef';
 const realFetch = globalThis.fetch;
@@ -528,12 +532,168 @@ test('delete all: one by one, a failing row stays with its reason', async () => 
   assert.match(store.getShare(b.id).last_error, /Could not delete/);
   assert.ok(!c.calls.some(x => x.folderId === 'old-folder'), 'a share marked gone is left alone');
   assert.ok(!JSON.stringify(r).includes(TOKEN));
-  // Feature off: delete makes no request at all.
-  on({ enabled: false });
+  // Offline: delete makes no request at all, with the feature on or off.
   const n = c.calls.length;
-  await assert.rejects(service.deleteRemote(b.id), { code: 'FEATURE_OFF' });
-  await assert.rejects(service.deleteAll({ confirm: true }), { code: 'FEATURE_OFF' });
+  config.net.offline = true;
+  try {
+    for (const enabled of [true, false]) {
+      on({ enabled });
+      await assert.rejects(service.deleteRemote(b.id), { code: 'NET_OFF' });
+      await assert.rejects(service.deleteAll({ confirm: true }), { code: 'NET_OFF' });
+    }
+  } finally { config.net.offline = false; on(); }
   assert.strictEqual(c.calls.length, n);
+  assert.strictEqual(statusOf(b.id), 'uploaded');
+});
+
+/**
+ * The real gofile client (lib/share/gofile.js) with only its fetch faked, so
+ * the feature switch and VAULT_OFFLINE are checked where they really are.
+ */
+function realClientWithFakeFetch(handlers = {}) {
+  const calls = [];
+  const fetch = async (url, opts) => {
+    if (opts.body && typeof opts.body !== 'string') { for await (const chunk of opts.body) void chunk; }
+    const call = {
+      method: opts.method, url, purpose: opts.purpose,
+      auth: new Headers(opts.headers).get('authorization'),
+      body: typeof opts.body === 'string' ? JSON.parse(opts.body) : null,
+    };
+    calls.push(call);
+    const fn = handlers[`${opts.method} ${url}`];
+    const out = fn ? fn(call) : { status: 'error-notFound', data: {} };
+    return new Response(JSON.stringify(out), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  const client = new GofileClient({ fetch });   // the real switch and the real offline setting
+  service._setForTest({ client, sleep: () => immediate() });
+  return { client, calls };
+}
+
+const OK = { status: 'ok', data: {} };
+
+test('feature off, real client: the upload job sends no later part and sets no timer once the switch is off', async () => {
+  for (const r of store.listShares()) store.deleteShare(r.id);
+  on({ accountMode: 'perShare', onPartFail: 'retry3' });
+  let first = true;
+  const f = realClientWithFakeFetch({
+    'POST https://api.gofile.io/accounts': () => ({ status: 'ok', data: { token: `${TOKEN}-real` } }),
+    'POST https://upload.gofile.io/uploadfile': () => {
+      // The switch goes off while the first part is on its way (settings saved
+      // directly, so the job is not paused for us: the client must refuse).
+      if (first) { first = false; on({ enabled: false }); }
+      return { status: 'ok', data: { id: 'file-1', parentFolder: 'fo-job', parentFolderCode: 'Cj1', downloadPage: 'https://gofile.io/d/Cj1' } };
+    },
+  });
+  const s = makeChecked({ parts: 3 });
+  service.confirmUpload(s.id, { confirm: true });
+  await waitFor(() => statusOf(s.id) === 'paused', 'paused');
+  await service._idle();
+  assert.deepStrictEqual(f.calls.map(x => `${x.method} ${x.url}`), [
+    'POST https://api.gofile.io/accounts', 'POST https://upload.gofile.io/uploadfile',
+  ]);
+  assert.match(store.getShare(s.id).last_error, /turned off/);
+
+  // A one-part share whose upload finishes as the switch goes off: no timer.
+  on({ accountMode: 'perShare' });
+  first = true;
+  const one = makeChecked({ parts: 1 });
+  service.confirmUpload(one.id, { confirm: true });
+  await waitFor(() => statusOf(one.id) === 'uploaded', 'uploaded');
+  await service._idle();
+  assert.ok(!f.calls.some(x => x.method === 'PUT'), 'no timer request');
+  assert.strictEqual(store.getShare(one.id).timer_set, 0);
+});
+
+test('feature off, real client: delete, delete all and stop-and-delete send exactly their DELETEs; nothing else is sent', async () => {
+  for (const r of store.listShares()) store.deleteShare(r.id);
+  on({ onPartFail: 'ask' });
+  const f = realClientWithFakeFetch({ 'DELETE https://api.gofile.io/contents': () => OK });
+  const accA = store.insertAccount(`${TOKEN}-acc-a`, 'old-session');
+  const accB = store.insertAccount(`${TOKEN}-acc-b`, 'old-session');
+
+  // Uploaded, timer not set: Delete and Set timer again.
+  const up = makeChecked();
+  store.updateShare(up.id, { status: 'uploaded', folder_id: 'fo-up', account_id: accA, link: 'https://gofile.io/d/U1',
+    delete_after: Date.now() + 86400000, timer_set: 0 });
+  // Paused with a failed part, parts on disk: Resume, Try again, Stop and delete.
+  const paused = makeChecked({ parts: 2 });
+  store.updateShare(paused.id, { status: 'paused', folder_id: 'fo-paused', account_id: accB });
+  store.updatePart(paused.id, 1, { status: 'done' });
+  store.updatePart(paused.id, 2, { status: 'failed', tries: 1 });
+  // Two more uploaded, one marked gone, for Delete all.
+  const all1 = makeChecked();
+  store.updateShare(all1.id, { status: 'uploaded', folder_id: 'fo-all-1', account_id: accA, link: 'https://gofile.io/d/A1' });
+  const all2 = makeChecked();
+  store.updateShare(all2.id, { status: 'not_finished', folder_id: 'fo-all-2', account_id: accB });
+  const gone = makeChecked();
+  store.updateShare(gone.id, { status: 'gone', folder_id: 'fo-gone', account_id: accA });
+  // Checked, never sent: Upload.
+  const fresh = makeChecked();
+
+  on({ enabled: false, onPartFail: 'ask' });
+
+  // (b) Everything that would upload, make an account or set a timer: FEATURE_OFF, zero requests.
+  assert.throws(() => service.confirmUpload(fresh.id, { confirm: true }), { code: 'FEATURE_OFF' });
+  assert.throws(() => service.resume(paused.id), { code: 'FEATURE_OFF' });
+  assert.throws(() => service.retryPart(paused.id, 2), { code: 'FEATURE_OFF' });
+  await assert.rejects(service.retryTimer(up.id), { code: 'FEATURE_OFF' });
+  assert.throws(() => service.start({ mediaIds: [1] }), { code: 'FEATURE_OFF' });
+  await assert.rejects(f.client.createAccount(), { code: 'FEATURE_OFF' });
+  assert.strictEqual(f.calls.length, 0);
+  assert.strictEqual(statusOf(fresh.id), 'checked');
+  assert.strictEqual(statusOf(paused.id), 'paused');
+
+  // (a) Delete one: one DELETE of its stored folder with its stored token.
+  const d = await service.deleteRemote(up.id);
+  assert.strictEqual(d.status, 'deleted');
+  assert.deepStrictEqual(f.calls, [{ method: 'DELETE', url: 'https://api.gofile.io/contents', purpose: 'share',
+    auth: `Bearer ${TOKEN}-acc-a`, body: { contentsId: 'fo-up' } }]);
+
+  // Stop and delete: one DELETE, then cancelled and the local parts gone.
+  f.calls.length = 0;
+  const st = await service.stop(paused.id, { confirm: true });
+  assert.strictEqual(st.status, 'cancelled');
+  assert.deepStrictEqual(f.calls, [{ method: 'DELETE', url: 'https://api.gofile.io/contents', purpose: 'share',
+    auth: `Bearer ${TOKEN}-acc-b`, body: { contentsId: 'fo-paused' } }]);
+  assert.ok(!fs.existsSync(paused.wd.dir));
+
+  // Delete all: one DELETE per share that may be online; the gone one is left alone.
+  f.calls.length = 0;
+  const r = await service.deleteAll({ confirm: true });
+  assert.strictEqual(r.deleted, 2);
+  assert.strictEqual(r.failed, 0);
+  assert.deepStrictEqual(f.calls.map(x => [x.method, x.url, x.auth, x.body.contentsId]).sort(), [
+    ['DELETE', 'https://api.gofile.io/contents', `Bearer ${TOKEN}-acc-a`, 'fo-all-1'],
+    ['DELETE', 'https://api.gofile.io/contents', `Bearer ${TOKEN}-acc-b`, 'fo-all-2'],
+  ]);
+  assert.strictEqual(statusOf(gone.id), 'gone');
+  assert.ok(!JSON.stringify(r).includes(TOKEN));
+  assert.ok(f.calls.every(x => x.method === 'DELETE'), 'nothing but deletes');
+  on();
+});
+
+test('feature off and VAULT_OFFLINE, real client: delete, delete all and stop-and-delete make zero requests', async () => {
+  for (const r of store.listShares()) store.deleteShare(r.id);
+  const f = realClientWithFakeFetch({ 'DELETE https://api.gofile.io/contents': () => OK });
+  const acc = store.insertAccount(`${TOKEN}-acc-off`, 'old-session');
+  const up = makeChecked();
+  store.updateShare(up.id, { status: 'uploaded', folder_id: 'fo-o1', account_id: acc, link: 'https://gofile.io/d/O1' });
+  const paused = makeChecked({ parts: 2 });
+  store.updateShare(paused.id, { status: 'paused', folder_id: 'fo-o2', account_id: acc });
+  on({ enabled: false });
+  config.net.offline = true;
+  try {
+    await assert.rejects(service.deleteRemote(up.id), { code: 'NET_OFF' });
+    await assert.rejects(service.deleteAll({ confirm: true }), { code: 'NET_OFF' });
+    await assert.rejects(service.stop(paused.id, { confirm: true }), { code: 'NET_OFF' });
+    await assert.rejects(f.client.deleteContent({ token: `${TOKEN}-acc-off`, folderId: 'fo-o1' }), { code: 'NET_OFF' });
+  } finally {
+    config.net.offline = false;
+    on();
+  }
+  assert.strictEqual(f.calls.length, 0);
+  assert.strictEqual(statusOf(up.id), 'uploaded');
+  assert.strictEqual(statusOf(paused.id), 'failed');   // stopped; Delete in My shares can try again
 });
 
 test('my shares: timer ran out is worked out from the clock; mark gone; remove asks first while it may be online', async () => {
