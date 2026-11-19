@@ -537,6 +537,11 @@
     document.body.classList.toggle('privacy-mode', !!on);
     applyPrivacyHideClasses(!!on);
     updateGearBadge();
+    // The saved searches panel under the search box keeps its own keyboard
+    // order, which must drop (or take back) the hidden pills right away.
+    if (typeof ssdPrivacyChanged === 'function') {
+      try { ssdPrivacyChanged(); } catch {}
+    }
     // Repaint tiles so the filename `title=` tooltip (unstylable by CSS) is
     // added/removed — cards.js reads the body class when it builds each tile.
     if (typeof renderResults === 'function') {

@@ -175,7 +175,11 @@ test('text from before the panel opened does not narrow it; the Save pill and cu
 
 function fakePanelPage(list, boxText) {
   const listeners = {};
-  const doc = { activeElement: null, getElementById: (id) => (id === 'searchInput' ? input : id === 'savedSearchDropdown' ? box : null) };
+  const bodyClasses = new Set();
+  const doc = {
+    activeElement: null, getElementById: (id) => (id === 'searchInput' ? input : id === 'savedSearchDropdown' ? box : null),
+    body: { classList: { contains: (c) => bodyClasses.has(c) } },
+  };
   let box = null;
   const input = {
     value: boxText, disabled: false, attrs: {},
@@ -197,7 +201,15 @@ function fakePanelPage(list, boxText) {
   vm.runInContext(`${src}\n;savedSearches = __list; ssdInit();`, Object.assign(ctx, { __list: list }));
   const pills = () => [...box.innerHTML.matchAll(/data-ssd-id="(\d+)"/g)].map(m => Number(m[1]));
   const fire = (t) => { doc.activeElement = input; listeners[t](); };
-  return { input, pills, fire, saves: () => box.innerHTML.includes('data-ssd-save') };
+  const key = (k) => listeners.keydown({ key: k, preventDefault() {} });
+  // What settings.js does on Ctrl+Shift+H or a ticked box: the class, then the redraw.
+  const privacy = (on) => {
+    if (on) bodyClasses.add('pm-searches'); else bodyClasses.delete('pm-searches');
+    vm.runInContext('ssdPrivacyChanged()', ctx);
+  };
+  const picked = [];
+  ctx.activateSavedSearch = (id) => picked.push(id);   // stands in for the real run
+  return { input, box: () => box, pills, fire, key, privacy, picked, saves: () => box.innerHTML.includes('data-ssd-save') };
 }
 
 test('the panel opens on every saved search when the box already has text, and narrows once the user types', () => {
@@ -208,4 +220,64 @@ test('the panel opens on every saved search when the box already has text, and n
   page.fire('input');
   assert.deepStrictEqual(page.pills(), [2]);
   assert.strictEqual(page.saves(), true);
+});
+
+// Privacy mode with "Saved searches" ticked blurred the Classic chips and the
+// rail rows, but the pills under the Modern search box still showed every
+// saved search's name in the clear.
+test('privacy (saved searches hidden): the panel pills are blurred and inert, like the chips and the rail', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'settings.css'), 'utf8');
+  const rule = /body\.pm-searches \.saved-search-chip,\s*body\.pm-searches \.ssd-pill:not\(\.ssd-save\) \{([^}]*)\}/.exec(css);
+  assert.ok(rule, 'the panel pills share the chips rule');
+  assert.match(rule[1], /filter: blur\(7px\)/);
+  assert.match(rule[1], /pointer-events: none/);
+  assert.match(rule[1], /user-select: none/);
+  const settings = fs.readFileSync(path.join(__dirname, '..', 'player-lib', 'settings.js'), 'utf8');
+  const apply = /function applyPrivacyMode\(on\) \{([\s\S]*?)\n  \}/.exec(settings);
+  assert.match(apply[1], /ssdPrivacyChanged\(\)/, 'an open panel is redrawn when privacy changes');
+});
+
+test('privacy (saved searches hidden): no Edit, no current mark, and the keys reach only the Save pill', () => {
+  const page = fakePanelPage(LIST, '');
+  page.privacy(true);
+  page.fire('focus');
+  const html = page.box().innerHTML;
+  assert.deepStrictEqual(page.pills(), [1, 2, 3], 'still listed, so the blur shows they are there');
+  assert.ok(!html.includes('data-ssd-edit'), 'no Edit, so nothing is removed blind');
+  page.key('ArrowDown');
+  assert.strictEqual(page.input.attrs['aria-activedescendant'], undefined, 'no saved pill takes the highlight');
+  page.key('Enter');
+  assert.deepStrictEqual(page.picked, [], 'Enter never runs a hidden one (it would put its query in the box)');
+
+  const typed = fakePanelPage(LIST, '');
+  typed.privacy(true);
+  typed.fire('focus');
+  typed.input.value = 'beach';
+  typed.fire('input');
+  assert.deepStrictEqual(typed.pills(), [1, 2, 3], 'typing does not narrow the hidden pills');
+  assert.ok(!typed.box().innerHTML.includes('is-current'), 'nor mark the one that matches');
+  typed.input.value = 'cats';
+  typed.fire('input');
+  typed.key('ArrowDown');
+  assert.strictEqual(typed.input.attrs['aria-activedescendant'], 'ssdOptsave', 'the Save pill still works');
+  typed.key('ArrowDown');
+  assert.strictEqual(typed.input.attrs['aria-activedescendant'], 'ssdOptsave', 'and is the only stop');
+});
+
+test('privacy (saved searches hidden): turning it on with the panel open takes the highlighted pill off the keys at once', () => {
+  const page = fakePanelPage(LIST, '');
+  page.fire('focus');
+  page.key('ArrowDown');
+  assert.strictEqual(page.input.attrs['aria-activedescendant'], 'ssdOpt1');
+  assert.ok(page.box().innerHTML.includes('data-ssd-edit'));
+  page.privacy(true);
+  assert.strictEqual(page.input.attrs['aria-activedescendant'], undefined);
+  assert.ok(!page.box().innerHTML.includes('data-ssd-edit'));
+  page.key('Enter');
+  assert.deepStrictEqual(page.picked, [], 'Enter is the normal search, which closes the panel');
+  page.privacy(false);
+  page.key('ArrowDown');   // opens it again
+  page.key('ArrowDown');
+  page.key('Enter');
+  assert.deepStrictEqual(page.picked, [1], 'off again, the pills run as before');
 });

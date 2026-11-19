@@ -866,7 +866,12 @@ body.pm-notechips .note-snippet-chip {
 
 /* ── Saved searches (body.pm-searches) ──────────────────────────────────── */
 
-body.pm-searches .saved-search-chip {
+/* .ssd-pill is a saved search in the Modern panel under the search box
+   (player-lib/saved-searches.js); the Save pill shows only what is being typed
+   now, so it stays usable. The panel's JS also keeps the arrows off the blurred
+   pills and leaves out Edit. (The rail rows are in css/filter-rail.css.) */
+body.pm-searches .saved-search-chip,
+body.pm-searches .ssd-pill:not(.ssd-save) {
   filter: blur(7px);
   pointer-events: none;
   user-select: none;

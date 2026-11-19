@@ -339,6 +339,14 @@ function updateSearchStarButton() {
 // then closes the panel; the focus stays in the box. A click outside or Tab
 // closes it (and ends edit mode). There is no recent-searches store, so there
 // is no Recent section. Classic keeps its chip row only.
+//
+// Privacy mode with "Saved searches" ticked (body.pm-searches): the saved
+// pills are blurred and inert, the same as the Classic chips and the rail
+// rows (css/settings.css). The arrows and Enter reach only the Save pill, so
+// a blurred pill can never be run (it would put its query in the box) or
+// removed blind; Edit is withdrawn, typing does not narrow the blurred pills
+// and none is marked current. settings.js redraws an open panel when privacy
+// changes (ssdPrivacyChanged).
 
 /** The saved searches whose name or query contains `query` (any case). An
  *  empty query lists them all, in their saved order. */
@@ -435,6 +443,17 @@ function ssdIsModern() {
   return typeof window !== 'undefined' && typeof window.isModernLayout === 'function' && window.isModernLayout();
 }
 
+/** Privacy mode is hiding saved searches (settings.js sets the class). */
+function ssdPrivate() {
+  return !!(document.body && document.body.classList && document.body.classList.contains('pm-searches'));
+}
+
+/** Privacy turned on or off (or its boxes changed): redraw an open panel so
+ *  no pill is left readable or reachable from the keyboard. */
+function ssdPrivacyChanged() {
+  if (_ssd.open) ssdRender();
+}
+
 function ssdClose(opts) {
   const { input, box } = ssdEls();
   _ssd.open = false;
@@ -454,16 +473,21 @@ function ssdRender() {
   const { input, box } = ssdEls();
   if (!input || !box) return;
   if (!ssdIsModern() || _ssd.dismissed || document.activeElement !== input || input.disabled) { ssdClose(); return; }
-  const st = savedSearchDropdownState(savedSearches, input.value, { editing: _ssd.editing, narrow: _ssd.typed });
+  const priv = ssdPrivate();
+  if (priv) _ssd.editing = false;
+  const st = savedSearchDropdownState(savedSearches, input.value, { editing: _ssd.editing, narrow: _ssd.typed && !priv });
   if (!st.show) { ssdClose(); return; }
+  if (priv) st.current = null;
   const prev = _ssd.rows[_ssd.index];
-  let index = prev ? st.rows.findIndex(s => s.id === prev.id) : -1;
-  if (index < 0 && _ssd.afterRemove != null) index = Math.min(_ssd.afterRemove, st.items.length - 1);
+  // Hidden saved pills are not in the arrow order: only the Save pill (first) is.
+  const nav = priv ? st.items.filter(s => s.save) : st.items;
+  let index = prev ? (priv ? nav : st.rows).findIndex(s => s.id === prev.id) : -1;
+  if (index < 0 && _ssd.afterRemove != null) index = Math.min(_ssd.afterRemove, nav.length - 1);
   _ssd.afterRemove = null;
-  _ssd.rows = st.items;
+  _ssd.rows = nav;
   _ssd.index = index;
   if (st.empty) _ssd.editing = false;
-  const hasSaved = st.rows.length > 0;
+  const hasSaved = st.rows.length > 0 && !priv;
   const icon = (n) => (typeof vaultIcon === 'function' ? vaultIcon(n) : '');
   const edit = _ssd.editing;
   box.classList.toggle('is-editing', edit);
@@ -595,7 +619,7 @@ function ssdInit() {
     if (del) { e.stopPropagation(); ssdRemove(Number(del.dataset.ssdDel)); return; }
     if (e.target.closest('[data-ssd-save]')) { ssdSave(); return; }
     const pill = e.target.closest('[data-ssd-id]');
-    if (pill && !_ssd.editing) ssdPick(Number(pill.dataset.ssdId));
+    if (pill && !_ssd.editing && !ssdPrivate()) ssdPick(Number(pill.dataset.ssdId));
   });
 
   // Esc is the panel's while it is open (edit mode first, then the panel), not
