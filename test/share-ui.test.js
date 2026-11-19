@@ -687,20 +687,22 @@ test('Delete all: a click outside or Esc is "Keep them" (My shares stays); not w
   assert.strictEqual(del3.closed, true, 'Esc closes once the results show');
 });
 
-test('the share window and Change saved password ignore a click outside and Esc', () => {
+test('the share window and Change saved password ignore a click outside; Esc still closes them', async () => {
   const D = loadDom();
   D.L.run('shareWindowOpen()');
   const w = D.top();
   D.outside();
-  D.esc();
-  assert.strictEqual(w.closed, false);
+  assert.strictEqual(w.closed, false, 'a stray click never closes the share window');
   assert.ok(D.L.run('_shareWin'), 'the share window is still there');
-  D.L.run('shareWindowClose()');
+  D.esc();
+  await new Promise(r => setTimeout(r, 0));
+  assert.strictEqual(w.closed, true, 'Esc asks to close, as Close does');
   D.L.run('shareOpenChangePassword()');
   const cp = D.top();
   D.outside();
+  assert.strictEqual(cp.closed, false, 'a typed password is never dropped by a stray click');
   D.esc();
-  assert.strictEqual(cp.closed, false, 'a typed password is never dropped by a stray click or key');
+  assert.strictEqual(cp.closed, true, 'Esc is Cancel');
   // The Vault password prompt keeps Esc as Cancel and has no outside close.
   const src = read('share-ui.js');
   assert.ok(!/shareGateDlg[\s\S]{0,200}outside: true/.test(src));

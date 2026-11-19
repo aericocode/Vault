@@ -367,9 +367,9 @@ function shareWindowOpen() {
     id: null, mediaIds: [], preview: null, share: null, progress: null, step: 'loading',
     ticked: false, error: '', failText: '', failLocal: false, samples: [], timer: null, busy: false, partsSig: '',
   };
-  // Esc and a click outside do nothing here: closing by accident would drop
-  // what was typed on step 1 or hide a running job. Close and Cancel do it.
-  w.m = shareModal({ id: 'shareWindow', labelledBy: 'shareWinTitle', cls: 'share-win', onEsc: () => {} });
+  // A click outside does nothing here: a stray click would drop what was typed
+  // on step 1 or hide a running job. Esc asks to close, as Close does.
+  w.m = shareModal({ id: 'shareWindow', labelledBy: 'shareWinTitle', cls: 'share-win', onEsc: () => shareWindowRequestClose() });
   _shareWin = w;
   return w;
 }

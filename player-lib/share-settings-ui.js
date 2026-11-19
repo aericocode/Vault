@@ -330,8 +330,8 @@ function shareOpenChangePassword({ forChoice = false } = {}) {
     let busy = false;
     const m = shareModal({
       id: 'shareChangePwDlg', labelledBy: 'shareChangePwTitle', cls: 'share-dlg-mid',
-      // Esc and a click outside do nothing: a typed password would be lost.
-      onEsc: () => {},
+      // A click outside does nothing: a stray click would lose a typed password. Esc is Cancel.
+      onEsc: () => finish(),
       html: `
         <h3 id="shareChangePwTitle">Change saved password</h3>
         <p class="vault-modal-hint">This replaces the password Vault offers for new shares. Shares you already made keep the password they were packed with.</p>
