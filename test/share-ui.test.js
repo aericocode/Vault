@@ -302,6 +302,177 @@ test('privacy: the keyboard guard makes the private parts inert while pm-shares 
   assert.ok(els.every(e => e.inert === false && !('aria-hidden' in e.attrs)));
 });
 
+/* Privacy: the archive name, the link and the password, everywhere in the window. */
+
+const P_NAME = 'Holiday-secret';
+const P_LINK = 'https://gofile.io/d/SeCr3t';
+const P_PASS = 'Pw-9Qz-SECRET-0000';
+
+function privWin(L) {
+  setState(L);
+  L.ctx.__w = {
+    id: 4, step: 'done', ticked: false, samples: [],
+    share: { id: 4, archiveName: P_NAME, archiveFileName: `${P_NAME}.7z.001`, archiveDisplayName: `${P_NAME}.7z`, sizeBytes: 3 * 1024 ** 3, partCount: 2, partSize: 2 * 1024 ** 3,
+      fileCount: 2, passwordKind: 'random', passwordKept: true, deleteAfterDays: 7, link: P_LINK, code: 'SeCr3t', status: 'uploaded', deleteAt: Date.now() + 86400000, timerSet: true },
+    progress: { checks: { test: { ok: true }, listWithoutPassword: { ok: true }, contents: { files: 2 }, parts: { count: 2, bytes: 3 * 1024 ** 3 }, archiveName: { value: P_NAME, typed: true } },
+      upload: { parts: [{ partNo: 1, fileName: `${P_NAME}.7z.001`, sizeBytes: 2 * 1024 ** 3, status: 'done' }] } },
+  };
+  return {
+    checked: L.run('shareCheckedHtml(__w)'),
+    confirm: L.run('shareConfirmHtml(__w)'),
+    upload: L.run('shareUploadHtml(__w)'),
+    part: L.run('sharePartRowHtml(__w.progress.upload.parts[0])'),
+    done: L.run('shareDoneHtml(__w)'),
+  };
+}
+
+/** Every element marked data-share-private in some markup: { tag, attrs, inner }. */
+function privateEls(html) {
+  const out = [];
+  const re = /<(input|span|pre|dd|div)\b([^>]*\bdata-share-private\b[^>]*)>/g;
+  let m;
+  while ((m = re.exec(html))) {
+    const tag = m[1];
+    let inner = '';
+    if (tag !== 'input') {
+      const end = html.indexOf(`</${tag}>`, re.lastIndex);
+      inner = html.slice(re.lastIndex, end);
+    }
+    out.push({ tag, attrs: m[2], whole: m[0] + inner });
+  }
+  return out;
+}
+
+/** The markup with every private element (and what is inside it) taken out. */
+const withoutPrivate = (html) => privateEls(html).reduce((h, e) => h.split(e.whole).join(''), html);
+
+test('privacy: the archive name, the part names, the link, the password and the block are each inside a private part', () => {
+  const L = load();
+  const pages = privWin(L);
+  for (const [k, html] of Object.entries(pages)) {
+    const shows = k === 'done' ? [P_NAME, P_LINK, 'SeCr3t'] : [P_NAME];
+    assert.ok(shows.some(s => html.includes(s)), `${k}: the value is drawn`);
+    const rest = withoutPrivate(html);
+    for (const s of [P_NAME, P_LINK, 'SeCr3t']) assert.ok(!rest.includes(s), `${k}: ${s} outside a private part`);
+  }
+  // The title line keeps its words; only the name is blurred.
+  assert.match(pages.upload, /<h3 id="shareWinTitle">Uploading <span class="share-priv" data-share-private>Holiday-secret<\/span><\/h3>/);
+  assert.match(pages.confirm, /<dt>Sending<\/dt><dd class="share-mono"><span class="share-priv" data-share-private>Holiday-secret\.7z<\/span>, 3 GB in 2 parts<\/dd>/);
+  assert.match(pages.part, /<span class="share-part-name share-mono" data-share-private>Holiday-secret\.7z\.001<\/span>/);
+  // The link and password fields turn into dots too; the block is blurred whole.
+  assert.match(pages.done, /<input class="vault-input share-mono" id="shLink" readonly value="https:\/\/gofile\.io\/d\/SeCr3t" data-share-private data-share-mask>/);
+  assert.match(pages.done, /<input type="password" id="shPw"[^>]*data-share-private data-share-mask>/);
+  assert.match(pages.done, /<pre class="share-pre share-mono"[^>]*data-sh-block data-share-private>/);
+  // The buttons are not private: Copy link, Copy password, Copy as block, Delete, Done still work.
+  for (const act of ['copy-link', 'pw-copy', 'pw-show', 'copy-block', 'delete-remote', 'close']) {
+    assert.ok(withoutPrivate(pages.done).includes(`data-sh-act="${act}"`), `${act} stays usable`);
+  }
+  assert.ok(withoutPrivate(pages.upload).includes('data-sh-act="stop"') && withoutPrivate(pages.upload).includes('data-sh-act="pause"'));
+  assert.ok(withoutPrivate(pages.confirm).includes('data-sh-act="upload"'));
+  // The saved password in Settings is masked and blurred the same way.
+  const S = load({ kit: true });
+  setState(S);
+  assert.match(S.run('shareSettingsHtml()'), /id="shSavedPw" readonly autocomplete="off" aria-label="My saved password" data-share-private data-share-mask/);
+});
+
+test('privacy: no title or aria attribute carries the archive name or the link', () => {
+  const L = load();
+  const pages = Object.values(privWin(L));
+  L.ctx.__list = { shares: [L.ctx.__w.share], open: new Set([4]), files: new Map([[4, { files: [{ name: 'a.mp4', sizeBytes: 5 }] }]]) };
+  pages.push(L.run('shareListHtml(__list)'));
+  for (const html of pages) {
+    const attrs = html.match(/\b(title|aria-[\w-]+)="[^"]*"/g) || [];
+    for (const a of attrs) assert.ok(!a.includes(P_NAME) && !a.includes('SeCr3t'), `leaks: ${a}`);
+  }
+  // My shares: the name, the Open link and the fold-out all sit inside the one private table.
+  const list = pages[pages.length - 1];
+  const wrap = list.split('<div class="share-table-wrap" data-share-private>')[1].split('<div class="vault-modal-err"')[0];
+  assert.ok(wrap.includes(`${P_NAME}.7z`) && wrap.includes(`href="${P_LINK}"`) && wrap.includes('a.mp4'));
+  const outside = list.replace(wrap, '');
+  assert.ok(!outside.includes(P_NAME) && !outside.includes('SeCr3t'));
+  // The top bar button says what is happening, never which archive.
+  const pill = read('share-ui.js').split('function shareRenderPill(')[1].split('\nfunction ')[0];
+  assert.ok(!/archiveName/.test(pill));
+});
+
+/** A fake element made from one rendered tag, enough for sharePrivacyChanged. */
+function fakeEl(e) {
+  const type = /\btype="(\w+)"/.exec(e.attrs);
+  return {
+    tag: e.tag, inert: false, attrs: {}, dataset: {}, type: e.tag === 'input' ? (type ? type[1] : 'text') : undefined,
+    mask: /\bdata-share-mask\b/.test(e.attrs),
+    setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; },
+  };
+}
+const fakeRoot = (els) => ({ querySelectorAll: (sel) => (sel === '[data-share-private]' ? els : sel === '[data-share-mask]' ? els.filter(x => x.mask) : []) });
+
+test('privacy: toggling with step 4 open blurs and masks at once, and gives the revealed password back after', async () => {
+  const classes = new Set();
+  const L = load({ bodyClasses: classes, answers: { 'POST /api/share/shares/4/password': { status: 200, body: { password: P_PASS } } } });
+  const pages = privWin(L);
+  const els = privateEls(pages.done).map(fakeEl);
+  const link = els.find(e => e.tag === 'input' && e.type === 'text');
+  const pw = els.find(e => e.tag === 'input' && e.type === 'password');
+  const pre = els.find(e => e.tag === 'pre');
+  assert.ok(link && pw && pre);
+  // Live: settings.js calls sharePrivacyChanged() with no root, so it reaches the whole page.
+  L.ctx.document.querySelectorAll = fakeRoot(els).querySelectorAll;
+  L.run('sharePrivacyChanged()');
+  assert.ok(els.every(e => !e.inert && !('aria-hidden' in e.attrs)), 'privacy off: nothing hidden');
+  assert.strictEqual(link.type, 'text');
+  // Show the password while privacy is off.
+  const btn = { textContent: 'Show', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } };
+  pw.value = '';
+  L.ctx.__q = { '#shPw': pw, '[data-sh-block]': pre };
+  L.ctx.__btn = btn;
+  L.run(`_shareWin = __w; __w.m = { q: (s) => __q[s] || null }`);
+  await L.run(`sharePasswordAction('show', __btn)`);
+  assert.strictEqual(pw.value, P_PASS);
+  assert.strictEqual(pw.type, 'text', 'shown');
+  assert.ok(pre.textContent.includes(P_PASS), 'the block has the real password now');
+  // Privacy on (Ctrl+Shift+H) with the window open.
+  classes.add('pm-shares');
+  L.run('sharePrivacyChanged()');
+  assert.ok(els.every(e => e.inert === true && e.attrs['aria-hidden'] === 'true'), 'blurred parts are out of the keyboard order');
+  assert.strictEqual(link.type, 'password', 'the link field is dots');
+  assert.strictEqual(pw.type, 'password', 'the shown password is dots again');
+  // Hide and Show under privacy keep the field dots.
+  await L.run(`sharePasswordAction('show', __btn)`);
+  assert.strictEqual(btn.textContent, 'Show');
+  assert.strictEqual(pw.type, 'password');
+  await L.run(`sharePasswordAction('show', __btn)`);
+  assert.strictEqual(btn.textContent, 'Hide');
+  assert.strictEqual(pw.type, 'password', 'still dots while privacy is on');
+  // Privacy off: everything back, the password as the user left it (shown).
+  classes.delete('pm-shares');
+  L.run('sharePrivacyChanged()');
+  assert.ok(els.every(e => e.inert === false && !('aria-hidden' in e.attrs)));
+  assert.strictEqual(link.type, 'text');
+  assert.strictEqual(pw.type, 'text');
+  assert.deepStrictEqual({ ...link.dataset }, {}, 'no leftover mark');
+});
+
+test('privacy: Copy link, Copy password and Copy as block still copy while pm-shares is on', async () => {
+  const classes = new Set(['pm-shares']);
+  const L = load({ bodyClasses: classes, answers: {
+    'POST /api/share/shares/4/password': { status: 200, body: { password: P_PASS } },
+    'POST /api/share/shares/4/copy-block': { status: 200, body: { text: `${P_LINK}\npass: ${P_PASS}`, passwordIncluded: true } },
+  } });
+  const copied = [];
+  L.ctx.navigator.clipboard.writeText = async (t) => { copied.push(t); };
+  privWin(L);
+  const pw = { type: 'password', value: '', dataset: { shareType: 'password' } };
+  const pre = { textContent: '' };
+  L.ctx.__q = { '#shPw': pw, '[data-sh-block]': pre };
+  L.ctx.__btn = { textContent: 'Copy password', setAttribute: noop };
+  L.run(`_shareWin = __w; __w.m = { q: (s) => __q[s] || null }`);
+  await L.run(`shareDoneAct('copy-link')`);
+  await L.run(`sharePasswordAction('copy', __btn)`);
+  await L.run(`shareDoneAct('copy-block')`);
+  assert.deepStrictEqual(copied, [P_LINK, P_PASS, `${P_LINK}\npass: ${P_PASS}`]);
+  assert.strictEqual(pw.type, 'password', 'copying never shows it');
+});
+
 /* ── Feature off ─────────────────────────────────────────────────────── */
 
 test('feature off: Delete and Stop stay available in My shares; Resume does not', () => {

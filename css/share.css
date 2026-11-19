@@ -202,12 +202,18 @@ body.layout-modern .share-pill { border-radius: 999px; padding: 0.4rem 0.7rem; }
 .share-pop-needs { color: #fca5a5; }
 
 /* ── Privacy mode: My shares (body.pm-shares) ─────────────────────────────
-   The My shares list, the top bar popup text, the share window's file list
-   and the Delete all list. Blurred, no pointer, and taken out of the
-   keyboard order by share-ui.js (sharePrivacyChanged sets inert). No hover
-   reveal, like every other category (css/settings.css). */
+   The My shares list, the top bar popup text, the share window's file list,
+   the Delete all list, and every archive name, link, password field and the
+   Both together block in the share window (and the saved password in
+   Settings). Blurred, no pointer, and taken out of the keyboard order by
+   share-ui.js (sharePrivacyChanged sets inert; the link and password fields
+   also turn into dots). No hover reveal, like every other category
+   (css/settings.css). */
 body.pm-shares [data-share-private] {
   filter: blur(7px);
   pointer-events: none;
   user-select: none;
 }
+/* An archive name inside a line of words: a box of its own so the blur
+   applies to it alone. */
+.share-priv { display: inline-block; max-width: 100%; overflow-wrap: anywhere; vertical-align: bottom; }

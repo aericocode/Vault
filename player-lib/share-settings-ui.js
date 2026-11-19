@@ -77,7 +77,7 @@ function shareSettingsHtml() {
     ['Password', row({ sfind: 'shareSavedPassword', title: 'My saved password',
       desc: saved ? 'Hidden. Show asks for your Vault password when one is set.' : 'None saved yet.',
       control: `<span class="share-set-pw">
-          <input type="password" class="settings-text share-mono" id="shSavedPw" readonly autocomplete="off" aria-label="My saved password"
+          <input type="password" class="settings-text share-mono" id="shSavedPw" readonly autocomplete="off" aria-label="My saved password" data-share-private data-share-mask
                  placeholder="${saved ? '••••••••••••••••' : 'None saved'}">
           <button type="button" class="settings-btn settings-btn-quiet" data-share-act="pw-show" aria-pressed="false"${saved ? '' : ' disabled'}>Show</button>
           <button type="button" class="settings-btn settings-btn-quiet" data-share-act="pw-change">Change</button>
@@ -128,7 +128,7 @@ let _shareMoreOpen = false;
 /** Settings closed (or the page left): the shown saved password goes. */
 function shareSettingsClosed() {
   const pw = typeof document !== 'undefined' && document.getElementById('shSavedPw');
-  if (pw) { pw.value = ''; pw.type = 'password'; }
+  if (pw) { pw.value = ''; shareSetFieldShown(pw, false); }
   const b = typeof document !== 'undefined' && document.querySelector('[data-share-act="pw-show"]');
   if (b) { b.textContent = 'Show'; b.setAttribute('aria-pressed', 'false'); }
 }
@@ -144,6 +144,7 @@ function shareSettingsRepaint(root) {
   const det = page.querySelector('details.share-more');
   if (det) _shareMoreOpen = det.open;
   page.outerHTML = shareSettingsHtml();
+  sharePrivacyChanged(root);
 }
 
 async function shareSaveSettings(patch, root, { quiet = false } = {}) {
@@ -170,6 +171,7 @@ async function shareSaveSettings(patch, root, { quiet = false } = {}) {
 /** Wire the page (settings.js calls this each time the page is shown). */
 function shareSettingsWire(root) {
   if (!root) return;
+  sharePrivacyChanged(root);
   if (!root._shareWired) {
     root._shareWired = true;
     root.addEventListener('toggle', (e) => {
@@ -265,8 +267,8 @@ async function shareSettingsClick(b, root) {
     const input = root.querySelector('#shSavedPw');
     if (!input) return;
     if (input.value) {
-      const show = input.type === 'password';
-      input.type = show ? 'text' : 'password';
+      const show = !shareFieldShown(input);
+      shareSetFieldShown(input, show);
       b.textContent = show ? 'Hide' : 'Show';
       b.setAttribute('aria-pressed', String(show));
       return;
@@ -277,7 +279,7 @@ async function shareSettingsClick(b, root) {
         { needed: !!(sp && sp.vaultPasswordSet), why: 'Vault asks for your Vault password before it shows the saved password.' });
       if (!r) return;
       input.value = r.password;
-      input.type = 'text';
+      shareSetFieldShown(input, true);
       b.textContent = 'Hide';
       b.setAttribute('aria-pressed', 'true');
     } catch (err) {

@@ -48,9 +48,14 @@ function sharePrivate() {
 
 /**
  * Privacy turned on or off: the private parts (My shares list, the top bar
- * popup text, the share window's file list) are blurred by css/share.css and
+ * popup text, the share window's file list, every archive name, the link, the
+ * password and the Both together block) are blurred by css/share.css and
  * taken out of the keyboard order here (inert), so a hidden row can never be
- * reached with Tab or acted on blind.
+ * reached with Tab or acted on blind. A field that holds the link or a
+ * password (data-share-mask) also turns into dots, so a blurred field never
+ * holds readable text; it gets its own type back when privacy goes off. The
+ * copy buttons read from the server or the share, never from the field, so
+ * they keep working.
  */
 function sharePrivacyChanged(root) {
   if (typeof document === 'undefined') return;
@@ -61,6 +66,33 @@ function sharePrivacyChanged(root) {
     el.inert = on;
     if (on) el.setAttribute('aria-hidden', 'true'); else el.removeAttribute('aria-hidden');
   });
+  scope.querySelectorAll('[data-share-mask]').forEach((el) => {
+    if (on) {
+      if (el.dataset.shareType === undefined) el.dataset.shareType = el.type || 'text';
+      el.type = 'password';
+    } else if (el.dataset.shareType !== undefined) {
+      el.type = el.dataset.shareType;
+      delete el.dataset.shareType;
+    }
+  });
+}
+
+/** Is this field showing its text (or would it, once privacy is off)? */
+function shareFieldShown(input) {
+  const t = input.dataset && input.dataset.shareType !== undefined ? input.dataset.shareType : input.type;
+  return t !== 'password';
+}
+
+/** Show or hide a password field. Under privacy it stays dots until privacy goes off. */
+function shareSetFieldShown(input, show) {
+  const t = show ? 'text' : 'password';
+  if (input.dataset && input.dataset.shareType !== undefined) input.dataset.shareType = t;
+  else input.type = t;
+}
+
+/** A piece of text that privacy mode blurs (an archive name, in a line of other words). */
+function sharePrivSpan(text) {
+  return `<span class="share-priv" data-share-private>${shEsc(text)}</span>`;
 }
 
 /** Settings > privacy chip "My shares" changed: the server keeps the same choice. */
@@ -423,12 +455,13 @@ function shareRate(w) {
 
 /* Step markup pieces. */
 
-function shareHead(kicker, title, sub) {
+/** The step header. privName: an archive name after the title, blurred under privacy. */
+function shareHead(kicker, title, sub, privName = '') {
   return `
     <div class="share-head">
       <div class="share-head-text">
         ${kicker ? `<div class="share-kicker">${shEsc(kicker)}</div>` : ''}
-        <h3 id="shareWinTitle">${shEsc(title)}</h3>
+        <h3 id="shareWinTitle">${shEsc(title)}${privName ? ` ${sharePrivSpan(privName)}` : ''}</h3>
         ${sub ? `<p class="vault-modal-hint share-sub">${shEsc(sub)}</p>` : ''}
       </div>
       <button type="button" class="share-x" data-sh-act="close" aria-label="Close" title="Close">${shIcon('close') || '&times;'}</button>
@@ -446,11 +479,22 @@ function shareSelect(id, options, value, extra = '') {
 }
 
 /** The archive as one line: "k7Qm2xVd9LpA.7z, 1.55 GB", or "k7Qm2xVd9LpA.7z, 4.2 GB in 3 parts" (never the .001 part name). */
-function shareArchiveLine(share, checks) {
+function shareArchiveLineParts(share, checks) {
   const name = share ? share.archiveDisplayName || `${share.archiveName}.7z` : (checks && checks.archiveName ? `${checks.archiveName.value}.7z` : '');
   const bytes = checks && checks.parts && checks.parts.bytes ? checks.parts.bytes : share ? share.sizeBytes : 0;
   const count = checks && checks.parts ? checks.parts.count : share ? share.partCount : 1;
-  return `${name}, ${shareSize(bytes)}${count > 1 ? ` in ${count} parts` : ''}`;
+  return { name, rest: `, ${shareSize(bytes)}${count > 1 ? ` in ${count} parts` : ''}` };
+}
+
+function shareArchiveLine(share, checks) {
+  const { name, rest } = shareArchiveLineParts(share, checks);
+  return `${name}${rest}`;
+}
+
+/** The same line as markup, with the name blurred under privacy. */
+function shareArchiveLineHtml(share, checks) {
+  const { name, rest } = shareArchiveLineParts(share, checks);
+  return `${sharePrivSpan(name)}${shEsc(rest)}`;
 }
 
 function shareWindowRender() {
@@ -632,11 +676,13 @@ async function shareCancelArchive() {
 
 /* Step 2: the checks passed. */
 
+/** line: plain words, or { html } already escaped (the archive line, with its name blurred under privacy). */
 function shareCheckRow(ok, title, line, mono = false) {
+  const lineHtml = line && typeof line === 'object' ? line.html : shEsc(line);
   return `
     <div class="share-check${ok ? '' : ' is-bad'}">
       ${shIcon(ok ? 'check' : 'alert', 'share-check-ic')}
-      <div class="share-check-text"><span>${shEsc(title)}</span><span class="share-mut${mono ? ' share-mono' : ''}">${shEsc(line)}</span></div>
+      <div class="share-check-text"><span>${shEsc(title)}</span><span class="share-mut${mono ? ' share-mono' : ''}">${lineHtml}</span></div>
     </div>`;
 }
 
@@ -649,7 +695,7 @@ function sharePasswordBlockHtml(w, label) {
     <div class="vault-field">
       <label class="vault-label" for="shPw">${shEsc(label)}</label>
       <div class="share-pw-row">
-        <input type="password" id="shPw" class="vault-input share-mono" readonly placeholder="••••••••••••••••••••" autocomplete="off">
+        <input type="password" id="shPw" class="vault-input share-mono" readonly placeholder="••••••••••••••••••••" autocomplete="off" data-share-private data-share-mask>
         <button type="button" class="vault-btn" data-sh-act="pw-show" aria-pressed="false">Show</button>
         <button type="button" class="vault-btn" data-sh-act="pw-copy">Copy${label.startsWith('Archive') ? ' password' : ''}</button>
       </div>
@@ -668,7 +714,7 @@ function shareCheckedHtml(w) {
     <div class="share-box share-checks">
       ${shareCheckRow(!!(c.test && c.test.ok), 'Encrypted with AES-256', `Opening it with the password worked. ${files === 1 ? 'The file passed' : `All ${Number(files || 0).toLocaleString()} files passed`} the test.`)}
       ${shareCheckRow(!!(c.listWithoutPassword && c.listWithoutPassword.ok), 'File names are hidden', 'Listing the archive without the password was refused.')}
-      ${shareCheckRow(true, typed ? 'Archive name (you typed it, so anyone with the link can read it)' : 'Archive name (random, change it on step 1)', shareArchiveLine(share, c), true)}
+      ${shareCheckRow(true, typed ? 'Archive name (you typed it, so anyone with the link can read it)' : 'Archive name (random, change it on step 1)', { html: shareArchiveLineHtml(share, c) }, true)}
     </div>
     ${sharePasswordBlockHtml(w, pwLabel)}
     <p class="vault-modal-hint">Without this password nobody can open the archive, including gofile.</p>
@@ -686,8 +732,8 @@ async function sharePasswordAction(kind, btn) {
   if (!w || !w.id) return;
   const input = w.m.q('#shPw');
   if (kind === 'show' && input && input.value) {
-    const show = input.type === 'password';
-    input.type = show ? 'text' : 'password';
+    const show = !shareFieldShown(input);
+    shareSetFieldShown(input, show);
     btn.textContent = show ? 'Hide' : 'Show';
     btn.setAttribute('aria-pressed', String(show));
     return;
@@ -701,7 +747,7 @@ async function sharePasswordAction(kind, btn) {
       if (input && !input.value) input.value = r.password;
     } else if (input) {
       input.value = r.password;
-      input.type = 'text';
+      shareSetFieldShown(input, true);
       btn.textContent = 'Hide';
       btn.setAttribute('aria-pressed', 'true');
     }
@@ -730,7 +776,7 @@ function shareConfirmHtml(w) {
     ${shareHead('Step 3 of 4', 'Upload to gofile.io?', 'This is the only step that sends anything off this computer.')}
     <div class="share-warn">Everything else in Vault stays on your computer. This upload does not. Once it is sent, anyone with the link and the password can download the files until the upload is deleted.</div>
     <dl class="share-box share-sum">
-      <dt>Sending</dt><dd class="share-mono">${shEsc(shareArchiveLine(share, c))}</dd>
+      <dt>Sending</dt><dd class="share-mono">${shareArchiveLineHtml(share, c)}</dd>
       <dt>To</dt><dd>upload.gofile.io (closest server)</dd>
       <dt>Account</dt><dd>${shEsc(shareAccountWords(s.accountMode))}</dd>
       <dt>Deleted after</dt><dd>${shEsc(shareDeleteAfterLabel(share.deleteAfterDays))}</dd>
@@ -796,7 +842,7 @@ function shareUploadHtml(w) {
     ? `${shareSize(up.bytesTotal || share.sizeBytes)} in ${count} parts of up to ${shareSize(share.partSize || biggest)}. You can close this window; the upload keeps going.`
     : `${shareSize(up.bytesTotal || share.sizeBytes)} in one part. You can close this window; the upload keeps going.`;
   return `
-    ${shareHead('Step 3 of 4, uploading', `Uploading ${share.archiveName || ''}`.trim(), sub)}
+    ${shareHead('Step 3 of 4, uploading', 'Uploading', sub, share.archiveName || '')}
     <div class="share-block">
       <div class="share-row-between share-mut"><span data-sh-bytes></span><span data-sh-eta></span></div>
       ${shareBar(up.percent, 'Overall progress')}
@@ -820,7 +866,7 @@ function sharePartRowHtml(p) {
       : st === 'uploading' ? `<span class="share-part-st is-busy" data-sh-partpct="${Number(p.partNo)}">${Math.round(p.percent || 0)}%</span>`
         : '<span class="share-part-st share-mut">Waiting</span>';
   const ic = st === 'done' ? shIcon('check', 'share-part-ic is-ok') : st === 'failed' ? shIcon('alert', 'share-part-ic is-bad') : shIcon('upload', 'share-part-ic');
-  return `<div class="share-part">${ic}<span class="share-part-name share-mono">${shEsc(p.fileName)}</span><span class="share-mut">${shEsc(shareSize(p.sizeBytes))}</span>${right}</div>`;
+  return `<div class="share-part">${ic}<span class="share-part-name share-mono" data-share-private>${shEsc(p.fileName)}</span><span class="share-mut">${shEsc(shareSize(p.sizeBytes))}</span>${right}</div>`;
 }
 
 /** Update 3b in place: numbers every poll, the rows only when a status changed (keeps focus). */
@@ -842,6 +888,7 @@ function shareUploadUpdate() {
   if (host && sig !== w.partsSig) {
     w.partsSig = sig;
     host.innerHTML = parts.map(sharePartRowHtml).join('');
+    sharePrivacyChanged(host);
   } else if (host) {
     for (const x of parts) {
       const el = host.querySelector(`[data-sh-partpct="${Number(x.partNo)}"]`);
@@ -932,7 +979,7 @@ function shareDoneHtml(w) {
     <div class="vault-field">
       <label class="vault-label" for="shLink">Link</label>
       <div class="share-pw-row">
-        <input class="vault-input share-mono" id="shLink" readonly value="${shEsc(link)}">
+        <input class="vault-input share-mono" id="shLink" readonly value="${shEsc(link)}" data-share-private data-share-mask>
         <button type="button" class="vault-btn" data-sh-act="copy-link" data-sh-first>Copy link</button>
       </div>
     </div>
@@ -940,7 +987,7 @@ function shareDoneHtml(w) {
     <div class="vault-field">
       <div class="vault-label" id="shBlockLabel">Both together</div>
       <div class="share-pw-row share-block-row">
-        <pre class="share-pre share-mono" aria-labelledby="shBlockLabel" data-sh-block>${shEsc(masked)}</pre>
+        <pre class="share-pre share-mono" aria-labelledby="shBlockLabel" data-sh-block data-share-private>${shEsc(masked)}</pre>
         <button type="button" class="vault-btn vault-btn-primary" data-sh-act="copy-block">Copy as block</button>
       </div>
     </div>
