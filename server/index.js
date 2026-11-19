@@ -3869,6 +3869,9 @@ app.use('/api/games', require('./games-routes').buildRouter());
 // ── PMV Studio (beat-cut music videos — see lib/pmv/) ─────────────────────
 app.use('/api/pmv', require('./pmv-routes').buildRouter());
 
+// ── Share privately (opt-in, uploads an encrypted archive — see lib/share/) ─
+app.use('/api/share', require('./share-routes').buildRouter());
+
 // ── Face search (chips, person focus, search by photo — see lib/faces/) ───
 app.use('/api', require('./faces-routes').buildRouter());
 
