@@ -21,6 +21,7 @@ video_metadata.db-shm
 /sorted_media/
 /temp_frames
 /temp_audio
+/share_temp
 /exports
 /bad_json_responses.log
 /wizard-settings.json
