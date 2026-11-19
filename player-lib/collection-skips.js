@@ -27,7 +27,7 @@
      skipTileClass(id), skipTileTag(id), skipTileButton(id)   cards.js, table-view.js
      skipCountParts(c)                collections.js collectionCountText
      skipHeaderHtml(c)                collections.js renderCollectionHeader
-     skipSelectionButton(ids)         selection.js renderSelectionBar
+     skipOpenCollection(), skipSelected(on)   selection.js SEL_ACTIONS (Skip)
      Skips.setFor(cid) / Skips.has    player-core.js, stage-control.js, flow.js
    Tells others: window event 'vault:skips-changed' { cid }.
    ========================================================================= */
@@ -210,19 +210,7 @@ function skipHeaderHtml(c) {
   return `<button type="button" class="coll-note-btn coll-unskip" onclick="Skips.unskipAll(${Number(c.id)})" title="Play every file in this collection again (you can Undo)">Unskip all</button>`;
 }
 
-/** The selection bar's Skip / Unskip for the ticked files the open collection holds. */
-function skipSelectionButton(ids) {
-  const c = skipOpenCollection();
-  if (!c || !ids || !ids.length) return '';
-  const allOn = ids.every(id => Skips.has(c.id, id));
-  const n = ids.length;
-  const files = `${n.toLocaleString()} ${n === 1 ? 'file' : 'files'}`;
-  const label = typeof selBtnLabel === 'function' ? selBtnLabel(allOn ? 'Unskip' : 'Skip', n) : (allOn ? 'Unskip' : 'Skip');
-  const text = typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(`⏭ ${label}`) : `⏭ ${label}`;
-  return `<button class="sel-btn sel-skip${allOn ? ' sel-skipped' : ''}" onclick="skipSelected(${allOn ? 'false' : 'true'})"
-    title="${allOn ? `Play ${files} again` : `Keep ${files} in place but do not play ${n === 1 ? 'it' : 'them'}`}">${text}</button>`;
-}
-
+/** The selection bar's Skip / Unskip (selection.js SEL_ACTIONS): the ticked files the open collection holds. */
 async function skipSelected(on) {
   const c = skipOpenCollection();
   if (!c || typeof selectedInOpenCollection !== 'function') return false;

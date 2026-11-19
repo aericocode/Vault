@@ -37,7 +37,7 @@
      streamTagTileHtml(media)     cards.js renderTile
      streamTagRowFit(media)       table-view.js Title cell ({ html, used })
      streamTagBlockHtml(media)    dock.js pane, detail-view.js details
-     streamTagsSelectionButton()  selection.js renderSelectionBar
+     StreamTags.selectionMenu(btn) selection.js SEL_ACTIONS (Stream tag)
      StreamTags.paintStage(id)    stage-bar.js paint
      StreamTags.stageMenu(btn)    stage-bar.js act('tag')
      StreamTags.refreshCollection(id)  collections.js openCollection
@@ -608,11 +608,6 @@ const StreamTags = (() => {
     openMenu(laneItems(ids), { rect: btn.getBoundingClientRect(), up: true }, btn, () => laneItems(ids));
   }
 
-  function selectionButton() {
-    const label = typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel('🏷 Stream tag') : 'Stream tag';
-    return `<button class="sel-btn sel-stags" onclick="StreamTags.selectionMenu(this)" title="Stream tags for the selected files" aria-haspopup="menu">${label}</button>`;
-  }
-
   /* ── The Stage bar ──────────────────────────────────────────────── */
 
   function paintStage(id) {
@@ -771,7 +766,7 @@ const StreamTags = (() => {
   return {
     PLACE_LABELS, load, reloadLanes, refreshCollection, apply, clearFiles, tagsOf, tagIdsOf, hasAny,
     lanes: () => st.lanes, tag: (id) => st.tags.get(id) || null, loaded: () => st.loaded,
-    tileHtml, rowHtml, rowFit, fitChipCount, repaintTiles, blockHtml, blockMenu, selectionButton, selectionMenu, paintStage, stageMenu, closeMenu, openEditor,
+    tileHtml, rowHtml, rowFit, fitChipCount, repaintTiles, blockHtml, blockMenu, selectionMenu, paintStage, stageMenu, closeMenu, openEditor,
     // The menu itself, for other menus that look and work the same (flow.js saved orders).
     openMenu,
     onChange: (cb) => { if (typeof cb === 'function') st.subs.add(cb); },
@@ -800,4 +795,3 @@ function streamTagTileHtml(media) { return StreamTags.tileHtml(media); }
 function streamTagRowHtml(media) { return StreamTags.rowHtml(media); }
 function streamTagRowFit(media) { return StreamTags.rowFit(media); }
 function streamTagBlockHtml(media) { return StreamTags.blockHtml(media); }
-function streamTagsSelectionButton() { return StreamTags.loaded() ? StreamTags.selectionButton() : ''; }

@@ -216,13 +216,15 @@ function clearSelection() {
 }
 
 /**
- * Close the menus the selection bar opened (Add to collection, Studio): they
- * act on the selection, so they go when it does or when the bar hides.
+ * Close the menus the selection bar opened (More, Add to collection, Studio):
+ * they act on the selection, so they go when it does or when the bar hides.
  */
 function closeSelectionPopovers() {
+  if (typeof closeSelMenu === 'function') closeSelMenu(false);
   if (typeof closeBarCollectionPicker === 'function') closeBarCollectionPicker();
-  // The Studio menu is studios.js's; close it only when it was opened from the bar.
-  if (document.querySelector('#selectionBar .sel-studio.on') && typeof stClosePops === 'function') stClosePops();
+  // The Studio menu is studios.js's; close it only when it was opened from the
+  // bar (from its own button, or from More, which then stays lit the same way).
+  if (document.querySelector('#selectionBar .sel-studio.on, #selectionBar .sel-more.on') && typeof stClosePops === 'function') stClosePops();
   // The Stream tag menu acts on the selection too (player-lib/stream-tags.js).
   if (typeof StreamTags !== 'undefined') StreamTags.closeMenu();
 }
@@ -364,6 +366,264 @@ function ensureSelectionBar() {
   return bar;
 }
 
+/* ── What the selection can do: one list ──────────────────────────────────
+   Every action the selection bar offers, in bar order. The bar shows the
+   PINNED ones that apply to this selection, then More, which lists every one
+   that applies, under the headings of SEL_GROUPS. The pin beside each row in
+   More puts an action on the bar or takes it off (settings.js selBarPinned).
+
+   An action:
+     id       stable: the pinned list stores it
+     group    its heading in More (SEL_GROUPS)
+     bar      the short words on the bar ("Collect")
+     menu     the full words in More ("Add to a collection"); bar when absent
+     emoji    Classic's emoji; Modern shows the matching line icon (icons.js)
+     icon     a line icon to use instead of the emoji's own (Play next, Up next)
+     title    the tooltip: what happens, and to how many
+     n        how many of the selected files it acts on: "(n)" when fewer
+     visible  when it is offered
+     run      what it does; an action with popover opens a menu or picker
+              anchored to the element it is given (its bar button, or More)
+     danger   set apart at the bottom of More
+     kbd      the key that does the same (player-lib/up-next.js)
+     cls      the bar button's own classes (CSS, and other scripts find
+              Collect and Studio by them)
+   The text fields may be functions of the selection's context (selBarContext). */
+
+const SEL_GROUPS = [
+  { id: 'play', label: 'Play' },
+  { id: 'collection', label: 'Collection' },
+  { id: 'label', label: 'Label' },
+  { id: 'create', label: 'Create' },
+  { id: 'library', label: 'Library' },
+  { id: 'danger', label: 'Remove' },      // at the bottom, apart; no heading shown
+];
+
+/* On the bar until the pins say otherwise. Restore takes Trash's place for
+   files in the trash (each shows only when it applies, as before). */
+const SEL_DEFAULT_PINNED = ['playnext', 'collect', 'uncollect', 'skip', 'share', 'restore', 'trash'];
+
+const SEL_ACTIONS = [
+  { id: 'playnext', group: 'play', bar: 'Play next', emoji: '⤴', icon: 'play-next', cls: 'sel-upnext', kbd: 'Shift+U',
+    title: 'Play the selected files after the one playing now (Shift+U)',
+    visible: () => typeof UpNext !== 'undefined',
+    run: () => upNextAddSelection('next') },
+  { id: 'upnext', group: 'play', bar: 'Up next', menu: 'Add to Up next', emoji: '＋', icon: 'queue', cls: 'sel-upnext', kbd: 'U',
+    title: 'Add the selected files to the end of Up next (U)',
+    visible: () => typeof UpNext !== 'undefined',
+    run: () => upNextAddSelection('end') },
+
+  { id: 'collect', group: 'collection', bar: 'Collect', menu: 'Add to a collection', emoji: '📁', cls: 'sel-collect', popover: true,
+    title: 'Add the selected files to a collection',
+    visible: () => true,
+    run: (c, el) => addSelectionToCollection(el) },
+  // A collection is open: its ticked files can be taken out of it (collections.js).
+  { id: 'uncollect', group: 'collection', bar: 'Uncollect', menu: 'Remove from this collection', emoji: '➖', cls: 'sel-uncollect',
+    n: (c) => c.inColl.length,
+    title: (c) => `Take ${selFiles(c.inColl.length)} out of this collection. The files themselves are not touched`,
+    visible: (c) => c.inColl.length > 0,
+    run: () => removeSelectedFromCollection() },
+  // Skip / Unskip them (collection-skips.js): they keep their places, playback passes over them.
+  { id: 'skip', group: 'collection', emoji: '⏭',
+    bar: (c) => (c.allSkipped ? 'Unskip' : 'Skip'),
+    menu: (c) => (c.allSkipped ? 'Unskip in this collection' : 'Skip in this collection'),
+    cls: (c) => `sel-skip${c.allSkipped ? ' sel-skipped' : ''}`,
+    n: (c) => c.inColl.length,
+    title: (c) => {
+      const n = c.inColl.length;
+      return c.allSkipped ? `Play ${selFiles(n)} again` : `Keep ${selFiles(n)} in place but do not play ${n === 1 ? 'it' : 'them'}`;
+    },
+    visible: (c) => !!c.skipColl && c.inColl.length > 0,
+    run: (c) => skipSelected(!c.allSkipped) },
+
+  { id: 'studio', group: 'label', bar: 'Studio', emoji: '🏢', cls: 'sel-studio', popover: true, caret: true,
+    title: 'Put the selected files in a studio',
+    visible: () => typeof studiosSelectionPick === 'function',
+    run: (c, el) => studiosSelectionPick(el) },
+  { id: 'streamtag', group: 'label', bar: 'Stream tag', emoji: '🏷', cls: 'sel-stags', popover: true, haspopup: true,
+    title: 'Stream tags for the selected files',
+    visible: () => typeof StreamTags !== 'undefined' && StreamTags.loaded(),
+    run: (c, el) => StreamTags.selectionMenu(el) },
+  // Flag is one toggle rather than two buttons. A mixed selection reads as "not
+  // yet flagged", so the first click flags the stragglers and the second (once
+  // every item carries the flag) clears them all. bulkFlag() already skips
+  // items that are already at the target value, so both directions are cheap.
+  { id: 'flag', group: 'label',
+    bar: (c) => (c.allFlagged ? 'Unflag' : 'Flag'),
+    emoji: (c) => (c.allFlagged ? '🏳' : '🚩'),
+    cls: (c) => (c.allFlagged ? 'sel-flagged' : ''),
+    title: (c) => (c.allFlagged
+      ? 'Clear the delete flag on all selected'
+      : `Flag for deletion${c.flagged ? ` (${c.flagged} of ${c.count} already flagged)` : ''}`),
+    visible: () => true,
+    run: (c) => bulkFlag(c.allFlagged ? 0 : 1) },
+
+  // Stack / Grid open videos in the Editor (no hard cap: many concurrent
+  // decodes are drive-bound, the Editor warns above 4); Music ID fingerprints
+  // any audio or video.
+  { id: 'stack', group: 'create', bar: 'Stack', menu: 'Stack in the Editor', emoji: '▤', cls: 'sel-mix',
+    n: (c) => c.video,
+    title: (c) => `Open ${c.video} videos in the Editor, layered in sync${selManyVideos(c)}`,
+    visible: (c) => c.musicReady && c.video >= 2,
+    run: () => openEditorWithSelection('stack') },
+  { id: 'grid', group: 'create', bar: 'Grid', menu: 'Grid in the Editor', emoji: '▦', cls: 'sel-mix',
+    n: (c) => c.video,
+    title: (c) => `Open ${c.video} videos in the Editor, side by side in sync${selManyVideos(c)}`,
+    visible: (c) => c.musicReady && c.video >= 2,
+    run: () => openEditorWithSelection('grid') },
+  { id: 'musicid', group: 'create', bar: 'Music ID', emoji: '🎵', cls: 'sel-music',
+    n: (c) => c.av,
+    title: (c) => `Find the songs in ${selFiles(c.av)}. Each file is checked once, then matched across the library`,
+    visible: (c) => c.musicReady && c.av > 0,
+    run: () => fingerprintSelected() },
+  // Only while the feature is on (player-lib/share-ui.js).
+  { id: 'share', group: 'create', bar: 'Share', menu: 'Share privately', emoji: '📤', cls: 'sel-share',
+    title: 'Pack the selected files into a locked archive and upload it to gofile.io, after two checks',
+    visible: () => typeof shareEnabled === 'function' && shareEnabled(),
+    run: () => shareOpenForSelection() },
+
+  // Files whose AI scan never landed: a real error, or a stub that was never
+  // scanned (a cancelled queue leaves these).
+  { id: 'retry', group: 'library', bar: 'Retry errors', emoji: '↻', cls: 'sel-retry',
+    n: (c) => c.retryable,
+    title: (c) => `Queue ${selFiles(c.retryable)} for another AI scan${c.errored ? `: ${c.errored.toLocaleString()} with an error` : ''}${c.unscanned ? `${c.errored ? ',' : ':'} ${c.unscanned.toLocaleString()} never scanned` : ''}`,
+    visible: (c) => c.retryable > 0,
+    run: () => retryErrorsSelected() },
+  // Force refresh: read the errored files again and remake their thumbnails,
+  // without redoing the AI scan (the fix for files scanned mid-copy).
+  { id: 'refresh', group: 'library', bar: 'Force refresh', emoji: '🔄', cls: 'sel-refresh',
+    n: (c) => c.errored,
+    title: (c) => `Read ${selFiles(c.errored)} with an error again and remake their thumbnails, without redoing the AI scan`,
+    visible: (c) => c.errored > 0 && typeof window.vaultForceRefresh === 'function',
+    run: (c, el) => forceRefreshSelected(el) },
+  // Files marked as failed to play: clear the mark so playback tries them
+  // again (a drive that was asleep, a server restart mid-file).
+  { id: 'playable', group: 'library', bar: 'Mark as playable', emoji: '▶', cls: 'sel-playable',
+    n: (c) => c.failed,
+    title: (c) => `${selFiles(c.failed)} marked as unplayable. Clear the mark so playback tries ${c.failed === 1 ? 'it' : 'them'} again`,
+    visible: (c) => c.failed > 0,
+    run: () => markPlayableSelected() },
+  // Face search on photos, GIFs and videos, while it is on (player-lib/faces.js).
+  { id: 'faces', group: 'library', bar: 'Faces', menu: 'Find faces', emoji: '👤', cls: 'sel-faces',
+    n: (c) => c.faceable,
+    title: 'Find faces in the selected files',
+    visible: (c) => c.faceable > 0 && typeof facesReady === 'function' && facesReady(),
+    run: () => facesIndexSelection() },
+  { id: 'restore', group: 'library', bar: 'Restore', emoji: '♻', cls: 'sel-restore',
+    n: (c) => c.trashed,
+    title: (c) => `Take ${selFiles(c.trashed)} out of the trash`,
+    visible: (c) => c.trashed > 0,
+    run: () => restoreSelected() },
+
+  { id: 'trash', group: 'danger', bar: 'Trash', emoji: '🗑', cls: 'sel-trash', danger: true,
+    n: (c) => c.active,
+    title: (c) => `Move ${selFiles(c.active)} to the trash`,
+    visible: (c) => c.active > 0,
+    run: () => trashSelected() },
+  // Irreversible, and Select all can point it at the whole library: the
+  // confirm dialog names the count before anything happens.
+  { id: 'remove', group: 'danger', bar: 'Remove from library', emoji: '✂', cls: 'sel-remove', danger: true,
+    title: 'Take the selected files out of the library. The files on disk are not touched',
+    visible: () => true,
+    run: () => removeSelectedRecords() },
+];
+const SEL_ACTION_BY_ID = new Map(SEL_ACTIONS.map(a => [a.id, a]));
+
+function selManyVideos(c) {
+  return c.video > 4 ? ' (playback smoothness depends on drive speed)' : '';
+}
+
+/** What the actions ask of the selection, counted once per render. */
+function selBarContext() {
+  const counts = selectionCounts();
+  const inColl = typeof selectedInOpenCollection === 'function' ? selectedInOpenCollection() : [];
+  const skipColl = inColl.length && typeof skipOpenCollection === 'function' ? skipOpenCollection() : null;
+  const errored = counts.errored || 0;
+  const unscanned = counts.unscanned || 0;
+  return {
+    size: selectedIds.size,
+    count: counts.count,
+    trashed: counts.trashed,
+    active: counts.count - counts.trashed,
+    av: counts.av,
+    video: counts.video,
+    flagged: counts.flagged,
+    allFlagged: counts.count > 0 && counts.flagged === counts.count,
+    errored, unscanned, retryable: errored + unscanned,
+    failed: counts.failed || 0,
+    faceable: counts.faceable || 0,
+    inColl,
+    skipColl,
+    allSkipped: !!skipColl && inColl.every(id => Skips.has(skipColl.id, id)),
+    musicReady: typeof fingerprintSelected === 'function',
+  };
+}
+
+const selVal = (x, c) => (typeof x === 'function' ? x(c) : x);
+const selAttr = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** An action's words, with "(n)" when it acts on fewer files than are selected. */
+function selActionWords(a, c, where = 'bar') {
+  const words = selVal(where === 'menu' ? (a.menu || a.bar) : a.bar, c);
+  return a.n ? selBtnLabel(words, a.n(c)) : words;
+}
+
+/** The emoji (Classic) or line icon (Modern), then the words. */
+function selActionLabelHtml(a, c, words) {
+  const emoji = selVal(a.emoji, c);
+  const text = selAttr(words);
+  if (a.icon) return `${vaultIconSwap(`${emoji} `, a.icon)}${text}`;
+  return vaultEmojiLabel(`${emoji} ${text}`);
+}
+
+/** The actions this selection offers, in bar order. */
+function selVisibleActions(c) {
+  return SEL_ACTIONS.filter(a => a.visible(c));
+}
+
+/* ── Pins: which actions sit on the bar ───────────────────────────────── */
+
+// Without settings.js (a test page), the pins live here for the session.
+let _selPinnedLocal = null;
+
+/** The stored list (ids, unknown ones kept for a later version), or null for the default set. */
+function selPinnedStored() {
+  const v = typeof window !== 'undefined' && typeof window.vaultSelBarPinned === 'function' ? window.vaultSelBarPinned() : _selPinnedLocal;
+  return Array.isArray(v) ? v.filter(id => typeof id === 'string') : null;
+}
+
+/** The pinned ids. Unknown ones match no action, so they do nothing. */
+function selPinnedSet() {
+  return new Set(selPinnedStored() || SEL_DEFAULT_PINNED);
+}
+
+function selStorePinned(list) {
+  if (typeof window !== 'undefined' && typeof window.vaultSetSelBarPinned === 'function') window.vaultSetSelBarPinned(list);
+  else _selPinnedLocal = Array.isArray(list) ? list.slice() : null;
+}
+
+/** Put an action on the bar or take it off. */
+function selSetPinned(id, on) {
+  if (!SEL_ACTION_BY_ID.has(id)) return;
+  const list = (selPinnedStored() || SEL_DEFAULT_PINNED).filter(x => x !== id);
+  if (on) list.push(id);
+  selStorePinned(list);
+  renderSelectionBar();
+}
+
+/** Back to the default buttons. */
+function selResetPinned() {
+  selStorePinned(null);
+  renderSelectionBar();
+}
+
+/* ── The bar ──────────────────────────────────────────────────────────── */
+
+// The last render: its context, the actions it offers, the pinned ones among
+// them and which of those fit on the bar. More, the clicks and the fit work
+// from this, so an action runs with the state its button showed.
+const _selBar = { mode: '', c: null, shown: [], pinned: [], onBar: new Set() };
+
 function renderSelectionBar() {
   const bar = ensureSelectionBar();
   // Before the early-return below: the Select page / Select all controls are how
@@ -390,6 +650,10 @@ function renderSelectionBar() {
   if (!onLibrary && onPersonFiles) {
     const shown = typeof ftTickedShown === 'function' ? ftTickedShown().length : 0;
     if (!shown) { hideSelectionBar(bar); return; }
+    closeSelMenu(false);
+    _selBar.mode = 'person';
+    bar._selHtml = null;
+    bar.classList.remove('sel-overflow');
     bar.innerHTML = `
       <span class="sel-count">${shown.toLocaleString()} selected</span>
       ${typeof ftRemoveSelectedButton === 'function' ? ftRemoveSelectedButton(shown) : ''}
@@ -399,110 +663,74 @@ function renderSelectionBar() {
     return;
   }
 
-  const counts = selectionCounts();
-  const trashedCount = counts.trashed;
-  const activeCount = counts.count - trashedCount;
-
-  // Music ID actions: fingerprint any A/V selection; stack/grid open videos
-  // in the Editor (no hard cap — many concurrent decodes are drive-bound,
-  // the Editor warns above 4)
-  const avCount = counts.av;
-  const vidCount = counts.video;
-  const musicReady = typeof fingerprintSelected === 'function';
-  const many = vidCount > 4 ? ' (playback smoothness depends on drive speed)' : '';
-  const musicBtns = !musicReady ? '' : `
-    ${avCount > 0 ? `<button class="sel-btn sel-music" onclick="fingerprintSelected()" title="Find the songs in ${selFiles(avCount)}. Each file is checked once, then matched across the library">${vaultEmojiLabel(`🎵 ${selBtnLabel('Music ID', avCount)}`)}</button>` : ''}
-    ${vidCount >= 2 ? `
-      <button class="sel-btn sel-mix" onclick="openEditorWithSelection('stack')"
-        title="Open ${vidCount} videos in the Editor, layered in sync${many}">${vaultEmojiLabel(`▤ ${selBtnLabel('Stack', vidCount)}`)}</button>
-      <button class="sel-btn sel-mix" onclick="openEditorWithSelection('grid')"
-        title="Open ${vidCount} videos in the Editor, side by side in sync${many}">${vaultEmojiLabel(`▦ ${selBtnLabel('Grid', vidCount)}`)}</button>
-    ` : ''}`;
-
-  // Flag is one toggle rather than two buttons. A mixed selection reads as "not
-  // yet flagged", so the first click flags the stragglers and the second — once
-  // every item carries the flag — clears them all. bulkFlag() already skips
-  // items that are already at the target value, so both directions are cheap.
-  const flaggedCount = counts.flagged;
-  const allFlagged = counts.count > 0 && flaggedCount === counts.count;
-  const flagBtn = `<button class="sel-btn${allFlagged ? ' sel-flagged' : ''}" onclick="bulkFlag(${allFlagged ? 0 : 1})"
-    title="${allFlagged
-      ? 'Clear the delete flag on all selected'
-      : `Flag for deletion${flaggedCount ? ` (${flaggedCount} of ${counts.count} already flagged)` : ''}`}"
-    >${vaultEmojiLabel(allFlagged ? '🏳 Unflag' : '🚩 Flag')}</button>`;
-
-  // Files whose AI scan never landed: a real error, or a stub that was never
-  // scanned (a cancelled queue leaves these). Only offered when the selection
-  // actually contains some, which keeps the bar short the rest of the time.
-  const errored = counts.errored;
-  const unscanned = counts.unscanned;
-  const retryable = errored + unscanned;
-  const retryBtn = retryable === 0 ? '' : `<button class="sel-btn sel-retry" onclick="retryErrorsSelected()"
-    title="Queue ${selFiles(retryable)} for another AI scan${errored ? `: ${errored.toLocaleString()} with an error` : ''}${unscanned ? `${errored ? ',' : ':'} ${unscanned.toLocaleString()} never scanned` : ''}"
-    >${vaultEmojiLabel(`↻ ${selBtnLabel('Retry errors', retryable)}`)}</button>`;
-  // Force refresh: read the errored files again and remake their thumbnails,
-  // without redoing the AI scan (the fix for files scanned mid-copy).
-  const refreshBtn = errored === 0 || typeof window.vaultForceRefresh !== 'function' ? '' : `<button class="sel-btn sel-refresh" onclick="forceRefreshSelected(this)"
-    title="Read ${selFiles(errored)} with an error again and remake their thumbnails, without redoing the AI scan"
-    >${vaultEmojiLabel(`🔄 ${selBtnLabel('Force refresh', errored)}`)}</button>`;
-
-  // Files marked as failed to play: clear the mark so playback tries them
-  // again (a drive that was asleep, a server restart mid-file). Only offered
-  // when the selection has some.
-  const failedBtn = !counts.failed ? '' : `<button class="sel-btn sel-playable" onclick="markPlayableSelected()"
-    title="${selFiles(counts.failed)} marked as unplayable. Clear the mark so playback tries ${counts.failed === 1 ? 'it' : 'them'} again"
-    >${vaultEmojiLabel(`▶ ${selBtnLabel('Mark as playable', counts.failed)}`)}</button>`;
-
-  // A collection is open: its ticked files can be taken out of it (collections.js).
-  const inCollIds = typeof selectedInOpenCollection === 'function' ? selectedInOpenCollection() : [];
-  const inCollection = inCollIds.length;
-  // Skip / Unskip them (collection-skips.js): they keep their places, playback passes over them.
-  const skipBtn = typeof skipSelectionButton === 'function' ? skipSelectionButton(inCollIds) : '';
-  const uncollectBtn = inCollection === 0 ? '' : `<button class="sel-btn sel-uncollect" onclick="removeSelectedFromCollection()"
-    title="Take ${selFiles(inCollection)} out of this collection. The files themselves are not touched"
-    >${vaultEmojiLabel(`➖ ${selBtnLabel('Remove from this collection', inCollection)}`)}</button>`;
-
-  bar.innerHTML = `
-    <span class="sel-count">${selectedIds.size.toLocaleString()} selected</span>
-    ${uncollectBtn}
-    ${skipBtn}
-    ${typeof UpNext === 'undefined' ? '' : `<button class="sel-btn sel-upnext" onclick="upNextAddSelection('next')" title="Play the selected files after the one playing now (Shift+U)">${vaultIconSwap('⤴ ', 'play-next')}Play next</button>
-    <button class="sel-btn sel-upnext" onclick="upNextAddSelection('end')" title="Add the selected files to the end of Up next (U)">${vaultIconSwap('＋ ', 'queue')}Up next</button>`}
-    ${musicBtns}
-    ${typeof studiosSelectionButton === 'function' ? studiosSelectionButton() : ''}
-    ${typeof streamTagsSelectionButton === 'function' ? streamTagsSelectionButton() : ''}
-    ${typeof facesSelectionButton === 'function' ? facesSelectionButton(counts.faceable) : ''}
-    ${typeof shareSelectionButton === 'function' ? shareSelectionButton() : ''}
-    ${retryBtn}
-    ${refreshBtn}
-    ${failedBtn}
-    ${activeCount > 0 ? `<button class="sel-btn sel-trash" onclick="trashSelected()" title="Move ${selFiles(activeCount)} to the trash">${vaultEmojiLabel(`🗑 ${selBtnLabel('Trash', activeCount)}`)}</button>` : ''}
-    ${trashedCount > 0 ? `<button class="sel-btn sel-restore" onclick="restoreSelected()" title="Take ${selFiles(trashedCount)} out of the trash">${vaultEmojiLabel(`♻ ${selBtnLabel('Restore', trashedCount)}`)}</button>` : ''}
-    ${flagBtn}
-    <button class="sel-btn sel-collect" onclick="addSelectionToCollection(this)" title="Add the selected files to a collection">${vaultEmojiLabel('📁 Add to collection')}</button>
-    <!-- irreversible, and Select all can point it at the whole library: the
-         confirm dialog names the count before anything happens -->
-    <button class="sel-btn sel-remove" onclick="removeSelectedRecords()" title="Take the selected files out of the library. The files on disk are not touched">${vaultEmojiLabel('✂ Remove from library')}</button>
-    ${SEL_CLEAR_BTN}
-  `;
+  const c = selBarContext();
+  const shown = selVisibleActions(c);
+  const pins = selPinnedSet();
+  _selBar.mode = 'library';
+  _selBar.c = c;
+  _selBar.shown = shown;
+  _selBar.pinned = shown.filter(a => pins.has(a.id));
   bar.classList.add('visible');
   fitSelectionBar(bar);
+  if (selMenuOpen()) renderSelMenu();
 }
 
-/* When the bar's words would wrap it onto a second line (a narrow window, the
-   rail or the dock open, many buttons), the buttons show their icons only
-   (css/tiles.css .sel-compact; the emoji in Classic). One line high, the bar fits in the
-   pager's strip and covers no tiles; the grid never re-lays for it. Re-checked
-   on every render and whenever the bar's size changes (the rail or the dock
-   opening narrows it). */
+/** One pinned action as a bar button: its short words, the full ones in the tooltip. */
+function selBarButtonHtml(a, c) {
+  const cls = selVal(a.cls, c);
+  const words = selActionWords(a, c, 'bar');
+  const full = selActionWords(a, c, 'menu');
+  const title = selVal(a.title, c);
+  // The Studio button keeps the caret that says a menu opens.
+  const caret = a.caret ? `<span class="vi-c"> ▾</span>${typeof vaultIcon === 'function' ? vaultIcon('caret', 'modern-only sel-caret') : ''}` : '';
+  return `<button type="button" class="sel-btn${cls ? ` ${cls}` : ''}" data-sel-act="${a.id}" title="${selAttr(full === words ? title : `${full}. ${title}`)}"${a.haspopup ? ' aria-haspopup="menu"' : ''}>${selActionLabelHtml(a, c, words)}${caret}</button>`;
+}
+
+function selBarHtml(c, pinned) {
+  const open = selMenuOpen();
+  const more = `<button type="button" class="sel-btn sel-more${open ? ' open' : ''}" data-sel-more aria-haspopup="menu" aria-expanded="${open ? 'true' : 'false'}" aria-controls="selMoreMenu" title="Everything you can do with the selected files">More<span class="vi-c"> ▴</span>${typeof vaultIcon === 'function' ? vaultIcon('caret', 'modern-only sel-caret sel-caret-up') : ''}</button>`;
+  return `<span class="sel-count">${selectedIds.size.toLocaleString()} selected</span>${pinned.map(a => selBarButtonHtml(a, c)).join('')}${more}${SEL_CLEAR_BTN}`;
+}
+
+/** Write the bar only when its markup changed: a repaint that says the same keeps focus and an open menu's anchor. */
+function writeSelBar(bar, html) {
+  if (bar._selHtml === html) return;
+  bar._selHtml = html;
+  bar.innerHTML = html;
+}
+
+/* The bar keeps to one line and never drops its words: when the pinned
+   buttons do not fit (a narrow window, the rail, the dock or the pager taking
+   room: the max-width rules in tiles.css, dock.css, filter-rail.css and
+   stage-remote.css), they go into More from the right, one at a time; the
+   count, More and the X always stay. Re-checked on every render, whenever the
+   bar's size changes and when the rail or the dock opens or closes. */
 function fitSelectionBar(bar) {
-  bar.classList.remove('sel-compact');
-  if (!bar.classList.contains('visible')) return;
+  if (!bar.classList.contains('visible') || _selBar.mode !== 'library' || !_selBar.c) return;
+  writeSelBar(bar, selBarHtml(_selBar.c, _selBar.pinned));
+  const btns = typeof bar.querySelectorAll === 'function' ? [...bar.querySelectorAll('[data-sel-act]')] : [];
+  for (const b of btns) b.hidden = false;
+  // Hidden from the right until the last piece (the X) is back on the first line.
+  for (let i = btns.length - 1; i >= 0 && selBarWraps(bar); i--) btns[i].hidden = true;
+  _selBar.onBar = new Set(btns.filter(b => !b.hidden).map(b => b.dataset.selAct));
+  bar.classList.toggle('sel-overflow', _selBar.onBar.size < btns.length);
+  wireSelectionBarFit(bar);
+}
+
+/** Does the bar run onto a second line? */
+function selBarWraps(bar) {
   const first = bar.firstElementChild, last = bar.lastElementChild;
-  if (first && last && last.offsetTop > first.offsetTop + 4) bar.classList.add('sel-compact');
+  return !!(first && last && last.offsetTop > first.offsetTop + 4);
+}
+
+function wireSelectionBarFit(bar) {
   if (bar._fitWired) return;
   bar._fitWired = true;
-  const refit = () => { if (bar.classList.contains('visible')) fitSelectionBar(bar); };
+  const refit = () => {
+    if (!bar.classList.contains('visible')) return;
+    fitSelectionBar(bar);
+    if (selMenuOpen()) placeSelMenu();
+  };
   window.addEventListener('resize', refit);
   if (typeof ResizeObserver === 'function') {
     // Skip the size the last fit left behind: fitting resizes the bar itself.
@@ -512,6 +740,12 @@ function fitSelectionBar(bar) {
       refit();
       seen = `${bar.offsetWidth}x${bar.offsetHeight}`;
     }).observe(bar);
+  }
+  // The rail or the dock opening or closing changes the room the bar has
+  // (a body class), and a bar that was short of room does not resize itself
+  // when the room comes back.
+  if (typeof MutationObserver === 'function' && document.body) {
+    new MutationObserver(refit).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   }
 }
 
@@ -528,8 +762,9 @@ function hideSelectionBar(bar) {
 let _selBarWasShown = false;
 
 /**
- * One listener on the bar: a press on any other bar button closes the
- * collections picker first, so two of the bar's menus never stack.
+ * The bar's listeners, once: its buttons run their actions, More opens the
+ * menu, and a press on any other bar button closes the collections picker
+ * first, so two of the bar's menus never stack.
  */
 function wireSelectionBar(bar) {
   _selBarWasShown = true;
@@ -541,6 +776,226 @@ function wireSelectionBar(bar) {
     // them after an add only when the picker is closed some other way).
     if (btn && !btn.classList.contains('sel-collect') && typeof closeCollectionPicker === 'function') closeCollectionPicker({ keepSelection: true });
   }, true);
+  bar.addEventListener('click', (e) => {
+    const more = e.target.closest && e.target.closest('[data-sel-more]');
+    if (more) { toggleSelMenu(); return; }
+    const btn = e.target.closest && e.target.closest('[data-sel-act]');
+    if (btn) selRunAction(btn.dataset.selAct, btn);
+  });
+  bar.addEventListener('keydown', (e) => {
+    if (!e.target.closest || !e.target.closest('[data-sel-more]')) return;
+    // Up or Down on More opens the menu at its first or last row.
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!selMenuOpen()) openSelMenu(e.key === 'ArrowDown' ? 0 : -1);
+    }
+  });
+}
+
+/** Run an action with the state the last render showed. el: its bar button, or More for a menu or picker. */
+function selRunAction(id, el) {
+  const a = SEL_ACTION_BY_ID.get(id);
+  const c = _selBar.c;
+  if (!a || !c || !selectedIds.size) return undefined;
+  return a.run(c, el || null);
+}
+
+/* ── More: every action for this selection ────────────────────────────────
+   Modelled on the Stream tag menu the bar already opens (stream-tags.js
+   openMenu): a box on <body> above the button, headings, key hints, closed by
+   Esc, a click outside or the button again. Each row has a pin that puts the
+   action on the bar or takes it off; a pin leaves the menu open. */
+
+let _selMenu = null;
+
+function selMenuOpen() {
+  return !!_selMenu;
+}
+
+function selMoreButton() {
+  return document.querySelector('#selectionBar [data-sel-more]');
+}
+
+function selSetMoreExpanded(open) {
+  const more = selMoreButton();
+  if (!more) return;
+  more.setAttribute('aria-expanded', open ? 'true' : 'false');
+  more.classList.toggle('open', !!open);
+}
+
+function toggleSelMenu() {
+  if (selMenuOpen()) closeSelMenu(true);
+  else openSelMenu(0);
+}
+
+/** focusIndex: the row to focus, -1 for the last. */
+function openSelMenu(focusIndex = 0) {
+  if (!_selBar.c || _selBar.mode !== 'library') return;
+  // One menu at a time: the bar's pickers go, and the hover popover.
+  closeSelectionPopovers();
+  if (typeof hideTilePopover === 'function') hideTilePopover();
+  const el = document.createElement('div');
+  el.id = 'selMoreMenu';
+  el.className = 'sel-menu';
+  el.setAttribute('role', 'menu');
+  el.setAttribute('aria-label', 'Everything you can do with the selected files');
+  el.addEventListener('click', onSelMenuClick);
+  el.addEventListener('keydown', onSelMenuKey);
+  _selMenu = el;
+  document.body.appendChild(el);
+  renderSelMenu();
+  selSetMoreExpanded(true);
+  setTimeout(() => { if (_selMenu === el) document.addEventListener('pointerdown', selMenuOutside, true); }, 0);
+  const rows = selMenuRows();
+  const at = rows[focusIndex < 0 ? rows.length - 1 : Math.min(focusIndex, rows.length - 1)];
+  if (at) at.focus({ preventScroll: true });
+}
+
+/** refocus: put the focus back on More (Esc, the button again). */
+function closeSelMenu(refocus) {
+  if (!_selMenu) return;
+  const el = _selMenu;
+  _selMenu = null;
+  document.removeEventListener('pointerdown', selMenuOutside, true);
+  el.remove();
+  selSetMoreExpanded(false);
+  if (refocus) {
+    const more = selMoreButton();
+    if (more) { try { more.focus({ preventScroll: true }); } catch {} }
+  }
+}
+
+function selMenuOutside(e) {
+  if (!_selMenu) return;
+  if (_selMenu.contains(e.target)) return;
+  // More's own click toggles it.
+  if (e.target.closest && e.target.closest('[data-sel-more]')) return;
+  closeSelMenu(false);
+}
+
+/** One row: the action, then its pin. */
+function selMenuRowHtml(a, c, pins) {
+  const words = selActionWords(a, c, 'menu');
+  const pinned = pins.has(a.id);
+  const onBar = _selBar.onBar.has(a.id);
+  const note = onBar ? 'On the bar' : pinned ? 'Pinned, no room' : '';
+  const name = selVal(a.menu || a.bar, c);
+  const pinName = pinned ? `Take ${name} off the bar` : `Put ${name} on the bar`;
+  const pinIcon = typeof vaultIconSwap === 'function' ? vaultIconSwap('📌', 'pin') : '📌';
+  return `<div class="sel-mrow${a.danger ? ' sel-mrow-danger' : ''}" role="none">
+    <button type="button" role="menuitem" class="sel-mi" data-sel-mi="${a.id}" title="${selAttr(selVal(a.title, c))}">
+      <span class="sel-mi-label">${selActionLabelHtml(a, c, words)}</span>
+      ${note ? `<span class="sel-mi-note${onBar ? ' on' : ''}">${note}</span>` : ''}
+      ${a.kbd ? `<kbd class="sel-mi-kbd">${a.kbd}</kbd>` : ''}
+    </button>
+    <button type="button" role="menuitemcheckbox" class="sel-pin${pinned ? ' on' : ''}" data-sel-pin="${a.id}" aria-checked="${pinned ? 'true' : 'false'}" aria-label="${selAttr(pinName)}" title="${pinned ? 'Take off the bar' : 'Put on the bar'}">${pinIcon}</button>
+  </div>`;
+}
+
+function selMenuHtml() {
+  const c = _selBar.c;
+  const pins = selPinnedSet();
+  const groups = SEL_GROUPS.map(g => ({ g, acts: _selBar.shown.filter(a => a.group === g.id) })).filter(x => x.acts.length);
+  const body = groups.filter(x => x.g.id !== 'danger').map(({ g, acts }) => `
+    <div class="sel-menu-group" role="group" aria-label="${g.label}">
+      <div class="sel-menu-head" aria-hidden="true">${g.label}</div>
+      ${acts.map(a => selMenuRowHtml(a, c, pins)).join('')}
+    </div>`).join('');
+  const danger = groups.find(x => x.g.id === 'danger');
+  return `<div class="sel-menu-groups">${body}</div>
+    <div class="sel-menu-foot">
+      ${danger ? `<div class="sel-menu-group sel-menu-danger" role="group" aria-label="${danger.g.label}">${danger.acts.map(a => selMenuRowHtml(a, c, pins)).join('')}</div>` : ''}
+      <button type="button" role="menuitem" class="sel-menu-reset" data-sel-reset>Back to the default buttons</button>
+    </div>`;
+}
+
+/** Draw the open menu again (the selection or the pins changed), the focus where it was. */
+function renderSelMenu() {
+  const el = _selMenu;
+  if (!el) return;
+  const was = el.contains(document.activeElement) ? document.activeElement : null;
+  const key = was ? (was.dataset.selMi ? `[data-sel-mi="${was.dataset.selMi}"]` : was.dataset.selPin ? `[data-sel-pin="${was.dataset.selPin}"]` : was.hasAttribute('data-sel-reset') ? '[data-sel-reset]' : '') : '';
+  const html = selMenuHtml();
+  if (el._html !== html) {
+    el._html = html;
+    el.innerHTML = html;
+  }
+  placeSelMenu();
+  if (was && !el.contains(document.activeElement)) {
+    const back = (key && el.querySelector(key)) || selMenuRows()[0];
+    if (back) back.focus({ preventScroll: true });
+  }
+}
+
+/** Above the bar, inside the window: as tall as the room above the bar allows (it scrolls inside). */
+function placeSelMenu() {
+  const el = _selMenu;
+  const bar = document.getElementById('selectionBar');
+  if (!el || !bar) return;
+  const vw = window.innerWidth;
+  // Layout numbers, not getBoundingClientRect: the bar may still be sliding in.
+  const barBottom = typeof getComputedStyle === 'function' ? (parseFloat(getComputedStyle(bar).bottom) || 0) : 0;
+  // Measured from the bottom, so a window made shorter keeps it inside
+  // before the next placing.
+  const above = barBottom + (bar.offsetHeight || 0);
+  el.style.maxHeight = `max(160px, calc(100vh - ${Math.round(above + 16)}px))`;
+  el.style.bottom = `${Math.max(8, Math.round(above + 8))}px`;
+  const w = el.offsetWidth || 0;
+  el.style.left = `${Math.max(8, Math.min(bar.offsetLeft || 0, vw - w - 8))}px`;
+}
+
+/** The rows' first buttons (and the reset link), in order: what Up and Down move through. */
+function selMenuRows() {
+  return _selMenu ? [..._selMenu.querySelectorAll('.sel-mi, .sel-menu-reset')] : [];
+}
+
+function onSelMenuClick(e) {
+  const t = e.target;
+  const pin = t.closest('[data-sel-pin]');
+  if (pin) {
+    // A pin changes the bar, never runs the action, and the menu stays.
+    selSetPinned(pin.dataset.selPin, pin.getAttribute('aria-checked') !== 'true');
+    return;
+  }
+  if (t.closest('[data-sel-reset]')) { selResetPinned(); return; }
+  const mi = t.closest('[data-sel-mi]');
+  if (!mi) return;
+  const a = SEL_ACTION_BY_ID.get(mi.dataset.selMi);
+  if (!a) return;
+  // A menu or picker opens where More is, and takes the focus itself.
+  closeSelMenu(!a.popover);
+  selRunAction(a.id, a.popover ? selMoreButton() : null);
+}
+
+/**
+ * Up / Down move between rows (staying on the pins when on a pin), Left /
+ * Right between a row and its pin, Home / End to the first and last row.
+ * Enter and Space press the button (the browser's own). Esc and Tab close it
+ * and the focus goes back to More.
+ */
+function onSelMenuKey(e) {
+  const rows = selMenuRows();
+  const cur = document.activeElement;
+  const onPin = !!(cur && cur.classList && cur.classList.contains('sel-pin'));
+  const rowOf = (el) => (el && el.classList && el.classList.contains('sel-pin') ? el.previousElementSibling : el);
+  const at = rows.indexOf(rowOf(cur));
+  const go = (i) => {
+    if (!rows.length) return;
+    const row = rows[(i + rows.length) % rows.length];
+    const pin = onPin && row.nextElementSibling && row.nextElementSibling.classList.contains('sel-pin') ? row.nextElementSibling : null;
+    (pin || row).focus({ preventScroll: true });
+  };
+  let handled = true;
+  if (e.key === 'ArrowDown') go(at + 1);
+  else if (e.key === 'ArrowUp') go(at < 0 ? -1 : at - 1);
+  else if (e.key === 'Home') go(0);
+  else if (e.key === 'End') go(rows.length - 1);
+  else if (e.key === 'ArrowRight' && !onPin && cur && cur.nextElementSibling && cur.nextElementSibling.classList.contains('sel-pin')) cur.nextElementSibling.focus();
+  else if (e.key === 'ArrowLeft' && onPin) cur.previousElementSibling.focus();
+  else if (e.key === 'Escape' || e.key === 'Tab') closeSelMenu(true);
+  else handled = false;
+  // The page's own keys (paging, the dock, Esc clearing things) stay out of it.
+  if (handled) { e.preventDefault(); e.stopPropagation(); }
 }
 
 /**

@@ -373,9 +373,9 @@ body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom
 }
 
 /* Anchored bottom-LEFT so it never covers the centered page numbers. The
-   right edge is capped and the row wraps: with every conditional button showing
-   at once (Music ID + Stack + Grid + Retry + Trash + Restore + …) a single line
-   used to run out past the pagination instead of stopping at the viewport. */
+   right edge is capped. It holds a few pinned buttons, More and the X on one
+   line: pinned buttons that would wrap wait in More instead (selection.js
+   fitSelectionBar), and the wrap below is only how that is measured. */
 .selection-bar {
   position: fixed;
   left: 18px;
@@ -427,6 +427,8 @@ body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom
   font-size: 0.78rem;
   cursor: pointer;
 }
+/* A bar button's words stay on one line. */
+.selection-bar .sel-btn { white-space: nowrap; }
 
 .sel-btn:hover { border-color: var(--accent); }
 .sel-btn.sel-trash { border-color: var(--danger); color: #fca5a5; }
@@ -499,16 +501,138 @@ body.layout-modern .selection-bar .sel-btn.sel-clear {
   color: var(--m-muted);
 }
 body.layout-modern .selection-bar .sel-btn.sel-clear:hover { background: var(--m-btn); color: var(--m-text); }
-/* Compact (selection.js fitSelectionBar): the words would need a second line,
-   so the buttons keep their icons only. The words stay in the DOM, so each
-   button keeps its name for screen readers, and the title names it on hover.
-   One line high, the bar fits the pager's strip and covers no tiles. */
-body.layout-modern .selection-bar.sel-compact .sel-btn:has(> svg.vi) { font-size: 0; padding: 6px 9px; }
-body.layout-modern .selection-bar.sel-compact .sel-btn .vi-gap { margin-right: 0; }
-body.layout-modern .selection-bar.sel-compact .sel-btn .sel-caret { margin-left: 2px; }
-/* Classic: the same, keeping the emoji. */
-body:not(.layout-modern) .selection-bar.sel-compact .sel-btn:has(> .vi-c) { font-size: 0; }
-body:not(.layout-modern) .selection-bar.sel-compact .sel-btn .vi-c { font-size: 0.85rem; }
+/* A pinned button with no room on the line waits in More (selection.js
+   fitSelectionBar): the bar never drops its words for icons. */
+.selection-bar .sel-btn[hidden],
+body.layout-modern .selection-bar .sel-btn[hidden] { display: none; }
+/* More: lit while its menu is open, like a bar button whose menu is open. */
+.sel-btn.sel-more.open { border-color: var(--accent); }
+body.layout-modern .selection-bar .sel-btn.sel-more.open { background: var(--m-btn-hover); border-color: var(--accent); }
+body.layout-modern .selection-bar .sel-caret-up { transform: rotate(180deg); }
+
+/* ── The selection bar's More menu (selection.js openSelMenu): every action
+   for the selection under its group heading, above the bar. The same box,
+   rows, headings and key hints as the Stream tag menu it opens beside
+   (css/stream-tags.css .stag-menu). */
+.sel-menu {
+  position: fixed;
+  z-index: 9200;                     /* over the bar, the Stage bar and the pager */
+  box-sizing: border-box;
+  width: min(600px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);    /* selection.js places it: the room above the bar */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.3rem;
+  background: var(--bg-secondary, #181825);
+  border: 1px solid var(--border, #444);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  font-size: 0.85rem;
+  color: var(--text-primary, #eee);
+}
+body.layout-modern .sel-menu {
+  background: var(--m-surface-solid, #18181b);
+  border-color: var(--m-border-strong, #3f3f46);
+  border-radius: var(--m-radius, 10px);
+  box-shadow: var(--m-shadow);
+  font-size: 13px;
+}
+/* Two columns while there is room for them, one on a narrow window. */
+.sel-menu-groups { columns: 2 270px; column-gap: 0.5rem; }
+.sel-menu-group { break-inside: avoid; padding-bottom: 0.2rem; }
+.sel-menu-head {
+  padding: 0.4rem 0.55rem 0.15rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted, #888);
+}
+.sel-mrow { display: flex; align-items: center; gap: 2px; }
+.sel-mi {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.38rem 0.55rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sel-mi-label { flex: 1 1 auto; min-width: 5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.layout-modern .sel-mi-label { display: inline-flex; align-items: center; }
+body.layout-modern .sel-mi-label .vi { width: 16px; height: 16px; flex: none; }
+body.layout-modern .sel-mi-label .vi-gap { margin-right: 8px; }
+.sel-mi-note { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 0.72rem; color: var(--text-muted, #888); white-space: nowrap; }
+.sel-mi-note.on { color: var(--accent-hover, #818cf8); }
+.sel-mi-kbd {
+  flex: none;
+  font: 600 0.7rem ui-monospace, "Cascadia Mono", monospace;
+  color: var(--text-secondary, #aaa);
+  border: 1px solid var(--border, #444);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 5px;
+  background: var(--bg-primary, #111);
+}
+/* The pin: puts the action on the bar or takes it off (not a star: stars
+   are ratings here). Quiet until it is on. */
+.sel-pin {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted, #888);
+  font: inherit;
+  cursor: pointer;
+  opacity: 0.55;
+}
+.sel-pin .vi { width: 15px; height: 15px; }
+.sel-pin.on { color: var(--accent-hover, #818cf8); opacity: 1; }
+.sel-mrow:hover .sel-pin { opacity: 1; }
+.sel-mi:hover, .sel-mi:focus-visible,
+.sel-pin:hover, .sel-pin:focus-visible,
+.sel-menu-reset:hover, .sel-menu-reset:focus-visible { background: var(--bg-hover, #2a2a3e); outline: none; }
+body.layout-modern .sel-mi:hover, body.layout-modern .sel-mi:focus-visible,
+body.layout-modern .sel-pin:hover, body.layout-modern .sel-pin:focus-visible,
+body.layout-modern .sel-menu-reset:hover, body.layout-modern .sel-menu-reset:focus-visible { background: var(--m-btn-hover); }
+.sel-pin:focus-visible { opacity: 1; }
+/* Trash and Remove from library: apart at the bottom, in red. */
+.sel-menu-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+  margin-top: 0.2rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border, #444);
+}
+body.layout-modern .sel-menu-foot { border-top-color: var(--m-border-strong, #3f3f46); }
+.sel-menu-danger { display: flex; flex-wrap: wrap; gap: 0 0.5rem; padding: 0; }
+.sel-mrow-danger .sel-mi { color: #fca5a5; }
+body.layout-modern .sel-mrow-danger .sel-mi { color: var(--m-danger-text); }
+.sel-menu-reset {
+  margin-left: auto;
+  padding: 0.38rem 0.55rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--accent-hover, #818cf8);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
 
 /* ── Tile tick box, Modern: a round tick on a dark disc instead of the
    browser checkbox (the same tick as .m-check in css/layout-modern.css). */

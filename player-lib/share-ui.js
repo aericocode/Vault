@@ -1299,13 +1299,6 @@ async function shareStatePoll() {
 
 /* ── Entry points ─────────────────────────────────────────────────────── */
 
-/** The selection bar's "Share privately" button (only while the feature is on). */
-function shareSelectionButton() {
-  if (!shareEnabled()) return '';
-  const label = typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel('📤 Share privately') : '📤 Share privately';
-  return `<button class="sel-btn sel-share" type="button" onclick="shareOpenForSelection()" title="Pack the selected files into a locked archive and upload it to gofile.io, after two checks">${label}</button>`;
-}
-
 /** Classic details: a button beside Copy Path, for one file. */
 function shareDetailButtonHtml(media) {
   if (!shareEnabled() || !media || media.media_type === 'mix') return '';

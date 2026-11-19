@@ -931,6 +931,7 @@ function openCollectionPicker(ids, anchorEl) {
   // One menu at a time: the Studio menu (studios.js) closes when this opens.
   if (typeof stClosePops === 'function') stClosePops();
   _pickerFromBar = !!(anchorEl && anchorEl.closest && anchorEl.closest('#selectionBar'));
+  _pickerAnchor = _pickerFromBar ? anchorEl : null;
   _pickerRun = { fromBar: _pickerFromBar, added: new Set(), closed: false, keep: false };
   _pickerFilter = '';
   _pickerNaming = null;
@@ -961,6 +962,7 @@ function openCollectionPicker(ids, anchorEl) {
 }
 
 let _pickerFit = null;   // the ResizeObserver keeping the open picker on screen
+let _pickerAnchor = null; // the selection bar button it opened from (Esc goes back to it)
 
 /** Move the picker up so its bottom stays 12px above the window's (never past the top). */
 function _pickerKeepOnScreen(panel) {
@@ -987,7 +989,10 @@ function _pickerEsc(e) {
   if (_pickerNaming && e.target && e.target.id === 'collPickerFilter') return;
   e.preventDefault();
   e.stopPropagation();
-  const back = document.querySelector('#selectionBar .sel-collect');
+  // Back to the bar button it opened from: Collect, or More when it was
+  // opened from the More menu.
+  const back = (_pickerAnchor && _pickerAnchor.isConnected && _pickerAnchor)
+    || document.querySelector('#selectionBar .sel-collect:not([hidden])') || document.querySelector('#selectionBar .sel-more');
   closeCollectionPicker();
   if (back && _pickerFromBarWas) back.focus();
 }

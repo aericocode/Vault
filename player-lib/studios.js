@@ -14,7 +14,7 @@
      faces-tab.js   ftRenderHome() hands the view over in Studios mode;
                     the person page draws studio chips with the helpers here
      filters.js     studiosQuery()
-     selection.js   studiosSelectionButton()       "🏢 Studio ▾"
+     selection.js   studiosSelectionPick(btn)      the selection bar's Studio
      detail-view.js studiosDetailItemHtml(media)   the File Info "Studio" row
      cards.js       studiosTileTagHtml(media)      the studio name on a tile
    Server: /api/studios*, /api/media/studio (server/studios-routes.js).
@@ -969,15 +969,6 @@ function stPicker(anchor, { title = '', placeholder = 'Find or make a studio', a
 }
 
 /* ── Putting files in a studio ────────────────────────────────────────── */
-
-/** Selection bar button (Library tab). */
-function studiosSelectionButton() {
-  const modern = typeof vaultIsModern === 'function' && vaultIsModern();
-  const label = typeof vaultEmojiLabel === 'function'
-    ? vaultEmojiLabel(modern ? '🏢 Studio' : '🏢 Studio ▾') + (modern ? stIcon('caret', 'sel-caret') : '')
-    : '🏢 Studio ▾';
-  return '<button class="sel-btn sel-studio" type="button" onclick="studiosSelectionPick(this)" title="Put the selected files in a studio">' + label + '</button>';
-}
 
 /**
  * Is any of these files in a studio? 'yes', 'no', or 'unknown' when a row

@@ -2489,7 +2489,7 @@ function facesPersonFilesShowing() {
   return ftOnTab() && FT.mode === 'people' && FT.personId != null;
 }
 
-/** The selection bar's button on a person's page (faces.js facesSelectionButton). */
+/** The selection bar's button on a person's page (selection.js renderSelectionBar). */
 function ftRemoveSelectedButton(n) {
   if (!n || !ftOnTab() || FT.mode !== 'people' || FT.personId == null || !FT.person) return '';
   const p = FT.person;

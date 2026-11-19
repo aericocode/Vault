@@ -5,7 +5,7 @@
      detail-view.js   renderFacesSection()      the People row (modal + sidebar)
      filters.js       setFocusIds(ids, label, opts)   the person focus banner
      filter-chips.js  facesFindChipHtml()       "Find a person" before More
-     selection.js     facesSelectionButton(n)   "Find faces (N)"
+     selection.js     facesReady(), facesIndexSelection()   the selection bar's Faces
      player-video.js  renderFacesFrameButton()  "Find people in this frame"
      settings.js      facesSettingsHtml() / facesWireSettings()  Face search section
      importer.js      [data-no-import-drop]     the photo box keeps its drops;
@@ -993,24 +993,10 @@ function facesCloseMenu() {
 
 /* ── Tile right-click + selection bar ──────────────────────────────────── */
 
-/**
- * "Faces (N)" in the selection bar (short, so the bar stays one line); ''
- * while off. Adding faces to people is never done from a selection: the
- * results' review and picking mode do that, one face at a time.
- */
-function facesSelectionButton(n) {
-  if (!facesReady()) return '';
-  const out = typeof ftRemoveSelectedButton === 'function' && typeof selectedIds !== 'undefined' ? ftRemoveSelectedButton(selectedIds.size) : '';
-  if (!n) return out;
-  const label = `👤 ${facesSelLabel(n, typeof selectedIds !== 'undefined' ? selectedIds.size : n)}`;
-  return `${out}<button class="sel-btn sel-faces" onclick="facesIndexSelection()"
-    title="Find faces in the selected files">${typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(label) : label}</button>`;
-}
-
-/** "Faces", or "Faces (3)" when only 3 of the selected files are photos or videos (the bar already says "N selected"). */
-function facesSelLabel(n, selected) {
-  return n === selected ? 'Faces' : `Faces (${Number(n).toLocaleString()})`;
-}
+/* The selection bar's Faces (selection.js SEL_ACTIONS) queues the ticked
+   photos and videos while face search is on. Adding faces to people is never
+   done from a selection: the results' review and picking mode do that, one
+   face at a time. */
 
 let facesWatching = false;
 

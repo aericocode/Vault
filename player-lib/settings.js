@@ -82,6 +82,9 @@
     railOpen: null,         // Modern: left filter rail open (true/false); null = by window width
     collectionFiltersOpen: false, // Collections tab: filters shown (rail or chip rows); off by default
     wall: {},               // Wall tab controls (validated in wall.js)
+    // The selection bar's pinned buttons: action ids (selection.js SEL_ACTIONS),
+    // set by the pins in its More menu; null = the default set.
+    selBarPinned: null,
     _lastMediaId: null,     // internal: id for restoreSession
   };
 
@@ -430,6 +433,18 @@
     (settings.wall && typeof settings.wall === 'object') ? { ...settings.wall } : {};
   window.vaultSetWallSettings = function (obj) {
     settings.wall = { ...(obj || {}) };
+    save();
+  };
+
+  /* ── Selection bar pins ─────────────────────────────────
+     Which actions sit on the selection bar, set from the pins in its More
+     menu (player-lib/selection.js). A list of ids, kept as stored: an id this
+     version does not know (a later one's action) is ignored there, not
+     dropped here. null = the default buttons. */
+  window.vaultSelBarPinned = () =>
+    (Array.isArray(settings.selBarPinned) ? settings.selBarPinned.filter(k => typeof k === 'string') : null);
+  window.vaultSetSelBarPinned = function (ids) {
+    settings.selBarPinned = Array.isArray(ids) ? [...new Set(ids.filter(k => typeof k === 'string'))] : null;
     save();
   };
 
