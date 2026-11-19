@@ -509,8 +509,8 @@ function shareRowActions(share, enabled) {
     a.push('delete');
   } else if (st === 'paused' || st === 'not_finished') {
     a.push('view', 'resume', 'stop');
-  } else if (st === 'uploading' || st === 'packing' || st === 'checked') {
-    a.push('view');
+  } else if (st === 'uploading' || st === 'packing' || st === 'checked' || st === 'stopping') {
+    a.push('view');   // stopping: Stop and delete is running; nothing else until it ends
   } else if (st === 'failed') {
     if (share.onGofile) a.push('delete');
     a.push('remove');

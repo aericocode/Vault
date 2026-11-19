@@ -251,6 +251,7 @@ function shareStatusWords(share, now = Date.now()) {
     case 'expired': return { text: `Timer ran out${shareOnDay(s.deleteAt, now)}`, tone: 'done' };
     case 'deleted': return { text: `Deleted by you${shareOnDay(s.deletedAt, now)}`, tone: 'done' };
     case 'gone': return { text: 'Marked as gone', tone: 'done' };
+    case 'stopping': return { text: 'Stopping and deleting', tone: 'busy' };
     case 'cancelled': return { text: 'Stopped and deleted', tone: 'done' };
     case 'failed': return { text: 'Failed', tone: 'bad' };
     default: return { text: String(s.status || ''), tone: 'plain' };

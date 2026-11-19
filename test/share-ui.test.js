@@ -473,6 +473,33 @@ test('privacy: Copy link, Copy password and Copy as block still copy while pm-sh
   assert.strictEqual(pw.type, 'password', 'copying never shows it');
 });
 
+/* ── Stopping ────────────────────────────────────────────────────────── */
+
+test('stopping: My shares says so and offers only Open upload; the share window stays on 3b with its buttons off', async () => {
+  const L = load({ answers: {
+    'GET /api/share/shares/4/progress': { status: 200, body: { id: 4, status: 'stopping', error: null, upload: {
+      bytesDone: 10, bytesTotal: 20, percent: 50, partsAtOnce: 2, waitingInLine: false,
+      parts: [{ partNo: 1, fileName: 'a.7z.001', sizeBytes: 10, status: 'done', percent: 100 }, { partNo: 2, fileName: 'a.7z.002', sizeBytes: 10, status: 'failed', percent: 0 }],
+    } } },
+    'GET /api/share/shares/4': { status: 200, body: { share: { id: 4, status: 'stopping', archiveName: 'a' } } },
+  } });
+  setState(L);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(L.run(`shareStatusWords({ status: 'stopping' })`))), { text: 'Stopping and deleting', tone: 'busy' });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(L.run(`shareRowActions({ status: 'stopping', onGofile: true }, true)`))).map(a => a.key), ['view']);
+  const el = () => ({ textContent: '', disabled: false, hidden: false, dataset: {}, setAttribute: noop, firstElementChild: { style: {} } });
+  const retry = el();
+  const host = { innerHTML: '', querySelector: () => null, querySelectorAll: (s) => (s === '[data-sh-retry]' ? [retry] : []) };
+  const q = { '[data-sh-state]': el(), '[data-sh-act="pause"]': el(), '[data-sh-act="stop"]': el(), '[data-sh-parts]': host };
+  L.ctx.__q = q;
+  L.run(`_shareWin = { id: 4, step: 'upload', samples: [], share: { id: 4, status: 'paused' }, m: { q: (s) => __q[s] || null } }`);
+  await L.run('shareWindowRefresh()');
+  assert.strictEqual(L.run('_shareWin.step'), 'upload', 'not "This share has ended" while it is stopping');
+  assert.strictEqual(q['[data-sh-state]'].textContent, 'Stopping and deleting the uploaded parts.');
+  assert.strictEqual(q['[data-sh-act="pause"]'].disabled, true);
+  assert.strictEqual(q['[data-sh-act="stop"]'].disabled, true);
+  assert.strictEqual(retry.disabled, true);
+});
+
 /* ── Feature off ─────────────────────────────────────────────────────── */
 
 test('feature off: Delete and Stop stay available in My shares; Resume does not', () => {

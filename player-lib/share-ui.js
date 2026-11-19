@@ -402,7 +402,8 @@ async function shareWindowRefresh() {
   let next = before;
   if (p.status === 'packing') next = 'packing';
   else if (p.status === 'checked') next = before === 'confirm' ? 'confirm' : 'checked';
-  else if (['uploading', 'paused', 'not_finished'].includes(p.status)) next = 'upload';
+  // 'stopping': Stop and delete is running; stay on 3b (its buttons go off) until it ends.
+  else if (['uploading', 'paused', 'not_finished', 'stopping'].includes(p.status)) next = 'upload';
   else if (p.status === 'uploaded' || p.status === 'expired') next = 'done';
   else if (p.status === 'failed') next = 'failed';
   else next = 'ended';
@@ -875,6 +876,7 @@ function shareUploadUpdate() {
   if (!w || w.step !== 'upload') return;
   const q = w.m.q;
   const p = w.progress || {};
+  const stopping = p.status === 'stopping';
   const up = p.upload || { parts: [], bytesDone: 0, bytesTotal: 0, percent: 0 };
   const parts = up.parts || [];
   const bytes = q('[data-sh-bytes]');
@@ -909,7 +911,8 @@ function shareUploadUpdate() {
   const stateLine = q('[data-sh-state]');
   if (stateLine) {
     const enabled = shareEnabled();
-    stateLine.textContent = up.waitingInLine ? 'Waiting for another upload to finish.'
+    stateLine.textContent = p.status === 'stopping' ? 'Stopping and deleting the uploaded parts.'
+      : up.waitingInLine ? 'Waiting for another upload to finish.'
       : p.status === 'paused' ? (p.error || 'Paused.')
         : p.status === 'not_finished' ? 'Vault was closed during the upload. Resume to carry on.'
           : '';
@@ -920,10 +923,12 @@ function shareUploadUpdate() {
     const resume = p.status === 'paused' || p.status === 'not_finished';
     pause.textContent = resume ? 'Resume' : 'Pause';
     pause.dataset.shMode = resume ? 'resume' : 'pause';
-    pause.disabled = resume && !shareEnabled();
+    pause.disabled = (resume && !shareEnabled()) || stopping;
   }
+  const stopBtn = q('[data-sh-act="stop"]');
+  if (stopBtn) stopBtn.disabled = stopping;
   // Try again needs the feature on; Stop and delete works either way.
-  host?.querySelectorAll('[data-sh-retry]').forEach((b) => { b.disabled = !shareEnabled(); });
+  host?.querySelectorAll('[data-sh-retry]').forEach((b) => { b.disabled = !shareEnabled() || stopping; });
 }
 
 async function shareUploadAct(kind, arg) {
