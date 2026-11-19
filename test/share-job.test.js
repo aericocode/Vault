@@ -1,0 +1,576 @@
+/**
+ * Share privately: the upload job, saved state, resume, the password gate and
+ * the copy block (lib/share/service.js, store.js, gate.js, names.js), with a
+ * fake gofile client. No 7-Zip needed: shares are made 'checked' directly,
+ * with real part files in a real share_temp work folder.
+ *
+ * Covered (spec section 9): the auto rule (first part alone, then two at a
+ * time, one after a rate limit), retries per the setting, a failed part
+ * waiting for the user while the others go on, restart with parts present
+ * and with parts missing, pause on lock with no resume on unlock, stop and
+ * delete, offline and feature off making zero requests, confirm required,
+ * the gate (right, wrong, lockout, no password set), copy formats, what is
+ * kept when "remember" settings are off, delete all with per-row results,
+ * and that no password or token is in any page-facing answer.
+ */
+
+require('./helpers/no-real-lm');
+const test = require('node:test');
+const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-test-share-job-'));
+process.env.VAULT_DB = path.join(tmp, 'library.db');
+process.env.VAULT_SETTINGS_FILE = path.join(tmp, 'settings.json');
+process.env.VAULT_SHARE_TEMP = path.join(tmp, 'share_temp');
+delete process.env.VAULT_DB_PASSWORD;
+
+const config = require('../config');
+const db = require('../lib/database');
+const vault = require('../lib/vault');
+const store = require('../lib/share/store');
+const settings = require('../lib/share/settings');
+const temp = require('../lib/share/temp');
+const gate = require('../lib/share/gate');
+const names = require('../lib/share/names');
+const service = require('../lib/share/service');
+
+const TOKEN = 'TOKEN-secret-0123456789abcdef';
+const realFetch = globalThis.fetch;
+let realFetchCalls = 0;
+globalThis.fetch = async () => { realFetchCalls++; throw new Error('no real request in this test'); };
+
+test.before(() => {
+  db.init();
+  config.net.offline = false;
+  service.ensureRecovered();   // as the first route call after start does
+});
+test.after(() => {
+  globalThis.fetch = realFetch;
+  db.close();
+  try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
+});
+test.afterEach(async () => {
+  await service._idle();
+  assert.strictEqual(realFetchCalls, 0, 'a real request was made');
+});
+
+const immediate = () => new Promise(r => setImmediate(r));
+/** Resolves when the upload is aborted (at once if it already was). */
+const abortedP = (o) => new Promise(r => (o.signal.aborted ? r() : o.signal.addEventListener('abort', r, { once: true })));
+
+/** A fake gofile client. `onUpload(call)` may throw or wait. */
+function fakeClient({ onUpload } = {}) {
+  const c = {
+    calls: [], inflight: 0, maxInflight: 0, accounts: 0, folderSeq: 0,
+    async createAccount() { c.calls.push({ op: 'account' }); c.accounts++; return { token: `${TOKEN}-${c.accounts}` }; },
+    async uploadPart(o) {
+      const call = { op: 'upload', partFile: o.fileName, folderId: o.folderId, token: o.token, inflightAtStart: c.inflight + 1 };
+      c.calls.push(call);
+      c.inflight++;
+      c.maxInflight = Math.max(c.maxInflight, c.inflight);
+      try {
+        await immediate();
+        if (onUpload) await onUpload(call, o);
+        if (o.signal && o.signal.aborted) throw Object.assign(new Error('Stopped.'), { code: 'ABORTED' });
+        o.onBytes && o.onBytes(o.size);
+        const folder = o.folderId || `folder-${++c.folderSeq}`;
+        return { fileId: `file-${o.fileName}`, folderId: folder, code: 'Code123', link: 'https://gofile.io/d/Code123', md5: 'x' };
+      } finally {
+        c.inflight--;
+      }
+    },
+    async setExpiry(o) { c.calls.push({ op: 'expiry', ...o }); },
+    async deleteContent(o) { c.calls.push({ op: 'delete', ...o }); },
+  };
+  return c;
+}
+
+function useClient(c) {
+  service._setForTest({ client: c, sleep: () => immediate() });
+  return c;
+}
+
+/** A share that passed its checks, with real part files on disk. */
+function makeChecked({ parts = 3, size = 1000, kind = 'random', password = names.randomPassword(), keepPassword = true } = {}) {
+  const wd = temp.createWorkDir();
+  const name = names.randomArchiveName();
+  const list = [];
+  for (let i = 1; i <= parts; i++) {
+    const fileName = parts > 1 ? `${name}.7z.${String(i).padStart(3, '0')}` : `${name}.7z`;
+    const p = path.join(wd.dir, fileName);
+    fs.writeFileSync(p, Buffer.alloc(size, i));
+    const st = fs.statSync(p);
+    list.push({ partNo: i, fileName, size: st.size, mtimeMs: Math.trunc(st.mtimeMs) });
+  }
+  const id = store.insertShare({
+    archive_name: name, password: keepPassword ? password : null, password_kind: kind, size: parts * size,
+    part_count: parts, part_size: size, file_count: 2, status: 'checked', created_at: Date.now(),
+    delete_after_days: settings.get().deleteAfterDays, work_dir: wd.name,
+    checks: JSON.stringify({ ok: true }),
+  });
+  store.setParts(id, list);
+  store.setFiles(id, [{ fileName: 'a.mp4', size: 1, mediaId: 1 }, { fileName: 'b.mp4', size: 2, mediaId: null }]);
+  return { id, wd, name, password, list };
+}
+
+async function waitFor(fn, what, ms = 5000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (fn()) return;
+    await new Promise(r => setTimeout(r, 2));
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+const statusOf = (id) => store.getShare(id).status;
+
+function on(patch = {}) {
+  settings.save({ ...settings.DEFAULTS, enabled: true, ...patch });
+}
+
+test('upload needs confirm === true, the feature on, and VAULT_OFFLINE off; refusals make no request', async () => {
+  const c = useClient(fakeClient());
+  on();
+  const s = makeChecked();
+  assert.throws(() => service.confirmUpload(s.id, {}), { code: 'CONFIRM_NEEDED' });
+  assert.throws(() => service.confirmUpload(s.id, { confirm: 'true' }), { code: 'CONFIRM_NEEDED' });
+  on({ enabled: false });
+  assert.throws(() => service.confirmUpload(s.id, { confirm: true }), { code: 'FEATURE_OFF' });
+  on();
+  config.net.offline = true;
+  try {
+    assert.throws(() => service.confirmUpload(s.id, { confirm: true }), { code: 'NET_OFF' });
+  } finally { config.net.offline = false; }
+  assert.strictEqual(c.calls.length, 0);
+  assert.strictEqual(statusOf(s.id), 'checked');
+});
+
+test('only a checked share whose checks passed can be uploaded', async () => {
+  const c = useClient(fakeClient());
+  on();
+  const s = makeChecked();
+  store.updateShare(s.id, { checks: JSON.stringify({ ok: false }) });
+  assert.throws(() => service.confirmUpload(s.id, { confirm: true }), { code: 'NOT_CHECKED' });
+  store.updateShare(s.id, { checks: JSON.stringify({ ok: true }), status: 'packing' });
+  assert.throws(() => service.confirmUpload(s.id, { confirm: true }), { code: 'NOT_CHECKED' });
+  // Parts changed after the checks: refused, deleted, nothing sent.
+  store.updateShare(s.id, { status: 'checked' });
+  fs.appendFileSync(path.join(s.wd.dir, s.list[0].fileName), 'tamper');
+  assert.throws(() => service.confirmUpload(s.id, { confirm: true }), { code: 'PARTS_CHANGED' });
+  assert.strictEqual(statusOf(s.id), 'failed');
+  assert.strictEqual(c.calls.length, 0);
+});
+
+test('auto rule: first part alone, then two at a time, one at a time after a rate limit', async () => {
+  let n = 0;
+  const c = useClient(fakeClient({
+    onUpload: async () => {
+      const k = ++n;
+      await new Promise(r => setTimeout(r, 5));
+      if (k === 4) throw Object.assign(new Error('rate'), { code: 'RATE_LIMIT' });
+    },
+  }));
+  on();
+  const s = makeChecked({ parts: 8 });
+  service.confirmUpload(s.id, { confirm: true });
+  await waitFor(() => statusOf(s.id) === 'uploaded', 'upload');
+  const uploads = c.calls.filter(x => x.op === 'upload');
+  assert.strictEqual(uploads[0].inflightAtStart, 1, 'first part alone');
+  assert.strictEqual(uploads[0].folderId, null);
+  assert.ok(uploads.slice(1).every(u => u.folderId === 'folder-1'), 'later parts go into the folder');
+  assert.ok(uploads.slice(1, 3).some(u => u.inflightAtStart === 2), 'two at a time at first');
+  const afterLimit = uploads.slice(4);
+  assert.ok(afterLimit.length >= 3);
+  // After the rate limit answer, only the part that was already in flight can overlap once.
+  assert.ok(afterLimit.slice(1).every(u => u.inflightAtStart === 1), JSON.stringify(afterLimit.map(u => u.inflightAtStart)));
+  assert.strictEqual(service.progress(s.id).upload.partsAtOnce, 1);
+  assert.ok(store.getParts(s.id).every(p => p.status === 'done'));
+  // Timer set, local parts deleted (keep setting off).
+  const exp = c.calls.find(x => x.op === 'expiry');
+  assert.ok(exp && exp.folderId === 'folder-1');
+  assert.ok(Math.abs(exp.expiresAtSec * 1000 - (Date.now() + 7 * 86400000)) < 60000);
+  assert.strictEqual(store.getShare(s.id).timer_set, 1);
+  await waitFor(() => !fs.existsSync(s.wd.dir), 'local parts deleted');
+  assert.strictEqual(uploads.length, 9, 'the rate-limited part was sent again');
+  assert.strictEqual(new Set(uploads.map(u => u.token)).size, 1, 'one account for the whole share');
+});
+
+test('"ask me straight away": a failed part waits for the user, the others go on; Try again finishes', async () => {
+  let failOnce = true;
+  const c = useClient(fakeClient({
+    onUpload: async (call) => {
+      if (call.partFile.endsWith('.002') && failOnce) { failOnce = false; throw Object.assign(new Error('x'), { code: 'NETWORK' }); }
+    },
+  }));
+  on({ onPartFail: 'ask', deleteAfterDays: 0 });
+  const s = makeChecked({ parts: 4 });
+  service.confirmUpload(s.id, { confirm: true });
+  await waitFor(() => statusOf(s.id) === 'paused', 'paused');
+  const parts = store.getParts(s.id);
+  assert.deepStrictEqual(parts.map(p => p.status), ['done', 'failed', 'done', 'done']);
+  assert.strictEqual(parts[1].tries, 1);
+  assert.strictEqual(service.state().topBar.needsYou, 1);
+  assert.match(store.getShare(s.id).last_error, /1 part could not be uploaded/);
+  service.retryPart(s.id, 2);
+  await waitFor(() => statusOf(s.id) === 'uploaded', 'uploaded');
+  // Never: no timer call.
+  assert.ok(!c.calls.some(x => x.op === 'expiry'));
+  assert.strictEqual(store.getShare(s.id).delete_after, null);
+});
+
+test('"try 3 more times": a part that fails twice is retried and done', async () => {
+  let fails = 0;
+  const c = useClient(fakeClient({
+    onUpload: async (call) => {
+      if (call.partFile.endsWith('.001') && fails < 2) { fails++; throw Object.assign(new Error('x'), { code: 'GOFILE_ERROR' }); }
+    },
+  }));
+  on();
+  const s = makeChecked({ parts: 2 });
+  service.confirmUpload(s.id, { confirm: true });
+  await waitFor(() => statusOf(s.id) === 'uploaded', 'uploaded');
+  assert.strictEqual(store.getParts(s.id)[0].tries, 2);
+  assert.strictEqual(c.calls.filter(x => x.op === 'upload').length, 4);
+});
+
+test('restart while uploading: not resumed by itself, then Resume with the parts present finishes into the same folder', async () => {
+  let hold = true;
+  let release;
+  const gateP = new Promise(r => { release = r; });
+  const c = useClient(fakeClient({
+    onUpload: async (call, o) => {
+      if (!call.partFile.endsWith('.001') && hold) {
+        await Promise.race([gateP, abortedP(o)]);
+      }
+    },
+  }));
+  on();
+  const s = makeChecked({ parts: 3 });
+  service.confirmUpload(s.id, { confirm: true });
+  await waitFor(() => store.getParts(s.id)[0].status === 'done' && store.getParts(s.id)[1].status === 'uploading', 'part 2 in flight');
+  // "Restart": the process dies; memory is gone, the database is not.
+  await service.pause(s.id);   // stands in for the in-flight requests dying with the process
+  store.updateShare(s.id, { status: 'uploading' });
+  service._simulateRestart();
+  service.ensureRecovered();
+  assert.strictEqual(statusOf(s.id), 'not_finished');
+  assert.ok(store.getParts(s.id).every(p => p.status !== 'uploading'));
+  const before = c.calls.length;
+  await new Promise(r => setTimeout(r, 20));
+  assert.strictEqual(c.calls.length, before, 'nothing resumed by itself');
+  assert.strictEqual(service.listShares().find(x => x.id === s.id).canResume, true);
+  hold = false; release();
+  service.resume(s.id);
+  await waitFor(() => statusOf(s.id) === 'uploaded', 'uploaded');
+  const later = c.calls.slice(before).filter(x => x.op === 'upload');
+  assert.ok(later.length === 2 && later.every(u => u.folderId === 'folder-1'));
+  assert.ok(!later.some(u => u.partFile.endsWith('.001')), 'a done part is not sent again');
+  const tokens = new Set(c.calls.filter(x => x.op === 'upload').map(u => u.token));
+  assert.strictEqual(tokens.size, 1, 'the share keeps its account');
+});
+
+test('restart with the parts missing: Resume marks it failed, the uploaded parts can still be deleted', async () => {
+  const c = useClient(fakeClient({
+    onUpload: async (call) => { if (call.partFile.endsWith('.002')) throw Object.assign(new Error('x'), { code: 'NETWORK' }); },
+  }));
+  on({ onPartFail: 'ask' });
+  const s = makeChecked({ parts: 2 });
+  service.confirmUpload(s.id, { confirm: true });
+  await waitFor(() => statusOf(s.id) === 'paused', 'paused');
+  service._simulateRestart();
+  service.ensureRecovered();
+  fs.rmSync(s.wd.dir, { recursive: true, force: true });
+  assert.throws(() => service.resume(s.id), { code: 'PARTS_MISSING' });
+  assert.strictEqual(statusOf(s.id), 'failed');
+  const out = await service.deleteRemote(s.id);
+  assert.strictEqual(out.status, 'deleted');
+  const del = c.calls.find(x => x.op === 'delete');
+  assert.strictEqual(del.folderId, 'folder-1');
+});
+
+test('locking the library pauses the upload; unlocking does not resume it', async () => {
+  const c = useClient(fakeClient({
+    onUpload: async (call, o) => {
+      if (!call.partFile.endsWith('.001')) await abortedP(o);
+    },
+  }));
+  on();
+  const s = makeChecked({ parts: 3 });
+  service.confirmUpload(s.id, { confirm: true });
+  await waitFor(() => store.getParts(s.id).some(p => p.part_no > 1 && p.status === 'uploading'), 'in flight');
+  vault._notify('locking');
+  await service._idle();
+  assert.strictEqual(statusOf(s.id), 'paused');
+  assert.match(store.getShare(s.id).last_error, /library was locked/);
+  const n = c.calls.length;
+  vault._notify('unlocked');
+  await new Promise(r => setTimeout(r, 20));
+  assert.strictEqual(c.calls.length, n);
+  assert.strictEqual(statusOf(s.id), 'paused');
+});
+
+test('turning the feature off pauses a running upload', async () => {
+  useClient(fakeClient({
+    onUpload: async (call, o) => { if (!call.partFile.endsWith('.001')) await abortedP(o); },
+  }));
+  on();
+  const s = makeChecked({ parts: 2 });
+  service.confirmUpload(s.id, { confirm: true });
+  await waitFor(() => store.getParts(s.id)[1].status === 'uploading', 'in flight');
+  await service.updateSettings({ enabled: false });
+  assert.strictEqual(statusOf(s.id), 'paused');
+  assert.throws(() => service.resume(s.id), { code: 'FEATURE_OFF' });
+});
+
+test('stop and delete: gofile folder deleted, then local parts, then cancelled', async () => {
+  const c = useClient(fakeClient({
+    onUpload: async (call, o) => { if (!call.partFile.endsWith('.001')) await abortedP(o); },
+  }));
+  on();
+  const s = makeChecked({ parts: 3 });
+  service.confirmUpload(s.id, { confirm: true });
+  await waitFor(() => store.getParts(s.id)[1].status === 'uploading', 'in flight');
+  await assert.rejects(service.stop(s.id, {}), { code: 'CONFIRM_NEEDED' });
+  const out = await service.stop(s.id, { confirm: true });
+  assert.strictEqual(out.status, 'cancelled');
+  assert.ok(c.calls.some(x => x.op === 'delete' && x.folderId === 'folder-1'));
+  assert.ok(!fs.existsSync(s.wd.dir));
+});
+
+test('accounts: one per Vault start by default, a new one per share when chosen, never more', async () => {
+  const c = useClient(fakeClient());
+  db.get().exec('DELETE FROM share_accounts');
+  on({ accountMode: 'perStart' });
+  for (let i = 0; i < 2; i++) {
+    const s = makeChecked({ parts: 1 });
+    service.confirmUpload(s.id, { confirm: true });
+    await waitFor(() => statusOf(s.id) === 'uploaded', 'uploaded');
+  }
+  assert.strictEqual(c.accounts, 1);
+  on({ accountMode: 'perShare' });
+  for (let i = 0; i < 2; i++) {
+    const s = makeChecked({ parts: 1 });
+    service.confirmUpload(s.id, { confirm: true });
+    await waitFor(() => statusOf(s.id) === 'uploaded', 'uploaded');
+  }
+  assert.strictEqual(c.accounts, 3);
+});
+
+test('one share at a time: a second waits in line', async () => {
+  let release;
+  const held = new Promise(r => { release = r; });
+  const c = useClient(fakeClient({ onUpload: async (call) => { if (call.partFile.startsWith(first.name)) await held; } }));
+  on();
+  const first = makeChecked({ parts: 1 });
+  const second = makeChecked({ parts: 1 });
+  service.confirmUpload(first.id, { confirm: true });
+  service.confirmUpload(second.id, { confirm: true });
+  await new Promise(r => setTimeout(r, 20));
+  assert.strictEqual(service.progress(second.id).upload.waitingInLine, true);
+  assert.ok(!c.calls.some(x => x.op === 'upload' && x.partFile.startsWith(second.name)));
+  release();
+  await waitFor(() => statusOf(second.id) === 'uploaded', 'second uploaded');
+});
+
+test('no password or token in anything the page reads', async () => {
+  useClient(fakeClient());
+  on();
+  const s = makeChecked({ parts: 2 });
+  service.confirmUpload(s.id, { confirm: true });
+  await waitFor(() => statusOf(s.id) === 'uploaded', 'uploaded');
+  const text = JSON.stringify([service.state(), service.listShares(), service.getShare(s.id), service.progress(s.id), service.savedPasswordStatus()]);
+  assert.ok(!text.includes(s.password), 'password leaked');
+  assert.ok(!text.includes(TOKEN), 'token leaked');
+  assert.ok(!text.includes('folder-1'), 'folder id leaked');
+  // The gated reveal is the one place the password comes back.
+  assert.strictEqual(service.revealPassword(s.id).password, s.password);
+});
+
+test('copy block: default, one-line, own format, unknown pieces left as typed, values never re-expanded', () => {
+  const v = { link: 'https://gofile.io/d/Ab1', code: 'Ab1', pass: 'P{name}ss', name: 'Arch' };
+  assert.strictEqual(names.renderBlock(names.READY_FORMATS.default, v), 'https://gofile.io/d/Ab1\npass: P{name}ss');
+  assert.strictEqual(names.renderBlock(names.READY_FORMATS.oneLine, v), 'code: Ab1 | pass: P{name}ss');
+  assert.strictEqual(names.renderBlock('{name}: {link} {pass} {foo} {LINK} {{code}}', v), 'Arch: https://gofile.io/d/Ab1 P{name}ss {foo} {LINK} {Ab1}');
+  // No password kept: the block is the link alone when the format needs it.
+  assert.strictEqual(names.renderBlock(names.READY_FORMATS.default, { ...v, pass: null }), 'https://gofile.io/d/Ab1');
+  assert.strictEqual(names.renderBlock('code {code}', { ...v, pass: null }), 'code Ab1');
+  assert.strictEqual(names.formatFor({ copyFormat: 'custom', customFormat: '{code}' }), '{code}');
+  assert.strictEqual(names.formatFor({ copyFormat: 'custom', customFormat: '  ' }), names.READY_FORMATS.default);
+  assert.strictEqual(names.formatFor({ copyFormat: 'oneLine' }), names.READY_FORMATS.oneLine);
+});
+
+test('names and passwords: secure random, the right shape; typed names cleaned', () => {
+  for (let i = 0; i < 50; i++) {
+    assert.match(names.randomArchiveName(), /^[A-Za-z0-9]{12}$/);
+    assert.match(names.randomPassword(), /^[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){5}$/);
+  }
+  assert.strictEqual(names.cleanTypedName('  ../../evil\\name<>:"|?*.  '), 'evilname');
+  assert.strictEqual(names.cleanTypedName('Holiday 2026_v2-final.'), 'Holiday 2026_v2-final');
+  assert.strictEqual(names.cleanTypedName('x'.repeat(200)).length, 80);
+  assert.strictEqual(names.cleanTypedName('...'), '');
+  assert.throws(() => names.cleanTypedName('CON'), { code: 'BAD_NAME' });
+  assert.throws(() => names.cleanTypedName('nul.txt'), { code: 'BAD_NAME' });
+  assert.deepStrictEqual(names.uniqueNames(['a.mp4', 'A.mp4', 'a (2).mp4', 'b', 'b']), ['a.mp4', 'A (2).mp4', 'a (2) (2).mp4', 'b', 'b (2)']);
+});
+
+test('password gate: no Vault password set passes; right, wrong, lockout after 5, wait a minute', () => {
+  try {
+    gate._setForTest({ encrypted: () => false });
+    assert.strictEqual(gate.check(undefined), true);
+    let t = 1000000;
+    gate._setForTest({ encrypted: () => true, verify: (p) => p === 'right-pass', now: () => t });
+    assert.throws(() => gate.check(undefined), { code: 'GATE_NEEDED', status: 401 });
+    assert.strictEqual(gate.check('right-pass'), true);
+    for (let i = 1; i <= 4; i++) assert.throws(() => gate.check('wrong'), { code: 'GATE_WRONG', attemptsLeft: 5 - i });
+    assert.throws(() => gate.check('wrong'), { code: 'GATE_LOCKED', status: 429 });
+    // During the wait, even the right password is refused (and not checked).
+    assert.throws(() => gate.check('right-pass'), { code: 'GATE_LOCKED' });
+    t += 61000;
+    assert.strictEqual(gate.check('right-pass'), true);
+    // A right password clears the count.
+    assert.throws(() => gate.check('wrong'), { code: 'GATE_WRONG' });
+    assert.strictEqual(gate.check('right-pass'), true);
+    for (let i = 1; i <= 4; i++) assert.throws(() => gate.check('wrong'), { code: 'GATE_WRONG' });
+  } finally {
+    gate._reset();
+  }
+});
+
+test('saved-password shares are gated; random ones are not', () => {
+  useClient(fakeClient());
+  on();
+  const s = makeChecked({ kind: 'saved', password: 'My-Saved-Pass-1' });
+  store.updateShare(s.id, { link: 'https://gofile.io/d/Code123', code: 'Code123', status: 'uploaded' });
+  try {
+    gate._setForTest({ encrypted: () => true, verify: (p) => p === 'vault-pass' });
+    assert.throws(() => service.revealPassword(s.id, {}), { code: 'GATE_NEEDED' });
+    assert.throws(() => service.copyBlock(s.id, {}), { code: 'GATE_NEEDED' });
+    assert.throws(() => service.copyBlock(s.id, { vaultPassword: 'nope' }), { code: 'GATE_WRONG' });
+    assert.strictEqual(service.revealPassword(s.id, { vaultPassword: 'vault-pass' }).password, 'My-Saved-Pass-1');
+    assert.strictEqual(service.copyBlock(s.id, { vaultPassword: 'vault-pass' }).text, 'https://gofile.io/d/Code123\npass: My-Saved-Pass-1');
+    // A format without {pass} needs no Vault password.
+    assert.strictEqual(service.copyBlock(s.id, { format: '{link} ({name})' }).text, `https://gofile.io/d/Code123 (${s.name})`);
+    const r = makeChecked({ kind: 'random', password: 'Rand-Om00-Pass' });
+    store.updateShare(r.id, { link: 'https://gofile.io/d/R1', code: 'R1', status: 'uploaded' });
+    assert.strictEqual(service.revealPassword(r.id, {}).password, 'Rand-Om00-Pass');
+  } finally {
+    gate._reset();
+  }
+});
+
+test('saved default password: gated show and change, one-time warning with no Vault password, safe characters only', () => {
+  gate._setForTest({ encrypted: () => false });
+  try {
+    store.kvSet('warning_shown', null);
+    store.kvSet('saved_password', null);
+    assert.strictEqual(service.savedPasswordStatus().warningNeeded, true);
+    assert.throws(() => service.changeSavedPassword({ password: 'Good-Password-1' }), { code: 'WARNING_NEEDED' });
+    const r = service.changeSavedPassword({ password: 'Good-Password-1', acknowledgeNoVaultPassword: true });
+    assert.deepStrictEqual(r, { set: true, password: 'Good-Password-1' });
+    assert.strictEqual(service.savedPasswordStatus().warningNeeded, false);
+    for (const bad of ['short', 'has\nnewline-xx', 'tab\there-xxxx', ' leading-space', 'ünïcode-pass', 'x'.repeat(129)]) {
+      assert.throws(() => service.changeSavedPassword({ password: bad }), { code: 'BAD_PASSWORD' }, bad);
+    }
+    const rnd = service.changeSavedPassword({ random: true });
+    assert.match(rnd.password, /^[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){5}$/);
+    assert.strictEqual(service.revealSavedPassword({}).password, rnd.password);
+    gate._setForTest({ encrypted: () => true, verify: (p) => p === 'vault-pass' });
+    assert.throws(() => service.revealSavedPassword({}), { code: 'GATE_NEEDED' });
+    assert.throws(() => service.changeSavedPassword({ password: 'Another-Pass-2' }), { code: 'GATE_NEEDED' });
+    assert.throws(() => service.changeSavedPassword({ vaultPassword: 'bad', password: 'Another-Pass-2' }), { code: 'GATE_WRONG' });
+    assert.strictEqual(service.changeSavedPassword({ vaultPassword: 'vault-pass', password: 'Another-Pass-2' }).set, true);
+    assert.deepStrictEqual(service.changeSavedPassword({ vaultPassword: 'vault-pass', clear: true }), { set: false });
+    assert.strictEqual(service.savedPasswordStatus().set, false);
+  } finally {
+    gate._reset();
+  }
+});
+
+test('"Passwords of past shares" off: needs a confirm, clears stored passwords; new ones live in memory only', async () => {
+  useClient(fakeClient());
+  on();
+  const old = makeChecked({ password: 'Old-Pass-Word-1' });
+  store.updateShare(old.id, { status: 'uploaded', link: 'https://gofile.io/d/Old1', code: 'Old1' });
+  await assert.rejects(service.updateSettings({ rememberPasswords: false }), { code: 'CONFIRM_NEEDED' });
+  assert.strictEqual(settings.get().rememberPasswords, true);
+  const out = await service.updateSettings({ rememberPasswords: false }, { confirm: true });
+  assert.ok(out.passwordsCleared >= 1);
+  assert.strictEqual(store.getShare(old.id).password, null);
+  assert.strictEqual(service.copyBlock(old.id).text, 'https://gofile.io/d/Old1');
+  assert.throws(() => service.revealPassword(old.id), { code: 'NO_PASSWORD' });
+  await assert.rejects(service.updateSettings({ rememberFiles: false }), { code: 'CONFIRM_NEEDED' });
+  await service.updateSettings({ rememberFiles: false }, { confirm: true });
+  assert.strictEqual(service.getShare(old.id).files.length, 0);
+  settings.save({ rememberPasswords: true, rememberFiles: true });
+});
+
+test('delete all: one by one, a failing row stays with its reason', async () => {
+  const c = useClient(fakeClient());
+  c.deleteContent = async (o) => {
+    c.calls.push({ op: 'delete', ...o });
+    if (o.folderId === 'bad-folder') throw Object.assign(new Error('gofile refused the request.'), { code: 'GOFILE_ERROR' });
+  };
+  on();
+  for (const r of store.listShares()) store.deleteShare(r.id);
+  const acc = store.insertAccount(TOKEN, 'x');
+  const a = makeChecked(); store.updateShare(a.id, { status: 'uploaded', folder_id: 'good-folder', account_id: acc, link: 'https://gofile.io/d/A' });
+  const b = makeChecked(); store.updateShare(b.id, { status: 'uploaded', folder_id: 'bad-folder', account_id: acc, link: 'https://gofile.io/d/B' });
+  const g = makeChecked(); store.updateShare(g.id, { status: 'gone', folder_id: 'old-folder', account_id: acc });
+  await assert.rejects(service.deleteAll({}), { code: 'CONFIRM_NEEDED' });
+  const r = await service.deleteAll({ confirm: true });
+  assert.strictEqual(r.deleted, 1);
+  assert.strictEqual(r.failed, 1);
+  assert.deepStrictEqual(r.results.map(x => [x.id, x.ok]).sort(), [[a.id, true], [b.id, false]].sort());
+  assert.strictEqual(statusOf(a.id), 'deleted');
+  assert.strictEqual(statusOf(b.id), 'uploaded');
+  assert.match(store.getShare(b.id).last_error, /Could not delete/);
+  assert.ok(!c.calls.some(x => x.folderId === 'old-folder'), 'a share marked gone is left alone');
+  assert.ok(!JSON.stringify(r).includes(TOKEN));
+  // Feature off: delete makes no request at all.
+  on({ enabled: false });
+  const n = c.calls.length;
+  await assert.rejects(service.deleteRemote(b.id), { code: 'FEATURE_OFF' });
+  await assert.rejects(service.deleteAll({ confirm: true }), { code: 'FEATURE_OFF' });
+  assert.strictEqual(c.calls.length, n);
+});
+
+test('my shares: timer ran out is worked out from the clock; mark gone; remove asks first while it may be online', async () => {
+  useClient(fakeClient());
+  on();
+  const s = makeChecked();
+  store.updateShare(s.id, { status: 'uploaded', folder_id: 'f1', delete_after: Date.now() - 1000, link: 'https://gofile.io/d/X' });
+  assert.strictEqual(service.listShares().find(x => x.id === s.id).status, 'expired');
+  const t = makeChecked();
+  store.updateShare(t.id, { status: 'uploaded', folder_id: 'f2', delete_after: Date.now() + 100000, link: 'https://gofile.io/d/Y' });
+  await assert.rejects(service.remove(t.id, {}), { code: 'STILL_ONLINE' });
+  assert.strictEqual(service.markGone(t.id).status, 'gone');
+  assert.deepStrictEqual(await service.remove(t.id, {}), { removed: true });
+  assert.strictEqual(store.getShare(t.id), null);
+  assert.deepStrictEqual(await service.remove(s.id, {}), { removed: true });
+});
+
+test('restart throws away shares that never reached the upload, with their files', () => {
+  const s = makeChecked();
+  service._simulateRestart();
+  service.ensureRecovered();
+  assert.strictEqual(store.getShare(s.id), null);
+});
+
+test('settings: custom part size 50 MB to 16 GB, a bad value keeps the last good one', () => {
+  on({ split: 'custom', customPartBytes: 100 * settings.MB });
+  assert.throws(() => settings.validatePatch({ customPartBytes: 10 * settings.MB }), { code: 'BAD_PART_SIZE' });
+  assert.throws(() => settings.validatePatch({ customPartBytes: 17 * settings.GB }), { code: 'BAD_PART_SIZE' });
+  assert.throws(() => settings.validatePatch({ split: '3g' }), { code: 'BAD_INPUT' });
+  assert.throws(() => settings.validatePatch({ enabled: 'yes' }), { code: 'BAD_INPUT' });
+  assert.throws(() => settings.validatePatch({ somethingElse: 1 }), { code: 'BAD_INPUT' });
+  assert.strictEqual(settings.get().customPartBytes, 100 * settings.MB);
+  assert.strictEqual(settings.partBytes(), 100 * settings.MB);
+  on({ split: 'none' });
+  assert.strictEqual(settings.partBytes(), null);
+  // Reset keeps the on/off switch.
+  const r = settings.reset();
+  assert.strictEqual(r.enabled, true);
+  assert.strictEqual(r.split, '2g');
+});
