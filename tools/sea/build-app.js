@@ -16,7 +16,11 @@
  *   diarize_service.py, opus_translate.py     python sidecars (spawned by
  *                            path.join(__dirname,…) which inside a SEA exe
  *                            resolves to the exe's own directory)
- *   README.txt, SETUP.md, LICENSE
+ *   7-Zip/                   the 7-Zip program for Share privately (7za.exe
+ *                            on Windows, 7zzs on Linux, mode 755) and its
+ *                            License.txt, from vendor/7zip/ after its SHA-256
+ *                            is checked against vendor/7zip/SHA256SUMS
+ *   README.txt, SETUP.md, LICENSE, THIRD-PARTY.txt
  *
  * All app data (vault.db, thumbnails/, trash/, models/, …) is created
  * NEXT TO THE EXE on first run (lib/approot.js anchors every path there when
@@ -116,6 +120,27 @@ for (const pkg of ['better-sqlite3', 'better-sqlite3-multiple-ciphers']) {
   }
   console.log('  onnxruntime-node: ok (N-API, no RemoveEnvironmentCleanupHook)');
 }
+
+/* 0b ── the shipped 7-Zip program (Share privately), checked before dist/ is touched */
+step('7-Zip program check (vendor/7zip/SHA256SUMS)');
+const SEVENZIP = (() => {
+  const { shippedFor, SHIPPED_APP_DIR } = require(path.join(REPO, 'lib', 'share', 'sevenzip.js'));
+  const vendor7z = require('./vendor-7zip');
+  const s = shippedFor();
+  if (!s) {
+    console.log(`  none shipped for ${process.platform}-${process.arch}: Share privately will use an installed 7-Zip`);
+    return null;
+  }
+  const rel = `${s.vendorDir}/${s.file}`;
+  let r;
+  try { r = vendor7z.verify([rel])[0]; } catch (e) { die('vendor/7zip/SHA256SUMS', e); }
+  if (!r.expected) die(`vendor/7zip/${rel} is not listed in vendor/7zip/SHA256SUMS`);
+  if (!r.actual) die(`vendor/7zip/${rel} is missing`);
+  if (!r.ok) die(`vendor/7zip/${rel} does not match vendor/7zip/SHA256SUMS (expected ${r.expected}, got ${r.actual})`);
+  if (!fs.existsSync(path.join(vendor7z.VENDOR_DIR, s.vendorDir, 'License.txt'))) die(`vendor/7zip/${s.vendorDir}/License.txt is missing`);
+  console.log(`  vendor/7zip/${rel}: ok (sha256 ${r.actual})`);
+  return { src: path.join(vendor7z.VENDOR_DIR, s.vendorDir), file: s.file, appDir: SHIPPED_APP_DIR, sha256: r.actual };
+})();
 
 /* 1 ── clean output */
 step('clean dist/');
@@ -290,13 +315,37 @@ try {
   }
 } catch (e) { die('sidecars', e); }
 
+/* 7b ── the 7-Zip program (Share privately): shipped, never downloaded */
+if (SEVENZIP) {
+  step(`${SEVENZIP.appDir}/${SEVENZIP.file}`);
+  try {
+    const dir = path.join(OUT, SEVENZIP.appDir);
+    fs.mkdirSync(dir, { recursive: true });
+    const dst = path.join(dir, SEVENZIP.file);
+    fs.copyFileSync(path.join(SEVENZIP.src, SEVENZIP.file), dst);
+    fs.copyFileSync(path.join(SEVENZIP.src, 'License.txt'), path.join(dir, 'License.txt'));
+    if (!IS_WIN) fs.chmodSync(dst, 0o755);   // tar keeps it
+    // The copy is the checked file, and it starts on this machine.
+    const vendor7z = require('./vendor-7zip');
+    if (vendor7z.sha256File(dst) !== SEVENZIP.sha256) die('the copied 7-Zip program does not match its checked source');
+    const banner = execFileSync(dst, [], { windowsHide: true, timeout: 30000 }).toString('utf8');
+    const m = /7-Zip[^\r\n]*?\d+\.\d+[^\r\n]*/.exec(banner);
+    if (!m) die('the shipped 7-Zip program did not print its banner');
+    console.log('  ' + m[0].trim());
+  } catch (e) { die('7-Zip program', e); }
+}
+
 /* 8 ── docs + license (readable next to the exe) */
-step('docs (SETUP.md, LICENSE)');
+step('docs (SETUP.md, LICENSE, THIRD-PARTY.txt)');
 try {
   for (const d of DOCS) {
     fs.copyFileSync(path.join(REPO, d), path.join(OUT, d));
     console.log('  ' + d);
   }
+  // The third-party notices (hls.js, 7-Zip) next to the program as well as
+  // embedded with the viewer files.
+  fs.copyFileSync(path.join(REPO, 'player-lib', 'THIRD-PARTY.txt'), path.join(OUT, 'THIRD-PARTY.txt'));
+  console.log('  THIRD-PARTY.txt');
 } catch (e) { die('docs', e); }
 
 /* 9 ── README */
@@ -330,8 +379,11 @@ External tools:
   - fpcalc (Chromaprint)    — Music ID fingerprinting. Same ⬇ banner
   - LM Studio (or Ollama)   — AI scanning & semantic search. Separate install
   - python + faster-whisper — transcription & subtitles. Separate install
+  - 7-Zip                     Share privately. Included in the 7-Zip folder,
+                              nothing to install
 
 Full guide, model recommendations and every setting: SETUP.md (in this folder).
+Licenses of the parts Vault includes (7-Zip, hls.js): THIRD-PARTY.txt.
 
 This build is unsigned; Windows SmartScreen may warn on first run
 ("More info" → "Run anyway").
@@ -418,6 +470,8 @@ Programs Vault uses:
   - LM Studio (or Ollama)    AI scanning and semantic search. Separate install
   - python3 + faster-whisper transcription and subtitles. Separate install,
                              see SETUP.md
+  - 7-Zip                    Share privately. Included in the 7-Zip folder,
+                             nothing to install
 
 Stage on Wayland (the default on Ubuntu and Fedora): Vault opens the mpv
 Stage through XWayland, so it opens where you left it and comes to the
@@ -434,5 +488,6 @@ If Vault says the limit is reached, raise it with:
     sudo sysctl --system
 
 Full guide, model recommendations and every setting: SETUP.md (in this folder).
+Licenses of the parts Vault includes (7-Zip, hls.js): THIRD-PARTY.txt.
 `;
 }

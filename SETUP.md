@@ -58,6 +58,11 @@ The ⬇ banner puts the downloaded tools next to `Vault.exe` and they work
 immediately: no PATH edits, no restart. It applies to the source checkout
 too, where the tools land next to the repo.
 
+**7-Zip** (used by Share privately to pack files) comes with Vault: it is in
+the `7-Zip` folder next to the program (`vendor/7zip/` in a source checkout),
+so there is nothing to install. Its license is in `7-Zip/License.txt` and
+`THIRD-PARTY.txt`.
+
 **Subtitles are the exception.** They need a Python interpreter plus a pip
 package, so there's no single file to drop next to the exe. Press **Generate**
 without them and Vault explains exactly what's missing and how to install it.

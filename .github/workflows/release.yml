@@ -102,6 +102,13 @@ jobs:
             throw "Vault.exe is not inside $zip. Entries: $($entries -join ', ')"
           }
           Write-Host "Vault.exe confirmed inside the archive ($($entries.Count) entries)"
+          # Share privately needs the shipped 7-Zip (build-app.js checks its
+          # SHA-256 against vendor/7zip/SHA256SUMS before copying it).
+          $norm = $entries | ForEach-Object { $_ -replace '\\', '/' }
+          foreach ($f in @('7-Zip/7za.exe', '7-Zip/License.txt', 'THIRD-PARTY.txt')) {
+            if ($norm -notcontains $f) { throw "$f is not inside $zip" }
+          }
+          Write-Host "7-Zip confirmed inside the archive"
 
       # Manual runs stop here: the zip is downloadable from the run's summary
       # page. Useful for testing the pipeline before you tag. On a tag push the
@@ -160,6 +167,11 @@ jobs:
           # The program must be inside, under Vault/, and executable.
           tar -tvzf "$tgz" | grep -E '^-rwx.* Vault/Vault$' \
             || { echo "::error::Vault/Vault is missing from $tgz or not executable"; tar -tvzf "$tgz" | head -50; exit 1; }
+          # The shipped 7-Zip (Share privately), executable, with its license.
+          tar -tvzf "$tgz" | grep -E '^-rwx.* Vault/7-Zip/7zzs$' \
+            || { echo "::error::Vault/7-Zip/7zzs is missing from $tgz or not executable"; exit 1; }
+          tar -tzf "$tgz" | grep -x 'Vault/7-Zip/License.txt' \
+            || { echo "::error::Vault/7-Zip/License.txt is missing from $tgz"; exit 1; }
           echo "tgz=$(basename "$tgz")" >> "$GITHUB_OUTPUT"
           cp "$tgz" .
 
@@ -175,6 +187,8 @@ jobs:
           cd "$work/Vault"
           timeout 120 ./Vault status | tee out.txt
           grep -q 'Using encrypted SQLite' out.txt || { echo "::error::the encryption module did not load"; exit 1; }
+          ./7-Zip/7zzs > 7z.txt || { echo "::error::the shipped 7-Zip does not start"; exit 1; }
+          grep -q '7-Zip' 7z.txt || { echo "::error::the shipped 7-Zip printed no banner"; exit 1; }
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
