@@ -4,5 +4,9 @@
 # Playlist fixtures are byte-exact (LF vs CRLF, BOM, ANSI bytes are what the tests read)
 test/fixtures/playlists/** -text
 
+# Shipped 7-Zip programs and their license files are kept byte-exact (their
+# SHA-256 values are checked, and License.txt is reproduced as it came)
+vendor/7zip/** -text
+
 # Shell scripts run on Linux and macOS: a CRLF line ending breaks the #! line
 *.sh text eol=lf
