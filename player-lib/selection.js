@@ -472,6 +472,7 @@ function renderSelectionBar() {
     ${typeof studiosSelectionButton === 'function' ? studiosSelectionButton() : ''}
     ${typeof streamTagsSelectionButton === 'function' ? streamTagsSelectionButton() : ''}
     ${typeof facesSelectionButton === 'function' ? facesSelectionButton(counts.faceable) : ''}
+    ${typeof shareSelectionButton === 'function' ? shareSelectionButton() : ''}
     ${retryBtn}
     ${refreshBtn}
     ${failedBtn}

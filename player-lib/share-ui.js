@@ -1,0 +1,1236 @@
+/* =========================================================================
+   SHARE PRIVATELY: the share window (steps 1 to 4 and 3b), the top bar icon,
+   the entry points on the selection bar and on one file's menu, the Vault
+   password prompt, and the privacy guard ("My shares" hide category).
+
+   Steps (.notes/SHARE_PRIVATELY_SPEC.md section 4):
+     review   1. what will be packed; nothing leaves the computer
+     packing  2. packing and the checks, run by the server
+     checked  2. the three check results and the password
+     confirm  3. the warning, the summary and the tick box; Upload stays off
+                 until the box is ticked
+     upload   3b. one row per part; Pause, Try again, Stop and delete
+     done     4. link and password, Copy as block, Delete from gofile now
+     failed   what failed, in plain words, with the safe way out
+   The window can be closed while uploading; the top bar icon and My shares
+   open it again (shareOpenShare).
+
+   SECRETS. A password reaches the page only from a click on Show or Copy,
+   lives in that window's own field, and goes when the window closes (the
+   fields are emptied and the window object dropped). Nothing is stored in the
+   browser. The Vault password typed into the prompt goes in the body of the
+   one request and is dropped.
+
+   Needs share-client.js (shareApi and the helpers). Load before settings.js.
+   ========================================================================= */
+
+/* ── Shared state ─────────────────────────────────────────────────────── */
+
+// The last GET /api/share/state answer: no secrets in it.
+let _shareState = null;
+let _sharePollTimer = null;
+
+const shEsc = (s) => (typeof escapeHtml === 'function' ? escapeHtml(String(s == null ? '' : s)) : String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
+const shIcon = (name, cls = '') => (typeof vaultIcon === 'function' ? vaultIcon(name, cls) : '');
+const shToast = (msg, type) => { if (typeof showToast === 'function') showToast(msg, type ? { type } : undefined); };
+
+/** Is the feature switched on (as far as the page last heard)? */
+function shareEnabled() {
+  return !!(_shareState && _shareState.enabled);
+}
+
+/** Privacy mode with "My shares" ticked. */
+function sharePrivate() {
+  return !!(typeof document !== 'undefined' && document.body && document.body.classList
+    && document.body.classList.contains('pm-shares'));
+}
+
+/**
+ * Privacy turned on or off: the private parts (My shares list, the top bar
+ * popup text, the share window's file list) are blurred by css/share.css and
+ * taken out of the keyboard order here (inert), so a hidden row can never be
+ * reached with Tab or acted on blind.
+ */
+function sharePrivacyChanged(root) {
+  if (typeof document === 'undefined') return;
+  const scope = root || document;
+  if (!scope.querySelectorAll) return;
+  const on = sharePrivate();
+  scope.querySelectorAll('[data-share-private]').forEach((el) => {
+    el.inert = on;
+    if (on) el.setAttribute('aria-hidden', 'true'); else el.removeAttribute('aria-hidden');
+  });
+}
+
+/** Settings > privacy chip "My shares" changed: the server keeps the same choice. */
+function shareHideInPrivacyChanged(on) {
+  if (_shareState && _shareState.settings) _shareState.settings.hideInPrivacy = !!on;
+  shareApi('POST', '/settings', { hideInPrivacy: !!on }).catch(() => {});
+}
+
+/** Keep the privacy chip in step with the server's "Hide My shares in privacy mode". */
+function shareSyncPrivacyHide() {
+  const s = _shareState && _shareState.settings;
+  if (!s || typeof window === 'undefined' || typeof window.vaultSetPrivacyHide !== 'function') return;
+  const hide = typeof window.vaultSetting === 'function' ? window.vaultSetting('privacyHide') : null;
+  if (hide && !!hide.shares !== !!s.hideInPrivacy) window.vaultSetPrivacyHide('shares', !!s.hideInPrivacy);
+}
+
+/* ── Modal shell ──────────────────────────────────────────────────────── */
+
+const _shareModals = [];   // open share dialogs, newest last
+
+/**
+ * A dialog on the .vault-modal shell (css/vault.css), so the page shortcuts
+ * stay quiet while it is open (vault-dialogs.js vaultModalOpen). Esc calls
+ * onEsc (default: close), Tab stays inside, focus goes back on close.
+ */
+function shareModal({ id, labelledBy, html, cls = '', onEsc }) {
+  if (id) document.getElementById(id)?.remove();
+  const opener = document.activeElement;
+  const ov = document.createElement('div');
+  if (id) ov.id = id;
+  ov.className = 'vault-modal-overlay share-ov';
+  ov.innerHTML = `<div class="vault-modal share-dlg${cls ? ` ${cls}` : ''}" role="dialog" aria-modal="true"${labelledBy ? ` aria-labelledby="${labelledBy}"` : ''}>${html}</div>`;
+  const box = ov.firstElementChild;
+  document.body.appendChild(ov);
+  const m = { ov, box, q: (sel) => box.querySelector(sel), qa: (sel) => box.querySelectorAll(sel), closed: false };
+
+  function onKey(e) {
+    if (m.closed || _shareModals[_shareModals.length - 1] !== m) return;
+    if (typeof window.vaultDialogOpen === 'function' && window.vaultDialogOpen()) return;
+    if (e.key === 'Escape') {
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (onEsc) onEsc(); else m.close();
+    } else if (e.key === 'Tab') {
+      const f = [...box.querySelectorAll('button, input, select, textarea, a[href], summary, [tabindex="0"]')]
+        .filter(n => !n.disabled && n.offsetParent !== null && !n.closest('[inert]'));
+      if (!f.length) return;
+      const i = f.indexOf(document.activeElement);
+      if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && (i === f.length - 1 || i < 0)) { e.preventDefault(); f[0].focus(); }
+    }
+  }
+  window.addEventListener('keydown', onKey, true);
+  m.close = () => {
+    if (m.closed) return;
+    m.closed = true;
+    window.removeEventListener('keydown', onKey, true);
+    // Empty every field first: a password must not outlive its window.
+    box.querySelectorAll('input, textarea').forEach((el) => { el.value = ''; });
+    ov.remove();
+    const i = _shareModals.indexOf(m);
+    if (i >= 0) _shareModals.splice(i, 1);
+    if (opener && opener.isConnected && typeof opener.focus === 'function') {
+      try { opener.focus({ preventScroll: true }); } catch { /* gone */ }
+    }
+  };
+  _shareModals.push(m);
+  sharePrivacyChanged(box);
+  return m;
+}
+
+function shareFocus(el) {
+  if (!el) return;
+  try { el.focus({ preventScroll: true }); } catch { /* gone */ }
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => { if (el.isConnected && document.activeElement !== el) { try { el.focus(); } catch { /* gone */ } } });
+  }
+}
+
+/** The error line in a dialog: plain words, or hidden. */
+function shareSetError(el, msg) {
+  if (!el) return;
+  if (!msg) { el.hidden = true; el.textContent = ''; return; }
+  el.innerHTML = `${shIcon('alert')}<span>${shEsc(msg)}</span>`;
+  el.hidden = false;
+}
+
+/** A password field with its Show button (type=password until Show is pressed). */
+function sharePassFieldHtml(id, label, { note = '', autocomplete = 'off', placeholder = '' } = {}) {
+  return `
+    <div class="vault-field">
+      <label class="vault-label" for="${id}">${shEsc(label)}</label>
+      <div class="share-pw-row">
+        <input type="password" id="${id}" class="vault-input share-mono" autocomplete="${autocomplete}" spellcheck="false"
+               autocapitalize="off"${placeholder ? ` placeholder="${shEsc(placeholder)}"` : ''}${note ? ` aria-describedby="${id}Note"` : ''}>
+        <button type="button" class="vault-btn" data-sh-show="${id}" aria-pressed="false">Show</button>
+      </div>
+      ${note ? `<div class="vault-field-note" id="${id}Note">${shEsc(note)}</div>` : ''}
+    </div>`;
+}
+
+/** Wire every Show button under root: it swaps its field between dots and text. */
+function shareWireShowButtons(root) {
+  root.querySelectorAll('[data-sh-show]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const input = root.querySelector(`#${btn.dataset.shShow}`);
+      if (!input) return;
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.textContent = show ? 'Hide' : 'Show';
+      btn.setAttribute('aria-pressed', String(show));
+    });
+  });
+}
+
+/* ── The Vault password prompt ────────────────────────────────────────── */
+
+/**
+ * Ask for the Vault password. Resolves with what was typed, or null on
+ * Cancel. The field is emptied as the prompt closes; the caller sends the
+ * value in one request body and drops it.
+ */
+function shareAskVaultPassword(why, problem = '') {
+  return new Promise((resolve) => {
+    const m = shareModal({
+      id: 'shareGateDlg', labelledBy: 'shareGateTitle', cls: 'share-dlg-small',
+      onEsc: () => done(null),
+      html: `
+        <h3 id="shareGateTitle">Enter your Vault password</h3>
+        <p class="vault-modal-hint">${shEsc(why || 'Vault asks for it before it shows a saved password.')}</p>
+        ${sharePassFieldHtml('shareGatePass', 'Your Vault password', { autocomplete: 'current-password' })}
+        <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
+        <div class="vault-modal-actions">
+          <button type="button" class="vault-btn" data-sh-act="cancel">Cancel</button>
+          <button type="button" class="vault-btn vault-btn-primary" data-sh-act="ok">OK</button>
+        </div>`,
+    });
+    shareWireShowButtons(m.box);
+    shareSetError(m.q('[data-sh-err]'), problem);
+    const input = m.q('#shareGatePass');
+    function done(value) {
+      if (m.closed) return;
+      m.close();
+      resolve(value);
+    }
+    m.q('[data-sh-act="cancel"]').addEventListener('click', () => done(null));
+    const ok = () => {
+      const v = input.value;
+      if (!v) { shareSetError(m.q('[data-sh-err]'), 'Type your Vault password.'); input.focus(); return; }
+      done(v);
+    };
+    m.q('[data-sh-act="ok"]').addEventListener('click', ok);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ok(); } });
+    shareFocus(input);
+  });
+}
+
+/**
+ * Run a gated request. call(vaultPassword) does the request. needed: ask
+ * before the first try (the share used the saved password and a Vault
+ * password is set). A wrong or missing Vault password asks again. Resolves
+ * with the answer, or null when the user cancelled.
+ */
+async function shareWithGate(call, { needed = false, why = '' } = {}) {
+  let vp;
+  if (needed) {
+    vp = await shareAskVaultPassword(why);
+    if (vp == null) return null;
+  }
+  for (;;) {
+    try {
+      const out = await call(vp);
+      vp = null;
+      return out;
+    } catch (err) {
+      vp = null;
+      if (err && (err.code === 'GATE_NEEDED' || err.code === 'GATE_WRONG')) {
+        const left = err.extra && Number.isFinite(err.extra.attemptsLeft) ? err.extra.attemptsLeft : null;
+        const problem = err.code === 'GATE_WRONG'
+          ? `${err.message}${left != null ? ` ${left} ${left === 1 ? 'try' : 'tries'} left.` : ''}` : '';
+        vp = await shareAskVaultPassword(why, problem);
+        if (vp == null) return null;
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+/** Does this share's password need the Vault password to be shown? */
+function shareNeedsGate(share) {
+  const sp = _shareState && _shareState.savedPassword;
+  return !!(share && share.passwordKind === 'saved' && sp && sp.vaultPasswordSet);
+}
+
+/** Copy text to the clipboard (only ever from a click). */
+async function shareCopyText(text, done) {
+  try {
+    await navigator.clipboard.writeText(String(text));
+    shToast(done || 'Copied', 'success');
+    return true;
+  } catch {
+    shToast('Could not copy. Select the text and copy it by hand.', 'error');
+    return false;
+  }
+}
+
+/* ── The share window ─────────────────────────────────────────────────── */
+
+let _shareWin = null;   // the open window, or null
+
+const SHARE_PHASE_WORDS = { staging: 'Getting the files ready', packing: 'Packing', checking: 'Checking the archive' };
+
+/** Open the window for these library files (step 1). */
+async function shareOpenForIds(ids) {
+  const mediaIds = [...new Set((ids || []).map(Number).filter(n => Number.isInteger(n) && n > 0))];
+  if (!mediaIds.length) { shToast('Pick at least one file.'); return; }
+  if (mediaIds.length > 5000) { shToast('Pick 5,000 files or fewer to share at once.', 'error'); return; }
+  if (!shareEnabled()) { shToast('Share privately is turned off. Turn it on in Settings first.', 'error'); return; }
+  const w = shareWindowOpen();
+  w.mediaIds = mediaIds;
+  w.step = 'loading';
+  shareWindowRender();
+  try {
+    w.preview = await shareApi('POST', '/preview', { mediaIds });
+    if (w !== _shareWin) return;
+    w.step = 'review';
+  } catch (err) {
+    if (w !== _shareWin) return;
+    w.step = 'failed';
+    w.failText = err.message;
+    w.failLocal = true;
+  }
+  shareWindowRender();
+}
+
+/** The selection bar's button. */
+function shareOpenForSelection() {
+  if (typeof selectedIds === 'undefined') return;
+  shareOpenForIds([...selectedIds]);
+}
+
+/** Open the window on a share that already exists (top bar, My shares). */
+async function shareOpenShare(id) {
+  const w = shareWindowOpen();
+  w.id = Number(id);
+  w.step = 'loading';
+  shareWindowRender();
+  await shareWindowRefresh();
+  shareWindowPoll();
+}
+
+function shareWindowOpen() {
+  if (_shareWin) shareWindowClose();
+  const w = {
+    id: null, mediaIds: [], preview: null, share: null, progress: null, step: 'loading',
+    ticked: false, error: '', failText: '', failLocal: false, samples: [], timer: null, busy: false, partsSig: '',
+  };
+  w.m = shareModal({ id: 'shareWindow', labelledBy: 'shareWinTitle', cls: 'share-win', onEsc: () => shareWindowRequestClose() });
+  _shareWin = w;
+  return w;
+}
+
+/** Close the window. The upload, if any, keeps going on the server. */
+function shareWindowClose() {
+  const w = _shareWin;
+  if (!w) return;
+  clearTimeout(w.timer);
+  w.timer = null;
+  _shareWin = null;
+  w.m.close();
+  w.preview = null; w.share = null; w.progress = null;
+}
+
+/** Close, or on steps 2 and 3 ask first, since closing there deletes the packed archive. */
+async function shareWindowRequestClose() {
+  const w = _shareWin;
+  if (!w) return;
+  if (['packing', 'checked', 'confirm'].includes(w.step) && w.id) {
+    const yes = typeof vaultConfirm === 'function' ? await vaultConfirm(
+      'Closing stops this share and deletes the packed archive. Nothing has been uploaded.',
+      { title: 'Delete the packed archive?', okLabel: 'Delete archive', cancelLabel: 'Keep it open', danger: true },
+    ) : true;
+    if (!yes || w !== _shareWin) return;
+    await shareCancelArchive();
+    return;
+  }
+  shareWindowClose();
+}
+
+/** Ask the server where this share is, and pick the step from it. */
+async function shareWindowRefresh() {
+  const w = _shareWin;
+  if (!w || !w.id) return;
+  let p;
+  try {
+    p = await shareApi('GET', `/shares/${w.id}/progress`, null, { background: true });
+  } catch (err) {
+    if (w !== _shareWin) return;
+    if (err.code === 'NOT_FOUND') { shareWindowClose(); shToast('That share was not found.'); return; }
+    const line = w.m && w.m.q('[data-sh-err]');
+    if (line) shareSetError(line, err.message);
+    return;
+  }
+  if (w !== _shareWin) return;
+  w.progress = p;
+  const before = w.step;
+  let next = before;
+  if (p.status === 'packing') next = 'packing';
+  else if (p.status === 'checked') next = before === 'confirm' ? 'confirm' : 'checked';
+  else if (['uploading', 'paused', 'not_finished'].includes(p.status)) next = 'upload';
+  else if (p.status === 'uploaded' || p.status === 'expired') next = 'done';
+  else if (p.status === 'failed') next = 'failed';
+  else next = 'ended';
+  // The share's own fields (name, size, password kind) when the step needs them.
+  if (next !== 'packing' && (!w.share || next !== before)) {
+    try {
+      const r = await shareApi('GET', `/shares/${w.id}`, null, { background: true });
+      if (w !== _shareWin) return;
+      w.share = r.share;
+    } catch { /* the progress answer is enough to go on */ }
+  }
+  if (next === 'failed') { w.failText = p.error || (w.share && w.share.error) || 'Something went wrong.'; w.failLocal = false; }
+  if (next === 'upload') shareNoteSample(w, p);
+  w.step = next;
+  if (next === before && next === 'upload') shareUploadUpdate();
+  else if (next === before && next === 'packing') sharePackingUpdate();
+  // A step that has not changed is left alone: drawing it again would drop
+  // a shown password, a message or the focus.
+  else if (next !== before) shareWindowRender();
+}
+
+/** Poll while the window is open: 1 s while something runs, 5 s otherwise. */
+function shareWindowPoll() {
+  const w = _shareWin;
+  if (!w || !w.id) return;
+  clearTimeout(w.timer);
+  const live = ['packing', 'upload'].includes(w.step) || w.step === 'loading';
+  w.timer = setTimeout(async () => {
+    if (w !== _shareWin) return;
+    await shareWindowRefresh();
+    if (w === _shareWin) shareWindowPoll();
+  }, live ? 1000 : 5000);
+}
+
+/** Keep the last 20 s of byte counts for the time-left estimate. */
+function shareNoteSample(w, p) {
+  const up = p && p.upload;
+  if (!up) return;
+  const now = Date.now();
+  w.samples.push({ t: now, b: up.bytesDone });
+  while (w.samples.length > 2 && now - w.samples[0].t > 20000) w.samples.shift();
+}
+
+function shareRate(w) {
+  const s = w.samples;
+  if (s.length < 2) return 0;
+  const a = s[0], b = s[s.length - 1];
+  return b.t > a.t && b.b > a.b ? (b.b - a.b) / ((b.t - a.t) / 1000) : 0;
+}
+
+/* Step markup pieces. */
+
+function shareHead(kicker, title, sub) {
+  return `
+    <div class="share-head">
+      <div class="share-head-text">
+        ${kicker ? `<div class="share-kicker">${shEsc(kicker)}</div>` : ''}
+        <h3 id="shareWinTitle">${shEsc(title)}</h3>
+        ${sub ? `<p class="vault-modal-hint share-sub">${shEsc(sub)}</p>` : ''}
+      </div>
+      <button type="button" class="share-x" data-sh-act="close" aria-label="Close" title="Close">${shIcon('close') || '&times;'}</button>
+    </div>`;
+}
+
+function shareBar(percent, label) {
+  const p = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+  return `<div class="share-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${p}" aria-label="${shEsc(label || 'Progress')}"><div class="share-bar-fill" style="width:${p}%"></div></div>`;
+}
+
+function shareSelect(id, options, value, extra = '') {
+  return `<select class="vault-input share-sel" id="${id}"${extra}>${options.map(o =>
+    `<option value="${shEsc(o.value)}"${String(o.value) === String(value) ? ' selected' : ''}${o.disabled ? ' disabled' : ''}>${shEsc(o.label)}</option>`).join('')}</select>`;
+}
+
+/** The archive as one line: "k7Qm2xVd9LpA.7z, 1.55 GB" or the first part and the count. */
+function shareArchiveLine(share, checks) {
+  const name = share ? share.archiveFileName || `${share.archiveName}.7z` : (checks && checks.archiveName ? `${checks.archiveName.value}.7z` : '');
+  const bytes = checks && checks.parts && checks.parts.bytes ? checks.parts.bytes : share ? share.sizeBytes : 0;
+  const count = checks && checks.parts ? checks.parts.count : share ? share.partCount : 1;
+  return `${name}, ${shareSize(bytes)}${count > 1 ? ` in ${count} parts` : ''}`;
+}
+
+function shareWindowRender() {
+  const w = _shareWin;
+  if (!w) return;
+  const box = w.m.box;
+  const html = {
+    loading: () => `${shareHead('', 'Share privately', 'Getting things ready.')}<p class="vault-modal-hint">One moment.</p>`,
+    review: shareReviewHtml,
+    packing: sharePackingHtml,
+    checked: shareCheckedHtml,
+    confirm: shareConfirmHtml,
+    upload: shareUploadHtml,
+    done: shareDoneHtml,
+    failed: shareFailedHtml,
+    ended: () => `${shareHead('', 'This share has ended', shareStatusWords(w.share || w.progress).text)}
+      <div class="vault-modal-actions"><button type="button" class="vault-btn vault-btn-primary" data-sh-act="close">Close</button></div>`,
+  }[w.step] || (() => '');
+  box.innerHTML = html(w);
+  box.setAttribute('data-step', w.step);
+  shareWireWindow(w);
+  sharePrivacyChanged(box);
+  if (w.step === 'upload') shareUploadUpdate();
+  const first = box.querySelector('[data-sh-first]') || box.querySelector('.vault-btn-primary:not(:disabled)') || box.querySelector('[data-sh-act="close"]');
+  shareFocus(first);
+}
+
+/* Step 1: review. */
+
+function shareReviewHtml(w) {
+  const p = w.preview;
+  const files = p.files || [];
+  const s = (_shareState && _shareState.settings) || {};
+  const typedOk = p.nameMode === 'typed';
+  const savedOk = !!p.savedPasswordSet;
+  const split = p.split && p.partCount > 1;
+  const partWords = p.partBytes ? shareSize(p.partBytes) : '';
+  const splitWords = split ? `It is split into ${p.partCount} parts of up to ${partWords}.`
+    : s.split === 'none' ? 'It is not split into parts.' : partWords ? `Over ${partWords} the archive is split into parts.` : '';
+  const space = p.needBytes ? `Packing needs about ${shareSize(p.needBytes)} of free space.` : '';
+  const noSpace = p.enoughSpace === false;
+  const blocked = noSpace || p.sevenZipFound === false;
+  return `
+    ${shareHead('Step 1 of 4', 'Share privately', 'Review what will be packed. Nothing is uploaded yet.')}
+    <div class="share-box share-files" data-share-private>
+      <div class="share-files-list">
+        ${files.map(f => `<div class="share-file"><span class="share-file-name">${shEsc(f.nameInArchive || f.name)}</span><span class="share-mut">${shEsc(shareSize(f.sizeBytes))}</span></div>`).join('')}
+      </div>
+      <div class="share-file share-file-total"><span>${files.length.toLocaleString()} ${files.length === 1 ? 'file' : 'files'}</span><span>${shEsc(shareSize(p.totalBytes))}</span></div>
+    </div>
+    <div class="share-block">
+      <div class="share-label">What will leave this computer</div>
+      <ul class="share-list">
+        <li data-sh-namewords>One encrypted 7z archive with a random name</li>
+        <li>File names are hidden inside the archive</li>
+        <li>The password stays here and is never uploaded</li>
+        <li>Tags, notes and ratings are not included</li>
+      </ul>
+    </div>
+    <div class="share-grid">
+      <div class="vault-field">
+        <label class="vault-label" for="shDest">Goes to</label>
+        <input class="vault-input" id="shDest" value="gofile.io (guest, no account)" readonly>
+      </div>
+      <div class="vault-field">
+        <label class="vault-label" for="shExpiry">Delete from gofile after</label>
+        ${shareSelect('shExpiry', SHARE_DELETE_AFTER_OPTIONS, p.deleteAfterDays)}
+      </div>
+      <div class="vault-field">
+        <label class="vault-label" for="shName">Archive name</label>
+        <input class="vault-input" id="shName" maxlength="80" spellcheck="false" autocomplete="off"
+               placeholder="${typedOk ? 'Random (leave empty)' : 'Random (set in Settings)'}"${typedOk ? '' : ' disabled'}>
+      </div>
+      <div class="vault-field">
+        <label class="vault-label" for="shPwSrc">Password</label>
+        ${shareSelect('shPwSrc', [
+          { value: 'random', label: 'New random password' },
+          { value: 'saved', label: savedOk ? 'My saved default password' : 'My saved default password (none saved yet)', disabled: !savedOk },
+        ], savedOk ? p.passwordChoice : 'random')}
+      </div>
+    </div>
+    <p class="vault-modal-hint">${typedOk ? 'A name you type is not hidden: gofile and anyone with the link can read it. ' : ''}${shEsc(space)} ${shEsc(splitWords)}</p>
+    ${noSpace ? `<div class="vault-modal-err" role="alert">${shIcon('alert')}<span>There is not enough free space to pack these files.${p.missingBytes ? ` ${shEsc(shareSize(p.missingBytes))} more is needed.` : ''}</span></div>` : ''}
+    ${p.sevenZipFound === false ? `<div class="vault-modal-err" role="alert">${shIcon('alert')}<span>Vault could not find its 7-Zip program, so it cannot pack files.</span></div>` : ''}
+    <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
+    <div class="vault-modal-actions share-actions">
+      <span class="share-sp"></span>
+      <button type="button" class="vault-btn" data-sh-act="close">Cancel</button>
+      <button type="button" class="vault-btn vault-btn-primary" data-sh-act="pack"${blocked ? ' disabled' : ''}>Pack files</button>
+    </div>`;
+}
+
+async function sharePack() {
+  const w = _shareWin;
+  if (!w || w.busy) return;
+  const q = w.m.q;
+  const btn = q('[data-sh-act="pack"]');
+  const name = q('#shName') && !q('#shName').disabled ? q('#shName').value.trim() : '';
+  const body = {
+    mediaIds: w.mediaIds,
+    passwordChoice: q('#shPwSrc').value === 'saved' ? 'saved' : 'random',
+    deleteAfterDays: Number(q('#shExpiry').value),
+  };
+  if (name) body.name = name;
+  w.busy = true;
+  btn.disabled = true;
+  btn.textContent = 'Starting…';
+  shareSetError(q('[data-sh-err]'), '');
+  try {
+    const r = await shareApi('POST', '/shares', body);
+    if (w !== _shareWin) return;
+    w.id = r.share.id;
+    w.share = r.share;
+    w.step = 'packing';
+    w.progress = null;
+    shareWindowRender();
+    shareWindowPoll();
+  } catch (err) {
+    if (w !== _shareWin) return;
+    shareSetError(q('[data-sh-err]'), err.message);
+    btn.disabled = false;
+    btn.textContent = 'Pack files';
+  } finally {
+    w.busy = false;
+  }
+}
+
+/* Step 2, while packing. */
+
+function sharePackingHtml(w) {
+  return `
+    ${shareHead('Step 2 of 4', 'Check the archive', 'Packing and testing on this computer. Still nothing uploaded.')}
+    <div class="share-block" data-sh-packing>
+      <div class="share-row-between share-mut"><span data-sh-phase>Getting the files ready</span><span data-sh-pct></span></div>
+      ${shareBar(0, 'Packing progress')}
+    </div>
+    <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
+    <div class="vault-modal-actions share-actions">
+      <button type="button" class="vault-btn" data-sh-act="cancel-archive">Cancel and delete archive</button>
+      <span class="share-sp"></span>
+    </div>`;
+}
+
+function sharePackingUpdate() {
+  const w = _shareWin;
+  if (!w || w.step !== 'packing') return;
+  const pk = (w.progress && w.progress.packing) || { phase: 'staging', percent: 0 };
+  const q = w.m.q;
+  const phase = q('[data-sh-phase]');
+  if (phase) phase.textContent = SHARE_PHASE_WORDS[pk.phase] || 'Packing';
+  const pct = q('[data-sh-pct]');
+  if (pct) pct.textContent = pk.phase === 'packing' ? `${Math.round(pk.percent || 0)}%` : '';
+  const bar = q('.share-bar');
+  if (bar) {
+    const v = pk.phase === 'checking' ? 100 : Math.round(pk.percent || 0);
+    bar.setAttribute('aria-valuenow', String(v));
+    bar.firstElementChild.style.width = `${v}%`;
+  }
+}
+
+/** Cancel and delete archive (steps 2 and 3, packing, or a share that failed before upload). */
+async function shareCancelArchive() {
+  const w = _shareWin;
+  if (!w || !w.id || w.busy) return;
+  w.busy = true;
+  try {
+    await shareApi('POST', `/shares/${w.id}/cancel`, {});
+    if (w !== _shareWin) return;
+    shareWindowClose();
+    shToast('Stopped. The packed archive was deleted.');
+  } catch (err) {
+    if (w !== _shareWin) return;
+    if (err.code === 'NOT_FOUND') { shareWindowClose(); return; }
+    shareSetError(w.m.q('[data-sh-err]'), err.message);
+  } finally {
+    w.busy = false;
+  }
+}
+
+/* Step 2: the checks passed. */
+
+function shareCheckRow(ok, title, line, mono = false) {
+  return `
+    <div class="share-check${ok ? '' : ' is-bad'}">
+      ${shIcon(ok ? 'check' : 'alert', 'share-check-ic')}
+      <div class="share-check-text"><span>${shEsc(title)}</span><span class="share-mut${mono ? ' share-mono' : ''}">${shEsc(line)}</span></div>
+    </div>`;
+}
+
+function sharePasswordBlockHtml(w, label) {
+  const share = w.share || {};
+  const kept = share.passwordKept !== false;
+  const gate = shareNeedsGate(share);
+  if (!kept) return `<p class="vault-modal-hint">Vault did not keep the password of this share.</p>`;
+  return `
+    <div class="vault-field">
+      <label class="vault-label" for="shPw">${shEsc(label)}</label>
+      <div class="share-pw-row">
+        <input type="password" id="shPw" class="vault-input share-mono" readonly placeholder="••••••••••••••••••••" autocomplete="off">
+        <button type="button" class="vault-btn" data-sh-act="pw-show" aria-pressed="false">Show</button>
+        <button type="button" class="vault-btn" data-sh-act="pw-copy">Copy${label.startsWith('Archive') ? ' password' : ''}</button>
+      </div>
+      ${gate ? '<div class="vault-field-note">It shows as dots until you enter your Vault password.</div>' : ''}
+    </div>`;
+}
+
+function shareCheckedHtml(w) {
+  const share = w.share || {};
+  const c = (w.progress && w.progress.checks) || share.checks || {};
+  const files = c.contents && c.contents.files != null ? c.contents.files : share.fileCount;
+  const typed = c.archiveName ? c.archiveName.typed : share.nameTyped;
+  const pwLabel = share.passwordKind === 'saved' ? 'Password (your saved default)' : 'Password (new random, 24 characters)';
+  return `
+    ${shareHead('Step 2 of 4', 'Check the archive', 'Packed and tested on this computer. Still nothing uploaded.')}
+    <div class="share-box share-checks">
+      ${shareCheckRow(!!(c.test && c.test.ok), 'Encrypted with AES-256', `Opening it with the password worked. ${files === 1 ? 'The file passed' : `All ${Number(files || 0).toLocaleString()} files passed`} the test.`)}
+      ${shareCheckRow(!!(c.listWithoutPassword && c.listWithoutPassword.ok), 'File names are hidden', 'Listing the archive without the password was refused.')}
+      ${shareCheckRow(true, typed ? 'Archive name (you typed it, so anyone with the link can read it)' : 'Archive name (random, change it on step 1)', shareArchiveLine(share, c), true)}
+    </div>
+    ${sharePasswordBlockHtml(w, pwLabel)}
+    <p class="vault-modal-hint">Without this password nobody can open the archive, including gofile.</p>
+    <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
+    <div class="vault-modal-actions share-actions">
+      <button type="button" class="vault-btn" data-sh-act="cancel-archive">Cancel and delete archive</button>
+      <span class="share-sp"></span>
+      <button type="button" class="vault-btn vault-btn-primary" data-sh-act="to-confirm">Continue</button>
+    </div>`;
+}
+
+/** Show (or hide) the share's password in #shPw; Copy puts it on the clipboard. */
+async function sharePasswordAction(kind, btn) {
+  const w = _shareWin;
+  if (!w || !w.id) return;
+  const input = w.m.q('#shPw');
+  if (kind === 'show' && input && input.value) {
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.textContent = show ? 'Hide' : 'Show';
+    btn.setAttribute('aria-pressed', String(show));
+    return;
+  }
+  try {
+    const r = await shareWithGate((vaultPassword) => shareApi('POST', `/shares/${w.id}/password`, vaultPassword ? { vaultPassword } : {}),
+      { needed: shareNeedsGate(w.share), why: 'This share uses your saved password. Vault asks for your Vault password before it shows it.' });
+    if (!r || w !== _shareWin) return;
+    if (kind === 'copy') {
+      await shareCopyText(r.password, 'Password copied');
+      if (input && !input.value) input.value = r.password;
+    } else if (input) {
+      input.value = r.password;
+      input.type = 'text';
+      btn.textContent = 'Hide';
+      btn.setAttribute('aria-pressed', 'true');
+    }
+    // Step 4: the block shows the real password once it has been asked for.
+    if (w.step === 'done') shareDoneBlockReal(r.password);
+  } catch (err) {
+    if (w === _shareWin) shareSetError(w.m.q('[data-sh-err]'), err.message);
+  }
+}
+
+/* Step 3: confirm. */
+
+function shareAccountWords(mode) {
+  return mode === 'perShare' ? 'Guest, made for this share'
+    : mode === 'keep' ? 'Guest, made for Vault on first use'
+      : 'Guest, made for Vault this session';
+}
+
+function shareConfirmHtml(w) {
+  const share = w.share || {};
+  const c = (w.progress && w.progress.checks) || share.checks || {};
+  const s = (_shareState && _shareState.settings) || {};
+  const bytes = c.parts && c.parts.bytes ? c.parts.bytes : share.sizeBytes;
+  const offline = !!(_shareState && _shareState.offline);
+  return `
+    ${shareHead('Step 3 of 4', 'Upload to gofile.io?', 'This is the only step that sends anything off this computer.')}
+    <div class="share-warn">Everything else in Vault stays on your computer. This upload does not. Once it is sent, anyone with the link and the password can download the files until the upload is deleted.</div>
+    <dl class="share-box share-sum">
+      <dt>Sending</dt><dd class="share-mono">${shEsc(shareArchiveLine(share, c))}</dd>
+      <dt>To</dt><dd>upload.gofile.io (closest server)</dd>
+      <dt>Account</dt><dd>${shEsc(shareAccountWords(s.accountMode))}</dd>
+      <dt>Deleted after</dt><dd>${shEsc(shareDeleteAfterLabel(share.deleteAfterDays))}</dd>
+      <dt>gofile can see</dt><dd>Your internet address and the archive size. Not the contents or file names.</dd>
+    </dl>
+    <label class="share-tick">
+      <input type="checkbox" id="shTick" data-sh-first${w.ticked ? ' checked' : ''}>
+      <span>I want to upload this archive to gofile.io, and these files are mine to share under gofile's terms.</span>
+    </label>
+    ${offline ? `<p class="vault-modal-hint" data-sh-offline>Vault is set to stay offline (VAULT_OFFLINE=1), so nothing can be uploaded.</p>` : ''}
+    <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
+    <div class="vault-modal-actions share-actions">
+      <button type="button" class="vault-btn" data-sh-act="cancel-archive">Cancel and delete archive</button>
+      <span class="share-sp"></span>
+      <button type="button" class="vault-btn" data-sh-act="back">Back</button>
+      <button type="button" class="vault-btn vault-btn-primary" data-sh-act="upload"${shareUploadAllowed(w) ? '' : ' disabled'}>Upload ${shEsc(shareSize(bytes))}</button>
+    </div>`;
+}
+
+/** Upload stays off until the box is ticked (and while a request is out). */
+function shareUploadAllowed(w) {
+  return !!(w && w.ticked && !w.busy);
+}
+
+async function shareStartUpload() {
+  const w = _shareWin;
+  if (!w || !w.id || !shareUploadAllowed(w)) return;
+  const btn = w.m.q('[data-sh-act="upload"]');
+  w.busy = true;
+  if (btn) btn.disabled = true;
+  shareSetError(w.m.q('[data-sh-err]'), '');
+  try {
+    const p = await shareApi('POST', `/shares/${w.id}/upload`, { confirm: true });
+    if (w !== _shareWin) return;
+    w.busy = false;
+    w.progress = p;
+    w.step = 'upload';
+    w.samples = [];
+    shareNoteSample(w, p);
+    shareWindowRender();
+    shareWindowPoll();
+    shareStatePollSoon();
+  } catch (err) {
+    if (w !== _shareWin) return;
+    w.busy = false;
+    // The same words as the offline note: say it once, as the error.
+    if (err.code === 'NET_OFF') { const note = w.m.q('[data-sh-offline]'); if (note) note.remove(); }
+    shareSetError(w.m.q('[data-sh-err]'), err.message);
+    if (btn) btn.disabled = !shareUploadAllowed(w);
+    if (err.code === 'PARTS_CHANGED' || err.code === 'NOT_CHECKED') { w.failText = err.message; w.step = 'failed'; shareWindowRender(); }
+  }
+}
+
+/* Step 3b: uploading. */
+
+function shareUploadHtml(w) {
+  const share = w.share || {};
+  const up = (w.progress && w.progress.upload) || { parts: [] };
+  const parts = up.parts || [];
+  const count = parts.length || share.partCount || 1;
+  const biggest = parts.reduce((n, x) => Math.max(n, x.sizeBytes || 0), 0) || share.partSize;
+  const sub = count > 1
+    ? `${shareSize(up.bytesTotal || share.sizeBytes)} in ${count} parts of up to ${shareSize(share.partSize || biggest)}. You can close this window; the upload keeps going.`
+    : `${shareSize(up.bytesTotal || share.sizeBytes)} in one part. You can close this window; the upload keeps going.`;
+  return `
+    ${shareHead('Step 3 of 4, uploading', `Uploading ${share.archiveName || ''}`.trim(), sub)}
+    <div class="share-block">
+      <div class="share-row-between share-mut"><span data-sh-bytes></span><span data-sh-eta></span></div>
+      ${shareBar(up.percent, 'Overall progress')}
+    </div>
+    <div class="share-box share-parts" data-sh-parts></div>
+    <div class="share-note-bad" data-sh-partnote hidden></div>
+    <p class="vault-modal-hint" data-sh-state></p>
+    <p class="vault-modal-hint">The link and password appear when every part is up.${count > 1 ? ` Whoever downloads needs all ${count} parts in one folder, then opens the first one.` : ''}</p>
+    <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
+    <div class="vault-modal-actions share-actions">
+      <button type="button" class="vault-btn share-btn-danger" data-sh-act="stop">Stop and delete uploaded parts</button>
+      <span class="share-sp"></span>
+      <button type="button" class="vault-btn" data-sh-act="pause">Pause</button>
+    </div>`;
+}
+
+function sharePartRowHtml(p) {
+  const st = p.status;
+  const right = st === 'done' ? '<span class="share-part-st is-ok">Done</span>'
+    : st === 'failed' ? `<button type="button" class="vault-btn" data-sh-retry="${Number(p.partNo)}">Try again</button>`
+      : st === 'uploading' ? `<span class="share-part-st is-busy" data-sh-partpct="${Number(p.partNo)}">${Math.round(p.percent || 0)}%</span>`
+        : '<span class="share-part-st share-mut">Waiting</span>';
+  const ic = st === 'done' ? shIcon('check', 'share-part-ic is-ok') : st === 'failed' ? shIcon('alert', 'share-part-ic is-bad') : shIcon('upload', 'share-part-ic');
+  return `<div class="share-part">${ic}<span class="share-part-name share-mono">${shEsc(p.fileName)}</span><span class="share-mut">${shEsc(shareSize(p.sizeBytes))}</span>${right}</div>`;
+}
+
+/** Update 3b in place: numbers every poll, the rows only when a status changed (keeps focus). */
+function shareUploadUpdate() {
+  const w = _shareWin;
+  if (!w || w.step !== 'upload') return;
+  const q = w.m.q;
+  const p = w.progress || {};
+  const up = p.upload || { parts: [], bytesDone: 0, bytesTotal: 0, percent: 0 };
+  const parts = up.parts || [];
+  const bytes = q('[data-sh-bytes]');
+  if (bytes) bytes.textContent = `${shareSize(up.bytesDone)} of ${shareSize(up.bytesTotal)}`;
+  const eta = q('[data-sh-eta]');
+  if (eta) eta.textContent = p.status === 'uploading' ? shareEta(up.bytesTotal - up.bytesDone, shareRate(w)) : '';
+  const bar = q('.share-bar');
+  if (bar) { bar.setAttribute('aria-valuenow', String(up.percent || 0)); bar.firstElementChild.style.width = `${up.percent || 0}%`; }
+  const sig = parts.map(x => `${x.partNo}:${x.status}`).join(',');
+  const host = q('[data-sh-parts]');
+  if (host && sig !== w.partsSig) {
+    w.partsSig = sig;
+    host.innerHTML = parts.map(sharePartRowHtml).join('');
+  } else if (host) {
+    for (const x of parts) {
+      const el = host.querySelector(`[data-sh-partpct="${Number(x.partNo)}"]`);
+      if (el) el.textContent = `${Math.round(x.percent || 0)}%`;
+    }
+  }
+  const failed = parts.filter(x => x.status === 'failed');
+  const note = q('[data-sh-partnote]');
+  if (note) {
+    if (failed.length) {
+      const f = failed[0];
+      const others = parts.filter(x => x.status === 'done').map(x => x.partNo);
+      note.textContent = `Part ${f.partNo} failed${f.tries ? ` ${f.tries} ${f.tries === 1 ? 'time' : 'times'}` : ''}${f.error ? ` (${f.error})` : ''}.`
+        + (others.length ? ` ${others.length === 1 ? `Part ${others[0]} is` : `Parts ${others.slice(0, -1).join(', ')} and ${others[others.length - 1]} are`} not affected.` : '');
+      note.hidden = false;
+    } else { note.hidden = true; note.textContent = ''; }
+  }
+  const stateLine = q('[data-sh-state]');
+  if (stateLine) {
+    const enabled = shareEnabled();
+    stateLine.textContent = up.waitingInLine ? 'Waiting for another upload to finish.'
+      : p.status === 'paused' ? (p.error || 'Paused.')
+        : p.status === 'not_finished' ? 'Vault was closed during the upload. Resume to carry on.'
+          : '';
+    if (!enabled && (p.status === 'paused' || p.status === 'not_finished')) stateLine.textContent += ' Turn on Share privately in Settings to carry on.';
+  }
+  const pause = q('[data-sh-act="pause"]');
+  if (pause) {
+    const resume = p.status === 'paused' || p.status === 'not_finished';
+    pause.textContent = resume ? 'Resume' : 'Pause';
+    pause.dataset.shMode = resume ? 'resume' : 'pause';
+    pause.disabled = resume && !shareEnabled();
+  }
+  // Try again needs the feature on; Stop and delete works either way.
+  host?.querySelectorAll('[data-sh-retry]').forEach((b) => { b.disabled = !shareEnabled(); });
+}
+
+async function shareUploadAct(kind, arg) {
+  const w = _shareWin;
+  if (!w || !w.id || w.busy) return;
+  if (kind === 'stop') {
+    const ok = typeof vaultConfirm === 'function' ? await vaultConfirm(
+      'The parts already on gofile are deleted, then the packed archive on this computer. Your own files are not touched.',
+      { title: 'Stop and delete uploaded parts?', okLabel: 'Stop and delete', cancelLabel: 'Keep uploading', danger: true }) : true;
+    if (!ok || w !== _shareWin) return;
+  }
+  w.busy = true;
+  shareSetError(w.m.q('[data-sh-err]'), '');
+  try {
+    const path = kind === 'retry' ? `/shares/${w.id}/parts/${Number(arg)}/retry` : `/shares/${w.id}/${kind}`;
+    const r = await shareApi('POST', path, kind === 'stop' ? { confirm: true } : {});
+    if (w !== _shareWin) return;
+    if (kind === 'stop') {
+      shareWindowClose();
+      shToast('Stopped. The uploaded parts and the packed archive were deleted.');
+      shareStatePollSoon();
+      return;
+    }
+    w.progress = r;
+    w.partsSig = '';
+    shareUploadUpdate();
+    shareStatePollSoon();
+  } catch (err) {
+    if (w === _shareWin) shareSetError(w.m.q('[data-sh-err]'), err.message);
+    if (kind === 'stop' && w === _shareWin) shareWindowRefresh();
+  } finally {
+    w.busy = false;
+  }
+}
+
+/* Step 4: link and password. */
+
+function shareDoneHtml(w) {
+  const share = w.share || {};
+  const s = (_shareState && _shareState.settings) || {};
+  const link = share.link || (w.progress && w.progress.link) || '';
+  const kept = share.passwordKept !== false;
+  const masked = shareRenderFormat(shareFormatFor(s), { link, code: share.code || '', name: share.archiveName || '', pass: kept ? '••••••••••••' : null });
+  const timer = share.deleteAt
+    ? `gofile deletes this upload ${shareTimeLeft(share.deleteAt)}. Free gofile storage is temporary, so it may go sooner if nobody downloads it.`
+    : share.deleteAfterDays && !share.timerSet
+      ? 'gofile did not take the timer, so it decides when this upload goes. Free gofile storage is temporary.'
+      : 'No timer is set, so gofile decides when it goes. Free gofile storage is temporary, so it may go sooner if nobody downloads it.';
+  const local = s.keepLocal ? 'The packed archive was kept on this computer. Your original files are untouched.'
+    : 'The local archive has been deleted. Your original files are untouched.';
+  return `
+    ${shareHead('Step 4 of 4', share.status === 'expired' ? 'Uploaded, timer ran out' : 'Uploaded', 'Send the link and the password separately if you can.')}
+    <div class="vault-field">
+      <label class="vault-label" for="shLink">Link</label>
+      <div class="share-pw-row">
+        <input class="vault-input share-mono" id="shLink" readonly value="${shEsc(link)}">
+        <button type="button" class="vault-btn" data-sh-act="copy-link" data-sh-first>Copy link</button>
+      </div>
+    </div>
+    ${sharePasswordBlockHtml(w, 'Archive password')}
+    <div class="vault-field">
+      <div class="vault-label" id="shBlockLabel">Both together</div>
+      <div class="share-pw-row share-block-row">
+        <pre class="share-pre share-mono" aria-labelledby="shBlockLabel" data-sh-block>${shEsc(masked)}</pre>
+        <button type="button" class="vault-btn vault-btn-primary" data-sh-act="copy-block">Copy as block</button>
+      </div>
+    </div>
+    <div class="share-box share-notes">
+      <div>${shEsc(timer)}${share.deleteAfterDays && !share.timerSet && share.status === 'uploaded' ? ` <button type="button" class="share-link-btn" data-sh-act="retry-timer"${shareEnabled() ? '' : ' disabled'}>Set timer again</button>` : ''}</div>
+      <div>${shEsc(local)}</div>
+    </div>
+    <p class="vault-modal-hint">Find this again under My shares.</p>
+    <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
+    <div class="vault-modal-actions share-actions">
+      <button type="button" class="vault-btn share-btn-danger" data-sh-act="delete-remote">Delete from gofile now</button>
+      <span class="share-sp"></span>
+      <button type="button" class="vault-btn" data-sh-act="close">Done</button>
+    </div>`;
+}
+
+/** Once the password has been asked for, the block shows it too. */
+function shareDoneBlockReal(password) {
+  const w = _shareWin;
+  if (!w || w.step !== 'done') return;
+  const share = w.share || {};
+  const s = (_shareState && _shareState.settings) || {};
+  const pre = w.m.q('[data-sh-block]');
+  if (pre) pre.textContent = shareRenderFormat(shareFormatFor(s), { link: share.link || '', code: share.code || '', name: share.archiveName || '', pass: password });
+}
+
+async function shareDoneAct(kind) {
+  const w = _shareWin;
+  if (!w || !w.id) return;
+  const share = w.share || {};
+  const err = (m) => shareSetError(w.m.q('[data-sh-err]'), m);
+  try {
+    if (kind === 'copy-link') {
+      const link = share.link || (w.progress && w.progress.link);
+      if (link) await shareCopyText(link, 'Link copied');
+    } else if (kind === 'copy-block') {
+      const r = await shareWithGate((vaultPassword) => shareApi('POST', `/shares/${w.id}/copy-block`, vaultPassword ? { vaultPassword } : {}),
+        { needed: shareNeedsGate(share) && /\{pass\}/.test(shareFormatFor((_shareState && _shareState.settings) || {})), why: 'This share uses your saved password. Vault asks for your Vault password before it copies it.' });
+      if (!r || w !== _shareWin) return;
+      await shareCopyText(r.text, r.passwordIncluded ? 'Link and password copied' : 'Link copied. Vault did not keep the password.');
+    } else if (kind === 'retry-timer') {
+      const r = await shareApi('POST', `/shares/${w.id}/retry-timer`, {});
+      if (w !== _shareWin) return;
+      w.share = { ...share, ...r.share };
+      shareWindowRender();
+    } else if (kind === 'delete-remote') {
+      const ok = typeof vaultConfirm === 'function' ? await vaultConfirm(
+        'The link stops working for everyone and this cannot be undone. Your own files on this computer are not touched.',
+        { title: 'Delete this upload from gofile?', okLabel: 'Delete from gofile', cancelLabel: 'Keep it', danger: true }) : true;
+      if (!ok || w !== _shareWin) return;
+      const r = await shareApi('POST', `/shares/${w.id}/delete-remote`, {});
+      if (w !== _shareWin) return;
+      shareWindowClose();
+      shToast(r.share && r.share.status === 'gone' ? 'gofile said it was already gone. Marked as gone.' : 'Deleted from gofile.');
+      shareStatePollSoon();
+    }
+  } catch (e) {
+    if (w === _shareWin) err(e.message);
+  }
+}
+
+/* Failed. */
+
+function shareFailedHtml(w) {
+  const share = w.share || {};
+  const remote = !!share.onGofile;
+  const local = w.failLocal;
+  return `
+    ${shareHead('', 'Share privately stopped', remote ? 'Some parts may already be on gofile.' : 'Nothing was uploaded.')}
+    <div class="share-warn share-warn-bad" role="alert">${shEsc(w.failText || 'Something went wrong.')}</div>
+    <p class="vault-modal-hint">${remote ? 'Delete what was uploaded so far. You can also do it later from My shares.' : local ? 'Nothing was packed and nothing left this computer.' : 'Delete the packed archive to clean up. Your own files are not touched.'}</p>
+    <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
+    <div class="vault-modal-actions share-actions">
+      ${local ? '' : remote
+    ? '<button type="button" class="vault-btn share-btn-danger" data-sh-act="delete-remote">Delete uploaded parts</button>'
+    : '<button type="button" class="vault-btn" data-sh-act="cancel-archive">Delete archive</button>'}
+      <span class="share-sp"></span>
+      <button type="button" class="vault-btn vault-btn-primary" data-sh-act="close">Close</button>
+    </div>`;
+}
+
+/* One click listener per render. */
+
+function shareWireWindow(w) {
+  const box = w.m.box;
+  box.querySelectorAll('[data-sh-act]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const act = btn.dataset.shAct;
+      if (act === 'close') return shareWindowRequestClose();
+      if (act === 'pack') return sharePack();
+      if (act === 'cancel-archive') return shareCancelArchive();
+      if (act === 'to-confirm') { w.step = 'confirm'; w.ticked = false; return shareWindowRender(); }
+      if (act === 'back') { w.step = 'checked'; return shareWindowRender(); }
+      if (act === 'upload') return shareStartUpload();
+      if (act === 'pw-show') return sharePasswordAction('show', btn);
+      if (act === 'pw-copy') return sharePasswordAction('copy', btn);
+      if (act === 'stop') return shareUploadAct('stop');
+      if (act === 'pause') return shareUploadAct(btn.dataset.shMode === 'resume' ? 'resume' : 'pause');
+      if (act === 'delete-remote' && w.step === 'failed') return shareDoneAct('delete-remote');
+      return shareDoneAct(act);
+    });
+  });
+  const parts = box.querySelector('[data-sh-parts]');
+  if (parts) parts.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sh-retry]');
+    if (b) shareUploadAct('retry', b.dataset.shRetry);
+  });
+  const tick = box.querySelector('#shTick');
+  if (tick) tick.addEventListener('change', () => {
+    w.ticked = tick.checked;
+    const up = box.querySelector('[data-sh-act="upload"]');
+    if (up) up.disabled = !shareUploadAllowed(w);
+  });
+  const name = box.querySelector('#shName');
+  if (name) name.addEventListener('input', () => {
+    const li = box.querySelector('[data-sh-namewords]');
+    if (li) li.textContent = name.value.trim() ? 'One encrypted 7z archive with the name you typed' : 'One encrypted 7z archive with a random name';
+  });
+  shareWireShowButtons(box);
+}
+
+/* ── Top bar icon ─────────────────────────────────────────────────────── */
+
+let _shareTop = { popOpen: false, detail: null, samples: [] };
+
+function shareEnsureTopBar() {
+  let wrap = document.getElementById('sharePillWrap');
+  if (wrap) return wrap;
+  const btns = document.querySelector('.header-buttons');
+  if (!btns) return null;
+  wrap = document.createElement('div');
+  wrap.className = 'share-pill-wrap';
+  wrap.id = 'sharePillWrap';
+  wrap.hidden = true;
+  const icon = typeof vaultIconSwap === 'function' ? vaultIconSwap('📤', 'upload') : '📤';
+  wrap.innerHTML = `
+    <button type="button" class="header-btn share-pill" id="sharePill" aria-haspopup="dialog" aria-expanded="false"
+            aria-controls="sharePop" aria-label="Share upload">${icon}<span class="share-pill-badge" id="sharePillBadge" hidden></span></button>
+    <div class="watch-pop share-pop" id="sharePop" role="dialog" aria-label="Share upload" hidden></div>`;
+  const refresh = document.getElementById('refreshBtn');
+  btns.insertBefore(wrap, refresh || null);
+  wrap.querySelector('#sharePill').addEventListener('click', (e) => { e.stopPropagation(); shareTogglePop(); });
+  wrap.querySelector('#sharePop').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-share-open]');
+    if (!b) return;
+    shareTogglePop(false);
+    shareOpenShare(Number(b.dataset.shareOpen));
+  });
+  document.addEventListener('mousedown', (e) => { if (!wrap.contains(e.target)) shareTogglePop(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && _shareTop.popOpen) shareTogglePop(false); });
+  return wrap;
+}
+
+function shareTogglePop(open) {
+  const pop = document.getElementById('sharePop');
+  const btn = document.getElementById('sharePill');
+  if (!pop || !btn) return;
+  const next = open === undefined ? pop.hidden : !!open;
+  pop.hidden = !next;
+  _shareTop.popOpen = next;
+  btn.setAttribute('aria-expanded', next ? 'true' : 'false');
+  if (next) { shareRenderPop(); shareTopDetail(); }
+  else _shareTop.detail = null;
+}
+
+/** The part counts for the popup ("Part 2 of 3"), asked for while it is open. */
+async function shareTopDetail() {
+  const tb = _shareState && _shareState.topBar;
+  if (!_shareTop.popOpen || !tb || !tb.shareId) return;
+  try {
+    const p = await shareApi('GET', `/shares/${tb.shareId}/progress`, null, { background: true });
+    if (!_shareTop.popOpen) return;
+    _shareTop.detail = p;
+    if (p.upload) {
+      const now = Date.now();
+      _shareTop.samples.push({ t: now, b: p.upload.bytesDone });
+      while (_shareTop.samples.length > 2 && now - _shareTop.samples[0].t > 20000) _shareTop.samples.shift();
+    }
+    shareRenderPop();
+  } catch { /* the state answer is enough */ }
+}
+
+const SHARE_TOP_VERB = { packing: 'Packing', uploading: 'Uploading', paused: 'Paused:', not_finished: 'Upload not finished:' };
+
+function shareRenderPill() {
+  const wrap = shareEnsureTopBar();
+  if (!wrap) return;
+  const tb = _shareState && _shareState.topBar;
+  if (!tb || !tb.show) { wrap.hidden = true; shareTogglePop(false); return; }
+  wrap.hidden = false;
+  wrap.dataset.state = tb.needsYou ? 'needs' : (tb.status || '');
+  const badge = document.getElementById('sharePillBadge');
+  if (badge) { badge.hidden = !tb.needsYou; badge.textContent = tb.needsYou ? String(tb.needsYou) : ''; }
+  const btn = document.getElementById('sharePill');
+  const verb = tb.status === 'packing' ? 'Share packing' : tb.status === 'uploading' ? 'Share upload running'
+    : tb.status === 'paused' ? 'Share upload paused' : tb.status === 'not_finished' ? 'Share upload not finished' : 'Share upload';
+  const label = `${verb}${tb.percent != null ? `, ${tb.percent} percent` : ''}${tb.needsYou ? `, ${tb.needsYou} ${tb.needsYou === 1 ? 'part needs' : 'parts need'} you` : ''}`;
+  btn.setAttribute('aria-label', label);
+  btn.title = label;
+  if (_shareTop.popOpen) shareRenderPop();
+}
+
+function shareRenderPop() {
+  const pop = document.getElementById('sharePop');
+  const tb = _shareState && _shareState.topBar;
+  if (!pop || !tb) return;
+  const p = _shareTop.detail && _shareTop.detail.id === tb.shareId ? _shareTop.detail : null;
+  const parts = (p && p.upload && p.upload.parts) || [];
+  const failed = parts.filter(x => x.status === 'failed');
+  const going = parts.findIndex(x => x.status === 'uploading');
+  const pct = tb.percent || 0;
+  let line = '';
+  if (tb.status === 'uploading' && parts.length > 1) line = `Part ${(going < 0 ? parts.filter(x => x.status === 'done').length : going) + 1} of ${parts.length}`;
+  const s = _shareTop.samples;
+  const rate = s.length > 1 && s[s.length - 1].t > s[0].t ? (s[s.length - 1].b - s[0].b) / ((s[s.length - 1].t - s[0].t) / 1000) : 0;
+  const eta = tb.status === 'uploading' && p && p.upload ? shareEta(p.upload.bytesTotal - p.upload.bytesDone, rate) : '';
+  line = [line, eta].filter(Boolean).join(', ');
+  if (!line && tb.status === 'paused' && p && p.error) line = p.error;
+  const needs = tb.needsYou
+    ? `${tb.needsYou} ${tb.needsYou === 1 ? 'part needs' : 'parts need'} you${failed.length ? `: part ${failed.map(x => x.partNo).join(', ')} failed` : ''}` : '';
+  pop.innerHTML = `
+    <div class="share-pop-text" data-share-private>
+      <b>${shEsc(`${SHARE_TOP_VERB[tb.status] || 'Share'} ${tb.archiveName || ''}`.trim())}</b>
+      ${shareBar(pct, `Progress ${pct} percent`)}
+      ${line ? `<span class="watch-pop-mut share-pop-line">${shEsc(line)}</span>` : ''}
+    </div>
+    ${needs ? `<div class="share-pop-needs">${shEsc(needs)}</div>` : ''}
+    ${tb.shareId ? `<div class="watch-pop-r"><button type="button" class="watch-pop-btn" data-share-open="${Number(tb.shareId)}">Open upload</button></div>` : ''}`;
+  sharePrivacyChanged(pop);
+}
+
+/* ── State poll ───────────────────────────────────────────────────────── */
+
+/** Ask for the feature state now (after an action), then keep polling. */
+function shareStatePollSoon() {
+  clearTimeout(_sharePollTimer);
+  _sharePollTimer = setTimeout(shareStatePoll, 300);
+}
+
+async function shareStatePoll() {
+  clearTimeout(_sharePollTimer);
+  const wasOn = shareEnabled();
+  try {
+    if (typeof document === 'undefined' || !document.hidden) {
+      _shareState = await shareApi('GET', '/state', null, { background: true });
+      shareSyncPrivacyHide();
+      shareRenderPill();
+      if (_shareTop.popOpen) shareTopDetail();
+      if (shareEnabled() !== wasOn && typeof renderSelectionBar === 'function') {
+        try { renderSelectionBar(); } catch { /* not on the library */ }
+      }
+      if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+        window.dispatchEvent(new CustomEvent('vault:share-state'));
+      }
+    }
+  } catch { /* locked or not reachable: try again later */ }
+  const tb = _shareState && _shareState.topBar;
+  const busy = shareEnabled() || (tb && tb.show);
+  _sharePollTimer = setTimeout(shareStatePoll, busy ? 5000 : 30000);
+}
+
+/* ── Entry points ─────────────────────────────────────────────────────── */
+
+/** The selection bar's "Share privately" button (only while the feature is on). */
+function shareSelectionButton() {
+  if (!shareEnabled()) return '';
+  const label = typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel('📤 Share privately') : '📤 Share privately';
+  return `<button class="sel-btn sel-share" type="button" onclick="shareOpenForSelection()" title="Pack the selected files into a locked archive and upload it to gofile.io, after two checks">${label}</button>`;
+}
+
+/** Classic details: a button beside Copy Path, for one file. */
+function shareDetailButtonHtml(media) {
+  if (!shareEnabled() || !media || media.media_type === 'mix') return '';
+  return `<button onclick="shareOpenForIds([${Number(media.id)}])" class="detail-copy-btn" title="Pack this file into a locked archive and upload it to gofile.io, after two checks">📤 Share privately</button>`;
+}
+
+/** Modern Info panel: a row in the More menu, for one file. */
+function shareMenuItemHtml(media) {
+  if (!shareEnabled() || !media || media.media_type === 'mix') return '';
+  return `<button type="button" role="menuitem" class="mpp-menu-item" data-qa-item="share" onclick="detailPanelMoreClose(); shareOpenForIds([${Number(media.id)}])">${shIcon('upload')}<span>Share privately</span></button>`;
+}
+
+/* ── Boot ─────────────────────────────────────────────────────────────── */
+
+if (typeof window !== 'undefined' && typeof document !== 'undefined' && document.querySelector && !window.__shareNoBoot) {
+  const boot = () => { shareEnsureTopBar(); shareStatePoll(); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+  // After unlock the poll answers again; ask straight away.
+  window.addEventListener('vault:online', () => shareStatePollSoon());
+  // A page opened in a background tab skips the first poll; ask when it shows.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && !_shareState) shareStatePollSoon(); });
+}

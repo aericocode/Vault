@@ -141,6 +141,7 @@ function renderDetailBody(media, opts = {}) {
         ${isLibrary ? playBtn : ''}
         ${isLibrary ? upNextBtns : ''}
         ${copyBtn}
+        ${isLibrary && typeof shareDetailButtonHtml === 'function' ? shareDetailButtonHtml(media) : ''}
       </div>
 
       <div class="detail-path">${escapeHtml(media.filepath)}</div>
@@ -426,6 +427,7 @@ function detailPanelActionsHtml(media, escapedPath, escapedName, lib) {
         <div class="mpp-menu" role="menu" hidden onkeydown="detailPanelMenuKey(event)">
           ${row.map(k => item(k, true)).join('')}
           ${more.map(k => item(k, false)).join('')}
+          ${lib && typeof shareMenuItemHtml === 'function' ? shareMenuItemHtml(media) : ''}
         </div>
       </span>
       <span class="mpp-qa-sp"></span>

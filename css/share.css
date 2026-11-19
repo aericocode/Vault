@@ -1,0 +1,213 @@
+/* =========================================================================
+   SHARE PRIVATELY (player-lib/share-ui.js, share-settings-ui.js)
+
+   The share window, My shares and the small dialogs sit on the .vault-modal
+   shell (css/vault.css), which already has a Classic and a Modern look; this
+   file only adds what is new: wider boxes, the step header, file and part
+   lists, the summary, the tick box, the progress bar, the My shares table,
+   the top bar icon and the "My shares" privacy category.
+   ========================================================================= */
+
+.share-dlg { width: min(640px, 94vw); box-sizing: border-box; max-height: 92vh; overflow-y: auto; }
+.share-dlg-small { width: min(440px, 94vw); }
+.share-dlg-mid { width: min(560px, 94vw); }
+.share-list-dlg { width: min(1040px, 96vw); }
+:where(body.layout-modern) .share-dlg { width: min(640px, 100%); }
+:where(body.layout-modern) .share-dlg-small { width: min(460px, 100%); }
+:where(body.layout-modern) .share-dlg-mid { width: min(560px, 100%); }
+:where(body.layout-modern) .share-list-dlg { width: min(1040px, 100%); }
+:where(body.layout-modern) .share-ov { padding-top: 6vh; }
+
+.share-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.share-head-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.share-head h3 { overflow-wrap: anywhere; }
+.share-kicker { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); }
+.share-sub { margin: 0; }
+.share-x {
+  flex: none; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 6px; background: none; color: var(--text-secondary); cursor: pointer; font-size: 18px;
+}
+.share-x:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.06); }
+.share-x:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
+.share-x .vi { width: 16px; height: 16px; }
+
+.share-mut { color: var(--text-secondary); }
+.share-small { font-size: 0.76rem; }
+.share-mono { font-family: ui-monospace, Consolas, monospace; }
+.share-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.share-box {
+  background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.6rem 0.75rem; font-size: 0.86rem; margin: 0;
+}
+.share-block { display: flex; flex-direction: column; gap: 6px; }
+.share-label { font-size: 0.8rem; font-weight: 600; }
+.share-list { margin: 0; padding-left: 1.2rem; font-size: 0.86rem; color: var(--text-secondary); line-height: 1.6; }
+.share-row-between { display: flex; justify-content: space-between; gap: 12px; font-size: 0.8rem; }
+
+/* Files (step 1, My shares fold-out, Delete all) */
+.share-files-list { max-height: 11rem; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.share-file { display: flex; justify-content: space-between; gap: 12px; min-width: 0; }
+.share-file-name { min-width: 0; overflow-wrap: anywhere; }
+.share-file > .share-mut { flex: none; white-space: nowrap; }
+.share-file-total { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; font-weight: 600; }
+
+.share-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+.share-grid .vault-input, .share-sel { width: 100%; box-sizing: border-box; min-width: 0; }
+.share-sel { appearance: auto; }
+.vault-input:disabled, .vault-input[readonly] { opacity: 0.85; }
+@media (max-width: 560px) { .share-grid { grid-template-columns: 1fr; } }
+
+/* Actions: a spacer pushes the right-hand buttons over */
+.share-actions { align-items: center; flex-wrap: wrap; }
+.share-sp { flex: 1 1 auto; }
+.share-btn-danger { border-color: var(--danger) !important; color: #fca5a5 !important; background: transparent !important; }
+.share-btn-danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.12) !important; }
+.share-btn-danger-solid { background: var(--danger) !important; border-color: var(--danger) !important; color: #fff !important; font-weight: 600; }
+.share-btn-danger-solid:disabled { background: #3a2222 !important; border-color: #3a2222 !important; color: #e8c4c4 !important; }
+.share-link-btn { background: none; border: 0; padding: 0; color: var(--accent-hover); cursor: pointer; font: inherit; text-decoration: underline; }
+
+/* Step 2 checks */
+.share-checks { display: flex; flex-direction: column; gap: 10px; }
+.share-check { display: flex; gap: 10px; align-items: flex-start; }
+.share-check-ic { flex: none; width: 18px; height: 18px; color: var(--success); margin-top: 1px; }
+.share-check.is-bad .share-check-ic { color: var(--danger); }
+.share-check-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.share-check-text .share-mut { font-size: 0.8rem; }
+
+/* A field with buttons beside it */
+.share-pw-row { display: flex; gap: 8px; align-items: stretch; }
+.share-pw-row .vault-input { flex: 1 1 auto; min-width: 0; }
+.share-pw-row .vault-btn { flex: none; }
+.share-pre {
+  flex: 1 1 auto; min-width: 0; margin: 0; padding: 0.5rem 0.65rem; white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; font-size: 0.84rem; line-height: 1.5;
+}
+
+/* Step 3 */
+.share-warn {
+  background: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning); border-radius: 8px;
+  padding: 0.65rem 0.75rem; font-size: 0.86rem; line-height: 1.55; color: #fde68a;
+}
+.share-warn-bad { background: rgba(239, 68, 68, 0.1); border-color: var(--danger); color: #fecaca; }
+.share-sum { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: 6px 12px; }
+.share-sum dt { color: var(--text-secondary); }
+.share-sum dd { margin: 0; overflow-wrap: anywhere; }
+.share-tick { display: flex; gap: 10px; align-items: flex-start; font-size: 0.88rem; line-height: 1.5; min-height: 2.2rem; cursor: pointer; }
+.share-tick input { width: 18px; height: 18px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+.share-tick-danger input { accent-color: var(--danger); }
+@media (max-width: 560px) { .share-sum { grid-template-columns: 1fr; } }
+
+/* Progress */
+.share-bar { height: 10px; background: var(--bg-tertiary); border-radius: 5px; overflow: hidden; }
+.share-bar-fill { height: 100%; background: var(--accent); transition: width 0.4s; }
+.share-parts { display: flex; flex-direction: column; padding-top: 0.2rem; padding-bottom: 0.2rem; }
+.share-parts:empty { display: none; }
+.share-part { display: flex; align-items: center; gap: 12px; min-height: 2.6rem; }
+.share-part + .share-part { border-top: 1px solid var(--border); }
+.share-part-ic { flex: none; width: 18px; height: 18px; color: var(--accent-hover); }
+.share-part-ic.is-ok { color: var(--success); }
+.share-part-ic.is-bad { color: var(--danger); }
+.share-part-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.share-part-st { min-width: 5.5rem; text-align: right; }
+.share-part-st.is-ok { color: var(--success); }
+.share-part-st.is-busy { color: var(--accent-hover); }
+.share-note-bad { font-size: 0.8rem; color: #fca5a5; }
+.share-note-bad[hidden] { display: none; }
+.share-notes { display: flex; flex-direction: column; gap: 4px; line-height: 1.5; color: var(--text-secondary); }
+.share-ok-line { font-size: 0.8rem; color: var(--success); }
+.share-ok-line[hidden] { display: none; }
+
+/* Copy format */
+.share-fmt-text { width: 100%; box-sizing: border-box; resize: vertical; min-height: 3.2rem; height: auto !important; padding: 0.45rem 0.6rem !important; }
+.share-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.share-chip {
+  min-height: 2.2rem; padding: 0 0.75rem; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--bg-primary); color: var(--text-primary); cursor: pointer; font-size: 0.8rem;
+}
+.share-chip:hover { border-color: var(--accent); }
+.share-chip:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+[data-fmt-own][hidden] { display: none; }
+
+/* My shares */
+.share-table-wrap { border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; max-height: 56vh; overflow-y: auto; }
+.share-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+.share-table th { text-align: left; font-weight: 500; color: var(--text-secondary); background: var(--bg-primary); padding: 0.5rem 0.7rem; position: sticky; top: 0; }
+.share-table td { padding: 0.4rem 0.7rem; vertical-align: middle; }
+.share-row { border-top: 1px solid var(--border); }
+.share-fold-cell { width: 40px; padding-right: 0 !important; }
+.share-fold-btn {
+  width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 6px; background: none; color: var(--text-primary); cursor: pointer;
+}
+.share-fold-btn:hover { background: rgba(255, 255, 255, 0.06); }
+.share-fold-btn .vi { width: 16px; height: 16px; }
+.share-fold-row td { background: rgba(255, 255, 255, 0.02); }
+.share-fold { display: flex; flex-direction: column; gap: 4px; max-width: 520px; font-size: 0.8rem; padding-bottom: 0.4rem; }
+.share-fold-foot { margin-top: 4px; }
+.share-row-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.share-row-btn { font-size: 0.78rem !important; padding: 0.3rem 0.65rem !important; text-decoration: none; display: inline-flex; align-items: center; white-space: nowrap; }
+.share-st.is-ok { color: var(--success); }
+.share-st.is-soon { color: #fbbf24; }
+.share-st.is-busy { color: var(--accent-hover); }
+.share-st.is-bad { color: #fca5a5; }
+.share-st.is-done { color: var(--text-secondary); }
+.share-list-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.share-list-foot .vault-btn { flex: none; }
+.share-empty { padding: 1rem; margin: 0; }
+.share-off-line { color: #fbbf24; margin: 0; }
+.share-delall-list { display: flex; flex-direction: column; gap: 6px; max-height: 14rem; overflow-y: auto; }
+.share-ok { color: var(--success) !important; }
+.share-bad { color: #fca5a5 !important; }
+@media (max-width: 700px) { .share-list-foot { flex-direction: column; align-items: stretch; } }
+
+/* ── Settings > Private sharing ─────────────────────────────────────────── */
+
+.share-set-h { margin: 1rem 0 0.2rem; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; }
+.share-set-pw, .share-set-size { display: inline-flex; gap: 6px; align-items: center; flex: none; flex-wrap: wrap; justify-content: flex-end; }
+.share-set-pw .settings-text { width: 11rem; }
+.share-set-size .settings-num { width: 5.5rem; }
+.share-set-err { color: var(--danger) !important; }
+.share-set-err[hidden] { display: none; }
+[data-share-custom-row][hidden] { display: none; }
+.share-set-foot { margin-top: 0.6rem; }
+.share-more summary { display: flex; flex-direction: column; gap: 2px; padding-left: 2rem; position: relative; }
+.share-more summary::before { position: absolute; left: 0.9rem; top: 0.75rem; }
+.share-more-title { font-weight: 600; }
+.share-more-desc { font-size: 0.78rem; font-weight: 400; color: var(--text-secondary); }
+body.layout-modern .share-more { margin: 0.9rem 0; background: transparent; }
+body.layout-modern .share-more .settings-acc-body { padding: 0 0.6rem 0.6rem; }
+body.layout-modern .share-more .settings-card + .settings-card { margin-top: 0.7rem; }
+
+/* ── Top bar icon ──────────────────────────────────────────────────────── */
+
+.share-pill-wrap { position: relative; display: flex; }
+.share-pill-wrap[hidden] { display: none; }
+.share-pill { position: relative; border-color: var(--accent) !important; color: var(--accent-hover); }
+.share-pill .vi { width: 18px; height: 18px; }
+.share-pill-wrap[data-state="paused"] .share-pill,
+.share-pill-wrap[data-state="not_finished"] .share-pill { color: var(--warning); border-color: rgba(245, 158, 11, 0.6) !important; }
+.share-pill-badge {
+  position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; box-sizing: border-box; padding: 0 4px;
+  background: var(--danger); border-radius: 9px; color: #fff; font-size: 11px; line-height: 18px; font-weight: 700; text-align: center;
+}
+.share-pill-badge[hidden] { display: none; }
+body.layout-modern #sharePillWrap { order: 2; }
+body.layout-modern .share-pill { border-radius: 999px; padding: 0.4rem 0.7rem; }
+.share-pop { width: min(320px, calc(100vw - 32px)); }
+.share-pop-text { display: flex; flex-direction: column; gap: 8px; }
+.share-pop-text b { overflow-wrap: anywhere; }
+.share-pop .share-bar { height: 8px; }
+.share-pop-line { white-space: normal; }
+.share-pop-needs { color: #fca5a5; }
+
+/* ── Privacy mode: My shares (body.pm-shares) ─────────────────────────────
+   The My shares list, the top bar popup text, the share window's file list
+   and the Delete all list. Blurred, no pointer, and taken out of the
+   keyboard order by share-ui.js (sharePrivacyChanged sets inert). No hover
+   reveal, like every other category (css/settings.css). */
+body.pm-shares [data-share-private] {
+  filter: blur(7px);
+  pointer-events: none;
+  user-select: none;
+}

@@ -172,7 +172,7 @@ const VAULT_EMOJI_ICONS = {
   '🔑': 'key', '❤': 'heart', '🤍': 'heart', '📝': 'note', '👁': 'eye', '⏸': 'pause', '🔊': 'volume', '🔇': 'mute',
   '🏅': 'award', '🏆': 'award', '📈': 'trend', '📊': 'chart', '🗺': 'map', '🎨': 'palette', '🎭': 'mask',
   '📸': 'camera', '📷': 'camera', '🔥': 'flame', '📋': 'copy', '➖': 'minus', '⛶': 'fullscreen', '↩': 'undo',
-  'ℹ': 'info', '📂': 'folder', '⭳': 'download',
+  'ℹ': 'info', '📂': 'folder', '⭳': 'download', '📤': 'upload',
   '⏭': 'next-file',   // Skip on tracks (collection-skips.js)
 };
 
