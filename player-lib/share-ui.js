@@ -117,8 +117,15 @@ const _shareModals = [];   // open share dialogs, newest last
  * A dialog on the .vault-modal shell (css/vault.css), so the page shortcuts
  * stay quiet while it is open (vault-dialogs.js vaultModalOpen). Esc calls
  * onEsc (default: close), Tab stays inside, focus goes back on close.
+ *
+ * outside: true makes a click on the dim backdrop do what Esc does. Only for
+ * windows where nothing can be lost (My shares, Delete all, the Copy format
+ * editor with no edits); the share window and Change saved password ignore
+ * both, so a stray click or key cannot drop typed input or hide a job. The
+ * press and the release must both land on the backdrop: a text selection
+ * dragged out of the window does not close it.
  */
-function shareModal({ id, labelledBy, html, cls = '', onEsc }) {
+function shareModal({ id, labelledBy, html, cls = '', onEsc, outside = false }) {
   if (id) document.getElementById(id)?.remove();
   const opener = document.activeElement;
   const ov = document.createElement('div');
@@ -145,6 +152,16 @@ function shareModal({ id, labelledBy, html, cls = '', onEsc }) {
     }
   }
   window.addEventListener('keydown', onKey, true);
+  if (outside) {
+    let downOnBackdrop = false;
+    ov.addEventListener('mousedown', (e) => { downOnBackdrop = e.target === ov; });
+    ov.addEventListener('click', (e) => {
+      const both = downOnBackdrop && e.target === ov;
+      downOnBackdrop = false;
+      if (!both || m.closed || _shareModals[_shareModals.length - 1] !== m) return;
+      if (onEsc) onEsc(); else m.close();
+    });
+  }
   m.close = () => {
     if (m.closed) return;
     m.closed = true;
@@ -350,7 +367,9 @@ function shareWindowOpen() {
     id: null, mediaIds: [], preview: null, share: null, progress: null, step: 'loading',
     ticked: false, error: '', failText: '', failLocal: false, samples: [], timer: null, busy: false, partsSig: '',
   };
-  w.m = shareModal({ id: 'shareWindow', labelledBy: 'shareWinTitle', cls: 'share-win', onEsc: () => shareWindowRequestClose() });
+  // Esc and a click outside do nothing here: closing by accident would drop
+  // what was typed on step 1 or hide a running job. Close and Cancel do it.
+  w.m = shareModal({ id: 'shareWindow', labelledBy: 'shareWinTitle', cls: 'share-win', onEsc: () => {} });
   _shareWin = w;
   return w;
 }
@@ -1134,8 +1153,10 @@ function shareEnsureTopBar() {
     <div class="watch-pop share-pop" id="sharePop" role="dialog" aria-label="Share upload" hidden></div>`;
   const refresh = document.getElementById('refreshBtn');
   btns.insertBefore(wrap, refresh || null);
-  wrap.querySelector('#sharePill').addEventListener('click', (e) => { e.stopPropagation(); shareTogglePop(); });
+  wrap.querySelector('#sharePill').addEventListener('click', (e) => { e.stopPropagation(); sharePillClick(); });
   wrap.querySelector('#sharePop').addEventListener('click', (e) => {
+    const list = e.target.closest('[data-share-list]');
+    if (list) { shareTogglePop(false); shareOpenMyShares(); return; }
     const b = e.target.closest('[data-share-open]');
     if (!b) return;
     shareTogglePop(false);
@@ -1177,19 +1198,38 @@ async function shareTopDetail() {
 
 const SHARE_TOP_VERB = { packing: 'Packing', uploading: 'Uploading', paused: 'Paused:', not_finished: 'Upload not finished:' };
 
+/** Is a share packing, uploading, paused, not finished or holding a failed part? */
+function shareTopActive(tb) {
+  if (!tb) return false;
+  if (typeof tb.active === 'boolean') return tb.active;
+  return !!(tb.shareId || tb.needsYou);
+}
+
+/** The top bar button: the small popup while a share runs or needs you, else My shares. */
+function sharePillClick() {
+  if (shareTopActive(_shareState && _shareState.topBar)) { shareTogglePop(); return; }
+  shareTogglePop(false);
+  if (typeof shareOpenMyShares === 'function') shareOpenMyShares();
+}
+
 function shareRenderPill() {
   const wrap = shareEnsureTopBar();
   if (!wrap) return;
   const tb = _shareState && _shareState.topBar;
   if (!tb || !tb.show) { wrap.hidden = true; shareTogglePop(false); return; }
   wrap.hidden = false;
-  wrap.dataset.state = tb.needsYou ? 'needs' : (tb.status || '');
+  const active = shareTopActive(tb);
+  wrap.dataset.state = !active ? 'idle' : tb.needsYou ? 'needs' : (tb.status || '');
   const badge = document.getElementById('sharePillBadge');
   if (badge) { badge.hidden = !tb.needsYou; badge.textContent = tb.needsYou ? String(tb.needsYou) : ''; }
   const btn = document.getElementById('sharePill');
-  const verb = tb.status === 'packing' ? 'Share packing' : tb.status === 'uploading' ? 'Share upload running'
+  // Idle, it opens My shares directly: no popup to announce.
+  if (active) btn.setAttribute('aria-haspopup', 'dialog'); else btn.removeAttribute('aria-haspopup');
+  if (!active && _shareTop.popOpen) shareTogglePop(false);
+  const verb = !active ? 'My shares' : tb.status === 'packing' ? 'Share packing' : tb.status === 'uploading' ? 'Share upload running'
     : tb.status === 'paused' ? 'Share upload paused' : tb.status === 'not_finished' ? 'Share upload not finished' : 'Share upload';
-  const label = `${verb}${tb.percent != null ? `, ${tb.percent} percent` : ''}${tb.needsYou ? `, ${tb.needsYou} ${tb.needsYou === 1 ? 'part needs' : 'parts need'} you` : ''}`;
+  const label = !active ? verb
+    : `${verb}${tb.percent != null ? `, ${tb.percent} percent` : ''}${tb.needsYou ? `, ${tb.needsYou} ${tb.needsYou === 1 ? 'part needs' : 'parts need'} you` : ''}`;
   btn.setAttribute('aria-label', label);
   btn.title = label;
   if (_shareTop.popOpen) shareRenderPop();
@@ -1220,7 +1260,10 @@ function shareRenderPop() {
       ${line ? `<span class="watch-pop-mut share-pop-line">${shEsc(line)}</span>` : ''}
     </div>
     ${needs ? `<div class="share-pop-needs">${shEsc(needs)}</div>` : ''}
-    ${tb.shareId ? `<div class="watch-pop-r"><button type="button" class="watch-pop-btn" data-share-open="${Number(tb.shareId)}">Open upload</button></div>` : ''}`;
+    <div class="watch-pop-r share-pop-acts">
+      <button type="button" class="share-link-btn" data-share-list>My shares</button>
+      ${tb.shareId ? `<button type="button" class="watch-pop-btn" data-share-open="${Number(tb.shareId)}">Open upload</button>` : ''}
+    </div>`;
   sharePrivacyChanged(pop);
 }
 

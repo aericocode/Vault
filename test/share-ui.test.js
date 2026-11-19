@@ -589,6 +589,294 @@ test('the selection bar and a file menu offer Share privately only while the fea
   assert.match(read('selection.js'), /shareSelectionButton\(\)/);
 });
 
+/* ── Closing by a click outside or Esc ───────────────────────────────── */
+
+/** A stand-in element: listeners, cached children, enough for shareModal and the top bar. */
+function stubEl(name) {
+  const el = {
+    name, listeners: {}, cache: {}, attrs: {}, dataset: {}, style: {}, hidden: false, value: '', disabled: false, isConnected: true,
+    classList: { add: noop, remove: noop, contains: () => false },
+    textContent: '', innerHTML: '', title: '',
+    addEventListener(t, f) { (this.listeners[t] ||= []).push(f); },
+    fire(t, e) { for (const f of this.listeners[t] || []) f(e); },
+    querySelector(sel) { return (this.cache[sel] ||= stubEl(sel)); },
+    querySelectorAll: () => [],
+    setAttribute(k, v) { this.attrs[k] = String(v); }, removeAttribute(k) { delete this.attrs[k]; },
+    focus: noop, insertBefore: noop, contains: () => false, closest: () => null,
+    remove() { this.isConnected = false; },
+  };
+  return el;
+}
+
+/** load() plus a stand-in DOM: windows open, Esc reaches them, the backdrop takes mouse events. */
+function loadDom(opts) {
+  const L = load(opts);
+  const keys = [];
+  L.ctx.addEventListener = (t, f) => { if (t === 'keydown') keys.push(f); };
+  L.ctx.removeEventListener = (t, f) => { const i = keys.indexOf(f); if (i >= 0) keys.splice(i, 1); };
+  L.ctx.document.createElement = () => { const ov = stubEl('ov'); ov.firstElementChild = stubEl('box'); return ov; };
+  L.ctx.document.body.appendChild = noop;
+  L.ctx.document.activeElement = null;
+  L.ctx.vaultConfirm = async () => { throw new Error('no confirm expected'); };
+  setState(L);
+  const top = () => L.run('_shareModals[_shareModals.length - 1]');
+  return {
+    L, top,
+    esc() { const e = { key: 'Escape', preventDefault: noop, stopImmediatePropagation: noop }; [...keys].forEach(f => f(e)); },
+    /** Press and release on the dim backdrop. */
+    outside(m = top()) { m.ov.fire('mousedown', { target: m.ov }); m.ov.fire('click', { target: m.ov }); },
+    /** A text selection: pressed inside the window, released outside. */
+    dragOut(m = top()) { m.ov.fire('mousedown', { target: m.box }); m.ov.fire('click', { target: m.ov }); },
+    /** Pressed outside, released inside. */
+    dragIn(m = top()) { m.ov.fire('mousedown', { target: m.ov }); m.ov.fire('click', { target: m.box }); },
+  };
+}
+
+const LISTED = { id: 1, archiveName: 'a', status: 'uploaded', onGofile: true, link: 'https://gofile.io/d/A', sizeBytes: 1, fileCount: 1, partCount: 1, timerSet: true, uploadedAt: Date.now() };
+
+test('My shares: a click outside or Esc closes it; a drag that starts or ends inside does not', async () => {
+  const D = loadDom({ answers: { 'GET /api/share/shares': { status: 200, body: { shares: [LISTED] } } } });
+  await D.L.run('shareOpenMyShares()');
+  const m = D.top();
+  D.dragOut();
+  D.dragIn();
+  assert.strictEqual(m.closed, false, 'a drag across the edge keeps it open');
+  D.outside();
+  assert.strictEqual(m.closed, true);
+  assert.strictEqual(D.L.run('_shareList'), null);
+  await D.L.run('shareOpenMyShares()');
+  const m2 = D.top();
+  D.esc();
+  assert.strictEqual(m2.closed, true, 'Esc does the same');
+  assert.strictEqual(D.L.run('_shareModals.length'), 0, 'back to what was under it (Settings)');
+});
+
+test('Delete all: a click outside or Esc is "Keep them" (My shares stays); not while the deletes run', async () => {
+  let release;
+  const D = loadDom({ answers: { 'GET /api/share/shares': { status: 200, body: { shares: [LISTED] } } } });
+  await D.L.run('shareOpenMyShares()');
+  const list = D.top();
+  D.L.run('shareOpenDeleteAll()');
+  const del = D.top();
+  assert.notStrictEqual(del, list);
+  D.dragOut(del);
+  assert.strictEqual(del.closed, false);
+  const before = D.L.calls.length;
+  D.outside(del);
+  assert.strictEqual(del.closed, true, 'outside = Keep them');
+  assert.strictEqual(list.closed, false, 'My shares is still open under it');
+  assert.ok(D.L.calls.slice(before).some(c => c.url === '/api/share/shares'), 'the list is asked for again, as Keep them does');
+  D.L.run('shareOpenDeleteAll()');
+  const del2 = D.top();
+  D.esc();
+  assert.strictEqual(del2.closed, true, 'Esc = Keep them');
+  assert.strictEqual(list.closed, false);
+  // While the deletes run, neither closes it: the results must not be missed.
+  D.L.ctx.fetch = (url, init) => { D.L.calls.push({ url, init }); return new Promise((r) => { release = () => r({ ok: true, status: 200, json: async () => ({ results: [{ id: 1, ok: true }], deleted: 1, failed: 0 }) }); }); };
+  D.L.run('shareOpenDeleteAll()');
+  const del3 = D.top();
+  const go = del3.q('[data-del-act="go"]');
+  go.dataset.delAct = 'go';
+  del3.box.fire('click', { target: { closest: (s) => (s === '[data-del-act]' ? go : null) } });
+  D.outside(del3);
+  D.esc();
+  assert.strictEqual(del3.closed, false, 'kept open while deleting');
+  release();
+  await new Promise(r => setImmediate(r));
+  D.esc();
+  assert.strictEqual(del3.closed, true, 'Esc closes once the results show');
+});
+
+test('the share window and Change saved password ignore a click outside and Esc', () => {
+  const D = loadDom();
+  D.L.run('shareWindowOpen()');
+  const w = D.top();
+  D.outside();
+  D.esc();
+  assert.strictEqual(w.closed, false);
+  assert.ok(D.L.run('_shareWin'), 'the share window is still there');
+  D.L.run('shareWindowClose()');
+  D.L.run('shareOpenChangePassword()');
+  const cp = D.top();
+  D.outside();
+  D.esc();
+  assert.strictEqual(cp.closed, false, 'a typed password is never dropped by a stray click or key');
+  // The Vault password prompt keeps Esc as Cancel and has no outside close.
+  const src = read('share-ui.js');
+  assert.ok(!/shareGateDlg[\s\S]{0,200}outside: true/.test(src));
+});
+
+test('Copy format editor: closes on a click outside or Esc only while nothing was changed', () => {
+  const D = loadDom({ kit: true });
+  D.L.run('shareOpenCopyFormat(null)');
+  const m = D.top();
+  D.dragOut();
+  assert.strictEqual(m.closed, false);
+  D.outside();
+  assert.strictEqual(m.closed, true, 'no edits: outside closes it');
+  D.L.run('shareOpenCopyFormat(null)');
+  const m2 = D.top();
+  m2.q('#shFmtText').value = 'mine: {link}';
+  D.outside();
+  D.esc();
+  assert.strictEqual(m2.closed, false, 'unsaved edits: kept open');
+  const cancel = { dataset: { fmtAct: 'cancel' } };
+  m2.box.fire('click', { target: { closest: (s) => (s === '[data-fmt-act]' ? cancel : null) } });
+  assert.strictEqual(m2.closed, true, 'Cancel still closes');
+  D.L.run('shareOpenCopyFormat(null)');
+  const m3 = D.top();
+  D.esc();
+  assert.strictEqual(m3.closed, true, 'no edits: Esc closes it');
+});
+
+/* ── Copy format: the row and the editor ─────────────────────────────── */
+
+test('Copy format: Edit shows only for My own format; the editor has no ready-format dropdown', () => {
+  const D = loadDom({ kit: true });
+  const row = (fmt) => D.L.run(`_shareState.settings.copyFormat = ${JSON.stringify(fmt)}; shareSettingsHtml()`);
+  assert.match(row('default'), /data-share-act="format-edit" hidden>Edit</);
+  assert.match(row('oneLine'), /data-share-act="format-edit" hidden>Edit</);
+  assert.match(row('custom'), /data-share-act="format-edit">Edit</);
+  assert.match(row('custom'), /data-share-sel="copyFormat"/, 'the ready formats stay on the row');
+  D.L.run('shareOpenCopyFormat(null)');
+  const html = D.top().ov.innerHTML;
+  assert.ok(!/<select|shFmtChoice/.test(html), 'no dropdown in the editor');
+  for (const want of ['id="shFmtText"', 'data-fmt-piece="{link}"', 'data-fmt-piece="{code}"', 'data-fmt-piece="{pass}"', 'data-fmt-piece="{name}"',
+    'data-fmt-preview', 'data-fmt-act="default">Back to the default', 'data-fmt-act="save">Save']) {
+    assert.ok(html.includes(want), want);
+  }
+  assert.ok(!/[—–]/.test(html.replace(/<[^>]+>/g, '')), 'no long dashes');
+});
+
+test('Copy format: picking My own format the first time opens the editor with the format in use; closing puts the dropdown back', async () => {
+  const D = loadDom({ kit: true });
+  D.L.run(`_shareState.settings.copyFormat = 'oneLine'`);
+  const edit = stubEl('edit');
+  edit.hidden = true;
+  const root = stubEl('root');
+  root.cache['[data-share-act="format-edit"]'] = edit;
+  const sel = { value: 'custom' };
+  D.L.ctx.__root = root;
+  D.L.ctx.__sel = sel;
+  await D.L.run(`shareCopyFormatPicked(__sel, 'custom', __root)`);
+  const m = D.top();
+  assert.ok(m, 'the editor opened');
+  assert.ok(m.ov.innerHTML.includes('>code: {code} | pass: {pass}</textarea>'), 'prefilled with the one-line format');
+  assert.strictEqual(D.L.calls.filter(c => c.init.method === 'POST').length, 0, 'nothing saved yet');
+  D.outside();
+  assert.strictEqual(m.closed, true);
+  assert.strictEqual(sel.value, 'oneLine', 'the dropdown goes back');
+  // Save stores both: the choice and the text.
+  await D.L.run(`shareCopyFormatPicked(__sel, 'custom', __root)`);
+  const m2 = D.top();
+  m2.q('#shFmtText').value = 'code: {code} | pass: {pass} | {name}';
+  const save = { dataset: { fmtAct: 'save' } };
+  m2.box.fire('click', { target: { closest: (s) => (s === '[data-fmt-act]' ? save : null) } });
+  await new Promise(r => setImmediate(r));
+  const post = D.L.calls.find(c => c.init.method === 'POST' && c.url === '/api/share/settings');
+  assert.deepStrictEqual(JSON.parse(post.init.body), { copyFormat: 'custom', customFormat: 'code: {code} | pass: {pass} | {name}' });
+  assert.strictEqual(m2.closed, true);
+});
+
+test('Copy format: with an own format already saved, picking it just switches; a ready one hides Edit', async () => {
+  const D = loadDom({ kit: true, answers: { 'POST /api/share/settings': { status: 200, body: { settings: {} } } } });
+  D.L.run(`_shareState.settings.copyFormat = 'default'; _shareState.settings.customFormat = 'mine {link}'`);
+  const edit = stubEl('edit');
+  edit.hidden = true;
+  const root = stubEl('root');
+  root.cache['[data-share-act="format-edit"]'] = edit;
+  D.L.ctx.__root = root;
+  await D.L.run(`shareCopyFormatPicked({ value: 'custom' }, 'custom', __root)`);
+  assert.strictEqual(D.L.run('_shareModals.length'), 0, 'no editor');
+  assert.deepStrictEqual(JSON.parse(D.L.calls.at(-1).init.body), { copyFormat: 'custom' });
+  assert.strictEqual(edit.hidden, false, 'Edit shows');
+  await D.L.run(`shareCopyFormatPicked({ value: 'oneLine' }, 'oneLine', __root)`);
+  assert.deepStrictEqual(JSON.parse(D.L.calls.at(-1).init.body), { copyFormat: 'oneLine' });
+  assert.strictEqual(edit.hidden, true, 'Edit hides');
+});
+
+/* ── The top bar button ──────────────────────────────────────────────── */
+
+/** loadDom plus the top bar made by shareEnsureTopBar. */
+function loadTopBar() {
+  const D = loadDom();
+  const btns = stubEl('buttons');
+  let wrap = null;
+  D.L.ctx.document.querySelector = (s) => (s === '.header-buttons' ? btns : null);
+  D.L.ctx.document.getElementById = (id) => (!wrap ? null : {
+    sharePillWrap: wrap, sharePill: wrap.cache['#sharePill'], sharePop: wrap.cache['#sharePop'], sharePillBadge: wrap.cache.badge ||= stubEl('badge'),
+  }[id] || null);
+  wrap = D.L.run('shareEnsureTopBar()');
+  const opened = [];
+  D.L.ctx.__opened = opened;
+  D.L.run(`shareOpenMyShares = () => __opened.push('list'); shareOpenShare = (id) => __opened.push(id)`);
+  const pill = wrap.cache['#sharePill'];
+  const pop = wrap.cache['#sharePop'];
+  pop.hidden = true;
+  const show = (topBar) => { D.L.ctx.__tb = topBar; D.L.run('_shareState.topBar = __tb; shareRenderPill()'); };
+  const clickPill = () => pill.fire('click', { stopPropagation: noop });
+  return { D, wrap, pill, pop, opened, show, clickPill };
+}
+
+test('top bar: idle it is a plain button that opens My shares; hidden when the server says so', () => {
+  const T = loadTopBar();
+  T.show({ show: false, active: false, needsYou: 0, shareId: null });
+  assert.strictEqual(T.wrap.hidden, true, 'feature or setting off and nothing running: hidden');
+  T.show({ show: true, active: false, needsYou: 0, shareId: null, status: null, percent: null });
+  assert.strictEqual(T.wrap.hidden, false);
+  assert.strictEqual(T.wrap.dataset.state, 'idle');
+  assert.strictEqual(T.pill.attrs['aria-label'], 'My shares');
+  assert.ok(!('aria-haspopup' in T.pill.attrs), 'no popup to announce');
+  T.clickPill();
+  assert.deepStrictEqual(T.opened, ['list'], 'opens My shares directly');
+  assert.strictEqual(T.pop.hidden, true, 'no popup');
+  // The idle button shows nothing private, so privacy mode leaves it alone.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'share.css'), 'utf8');
+  assert.match(css, /\.share-pill-wrap:not\(\[data-state="idle"\]\) \.share-pill \{ border-color: var\(--accent\)/, 'the accent look only while active');
+});
+
+test('top bar: while a share runs or needs you it keeps its look and opens the popup, with My shares beside Open upload', () => {
+  const T = loadTopBar();
+  T.show({ show: true, active: true, needsYou: 1, shareId: 7, archiveName: 'secret-name', status: 'paused', percent: 40 });
+  assert.strictEqual(T.wrap.dataset.state, 'needs');
+  assert.strictEqual(T.wrap.cache.badge.textContent, '1');
+  assert.strictEqual(T.wrap.cache.badge.hidden, false);
+  assert.strictEqual(T.pill.attrs['aria-haspopup'], 'dialog');
+  assert.match(T.pill.attrs['aria-label'], /^Share upload paused, 40 percent, 1 part needs you$/);
+  T.clickPill();
+  assert.strictEqual(T.pop.hidden, false, 'the popup opens');
+  assert.deepStrictEqual(T.opened, [], 'not My shares straight away');
+  const html = T.pop.innerHTML;
+  assert.match(html, /data-share-list>My shares<\/button>/);
+  assert.match(html, /data-share-open="7">Open upload<\/button>/);
+  assert.ok(withoutPrivate(html).includes('data-share-list') && !withoutPrivate(html).includes('secret-name'), 'the link is usable, the name stays covered');
+  // The two links.
+  T.pop.fire('click', { target: { closest: (s) => (s === '[data-share-list]' ? {} : null) } });
+  assert.deepStrictEqual(T.opened, ['list']);
+  assert.strictEqual(T.pop.hidden, true, 'the popup closes');
+  T.clickPill();
+  T.pop.fire('click', { target: { closest: (s) => (s === '[data-share-open]' ? { dataset: { shareOpen: '7' } } : null) } });
+  assert.deepStrictEqual(T.opened, ['list', 7]);
+  // Uploading with nothing failed: today's look, no red count.
+  T.show({ show: true, active: true, needsYou: 0, shareId: 7, status: 'uploading', percent: 10 });
+  assert.strictEqual(T.wrap.dataset.state, 'uploading');
+  assert.strictEqual(T.wrap.cache.badge.hidden, true);
+  // Once it ends the button goes idle and the popup shuts.
+  T.clickPill();
+  T.show({ show: true, active: false, needsYou: 0, shareId: null });
+  assert.strictEqual(T.pop.hidden, true);
+  assert.strictEqual(T.wrap.dataset.state, 'idle');
+});
+
+test('top bar setting: plain words, and the search entry matches', () => {
+  const L = load({ kit: true });
+  setState(L);
+  const html = L.run('shareSettingsHtml()');
+  assert.match(html, /Show the share button in the top bar/);
+  assert.ok(!/while an upload is running/.test(html), 'the old label is gone');
+  assert.match(read('settings-search.js'), /id: 'shareTopBarIcon', label: 'Share button in the top bar'/);
+});
+
 test('no long dashes in what the share files show', () => {
   for (const f of FILES) {
     const strings = read(f).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');

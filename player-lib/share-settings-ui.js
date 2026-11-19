@@ -94,11 +94,13 @@ function shareSettingsHtml() {
       + row({ sfind: 'shareAccount', title: 'gofile guest account', control: _shSel('accountMode', SHARE_ACCOUNT_OPTIONS, s.accountMode, 'gofile guest account') })],
     ['Copy format', row({ sfind: 'shareCopyFormat', title: 'Copy as block gives',
       control: `<span class="share-set-pw">${_shSel('copyFormat', SHARE_COPY_FORMAT_OPTIONS, s.copyFormat, 'Copy as block gives')}
-          <button type="button" class="settings-btn settings-btn-quiet" data-share-act="format-edit">Edit</button></span>` })],
+          <button type="button" class="settings-btn settings-btn-quiet" data-share-act="format-edit"${s.copyFormat === 'custom' ? '' : ' hidden'}>Edit</button></span>` })],
     ['What Vault remembers', row({ tag: 'label', sfind: 'shareRememberPasswords', title: 'Passwords of past shares', control: _shSwitch('rememberPasswords', s.rememberPasswords, 'Passwords of past shares') })
       + row({ tag: 'label', sfind: 'shareRememberFiles', title: 'Which files were in each share', desc: 'Folded away in My shares.', control: _shSwitch('rememberFiles', s.rememberFiles, 'Which files were in each share') })
       + row({ tag: 'label', sfind: 'shareHideInPrivacy', title: 'Hide My shares in privacy mode', control: _shSwitch('hideInPrivacy', s.hideInPrivacy, 'Hide My shares in privacy mode') })
-      + row({ tag: 'label', sfind: 'shareTopBarIcon', title: 'Show a top bar icon while an upload is running', control: _shSwitch('topBarIcon', s.topBarIcon, 'Show a top bar icon while an upload is running') })],
+      + row({ tag: 'label', sfind: 'shareTopBarIcon', title: 'Show the share button in the top bar',
+        desc: 'It opens My shares. When off, it shows only while an upload runs or needs you.',
+        control: _shSwitch('topBarIcon', s.topBarIcon, 'Show the share button in the top bar') })],
   ];
   const more = (body) => `
       <details class="settings-acc share-more" data-sfind="shareMore"${_shareMoreOpen ? ' open' : ''}>
@@ -211,8 +213,8 @@ async function shareSettingsChange(e, root) {
       const ok = await shareOpenChangePassword({ forChoice: true });
       if (!ok) { sel.value = 'random'; return; }
     }
+    if (key === 'copyFormat') return shareCopyFormatPicked(sel, value, root);
     await shareSaveSettings({ [key]: value }, root);
-    if (key === 'copyFormat' && value === 'custom') shareOpenCopyFormat(root);
     return;
   }
   const sw = t.closest('[data-share-setting]');
@@ -328,7 +330,8 @@ function shareOpenChangePassword({ forChoice = false } = {}) {
     let busy = false;
     const m = shareModal({
       id: 'shareChangePwDlg', labelledBy: 'shareChangePwTitle', cls: 'share-dlg-mid',
-      onEsc: () => finish(),
+      // Esc and a click outside do nothing: a typed password would be lost.
+      onEsc: () => {},
       html: `
         <h3 id="shareChangePwTitle">Change saved password</h3>
         <p class="vault-modal-hint">This replaces the password Vault offers for new shares. Shares you already made keep the password they were packed with.</p>
@@ -417,30 +420,58 @@ function shareOpenChangePassword({ forChoice = false } = {}) {
 
 /* ── Copy format ──────────────────────────────────────────────────────── */
 
-function shareOpenCopyFormat(root) {
+/**
+ * The row's dropdown changed. A ready format is saved at once. My own format:
+ * the first time (nothing of the user's own saved yet) the editor opens with
+ * the format that was in use, so it starts from one that works, and nothing
+ * is saved until Save (closing it puts the dropdown back). After that, picking
+ * it just switches to the saved one. Edit shows only for My own format.
+ */
+async function shareCopyFormatPicked(sel, value, root) {
+  const before = shSet().copyFormat;
+  const edit = root.querySelector('[data-share-act="format-edit"]');
+  if (value === 'custom' && shareOwnFormatUnset()) {
+    shareOpenCopyFormat(root, {
+      prefill: SHARE_READY_FORMATS[before] || SHARE_READY_FORMATS.default,
+      onCancel: () => { if (sel.isConnected !== false) sel.value = before; },
+    });
+    return;
+  }
+  const ok = await shareSaveSettings({ copyFormat: value }, root);
+  if (ok && edit) edit.hidden = value !== 'custom';
+}
+
+/** Has the user never saved a format of their own (it is still the default text)? */
+function shareOwnFormatUnset() {
+  return shSet().customFormat === SHARE_SETTINGS_DEFAULTS.customFormat;
+}
+
+/**
+ * The editor for My own format: the box, the pieces, the live preview, Back to
+ * the default and Save. The ready formats are picked on the Settings row, not
+ * here. prefill: the text to start from (the first time My own format is
+ * picked, the format that was in use). onCancel: called when it closes
+ * without saving. Esc or a click outside closes it only while nothing was
+ * changed, so typed text is never dropped by accident.
+ */
+function shareOpenCopyFormat(root, { prefill = null, onCancel = null } = {}) {
   const s = shSet();
-  let choice = s.copyFormat;
+  const start = prefill != null ? prefill : s.customFormat;
+  let edited = () => false;
+  const cancel = () => { if (m.closed) return; m.close(); if (onCancel) onCancel(); };
   const m = shareModal({
     id: 'shareFormatDlg', labelledBy: 'shareFormatTitle', cls: 'share-dlg-mid',
+    onEsc: () => { if (!edited()) cancel(); },
+    outside: true,
     html: `
-      <h3 id="shareFormatTitle">Copy format</h3>
+      <h3 id="shareFormatTitle">My own copy format</h3>
       <div class="vault-field">
-        <label class="vault-label" for="shFmtChoice">Copy as block gives</label>
-        ${shareSelect('shFmtChoice', [
-          { value: 'custom', label: 'My own format' },
-          { value: 'default', label: 'Link, then pass: line (default)' },
-          { value: 'oneLine', label: 'One line: code and pass' },
-        ], choice)}
+        <label class="vault-label" for="shFmtText">My format</label>
+        <textarea id="shFmtText" class="vault-input share-mono share-fmt-text" rows="2" maxlength="${SHARE_FORMAT_MAX}" spellcheck="false" aria-describedby="shFmtHint">${shEsc(start)}</textarea>
+        <div class="vault-field-note" id="shFmtHint">Press a piece to drop it in where the cursor is.</div>
       </div>
-      <div data-fmt-own>
-        <div class="vault-field">
-          <label class="vault-label" for="shFmtText">My format</label>
-          <textarea id="shFmtText" class="vault-input share-mono share-fmt-text" rows="2" maxlength="${SHARE_FORMAT_MAX}" spellcheck="false" aria-describedby="shFmtHint">${shEsc(s.customFormat)}</textarea>
-          <div class="vault-field-note" id="shFmtHint">This box shows only for My own format. Press a piece to drop it in.</div>
-        </div>
-        <div class="share-chips" role="group" aria-label="Pieces">
-          ${['{link}', '{code}', '{pass}', '{name}'].map(p => `<button type="button" class="share-chip share-mono" data-fmt-piece="${p}">${p}</button>`).join('')}
-        </div>
+      <div class="share-chips" role="group" aria-label="Pieces">
+        ${['{link}', '{code}', '{pass}', '{name}'].map(p => `<button type="button" class="share-chip share-mono" data-fmt-piece="${p}">${p}</button>`).join('')}
       </div>
       <div class="vault-field">
         <div class="vault-label" id="shFmtPrevLabel">What gets copied</div>
@@ -455,15 +486,11 @@ function shareOpenCopyFormat(root) {
         <button type="button" class="vault-btn vault-btn-primary" data-fmt-act="save">Save</button>
       </div>`,
   });
-  const sel = m.q('#shFmtChoice');
   const text = m.q('#shFmtText');
-  const paint = () => {
-    choice = sel.value;
-    m.q('[data-fmt-own]').hidden = choice !== 'custom';
-    const fmt = choice === 'custom' ? text.value : SHARE_READY_FORMATS[choice];
-    m.q('[data-fmt-preview]').textContent = shareFormatPreview(fmt);
-  };
-  sel.addEventListener('change', paint);
+  const initial = text.value;
+  let saving = false;
+  edited = () => saving || text.value !== initial;
+  const paint = () => { m.q('[data-fmt-preview]').textContent = shareFormatPreview(text.value); };
   text.addEventListener('input', paint);
   m.box.addEventListener('click', async (e) => {
     const piece = e.target.closest('[data-fmt-piece]');
@@ -478,21 +505,20 @@ function shareOpenCopyFormat(root) {
     }
     const btn = e.target.closest('[data-fmt-act]');
     if (!btn) return;
-    if (btn.dataset.fmtAct === 'cancel') { m.close(); return; }
-    if (btn.dataset.fmtAct === 'default') { sel.value = 'default'; paint(); return; }
-    const patch = { copyFormat: choice };
-    if (choice === 'custom') {
-      if (!text.value.trim()) { shareSetError(m.q('[data-sh-err]'), 'Type a format, or pick a ready one.'); return; }
-      patch.customFormat = text.value;
-    }
-    const ok = await shareSaveSettings(patch, root || document.getElementById('settingsBody'), { quiet: true });
+    if (btn.dataset.fmtAct === 'cancel') { cancel(); return; }
+    if (btn.dataset.fmtAct === 'default') { text.value = SHARE_READY_FORMATS.default; paint(); text.focus(); return; }
+    if (saving) return;
+    if (!text.value.trim()) { shareSetError(m.q('[data-sh-err]'), 'Type a format, or press Back to the default.'); return; }
+    saving = true;
+    const ok = await shareSaveSettings({ copyFormat: 'custom', customFormat: text.value }, root || document.getElementById('settingsBody'), { quiet: true });
+    saving = false;
     if (!ok) return;
     m.close();
     if (typeof showToast === 'function') showToast('Copy format saved');
     if (root) shareSettingsRepaint(root);
   });
   paint();
-  shareFocus(sel);
+  shareFocus(text);
 }
 
 /* ── My shares ────────────────────────────────────────────────────────── */
@@ -596,7 +622,8 @@ function shareListHtml(list) {
 
 async function shareOpenMyShares() {
   if (_shareList && !_shareList.m.closed) { shareListRefresh(); return; }
-  const m = shareModal({ id: 'shareListDlg', labelledBy: 'shareListTitle', cls: 'share-list-dlg', onEsc: () => shareListClose() });
+  // Nothing can be lost here: Esc or a click outside closes it (back to Settings when opened from there).
+  const m = shareModal({ id: 'shareListDlg', labelledBy: 'shareListTitle', cls: 'share-list-dlg', onEsc: () => shareListClose(), outside: true });
   _shareList = { m, shares: [], open: new Set(), files: new Map(), timer: null };
   m.box.innerHTML = '<p class="vault-modal-hint">Loading…</p>';
   m.box.addEventListener('click', shareListClick);
@@ -731,8 +758,13 @@ function shareOpenDeleteAll() {
   const rows = (l ? l.shares : []).filter(s => s.onGofile);
   if (!rows.length) return;
   const n = rows.length;
+  let deleting = false;
+  // Keep them, or Close once the results show. Esc and a click outside do the
+  // same; while the deletes run they wait, so the results are not missed.
+  const keep = () => { if (deleting || m.closed) return; m.close(); shareListRefresh(); };
   const m = shareModal({
     id: 'shareDeleteAllDlg', labelledBy: 'shareDelAllTitle', cls: 'share-dlg-mid share-delall',
+    onEsc: () => keep(), outside: true,
     html: `
       <h3 id="shareDelAllTitle">Delete ${n} ${n === 1 ? 'upload' : 'uploads'} from gofile?</h3>
       <p class="vault-modal-hint">Their links stop working for everyone and this cannot be undone. Your own files on this computer are not touched.</p>
@@ -753,7 +785,9 @@ function shareOpenDeleteAll() {
   m.box.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-del-act]');
     if (!b || b.disabled) return;
-    if (b.dataset.delAct === 'keep' || b.dataset.delAct === 'close') { m.close(); shareListRefresh(); return; }
+    if (b.dataset.delAct === 'keep' || b.dataset.delAct === 'close') { keep(); return; }
+    if (deleting) return;
+    deleting = true;
     go.disabled = true;
     tick.disabled = true;
     go.textContent = 'Deleting…';
@@ -770,6 +804,7 @@ function shareOpenDeleteAll() {
     } catch (err) {
       shareSetError(m.q('[data-sh-err]'), err.message);
     }
+    deleting = false;
     const acts = m.q('.vault-modal-actions');
     acts.innerHTML = '<span class="share-sp"></span><button type="button" class="vault-btn vault-btn-primary" data-del-act="close">Close</button>';
     shareFocus(acts.querySelector('button'));

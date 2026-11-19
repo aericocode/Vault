@@ -134,6 +134,39 @@ function on(patch = {}) {
   settings.save({ ...settings.DEFAULTS, enabled: true, ...patch });
 }
 
+// First in the file, so no share from another test is running.
+test('top bar: always there with the feature and the setting on; otherwise only while a share runs or needs you', () => {
+  useClient(fakeClient());
+  const tb = (patch) => { settings.save({ ...settings.DEFAULTS, ...patch }); return service.state().topBar; };
+  // Idle: nothing running, nothing failed.
+  assert.deepStrictEqual([true, false].flatMap(enabled => [true, false].map(topBarIcon => tb({ enabled, topBarIcon }).show)),
+    [true, false, false, false], 'idle: on + on only');
+  assert.strictEqual(tb({ enabled: true }).active, false);
+  assert.strictEqual(tb({ enabled: true }).shareId, null);
+  // Active: a paused share with a failed part.
+  const s = makeChecked({ parts: 2 });
+  store.updateShare(s.id, { status: 'paused' });
+  store.updatePart(s.id, 2, { status: 'failed' });
+  try {
+    for (const enabled of [true, false]) {
+      for (const topBarIcon of [true, false]) {
+        const t = tb({ enabled, topBarIcon });
+        assert.strictEqual(t.show, true, `active, enabled ${enabled}, setting ${topBarIcon}`);
+        assert.strictEqual(t.active, true);
+        assert.strictEqual(t.needsYou, 1);
+        assert.strictEqual(t.shareId, s.id);
+      }
+    }
+    // Running with nothing failed is active too.
+    store.updatePart(s.id, 2, { status: 'waiting' });
+    store.updateShare(s.id, { status: 'uploading' });
+    assert.deepStrictEqual({ show: tb({ enabled: false }).show, active: tb({ enabled: false }).active }, { show: true, active: true });
+  } finally {
+    store.deleteShare(s.id);
+    on();
+  }
+});
+
 test('upload needs confirm === true, the feature on, and VAULT_OFFLINE off; refusals make no request', async () => {
   const c = useClient(fakeClient());
   on();

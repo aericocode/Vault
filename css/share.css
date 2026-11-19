@@ -127,7 +127,6 @@
 }
 .share-chip:hover { border-color: var(--accent); }
 .share-chip:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
-[data-fmt-own][hidden] { display: none; }
 
 /* My shares */
 .share-table-wrap { border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; max-height: 56vh; overflow-y: auto; }
@@ -166,6 +165,7 @@
 .share-set-h { margin: 1rem 0 0.2rem; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; }
 .share-set-pw, .share-set-size { display: inline-flex; gap: 6px; align-items: center; flex: none; flex-wrap: wrap; justify-content: flex-end; }
 .share-set-pw .settings-text { width: 11rem; }
+.share-set-pw [hidden] { display: none; }
 .share-set-size .settings-num { width: 5.5rem; }
 .share-set-err { color: var(--danger) !important; }
 .share-set-err[hidden] { display: none; }
@@ -183,7 +183,10 @@ body.layout-modern .share-more .settings-card + .settings-card { margin-top: 0.7
 
 .share-pill-wrap { position: relative; display: flex; }
 .share-pill-wrap[hidden] { display: none; }
-.share-pill { position: relative; border-color: var(--accent) !important; color: var(--accent-hover); }
+.share-pill { position: relative; }
+/* Running or needing you: the accent look. Idle (nothing running, nothing
+   failed) it is a plain top bar button into My shares. */
+.share-pill-wrap:not([data-state="idle"]) .share-pill { border-color: var(--accent) !important; color: var(--accent-hover); }
 .share-pill .vi { width: 18px; height: 18px; }
 .share-pill-wrap[data-state="paused"] .share-pill,
 .share-pill-wrap[data-state="not_finished"] .share-pill { color: var(--warning); border-color: rgba(245, 158, 11, 0.6) !important; }
@@ -192,6 +195,8 @@ body.layout-modern .share-more .settings-card + .settings-card { margin-top: 0.7
   background: var(--danger); border-radius: 9px; color: #fff; font-size: 11px; line-height: 18px; font-weight: 700; text-align: center;
 }
 .share-pill-badge[hidden] { display: none; }
+.share-pop-acts { justify-content: flex-end; }
+.share-pop-acts .share-link-btn { margin-right: auto; }
 body.layout-modern #sharePillWrap { order: 2; }
 body.layout-modern .share-pill { border-radius: 999px; padding: 0.4rem 0.7rem; }
 .share-pop { width: min(320px, calc(100vw - 32px)); }
