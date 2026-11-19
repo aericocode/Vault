@@ -24,7 +24,12 @@ function selectionGridShowing() {
   if (typeof currentTab === 'undefined' || currentTab === 'library') return true;
   return currentTab === 'collections' && typeof activeCollectionId !== 'undefined' && activeCollectionId != null;
 }
-function selectionChanged() { _selGen++; }
+function selectionChanged() {
+  _selGen++;
+  // A tick closes the hover popover (cards.js): it would cover the next tile's
+  // tick box, and it stays shut while anything is selected.
+  if (typeof hideTilePopover === 'function') hideTilePopover();
+}
 
 // A selection this size or smaller is counted from its rows; a bigger one
 // asks the server (POST /api/library/ids-summary) instead of fetching rows.

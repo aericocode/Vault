@@ -1364,6 +1364,15 @@ function showTilePopover(tileEl, media) {
   pop.style.top = `${top}px`;
 }
 
+/**
+ * May a hover open the popover? Not while files are ticked, not while Shift or
+ * Ctrl/Cmd is held, and not over the tick box itself: each means the pointer
+ * is about to select, and the popover would sit on the next tile's tick box.
+ */
+function shouldShowTilePopover({ selectedCount = 0, shiftKey = false, ctrlKey = false, metaKey = false, overCheckbox = false } = {}) {
+  return !(selectedCount > 0 || shiftKey || ctrlKey || metaKey || overCheckbox);
+}
+
 function hideTilePopover() {
   clearTimeout(_popoverTimer);
   _popoverTimer = null;
@@ -1456,6 +1465,14 @@ function attachHoverScrub(container) {
     if (tile.classList.contains('tv-row')) return;
 
     clearTimeout(_popoverTimer);
+    _popoverTimer = null;
+    // Selecting (files ticked, a modifier held, the pointer on the tick box):
+    // no popover, so a run of tick boxes can be clicked left to right.
+    if (!shouldShowTilePopover({
+      selectedCount: typeof selectedIds !== 'undefined' ? selectedIds.size : 0,
+      shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey,
+      overCheckbox: !!e.target.closest('.tile-select'),
+    })) return;
     _popoverTimer = setTimeout(() => {
       const media = getMediaById(id);
       if (media && tile.isConnected) showTilePopover(tile, media);
