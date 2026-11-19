@@ -510,27 +510,44 @@ test('a stop or remove cut short by a restart is finished on the next start', as
   }
 });
 
-test('a stop cut short by a lock ends failed with Delete offered after the unlock', async () => {
-  const c = raceClient();
-  on();
-  const s = makePaused({ folder: 'fo-locked-stop' });
-  c.deleteHold = deferred();
-  const p = settle(service.stop(s.id, { confirm: true }));
-  await ticks();
-  vault._locked = true;
-  vault._notify('locking');
-  assert.strictEqual(statusOf(s.id), 'stopping', 'the lock handler leaves a stopping share alone');
-  c.deleteHold.resolve();
-  const r = await p;
-  assert.strictEqual(r.ok, false);
-  assert.strictEqual(r.e.code, 'VAULT_LOCKED');
-  assert.deepStrictEqual(c.deletes, ['fo-locked-stop']);
-  vault._locked = false;
-  vault._notify('unlocked');
-  await ticks();
-  service.ensureRecovered();
-  assert.strictEqual(statusOf(s.id), 'failed');
-  assert.strictEqual(service.getShare(s.id).onGofile, true);
+test('a stop cut short by a lock: a delete gofile did is recorded as cancelled on unlock; an aborted one ends failed with Delete offered', async () => {
+  for (const outcome of ['delete done', 'delete aborted']) {
+    const c = raceClient();
+    on();
+    const s = makePaused({ folder: `fo-locked-stop-${outcome.split(' ')[1]}` });
+    c.deleteHold = deferred();
+    let signal = null;
+    if (outcome === 'delete aborted') {
+      // A fetch aborted by the lock: it rejects, gofile may or may not have it.
+      c.deleteContent = async (o) => { signal = o.signal; await abortedP(o.signal); throw ABORTED(); };
+    } else {
+      const real = c.deleteContent;
+      c.deleteContent = (o) => { signal = o.signal; return real(o); };
+    }
+    const p = settle(service.stop(s.id, { confirm: true }));
+    await ticks();
+    vault._locked = true;
+    vault._notify('locking');
+    assert.strictEqual(statusOf(s.id), 'stopping', 'the lock handler leaves a stopping share alone');
+    assert.ok(signal && signal.aborted, `${outcome}: the delete in flight got the abort`);
+    c.deleteHold.resolve();
+    const r = await p;
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.e.code, 'VAULT_LOCKED');
+    assert.strictEqual(statusOf(s.id), 'stopping', `${outcome}: nothing written while locked`);
+    vault._locked = false;
+    vault._notify('unlocked');
+    await ticks();
+    service.ensureRecovered();
+    if (outcome === 'delete done') {
+      assert.deepStrictEqual(c.deletes, [store.getShare(s.id).folder_id]);
+      assert.strictEqual(statusOf(s.id), 'cancelled', outcome);
+      assert.strictEqual(service.getShare(s.id).onGofile, false);
+    } else {
+      assert.strictEqual(statusOf(s.id), 'failed', outcome);
+      assert.strictEqual(service.getShare(s.id).onGofile, true);
+    }
+  }
 });
 
 /* ── Over HTTP, many times ──────────────────────────────────────────────── */

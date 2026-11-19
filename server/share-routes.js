@@ -31,6 +31,9 @@
 
 const express = require('express');
 const service = require('../lib/share/service');
+const vault = require('../lib/vault');
+
+const LOCKED = Object.freeze({ code: 'VAULT_LOCKED', message: 'The library was locked, so Vault stopped. Unlock it and look at this share again.' });
 
 const STATUS = {
   BAD_INPUT: 400, BAD_NAME: 400, BAD_PASSWORD: 400, BAD_PART_SIZE: 400, CONFIRM_NEEDED: 400,
@@ -50,6 +53,9 @@ const STATUS = {
 const SAFE_EXTRA = ['missingBytes', 'needBytes', 'attemptsLeft', 'retryAfterMs', 'mediaId', 'gofileStatus'];
 
 function sendError(res, err) {
+  // A request that came in before a lock and ran into it (the database
+  // closing under it, say) answers the lock, never "Something went wrong".
+  if (vault.isLocked() && !(err && err.code && STATUS[err.code])) err = LOCKED;
   const code = err && err.code && STATUS[err.code] ? err.code : 'ERROR';
   const body = { error: code === 'ERROR' ? 'Something went wrong.' : err.message, code };
   for (const k of SAFE_EXTRA) if (err && err[k] !== undefined) body[k] = err[k];
