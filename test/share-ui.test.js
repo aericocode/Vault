@@ -1144,3 +1144,61 @@ test('the new words: no time figures and no long dashes', () => {
   }
   assert.ok(!/[—–]/.test(grabColl('openCardMenu')));
 });
+
+/* ── The one-time warning with no Vault password (spec 6.5) ─────────── */
+
+/** shareStartRequest with a server that asks for the warning once. */
+async function startWithWarning(pick) {
+  const L = load();
+  setState(L);
+  const sent = [];
+  let shares = 0;
+  const answer = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+  L.ctx.fetch = async (url, init) => {
+    sent.push([`${init.method} ${url}`, init.body ? JSON.parse(init.body) : null]);
+    if (url === '/api/share/shares' && shares++ === 0) {
+      return answer(409, { error: 'There is no Vault password, so passwords, links and upload keys of shares would be stored unprotected in the library file. Confirm that first.', code: 'WARNING_NEEDED' });
+    }
+    if (url === '/api/share/settings') return answer(200, { settings: { ...STATE.settings, rememberPasswords: false } });
+    return answer(202, { share: { id: 5 } });
+  };
+  const asked = [];
+  L.ctx.vaultChoose = async (message, o) => { asked.push({ message, o }); return pick; };
+  const r = await L.run('shareStartRequest({ mediaIds: [1, 2] })');
+  return { L, r, sent, asked };
+}
+
+test('first share with no Vault password: the warning offers Continue, Do not remember passwords and Cancel', async () => {
+  const go = await startWithWarning('continue');
+  assert.strictEqual(go.asked.length, 1);
+  const { message, o } = go.asked[0];
+  assert.deepStrictEqual(Array.from(o.buttons, b => b.value), ['cancel', 'forget', 'continue']);
+  assert.strictEqual(o.cancelValue, 'cancel');
+  assert.match(message, /no Vault password/);
+  assert.match(message, /passwords of past shares/);
+  assert.match(message, /links and upload keys/);
+  assert.match(message, /set a Vault password/i);
+  assert.ok(!/[—–]/.test(message + o.title + o.buttons.map(b => b.label).join(' ')), 'no long dashes');
+  assert.ok(!/\b(hours?|minutes?|seconds?|days?)\b/i.test(message), 'no time figures');
+  assert.deepStrictEqual(go.sent.map(s => s[0]), ['POST /api/share/shares', 'POST /api/share/shares']);
+  assert.strictEqual(go.sent[0][1].acknowledgeNoVaultPassword, undefined, 'never acknowledged before it was shown');
+  assert.strictEqual(go.sent[1][1].acknowledgeNoVaultPassword, true);
+  assert.strictEqual(go.r.share.id, 5);
+
+  const forget = await startWithWarning('forget');
+  assert.deepStrictEqual(forget.sent.map(s => s[0]), ['POST /api/share/shares', 'POST /api/share/settings', 'POST /api/share/shares']);
+  assert.deepStrictEqual(forget.sent[1][1], { rememberPasswords: false, confirm: true });
+  assert.strictEqual(forget.sent[2][1].acknowledgeNoVaultPassword, undefined, 'no acknowledgement: nothing is kept that needs it');
+  assert.strictEqual(forget.L.run('_shareState.settings.rememberPasswords'), false);
+  assert.strictEqual(forget.r.share.id, 5);
+
+  const cancel = await startWithWarning('cancel');
+  assert.deepStrictEqual(cancel.sent.map(s => s[0]), ['POST /api/share/shares'], 'nothing more is sent');
+  assert.strictEqual(cancel.r, null);
+});
+
+test('Change saved password shows the same one-time warning', () => {
+  const src = read('share-settings-ui.js');
+  const fn = src.split('function shareNoVaultPasswordWarning(')[1].split('\nfunction ')[0];
+  assert.ok(fn.includes('SHARE_PLAIN_WARNING'));
+});

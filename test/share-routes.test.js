@@ -12,7 +12,10 @@
  * the feature off, Delete / Delete all / Stop delete only stored folders
  * (body ids ignored) while the upload-side routes answer FEATURE_OFF; the
  * real Vault password gate (verifyPassword on an encrypted library) with its
- * lockout; 423 while locked; no password or token in any non-gated answer.
+ * lockout; 423 while locked; no password or token in any non-gated answer;
+ * the one-time warning with no Vault password (WARNING_NEEDED before the
+ * first share is stored, nothing stored without it, one warning for the
+ * share and the saved password).
  */
 
 require('./helpers/no-real-lm');
@@ -176,10 +179,40 @@ test('preview: names, sizes, space, split; same names get (2)', async () => {
 let shareId;
 let sharePassword;
 
+test('no Vault password, passwords remembered: the first share needs the one-time warning, and nothing is stored without it', { skip: skip7z }, async () => {
+  const folders = () => (fs.existsSync(process.env.VAULT_SHARE_TEMP) ? fs.readdirSync(process.env.VAULT_SHARE_TEMP).filter(n => n.startsWith('share-')) : []);
+  assert.strictEqual(store.kvGet('plain_warning_shown'), null);
+  // The older flag (given for the saved password only) does not count.
+  store.kvSet('warning_shown', '1');
+  const before = folders();
+  const r = await call('POST', '/api/share/shares', { mediaIds, passwordChoice: 'random' });
+  assert.strictEqual(r.status, 409);
+  assert.strictEqual(r.json.code, 'WARNING_NEEDED');
+  assert.match(r.json.error, /no Vault password/);
+  assert.deepStrictEqual((await call('GET', '/api/share/shares')).json.shares, [], 'no share was stored');
+  assert.deepStrictEqual(store.listShares(), [], 'not even a hidden one');
+  assert.deepStrictEqual(folders(), before, 'no work folder was made');
+  // Anything but true is no answer.
+  for (const ack of ['true', 1, 'yes', {}]) {
+    const again = await call('POST', '/api/share/shares', { mediaIds, acknowledgeNoVaultPassword: ack });
+    assert.strictEqual(again.json.code, 'WARNING_NEEDED', JSON.stringify(ack));
+  }
+  assert.strictEqual(store.kvGet('plain_warning_shown'), null);
+  // "Passwords of past shares" off: no password is kept, so no warning.
+  await call('POST', '/api/share/settings', { rememberPasswords: false, confirm: true });
+  const off = await call('POST', '/api/share/shares', { mediaIds: [mediaIds[2]] });
+  assert.strictEqual(off.status, 202, off.text);
+  assert.strictEqual(store.kvGet('plain_warning_shown'), null, 'and the warning is still due');
+  await waitStatus(off.json.share.id, ['checked', 'failed']);
+  assert.deepStrictEqual((await call('POST', `/api/share/shares/${off.json.share.id}/cancel`, {})).json, { removed: true });
+  await call('POST', '/api/share/settings', { rememberPasswords: true });
+});
+
 test('start -> packing -> checks pass; upload only with confirm, never while offline', { skip: skip7z }, async () => {
   const c = fakeClient();
-  const start = await call('POST', '/api/share/shares', { mediaIds, name: '  My Holiday!! ', passwordChoice: 'random', deleteAfterDays: 1 });
+  const start = await call('POST', '/api/share/shares', { mediaIds, name: '  My Holiday!! ', passwordChoice: 'random', deleteAfterDays: 1, acknowledgeNoVaultPassword: true });
   assert.strictEqual(start.status, 202, start.text);
+  assert.strictEqual(store.kvGet('plain_warning_shown'), '1', 'shown once');
   shareId = start.json.share.id;
   assert.strictEqual(start.json.share.archiveName, 'My Holiday');
   assert.strictEqual(start.json.share.nameTyped, true);
@@ -262,10 +295,14 @@ test('delete from gofile is refused while offline, then works; remove from list'
 
 test('real Vault password gate: no password set, then set; wrong, lockout, right', async () => {
   // No Vault password: the saved password needs the one-time warning, no prompt.
-  const warn = await call('POST', '/api/share/saved-password/change', { password: 'Saved-Pass-001' });
-  assert.strictEqual(warn.json.code, 'WARNING_NEEDED');
-  const set = await call('POST', '/api/share/saved-password/change', { password: 'Saved-Pass-001', acknowledgeNoVaultPassword: true });
-  assert.strictEqual(set.status, 200);
+  if (skip7z) {
+    const warn = await call('POST', '/api/share/saved-password/change', { password: 'Saved-Pass-001' });
+    assert.strictEqual(warn.json.code, 'WARNING_NEEDED');
+  }
+  // The warning seen at the first share covers the saved password too.
+  const set = await call('POST', '/api/share/saved-password/change', { password: 'Saved-Pass-001', ...(skip7z ? { acknowledgeNoVaultPassword: true } : {}) });
+  assert.strictEqual(set.status, 200, set.text);
+  assert.strictEqual((await call('POST', '/api/share/saved-password/warning-shown', {})).status, 404, 'no route sets the flag on its own');
   assert.strictEqual((await call('POST', '/api/share/saved-password/reveal', {})).json.password, 'Saved-Pass-001');
 
   const sp = await call('POST', '/api/vault/setpass', { pass: 'vault-pass-1' }, { raw: true, headers: { 'Content-Type': 'application/json' } });

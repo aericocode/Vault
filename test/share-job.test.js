@@ -501,10 +501,16 @@ test('saved-password shares are gated; random ones are not', () => {
 test('saved default password: gated show and change, one-time warning with no Vault password, safe characters only', () => {
   gate._setForTest({ encrypted: () => false });
   try {
-    store.kvSet('warning_shown', null);
+    store.kvSet('plain_warning_shown', null);
+    store.kvSet('warning_shown', '1');   // the older, narrower warning does not count
     store.kvSet('saved_password', null);
     assert.strictEqual(service.savedPasswordStatus().warningNeeded, true);
     assert.throws(() => service.changeSavedPassword({ password: 'Good-Password-1' }), { code: 'WARNING_NEEDED' });
+    assert.throws(() => service.changeSavedPassword({ random: true }), { code: 'WARNING_NEEDED' });
+    assert.strictEqual(store.kvGet('saved_password'), null, 'nothing stored without the warning');
+    // A password that is refused anyway does not use up the warning.
+    assert.throws(() => service.changeSavedPassword({ password: 'short', acknowledgeNoVaultPassword: true }), { code: 'BAD_PASSWORD' });
+    assert.strictEqual(service.savedPasswordStatus().warningNeeded, true);
     const r = service.changeSavedPassword({ password: 'Good-Password-1', acknowledgeNoVaultPassword: true });
     assert.deepStrictEqual(r, { set: true, password: 'Good-Password-1' });
     assert.strictEqual(service.savedPasswordStatus().warningNeeded, false);

@@ -745,6 +745,49 @@ function shareReviewHtml(w) {
     </div>`;
 }
 
+/*
+ * The one-time warning about an unencrypted library file (spec 6.5). The
+ * server asks for it (WARNING_NEEDED) before it stores the first secret with
+ * no Vault password: the saved password, or a share while passwords of past
+ * shares are remembered. The same words in both places; shown once for both.
+ */
+const SHARE_PLAIN_WARNING = 'There is no Vault password, so the library file is not encrypted. Anyone who can open it can read what Share privately keeps there: the saved password, the passwords of past shares, and their links and upload keys.\n\n'
+  + 'To protect them, set a Vault password. Or turn off "Passwords of past shares" so share passwords are not kept (the ones already kept are deleted). Links and upload keys are still kept, so Vault can delete the uploads later.\n\n'
+  + 'Vault shows this warning only once.';
+
+/** Before the first share is stored. Resolves 'continue', 'forget' or 'cancel'. */
+function shareAskPlainWarning() {
+  if (typeof vaultChoose !== 'function') return Promise.resolve('cancel');
+  return vaultChoose(SHARE_PLAIN_WARNING, {
+    title: 'Share without a Vault password?',
+    buttons: [
+      { label: 'Cancel', value: 'cancel' },
+      { label: 'Do not remember passwords', value: 'forget' },
+      { label: 'Continue', value: 'continue', primary: true },
+    ],
+    cancelValue: 'cancel',
+  });
+}
+
+/**
+ * POST /shares, with the one-time warning when the server asks for it.
+ * Resolves the answer, or null when the user cancelled at the warning.
+ */
+async function shareStartRequest(body) {
+  try {
+    return await shareApi('POST', '/shares', body);
+  } catch (err) {
+    if (err.code !== 'WARNING_NEEDED') throw err;
+    const pick = await shareAskPlainWarning();
+    if (pick === 'continue') return shareApi('POST', '/shares', { ...body, acknowledgeNoVaultPassword: true });
+    if (pick !== 'forget') return null;
+    // Off for this share and the next ones; the server then needs no warning.
+    const r = await shareApi('POST', '/settings', { rememberPasswords: false, confirm: true });
+    if (_shareState) _shareState.settings = { ...(_shareState.settings || {}), ...r.settings };
+    return shareApi('POST', '/shares', body);
+  }
+}
+
 async function sharePack() {
   const w = _shareWin;
   if (!w || w.busy) return;
@@ -762,8 +805,13 @@ async function sharePack() {
   btn.textContent = 'Starting…';
   shareSetError(q('[data-sh-err]'), '');
   try {
-    const r = await shareApi('POST', '/shares', body);
+    const r = await shareStartRequest(body);
     if (w !== _shareWin) return;
+    if (!r) {
+      btn.disabled = false;
+      btn.textContent = 'Pack files';
+      return;
+    }
     w.id = r.share.id;
     w.share = r.share;
     w.step = 'packing';

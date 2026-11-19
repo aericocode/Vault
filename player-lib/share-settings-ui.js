@@ -308,12 +308,10 @@ async function shareSettingsClick(b, root) {
 
 /* ── Change saved password ─────────────────────────────────────────────── */
 
-/** The one-time warning before a saved password is stored with no Vault password. */
+/** The one-time warning (SHARE_PLAIN_WARNING, share-ui.js) before a saved password is stored with no Vault password. */
 function shareNoVaultPasswordWarning() {
   if (typeof vaultConfirm !== 'function') return Promise.resolve(false);
-  return vaultConfirm(
-    'There is no Vault password, so the saved password would be stored unencrypted in the library file. Anyone who can open that file can read it.\n\nSet a Vault password first if that matters to you. Vault shows this warning only once.',
-    { title: 'Save it without a Vault password?', okLabel: 'Save it anyway', cancelLabel: 'Cancel' });
+  return vaultConfirm(SHARE_PLAIN_WARNING, { title: 'Save it without a Vault password?', okLabel: 'Save it anyway', cancelLabel: 'Cancel' });
 }
 
 /**

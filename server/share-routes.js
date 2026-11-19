@@ -124,6 +124,7 @@ function buildRouter() {
     const b = body(req);
     const share = service.start({
       mediaIds: b.mediaIds, name: b.name, passwordChoice: b.passwordChoice, deleteAfterDays: b.deleteAfterDays,
+      acknowledgeNoVaultPassword: b.acknowledgeNoVaultPassword,
     });
     res.status(202).json({ share });
   }));
@@ -163,7 +164,6 @@ function buildRouter() {
       acknowledgeNoVaultPassword: b.acknowledgeNoVaultPassword,
     });
   }));
-  r.post('/saved-password/warning-shown', h(() => service.markWarningShown()));
 
   // Anything else under /api/share: a plain 404 in the same shape.
   r.use((req, res) => res.status(404).json({ error: 'Not found.', code: 'NOT_FOUND' }));
