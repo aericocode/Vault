@@ -134,6 +134,9 @@ const _jsonDefault = express.json({ limit: '2mb' });
 app.use((req, res, next) => (req.path === '/api/library/query'
   ? libraryRoutes.queryJsonParser : _jsonDefault)(req, res, next));
 app.use('/api/library', libraryRoutes.bodyErrorHandler);
+// Share privately: a bad body never reaches the default handler's log line,
+// which can quote the body (server/share-routes.js).
+app.use('/api/share', require('./share-routes').bodyErrorHandler);
 
 // ── Vault lock (routes stay reachable while locked; everything below gates) ──
 

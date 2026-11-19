@@ -82,6 +82,16 @@ function shareGuard(req, res, next) {
   next();
 }
 
+/**
+ * A body that is not valid JSON (or too big) answers a plain 400 here, before
+ * Express's default handler, which would log the parser's message, and that
+ * message can quote part of the body (a password, for one).
+ */
+function bodyErrorHandler(err, req, res, next) {
+  if (!err) return next();
+  res.status(err.status === 413 ? 413 : 400).json({ error: 'The request was not valid.', code: 'BAD_INPUT' });
+}
+
 const body = (req) => (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {});
 
 function buildRouter() {
@@ -149,4 +159,4 @@ function buildRouter() {
   return r;
 }
 
-module.exports = { buildRouter, shareGuard, STATUS };
+module.exports = { buildRouter, shareGuard, bodyErrorHandler, STATUS };

@@ -127,6 +127,14 @@ test('share writes need X-Vault-Share and a JSON body; other sites are refused',
   assert.strictEqual(cross.status, 403);
   const evil = await call('POST', '/api/share/settings', { enabled: true }, { headers: { Origin: 'https://evil.example' } });
   assert.strictEqual(evil.status, 403);
+  // A broken JSON body gets a plain 400 that does not quote the body.
+  const broken = await fetch(`${base}/api/share/saved-password/reveal`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Vault-Share': '1' }, body: '{"vaultPassword": "Hunter2-secret',
+  });
+  const brokenText = await broken.text();
+  assert.strictEqual(broken.status, 400);
+  assert.strictEqual(JSON.parse(brokenText).code, 'BAD_INPUT');
+  assert.ok(!brokenText.includes('Hunter2'));
   const same = await call('GET', '/api/share/state', undefined, { headers: { 'Sec-Fetch-Site': 'same-origin' } });
   assert.strictEqual(same.status, 200);
   assert.strictEqual(same.json.enabled, false, 'none of the refused calls turned it on');
