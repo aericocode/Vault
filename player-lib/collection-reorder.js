@@ -72,7 +72,7 @@ function collectionSortAdopt() {
 /** The sort to remember for next launch / a saved search: never playlist order. */
 function librarySortValue() {
   if (collectionIsOpen() && _sortBeforeCollection != null) return _sortBeforeCollection;
-  return currentSort || 'processed_desc';
+  return currentSort || 'added_desc';
 }
 
 function switchToPlaylistOrder() {

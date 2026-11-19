@@ -279,6 +279,17 @@ test('the Library\'s focus and audio similarity: only in the Library view, not a
   assert.match(grab('renderAudioSimBar', music), /libraryOverridesOff\(\)/);
 });
 
+test('a sort kept as processed_* (Date added up to 3.11) asks the server for Date added', () => {
+  const ctx = page();
+  ctx.sorts('processed_desc', 'processed_desc');
+  assert.deepStrictEqual(ctx.spec().sort, { field: 'added', dir: 'desc', favesFirst: false });
+  assert.deepStrictEqual(ctx.spec({ library: true }).sort, { field: 'added', dir: 'desc', favesFirst: false });
+  ctx.sorts('processed_asc', 'processed_asc');
+  assert.deepStrictEqual(ctx.spec().sort, { field: 'added', dir: 'asc', favesFirst: false });
+  ctx.sorts('', '');
+  assert.deepStrictEqual(ctx.spec().sort, { field: 'added', dir: 'desc', favesFirst: false }, 'nothing kept: the default');
+});
+
 test('the Library\'s own query (the Wall\'s "Current library filter"), whatever view holds the controls', () => {
   const ctx = page();
   const { els } = ctx;

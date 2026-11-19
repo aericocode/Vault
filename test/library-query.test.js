@@ -298,7 +298,7 @@ test('an open collection can be sorted like the library; playlist order is its d
   assert.deepStrictEqual([...await ids({ collectionId: ID.c1, sort: { field: 'name', dir: 'asc' } })],
     [ID.apple, ID.beach, ID.party]);
   // No collection open: there is no playlist, so it is the default sort.
-  assert.strictEqual(q.normalizeSpec({ sort: { field: 'playlist' } }).sort.field, 'processed');
+  assert.strictEqual(q.normalizeSpec({ sort: { field: 'playlist' } }).sort.field, 'added');
 });
 
 test('the Collections tri-filter and the song filter', async () => {
@@ -490,7 +490,7 @@ test('invalid specs are rejected with the field named', () => {
   const d = q.normalizeSpec({});
   assert.strictEqual(d.filters.trashed, '0');
   assert.strictEqual(d.pageSize, 100);
-  assert.deepStrictEqual(d.sort, { field: 'processed', dir: 'desc', favesFirst: false });
+  assert.deepStrictEqual(d.sort, { field: 'added', dir: 'desc', favesFirst: false }, 'Date added');
 });
 
 // ── FTS injection ─────────────────────────────────────────────────────────

@@ -55,6 +55,7 @@ const THEMES = ['romance', 'Romance', 'sea', 'city', 'night', 'forest', 'rain', 
 const LANGS = [null, '', 'en', 'EN', 'English', 'ja', 'Japanese', 'klingon', 'none', 'zh-TW', 'pt_BR'];
 const DATES = [null, '', '2024-01-01 10:00:00', '2024-01-01 10:00:00', '2023-05-05 00:00:00', '2025-12-31 23:59:59',
   '2024-06-15 12:00:00', '2022-02-02 02:02:02'];
+const ADDED = ['2025-03-03 03:03:03', '2025-03-03 03:03:03', '2024-01-01 10:00:00', '2026-11-19 09:00:00', ''];
 const NOTES = [null, '', '[]', '[{"text":"hi"}]', 'plain note'];
 const ERRORS = [null, null, null, '', 'unscanned', 'vision api failed', 'ffprobe crashed'];
 const SIZES = [null, 0, 1000, 1000, 2000, 3000];
@@ -92,6 +93,9 @@ function genRow(i) {
     playback_failed: nullish(chance(0.1) ? 1 : 0),
     view_count: nullish(Math.floor(rnd() * 4)),
     done_count: nullish(chance(0.7) ? 0 : Math.floor(rnd() * 3)),
+    // Date added: big runs of one second (an import chunk) and a few NULLs,
+    // from i alone so the random rows above stay what they were.
+    created_at: i % 13 === 0 ? null : ADDED[i % ADDED.length],
   };
 }
 
@@ -316,6 +320,8 @@ function browserResult(ctx, st) {
     let valA, valB;
     switch (field) {
       case 'processed': valA = a.processed_at || ''; valB = b.processed_at || ''; break;
+      // Date added (after 13c23ec): created_at, else processed_at, as SQL's COALESCE.
+      case 'added': valA = a.created_at ?? a.processed_at ?? ''; valB = b.created_at ?? b.processed_at ?? ''; break;
       case 'name': valA = (a.filename || '').toLowerCase(); valB = (b.filename || '').toLowerCase(); break;
       case 'size': valA = a.filesize_bytes || 0; valB = b.filesize_bytes || 0; break;
       case 'duration': valA = a.duration_seconds || 0; valB = b.duration_seconds || 0; break;
@@ -356,7 +362,7 @@ const FILTER_VARIANTS = [
   { scanStatus: 'success' }, { scanStatus: 'failed' }, { scanStatus: 'unscanned' },
 ];
 const SORTS = [];
-for (const field of ['processed', 'name', 'size', 'duration', 'rating', 'views', 'done']) {
+for (const field of ['added', 'processed', 'name', 'size', 'duration', 'rating', 'views', 'done']) {
   for (const dir of ['desc', 'asc']) for (const favesFirst of [false, true]) SORTS.push({ field, dir, favesFirst });
 }
 

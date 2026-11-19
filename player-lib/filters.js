@@ -739,7 +739,9 @@ function semanticEnabled() {
   return document.getElementById('semanticSearch')?.checked || false;
 }
 
-const QUERY_SORT_FIELDS = ['processed', 'name', 'size', 'duration', 'rating', 'views', 'done'];
+// 'added' is Date added. 'processed' (Date scanned) is not offered here: up to
+// 3.11 it was what Date added sent, so a stored 'processed' means 'added'.
+const QUERY_SORT_FIELDS = ['added', 'name', 'size', 'duration', 'rating', 'views', 'done'];
 
 /**
  * The filters part of a query spec, from a view's filters as
@@ -791,7 +793,7 @@ function currentQuerySpec(opts) {
   const libraryHere = SearchScopes.key === 'library';
   const stored = library && !libraryHere ? (SearchScopes.views.get('library') || SEARCH_SCOPE_EMPTY) : null;
   const sortValue = library && typeof librarySortValue === 'function' ? librarySortValue() : currentSort;
-  const [field, dir] = String(sortValue || 'processed_desc').split('_');
+  const [field, dir] = String(sortValue || 'added_desc').split('_');
   const collectionOpen = !library && typeof activeCollectionId !== 'undefined' && activeCollectionId != null;
   // Focus and audio similarity are the Library view's alone.
   const overrides = library || libraryHere;
@@ -807,7 +809,8 @@ function currentQuerySpec(opts) {
     collectionId: collectionOpen ? activeCollectionId : null,
     sort: {
       // 'playlist': the open collection's saved order (collection-reorder.js)
-      field: QUERY_SORT_FIELDS.includes(field) || (field === 'playlist' && collectionOpen) ? field : 'processed',
+      // Anything else (an old 'processed') is Date added.
+      field: QUERY_SORT_FIELDS.includes(field) || (field === 'playlist' && collectionOpen) ? field : 'added',
       dir: dir === 'asc' ? 'asc' : 'desc',
       favesFirst: typeof favesFirst !== 'undefined' && !!favesFirst,
     },

@@ -41,7 +41,7 @@ const TV_COLUMNS = [
   { key: 'duration', label: 'Duration', head: 'Duration', width: '80px',  min: 80,  drop: 5, sort: 'duration', align: 'end' },
   { key: 'rating',   label: 'Rating',   head: 'Rating',   width: '92px',  min: 92,  drop: 4, sort: 'rating' },
   { key: 'size',     label: 'Size',     head: 'Size',     width: '80px',  min: 80,  drop: 3, sort: 'size', align: 'end' },
-  { key: 'added',    label: 'Added',    head: 'Added',    width: '100px', min: 100, drop: 2, sort: 'processed' },
+  { key: 'added',    label: 'Added',    head: 'Added',    width: '100px', min: 100, drop: 2, sort: 'added' },
   { key: 'tags',     label: 'Tags',     head: 'Tags',     width: 'minmax(140px, 2fr)', min: 140, drop: 1 },
 ];
 const TV_SEL_W = 32;             // the checkbox column
@@ -368,8 +368,11 @@ function tvCellHtml(c, m) {
       return `<div class="tv-cell tv-c-rating">${tvStars(m.user_rating)}</div>`;
     case 'size':
       return `<div class="tv-cell tv-c-size tv-end">${m.filesize_bytes ? formatFileSize(m.filesize_bytes) : '<span class="tv-muted">-</span>'}</div>`;
-    case 'added':
-      return `<div class="tv-cell tv-c-added">${m.processed_at ? escapeHtml(String(m.processed_at).slice(0, 10)) : '<span class="tv-muted">-</span>'}</div>`;
+    case 'added': {
+      // When the file came in, as the Date added sort reads it (library-index SORT_FIELDS.added)
+      const added = m.created_at || m.processed_at;
+      return `<div class="tv-cell tv-c-added">${added ? escapeHtml(String(added).slice(0, 10)) : '<span class="tv-muted">-</span>'}</div>`;
+    }
     case 'tags': {
       const tags = [...new Set([...safeParseJSON(m.themes, []), ...safeParseJSON(m.tags, [])])].slice(0, 8);
       return `<div class="tv-cell tv-c-tags">${tags.map(t => `<span class="tag">${escapeHtml(String(t))}</span>`).join('')}</div>`;

@@ -37,7 +37,7 @@ function captureCurrentFilterState() {
     semanticSearch: document.getElementById('semanticSearch')?.checked || false,
     ...captureFilterControls(),
     // The library's sort, not an open collection's playlist order
-    sortValue: typeof librarySortValue === 'function' ? librarySortValue() : (currentSort || 'processed_desc'),
+    sortValue: typeof librarySortValue === 'function' ? librarySortValue() : (currentSort || 'added_desc'),
     favesFirst: typeof favesFirst !== 'undefined' ? favesFirst : false,
   };
 }
@@ -93,7 +93,8 @@ function restoreFilterState(state) {
       currentSort = 'rating_desc';
       favesFirst = true;
     } else {
-      currentSort = state.sortValue;
+      // 'processed' was the Date added option up to 3.11 (now 'added')
+      currentSort = String(state.sortValue).replace(/^processed_/, 'added_');
     }
   }
   if (typeof state.favesFirst === 'boolean') favesFirst = state.favesFirst;

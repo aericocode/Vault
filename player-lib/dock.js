@@ -234,7 +234,8 @@ function dockPartsHtml(m) {
     ['Size', m.width && m.height ? `${m.width}×${m.height}` : ''],
     ['File', m.filesize_bytes ? formatFileSize(m.filesize_bytes) : ''],
     ['Views', String(m.view_count || 0)],
-    ['Added', m.processed_at ? String(m.processed_at).slice(0, 10) : ''],
+    // When the file came in (the Date added sort's value), not when it was scanned
+    ['Added', m.created_at || m.processed_at ? String(m.created_at || m.processed_at).slice(0, 10) : ''],
   ].filter(([, v]) => v);
   const meta = dockMetaParts(m);
   const escapedPath = escapeHtml(m.filepath).replace(/\\/g, '\\\\').replace(/'/g, "\\'");

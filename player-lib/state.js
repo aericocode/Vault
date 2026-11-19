@@ -22,7 +22,9 @@ let lastOpenedMediaId = null;
 
 // View state (grid-only — list view was removed)
 let currentView = 'grid';
-let currentSort = 'processed_desc';
+// 'added' is Date added (when the file came in). Saved states from 3.11 and
+// earlier say 'processed' for that option; they are read as 'added'.
+let currentSort = 'added_desc';
 let favesFirst = false; // ❤ toggle: faves float to the top of any sort
 
 /* Volume persistence. The level and the mute flag are one preference in one

@@ -740,7 +740,7 @@ const Wall = (() => {
   /** A saved search's stored control state, as a query spec. */
   function savedSearchSpec(s) {
     const st = s.filters || {};
-    const [field, dir] = String(st.sortValue || 'processed_desc').split('_');
+    const [field, dir] = String(st.sortValue || 'added_desc').split('_');
     return {
       search: {
         text: st.searchText != null ? String(st.searchText) : String(s.search_text || ''),
@@ -768,7 +768,8 @@ const Wall = (() => {
         scanStatus: st.filterScanStatus || '',
       },
       sort: {
-        field: ['processed', 'name', 'size', 'duration', 'rating', 'views', 'done'].includes(field) ? field : 'processed',
+        // A search saved up to 3.11 says 'processed' for Date added: 'added' too.
+        field: ['added', 'name', 'size', 'duration', 'rating', 'views', 'done'].includes(field) ? field : 'added',
         dir: dir === 'asc' ? 'asc' : 'desc',
         favesFirst: !!st.favesFirst,
       },
