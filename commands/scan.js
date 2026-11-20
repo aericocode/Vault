@@ -153,12 +153,18 @@ async function processFile(file, options = {}) {
     return { error: 'No processor for file type', filename };
   }
 
+  // AI scan Auto cuts a scan off when playback starts (lib/ai-slots.js
+  // scanSignal): every step underneath stops on the same signal, and nothing
+  // is written to the row until the last step that can be cut has finished.
+  const aiSlots = require('../lib/ai-slots');
+
   let content = null;
   try {
     // Process using the appropriate processor (options carried through —
     // this is what enables transcription under --all-types)
     const result = await processor.process(filepath, options);
     content = result.content;
+    aiSlots.throwIfCut();
 
     if (!result.success) {
       // The model went away mid-scan (unloaded, endpoint down, sidecar died) —
@@ -196,6 +202,33 @@ async function processFile(file, options = {}) {
     // (content.transcription when --transcribe-video is set)
     const audioTranscription = analysis.transcription || content?.transcription || null;
 
+    // The vector for semantic search, from the fields about to be saved (the
+    // same text lib/embeddings.js textForItem builds from the saved row). Asked
+    // for before the save so a scan cut off here leaves the row as it was.
+    // Non-fatal on failure: `node vault.js embed` backfills anything missed.
+    let vector = null;
+    if (config.embeddings.enabled) {
+      const embeddings = require('../lib/embeddings');
+      try {
+        vector = await embeddings.vectorFor({
+          filename,
+          description: analysis.description || '',
+          tags: JSON.stringify(analysis.tags || []),
+          themes: JSON.stringify(analysis.themes || []),
+          locations: JSON.stringify(analysis.locations || []),
+          content_type: require('../lib/content-type').normalizeContentType(analysis.content_type),
+          language: analysis.language || 'unknown',
+          audio_transcription: audioTranscription,
+        });
+      } catch (err) {
+        if (err && err.scanCutOff) throw err;
+        console.warn(`  Embedding failed for ${filename}: ${err.message}`);
+      }
+    }
+    // Last point a cut-off can land: from here to the end of the save nothing
+    // waits on anything, so the row is written whole or not at all.
+    aiSlots.throwIfCut();
+
     // Save to database
     db.saveMedia({
       filepath,
@@ -232,23 +265,24 @@ async function processFile(file, options = {}) {
       error: null
     });
 
-    // Build the thumbnail here rather than leave it to the first grid that
-    // shows the file: the viewer's /thumb route never runs ffmpeg, so a file
-    // that is scanned but not thumbnailed shows a placeholder until a
-    // background job catches up. Cheap next to the AI pass we just ran.
-    await ensureThumbFor(filepath);
+    const mediaId = db.getMediaId(filepath);
+    if (vector) {
+      try { require('../lib/embeddings').storeVector(mediaId, vector); }
+      catch (err) { console.warn(`  Embedding not saved for ${filename}: ${err.message}`); }
+    }
 
     // Generate move operation (if applicable)
-    const mediaId = db.getMediaId(filepath);
     if (mediaType !== 'document') {
       operations.createMoveOperation(mediaId, filepath, analysis, content?.qualityFlag);
     }
 
-    // Embed the fresh metadata for semantic search (non-fatal on failure —
-    // `node vault.js embed` backfills anything missed)
-    if (config.embeddings.enabled) {
-      await require('../lib/embeddings').embedOne(mediaId);
-    }
+    // Build the thumbnail here rather than leave it to the first grid that
+    // shows the file: the viewer's /thumb route never runs ffmpeg, so a file
+    // that is scanned but not thumbnailed shows a placeholder until a
+    // background job catches up. Cheap next to the AI pass we just ran.
+    // The scan is saved by now: a cut-off from here on only stops this
+    // ffmpeg (lib/proc.js), and a missing thumbnail is cosmetic.
+    await ensureThumbFor(filepath);
 
     const elapsed = Date.now() - startTime;
     return {

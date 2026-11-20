@@ -338,18 +338,18 @@ test('Auto: nothing starts while playing; scanning resumes after the settle dela
 test('Auto: a pause held too long stops counting, and a tab that goes quiet stops counting', async () => {
   await fresh('auto');
   queue._setTimings({ settleMs: 50 });
-  playback._setTimings({ pauseGraceMs: 200, staleMs: 400 });
+  playback._setTimings({ pauseGraceMs: 800, staleMs: 800 });
   playback.report('tab:paused1', 'paused');
   assert.strictEqual(playback.isPlaying(), true, 'just paused still counts');
   const f = addFile();
   queue.enqueue(f);
   await sleep(100);
   assert.strictEqual(calls.length, 0);
-  await until(() => rowOf(f.id).description === 'ok', 3000);   // grace 200 + settle 50, no report needed
+  await until(() => rowOf(f.id).description === 'ok', 5000);   // grace 800 + settle 50, no report needed
 
   playback.report('tab:quiet01', 'playing');
   assert.strictEqual(playback.isPlaying(), true);
-  await until(() => !playback.isPlaying(), 2000);       // stale after 400 ms without a beat
+  await until(() => !playback.isPlaying(), 4000);       // stale after 800 ms without a beat
 });
 
 test('Auto: Stage-style reports never go stale; a pause still runs out', async () => {

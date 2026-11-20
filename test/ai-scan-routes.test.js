@@ -114,6 +114,46 @@ test('Auto: a one-file rescan while something plays is refused in plain words', 
   mode.set('on');
 });
 
+test('Auto: a one-file rescan running when playback starts is cut off, with a plain message', async () => {
+  mode.set('auto');
+  playback._reset();
+  const scan = require('../commands/scan');
+  const proc = require('../lib/proc');
+  const orig = scan.processFile;
+  const pidFile = path.join(tmp, 'rescan-child.pid');
+  // processFile as a long step that runs a child, the way frames and the rest do.
+  scan.processFile = async () => {
+    await proc.run(process.execPath, ['-e', `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setTimeout(() => {}, 30000)`]);
+    return { success: true };
+  };
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  try {
+    const before = db.getById(fileId);
+    const pending = send('POST', `/api/media/${fileId}/rescan`, {});
+    const t0 = Date.now();
+    while (!fs.existsSync(pidFile) && Date.now() - t0 < 5000) await new Promise(r => setTimeout(r, 10));
+    const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+    assert.ok(alive(pid), 'the rescan started');
+    playback.report('tab:route02', 'playing');
+    const res = await pending;
+    assert.ok(Date.now() - t0 < 3000, 'answered at once');
+    assert.strictEqual(res.status, 409);
+    const j = await res.json();
+    assert.strictEqual(j.code, 'AI_SCAN_CUT_FOR_PLAYBACK');
+    assert.strictEqual(j.error, 'Scan stopped because something started playing. It was not put back in the scan line. Start it again when playback is done.');
+    const t1 = Date.now();
+    while (alive(pid) && Date.now() - t1 < 3000) await new Promise(r => setTimeout(r, 20));
+    assert.ok(!alive(pid), 'its child process was stopped');
+    assert.strictEqual(queue.status().pendingCount, 0, 'not put in the line');
+    assert.strictEqual(db.getById(fileId).processing_error, before.processing_error, 'the row is as it was');
+    assert.strictEqual(_vaultScanProbe(), false, 'nothing left scanning');
+  } finally {
+    scan.processFile = orig;
+    playback._reset();
+    mode.set('on');
+  }
+});
+
 test('the playback beat: validated, background, and it is what Auto hears', async () => {
   playback._reset();
   const before = vault._lastActivity;

@@ -3013,6 +3013,17 @@ app.post('/api/import/add-paths', (req, res) => {
 // the AI analysis finishes — the client shows a spinner. One rescan per
 // file at a time; LM Studio must be running.
 const _rescanning = new Set();
+// AI scan Auto: a rescan running when playback starts is cut off at once, the
+// same as the import line's scans (lib/import-queue.js). It was never in the
+// line, so it is not put back: the person who clicked is told instead.
+const _rescanCuts = new Map();   // media id -> AbortController
+const RESCAN_CUT_MESSAGE = 'Scan stopped because something started playing. It was not put back in the scan line. Start it again when playback is done.';
+function _cutRescans() {
+  if (!aiScanMode.isAuto() || !playbackActivity.isPlaying()) return;
+  for (const ac of _rescanCuts.values()) ac.abort();
+}
+playbackActivity.onChange((playing) => { if (playing) _cutRescans(); });
+aiScanMode.onChange(() => _cutRescans());
 
 app.post('/api/media/:id/rescan', async (req, res) => {
   const id = parseId(req.params.id);
@@ -3036,6 +3047,8 @@ app.post('/api/media/:id/rescan', async (req, res) => {
   }
 
   _rescanning.add(id);
+  const cut = new AbortController();
+  _rescanCuts.set(id, cut);
   try {
     const { processFile } = require('../commands/scan');
     require('../lib/frame-extractor').ensureTempDir();
@@ -3043,12 +3056,15 @@ app.post('/api/media/:id/rescan', async (req, res) => {
     // A scan like the queue's: it uses the saved scan model, and in
     // automatic mode only models that can read pictures (lib/llm-client.js).
     const vision = ['video', 'image', 'gif', 'mix'].includes(row.media_type);
-    const result = await aiSlots.runScan({ mediaId: id, scan: true, vision }, () => processFile(
+    const result = await aiSlots.runScan({ mediaId: id, scan: true, vision, signal: cut.signal }, () => processFile(
       { path: row.filepath, name: row.filename, mediaType: row.media_type },
       { reprocess: true, retryErrors: true }
     ));
 
     embeddings.invalidateCache();
+    if (cut.signal.aborted && !result.success) {
+      return res.status(409).json({ error: RESCAN_CUT_MESSAGE, code: 'AI_SCAN_CUT_FOR_PLAYBACK', row: db.getById(id) });
+    }
     if (result.error) {
       // A model-availability failure is reported up WITHOUT stamping the row
       // (commands/scan.js) so a queued retry isn't skipped later. That is right
@@ -3069,8 +3085,12 @@ app.post('/api/media/:id/rescan', async (req, res) => {
     const updated = db.getById(id);
     res.json({ ok: true, elapsed: result.elapsed, frames: result.frames, row: updated });
   } catch (err) {
+    if (cut.signal.aborted) {
+      return res.status(409).json({ error: RESCAN_CUT_MESSAGE, code: 'AI_SCAN_CUT_FOR_PLAYBACK', row: db.getById(id) });
+    }
     res.status(500).json({ error: err.message, row: db.getById(id) });
   } finally {
+    _rescanCuts.delete(id);
     _rescanning.delete(id);
   }
 });
