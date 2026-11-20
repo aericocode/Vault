@@ -66,7 +66,7 @@ function load({ answers = {}, bodyClasses = new Set(), kit = false } = {}) {
 const STATE = {
   enabled: true, offline: false, sevenZipFound: true, shareCount: 2,
   settings: { enabled: true, passwordChoice: 'random', deleteAfterDays: 7, split: '2g', customPartBytes: 750 * 1024 * 1024,
-    nameMode: 'typed', keepLocal: false, onPartFail: 'retry3', accountMode: 'perStart', copyFormat: 'default',
+    keepLocal: false, onPartFail: 'retry3', accountMode: 'perStart', copyFormat: 'default',
     customFormat: '{link}\npass: {pass}', rememberPasswords: true, rememberFiles: true, hideInPrivacy: true, topBarIcon: true },
   savedPassword: { set: true, vaultPasswordSet: true, warningNeeded: false },
   topBar: { show: false, needsYou: 0 },
@@ -170,7 +170,7 @@ test('a hostile file name and archive name are escaped everywhere they are drawn
   setState(L);
   L.ctx.__w = {
     preview: { files: [{ mediaId: 1, name: HOSTILE, nameInArchive: HOSTILE, sizeBytes: 1000 }], totalBytes: 1000, needBytes: 1050, enoughSpace: true,
-      split: false, partBytes: 2 * 1024 ** 3, partCount: 1, nameMode: 'typed', passwordChoice: 'random', deleteAfterDays: 7, savedPasswordSet: true, sevenZipFound: true },
+      split: false, partBytes: 2 * 1024 ** 3, partCount: 1, passwordChoice: 'random', deleteAfterDays: 7, savedPasswordSet: true, sevenZipFound: true },
     share: { id: 4, archiveName: HOSTILE_NAME, archiveFileName: `${HOSTILE_NAME}.7z`, archiveDisplayName: `${HOSTILE_NAME}.7z`, sizeBytes: 1000, partCount: 1, fileCount: 1, passwordKind: 'random', passwordKept: true, deleteAfterDays: 7, link: 'https://gofile.io/d/Ab12', status: 'uploaded', deleteAt: Date.now() + 86400000 * 3, timerSet: true },
     progress: { checks: { ok: true, test: { ok: true }, listWithoutPassword: { ok: true }, contents: { files: 1 }, parts: { count: 1, bytes: 1000 }, archiveName: { value: HOSTILE_NAME, typed: true } }, upload: { parts: [] } },
     ticked: false, failText: HOSTILE,
@@ -540,7 +540,7 @@ test('settings: the Private sharing card, then four tabs, no parts-at-once or up
   setState(L);
   const html = L.run('shareSettingsHtml()');
   for (const id of ['shareEnabled', 'sharePasswordChoice', 'shareDeleteAfter', 'shareSplit', 'shareMyShares', 'shareAfterPack', 'shareSavedPassword',
-    'shareNameMode', 'shareCustomPart', 'shareKeepLocal', 'shareOnPartFail', 'shareAccount', 'shareCopyFormat', 'shareRememberPasswords',
+    'shareCustomPart', 'shareKeepLocal', 'shareOnPartFail', 'shareAccount', 'shareCopyFormat', 'shareRememberPasswords',
     'shareRememberFiles', 'shareHideInPrivacy', 'shareTopBarIcon', 'shareReset']) {
     assert.ok(html.includes(`data-sfind="${id}"`), id);
   }
@@ -560,7 +560,8 @@ test('settings: the Private sharing card, then four tabs, no parts-at-once or up
   };
   const sf = (h) => [...h.matchAll(/data-sfind="(\w+)"/g)].map(m => m[1]);
   assert.deepStrictEqual(sf(panel('basics').html), ['sharePasswordChoice', 'shareSavedPassword', 'shareDeleteAfter', 'shareSplit', 'shareCustomPart', 'shareCopyFormat']);
-  assert.deepStrictEqual(sf(panel('packing').html), ['shareAfterPack', 'shareNameMode', 'shareKeepLocal', 'shareCheckPersonal']);
+  assert.deepStrictEqual(sf(panel('packing').html), ['shareAfterPack', 'shareKeepLocal', 'shareCheckPersonal']);
+  assert.ok(!html.includes('data-sfind="shareNameMode"') && !html.includes('data-share-sel="nameMode"'), 'no Archive name setting');
   assert.deepStrictEqual(sf(panel('upload').html), ['shareOnPartFail', 'shareAccount']);
   assert.deepStrictEqual(sf(panel('remember').html).slice(0, 4), ['shareRememberPasswords', 'shareRememberFiles', 'shareHideInPrivacy', 'shareTopBarIcon']);
   assert.deepStrictEqual(['basics', 'packing', 'upload', 'remember'].map(id => panel(id).hidden), [false, true, true, true]);
@@ -1013,7 +1014,7 @@ test('collection card menu: Share privately after Duplicate, a line, then Delete
 
 const PREVIEW = (files, totalBytes, extra = {}) => ({
   files, totalBytes, needBytes: Math.ceil(totalBytes * 1.02), enoughSpace: true, split: false, partBytes: null, partCount: 1,
-  nameMode: 'random', passwordChoice: 'random', deleteAfterDays: 7, savedPasswordSet: false, sevenZipFound: true, ...extra,
+  passwordChoice: 'random', deleteAfterDays: 7, savedPasswordSet: false, sevenZipFound: true, ...extra,
 });
 const fileRows = (n, size = 1000) => Array.from({ length: n }, (_, i) => ({ mediaId: i + 1, name: `clip${i + 1}.mp4`, nameInArchive: `clip${i + 1}.mp4`, sizeBytes: size }));
 
@@ -1062,6 +1063,16 @@ test('a collection share: empty gives a toast and no window; a folder or a cut-s
   r = await openFromCollection({ ids: [5], complete: false });
   assert.strictEqual(r.D.L.run('_shareWin'), null, 'only the first page came: nothing opens');
   assert.match(r.toasts[0], /Could not read this collection/);
+});
+
+test('step 1: the Archive name field is always there to type in; empty means a random name', () => {
+  const L = load();
+  setState(L);
+  L.ctx.__w = { preview: PREVIEW(fileRows(2), 2000), collectionName: '' };
+  const html = L.run('shareReviewHtml(__w)');
+  assert.match(html, /<input class="vault-input" id="shName" maxlength="80" spellcheck="false" autocomplete="off"\s+placeholder="Random \(leave empty\)">/);
+  assert.ok(!/set in Settings/.test(html));
+  assert.match(html, /A name you type is not hidden: gofile and anyone with the link can read it\./);
 });
 
 test('step 1: more than 6 files fold to the first 3 and a real button opens the rest', () => {

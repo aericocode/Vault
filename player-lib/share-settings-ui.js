@@ -21,7 +21,7 @@
 
 const SHARE_SETTINGS_DEFAULTS = {
   enabled: false, passwordChoice: 'random', deleteAfterDays: 7, split: '2g', customPartBytes: 2 * 1024 ** 3,
-  nameMode: 'typed', keepLocal: false, onPartFail: 'retry3', accountMode: 'perStart', copyFormat: 'default',
+  keepLocal: false, onPartFail: 'retry3', accountMode: 'perStart', copyFormat: 'default',
   customFormat: '{link}\npass: {pass}', rememberPasswords: true, rememberFiles: true, hideInPrivacy: true, topBarIcon: true,
   afterPack: 'wait', checkPersonal: false,
 };
@@ -156,7 +156,6 @@ function shareSettingsHtml() {
     packing: row({ sfind: 'shareAfterPack', title: 'When packing is done',
         desc: 'Wait for me keeps the last look at the tested archive before anything leaves this computer.',
         control: _shSel('afterPack', SHARE_AFTER_PACK_OPTIONS, s.afterPack, 'When packing is done') })
-      + row({ sfind: 'shareNameMode', title: 'Archive name', control: _shSel('nameMode', SHARE_NAME_MODE_OPTIONS, s.nameMode, 'Archive name') })
       + row({ tag: 'label', sfind: 'shareKeepLocal', title: 'Keep the packed archive on this computer after upload', control: _shSwitch('keepLocal', s.keepLocal, 'Keep the packed archive on this computer after upload') })
       + row({ tag: 'label', sfind: 'shareCheckPersonal', title: 'Check files for personal details',
         desc: 'Looks for location, device, names and folder paths stored inside the files, and offers to remove them from the packed copies.',

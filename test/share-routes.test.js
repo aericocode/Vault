@@ -161,6 +161,7 @@ test('feature off: starting a share is refused; settings are checked', async () 
   const st = (await call('GET', '/api/share/state')).json;
   assert.strictEqual(st.enabled, true);
   assert.strictEqual(st.offline, true);
+  assert.ok(!('nameMode' in st.settings), 'no Archive name setting');
 });
 
 test('preview: names, sizes, space, split; same names get (2)', async () => {
@@ -170,6 +171,7 @@ test('preview: names, sizes, space, split; same names get (2)', async () => {
   assert.strictEqual(r.json.totalBytes, 11700);
   assert.strictEqual(r.json.split, false);
   assert.strictEqual(r.json.enoughSpace, true);
+  assert.ok(!('nameMode' in r.json));
   const missing = await call('POST', '/api/share/preview', { mediaIds: [999999] });
   assert.strictEqual(missing.status, 404);
   const junk = await call('POST', '/api/share/preview', { mediaIds: ['1; DROP'] });
@@ -210,6 +212,10 @@ test('no Vault password, passwords remembered: the first share needs the one-tim
 
 test('start -> packing -> checks pass; upload only with confirm, never while offline', { skip: skip7z }, async () => {
   const c = fakeClient();
+  // A file from an older build with Archive name set to Always random: the
+  // stale key is ignored, so a typed name is still used.
+  const appSettings = require('../lib/app-settings');
+  appSettings.set({ share: { ...appSettings.all().share, nameMode: 'random' } });
   const start = await call('POST', '/api/share/shares', { mediaIds, name: '  My Holiday!! ', passwordChoice: 'random', deleteAfterDays: 1, acknowledgeNoVaultPassword: true });
   assert.strictEqual(start.status, 202, start.text);
   assert.strictEqual(store.kvGet('plain_warning_shown'), '1', 'shown once');

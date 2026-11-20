@@ -166,10 +166,6 @@ const SHARE_PASSWORD_CHOICE_OPTIONS = [
   { value: 'random', label: 'New random one each time' },
   { value: 'saved', label: 'My saved password' },
 ];
-const SHARE_NAME_MODE_OPTIONS = [
-  { value: 'typed', label: 'Random, I can type my own' },
-  { value: 'random', label: 'Always random' },
-];
 const SHARE_PART_FAIL_OPTIONS = [
   { value: 'retry3', label: 'Try 3 more times, then ask me' },
   { value: 'ask', label: 'Ask me straight away' },

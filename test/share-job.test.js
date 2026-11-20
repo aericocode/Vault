@@ -814,6 +814,22 @@ test('settings: When packing is done is wait (the default) or upload; anything e
   on();
 });
 
+test('settings: an old file with Archive name (nameMode) loads, the key is ignored and dropped on the next save', () => {
+  on();
+  const appSettings = require('../lib/app-settings');
+  for (const v of ['typed', 'random']) {
+    appSettings.set({ share: { ...settings.get(), afterPack: 'upload', nameMode: v } });
+    const s = settings.get();
+    assert.ok(!('nameMode' in s), v);
+    assert.strictEqual(s.afterPack, 'upload', 'the other values still load');
+    settings.save({ keepLocal: true });
+    assert.ok(!('nameMode' in appSettings.all().share), 'dropped from the file');
+  }
+  assert.ok(!('nameMode' in settings.DEFAULTS));
+  assert.throws(() => settings.validatePatch({ nameMode: 'random' }), { code: 'BAD_INPUT' });
+  on();
+});
+
 test('restart: a share still waiting to pack is thrown away like a packing one', async () => {
   const id = store.insertShare({
     archive_name: names.randomArchiveName(), password: null, password_kind: 'random', size: 10,

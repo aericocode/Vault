@@ -912,7 +912,6 @@ function shareReviewHtml(w) {
   const p = w.preview;
   const files = p.files || [];
   const s = (_shareState && _shareState.settings) || {};
-  const typedOk = p.nameMode === 'typed';
   const savedOk = !!p.savedPasswordSet;
   const split = p.split && p.partCount > 1;
   const partWords = p.partBytes ? shareSize(p.partBytes) : '';
@@ -967,7 +966,7 @@ function shareReviewHtml(w) {
       <div class="vault-field">
         <label class="vault-label" for="shName">Archive name</label>
         <input class="vault-input" id="shName" maxlength="80" spellcheck="false" autocomplete="off"
-               placeholder="${typedOk ? 'Random (leave empty)' : 'Random (set in Settings)'}"${typedOk ? '' : ' disabled'}>
+               placeholder="Random (leave empty)">
       </div>
       <div class="vault-field">
         <label class="vault-label" for="shPwSrc">Password</label>
@@ -977,7 +976,7 @@ function shareReviewHtml(w) {
         ], savedOk ? p.passwordChoice : 'random')}
       </div>
     </div>
-    <p class="vault-modal-hint">${typedOk ? 'A name you type is not hidden: gofile and anyone with the link can read it. ' : ''}<span data-sh-space>${shEsc(space)}</span> ${shEsc(splitWords)}</p>
+    <p class="vault-modal-hint">A name you type is not hidden: gofile and anyone with the link can read it. <span data-sh-space>${shEsc(space)}</span> ${shEsc(splitWords)}</p>
     <div data-sh-nospace>${shareNoSpaceHtml(sp)}</div>
     ${p.sevenZipFound === false ? `<div class="vault-modal-err" role="alert">${shIcon('alert')}<span>Vault could not find its 7-Zip program, so it cannot pack files.</span></div>` : ''}
     ${auto ? shareAutoBlockHtml(w, s) : ''}
@@ -1062,7 +1061,7 @@ async function sharePack() {
   if (!w || w.busy) return;
   const q = w.m.q;
   const btn = q('[data-sh-act="pack"]');
-  const name = q('#shName') && !q('#shName').disabled ? q('#shName').value.trim() : '';
+  const name = q('#shName') ? q('#shName').value.trim() : '';
   const body = {
     mediaIds: w.mediaIds,
     passwordChoice: q('#shPwSrc').value === 'saved' ? 'saved' : 'random',
