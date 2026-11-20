@@ -241,19 +241,19 @@ test('jobs starts empty and pendingIdentifiers reports nothing', () => {
 
 /* ── Loading a model from nothing ────────────────────────────────────────── */
 
-test('a fresh load asks for the 75k context length', () => {
-  assert.strictEqual(lms.LOAD_CONTEXT_LENGTH, 75000);
+test('a fresh load asks for the 32k context length', () => {
+  assert.strictEqual(lms.LOAD_CONTEXT_LENGTH, 32768);
   assert.deepStrictEqual(lms.freshLoadArgs('pub/vis', 'pub/vis'),
-    ['load', 'pub/vis', '--identifier', 'pub/vis', '-c', '75000', '-y']);
+    ['load', 'pub/vis', '--identifier', 'pub/vis', '-c', '32768', '-y']);
   assert.deepStrictEqual(lms.freshLoadArgs('pub/vis', ''),
-    ['load', 'pub/vis', '--identifier', 'pub/vis', '-c', '75000', '-y'], 'the identifier defaults to the key');
+    ['load', 'pub/vis', '--identifier', 'pub/vis', '-c', '32768', '-y'], 'the identifier defaults to the key');
   assert.deepStrictEqual(lms.freshLoadArgs('pub/vis', 'pub/vis', null),
     ['load', 'pub/vis', '--identifier', 'pub/vis', '-y'], 'the fallback leaves the size to LM Studio');
 });
 
-test('a clone still copies the running context length, not 75k', () => {
-  const args = lms.loadArgs({ modelKey: 'm', contextLength: 32768 }, 'm:2');
-  assert.strictEqual(args[args.indexOf('-c') + 1], '32768');
+test('a clone still copies the running context length, not 32k', () => {
+  const args = lms.loadArgs({ modelKey: 'm', contextLength: 65536 }, 'm:2');
+  assert.strictEqual(args[args.indexOf('-c') + 1], '65536');
 });
 
 /** A stand-in lms: `load` answers from `loads` in turn, `ps` lists `loaded`. */
@@ -284,27 +284,27 @@ function quiet(fn) {
   };
 }
 
-test('loadModel passes -c 75000 and does not retry when it works', quiet(async (said) => {
+test('loadModel passes -c 32768 and does not retry when it works', quiet(async (said) => {
   const loadCalls = fakeLms([{ code: 0 }]);
   const r = await lms.loadModel({ modelKey: 'pub/vis', identifier: 'pub/vis', timeoutMs: 60_000 });
   assert.deepStrictEqual(r, { ok: true, listed: true, error: null });
   assert.deepStrictEqual(loadCalls().map(c => c.args),
-    [['load', 'pub/vis', '--identifier', 'pub/vis', '-c', '75000', '-y']]);
+    [['load', 'pub/vis', '--identifier', 'pub/vis', '-c', '32768', '-y']]);
   assert.deepStrictEqual(said, []);
 }));
 
-test('loadModel retries once without -c when the 75k load fails', quiet(async (said) => {
+test('loadModel retries once without -c when the 32k load fails', quiet(async (said) => {
   const loadCalls = fakeLms([{ code: 1, stderr: 'Error: context length exceeds the model maximum\nmore' }, { code: 0 }]);
   const r = await lms.loadModel({ modelKey: 'pub/small', identifier: 'pub/small', timeoutMs: 60_000 });
   assert.deepStrictEqual(r, { ok: true, listed: true, error: null });
   const calls = loadCalls();
   assert.deepStrictEqual(calls.map(c => c.args), [
-    ['load', 'pub/small', '--identifier', 'pub/small', '-c', '75000', '-y'],
+    ['load', 'pub/small', '--identifier', 'pub/small', '-c', '32768', '-y'],
     ['load', 'pub/small', '--identifier', 'pub/small', '-y'],
   ]);
   assert.ok(calls[1].opts.timeoutMs <= 60_000 && calls[1].opts.timeoutMs > 0, 'the retry gets what is left of the time');
   assert.strictEqual(said.length, 1, 'one plain line');
-  assert.match(said[0], /pub\/small.*75000.*exceeds the model maximum/);
+  assert.match(said[0], /pub\/small.*32768.*exceeds the model maximum/);
 }));
 
 test('loadModel reports the second error when both loads fail', quiet(async (said) => {

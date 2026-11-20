@@ -59,6 +59,10 @@
 .sp-dot-off { background: transparent; border: 1px solid var(--text-muted); }
 
 /* Waiting */
+/* How much of the context scans use: one quiet line */
+.sp-ctxuse { margin: 0 0 0.4rem; font-size: 0.7rem; color: var(--text-muted); }
+.sp-ctxuse[hidden] { display: none; }
+
 .sp-waitline { display: flex; align-items: center; gap: 0.4rem; margin: 0 0 0.4rem; font-size: 0.72rem; }
 .sp-waitline[hidden] { display: none; }
 .sp-pill {

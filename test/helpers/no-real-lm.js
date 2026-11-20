@@ -6,3 +6,9 @@
  * their own stub and hand it to the registry themselves.
  */
 process.env.LM_STUDIO_URLS = 'http://127.0.0.1:9/v1/chat/completions';
+
+// Context use numbers (lib/context-use.js) go to a temp file, never beside
+// the real settings file.
+if (!process.env.VAULT_CONTEXT_USE_FILE) {
+  process.env.VAULT_CONTEXT_USE_FILE = require('path').join(require('os').tmpdir(), `vault-test-context-use-${process.pid}.json`);
+}

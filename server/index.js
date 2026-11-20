@@ -1648,7 +1648,7 @@ app.post('/api/ai/instances/unload', async (req, res) => {
   // the base). Every copy of a family is interchangeable to Vault, so the
   // outcome is the one the user asked for — one copy freed — and the table is
   // refreshed from `lms ps` straight after, so it never claims otherwise.
-  const { ok, error } = await lmsCli.unloadInstance(gate.id);
+  const { ok, error } = await lmsCli.unloadInstance(gate.id, 'Unload pressed in Vault');
   if (!ok) return res.status(500).json({ error });
   try { await aiSlots.refresh({ force: true }); } catch {}
   res.json(_instancesPayload());
@@ -3063,6 +3063,32 @@ app.post('/api/media/:id/rescan', async (req, res) => {
     // A scan like the queue's: it uses the saved scan model, and in
     // automatic mode only models that can read pictures (lib/llm-client.js).
     const vision = ['video', 'image', 'gif', 'mix'].includes(row.media_type);
+    // The scan model not loaded: load it the way the queue would (never by
+    // naming it in the request, which makes LM Studio load it just in time),
+    // or say plainly why not.
+    if (vision) {
+      // The wait for a load can be minutes. It ends at once when playback
+      // starts under Auto (the cut), the person who asked goes away, the
+      // vault locks or AI scan is switched Off, and then nothing is scanned.
+      const gone = new AbortController();
+      const onClose = () => { if (!res.writableEnded) gone.abort(); };
+      res.on('close', onClose);
+      let ready;
+      try {
+        ready = await require('../lib/scan-model').loadForScan({ signal: AbortSignal.any([cut.signal, gone.signal]) });
+      } finally {
+        res.off('close', onClose);
+      }
+      if (cut.signal.aborted) {
+        return res.status(409).json({ error: RESCAN_CUT_MESSAGE, code: 'AI_SCAN_CUT_FOR_PLAYBACK', row: db.getById(id) });
+      }
+      if (gone.signal.aborted) return;                 // nobody is waiting for the answer
+      if (ready.code === 'locked' || vault.isLocked()) return res.status(423).json({ error: 'Vault is locked. Unlock it first.', code: 'VAULT_LOCKED' });
+      if (ready.code === 'off' || aiScanMode.isOff()) return _aiScanOff(res);
+      if (!ready.ok) {
+        return res.status(409).json({ error: ready.reason, code: 'SCAN_MODEL_NOT_LOADED', row: db.getById(id) });
+      }
+    }
     const result = await aiSlots.runScan({ mediaId: id, scan: true, vision, signal: cut.signal }, () => processFile(
       { path: row.filepath, name: row.filename, mediaType: row.media_type },
       { reprocess: true, retryErrors: true }

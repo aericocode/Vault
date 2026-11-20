@@ -756,3 +756,38 @@ test('answers saved from a cut-short reply are counted in plain words, never as 
   await v.tick();
   assert.strictEqual(v.$('act-sec-ai'), null);
 });
+
+test('the AI scan view says how much of the context scans really used, in one quiet line', async () => {
+  const USE = { model: 'vis', count: 38, maxTotal: 21400, p95: null, maxPrompt: 20100, maxAnswer: 1300, maxFrames: 35, context: 75000 };
+  const t = load();
+  t.server.queue = { ...RUNNING, contextUse: USE };
+  await t.fire('DOMContentLoaded');
+  await t.tick();
+  t.act.openView('ai');
+  const line = t.$('scanCtxUse');
+  assert.strictEqual(line.hidden, false);
+  assert.strictEqual(line.textContent, 'Largest scan so far used 21,400 of 75,000 tokens (38 scans)');
+  assert.match(line.title, /Largest prompt 20,100 tokens, largest answer 1,300 tokens, at most 35 pictures/);
+  for (const s of [line.textContent, line.title]) assert.doesNotMatch(s, /—/);
+  assert.doesNotMatch(t.$('act-ai-detail').innerHTML, /tokens/, 'the full view only, not the dropdown line');
+
+  // Enough scans for a percentile; the context unknown (not LM Studio).
+  t.server.queue = { ...RUNNING, contextUse: { ...USE, count: 120, p95: 18200, context: null } };
+  await t.tick();
+  assert.strictEqual(line.textContent, 'Largest scan so far used 21,400 tokens (120 scans). 95 in 100 used 18,200 or less');
+
+  // Still there in the finished summary.
+  t.server.queue = { ...RUNNING, done: 3, active: [], pending: [], pendingCount: 0, contextUse: USE };
+  await t.tick();
+  assert.strictEqual(t.$('scanCtxUse').hidden, false);
+  assert.match(t.$('scanCtxUse').textContent, /^Largest scan so far used 21,400 of 75,000 tokens/);
+
+  // No numbers yet: nothing.
+  const u = load();
+  u.server.queue = { ...RUNNING, contextUse: null };
+  await u.fire('DOMContentLoaded');
+  await u.tick();
+  u.act.openView('ai');
+  assert.strictEqual(u.$('scanCtxUse').hidden, true);
+  assert.strictEqual(u.$('scanCtxUse').textContent, '');
+});
