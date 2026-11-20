@@ -132,7 +132,7 @@ svg.wall-caret { width: 13px; height: 13px; }
   white-space: nowrap;
   cursor: pointer;
 }
-.wall-menu-item::before { content: ""; flex: 0 0 1em; text-align: center; color: var(--accent); }
+.wall-menu-item::before { content: ""; flex: 0 0 1em; text-align: center; color: var(--accent-fg); }
 .wall-menu-item[aria-checked="true"] { color: var(--text-primary); }
 .wall-menu-item[aria-checked="true"]::before { content: "\2713"; }
 .wall-menu-item:hover,
@@ -365,7 +365,7 @@ svg.wall-caret { width: 13px; height: 13px; }
 .wall-tp > i {
   display: block;
   height: 100%;
-  background: var(--track-progress, #ff4fa3);
+  background: var(--ov-progress);
   transform: scaleX(0);
   transform-origin: 0 50%;
 }

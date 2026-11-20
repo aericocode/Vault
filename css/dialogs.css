@@ -89,7 +89,7 @@
 
 body.layout-modern .vdlg {
   width: min(460px, 100%);
-  background: color-mix(in srgb, var(--m-surface-solid) 98%, transparent);
+  background: var(--m-modal);
   border: 1px solid var(--m-border);
   border-radius: 12px;
   box-shadow: 0 18px 50px var(--shade-50);

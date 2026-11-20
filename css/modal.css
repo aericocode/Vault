@@ -126,7 +126,7 @@
   font-weight: 600;
   font-size: 0.85rem;
   margin-bottom: 0.25rem;
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 
 .element-details {

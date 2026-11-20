@@ -23,7 +23,7 @@ body.layout-modern #activityWrap { order: 2; }
 body.layout-modern .act-btn { width: 2.125rem; height: 2.125rem; }
 .act-ic { display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
 .act-btn .vi { width: 18px; height: 18px; }
-.act-wrap:not([data-state="idle"]) .act-btn { color: var(--accent-hover); }
+.act-wrap:not([data-state="idle"]) .act-btn { color: var(--accent-hover-fg); }
 .act-wrap[data-state="wait"] .act-btn { color: var(--warning); }
 .act-wrap[data-state="need"] .act-btn { color: var(--danger); }
 /* Quiet while nothing runs: no border, no fill until hovered */
@@ -106,7 +106,7 @@ body.layout-modern .act-pop {
 .act-sec:last-child { padding-bottom: 0; }
 body.layout-modern .act-sec { border-top-color: var(--tint-08); }
 .act-head { display: flex; align-items: center; gap: 8px; font-weight: 600; min-width: 0; }
-.act-sec-ic { display: inline-flex; flex: none; color: var(--accent-hover); }
+.act-sec-ic { display: inline-flex; flex: none; color: var(--accent-hover-fg); }
 .act-sec-ic .vi { width: 16px; height: 16px; }
 .act-sec[data-tone="wait"] .act-sec-ic { color: var(--warning); }
 .act-sec[data-tone="need"] .act-sec-ic { color: var(--danger); }
@@ -149,7 +149,7 @@ body.layout-modern .act-bar { background: var(--tint-08); }
 .act-links[hidden] { display: none; }
 .act-link, .act-back {
   background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-size: 0.82rem;
-  color: var(--accent-hover); text-decoration: none;
+  color: var(--accent-hover-fg); text-decoration: none;
 }
 .act-link:hover, .act-back:hover { text-decoration: underline; }
 

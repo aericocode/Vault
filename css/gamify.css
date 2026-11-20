@@ -592,7 +592,7 @@
 .gamify-rating-n { font-size: 0.72em; color: var(--text-muted); min-width: 1.6em; text-align: right; }
 
 .gamify-finisher-rate { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-.gamify-finisher-pct { font-size: 2.1em; font-weight: 800; color: var(--accent); }
+.gamify-finisher-pct { font-size: 2.1em; font-weight: 800; color: var(--accent-fg); }
 .gamify-finisher-sub { font-size: 0.8em; color: var(--text-secondary); }
 .gamify-finisher-sub em { color: var(--text-muted); font-style: normal; }
 
@@ -695,7 +695,7 @@ body.layout-modern .gamify-analytics-title > .vi {
   width: 16px;
   height: 16px;
   vertical-align: -3px;
-  color: var(--gamify-a, #a855f7);
+  color: var(--accent-fg);
 }
 body.layout-modern .gamify-subtitle { margin-top: 14px; }
 body.layout-modern .gamify-title-hint { font-size: 12px; color: var(--m-muted); margin-left: 4px; }
@@ -720,7 +720,7 @@ body.layout-modern .gamify-totals span { color: var(--m-muted); }
 body.layout-modern .gamify-quest-desc { color: var(--m-text-2); }
 body.layout-modern .gamify-quest { border-top-color: var(--tint-08); }
 body.layout-modern .gamify-heat-cell:not(.on) { background: var(--tint-07); }
-body.layout-modern .gamify-totals b .vi { width: 15px; height: 15px; vertical-align: -1px; margin-right: 0.3em; color: var(--gamify-a, #a855f7); }
+body.layout-modern .gamify-totals b .vi { width: 15px; height: 15px; vertical-align: -1px; margin-right: 0.3em; color: var(--accent-fg); }
 
 body.layout-modern .gamify-quest-reroll {
   display: inline-flex;

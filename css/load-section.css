@@ -42,5 +42,5 @@
 }
 
 .drop-zone-text strong {
-  color: var(--accent);
+  color: var(--accent-fg);
 }

@@ -1,8 +1,10 @@
 /**
  * Themes (.notes/THEMES_SPEC.md, token guide .notes/THEMES_TOKENS.md):
  *  - player-lib/theme-colors.js  the color math: every preset and a sweep
- *    of custom picks stay readable in both brightnesses (text 4.5:1 on the
- *    page, the highlight and second color 3:1, labels on the highlight 4.5:1)
+ *    of custom picks stay readable in both brightnesses (text, hints and
+ *    the highlight as text 4.5:1 on the page and on raised fills, the
+ *    highlight and second color 3:1, labels on the highlight 4.5:1; on the
+ *    picture the Dark variants in every brightness)
  *  - css/variables.css           Vault Dark is today's values, Vault Light
  *    is exactly derive(Vault, 'light'), every light token has a dark one
  *  - player-lib/theme-boot.js    what goes on <html>: nothing in Classic,
@@ -44,10 +46,26 @@ function checkReadable(vars, label) {
     assert.ok(a >= 3, `${label}: highlight on ${s} is ${a.toFixed(2)}:1`);
     const p = C.contrast(vars['--track-progress'], vars[s]);
     assert.ok(p >= 3, `${label}: second color on ${s} is ${p.toFixed(2)}:1`);
+  }
+  // The highlight as text, and hints, are read as sentences: 4.5:1 on the
+  // page, panels, raised fills, fields, and (accent text) its own wash.
+  const raisedAll = ['--bg-primary', '--bg-secondary', '--bg-tertiary', '--m-surface-solid', '--m-field-solid'];
+  for (const s of [...raisedAll, '--bg-hover']) {
     const at = C.contrast(vars['--accent-text'], vars[s]);
     assert.ok(at >= 4.5, `${label}: accent text on ${s} is ${at.toFixed(2)}:1`);
-    const m = C.contrast(vars['--text-muted'], vars[s]);
-    assert.ok(m >= 3, `${label}: muted text on ${s} is ${m.toFixed(2)}:1`);
+  }
+  for (const s of raisedAll) {
+    for (const t of ['--text-muted', '--m-muted']) {
+      const m = C.contrast(vars[t], vars[s]);
+      assert.ok(m >= 4.5, `${label}: ${t} on ${s} is ${m.toFixed(2)}:1`);
+    }
+  }
+  const wash = vars['--accent-bg'].match(/[\d.]+/g).map(Number);
+  for (const s of ['--bg-primary', '--bg-secondary', '--bg-tertiary', '--m-surface-solid']) {
+    const u = C.hexToRgb(vars[s]);
+    const under = C.rgbToHex(u.map((v, i) => wash[i] * wash[3] + v * (1 - wash[3])));
+    const at = C.contrast(vars['--accent-text'], under);
+    assert.ok(at >= 4.5, `${label}: accent text on the accent wash over ${s} is ${at.toFixed(2)}:1`);
   }
   const on = C.contrast(vars['--on-accent'], vars['--accent']);
   assert.ok(on >= 4.5, `${label}: label on the highlight is ${on.toFixed(2)}:1`);
@@ -125,6 +143,27 @@ test('normalizeTheme: defaults are Dark + Vault, anything bad falls back', () =>
   assert.deepStrictEqual(C.themeVars({ palette: 'vault', mode: 'light' }, 'light'), {}, 'Vault lives in variables.css');
   assert.ok(Object.keys(C.themeVars({ palette: 'ember' }, 'dark')).length > 15);
   assert.strictEqual(C.secondColor(null, 'dark'), '#ff4fa3');
+});
+
+test('on the picture: the highlight and second color keep their Dark values in Light, and mpv gets that line', () => {
+  for (const p of C.PALETTES) {
+    const dark = p.id === 'vault' ? { '--accent': '#6366f1', '--track-progress': '#ff4fa3' } : C.derive(p, 'dark').vars;
+    for (const mode of ['dark', 'light']) {
+      const theme = { palette: p.id, mode };
+      assert.strictEqual(C.secondColor(theme, mode), dark['--track-progress'], `${p.id} ${mode} mpv line`);
+      if (p.id === 'vault') { assert.deepStrictEqual(C.themeVars(theme, mode), {}); continue; }
+      const v = C.themeVars(theme, mode);
+      assert.strictEqual(v['--ov-progress'], dark['--track-progress'], `${p.id} ${mode}`);
+      assert.strictEqual(v['--ov-accent'], dark['--accent'], `${p.id} ${mode}`);
+      // Readable against a dark frame (the video's own black).
+      for (const k of ['--ov-progress', '--ov-accent']) {
+        const r = C.contrast(v[k], '#000000');
+        assert.ok(r >= 3, `${p.id} ${mode} ${k} on black is ${r.toFixed(2)}:1`);
+      }
+    }
+  }
+  // Midnight Light used to send its darkened page purple (#5c28f6, 2.6:1 on black).
+  assert.strictEqual(C.secondColor({ palette: 'midnight' }, 'light'), '#a78bfa');
 });
 
 /* ── variables.css ───────────────────────────────────────────────────── */
@@ -273,6 +312,30 @@ test('variables.css: Modern takes brand and score colors from the theme', () => 
   assert.strictEqual(body['--brand'], 'var(--accent)');
   assert.strictEqual(body['--gamify-a'], 'var(--accent)');
   assert.strictEqual(body['--gamify-b'], 'var(--track-progress)');
+  assert.strictEqual(body['--brand-text'], 'var(--accent-fg)');
+});
+
+test('css/: the highlight as text goes through --accent-fg (exact in Vault Dark, 4.5:1 everywhere else)', () => {
+  assert.strictEqual(DARK['--accent-fg'], 'var(--accent)');
+  assert.strictEqual(DARK['--accent-hover-fg'], 'var(--accent-hover)');
+  const others = cssBlock(CSS, ':root[data-theme="light"],\n:root[data-palette]:not([data-palette="vault"])');
+  assert.strictEqual(others['--accent-fg'], 'var(--accent-text)');
+  assert.strictEqual(others['--accent-hover-fg'], 'var(--accent-text)');
+  // Drawings, not text: chart shapes, rings, and the A badge (dark ink on a
+  // white chip). The logo's --accent is only Classic's last fallback.
+  const allowed = /flow-chart|act-ring-fg|ft-head-ring|mp-ab-btn \.mp-badge|^\s*\.logo\s*$/;
+  const bad = [];
+  for (const { file, css } of ALL_CSS) {
+    if (file.endsWith('variables.css')) continue;
+    for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      for (const d of m[2].matchAll(/(?:^|[;\s])(color|fill|stroke)\s*:\s*([^;]*)/g)) {
+        if (!/var\(--(accent|accent-hover|track-progress)\s*[,)]/.test(d[2])) continue;
+        if (allowed.test(m[1])) continue;
+        bad.push(`${file}: ${m[1].trim().replace(/\s+/g, ' ')} { ${d[1]}: ${d[2].trim()} }`);
+      }
+    }
+  }
+  assert.deepStrictEqual(bad, []);
 });
 
 /* ── theme-boot.js: what goes on <html> ──────────────────────────────── */

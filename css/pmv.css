@@ -219,7 +219,7 @@
   font-size: 0.8rem; color: var(--text-secondary); cursor: pointer;
 }
 
-.pmv-opt-val { color: var(--accent); font-family: monospace; }
+.pmv-opt-val { color: var(--accent-fg); font-family: monospace; }
 .pmv-opt-hint { color: var(--text-muted); font-weight: 400; font-size: 0.7rem; }
 
 /* ── Dual-thumb range (min–max on one track) ── */

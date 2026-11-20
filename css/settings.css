@@ -107,7 +107,7 @@
 }
 
 .settings-support:hover {
-  color: var(--accent);
+  color: var(--accent-fg);
   border-color: var(--accent);
 }
 
@@ -224,7 +224,7 @@
 }
 
 .settings-body a {
-  color: var(--accent-hover);
+  color: var(--accent-hover-fg);
   text-decoration: none;
 }
 
@@ -985,7 +985,7 @@ body.pm-names #miniPlayerTitle {
 .mig-apply {
   background: transparent;
   border: 1px solid var(--accent);
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 .mig-apply:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 15%, transparent); }
 .mig-apply:disabled { background: transparent; border-color: var(--border); color: var(--text-muted); }
@@ -1006,11 +1006,11 @@ body.pm-names #miniPlayerTitle {
   padding: 0;
   margin-left: 0.35rem;
   font: inherit;
-  color: var(--accent);
+  color: var(--accent-fg);
   text-decoration: underline;
   cursor: pointer;
 }
-.settings-link:hover { color: var(--accent-hover, var(--accent)); }
+.settings-link:hover { color: var(--accent-hover-fg); }
 
 /* ── Report ── */
 
@@ -1098,7 +1098,7 @@ body.pm-names #miniPlayerTitle {
   background: var(--warning);
   border: none;
   border-radius: 6px;
-  color: var(--on-warning);
+  color: var(--on-warning-3);
   font-family: inherit;
   font-size: 0.78rem;
   font-weight: 600;
@@ -1227,7 +1227,7 @@ body.layout-modern .missing-banner-close .vi { width: 16px; height: 16px; }
 .mig-confirm-cancel:hover { background: var(--tint-05); }
 .mig-confirm-go {
   background: var(--warning);
-  color: var(--on-warning);
+  color: var(--on-warning-3);
   min-width: 9.5rem;      /* fixed width so the countdown doesn't jitter */
   max-width: 100%;
 }
@@ -1268,7 +1268,7 @@ body.layout-modern .missing-banner-close .vi { width: 16px; height: 16px; }
   background: transparent;
   border: 1px solid var(--accent);
   border-radius: 6px;
-  color: var(--accent);
+  color: var(--accent-fg);
   font-family: inherit;
   font-size: 0.78rem;
   font-weight: 600;
@@ -1510,7 +1510,7 @@ body.layout-modern .missing-banner-close .vi { width: 16px; height: 16px; }
   background: rgba(245, 158, 11, 0.1);
 }
 .settings-tag.env {
-  color: var(--accent-hover, var(--accent));
+  color: var(--accent-hover-fg);
   border-color: color-mix(in srgb, var(--accent) 50%, transparent);
   background: var(--accent-bg);
 }
@@ -1638,7 +1638,7 @@ body.layout-modern .missing-banner-close .vi { width: 16px; height: 16px; }
   color: var(--text-primary);
   word-break: break-all;
 }
-.settings-inst-table .sfx { color: var(--accent-hover, var(--accent)); }
+.settings-inst-table .sfx { color: var(--accent-hover-fg); }
 /* Parked dims; unloaded goes red and stays readable through the dimming. */
 .settings-inst-table tr.off td { opacity: 0.45; }
 .settings-inst-table tr.dead .mid,
@@ -1767,7 +1767,7 @@ body.layout-modern .missing-banner-close .vi { width: 16px; height: 16px; }
   font-family: inherit;
   font-size: 0.72rem;
   font-weight: 400;
-  color: var(--accent);
+  color: var(--accent-fg);
   white-space: nowrap;
 }
 .settings-inst-table .inst-clone[disabled],
@@ -1914,7 +1914,7 @@ body.layout-modern .missing-banner-close .vi { width: 16px; height: 16px; }
 .cove-fnote { grid-column: 2 / -1; font-size: 0.74rem; color: var(--warning); }
 .cove-pill { font-size: 0.68rem; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
 .cove-pill.in { color: var(--success); background: rgba(34, 197, 94, 0.12); }
-.cove-pill.add { color: var(--accent-hover, var(--accent)); background: var(--accent-bg); }
+.cove-pill.add { color: var(--accent-hover-fg); background: var(--accent-bg); }
 .cove-pill.see { color: var(--warning); background: rgba(245, 158, 11, 0.12); }
 
 .cove-choices { display: grid; gap: 6px; margin: 0.3rem 0 0.2rem; }

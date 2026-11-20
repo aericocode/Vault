@@ -202,7 +202,7 @@ body:has(#mediaPlayerOverlay.active) .dock-stage-play { display: none; }
   align-items: center;
   gap: 0.3rem;
   font-size: 0.76rem;
-  color: var(--accent-hover, var(--accent));
+  color: var(--accent-hover-fg);
   cursor: pointer;
   list-style: none;
   user-select: none;

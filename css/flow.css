@@ -39,7 +39,7 @@
 .coll-action.coll-flow.on {
   border-color: var(--accent);
   background: var(--accent-bg);
-  color: var(--accent-hover);
+  color: var(--accent-hover-fg);
 }
 /* The Flow button: wave (Modern), "Flow", and a chevron that flips while open. */
 .coll-action.coll-flow .vi { width: 15px; height: 15px; vertical-align: -3px; }
@@ -238,7 +238,7 @@ body.flow-col-dragging, body.flow-col-dragging * { cursor: grabbing !important; 
 .flow-nm.num b { margin-right: 0; }
 .flow-nm.hot { background: var(--flow-col-hot); color: var(--text-primary); }
 .flow-nm.now { color: var(--text-primary); }
-.flow-nm.now b { color: var(--accent-hover); }
+.flow-nm.now b { color: var(--accent-hover-fg); }
 
 .flow-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
 .flow-chip {
@@ -337,7 +337,7 @@ body.layout-modern .flow-btn {
 }
 body.layout-modern .flow-btn:hover { background: var(--m-btn-hover); border-color: var(--tint-22); }
 body.layout-modern .flow-btn-sm { min-height: 22px; font-size: 12px; }
-body.layout-modern .coll-action.coll-flow.on { background: var(--accent-bg); border-color: var(--accent); color: var(--accent-hover); }
+body.layout-modern .coll-action.coll-flow.on { background: var(--accent-bg); border-color: var(--accent); color: var(--accent-hover-fg); }
 body.layout-modern .flow-names { color: var(--m-muted); font-size: 11.5px; }
 body.layout-modern .flow-nm.hot,
 body.layout-modern .flow-nm.now { color: var(--m-text); }
@@ -370,12 +370,13 @@ body.layout-modern .flow-tile-note { color: var(--m-muted); }
 .flow-mk-now { background: var(--accent); color: var(--on-accent); }
 .flow-mk-next { background: var(--ov-black-62); color: var(--ov-text-2); border: 1px solid var(--ov-white-18); }
 .flow-mk-prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--ov-white-12); }
-.flow-mk-prog > i { display: block; height: 100%; width: 0; background: var(--accent); }
+.flow-mk-prog > i { display: block; height: 100%; width: 0; background: var(--ov-accent); }
 .media-tile.flow-mk-playing:not(.tv-row) { box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 60%, transparent); }
 /* Table rows: inline, after the name */
 .tv-c-title > .flow-marks { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; position: relative; pointer-events: none; }
 .tv-c-title > .flow-marks .flow-mk-badge { position: static; }
 .tv-c-title > .flow-marks .flow-mk-prog { position: static; display: inline-block; width: 48px; height: 3px; border-radius: 2px; background: var(--tint-12); }
+.tv-c-title > .flow-marks .flow-mk-prog > i { background: var(--accent); }
 .media-tile.tv-row.flow-mk-playing { background: color-mix(in oklab, var(--accent) 8%, transparent); }
 
 /* Fit / Zoom beside Hide (at the right, wherever the row wraps). */

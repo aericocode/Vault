@@ -147,7 +147,7 @@
 }
 
 .scroll-top-pill:hover {
-  color: var(--accent-hover);
+  color: var(--accent-hover-fg);
   border-color: var(--accent);
 }
 

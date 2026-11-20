@@ -177,7 +177,7 @@ body.layout-modern .wf-more:focus-visible { border-color: transparent; backgroun
 body.layout-modern .wf-bar { background: var(--tint-08); }
 
 body.layout-modern .wf-dialog {
-  background: color-mix(in srgb, var(--m-surface-solid) 98%, transparent);
+  background: var(--m-modal);
   color: var(--m-text);
   border-color: var(--m-border);
   border-radius: var(--m-radius);

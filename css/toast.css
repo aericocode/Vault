@@ -111,7 +111,7 @@ body.layout-modern .undo-toast .undo-btn {
   border: 0;
   border-radius: var(--m-radius-sm);
   background: transparent;
-  color: var(--accent-hover);
+  color: var(--accent-hover-fg);
   font-size: 13px;
   font-weight: 600;
 }

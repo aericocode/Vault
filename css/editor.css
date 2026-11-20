@@ -56,7 +56,7 @@
   padding: 0 4px;
   border-radius: 8px;
   background: var(--warning);
-  color: var(--on-warning);
+  color: var(--on-warning-2);
   font-size: 0.65rem;
   font-weight: 700;
 }
@@ -575,7 +575,7 @@ body.layout-modern .editor-mix-controls {
 body.layout-modern .editor-mix-controls .control-btn.active { color: var(--on-accent); }
 body.layout-modern .editor-mix-controls .speed-display { color: color-mix(in srgb, var(--text-strong) 70%, transparent); }
 body.layout-modern .editor-mix-controls .speed-display:hover { color: var(--text-strong); }
-body.layout-modern .editor-mix-controls .speed-display.speed-modified { color: var(--accent-hover); }
+body.layout-modern .editor-mix-controls .speed-display.speed-modified { color: var(--accent-hover-fg); }
 
 .editor-export-done,
 .editor-export-fail,
@@ -728,7 +728,7 @@ body.layout-modern .editor-mix-controls .speed-display.speed-modified { color: v
 }
 
 .editor-mixer-title.is-master {
-  color: var(--accent-hover);
+  color: var(--accent-hover-fg);
   font-weight: 600;
 }
 
@@ -824,7 +824,7 @@ body.layout-modern .editor-mix-controls .speed-display.speed-modified { color: v
 .editor-offset {
   font-family: monospace;
   font-size: 0.72rem;
-  color: var(--accent);
+  color: var(--accent-fg);
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -852,7 +852,7 @@ body.layout-modern .editor-mix-controls .speed-display.speed-modified { color: v
 }
 
 /* Active spotlight star */
-.mix-spot-btn.tk-active { color: var(--accent); }
+.mix-spot-btn.tk-active { color: var(--accent-fg); }
 
 /* Sync panel — one waveform row per track over a fixed window; the playhead
    sweeps while the waveforms hold still. Drag a row sideways to align it. */

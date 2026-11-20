@@ -121,7 +121,7 @@ body.faces-picking .main-container { padding-bottom: 90px; }
 }
 .fr-noline {
   position: absolute; left: 0; right: 0; bottom: 0; background: var(--ov-black-80); pointer-events: none;
-  font-size: 0.72rem; text-align: center; padding: 4px 0; color: var(--ov-text-dim);
+  font-size: 0.72rem; text-align: center; padding: 4px 0; color: var(--ov-caption);
 }
 .fr-meta {
   font-size: 0.72rem; color: var(--text-secondary); padding: 6px 8px 2px;

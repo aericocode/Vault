@@ -86,7 +86,7 @@
   align-items: center;
   gap: 0.35rem;
   font-size: 0.78rem;
-  color: var(--accent-hover, var(--accent));
+  color: var(--accent-hover-fg);
   white-space: nowrap;
 }
 .sfind-enter {
@@ -104,7 +104,7 @@
   background: none;
   border: none;
   padding: 0.2rem 0.1rem;
-  color: var(--accent-hover, var(--accent));
+  color: var(--accent-hover-fg);
   font: inherit;
   font-size: 0.82rem;
   cursor: pointer;

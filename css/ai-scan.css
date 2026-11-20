@@ -37,6 +37,6 @@ html[data-ai-scan="off"] .ai-scan-off-note { display: flex; }
   border-radius: 6px;
   border: 1px solid var(--border, rgba(127, 127, 127, 0.4));
   background: transparent;
-  color: var(--accent, inherit);
+  color: var(--accent-fg);
   cursor: pointer;
 }

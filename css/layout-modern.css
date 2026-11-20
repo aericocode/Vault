@@ -353,7 +353,7 @@ body.layout-modern .m-btn:focus-visible { outline: 2px solid var(--accent-hover)
 body.layout-modern .m-btn:disabled { opacity: 0.5; cursor: default; }
 body.layout-modern .m-btn.is-primary { border-color: transparent; background: var(--accent); color: var(--on-accent); font-weight: 600; }
 body.layout-modern .m-btn.is-primary:hover { background: var(--accent-hover); }
-body.layout-modern .m-btn.is-ghost { border-color: transparent; background: transparent; color: var(--accent-hover); }
+body.layout-modern .m-btn.is-ghost { border-color: transparent; background: transparent; color: var(--accent-hover-fg); }
 body.layout-modern .m-btn.is-ghost:hover { background: var(--m-btn); }
 body.layout-modern .m-btn .vi { width: 16px; height: 16px; }
 
@@ -369,7 +369,7 @@ body.layout-modern .coll-reorder-note { color: var(--m-muted); margin-top: 0.5re
 body.layout-modern .coll-note-btn {
   background: transparent;
   border-color: transparent;
-  color: var(--accent-hover);
+  color: var(--accent-hover-fg);
   padding: 0.15rem 0.4rem;
 }
 body.layout-modern .coll-note-btn:hover { border-color: var(--border); background: var(--bg-hover); }

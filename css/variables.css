@@ -58,6 +58,12 @@
      dark slider track under a light accent, so Light uses the darker
      --accent-text (the browser then keeps the track light). */
   --accent-native: var(--accent);
+  /* The highlight as text or an icon in rules that used --accent /
+     --accent-hover for it. Vault Dark keeps those exact colors; every other
+     theme takes --accent-text, which reads at 4.5:1 on the page, panels,
+     raised fills, fields and accent washes (block after Light). */
+  --accent-fg: var(--accent);
+  --accent-hover-fg: var(--accent-hover);
 
   /* Brand (Vault padlock + name). Classic: follows the gamify level theme
      when one is applied (gamify-ui.js sets --gamify-a on :root), otherwise
@@ -87,6 +93,10 @@
   --m-radius: 12px;                         /* dialogs, popovers, cards */
   --m-radius-sm: 8px;                       /* buttons, fields */
   --m-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  /* A modal dialog's box (Modern dialogs, Share privately, folder watchers,
+     the subtitle editor): all but opaque in dark, fully opaque in Light so
+     thumbnails never show through. */
+  --m-modal: color-mix(in srgb, var(--m-surface-solid) 98%, transparent);
 
   /* ── 2. Meaning colors ───────────────────────────────────────────────── */
   /* They never follow the palette, only the brightness (darker shades in
@@ -156,6 +166,8 @@
   --on-danger: #fff;                        /* text on a danger fill (Delete buttons) */
   --on-now-playing: #052e16;                /* the label on the green "Now playing" tag */
   --on-warning: #1f1300;                    /* text on an amber fill (Activity count) */
+  --on-warning-2: #000;                     /* the same, in the games and the editor tab badge */
+  --on-warning-3: #1b1204;                  /* the same, on Fix and the move confirm button */
   --on-success: #06210f;                    /* text on a green fill (Solved badge) */
   --on-strong: #111;                        /* label on a --text-strong fill (Stage bar Play) */
 
@@ -185,6 +197,8 @@
      full screen. */
   --wall-bg: #000;
   --wall-fs-bar: rgba(20, 20, 20, 0.85);
+  /* The veil over a game while a save restores. */
+  --game-veil: rgba(10, 10, 14, 0.72);
 
   /* ── 5. Tints: a neutral wash ON THE PAGE ──────────────────────────────
      White over dark, black over light. Named by their alpha in dark, so
@@ -200,6 +214,7 @@
   --tint-10: rgba(255, 255, 255, 0.1);
   --tint-12: rgba(255, 255, 255, 0.12);
   --tint-14: rgba(255, 255, 255, 0.14);
+  --tint-15: rgba(255, 255, 255, 0.15);
   --tint-16: rgba(255, 255, 255, 0.16);
   --tint-18: rgba(255, 255, 255, 0.18);
   --tint-20: rgba(255, 255, 255, 0.2);
@@ -287,6 +302,14 @@
   --ov-text-2: rgba(255, 255, 255, 0.85);   /* quieter text on the picture */
   --ov-text-dim: #ddd;                      /* icons on a quiet button on the picture */
   --ov-title: #e0e0e0;                      /* the file name in the player's top bar */
+  --ov-caption: #e0e0e0;                    /* captions and quiet buttons on a thumbnail (faces, collections) */
+  /* The highlight and second color drawn ON the picture (seek bar, the
+     progress line, Wall and thumbnail progress, mpv Stage's line). A dark
+     picture needs the light variant, so these are the palette's Dark values
+     in every brightness: theme-boot.js sets them inline for every palette
+     but Vault (player-lib/theme-colors.js themeVars()). */
+  --ov-accent: #6366f1;
+  --ov-progress: #ff4fa3;
   --ov-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
   --ov-letterbox: #000;                     /* the bars around a picture */
   /* The player's menus over the picture (gear and speed menus, beat bar
@@ -361,7 +384,7 @@
   --tag-bg: #e3e3e3;
   --text-primary: #1f1f1f;
   --text-secondary: #595959;
-  --text-muted: #757575;
+  --text-muted: #6b6b6b;
   --text-strong: #141414;
   --text-strong-hover: #3a3a3a;
   --accent: #1e23eb;
@@ -370,7 +393,7 @@
   --accent-text: #1114bb;
   --accent-native: var(--accent-text);
   --track-progress: #ff1f8a;
-  --m-surface: rgba(254, 254, 254, 0.97);
+  --m-surface: rgba(254, 254, 254, 1);
   --m-surface-solid: #fefefe;
   --m-field-solid: #ffffff;
   --m-border: rgba(0, 0, 0, 0.12);
@@ -382,6 +405,7 @@
   --m-text-2: #525252;
   --m-muted: #6b6b6b;
   --m-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+  --m-modal: var(--m-surface-solid);
 
   /* 2. Meaning colors */
   --success: #15803d;
@@ -433,6 +457,8 @@
   --on-danger: #fff;
   --on-now-playing: #fff;
   --on-warning: #fff;
+  --on-warning-2: var(--on-warning);
+  --on-warning-3: var(--on-warning);
   --on-success: #fff;
   --on-strong: #fff;
 
@@ -460,6 +486,7 @@
   --tint-10: rgba(0, 0, 0, 0.1);
   --tint-12: rgba(0, 0, 0, 0.12);
   --tint-14: rgba(0, 0, 0, 0.14);
+  --tint-15: rgba(0, 0, 0, 0.15);
   --tint-16: rgba(0, 0, 0, 0.16);
   --tint-18: rgba(0, 0, 0, 0.18);
   --tint-20: rgba(0, 0, 0, 0.2);
@@ -502,6 +529,10 @@
    specificity, the Light block because nothing here repeats its tokens). */
 :root[data-theme="light"],
 :root[data-palette]:not([data-palette="vault"]) {
+  /* 1. The highlight as text (see :root) */
+  --accent-fg: var(--accent-text);
+  --accent-hover-fg: var(--accent-text);
+
   /* 3. On a fill, focus */
   --focus-ring: var(--accent);
 
@@ -510,6 +541,7 @@
   --chip-cool-hover: var(--bg-hover);
   --text-cool: var(--text-primary);
   --on-accent-ink: var(--on-accent);
+  --game-veil: color-mix(in srgb, var(--bg-primary) 72%, transparent);
 
   /* 7. Player: the page greys follow the palette's Modern surfaces, the
      glass chips mix from its highlight. */
@@ -560,6 +592,7 @@
    --gamify-a / -b a Classic session may have left on <html>. */
 body.layout-modern {
   --brand: var(--accent);
+  --brand-text: var(--accent-fg);           /* the name beside the padlock (css/header.css .logo) */
   --gamify-a: var(--accent);
   --gamify-b: var(--track-progress);
 }

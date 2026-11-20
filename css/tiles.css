@@ -43,7 +43,7 @@
   left: 0;
   bottom: 0;
   height: 3px;
-  background: var(--accent);
+  background: var(--ov-accent);
   pointer-events: none;
 }
 
@@ -576,7 +576,7 @@ body.layout-modern .sel-mi-label { display: inline-flex; align-items: center; }
 body.layout-modern .sel-mi-label .vi { width: 16px; height: 16px; flex: none; }
 body.layout-modern .sel-mi-label .vi-gap { margin-right: 8px; }
 .sel-mi-note { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 0.72rem; color: var(--text-muted, #888); white-space: nowrap; }
-.sel-mi-note.on { color: var(--accent-hover, #818cf8); }
+.sel-mi-note.on { color: var(--accent-hover-fg); }
 .sel-mi-kbd {
   flex: none;
   font: 600 0.7rem ui-monospace, "Cascadia Mono", monospace;
@@ -610,7 +610,7 @@ body.layout-modern .sel-mi-label .vi-gap { margin-right: 8px; }
 .sel-pin-e { filter: grayscale(1); opacity: 0.4; }
 .sel-pin:hover .sel-pin-e, .sel-pin:focus-visible .sel-pin-e,
 .sel-pin:hover .vi, .sel-pin:focus-visible .vi { opacity: 0.7; }
-.sel-pin.on { color: var(--accent-hover, #818cf8); background: color-mix(in srgb, var(--accent-hover) 16%, transparent); }
+.sel-pin.on { color: var(--accent-hover-fg); background: color-mix(in srgb, var(--accent-hover) 16%, transparent); }
 .sel-pin.on .sel-pin-e { filter: none; opacity: 1; }
 .sel-pin.on .vi { opacity: 1; fill: currentColor; }
 .sel-mi:hover, .sel-mi:focus-visible,
@@ -641,7 +641,7 @@ body.layout-modern .sel-mrow-danger .sel-mi { color: var(--m-danger-text); }
   border: 0;
   border-radius: 6px;
   background: none;
-  color: var(--accent-hover, #818cf8);
+  color: var(--accent-hover-fg);
   font: inherit;
   font-size: 0.8rem;
   cursor: pointer;
@@ -805,7 +805,7 @@ body.layout-modern .grid-table .tv-row .tile-select:checked { border-color: var(
   line-height: 1.45;
   color: var(--text-secondary);
 }
-.kofi-note a { color: var(--accent); text-decoration: none; }
+.kofi-note a { color: var(--accent-fg); text-decoration: none; }
 .kofi-note a:hover { text-decoration: underline; }
 
 /* ── Delete / restore queue panel (bottom-right, stacks — never replaces) ── */
@@ -1041,7 +1041,7 @@ body.layout-modern #deleteQueue .dq-act:hover { background: var(--m-btn-hover); 
 }
 .dq-btn:hover:not(:disabled) { border-color: var(--accent); }
 .dq-btn:disabled { opacity: 0.45; cursor: default; }
-.dq-btn-primary { border-color: var(--accent); color: var(--accent); }
+.dq-btn-primary { border-color: var(--accent); color: var(--accent-fg); }
 /* Hide sits apart from the two buttons that actually change the run. */
 .dq-btn-quiet { margin-right: auto; background: none; border-color: transparent; color: var(--text-muted); }
 .dq-btn-quiet:hover:not(:disabled) { color: var(--text-primary); border-color: var(--border); }
@@ -1058,7 +1058,7 @@ body.layout-modern #deleteQueue .dq-act:hover { background: var(--m-btn-hover); 
   font-weight: 600;
 }
 
-.tile-ind.ind-dupe { color: var(--accent-hover); }
+.tile-ind.ind-dupe { color: var(--accent-hover-fg); }
 .tile-ind.ind-done { color: var(--done); }
 .tile-ind.ind-hot { color: var(--hot); }
 
@@ -1273,7 +1273,7 @@ body:not(.layout-modern) #scanQueuePanel .fsq-title::before { content: '👤 '; 
 .fsq-sum[hidden] { display: none; }
 .fsq-open {
   margin-left: auto; flex: none; background: none; border: 0; padding: 0; cursor: pointer;
-  font: inherit; font-size: 0.75rem; color: var(--accent-hover);
+  font: inherit; font-size: 0.75rem; color: var(--accent-hover-fg);
 }
 .fsq-open:hover { color: var(--accent-text); text-decoration: underline; }
 

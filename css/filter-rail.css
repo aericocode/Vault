@@ -151,7 +151,7 @@ body.rail-shown.dock-shown .selection-bar {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.75rem;
-  color: var(--accent-hover);
+  color: var(--accent-hover-fg);
 }
 .rail-sec-h:hover .rail-sec-title { color: var(--text-primary); }
 .rail-sec-body { padding: 0 0.9rem 0.75rem; }
@@ -308,7 +308,7 @@ body:not(.layout-modern):not(.coll-tab) #railToggleBtn { display: none; }
 }
 /* Filters on, hidden on the Collections tab: the count, in the accent. */
 .rail-toggle-btn.has-hidden { border-color: var(--accent); color: var(--text-primary); }
-.rail-toggle-n { color: var(--accent); font-weight: 600; }
+.rail-toggle-n { color: var(--accent-fg); font-weight: 600; }
 .rail-toggle-n[hidden] { display: none; }
 /* No rail on Faces (its pages hide the filters), and none below the width
    filter-rail.js RAIL_MIN_WINDOW allows. The Collections tab keeps the

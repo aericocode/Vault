@@ -285,7 +285,7 @@
 
 .repeat-btn.rep-all,
 .repeat-btn.rep-one {
-  color: var(--accent);
+  color: var(--ov-accent);
   border-color: var(--accent);
   background: rgba(122, 168, 255, 0.12);
 }

@@ -174,7 +174,7 @@
 
 .note-edit:hover,
 .note-entry.note-editing .note-edit {
-  color: var(--accent, #89b4fa);
+  color: var(--accent-fg);
   background: color-mix(in srgb, var(--info-text) 12%, transparent);
 }
 
@@ -490,7 +490,7 @@
 
 .meta-badge.has-notes {
   background: color-mix(in srgb, var(--info-text) 15%, transparent);
-  color: var(--accent, #89b4fa);
+  color: var(--accent-fg);
   border: 1px solid color-mix(in srgb, var(--info-text) 30%, transparent);
 }
 
@@ -587,11 +587,11 @@
    obvious at a glance that playback is not at normal speed. */
 .speed-display.speed-modified {
   background: var(--accent-bg);
-  color: var(--accent-hover);
+  color: var(--accent-hover-fg);
 }
 
 .speed-display.speed-modified:hover {
-  color: var(--accent-hover);
+  color: var(--accent-hover-fg);
 }
 
 /* ── Speed menu (right-click the readout) ────────────────────────────── */

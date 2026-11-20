@@ -12,7 +12,7 @@
 /* Head: icon, "AI scan", a few words, close */
 .sp-head { display: flex; align-items: center; gap: 0.45rem; }
 .sp-head[hidden] { display: none; }
-.sp-head-ico { display: inline-flex; align-items: center; justify-content: center; width: 14px; flex: none; color: var(--accent); }
+.sp-head-ico { display: inline-flex; align-items: center; justify-content: center; width: 14px; flex: none; color: var(--accent-fg); }
 .sp-head-ico:empty { display: none; }
 .sp-head-title { font-weight: 600; white-space: nowrap; }
 .sp-head-sub { color: var(--text-muted); font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -69,7 +69,7 @@
 .sp-pill[hidden] { display: none; }
 .sp-link {
   background: none; border: none; padding: 0; cursor: pointer; font: inherit;
-  color: var(--accent); text-decoration: underline; text-underline-offset: 2px;
+  color: var(--accent-fg); text-decoration: underline; text-underline-offset: 2px;
 }
 .sp-wait { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; margin-bottom: 0.45rem; }
 .sp-wait[hidden] { display: none; }
@@ -154,7 +154,7 @@ body.layout-modern #importQueuePanel .dq-x .vi,
 body.layout-modern #kofiThanksPanel .dq-x .vi { width: 14px; height: 14px; }
 body.layout-modern #importQueuePanel .dq-title .vi,
 body.layout-modern #kofiThanksPanel .dq-title .vi { margin-right: 6px; }
-body.layout-modern #kofiThanksPanel .dq-title .vi { color: var(--accent-hover); }
+body.layout-modern #kofiThanksPanel .dq-title .vi { color: var(--accent-hover-fg); }
 body.layout-modern #kofiThanksPanel .kofi-note { font-size: 12px; color: var(--m-text-2); }
 
 body.layout-modern #scanQueuePanel .dq-bar { background: var(--tint-08); }

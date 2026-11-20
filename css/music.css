@@ -193,7 +193,7 @@
 .music-time {
   background: none;
   border: none;
-  color: var(--accent);
+  color: var(--accent-fg);
   font-family: monospace;
   font-size: 0.72rem;
   cursor: pointer;
@@ -457,7 +457,7 @@
   background: var(--bg-tertiary);
   border: 1px solid var(--accent);
   border-radius: 6px;
-  color: var(--accent-hover);
+  color: var(--accent-hover-fg);
   cursor: pointer;
   font-size: 0.75rem;
 }
@@ -494,7 +494,7 @@
 .tile-badge.sim-badge {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   border: 1px solid var(--accent);
-  color: var(--accent-hover);
+  color: var(--accent-hover-fg);
   font-family: monospace;
 }
 

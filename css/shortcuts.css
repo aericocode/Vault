@@ -190,7 +190,7 @@
   border: none;
   padding: 0;
   font: inherit;
-  color: var(--accent-hover);
+  color: var(--accent-hover-fg);
   cursor: pointer;
   text-decoration: underline;
 }

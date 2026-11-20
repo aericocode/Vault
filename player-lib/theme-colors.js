@@ -46,7 +46,7 @@
   });
 
   /* The minimum contrast each kind of color has to keep (WCAG ratios). */
-  const MIN = Object.freeze({ text: 4.5, accent: 3, onAccent: 4.5, second: 3, muted: 3 });
+  const MIN = Object.freeze({ text: 4.5, accent: 3, onAccent: 4.5, second: 3, muted: 4.5 });
 
   /* ── Conversions ─────────────────────────────────────────────────────── */
 
@@ -99,6 +99,11 @@
     return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
   }
   const rgba = (hex, a) => `rgba(${hexToRgb(hex).join(', ')}, ${a})`;
+  /** hex at alpha a laid over the opaque color under (what the eye sees). */
+  function over(hex, a, under) {
+    const f = hexToRgb(hex), u = hexToRgb(under);
+    return rgbToHex(f.map((v, i) => v * a + u[i] * (1 - a)));
+  }
 
   /**
    * Move lightness l by dir (+1 lighter, -1 darker) until color(l) has at
@@ -149,15 +154,18 @@
 
     const bg = surf(R.bg), panel = surf(R.panel), raised = surf(R.raised), hover = surf(R.hover);
     const border = surf(R.border), surface = surf(R.surface);
+    const field = dark ? surf(11.5) : surf(100);
     const pageSurfaces = [bg, panel, raised];
     const ink = (l, against, ratio) => inkAt(pushUntil(inkAt, l, against, ratio, dir));
 
     const text = ink(R.text, [...pageSurfaces, hover, surface], MIN.text);
     const text2 = ink(R.text2, [...pageSurfaces, surface], MIN.text);
-    const muted = ink(R.muted, [bg, panel], MIN.muted);
+    // Hints are real sentences too (setting descriptions, group headers):
+    // 4.5:1 on the page, panels, raised fills and fields.
+    const muted = ink(R.muted, [...pageSurfaces, surface, field], MIN.muted);
     const mText = ink(R.mText, [...pageSurfaces, surface], MIN.text);
     const mText2 = ink(R.mText2, [...pageSurfaces, surface], MIN.text);
-    const mMuted = ink(R.mMuted, [bg, panel, surface], MIN.text);
+    const mMuted = ink(R.mMuted, [...pageSurfaces, surface, field], MIN.muted);
 
     // The highlight: in range, then readable on the page, then under its own label.
     const accAt = (l) => hslToHex(a.h, a.s, l);
@@ -166,7 +174,12 @@
     const labelOk = (l) => contrast(accAt(l), onColor(accAt(l))) >= MIN.onAccent;
     while (!labelOk(aL) && aL + dir >= 0 && aL + dir <= 100) aL += dir;
     const accent = accAt(aL);
-    const accentText = accAt(pushUntil(accAt, clamp(aL + 12 * dir, 0, 100), [...pageSurfaces, surface], MIN.text, dir));
+    // The highlight as text: 4.5:1 on everything it is drawn on, including
+    // raised fills, hovered rows, fields and its own wash (--accent-bg).
+    const accentBgA = dark ? 0.16 : 0.13;
+    const accentText = accAt(pushUntil(accAt, clamp(aL + 12 * dir, 0, 100),
+      [...pageSurfaces, hover, surface, field, ...[bg, panel, raised, surface].map(u => over(accent, accentBgA, u))],
+      MIN.text, dir));
 
     const secAt = (l) => hslToHex(s2.h, s2.s, l);
     let sL = clamp(s2.l, ...SECOND_L[dark ? 'dark' : 'light']);
@@ -187,13 +200,14 @@
         '--text-muted': muted,
         '--accent': accent,
         '--accent-hover': accAt(clamp(aL + 7 * dir, 0, 100)),
-        '--accent-bg': rgba(accent, dark ? 0.16 : 0.13),
+        '--accent-bg': rgba(accent, accentBgA),
         '--accent-text': accentText,
         '--on-accent': onColor(accent),
         '--track-progress': secAt(sL),
-        '--m-surface': rgba(surface, dark ? 0.96 : 0.97),
+        // Opaque in Light: thumbnails would show through a popover or toast.
+        '--m-surface': rgba(surface, dark ? 0.96 : 1),
         '--m-surface-solid': surface,
-        '--m-field-solid': dark ? surf(11.5) : surf(100),
+        '--m-field-solid': field,
         '--m-text': mText,
         '--m-text-2': mText2,
         '--m-muted': mMuted,
@@ -241,7 +255,20 @@
   function themeVars(theme, mode) {
     const t = normalizeTheme(theme);
     if (t.palette === 'vault') return {};
-    return derive(seedsOf(t), mode).vars;
+    return { ...derive(seedsOf(t), mode).vars, ...onPicture(t) };
+  }
+
+  /**
+   * The highlight and second color as drawn ON the picture (--ov-accent,
+   * --ov-progress): the Dark derivation in every brightness, since a video
+   * frame is dark and the Light values are darkened for a light page.
+   * Vault's are in css/variables.css (:root).
+   */
+  function onPicture(theme) {
+    const t = normalizeTheme(theme);
+    if (t.palette === 'vault') return { '--ov-accent': '#6366f1', '--ov-progress': '#ff4fa3' };
+    const d = derive(seedsOf(t), 'dark').vars;
+    return { '--ov-accent': d['--accent'], '--ov-progress': d['--track-progress'] };
   }
 
   /** The page background for theme in mode (the theme-color meta). */
@@ -265,16 +292,18 @@
     return '';
   }
 
-  /** The second color as it is drawn now (the progress line), for mpv Stage. */
-  function secondColor(theme, mode) {
-    const t = normalizeTheme(theme);
-    if (t.palette === 'vault' && mode !== 'light') return '#ff4fa3';
-    return derive(seedsOf(t), mode).vars['--track-progress'];
+  /**
+   * The second color as the progress line on the picture draws it
+   * (--ov-progress), for mpv Stage, which draws on the video. The same in
+   * Dark and Light (callers still pass the mode; it is not needed).
+   */
+  function secondColor(theme) {
+    return onPicture(theme)['--ov-progress'];
   }
 
   return {
     PALETTES, PALETTE_IDS, MODES, DEFAULT_THEME, NEUTRAL_BG, MIN,
     isHex, hexToRgb, rgbToHex, hexToHsl, hslToHex, luminance, contrast, onColor,
-    derive, normalizeTheme, resolveMode, seedsOf, themeVars, pageColor, nudgeNote, secondColor,
+    derive, normalizeTheme, resolveMode, seedsOf, themeVars, onPicture, pageColor, nudgeNote, secondColor,
   };
 });

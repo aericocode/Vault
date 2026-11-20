@@ -29,7 +29,7 @@
 /* ── S1: studio grid ── */
 .st-new {
   padding: 0.6rem 1rem; border: 1px solid var(--accent); border-radius: 999px;
-  background: transparent; color: var(--accent-hover); font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+  background: transparent; color: var(--accent-hover-fg); font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
 }
 .st-new:hover { background: var(--accent-bg); color: var(--text-primary); }
 .st-chips { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -103,7 +103,7 @@
 .st-pcover:hover .ft-cover-cap, .st-pcover:focus-visible .ft-cover-cap { background: color-mix(in srgb, var(--accent) 85%, transparent); }
 .st-info { gap: 9px; }
 .st-meta { font-size: 0.84rem; color: var(--text-secondary); display: flex; gap: 14px; flex-wrap: wrap; }
-.st-link { color: var(--accent-hover); text-decoration: none; }
+.st-link { color: var(--accent-hover-fg); text-decoration: none; }
 .st-link:hover { color: var(--accent-text); text-decoration: underline; }
 .st-desc { margin: 0; font-size: 0.875rem; color: var(--grey-c8); max-width: 760px; white-space: pre-line; overflow-wrap: anywhere; }
 .st-notes {
@@ -117,7 +117,7 @@
 .st-sec-h span { font-size: 0.78rem; color: var(--text-secondary); }
 .st-secbtn {
   margin-left: auto; font: inherit; font-size: 0.8125rem; padding: 5px 11px; border-radius: 7px;
-  border: 1px solid var(--accent); background: transparent; color: var(--accent-hover); font-weight: 600; cursor: pointer;
+  border: 1px solid var(--accent); background: transparent; color: var(--accent-hover-fg); font-weight: 600; cursor: pointer;
 }
 .st-secbtn:hover { background: var(--accent-bg); color: var(--text-primary); }
 .st-people { display: flex; gap: 18px; flex-wrap: wrap; }
@@ -156,7 +156,7 @@
 .st-newname { font-style: normal; }
 .st-yrs { width: 320px; border-color: var(--accent); gap: 8px; }
 .st-yrs-p { margin: 0; font-size: 0.8125rem; color: var(--text-primary); }
-.st-open-other { margin-right: auto; color: var(--accent-hover); text-decoration: none; font-size: 0.8125rem; }
+.st-open-other { margin-right: auto; color: var(--accent-hover-fg); text-decoration: none; font-size: 0.8125rem; }
 .st-open-other:hover { color: var(--accent-text); text-decoration: underline; }
 
 /* ── Dialogs: Edit studio, Edit details, folder names, frames ── */
@@ -253,7 +253,7 @@ textarea.st-in-links { min-height: 40px; }
 .sel-btn.sel-studio.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 25%, transparent); color: var(--text-strong); }
 .st-detail .st-detail-val { display: inline-flex; align-items: center; gap: 6px; }
 .st-detail-link {
-  background: none; border: 0; padding: 0; font: inherit; color: var(--accent-hover); cursor: pointer; text-align: left;
+  background: none; border: 0; padding: 0; font: inherit; color: var(--accent-hover-fg); cursor: pointer; text-align: left;
 }
 .st-detail-link:hover { color: var(--accent-text); text-decoration: underline; }
 .st-detail-edit {
@@ -290,7 +290,7 @@ body.pm-names .st-desc { filter: blur(7px); }
   .st-auto-link { margin-left: 0; }
   .st-tf { direction: ltr; }
 }
-.st-detail .st-detail-link span { color: var(--accent-hover); }
+.st-detail .st-detail-link span { color: var(--accent-hover-fg); }
 .st-detail .st-detail-link:hover span { color: var(--accent-text); }
 textarea.st-in.st-in-short { min-height: 40px; }
 

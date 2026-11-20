@@ -133,7 +133,7 @@
 .faces-menu-item:hover,
 .faces-menu-item:focus-visible { background: var(--bg-hover); outline: none; }
 /* A pick-one menu (Sort): the tick column */
-.faces-menu-tick { display: inline-flex; width: 1.2em; flex: none; vertical-align: -0.14em; color: var(--accent-hover); }
+.faces-menu-tick { display: inline-flex; width: 1.2em; flex: none; vertical-align: -0.14em; color: var(--accent-hover-fg); }
 /* "Add to someone else" opens upward: its caret points up */
 svg.faces-caret-up { transform: rotate(180deg); margin-left: 0.25em; vertical-align: -0.16em; }
 /* The selection bar's Studio button in Modern: a caret icon after the words */
@@ -161,7 +161,7 @@ body.layout-modern svg.sel-caret { margin-left: 0.3em; vertical-align: -0.16em; 
 .faces-drop:hover,
 .faces-drop:focus-visible,
 .faces-drop.is-over { border-color: var(--accent); background: var(--accent-bg); outline: none; }
-.faces-drop u { color: var(--accent); text-decoration: none; }
+.faces-drop u { color: var(--accent-fg); text-decoration: none; }
 
 .faces-pop-status { font-size: 0.8rem; color: var(--text-primary); min-height: 0; }
 .faces-pop-status:empty { display: none; }
@@ -274,7 +274,7 @@ body.layout-modern .faces-brow2 {
 .faces-blink .ft-pm-name { text-decoration: underline; }
 /* Modern: the same quiet accent link as the Faces tab (.ft-link), underlined only on hover. */
 body.layout-modern .faces-blink,
-body.layout-modern .faces-blink .ft-pm-name { color: var(--accent-hover); text-decoration: none; }
+body.layout-modern .faces-blink .ft-pm-name { color: var(--accent-hover-fg); text-decoration: none; }
 body.layout-modern .faces-blink:hover,
 body.layout-modern .faces-blink:hover .ft-pm-name { color: var(--m-text); text-decoration: underline; }
 
@@ -354,7 +354,7 @@ body.layout-modern .faces-blink:hover .ft-pm-name { color: var(--m-text); text-d
 .faces-stuck[hidden], .faces-stuck-list[hidden] { display: none; }
 .faces-settings .faces-link {
   background: none; border: 0; padding: 0 0 0 0.4rem; font: inherit;
-  color: var(--accent-hover); cursor: pointer;
+  color: var(--accent-hover-fg); cursor: pointer;
 }
 .faces-settings .faces-link:hover { text-decoration: underline; }
 .faces-settings .faces-link:disabled { opacity: 0.5; cursor: default; }

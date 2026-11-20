@@ -23,7 +23,7 @@
 .setup-banner-text { flex: 1; min-width: 0; font-size: 0.82rem; line-height: 1.5; }
 .setup-banner-title { font-weight: 700; }
 .setup-banner-desc { color: var(--text-secondary); }
-.setup-banner-desc a { color: var(--accent); }
+.setup-banner-desc a { color: var(--accent-fg); }
 .setup-banner-cmd {
   display: flex;
   align-items: center;
@@ -51,7 +51,7 @@
 }
 .setup-banner-btn:hover { border-color: var(--accent); }
 .setup-banner-btn:disabled { opacity: 0.5; cursor: default; }
-.setup-banner-primary { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.setup-banner-primary { border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
 /* "Don't show again" on optional rows: a quiet text link, not a second button */
 .setup-banner-link {
   background: none;
@@ -128,7 +128,7 @@
 .logo {
   font-size: 1.25rem;
   font-weight: 600;
-  color: var(--brand, var(--accent));  /* follows the gamify theme when applied */
+  color: var(--brand-text, var(--brand, var(--accent)));  /* follows the gamify theme when applied */
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -247,7 +247,7 @@ body.layout-modern .setup-banner-text { font-size: 13px; }
 body.layout-modern .setup-banner-title { font-weight: 600; font-size: 14px; }
 body.layout-modern .setup-banner-row-optional .setup-banner-title { font-weight: 600; }
 body.layout-modern .setup-banner-desc { color: var(--m-text-2); }
-body.layout-modern .setup-banner-desc a { color: var(--accent-hover); }
+body.layout-modern .setup-banner-desc a { color: var(--accent-hover-fg); }
 body.layout-modern .setup-banner-cmd { margin: 8px 0 6px; gap: 12px; }
 body.layout-modern .setup-banner-tag {
   font-size: 11px;

@@ -127,7 +127,7 @@ body.layout-modern .stag-menu { background: var(--m-surface-solid, #18181b); bor
 }
 .stag-mi:hover, .stag-mi:focus-visible, .stag-mi[aria-expanded="true"] { background: var(--bg-hover, #2a2a3e); outline: none; }
 .stag-mi:disabled { opacity: 0.5; cursor: default; background: none; }
-.stag-check { flex: none; width: 1em; text-align: center; color: var(--accent-hover, #818cf8); font-weight: 700; }
+.stag-check { flex: none; width: 1em; text-align: center; color: var(--accent-hover-fg); font-weight: 700; }
 .stag-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
 .stag-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stag-kbd {
@@ -220,7 +220,7 @@ body.layout-modern .sl-tag { background: var(--tint-03); }
   padding: 2px 4px;
   border: 0;
   background: none;
-  color: var(--accent-hover, #818cf8);
+  color: var(--accent-hover-fg);
   font: inherit;
   font-size: 0.82rem;
   font-weight: 600;

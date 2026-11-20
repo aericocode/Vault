@@ -266,7 +266,7 @@
 .fpop-range-label {
   font-size: 0.8rem;
   font-weight: 600;
-  color: var(--accent-hover, #89b4fa);
+  color: var(--accent-hover-fg);
 }
 .fpop-use {
   padding: 0.35rem 0.7rem;
