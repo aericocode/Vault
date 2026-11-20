@@ -109,8 +109,9 @@ function fakeClient() {
       const entry = { o, go };
       c.uploads.push(entry);
       const aborted = new Promise((r) => { if (o.signal.aborted) r(); else o.signal.addEventListener('abort', r, { once: true }); });
-      await Promise.race([go.p, aborted]);
+      const how = await Promise.race([go.p, aborted]);
       if (o.signal.aborted) throw Object.assign(new Error('Stopped.'), { code: 'ABORTED' });
+      if (how && how.fail) throw how.fail;   // go.resolve({ fail }): the part fails that way
       o.onBytes && o.onBytes(o.size);
       return { fileId: `file-${o.fileName}`, folderId: 'folder-1', code: 'Code1', link: 'https://gofile.io/d/Code1', md5: 'x' };
     },
@@ -192,20 +193,26 @@ async function until(cond, what, ms = 5000) {
 function idle() { vault._lastActivity = Date.now() - 5 * 60 * 1000; }
 const statusOf = (id) => store.getShare(id).status;
 
-/** A share that passed its checks, with a real part file on disk. */
-function makeChecked() {
+/** A share that passed its checks, with real part files on disk. */
+function makeChecked({ parts = 1, folderId = null } = {}) {
   const wd = temp.createWorkDir();
   const name = names.randomArchiveName();
-  const fileName = `${name}.7z`;
-  const p = path.join(wd.dir, fileName);
-  fs.writeFileSync(p, Buffer.alloc(800, 1));
-  const st = fs.statSync(p);
+  const list = [];
+  for (let i = 1; i <= parts; i++) {
+    const fileName = parts > 1 ? `${name}.7z.${String(i).padStart(3, '0')}` : `${name}.7z`;
+    const p = path.join(wd.dir, fileName);
+    fs.writeFileSync(p, Buffer.alloc(800, i));
+    const st = fs.statSync(p);
+    list.push({ partNo: i, fileName, size: st.size, mtimeMs: Math.trunc(st.mtimeMs) });
+  }
   const id = store.insertShare({
-    archive_name: name, password: null, password_kind: 'random', size: st.size,
-    part_count: 1, part_size: st.size, file_count: 1, status: 'checked', created_at: Date.now(),
+    archive_name: name, password: null, password_kind: 'random', size: 800 * parts,
+    part_count: parts, part_size: 800, file_count: 1, status: 'checked', created_at: Date.now(),
     delete_after_days: 7, work_dir: wd.name, checks: JSON.stringify({ ok: true }),
   });
-  store.setParts(id, [{ partNo: 1, fileName, size: st.size, mtimeMs: Math.trunc(st.mtimeMs) }]);
+  store.setParts(id, list);
+  // Later parts of an upload that already made its folder go up two at a time.
+  if (folderId) store.updateShare(id, { folder_id: folderId });
   return id;
 }
 
@@ -423,4 +430,96 @@ test('a manual lock (force:false) locks at once during an upload and pauses it',
   assert.strictEqual(store.getShare(s).last_error, 'Paused because the library was locked.');
   await immediate();
   assert.strictEqual(c.uploads.length, 1, 'nothing resumed by itself');
+});
+
+/* ── Only real evidence counts (verifier finding on the first version) ─── */
+
+/**
+ * An upload against a connection that is open but blackholed: every attempt
+ * waits out the local time limit (the clock moves 3 minutes) and fails with
+ * NETWORK, no byte taken, no answer. The retry waits run an autolock tick
+ * with the user away. `answer`: the failure is an error answer gofile sent.
+ */
+async function blackholed({ parts, answer = false }) {
+  let clock = Date.now();
+  service._setForTest({ now: () => clock });
+  const c = fakeClient();
+  let attempts = 0;
+  let lockedAt = null;
+  let heldTicks = 0;
+  c.uploadPart = async () => {
+    attempts++;
+    clock += 3 * 60 * 1000;
+    throw answer
+      ? Object.assign(new Error('gofile refused the request.'), { code: 'GOFILE_ERROR', answered: true })
+      : Object.assign(new Error('gofile did not answer in time.'), { code: 'NETWORK', timedOut: true });
+  };
+  service._setForTest({
+    sleep: async (ms) => {
+      clock += ms;
+      if (vault.isLocked()) return;
+      idle();
+      if (await vault._autolockTick()) lockedAt = clock;
+      else heldTicks++;
+    },
+  });
+  const s = makeChecked({ parts, folderId: 'folder-1' });
+  const confirmedAt = clock;
+  await service.confirmUpload(s, { confirm: true });
+  await until(() => !(service.isWorking()) || vault.isLocked(), 'the upload ended or the vault locked', 20000);
+  await service._idle();
+  return { s, c, attempts, lockedAt, confirmedAt, heldTicks, clock: () => clock };
+}
+
+test('blackholed upload (time limits, no byte, no answer; 40 parts, retries on): the hold ends STALL_MS after the last evidence and the idle lock fires', async (t) => {
+  if (!cipher) { t.skip('this build has no SQLite cipher'); return; }
+  const r = await blackholed({ parts: 40 });
+  assert.ok(vault.isLocked(), `the idle lock fired (attempts ${r.attempts}, held ticks ${r.heldTicks})`);
+  const after = r.lockedAt - r.confirmedAt;   // the confirm was the last real evidence
+  assert.ok(after >= service.STALL_MS, `not before STALL_MS (${after / 60000} min)`);
+  assert.ok(after < service.STALL_MS + 7 * 60 * 1000, `soon after STALL_MS (${after / 60000} min)`);
+  assert.ok(r.attempts < 40 * 4, `stopped long before every part had its tries (${r.attempts})`);
+  vault.unlock(VAULT_PASS);
+  await service._idle();
+  assert.strictEqual(statusOf(r.s), 'paused');
+  assert.strictEqual(store.getShare(r.s).last_error, 'Paused because the library was locked.');
+});
+
+test('error answers gofile sent do count: the hold stays while gofile answers, and ends when the upload pauses', async (t) => {
+  if (!cipher) { t.skip('this build has no SQLite cipher'); return; }
+  const r = await blackholed({ parts: 3, answer: true });
+  assert.strictEqual(r.lockedAt, null, 'never locked while gofile kept answering');
+  assert.ok(r.clock() - r.confirmedAt > service.STALL_MS, 'for longer than STALL_MS in all');
+  assert.strictEqual(r.attempts, 3 * 4, 'every part had its tries');
+  assert.strictEqual(statusOf(r.s), 'paused', 'all parts failed: waits for the user');
+  assert.strictEqual(service.isWorking(), false);
+  assert.strictEqual(await vault._autolockTick(), true, 'the next tick locks');
+});
+
+test('the next share in line takes its turn without new evidence: it does not restart the window', async (t) => {
+  if (!cipher) { t.skip('this build has no SQLite cipher'); return; }
+  let clock = Date.now();
+  service._setForTest({ now: () => clock });
+  const c = fakeClient();
+  const a = makeChecked();
+  const b = makeChecked();
+  const aName = store.getShare(a).archive_name;
+  await service.confirmUpload(a, { confirm: true });
+  await service.confirmUpload(b, { confirm: true });   // the last real evidence: these confirms
+  await until(() => c.uploads.length === 1, 'the first part of a is in flight');
+  // a's part gets no byte taken and no answer; its retries fail the same way at once.
+  const netErr = () => Object.assign(new Error('Could not reach gofile.'), { code: 'NETWORK' });
+  const hang = c.uploadPart;
+  c.uploadPart = (o) => (o.fileName.startsWith(aName) ? Promise.reject(netErr()) : hang(o));
+  clock += service.STALL_MS - 60 * 1000;
+  c.uploads[0].go.resolve({ fail: netErr() });
+  await until(() => statusOf(a) === 'paused' && c.uploads.length === 2, 'a paused, b took its turn');
+  assert.strictEqual(service.isWorking(), true, 'b is inside the window of the last evidence');
+  clock += 2 * 60 * 1000;
+  assert.strictEqual(service.isWorking(), false, 'taking its turn did not restart the window');
+  idle();
+  assert.strictEqual(await vault._autolockTick(), true, 'so the idle lock fires');
+  vault.unlock(VAULT_PASS);
+  await service._idle();
+  assert.strictEqual(statusOf(b), 'paused');
 });

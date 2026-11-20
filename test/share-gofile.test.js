@@ -190,6 +190,39 @@ test('an error status with HTTP 200 is an error; messages never hold the token',
   assert.ok(!e2.message.includes(TOKEN));
 });
 
+test('an error made from an answer gofile sent is marked answered; no connection, an abort or a check before sending is not', async () => {
+  const up = (handler, o = {}) => client(fakeGofile({ 'POST https://upload.gofile.io/uploadfile': handler }))
+    .uploadPart({ token: TOKEN, filePath: PART, fileName: 'Abc.7z.001', size: PART_SIZE, ...o }).catch(e => e);
+  // Answers: rate limit (both kinds), an error status, not found, an answer that does not check out.
+  for (const [handler, code] of [
+    [() => json(429, {}), 'RATE_LIMIT'],
+    [() => json(200, { status: 'error-rateLimit', data: {} }), 'RATE_LIMIT'],
+    [() => json(200, { status: 'error-notPremium', data: {} }), 'GOFILE_ERROR'],
+    [() => json(500, { status: 'ok', data: {} }), 'GOFILE_ERROR'],
+    [() => json(404, {}), 'NOT_FOUND'],
+    [okUpload({ md5: '0'.repeat(32) }), 'UPLOAD_MISMATCH'],
+    [okUpload({ parentFolder: '../../x' }), 'BAD_ANSWER'],
+  ]) {
+    const err = await up(handler);
+    assert.strictEqual(err.code, code);
+    assert.strictEqual(err.answered, true, `${code} is an answer`);
+  }
+  // No answer: the connection failed, the request was aborted, or nothing was sent.
+  const noNet = new GofileClient({ fetch: async () => { throw new Error('connect ETIMEDOUT'); }, isEnabled: () => true, isOffline: () => false });
+  const e1 = await noNet.uploadPart({ token: TOKEN, filePath: PART, fileName: 'Abc.7z.001', size: PART_SIZE }).catch(e => e);
+  assert.strictEqual(e1.code, 'NETWORK');
+  assert.strictEqual(e1.answered, undefined);
+  const ac = new AbortController();
+  ac.abort();
+  const aborted = new GofileClient({ fetch: async () => { throw Object.assign(new Error('aborted'), { name: 'AbortError' }); }, isEnabled: () => true, isOffline: () => false });
+  const e2 = await aborted.uploadPart({ token: TOKEN, filePath: PART, fileName: 'Abc.7z.001', size: PART_SIZE, signal: ac.signal }).catch(e => e);
+  assert.strictEqual(e2.code, 'ABORTED');
+  assert.strictEqual(e2.answered, undefined);
+  const e3 = await up(okUpload(), { folderId: 'bad folder!' });
+  assert.strictEqual(e3.code, 'BAD_ANSWER');
+  assert.strictEqual(e3.answered, undefined, 'refused before sending: not an answer');
+});
+
 test('feature off: account, upload (first part or later) and timer make zero requests', async () => {
   const fake = fakeGofile({
     'POST https://api.gofile.io/accounts': () => json(200, { status: 'ok', data: { token: TOKEN } }),
