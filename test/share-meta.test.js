@@ -295,27 +295,27 @@ test('hostile JPEGs: loops, offsets out of range, huge counts, truncation, garba
   const big = Buffer.from(tiff({ ifd0: [{ tag: 0x013b, type: 2, value: 'x' }] }));
   big.writeUInt16LE(60000, 8);
   const r2 = await meta.detect(put(jpegWith([exifSeg(big)])));
-  assert.strictEqual(r2.status, 'unchecked');
+  assert.strictEqual(r2.status, 'failed');
   // A value offset far out of range, and a GPS pointer out of range: GPS data still counts.
   const oob = Buffer.from(tiff({ ifd0: [{ tag: 0x013b, type: 2, value: 'a long artist name' }], gps: [GPS[1]] }));
   const r3 = await meta.detect(put(jpegWith([exifSeg(oob.subarray(0, 40))])));
   assert.notStrictEqual(r3.status, 'clean');
   // Not a TIFF at all inside "Exif".
   const r4 = await meta.detect(put(jpegWith([exifSeg(Buffer.from('nonsense!'))])));
-  assert.strictEqual(r4.status, 'unchecked');
+  assert.strictEqual(r4.status, 'failed');
   // Truncated in the middle of a segment, and only a few bytes.
   const whole = jpegWith([exifSeg(tiff({ ifd0: [{ tag: 0x013b, type: 2, value: 'Sam' }] }))]);
-  assert.strictEqual((await meta.detect(put(whole.subarray(0, 30)))).status, 'unchecked');
-  assert.strictEqual((await meta.detect(put(Buffer.from([0xff, 0xd8, 0xff])))).status, 'unchecked');
-  assert.strictEqual((await meta.detect(put(Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), crypto.randomBytes(4000)])))).status, 'unchecked');
+  assert.strictEqual((await meta.detect(put(whole.subarray(0, 30)))).status, 'failed');
+  assert.strictEqual((await meta.detect(put(Buffer.from([0xff, 0xd8, 0xff])))).status, 'failed');
+  assert.strictEqual((await meta.detect(put(Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), crypto.randomBytes(4000)])))).status, 'failed');
   // A segment length below 2.
-  assert.strictEqual((await meta.detect(put(Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x01, 0, 0, 0, 0])))).status, 'unchecked');
+  assert.strictEqual((await meta.detect(put(Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x01, 0, 0, 0, 0])))).status, 'failed');
   // Thousands of tiny segments: stops at the limit, not clean.
   const many = Array.from({ length: meta.LIMITS.segments + 10 }, () => seg(0xe5, Buffer.from('ab')));
-  assert.strictEqual((await meta.detect(put(jpegWith(many)))).status, 'unchecked');
+  assert.strictEqual((await meta.detect(put(jpegWith(many)))).status, 'failed');
   // A missing file and a folder.
-  assert.strictEqual((await meta.detect(path.join(tmp, 'nope.jpg'))).status, 'unchecked');
-  assert.strictEqual((await meta.detect(tmp)).status, 'unchecked');
+  assert.strictEqual((await meta.detect(path.join(tmp, 'nope.jpg'))).status, 'failed');
+  assert.strictEqual((await meta.detect(tmp)).status, 'failed');
 });
 
 test('values: oversized ones are cut short, control and direction characters removed', async () => {
@@ -357,12 +357,12 @@ test('PNG text chunks, eXIf, XMP and ImageMagick raw profiles count; software an
 
 test('hostile PNGs: a zip bomb, a length past the end, no IEND, thousands of chunks never throw', async () => {
   const bomb = chunk('zTXt', Buffer.concat([Buffer.from('Comment\0\0', 'latin1'), zlib.deflateSync(Buffer.alloc(50 * 1024 * 1024, 0x41))]));
-  assert.strictEqual((await meta.detect(put(png([bomb]), '.png'))).status, 'unchecked', 'not unpacked past the limit');
+  assert.strictEqual((await meta.detect(put(png([bomb]), '.png'))).status, 'failed', 'not unpacked past the limit');
   const bad = png([tEXt('Author', 'x')]);
   bad.writeUInt32BE(0x7ffffff0, 8 + 25);   // the tEXt length
-  assert.strictEqual((await meta.detect(put(bad, '.png'))).status, 'unchecked');
+  assert.strictEqual((await meta.detect(put(bad, '.png'))).status, 'failed');
   const noEnd = png().subarray(0, png().length - 12);
-  assert.strictEqual((await meta.detect(put(noEnd, '.png'))).status, 'unchecked');
+  assert.strictEqual((await meta.detect(put(noEnd, '.png'))).status, 'failed');
   const weird = png([chunk('tEXt', Buffer.from('no separator here', 'latin1'))]);
   assert.notStrictEqual((await meta.detect(put(weird, '.png'))).status, 'clean');
 });
@@ -386,7 +386,7 @@ test('ffprobe tags: location, device, names, titles, comments, chapters, GPS tra
     ],
     chapters: [{ tags: { title: 'Chapter 1' } }, { tags: { title: '00:05:00.000' } }, { tags: { title: 'Arrival at the house' } }],
   }, found);
-  assert.deepStrictEqual(r.counts, { v: 1, a: 1, s: 1 });
+  assert.deepStrictEqual(r.counts, { v: 1, a: 1, s: 1, t: 0, pics: 0 });
   assert.strictEqual(r.image, false);
   const f = Object.fromEntries(found.findings().map(x => [x.label, x.value]));
   assert.match(f.Location, /^52\.37, 4\.89/);
@@ -471,9 +471,10 @@ test('JPEG cleaner: orientation 1 or none writes no EXIF at all; a JPEG with no 
   const dst = path.join(stageDir(), 'a.jpg');
   await meta.cleanCopy({ src, dst, known });
   assert.deepStrictEqual(jpegSegments(fs.readFileSync(dst)).map(s => s.m.toString(16)), ['e0', 'db', 'c4', 'c0', 'da']);
-  assert.ok(meta.jpegStrip(fs.readFileSync(dst)).length > 0);
-  assert.throws(() => meta.jpegStrip(BASE_JPEG.subarray(0, BASE_JPEG.length - 2)), { code: 'BAD_JPEG' });
-  assert.throws(() => meta.jpegStrip(Buffer.from('not a jpeg')), { code: 'BAD_JPEG' });
+  assert.ok((await meta.jpegStrip(fs.readFileSync(dst))).length > 0);
+  await assert.rejects(meta.jpegStrip(BASE_JPEG.subarray(0, BASE_JPEG.length - 2)), { code: 'BAD_JPEG' });
+  await assert.rejects(meta.jpegStrip(Buffer.from('not a jpeg')), { code: 'BAD_JPEG' });
+  assert.strictEqual((await meta.detect(put(BASE_JPEG.subarray(0, BASE_JPEG.length - 2)))).status, 'failed', 'no end marker: the check failed');
 });
 
 test('PNG cleaner: text, eXIf and unknown chunks gone, colour and animation kept, orientation as a new eXIf, original untouched', async () => {
@@ -531,6 +532,7 @@ const fs = require('fs');
 const args = process.argv.slice(2);
 const strip = (s) => s.replace(/^file:/, '');
 if (args.includes('-show_format')) {
+  if (process.env.FAKE_PROBE === 'fail') process.exit(1);
   const f = strip(args[args.length - 1]);
   let b; try { b = fs.readFileSync(f); } catch { process.exit(1); }
   const tags = b.includes('PERSONAL') ? { artist: 'Sam Example', location: '+52.3700+004.8900/' } : { encoder: 'Lavf' };
@@ -640,6 +642,211 @@ test('a step 1 check runs a few at a time and never blocks: hundreds of files', 
   meta.forget();
 });
 
+/* ── Review findings: failed versus not read, places looked at, covers ── */
+
+test('a failed check is "failed", never clean or "could not be checked": by type; a type Vault does not read is "unchecked"', async (t) => {
+  useFakes();
+  t.after(() => { meta._setForTest({ probe: null, ffmpeg: null }); delete process.env.FAKE_PROBE; });
+  process.env.FAKE_PROBE = 'fail';
+  const junk = crypto.randomBytes(3000);
+  // Video and audio by name, or by their first bytes under any name.
+  for (const ext of ['.mp4', '.mkv', '.mov', '.mp3', '.m4a', '.flac', '.wav', '.webm', '.avi']) {
+    assert.deepStrictEqual(await meta.detect(put(junk, ext)), { status: 'failed', kind: 'av', findings: [] }, ext);
+  }
+  const iso = Buffer.concat([Buffer.from([0, 0, 0, 16]), Buffer.from('ftypisom\0\0\0\0', 'latin1'), junk]);
+  assert.strictEqual((await meta.detect(put(iso, '.bin'))).status, 'failed', 'an MP4 by its bytes');
+  const mkv = Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), junk]);
+  assert.strictEqual((await meta.detect(put(mkv, '.dat'))).status, 'failed', 'a Matroska file by its bytes');
+  // Types Vault does not read: packed as they are.
+  const webp = Buffer.concat([Buffer.from('RIFF\0\0\0\0WEBPVP8 ', 'latin1'), junk]);
+  const heic = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypheic\0\0\0\0mif1heic', 'latin1'), junk]);
+  for (const [buf, ext] of [[webp, '.webp'], [heic, '.heic'], [junk, '.gif'], [junk, '.pdf'], [junk, '.zip']]) {
+    assert.deepStrictEqual(await meta.detect(put(buf, ext)), { status: 'unchecked', kind: null, findings: [] }, ext);
+  }
+  // A JPEG or PNG Vault cannot follow is a failed check, whatever its name.
+  assert.strictEqual((await meta.detect(put(BASE_JPEG.subarray(0, 100), '.webp'))).status, 'failed');
+});
+
+test('the cache: the very same file only (size, modified and changed times, file id); a rewrite with its old size and time is checked again; a failed check is never kept', async (t) => {
+  meta.forget();
+  const p = put(jpegWith([comSeg('first words')]));
+  const old = new Date(Date.now() - 86400000);
+  fs.utimesSync(p, old, old);
+  const st0 = fs.statSync(p);
+  const a = await meta.checkFile({ path: p });
+  assert.match(JSON.stringify(a.findings), /first words/);
+  // Same size, the modified time put back: only the changed time (and content)
+  // differ. Windows stamps times at its clock tick (about 16 ms), so wait past
+  // one: a rewrite inside the same tick cannot be told apart by any key.
+  await new Promise(r => setTimeout(r, 60));
+  fs.writeFileSync(p, jpegWith([comSeg('other words')]));
+  fs.utimesSync(p, st0.atime, st0.mtime);
+  assert.strictEqual(fs.statSync(p).size, st0.size);
+  assert.strictEqual(fs.statSync(p).mtimeMs, st0.mtimeMs);
+  assert.notStrictEqual(fs.statSync(p).ctimeMs, st0.ctimeMs, 'the changed time moved');
+  const [b] = await meta.checkNow([p]);
+  assert.match(JSON.stringify(b.findings), /other words/, 'checked again, not taken from the cache');
+  // A failed check is not kept: the next ask checks again.
+  useFakes();
+  t.after(() => { meta._setForTest({ probe: null, ffmpeg: null }); delete process.env.FAKE_PROBE; meta.forget(); });
+  process.env.FAKE_PROBE = 'fail';
+  const v = put(Buffer.from('a video with PERSONAL tags'), '.mp4');
+  assert.strictEqual((await meta.checkFile({ path: v })).status, 'failed');
+  delete process.env.FAKE_PROBE;
+  assert.strictEqual((await meta.checkFile({ path: v })).status, 'personal', 'asked again, checked again');
+});
+
+/** An ISO BMFF box. */
+function box(type, ...data) {
+  const body = Buffer.concat(data);
+  const h = Buffer.alloc(8);
+  h.writeUInt32BE(8 + body.length, 0);
+  h.write(type, 4, 'latin1');
+  return Buffer.concat([h, body]);
+}
+const XMP_UUID = Buffer.from('be7acfcb97a942e89c71999491e3afac', 'hex');
+const PROJECT_XMP = '<x:xmpmeta><rdf:RDF><rdf:Description><dc:creator><rdf:Seq><rdf:li>Sam Editor</rdf:li></rdf:Seq></dc:creator>'
+  + '<xmpMM:Ingredients><rdf:Bag><rdf:li stRef:filePath="C:\\Users\\sam\\Premiere\\proj.prproj"/></rdf:Bag></xmpMM:Ingredients></rdf:Description></rdf:RDF></x:xmpmeta>';
+
+test('places the check now looks: JPEG data after its end and APPn/COM between scans, PNG private chunks and data after IEND, MP4/MOV XMP', async (t) => {
+  // JPEG: a trailer after the end marker.
+  const trailer = await meta.detect(put(Buffer.concat([BASE_JPEG, Buffer.from('notes C:/Users/sam/secret.txt')])));
+  assert.strictEqual(labels(trailer)['Folder path'], 'C:/Users/sam/secret.txt');
+  // A second picture after the end (a gain map, a depth map): its EXIF is read.
+  const second = jpegWith([exifSeg(tiff({ gps: GPS }))]);
+  const withSecond = await meta.detect(put(Buffer.concat([BASE_JPEG, second])));
+  assert.strictEqual(labels(withSecond).Location, '52.37, 4.89', 'GPS in a picture after the end');
+  // APPn and COM between scans count like those before them.
+  const between = await meta.detect(put(jpegWith([], { afterScan: [comSeg('between scans: Sam'), seg(0xe7, Buffer.from('\x00C:\\Users\\sam\\x\x00', 'latin1'))] })));
+  assert.strictEqual(labels(between).Comment, 'between scans: Sam');
+  assert.match(labels(between)['Folder path'], /^C:\\Users\\sam/);
+  // A tail longer than the limit is not looked at in full: the check failed.
+  const big = put(BASE_JPEG);
+  fs.truncateSync(big, BASE_JPEG.length + meta.LIMITS.tail + 1);
+  assert.strictEqual((await meta.detect(big)).status, 'failed');
+  // A JPEG over the size limit is neither checked nor cleaned: the check failed, at once.
+  const huge = put(BASE_JPEG);
+  fs.truncateSync(huge, meta.LIMITS.jpegMax + 1);
+  assert.strictEqual((await meta.detect(huge)).status, 'failed');
+  // PNG: a private ancillary chunk, an unknown critical one, and data after IEND.
+  const prvt = await meta.detect(put(png([chunk('prVt', Buffer.from('\x00\x01C:/Users/sam/x private', 'latin1'))]), '.png'));
+  assert.match(labels(prvt)['Folder path'], /^C:\/Users\/sam\/x/);
+  const crit = await meta.detect(put(png([chunk('SaMx', Buffer.from('mail sam@studio.test', 'latin1'))]), '.png'));
+  assert.strictEqual(labels(crit).Email, 'sam@studio.test');
+  const after = await meta.detect(put(Buffer.concat([png(), Buffer.from('appended /home/sam/notes')]), '.png'));
+  assert.match(labels(after)['Folder path'], /^\/home\/sam\/notes/);
+  const pngTail = put(png(), '.png');
+  fs.truncateSync(pngTail, png().length + meta.LIMITS.tail + 1);
+  assert.strictEqual((await meta.detect(pngTail)).status, 'failed');
+  // The cleaners keep none of it, and the copies check clean.
+  for (const [src, name] of [[put(Buffer.concat([jpegWith([], { afterScan: [comSeg('Sam')] }), second, Buffer.from('C:/Users/sam')])), 'j.jpg'],
+    [put(Buffer.concat([png([chunk('prVt', Buffer.from('C:/Users/sam/x')), chunk('SaMx', Buffer.from('sam@studio.test'))]), Buffer.from('/home/sam/n')]), '.png'), 'p.png']]) {
+    const dst = path.join(stageDir(), name);
+    await meta.cleanCopy({ src, dst, known: await meta.detect(src) });
+    const out = fs.readFileSync(dst);
+    for (const s of ['Sam', 'sam']) assert.ok(!out.includes(Buffer.from(s)), `${name}: ${s} gone`);
+    assert.strictEqual((await meta.detect(dst)).status, 'clean', name);
+  }
+  // MP4/MOV: XMP in a top-level uuid box and in moov/udta/XMP_ (ffprobe shows neither).
+  useFakes();
+  t.after(() => meta._setForTest({ probe: null, ffmpeg: null }));
+  const ftyp = box('ftyp', Buffer.from('isom\0\0\x02\0isomiso2', 'latin1'));
+  for (const file of [
+    Buffer.concat([ftyp, box('uuid', XMP_UUID, Buffer.from(PROJECT_XMP)), box('mdat', crypto.randomBytes(500))]),
+    Buffer.concat([ftyp, box('mdat', crypto.randomBytes(500)), box('moov', box('udta', box('XMP_', Buffer.from(PROJECT_XMP))))]),
+    Buffer.concat([ftyp, box('moov', box('trak', box('udta', box('XMP_', Buffer.from(PROJECT_XMP))))), box('mdat', crypto.randomBytes(500))]),
+  ]) {
+    const r = await meta.detect(put(file, '.mp4'));
+    assert.strictEqual(r.status, 'personal');
+    assert.strictEqual(labels(r).Name, 'Sam Editor');
+    assert.match(labels(r)['Folder path'], /^C:\\Users\\sam\\Premiere/);
+  }
+  const otherUuid = Buffer.concat([ftyp, box('uuid', crypto.randomBytes(16), Buffer.from('<x:xmpmeta><dc:creator>Nobody</dc:creator></x:xmpmeta>')), box('mdat', crypto.randomBytes(500))]);
+  assert.strictEqual((await meta.detect(put(otherUuid, '.mp4'))).status, 'clean', 'another uuid box is not XMP');
+  const brokenBox = Buffer.concat([ftyp, Buffer.from([0, 0, 0, 3]), Buffer.from('junk'), crypto.randomBytes(100)]);
+  assert.strictEqual((await meta.detect(put(brokenBox, '.mp4'))).status, 'failed', 'a box of an impossible size: the walk failed');
+});
+
+test('cover pictures: their kind ("Cover (front)", "Other") is not personal; a path in one still is; they are counted apart from video', () => {
+  const found = new meta.Found();
+  const r = meta._fromProbe({
+    format: { format_name: 'mp3', tags: { encoder: 'Lavf61.7.100' } },
+    streams: [
+      { codec_type: 'audio', tags: {} },
+      { codec_type: 'video', disposition: { attached_pic: 1 }, tags: { comment: 'Cover (front)', title: 'front' } },
+      { codec_type: 'video', disposition: { attached_pic: 1 }, tags: { comment: 'Other' } },
+    ],
+  }, found);
+  assert.deepStrictEqual(r.counts, { v: 0, a: 1, s: 0, t: 0, pics: 2 });
+  assert.deepStrictEqual(found.findings(), [], 'a cover\'s kind and caption are not flagged');
+  const f2 = new meta.Found();
+  meta._fromProbe({ format: {}, streams: [{ codec_type: 'video', disposition: { attached_pic: 1 }, tags: { comment: 'scan of C:\\Users\\sam\\cover.png' } }] }, f2);
+  assert.match(f2.findings()[0].value, /^C:\\Users\\sam/);
+  // Attachments are counted, their names scanned.
+  const f3 = new meta.Found();
+  const r3 = meta._fromProbe({ format: {}, streams: [{ codec_type: 'video' }, { codec_type: 'attachment', tags: { filename: 'Arial.ttf', mimetype: 'font/ttf' } },
+    { codec_type: 'attachment', tags: { filename: 'sam@mail.test.ttf', mimetype: 'font/ttf' } }] }, f3);
+  assert.strictEqual(r3.counts.t, 2);
+  assert.deepStrictEqual(r3.attachments.map(a => a.filename), ['Arial.ttf', 'sam@mail.test.ttf']);
+  assert.deepStrictEqual(f3.findings(), [{ label: 'Email', value: 'sam@mail.test.ttf' }]);
+});
+
+test('no long block of the event loop: hostile XMP just under its limit, and a big JPEG checked and cleaned in blocks', async () => {
+  const { performance } = require('node:perf_hooks');
+  let worst = 0;
+  let last = performance.now();
+  const timer = setInterval(() => { const n = performance.now(); worst = Math.max(worst, n - last); last = n; }, 1);
+  const measure = async (fn) => {
+    await new Promise(r => setTimeout(r, 5));
+    worst = 0; last = performance.now();
+    const out = await fn();
+    await new Promise(r => setTimeout(r, 5));
+    return { worst, out };
+  };
+  const LIMIT_MS = 250;   // was 2158 ms (XMP) and 2700 ms (a 240 MB JPEG) before
+  try {
+    const cap = meta.LIMITS.xmp - 64;
+    const fill = (unit, head = '') => { let s = head; while (s.length + unit.length < cap) s += unit; return s; };
+    const xmps = {
+      'unclosed elements': fill('<dc:creator>'),
+      'unclosed elements with text': fill('<dc:creator>Sam '),
+      'several unclosed fields': fill('<dc:creator><dc:title><photoshop:City><tiff:Make>'),
+      'an unclosed quote': fill(` dc:creator="${'a'.repeat(3000)}`, '<r'),
+      'only <': '<'.repeat(cap),
+      entities: `<dc:creator>${fill('&amp;')}`,
+      'paths and emails': fill('C:\\x a@b.c '),
+    };
+    for (const [name, xml] of Object.entries(xmps)) {
+      const p = put(png([iTXt('XML:com.adobe.xmp', xml)]), '.png');
+      const { worst: w, out } = await measure(() => meta.detect(p));
+      assert.ok(w < LIMIT_MS, `${name}: blocked ${w.toFixed(0)} ms`);
+      assert.ok(['clean', 'personal', 'failed'].includes(out.status), `${name}: ${out.status}`);
+    }
+    // A JPEG of 64 MB whose picture data is all stuffed bytes (FF 00): one
+    // marker test per two bytes, the worst case for the walk.
+    const p = path.join(tmp, 'big.jpg');
+    const head = jpegWith([comSeg('Holiday with Sam')]);
+    const fd = fs.openSync(p, 'w');
+    fs.writeSync(fd, head.subarray(0, head.length - 2));
+    const blk = Buffer.alloc(8 * 1024 * 1024);
+    for (let i = 0; i < blk.length; i += 2) { blk[i] = 0xff; blk[i + 1] = 0; }
+    for (let i = 0; i < 8; i++) fs.writeSync(fd, blk);
+    fs.writeSync(fd, Buffer.from([0xff, 0xd9]));
+    fs.closeSync(fd);
+    const d = await measure(() => meta.detect(p));
+    assert.strictEqual(d.out.status, 'personal');
+    assert.ok(d.worst < LIMIT_MS, `check: blocked ${d.worst.toFixed(0)} ms`);
+    const dst = path.join(stageDir(), 'big.jpg');
+    const c = await measure(() => meta.cleanCopy({ src: p, dst, known: d.out }));
+    assert.ok(c.worst < LIMIT_MS, `clean: blocked ${c.worst.toFixed(0)} ms`);
+    assert.strictEqual(fs.statSync(dst).size, fs.statSync(p).size - (head.length - BASE_JPEG.length));
+    fs.rmSync(p);
+    fs.rmSync(dst);
+  } finally {
+    clearInterval(timer);
+  }
+});
+
 /* ── A real round trip, when this machine has ffmpeg and ffprobe ──────── */
 
 const ff = (() => {
@@ -685,4 +892,82 @@ test('real ffmpeg: a tagged mp4 and mkv with chapters come out clean, streams an
   const md5 = (p) => spawnSync(ff.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-i', p, '-f', 'md5', '-'], { windowsHide: true }).stdout.toString().trim();
   assert.ok(md5(jsrc).startsWith('MD5='));
   assert.strictEqual(md5(jdst), md5(jsrc), 'the same picture');
+});
+
+test('real ffmpeg: covers (a plain one does not fail the share, a cleaned copy never keeps one), MKV fonts kept and counted, MP4 XMP found and dropped', { skip: ff ? false : 'no ffmpeg or ffprobe on this machine' }, async () => {
+  delete require.cache[require.resolve('../lib/share/meta')];
+  const m4 = require('../lib/share/meta');
+  const mk = (args) => spawnSync(ff.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', ...args], { windowsHide: true });
+  const streams = (p) => JSON.parse(spawnSync(ff.ffprobe, ['-v', 'error', '-print_format', 'json', '-show_streams', p], { windowsHide: true }).stdout).streams;
+  // A cover holding a comment someone wrote: Vault does not look inside covers.
+  const cover = put(jpegWith([comSeg('cover scanned at C:\Users\sam\covers')]));
+  const audio = [];
+  const m4a = (name, extra) => {
+    const p = path.join(tmp, name);
+    const r = mk(['-f', 'lavfi', '-i', 'sine=d=1', '-i', cover, '-map', '0', '-map', '1', '-c:a', 'aac', '-c:v', 'copy', '-disposition:v:0', 'attached_pic', ...extra, p]);
+    assert.strictEqual(r.status, 0, String(r.stderr));
+    audio.push(p);
+    return p;
+  };
+  const plain = m4a('plain.m4a', []);
+  const tagged = m4a('tagged.m4a', ['-metadata', 'artist=Sam Example']);
+  let mp3Plain = null;
+  let mp3Tagged = null;
+  const mp3 = (name, extra) => {
+    const p = path.join(tmp, name);
+    const r = mk(['-f', 'lavfi', '-i', 'sine=d=1', '-i', cover, '-map', '0', '-map', '1', '-c:a', 'libmp3lame', '-c:v', 'copy', '-id3v2_version', '3',
+      '-metadata:s:v', 'title=Album cover', '-metadata:s:v', 'comment=Cover (front)', ...extra, p]);
+    return r.status === 0 ? p : null;
+  };
+  mp3Plain = mp3('plain.mp3', []);
+  mp3Tagged = mp3('tagged.mp3', ['-metadata', 'artist=Sam Example']);
+  // A plain cover and no personal tags: clean, packed as it is, never a failure.
+  for (const p of [plain, mp3Plain].filter(Boolean)) {
+    const r = await m4.detect(p);
+    assert.strictEqual(r.status, 'clean', `${path.basename(p)}: ${JSON.stringify(r)}`);
+    assert.strictEqual(r.counts.pics, 1);
+    assert.strictEqual(r.counts.v, 0, 'a cover is not a video');
+  }
+  // Personal tags: the cleaned copy keeps the audio and drops the cover; the step 1 list says so.
+  for (const p of [tagged, mp3Tagged].filter(Boolean)) {
+    const known = await m4.detect(p);
+    assert.strictEqual(known.status, 'personal', path.basename(p));
+    assert.strictEqual(labels(known).Picture, 'cover picture');
+    const dst = path.join(stageDir(), path.basename(p));
+    await m4.cleanCopy({ src: p, dst, known });
+    assert.deepStrictEqual(streams(dst).map(s => s.codec_type), ['audio'], 'no cover in the cleaned copy');
+    assert.ok(!fs.readFileSync(dst).includes(Buffer.from('C:\Users\sam')), 'nothing of the cover left');
+    assert.strictEqual((await m4.detect(dst)).status, 'clean');
+  }
+  // MKV: fonts for styled subtitles are kept (name and type set again); a
+  // name that is not plainly a file name is replaced; the copy has as many.
+  const font = put(crypto.randomBytes(3000), '.ttf');
+  const srt = path.join(tmp, 's.srt');
+  fs.writeFileSync(srt, '1\n00:00:00,000 --> 00:00:00,500\nhello\n');
+  const mkv = path.join(tmp, 'fonts.mkv');
+  const r = mk(['-f', 'lavfi', '-i', 'testsrc=d=1:s=32x24', '-f', 'lavfi', '-i', 'sine=d=1', '-i', srt, '-attach', font, '-attach', font,
+    '-metadata:s:t:0', 'mimetype=application/x-truetype-font', '-metadata:s:t:0', 'filename=Arial Bold.ttf',
+    '-metadata:s:t:1', 'mimetype=application/x-truetype-font', '-metadata:s:t:1', 'filename=sam@mail.test.ttf',
+    '-map', '0', '-map', '1', '-map', '2', '-c:v', 'mpeg4', '-c:a', 'aac', '-metadata', 'artist=Sam Example', mkv]);
+  assert.strictEqual(r.status, 0, String(r.stderr));
+  const known = await m4.detect(mkv);
+  assert.strictEqual(known.status, 'personal');
+  assert.strictEqual(known.counts.t, 2);
+  assert.match(labels(known).Email, /sam@mail\.test/);
+  const dst = path.join(stageDir(), 'fonts.mkv');
+  await m4.cleanCopy({ src: mkv, dst, known });
+  const att = streams(dst).filter(s => s.codec_type === 'attachment');
+  assert.deepStrictEqual(att.map(s => [s.tags.filename, s.tags.mimetype]), [['Arial Bold.ttf', 'application/x-truetype-font'], ['attachment-2.ttf', 'application/x-truetype-font']]);
+  assert.strictEqual((await m4.detect(dst)).status, 'clean');
+  // MP4 with Adobe XMP in a top-level uuid box: found, and not in the copy.
+  const mp4 = path.join(tmp, 'xmp.mp4');
+  assert.strictEqual(mk(['-f', 'lavfi', '-i', 'testsrc=d=1:s=32x24', '-c:v', 'mpeg4', mp4]).status, 0);
+  fs.appendFileSync(mp4, box('uuid', XMP_UUID, Buffer.from(PROJECT_XMP)));
+  const kx = await m4.detect(mp4);
+  assert.strictEqual(kx.status, 'personal');
+  assert.strictEqual(labels(kx).Name, 'Sam Editor');
+  const dx = path.join(stageDir(), 'xmp.mp4');
+  await m4.cleanCopy({ src: mp4, dst: dx, known: kx });
+  assert.ok(!fs.readFileSync(dx).includes(XMP_UUID), 'no XMP box in the copy');
+  assert.strictEqual((await m4.detect(dx)).status, 'clean');
 });

@@ -5,8 +5,14 @@
  * Covered:
  *  - the setting off (the default): no check at all, no file opened for it,
  *    a removePersonal sent anyway changes nothing;
- *  - step 1 over HTTP: what was found, per file, "could not be checked", the
- *    extra free space; an unknown or forgotten check id is NOT_FOUND;
+ *  - step 1 over HTTP: what was found, per file, the files whose check failed
+ *    (a type Vault checks) apart from those of a type Vault does not read,
+ *    the extra free space; an unknown or forgotten check id is NOT_FOUND;
+ *  - a check that fails (ffprobe exits with an error, prints junk, prints
+ *    too much) is never taken as clean: with Remove the share fails naming
+ *    the file, also when step 1 had flagged it and the cache was forgotten
+ *    (what a lock does); with Share as they are it is packed as it is;
+ *  - a file changed after its check and before 7-Zip read it fails the share;
  *  - Remove: only the files the SERVER's own check flagged get a cleaned copy,
  *    whatever file list the page sends; the others are packed as they are;
  *    the originals stay byte for byte;
@@ -65,13 +71,17 @@ const realRun = sevenzip.runSevenZip;
 const realChecks = pack.runChecks;
 let in7z = false;   // the fake 7-Zip reading the files (as the real one would)
 let packed = [];   // per pack: { names: [...], bytes: { name: Buffer }, lines: [...] }
+let sevenzipHook = null;   // (lines) => void, run as the fake 7-Zip starts reading
 sevenzip.runSevenZip = async (args, o) => {
   if (args[0] !== 'a') return { code: 0, stdout: '', stderr: '', killed: false };
   const list = args.find(a => a.startsWith('-i@')).slice(3);
   const lines = fs.readFileSync(list, 'utf8').split('\n').filter(Boolean);
   const rec = { lines, bytes: {} };
   in7z = true;
-  try { for (const l of lines) rec.bytes[path.basename(l)] = fs.readFileSync(l); } finally { in7z = false; }
+  try {
+    if (sevenzipHook) sevenzipHook(lines);
+    for (const l of lines) rec.bytes[path.basename(l)] = fs.readFileSync(l);
+  } finally { in7z = false; }
   packed.push(rec);
   o.onOutput && o.onOutput();
   fs.writeFileSync(args[args.length - 1], Buffer.alloc(500, 3));
@@ -97,6 +107,10 @@ if (args.includes('-show_format')) {
   fs.appendFileSync(${JSON.stringify(PROBE_LOG)}, f + '\\n');
   let b; try { b = fs.readFileSync(f); } catch { process.exit(1); }
   if (b.includes('NOTMEDIA')) process.exit(1);
+  const probeMode = process.env.FAKE_PROBE || '';
+  if (probeMode === 'fail') process.exit(1);
+  if (probeMode === 'junk') { process.stdout.write('{"format": nope'); process.exit(0); }
+  if (probeMode === 'flood') { const chunk = 'x'.repeat(1 << 20); let n = 0; const go = () => { while (n < 12) { n++; if (!process.stdout.write(chunk)) { process.stdout.once('drain', go); return; } } }; go(); return; }
   const tags = b.includes('PERSONAL') ? { artist: ${JSON.stringify(FOUND)} } : { encoder: 'Lavf' };
   process.stdout.write(JSON.stringify({ format: { format_name: 'mov,mp4', tags }, streams: [{ codec_type: 'video' }, { codec_type: 'audio' }] }));
   process.exit(0);
@@ -152,6 +166,7 @@ test.before(async () => {
   addMedia('drawing.png', pngWithText([['Author', FOUND]]));
   addMedia('plain.jpg', BASE_JPEG);
   addMedia('broken.mp4', Buffer.concat([Buffer.from('NOTMEDIA'), crypto.randomBytes(2000)]), 'video');
+  addMedia('sticker.webp', Buffer.concat([Buffer.from('NOTMEDIA'), crypto.randomBytes(2000)]));
   addMedia('clip.mp4', Buffer.concat([Buffer.from('xx PERSONAL xx'), crypto.randomBytes(100 * 1024)]), 'video');
   meta._setForTest({ probe: { exe: process.execPath, pre: [FAKE] }, ffmpeg: { exe: process.execPath, pre: [FAKE] } });
   settings.save(ON());
@@ -179,6 +194,8 @@ test.afterEach(async () => {
   await service._idle();
   service._setForTest({ now: null });
   delete process.env.FAKE_FF_MODE;
+  delete process.env.FAKE_PROBE;
+  sevenzipHook = null;
   for (const r of store.listShares()) {
     try { await temp.removeWorkDir(r.work_dir); } catch {}
     store.deleteShare(r.id);
@@ -271,13 +288,16 @@ test('setting off (the default): no check, no file opened for it, removePersonal
 
 /* ── Step 1 ────────────────────────────────────────────────────────────── */
 
-test('step 1: flagged files with what was found, could-not-check counted, the extra space; ids are checked', async () => {
-  const all = ids('holiday.jpg', 'drawing.png', 'plain.jpg', 'broken.mp4', 'clip.mp4');
+test('step 1: flagged files with what was found, failed checks and types Vault does not read counted apart, the extra space; ids are checked', async () => {
+  const all = ids('holiday.jpg', 'drawing.png', 'plain.jpg', 'broken.mp4', 'clip.mp4', 'sticker.webp');
   assert.strictEqual(service.preview({ mediaIds: all }).checkPersonal, true);
   const r = await check(all);
-  assert.strictEqual(r.total, 5);
+  assert.strictEqual(r.total, 6);
   assert.strictEqual(r.personalCount, 3);
-  assert.strictEqual(r.uncheckedCount, 1, 'broken.mp4 could not be checked');
+  assert.strictEqual(r.failedCount, 1, 'broken.mp4: a video ffprobe could not read is a failed check');
+  assert.deepStrictEqual(r.failedFiles, [{ mediaId: files['broken.mp4'].id }]);
+  assert.strictEqual(r.uncheckedCount, 1, 'sticker.webp: a type Vault does not read');
+  assert.strictEqual(meta.cached({ path: files['broken.mp4'].path, size: fs.statSync(files['broken.mp4'].path).size, mtimeMs: fs.statSync(files['broken.mp4'].path).mtimeMs }), null, 'a failed check is never kept');
   const byId = Object.fromEntries(r.files.map(f => [f.mediaId, f.findings]));
   assert.deepStrictEqual(Object.keys(byId).map(Number).sort(), ids('holiday.jpg', 'drawing.png', 'clip.mp4').sort());
   assert.deepStrictEqual(byId[files['drawing.png'].id], [{ label: 'Name', value: FOUND }]);
@@ -302,7 +322,7 @@ test('step 1: flagged files with what was found, could-not-check counted, the ex
 /* ── Remove / Share as they are ───────────────────────────────────────── */
 
 test('Remove: only the files the server flagged are cleaned, whatever list the page sends; the others go as they are', async () => {
-  const all = ids('holiday.jpg', 'drawing.png', 'plain.jpg', 'broken.mp4');
+  const all = ids('holiday.jpg', 'drawing.png', 'plain.jpg', 'sticker.webp');
   await check(all);
   // A page that tries to steer it: names a clean file, leaves out a flagged one.
   const s = await call('POST', '/shares', {
@@ -319,7 +339,7 @@ test('Remove: only the files the server flagged are cleaned, whatever list the p
     assert.ok(rec.bytes[n].length > 0);
   }
   assert.strictEqual(sha(rec.bytes['plain.jpg']), files['plain.jpg'].sha, 'a clean file goes as it is');
-  assert.strictEqual(sha(rec.bytes['broken.mp4']), files['broken.mp4'].sha, 'a file that could not be checked goes as it is');
+  assert.strictEqual(sha(rec.bytes['sticker.webp']), files['sticker.webp'].sha, 'a type Vault does not read goes as it is');
   // The archive check expects the cleaned sizes.
   const exp = Object.fromEntries(checksSeen[0].map(e => [e.archiveName, e.size]));
   assert.strictEqual(exp['holiday.jpg'], rec.bytes['holiday.jpg'].length);
@@ -393,6 +413,74 @@ test('a copy that cannot be cleaned fails the share with the file\'s name; the o
   assert.strictEqual(store.getShare(s.id).last_error, 'Vault could not remove personal details from one of the files, so this share was not packed. Nothing was uploaded. Your own file was not changed.');
   assert.ok(!JSON.stringify([store.getShare(s.id), store.getFiles(s.id)]).includes('clip'), 'no file name stored for it');
   assert.match(service.progress(s.id).error, /from clip\.mp4,/);
+});
+
+const CHECK_FAILED = (what) => `Vault could not check ${what} for personal details, so this share was not packed. Nothing was uploaded. To pack it without the check, start the share again and pick Share as they are.`;
+
+test('a check that fails at the turn is never taken as clean: flagged at step 1, the cache forgotten (a lock), ffprobe failing; the share fails naming the file', async () => {
+  settings.save({ ...ON(), rememberFiles: true });
+  const st = await check(ids('clip.mp4', 'holiday.jpg'));
+  assert.strictEqual(st.personalCount, 2);
+  for (const mode of ['fail', 'junk', 'flood']) {
+    meta.forget();
+    process.env.FAKE_PROBE = mode;
+    const s = service.start({ mediaIds: ids('clip.mp4', 'holiday.jpg'), removePersonal: true });
+    await until(() => statusOf(s.id) === 'failed', `failed (${mode})`);
+    const row = store.getShare(s.id);
+    assert.strictEqual(row.last_error, CHECK_FAILED('clip.mp4'), mode);
+    assert.strictEqual(packed.length, 0, `${mode}: 7-Zip never ran, the original was never packed`);
+    assert.strictEqual(row.work_dir, null, 'the work folder is gone');
+    assert.strictEqual(meta.cached({ path: files['clip.mp4'].path, size: fs.statSync(files['clip.mp4'].path).size, mtimeMs: fs.statSync(files['clip.mp4'].path).mtimeMs }), null, 'never kept as clean');
+  }
+  // Share as they are: nothing changes, the file is packed as it is.
+  process.env.FAKE_PROBE = 'fail';
+  const k = service.start({ mediaIds: ids('clip.mp4'), removePersonal: false });
+  await until(() => statusOf(k.id) === 'checked', 'packed as it is');
+  assert.strictEqual(sha(packed[0].bytes['clip.mp4']), files['clip.mp4'].sha);
+  assert.ok(!dumpDb().includes(FOUND), 'no found value in the database');
+});
+
+test('Remove with files whose check failed: the first is named and the others counted; with no file names stored the row says how many; a type Vault does not read is no failure', async () => {
+  settings.save({ ...ON(), rememberFiles: true });
+  const one = service.start({ mediaIds: ids('plain.jpg', 'broken.mp4'), removePersonal: true });
+  await until(() => statusOf(one.id) === 'failed', 'failed');
+  assert.strictEqual(store.getShare(one.id).last_error, CHECK_FAILED('broken.mp4'));
+  process.env.FAKE_PROBE = 'fail';
+  const two = service.start({ mediaIds: ids('broken.mp4', 'clip.mp4', 'plain.jpg'), removePersonal: true });
+  await until(() => statusOf(two.id) === 'failed', 'failed');
+  assert.strictEqual(store.getShare(two.id).last_error, CHECK_FAILED('broken.mp4 and 1 more file'));
+  settings.save({ ...ON(), rememberFiles: false });
+  const three = service.start({ mediaIds: ids('broken.mp4', 'clip.mp4'), removePersonal: true });
+  await until(() => statusOf(three.id) === 'failed', 'failed');
+  assert.strictEqual(store.getShare(three.id).last_error, CHECK_FAILED('2 of the files'));
+  assert.ok(!JSON.stringify([store.getShare(three.id), store.getFiles(three.id)]).includes('broken'), 'no file name stored for it');
+  assert.strictEqual(service.progress(three.id).error, CHECK_FAILED('broken.mp4 and 1 more file'), 'the page still sees the name while Vault runs');
+  assert.strictEqual(packed.length, 0, '7-Zip never ran');
+  // Not a failure: a type Vault does not read goes in as it is, as step 1 said.
+  delete process.env.FAKE_PROBE;
+  const four = service.start({ mediaIds: ids('sticker.webp', 'plain.jpg'), removePersonal: true });
+  await until(() => statusOf(four.id) === 'checked', 'packed');
+  assert.strictEqual(sha(packed[0].bytes['sticker.webp']), files['sticker.webp'].sha);
+});
+
+test('Remove: a file that changes after its check and before 7-Zip has read it fails the share', async () => {
+  const p = path.join(MEDIA, 'later.jpg');
+  fs.writeFileSync(p, BASE_JPEG);
+  const mid = Number(db.get().prepare("INSERT INTO media (filepath, filename, media_type) VALUES (?, 'later.jpg', 'image')").run(p).lastInsertRowid);
+  try {
+    sevenzipHook = () => { fs.appendFileSync(p, Buffer.from(`added by someone: ${FOUND}`)); };
+    const s = service.start({ mediaIds: [mid, files['plain.jpg'].id], removePersonal: true });
+    await until(() => statusOf(s.id) === 'failed', 'failed');
+    assert.strictEqual(store.getShare(s.id).last_error, 'A picked file changed while this share was being packed, so it was not kept. Nothing was uploaded. Start the share again.');
+    assert.strictEqual(store.getShare(s.id).work_dir, null);
+    // Share as they are does no check, so there is nothing to compare with.
+    sevenzipHook = null;
+    const k = service.start({ mediaIds: [mid], removePersonal: false });
+    await until(() => statusOf(k.id) === 'checked', 'packed');
+  } finally {
+    db.get().prepare('DELETE FROM media WHERE id = ?').run(mid);
+    fs.rmSync(p, { force: true });
+  }
 });
 
 /* ── Cancel, lock, and the automatic lock while cleaning ──────────────── */

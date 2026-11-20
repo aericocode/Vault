@@ -68,7 +68,7 @@ const realChecks = pack.runChecks;
 let packing = null;   // { finish(), beat(), opts } of the pack running now
 let packCalls = [];   // every pack started, in order (the pack line)
 
-pack.pack = (o) => new Promise((resolve, reject) => {
+const fakePackFn = (o) => new Promise((resolve, reject) => {
   o.onProgress && o.onProgress({ phase: 'packing', percent: 0 });
   const cancelled = () => reject(Object.assign(new Error('Packing was cancelled.'), { code: 'CANCELLED' }));
   o.handle.kill = () => { o.handle.kill = null; cancelled(); };
@@ -76,6 +76,8 @@ pack.pack = (o) => new Promise((resolve, reject) => {
     opts: o,
     done: false,
     beat: () => { o.onProgress({ phase: 'packing', percent: 50 }); o.onActivity && o.onActivity(); },
+    // 7-Zip died with no output (a hang that ended): no evidence at all.
+    fail: (err) => { if (entry.done) return; entry.done = true; o.handle.kill = null; reject(err); },
     finish: () => {
       if (entry.done) return;
       entry.done = true;
@@ -91,6 +93,7 @@ pack.pack = (o) => new Promise((resolve, reject) => {
   const entry = packing;
   packCalls.push(entry);
 });
+pack.pack = fakePackFn;
 const fakeChecks = async (o) => {
   o.onActivity && o.onActivity();
   return { ok: true, test: { ok: true }, listWithoutPassword: { ok: true }, contents: { ok: true }, parts: { ok: true, count: o.parts.length } };
@@ -653,6 +656,58 @@ test('pack line: a picked file that changed while the share waited fails it at i
     assert.strictEqual(packCalls.length, 1);
   } finally {
     db.get().prepare('DELETE FROM media WHERE id = ?').run(extraId);
+  }
+});
+
+test('pack line: a picked file whose modified time changed (same size) while the share waited fails it at its turn', async () => {
+  const extra = path.join(MEDIA, 'touched.mp4');
+  fs.writeFileSync(extra, Buffer.alloc(1000, 1));
+  const old = new Date(Date.now() - 86400000);
+  fs.utimesSync(extra, old, old);
+  const extraId = Number(db.get().prepare("INSERT INTO media (filepath, filename, media_type) VALUES (?, ?, 'video')").run(extra, 'touched.mp4').lastInsertRowid);
+  try {
+    service.start({ mediaIds: [mediaId] });
+    await until(() => packCalls.length === 1, 'a packs');
+    const b = service.start({ mediaIds: [mediaId, extraId] });
+    // Rewritten in place with the same size: only its modified time tells.
+    fs.writeFileSync(extra, Buffer.alloc(1000, 2));
+    assert.strictEqual(fs.statSync(extra).size, 1000);
+    packing.finish();
+    await until(() => statusOf(b.id) === 'failed', 'b failed at its turn');
+    assert.match(store.getShare(b.id).last_error, /^A picked file changed or is no longer there since this share was started/);
+    assert.strictEqual(packCalls.length, 1, 'b never packed');
+  } finally {
+    db.get().prepare('DELETE FROM media WHERE id = ?').run(extraId);
+  }
+});
+
+test('pack line: taking its turn is no sign of life, not even the start of its real pack (percent 0 is not work)', async () => {
+  let clock = Date.now();
+  service._setForTest({ now: () => clock });
+  const seen = [];
+  try {
+    service.start({ mediaIds: [mediaId] });
+    await until(() => packCalls.length === 1, 'a packs');
+    const b = service.start({ mediaIds: [mediaId] });
+    // A goes quiet for longer than STALL_MS: the share waiting behind it no longer holds.
+    clock += service.STALL_MS + 1000;
+    assert.strictEqual(service.isWorking(), false);
+    // B's turn runs the real pack.pack (its 7-Zip is not found, so it fails later on).
+    pack.pack = (o) => {
+      seen.push(['before', service.isWorking()]);
+      const p = realPack(o);
+      seen.push(['right after the real pack started', service.isWorking()]);
+      Promise.resolve().then(() => seen.push(['a moment later, no 7-Zip output', service.isWorking()]));
+      return p;
+    };
+    // A's 7-Zip dies after hanging, with no output: no new evidence.
+    packCalls[0].fail(Object.assign(new Error('7-Zip stopped.'), { code: 'PACK_FAILED' }));
+    await until(() => seen.length >= 3, 'b took its turn');
+    assert.deepStrictEqual(seen.map(x => x[1]), [false, false, false], JSON.stringify(seen));
+    await until(() => statusOf(b.id) === 'failed', 'b ends (no 7-Zip here)');
+    assert.strictEqual(service.isWorking(), false);
+  } finally {
+    pack.pack = fakePackFn;
   }
 });
 
