@@ -464,7 +464,7 @@ body.layout-modern .settings-theme-tgl::after {
   transition: transform 0.15s, background 0.15s;
 }
 body.layout-modern .settings-theme-tgl:checked { background: var(--accent); }
-body.layout-modern .settings-theme-tgl:checked::after { transform: translateX(12px); background: var(--on-accent); }
+body.layout-modern .settings-theme-tgl:checked::after { transform: translateX(12px); background: var(--knob-on); }
 body.layout-modern .settings-theme-tgl:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 body.layout-modern .settings-theme-nudge { font-size: 0.74rem; color: var(--warning-text); }
 body.layout-modern .settings-theme-nudge[hidden] { display: none; }

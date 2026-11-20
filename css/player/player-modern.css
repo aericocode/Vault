@@ -17,10 +17,6 @@ body.layout-modern :is(.media-player-header, .video-controls, .audio-controls, .
   .document-controls, .fallback-controls, .mp-top, .mp-dock, .mp-menu, .beatbar-overlay, .mini-player) {
   color-scheme: dark;
 }
-/* The name in the top bar: .tp-label also names the trash progress label
-   (css/tiles.css), whose page text colour would reach it; this is its colour
-   in Vault Dark, kept on the picture in every theme. */
-body.layout-modern .mp-top .tp-label { color: #e0e0e0; }
 
 /* ── Shared: icon buttons ───────────────────────────────────────────── */
 

@@ -184,7 +184,7 @@ textarea.st-in-links { min-height: 40px; }
   background: none; border: 0; padding: 0; cursor: pointer; align-self: flex-start;
 }
 .st-sw { width: 38px; height: 22px; border-radius: 22px; background: var(--grey-44); position: relative; flex: none; transition: background 0.15s; }
-.st-sw i { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--on-accent); transition: left 0.15s; }
+.st-sw i { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--knob-on); transition: left 0.15s; }
 .st-tog[aria-checked="true"] .st-sw { background: var(--accent); }
 .st-tog[aria-checked="true"] .st-sw i { left: 19px; }
 .st-tog:focus-visible .st-sw { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
@@ -206,7 +206,7 @@ textarea.st-in-links { min-height: 40px; }
   border-radius: 8px; background: var(--bg-tertiary); font-size: 0.8rem; cursor: pointer;
 }
 .st-tr:hover { border-color: var(--grey-44); }
-.st-cb { width: 16px; height: 16px; margin: 0; flex: none; accent-color: var(--accent); cursor: pointer; }
+.st-cb { width: 16px; height: 16px; margin: 0; flex: none; accent-color: var(--accent-native); cursor: pointer; }
 .st-tf {
   flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   color: var(--grey-c8); font-family: Consolas, monospace; font-size: 0.75rem; direction: rtl; text-align: left;

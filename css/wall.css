@@ -243,7 +243,7 @@ svg.wall-caret { width: 13px; height: 13px; }
   white-space: nowrap;
   cursor: pointer;
 }
-.wall-check input { accent-color: var(--accent); }
+.wall-check input { accent-color: var(--accent-native); }
 
 /* Full screen: the bar floats over the wall and fades after a few idle seconds. */
 .wall-root.wall-fs .wall-bar {

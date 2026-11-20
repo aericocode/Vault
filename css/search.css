@@ -95,7 +95,7 @@
   transition: all 0.15s;
 }
 .picker-opt:hover { border-color: var(--accent); color: var(--text-primary); }
-.picker-opt input { accent-color: var(--accent); cursor: pointer; width: 13px; height: 13px; margin: 0; }
+.picker-opt input { accent-color: var(--accent-native); cursor: pointer; width: 13px; height: 13px; margin: 0; }
 .picker-opt:has(input:checked) {
   background: color-mix(in srgb, var(--accent) 15%, transparent);
   border-color: var(--accent);

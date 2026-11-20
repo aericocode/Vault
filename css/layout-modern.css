@@ -183,7 +183,7 @@ body.layout-modern #refreshBtn .hb-label {
 
 .card-size-control input[type="range"] {
   width: 140px;
-  accent-color: var(--accent);
+  accent-color: var(--accent-native);
   cursor: pointer;
 }
 
@@ -214,7 +214,7 @@ body.layout-modern #mainContainer.faces-person .card-size-control { display: non
       All scoped to body.layout-modern: in Classic they stay browser controls. */
 
 html:has(> body.layout-modern) { color-scheme: dark; }
-body.layout-modern { color-scheme: dark; accent-color: var(--accent); }
+body.layout-modern { color-scheme: dark; accent-color: var(--accent-native); }
 /* Light theme (theme-boot.js sets data-theme on <html>, Modern only). */
 html[data-theme="light"]:has(> body.layout-modern),
 html[data-theme="light"] body.layout-modern { color-scheme: light; }
@@ -227,6 +227,11 @@ html[data-theme="light"] body.layout-modern { color-scheme: light; }
   border-radius: var(--m-radius-sm);
   padding: 4px 8px;
 }
+/* The browser's own focus ring on anything without a ring of its own: its
+   color is --focus-ring, the browser default in Vault Dark (unchanged) and
+   the highlight in every other theme (the default turns black in Light).
+   Zero specificity past :focus-visible, so every rule with its own ring wins. */
+:where(body.layout-modern) :focus-visible { outline-color: var(--focus-ring); }
 :where(body.layout-modern) :where(select, textarea, input):focus-visible {
   outline: 2px solid var(--accent-hover);
   outline-offset: 1px;
@@ -321,7 +326,7 @@ body.layout-modern .m-switch::before {
   transition: transform 0.15s ease;
 }
 body.layout-modern .m-switch:checked { background: var(--accent); }
-body.layout-modern .m-switch:checked::before { background: var(--on-accent); }
+body.layout-modern .m-switch:checked::before { background: var(--knob-on); }
 body.layout-modern .m-switch:checked::before { transform: translateX(14px); }
 body.layout-modern .m-check:disabled,
 body.layout-modern .m-switch:disabled { opacity: 0.45; cursor: default; }

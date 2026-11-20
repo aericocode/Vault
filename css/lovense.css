@@ -137,7 +137,7 @@ body.layout-modern .lovense-lbl {
   color: var(--m-muted);
 }
 body.layout-modern .lovense-input { flex: 1; min-width: 110px; font-family: inherit; font-variant-numeric: tabular-nums; }
-body.layout-modern .lovense-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+body.layout-modern .lovense-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent-native); }
 body.layout-modern .lovense-num {
   min-width: 3.4em;
   font-family: inherit;

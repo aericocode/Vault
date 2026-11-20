@@ -97,7 +97,7 @@
   min-width: 120px;
   height: 4px;
   margin: 0;
-  accent-color: var(--accent);
+  accent-color: var(--accent-native);
   cursor: pointer;
 }
 

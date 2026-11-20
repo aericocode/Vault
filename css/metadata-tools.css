@@ -537,7 +537,7 @@
 .coll-export-choice:hover:not(.is-disabled) { border-color: var(--accent); }
 .coll-export-choice:has(input:checked) { border-color: var(--accent); }
 .coll-export-choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
-.coll-export-choice input { margin-top: 3px; accent-color: var(--accent); }
+.coll-export-choice input { margin-top: 3px; accent-color: var(--accent-native); }
 .coll-export-choice.is-disabled { cursor: not-allowed; opacity: 0.6; }
 .coll-export-text { display: grid; gap: 2px; min-width: 0; }
 .coll-export-text b { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); }

@@ -137,7 +137,7 @@ body.layout-modern .ft-link:hover { color: var(--m-text); text-decoration: under
   display: inline-flex; align-items: center; gap: 8px; flex: none;
   font-size: 0.8rem; color: var(--text-secondary); cursor: pointer;
 }
-.ft-size input { width: 120px; accent-color: var(--accent); cursor: pointer; margin: 0; }
+.ft-size input { width: 120px; accent-color: var(--accent-native); cursor: pointer; margin: 0; }
 
 /* ── Checking strip: one slim line under the filter chips ── */
 .ft-checking {

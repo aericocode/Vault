@@ -291,7 +291,7 @@
   cursor: pointer;
 }
 .fpop-check:hover { background: var(--bg-hover, #2a2a3e); }
-.fpop-check input { margin-top: 0.15rem; accent-color: var(--accent, #6366f1); }
+.fpop-check input { margin-top: 0.15rem; accent-color: var(--accent-native); }
 .fpop-check-text { display: flex; flex-direction: column; gap: 0.1rem; }
 .fpop-check-label { font-size: 0.85rem; color: var(--text-primary, #eee); }
 .fpop-check-desc { font-size: 0.72rem; color: var(--text-muted, #888); line-height: 1.3; }
@@ -384,7 +384,7 @@
   cursor: default;
 }
 .clear-filters-btn:disabled:hover {
-  background: var(--surface, #313244);
+  background: var(--btn-cool);
   color: var(--text-secondary, #aaa);
   border-color: var(--border, #444);
 }

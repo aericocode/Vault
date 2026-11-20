@@ -190,6 +190,84 @@ test('variables.css: Vault Light is derive(Vault, light), light only overrides t
   }
 });
 
+/* Guards over the whole of css/ (integration pass). */
+function cssFiles(dir = path.join(ROOT, 'css')) {
+  const out = [];
+  for (const f of fs.readdirSync(dir)) {
+    const p = path.join(dir, f);
+    if (fs.statSync(p).isDirectory()) out.push(...cssFiles(p));
+    else if (f.endsWith('.css')) out.push(p);
+  }
+  return out;
+}
+const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '');
+const ALL_CSS = cssFiles().map(p => ({ file: path.relative(ROOT, p), css: stripComments(fs.readFileSync(p, 'utf8')) }));
+
+test('css/: every var(--x) without a fallback names a property something defines', () => {
+  const defined = new Set();
+  for (const { css } of ALL_CSS) for (const m of css.matchAll(/(--[\w-]+)\s*:/g)) defined.add(m[1]);
+  // Set at run time from JS (style.setProperty, inline style strings).
+  const js = ['player-lib', 'db-viewer.html'].map(p => {
+    const full = path.join(ROOT, p);
+    if (!fs.statSync(full).isDirectory()) return fs.readFileSync(full, 'utf8');
+    const all = [];
+    (function walk(d) {
+      for (const f of fs.readdirSync(d)) {
+        const q = path.join(d, f);
+        if (fs.statSync(q).isDirectory()) walk(q);
+        else if (f.endsWith('.js')) all.push(fs.readFileSync(q, 'utf8'));
+      }
+    })(full);
+    return all.join('\n');
+  }).join('\n');
+  const missing = [];
+  for (const { file, css } of ALL_CSS) {
+    for (const m of css.matchAll(/var\(\s*(--[\w-]+)\s*\)/g)) {
+      const name = m[1];
+      if (defined.has(name)) continue;
+      if (new RegExp(`['"\`]${name}['"\`]|${name}\\s*:`).test(js)) continue;
+      missing.push(`${file}: ${name}`);
+    }
+  }
+  assert.deepStrictEqual([...new Set(missing)], []);
+});
+
+test('variables.css: every token a Light or palette block sets exists in :root', () => {
+  const css = stripComments(CSS);
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const sel = m[1].trim();
+    if (sel === ':root' || sel.startsWith('body.')) continue;
+    assert.match(sel, /^:root\[data-(theme|palette)/, `unexpected block ${sel}`);
+    for (const d of m[2].matchAll(/(--[\w-]+)\s*:/g)) {
+      assert.ok(d[1] in DARK, `${d[1]} (in ${sel.replace(/\s+/g, ' ')}) has no :root value`);
+      assert.ok(!/^--(ov-|player-)/.test(d[1]), `${d[1]} sits on the picture and must not change`);
+    }
+  }
+});
+
+test('Classic can never match a theme selector: data-theme / data-palette only on <html>, only from theme-boot.js', () => {
+  // theme-boot.js puts nothing on <html> in Classic (tested above). Other
+  // elements use data-theme too (the Classic level theme picker), so every
+  // theme selector must be anchored on :root / html.
+  for (const { file, css } of ALL_CSS) {
+    for (const m of css.matchAll(/([^{}]*)\{/g)) {
+      for (const part of m[1].split(',')) {
+        if (!/\[data-(theme|palette)[=\]]/.test(part)) continue;
+        assert.match(part.trim(), /^(:root|html)\[data-(theme|palette)/, `${file}: ${part.trim()}`);
+      }
+    }
+  }
+  const setters = [];
+  (function walk(d) {
+    for (const f of fs.readdirSync(d)) {
+      const q = path.join(d, f);
+      if (fs.statSync(q).isDirectory()) walk(q);
+      else if (f.endsWith('.js') && /setAttribute\(\s*['"]data-(theme|palette)['"]|dataset\.(theme|palette)\s*=[^=]/.test(fs.readFileSync(q, 'utf8'))) setters.push(path.relative(ROOT, q));
+    }
+  })(path.join(ROOT, 'player-lib'));
+  assert.deepStrictEqual(setters, [path.join('player-lib', 'theme-boot.js')]);
+});
+
 test('variables.css: Modern takes brand and score colors from the theme', () => {
   const body = cssBlock(CSS, 'body.layout-modern');
   assert.strictEqual(body['--brand'], 'var(--accent)');

@@ -312,7 +312,7 @@
 
 .settings-toggle input:checked + .settings-switch::after {
   transform: translateX(16px);
-  background: var(--on-accent);
+  background: var(--knob-on);
 }
 
 /* Number control — same footprint as the switch so mixed rows stay aligned */
@@ -1674,7 +1674,7 @@ body.layout-modern .missing-banner-close .vi { width: 16px; height: 16px; }
 }
 .settings-sw-inline input:checked + .settings-switch::after {
   transform: translateX(16px);
-  background: var(--on-accent);
+  background: var(--knob-on);
 }
 .settings-sw-inline input:disabled + .settings-switch { opacity: 0.4; cursor: default; }
 
@@ -1929,7 +1929,7 @@ body.layout-modern .missing-banner-close .vi { width: 16px; height: 16px; }
   cursor: pointer;
 }
 .cove-choice[hidden] { display: none; }
-.cove-choice input { margin-top: 3px; accent-color: var(--accent); }
+.cove-choice input { margin-top: 3px; accent-color: var(--accent-native); }
 .cove-choice b { color: var(--text-primary); font-weight: 600; }
 
 .mig-actions[hidden], .mig-status[hidden] { display: none; }
@@ -1952,7 +1952,7 @@ body.layout-modern .missing-banner-close .vi { width: 16px; height: 16px; }
 .th-sub[hidden], .th-more[hidden], .th-off-note[hidden] { display: none; }
 .th-radio { display: flex; gap: 0.55rem; align-items: flex-start; cursor: pointer; }
 .th-radio[hidden] { display: none; }
-.th-radio input { margin-top: 0.3rem; accent-color: var(--accent); flex: 0 0 auto; }
+.th-radio input { margin-top: 0.3rem; accent-color: var(--accent-native); flex: 0 0 auto; }
 .th-radio-text { display: block; min-width: 0; }
 .th-radio-title { display: block; font-size: 0.88rem; color: var(--text-primary); line-height: 1.9; }
 .th-bounds { margin: 0; font-size: 0.75rem; }

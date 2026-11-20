@@ -324,7 +324,7 @@ body.layout-modern .sb-count { color: var(--m-muted); }
 .sb-count[hidden], .sb-count-time[hidden], .sb-count-ends[hidden] { display: none; }
 
 .sb-vol { display: inline-flex; align-items: center; gap: 6px; flex: none; }
-.sb-vol-slider { width: 70px; margin: 0; accent-color: var(--accent, #6366f1); cursor: pointer; }
+.sb-vol-slider { width: 70px; margin: 0; accent-color: var(--accent-native); cursor: pointer; }
 body.layout-modern .sb-vol-slider { accent-color: var(--text-strong); }
 
 /* Narrow windows (stage-bar.js StageBarRules.layout): one row always, the

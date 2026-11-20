@@ -354,7 +354,7 @@ body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom
   left: 6px;
   width: 18px;
   height: 18px;
-  accent-color: var(--accent);
+  accent-color: var(--accent-native);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s;
@@ -667,7 +667,18 @@ body.layout-modern .tile-select:hover { background-color: var(--ov-black-65); bo
 body.layout-modern .tile-select:checked {
   border-color: var(--accent);
   background-color: var(--accent);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+}
+/* The tick is a mask painted in --on-accent (like .m-check), so it turns dark
+   on a pale highlight (Graphite, a pale Custom pick). The SVG only gives the
+   shape. The box is absolutely placed on a tile; in a table row it is
+   relative with no offset, which keeps it in the row as before. */
+body.layout-modern .tile-select:checked::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: var(--on-accent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / 14px 14px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / 14px 14px no-repeat;
 }
 body.layout-modern .tile-select:focus-visible { opacity: 1; outline: 2px solid var(--accent-hover); outline-offset: 2px; }
 /* Table rows: the same tick, a little smaller and without the disc's shadow. */
@@ -679,7 +690,11 @@ body.layout-modern .grid-table .tv-row .tile-select {
   background-color: transparent;
   background-size: 12px 12px;
   box-shadow: none;
+  position: relative;
+  top: auto;
+  left: auto;
 }
+body.layout-modern .grid-table .tv-row .tile-select:checked::before { -webkit-mask-size: 12px 12px; mask-size: 12px 12px; }
 body.layout-modern .grid-table .tv-row .tile-select:hover { border-color: var(--tint-60); }
 body.layout-modern .grid-table .tv-row .tile-select:checked { border-color: var(--accent); background-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
@@ -1041,56 +1056,6 @@ body.layout-modern #deleteQueue .dq-act:hover { background: var(--m-btn-hover); 
   border-color: #e05260;
   color: #fff;
   font-weight: 600;
-}
-
-/* ── (legacy) Trash progress bar — retained for any old references ── */
-.trash-progress {
-  position: fixed;
-  right: 18px;
-  left: auto;
-  bottom: 118px;
-  transform: translate(0, 16px);
-  z-index: 955;
-  min-width: 320px;
-  max-width: 90vw;
-  background: var(--bg-secondary);
-  border: 1px solid var(--accent);
-  border-radius: 10px;
-  padding: 0.6rem 0.9rem;
-  box-shadow: 0 8px 30px var(--shade-60);
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.2s ease-out, transform 0.2s ease-out, visibility 0.2s;
-}
-
-.trash-progress.visible {
-  opacity: 1;
-  visibility: visible;
-  transform: translate(0, 0);
-}
-
-.tp-label {
-  font-size: 0.78rem;
-  color: var(--text-primary);
-  margin-bottom: 0.4rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tp-track {
-  height: 6px;
-  background: var(--bg-tertiary);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.tp-fill {
-  height: 100%;
-  width: 0%;
-  background: var(--accent);
-  border-radius: 3px;
-  transition: width 0.15s ease-out;
 }
 
 .tile-ind.ind-dupe { color: var(--accent-hover); }

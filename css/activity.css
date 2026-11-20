@@ -142,7 +142,7 @@ body.layout-modern .act-bar { background: var(--tint-08); }
 .act-detail .dq-name, .act-detail .dq-file { display: inline; }
 .act-acts { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .act-acts:empty { display: none; }
-.act-amber { color: var(--wait-text); }
+.act-amber { color: var(--warning-text); }
 .act-red { color: var(--m-danger-text); }
 
 .act-links { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 10px; border-top: 1px solid var(--border); }

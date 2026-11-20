@@ -246,7 +246,7 @@ body.rail-shown.dock-shown .selection-bar {
   padding: 0.3rem 0;
   cursor: pointer;
 }
-.rail-check input { margin-top: 0.15rem; accent-color: var(--accent); }
+.rail-check input { margin-top: 0.15rem; accent-color: var(--accent-native); }
 .rail-check-label { display: block; color: var(--text-primary); font-size: 0.83rem; }
 .rail-check-desc { display: block; color: var(--text-muted); font-size: 0.74rem; line-height: 1.35; }
 

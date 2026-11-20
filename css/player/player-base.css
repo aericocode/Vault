@@ -211,6 +211,14 @@
    The name with the time left beside it at the top left (the header, with
    the controls), and the 3 px pink line along the top of the picture. A
    long name is cut so the time left always shows in full. */
+.tp-label {
+  font-size: 0.78rem;
+  color: var(--ov-title);
+  margin-bottom: 0.4rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .media-player-titlebox {
   display: flex;
   align-items: baseline;

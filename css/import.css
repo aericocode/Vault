@@ -357,7 +357,7 @@ body.layout-modern .imp-sum b { color: var(--m-text); font-weight: 600; }
   cursor: pointer;
 }
 .pli-choice.is-disabled { opacity: 0.6; cursor: default; }
-.pli-choice > input { margin-top: 0.2rem; accent-color: var(--accent); flex: none; }
+.pli-choice > input { margin-top: 0.2rem; accent-color: var(--accent-native); flex: none; }
 .pli-ctext { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; flex: 1; font-size: 0.86rem; }
 .pli-name, .pli-select {
   width: 100%; box-sizing: border-box;

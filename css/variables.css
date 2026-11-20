@@ -8,21 +8,43 @@
      (player-lib/theme-boot.js, math in player-lib/theme-colors.js), over
      these blocks, for the palette tokens only: the grey ramp, text, accent,
      second color and the Modern surfaces.
+   - Tokens whose Vault Dark value is a fixed color but that should follow
+     the palette elsewhere are re-pointed at the palette tokens in two
+     blocks after Light: "every theme but Vault Dark" and "tinted Dark".
    data-theme / data-palette are only ever on <html> in the Modern look.
+
+   Sections, in the same order in every block:
+     1. palette: grey ramp, text, highlight, second color, Modern surfaces
+     2. meaning colors (never follow the palette, only the brightness)
+     3. text and knobs on a fill
+     4. page parts: greys between ramp steps, quiet buttons, key caps...
+     5. tints, shades, scrims and shadows (on the page)
+     6. over video (on the picture: never change, no Light value)
+     7. the player's page parts (--pl-*)
+   Every color token has a Light value, except the over-video ones and the
+   mixes of palette tokens (they follow on their own).
    The conversion guide for the rest of css/ is .notes/THEMES_TOKENS.md.
    ========================================== */
 
 :root {
+  /* ── 1. Palette ──────────────────────────────────────────────────────── */
   /* Background colors */
   --bg-primary: #0f0f0f;
   --bg-secondary: #1a1a1a;
   --bg-tertiary: #252525;
   --bg-hover: #2a2a2a;
+  /* Border */
+  --border: #333;
+  --tag-bg: #333;
 
   /* Text colors */
   --text-primary: #e0e0e0;
   --text-secondary: #a0a0a0;
   --text-muted: #666;
+  /* The brightest text on the page: pure white in dark (selected rows,
+     strong labels), the darkest grey in light. */
+  --text-strong: #fff;
+  --text-strong-hover: #e4e4ea;             /* hover of a --text-strong fill (Stage bar Play) */
 
   /* Accent colors */
   --accent: #6366f1;
@@ -32,8 +54,10 @@
   /* The accent as text or a thin line on the page (links, active labels):
      lighter than --accent in dark, darker in light, always 4.5:1. */
   --accent-text: #a5b4fc;
-  /* Text and icons on an accent fill (primary buttons, checked chips). */
-  --on-accent: #fff;
+  /* accent-color for native checkboxes, radios and sliders. Chrome draws a
+     dark slider track under a light accent, so Light uses the darker
+     --accent-text (the browser then keeps the track light). */
+  --accent-native: var(--accent);
 
   /* Brand (Vault padlock + name). Classic: follows the gamify level theme
      when one is applied (gamify-ui.js sets --gamify-a on :root), otherwise
@@ -45,57 +69,6 @@
      draws it too, in the color the page sends: lib/stage/mpv-overlay.js).
      The palette's "Second color". */
   --track-progress: #ff4fa3;
-
-  /* Border */
-  --border: #333;
-
-  /* Status colors. Meaning colors: they never follow the palette, only the
-     brightness (darker shades in Light). */
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  /* The file playing now (css/tiles.css .tile-now-playing): a "live" green,
-     apart from the indigo of selected and previewed tiles and the red of
-     failed or flagged ones. */
-  --now-playing: #22c55e;
-  /* Amber as text (warnings, "restart to apply"), 4.5:1 on the page. */
-  --warning-text: #fbbf24;
-  /* Red as text: an error line (see also --m-danger-text, a softer red). */
-  --danger-text: #f87171;
-  /* Text on a danger fill (Delete buttons). */
-  --on-danger: #fff;
-  /* The label on the green "Now playing" tag. */
-  --on-now-playing: #052e16;
-  /* The brightest text on the page: pure white in dark (selected rows,
-     strong labels), the darkest grey in light. */
-  --text-strong: #fff;
-  /* Text on an accent wash (--accent-bg and its stronger cousins). */
-  --on-accent-bg: #cfe0ff;
-  /* Rating stars and the Hot / Done markers, as text on the page. On the
-     picture they keep their own bright colors. */
-  --star: #facc15;
-  --hot: #fb923c;
-  --done: #9ef0df;
-  /* Media type colors (tile badges): a border and its text. Meaning
-     colors, like the status ones: they never follow the palette. */
-  --type-video: #6366f1;
-  --type-video-text: #a5b4fc;
-  --type-image: #22c55e;
-  --type-image-text: #86efac;
-  --type-gif: #f59e0b;
-  --type-gif-text: #fcd34d;
-  --type-audio: #ec4899;
-  --type-audio-text: #f9a8d4;
-
-  /* Component-specific */
-  --tag-bg: #333;
-  --boost-color: #f59e0b;
-
-  /* Player. These sit on the picture: they never change with the theme. */
-  --player-bg: rgba(0, 0, 0, 0.85);
-  --player-control-bg: rgba(255, 255, 255, 0.1);
-  --player-control-hover: rgba(255, 255, 255, 0.25);
-  --player-border: rgba(255, 255, 255, 0.1);
 
   /* Modern look surfaces (3.9 UI audit). The values the Settings dialog,
      css/dialogs.css and the Modern toasts already use, named once so new
@@ -111,82 +84,82 @@
   --m-text: #ececf1;
   --m-text-2: #b4b4bf;                      /* body copy under a title */
   --m-muted: #8b8b97;                       /* hints, captions */
-  --m-danger-text: #fca5a5;
-  --m-success-text: #86efac;
   --m-radius: 12px;                         /* dialogs, popovers, cards */
   --m-radius-sm: 8px;                       /* buttons, fields */
   --m-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
 
-  /* ── Tints: a neutral wash ON THE PAGE ─────────────────────────────────
-     White over dark, black over light. Named by their alpha in dark, so
-     rgba(255, 255, 255, 0.06) is --tint-06. Hovers, quiet fills, hairlines. */
-  --tint-03: rgba(255, 255, 255, 0.03);
-  --tint-05: rgba(255, 255, 255, 0.05);
-  --tint-06: rgba(255, 255, 255, 0.06);
-  --tint-08: rgba(255, 255, 255, 0.08);
-  --tint-10: rgba(255, 255, 255, 0.1);
-  --tint-12: rgba(255, 255, 255, 0.12);
-  --tint-14: rgba(255, 255, 255, 0.14);
-  --tint-18: rgba(255, 255, 255, 0.18);
-  --tint-20: rgba(255, 255, 255, 0.2);
-  --tint-22: rgba(255, 255, 255, 0.22);
-  --tint-25: rgba(255, 255, 255, 0.25);
-  --tint-30: rgba(255, 255, 255, 0.3);
-  --tint-35: rgba(255, 255, 255, 0.35);
-  --tint-60: rgba(255, 255, 255, 0.6);      /* a strong hover border */
+  /* ── 2. Meaning colors ───────────────────────────────────────────────── */
+  /* They never follow the palette, only the brightness (darker shades in
+     Light). */
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  /* The file playing now (css/tiles.css .tile-now-playing): a "live" green,
+     apart from the indigo of selected and previewed tiles and the red of
+     failed or flagged ones. */
+  --now-playing: #22c55e;
+  --boost-color: #f59e0b;
+  /* Amber as text on the page (warnings, "restart to apply", everything
+     that waits for you in Share privately and Activity), 4.5:1. */
+  --warning-text: #fbbf24;
+  --warning-text-2: #fcd34d;                /* amber hint line (folder picker) */
+  --warning-soft-text: #f5c470;             /* amber title inside the Cove notice */
+  --m-warning-text: #fde68a;                /* pale amber text inside a warning box */
+  --warn-line: #8a6a1f;                     /* a dim amber card border (face model damaged) */
+  /* Red as text: an error line (see also --m-danger-text, a softer red). */
+  --danger-text: #f87171;
+  --m-danger-text: #fca5a5;
+  --m-danger-text-2: #fecaca;               /* pale red text inside an error box */
+  --danger-fill: #dc2626;                   /* a red button's other shade (hover or rest) */
+  --danger-disabled-bg: #3a2222;            /* a red button that cannot be pressed yet */
+  --danger-disabled-text: #e8c4c4;
+  --flagged: #f38ba8;                       /* flagged for deletion, exact duplicates */
+  /* Greens */
+  --m-success-text: #86efac;
+  --m-success-text-2: #bbf7d0;              /* pale green text on a green wash (Same) */
+  --success-soft: #4ade80;                  /* green toast icon and border */
+  --success-alt: #10b981;                   /* emerald "good" text and border (Moved your files?) */
+  /* Rating stars and the Hot / Done markers, as text on the page. On the
+     picture they keep their own bright colors. */
+  --star: #facc15;
+  --yellow-soft: #f9e2af;                   /* rating stars, favorite, "likely duplicates" */
+  --hot: #fb923c;
+  --done: #9ef0df;
+  --fave: #f472b6;                          /* the favourite heart in the table */
+  --info-text: #89b4fa;                     /* Rescan these: a blue that is not the highlight */
+  --mode-boolean: #22d3ee;                  /* search mode badges */
+  --mode-semantic: #a855f7;
+  --mode-semantic-text: #c084fc;
+  /* Media type colors (tile badges): a border and its text. */
+  --type-video: #6366f1;
+  --type-video-text: #a5b4fc;
+  --type-image: #22c55e;
+  --type-image-text: #86efac;
+  --type-gif: #f59e0b;
+  --type-gif-text: #fcd34d;
+  --type-audio: #ec4899;
+  --type-audio-text: #f9a8d4;
 
-  /* ── Shades: darkening ON THE PAGE ─────────────────────────────────────
-     Black in both brightnesses, much lighter in Light (shadows and wells
-     tuned for dark look heavy on white). Named by their alpha in dark. */
-  --shade-25: rgba(0, 0, 0, 0.25);
-  --shade-35: rgba(0, 0, 0, 0.35);
-  --shade-45: rgba(0, 0, 0, 0.45);
-  --shade-50: rgba(0, 0, 0, 0.5);
-  --shade-55: rgba(0, 0, 0, 0.55);
-  --shade-60: rgba(0, 0, 0, 0.6);
-  --shade-70: rgba(0, 0, 0, 0.7);
-  --shade-80: rgba(0, 0, 0, 0.8);
-  /* The dim layer behind a modal dialog. */
-  --scrim: rgba(0, 0, 0, 0.6);
-  --scrim-strong: rgba(0, 0, 0, 0.8);
-  /* Ready-made shadows: a small lift (chips, menus) and a big one (dialogs). */
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
+  /* ── 3. Text and knobs on a fill ─────────────────────────────────────── */
+  /* Text and icons on an accent fill (primary buttons, checked chips). */
+  --on-accent: #fff;
+  /* The knob of a switch that is on (sits on the accent). The label color
+     in dark; always white in Light, where every highlight is dark enough. */
+  --knob-on: var(--on-accent);
+  /* The color of the browser's own focus ring (layout-modern.css): the
+     browser default in Vault Dark, the highlight in every other theme. */
+  --focus-ring: -webkit-focus-ring-color;
+  /* Text on an accent wash (--accent-bg and its stronger cousins). */
+  --on-accent-bg: #cfe0ff;
+  --on-accent-bg-2: #e0e7ff;                /* text on an accent wash (Skip) */
+  --on-accent-ink: #1e1e2e;                 /* dark text on an accent fill (Add note, active chips) */
+  --on-danger: #fff;                        /* text on a danger fill (Delete buttons) */
+  --on-now-playing: #052e16;                /* the label on the green "Now playing" tag */
+  --on-warning: #1f1300;                    /* text on an amber fill (Activity count) */
+  --on-success: #06210f;                    /* text on a green fill (Solved badge) */
+  --on-strong: #111;                        /* label on a --text-strong fill (Stage bar Play) */
 
-  /* ── Over video: controls drawn ON THE PICTURE ─────────────────────────
-     Never change with the theme, the video under them can be any
-     brightness: dark glass with white icons and text. Their highlight and
-     progress colors still follow the palette (--accent, --track-progress). */
-  --ov-black-35: rgba(0, 0, 0, 0.35);
-  --ov-black-45: rgba(0, 0, 0, 0.45);
-  --ov-black-50: rgba(0, 0, 0, 0.5);
-  --ov-black-55: rgba(0, 0, 0, 0.55);
-  --ov-black-60: rgba(0, 0, 0, 0.6);
-  --ov-black-65: rgba(0, 0, 0, 0.65);
-  --ov-black-70: rgba(0, 0, 0, 0.7);
-  --ov-black-72: rgba(0, 0, 0, 0.72);
-  --ov-black-75: rgba(0, 0, 0, 0.75);
-  --ov-black-80: rgba(0, 0, 0, 0.8);
-  --ov-black-85: rgba(0, 0, 0, 0.85);
-  --ov-black-88: rgba(0, 0, 0, 0.88);
-  --ov-black-90: rgba(0, 0, 0, 0.9);
-  --ov-white-10: rgba(255, 255, 255, 0.1);
-  --ov-white-15: rgba(255, 255, 255, 0.15);
-  --ov-white-25: rgba(255, 255, 255, 0.25);
-  --ov-white-28: rgba(255, 255, 255, 0.28);
-  --ov-white-35: rgba(255, 255, 255, 0.35);
-  --ov-white-60: rgba(255, 255, 255, 0.6);
-  --ov-white-85: rgba(255, 255, 255, 0.85);
-  /* Named uses of the ladders above. */
-  --ov-glass: rgba(0, 0, 0, 0.6);           /* a control's backing on the picture */
-  --ov-badge: rgba(0, 0, 0, 0.72);          /* duration and count badges on a thumbnail */
-  --ov-text: #fff;                          /* text and icons on the picture */
-  --ov-text-2: rgba(255, 255, 255, 0.85);   /* quieter text on the picture */
-  --ov-text-dim: #ddd;                      /* icons on a quiet button on the picture */
-  --ov-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
-  --ov-letterbox: #000;                     /* the bars around a picture */
-
-  /* group 4: faces and notes */
+  /* ── 4. Page parts ───────────────────────────────────────────────────── */
   /* Greys between the ramp's steps, mixed from it so Light and every palette
      follow. Dark values in the names: #444, #555, #777, #888, #c8c8c8. */
   --grey-44: color-mix(in srgb, var(--border) 67%, var(--text-muted));          /* a firmer border */
@@ -195,94 +168,127 @@
   --grey-88: color-mix(in srgb, var(--text-muted) 41%, var(--text-secondary));  /* small caps headings, meta */
   --grey-c8: color-mix(in srgb, var(--text-secondary) 37.5%, var(--text-primary)); /* body copy in Faces */
   --bg-panel: color-mix(in srgb, var(--bg-primary) 55%, var(--bg-secondary));   /* #141414: Faces review panel, Compare */
-  --lock-bg: #0b0b10;                       /* the lock screen */
-  --btn-cool: #313244;                      /* quiet button (Clear filters, note Clear, duplicate actions) */
+  /* Quiet buttons and chips with a cool grey (Catppuccin) in Vault Dark. */
+  --btn-cool: #313244;                      /* Clear filters, note Clear, duplicate actions */
   --btn-cool-hover: #3a3a4e;
   --chip-cool: #1e1e2e;                     /* favorite button, extension chips */
   --chip-cool-hover: #2a2a3e;
   --text-cool: #cdd6f4;                     /* hover text on those, duplicate names */
-  --on-accent-ink: #1e1e2e;                 /* dark text on an accent fill (Add note, active chips) */
-  --yellow-soft: #f9e2af;                   /* rating stars, favorite, "likely duplicates" */
-  --flagged: #f38ba8;                       /* flagged for deletion, exact duplicates (a meaning color) */
-  --m-success-text-2: #bbf7d0;              /* pale green text on a green wash (Same) */
-  --on-accent-bg-2: #e0e7ff;                /* text on an accent wash (Skip) */
-  --warn-line: #8a6a1f;                     /* a dim amber card border (face model damaged) */
+  --kbd-bg: #2a2a2e;                        /* key caps in the shortcuts lists (border: --grey-44) */
+  --kbd-text: #ddd;
+  --hairline-soft: #d3d3d329;               /* the boxes in the details window */
   --bar-paused: #6b6b80;                    /* a paused progress bar */
-  --shade-72: rgba(0, 0, 0, 0.72);          /* the Faces review dialog backdrop */
-
-  /* group 2: stage and wall */
-  --tint-04: rgba(255, 255, 255, 0.04);     /* the set log's quiet buttons */
-  --tint-09: rgba(255, 255, 255, 0.09);     /* and their hover */
-  --tint-16: rgba(255, 255, 255, 0.16);     /* the Stage bar's pill outline */
-  --ov-black-40: rgba(0, 0, 0, 0.4);        /* a Wall tile's progress track */
-  --ov-black-62: rgba(0, 0, 0, 0.62);       /* Flow's Next badge on a tile */
-  --ov-white-12: rgba(255, 255, 255, 0.12); /* Flow's progress track on a tile */
-  --ov-white-18: rgba(255, 255, 255, 0.18); /* Flow's Next badge outline */
+  --lock-bg: #0b0b10;                       /* the lock screen */
   /* The Stage bar's surface: the Modern surface a step darker (#131317). */
   --stage-bar-bg: color-mix(in srgb, var(--m-surface-solid) 86%, #000);
-  /* A fill in the strongest text color (the Stage bar's Play button), its
-     label and its hover. */
-  --on-strong: #111;
-  --text-strong-hover: #e4e4ea;
   /* The Wall's board behind its tiles, and its bar floating over them in
      full screen. */
   --wall-bg: #000;
   --wall-fs-bar: rgba(20, 20, 20, 0.85);
 
-  /* group 3: sharing and library */
-  --tint-02: rgba(255, 255, 255, 0.02);     /* a folded-out row in My shares */
-  --tint-07: rgba(255, 255, 255, 0.07);     /* a picked card, a pill */
-  --on-warning: #1f1300;                    /* text on an amber fill (Activity count) */
-  /* "Waiting for you" as text (Share privately, Activity). The same amber as
-     --warning-text in dark; in light an orange amber that stays apart from
-     the red of a failed share (--warning-text's brown reads close to it). */
-  --wait-text: #fbbf24;
-  --m-warning-text: #fde68a;                /* pale amber text inside a warning box */
-  --warning-text-2: #fcd34d;                /* amber hint line (folder picker) */
-  --m-danger-text-2: #fecaca;               /* pale red text inside an error box */
-  --danger-fill: #dc2626;                   /* a red button's other shade (hover or rest) */
-  --danger-disabled-bg: #3a2222;            /* a red button that cannot be pressed yet */
-  --danger-disabled-text: #e8c4c4;
-  --success-soft: #4ade80;                  /* green toast icon and border */
-  --info-text: #89b4fa;                     /* Rescan these: a blue that is not the highlight */
-  --mode-boolean: #22d3ee;                  /* search mode badges */
-  --mode-semantic: #a855f7;
-  --mode-semantic-text: #c084fc;
-  --fave: #f472b6;                          /* the favourite heart in the table */
-  --kbd-bg: #2a2a2e;                        /* key caps in the shortcuts lists (border: --grey-44) */
-  --kbd-text: #ddd;
-  --hairline-soft: #d3d3d329;               /* the boxes in the details window */
+  /* ── 5. Tints: a neutral wash ON THE PAGE ──────────────────────────────
+     White over dark, black over light. Named by their alpha in dark, so
+     rgba(255, 255, 255, 0.06) is --tint-06. Hovers, quiet fills, hairlines. */
+  --tint-02: rgba(255, 255, 255, 0.02);
+  --tint-03: rgba(255, 255, 255, 0.03);
+  --tint-04: rgba(255, 255, 255, 0.04);
+  --tint-05: rgba(255, 255, 255, 0.05);
+  --tint-06: rgba(255, 255, 255, 0.06);
+  --tint-07: rgba(255, 255, 255, 0.07);
+  --tint-08: rgba(255, 255, 255, 0.08);
+  --tint-09: rgba(255, 255, 255, 0.09);
+  --tint-10: rgba(255, 255, 255, 0.1);
+  --tint-12: rgba(255, 255, 255, 0.12);
+  --tint-14: rgba(255, 255, 255, 0.14);
+  --tint-16: rgba(255, 255, 255, 0.16);
+  --tint-18: rgba(255, 255, 255, 0.18);
+  --tint-20: rgba(255, 255, 255, 0.2);
+  --tint-22: rgba(255, 255, 255, 0.22);
+  --tint-25: rgba(255, 255, 255, 0.25);
+  --tint-28: rgba(255, 255, 255, 0.28);
+  --tint-30: rgba(255, 255, 255, 0.3);
+  --tint-35: rgba(255, 255, 255, 0.35);
+  --tint-60: rgba(255, 255, 255, 0.6);      /* a strong hover border */
 
-  /* group 5: editor, games, settings */
-  --tint-28: rgba(255, 255, 255, 0.28);     /* song card hover border, Reel Order connector lines */
-  --on-success: #06210f;                    /* text on a green fill (Solved badge) */
-  --success-alt: #10b981;                   /* emerald "good" text and border (Moved your files?) */
-  --warning-soft-text: #f5c470;             /* amber title inside the Cove notice */
+  /* Shades: darkening ON THE PAGE. Black in both brightnesses, much lighter
+     in Light (shadows and wells tuned for dark look heavy on white). Named
+     by their alpha in dark. */
+  --shade-25: rgba(0, 0, 0, 0.25);
+  --shade-35: rgba(0, 0, 0, 0.35);
+  --shade-45: rgba(0, 0, 0, 0.45);
+  --shade-50: rgba(0, 0, 0, 0.5);
+  --shade-55: rgba(0, 0, 0, 0.55);
+  --shade-60: rgba(0, 0, 0, 0.6);
+  --shade-70: rgba(0, 0, 0, 0.7);
+  --shade-72: rgba(0, 0, 0, 0.72);          /* the Faces review dialog backdrop */
+  /* The dim layer behind a modal dialog. */
+  --scrim: rgba(0, 0, 0, 0.6);
+  --scrim-strong: rgba(0, 0, 0, 0.8);
+  /* A ready-made big shadow (dialogs); the same as --m-shadow. */
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
 
-  /* group 1: player */
-  /* More over-video steps (never change): the player's controls, seek bars,
-     subtitles, the beat bar and the mini player. */
+  /* ── 6. Over video: controls drawn ON THE PICTURE ──────────────────────
+     Never change with the theme, the video under them can be any
+     brightness: dark glass with white icons and text. Their highlight and
+     progress colors still follow the palette (--accent, --track-progress). */
+  --player-bg: rgba(0, 0, 0, 0.85);
+  --player-control-bg: rgba(255, 255, 255, 0.1);
+  --player-control-hover: rgba(255, 255, 255, 0.25);
+  --player-border: rgba(255, 255, 255, 0.1);
   --ov-black-30: rgba(0, 0, 0, 0.3);
+  --ov-black-35: rgba(0, 0, 0, 0.35);
+  --ov-black-40: rgba(0, 0, 0, 0.4);        /* a Wall tile's progress track */
+  --ov-black-45: rgba(0, 0, 0, 0.45);
+  --ov-black-50: rgba(0, 0, 0, 0.5);
+  --ov-black-55: rgba(0, 0, 0, 0.55);
+  --ov-black-60: rgba(0, 0, 0, 0.6);
+  --ov-black-62: rgba(0, 0, 0, 0.62);       /* Flow's Next badge on a tile */
+  --ov-black-65: rgba(0, 0, 0, 0.65);
   --ov-black-66: rgba(0, 0, 0, 0.66);
+  --ov-black-70: rgba(0, 0, 0, 0.7);
+  --ov-black-72: rgba(0, 0, 0, 0.72);
+  --ov-black-75: rgba(0, 0, 0, 0.75);
   --ov-black-78: rgba(0, 0, 0, 0.78);
+  --ov-black-80: rgba(0, 0, 0, 0.8);
   --ov-black-82: rgba(0, 0, 0, 0.82);
+  --ov-black-85: rgba(0, 0, 0, 0.85);
+  --ov-black-88: rgba(0, 0, 0, 0.88);
+  --ov-black-90: rgba(0, 0, 0, 0.9);
   --ov-white-05: rgba(255, 255, 255, 0.05);
   --ov-white-06: rgba(255, 255, 255, 0.06);
   --ov-white-08: rgba(255, 255, 255, 0.08);
+  --ov-white-10: rgba(255, 255, 255, 0.1);
+  --ov-white-12: rgba(255, 255, 255, 0.12); /* Flow's progress track on a tile */
   --ov-white-14: rgba(255, 255, 255, 0.14);
+  --ov-white-15: rgba(255, 255, 255, 0.15);
+  --ov-white-18: rgba(255, 255, 255, 0.18); /* Flow's Next badge outline */
   --ov-white-20: rgba(255, 255, 255, 0.2);
   --ov-white-22: rgba(255, 255, 255, 0.22);
   --ov-white-24: rgba(255, 255, 255, 0.24);
+  --ov-white-25: rgba(255, 255, 255, 0.25);
+  --ov-white-28: rgba(255, 255, 255, 0.28);
   --ov-white-30: rgba(255, 255, 255, 0.3);
   --ov-white-32: rgba(255, 255, 255, 0.32);
+  --ov-white-35: rgba(255, 255, 255, 0.35);
   --ov-white-40: rgba(255, 255, 255, 0.4);
   --ov-white-45: rgba(255, 255, 255, 0.45);
   --ov-white-50: rgba(255, 255, 255, 0.5);
   --ov-white-55: rgba(255, 255, 255, 0.55);
+  --ov-white-60: rgba(255, 255, 255, 0.6);
   --ov-white-70: rgba(255, 255, 255, 0.7);
   --ov-white-75: rgba(255, 255, 255, 0.75);
   --ov-white-80: rgba(255, 255, 255, 0.8);
+  --ov-white-85: rgba(255, 255, 255, 0.85);
   --ov-white-90: rgba(255, 255, 255, 0.9);
+  /* Named uses of the ladders above. */
+  --ov-glass: rgba(0, 0, 0, 0.6);           /* a control's backing on the picture */
+  --ov-badge: rgba(0, 0, 0, 0.72);          /* duration and count badges on a thumbnail */
+  --ov-text: #fff;                          /* text and icons on the picture */
+  --ov-text-2: rgba(255, 255, 255, 0.85);   /* quieter text on the picture */
+  --ov-text-dim: #ddd;                      /* icons on a quiet button on the picture */
+  --ov-title: #e0e0e0;                      /* the file name in the player's top bar */
+  --ov-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --ov-letterbox: #000;                     /* the bars around a picture */
   /* The player's menus over the picture (gear and speed menus, beat bar
      settings) stay dark glass in every theme, like the dock they open from. */
   --ov-menu: rgba(22, 22, 27, 0.97);
@@ -292,8 +298,10 @@
   --ov-ink: #ececf1;                        /* the dock's and menus' text */
   --ov-ink-2: #a9a9b4;                      /* times, values */
   --ov-ink-3: #8b8b97;                      /* small headings, notes */
+
+  /* ── 7. The player's page parts ────────────────────────────────────────── */
   /* The highlight on the dark glass: --accent-text in every dark theme, a
-     light mix of the highlight in Light (the light block below). */
+     light mix of the highlight in Light. */
   --pl-accent-text: var(--accent-text);
   /* Highlight-tinted chips on the glass. Vault Dark keeps its exact values;
      every other theme mixes them from the highlight (block after Light). */
@@ -339,10 +347,12 @@
    The palette part (ramp, text, accent, second color, Modern surfaces) is
    exactly derive(Vault, 'light') from player-lib/theme-colors.js; a test
    checks they agree. Over-video and --player-* tokens are not here on
-   purpose: they never change. */
+   purpose: they never change. The --pl-* panel greys and the cool greys
+   follow the palette in the next block. */
 :root[data-theme="light"] {
   color-scheme: light;
 
+  /* 1. Palette */
   --bg-primary: #f5f5f5;
   --bg-secondary: #fefefe;
   --bg-tertiary: #ececec;
@@ -352,33 +362,60 @@
   --text-primary: #1f1f1f;
   --text-secondary: #595959;
   --text-muted: #757575;
+  --text-strong: #141414;
+  --text-strong-hover: #3a3a3a;
   --accent: #1e23eb;
   --accent-hover: #1317d3;
   --accent-bg: rgba(30, 35, 235, 0.13);
   --accent-text: #1114bb;
-  --on-accent: #ffffff;
+  --accent-native: var(--accent-text);
   --track-progress: #ff1f8a;
   --m-surface: rgba(254, 254, 254, 0.97);
   --m-surface-solid: #fefefe;
   --m-field-solid: #ffffff;
+  --m-border: rgba(0, 0, 0, 0.12);
+  --m-border-strong: rgba(0, 0, 0, 0.16);
+  --m-field: rgba(0, 0, 0, 0.03);
+  --m-btn: rgba(0, 0, 0, 0.05);
+  --m-btn-hover: rgba(0, 0, 0, 0.09);
   --m-text: #1f1f1f;
   --m-text-2: #525252;
   --m-muted: #6b6b6b;
+  --m-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
 
+  /* 2. Meaning colors */
   --success: #15803d;
   --warning: #b45309;
   --danger: #b91c1c;
   --now-playing: #15803d;
-  --warning-text: #92400e;
-  --danger-text: #b91c1c;
-  --on-danger: #fff;
-  --on-now-playing: #fff;
   --boost-color: #b45309;
-  --text-strong: #141414;
-  --on-accent-bg: #1f1f1f;
+  /* An orange amber, 4.5:1 or better on every light page, panel and raised
+     fill, and clearly apart from the failed red beside it. */
+  --warning-text: #a3500b;
+  --warning-text-2: var(--warning-text);
+  --warning-soft-text: var(--warning-text);
+  --m-warning-text: #92400e;
+  --warn-line: #d4a24a;
+  --danger-text: #b91c1c;
+  --m-danger-text: #b91c1c;
+  --m-danger-text-2: #991b1b;
+  --danger-fill: #991b1b;
+  --danger-disabled-bg: #f2dede;
+  --danger-disabled-text: #9b5c5c;
+  --flagged: #be123c;
+  --m-success-text: #15803d;
+  --m-success-text-2: #166534;
+  --success-soft: #15803d;
+  --success-alt: #047857;
   --star: #a16207;
+  --yellow-soft: #a16207;
   --hot: #c2410c;
   --done: #0f766e;
+  --fave: #be185d;
+  --info-text: #1d4ed8;
+  --mode-boolean: #0e7490;
+  --mode-semantic: #7e22ce;
+  --mode-semantic-text: #6b21a8;
   --type-video: #4f46e5;
   --type-video-text: #4338ca;
   --type-image: #16a34a;
@@ -388,26 +425,47 @@
   --type-audio: #db2777;
   --type-audio-text: #9d174d;
 
-  --m-border: rgba(0, 0, 0, 0.12);
-  --m-border-strong: rgba(0, 0, 0, 0.16);
-  --m-field: rgba(0, 0, 0, 0.03);
-  --m-btn: rgba(0, 0, 0, 0.05);
-  --m-btn-hover: rgba(0, 0, 0, 0.09);
-  --m-danger-text: #b91c1c;
-  --m-success-text: #15803d;
-  --m-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+  /* 3. On a fill */
+  --on-accent: #ffffff;
+  --knob-on: #fff;
+  --on-accent-bg: #1f1f1f;
+  --on-accent-bg-2: var(--on-accent-bg);
+  --on-danger: #fff;
+  --on-now-playing: #fff;
+  --on-warning: #fff;
+  --on-success: #fff;
+  --on-strong: #fff;
 
+  /* 4. Page parts (the --grey-* and --bg-panel mixes follow on their own) */
+  --btn-cool: var(--bg-tertiary);
+  --btn-cool-hover: var(--bg-hover);
+  --kbd-bg: #f4f4f6;
+  --kbd-text: #2a2a2e;
+  --hairline-soft: rgba(0, 0, 0, 0.12);
+  --bar-paused: #a3a3b4;
+  --lock-bg: var(--bg-primary);
+  --stage-bar-bg: var(--m-surface-solid);
+  --wall-bg: var(--bg-primary);
+  --wall-fs-bar: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+
+  /* 5. Tints, shades */
+  --tint-02: rgba(0, 0, 0, 0.02);
   --tint-03: rgba(0, 0, 0, 0.03);
+  --tint-04: rgba(0, 0, 0, 0.04);
   --tint-05: rgba(0, 0, 0, 0.05);
   --tint-06: rgba(0, 0, 0, 0.06);
+  --tint-07: rgba(0, 0, 0, 0.07);
   --tint-08: rgba(0, 0, 0, 0.08);
+  --tint-09: rgba(0, 0, 0, 0.09);
   --tint-10: rgba(0, 0, 0, 0.1);
   --tint-12: rgba(0, 0, 0, 0.12);
   --tint-14: rgba(0, 0, 0, 0.14);
+  --tint-16: rgba(0, 0, 0, 0.16);
   --tint-18: rgba(0, 0, 0, 0.18);
   --tint-20: rgba(0, 0, 0, 0.2);
   --tint-22: rgba(0, 0, 0, 0.22);
   --tint-25: rgba(0, 0, 0, 0.25);
+  --tint-28: rgba(0, 0, 0, 0.28);
   --tint-30: rgba(0, 0, 0, 0.3);
   --tint-35: rgba(0, 0, 0, 0.35);
   --tint-60: rgba(0, 0, 0, 0.5);
@@ -419,66 +477,12 @@
   --shade-55: rgba(0, 0, 0, 0.22);
   --shade-60: rgba(0, 0, 0, 0.24);
   --shade-70: rgba(0, 0, 0, 0.28);
-  --shade-80: rgba(0, 0, 0, 0.32);
+  --shade-72: rgba(20, 20, 28, 0.42);
   --scrim: rgba(20, 20, 28, 0.35);
   --scrim-strong: rgba(20, 20, 28, 0.55);
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.14);
 
-  /* group 4: faces and notes (the --grey-* and --bg-panel mixes follow on their own) */
-  --lock-bg: var(--bg-primary);
-  --btn-cool: var(--bg-tertiary);
-  --btn-cool-hover: var(--bg-hover);
-  --chip-cool: var(--bg-tertiary);
-  --chip-cool-hover: var(--bg-hover);
-  --text-cool: var(--text-primary);
-  --on-accent-ink: var(--on-accent);
-  --yellow-soft: #a16207;
-  --flagged: #be123c;
-  --m-success-text-2: #166534;
-  --on-accent-bg-2: var(--on-accent-bg);
-  --warn-line: #d4a24a;
-  --bar-paused: #a3a3b4;
-  --shade-72: rgba(20, 20, 28, 0.42);
-
-  /* group 2: stage and wall */
-  --tint-04: rgba(0, 0, 0, 0.04);
-  --tint-09: rgba(0, 0, 0, 0.09);
-  --tint-16: rgba(0, 0, 0, 0.16);
-  --stage-bar-bg: var(--m-surface-solid);
-  --on-strong: #fff;
-  --text-strong-hover: #3a3a3a;
-  --wall-bg: var(--bg-primary);
-  --wall-fs-bar: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
-
-  /* group 3: sharing and library */
-  --tint-02: rgba(0, 0, 0, 0.02);
-  --tint-07: rgba(0, 0, 0, 0.07);
-  --on-warning: #fff;
-  --wait-text: #b45309;
-  --m-warning-text: #92400e;
-  --warning-text-2: #92400e;
-  --m-danger-text-2: #991b1b;
-  --danger-fill: #991b1b;
-  --danger-disabled-bg: #f2dede;
-  --danger-disabled-text: #9b5c5c;
-  --success-soft: #15803d;
-  --info-text: #1d4ed8;
-  --mode-boolean: #0e7490;
-  --mode-semantic: #7e22ce;
-  --mode-semantic-text: #6b21a8;
-  --fave: #be185d;
-  --kbd-bg: #f4f4f6;
-  --kbd-text: #2a2a2e;
-  --hairline-soft: rgba(0, 0, 0, 0.12);
-
-  /* group 5: editor, games, settings */
-  --tint-28: rgba(0, 0, 0, 0.28);
-  --on-success: #fff;
-  --success-alt: #047857;
-  --warning-soft-text: #92400e;
-
-  /* group 1: player (the panel greys and glass chips: next block) */
+  /* 7. Player (the panel greys and glass chips: next block) */
   --pl-accent-text: color-mix(in srgb, var(--accent) 40%, #fff);
   --pl-code-keyword: #7e22ce;
   --pl-code-string: #3f6212;
@@ -489,11 +493,26 @@
   --pl-code-key: #1d4ed8;
 }
 
-/* group 1: player. Every theme but Vault Dark (Light, and every other
-   palette in Dark): the player's page greys follow the palette's Modern
-   surfaces, and the glass chips mix from its highlight. */
+/* ── Every theme but Vault Dark ───────────────────────────────────────────
+   Light, and every other palette in Dark. Tokens that hold fixed greys in
+   Vault Dark (kept exact there) take the palette's own tokens here, so a
+   tinted palette has no stray neutral or bluish patches. Light-only and
+   Dark-only differences go in the Light block above and the next block
+   (both win over this one where they set the same token: the next block by
+   specificity, the Light block because nothing here repeats its tokens). */
 :root[data-theme="light"],
 :root[data-palette]:not([data-palette="vault"]) {
+  /* 3. On a fill, focus */
+  --focus-ring: var(--accent);
+
+  /* 4. Page parts */
+  --chip-cool: var(--bg-tertiary);
+  --chip-cool-hover: var(--bg-hover);
+  --text-cool: var(--text-primary);
+  --on-accent-ink: var(--on-accent);
+
+  /* 7. Player: the page greys follow the palette's Modern surfaces, the
+     glass chips mix from its highlight. */
   --pl-glass-chip: color-mix(in srgb, var(--accent) 50%, #16161b);
   --pl-glass-chip-2: color-mix(in srgb, var(--accent) 35%, #16161b);
   --pl-glass-chip-line: color-mix(in srgb, var(--pl-accent-text) 62%, #16161b);
@@ -519,6 +538,20 @@
   --pl-accent-down: var(--accent-hover);
   --pl-stage: var(--bg-primary);
   --pl-link-hover: var(--accent-text);
+}
+
+/* ── Tinted Dark: every palette but Vault, in Dark ────────────────────────
+   The Catppuccin-blue greys and the blue-white text on accent washes would
+   stay bluish on a warm or green palette; here they come from the palette's
+   ramp. Vault Dark and Light are untouched. */
+:root[data-theme="dark"][data-palette]:not([data-palette="vault"]) {
+  --btn-cool: var(--border);
+  --btn-cool-hover: color-mix(in srgb, var(--border) 80%, var(--text-muted));
+  --on-accent-bg: color-mix(in srgb, var(--accent-text) 25%, #fff);
+  --on-accent-bg-2: color-mix(in srgb, var(--accent-text) 20%, #fff);
+  --kbd-bg: var(--bg-hover);
+  --bar-paused: color-mix(in srgb, var(--text-muted) 85%, var(--accent));
+  --lock-bg: color-mix(in srgb, var(--bg-primary) 75%, #000);
 }
 
 /* ── Modern: the palette wins over level colors ───────────────────────────
