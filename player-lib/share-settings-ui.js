@@ -739,7 +739,7 @@ function shareListHtml(list) {
       </table>` : '<p class="vault-modal-hint share-empty">Nothing shared yet.</p>'}
     </div>
     <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
-    ${working ? '<p class="vault-modal-hint share-list-note" data-share-bg-note>Vault packs one share at a time and uploads one at a time. While either is running Vault will not lock itself for being idle. Locking it yourself still works: uploads pause and can be resumed, and a share that is still being packed is cancelled.</p>' : ''}
+    ${working ? '<p class="vault-modal-hint share-list-note" data-share-bg-note>Vault packs one share at a time and uploads one at a time. While either is running Vault will not lock itself for being idle. Locking it yourself still works: uploads pause and can be resumed, and a share that is being packed or is waiting to be packed is cancelled.</p>' : ''}
     <div class="share-list-foot">
       <p class="vault-modal-hint">Vault does not ask gofile about old uploads. Free gofile storage can be removed early, so use Open to check, then Mark as gone if it is.</p>
       <button type="button" class="vault-btn share-btn-danger" data-list-act="delete-all"${online.length ? '' : ' disabled'}>Delete all uploads from gofile</button>

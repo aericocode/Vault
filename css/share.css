@@ -83,6 +83,7 @@
 .share-meta-file { display: flex; flex-direction: column; gap: 3px; padding: 8px 0; border-top: 1px solid rgba(245, 158, 11, 0.25); min-width: 0; }
 .share-meta-name { font-size: 0.84rem; color: var(--text-primary); overflow-wrap: anywhere; }
 .share-meta-what { font-size: 0.78rem; color: var(--text-secondary); overflow-wrap: anywhere; }
+.share-meta-failed .share-meta-what { font-style: italic; }
 .share-meta-label { color: #fbbf24; }
 .share-meta-choices { display: flex; flex-direction: column; border-top: 1px solid rgba(245, 158, 11, 0.25); padding-top: 6px; }
 .share-meta-choice { display: flex; gap: 10px; align-items: flex-start; min-height: 2.75rem; padding: 4px 0; cursor: pointer; }

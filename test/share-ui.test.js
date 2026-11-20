@@ -1548,6 +1548,8 @@ test('My shares: working shares at the top with their badges and actions; the fo
   assert.match(html, /3 files, packed and tested/);
   assert.match(html, /<span class="share-badge is-busy">Uploading part 2 of 3<\/span>/);
   assert.match(html, /data-share-bg-note>Vault packs one share at a time and uploads one at a time\./);
+  assert.match(html, /Locking it yourself still works: uploads pause and can be resumed, and a share that is being packed or is waiting to be packed is cancelled\.<\/p>/,
+    'a lock cancels waiting shares too, and the note says so');
   const acts = (s) => JSON.parse(JSON.stringify(L.run(`shareRowActions(${JSON.stringify(s)}, true)`))).map(a => a.key);
   assert.deepStrictEqual(acts({ status: 'packing' }), ['view', 'cancel']);
   assert.deepStrictEqual(acts({ status: 'queued' }), ['cancel']);
@@ -1649,7 +1651,7 @@ test('personal details: checking, the amber box (plurals, fold, both choices), t
   assert.match(html, /value="keep">/);
   assert.match(html, /Remove from the packed copies.*Only these 2 files are copied and cleaned\. Your originals are not changed\. Needs about 2(\.0)? MB more free space\./s);
   assert.match(html, /Share as they are.*Whoever opens the archive can read these details\./s);
-  assert.match(html, /<p class="vault-modal-hint" data-sh-metaunchecked>1 file could not be checked\.<\/p>/);
+  assert.match(html, /<p class="vault-modal-hint" data-sh-metaunchecked>1 file could not be checked and is packed as it is\.<\/p>/);
   const words = html.replace(/<[^>]+>/g, '');
   assert.ok(!/[—–]/.test(words), 'no long dashes');
   assert.ok(!/all (the )?metadata|every detail/i.test(words), 'never claims to remove everything');
@@ -1668,7 +1670,31 @@ test('personal details: checking, the amber box (plurals, fold, both choices), t
   L.ctx.__w.meta = META_DONE();
   assert.strictEqual(L.run('shareMetaHtml(__w)'), '');
   L.ctx.__w.meta = META_DONE({ uncheckedCount: 4 });
-  assert.strictEqual(L.run('shareMetaHtml(__w)'), '<p class="vault-modal-hint" data-sh-metaunchecked>4 files could not be checked.</p>');
+  assert.strictEqual(L.run('shareMetaHtml(__w)'), '<p class="vault-modal-hint" data-sh-metaunchecked>4 files could not be checked and are packed as they are.</p>');
+});
+
+test('personal details: a check that did not finish is a problem in the box, never clean; with or without findings', () => {
+  const L = load();
+  setState(L);
+  L.ctx.__w = { preview: PREVIEW(fileRows(3), 3000, { checkPersonal: true }), metaChoice: 'remove', metaOpen: true };
+  // Only failures: the box shows, the file is listed as not checked, Remove explains packing stops.
+  L.ctx.__w.meta = META_DONE({ failedCount: 1, failedFiles: [{ mediaId: 2 }], uncheckedCount: 1 });
+  let html = L.run('shareMetaHtml(__w)');
+  assert.match(html, /id="shMetaTitle">1 file could not be checked for personal details<\/span>/);
+  assert.match(html, /<div class="share-meta-file share-meta-failed"><span class="share-meta-name">clip2\.mp4<\/span><span class="share-meta-what">The check did not finish for this file\.<\/span><\/div>/);
+  assert.match(html, /Remove from the packed copies.*Your originals are not changed\. Vault checks the file that could not be checked again when packing starts\. If one still cannot be checked, packing stops and nothing is uploaded\./s);
+  assert.match(html, /Share as they are.*It is packed as it is, without the check\./s);
+  assert.match(html, /data-sh-metaunchecked>1 file could not be checked and is packed as it is\./, 'a type Vault does not read is still the quiet line');
+  assert.ok(!/[—–]/.test(html.replace(/<[^>]+>/g, '')), 'no long dashes');
+  // Findings and failures together.
+  L.ctx.__w.meta = META_DONE({ personalCount: 1, files: [{ mediaId: 1, findings: [{ label: 'Name', value: 'Sam' }] }], failedCount: 2, failedFiles: [{ mediaId: 2 }, { mediaId: 3 }] });
+  html = L.run('shareMetaHtml(__w)');
+  assert.match(html, /id="shMetaTitle">1 file carries personal details, 2 could not be checked<\/span>/);
+  assert.strictEqual((html.match(/share-meta-failed/g) || []).length, 2);
+  assert.match(html, /Only this file is copied and cleaned\. Your originals are not changed\. Vault checks the files that could not be checked again when packing starts\./);
+  assert.match(html, /Whoever opens the archive can read these details\. The files that could not be checked are packed as they are\./);
+  // The failed rows are under File names privacy with the rest.
+  assert.match(html, /id="shMetaList" data-share-names>/);
 });
 
 test('personal details: flagged rows carry the tag; the space figures count the copies only while Remove is picked', () => {
@@ -1752,6 +1778,14 @@ test('personal details: a failed share names the file privately; the setting, it
   assert.ok(html.includes(`from <span class="share-priv" data-share-names>${esc(HOSTILE)}</span>, so this share`), html);
   assert.ok(!html.includes(HOSTILE));
   assert.strictEqual(L.run(`shareErrorHtml('Packing failed. <b>')`), 'Packing failed. &lt;b&gt;');
+  // A check that did not finish names the file the same way; counts stay readable.
+  const tail = ' for personal details, so this share was not packed. Nothing was uploaded. To pack it without the check, start the share again and pick Share as they are.';
+  const chk = L.run(`shareErrorHtml(${JSON.stringify(`Vault could not check ${HOSTILE} and 1 more file${tail}`)})`);
+  assert.ok(chk.startsWith(`Vault could not check <span class="share-priv" data-share-names>${esc(HOSTILE)}</span> and 1 more file for personal details`), chk);
+  assert.ok(!chk.includes(HOSTILE));
+  assert.strictEqual(L.run(`shareErrorHtml(${JSON.stringify(`Vault could not check 2 of the files${tail}`)})`), `Vault could not check 2 of the files${tail}`);
+  const svc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'share', 'service.js'), 'utf8');
+  assert.ok(svc.includes(`const CHECK_FAILED_END = '${tail}';`), 'the words match the server');
   assert.strictEqual(L.run('SHARE_PHASE_WORDS.cleaning'), 'Removing personal details');
   const src = read('share-settings-ui.js');
   assert.match(src, /'Check files for personal details'/);

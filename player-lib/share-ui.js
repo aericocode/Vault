@@ -715,7 +715,11 @@ function shareFilesWord(n) {
   return `${Number(n).toLocaleString()} ${n === 1 ? 'file' : 'files'}`;
 }
 
-/** The meta slot of step 1: checking, the amber box, or the quiet "could not be checked" line. */
+/**
+ * The meta slot of step 1: checking, the amber box, or the quiet line for
+ * files of a type Vault does not read. The box shows when something was
+ * found or when a check failed: a failed check is a problem, never "clean".
+ */
 function shareMetaHtml(w) {
   const p = w.preview || {};
   if (w.metaError) {
@@ -728,18 +732,26 @@ function shareMetaHtml(w) {
   }
   const m = w.meta;
   const unchecked = Number(m.uncheckedCount) || 0;
-  const quiet = unchecked ? `<p class="vault-modal-hint" data-sh-metaunchecked>${shEsc(shareFilesWord(unchecked))} could not be checked.</p>` : '';
+  const quiet = unchecked ? `<p class="vault-modal-hint" data-sh-metaunchecked>${shEsc(shareFilesWord(unchecked))} could not be checked and ${unchecked === 1 ? 'is' : 'are'} packed as ${unchecked === 1 ? 'it is' : 'they are'}.</p>` : '';
   const n = Number(m.personalCount) || 0;
-  if (!n) return quiet;
+  const failed = Number(m.failedCount) || 0;
+  if (!n && !failed) return quiet;
   const byId = new Map((p.files || []).map(f => [Number(f.mediaId), f]));
+  const nameOf = (mediaId) => { const file = byId.get(Number(mediaId)); return file ? (file.nameInArchive || file.name) : ''; };
   const rows = (m.files || []).map((f) => {
-    const file = byId.get(Number(f.mediaId));
-    const name = file ? (file.nameInArchive || file.name) : '';
     const what = (f.findings || []).map(x => `<span class="share-meta-what"><span class="share-meta-label">${shEsc(x.label)}:</span> ${shEsc(x.value)}</span>`).join('');
-    return `<div class="share-meta-file"><span class="share-meta-name">${shEsc(name)}</span>${what}</div>`;
-  }).join('');
+    return `<div class="share-meta-file"><span class="share-meta-name">${shEsc(nameOf(f.mediaId))}</span>${what}</div>`;
+  }).join('') + (m.failedFiles || []).map(f => `<div class="share-meta-file share-meta-failed"><span class="share-meta-name">${shEsc(nameOf(f.mediaId))}</span><span class="share-meta-what">The check did not finish for this file.</span></div>`).join('');
   const extra = Number(m.extraBytes) || 0;
-  const removeNote = `${n === 1 ? 'Only this file is copied and cleaned.' : `Only these ${n.toLocaleString()} files are copied and cleaned.`} Your originals are not changed.${extra ? ` Needs about ${shareSize(extra)} more free space.` : ''}`;
+  const failNote = failed ? ` Vault checks ${failed === 1 ? 'the file that could not be checked' : 'the files that could not be checked'} again when packing starts. If one still cannot be checked, packing stops and nothing is uploaded.` : '';
+  const removeNote = (n ? `${n === 1 ? 'Only this file is copied and cleaned.' : `Only these ${n.toLocaleString()} files are copied and cleaned.`} Your originals are not changed.${extra ? ` Needs about ${shareSize(extra)} more free space.` : ''}` : 'Your originals are not changed.') + failNote;
+  const keepNote = n
+    ? `Whoever opens the archive can read these details.${failed ? ` ${failed === 1 ? 'The file that could not be checked is' : 'The files that could not be checked are'} packed as ${failed === 1 ? 'it is' : 'they are'}.` : ''}`
+    : `${failed === 1 ? 'It is' : 'They are'} packed as ${failed === 1 ? 'it is' : 'they are'}, without the check.`;
+  const title = n && failed
+    ? `${shareFilesWord(n)} ${n === 1 ? 'carries' : 'carry'} personal details, ${failed.toLocaleString()} could not be checked`
+    : n ? `${shareFilesWord(n)} ${n === 1 ? 'carries' : 'carry'} personal details`
+      : `${shareFilesWord(failed)} could not be checked for personal details`;
   const choice = (value, title, note) => `
         <label class="share-meta-choice">
           <input type="radio" name="shMetaChoice" value="${value}"${w.metaChoice === value || (value === 'remove' && w.metaChoice !== 'keep') ? ' checked' : ''}>
@@ -747,13 +759,13 @@ function shareMetaHtml(w) {
         </label>`;
   return `
     <div class="share-meta-box" role="group" aria-labelledby="shMetaTitle">
-      <div class="share-meta-head">${shIcon('alert')}<span class="share-meta-title" id="shMetaTitle">${shEsc(shareFilesWord(n))} ${n === 1 ? 'carries' : 'carry'} personal details</span>
+      <div class="share-meta-head">${shIcon('alert')}<span class="share-meta-title" id="shMetaTitle">${shEsc(title)}</span>
         <button type="button" class="vault-btn share-btn-amber share-meta-fold" data-sh-metafold aria-controls="shMetaList" aria-expanded="${w.metaOpen ? 'true' : 'false'}">${w.metaOpen ? 'Hide details' : 'Show details'}</button>
       </div>
       <div class="share-meta-list" id="shMetaList" data-share-names${w.metaOpen ? '' : ' hidden'}>${rows}</div>
       <div class="share-meta-choices" role="radiogroup" aria-label="Personal details in the packed copies">
         ${choice('remove', 'Remove from the packed copies', removeNote)}
-        ${choice('keep', 'Share as they are', 'Whoever opens the archive can read these details.')}
+        ${choice('keep', 'Share as they are', keepNote)}
       </div>
     </div>${quiet}`;
 }
@@ -842,7 +854,7 @@ async function shareMetaRun(w) {
     const btn = w.m.q('[data-sh-act="pack"]');
     if (btn) btn.textContent = 'Pack files';
     shareSpaceUpdate(w);
-    if (w.meta && !(w.meta.personalCount > 0) && !(btn && btn.disabled)) { sharePackClicked(); return; }
+    if (w.meta && !(w.meta.personalCount > 0) && !(w.meta.failedCount > 0) && !(btn && btn.disabled)) { sharePackClicked(); return; }
     // Something was found (or the check failed): the user picks first.
     shareFocus(w.m.q('[data-sh-metafold]') || btn);
   }
@@ -1593,12 +1605,14 @@ async function shareDoneAct(kind) {
 // The server's words when a cleaned copy could not be made (service.js
 // CLEAN_FAILED_START): the file name in them is blurred like the file list.
 const SHARE_CLEAN_FAILED_RX = /^(Vault could not remove personal details from )(.+?)(, so this share was not packed\..*)$/s;
+// And when a file's check failed (service.js CHECK_FAILED_START).
+const SHARE_CHECK_FAILED_RX = /^(Vault could not check )(.+?)((?: and \d+ more files?)? for personal details, so this share was not packed\..*)$/s;
 
 /** A share's error as markup: plain words, with a file name in it hidden under privacy. */
 function shareErrorHtml(text) {
   const t = String(text == null ? '' : text);
-  const m = SHARE_CLEAN_FAILED_RX.exec(t);
-  if (!m || m[2] === 'one of the files') return shEsc(t);
+  const m = SHARE_CLEAN_FAILED_RX.exec(t) || SHARE_CHECK_FAILED_RX.exec(t);
+  if (!m || /^(one|\d+) of the files$/.test(m[2])) return shEsc(t);
   return `${shEsc(m[1])}<span class="share-priv" data-share-names>${shEsc(m[2])}</span>${shEsc(m[3])}`;
 }
 
