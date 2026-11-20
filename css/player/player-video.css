@@ -107,13 +107,9 @@
   background: var(--accent);
   border-radius: 3px;
   position: relative;
-  transition: width 0.1s linear;
-}
-
-/* While dragging, the bar has to sit exactly under the pointer — the smoothing
-   transition reads as lag when you are the one moving it. */
-.video-progress-wrapper.scrubbing .video-progress-bar {
-  transition: none;
+  /* No transition: the width is written every animation frame while the
+     file plays (player-lib/player/player-smooth.js), and a seek or a loop
+     back to the start has to snap, not slide back across the bar. */
 }
 
 .video-progress-bar::after {

@@ -1213,12 +1213,24 @@
       scrub.addEventListener('pointerdown', (e) => { scrubbing = true; scrub.setPointerCapture(e.pointerId); scrubTo(e); });
       scrub.addEventListener('pointermove', (e) => { if (scrubbing) scrubTo(e); });
       scrub.addEventListener('pointerup', () => { scrubbing = false; });
-      this._onVidTime = () => {
+      const paintFill = () => {
         const d = this._player.duration;
-        if (d) fill.style.width = ((this._player.currentTime / d) * 100).toFixed(2) + '%';
-        clock.textContent = `${fmtMMSS(this._player.currentTime)} / ${fmtMMSS(d)}`;
+        if (d) fill.style.width = ((this._player.currentTime / d) * 100).toFixed(4) + '%';
+      };
+      // The fill moves every animation frame while the clip plays (SmoothProgress);
+      // the clock keeps timeupdate's cadence.
+      this._fillLoop = typeof SmoothProgress !== 'undefined' ? SmoothProgress.loop(() => {
+        if (!fill.isConnected || vid.paused || vid.ended) return false;
+        paintFill();
+        return true;
+      }) : null;
+      this._onVidTime = () => {
+        paintFill();
+        clock.textContent = `${fmtMMSS(this._player.currentTime)} / ${fmtMMSS(this._player.duration)}`;
+        if (this._fillLoop && !vid.paused && !vid.ended) this._fillLoop.kick();
       };
       vid.addEventListener('timeupdate', this._onVidTime);
+      vid.addEventListener('play', this._onVidTime);
       this._onVidTime();
     }
 
@@ -1357,8 +1369,10 @@
       if (this._engine) { this._engine.destroy(); this._engine = null; }
       if (this._onVidTime && this._player?.videoEl) {
         this._player.videoEl.removeEventListener('timeupdate', this._onVidTime);
+        this._player.videoEl.removeEventListener('play', this._onVidTime);
         this._onVidTime = null;
       }
+      if (this._fillLoop) { this._fillLoop.dispose(); this._fillLoop = null; }
       this._layout = null;
       this._phase = 'setup';
       // Keep media elements alive across the innerHTML swap
@@ -1451,6 +1465,12 @@
       if (this._bgDocClick) { document.removeEventListener('click', this._bgDocClick); this._bgDocClick = null; }
       if (this._renderer) { try { this._renderer.destroy(); } catch {} this._renderer = null; }
       if (this._engine) { try { this._engine.destroy(); } catch {} this._engine = null; }
+      if (this._onVidTime && this._player?.videoEl) {
+        this._player.videoEl.removeEventListener('timeupdate', this._onVidTime);
+        this._player.videoEl.removeEventListener('play', this._onVidTime);
+      }
+      this._onVidTime = null;
+      if (this._fillLoop) { this._fillLoop.dispose(); this._fillLoop = null; }
       if (this._player) { try { this._player.destroy(); } catch {} this._player = null; }
       if (this._container) this._container.innerHTML = '';
     }

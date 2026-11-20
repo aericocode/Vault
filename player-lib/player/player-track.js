@@ -16,10 +16,13 @@
      (.tp-always).
    - Videos, audio and mixes only: pictures and documents have no progress.
 
-   Kept current from the playing element's own timeupdate (about 4 a
-   second, one capturing listener on the document for every element), never
-   per frame. The mini player, fullscreen and the Wall under the player are
-   untouched: everything here lives in #mediaPlayerOverlay.
+   Where the line sits and the time left are kept current from the playing
+   element's own timeupdate (about 4 a second, one capturing listener on
+   the document for every element). The line's fill moves every animation
+   frame while the file plays and the line shows (paintLine, from
+   player-smooth.js), so it glides instead of stepping. The mini player,
+   fullscreen and the Wall under the player are untouched: everything here
+   lives in #mediaPlayerOverlay.
    ========================================================================= */
 
 const PlayerTrack = (() => {
@@ -95,7 +98,23 @@ const PlayerTrack = (() => {
     const main = ensureLine();
     if (!main) return;
     place(main, el);
-    fill.style.transform = `scaleX(${p.frac.toFixed(4)})`;
+    fill.style.transform = `scaleX(${p.frac.toFixed(5)})`;
+  }
+
+  /**
+   * The line's fill only, every animation frame while the file plays
+   * (player-smooth.js): no measuring, so a frame is one style write. Where
+   * the line sits and the time left keep the timeupdate cadence (update).
+   */
+  function paintLine(el) {
+    const ov = overlay();
+    const tp = TP();
+    if (!fill || !line || !line.isConnected || !ov || !tp || el !== media()) return;
+    if (!ov.classList.contains('tp-has')) return;
+    // Drawn only while it shows: with the controls, the start moment, or always on.
+    if (!(ov.classList.contains('controls-visible') || ov.classList.contains('tp-moment') || ov.classList.contains('tp-always'))) return;
+    const p = tp.fileProgress(el.currentTime, el.duration);
+    if (p) fill.style.transform = `scaleX(${p.frac.toFixed(5)})`;
   }
 
   function syncAlways() {
@@ -131,7 +150,7 @@ const PlayerTrack = (() => {
     window.addEventListener('vault-track-progress', () => { syncAlways(); update(); });
   }
 
-  return { fileStarted, update };
+  return { fileStarted, update, paintLine };
 })();
 
 if (typeof window !== 'undefined') window.PlayerTrack = PlayerTrack;

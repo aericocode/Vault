@@ -96,6 +96,7 @@ const StageControl = (() => {
     set currentTime(v) {
       if (!cur || !(d > 0) || isPicture(cur.row)) return;
       t = Math.max(0, Math.min(d, Number(v) || 0));
+      barClock.report(t, perfNow(), { running: mpvRunning(), d, jump: true });
       cmd({ type: 'seek', t });
       this.dispatchEvent(new Event('timeupdate'));
     }
@@ -113,6 +114,19 @@ const StageControl = (() => {
   }
   const proxy = new StageMediaProxy();
   const fire = (name) => proxy.dispatchEvent(new Event(name));
+
+  /* ── The bar's line between reports ──────────────────────────────────
+     mpv Stage reports where it is about 4 times a second; the bar's line
+     (and the mini player's, which reads the proxy) runs on between them
+     from the last report every animation frame (SmoothProgress), so it
+     glides instead of stepping. Basic Stage reads its own video's time each
+     frame. The time labels keep the report cadence. */
+  const SP = typeof SmoothProgress !== 'undefined' ? SmoothProgress : null;
+  const perfNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const barClock = SP ? SP.reportClock() : { report() {}, timeAt: () => t, reset() {} };
+  /** mpv Stage plays a timed file on (its time moves). */
+  const mpvRunning = () => !!cur && !isPicture(cur.row) && d > 0 && state === 'playing' && !paused && !hold && !finished;
+  const lineLoop = SP ? SP.loop(lineFrame) : null;   // lineFrame: next to paint()
 
   const isPicture = (row) => !!row && (row.media_type === 'image' || row.media_type === 'gif');
 
@@ -876,6 +890,7 @@ const StageControl = (() => {
     }
     const wasPaused = proxy.paused;
     const oldD = d;
+    const oldKey = statusKey;
     statusKey = r.key;
     // Stage reports the file: its load got there (even if the answer to it has not).
     if (loadingKey === r.key) { loadingKey = null; if (upAfterLoad) { upAfterLoad = false; sendUpcoming(); } }
@@ -885,6 +900,8 @@ const StageControl = (() => {
     if (state !== 'loading') loadingSince = 0;
     if (state === 'black') finished = true;
     else if (state === 'playing' || state === 'picture') finished = false;
+    // A new file starts its line from where Stage says, never from the last one's.
+    barClock.report(t, perfNow(), { running: mpvRunning(), d, jump: oldKey !== r.key });
     // The spot Stage saved, so the next resume here starts right.
     const row = cur.row;
     if (row && !isPicture(row) && d > 0) {
@@ -1254,6 +1271,37 @@ const StageControl = (() => {
     if (typeof StageBarRules === 'undefined') return;
     b.paint(StageBarRules.view(s), { thumb: thumbFor(s.thumbRow) });
     if (remoteShown && typeof miniUpdateTimeline === 'function') miniUpdateTimeline();
+    // Written after the bar in the same task, so the frame shows the line where it is now.
+    if (lineLoop) { lineFrame(); lineLoop.kick(); }
+  }
+
+  /**
+   * The bar's line at the time now (and the mini player's for mpv Stage):
+   * every animation frame while Stage plays a timed file. Answers false (the
+   * loop stops) when nothing moves: paused, on Hold, black, locked, a
+   * picture, the file still loading, the bar gone. A drag on the line wins.
+   */
+  function lineFrame() {
+    if (!SP || !(remoteShown || basic)) return false;
+    let tt, dd;
+    if (basic) {
+      const el = basicEl();
+      if (!el || !SP.playing(el) || basicHold || !$('miniPlayer')?.classList.contains('active')) return false;
+      tt = el.currentTime; dd = el.duration;
+    } else {
+      if (!mpvRunning() || locked || statusKey !== cur.key) return false;
+      tt = barClock.timeAt(perfNow()); dd = d;
+    }
+    const w = SP.pct(SP.fraction(tt, dd));
+    const seek = $('stageBarSeek');
+    const fill = $('stageBarFill');
+    if (fill && !(seek && (seek.classList.contains('scrubbing') || seek.classList.contains('sb-seek-off')))) fill.style.width = w;
+    if (!basic && remoteShown) {
+      const mseek = $('miniSeek');
+      const mfill = $('miniSeekFill');
+      if (mfill && !(mseek && mseek.classList.contains('scrubbing'))) mfill.style.width = w;
+    }
+    return true;
   }
 
   function setNote(text, { sticky = false } = {}) {

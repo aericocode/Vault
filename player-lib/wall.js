@@ -3054,8 +3054,9 @@ const Wall = (() => {
    * time left beside the name in its caption: on the block under the mouse,
    * and the line on every playing block with "Always show the progress line"
    * (Settings > Stage, one switch for the player, Stage and the Wall). Drawn
-   * from the 250 ms tick and on a hover, never per animation frame, and only
-   * where it shows: many blocks may play at once.
+   * from the 250 ms tick and on a hover, and between those the lines that
+   * show glide with one animation-frame loop (lineFrame); only where they
+   * show: many blocks may play at once.
    * More > Progress line: the whole file (the clip's place in its file), or
    * the clip being played (how much of its time on the wall has gone, until
    * timeLeft: its end, a converted clip's 3 minutes, Scroll's leaving the top;
@@ -3080,18 +3081,51 @@ const Wall = (() => {
       return;
     }
     if (!always && !b.hovered) return;
+    const p = trackLine(b, v, t);
+    if (p && b.hovered) {
+      const text = TrackProgress.leftText(p.left);
+      if (b.capLeft.textContent !== text) b.capLeft.textContent = text;
+    }
+    if (lineLoop && !v.paused) lineLoop.kick();
+  }
+
+  /** The block's line at time t (ms): its progress, or null when it has none. Writes only. */
+  function trackLine(b, v, t) {
     const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : Number(b.item && b.item.duration_seconds) || 0;
     const p = TrackProgress.wallProgress(cfg.progressOf, {
       t: v.currentTime, d: dur, elapsed: Math.max(0, t - b.startedAt) / 1000, leftMs: timeLeft(b, t),
     });
-    if (!p) return;
-    const f = Math.round(p.frac * 1000) / 1000;
+    if (!p) return null;
+    // Unrounded to the pixel: the line glides (a wrap back to the start snaps, no transition).
+    const f = Math.round(Math.max(0, Math.min(1, p.frac)) * 1e5) / 1e5;
     if (f !== b.tpFrac) { b.tpFrac = f; b.tpFill.style.transform = `scaleX(${f})`; }
-    if (b.hovered) {
-      const text = TrackProgress.leftText(p.left);
-      if (b.capLeft.textContent !== text) b.capLeft.textContent = text;
-    }
+    return p;
   }
+
+  /*
+   * Between the 250 ms ticks the lines that show (the hovered block's, or
+   * every playing block's with "Always show the progress line") move every
+   * animation frame (SmoothProgress): one loop for the whole wall, a style
+   * write per line and no measuring. It stops by itself when no shown line
+   * has a clip playing, when the wall stops and while the tab is hidden;
+   * the time left in the caption keeps the tick.
+   */
+  function lineFrame() {
+    if (!els || !running || typeof TrackProgress === 'undefined') return false;
+    const always = trackAlways();
+    const t = now();
+    let any = false;
+    for (const b of blocks) {
+      if (!b.tpOn || (!always && !b.hovered)) continue;
+      const rec = b.video;
+      const v = rec && !rec.released && b.startedAt && !b.dead ? rec.v : null;
+      if (!v || v.paused || v.ended) continue;
+      any = true;
+      trackLine(b, v, t);
+    }
+    return any;
+  }
+  const lineLoop = typeof SmoothProgress !== 'undefined' ? SmoothProgress.loop(lineFrame) : null;
 
   function trackTick(t) {
     if (!els || typeof TrackProgress === 'undefined') return;
