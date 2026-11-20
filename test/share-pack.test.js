@@ -91,6 +91,31 @@ test('pack: encrypted headers, test passes, listing without the password fails, 
   assert.ok(!fs.existsSync(wd.dir));
 });
 
+test('signs of life: packing and every check step report activity; the test step shows progress on stderr and still passes', { skip }, async () => {
+  const password = 'Life-Sign-Pass-1234';
+  const files = [mk('life/a.mp4', 50000), mk('life2/a.mp4', 3000)];   // one staged ("a (2).mp4")
+  const p = pack.plan(files, { partBytes: null });
+  const wd = temp.createWorkDir();
+  let packed = 0;
+  let checked = 0;
+  const parts = await pack.pack({ entries: p.entries, workDir: wd.dir, archiveName: 'Life', password, partBytes: p.partBytes, split: p.split,
+    onActivity: () => { packed++; } });
+  assert.ok(packed >= 3, `packing showed ${packed} signs of life`);   // two files staged at least, then 7-Zip output
+  const from = spawns.length;
+  const checks = await pack.runChecks({ workDir: wd.dir, archiveName: 'Life', password, expected: p.entries, parts, split: p.split,
+    onActivity: () => { checked++; } });
+  assert.strictEqual(checks.ok, true, JSON.stringify(checks));
+  assert.ok(checked >= 3, `the checks showed ${checked} signs of life`);   // one before each step at least
+  const test7z = spawns.slice(from).find(s => s.args[0] === 't');
+  assert.ok(test7z && test7z.args.includes('-bsp2'), 'the test step sends its progress to stderr');
+  // A sign of life that throws breaks nothing.
+  const again = await pack.runChecks({ workDir: wd.dir, archiveName: 'Life', password, expected: p.entries, parts, split: p.split,
+    onActivity: () => { throw new Error('boom'); } });
+  assert.strictEqual(again.ok, true);
+  passwordNeverInArgs(password);
+  assert.ok(await temp.removeWorkDir(wd.name));
+});
+
 test('an archive made without header encryption fails the "listing without password" check', { skip }, async () => {
   const files = [mk('c/visible.mp4', 2000)];
   const wd = temp.createWorkDir();

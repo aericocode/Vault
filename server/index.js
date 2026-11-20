@@ -4417,7 +4417,9 @@ function start(args = process.argv.slice(2)) {
   // first unlock, wired into the stale-job cleanup above.)
   if (!bootedLocked) repairMisclassifiedMediaTypes();
 
-  // A running scan blocks non-forced locks and keeps the autolock clock alive
+  // A running scan blocks non-forced locks and keeps the autolock clock alive.
+  // Share privately registers its own, narrower autolock hold (only the
+  // automatic lock waits; a manual lock never does): lib/share/service.js.
   vault.registerScanProbe(() => importQueue.isActive() || _rescanning.size > 0
     || facesService.instance().isBusy());
   // A saved autolock value overrides the config default. Env still wins the very
