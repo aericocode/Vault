@@ -125,6 +125,8 @@ function buildRouter() {
     const share = service.start({
       mediaIds: b.mediaIds, name: b.name, passwordChoice: b.passwordChoice, deleteAfterDays: b.deleteAfterDays,
       acknowledgeNoVaultPassword: b.acknowledgeNoVaultPassword,
+      // The step 1 tick box for "Upload on its own"; only exactly true counts (service.js).
+      confirmUpload: b.confirmUpload,
     });
     res.status(202).json({ share });
   }));

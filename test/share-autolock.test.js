@@ -66,6 +66,7 @@ let savedMinutes;
 const realPack = pack.pack;
 const realChecks = pack.runChecks;
 let packing = null;   // { finish(), beat(), opts } of the pack running now
+let packCalls = [];   // every pack started, in order (the pack line)
 
 pack.pack = (o) => new Promise((resolve, reject) => {
   o.onProgress && o.onProgress({ phase: 'packing', percent: 0 });
@@ -73,8 +74,11 @@ pack.pack = (o) => new Promise((resolve, reject) => {
   o.handle.kill = () => { o.handle.kill = null; cancelled(); };
   packing = {
     opts: o,
+    done: false,
     beat: () => { o.onProgress({ phase: 'packing', percent: 50 }); o.onActivity && o.onActivity(); },
     finish: () => {
+      if (entry.done) return;
+      entry.done = true;
       o.handle.kill = null;
       if (o.handle.cancelled) { cancelled(); return; }
       const fileName = `${o.archiveName}.7z`;
@@ -84,11 +88,14 @@ pack.pack = (o) => new Promise((resolve, reject) => {
       resolve([{ partNo: 1, fileName, size: st.size, mtimeMs: Math.trunc(st.mtimeMs) }]);
     },
   };
+  const entry = packing;
+  packCalls.push(entry);
 });
-pack.runChecks = async (o) => {
+const fakeChecks = async (o) => {
   o.onActivity && o.onActivity();
   return { ok: true, test: { ok: true }, listWithoutPassword: { ok: true }, contents: { ok: true }, parts: { ok: true, count: o.parts.length } };
 };
+pack.runChecks = fakeChecks;
 
 /* ── A fake gofile: each part waits until the test lets it go ─────────── */
 
@@ -167,7 +174,15 @@ test.after(async () => {
 });
 
 test.afterEach(async () => {
+  // Shares waiting to pack first, so finishing the pack starts nothing new.
+  if (!vault.isLocked()) {
+    for (const r of store.listShares()) if (r.status === 'queued') { try { await service.cancel(r.id); } catch {} }
+  }
   if (packing) { try { packing.finish(); } catch {} packing = null; }
+  packCalls = [];
+  pack.runChecks = fakeChecks;
+  config.net.offline = false;
+  settings.save({ ...settings.DEFAULTS, enabled: true, rememberPasswords: false, split: 'none' });
   if (vault.isLocked()) vault.unlock(VAULT_PASS);
   await service._idle();
   service._setForTest({ now: null });
@@ -522,4 +537,290 @@ test('the next share in line takes its turn without new evidence: it does not re
   vault.unlock(VAULT_PASS);
   await service._idle();
   assert.strictEqual(statusOf(b), 'paused');
+});
+
+/* ── The pack line: packing in the background, one 7-Zip at a time ───── */
+
+const packState = () => service._packStateForTest();
+const nameOf = (id) => store.getShare(id).archive_name;
+
+test('pack line: a share started while another packs waits its turn, first come first served, one 7-Zip at a time', async () => {
+  const a = service.start({ mediaIds: [mediaId] });
+  await until(() => packCalls.length === 1, 'a packs');
+  const b = service.start({ mediaIds: [mediaId] });
+  const c = service.start({ mediaIds: [mediaId] });
+  assert.deepStrictEqual([a.status, b.status, c.status], ['packing', 'queued', 'queued'], 'no PACK_BUSY: accepted and waiting');
+  assert.strictEqual(store.getShare(b.id).work_dir, null, 'no work folder while waiting');
+  const listed = (id) => service.listShares().find(s => s.id === id);
+  assert.strictEqual(listed(b.id).waitingFor, `${nameOf(a.id)}.7z`, 'b starts when a is packed');
+  assert.strictEqual(listed(c.id).waitingFor, `${nameOf(b.id)}.7z`, 'c starts when b is packed');
+  assert.strictEqual(service.progress(b.id).waitingFor, `${nameOf(a.id)}.7z`);
+  assert.strictEqual(packCalls.length, 1, 'one 7-Zip at a time');
+  const tb = service.state().topBar;
+  assert.strictEqual(tb.packWaiting, 2);
+  assert.strictEqual(tb.packing.shareId, a.id);
+  assert.strictEqual(tb.active, true);
+  packCalls[0].finish();
+  await until(() => packCalls.length === 2, 'b took its turn');
+  assert.strictEqual(packCalls[1].opts.archiveName, nameOf(b.id), 'b, not c');
+  await until(() => statusOf(a.id) === 'checked', 'a is ready to check');
+  assert.strictEqual(statusOf(b.id), 'packing');
+  assert.ok(store.getShare(b.id).work_dir, 'its work folder is made when its turn comes');
+  assert.strictEqual(statusOf(c.id), 'queued');
+  assert.strictEqual(listed(c.id).waitingFor, `${nameOf(b.id)}.7z`);
+  packCalls[1].finish();
+  await until(() => packCalls.length === 3, 'c took its turn');
+  assert.strictEqual(packCalls[2].opts.archiveName, nameOf(c.id));
+  packCalls[2].finish();
+  await until(() => statusOf(c.id) === 'checked', 'c is ready to check');
+  assert.strictEqual(service.state().topBar.readyToCheck, 3);
+});
+
+test('pack line: a waiting share can be cancelled; its password and file list go, and it never packs', async () => {
+  const a = service.start({ mediaIds: [mediaId] });
+  await until(() => packCalls.length === 1, 'a packs');
+  const b = service.start({ mediaIds: [mediaId] });
+  assert.deepStrictEqual({ ...packState().jobs[b.id] }, { packQueued: true, hasPassword: true, hasPlan: true, autoUpload: false },
+    'until its turn it holds the password and the plan in memory, nothing more');
+  assert.strictEqual(store.getShare(b.id).password, null, 'nothing extra stored ("Passwords of past shares" is off here)');
+  assert.deepStrictEqual(await service.cancel(b.id), { removed: true });
+  assert.strictEqual(store.getShare(b.id), null, 'gone at once (it had no work folder)');
+  assert.deepStrictEqual(packState().queue, []);
+  assert.strictEqual(packState().jobs[b.id], undefined, 'nothing of it left in memory');
+  packing.finish();
+  await until(() => statusOf(a.id) === 'checked', 'a is packed');
+  await service._idle();
+  assert.strictEqual(packCalls.length, 1, 'b never started');
+});
+
+test('pack line: a lock (any kind) cancels every waiting share like the running pack and wipes what they held', async (t) => {
+  if (!cipher) { t.skip('this build has no SQLite cipher'); return; }
+  const a = service.start({ mediaIds: [mediaId] });
+  await until(() => packCalls.length === 1, 'a packs');
+  const b = service.start({ mediaIds: [mediaId] });
+  const c = service.start({ mediaIds: [mediaId] });
+  await vault.lock({ force: false });
+  assert.strictEqual(vault.isLocked(), true);
+  assert.strictEqual(packCalls[0].opts.handle.cancelled, true, 'the running pack was stopped');
+  const st = packState();
+  assert.deepStrictEqual(st.queue, [], 'the line is empty');
+  for (const id of [a.id, b.id, c.id]) {
+    const j = st.jobs[id];
+    assert.ok(!j || (!j.hasPassword && !j.hasPlan && !j.packQueued), `share ${id}: password and plan wiped`);
+  }
+  assert.strictEqual(service.isWorking(), false);
+  packing = null;
+  vault.unlock(VAULT_PASS);
+  await service._idle();
+  await service._cleanupNow();
+  for (const id of [a.id, b.id, c.id]) assert.strictEqual(store.getShare(id), null, `share ${id} is gone`);
+  assert.strictEqual(packCalls.length, 1, 'nothing started after the unlock');
+});
+
+test('pack line: free space is measured again when the turn comes; too little fails that share cleanly', async () => {
+  const realFree = temp.freeBytes;
+  try {
+    const a = service.start({ mediaIds: [mediaId] });
+    await until(() => packCalls.length === 1, 'a packs');
+    const b = service.start({ mediaIds: [mediaId] });
+    const c = service.start({ mediaIds: [mediaId] });
+    temp.freeBytes = () => 10;   // the drive filled up meanwhile
+    packing.finish();
+    await until(() => statusOf(b.id) === 'failed' && statusOf(c.id) === 'failed', 'b and c failed at their turn');
+    for (const id of [b.id, c.id]) {
+      assert.match(store.getShare(id).last_error, /not enough free space left to pack this share, so it was not packed\. Nothing was uploaded\./);
+      assert.strictEqual(packState().jobs[id], undefined, 'its password and plan are gone');
+    }
+    assert.strictEqual(packCalls.length, 1, '7-Zip never ran for them');
+    await until(() => statusOf(a.id) === 'checked', 'a is fine');
+  } finally {
+    temp.freeBytes = realFree;
+  }
+});
+
+test('pack line: a picked file that changed while the share waited fails it at its turn', async () => {
+  const extra = path.join(MEDIA, 'grows.mp4');
+  fs.writeFileSync(extra, Buffer.alloc(1000, 1));
+  const extraId = Number(db.get().prepare("INSERT INTO media (filepath, filename, media_type) VALUES (?, ?, 'video')").run(extra, 'grows.mp4').lastInsertRowid);
+  try {
+    service.start({ mediaIds: [mediaId] });
+    await until(() => packCalls.length === 1, 'a packs');
+    const b = service.start({ mediaIds: [mediaId, extraId] });
+    fs.appendFileSync(extra, 'more');
+    packing.finish();
+    await until(() => statusOf(b.id) === 'failed', 'b failed at its turn');
+    assert.match(store.getShare(b.id).last_error, /^A picked file changed or is no longer there since this share was started/);
+    assert.strictEqual(packCalls.length, 1);
+  } finally {
+    db.get().prepare('DELETE FROM media WHERE id = ?').run(extraId);
+  }
+});
+
+test('pack line: the space check at start counts the shares waiting ahead and what the running pack still has to write', async () => {
+  const realFree = temp.freeBytes;
+  try {
+    const need = service.preview({ mediaIds: [mediaId] }).needBytes;
+    service.start({ mediaIds: [mediaId] });
+    await until(() => packCalls.length === 1, 'a packs (at 0 percent)');
+    temp.freeBytes = () => need + Math.floor(need / 2);
+    assert.strictEqual(service.preview({ mediaIds: [mediaId] }).enoughSpace, false);
+    assert.strictEqual(service.preview({ mediaIds: [mediaId] }).packBusy, true);
+    assert.throws(() => service.start({ mediaIds: [mediaId] }),
+      (e) => e.code === 'NO_SPACE' && /as well as the shares already waiting to be packed/.test(e.message) && e.missingBytes > 0);
+    temp.freeBytes = () => need * 3;
+    const b = service.start({ mediaIds: [mediaId] });
+    assert.strictEqual(b.status, 'queued');
+    temp.freeBytes = () => need * 3 - 1;   // a's rest, b and one more do not fit
+    assert.throws(() => service.start({ mediaIds: [mediaId] }), { code: 'NO_SPACE' });
+  } finally {
+    temp.freeBytes = realFree;
+  }
+});
+
+test('pack line: a share waiting behind a live pack holds the automatic lock; behind a stalled one it does not; Ready to check never does', async (t) => {
+  if (!cipher) { t.skip('this build has no SQLite cipher'); return; }
+  let clock = Date.now();
+  service._setForTest({ now: () => clock });
+  const a = service.start({ mediaIds: [mediaId] });
+  await until(() => packCalls.length === 1, 'a packs');
+  const b = service.start({ mediaIds: [mediaId] });
+  assert.strictEqual(service.isWorking(), true);
+  clock += service.STALL_MS - 1000;
+  assert.strictEqual(service.isWorking(), true, 'inside the window');
+  clock += 2000;
+  assert.strictEqual(service.isWorking(), false, 'the pack ahead stalled: waiting behind it holds nothing');
+  packing.beat();   // 7-Zip printed a percent: real evidence of the line
+  assert.strictEqual(service.isWorking(), true, 'the line is alive again, so is the wait');
+  packCalls[0].finish();
+  await until(() => packCalls.length === 2, 'b took its turn');
+  packCalls[1].finish();
+  await until(() => statusOf(a.id) === 'checked' && statusOf(b.id) === 'checked', 'both ready to check');
+  await service._idle();
+  assert.strictEqual(service.isWorking(), false, 'Ready to check waits for the user: no hold');
+  idle();
+  assert.strictEqual(await vault._autolockTick(), true, 'the idle lock fires');
+});
+
+/* ── When packing is done: Wait for me to check / Upload on its own ──── */
+
+/** Start one share and let it pack and pass its checks. */
+async function packOne(opts = {}) {
+  const before = packCalls.length;
+  const s = service.start({ mediaIds: [mediaId], ...opts });
+  await until(() => packCalls.length === before + 1, 'it packs');
+  packCalls[before].finish();
+  await until(() => statusOf(s.id) !== 'packing', 'packed and checked');
+  // Upload on its own has had its turn (an upload it started is left running).
+  await until(() => !packState().jobs[s.id] || !packState().jobs[s.id].autoUpload, 'the upload decision');
+  await immediate();
+  return s;
+}
+
+test('When packing is done: Wait for me to check (the default) stops at Ready to check and sends nothing', async () => {
+  const c = fakeClient();
+  assert.strictEqual(settings.get().afterPack, 'wait');
+  const s = await packOne({ confirmUpload: true });   // a tick sent anyway does not make it an upload
+  assert.strictEqual(statusOf(s.id), 'checked');
+  assert.strictEqual(store.getShare(s.id).last_error, null);
+  assert.deepStrictEqual(c.calls, []);
+});
+
+test('Upload on its own: uploads once every check passed; the mode is the one in force at start', async () => {
+  const c = fakeClient();
+  settings.save({ ...settings.get(), afterPack: 'upload', rememberPasswords: true });
+  const before = packCalls.length;
+  const s = service.start({ mediaIds: [mediaId], confirmUpload: true });
+  assert.strictEqual(s.uploadsOnItsOwn, true);
+  await until(() => packCalls.length === before + 1, 'it packs');
+  // Changing the setting now does not change this share.
+  settings.save({ ...settings.get(), afterPack: 'wait' });
+  packCalls[before].finish();
+  await until(() => c.uploads.length === 1, 'the upload started by itself');
+  assert.strictEqual(statusOf(s.id), 'uploading');
+  c.uploads[0].go.resolve();
+  await until(() => statusOf(s.id) === 'uploaded', 'uploaded');
+  // The password and link can be had afterwards.
+  assert.ok(service.revealPassword(s.id).password);
+  assert.ok(service.getShare(s.id).link);
+  // The other way round: started under Wait, the setting turned to Upload afterwards: it waits.
+  const w = service.start({ mediaIds: [mediaId], confirmUpload: true });
+  await until(() => packCalls.length === before + 2, 'it packs');
+  settings.save({ ...settings.get(), afterPack: 'upload' });
+  packCalls[before + 1].finish();
+  await until(() => statusOf(w.id) === 'checked', 'ready to check');
+  await service._idle();
+  assert.strictEqual(c.uploads.length, 1, 'nothing more sent');
+});
+
+test('Upload on its own needs the tick at start: without confirmUpload exactly true it waits for the user', async () => {
+  const c = fakeClient();
+  settings.save({ ...settings.get(), afterPack: 'upload', rememberPasswords: true });
+  for (const confirmUpload of [undefined, false, 'true', 1]) {
+    const s = await packOne(confirmUpload === undefined ? {} : { confirmUpload });
+    assert.strictEqual(statusOf(s.id), 'checked', String(confirmUpload));
+  }
+  assert.deepStrictEqual(c.calls, []);
+});
+
+test('Upload on its own never uploads with a password only this Vault process knows: it waits, saying so', async () => {
+  const c = fakeClient();
+  settings.save({ ...settings.get(), afterPack: 'upload', rememberPasswords: false });
+  const s = await packOne({ confirmUpload: true });
+  assert.strictEqual(statusOf(s.id), 'checked');
+  assert.match(store.getShare(s.id).last_error, /^Packed and checked, but not uploaded on its own\. Vault is not keeping the password of this share/);
+  assert.deepStrictEqual(c.calls, []);
+  // The saved password, still the same one: the user has it, so it goes.
+  store.kvSet('saved_password', 'my-saved-password-1');
+  try {
+    const ok = await packOne({ confirmUpload: true, passwordChoice: 'saved' });
+    await until(() => c.uploads.length === 1, 'uploaded on its own');
+    c.uploads[0].go.resolve();
+    await until(() => statusOf(ok.id) === 'uploaded', 'uploaded');
+    // The saved password changed while it packed: the old one would live in memory only.
+    const before = packCalls.length;
+    const changed = service.start({ mediaIds: [mediaId], confirmUpload: true, passwordChoice: 'saved' });
+    await until(() => packCalls.length === before + 1, 'it packs');
+    store.kvSet('saved_password', 'a-new-saved-password-2');
+    packCalls[before].finish();
+    await until(() => statusOf(changed.id) === 'checked', 'checked');
+    await service._idle();
+    assert.match(store.getShare(changed.id).last_error, /not keeping the password/);
+    assert.strictEqual(c.uploads.length, 1);
+  } finally {
+    store.kvSet('saved_password', null);
+  }
+});
+
+test('Upload on its own meets every gate of the Upload button: offline and feature off leave it waiting, a failed check never uploads', async () => {
+  const c = fakeClient();
+  settings.save({ ...settings.get(), afterPack: 'upload', rememberPasswords: true });
+  config.net.offline = true;
+  const off = await packOne({ confirmUpload: true });
+  assert.strictEqual(statusOf(off.id), 'checked');
+  assert.match(store.getShare(off.id).last_error, /^Packed and checked, but not uploaded on its own\. Vault is set to stay offline/);
+  config.net.offline = false;
+  // The feature turned off while it packed.
+  const before = packCalls.length;
+  const f = service.start({ mediaIds: [mediaId], confirmUpload: true });
+  await until(() => packCalls.length === before + 1, 'it packs');
+  settings.save({ ...settings.get(), enabled: false });
+  packCalls[before].finish();
+  await until(() => statusOf(f.id) === 'checked', 'checked');
+  await service._idle();
+  assert.match(store.getShare(f.id).last_error, /Share privately is turned off/);
+  settings.save({ ...settings.get(), enabled: true });
+  // A failed check: failed, nothing sent.
+  pack.runChecks = async (o) => ({ ok: false, test: { ok: false }, listWithoutPassword: { ok: true }, contents: { ok: true }, parts: { ok: true, count: o.parts.length } });
+  const bad = await packOne({ confirmUpload: true });
+  assert.strictEqual(statusOf(bad.id), 'failed');
+  const j = packState().jobs[bad.id];
+  assert.ok(!j || (!j.hasPassword && !j.autoUpload), 'its password went from memory');
+  assert.deepStrictEqual(c.calls, [], 'no request at all');
+  assert.strictEqual(strayFetches, 0);
+  // The user can still upload a waiting one by hand, which clears the note.
+  await service.confirmUpload(off.id, { confirm: true });
+  assert.strictEqual(store.getShare(off.id).last_error, null);
+  await until(() => c.uploads.length === 1, 'the hand upload started');
+  c.uploads[0].go.resolve();
+  await until(() => statusOf(off.id) === 'uploaded', 'uploaded');
 });

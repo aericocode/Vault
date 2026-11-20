@@ -795,3 +795,56 @@ test('settings: custom part size 50 MB to 16 GB, a bad value keeps the last good
   assert.strictEqual(r.enabled, true);
   assert.strictEqual(r.split, '2g');
 });
+
+test('settings: When packing is done is wait (the default) or upload; anything else is refused; reset puts back wait', () => {
+  on();
+  assert.strictEqual(settings.get().afterPack, 'wait');
+  assert.deepStrictEqual(settings.validatePatch({ afterPack: 'upload' }), { afterPack: 'upload' });
+  assert.deepStrictEqual(settings.validatePatch({ afterPack: 'wait' }), { afterPack: 'wait' });
+  for (const v of ['auto', 'Upload', true, 1, null]) {
+    assert.throws(() => settings.validatePatch({ afterPack: v }), { code: 'BAD_INPUT' }, String(v));
+  }
+  settings.save({ afterPack: 'upload' });
+  assert.strictEqual(settings.get().afterPack, 'upload');
+  // A hand-edited file can only give an allowed value.
+  require('../lib/app-settings').set({ share: { ...settings.get(), afterPack: 'sometimes' } });
+  assert.strictEqual(settings.get().afterPack, 'wait');
+  settings.save({ afterPack: 'upload' });
+  assert.strictEqual(settings.reset().afterPack, 'wait');
+  on();
+});
+
+test('restart: a share still waiting to pack is thrown away like a packing one', async () => {
+  const id = store.insertShare({
+    archive_name: names.randomArchiveName(), password: null, password_kind: 'random', size: 10,
+    part_count: 1, part_size: null, file_count: 1, status: 'queued', created_at: Date.now(),
+    delete_after_days: 7, work_dir: null,
+  });
+  service._simulateRestart();
+  service.ensureRecovered();
+  assert.throws(() => service.getShare(id), { code: 'NOT_FOUND' });
+  await service._idle();
+  await service._cleanupNow();
+  assert.strictEqual(store.getShare(id), null);
+});
+
+test('Upload on its own does not skip the no Vault password warning: the share needs it at start, and nothing is stored without it', () => {
+  on({ afterPack: 'upload', rememberPasswords: true });
+  const media = path.join(path.dirname(process.env.VAULT_DB), 'warn-clip.mp4');
+  fs.writeFileSync(media, Buffer.alloc(100, 1));
+  const mid = Number(db.get().prepare("INSERT INTO media (filepath, filename, media_type) VALUES (?, ?, 'video')").run(media, 'warn-clip.mp4').lastInsertRowid);
+  service._setForTest({ program: 'fake-7zip' });
+  const kept = store.kvGet('plain_warning_shown');
+  store.kvSet('plain_warning_shown', null);
+  const before = store.listShares().length;
+  try {
+    assert.strictEqual(gate.required(), false, 'no Vault password in this test library');
+    assert.throws(() => service.start({ mediaIds: [mid], confirmUpload: true }), { code: 'WARNING_NEEDED' });
+    assert.strictEqual(store.listShares().length, before, 'no record');
+  } finally {
+    store.kvSet('plain_warning_shown', kept);
+    service._setForTest({ program: null });
+    db.get().prepare('DELETE FROM media WHERE id = ?').run(mid);
+    on();
+  }
+});
