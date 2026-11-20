@@ -466,7 +466,7 @@ function shareOpenCopyFormat(root, { prefill = null, onCancel = null } = {}) {
       <h3 id="shareFormatTitle">My own copy format</h3>
       <div class="vault-field">
         <label class="vault-label" for="shFmtText">My format</label>
-        <textarea id="shFmtText" class="vault-input share-mono share-fmt-text" rows="2" maxlength="${SHARE_FORMAT_MAX}" spellcheck="false" aria-describedby="shFmtHint">${shEsc(start)}</textarea>
+        <textarea id="shFmtText" class="vault-input share-mono share-fmt-text" rows="3" maxlength="${SHARE_FORMAT_MAX}" spellcheck="false" aria-describedby="shFmtHint">${shEsc(start)}</textarea>
         <div class="vault-field-note" id="shFmtHint">Press a piece to drop it in where the cursor is.</div>
       </div>
       <div class="share-chips" role="group" aria-label="Pieces">

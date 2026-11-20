@@ -199,6 +199,10 @@ body.layout-modern svg.sel-caret { margin-left: 0.3em; vertical-align: -0.16em; 
 
 /* Checking: the segmented control sits under its text, not beside it */
 .faces-settings .settings-toggle.faces-stack { flex-direction: column; align-items: stretch; gap: 0.6rem; }
+/* Modern lays settings rows out as a centred wrapping row with a 260px text basis. In this stacked row that
+   centred the text and made it 260px tall, so both are undone here. */
+body.layout-modern .settings-card .settings-toggle.faces-stack { align-items: stretch; flex-wrap: nowrap; }
+body.layout-modern .settings-card .faces-stack .settings-toggle-text { flex: none; }
 .faces-settings .faces-stack .settings-seg { align-self: flex-start; flex-wrap: wrap; border-radius: 14px; }
 
 /* Face data */

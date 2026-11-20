@@ -132,7 +132,9 @@
 .share-ok-line[hidden] { display: none; }
 
 /* Copy format */
-.share-fmt-text { width: 100%; box-sizing: border-box; resize: vertical; min-height: 3.2rem; height: auto !important; padding: 0.45rem 0.6rem !important; }
+/* No !important on height: dragging the resize grip writes an inline height, which an !important rule would beat.
+   The textarea selector outranks the Modern .vault-input fixed height instead. */
+textarea.share-fmt-text { width: 100%; box-sizing: border-box; resize: vertical; min-height: 5rem; height: auto; line-height: 1.5; padding: 0.45rem 0.6rem !important; }
 .share-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .share-chip {
   min-height: 2.2rem; padding: 0 0.75rem; border-radius: 999px; border: 1px solid var(--border);
