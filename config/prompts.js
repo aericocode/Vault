@@ -2,8 +2,19 @@
  * Media-type specific prompts for vision + text analysis
  *
  * All prompt templates live here (vision: image/gif/video, text: document).
- * The JSON response schema is built by buildJsonSchema() so the per-type
- * prompts share one definition instead of duplicating it.
+ *
+ * Two ways the answer's shape reaches the model:
+ * - structured (the default when the server takes it): the shape is sent as a
+ *   real JSON schema in response_format (buildResponseSchema), so the reply is
+ *   valid JSON by construction, content_type can only be one of CONTENT_TYPES
+ *   and the lists have a maximum length. The prompt then carries only the
+ *   field guidance, as a compact list.
+ * - prompt only (a server that refuses or ignores response_format): the same
+ *   guidance plus a compact JSON template (buildJsonSchema).
+ *
+ * The guidance stays in the prompt text in both cases: checked live on LM
+ * Studio (minicpm-v-4.6, 2026-11), a schema property's "description" is NOT
+ * seen by the model. It only shapes the grammar.
  */
 
 const { Global_options } = require(".");
@@ -20,71 +31,77 @@ const DOCUMENT_TYPES = [
   'article', 'code', 'config', 'data', 'documentation', 'email', 'legal',
   'letter', 'log', 'manual', 'notes', 'report', 'script', 'spreadsheet', 'other',
 ];
+const SENTIMENTS = ['neutral', 'positive', 'negative', 'technical'];
+
+/** Upper bounds on the lists in an answer (enforced by the schema). */
+const LIMITS = { themes: 8, locations: 5, tags: 25, transcribed_text: 15, doc_themes: 8, doc_tags: 20 };
 
 // ============================================================================
-// SHARED JSON SCHEMA
+// FIELD GUIDANCE
 // ============================================================================
 
 /**
  * media_elements entries shared by every media type.
- * NOTE: the `details` strings are prompt content — do not re-word casually.
+ * NOTE: the `details` strings are prompt content: do not re-word casually.
+ * Each ends with a length hint ("A few words.", "One sentence.").
+ *
+ * `positioning` replaced the old near-duplicate pair positioning +
+ * posture_or_pose. Rows scanned before carry both types, rows scanned after
+ * carry `positioning` only; everything that reads media_elements treats the
+ * type as free text, so both kinds of row keep working.
  */
 const MEDIA_ELEMENT_FIELDS = [
   {
     type: 'main_person',
-    details: 'Describe the main person(s) in the image (e.g. gender, hair color, body type, ethnicity, notable features, etc.)'
+    details: 'The main person(s): gender, hair color, body type, ethnicity, notable features. One or two sentences.'
   },
   {
     type: 'age',
-    details: 'Estimate the exact of the person(s) in the image'
+    details: 'Estimate the exact age of the person(s). A few words.'
   },
   {
     type: 'positioning',
-    details: 'Describe how person(s) are positioned (e.g., lying down, sitting, standing, on all fours, etc.)'
+    details: 'How the person(s) are positioned and their posture or pose (e.g. lying down, sitting, standing, on all fours, seated). A few words.'
   },
   {
     type: 'action',
-    details: 'Describe the act being performed.'
+    details: 'The act being performed. One sentence.'
   },
   {
     type: 'relationship',
-    details: 'Name the relationship between the people involved (e.g., friends, strangers, romantic partners, family members, etc.)'
+    details: 'The relationship between the people involved (e.g. friends, strangers, romantic partners, family members). A few words.'
   },
   {
     type: 'body_parts_involved',
-    details: 'List all body parts involved in the act (e.g., penis, vagina, breasts, buttocks, tongue, hands, feet, nipples, etc.)'
+    details: 'All body parts involved in the act (e.g. penis, vagina, breasts, buttocks, tongue, hands, feet, nipples). A short list.'
   },
   {
     type: 'fluids_present',
-    details: 'Describe fluids(if present) — color, consistency, volume, and location (e.g., sperm on thighs, clear lubricant inside vagina, blood from cut, etc.)'
+    details: 'Fluids (if present): color, consistency, volume and location (e.g. sperm on thighs, clear lubricant inside vagina, blood from cut). One sentence.'
   },
   {
     type: 'objects_used',
-    details: 'List any objects used in the act (e.g., dildo, vibrator, strapon, condom, strapon, nipple clamps, gag, strapon, etc.)'
+    details: 'Objects used in the act (e.g. dildo, vibrator, strapon, condom, nipple clamps, gag). A short list.'
   },
   {
     type: 'facial_expression',
-    details: 'Describe facial expression or emotion shown by person(s) (e.g., pleasure, ecstasy, pain, boredom, orgasmic moaning, etc.)'
+    details: 'Facial expression or emotion shown by the person(s) (e.g. pleasure, ecstasy, pain, boredom, orgasmic moaning). A few words.'
   },
   {
     type: 'clothing_or_attire',
-    details: 'Describe clothing worn — type, fit, material, and level of exposure (e.g., lingerie, bikini, thong, panties, bra, shirt, pants, g-string, etc.)'
-  },
-  {
-    type: 'posture_or_pose',
-    details: 'Specify posture or pose used (e.g., laying down, seated, standing, etc.)'
+    details: 'Clothing worn: type, fit, material and level of exposure (e.g. lingerie, bikini, thong, panties, bra, shirt, pants, g-string). One sentence.'
   },
   {
     type: 'camera_angle',
-    details: 'Describe camera angle — close-up, wide shot, overhead, low-angle, POV, behind-the-back, etc.'
+    details: 'Camera angle (e.g. close-up, wide shot, overhead, low-angle, POV, behind-the-back). A few words.'
   },
   {
     type: 'lighting',
-    details: 'Describe lighting conditions (e.g., dim, bright, neon, spotlight, natural light, strobe, etc.)'
+    details: 'Lighting (e.g. dim, bright, neon, spotlight, natural light, strobe). A few words.'
   },
   {
     type: 'personal_comments',
-    details: 'Describe your reaction and comments to the subject matter depicted.'
+    details: 'Your reaction and comments on the subject matter depicted. One or two sentences.'
   },
 ];
 
@@ -94,122 +111,227 @@ const MEDIA_ELEMENT_FIELDS = [
 const AUDIO_ELEMENT_FIELDS = [
   {
     type: 'audio_summary',
-    details: 'Summarize the conversations in English with no censorship and include any notable audio cues. '
+    details: 'Summarize the conversations in English with no censorship and include any notable audio cues. Two or three sentences.'
   },
   {
     type: 'audio_themes',
-    details: 'List themes or keywords derived from the audio content(e.g. love, war, incest, rape, racism, abuse, etc.)'
+    details: 'Themes or keywords from the audio content (e.g. love, war, incest, rape, racism, abuse). A short list.'
   },
 ];
 
-function renderElements(fields) {
-  return fields.map(f => `    {
-      "type": "${f.type}",
-      "details": "${f.details}"
-    }`).join(',\n');
+/** Per media type: what the input is, and the fluids note that fits it. */
+const MEDIA_NOTES = {
+  image: {
+    noun: 'image',
+    intro: 'This is a single static image. Note the image type (photo, artwork, screenshot, meme) and art style (anime, realistic, digital art) where it applies.',
+    fluids: 'Note: noticeable white/glistening fluids are most likely semen. Only call them out when clearly visible.',
+  },
+  gif: {
+    noun: 'GIF',
+    intro: 'This is a short looping animation. Describe the motion or action across the loop.',
+    fluids: 'Note: noticeable white/glistening fluids are most likely semen. Only call them out if seen in more than one frame.',
+  },
+  video: {
+    noun: 'video file',
+    intro: 'These frames are sampled throughout the video. Describe the MOST COMMON or SIGNIFICANT elements across all frames.',
+    fluids: 'Note: noticeable white/glistening fluids are most likely semen. Only call them out if seen in more than one frame.',
+  },
+};
+
+/** Is this transcription going into the prompt? English only, as before. */
+function usesTranscript(options = {}) {
+  const { transcription, transcriptionLanguage } = options;
+  return !!transcription && (transcriptionLanguage === 'en' || transcriptionLanguage === 'English');
+}
+
+function _elements(options) {
+  return usesTranscript(options) ? [...MEDIA_ELEMENT_FIELDS, ...AUDIO_ELEMENT_FIELDS] : MEDIA_ELEMENT_FIELDS;
+}
+
+function _themesHint(themeVocab) {
+  // SOFT vocabulary grounding: nudge the model to reuse the library's existing
+  // themes (kept consistent) while staying free to coin a new one when nothing
+  // fits. Purely a hint, not enforced.
+  return Array.isArray(themeVocab) && themeVocab.length
+    ? `Prefer reusing an existing theme from this list when it fits: ${themeVocab.join(', ')}. Only invent a new theme when none apply. Lowercase.`
+    : 'Themes like romance, action, comedy, horror, drama, sci-fi, fantasy, slice_of_life, sports. Lowercase.';
+}
+
+/** The field guidance, one line per field. */
+function _fieldGuide(mediaType, options = {}) {
+  const withAudio = usesTranscript(options);
+  const language = withAudio && options.transcriptionLanguage
+    ? `"${options.transcriptionLanguage}"`
+    : 'the detected language, or "none" (e.g. English, Japanese, Korean, Chinese, none)';
+  const lines = [
+    `- language: ${language}.`,
+    `- content_type: one of ${CONTENT_TYPES.join(', ')}.`,
+    `- description: brief 1-2 sentence summary of the scene.${withAudio ? ' End it with " Audio: " and a one sentence summary of the transcription.' : ''}`,
+    `- tags: up to ${LIMITS.tags} detailed tags describing the content and theme(s)${withAudio ? ', including key words from the audio translated to English' : ''}.`,
+    `- themes: up to ${LIMITS.themes}. ${_themesHint(options.themeVocab)}`,
+    `- locations: up to ${LIMITS.locations} locations seen (e.g. school, home, outdoor, office, city, rural, beach).`,
+    '- media_elements, one entry for each:',
+    ..._elements(options).map(f => `  - ${f.type}: ${f.details}`),
+    `- transcribed_text: up to ${LIMITS.transcribed_text} pieces of readable text (subtitles, signs, captions, UI), each with where it appears (e.g. top left corner, on-screen overlay, dialogue bubble). An empty list when there is none.`,
+  ];
+  return lines.join('\n');
+}
+
+// ============================================================================
+// RESPONSE SHAPE
+// ============================================================================
+
+/**
+ * The JSON schema sent in response_format. Property order is the order the
+ * model writes them in (llama.cpp's grammar follows it), so the fields a cut
+ * off answer can still be saved with (content_type, description, tags) come
+ * first, and the long media_elements and transcribed_text last.
+ *
+ * media_elements is an OBJECT keyed by type here (shorter for the model, and
+ * every type is guaranteed exactly once); lib/vision-api.js turns it back into
+ * the stored [{type, details}] list before anything is saved.
+ */
+function buildResponseSchema(mediaType, options = {}) {
+  const str = { type: 'string' };
+  const list = (max) => ({ type: 'array', items: str, maxItems: max });
+  const elements = _elements(options);
+  const language = usesTranscript(options) && options.transcriptionLanguage
+    ? { type: 'string', enum: [String(options.transcriptionLanguage)] }
+    : str;
+  return {
+    name: 'media_analysis',
+    strict: true,
+    schema: {
+      type: 'object',
+      properties: {
+        language,
+        content_type: { type: 'string', enum: CONTENT_TYPES },
+        description: str,
+        tags: list(LIMITS.tags),
+        themes: list(LIMITS.themes),
+        locations: list(LIMITS.locations),
+        media_elements: {
+          type: 'object',
+          properties: Object.fromEntries(elements.map(f => [f.type, str])),
+          required: elements.map(f => f.type),
+          additionalProperties: false,
+        },
+        transcribed_text: {
+          type: 'array',
+          maxItems: LIMITS.transcribed_text,
+          items: {
+            type: 'object',
+            properties: { text: str, location: str },
+            required: ['text', 'location'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['language', 'content_type', 'description', 'tags', 'themes', 'locations', 'media_elements', 'transcribed_text'],
+      additionalProperties: false,
+    },
+  };
+}
+
+/** response_format for a vision scan. */
+function responseFormat(mediaType, options = {}) {
+  return { type: 'json_schema', json_schema: buildResponseSchema(mediaType, options) };
 }
 
 /**
- * Build the JSON response schema shared by all vision prompts.
- * @param {object} options
- * @param {string} [options.transcription] - audio transcription (adds audio elements + tag hint)
- * @param {string} [options.transcriptionLanguage] - detected language (pins the language field)
+ * The compact JSON template for servers without structured output. The
+ * guidance for each field is in the prompt's field list, not repeated here.
+ * @param {object} options transcription / transcriptionLanguage / themeVocab
  */
 function buildJsonSchema(options = {}) {
-  const { transcription, transcriptionLanguage, themeVocab } = options;
-
-  // Only pin the language when we actually detected one — previously the
-  // video prompt interpolated undefined here, telling the model the
-  // expected value was the literal string "undefined".
-  const languageLine = transcription && transcriptionLanguage
-    ? `"${transcriptionLanguage}"`
-    : `"detected language or 'none' (e.g., 'English', 'Japanese', 'Korean', 'Chinese', 'none')"`;
-
-  const tagsLine = transcription
-    ? `["additional", "descriptive", "tags", "Add key words(translated to English) from the audio for search terms."]`
-    : `["array", "of", "detailed tags describing the content and theme(s)"]`;
-
-  // SOFT vocabulary grounding: nudge the model to reuse the library's existing
-  // themes (kept consistent) while staying free to coin a new one when nothing
-  // fits. Purely a hint — not enforced; a genuinely new theme is welcome.
-  const themesLine = Array.isArray(themeVocab) && themeVocab.length
-    ? `["themes — PREFER reusing an existing theme from this list when it fits: ${themeVocab.join(', ')}. Only invent a new theme when none of these apply. Use lowercase."]`
-    : `["array", "of", "themes like: romance, action, comedy, horror, drama, sci-fi, fantasy, slice_of_life, sports, etc"]`;
-
-  const elements = transcription
-    ? [...MEDIA_ELEMENT_FIELDS, ...AUDIO_ELEMENT_FIELDS]
-    : MEDIA_ELEMENT_FIELDS;
-
-  return `{
-  "language": ${languageLine},
-  "content_type": "${CONTENT_TYPES.join('|')}",
-  "themes": ${themesLine},
-  "locations": ["array", "of", "locations seen: school, home, outdoor, office, city, rural, beach, etc"],
-  "tags": ${tagsLine},
-  "description": "Brief 1-2 sentence summary of the scene. Transcribe all visible text and note its position in frame.",
-  "media_elements": [
-${renderElements(elements)}
-  ],
-  "transcribed_text": [
-    {
-      "text": "Transcribe all visible text in the scene.",
-      "location": "Specify where the text appears — e.g., 'top left corner', 'on screen overlay', 'in dialogue bubble'."
-    }
-  ]
-}`;
+  const elements = _elements(options).map(f => `"${f.type}": "..."`).join(', ');
+  return `{"language": "...", "content_type": "...", "description": "...", "tags": ["..."], "themes": ["..."], "locations": ["..."], "media_elements": {${elements}}, "transcribed_text": [{"text": "...", "location": "..."}]}`;
 }
 
 // Kept for backward compatibility (schema with no transcription extras)
 const baseJsonSchema = buildJsonSchema();
 
-// Shared response-format instruction
-const JSON_ONLY = `ONLY Provide a JSON response with the following structure (no markdown, just raw JSON). No other content, explanations, or commentary should be included outside of the JSON:`;
+const JSON_ONLY = 'ONLY provide raw JSON shaped like this (no markdown, no explanations or commentary outside the JSON):';
+
+// ============================================================================
+// TRANSCRIPT
+// ============================================================================
+
+/**
+ * At most `max` characters of a transcript, taken from its start, middle and
+ * end rather than only its head (the head of a long video is often intro
+ * chatter). Cuts fall on word boundaries; "[...]" marks each gap.
+ */
+function sampleTranscript(text, max = Global_options.max_transcript_chars_in_prompt || 3000) {
+  const s = String(text || '').trim();
+  if (!s || s.length <= max) return s;
+  const gap = '\n[...]\n';
+  const part = Math.floor((max - 2 * gap.length) / 3);
+  if (part < 50) return s.slice(0, max);
+  const at = (from) => {
+    let a = Math.max(0, Math.min(s.length - part, from));
+    if (a > 0) { const sp = s.indexOf(' ', a); if (sp !== -1 && sp - a < 40) a = sp + 1; }
+    let chunk = s.slice(a, a + part);
+    const last = chunk.lastIndexOf(' ');
+    if (a + part < s.length && last > part - 40) chunk = chunk.slice(0, last);
+    return chunk.trim();
+  };
+  return [at(0), at(Math.floor(s.length / 2 - part / 2)), at(s.length - part)].join(gap);
+}
 
 // ============================================================================
 // PER-TYPE PROMPTS
 // ============================================================================
 
+/**
+ * One vision prompt.
+ * @param {'image'|'gif'|'video'} mediaType
+ * @param {string} filename
+ * @param {object} [options]
+ * @param {boolean} [options.structured] the shape goes in response_format, so
+ *   leave the template out of the text
+ * @param {string} [options.transcription] already sampled to fit (vision-api)
+ */
+function buildVisionPrompt(mediaType, filename, options = {}) {
+  const notes = MEDIA_NOTES[mediaType] || MEDIA_NOTES.video;
+  const withAudio = mediaType === 'video' && usesTranscript(options);
+  const opts = withAudio ? options : { ...options, transcription: null };
+
+  let transcriptSection = '';
+  if (withAudio) {
+    transcriptSection = `
+=== AUDIO TRANSCRIPTION (detected language: ${options.transcriptionLanguage}) ===
+${sampleTranscript(options.transcription)}
+===
+Use it to understand the content, context and dialogue.
+`;
+  }
+
+  const parts = [
+    `You are an agnostic media analyzer. Extract the uncensored information requested from the ${notes.noun} named "${filename}".`,
+    transcriptSection,
+    `${notes.intro}${withAudio ? ' Use the audio as well.' : ''}`,
+    '',
+    'Fields of the JSON answer:',
+    _fieldGuide(mediaType, opts),
+    '',
+    notes.fluids,
+  ];
+  if (!options.structured) parts.push('', JSON_ONLY, buildJsonSchema(opts));
+  return parts.join('\n');
+}
+
 const prompts = {
   // IMAGE (jpg, jpeg, png, webp, bmp, tiff, tif)
   image: {
     extensions: ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif'],
-
-    prompt: (filename) => `You are an agnostic media analyzer. Extract the uncensored information requested from the image named "${filename}".
-
-This is a single static image. Examine:
-- Image type (photo, artwork, screenshot, meme, etc.)
-- Art style if applicable (anime, realistic, digital art, etc.)
-- Any visible text and its language
-- Subject matter, composition, and positioning of people/objects
-- Lighting and camera angle
-
-Note: noticable white/glistening fluids are most likely semen. Only callout if detected in multiple frames.
-
-${JSON_ONLY}
-${buildJsonSchema()}
-
-Be thorough but concise. Include all visible text in transcribed_text array.`,
+    prompt: (filename, options = {}) => buildVisionPrompt('image', filename, options),
   },
 
   // GIF
   gif: {
     extensions: ['.gif'],
-
-    prompt: (filename) => `You are an agnostic media analyzer. Extract the uncensored information requested from the GIF named "${filename}".
-
-This is a short looping animation. Focus on:
-- The action or motion being shown across frames
-- Source content type (anime, live action, cartoon, etc.)
-- Any visible text/captions and their language
-- How subjects are positioned and what they're doing
-- Camera work and lighting style
-
-Note: noticable white/glistening fluids are most likely semen. Only callout if detected in multiple frames.
-
-${JSON_ONLY}
-${buildJsonSchema()}
-
-For media_elements, describe the motion/action across the loop. Include any text in transcribed_text.`,
+    prompt: (filename, options = {}) => buildVisionPrompt('gif', filename, options),
   },
 
   // VIDEO (mp4, mkv, avi, mov, etc.)
@@ -219,41 +341,7 @@ For media_elements, describe the motion/action across the loop. Include any text
       '.m4v', '.mpeg', '.mpg', '.3gp', '.mts', '.m2ts',
       '.vob', '.ogv', '.rm', '.rmvb', '.asf', '.divx'
     ],
-
-    prompt: (filename, options = {}) => {
-      const { transcription, transcriptionLanguage } = options;
-
-      let transcriptionSection = '';
-      if (transcription && (transcriptionLanguage == 'en' || transcriptionLanguage == 'English')) {
-        transcriptionSection = `
-
-=== AUDIO TRANSCRIPTION ===
-The following is a transcription of the audio/dialogue from this video${transcriptionLanguage ? ` (detected language: ${transcriptionLanguage})` : ''}:
----
-${transcription.slice(0, Global_options.max_characters_per_transcription || 4000)}${transcription.length > Global_options.max_characters_per_transcription ? '\n[... transcription truncated ...]' : ''}
----
-Use this transcription to better understand the content, context, and language of the video. At the end of the 'description' field, include ' Audio: ' and a summary of the transcription.
-===========================
-`;
-      }
-
-      return `You are an agnostic media analyzer. Extract the uncensored information requested from the video file named "${filename}".
-${transcriptionSection}
-These frames are sampled throughout the video. Examine:
-- Overall content and narrative visible across frames${transcription ? ' and audio' : ''}
-- Production type (anime, live action, documentary, gameplay, etc.)
-- Visible text, subtitles, or UI elements
-- How subjects are positioned and what actions occur
-- Recurring camera angles and lighting styles
-- Scene locations that appear
-
-Note: noticable white/glistening fluids are most likely semen. Only callout if detected in multiple frames.
-
-${JSON_ONLY}
-${buildJsonSchema(options)}
-
-For media_elements, describe the MOST COMMON or SIGNIFICANT elements seen across all frames.${transcription ? ' Use the audio transcription to inform your understanding of the scene context and dialogue.' : ''} Include all readable text (subtitles, signs, UI) in transcribed_text with their locations.`;
-    },
+    prompt: (filename, options = {}) => buildVisionPrompt('video', filename, options),
   },
 };
 
@@ -261,17 +349,63 @@ For media_elements, describe the MOST COMMON or SIGNIFICANT elements seen across
 // DOCUMENT PROMPT (text analysis — moved here from lib/text-api.js)
 // ============================================================================
 
+/** response_format for the document / audio text analysis. */
+function documentResponseFormat() {
+  const str = { type: 'string' };
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'document_analysis',
+      strict: true,
+      schema: {
+        type: 'object',
+        properties: {
+          description: str,
+          document_type: { type: 'string', enum: DOCUMENT_TYPES },
+          language: str,
+          themes: { type: 'array', items: str, maxItems: LIMITS.doc_themes },
+          tags: { type: 'array', items: str, maxItems: LIMITS.doc_tags },
+          has_sensitive_data: { type: 'boolean' },
+          sentiment: { type: 'string', enum: SENTIMENTS },
+        },
+        required: ['description', 'document_type', 'language', 'themes', 'tags', 'has_sensitive_data', 'sentiment'],
+        additionalProperties: false,
+      },
+    },
+  };
+}
+
 /**
  * Document analysis prompt template
+ * @param {object} [options]
+ * @param {number} [options.maxInputChars] how much of the text goes in (8000)
+ * @param {boolean} [options.sample] take start, middle and end (a transcript)
+ *   instead of the head (a document, whose start says what it is)
+ * @param {boolean} [options.structured] shape sent in response_format
  */
 function getDocumentPrompt(filename, textContent, options = {}) {
   const maxInputChars = options.maxInputChars || 8000;
 
-  // Truncate if too long
-  let text = textContent;
+  let text = String(textContent || '');
   if (text.length > maxInputChars) {
-    text = text.slice(0, maxInputChars) + '\n\n[... content truncated ...]';
+    text = options.sample
+      ? sampleTranscript(text, maxInputChars)
+      : text.slice(0, maxInputChars) + '\n\n[... content truncated ...]';
   }
+
+  const guide = `Fields of the JSON answer:
+- description: 2-4 sentence summary of what this document contains and its purpose.
+- document_type: one of ${DOCUMENT_TYPES.join(', ')}.
+- language: primary human language (english, japanese, etc.) or "code" for programming.
+- themes: up to ${LIMITS.doc_themes} main topics.
+- tags: up to ${LIMITS.doc_tags} relevant keywords.
+- has_sensitive_data: true or false.
+- sentiment: one of ${SENTIMENTS.join(', ')}.`;
+
+  const template = options.structured ? '' : `
+
+Respond with ONLY a valid JSON object (no markdown, no explanation):
+{"description": "...", "document_type": "...", "language": "...", "themes": ["..."], "tags": ["..."], "has_sensitive_data": false, "sentiment": "..."}`;
 
   return `Analyze this document and provide a JSON response.
 
@@ -282,16 +416,7 @@ DOCUMENT CONTENT:
 ${text}
 ---
 
-Respond with ONLY a valid JSON object (no markdown, no explanation):
-{
-  "description": "2-4 sentence summary of what this document contains and its purpose",
-  "document_type": "one of: ${DOCUMENT_TYPES.join(', ')}",
-  "language": "primary human language (english, japanese, etc.) or 'code' for programming",
-  "themes": ["array", "of", "main", "topics"],
-  "tags": ["array", "of", "relevant", "keywords"],
-  "has_sensitive_data": false,
-  "sentiment": "neutral, positive, negative, or technical"
-}`;
+${guide}${template}`;
 }
 
 // ============================================================================
@@ -333,7 +458,15 @@ module.exports = {
   getPromptByExtension,
   getDocumentPrompt,
   buildJsonSchema,
+  buildResponseSchema,
+  responseFormat,
+  documentResponseFormat,
   baseJsonSchema,
+  sampleTranscript,
+  usesTranscript,
+  MEDIA_ELEMENT_FIELDS,
+  AUDIO_ELEMENT_FIELDS,
+  LIMITS,
   CONTENT_TYPES,
   DOCUMENT_TYPES,
 };

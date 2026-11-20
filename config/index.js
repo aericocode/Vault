@@ -69,12 +69,24 @@ const config = {
     // Ollama example: AI_MODEL=qwen3.5-4b-uncensored-hauhaucs-aggressive@q4_k_m (a vision model — scans need one)
     model: process.env.AI_MODEL || null,
     temperature: 0.3,
+    // Only for callers that set nothing themselves. Scans no longer use it:
+    // their answer gets the room left in the model's context, up to a guard
+    // (lib/token-budget.js).
     maxTokens: 8000,
+    // Scans ask the model not to think first (reasoning_effort 'none'): on a
+    // reasoning model the thinking ate the answer's room and cut replies off.
+    // AI_SCAN_REASONING=on lets it think again (the answer then gets a larger
+    // allowance, lib/token-budget.js).
+    scanReasoning: process.env.AI_SCAN_REASONING === 'on',
   },
 
   Global_options: {
     // Scan-snippet transcription budget (turbo is fast enough for 8k)
     max_characters_per_transcription: parseInt(process.env.WHISPER_MAX_CHARS) || 8000,
+    // How much of that transcript goes into a video's scan prompt: sampled
+    // from the start, middle and end (config/prompts.js sampleTranscript), and
+    // counted in the request's token budget (lib/token-budget.js).
+    max_transcript_chars_in_prompt: parseInt(process.env.SCAN_TRANSCRIPT_CHARS) || 3000,
   },
 
   // Whisper transcription + subtitle generation (see SUBTITLES_SPEC.md).
