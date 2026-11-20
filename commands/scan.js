@@ -10,6 +10,10 @@ const modelHealth = require('../lib/model-health');
 const operations = require('../lib/operations');
 const { WorkQueue, ProgressTracker } = require('../lib/work-queue');
 
+// model_used for a row whose AI answer was cut off and only its first part,
+// the fields that had fully arrived, was kept (lib/vision-api.js).
+const PARTIAL_MODEL_USED = 'lm-studio (reply cut short)';
+
 // Lazy load modules
 let processors = null;
 let videoTranscriber = null;
@@ -196,6 +200,9 @@ async function processFile(file, options = {}) {
 
     const analysis = result.analysis;
     const metadata = result.metadata;
+    // lib/vision-api.js: how many pictures actually went to the model, and
+    // whether the answer was cut short and only its first part was kept.
+    const scanInfo = (analysis && analysis._scan) || null;
 
     // Audio transcription comes from the audio processor's analysis
     // (analysis.transcription) or the video processor's content
@@ -260,8 +267,11 @@ async function processFile(file, options = {}) {
       },
       transcribedText: analysis.transcribed_text,
       audioTranscription,
-      framesAnalyzed: content?.frames?.length || 0,
-      model: 'lm-studio',
+      framesAnalyzed: scanInfo?.framesSent ?? (content?.frames?.length || 0),
+      // A kept cut-off answer is marked here rather than in a new column: the
+      // detail view shows it as the Model line, and it can be counted with
+      // model_used = PARTIAL_MODEL_USED.
+      model: scanInfo?.partial ? PARTIAL_MODEL_USED : 'lm-studio',
       error: null
     });
 
@@ -290,7 +300,8 @@ async function processFile(file, options = {}) {
       filename,
       analysis,
       elapsed,
-      frames: content?.frames?.length || 0,
+      frames: scanInfo?.framesSent ?? (content?.frames?.length || 0),
+      partial: !!scanInfo?.partial,
       deduped: content?.dedupedFrameCount,
       transcribed: !!audioTranscription,
       processorType: processor.constructor.type,
@@ -498,7 +509,7 @@ async function run(args) {
   const queue = new WorkQueue(maxWorkers);
 
   let processed = 0, skipped = 0, skippedVisionErrors = 0, errors = 0;
-  let transcribedCount = 0, dupeCount = 0, notAttempted = 0;
+  let transcribedCount = 0, dupeCount = 0, notAttempted = 0, cutShortCount = 0;
   const byType = {};
 
   // Abort-on-dead-model. The GUI queue pauses and waits for a person; a CLI has
@@ -572,8 +583,9 @@ async function run(args) {
         byType[file.mediaType] = (byType[file.mediaType] || 0) + 1;
         if (result.transcribed) transcribedCount++;
         if (result.dupeOf) dupeCount++;
+        if (result.partial) cutShortCount++;
 
-        const frameInfo = result.frames ? ` | ${result.frames} frames` : '';
+        const frameInfo = result.frames ? ` | ${result.frames} frames${result.partial ? ', reply cut short' : ''}` : '';
         const transcribeInfo = result.transcribed ? ' | +audio' : '';
         const dupeInfo = result.dupeOf ? ` | ⧉ dupe of ${result.dupeOf}` : '';
         console.log(`✓ ${result.filename} | ${result.analysis.content_type || file.mediaType} | ${result.analysis.language}${frameInfo}${transcribeInfo}${dupeInfo} | ${(result.elapsed/1000).toFixed(1)}s`);
@@ -607,6 +619,9 @@ async function run(args) {
   }
   if (dupeCount > 0) {
     console.log(`Duplicates detected (analysis reused, no AI scan): ${dupeCount}`);
+  }
+  if (cutShortCount > 0) {
+    console.log(`Saved from a reply that was cut short (first fields only): ${cutShortCount}`);
   }
   console.log(`Skipped: ${skipped}${skippedVisionErrors > 0 ? ` (${skippedVisionErrors} with Vision API errors)` : ''}`);
   console.log(`Errors: ${errors}`);
@@ -695,4 +710,4 @@ async function run(args) {
   db.close();
 }
 
-module.exports = { run, processFile, processFileUnified: processFile };
+module.exports = { run, processFile, processFileUnified: processFile, PARTIAL_MODEL_USED };

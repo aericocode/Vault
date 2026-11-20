@@ -717,3 +717,42 @@ test('focus: Cancel in the AI scan view and a section\'s dismiss leave focus in 
   t.act.drop('share');
   assert.strictEqual(doc.activeElement, field);
 });
+
+test('answers saved from a cut-short reply are counted in plain words, never as a failure', async () => {
+  const CUT = '3 saved from a reply that was cut short';
+  const t = load();
+  t.server.queue = { ...RUNNING, done: 1, cutShort: 3 };
+  await t.fire('DOMContentLoaded');
+  await t.tick();
+  assert.ok(t.$('act-ai-detail').innerHTML.includes(CUT), 'in the dropdown while it runs');
+  assert.strictEqual(t.button().state, 'work', 'still just working');
+  t.act.openView('ai');
+  assert.ok(t.$('scanEta').textContent.includes(CUT), 'in the full view while it runs');
+
+  t.server.queue = { ...RUNNING, done: 3, cutShort: 3, active: [], pending: [], pendingCount: 0 };
+  await t.tick();
+  assert.strictEqual(t.$('act-ai-detail').innerHTML, `3 files scanned, ${CUT}`);
+  assert.ok(t.$('scanHeadSub').textContent.includes(CUT), 'in the finished summary');
+  assert.strictEqual(t.$('act-sec-ai').dataset.tone, 'done', 'not amber, not red');
+  assert.strictEqual(t.button().state, 'idle');
+  for (const s of [t.$('act-ai-detail').innerHTML, t.$('scanHeadSub').textContent]) assert.doesNotMatch(s, /\u2014/);
+
+  // None cut short: nothing extra.
+  const u = load();
+  u.server.queue = { ...RUNNING, cutShort: 0 };
+  await u.fire('DOMContentLoaded');
+  await u.tick();
+  assert.doesNotMatch(u.$('act-ai-detail').innerHTML, /cut short/);
+  u.server.queue = { ...RUNNING, done: 3, cutShort: 0, active: [], pending: [], pendingCount: 0 };
+  await u.tick();
+  assert.strictEqual(u.$('act-ai-detail').innerHTML, '3 files scanned');
+  assert.doesNotMatch(u.$('act-ai-detail').innerHTML, /cut short/);
+
+  // AI scan Off: nothing at all.
+  const v = load();
+  v.ctx.vaultAiScan = { isOff: () => true, isAuto: () => false, mode: () => 'off' };
+  v.server.queue = { ...RUNNING, cutShort: 3 };
+  await v.fire('DOMContentLoaded');
+  await v.tick();
+  assert.strictEqual(v.$('act-sec-ai'), null);
+});
