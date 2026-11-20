@@ -421,6 +421,90 @@ test('hostile ffprobe answers: thousands of tags, odd types, huge values, never 
   meta._fromProbe({}, new meta.Found());
 });
 
+/* ── ffmpeg's signature in a comment ───────────────────────────────────── */
+
+// A comment that is ONLY ffmpeg's "Lavc"/"Lavf" and a version is not personal;
+// that signature next to anything else is still a comment.
+const ENCODER_ONLY = ['Lavc62.23.103\0', 'Lavc62.23.103', 'Lavf61.7.100', '  Lavc58.134.100 \r\n', '\0Lavf62.10.101\0\0', 'lavc62.23.103', 'Lavc60'];
+const ENCODER_PLUS = [
+  ['Lavc62.23.103 C:\\Users\\alex\\Pictures', /C:\\Users\\alex/],
+  ['Lavc62.23.103\nC:\\Users\\alex\\Pictures', /C:\\Users\\alex/],
+  ['shot by Alex, Lavc60', /shot by Alex/],
+  ['Lavc62.23.103 shot by Alex', /shot by Alex/],
+  ['Lavf61.7.100\r\nAlex', /Alex/],
+  ['Lavc6 by Sam', /by Sam/],
+  ['Lavc62.23.103.4.5', /Lavc62/],
+  // Text far past the signature, beyond what one value shows, is not cut off unseen.
+  [`Lavc62.23.103${' '.repeat(5000)}Alex`, /Lavc62/],
+  [`Lavc62.23.103${'\0'.repeat(5000)}Alex`, /Lavc62/],
+  ['Holiday with Sam', /^Holiday with Sam$/],
+];
+
+test('ffmpeg signature: a JPEG COM that is only "Lavc62.23.103" (what ffmpeg writes) is clean; with anything else it is still a comment', async () => {
+  for (const value of ENCODER_ONLY) {
+    const r = await meta.detect(put(jpegWith([comSeg(value)])));
+    assert.deepStrictEqual(r, { status: 'clean', kind: 'jpeg', findings: [], orientation: null }, JSON.stringify(value));
+  }
+  for (const [value, want] of ENCODER_PLUS) {
+    const r = await meta.detect(put(jpegWith([comSeg(value)])));
+    assert.strictEqual(r.status, 'personal', JSON.stringify(value));
+    assert.match(labels(r).Comment || '', want, `${JSON.stringify(value)}: ${JSON.stringify(r.findings)}`);
+  }
+  // Between progressive scans too, and next to another COM that is a comment.
+  const mixed = await meta.detect(put(jpegWith([comSeg('Lavc62.23.103\0'), comSeg('Holiday with Sam')], { afterScan: [comSeg('Lavc62.23.103\0')] })));
+  assert.deepStrictEqual(labels(mixed), { Comment: 'Holiday with Sam' });
+});
+
+test('ffmpeg signature: the same in a PNG Comment chunk; ffprobe comment tags are always a comment, signature or not', async () => {
+  for (const value of [...ENCODER_ONLY, 'Lavc6']) {
+    const r = await meta.detect(put(png([tEXt('Comment', value)]), '.png'));
+    assert.deepStrictEqual(r, { status: 'clean', kind: 'png', findings: [], orientation: null }, JSON.stringify(value));
+    // ffprobe cuts a tag value at its first NUL ("Lavc6\0a@b.com" reads as
+    // "Lavc6"), so a value it shows is never trusted to be the whole tag:
+    // even a bare signature in a comment tag is flagged, and cleaned away.
+    for (const tags of [{ COMMENT: value }, { 'comment-eng': value }, { DESCRIPTION: value }]) {
+      const f = new meta.Found();
+      meta._fromProbe({ format: { format_name: 'matroska,webm', tags }, streams: [] }, f);
+      assert.strictEqual(f.personal(), true, `${JSON.stringify(tags)}`);
+      assert.ok(Object.fromEntries(f.findings().map(x => [x.label, x.value])).Comment, JSON.stringify(tags));
+    }
+    const s = new meta.Found();
+    meta._fromProbe({ format: { format_name: 'mp3' }, streams: [{ codec_type: 'audio', tags: { comment: value } }] }, s);
+    assert.strictEqual(s.personal(), true, `stream comment ${JSON.stringify(value)}`);
+  }
+  // "encoded by" keeps its own rule: a versioned program is not a name, a bare "Lavc60" still is.
+  const eb = new meta.Found();
+  meta._fromProbe({ format: { format_name: 'mp3', tags: { encoded_by: 'Lavf61.7.100' } }, streams: [] }, eb);
+  assert.deepStrictEqual(eb.findings(), []);
+  const eb2 = new meta.Found();
+  meta._fromProbe({ format: { format_name: 'mp3', tags: { encoded_by: 'Lavc60' } }, streams: [] }, eb2);
+  assert.deepStrictEqual(eb2.findings(), [{ label: 'Name', value: 'Lavc60' }]);
+  for (const [value, want] of ENCODER_PLUS) {
+    const r = await meta.detect(put(png([iTXt('Comment', value)]), '.png'));
+    assert.match(labels(r).Comment || '', want, `${JSON.stringify(value)}: ${JSON.stringify(r.findings)}`);
+    const f = new meta.Found();
+    meta._fromProbe({ format: { format_name: 'mp3', tags: { comment: value } }, streams: [] }, f);
+    assert.match(Object.fromEntries(f.findings().map(x => [x.label, x.value])).Comment || '', want, JSON.stringify(value));
+  }
+  // A tag comment that only STARTS with a program's name is still a comment.
+  const g = new meta.Found();
+  meta._fromProbe({ format: { format_name: 'mp3', tags: { comment: 'Photoshop edit of our trip' } }, streams: [] }, g);
+  assert.deepStrictEqual(g.findings(), [{ label: 'Comment', value: 'Photoshop edit of our trip' }]);
+});
+
+test('ffmpeg signature: a JPEG flagged for something else is still cleaned, signature COM and all', async () => {
+  const src = put(jpegWith([exifSeg(tiff({ gps: GPS })), comSeg('Lavc62.23.103\0')]));
+  const known = await meta.detect(src);
+  assert.strictEqual(known.status, 'personal');
+  assert.deepStrictEqual(Object.keys(labels(known)), ['Location'], 'the signature is not a finding');
+  const dst = path.join(stageDir(), 'frame.jpg');
+  await meta.cleanCopy({ src, dst, known });
+  const out = fs.readFileSync(dst);
+  assert.ok(!jpegSegments(out).some(s => s.m === 0xfe), 'no COM in the copy');
+  assert.ok(!out.includes(Buffer.from('Lavc')));
+  assert.strictEqual((await meta.detect(dst)).status, 'clean');
+});
+
 /* ── Cleaners ──────────────────────────────────────────────────────────── */
 
 function stageDir() {
