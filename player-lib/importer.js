@@ -391,6 +391,7 @@
             class="dq-num m-field" id="scanWorkersNum" data-scan-workers aria-label="Scans at once, per copy of the model"
             title="${WORKERS_TIP}"></label>
         </div>
+        <div class="sp-ctxuse" id="scanCtxUse" hidden></div>
         <div class="sp-waitline" id="scanWaitLine" hidden></div>
         <div class="dq-inst" id="scanInst" hidden></div>
         <div class="dq-notice" id="scanNotice" hidden></div>
@@ -1077,6 +1078,7 @@
     if (q.model && q.model.name) bits.push(`${q.model.name}${copies > 1 ? ` (${copies} copies)` : ''}`);
     if (cutShortWords(q)) bits.push(cutShortWords(q));
     el.querySelector('#scanEta').textContent = bits.join(' · ');
+    renderCtxUse(el, q);
 
     renderWaiting(q);
 
@@ -1131,10 +1133,39 @@
     return n > 0 ? `${fmtN(n)} saved from a reply that was cut short` : '';
   }
 
+  /**
+   * How much of the model's context scans have really used (the server's own
+   * token counts, lib/context-use.js), so a smaller context can be judged on
+   * numbers. One quiet line; nothing until a scan has reported its numbers,
+   * and nothing with AI scan Off.
+   */
+  function ctxUseWords(u) {
+    if (!u || n0(u.count) < 1 || n0(u.maxTotal) < 1) return '';
+    const of = n0(u.context) > 0 ? ` of ${fmtN(u.context)}` : '';
+    let s = `Largest scan so far used ${fmtN(u.maxTotal)}${of} tokens (${plural(n0(u.count), 'scan')})`;
+    if (n0(u.p95) > 0) s += `. 95 in 100 used ${fmtN(u.p95)} or less`;
+    return s;
+  }
+
+  function renderCtxUse(el, q) {
+    const line = el.querySelector('#scanCtxUse');
+    if (!line) return;
+    const u = q && q.contextUse;
+    const text = aiOff() ? '' : ctxUseWords(u);
+    line.hidden = !text;
+    line.textContent = text;
+    line.title = text
+      ? `Counted by the AI server. Largest prompt ${fmtN(u.maxPrompt)} tokens, largest answer ${fmtN(u.maxAnswer)} tokens, `
+        + `at most ${plural(n0(u.maxFrames), 'picture')} in one scan.`
+        + (n0(u.context) > 0 ? ' The second number is the context the model is loaded with.' : '')
+      : '';
+  }
+
   /** The words a wait shows, on the Waiting tab and in the Activity section. */
   function waitWords(w) {
     if (w.code === 'playback') return 'Waiting for playback to stop';
     if (w.gpuBusy) return 'Waiting for the GPU to be free';
+    if (w.code === 'lm-busy') return 'Waiting for LM Studio to answer';
     return w.code === 'loading' ? 'Loading the scan model' : 'Waiting for the scan model';
   }
 
@@ -1219,6 +1250,7 @@
     el.querySelector('#scanBarFill').style.width = `${failed ? pct : 100}%`;
     el.querySelector('#scanBarFail').style.width = `${failed ? 100 - pct : 0}%`;
     el.querySelector('#scanMeta').hidden = true;   // keeps the stepper node alive
+    renderCtxUse(el, q);
     el.querySelector('#scanList').innerHTML = '';
     // Nothing left to pause or cancel: the head's close is a plain dismiss here.
     el.querySelector('#scanActions').hidden = true;
@@ -1363,7 +1395,7 @@
       // A wait is said once too (the button turns amber): it clears itself.
       if (q.waiting && q.waiting.since && q.waiting.since !== _waitNotified && !q.waiting.gpuBusy && !aiOff()) {
         _waitNotified = q.waiting.since;
-        showToast('⏳ AI scan is waiting for the scan model');
+        showToast(q.waiting.code === 'lm-busy' ? '⏳ AI scan is waiting for LM Studio to answer' : '⏳ AI scan is waiting for the scan model');
       }
 
       // Done: nothing running, nothing queued or waiting.

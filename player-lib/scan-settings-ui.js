@@ -93,7 +93,7 @@
     if (data && !data.canLoad) {
       return `Vault cannot load models here (${h(cannotLoadWords(data.cannotLoadReason))}). With "Wait until I load it" files wait for you; otherwise they go out and LM Studio loads the model itself if it can.`;
     }
-    return 'Room means free memory on the graphics card, read from the NVIDIA driver. Other cards wait unless you pick Always. When Vault loads the model it asks for about 75k of context (75000).';
+    return 'Room means free memory on the graphics card, read from the NVIDIA driver. Other cards wait unless you pick Always. When Vault loads the model it asks for about 32k of context (32768).';
   }
 
   function html() {

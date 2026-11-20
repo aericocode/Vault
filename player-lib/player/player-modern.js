@@ -335,6 +335,19 @@ const ModernDock = (() => {
   /** Played part, knob, ridge: on every timeupdate and after a seek. */
   function update() {
     if (!mounted() || !st.segs.length) return;
+    paintPlayhead();
+    if (st.hover) drawRidge();
+  }
+
+  /**
+   * Played part and knob only, from the video's time now: every animation
+   * frame while it plays (player-smooth.js). Writes only (the ridge, which
+   * measures its canvas, keeps the timeupdate cadence). A drag on the bar
+   * wins: its own seek draws the bar.
+   */
+  function paintPlayhead(fromFrame) {
+    if (!mounted() || !st.segs.length) return;
+    if (fromFrame && st.dragging) return;
     const el = videoEl();
     const t = el ? el.currentTime || 0 : 0;
     const spans = st.segsEl.children;
@@ -344,7 +357,6 @@ const ModernDock = (() => {
       if (bar) bar.style.width = (f * 100) + '%';
     });
     st.knob.style.left = xOf(t) + 'px';
-    if (st.hover) drawRidge();
   }
 
   /* ── The heat ridge ───────────────────────────────────────────────── */
@@ -1068,7 +1080,7 @@ const ModernDock = (() => {
   }
 
   return {
-    mounted, mount, unmount, update, refreshMarks, rebuild, drawAb,
+    mounted, mount, unmount, update, paintPlayhead, refreshMarks, rebuild, drawAb,
     syncVolume, syncDevice, toggleSpeedList, toggleGear, closeMenu, menuOpen,
     hold, pointerMove, applyFold,
   };

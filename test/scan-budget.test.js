@@ -20,6 +20,17 @@
 
 require('./helpers/no-real-lm');   // never the user's own LM Studio
 const test = require('node:test');
+
+// The server code under test logs a line or more per scan (and the database
+// one per migration). Node's test runner reads this file's output through
+// the same pipe as its own messages, and with a lot of plain output it now
+// and then misreads one ("Unable to deserialize cloned data") and fails the
+// whole file in a parallel run. So the console is quiet for this file; a
+// test that checks what was logged catches it itself, and assertion
+// failures are reported by the runner, not the console.
+const _console = { log: console.log, warn: console.warn, error: console.error, info: console.info };
+console.log = console.warn = console.error = console.info = () => {};
+test.after(() => { Object.assign(console, _console); });
 const assert = require('node:assert');
 const http = require('node:http');
 const fs = require('node:fs');
@@ -663,4 +674,75 @@ test('a context error that mentions reasoning does not switch reasoning or the s
   assert.ok(!llm.endpointRejects(base, 'reasoning_effort'));
   assert.ok(!llm.endpointRejects(base, 'response_format'));
   assert.ok(srv.reqs.every(r => r.reasoning_effort === 'none' && r.response_format));
+});
+
+/* ── Context use (lib/context-use.js) ─────────────────────────────────── */
+
+function captureLog(fn) {
+  const lines = [];
+  const { log, warn, error } = console;
+  console.log = console.warn = console.error = (...a) => lines.push(a.join(' '));
+  return Promise.resolve().then(fn).finally(() => { console.log = log; console.warn = warn; console.error = error; }).then(() => lines, (e) => { e.lines = lines; throw e; });
+}
+
+test('each scan records what the server counted, once, from its largest reply, and it survives a restart', async () => {
+  const contextUse = require('../lib/context-use');
+  contextUse._reset();
+  try { fs.rmSync(contextUse._file()); } catch {}
+  await fresh({ ctx: 65536, script: ['length', 'ok'], cutAt: 30 });
+  const lines = await captureLog(() => vision.analyze(FRAMES, 'secret-name.mp4', 'video'));
+  const prompt = (r) => Math.ceil(r.text.length / 4) + r.images * srv.perImage + 10;
+  const totals = [prompt(srv.reqs[0]) + srv.reqs[0].max_tokens, prompt(srv.reqs[1]) + 300];
+  const s = contextUse.summary('vis');
+  assert.strictEqual(s.count, 1, 'one scan, however many replies');
+  assert.strictEqual(s.maxTotal, Math.max(...totals));
+  assert.strictEqual(s.context, 65536, 'the context the model is loaded with');
+  assert.strictEqual(s.maxFrames, srv.reqs[totals[0] >= totals[1] ? 0 : 1].images);
+  assert.strictEqual(s.p95, null, 'too few scans for a percentile');
+  const line = lines.find(l => /Context use:/.test(l));
+  assert.match(line, /Context use: \d+ prompt \+ \d+ answer = \d+ of 65536 tokens, \d+ pictures \(vis/);
+  assert.ok(line.includes(`= ${s.maxTotal} of 65536 tokens`), line);
+  assert.doesNotMatch(lines.join('\n'), /Context use:.*secret-name/, 'no file name on the line');
+  // A copy of the model (vis:2) counts as the same model.
+  contextUse.record({ model: 'vis:2', promptTokens: 100, completionTokens: 10, frames: 1, context: 65536 });
+  assert.strictEqual(contextUse.summary('vis').count, 2);
+  // Saved, and read back after a restart.
+  contextUse._saveNow();
+  contextUse._reset();
+  assert.deepStrictEqual(contextUse.summary('vis'), { ...s, count: 2 });
+  const saved = fs.readFileSync(contextUse._file(), 'utf8');
+  assert.doesNotMatch(saved, /secret-name/);
+});
+
+test('context use: the 95 in 100 figure, and readings that are not counts are ignored', () => {
+  const contextUse = require('../lib/context-use');
+  contextUse._reset();
+  try { fs.rmSync(contextUse._file()); } catch {}
+  assert.strictEqual(contextUse.summary('m'), null, 'nothing recorded: nothing to show');
+  assert.strictEqual(contextUse.record({ model: 'm', promptTokens: 'lots', completionTokens: 5 }), null);
+  assert.strictEqual(contextUse.record({ model: 'm', promptTokens: -1 }), null);
+  for (let i = 1; i <= 100; i++) contextUse.record({ model: 'm', promptTokens: i * 100, completionTokens: 0, frames: 2, context: 20000 });
+  const s = contextUse.summary('m');
+  assert.strictEqual(s.count, 100);
+  assert.strictEqual(s.maxTotal, 10000);
+  assert.strictEqual(s.p95, 9500);
+  assert.strictEqual(contextUse.summary('never-scanned').model, 'm', 'falls back to the model scanned last');
+});
+
+test('a scan failure logs one line that says why: HTTP status, finish, model, context, pictures', async () => {
+  await fresh({ ctx: 65536, script: ['length', 'length', 'length'], cutAt: 30 });
+  let lines = [];
+  await assert.rejects(captureLog(() => vision.analyze(FRAMES, 'v.mp4', 'video')), (e) => { lines = e.lines; return true; });
+  const fail = lines.filter(l => /Vision API error/.test(l));
+  assert.strictEqual(fail.length, 1);
+  assert.match(fail[0], /\[HTTP 200, finish length, model vis, context 65536, pictures \d+, attempt 3\]$/);
+
+  await fresh({ ctx: 65536, rejectFormat: true });
+  srv.rejectFormat = false;
+  srv.script = [];
+  // A plain HTTP failure: the status is on the line.
+  srv.realCtx = 10;      // every request too big, and the minimum still too big
+  lines = [];
+  await assert.rejects(captureLog(() => vision.analyze(FRAMES, 'w.mp4', 'video')), (e) => { lines = e.lines; return true; });
+  assert.match(lines.find(l => /Vision API error/.test(l)), /\[HTTP 400, model vis, context 65536, pictures \d+, attempt 3\]$/);
 });

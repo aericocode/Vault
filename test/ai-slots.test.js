@@ -585,7 +585,9 @@ test.after(() => { slots.stop(); });
 
    The skip that fixes it is bounded twice over, because "report nothing" must
    never let a dead server look alive: /v1/models has to still answer in the
-   same probe, and only V0_SKIP_PROBES (4) failures in a row are tolerated. */
+   same probe, and only V0_QUIET_MS (three minutes) of quiet in a row is
+   tolerated. It was four looks in a row; that let anything that looks often
+   (Try now, a Rescan polling) use the patience up in two seconds. */
 
 async function seeV0() {
   served = ['m', 'big-model-nobody-loaded', 'another-download'];
@@ -637,22 +639,29 @@ test('both routes failing is a dead server, not a quiet v0', async () => {
 
 test('a permanently broken v0 falls through after the cap', async () => {
   await seeV0();
+  let t = Date.now();
+  slots._setClock(() => t);
 
-  // v0 is 500ing for good while the server itself answers. Four probes in a
-  // row are tolerated; the fifth gives up and uses the old /v1/models
-  // behaviour, so a broken v0 cannot freeze the picture for ever.
+  // v0 is 500ing for good while the server itself answers. Three minutes of
+  // that are tolerated, however many probes fall inside them; the first probe
+  // after gives up and uses the old /v1/models behaviour, so a broken v0
+  // cannot freeze the picture for ever.
   servedV0 = null;
   v0Status = 500;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 8; i++) {
     await slots.refresh({ force: true });
-    assert.deepStrictEqual(live(), ['m'], `probe ${i + 1} still skips`);
+    assert.deepStrictEqual(live(), ['m'], `probe ${i + 1} still skips: looking often does not shorten it`);
+    t += 20_000;
   }
+  assert.strictEqual(slots.endpointStates()[0].unverified, false);
+  t += 30_000;                       // 3 minutes 10 seconds of it, looked at all along
   await slots.refresh({ force: true });
   assert.deepStrictEqual(
     live(),
     ['another-download', 'big-model-nobody-loaded', 'm'],
-    'the fifth falls back to the whole /v1/models list',
+    'after the time is up it falls back to the whole /v1/models list',
   );
+  assert.strictEqual(slots.endpointStates()[0].unverified, true, 'and says that list is not what LM Studio has loaded');
 
   // One good answer and the streak is forgotten, so the next hiccup gets the
   // full allowance again.
@@ -663,7 +672,17 @@ test('a permanently broken v0 falls through after the cap', async () => {
   ];
   await slots.refresh({ force: true });
   assert.deepStrictEqual(live(), ['m']);
+  assert.strictEqual(slots.endpointStates()[0].unverified, false);
   servedV0 = null;
   await slots.refresh({ force: true });
   assert.deepStrictEqual(live(), ['m'], 'the allowance reset with the v0 success');
+
+  // Two quiet looks four minutes apart, with nobody looking in between, are
+  // two blips, not four minutes of quiet: the picture still stands.
+  t += 240_000;
+  await slots.refresh({ force: true });
+  assert.deepStrictEqual(live(), ['m'], 'two isolated quiet looks do not add up');
+  assert.strictEqual(slots.endpointStates()[0].unverified, false);
+  assert.strictEqual(slots.lmBusy(), false);
+  slots._setClock(null);
 });

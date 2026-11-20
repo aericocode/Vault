@@ -124,6 +124,12 @@ body.layout-modern .header-buttons[data-status="both"] #lovenseChip {
   box-shadow: var(--shadow-lg);
 }
 .hdr-add-menu[hidden] { display: none; }
+/* The menu lives inside the top bar, which stacks under the preview pane and
+   the filter rail (100 against 150), so its own 200 only counts inside the
+   bar. While it is open the bar is lifted over them, still under modals
+   (200+) and the player (300); closed, the bar is back at 100. The same rule
+   as the Activity dropdown's (css/activity.css). */
+.header:has(.hdr-add-menu:not([hidden])) { z-index: 160; }
 .hdr-add-item {
   display: block;
   width: 100%;

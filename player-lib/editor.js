@@ -1335,7 +1335,16 @@ function buildMixUi(ctx) {
     if (currentTimeEl) currentTimeEl.textContent = formatDuration(m.currentTime) || '0:00';
     if (totalTimeEl) totalTimeEl.textContent = dur > 0 ? formatDuration(dur) : '0:00';
     mixCheckAbLoop();
+    if (barLoop && !m.paused && !m.ended) barLoop.kick();
   }
+  // The line moves every animation frame while the master plays (SmoothProgress);
+  // the tick above keeps the labels and A-B, and starts the loop again after a pause.
+  const barLoop = typeof SmoothProgress !== 'undefined' ? SmoothProgress.loop(() => {
+    const m = masterVideo();
+    if (!progressBar || !progressBar.isConnected || !m || m.paused || m.ended) return false;
+    if (m.duration > 0) progressBar.style.width = SmoothProgress.pct(SmoothProgress.fraction(m.currentTime, m.duration));
+    return true;
+  }) : null;
   uiTimer = setInterval(uiTick, 200);
 
   /* ---- Playback speed (applied to every track — sync needs one clock) ---- */
@@ -2241,6 +2250,7 @@ function buildMixUi(ctx) {
       stopExportPoll();
       cancelAnimationFrame(syncRaf);
       if (uiTimer) { clearInterval(uiTimer); uiTimer = null; }
+      if (barLoop) barLoop.dispose();
       window.removeEventListener('keydown', onKeydown);
       if (window.BeatBar) BeatBar.detach();
       videos.forEach(v => { try { v.pause(); v.src = ''; v.load(); } catch {} });
