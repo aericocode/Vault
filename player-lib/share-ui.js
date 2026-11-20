@@ -362,7 +362,7 @@ async function shareCopyText(text, done) {
 
 let _shareWin = null;   // the open window, or null
 
-const SHARE_PHASE_WORDS = { staging: 'Getting the files ready', packing: 'Packing', checking: 'Checking the archive' };
+const SHARE_PHASE_WORDS = { staging: 'Getting the files ready', packing: 'Packing and encrypting', checking: 'Checking the archive' };
 
 /**
  * Open the window for these library files (step 1). collectionName: the share
@@ -463,20 +463,22 @@ function shareWindowClose() {
   w.preview = null; w.share = null; w.progress = null;
 }
 
-/** Close, or on steps 2 and 3 ask first, since closing there deletes the packed archive. */
+/**
+ * Close (X, Esc, Close, Keep using Vault). On steps 2 and 3 this only hides
+ * the window: a share waiting to pack, packing, or packed and waiting for the
+ * check carries on in My shares. Only "Cancel and delete archive" cancels.
+ */
 async function shareWindowRequestClose() {
   const w = _shareWin;
   if (!w) return;
-  if (['packing', 'checked', 'confirm'].includes(w.step) && w.id) {
-    const yes = typeof vaultConfirm === 'function' ? await vaultConfirm(
-      'Closing stops this share and deletes the packed archive. Nothing has been uploaded.',
-      { title: 'Delete the packed archive?', okLabel: 'Delete archive', cancelLabel: 'Keep it open', danger: true },
-    ) : true;
-    if (!yes || w !== _shareWin) return;
-    await shareCancelArchive();
-    return;
-  }
+  const step = w.step;
+  const kept = w.id && ['queued', 'packing', 'checked', 'confirm'].includes(step);
   shareWindowClose();
+  if (kept) {
+    shToast(step === 'checked' || step === 'confirm' ? 'Packed and waiting for you in My shares. Nothing was uploaded.'
+      : step === 'queued' ? 'Waiting to pack. It carries on in My shares.' : 'Packing carries on in My shares.');
+    shareStatePollSoon();
+  }
 }
 
 /** Ask the server where this share is, and pick the step from it. */
@@ -497,7 +499,8 @@ async function shareWindowRefresh() {
   w.progress = p;
   const before = w.step;
   let next = before;
-  if (p.status === 'packing') next = 'packing';
+  if (p.status === 'queued') next = 'queued';
+  else if (p.status === 'packing') next = 'packing';
   else if (p.status === 'checked') next = before === 'confirm' ? 'confirm' : 'checked';
   // 'stopping': Stop and delete is running; stay on 3b (its buttons go off) until it ends.
   else if (['uploading', 'paused', 'not_finished', 'stopping'].includes(p.status)) next = 'upload';
@@ -505,7 +508,10 @@ async function shareWindowRefresh() {
   else if (p.status === 'failed') next = 'failed';
   else next = 'ended';
   // The share's own fields (name, size, password kind) when the step needs them.
-  if (next !== 'packing' && (!w.share || next !== before)) {
+  // (While waiting or packing only once, for the size line, when the window
+  // was opened from My shares.)
+  const fetchShare = next === 'packing' || next === 'queued' ? !w.share : (!w.share || next !== before);
+  if (fetchShare) {
     try {
       const r = await shareApi('GET', `/shares/${w.id}`, null, { background: true });
       if (w !== _shareWin) return;
@@ -517,6 +523,8 @@ async function shareWindowRefresh() {
   w.step = next;
   if (next === before && next === 'upload') shareUploadUpdate();
   else if (next === before && next === 'packing') sharePackingUpdate();
+  else if (next === before && next === 'queued') shareQueuedUpdate();
+  else if (next === before && next === 'checked') shareCheckedNoteUpdate();
   // A step that has not changed is left alone: drawing it again would drop
   // a shown password, a message or the focus.
   else if (next !== before) shareWindowRender();
@@ -527,7 +535,7 @@ function shareWindowPoll() {
   const w = _shareWin;
   if (!w || !w.id) return;
   clearTimeout(w.timer);
-  const live = ['packing', 'upload'].includes(w.step) || w.step === 'loading';
+  const live = ['queued', 'packing', 'upload'].includes(w.step) || w.step === 'loading';
   w.timer = setTimeout(async () => {
     if (w !== _shareWin) return;
     await shareWindowRefresh();
@@ -606,6 +614,7 @@ function shareWindowRender() {
   const html = {
     loading: () => `${shareHead('', 'Share privately', 'Getting things ready.')}<p class="vault-modal-hint">One moment.</p>`,
     review: shareReviewHtml,
+    queued: shareQueuedHtml,
     packing: sharePackingHtml,
     checked: shareCheckedHtml,
     confirm: shareConfirmHtml,
@@ -728,6 +737,10 @@ function shareReviewHtml(w) {
   const noSpace = p.enoughSpace === false;
   const blocked = noSpace || p.sevenZipFound === false;
   const intro = 'Review what will be packed. Nothing is uploaded yet.';
+  // "When packing is done" is "Upload on its own": a tick box here is the
+  // go-ahead (the server needs it, confirmUpload: true); left unticked, the
+  // share waits for the check as usual.
+  const auto = p.afterPack === 'upload';
   const sub = w.collectionName ? { html: `Collection: ${sharePrivSpan(w.collectionName)}. ${shEsc(intro)}` } : intro;
   const big = (Number(p.totalBytes) || 0) >= SHARE_LARGE_BYTES;
   // A long list folds to its first few rows; "and N more files" opens the rest.
@@ -778,12 +791,38 @@ function shareReviewHtml(w) {
     <p class="vault-modal-hint">${typedOk ? 'A name you type is not hidden: gofile and anyone with the link can read it. ' : ''}${shEsc(space)} ${shEsc(splitWords)}</p>
     ${noSpace ? `<div class="vault-modal-err" role="alert">${shIcon('alert')}<span>There is not enough free space to pack these files.${p.missingBytes ? ` ${shEsc(shareSize(p.missingBytes))} more is needed.` : ''}</span></div>` : ''}
     ${p.sevenZipFound === false ? `<div class="vault-modal-err" role="alert">${shIcon('alert')}<span>Vault could not find its 7-Zip program, so it cannot pack files.</span></div>` : ''}
+    ${auto ? shareAutoBlockHtml(w, s) : ''}
+    ${p.packBusy && !blocked ? '<p class="vault-modal-hint" data-sh-packbusy>Another share is being packed. This one waits its turn and starts on its own, so you can keep using Vault meanwhile.</p>' : ''}
     <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
     <div class="vault-modal-actions share-actions">
       <span class="share-sp"></span>
       <button type="button" class="vault-btn" data-sh-act="close">Cancel</button>
       <button type="button" class="vault-btn vault-btn-primary" data-sh-act="pack"${blocked ? ' disabled' : ''}>Pack files</button>
     </div>`;
+}
+
+/**
+ * Step 1 with "Upload on its own": what it means, and the tick box that says
+ * so for this share. The password note shows when the password of this share
+ * would not be kept (a new random one while "Passwords of past shares" is
+ * off): it then waits to be seen, so it is never lost unseen.
+ */
+function shareAutoBlockHtml(w, s) {
+  return `
+    <div class="share-warn" data-sh-auto>When packing is done is set to Upload on its own. Once this share is packed and checked, Vault uploads it to gofile.io without asking again. After that, anyone with the link and the password can download the files until the upload is deleted.</div>
+    <label class="share-tick">
+      <input type="checkbox" id="shAutoTick"${w.autoTicked ? ' checked' : ''}>
+      <span>Upload this archive to gofile.io on its own once it is packed and checked. These files are mine to share under gofile's terms.</span>
+    </label>
+    <p class="vault-modal-hint">Leave it unticked and Vault waits for you to check the archive first.</p>
+    <p class="vault-modal-hint" data-sh-autopw${shareAutoPasswordLost(w, s) ? '' : ' hidden'}>Vault is not keeping the passwords of past shares, so this share waits for you to see its password before it uploads.</p>`;
+}
+
+/** Would a share started now lose its password unseen (a new random one, not remembered)? */
+function shareAutoPasswordLost(w, s) {
+  const src = w && w.m && w.m.q && w.m.q('#shPwSrc');
+  const choice = src ? src.value : ((w && w.preview && w.preview.savedPasswordSet && w.preview.passwordChoice) || 'random');
+  return choice !== 'saved' && s.rememberPasswords === false;
 }
 
 /*
@@ -841,6 +880,9 @@ async function sharePack() {
     deleteAfterDays: Number(q('#shExpiry').value),
   };
   if (name) body.name = name;
+  // Only with "Upload on its own" in force and its tick box ticked.
+  const autoTick = q('#shAutoTick');
+  if (autoTick && autoTick.checked && w.preview && w.preview.afterPack === 'upload') body.confirmUpload = true;
   w.busy = true;
   btn.disabled = true;
   btn.textContent = 'Starting…';
@@ -855,7 +897,8 @@ async function sharePack() {
     }
     w.id = r.share.id;
     w.share = r.share;
-    w.step = 'packing';
+    // A share started while another packs waits its turn in the pack line.
+    w.step = r.share.status === 'queued' ? 'queued' : 'packing';
     w.progress = null;
     shareWindowRender();
     shareWindowPoll();
@@ -869,19 +912,69 @@ async function sharePack() {
   }
 }
 
-/* Step 2, while packing. */
+/* Step 2, waiting to pack and packing. Both can be left: the window hides
+   and the share carries on in My shares. */
+
+/** "Collection: Summer 2026, 48 files, 14.2 GB. Nothing is uploaded yet." (the collection only from this window). */
+function sharePackingSub(w) {
+  const p = w.preview || {};
+  const share = w.share || {};
+  const files = p.files ? p.files.length : Number(share.fileCount) || 0;
+  const bytes = p.files ? p.totalBytes : share.sizeBytes;
+  const facts = `${files.toLocaleString()} ${files === 1 ? 'file' : 'files'}${bytes ? `, ${shareSize(bytes)}` : ''}. Nothing is uploaded yet.`;
+  return w.collectionName ? { html: `Collection: ${sharePrivSpan(w.collectionName)}, ${shEsc(facts)}` } : facts;
+}
+
+/** The quiet line under the bar: the user need not wait here. */
+function sharePackingInfo(w) {
+  const own = !!((w.progress && w.progress.uploadsOnItsOwn) || (w.share && w.share.uploadsOnItsOwn));
+  return own
+    ? 'You do not need to wait here. Packing carries on in My shares while you use Vault, and once it is packed and checked it uploads on its own. The drive may feel slower until then.'
+    : 'You do not need to wait here. Packing carries on in My shares while you use Vault, and it will be ready for you to check when it is done. The drive may feel slower until then.';
+}
+
+function shareQueuedHtml(w) {
+  const ahead = (w.progress && w.progress.waitingFor) || (w.share && w.share.waitingFor) || '';
+  return `
+    ${shareHead('Step 2 of 4', 'Waiting to pack', sharePackingSub(w))}
+    <div class="share-block">
+      <div class="share-mut" data-sh-waitfor>${shareWaitForHtml(ahead)}</div>
+    </div>
+    <p class="vault-modal-hint">Vault packs one share at a time. This one starts on its own, so you can keep using Vault meanwhile.</p>
+    <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
+    <div class="vault-modal-actions share-actions">
+      <button type="button" class="vault-btn" data-sh-act="cancel-archive">Cancel this share</button>
+      <span class="share-sp"></span>
+      <button type="button" class="vault-btn vault-btn-primary" data-sh-act="close" data-sh-first>Keep using Vault</button>
+    </div>`;
+}
+
+/** "Starts when <name> is packed", the name blurred under privacy. */
+function shareWaitForHtml(ahead) {
+  return ahead ? `Starts when ${sharePrivSpan(ahead)} is packed.` : 'Starts when the share before it is packed.';
+}
+
+function shareQueuedUpdate() {
+  const w = _shareWin;
+  if (!w || w.step !== 'queued') return;
+  const el = w.m.q('[data-sh-waitfor]');
+  const html = shareWaitForHtml((w.progress && w.progress.waitingFor) || '');
+  if (el && el.innerHTML !== html) { el.innerHTML = html; sharePrivacyChanged(el); }
+}
 
 function sharePackingHtml(w) {
   return `
-    ${shareHead('Step 2 of 4', 'Check the archive', 'Packing and testing on this computer. Still nothing uploaded.')}
+    ${shareHead('Step 2 of 4', 'Packing', sharePackingSub(w))}
     <div class="share-block" data-sh-packing>
       <div class="share-row-between share-mut"><span data-sh-phase>Getting the files ready</span><span data-sh-pct></span></div>
       ${shareBar(0, 'Packing progress')}
     </div>
+    <p class="vault-modal-hint" data-sh-bginfo>${shEsc(sharePackingInfo(w))}</p>
     <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
     <div class="vault-modal-actions share-actions">
       <button type="button" class="vault-btn" data-sh-act="cancel-archive">Cancel and delete archive</button>
       <span class="share-sp"></span>
+      <button type="button" class="vault-btn vault-btn-primary" data-sh-act="close" data-sh-first>Keep using Vault</button>
     </div>`;
 }
 
@@ -907,11 +1000,13 @@ async function shareCancelArchive() {
   const w = _shareWin;
   if (!w || !w.id || w.busy) return;
   w.busy = true;
+  const waiting = w.step === 'queued';
   try {
     await shareApi('POST', `/shares/${w.id}/cancel`, {});
     if (w !== _shareWin) return;
     shareWindowClose();
-    shToast('Stopped. The packed archive was deleted.');
+    shToast(waiting ? 'Cancelled. Nothing was packed.' : 'Stopped. The packed archive was deleted.');
+    shareStatePollSoon();
   } catch (err) {
     if (w !== _shareWin) return;
     if (err.code === 'NOT_FOUND') { shareWindowClose(); return; }
@@ -963,6 +1058,7 @@ function shareCheckedHtml(w) {
       ${shareCheckRow(!!(c.listWithoutPassword && c.listWithoutPassword.ok), 'File names are hidden', 'Listing the archive without the password was refused.')}
       ${shareCheckRow(true, typed ? 'Archive name (you typed it, so anyone with the link can read it)' : 'Archive name (random, change it on step 1)', { html: shareArchiveLineHtml(share, c) }, true)}
     </div>
+    <div class="share-warn" data-sh-autonote${shareCheckedNote(w) ? '' : ' hidden'}>${shEsc(shareCheckedNote(w))}</div>
     ${sharePasswordBlockHtml(w, pwLabel)}
     <p class="vault-modal-hint">Without this password nobody can open the archive, including gofile.</p>
     <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
@@ -971,6 +1067,19 @@ function shareCheckedHtml(w) {
       <span class="share-sp"></span>
       <button type="button" class="vault-btn vault-btn-primary" data-sh-act="to-confirm">Continue</button>
     </div>`;
+}
+
+/** Why a share set to upload on its own is still waiting here (the server's words), or ''. */
+function shareCheckedNote(w) {
+  return String((w.progress && w.progress.error) || '');
+}
+
+function shareCheckedNoteUpdate() {
+  const w = _shareWin;
+  if (!w || w.step !== 'checked') return;
+  const el = w.m.q('[data-sh-autonote]');
+  const text = shareCheckedNote(w);
+  if (el && el.textContent !== text) { el.textContent = text; el.hidden = !text; }
 }
 
 /** Show (or hide) the share's password in #shPw; Copy puts it on the clipboard. */
@@ -1355,8 +1464,16 @@ function shareWireWindow(w) {
   // Step 1's folded list opens and closes in place (a new draw would drop what was typed).
   const more = box.querySelector('[data-sh-more]');
   if (more) more.addEventListener('click', () => shareToggleFiles(w, more));
+  // Upload on its own (step 1): the tick is kept across a redraw, and the
+  // password note follows the password picked.
+  const autoTick = box.querySelector('#shAutoTick');
+  if (autoTick) autoTick.addEventListener('change', () => { w.autoTicked = autoTick.checked; });
+  const pwSrc = box.querySelector('#shPwSrc');
+  const autoPw = box.querySelector('[data-sh-autopw]');
+  if (pwSrc && autoPw) pwSrc.addEventListener('change', () => { autoPw.hidden = !shareAutoPasswordLost(w, (_shareState && _shareState.settings) || {}); });
   const name = box.querySelector('#shName');
   if (name) name.addEventListener('input', () => {
+
     const li = box.querySelector('[data-sh-namewords]');
     if (li) li.textContent = name.value.trim() ? 'One encrypted 7z archive with the name you typed' : 'One encrypted 7z archive with a random name';
   });
@@ -1365,7 +1482,7 @@ function shareWireWindow(w) {
 
 /* ── Top bar icon ─────────────────────────────────────────────────────── */
 
-let _shareTop = { popOpen: false, detail: null, samples: [] };
+let _shareTop = { popOpen: false };
 
 function shareEnsureTopBar() {
   let wrap = document.getElementById('sharePillWrap');
@@ -1379,8 +1496,8 @@ function shareEnsureTopBar() {
   const icon = typeof vaultIconSwap === 'function' ? vaultIconSwap('📤', 'upload') : '📤';
   wrap.innerHTML = `
     <button type="button" class="header-btn share-pill" id="sharePill" aria-haspopup="dialog" aria-expanded="false"
-            aria-controls="sharePop" aria-label="Share upload">${icon}<span class="share-pill-badge" id="sharePillBadge" hidden></span></button>
-    <div class="watch-pop share-pop" id="sharePop" role="dialog" aria-label="Share upload" hidden></div>`;
+            aria-controls="sharePop" aria-label="My shares">${icon}<span class="share-pill-badge" id="sharePillBadge" hidden></span></button>
+    <div class="watch-pop share-pop" id="sharePop" role="dialog" aria-label="Shares" hidden></div>`;
   const refresh = document.getElementById('refreshBtn');
   btns.insertBefore(wrap, refresh || null);
   wrap.querySelector('#sharePill').addEventListener('click', (e) => { e.stopPropagation(); sharePillClick(); });
@@ -1405,28 +1522,22 @@ function shareTogglePop(open) {
   pop.hidden = !next;
   _shareTop.popOpen = next;
   btn.setAttribute('aria-expanded', next ? 'true' : 'false');
-  if (next) { shareRenderPop(); shareTopDetail(); }
-  else _shareTop.detail = null;
+  if (next) shareRenderPop();
 }
 
-/** The part counts for the popup ("Part 2 of 3"), asked for while it is open. */
-async function shareTopDetail() {
-  const tb = _shareState && _shareState.topBar;
-  if (!_shareTop.popOpen || !tb || !tb.shareId) return;
-  try {
-    const p = await shareApi('GET', `/shares/${tb.shareId}/progress`, null, { background: true });
-    if (!_shareTop.popOpen) return;
-    _shareTop.detail = p;
-    if (p.upload) {
-      const now = Date.now();
-      _shareTop.samples.push({ t: now, b: p.upload.bytesDone });
-      while (_shareTop.samples.length > 2 && now - _shareTop.samples[0].t > 20000) _shareTop.samples.shift();
-    }
-    shareRenderPop();
-  } catch { /* the state answer is enough */ }
-}
+/** The upload line's first words, by status. */
+const SHARE_TOP_VERB = { uploading: 'Uploading', paused: 'Paused:', not_finished: 'Upload not finished:' };
 
-const SHARE_TOP_VERB = { packing: 'Packing', uploading: 'Uploading', paused: 'Paused:', not_finished: 'Upload not finished:' };
+/** Counts for the icon: { working, ready, parts, stuck } (stuck: an upload paused or not finished). */
+function shareTopCounts(tb) {
+  const up = tb && tb.upload;
+  return {
+    working: (tb && tb.packing ? 1 : 0) + (up && up.status === 'uploading' ? 1 : 0) + (Number(tb && tb.packWaiting) || 0),
+    ready: Number(tb && tb.readyToCheck) || 0,
+    parts: Number(tb && tb.needsYou) || 0,
+    stuck: !!(up && (up.status === 'paused' || up.status === 'not_finished')),
+  };
+}
 
 /** Is a share packing, uploading, paused, not finished or holding a failed part? */
 function shareTopActive(tb) {
@@ -1449,50 +1560,77 @@ function shareRenderPill() {
   if (!tb || !tb.show) { wrap.hidden = true; shareTogglePop(false); return; }
   wrap.hidden = false;
   const active = shareTopActive(tb);
-  wrap.dataset.state = !active ? 'idle' : tb.needsYou ? 'needs' : (tb.status || '');
+  const c = shareTopCounts(tb);
+  // The look: red with a failed part, amber with a share ready to check (or an
+  // upload paused or not finished), the accent while something only runs.
+  wrap.dataset.state = !active ? 'idle' : c.parts ? 'needs' : c.ready ? 'ready'
+    : c.stuck ? tb.upload.status : tb.packing ? 'packing' : 'uploading';
+  // The badge: failed parts first (red), else shares ready to check (amber).
   const badge = document.getElementById('sharePillBadge');
-  if (badge) { badge.hidden = !tb.needsYou; badge.textContent = tb.needsYou ? String(tb.needsYou) : ''; }
+  const n = c.parts || c.ready;
+  if (badge) {
+    badge.hidden = !n;
+    badge.textContent = n ? String(n) : '';
+    badge.dataset.tone = !c.parts && c.ready ? 'amber' : 'red';
+  }
   const btn = document.getElementById('sharePill');
   // Idle, it opens My shares directly: no popup to announce.
   if (active) btn.setAttribute('aria-haspopup', 'dialog'); else btn.removeAttribute('aria-haspopup');
   if (!active && _shareTop.popOpen) shareTogglePop(false);
-  const verb = !active ? 'My shares' : tb.status === 'packing' ? 'Share packing' : tb.status === 'uploading' ? 'Share upload running'
-    : tb.status === 'paused' ? 'Share upload paused' : tb.status === 'not_finished' ? 'Share upload not finished' : 'Share upload';
-  const label = !active ? verb
-    : `${verb}${tb.percent != null ? `, ${tb.percent} percent` : ''}${tb.needsYou ? `, ${tb.needsYou} ${tb.needsYou === 1 ? 'part needs' : 'parts need'} you` : ''}`;
+  const bits = [];
+  if (c.working) bits.push(`${c.working} working`);
+  if (c.ready) bits.push(`${c.ready} ready to check`);
+  if (c.stuck) bits.push(tb.upload.status === 'paused' ? 'an upload is paused' : 'an upload is not finished');
+  if (c.parts) bits.push(`${c.parts} ${c.parts === 1 ? 'part needs' : 'parts need'} you`);
+  const label = !active ? 'My shares' : `Shares: ${bits.join(', ') || 'open My shares'}`;
   btn.setAttribute('aria-label', label);
   btn.title = label;
   if (_shareTop.popOpen) shareRenderPop();
 }
 
+/**
+ * The popup: the share being packed and the upload, each with its bar and an
+ * Open button, then how many wait to pack, the amber line for shares packed
+ * and ready to check, and Open My shares. Archive names are blurred under
+ * privacy (data-share-private); the buttons stay usable.
+ */
 function shareRenderPop() {
   const pop = document.getElementById('sharePop');
   const tb = _shareState && _shareState.topBar;
   if (!pop || !tb) return;
-  const p = _shareTop.detail && _shareTop.detail.id === tb.shareId ? _shareTop.detail : null;
-  const parts = (p && p.upload && p.upload.parts) || [];
-  const failed = parts.filter(x => x.status === 'failed');
-  const going = parts.findIndex(x => x.status === 'uploading');
-  const pct = tb.percent || 0;
-  let line = '';
-  if (tb.status === 'uploading' && parts.length > 1) line = `Part ${(going < 0 ? parts.filter(x => x.status === 'done').length : going) + 1} of ${parts.length}`;
-  const s = _shareTop.samples;
-  const rate = s.length > 1 && s[s.length - 1].t > s[0].t ? (s[s.length - 1].b - s[0].b) / ((s[s.length - 1].t - s[0].t) / 1000) : 0;
-  const eta = tb.status === 'uploading' && p && p.upload ? shareEta(p.upload.bytesTotal - p.upload.bytesDone, rate) : '';
-  line = [line, eta].filter(Boolean).join(', ');
-  if (!line && tb.status === 'paused' && p && p.error) line = p.error;
-  const needs = tb.needsYou
-    ? `${tb.needsYou} ${tb.needsYou === 1 ? 'part needs' : 'parts need'} you${failed.length ? `: part ${failed.map(x => x.partNo).join(', ')} failed` : ''}` : '';
-  pop.innerHTML = `
-    <div class="share-pop-text" data-share-private>
-      <b>${shEsc(`${SHARE_TOP_VERB[tb.status] || 'Share'} ${tb.archiveName || ''}`.trim())}</b>
-      ${shareBar(pct, `Progress ${pct} percent`)}
-      ${line ? `<span class="watch-pop-mut share-pop-line">${shEsc(line)}</span>` : ''}
-    </div>
-    ${needs ? `<div class="share-pop-needs">${shEsc(needs)}</div>` : ''}
+  const pk = tb.packing;
+  const up = tb.upload;
+  const row = (id, title, right, bar, line) => `
+    <div class="share-pop-row">
+      <div class="share-pop-text" data-share-private>
+        <div class="share-pop-top"><b>${shEsc(title)}</b>${right ? `<span class="watch-pop-mut">${shEsc(right)}</span>` : ''}</div>
+        ${bar}
+        ${line ? `<span class="watch-pop-mut share-pop-line">${shEsc(line)}</span>` : ''}
+      </div>
+      <button type="button" class="watch-pop-btn" data-share-open="${Number(id)}">Open</button>
+    </div>`;
+  let html = '';
+  if (pk) {
+    const pct = pk.phase === 'checking' ? 100 : Math.round(pk.percent || 0);
+    const right = pk.phase === 'packing' ? `${pct}%` : pk.phase === 'checking' ? 'Checking' : 'Getting ready';
+    html += row(pk.shareId, `Packing ${pk.archiveName || ''}`.trim(), right, shareBar(pct, `Packing ${pct} percent`), '');
+  }
+  if (up) {
+    const pct = Math.round(up.percent || 0);
+    const verb = up.status === 'uploading' && up.waitingInLine ? 'Waiting to upload' : (SHARE_TOP_VERB[up.status] || 'Upload');
+    const right = up.status === 'uploading' && up.partCount > 1 ? `Part ${up.partNo} of ${up.partCount}` : `${pct}%`;
+    const line = up.status !== 'uploading' && up.error ? up.error : '';
+    html += row(up.shareId, `${verb} ${up.archiveName || ''}`.trim(), right, shareBar(pct, `Upload ${pct} percent`), line);
+  }
+  const waiting = Number(tb.packWaiting) || 0;
+  const ready = Number(tb.readyToCheck) || 0;
+  const parts = Number(tb.needsYou) || 0;
+  if (waiting) html += `<div class="watch-pop-mut share-pop-line">${waiting.toLocaleString()} waiting to pack</div>`;
+  if (ready) html += `<button type="button" class="share-link-btn share-pop-ready" data-share-list>${ready.toLocaleString()} packed and ready for you to check</button>`;
+  if (parts) html += `<div class="share-pop-needs">${parts.toLocaleString()} ${parts === 1 ? 'part of an upload failed and needs' : 'parts of an upload failed and need'} you</div>`;
+  pop.innerHTML = `${html}
     <div class="watch-pop-r share-pop-acts">
-      <button type="button" class="share-link-btn" data-share-list>My shares</button>
-      ${tb.shareId ? `<button type="button" class="watch-pop-btn" data-share-open="${Number(tb.shareId)}">Open upload</button>` : ''}
+      <button type="button" class="share-link-btn" data-share-list>Open My shares</button>
     </div>`;
   sharePrivacyChanged(pop);
 }
@@ -1513,7 +1651,7 @@ async function shareStatePoll() {
       _shareState = await shareApi('GET', '/state', null, { background: true });
       shareSyncPrivacyHide();
       shareRenderPill();
-      if (_shareTop.popOpen) shareTopDetail();
+
       if (shareEnabled() !== wasOn && typeof renderSelectionBar === 'function') {
         try { renderSelectionBar(); } catch { /* not on the library */ }
       }

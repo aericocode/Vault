@@ -166,6 +166,20 @@ textarea.share-fmt-text { width: 100%; box-sizing: border-box; resize: vertical;
 .share-st.is-busy { color: var(--accent-hover); }
 .share-st.is-bad { color: #fca5a5; }
 .share-st.is-done { color: var(--text-secondary); }
+/* Working shares: a badge, a thin bar under it, a quiet line */
+.share-badge {
+  display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 999px;
+  font-size: 0.76rem; font-weight: 600; white-space: nowrap; border: 1px solid transparent;
+}
+.share-badge.is-busy { color: var(--accent-hover); background: rgba(99, 102, 241, 0.14); border-color: rgba(99, 102, 241, 0.35); }
+.share-badge.is-plain { color: var(--text-secondary); background: rgba(255, 255, 255, 0.05); border-color: var(--border); }
+.share-badge.is-soon { color: #fbbf24; background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.45); }
+.share-badge-ic { width: 12px; height: 12px; flex: none; }
+.share-spin { animation: share-spin 1.4s linear infinite; }
+@keyframes share-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .share-spin { animation: none; } }
+.share-row-bar { height: 4px; margin-top: 5px; max-width: 9rem; }
+.share-list-note { margin: 0; }
 .share-list-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .share-list-foot .vault-btn { flex: none; }
 .share-empty { padding: 1rem; margin: 0; }
@@ -177,7 +191,6 @@ textarea.share-fmt-text { width: 100%; box-sizing: border-box; resize: vertical;
 
 /* ── Settings > Private sharing ─────────────────────────────────────────── */
 
-.share-set-h { margin: 1rem 0 0.2rem; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; }
 .share-set-pw, .share-set-size { display: inline-flex; gap: 6px; align-items: center; flex: none; flex-wrap: wrap; justify-content: flex-end; }
 .share-set-pw .settings-text { width: 11rem; }
 .share-set-pw [hidden] { display: none; }
@@ -186,13 +199,13 @@ textarea.share-fmt-text { width: 100%; box-sizing: border-box; resize: vertical;
 .share-set-err[hidden] { display: none; }
 [data-share-custom-row][hidden] { display: none; }
 .share-set-foot { margin-top: 0.6rem; }
-.share-more summary { display: flex; flex-direction: column; gap: 2px; padding-left: 2rem; position: relative; }
-.share-more summary::before { position: absolute; left: 0.9rem; top: 0.75rem; }
-.share-more-title { font-weight: 600; }
-.share-more-desc { font-size: 0.78rem; font-weight: 400; color: var(--text-secondary); }
-body.layout-modern .share-more { margin: 0.9rem 0; background: transparent; }
-body.layout-modern .share-more .settings-acc-body { padding: 0 0.6rem 0.6rem; }
-body.layout-modern .share-more .settings-card + .settings-card { margin-top: 0.7rem; }
+/* The four tabs: Stage's pill tabs (css/stage-remote.css), drawn here too so
+   this page does not lean on Stage's file. settings.css loads after this one. */
+.settings-seg.share-tabs { flex-wrap: wrap; margin: 0.9rem 0 12px; border-radius: 10px; max-width: 100%; }
+.share-tabs .settings-seg-btn { font-size: 0.85rem; padding: 0.3rem 0.95rem; border-radius: 7px; }
+.share-tabs .settings-seg-btn[aria-selected="true"] { background: var(--accent); color: #fff; }
+.share-tab-panel[hidden], [data-share-saved-row][hidden] { display: none; }
+body.layout-modern .settings-card .share-tab-panel > .settings-toggle:first-child { border-top: 0; }
 
 /* ── Top bar icon ──────────────────────────────────────────────────────── */
 
@@ -210,6 +223,9 @@ body.layout-modern .share-more .settings-card + .settings-card { margin-top: 0.7
   background: var(--danger); border-radius: 9px; color: #fff; font-size: 11px; line-height: 18px; font-weight: 700; text-align: center;
 }
 .share-pill-badge[hidden] { display: none; }
+/* Shares packed and ready to check, with no failed part: amber, not red */
+.share-pill-badge[data-tone="amber"] { background: var(--warning); color: #1f1300; }
+.share-pill-wrap[data-state="ready"] .share-pill { color: var(--warning); border-color: rgba(245, 158, 11, 0.6) !important; }
 .share-pop-acts { justify-content: flex-end; }
 .share-pop-acts .share-link-btn { margin-right: auto; }
 body.layout-modern #sharePillWrap { order: 2; }
@@ -220,6 +236,15 @@ body.layout-modern .share-pill { border-radius: 999px; padding: 0.4rem 0.7rem; }
 .share-pop .share-bar { height: 8px; }
 .share-pop-line { white-space: normal; }
 .share-pop-needs { color: #fca5a5; }
+.share-pop:not([hidden]) { display: flex; flex-direction: column; gap: 10px; }
+.share-pop-row { display: flex; align-items: flex-start; gap: 10px; }
+.share-pop-row .share-pop-text { flex: 1 1 auto; min-width: 0; gap: 5px; }
+.share-pop-row .watch-pop-btn { flex: none; }
+.share-pop-top { display: flex; justify-content: space-between; gap: 10px; }
+.share-pop-top b { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.share-pop-top .watch-pop-mut { flex: none; white-space: nowrap; }
+.share-pop-ready { color: #fbbf24; text-align: left; text-decoration: none; }
+.share-pop-ready:hover { text-decoration: underline; }
 
 /* ── Privacy mode: My shares (body.pm-shares) ─────────────────────────────
    The My shares list, the top bar popup text, the share window's file list,

@@ -174,6 +174,10 @@ const SHARE_PART_FAIL_OPTIONS = [
   { value: 'retry3', label: 'Try 3 more times, then ask me' },
   { value: 'ask', label: 'Ask me straight away' },
 ];
+const SHARE_AFTER_PACK_OPTIONS = [
+  { value: 'wait', label: 'Wait for me to check' },
+  { value: 'upload', label: 'Upload on its own' },
+];
 const SHARE_ACCOUNT_OPTIONS = [
   { value: 'perStart', label: 'New one each time Vault starts' },
   { value: 'perShare', label: 'New one for every share' },
@@ -242,8 +246,9 @@ function shareEta(bytesLeft, rate) {
 function shareStatusWords(share, now = Date.now()) {
   const s = share || {};
   switch (s.status) {
+    case 'queued': return { text: 'Waiting to pack', tone: 'plain' };
     case 'packing': return { text: 'Packing', tone: 'busy' };
-    case 'checked': return { text: 'Packed, not uploaded', tone: 'busy' };
+    case 'checked': return { text: 'Ready to check', tone: 'soon' };
     case 'uploading': return { text: 'Uploading', tone: 'busy' };
     case 'paused': return { text: 'Paused', tone: 'soon' };
     case 'not_finished': return { text: 'Upload not finished', tone: 'soon' };

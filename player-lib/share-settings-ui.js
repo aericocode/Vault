@@ -8,8 +8,9 @@
    the server acts on them (the on/off switch above all). The page renders
    from the last state it heard, then again once the server answers.
 
-   Short page: the switch and three everyday choices, then a folded "More
-   options" (<details class="settings-acc">), My shares and the reset.
+   The "Private sharing" part (My shares and the on/off switch) sits on top,
+   then four tabs in Stage's style (Basics, Packing, Upload, Remembering),
+   then the reset. The last tab picked is remembered per browser.
 
    SECRETS. The saved password is shown only after Show (and the Vault
    password when one is set), only in its own field, and the field is emptied
@@ -22,7 +23,65 @@ const SHARE_SETTINGS_DEFAULTS = {
   enabled: false, passwordChoice: 'random', deleteAfterDays: 7, split: '2g', customPartBytes: 2 * 1024 ** 3,
   nameMode: 'typed', keepLocal: false, onPartFail: 'retry3', accountMode: 'perStart', copyFormat: 'default',
   customFormat: '{link}\npass: {pass}', rememberPasswords: true, rememberFiles: true, hideInPrivacy: true, topBarIcon: true,
+  afterPack: 'wait',
 };
+
+/* The tabs. Same pattern as Stage's (stage-settings-ui.js): a tablist of pill
+   buttons, one tabpanel each; the hidden ones carry [hidden] so Settings
+   search can pick the right tab (settings-search.js reveal). */
+const SHARE_TABS = [
+  { id: 'basics', label: 'Basics' },
+  { id: 'packing', label: 'Packing' },
+  { id: 'upload', label: 'Upload' },
+  { id: 'remember', label: 'Remembering' },
+];
+const SHARE_TAB_KEY = 'vault_share_settings_tab';
+/** The tab picked in this page load, for when localStorage is not there. */
+let _shareTabCur = 'basics';
+
+function _shareTabNow() {
+  let t = null;
+  try { t = localStorage.getItem(SHARE_TAB_KEY); } catch {}
+  if (!SHARE_TABS.some(x => x.id === t)) t = _shareTabCur;
+  return SHARE_TABS.some(x => x.id === t) ? t : 'basics';
+}
+
+function _shareTabsHtml(cur) {
+  return `<div class="settings-seg share-tabs" role="tablist" aria-label="Share privately settings">${SHARE_TABS.map(t => `
+          <button type="button" class="settings-seg-btn share-tab" role="tab" id="shareTab-${t.id}" data-share-tab="${t.id}"
+            aria-controls="shareTabPanel-${t.id}" aria-selected="${t.id === cur}" tabindex="${t.id === cur ? 0 : -1}">${t.label}</button>`).join('')}
+        </div>`;
+}
+
+function _shareTabPanelHtml(id, cur, body) {
+  return `<div class="share-tab-panel" role="tabpanel" id="shareTabPanel-${id}" data-share-panel="${id}" aria-labelledby="shareTab-${id}"${id === cur ? '' : ' hidden'}>${body}</div>`;
+}
+
+/** Show one tab (and remember it). focus: move the keyboard focus to its tab. */
+function _shareTabSelect(root, id, focus) {
+  if (!root || !SHARE_TABS.some(x => x.id === id)) return;
+  _shareTabCur = id;
+  root.querySelectorAll('[data-share-tab]').forEach((b) => {
+    const on = b.dataset.shareTab === id;
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+    b.tabIndex = on ? 0 : -1;
+    if (on && focus) b.focus();
+  });
+  root.querySelectorAll('[data-share-panel]').forEach((p) => { p.hidden = p.dataset.sharePanel !== id; });
+  try { localStorage.setItem(SHARE_TAB_KEY, id); } catch {}
+}
+
+/** The arrow keys, Home and End on a tab: the tab they land on is shown. */
+function _shareTabKey(e, root) {
+  const tab = e.target && e.target.closest && e.target.closest('[data-share-tab]');
+  if (!tab) return;
+  const ids = SHARE_TABS.map(t => t.id);
+  const i = ids.indexOf(tab.dataset.shareTab);
+  const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: ids.length - 1 }[e.key];
+  if (to == null) return;
+  e.preventDefault();
+  _shareTabSelect(root, ids[(to + ids.length) % ids.length], true);
+}
 
 const shSet = () => ({ ...SHARE_SETTINGS_DEFAULTS, ...((_shareState && _shareState.settings) || {}) });
 
@@ -63,69 +122,71 @@ function shareSettingsHtml() {
   const row = settingsRowHtml;
 
   const top = row({ sfind: 'shareMyShares', title: 'My shares', desc: 'Everything Vault has uploaded for you, from its own records.',
-    control: `<button type="button" class="settings-btn settings-btn-quiet" data-share-act="myshares">My shares (<span data-share-count>${count}</span>)</button>` })
+    control: '<button type="button" class="settings-btn settings-btn-quiet" data-share-act="myshares">Open My shares</button>' })
     + row({ tag: 'label', sfind: 'shareEnabled', title: 'Turn on Share privately',
       desc: 'Packs files into a locked archive and uploads it to gofile.io, only when you ask and confirm.',
       control: _shSwitch('enabled', s.enabled, 'Turn on Share privately') })
-    + row({ sfind: 'sharePasswordChoice', title: 'Password for a new share', control: _shSel('passwordChoice', SHARE_PASSWORD_CHOICE_OPTIONS, s.passwordChoice, 'Password for a new share') })
-    + row({ sfind: 'shareDeleteAfter', title: 'Delete from gofile after', control: _shSel('deleteAfterDays', SHARE_DELETE_AFTER_OPTIONS, s.deleteAfterDays, 'Delete from gofile after') })
-    + row({ sfind: 'shareSplit', title: 'Split big archives into parts of', control: _shSel('split', SHARE_SPLIT_OPTIONS, s.split, 'Split big archives into parts of') })
     + (st.offline ? '<p class="settings-note">Vault is set to stay offline (VAULT_OFFLINE=1), so it cannot reach gofile.io. Uploads, deletes and delete timers are all blocked.</p>' : '')
     + (st.sevenZipFound === false ? '<p class="settings-note">Vault could not find its 7-Zip program, so it cannot pack files.</p>' : '');
 
-  const groups = [
-    ['Password', row({ sfind: 'shareSavedPassword', title: 'My saved password',
+  // My saved password shows when it applies: it is the one picked for new
+  // shares, or there is one to look at or change.
+  const savedRow = `<div data-share-saved-row${s.passwordChoice === 'saved' || saved ? '' : ' hidden'}>${row({ sfind: 'shareSavedPassword', title: 'My saved password',
       desc: saved ? 'Hidden. Show asks for your Vault password when one is set.' : 'None saved yet.',
       control: `<span class="share-set-pw">
           <input type="password" class="settings-text share-mono" id="shSavedPw" readonly autocomplete="off" aria-label="My saved password" data-share-private data-share-mask
                  placeholder="${saved ? '••••••••••••••••' : 'None saved'}">
           <button type="button" class="settings-btn settings-btn-quiet" data-share-act="pw-show" aria-pressed="false"${saved ? '' : ' disabled'}>Show</button>
           <button type="button" class="settings-btn settings-btn-quiet" data-share-act="pw-change">Change</button>
-        </span>` })],
-    ['Archive', row({ sfind: 'shareNameMode', title: 'Archive name', control: _shSel('nameMode', SHARE_NAME_MODE_OPTIONS, s.nameMode, 'Archive name') })
+        </span>` })}</div>`;
+  const panels = {
+    basics: row({ sfind: 'sharePasswordChoice', title: 'Password for a new share', control: _shSel('passwordChoice', SHARE_PASSWORD_CHOICE_OPTIONS, s.passwordChoice, 'Password for a new share') })
+      + savedRow
+      + row({ sfind: 'shareDeleteAfter', title: 'Delete from gofile after', control: _shSel('deleteAfterDays', SHARE_DELETE_AFTER_OPTIONS, s.deleteAfterDays, 'Delete from gofile after') })
+      + row({ sfind: 'shareSplit', title: 'Split big archives into parts of', control: _shSel('split', SHARE_SPLIT_OPTIONS, s.split, 'Split big archives into parts of') })
       + `<div data-share-custom-row${s.split === 'custom' ? '' : ' hidden'}>${row({ sfind: 'shareCustomPart', title: 'Custom part size',
         desc: '50 MB to 16 GB.', extra: '<span class="settings-toggle-desc share-set-err" data-share-custom-err hidden></span>',
         control: `<span class="share-set-size">
             <input class="settings-num" type="number" min="1" step="1" data-share-custom-n value="${cs.n}" aria-label="Custom part size">
             <select class="settings-sel" data-share-custom-unit aria-label="Unit"><option${cs.unit === 'MB' ? ' selected' : ''}>MB</option><option${cs.unit === 'GB' ? ' selected' : ''}>GB</option></select>
           </span>` })}</div>`
-      + row({ tag: 'label', sfind: 'shareKeepLocal', title: 'Keep the packed archive on this computer after upload', control: _shSwitch('keepLocal', s.keepLocal, 'Keep the packed archive on this computer after upload') })],
-    ['Upload', row({ sfind: 'shareOnPartFail', title: 'If a part fails', control: _shSel('onPartFail', SHARE_PART_FAIL_OPTIONS, s.onPartFail, 'If a part fails') })
-      + row({ sfind: 'shareAccount', title: 'gofile guest account', control: _shSel('accountMode', SHARE_ACCOUNT_OPTIONS, s.accountMode, 'gofile guest account') })],
-    ['Copy format', row({ sfind: 'shareCopyFormat', title: 'Copy as block gives',
-      control: `<span class="share-set-pw">${_shSel('copyFormat', SHARE_COPY_FORMAT_OPTIONS, s.copyFormat, 'Copy as block gives')}
-          <button type="button" class="settings-btn settings-btn-quiet" data-share-act="format-edit"${s.copyFormat === 'custom' ? '' : ' hidden'}>Edit</button></span>` })],
-    ['What Vault remembers', row({ tag: 'label', sfind: 'shareRememberPasswords', title: 'Passwords of past shares', control: _shSwitch('rememberPasswords', s.rememberPasswords, 'Passwords of past shares') })
+      + row({ sfind: 'shareCopyFormat', title: 'Copy as block gives', desc: 'What the Copy block button puts on the clipboard.',
+        control: `<span class="share-set-pw">${_shSel('copyFormat', SHARE_COPY_FORMAT_OPTIONS, s.copyFormat, 'Copy as block gives')}
+          <button type="button" class="settings-btn settings-btn-quiet" data-share-act="format-edit"${s.copyFormat === 'custom' ? '' : ' hidden'}>Edit</button></span>` }),
+    packing: row({ sfind: 'shareAfterPack', title: 'When packing is done',
+        desc: 'Wait for me keeps the last look at the tested archive before anything leaves this computer.',
+        control: _shSel('afterPack', SHARE_AFTER_PACK_OPTIONS, s.afterPack, 'When packing is done') })
+      + row({ sfind: 'shareNameMode', title: 'Archive name', control: _shSel('nameMode', SHARE_NAME_MODE_OPTIONS, s.nameMode, 'Archive name') })
+      + row({ tag: 'label', sfind: 'shareKeepLocal', title: 'Keep the packed archive on this computer after upload', control: _shSwitch('keepLocal', s.keepLocal, 'Keep the packed archive on this computer after upload') }),
+    upload: row({ sfind: 'shareOnPartFail', title: 'If a part fails', control: _shSel('onPartFail', SHARE_PART_FAIL_OPTIONS, s.onPartFail, 'If a part fails') })
+      + row({ sfind: 'shareAccount', title: 'gofile guest account', control: _shSel('accountMode', SHARE_ACCOUNT_OPTIONS, s.accountMode, 'gofile guest account') }),
+    remember: row({ tag: 'label', sfind: 'shareRememberPasswords', title: 'Passwords of past shares', control: _shSwitch('rememberPasswords', s.rememberPasswords, 'Passwords of past shares') })
       + row({ tag: 'label', sfind: 'shareRememberFiles', title: 'Which files were in each share', desc: 'Folded away in My shares.', control: _shSwitch('rememberFiles', s.rememberFiles, 'Which files were in each share') })
       + row({ tag: 'label', sfind: 'shareHideInPrivacy', title: 'Hide My shares in privacy mode', control: _shSwitch('hideInPrivacy', s.hideInPrivacy, 'Hide My shares in privacy mode') })
       + row({ tag: 'label', sfind: 'shareTopBarIcon', title: 'Show the share button in the top bar',
-        desc: 'It opens My shares. When off, it shows only while an upload runs or needs you.',
-        control: _shSwitch('topBarIcon', s.topBarIcon, 'Show the share button in the top bar') })],
-  ];
-  const more = (body) => `
-      <details class="settings-acc share-more" data-sfind="shareMore"${_shareMoreOpen ? ' open' : ''}>
-        <summary><span class="share-more-title">More options</span><span class="share-more-desc">Password, archive, upload, copy format, what Vault remembers</span></summary>
-        <div class="settings-acc-body">${body}</div>
-      </details>`;
+        desc: 'It opens My shares. When off, it shows only while a share is packing or uploading, or needs you.',
+        control: _shSwitch('topBarIcon', s.topBarIcon, 'Show the share button in the top bar') }),
+  };
+  const tab = _shareTabNow();
+  const tabPanels = SHARE_TABS.map(t => _shareTabPanelHtml(t.id, tab, panels[t.id])).join('');
   const foot = `
-      <p class="settings-note">All of these start with safe choices. You can share without opening More options.</p>
-      <div class="share-set-foot" data-sfind="shareReset"><button type="button" class="settings-btn settings-btn-quiet" data-share-act="reset">Put everything back to the defaults</button></div>`;
+      <div class="share-set-foot" data-sfind="shareReset"><button type="button" class="settings-btn settings-btn-quiet" data-share-act="reset">Put back the defaults</button></div>`;
 
   if (modern) {
     return `<div data-share-page>`
       + settingsCardHtml({ title: 'Private sharing', sfind: 'sharing', body: top })
-      + more(groups.map(([t, b]) => settingsCardHtml({ title: t, body: b })).join(''))
+      + _shareTabsHtml(tab)
+      + settingsCardHtml({ cls: 'share-set-card', body: tabPanels })
       + foot + '</div>';
   }
   const h = typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel('📤 Private sharing', { icon: false }) : '📤 Private sharing';
   return `<div data-share-page>
       <h3 class="settings-h" data-sfind="sharing">${h}</h3>
       ${top}
-      ${more(groups.map(([t, b]) => `<h4 class="share-set-h">${t}</h4>${b}`).join(''))}
+      ${_shareTabsHtml(tab)}
+      ${tabPanels}
       ${foot}</div>`;
 }
-
-let _shareMoreOpen = false;
 
 /** Settings closed (or the page left): the shown saved password goes. */
 function shareSettingsClosed() {
@@ -139,12 +200,10 @@ function _shPageRoot(root) {
   return root && root.querySelector ? root.querySelector('[data-share-page]') : null;
 }
 
-/** Draw the page again from the latest state (keeps More options open or shut). */
+/** Draw the page again from the latest state (on the same tab). */
 function shareSettingsRepaint(root) {
   const page = _shPageRoot(root);
   if (!page) return;
-  const det = page.querySelector('details.share-more');
-  if (det) _shareMoreOpen = det.open;
   page.outerHTML = shareSettingsHtml();
   sharePrivacyChanged(root);
 }
@@ -176,11 +235,11 @@ function shareSettingsWire(root) {
   sharePrivacyChanged(root);
   if (!root._shareWired) {
     root._shareWired = true;
-    root.addEventListener('toggle', (e) => {
-      if (e.target && e.target.classList && e.target.classList.contains('share-more')) _shareMoreOpen = e.target.open;
-    }, true);
     root.addEventListener('change', (e) => shareSettingsChange(e, root));
+    root.addEventListener('keydown', (e) => { if (_shPageRoot(root)) _shareTabKey(e, root); });
     root.addEventListener('click', (e) => {
+      const tab = e.target.closest && e.target.closest('[data-share-tab]');
+      if (tab && _shPageRoot(root)) { _shareTabSelect(root, tab.dataset.shareTab, false); return; }
       const b = e.target.closest && e.target.closest('[data-share-act]');
       if (!b || !_shPageRoot(root) || b.disabled) return;
       shareSettingsClick(b, root);
@@ -214,7 +273,11 @@ async function shareSettingsChange(e, root) {
       if (!ok) { sel.value = 'random'; return; }
     }
     if (key === 'copyFormat') return shareCopyFormatPicked(sel, value, root);
-    await shareSaveSettings({ [key]: value }, root);
+    const ok = await shareSaveSettings({ [key]: value }, root);
+    if (ok && key === 'passwordChoice') {
+      const r = root.querySelector('[data-share-saved-row]');
+      if (r) r.hidden = !(value === 'saved' || (_shareState && _shareState.savedPassword && _shareState.savedPassword.set));
+    }
     return;
   }
   const sw = t.closest('[data-share-setting]');
@@ -292,7 +355,7 @@ async function shareSettingsClick(b, root) {
   if (act === 'reset') {
     const ok = typeof vaultConfirm === 'function' ? await vaultConfirm(
       'Every choice on this page goes back to its default. Share privately stays on or off as it is. Your shares and the saved password are kept.',
-      { title: 'Put everything back to the defaults?', okLabel: 'Put back', cancelLabel: 'Cancel' }) : true;
+      { title: 'Put back the defaults?', okLabel: 'Put back', cancelLabel: 'Cancel' }) : true;
     if (!ok) return;
     try {
       const r = await shareApi('POST', '/settings/reset', { confirm: true });
@@ -534,8 +597,16 @@ function shareRowActions(share, enabled) {
     a.push('delete');
   } else if (st === 'paused' || st === 'not_finished') {
     a.push('view', 'resume', 'stop');
-  } else if (st === 'uploading' || st === 'packing' || st === 'checked' || st === 'stopping') {
-    a.push('view');   // stopping: Stop and delete is running; nothing else until it ends
+  } else if (st === 'packing') {
+    a.push('view', 'cancel');
+  } else if (st === 'queued') {
+    a.push('cancel');
+  } else if (st === 'checked') {
+    a.push('check', 'cancel');
+  } else if (st === 'uploading') {
+    a.push('view', 'pause');
+  } else if (st === 'stopping') {
+    a.push('view');   // Stop and delete is running; nothing else until it ends
   } else if (st === 'failed') {
     if (share.onGofile) a.push('delete');
     a.push('remove');
@@ -547,24 +618,74 @@ function shareRowActions(share, enabled) {
 
 const SHARE_ROW_LABEL = {
   copy: 'Copy block', open: 'Open', gone: 'Mark as gone', timer: 'Set timer again', delete: 'Delete',
-  view: 'Open upload', resume: 'Resume', stop: 'Stop and delete', remove: 'Remove from list',
+  view: 'Open', resume: 'Resume', stop: 'Stop and delete', remove: 'Remove from list',
+  check: 'Check and upload', cancel: 'Cancel', pause: 'Pause',
 };
+
+/** Working shares first, in this order; the rest keep the server's order. */
+const SHARE_WORK_ORDER = { packing: 0, queued: 1, checked: 2, uploading: 3, stopping: 4, paused: 5, not_finished: 5 };
+
+function shareWorking(share) {
+  return Object.prototype.hasOwnProperty.call(SHARE_WORK_ORDER, share.status);
+}
+
+/** Sorted for My shares: working at the top (waiting ones in the order they pack), then everything else. */
+function shareListSorted(shares) {
+  return (shares || []).map((s, i) => ({ s, i })).sort((a, b) => {
+    const wa = shareWorking(a.s) ? SHARE_WORK_ORDER[a.s.status] : 99;
+    const wb = shareWorking(b.s) ? SHARE_WORK_ORDER[b.s.status] : 99;
+    if (wa !== wb) return wa - wb;
+    if (a.s.status === 'queued' && b.s.status === 'queued') return Number(a.s.id) - Number(b.s.id);
+    return a.i - b.i;
+  }).map(x => x.s);
+}
+
+/** The status cell: a badge (and a thin bar) for working shares, plain words otherwise. */
+function shareStatusCellHtml(share) {
+  const st = share.status;
+  const bar = (pct, label) => `<div class="share-bar share-row-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="${shEsc(label)}"><div class="share-bar-fill" style="width:${pct}%"></div></div>`;
+  const badge = (tone, text, icon = '') => `<span class="share-badge is-${tone}">${icon}${shEsc(text)}</span>`;
+  const sub = (text, cls = '') => `<div class="share-small share-mut${cls}">${shEsc(text)}</div>`;
+  if (st === 'packing') {
+    const pk = share.packing || { phase: 'staging', percent: 0 };
+    const pct = pk.phase === 'checking' ? 100 : Math.max(0, Math.min(100, Math.round(pk.percent || 0)));
+    const text = pk.phase === 'packing' ? `Packing ${pct}%` : pk.phase === 'checking' ? 'Checking the archive' : 'Packing';
+    return badge('busy', text, shIcon('refresh', 'share-badge-ic share-spin')) + bar(pct, `Packing ${pct} percent`);
+  }
+  if (st === 'queued') {
+    return badge('plain', 'Waiting to pack') + sub(share.waitingFor ? `Starts when ${share.waitingFor} is packed` : 'Starts when the share before it is packed');
+  }
+  if (st === 'checked') {
+    const note = share.error ? sub(share.error, ' share-st is-soon') : '';
+    return badge('soon', 'Ready to check') + (note || sub(share.uploadsOnItsOwn ? 'Uploads on its own once checked.' : 'Waiting for you. Nothing uploaded.'));
+  }
+  if (st === 'uploading') {
+    const u = share.upload || { percent: 0, partNo: 1, partCount: share.partCount || 1 };
+    const pct = Math.max(0, Math.min(100, Math.round(u.percent || 0)));
+    const text = u.waitingInLine ? 'Waiting to upload' : u.partCount > 1 ? `Uploading part ${u.partNo} of ${u.partCount}` : `Uploading ${pct}%`;
+    return badge('busy', text) + bar(pct, `Upload ${pct} percent`);
+  }
+  const words = shareStatusWords(share);
+  return `<span class="share-st is-${words.tone}">${shEsc(words.text)}</span>${share.error ? `<div class="share-small share-st is-bad">${shEsc(share.error)}</div>` : ''}`;
+}
 
 function shareRowHtml(share, list) {
   const id = Number(share.id);
   const open = list.open.has(id);
-  const words = shareStatusWords(share);
   const link = shareSafeLink(share.link);
   const enabled = shareEnabled();
   const acts = shareRowActions(share, enabled).map(({ key, disabled }) => {
-    const danger = key === 'delete' || key === 'stop';
+    const danger = key === 'delete' || key === 'stop' || key === 'cancel';
+    if (key === 'check') {
+      return `<button type="button" class="vault-btn vault-btn-primary share-row-btn" data-row-act="check" data-row-id="${id}">${SHARE_ROW_LABEL.check}</button>`;
+    }
     if (key === 'open') {
       return link ? `<a class="vault-btn share-row-btn" href="${shEsc(link)}" target="_blank" rel="noopener noreferrer">Open</a>`
         : '<button type="button" class="vault-btn share-row-btn" disabled>Open</button>';
     }
     return `<button type="button" class="vault-btn share-row-btn${danger ? ' share-btn-danger' : ''}" data-row-act="${key}" data-row-id="${id}"${disabled ? ' disabled title="Share privately is turned off. Turn it on in Settings first."' : ''}>${SHARE_ROW_LABEL[key]}</button>`;
   }).join('');
-  const sub = `${Number(share.fileCount || 0).toLocaleString()} ${share.fileCount === 1 ? 'file' : 'files'}${share.partCount > 1 ? `, ${share.partCount} parts` : ''}`;
+  const sub = `${Number(share.fileCount || 0).toLocaleString()} ${share.fileCount === 1 ? 'file' : 'files'}${share.status === 'checked' ? ', packed and tested' : share.partCount > 1 ? `, ${share.partCount} parts` : ''}`;
   const name = share.archiveDisplayName || `${share.archiveName}.7z`;
   let foldBody = '';
   if (open) {
@@ -587,20 +708,21 @@ function shareRowHtml(share, list) {
       <td><span class="share-mono">${shEsc(name)}</span><div class="share-mut share-small">${shEsc(sub)}</div></td>
       <td>${shEsc(shareSize(share.sizeBytes))}</td>
       <td>${share.uploadedAt ? shEsc(shareWhen(share.uploadedAt)) : '<span class="share-mut">Not yet</span>'}</td>
-      <td><span class="share-st is-${words.tone}">${shEsc(words.text)}</span>${share.error ? `<div class="share-small share-st is-bad">${shEsc(share.error)}</div>` : ''}</td>
+      <td>${shareStatusCellHtml(share)}</td>
       <td><div class="share-row-acts">${acts}</div></td>
     </tr>${foldBody}`;
 }
 
 function shareListHtml(list) {
-  const shares = list.shares || [];
+  const shares = shareListSorted(list.shares);
   const resumable = shares.some(s => s.status === 'paused' || s.status === 'not_finished');
   const online = shares.filter(s => s.onGofile);
+  const working = shares.some(shareWorking);
   return `
     <div class="share-head">
       <div class="share-head-text">
         <h3 id="shareListTitle">My shares</h3>
-        <p class="vault-modal-hint share-sub">Everything Vault has uploaded for you, from Vault's own records. Use Open to see the gofile page yourself.</p>
+        <p class="vault-modal-hint share-sub">Shares being packed or uploaded stay at the top. Everything else is from Vault's own records.</p>
       </div>
       <button type="button" class="share-x" data-list-act="close" aria-label="Close" title="Close">${shIcon('close') || '&times;'}</button>
     </div>
@@ -613,6 +735,7 @@ function shareListHtml(list) {
       </table>` : '<p class="vault-modal-hint share-empty">Nothing shared yet.</p>'}
     </div>
     <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
+    ${working ? '<p class="vault-modal-hint share-list-note" data-share-bg-note>Vault packs one share at a time and uploads one at a time. While either is running Vault will not lock itself for being idle. Locking it yourself still works: uploads pause and can be resumed, and a share that is still being packed is cancelled.</p>' : ''}
     <div class="share-list-foot">
       <p class="vault-modal-hint">Vault does not ask gofile about old uploads. Free gofile storage can be removed early, so use Open to check, then Mark as gone if it is.</p>
       <button type="button" class="vault-btn share-btn-danger" data-list-act="delete-all"${online.length ? '' : ' disabled'}>Delete all uploads from gofile</button>
@@ -651,9 +774,12 @@ async function shareListRefresh() {
     if (l !== _shareList) return;
     l.error = err.message;
   }
+  if (l !== _shareList) return;
   shareListRender();
-  // While something is running, keep the list current.
-  if (l.shares.some(s => ['packing', 'uploading'].includes(s.status))) l.timer = setTimeout(shareListRefresh, 5000);
+  // Live while the list is open (2 s while a share works, else 10 s); the
+  // timer stops when it closes (shareListClose). Background requests, so
+  // this polling never counts as the user being active.
+  l.timer = setTimeout(shareListRefresh, l.shares.some(shareWorking) ? 2000 : 10000);
 }
 
 function shareListRender() {
@@ -706,8 +832,19 @@ async function shareListClick(e) {
       if (r) await shareCopyText(r.text, r.passwordIncluded ? 'Link and password copied' : 'Link copied. Vault did not keep the password.');
       return;
     }
-    if (act === 'view') { shareListClose(); shareOpenShare(id); return; }
-    if (act === 'gone') {
+    if (act === 'view' || act === 'check') { shareListClose(); shareOpenShare(id); return; }
+    if (act === 'cancel') {
+      const waiting = share.status === 'queued';
+      const ok = await vaultConfirm(waiting ? 'This share has not been packed yet. Nothing has been uploaded.'
+        : 'The packed archive on this computer is deleted. Nothing has been uploaded, and your own files are not touched.',
+      { title: waiting ? 'Cancel this share?' : 'Cancel and delete the archive?', okLabel: waiting ? 'Cancel share' : 'Delete archive', cancelLabel: 'Keep it', danger: true });
+      if (!ok) return;
+      await shareApi('POST', `/shares/${id}/cancel`, {});
+      shareStatePollSoon();
+    } else if (act === 'pause') {
+      await shareApi('POST', `/shares/${id}/pause`, {});
+      shareStatePollSoon();
+    } else if (act === 'gone') {
       await shareApi('POST', `/shares/${id}/mark-gone`, {});
     } else if (act === 'timer') {
       await shareApi('POST', `/shares/${id}/retry-timer`, {});

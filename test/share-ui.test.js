@@ -209,8 +209,18 @@ test('Open: only a server link that starts with https://gofile.io/', () => {
 /* ── Secrets ─────────────────────────────────────────────────────────── */
 
 test('source: no share file touches browser storage, logs to the console, or builds a URL with a password', () => {
+  // The one exception: the Settings page remembers which of its four tabs was
+  // picked last, under its own key, and only ever stores a known tab id. Those
+  // two exact calls are taken out; any other use of storage still fails.
+  const TAB_GET = 'try { t = localStorage.getItem(SHARE_TAB_KEY); } catch {}';
+  const TAB_SET = 'try { localStorage.setItem(SHARE_TAB_KEY, id); } catch {}';
+  const ss = read('share-settings-ui.js');
+  assert.strictEqual(ss.split(TAB_GET).length, 2, 'the tab is read once');
+  assert.strictEqual(ss.split(TAB_SET).length, 2, 'the tab is written once');
+  assert.match(ss, /const SHARE_TAB_KEY = 'vault_share_settings_tab';/);
+  assert.match(ss, /function _shareTabSelect\(root, id, focus\) \{\n  if \(!root \|\| !SHARE_TABS\.some\(x => x\.id === id\)\) return;/, 'only a known tab id is stored');
   for (const f of FILES) {
-    const src = read(f).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const src = read(f).replace(TAB_GET, '').replace(TAB_SET, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     assert.ok(!/localStorage|sessionStorage|indexedDB|IDBFactory|document\.cookie/.test(src), `${f}: browser storage`);
     assert.ok(!/console\.(log|warn|error|info|debug)/.test(src), `${f}: console`);
     assert.ok(!/[?&](pass|password|vaultPassword)=/.test(src), `${f}: a password in a URL`);
@@ -525,26 +535,72 @@ test('feature off: Delete and Stop stay available in My shares; Resume does not'
 
 /* ── Settings ────────────────────────────────────────────────────────── */
 
-test('settings: short page, More options folded, no parts-at-once or upload server setting', () => {
+test('settings: the Private sharing card, then four tabs, no parts-at-once or upload server setting', () => {
   const L = load({ kit: true });
   setState(L);
   const html = L.run('shareSettingsHtml()');
-  for (const id of ['shareEnabled', 'sharePasswordChoice', 'shareDeleteAfter', 'shareSplit', 'shareMyShares', 'shareMore', 'shareSavedPassword',
+  for (const id of ['shareEnabled', 'sharePasswordChoice', 'shareDeleteAfter', 'shareSplit', 'shareMyShares', 'shareAfterPack', 'shareSavedPassword',
     'shareNameMode', 'shareCustomPart', 'shareKeepLocal', 'shareOnPartFail', 'shareAccount', 'shareCopyFormat', 'shareRememberPasswords',
     'shareRememberFiles', 'shareHideInPrivacy', 'shareTopBarIcon', 'shareReset']) {
     assert.ok(html.includes(`data-sfind="${id}"`), id);
   }
-  assert.match(html, /<details class="settings-acc share-more" data-sfind="shareMore">/, 'More options folded by default');
-  assert.ok(!/parts at once|upload server|closest region/i.test(html));
+  assert.ok(!/share-more"|More options/.test(html), 'no More options fold');
+  assert.match(html, /<div class="settings-seg share-tabs" role="tablist" aria-label="Share privately settings">/);
+  const tabs = [...html.matchAll(/<button type="button" class="settings-seg-btn share-tab" role="tab" id="shareTab-(\w+)" data-share-tab="\w+"\s+aria-controls="shareTabPanel-(\w+)" aria-selected="(true|false)" tabindex="(0|-1)">([^<]+)<\/button>/g)]
+    .map(m => [m[1], m[2], m[3], m[4], m[5]]);
+  assert.deepStrictEqual(tabs, [
+    ['basics', 'basics', 'true', '0', 'Basics'], ['packing', 'packing', 'false', '-1', 'Packing'],
+    ['upload', 'upload', 'false', '-1', 'Upload'], ['remember', 'remember', 'false', '-1', 'Remembering']]);
+  // Which rows sit on which tab (the card above the tabs holds My shares and the switch).
+  const panel = (id) => {
+    const m = html.match(new RegExp(`<div class="share-tab-panel" role="tabpanel" id="shareTabPanel-${id}" data-share-panel="${id}" aria-labelledby="shareTab-${id}"( hidden)?>`));
+    assert.ok(m, id);
+    const next = html.indexOf('class="share-tab-panel"', m.index + 10);
+    return { hidden: !!m[1], html: html.slice(m.index, next < 0 ? undefined : next) };
+  };
+  const sf = (h) => [...h.matchAll(/data-sfind="(\w+)"/g)].map(m => m[1]);
+  assert.deepStrictEqual(sf(panel('basics').html), ['sharePasswordChoice', 'shareSavedPassword', 'shareDeleteAfter', 'shareSplit', 'shareCustomPart', 'shareCopyFormat']);
+  assert.deepStrictEqual(sf(panel('packing').html), ['shareAfterPack', 'shareNameMode', 'shareKeepLocal']);
+  assert.deepStrictEqual(sf(panel('upload').html), ['shareOnPartFail', 'shareAccount']);
+  assert.deepStrictEqual(sf(panel('remember').html).slice(0, 4), ['shareRememberPasswords', 'shareRememberFiles', 'shareHideInPrivacy', 'shareTopBarIcon']);
+  assert.deepStrictEqual(['basics', 'packing', 'upload', 'remember'].map(id => panel(id).hidden), [false, true, true, true]);
+  const tablist = html.indexOf('role="tablist"');
+  assert.ok(html.indexOf('data-sfind="shareMyShares"') < tablist && html.indexOf('data-sfind="shareEnabled"') < tablist, 'Private sharing stays above the tabs');
+  assert.match(html, /<option value="wait" selected>Wait for me to check<\/option><option value="upload">Upload on its own<\/option>/, 'When packing is done: wait by default');
+  assert.match(html, /Wait for me keeps the last look at the tested archive before anything leaves this computer\./);
+  assert.match(html, /data-share-act="reset">Put back the defaults<\/button>/);  assert.ok(!/parts at once|upload server|closest region/i.test(html));
   assert.match(html, /<option value="2g" selected>2 GB<\/option>/, '2 GB parts by default');
-  assert.match(html, /My shares \(<span data-share-count>2<\/span>\)/);
+  assert.match(html, /data-share-act="myshares">Open My shares<\/button>/);
   assert.match(html, /<input type="password" class="settings-text share-mono" id="shSavedPw" readonly/, 'the saved password is dots until Show');
   assert.ok(!/[—–]/.test(html.replace(/<[^>]+>/g, '')), 'no long dashes');
   const search = read('settings-search.js');
   assert.match(search, /\{ id: 'sharing', title: 'Private sharing' \}/);
-  for (const id of ['shareEnabled', 'shareCustomPart', 'shareCopyFormat', 'shareHideInPrivacy']) {
+  for (const id of ['shareEnabled', 'shareCustomPart', 'shareCopyFormat', 'shareHideInPrivacy', 'shareAfterPack']) {
     assert.match(search, new RegExp(`page: 'sharing', id: '${id}'`), `search entry ${id}`);
   }
+  assert.ok(!/id: 'shareMore'/.test(search), 'no entry for the old fold');
+});
+
+test('settings: My saved password shows when it applies; the tab picked last is the one drawn', () => {
+  const L = load({ kit: true });
+  setState(L, { settings: { passwordChoice: 'random' }, savedPassword: { set: false, vaultPasswordSet: false } });
+  assert.match(L.run('shareSettingsHtml()'), /<div data-share-saved-row hidden>/, 'random and none saved: hidden');
+  setState(L, { settings: { passwordChoice: 'saved' }, savedPassword: { set: false, vaultPasswordSet: false } });
+  assert.match(L.run('shareSettingsHtml()'), /<div data-share-saved-row>/);
+  setState(L, { settings: { passwordChoice: 'random' }, savedPassword: { set: true, vaultPasswordSet: false } });
+  assert.match(L.run('shareSettingsHtml()'), /<div data-share-saved-row>/, 'one saved: shown so it can be changed');
+  // localStorage that throws (a private window): the tab picked in this load still holds.
+  L.ctx.localStorage = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); } };
+  L.ctx.__root = { querySelectorAll: () => [] };
+  L.run(`_shareTabSelect(__root, 'upload', false)`);
+  assert.match(L.run('shareSettingsHtml()'), /id="shareTab-upload" data-share-tab="upload"\s+aria-controls="shareTabPanel-upload" aria-selected="true"/);
+  L.run(`_shareTabSelect(__root, 'nope', false)`);
+  assert.strictEqual(L.run('_shareTabNow()'), 'upload', 'an unknown tab is ignored');
+  // A stored tab wins, and only a known one.
+  L.ctx.localStorage = { getItem: () => 'remember', setItem: () => {} };
+  assert.strictEqual(L.run('_shareTabNow()'), 'remember');
+  L.ctx.localStorage = { getItem: () => '<img>', setItem: () => {} };
+  assert.strictEqual(L.run('_shareTabNow()'), 'upload');
 });
 
 test('settings: the custom part size field shows only when Custom size is picked, and keeps to 50 MB to 16 GB', () => {
@@ -844,21 +900,29 @@ test('top bar: idle it is a plain button that opens My shares; hidden when the s
   assert.match(css, /\.share-pill-wrap:not\(\[data-state="idle"\]\) \.share-pill \{ border-color: var\(--accent\)/, 'the accent look only while active');
 });
 
-test('top bar: while a share runs or needs you it keeps its look and opens the popup, with My shares beside Open upload', () => {
+test('top bar: while a share runs or needs you it keeps its look and opens the popup, with Open My shares and an Open per row', () => {
   const T = loadTopBar();
-  T.show({ show: true, active: true, needsYou: 1, shareId: 7, archiveName: 'secret-name', status: 'paused', percent: 40 });
+  const up = { shareId: 7, archiveName: 'secret-name', status: 'paused', error: 'Paused by you.', percent: 40, partNo: 2, partCount: 3, waitingInLine: false };
+  T.show({ show: true, active: true, needsYou: 1, shareId: 7, archiveName: 'secret-name', status: 'paused', percent: 40,
+    packing: null, upload: up, packWaiting: 0, readyToCheck: 0 });
   assert.strictEqual(T.wrap.dataset.state, 'needs');
   assert.strictEqual(T.wrap.cache.badge.textContent, '1');
   assert.strictEqual(T.wrap.cache.badge.hidden, false);
+  assert.strictEqual(T.wrap.cache.badge.dataset.tone, 'red', 'a failed part: red');
   assert.strictEqual(T.pill.attrs['aria-haspopup'], 'dialog');
-  assert.match(T.pill.attrs['aria-label'], /^Share upload paused, 40 percent, 1 part needs you$/);
+  assert.strictEqual(T.pill.attrs['aria-label'], 'Shares: an upload is paused, 1 part needs you');
   T.clickPill();
   assert.strictEqual(T.pop.hidden, false, 'the popup opens');
   assert.deepStrictEqual(T.opened, [], 'not My shares straight away');
   const html = T.pop.innerHTML;
-  assert.match(html, /data-share-list>My shares<\/button>/);
-  assert.match(html, /data-share-open="7">Open upload<\/button>/);
-  assert.ok(withoutPrivate(html).includes('data-share-list') && !withoutPrivate(html).includes('secret-name'), 'the link is usable, the name stays covered');
+  assert.match(html, /data-share-list>Open My shares<\/button>/);
+  assert.match(html, /data-share-open="7">Open<\/button>/);
+  assert.match(html, /<b>Paused: secret-name<\/b>/);
+  assert.match(html, /Paused by you\./);
+  assert.match(html, /1 part of an upload failed and needs you/);
+  assert.ok(withoutPrivate(html).includes('data-share-list') && withoutPrivate(html).includes('data-share-open="7"') && !withoutPrivate(html).includes('secret-name'),
+    'the buttons are usable, the name stays covered');
+  assert.ok(!/left|minute|hour|second/i.test(html), 'no time figures');
   // The two links.
   T.pop.fire('click', { target: { closest: (s) => (s === '[data-share-list]' ? {} : null) } });
   assert.deepStrictEqual(T.opened, ['list']);
@@ -867,9 +931,11 @@ test('top bar: while a share runs or needs you it keeps its look and opens the p
   T.pop.fire('click', { target: { closest: (s) => (s === '[data-share-open]' ? { dataset: { shareOpen: '7' } } : null) } });
   assert.deepStrictEqual(T.opened, ['list', 7]);
   // Uploading with nothing failed: today's look, no red count.
-  T.show({ show: true, active: true, needsYou: 0, shareId: 7, status: 'uploading', percent: 10 });
+  T.show({ show: true, active: true, needsYou: 0, shareId: 7, status: 'uploading', percent: 10,
+    packing: null, upload: { ...up, status: 'uploading', error: null, percent: 10 }, packWaiting: 0, readyToCheck: 0 });
   assert.strictEqual(T.wrap.dataset.state, 'uploading');
   assert.strictEqual(T.wrap.cache.badge.hidden, true);
+
   // Once it ends the button goes idle and the popup shuts.
   T.clickPill();
   T.show({ show: true, active: false, needsYou: 0, shareId: null });
@@ -1313,4 +1379,248 @@ test('Show on the new saved password, in a browser that cannot draw dots: a pass
   classes.clear();
   L.run('sharePrivacyChanged(__root)');
   assert.strictEqual(field.type, 'text', 'shown once privacy is off, as Show asked');
+});
+
+/* ── Packing in the background, the pack line, Upload on its own ─────── */
+
+test('background: X, Esc, Close and Keep using Vault only hide the window on steps 2 and 3; nothing is cancelled', async () => {
+  for (const step of ['queued', 'packing', 'checked', 'confirm']) {
+    const D = loadDom();
+    const toasts = [];
+    D.L.ctx.showToast = (msg) => toasts.push(msg);
+    D.L.run('shareWindowOpen()');
+    D.L.run(`_shareWin.id = 9; _shareWin.step = ${JSON.stringify(step)}`);
+    const w = D.top();
+    await D.L.run('shareWindowRequestClose()');   // vaultConfirm throws if it is asked
+    assert.strictEqual(w.closed, true, `${step}: hidden`);
+    assert.strictEqual(D.L.run('_shareWin'), null);
+    assert.deepStrictEqual(D.L.calls.filter(c => c.init.method === 'POST'), [], `${step}: no cancel`);
+    assert.strictEqual(toasts.length, 1, `${step}: one quiet toast`);
+    assert.ok(/My shares/.test(toasts[0]) && !/[—–]/.test(toasts[0]));
+  }
+  // Only the button cancels.
+  const src = read('share-ui.js');
+  assert.match(src, /data-sh-act="cancel-archive">Cancel and delete archive<\/button>/);
+});
+
+test('background: the packing step says the user need not wait, with Keep using Vault as the main button', () => {
+  const L = load();
+  setState(L);
+  L.ctx.__w = { id: 9, step: 'packing', collectionName: 'Summer <2026>', preview: { files: fileRows(48), totalBytes: 14.2 * GB }, share: { id: 9, status: 'packing' }, progress: null };
+  const html = L.run('sharePackingHtml(__w)');
+  assert.match(html, /<div class="share-kicker">Step 2 of 4<\/div>\s*<h3 id="shareWinTitle">Packing<\/h3>/);
+  assert.match(html, /Collection: <span class="share-priv" data-share-private>Summer &lt;2026&gt;<\/span>, 48 files, 14\.2 GB\. Nothing is uploaded yet\./);
+  assert.match(html, /You do not need to wait here\. Packing carries on in My shares while you use Vault, and it will be ready for you to check when it is done\. The drive may feel slower until then\./);
+  assert.match(html, /data-sh-act="cancel-archive">Cancel and delete archive<\/button>\s*<span class="share-sp"><\/span>\s*<button type="button" class="vault-btn vault-btn-primary" data-sh-act="close" data-sh-first>Keep using Vault<\/button>/);
+  L.ctx.__w.progress = { uploadsOnItsOwn: true };
+  assert.match(L.run('sharePackingHtml(__w)'), /once it is packed and checked it uploads on its own/);
+  assert.strictEqual(L.run('SHARE_PHASE_WORDS.packing'), 'Packing and encrypting');
+  // Opened from My shares (no step 1 here): the share's own counts, no collection.
+  L.ctx.__w = { id: 9, step: 'packing', collectionName: '', preview: null, share: { id: 9, status: 'packing', fileCount: 3, sizeBytes: 3 * GB }, progress: null };
+  assert.match(L.run('sharePackingHtml(__w)'), /<p class="vault-modal-hint share-sub">3 files, 3 GB\. Nothing is uploaded yet\.<\/p>/);
+});
+
+test('pack line: a share started while another packs opens on Waiting to pack, which names the one ahead and can be cancelled', async () => {
+  const D = loadDom({ answers: {
+    'POST /api/share/preview': { status: 200, body: PREVIEW(fileRows(2), 2000, { packBusy: true }) },
+    'POST /api/share/shares': { status: 202, body: { share: { id: 12, status: 'queued', waitingFor: 'k7Qm<2>.7z', fileCount: 2, sizeBytes: 2000 } } },
+    'POST /api/share/shares/12/cancel': { status: 200, body: { ok: true } },
+  } });
+  const toasts = [];
+  D.L.ctx.showToast = (msg) => toasts.push(msg);
+  await D.L.run('shareOpenForIds([1, 2])');
+  const review = D.L.run('shareReviewHtml(_shareWin)');
+  assert.match(review, /data-sh-packbusy>Another share is being packed\. This one waits its turn and starts on its own, so you can keep using Vault meanwhile\.<\/p>/);
+  assert.match(review, /data-sh-act="pack">Pack files<\/button>/, 'not blocked: it waits its turn');
+  await D.L.run('sharePack()');
+  assert.strictEqual(D.L.run('_shareWin.step'), 'queued');
+  const html = D.L.run('shareQueuedHtml(_shareWin)');
+  assert.match(html, /<h3 id="shareWinTitle">Waiting to pack<\/h3>/);
+  assert.match(html, /Starts when <span class="share-priv" data-share-private>k7Qm&lt;2&gt;\.7z<\/span> is packed\./);
+  assert.match(html, /data-sh-act="cancel-archive">Cancel this share<\/button>/);
+  assert.match(html, /data-sh-act="close" data-sh-first>Keep using Vault<\/button>/);
+  await D.L.run('shareCancelArchive()');
+  assert.ok(D.L.calls.some(c => c.url === '/api/share/shares/12/cancel'));
+  assert.deepStrictEqual(toasts, ['Cancelled. Nothing was packed.']);
+  assert.strictEqual(D.L.run('_shareWin'), null);
+});
+
+test('pack line: the window follows a waiting share into packing (refresh maps queued, and the name ahead updates in place)', async () => {
+  const L = load({ answers: {
+    'GET /api/share/shares/12/progress': { status: 200, body: { id: 12, status: 'queued', waitingFor: 'b.7z', error: null, packing: null, upload: null } },
+    'GET /api/share/shares/12': { status: 200, body: { share: { id: 12, status: 'queued', fileCount: 1, sizeBytes: 5 } } },
+  } });
+  setState(L);
+  const waitFor = { innerHTML: 'Starts when a.7z is packed.', querySelectorAll: () => [] };
+  L.ctx.__q = { '[data-sh-waitfor]': waitFor };
+  L.run(`_shareWin = { id: 12, step: 'queued', samples: [], share: { id: 12, status: 'queued' }, m: { q: (s) => __q[s] || null } }`);
+  await L.run('shareWindowRefresh()');
+  assert.strictEqual(L.run('_shareWin.step'), 'queued');
+  assert.match(waitFor.innerHTML, /Starts when <span class="share-priv" data-share-private>b\.7z<\/span> is packed\./);
+});
+
+test('Upload on its own: step 1 explains it and asks with a tick box; only a ticked box sends confirmUpload', async () => {
+  const open = async (extra) => {
+    const D = loadDom({ answers: {
+      'POST /api/share/preview': { status: 200, body: PREVIEW(fileRows(1), 1000, extra) },
+      'POST /api/share/shares': { status: 202, body: { share: { id: 9, status: 'packing' } } },
+    } });
+    await D.L.run('shareOpenForIds([1])');
+    return D;
+  };
+  let D = await open({ afterPack: 'wait' });
+  assert.ok(!/shAutoTick|data-sh-auto/.test(D.L.run('shareReviewHtml(_shareWin)')), 'Wait for me: no tick box');
+  await D.L.run('sharePack()');
+  assert.ok(!('confirmUpload' in JSON.parse(D.L.calls.find(c => c.url === '/api/share/shares').init.body)));
+
+  D = await open({ afterPack: 'upload' });
+  const html = D.L.run('shareReviewHtml(_shareWin)');
+  assert.match(html, /<div class="share-warn" data-sh-auto>When packing is done is set to Upload on its own\. Once this share is packed and checked, Vault uploads it to gofile\.io without asking again\./);
+  assert.match(html, /<input type="checkbox" id="shAutoTick">/, 'unticked to start with');
+  assert.match(html, /Leave it unticked and Vault waits for you to check the archive first\./);
+  assert.ok(!/[—–]/.test(html.replace(/<[^>]+>/g, '')), 'no long dashes');
+  assert.ok(!/minute|hour|second/i.test(html.replace(/<[^>]+>/g, '')), 'no time figures');
+  await D.L.run('sharePack()');
+  assert.ok(!('confirmUpload' in JSON.parse(D.L.calls.find(c => c.url === '/api/share/shares').init.body)), 'unticked: the share waits for the check');
+
+  D = await open({ afterPack: 'upload' });
+  D.L.run(`_shareWin.m.q('#shAutoTick').checked = true`);
+  await D.L.run('sharePack()');
+  assert.strictEqual(JSON.parse(D.L.calls.find(c => c.url === '/api/share/shares').init.body).confirmUpload, true);
+
+  // The tick alone is not enough once the setting is Wait for me (the preview says which is in force).
+  D = await open({ afterPack: 'wait' });
+  D.L.run(`_shareWin.m.q('#shAutoTick').checked = true`);
+  await D.L.run('sharePack()');
+  assert.ok(!('confirmUpload' in JSON.parse(D.L.calls.find(c => c.url === '/api/share/shares').init.body)));
+});
+
+test('Upload on its own: the password note shows when a new random password would not be kept', async () => {
+  const L = load();
+  setState(L, { settings: { rememberPasswords: false } });
+  L.ctx.__w = { preview: { savedPasswordSet: false, passwordChoice: 'random' }, m: { q: () => null } };
+  const html = L.run('shareAutoBlockHtml(__w, _shareState.settings)');
+  assert.match(html, /<p class="vault-modal-hint" data-sh-autopw>Vault is not keeping the passwords of past shares, so this share waits for you to see its password before it uploads\.<\/p>/);
+  setState(L, { settings: { rememberPasswords: true } });
+  assert.match(L.run('shareAutoBlockHtml(__w, _shareState.settings)'), /data-sh-autopw hidden>/);
+  setState(L, { settings: { rememberPasswords: false } });
+  L.ctx.__w.m.q = (s) => (s === '#shPwSrc' ? { value: 'saved' } : null);
+  assert.match(L.run('shareAutoBlockHtml(__w, _shareState.settings)'), /data-sh-autopw hidden>/, 'the saved password lasts');
+});
+
+test('Ready to check: the check step shows why a share did not upload on its own, and updates it in place', async () => {
+  const L = load();
+  setState(L);
+  const note = 'Packed and checked, but not uploaded on its own. Vault is set to stay offline (VAULT_OFFLINE=1), so it cannot reach gofile.io.';
+  L.ctx.__w = { id: 9, step: 'checked', share: { id: 9, status: 'checked', passwordKept: true, fileCount: 1 }, progress: { status: 'checked', error: note, checks: {} } };
+  const html = L.run('shareCheckedHtml(__w)');
+  assert.ok(html.includes(`<div class="share-warn" data-sh-autonote>${esc(note)}</div>`));
+  L.ctx.__w.progress.error = null;
+  assert.match(L.run('shareCheckedHtml(__w)'), /<div class="share-warn" data-sh-autonote hidden><\/div>/);
+  const el = { textContent: '', hidden: true };
+  L.ctx.__w.m = { q: (s) => (s === '[data-sh-autonote]' ? el : null) };
+  L.ctx.__w.progress.error = 'Later words.';
+  L.run('_shareWin = __w; shareCheckedNoteUpdate()');
+  assert.deepStrictEqual([el.textContent, el.hidden], ['Later words.', false]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(L.run(`shareStatusWords({ status: 'checked' })`))), { text: 'Ready to check', tone: 'soon' });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(L.run(`shareStatusWords({ status: 'queued' })`))), { text: 'Waiting to pack', tone: 'plain' });
+});
+
+test('My shares: working shares at the top with their badges and actions; the footer line; live polling stops on close', async () => {
+  const L = load();
+  setState(L);
+  const rows = [
+    { id: 1, archiveName: 'old', status: 'uploaded', onGofile: true, link: 'https://gofile.io/d/A', sizeBytes: 1, fileCount: 3, partCount: 1, timerSet: true, uploadedAt: Date.now() },
+    { id: 5, archiveName: 'up', archiveDisplayName: 'up.7z', status: 'uploading', sizeBytes: 4, fileCount: 12, partCount: 3, upload: { percent: 40, partNo: 2, partCount: 3, waitingInLine: false } },
+    { id: 7, archiveName: 'ready', archiveDisplayName: 'ready.7z', status: 'checked', sizeBytes: 1, fileCount: 3, partCount: 1 },
+    { id: 9, archiveName: 'w2', archiveDisplayName: 'w2.7z', status: 'queued', waitingFor: 'w1.7z', sizeBytes: 1, fileCount: 1, partCount: 1 },
+    { id: 8, archiveName: 'w1', archiveDisplayName: 'w1.7z', status: 'queued', waitingFor: 'pk.7z', sizeBytes: 1, fileCount: 1, partCount: 1 },
+    { id: 6, archiveName: 'pk', archiveDisplayName: 'pk.7z', status: 'packing', packing: { phase: 'packing', percent: 42 }, sizeBytes: 1, fileCount: 48, partCount: 1 },
+  ];
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(L.run(`shareListSorted(${JSON.stringify(rows)})`))).map(s => s.id), [6, 8, 9, 7, 5, 1],
+    'packing, then waiting in the order they pack, ready to check, uploading, then the rest');
+  L.ctx.__list = { shares: rows, open: new Set(), files: new Map() };
+  const html = L.run('shareListHtml(__list)');
+  assert.match(html, /Shares being packed or uploaded stay at the top\. Everything else is from Vault's own records\./);
+  assert.match(html, /<span class="share-badge is-busy">[^]*?Packing 42%<\/span><div class="share-bar share-row-bar"[^>]*aria-valuenow="42"/);
+  assert.match(html, /<span class="share-badge is-plain">Waiting to pack<\/span><div class="share-small share-mut">Starts when pk\.7z is packed<\/div>/);
+  assert.match(html, /<span class="share-badge is-soon">Ready to check<\/span><div class="share-small share-mut">Waiting for you\. Nothing uploaded\.<\/div>/);
+  assert.match(html, /3 files, packed and tested/);
+  assert.match(html, /<span class="share-badge is-busy">Uploading part 2 of 3<\/span>/);
+  assert.match(html, /data-share-bg-note>Vault packs one share at a time and uploads one at a time\./);
+  const acts = (s) => JSON.parse(JSON.stringify(L.run(`shareRowActions(${JSON.stringify(s)}, true)`))).map(a => a.key);
+  assert.deepStrictEqual(acts({ status: 'packing' }), ['view', 'cancel']);
+  assert.deepStrictEqual(acts({ status: 'queued' }), ['cancel']);
+  assert.deepStrictEqual(acts({ status: 'checked' }), ['check', 'cancel']);
+  assert.deepStrictEqual(acts({ status: 'uploading' }), ['view', 'pause']);
+  assert.match(html, /<button type="button" class="vault-btn vault-btn-primary share-row-btn" data-row-act="check" data-row-id="7">Check and upload<\/button>/);
+  assert.match(html, /data-row-act="cancel" data-row-id="6">Cancel<\/button>/);
+  assert.match(html, /data-row-act="view" data-row-id="6">Open<\/button>/);
+  assert.match(html, /data-row-act="pause" data-row-id="5">Pause<\/button>/);
+  assert.ok(!/[—–]/.test(html.replace(/<[^>]+>/g, '')), 'no long dashes');
+  // Nothing working: no footer line.
+  L.ctx.__list = { shares: [rows[0]], open: new Set(), files: new Map() };
+  assert.ok(!/data-share-bg-note/.test(L.run('shareListHtml(__list)')));
+  // A note from Upload on its own shows on the row, amber, not as a failure.
+  L.ctx.__list = { shares: [{ ...rows[2], error: 'Packed and checked, but not uploaded on its own.' }], open: new Set(), files: new Map() };
+  assert.match(L.run('shareListHtml(__list)'), /<div class="share-small share-mut share-st is-soon">Packed and checked, but not uploaded on its own\.<\/div>/);
+  // The poll: background requests, every 2 s while a share works; none once closed.
+  const src = read('share-settings-ui.js');
+  assert.match(src, /l\.timer = setTimeout\(shareListRefresh, l\.shares\.some\(shareWorking\) \? 2000 : 10000\);/);
+  assert.match(src, /function shareListClose\(\) \{\n  const l = _shareList;\n  if \(!l\) return;\n  clearTimeout\(l\.timer\);/);
+  assert.match(src, /shareApi\('GET', '\/shares', null, \{ background: true \}\)/);
+});
+
+test('My shares: Check and upload reopens the window on the check step; Cancel asks first; Pause pauses', async () => {
+  const D = loadDom({ answers: {
+    'GET /api/share/shares': { status: 200, body: { shares: [{ id: 7, archiveName: 'r', status: 'checked', sizeBytes: 1, fileCount: 1, partCount: 1 }, { id: 5, archiveName: 'u', status: 'uploading', sizeBytes: 1, fileCount: 1, partCount: 1 }] } },
+    'GET /api/share/shares/7/progress': { status: 200, body: { id: 7, status: 'checked', error: null, checks: {} } },
+    'GET /api/share/shares/7': { status: 200, body: { share: { id: 7, status: 'checked', passwordKept: true, fileCount: 1 } } },
+  } });
+  await D.L.run('shareOpenMyShares()');
+  const click = async (act, id) => {
+    const b = { disabled: false, dataset: { rowAct: act, rowId: String(id) } };
+    await D.L.run('_shareList').m.box.listeners.click[0]({ target: { closest: (s) => (s === '[data-row-act]' ? b : null) } });
+  };
+  let asked = 0;
+  D.L.ctx.vaultConfirm = async () => { asked++; return false; };
+  await click('cancel', 7);
+  assert.strictEqual(asked, 1, 'Cancel asks first');
+  assert.ok(!D.L.calls.some(c => c.url.endsWith('/cancel')), 'kept when the user says no');
+  await click('pause', 5);
+  assert.ok(D.L.calls.some(c => c.url === '/api/share/shares/5/pause' && c.init.method === 'POST'));
+  await click('check', 7);
+  await new Promise(r => setImmediate(r));
+  assert.strictEqual(D.L.run('_shareList'), null, 'the list closed');
+  assert.strictEqual(D.L.run('_shareWin.id'), 7);
+  assert.strictEqual(D.L.run('_shareWin.step'), 'checked', 'on the check step');
+});
+
+test('top bar: packing, an upload, shares waiting and ready to check, each in the popup; the badge is amber for ready ones', () => {
+  const T = loadTopBar();
+  T.show({ show: true, active: true, needsYou: 0, shareId: 6, status: 'packing', percent: 42,
+    packing: { shareId: 6, archiveName: 'Summer', phase: 'packing', percent: 42 },
+    upload: { shareId: 5, archiveName: 'holiday', status: 'uploading', error: null, percent: 50, partNo: 2, partCount: 3, waitingInLine: false },
+    packWaiting: 1, readyToCheck: 1 });
+  assert.strictEqual(T.wrap.dataset.state, 'ready');
+  assert.strictEqual(T.wrap.cache.badge.textContent, '1');
+  assert.strictEqual(T.wrap.cache.badge.dataset.tone, 'amber');
+  assert.strictEqual(T.pill.attrs['aria-label'], 'Shares: 3 working, 1 ready to check');
+  T.clickPill();
+  const html = T.pop.innerHTML;
+  assert.match(html, /<b>Packing Summer<\/b><span class="watch-pop-mut">42%<\/span>/);
+  assert.match(html, /<b>Uploading holiday<\/b><span class="watch-pop-mut">Part 2 of 3<\/span>/);
+  assert.match(html, />1 waiting to pack</);
+  assert.match(html, /class="share-link-btn share-pop-ready" data-share-list>1 packed and ready for you to check<\/button>/);
+  assert.match(html, /data-share-open="6">Open<\/button>/);
+  assert.match(html, /data-share-open="5">Open<\/button>/);
+  assert.match(html, /data-share-list>Open My shares<\/button>/);
+  const bare = withoutPrivate(html);
+  assert.ok(!/Summer|holiday/.test(bare), 'names stay covered under privacy');
+  assert.ok(/data-share-open="6"/.test(bare) && /packed and ready/.test(bare), 'the buttons and counts stay usable');
+  // Packing alone: the accent look, no badge.
+  T.show({ show: true, active: true, needsYou: 0, packing: { shareId: 6, archiveName: 'S', phase: 'staging', percent: 0 }, upload: null, packWaiting: 0, readyToCheck: 0 });
+  assert.strictEqual(T.wrap.dataset.state, 'packing');
+  assert.strictEqual(T.wrap.cache.badge.hidden, true);
+  assert.strictEqual(T.pill.attrs['aria-label'], 'Shares: 1 working');
 });
