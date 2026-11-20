@@ -1839,13 +1839,20 @@ function _migrateParams(body) {
 }
 
 /**
- * The vault's scan probe: a running scan blocks non-forced locks and keeps the
- * autolock clock alive. AI scan Off: the import queue never counts (a file
- * finishing after the switch must not hold the lock); held for playback in
- * Auto it reports idle by itself (lib/import-queue.js isActive).
+ * The vault's scan probe: a running scan blocks non-forced locks, keeps the
+ * autolock clock alive and refuses a password set or change (a rekey rewrites
+ * every page and must not race a scan's writes). A scan that is actually
+ * running always counts, in every mode: a file let finish after AI scan went
+ * Off, and one cut off for playback in Auto until its abort has unwound
+ * (lib/import-queue.js inFlight; a one-file rescan stays in _rescanning until
+ * its scan has returned). Only work that is not running is left out: in Off
+ * nothing waits in the line, and held for playback in Auto the queue reports
+ * idle by itself (lib/import-queue.js isActive).
  */
 function _vaultScanProbe() {
-  return (!aiScanMode.isOff() && importQueue.isActive()) || _rescanning.size > 0
+  return importQueue.inFlight()
+    || (!aiScanMode.isOff() && importQueue.isActive())
+    || _rescanning.size > 0
     || facesService.instance().isBusy();
 }
 

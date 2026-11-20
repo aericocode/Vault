@@ -169,18 +169,23 @@ test('the playback beat: validated, background, and it is what Auto hears', asyn
   assert.strictEqual(playback.isPlaying(), false);
 });
 
-test('the vault scan probe: the import queue never counts while AI scan is Off', async () => {
+test('the vault scan probe: in Off only a scan actually running counts, never the line', async () => {
   mode.set('on');
   assert.strictEqual(_vaultScanProbe(), false);
   // A file queued while waiting for a model counts in On (the queue says active)...
-  const orig = queue.isActive;
+  const origActive = queue.isActive;
+  const origInFlight = queue.inFlight;
   queue.isActive = () => true;
   try {
     assert.strictEqual(_vaultScanProbe(), true);
     mode.set('off');
-    assert.strictEqual(_vaultScanProbe(), false, 'Off: never from the AI scan');
+    assert.strictEqual(_vaultScanProbe(), false, 'Off: nothing waiting in the line counts');
+    // ...but a file let finish after the switch is still writing (test/ai-scan-probe.test.js).
+    queue.inFlight = () => true;
+    assert.strictEqual(_vaultScanProbe(), true, 'Off: a scan in flight still counts');
   } finally {
-    queue.isActive = orig;
+    queue.isActive = origActive;
+    queue.inFlight = origInFlight;
     mode.set('on');
   }
 });
