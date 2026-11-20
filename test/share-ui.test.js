@@ -1658,6 +1658,10 @@ test('Activity: packing, an upload, shares waiting and ready to check; amber for
   // Only ready to check: amber, not counted as running.
   T.show({ show: true, active: true, needsYou: 0, packing: null, upload: null, packWaiting: 0, readyToCheck: 2 });
   assert.deepStrictEqual([T.section().tone, T.section().running, T.section().status, T.section().pct], ['wait', false, 'Ready to check', null]);
+  assert.strictEqual(T.section().waitCount, 2, 'each share ready to check counts on the button, as the old share button did');
+  // An upload left paused counts once more.
+  T.show({ show: true, active: true, needsYou: 0, packing: null, upload: { shareId: 5, archiveName: 'h', status: 'paused', error: null, percent: 10, partNo: 1, partCount: 2 }, packWaiting: 0, readyToCheck: 3 });
+  assert.strictEqual(T.section().waitCount, 4);
 });
 
 /* ── Check files for personal details ─────────────────────────────────── */
@@ -1826,4 +1830,88 @@ test('personal details: a failed share names the file privately; the setting, it
   assert.match(src, /checkPersonal: false/, 'off by default on the page too');
   const search = read('settings-search.js');
   assert.match(search, /shareCheckPersonal/);
+});
+
+/* ── Time left for work under way ─────────────────────────────────────── */
+
+test('time left: only from a steady measured rate, never in the first seconds, gone when the work starts over or stops', () => {
+  const L = load();
+  const t0 = 1_000_000;
+  const words = (at) => L.run(`shareEtaWords('up:1', ${at})`);
+  assert.strictEqual(words(t0), '', 'nothing measured');
+  L.run(`shareEtaNote('up:1', 10, ${t0})`);
+  L.run(`shareEtaNote('up:1', 12, ${t0 + 5000})`);
+  assert.strictEqual(words(t0 + 5000), '', 'two readings are not a rate');
+  L.run(`shareEtaNote('up:1', 14, ${t0 + 10000})`);
+  assert.strictEqual(words(t0 + 10000), '', 'not watched long enough yet');
+  L.run(`shareEtaNote('up:1', 30, ${t0 + 20000})`);
+  // 20 points in 20 s: 1% a second, 70% to go.
+  assert.strictEqual(words(t0 + 20000), 'about 1 minute left');
+  L.run(`shareEtaNote('up:1', 31, ${t0 + 25000})`);
+  assert.match(words(t0 + 25000), /^about \d+ minutes? left$/);
+  assert.strictEqual(words(t0 + 25000 + 61000), '', 'no fresh reading: no words');
+  // The percent fell: the upload started over, and the reading starts again.
+  L.run(`shareEtaNote('up:1', 2, ${t0 + 30000})`);
+  assert.strictEqual(words(t0 + 30000), '');
+  // No progress in the window: no rate, no words.
+  L.run(`shareEtaNote('up:2', 50, ${t0}); shareEtaNote('up:2', 50, ${t0 + 10000}); shareEtaNote('up:2', 50, ${t0 + 20000})`);
+  assert.strictEqual(L.run(`shareEtaWords('up:2', ${t0 + 20000})`), '');
+  L.run(`shareEtaForget('up:1')`);
+  assert.strictEqual(words(t0 + 40000), '');
+});
+
+test('time left in the Activity section and its share list: an upload or pack under way with a steady rate; none waiting, paused, queued or in the short steps', () => {
+  const T = loadActivity();
+  const now = Date.now();
+  const up = (extra = {}) => ({ shareId: 7, archiveName: 'holiday', status: 'uploading', error: null, percent: 40, partNo: 1, partCount: 1, waitingInLine: false, ...extra });
+  const tb = (u, pk = null) => ({ show: true, active: true, needsYou: 0, shareId: 7, status: u ? u.status : 'packing', percent: 40, packing: pk, upload: u, packWaiting: 0, readyToCheck: 0 });
+  // The first look: nothing measured yet, nothing said.
+  T.show(tb(up()));
+  assert.ok(!/left/.test(T.section().detail + T.pop().innerHTML), 'no guess before a rate');
+  // Readings over the last half minute: 1% a second.
+  T.D.L.run(`shareEtaForget('up:7'); shareEtaNote('up:7', 10, ${now - 30000}); shareEtaNote('up:7', 20, ${now - 20000}); shareEtaNote('up:7', 30, ${now - 10000})`);
+  T.show(tb(up()));
+  const s = T.section();
+  assert.match(s.detail, /^<span data-share-private>About 1 minute left\.<\/span>$/, 'in the section, under the status');
+  assert.ok(!/left/.test(withoutPrivate(s.detail)), 'blurred under privacy like the status');
+  assert.match(T.pop().innerHTML, /share-pop-line">About 1 minute left<\/span>/, 'and in the share list');
+  assert.match(T.pop().innerHTML, /<div class="share-pop-text" data-share-private>(?:(?!data-share-open)[\s\S])*About 1 minute left/, 'inside the row\'s private text');
+  // Paused: none, and the readings go.
+  T.show({ ...tb(up({ status: 'paused', error: 'Paused by you.' })), needsYou: 1 });
+  assert.ok(!/minute|left/.test(T.section().detail + T.pop().innerHTML.replace('Paused by you.', '')));
+  assert.strictEqual(T.D.L.run(`shareEtaWords('up:7')`), '');
+  // Waiting in line: none.
+  T.D.L.run(`shareEtaNote('up:7', 10, ${now - 30000}); shareEtaNote('up:7', 20, ${now - 20000}); shareEtaNote('up:7', 30, ${now - 10000})`);
+  T.show(tb(up({ waitingInLine: true })));
+  assert.ok(!/left/.test(T.section().detail + T.pop().innerHTML));
+  // Packing: shown once there is a steady rate, in its packing phase only.
+  T.D.L.run(`shareEtaNote('pack:9', 5, ${now - 30000}); shareEtaNote('pack:9', 15, ${now - 20000}); shareEtaNote('pack:9', 25, ${now - 10000})`);
+  const pk = (phase, percent = 35) => ({ shareId: 9, archiveName: 'summer', phase, percent });
+  T.show(tb(null, pk('packing')));
+  assert.match(T.section().detail, /About 1 minute left\./);
+  assert.match(T.pop().innerHTML, /About 1 minute left/);
+  T.show(tb(null, pk('checking', 100)));
+  assert.ok(!/left/.test(T.section().detail + T.pop().innerHTML), 'checking: none');
+  T.show(tb(null, pk('staging', 0)));
+  assert.ok(!/left/.test(T.section().detail + T.pop().innerHTML), 'getting ready: none');
+  // Queued only (waiting to pack): none.
+  T.show({ ...tb(null, null), packWaiting: 2 });
+  assert.ok(!/left/.test(T.section().detail + T.pop().innerHTML));
+  // Nothing before work starts: step 1 still says nothing about how long.
+  assert.ok(!/minutes? left|hours? left/.test(read('share-ui.js').split('function shareTopEtaNote(')[0].replace(/shareEta\(up\.bytesTotal[^\n]*/, '')),
+    'only the upload step\'s own measured line and these say a time');
+});
+
+test('time left in My shares: an uploading row with a steady rate says it; one waiting in line does not', () => {
+  const L = load({ kit: true });
+  const now = Date.now();
+  L.run(`shareEtaNote('up:4', 10, ${now - 30000}); shareEtaNote('up:4', 20, ${now - 20000}); shareEtaNote('up:4', 30, ${now - 10000})`);
+  L.ctx.__sh = { id: 4, status: 'uploading', partCount: 1, upload: { percent: 40, partNo: 1, partCount: 1, waitingInLine: false } };
+  assert.match(L.run('shareStatusCellHtml(__sh)'), /Uploading 40%[\s\S]*About 1 minute left/);
+  L.ctx.__sh = { id: 4, status: 'uploading', partCount: 1, upload: { percent: 40, partNo: 1, partCount: 1, waitingInLine: true } };
+  assert.ok(!/left/.test(L.run('shareStatusCellHtml(__sh)')));
+  assert.strictEqual(L.run(`shareEtaWords('up:4')`), '', 'its readings went');
+  // A fresh row with no readings: nothing.
+  L.ctx.__sh = { id: 5, status: 'uploading', partCount: 1, upload: { percent: 3, partNo: 1, partCount: 1, waitingInLine: false } };
+  assert.ok(!/left/.test(L.run('shareStatusCellHtml(__sh)')));
 });

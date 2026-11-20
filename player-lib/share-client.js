@@ -235,6 +235,47 @@ function shareEta(bytesLeft, rate) {
   return `about ${h} ${h === 1 ? 'hour' : 'hours'} left`;
 }
 
+/*
+ * Time left for work that is under way, measured from its own progress (the
+ * Activity button's Share privately section and its share list, and an
+ * uploading row in My shares). Nothing before the work starts, nothing while
+ * it waits, is paused or queued: the caller only feeds percents while the
+ * work runs and forgets the key otherwise. The percents come whole from the
+ * server, so the window is wider than the upload step's byte window; nothing
+ * is said until the work has been watched for a while, so the first seconds
+ * never show a wild number.
+ */
+const SHARE_ETA_WINDOW_MS = 60000;   // the rate is taken over this long
+const SHARE_ETA_SETTLE_MS = 15000;   // watched at least this long before any words
+const _shareEtaTracks = new Map();   // key -> { since, samples: [{ t, p }] }
+
+/** One reading of a percent for `key` ('up:7', 'pack:7'). */
+function shareEtaNote(key, percent, now = Date.now()) {
+  const p = Number(percent);
+  if (!key || !Number.isFinite(p)) return;
+  let tr = _shareEtaTracks.get(key);
+  const last = tr && tr.samples[tr.samples.length - 1];
+  if (!tr || (last && p < last.p)) {   // new, or started over
+    tr = { since: now, samples: [] };
+    _shareEtaTracks.set(key, tr);
+  } else if (last && now <= last.t) return;
+  tr.samples.push({ t: now, p });
+  while (tr.samples.length > 2 && now - tr.samples[0].t > SHARE_ETA_WINDOW_MS) tr.samples.shift();
+}
+
+/** The work stopped, waits or ended: its readings go. */
+function shareEtaForget(key) { _shareEtaTracks.delete(key); }
+
+/** "about 5 minutes left", or '' while there is no steady measured rate. */
+function shareEtaWords(key, now = Date.now()) {
+  const tr = _shareEtaTracks.get(key);
+  if (!tr || tr.samples.length < 3 || now - tr.since < SHARE_ETA_SETTLE_MS) return '';
+  const a = tr.samples[0], b = tr.samples[tr.samples.length - 1];
+  if (b.t - a.t < SHARE_ETA_SETTLE_MS || !(b.p > a.p)) return '';
+  if (now - b.t > SHARE_ETA_WINDOW_MS) return '';   // no fresh reading
+  return shareEta(100 - b.p, (b.p - a.p) / ((b.t - a.t) / 1000));
+}
+
 /**
  * A share's status in My shares: { text, tone } where tone is 'ok', 'soon',
  * 'busy', 'bad' or 'done' (ended, nothing left to do).

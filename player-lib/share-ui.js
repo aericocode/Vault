@@ -1783,11 +1783,38 @@ function shareActivityStatus(tb) {
  * wait to pack, the amber count of shares ready to check, the red count of
  * failed parts; My shares and Open.
  */
+/*
+ * Time left for the pack and the upload under way, measured from their own
+ * progress (share-client.js shareEtaNote): only while the pack is in its
+ * packing phase or the upload is moving; waiting, paused, queued and the
+ * short steps around packing have none, and their readings are forgotten.
+ */
+let _shareTopEta = { pack: '', up: '' };
+let _shareTopEtaKeys = new Set();
+function shareTopEtaNote(tb, now = Date.now()) {
+  const pk = tb && tb.packing;
+  const up = tb && tb.upload;
+  const packKey = pk && pk.phase === 'packing' ? `pack:${Number(pk.shareId)}` : null;
+  const upKey = up && up.status === 'uploading' && !up.waitingInLine ? `up:${Number(up.shareId)}` : null;
+  if (packKey) shareEtaNote(packKey, pk.percent, now);
+  if (upKey) shareEtaNote(upKey, up.percent, now);
+  const live = new Set([packKey, upKey].filter(Boolean));
+  for (const k of _shareTopEtaKeys) if (!live.has(k)) shareEtaForget(k);
+  _shareTopEtaKeys = live;
+  const words = (k) => {
+    const w = k ? shareEtaWords(k, now) : '';
+    return w ? w[0].toUpperCase() + w.slice(1) : '';
+  };
+  _shareTopEta = { pack: words(packKey), up: words(upKey) };
+  return _shareTopEta;
+}
+
 function shareRenderActivity() {
   const act = typeof window !== 'undefined' && window.vaultActivity;
   if (!act) return;
   const tb = _shareState && _shareState.topBar;
   const active = shareTopActive(tb);
+  const eta = shareTopEtaNote(active ? tb : null);
   act.setLink('share', shareEnabled() && !active
     ? { label: 'My shares', run: () => { if (typeof shareOpenMyShares === 'function') shareOpenMyShares(); } } : null);
   if (!active) { act.drop('share'); return; }
@@ -1795,6 +1822,10 @@ function shareRenderActivity() {
   const { status, pct } = shareActivityStatus(tb);
   const waiting = Number(tb.packWaiting) || 0;
   const bits = [];
+  // The time left for what the status names (the pack while one packs), blurred
+  // under My shares privacy like that status.
+  const left = tb.packing ? eta.pack : eta.up;
+  if (left) bits.push(`<span data-share-private>${shEsc(left)}.</span>`);
   if (waiting) bits.push(`${waiting.toLocaleString()} waiting to pack.`);
   if (c.ready) bits.push(`<span class="act-amber">${c.ready.toLocaleString()} ready for you to check.</span>`);
   if (c.parts) bits.push(`<span class="act-red">${c.parts.toLocaleString()} ${c.parts === 1 ? 'part of an upload failed' : 'parts of an upload failed'}.</span>`);
@@ -1802,6 +1833,9 @@ function shareRenderActivity() {
   act.set('share', {
     title: 'Share privately', icon: ['📤', 'upload'],
     running: c.working > 0,
+    // The amber count: each share ready to check, and an upload left paused
+    // or not finished (the old share button counted the ready ones).
+    waitCount: c.ready + (c.stuck ? 1 : 0),
     tone: c.parts ? 'need' : c.ready || c.stuck ? 'wait' : 'work',
     status, pct,
     detail: bits.join(' '),
@@ -1839,13 +1873,13 @@ function shareRenderPop() {
     const pct = pk.phase === 'checking' ? 100 : Math.round(pk.percent || 0);
     const cleaning = pk.phase === 'cleaning';
     const right = pk.phase === 'packing' || (cleaning && pct > 0) ? `${pct}%` : pk.phase === 'checking' ? 'Checking' : cleaning ? '' : 'Getting ready';
-    html += row(pk.shareId, `Packing ${pk.archiveName || ''}`.trim(), right, shareBar(pct, `Packing ${pct} percent`), cleaning ? 'Removing personal details' : '');
+    html += row(pk.shareId, `Packing ${pk.archiveName || ''}`.trim(), right, shareBar(pct, `Packing ${pct} percent`), cleaning ? 'Removing personal details' : _shareTopEta.pack);
   }
   if (up) {
     const pct = Math.round(up.percent || 0);
     const verb = up.status === 'uploading' && up.waitingInLine ? 'Waiting to upload' : (SHARE_TOP_VERB[up.status] || 'Upload');
     const right = up.status === 'uploading' && up.partCount > 1 ? `Part ${up.partNo} of ${up.partCount}` : `${pct}%`;
-    const line = up.status !== 'uploading' && up.error ? up.error : '';
+    const line = up.status !== 'uploading' && up.error ? up.error : _shareTopEta.up;
     html += row(up.shareId, `${verb} ${up.archiveName || ''}`.trim(), right, shareBar(pct, `Upload ${pct} percent`), line);
   }
   const waiting = Number(tb.packWaiting) || 0;

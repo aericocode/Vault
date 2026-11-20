@@ -224,15 +224,38 @@
     if (!jobs.has(id)) return;
     const job = jobs.get(id);
     jobs.delete(id);
-    if (job.view) job.view.hidden = true;
     const sec = $(`act-sec-${id}`);
+    // Where focus goes if it was on what is going away: the next section
+    // (or the one before), read before this one leaves the list.
+    const near = sec ? (sec.nextElementSibling || sec.previousElementSibling || null) : null;
+    const lost = isOpen && focusLost([sec, job.view]);
+    if (job.view) job.view.hidden = true;
     if (sec) sec.remove();
-    if (viewing === id) {
-      const focusWasIn = isOpen && document.activeElement && job.view && job.view.contains && job.view.contains(document.activeElement);
-      showView(null);
-      if (focusWasIn) $('activityBtn').focus?.();
-    }
+    if (viewing === id) showView(null);
     paint();
+    if (lost) refocus(near);
+  }
+
+  /**
+   * Was focus on something that is going (or already gone: a pane emptied
+   * just before its section is dropped leaves focus on the page itself)?
+   */
+  function focusLost(parts) {
+    const a = document.activeElement;
+    if (!a || a === document.body) return true;
+    if (a.isConnected === false) return true;
+    return parts.some(p => p && typeof p.contains === 'function' && p.contains(a));
+  }
+
+  /** Somewhere sensible inside the dropdown, else the button. */
+  function refocus(near) {
+    const first = (el) => (el && el.querySelector ? el.querySelector('button:not([hidden])') : null);
+    const target = (viewing && $('activityBack'))
+      || first(near && near.isConnected !== false ? near : null)
+      || first($('activityList'))
+      || ($('activityLinks').hidden ? null : first($('activityLinks')))
+      || $('activityBtn');
+    if (target && target.focus) target.focus();
   }
 
   function act(id, key) {
@@ -339,7 +362,15 @@
     // anything paused) is still running for the polls and the badge, but the
     // words say waiting; a share packing beside ones ready to check is moving.
     const moving = run.filter(([, j]) => !j.held).length;
-    return { tone, running: run.length, moving, needs, waits, pct: src && run.length ? (src.ringPct != null ? src.ringPct : src.pct) : null };
+    // Held and amber (red ones are counted as needing you instead).
+    const held = run.filter(([, j]) => j.held && j.tone !== 'need').length;
+    // Waiting for you: things only the person can move on (shares packed and
+    // ready to check, an upload paused or not finished). A job says how many
+    // with waitCount (each ready share counts, as the old share button did);
+    // any other amber job that is not running counts once.
+    const forYou = all.reduce((n, [, j]) => n + (typeof j.waitCount === 'number' ? Math.max(0, j.waitCount)
+      : (j.tone === 'wait' && !j.running ? 1 : 0)), 0);
+    return { tone, running: run.length, moving, held, forYou, needs, waits, pct: src && run.length ? (src.ringPct != null ? src.ringPct : src.pct) : null };
   }
 
   function paint() {
@@ -354,16 +385,18 @@
       const p = Math.max(0, Math.min(100, s.pct));
       $('activityRingFg').setAttribute('stroke-dasharray', `${p.toFixed(1)} 100`);
     }
-    // The count: running jobs; with none running, the ones that need you.
+    // The count: running jobs; with none running, the ones that need you
+    // (red); with none of those, the things waiting for you (amber).
     const badge = $('activityBadge');
-    const n = s.running || s.needs;
+    const n = s.running || s.needs || s.forYou;
     badge.hidden = !n;
     badge.textContent = n ? String(n) : '';
     badge.dataset.tone = s.tone;
     // Words for a screen reader and the tooltip.
     const bits = [];
     if (s.moving) bits.push(`${s.moving} running`);
-    if (s.waits) bits.push(`${s.waits} waiting`);
+    if (s.held) bits.push(`${s.held} waiting`);
+    if (s.forYou) bits.push(`${s.forYou} waiting for you`);
     if (s.needs) bits.push(`${s.needs} ${s.needs === 1 ? 'needs' : 'need'} you`);
     const label = `Activity: ${bits.length ? bits.join(', ') : 'nothing running'}`;
     btn.setAttribute('aria-label', label);

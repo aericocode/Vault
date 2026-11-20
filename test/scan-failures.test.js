@@ -76,7 +76,7 @@ test('every real processing_error lands in a plain reason', () => {
     ['No processor for file type', 'unsupported'],
     ["ENOENT: no such file or directory, open 'D:\\x.mp4'", 'missing-file'],
     ['source file missing on disk', 'missing-file'],
-    ['Multiple models are loaded in LM Studio. Pick one in the scan panel or set AI_MODEL', 'model-unavailable'],
+    ['Multiple models are loaded in LM Studio. Pick one in the AI scan view under the Activity button, or set AI_MODEL', 'model-unavailable'],
     ['something nobody has seen before', 'other'],
     ['', 'other'],
   ];

@@ -289,7 +289,7 @@ test('D: a text model picked for pictures says so, and offers to pick again', as
   queue.enqueue(addFile('video'));
   assert.ok(await until(() => queue.status().waiting && queue.status().waiting.code === 'not-vision'));
   const w = queue.status().waiting;
-  assert.match(w.reason, /^txt, picked in the scan panel or on the Backend page, cannot read pictures\. Pick a model that can read pictures\.$/);
+  assert.match(w.reason, /^txt, picked in the AI scan view under the Activity button or on the Backend page, cannot read pictures\. Pick a model that can read pictures\.$/);
   assert.strictEqual(w.pickAgain, true);
   llm.setSessionModel(null, { kind: 'vision' });          // what "Pick a model that can read pictures" sends
   assert.ok(await until(() => queue.status().done === 1), 'the only vision model takes it');

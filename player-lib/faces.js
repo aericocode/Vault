@@ -1298,6 +1298,7 @@ function facesSwitchPanePaint() {
   const pane = api.open('faces', {
     title: 'Face search', icon: ['👤', 'person'],
     running: !!sw,
+    held: !!(sw && sw.paused),
     tone: sw ? (sw.paused ? 'wait' : 'work') : 'done',
     status: !sw ? 'Done' : sw.paused ? 'Paused' : `${(sw.done || 0).toLocaleString()} of ${(sw.total || 0).toLocaleString()}`,
     pct: sw ? (sw.total ? Math.min(100, ((sw.done || 0) / sw.total) * 100) : 0) : null,

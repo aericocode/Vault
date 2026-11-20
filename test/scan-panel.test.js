@@ -60,7 +60,7 @@ function makeDom() {
     set className(v) { String(v).split(/\s+/).filter(Boolean).forEach(c => this.classList.add(c)); }
     set innerHTML(html) {
       this._html = String(html);
-      for (const e of this._q.values()) if (byId.get(e.id) === e) byId.delete(e.id);
+      for (const e of this._q.values()) { e.removed = true; if (byId.get(e.id) === e) byId.delete(e.id); }
       this._q.clear();
       for (const m of this._html.matchAll(/<([a-z]+)\b([^>]*?)\bid="([^"]+)"([^>]*)>/g)) {
         const e = new El(m[1]);
@@ -73,6 +73,12 @@ function makeDom() {
     get innerHTML() { return this._html; }
     querySelector(sel) {
       if (this._q.has(sel)) return this._q.get(sel);
+      // The first button that shows, in the order the markup has them.
+      if (sel === 'button:not([hidden])') {
+        const walk = (el) => { for (const c of el._q.values()) { if (c.tagName === 'BUTTON' && !c.hidden) return c; const d = walk(c); if (d) return d; } return null; };
+        for (const k of [this, ...this.children]) { const b = k.tagName === 'BUTTON' && k !== this && !k.hidden ? k : walk(k); if (b) return b; }
+        return null;
+      }
       for (const c of this._q.values()) { if (c._q.has(sel)) return c._q.get(sel); }
       if (!this._generic.has(sel)) this._generic.set(sel, new El());
       return this._generic.get(sel);
@@ -95,6 +101,10 @@ function makeDom() {
     getAttribute(k) { return this.attrs[k] ?? null; }
     removeAttribute(k) { delete this.attrs[k]; }
     get isConnected() { return !this.removed; }
+    contains(n) { for (let x = n; x; x = x.parent) if (x === this) return true; return false; }
+    focus() { document.activeElement = this; }
+    get nextElementSibling() { const p = this.parent; if (!p) return null; const i = p.children.indexOf(this); return i < 0 ? null : (p.children[i + 1] || null); }
+    get previousElementSibling() { const p = this.parent; if (!p) return null; const i = p.children.indexOf(this); return i > 0 ? p.children[i - 1] : null; }
     click() { for (const f of this.listeners.click || []) f({ currentTarget: this, target: this }); }
   }
   const docListeners = {};
@@ -487,7 +497,7 @@ test('jobs are listed in a fixed order, the ring follows the AI scan, the count 
   // a held job (paused) counts for the badge but the words say waiting.
   t.act.set('share', { title: 'Share privately', running: true, tone: 'wait', status: 'Packing 10%', pct: 10 });
   t.act.set('faces', { title: 'Face search', running: true, held: true, tone: 'wait', status: 'Paused', pct: 5 });
-  assert.strictEqual(t.button().label, 'Activity: 2 running, 2 waiting');
+  assert.strictEqual(t.button().label, 'Activity: 2 running, 1 waiting');
   assert.strictEqual(t.button().badge, '3');
 });
 
@@ -549,4 +559,161 @@ test('callers point at the Activity button instead of opening anything', () => {
   const imp = read('importer.js');
   assert.ok(!/_scanDismissed|scanHideBtn/.test(imp), 'no Hide, no dismissed flag');
   assert.match(read('settings.js'), /vaultActivity\.running\('ai'\)/, 'the Backend poll asks the button, not the panel');
+});
+
+/* ── Adding files: overlapping adds ────────────────────────────────────── */
+
+/**
+ * importPanel() out of importer.js (its run number, timer and failure list
+ * with it), run in the same VM as the Activity button.
+ */
+function loadImportPanel() {
+  const t = load();
+  const src = read('importer.js');
+  const a = src.indexOf('  let _importRun = 0;');
+  const b = src.indexOf('  /* ── AI scan panel');
+  assert.ok(a > 0 && b > a, 'importPanel found');
+  t.ctx.fmtN = (v) => String(Number(v) || 0);
+  vm.runInContext(`${src.slice(a, b)}\nwindow.__importPanel = importPanel;`, t.ctx);
+  /** Run the timers set for this long, as if that much time passed. */
+  t.runTimers = (ms) => {
+    for (const [id, x] of [...t.timeouts]) if (x.ms === ms) { t.timeouts.delete(id); x.f(); }
+  };
+  t.panel = (n) => t.ctx.__importPanel(n, 'Adding');
+  t.sec = () => t.act.get('import') || null;
+  return t;
+}
+
+test('adding files: a clean add\'s timer cannot take away a newer add that failed; the failure stays red until dismissed', async () => {
+  const t = loadImportPanel();
+  await t.fire('DOMContentLoaded');
+  const p1 = t.panel(1);
+  p1.update(1, 'a.mp4');
+  p1.finish(1);
+  assert.strictEqual(t.sec().tone, 'done');
+  // 1.4 s later another add, whose add-paths answers 500.
+  const p2 = t.panel(1);
+  p2.update(1, 'b.mp4');
+  p2.fail('1 file', 'The server answered 500');
+  p2.finish(0);
+  // The first add's 3 s timer would have gone off now.
+  t.runTimers(3000);
+  const s = t.sec();
+  assert.ok(s, 'the newer add\'s section is still there');
+  assert.deepStrictEqual([s.tone, s.status, s.detail], ['need', 'Nothing added', '1 could not be added']);
+  assert.strictEqual(t.button().label, 'Activity: 1 needs you');
+  const view = t.$('importQueuePanel');
+  assert.ok(view && !view.removed, 'the failure list is still in the dropdown');
+  assert.strictEqual(s.view, view, 'and Open reaches it');
+  assert.match(view.innerHTML, /1 file/);
+  // Only Dismiss takes it away.
+  t.act.act('import', 'dismiss');
+  assert.strictEqual(t.sec(), null);
+  assert.ok(view.removed);
+  // A later clean add starts with nothing failed.
+  const p3 = t.panel(1);
+  p3.finish(1);
+  assert.strictEqual(t.sec().tone, 'done');
+});
+
+test('adding files: a failed add is carried into the next add, and an older add failing late turns the newer result red', async () => {
+  const t = loadImportPanel();
+  await t.fire('DOMContentLoaded');
+  const p1 = t.panel(2);
+  p1.fail('1 file', 'No such folder');
+  p1.finish(1);
+  assert.strictEqual(t.sec().tone, 'need');
+  // A new add before the failure was dismissed: it keeps the failure.
+  const p2 = t.panel(1);
+  p2.update(1, 'c.mp4');
+  assert.match(t.sec().detail, /1 failed/);
+  p2.finish(1);
+  assert.deepStrictEqual([t.sec().tone, t.sec().detail], ['need', '1 could not be added']);
+  assert.ok(![...t.timeouts.values()].some(x => x.ms === 3000), 'no timer takes a red result away');
+  t.act.act('import', 'dismiss');
+  // Two adds at once: the older one is still answering when the newer one ends clean.
+  const old = t.panel(5);
+  old.update(1, 'd.mp4');
+  const late = t.panel(1);
+  late.finish(1);
+  assert.strictEqual(t.sec().tone, 'done');
+  old.update(5, 'e.mp4');
+  assert.strictEqual(t.sec().status, 'Added 1 of 1', 'the older add draws nothing over the newer one');
+  old.fail('2 files', 'The server answered 500');
+  assert.deepStrictEqual([t.sec().tone, t.sec().detail], ['need', '1 could not be added'], 'its failure (one row) shows on the newer result');
+  t.runTimers(3000);
+  assert.ok(t.sec(), 'and the clean timer no longer takes it away');
+  old.finish(3);
+  assert.strictEqual(t.sec().status, 'Added 1 of 1', 'the older add\'s end draws nothing either');
+});
+
+/* ── Held, waiting for you, and focus ──────────────────────────────────── */
+
+test('a paused face model switch reads as waiting only; every section that can pause says held', async () => {
+  const t = load();
+  await t.fire('DOMContentLoaded');
+  // The shape facesSwitchPanePaint gives a paused switch.
+  const faces = read('faces.js');
+  const sw = faces.split('function facesSwitchPanePaint(')[1].split('\nfunction ')[0];
+  assert.match(sw, /held: !!\(sw && sw\.paused\)/, 'the switch says held while paused');
+  const scan = faces.split('function facesScanPaint(')[1].split('\nfunction ')[0];
+  assert.match(scan, /held: !!\(q\.running && q\.paused\)/);
+  assert.match(read('selection.js'), /held: !allDone && !!_dq\.paused/);
+  assert.match(read('importer.js'), /running: true, held: tone !== 'work'/);
+  t.act.set('faces', { title: 'Face search', running: true, held: true, tone: 'wait', status: 'Paused', pct: 30 });
+  assert.strictEqual(t.button().label, 'Activity: 1 waiting');
+  assert.strictEqual(t.button().badge, '1');
+  t.act.set('faces', { title: 'Face search', running: true, held: false, tone: 'work', status: '3 of 10', pct: 30 });
+  assert.strictEqual(t.button().label, 'Activity: 1 running');
+});
+
+test('things waiting for you are counted in amber when nothing runs and nothing is red', async () => {
+  const t = load();
+  await t.fire('DOMContentLoaded');
+  t.act.set('share', { title: 'Share privately', running: false, tone: 'wait', waitCount: 5, status: 'Ready to check', pct: null });
+  assert.deepStrictEqual([t.button().state, t.button().badge, t.button().badgeTone], ['wait', '5', 'wait'], 'each share ready to check counts');
+  assert.strictEqual(t.button().label, 'Activity: 5 waiting for you');
+  // Red still comes first.
+  t.act.set('import', { title: 'Adding files', running: false, tone: 'need', status: 'Nothing added', pct: null });
+  assert.deepStrictEqual([t.button().state, t.button().badge, t.button().badgeTone], ['need', '1', 'need']);
+  assert.strictEqual(t.button().label, 'Activity: 5 waiting for you, 1 needs you');
+  t.act.drop('import');
+  // Something running: the count is the running jobs, as before.
+  t.act.set('faces', { title: 'Face search', running: true, tone: 'work', status: '1 of 4', pct: 25 });
+  assert.deepStrictEqual([t.button().badge, t.button().label], ['1', 'Activity: 1 running, 5 waiting for you']);
+  t.act.drop('faces');
+  // A share packing beside ones ready: running, and they still wait for you.
+  t.act.set('share', { title: 'Share privately', running: true, tone: 'wait', waitCount: 2, status: 'Packing 5%', pct: 5 });
+  assert.deepStrictEqual([t.button().badge, t.button().label], ['1', 'Activity: 1 running, 2 waiting for you']);
+});
+
+test('focus: Cancel in the AI scan view and a section\'s dismiss leave focus in the dropdown, or on the button when nothing is left', async () => {
+  const t = load();
+  t.server.queue = RUNNING;
+  await t.fire('DOMContentLoaded');
+  const doc = t.dom.document;
+  doc.activeElement = doc.body;
+  t.act.set('share', { title: 'Share privately', running: false, tone: 'wait', waitCount: 1, status: 'Ready to check', pct: null,
+    actions: [{ key: 'shares', label: 'My shares', run: noop }] });
+  t.act.toggle(true);
+  t.act.openView('ai');
+  assert.strictEqual(doc.activeElement, t.$('activityBack'));
+  // Cancel: the pane is emptied (its button with it), then the section goes.
+  const cancel = t.$('scanCancelBtn') || t.$('scanAiPane').querySelector('#scanCancelBtn');
+  cancel.focus();
+  t.ctx.vaultScanPane.drop('ai');
+  assert.strictEqual(t.act.viewing(), null, 'back on the list');
+  assert.strictEqual(doc.activeElement, t.$('act-share-b-shares'), 'on the next section\'s first control');
+  // A dismiss on the last section: the button.
+  t.act.set('share', { title: 'Share privately', running: false, tone: 'done', status: 'Done', pct: null, dismiss: () => t.act.drop('share') });
+  t.$('act-share-x').focus();
+  t.act.act('share', 'dismiss');
+  assert.strictEqual(doc.activeElement, t.$('activityBtn'), 'nothing left: the Activity button');
+  // A drop the person was not on leaves their focus alone.
+  t.act.set('share', { title: 'Share privately', running: false, tone: 'done', status: 'Done', pct: null });
+  const field = new t.dom.El('input');
+  t.dom.document.body.appendChild(field);
+  field.focus();
+  t.act.drop('share');
+  assert.strictEqual(doc.activeElement, field);
 });

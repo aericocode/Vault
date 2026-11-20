@@ -91,65 +91,107 @@
   /* ── Adding files: a section of the Activity button (player-lib/activity.js)
      Its full view (Open) is this panel: the file going in now and every file
      that could not be added. Nothing opens over the library; the button
-     pulses once when adding starts. */
+     pulses once when adding starts.
+
+     One section, shared by every add: a newer add takes it over. Each add
+     has a run number, so an older add (still answering, or its clean-finish
+     timer) can never draw over or take away a newer one's section. Files an
+     add could not take go on one list that every add shares (an older add
+     still answering puts its failures there too), so they stay listed, red,
+     until the person dismisses them. */
+  let _importRun = 0;
+  let _importHideTimer = null;
+  let _importFails = [];      // { name, error }, until dismissed
+  let _importRepaint = null;  // the newest add's painter
+
   function importPanel(total, verb = '⬆ Importing') {
     const act = window.vaultActivity;
+    const run = ++_importRun;
+    clearTimeout(_importHideTimer);
+    _importHideTimer = null;
     document.getElementById('importQueuePanel')?.remove();
     const el = document.createElement('div');
     el.id = 'importQueuePanel';
     el.className = 'act-pane';
     (act ? act.host() : queuePanelStack()).appendChild(el);
-    const failures = [];   // { name, error }
-    let hideTimer = null;
-    const gone = () => { el.remove(); if (act) act.drop('import'); };
+    const mine = () => run === _importRun;
+    const gone = () => {
+      el.remove();
+      if (!mine()) return;   // a newer add owns the section now
+      clearTimeout(_importHideTimer);
+      _importHideTimer = null;
+      _importFails = [];
+      if (act) act.drop('import');
+    };
 
     // Classic keeps its emoji, Modern gets line icons (player-lib/icons.js).
     const sw = (emoji, name) => (typeof vaultIconSwap === 'function' ? vaultIconSwap(emoji, name) : escapeHtml(emoji));
     const verbHtml = typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(escapeHtml(verb)) : escapeHtml(verb);
-    const failRows = () => failures.map(f =>
+    const failRows = () => _importFails.map(f =>
       `<div class="dq-row dq-failed" title="${escapeHtml(f.error)}"><span class="dq-ico">${sw('✗', 'close')}</span><span class="dq-name">${escapeHtml(f.name)}</span></div>`
     ).join('');
     if (act) act.pulse();
 
-    return {
-      update(done, name) {
+    // Where this add is: running (done, name) or finished (ok, extra).
+    const at = { done: 0, name: null, finished: false, ok: 0, extra: null };
+    const paint = () => {
+      if (!mine()) return;
+      const failed = _importFails.length;
+      if (!at.finished) {
         el.innerHTML = `
           <div class="dq-head">
             <span class="dq-spin"></span>
-            <span class="dq-title">${verbHtml} ${fmtN(done)} of ${fmtN(total)}${name ? ` · <span class="dq-file">${escapeHtml(name)}</span>` : ''}</span>
+            <span class="dq-title">${verbHtml} ${fmtN(at.done)} of ${fmtN(total)}${at.name ? ` · <span class="dq-file">${escapeHtml(at.name)}</span>` : ''}</span>
           </div>
-          ${failures.length ? `<div class="dq-list">${failRows()}</div>` : ''}`;
+          ${failed ? `<div class="dq-list">${failRows()}</div>` : ''}`;
         if (act) {
           act.set('import', {
             title: 'Adding files', icon: ['⬆', 'upload'], running: true, tone: 'work',
-            status: `${fmtN(done)} of ${fmtN(total)}`, pct: total ? (done / total) * 100 : 0,
-            detail: (name ? `Now: <span class="dq-file">${escapeHtml(name)}</span>` : '')
-              + (failures.length ? `${name ? ' · ' : ''}${fmtN(failures.length)} failed` : ''),
+            status: `${fmtN(at.done)} of ${fmtN(total)}`, pct: total ? (at.done / total) * 100 : 0,
+            detail: (at.name ? `Now: <span class="dq-file">${escapeHtml(at.name)}</span>` : '')
+              + (failed ? `${at.name ? ' · ' : ''}${fmtN(failed)} failed` : ''),
             view: el,
           });
         }
+        return;
+      }
+      const { ok, extra } = at;
+      el.innerHTML = `
+        <div class="dq-head">
+          <span class="dq-title">${ok ? sw('✓', 'check') : sw('⚠', 'alert')} ${ok ? `Added ${fmtN(ok)} of ${fmtN(total)}` : 'Nothing added'}${failed ? ` · ${fmtN(failed)} failed` : ''}${extra ? ` · ${escapeHtml(extra)}` : ''}</span>
+          <button class="dq-x" title="Dismiss" aria-label="Dismiss">${sw('✕', 'close')}</button>
+        </div>
+        ${failed ? `<div class="dq-list">${failRows()}</div>` : ''}`;
+      el.querySelector('.dq-x')?.addEventListener('click', gone);
+      if (act) {
+        act.set('import', {
+          title: 'Adding files', icon: ['⬆', 'upload'], running: false, tone: failed ? 'need' : 'done',
+          status: ok ? `Added ${fmtN(ok)} of ${fmtN(total)}` : 'Nothing added',
+          pct: null,
+          detail: escapeHtml([failed ? `${fmtN(failed)} could not be added` : '', extra || ''].filter(Boolean).join(' · ')),
+          view: failed ? el : null,
+          dismiss: gone,
+        });
+      }
+      // A clean result goes by itself; one with failures waits for Dismiss.
+      clearTimeout(_importHideTimer);
+      _importHideTimer = failed ? null : setTimeout(gone, 3000);
+    };
+    _importRepaint = paint;
+
+    return {
+      update(done, name) {
+        at.done = done; at.name = name;
+        paint();
       },
-      fail(name, error) { failures.push({ name, error }); },
+      fail(name, error) {
+        _importFails.push({ name, error });
+        // An older add that fails after a newer one took over: show it there.
+        if (!mine() && _importRepaint) _importRepaint();
+      },
       finish(ok, extra) {
-        clearTimeout(hideTimer);
-        el.innerHTML = `
-          <div class="dq-head">
-            <span class="dq-title">${ok ? sw('✓', 'check') : sw('⚠', 'alert')} ${ok ? `Added ${fmtN(ok)} of ${fmtN(total)}` : 'Nothing added'}${failures.length ? ` · ${fmtN(failures.length)} failed` : ''}${extra ? ` · ${escapeHtml(extra)}` : ''}</span>
-            <button class="dq-x" title="Dismiss" aria-label="Dismiss">${sw('✕', 'close')}</button>
-          </div>
-          ${failures.length ? `<div class="dq-list">${failRows()}</div>` : ''}`;
-        el.querySelector('.dq-x')?.addEventListener('click', gone);
-        if (act) {
-          act.set('import', {
-            title: 'Adding files', icon: ['⬆', 'upload'], running: false, tone: failures.length ? 'need' : 'done',
-            status: ok ? `Added ${fmtN(ok)} of ${fmtN(total)}` : 'Nothing added',
-            pct: null,
-            detail: escapeHtml([failures.length ? `${fmtN(failures.length)} could not be added` : '', extra || ''].filter(Boolean).join(' · ')),
-            view: failures.length ? el : null,
-            dismiss: gone,
-          });
-        }
-        if (!failures.length) hideTimer = setTimeout(gone, 3000);
+        at.finished = true; at.ok = ok; at.extra = extra;
+        paint();
       },
     };
   }

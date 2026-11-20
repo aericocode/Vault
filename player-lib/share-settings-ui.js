@@ -663,7 +663,15 @@ function shareStatusCellHtml(share) {
     const u = share.upload || { percent: 0, partNo: 1, partCount: share.partCount || 1 };
     const pct = Math.max(0, Math.min(100, Math.round(u.percent || 0)));
     const text = u.waitingInLine ? 'Waiting to upload' : u.partCount > 1 ? `Uploading part ${u.partNo} of ${u.partCount}` : `Uploading ${pct}%`;
-    return badge('busy', text) + bar(pct, `Upload ${pct} percent`);
+    // Time left, measured from the upload's own progress (share-client.js);
+    // none while it waits in line or before the rate has settled.
+    const key = `up:${Number(share.id)}`;
+    let left = '';
+    if (typeof shareEtaNote === 'function') {
+      if (u.waitingInLine || !share.upload) shareEtaForget(key);
+      else { shareEtaNote(key, u.percent); left = shareEtaWords(key); }
+    }
+    return badge('busy', text) + bar(pct, `Upload ${pct} percent`) + (left ? sub(left[0].toUpperCase() + left.slice(1)) : '');
   }
   const words = shareStatusWords(share);
   return `<span class="share-st is-${words.tone}">${shEsc(words.text)}</span>${share.error ? `<div class="share-small share-st is-bad">${typeof shareErrorHtml === 'function' ? shareErrorHtml(share.error) : shEsc(share.error)}</div>` : ''}`;

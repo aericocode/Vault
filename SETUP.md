@@ -302,12 +302,13 @@ Studio's own setting instead.
 4. **Loaded more than one model?** (For example the embedding model for
    semantic search alongside the vision model.) LM Studio then needs to be
    told which one scans should use: Vault pauses the scan and shows a picker
-   in the scan panel; choose your **vision** model and it resumes. The choice
+   in the AI scan view (the Activity button at the top right, then Open on
+   AI scan); choose your **vision** model and it resumes. The choice
    lasts until you close Vault; set `AI_MODEL` to make it permanent.
    
 
 **5. Verify.** Back in Vault, drag a file in (or press ▶ Resume if a scan is
-paused waiting for the model). The scan panel should start moving; the file's
+paused waiting for the model). The AI scan section under the Activity button should start moving; the file's
 description and tags appear when its scan lands.
 
 ### Loading more than one copy of a model
