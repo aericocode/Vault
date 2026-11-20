@@ -266,9 +266,9 @@
    */
   function onPicture(theme) {
     const t = normalizeTheme(theme);
-    if (t.palette === 'vault') return { '--ov-accent': '#6366f1', '--ov-progress': '#ff4fa3' };
+    if (t.palette === 'vault') return { '--ov-accent': '#6366f1', '--ov-progress': '#ff4fa3', '--ov-on-accent': '#fff' };
     const d = derive(seedsOf(t), 'dark').vars;
-    return { '--ov-accent': d['--accent'], '--ov-progress': d['--track-progress'] };
+    return { '--ov-accent': d['--accent'], '--ov-progress': d['--track-progress'], '--ov-on-accent': d['--on-accent'] };
   }
 
   /** The page background for theme in mode (the theme-color meta). */

@@ -310,6 +310,8 @@
      but Vault (player-lib/theme-colors.js themeVars()). */
   --ov-accent: #6366f1;
   --ov-progress: #ff4fa3;
+  --ov-on-accent: var(--on-accent);         /* text on --ov-accent (A-B marker labels on the seek bar) */
+  --badge-ink: var(--accent);             /* highlight ink on a white chip over the picture (the A-B "A" badge) */
   --ov-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
   --ov-letterbox: #000;                     /* the bars around a picture */
   /* The player's menus over the picture (gear and speed menus, beat bar
@@ -532,6 +534,7 @@
   /* 1. The highlight as text (see :root) */
   --accent-fg: var(--accent-text);
   --accent-hover-fg: var(--accent-text);
+  --badge-ink: #1b1b22;                   /* a white chip needs dark ink whatever the palette */
 
   /* 3. On a fill, focus */
   --focus-ring: var(--accent);

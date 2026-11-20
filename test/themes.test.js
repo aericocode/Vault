@@ -321,9 +321,9 @@ test('css/: the highlight as text goes through --accent-fg (exact in Vault Dark,
   const others = cssBlock(CSS, ':root[data-theme="light"],\n:root[data-palette]:not([data-palette="vault"])');
   assert.strictEqual(others['--accent-fg'], 'var(--accent-text)');
   assert.strictEqual(others['--accent-hover-fg'], 'var(--accent-text)');
-  // Drawings, not text: chart shapes, rings, and the A badge (dark ink on a
-  // white chip). The logo's --accent is only Classic's last fallback.
-  const allowed = /flow-chart|act-ring-fg|ft-head-ring|mp-ab-btn \.mp-badge|^\s*\.logo\s*$/;
+  // Drawings, not text: chart shapes and rings. The
+  // logo's --accent is only Classic's last fallback.
+  const allowed = /flow-chart|act-ring-fg|ft-head-ring|^\s*\.logo\s*$/;
   const bad = [];
   for (const { file, css } of ALL_CSS) {
     if (file.endsWith('variables.css')) continue;
