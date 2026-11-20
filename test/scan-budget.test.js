@@ -78,6 +78,8 @@ function resetServer() {
     script: [],              // per chat request: 'ok' | 'length' | 'thinking' | 'notJson' | 'hang'
     cutAt: 60,
     answer: ANSWER,
+    promptTokensOverride: undefined,   // a usage reading to report instead of the real one
+    overflowExtra: '',                 // more words in the overflow error
     reqs: [],
   });
 }
@@ -105,14 +107,14 @@ function chatReply(res, body) {
   }
   const promptTokens = Math.ceil(text.length / 4) + images * srv.perImage + 10;
   if (srv.realCtx && promptTokens > srv.realCtx) {
-    return json(400, { error: `Engine protocol predict request returned 400: {"error":{"code":400,"message":"request (${promptTokens} tokens) exceeds the available context size (${srv.realCtx} tokens), try increasing it","type":"exceed_context_size_error","n_prompt_tokens":${promptTokens},"n_ctx":${srv.realCtx}}}` });
+    return json(400, { error: `Engine protocol predict request returned 400: {"error":{"code":400,"message":"request (${promptTokens} tokens) exceeds the available context size (${srv.realCtx} tokens), try increasing it${srv.overflowExtra}","type":"exceed_context_size_error","n_prompt_tokens":${promptTokens},"n_ctx":${srv.realCtx}}}` });
   }
   const mode = srv.script.length ? srv.script.shift() : 'ok';
   rec.mode = mode;
   if (mode === 'hang') return;           // until the client goes away
   const full = typeof srv.answer === 'string' ? srv.answer : JSON.stringify(srv.answer);
   const usage = (completion, reasoning = 0) => ({
-    prompt_tokens: promptTokens, completion_tokens: completion, total_tokens: promptTokens + completion,
+    prompt_tokens: srv.promptTokensOverride !== undefined ? srv.promptTokensOverride : promptTokens, completion_tokens: completion, total_tokens: promptTokens + completion,
     completion_tokens_details: { reasoning_tokens: reasoning },
   });
   if (mode === 'length') {
@@ -337,9 +339,9 @@ test('cut off by length: half the frames, then no transcript, then a clear failu
 });
 
 test('too big even at the minimum: a clear failure in its own group', async () => {
-  await fresh({ ctx: null, realCtx: 50 });
+  await fresh({ ctx: null, realCtx: 300 });
   await assert.rejects(vision.analyze(FRAMES, 'v.mp4', 'video'), (err) => {
-    assert.match(err.message, /^too big for the model's context even with 3 pictures \(context 50 tokens\)/);
+    assert.match(err.message, /^too big for the model's context even with 3 pictures \(context 300 tokens\)/);
     assert.strictEqual(failures.classify(err.message), 'too-big');
     return true;
   });
@@ -380,13 +382,39 @@ test('a server that refuses response_format gets the template, and is not asked 
   assert.strictEqual(srv.reqs[2].response_format, null);
 });
 
-test('a server that ignores response_format (prose back) is switched to the template', async () => {
+test('one prose reply to a schema: that file retries with the template, the endpoint keeps the schema', async () => {
   await fresh({ script: ['notJson'] });
   const out = await vision.analyze(FRAMES, 'v.mp4', 'video');
   assert.ok(srv.reqs[0].response_format);
   assert.strictEqual(srv.reqs[1].response_format, null);
   assert.match(srv.reqs[1].text, /ONLY provide raw JSON/);
   assert.strictEqual(out.content_type, 'other');
+  assert.ok(!llm.endpointRejects(base, 'response_format'), 'one bad reply is just a bad reply');
+  await vision.analyze(FRAMES, 'w.mp4', 'video');
+  assert.ok(srv.reqs[2].response_format, 'the next file still sends the schema');
+});
+
+test('prose replies to a schema twice in a row: prompt-only for a while, then the schema is tried again', async () => {
+  await fresh({ script: ['notJson', 'ok', 'notJson', 'ok'] });
+  await vision.analyze(FRAMES, 'a.mp4', 'video');
+  assert.ok(!llm.endpointRejects(base, 'response_format'));
+  await vision.analyze(FRAMES, 'b.mp4', 'video');
+  assert.ok(llm.endpointRejects(base, 'response_format'), 'two in a row');
+  await vision.analyze(FRAMES, 'c.mp4', 'video');
+  assert.strictEqual(srv.reqs.at(-1).response_format, null);
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 21 * 60 * 1000;
+    assert.ok(!llm.endpointRejects(base, 'response_format'), 'tried again later');
+  } finally { Date.now = realNow; }
+});
+
+test('a schema reply that came back right resets the count', async () => {
+  await fresh({ script: ['notJson', 'ok', 'ok', 'notJson', 'ok'] });
+  await vision.analyze(FRAMES, 'a.mp4', 'video');   // prose, then the template
+  await vision.analyze(FRAMES, 'b.mp4', 'video');   // schema answered fine
+  await vision.analyze(FRAMES, 'c.mp4', 'video');   // prose once more
+  assert.ok(!llm.endpointRejects(base, 'response_format'));
 });
 
 test('reasoning_effort refused: sent without it, and not again for that endpoint', async () => {
@@ -512,4 +540,127 @@ test('failure wording: plain, grouped, no em dashes', () => {
   }
   assert.strictEqual(failures.classify('API error: 400 Bad Request - {"error":"request (9000 tokens) exceeds the available context size (8192 tokens)"}'), 'too-big');
   assert.strictEqual(failures.classify('Unexpected end of JSON input'), 'no-answer', 'old rows stay where they were');
+});
+
+/* ── Follow-up fixes ─────────────────────────────────────────────────── */
+
+test('a literal <think> inside the answer is text, not reasoning', async () => {
+  // In the description: kept whole, one request, not mistaken for a cut-off reply.
+  await fresh();
+  srv.answer = { ...ANSWER, description: 'A sign reads <think> before you post.' };
+  let out = await vision.analyze(FRAMES, 'v.mp4', 'video');
+  assert.strictEqual(out.description, 'A sign reads <think> before you post.');
+  assert.strictEqual(srv.reqs.length, 1);
+  assert.strictEqual(out._scan.partial, false);
+
+  // In transcribed_text: a whole answer, not a "cut short" one.
+  await fresh();
+  srv.answer = { ...ANSWER, transcribed_text: [{ text: '<think>', location: 'top' }, { text: 'END', location: 'bottom' }] };
+  out = await vision.analyze(FRAMES, 'v.mp4', 'video');
+  assert.strictEqual(out._scan.partial, false);
+  assert.deepStrictEqual(out.transcribed_text.map(t => t.text), ['<think>', 'END']);
+  assert.strictEqual(srv.reqs.length, 1);
+
+  // A matched pair inside a string is not deleted.
+  await fresh();
+  srv.answer = { ...ANSWER, description: 'Caption: <think>be kind</think> end.' };
+  out = await vision.analyze(FRAMES, 'v.mp4', 'video');
+  assert.strictEqual(out.description, 'Caption: <think>be kind</think> end.');
+
+  // A reasoning block that LEADS the reply is still removed.
+  await fresh();
+  srv.answer = `<think>Looking at the frames first.</think>\n${JSON.stringify(ANSWER)}`;
+  out = await vision.analyze(FRAMES, 'v.mp4', 'video');
+  assert.strictEqual(out.description, ANSWER.description);
+  assert.strictEqual(srv.reqs.length, 1);
+
+  // A leading <think> that never closes: the whole reply was thinking.
+  await fresh();
+  srv.answer = '<think>still going over the frames';
+  await assert.rejects(vision.analyze(FRAMES, 'v.mp4', 'video'), /spent its whole reply thinking/);
+
+  assert.strictEqual(llm.stripThinking('{"a":"<think>x</think>"}'), '{"a":"<think>x</think>"}');
+  assert.strictEqual(llm.stripThinking('  <think>a</think>  {"a":1}'), '{"a":1}');
+});
+
+test('a document that mentions <think> is analysed, not failed as bad JSON', async () => {
+  await fresh();
+  srv.answer = { description: 'Notes about the <think> tag in prompts.', document_type: 'notes', language: 'english', themes: [], tags: ['think'], has_sensitive_data: false, sentiment: 'neutral' };
+  const out = await textApi.analyze('The <think> tag wraps reasoning. '.repeat(20), 'notes.txt');
+  assert.strictEqual(out.description, 'Notes about the <think> tag in prompts.');
+  assert.strictEqual(srv.reqs.length, 1);
+});
+
+test('callers without prepare get the content exactly as the server sent it', async () => {
+  await fresh();
+  srv.answer = '<think>x</think>1. hello';
+  const r = await llm.postChat([{ role: 'user', content: 'translate' }], { maxTokens: 50 });
+  assert.strictEqual(r.content, '<think>x</think>1. hello', 'the translator strips thinking itself, as before');
+});
+
+test('salvage needs the right types; wrong types are dropped on every path', async () => {
+  // Cut off, with only wrong-type tags and themes: not kept.
+  const bad = { language: 'none', content_type: 'other', description: 'x', tags: [1, 2], themes: [{ a: 1 }], locations: [] };
+  const full = JSON.stringify(bad).slice(0, -1) + ', "media_elements": {"main_person": "som';
+  await fresh({ script: ['length', 'length', 'length'], cutAt: full.length });
+  srv.answer = full;
+  await assert.rejects(vision.analyze(FRAMES, 'v.mp4', 'video'), /cut off/);
+  assert.strictEqual(vision.salvageable({ content_type: 'other', description: 'x', tags: [1, 2, 'z'] }), true, 'one real string tag is enough');
+  assert.strictEqual(vision.salvageable({ content_type: 'a sentence', description: 'x', tags: ['z'] }), false, 'content_type must be a choice');
+  assert.strictEqual(vision.salvageable({ content_type: 'other', description: 7, tags: ['z'] }), false);
+  assert.strictEqual(vision.salvageable({ content_type: 'other', description: '  ', tags: ['z'] }), false);
+
+  // A whole answer with junk in it: only the right types are kept.
+  await fresh();
+  srv.answer = {
+    language: 'none', content_type: 'other', description: 7,
+    tags: [1, ' beach ', '', null, 'x'.repeat(500)], themes: [{ a: 1 }, 'sea'], locations: 'home',
+    media_elements: { main_person: 'one woman', age: 30, action: '', lighting: { a: 1 } },
+    transcribed_text: [{ text: 1, location: 'x' }, { text: 'HELLO', location: 'top' }, 'loose', { text: 'NOLOC' }],
+  };
+  const out = await vision.analyze(FRAMES, 'v.mp4', 'video');
+  assert.deepStrictEqual(out.tags, ['beach', 'x'.repeat(200)]);
+  assert.deepStrictEqual(out.themes, ['sea']);
+  assert.deepStrictEqual(out.locations, []);
+  assert.ok(typeof out.description !== 'number', 'a description that is not a string is not kept as one');
+  assert.deepStrictEqual(out.media_elements, [{ type: 'main_person', details: 'one woman' }]);
+  assert.ok(out.transcribed_text.every(t => typeof t.text === 'string' && t.text && typeof t.location === 'string'));
+  assert.deepStrictEqual(out.transcribed_text.map(t => t.text), ['HELLO']);
+  assert.deepStrictEqual(vision.normalizeAnalysis({ media_elements: [{ type: 'age', details: '30s' }, { type: 5, details: 'x' }, 'junk'] }).media_elements,
+    [{ type: 'age', details: '30s' }], 'the old array shape is checked the same way');
+});
+
+test('hostile usage readings are ignored; plan always answers in whole numbers', async () => {
+  for (const reading of [1e12, -5, 0, 3.5, 'abc', null, 9_000_000]) {
+    await fresh({ ctx: 6000, promptTokensOverride: reading });
+    await vision.analyze(FRAMES, 'a.mp4', 'video');
+    assert.strictEqual(budget.learned('vis').frameTokens, null, `reading ${reading}`);
+    srv.promptTokensOverride = undefined;
+    await vision.analyze(FRAMES, 'b.mp4', 'video');
+    assert.strictEqual(srv.reqs[1].images, srv.reqs[0].images, `the next file is planned as before after ${reading}`);
+  }
+
+  budget._reset();
+  budget.learnFromOverflow('k', { nPrompt: 1e12, nCtx: -3, textChars: NaN, frames: 10 });
+  assert.deepStrictEqual([budget.learned('k').frameTokens, budget.learned('k').context], [null, null]);
+  budget.learnFromUsage('k', { promptTokens: 5000, textChars: 0, frames: 1 });   // 5000 a frame: not plausible
+  assert.strictEqual(budget.learned('k').frameTokens, null);
+  for (const o of [{}, { textChars: NaN, available: 35, minFrames: 3 }, { textChars: undefined, context: NaN, available: 'x' },
+    { key: 'k', textChars: Infinity, available: 35, minFrames: 3, maxFrames: NaN, frameWidth: -1, frameHeight: 'y', reserve: NaN }]) {
+    const p = budget.plan(o);
+    assert.ok(Number.isInteger(p.frames) && p.frames >= 0, `frames for ${JSON.stringify(o)}`);
+    assert.ok(Number.isInteger(p.maxTokens) && p.maxTokens >= budget.MIN_ANSWER, `maxTokens for ${JSON.stringify(o)}`);
+  }
+  // Unknown text size is planned as a long one, not as nothing.
+  assert.ok(budget.plan({ key: 'q', context: 8192, textChars: NaN, available: 35, minFrames: 3 }).frames
+    < budget.plan({ key: 'q', context: 8192, textChars: 100, available: 35, minFrames: 3 }).frames);
+});
+
+test('a context error that mentions reasoning does not switch reasoning or the schema off', async () => {
+  await fresh({ ctx: null, realCtx: 4500, overflowExtra: ' (reasoning_effort and response_format are not supported causes here)' });
+  await vision.analyze(FRAMES, 'v.mp4', 'video');
+  assert.strictEqual(srv.reqs[0].status, 400);
+  assert.ok(!llm.endpointRejects(base, 'reasoning_effort'));
+  assert.ok(!llm.endpointRejects(base, 'response_format'));
+  assert.ok(srv.reqs.every(r => r.reasoning_effort === 'none' && r.response_format));
 });

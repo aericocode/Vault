@@ -1075,6 +1075,7 @@
     if (!by && leftText) bits.push(leftText);
     const copies = n0(q.model && q.model.copies) || liveInsts.length;
     if (q.model && q.model.name) bits.push(`${q.model.name}${copies > 1 ? ` (${copies} copies)` : ''}`);
+    if (cutShortWords(q)) bits.push(cutShortWords(q));
     el.querySelector('#scanEta').textContent = bits.join(' · ');
 
     renderWaiting(q);
@@ -1119,6 +1120,17 @@
     if (_scanTab !== 'progress' && aiViewOpen()) loadFailures();
   }
 
+  /**
+   * Files saved from an AI answer that was cut off: only the fields that had
+   * fully arrived were kept (lib/vision-api.js). Not failures, so no colour;
+   * the rows read "lm-studio (reply cut short)" as their Model in the detail
+   * view. There is no library filter for them, so this is a count only.
+   */
+  function cutShortWords(q) {
+    const n = n0(q && q.cutShort);
+    return n > 0 ? `${fmtN(n)} saved from a reply that was cut short` : '';
+  }
+
   /** The words a wait shows, on the Waiting tab and in the Activity section. */
   function waitWords(w) {
     if (w.code === 'playback') return 'Waiting for playback to stop';
@@ -1161,6 +1173,8 @@
       detail = q.starting ? 'Starting' : 'Getting the next file';
     }
     if (failed && tone !== 'need') detail += `${detail ? ' · ' : ''}${fmtN(failed)} failed`;
+    const cut = cutShortWords(q);
+    if (cut && tone !== 'need') detail += `${detail ? ' · ' : ''}${cut}`;
     const resume = pauseBtn.dataset.mode === 'resume';
     return {
       title: 'AI scan', icon: ['🤖', 'spark'], running: true, held: tone !== 'work', tone, status, detail,
@@ -1181,13 +1195,14 @@
     const el = scanAiPane();
     if (!el) return;
     const done = n0(q.done), failed = n0(q.failed);
+    const cut = cutShortWords(q);
     // A result worth keeping in the dropdown: failures until they are
     // dismissed (Retry and Show failed right there), a clean run quietly.
     openPane('ai', {
       title: 'AI scan', icon: ['🤖', 'spark'], running: false, tone: failed ? 'need' : 'done', pct: null,
       status: failed ? `Done, ${fmtN(failed)} failed` : 'Done',
-      detail: failed ? `${plural(done, 'file')} scanned, ${plural(failed, 'file')} could not be scanned`
-        : `${plural(done, 'file')} scanned`,
+      detail: (failed ? `${plural(done, 'file')} scanned, ${plural(failed, 'file')} could not be scanned`
+        : `${plural(done, 'file')} scanned`) + (cut ? `, ${cut}` : ''),
       actions: failed ? [
         { key: 'retry', label: 'Retry all', primary: true, run: () => retryFailed(null) },
         { key: 'show', label: 'Show failed', run: () => { window.vaultActivity?.toggle(false); showFailedInLibrary(); } },
@@ -1195,7 +1210,8 @@
       dismiss: closeFinished,
       onOpen: onAiViewOpen,
     });
-    el.querySelector('#scanHeadSub').textContent = failed ? `· done, ${fmtN(failed)} failed` : `· done, ${plural(done, 'file')} scanned`;
+    el.querySelector('#scanHeadSub').textContent = (failed ? `· done, ${fmtN(failed)} failed` : `· done, ${plural(done, 'file')} scanned`)
+      + (cut ? `, ${cut}` : '');
     const icoEl = el.querySelector('#scanHeadIco');
     icoEl.dataset.k = failed ? 'warn' : 'ok';
     icoEl.innerHTML = failed ? `<span class="sp-dot sp-dot-bad"></span>` : ico('✓', 'check');
