@@ -1,0 +1,42 @@
+/* Settings > General > AI scan is Off (player-lib/ai-scan-mode.js sets
+   <html data-ai-scan="off">): every way to start or retry an AI scan, and
+   every "not scanned yet" mark, is gone wherever it is drawn. A never-scanned
+   file looks like any other file. The code that draws these also checks the
+   mode; this is the net under it (a panel drawn before the switch, a cached
+   tile). The server refuses scan requests in Off whatever the page shows. */
+
+html[data-ai-scan="off"] .tile-ind.ind-unscanned,
+html[data-ai-scan="off"] .meta-badge.unscanned-badge,
+html[data-ai-scan="off"] .meta-rescan-btn,
+html[data-ai-scan="off"] #rescanFilteredBtn,
+html[data-ai-scan="off"] .sel-retry,
+html[data-ai-scan="off"] #scanAiPane,
+html[data-ai-scan="off"] .dq-tabs [data-pane="ai"],
+html[data-ai-scan="off"] [data-ai-scan-only] {
+  display: none !important;
+}
+
+/* The one line at the top of the AI settings pages while AI scan is Off. */
+.ai-scan-off-note {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+  background: var(--bg-secondary, rgba(127, 127, 127, 0.08));
+  color: var(--text-primary, inherit);
+  font-size: 13px;
+}
+html[data-ai-scan="off"] .ai-scan-off-note { display: flex; }
+.ai-scan-off-note button {
+  font: inherit;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.4));
+  background: transparent;
+  color: var(--accent, inherit);
+  cursor: pointer;
+}

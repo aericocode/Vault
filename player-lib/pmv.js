@@ -890,7 +890,8 @@ async function pmvImport() {
     const resp = await fetch(`/api/pmv/jobs/${job.id}/import`, { method: 'POST' });
     const data = await resp.json();
     if (!resp.ok) { showErrorToast(data, 'adding it to the library'); return; }
-    showToast('➕ Added to the library. Rescan it to get AI tags');
+    // No "rescan it" nudge while Settings > General > AI scan is Off.
+    showToast(window.vaultAiScan && window.vaultAiScan.isOff() ? '➕ Added to the library' : '➕ Added to the library. Rescan it to get AI tags');
     if (typeof loadDatabase === 'function') loadDatabase();
     pmvPollJob();
   } catch (err) { showErrorToast(err, 'adding it to the library'); }

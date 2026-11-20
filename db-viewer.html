@@ -61,6 +61,8 @@
   <link rel="stylesheet" href="./css/watchers.css">
   <!-- AI scan panel tabs (Progress / Failed / Waiting) and the Scanning settings group -->
   <link rel="stylesheet" href="./css/scan-panel.css">
+  <!-- AI scan Off hides the scan buttons and nudges (html[data-ai-scan="off"]) -->
+  <link rel="stylesheet" href="./css/ai-scan.css">
   <!-- Modern library look: every rule is scoped under body.layout-modern -->
   <link rel="stylesheet" href="./css/layout-modern.css">
   <!-- The Modern look's line icons (player-lib/icons.js) -->
@@ -580,6 +582,10 @@
   <script src="./player-lib/utils.js"></script>
   <!-- Line icons for the Modern look; fills the data-vi spots above -->
   <script src="./player-lib/icons.js"></script>
+  <!-- Settings > General > AI scan (off / on / auto): early, everything after may ask -->
+  <script src="./player-lib/ai-scan-mode.js"></script>
+  <!-- AI scan Auto: tells the server while something plays -->
+  <script src="./player-lib/playback-beat.js"></script>
   <!-- Recycle Bin vs Trash, example paths, install lines: follow the server's OS -->
   <script src="./player-lib/platform-words.js"></script>
   <!-- In-app alert / confirm / prompt; before shortcuts.js so its key guard runs first -->

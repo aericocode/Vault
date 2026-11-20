@@ -281,9 +281,11 @@
       rowHtml: (x) => `<li>${num(x.index)}<span class="pli-name-cell" title="${esc(x.name)}">${esc(x.title || x.name)}</span>${x.offline ? '<span class="pli-tag">Offline</span>' : ''}${x.how === 'folder' ? '<span class="pli-tag">Found in folder</span>' : ''}${x.how === 'name' ? '<span class="pli-tag" title="Matched by the name the playlist gives it">Found by name</span>' : ''}</li>`,
     });
 
+    // AI scan Off (Settings > General): the files are added, not scanned, so the button says so.
+    const addWord = (typeof window !== 'undefined' && window.vaultAiScan && window.vaultAiScan.isOff()) ? 'Add' : 'Add and scan';
     const disk = group('disk', 'On disk, not in your library', r.disk.length, {
-      note: 'Add and scan… makes the collection now and opens the Add window for these files, with its usual options. Each file goes into the collection at its place in the playlist as soon as it is added. Import without them leaves them out.',
-      action: `<button type="button" class="vdlg-btn pli-act" id="pliAddScan">${ico('＋ ', 'plus')}Add and scan…</button>`,
+      note: addWord + '… makes the collection now and opens the Add window for these files, with its usual options. Each file goes into the collection at its place in the playlist as soon as it is added. Import without them leaves them out.',
+      action: `<button type="button" class="vdlg-btn pli-act" id="pliAddScan">${ico('＋ ', 'plus')}${addWord}…</button>`,
       rows: r.disk,
       rowHtml: (x) => `<li>${num(x.index)}<span class="pli-path" title="${esc(x.path)}">${esc(x.path)}</span></li>`,
     });
@@ -488,7 +490,7 @@
     if (addAndScan && data.disk && data.disk.length && typeof window.openImportModal === 'function') {
       window.openImportModal({
         mode: 'paths',
-        title: 'Add and scan files from the playlist',
+        title: (window.vaultAiScan && window.vaultAiScan.isOff()) ? 'Add files from the playlist' : 'Add and scan files from the playlist',
         path: `${plural(data.disk.length, 'file')} from ${review.fileName || review.name}`,
         roots: [review.name],
         subdirs: 0,

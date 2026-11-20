@@ -37,6 +37,8 @@ const setupNotices = require('../lib/setup-notices');
 const aiSlots = require('../lib/ai-slots');
 const lmsCli = require('../lib/lms-cli');
 const scanModel = require('../lib/scan-model');
+const aiScanMode = require('../lib/ai-scan-mode');
+const playbackActivity = require('../lib/playback-activity');
 const ownedDir = require('../lib/owned-dir');
 const { netFetch } = require('../lib/net');
 const { hostCheck } = require('../lib/host-check');
@@ -456,6 +458,8 @@ app.get('/api/settings/app', (req, res) => {
     savedPort: _savedPort(),
     portSource: config.server.portSource,
     restartNeeded: _savedPort() !== config.server.port,
+    // Settings > General > AI scan: 'off' | 'on' | 'auto' (lib/ai-scan-mode.js).
+    aiScan: aiScanMode.get(),
   });
 });
 
@@ -479,6 +483,13 @@ app.post('/api/settings/app', (req, res) => {
     }
     out.autolockMinutes = vault.setAutolockMinutes(n);
     appSettings.set({ autolockMinutes: out.autolockMinutes });
+  }
+
+  if ('aiScan' in body) {
+    if (!aiScanMode.MODES.includes(body.aiScan)) {
+      return res.status(400).json({ error: 'aiScan must be off, on or auto' });
+    }
+    out.aiScan = aiScanMode.set(body.aiScan);
   }
 
   if ('passwordPromptSeen' in body) {
@@ -1136,6 +1147,23 @@ app.post('/api/media/:id/metadata', (req, res) => {
 
 app.get('/api/import/queue', (req, res) => res.json(importQueue.status()));
 
+/** A scan request while Settings > General > AI scan is Off. */
+function _aiScanOff(res) {
+  return res.status(409).json({ error: aiScanMode.OFF_ERROR, code: aiScanMode.OFF_CODE });
+}
+
+// Viewer pages say what their player is doing (player-lib/playback-beat.js),
+// for AI scan's Auto mode (lib/playback-activity.js). Sent with the
+// background header, so it never counts as the user being present.
+app.post('/api/playback/beat', (req, res) => {
+  const tab = req.body?.tab;
+  const state = req.body?.state;
+  if (typeof tab !== 'string' || !/^[A-Za-z0-9_-]{6,40}$/.test(tab)) return res.status(400).json({ error: 'tab must be a short id' });
+  if (!['playing', 'paused', 'idle'].includes(state)) return res.status(400).json({ error: 'state must be playing, paused or idle' });
+  playbackActivity.report(`tab:${tab}`, state);
+  res.json({ ok: true });
+});
+
 // Workers PER INSTANCE (IMPORT_WORKERS sets the boot default). The real worker
 // count is instances × this, recomputed whenever a model copy is loaded or
 // unloaded. Applied live: raising it starts more workers immediately, lowering
@@ -1168,6 +1196,7 @@ app.post('/api/import/queue/pause', (req, res) => res.json(importQueue.pause()))
 // the panel bounce. Advisory only — the resume still happens, because a probe
 // that's wrong must never be able to trap the user in a paused queue.
 app.post('/api/import/queue/resume', async (req, res) => {
+  if (aiScanMode.isOff()) return _aiScanOff(res);
   // 'waiting' is what a model halt became (lib/import-queue.js).
   const by = importQueue.pausedBy();
   const wasModelHalt = by === 'model' || by === 'waiting';
@@ -1246,6 +1275,7 @@ app.get('/api/import/failures/text', async (req, res) => {
 
 // Retry all failed files of the run, or one reason's (`reason`: a group key).
 app.post('/api/import/failures/retry', async (req, res) => {
+  if (aiScanMode.isOff()) return _aiScanOff(res);
   const reason = req.body?.reason;
   if (reason !== undefined && reason !== null && (typeof reason !== 'string' || !/^[a-z-]{1,40}$/.test(reason))) {
     return res.status(400).json({ error: 'reason must be a group key' });
@@ -1310,6 +1340,7 @@ app.post('/api/ai/scan-settings', async (req, res) => {
 
 // "Load anyway" on the Waiting tab: load the scan model whatever the room check says.
 app.post('/api/ai/scan-model/load', async (req, res) => {
+  if (aiScanMode.isOff()) return _aiScanOff(res);
   const w = await importQueue.loadNow();
   res.json({ ok: !!w && w.code === 'loading', wait: w || null, status: scanModel.status() });
 });
@@ -1683,6 +1714,7 @@ function _queueBulkScan(rawIds, { force = false } = {}) {
 // Not a "rescan": rows that scanned fine are skipped, so sending the whole
 // selection is safe and only the failures move.
 app.post('/api/media/retry-errors', (req, res) => {
+  if (aiScanMode.isOff()) return _aiScanOff(res);
   const out = _queueBulkScan(req.body?.ids, { force: false });
   if (out.status) return res.status(out.status).json({ error: out.error });
   res.json(out);
@@ -1766,6 +1798,7 @@ app.post('/api/media/force-refresh', async (req, res) => {
 // stars, ratings, flags, view counts and thumbnails all survive. The client
 // still confirms before sending force, because the GPU time is the user's.
 app.post('/api/media/batch-rescan', (req, res) => {
+  if (aiScanMode.isOff()) return _aiScanOff(res);
   const out = _queueBulkScan(req.body?.ids, { force: req.body?.force === true });
   if (out.status) return res.status(out.status).json({ error: out.error });
   res.json(out);
@@ -1803,6 +1836,17 @@ function _migrateParams(body) {
   if (!oldPrefix || !newPrefix) return { error: 'Enter both the old path and the new path.' };
   if (oldPrefix === newPrefix) return { error: 'The old path and the new path are the same.' };
   return { mode, oldPrefix, newPrefix };
+}
+
+/**
+ * The vault's scan probe: a running scan blocks non-forced locks and keeps the
+ * autolock clock alive. AI scan Off: the import queue never counts (a file
+ * finishing after the switch must not hold the lock); held for playback in
+ * Auto it reports idle by itself (lib/import-queue.js isActive).
+ */
+function _vaultScanProbe() {
+  return (!aiScanMode.isOff() && importQueue.isActive()) || _rescanning.size > 0
+    || facesService.instance().isBusy();
 }
 
 /** True while anything is mid-scan — migration has to wait for it. */
@@ -2953,14 +2997,14 @@ app.post('/api/import/add-paths', (req, res) => {
   // Shared with the folder watchers (lib/import-add.js): stubs, then the AI
   // scan queue, then a background probe + thumbnails.
   const importAdd = require('../lib/import-add');
-  const { added, skipped, ids } = importAdd.addPaths(paths);
+  const { added, skipped, ids, queued } = importAdd.addPaths(paths);
   let collection;
   if (collId) {
     const n = ids.length ? db.addToCollection(collId, ids, { before }) : 0;
     if (gamifyEnabled && n > 0) require('../lib/quests').onCollect(n);
     collection = { id: collId, added: n, ids, item_count: db.collectionItemCount(collId), first_ids: db.collectionFirstIds(collId), ...db.collectionLength(collId) };
   }
-  res.json({ added, skipped, queued: true, ...(collection ? { collection } : {}) });
+  res.json({ added, skipped, queued, ...(collection ? { collection } : {}) });
   setImmediate(() => { importAdd.probeAndThumb(added, { isLocked: () => vault.isLocked(), requireProbe: true }); });
 });
 
@@ -2973,6 +3017,15 @@ const _rescanning = new Set();
 app.post('/api/media/:id/rescan', async (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'bad id' });
+  if (aiScanMode.isOff()) return _aiScanOff(res);
+  // Auto and something plays: refused rather than queued, so the click is
+  // answered now and nothing starts later by surprise.
+  if (aiScanMode.isAuto() && playbackActivity.isPlaying()) {
+    return res.status(409).json({
+      error: 'Something is playing. AI scan is set to Auto, so it waits until playback stops. Try again then.',
+      code: 'AI_SCAN_WAITS_FOR_PLAYBACK',
+    });
+  }
   const row = db.getById(id);
   if (!row) return res.status(404).json({ error: 'not found' });
   if (!fs.existsSync(row.filepath)) {
@@ -4420,8 +4473,9 @@ function start(args = process.argv.slice(2)) {
   // A running scan blocks non-forced locks and keeps the autolock clock alive.
   // Share privately registers its own, narrower autolock hold (only the
   // automatic lock waits; a manual lock never does): lib/share/service.js.
-  vault.registerScanProbe(() => importQueue.isActive() || _rescanning.size > 0
-    || facesService.instance().isBusy());
+  // AI scan Off: the import queue never counts (a file finishing after the
+  // switch must not hold the lock); held for playback in Auto it reports idle.
+  vault.registerScanProbe(_vaultScanProbe);
   // A saved autolock value overrides the config default. Env still wins the very
   // first run (see lib/app-settings.js) — after that this file is the truth, so
   // the exe user who has no env vars still gets the timeout they chose.
@@ -4586,7 +4640,7 @@ if (require.main === module) {
 function _setSaveDialogForTest(fn) { _saveDialog = fn || _defaultSaveDialog; }
 
 module.exports = {
-  app, start, run: start, isLockGatedPath, _setSaveDialogForTest, _stageRouter: stageRouter,
+  app, start, run: start, isLockGatedPath, _setSaveDialogForTest, _stageRouter: stageRouter, _vaultScanProbe,
   // Tests only: fake pickers and drop resolver for Import playlist (null restores).
   _setPlaylistDialogsForTest: playlistImportRoutes._setDialogsForTest,
   _playlistPickerScripts: { playlist: PLAYLIST_PICKER_PS1, folder: FIND_FOLDER_PICKER_PS1 },

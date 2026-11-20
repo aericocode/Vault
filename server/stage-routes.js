@@ -40,6 +40,36 @@ const mpvFind = require('../lib/stage/mpv-find');
 const fsBrowse = require('../lib/fs-browse');
 const StageRules = require('../player-lib/stage-rules.js');
 const { createSetLog } = require('../lib/stage/setlog');
+const playback = require('../lib/playback-activity');
+
+/**
+ * What Stage tells the set log, also told to lib/playback-activity.js (AI scan
+ * Auto waits while something plays). Stage's reports come from the server
+ * side, so they never go stale: they say themselves when Stage stops.
+ */
+function withPlayback(log) {
+  const call = (fn, a) => { if (log && typeof log[fn] === 'function') return log[fn](...a); };
+  const tell = (state) => { try { playback.report('stage', state, { stale: false }); } catch {} };
+  return {
+    start: (...a) => { tell(a[0] && a[0].playing === false ? 'paused' : 'playing'); return call('start', a); },
+    playing: (...a) => { tell(a[0] ? 'playing' : 'paused'); return call('playing', a); },
+    stop: (...a) => { tell('idle'); return call('stop', a); },
+    close: (...a) => { tell('idle'); return call('close', a); },
+  };
+}
+
+/** Basic Stage's page reports, for lib/playback-activity.js (a page can go quiet: these go stale). */
+const BASIC_PLAYBACK = { start: 'playing', playing: 'playing', paused: 'paused', stopped: 'idle', closed: 'idle' };
+let _basicLast = 'idle';
+function tellBasic(state) {
+  try {
+    if (state === 'beat') { if (_basicLast !== 'idle') playback.report('stage-basic', _basicLast); return; }
+    const p = BASIC_PLAYBACK[state];
+    if (!p) return;
+    _basicLast = p;
+    playback.report('stage-basic', p);
+  } catch {}
+}
 
 /**
  * @param {object} opts
@@ -263,7 +293,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     stage: runner,
     settings: { get: readSettings, sizes: stageSettings.OPEN_SIZES },
     forceMute,
-    log: setlog,
+    log: withPlayback(setlog),
   });
 
   /**
@@ -541,6 +571,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
       }
       setlog.basic('start', { id: b.id, title: typeof lib.titleFor === 'function' ? '' : (b.title || '') });
     } else setlog.basic(b.state);
+    tellBasic(b.state);
     res.json({ ok: true });
   });
 

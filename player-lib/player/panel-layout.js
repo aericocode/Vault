@@ -56,7 +56,9 @@ const PanelLayout = (() => {
     if (!mix) row.push(m.user_trashed ? 'restore' : 'trash');
     row.push('copy');
     if (!mix) row.push('refresh');
-    if (m.processing_error) row.push(m.processing_error === 'unscanned' ? 'scan' : 'rescan');
+    // Not while Settings > General > AI scan is Off.
+    const aiOff = typeof window !== 'undefined' && window.vaultAiScan && window.vaultAiScan.isOff();
+    if (m.processing_error && !aiOff) row.push(m.processing_error === 'unscanned' ? 'scan' : 'rescan');
     row.push('collections');
     if (mix) row.push('editor');
     return { row, more: ['remove'] };

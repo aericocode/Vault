@@ -280,3 +280,32 @@ test('a tab that empties gives way: Waiting picked, then the run ends with failu
   assert.strictEqual(t.$('scanViewFailed').hidden, false);
   assert.match(t.$('scanAiPane').innerHTML, /class="sp-retry-label">Retry all</, 'the count goes on the label, not the icon');
 });
+
+/* ── Settings > General > AI scan ──────────────────────────────────────── */
+
+test('AI scan Auto holding for playback: the pill says so, no Try now, no LM Studio button, no toast', async () => {
+  const t = load();
+  t.server.queue = { ...RUNNING, active: [], pendingCount: 3, paused: true, pausedBy: 'waiting',
+    waiting: { count: 3, code: 'playback', reason: 'AI scan is set to Auto, so files wait while something plays.', since: null } };
+  await t.fire('DOMContentLoaded');
+  assert.match(t.$('scanWaitLine').innerHTML, /Waiting for playback to stop/);
+  assert.match(t.$('scanWaitBox').innerHTML, /Waiting for playback to stop/);
+  assert.strictEqual(t.$('scanPauseBtn').hidden, true, 'it starts by itself: nothing to try');
+  assert.strictEqual(t.$('scanOpenLms').hidden, true);
+  assert.deepStrictEqual(t.toasts, [], 'no toast');
+});
+
+test('AI scan Off: no panel, no scan toasts, no polling for it', async () => {
+  const t = load();
+  t.ctx.vaultAiScan = { isOff: () => true, isAuto: () => false, mode: () => 'off' };
+  t.server.queue = { ...RUNNING, halt: { at: 9, reason: 'Model unavailable' },
+    waiting: { count: 1, code: 'no-room', reason: 'x', since: 5 } };
+  t.server.summary = { active: 1, queued: 2, waiting: 0, failed: 0, done: 0, total: 3 };
+  await t.fire('DOMContentLoaded');
+  for (let i = 0; i < 5; i++) await t.tick();
+  t.ctx.vaultWatchScanQueue({ fresh: true });
+  await t.tick();
+  assert.strictEqual(t.$('scanAiPane') && !t.$('scanAiPane').hidden ? 'shown' : 'none', 'none');
+  assert.deepStrictEqual(t.toasts, []);
+  assert.ok(!t.server.log.some(l => l.startsWith('GET /api/import/queue')), 'never asked');
+});

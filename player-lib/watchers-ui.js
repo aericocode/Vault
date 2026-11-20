@@ -150,7 +150,8 @@
     if (s.state === 'error') meta.push('Files are kept. Nothing is marked missing.');
     else {
       if (f.files != null) meta.push(plural(f.files, 'file'));
-      meta.push(f.newFiles === 'add_only' ? 'Add only' : 'Add and analyse');
+      // AI scan Off: an "Add and analyse" folder adds only (the setting is kept for later).
+      meta.push(f.newFiles === 'add_only' || aiScanOff() ? 'Add only' : 'Add and analyse');
       if (!f.includeSubfolders) meta.push('this folder only');
       if (f.lastChangeAt) meta.push(`last change ${ago(f.lastChangeAt)}`);
     }
@@ -302,6 +303,11 @@
               aria-pressed="${o.value === current ? 'true' : 'false'}"${o.disabled ? ' disabled' : ''}${o.title ? ` title="${h(o.title)}"` : ''}>${o.html || h(o.label)}</button>`).join('')}</span>`;
   }
 
+  /** Settings > General > AI scan is Off (player-lib/ai-scan-mode.js). */
+  function aiScanOff() {
+    return !!(typeof window !== 'undefined' && window.vaultAiScan && window.vaultAiScan.isOff());
+  }
+
   function optRow(title, desc, control, extraCls = '', hint = '') {
     return `<div class="wf-orow${extraCls ? ' ' + extraCls : ''}">
         <div class="wf-olabel">${h(title)}${desc ? `<small>${h(desc)}</small>` : ''}${hint ? `<small class="wf-ohint">${h(hint)}</small>` : ''}</div>
@@ -337,7 +343,9 @@
                 <input type="number" class="wf-num m-field" id="wfInterval" min="1" max="1440" value="${h(draft.intervalMin)}"> min</label>`)}
           ${optRow('New files', 'Add only: playable and searchable by name right away. You can analyse them later.',
             seg('newFiles', [{ value: 'analyse', label: 'Add and analyse' }, { value: 'add_only', label: 'Add only' }], draft.newFiles, 'New files'),
-            '', 'Add and analyse uses your scan model. If it is not loaded, new files wait for it.')}
+            '', aiScanOff()
+              ? 'AI scan is off in Settings > General, so new files are added only for now.'
+              : 'Add and analyse uses your scan model. If it is not loaded, new files wait for it.')}
           ${optRow('Include subfolders', '', `<label class="wf-switch"><input type="checkbox" id="wfSubs" ${draft.includeSubfolders ? 'checked' : ''}><span aria-hidden="true"></span><span class="wf-sr">Include subfolders</span></label>`)}
           ${optRow('File types', '', `<span class="wf-chips" role="group" aria-label="File types">${types.map(t => `
             <button type="button" class="wf-chip" data-wf-type="${t.id}" aria-pressed="${draft.types.includes(t.id) ? 'true' : 'false'}">${h(t.label)}</button>`).join('')}</span>`)}

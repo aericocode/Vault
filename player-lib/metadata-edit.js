@@ -19,7 +19,7 @@ function renderMetaTools(media) {
   const label = (s) => (typeof vaultEmojiLabel === 'function' ? vaultEmojiLabel(s) : s);
   return `
     <div class="meta-tools">
-      ${media.processing_error ? `
+      ${media.processing_error && !(typeof window !== 'undefined' && window.vaultAiScan && window.vaultAiScan.isOff()) ? `
       <button class="meta-tool-btn meta-rescan-btn" onclick="rescanMedia(${media.id}, this)" title="Run the AI scan on this file now (LM Studio must be running)">
         ${label(media.processing_error === 'unscanned' ? '⏳ Scan now' : '🔄 Rescan')}
       </button>` : ''}

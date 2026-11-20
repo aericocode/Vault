@@ -181,6 +181,8 @@
   const ico = (emoji, name) => (typeof vaultIconSwap === 'function' ? vaultIconSwap(emoji, name) : escapeHtml(emoji));
   const modernLook = () => (typeof vaultIsModern === 'function' && vaultIsModern());
   const AI_TAB = () => (modernLook() ? 'AI scan' : '🤖 AI scan');
+  /** Settings > General > AI scan is Off: no scan panel, no scan toast, no nudge. */
+  const aiOff = () => !!(window.vaultAiScan && window.vaultAiScan.isOff());
   const n0 = (v) => Number(v) || 0;
   const fmtN = (v) => n0(v).toLocaleString();
   const plural = (n, one, many) => `${fmtN(n)} ${n === 1 ? one : (many || one + 's')}`;
@@ -692,7 +694,12 @@
     // A text model picked for pictures: offer to pick again (it clears the pick,
     // and the next picture asks "which model?" with only vision models listed).
     el.querySelector('#scanPickAgain').hidden = !w.pickAgain;
-    const pill = `<span class="sp-pill"><span class="sp-dot sp-dot-amber"></span>${w.gpuBusy ? 'Waiting for the GPU to be free' : (w.code === 'loading' ? 'Loading the scan model' : 'Waiting for the scan model')}</span>`;
+    // AI scan Auto holding for playback: nothing to do in LM Studio about it.
+    const forPlayback = w.code === 'playback';
+    el.querySelector('#scanOpenLms').hidden = forPlayback;
+    const pillText = forPlayback ? 'Waiting for playback to stop'
+      : (w.gpuBusy ? 'Waiting for the GPU to be free' : (w.code === 'loading' ? 'Loading the scan model' : 'Waiting for the scan model'));
+    const pill = `<span class="sp-pill"><span class="sp-dot sp-dot-amber"></span>${pillText}</span>`;
     const html = `${pill}<div class="sp-reason">${escapeHtml(w.reason || '')}</div>`;
     if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
     line.hidden = false;
@@ -1019,7 +1026,8 @@
     pauseBtn.disabled = _scanCmdBusy || by === 'vault';
     // Nothing can start while the only model cannot read pictures: Try now
     // would only say "resumed" and do nothing.
-    pauseBtn.hidden = by === 'waiting' && q.waiting && q.waiting.code === 'not-vision';
+    // Nor while AI scan Auto holds everything for playback: it starts by itself.
+    pauseBtn.hidden = by === 'waiting' && q.waiting && (q.waiting.code === 'not-vision' || q.waiting.code === 'playback');
     pauseBtn.title = by === 'vault'
       ? 'The vault is locked. Unlock it to carry on scanning'
       : by === 'waiting' ? 'Send the next file now, even though the scan model does not look ready'
@@ -1141,7 +1149,7 @@
 
   let _idleBusy = false;
   async function idleTick() {
-    if (_idleBusy || _scanTimer || document.hidden) return;
+    if (_idleBusy || _scanTimer || document.hidden || aiOff()) return;
     _idleBusy = true;
     try {
       const resp = await fetch('/api/import/queue/summary', { headers: { 'X-Vault-Background': '1' } });
@@ -1188,6 +1196,7 @@
 
   async function scanTick() {
     if (_scanBusy) return;                  // a slow round must not stack
+    if (aiOff()) { offNow(); return; }
     _scanBusy = true;
     try {
       const resp = await fetch('/api/import/queue', { headers: { 'X-Vault-Background': '1' } });
@@ -1228,14 +1237,14 @@
 
       // Warn once per halt whether the panel is up or not: the queue has stopped
       // and needs a person, and the whole stack hides behind the full player.
-      if (q.halt && q.halt.at !== _haltNotified) {
+      if (q.halt && q.halt.at !== _haltNotified && !aiOff()) {
         _haltNotified = q.halt.at;
         _scanDismissed = false;                 // a halt is worth un-hiding for
         showToast(`⚠ AI scan paused: ${q.halt.reason}`);
       }
       // A wait is said once too, but it does not un-hide the panel: it clears
       // itself, and the user may well have hidden the panel on purpose.
-      if (q.waiting && q.waiting.since && q.waiting.since !== _waitNotified && !q.waiting.gpuBusy) {
+      if (q.waiting && q.waiting.since && q.waiting.since !== _waitNotified && !q.waiting.gpuBusy && !aiOff()) {
         _waitNotified = q.waiting.since;
         showToast('⏳ AI scan is waiting for the scan model');
       }
@@ -1268,7 +1277,23 @@
   // themselves (selection.js's Retry errors).
   window.vaultWatchScanQueue = (opts) => watchScanQueue(opts || {});
 
+  /** AI scan switched Off: the AI pane goes, and nothing polls for it. */
+  function offNow() {
+    if (scanAiPane()) dropPane('ai');
+    _scanLast = null;
+    clearInterval(_scanTimer);
+    _scanTimer = null;
+    startIdleWatch();
+  }
+  if (typeof window.addEventListener === 'function') {
+    window.addEventListener('vault:ai-scan', (e) => {
+      if (e.detail && e.detail.mode === 'off') offNow();
+      else watchScanQueue({ fresh: true });
+    });
+  }
+
   function watchScanQueue({ fresh = false } = {}) {
+    if (aiOff()) { offNow(); return; }
     if (fresh) { _scanDismissed = false; _scanIdle = 0; _scanFails = 0; }
     stopIdleWatch();
     if (_scanTimer) { scanTick(); return; }
@@ -1392,7 +1417,8 @@
     if (skipped.unsupported) skips.push(`${fmtN(skipped.unsupported)} not supported`);
     if (skipped.missing) skips.push(`${fmtN(skipped.missing)} missing`);
     const notes = [];
-    if (imported.length) notes.push(queued ? 'AI scan queued' : 'no AI scan queued (is an AI server set up in Settings?)');
+    // AI scan Off: nothing to say about it (the user chose that).
+    if (imported.length && !aiOff()) notes.push(queued ? 'AI scan queued' : 'no AI scan queued (is an AI server set up in Settings?)');
     if (skips.length) notes.push(skips.join(', '));
     panel.finish(imported.length, notes.join(' · '));
     // Durations arrive from the background probe after this response — watch
@@ -1668,7 +1694,7 @@
               sub: '(Music ID)', desc: 'Listens to the videos and audio files and names the songs in them.',
             })}
             </div>
-            <div class="imp-note">These run in the background and the library stays usable. New files are scanned by AI on their own.</div>
+            <div class="imp-note">These run in the background and the library stays usable.${aiOff() ? '' : ' New files are scanned by AI on their own.'}</div>
           </div>
           ${pathMode && collected.watchable ? `
           <label class="imp-watch" id="impWatchRow">

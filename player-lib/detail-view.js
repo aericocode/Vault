@@ -130,7 +130,7 @@ function renderDetailBody(media, opts = {}) {
     <div class="detail-section detail-section--error">
       <h3 style="color: var(--danger);">⚠ Processing Error</h3>
       <p class="detail-error">${escapeHtml(media.processing_error)}</p>
-      <p class="detail-error-hint">The file itself is fine. It plays and can be tagged. Fix the cause above, then use 🔄 Rescan to try the AI analysis again. If the file was still being copied when it was scanned, use Force refresh.</p>
+      <p class="detail-error-hint">${detailErrorHint('use 🔄 Rescan')}</p>
     </div>` : '';
 
   return `
@@ -533,7 +533,7 @@ function renderDetailPanel(media, opts = {}) {
     <div class="detail-section detail-section--error mpp-sec">
       <h3 class="mpp-lbl mpp-lbl--warn">${detailPanelIcon('alert')} Processing error</h3>
       <p class="detail-error">${escapeHtml(media.processing_error)}</p>
-      <p class="detail-error-hint">The file itself is fine. It plays and can be tagged. Fix the cause above, then use Rescan with AI (the sparkle button at the top) to try the AI analysis again. If the file was still being copied when it was scanned, use Force refresh.</p>
+      <p class="detail-error-hint">${detailErrorHint('use Rescan with AI (the sparkle button at the top)')}</p>
     </div>` : '';
   const music = typeof renderMusicSidebarSection === 'function' ? renderMusicSidebarSection(media) : '';
   const file = `
@@ -914,3 +914,11 @@ window.addEventListener('vault:layout-style', () => {
     detailPanelRedraw('#modalBody', () => showDetails(media));
   }
 });
+
+/** The line under a processing error. With AI scan Off there is no Rescan to point at. */
+function detailErrorHint(rescanWords) {
+  const off = typeof window !== 'undefined' && window.vaultAiScan && window.vaultAiScan.isOff();
+  return off
+    ? 'The file itself is fine. It plays and can be tagged. If the file was still being copied when it was read, use Force refresh.'
+    : `The file itself is fine. It plays and can be tagged. Fix the cause above, then ${rescanWords} to try the AI analysis again. If the file was still being copied when it was scanned, use Force refresh.`;
+}

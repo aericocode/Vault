@@ -490,7 +490,8 @@ const SEL_ACTIONS = [
   { id: 'retry', group: 'library', bar: 'Retry errors', emoji: '↻', cls: 'sel-retry',
     n: (c) => c.retryable,
     title: (c) => `Queue ${selFiles(c.retryable)} for another AI scan${c.errored ? `: ${c.errored.toLocaleString()} with an error` : ''}${c.unscanned ? `${c.errored ? ',' : ':'} ${c.unscanned.toLocaleString()} never scanned` : ''}`,
-    visible: (c) => c.retryable > 0,
+    // Not while Settings > General > AI scan is Off.
+    visible: (c) => c.retryable > 0 && !(typeof window !== 'undefined' && window.vaultAiScan && window.vaultAiScan.isOff()),
     run: () => retryErrorsSelected() },
   // Force refresh: read the errored files again and remake their thumbnails,
   // without redoing the AI scan (the fix for files scanned mid-copy).
@@ -1173,6 +1174,8 @@ async function updateRescanFilteredButton() {
   const seq = ++_rescanBtnSeq;
   const scan = typeof getTriFilterValue === 'function' ? getTriFilterValue('filterScanStatus') : '';
   if (scan !== 'failed' && scan !== 'unscanned') { btn.style.display = 'none'; return; }
+  // AI scan Off: no way to start a scan from here.
+  if ((typeof window !== 'undefined' && window.vaultAiScan && window.vaultAiScan.isOff())) { btn.style.display = 'none'; return; }
   let targets;
   try { targets = await rescanFilteredTargets(); } catch { return; }
   if (seq !== _rescanBtnSeq) return;

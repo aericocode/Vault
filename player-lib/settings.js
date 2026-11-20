@@ -750,6 +750,13 @@
       if (btn) selectSection(btn.dataset.section);
     });
     overlay.querySelector('.settings-modal').addEventListener('click', (e) => {
+      // "Change it in General" on the AI pages' "AI scan is off" line.
+      if (e.target.closest('[data-goto-ai-scan]')) {
+        selectSection(resolvePage('general') || resolvePage('settings'));
+        const row = document.querySelector('#settingsBody [data-sfind="aiScan"]');
+        if (row) row.scrollIntoView({ block: 'center' });
+        return;
+      }
       const opener = e.target.closest('[data-dlg-open]');
       if (opener) { openPageDialog(opener.dataset.dlgOpen, opener); return; }
       const ov = e.target.closest('.settings-dlg-ov');
@@ -903,6 +910,42 @@
                     aria-pressed="${current === o.value ? 'true' : 'false'}">${esc(o.label)}</button>`).join('')}
         </span>`,
     });
+  }
+
+  /* AI scan: Off / On / Auto (server side, lib/ai-scan-mode.js). One row on
+     both General pages; the line under the title says what the current
+     choice does. Saved at once, applied live. */
+  const AI_SCAN_OPTIONS = [
+    { value: 'off', label: 'Off', desc: 'Vault never scans files with AI and never asks.' },
+    { value: 'on', label: 'On', desc: 'Scan new files with AI.' },
+    { value: 'auto', label: 'Auto', desc: 'Like On, but waits while something is playing.' },
+  ];
+  function aiScanMode() {
+    const m = server.aiScan || (window.vaultAiScan && window.vaultAiScan.mode()) || 'on';
+    return AI_SCAN_OPTIONS.some(o => o.value === m) ? m : 'on';
+  }
+  function aiScanDesc(m) {
+    const o = AI_SCAN_OPTIONS.find(x => x.value === m) || AI_SCAN_OPTIONS[1];
+    return o.desc;
+  }
+  function aiScanRow() {
+    const current = aiScanMode();
+    return settingsRowHtml({
+      cls: 'settings-seg-row', sfind: 'aiScan', title: 'AI scan', titleId: 'segLabel_aiScan',
+      desc: `Tags and describes your files with a local AI model (LM Studio). <span id="settingsAiScanDesc">${esc(aiScanDesc(current))}</span>`,
+      control: `<span class="settings-seg" role="group" aria-labelledby="segLabel_aiScan">
+          ${AI_SCAN_OPTIONS.map(o => `
+            <button type="button" class="settings-seg-btn" data-ai-scan-seg="${o.value}"
+                    title="${esc(o.desc)}"
+                    aria-pressed="${current === o.value ? 'true' : 'false'}">${esc(o.label)}</button>`).join('')}
+        </span>`,
+    });
+  }
+
+  /* "AI scan is off" at the top of the AI pages, with the way back to it. */
+  function aiScanOffNote() {
+    return `<div class="ai-scan-off-note" role="note">AI scan is off.
+        <button type="button" data-goto-ai-scan>Change it in General</button></div>`;
   }
 
   /* The "Hide while on" chips that sit under the privacy toggle. Inline chips
@@ -1116,6 +1159,7 @@
         desc: 'Removes the score chip and its point/level toasts from the library. Scoring carries on in the background, so unhiding shows your real history rather than a gap. Nothing is deleted. Entirely offline either way.',
       })}
       ${instanceRow()}
+      ${aiScanRow()}
 
       <h3 class="settings-h" data-sfind="modelDownloads">AI model downloads</h3>
       <p class="settings-note">${modelDl.envAllows
@@ -1200,6 +1244,7 @@
       + toggleRow({ key: 'restoreSession', title: 'Reopen my last session',
         desc: 'When Vault starts, open the last file you played, paused.' }),
     })
+    + settingsCardHtml({ title: 'AI', body: aiScanRow() })
     + settingsCardHtml({ title: 'This copy of Vault', id: 'settingsInstRow', body: instanceRowsModern() });
   }
 
@@ -1341,6 +1386,31 @@
     body.querySelectorAll('button[data-setting-seg]').forEach(btn => {
       btn.addEventListener('click', () => pickSeg(btn));
     });
+    // AI scan: the server owns it (it acts on it with no page open).
+    body.querySelectorAll('button[data-ai-scan-seg]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const value = btn.dataset.aiScanSeg;
+        if (aiScanMode() === value) return;
+        const group = btn.closest('.settings-seg');
+        const paint = (m) => {
+          group.querySelectorAll('button[data-ai-scan-seg]').forEach(b => {
+            b.setAttribute('aria-pressed', b.dataset.aiScanSeg === m ? 'true' : 'false');
+          });
+          const d = document.getElementById('settingsAiScanDesc');
+          if (d) d.textContent = aiScanDesc(m);
+        };
+        paint(value);
+        try {
+          const r = await pushServerSetting({ aiScan: value });
+          window.vaultAiScan?.set(r.aiScan);
+          showToast?.(r.aiScan === 'off' ? 'AI scan is off' : r.aiScan === 'auto' ? 'AI scan waits while something plays' : 'AI scan is on');
+        } catch (err) {
+          paint(aiScanMode());                  // snap back to what's live
+          showErrorToast(err, 'saving the AI scan setting');
+        }
+      });
+    });
+
     body.querySelectorAll('button[data-privacy-hide]').forEach(btn => {
       btn.addEventListener('click', () => togglePrivacyChip(btn));
       btn.addEventListener('keydown', e => {
@@ -4449,18 +4519,19 @@
     settings:  RENDERERS_settings,
     general:   RENDERERS_general,       // Modern
     privacy:   RENDERERS_privacy,       // Modern
-    servers:   RENDERERS_backend,       // Modern (draws RENDERERS_servers)
+    // The AI pages open with "AI scan is off" while it is (css/ai-scan.css shows it).
+    servers:   () => aiScanOffNote() + RENDERERS_backend(),   // Modern (draws RENDERERS_servers)
     library:   RENDERERS_library,
     faces:     () => (typeof facesSettingsHtml === 'function' ? facesSettingsHtml() : ''),
     shortcuts: () => (typeof shortcutsSettingsHtml === 'function' ? shortcutsSettingsHtml() : ''),
     stage:     () => (typeof stageSettingsHtml === 'function' ? stageSettingsHtml() : ''),
     sharing:   () => (typeof shareSettingsHtml === 'function' ? shareSettingsHtml() : ''),
     guides:    RENDERERS_guides,
-    models:    () => (window.vaultScanSettingsHtml ? window.vaultScanSettingsHtml() : '') + RENDERERS_models(),
-    seedpacks: RENDERERS_seedpacks,
+    models:    () => aiScanOffNote() + (window.vaultScanSettingsHtml ? window.vaultScanSettingsHtml() : '') + RENDERERS_models(),
+    seedpacks: () => aiScanOffNote() + RENDERERS_seedpacks(),
     cove:      RENDERERS_cove,
     about:     RENDERERS_about,
-    backend:   RENDERERS_backend,
+    backend:   () => aiScanOffNote() + RENDERERS_backend(),
   };
 
   /* ── Restore last session ────────────────────────────────────────────────── */
