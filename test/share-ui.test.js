@@ -560,7 +560,7 @@ test('settings: the Private sharing card, then four tabs, no parts-at-once or up
   };
   const sf = (h) => [...h.matchAll(/data-sfind="(\w+)"/g)].map(m => m[1]);
   assert.deepStrictEqual(sf(panel('basics').html), ['sharePasswordChoice', 'shareSavedPassword', 'shareDeleteAfter', 'shareSplit', 'shareCustomPart', 'shareCopyFormat']);
-  assert.deepStrictEqual(sf(panel('packing').html), ['shareAfterPack', 'shareNameMode', 'shareKeepLocal']);
+  assert.deepStrictEqual(sf(panel('packing').html), ['shareAfterPack', 'shareNameMode', 'shareKeepLocal', 'shareCheckPersonal']);
   assert.deepStrictEqual(sf(panel('upload').html), ['shareOnPartFail', 'shareAccount']);
   assert.deepStrictEqual(sf(panel('remember').html).slice(0, 4), ['shareRememberPasswords', 'shareRememberFiles', 'shareHideInPrivacy', 'shareTopBarIcon']);
   assert.deepStrictEqual(['basics', 'packing', 'upload', 'remember'].map(id => panel(id).hidden), [false, true, true, true]);
@@ -1069,18 +1069,18 @@ test('step 1: more than 6 files fold to the first 3 and a real button opens the 
   setState(L);
   L.ctx.__w = { preview: PREVIEW(fileRows(10), 10000), filesOpen: false, collectionName: '' };
   const html = L.run('shareReviewHtml(__w)');
-  const rows = [...html.matchAll(/<div class="share-file"( hidden)?>/g)];
+  const rows = [...html.matchAll(/<div class="share-file"( hidden)? data-mid="\d+">/g)];
   assert.strictEqual(rows.length, 10, 'every row is there');
   assert.deepStrictEqual(rows.map(r => !!r[1]), [false, false, false, true, true, true, true, true, true, true]);
   assert.match(html, /<button type="button" class="share-link-btn share-more-files" data-sh-more aria-controls="shFilesList" aria-expanded="false">and 7 more files<\/button>/);
   L.ctx.__w.filesOpen = true;
   const open = L.run('shareReviewHtml(__w)');
-  assert.ok(!/<div class="share-file" hidden>/.test(open));
+  assert.ok(!/<div class="share-file" hidden data-mid=/.test(open));
   assert.match(open, /aria-expanded="true">Show fewer<\/button>/);
   // Six or fewer: no fold.
   L.ctx.__w = { preview: PREVIEW(fileRows(6), 6000), filesOpen: false };
   const six = L.run('shareReviewHtml(__w)');
-  assert.ok(!/data-sh-more/.test(six) && !/<div class="share-file" hidden>/.test(six));
+  assert.ok(!/data-sh-more/.test(six) && !/<div class="share-file" hidden data-mid=/.test(six));
   // The button opens and closes the rows in place.
   const rowEls = Array.from({ length: 10 }, (_, i) => ({ hidden: i >= 3 }));
   const btn = { textContent: '', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } };
@@ -1623,4 +1623,140 @@ test('top bar: packing, an upload, shares waiting and ready to check, each in th
   assert.strictEqual(T.wrap.dataset.state, 'packing');
   assert.strictEqual(T.wrap.cache.badge.hidden, true);
   assert.strictEqual(T.pill.attrs['aria-label'], 'Shares: 1 working');
+});
+
+/* ── Check files for personal details ─────────────────────────────────── */
+
+const META_DONE = (extra = {}) => ({ id: 'a'.repeat(24), done: true, checked: 2, total: 2, files: [], personalCount: 0, uncheckedCount: 0,
+  extraBytes: 0, needBytes: 2040, enoughSpace: true, missingBytes: 0, ...extra });
+
+test('personal details: checking, the amber box (plurals, fold, both choices), the quiet line; values escaped and hidden under File names', () => {
+  const L = load();
+  setState(L);
+  L.ctx.__w = { preview: PREVIEW(fileRows(3), 3000, { checkPersonal: true }), meta: null, metaProgress: { checked: 1, total: 3 }, metaChoice: 'remove', metaOpen: false };
+  assert.match(L.run('shareMetaHtml(__w)'), /role="status" data-sh-metamsg>Checking for personal details… 1 of 3<\/p>/);
+  L.ctx.__w.meta = META_DONE({ personalCount: 2, uncheckedCount: 1, extraBytes: 2 * 1024 * 1024, files: [
+    { mediaId: 1, findings: [{ label: 'Location', value: '52.37, 4.89' }, { label: 'Device', value: 'Apple iPhone 15 Pro' }] },
+    { mediaId: 3, findings: [{ label: 'Name', value: HOSTILE_NAME }] },
+  ] });
+  const html = L.run('shareMetaHtml(__w)');
+  assert.match(html, /<span class="share-meta-title" id="shMetaTitle">2 files carry personal details<\/span>/);
+  assert.match(html, /data-sh-metafold aria-controls="shMetaList" aria-expanded="false">Show details<\/button>/);
+  assert.match(html, /<div class="share-meta-list" id="shMetaList" data-share-names hidden>/, 'folded, and hidden under File names privacy');
+  assert.match(html, /<span class="share-meta-name">clip1\.mp4<\/span><span class="share-meta-what"><span class="share-meta-label">Location:<\/span> 52\.37, 4\.89<\/span>/);
+  assert.ok(!html.includes(HOSTILE_NAME) && html.includes(esc(HOSTILE_NAME)), 'a found value is escaped');
+  assert.match(html, /value="remove" checked>/, 'Remove is picked to start with');
+  assert.match(html, /value="keep">/);
+  assert.match(html, /Remove from the packed copies.*Only these 2 files are copied and cleaned\. Your originals are not changed\. Needs about 2(\.0)? MB more free space\./s);
+  assert.match(html, /Share as they are.*Whoever opens the archive can read these details\./s);
+  assert.match(html, /<p class="vault-modal-hint" data-sh-metaunchecked>1 file could not be checked\.<\/p>/);
+  const words = html.replace(/<[^>]+>/g, '');
+  assert.ok(!/[—–]/.test(words), 'no long dashes');
+  assert.ok(!/all (the )?metadata|every detail/i.test(words), 'never claims to remove everything');
+  assert.ok(!/minute|hour|second/i.test(words), 'no time figures');
+  L.ctx.__w.metaChoice = 'keep';
+  L.ctx.__w.metaOpen = true;
+  const kept = L.run('shareMetaHtml(__w)');
+  assert.match(kept, /value="remove">/);
+  assert.match(kept, /value="keep" checked>/);
+  assert.match(kept, /aria-expanded="true">Hide details</);
+  assert.match(kept, /id="shMetaList" data-share-names>/);
+  // One file.
+  L.ctx.__w.meta = META_DONE({ personalCount: 1, files: [{ mediaId: 2, findings: [{ label: 'Folder path', value: 'C:\\Users\\sam' }] }] });
+  assert.match(L.run('shareMetaHtml(__w)'), /1 file carries personal details.*Only this file is copied and cleaned\./s);
+  // Nothing found: no box; only the quiet line when some could not be checked.
+  L.ctx.__w.meta = META_DONE();
+  assert.strictEqual(L.run('shareMetaHtml(__w)'), '');
+  L.ctx.__w.meta = META_DONE({ uncheckedCount: 4 });
+  assert.strictEqual(L.run('shareMetaHtml(__w)'), '<p class="vault-modal-hint" data-sh-metaunchecked>4 files could not be checked.</p>');
+});
+
+test('personal details: flagged rows carry the tag; the space figures count the copies only while Remove is picked', () => {
+  const L = load();
+  setState(L);
+  const preview = PREVIEW(fileRows(3), 3000, { checkPersonal: true, needBytes: 3060, enoughSpace: true, missingBytes: 0 });
+  L.ctx.__w = { preview, mediaIds: [1, 2, 3], step: 'review', metaChoice: 'remove', metaOpen: false,
+    meta: META_DONE({ personalCount: 1, files: [{ mediaId: 2, findings: [{ label: 'Name', value: 'Sam' }] }], extraBytes: 1000, needBytes: 4060, enoughSpace: false, missingBytes: 500 }) };
+  const html = L.run('shareReviewHtml(__w)');
+  assert.match(html, /data-mid="2"><span class="share-file-name">clip2\.mp4<span class="share-meta-tag">Personal details<\/span><\/span>/);
+  assert.match(html, /data-mid="1"><span class="share-file-name">clip1\.mp4<\/span>/);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(L.run('shareSpaceNow(__w)'))), { needBytes: 4060, enoughSpace: false, missingBytes: 500 });
+  assert.match(html, /There is not enough free space to pack these files/);
+  L.ctx.__w.metaChoice = 'keep';
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(L.run('shareSpaceNow(__w)'))), { needBytes: 3060, enoughSpace: true, missingBytes: 0 });
+  assert.ok(!/There is not enough free space/.test(L.run('shareReviewHtml(__w)')));
+});
+
+test('personal details: the check runs only when the setting is on; Pack files sends only a yes or no, never a file list', async () => {
+  const open = async (preview, meta = META_DONE({ personalCount: 1, files: [{ mediaId: 1, findings: [{ label: 'Name', value: 'Sam' }] }] })) => {
+    const D = loadDom({ answers: {
+      'POST /api/share/preview': { status: 200, body: preview },
+      'POST /api/share/meta-check': { status: 200, body: meta },
+      'POST /api/share/shares': { status: 202, body: { share: { id: 9, status: 'packing' } } },
+    } });
+    await D.L.run('shareOpenForIds([1, 2])');
+    for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
+    return D;
+  };
+  const body = (D) => JSON.parse(D.L.calls.find(c => c.url === '/api/share/shares').init.body);
+  let D = await open(PREVIEW(fileRows(2), 2000));
+  assert.ok(!D.L.calls.some(c => c.url.includes('meta-check')), 'setting off: no check asked for');
+  await D.L.run('sharePack()');
+  assert.ok(!('removePersonal' in body(D)));
+
+  D = await open(PREVIEW(fileRows(2), 2000, { checkPersonal: true }));
+  assert.deepStrictEqual(JSON.parse(D.L.calls.find(c => c.url === '/api/share/meta-check').init.body), { mediaIds: [1, 2] });
+  assert.strictEqual(D.L.run('_shareWin.meta.personalCount'), 1);
+  await D.L.run('sharePack()');
+  assert.deepStrictEqual(Object.keys(body(D)).filter(k => /personal|clean|files/i.test(k)), ['removePersonal']);
+  assert.strictEqual(body(D).removePersonal, true, 'Remove is the default');
+
+  D = await open(PREVIEW(fileRows(2), 2000, { checkPersonal: true }));
+  D.L.run(`_shareWin.metaChoice = 'keep'`);
+  await D.L.run('sharePack()');
+  assert.strictEqual(body(D).removePersonal, false);
+});
+
+test('personal details: Pack files pressed before the check ends waits for it; nothing found packs, something found lets the user pick', async () => {
+  for (const found of [false, true]) {
+    const D = loadDom({ answers: {
+      'POST /api/share/preview': { status: 200, body: PREVIEW(fileRows(2), 2000, { checkPersonal: true }) },
+      'POST /api/share/meta-check': { status: 200, body: { id: 'b'.repeat(24), done: false, checked: 0, total: 2 } },
+      [`GET /api/share/meta-check/${'b'.repeat(24)}`]: { status: 200, body: META_DONE(found ? { personalCount: 1, files: [{ mediaId: 2, findings: [{ label: 'Name', value: 'Sam' }] }] } : {}) },
+      'POST /api/share/shares': { status: 202, body: { share: { id: 9, status: 'packing' } } },
+    } });
+    const polls = [];
+    D.L.ctx.setTimeout = (f, ms) => { if (ms === 700) polls.push(f); return 1; };
+    await D.L.run('shareOpenForIds([1, 2])');
+    for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
+    assert.strictEqual(D.L.run('shareMetaPending(_shareWin)'), true);
+    D.L.run('sharePackClicked()');
+    const btn = D.L.run(`_shareWin.m.q('[data-sh-act="pack"]')`);
+    assert.deepStrictEqual([btn.disabled, btn.textContent], [true, 'Waiting for the check…']);
+    assert.ok(!D.L.calls.some(c => c.url === '/api/share/shares'), 'nothing packs before the answer');
+    // The answer comes.
+    polls.splice(0).forEach(f => f());
+    for (let i = 0; i < 10; i++) await new Promise(r => setImmediate(r));
+    assert.ok(D.L.calls.some(c => c.url.startsWith('/api/share/meta-check/') && c.init.method === 'GET'));
+    assert.strictEqual(D.L.run('_shareWin.metaWaitPack'), false);
+    assert.strictEqual(btn.textContent, found ? 'Pack files' : 'Starting…');
+    assert.strictEqual(D.L.calls.some(c => c.url === '/api/share/shares'), !found, found ? 'found: the user picks first' : 'nothing found: packs on');
+  }
+});
+
+test('personal details: a failed share names the file privately; the setting, its search entry and the stage words', () => {
+  const L = load();
+  setState(L);
+  const msg = `Vault could not remove personal details from ${HOSTILE}, so this share was not packed. Nothing was uploaded. Your own file was not changed.`;
+  const html = L.run(`shareErrorHtml(${JSON.stringify(msg)})`);
+  assert.ok(html.includes(`from <span class="share-priv" data-share-names>${esc(HOSTILE)}</span>, so this share`), html);
+  assert.ok(!html.includes(HOSTILE));
+  assert.strictEqual(L.run(`shareErrorHtml('Packing failed. <b>')`), 'Packing failed. &lt;b&gt;');
+  assert.strictEqual(L.run('SHARE_PHASE_WORDS.cleaning'), 'Removing personal details');
+  const src = read('share-settings-ui.js');
+  assert.match(src, /'Check files for personal details'/);
+  assert.match(src, /Looks for location, device, names and folder paths stored inside the files, and offers to remove them from the packed copies\./);
+  assert.match(src, /checkPersonal: false/, 'off by default on the page too');
+  const search = read('settings-search.js');
+  assert.match(search, /shareCheckPersonal/);
 });

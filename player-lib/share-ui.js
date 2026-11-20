@@ -362,7 +362,7 @@ async function shareCopyText(text, done) {
 
 let _shareWin = null;   // the open window, or null
 
-const SHARE_PHASE_WORDS = { staging: 'Getting the files ready', packing: 'Packing and encrypting', checking: 'Checking the archive' };
+const SHARE_PHASE_WORDS = { staging: 'Getting the files ready', cleaning: 'Removing personal details', packing: 'Packing and encrypting', checking: 'Checking the archive' };
 
 /**
  * Open the window for these library files (step 1). collectionName: the share
@@ -390,6 +390,8 @@ async function shareOpenForIds(ids, { collectionName = '' } = {}) {
     w.failLocal = true;
   }
   shareWindowRender();
+  // The list shows at once; the personal details check fills in when ready.
+  if (w.step === 'review' && w.preview && w.preview.checkPersonal) shareMetaRun(w);
 }
 
 /** The selection bar's button. */
@@ -443,6 +445,8 @@ function shareWindowOpen() {
     id: null, mediaIds: [], preview: null, share: null, progress: null, step: 'loading',
     ticked: false, error: '', failText: '', failLocal: false, samples: [], timer: null, busy: false, partsSig: '',
     collectionName: '', filesOpen: false, bigAsk: null,
+    // The personal details check (step 1): where it is, its answer, the choice.
+    meta: null, metaProgress: null, metaError: false, metaTimer: null, metaChoice: 'remove', metaOpen: false, metaWaitPack: false,
   };
   // A click outside does nothing here: a stray click would drop what was typed
   // on step 1 or hide a running job. Esc asks to close, as Close does.
@@ -457,10 +461,13 @@ function shareWindowClose() {
   if (!w) return;
   clearTimeout(w.timer);
   w.timer = null;
+  clearTimeout(w.metaTimer);
+  w.metaTimer = null;
   _shareWin = null;
   if (w.bigAsk) w.bigAsk.close();
   w.m.close();
-  w.preview = null; w.share = null; w.progress = null;
+  // What the check found goes with the window.
+  w.preview = null; w.share = null; w.progress = null; w.meta = null; w.metaProgress = null;
 }
 
 /**
@@ -671,8 +678,174 @@ function sharePackClicked() {
   const w = _shareWin;
   // The ask is open (a second click of a double click) or a request is out: nothing.
   if (!w || w.busy || w.bigAsk || w.step !== 'review') return;
+  // The personal details check is still running: Pack files waits for it.
+  // When it ends with nothing found, packing goes on by itself; when it found
+  // something, the box shows and the choice is the user's.
+  if (shareMetaPending(w)) {
+    w.metaWaitPack = true;
+    const btn = w.m.q('[data-sh-act="pack"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Waiting for the check…'; }
+    return;
+  }
   if ((Number(w.preview && w.preview.totalBytes) || 0) >= SHARE_HUGE_BYTES) { shareAskBig(w); return; }
   sharePack();
+}
+
+/* Step 1: the personal details check ("Check files for personal details"). */
+
+/** Is the check on and still without an answer? */
+function shareMetaPending(w) {
+  return !!(w && w.preview && w.preview.checkPersonal && !w.meta && !w.metaError);
+}
+
+/** Will the cleaned copies be made (the check found something and Remove is picked)? */
+function shareMetaRemoving(w) {
+  return !!(w && w.meta && w.meta.personalCount > 0 && w.metaChoice !== 'keep');
+}
+
+/** The free space figures step 1 shows: with the cleaned copies when they will be made. */
+function shareSpaceNow(w) {
+  const p = (w && w.preview) || {};
+  if (shareMetaRemoving(w)) return { needBytes: w.meta.needBytes, enoughSpace: w.meta.enoughSpace, missingBytes: w.meta.missingBytes };
+  return { needBytes: p.needBytes, enoughSpace: p.enoughSpace, missingBytes: p.missingBytes };
+}
+
+/** "N files" / "1 file". */
+function shareFilesWord(n) {
+  return `${Number(n).toLocaleString()} ${n === 1 ? 'file' : 'files'}`;
+}
+
+/** The meta slot of step 1: checking, the amber box, or the quiet "could not be checked" line. */
+function shareMetaHtml(w) {
+  const p = w.preview || {};
+  if (w.metaError) {
+    return '<p class="vault-modal-hint" data-sh-metamsg>Vault could not check these files for personal details. If you pack them, Vault checks them again first and removes what it finds from the packed copies.</p>';
+  }
+  if (!w.meta) {
+    const st = w.metaProgress;
+    const count = st && st.total > 1 ? ` ${Number(st.checked || 0).toLocaleString()} of ${Number(st.total).toLocaleString()}` : '';
+    return `<p class="vault-modal-hint share-meta-wait" role="status" data-sh-metamsg>Checking for personal details…${shEsc(count)}</p>`;
+  }
+  const m = w.meta;
+  const unchecked = Number(m.uncheckedCount) || 0;
+  const quiet = unchecked ? `<p class="vault-modal-hint" data-sh-metaunchecked>${shEsc(shareFilesWord(unchecked))} could not be checked.</p>` : '';
+  const n = Number(m.personalCount) || 0;
+  if (!n) return quiet;
+  const byId = new Map((p.files || []).map(f => [Number(f.mediaId), f]));
+  const rows = (m.files || []).map((f) => {
+    const file = byId.get(Number(f.mediaId));
+    const name = file ? (file.nameInArchive || file.name) : '';
+    const what = (f.findings || []).map(x => `<span class="share-meta-what"><span class="share-meta-label">${shEsc(x.label)}:</span> ${shEsc(x.value)}</span>`).join('');
+    return `<div class="share-meta-file"><span class="share-meta-name">${shEsc(name)}</span>${what}</div>`;
+  }).join('');
+  const extra = Number(m.extraBytes) || 0;
+  const removeNote = `${n === 1 ? 'Only this file is copied and cleaned.' : `Only these ${n.toLocaleString()} files are copied and cleaned.`} Your originals are not changed.${extra ? ` Needs about ${shareSize(extra)} more free space.` : ''}`;
+  const choice = (value, title, note) => `
+        <label class="share-meta-choice">
+          <input type="radio" name="shMetaChoice" value="${value}"${w.metaChoice === value || (value === 'remove' && w.metaChoice !== 'keep') ? ' checked' : ''}>
+          <span><b>${shEsc(title)}</b><span class="share-meta-note">${shEsc(note)}</span></span>
+        </label>`;
+  return `
+    <div class="share-meta-box" role="group" aria-labelledby="shMetaTitle">
+      <div class="share-meta-head">${shIcon('alert')}<span class="share-meta-title" id="shMetaTitle">${shEsc(shareFilesWord(n))} ${n === 1 ? 'carries' : 'carry'} personal details</span>
+        <button type="button" class="vault-btn share-btn-amber share-meta-fold" data-sh-metafold aria-controls="shMetaList" aria-expanded="${w.metaOpen ? 'true' : 'false'}">${w.metaOpen ? 'Hide details' : 'Show details'}</button>
+      </div>
+      <div class="share-meta-list" id="shMetaList" data-share-names${w.metaOpen ? '' : ' hidden'}>${rows}</div>
+      <div class="share-meta-choices" role="radiogroup" aria-label="Personal details in the packed copies">
+        ${choice('remove', 'Remove from the packed copies', removeNote)}
+        ${choice('keep', 'Share as they are', 'Whoever opens the archive can read these details.')}
+      </div>
+    </div>${quiet}`;
+}
+
+/** The "Personal details" tag on a flagged row of the file list. */
+const SHARE_META_TAG = '<span class="share-meta-tag">Personal details</span>';
+
+/** The check's answer came (or its progress moved): draw it in place, never the whole step. */
+function shareMetaUpdate(w) {
+  if (!w || w !== _shareWin || w.step !== 'review') return;
+  const slot = w.m.q('[data-sh-meta]');
+  if (slot) {
+    const html = shareMetaHtml(w);
+    if (slot.innerHTML !== html) {
+      // Keep the keyboard on the choice the user is on.
+      const had = document.activeElement && slot.contains(document.activeElement) ? document.activeElement : null;
+      slot.innerHTML = html;
+      if (had && had.name === 'shMetaChoice') { const r = slot.querySelector(`input[value="${had.value}"]`); if (r) r.focus(); }
+      sharePrivacyChanged(slot);
+    }
+  }
+  if (w.meta) {
+    const flagged = new Set((w.meta.files || []).map(f => Number(f.mediaId)));
+    w.m.qa('#shFilesList .share-file[data-mid]').forEach((row) => {
+      const on = flagged.has(Number(row.dataset.mid));
+      const name = row.querySelector('.share-file-name');
+      const tag = name && name.querySelector('.share-meta-tag');
+      if (on && name && !tag) name.insertAdjacentHTML('beforeend', SHARE_META_TAG);
+      if (!on && tag) tag.remove();
+    });
+  }
+  shareSpaceUpdate(w);
+}
+
+/** The free space line, the no-space error and Pack files, from shareSpaceNow. */
+function shareSpaceUpdate(w) {
+  if (!w || w !== _shareWin || w.step !== 'review') return;
+  const p = w.preview || {};
+  const sp = shareSpaceNow(w);
+  const line = w.m.q('[data-sh-space]');
+  if (line) line.textContent = sp.needBytes ? `Packing needs about ${shareSize(sp.needBytes)} of free space.` : '';
+  const err = w.m.q('[data-sh-nospace]');
+  if (err) err.innerHTML = shareNoSpaceHtml(sp);
+  const big = w.m.q('[data-sh-bignote] > span');
+  if (big) big.textContent = shareBigNote({ ...p, needBytes: sp.needBytes });
+  const btn = w.m.q('[data-sh-act="pack"]');
+  if (btn && !w.busy && !w.metaWaitPack) btn.disabled = sp.enoughSpace === false || p.sevenZipFound === false;
+}
+
+function shareNoSpaceHtml(sp) {
+  if (sp.enoughSpace !== false) return '';
+  return `<div class="vault-modal-err" role="alert">${shIcon('alert')}<span>There is not enough free space to pack these files.${sp.missingBytes ? ` ${shEsc(shareSize(sp.missingBytes))} more is needed.` : ''}</span></div>`;
+}
+
+/**
+ * Run the check for the window's files: start it, then ask where it is until
+ * it is done. The window may be drawn again meanwhile; this only ever draws
+ * the meta slot, the tags and the space line.
+ */
+async function shareMetaRun(w) {
+  let st;
+  try {
+    st = await shareApi('POST', '/meta-check', { mediaIds: w.mediaIds });
+    for (;;) {
+      if (w !== _shareWin || w.step !== 'review') return;
+      if (st.off) { w.preview.checkPersonal = false; break; }
+      if (st.done) { w.meta = st; break; }
+      w.metaProgress = st;
+      shareMetaUpdate(w);
+      await new Promise((r) => { w.metaTimer = setTimeout(r, 700); });
+      if (w !== _shareWin || w.step !== 'review') return;
+      st = await shareApi('GET', `/meta-check/${encodeURIComponent(st.id)}`, null, { background: true });
+    }
+  } catch {
+    if (w !== _shareWin) return;
+    w.metaError = true;
+  }
+  if (w !== _shareWin || w.step !== 'review') return;
+  if (!w.preview.checkPersonal) {
+    const slot = w.m.q('[data-sh-meta]');
+    if (slot) slot.innerHTML = '';
+  }
+  shareMetaUpdate(w);
+  if (w.metaWaitPack) {
+    w.metaWaitPack = false;
+    const btn = w.m.q('[data-sh-act="pack"]');
+    if (btn) btn.textContent = 'Pack files';
+    shareSpaceUpdate(w);
+    if (w.meta && !(w.meta.personalCount > 0) && !(btn && btn.disabled)) { sharePackClicked(); return; }
+    // Something was found (or the check failed): the user picks first.
+    shareFocus(w.m.q('[data-sh-metafold]') || btn);
+  }
 }
 
 /**
@@ -682,7 +855,7 @@ function sharePackClicked() {
  * outside does nothing.
  */
 function shareAskBig(w) {
-  const p = w.preview || {};
+  const p = { ...(w.preview || {}), needBytes: shareSpaceNow(w).needBytes };
   const size = shareSize(p.totalBytes);
   const files = (p.files || []).length;
   const uploads = shareUploadsAs(p);
@@ -733,9 +906,12 @@ function shareReviewHtml(w) {
   const partWords = p.partBytes ? shareSize(p.partBytes) : '';
   const splitWords = split ? `It is split into ${p.partCount} parts of up to ${partWords}.`
     : s.split === 'none' ? 'It is not split into parts.' : partWords ? `Over ${partWords} the archive is split into parts.` : '';
-  const space = p.needBytes ? `Packing needs about ${shareSize(p.needBytes)} of free space.` : '';
-  const noSpace = p.enoughSpace === false;
+  // With cleaned copies to make, the space figures count them (shareSpaceNow).
+  const sp = shareSpaceNow(w);
+  const space = sp.needBytes ? `Packing needs about ${shareSize(sp.needBytes)} of free space.` : '';
+  const noSpace = sp.enoughSpace === false;
   const blocked = noSpace || p.sevenZipFound === false;
+  const flagged = new Set(((w.meta && w.meta.files) || []).map(f => Number(f.mediaId)));
   const intro = 'Review what will be packed. Nothing is uploaded yet.';
   // "When packing is done" is "Upload on its own": a tick box here is the
   // go-ahead (the server needs it, confirmUpload: true); left unticked, the
@@ -751,12 +927,13 @@ function shareReviewHtml(w) {
     ${shareHead('Step 1 of 4', 'Share privately', sub)}
     <div class="share-box share-files" data-share-private>
       <div class="share-files-list" id="shFilesList" data-share-names>
-        ${files.map((f, i) => `<div class="share-file"${hideRow(i) ? ' hidden' : ''}><span class="share-file-name">${shEsc(f.nameInArchive || f.name)}</span><span class="share-mut">${shEsc(shareSize(f.sizeBytes))}</span></div>`).join('')}
+        ${files.map((f, i) => `<div class="share-file"${hideRow(i) ? ' hidden' : ''} data-mid="${Number(f.mediaId) || 0}"><span class="share-file-name">${shEsc(f.nameInArchive || f.name)}${flagged.has(Number(f.mediaId)) ? SHARE_META_TAG : ''}</span><span class="share-mut">${shEsc(shareSize(f.sizeBytes))}</span></div>`).join('')}
       </div>
       ${fold ? `<button type="button" class="share-link-btn share-more-files" data-sh-more aria-controls="shFilesList" aria-expanded="${w.filesOpen ? 'true' : 'false'}">${w.filesOpen ? 'Show fewer' : `and ${more.toLocaleString()} more ${more === 1 ? 'file' : 'files'}`}</button>` : ''}
       <div class="share-file share-file-total"><span>${files.length.toLocaleString()} ${files.length === 1 ? 'file' : 'files'}</span><span${big ? ' class="share-big-total"' : ''}>${big ? `${shIcon('alert')}<span class="share-sr">Large share: </span>` : ''}${shEsc(shareSize(p.totalBytes))}</span></div>
     </div>
-    ${big ? `<div class="share-big-note" data-sh-bignote>${shIcon('alert')}<span>${shEsc(shareBigNote(p))}</span></div>` : ''}
+    ${p.checkPersonal ? `<div class="share-meta" data-sh-meta>${shareMetaHtml(w)}</div>` : ''}
+    ${big ? `<div class="share-big-note" data-sh-bignote>${shIcon('alert')}<span>${shEsc(shareBigNote({ ...p, needBytes: sp.needBytes }))}</span></div>` : ''}
     <div class="share-block">
       <div class="share-label">What will leave this computer</div>
       <ul class="share-list">
@@ -788,8 +965,8 @@ function shareReviewHtml(w) {
         ], savedOk ? p.passwordChoice : 'random')}
       </div>
     </div>
-    <p class="vault-modal-hint">${typedOk ? 'A name you type is not hidden: gofile and anyone with the link can read it. ' : ''}${shEsc(space)} ${shEsc(splitWords)}</p>
-    ${noSpace ? `<div class="vault-modal-err" role="alert">${shIcon('alert')}<span>There is not enough free space to pack these files.${p.missingBytes ? ` ${shEsc(shareSize(p.missingBytes))} more is needed.` : ''}</span></div>` : ''}
+    <p class="vault-modal-hint">${typedOk ? 'A name you type is not hidden: gofile and anyone with the link can read it. ' : ''}<span data-sh-space>${shEsc(space)}</span> ${shEsc(splitWords)}</p>
+    <div data-sh-nospace>${shareNoSpaceHtml(sp)}</div>
     ${p.sevenZipFound === false ? `<div class="vault-modal-err" role="alert">${shIcon('alert')}<span>Vault could not find its 7-Zip program, so it cannot pack files.</span></div>` : ''}
     ${auto ? shareAutoBlockHtml(w, s) : ''}
     ${p.packBusy && !blocked ? '<p class="vault-modal-hint" data-sh-packbusy>Another share is being packed. This one waits its turn and starts on its own, so you can keep using Vault meanwhile.</p>' : ''}
@@ -797,7 +974,7 @@ function shareReviewHtml(w) {
     <div class="vault-modal-actions share-actions">
       <span class="share-sp"></span>
       <button type="button" class="vault-btn" data-sh-act="close">Cancel</button>
-      <button type="button" class="vault-btn vault-btn-primary" data-sh-act="pack"${blocked ? ' disabled' : ''}>Pack files</button>
+      <button type="button" class="vault-btn vault-btn-primary" data-sh-act="pack"${blocked || w.metaWaitPack ? ' disabled' : ''}>${w.metaWaitPack ? 'Waiting for the check…' : 'Pack files'}</button>
     </div>`;
 }
 
@@ -883,6 +1060,8 @@ async function sharePack() {
   // Only with "Upload on its own" in force and its tick box ticked.
   const autoTick = q('#shAutoTick');
   if (autoTick && autoTick.checked && w.preview && w.preview.afterPack === 'upload') body.confirmUpload = true;
+  // Personal details: only the choice goes; the server checks the files itself.
+  if (w.preview && w.preview.checkPersonal) body.removePersonal = w.metaChoice !== 'keep';
   w.busy = true;
   btn.disabled = true;
   btn.textContent = 'Starting…';
@@ -986,7 +1165,7 @@ function sharePackingUpdate() {
   const phase = q('[data-sh-phase]');
   if (phase) phase.textContent = SHARE_PHASE_WORDS[pk.phase] || 'Packing';
   const pct = q('[data-sh-pct]');
-  if (pct) pct.textContent = pk.phase === 'packing' ? `${Math.round(pk.percent || 0)}%` : '';
+  if (pct) pct.textContent = pk.phase === 'packing' || (pk.phase === 'cleaning' && pk.percent > 0) ? `${Math.round(pk.percent || 0)}%` : '';
   const bar = q('.share-bar');
   if (bar) {
     const v = pk.phase === 'checking' ? 100 : Math.round(pk.percent || 0);
@@ -1411,13 +1590,25 @@ async function shareDoneAct(kind) {
 
 /* Failed. */
 
+// The server's words when a cleaned copy could not be made (service.js
+// CLEAN_FAILED_START): the file name in them is blurred like the file list.
+const SHARE_CLEAN_FAILED_RX = /^(Vault could not remove personal details from )(.+?)(, so this share was not packed\..*)$/s;
+
+/** A share's error as markup: plain words, with a file name in it hidden under privacy. */
+function shareErrorHtml(text) {
+  const t = String(text == null ? '' : text);
+  const m = SHARE_CLEAN_FAILED_RX.exec(t);
+  if (!m || m[2] === 'one of the files') return shEsc(t);
+  return `${shEsc(m[1])}<span class="share-priv" data-share-names>${shEsc(m[2])}</span>${shEsc(m[3])}`;
+}
+
 function shareFailedHtml(w) {
   const share = w.share || {};
   const remote = !!share.onGofile;
   const local = w.failLocal;
   return `
     ${shareHead('', 'Share privately stopped', remote ? 'Some parts may already be on gofile.' : 'Nothing was uploaded.')}
-    <div class="share-warn share-warn-bad" role="alert">${shEsc(w.failText || 'Something went wrong.')}</div>
+    <div class="share-warn share-warn-bad" role="alert">${shareErrorHtml(w.failText || 'Something went wrong.')}</div>
     <p class="vault-modal-hint">${remote ? 'Delete what was uploaded so far. You can also do it later from My shares.' : local ? 'Nothing was packed and nothing left this computer.' : 'Delete the packed archive to clean up. Your own files are not touched.'}</p>
     <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
     <div class="vault-modal-actions share-actions">
@@ -1464,6 +1655,26 @@ function shareWireWindow(w) {
   // Step 1's folded list opens and closes in place (a new draw would drop what was typed).
   const more = box.querySelector('[data-sh-more]');
   if (more) more.addEventListener('click', () => shareToggleFiles(w, more));
+  // The personal details box: its fold and its two choices (in place, so the
+  // rest of step 1 keeps what was typed). The slot stays; its inside changes.
+  const metaSlot = box.querySelector('[data-sh-meta]');
+  if (metaSlot) {
+    metaSlot.addEventListener('click', (e) => {
+      const b = e.target.closest && e.target.closest('[data-sh-metafold]');
+      if (!b) return;
+      w.metaOpen = !w.metaOpen;
+      const list = metaSlot.querySelector('#shMetaList');
+      if (list) list.hidden = !w.metaOpen;
+      b.textContent = w.metaOpen ? 'Hide details' : 'Show details';
+      b.setAttribute('aria-expanded', w.metaOpen ? 'true' : 'false');
+    });
+    metaSlot.addEventListener('change', (e) => {
+      const r = e.target;
+      if (!r || r.name !== 'shMetaChoice') return;
+      w.metaChoice = r.value === 'keep' ? 'keep' : 'remove';
+      shareSpaceUpdate(w);
+    });
+  }
   // Upload on its own (step 1): the tick is kept across a redraw, and the
   // password note follows the password picked.
   const autoTick = box.querySelector('#shAutoTick');
@@ -1612,8 +1823,9 @@ function shareRenderPop() {
   let html = '';
   if (pk) {
     const pct = pk.phase === 'checking' ? 100 : Math.round(pk.percent || 0);
-    const right = pk.phase === 'packing' ? `${pct}%` : pk.phase === 'checking' ? 'Checking' : 'Getting ready';
-    html += row(pk.shareId, `Packing ${pk.archiveName || ''}`.trim(), right, shareBar(pct, `Packing ${pct} percent`), '');
+    const cleaning = pk.phase === 'cleaning';
+    const right = pk.phase === 'packing' || (cleaning && pct > 0) ? `${pct}%` : pk.phase === 'checking' ? 'Checking' : cleaning ? '' : 'Getting ready';
+    html += row(pk.shareId, `Packing ${pk.archiveName || ''}`.trim(), right, shareBar(pct, `Packing ${pct} percent`), cleaning ? 'Removing personal details' : '');
   }
   if (up) {
     const pct = Math.round(up.percent || 0);

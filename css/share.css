@@ -61,6 +61,34 @@
 .share-big-note { display: flex; gap: 8px; align-items: flex-start; color: #fbbf24; font-size: 0.84rem; line-height: 1.5; }
 .share-big-note .vi { flex: none; width: 16px; height: 16px; margin-top: 2px; }
 .share-sum.share-big-facts { grid-template-columns: 11rem minmax(0, 1fr); }
+
+/* Step 1: personal details (Check files for personal details) */
+.share-meta:empty { display: none; }
+.share-meta-wait { margin: 0; }
+.share-meta-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 9px; vertical-align: 1px;
+  background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.45); color: #fbbf24;
+  font-size: 0.7rem; font-weight: 600; line-height: 1.4; white-space: nowrap;
+}
+.share-meta-box {
+  background: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning); border-radius: 8px;
+  padding: 0.65rem 0.75rem; display: flex; flex-direction: column; gap: 6px;
+}
+.share-meta-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.share-meta-head > .vi { width: 18px; height: 18px; color: #fbbf24; flex: none; }
+.share-meta-title { font-weight: 600; font-size: 0.9rem; color: #fde68a; min-width: 0; }
+.share-meta-fold { margin-left: auto; font-size: 0.78rem !important; padding: 0.3rem 0.65rem !important; }
+.share-meta-list { display: flex; flex-direction: column; max-height: 13rem; overflow-y: auto; }
+.share-meta-list[hidden] { display: none; }
+.share-meta-file { display: flex; flex-direction: column; gap: 3px; padding: 8px 0; border-top: 1px solid rgba(245, 158, 11, 0.25); min-width: 0; }
+.share-meta-name { font-size: 0.84rem; color: var(--text-primary); overflow-wrap: anywhere; }
+.share-meta-what { font-size: 0.78rem; color: var(--text-secondary); overflow-wrap: anywhere; }
+.share-meta-label { color: #fbbf24; }
+.share-meta-choices { display: flex; flex-direction: column; border-top: 1px solid rgba(245, 158, 11, 0.25); padding-top: 6px; }
+.share-meta-choice { display: flex; gap: 10px; align-items: flex-start; min-height: 2.75rem; padding: 4px 0; cursor: pointer; }
+.share-meta-choice input { width: 18px; height: 18px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+.share-meta-choice b { display: block; font-size: 0.88rem; font-weight: 600; }
+.share-meta-note { display: block; font-size: 0.78rem; line-height: 1.45; color: var(--text-secondary); }
 @media (max-width: 560px) { .share-sum.share-big-facts { grid-template-columns: 1fr; } }
 .share-btn-amber { border-color: var(--warning) !important; color: #fbbf24 !important; background: transparent !important; }
 .share-btn-amber:hover:not(:disabled) { background: rgba(245, 158, 11, 0.12) !important; }

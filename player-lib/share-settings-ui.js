@@ -23,7 +23,7 @@ const SHARE_SETTINGS_DEFAULTS = {
   enabled: false, passwordChoice: 'random', deleteAfterDays: 7, split: '2g', customPartBytes: 2 * 1024 ** 3,
   nameMode: 'typed', keepLocal: false, onPartFail: 'retry3', accountMode: 'perStart', copyFormat: 'default',
   customFormat: '{link}\npass: {pass}', rememberPasswords: true, rememberFiles: true, hideInPrivacy: true, topBarIcon: true,
-  afterPack: 'wait',
+  afterPack: 'wait', checkPersonal: false,
 };
 
 /* The tabs. Same pattern as Stage's (stage-settings-ui.js): a tablist of pill
@@ -157,7 +157,10 @@ function shareSettingsHtml() {
         desc: 'Wait for me keeps the last look at the tested archive before anything leaves this computer.',
         control: _shSel('afterPack', SHARE_AFTER_PACK_OPTIONS, s.afterPack, 'When packing is done') })
       + row({ sfind: 'shareNameMode', title: 'Archive name', control: _shSel('nameMode', SHARE_NAME_MODE_OPTIONS, s.nameMode, 'Archive name') })
-      + row({ tag: 'label', sfind: 'shareKeepLocal', title: 'Keep the packed archive on this computer after upload', control: _shSwitch('keepLocal', s.keepLocal, 'Keep the packed archive on this computer after upload') }),
+      + row({ tag: 'label', sfind: 'shareKeepLocal', title: 'Keep the packed archive on this computer after upload', control: _shSwitch('keepLocal', s.keepLocal, 'Keep the packed archive on this computer after upload') })
+      + row({ tag: 'label', sfind: 'shareCheckPersonal', title: 'Check files for personal details',
+        desc: 'Looks for location, device, names and folder paths stored inside the files, and offers to remove them from the packed copies.',
+        control: _shSwitch('checkPersonal', s.checkPersonal, 'Check files for personal details') }),
     upload: row({ sfind: 'shareOnPartFail', title: 'If a part fails', control: _shSel('onPartFail', SHARE_PART_FAIL_OPTIONS, s.onPartFail, 'If a part fails') })
       + row({ sfind: 'shareAccount', title: 'gofile guest account', control: _shSel('accountMode', SHARE_ACCOUNT_OPTIONS, s.accountMode, 'gofile guest account') }),
     remember: row({ tag: 'label', sfind: 'shareRememberPasswords', title: 'Passwords of past shares', control: _shSwitch('rememberPasswords', s.rememberPasswords, 'Passwords of past shares') })
@@ -649,7 +652,8 @@ function shareStatusCellHtml(share) {
   if (st === 'packing') {
     const pk = share.packing || { phase: 'staging', percent: 0 };
     const pct = pk.phase === 'checking' ? 100 : Math.max(0, Math.min(100, Math.round(pk.percent || 0)));
-    const text = pk.phase === 'packing' ? `Packing ${pct}%` : pk.phase === 'checking' ? 'Checking the archive' : 'Packing';
+    const text = pk.phase === 'packing' ? `Packing ${pct}%` : pk.phase === 'checking' ? 'Checking the archive'
+      : pk.phase === 'cleaning' ? 'Removing personal details' : 'Packing';
     return badge('busy', text, shIcon('refresh', 'share-badge-ic share-spin')) + bar(pct, `Packing ${pct} percent`);
   }
   if (st === 'queued') {
@@ -666,7 +670,7 @@ function shareStatusCellHtml(share) {
     return badge('busy', text) + bar(pct, `Upload ${pct} percent`);
   }
   const words = shareStatusWords(share);
-  return `<span class="share-st is-${words.tone}">${shEsc(words.text)}</span>${share.error ? `<div class="share-small share-st is-bad">${shEsc(share.error)}</div>` : ''}`;
+  return `<span class="share-st is-${words.tone}">${shEsc(words.text)}</span>${share.error ? `<div class="share-small share-st is-bad">${typeof shareErrorHtml === 'function' ? shareErrorHtml(share.error) : shEsc(share.error)}</div>` : ''}`;
 }
 
 function shareRowHtml(share, list) {
