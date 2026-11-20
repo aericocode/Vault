@@ -8,6 +8,10 @@
    ========================================== */
 
 .act-wrap { position: relative; display: flex; }
+/* The dropdown lives inside the top bar, which stacks under the preview pane
+   (100 against 150). While it is open the bar is lifted over the pane, still
+   under modals (200+) and the player (300). */
+.header:has(.act-pop:not([hidden])) { z-index: 160; }
 .act-wrap[hidden] { display: none; }
 body.layout-modern #activityWrap { order: 2; }
 
