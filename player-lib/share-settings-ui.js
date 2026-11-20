@@ -22,7 +22,7 @@
 const SHARE_SETTINGS_DEFAULTS = {
   enabled: false, passwordChoice: 'random', deleteAfterDays: 7, split: '2g', customPartBytes: 2 * 1024 ** 3,
   keepLocal: false, onPartFail: 'retry3', accountMode: 'perStart', copyFormat: 'default',
-  customFormat: '{link}\npass: {pass}', rememberPasswords: true, rememberFiles: true, hideInPrivacy: true, topBarIcon: true,
+  customFormat: '{link}\npass: {pass}', rememberPasswords: true, rememberFiles: true, hideInPrivacy: true,
   afterPack: 'wait', checkPersonal: false,
 };
 
@@ -164,10 +164,7 @@ function shareSettingsHtml() {
       + row({ sfind: 'shareAccount', title: 'gofile guest account', control: _shSel('accountMode', SHARE_ACCOUNT_OPTIONS, s.accountMode, 'gofile guest account') }),
     remember: row({ tag: 'label', sfind: 'shareRememberPasswords', title: 'Passwords of past shares', control: _shSwitch('rememberPasswords', s.rememberPasswords, 'Passwords of past shares') })
       + row({ tag: 'label', sfind: 'shareRememberFiles', title: 'Which files were in each share', desc: 'Folded away in My shares.', control: _shSwitch('rememberFiles', s.rememberFiles, 'Which files were in each share') })
-      + row({ tag: 'label', sfind: 'shareHideInPrivacy', title: 'Hide My shares in privacy mode', control: _shSwitch('hideInPrivacy', s.hideInPrivacy, 'Hide My shares in privacy mode') })
-      + row({ tag: 'label', sfind: 'shareTopBarIcon', title: 'Show the share button in the top bar',
-        desc: 'It opens My shares. When off, it shows only while a share is packing or uploading, or needs you.',
-        control: _shSwitch('topBarIcon', s.topBarIcon, 'Show the share button in the top bar') }),
+      + row({ tag: 'label', sfind: 'shareHideInPrivacy', title: 'Hide My shares in privacy mode', control: _shSwitch('hideInPrivacy', s.hideInPrivacy, 'Hide My shares in privacy mode') }),
   };
   const tab = _shareTabNow();
   const tabPanels = SHARE_TABS.map(t => _shareTabPanelHtml(t.id, tab, panels[t.id])).join('');

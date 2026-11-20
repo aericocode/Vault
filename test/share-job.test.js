@@ -135,12 +135,11 @@ function on(patch = {}) {
 }
 
 // First in the file, so no share from another test is running.
-test('top bar: always there with the feature and the setting on; otherwise only while a share runs or needs you', () => {
+test('top bar: show with the feature on (the page offers My shares); otherwise only while a share runs or needs you', () => {
   useClient(fakeClient());
   const tb = (patch) => { settings.save({ ...settings.DEFAULTS, ...patch }); return service.state().topBar; };
   // Idle: nothing running, nothing failed.
-  assert.deepStrictEqual([true, false].flatMap(enabled => [true, false].map(topBarIcon => tb({ enabled, topBarIcon }).show)),
-    [true, false, false, false], 'idle: on + on only');
+  assert.deepStrictEqual([true, false].map(enabled => tb({ enabled }).show), [true, false], 'idle: with the feature on only');
   assert.strictEqual(tb({ enabled: true }).active, false);
   assert.strictEqual(tb({ enabled: true }).shareId, null);
   // Active: a paused share with a failed part.
@@ -149,13 +148,11 @@ test('top bar: always there with the feature and the setting on; otherwise only 
   store.updatePart(s.id, 2, { status: 'failed' });
   try {
     for (const enabled of [true, false]) {
-      for (const topBarIcon of [true, false]) {
-        const t = tb({ enabled, topBarIcon });
-        assert.strictEqual(t.show, true, `active, enabled ${enabled}, setting ${topBarIcon}`);
-        assert.strictEqual(t.active, true);
-        assert.strictEqual(t.needsYou, 1);
-        assert.strictEqual(t.shareId, s.id);
-      }
+      const t = tb({ enabled });
+      assert.strictEqual(t.show, true, `active, enabled ${enabled}`);
+      assert.strictEqual(t.active, true);
+      assert.strictEqual(t.needsYou, 1);
+      assert.strictEqual(t.shareId, s.id);
     }
     // Running with nothing failed is active too.
     store.updatePart(s.id, 2, { status: 'waiting' });
@@ -827,6 +824,24 @@ test('settings: an old file with Archive name (nameMode) loads, the key is ignor
   }
   assert.ok(!('nameMode' in settings.DEFAULTS));
   assert.throws(() => settings.validatePatch({ nameMode: 'random' }), { code: 'BAD_INPUT' });
+  on();
+});
+
+test('settings: an old file with "Show the share button in the top bar" (topBarIcon) loads, the key is ignored and dropped on the next save', () => {
+  on();
+  const appSettings = require('../lib/app-settings');
+  for (const v of [true, false]) {
+    appSettings.set({ share: { ...settings.get(), afterPack: 'upload', topBarIcon: v } });
+    const s = settings.get();
+    assert.ok(!('topBarIcon' in s), String(v));
+    assert.strictEqual(s.afterPack, 'upload', 'the other values still load');
+    assert.ok(!('topBarIcon' in service.state().settings), 'not in the state answer');
+    assert.strictEqual(service.state().topBar.show, true, 'a stale false does not hide anything');
+    settings.save({ keepLocal: true });
+    assert.ok(!('topBarIcon' in appSettings.all().share), 'dropped from the file');
+  }
+  assert.ok(!('topBarIcon' in settings.DEFAULTS));
+  assert.throws(() => settings.validatePatch({ topBarIcon: true }), { code: 'BAD_INPUT' });
   on();
 });
 

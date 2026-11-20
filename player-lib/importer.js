@@ -88,15 +88,20 @@
       : `<span class="vdo-line">${DROP_OVERLAY_WORDS[mode] || ''}</span>`;
   }
 
-  /* ── Progress panel (delete-queue look; hides behind the player) ──────── */
+  /* ── Adding files: a section of the Activity button (player-lib/activity.js)
+     Its full view (Open) is this panel: the file going in now and every file
+     that could not be added. Nothing opens over the library; the button
+     pulses once when adding starts. */
   function importPanel(total, verb = '⬆ Importing') {
+    const act = window.vaultActivity;
     document.getElementById('importQueuePanel')?.remove();
     const el = document.createElement('div');
     el.id = 'importQueuePanel';
-    el.className = 'delete-queue visible';
-    queuePanelStack().appendChild(el);
+    el.className = 'act-pane';
+    (act ? act.host() : queuePanelStack()).appendChild(el);
     const failures = [];   // { name, error }
     let hideTimer = null;
+    const gone = () => { el.remove(); if (act) act.drop('import'); };
 
     // Classic keeps its emoji, Modern gets line icons (player-lib/icons.js).
     const sw = (emoji, name) => (typeof vaultIconSwap === 'function' ? vaultIconSwap(emoji, name) : escapeHtml(emoji));
@@ -104,6 +109,7 @@
     const failRows = () => failures.map(f =>
       `<div class="dq-row dq-failed" title="${escapeHtml(f.error)}"><span class="dq-ico">${sw('✗', 'close')}</span><span class="dq-name">${escapeHtml(f.name)}</span></div>`
     ).join('');
+    if (act) act.pulse();
 
     return {
       update(done, name) {
@@ -113,6 +119,15 @@
             <span class="dq-title">${verbHtml} ${fmtN(done)} of ${fmtN(total)}${name ? ` · <span class="dq-file">${escapeHtml(name)}</span>` : ''}</span>
           </div>
           ${failures.length ? `<div class="dq-list">${failRows()}</div>` : ''}`;
+        if (act) {
+          act.set('import', {
+            title: 'Adding files', icon: ['⬆', 'upload'], running: true, tone: 'work',
+            status: `${fmtN(done)} of ${fmtN(total)}`, pct: total ? (done / total) * 100 : 0,
+            detail: (name ? `Now: <span class="dq-file">${escapeHtml(name)}</span>` : '')
+              + (failures.length ? `${name ? ' · ' : ''}${fmtN(failures.length)} failed` : ''),
+            view: el,
+          });
+        }
       },
       fail(name, error) { failures.push({ name, error }); },
       finish(ok, extra) {
@@ -123,8 +138,18 @@
             <button class="dq-x" title="Dismiss" aria-label="Dismiss">${sw('✕', 'close')}</button>
           </div>
           ${failures.length ? `<div class="dq-list">${failRows()}</div>` : ''}`;
-        el.querySelector('.dq-x')?.addEventListener('click', () => el.remove());
-        if (!failures.length) hideTimer = setTimeout(() => el.remove(), 3000);
+        el.querySelector('.dq-x')?.addEventListener('click', gone);
+        if (act) {
+          act.set('import', {
+            title: 'Adding files', icon: ['⬆', 'upload'], running: false, tone: failures.length ? 'need' : 'done',
+            status: ok ? `Added ${fmtN(ok)} of ${fmtN(total)}` : 'Nothing added',
+            pct: null,
+            detail: escapeHtml([failures.length ? `${fmtN(failures.length)} could not be added` : '', extra || ''].filter(Boolean).join(' · ')),
+            view: failures.length ? el : null,
+            dismiss: gone,
+          });
+        }
+        if (!failures.length) hideTimer = setTimeout(gone, 3000);
       },
     };
   }
@@ -132,14 +157,17 @@
   /* ── AI scan panel (the slow half of an import) ────────────────────────
      importPanel() above tracks path *registration*, which is instant. The
      vision scan that follows can run for hours, so it gets its own persistent
-     panel fed by GET /api/import/queue.
+     panel fed by GET /api/import/queue. The panel is the AI scan's full view
+     in the Activity dropdown (player-lib/activity.js): the dropdown lists the
+     scan as a short section (status, bar, one line, Pause and Open) and Open
+     shows this panel. Nothing of it is ever drawn over the library.
 
-     It shows for ANY scan the server is doing, whoever queued it: an import
-     from this page, a watched folder, a retry, another tab. While a run is on
-     screen the panel polls every 1.5 s; once the queue goes quiet it drops to
-     a light count every few seconds (/api/import/queue/summary) and comes
-     back the moment work appears. (It used to start only from this page's own
-     imports, so files a watched folder added scanned with no panel at all.)
+     It follows ANY scan the server is doing, whoever queued it: an import
+     from this page, a watched folder, a retry, another tab. While a run goes
+     it polls every 1.5 s, so the Activity button stays current with the
+     dropdown closed; once the queue goes quiet it drops to a light count
+     every few seconds (/api/import/queue/summary) and comes back the moment
+     work appears. Every request is marked as background.
 
      Three tabs, shown once there is something on the second or third:
        Progress  the bar (done + failed), what is working, the time left
@@ -162,8 +190,8 @@
   let _scanBusy = false;
   let _scanFails = 0;
   let _scanIdle = 0;
-  let _scanDismissed = false;    // user hid the panel; the scan keeps running
-  let _scanFinishTimer = null;   // auto-dismiss of a finished panel
+  let _scanCancelled = false;    // Cancel pressed: files still finishing do not bring the section back
+  let _scanFinishTimer = null;   // forgets a clean run's (empty) failure list on the server
   let _scanLast = null;          // last readable status — what a paused poll shows
   let _scanCmdBusy = false;      // a pause/resume POST is in flight
   let _cancelArmTimer = null;    // the second half of the two-click Cancel
@@ -180,7 +208,6 @@
   /* Icons: the emoji for Classic, a line icon for Modern, side by side. */
   const ico = (emoji, name) => (typeof vaultIconSwap === 'function' ? vaultIconSwap(emoji, name) : escapeHtml(emoji));
   const modernLook = () => (typeof vaultIsModern === 'function' && vaultIsModern());
-  const AI_TAB = () => (modernLook() ? 'AI scan' : '🤖 AI scan');
   /** Settings > General > AI scan is Off: no scan panel, no scan toast, no nudge. */
   const aiOff = () => !!(window.vaultAiScan && window.vaultAiScan.isOff());
   const n0 = (v) => Number(v) || 0;
@@ -218,93 +245,53 @@
     return `about ${(ms / 3600000).toFixed(1)} h left`;
   }
 
-  /* ── One panel, two jobs ────────────────────────────────────────────────
-     #scanQueuePanel also carries the face checks (player-lib/faces.js). Each
-     job owns a pane; with both running a tab row picks which one shows, with
-     one the tab row goes away and that pane is the whole panel. The panel
-     itself goes when its last pane does. faces.js reaches this through
-     window.vaultScanPane. */
+  /* ── Two jobs, two panes, both in the Activity dropdown ─────────────────
+     #scanQueuePanel holds the AI scan's pane and the face checks' pane
+     (player-lib/faces.js). It lives in the Activity dropdown's view area
+     (player-lib/activity.js), never over the library: each pane is a job's
+     full view there, shown by Open on its section. faces.js reaches this
+     through window.vaultScanPane. */
   const PANES = { ai: 'scanAiPane', faces: 'scanFacesPane' };
-  const _panes = new Map();      // name -> { tab, sub }
-  let _paneOn = null;
+  const _panes = new Set();
 
   function scanShell() {
     let el = document.getElementById('scanQueuePanel');
     if (el) return el;
     el = document.createElement('div');
     el.id = 'scanQueuePanel';
-    el.className = 'delete-queue';
+    el.className = 'act-pane';
     el.innerHTML = `
-      <div class="dq-tabs" role="tablist" aria-label="Running scans" hidden></div>
-      <div class="dq-pane" id="scanAiPane" role="tabpanel" hidden></div>
-      <div class="dq-pane" id="scanFacesPane" role="tabpanel" hidden></div>`;
-    el.querySelector('.dq-tabs').addEventListener('click', (e) => {
-      const b = e.target.closest('[data-pane]');
-      if (!b) return;
-      _paneOn = b.dataset.pane;
-      paintShell();
-    });
-    queuePanelStack().appendChild(el);
+      <div class="dq-pane" id="scanAiPane" hidden></div>
+      <div class="dq-pane" id="scanFacesPane" hidden></div>`;
+    (window.vaultActivity ? window.vaultActivity.host() : queuePanelStack()).appendChild(el);
     return el;
   }
 
-  /** Tabs and pane visibility. The tab buttons are rebuilt only when the set of panes changes. */
-  function paintShell() {
-    const el = document.getElementById('scanQueuePanel');
-    if (!el) return;
-    const names = Object.keys(PANES).filter(n => _panes.has(n));
-    if (!_panes.has(_paneOn)) _paneOn = names[0] || null;
-    const tabs = el.querySelector('.dq-tabs');
-    const many = names.length > 1;
-    tabs.hidden = !many;
-    if (!many) { tabs.innerHTML = ''; delete tabs.dataset.names; }
-    else {
-      if (tabs.dataset.names !== names.join()) {
-        tabs.dataset.names = names.join();
-        tabs.innerHTML = names.map(n => `<button type="button" class="dq-tab" role="tab" data-pane="${n}">`
-          + '<span class="dq-tab-name"></span><span class="dq-tab-sub"></span></button>').join('');
-      }
-      tabs.querySelectorAll('[data-pane]').forEach(b => {
-        const p = _panes.get(b.dataset.pane);
-        const on = b.dataset.pane === _paneOn;
-        b.classList.toggle('on', on);
-        b.setAttribute('aria-selected', String(on));
-        b.querySelector('.dq-tab-name').textContent = p.tab || '';
-        b.querySelector('.dq-tab-sub').textContent = p.sub || '';
-      });
-    }
-    for (const [n, id] of Object.entries(PANES)) {
-      const pane = document.getElementById(id);
-      if (pane) pane.hidden = !_panes.has(n) || n !== _paneOn;
-    }
-    el.classList.toggle('dq-has-tabs', many);
-  }
-
   /**
-   * Show a pane (creating the panel if needed) and set its tab label.
-   * `focus` brings it to the front: a job the user just started.
+   * Show a pane's job in the Activity dropdown (creating the panel if needed).
+   * job: its section there (see player-lib/activity.js set); the pane is its
+   * full view. `focus`: a job the user just started, so the button pulses.
    * @returns the pane element
    */
-  function openPane(name, { tab = '', sub = '', focus = false } = {}) {
-    const el = scanShell();
-    _panes.set(name, { tab, sub });
-    if (focus) _paneOn = name;
-    paintShell();
-    el.classList.add('visible');
-    return document.getElementById(PANES[name]);
+  function openPane(name, job = {}) {
+    scanShell();
+    _panes.add(name);
+    const pane = document.getElementById(PANES[name]);
+    const act = window.vaultActivity;
+    if (act) {
+      const { focus, ...section } = job;
+      act.set(name, { ...section, view: pane });
+      if (focus) act.pulse();
+    } else if (pane) pane.hidden = false;
+    return pane;
   }
 
-  /** Take a pane away; the panel goes with its last pane. */
+  /** Take a pane and its section away. */
   function dropPane(name) {
     _panes.delete(name);
     const pane = document.getElementById(PANES[name]);
     if (pane) { pane.innerHTML = ''; pane.hidden = true; }
-    if (!_panes.size) {
-      document.getElementById('scanQueuePanel')?.remove();
-      _paneOn = null;
-      return;
-    }
-    paintShell();
+    if (window.vaultActivity) window.vaultActivity.drop(name);
   }
 
   window.vaultScanPane = {
@@ -313,6 +300,10 @@
     has: (name) => _panes.has(name),
     count: () => _panes.size,
   };
+
+  /** Is the AI scan's full view on screen (its lists are only fetched then)? */
+  const aiViewOpen = () => !window.vaultActivity
+    || (window.vaultActivity.isOpen() && window.vaultActivity.viewing() === 'ai');
 
   /** The AI scan's pane while it is showing, else null. */
   function scanAiPane() {
@@ -327,7 +318,7 @@
 
     let el = scanAiPane();
     if (el && el.querySelector('#scanHead')) return el;
-    el = openPane('ai', { tab: AI_TAB() });
+    el = openPane('ai', { title: 'AI scan', icon: ['🤖', 'spark'], running: true, tone: 'work', onOpen: onAiViewOpen });
     _scanTab = 'progress';
     _scanTabPicked = false;
     // The bar fill, the worker stepper and the action buttons live outside the
@@ -383,8 +374,6 @@
         <div class="dq-list sp-wait-list" id="scanWaitList"></div>
       </div>
       <div class="dq-actions" id="scanActions">
-        <button type="button" class="dq-btn dq-btn-quiet" id="scanHideBtn"
-          title="Hide this panel. The scan keeps running in the background">Hide</button>
         <button type="button" class="dq-btn" id="scanPauseBtn"></button>
         <button type="button" class="dq-btn dq-btn-danger" id="scanCancelBtn">Cancel</button>
       </div>`;
@@ -395,11 +384,6 @@
     });
     el.querySelector('#scanPauseBtn').addEventListener('click', onPauseClick);
     el.querySelector('#scanCancelBtn').addEventListener('click', onCancelClick);
-    // Hide keeps polling: a halt still toasts through a hidden panel.
-    el.querySelector('#scanHideBtn').addEventListener('click', () => {
-      _scanDismissed = true;
-      dropPane('ai');
-    });
     el.querySelector('#scanCloseBtn').addEventListener('click', closeFinished);
     el.querySelector('#scanTabs').addEventListener('click', (e) => {
       const b = e.target.closest('[data-scan-tab]');
@@ -441,7 +425,12 @@
     el.querySelector('#scanViewProgress').hidden = tab !== 'progress';
     el.querySelector('#scanViewFailed').hidden = tab !== 'failed';
     el.querySelector('#scanViewWaiting').hidden = tab !== 'waiting';
-    if (tab !== 'progress') loadFailures(true);
+    if (tab !== 'progress' && aiViewOpen()) loadFailures(true);
+  }
+
+  /** Open on the AI scan's section: the Failed and Waiting lists are fetched now. */
+  function onAiViewOpen() {
+    if (_scanTab !== 'progress') loadFailures(true);
   }
 
   /* ── Failed and Waiting lists ───────────────────────────────────────────
@@ -697,8 +686,7 @@
     // AI scan Auto holding for playback: nothing to do in LM Studio about it.
     const forPlayback = w.code === 'playback';
     el.querySelector('#scanOpenLms').hidden = forPlayback;
-    const pillText = forPlayback ? 'Waiting for playback to stop'
-      : (w.gpuBusy ? 'Waiting for the GPU to be free' : (w.code === 'loading' ? 'Loading the scan model' : 'Waiting for the scan model'));
+    const pillText = waitWords(w);
     const pill = `<span class="sp-pill"><span class="sp-dot sp-dot-amber"></span>${pillText}</span>`;
     const html = `${pill}<div class="sp-reason">${escapeHtml(w.reason || '')}</div>`;
     if (box.dataset.sig !== html) { box.dataset.sig = html; box.innerHTML = html; }
@@ -793,7 +781,7 @@
       // their rows land normally, but there is no run left to report on. Keep
       // the poller alive while any are still going, though — one of them can
       // still halt the model, and that warning has to reach the user.
-      _scanDismissed = true;
+      _scanCancelled = true;
       _scanLast = null;
       if (!stillRunning) stopScanWatch();
       dropPane('ai');
@@ -960,8 +948,6 @@
 
     const done = n0(q.done), failed = n0(q.failed), total = n0(q.total);
     const waiting = q.waiting ? n0(q.waiting.count) : 0;
-    const left = Math.max(0, total - done - failed);
-    openPane('ai', { tab: AI_TAB(), sub: waiting ? `${fmtN(waiting)} waiting` : `${fmtN(left)} left` });
     const by = q.paused ? (q.pausedBy || 'user') : null;
     // Instance counts, if the server reports them. The server only reports
     // copies that are loaded; a copy that goes simply leaves the strip, and
@@ -1087,14 +1073,86 @@
         + `</div>`;
     }).join('');
 
-    if (_scanTab !== 'progress') loadFailures();
+    openPane('ai', aiSection(q, by, pauseBtn));
+    if (_scanTab !== 'progress' && aiViewOpen()) loadFailures();
+  }
+
+  /** The words a wait shows, on the Waiting tab and in the Activity section. */
+  function waitWords(w) {
+    if (w.code === 'playback') return 'Waiting for playback to stop';
+    if (w.gpuBusy) return 'Waiting for the GPU to be free';
+    return w.code === 'loading' ? 'Loading the scan model' : 'Waiting for the scan model';
+  }
+
+  /**
+   * The AI scan's section in the Activity dropdown, from a running queue:
+   * a short status, the bar, one line, Pause or Resume, and Open (this panel).
+   * Amber while it waits or is paused, red when it stopped and needs a
+   * person (a model to pick, a model that went away).
+   */
+  function aiSection(q, by, pauseBtn) {
+    const done = n0(q.done), failed = n0(q.failed), total = n0(q.total);
+    const w = q.waiting || null;
+    const held = w ? n0(w.count) : 0;
+    const count = `${fmtN(done + failed)} of ${fmtN(total)}`;
+    const active = q.active || [];
+    let tone = 'work', status = count, detail = '';
+    if (q.halt && q.halt.needsModelChoice) {
+      tone = 'need'; status = 'Pick a model';
+      detail = 'LM Studio has several models loaded. Open this to pick the one that scans.';
+    } else if (by === 'model') {
+      tone = 'need'; status = 'Stopped';
+      detail = escapeHtml(`Model unavailable: ${(q.halt && q.halt.reason) || 'the scan model went away'}`);
+    } else if (by === 'vault') {
+      tone = 'wait'; status = 'Paused while locked'; detail = `${count} done`;
+    } else if (by === 'user') {
+      tone = 'wait'; status = 'Paused'; detail = `${count} done`;
+    } else if (w) {
+      tone = 'wait'; status = waitWords(w);
+      detail = by === 'waiting' ? `${plural(held, 'file')} waiting. ${count} done`
+        : `${fmtN(active.length)} working, ${plural(held, 'file')} held`;
+    } else if (active.length) {
+      // .dq-name is blurred under privacy mode, as in the panel.
+      detail = `Now: <span class="dq-name">${escapeHtml(active[0].filename || '')}</span>`
+        + (active.length > 1 ? ` and ${fmtN(active.length - 1)} more` : '');
+    } else {
+      detail = q.starting ? 'Starting' : 'Getting the next file';
+    }
+    if (failed && tone !== 'need') detail += `${detail ? ' · ' : ''}${fmtN(failed)} failed`;
+    const resume = pauseBtn.dataset.mode === 'resume';
+    return {
+      title: 'AI scan', icon: ['🤖', 'spark'], running: true, held: tone !== 'work', tone, status, detail,
+      pct: total ? Math.min(100, ((done + failed) / total) * 100) : 0,
+      actions: [{
+        key: 'pause',
+        label: resume ? (pauseBtn.dataset.label === 'try' ? 'Try now' : 'Resume') : 'Pause',
+        primary: resume && tone === 'need',
+        hidden: pauseBtn.hidden,
+        disabled: pauseBtn.disabled,
+        run: () => pauseBtn.click(),
+      }],
+      onOpen: onAiViewOpen,
+    };
   }
 
   function finishScanPanel(q) {
     const el = scanAiPane();
     if (!el) return;
     const done = n0(q.done), failed = n0(q.failed);
-    openPane('ai', { tab: AI_TAB(), sub: failed ? `${fmtN(failed)} failed` : 'done' });
+    // A result worth keeping in the dropdown: failures until they are
+    // dismissed (Retry and Show failed right there), a clean run quietly.
+    openPane('ai', {
+      title: 'AI scan', icon: ['🤖', 'spark'], running: false, tone: failed ? 'need' : 'done', pct: null,
+      status: failed ? `Done, ${fmtN(failed)} failed` : 'Done',
+      detail: failed ? `${plural(done, 'file')} scanned, ${plural(failed, 'file')} could not be scanned`
+        : `${plural(done, 'file')} scanned`,
+      actions: failed ? [
+        { key: 'retry', label: 'Retry all', primary: true, run: () => retryFailed(null) },
+        { key: 'show', label: 'Show failed', run: () => { window.vaultActivity?.toggle(false); showFailedInLibrary(); } },
+      ] : [],
+      dismiss: closeFinished,
+      onOpen: onAiViewOpen,
+    });
     el.querySelector('#scanHeadSub').textContent = failed ? `· done, ${fmtN(failed)} failed` : `· done, ${plural(done, 'file')} scanned`;
     const icoEl = el.querySelector('#scanHeadIco');
     icoEl.dataset.k = failed ? 'warn' : 'ok';
@@ -1119,10 +1177,11 @@
       if (!_scanTabPicked) setScanTab('failed');
       else loadFailures(true);
     } else {
+      // A clean run stays in the dropdown as a quiet "Done" (no colour, no
+      // count) until it is dismissed or the next run replaces it.
       _scanFinishTimer = setTimeout(() => {
         if (_scanLast) return;                // a new run started meanwhile
         fetch('/api/import/failures/clear', { method: 'POST' }).catch(() => {});
-        dropPane('ai');
       }, 4000);
     }
   }
@@ -1212,7 +1271,7 @@
           // etaMs is dropped: an estimate from before the lock is meaningless
           // while nothing is running. pausedBy/halt are overridden too — the
           // lock is the live reason now, whatever the last payload said.
-          if (!_scanDismissed) {
+          if (!_scanCancelled) {
             renderScanPanel({ ..._scanLast, paused: true, pausedBy: 'vault', halt: null, etaMs: null });
           }
         } else if (++_scanIdle >= SCAN_MAX_IDLE) {
@@ -1235,15 +1294,15 @@
       }
       _scanIdle = 0;
 
-      // Warn once per halt whether the panel is up or not: the queue has stopped
-      // and needs a person, and the whole stack hides behind the full player.
+      // Warn once per halt: the queue has stopped and needs a person. The
+      // Activity button turns red and pulses; nothing opens over the library.
       if (q.halt && q.halt.at !== _haltNotified && !aiOff()) {
         _haltNotified = q.halt.at;
-        _scanDismissed = false;                 // a halt is worth un-hiding for
+        _scanCancelled = false;                 // a halt is worth showing again
         showToast(`⚠ AI scan paused: ${q.halt.reason}`);
+        if (window.vaultActivity) window.vaultActivity.pulse();
       }
-      // A wait is said once too, but it does not un-hide the panel: it clears
-      // itself, and the user may well have hidden the panel on purpose.
+      // A wait is said once too (the button turns amber): it clears itself.
       if (q.waiting && q.waiting.since && q.waiting.since !== _waitNotified && !q.waiting.gpuBusy && !aiOff()) {
         _waitNotified = q.waiting.since;
         showToast('⏳ AI scan is waiting for the scan model');
@@ -1252,9 +1311,9 @@
       // Done: nothing running, nothing queued or waiting.
       if (total > 0 && !working) {
         _scanLast = null;
-        if (scanAiPane() || (n0(q.failed) && !_scanDismissed)) {
+        if ((scanAiPane() || n0(q.failed)) && !_scanCancelled) {
           // A run that ended with failures shows them even after a reload:
-          // they are kept on the server until the panel is closed.
+          // they are kept on the server until the result is dismissed.
           renderScanPanel(q);
           finishScanPanel(q);
         }
@@ -1263,7 +1322,7 @@
         return;
       }
       _scanLast = q;
-      if (!_scanDismissed) renderScanPanel(q);
+      if (!_scanCancelled) renderScanPanel(q);
     } catch {
       // Missing route or a dead server: bail quietly rather than retrying
       // forever against something that will never answer.
@@ -1273,8 +1332,8 @@
     }
   }
 
-  // Exposed so other modules can raise the panel for work they queued
-  // themselves (selection.js's Retry errors).
+  // Exposed so other modules can follow work they queued themselves
+  // (selection.js's Retry errors). pulse: true points at the Activity button.
   window.vaultWatchScanQueue = (opts) => watchScanQueue(opts || {});
 
   /** AI scan switched Off: the AI pane goes, and nothing polls for it. */
@@ -1292,9 +1351,10 @@
     });
   }
 
-  function watchScanQueue({ fresh = false } = {}) {
+  function watchScanQueue({ fresh = false, pulse = false } = {}) {
     if (aiOff()) { offNow(); return; }
-    if (fresh) { _scanDismissed = false; _scanIdle = 0; _scanFails = 0; }
+    if (fresh) { _scanCancelled = false; _scanIdle = 0; _scanFails = 0; }
+    if (pulse && window.vaultActivity) window.vaultActivity.pulse();
     stopIdleWatch();
     if (_scanTimer) { scanTick(); return; }
     _scanTimer = setInterval(() => { if (!document.hidden) scanTick(); }, SCAN_POLL_MS);

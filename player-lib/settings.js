@@ -56,7 +56,7 @@
       importFolders: true,
       thumbnails: false,
       fileNames: false,
-      shares: true,         // My shares, the share top bar popup, the share window's file list (player-lib/share-ui.js)
+      shares: true,         // My shares, the share list under the Activity button, the share window's file list (player-lib/share-ui.js)
     },
     resumePlayback: true,   // auto-seek to stored position on open (current behavior)
     restoreSession: false,  // reopen last media (paused) on launch, Stash-style
@@ -4028,7 +4028,7 @@
     const sel = document.getElementById('backendModelSel');
     if (!sel) return;
     // What actually decides, per kind of file, as the server resolves it:
-    // AI_MODEL, then a pick made here or in the scan panel, then the saved
+    // AI_MODEL, then a pick made here or in the AI scan view (Activity button), then the saved
     // scan model, then Auto.
     const dec = backend.models?.decides || {};
     const line = document.getElementById('backendModelPicks');
@@ -4260,7 +4260,7 @@
     const foot = document.getElementById('backendInstFoot');
     if (!foot) return;
     foot.querySelector('[data-setting-num="scanWorkers"]')?.addEventListener('change', (e) => {
-      // Goes through the shared setter so the scan panel's stepper follows.
+      // Goes through the shared setter so the AI scan view's stepper follows.
       e.target.value = window.vaultSetScanWorkers(e.target.value);
     });
     foot.querySelector('#backendInstRefresh')?.addEventListener('click', (e) => {
@@ -4489,8 +4489,9 @@
 
   /* Poll only while there is something to watch. The in-flight counts and the
      done totals move during a scan and are frozen the rest of the time, so the
-     tick skips the request unless the scan panel is on screen (importer.js
-     puts it there for exactly as long as the import queue is running). */
+     tick skips the request unless the AI scan is running (its section under
+     the Activity button says so: importer.js keeps it running for exactly as
+     long as the import queue is; idle, the button asks for nothing). */
   function startBackendPoll() {
     stopBackendPoll();
     _backendPoll = setInterval(() => {
@@ -4500,7 +4501,7 @@
       // A copy that is loading moves too: its row has to turn into a real
       // instance (or an error) on its own, without the user pressing Refresh.
       const loading = (backend.instances?.jobs || []).some(j => j.state === 'loading');
-      if (!loading && !document.getElementById('scanQueuePanel')) return;
+      if (!loading && !(window.vaultActivity && window.vaultActivity.running('ai'))) return;
       // Always the cached registry, never a probe. The clone job watches `lms
       // ps` itself and refreshes the registry the moment its copy is up, so
       // this poll sees the new row without asking LM Studio anything.

@@ -1,0 +1,180 @@
+/* ==========================================
+   ACTIVITY: the top bar button for background jobs and its dropdown
+   (player-lib/activity.js). The jobs' own panels (#scanQueuePanel,
+   #importQueuePanel, #deleteQueue, #sharePop) are its full views and live
+   in .act-host; their looks come from css/tiles.css, css/scan-panel.css and
+   css/share.css, minus the floating card those used to be.
+   Every class here that sets display has a [hidden] rule beside it.
+   ========================================== */
+
+.act-wrap { position: relative; display: flex; }
+.act-wrap[hidden] { display: none; }
+body.layout-modern #activityWrap { order: 2; }
+
+/* The button: round, so the progress ring can sit around it */
+.act-btn {
+  position: relative;
+  width: 2.5rem; height: 2.5rem;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--text-secondary);
+}
+body.layout-modern .act-btn { width: 2.125rem; height: 2.125rem; }
+.act-ic { display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+.act-btn .vi { width: 18px; height: 18px; }
+.act-wrap:not([data-state="idle"]) .act-btn { color: var(--accent-hover); }
+.act-wrap[data-state="wait"] .act-btn { color: var(--warning); }
+.act-wrap[data-state="need"] .act-btn { color: var(--danger); }
+/* Quiet while nothing runs: no border, no fill until hovered */
+.act-wrap[data-state="idle"] .act-btn:not(:hover):not([aria-expanded="true"]) { background: transparent; border-color: transparent; }
+
+.act-ring {
+  position: absolute; inset: -3px;
+  width: calc(100% + 6px); height: calc(100% + 6px);
+  transform: rotate(-90deg);
+  pointer-events: none;
+  overflow: visible;
+}
+.act-ring[hidden] { display: none; }
+.act-ring circle { fill: none; stroke-width: 3; }
+.act-ring-bg { stroke: var(--border); }
+.act-ring-fg { stroke: var(--accent); stroke-linecap: round; transition: stroke-dasharray 0.4s ease-out; }
+.act-wrap[data-state="wait"] .act-ring-fg { stroke: var(--warning); }
+.act-wrap[data-state="need"] .act-ring-fg { stroke: var(--danger); }
+
+.act-badge {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 18px; height: 18px; box-sizing: border-box; padding: 0 4px;
+  border-radius: 9px; background: var(--accent); color: #fff;
+  font-size: 11px; line-height: 18px; font-weight: 700; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.act-badge[hidden] { display: none; }
+.act-badge[data-tone="wait"] { background: var(--warning); color: #1f1300; }
+.act-badge[data-tone="need"] { background: var(--danger); color: #fff; }
+
+/* A short pulse: something started, or stopped and needs a look */
+@keyframes act-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 70%, transparent); }
+  100% { box-shadow: 0 0 0 12px transparent; }
+}
+.act-wrap.act-pulse .act-btn { animation: act-pulse 0.8s ease-out 2; }
+.act-wrap.act-pulse[data-state="need"] .act-btn { animation-name: act-pulse-need; }
+@keyframes act-pulse-need {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 70%, transparent); }
+  100% { box-shadow: 0 0 0 12px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .act-wrap.act-pulse .act-btn { animation: none; outline: 2px solid var(--accent-hover); outline-offset: 3px; }
+}
+
+/* The dropdown: placed under the button by activity.js (fixed, so it fits a
+   narrow window), scrolls inside itself when tall */
+.act-pop {
+  position: fixed; top: 64px; right: 12px; z-index: 960;
+  width: min(400px, calc(100vw - 16px));
+  max-height: calc(100vh - 80px);
+  overflow-y: auto; overscroll-behavior: contain;
+  box-sizing: border-box;
+  padding: 14px 16px;
+  background: var(--bg-secondary); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+  font-size: 0.85rem;
+  scrollbar-width: thin;
+}
+.act-pop[hidden] { display: none; }
+body.layout-modern .act-pop {
+  background: var(--m-surface-solid);
+  border-color: var(--m-border);
+  border-radius: var(--m-radius);
+  box-shadow: var(--m-shadow);
+  color: var(--m-text);
+}
+.act-main { display: flex; flex-direction: column; gap: 12px; }
+.act-main[hidden] { display: none; }
+.act-title { font-size: 0.95rem; font-weight: 600; }
+.act-idle { color: var(--text-muted); font-size: 0.82rem; }
+.act-idle[hidden] { display: none; }
+.act-list { display: flex; flex-direction: column; }
+.act-list:empty { display: none; }
+
+/* One job */
+.act-sec { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px solid var(--border); }
+.act-sec:first-child { border-top: 0; padding-top: 0; }
+.act-sec:last-child { padding-bottom: 0; }
+body.layout-modern .act-sec { border-top-color: rgba(255, 255, 255, 0.08); }
+.act-head { display: flex; align-items: center; gap: 8px; font-weight: 600; min-width: 0; }
+.act-sec-ic { display: inline-flex; flex: none; color: var(--accent-hover); }
+.act-sec-ic .vi { width: 16px; height: 16px; }
+.act-sec[data-tone="wait"] .act-sec-ic { color: var(--warning); }
+.act-sec[data-tone="need"] .act-sec-ic { color: var(--danger); }
+.act-sec[data-tone="done"] .act-sec-ic { color: var(--text-muted); }
+.act-sec-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.act-sec-status {
+  margin-left: auto; flex: 0 1 auto; min-width: 0;
+  font-weight: 400; font-size: 0.8rem; color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.act-sec[data-tone="wait"] .act-sec-status { color: var(--warning); }
+.act-sec[data-tone="need"] .act-sec-status { color: color-mix(in srgb, var(--danger) 60%, var(--text-primary)); }
+.act-x {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0; margin-right: -4px;
+  background: none; border: 0; border-radius: 6px; cursor: pointer; color: var(--text-muted);
+}
+.act-x:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+.act-x[hidden] { display: none; }
+.act-x .vi { width: 14px; height: 14px; }
+
+.act-bar { height: 6px; border-radius: 3px; background: var(--bg-tertiary); overflow: hidden; }
+.act-bar[hidden] { display: none; }
+body.layout-modern .act-bar { background: rgba(255, 255, 255, 0.08); }
+.act-bar-fill { height: 100%; width: 0; border-radius: 3px; background: var(--accent); transition: width 0.4s ease-out; }
+.act-sec[data-tone="wait"] .act-bar-fill { background: var(--warning); }
+.act-sec[data-tone="need"] .act-bar-fill { background: var(--danger); }
+
+.act-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.act-detail { flex: 1 1 160px; min-width: 0; font-size: 0.8rem; color: var(--text-secondary); line-height: 1.4; overflow-wrap: anywhere; }
+.act-detail[hidden] { display: none; }
+.act-detail .dq-name, .act-detail .dq-file { display: inline; }
+.act-acts { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.act-acts:empty { display: none; }
+.act-amber { color: #fbbf24; }
+.act-red { color: #fca5a5; }
+
+.act-links { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.act-links[hidden] { display: none; }
+.act-link, .act-back {
+  background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-size: 0.82rem;
+  color: var(--accent-hover); text-decoration: none;
+}
+.act-link:hover, .act-back:hover { text-decoration: underline; }
+
+/* A job's full view, swapped in for the list */
+.act-view { display: flex; flex-direction: column; gap: 10px; }
+.act-view[hidden] { display: none; }
+.act-back { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; font-weight: 600; }
+.act-back .vi { width: 14px; height: 14px; }
+.act-pane[hidden] { display: none; }
+
+/* The panels that used to float: no card of their own inside the dropdown */
+body .act-host > #scanQueuePanel,
+body .act-host > #importQueuePanel,
+body .act-host > #deleteQueue,
+body .act-host > #sharePop,
+body.layout-modern .act-host > #scanQueuePanel,
+body.layout-modern .act-host > #importQueuePanel,
+body.layout-modern .act-host > #deleteQueue,
+body.layout-modern .act-host > #sharePop {
+  position: static; width: auto; max-width: none;
+  background: none; border: 0; border-radius: 0; box-shadow: none; padding: 0;
+  opacity: 1; visibility: visible; pointer-events: auto; transform: none;
+}
+.act-host > #sharePop:not([hidden]) { display: flex; flex-direction: column; gap: 10px; }
+.share-pop-head { font-weight: 600; }
+/* The scan lists may be taller in here than in the old corner panel */
+.act-host .sp-groups { max-height: 340px; }
+.act-host .dq-list { max-height: 220px; }

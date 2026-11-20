@@ -11,7 +11,7 @@ html[data-ai-scan="off"] .meta-rescan-btn,
 html[data-ai-scan="off"] #rescanFilteredBtn,
 html[data-ai-scan="off"] .sel-retry,
 html[data-ai-scan="off"] #scanAiPane,
-html[data-ai-scan="off"] .dq-tabs [data-pane="ai"],
+html[data-ai-scan="off"] #act-sec-ai,
 html[data-ai-scan="off"] [data-ai-scan-only] {
   display: none !important;
 }

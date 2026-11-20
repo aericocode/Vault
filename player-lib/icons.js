@@ -100,6 +100,8 @@ const VAULT_ICONS = {
   // Folder watchers (player-lib/watchers-ui.js)
   more: '<circle cx="5.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18.5" cy="12" r="1.2"/>',
   server: '<rect x="3.5" y="4" width="17" height="7" rx="2"/><rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M7.5 7.5h.01M7.5 16.5h.01"/>',
+  // The Activity button in the top bar (player-lib/activity.js)
+  activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
   // The AI scan panel (player-lib/importer.js)
   spark: '<path d="M12 3.5l1.8 5.2 5.2 1.8-5.2 1.8L12 17.5l-1.8-5.2L5 10.5l5.2-1.8z"/><path d="M18.5 16.5v4M16.5 18.5h4"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',

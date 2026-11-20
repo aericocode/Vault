@@ -9,7 +9,7 @@
      player-video.js  renderFacesFrameButton()  "Find people in this frame"
      settings.js      facesSettingsHtml() / facesWireSettings()  Face search section
      importer.js      [data-no-import-drop]     the photo box keeps its drops;
-                      window.vaultScanPane      the Faces view of the scan panel
+                      window.vaultScanPane      the Face search section of the Activity button
      faces-tab.js     the 👤 Faces tab (people); facesTabStatusChanged, facesOpenPerson
 
    Feature off (or models missing) means none of it renders: every hook
@@ -1000,7 +1000,7 @@ function facesCloseMenu() {
 
 let facesWatching = false;
 
-/** Queue the selection; the scan panel shows how it goes. */
+/** Queue the selection; the Activity button shows how it goes. */
 async function facesIndexSelection() {
   const ids = [...selectedIds];
   const chunk = typeof BULK_ID_CHUNK === 'number' ? BULK_ID_CHUNK : 5000;
@@ -1016,16 +1016,18 @@ async function facesIndexSelection() {
   facesScanStarted();
 }
 
-/* ── Scan panel: the Faces view (importer.js window.vaultScanPane) ─────── */
+/* ── Face search in the Activity dropdown (importer.js window.vaultScanPane) ──
+   A section there (status, bar, one line, Pause and Open) while a run goes,
+   and the run's result until it is dismissed. Open shows the pane below:
+   the files as they are checked, People found, Open Faces, Pause and Stop. */
 
-// shown: the pane is up for the current (or just finished) run. hidden: the
-// user pressed Hide for this run. runKey: which run that was (startedAt).
-const facesScan = { shown: false, hidden: false, focus: false, running: false, runKey: null, stopArm: null, stopped: false };
+// shown: the pane is up for the current (or just finished) run. runKey: which
+// run that was (startedAt). focus: the user just started it (the button pulses).
+const facesScan = { shown: false, focus: false, running: false, runKey: null, stopArm: null, stopped: false };
 const FACES_SCAN_POLL_MS = 1500;
 
-/** A run the user just started (selection, Find faces in everything): show it, in front. */
+/** A run the user just started (selection, Find faces in everything): the Activity button pulses. */
 function facesScanStarted() {
-  facesScan.hidden = false;
   facesScan.focus = true;
   facesRefreshStatus().then(() => facesWatchQueue());
 }
@@ -1078,17 +1080,12 @@ function facesScanBuild(pane) {
     <div class="dq-list fsq-list"></div>
     <div class="fsq-sum" hidden><span class="fsq-sum-text"></span><button type="button" class="fsq-open">Open Faces</button></div>
     <div class="dq-actions fsq-actions">
-      <button type="button" class="dq-btn dq-btn-quiet fsq-hide" title="Hide this panel. Faces are still found in the background">Hide</button>
       <button type="button" class="dq-btn fsq-pause"></button>
       <button type="button" class="dq-btn dq-btn-danger fsq-stop">Stop</button>
     </div>`;
   pane.querySelector('.fsq-x').addEventListener('click', () => { facesScan.shown = false; window.vaultScanPane.drop('faces'); });
-  pane.querySelector('.fsq-hide').addEventListener('click', () => {
-    facesScan.hidden = true;
-    facesScan.shown = false;
-    window.vaultScanPane.drop('faces');
-  });
   pane.querySelector('.fsq-open').addEventListener('click', () => {
+    window.vaultActivity?.toggle(false);
     if (typeof ftOnTab === 'function' && ftOnTab()) { if (FT.personId != null) ftClosePerson(); }
     else if (typeof switchTab === 'function') switchTab('faces');
   });
@@ -1148,13 +1145,11 @@ function facesScanPaint() {
   facesScan.running = !!q.running;
   if (q.running) {
     const key = q.startedAt || 'run';
-    // A new run shows again, even after the last one was hidden.
-    if (key !== facesScan.runKey) { facesScan.runKey = key; facesScan.hidden = false; facesScan.stopped = false; }
+    if (key !== facesScan.runKey) { facesScan.runKey = key; facesScan.stopped = false; }
     if (!facesWatching) facesWatchQueue();
-    if (facesScan.hidden) return;
     facesScan.shown = true;
   } else if (wasRunning) {
-    // Just finished. A hidden panel says so in a toast instead.
+    // Just finished. A run whose result was already dismissed says so in a toast instead.
     facesReloadOpenBoxes();
     const last = q.lastRun;
     if (!facesScan.shown && last && last.total) showToast(`Finished looking for faces in ${facesFiles(last.total)}.`);
@@ -1170,8 +1165,22 @@ function facesScanPaint() {
   const withPeople = run.withPeople != null ? run.withPeople : recent.filter(r => r.ok && r.faces > 0).length;
   const stopped = !q.running && (facesScan.stopped || finished < total);
   const pane = api.open('faces', {
-    tab: facesModern() ? 'Faces' : '👤 Faces',
-    sub: q.running ? `${Math.max(0, total - finished).toLocaleString()} left` : 'done',
+    title: 'Face search', icon: ['👤', 'person'],
+    running: !!q.running,
+    held: !!(q.running && q.paused),
+    tone: q.running ? (q.paused ? 'wait' : 'work') : 'done',
+    status: q.running ? (q.paused ? 'Paused' : `${finished.toLocaleString()} of ${total.toLocaleString()}`)
+      : stopped ? 'Stopped' : 'Done',
+    pct: q.running ? (total ? Math.min(100, (finished / total) * 100) : 0) : null,
+    detail: q.running
+      ? (q.paused ? `${finished.toLocaleString()} of ${facesFiles(total)} checked` : 'Checking files for faces')
+        + (run.failed ? ` · ${run.failed.toLocaleString()} could not be read` : '')
+      : `People found in ${withPeople.toLocaleString()} of ${facesFiles(finished)}`,
+    actions: q.running ? [{
+      key: 'pause', label: q.paused ? 'Resume' : 'Pause', primary: !!q.paused,
+      run: () => pane.querySelector('.fsq-pause').click(),
+    }] : [],
+    dismiss: q.running ? null : () => { facesScan.shown = false; api.drop('faces'); },
     focus: facesScan.focus,
   });
   facesScan.focus = false;
@@ -1207,11 +1216,11 @@ function facesScanPaint() {
   pause.classList.toggle('dq-btn-primary', !!q.paused);
 }
 
-/* ── Scan panel: the face model switch (same Faces pane, when no run shows) ── */
+/* ── Activity: the face model switch (same Faces pane, when no run shows) ── */
 
-// key: which switch (from, to, start); hidden: the user pressed Hide for it;
-// running: the last status had one, so its end can be told apart.
-const facesSwitchPane = { key: null, hidden: false, shown: false, focus: false, running: false, label: '', to: null };
+// key: which switch (from, to, start); running: the last status had one, so
+// its end can be told apart.
+const facesSwitchPane = { key: null, shown: false, focus: false, running: false, label: '', to: null };
 let facesSwitchWatching = false;
 let facesSwitchExpectUntil = 0;
 const facesSwitchExpected = () => Date.now() < facesSwitchExpectUntil && !facesActiveSwitch(facesStatus);
@@ -1219,7 +1228,6 @@ const facesSwitchExpected = () => Date.now() < facesSwitchExpectUntil && !facesA
 /** A switch the user just started in Settings: show it, in front. */
 function facesSwitchStarted() {
   facesSwitchExpectUntil = Date.now() + 6000;
-  facesSwitchPane.hidden = false;
   facesSwitchPane.focus = true;
   facesScanPaint();
   facesWatchSwitch();
@@ -1257,12 +1265,10 @@ function facesSwitchPaneBuild(pane) {
     <div class="dq-meta"><span class="fsw-meta"></span></div>
     <div class="dq-meta fsw-named" hidden></div>
     <div class="dq-actions fsw-actions">
-      <button type="button" class="dq-btn dq-btn-quiet fsw-hide" title="Hide this panel. Faces are still re-read in the background">Hide</button>
       <button type="button" class="dq-btn fsw-pause"></button>
     </div>`;
   const drop = () => { facesSwitchPane.shown = false; window.vaultScanPane.drop('faces'); };
   pane.querySelector('.fsw-x').addEventListener('click', drop);
-  pane.querySelector('.fsw-hide').addEventListener('click', () => { facesSwitchPane.hidden = true; drop(); });
   pane.querySelector('.fsw-pause').addEventListener('click', (e) => facesSwitchPause(e.currentTarget));
 }
 
@@ -1274,11 +1280,10 @@ function facesSwitchPanePaint() {
   const sw = facesActiveSwitch(s);
   if (sw) {
     const key = `${sw.from}>${sw.to}>${sw.startedAt || ''}`;
-    if (key !== st.key) { st.key = key; st.hidden = false; }
+    if (key !== st.key) st.key = key;
     st.running = true;
     st.to = sw.to;
     st.label = FACES_KEEPERS[facesKeeperName(sw.to)]?.label || 'new';
-    if (st.hidden) return;
     st.shown = true;
     if (!sw.paused) facesWatchSwitch();
   } else if (st.running) {
@@ -1291,8 +1296,17 @@ function facesSwitchPanePaint() {
   if (!st.shown || !api) return;
 
   const pane = api.open('faces', {
-    tab: facesModern() ? 'Faces' : '👤 Faces',
-    sub: sw ? `${Math.max(0, (sw.total || 0) - (sw.done || 0)).toLocaleString()} left` : 'done',
+    title: 'Face search', icon: ['👤', 'person'],
+    running: !!sw,
+    tone: sw ? (sw.paused ? 'wait' : 'work') : 'done',
+    status: !sw ? 'Done' : sw.paused ? 'Paused' : `${(sw.done || 0).toLocaleString()} of ${(sw.total || 0).toLocaleString()}`,
+    pct: sw ? (sw.total ? Math.min(100, ((sw.done || 0) / sw.total) * 100) : 0) : null,
+    detail: sw ? `Re-reading faces with the ${st.label} model` : `Faces were re-read with the ${st.label} model`,
+    actions: sw ? [{
+      key: 'pause', label: sw.paused ? 'Resume' : 'Pause', primary: !!sw.paused,
+      run: () => facesSwitchPause(pane.querySelector('.fsw-pause')),
+    }] : [],
+    dismiss: sw ? null : () => { st.shown = false; api.drop('faces'); },
     focus: st.focus,
   });
   st.focus = false;

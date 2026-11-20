@@ -1062,7 +1062,7 @@ function onSelMenuKey(e) {
  * it only picks up the ones that errored or were never scanned at all.
  *
  * Work goes through the same background import queue as a fresh drop, so it
- * reports in the scan panel and inherits its pause / halt-on-dead-model
+ * reports under the Activity button and inherits its pause / halt-on-dead-model
  * handling — rather than blocking on one file at a time like the per-item
  * rescan button in the sidebar.
  */
@@ -1085,9 +1085,9 @@ async function retryErrorsSelected() {
       return;
     }
     showToast(`↻ Queued ${selFiles(r.queued)} for another scan${notes.length ? ` · ${notes.join(', ')}` : ''}`);
-    // Surface the scan panel so the retry is visible; the new rows fill in as
-    // they land (Library's version polling re-reads them).
-    if (typeof window.vaultWatchScanQueue === 'function') window.vaultWatchScanQueue({ fresh: true });
+    // Follow the run and point at the Activity button, where the retry shows;
+    // the new rows fill in as they land (Library's version polling re-reads them).
+    if (typeof window.vaultWatchScanQueue === 'function') window.vaultWatchScanQueue({ fresh: true, pulse: true });
   } catch (err) {
     showErrorToast(err, 'queueing the files for another scan');
   }
@@ -1213,7 +1213,7 @@ async function rescanFiltered() {
       return;
     }
     showToast(`↻ Queued ${selFiles(r.queued)} for scanning${notes.length ? ` · ${notes.join(', ')}` : ''}`);
-    if (typeof window.vaultWatchScanQueue === 'function') window.vaultWatchScanQueue({ fresh: true });
+    if (typeof window.vaultWatchScanQueue === 'function') window.vaultWatchScanQueue({ fresh: true, pulse: true });
   } catch (err) {
     showErrorToast(err, 'queueing the files for scanning');
   }
@@ -1291,8 +1291,9 @@ function setDeleteMode(mode) {
    runs just appends — no concurrent loops (which used to collide on one shared
    progress bar and throw on re-delete). A bottom-right panel shows the live
    queue with per-file state + a rolling-average ETA; queued/in-flight cards
-   grey out so they can't be opened or re-deleted mid-flight. The panel hides
-   itself behind the full player (see CSS) so it's a Library-view affordance. */
+   grey out so they can't be opened or re-deleted mid-flight. The panel is a
+   section of the Activity button (player-lib/activity.js): a short status
+   and bar in its dropdown, the full list behind Open, never over the library. */
 
 const _dqBusyIds = new Set();   // ids queued/deleting → greyed + non-interactive
 /* Built to hold a whole library (Select all at 2M): items are processed in
@@ -1484,7 +1485,7 @@ function _dqFinish() {
   if (!_dq.counts.failed) {
     _dqHideTimer = setTimeout(() => {
       _dqReset();
-      document.getElementById('deleteQueue')?.classList.remove('visible');
+      _dqHide();
     }, 2500);
   }
   _dqRender(true);
@@ -1525,12 +1526,14 @@ function _dqRender(now = false) {
   _dqLastRender = Date.now();
 
   let el = document.getElementById('deleteQueue');
-  if (!total) { el?.classList.remove('visible'); return; }
+  if (!total) { _dqHide(); return; }
+  const act = window.vaultActivity;
   if (!el) {
     el = document.createElement('div');
     el.id = 'deleteQueue';
-    el.className = 'delete-queue';
-    queuePanelStack().appendChild(el);
+    el.className = act ? 'act-pane' : 'delete-queue';
+    (act ? act.host() : queuePanelStack()).appendChild(el);
+    if (act) act.pulse();
   }
 
   const succeeded = _dq.counts.done;
@@ -1602,15 +1605,43 @@ function _dqRender(now = false) {
   el.classList.add('visible');
   el.querySelector('.dq-x')?.addEventListener('click', () => {
     _dqReset();
-    el.classList.remove('visible');
+    _dqHide();
   });
+  if (act) {
+    const now = _dq.items[_dq.next];
+    const nowM = now && now.state === 'active' ? getMediaById(now.id) : null;
+    const ends = [skippedN ? `${skippedN} skipped` : '', failed ? `${failed} failed` : ''].filter(Boolean).join(' · ');
+    act.set('delete', {
+      title: allDone ? verbed : verbing, icon: ['🗑', 'trash'],
+      running: !allDone,
+      held: !allDone && !!_dq.paused,
+      tone: _dq.paused || (allDone && failed) ? 'need' : allDone ? 'done' : 'work',
+      status: allDone ? `${succeeded} of ${total}` : _dq.paused ? 'Paused' : `${settled} of ${total}`,
+      pct: allDone ? null : (settled / total) * 100,
+      detail: _dq.paused ? 'The server is not answering. Nothing more happens until you choose.'
+        : allDone ? escapeHtml(ends)
+          : (nowM ? `Now: <span class="dq-name">${escapeHtml(nowM.filename)}</span>` : '') + (ends ? `${nowM ? ' · ' : ''}${ends}` : ''),
+      actions: _dq.paused ? [
+        { key: 'resume', label: 'Resume', primary: true, run: _dqResume },
+        { key: 'cancel', label: 'Cancel the rest', run: _dqCancelAll },
+      ] : [],
+      view: el,
+      dismiss: allDone ? () => { _dqReset(); _dqHide(); } : null,
+    });
+  }
   el.querySelector('[data-dq="resume"]')?.addEventListener('click', _dqResume);
   el.querySelector('[data-dq="cancel"]')?.addEventListener('click', _dqCancelAll);
   el.querySelectorAll('.dq-cancel').forEach(b =>
     b.addEventListener('click', () => _dqCancel(Number(b.dataset.seq))));
-  // Keep the in-flight file visible in the scroll region
+  // Keep the in-flight file visible in the scroll region, while it is on screen
   const active = _dq.items[_dq.next];
-  if (active && active.state === 'active') el.querySelector(`.dq-row[data-id="${active.id}"]`)?.scrollIntoView({ block: 'nearest' });
+  if (active && active.state === 'active' && !el.hidden) el.querySelector(`.dq-row[data-id="${active.id}"]`)?.scrollIntoView({ block: 'nearest' });
+}
+
+/** The queue is done with: its panel and its Activity section go. */
+function _dqHide() {
+  document.getElementById('deleteQueue')?.classList.remove('visible');
+  if (window.vaultActivity) window.vaultActivity.drop('delete');
 }
 
 /* Row states in the queue panel: Classic keeps its glyphs, Modern shows line

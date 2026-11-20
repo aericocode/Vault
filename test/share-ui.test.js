@@ -67,7 +67,7 @@ const STATE = {
   enabled: true, offline: false, sevenZipFound: true, shareCount: 2,
   settings: { enabled: true, passwordChoice: 'random', deleteAfterDays: 7, split: '2g', customPartBytes: 750 * 1024 * 1024,
     keepLocal: false, onPartFail: 'retry3', accountMode: 'perStart', copyFormat: 'default',
-    customFormat: '{link}\npass: {pass}', rememberPasswords: true, rememberFiles: true, hideInPrivacy: true, topBarIcon: true },
+    customFormat: '{link}\npass: {pass}', rememberPasswords: true, rememberFiles: true, hideInPrivacy: true },
   savedPassword: { set: true, vaultPasswordSet: true, warningNeeded: false },
   topBar: { show: false, needsYou: 0 },
 };
@@ -82,7 +82,7 @@ test('every request sends X-Vault-Share: 1 and the JSON type, GET and POST alike
   const L = load();
   await L.run(`shareApi('GET', '/state', null, { background: true })`);
   await L.run(`shareApi('POST', '/shares/3/pause')`);
-  await L.run(`shareApi('POST', '/settings', { topBarIcon: false })`);
+  await L.run(`shareApi('POST', '/settings', { keepLocal: true })`);
   assert.strictEqual(L.calls.length, 3);
   for (const c of L.calls) {
     assert.ok(c.url.startsWith('/api/share/'), c.url);
@@ -93,7 +93,7 @@ test('every request sends X-Vault-Share: 1 and the JSON type, GET and POST alike
   assert.strictEqual(L.calls[0].init.headers['X-Vault-Background'], '1');
   assert.strictEqual(L.calls[0].init.body, undefined, 'no body on GET');
   assert.strictEqual(L.calls[1].init.body, '{}', 'an empty JSON body when there is nothing to send');
-  assert.deepStrictEqual(JSON.parse(L.calls[2].init.body), { topBarIcon: false });
+  assert.deepStrictEqual(JSON.parse(L.calls[2].init.body), { keepLocal: true });
   assert.ok(!('X-Vault-Background' in L.calls[1].init.headers));
 });
 
@@ -256,7 +256,7 @@ test('behaviour: passwords from reveal, copy block and the gate never reach stor
   assert.deepStrictEqual(L.logged, [], 'nothing logged');
   assert.deepStrictEqual(copied, [`https://gofile.io/d/Ab12\npass: ${SECRET}`], 'copied on request');
   // No global holds either secret afterwards.
-  const globals = L.run(`JSON.stringify({ s: _shareState, w: _shareWin, l: _shareList, t: _shareTop })`);
+  const globals = L.run(`JSON.stringify({ s: _shareState, w: _shareWin, l: _shareList })`);
   assert.ok(!globals.includes(SECRET) && !globals.includes(VAULT), 'no lasting global keeps a password');
 });
 
@@ -401,9 +401,11 @@ test('privacy: no title or aria attribute carries the archive name or the link',
   assert.ok(wrap.includes(`${P_NAME}.7z`) && wrap.includes(`href="${P_LINK}"`) && wrap.includes('a.mp4'));
   const outside = list.replace(wrap, '');
   assert.ok(!outside.includes(P_NAME) && !outside.includes('SeCr3t'));
-  // The top bar button says what is happening, never which archive.
-  const pill = read('share-ui.js').split('function shareRenderPill(')[1].split('\nfunction ')[0];
-  assert.ok(!/archiveName/.test(pill));
+  // The Activity section says what is happening, never which archive.
+  for (const fn of ['shareRenderActivity', 'shareActivityStatus']) {
+    const body = read('share-ui.js').split(`function ${fn}(`)[1].split('\nfunction ')[0];
+    assert.ok(!/archiveName/.test(body), fn);
+  }
 });
 
 /** A fake element made from one rendered tag, enough for sharePrivacyChanged. */
@@ -541,7 +543,7 @@ test('settings: the Private sharing card, then four tabs, no parts-at-once or up
   const html = L.run('shareSettingsHtml()');
   for (const id of ['shareEnabled', 'sharePasswordChoice', 'shareDeleteAfter', 'shareSplit', 'shareMyShares', 'shareAfterPack', 'shareSavedPassword',
     'shareCustomPart', 'shareKeepLocal', 'shareOnPartFail', 'shareAccount', 'shareCopyFormat', 'shareRememberPasswords',
-    'shareRememberFiles', 'shareHideInPrivacy', 'shareTopBarIcon', 'shareReset']) {
+    'shareRememberFiles', 'shareHideInPrivacy', 'shareReset']) {
     assert.ok(html.includes(`data-sfind="${id}"`), id);
   }
   assert.ok(!/share-more"|More options/.test(html), 'no More options fold');
@@ -563,7 +565,7 @@ test('settings: the Private sharing card, then four tabs, no parts-at-once or up
   assert.deepStrictEqual(sf(panel('packing').html), ['shareAfterPack', 'shareKeepLocal', 'shareCheckPersonal']);
   assert.ok(!html.includes('data-sfind="shareNameMode"') && !html.includes('data-share-sel="nameMode"'), 'no Archive name setting');
   assert.deepStrictEqual(sf(panel('upload').html), ['shareOnPartFail', 'shareAccount']);
-  assert.deepStrictEqual(sf(panel('remember').html).slice(0, 4), ['shareRememberPasswords', 'shareRememberFiles', 'shareHideInPrivacy', 'shareTopBarIcon']);
+  assert.deepStrictEqual(sf(panel('remember').html).slice(0, 3), ['shareRememberPasswords', 'shareRememberFiles', 'shareHideInPrivacy']);
   assert.deepStrictEqual(['basics', 'packing', 'upload', 'remember'].map(id => panel(id).hidden), [false, true, true, true]);
   const tablist = html.indexOf('role="tablist"');
   assert.ok(html.indexOf('data-sfind="shareMyShares"') < tablist && html.indexOf('data-sfind="shareEnabled"') < tablist, 'Private sharing stays above the tabs');
@@ -861,61 +863,80 @@ test('Copy format: with an own format already saved, picking it just switches; a
   assert.strictEqual(edit.hidden, true, 'Edit hides');
 });
 
-/* ── The top bar button ──────────────────────────────────────────────── */
+/* ── Under the Activity button ───────────────────────────────────────── */
 
-/** loadDom plus the top bar made by shareEnsureTopBar. */
-function loadTopBar() {
+/**
+ * loadDom plus a stand-in for player-lib/activity.js: it records the share
+ * section, the My shares link and every close, and holds the full view
+ * (#sharePop) that share-ui.js makes in it.
+ */
+function loadActivity() {
   const D = loadDom();
-  const btns = stubEl('buttons');
-  let wrap = null;
-  D.L.ctx.document.querySelector = (s) => (s === '.header-buttons' ? btns : null);
-  D.L.ctx.document.getElementById = (id) => (!wrap ? null : {
-    sharePillWrap: wrap, sharePill: wrap.cache['#sharePill'], sharePop: wrap.cache['#sharePop'], sharePillBadge: wrap.cache.badge ||= stubEl('badge'),
-  }[id] || null);
-  wrap = D.L.run('shareEnsureTopBar()');
+  const host = stubEl('host');
+  host.children = [];
+  host.appendChild = (c) => { host.children.push(c); return c; };
+  const rec = { sections: new Map(), dropped: [], links: new Map(), closes: 0 };
+  D.L.ctx.vaultActivity = {
+    host: () => host,
+    set: (id, job) => { rec.sections.set(id, job); },
+    drop: (id) => { rec.sections.delete(id); rec.dropped.push(id); },
+    setLink: (id, link) => { if (link) rec.links.set(id, link); else rec.links.delete(id); },
+    toggle: (open) => { if (open === false) rec.closes++; },
+  };
+  D.L.ctx.document.createElement = () => stubEl('el');
+  D.L.ctx.document.getElementById = (id) => host.children.find(c => c.id === id) || null;
   const opened = [];
   D.L.ctx.__opened = opened;
   D.L.run(`shareOpenMyShares = () => __opened.push('list'); shareOpenShare = (id) => __opened.push(id)`);
-  const pill = wrap.cache['#sharePill'];
-  const pop = wrap.cache['#sharePop'];
-  pop.hidden = true;
-  const show = (topBar) => { D.L.ctx.__tb = topBar; D.L.run('_shareState.topBar = __tb; shareRenderPill()'); };
-  const clickPill = () => pill.fire('click', { stopPropagation: noop });
-  return { D, wrap, pill, pop, opened, show, clickPill };
+  const show = (topBar, settings) => {
+    D.L.ctx.__tb = topBar;
+    if (settings) { D.L.ctx.__set = settings; D.L.run('Object.assign(_shareState, __set)'); }
+    D.L.run('_shareState.topBar = __tb; shareRenderActivity()');
+  };
+  const pop = () => host.children.find(c => c.id === 'sharePop') || null;
+  return { D, host, rec, opened, show, pop, section: () => rec.sections.get('share') || null };
 }
 
-test('top bar: idle it is a plain button that opens My shares; hidden when the server says so', () => {
-  const T = loadTopBar();
-  T.show({ show: false, active: false, needsYou: 0, shareId: null });
-  assert.strictEqual(T.wrap.hidden, true, 'feature or setting off and nothing running: hidden');
+test('Activity: with nothing going on there is no share section; My shares is a quiet link while the feature is on', () => {
+  const T = loadActivity();
   T.show({ show: true, active: false, needsYou: 0, shareId: null, status: null, percent: null });
-  assert.strictEqual(T.wrap.hidden, false);
-  assert.strictEqual(T.wrap.dataset.state, 'idle');
-  assert.strictEqual(T.pill.attrs['aria-label'], 'My shares');
-  assert.ok(!('aria-haspopup' in T.pill.attrs), 'no popup to announce');
-  T.clickPill();
+  assert.strictEqual(T.section(), null, 'no section');
+  assert.deepStrictEqual(T.rec.dropped, ['share']);
+  const link = T.rec.links.get('share');
+  assert.strictEqual(link.label, 'My shares');
+  link.run();
   assert.deepStrictEqual(T.opened, ['list'], 'opens My shares directly');
-  assert.strictEqual(T.pop.hidden, true, 'no popup');
-  // The idle button shows nothing private, so privacy mode leaves it alone.
+  assert.strictEqual(T.pop(), null, 'no share list made');
+  // Feature off and nothing running: no link either.
+  T.show({ show: false, active: false, needsYou: 0, shareId: null }, { enabled: false });
+  assert.strictEqual(T.rec.links.has('share'), false);
+  assert.strictEqual(T.section(), null);
+  // No separate share button in the top bar any more.
+  const src = read('share-ui.js');
+  assert.ok(!/sharePill|shareEnsureTopBar|shareTogglePop|header-buttons/.test(src), 'the share button is gone');
   const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'share.css'), 'utf8');
-  assert.match(css, /\.share-pill-wrap:not\(\[data-state="idle"\]\) \.share-pill \{ border-color: var\(--accent\)/, 'the accent look only while active');
+  assert.ok(!/share-pill/.test(css));
 });
 
-test('top bar: while a share runs or needs you it keeps its look and opens the popup, with Open My shares and an Open per row', () => {
-  const T = loadTopBar();
+test('Activity: a share that needs you is a red section with its status, bar, count, My shares and Open; Open is the share list', () => {
+  const T = loadActivity();
   const up = { shareId: 7, archiveName: 'secret-name', status: 'paused', error: 'Paused by you.', percent: 40, partNo: 2, partCount: 3, waitingInLine: false };
   T.show({ show: true, active: true, needsYou: 1, shareId: 7, archiveName: 'secret-name', status: 'paused', percent: 40,
     packing: null, upload: up, packWaiting: 0, readyToCheck: 0 });
-  assert.strictEqual(T.wrap.dataset.state, 'needs');
-  assert.strictEqual(T.wrap.cache.badge.textContent, '1');
-  assert.strictEqual(T.wrap.cache.badge.hidden, false);
-  assert.strictEqual(T.wrap.cache.badge.dataset.tone, 'red', 'a failed part: red');
-  assert.strictEqual(T.pill.attrs['aria-haspopup'], 'dialog');
-  assert.strictEqual(T.pill.attrs['aria-label'], 'Shares: an upload is paused, 1 part needs you');
-  T.clickPill();
-  assert.strictEqual(T.pop.hidden, false, 'the popup opens');
-  assert.deepStrictEqual(T.opened, [], 'not My shares straight away');
-  const html = T.pop.innerHTML;
+  const s = T.section();
+  assert.strictEqual(s.title, 'Share privately');
+  assert.strictEqual(s.tone, 'need', 'a failed part: red');
+  assert.strictEqual(s.running, false, 'nothing is moving');
+  assert.strictEqual(s.status, 'Upload paused');
+  assert.strictEqual(s.pct, 40);
+  assert.strictEqual(s.detail, '<span class="act-red">1 part of an upload failed.</span>');
+  assert.strictEqual(s.privateAttr, 'data-share-private', 'the status and the bar blur under privacy, as the old popup text did');
+  assert.strictEqual(JSON.stringify(s.actions.map(a => [a.key, a.label])), JSON.stringify([['shares', 'My shares']]));
+  assert.strictEqual(s.view, T.pop(), 'Open shows the share list');
+  assert.ok(!JSON.stringify({ ...s, view: null, afterPaint: null, actions: null }).includes('secret-name'), 'the section never names the archive');
+  assert.strictEqual(T.rec.links.has('share'), false, 'no second My shares link under it');
+  // The full view: the same rows as the old popup.
+  const html = T.pop().innerHTML;
   assert.match(html, /data-share-list>Open My shares<\/button>/);
   assert.match(html, /data-share-open="7">Open<\/button>/);
   assert.match(html, /<b>Paused: secret-name<\/b>/);
@@ -923,34 +944,35 @@ test('top bar: while a share runs or needs you it keeps its look and opens the p
   assert.match(html, /1 part of an upload failed and needs you/);
   assert.ok(withoutPrivate(html).includes('data-share-list') && withoutPrivate(html).includes('data-share-open="7"') && !withoutPrivate(html).includes('secret-name'),
     'the buttons are usable, the name stays covered');
-  assert.ok(!/left|minute|hour|second/i.test(html), 'no time figures');
-  // The two links.
-  T.pop.fire('click', { target: { closest: (s) => (s === '[data-share-list]' ? {} : null) } });
+  assert.ok(!/left|minute|hour|second/i.test(html + s.status + s.detail), 'no time figures');
+  // Its two links close the dropdown and open what they say.
+  T.pop().fire('click', { target: { closest: (sel) => (sel === '[data-share-list]' ? {} : null) } });
   assert.deepStrictEqual(T.opened, ['list']);
-  assert.strictEqual(T.pop.hidden, true, 'the popup closes');
-  T.clickPill();
-  T.pop.fire('click', { target: { closest: (s) => (s === '[data-share-open]' ? { dataset: { shareOpen: '7' } } : null) } });
+  T.pop().fire('click', { target: { closest: (sel) => (sel === '[data-share-open]' ? { dataset: { shareOpen: '7' } } : null) } });
   assert.deepStrictEqual(T.opened, ['list', 7]);
-  // Uploading with nothing failed: today's look, no red count.
+  s.actions[0].run();
+  assert.deepStrictEqual(T.opened, ['list', 7, 'list']);
+  assert.strictEqual(T.rec.closes, 3, 'each one closes the dropdown');
+  // Uploading with nothing failed: running, the accent look.
   T.show({ show: true, active: true, needsYou: 0, shareId: 7, status: 'uploading', percent: 10,
     packing: null, upload: { ...up, status: 'uploading', error: null, percent: 10 }, packWaiting: 0, readyToCheck: 0 });
-  assert.strictEqual(T.wrap.dataset.state, 'uploading');
-  assert.strictEqual(T.wrap.cache.badge.hidden, true);
-
-  // Once it ends the button goes idle and the popup shuts.
-  T.clickPill();
+  assert.deepStrictEqual([T.section().tone, T.section().running, T.section().status], ['work', true, 'Uploading 10%']);
+  // Once it ends the section goes and the link comes back.
   T.show({ show: true, active: false, needsYou: 0, shareId: null });
-  assert.strictEqual(T.pop.hidden, true);
-  assert.strictEqual(T.wrap.dataset.state, 'idle');
+  assert.strictEqual(T.section(), null);
+  assert.ok(T.rec.links.has('share'));
 });
 
-test('top bar setting: plain words, and the search entry matches', () => {
+test('the setting "Show the share button in the top bar" is gone: no row, no search entry, no default', () => {
   const L = load({ kit: true });
   setState(L);
   const html = L.run('shareSettingsHtml()');
-  assert.match(html, /Show the share button in the top bar/);
-  assert.ok(!/while an upload is running/.test(html), 'the old label is gone');
-  assert.match(read('settings-search.js'), /id: 'shareTopBarIcon', label: 'Share button in the top bar'/);
+  assert.ok(!/shareTopBarIcon|topBarIcon|share button in the top bar/i.test(html));
+  assert.ok(!/shareTopBarIcon|Share button in the top bar/.test(read('settings-search.js')));
+  assert.ok(!/topBarIcon/.test(read('share-settings-ui.js')));
+  assert.strictEqual(L.run(`'topBarIcon' in SHARE_SETTINGS_DEFAULTS`), false);
+  // Privacy: its search entry names where the shares show now.
+  assert.match(read('settings-search.js'), /Blur My shares, the share list under the Activity button and the share window file list\./);
 });
 
 test('no long dashes in what the share files show', () => {
@@ -1609,18 +1631,16 @@ test('My shares: Check and upload reopens the window on the check step; Cancel a
   assert.strictEqual(D.L.run('_shareWin.step'), 'checked', 'on the check step');
 });
 
-test('top bar: packing, an upload, shares waiting and ready to check, each in the popup; the badge is amber for ready ones', () => {
-  const T = loadTopBar();
+test('Activity: packing, an upload, shares waiting and ready to check; amber for ready ones, each in the share list', () => {
+  const T = loadActivity();
   T.show({ show: true, active: true, needsYou: 0, shareId: 6, status: 'packing', percent: 42,
     packing: { shareId: 6, archiveName: 'Summer', phase: 'packing', percent: 42 },
     upload: { shareId: 5, archiveName: 'holiday', status: 'uploading', error: null, percent: 50, partNo: 2, partCount: 3, waitingInLine: false },
     packWaiting: 1, readyToCheck: 1 });
-  assert.strictEqual(T.wrap.dataset.state, 'ready');
-  assert.strictEqual(T.wrap.cache.badge.textContent, '1');
-  assert.strictEqual(T.wrap.cache.badge.dataset.tone, 'amber');
-  assert.strictEqual(T.pill.attrs['aria-label'], 'Shares: 3 working, 1 ready to check');
-  T.clickPill();
-  const html = T.pop.innerHTML;
+  const s = T.section();
+  assert.deepStrictEqual([s.tone, s.running, s.status, s.pct], ['wait', true, 'Packing 42%', 42]);
+  assert.strictEqual(s.detail, '1 waiting to pack. <span class="act-amber">1 ready for you to check.</span>');
+  const html = T.pop().innerHTML;
   assert.match(html, /<b>Packing Summer<\/b><span class="watch-pop-mut">42%<\/span>/);
   assert.match(html, /<b>Uploading holiday<\/b><span class="watch-pop-mut">Part 2 of 3<\/span>/);
   assert.match(html, />1 waiting to pack</);
@@ -1631,11 +1651,13 @@ test('top bar: packing, an upload, shares waiting and ready to check, each in th
   const bare = withoutPrivate(html);
   assert.ok(!/Summer|holiday/.test(bare), 'names stay covered under privacy');
   assert.ok(/data-share-open="6"/.test(bare) && /packed and ready/.test(bare), 'the buttons and counts stay usable');
-  // Packing alone: the accent look, no badge.
+  assert.ok(!/Summer|holiday/.test(s.status + s.detail), 'the section names no archive');
+  // Packing alone: the accent look.
   T.show({ show: true, active: true, needsYou: 0, packing: { shareId: 6, archiveName: 'S', phase: 'staging', percent: 0 }, upload: null, packWaiting: 0, readyToCheck: 0 });
-  assert.strictEqual(T.wrap.dataset.state, 'packing');
-  assert.strictEqual(T.wrap.cache.badge.hidden, true);
-  assert.strictEqual(T.pill.attrs['aria-label'], 'Shares: 1 working');
+  assert.deepStrictEqual([T.section().tone, T.section().running, T.section().status, T.section().detail], ['work', true, 'Getting ready', '']);
+  // Only ready to check: amber, not counted as running.
+  T.show({ show: true, active: true, needsYou: 0, packing: null, upload: null, packWaiting: 0, readyToCheck: 2 });
+  assert.deepStrictEqual([T.section().tone, T.section().running, T.section().status, T.section().pct], ['wait', false, 'Ready to check', null]);
 });
 
 /* ── Check files for personal details ─────────────────────────────────── */

@@ -782,9 +782,6 @@ body.layout-modern .grid-table .tv-row .tile-select:checked { border-color: var(
 }
 #queueStack > .delete-queue { position: static; }
 #queueStack > .delete-queue:not(.visible) { display: none; }
-#importQueuePanel { order: 0; }
-#deleteQueue { order: 1; }
-#scanQueuePanel { order: 2; }
 #kofiThanksPanel { order: 3; }
 
 /* One-time Ko-fi thank-you body (see maybeKofiNudge in player-lib/importer.js) */
@@ -1292,27 +1289,15 @@ body.layout-modern #deleteQueue .dq-act:hover { background: var(--m-btn-hover); 
   color: var(--text-muted);
 }
 
-/* ── Scan panel tabs: AI scan and face checks share #scanQueuePanel
-   (importer.js openPane; the Faces pane is player-lib/faces.js) ── */
-.dq-tabs { display: flex; gap: 4px; margin-bottom: 0.45rem; }
-.dq-tabs[hidden],
+/* ── The AI scan and face check panes of #scanQueuePanel: full views in the
+   Activity dropdown (importer.js openPane; the Faces pane is player-lib/faces.js) ── */
 .dq-pane[hidden] { display: none; }
-.dq-tab {
-  flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  font-family: inherit; font-size: 0.75rem; font-weight: 600; padding: 0.25rem 0.4rem;
-  border-radius: 7px; border: 1px solid var(--border); background: var(--bg-tertiary);
-  color: var(--text-secondary); cursor: pointer;
-}
-.dq-tab:hover { color: var(--text-primary); }
-.dq-tab.on { background: rgba(99, 102, 241, 0.18); border-color: var(--accent); color: var(--text-primary); }
-.dq-tab-sub { font-weight: 400; color: var(--text-secondary); margin-left: 4px; }
-.dq-tab-sub:empty { display: none; }
 /* The Faces pane */
 .fsq-ico { display: inline-flex; flex: none; }
 .fsq-ico:empty { display: none; }
 .fsq-res { flex: none; font-size: 0.72rem; color: var(--text-secondary); }
-/* Alone, the pane says what it is; with tabs, the tab does. */
-#scanQueuePanel:not(.dq-has-tabs) .fsq-title::before { content: '👤 '; }
+/* The pane says what it is (Classic; Modern draws the title alone). */
+body:not(.layout-modern) #scanQueuePanel .fsq-title::before { content: '👤 '; }
 .fsq-list { padding-right: 4px; }   /* the scrollbar never sits on the results */
 .dq-row.fsq-none .dq-ico { color: var(--text-muted); }
 .fsq-sum {

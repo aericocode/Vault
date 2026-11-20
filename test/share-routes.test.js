@@ -162,6 +162,9 @@ test('feature off: starting a share is refused; settings are checked', async () 
   assert.strictEqual(st.enabled, true);
   assert.strictEqual(st.offline, true);
   assert.ok(!('nameMode' in st.settings), 'no Archive name setting');
+  assert.ok(!('topBarIcon' in st.settings), 'no share button setting');
+  const old = await call('POST', '/api/share/settings', { topBarIcon: false });
+  assert.strictEqual(old.status, 400, 'the old setting is refused');
 });
 
 test('preview: names, sizes, space, split; same names get (2)', async () => {

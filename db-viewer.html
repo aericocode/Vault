@@ -87,8 +87,10 @@
   <link rel="stylesheet" href="./css/dialogs.css">
   <!-- Vault's own folder browser (player-lib/fs-picker.js): Linux without a desktop dialog, macOS -->
   <link rel="stylesheet" href="./css/fs-picker.css">
-  <!-- Share privately: the share window, My shares, the top bar icon -->
+  <!-- Share privately: the share window, My shares, the share list under Activity -->
   <link rel="stylesheet" href="./css/share.css">
+  <!-- The Activity button in the top bar and its dropdown (player-lib/activity.js) -->
+  <link rel="stylesheet" href="./css/activity.css">
 
   <link rel="icon" type="image/svg+xml" href="./images/favicon.svg">
 </head>
@@ -582,6 +584,8 @@
   <script src="./player-lib/utils.js"></script>
   <!-- Line icons for the Modern look; fills the data-vi spots above -->
   <script src="./player-lib/icons.js"></script>
+  <!-- The Activity button: background jobs (AI scan, face search, sharing, adding, trash) -->
+  <script src="./player-lib/activity.js"></script>
   <!-- Settings > General > AI scan (off / on / auto): early, everything after may ask -->
   <script src="./player-lib/ai-scan-mode.js"></script>
   <!-- AI scan Auto: tells the server while something plays -->

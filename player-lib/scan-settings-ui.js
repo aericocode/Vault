@@ -77,7 +77,7 @@
     if (data.sessionModel) {
       // The page is called AI servers in Modern.
       const page = typeof settingsIsModern === 'function' && settingsIsModern() ? 'AI servers' : 'Backend';
-      return `Right now scans use ${shortName(data.sessionModel)}, picked in the scan panel or the ${page} page. This choice applies again once that pick is set back to Auto (${page}, Model for scans) or Vault restarts.`;
+      return `Right now scans use ${shortName(data.sessionModel)}, picked in the AI scan view under the Activity button or the ${page} page. This choice applies again once that pick is set back to Auto (${page}, Model for scans) or Vault restarts.`;
     }
     return 'Used for new files. Picked from the models LM Studio has on disk.';
   }

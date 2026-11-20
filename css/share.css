@@ -236,30 +236,11 @@ textarea.share-fmt-text { width: 100%; box-sizing: border-box; resize: vertical;
 .share-tab-panel[hidden], [data-share-saved-row][hidden] { display: none; }
 body.layout-modern .settings-card .share-tab-panel > .settings-toggle:first-child { border-top: 0; }
 
-/* ── Top bar icon ──────────────────────────────────────────────────────── */
+/* ── The share list: Share privately's full view in the Activity dropdown
+   (player-lib/share-ui.js shareRenderPop; css/activity.css places it) ── */
 
-.share-pill-wrap { position: relative; display: flex; }
-.share-pill-wrap[hidden] { display: none; }
-.share-pill { position: relative; }
-/* Running or needing you: the accent look. Idle (nothing running, nothing
-   failed) it is a plain top bar button into My shares. */
-.share-pill-wrap:not([data-state="idle"]) .share-pill { border-color: var(--accent) !important; color: var(--accent-hover); }
-.share-pill .vi { width: 18px; height: 18px; }
-.share-pill-wrap[data-state="paused"] .share-pill,
-.share-pill-wrap[data-state="not_finished"] .share-pill { color: var(--warning); border-color: rgba(245, 158, 11, 0.6) !important; }
-.share-pill-badge {
-  position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; box-sizing: border-box; padding: 0 4px;
-  background: var(--danger); border-radius: 9px; color: #fff; font-size: 11px; line-height: 18px; font-weight: 700; text-align: center;
-}
-.share-pill-badge[hidden] { display: none; }
-/* Shares packed and ready to check, with no failed part: amber, not red */
-.share-pill-badge[data-tone="amber"] { background: var(--warning); color: #1f1300; }
-.share-pill-wrap[data-state="ready"] .share-pill { color: var(--warning); border-color: rgba(245, 158, 11, 0.6) !important; }
 .share-pop-acts { justify-content: flex-end; }
 .share-pop-acts .share-link-btn { margin-right: auto; }
-body.layout-modern #sharePillWrap { order: 2; }
-body.layout-modern .share-pill { border-radius: 999px; padding: 0.4rem 0.7rem; }
-.share-pop { width: min(320px, calc(100vw - 32px)); }
 .share-pop-text { display: flex; flex-direction: column; gap: 8px; }
 .share-pop-text b { overflow-wrap: anywhere; }
 .share-pop .share-bar { height: 8px; }
@@ -276,7 +257,7 @@ body.layout-modern .share-pill { border-radius: 999px; padding: 0.4rem 0.7rem; }
 .share-pop-ready:hover { text-decoration: underline; }
 
 /* ── Privacy mode: My shares (body.pm-shares) ─────────────────────────────
-   The My shares list, the top bar popup text, the share window's file list,
+   The My shares list, the share list and status under Activity, the share window's file list,
    the Delete all list, and every archive name, link, password field and the
    Both together block in the share window (and the saved password in
    Settings). Blurred, no pointer, and taken out of the keyboard order by

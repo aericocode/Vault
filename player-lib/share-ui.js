@@ -1,5 +1,5 @@
 /* =========================================================================
-   SHARE PRIVATELY: the share window (steps 1 to 4 and 3b), the top bar icon,
+   SHARE PRIVATELY: the share window (steps 1 to 4 and 3b), the Activity section,
    the entry points on the selection bar, on one file's menu and on a
    collection card's menu, the large share warning and ask, the Vault
    password prompt, and the privacy guard ("My shares" hide category).
@@ -13,7 +13,7 @@
      upload   3b. one row per part; Pause, Try again, Stop and delete
      done     4. link and password, Copy as block, Delete from gofile now
      failed   what failed, in plain words, with the safe way out
-   The window can be closed while uploading; the top bar icon and My shares
+   The window can be closed while uploading; the Activity button and My shares
    open it again (shareOpenShare).
 
    SECRETS. A password reaches the page only from a click on Show or Copy,
@@ -54,8 +54,8 @@ function shareNamesPrivate() {
 }
 
 /**
- * Privacy turned on or off: the private parts (My shares list, the top bar
- * popup text, the share window's file list, every archive name, the link, the
+ * Privacy turned on or off: the private parts (My shares list, the Activity
+ * section status and share list, the share window's file list, every archive name, the link, the
  * password and the Both together block) are blurred by css/share.css and
  * taken out of the keyboard order here (inert), so a hidden row can never be
  * reached with Tab or acted on blind. A field that holds the link or a
@@ -429,7 +429,7 @@ async function shareOpenForCollection(id) {
   return shareOpenForIds(ids, { collectionName: c.name });
 }
 
-/** Open the window on a share that already exists (top bar, My shares). */
+/** Open the window on a share that already exists (Activity, My shares). */
 async function shareOpenShare(id) {
   const w = shareWindowOpen();
   w.id = Number(id);
@@ -1704,55 +1704,41 @@ function shareWireWindow(w) {
   shareWireShowButtons(box);
 }
 
-/* ── Top bar icon ─────────────────────────────────────────────────────── */
+/* ── In the Activity dropdown ─────────────────────────────────────────────
+   Share privately is a section of the Activity button in the top bar
+   (player-lib/activity.js) while a share packs, waits to pack, uploads, is
+   paused or not finished, is ready to check, or has a failed part. Open
+   shows the share list (#sharePop): the pack and the upload, each with its
+   bar and an Open for its window, then the counts and Open My shares. With
+   nothing going on, "My shares" is a quiet link under the dropdown's list
+   while the feature is on. */
 
-let _shareTop = { popOpen: false };
-
-function shareEnsureTopBar() {
-  let wrap = document.getElementById('sharePillWrap');
-  if (wrap) return wrap;
-  const btns = document.querySelector('.header-buttons');
-  if (!btns) return null;
-  wrap = document.createElement('div');
-  wrap.className = 'share-pill-wrap';
-  wrap.id = 'sharePillWrap';
-  wrap.hidden = true;
-  const icon = typeof vaultIconSwap === 'function' ? vaultIconSwap('📤', 'upload') : '📤';
-  wrap.innerHTML = `
-    <button type="button" class="header-btn share-pill" id="sharePill" aria-haspopup="dialog" aria-expanded="false"
-            aria-controls="sharePop" aria-label="My shares">${icon}<span class="share-pill-badge" id="sharePillBadge" hidden></span></button>
-    <div class="watch-pop share-pop" id="sharePop" role="dialog" aria-label="Shares" hidden></div>`;
-  const refresh = document.getElementById('refreshBtn');
-  btns.insertBefore(wrap, refresh || null);
-  wrap.querySelector('#sharePill').addEventListener('click', (e) => { e.stopPropagation(); sharePillClick(); });
-  wrap.querySelector('#sharePop').addEventListener('click', (e) => {
+/** The full view in the Activity dropdown, made once. */
+function shareActivityView() {
+  let pop = document.getElementById('sharePop');
+  if (pop) return pop;
+  const act = typeof window !== 'undefined' && window.vaultActivity;
+  if (!act) return null;
+  pop = document.createElement('div');
+  pop.id = 'sharePop';
+  pop.className = 'share-pop act-pane';
+  pop.hidden = true;
+  act.host().appendChild(pop);
+  pop.addEventListener('click', (e) => {
     const list = e.target.closest('[data-share-list]');
-    if (list) { shareTogglePop(false); shareOpenMyShares(); return; }
+    if (list) { act.toggle(false); shareOpenMyShares(); return; }
     const b = e.target.closest('[data-share-open]');
     if (!b) return;
-    shareTogglePop(false);
+    act.toggle(false);
     shareOpenShare(Number(b.dataset.shareOpen));
   });
-  document.addEventListener('mousedown', (e) => { if (!wrap.contains(e.target)) shareTogglePop(false); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && _shareTop.popOpen) shareTogglePop(false); });
-  return wrap;
-}
-
-function shareTogglePop(open) {
-  const pop = document.getElementById('sharePop');
-  const btn = document.getElementById('sharePill');
-  if (!pop || !btn) return;
-  const next = open === undefined ? pop.hidden : !!open;
-  pop.hidden = !next;
-  _shareTop.popOpen = next;
-  btn.setAttribute('aria-expanded', next ? 'true' : 'false');
-  if (next) shareRenderPop();
+  return pop;
 }
 
 /** The upload line's first words, by status. */
 const SHARE_TOP_VERB = { uploading: 'Uploading', paused: 'Paused:', not_finished: 'Upload not finished:' };
 
-/** Counts for the icon: { working, ready, parts, stuck } (stuck: an upload paused or not finished). */
+/** Counts for the section: { working, ready, parts, stuck } (stuck: an upload paused or not finished). */
 function shareTopCounts(tb) {
   const up = tb && tb.upload;
   return {
@@ -1770,53 +1756,68 @@ function shareTopActive(tb) {
   return !!(tb.shareId || tb.needsYou);
 }
 
-/** The top bar button: the small popup while a share runs or needs you, else My shares. */
-function sharePillClick() {
-  if (shareTopActive(_shareState && _shareState.topBar)) { shareTogglePop(); return; }
-  shareTogglePop(false);
-  if (typeof shareOpenMyShares === 'function') shareOpenMyShares();
-}
-
-function shareRenderPill() {
-  const wrap = shareEnsureTopBar();
-  if (!wrap) return;
-  const tb = _shareState && _shareState.topBar;
-  if (!tb || !tb.show) { wrap.hidden = true; shareTogglePop(false); return; }
-  wrap.hidden = false;
-  const active = shareTopActive(tb);
-  const c = shareTopCounts(tb);
-  // The look: red with a failed part, amber with a share ready to check (or an
-  // upload paused or not finished), the accent while something only runs.
-  wrap.dataset.state = !active ? 'idle' : c.parts ? 'needs' : c.ready ? 'ready'
-    : c.stuck ? tb.upload.status : tb.packing ? 'packing' : 'uploading';
-  // The badge: failed parts first (red), else shares ready to check (amber).
-  const badge = document.getElementById('sharePillBadge');
-  const n = c.parts || c.ready;
-  if (badge) {
-    badge.hidden = !n;
-    badge.textContent = n ? String(n) : '';
-    badge.dataset.tone = !c.parts && c.ready ? 'amber' : 'red';
+/** The short status on the right of the section, and the bar's percent. */
+function shareActivityStatus(tb) {
+  const pk = tb.packing;
+  const up = tb.upload;
+  if (pk) {
+    const pct = pk.phase === 'checking' ? 100 : Math.round(pk.percent || 0);
+    const cleaning = pk.phase === 'cleaning';
+    const status = pk.phase === 'checking' ? 'Checking' : cleaning ? 'Removing personal details'
+      : pk.phase === 'packing' ? `Packing ${pct}%` : 'Getting ready';
+    return { status, pct };
   }
-  const btn = document.getElementById('sharePill');
-  // Idle, it opens My shares directly: no popup to announce.
-  if (active) btn.setAttribute('aria-haspopup', 'dialog'); else btn.removeAttribute('aria-haspopup');
-  if (!active && _shareTop.popOpen) shareTogglePop(false);
-  const bits = [];
-  if (c.working) bits.push(`${c.working} working`);
-  if (c.ready) bits.push(`${c.ready} ready to check`);
-  if (c.stuck) bits.push(tb.upload.status === 'paused' ? 'an upload is paused' : 'an upload is not finished');
-  if (c.parts) bits.push(`${c.parts} ${c.parts === 1 ? 'part needs' : 'parts need'} you`);
-  const label = !active ? 'My shares' : `Shares: ${bits.join(', ') || 'open My shares'}`;
-  btn.setAttribute('aria-label', label);
-  btn.title = label;
-  if (_shareTop.popOpen) shareRenderPop();
+  if (up) {
+    const pct = Math.round(up.percent || 0);
+    const status = up.status === 'uploading' ? (up.waitingInLine ? 'Waiting to upload' : `Uploading ${pct}%`)
+      : up.status === 'paused' ? 'Upload paused' : 'Upload not finished';
+    return { status, pct };
+  }
+  const n = Number(tb.readyToCheck) || 0;
+  return { status: n ? 'Ready to check' : (Number(tb.packWaiting) || 0) ? 'Waiting to pack' : '', pct: null };
 }
 
 /**
- * The popup: the share being packed and the upload, each with its bar and an
- * Open button, then how many wait to pack, the amber line for shares packed
- * and ready to check, and Open My shares. Archive names are blurred under
- * privacy (data-share-private); the buttons stay usable.
+ * The section: the share packing or uploading (no archive name: the status
+ * and the bar are blurred under privacy like the old popup's text), how many
+ * wait to pack, the amber count of shares ready to check, the red count of
+ * failed parts; My shares and Open.
+ */
+function shareRenderActivity() {
+  const act = typeof window !== 'undefined' && window.vaultActivity;
+  if (!act) return;
+  const tb = _shareState && _shareState.topBar;
+  const active = shareTopActive(tb);
+  act.setLink('share', shareEnabled() && !active
+    ? { label: 'My shares', run: () => { if (typeof shareOpenMyShares === 'function') shareOpenMyShares(); } } : null);
+  if (!active) { act.drop('share'); return; }
+  const c = shareTopCounts(tb);
+  const { status, pct } = shareActivityStatus(tb);
+  const waiting = Number(tb.packWaiting) || 0;
+  const bits = [];
+  if (waiting) bits.push(`${waiting.toLocaleString()} waiting to pack.`);
+  if (c.ready) bits.push(`<span class="act-amber">${c.ready.toLocaleString()} ready for you to check.</span>`);
+  if (c.parts) bits.push(`<span class="act-red">${c.parts.toLocaleString()} ${c.parts === 1 ? 'part of an upload failed' : 'parts of an upload failed'}.</span>`);
+  const view = shareActivityView();
+  act.set('share', {
+    title: 'Share privately', icon: ['📤', 'upload'],
+    running: c.working > 0,
+    tone: c.parts ? 'need' : c.ready || c.stuck ? 'wait' : 'work',
+    status, pct,
+    detail: bits.join(' '),
+    actions: [{ key: 'shares', label: 'My shares', run: () => { act.toggle(false); if (typeof shareOpenMyShares === 'function') shareOpenMyShares(); } }],
+    view,
+    privateAttr: 'data-share-private',
+    afterPaint: (sec) => sharePrivacyChanged(sec),
+  });
+  shareRenderPop();
+}
+
+/**
+ * The full view: the share being packed and the upload, each with its bar
+ * and an Open button, then how many wait to pack, the amber line for shares
+ * packed and ready to check, and Open My shares. Archive names are blurred
+ * under privacy (data-share-private); the buttons stay usable.
  */
 function shareRenderPop() {
   const pop = document.getElementById('sharePop');
@@ -1833,7 +1834,7 @@ function shareRenderPop() {
       </div>
       <button type="button" class="watch-pop-btn" data-share-open="${Number(id)}">Open</button>
     </div>`;
-  let html = '';
+  let html = '<div class="share-pop-head">Share privately</div>';
   if (pk) {
     const pct = pk.phase === 'checking' ? 100 : Math.round(pk.percent || 0);
     const cleaning = pk.phase === 'cleaning';
@@ -1853,10 +1854,14 @@ function shareRenderPop() {
   if (waiting) html += `<div class="watch-pop-mut share-pop-line">${waiting.toLocaleString()} waiting to pack</div>`;
   if (ready) html += `<button type="button" class="share-link-btn share-pop-ready" data-share-list>${ready.toLocaleString()} packed and ready for you to check</button>`;
   if (parts) html += `<div class="share-pop-needs">${parts.toLocaleString()} ${parts === 1 ? 'part of an upload failed and needs' : 'parts of an upload failed and need'} you</div>`;
-  pop.innerHTML = `${html}
+  html += `
     <div class="watch-pop-r share-pop-acts">
       <button type="button" class="share-link-btn" data-share-list>Open My shares</button>
     </div>`;
+  // Redrawn only when it changes: the poll must not take the focus off a button.
+  if (pop.dataset.sig === html) return;
+  pop.dataset.sig = html;
+  pop.innerHTML = html;
   sharePrivacyChanged(pop);
 }
 
@@ -1875,7 +1880,7 @@ async function shareStatePoll() {
     if (typeof document === 'undefined' || !document.hidden) {
       _shareState = await shareApi('GET', '/state', null, { background: true });
       shareSyncPrivacyHide();
-      shareRenderPill();
+      shareRenderActivity();
 
       if (shareEnabled() !== wasOn && typeof renderSelectionBar === 'function') {
         try { renderSelectionBar(); } catch { /* not on the library */ }
@@ -1907,7 +1912,7 @@ function shareMenuItemHtml(media) {
 /* ── Boot ─────────────────────────────────────────────────────────────── */
 
 if (typeof window !== 'undefined' && typeof document !== 'undefined' && document.querySelector && !window.__shareNoBoot) {
-  const boot = () => { shareEnsureTopBar(); shareStatePoll(); };
+  const boot = () => { shareStatePoll(); };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
   // After unlock the poll answers again; ask straight away.

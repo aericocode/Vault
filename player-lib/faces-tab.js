@@ -435,7 +435,7 @@ function ftPaintStrip() {
   const eligible = c.eligible || 0;
   const indexed = Math.min(c.indexed || 0, eligible);
   const left = Math.max(0, eligible - indexed);
-  // While a run goes, its own progress: the same numbers as the scan panel.
+  // While a run goes, its own progress: the same numbers as its section under the Activity button.
   const runDone = (q.done || 0) + (q.failed || 0);
   const runTotal = q.total || 0;
   const ofText = `<b>${runDone.toLocaleString()} of ${runTotal.toLocaleString()}</b>`;
