@@ -971,3 +971,64 @@ test('real ffmpeg: covers (a plain one does not fail the share, a cleaned copy n
   assert.ok(!fs.readFileSync(dx).includes(XMP_UUID), 'no XMP box in the copy');
   assert.strictEqual((await m4.detect(dx)).status, 'clean');
 });
+
+test('real ffmpeg: a cleaned copy cut short is refused, cover or not, whatever its header claims; a copy that only lost a big cover passes', { skip: ff ? false : 'no ffmpeg or ffprobe on this machine' }, async (t) => {
+  delete require.cache[require.resolve('../lib/share/meta')];
+  const m5 = require('../lib/share/meta');
+  t.after(() => { m5._setForTest({ ffmpeg: null }); delete process.env.FF_WRAP; });
+  const mk = (args) => spawnSync(ff.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', ...args], { windowsHide: true });
+  // A cover of about 3 MB (noise does not compress) on 30 s of audio (about 0.5 MB).
+  const cover = path.join(tmp, 'big-cover.jpg');
+  assert.strictEqual(mk(['-f', 'lavfi', '-i', 'nullsrc=s=1600x1600,geq=random(1)*255:random(1)*255:random(1)*255', '-frames', '1', '-q:v', '1', cover]).status, 0);
+  assert.ok(fs.statSync(cover).size > 2 * 1024 * 1024, 'a big cover');
+  const make = (name, codec, withCover) => {
+    const p = path.join(tmp, name);
+    const r = mk(['-f', 'lavfi', '-i', 'sine=d=30', ...(withCover ? ['-i', cover, '-map', '0', '-map', '1', '-c:v', 'copy', '-disposition:v:0', 'attached_pic'] : []),
+      '-c:a', codec, '-b:a', '128k', '-metadata', 'artist=Sam Example', p]);
+    assert.strictEqual(r.status, 0, String(r.stderr));
+    return p;
+  };
+  const files = [make('cover30.mp3', 'libmp3lame', true), make('cover30.m4a', 'aac', true), make('plain30.mp3', 'libmp3lame', false)];
+  // Vault's ffmpeg behind a stand-in: FF_WRAP=trunc cuts the copy to 30% after
+  // ffmpeg says it is done (exit 0); FF_WRAP=nomeasure fails the cover measuring.
+  const wrap = path.join(tmp, 'ff-wrap.js');
+  fs.writeFileSync(wrap, `
+const cp = require('child_process'), fs = require('fs');
+const a = process.argv.slice(2);
+const measuring = a.includes('data') && a.includes('pipe:1');
+if (measuring && process.env.FF_WRAP === 'nomeasure') process.exit(1);
+const r = cp.spawnSync(${JSON.stringify(ff.ffmpeg)}, a, { stdio: 'inherit', windowsHide: true });
+if (r.status === 0 && !measuring && process.env.FF_WRAP === 'trunc') {
+  const out = a[a.length - 1].replace(/^file:/, '');
+  const b = fs.readFileSync(out);
+  fs.writeFileSync(out, b.subarray(0, Math.floor(b.length * 0.3)));
+}
+process.exit(r.status == null ? 1 : r.status);
+`);
+  m5._setForTest({ ffmpeg: { exe: process.execPath, pre: [wrap] } });
+  for (const src of files) {
+    const known = await m5.detect(src);
+    assert.strictEqual(known.status, 'personal', path.basename(src));
+    const hasCover = !/plain/.test(src);
+    assert.strictEqual(known.counts.pics, hasCover ? 1 : 0);
+    // Cut short: refused, with its duration known or not.
+    process.env.FF_WRAP = 'trunc';
+    for (const k of [known, { ...known, duration: null }]) {
+      const dir = stageDir();
+      await assert.rejects(m5.cleanCopy({ src, dst: path.join(dir, 'x' + path.extname(src)), known: k }), { code: 'CLEAN_FAILED' }, `${path.basename(src)} cut short`);
+      assert.deepStrictEqual(fs.readdirSync(dir), [], 'nothing left behind');
+    }
+    // Whole: passes, even when the copy is a fraction of the original because the cover went.
+    process.env.FF_WRAP = '';
+    const dst = path.join(stageDir(), path.basename(src));
+    await m5.cleanCopy({ src, dst, known: { ...known, duration: null } });
+    if (hasCover) assert.ok(fs.statSync(dst).size < fs.statSync(src).size * 0.3, 'most of the original was the cover');
+    // The covers cannot be measured: the rule only gets stricter, so a copy
+    // that lost a big cover fails (safe), and one with no cover still passes.
+    process.env.FF_WRAP = 'nomeasure';
+    const d2 = stageDir();
+    const p2 = m5.cleanCopy({ src, dst: path.join(d2, path.basename(src)), known });
+    if (hasCover) await assert.rejects(p2, { code: 'CLEAN_FAILED' });
+    else await p2;
+  }
+});
