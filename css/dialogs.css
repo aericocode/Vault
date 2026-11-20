@@ -80,7 +80,7 @@
 /* :focus, not :focus-visible: the dialog opens with focus on its default
    button, and a danger dialog should show that the default is Cancel. */
 .vdlg-btn:focus { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
-.vdlg-ok { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.vdlg-ok { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 .vdlg-ok:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .vdlg-ok.is-danger { background: var(--danger); border-color: var(--danger); }
 .vdlg-ok.is-danger:hover { background: #dc2626; border-color: #dc2626; }
@@ -118,7 +118,7 @@ body.layout-modern .vdlg-btn {
   padding: 7px 14px;
 }
 body.layout-modern .vdlg-btn:hover { background: rgba(255, 255, 255, 0.11); }
-body.layout-modern .vdlg-ok { background: var(--accent); border-color: transparent; color: #fff; }
+body.layout-modern .vdlg-ok { background: var(--accent); border-color: transparent; color: var(--on-accent); }
 body.layout-modern .vdlg-ok:hover { background: var(--accent-hover); }
 body.layout-modern .vdlg-ok.is-danger { background: #dc2626; }
 body.layout-modern .vdlg-ok.is-danger:hover { background: #ef4444; }

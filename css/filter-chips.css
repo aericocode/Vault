@@ -42,7 +42,7 @@
 }
 
 .fchip.is-set {
-  background: rgba(99, 102, 241, 0.16);
+  background: var(--accent-bg);
   border-color: var(--accent, #6366f1);
 }
 
@@ -108,7 +108,7 @@
 }
 .fchip-btn:hover { border-color: var(--accent, #6366f1); color: var(--text-primary, #eee); }
 .fchip-btn.is-set {
-  background: rgba(99, 102, 241, 0.16);
+  background: var(--accent-bg);
   border-color: var(--accent, #6366f1);
   color: var(--text-primary, #eee);
 }
@@ -141,7 +141,7 @@
   background: var(--bg-secondary, #181825);
   border: 1px solid var(--border, #444);
   border-radius: 10px;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 14px 34px var(--shade-55);
   overflow-y: auto;
 }
 
@@ -197,7 +197,7 @@
 .fpop-sort-btn:hover:not([aria-pressed="true"]) { background: var(--bg-hover, #2a2a3e); }
 .fpop-sort-btn[aria-pressed="true"] {
   background: var(--accent, #6366f1);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 .fpop-sort-btn:focus-visible { outline: 2px solid var(--accent, #6366f1); outline-offset: -2px; }
@@ -222,8 +222,8 @@
 }
 .fpop-opt.active { background: var(--bg-hover, #2a2a3e); }
 .fpop-opt[aria-selected="true"] {
-  color: #cfe0ff;
-  background: rgba(99, 102, 241, 0.25);
+  color: var(--on-accent-bg);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
 }
 .fpop-opt-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -257,7 +257,7 @@
 }
 .fpop-pill:hover { border-color: var(--accent, #6366f1); color: var(--text-primary, #eee); }
 .fpop-pill.is-on {
-  background: rgba(99, 102, 241, 0.2);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
   border-color: var(--accent, #6366f1);
   color: var(--text-primary, #eee);
 }
@@ -272,13 +272,13 @@
   padding: 0.35rem 0.7rem;
   border: 1px solid var(--accent, #6366f1);
   border-radius: 6px;
-  background: rgba(99, 102, 241, 0.18);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--text-primary, #eee);
   font-family: inherit;
   font-size: 0.8rem;
   cursor: pointer;
 }
-.fpop-use:hover { background: rgba(99, 102, 241, 0.3); }
+.fpop-use:hover { background: color-mix(in srgb, var(--accent) 30%, transparent); }
 
 /* Search options */
 .fpop-checks { display: flex; flex-direction: column; gap: 0.15rem; }
@@ -363,7 +363,7 @@
 .fseg-btn:hover:not([aria-pressed="true"]) { background: var(--bg-hover, #2a2a3e); }
 .fseg-btn[aria-pressed="true"] {
   background: var(--accent, #6366f1);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -371,7 +371,7 @@
    Empty trash and Rescan these moved out of the filters. They share the
    Select page / Select all button box exactly, so a filter that brings one
    of them on screen does not change the row's height. */
-.rs-btn-danger { border-color: rgba(239, 68, 68, 0.55); color: #fca5a5; }
+.rs-btn-danger { border-color: rgba(239, 68, 68, 0.55); color: var(--m-danger-text); }
 .rs-btn-danger:hover { border-color: var(--danger, #ef4444); color: #fecaca; }
 .rs-btn-accent { border-color: rgba(137, 180, 250, 0.55); color: #89b4fa; }
 .rs-btn-accent:hover { border-color: var(--accent, #6366f1); color: var(--text-primary, #eee); }
@@ -418,7 +418,7 @@ body.layout-modern .safe-chip .vi { width: 12px; height: 12px; }
 body.layout-modern .safe-chip.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 body.layout-modern .ext-expander { border-style: solid; }
 body.layout-modern .ext-caret {

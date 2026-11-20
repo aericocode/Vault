@@ -97,7 +97,7 @@
 .picker-opt:hover { border-color: var(--accent); color: var(--text-primary); }
 .picker-opt input { accent-color: var(--accent); cursor: pointer; width: 13px; height: 13px; margin: 0; }
 .picker-opt:has(input:checked) {
-  background: rgba(99, 102, 241, 0.15);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
   border-color: var(--accent);
   color: var(--text-primary);
 }
@@ -134,7 +134,7 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   border-bottom: 2px solid var(--accent);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 14px 34px var(--shade-50);
   /* On a short window the panel is taller than the room below the search box,
      so it scrolls itself rather than running off the screen. app.js sets the
      exact max-height from where the search box ends. */
@@ -165,7 +165,7 @@
   bottom: 0;
   top: 0;
   z-index: 880;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--shade-45);
 }
 
 .filters-backdrop.active {
@@ -250,11 +250,11 @@
   color: var(--text-secondary);
 }
 
-.search-note.err { color: #f87171; }
+.search-note.err { color: var(--danger-text); }
 
 .search-note-tag {
   background: var(--accent-bg);
-  border: 1px solid rgba(99, 102, 241, 0.5);
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
   color: var(--accent-hover);
   border-radius: 999px;
   padding: 1px 8px;

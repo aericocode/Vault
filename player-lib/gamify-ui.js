@@ -103,13 +103,24 @@
   }
   window.vaultApplyGamifyHidden = applyHidden;
 
-  /** Level-unlocked cosmetic theme → CSS vars used by all gamify gradients. */
+  /** Level-unlocked cosmetic theme → CSS vars used by all gamify gradients.
+   *  Classic only: in Modern the Theme setting's highlight and second color
+   *  are the score's colors (css/variables.css body.layout-modern), so level
+   *  colors are not written there. The level and its stored theme are kept. */
   function applyTheme(theme) {
+    if (theme) _theme = theme;
+    const root = document.documentElement;
+    if (isModern()) {
+      root.style.removeProperty('--gamify-a');
+      root.style.removeProperty('--gamify-b');
+      return;
+    }
     if (!theme) return;
-    _theme = theme;
-    document.documentElement.style.setProperty('--gamify-a', theme.a);
-    document.documentElement.style.setProperty('--gamify-b', theme.b);
+    root.style.setProperty('--gamify-a', _theme.a);
+    root.style.setProperty('--gamify-b', _theme.b);
   }
+  // Switching looks: Classic gets its level colors back, Modern drops them.
+  window.addEventListener('vault:layout-style', () => { if (_enabled) applyTheme(_stats?.theme); });
 
   /* ── Header chip ────────────────────────────────────────────────────────── */
 
@@ -247,7 +258,7 @@
         sectionQuests(quests, refreshesLeft) +
         sectionChart(history) +
         sectionStats(stats) +
-        sectionThemes(stats) +
+        (isModern() ? '' : sectionThemes(stats)) +   // Modern: colors come from Settings > Theme
         '</div>' +
         sectionShare();
       body.querySelector('#gamifyShareBtn')?.addEventListener('click', shareCard);
@@ -417,7 +428,9 @@
         <polyline points="${pts}" fill="none" stroke="url(#gamifyGrad)" stroke-width="2.5"
           stroke-linejoin="round" stroke-linecap="round"/>
         <defs><linearGradient id="gamifyGrad" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stop-color="${_theme.a}"/><stop offset="1" stop-color="${_theme.b}"/>
+          ${isModern()
+            ? '<stop offset="0" style="stop-color:var(--accent)"/><stop offset="1" style="stop-color:var(--track-progress)"/>'
+            : `<stop offset="0" stop-color="${_theme.a}"/><stop offset="1" stop-color="${_theme.b}"/>`}
         </linearGradient></defs>
       </svg></div>`;
   }

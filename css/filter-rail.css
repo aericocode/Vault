@@ -190,7 +190,7 @@ body.rail-shown.dock-shown .selection-bar {
   cursor: pointer;
 }
 .rail-opt:hover { background: var(--bg-tertiary); }
-.rail-opt.is-on { background: var(--accent-bg); color: #fff; }
+.rail-opt.is-on { background: var(--accent-bg); color: var(--text-strong); }
 .rail-opt-label {
   flex: 1;
   min-width: 0;

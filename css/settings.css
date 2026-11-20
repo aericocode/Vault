@@ -49,7 +49,7 @@
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: var(--scrim-strong);
   z-index: 300;
   justify-content: center;
   align-items: flex-start;
@@ -162,7 +162,7 @@
 
 .settings-nav-item.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .settings-body {
@@ -312,7 +312,7 @@
 
 .settings-toggle input:checked + .settings-switch::after {
   transform: translateX(16px);
-  background: #fff;
+  background: var(--on-accent);
 }
 
 /* Number control — same footprint as the switch so mixed rows stay aligned */
@@ -704,7 +704,7 @@ body.layout-modern .models-copy.is-copied {
 .settings-btn {
   background: var(--accent);
   border: none;
-  color: #fff;
+  color: var(--on-accent);
   font-size: 0.88rem;
   font-weight: 600;
   padding: 0.6rem 1.1rem;
@@ -1412,7 +1412,7 @@ body.layout-modern .missing-banner-close .vi { width: 16px; height: 16px; }
 
 .settings-seg-btn[aria-pressed="true"] {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1512,7 +1512,7 @@ body.layout-modern .missing-banner-close .vi { width: 16px; height: 16px; }
 .settings-tag.env {
   color: var(--accent-hover, var(--accent));
   border-color: rgba(99, 102, 241, 0.5);
-  background: var(--accent-bg, rgba(99, 102, 241, 0.16));
+  background: var(--accent-bg);
 }
 
 /* ── Backend: shared bits ───────────────────────────────────────────────── */
@@ -1674,7 +1674,7 @@ body.layout-modern .missing-banner-close .vi { width: 16px; height: 16px; }
 }
 .settings-sw-inline input:checked + .settings-switch::after {
   transform: translateX(16px);
-  background: #fff;
+  background: var(--on-accent);
 }
 .settings-sw-inline input:disabled + .settings-switch { opacity: 0.4; cursor: default; }
 

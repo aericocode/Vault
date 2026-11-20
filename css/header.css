@@ -275,7 +275,7 @@ body.layout-modern .setup-banner-primary {
   padding: 6px 14px;
   border-color: transparent;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
   font-size: 13px;
 }
@@ -364,7 +364,7 @@ body.layout-modern .server-notice-btn {
   border: 0;
   border-radius: var(--m-radius-sm);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 13px;
   font-weight: 600;
 }

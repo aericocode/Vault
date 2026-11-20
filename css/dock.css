@@ -99,7 +99,7 @@ body.dock-resizing { user-select: none; cursor: col-resize; }
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #000;
+  background: var(--ov-letterbox);
 }
 
 .dock-name {
@@ -156,7 +156,7 @@ body.pm-names .dock-name { filter: blur(7px); pointer-events: none; user-select:
 .dock-btn .vi { width: 14px; height: 14px; }
 .dock-btn-icon .vi-c { font-size: 0.82rem; line-height: 1; }
 .dock-btn:hover { border-color: var(--accent); }
-.dock-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.dock-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .dock-btn-primary:hover { background: var(--accent-hover); }
 .dock-btn.is-on { border-color: var(--danger); }
 /* Play on Stage (dock.js dockStageButtonHtml): on the picture, bottom left
@@ -169,12 +169,12 @@ body.pm-names .dock-name { filter: blur(7px); pointer-events: none; user-select:
   bottom: 8px;
   z-index: 1;
   gap: 0.3rem;
-  background: rgba(0, 0, 0, 0.72);
-  border-color: rgba(255, 255, 255, 0.28);
-  color: #fff;
+  background: var(--ov-black-72);
+  border-color: var(--ov-white-28);
+  color: var(--ov-text);
   cursor: pointer;
 }
-.dock-thumb .dock-stage-play:hover { background: rgba(0, 0, 0, 0.88); border-color: var(--accent-hover); }
+.dock-thumb .dock-stage-play:hover { background: var(--ov-black-88); border-color: var(--accent-hover); }
 body.stage-open .dock-stage-play,
 body.stage-basic .dock-stage-play,
 body:has(#miniPlayer.active) .dock-stage-play,

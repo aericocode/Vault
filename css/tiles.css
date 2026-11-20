@@ -48,8 +48,8 @@
 }
 
 /* Dupe trash/restore buttons in the details panel */
-.dup-action-btn.dup-trash-btn { border-color: var(--danger); color: #fca5a5; }
-.dup-action-btn.dup-restore-btn { border-color: var(--success); color: #86efac; }
+.dup-action-btn.dup-trash-btn { border-color: var(--danger); color: var(--m-danger-text); }
+.dup-action-btn.dup-restore-btn { border-color: var(--success); color: var(--m-success-text); }
 
 /* ── Tile ── */
 .media-tile {
@@ -101,7 +101,7 @@ body:has(#miniPlayer.active) .media-tile.tile-now-playing .tile-thumb::before {
   padding: 1px 8px;
   border-radius: 999px;
   background: var(--now-playing);
-  color: #052e16;
+  color: var(--on-now-playing);
   font-size: 0.68rem;
   font-weight: 600;
   white-space: nowrap;
@@ -175,8 +175,8 @@ body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom
   position: absolute;
   right: 6px;
   bottom: 6px;
-  background: rgba(0, 0, 0, 0.75);
-  color: #fff;
+  background: var(--ov-black-75);
+  color: var(--ov-text);
   font-size: 0.68rem;
   padding: 1px 5px;
   border-radius: 4px;
@@ -193,8 +193,8 @@ body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom
   pointer-events: none;
 }
 .tile-hotdone > span {
-  background: rgba(0, 0, 0, 0.75);
-  color: #fff;
+  background: var(--ov-black-75);
+  color: var(--ov-text);
   font-size: 0.68rem;
   padding: 1px 5px;
   border-radius: 4px;
@@ -219,9 +219,9 @@ body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom
 }
 
 .tile-btn {
-  background: rgba(0, 0, 0, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #ddd;
+  background: var(--ov-black-70);
+  border: 1px solid var(--ov-white-15);
+  color: var(--ov-text-dim);
   border-radius: 6px;
   width: 26px;
   height: 26px;
@@ -234,7 +234,7 @@ body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom
 }
 
 .tile-btn:hover {
-  background: rgba(0, 0, 0, 0.9);
+  background: var(--ov-black-90);
   border-color: var(--accent);
 }
 
@@ -271,10 +271,10 @@ body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom
 }
 
 /* Reuse existing type colors loosely */
-.tile-badge.type-video { border-color: #6366f1; color: #a5b4fc; }
-.tile-badge.type-image { border-color: #22c55e; color: #86efac; }
-.tile-badge.type-gif   { border-color: #f59e0b; color: #fcd34d; }
-.tile-badge.type-audio { border-color: #ec4899; color: #f9a8d4; }
+.tile-badge.type-video { border-color: var(--type-video); color: var(--type-video-text); }
+.tile-badge.type-image { border-color: var(--type-image); color: var(--type-image-text); }
+.tile-badge.type-gif   { border-color: var(--type-gif); color: var(--type-gif-text); }
+.tile-badge.type-audio { border-color: var(--type-audio); color: var(--type-audio-text); }
 
 .tile-indicators {
   margin-left: auto;
@@ -284,9 +284,9 @@ body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom
 }
 
 .tile-ind { line-height: 1.2; }
-.tile-ind.ind-star { color: #facc15; }
+.tile-ind.ind-star { color: var(--star); }
 .tile-ind.ind-rating {
-  color: #facc15;
+  color: var(--star);
   font-weight: 700;
 }
 .tile-ind.ind-error { color: var(--warning); }
@@ -298,7 +298,7 @@ body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom
   background: var(--bg-secondary);
   border: 1px solid var(--accent);
   border-radius: 10px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 8px 30px var(--shade-60);
   padding: 0.75rem 0.9rem;
   display: none;
   pointer-events: auto;
@@ -403,7 +403,7 @@ body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom
   border: 1px solid var(--accent);
   border-radius: 12px;
   padding: 0.55rem 0.9rem;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 8px 30px var(--shade-60);
   /* visibility flips after the slide-out, so the bar still animates away */
   transition: transform 0.2s ease-out, visibility 0s linear 0.2s;
 }
@@ -436,11 +436,11 @@ body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom
 
 .sel-btn:hover { border-color: var(--accent); }
 .selection-bar .sel-btn:disabled { opacity: 0.55; cursor: progress; }
-.sel-btn.sel-trash { border-color: var(--danger); color: #fca5a5; }
-.sel-btn.sel-restore { border-color: var(--success); color: #86efac; }
+.sel-btn.sel-trash { border-color: var(--danger); color: var(--m-danger-text); }
+.sel-btn.sel-restore { border-color: var(--success); color: var(--m-success-text); }
 .sel-btn.sel-clear { color: var(--text-secondary); padding: 0.35rem 0.55rem; }
 /* Flag is a toggle: lit means every selected file already carries the flag. */
-.sel-btn.sel-flagged { border-color: var(--danger); color: #fca5a5; }
+.sel-btn.sel-flagged { border-color: var(--danger); color: var(--m-danger-text); }
 .sel-btn.sel-retry { border-color: #f0ad4e; color: #f0ad4e; }
 
 /* ── Selection bar, Modern: a dark card with quiet buttons and line icons,
@@ -479,7 +479,7 @@ body.layout-modern .selection-bar .sel-btn {
   white-space: nowrap;
   transition: background-color 0.12s ease, border-color 0.12s ease;
 }
-body.layout-modern .selection-bar .sel-btn:hover { background: var(--m-btn-hover); border-color: rgba(255, 255, 255, 0.22); }
+body.layout-modern .selection-bar .sel-btn:hover { background: var(--m-btn-hover); border-color: var(--tint-22); }
 body.layout-modern .selection-bar .sel-btn:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
 body.layout-modern .selection-bar .sel-btn .vi { width: 16px; height: 16px; flex: none; }
 body.layout-modern .selection-bar .sel-btn .vi-gap { margin-right: 6px; }
@@ -493,7 +493,7 @@ body.layout-modern .selection-bar .sel-btn.sel-flagged,
 body.layout-modern .selection-bar .sel-btn.sel-remove:hover { border-color: rgba(248, 113, 113, 0.45); background: rgba(248, 113, 113, 0.10); }
 body.layout-modern .selection-bar .sel-btn.sel-restore { color: var(--m-success-text); }
 body.layout-modern .selection-bar .sel-btn.sel-restore:hover { border-color: rgba(134, 239, 172, 0.45); }
-body.layout-modern .selection-bar .sel-btn.sel-retry { color: #fbbf24; }
+body.layout-modern .selection-bar .sel-btn.sel-retry { color: var(--warning-text); }
 /* A bar button whose menu is open (Studio, css/studios.css) stays lit. */
 body.layout-modern .selection-bar .sel-btn.on { background: var(--m-btn-hover); border-color: var(--accent); }
 /* Clear: the close icon alone, a square ghost button at the end. */
@@ -531,7 +531,7 @@ body.layout-modern .selection-bar .sel-caret-up { transform: rotate(180deg); }
   background: var(--bg-secondary, #181825);
   border: 1px solid var(--border, #444);
   border-radius: 10px;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 14px 34px var(--shade-55);
   font-size: 0.85rem;
   color: var(--text-primary, #eee);
 }
@@ -610,7 +610,7 @@ body.layout-modern .sel-mi-label .vi-gap { margin-right: 8px; }
 .sel-pin-e { filter: grayscale(1); opacity: 0.4; }
 .sel-pin:hover .sel-pin-e, .sel-pin:focus-visible .sel-pin-e,
 .sel-pin:hover .vi, .sel-pin:focus-visible .vi { opacity: 0.7; }
-.sel-pin.on { color: var(--accent-hover, #818cf8); background: rgba(129, 140, 248, 0.16); }
+.sel-pin.on { color: var(--accent-hover, #818cf8); background: color-mix(in srgb, var(--accent-hover) 16%, transparent); }
 .sel-pin.on .sel-pin-e { filter: none; opacity: 1; }
 .sel-pin.on .vi { opacity: 1; fill: currentColor; }
 .sel-mi:hover, .sel-mi:focus-visible,
@@ -633,7 +633,7 @@ body.layout-modern .sel-menu-reset:hover, body.layout-modern .sel-menu-reset:foc
 }
 body.layout-modern .sel-menu-foot { border-top-color: var(--m-border-strong, #3f3f46); }
 .sel-menu-danger { display: flex; flex-wrap: wrap; gap: 0 0.5rem; padding: 0; }
-.sel-mrow-danger .sel-mi { color: #fca5a5; }
+.sel-mrow-danger .sel-mi { color: var(--m-danger-text); }
 body.layout-modern .sel-mrow-danger .sel-mi { color: var(--m-danger-text); }
 .sel-menu-reset {
   margin-left: auto;
@@ -657,13 +657,13 @@ body.layout-modern .tile-select {
   width: 22px;
   height: 22px;
   margin: 0;
-  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  border: 1.5px solid var(--ov-white-85);
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.45) center / 14px 14px no-repeat;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  background: var(--ov-black-45) center / 14px 14px no-repeat;
+  box-shadow: 0 1px 4px var(--ov-black-50);
   transition: opacity 0.15s, background-color 0.12s ease, border-color 0.12s ease;
 }
-body.layout-modern .tile-select:hover { background-color: rgba(0, 0, 0, 0.65); border-color: #fff; }
+body.layout-modern .tile-select:hover { background-color: var(--ov-black-65); border-color: var(--ov-text); }
 body.layout-modern .tile-select:checked {
   border-color: var(--accent);
   background-color: var(--accent);
@@ -674,13 +674,13 @@ body.layout-modern .tile-select:focus-visible { opacity: 1; outline: 2px solid v
 body.layout-modern .grid-table .tv-row .tile-select {
   width: 18px;
   height: 18px;
-  border-color: rgba(255, 255, 255, 0.35);
+  border-color: var(--tint-35);
   border-radius: 5px;
   background-color: transparent;
   background-size: 12px 12px;
   box-shadow: none;
 }
-body.layout-modern .grid-table .tv-row .tile-select:hover { border-color: rgba(255, 255, 255, 0.6); }
+body.layout-modern .grid-table .tv-row .tile-select:hover { border-color: var(--tint-60); }
 body.layout-modern .grid-table .tv-row .tile-select:checked { border-color: var(--accent); background-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   body.layout-modern .tile-select,
@@ -719,7 +719,7 @@ body.layout-modern .grid-table .tv-row .tile-select:checked { border-color: var(
   align-items: center;
   justify-content: center;
   font-size: 1.8rem;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--ov-black-45);
   pointer-events: none;
 }
 
@@ -755,7 +755,7 @@ body.layout-modern .grid-table .tv-row .tile-select:checked { border-color: var(
   top: 50%; left: 50%;
   width: 22px; height: 22px;
   margin: -11px 0 0 -11px;
-  border: 3px solid rgba(255, 255, 255, 0.25);
+  border: 3px solid var(--ov-white-25);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: dq-rot 0.8s linear infinite;
@@ -807,7 +807,7 @@ body.layout-modern .grid-table .tv-row .tile-select:checked { border-color: var(
   border: 1px solid var(--accent);
   border-radius: 10px;
   padding: 0.6rem 0.75rem;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 8px 30px var(--shade-60);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -927,7 +927,7 @@ body.layout-modern #deleteQueue .dq-act:hover { background: var(--m-btn-hover); 
 .dq-spin {
   flex: none;
   width: 12px; height: 12px;
-  border: 2px solid rgba(255, 255, 255, 0.25);
+  border: 2px solid var(--tint-25);
   border-top-color: var(--accent);
   border-radius: 50%;
   display: inline-block;
@@ -1057,7 +1057,7 @@ body.layout-modern #deleteQueue .dq-act:hover { background: var(--m-btn-hover); 
   border: 1px solid var(--accent);
   border-radius: 10px;
   padding: 0.6rem 0.9rem;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 8px 30px var(--shade-60);
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.2s ease-out, transform 0.2s ease-out, visibility 0.2s;
@@ -1094,8 +1094,8 @@ body.layout-modern #deleteQueue .dq-act:hover { background: var(--m-btn-hover); 
 }
 
 .tile-ind.ind-dupe { color: var(--accent-hover); }
-.tile-ind.ind-done { color: #9ef0df; }
-.tile-ind.ind-hot { color: #fb923c; }
+.tile-ind.ind-done { color: var(--done); }
+.tile-ind.ind-hot { color: var(--hot); }
 
 /* ── Undo toast ── */
 /* Anchored bottom-RIGHT so undo never covers the page numbers */
@@ -1115,7 +1115,7 @@ body.layout-modern #deleteQueue .dq-act:hover { background: var(--m-btn-hover); 
   padding: 0.6rem 1rem;
   font-size: 0.82rem;
   color: var(--text-primary);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 8px 30px var(--shade-60);
   /* Hidden by default via opacity/visibility so removing .visible always
      hides it, regardless of the transform value. */
   opacity: 0;
@@ -1134,7 +1134,7 @@ body.layout-modern #deleteQueue .dq-act:hover { background: var(--m-btn-hover); 
 .undo-btn {
   background: var(--accent);
   border: none;
-  color: #fff;
+  color: var(--on-accent);
   border-radius: 6px;
   padding: 0.3rem 0.8rem;
   font-weight: 600;

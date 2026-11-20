@@ -69,6 +69,9 @@
     libraryLayout: 'pages', // 'pages' (whole rows, one screenful) | 'continuous' (free scroll)
     cardSize: 'M',          // 'S' | 'M' | 'L' — minimum tile width, mapped in cards.js
     layoutStyle: 'modern',  // 'modern' (the default since 3.9) | 'classic' (the original look)
+    // Modern only: { mode: 'dark'|'light'|'system', palette, custom: { accent, second, tint } }
+    // (player-lib/theme-colors.js normalizeTheme; put on the page by theme-boot.js).
+    theme: null,
     cardMinWidth: 0,        // Modern's size slider, px (120-480); 0 = follow cardSize
     facesCardWidth: 180,    // Faces tab: person card width in px (its Size slider)
     facesFileWidth: 0,      // Faces person page: file tile width in px (0 = follow cardSize)
@@ -258,6 +261,18 @@
       repeatChanged = true;
     }
     if (repeatChanged) save();
+    // A hand-edited or older blob: always a complete, valid theme in memory.
+    // Not saved back, so a profile that never picked one stores nothing.
+    settings.theme = normalizeThemeSetting(settings.theme);
+  }
+
+  /* The theme's checks live in theme-colors.js; without it (tests that run
+     this file alone) a stored theme object passes through as it is. */
+  const themeColors = () => (typeof VaultThemeColors !== 'undefined' ? VaultThemeColors : null);
+  function normalizeThemeSetting(t) {
+    const C = themeColors();
+    if (C) return C.normalizeTheme(t);
+    return t && typeof t === 'object' ? t : { mode: 'dark', palette: 'vault', custom: { accent: '#2dd4bf', second: '#f5b83d', tint: true } };
   }
 
   function save() {
@@ -324,9 +339,63 @@
 
   function applyLayoutStyle() {
     document.body.classList.toggle('layout-modern', layoutStyle() === 'modern');
+    // Themes are Modern only: Classic gets plain Vault Dark (theme-boot.js).
+    applyTheme();
     try { window.dispatchEvent(new CustomEvent('vault:layout-style', { detail: { style: layoutStyle() } })); } catch {}
   }
   window.vaultApplyLayoutStyle = applyLayoutStyle;
+
+  /* ── Theme (Modern) ──────────────────────────────────────────────────
+     Brightness and Colors in the Look card. theme-boot.js put the stored
+     theme on <html> before the first paint; from here on every change goes
+     through setTheme: saved, put on the page at once, no reload. */
+
+  function applyTheme() {
+    window.vaultThemeApply?.(settings.theme, layoutStyle() === 'modern');
+  }
+
+  /** Change part of the theme: { mode } or { palette } or { custom: { accent | second | tint } }. */
+  function setTheme(patch) {
+    const cur = normalizeThemeSetting(settings.theme);
+    settings.theme = normalizeThemeSetting({
+      ...cur, ...patch,
+      custom: { ...cur.custom, ...((patch && patch.custom) || {}) },
+    });
+    save();
+    applyTheme();
+    syncThemeUI();
+  }
+  window.vaultTheme = () => normalizeThemeSetting(settings.theme);
+  window.vaultSetTheme = setTheme;
+
+  /* mpv Stage draws its own progress line, so the server is told the
+     Second color as it is drawn now: once a little after the page opens (in
+     case it changed in another browser or the server forgot) and after each
+     change, debounced so dragging a color picker sends one request. It is a
+     Stage setting (lineColor), so an open Stage redraws at once. */
+  let stageLineSent = null;
+  let stageLineTimer = 0;
+  function syncStageLine(delay = 600) {
+    clearTimeout(stageLineTimer);
+    stageLineTimer = setTimeout(async () => {
+      const now = window.vaultThemeNow?.();
+      if (!now || !now.second || now.second === stageLineSent) return;
+      try {
+        if (stageLineSent === null) {
+          const r = await fetch('/api/stage/settings');
+          const s = r.ok ? await r.json() : null;
+          if (s && s.lineColor === now.second) { stageLineSent = now.second; return; }
+          if (!s || !('lineColor' in s)) return;      // an older server: nothing to tell
+        }
+        const r = await fetch('/api/stage/settings', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lineColor: now.second }),
+        });
+        if (r.ok) stageLineSent = now.second;
+      } catch {}
+    }, delay);
+  }
+  window.addEventListener('vault:theme', () => syncStageLine());
 
   /* ── Table view (Modern) ──────────────────────────────────────────────
      Grid or table, and which table columns show. Both are set from the
@@ -1229,9 +1298,103 @@
   const LOOK_OPTIONS = [{ value: 'modern', label: 'Modern' }, { value: 'classic', label: 'Classic (old look)' }];
   const LAYOUT_OPTIONS = [{ value: 'pages', label: 'Pages' }, { value: 'continuous', label: 'Continuous' }];
 
+  const THEME_MODES = [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }, { value: 'system', label: 'Match system' }];
+
+  /* The Theme block (the approved mock): Brightness, the six palettes and
+     Custom, and Custom's two pickers and tint switch. Every control applies
+     at once; syncThemeUI keeps the pressed states and the note in step. */
+  function themeBlockHtml() {
+    const C = themeColors();
+    const t = normalizeThemeSetting(settings.theme);
+    const pals = C ? C.PALETTES : [];
+    const dots = (p) => `<span class="settings-theme-dots" aria-hidden="true"><i style="background:${p.bg}"></i><i style="background:${p.accent}"></i><i style="background:${p.second}"></i></span>`;
+    return `
+      <div class="settings-theme" data-sfind="theme" role="group" aria-labelledby="themeTitle">
+        <span class="settings-toggle-text">
+          <span class="settings-toggle-title" id="themeTitle">Theme</span>
+          <span class="settings-toggle-desc">Changes show straight away. The picture and the controls on it stay dark.</span>
+        </span>
+        <div class="settings-theme-fld">
+          <span class="settings-theme-lbl" id="themeModeLabel">Brightness</span>
+          <span class="settings-seg settings-theme-modes" role="group" aria-labelledby="themeModeLabel">
+            ${THEME_MODES.map(o => `
+            <button type="button" class="settings-seg-btn" data-theme-mode="${o.value}"
+                    aria-pressed="${t.mode === o.value ? 'true' : 'false'}">${o.label}</button>`).join('')}
+          </span>
+        </div>
+        <div class="settings-theme-fld">
+          <span class="settings-theme-lbl" id="themePalLabel">Colors</span>
+          <div class="settings-theme-pals" role="group" aria-labelledby="themePalLabel">
+            ${pals.map(p => `
+            <button type="button" class="settings-theme-pal" data-theme-palette="${p.id}"
+                    aria-pressed="${t.palette === p.id ? 'true' : 'false'}">${dots(p)}<span>${esc(p.name)}</span></button>`).join('')}
+            <button type="button" class="settings-theme-pal is-custom" data-theme-palette="custom"
+                    aria-pressed="${t.palette === 'custom' ? 'true' : 'false'}"><span class="settings-theme-dots is-rainbow" aria-hidden="true"><i></i></span><span>Custom: pick your own colors</span></button>
+          </div>
+        </div>
+        <div class="settings-theme-custom" data-theme-custom${t.palette === 'custom' ? '' : ' hidden'}>
+          <label class="settings-theme-crow"><input type="color" data-theme-color="accent" value="${esc(t.custom.accent)}">
+            <span><b>Highlight</b><span>Buttons, selection, active tab</span></span></label>
+          <label class="settings-theme-crow"><input type="color" data-theme-color="second" value="${esc(t.custom.second)}">
+            <span><b>Second color</b><span>Progress lines and small details</span></span></label>
+          <label class="settings-theme-trow"><span>Tint the background to match</span>
+            <input type="checkbox" class="settings-theme-tgl" data-theme-tint${t.custom.tint ? ' checked' : ''}></label>
+          <div class="settings-theme-nudge" data-theme-nudge role="status" hidden></div>
+        </div>
+      </div>`;
+  }
+
+  /** Pressed states, the Custom panel and the readability note, from the stored theme. */
+  function syncThemeUI() {
+    const box = document.querySelector('#settingsBody .settings-theme');
+    if (!box) return;
+    const t = normalizeThemeSetting(settings.theme);
+    box.querySelectorAll('[data-theme-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.themeMode === t.mode ? 'true' : 'false'));
+    box.querySelectorAll('[data-theme-palette]').forEach(b => b.setAttribute('aria-pressed', b.dataset.themePalette === t.palette ? 'true' : 'false'));
+    const custom = box.querySelector('[data-theme-custom]');
+    if (custom) custom.hidden = t.palette !== 'custom';
+    const note = box.querySelector('[data-theme-nudge]');
+    const C = themeColors();
+    if (note && C) {
+      const mode = window.vaultThemeNow?.().mode || C.resolveMode(t.mode, false);
+      const text = C.nudgeNote(t, mode);
+      note.textContent = text;
+      note.hidden = !text;
+    }
+  }
+  // Match system flipping while Settings is open can change the note.
+  window.addEventListener('vault:theme', () => syncThemeUI());
+
+  function wireThemeBlock(body) {
+    const box = body.querySelector('.settings-theme');
+    if (!box) return;
+    const activate = (btn) => {
+      if (btn.dataset.themeMode) setTheme({ mode: btn.dataset.themeMode });
+      else if (btn.dataset.themePalette) setTheme({ palette: btn.dataset.themePalette });
+    };
+    box.querySelectorAll('button[data-theme-mode], button[data-theme-palette]').forEach(btn => {
+      btn.addEventListener('click', () => activate(btn));
+      // The page's shortcut handler takes Space (play / pause), so the
+      // button's own Space and Enter are handled here, as for the privacy chips.
+      btn.addEventListener('keydown', e => {
+        if (!(e.key === ' ' || e.key === 'Spacebar' || e.key === 'Enter')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        activate(btn);
+      });
+    });
+    box.querySelectorAll('input[data-theme-color]').forEach(inp => {
+      inp.addEventListener('input', () => setTheme({ custom: { [inp.dataset.themeColor]: inp.value } }));
+    });
+    const tint = box.querySelector('input[data-theme-tint]');
+    tint?.addEventListener('change', () => setTheme({ custom: { tint: tint.checked } }));
+    syncThemeUI();
+  }
+
   function RENDERERS_general() {
     return settingsCardHtml({ title: 'Look', body:
-      segRow({ key: 'layoutStyle', title: 'Library look',
+      themeBlockHtml()
+      + segRow({ key: 'layoutStyle', title: 'Library look',
         desc: 'Classic is the old look. It gets no new features and will be removed in a future version.', options: LOOK_OPTIONS })
       + segRow({ key: 'libraryLayout', title: 'Browsing',
         desc: 'Pages of whole rows, or one long scroll.', options: LAYOUT_OPTIONS })
@@ -1312,6 +1475,7 @@
     if (!body) return;
     wireInstanceRow();
     wirePassRow();
+    wireThemeBlock(body);
     body.querySelectorAll('input[data-setting]').forEach(input => {
       if (input.disabled) return;
       input.addEventListener('change', async () => {
