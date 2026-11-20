@@ -365,10 +365,19 @@ body.layout-modern .settings-theme-lbl {
   color: var(--text-secondary);
 }
 body.layout-modern .settings-theme-modes { align-self: flex-start; }
+/* Six palettes: the column count is always one that divides six (6, 3 or 2),
+   so no row is ever left with a single card. Custom spans the row below. */
+body.layout-modern .settings-theme-fld { container-type: inline-size; }
 body.layout-modern .settings-theme-pals {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.5rem;
+}
+@container (min-width: 820px) {
+  body.layout-modern .settings-theme-pals { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+@container (max-width: 400px) {
+  body.layout-modern .settings-theme-pals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 body.layout-modern .settings-theme-pal {
   display: flex;
