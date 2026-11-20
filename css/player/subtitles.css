@@ -23,14 +23,14 @@
 .subtitle-overlay.dragging .subtitle-line { cursor: grabbing; }
 
 .subtitle-line {
-  background: rgba(0, 0, 0, 0.65);
-  color: #fff;
+  background: var(--ov-black-65);
+  color: var(--ov-text);
   padding: 0.25em 0.6em;
   border-radius: 6px;
   font-size: clamp(16px, 2.6vh, 28px);
   line-height: 1.35;
   text-align: center;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  text-shadow: 0 1px 3px var(--ov-black-90);
   white-space: pre-wrap;
   pointer-events: auto;            /* grab the text to reposition */
   cursor: move;
@@ -48,10 +48,10 @@
   gap: 0.5rem;
   max-width: 80%;
   padding: 0.4rem 0.8rem;
-  background: rgba(0, 0, 0, 0.78);
+  background: var(--ov-black-78);
   border: 1px solid var(--player-border, rgba(255, 255, 255, 0.18));
   border-radius: 999px;
-  color: #fff;
+  color: var(--ov-text);
   font-size: 0.78rem;
   white-space: nowrap;
   overflow: hidden;
@@ -61,7 +61,7 @@
 .subtitle-progress b { color: var(--accent); font-variant-numeric: tabular-nums; }
 .sub-prog-spin {
   width: 12px; height: 12px; flex: none;
-  border: 2px solid rgba(255, 255, 255, 0.25);
+  border: 2px solid var(--ov-white-25);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: sub-prog-rot 0.8s linear infinite;
@@ -73,11 +73,11 @@
 .subtitle-ctl { display: inline-flex; align-items: center; gap: 0.3rem; }
 
 .subtitle-btn {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--ov-white-08);
   border: 1px solid var(--player-border, rgba(255,255,255,0.15));
   border-radius: 8px;
   padding: 0.45rem 0.7rem;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--ov-white-55);
   cursor: pointer;
   font-size: 0.82rem;
   font-weight: 700;
@@ -87,9 +87,9 @@
 }
 .subtitle-btn sup { font-size: 0.55em; font-weight: 600; margin-left: 1px; }
 
-.subtitle-btn.sub-mode-off { color: rgba(255, 255, 255, 0.45); }
+.subtitle-btn.sub-mode-off { color: var(--ov-white-45); }
 .subtitle-btn.sub-mode-on {
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
 }
@@ -98,21 +98,21 @@
   border-color: var(--accent);
   background: rgba(122, 168, 255, 0.12);
 }
-.subtitle-btn:hover { color: #fff; border-color: var(--accent); }
+.subtitle-btn:hover { color: var(--ov-text); border-color: var(--accent); }
 
 /* Generate chip (only when the mode wants subs but the video has none) */
 .subtitle-gen-btn {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--ov-white-08);
   border: 1px dashed var(--player-border, rgba(255,255,255,0.3));
   border-radius: 8px;
   padding: 0.45rem 0.55rem;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--ov-white-75);
   cursor: pointer;
   font-size: 0.78rem;
   font-family: monospace;
   transition: all 0.2s;
 }
-.subtitle-gen-btn:hover:not(:disabled) { border-color: var(--accent); color: #fff; }
+.subtitle-gen-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--ov-text); }
 .subtitle-gen-btn:disabled { cursor: default; opacity: 0.8; }
 
 /* ── Sidebar section (view / edit tracks + rescan) ── */
@@ -150,15 +150,15 @@
   transition: all 0.15s;
 }
 .subs-btn:hover { border-color: var(--accent); color: var(--accent); }
-.subs-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.subs-btn-primary:hover { color: #fff; filter: brightness(1.08); }
+.subs-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.subs-btn-primary:hover { color: var(--on-accent); filter: brightness(1.08); }
 .subs-btn-danger:hover { border-color: var(--danger); color: var(--danger); }
 
 /* ── VTT editor overlay ── */
 .subs-editor-overlay {
   position: fixed; inset: 0; z-index: 9000;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim);
   padding: 4vh 4vw;
 }
 .subs-editor {
@@ -167,7 +167,7 @@
   background: var(--bg-secondary, #1c1c22);
   border: 1px solid var(--border);
   border-radius: 12px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 60px var(--shade-50);
   overflow: hidden;
 }
 .subs-editor-head {
@@ -301,7 +301,7 @@
 /* Prerequisites modal: a readable link in both looks (the browser's default
    dark blue was barely visible), and the advanced fold. */
 .subs-prereq a { color: var(--accent-hover, #818cf8); text-decoration: underline; text-underline-offset: 2px; }
-.subs-prereq a:hover { color: #c7d2fe; }
+.subs-prereq a:hover { color: var(--pl-link-hover); }
 .subs-prereq-more summary { cursor: pointer; color: var(--text-secondary); }
 .subs-prereq-more summary:hover { color: var(--text-primary); }
 .subs-prereq-more p { margin: 0.4rem 0 0; }
@@ -311,23 +311,23 @@
 /* ── Modern: the editor and rescan dialogs on the shared dialog look
    (css/dialogs.css .vdlg): dark card, 12 px corners, hairline borders,
    Modern buttons and fields, line icons. Classic keeps the rules above. */
-body.layout-modern .subs-editor-overlay { background: rgba(0, 0, 0, 0.55); }
+body.layout-modern .subs-editor-overlay { background: var(--shade-55); }
 body.layout-modern .subs-editor {
-  background: rgba(22, 22, 27, 0.98);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
   border-radius: 12px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
-  color: #ececf1;
+  box-shadow: 0 18px 50px var(--shade-50);
+  color: var(--m-text);
 }
 body.layout-modern .subs-rescan { width: min(460px, 100%); }
 body.layout-modern .subs-editor-head {
   padding: 14px 14px 10px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--tint-08);
   font-size: 16px;
   font-weight: 600;
-  color: #ececf1;
+  color: var(--m-text);
 }
-body.layout-modern .subs-editor-head b { color: #ececf1; font-weight: 600; }
+body.layout-modern .subs-editor-head b { color: var(--m-text); font-weight: 600; }
 body.layout-modern .subs-editor-x {
   display: inline-flex;
   align-items: center;
@@ -336,21 +336,21 @@ body.layout-modern .subs-editor-x {
   height: 30px;
   padding: 0;
   border-radius: 8px;
-  color: #8b8b97;
+  color: var(--m-muted);
 }
 body.layout-modern .subs-editor-x .vi { width: 16px; height: 16px; }
-body.layout-modern .subs-editor-x:hover { background: rgba(255, 255, 255, 0.08); color: #ececf1; }
+body.layout-modern .subs-editor-x:hover { background: var(--tint-08); color: var(--m-text); }
 body.layout-modern .subs-editor-ta {
-  background: rgba(0, 0, 0, 0.25);
-  color: #ececf1;
+  background: var(--shade-25);
+  color: var(--m-text);
   font-size: 13px;
 }
 body.layout-modern .subs-editor-foot {
   padding: 12px 20px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--tint-08);
 }
-body.layout-modern .subs-editor-hint { font-size: 12.5px; color: #8b8b97; }
-body.layout-modern .subs-editor-hint code { background: rgba(255, 255, 255, 0.06); }
+body.layout-modern .subs-editor-hint { font-size: 12.5px; color: var(--m-muted); }
+body.layout-modern .subs-editor-hint code { background: var(--tint-06); }
 body.layout-modern .subs-rescan-body { gap: 10px; padding: 16px 20px 4px; font-size: 14px; }
 body.layout-modern .subs-rescan-warn {
   display: flex;
@@ -360,41 +360,41 @@ body.layout-modern .subs-rescan-warn {
   background: rgba(248, 113, 113, 0.08);
   border: 1px solid rgba(248, 113, 113, 0.3);
   border-radius: 8px;
-  color: #fecaca;
+  color: var(--m-danger-text-2);
   font-size: 13.5px;
   line-height: 1.45;
 }
-body.layout-modern .subs-rescan-warn .vi { flex: none; width: 16px; height: 16px; margin-top: 1px; color: #fca5a5; }
+body.layout-modern .subs-rescan-warn .vi { flex: none; width: 16px; height: 16px; margin-top: 1px; color: var(--m-danger-text); }
 body.layout-modern .subs-rescan-label {
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
-  color: #ececf1;
+  color: var(--m-text);
 }
 body.layout-modern .subs-rescan-select {
   height: 36px;
   padding: 0 10px;
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background-color: var(--m-field);
+  border: 1px solid var(--m-border-strong);
   border-radius: 8px;
-  color: #ececf1;
+  color: var(--m-text);
   font-size: 14px;
 }
 body.layout-modern .subs-rescan-select:focus { border-color: var(--accent-hover, #818cf8); }
-body.layout-modern .subs-rescan .subs-hint { font-size: 12.5px; color: #8b8b97; line-height: 1.45; }
+body.layout-modern .subs-rescan .subs-hint { font-size: 12.5px; color: var(--m-muted); line-height: 1.45; }
 body.layout-modern .subs-rescan .subs-editor-foot { border-top: 0; padding-top: 14px; }
 body.layout-modern .subs-editor-actions .subs-btn {
   min-width: 5.5rem;
   justify-content: center;
   padding: 7px 14px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
-  color: #ececf1;
+  border: 1px solid var(--m-border-strong);
+  background: var(--m-btn);
+  color: var(--m-text);
   font-size: 13px;
 }
-body.layout-modern .subs-editor-actions .subs-btn:hover { background: rgba(255, 255, 255, 0.11); color: #ececf1; }
-body.layout-modern .subs-editor-actions .subs-btn-primary { background: var(--accent); border-color: transparent; color: #fff; font-weight: 600; }
+body.layout-modern .subs-editor-actions .subs-btn:hover { background: var(--m-btn-hover); color: var(--m-text); }
+body.layout-modern .subs-editor-actions .subs-btn-primary { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 600; }
 body.layout-modern .subs-editor-actions .subs-btn-primary:hover { background: var(--accent-hover); filter: none; }
 body.layout-modern .subs-editor-actions .subs-btn:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }

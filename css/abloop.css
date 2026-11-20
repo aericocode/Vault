@@ -55,7 +55,7 @@
   font-size: 0.65rem;
   font-weight: 700;
   white-space: nowrap;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  text-shadow: 0 1px 3px var(--ov-black-80);
 }
 
 .ab-loop-marker.marker-a::after {
@@ -73,10 +73,10 @@
   align-items: center;
   gap: 0.3rem;
   padding: 0.3rem 0.65rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--ov-white-20);
   border-radius: 6px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--ov-white-60);
   font-size: 0.78rem;
   font-family: inherit;
   font-weight: 600;
@@ -86,9 +86,9 @@
 }
 
 .ab-loop-btn:hover {
-  color: rgba(255, 255, 255, 0.9);
-  border-color: rgba(255, 255, 255, 0.4);
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--ov-white-90);
+  border-color: var(--ov-white-40);
+  background: var(--ov-white-06);
 }
 
 /* State: A is set, waiting for B */

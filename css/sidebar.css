@@ -55,7 +55,7 @@
 }
 
 .media-sidebar-title {
-  color: var(--text, #cdd6f4);
+  color: var(--text-cool);
   font-size: 0.95rem;
   font-weight: 600;
   margin: 0;
@@ -73,8 +73,8 @@
 }
 
 .media-sidebar-close:hover {
-  color: var(--text, #cdd6f4);
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-cool);
+  background: var(--tint-06);
   border-color: var(--border, #444);
 }
 
@@ -122,7 +122,7 @@
 }
 
 .detail-body h3 {
-  color: var(--text, #cdd6f4);
+  color: var(--text-cool);
   font-size: 0.85rem;
   font-weight: 600;
   margin: 0 0 0.5rem;
@@ -164,7 +164,7 @@
 }
 
 .detail-body .detail-item span {
-  color: var(--text, #cdd6f4);
+  color: var(--text-cool);
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -224,21 +224,21 @@
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
   margin-top: 0.5rem;
-  background: rgba(137, 180, 250, 0.06);
-  border: 1px solid rgba(137, 180, 250, 0.15);
+  background: color-mix(in srgb, var(--info-text) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--info-text) 15%, transparent);
   border-radius: 8px;
   font-size: 0.72rem;
   color: var(--text-secondary, #888);
 }
 
 .sidebar-nav-hint kbd {
-  background: var(--surface, #313244);
+  background: var(--btn-cool);
   border: 1px solid var(--border, #444);
   border-radius: 3px;
   padding: 0.1rem 0.35rem;
   font-family: monospace;
   font-size: 0.7rem;
-  color: var(--text, #cdd6f4);
+  color: var(--text-cool);
 }
 
 /* ── Responsive ──────────────────────────────────────────────────────── */
@@ -274,7 +274,7 @@
 }
 
 .skipped-h {
-  color: var(--text, #cdd6f4);
+  color: var(--text-cool);
   font-size: 0.85rem;
   font-weight: 600;
   margin: 0 0 0.5rem;

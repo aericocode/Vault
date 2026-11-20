@@ -24,7 +24,7 @@
 
 .gamify-chip-streak {
   font-size: 0.75em;
-  color: #fbbf24;
+  color: var(--warning-text);
   background: rgba(251, 191, 36, 0.12);
   border-radius: 8px;
   padding: 1px 6px;
@@ -116,7 +116,7 @@
 .gamify-head { display: none; }
 .gamify-subtitle { margin-top: 10px; }
 .gamify-title-hint { font-weight: 400; color: var(--text-muted); }
-.gamify-quest-swaps { color: #fbbf24; font-weight: 700; }
+.gamify-quest-swaps { color: var(--warning-text); font-weight: 700; }
 
 /* Quest reroll (🔄, one per day) */
 .gamify-quest-reroll {
@@ -227,7 +227,7 @@
 }
 
 .gamify-heat-cell.today {
-  outline: 1.5px solid #fbbf24;
+  outline: 1.5px solid var(--warning-text);
   outline-offset: 1px;
 }
 
@@ -254,7 +254,7 @@
 .gamify-quest-reward {
   font-size: 0.8em;
   font-weight: 700;
-  color: #fbbf24;
+  color: var(--warning-text);
 }
 
 .gamify-quest-desc {
@@ -330,7 +330,7 @@
   border: none;
   border-radius: 12px;
   background: linear-gradient(90deg, var(--gamify-a, #a855f7), var(--gamify-b, #ec4899));
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 700;
   font-size: 0.95em;
   cursor: pointer;
@@ -340,7 +340,7 @@
 
 /* ── Achievements ── */
 .gamify-ach-count {
-  color: #fbbf24;
+  color: var(--warning-text);
   font-weight: 700;
 }
 
@@ -392,7 +392,7 @@
 
 .ach-name { font-weight: 600; font-size: 0.86em; }
 .ach-desc { font-size: 0.74em; color: var(--text-secondary); margin: 2px 0 5px; }
-.ach-desc em { color: #fbbf24; font-style: normal; }
+.ach-desc em { color: var(--warning-text); font-style: normal; }
 
 .ach-pips { display: inline-flex; gap: 3px; }
 
@@ -443,7 +443,7 @@
 
 .gamify-theme-pick.selected {
   border-color: var(--gamify-a, #a855f7);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--tint-06);
 }
 
 .gamify-theme-pick.locked {
@@ -556,14 +556,14 @@
 
 /* ── Enriched stats: week delta, obsessed card, achievement teaser ── */
 .gamify-week-delta { font-size: 0.8em; font-weight: 600; margin-top: 2px; }
-.gamify-week-delta.up { color: #4ade80; }
-.gamify-week-delta.down { color: #f87171; }
+.gamify-week-delta.up { color: var(--success-soft); }
+.gamify-week-delta.down { color: var(--danger-text); }
 
 .gamify-obsessed-name {
   font-size: 0.9em; font-weight: 600; color: var(--text-primary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.gamify-obsessed-stars { color: #fbbf24; font-size: 0.95em; letter-spacing: 1px; }
+.gamify-obsessed-stars { color: var(--warning-text); font-size: 0.95em; letter-spacing: 1px; }
 .gamify-obsessed-sub { font-size: 0.78em; color: var(--text-muted); }
 
 .gamify-ach-next {
@@ -582,7 +582,7 @@
 .gamify-milestones span { font-size: 0.72em; color: var(--text-muted); }
 
 .gamify-rating-hero { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
-.gamify-rating-hero b { font-size: 2em; color: #fbbf24; }
+.gamify-rating-hero b { font-size: 2em; color: var(--warning-text); }
 .gamify-rating-hero span { font-size: 0.78em; color: var(--text-muted); }
 .gamify-rating-dist { display: flex; flex-direction: column; gap: 3px; }
 .gamify-rating-row { display: flex; align-items: center; gap: 7px; }
@@ -606,7 +606,7 @@
    badges stay emoji: they are content. */
 
 body.layout-modern .gamify-overlay {
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim);
   backdrop-filter: none;
   padding: 16px;
 }
@@ -619,7 +619,7 @@ body.layout-modern .gamify-analytics-panel {
     var(--m-surface-solid);
   border: 1px solid var(--m-border);
   border-radius: var(--m-radius);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 50px var(--shade-50);
   color: var(--m-text);
   font-size: 14px;
   animation: gamifyFade 0.16s ease;
@@ -640,7 +640,7 @@ body.layout-modern .gamify-head {
   flex: none;
   min-height: 56px;
   padding: 0 60px 0 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--tint-08);
 }
 body.layout-modern .gamify-head h2 { margin: 0; font-size: 16px; font-weight: 600; color: var(--m-text); }
 
@@ -670,7 +670,7 @@ body.layout-modern .gamify-score-value { font-size: 44px; color: var(--m-text); 
 body.layout-modern .gamify-level-next { font-size: 12px; color: var(--m-muted); margin-top: 6px; }
 body.layout-modern .gamify-week-delta { font-size: 13px; }
 body.layout-modern .gamify-week-delta .vi { width: 14px; height: 14px; vertical-align: -2px; margin-right: 0.25em; }
-body.layout-modern .gamify-progressbar { height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); }
+body.layout-modern .gamify-progressbar { height: 8px; border-radius: 999px; background: var(--tint-08); }
 body.layout-modern .gamify-progressbar.small { height: 6px; }
 body.layout-modern .gamify-progressbar-fill { border-radius: 999px; }
 
@@ -680,7 +680,7 @@ body.layout-modern .gamify-card {
   break-inside: avoid;
   margin: 0 0 12px;
   padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--tint-03);
   border: 1px solid var(--m-border);
   border-radius: var(--m-radius);
 }
@@ -704,7 +704,7 @@ body.layout-modern .gamify-quest-swaps {
   margin-left: 6px;
   padding: 1px 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--tint-06);
   color: var(--m-text-2);
   font-size: 11px;
   font-weight: 500;
@@ -712,14 +712,14 @@ body.layout-modern .gamify-quest-swaps {
 body.layout-modern .gamify-ach-card:hover { border-color: color-mix(in srgb, var(--gamify-a, #a855f7) 55%, transparent); }
 body.layout-modern .gamify-ach-card:focus-visible,
 body.layout-modern .gamify-theme-pick:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
-body.layout-modern .gamify-ach-next { border-top-color: rgba(255, 255, 255, 0.08); }
+body.layout-modern .gamify-ach-next { border-top-color: var(--tint-08); }
 body.layout-modern .gamify-obsessed-name .vi { width: 15px; height: 15px; vertical-align: -2px; color: var(--m-text-2); }
 body.layout-modern .gamify-obsessed-sub,
 body.layout-modern .gamify-quest-progress,
 body.layout-modern .gamify-totals span { color: var(--m-muted); }
 body.layout-modern .gamify-quest-desc { color: var(--m-text-2); }
-body.layout-modern .gamify-quest { border-top-color: rgba(255, 255, 255, 0.08); }
-body.layout-modern .gamify-heat-cell:not(.on) { background: rgba(255, 255, 255, 0.07); }
+body.layout-modern .gamify-quest { border-top-color: var(--tint-08); }
+body.layout-modern .gamify-heat-cell:not(.on) { background: var(--tint-07); }
 body.layout-modern .gamify-totals b .vi { width: 15px; height: 15px; vertical-align: -1px; margin-right: 0.3em; color: var(--gamify-a, #a855f7); }
 
 body.layout-modern .gamify-quest-reroll {
@@ -794,12 +794,26 @@ body.layout-modern .gamify-tab.active {
 body.layout-modern .gamify-tab .vi { width: 15px; height: 15px; }
 body.layout-modern .gamify-analytics-body { padding: 14px 20px 18px; }
 body.layout-modern .gamify-analytics-title { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
-body.layout-modern .ach-row { border-top-color: rgba(255, 255, 255, 0.08); }
-body.layout-modern .ach-pips .vi { width: 15px; height: 15px; color: #fbbf24; }
+body.layout-modern .ach-row { border-top-color: var(--tint-08); }
+body.layout-modern .ach-pips .vi { width: 15px; height: 15px; color: var(--warning-text); }
 body.layout-modern .ach-desc { color: var(--m-text-2); }
 body.layout-modern .gamify-rating-hero .vi { width: 12px; height: 12px; vertical-align: -1px; margin-right: 0.2em; }
 body.layout-modern .gamify-loading,
 body.layout-modern .gamify-empty { color: var(--m-muted); font-size: 13px; }
+
+/* Themes: the score follows the page. The chip sits in the neutral status
+   pill (css/layout-modern.css), so its number is page text; the pulse, the
+   unlit pips and the tag chips use the highlight (--gamify-a is the accent
+   in Modern) instead of level purple. Classic keeps the rules above. */
+body.layout-modern .gamify-chip-score { color: var(--text-strong); }
+body.layout-modern .gamify-pulse { animation-name: gamifyPulseModern; }
+@keyframes gamifyPulseModern {
+  0%   { transform: scale(1);    box-shadow: 0 0 0 0 color-mix(in srgb, var(--gamify-a) 60%, transparent); }
+  35%  { transform: scale(1.12); box-shadow: 0 0 0 8px transparent; }
+  100% { transform: scale(1); }
+}
+body.layout-modern .ach-pip { background: color-mix(in srgb, var(--gamify-a) 18%, var(--m-surface-solid)); }
+body.layout-modern .gamify-theme-tag { color: var(--on-accent-bg); }
 
 @media (prefers-reduced-motion: reduce) {
   body.layout-modern .gamify-phone,

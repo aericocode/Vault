@@ -10,12 +10,12 @@
   position: absolute; left: 50%; top: 50%; z-index: 2;
   transform: translate(-50%, -50%);
   padding: 0.1rem 0.5rem; border-radius: 4px;
-  background: rgba(0, 0, 0, 0.78); color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: var(--ov-black-78); color: var(--ov-text);
+  border: 1px solid var(--ov-white-25);
   font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em; line-height: 1.4;
   pointer-events: none;
 }
-.tile-btn.active-skip { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tile-btn.active-skip { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 /* Table rows (Modern): the same dimming; the Skip button joins the row's
    buttons, so the Title cell keeps room for three (table-view.js tvActionsWidth). */

@@ -371,12 +371,12 @@
    Empty trash and Rescan these moved out of the filters. They share the
    Select page / Select all button box exactly, so a filter that brings one
    of them on screen does not change the row's height. */
-.rs-btn-danger { border-color: rgba(239, 68, 68, 0.55); color: var(--m-danger-text); }
-.rs-btn-danger:hover { border-color: var(--danger, #ef4444); color: #fecaca; }
-.rs-btn-accent { border-color: rgba(137, 180, 250, 0.55); color: #89b4fa; }
+.rs-btn-danger { border-color: color-mix(in srgb, var(--danger) 55%, transparent); color: var(--m-danger-text); }
+.rs-btn-danger:hover { border-color: var(--danger, #ef4444); color: var(--m-danger-text-2); }
+.rs-btn-accent { border-color: color-mix(in srgb, var(--info-text) 55%, transparent); color: var(--info-text); }
 .rs-btn-accent:hover { border-color: var(--accent, #6366f1); color: var(--text-primary, #eee); }
 /* The forced whole-set rescan is the one that costs GPU time — say so. */
-.rs-btn-accent.force { border-color: rgba(245, 158, 11, 0.6); color: #f59e0b; }
+.rs-btn-accent.force { border-color: color-mix(in srgb, var(--warning) 60%, transparent); color: var(--warning); }
 
 /* Nothing set means nothing to clear. */
 .clear-filters-btn:disabled {

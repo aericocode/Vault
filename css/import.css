@@ -8,7 +8,7 @@
   position: fixed;
   inset: 0;
   z-index: 9100;                 /* above the player (9000-range editors) */
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim);
   display: grid;
   place-items: center;
   padding: 2rem;
@@ -24,7 +24,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 12px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 18px 60px var(--shade-55);
 }
 
 /* ── header ── */
@@ -125,7 +125,7 @@
   transition: all 0.15s;
 }
 .imp-type.on { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, transparent); }
-.imp-type.on .imp-tick { background: var(--brand); border-color: var(--brand); color: #fff; }
+.imp-type.on .imp-tick { background: var(--brand); border-color: var(--brand); color: var(--on-accent); }
 .imp-type.off { opacity: 0.55; }
 .imp-type.off .imp-n { color: var(--text-muted); }
 
@@ -206,20 +206,20 @@
    corners, hairline borders, line icons, neutral cards with an accent tick,
    option rows with switches.
    ========================================================================= */
-body.layout-modern .import-overlay { background: rgba(0, 0, 0, 0.55); padding: 16px; }
+body.layout-modern .import-overlay { background: var(--shade-55); padding: 16px; }
 body.layout-modern .import-modal {
   width: min(540px, 100%);
   background: var(--m-surface-solid);
   border: 1px solid var(--m-border);
   border-radius: var(--m-radius);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 50px var(--shade-50);
   color: var(--m-text);
   font-size: 14px;
 }
-body.layout-modern .imp-head { padding: 16px 18px 14px; border-bottom-color: rgba(255, 255, 255, 0.08); gap: 12px; }
+body.layout-modern .imp-head { padding: 16px 18px 14px; border-bottom-color: var(--tint-08); gap: 12px; }
 body.layout-modern .imp-ic {
   width: 36px; height: 36px; border-radius: 10px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--tint-06);
   border: 1px solid var(--m-border);
   color: var(--m-text);
 }
@@ -250,14 +250,14 @@ body.layout-modern .imp-type {
   background: var(--m-field);
   border: 1px solid var(--m-border);
 }
-body.layout-modern .imp-type:hover { background: rgba(255, 255, 255, 0.08); }
-body.layout-modern .imp-type.on { background: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.2); }
+body.layout-modern .imp-type:hover { background: var(--tint-08); }
+body.layout-modern .imp-type.on { background: var(--tint-07); border-color: var(--tint-20); }
 body.layout-modern .imp-type.off { opacity: 0.6; }
 body.layout-modern .imp-type:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
 body.layout-modern .imp-em {
   width: 32px; height: 32px; border-radius: var(--m-radius-sm);
   display: grid; place-items: center;
-  background: rgba(255, 255, 255, 0.06); color: var(--m-text-2);
+  background: var(--tint-06); color: var(--m-text-2);
 }
 body.layout-modern .imp-em .vi { width: 18px; height: 18px; }
 body.layout-modern .imp-tname { font-size: 14px; font-weight: 600; color: var(--m-text); }
@@ -267,11 +267,11 @@ body.layout-modern .imp-files { font-size: 11px; color: var(--m-muted); }
 body.layout-modern .imp-type.off .imp-n { color: var(--m-muted); }
 body.layout-modern .imp-tick {
   width: 18px; height: 18px; border-radius: 5px;
-  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  border: 1.5px solid var(--tint-35);
   color: transparent;
 }
 body.layout-modern .imp-tick .vi { width: 12px; height: 12px; stroke-width: 3; }
-body.layout-modern .imp-type.on .imp-tick { background: var(--accent); border-color: var(--accent); color: #fff; }
+body.layout-modern .imp-type.on .imp-tick { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 /* Option rows: one card per section, a switch on the right of each row */
 body.layout-modern .imp-opts {
@@ -289,7 +289,7 @@ body.layout-modern .imp-pill.imp-opt {
   color: var(--m-text);
   font-size: 14px;
 }
-body.layout-modern .imp-pill.imp-opt + .imp-pill.imp-opt { border-top: 1px solid rgba(255, 255, 255, 0.08); }
+body.layout-modern .imp-pill.imp-opt + .imp-pill.imp-opt { border-top: 1px solid var(--tint-08); }
 body.layout-modern .imp-pill.imp-opt::before { display: none; }
 body.layout-modern .imp-pill.imp-opt.on { background: none; }
 body.layout-modern .imp-opt:has(input:focus-visible) { outline: none; }
@@ -305,7 +305,7 @@ body.layout-modern .imp-switch { position: relative; inset: auto; opacity: 1; ov
 body.layout-modern .import-modal .wf-switch input + span {
   width: 32px; height: 18px;
   border: none; border-radius: 999px;
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--tint-18);
 }
 body.layout-modern .import-modal .wf-switch input + span::after { width: 14px; height: 14px; top: 2px; left: 2px; background: #fff; }
 body.layout-modern .import-modal .wf-switch input:checked + span { background: var(--accent); }
@@ -328,7 +328,7 @@ body.layout-modern .imp-inplace .vi { width: 14px; height: 14px; margin-right: 8
 body.layout-modern .imp-foot {
   padding: 12px 18px;
   gap: 8px;
-  border-top-color: rgba(255, 255, 255, 0.08);
+  border-top-color: var(--tint-08);
   background: transparent;
 }
 body.layout-modern .imp-sum { font-size: 13px; color: var(--m-text-2); margin-right: 8px; }
@@ -431,8 +431,8 @@ body.layout-modern .pli-choice {
 body.layout-modern .pli-ctext { font-size: 14px; }
 body.layout-modern .pli-ctext b { font-weight: 500; color: var(--m-text); }
 body.layout-modern .pli-name, body.layout-modern .pli-select {
-  border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05); color: var(--m-text);
+  border: 1px solid var(--m-border-strong); border-radius: 8px;
+  background: var(--m-field); color: var(--m-text);
   padding: 7px 10px; font-size: 13px;
 }
 body.layout-modern .pli-name:focus, body.layout-modern .pli-select:focus { outline: none; border-color: var(--accent-hover); }
@@ -441,16 +441,16 @@ body.layout-modern .pli-hint { font-size: 12px; color: var(--m-muted); }
 body.layout-modern .pli-count { color: var(--m-muted); font-weight: 500; }
 body.layout-modern .pli-rows { border-color: var(--m-border); border-radius: 10px; background: var(--m-field); }
 body.layout-modern .pli-rows li { font-size: 13px; padding: 6px 12px; }
-body.layout-modern .pli-rows li + li { border-top-color: rgba(255, 255, 255, 0.06); }
+body.layout-modern .pli-rows li + li { border-top-color: var(--tint-06); }
 body.layout-modern .pli-num { font-size: 11px; color: var(--m-muted); }
 body.layout-modern .pli-path { color: var(--m-text-2); }
-body.layout-modern .pli-tag { background: rgba(255, 255, 255, 0.06); border-color: var(--m-border); color: var(--m-muted); font-size: 11px; }
+body.layout-modern .pli-tag { background: var(--tint-06); border-color: var(--m-border); color: var(--m-muted); font-size: 11px; }
 body.layout-modern .pli-more { color: var(--accent-hover); font-size: 12px; }
 body.layout-modern .pli-amb { border-color: var(--m-border); border-radius: 10px; }
 body.layout-modern .pli-amb legend { font-size: 13px; color: var(--m-text); }
 body.layout-modern .pli-pick {
-  border-color: rgba(255, 255, 255, 0.14); border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05); color: var(--m-text); font-size: 13px;
+  border-color: var(--m-border-strong); border-radius: 8px;
+  background: var(--m-field); color: var(--m-text); font-size: 13px;
 }
-body.layout-modern .pli-pick:hover { background: rgba(255, 255, 255, 0.1); }
+body.layout-modern .pli-pick:hover { background: var(--tint-10); }
 body.layout-modern .pli-left-item { font-size: 13px; color: var(--m-text-2); }

@@ -112,8 +112,8 @@
   border: 1px solid var(--accent);
   color: var(--accent);
 }
-.picker-mode-indicator.mode-boolean { border-color: #22d3ee; color: #22d3ee; }
-.picker-mode-indicator.mode-semantic { border-color: #a855f7; color: #c084fc; }
+.picker-mode-indicator.mode-boolean { border-color: var(--mode-boolean); color: var(--mode-boolean); }
+.picker-mode-indicator.mode-semantic { border-color: var(--mode-semantic); color: var(--mode-semantic-text); }
 
 /* Filters Panel — floats over the grid instead of pushing it down, so
    opening or closing it never moves a tile. */

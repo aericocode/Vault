@@ -129,8 +129,31 @@
   };
 
   const CLASSIC_FILL = '#7aa8ff';
-  const MODERN_FILL = '#a5b4fc';
-  const MODERN_FILL_SWATCHES = [MODERN_FILL, ...FILL_SWATCHES];
+  const MODERN_FILL = '#a5b4fc';                // Vault Dark's highlight on the glass
+  // Modern's default fill (nothing picked yet) is the theme's highlight on
+  // the dark glass, --pl-accent-text (css/variables.css): exactly
+  // MODERN_FILL in Vault Dark. Read once, again after every theme change. A
+  // colour someone picked is kept as picked.
+  let _themeFill = null;
+  function readThemeFill() {
+    try {
+      const probe = document.createElement('i');
+      probe.style.cssText = 'position:absolute;width:0;height:0;visibility:hidden;color:var(--pl-accent-text)';
+      document.body.appendChild(probe);
+      const css = getComputedStyle(probe).color;
+      probe.remove();
+      // Paint it to read it back as #rrggbb, whatever form the browser gives.
+      const c = document.createElement('canvas');
+      c.width = c.height = 1;
+      const x = c.getContext('2d');
+      x.fillStyle = css;
+      x.fillRect(0, 0, 1, 1);
+      const [r, g, b] = x.getImageData(0, 0, 1, 1).data;
+      return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+    } catch { return MODERN_FILL; }
+  }
+  const modernFill = () => _themeFill || (_themeFill = readThemeFill());
+  const modernFillSwatches = () => [modernFill(), ...FILL_SWATCHES.filter(c => c.toLowerCase() !== modernFill())];
   const GLASS_BLUR_PX = 2.5;                    // the lane's frost: barely there
   const GLASS_TINT = 'rgba(16,16,22,0.13)';     // over the blurred picture
   const LANE_RADIUS = 12;                       // rounded rect like the app's cards (css/beatbar-modern.css)
@@ -139,7 +162,23 @@
 
   const isEnabled = () => localStorage.getItem(LS_ENABLED) === '1';
   const isModern = () => typeof window.isModernLayout === 'function' && window.isModernLayout();
-  const fillColorOf = (cfg, modern = isModern()) => cfg.fillColor || (modern ? MODERN_FILL : CLASSIC_FILL);
+  const fillColorOf = (cfg, modern = isModern()) => cfg.fillColor || (modern ? modernFill() : CLASSIC_FILL);
+
+  // A theme change: the default fill follows on the next frame; the Modern
+  // panel's first swatch (the default) is repainted and the ring re-set.
+  window.addEventListener('vault:theme', () => {
+    _themeFill = null;
+    const first = document.querySelector('.bbm-settings .bb-fill-swatch');
+    if (!first) return;
+    const c = modernFill();
+    first.dataset.color = c;
+    first.style.background = c;
+    first.title = c;
+    first.setAttribute('aria-label', `Colour ${c}`);
+    const now = fillColorOf(config, true).toLowerCase();
+    document.querySelectorAll('.bbm-settings .bb-fill-swatch').forEach(b =>
+      b.classList.toggle('active', b.dataset.color.toLowerCase() === now));
+  });
 
   /* ── Config (localStorage) ─────────────────────────────────────────────── */
 
@@ -918,7 +957,7 @@
           <div class="bbm-looks">
             ${row('Shape', `<span class="bbm-shapes">${shapes}</span>`)}
             ${row('Effects', `<span class="bbm-chips">${effects}</span>`)}
-            ${row('Colour', swatches('bb-fill-swatch', MODERN_FILL_SWATCHES))}
+            ${row('Colour', swatches('bb-fill-swatch', modernFillSwatches()))}
             ${row('Size', range('bb-fill-size', 4, 18, 1, 'bb-size-val'))}
             ${row('Opacity', range('bb-fill-opacity', 0.2, 1, 0.05, 'bb-opacity-val'))}
           </div>

@@ -31,7 +31,7 @@
 .pagination button.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 
 .pagination button.dots {
@@ -42,7 +42,7 @@
 /* Optional: a subtle cue that it's different from a page number */
 .pagination button.dots:hover {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 
 /* ── Pager bar ─────────────────────────────────────────────────────────

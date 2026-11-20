@@ -169,7 +169,7 @@ body:has(#miniPlayer.active) .grid-table .media-tile.tv-row.tile-now-playing {
   flex: 0 1 auto;
 }
 .grid-table .tv-name:hover { text-decoration: underline; }
-.grid-table .tv-fave { color: #f472b6; font-size: 0.75rem; }
+.grid-table .tv-fave { color: var(--fave); font-size: 0.75rem; }
 .grid-table .tv-flag { font-size: 0.75rem; }
 /* The row's buttons, on hover or focus: over the end of the Title cell, on
    the row's own colour, so they cover what is under them and move nothing
@@ -195,7 +195,7 @@ body.dock-shown .grid-table .media-tile.tv-row.tile-docked { --tv-row-bg: linear
 .grid-table .tv-actions .tile-btn { width: 24px; height: 24px; font-size: 0.75rem; }
 .grid-table .tv-actions .tile-btn .vi { width: 14px; height: 14px; }
 
-.grid-table .tv-stars { color: #facc15; letter-spacing: 1px; }
+.grid-table .tv-stars { color: var(--star); letter-spacing: 1px; }
 .grid-table .tv-stars-off { color: var(--border); }
 .grid-table .tv-muted { color: var(--text-muted); }
 .grid-table .tv-c-duration,

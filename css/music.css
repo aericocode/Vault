@@ -73,7 +73,7 @@
 .music-btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -360,7 +360,7 @@
 .music-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--shade-70);
   z-index: 3000;
   display: flex;
   align-items: center;
@@ -372,7 +372,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 40px var(--shade-50);
   overflow: hidden;
 }
 
@@ -464,7 +464,7 @@
 
 .pop-action-btn:hover {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* ── Audio similarity ────────────────────────────────────────────────── */
@@ -492,7 +492,7 @@
 }
 
 .tile-badge.sim-badge {
-  background: rgba(99, 102, 241, 0.18);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
   border: 1px solid var(--accent);
   color: var(--accent-hover);
   font-family: monospace;
@@ -500,7 +500,7 @@
 
 .tile-badge.sim-badge.sim-anchor {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* Empty state for the Collections tab home */
@@ -546,7 +546,7 @@
 .msec-silent { background: transparent; border: 1px dashed var(--border); opacity: 0.55; }
 .msec-sel {
   position: absolute; top: 0; bottom: 0;
-  background: rgba(99, 102, 241, 0.22);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
   border: 1px solid var(--accent); border-radius: 4px;
   pointer-events: none; z-index: 2;
 }
@@ -594,13 +594,13 @@
    hairline border, line-icon close button. Match pills are neutral and
    times use the body font. */
 
-body.layout-modern .music-modal-overlay { background: rgba(0, 0, 0, 0.55); padding: 16px; }
+body.layout-modern .music-modal-overlay { background: var(--shade-55); padding: 16px; }
 body.layout-modern .music-modal {
   width: min(460px, 100%);
   background: var(--m-surface);
   border: 1px solid var(--m-border);
   border-radius: var(--m-radius);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 50px var(--shade-50);
   color: var(--m-text);
   max-height: calc(100vh - 32px);
   display: flex;
@@ -646,7 +646,7 @@ body.layout-modern .music-btn {
 }
 body.layout-modern .music-btn:hover:not(:disabled) { background: var(--m-btn-hover); border-color: var(--m-border-strong); }
 body.layout-modern .music-btn:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
-body.layout-modern .music-btn-primary { background: var(--accent); border-color: transparent; color: #fff; }
+body.layout-modern .music-btn-primary { background: var(--accent); border-color: transparent; color: var(--on-accent); }
 body.layout-modern .music-btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: transparent; }
 body.layout-modern .music-btn-danger { color: var(--m-danger-text); }
 body.layout-modern .music-modal-body .music-btn { padding: 7px 14px; font-size: 13px; }
@@ -659,7 +659,7 @@ body.layout-modern .music-icon-btn {
 body.layout-modern .music-icon-btn:hover { border-color: var(--m-border-strong); background: var(--m-btn-hover); color: var(--m-text); }
 body.layout-modern .music-icon-btn .vi { width: 13px; height: 13px; }
 body.layout-modern .music-icon-btn.music-icon-danger:hover,
-body.layout-modern .music-icon-btn.armed { border-color: rgba(252, 165, 165, 0.5); color: var(--m-danger-text); }
+body.layout-modern .music-icon-btn.armed { border-color: color-mix(in srgb, var(--m-danger-text) 50%, transparent); color: var(--m-danger-text); }
 body.layout-modern .music-input {
   border-color: var(--m-border-strong);
   border-radius: var(--m-radius-sm);
@@ -668,7 +668,7 @@ body.layout-modern .music-input {
 }
 body.layout-modern .music-input:focus { border-color: var(--accent-hover); }
 body.layout-modern .music-input-time { font-family: inherit; font-variant-numeric: tabular-nums; }
-body.layout-modern .music-hint.music-warn { color: #fcd34d; }
+body.layout-modern .music-hint.music-warn { color: var(--warning-text-2); }
 
 /* Match pills and times */
 body.layout-modern .music-badge {

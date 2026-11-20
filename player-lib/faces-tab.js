@@ -562,7 +562,7 @@ function ftTileHtml(p) {
       <div class="ft-thumb">
         ${ftCropImg(p.coverUrl, 'ft-img')}
         ${p.favorite ? `<span class="ft-star" aria-label="Favorite">${FT_STAR_SVG(14, '#facc15')}</span>` : ''}
-        <button class="ft-check" type="button" aria-label="Select" aria-pressed="${sel}" title="Select (shift-click for a range)">${sel ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>' : ''}</button>
+        <button class="ft-check" type="button" aria-label="Select" aria-pressed="${sel}" title="Select (shift-click for a range)">${sel ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>' : ''}</button>
         <span class="ft-qacts">
           <button class="ft-qbtn${p.favorite ? ' on' : ''}" type="button" data-ft-q="fav" aria-pressed="${!!p.favorite}" title="${p.favorite ? 'Remove from favorites' : 'Favorite'}" aria-label="${p.favorite ? 'Remove from favorites' : 'Favorite'}">${p.favorite ? FT_STAR_SVG(14, '#facc15') : FT_STAR_SVG(14, 'none', 'currentColor')}</button>
           <button class="ft-qbtn" type="button" data-ft-q="hide" title="${p.hidden ? 'Unhide' : 'Hide'}" aria-label="${p.hidden ? 'Unhide' : 'Hide'}">${FT_EYE_SVG(!p.hidden)}</button>
@@ -1586,7 +1586,7 @@ function ftPaintPerson() {
         <button class="ft-cover" type="button" data-ft-cover aria-haspopup="dialog" aria-label="Change photo">${ftCropImg(p.coverUrl)}<span class="ft-cover-cap">Change photo</span></button>
         <div class="ft-title" id="ftTitle">
           ${name ? `<h1>${ftEsc(name)}</h1>` : '<h1 class="ft-muted">Not named yet</h1>'}
-          <button class="ft-icon-btn" type="button" data-ft-rename aria-label="${name ? 'Rename' : 'Add a name'}" title="${name ? 'Rename' : 'Add a name'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a0a0a0" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg></button>
+          <button class="ft-icon-btn" type="button" data-ft-rename aria-label="${name ? 'Rename' : 'Add a name'}" title="${name ? 'Rename' : 'Add a name'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="stroke: var(--text-secondary)" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg></button>
           <button class="ft-icon-btn ft-favbtn${p.favorite ? ' on' : ''}" type="button" data-ft-fav aria-pressed="${!!p.favorite}" aria-label="Favorite" title="${p.favorite ? 'Remove from favorites' : 'Add to favorites'}">${facesIcon('star', 'ft-favico') || '★'}</button>
         </div>
         <div class="ft-stats"><span class="ft-stats-full">${ftEsc(stats.join(' · '))}</span><span class="ft-stats-short" title="${ftEsc(stats.join(' · '))}" aria-label="${ftEsc(stats.join(' · '))}">${ftEsc([stats[0], ...(t ? [`${t} on screen`] : [])].join(' · '))}</span></div>

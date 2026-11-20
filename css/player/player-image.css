@@ -5,11 +5,11 @@
 /* Zoom Display */
 .zoom-display {
   padding: 0.5rem 0.75rem;
-  color: rgba(255,255,255,0.8);
+  color: var(--ov-white-80);
   font-size: 0.85rem;
   min-width: 60px;
   text-align: center;
-  background: rgba(255,255,255,0.05);
+  background: var(--ov-white-05);
   border-radius: 6px;
   font-variant-numeric: tabular-nums;
 }

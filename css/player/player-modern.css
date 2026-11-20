@@ -10,6 +10,18 @@
 
 body.layout-modern #mediaPlayerOverlay.mp-modern .media-player-header { display: none; }
 
+/* Themes: everything on the picture stays dark glass in every theme, so the
+   browser's own widgets in it (buttons without a background, sliders,
+   scroll bars) are drawn dark too. Dark already in Vault Dark. */
+body.layout-modern :is(.media-player-header, .video-controls, .audio-controls, .image-controls,
+  .document-controls, .fallback-controls, .mp-top, .mp-dock, .mp-menu, .beatbar-overlay, .mini-player) {
+  color-scheme: dark;
+}
+/* The name in the top bar: .tp-label also names the trash progress label
+   (css/tiles.css), whose page text colour would reach it; this is its colour
+   in Vault Dark, kept on the picture in every theme. */
+body.layout-modern .mp-top .tp-label { color: #e0e0e0; }
+
 /* ── Shared: icon buttons ───────────────────────────────────────────── */
 
 body.layout-modern .mp-ic {
@@ -25,7 +37,7 @@ body.layout-modern .mp-ic {
   border: 0;
   border-radius: 10px;
   background: none;
-  color: #fff;
+  color: var(--ov-text);
   font: inherit;
   white-space: nowrap;
   cursor: pointer;
@@ -33,8 +45,8 @@ body.layout-modern .mp-ic {
 }
 body.layout-modern .mp-ic[hidden] { display: none; }
 body.layout-modern .mp-ic:hover:not(:disabled),
-body.layout-modern .mp-ic.open { background: rgba(255, 255, 255, 0.14); }
-body.layout-modern .mp-ic:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 1px; }
+body.layout-modern .mp-ic.open { background: var(--ov-white-14); }
+body.layout-modern .mp-ic:focus-visible { outline: 2px solid var(--pl-accent-text); outline-offset: 1px; }
 body.layout-modern .mp-ic:disabled { opacity: 0.35; cursor: default; }
 body.layout-modern .mp-ic svg.vi {
   width: 22px;
@@ -44,7 +56,7 @@ body.layout-modern .mp-ic svg.vi {
 }
 /* Lit: on, set, syncing */
 body.layout-modern .mp-ic.on,
-body.layout-modern .mp-ic.beatbar-btn-on { color: #a5b4fc; }
+body.layout-modern .mp-ic.beatbar-btn-on { color: var(--pl-accent-text); }
 body.layout-modern .mp-ic.vibe-warn { color: #fbbf24; }
 
 /* ── Top bar ────────────────────────────────────────────────────────── */
@@ -60,8 +72,8 @@ body.layout-modern .mp-top {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #ececf1;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0));
+  color: var(--ov-ink);
+  background: linear-gradient(180deg, var(--ov-black-72), transparent);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s;
@@ -93,8 +105,8 @@ body.layout-modern .mp-devchip {
   padding: 0 12px;
   border: 0;
   border-radius: 99px;
-  background: rgba(0, 0, 0, 0.45);
-  color: #fff;
+  background: var(--ov-black-45);
+  color: var(--ov-text);
   font: inherit;
   font-size: 13px;
   white-space: nowrap;
@@ -108,8 +120,8 @@ body.layout-modern .mp-devchip i {
   background: #4ade80;
 }
 body.layout-modern .sidebar-open #mpPanelBtn {
-  color: #a5b4fc;
-  background: rgba(255, 255, 255, 0.1);
+  color: var(--pl-accent-text);
+  background: var(--ov-white-10);
 }
 
 /* ── The dock ───────────────────────────────────────────────────────── */
@@ -121,7 +133,7 @@ body.layout-modern .mp-dock {
   bottom: 0;
   z-index: 35;
   padding: 0 24px 12px;
-  color: #ececf1;
+  color: var(--ov-ink);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s;
@@ -134,7 +146,7 @@ body.layout-modern .mp-dock::before {
   right: 0;
   bottom: 0;
   height: calc(100% + 80px);
-  background: linear-gradient(0deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.6) 55%, rgba(0, 0, 0, 0) 100%);
+  background: linear-gradient(0deg, var(--ov-black-90) 0%, var(--ov-black-60) 55%, transparent 100%);
   pointer-events: none;
   z-index: -1;
 }
@@ -166,13 +178,13 @@ body.layout-modern .mp-time {
   white-space: nowrap;
   cursor: pointer;
 }
-body.layout-modern .mp-time-tot { color: #a9a9b4; }
+body.layout-modern .mp-time-tot { color: var(--ov-ink-2); }
 body.layout-modern .mp-vsep {
   flex: none;
   width: 1px;
   height: 22px;
   margin: 0 6px;
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--ov-white-18);
 }
 
 body.layout-modern .mp-play {
@@ -180,9 +192,9 @@ body.layout-modern .mp-play {
   height: 54px;
   margin: 0 6px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--ov-white-14);
 }
-body.layout-modern .mp-play:hover { background: rgba(255, 255, 255, 0.24); }
+body.layout-modern .mp-play:hover { background: var(--ov-white-24); }
 body.layout-modern .mp-play svg.vi { width: 28px; height: 28px; }
 
 /* Speed as words; dimmed at normal speed */
@@ -191,7 +203,7 @@ body.layout-modern .mp-pill {
   min-width: 0;
   margin: 0 6px;
   padding: 0 9px;
-  border: 1.5px solid rgba(255, 255, 255, 0.55);
+  border: 1.5px solid var(--ov-white-55);
   border-radius: 99px;
   font-size: 13px;
   font-weight: 700;
@@ -200,7 +212,7 @@ body.layout-modern .mp-pill {
 body.layout-modern .mp-pill:not(.speed-modified) { opacity: 0.6; }
 body.layout-modern .mp-pill:not(.speed-modified):hover,
 body.layout-modern .mp-pill.open { opacity: 1; }
-body.layout-modern .mp-pill.speed-modified { border-color: #a5b4fc; color: #a5b4fc; }
+body.layout-modern .mp-pill.speed-modified { border-color: var(--pl-accent-text); color: var(--pl-accent-text); }
 
 /* A-B: filled with an A badge while waiting for B */
 body.layout-modern .mp-ab-btn .mp-badge {
@@ -210,14 +222,14 @@ body.layout-modern .mp-ab-btn .mp-badge {
   top: 2px;
   padding: 0 3px;
   border-radius: 4px;
-  background: #fff;
-  color: #6366f1;
+  background: var(--ov-text);
+  color: var(--accent);
   font-size: 10px;
   font-weight: 800;
   line-height: 1.3;
 }
 body.layout-modern .mp-ab-btn.pending,
-body.layout-modern .mp-ab-btn.pending:hover { background: #6366f1; color: #fff; }
+body.layout-modern .mp-ab-btn.pending:hover { background: var(--accent); color: var(--on-accent); }
 body.layout-modern .mp-ab-btn.pending .mp-badge { display: block; }
 
 /* Subtitles: Classic's make / fix chips live in the gear menu here */
@@ -233,29 +245,29 @@ body.layout-modern .mp-vol-slider {
   height: 4px;
   margin: 0 6px 0 2px;
   border-radius: 2px;
-  background: linear-gradient(90deg, #fff var(--mp-vol, 68%), rgba(255, 255, 255, 0.25) var(--mp-vol, 68%));
+  background: linear-gradient(90deg, var(--ov-text) var(--mp-vol, 68%), var(--ov-white-25) var(--mp-vol, 68%));
   cursor: pointer;
   transition: width 0.15s, margin 0.15s, opacity 0.15s;
 }
 body.layout-modern .mp-vol-slider.boosted {
-  background: linear-gradient(90deg, #fbbf24 var(--mp-vol, 68%), rgba(255, 255, 255, 0.25) var(--mp-vol, 68%));
+  background: linear-gradient(90deg, #fbbf24 var(--mp-vol, 68%), var(--ov-white-25) var(--mp-vol, 68%));
 }
 body.layout-modern .mp-vol-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--ov-text);
   border: 0;
 }
 body.layout-modern .mp-vol-slider::-moz-range-thumb {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--ov-text);
   border: 0;
 }
-body.layout-modern .mp-vol-slider:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 4px; }
+body.layout-modern .mp-vol-slider:focus-visible { outline: 2px solid var(--pl-accent-text); outline-offset: 4px; }
 
 /* ── Folding (DockGeom.foldLevel; the dock carries f1 .. fN up to its level) ── */
 
@@ -300,7 +312,7 @@ body.layout-modern .mp-seg {
   top: 0;
   height: 100%;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.22);
+  background: var(--ov-white-22);
   overflow: hidden;
   transition: transform 0.12s, box-shadow 0.12s;
 }
@@ -311,9 +323,9 @@ body.layout-modern .mp-seg i {
   top: 0;
   bottom: 0;
   width: 0;
-  background: #fff;
+  background: var(--ov-text);
 }
-body.layout-modern .mp-seg.song i { background: linear-gradient(90deg, #fff, #d6fff8); }
+body.layout-modern .mp-seg.song i { background: linear-gradient(90deg, var(--ov-text), #d6fff8); }
 body.layout-modern .mp-tl.hover .mp-seg.lit { transform: scaleY(1.4); }
 body.layout-modern .mp-tl.hover .mp-seg.song.lit { box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.9); }
 
@@ -324,8 +336,8 @@ body.layout-modern .mp-knob {
   width: 15px;
   height: 15px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.18);
+  background: var(--ov-text);
+  box-shadow: 0 0 0 5px var(--ov-white-18);
   transform: translate(-50%, -50%) scale(0);
   transition: transform 0.12s;
   pointer-events: none;
@@ -379,7 +391,7 @@ body.layout-modern .mp-hovline {
   top: -28px;
   height: 46px;
   width: 1px;
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--ov-white-55);
   display: none;
   pointer-events: none;
 }
@@ -408,18 +420,18 @@ body.layout-modern .mp-ab-go {
   top: 2px;
   height: 15px;
   box-sizing: border-box;
-  border: 2px solid #6366f1;
+  border: 2px solid var(--accent);
   border-radius: 5px;
-  background: rgba(99, 102, 241, 0.16);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 body.layout-modern .mp-ab-go {
   border-style: dashed;
   border-left: none;
   border-radius: 0 5px 5px 0;
-  background: rgba(99, 102, 241, 0.12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 body.layout-modern .mp-ab-go.rev {
-  border-left: 2px dashed #6366f1;
+  border-left: 2px dashed var(--accent);
   border-right: none;
   border-radius: 5px 0 0 5px;
 }
@@ -434,8 +446,8 @@ body.layout-modern .mp-amark {
 body.layout-modern .mp-amark b {
   padding: 0 6px;
   border-radius: 5px;
-  background: #6366f1;
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
   font-size: 12px;
   line-height: 18px;
   white-space: nowrap;
@@ -443,7 +455,7 @@ body.layout-modern .mp-amark b {
 body.layout-modern .mp-amark i {
   width: 2px;
   height: 22px;
-  background: #6366f1;
+  background: var(--accent);
 }
 
 /* Scrub preview: the nearest hover frame, the time, the song, a nearby note */
@@ -465,10 +477,10 @@ body.layout-modern .mp-scrub-th {
   width: 220px;
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  border: 2px solid #fff;
+  border: 2px solid var(--ov-text);
   border-radius: 8px;
   background: #111;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 10px 30px var(--ov-black-60);
 }
 body.layout-modern .mp-scrub-th img {
   display: block;
@@ -514,7 +526,7 @@ body.layout-modern .mp-hint {
   z-index: 3;
   display: none;
   padding: 6px 12px;
-  border: 1px solid #3a3a7a;
+  border: 1px solid var(--pl-glass-accent-line);
   border-radius: 8px;
   background: rgba(10, 10, 14, 0.92);
   font-size: 13px;
@@ -524,7 +536,7 @@ body.layout-modern .mp-hint {
   pointer-events: none;
 }
 body.layout-modern .mp-hint.on { display: block; }
-body.layout-modern .mp-hint small { display: block; color: #a9a9b4; }
+body.layout-modern .mp-hint small { display: block; color: var(--ov-ink-2); }
 
 /* Subtitles step up out of the dock's way, and further for the preview */
 body.layout-modern #mediaPlayerOverlay.mp-modern .subtitle-overlay { transition: translate 0.2s; }
@@ -540,11 +552,11 @@ body.layout-modern .mp-menu {
   max-height: calc(100vh - 160px);
   overflow-y: auto;
   padding: 8px;
-  border: 1px solid #34343c;
+  border: 1px solid var(--ov-menu-line);
   border-radius: 12px;
-  background: rgba(22, 22, 27, 0.97);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6);
-  color: #ececf1;
+  background: var(--ov-menu);
+  box-shadow: 0 14px 40px var(--ov-black-60);
+  color: var(--ov-ink);
   font-size: 14px;
   pointer-events: auto;
 }
@@ -566,7 +578,7 @@ body.layout-modern .mp-it {
   cursor: pointer;
 }
 body.layout-modern .mp-it:hover:not(:disabled),
-body.layout-modern .mp-it:focus-visible { background: rgba(255, 255, 255, 0.08); outline: none; }
+body.layout-modern .mp-it:focus-visible { background: var(--ov-white-08); outline: none; }
 body.layout-modern .mp-it:disabled { opacity: 0.4; cursor: default; }
 body.layout-modern .mp-it svg.vi { flex: none; width: 20px; height: 20px; stroke-width: 1.75; }
 body.layout-modern .mp-it .mp-l-txt { overflow: hidden; text-overflow: ellipsis; }
@@ -576,38 +588,38 @@ body.layout-modern .mp-it .mp-v {
   gap: 4px;
   margin-left: auto;
   padding-left: 12px;
-  color: #a9a9b4;
+  color: var(--ov-ink-2);
 }
 body.layout-modern .mp-it .mp-v svg.vi { width: 16px; height: 16px; }
 body.layout-modern .mp-it kbd {
   margin-left: auto;
   padding: 0 6px;
   border-radius: 4px;
-  background: #2a2a31;
+  background: var(--ov-menu-chip);
   color: #ccc;
   font: inherit;
   font-size: 12px;
 }
-body.layout-modern .mp-it.sel { color: #a5b4fc; }
+body.layout-modern .mp-it.sel { color: var(--pl-accent-text); }
 body.layout-modern .mp-ck {
   display: inline-flex;
   flex: none;
   width: 16px;
-  color: #a5b4fc;
+  color: var(--pl-accent-text);
 }
 body.layout-modern .mp-ck svg.vi { width: 16px; height: 16px; }
 body.layout-modern .mp-it.mp-back { color: #c7c7d1; font-weight: 600; }
-body.layout-modern .mp-sep { height: 1px; margin: 6px 4px; background: #2c2c33; }
+body.layout-modern .mp-sep { height: 1px; margin: 6px 4px; background: var(--ov-menu-sep); }
 body.layout-modern .mp-mh {
   padding: 6px 10px 2px;
-  color: #8b8b97;
+  color: var(--ov-ink-3);
   font-size: 11px;
   letter-spacing: 0.07em;
   text-transform: uppercase;
 }
 body.layout-modern .mp-note {
   padding: 4px 10px 6px;
-  color: #8b8b97;
+  color: var(--ov-ink-3);
   font-size: 12px;
   white-space: normal;
 }
@@ -632,11 +644,11 @@ body.layout-modern .toast {
   bottom: var(--toast-bottom, 24px);
   max-width: min(560px, calc(100vw - 32px));
   padding: 10px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--m-border);
   border-radius: 12px;
-  background: rgba(22, 22, 27, 0.96);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-  color: #ececf1;
+  background: var(--m-surface);
+  box-shadow: var(--m-shadow);
+  color: var(--m-text);
   font-size: 14px;
   line-height: 1.4;
   text-align: center;
@@ -644,8 +656,8 @@ body.layout-modern .toast {
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 body.layout-modern .toast.active { transform: translate(-50%, 0); }
-body.layout-modern .toast.success { border-color: rgba(74, 222, 128, 0.45); background: rgba(22, 22, 27, 0.96); }
-body.layout-modern .toast.error { border-color: rgba(248, 113, 113, 0.55); background: rgba(22, 22, 27, 0.96); }
+body.layout-modern .toast.success { border-color: rgba(74, 222, 128, 0.45); background: var(--m-surface); }
+body.layout-modern .toast.error { border-color: rgba(248, 113, 113, 0.55); background: var(--m-surface); }
 
 /* ── Track progress: the time left beside the name in the top bar
    (player-lib/player/player-track.js; the line is in player-base.css) ── */

@@ -74,7 +74,7 @@
 .sfind-sk .sfind-desc { font-family: inherit; }
 
 .sfind-item mark {
-  background: rgba(99, 102, 241, 0.3);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
   color: inherit;
   border-radius: 3px;
   padding: 0 1px;
@@ -117,7 +117,7 @@
   animation: sfind-flash 2s ease-out;
 }
 @keyframes sfind-flash {
-  0%, 55% { background: rgba(99, 102, 241, 0.22); box-shadow: 0 0 0 2px var(--accent); }
+  0%, 55% { background: color-mix(in srgb, var(--accent) 22%, transparent); box-shadow: 0 0 0 2px var(--accent); }
   100% { background: transparent; box-shadow: 0 0 0 2px transparent; }
 }
 @media (prefers-reduced-motion: reduce) {

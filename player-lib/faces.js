@@ -786,7 +786,7 @@ function facesPickToggle(mediaId) {
   facesPickBarPaint();
 }
 
-const FACES_TICK_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>';
+const FACES_TICK_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>';
 
 /** The bottom bar while picking: what is ticked, and what to do with it. */
 function facesPickBarPaint() {

@@ -17,7 +17,7 @@
   padding: 0.25rem 0.6rem;
   border: 1px solid var(--border, #444);
   border-radius: 999px;
-  background: var(--surface, #1e1e2e);
+  background: var(--chip-cool);
   color: var(--text-secondary, #aaa);
   font-size: 0.78rem;
   font-family: inherit;
@@ -29,13 +29,13 @@
 
 .ext-chip:hover {
   border-color: var(--accent, #89b4fa);
-  color: var(--text, #cdd6f4);
-  background: var(--surface-hover, #2a2a3e);
+  color: var(--text-cool);
+  background: var(--chip-cool-hover);
 }
 
 .ext-chip.active {
   background: var(--accent, #89b4fa);
-  color: var(--bg, #1e1e2e);
+  color: var(--on-accent-ink);
   border-color: var(--accent, #89b4fa);
   font-weight: 600;
 }
@@ -81,7 +81,7 @@
 
 .ext-expander.open {
   border-style: solid;
-  color: var(--text, #cdd6f4);
+  color: var(--text-cool);
 }
 
 /* ── Duration range slider (dual thumb, minutes) ─────────────────────── */
@@ -199,7 +199,7 @@
 /* An active chip inverts its background, so the star has to come with it or
    it disappears into the fill. */
 .ext-chip.active .ext-playable {
-  color: var(--bg, #1e1e2e);
+  color: var(--on-accent-ink);
   opacity: 0.7;
 }
 
@@ -238,7 +238,7 @@
 
 .clear-filters-btn {
   padding: 0.45rem 0.85rem;
-  background: var(--surface, #313244);
+  background: var(--btn-cool);
   border: 1px solid var(--border, #444);
   border-radius: 8px;
   color: var(--text-secondary, #aaa);
@@ -250,8 +250,8 @@
 }
 
 .clear-filters-btn:hover {
-  background: var(--surface-hover, #3a3a4e);
-  color: var(--text, #cdd6f4);
+  background: var(--btn-cool-hover);
+  color: var(--text-cool);
   border-color: var(--accent, #89b4fa);
 }
 
@@ -277,8 +277,8 @@
 }
 
 .search-clear-btn:hover {
-  color: var(--text, #cdd6f4);
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-cool);
+  background: var(--tint-06);
 }
 
 /* Adjust search input padding for both buttons */

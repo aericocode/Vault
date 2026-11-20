@@ -109,7 +109,7 @@
 }
 
 .note-entry:hover {
-  border-color: var(--border-hover, #555);
+  border-color: var(--grey-55);
 }
 
 .note-timestamp {
@@ -175,7 +175,7 @@
 .note-edit:hover,
 .note-entry.note-editing .note-edit {
   color: var(--accent, #89b4fa);
-  background: rgba(137, 180, 250, 0.12);
+  background: color-mix(in srgb, var(--info-text) 12%, transparent);
 }
 
 .note-edited {
@@ -258,7 +258,7 @@
 .note-add-btn {
   padding: 0.5rem 1rem;
   background: var(--accent, #89b4fa);
-  color: var(--bg, #1e1e2e);
+  color: var(--on-accent-ink);
   border: none;
   border-radius: 6px;
   font-weight: 600;
@@ -276,7 +276,7 @@
 .note-clear-btn {
   padding: 0.5rem 0.9rem;
   margin-left: auto;
-  background: var(--surface, #313244);
+  background: var(--btn-cool);
   color: var(--text-secondary, #a6adc8);
   border: 1px solid var(--border, #444);
   border-radius: 6px;
@@ -292,7 +292,7 @@
 
 .note-save-btn {
   padding: 0.5rem 1rem;
-  background: var(--surface, #313244);
+  background: var(--btn-cool);
   color: var(--text-primary, #cdd6f4);
   border: 1px solid var(--border, #444);
   border-radius: 6px;
@@ -303,7 +303,7 @@
 }
 
 .note-save-btn:hover:not(:disabled) {
-  background: var(--surface-hover, #3a3a4e);
+  background: var(--btn-cool-hover);
   border-color: var(--accent, #89b4fa);
 }
 
@@ -319,8 +319,8 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.6rem 1.25rem;
-  background: rgba(137, 180, 250, 0.1);
-  border-bottom: 1px solid rgba(137, 180, 250, 0.25);
+  background: color-mix(in srgb, var(--info-text) 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--info-text) 25%, transparent);
   color: var(--text-secondary, #aaa);
   font-size: 0.85rem;
 }
@@ -328,7 +328,7 @@
 .save-auth-btn {
   padding: 0.35rem 0.85rem;
   background: var(--accent, #89b4fa);
-  color: var(--bg, #1e1e2e);
+  color: var(--on-accent-ink);
   border: none;
   border-radius: 6px;
   font-weight: 600;
@@ -378,7 +378,7 @@
   padding: 0.45rem 0.85rem;
   border: 1px solid var(--border, #444);
   border-radius: 8px;
-  background: var(--surface, #1e1e2e);
+  background: var(--chip-cool);
   color: var(--text-secondary, #aaa);
   font-size: 1.1rem;
   cursor: pointer;
@@ -387,14 +387,14 @@
 }
 
 .star-btn:hover {
-  border-color: #f9e2af;
-  color: #f9e2af;
+  border-color: var(--yellow-soft);
+  color: var(--yellow-soft);
 }
 
 .star-btn.starred {
   background: rgba(249, 226, 175, 0.15);
-  border-color: #f9e2af;
-  color: #f9e2af;
+  border-color: var(--yellow-soft);
+  color: var(--yellow-soft);
 }
 
 .star-label {
@@ -434,11 +434,11 @@
 }
 
 .rating-star.filled {
-  color: #f9e2af;
+  color: var(--yellow-soft);
 }
 
 .rating-star:not(.filled):hover {
-  color: #f9e2af;
+  color: var(--yellow-soft);
   opacity: 0.6;
 }
 
@@ -452,13 +452,13 @@
 
 .meta-badge.starred-badge {
   background: rgba(249, 226, 175, 0.15);
-  color: #f9e2af;
+  color: var(--yellow-soft);
   border: 1px solid rgba(249, 226, 175, 0.3);
 }
 
 .meta-badge.rating-badge {
   background: rgba(249, 226, 175, 0.1);
-  color: #f9e2af;
+  color: var(--yellow-soft);
   border: 1px solid rgba(249, 226, 175, 0.2);
   font-size: 0.7rem;
   letter-spacing: -0.5px;
@@ -489,9 +489,9 @@
 /* ── Notes Badge on Cards ────────────────────────────────────────────── */
 
 .meta-badge.has-notes {
-  background: rgba(137, 180, 250, 0.15);
+  background: color-mix(in srgb, var(--info-text) 15%, transparent);
   color: var(--accent, #89b4fa);
-  border: 1px solid rgba(137, 180, 250, 0.3);
+  border: 1px solid color-mix(in srgb, var(--info-text) 30%, transparent);
 }
 
 /* ── Card Quick Actions (inline star + rating) ───────────────────────── */
@@ -517,12 +517,12 @@
 }
 
 .card-star-btn:hover {
-  color: #f9e2af;
+  color: var(--yellow-soft);
   transform: scale(1.15);
 }
 
 .card-star-btn.starred {
-  color: #f9e2af;
+  color: var(--yellow-soft);
 }
 
 .card-rating-inline {
@@ -544,11 +544,11 @@
 
 .card-rating-star:hover {
   transform: scale(1.2);
-  color: #f9e2af;
+  color: var(--yellow-soft);
 }
 
 .card-rating-star.filled {
-  color: #f9e2af;
+  color: var(--yellow-soft);
 }
 
 /* ── Playback Speed Control ──────────────────────────────────────────── */
@@ -580,7 +580,7 @@
 }
 
 .speed-display:hover {
-  color: #fff;
+  color: var(--ov-text);
 }
 
 /* Off 1x the readout becomes a chip rather than just tinted text — it has to be
@@ -601,7 +601,7 @@
   bottom: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.9);
+  background: var(--ov-black-90);
   border: 1px solid var(--player-border);
   border-radius: 8px;
   padding: 0.25rem;
@@ -609,13 +609,13 @@
   flex-direction: column;
   gap: 1px;
   z-index: 30;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 24px var(--ov-black-50);
 }
 
 .speed-menu-item {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--ov-text-2);
   font-family: monospace;
   font-size: 0.78rem;
   padding: 0.3rem 0.9rem;
@@ -627,10 +627,10 @@
 
 .speed-menu-item:hover {
   background: rgba(255, 255, 255, 0.12);
-  color: #fff;
+  color: var(--ov-text);
 }
 
 .speed-menu-item.selected {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }

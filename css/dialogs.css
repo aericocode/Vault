@@ -15,7 +15,7 @@
   align-items: flex-start;
   justify-content: center;
   padding: 18vh 16px 16px;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--shade-55);
   overflow-y: auto;
 }
 
@@ -24,7 +24,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 6px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 36px var(--shade-50);
   padding: 1rem 1.1rem 0.9rem;
   color: var(--text-primary);
   font-size: 0.9rem;
@@ -83,45 +83,45 @@
 .vdlg-ok { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 .vdlg-ok:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .vdlg-ok.is-danger { background: var(--danger); border-color: var(--danger); }
-.vdlg-ok.is-danger:hover { background: #dc2626; border-color: #dc2626; }
+.vdlg-ok.is-danger:hover { background: var(--danger-fill); border-color: var(--danger-fill); }
 
 /* ── Modern ────────────────────────────────────────────────────────────── */
 
 body.layout-modern .vdlg {
   width: min(460px, 100%);
-  background: rgba(22, 22, 27, 0.98);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: color-mix(in srgb, var(--m-surface-solid) 98%, transparent);
+  border: 1px solid var(--m-border);
   border-radius: 12px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 50px var(--shade-50);
   padding: 18px 20px 16px;
-  color: #ececf1;
+  color: var(--m-text);
   font-size: 14px;
 }
-body.layout-modern .vdlg-title { font-size: 16px; color: #ececf1; margin-bottom: 8px; }
-body.layout-modern .vdlg.is-danger .vdlg-title { color: #fca5a5; }
-body.layout-modern .vdlg-msg { color: #b4b4bf; }
+body.layout-modern .vdlg-title { font-size: 16px; color: var(--m-text); margin-bottom: 8px; }
+body.layout-modern .vdlg.is-danger .vdlg-title { color: var(--m-danger-text); }
+body.layout-modern .vdlg-msg { color: var(--m-text-2); }
 body.layout-modern .vdlg-input {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--m-field);
+  border: 1px solid var(--m-border-strong);
   border-radius: 8px;
-  color: #ececf1;
+  color: var(--m-text);
   padding: 8px 10px;
 }
 body.layout-modern .vdlg-input:focus { border-color: var(--accent-hover); }
 body.layout-modern .vdlg-actions { margin-top: 18px; }
 body.layout-modern .vdlg-btn {
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
-  color: #ececf1;
+  border: 1px solid var(--m-border-strong);
+  background: var(--m-btn);
+  color: var(--m-text);
   font-size: 13px;
   padding: 7px 14px;
 }
-body.layout-modern .vdlg-btn:hover { background: rgba(255, 255, 255, 0.11); }
+body.layout-modern .vdlg-btn:hover { background: var(--m-btn-hover); }
 body.layout-modern .vdlg-ok { background: var(--accent); border-color: transparent; color: var(--on-accent); }
 body.layout-modern .vdlg-ok:hover { background: var(--accent-hover); }
-body.layout-modern .vdlg-ok.is-danger { background: #dc2626; }
-body.layout-modern .vdlg-ok.is-danger:hover { background: #ef4444; }
+body.layout-modern .vdlg-ok.is-danger { background: var(--danger-fill); color: var(--on-danger); }
+body.layout-modern .vdlg-ok.is-danger:hover { background: var(--danger); }
 
 @media (max-width: 480px) {
   .vdlg-ov { padding-top: 10vh; }

@@ -1671,7 +1671,28 @@ function buildMixUi(ctx) {
      mean the tracks are in sync. */
   const WAVE_WINDOW = 12;   // seconds of song-time per page
   const SYNC_ROW_H = 36;
-  const SYNC_COLORS = ['#e8e8e8', '#7aa8ff', '#ffb86c', '#7fe3a0'];
+  // The panel is on the page (a --shade-35 well), so its ink follows the
+  // theme: read once and again on each theme change (the rAF loop below
+  // redraws every frame, so the next frame picks the new colors up). Dark
+  // keeps the original light ink exactly; Light gets darker waveforms.
+  const SYNC_COLORS_DARK = ['#e8e8e8', '#7aa8ff', '#ffb86c', '#7fe3a0'];
+  const SYNC_COLORS_LIGHT = ['#3a3a3a', '#2f5fd0', '#b8600f', '#1f8a4c'];
+  let syncInk = null;
+  function readSyncInk() {
+    const cs = getComputedStyle(document.documentElement);
+    const v = (name, fallback) => cs.getPropertyValue(name).trim() || fallback;
+    const light = document.documentElement.dataset.theme === 'light';
+    syncInk = {
+      waves: light ? SYNC_COLORS_LIGHT : SYNC_COLORS_DARK,
+      hint: v('--tint-35', 'rgba(255,255,255,0.35)'),        // "loading…"
+      rule: v('--tint-22', 'rgba(255,255,255,0.22)'),        // row separator
+      master: v('--text-strong', '#fff'),                    // master track label
+      label: v('--tint-60', 'rgba(255,255,255,0.6)'),        // other labels
+      range: light ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.4)', // page range
+      head: light ? '#dc2626' : 'rgba(255,90,90,0.9)',       // playhead
+    };
+  }
+  window.addEventListener('vault:theme', () => { syncInk = null; });
   const syncPanel = document.getElementById('mixSyncPanel');
   let syncWinStart = 0;     // left edge of the current page (song-time seconds)
   let syncRaf = null;
@@ -1685,6 +1706,8 @@ function buildMixUi(ctx) {
     if (syncPanel.height !== h) syncPanel.height = h;
     const g = syncPanel.getContext('2d');
     g.clearRect(0, 0, w, h);
+    if (!syncInk) readSyncInk();
+    const ink = syncInk;
 
     // Page the fixed window so the playhead always lands inside it. Pages are
     // aligned multiples of WAVE_WINDOW, so a page-turn mid-drag re-bases the
@@ -1700,11 +1723,11 @@ function buildMixUi(ctx) {
       const yBase = (i + 1) * SYNC_ROW_H - 2;            // row baseline
       const barMax = SYNC_ROW_H - 14;                    // leave room for the label
       if (!env || env === 'loading') {
-        g.fillStyle = 'rgba(255,255,255,0.35)';
+        g.fillStyle = ink.hint;
         g.font = '10px sans-serif';
         g.fillText(env === null ? 'waveform unavailable' : 'loading…', 6, yBase - barMax / 2);
       } else {
-        g.fillStyle = SYNC_COLORS[i % SYNC_COLORS.length];
+        g.fillStyle = ink.waves[i % ink.waves.length];
         g.globalAlpha = 0.85;
         for (let x = 0; x < w; x++) {
           const ft = t.start_sec + syncWinStart + (x / w) * WAVE_WINDOW;   // file time at this pixel
@@ -1714,19 +1737,19 @@ function buildMixUi(ctx) {
         }
         g.globalAlpha = 1;
       }
-      g.fillStyle = 'rgba(255,255,255,0.22)';
+      g.fillStyle = ink.rule;
       g.fillRect(0, (i + 1) * SYNC_ROW_H - 0.5, w, 1);   // row separator
-      g.fillStyle = i === masterIdx ? '#fff' : 'rgba(255,255,255,0.6)';
+      g.fillStyle = i === masterIdx ? ink.master : ink.label;
       g.font = '9px sans-serif';
       g.fillText(`${i === masterIdx ? '★ ' : ''}${t.title.slice(0, 34)}`, 4, i * SYNC_ROW_H + 10);
     });
 
     // Page range (bottom-right) + the moving playhead
-    g.fillStyle = 'rgba(255,255,255,0.4)';
+    g.fillStyle = ink.range;
     g.font = '9px sans-serif';
     const label = `${musicFmtTime(syncWinStart)}–${musicFmtTime(syncWinStart + WAVE_WINDOW)}`;
     g.fillText(label, w - g.measureText(label).width - 4, h - 4);
-    g.fillStyle = 'rgba(255,90,90,0.9)';
+    g.fillStyle = ink.head;
     g.fillRect(Math.round(((T - syncWinStart) / WAVE_WINDOW) * w), 0, 1, h);
   }
 

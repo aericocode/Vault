@@ -344,7 +344,7 @@ body:has(#miniPlayer.active) #resultsGrid[style*="--np-reserve"] { margin-bottom
 .pop-flags {
   margin-top: 0.4rem;
   font-size: 0.72rem;
-  color: #facc15;
+  color: var(--star);
 }
 
 /* ── Selection (bulk actions) ── */
@@ -490,9 +490,9 @@ body.layout-modern .selection-bar .sel-btn.sel-flagged,
 body.layout-modern .selection-bar .sel-btn.sel-remove:hover { color: var(--m-danger-text); }
 body.layout-modern .selection-bar .sel-btn.sel-trash:hover,
 body.layout-modern .selection-bar .sel-btn.sel-flagged,
-body.layout-modern .selection-bar .sel-btn.sel-remove:hover { border-color: rgba(248, 113, 113, 0.45); background: rgba(248, 113, 113, 0.10); }
+body.layout-modern .selection-bar .sel-btn.sel-remove:hover { border-color: color-mix(in srgb, var(--danger-text) 45%, transparent); background: color-mix(in srgb, var(--danger-text) 10%, transparent); }
 body.layout-modern .selection-bar .sel-btn.sel-restore { color: var(--m-success-text); }
-body.layout-modern .selection-bar .sel-btn.sel-restore:hover { border-color: rgba(134, 239, 172, 0.45); }
+body.layout-modern .selection-bar .sel-btn.sel-restore:hover { border-color: color-mix(in srgb, var(--m-success-text) 45%, transparent); }
 body.layout-modern .selection-bar .sel-btn.sel-retry { color: var(--warning-text); }
 /* A bar button whose menu is open (Studio, css/studios.css) stays lit. */
 body.layout-modern .selection-bar .sel-btn.on { background: var(--m-btn-hover); border-color: var(--accent); }
@@ -864,7 +864,7 @@ body.layout-modern .grid-table .tv-row .tile-select:checked { border-color: var(
 }
 .dq-ico { flex: none; width: 14px; text-align: center; }
 .dq-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dq-row.dq-done .dq-ico { color: #9ef0df; }
+.dq-row.dq-done .dq-ico { color: var(--done); }
 .dq-row.dq-done .dq-name { color: var(--text-muted); }
 .dq-row.dq-failed .dq-ico { color: var(--danger); }
 .dq-row.dq-failed .dq-name { color: var(--danger); }
@@ -1303,14 +1303,14 @@ body:not(.layout-modern) #scanQueuePanel .fsq-title::before { content: '👤 '; 
 .fsq-sum {
   display: flex; align-items: center; gap: 0.5rem;
   margin-top: 0.45rem; padding-top: 0.45rem; border-top: 1px solid var(--border);
-  font-size: 0.75rem; color: #c8c8c8;
+  font-size: 0.75rem; color: var(--grey-c8);
 }
 .fsq-sum[hidden] { display: none; }
 .fsq-open {
   margin-left: auto; flex: none; background: none; border: 0; padding: 0; cursor: pointer;
-  font: inherit; font-size: 0.75rem; color: #818cf8;
+  font: inherit; font-size: 0.75rem; color: var(--accent-hover);
 }
-.fsq-open:hover { color: #a5b4fc; text-decoration: underline; }
+.fsq-open:hover { color: var(--accent-text); text-decoration: underline; }
 
 /* ── A tile whose row has not arrived yet ─────────────────────────────────
    Same box as a real tile, so the grid never shifts when the rows land

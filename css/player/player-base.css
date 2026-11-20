@@ -10,7 +10,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: #000;
+  background: var(--ov-letterbox);
   z-index: 300;
   flex-direction: column;
 }
@@ -35,7 +35,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 1rem 1.5rem;
-  background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, transparent 100%);
+  background: linear-gradient(to bottom, var(--ov-black-80) 0%, transparent 100%);
   position: absolute;
   top: 0;
   left: 0;
@@ -67,7 +67,7 @@
 }
 
 .media-player-title {
-  color: white;
+  color: var(--ov-text);
   font-size: 1rem;
   font-weight: 500;
   overflow: hidden;
@@ -77,11 +77,11 @@
 }
 
 .media-player-close {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--ov-white-10);
   border: none;
   border-radius: 8px;
   padding: 0.5rem 0.5rem 0.5rem 1rem;
-  color: white;
+  color: var(--ov-text);
   cursor: pointer;
   font-size: 0.9rem;
   transition: background 0.2s;
@@ -195,7 +195,7 @@
 .player-hold-frame {
   position: absolute;
   inset: 0;
-  background: #000;
+  background: var(--ov-letterbox);
   overflow: hidden;
   pointer-events: none;
   z-index: 2;
@@ -223,10 +223,10 @@
   min-width: 0;
   max-width: none;
 }
-.media-player-overlay .tp-label { text-shadow: 0 0 3px rgba(0, 0, 0, 0.9), 0 1px 3px rgba(0, 0, 0, 0.9); }
+.media-player-overlay .tp-label { text-shadow: 0 0 3px var(--ov-black-90), 0 1px 3px var(--ov-black-90); }
 .media-player-overlay .tp-left {
   flex: none;
-  color: #fff;
+  color: var(--ov-text);
   opacity: 0.85;
   font-size: 0.9rem;
   font-weight: 500;
@@ -242,7 +242,7 @@
   width: 100%;
   height: 3px;
   z-index: 40;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--ov-black-40);
   opacity: 0;
   transition: opacity 0.3s;
   pointer-events: none;

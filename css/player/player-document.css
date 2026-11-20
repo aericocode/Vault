@@ -53,13 +53,13 @@
 }
 
 /* Syntax Highlighting */
-.code-keyword { color: #c792ea; }
-.code-string { color: #c3e88d; }
-.code-number { color: #f78c6c; }
-.code-comment { color: #676e95; font-style: italic; }
-.code-tag { color: #f07178; }
-.code-attr { color: #ffcb6b; }
-.code-key { color: #82aaff; }
+.code-keyword { color: var(--pl-code-keyword); }
+.code-string { color: var(--pl-code-string); }
+.code-number { color: var(--pl-code-number); }
+.code-comment { color: var(--pl-code-comment); font-style: italic; }
+.code-tag { color: var(--pl-code-tag); }
+.code-attr { color: var(--pl-code-attr); }
+.code-key { color: var(--pl-code-key); }
 
 /* Loading/Error States */
 .document-loading,
@@ -79,10 +79,10 @@
 /* Font Size Display */
 .font-size-display {
   padding: 0.5rem 0.75rem;
-  color: rgba(255,255,255,0.8);
+  color: var(--ov-white-80);
   font-size: 0.85rem;
   min-width: 50px;
   text-align: center;
-  background: rgba(255,255,255,0.05);
+  background: var(--ov-white-05);
   border-radius: 6px;
 }

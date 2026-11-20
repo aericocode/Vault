@@ -723,7 +723,15 @@
       if (this._lastBitmap) { this._lastBitmap.close(); this._lastBitmap = null; }
     }
 
-    setBgColor(c) { this._bgColor = c; }
+    // The puzzle's frame line is white on a dark workspace; on a light one
+    // (Cream, or the page colour in a Light theme) a faint dark line instead.
+    setBgColor(c) {
+      this._bgColor = c;
+      const m = /^#([0-9a-f]{6})$/i.exec(String(c).trim());
+      const n = m ? parseInt(m[1], 16) : 0;
+      const lum = (0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+      this._frameColor = lum > 0.6 ? 'rgba(0,0,0,0.1)' : GHOST_BORDER_COLOR;
+    }
 
     start() {
       this._running = true;
@@ -779,7 +787,7 @@
       ctx.fillRect(0, 0, this._wsW, this._wsH);
 
       if (srcBitmap) {
-        ctx.strokeStyle = GHOST_BORDER_COLOR;
+        ctx.strokeStyle = this._frameColor || GHOST_BORDER_COLOR;
         ctx.lineWidth = GHOST_BORDER_WIDTH;
         ctx.strokeRect(this._puzX, this._puzY, this._puzW, this._puzH);
       }

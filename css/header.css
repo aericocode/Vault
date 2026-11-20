@@ -197,7 +197,7 @@
 
 .clear-btn:hover {
   background: var(--danger);
-  color: white;
+  color: var(--on-danger);
 }
 
 @media (max-width: 768px) {
@@ -347,7 +347,7 @@ body.layout-modern .server-notice {
   max-width: none;
   margin-bottom: 10px;
   padding: 8px 10px 8px 14px;
-  border: 1px solid rgba(239, 68, 68, 0.35);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
   border-radius: var(--m-radius);
   background: var(--m-surface-solid);
   font-size: 13px;

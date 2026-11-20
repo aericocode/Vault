@@ -687,11 +687,18 @@
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const max = Math.max(1, ...hourDow.flat());
     const rgb = _hexRgb(_theme.a);
+    // Modern: cells are the highlight at the same strengths, empty ones a
+    // neutral wash, so they read on a light page too.
+    const cellBg = (n) => {
+      const a = n === 0 ? 0.06 : 0.15 + 0.85 * (n / max);
+      if (!isModern()) return `rgba(${rgb},${a})`;
+      return n === 0 ? 'var(--tint-06)' : `color-mix(in srgb, var(--accent) ${(a * 100).toFixed(1)}%, transparent)`;
+    };
     let rows = '';
     for (let d = 0; d < 7; d++) {
       const cells = hourDow[d].map((n, h) =>
         `<div class="ga-heat-cell" title="${days[d]} ${String(h).padStart(2, '0')}:00, ${n} view${n === 1 ? '' : 's'}"
-          style="background:rgba(${rgb},${n === 0 ? 0.06 : 0.15 + 0.85 * (n / max)})"></div>`).join('');
+          style="background:${cellBg(n)}"></div>`).join('');
       rows += `<div class="ga-heat-row"><span class="ga-heat-day">${days[d]}</span>${cells}</div>`;
     }
     const hourLabels = [0, 6, 12, 18].map(h =>
@@ -722,13 +729,17 @@
       return _emptyCard('🎭', 'mask', 'Theme drift', 'Watch more. Theme trends appear after a few days.');
     }
     const W = 600, H = 110, PAD = 6;
-    const palette = [_theme.a, _theme.b, '#38bdf8', '#4ade80', '#fbbf24'];
+    // Modern: the theme's two colors first; green and amber come from the
+    // meaning tokens so they darken in Light (the sky blue reads on both).
+    const palette = isModern()
+      ? ['var(--accent)', 'var(--track-progress)', '#38bdf8', 'var(--success-soft)', 'var(--warning-text)']
+      : [_theme.a, _theme.b, '#38bdf8', '#4ade80', '#fbbf24'];
     const max = Math.max(1, ...drift.themes.flatMap(t => t.counts));
     const xs = (i) => drift.weeks.length === 1 ? W / 2 : PAD + (i / (drift.weeks.length - 1)) * (W - PAD * 2);
     const ys = (v) => H - PAD - (v / max) * (H - PAD * 2);
     const lines = drift.themes.map((t, ti) => {
       const pts = t.counts.map((v, i) => `${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).join(' ');
-      return `<polyline points="${pts}" fill="none" stroke="${palette[ti % palette.length]}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+      return `<polyline points="${pts}" fill="none" style="stroke:${palette[ti % palette.length]}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
     }).join('');
     const legend = drift.themes.map((t, ti) =>
       `<span class="ga-legend-item"><span class="ga-legend-dot" style="background:${palette[ti % palette.length]}"></span>${escapeHtml(t.theme)}</span>`).join('');
@@ -755,8 +766,12 @@
   }
 
   function _gaGradDef() {
+    // Modern: the theme's highlight and second color, like the score chart.
+    const stops = isModern()
+      ? '<stop offset="0" style="stop-color:var(--accent)"/><stop offset="1" style="stop-color:var(--track-progress)"/>'
+      : `<stop offset="0" stop-color="${_theme.a}"/><stop offset="1" stop-color="${_theme.b}"/>`;
     return `<defs><linearGradient id="gaGrad" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="${_theme.a}"/><stop offset="1" stop-color="${_theme.b}"/>
+      ${stops}
     </linearGradient></defs>`;
   }
 

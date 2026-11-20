@@ -14,7 +14,7 @@ body.wall-active { overflow: hidden; }
   z-index: 5;                         /* under the header (100) and the player (300) */
   display: flex;
   flex-direction: column;
-  background: #000;
+  background: var(--wall-bg);         /* black in dark; the page in light */
 }
 
 .wall-root.wall-fs { top: 0; }
@@ -108,7 +108,7 @@ svg.wall-caret { width: 13px; height: 13px; }
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 24px var(--shade-50);
 }
 .wall-menu-head {
   padding: 0.3rem 0.55rem 0.15rem;
@@ -189,7 +189,7 @@ svg.wall-caret { width: 13px; height: 13px; }
 }
 .wall-seg-btn + .wall-seg-btn { border-left: 1px solid var(--border); }
 .wall-seg-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
-.wall-seg-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.wall-seg-btn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 
 .wall-btn:focus-visible,
 .wall-chip:focus-visible,
@@ -226,7 +226,7 @@ svg.wall-caret { width: 13px; height: 13px; }
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 24px var(--shade-50);
 }
 .wall-pop-row {
   display: grid;
@@ -251,7 +251,7 @@ svg.wall-caret { width: 13px; height: 13px; }
   top: 0;
   left: 0;
   right: 0;
-  background: rgba(20, 20, 20, 0.85);
+  background: var(--wall-fs-bar);
   border-bottom: none;
 }
 .wall-root.wall-fs.wall-bar-idle .wall-bar { opacity: 0; pointer-events: none; }
@@ -286,7 +286,7 @@ svg.wall-caret { width: 13px; height: 13px; }
 .wall-block {
   position: absolute;
   overflow: hidden;
-  background: #111;
+  background: #111;                   /* a tile: on the picture, never themed */
   cursor: pointer;
   contain: strict;
 }
@@ -298,7 +298,7 @@ svg.wall-caret { width: 13px; height: 13px; }
   transition: opacity 0.6s ease;
 }
 .wall-layer.on { opacity: 1; }
-.wall-layer.wall-nothumb { background: #161616; }
+.wall-layer.wall-nothumb { background: #161616; }   /* a tile with no picture: stays a dark screen */
 /* The type icon on a block with no picture (thumbnails off, or none made). */
 .wall-type-icon {
   position: absolute;
@@ -328,8 +328,8 @@ svg.wall-caret { width: 13px; height: 13px; }
   bottom: 0;
   z-index: 2;
   padding: 1.4rem 0.6rem 0.4rem;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.75));
-  color: #fff;
+  background: linear-gradient(transparent, var(--ov-black-75));
+  color: var(--ov-text);
   font-size: 0.78rem;
   white-space: nowrap;
   overflow: hidden;
@@ -357,7 +357,7 @@ svg.wall-caret { width: 13px; height: 13px; }
   top: 0;
   z-index: 3;
   height: 3px;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--ov-black-40);
   opacity: 0;
   transition: opacity 0.2s;
   pointer-events: none;
@@ -384,8 +384,8 @@ svg.wall-caret { width: 13px; height: 13px; }
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
+  background: var(--ov-glass);
+  color: var(--ov-text);
   pointer-events: none;
 }
 .wall-block.wall-audible .wall-spk { display: flex; }
@@ -400,8 +400,8 @@ svg.wall-caret { width: 13px; height: 13px; }
   display: block;
   padding: 0.35rem 0.8rem;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.75);
-  color: #fff;
+  background: var(--ov-black-75);
+  color: var(--ov-text);
   font-size: 0.8rem;
   white-space: nowrap;
   pointer-events: none;
@@ -427,8 +427,8 @@ svg.wall-caret { width: 13px; height: 13px; }
   display: block;
   padding: 0.25rem 0.7rem;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.7);
-  color: #fff;
+  background: var(--ov-black-70);
+  color: var(--ov-text);
   font-size: 0.8rem;
   pointer-events: none;
 }

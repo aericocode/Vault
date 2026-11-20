@@ -255,7 +255,7 @@
   height: 8px;
   border-radius: 50%;
   flex: none;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 0 0 1px var(--shade-25);
 }
 
 .note-snippet-label {
@@ -285,7 +285,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 6px 20px var(--shade-45);
 }
 
 .snippet-color-popover.visible { display: flex; }
@@ -295,7 +295,7 @@
   height: 18px;
   flex: none;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  border: 1px solid var(--tint-25);
   border-radius: 50%;
   cursor: pointer;
   transition: transform 0.1s;
@@ -335,7 +335,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--accent);
   border-radius: 10px;
-  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 10px 34px var(--shade-60);
   padding: 0.5rem;
 }
 
@@ -419,7 +419,7 @@
   top: 6px;
   left: 6px;
   font-size: 0.95rem;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+  filter: drop-shadow(0 1px 2px var(--ov-black-80));
 }
 
 /* ── Open-collection header strip ── */
@@ -495,7 +495,7 @@
 .coll-delete.armed {
   background: rgba(239, 68, 68, 0.18);
   border-color: var(--danger);
-  color: #fca5a5;
+  color: var(--m-danger-text);
 }
 
 .coll-action:disabled { opacity: 0.55; cursor: progress; }
@@ -644,7 +644,7 @@ body.dock-shown #resultsGrid .media-tile.tile-docked.reorder-drop-after { box-sh
   justify-content: center;
   border: 1px solid var(--border);
   border-radius: 4px;
-  color: #fff;
+  color: var(--on-accent);
   background: transparent;
   transition: background 0.12s ease, border-color 0.12s ease;
 }
@@ -782,17 +782,17 @@ body.dock-shown #resultsGrid .media-tile.tile-docked.reorder-drop-after { box-sh
   width: 26px;
   height: 26px;
   padding: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--ov-black-55);
   border: none;
   border-radius: 6px;
-  color: var(--text-primary);
+  color: var(--ov-text-dim);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.12s ease;
 }
 .folder-tile:hover .coll-card-menu-btn,
 .collection-tile:hover .coll-card-menu-btn { opacity: 1; }
-.coll-card-menu-btn:hover { background: rgba(0, 0, 0, 0.8); }
+.coll-card-menu-btn:hover { background: var(--ov-black-80); }
 
 .coll-card-menu {
   position: fixed;
@@ -802,7 +802,7 @@ body.dock-shown #resultsGrid .media-tile.tile-docked.reorder-drop-after { box-sh
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 10px 30px var(--shade-55);
 }
 .coll-menu-head {
   padding: 0.25rem 0.5rem 0.35rem;
@@ -824,7 +824,7 @@ body.dock-shown #resultsGrid .media-tile.tile-docked.reorder-drop-after { box-sh
 .coll-menu-item:hover { background: var(--bg-hover); }
 .coll-menu-danger { color: var(--danger); }
 .coll-menu-sep { height: 1px; margin: 0.25rem 0.3rem; background: var(--border); }
-.coll-menu-danger.armed { background: rgba(239, 68, 68, 0.18); color: #fca5a5; }
+.coll-menu-danger.armed { background: rgba(239, 68, 68, 0.18); color: var(--m-danger-text); }
 
 .coll-head-folder { display: inline-flex; vertical-align: -2px; margin-right: 0.3rem; color: var(--text-secondary); }
 
@@ -953,8 +953,8 @@ body.layout-modern .coll-picker-row { border-radius: var(--m-radius-sm); font-si
 body.layout-modern .coll-picker-row:hover,
 body.layout-modern .coll-menu-item:hover { background: var(--m-btn-hover); }
 body.layout-modern .coll-picker-empty { color: var(--m-muted); font-size: 12px; }
-body.layout-modern .coll-check { border: 1.5px solid rgba(255, 255, 255, 0.35); border-radius: 5px; }
-body.layout-modern .coll-picker-row:hover .coll-check[data-state="none"] { border-color: rgba(255, 255, 255, 0.6); }
+body.layout-modern .coll-check { border: 1.5px solid var(--tint-35); border-radius: 5px; }
+body.layout-modern .coll-picker-row:hover .coll-check[data-state="none"] { border-color: var(--tint-60); }
 body.layout-modern .coll-picker .coll-count { font-size: 12px; color: var(--m-muted); font-variant-numeric: tabular-nums; }
 body.layout-modern .coll-picker-footer { gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--m-border); }
 body.layout-modern .coll-picker-add {
@@ -965,7 +965,7 @@ body.layout-modern .coll-picker-add {
   color: var(--m-text);
   font-size: 12px;
 }
-body.layout-modern .coll-picker-add:hover { background: var(--m-btn-hover); border-color: rgba(255, 255, 255, 0.22); }
+body.layout-modern .coll-picker-add:hover { background: var(--m-btn-hover); border-color: var(--tint-22); }
 body.layout-modern .coll-picker-add.is-on,
 body.layout-modern .coll-picker-filter.is-naming { border-color: var(--accent-hover); }
 body.layout-modern .coll-picker-add.is-on { color: var(--m-text); background: var(--m-btn-hover); }
@@ -997,11 +997,11 @@ body.layout-modern .coll-action {
   font-size: 13px;
 }
 body.layout-modern .coll-back:hover,
-body.layout-modern .coll-action:hover { background: var(--m-btn-hover); border-color: rgba(255, 255, 255, 0.22); }
+body.layout-modern .coll-action:hover { background: var(--m-btn-hover); border-color: var(--tint-22); }
 body.layout-modern .coll-back .vi { width: 16px; height: 16px; }
 body.layout-modern .coll-back .vi-gap { margin-right: 4px; }
 body.layout-modern .coll-delete:hover,
-body.layout-modern .coll-delete.armed { color: var(--m-danger-text); border-color: rgba(248, 113, 113, 0.45); background: rgba(248, 113, 113, 0.10); }
+body.layout-modern .coll-delete.armed { color: var(--m-danger-text); border-color: color-mix(in srgb, var(--danger-text) 45%, transparent); background: color-mix(in srgb, var(--danger-text) 10%, transparent); }
 body.layout-modern .collections-bar .field-edit-btn .vi { width: 14px; height: 14px; vertical-align: -2px; }
 body.layout-modern .coll-mosaic--empty { color: var(--m-muted); }
 
@@ -1024,7 +1024,7 @@ body.layout-modern .inline-edit-cancel {
   color: var(--m-text);
   font-size: 13px;
 }
-body.layout-modern .inline-edit-save { border-color: transparent; background: var(--accent); color: #fff; }
+body.layout-modern .inline-edit-save { border-color: transparent; background: var(--accent); color: var(--on-accent); }
 body.layout-modern .inline-edit-save:hover { background: var(--accent-hover); }
 body.layout-modern .inline-edit-cancel:hover { background: var(--m-btn-hover); }
 body.layout-modern .inline-edit-save:focus-visible,

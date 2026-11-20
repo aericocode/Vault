@@ -25,8 +25,8 @@
   top: 8px;
   left: 10px;
   font-size: 0.72rem;
-  color: rgba(255, 255, 255, 0.85);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  color: var(--ov-text-2);
+  text-shadow: 0 1px 3px var(--ov-black-80);
   pointer-events: none;
 }
 
@@ -41,14 +41,14 @@
   height: 24px;
   border: none;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.4);
-  color: rgba(255, 255, 255, 0.75);
+  background: var(--ov-black-40);
+  color: var(--ov-white-75);
   cursor: pointer;
   font-size: 0.85rem;
   line-height: 1;
 }
 
-.beatbar-gear:hover { background: rgba(0, 0, 0, 0.65); color: #fff; }
+.beatbar-gear:hover { background: var(--ov-black-65); color: var(--ov-text); }
 
 .beatbar-gear.gear-open {
   background: rgba(122, 168, 255, 0.3);
@@ -66,9 +66,9 @@
   background: rgba(18, 16, 28, 0.97);
   border: 1px solid #3b2b57;
   border-radius: 10px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 8px 30px var(--ov-black-60);
   font-size: 0.7rem;
-  color: var(--text-primary, #e0e0e0);
+  color: #e0e0e0;
 }
 
 .beatbar-settings[hidden] { display: none; }
@@ -85,7 +85,7 @@
 .beatbar-settings .bb-lbl {
   flex: none;
   width: 56px;
-  color: var(--text-secondary, #a0a0a0);
+  color: #a0a0a0;
 }
 
 .beatbar-settings input[type="range"] {
@@ -115,10 +115,10 @@
   flex: 1;
   min-width: 0;
   padding: 3px 0;
-  border: 1px solid var(--border, #333);
+  border: 1px solid #333;
   border-radius: 5px;
-  background: var(--bg-tertiary, #252525);
-  color: var(--text-primary, #e0e0e0);
+  background: #252525;
+  color: #e0e0e0;
   cursor: pointer;
   font-size: 0.66rem;
   line-height: 1.2;
@@ -149,7 +149,7 @@
   height: 16px;
   flex: none;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  border: 1px solid var(--ov-white-25);
   border-radius: 50%;
   cursor: pointer;
 }
@@ -183,8 +183,8 @@
   letter-spacing: 0.5px;
   padding: 1px 5px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--text-muted, #666);
+  background: var(--ov-white-12);
+  color: #666;
 }
 
 .beatbar-toggle.beatbar-btn-on {
@@ -209,11 +209,11 @@ body.layout-modern .beatbar-gear .vi { width: 14px; height: 14px; }
 body.layout-modern .beatbar-toggle .nav-icon .vi,
 body.layout-modern .beatbar-settings-btn .nav-icon .vi { width: 16px; height: 16px; }
 body.layout-modern .beatbar-toggle.beatbar-btn-on {
-  border-color: rgba(165, 180, 252, 0.5) !important;
-  background: rgba(165, 180, 252, 0.14);
+  border-color: color-mix(in srgb, var(--pl-accent-text) 50%, transparent) !important;
+  background: color-mix(in srgb, var(--pl-accent-text) 14%, transparent);
 }
-body.layout-modern .beatbar-toggle.beatbar-btn-on .beatbar-state { background: #a5b4fc; color: #16161b; }
+body.layout-modern .beatbar-toggle.beatbar-btn-on .beatbar-state { background: var(--pl-accent-text); color: #16161b; }
 body.layout-modern .beatbar-settings-btn.gear-open {
-  border-color: rgba(165, 180, 252, 0.5) !important;
-  background: rgba(165, 180, 252, 0.14);
+  border-color: color-mix(in srgb, var(--pl-accent-text) 50%, transparent) !important;
+  background: color-mix(in srgb, var(--pl-accent-text) 14%, transparent);
 }

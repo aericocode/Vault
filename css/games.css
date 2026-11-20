@@ -31,7 +31,7 @@
 .games-btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -146,10 +146,10 @@
 .games-save-badge {
   position: absolute; right: 6px; bottom: 8px;
   padding: 0.1rem 0.4rem; border-radius: 5px;
-  background: rgba(0, 0, 0, 0.72); color: #fff;
+  background: var(--ov-badge); color: var(--ov-text);
   font-size: 0.72rem; font-weight: 600; font-family: monospace;
 }
-.games-save-badge.solved { background: var(--success); color: #06210f; }
+.games-save-badge.solved { background: var(--success); color: var(--on-success); }
 
 /* Progress sliver along the bottom of the preview (like the resume sliver) */
 .games-save-progress {
@@ -217,7 +217,7 @@
 .games-pick-tile .tile-type-icon { position: absolute; top: 6px; left: 6px; font-size: 0.9rem; opacity: 0.85; }
 .games-pick-tile .tile-duration {
   position: absolute; bottom: 6px; right: 6px;
-  background: rgba(0,0,0,0.75); color: #fff; font-size: 0.68rem;
+  background: var(--ov-black-75); color: var(--ov-text); font-size: 0.68rem;
   padding: 1px 5px; border-radius: 3px;
 }
 .games-pick-tile .tile-name {
@@ -256,7 +256,7 @@
 
 .games-picker-overlay {
   position: fixed; inset: 0;
-  background: rgba(0,0,0,0.6);
+  background: var(--scrim);
   z-index: 3000;
   display: flex; align-items: center; justify-content: center;
   padding: 2rem;
@@ -302,11 +302,11 @@
 .ro-loading-overlay, .game-loading-overlay {
   position: absolute; inset: 0; z-index: 100;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.85rem;
-  background: rgba(10, 10, 14, 0.72); color: var(--text-secondary); font-size: 0.9rem;
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent); color: var(--text-secondary); font-size: 0.9rem;
 }
 .ro-spinner, .game-spinner {
   width: 42px; height: 42px; border-radius: 50%;
-  border: 4px solid rgba(255, 255, 255, 0.15); border-top-color: var(--accent);
+  border: 4px solid var(--tint-14); border-top-color: var(--accent);
   animation: ro-spin 0.8s linear infinite;
 }
 @keyframes ro-spin { to { transform: rotate(360deg); } }
@@ -351,7 +351,7 @@
   padding: 0.4rem 0.85rem; border-radius: 7px; cursor: pointer; font-size: 0.82rem;
   border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-primary);
 }
-.ro-root .submit-btn { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.ro-root .submit-btn { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 .ro-root .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; background: var(--bg-tertiary); color: var(--text-muted); border-color: var(--border); }
 .ro-root .new-game-btn:hover, .ro-root .submit-btn:not(:disabled):hover { border-color: var(--accent); }
 
@@ -365,23 +365,23 @@
 
 .ro-root .clip-window {
   position: absolute;
-  background: #000; border: 1px solid var(--border); border-radius: 8px;
-  overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+  background: var(--ov-letterbox); border: 1px solid var(--border); border-radius: 8px;
+  overflow: hidden; box-shadow: 0 4px 14px var(--shade-35);
 }
 .ro-root .clip-media-wrap { position: absolute; inset: 0; }
 .ro-root .clip-media-wrap img, .ro-root .clip-media-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
-.ro-root .clip-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.55); opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+.ro-root .clip-overlay { position: absolute; inset: 0; background: var(--ov-black-55); opacity: 0; transition: opacity 0.15s; pointer-events: none; }
 .ro-root .clip-window.placed .clip-overlay { opacity: 1; }
-.ro-root .clip-window.focused { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), 0 6px 18px rgba(0,0,0,0.5); }
+.ro-root .clip-window.focused { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), 0 6px 18px var(--shade-50); }
 .ro-root .clip-window.dragging { opacity: 0.92; }
 .ro-root .clip-window.review-mode .clip-overlay { opacity: 0; }
 .ro-root .clip-badge {
   position: absolute; top: 6px; left: 6px; z-index: 3;
   min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px;
-  background: rgba(0,0,0,0.7); color: #fff; font-size: 0.72rem; font-weight: 700;
+  background: var(--ov-black-70); color: var(--ov-text); font-size: 0.72rem; font-weight: 700;
   display: flex; align-items: center; justify-content: center;
 }
-.ro-root .clip-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,0.15); z-index: 3; }
+.ro-root .clip-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--ov-white-15); z-index: 3; }
 .ro-root .clip-progress-fill { height: 100%; width: 0; background: var(--accent); }
 
 /* ── Timeline ─────────────────────────────────────────────────────────── */
@@ -390,7 +390,7 @@
   position: absolute; left: 0; right: 0; top: 50%; height: 6px; transform: translateY(-50%);
   background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 3px;
 }
-.ro-root #timeline.drop-hover .timeline-track { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(99,102,241,0.35); }
+.ro-root #timeline.drop-hover .timeline-track { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
 .ro-root .timeline-markings { position: absolute; left: 0; right: 0; top: 50%; height: 0; }
 .ro-root .timeline-mark {
   position: absolute; top: 8px; transform: translateX(-50%);
@@ -422,14 +422,14 @@
 }
 .ro-root .timeline-arrow .arrow-badge {
   min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
-  background: var(--accent); color: #fff; font-size: 0.66rem; font-weight: 700;
+  background: var(--accent); color: var(--on-accent); font-size: 0.66rem; font-weight: 700;
   display: flex; align-items: center; justify-content: center;
 }
 .ro-root .timeline-arrow .arrow-tooltip { font-size: 0.6rem; font-family: monospace; color: var(--text-secondary); }
 .ro-root .timeline-arrow.result-perfect .arrow-badge { background: var(--success); }
 .ro-root .timeline-arrow.result-perfect::after { border-top-color: var(--success); }
 .ro-root .timeline-arrow.result-perfect::before { border-bottom-color: var(--success); }
-.ro-root .timeline-arrow.result-correct .arrow-badge { background: var(--warning); color: #000; }
+.ro-root .timeline-arrow.result-correct .arrow-badge { background: var(--warning); color: var(--on-warning); }
 .ro-root .timeline-arrow.result-correct::after { border-top-color: var(--warning); }
 .ro-root .timeline-arrow.result-correct::before { border-bottom-color: var(--warning); }
 .ro-root .timeline-arrow.result-wrong .arrow-badge { background: var(--danger); }
@@ -440,7 +440,7 @@
   position: absolute; top: -20px; left: 50%; transform: translateX(-50%);
   font-size: 0.62rem; font-family: monospace; color: var(--accent-hover); white-space: nowrap;
 }
-.ro-root .connector-line { stroke: rgba(255,255,255,0.28); stroke-width: 1.5; fill: none; }
+.ro-root .connector-line { stroke: var(--tint-28); stroke-width: 1.5; fill: none; }
 .ro-root .connector-perfect { stroke: var(--success); }
 .ro-root .connector-correct { stroke: var(--warning); }
 .ro-root .connector-wrong { stroke: var(--danger); }
@@ -476,10 +476,10 @@
   white-space: nowrap;
 }
 .ff-btn:hover { border-color: var(--accent); }
-.ff-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-.ff-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.ff-btn.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.ff-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 .ff-btn-primary:hover { background: var(--accent-hover); }
-.ff-btn-warn { background: var(--warning); border-color: var(--warning); color: #000; font-weight: 600; }
+.ff-btn-warn { background: var(--warning); border-color: var(--warning); color: var(--on-warning); font-weight: 600; }
 .ff-lbl { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
 .ff-pieces-lbl { font-family: monospace; font-size: 0.85rem; color: var(--text-primary); min-width: 2.2em; }
 
@@ -488,13 +488,13 @@
 .ff-bg-btn { display: inline-flex; align-items: center; gap: 0.35rem; }
 .ff-bg-swatch {
   width: 14px; height: 14px; border-radius: 3px; display: inline-block;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  border: 1px solid var(--tint-25);
 }
 .ff-bg-pop {
   position: absolute; top: calc(100% + 6px); left: 50%;
   transform: translateX(-50%) translateY(-4px);
   background: var(--bg-secondary); border: 1px solid var(--border);
-  border-radius: 9px; padding: 10px; box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+  border-radius: 9px; padding: 10px; box-shadow: 0 8px 26px var(--shade-50);
   display: flex; flex-direction: column; gap: 10px;
   opacity: 0; pointer-events: none; transition: opacity 0.12s, transform 0.12s; z-index: 60;
 }
@@ -565,12 +565,12 @@
 #ff-win {
   position: absolute; inset: 0; z-index: 60;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--shade-55);
 }
 .ff-win-card {
   background: var(--bg-secondary); border: 1px solid var(--border);
   border-radius: 14px; padding: 1.6rem 2.2rem; text-align: center;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 40px var(--shade-50);
 }
 .ff-win-card h2 { margin: 0 0 0.3rem; }
 .ff-win-card p { margin: 0 0 1.1rem; color: var(--text-secondary); font-family: monospace; }
@@ -589,15 +589,26 @@
   display: flex; align-items: center; justify-content: center; font-size: 0.9rem;
 }
 .ro-root .transport-btn:hover { border-color: var(--accent); }
-.ro-root .transport-play { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ro-root .transport-play { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .ro-root .volume-wrap { display: flex; align-items: center; gap: 0.4rem; margin-left: 0.5rem; }
 .ro-root .volume-slider { width: 90px; }
+/* The volume slider is the player's (drawn for the picture); here it sits on
+   the page, so its white track and knob are re-pointed at page ink. Exact
+   in dark (white at the same strengths). */
+.ro-root #transport-bar {
+  --ov-text: var(--text-strong);
+  --ov-white-30: var(--tint-30);
+}
+/* Light only: the timeline rail and the Frame Fit scrub bar are one step
+   off the page in the light ramp, too faint to aim a drop at. */
+:root[data-theme="light"] .ro-root .timeline-track,
+:root[data-theme="light"] .ff-scrub { background: var(--bg-hover); border-color: var(--tint-20); }
 
 /* ── Results overlay ──────────────────────────────────────────────────── */
 
 .ro-root #results-overlay {
   position: absolute; inset: 0; z-index: 50;
-  background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; padding: 1.5rem;
+  background: var(--shade-70); display: flex; align-items: center; justify-content: center; padding: 1.5rem;
 }
 .ro-root .results-card {
   width: min(520px, 94%); max-height: 90%; overflow-y: auto;
@@ -625,7 +636,7 @@
 .ro-root .rc-time { color: var(--text-muted); font-family: monospace; }
 .ro-root .rc-bonus { color: var(--success); font-weight: 600; }
 .ro-root .results-buttons { display: flex; gap: 0.6rem; justify-content: center; margin-top: 1rem; }
-.ro-root .results-buttons .start-btn { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.ro-root .results-buttons .start-btn { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 .ro-root .results-buttons .review-btn { background: var(--bg-tertiary); color: var(--text-primary); }
 
 /* ── Modern: line icons in the game controls (UI audit G2) ─────────────── */

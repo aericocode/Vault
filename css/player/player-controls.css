@@ -74,8 +74,8 @@
   flex: 0 0 auto; /* Don't grow or shrink */
   justify-content: center;
   padding: 0 0.5rem;
-  border-left: 1px solid rgba(255,255,255,0.1);
-  border-right: 1px solid rgba(255,255,255,0.1);
+  border-left: 1px solid var(--ov-white-10);
+  border-right: 1px solid var(--ov-white-10);
 }
 
 /* Right section - media-specific controls */
@@ -93,11 +93,11 @@
    ========================================== */
 
 .nav-btn {
-  background: rgba(99, 102, 241, 0.3) !important;
+  background: color-mix(in srgb, var(--accent) 30%, transparent) !important;
   border: none;
   border-radius: 8px;
   padding: 0.6rem 1rem;
-  color: white;
+  color: var(--ov-text);
   cursor: pointer;
   font-size: 0.85rem;
   font-weight: 500;
@@ -126,11 +126,11 @@
    ========================================== */
 
 .info-btn {
-  background: rgba(99, 102, 241, 0.5) !important;
+  background: color-mix(in srgb, var(--accent) 50%, transparent) !important;
   border: none;
   border-radius: 8px;
   padding: 0.6rem 1rem;
-  color: white;
+  color: var(--ov-text);
   cursor: pointer;
   font-size: 0.85rem;
   font-weight: 600;
@@ -153,7 +153,7 @@
   border: none;
   border-radius: 8px;
   padding: 0.6rem 0.9rem;
-  color: white;
+  color: var(--ov-text);
   cursor: pointer;
   font-size: 0.9rem;
   display: flex;
@@ -182,11 +182,11 @@
 
 .display-value {
   padding: 0.5rem 0.75rem;
-  color: rgba(255,255,255,0.8);
+  color: var(--ov-white-80);
   font-size: 0.85rem;
   min-width: 50px;
   text-align: center;
-  background: rgba(255,255,255,0.05);
+  background: var(--ov-white-05);
   border-radius: 6px;
 }
 
@@ -209,7 +209,7 @@
     border: none;
     padding-bottom: 0.5rem;
     margin-bottom: 0.5rem;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
+    border-bottom: 1px solid var(--ov-white-10);
   }
   
   /* Left and Right share second row */
@@ -264,17 +264,17 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--ov-white-08);
   border: 1px solid var(--player-border, rgba(255,255,255,0.15));
   border-radius: 8px;
   padding: 0.45rem 0.7rem;
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--ov-white-45);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .repeat-btn:hover {
-  color: #fff;
+  color: var(--ov-text);
   border-color: var(--accent);
 }
 
@@ -298,7 +298,7 @@
   height: 11px;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-family: monospace;
   font-size: 9px;
   line-height: 11px;

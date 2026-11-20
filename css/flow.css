@@ -11,12 +11,29 @@
   --flow-warn: #fcd34d;         /* noticeable */
   --flow-bad: #fca5a5;          /* jump */
   --flow-target: rgba(255, 255, 255, 0.55);
-  --flow-quiet: rgba(255, 255, 255, 0.35);
-  --flow-grid: rgba(255, 255, 255, 0.06);
+  --flow-quiet: var(--tint-35);
+  --flow-grid: var(--tint-06);
   --flow-label: rgba(255, 255, 255, 0.4);
   --flow-col-hot: rgba(139, 140, 255, 0.1);
-  --flow-lane-empty: rgba(255, 255, 255, 0.05);
-  --flow-ignored: rgba(255, 255, 255, 0.05);
+  --flow-lane-empty: var(--tint-05);
+  --flow-ignored: var(--tint-05);
+  /* A tag chip's label: its color mixed toward white (dark) or black (light). */
+  --flow-chip-ink: white;
+  --flow-chip-c: 80%;
+}
+/* Light (Modern only, theme-boot.js): the chart is on the page, so its
+   colors go darker to read on white. Dark-mode values above never change. */
+:root[data-theme="light"] {
+  --flow-e-lo: #0284c7;
+  --flow-e-hi: #db2777;
+  --flow-ok: #15803d;
+  --flow-warn: #b45309;
+  --flow-bad: #b91c1c;
+  --flow-target: rgba(0, 0, 0, 0.5);
+  --flow-label: rgba(0, 0, 0, 0.55);
+  --flow-col-hot: color-mix(in srgb, var(--accent) 10%, transparent);
+  --flow-chip-ink: black;
+  --flow-chip-c: 50%;
 }
 
 .coll-action.coll-flow.on {
@@ -137,7 +154,7 @@ body.flow-grip-dragging { user-select: none; cursor: ns-resize; }
   width: 140px;
   height: 4px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--tint-10);
   overflow: hidden;
 }
 .flow-prog i { display: block; height: 100%; background: var(--accent); transition: width 0.3s; }
@@ -194,7 +211,7 @@ body.flow-col-dragging, body.flow-col-dragging * { cursor: grabbing !important; 
 /* The playhead: rides the playing file's line (flow.js phPlace) */
 .flow-chart .flow-ph-line { stroke: var(--accent); stroke-width: 1; opacity: 0.35; }
 .flow-chart .flow-ph-glow { fill: var(--accent); opacity: 0.28; }
-.flow-chart .flow-ph-dot { fill: var(--accent-hover); stroke: #fff; stroke-width: 1.25; }
+.flow-chart .flow-ph-dot { fill: var(--accent-hover); stroke: var(--on-accent); stroke-width: 1.25; }
 .flow-chart .flow-lane-empty { fill: var(--flow-lane-empty); }
 .flow-chart .flow-lane-label { font-size: 9.5px; font-weight: 600; fill: var(--text-secondary); pointer-events: auto; }
 
@@ -234,7 +251,7 @@ body.flow-col-dragging, body.flow-col-dragging * { cursor: grabbing !important; 
   font-weight: 600;
   white-space: nowrap;
   background: color-mix(in oklab, var(--c) 18%, transparent);
-  color: color-mix(in oklab, var(--c) 80%, white);
+  color: color-mix(in oklab, var(--c) var(--flow-chip-c), var(--flow-chip-ink));
   border: 1px solid color-mix(in oklab, var(--c) 45%, transparent);
 }
 .flow-chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--c); }
@@ -318,7 +335,7 @@ body.layout-modern .flow-btn {
   color: var(--m-text);
   font-size: 12.5px;
 }
-body.layout-modern .flow-btn:hover { background: var(--m-btn-hover); border-color: rgba(255, 255, 255, 0.22); }
+body.layout-modern .flow-btn:hover { background: var(--m-btn-hover); border-color: var(--tint-22); }
 body.layout-modern .flow-btn-sm { min-height: 22px; font-size: 12px; }
 body.layout-modern .coll-action.coll-flow.on { background: var(--accent-bg); border-color: var(--accent); color: var(--accent-hover); }
 body.layout-modern .flow-names { color: var(--m-muted); font-size: 11.5px; }
@@ -348,15 +365,17 @@ body.layout-modern .flow-tile-note { color: var(--m-muted); }
   font-weight: 700;
   line-height: 1.5;
 }
-.flow-mk-now { background: var(--accent); color: #fff; }
-.flow-mk-next { background: rgba(0, 0, 0, 0.62); color: rgba(255, 255, 255, 0.85); border: 1px solid rgba(255, 255, 255, 0.18); }
-.flow-mk-prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255, 255, 255, 0.12); }
+/* On a tile these sit on the picture (dark glass); in a table row they sit
+   on the page, where the progress track takes a page tint instead. */
+.flow-mk-now { background: var(--accent); color: var(--on-accent); }
+.flow-mk-next { background: var(--ov-black-62); color: var(--ov-text-2); border: 1px solid var(--ov-white-18); }
+.flow-mk-prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--ov-white-12); }
 .flow-mk-prog > i { display: block; height: 100%; width: 0; background: var(--accent); }
 .media-tile.flow-mk-playing:not(.tv-row) { box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 60%, transparent); }
 /* Table rows: inline, after the name */
 .tv-c-title > .flow-marks { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; position: relative; pointer-events: none; }
 .tv-c-title > .flow-marks .flow-mk-badge { position: static; }
-.tv-c-title > .flow-marks .flow-mk-prog { position: static; display: inline-block; width: 48px; height: 3px; border-radius: 2px; }
+.tv-c-title > .flow-marks .flow-mk-prog { position: static; display: inline-block; width: 48px; height: 3px; border-radius: 2px; background: var(--tint-12); }
 .media-tile.tv-row.flow-mk-playing { background: color-mix(in oklab, var(--accent) 8%, transparent); }
 
 /* Fit / Zoom beside Hide (at the right, wherever the row wraps). */
@@ -441,8 +460,8 @@ body.layout-modern .flow-tile-note { color: var(--m-muted); }
   bottom: 5px;
   padding: 0 4px;
   border-radius: 3px;
-  background: rgba(0, 0, 0, 0.65);
-  color: #fff;
+  background: var(--ov-black-65);
+  color: var(--ov-text);
   font-style: normal;
   font-size: 10.5px;
   font-variant-numeric: tabular-nums;
@@ -498,7 +517,7 @@ body.layout-modern .flow-tile-note { color: var(--m-muted); }
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 10px 28px var(--shade-45);
   color: var(--text-primary);
   font-size: 12px;
   will-change: transform;
@@ -506,7 +525,7 @@ body.layout-modern .flow-tile-note { color: var(--m-muted); }
 .flow-hcard[hidden] { display: none; }
 .flow-hcard:has(.flow-hc-pair) { width: 360px; }
 .flow-hc-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-.flow-hc-img { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: #000; }
+.flow-hc-img { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: var(--ov-letterbox); }
 .flow-hc-img img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .flow-hc-img i, .flow-hc-time {
   position: absolute;
@@ -514,8 +533,8 @@ body.layout-modern .flow-tile-note { color: var(--m-muted); }
   bottom: 4px;
   padding: 0 5px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.65);
-  color: #fff;
+  background: var(--ov-black-65);
+  color: var(--ov-text);
   font-style: normal;
   font-size: 10.5px;
   font-variant-numeric: tabular-nums;

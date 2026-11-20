@@ -30,7 +30,7 @@
   max-width: 400px;
   height: 100px;
   border-radius: 8px;
-  background: rgba(255,255,255,0.05);
+  background: var(--tint-05);
 }
 
 /* Audio uses same progress/volume as video */
@@ -38,6 +38,13 @@
 .audio-controls .video-progress,
 .audio-controls .video-progress-bar {
   /* Inherit from video styles */
+}
+
+/* Modern: an audio file has no picture, so its view is on the page and
+   follows the theme (black in Vault Dark, as before). The controls stay
+   dark glass over it, like every player's. */
+body.layout-modern .media-player-content:has(> .audio-visualization) {
+  background: var(--pl-stage);
 }
 
 /* Hide the audio element */

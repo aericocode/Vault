@@ -56,7 +56,7 @@
   padding: 0 4px;
   border-radius: 8px;
   background: var(--warning);
-  color: #000;
+  color: var(--on-warning);
   font-size: 0.65rem;
   font-weight: 700;
 }
@@ -397,7 +397,7 @@
 .tk-active {
   background: var(--accent) !important;
   border-color: var(--accent) !important;
-  color: #fff !important;
+  color: var(--on-accent) !important;
 }
 
 /* Stage */
@@ -418,14 +418,14 @@
   max-height: 70vh;
   margin: 0 auto;
   width: min(100%, calc(70vh * 16 / 9));
-  background: #000;
+  background: var(--ov-letterbox);
   overflow: hidden;
   border: 1px solid var(--border);
 }
 
 .editor-tile {
   position: relative;
-  background: #000;
+  background: var(--ov-letterbox);
   border-radius: 8px;
   overflow: hidden;
   aspect-ratio: 16 / 9;
@@ -462,8 +462,8 @@
   left: 6px;
   bottom: 6px;
   max-width: calc(100% - 12px);
-  background: rgba(0, 0, 0, 0.65);
-  color: #fff;
+  background: var(--ov-black-65);
+  color: var(--ov-text);
   font-size: 0.68rem;
   padding: 2px 7px;
   border-radius: 4px;
@@ -541,6 +541,41 @@
   align-items: center;
   gap: 0.35rem;
 }
+/* Themes: the bar is the player's own (drawn for the picture), but here it
+   sits on the page. Inside it the on-picture white ladder is re-pointed
+   at the page's strongest text, so it is white over dark (exactly as
+   before) and dark ink in Light. Shadows keep their black. */
+body.layout-modern .editor-mix-controls {
+  --ov-text: var(--text-strong);
+  --ov-text-2: color-mix(in srgb, var(--text-strong) 85%, transparent);
+  --player-control-bg: color-mix(in srgb, var(--text-strong) 10%, transparent);
+  --player-control-hover: color-mix(in srgb, var(--text-strong) 25%, transparent);
+  --player-border: color-mix(in srgb, var(--text-strong) 10%, transparent);
+  --ov-white-05: color-mix(in srgb, var(--text-strong) 5%, transparent);
+  --ov-white-06: color-mix(in srgb, var(--text-strong) 6%, transparent);
+  --ov-white-08: color-mix(in srgb, var(--text-strong) 8%, transparent);
+  --ov-white-10: color-mix(in srgb, var(--text-strong) 10%, transparent);
+  --ov-white-12: color-mix(in srgb, var(--text-strong) 12%, transparent);
+  --ov-white-15: color-mix(in srgb, var(--text-strong) 15%, transparent);
+  --ov-white-20: color-mix(in srgb, var(--text-strong) 20%, transparent);
+  --ov-white-25: color-mix(in srgb, var(--text-strong) 25%, transparent);
+  --ov-white-28: color-mix(in srgb, var(--text-strong) 28%, transparent);
+  --ov-white-30: color-mix(in srgb, var(--text-strong) 30%, transparent);
+  --ov-white-35: color-mix(in srgb, var(--text-strong) 35%, transparent);
+  --ov-white-40: color-mix(in srgb, var(--text-strong) 40%, transparent);
+  --ov-white-45: color-mix(in srgb, var(--text-strong) 45%, transparent);
+  --ov-white-50: color-mix(in srgb, var(--text-strong) 50%, transparent);
+  --ov-white-60: color-mix(in srgb, var(--text-strong) 60%, transparent);
+  --ov-white-70: color-mix(in srgb, var(--text-strong) 70%, transparent);
+  --ov-white-75: color-mix(in srgb, var(--text-strong) 75%, transparent);
+  --ov-white-80: color-mix(in srgb, var(--text-strong) 80%, transparent);
+  --ov-white-85: color-mix(in srgb, var(--text-strong) 85%, transparent);
+  --ov-white-90: color-mix(in srgb, var(--text-strong) 90%, transparent);
+}
+body.layout-modern .editor-mix-controls .control-btn.active { color: var(--on-accent); }
+body.layout-modern .editor-mix-controls .speed-display { color: color-mix(in srgb, var(--text-strong) 70%, transparent); }
+body.layout-modern .editor-mix-controls .speed-display:hover { color: var(--text-strong); }
+body.layout-modern .editor-mix-controls .speed-display.speed-modified { color: var(--accent-hover); }
 
 .editor-export-done,
 .editor-export-fail,
@@ -824,7 +859,7 @@
 #mixSyncPanel {
   display: block;
   width: 100%;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--shade-35);
   border: 1px solid var(--border);
   border-radius: 6px;
   cursor: grab;
@@ -888,12 +923,12 @@ body.layout-modern .editor-panel h3 .vi,
 body.layout-modern .editor-panel h2 .vi { color: var(--m-text-2); }
 
 body.layout-modern .editor-song-card {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--tint-03);
   border-color: var(--m-border);
   border-radius: var(--m-radius);
 }
 body.layout-modern .editor-song-card.is-unknown { border-color: var(--m-border); }
-body.layout-modern .editor-song-card:hover { border-color: rgba(255, 255, 255, 0.28); }
+body.layout-modern .editor-song-card:hover { border-color: var(--tint-28); }
 body.layout-modern .editor-song-card:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
 body.layout-modern .editor-song-card .tile-name { color: var(--m-text); font-size: 13px; }
 body.layout-modern .editor-song-card .coll-count { color: var(--m-muted); }

@@ -25,7 +25,7 @@
 .editor-subtab.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* ── Setup layout ── */
@@ -83,7 +83,7 @@
   color: var(--text-primary); font-size: 0.75rem; cursor: pointer; line-height: 1;
 }
 .pmv-audio-play:hover { border-color: var(--accent); }
-.pmv-audio-play.playing { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pmv-audio-play.playing { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 .pmv-audio-pick-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.3rem; }
 .pmv-audio-pick-name {
@@ -112,7 +112,7 @@
   color: var(--text-secondary); font-size: 1rem; font-weight: 700; cursor: pointer; line-height: 1;
 }
 .pmv-audio-addbtn:hover { border-color: var(--accent); color: var(--text-primary); }
-.pmv-audio-addbtn.added { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pmv-audio-addbtn.added { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 /* ── Selected source videos (pinned strip at the top of the panel) ── */
 .pmv-selected-videos { display: none; }
@@ -155,7 +155,7 @@
   border: none; background: var(--bg-tertiary); color: var(--text-secondary);
   font-size: 0.62rem; cursor: pointer; line-height: 1;
 }
-.pmv-selected-vid-x:hover { background: var(--danger); color: #fff; }
+.pmv-selected-vid-x:hover { background: var(--danger); color: var(--on-danger); }
 
 .pmv-pick { position: relative; cursor: pointer; }
 .pmv-pick.pmv-picked .tile-thumb { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px; }
@@ -163,10 +163,10 @@
 .pmv-pick-check {
   position: absolute; top: 6px; right: 6px;
   width: 22px; height: 22px; border-radius: 50%;
-  background: var(--accent); color: #fff;
+  background: var(--accent); color: var(--on-accent);
   display: flex; align-items: center; justify-content: center;
   font-size: 0.8rem; font-weight: 700;
-  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 1px 5px var(--ov-black-50);
 }
 
 /* ── Soundtrack selection rows (ordered) ── */
@@ -180,7 +180,7 @@
 
 .pmv-audio-order {
   width: 20px; height: 20px; flex: none;
-  border-radius: 50%; background: var(--accent); color: #fff;
+  border-radius: 50%; background: var(--accent); color: var(--on-accent);
   font-size: 0.7rem; font-weight: 700;
   display: flex; align-items: center; justify-content: center;
 }
@@ -244,7 +244,7 @@
   -webkit-appearance: none; appearance: none; pointer-events: auto;
   width: 16px; height: 16px; border-radius: 50%;
   background: #fff; border: 3px solid var(--accent); cursor: grab;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 1px 4px var(--shade-50);
 }
 .pmv-dual-range input[type="range"]::-moz-range-thumb {
   pointer-events: auto;
@@ -258,7 +258,7 @@
 .pmv-generate-btn {
   width: 100%; padding: 0.7rem;
   background: var(--accent); border: 1px solid var(--accent);
-  border-radius: 9px; color: #fff; font-size: 0.95rem; font-weight: 700;
+  border-radius: 9px; color: var(--on-accent); font-size: 0.95rem; font-weight: 700;
   cursor: pointer; transition: background 0.15s;
 }
 .pmv-generate-btn:hover:not(:disabled) { background: var(--accent-hover); }
@@ -328,7 +328,7 @@
 .pmv-cut-vid {
   position: absolute; top: 3px; left: 4px;
   font-size: 0.62rem; font-weight: 700; font-family: monospace;
-  background: rgba(0, 0, 0, 0.7); color: #fff;
+  background: var(--ov-black-70); color: var(--ov-text);
   padding: 0.05rem 0.3rem; border-radius: 4px;
 }
 
@@ -341,12 +341,12 @@
 .pmv-cut-del {
   position: absolute; top: 3px; right: 3px;
   width: 18px; height: 18px; border-radius: 50%;
-  border: none; background: rgba(0, 0, 0, 0.7); color: #ddd;
+  border: none; background: var(--ov-black-70); color: var(--ov-text-dim);
   font-size: 0.62rem; cursor: pointer; line-height: 1;
   opacity: 0; transition: opacity 0.12s;
 }
 .pmv-cut:hover .pmv-cut-del { opacity: 1; }
-.pmv-cut-del:hover { background: var(--danger); color: #fff; }
+.pmv-cut-del:hover { background: var(--danger); color: var(--on-danger); }
 
 .pmv-review-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 
@@ -355,7 +355,7 @@
   background: var(--bg-secondary); border: 1px solid var(--border);
   border-radius: 10px; padding: 0.75rem;
 }
-.pmv-output-video { width: 100%; max-height: 55vh; border-radius: 8px; background: #000; }
+.pmv-output-video { width: 100%; max-height: 55vh; border-radius: 8px; background: var(--ov-letterbox); }
 .pmv-output-meta { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-family: monospace; }
 
 .pmv-error {
@@ -390,7 +390,7 @@ body.layout-modern .pmv-mini-btn { border-color: var(--m-border-strong); backgro
 body.layout-modern .pmv-mini-btn:hover:not(:disabled) { border-color: var(--m-border-strong); background: var(--m-btn-hover); color: var(--m-text); }
 body.layout-modern .pmv-mini-btn .vi { width: 13px; height: 13px; }
 body.layout-modern .pmv-audio-addbtn { border-color: var(--m-border-strong); background: var(--m-btn); color: var(--m-text-2); }
-body.layout-modern .pmv-audio-addbtn.added { background: var(--accent); border-color: transparent; color: #fff; }
+body.layout-modern .pmv-audio-addbtn.added { background: var(--accent); border-color: transparent; color: var(--on-accent); }
 body.layout-modern .pmv-audio-addbtn .vi { width: 15px; height: 15px; }
 body.layout-modern .pmv-selected-vid-x .vi,
 body.layout-modern .pmv-cut-del .vi { width: 10px; height: 10px; }
@@ -401,7 +401,7 @@ body.layout-modern .pmv-review-stats .vi { color: var(--m-muted); }
 
 body.layout-modern .pmv-error {
   background: rgba(239, 68, 68, 0.08);
-  border-color: rgba(252, 165, 165, 0.35);
+  border-color: color-mix(in srgb, var(--m-danger-text) 35%, transparent);
   color: var(--m-danger-text);
   border-radius: var(--m-radius-sm);
 }
@@ -409,3 +409,4 @@ body.layout-modern .pmv-error {
 /* The picker search options (player-lib/search-engine.js, PMV and Games):
    a smaller tick box inside the pill. */
 body.layout-modern .picker-opt .m-check { width: 14px; height: 14px; border-radius: 4px; background-size: 10px 10px; }
+body.layout-modern .picker-opt .m-check:checked::before { -webkit-mask-size: 10px 10px; mask-size: 10px 10px; }

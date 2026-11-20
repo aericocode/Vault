@@ -280,7 +280,17 @@ body.layout-modern .m-check:hover { border-color: var(--tint-60); }
 body.layout-modern .m-check:checked {
   border-color: var(--accent);
   background-color: var(--accent);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+}
+/* The tick is a mask painted in --on-accent, so it turns dark on a pale
+   highlight (Graphite, a pale Custom pick). The SVG only gives the shape. */
+body.layout-modern .m-check { position: relative; }
+body.layout-modern .m-check:checked::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: var(--on-accent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / 12px 12px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / 12px 12px no-repeat;
 }
 body.layout-modern .m-check:focus-visible,
 body.layout-modern .m-switch:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
@@ -311,6 +321,7 @@ body.layout-modern .m-switch::before {
   transition: transform 0.15s ease;
 }
 body.layout-modern .m-switch:checked { background: var(--accent); }
+body.layout-modern .m-switch:checked::before { background: var(--on-accent); }
 body.layout-modern .m-switch:checked::before { transform: translateX(14px); }
 body.layout-modern .m-check:disabled,
 body.layout-modern .m-switch:disabled { opacity: 0.45; cursor: default; }

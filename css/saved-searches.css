@@ -138,14 +138,14 @@
 
 /* ── Modern: the line star (filled once saved) and quiet chips ── */
 body.layout-modern .search-save-star { width: 28px; height: 28px; padding: 0; border-radius: var(--m-radius-sm); color: var(--m-muted); }
-body.layout-modern .search-save-star:hover:not(:disabled) { color: #facc15; background: var(--m-btn); transform: translateY(-50%); }
-body.layout-modern .search-save-star.saved { color: #facc15; }
+body.layout-modern .search-save-star:hover:not(:disabled) { color: var(--star); background: var(--m-btn); transform: translateY(-50%); }
+body.layout-modern .search-save-star.saved { color: var(--star); }
 body.layout-modern .search-save-star .vi { width: 18px; height: 18px; }
 body.layout-modern .search-save-star.saved .vi { fill: currentColor; }
 body.layout-modern .search-save-star:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
 
 body.layout-modern .saved-search-chip { border: 1px solid var(--m-border-strong); background: var(--m-btn); }
-body.layout-modern .saved-search-chip:hover { border-color: rgba(255, 255, 255, 0.22); background: var(--m-btn-hover); }
+body.layout-modern .saved-search-chip:hover { border-color: var(--tint-22); background: var(--m-btn-hover); }
 body.layout-modern .saved-search-chip.active { border-color: var(--accent); background: var(--accent-bg, rgba(99, 102, 241, 0.2)); }
 body.layout-modern .saved-search-activate { color: var(--m-text-2); font-size: 12px; }
 body.layout-modern .saved-search-chip:hover .saved-search-activate,

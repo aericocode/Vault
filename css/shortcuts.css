@@ -7,7 +7,7 @@
   position: fixed;
   inset: 0;
   z-index: 10100;                 /* above the mini player, editors and tooltips */
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -21,7 +21,7 @@
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: 12px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 18px 50px var(--shade-55);
   width: min(1100px, 100%);
   max-height: 86vh;
   display: flex;
@@ -99,8 +99,8 @@
   border-radius: 8px;
 }
 .sk-group.sk-here {
-  background: rgba(99, 102, 241, 0.10);
-  outline: 1px solid rgba(99, 102, 241, 0.45);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   padding: 8px 10px;
   margin-left: -10px;
   margin-right: -10px;
@@ -118,7 +118,7 @@
 }
 .sk-now {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   border-radius: 99px;
   padding: 0 6px;
   font-size: 9.5px;
@@ -161,12 +161,12 @@
 .sk-settings-top kbd,
 .sk-cols2 kbd {
   font: 600 11px ui-monospace, Consolas, monospace;
-  background: #2a2a2e;
-  border: 1px solid #444;
+  background: var(--kbd-bg);
+  border: 1px solid var(--grey-44);
   border-bottom-width: 2px;
   border-radius: 4px;
   padding: 0 5px;
-  color: #ddd;
+  color: var(--kbd-text);
   white-space: nowrap;
 }
 
@@ -240,7 +240,7 @@ body.layout-modern .sk-x {
 }
 body.layout-modern .sk-x:hover { background: var(--m-btn); color: var(--m-text); }
 body.layout-modern .sk-x .vi { width: 16px; height: 16px; }
-body.layout-modern .sk-row { border-bottom-color: rgba(255, 255, 255, 0.06); }
+body.layout-modern .sk-row { border-bottom-color: var(--tint-06); }
 /* The footer link is a quiet text button in the accent colour, no underline. */
 body.layout-modern .sk-link {
   margin: -3px -8px;
@@ -252,7 +252,7 @@ body.layout-modern .sk-link:hover { background: var(--m-btn); }
 body.layout-modern .sk-link:focus-visible,
 body.layout-modern .sk-x:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
 /* The same dim as the Settings dialog behind it. */
-body.layout-modern .sk-overlay { background: rgba(0, 0, 0, 0.8); }
+body.layout-modern .sk-overlay { background: var(--scrim-strong); }
 
 /* Settings > Keyboard shortcuts in Modern: Settings keeps its normal size on
    this page too, and the list gets denser instead: three columns of groups

@@ -10,13 +10,13 @@
 
 .meta-badge.duplicate-badge.exact {
   background: rgba(243, 139, 168, 0.15);
-  color: #f38ba8;
+  color: var(--flagged);
   border: 1px solid rgba(243, 139, 168, 0.3);
 }
 
 .meta-badge.duplicate-badge.likely {
   background: rgba(249, 226, 175, 0.15);
-  color: #f9e2af;
+  color: var(--yellow-soft);
   border: 1px solid rgba(249, 226, 175, 0.3);
 }
 
@@ -35,13 +35,13 @@
 }
 
 .card-flag-btn:hover {
-  color: #f38ba8;
+  color: var(--flagged);
   opacity: 1;
   transform: scale(1.15);
 }
 
 .card-flag-btn.flagged {
-  color: #f38ba8;
+  color: var(--flagged);
   opacity: 1;
 }
 
@@ -54,7 +54,7 @@
 
 .meta-badge.flagged-badge {
   background: rgba(243, 139, 168, 0.15);
-  color: #f38ba8;
+  color: var(--flagged);
   border: 1px solid rgba(243, 139, 168, 0.3);
 }
 
@@ -94,7 +94,7 @@
 
 .duplicate-filename {
   font-size: 0.85rem;
-  color: var(--text, #cdd6f4);
+  color: var(--text-cool);
   font-weight: 500;
   word-break: break-all;
 }
@@ -120,7 +120,7 @@
 
 .dup-action-btn {
   padding: 0.25rem 0.5rem;
-  background: var(--surface, #313244);
+  background: var(--btn-cool);
   border: 1px solid var(--border, #444);
   border-radius: 5px;
   color: var(--text-secondary, #aaa);
@@ -130,14 +130,14 @@
 }
 
 .dup-action-btn:hover {
-  color: var(--text, #cdd6f4);
+  color: var(--text-cool);
   border-color: var(--accent, #89b4fa);
 }
 
 .dup-action-btn.flag-btn:hover,
 .dup-action-btn.flag-btn.active {
-  color: #f38ba8;
-  border-color: #f38ba8;
+  color: var(--flagged);
+  border-color: var(--flagged);
   background: rgba(243, 139, 168, 0.1);
 }
 
@@ -187,18 +187,19 @@
 
 .tri-btn:hover:not(.active) {
   background: rgba(255, 255, 255, 0.04);
-  color: var(--text, #cdd6f4);
+  color: var(--text-cool);
 }
 
 .tri-btn.active {
   background: var(--accent, #89b4fa);
-  color: var(--bg, #1e1e2e);
+  color: var(--on-accent-ink);
   font-weight: 600;
 }
 
 /* Colored active states per filter type */
 .tri-filter[data-filter="filterFlagged"] .tri-btn.active[data-value="1"] {
   background: #f38ba8;
+  color: #1e1e2e;
 }
 
 .tri-filter[data-filter="filterDuplicates"] .tri-btn.active[data-value="1"] {

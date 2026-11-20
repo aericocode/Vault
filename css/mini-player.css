@@ -19,10 +19,10 @@
   bottom: 16px;
   width: 480px;
   height: 270px;
-  background: #000;
+  background: var(--ov-letterbox);
   border: 1px solid var(--border, #444);
   border-radius: 12px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 18px 50px var(--shade-60);
   z-index: 9000;
   overflow: hidden;
   touch-action: none;       /* drags are ours, on touch too */
@@ -43,7 +43,7 @@
 
 .mini-player.mini-dragging {
   cursor: grabbing;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 24px 60px var(--shade-70);
 }
 
 /* The glide into a corner after a drag (not while dragging or resizing) */
@@ -53,7 +53,7 @@
 
 body.layout-modern .mini-player {
   border-color: transparent;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  box-shadow: 0 18px 50px var(--shade-60), 0 0 0 1px var(--tint-08);
 }
 
 /* ── The picture ─────────────────────────────────────────────────────── */
@@ -99,7 +99,7 @@ body.layout-modern .mini-player {
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, var(--accent, #6366f1), var(--accent-hover, #4f46e5));
-  color: #fff;
+  color: var(--on-accent);
 }
 .mini-audio-art[hidden] { display: none; }
 
@@ -164,8 +164,8 @@ body.layout-modern .mini-player {
   padding: 8px;
   /* A strong scrim top and bottom, so white controls read on any frame */
   background: linear-gradient(180deg,
-    rgba(0, 0, 0, 0.72) 0, rgba(0, 0, 0, 0.35) 22%, transparent 42%,
-    transparent 55%, rgba(0, 0, 0, 0.4) 75%, rgba(0, 0, 0, 0.82) 100%);
+    var(--ov-black-72) 0, var(--ov-black-35) 22%, transparent 42%,
+    transparent 55%, var(--ov-black-40) 75%, var(--ov-black-82) 100%);
   /* Faded, not hidden: the buttons stay in the Tab order, and focusing one
      brings the controls up. A click on faded controls goes to the box
      (which shows them), never to a button the user cannot see. */
@@ -265,10 +265,10 @@ body.layout-modern .mini-player {
   width: var(--mc-btn, 34px);
   height: var(--mc-btn, 34px);
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--ov-white-14);
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.62);
-  color: #fff;
+  background: var(--ov-black-62);
+  color: var(--ov-text);
   cursor: pointer;
   font-size: calc(var(--mc-icon, 19px) - 3px);   /* Classic's glyphs */
   line-height: 1;
@@ -277,15 +277,15 @@ body.layout-modern .mini-player {
 .mini-ctrl[hidden] { display: none; }
 
 .mini-ctrl:hover {
-  background: rgba(0, 0, 0, 0.82);
-  border-color: rgba(255, 255, 255, 0.4);
+  background: var(--ov-black-82);
+  border-color: var(--ov-white-40);
 }
 body:not(.layout-modern) .mini-ctrl:hover {
   border-color: var(--border, #666);
 }
 
 .mini-ctrl:focus-visible {
-  outline: 2px solid #fff;
+  outline: 2px solid var(--ov-text);
   outline-offset: 1px;
   box-shadow: 0 0 0 4px var(--accent, #6366f1);
 }
@@ -310,7 +310,7 @@ body:not(.layout-modern) .mini-ctrl:hover {
   width: var(--mc-big, 56px);
   height: var(--mc-big, 56px);
   font-size: calc(var(--mc-big-icon, 26px) - 4px);
-  background: rgba(0, 0, 0, 0.66);
+  background: var(--ov-black-66);
 }
 
 .mini-ctrl .vi { width: var(--mc-icon, 19px); height: var(--mc-icon, 19px); stroke-width: 2.2; }
@@ -337,7 +337,7 @@ body:not(.layout-modern) .mini-ctrl:hover {
   width: 0;
   opacity: 0;
   margin: 0;
-  accent-color: #fff;
+  accent-color: var(--ov-text);
   cursor: pointer;
   transition: width 0.15s ease, opacity 0.15s ease;
 }
@@ -366,8 +366,8 @@ body:not(.layout-modern) .mini-ctrl:hover {
   position: relative;
   height: 6px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.32);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  background: var(--ov-white-32);
+  box-shadow: 0 1px 3px var(--ov-black-50);
 }
 
 .mini-seek-fill {
@@ -377,7 +377,7 @@ body:not(.layout-modern) .mini-ctrl:hover {
   border-radius: 3px;
   background: var(--accent, #6366f1);
 }
-body.layout-modern .mini-seek-fill { background: #fff; }
+body.layout-modern .mini-seek-fill { background: var(--ov-text); }
 
 /* The thumb at the playhead */
 .mini-seek-fill::after {
@@ -389,8 +389,8 @@ body.layout-modern .mini-seek-fill { background: #fff; }
   height: 14px;
   margin-top: -7px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  background: var(--ov-text);
+  box-shadow: 0 1px 4px var(--ov-black-60);
 }
 
 .mini-seek:hover .mini-seek-track,
@@ -406,8 +406,8 @@ body.layout-modern .mini-seek-fill { background: #fff; }
   gap: 8px;
   font-size: 13px;
   line-height: 1.35;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.6);
+  color: var(--ov-text);
+  text-shadow: 0 1px 2px var(--ov-black-90), 0 0 6px var(--ov-black-60);
 }
 
 .mini-player-title {
@@ -449,8 +449,8 @@ button.mini-player-title:focus-visible { outline: 2px solid var(--accent-hover, 
   opacity: 0;
   pointer-events: none;     /* an unseen grip takes no presses */
   transition: opacity 0.2s ease;
-  border: 0 solid #fff;
-  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9));
+  border: 0 solid var(--ov-text);
+  filter: drop-shadow(0 0 2px var(--ov-black-90));
 }
 
 .mini-player.mini-controls-on .mini-resize,
@@ -494,8 +494,8 @@ button.mini-player-title:focus-visible { outline: 2px solid var(--accent-hover, 
 
 .media-player-minimize {
   background: none;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--ov-white-20);
+  color: var(--ov-white-70);
   cursor: pointer;
   font-size: 0.85rem;
   padding: 0.35rem 0.65rem;
@@ -504,7 +504,7 @@ button.mini-player-title:focus-visible { outline: 2px solid var(--accent-hover, 
 }
 
 .media-player-minimize:hover {
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.4);
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--ov-text);
+  border-color: var(--ov-white-40);
+  background: var(--ov-white-08);
 }

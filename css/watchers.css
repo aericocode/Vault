@@ -55,7 +55,7 @@
   max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .wf-st[hidden] { display: none; }
-.wf-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; background: #777; }
+.wf-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; background: var(--grey-77); }
 .wf-dot[hidden] { display: none; }
 .wf-dot-ok { background: var(--success); }
 .wf-dot-amber { background: var(--warning); }
@@ -73,7 +73,7 @@
 
 .wf-overlay {
   position: fixed; inset: 0; z-index: 3000;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--shade-55);
   display: flex; align-items: center; justify-content: center;
   padding: 16px;
 }
@@ -84,7 +84,7 @@
   display: flex; flex-direction: column;
   background: var(--bg-secondary); color: var(--text-primary);
   border: 1px solid var(--border); border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 20px 60px var(--shade-55);
   overflow: hidden;
 }
 .wf-dialog[hidden] { display: none; }
@@ -113,7 +113,7 @@
   cursor: pointer; white-space: nowrap;
 }
 .wf-seg-btn:last-child { border-right: none; }
-.wf-seg-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.wf-seg-btn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .wf-seg-btn:disabled { opacity: 0.45; cursor: default; }
 .wf-interval { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: var(--text-secondary); }
 .wf-interval[hidden] { display: none; }
@@ -141,7 +141,7 @@
 .wf-grow { flex: 1; }
 .wf-confirm-text { font-size: 0.85rem; color: var(--text-primary); flex: 1 1 240px; }
 .settings-btn.wf-danger { background: var(--danger); }
-.settings-btn.wf-danger:hover { background: #dc2626; }
+.settings-btn.wf-danger:hover { background: var(--danger-fill); }
 
 /* A small on/off switch for places without the Settings row around it. */
 .wf-switch { position: relative; display: inline-flex; flex: none; cursor: pointer; }
@@ -166,25 +166,25 @@ body.layout-modern .wf-row {
   border-radius: 10px;
   background: var(--m-field);
 }
-body.layout-modern .wf-ic { background: rgba(255, 255, 255, 0.06); color: var(--m-text-2); border-radius: var(--m-radius-sm); }
+body.layout-modern .wf-ic { background: var(--tint-06); color: var(--m-text-2); border-radius: var(--m-radius-sm); }
 body.layout-modern .wf-ic .vi { width: 16px; height: 16px; }
 body.layout-modern .wf-path { color: var(--m-text); font-size: 14px; }
 body.layout-modern .wf-meta { color: var(--m-muted); font-size: 12px; }
-body.layout-modern .wf-st { background: rgba(255, 255, 255, 0.06); color: var(--m-text-2); font-size: 12px; }
+body.layout-modern .wf-st { background: var(--tint-06); color: var(--m-text-2); font-size: 12px; }
 body.layout-modern .wf-more { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border-radius: var(--m-radius-sm); }
 body.layout-modern .wf-more:hover,
 body.layout-modern .wf-more:focus-visible { border-color: transparent; background: var(--m-btn-hover); }
-body.layout-modern .wf-bar { background: rgba(255, 255, 255, 0.08); }
+body.layout-modern .wf-bar { background: var(--tint-08); }
 
 body.layout-modern .wf-dialog {
-  background: rgba(22, 22, 27, 0.98);
+  background: color-mix(in srgb, var(--m-surface-solid) 98%, transparent);
   color: var(--m-text);
   border-color: var(--m-border);
   border-radius: var(--m-radius);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 50px var(--shade-50);
   font-size: 14px;
 }
-body.layout-modern .wf-dhead { padding: 14px 18px; border-bottom-color: rgba(255, 255, 255, 0.08); gap: 10px; }
+body.layout-modern .wf-dhead { padding: 14px 18px; border-bottom-color: var(--tint-08); gap: 10px; }
 body.layout-modern .wf-dtitle { font-size: 15px; font-weight: 600; }
 body.layout-modern .wf-x {
   display: inline-flex; align-items: center; justify-content: center;
@@ -194,23 +194,23 @@ body.layout-modern .wf-x {
 body.layout-modern .wf-x:hover { background: var(--m-btn-hover); color: var(--m-text); }
 body.layout-modern .wf-x .vi { width: 16px; height: 16px; }
 body.layout-modern .wf-dbody { padding: 4px 18px 10px; }
-body.layout-modern .wf-orow { border-bottom-color: rgba(255, 255, 255, 0.08); padding: 12px 0; }
+body.layout-modern .wf-orow { border-bottom-color: var(--tint-08); padding: 12px 0; }
 body.layout-modern .wf-olabel { font-size: 14px; font-weight: 500; }
 body.layout-modern .wf-olabel small { font-size: 12px; color: var(--m-muted); }
 body.layout-modern .wf-seg { border-color: var(--m-border-strong); border-radius: var(--m-radius-sm); }
 body.layout-modern .wf-seg-btn { background: var(--m-btn); color: var(--m-text-2); border-right-color: var(--m-border-strong); font-size: 13px; padding: 6px 11px; }
 body.layout-modern .wf-seg-btn:hover:not(:disabled):not([aria-pressed="true"]) { background: var(--m-btn-hover); color: var(--m-text); }
-body.layout-modern .wf-seg-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
+body.layout-modern .wf-seg-btn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 body.layout-modern .wf-interval { font-size: 13px; color: var(--m-text-2); }
 body.layout-modern .wf-num.m-field { width: 5rem; }
 body.layout-modern .wf-field.m-field { width: 8rem; }
 body.layout-modern .wf-text.m-field { min-height: 6.5rem; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 body.layout-modern .wf-chip { border-color: var(--m-border-strong); border-radius: var(--m-radius-sm); background: var(--m-btn); color: var(--m-text-2); font-size: 13px; padding: 4px 10px; }
-body.layout-modern .wf-chip[aria-pressed="true"] { color: #fff; border-color: transparent; background: var(--accent); }
+body.layout-modern .wf-chip[aria-pressed="true"] { color: var(--on-accent); border-color: transparent; background: var(--accent); }
 /* The accent fill says "on" in Modern; the ✓ glyph is Classic's. */
 body.layout-modern .wf-chip[aria-pressed="true"]::after { content: none; }
 body.layout-modern .wf-err { color: var(--m-danger-text); font-size: 13px; }
-body.layout-modern .wf-foot { padding: 12px 18px; border-top-color: rgba(255, 255, 255, 0.08); }
+body.layout-modern .wf-foot { padding: 12px 18px; border-top-color: var(--tint-08); }
 body.layout-modern .wf-confirm-text { font-size: 13px; color: var(--m-text-2); }
 
 /* ── The Add folder dialog's "Keep watching this folder" ───────────────── */
@@ -250,7 +250,7 @@ body.layout-modern .watch-pill {
   padding: 0.7rem 0.8rem;
   background: var(--bg-secondary); color: var(--text-primary);
   border: 1px solid var(--border); border-radius: 10px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 14px 40px var(--shade-50);
   font-size: 0.82rem;
 }
 .watch-pop[hidden] { display: none; }
@@ -275,7 +275,7 @@ body.layout-modern .watch-pill {
   padding: 0 0.35rem; border-radius: 3px; line-height: 1.45;
   pointer-events: none;
 }
-.tile-tag-new { background: var(--accent); color: #fff; }
+.tile-tag-new { background: var(--accent); color: var(--on-accent); }
 .tile-tag-missing { background: #5a2a2a; color: #fecaca; }
 /* The select box sits top-left on hover: the tag steps aside for it. */
 .media-tile:hover .tile-watch-tag { left: 30px; }

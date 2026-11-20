@@ -157,9 +157,9 @@ body.layout-modern #kofiThanksPanel .dq-title .vi { margin-right: 6px; }
 body.layout-modern #kofiThanksPanel .dq-title .vi { color: var(--accent-hover); }
 body.layout-modern #kofiThanksPanel .kofi-note { font-size: 12px; color: var(--m-text-2); }
 
-body.layout-modern #scanQueuePanel .dq-bar { background: rgba(255, 255, 255, 0.08); }
+body.layout-modern #scanQueuePanel .dq-bar { background: var(--tint-08); }
 body.layout-modern #scanQueuePanel .dq-meta { font-size: 12px; color: var(--m-muted); }
-body.layout-modern #scanQueuePanel .sp-tabs { margin: 0 -14px 8px; padding: 0 10px; border-bottom-color: rgba(255, 255, 255, 0.08); }
+body.layout-modern #scanQueuePanel .sp-tabs { margin: 0 -14px 8px; padding: 0 10px; border-bottom-color: var(--tint-08); }
 body.layout-modern #scanQueuePanel .sp-tab { font-size: 12px; color: var(--m-muted); }
 body.layout-modern #scanQueuePanel .sp-tab:hover,
 body.layout-modern #scanQueuePanel .sp-tab.on { color: var(--m-text); }
@@ -183,7 +183,7 @@ body.layout-modern #scanQueuePanel .dq-warn {
 }
 body.layout-modern #scanQueuePanel .dq-warn-at { color: var(--m-text-2); }
 body.layout-modern #scanQueuePanel .sp-grp { border-radius: var(--m-radius-sm); }
-body.layout-modern #scanQueuePanel .sp-pill { background: rgba(255, 255, 255, 0.07); }
+body.layout-modern #scanQueuePanel .sp-pill { background: var(--tint-07); }
 
 body.layout-modern #scanQueuePanel .dq-btn {
   display: inline-flex; align-items: center; gap: 5px;
@@ -196,15 +196,15 @@ body.layout-modern #scanQueuePanel .dq-btn {
 }
 body.layout-modern #scanQueuePanel .dq-btn:hover:not(:disabled) { background: var(--m-btn-hover); border-color: var(--m-border-strong); }
 body.layout-modern #scanQueuePanel .dq-btn:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
-body.layout-modern #scanQueuePanel .dq-btn-primary { background: var(--accent); border-color: transparent; color: #fff; }
+body.layout-modern #scanQueuePanel .dq-btn-primary { background: var(--accent); border-color: transparent; color: var(--on-accent); }
 body.layout-modern #scanQueuePanel .dq-btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: transparent; }
 body.layout-modern #scanQueuePanel .dq-btn-quiet,
 body.layout-modern #scanQueuePanel .dq-btn-ghost { background: transparent; border-color: transparent; color: var(--m-text-2); }
 body.layout-modern #scanQueuePanel .dq-btn-quiet:hover:not(:disabled),
 body.layout-modern #scanQueuePanel .dq-btn-ghost:hover:not(:disabled) { background: var(--m-btn); color: var(--m-text); }
-body.layout-modern #scanQueuePanel .dq-btn-danger:hover:not(:disabled) { color: var(--m-danger-text); border-color: rgba(239, 68, 68, 0.5); }
+body.layout-modern #scanQueuePanel .dq-btn-danger:hover:not(:disabled) { color: var(--m-danger-text); border-color: color-mix(in srgb, var(--danger) 50%, transparent); }
 body.layout-modern #scanQueuePanel .dq-btn-danger.armed,
-body.layout-modern #scanQueuePanel .dq-btn-danger.armed:hover:not(:disabled) { background: #dc2626; border-color: #dc2626; color: #fff; }
+body.layout-modern #scanQueuePanel .dq-btn-danger.armed:hover:not(:disabled) { background: var(--danger-fill); border-color: var(--danger-fill); color: var(--on-danger); }
 body.layout-modern #scanQueuePanel .sp-mini { padding: 2px 8px; font-size: 11px; }
 
 /* The display rules above outrank the [hidden] attribute: keep hidden buttons hidden. */

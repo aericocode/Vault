@@ -185,6 +185,154 @@
   --ov-text-dim: #ddd;                      /* icons on a quiet button on the picture */
   --ov-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
   --ov-letterbox: #000;                     /* the bars around a picture */
+
+  /* group 4: faces and notes */
+  /* Greys between the ramp's steps, mixed from it so Light and every palette
+     follow. Dark values in the names: #444, #555, #777, #888, #c8c8c8. */
+  --grey-44: color-mix(in srgb, var(--border) 67%, var(--text-muted));          /* a firmer border */
+  --grey-55: color-mix(in srgb, var(--border) 33%, var(--text-muted));          /* dashed "add" outlines */
+  --grey-77: color-mix(in srgb, var(--text-muted) 71%, var(--text-secondary));
+  --grey-88: color-mix(in srgb, var(--text-muted) 41%, var(--text-secondary));  /* small caps headings, meta */
+  --grey-c8: color-mix(in srgb, var(--text-secondary) 37.5%, var(--text-primary)); /* body copy in Faces */
+  --bg-panel: color-mix(in srgb, var(--bg-primary) 55%, var(--bg-secondary));   /* #141414: Faces review panel, Compare */
+  --lock-bg: #0b0b10;                       /* the lock screen */
+  --btn-cool: #313244;                      /* quiet button (Clear filters, note Clear, duplicate actions) */
+  --btn-cool-hover: #3a3a4e;
+  --chip-cool: #1e1e2e;                     /* favorite button, extension chips */
+  --chip-cool-hover: #2a2a3e;
+  --text-cool: #cdd6f4;                     /* hover text on those, duplicate names */
+  --on-accent-ink: #1e1e2e;                 /* dark text on an accent fill (Add note, active chips) */
+  --yellow-soft: #f9e2af;                   /* rating stars, favorite, "likely duplicates" */
+  --flagged: #f38ba8;                       /* flagged for deletion, exact duplicates (a meaning color) */
+  --m-success-text-2: #bbf7d0;              /* pale green text on a green wash (Same) */
+  --on-accent-bg-2: #e0e7ff;                /* text on an accent wash (Skip) */
+  --warn-line: #8a6a1f;                     /* a dim amber card border (face model damaged) */
+  --bar-paused: #6b6b80;                    /* a paused progress bar */
+  --shade-72: rgba(0, 0, 0, 0.72);          /* the Faces review dialog backdrop */
+
+  /* group 2: stage and wall */
+  --tint-04: rgba(255, 255, 255, 0.04);     /* the set log's quiet buttons */
+  --tint-09: rgba(255, 255, 255, 0.09);     /* and their hover */
+  --tint-16: rgba(255, 255, 255, 0.16);     /* the Stage bar's pill outline */
+  --ov-black-40: rgba(0, 0, 0, 0.4);        /* a Wall tile's progress track */
+  --ov-black-62: rgba(0, 0, 0, 0.62);       /* Flow's Next badge on a tile */
+  --ov-white-12: rgba(255, 255, 255, 0.12); /* Flow's progress track on a tile */
+  --ov-white-18: rgba(255, 255, 255, 0.18); /* Flow's Next badge outline */
+  /* The Stage bar's surface: the Modern surface a step darker (#131317). */
+  --stage-bar-bg: color-mix(in srgb, var(--m-surface-solid) 86%, #000);
+  /* A fill in the strongest text color (the Stage bar's Play button), its
+     label and its hover. */
+  --on-strong: #111;
+  --text-strong-hover: #e4e4ea;
+  /* The Wall's board behind its tiles, and its bar floating over them in
+     full screen. */
+  --wall-bg: #000;
+  --wall-fs-bar: rgba(20, 20, 20, 0.85);
+
+  /* group 3: sharing and library */
+  --tint-02: rgba(255, 255, 255, 0.02);     /* a folded-out row in My shares */
+  --tint-07: rgba(255, 255, 255, 0.07);     /* a picked card, a pill */
+  --on-warning: #1f1300;                    /* text on an amber fill (Activity count) */
+  /* "Waiting for you" as text (Share privately, Activity). The same amber as
+     --warning-text in dark; in light an orange amber that stays apart from
+     the red of a failed share (--warning-text's brown reads close to it). */
+  --wait-text: #fbbf24;
+  --m-warning-text: #fde68a;                /* pale amber text inside a warning box */
+  --warning-text-2: #fcd34d;                /* amber hint line (folder picker) */
+  --m-danger-text-2: #fecaca;               /* pale red text inside an error box */
+  --danger-fill: #dc2626;                   /* a red button's other shade (hover or rest) */
+  --danger-disabled-bg: #3a2222;            /* a red button that cannot be pressed yet */
+  --danger-disabled-text: #e8c4c4;
+  --success-soft: #4ade80;                  /* green toast icon and border */
+  --info-text: #89b4fa;                     /* Rescan these: a blue that is not the highlight */
+  --mode-boolean: #22d3ee;                  /* search mode badges */
+  --mode-semantic: #a855f7;
+  --mode-semantic-text: #c084fc;
+  --fave: #f472b6;                          /* the favourite heart in the table */
+  --kbd-bg: #2a2a2e;                        /* key caps in the shortcuts lists (border: --grey-44) */
+  --kbd-text: #ddd;
+  --hairline-soft: #d3d3d329;               /* the boxes in the details window */
+
+  /* group 5: editor, games, settings */
+  --tint-28: rgba(255, 255, 255, 0.28);     /* song card hover border, Reel Order connector lines */
+  --on-success: #06210f;                    /* text on a green fill (Solved badge) */
+  --success-alt: #10b981;                   /* emerald "good" text and border (Moved your files?) */
+  --warning-soft-text: #f5c470;             /* amber title inside the Cove notice */
+
+  /* group 1: player */
+  /* More over-video steps (never change): the player's controls, seek bars,
+     subtitles, the beat bar and the mini player. */
+  --ov-black-30: rgba(0, 0, 0, 0.3);
+  --ov-black-66: rgba(0, 0, 0, 0.66);
+  --ov-black-78: rgba(0, 0, 0, 0.78);
+  --ov-black-82: rgba(0, 0, 0, 0.82);
+  --ov-white-05: rgba(255, 255, 255, 0.05);
+  --ov-white-06: rgba(255, 255, 255, 0.06);
+  --ov-white-08: rgba(255, 255, 255, 0.08);
+  --ov-white-14: rgba(255, 255, 255, 0.14);
+  --ov-white-20: rgba(255, 255, 255, 0.2);
+  --ov-white-22: rgba(255, 255, 255, 0.22);
+  --ov-white-24: rgba(255, 255, 255, 0.24);
+  --ov-white-30: rgba(255, 255, 255, 0.3);
+  --ov-white-32: rgba(255, 255, 255, 0.32);
+  --ov-white-40: rgba(255, 255, 255, 0.4);
+  --ov-white-45: rgba(255, 255, 255, 0.45);
+  --ov-white-50: rgba(255, 255, 255, 0.5);
+  --ov-white-55: rgba(255, 255, 255, 0.55);
+  --ov-white-70: rgba(255, 255, 255, 0.7);
+  --ov-white-75: rgba(255, 255, 255, 0.75);
+  --ov-white-80: rgba(255, 255, 255, 0.8);
+  --ov-white-90: rgba(255, 255, 255, 0.9);
+  /* The player's menus over the picture (gear and speed menus, beat bar
+     settings) stay dark glass in every theme, like the dock they open from. */
+  --ov-menu: rgba(22, 22, 27, 0.97);
+  --ov-menu-line: #34343c;
+  --ov-menu-sep: #2c2c33;
+  --ov-menu-chip: #2a2a31;                  /* key caps, segmented controls */
+  --ov-ink: #ececf1;                        /* the dock's and menus' text */
+  --ov-ink-2: #a9a9b4;                      /* times, values */
+  --ov-ink-3: #8b8b97;                      /* small headings, notes */
+  /* The highlight on the dark glass: --accent-text in every dark theme, a
+     light mix of the highlight in Light (the light block below). */
+  --pl-accent-text: var(--accent-text);
+  /* Highlight-tinted chips on the glass. Vault Dark keeps its exact values;
+     every other theme mixes them from the highlight (block after Light). */
+  --pl-glass-chip: #45457a;
+  --pl-glass-chip-2: #33335a;
+  --pl-glass-chip-line: #6d6dc0;
+  --pl-glass-accent-line: #3a3a7a;
+  /* The Modern Info panel, the Up next list and the audio view: on the page.
+     Vault Dark keeps its own zinc greys exactly; every other theme takes the
+     palette's Modern surfaces (block after Light). */
+  --pl-panel: #18181b;
+  --pl-line: #26262c;
+  --pl-line-strong: #34343c;
+  --pl-field-line: #3a3a42;
+  --pl-btn: #26262c;
+  --pl-btn-hover: #33333b;
+  --pl-btn-2-hover: #2e2e35;
+  --pl-item-hover: #26262c;
+  --pl-chip: #2a2a31;                       /* tags, icon button hover */
+  --pl-field: #232328;
+  --pl-text: #e4e4ea;
+  --pl-text-hover: #dcdce4;
+  --pl-icon: #d4d4dc;
+  --pl-text-2: #cfcfd8;                     /* the description */
+  --pl-text-3: #a1a1aa;                     /* icons in menus, small print */
+  --pl-muted: #9a9aa6;                      /* idle tabs */
+  --pl-faint: #6b6b76;                      /* "None yet", note dates */
+  --pl-placeholder: #7e7e8a;
+  --pl-accent-down: #4f46e5;                /* hover of a highlight button */
+  --pl-stage: #000;                         /* behind an audio file's name */
+  --pl-link-hover: #c7d2fe;
+  /* Code colors in the document viewer (not the palette: darker in Light). */
+  --pl-code-keyword: #c792ea;
+  --pl-code-string: #c3e88d;
+  --pl-code-number: #f78c6c;
+  --pl-code-comment: #676e95;
+  --pl-code-tag: #f07178;
+  --pl-code-attr: #ffcb6b;
+  --pl-code-key: #82aaff;
 }
 
 /* ── Light (Vault palette) ────────────────────────────────────────────────
@@ -276,6 +424,101 @@
   --scrim-strong: rgba(20, 20, 28, 0.55);
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.14);
+
+  /* group 4: faces and notes (the --grey-* and --bg-panel mixes follow on their own) */
+  --lock-bg: var(--bg-primary);
+  --btn-cool: var(--bg-tertiary);
+  --btn-cool-hover: var(--bg-hover);
+  --chip-cool: var(--bg-tertiary);
+  --chip-cool-hover: var(--bg-hover);
+  --text-cool: var(--text-primary);
+  --on-accent-ink: var(--on-accent);
+  --yellow-soft: #a16207;
+  --flagged: #be123c;
+  --m-success-text-2: #166534;
+  --on-accent-bg-2: var(--on-accent-bg);
+  --warn-line: #d4a24a;
+  --bar-paused: #a3a3b4;
+  --shade-72: rgba(20, 20, 28, 0.42);
+
+  /* group 2: stage and wall */
+  --tint-04: rgba(0, 0, 0, 0.04);
+  --tint-09: rgba(0, 0, 0, 0.09);
+  --tint-16: rgba(0, 0, 0, 0.16);
+  --stage-bar-bg: var(--m-surface-solid);
+  --on-strong: #fff;
+  --text-strong-hover: #3a3a3a;
+  --wall-bg: var(--bg-primary);
+  --wall-fs-bar: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+
+  /* group 3: sharing and library */
+  --tint-02: rgba(0, 0, 0, 0.02);
+  --tint-07: rgba(0, 0, 0, 0.07);
+  --on-warning: #fff;
+  --wait-text: #b45309;
+  --m-warning-text: #92400e;
+  --warning-text-2: #92400e;
+  --m-danger-text-2: #991b1b;
+  --danger-fill: #991b1b;
+  --danger-disabled-bg: #f2dede;
+  --danger-disabled-text: #9b5c5c;
+  --success-soft: #15803d;
+  --info-text: #1d4ed8;
+  --mode-boolean: #0e7490;
+  --mode-semantic: #7e22ce;
+  --mode-semantic-text: #6b21a8;
+  --fave: #be185d;
+  --kbd-bg: #f4f4f6;
+  --kbd-text: #2a2a2e;
+  --hairline-soft: rgba(0, 0, 0, 0.12);
+
+  /* group 5: editor, games, settings */
+  --tint-28: rgba(0, 0, 0, 0.28);
+  --on-success: #fff;
+  --success-alt: #047857;
+  --warning-soft-text: #92400e;
+
+  /* group 1: player (the panel greys and glass chips: next block) */
+  --pl-accent-text: color-mix(in srgb, var(--accent) 40%, #fff);
+  --pl-code-keyword: #7e22ce;
+  --pl-code-string: #3f6212;
+  --pl-code-number: #c2410c;
+  --pl-code-comment: #5b6178;
+  --pl-code-tag: #be123c;
+  --pl-code-attr: #a16207;
+  --pl-code-key: #1d4ed8;
+}
+
+/* group 1: player. Every theme but Vault Dark (Light, and every other
+   palette in Dark): the player's page greys follow the palette's Modern
+   surfaces, and the glass chips mix from its highlight. */
+:root[data-theme="light"],
+:root[data-palette]:not([data-palette="vault"]) {
+  --pl-glass-chip: color-mix(in srgb, var(--accent) 50%, #16161b);
+  --pl-glass-chip-2: color-mix(in srgb, var(--accent) 35%, #16161b);
+  --pl-glass-chip-line: color-mix(in srgb, var(--pl-accent-text) 62%, #16161b);
+  --pl-glass-accent-line: color-mix(in srgb, var(--accent) 45%, #0a0a0e);
+  --pl-panel: var(--m-surface-solid);
+  --pl-line: var(--m-border);
+  --pl-line-strong: var(--m-border-strong);
+  --pl-field-line: var(--m-border-strong);
+  --pl-btn: var(--m-btn);
+  --pl-btn-hover: var(--m-btn-hover);
+  --pl-btn-2-hover: var(--m-btn-hover);
+  --pl-item-hover: var(--m-btn-hover);
+  --pl-chip: var(--m-btn-hover);
+  --pl-field: var(--m-field-solid);
+  --pl-text: var(--m-text);
+  --pl-text-hover: var(--m-text);
+  --pl-icon: var(--m-text-2);
+  --pl-text-2: var(--m-text-2);
+  --pl-text-3: var(--m-text-2);
+  --pl-muted: var(--m-muted);
+  --pl-faint: var(--m-muted);
+  --pl-placeholder: var(--m-muted);
+  --pl-accent-down: var(--accent-hover);
+  --pl-stage: var(--bg-primary);
+  --pl-link-hover: var(--accent-text);
 }
 
 /* ── Modern: the palette wins over level colors ───────────────────────────
