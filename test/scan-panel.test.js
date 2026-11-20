@@ -297,6 +297,20 @@ test('waiting: amber, the reason, a count on the tab, and Try now', async () => 
   assert.strictEqual(t.$('activityPop').hidden, true, 'and nothing opened');
 });
 
+test('waiting because LM Studio is busy says so, in the dropdown and the toast', async () => {
+  const t = load();
+  t.server.queue = { ...RUNNING, active: [], pendingCount: 2, paused: true, pausedBy: 'waiting',
+    waiting: { count: 2, code: 'lm-busy', reason: 'LM Studio is busy and has not said which models are loaded. Files wait until it answers.', since: 7, loadable: false } };
+  await t.fire('DOMContentLoaded');
+  assert.strictEqual(t.$('act-ai-status').textContent, 'Waiting for LM Studio to answer');
+  assert.strictEqual(t.$('act-sec-ai').dataset.tone, 'wait');
+  assert.strictEqual(t.$('act-ai-b-pause').textContent, 'Try now');
+  assert.match(t.$('scanWaitBox').innerHTML, /LM Studio is busy/);
+  assert.ok(t.toasts.some(x => /AI scan is waiting for LM Studio to answer/.test(x)), t.toasts.join(' | '));
+  assert.ok(!t.toasts.some(x => /waiting for the scan model/.test(x)), 'not the scan model wording');
+  assert.ok(!t.toasts.some(x => /—/.test(x)));
+});
+
 test('a halt turns the button red and pulses it, keeps the toast, and opens nothing', async () => {
   const t = load();
   t.server.queue = RUNNING;

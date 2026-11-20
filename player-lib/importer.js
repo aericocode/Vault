@@ -1165,6 +1165,7 @@
   function waitWords(w) {
     if (w.code === 'playback') return 'Waiting for playback to stop';
     if (w.gpuBusy) return 'Waiting for the GPU to be free';
+    if (w.code === 'lm-busy') return 'Waiting for LM Studio to answer';
     return w.code === 'loading' ? 'Loading the scan model' : 'Waiting for the scan model';
   }
 
@@ -1394,7 +1395,7 @@
       // A wait is said once too (the button turns amber): it clears itself.
       if (q.waiting && q.waiting.since && q.waiting.since !== _waitNotified && !q.waiting.gpuBusy && !aiOff()) {
         _waitNotified = q.waiting.since;
-        showToast('⏳ AI scan is waiting for the scan model');
+        showToast(q.waiting.code === 'lm-busy' ? '⏳ AI scan is waiting for LM Studio to answer' : '⏳ AI scan is waiting for the scan model');
       }
 
       // Done: nothing running, nothing queued or waiting.

@@ -50,6 +50,7 @@ const db = require('../lib/database');
 const slots = require('../lib/ai-slots');
 const llm = require('../lib/llm-client');
 const scanModel = require('../lib/scan-model');
+const lmsCli = require('../lib/lms-cli');
 const queue = require('../lib/import-queue');
 const mode = require('../lib/ai-scan-mode');
 const modelHealth = require('../lib/model-health');
@@ -66,7 +67,8 @@ let aliasId = null;                // loaded by hand under this identifier (mode
 const chats = [];                  // bodies of every chat request the stub got
 // How the stub's /api/v0/models behaves (LM Studio's own route, the one that
 // says what is loaded): 'ok', '500', 'hang' (never answers, as LM Studio does
-// while it loads a model) or 'none' (404: a server that is not LM Studio).
+// while it loads a model), 'none' (404: a server that is not LM Studio) or
+// 'other' (200 with a list that is not LM Studio's: no states).
 // /v1/models always answers.
 let v0Mode = 'ok';
 let v0DelayMs = 0;
@@ -83,6 +85,11 @@ function lmHandler(req, res) {
       if (v0Mode === 'hang') return;
       if (v0Mode === '500') { res.writeHead(500); res.end('busy'); return; }
       if (v0Mode === 'none') { res.writeHead(404); res.end('not found'); return; }
+      if (v0Mode === 'other') {             // some other server's own /api/v0/models
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ data: [{ id: 'vis' }] }));
+        return;
+      }
     } else if (req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ data: (v1Ids || ['vis', 'text-embedding-x', ...(aliasId ? [aliasId] : [])]).map(id => ({ id })) }));
@@ -142,6 +149,7 @@ test.after(async () => {
   queue.cancel();
   scanModel.stop();
   slots.stop();
+  lmsCli._setLmsPath(undefined);
   if (lm.listening) await stopLm();
   db.close();
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
@@ -190,6 +198,8 @@ async function fresh({ canLoad = true, policy = 'wait' } = {}) {
   });
   playback._reset();
   scanModel._setRescanWait(null);
+  // Whether the lms command is installed, whatever this PC really has.
+  lmsCli._setLmsPath(canLoad ? 'lms-fake' : null);
   slots._reset([lmBase]);
   llm.setSessionModel(null);
   scanModel._reset();
@@ -622,17 +632,21 @@ test('busy, with the "not answering" wait still up: the queue sends no trial fil
 test('Rescan while LM Studio is busy (v0 answers 500): however often it looks, it never names the model', async () => {
   const loads = await fresh({ policy: 'room' });
   await backButBusy('500');
-  scanModel._setRescanWait(3200);         // the real wait is five minutes; it polls every 500 ms either way
-  const f = addFile();
   const g0 = v0Gets;
+  // Looking ten times a second for a while: more looks than the old four.
+  const direct = await quietly(() => scanModel.loadForScan({ busyPollMs: 100, pollMs: 50, busyWaitMs: 1500 }));
+  assert.ok(v0Gets - g0 >= 8, `it looked ${v0Gets - g0} times`);
+  assert.deepStrictEqual(direct, { ok: false, code: 'lm-busy', reason: 'LM Studio is busy and has not answered yet. Scan again in a moment.' });
+  assert.strictEqual(slots.lmBusy(), true, 'still busy: looking did not use anything up');
+  // And through the route.
+  scanModel._setRescanWait(null, 1200);
+  const f = addFile();
   const r = await quietly(() => rescan(f.id));
-  assert.ok(v0Gets - g0 >= 6, `it looked ${v0Gets - g0} times (more than the old four)`);
   assert.strictEqual(r.status, 409);
   assert.strictEqual(r.body.code, 'SCAN_MODEL_NOT_LOADED');
   assert.strictEqual(r.body.error, 'LM Studio is busy and has not answered yet. Scan again in a moment.');
   assert.strictEqual(chats.length, 0, 'no request named the model');
   assert.strictEqual(loads.length, 0);
-  assert.strictEqual(slots.lmBusy(), true, 'still busy: looking did not use anything up');
 });
 
 test('Rescan while LM Studio is busy (v0 does not answer at all): it never names the model', async () => {
@@ -1032,4 +1046,238 @@ test('a scan sent where Vault has no copy in its list still names its model when
   await quietly(async () => { try { await visionScan(); } catch (e) { err = e; } });
   assert.ok(err);
   assert.strictEqual(err.modelId, 'vis');
+});
+
+/* ── After the fourth verifier: what Vault knows about a server it has not
+      seen answer /api/v0/models in this run, quiet that is not continuous,
+      and a busy Rescan's patience ─────────────────────────────────────── */
+
+const SEEN_FILE = process.env.VAULT_LM_SEEN_FILE;
+const seenInFile = () => { try { return JSON.parse(fs.readFileSync(SEEN_FILE, 'utf8')).v0; } catch { return null; } };
+
+/** A queue file, and how it stands once the queue has settled. */
+async function queued(f) {
+  queue.enqueue(f);
+  await sleep(150);
+  await until(() => !queue.inFlight());
+  return queue.status();
+}
+
+test('Vault restarted while LM Studio is busy: it remembers the server is LM Studio and holds the scans', async () => {
+  const loads = await fresh({ policy: 'room' });         // v0 answered: written down
+  assert.deepStrictEqual(seenInFile(), [lmBase], 'URLs only, beside the settings file (a temp file here)');
+  v0Mode = '500';
+  slots._restart([lmBase]);                               // a new run of Vault
+  assert.strictEqual(slots.speaksV0(lmBase), true, 'known before it has answered anything');
+  await slots.refresh({ force: true });
+  assert.strictEqual(slots.lmBusy(), true);
+  const r = await quietly(() => burst(2));
+  assert.deepStrictEqual(r.map(x => [x.sent, x.held, x.busy]), [[false, true, true], [false, true, true]]);
+  const st = await quietly(() => queued(addFile()));
+  assert.strictEqual(st.waiting && st.waiting.code, 'lm-busy');
+  assert.strictEqual(st.failed, 0);
+  scanModel._setRescanWait(null, 600);
+  const rs = await quietly(() => rescan(addFile().id));
+  assert.strictEqual(rs.status, 409);
+  assert.strictEqual(rs.body.error, 'LM Studio is busy and has not answered yet. Scan again in a moment.');
+  assert.strictEqual(chats.length, 0, 'nothing named the model');
+  assert.strictEqual(loads.length, 0);
+});
+
+for (const mode of ['500', 'hang']) {
+  test(`Vault started while LM Studio was closed, never seen before; LM Studio starts with v0 ${mode === 'hang' ? 'not answering' : 'answering 500'}: the waiting file is held, then scanned`, async () => {
+    const loads = await fresh({ policy: 'room' });
+    await stopLm();
+    slots._reset([lmBase]);                               // no memory of this server at all
+    await slots.refresh({ force: true }).catch(() => {});
+    assert.strictEqual(slots.speaksV0(lmBase), false);
+    const f = addFile();
+    await quietly(async () => {
+      queue.enqueue(f);
+      await until(() => queue.pausedBy() === 'waiting' || queue.pausedBy() === 'model');
+      await startLm();
+      v0Mode = mode;
+      queue.resume();                                     // Try now, as LM Studio comes up
+      await until(() => queue.status().waiting && queue.status().waiting.code === 'lm-busy', 12000);
+      await until(() => !queue.inFlight());
+    });
+    assert.strictEqual(chats.length, 0, 'the file was not sent naming a model that is not loaded');
+    assert.strictEqual(loads.length, 0);
+    assert.strictEqual(queue.status().failed, 0);
+    assert.strictEqual(slots.speaksV0(lmBase), true, 'taken for LM Studio: on this PC, lms installed, v0 quiet');
+    const r = await quietly(() => burst(1));
+    assert.deepStrictEqual([r[0].sent, r[0].held, r[0].busy], [false, true, true]);
+    await quietly(async () => {
+      v0Mode = 'ok';
+      await slots.refresh({ force: true });
+      queue._recheck();
+      await until(() => queue.status().done === 1, 8000);
+    });
+    assert.strictEqual(loads.length, 1, 'Vault loaded the model the normal way');
+    assert.ok(chats.length >= 1 && chats.every(c => c.loadedThen));
+  });
+}
+
+test('never seen before, LM Studio starts answering normally: Vault loads the model and scans, no hold (control)', async () => {
+  const loads = await fresh({ policy: 'room' });
+  await stopLm();
+  slots._reset([lmBase]);
+  await slots.refresh({ force: true }).catch(() => {});
+  const f = addFile();
+  await quietly(async () => {
+    queue.enqueue(f);
+    await until(() => queue.pausedBy() === 'waiting' || queue.pausedBy() === 'model');
+    await startLm();
+    queue.resume();
+    await until(() => queue.status().done === 1, 8000);
+  });
+  assert.strictEqual(loads.length, 1);
+  assert.ok(chats.length >= 1 && chats.every(c => c.loadedThen));
+  assert.strictEqual(queue.status().failed, 0);
+});
+
+/* Servers that are not LM Studio go out as before, with lms installed or not. */
+for (const lmsThere of [true, false]) {
+  for (const [mode, what] of [['none', 'answers 404 on /api/v0/models (Ollama, llama.cpp)'], ['other', 'answers /api/v0/models with a list of its own']]) {
+    test(`a local server that ${what}, lms ${lmsThere ? 'installed' : 'not installed'}: scans, the queue and Rescan go out as before`, async () => {
+      const loads = await fresh({ canLoad: lmsThere, policy: 'room' });
+      v0Mode = mode;
+      slots._reset([lmBase]);
+      await slots.refresh({ force: true });
+      assert.strictEqual(slots.speaksV0(lmBase), false, 'it said it is not LM Studio');
+      assert.strictEqual(slots.lmBusy(), false);
+      await quietly(() => visionScan());
+      assert.strictEqual(chats.length, 1);
+      const st = await quietly(async () => { queue.enqueue(addFile()); await until(() => queue.status().done === 1); return queue.status(); });
+      assert.strictEqual(st.failed, 0);
+      assert.strictEqual(chats.length, 2);
+      const rs = await quietly(() => rescan(addFile().id));
+      assert.strictEqual(rs.status, 200, JSON.stringify(rs.body));
+      assert.strictEqual(chats.length, 3);
+      assert.strictEqual(loads.length, 0);
+      // The same when Vault first meets it after seeing it down.
+      await stopLm();
+      await slots.refresh({ force: true }).catch(() => {});
+      await startLm();
+      await quietly(() => visionScan());
+      assert.strictEqual(chats.length, 4);
+    });
+  }
+}
+
+test('a local server whose /api/v0/models only ever errors: held as a guess with lms installed, for three minutes at most, then as before', async () => {
+  await fresh({ policy: 'room' });
+  let t = Date.now();
+  slots._setClock(() => t);
+  v0Mode = '500';
+  slots._reset([lmBase]);
+  slots._setClock(() => t);
+  try { fs.unlinkSync(SEEN_FILE); } catch {}
+  await slots.refresh({ force: true });
+  assert.strictEqual(slots.lmBusy(), true, 'could be LM Studio starting');
+  let r = await quietly(() => burst(1));
+  assert.deepStrictEqual([r[0].sent, r[0].held, r[0].busy], [false, true, true]);
+  for (let i = 0; i < 20; i++) { t += 10_000; await slots.refresh({ force: true }); }   // 3 min 20 s, looked at all along
+  assert.strictEqual(slots.lmBusy(), false, 'it never confirmed it: a plain server from now on');
+  assert.strictEqual(slots.speaksV0(lmBase), false);
+  r = await quietly(() => burst(1));
+  assert.strictEqual(r[0].sent, true);
+  assert.strictEqual(chats.length, 1);
+  await slots.refresh({ force: true });
+  assert.strictEqual(slots.lmBusy(), false, 'and it is not guessed again');
+  assert.strictEqual(seenInFile(), null, 'a guess is never written down');
+});
+
+test('the same server with lms not installed is never held', async () => {
+  await fresh({ canLoad: false, policy: 'room' });
+  v0Mode = '500';
+  slots._reset([lmBase]);
+  await slots.refresh({ force: true });
+  assert.strictEqual(slots.lmBusy(), false);
+  await quietly(() => visionScan());
+  assert.strictEqual(chats.length, 1);
+});
+
+test('an address LM Studio once answered on, now another server (404 on v0 all along): forgotten after three minutes, then as before', async () => {
+  await fresh({ policy: 'room' });
+  let t = Date.now();
+  slots._setClock(() => t);
+  assert.ok(seenInFile().includes(lmBase));
+  v0Mode = 'none';
+  await slots.refresh({ force: true });
+  assert.strictEqual(slots.speaksV0(lmBase), true, 'one 404 is not enough to forget it');
+  for (let i = 0; i < 20; i++) { t += 10_000; await slots.refresh({ force: true }); }
+  assert.strictEqual(slots.speaksV0(lmBase), false);
+  assert.ok(!seenInFile().includes(lmBase), 'and no longer written down');
+  await quietly(() => visionScan());
+  assert.strictEqual(chats.length, 1, 'sent, as to any server that is not LM Studio');
+});
+
+test('the memory file missing, corrupt or not writable is harmless', async () => {
+  await fresh({ policy: 'room' });
+  fs.writeFileSync(SEEN_FILE, '{ this is not json');
+  slots._restart([lmBase]);
+  assert.strictEqual(slots.speaksV0(lmBase), false, 'nothing remembered, nothing thrown');
+  await slots.refresh({ force: true });
+  assert.strictEqual(slots.speaksV0(lmBase), true);
+  assert.deepStrictEqual(seenInFile(), [lmBase], 'written again');
+  fs.writeFileSync(SEEN_FILE, JSON.stringify({ v0: [42, null, 'ftp://x', lmBase, { a: 1 }] }));
+  slots._restart([lmBase]);
+  assert.strictEqual(slots.speaksV0(lmBase), true, 'only the URLs are read');
+  // A place that cannot be written (a folder): this run still knows, nothing throws.
+  process.env.VAULT_LM_SEEN_FILE = tmp;
+  try {
+    slots._restart([lmBase]);
+    assert.strictEqual(slots.speaksV0(lmBase), false);
+    await slots.refresh({ force: true });
+    assert.strictEqual(slots.speaksV0(lmBase), true);
+  } finally {
+    process.env.VAULT_LM_SEEN_FILE = SEEN_FILE;
+  }
+});
+
+test('two quiet looks four minutes apart with the model loaded are two blips: scans carry on', async () => {
+  await fresh({ policy: 'room' });
+  let t = Date.now();
+  slots._setClock(() => t);
+  visLoaded = true;
+  await slots.refresh({ force: true });
+  v0Mode = '500';
+  await slots.refresh({ force: true });        // one failed look
+  t += 240_000;                                // nobody looks for four minutes
+  await slots.refresh({ force: true });        // and another
+  assert.strictEqual(slots.endpointStates()[0].unverified, false);
+  assert.strictEqual(slots.lmBusy(), false);
+  const r = await quietly(() => burst(3));
+  assert.ok(r.every(x => x.sent), JSON.stringify(r));
+  assert.strictEqual(chats.length, 3);
+  // Quiet that IS watched all along still runs out after three minutes.
+  for (let i = 0; i < 20; i++) { t += 10_000; await slots.refresh({ force: true }); }
+  assert.strictEqual(slots.endpointStates()[0].unverified, true);
+});
+
+test('Rescan while LM Studio is busy looks every two seconds and gives its answer after a minute, not five', async () => {
+  const loads = await fresh({ policy: 'room' });
+  await backButBusy('500');
+  fastClock();                                 // a minute in 600 ms
+  const t0 = D.now();
+  const g0 = v0Gets;
+  const r = await quietly(() => scanModel.loadForScan({ pollMs: 5 }));
+  const took = D.now() - t0;
+  assert.deepStrictEqual(r, { ok: false, code: 'lm-busy', reason: 'LM Studio is busy and has not answered yet. Scan again in a moment.' });
+  assert.ok(took >= 58_000 && took < 80_000, `answered after ${Math.round(took / 1000)} s on the test's clock`);
+  assert.ok(v0Gets - g0 <= 34, `${v0Gets - g0} looks, about one every two seconds`);
+  assert.strictEqual(chats.length, 0);
+  assert.strictEqual(loads.length, 0);
+});
+
+test('Rescan: a load of Vault\'s own that takes longer than a minute is still waited for, with LM Studio quiet meanwhile', async () => {
+  const loads = await fresh({ policy: 'room' });
+  fastClock();
+  D.loadDelayMs = 900;                         // a minute and a half on the test's clock
+  setTimeout(() => { v0Mode = '500'; }, 50).unref();
+  setTimeout(() => { v0Mode = 'ok'; }, 880).unref();
+  const r = await quietly(() => scanModel.loadForScan({ pollMs: 10 }));
+  assert.deepStrictEqual(r, { ok: true });
+  assert.strictEqual(loads.length, 1);
 });

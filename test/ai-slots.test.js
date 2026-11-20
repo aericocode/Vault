@@ -654,7 +654,7 @@ test('a permanently broken v0 falls through after the cap', async () => {
     t += 20_000;
   }
   assert.strictEqual(slots.endpointStates()[0].unverified, false);
-  t += slots.V0_QUIET_MS;
+  t += 30_000;                       // 3 minutes 10 seconds of it, looked at all along
   await slots.refresh({ force: true });
   assert.deepStrictEqual(
     live(),
@@ -676,5 +676,13 @@ test('a permanently broken v0 falls through after the cap', async () => {
   servedV0 = null;
   await slots.refresh({ force: true });
   assert.deepStrictEqual(live(), ['m'], 'the allowance reset with the v0 success');
+
+  // Two quiet looks four minutes apart, with nobody looking in between, are
+  // two blips, not four minutes of quiet: the picture still stands.
+  t += 240_000;
+  await slots.refresh({ force: true });
+  assert.deepStrictEqual(live(), ['m'], 'two isolated quiet looks do not add up');
+  assert.strictEqual(slots.endpointStates()[0].unverified, false);
+  assert.strictEqual(slots.lmBusy(), false);
   slots._setClock(null);
 });
