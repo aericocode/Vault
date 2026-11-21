@@ -22,7 +22,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const ROOT = path.join(__dirname, '..');
-const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+// Line endings are normalised: a Windows checkout may hold these files with CRLF.
+const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/\r\n/g, '\n');
 const C = require('../player-lib/theme-colors.js');
 
 /* ── Color math ──────────────────────────────────────────────────────── */
