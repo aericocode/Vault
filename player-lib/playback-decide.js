@@ -180,8 +180,51 @@
     };
   }
 
+  /**
+   * Can mpv Stage play this file? The question decide() answers for a
+   * browser, asked of the mpv that is running: mpv decodes in software
+   * whatever its libavcodec has (any bit depth, any container its
+   * libavformat opens), so the one thing that can rule a probed file out up
+   * front is a codec missing from the decoders that mpv reported
+   * (lib/stage/mpv-caps.js, its decoder-list). A browser's own verdict
+   * (decide(), the extension list, playback_failed) is not asked: mpv is
+   * not that browser.
+   *
+   *   play     probed, and mpv has the decoder it needs
+   *   no       probed, and mpv has no decoder for the picture (or, for a
+   *            sound file, the sound), or there is no stream at all
+   *   unknown  not probed, or mpv's decoders could not be read: handed to
+   *            mpv, whose own error skips it if it cannot (engine.js)
+   *
+   * Video whose sound mpv cannot decode still plays (the picture, silent).
+   *
+   * @param {object} row       media row: media_type, probe_version, video_codec, audio_codec
+   * @param {Set<string>|string[]|null} codecs  the codec names mpv decodes, or null
+   * @returns {{state:'play'|'no'|'unknown', reason:?string}}
+   */
+  function decideMpv(row, codecs) {
+    if (!row) return { state: 'unknown', reason: null };
+    const probed = (row.media_type === 'video' || row.media_type === 'audio') && (row.probe_version || 0) >= 1;
+    const have = codecs instanceof Set ? codecs : (Array.isArray(codecs) ? new Set(codecs) : null);
+    if (!probed || !have || !have.size) return { state: 'unknown', reason: null };
+    const name = (c) => {
+      const s = String(c || '').toLowerCase().trim();
+      return s === 'h265' ? 'hevc' : s;
+    };
+    const vcodec = name(row.video_codec);
+    const acodec = name(row.audio_codec);
+    if (!vcodec && !acodec) return { state: 'no', reason: 'This file has no video or audio stream that Vault can read.' };
+    if (vcodec && !have.has(vcodec)) {
+      return { state: 'no', reason: `mpv on this computer has no decoder for ${codecLabel(vcodec)} video.` };
+    }
+    if (!vcodec && !have.has(acodec)) {
+      return { state: 'no', reason: `mpv on this computer has no decoder for ${codecLabel(acodec)} sound.` };
+    }
+    return { state: 'play', reason: null };
+  }
+
   const API = {
-    decide, DEFAULT_CAPS, videoTag, containerToken, codecLabel, is10bit,
+    decide, decideMpv, DEFAULT_CAPS, videoTag, containerToken, codecLabel, is10bit,
     TS_VIDEO_COPY, TS_AUDIO_COPY, NATIVE_CONTAINERS, OPTIMISTIC_CONTAINERS,
   };
 

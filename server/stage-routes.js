@@ -37,6 +37,7 @@ const { buildArgs, displayPlan, windowPlan, windowSystemOf, actualKind, linuxFra
 const { createWindowFit } = require('../lib/stage/window-fit');
 const x11Hints = require('../lib/stage/x11-hints');
 const mpvFind = require('../lib/stage/mpv-find');
+const { readMpvCaps } = require('../lib/stage/mpv-caps');
 const fsBrowse = require('../lib/fs-browse');
 const StageRules = require('../player-lib/stage-rules.js');
 const { createSetLog } = require('../lib/stage/setlog');
@@ -122,6 +123,8 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
   let kind = null;           // the window mpv made (windowPlan first or fallback, as mpv says it is)
   let launchPlan = null;     // windowPlan of the open Stage
   let fit = null;            // window-fit.js for that window
+  // What the running mpv decodes (mpv-caps.js), read once as it starts; null: not known.
+  let mpvCaps = null;
 
   const alive = () => !!host && host.alive();
 
@@ -287,6 +290,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     lock: () => { if (engine) engine.lock(); },
     unlock: (session) => { if (engine) engine.unlock(session); },
     settingsChanged: (st) => { if (engine) engine.settingsChanged(st); },
+    caps: () => (alive() ? mpvCaps : null),
   };
 
   hub = createHub({
@@ -380,6 +384,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
           fit = null;
           kind = null;
           launchPlan = null;
+          mpvCaps = null;
         }
         hub.stageExited({ byUser: asked });
       },
@@ -423,7 +428,17 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
     }
     engine.started(session);
     hub.opened('mpv');
-    return { status: 200, body: { ok: true, mode: 'mpv' } };
+    // What this mpv decodes, asked once now that Stage is open (a Close, or
+    // mpv going away, in the meantime is handled as at any other moment):
+    // the page judges files by it while mpv is Stage. It goes with this
+    // answer, before the page works out its first list, and to every
+    // Control tab. An mpv gone by then leaves it unknown.
+    const caps = await readMpvCaps(h);
+    if (host === h && alive()) {
+      mpvCaps = caps;
+      hub.mpvChanged();
+    }
+    return { status: 200, body: { ok: true, mode: 'mpv', ...hub.mpvJudge() } };
   }
 
   vault.onChange((e) => {
@@ -459,7 +474,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
   });
 
   router.post('/api/stage/open', async (req, res) => {
-    if (alive()) { front(); hub.opened('mpv'); return res.json({ ok: true, mode: 'mpv', reused: true }); }
+    if (alive()) { front(); hub.opened('mpv'); return res.json({ ok: true, mode: 'mpv', reused: true, ...hub.mpvJudge() }); }
     if (!opening) opening = launch().finally(() => { opening = null; });
     const out = await opening;
     res.status(out.status).json(out.body);

@@ -632,7 +632,8 @@ test('opening Stage: mpv found and started with Stage’s arguments; files go as
   const at = `http://127.0.0.1:${fakeServer.address().port}`;
 
   const o = await (await post('/api/stage/open', {}, {}, at)).json();
-  assert.deepStrictEqual(o, { ok: true, mode: 'mpv' });
+  // mpvCaps null: this fake mpv lists no decoders, so nothing is ruled out up front (mpv-caps.js).
+  assert.deepStrictEqual(o, { ok: true, mode: 'mpv', mpvCaps: null, mpvFailed: [] });
   const start = log.find(l => l.start);
   assert.strictEqual(start.start, found.path);
   assert.ok(start.args.includes('--no-config'));

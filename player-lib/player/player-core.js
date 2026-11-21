@@ -31,10 +31,17 @@ function currentQueueIndex() {
    Skipping a known-bad file is silent. It was never attempted, so there is
    nothing to report, and the tile's ⚠ and the extension star already say which
    files those are. Only a file that FAILS while playing earns a toast and a
-   line in the session tally. */
+   line in the session tally.
+
+   While mpv is Stage every file the queue lands on plays there, so mpv's
+   judgement is the one asked (stage-control.js knownBad): what this
+   browser cannot decode, or failed to play, is no reason to pass over a
+   file mpv plays. Basic Stage and the player here keep this browser's. */
 
 function isKnownBadMedia(row) {
   if (!row) return false;
+  const onMpv = typeof StageControl !== 'undefined' && typeof StageControl.knownBad === 'function' ? StageControl.knownBad(row) : null;
+  if (onMpv !== null && onMpv !== undefined) return !!onMpv;
   if (typeof mediaPlaybackState !== 'function') return false;
   try {
     return mediaPlaybackState(row).state === 'no';

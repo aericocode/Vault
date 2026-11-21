@@ -59,6 +59,9 @@ const StageControl = (() => {
   let open = false;                   // Stage is open (the remote is on)
   let remoteShown = false;
   let mpv = null;                     // is mpv there (server says): { found, path, version, ... }
+  // While mpv is Stage, files are judged by what that mpv can play, not by this browser (knownBad).
+  let mpvCodecs = null;               // the decoders the running mpv reported (a Set), or null: not known
+  const mpvFailed = new Set();        // ids mpv could not play this Stage (the server remembers them too)
   let settings = { showName: true, nameSeconds: 3, windowName: 'Vault Stage', imageSeconds: 8, cursorSeconds: 1, openSize: 'free', muteVault: true, tips: true };
   let es = null;
 
@@ -168,9 +171,51 @@ const StageControl = (() => {
     }
   }
 
+  /**
+   * What the server says about the running mpv (lib/stage/hub.js mpvJudge):
+   * its decoders and the files it failed on. Only an answer that carries
+   * them changes what is known.
+   */
+  function takeMpvJudge(s) {
+    if (!s || typeof s !== 'object') return;
+    if ('mpvCaps' in s) mpvCodecs = Array.isArray(s.mpvCaps) && s.mpvCaps.length ? new Set(s.mpvCaps) : null;
+    if (Array.isArray(s.mpvFailed)) {
+      mpvFailed.clear();
+      for (const id of s.mpvFailed) if (Number.isInteger(id)) mpvFailed.add(id);
+    }
+  }
+
+  /**
+   * Does mpv Stage pass over this file? null when mpv is not Stage (Basic
+   * Stage, or no Stage): then this browser's own judgement stands
+   * (player-core.js isKnownBadMedia). With mpv as Stage only what is true
+   * for mpv counts: mpv already failed on it, or the file's codec is one
+   * that mpv reported no decoder for (playback-decide.js decideMpv). What
+   * this browser makes of the file (its decoders, the extension, a play
+   * that failed here) does not: mpv plays what browsers refuse. A file not
+   * probed, or with mpv's decoders not known, is handed over; mpv's own
+   * error skips it if it cannot play it.
+   */
+  function knownBad(row) {
+    if (!open || basic) return null;
+    if (!row) return false;
+    if (mpvFailed.has(row.id)) return true;
+    const decide = typeof window !== 'undefined' && window.VaultPlaybackDecide && window.VaultPlaybackDecide.decideMpv;
+    if (typeof decide !== 'function') return false;
+    try { return decide(row, mpvCodecs).state === 'no'; } catch { return false; }
+  }
+
+  /** Is this file passed over by the Stage that is open (mpv's judgement), else by the player here? */
+  function stageBad(row) {
+    const m = knownBad(row);
+    if (m !== null) return m;
+    return typeof isKnownBadMedia === 'function' && isKnownBadMedia(row);
+  }
+
   async function refreshState() {
     try {
       const s = await api('/api/stage/state');
+      takeMpvJudge(s);
       mpv = s.mpv || null;
       if (s.settings) settings = { ...settings, ...s.settings };
       locked = s.locked === true;   // the state route only answers unlocked
@@ -187,7 +232,8 @@ const StageControl = (() => {
       try { fn(data); } catch (err) { console.warn('[Stage]', name, err); }
     });
     on('sync', onSync);
-    on('opened', () => { open = true; locked = false; });
+    on('opened', (o) => { open = true; locked = false; takeMpvJudge(o); });
+    on('mpvjudge', takeMpvJudge);
     on('status', onStatus);
     on('started', onStarted);
     on('skipped', onSkipped);
@@ -245,6 +291,8 @@ const StageControl = (() => {
     try {
       const r = await api('/api/stage/open', {});
       if (r && r.mode === 'basic') { startBasic({ then }); return; }
+      // Before the first file and its list are worked out (then), not when the event stream catches up.
+      takeMpvJudge(r);
     } catch (err) {
       if (err.code === 'MPV_MISSING') { startBasic({ then }); return; }
       if (err.status !== 423) {
@@ -339,6 +387,7 @@ const StageControl = (() => {
     currentMediaState.element = null;
     const row = rowFor(mediaData);
     if (!row || !row.id) { showToast('That file is not in the library, so Stage cannot show it.'); return; }
+    mpvFailed.delete(row.id);           // sent on purpose: mpv gets another go at it (engine.js load)
     const via = fromUpNext ? 'upnext' : (currentMediaState.currentIndex >= 0 ? 'list' : 'user');
     const item = itemFor(row, { startAt, via, index: currentMediaState.currentIndex });
     note = null;
@@ -623,9 +672,10 @@ const StageControl = (() => {
       }
       countMemo = { ids, anchor, basic, n, before, all, skips };
     }
-    // A file Vault knows will not play (marked unplayable, or a codec this browser cannot decode) is
-    // passed over by the queue, so it adds no time and has no "Plays in" of its own.
-    const badRow = (r) => typeof isKnownBadMedia === 'function' && isKnownBadMedia(r);
+    // A file Vault knows will not play is passed over by the queue, so it adds no time and has no
+    // "Plays in" of its own: on mpv Stage what mpv cannot play (knownBad), on Basic Stage what this
+    // browser cannot (marked unplayable, or a codec it cannot decode).
+    const badRow = stageBad;
     // The lengths: the rest of the list (up to TIME_CAP) and Up next, from the rows Vault has.
     const rest = [];
     const restIds = [];
@@ -730,7 +780,8 @@ const StageControl = (() => {
     const unItems = typeof UpNext !== 'undefined' && UpNext.items ? UpNext.items().slice(0, UPCOMING_COUNT) : [];
     const unRows = unItems.length ? await Library.fetchRows(unItems.map(i => i.id), { strict: true }) : [];
     const byId = new Map((unRows || []).filter(Boolean).map(r => [r.id, r]));
-    const okRow = (r) => !!r && STAGEABLE.has(r.media_type) && !(typeof isKnownBadMedia === 'function' && isKnownBadMedia(r));
+    // What mpv can play (knownBad), not what this browser can: mpv is the one playing these.
+    const okRow = (r) => !!r && STAGEABLE.has(r.media_type) && !stageBad(r);
     const upNext = unItems.map(i => ({ id: i.id, ok: okRow(byId.get(i.id)) }));
     if (!L.known()) {
       const ids = await L.waitIds();
@@ -829,6 +880,7 @@ const StageControl = (() => {
 
   function onSync(s) {
     if (s.settings) settings = { ...settings, ...s.settings };
+    takeMpvJudge(s);
     // The server says whether it is locked now: an earlier lock is over once it says not.
     locked = s.locked === true;
     volume = Number.isFinite(s.volume) ? s.volume : volume;
@@ -948,9 +1000,11 @@ const StageControl = (() => {
     });
   }
 
-  function onSkipped({ item, key }) {
+  function onSkipped({ item, key, failed }) {
     const meta = sent.get(key);
     const row = (meta && meta.row) || item;
+    // mpv itself could not play it: passed over from here on while this Stage runs (knownBad).
+    if (failed === true && item && Number.isInteger(item.id)) mpvFailed.add(item.id);
     setNote(`Skipped “${nameOf(row)}”: it can’t be played.`);
     // A file from Up next that cannot play is used up, as the player does.
     const took = item && item.via === 'upnext' && typeof UpNext !== 'undefined' ? UpNext.take(item.id) : null;
@@ -1120,7 +1174,10 @@ const StageControl = (() => {
     cur = null;
     applyMute();
     const words = kind === 'gone' ? 'Stage was closed' : 'Stage closed';
-    if (row && row.filepath && (row.media_type === 'video' || row.media_type === 'audio')) {
+    // A file only mpv plays (HEVC, WMV ...) is not opened in this browser, which cannot play it:
+    // asked now that Stage is closed (open is false), isKnownBadMedia gives this browser's verdict.
+    const playsHere = !(typeof isKnownBadMedia === 'function' && isKnownBadMedia(row));
+    if (row && row.filepath && (row.media_type === 'video' || row.media_type === 'audio') && playsHere) {
       playMedia({ id: row.id, filepath: row.filepath, filename: row.filename, media_type: row.media_type }, { keepAnchor: true });
       const el = currentMediaState.element;
       if (el) {
@@ -1936,7 +1993,7 @@ const StageControl = (() => {
     openStage, openFromPlayer, playCollectionOnStage, stageButton, closeStage, closeStageAndStop, menu, front, setSize,
     toggleHold, setVolume, toggleMute, paintVolume: paint, key, hideRemote,
     upNextChanged, repeatChanged, showTips,
-    queueList, fileOpened, backToStage, countText, playsInText,
+    queueList, fileOpened, backToStage, countText, playsInText, knownBad,
     /** The id of the file on Stage now, or null (the Flow chart's playhead reads proxy for its time). */
     currentId: () => (cur && cur.row ? cur.row.id : null),
     /** Where Stage plays from: { cid } (a collection), { cid: null } (the Library tab), or null (not known). */

@@ -313,7 +313,8 @@ function controlInputs(rows, anchor, opts) {
   const ctx = {
     source: {}, listNow: () => L, listAnchorIndex: () => anchor,
     Library: { TYPE_NAMES: [], row: () => null, fetchRows: async () => [] },
-    isKnownBadMedia: (r) => !!r.bad, UpNext: { items: () => [] },
+    // stageBad: the open Stage's own judgement (stage-control.js: mpv's, or this browser's on Basic Stage).
+    isKnownBadMedia: (r) => !!r.bad, stageBad: (r) => !!r.bad, UpNext: { items: () => [] },
     currentRepeat: () => 'all', basic: false, t: 0, d: 30, stageFileId: () => 99, upPlayed: 1,
     settings: { imageSeconds: 8 }, paint: () => {}, Math, Number,
     StageCount: C, StageRules: require('../player-lib/stage-rules.js'),
