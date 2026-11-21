@@ -171,7 +171,12 @@
     const accAt = (l) => hslToHex(a.h, a.s, l);
     let aL = clamp(a.l, ...ACCENT_L[dark ? 'dark' : 'light']);
     aL = pushUntil(accAt, aL, [bg, panel], MIN.accent, dir);
-    const labelOk = (l) => contrast(accAt(l), onColor(accAt(l))) >= MIN.onAccent;
+    // The label on a filled button. Light: always white, with the fill darkened
+    // (a few steps at most) until white reads at 4.5:1. A mid-tone fill scores
+    // slightly higher with dark text by the WCAG sum, but reads far worse, and
+    // Vault's own blue carries white. Dark: bright fills carry dark text.
+    const labelOf = (hex) => dark ? onColor(hex) : ON_LIGHT;
+    const labelOk = (l) => contrast(accAt(l), labelOf(accAt(l))) >= MIN.onAccent;
     while (!labelOk(aL) && aL + dir >= 0 && aL + dir <= 100) aL += dir;
     const accent = accAt(aL);
     // The highlight as text: 4.5:1 on everything it is drawn on, including
@@ -202,7 +207,7 @@
         '--accent-hover': accAt(clamp(aL + 7 * dir, 0, 100)),
         '--accent-bg': rgba(accent, accentBgA),
         '--accent-text': accentText,
-        '--on-accent': onColor(accent),
+        '--on-accent': labelOf(accent),
         '--track-progress': secAt(sL),
         // Opaque in Light: thumbnails would show through a popover or toast.
         '--m-surface': rgba(surface, dark ? 0.96 : 1),

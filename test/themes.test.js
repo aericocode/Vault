@@ -519,3 +519,13 @@ test('mpv Stage: the progress line takes lineColor, pink by default, and the set
   assert.strictEqual(Settings.validatePatch({ lineColor: '#38bdf8' }, {}).settings.lineColor, '#38bdf8');
   assert.match(read('lib/stage/engine.js'), /lineEvent\(p\.frac, \{ canvasW: cw, osdH: mp\.oh, fade: lineFade, color: lineColorNow\(\) \}\)/);
 });
+
+test('Light: a filled highlight button always carries white text at 4.5:1 or better', () => {
+  const T = require('../player-lib/theme-colors.js');
+  const seeds = [...T.PALETTES.map(p => p.accent), '#facc15', '#84cc16', '#2dd4bf', '#ef4444', '#22d3ee', '#ffffff', '#000000'];
+  for (const accent of seeds) {
+    const v = T.derive({ bg: '#1a1a1a', accent, second: '#ff4fa3' }, 'light').vars;
+    assert.equal(v['--on-accent'], '#ffffff', accent);
+    assert.ok(T.contrast(v['--accent'], '#ffffff') >= 4.5, `${accent} -> ${v['--accent']}`);
+  }
+});
