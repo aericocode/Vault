@@ -125,7 +125,7 @@ const DragAutoScroll = (() => {
      every 50 ms, and the spec asks for it too), so "resting" is worked out
      from where each dragover is: the pointer staying within DWELL_TOL px of
      where it stopped, with the page not scrolled, for DWELL_MS. */
-  const DWELL_MS = 2000;    // how long to hold still before drop mode starts
+  const DWELL_MS = 1000;    // how long to hold still before drop mode starts
   const DWELL_TOL = 8;      // px the pointer may wander and still count as still
 
   /**

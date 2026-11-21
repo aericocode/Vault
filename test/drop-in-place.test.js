@@ -27,7 +27,7 @@ const run = (steps, o) => {
 };
 
 test('dwellStep: settles only after DWELL_MS of dragovers at the same spot', () => {
-  assert.strictEqual(S.DWELL_MS, 2000, 'two seconds');
+  assert.strictEqual(S.DWELL_MS, 1000, 'one second');
   const steps = [];
   for (let t = 0; t < S.DWELL_MS; t += 50) steps.push([100, 100, 0, t]);
   assert.strictEqual(run(steps).settled, false, 'not yet');
@@ -209,7 +209,7 @@ function rest(p, i, x, t0, ms) {
 }
 
 test('page: no mark until the pointer rests for DWELL_MS; then drop mode, the mark and its place', () => {
-  assert.strictEqual(S.DWELL_MS, 2000, 'two seconds (owner request)');
+  assert.strictEqual(S.DWELL_MS, 1000, 'one second (owner request: enough to stop accidental drops)');
   const p = page();
   assert.strictEqual(rest(p, 1, 130, 0, S.DWELL_MS - 100), 'waiting');
   assert.deepStrictEqual(p.marked(), []);
