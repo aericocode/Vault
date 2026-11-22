@@ -837,7 +837,7 @@ function shareMetaHint(w) {
     // which copies are cleaned (only pictures can be, then), so the line about
     // the others below can never be read as cleaned too.
     const what = shareMetaNeedTools(w) ? ` of ${n === 1 ? 'this picture' : 'these pictures'}` : '';
-    return `Removed from the packed copies${what}. Your originals are not changed.${extra ? ` Needs about ${shareSize(extra)} more free space.` : ''}${failNote ? ` ${failNote}` : ''}`;
+    return `Removed from the packed copies${what}. Your originals are not changed.${extra ? ` Needs ${shareSize(extra)} more space.` : ''}${failNote ? ` ${failNote}` : ''}`;
   }
   if (!n) return `${one ? 'It is' : 'They are'} packed as ${one ? 'it is' : 'they are'}, without the check.`;
   return `Not removed. Whoever opens the archive can read these details.${failed ? ` ${one ? 'The file that could not be checked is' : 'The files that could not be checked are'} packed as ${one ? 'it is' : 'they are'}.` : ''}`;

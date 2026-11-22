@@ -113,7 +113,7 @@
   font-size: 0.74rem; line-height: 1.5; padding: 1px 8px; border-radius: 999px; white-space: nowrap;
   background: rgba(245, 158, 11, 0.14); color: var(--m-warning-text); font-variant-numeric: tabular-nums;
 }
-.share-meta-hint { margin: 0; font-size: 0.8rem; line-height: 1.45; color: var(--m-warning-text); }
+.share-meta-hint { margin: 0; font-size: 0.8rem; line-height: 1.45; color: var(--m-warning-text); text-wrap: pretty; }
 .share-meta-list { display: flex; flex-direction: column; max-height: 13rem; overflow-y: auto; }
 .share-meta-list[hidden] { display: none; }
 .share-meta-file { display: flex; flex-direction: column; gap: 3px; padding: 8px 0; border-top: 1px solid rgba(245, 158, 11, 0.25); min-width: 0; }

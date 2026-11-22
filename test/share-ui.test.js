@@ -1698,7 +1698,7 @@ test('personal details: checking, then the amber box folded with the count, the 
   assert.ok(html.indexOf('</button>') < html.indexOf('share-meta-switch'), 'the switch is outside the fold');
   // Tags: files per kind, in meta.js order, each file counted once per kind.
   assert.deepStrictEqual([...html.matchAll(/<span class="share-meta-kind">([^<]+)<\/span>/g)].map(m => m[1]), ['Location 1', 'Device 1', 'Name 2', 'Comment 1']);
-  assert.match(html, /<p class="share-meta-hint" id="shMetaHint" data-sh-metahint>Removed from the packed copies\. Your originals are not changed\. Needs about 2(\.0)? MB more free space\.<\/p>/);
+  assert.match(html, /<p class="share-meta-hint" id="shMetaHint" data-sh-metahint>Removed from the packed copies\. Your originals are not changed\. Needs 2(\.0)? MB more space\.<\/p>/);
   // The per-file list: folded, scrolls in itself, hidden under File names privacy.
   assert.match(html, /<div class="share-meta-list" id="shMetaList" data-share-names hidden>/);
   assert.match(html, /<span class="share-meta-name">clip1\.mp4<\/span><span class="share-meta-what"><span class="share-meta-label">Location:<\/span> 52\.37, 4\.89<\/span>/);
@@ -2055,7 +2055,7 @@ test('without ffmpeg, a picture flagged: the amber box as usual, the hint says o
   assert.match(html, /<span class="share-meta-title">Personal details <span class="share-meta-count">\(1\)<\/span><\/span>/);
   assert.deepStrictEqual([...html.matchAll(/class="share-meta-kind">([^<]+)</g)].map(m => m[1]), ['Location 1', 'Device 1']);
   assert.match(html, /<input type="checkbox" role="switch" id="shMetaRemove" data-sh-metaremove aria-label="Remove personal details from the packed copies" aria-describedby="shMetaHint" checked>/);
-  assert.match(html, /data-sh-metahint>Removed from the packed copies of this picture\. Your originals are not changed\. Needs about [^<]+ more free space\.<\/p>/);
+  assert.match(html, /data-sh-metahint>Removed from the packed copies of this picture\. Your originals are not changed\. Needs [^<]+ more space\.<\/p>/);
   assert.match(html, TOOLS_LINE('2 videos or sound files are packed as they are. Vault needs ffmpeg to check them.'));
   assert.ok(html.indexOf('data-sh-metatools') > html.indexOf('</div>'), 'the line sits under the box');
   assert.ok(!/share-meta-off|data-sh-metaoff/.test(html));
