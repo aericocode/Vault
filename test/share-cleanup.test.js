@@ -55,6 +55,9 @@ const MEDIA = path.join(tmp, 'media');
 let smallIds = [];
 let bigId = null;
 
+// Filler bytes, not real videos: the personal details check (every share)
+// rightly calls them "could not be checked" and stops the share. These tests
+// are about packing and clean-up, so their shares start with Remove off.
 function addMedia(name, bytes, { sparse = false } = {}) {
   const p = path.join(MEDIA, name);
   fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -113,7 +116,7 @@ function holdOpen(file) {
 }
 
 test('reproduction: a file held open in the work folder; Cancel keeps the hidden record until the folder is really gone', { skip: skip7z || (IS_WIN ? false : 'needs Windows file sharing rules') }, async () => {
-  const share = service.start({ mediaIds: smallIds });
+  const share = service.start({ mediaIds: smallIds, removePersonal: false });
   await waitFor(() => ['checked', 'failed'].includes(service.progress(share.id).status));
   assert.strictEqual(service.progress(share.id).status, 'checked');
   const name = workDirOf(share.id);
@@ -167,7 +170,7 @@ test('pack deletes list.txt and stage/ when 7-Zip fails, and when packing is can
 });
 
 test('a live share never keeps list.txt or stage/: the clean-up deletes them and keeps the archive', { skip: skip7z }, async () => {
-  const share = service.start({ mediaIds: smallIds });
+  const share = service.start({ mediaIds: smallIds, removePersonal: false });
   await waitFor(() => service.progress(share.id).status === 'checked');
   const dir = temp.workDirPath(workDirOf(share.id));
   const archive = path.join(dir, `${share.archiveName}.7z`);
@@ -219,7 +222,7 @@ test('sweep: only this library\'s unnamed folders go, only while unlocked', asyn
 });
 
 test('lock while packing: hidden at once; after the unlock the folder and then the record go', { skip: skip7z }, async () => {
-  const share = service.start({ mediaIds: [bigId] });
+  const share = service.start({ mediaIds: [bigId], removePersonal: false });
   await waitFor(() => { const p = service.progress(share.id); return p.status !== 'packing' || p.packing.phase === 'packing'; });
   const name = workDirOf(share.id);
   vault._locked = true;
@@ -237,7 +240,7 @@ test('lock while packing: hidden at once; after the unlock the folder and then t
 });
 
 test('exit while packing: 7-Zip is stopped and the work folder deleted', { skip: skip7z }, async () => {
-  const share = service.start({ mediaIds: [bigId] });
+  const share = service.start({ mediaIds: [bigId], removePersonal: false });
   await waitFor(() => { const p = service.progress(share.id); return p.status !== 'packing' || p.packing.phase === 'packing'; });
   assert.strictEqual(service.progress(share.id).status, 'packing', 'still packing when Vault exits');
   const dir = temp.workDirPath(workDirOf(share.id));

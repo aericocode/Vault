@@ -62,9 +62,20 @@
 .share-big-note .vi { flex: none; width: 16px; height: 16px; margin-top: 2px; }
 .share-sum.share-big-facts { grid-template-columns: 11rem minmax(0, 1fr); }
 
-/* Step 1: personal details (Check files for personal details) */
+/* Step 1: personal details. Every share is checked. Checking and "nothing
+   found" are one quiet line in a plain box; anything found (or a check that
+   did not finish) is the amber box: a fold button with the count, the Remove
+   switch outside the fold (the settings switch, styled off its own hidden
+   checkbox), count tags, one hint line, and the folded per-file list. */
 .share-meta:empty { display: none; }
-.share-meta-wait { margin: 0; }
+.share-meta { display: flex; flex-direction: column; gap: 6px; }
+.share-meta-quiet {
+  display: flex; align-items: center; gap: 8px; margin: 0;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.75rem;
+  font-size: 0.84rem; line-height: 1.45; color: var(--text-secondary);
+}
+.share-meta-quiet .vi { width: 16px; height: 16px; flex: none; }
+.share-meta-quiet .share-meta-ok { color: var(--success); }
 .share-meta-tag {
   display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 9px; vertical-align: 1px;
   background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.45); color: var(--warning-text);
@@ -72,12 +83,37 @@
 }
 .share-meta-box {
   background: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning); border-radius: 8px;
-  padding: 0.65rem 0.75rem; display: flex; flex-direction: column; gap: 6px;
+  padding: 0.5rem 0.75rem 0.6rem; display: flex; flex-direction: column; gap: 6px; min-width: 0;
 }
-.share-meta-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.share-meta-head > .vi { width: 18px; height: 18px; color: var(--warning-text); flex: none; }
-.share-meta-title { font-weight: 600; font-size: 0.9rem; color: var(--m-warning-text); min-width: 0; }
-.share-meta-fold { margin-left: auto; font-size: 0.78rem !important; padding: 0.3rem 0.65rem !important; }
+.share-meta-head { display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; }
+.share-meta-fold {
+  display: inline-flex; align-items: center; gap: 7px; min-width: 0; min-height: 2rem;
+  padding: 0; border: 0; border-radius: 4px; background: none; cursor: pointer; font: inherit; text-align: left;
+  color: var(--m-warning-text);
+}
+.share-meta-fold:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+.share-meta-fold > .vi { width: 18px; height: 18px; flex: none; color: var(--warning-text); }
+.share-meta-title { font-weight: 600; font-size: 0.9rem; min-width: 0; }
+.share-meta-count { font-weight: 500; font-variant-numeric: tabular-nums; }
+.share-meta-fold > .share-meta-chev { width: 16px; height: 16px; transform: rotate(-90deg); transition: transform 0.15s; }
+.share-meta-fold[aria-expanded="true"] > .share-meta-chev { transform: none; }
+.share-meta-switch {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 8px; min-height: 2rem;
+  cursor: pointer; font-size: 0.84rem; color: var(--text-primary);
+}
+.share-meta-switch input[type="checkbox"] { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; pointer-events: none; }
+.share-meta-switch .settings-switch { margin-top: 0; }
+.share-meta-switch input:checked + .settings-switch { background: var(--accent); border-color: var(--accent); }
+.share-meta-switch input:checked + .settings-switch::after { transform: translateX(16px); background: var(--knob-on); }
+.share-meta-switch input:focus-visible + .settings-switch { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+/* Locked while Pack files is under way (shareMetaLock). */
+.share-meta-switch:has(input:disabled) { cursor: default; opacity: 0.6; }
+.share-meta-kinds { display: flex; flex-wrap: wrap; gap: 5px; }
+.share-meta-kind {
+  font-size: 0.74rem; line-height: 1.5; padding: 1px 8px; border-radius: 999px; white-space: nowrap;
+  background: rgba(245, 158, 11, 0.14); color: var(--m-warning-text); font-variant-numeric: tabular-nums;
+}
+.share-meta-hint { margin: 0; font-size: 0.8rem; line-height: 1.45; color: var(--m-warning-text); }
 .share-meta-list { display: flex; flex-direction: column; max-height: 13rem; overflow-y: auto; }
 .share-meta-list[hidden] { display: none; }
 .share-meta-file { display: flex; flex-direction: column; gap: 3px; padding: 8px 0; border-top: 1px solid rgba(245, 158, 11, 0.25); min-width: 0; }
@@ -85,11 +121,7 @@
 .share-meta-what { font-size: 0.78rem; color: var(--text-secondary); overflow-wrap: anywhere; }
 .share-meta-failed .share-meta-what { font-style: italic; }
 .share-meta-label { color: var(--warning-text); }
-.share-meta-choices { display: flex; flex-direction: column; border-top: 1px solid rgba(245, 158, 11, 0.25); padding-top: 6px; }
-.share-meta-choice { display: flex; gap: 10px; align-items: flex-start; min-height: 2.75rem; padding: 4px 0; cursor: pointer; }
-.share-meta-choice input { width: 18px; height: 18px; margin: 2px 0 0; flex: none; accent-color: var(--accent-native); }
-.share-meta-choice b { display: block; font-size: 0.88rem; font-weight: 600; }
-.share-meta-note { display: block; font-size: 0.78rem; line-height: 1.45; color: var(--text-secondary); }
+@media (prefers-reduced-motion: reduce) { .share-meta-fold > .share-meta-chev { transition: none; } }
 @media (max-width: 560px) { .share-sum.share-big-facts { grid-template-columns: 1fr; } }
 .share-btn-amber { border-color: var(--warning) !important; color: var(--warning-text) !important; background: transparent !important; }
 .share-btn-amber:hover:not(:disabled) { background: rgba(245, 158, 11, 0.12) !important; }

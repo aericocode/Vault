@@ -23,7 +23,7 @@ const SHARE_SETTINGS_DEFAULTS = {
   enabled: false, passwordChoice: 'random', deleteAfterDays: 7, split: '2g', customPartBytes: 2 * 1024 ** 3,
   keepLocal: false, onPartFail: 'retry3', accountMode: 'perStart', copyFormat: 'default',
   customFormat: '{link}\npass: {pass}', rememberPasswords: true, rememberFiles: true, hideInPrivacy: true,
-  afterPack: 'wait', checkPersonal: false,
+  afterPack: 'wait',
 };
 
 /* The tabs. Same pattern as Stage's (stage-settings-ui.js): a tablist of pill
@@ -156,10 +156,7 @@ function shareSettingsHtml() {
     packing: row({ sfind: 'shareAfterPack', title: 'When packing is done',
         desc: 'Wait for me keeps the last look at the tested archive before anything leaves this computer.',
         control: _shSel('afterPack', SHARE_AFTER_PACK_OPTIONS, s.afterPack, 'When packing is done') })
-      + row({ tag: 'label', sfind: 'shareKeepLocal', title: 'Keep the packed archive on this computer after upload', control: _shSwitch('keepLocal', s.keepLocal, 'Keep the packed archive on this computer after upload') })
-      + row({ tag: 'label', sfind: 'shareCheckPersonal', title: 'Check files for personal details',
-        desc: 'Looks for location, device, names and folder paths stored inside the files, and offers to remove them from the packed copies.',
-        control: _shSwitch('checkPersonal', s.checkPersonal, 'Check files for personal details') }),
+      + row({ tag: 'label', sfind: 'shareKeepLocal', title: 'Keep the packed archive on this computer after upload', control: _shSwitch('keepLocal', s.keepLocal, 'Keep the packed archive on this computer after upload') }),
     upload: row({ sfind: 'shareOnPartFail', title: 'If a part fails', control: _shSel('onPartFail', SHARE_PART_FAIL_OPTIONS, s.onPartFail, 'If a part fails') })
       + row({ sfind: 'shareAccount', title: 'gofile guest account', control: _shSel('accountMode', SHARE_ACCOUNT_OPTIONS, s.accountMode, 'gofile guest account') }),
     remember: row({ tag: 'label', sfind: 'shareRememberPasswords', title: 'Passwords of past shares', control: _shSwitch('rememberPasswords', s.rememberPasswords, 'Passwords of past shares') })

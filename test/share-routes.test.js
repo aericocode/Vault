@@ -85,7 +85,9 @@ async function call(method, p, body, { headers = {}, raw = false } = {}) {
   return { status: res.status, json, text };
 }
 
-// A small library.
+// A small library. Random bytes, not real videos: the personal details check
+// (every share) rightly stops a share of them with Remove on, so the test
+// that packs and uploads one starts it with Remove off.
 const libDir = path.join(tmp, 'media');
 const mediaIds = [];
 function addMedia(rel, bytes) {
@@ -219,7 +221,7 @@ test('start -> packing -> checks pass; upload only with confirm, never while off
   // stale key is ignored, so a typed name is still used.
   const appSettings = require('../lib/app-settings');
   appSettings.set({ share: { ...appSettings.all().share, nameMode: 'random' } });
-  const start = await call('POST', '/api/share/shares', { mediaIds, name: '  My Holiday!! ', passwordChoice: 'random', deleteAfterDays: 1, acknowledgeNoVaultPassword: true });
+  const start = await call('POST', '/api/share/shares', { mediaIds, name: '  My Holiday!! ', passwordChoice: 'random', deleteAfterDays: 1, acknowledgeNoVaultPassword: true, removePersonal: false });
   assert.strictEqual(start.status, 202, start.text);
   assert.strictEqual(store.kvGet('plain_warning_shown'), '1', 'shown once');
   shareId = start.json.share.id;

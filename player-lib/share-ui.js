@@ -390,8 +390,8 @@ async function shareOpenForIds(ids, { collectionName = '' } = {}) {
     w.failLocal = true;
   }
   shareWindowRender();
-  // The list shows at once; the personal details check fills in when ready.
-  if (w.step === 'review' && w.preview && w.preview.checkPersonal) shareMetaRun(w);
+  // The list shows at once; the personal details check (every share) fills in when ready.
+  if (w.step === 'review' && w.preview) shareMetaRun(w);
 }
 
 /** The selection bar's button. */
@@ -445,8 +445,9 @@ function shareWindowOpen() {
     id: null, mediaIds: [], preview: null, share: null, progress: null, step: 'loading',
     ticked: false, error: '', failText: '', failLocal: false, samples: [], timer: null, busy: false, partsSig: '',
     collectionName: '', filesOpen: false, bigAsk: null,
-    // The personal details check (step 1): where it is, its answer, the choice.
-    meta: null, metaProgress: null, metaError: false, metaTimer: null, metaChoice: 'remove', metaOpen: false, metaWaitPack: false,
+    // The personal details check (step 1): where it is, its answer, the
+    // Remove switch (on for every new share, never remembered), the fold.
+    meta: null, metaProgress: null, metaError: false, metaTimer: null, metaRemove: true, metaOpen: false, metaWaitPack: false, metaLocked: false,
   };
   // A click outside does nothing here: a stray click would drop what was typed
   // on step 1 or hide a running job. Esc asks to close, as Close does.
@@ -691,16 +692,40 @@ function sharePackClicked() {
   sharePack();
 }
 
-/* Step 1: the personal details check ("Check files for personal details"). */
+/* Step 1: the personal details check. Every share is checked (there is no
+   setting); the Remove switch starts on for every share. */
 
-/** Is the check on and still without an answer? */
+/** Is the check still without an answer? */
 function shareMetaPending(w) {
-  return !!(w && w.preview && w.preview.checkPersonal && !w.meta && !w.metaError);
+  return !!(w && w.preview && !w.meta && !w.metaError);
 }
 
-/** Will the cleaned copies be made (the check found something and Remove is picked)? */
+/** Is the Remove switch on? Only an explicit off turns it off. */
+function shareMetaRemoveOn(w) {
+  return !w || w.metaRemove !== false;
+}
+
+/**
+ * Lock or free the Remove switch. Locked from the moment Pack files is
+ * accepted (the large-share ask, the start request) until that settles, so
+ * what it shows is always what was, or will be, sent. Either way the switch
+ * and the hint are set back from the state, never the other way round. The
+ * fold stays usable.
+ */
+function shareMetaLock(w, on) {
+  if (!w) return;
+  w.metaLocked = !!on;
+  const slot = w.m && w.m.q && w.m.q('[data-sh-meta]');
+  if (!slot) return;
+  const sw = slot.querySelector('#shMetaRemove');
+  if (sw) { sw.disabled = !!on; sw.checked = shareMetaRemoveOn(w); }
+  const hint = slot.querySelector('#shMetaHint');
+  if (hint && w.meta) hint.textContent = shareMetaHint(w);
+}
+
+/** Will the cleaned copies be made (the check found something and Remove is on)? */
 function shareMetaRemoving(w) {
-  return !!(w && w.meta && w.meta.personalCount > 0 && w.metaChoice !== 'keep');
+  return !!(w && w.meta && w.meta.personalCount > 0 && shareMetaRemoveOn(w));
 }
 
 /** The free space figures step 1 shows: with the cleaned copies when they will be made. */
@@ -715,10 +740,54 @@ function shareFilesWord(n) {
   return `${Number(n).toLocaleString()} ${n === 1 ? 'file' : 'files'}`;
 }
 
+/*
+ * The kinds of detail lib/share/meta.js names (its CATS), in its order, for
+ * the small count tags. A label not listed here still gets a tag, after these.
+ */
+const SHARE_META_KINDS = ['Location', 'Device', 'Name', 'Title', 'Comment', 'Folder path', 'Email', 'Picture'];
+
+/** [[kind, files with it], ...] for the tags: each file counted once per kind. */
+function shareMetaKinds(m) {
+  const counts = new Map();
+  for (const f of (m && m.files) || []) {
+    const seen = new Set();
+    for (const x of f.findings || []) {
+      const k = String((x && x.label) || '');
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      counts.set(k, (counts.get(k) || 0) + 1);
+    }
+  }
+  const at = (k) => { const i = SHARE_META_KINDS.indexOf(k); return i < 0 ? SHARE_META_KINDS.length : i; };
+  return [...counts].sort((a, b) => at(a[0]) - at(b[0]));
+}
+
 /**
- * The meta slot of step 1: checking, the amber box, or the quiet line for
- * files of a type Vault does not read. The box shows when something was
- * found or when a check failed: a failed check is a problem, never "clean".
+ * The line under the tags: what the Remove switch means for this share, the
+ * extra free space the cleaned copies take, and what happens to files whose
+ * check did not finish (checked again when packing starts; packing stops if
+ * one still cannot be checked).
+ */
+function shareMetaHint(w) {
+  const m = (w && w.meta) || {};
+  const n = Number(m.personalCount) || 0;
+  const failed = Number(m.failedCount) || 0;
+  const extra = Number(m.extraBytes) || 0;
+  const one = failed === 1;
+  if (shareMetaRemoveOn(w)) {
+    const failNote = failed ? `Vault checks ${one ? 'the file that could not be checked' : 'the files that could not be checked'} again when packing starts. If ${one ? 'it' : 'one'} still cannot be checked, packing stops and nothing is uploaded.` : '';
+    if (!n) return `${failNote} Your originals are not changed.`;
+    return `Removed from the packed copies. Your originals are not changed.${extra ? ` Needs about ${shareSize(extra)} more free space.` : ''}${failNote ? ` ${failNote}` : ''}`;
+  }
+  if (!n) return `${one ? 'It is' : 'They are'} packed as ${one ? 'it is' : 'they are'}, without the check.`;
+  return `Not removed. Whoever opens the archive can read these details.${failed ? ` ${one ? 'The file that could not be checked is' : 'The files that could not be checked are'} packed as ${one ? 'it is' : 'they are'}.` : ''}`;
+}
+
+/**
+ * The meta slot of step 1: checking, the amber box, or the quiet line. The
+ * box shows when something was found or when a check failed: a failed check
+ * is a problem, never "clean". The box is always amber, its list folded to
+ * start with; the Remove switch sits outside the fold and starts on.
  */
 function shareMetaHtml(w) {
   const p = w.preview || {};
@@ -728,45 +797,46 @@ function shareMetaHtml(w) {
   if (!w.meta) {
     const st = w.metaProgress;
     const count = st && st.total > 1 ? ` ${Number(st.checked || 0).toLocaleString()} of ${Number(st.total).toLocaleString()}` : '';
-    return `<p class="vault-modal-hint share-meta-wait" role="status" data-sh-metamsg>Checking for personal details…${shEsc(count)}</p>`;
+    return `<p class="share-meta-quiet share-meta-wait" role="status" data-sh-metamsg>${shIcon('refresh', 'share-spin')}<span>Checking for personal details…${shEsc(count)}</span></p>`;
   }
   const m = w.meta;
+  const total = Number(m.total) || 0;
   const unchecked = Number(m.uncheckedCount) || 0;
-  const quiet = unchecked ? `<p class="vault-modal-hint" data-sh-metaunchecked>${shEsc(shareFilesWord(unchecked))} could not be checked and ${unchecked === 1 ? 'is' : 'are'} packed as ${unchecked === 1 ? 'it is' : 'they are'}.</p>` : '';
+  // Files of a type Vault does not read inside (webp, heic, gif...): said apart
+  // from a check that failed, which is a different thing (the box below).
+  const quiet = unchecked ? `<p class="vault-modal-hint" data-sh-metaunchecked>${shEsc(shareFilesWord(unchecked))} ${unchecked === 1 ? 'is a type' : 'are types'} Vault cannot check and ${unchecked === 1 ? 'is' : 'are'} packed as ${unchecked === 1 ? 'it is' : 'they are'}.</p>` : '';
   const n = Number(m.personalCount) || 0;
   const failed = Number(m.failedCount) || 0;
-  if (!n && !failed) return quiet;
+  if (!n && !failed) {
+    // Every file is of a type Vault does not read: there is nothing to call clean.
+    if (unchecked && unchecked >= total) return quiet;
+    const words = unchecked ? 'No personal details found in the files of types Vault can check' : 'No personal details found in these files';
+    return `<p class="share-meta-quiet" data-sh-metaclean>${shIcon('check', 'share-meta-ok')}<span>${words}</span></p>${quiet}`;
+  }
   const byId = new Map((p.files || []).map(f => [Number(f.mediaId), f]));
   const nameOf = (mediaId) => { const file = byId.get(Number(mediaId)); return file ? (file.nameInArchive || file.name) : ''; };
   const rows = (m.files || []).map((f) => {
     const what = (f.findings || []).map(x => `<span class="share-meta-what"><span class="share-meta-label">${shEsc(x.label)}:</span> ${shEsc(x.value)}</span>`).join('');
     return `<div class="share-meta-file"><span class="share-meta-name">${shEsc(nameOf(f.mediaId))}</span>${what}</div>`;
   }).join('') + (m.failedFiles || []).map(f => `<div class="share-meta-file share-meta-failed"><span class="share-meta-name">${shEsc(nameOf(f.mediaId))}</span><span class="share-meta-what">The check did not finish for this file.</span></div>`).join('');
-  const extra = Number(m.extraBytes) || 0;
-  const failNote = failed ? ` Vault checks ${failed === 1 ? 'the file that could not be checked' : 'the files that could not be checked'} again when packing starts. If one still cannot be checked, packing stops and nothing is uploaded.` : '';
-  const removeNote = (n ? `${n === 1 ? 'Only this file is copied and cleaned.' : `Only these ${n.toLocaleString()} files are copied and cleaned.`} Your originals are not changed.${extra ? ` Needs about ${shareSize(extra)} more free space.` : ''}` : 'Your originals are not changed.') + failNote;
-  const keepNote = n
-    ? `Whoever opens the archive can read these details.${failed ? ` ${failed === 1 ? 'The file that could not be checked is' : 'The files that could not be checked are'} packed as ${failed === 1 ? 'it is' : 'they are'}.` : ''}`
-    : `${failed === 1 ? 'It is' : 'They are'} packed as ${failed === 1 ? 'it is' : 'they are'}, without the check.`;
-  const title = n && failed
-    ? `${shareFilesWord(n)} ${n === 1 ? 'carries' : 'carry'} personal details, ${failed.toLocaleString()} could not be checked`
-    : n ? `${shareFilesWord(n)} ${n === 1 ? 'carries' : 'carry'} personal details`
-      : `${shareFilesWord(failed)} could not be checked for personal details`;
-  const choice = (value, title, note) => `
-        <label class="share-meta-choice">
-          <input type="radio" name="shMetaChoice" value="${value}"${w.metaChoice === value || (value === 'remove' && w.metaChoice !== 'keep') ? ' checked' : ''}>
-          <span><b>${shEsc(title)}</b><span class="share-meta-note">${shEsc(note)}</span></span>
-        </label>`;
+  const title = n ? 'Personal details' : 'Not checked for personal details';
+  const count = n || failed;
+  const tags = shareMetaKinds(m).map(([k, c]) => `<span class="share-meta-kind">${shEsc(k)} ${Number(c).toLocaleString()}</span>`)
+    .concat(failed && n ? [`<span class="share-meta-kind">Not checked ${failed.toLocaleString()}</span>`] : []);
+  const on = shareMetaRemoveOn(w);
   return `
-    <div class="share-meta-box" role="group" aria-labelledby="shMetaTitle">
-      <div class="share-meta-head">${shIcon('alert')}<span class="share-meta-title" id="shMetaTitle">${shEsc(title)}</span>
-        <button type="button" class="vault-btn share-btn-amber share-meta-fold" data-sh-metafold aria-controls="shMetaList" aria-expanded="${w.metaOpen ? 'true' : 'false'}">${w.metaOpen ? 'Hide details' : 'Show details'}</button>
+    <div class="share-meta-box" role="group" aria-label="Personal details">
+      <div class="share-meta-head">
+        <button type="button" class="share-meta-fold" id="shMetaFold" data-sh-metafold aria-controls="shMetaList" aria-expanded="${w.metaOpen ? 'true' : 'false'}">${shIcon('alert')}<span class="share-meta-title">${shEsc(title)} <span class="share-meta-count">(${count.toLocaleString()})</span></span>${shIcon('chevron', 'share-meta-chev')}</button>
+        <label class="share-meta-switch">
+          <span>Remove</span>
+          <input type="checkbox" role="switch" id="shMetaRemove" data-sh-metaremove aria-label="Remove personal details from the packed copies" aria-describedby="shMetaHint"${on ? ' checked' : ''}${w.metaLocked ? ' disabled' : ''}>
+          <span class="settings-switch" aria-hidden="true"></span>
+        </label>
       </div>
+      ${tags.length ? `<div class="share-meta-kinds">${tags.join('')}</div>` : ''}
+      <p class="share-meta-hint" id="shMetaHint" data-sh-metahint>${shEsc(shareMetaHint(w))}</p>
       <div class="share-meta-list" id="shMetaList" data-share-names${w.metaOpen ? '' : ' hidden'}>${rows}</div>
-      <div class="share-meta-choices" role="radiogroup" aria-label="Personal details in the packed copies">
-        ${choice('remove', 'Remove from the packed copies', removeNote)}
-        ${choice('keep', 'Share as they are', keepNote)}
-      </div>
     </div>${quiet}`;
 }
 
@@ -780,10 +850,11 @@ function shareMetaUpdate(w) {
   if (slot) {
     const html = shareMetaHtml(w);
     if (slot.innerHTML !== html) {
-      // Keep the keyboard on the choice the user is on.
-      const had = document.activeElement && slot.contains(document.activeElement) ? document.activeElement : null;
+      // Keep the keyboard on the fold or the switch when the user is on one.
+      const a = document.activeElement;
+      const had = a && slot.contains(a) && (a.id === 'shMetaFold' || a.id === 'shMetaRemove') ? a.id : '';
       slot.innerHTML = html;
-      if (had && had.name === 'shMetaChoice') { const r = slot.querySelector(`input[value="${had.value}"]`); if (r) r.focus(); }
+      if (had) { const el = slot.querySelector(`#${had}`); if (el) el.focus(); }
       sharePrivacyChanged(slot);
     }
   }
@@ -831,7 +902,6 @@ async function shareMetaRun(w) {
     st = await shareApi('POST', '/meta-check', { mediaIds: w.mediaIds });
     for (;;) {
       if (w !== _shareWin || w.step !== 'review') return;
-      if (st.off) { w.preview.checkPersonal = false; break; }
       if (st.done) { w.meta = st; break; }
       w.metaProgress = st;
       shareMetaUpdate(w);
@@ -844,10 +914,6 @@ async function shareMetaRun(w) {
     w.metaError = true;
   }
   if (w !== _shareWin || w.step !== 'review') return;
-  if (!w.preview.checkPersonal) {
-    const slot = w.m.q('[data-sh-meta]');
-    if (slot) slot.innerHTML = '';
-  }
   shareMetaUpdate(w);
   if (w.metaWaitPack) {
     w.metaWaitPack = false;
@@ -891,6 +957,8 @@ function shareAskBig(w) {
       </div>`,
   });
   w.bigAsk = m;
+  // Pack files was accepted: the Remove switch holds still while this asks.
+  shareMetaLock(w, true);
   // The second click of a double click on Pack files lands on the backdrop:
   // it must not take the focus off Go back.
   m.ov.addEventListener('mousedown', (e) => { if (e.target === m.ov) e.preventDefault(); });
@@ -898,6 +966,8 @@ function shareAskBig(w) {
     if (m.closed) return;
     m.close();
     if (w.bigAsk === m) w.bigAsk = null;
+    // Back on step 1 with nothing started: the switch is usable again.
+    if (w === _shareWin && !w.busy) shareMetaLock(w, false);
   }
   m.q('[data-sh-big="back"]').addEventListener('click', back);
   m.q('[data-sh-big="go"]').addEventListener('click', () => {
@@ -943,7 +1013,7 @@ function shareReviewHtml(w) {
       ${fold ? `<button type="button" class="share-link-btn share-more-files" data-sh-more aria-controls="shFilesList" aria-expanded="${w.filesOpen ? 'true' : 'false'}">${w.filesOpen ? 'Show fewer' : `and ${more.toLocaleString()} more ${more === 1 ? 'file' : 'files'}`}</button>` : ''}
       <div class="share-file share-file-total"><span>${files.length.toLocaleString()} ${files.length === 1 ? 'file' : 'files'}</span><span${big ? ' class="share-big-total"' : ''}>${big ? `${shIcon('alert')}<span class="share-sr">Large share: </span>` : ''}${shEsc(shareSize(p.totalBytes))}</span></div>
     </div>
-    ${p.checkPersonal ? `<div class="share-meta" data-sh-meta>${shareMetaHtml(w)}</div>` : ''}
+    <div class="share-meta" data-sh-meta>${shareMetaHtml(w)}</div>
     ${big ? `<div class="share-big-note" data-sh-bignote>${shIcon('alert')}<span>${shEsc(shareBigNote({ ...p, needBytes: sp.needBytes }))}</span></div>` : ''}
     <div class="share-block">
       <div class="share-label">What will leave this computer</div>
@@ -1071,8 +1141,12 @@ async function sharePack() {
   // Only with "Upload on its own" in force and its tick box ticked.
   const autoTick = q('#shAutoTick');
   if (autoTick && autoTick.checked && w.preview && w.preview.afterPack === 'upload') body.confirmUpload = true;
-  // Personal details: only the choice goes; the server checks the files itself.
-  if (w.preview && w.preview.checkPersonal) body.removePersonal = w.metaChoice !== 'keep';
+  // Personal details: only the Remove switch goes, always; the server checks
+  // the files itself (and removes when this is missing). Read once, here,
+  // and the switch is locked on that value until the request settles, so
+  // the box can never show the opposite of what was sent.
+  body.removePersonal = shareMetaRemoveOn(w);
+  shareMetaLock(w, true);
   w.busy = true;
   btn.disabled = true;
   btn.textContent = 'Starting…';
@@ -1099,6 +1173,9 @@ async function sharePack() {
     btn.textContent = 'Pack files';
   } finally {
     w.busy = false;
+    // Cancelled at the warning, or an error: usable again, showing what the
+    // next Pack files will send (it started, the step moved on: no switch).
+    if (w === _shareWin && w.step === 'review') shareMetaLock(w, false);
   }
 }
 
@@ -1668,8 +1745,8 @@ function shareWireWindow(w) {
   // Step 1's folded list opens and closes in place (a new draw would drop what was typed).
   const more = box.querySelector('[data-sh-more]');
   if (more) more.addEventListener('click', () => shareToggleFiles(w, more));
-  // The personal details box: its fold and its two choices (in place, so the
-  // rest of step 1 keeps what was typed). The slot stays; its inside changes.
+  // The personal details box: its fold and its Remove switch (in place, so
+  // the rest of step 1 keeps what was typed). The slot stays; its inside changes.
   const metaSlot = box.querySelector('[data-sh-meta]');
   if (metaSlot) {
     metaSlot.addEventListener('click', (e) => {
@@ -1678,13 +1755,17 @@ function shareWireWindow(w) {
       w.metaOpen = !w.metaOpen;
       const list = metaSlot.querySelector('#shMetaList');
       if (list) list.hidden = !w.metaOpen;
-      b.textContent = w.metaOpen ? 'Hide details' : 'Show details';
       b.setAttribute('aria-expanded', w.metaOpen ? 'true' : 'false');
     });
     metaSlot.addEventListener('change', (e) => {
-      const r = e.target;
-      if (!r || r.name !== 'shMetaChoice') return;
-      w.metaChoice = r.value === 'keep' ? 'keep' : 'remove';
+      const t = e.target;
+      if (!t || t.id !== 'shMetaRemove') return;
+      // Locked while Pack files is under way: the value already read stays.
+      if (w.metaLocked || w.busy) { t.checked = shareMetaRemoveOn(w); return; }
+      // For this share only: a new share starts with it on again.
+      w.metaRemove = !!t.checked;
+      const hint = metaSlot.querySelector('#shMetaHint');
+      if (hint) hint.textContent = shareMetaHint(w);
       shareSpaceUpdate(w);
     });
   }

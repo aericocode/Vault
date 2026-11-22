@@ -120,8 +120,8 @@ function buildRouter() {
 
   // Step 1.
   r.post('/preview', h((req) => service.preview({ mediaIds: body(req).mediaIds })));
-  // "Check files for personal details": start, then ask where it is. The
-  // answer holds what was found (in memory only on the server, never cached).
+  // The personal details check (every share): start, then ask where it is.
+  // The answer holds what was found (in memory only on the server, never cached).
   r.post('/meta-check', h((req) => service.metaCheck({ mediaIds: body(req).mediaIds })));
   r.get('/meta-check/:id', h((req) => service.metaCheckStatus(req.params.id)));
   r.post('/shares', h((req, res) => {
@@ -131,8 +131,10 @@ function buildRouter() {
       acknowledgeNoVaultPassword: b.acknowledgeNoVaultPassword,
       // The step 1 tick box for "Upload on its own"; only exactly true counts (service.js).
       confirmUpload: b.confirmUpload,
-      // Personal details: only the choice. Which files are cleaned is the
-      // server's own check at the pack's turn; no file list is read here.
+      // Personal details: only the choice, and only exactly false turns
+      // removal off (missing means remove; service.js). Which files are
+      // cleaned is the server's own check at the pack's turn; no file list
+      // is read here, and an old "checkPersonal" in the body is ignored.
       removePersonal: b.removePersonal,
     });
     res.status(202).json({ share });

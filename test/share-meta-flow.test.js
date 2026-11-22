@@ -1,22 +1,24 @@
 /**
- * Share privately: "Check files for personal details" from step 1 to the
- * packed copies (lib/share/service.js, server/share-routes.js, lib/share/pack.js).
+ * Share privately: the personal details check, from step 1 to the packed
+ * copies (lib/share/service.js, server/share-routes.js, lib/share/pack.js).
  *
  * Covered:
- *  - the setting off (the default): no check at all, no file opened for it,
- *    a removePersonal sent anyway changes nothing;
+ *  - there is no setting: every share is checked, an old stored checkPersonal
+ *    (true or false) and one sent by the page are ignored; Remove is the
+ *    default (only exactly removePersonal: false turns it off), also for a
+ *    share that uploads on its own;
  *  - step 1 over HTTP: what was found, per file, the files whose check failed
  *    (a type Vault checks) apart from those of a type Vault does not read,
  *    the extra free space; an unknown or forgotten check id is NOT_FOUND;
  *  - a check that fails (ffprobe exits with an error, prints junk, prints
  *    too much) is never taken as clean: with Remove the share fails naming
  *    the file, also when step 1 had flagged it and the cache was forgotten
- *    (what a lock does); with Share as they are it is packed as it is;
+ *    (what a lock does); with Remove off it is packed as it is;
  *  - a file changed after its check and before 7-Zip read it fails the share;
  *  - Remove: only the files the SERVER's own check flagged get a cleaned copy,
  *    whatever file list the page sends; the others are packed as they are;
  *    the originals stay byte for byte;
- *  - Share as they are: nothing cleaned;
+ *  - Remove off: nothing cleaned;
  *  - free space: the cleaned copies count at start and again at the turn;
  *  - fail-safe: a copy that cannot be cleaned fails the share with its name,
  *    never packs the original, and nothing found is stored anywhere;
@@ -146,7 +148,7 @@ function addMedia(name, buf, type = 'image') {
   return id;
 }
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
-const ON = () => ({ ...settings.DEFAULTS, enabled: true, rememberPasswords: false, split: 'none', checkPersonal: true });
+const ON = () => ({ ...settings.DEFAULTS, enabled: true, rememberPasswords: false, split: 'none' });
 
 test.before(async () => {
   db.init();
@@ -256,41 +258,68 @@ function dumpDb() {
     + fs.readFileSync(process.env.VAULT_SETTINGS_FILE, 'utf8');
 }
 
-/* ── The setting off ───────────────────────────────────────────────────── */
+/* ── Always checked: there is no setting ──────────────────────────────── */
 
-test('setting off (the default): no check, no file opened for it, removePersonal changes nothing', async () => {
-  assert.strictEqual(settings.DEFAULTS.checkPersonal, false, 'off by default');
-  settings.save({ ...ON(), checkPersonal: false });
-  const opened = [];
-  const realOpen = fs.promises.open;
-  const realOpenSync = fs.openSync;
-  const mediaPaths = new Set(Object.values(files).map(f => path.resolve(f.path)));
-  fs.promises.open = (p, ...rest) => { if (!in7z && mediaPaths.has(path.resolve(String(p)))) opened.push(p); return realOpen.call(fs.promises, p, ...rest); };
-  fs.openSync = (p, ...rest) => { if (!in7z && mediaPaths.has(path.resolve(String(p)))) opened.push(p); return realOpenSync.call(fs, p, ...rest); };
-  try {
-    const all = ids('holiday.jpg', 'drawing.png', 'clip.mp4');
-    assert.strictEqual(service.preview({ mediaIds: all }).checkPersonal, false);
-    const r = await call('POST', '/meta-check', { mediaIds: all });
-    assert.deepStrictEqual(r.json, { off: true });
-    const s = await call('POST', '/shares', { mediaIds: all, removePersonal: true });
+const cleanedHoliday = () => !packed[packed.length - 1].bytes['holiday.jpg'].includes(Buffer.from('Sam'));
+
+test('no setting: an old stored checkPersonal, true or false, is ignored; step 1 always checks; a page that sends it changes nothing', async () => {
+  const appSettings = require('../lib/app-settings');
+  assert.ok(!('checkPersonal' in settings.DEFAULTS), 'no such setting');
+  const all = ids('holiday.jpg', 'plain.jpg');
+  for (const stored of [false, true]) {
+    // A settings file from before, written straight to disk.
+    appSettings.set({ share: { ...ON(), checkPersonal: stored } });
+    assert.strictEqual(appSettings.all().share.checkPersonal, stored, 'the old value is on disk');
+    assert.ok(!('checkPersonal' in settings.get()), `stored ${stored}: not read`);
+    assert.ok(!('checkPersonal' in service.preview({ mediaIds: all })), 'the page is told nothing about it');
+    const st = await check(all);
+    assert.strictEqual(st.personalCount, 1, `stored ${stored}: step 1 checked`);
+    assert.ok(!('off' in st));
+    // The page sends nothing about it, or the old flag off: removed all the same.
+    const s = await call('POST', '/shares', { mediaIds: all, checkPersonal: false });
     assert.strictEqual(s.status, 202, JSON.stringify(s.json));
     await until(() => statusOf(s.json.share.id) === 'checked', 'packed');
-    assert.deepStrictEqual(opened, [], 'no picked file was opened by Vault itself');
-    assert.ok(!fs.existsSync(PROBE_LOG), 'ffprobe never ran');
-    assert.strictEqual(meta._stateForTest().cache, 0);
-    assert.ok(packed[0].bytes['holiday.jpg'].includes(Buffer.from(FOUND)), 'packed as it is');
-    assert.ok(packed[0].lines.includes(files['clip.mp4'].path), 'the original itself, no copy');
-  } finally {
-    fs.promises.open = realOpen;
-    fs.openSync = realOpenSync;
+    assert.ok(cleanedHoliday(), `stored ${stored}: cleaned`);
   }
+  // A page left open from before sends the old switch: accepted, changes nothing, and the key leaves the file.
+  const r = await call('POST', '/settings', { checkPersonal: false });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.json));
+  assert.ok(!('checkPersonal' in r.json.settings));
+  assert.ok(!('checkPersonal' in appSettings.all().share), 'gone from the file on the next save');
+  assert.deepStrictEqual(settings.validatePatch({ checkPersonal: true }), {});
+  assert.ok(!dumpDb().includes('Sam'), 'no found value in the database or the settings file');
+});
+
+test('Remove is the default: missing, null, a string or a number all mean remove; only exactly false turns it off', async () => {
+  const all = ids('holiday.jpg', 'plain.jpg');
+  for (const v of [undefined, null, 'false', 0, true, 'no']) {
+    const body = { mediaIds: all };
+    if (v !== undefined) body.removePersonal = v;
+    const s = await call('POST', '/shares', body);
+    assert.strictEqual(s.status, 202, JSON.stringify(s.json));
+    await until(() => statusOf(s.json.share.id) === 'checked', `packed (${JSON.stringify(v)})`);
+    assert.ok(cleanedHoliday(), `removePersonal ${JSON.stringify(v)}: cleaned`);
+  }
+  const off = await call('POST', '/shares', { mediaIds: all, removePersonal: false });
+  await until(() => statusOf(off.json.share.id) === 'checked', 'packed with Remove off');
+  assert.ok(packed[packed.length - 1].bytes['holiday.jpg'].includes(Buffer.from(FOUND)), 'Remove off: the details go as they are');
+  assert.strictEqual(sha(packed[packed.length - 1].bytes['holiday.jpg']), files['holiday.jpg'].sha);
+});
+
+test('a share that uploads on its own is checked and cleaned like any other', async () => {
+  settings.save({ ...ON(), afterPack: 'upload' });
+  // Offline: the upload gate stops it once packed, which is after the cleaning.
+  const s = await call('POST', '/shares', { mediaIds: ids('holiday.jpg', 'drawing.png'), confirmUpload: true });
+  assert.strictEqual(s.status, 202, JSON.stringify(s.json));
+  await until(() => statusOf(s.json.share.id) === 'checked' && packed.length === 1, 'packed');
+  assert.ok(cleanedHoliday());
+  assert.ok(!packed[0].bytes['drawing.png'].includes(Buffer.from('Sam')));
 });
 
 /* ── Step 1 ────────────────────────────────────────────────────────────── */
 
 test('step 1: flagged files with what was found, failed checks and types Vault does not read counted apart, the extra space; ids are checked', async () => {
   const all = ids('holiday.jpg', 'drawing.png', 'plain.jpg', 'broken.mp4', 'clip.mp4', 'sticker.webp');
-  assert.strictEqual(service.preview({ mediaIds: all }).checkPersonal, true);
   const r = await check(all);
   assert.strictEqual(r.total, 6);
   assert.strictEqual(r.personalCount, 3);
@@ -319,7 +348,7 @@ test('step 1: flagged files with what was found, failed checks and types Vault d
   assert.ok(!dumpDb().includes('Sam'), 'no found value in the database');
 });
 
-/* ── Remove / Share as they are ───────────────────────────────────────── */
+/* ── Remove on / off ───────────────────────────────────────────────────── */
 
 test('Remove: only the files the server flagged are cleaned, whatever list the page sends; the others go as they are', async () => {
   const all = ids('holiday.jpg', 'drawing.png', 'plain.jpg', 'sticker.webp');
@@ -354,7 +383,7 @@ test('Remove is decided at the turn by the server\'s own check, even with no ste
   assert.strictEqual(sha(packed[0].bytes['plain.jpg']), files['plain.jpg'].sha);
 });
 
-test('Share as they are: nothing cleaned, nothing copied for it', async () => {
+test('Remove off (exactly false): nothing cleaned, nothing copied for it, the details go as they are', async () => {
   await check(ids('holiday.jpg', 'drawing.png'));
   const s = await call('POST', '/shares', { mediaIds: ids('holiday.jpg', 'drawing.png'), removePersonal: false });
   assert.strictEqual(s.status, 202, JSON.stringify(s.json));
@@ -415,7 +444,7 @@ test('a copy that cannot be cleaned fails the share with the file\'s name; the o
   assert.match(service.progress(s.id).error, /from clip\.mp4,/);
 });
 
-const CHECK_FAILED = (what) => `Vault could not check ${what} for personal details, so this share was not packed. Nothing was uploaded. To pack it without the check, start the share again and pick Share as they are.`;
+const CHECK_FAILED = (what) => `Vault could not check ${what} for personal details, so this share was not packed. Nothing was uploaded. To pack it without the check, start the share again and turn off Remove under Personal details.`;
 
 test('a check that fails at the turn is never taken as clean: flagged at step 1, the cache forgotten (a lock), ffprobe failing; the share fails naming the file', async () => {
   settings.save({ ...ON(), rememberFiles: true });
@@ -432,7 +461,7 @@ test('a check that fails at the turn is never taken as clean: flagged at step 1,
     assert.strictEqual(row.work_dir, null, 'the work folder is gone');
     assert.strictEqual(meta.cached({ path: files['clip.mp4'].path, size: fs.statSync(files['clip.mp4'].path).size, mtimeMs: fs.statSync(files['clip.mp4'].path).mtimeMs }), null, 'never kept as clean');
   }
-  // Share as they are: nothing changes, the file is packed as it is.
+  // Remove off: nothing changes, the file is packed as it is.
   process.env.FAKE_PROBE = 'fail';
   const k = service.start({ mediaIds: ids('clip.mp4'), removePersonal: false });
   await until(() => statusOf(k.id) === 'checked', 'packed as it is');
@@ -473,7 +502,7 @@ test('Remove: a file that changes after its check and before 7-Zip has read it f
     await until(() => statusOf(s.id) === 'failed', 'failed');
     assert.strictEqual(store.getShare(s.id).last_error, 'A picked file changed while this share was being packed, so it was not kept. Nothing was uploaded. Start the share again.');
     assert.strictEqual(store.getShare(s.id).work_dir, null);
-    // Share as they are does no check, so there is nothing to compare with.
+    // Remove off does no check at the turn, so there is nothing to compare with.
     sevenzipHook = null;
     const k = service.start({ mediaIds: [mid], removePersonal: false });
     await until(() => statusOf(k.id) === 'checked', 'packed');
