@@ -318,6 +318,173 @@ test('hostile JPEGs: loops, offsets out of range, huge counts, truncation, garba
   assert.strictEqual((await meta.detect(tmp)).status, 'failed');
 });
 
+/* ── Embedded thumbnails ──────────────────────────────────────────────── */
+
+/**
+ * The TIFF block t with a chain of thumbnail directories after IFD0 (IFD1,
+ * IFD2...): each one { bytes, at, len } (at may be a function of { ifd, data },
+ * the directory's own offset and where its bytes would go). tailNext: the
+ * last directory's next pointer.
+ */
+function withThumbs(t, list, { tailNext = 0 } = {}) {
+  const base = t.length + (t.length % 2);
+  const SIZE = 2 + 2 * 12 + 4;
+  const dirs = Buffer.alloc(list.length * SIZE);
+  const datas = [];
+  let dOff = base + list.length * SIZE;
+  list.forEach((th, i) => {
+    const o = i * SIZE;
+    const bytes = th.bytes || Buffer.alloc(0);
+    const at = typeof th.at === 'function' ? th.at({ ifd: base + o, data: dOff }) : th.at != null ? th.at : dOff;
+    const len = th.len != null ? th.len : bytes.length;
+    dirs.writeUInt16LE(2, o);
+    dirs.writeUInt16LE(0x201, o + 2); dirs.writeUInt16LE(4, o + 4); dirs.writeUInt32LE(1, o + 6); dirs.writeUInt32LE(at >>> 0, o + 10);
+    dirs.writeUInt16LE(0x202, o + 14); dirs.writeUInt16LE(4, o + 16); dirs.writeUInt32LE(1, o + 18); dirs.writeUInt32LE(len >>> 0, o + 22);
+    dirs.writeUInt32LE(i + 1 < list.length ? base + (i + 1) * SIZE : tailNext >>> 0, o + 26);
+    datas.push(bytes);
+    dOff += bytes.length;
+  });
+  const out = Buffer.concat([t, Buffer.alloc(base - t.length), dirs, ...datas]);
+  const i0 = out.readUInt32LE(4);
+  out.writeUInt32LE(list.length ? base : tailNext >>> 0, i0 + 2 + out.readUInt16LE(i0) * 12);
+  return out;
+}
+/** A JPEG whose EXIF holds only the given thumbnails. */
+const thumbHolder = (list, ifd0 = []) => jpegWith([exifSeg(withThumbs(tiff({ ifd0 }), list))]);
+// What a phone's thumbnail could carry: its own EXIF with GPS and a camera, and a comment.
+const LEAKY_THUMB = jpegWith([exifSeg(tiff({ ifd0: [{ tag: 0x010f, type: 2, value: 'Thumbcam' }], gps: GPS })), comSeg('Thumb owner Alex Smith')]);
+const HARMLESS = [{ tag: 0x0112, type: 3, value: 1 }, { tag: 0x0131, type: 2, value: 'Photo editor 2.1' }];
+const LEAK = { Location: '52.37, 4.89', Device: 'Thumbcam', Comment: 'Thumb owner Alex Smith' };
+
+test('EXIF thumbnail: what it carries (GPS, a camera, a comment) counts for the file, with or without the tools, wherever the EXIF sits', async () => {
+  // The main picture's EXIF alone is harmless.
+  assert.strictEqual((await meta.detect(put(jpegWith([exifSeg(tiff({ ifd0: HARMLESS }))])))).status, 'clean');
+  const main = withThumbs(tiff({ ifd0: HARMLESS }), [{ bytes: LEAKY_THUMB }]);
+  // Photoshop's thumbnail resource: a 28-byte header, then the JPEG.
+  const psRes = (id, jpg) => {
+    const h = Buffer.alloc(12); h.write('8BIM', 0, 'latin1'); h.writeUInt16BE(id, 4); h.writeUInt32BE(28 + jpg.length, 8);
+    const body = Buffer.concat([Buffer.alloc(28), jpg]);
+    return seg(0xed, Buffer.concat([Buffer.from('Photoshop 3.0\0', 'latin1'), h, body, body.length % 2 ? Buffer.alloc(1) : Buffer.alloc(0)]));
+  };
+  const files = {
+    'JPEG EXIF IFD1': put(jpegWith([exifSeg(main)])),
+    'PNG eXIf': put(png([chunk('eXIf', main)]), '.png'),
+    'JFXX': put(jpegWith([seg(0xe0, Buffer.concat([Buffer.from('JFXX\0', 'latin1'), Buffer.from([0x10]), LEAKY_THUMB]))])),
+    'Photoshop 0x040c': put(jpegWith([psRes(0x040c, LEAKY_THUMB)])),
+    'Photoshop 0x0409': put(jpegWith([psRes(0x0409, LEAKY_THUMB)])),
+  };
+  for (const [where, f] of Object.entries(files)) {
+    for (const tools of [true, false]) {
+      const r = await meta.detect(f, { tools });
+      assert.strictEqual(r.status, 'personal', `${where}, tools ${tools}`);
+      assert.deepStrictEqual(labels(r), LEAK, `${where}, tools ${tools}`);
+    }
+  }
+  // JFXX thumbnails stored as pixels (not a JPEG) hold nothing to read.
+  const jfxxRgb = put(jpegWith([seg(0xe0, Buffer.concat([Buffer.from('JFXX\0', 'latin1'), Buffer.from([0x13, 1, 1, 9, 9, 9])]))]));
+  assert.strictEqual((await meta.detect(jfxxRgb)).status, 'clean');
+});
+
+test('EXIF thumbnail: once flagged the cleaned copy holds none of it and checks clean, with or without the tools', async () => {
+  const main = withThumbs(tiff({ ifd0: HARMLESS }), [{ bytes: LEAKY_THUMB }]);
+  const MISSING = { probe: path.join(tmp, 'gone', 'ffprobe.exe'), ffmpeg: path.join(tmp, 'gone', 'ffmpeg.exe') };
+  for (const tools of [true, false]) {
+    if (!tools) meta._setForTest(MISSING);
+    try {
+      for (const [src, ext] of [[put(jpegWith([exifSeg(main)])), '.jpg'], [put(png([chunk('eXIf', main)]), '.png'), '.png'], [put(thumbHolder([{ bytes: LEAKY_THUMB }], [{ tag: 0x0112, type: 3, value: 6 }])), '.jpg']]) {
+        const known = await meta.detect(src, { tools });
+        assert.strictEqual(known.status, 'personal');
+        const dst = path.join(stageDir(), `out${ext}`);
+        await meta.cleanCopy({ src, dst, known });
+        const out = fs.readFileSync(dst);
+        for (const s of ['Alex', 'Thumbcam', 'Photo editor']) assert.ok(!out.includes(Buffer.from(s)), `${s} gone (${ext}, tools ${tools})`);
+        for (const t of [true, false]) assert.strictEqual((await meta.detect(dst, { tools: t })).status, 'clean', `${ext}, tools ${tools}/${t}`);
+      }
+    } finally {
+      meta._setForTest({ probe: null, ffmpeg: null });
+    }
+  }
+});
+
+test('EXIF thumbnail, hostile: pointers out of range, absurd lengths, overlaps, junk, loops never throw and never hide what is readable', async () => {
+  const at = async (list, opts) => meta.detect(put(thumbHolder(list), opts));
+  // Out of the block, or at 0: nothing there to read; the file is not broken.
+  for (const p of [0, 1, 7, 0xfffffff0, 0x7fffffff]) {
+    assert.strictEqual((await at([{ bytes: LEAKY_THUMB, at: p }])).status, 'clean', `at ${p}`);
+  }
+  // A length past the end of the block, or absurd: cut to the end, what is there still counts.
+  for (const len of [LEAKY_THUMB.length + 5000, 0xffffffff, 0x7fffffff]) {
+    assert.deepStrictEqual(labels(await at([{ bytes: LEAKY_THUMB, len }])), LEAK, `len ${len}`);
+  }
+  // A length of 0: no thumbnail.
+  assert.strictEqual((await at([{ bytes: LEAKY_THUMB, len: 0 }])).status, 'clean');
+  // Pointing at its own directory, or at the TIFF header: not a JPEG, passed over.
+  assert.strictEqual((await at([{ bytes: LEAKY_THUMB, at: ({ ifd }) => ifd }])).status, 'clean');
+  assert.strictEqual((await at([{ bytes: LEAKY_THUMB, at: 8 }])).status, 'clean');
+  // Random bytes, and a JPEG start followed by garbage: passed over, never failed.
+  assert.strictEqual((await at([{ bytes: crypto.randomBytes(500) }])).status, 'clean');
+  assert.notStrictEqual((await at([{ bytes: Buffer.concat([Buffer.from([0xff, 0xd8]), crypto.randomBytes(500)]) }])).status, 'failed');
+  assert.strictEqual((await at([{ bytes: Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x01]) }])).status, 'clean');
+  // Cut short inside its EXIF: what came before (the comment) still counts, the file is not broken.
+  const cutFirst = jpegWith([comSeg('Thumb owner Alex Smith'), exifSeg(tiff({ gps: GPS }))]);
+  const r = await at([{ bytes: cutFirst, len: cutFirst.indexOf(Buffer.from('Exif')) + 20 }]);
+  assert.strictEqual(r.status, 'personal');
+  assert.strictEqual(labels(r).Comment, 'Thumb owner Alex Smith');
+  // Two directories sharing one thumbnail (overlap): read, no duplicate line.
+  const two = thumbHolder([{ bytes: LEAKY_THUMB }, { at: ({ ifd }) => ifd + 30, len: LEAKY_THUMB.length }]);
+  const two2 = await meta.detect(put(two));
+  assert.deepStrictEqual(labels(two2), LEAK);
+  // The directory chain past IFD1: junk in its last next pointer is not a broken file; a loop ends.
+  assert.strictEqual((await meta.detect(put(jpegWith([exifSeg(withThumbs(tiff({ ifd0: HARMLESS }), [{ bytes: BASE_JPEG }, { bytes: BASE_JPEG }], { tailNext: 0xfffffff0 }))])))).status, 'clean');
+  const loop = withThumbs(tiff({ ifd0: HARMLESS }), [{ bytes: BASE_JPEG }], { tailNext: 8 });
+  assert.strictEqual((await meta.detect(put(jpegWith([exifSeg(loop)])))).status, 'clean');
+  // A thumbnail in IFD2 (past the thumbnail's own directory) is read too.
+  assert.deepStrictEqual(labels(await at([{ bytes: BASE_JPEG }, { bytes: LEAKY_THUMB }])), LEAK);
+});
+
+test('EXIF thumbnail, nested and many: a thumbnail\'s thumbnail is read; deeper, or more than the limit, the check failed (never clean)', async () => {
+  const nest = (inner) => thumbHolder([{ bytes: inner }]);
+  // main > A > B: what B carries counts.
+  const ab = nest(nest(LEAKY_THUMB));
+  assert.deepStrictEqual(labels(await meta.detect(put(ab))), LEAK);
+  // main > A > B > C: one level too deep, even a plain C.
+  assert.strictEqual((await meta.detect(put(nest(nest(nest(BASE_JPEG)))))).status, 'failed');
+  assert.strictEqual((await meta.detect(put(nest(nest(nest(LEAKY_THUMB)))))).status, 'failed');
+  // Six deep: bounded, never walked to the bottom.
+  const deep = (n) => (n === 0 ? BASE_JPEG : nest(deep(n - 1)));
+  assert.strictEqual((await meta.detect(put(deep(6)))).status, 'failed');
+  // Up to LIMITS.thumbs thumbnails per file are read; one more and the check failed.
+  const k = meta.LIMITS.thumbs;
+  const many = (n) => put(thumbHolder(Array.from({ length: n }, () => ({ bytes: BASE_JPEG }))));
+  assert.strictEqual((await meta.detect(many(k))).status, 'clean');
+  assert.strictEqual((await meta.detect(many(k + 1))).status, 'failed');
+  // The last of the k carries the details: found.
+  const lastLeaks = thumbHolder(Array.from({ length: k }, (_, i) => ({ bytes: i === k - 1 ? LEAKY_THUMB : BASE_JPEG })));
+  assert.deepStrictEqual(labels(await meta.detect(put(lastLeaks))), LEAK);
+});
+
+test('EXIF thumbnail: a normal camera JPEG whose thumbnail carries nothing new gives the same findings as before, no line twice', async () => {
+  const camera = [
+    { tag: 0x010f, type: 2, value: 'Canon' }, { tag: 0x0110, type: 2, value: 'Canon EOS R6' }, { tag: 0x0112, type: 3, value: 1 },
+    { tag: 0x013b, type: 2, value: 'Sam Example' },
+  ];
+  const exif = [{ tag: 0xa431, type: 2, value: '0432999' }];
+  const plain = tiff({ ifd0: camera, exif, gps: GPS });
+  const before = await meta.detect(put(jpegWith([exifSeg(plain), comSeg('Holiday')])));
+  assert.strictEqual(before.status, 'personal');
+  // A plain thumbnail (what cameras write), and one with the very same EXIF and comment.
+  const same = jpegWith([exifSeg(tiff({ ifd0: camera, exif, gps: GPS })), comSeg('Holiday')]);
+  for (const thumb of [BASE_JPEG, same]) {
+    const r = await meta.detect(put(jpegWith([exifSeg(withThumbs(plain, [{ bytes: thumb }])), comSeg('Holiday')])));
+    assert.deepStrictEqual(r.findings, before.findings);
+  }
+  // A thumbnail with another place: the main picture's place is the one shown; still one Location line.
+  const elsewhere = jpegWith([exifSeg(tiff({ gps: [GPS[0], GPS[1], { tag: 2, type: 5, value: [[10, 1], [0, 1], [0, 1]] }, GPS[3], { tag: 4, type: 5, value: [[20, 1], [0, 1], [0, 1]] }] }))]);
+  const r = await meta.detect(put(jpegWith([exifSeg(withThumbs(plain, [{ bytes: elsewhere }]))])));
+  assert.strictEqual(r.findings.filter(f => f.label === 'Location').length, 1);
+  assert.strictEqual(labels(r).Location, labels(before).Location);
+});
+
 test('values: oversized ones are cut short, control and direction characters removed', async () => {
   const huge = `${'A'.repeat(50000)}`;
   const sneaky = 'Sam\u202eevil\u0000\u0007\u200b<b>x</b>\r\nnext';

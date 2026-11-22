@@ -595,7 +595,7 @@ const exeName = (n) => (process.platform === 'win32' ? `${n}.exe` : n);
 const MISSING = { probe: path.join(GONE_DIR, exeName('ffprobe')), ffmpeg: path.join(GONE_DIR, exeName('ffmpeg')) };
 const FAKE_CMD = { exe: process.execPath, pre: [FAKE] };
 const NO_FFMPEG_START = 'Vault can no longer find ffmpeg, which it needs for videos and sound files. Nothing was packed. Look at Personal details again, then press Pack files.';
-const NO_FFMPEG_PACK = 'Vault could not find ffmpeg, so it could not remove personal details and this share was not packed. Nothing was uploaded. Start the share again to pack the files as they are.';
+const NO_FFMPEG_PACK = 'Vault could not find ffmpeg, so it could not remove personal details and this share was not packed. Nothing was uploaded. Start the share again: Vault will then check the pictures, and pack videos and sound files as they are.';
 const ranFfmpeg = () => fs.existsSync(PROBE_LOG) || fs.existsSync(FF_PID);
 const ALL6 = ['holiday.jpg', 'drawing.png', 'plain.jpg', 'broken.mp4', 'clip.mp4', 'sticker.webp'];
 /** Packed bytes as a file, checked again the way the share checks (no tools needed for JPEG and PNG). */
