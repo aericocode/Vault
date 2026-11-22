@@ -136,22 +136,35 @@ test('a split archive is named without its part number, in the window and in My 
   assert.ok(!line.includes('.001') && !row.includes('.001'), 'no part number');
 });
 
-/* ── Step 3: the tick box ────────────────────────────────────────────── */
+/* ── Step 2, Check and upload: the tick box ─────────────────────────── */
 
-test('Upload stays disabled until the box is ticked', () => {
+/** Check results that all passed, as the server stores them (lib/share/pack.js runChecks). */
+const CHECKS_OK = (files = 1, bytes = 1660000000, extra = {}) => ({ ok: true, test: { ok: true }, listWithoutPassword: { ok: true },
+  contents: { ok: true, files }, parts: { ok: true, count: 1, bytes }, archiveName: { value: 'k7Qm', typed: false }, ...extra });
+
+test('Upload stays disabled until the box is ticked; the box is always drawn unticked', () => {
   const L = load();
   setState(L);
-  const w = { ticked: false, busy: false, share: { archiveName: 'k7Qm', archiveFileName: 'k7Qm.7z', sizeBytes: 1660000000, deleteAfterDays: 7, partCount: 1 }, progress: { checks: { parts: { count: 1, bytes: 1660000000 } } } };
+  const w = { step: 'checked', ticked: false, busy: false, share: { archiveName: 'k7Qm', archiveFileName: 'k7Qm.7z', sizeBytes: 1660000000, deleteAfterDays: 7, partCount: 1, passwordKept: true },
+    progress: { status: 'checked', checks: CHECKS_OK(1) } };
   L.ctx.__w = w;
   assert.strictEqual(L.run('shareUploadAllowed(__w)'), false);
-  const off = L.run('shareConfirmHtml(__w)');
-  assert.match(off, /data-sh-act="upload" disabled>Upload 1\.55 GB<\/button>/);
-  assert.match(off, /<input type="checkbox" id="shTick" data-sh-first>/, 'the box starts unticked');
+  const off = L.run('shareCheckedHtml(__w)');
+  assert.match(off, /<button type="button" class="vault-btn vault-btn-primary" id="shUpload" data-sh-act="upload" disabled>Upload 1\.55 GB<\/button>/);
+  assert.match(off, /<input type="checkbox" id="shTick" aria-controls="shUpload">/, 'the box starts unticked');
   w.ticked = true;
   assert.strictEqual(L.run('shareUploadAllowed(__w)'), true);
-  assert.match(L.run('shareConfirmHtml(__w)'), /data-sh-act="upload">Upload 1\.55 GB<\/button>/);
+  const again = L.run('shareCheckedHtml(__w)');
+  assert.ok(!/id="shTick"[^>]*checked/.test(again), 'the markup never draws the box ticked, whatever the window held');
+  assert.match(again, /data-sh-act="upload" disabled>/, 'nor Upload on');
   w.busy = true;
   assert.strictEqual(L.run('shareUploadAllowed(__w)'), false, 'not twice while the request is out');
+  w.busy = false;
+  w.step = 'upload';
+  assert.strictEqual(L.run('shareUploadAllowed(__w)'), false, 'only on Check and upload');
+  w.step = 'checked';
+  w.progress = { status: 'checked', checks: CHECKS_OK(1, 1, { ok: false }) };
+  assert.strictEqual(L.run('shareUploadAllowed(__w)'), false, 'never for a share whose checks did not pass');
   assert.strictEqual(L.run('shareUploadAllowed(null)'), false);
 });
 
@@ -159,10 +172,18 @@ test('shareStartUpload sends nothing while the box is unticked, and confirm: tru
   const L = load({ answers: { 'POST /api/share/shares/9/upload': { status: 200, body: { id: 9, status: 'uploading', upload: { parts: [] } } } } });
   setState(L);
   const box = { innerHTML: '', setAttribute: noop, querySelector: () => null, querySelectorAll: () => [] };
-  L.ctx.__w = { id: 9, ticked: false, busy: false, samples: [], m: { box, q: () => null, qa: () => [] } };
+  const tick = { checked: false };
+  L.ctx.__w = { id: 9, step: 'checked', ticked: false, busy: false, samples: [], progress: { status: 'checked', checks: CHECKS_OK(1) },
+    m: { box, q: (s) => (s === '#shTick' ? tick : null), qa: () => [] } };
   L.run('_shareWin = __w');
   await L.run('shareStartUpload()');
   assert.strictEqual(L.calls.length, 0, 'unticked: no request');
+  // The window says ticked but the box on screen does not: no request, and the window agrees again.
+  L.run('_shareWin.ticked = true');
+  await L.run('shareStartUpload()');
+  assert.strictEqual(L.calls.length, 0, 'the box itself must be ticked too');
+  assert.strictEqual(L.run('_shareWin.ticked'), false);
+  tick.checked = true;
   L.run('_shareWin.ticked = true');
   await L.run('shareStartUpload()');
   assert.strictEqual(L.calls.length, 1);
@@ -179,10 +200,11 @@ test('a hostile file name and archive name are escaped everywhere they are drawn
     preview: { files: [{ mediaId: 1, name: HOSTILE, nameInArchive: HOSTILE, sizeBytes: 1000 }], totalBytes: 1000, needBytes: 1050, enoughSpace: true,
       split: false, partBytes: 2 * 1024 ** 3, partCount: 1, passwordChoice: 'random', deleteAfterDays: 7, savedPasswordSet: true, sevenZipFound: true },
     share: { id: 4, archiveName: HOSTILE_NAME, archiveFileName: `${HOSTILE_NAME}.7z`, archiveDisplayName: `${HOSTILE_NAME}.7z`, sizeBytes: 1000, partCount: 1, fileCount: 1, passwordKind: 'random', passwordKept: true, deleteAfterDays: 7, link: 'https://gofile.io/d/Ab12', status: 'uploaded', deleteAt: Date.now() + 86400000 * 3, timerSet: true },
-    progress: { checks: { ok: true, test: { ok: true }, listWithoutPassword: { ok: true }, contents: { files: 1 }, parts: { count: 1, bytes: 1000 }, archiveName: { value: HOSTILE_NAME, typed: true } }, upload: { parts: [] } },
+    progress: { status: 'checked', checks: { ok: true, test: { ok: true }, listWithoutPassword: { ok: true }, contents: { files: 1 }, parts: { count: 1, bytes: 1000 }, archiveName: { value: HOSTILE_NAME, typed: true } }, upload: { parts: [] } },
     ticked: false, failText: HOSTILE,
   };
-  const pages = ['shareReviewHtml', 'shareCheckedHtml', 'shareConfirmHtml', 'shareUploadHtml', 'shareDoneHtml', 'shareFailedHtml'].map(f => L.run(`${f}(__w)`));
+  const pages = ['shareReviewHtml', 'shareCheckedHtml', 'shareUploadHtml', 'shareDoneHtml', 'shareFailedHtml'].map(f => L.run(`${f}(__w)`));
+  assert.match(pages[1], /data-sh-upask/, 'Check and upload drawn with its upload part');
   L.ctx.__list = { open: new Set([4]), files: new Map([[4, { files: [{ name: HOSTILE, sizeBytes: 5 }] }]]) };
   pages.push(L.run('shareRowHtml(__w.share, __list)'));
   pages.push(L.run(`sharePartRowHtml({ partNo: 1, fileName: ${JSON.stringify(HOSTILE)}, sizeBytes: 5, status: 'failed' })`));
@@ -190,7 +212,8 @@ test('a hostile file name and archive name are escaped everywhere they are drawn
     assert.ok(!/<img|<script/i.test(html), `unescaped markup in: ${html.slice(0, 120)}`);
   }
   assert.ok(pages[0].includes('&lt;img src=x onerror=alert(1)&gt;.mp4'), 'the name is shown, escaped');
-  assert.ok(pages[6].includes('&lt;script&gt;alert(2)&lt;/script&gt;.7z'));
+  assert.ok(pages[1].includes('&lt;script&gt;alert(2)&lt;/script&gt;.7z'), 'the archive name on Check and upload, escaped');
+  assert.ok(pages[5].includes('&lt;script&gt;alert(2)&lt;/script&gt;.7z'));
 });
 
 /* ── Open ────────────────────────────────────────────────────────────── */
@@ -336,8 +359,8 @@ function privWin(L) {
       upload: { parts: [{ partNo: 1, fileName: `${P_NAME}.7z.001`, sizeBytes: 2 * 1024 ** 3, status: 'done' }] } },
   };
   return {
-    checked: L.run('shareCheckedHtml(__w)'),
-    confirm: L.run('shareConfirmHtml(__w)'),
+    // Check and upload, for the same share while it was 'checked' with every check passed.
+    checked: L.run(`shareCheckedHtml({ ...__w, step: 'checked', share: { ...__w.share, status: 'checked' }, progress: { ...__w.progress, status: 'checked', checks: { ...__w.progress.checks, ok: true } } })`),
     upload: L.run('shareUploadHtml(__w)'),
     part: L.run('sharePartRowHtml(__w.progress.upload.parts[0])'),
     done: L.run('shareDoneHtml(__w)'),
@@ -375,7 +398,12 @@ test('privacy: the archive name, the part names, the link, the password and the 
   }
   // The title line keeps its words; only the name is blurred.
   assert.match(pages.upload, /<h3 id="shareWinTitle">Uploading <span class="share-priv" data-share-private>Holiday-secret<\/span><\/h3>/);
-  assert.match(pages.confirm, /<dt>Sending<\/dt><dd class="share-mono"><span class="share-priv" data-share-private>Holiday-secret\.7z<\/span>, 3 GB in 2 parts<\/dd>/);
+  assert.match(pages.checked, /<dt>Sending<\/dt><dd class="share-mono"><span class="share-priv" data-share-private>Holiday-secret\.7z<\/span>, 3 GB in 2 parts<\/dd>/);
+  assert.match(pages.checked, /<span class="share-mut share-mono"><span class="share-priv" data-share-private>Holiday-secret\.7z<\/span>, 3 GB in 2 parts<\/span>/, 'the check row too');
+  // The two folded lines name no archive: a size, a timer and counts only.
+  const folds = [...pages.checked.matchAll(/<button [^>]*data-sh-fold="\w+"[^>]*>([^]*?)<\/button>/g)].map(m => m[1]);
+  assert.strictEqual(folds.length, 2);
+  for (const f of folds) assert.ok(!f.includes(P_NAME), f);
   assert.match(pages.part, /<span class="share-part-name share-mono" data-share-private>Holiday-secret\.7z\.001<\/span>/);
   // The link and password fields turn into dots too; the block is blurred whole.
   assert.match(pages.done, /<input class="vault-input share-mono" id="shLink" readonly value="https:\/\/gofile\.io\/d\/SeCr3t" data-share-private data-share-mask>/);
@@ -386,7 +414,9 @@ test('privacy: the archive name, the part names, the link, the password and the 
     assert.ok(withoutPrivate(pages.done).includes(`data-sh-act="${act}"`), `${act} stays usable`);
   }
   assert.ok(withoutPrivate(pages.upload).includes('data-sh-act="stop"') && withoutPrivate(pages.upload).includes('data-sh-act="pause"'));
-  assert.ok(withoutPrivate(pages.confirm).includes('data-sh-act="upload"'));
+  for (const want of ['data-sh-act="upload"', 'id="shTick"', 'data-sh-fold="checks"', 'data-sh-fold="sum"', 'data-sh-act="pw-show"', 'data-sh-act="pw-copy"', 'data-sh-act="cancel-archive"']) {
+    assert.ok(withoutPrivate(pages.checked).includes(want), `${want} stays usable under privacy`);
+  }
   // The saved password in Settings is masked and blurred the same way.
   const S = load({ kit: true });
   setState(S);
@@ -1426,8 +1456,8 @@ test('Show on the new saved password, in a browser that cannot draw dots: a pass
 
 /* ── Packing in the background, the pack line, Upload on its own ─────── */
 
-test('background: X, Esc, Close and Keep using Vault only hide the window on steps 2 and 3; nothing is cancelled', async () => {
-  for (const step of ['queued', 'packing', 'checked', 'confirm']) {
+test('background: X, Esc, Close and Keep using Vault only hide the window on step 2 (waiting, packing, Check and upload); nothing is cancelled', async () => {
+  for (const step of ['queued', 'packing', 'checked']) {
     const D = loadDom();
     const toasts = [];
     D.L.ctx.showToast = (msg) => toasts.push(msg);
@@ -1451,7 +1481,7 @@ test('background: the packing step says the user need not wait, with Keep using 
   setState(L);
   L.ctx.__w = { id: 9, step: 'packing', collectionName: 'Summer <2026>', preview: { files: fileRows(48), totalBytes: 14.2 * GB }, share: { id: 9, status: 'packing' }, progress: null };
   const html = L.run('sharePackingHtml(__w)');
-  assert.match(html, /<div class="share-kicker">Step 2 of 4<\/div>\s*<h3 id="shareWinTitle">Packing<\/h3>/);
+  assert.match(html, /<div class="share-kicker">Step 2 of 3<\/div>\s*<h3 id="shareWinTitle">Packing<\/h3>/);
   assert.match(html, /Collection: <span class="share-priv" data-share-private>Summer &lt;2026&gt;<\/span>, 48 files, 14\.2 GB\. Nothing is uploaded yet\./);
   assert.match(html, /You do not need to wait here\. Packing carries on in My shares while you use Vault, and it will be ready for you to check when it is done\. The drive may feel slower until then\./);
   assert.match(html, /data-sh-act="cancel-archive">Cancel and delete archive<\/button>\s*<span class="share-sp"><\/span>\s*<button type="button" class="vault-btn vault-btn-primary" data-sh-act="close" data-sh-first>Keep using Vault<\/button>/);
@@ -1551,13 +1581,16 @@ test('Upload on its own: the password note shows when a new random password woul
   assert.match(L.run('shareAutoBlockHtml(__w, _shareState.settings)'), /data-sh-autopw hidden>/, 'the saved password lasts');
 });
 
-test('Ready to check: the check step shows why a share did not upload on its own, and updates it in place', async () => {
+test('Ready to check: Check and upload shows why a share did not upload on its own, and updates it in place', async () => {
   const L = load();
   setState(L);
   const note = 'Packed and checked, but not uploaded on its own. Vault is set to stay offline (VAULT_OFFLINE=1), so it cannot reach gofile.io.';
-  L.ctx.__w = { id: 9, step: 'checked', share: { id: 9, status: 'checked', passwordKept: true, fileCount: 1 }, progress: { status: 'checked', error: note, checks: {} } };
+  L.ctx.__w = { id: 9, step: 'checked', share: { id: 9, status: 'checked', passwordKept: true, fileCount: 1 }, progress: { status: 'checked', error: note, checks: CHECKS_OK(1) } };
   const html = L.run('shareCheckedHtml(__w)');
   assert.ok(html.includes(`<div class="share-warn" data-sh-autonote>${esc(note)}</div>`));
+  // Above the password and the upload ask, which is still there to use.
+  assert.ok(html.indexOf('data-sh-autonote') < html.indexOf('id="shPw"') && html.indexOf('id="shPw"') < html.indexOf('data-sh-upask'));
+  assert.match(html, /id="shTick" aria-controls="shUpload">/);
   L.ctx.__w.progress.error = null;
   assert.match(L.run('shareCheckedHtml(__w)'), /<div class="share-warn" data-sh-autonote hidden><\/div>/);
   const el = { textContent: '', hidden: true };
@@ -1672,6 +1705,321 @@ test('Activity: packing, an upload, shares waiting and ready to check; amber for
   // An upload left paused counts once more.
   T.show({ show: true, active: true, needsYou: 0, packing: null, upload: { shareId: 5, archiveName: 'h', status: 'paused', error: null, percent: 10, partNo: 1, partCount: 2 }, packWaiting: 0, readyToCheck: 3 });
   assert.strictEqual(T.section().waitCount, 4);
+});
+
+/* ── Step 2, Check and upload (the old steps 2 and 3 on one step) ─────── */
+
+const READY_SHARE = (extra = {}) => ({ id: 7, archiveName: 'k7Qm', archiveDisplayName: 'k7Qm.7z', status: 'checked', sizeBytes: 6 * 1024 ** 2, partCount: 1,
+  fileCount: 3, passwordKind: 'random', passwordKept: true, deleteAfterDays: 7, nameTyped: false, ...extra });
+const READY_PROGRESS = (extra = {}) => ({ id: 7, status: 'checked', error: null, checks: CHECKS_OK(3, 6 * 1024 ** 2), upload: null, ...extra });
+
+/** The share window opened on a share that is ready to check (from My shares or the Activity list: both call shareOpenShare). */
+async function openReady({ share = READY_SHARE(), progress = READY_PROGRESS(), answers = {}, state = {} } = {}) {
+  const all = {
+    'GET /api/share/shares/7/progress': { status: 200, body: progress },
+    'GET /api/share/shares/7': { status: 200, body: { share } },
+    ...answers,
+  };
+  const D = loadDom({ answers: all });
+  setState(D.L, state);
+  const toasts = [];
+  D.L.ctx.showToast = (msg) => toasts.push(msg);
+  await D.L.run('shareOpenShare(7)');
+  const w = () => D.L.run('_shareWin');
+  const box = () => w().m.box;
+  const uploads = () => D.L.calls.filter(c => c.url === '/api/share/shares/7/upload');
+  /** Tick the box the way a click does (the change event on the box itself). */
+  const tick = (on = true) => { const t = box().querySelector('#shTick'); t.checked = on; t.fire('change'); };
+  const press = () => D.L.run('shareStartUpload()');
+  return { D, all, toasts, w, box, uploads, tick, press };
+}
+
+test('Check and upload: the step as it opens, top to bottom, with the mock\'s words', async () => {
+  const { w, box } = await openReady();
+  assert.strictEqual(w().step, 'checked');
+  const html = box().innerHTML;
+  const order = ['<div class="share-kicker">Step 2 of 3</div>', '<h3 id="shareWinTitle">Check and upload</h3>',
+    'Packed and tested on this computer. Nothing is uploaded yet.', 'id="shChecksFold"', 'Archive checked', 'id="shPw"',
+    'Without this password nobody can open the archive, including gofile.', '<h4 class="share-upask-title" id="shUpTitle">Upload to gofile.io?</h4>',
+    'Everything else in Vault stays on your computer. This upload does not.', 'id="shSumFold"', 'id="shTick"', 'data-sh-act="cancel-archive"', 'data-sh-act="upload"'];
+  let at = -1;
+  for (const s of order) { const i = html.indexOf(s); assert.ok(i > at, `in order: ${s}`); at = i; }
+  assert.match(html, /<span class="share-fbox-title">Archive checked<\/span> <span class="share-fbox-small">encrypted, file names hidden, all 3 files passed<\/span>/);
+  assert.match(html, /<span class="share-fbox-title">Sending 6 MB to gofile\.io<\/span> <span class="share-fbox-small">deleted after 7 days<\/span>/);
+  assert.match(html, /<span>I want to upload this archive to gofile\.io, and these files are mine to share under gofile's terms\.<\/span>/);
+  assert.match(html, /data-sh-act="cancel-archive">Cancel and delete archive<\/button>\s*<span class="share-sp"><\/span>\s*<button type="button" class="vault-btn vault-btn-primary" id="shUpload" data-sh-act="upload" disabled>Upload 6 MB<\/button>\s*<\/div>$/,
+    'Cancel and delete archive on the left, Upload on the right, nothing else');
+  assert.ok(!/data-sh-act="back"|data-sh-act="to-confirm"|>Continue<|>Back</.test(html), 'no Back and no Continue');
+  // Both folds start closed; what they open is today's rows and table, unchanged.
+  assert.match(html, /<div class="share-checks share-fbox-body" id="shChecksBody" hidden>/);
+  assert.match(html, /<dl class="share-sum share-fbox-body" id="shSumBody" hidden>/);
+  for (const row of ['Encrypted with AES-256', 'Opening it with the password worked. All 3 files passed the test.', 'File names are hidden',
+    'Listing the archive without the password was refused.', 'Archive name (random, change it on step 1)',
+    '<dt>To</dt><dd>upload.gofile.io (closest server)</dd>', '<dt>Account</dt><dd>Guest, made for Vault this session</dd>',
+    '<dt>Deleted after</dt><dd>7 days</dd>', '<dt>gofile can see</dt><dd>Your internet address and the archive size. Not the contents or file names.</dd>']) {
+    assert.ok(html.includes(row), row);
+  }
+  const words = html.replace(/<[^>]+>/g, ' ');
+  assert.ok(!/[—–]/.test(words), 'no long dashes');
+  assert.ok(!/\b(hours?|minutes?|seconds?)\b/i.test(words), 'no time estimates');
+});
+
+test('Check and upload: one file, a split archive, and no delete timer read right on the folded lines', () => {
+  const L = load();
+  setState(L);
+  const html = (share, checks) => { L.ctx.__w = { id: 7, step: 'checked', share: READY_SHARE(share), progress: READY_PROGRESS({ checks }) }; return L.run('shareCheckedHtml(__w)'); };
+  assert.match(html({}, CHECKS_OK(1, 6 * 1024 ** 2)), /share-fbox-small">encrypted, file names hidden, the file passed</);
+  const split = html({ sizeBytes: 3 * GB, partCount: 2 }, { ...CHECKS_OK(48, 3 * GB), parts: { ok: true, count: 2, bytes: 3 * GB } });
+  assert.match(split, /share-fbox-title">Sending 3 GB to gofile\.io</);
+  assert.match(split, /all 48 files passed/);
+  assert.match(split, /Upload 3 GB<\/button>/);
+  const never = html({ deleteAfterDays: 0 }, CHECKS_OK(3));
+  assert.match(never, /share-fbox-small">no delete timer \(gofile decides\)</);
+  assert.match(never, /<dt>Deleted after<\/dt><dd>Never \(gofile decides\)<\/dd>/, 'the table keeps its own words');
+  assert.match(html({ deleteAfterDays: 1 }, CHECKS_OK(3)), /share-fbox-small">deleted after 1 day</);
+});
+
+test('consent: nothing is sent until the box is ticked AND Upload is pressed; the tick never comes from anywhere else', async () => {
+  const R = await openReady({ answers: { 'POST /api/share/shares/7/upload': { status: 200, body: { id: 7, status: 'uploading', upload: { parts: [], bytesDone: 0, bytesTotal: 1, percent: 0 } } } } });
+  const up = R.box().querySelector('[data-sh-act="upload"]');
+  assert.strictEqual(R.w().ticked, false);
+  await R.press();
+  assert.strictEqual(R.uploads().length, 0, 'Upload pressed with the box unticked: nothing');
+  R.tick(true);
+  assert.strictEqual(R.w().ticked, true);
+  assert.strictEqual(up.disabled, false, 'the tick turns Upload on');
+  assert.strictEqual(R.uploads().length, 0, 'ticking sends nothing');
+  R.tick(false);
+  assert.strictEqual(up.disabled, true, 'unticking turns it off again');
+  await R.press();
+  assert.strictEqual(R.uploads().length, 0);
+  // Opening a fold or reading the password never sends the upload either.
+  R.box().querySelector('#shChecksFold').fire('click');
+  R.box().querySelector('#shSumFold').fire('click');
+  assert.strictEqual(R.uploads().length, 0);
+  R.tick(true);
+  await R.press();
+  assert.strictEqual(R.uploads().length, 1, 'the Upload press, with the box ticked');
+  assert.deepStrictEqual(JSON.parse(R.uploads()[0].init.body), { confirm: true }, 'the same body the server has always needed');
+  assert.strictEqual(R.w().step, 'upload');
+  // Only shareStartUpload sends confirm: true for an upload, and only the Upload button calls it.
+  const src = read('share-ui.js');
+  assert.strictEqual((src.match(/\/upload`, \{ confirm: true \}/g) || []).length, 1, 'one place sends the upload');
+  assert.strictEqual((src.match(/(?<!function )shareStartUpload\(\)/g) || []).length, 1, 'one caller: the Upload button');
+  assert.match(src, /if \(act === 'upload'\) return shareStartUpload\(\);/);
+});
+
+test('consent: the tick is cleared when the step is drawn again: reopened from My shares or Activity, after packing, after an error, after a lock', async () => {
+  const R = await openReady({ answers: { 'POST /api/share/shares/7/upload': { status: 409, body: { error: 'Share privately is turned off. Turn it on in Settings first.', code: 'FEATURE_OFF' } } } });
+  R.tick(true);
+  assert.strictEqual(R.w().ticked, true);
+  // A poll that finds the same share still ready leaves the step (and the tick) as it is.
+  await R.D.L.run('shareWindowRefresh()');
+  assert.strictEqual(R.w().ticked, true, 'a poll does not redraw the step');
+  // An Upload press the server refuses (feature turned off mid-way): the error shows, the tick goes, Upload is off.
+  await R.press();
+  assert.strictEqual(R.uploads().length, 1);
+  assert.strictEqual(R.w().step, 'checked', 'still on Check and upload');
+  assert.strictEqual(R.w().ticked, false, 'after an error the box must be ticked again');
+  assert.strictEqual(R.box().querySelector('#shTick').checked, false);
+  assert.strictEqual(R.box().querySelector('[data-sh-act="upload"]').disabled, true);
+  assert.match(R.box().querySelector('[data-sh-err]').innerHTML, /Share privately is turned off\./);
+  await R.press();
+  assert.strictEqual(R.uploads().length, 1, 'and the next press without a new tick sends nothing');
+  // A lock: the poll answers 423. The tick does not outlive it.
+  R.tick(true);
+  R.all['GET /api/share/shares/7/progress'] = { status: 423, body: { error: 'locked', code: 'VAULT_LOCKED' } };
+  await R.D.L.run('shareWindowRefresh()');
+  assert.strictEqual(R.w().ticked, false, 'locked: unticked');
+  assert.strictEqual(R.box().querySelector('#shTick').checked, false);
+  assert.strictEqual(R.box().querySelector('[data-sh-act="upload"]').disabled, true);
+  // Reopened (My shares "Check and upload", the Activity list's Open, after an unlock reload): a new window, unticked.
+  R.all['GET /api/share/shares/7/progress'] = { status: 200, body: READY_PROGRESS() };
+  R.tick(true);
+  const before = R.w();
+  await R.D.L.run('shareOpenShare(7)');
+  assert.notStrictEqual(R.w(), before, 'a new window');
+  assert.strictEqual(R.w().ticked, false);
+  assert.ok(!/id="shTick"[^>]*checked/.test(R.box().innerHTML));
+  assert.match(R.box().innerHTML, /data-sh-act="upload" disabled>/);
+  // Packing done in the foreground: the step is drawn from packing, unticked even if something had set the flag.
+  R.D.L.run(`_shareWin.step = 'packing'; _shareWin.ticked = true`);
+  await R.D.L.run('shareWindowRefresh()');
+  assert.strictEqual(R.w().step, 'checked');
+  assert.strictEqual(R.w().ticked, false);
+  // Drawn again for whatever reason: unticked, folds closed.
+  R.D.L.run(`_shareWin.ticked = true; _shareWin.checksOpen = true; _shareWin.sumOpen = true; shareWindowRender()`);
+  assert.deepStrictEqual([R.w().ticked, R.w().checksOpen, R.w().sumOpen], [false, false, false]);
+  // Nothing in the share code reads a remembered tick: no storage, and w.ticked is only ever set true by the box.
+  const src = read('share-ui.js').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  assert.deepStrictEqual([...src.matchAll(/\.ticked = ([^;]+);/g)].map(m => m[1]).sort(), ['false', 'false', 'tick.checked === true'].sort());
+  assert.ok(!/ticked: true/.test(src));
+});
+
+test('a check that did not pass, or a share that is not "checked": the failure as today and no upload part at all', () => {
+  const L = load({ icons: true });
+  setState(L);
+  const draw = (progress, share = READY_SHARE()) => { L.ctx.__w = { id: 7, step: 'checked', ticked: true, share, progress }; return L.run('shareCheckedHtml(__w)'); };
+  const cases = [
+    READY_PROGRESS({ checks: CHECKS_OK(3, 1, { ok: false, test: { ok: false } }) }),
+    READY_PROGRESS({ checks: CHECKS_OK(3, 1, { ok: false, listWithoutPassword: { ok: false } }) }),
+    READY_PROGRESS({ checks: CHECKS_OK(3, 1, { ok: false }) }),
+    READY_PROGRESS({ checks: null }),
+    READY_PROGRESS({ status: 'packing' }),
+  ];
+  for (const p of cases) {
+    const html = draw(p, READY_SHARE({ status: p.status }));
+    for (const gone of ['id="shTick"', 'data-sh-act="upload"', 'data-sh-upask', 'Upload to gofile.io?', 'Everything else in Vault stays on your computer', 'data-sh-fold']) {
+      assert.ok(!html.includes(gone), `${JSON.stringify(p.checks)} ${p.status}: no ${gone}`);
+    }
+    assert.match(html, /data-sh-notpassed>This share has not passed its checks, so it cannot be uploaded\.<\/div>/);
+    assert.match(html, /data-sh-act="cancel-archive">Cancel and delete archive<\/button>/);
+    assert.match(html, /<div class="share-box share-checks">/, 'the rows open, not folded');
+    L.ctx.__w.step = 'checked';
+    assert.strictEqual(L.run('shareUploadAllowed(__w)'), false, 'and Upload can never start');
+  }
+  // The failing row has its alert icon, as on the old step 2.
+  assert.match(draw(cases[0]), /<div class="share-check is-bad">\s*<svg[^>]*vi-alert/);
+  // A check that failed on the server ends the share 'failed': the window shows "Share privately stopped", as today.
+  const D = loadDom({ answers: {
+    'GET /api/share/shares/7/progress': { status: 200, body: { id: 7, status: 'failed', error: 'The archive did not pass its test, so it was deleted. Nothing was uploaded.', checks: CHECKS_OK(3, 1, { ok: false, test: { ok: false } }) } },
+    'GET /api/share/shares/7': { status: 200, body: { share: READY_SHARE({ status: 'failed' }) } },
+  } });
+  return D.L.run('shareOpenShare(7)').then(() => {
+    assert.strictEqual(D.L.run('_shareWin.step'), 'failed');
+    const html = D.L.run('_shareWin').m.box.innerHTML;
+    assert.match(html, /Share privately stopped/);
+    assert.match(html, /The archive did not pass its test, so it was deleted\. Nothing was uploaded\./);
+    assert.ok(!/id="shTick"|data-sh-act="upload"/.test(html));
+  });
+});
+
+test('every state that landed on the old steps 2 and 3 lands on the right step now', async () => {
+  const L = load();
+  setState(L);
+  const goes = async (status, before = 'loading') => {
+    L.ctx.fetch = async (url, init) => {
+      L.calls.push({ url, init });
+      const body = url.endsWith('/progress') ? READY_PROGRESS({ status, checks: status === 'checked' ? CHECKS_OK(3) : null, upload: status === 'checked' ? null : { parts: [], bytesDone: 0, bytesTotal: 1, percent: 0 } })
+        : { share: READY_SHARE({ status }) };
+      return { ok: true, status: 200, json: async () => body };
+    };
+    const box = { innerHTML: '', setAttribute: noop, querySelector: () => null, querySelectorAll: () => [] };
+    L.ctx.__box = box;
+    L.run(`_shareWin = { id: 7, step: ${JSON.stringify(before)}, samples: [], m: { box: __box, q: () => null, qa: () => [] } }`);
+    await L.run('shareWindowRefresh()');
+    return [L.run('_shareWin.step'), box.innerHTML];
+  };
+  // Ready to check, from packing in the foreground or opened later: Check and upload.
+  for (const before of ['loading', 'packing', 'queued']) {
+    const [step, html] = await goes('checked', before);
+    assert.strictEqual(step, 'checked', before);
+    assert.match(html, /Check and upload/);
+    assert.match(html, /data-sh-upask/);
+  }
+  // An upload under way, paused, not finished or stopping: the uploading view, as before (Resume needs no new tick: the server already has the user's go-ahead).
+  for (const s of ['uploading', 'paused', 'not_finished', 'stopping']) {
+    const [step, html] = await goes(s);
+    assert.strictEqual(step, 'upload', s);
+    assert.match(html, /<div class="share-kicker">Step 2 of 3, uploading<\/div>/);
+    assert.ok(!/id="shTick"/.test(html));
+  }
+  assert.strictEqual((await goes('uploaded'))[0], 'done');
+  assert.match((await goes('uploaded'))[1], /<div class="share-kicker">Step 3 of 3<\/div>\s*<h3 id="shareWinTitle">Uploaded<\/h3>/);
+  assert.strictEqual((await goes('failed'))[0], 'failed');
+  assert.strictEqual(L.calls.filter(c => c.url.endsWith('/upload')).length, 0, 'none of this sends an upload');
+});
+
+test('Check and upload keeps the old step 2 and 3 notes: no password kept, saved password, offline, Upload on its own', () => {
+  const L = load();
+  setState(L);
+  const draw = (share = {}, progress = {}) => { L.ctx.__w = { id: 7, step: 'checked', share: READY_SHARE(share), progress: READY_PROGRESS(progress) }; return L.run('shareCheckedHtml(__w)'); };
+  // The password is not available in this session: today's words, no Show or Copy; the upload is still the user's choice, as before.
+  const gone = draw({ passwordKept: false });
+  assert.match(gone, /<p class="vault-modal-hint">Vault did not keep the password of this share\.<\/p>/);
+  assert.ok(!/data-sh-act="pw-show"|data-sh-act="pw-copy"|id="shPw"/.test(gone));
+  assert.match(gone, /id="shTick"/);
+  // The saved password with a Vault password set: dots until the Vault password is given.
+  const saved = draw({ passwordKind: 'saved' });
+  assert.match(saved, /<label class="vault-label" for="shPw">Password \(your saved default\)<\/label>/);
+  assert.match(saved, /It shows as dots until you enter your Vault password\./);
+  assert.match(draw(), /<label class="vault-label" for="shPw">Password \(new random, 24 characters\)<\/label>[^]*?data-sh-act="pw-show" aria-pressed="false">Show<\/button>\s*<button type="button" class="vault-btn" data-sh-act="pw-copy">Copy<\/button>/);
+  // Offline (VAULT_OFFLINE=1): the note sits in the upload part, under the tick box.
+  setState(L, { offline: true });
+  const off = draw();
+  assert.match(off, /id="shTick"[^]*data-sh-offline>Vault is set to stay offline \(VAULT_OFFLINE=1\), so it cannot reach gofile\.io\. Uploads, deletes and delete timers are all blocked\.<\/p>\s*<\/section>/);
+  setState(L);
+  assert.ok(!/data-sh-offline/.test(draw()));
+  // Upload on its own that could not go: the amber note, the step otherwise the same.
+  const auto = draw({}, { error: 'Packed and checked, but not uploaded on its own. Vault is not keeping the password of this share, so look at it and copy it first, then upload.' });
+  assert.match(auto, /data-sh-autonote>Packed and checked, but not uploaded on its own\. Vault is not keeping the password of this share, so look at it and copy it first, then upload\.<\/div>/);
+});
+
+test('Upload on its own is unchanged: step 1 sends the tick, a share that uploads on its own skips Check and upload and the page sends no upload', async () => {
+  const L = load();
+  setState(L);
+  L.ctx.fetch = async (url, init) => {
+    L.calls.push({ url, init });
+    const body = url.endsWith('/progress') ? { id: 7, status: 'uploading', uploadsOnItsOwn: false, checks: CHECKS_OK(3), upload: { parts: [], bytesDone: 0, bytesTotal: 1, percent: 0 } }
+      : { share: READY_SHARE({ status: 'uploading' }) };
+    return { ok: true, status: 200, json: async () => body };
+  };
+  const box = { innerHTML: '', setAttribute: noop, querySelector: () => null, querySelectorAll: () => [] };
+  L.ctx.__box = box;
+  L.run(`_shareWin = { id: 7, step: 'packing', samples: [], progress: { uploadsOnItsOwn: true }, m: { box: __box, q: () => null, qa: () => [] } }`);
+  await L.run('shareWindowRefresh()');
+  assert.strictEqual(L.run('_shareWin.step'), 'upload', 'packing straight to uploading');
+  assert.ok(!/id="shTick"/.test(box.innerHTML));
+  assert.strictEqual(L.calls.filter(c => c.url.endsWith('/upload')).length, 0, 'the server started it, from the step 1 tick');
+  // The step 1 block and its words are as they were.
+  const src = read('share-ui.js');
+  assert.match(src, /if \(autoTick && autoTick\.checked && w\.preview && w\.preview\.afterPack === 'upload'\) body\.confirmUpload = true;/);
+});
+
+test('keyboard and screen reader: focus on the first fold (never Upload), real fold buttons, native disabled Upload, Esc keeps the archive', async () => {
+  const R = await openReady();
+  const html = R.box().innerHTML;
+  // The step's first focus is the "Archive checked" fold, so the step is read from the top.
+  assert.strictEqual((html.match(/data-sh-first/g) || []).length, 1);
+  assert.match(html, /<button type="button" class="share-fbox-btn" id="shChecksFold" data-sh-fold="checks" aria-controls="shChecksBody" aria-expanded="false" data-sh-first>/);
+  assert.match(html, /<button type="button" class="share-fbox-btn" id="shSumFold" data-sh-fold="sum" aria-controls="shSumBody" aria-expanded="false">/);
+  assert.ok(!/data-sh-act="upload"[^>]*data-sh-first/.test(html) && !/id="shTick"[^>]*data-sh-first/.test(html), 'not Upload, not the tick box');
+  // The window focuses [data-sh-first] first (shareWindowRender).
+  assert.match(read('share-ui.js'), /const first = box\.querySelector\('\[data-sh-first\]'\) \|\| /);
+  // Upload's off state is the native disabled attribute; the tick box names it.
+  assert.match(html, /<input type="checkbox" id="shTick" aria-controls="shUpload">/);
+  assert.match(html, /id="shUpload" data-sh-act="upload" disabled>/);
+  // The upload part is a labelled region.
+  assert.match(html, /<section class="share-upask" aria-labelledby="shUpTitle" data-sh-upask>/);
+  // A fold opens and closes in place: aria-expanded and the body follow, the tick is left alone.
+  R.tick(true);
+  const fold = R.box().querySelector('#shChecksFold');
+  const body = R.box().querySelector('#shChecksBody');
+  body.hidden = true;
+  fold.fire('click');
+  assert.deepStrictEqual([fold.attrs['aria-expanded'], body.hidden, R.w().checksOpen, R.w().ticked], ['true', false, true, true]);
+  fold.fire('click');
+  assert.deepStrictEqual([fold.attrs['aria-expanded'], body.hidden, R.w().checksOpen], ['false', true, false]);
+  const sum = R.box().querySelector('#shSumFold');
+  const sumBody = R.box().querySelector('#shSumBody');
+  sum.fire('click');
+  assert.deepStrictEqual([sum.attrs['aria-expanded'], sumBody.hidden, R.w().sumOpen, R.w().checksOpen], ['true', false, true, false]);
+  // Esc (as X and Close): the window hides, the archive stays "Ready to check", nothing is sent.
+  const m = R.D.top();
+  R.D.esc();
+  await new Promise(r => setImmediate(r));
+  assert.strictEqual(m.closed, true);
+  assert.deepStrictEqual(R.D.L.calls.filter(c => c.init.method === 'POST'), [], 'no cancel, no upload');
+  assert.deepStrictEqual(R.toasts, ['Packed and waiting for you in My shares. Nothing was uploaded.']);
+});
+
+test('the step labels: three steps everywhere the window shows one', () => {
+  const src = read('share-ui.js');
+  const kickers = [...src.matchAll(/shareHead\('(Step [^']*)'/g)].map(m => m[1]);
+  assert.deepStrictEqual(kickers, ['Step 1 of 3', 'Step 2 of 3', 'Step 2 of 3', 'Step 2 of 3', 'Step 2 of 3', 'Step 2 of 3, uploading', 'Step 3 of 3']);
+  for (const f of ['share-ui.js', 'share-settings-ui.js', 'share-client.js']) assert.ok(!/\bof 4\b/.test(read(f)), `${f}: no "of 4"`);
+  // The old split is gone: no confirm step, no Continue or Back on it.
+  assert.ok(!/shareConfirmHtml|'to-confirm'|step = 'confirm'/.test(src));
 });
 
 /* ── Personal details: every share is checked ─────────────────────────── */

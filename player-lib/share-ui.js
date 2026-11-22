@@ -1,17 +1,20 @@
 /* =========================================================================
-   SHARE PRIVATELY: the share window (steps 1 to 4 and 3b), the Activity section,
+   SHARE PRIVATELY: the share window (steps 1 to 3), the Activity section,
    the entry points on the selection bar, on one file's menu and on a
    collection card's menu, the large share warning and ask, the Vault
    password prompt, and the privacy guard ("My shares" hide category).
 
    Steps (.notes/SHARE_PRIVATELY_SPEC.md section 4):
      review   1. what will be packed; nothing leaves the computer
+     queued   2. waiting for another share to be packed
      packing  2. packing and the checks, run by the server
-     checked  2. the three check results and the password
-     confirm  3. the warning, the summary and the tick box; Upload stays off
-                 until the box is ticked
-     upload   3b. one row per part; Pause, Try again, Stop and delete
-     done     4. link and password, Copy as block, Delete from gofile now
+     checked  2. Check and upload: the checks (one folded line), the
+                 password, then the warning, the upload details (one folded
+                 line) and the tick box. Upload stays off until the box is
+                 ticked, and the box starts unticked every time the step is
+                 drawn. A check that did not pass shows with no upload part.
+     upload   2. uploading: one row per part; Pause, Try again, Stop and delete
+     done     3. link and password, Copy as block, Delete from gofile now
      failed   what failed, in plain words, with the safe way out
    The window can be closed while uploading; the Activity button and My shares
    open it again (shareOpenShare).
@@ -443,8 +446,10 @@ async function shareOpenShare(id) {
 function shareWindowOpen() {
   if (_shareWin) shareWindowClose();
   const w = {
+    // ticked: the step 2 upload tick box. Never set from anywhere but that box,
+    // and put back to false each time step 2 is drawn (shareWindowRender).
     id: null, mediaIds: [], preview: null, share: null, progress: null, step: 'loading',
-    ticked: false, error: '', failText: '', failLocal: false, samples: [], timer: null, busy: false, partsSig: '',
+    ticked: false, checksOpen: false, sumOpen: false, error: '', failText: '', failLocal: false, samples: [], timer: null, busy: false, partsSig: '',
     collectionName: '', filesOpen: false, bigAsk: null,
     // The personal details check (step 1): where it is, its answer, the
     // Remove switch (on for every new share, never remembered), the fold.
@@ -473,18 +478,19 @@ function shareWindowClose() {
 }
 
 /**
- * Close (X, Esc, Close, Keep using Vault). On steps 2 and 3 this only hides
- * the window: a share waiting to pack, packing, or packed and waiting for the
- * check carries on in My shares. Only "Cancel and delete archive" cancels.
+ * Close (X, Esc, Close, Keep using Vault). On step 2 this only hides the
+ * window: a share waiting to pack, packing, or packed and waiting on Check
+ * and upload carries on in My shares ("Ready to check"). Only "Cancel and
+ * delete archive" cancels.
  */
 async function shareWindowRequestClose() {
   const w = _shareWin;
   if (!w) return;
   const step = w.step;
-  const kept = w.id && ['queued', 'packing', 'checked', 'confirm'].includes(step);
+  const kept = w.id && ['queued', 'packing', 'checked'].includes(step);
   shareWindowClose();
   if (kept) {
-    shToast(step === 'checked' || step === 'confirm' ? 'Packed and waiting for you in My shares. Nothing was uploaded.'
+    shToast(step === 'checked' ? 'Packed and waiting for you in My shares. Nothing was uploaded.'
       : step === 'queued' ? 'Waiting to pack. It carries on in My shares.' : 'Packing carries on in My shares.');
     shareStatePollSoon();
   }
@@ -500,6 +506,8 @@ async function shareWindowRefresh() {
   } catch (err) {
     if (w !== _shareWin) return;
     if (err.code === 'NOT_FOUND') { shareWindowClose(); shToast('That share was not found.'); return; }
+    // Locked meanwhile: a tick given before the lock does not count after it.
+    if (err.code === 'VAULT_LOCKED') shareTickReset(w);
     const line = w.m && w.m.q('[data-sh-err]');
     if (line) shareSetError(line, err.message);
     return;
@@ -510,8 +518,8 @@ async function shareWindowRefresh() {
   let next = before;
   if (p.status === 'queued') next = 'queued';
   else if (p.status === 'packing') next = 'packing';
-  else if (p.status === 'checked') next = before === 'confirm' ? 'confirm' : 'checked';
-  // 'stopping': Stop and delete is running; stay on 3b (its buttons go off) until it ends.
+  else if (p.status === 'checked') next = 'checked';
+  // 'stopping': Stop and delete is running; stay on the uploading view (its buttons go off) until it ends.
   else if (['uploading', 'paused', 'not_finished', 'stopping'].includes(p.status)) next = 'upload';
   else if (p.status === 'uploaded' || p.status === 'expired') next = 'done';
   else if (p.status === 'failed') next = 'failed';
@@ -626,13 +634,16 @@ function shareWindowRender() {
     queued: shareQueuedHtml,
     packing: sharePackingHtml,
     checked: shareCheckedHtml,
-    confirm: shareConfirmHtml,
     upload: shareUploadHtml,
     done: shareDoneHtml,
     failed: shareFailedHtml,
     ended: () => `${shareHead('', 'This share has ended', shareStatusWords(w.share || w.progress).text)}
       <div class="vault-modal-actions"><button type="button" class="vault-btn vault-btn-primary" data-sh-act="close">Close</button></div>`,
   }[w.step] || (() => '');
+  // Check and upload is drawn fresh: the tick box unticked and both folds
+  // closed, whatever this window held before (another share, an error, a
+  // poll that moved the step). Only the box itself sets w.ticked again.
+  if (w.step === 'checked') { w.ticked = false; w.checksOpen = false; w.sumOpen = false; }
   box.innerHTML = html(w);
   box.setAttribute('data-step', w.step);
   shareWireWindow(w);
@@ -1126,7 +1137,7 @@ function shareReviewHtml(w) {
   const hideRow = (i) => fold && !w.filesOpen && i >= SHARE_FOLD_SHOW;
   const more = files.length - SHARE_FOLD_SHOW;
   return `
-    ${shareHead('Step 1 of 4', 'Share privately', sub)}
+    ${shareHead('Step 1 of 3', 'Share privately', sub)}
     <div class="share-box share-files" data-share-private>
       <div class="share-files-list" id="shFilesList" data-share-names>
         ${files.map((f, i) => `<div class="share-file"${hideRow(i) ? ' hidden' : ''} data-mid="${Number(f.mediaId) || 0}"><span class="share-file-name">${shEsc(f.nameInArchive || f.name)}${flagged.has(Number(f.mediaId)) ? SHARE_META_TAG : ''}</span><span class="share-mut">${shEsc(shareSize(f.sizeBytes))}</span></div>`).join('')}
@@ -1331,7 +1342,7 @@ function sharePackingInfo(w) {
 function shareQueuedHtml(w) {
   const ahead = (w.progress && w.progress.waitingFor) || (w.share && w.share.waitingFor) || '';
   return `
-    ${shareHead('Step 2 of 4', 'Waiting to pack', sharePackingSub(w))}
+    ${shareHead('Step 2 of 3', 'Waiting to pack', sharePackingSub(w))}
     <div class="share-block">
       <div class="share-mut" data-sh-waitfor>${shareWaitForHtml(ahead)}</div>
     </div>
@@ -1359,7 +1370,7 @@ function shareQueuedUpdate() {
 
 function sharePackingHtml(w) {
   return `
-    ${shareHead('Step 2 of 4', 'Packing', sharePackingSub(w))}
+    ${shareHead('Step 2 of 3', 'Packing', sharePackingSub(w))}
     <div class="share-block" data-sh-packing>
       <div class="share-row-between share-mut"><span data-sh-phase>Getting the files ready</span><span data-sh-pct></span></div>
       ${shareBar(0, 'Packing progress')}
@@ -1390,7 +1401,7 @@ function sharePackingUpdate() {
   }
 }
 
-/** Cancel and delete archive (steps 2 and 3, packing, or a share that failed before upload). */
+/** Cancel and delete archive (step 2: waiting, packing, Check and upload, or a share that failed before upload). */
 async function shareCancelArchive() {
   const w = _shareWin;
   if (!w || !w.id || w.busy) return;
@@ -1411,7 +1422,7 @@ async function shareCancelArchive() {
   }
 }
 
-/* Step 2: the checks passed. */
+/* Step 2: Check and upload. The checks, then the upload ask. */
 
 /** line: plain words, or { html } already escaped (the archive line, with its name blurred under privacy). */
 function shareCheckRow(ok, title, line, mono = false) {
@@ -1440,28 +1451,158 @@ function sharePasswordBlockHtml(w, label) {
     </div>`;
 }
 
-function shareCheckedHtml(w) {
+/** The check results the step shows: the latest progress answer, else the share's own. */
+function shareChecksOf(w) {
+  return (w && ((w.progress && w.progress.checks) || (w.share && w.share.checks))) || {};
+}
+
+/**
+ * May step 2 offer the upload? Only for a share the server calls 'checked'
+ * whose checks all passed (the same test as the server's _checksPassed, plus
+ * the two rows the step names). Anything else shows the checks with no
+ * upload part. The server checks all of it again on Upload (_confirmNow).
+ */
+function shareChecksPassed(w) {
+  if (!w) return false;
+  const status = (w.progress && w.progress.status) || (w.share && w.share.status);
+  const c = shareChecksOf(w);
+  return status === 'checked' && c.ok === true && !!(c.test && c.test.ok) && !!(c.listWithoutPassword && c.listWithoutPassword.ok);
+}
+
+/** How many files the test opened: the check's own count, else the share's. */
+function shareCheckedFiles(w) {
+  const c = shareChecksOf(w);
+  return c.contents && c.contents.files != null ? c.contents.files : (w.share || {}).fileCount;
+}
+
+/** The three check rows of step 2, as they have always read. */
+function shareCheckRowsHtml(w) {
   const share = w.share || {};
-  const c = (w.progress && w.progress.checks) || share.checks || {};
-  const files = c.contents && c.contents.files != null ? c.contents.files : share.fileCount;
+  const c = shareChecksOf(w);
+  const files = shareCheckedFiles(w);
   const typed = c.archiveName ? c.archiveName.typed : share.nameTyped;
-  const pwLabel = share.passwordKind === 'saved' ? 'Password (your saved default)' : 'Password (new random, 24 characters)';
   return `
-    ${shareHead('Step 2 of 4', 'Check the archive', 'Packed and tested on this computer. Still nothing uploaded.')}
-    <div class="share-box share-checks">
       ${shareCheckRow(!!(c.test && c.test.ok), 'Encrypted with AES-256', `Opening it with the password worked. ${files === 1 ? 'The file passed' : `All ${Number(files || 0).toLocaleString()} files passed`} the test.`)}
       ${shareCheckRow(!!(c.listWithoutPassword && c.listWithoutPassword.ok), 'File names are hidden', 'Listing the archive without the password was refused.')}
-      ${shareCheckRow(true, typed ? 'Archive name (you typed it, so anyone with the link can read it)' : 'Archive name (random, change it on step 1)', { html: shareArchiveLineHtml(share, c) }, true)}
+      ${shareCheckRow(true, typed ? 'Archive name (you typed it, so anyone with the link can read it)' : 'Archive name (random, change it on step 1)', { html: shareArchiveLineHtml(share, c) }, true)}`;
+}
+
+/** "encrypted, file names hidden, all 3 files passed" (the folded check line). */
+function shareCheckSummary(w) {
+  const files = Number(shareCheckedFiles(w)) || 0;
+  return `encrypted, file names hidden, ${files === 1 ? 'the file passed' : `all ${files.toLocaleString()} files passed`}`;
+}
+
+/** "deleted after 7 days" (the folded upload line); with no timer, the table's own words. */
+function shareDeleteSummary(days) {
+  return Number(days) > 0 ? `deleted after ${shareDeleteAfterLabel(days)}` : 'no delete timer (gofile decides)';
+}
+
+/**
+ * A folded line on step 2: a real button (aria-expanded, aria-controls) that
+ * opens the body under it. icon: an icon name or ''. first: the step's first
+ * focus.
+ */
+function shareFoldHtml({ id, fold, open, icon, title, small, body, first = false }) {
+  return `
+    <div class="share-fbox">
+      <button type="button" class="share-fbox-btn" id="${id}Fold" data-sh-fold="${fold}" aria-controls="${id}Body" aria-expanded="${open ? 'true' : 'false'}"${first ? ' data-sh-first' : ''}>
+        ${icon ? shIcon(icon, 'share-fbox-ic') : ''}<span class="share-fbox-text"><span class="share-fbox-title">${shEsc(title)}</span> <span class="share-fbox-small">${shEsc(small)}</span></span>${shIcon('chevron', 'share-fbox-chev')}
+      </button>
+      ${body(`${id}Body`, open)}
+    </div>`;
+}
+
+/**
+ * Step 2, Check and upload: the check as one folded line, the password, then
+ * the upload ask (the warning, the details as one folded line, the tick box).
+ * Upload stays off until the box is ticked; the box is drawn unticked (the
+ * render puts w.ticked back to false first). A check that did not pass: the
+ * rows open, the failure, and no upload part at all.
+ */
+function shareCheckedHtml(w) {
+  const share = w.share || {};
+  if (!shareChecksPassed(w)) {
+    return `
+    ${shareHead('Step 2 of 3', 'Check and upload', 'Packed on this computer. Nothing is uploaded yet.')}
+    <div class="share-box share-checks">${shareCheckRowsHtml(w)}
     </div>
-    <div class="share-warn" data-sh-autonote${shareCheckedNote(w) ? '' : ' hidden'}>${shEsc(shareCheckedNote(w))}</div>
-    ${sharePasswordBlockHtml(w, pwLabel)}
-    <p class="vault-modal-hint">Without this password nobody can open the archive, including gofile.</p>
+    <div class="share-warn share-warn-bad" role="alert" data-sh-notpassed>This share has not passed its checks, so it cannot be uploaded.</div>
     <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
     <div class="vault-modal-actions share-actions">
       <button type="button" class="vault-btn" data-sh-act="cancel-archive">Cancel and delete archive</button>
       <span class="share-sp"></span>
-      <button type="button" class="vault-btn vault-btn-primary" data-sh-act="to-confirm">Continue</button>
+      <button type="button" class="vault-btn vault-btn-primary" data-sh-act="close">Close</button>
     </div>`;
+  }
+  const c = shareChecksOf(w);
+  const s = (_shareState && _shareState.settings) || {};
+  const bytes = c.parts && c.parts.bytes ? c.parts.bytes : share.sizeBytes;
+  const offline = !!(_shareState && _shareState.offline);
+  const pwLabel = share.passwordKind === 'saved' ? 'Password (your saved default)' : 'Password (new random, 24 characters)';
+  const checks = shareFoldHtml({
+    id: 'shChecks', fold: 'checks', open: w.checksOpen, icon: 'check', first: true,
+    title: 'Archive checked', small: shareCheckSummary(w),
+    body: (id, open) => `<div class="share-checks share-fbox-body" id="${id}"${open ? '' : ' hidden'}>${shareCheckRowsHtml(w)}
+      </div>`,
+  });
+  const sum = shareFoldHtml({
+    id: 'shSum', fold: 'sum', open: w.sumOpen, icon: '',
+    title: `Sending ${shareSize(bytes)} to gofile.io`, small: shareDeleteSummary(share.deleteAfterDays),
+    body: (id, open) => `<dl class="share-sum share-fbox-body" id="${id}"${open ? '' : ' hidden'}>
+        <dt>Sending</dt><dd class="share-mono">${shareArchiveLineHtml(share, c)}</dd>
+        <dt>To</dt><dd>upload.gofile.io (closest server)</dd>
+        <dt>Account</dt><dd>${shEsc(shareAccountWords(s.accountMode))}</dd>
+        <dt>Deleted after</dt><dd>${shEsc(shareDeleteAfterLabel(share.deleteAfterDays))}</dd>
+        <dt>gofile can see</dt><dd>Your internet address and the archive size. Not the contents or file names.</dd>
+      </dl>`,
+  });
+  return `
+    ${shareHead('Step 2 of 3', 'Check and upload', 'Packed and tested on this computer. Nothing is uploaded yet.')}
+    ${checks}
+    <div class="share-warn" data-sh-autonote${shareCheckedNote(w) ? '' : ' hidden'}>${shEsc(shareCheckedNote(w))}</div>
+    ${sharePasswordBlockHtml(w, pwLabel)}
+    <p class="vault-modal-hint">Without this password nobody can open the archive, including gofile.</p>
+    <section class="share-upask" aria-labelledby="shUpTitle" data-sh-upask>
+      <h4 class="share-upask-title" id="shUpTitle">Upload to gofile.io?</h4>
+      <div class="share-warn">Everything else in Vault stays on your computer. This upload does not. Once it is sent, anyone with the link and the password can download the files until the upload is deleted.</div>
+      ${sum}
+      <label class="share-tick">
+        <input type="checkbox" id="shTick" aria-controls="shUpload">
+        <span>I want to upload this archive to gofile.io, and these files are mine to share under gofile's terms.</span>
+      </label>
+      ${offline ? `<p class="vault-modal-hint" data-sh-offline>Vault is set to stay offline (VAULT_OFFLINE=1), so it cannot reach gofile.io. Uploads, deletes and delete timers are all blocked.</p>` : ''}
+    </section>
+    <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
+    <div class="vault-modal-actions share-actions">
+      <button type="button" class="vault-btn" data-sh-act="cancel-archive">Cancel and delete archive</button>
+      <span class="share-sp"></span>
+      <button type="button" class="vault-btn vault-btn-primary" id="shUpload" data-sh-act="upload" disabled>Upload ${shEsc(shareSize(bytes))}</button>
+    </div>`;
+}
+
+/** Open or close one of step 2's folded lines in place (the rest of the step, the tick included, is left alone). */
+function shareToggleFold(w, btn, which) {
+  if (!w || !btn) return;
+  const key = which === 'sum' ? 'sumOpen' : 'checksOpen';
+  w[key] = !w[key];
+  btn.setAttribute('aria-expanded', w[key] ? 'true' : 'false');
+  const body = w.m.q(key === 'sumOpen' ? '#shSumBody' : '#shChecksBody');
+  if (body) body.hidden = !w[key];
+}
+
+/**
+ * Untick step 2's box and turn Upload off again, in place: after a failed
+ * Upload press, or a lock. The next upload needs a new tick.
+ */
+function shareTickReset(w) {
+  if (!w) return;
+  w.ticked = false;
+  if (w.step !== 'checked' || !w.m || !w.m.q) return;
+  const tick = w.m.q('#shTick');
+  if (tick) tick.checked = false;
+  const up = w.m.q('[data-sh-act="upload"]');
+  if (up) up.disabled = true;
 }
 
 /** Why a share set to upload on its own is still waiting here (the server's words), or ''. */
@@ -1502,14 +1643,14 @@ async function sharePasswordAction(kind, btn) {
       btn.textContent = 'Hide';
       btn.setAttribute('aria-pressed', 'true');
     }
-    // Step 4: the block shows the real password once it has been asked for.
+    // Step 3: the block shows the real password once it has been asked for.
     if (w.step === 'done') shareDoneBlockReal(r.password);
   } catch (err) {
     if (w === _shareWin) shareSetError(w.m.q('[data-sh-err]'), err.message);
   }
 }
 
-/* Step 3: confirm. */
+/* Step 2: the upload ask (the lower half of Check and upload). */
 
 function shareAccountWords(mode) {
   return mode === 'perShare' ? 'Guest, made for this share'
@@ -1517,44 +1658,25 @@ function shareAccountWords(mode) {
       : 'Guest, made for Vault this session';
 }
 
-function shareConfirmHtml(w) {
-  const share = w.share || {};
-  const c = (w.progress && w.progress.checks) || share.checks || {};
-  const s = (_shareState && _shareState.settings) || {};
-  const bytes = c.parts && c.parts.bytes ? c.parts.bytes : share.sizeBytes;
-  const offline = !!(_shareState && _shareState.offline);
-  return `
-    ${shareHead('Step 3 of 4', 'Upload to gofile.io?', 'This is the only step that sends anything off this computer.')}
-    <div class="share-warn">Everything else in Vault stays on your computer. This upload does not. Once it is sent, anyone with the link and the password can download the files until the upload is deleted.</div>
-    <dl class="share-box share-sum">
-      <dt>Sending</dt><dd class="share-mono">${shareArchiveLineHtml(share, c)}</dd>
-      <dt>To</dt><dd>upload.gofile.io (closest server)</dd>
-      <dt>Account</dt><dd>${shEsc(shareAccountWords(s.accountMode))}</dd>
-      <dt>Deleted after</dt><dd>${shEsc(shareDeleteAfterLabel(share.deleteAfterDays))}</dd>
-      <dt>gofile can see</dt><dd>Your internet address and the archive size. Not the contents or file names.</dd>
-    </dl>
-    <label class="share-tick">
-      <input type="checkbox" id="shTick" data-sh-first${w.ticked ? ' checked' : ''}>
-      <span>I want to upload this archive to gofile.io, and these files are mine to share under gofile's terms.</span>
-    </label>
-    ${offline ? `<p class="vault-modal-hint" data-sh-offline>Vault is set to stay offline (VAULT_OFFLINE=1), so it cannot reach gofile.io. Uploads, deletes and delete timers are all blocked.</p>` : ''}
-    <div class="vault-modal-err" role="alert" data-sh-err hidden></div>
-    <div class="vault-modal-actions share-actions">
-      <button type="button" class="vault-btn" data-sh-act="cancel-archive">Cancel and delete archive</button>
-      <span class="share-sp"></span>
-      <button type="button" class="vault-btn" data-sh-act="back">Back</button>
-      <button type="button" class="vault-btn vault-btn-primary" data-sh-act="upload"${shareUploadAllowed(w) ? '' : ' disabled'}>Upload ${shEsc(shareSize(bytes))}</button>
-    </div>`;
-}
-
-/** Upload stays off until the box is ticked (and while a request is out). */
+/**
+ * Upload stays off until the box is ticked (and while a request is out), and
+ * only on Check and upload for a share whose checks passed.
+ */
 function shareUploadAllowed(w) {
-  return !!(w && w.ticked && !w.busy);
+  return !!(w && w.ticked && !w.busy && w.step === 'checked' && shareChecksPassed(w));
 }
 
+/**
+ * The Upload press: the one place the page sends confirm: true. The server
+ * checks the tick's meaning again itself (confirm === true, 'checked' with
+ * every check passed, parts unchanged, feature on, online).
+ */
 async function shareStartUpload() {
   const w = _shareWin;
   if (!w || !w.id || !shareUploadAllowed(w)) return;
+  // The box on screen must say the same: ticked, in this window, now.
+  const tick = w.m.q('#shTick');
+  if (!tick || tick.checked !== true) { shareTickReset(w); return; }
   const btn = w.m.q('[data-sh-act="upload"]');
   w.busy = true;
   if (btn) btn.disabled = true;
@@ -1576,12 +1698,14 @@ async function shareStartUpload() {
     // The same words as the offline note: say it once, as the error.
     if (err.code === 'NET_OFF') { const note = w.m.q('[data-sh-offline]'); if (note) note.remove(); }
     shareSetError(w.m.q('[data-sh-err]'), err.message);
+    // Nothing was uploaded: the next try needs a new tick.
+    shareTickReset(w);
     if (btn) btn.disabled = !shareUploadAllowed(w);
     if (err.code === 'PARTS_CHANGED' || err.code === 'NOT_CHECKED') { w.failText = err.message; w.step = 'failed'; shareWindowRender(); }
   }
 }
 
-/* Step 3b: uploading. */
+/* Step 2, uploading. */
 
 function shareUploadHtml(w) {
   const share = w.share || {};
@@ -1593,7 +1717,7 @@ function shareUploadHtml(w) {
     ? `${shareSize(up.bytesTotal || share.sizeBytes)} in ${count} parts of up to ${shareSize(share.partSize || biggest)}. You can close this window; the upload keeps going.`
     : `${shareSize(up.bytesTotal || share.sizeBytes)} in one part. You can close this window; the upload keeps going.`;
   return `
-    ${shareHead('Step 3 of 4, uploading', 'Uploading', sub, share.archiveName || '')}
+    ${shareHead('Step 2 of 3, uploading', 'Uploading', sub, share.archiveName || '')}
     <div class="share-block">
       <div class="share-row-between share-mut"><span data-sh-bytes></span><span data-sh-eta></span></div>
       ${shareBar(up.percent, 'Overall progress')}
@@ -1620,7 +1744,7 @@ function sharePartRowHtml(p) {
   return `<div class="share-part">${ic}<span class="share-part-name share-mono" data-share-private>${shEsc(p.fileName)}</span><span class="share-mut">${shEsc(shareSize(p.sizeBytes))}</span>${right}</div>`;
 }
 
-/** Update 3b in place: numbers every poll, the rows only when a status changed (keeps focus). */
+/** Update the uploading view in place: numbers every poll, the rows only when a status changed (keeps focus). */
 function shareUploadUpdate() {
   const w = _shareWin;
   if (!w || w.step !== 'upload') return;
@@ -1714,7 +1838,7 @@ async function shareUploadAct(kind, arg) {
   }
 }
 
-/* Step 4: link and password. */
+/* Step 3: link and password. */
 
 function shareDoneHtml(w) {
   const share = w.share || {};
@@ -1730,7 +1854,7 @@ function shareDoneHtml(w) {
   const local = s.keepLocal ? 'The packed archive was kept on this computer. Your original files are untouched.'
     : 'The local archive has been deleted. Your original files are untouched.';
   return `
-    ${shareHead('Step 4 of 4', share.status === 'expired' ? 'Uploaded, timer ran out' : 'Uploaded', 'Send the link and the password separately if you can.')}
+    ${shareHead('Step 3 of 3', share.status === 'expired' ? 'Uploaded, timer ran out' : 'Uploaded', 'Send the link and the password separately if you can.')}
     <div class="vault-field">
       <label class="vault-label" for="shLink">Link</label>
       <div class="share-pw-row">
@@ -1848,8 +1972,6 @@ function shareWireWindow(w) {
       if (act === 'close') return shareWindowRequestClose();
       if (act === 'pack') return sharePackClicked();
       if (act === 'cancel-archive') return shareCancelArchive();
-      if (act === 'to-confirm') { w.step = 'confirm'; w.ticked = false; return shareWindowRender(); }
-      if (act === 'back') { w.step = 'checked'; return shareWindowRender(); }
       if (act === 'upload') return shareStartUpload();
       if (act === 'pw-show') return sharePasswordAction('show', btn);
       if (act === 'pw-copy') return sharePasswordAction('copy', btn);
@@ -1864,12 +1986,20 @@ function shareWireWindow(w) {
     const b = e.target.closest('[data-sh-retry]');
     if (b) shareUploadAct('retry', b.dataset.shRetry);
   });
+  // Step 2's tick box: the only thing that sets w.ticked to true.
   const tick = box.querySelector('#shTick');
   if (tick) tick.addEventListener('change', () => {
-    w.ticked = tick.checked;
+    w.ticked = tick.checked === true;
     const up = box.querySelector('[data-sh-act="upload"]');
     if (up) up.disabled = !shareUploadAllowed(w);
   });
+  // Step 2's two folded lines open and close in place.
+  if (w.step === 'checked') {
+    for (const which of ['checks', 'sum']) {
+      const fold = box.querySelector(which === 'sum' ? '#shSumFold' : '#shChecksFold');
+      if (fold) fold.addEventListener('click', () => shareToggleFold(w, fold, which));
+    }
+  }
   // Step 1's folded list opens and closes in place (a new draw would drop what was typed).
   const more = box.querySelector('[data-sh-more]');
   if (more) more.addEventListener('click', () => shareToggleFiles(w, more));

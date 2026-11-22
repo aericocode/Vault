@@ -148,7 +148,8 @@
 .share-btn-danger-solid:disabled { background: var(--danger-disabled-bg) !important; border-color: var(--danger-disabled-bg) !important; color: var(--danger-disabled-text) !important; }
 .share-link-btn { background: none; border: 0; padding: 0; color: var(--accent-hover-fg); cursor: pointer; font: inherit; text-decoration: underline; }
 
-/* Step 2 checks */
+/* Step 2, Check and upload: the check rows (in a fold, or open in a box when
+   a check did not pass) */
 .share-checks { display: flex; flex-direction: column; gap: 10px; }
 .share-check { display: flex; gap: 10px; align-items: flex-start; }
 .share-check-ic { flex: none; width: 18px; height: 18px; color: var(--success); margin-top: 1px; }
@@ -165,7 +166,29 @@
   background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; font-size: 0.84rem; line-height: 1.5;
 }
 
-/* Step 3 */
+/* Step 2's folded lines: "Archive checked" and "Sending ... to gofile.io".
+   One box each; the line is a real button, its body opens under a rule. */
+.share-fbox { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; min-width: 0; font-size: 0.86rem; }
+.share-fbox-btn {
+  display: flex; align-items: center; gap: 9px; width: 100%; min-height: 2.5rem; box-sizing: border-box;
+  padding: 0.5rem 0.75rem; border: 0; border-radius: 8px; background: none; cursor: pointer;
+  font: inherit; text-align: left; color: var(--text-primary);
+}
+.share-fbox-btn:hover { background: var(--tint-04); }
+.share-fbox-btn:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: -2px; }
+.share-fbox-btn > .share-fbox-ic { width: 18px; height: 18px; flex: none; color: var(--success); }
+.share-fbox-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.share-fbox-title { font-weight: 600; }
+.share-fbox-small { font-size: 0.8rem; color: var(--text-secondary); }
+.share-fbox-btn > .share-fbox-chev { width: 16px; height: 16px; flex: none; color: var(--text-secondary); transform: rotate(-90deg); transition: transform 0.15s; }
+.share-fbox-btn[aria-expanded="true"] > .share-fbox-chev { transform: none; }
+.share-fbox-body { border-top: 1px solid var(--border); padding: 0.6rem 0.75rem; margin: 0; }
+.share-fbox-body[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .share-fbox-btn > .share-fbox-chev { transition: none; } }
+/* The upload ask, under a rule: its heading, the warning, the details, the tick box */
+.share-upask { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--border); padding-top: 14px; margin: 0; min-width: 0; }
+.share-upask-title { margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--text-primary); }
+
 .share-warn {
   background: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning); border-radius: 8px;
   padding: 0.65rem 0.75rem; font-size: 0.86rem; line-height: 1.55; color: var(--m-warning-text);
