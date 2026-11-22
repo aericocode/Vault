@@ -40,6 +40,7 @@ const gate = require('../lib/share/gate');
 const names = require('../lib/share/names');
 const service = require('../lib/share/service');
 const { GofileClient } = require('../lib/share/gofile');
+const fakeFf = require('./helpers/fake-ff');
 
 const TOKEN = 'TOKEN-secret-0123456789abcdef';
 const realFetch = globalThis.fetch;
@@ -865,6 +866,9 @@ test('Upload on its own does not skip the no Vault password warning: the share n
   fs.writeFileSync(media, Buffer.alloc(100, 1));
   const mid = Number(db.get().prepare("INSERT INTO media (filepath, filename, media_type) VALUES (?, ?, 'video')").run(media, 'warn-clip.mp4').lastInsertRowid);
   service._setForTest({ program: 'fake-7zip' });
+  // Remove is on (nothing sent): fake ffprobe and ffmpeg, so the start is not
+  // refused first for ffmpeg missing on this machine.
+  fakeFf.install();
   const kept = store.kvGet('plain_warning_shown');
   store.kvSet('plain_warning_shown', null);
   const before = store.listShares().length;
@@ -875,6 +879,7 @@ test('Upload on its own does not skip the no Vault password warning: the share n
   } finally {
     store.kvSet('plain_warning_shown', kept);
     service._setForTest({ program: null });
+    fakeFf.restore();
     db.get().prepare('DELETE FROM media WHERE id = ?').run(mid);
     on();
   }

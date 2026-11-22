@@ -86,8 +86,10 @@ async function call(method, p, body, { headers = {}, raw = false } = {}) {
 }
 
 // A small library. Random bytes, not real videos: the personal details check
-// (every share) rightly stops a share of them with Remove on, so the test
-// that packs and uploads one starts it with Remove off.
+// (every share) rightly stops a share of them with Remove on, and with no
+// ffmpeg on the machine a start with Remove on is refused outright
+// (PERSONAL_CHECK_OFF). None of these tests is about that check, so every
+// share here starts with Remove off: the same on any machine.
 const libDir = path.join(tmp, 'media');
 const mediaIds = [];
 function addMedia(rel, bytes) {
@@ -192,7 +194,7 @@ test('no Vault password, passwords remembered: the first share needs the one-tim
   // The older flag (given for the saved password only) does not count.
   store.kvSet('warning_shown', '1');
   const before = folders();
-  const r = await call('POST', '/api/share/shares', { mediaIds, passwordChoice: 'random' });
+  const r = await call('POST', '/api/share/shares', { mediaIds, passwordChoice: 'random', removePersonal: false });
   assert.strictEqual(r.status, 409);
   assert.strictEqual(r.json.code, 'WARNING_NEEDED');
   assert.match(r.json.error, /no Vault password/);
@@ -201,13 +203,13 @@ test('no Vault password, passwords remembered: the first share needs the one-tim
   assert.deepStrictEqual(folders(), before, 'no work folder was made');
   // Anything but true is no answer.
   for (const ack of ['true', 1, 'yes', {}]) {
-    const again = await call('POST', '/api/share/shares', { mediaIds, acknowledgeNoVaultPassword: ack });
+    const again = await call('POST', '/api/share/shares', { mediaIds, acknowledgeNoVaultPassword: ack, removePersonal: false });
     assert.strictEqual(again.json.code, 'WARNING_NEEDED', JSON.stringify(ack));
   }
   assert.strictEqual(store.kvGet('plain_warning_shown'), null);
   // "Passwords of past shares" off: no password is kept, so no warning.
   await call('POST', '/api/share/settings', { rememberPasswords: false, confirm: true });
-  const off = await call('POST', '/api/share/shares', { mediaIds: [mediaIds[2]] });
+  const off = await call('POST', '/api/share/shares', { mediaIds: [mediaIds[2]], removePersonal: false });
   assert.strictEqual(off.status, 202, off.text);
   assert.strictEqual(store.kvGet('plain_warning_shown'), null, 'and the warning is still due');
   await waitStatus(off.json.share.id, ['checked', 'failed']);
@@ -273,7 +275,7 @@ test('start -> packing -> checks pass; upload only with confirm, never while off
 });
 
 test('cancel during packing deletes the archive and the record', { skip: skip7z }, async () => {
-  const start = await call('POST', '/api/share/shares', { mediaIds: [mediaIds[0]] });
+  const start = await call('POST', '/api/share/shares', { mediaIds: [mediaIds[0]], removePersonal: false });
   assert.strictEqual(start.status, 202);
   const id = start.json.share.id;
   const c = await call('POST', `/api/share/shares/${id}/cancel`, {});

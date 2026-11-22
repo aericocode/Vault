@@ -50,6 +50,9 @@ const names = require('../lib/share/names');
 const pack = require('../lib/share/pack');
 const service = require('../lib/share/service');
 const { app } = require('../server/index');
+// The personal details check runs for every share: fake ffprobe and ffmpeg,
+// so these packs never depend on ffmpeg being installed on this machine.
+const fakeFf = require('./helpers/fake-ff');
 
 const VAULT_PASS = 'vault-pass-autolock';
 const TOKEN = 'TOKEN-autolock-0123456789abcdef';
@@ -159,6 +162,7 @@ test.before(async () => {
   mediaId = Number(db.get().prepare("INSERT INTO media (filepath, filename, media_type) VALUES (?, ?, 'video')").run(p, 'clip.mp4').lastInsertRowid);
   settings.save({ ...settings.DEFAULTS, enabled: true, rememberPasswords: false, split: 'none' });
   service._setForTest({ program: 'fake-7zip' });
+  fakeFf.install();
   service.ensureRecovered();
 });
 
@@ -169,6 +173,7 @@ test.after(async () => {
   if (vault.isLocked()) vault.unlock(VAULT_PASS);
   await service._idle();
   service._setForTest({ client: null, sleep: null, now: null, program: null });
+  fakeFf.restore();
   config.security.autolockMinutes = savedMinutes;
   await new Promise((resolve) => server.close(resolve));
   db.close();
