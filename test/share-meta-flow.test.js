@@ -197,6 +197,8 @@ test.afterEach(async () => {
   service._setForTest({ now: null });
   delete process.env.FAKE_FF_MODE;
   delete process.env.FAKE_PROBE;
+  // A test that hid ffprobe or ffmpeg gives them back.
+  meta._setForTest({ probe: { exe: process.execPath, pre: [FAKE] }, ffmpeg: { exe: process.execPath, pre: [FAKE] } });
   sevenzipHook = null;
   for (const r of store.listShares()) {
     try { await temp.removeWorkDir(r.work_dir); } catch {}
@@ -583,4 +585,186 @@ test('shutdown while cleaning stops ffmpeg', async () => {
   const { pid } = await startCleaning('hang');
   await service.shutdown({ waitMs: 3000 });
   await until(() => !alive(pid), 'ffmpeg stopped');
+});
+
+/* ── Without ffprobe or ffmpeg ─────────────────────────────────────────── */
+
+// Programs that are not there (meta.js's own seam: no PATH is touched).
+const GONE_DIR = path.join(tmp, 'no-tools');
+const exeName = (n) => (process.platform === 'win32' ? `${n}.exe` : n);
+const MISSING = { probe: path.join(GONE_DIR, exeName('ffprobe')), ffmpeg: path.join(GONE_DIR, exeName('ffmpeg')) };
+const FAKE_CMD = { exe: process.execPath, pre: [FAKE] };
+const NO_FFMPEG_CHECK = 'Vault needs ffmpeg to check files for personal details. They are packed as they are.';
+const NO_FFMPEG_START = 'Vault can no longer find ffmpeg, so it cannot remove personal details. Nothing was packed. Press Pack files again to pack the files as they are.';
+const NO_FFMPEG_PACK = 'Vault could not find ffmpeg, so it could not remove personal details and this share was not packed. Nothing was uploaded. Start the share again to pack the files as they are.';
+const ranFfmpeg = () => fs.existsSync(PROBE_LOG) || fs.existsSync(FF_PID);
+
+test('without ffmpeg: preview says personalCheckReady false and step 1 has no check to run; either program missing is enough; with both there it is true', async () => {
+  const all = ids('holiday.jpg', 'clip.mp4');
+  try { fs.unlinkSync(FF_PID); } catch {}
+  assert.strictEqual(service.preview({ mediaIds: all }).personalCheckReady, true, 'both there');
+  for (const [what, set] of [['ffprobe', { probe: MISSING.probe }], ['ffmpeg', { ffmpeg: MISSING.ffmpeg }], ['both', MISSING]]) {
+    meta._setForTest({ probe: FAKE_CMD, ffmpeg: FAKE_CMD, ...set });
+    assert.strictEqual(meta.toolsReady(), false, what);
+    const p = await call('POST', '/preview', { mediaIds: all });
+    assert.strictEqual(p.status, 200);
+    assert.strictEqual(p.json.personalCheckReady, false, `${what} missing`);
+    const c = await call('POST', '/meta-check', { mediaIds: all });
+    assert.strictEqual(c.status, 409, what);
+    assert.deepStrictEqual(c.json, { error: NO_FFMPEG_CHECK, code: 'PERSONAL_CHECK_OFF' });
+  }
+  assert.ok(!ranFfmpeg(), 'nothing was run');
+  assert.strictEqual(meta._stateForTest().checks, 0, 'no check was started');
+  meta._setForTest({ probe: FAKE_CMD, ffmpeg: FAKE_CMD });
+  assert.strictEqual((await call('POST', '/preview', { mediaIds: all })).json.personalCheckReady, true, 'back: read afresh, nothing kept');
+});
+
+test('without ffmpeg: a program that turns up counts at the next look, with no restart; one that goes stops counting', () => {
+  const later = path.join(tmp, 'later');
+  fs.mkdirSync(later, { recursive: true });
+  const probe = path.join(later, exeName('ffprobe'));
+  meta._setForTest({ probe, ffmpeg: FAKE_CMD });
+  assert.strictEqual(meta.toolsReady(), false);
+  fs.writeFileSync(probe, 'x');
+  fs.chmodSync(probe, 0o755);
+  assert.strictEqual(meta.toolsReady(), true, 'downloaded: counts at once');
+  assert.strictEqual(service.preview({ mediaIds: ids('plain.jpg') }).personalCheckReady, true);
+  fs.unlinkSync(probe);
+  assert.strictEqual(meta.toolsReady(), false, 'gone: no longer counts');
+  fs.mkdirSync(probe);
+  assert.strictEqual(meta.toolsReady(), false, 'a folder by that name is no program');
+  fs.rmdirSync(probe);
+});
+
+test('without ffmpeg: a bare name is looked for where spawn looks, a path as it is', () => {
+  const dir = path.join(tmp, 'pathdir');
+  const empty = path.join(tmp, 'emptydir');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(empty, { recursive: true });
+  const win = process.platform === 'win32';
+  const p = path.join(dir, win ? 'ffprobe.exe' : 'ffprobe');
+  fs.writeFileSync(p, 'x');
+  fs.chmodSync(p, 0o755);
+  const there = (exe, PATH, cwd = empty) => meta._programThere(exe, { env: { PATH }, cwd });
+  assert.strictEqual(there('ffprobe', [empty, dir].join(path.delimiter)), true, 'on PATH');
+  assert.strictEqual(there('ffprobe', `"${dir}"`), true, 'a quoted PATH entry');
+  assert.strictEqual(there('ffprobe', `"${dir}`), true, 'a stray leading quote');
+  assert.strictEqual(there('ffprobe', `${dir}"`), true, 'a stray trailing quote');
+  assert.strictEqual(there('ffprobe', [empty, `"${dir}`].join(path.delimiter)), true, 'a stray quote on a later entry');
+  assert.strictEqual(there('ffprobe', empty), false, 'not on PATH');
+  assert.strictEqual(there('ffprobe', ''), false, 'no PATH');
+  assert.strictEqual(there(p, ''), true, 'a full path');
+  assert.strictEqual(there(path.join(empty, 'ffprobe.exe'), dir), false, 'a full path is only looked for there');
+  for (const bad of ['', null, undefined, 3, {}, 'ff\0probe']) assert.strictEqual(there(bad, dir), false, String(bad));
+  if (win) {
+    // spawn runs .com and .exe by a bare name, never .cmd or .bat.
+    const cmdOnly = path.join(tmp, 'cmddir');
+    fs.mkdirSync(cmdOnly, { recursive: true });
+    fs.writeFileSync(path.join(cmdOnly, 'ffmpeg.cmd'), '@echo off');
+    fs.writeFileSync(path.join(cmdOnly, 'ffmpeg.bat'), '@echo off');
+    assert.strictEqual(there('ffmpeg', cmdOnly), false, '.cmd and .bat do not count');
+  } else {
+    fs.chmodSync(p, 0o644);
+    assert.strictEqual(there('ffprobe', dir), false, 'not executable');
+    fs.chmodSync(p, 0o755);
+  }
+  // A bare name is never looked for in the current folder: spawn does not look there.
+  assert.strictEqual(there('ffprobe', empty, dir), false, 'only in the current folder: missing');
+  assert.strictEqual(there('ffprobe', '', dir), false);
+  // A path with a folder in it is still taken from the current folder, as spawn does.
+  assert.strictEqual(there(`.${path.sep}${path.basename(p)}`, '', dir), true);
+  // An entry that is there but may not be looked at (an App Execution Alias
+  // stub, say) counts; only "no such file" is missing.
+  const realStat = fs.statSync;
+  const fail = (code) => { fs.statSync = (q, ...a) => { if (path.resolve(String(q)).startsWith(path.resolve(empty))) { const e = new Error(code); e.code = code; throw e; } return realStat(q, ...a); }; };
+  try {
+    for (const code of ['EACCES', 'EPERM']) {
+      fail(code);
+      assert.strictEqual(there('ffprobe', empty), true, `${code}: there`);
+    }
+    for (const code of ['ENOENT', 'ENOTDIR', 'ELOOP']) {
+      fail(code);
+      assert.strictEqual(there('ffprobe', empty), false, `${code}: missing`);
+    }
+  } finally {
+    fs.statSync = realStat;
+  }
+});
+
+test('without ffmpeg: Pack files with Remove off packs every file as it is and the share completes; nothing is checked, cleaned or said removed', async () => {
+  try { fs.unlinkSync(FF_PID); } catch {}
+  meta._setForTest(MISSING);
+  const all = ids('holiday.jpg', 'drawing.png', 'clip.mp4', 'broken.mp4', 'sticker.webp');
+  const s = await call('POST', '/shares', { mediaIds: all, removePersonal: false });
+  assert.strictEqual(s.status, 202, JSON.stringify(s.json));
+  const phases = new Set();
+  await until(() => {
+    const pr = service.progress(s.json.share.id);
+    if (pr && pr.packing) phases.add(pr.packing.phase);
+    return statusOf(s.json.share.id) === 'checked';
+  }, 'packed and checked');
+  assert.ok(!phases.has('cleaning'), 'no "Removing personal details" step');
+  const rec = packed[0];
+  for (const n of ['holiday.jpg', 'drawing.png', 'clip.mp4', 'broken.mp4', 'sticker.webp']) {
+    assert.strictEqual(sha(rec.bytes[n]), files[n].sha, `${n}: as it is`);
+    assert.ok(rec.lines.includes(files[n].path), `${n}: the original itself, no copy`);
+  }
+  assert.ok(rec.bytes['holiday.jpg'].includes(Buffer.from(FOUND)), 'the details went with it, as the box said');
+  assert.ok(!ranFfmpeg(), 'ffprobe and ffmpeg never ran');
+  const row = store.getShare(s.json.share.id);
+  assert.strictEqual(row.last_error, null);
+  const said = JSON.stringify([service.getShare(s.json.share.id), service.progress(s.json.share.id), row]);
+  assert.ok(!/remov|clean|personal/i.test(said), `nothing says removed: ${said}`);
+});
+
+test('without ffmpeg: a start that still asks for removal is refused before anything is stored, never packed as is', async () => {
+  try { fs.unlinkSync(FF_PID); } catch {}
+  for (const set of [MISSING, { probe: MISSING.probe }, { ffmpeg: MISSING.ffmpeg }]) {
+    meta._setForTest({ probe: FAKE_CMD, ffmpeg: FAKE_CMD, ...set });
+    for (const v of [undefined, true, null, 'false', 0]) {
+      const body = { mediaIds: ids('holiday.jpg', 'plain.jpg') };
+      if (v !== undefined) body.removePersonal = v;
+      const s = await call('POST', '/shares', body);
+      assert.strictEqual(s.status, 409, JSON.stringify(v));
+      assert.deepStrictEqual(s.json, { error: NO_FFMPEG_START, code: 'PERSONAL_CHECK_OFF' });
+    }
+    assert.throws(() => service.start({ mediaIds: ids('holiday.jpg') }), (e) => e.code === 'PERSONAL_CHECK_OFF');
+  }
+  assert.strictEqual(store.listShares().length, 0, 'no share stored');
+  assert.strictEqual(packed.length, 0);
+  assert.ok(!ranFfmpeg());
+});
+
+test('ffmpeg turning up after step 1 said it was missing changes nothing: the share packs the files as they are, even when it waited its turn', async () => {
+  const a = await startCleaning('hang');   // packing: the next share waits its turn
+  try { fs.unlinkSync(PROBE_LOG); } catch {}
+  meta._setForTest(MISSING);
+  assert.strictEqual(service.preview({ mediaIds: ids('holiday.jpg', 'clip.mp4') }).personalCheckReady, false, 'step 1: greyed');
+  const b = service.start({ mediaIds: ids('holiday.jpg', 'clip.mp4'), removePersonal: false });
+  assert.strictEqual(b.status, 'queued');
+  // Downloaded meanwhile.
+  meta._setForTest({ probe: FAKE_CMD, ffmpeg: FAKE_CMD });
+  assert.strictEqual(meta.toolsReady(), true);
+  await service.cancel(a.s.id);
+  await until(() => !alive(a.pid), 'the first share\'s ffmpeg stopped');
+  await until(() => statusOf(b.id) === 'checked', 'the waiting share packed');
+  const rec = packed[packed.length - 1];
+  assert.strictEqual(sha(rec.bytes['holiday.jpg']), files['holiday.jpg'].sha, 'as it is, as step 1 showed');
+  assert.strictEqual(sha(rec.bytes['clip.mp4']), files['clip.mp4'].sha);
+  assert.ok(!fs.existsSync(PROBE_LOG), 'not checked at its turn');
+});
+
+test('ffmpeg gone before the turn of a share that was to be cleaned: it stops with nothing packed or uploaded, never packed as is', async () => {
+  const a = await startCleaning('hang');
+  const b = service.start({ mediaIds: ids('holiday.jpg', 'plain.jpg'), removePersonal: true });
+  assert.strictEqual(b.status, 'queued');
+  meta._setForTest(MISSING);
+  await service.cancel(a.s.id);
+  await until(() => !alive(a.pid), 'the first share\'s ffmpeg stopped');
+  await until(() => statusOf(b.id) === 'failed', 'the waiting share stopped');
+  const row = store.getShare(b.id);
+  assert.strictEqual(row.last_error, NO_FFMPEG_PACK);
+  assert.strictEqual(row.work_dir, null, 'its work folder is gone');
+  assert.strictEqual(packed.length, 0, '7-Zip never ran');
+  assert.deepStrictEqual(store.getParts(b.id), []);
 });

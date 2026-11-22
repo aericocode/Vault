@@ -121,6 +121,13 @@
 .share-meta-what { font-size: 0.78rem; color: var(--text-secondary); overflow-wrap: anywhere; }
 .share-meta-failed .share-meta-what { font-style: italic; }
 .share-meta-label { color: var(--warning-text); }
+/* Without ffmpeg (shareMetaOffHtml): the same box greyed, nothing amber. The
+   title and switch are dimmed like any disabled control; the note stays readable. */
+.share-meta-box.share-meta-off { background: transparent; border-color: var(--border); }
+.share-meta-off .share-meta-fold { cursor: default; color: var(--text-muted); }
+.share-meta-off .share-meta-fold > .vi { color: var(--text-muted); }
+.share-meta-off .share-meta-switch { color: var(--text-secondary); }
+.share-meta-note { margin: 0; font-size: 0.8rem; line-height: 1.45; color: var(--text-secondary); }
 @media (prefers-reduced-motion: reduce) { .share-meta-fold > .share-meta-chev { transition: none; } }
 @media (max-width: 560px) { .share-sum.share-big-facts { grid-template-columns: 1fr; } }
 .share-btn-amber { border-color: var(--warning) !important; color: var(--warning-text) !important; background: transparent !important; }

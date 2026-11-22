@@ -2027,6 +2027,131 @@ test('personal details: the CSS: the switch shows keyboard focus, the chevron tu
   assert.ok(!/#[0-9a-f]{3,8}\b/i.test(block), 'no fixed colours in the personal details styles');
 });
 
+/* ── Personal details without ffmpeg ──────────────────────────────────── */
+
+const OFF_NOTE = 'Vault needs ffmpeg to check files for personal details. They are packed as they are.';
+
+test('without ffmpeg: the same box greyed, no count, no tags, the title not a button, the switch off and disabled, the note; screen readers get both', () => {
+  const L = load({ icons: true });
+  setState(L);
+  L.ctx.__w = { preview: PREVIEW(fileRows(3), 3000, { personalCheckReady: false }), mediaIds: [1, 2, 3], step: 'review', meta: null, metaRemove: true, metaOpen: false };
+  const html = L.run('shareMetaHtml(__w)');
+  assert.match(html, /<div class="share-meta-box share-meta-off" role="group" aria-labelledby="shMetaTitle" aria-describedby="shMetaNote" aria-disabled="true" data-sh-metaoff>/);
+  // The title: no count, and nothing to open (a plain span, not the fold button, and no chevron).
+  assert.match(html, /<span class="share-meta-fold"><svg [^>]*class="vi vi-alert"[^>]*>.*?<\/svg><span class="share-meta-title" id="shMetaTitle">Personal details<\/span><\/span>/s);
+  assert.ok(!/<button|data-sh-metafold|aria-expanded|aria-controls|share-meta-chev|vi-chevron|share-meta-count|share-meta-kind|shMetaList|share-meta-list|data-sh-metahint/.test(html), 'no fold, chevron, count, tags, list or hint');
+  // The switch: off, disabled, described by the note.
+  assert.match(html, /<label class="share-meta-switch">\s*<span>Remove<\/span>\s*<input type="checkbox" role="switch" id="shMetaRemove" data-sh-metaremove aria-label="Remove personal details from the packed copies" aria-describedby="shMetaNote" aria-disabled="true" disabled>\s*<span class="settings-switch" aria-hidden="true"><\/span>\s*<\/label>/);
+  assert.ok(!/\bchecked\b/.test(html), 'off');
+  assert.match(html, new RegExp(`<p class="share-meta-note" id="shMetaNote" data-sh-metanote>${OFF_NOTE.replace(/\./g, '\\.')}</p>`));
+  const words = wordsOf(html);
+  assert.ok(!/Removed|removes|cleaned|No personal details found/i.test(words), 'never says or suggests anything is removed or clean');
+  assert.ok(!/[—–]/.test(words), 'no long dashes');
+  // Whatever else the window holds (an earlier answer, the fold left open), the box stays greyed.
+  L.ctx.__w.meta = META_FOUND();
+  L.ctx.__w.metaOpen = true;
+  L.ctx.__w.metaError = true;
+  assert.strictEqual(L.run('shareMetaHtml(__w)'), html);
+  L.ctx.__w.meta = null;
+  L.ctx.__w.metaError = false;
+  // The step: no "Personal details" tag on any row, nothing to wait for, Remove reads off, the plain space figures.
+  const step = L.run('shareReviewHtml(__w)');
+  assert.ok(!/share-meta-tag/.test(step));
+  assert.match(step, /<div class="share-meta" data-sh-meta>\s*<div class="share-meta-box share-meta-off"/);
+  assert.strictEqual(L.run('shareMetaPending(__w)'), false, 'Pack files never waits for a check');
+  assert.strictEqual(L.run('shareMetaRemoveOn(__w)'), false, 'off even though the window started with it on');
+  assert.strictEqual(L.run('shareMetaRemoving(__w)'), false);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(L.run('shareSpaceNow(__w)'))), { needBytes: 3060, enoughSpace: true });
+  // With ffmpeg there (true, or a server that does not say): the box as before.
+  for (const ready of [true, undefined]) {
+    L.ctx.__w = { preview: PREVIEW(fileRows(3), 3000, ready === undefined ? {} : { personalCheckReady: ready }), meta: META_FOUND(), metaRemove: true, metaOpen: false };
+    const on = L.run('shareMetaHtml(__w)');
+    assert.match(on, /<div class="share-meta-box" role="group" aria-label="Personal details">/, String(ready));
+    assert.ok(!/share-meta-off|shMetaNote/.test(on));
+    assert.strictEqual(L.run('shareMetaRemoveOn(__w)'), true);
+  }
+  // The note's words are the server's.
+  const svc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'share', 'service.js'), 'utf8');
+  assert.ok(svc.includes(`const NO_FFMPEG_CHECK = '${OFF_NOTE}';`));
+});
+
+test('without ffmpeg: no check is asked for, Pack files packs at once sending Remove off, and the switch cannot be turned on or freed', async () => {
+  const D = loadDom({ answers: {
+    'POST /api/share/preview': { status: 200, body: PREVIEW(fileRows(2), 2000, { personalCheckReady: false }) },
+    'POST /api/share/shares': { status: 202, body: { share: { id: 9, status: 'packing' } } },
+  } });
+  await D.L.run('shareOpenForIds([1, 2])');
+  for (let i = 0; i < 6; i++) await new Promise(r => setImmediate(r));
+  assert.ok(!D.L.calls.some(c => c.url.startsWith('/api/share/meta-check')), 'no check');
+  const slot = D.L.run(`_shareWin.m.q('[data-sh-meta]')`);
+  for (const t of ['click', 'change']) slot.listeners[t] = slot.listeners[t].slice(-1);   // the last draw's (see above)
+  const sw = slot.querySelector('#shMetaRemove');
+  sw.id = 'shMetaRemove';
+  // Turned on somehow (a script, a stale event): put back off, nothing changes.
+  sw.checked = true;
+  slot.fire('change', { target: sw });
+  assert.strictEqual(sw.checked, false);
+  assert.strictEqual(D.L.run('shareMetaRemoveOn(_shareWin)'), false);
+  // A click on the title opens nothing.
+  slot.fire('click', { target: { closest: () => null } });
+  assert.strictEqual(D.L.run('_shareWin.metaOpen'), false);
+  // The lock and its release never free the switch.
+  D.L.run('shareMetaLock(_shareWin, true); shareMetaLock(_shareWin, false)');
+  assert.deepStrictEqual([sw.disabled, sw.checked], [true, false]);
+  // Pack files: no waiting, Remove off is sent.
+  D.L.run('sharePackClicked()');
+  for (let i = 0; i < 6; i++) await new Promise(r => setImmediate(r));
+  const starts = D.L.calls.filter(c => c.url === '/api/share/shares');
+  assert.strictEqual(starts.length, 1);
+  assert.strictEqual(JSON.parse(starts[0].init.body).removePersonal, false);
+  assert.strictEqual(D.L.run('_shareWin.step'), 'packing');
+});
+
+test('ffmpeg gone after step 1 opened: the check or Pack files answers PERSONAL_CHECK_OFF, the box turns grey, the next Pack files sends Remove off', async () => {
+  const GONE = { status: 409, body: { error: 'Vault can no longer find ffmpeg, so it cannot remove personal details. Nothing was packed. Press Pack files again to pack the files as they are.', code: 'PERSONAL_CHECK_OFF' } };
+  const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(r => setImmediate(r)); };
+  // At the check.
+  const C = loadDom({ answers: {
+    'POST /api/share/preview': { status: 200, body: PREVIEW(fileRows(2), 2000) },
+    'POST /api/share/meta-check': GONE,
+  } });
+  await C.L.run('shareOpenForIds([1, 2])');
+  await flush();
+  assert.strictEqual(C.L.run('_shareWin.preview.personalCheckReady'), false);
+  assert.strictEqual(C.L.run('_shareWin.metaError'), false, 'not "could not check": the greyed box');
+  assert.match(C.L.run(`_shareWin.m.q('[data-sh-meta]').innerHTML`), /data-sh-metaoff/);
+  assert.strictEqual(C.L.run('shareMetaPending(_shareWin)'), false);
+  // At Pack files: the box showed Remove on; the server refused; nothing started.
+  const answers = {
+    'POST /api/share/preview': { status: 200, body: PREVIEW(fileRows(2), 2000) },
+    'POST /api/share/meta-check': { status: 200, body: META_FOUND() },
+    'POST /api/share/shares': GONE,
+  };
+  const D = loadDom({ answers });
+  await D.L.run('shareOpenForIds([1, 2])');
+  await flush();
+  await D.L.run('sharePack()');
+  const sent = () => D.L.calls.filter(c => c.url === '/api/share/shares').map(c => JSON.parse(c.init.body).removePersonal);
+  assert.deepStrictEqual(sent(), [true]);
+  assert.strictEqual(D.L.run('_shareWin.step'), 'review');
+  assert.strictEqual(D.L.run('_shareWin.meta'), null, 'what was found goes with the check');
+  assert.match(D.L.run(`_shareWin.m.q('[data-sh-meta]').innerHTML`), /data-sh-metaoff/);
+  assert.match(D.L.run(`_shareWin.m.q('[data-sh-err]').innerHTML`), /no longer find ffmpeg/);
+  const sw = D.L.run(`_shareWin.m.q('[data-sh-meta]').querySelector('#shMetaRemove')`);
+  assert.deepStrictEqual([sw.disabled, sw.checked], [true, false], 'released from the lock, still off and disabled');
+  answers['POST /api/share/shares'] = { status: 202, body: { share: { id: 9, status: 'packing' } } };
+  await D.L.run('sharePack()');
+  assert.deepStrictEqual(sent(), [true, false], 'the next Pack files packs the files as they are, as the box says');
+});
+
+test('without ffmpeg: the CSS greys the box with theme tokens, nothing amber', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'share.css'), 'utf8');
+  assert.match(css, /\.share-meta-box\.share-meta-off \{ background: transparent; border-color: var\(--border\); \}/);
+  assert.match(css, /\.share-meta-note \{[^}]*color: var\(--text-secondary\);/);
+  const off = css.split('\n').filter(l => /share-meta-off|share-meta-note/.test(l)).join('\n');
+  assert.ok(!/warning|245, 158, 11|#[0-9a-f]{3,8}\b/i.test(off), off);
+});
+
 /* ── Time left for work under way ─────────────────────────────────────── */
 
 test('time left: only from a steady measured rate, never in the first seconds, gone when the work starts over or stops', () => {
