@@ -391,8 +391,8 @@ async function shareOpenForIds(ids, { collectionName = '' } = {}) {
   }
   shareWindowRender();
   // The list shows at once; the personal details check (every share) fills in
-  // when ready. Without ffmpeg there is no check: the box shows greyed.
-  if (w.step === 'review' && w.preview && shareMetaReady(w)) shareMetaRun(w);
+  // when ready. Without ffmpeg it checks the pictures only (and says so).
+  if (w.step === 'review' && w.preview) shareMetaRun(w);
 }
 
 /** The selection bar's button. */
@@ -697,22 +697,40 @@ function sharePackClicked() {
    setting); the Remove switch starts on for every share. */
 
 /**
- * Can this computer check the files (the server found ffprobe and ffmpeg,
- * preview.personalCheckReady)? Only an explicit false says no.
+ * Was step 1 checked with ffprobe and ffmpeg? The check's own answer says
+ * (tools); before it comes, the window's preview (personalCheckReady). Only
+ * an explicit false says no. Without them Vault checks JPEG and PNG only.
  */
-function shareMetaReady(w) {
-  return !(w && w.preview && w.preview.personalCheckReady === false);
+function shareMetaTools(w) {
+  if (!w) return true;
+  if (w.meta) return w.meta.tools !== false;
+  return !(w.preview && w.preview.personalCheckReady === false);
 }
 
-/** Is the check still without an answer? (Without ffmpeg there is none to wait for.) */
-function shareMetaPending(w) {
-  return !!(w && w.preview && shareMetaReady(w) && !w.meta && !w.metaError);
+/** How many files the check left alone for want of ffmpeg (0 when it had the tools). */
+function shareMetaNeedTools(w) {
+  return w && w.meta && w.meta.tools === false ? Number(w.meta.toolsNeededCount) || 0 : 0;
 }
 
 /**
- * Is the Remove switch on? Only an explicit off turns it off, and without
- * ffmpeg it is off: the files are packed as they are, and the server is told
- * so (removePersonal: false).
+ * Is the box live? Not when the check ran without ffmpeg and every picked
+ * file needs it: then the box is greyed, with its switch off.
+ */
+function shareMetaReady(w) {
+  if (!w || !w.meta || w.meta.tools !== false) return true;
+  const total = Number(w.meta.total) || 0;
+  return !(total > 0 && shareMetaNeedTools(w) >= total);
+}
+
+/** Is the check still without an answer? */
+function shareMetaPending(w) {
+  return !!(w && w.preview && !w.meta && !w.metaError);
+}
+
+/**
+ * Is the Remove switch on? Only an explicit off turns it off, and with the
+ * box greyed it is off: every file is packed as it is, and the server is
+ * told so (removePersonal: false).
  */
 function shareMetaRemoveOn(w) {
   if (!w) return true;
@@ -721,11 +739,12 @@ function shareMetaRemoveOn(w) {
 }
 
 /**
- * The server says ffmpeg is gone (PERSONAL_CHECK_OFF, from the check or from
- * Pack files): step 1 turns to the greyed box, so the next Pack files packs
- * the files as they are, as the box then says.
+ * The server says ffmpeg is gone since step 1 was checked with it
+ * (PERSONAL_CHECK_OFF from Pack files; nothing was started): check the files
+ * again without it, so step 1 shows what will really happen to each one.
+ * The Remove switch keeps what the user picked.
  */
-function shareMetaOff(w) {
+function shareMetaRecheck(w) {
   if (!w || !w.preview) return;
   w.preview = { ...w.preview, personalCheckReady: false };
   w.meta = null;
@@ -738,6 +757,7 @@ function shareMetaOff(w) {
     if (btn) btn.textContent = 'Pack files';
   }
   shareMetaUpdate(w);
+  shareMetaRun(w);
 }
 
 /**
@@ -753,7 +773,7 @@ function shareMetaLock(w, on) {
   const slot = w.m && w.m.q && w.m.q('[data-sh-meta]');
   if (!slot) return;
   const sw = slot.querySelector('#shMetaRemove');
-  // Without ffmpeg the switch stays off and disabled whatever the lock.
+  // With the box greyed the switch stays off and disabled whatever the lock.
   if (sw) { sw.disabled = !!on || !shareMetaReady(w); sw.checked = shareMetaRemoveOn(w); }
   const hint = slot.querySelector('#shMetaHint');
   if (hint && w.meta) hint.textContent = shareMetaHint(w);
@@ -813,7 +833,11 @@ function shareMetaHint(w) {
   if (shareMetaRemoveOn(w)) {
     const failNote = failed ? `Vault checks ${one ? 'the file that could not be checked' : 'the files that could not be checked'} again when packing starts. If ${one ? 'it' : 'one'} still cannot be checked, packing stops and nothing is uploaded.` : '';
     if (!n) return `${failNote} Your originals are not changed.`;
-    return `Removed from the packed copies. Your originals are not changed.${extra ? ` Needs about ${shareSize(extra)} more free space.` : ''}${failNote ? ` ${failNote}` : ''}`;
+    // Checked without ffmpeg and some files were left alone: say exactly
+    // which copies are cleaned (only pictures can be, then), so the line about
+    // the others below can never be read as cleaned too.
+    const what = shareMetaNeedTools(w) ? ` of ${n === 1 ? 'this picture' : 'these pictures'}` : '';
+    return `Removed from the packed copies${what}. Your originals are not changed.${extra ? ` Needs about ${shareSize(extra)} more free space.` : ''}${failNote ? ` ${failNote}` : ''}`;
   }
   if (!n) return `${one ? 'It is' : 'They are'} packed as ${one ? 'it is' : 'they are'}, without the check.`;
   return `Not removed. Whoever opens the archive can read these details.${failed ? ` ${one ? 'The file that could not be checked is' : 'The files that could not be checked are'} packed as ${one ? 'it is' : 'they are'}.` : ''}`;
@@ -827,8 +851,9 @@ function shareMetaHint(w) {
  */
 function shareMetaHtml(w) {
   const p = w.preview || {};
-  if (!shareMetaReady(w)) return shareMetaOffHtml();
   if (w.metaError) {
+    // Without ffmpeg only the pictures can be checked again and cleaned.
+    if (!shareMetaTools(w)) return `<p class="vault-modal-hint" data-sh-metamsg>${SHARE_META_ERROR_NO_TOOLS}</p>`;
     return '<p class="vault-modal-hint" data-sh-metamsg>Vault could not check these files for personal details. If you pack them, Vault checks them again first and removes what it finds from the packed copies.</p>';
   }
   if (!w.meta) {
@@ -836,18 +861,25 @@ function shareMetaHtml(w) {
     const count = st && st.total > 1 ? ` ${Number(st.checked || 0).toLocaleString()} of ${Number(st.total).toLocaleString()}` : '';
     return `<p class="share-meta-quiet share-meta-wait" role="status" data-sh-metamsg>${shIcon('refresh', 'share-spin')}<span>Checking for personal details…${shEsc(count)}</span></p>`;
   }
+  // Checked without ffmpeg and every file needs it: the box greyed.
+  if (!shareMetaReady(w)) return shareMetaOffHtml(w);
   const m = w.meta;
   const total = Number(m.total) || 0;
   const unchecked = Number(m.uncheckedCount) || 0;
   // Files of a type Vault does not read inside (webp, heic, gif...): said apart
   // from a check that failed, which is a different thing (the box below).
-  const quiet = unchecked ? `<p class="vault-modal-hint" data-sh-metaunchecked>${shEsc(shareFilesWord(unchecked))} ${unchecked === 1 ? 'is a type' : 'are types'} Vault cannot check and ${unchecked === 1 ? 'is' : 'are'} packed as ${unchecked === 1 ? 'it is' : 'they are'}.</p>` : '';
+  // Without ffmpeg, the files left alone for want of it get their own line.
+  const quiet = (unchecked ? `<p class="vault-modal-hint" data-sh-metaunchecked>${shEsc(shareFilesWord(unchecked))} ${unchecked === 1 ? 'is a type' : 'are types'} Vault cannot check and ${unchecked === 1 ? 'is' : 'are'} packed as ${unchecked === 1 ? 'it is' : 'they are'}.</p>` : '')
+    + shareMetaToolsLine(w);
+  const needTools = shareMetaNeedTools(w);
   const n = Number(m.personalCount) || 0;
   const failed = Number(m.failedCount) || 0;
   if (!n && !failed) {
     // Every file is of a type Vault does not read: there is nothing to call clean.
     if (unchecked && unchecked >= total) return quiet;
-    const words = unchecked ? 'No personal details found in the files of types Vault can check' : 'No personal details found in these files';
+    // Without ffmpeg only pictures were looked at: the tick speaks for them only.
+    const words = needTools ? 'No personal details found in the pictures'
+      : unchecked ? 'No personal details found in the files of types Vault can check' : 'No personal details found in these files';
     return `<p class="share-meta-quiet" data-sh-metaclean>${shIcon('check', 'share-meta-ok')}<span>${words}</span></p>${quiet}`;
   }
   const byId = new Map((p.files || []).map(f => [Number(f.mediaId), f]));
@@ -877,16 +909,40 @@ function shareMetaHtml(w) {
     </div>${quiet}`;
 }
 
-/** Step 1's note when the files cannot be checked (the server's words too). */
-const SHARE_META_OFF_NOTE = 'Vault needs ffmpeg to check files for personal details. They are packed as they are.';
+/** The check could not run and ffmpeg is missing: what packing will do. */
+const SHARE_META_ERROR_NO_TOOLS = 'Vault could not check these files for personal details. If you pack them, Vault checks the pictures among them again first and removes what it finds from their packed copies. Other files are packed as they are, because Vault needs ffmpeg to check them.';
 
 /**
- * The box without ffmpeg: the same box greyed, with no count, no tags and no
- * list. Its title is not a button and has no chevron (nothing to open), its Remove switch is off
- * and disabled, and the note says why; the group and the switch are both
+ * Checked without ffmpeg: the line for the files left alone for want of it
+ * (empty when there are none). "videos or sound files" when every one of
+ * them looks like one by its name or first bytes, else "other files".
+ */
+function shareMetaToolsLine(w) {
+  const k = shareMetaNeedTools(w);
+  if (!k) return '';
+  const av = (Number(w.meta.toolsNeededAvCount) || 0) >= k;
+  const one = k === 1;
+  const what = av ? (one ? 'video or sound file' : 'videos or sound files') : (one ? 'other file' : 'other files');
+  return `<p class="vault-modal-hint" data-sh-metatools>${shEsc(`${k.toLocaleString()} ${what} ${one ? 'is packed as it is' : 'are packed as they are'}. Vault needs ffmpeg to check ${one ? 'it' : 'them'}.`)}</p>`;
+}
+
+/** The greyed box's note: every picked file needs ffmpeg, which is missing. */
+function shareMetaOffNote(w) {
+  const m = (w && w.meta) || {};
+  const k = Number(m.toolsNeededCount) || 0;
+  if (k === 1) return 'Vault needs ffmpeg to check this file for personal details. It is packed as it is.';
+  if ((Number(m.toolsNeededAvCount) || 0) >= k) return 'Vault needs ffmpeg to check videos and sound files for personal details. They are packed as they are.';
+  return 'Vault needs ffmpeg to check these files for personal details. They are packed as they are.';
+}
+
+/**
+ * The box when every picked file needs ffmpeg and it is missing: the same
+ * box greyed, with no count, no tags and no list. Its title is not a button
+ * and has no chevron (nothing to open), its Remove switch is off and
+ * disabled, and the note says why; the group and the switch are both
  * described by the note, so a screen reader reads it with them.
  */
-function shareMetaOffHtml() {
+function shareMetaOffHtml(w) {
   return `
     <div class="share-meta-box share-meta-off" role="group" aria-labelledby="shMetaTitle" aria-describedby="shMetaNote" aria-disabled="true" data-sh-metaoff>
       <div class="share-meta-head">
@@ -897,7 +953,7 @@ function shareMetaOffHtml() {
           <span class="settings-switch" aria-hidden="true"></span>
         </label>
       </div>
-      <p class="share-meta-note" id="shMetaNote" data-sh-metanote>${shEsc(SHARE_META_OFF_NOTE)}</p>
+      <p class="share-meta-note" id="shMetaNote" data-sh-metanote>${shEsc(shareMetaOffNote(w))}</p>
     </div>`;
 }
 
@@ -919,9 +975,11 @@ function shareMetaUpdate(w) {
       sharePrivacyChanged(slot);
     }
   }
-  if (w.meta || !shareMetaReady(w)) {
-    // Without ffmpeg no row is flagged (a tag drawn before ffmpeg went goes).
-    const flagged = new Set(((w.meta && shareMetaReady(w) && w.meta.files) || []).map(f => Number(f.mediaId)));
+  {
+    // Only the files this check flagged carry the tag: one drawn by an
+    // earlier check (before ffmpeg went, say) goes, and none shows while a
+    // new check runs.
+    const flagged = new Set(((w.meta && w.meta.files) || []).map(f => Number(f.mediaId)));
     w.m.qa('#shFilesList .share-file[data-mid]').forEach((row) => {
       const on = flagged.has(Number(row.dataset.mid));
       const name = row.querySelector('.share-file-name');
@@ -971,13 +1029,8 @@ async function shareMetaRun(w) {
       if (w !== _shareWin || w.step !== 'review') return;
       st = await shareApi('GET', `/meta-check/${encodeURIComponent(st.id)}`, null, { background: true });
     }
-  } catch (err) {
+  } catch {
     if (w !== _shareWin) return;
-    // ffmpeg went missing after the window opened: the greyed box, no check.
-    if (err && err.code === 'PERSONAL_CHECK_OFF') {
-      if (w.step === 'review') shareMetaOff(w);
-      return;
-    }
     w.metaError = true;
   }
   if (w !== _shareWin || w.step !== 'review') return;
@@ -987,8 +1040,9 @@ async function shareMetaRun(w) {
     const btn = w.m.q('[data-sh-act="pack"]');
     if (btn) btn.textContent = 'Pack files';
     shareSpaceUpdate(w);
-    if (w.meta && !(w.meta.personalCount > 0) && !(w.meta.failedCount > 0) && !(btn && btn.disabled)) { sharePackClicked(); return; }
-    // Something was found (or the check failed): the user picks first.
+    if (w.meta && !(w.meta.personalCount > 0) && !(w.meta.failedCount > 0) && !shareMetaNeedTools(w) && !(btn && btn.disabled)) { sharePackClicked(); return; }
+    // Something was found (or the check failed, or files go as they are for
+    // want of ffmpeg): the user reads it first.
     shareFocus(w.m.q('[data-sh-metafold]') || btn);
   }
 }
@@ -1213,6 +1267,9 @@ async function sharePack() {
   // and the switch is locked on that value until the request settles, so
   // the box can never show the opposite of what was sent.
   body.removePersonal = shareMetaRemoveOn(w);
+  // Step 1 was checked without ffmpeg (pictures only): the share keeps to
+  // that, even if ffmpeg turns up before its turn. Sent only then.
+  if (!shareMetaTools(w)) body.checkedWithoutTools = true;
   shareMetaLock(w, true);
   w.busy = true;
   btn.disabled = true;
@@ -1235,9 +1292,10 @@ async function sharePack() {
     shareWindowPoll();
   } catch (err) {
     if (w !== _shareWin) return;
-    // ffmpeg went missing since step 1 was drawn: nothing was started. The
-    // box turns grey (Remove off), so the next Pack files packs as it says.
-    if (err && err.code === 'PERSONAL_CHECK_OFF' && w.step === 'review') shareMetaOff(w);
+    // ffmpeg went missing since step 1 was checked with it: nothing was
+    // started. The files are checked again without it, so step 1 shows what
+    // will really happen to each one before the next Pack files.
+    if (err && err.code === 'PERSONAL_CHECK_OFF' && w.step === 'review') shareMetaRecheck(w);
     shareSetError(q('[data-sh-err]'), err.message);
     btn.disabled = false;
     btn.textContent = 'Pack files';

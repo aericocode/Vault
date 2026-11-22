@@ -594,29 +594,72 @@ const GONE_DIR = path.join(tmp, 'no-tools');
 const exeName = (n) => (process.platform === 'win32' ? `${n}.exe` : n);
 const MISSING = { probe: path.join(GONE_DIR, exeName('ffprobe')), ffmpeg: path.join(GONE_DIR, exeName('ffmpeg')) };
 const FAKE_CMD = { exe: process.execPath, pre: [FAKE] };
-const NO_FFMPEG_CHECK = 'Vault needs ffmpeg to check files for personal details. They are packed as they are.';
-const NO_FFMPEG_START = 'Vault can no longer find ffmpeg, so it cannot remove personal details. Nothing was packed. Press Pack files again to pack the files as they are.';
+const NO_FFMPEG_START = 'Vault can no longer find ffmpeg, which it needs for videos and sound files. Nothing was packed. Look at Personal details again, then press Pack files.';
 const NO_FFMPEG_PACK = 'Vault could not find ffmpeg, so it could not remove personal details and this share was not packed. Nothing was uploaded. Start the share again to pack the files as they are.';
 const ranFfmpeg = () => fs.existsSync(PROBE_LOG) || fs.existsSync(FF_PID);
+const ALL6 = ['holiday.jpg', 'drawing.png', 'plain.jpg', 'broken.mp4', 'clip.mp4', 'sticker.webp'];
+/** Packed bytes as a file, checked again the way the share checks (no tools needed for JPEG and PNG). */
+async function recheck(bytes, name) {
+  const p = path.join(tmp, `again-${crypto.randomBytes(4).toString('hex')}-${name}`);
+  fs.writeFileSync(p, bytes);
+  try { return await meta.detect(p, { tools: false }); } finally { fs.unlinkSync(p); }
+}
 
-test('without ffmpeg: preview says personalCheckReady false and step 1 has no check to run; either program missing is enough; with both there it is true', async () => {
-  const all = ids('holiday.jpg', 'clip.mp4');
+test('without ffmpeg: step 1 checks the pictures and leaves every other file as needs-tools; either program missing is enough', async () => {
+  const all = ids(...ALL6);
   try { fs.unlinkSync(FF_PID); } catch {}
   assert.strictEqual(service.preview({ mediaIds: all }).personalCheckReady, true, 'both there');
   for (const [what, set] of [['ffprobe', { probe: MISSING.probe }], ['ffmpeg', { ffmpeg: MISSING.ffmpeg }], ['both', MISSING]]) {
     meta._setForTest({ probe: FAKE_CMD, ffmpeg: FAKE_CMD, ...set });
+    meta.forget();
     assert.strictEqual(meta.toolsReady(), false, what);
     const p = await call('POST', '/preview', { mediaIds: all });
-    assert.strictEqual(p.status, 200);
     assert.strictEqual(p.json.personalCheckReady, false, `${what} missing`);
-    const c = await call('POST', '/meta-check', { mediaIds: all });
-    assert.strictEqual(c.status, 409, what);
-    assert.deepStrictEqual(c.json, { error: NO_FFMPEG_CHECK, code: 'PERSONAL_CHECK_OFF' });
+    const r = await check(all);
+    assert.strictEqual(r.tools, false, what);
+    assert.strictEqual(r.total, 6);
+    assert.deepStrictEqual(r.files.map(f => f.mediaId).sort(), ids('holiday.jpg', 'drawing.png').sort(), 'the pictures with details, found');
+    assert.strictEqual(r.personalCount, 2);
+    assert.strictEqual(r.failedCount, 0, 'a video left alone is no failed check');
+    assert.strictEqual(r.uncheckedCount, 0);
+    assert.strictEqual(r.toolsNeededCount, 3, 'broken.mp4, clip.mp4, sticker.webp');
+    assert.strictEqual(r.toolsNeededAvCount, 2, 'the two .mp4');
+    const flagged = ['holiday.jpg', 'drawing.png'].reduce((n, k) => n + fs.statSync(files[k].path).size, 0);
+    assert.strictEqual(r.extraBytes, flagged, 'copies for the pictures only');
   }
-  assert.ok(!ranFfmpeg(), 'nothing was run');
-  assert.strictEqual(meta._stateForTest().checks, 0, 'no check was started');
+  assert.ok(!ranFfmpeg(), 'ffprobe and ffmpeg never ran');
+  // With the tools: the full check, as always.
   meta._setForTest({ probe: FAKE_CMD, ffmpeg: FAKE_CMD });
-  assert.strictEqual((await call('POST', '/preview', { mediaIds: all })).json.personalCheckReady, true, 'back: read afresh, nothing kept');
+  const full = await check(all);
+  assert.deepStrictEqual([full.tools, full.personalCount, full.failedCount, full.uncheckedCount, full.toolsNeededCount], [true, 3, 1, 1, 0]);
+  assert.strictEqual((await call('POST', '/preview', { mediaIds: all })).json.personalCheckReady, true, 'read afresh');
+});
+
+test('without ffmpeg: the session cache never gives an answer from before the tools came or went', async () => {
+  const f = (n) => ({ path: files[n].path, size: fs.statSync(files[n].path).size, mtimeMs: fs.statSync(files[n].path).mtimeMs });
+  const probes = () => (fs.existsSync(PROBE_LOG) ? fs.readFileSync(PROBE_LOG, 'utf8').split('\n').filter(Boolean).length : 0);
+  // With the tools: the video is read by ffprobe and kept.
+  assert.strictEqual((await meta.checkFile(f('clip.mp4'), { tools: true })).status, 'personal');
+  assert.strictEqual(probes(), 1);
+  assert.strictEqual(meta.cached(f('clip.mp4')).status, 'personal');
+  // Without: that answer is not given; the video needs the tools.
+  assert.strictEqual(meta.cached(f('clip.mp4'), { tools: false }), null);
+  const without = await meta.checkFile(f('clip.mp4'), { tools: false });
+  assert.deepStrictEqual([without.status, without.kind, without.findings], ['needs-tools', 'av', []]);
+  assert.strictEqual(meta.cached(f('clip.mp4'), { tools: false }).status, 'needs-tools');
+  // Back with the tools: 'needs-tools' is never served, ffprobe reads it again.
+  assert.strictEqual(meta.cached(f('clip.mp4'), { tools: true }), null);
+  assert.strictEqual((await meta.checkFile(f('clip.mp4'), { tools: true })).status, 'personal');
+  assert.strictEqual(probes(), 2);
+  // A picture's answer does not depend on the tools: kept for both.
+  assert.strictEqual((await meta.checkFile(f('holiday.jpg'), { tools: true })).status, 'personal');
+  assert.strictEqual(meta.cached(f('holiday.jpg'), { tools: false }).status, 'personal');
+  assert.strictEqual(meta.cached(f('holiday.jpg'), { tools: true }).status, 'personal');
+  // A non-picture that only ffprobe reads: unchecked with the tools, needs-tools without.
+  assert.strictEqual((await meta.checkFile(f('sticker.webp'), { tools: true })).status, 'unchecked');
+  assert.strictEqual(meta.cached(f('sticker.webp'), { tools: false }), null);
+  assert.deepStrictEqual(await meta.checkFile(f('sticker.webp'), { tools: false }), { status: 'needs-tools', kind: null, findings: [] });
+  assert.strictEqual(probes(), 3, 'without the tools nothing was probed');
 });
 
 test('without ffmpeg: a program that turns up counts at the next look, with no restart; one that goes stops counting', () => {
@@ -717,41 +760,112 @@ test('without ffmpeg: Pack files with Remove off packs every file as it is and t
   assert.ok(!/remov|clean|personal/i.test(said), `nothing says removed: ${said}`);
 });
 
-test('without ffmpeg: a start that still asks for removal is refused before anything is stored, never packed as is', async () => {
+test('without ffmpeg, Remove on: the pictures are cleaned for real and every other file goes as it is; the share completes', async () => {
+  try { fs.unlinkSync(FF_PID); } catch {}
+  meta._setForTest(MISSING);
+  await check(ids(...ALL6));
+  const s = await call('POST', '/shares', { mediaIds: ids(...ALL6), removePersonal: true, checkedWithoutTools: true });
+  assert.strictEqual(s.status, 202, JSON.stringify(s.json));
+  await until(() => statusOf(s.json.share.id) === 'checked', 'packed and checked');
+  const rec = packed[0];
+  const stage = (n) => rec.lines.find(l => path.basename(l) === n);
+  for (const n of ['holiday.jpg', 'drawing.png']) {
+    assert.notStrictEqual(sha(rec.bytes[n]), files[n].sha, `${n}: its bytes changed`);
+    assert.ok(!rec.bytes[n].includes(Buffer.from('Sam')), `${n}: the details are gone`);
+    assert.notStrictEqual(path.resolve(stage(n)), path.resolve(files[n].path), `${n}: a cleaned copy`);
+    assert.strictEqual((await recheck(rec.bytes[n], n)).status, 'clean', `${n}: checked again, clean`);
+  }
+  for (const n of ['clip.mp4', 'broken.mp4', 'sticker.webp', 'plain.jpg']) {
+    assert.strictEqual(sha(rec.bytes[n]), files[n].sha, `${n}: byte for byte as it is`);
+    assert.strictEqual(path.resolve(stage(n)), path.resolve(files[n].path), `${n}: the original itself`);
+  }
+  assert.ok(rec.bytes['clip.mp4'].includes(Buffer.from('PERSONAL')), 'the video went as it is, as step 1 said');
+  assert.ok(!ranFfmpeg(), 'ffprobe and ffmpeg never ran');
+  assert.strictEqual(store.getShare(s.json.share.id).last_error, null);
+});
+
+test('without ffmpeg, Remove on: a picture whose check or clean fails still stops the share, nothing uploaded', async () => {
+  meta._setForTest(MISSING);
+  // A JPEG cut short: its check fails.
+  addMedia('cut.jpg', jpegWithComment(`Holiday with ${FOUND}`).subarray(0, 30));
+  const one = service.start({ mediaIds: ids('cut.jpg', 'clip.mp4'), checkedWithoutTools: true });
+  await until(() => statusOf(one.id) === 'failed', 'stopped');
+  assert.strictEqual(store.getShare(one.id).last_error, CHECK_FAILED('cut.jpg'));
+  assert.strictEqual(packed.length, 0);
+  // A picture whose cleaned copy cannot be made.
+  const real = meta.cleanCopy;
+  meta.cleanCopy = async () => { throw Object.assign(new Error('x'), { code: 'CLEAN_FAILED' }); };
+  try {
+    const two = service.start({ mediaIds: ids('holiday.jpg', 'clip.mp4'), checkedWithoutTools: true });
+    await until(() => statusOf(two.id) === 'failed', 'stopped');
+    assert.strictEqual(store.getShare(two.id).last_error, 'Vault could not remove personal details from holiday.jpg, so this share was not packed. Nothing was uploaded. Your own file was not changed.');
+  } finally {
+    meta.cleanCopy = real;
+  }
+  assert.strictEqual(packed.length, 0, '7-Zip never ran');
+});
+
+test('stale page or odd body: with ffmpeg missing, Remove on is refused unless step 1 says exactly that it was checked without it', async () => {
   try { fs.unlinkSync(FF_PID); } catch {}
   for (const set of [MISSING, { probe: MISSING.probe }, { ffmpeg: MISSING.ffmpeg }]) {
     meta._setForTest({ probe: FAKE_CMD, ffmpeg: FAKE_CMD, ...set });
-    for (const v of [undefined, true, null, 'false', 0]) {
-      const body = { mediaIds: ids('holiday.jpg', 'plain.jpg') };
-      if (v !== undefined) body.removePersonal = v;
-      const s = await call('POST', '/shares', body);
-      assert.strictEqual(s.status, 409, JSON.stringify(v));
-      assert.deepStrictEqual(s.json, { error: NO_FFMPEG_START, code: 'PERSONAL_CHECK_OFF' });
+    for (const v of [undefined, false, null, 'true', 1, {}]) {
+      for (const remove of [undefined, true, null, 'false', 0]) {
+        const body = { mediaIds: ids('holiday.jpg', 'clip.mp4') };
+        if (v !== undefined) body.checkedWithoutTools = v;
+        if (remove !== undefined) body.removePersonal = remove;
+        const s = await call('POST', '/shares', body);
+        assert.strictEqual(s.status, 409, JSON.stringify(body));
+        assert.deepStrictEqual(s.json, { error: NO_FFMPEG_START, code: 'PERSONAL_CHECK_OFF' });
+      }
     }
     assert.throws(() => service.start({ mediaIds: ids('holiday.jpg') }), (e) => e.code === 'PERSONAL_CHECK_OFF');
   }
   assert.strictEqual(store.listShares().length, 0, 'no share stored');
   assert.strictEqual(packed.length, 0);
   assert.ok(!ranFfmpeg());
+  // Remove off goes through whatever else is said; exactly true goes through with Remove on.
+  meta._setForTest(MISSING);
+  for (const body of [{ removePersonal: false }, { removePersonal: false, checkedWithoutTools: 'yes' }, { checkedWithoutTools: true }]) {
+    const s = await call('POST', '/shares', { mediaIds: ids('plain.jpg'), ...body });
+    assert.strictEqual(s.status, 202, JSON.stringify(body));
+    await until(() => statusOf(s.json.share.id) === 'checked', 'packed');
+  }
 });
 
-test('ffmpeg turning up after step 1 said it was missing changes nothing: the share packs the files as they are, even when it waited its turn', async () => {
+test('the pin: checked without ffmpeg and it turns up before the turn (waiting or not): pictures cleaned, every other file as step 1 said', async () => {
+  // Not waiting: the tools are there at start, step 1 was checked without them.
+  try { fs.unlinkSync(PROBE_LOG); } catch {}
+  const now = service.start({ mediaIds: ids('holiday.jpg', 'clip.mp4'), checkedWithoutTools: true });
+  await until(() => statusOf(now.id) === 'checked', 'packed');
+  assert.ok(!packed[0].bytes['holiday.jpg'].includes(Buffer.from('Sam')), 'the picture cleaned');
+  assert.strictEqual(sha(packed[0].bytes['clip.mp4']), files['clip.mp4'].sha, 'the video as it is');
+  assert.ok(!fs.existsSync(PROBE_LOG), 'never probed');
+  // Waiting its turn: missing at start, there at the turn.
   const a = await startCleaning('hang');   // packing: the next share waits its turn
   try { fs.unlinkSync(PROBE_LOG); } catch {}
   meta._setForTest(MISSING);
-  assert.strictEqual(service.preview({ mediaIds: ids('holiday.jpg', 'clip.mp4') }).personalCheckReady, false, 'step 1: greyed');
-  const b = service.start({ mediaIds: ids('holiday.jpg', 'clip.mp4'), removePersonal: false });
+  const b = service.start({ mediaIds: ids('holiday.jpg', 'clip.mp4'), checkedWithoutTools: true });
   assert.strictEqual(b.status, 'queued');
-  // Downloaded meanwhile.
-  meta._setForTest({ probe: FAKE_CMD, ffmpeg: FAKE_CMD });
-  assert.strictEqual(meta.toolsReady(), true);
+  meta._setForTest({ probe: FAKE_CMD, ffmpeg: FAKE_CMD });   // downloaded meanwhile
   await service.cancel(a.s.id);
   await until(() => !alive(a.pid), 'the first share\'s ffmpeg stopped');
   await until(() => statusOf(b.id) === 'checked', 'the waiting share packed');
   const rec = packed[packed.length - 1];
-  assert.strictEqual(sha(rec.bytes['holiday.jpg']), files['holiday.jpg'].sha, 'as it is, as step 1 showed');
-  assert.strictEqual(sha(rec.bytes['clip.mp4']), files['clip.mp4'].sha);
-  assert.ok(!fs.existsSync(PROBE_LOG), 'not checked at its turn');
+  assert.ok(!rec.bytes['holiday.jpg'].includes(Buffer.from('Sam')), 'the picture cleaned');
+  assert.strictEqual(sha(rec.bytes['clip.mp4']), files['clip.mp4'].sha, 'the video as it is, as step 1 showed');
+  assert.ok(!fs.existsSync(PROBE_LOG), 'not probed at its turn');
+});
+
+test('with ffmpeg there and nothing said about it, everything is checked and cleaned as before', async () => {
+  const s = await call('POST', '/shares', { mediaIds: ids('holiday.jpg', 'clip.mp4') });
+  assert.strictEqual(s.status, 202);
+  await until(() => statusOf(s.json.share.id) === 'checked', 'packed');
+  assert.ok(!packed[0].bytes['holiday.jpg'].includes(Buffer.from('Sam')));
+  assert.ok(!packed[0].bytes['clip.mp4'].includes(Buffer.from('PERSONAL')), 'the video cleaned too');
+  // The step 1 answer carries the new fields, at their "with the tools" values.
+  const r = await check(ids('holiday.jpg', 'clip.mp4'));
+  assert.deepStrictEqual([r.tools, r.toolsNeededCount, r.toolsNeededAvCount], [true, 0, 0]);
 });
 
 test('ffmpeg gone before the turn of a share that was to be cleaned: it stops with nothing packed or uploaded, never packed as is', async () => {

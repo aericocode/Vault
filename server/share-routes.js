@@ -136,6 +136,9 @@ function buildRouter() {
       // cleaned is the server's own check at the pack's turn; no file list
       // is read here, and an old "checkPersonal" in the body is ignored.
       removePersonal: b.removePersonal,
+      // Step 1 was checked without ffprobe and ffmpeg (pictures only); only
+      // exactly true counts (service.js, WITHOUT FFPROBE OR FFMPEG).
+      checkedWithoutTools: b.checkedWithoutTools,
     });
     res.status(202).json({ share });
   }));
