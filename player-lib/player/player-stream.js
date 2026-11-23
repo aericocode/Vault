@@ -182,11 +182,47 @@ function _playRefused(el, err) {
   if (!el || !el.isConnected) return;
   const auto = typeof lastPlaySource !== 'undefined' && lastPlaySource === 'auto';
   console.warn(`[Vault next] The browser blocked this file from starting on its own (${auto ? 'moved on by itself' : 'opened by hand'}): ${err.message || err.name}`);
+  // The queue moved on while this tab was in the background: start the file
+  // when the tab is shown again (no toast now; if the browser still says no
+  // then, that refusal shows it).
+  if (auto && typeof document !== 'undefined' && document.hidden) { _startWhenShown(el); return; }
   if (!auto || typeof showToast !== 'function') return;
   // One toast a minute at most: the message is the same each time.
   if (Date.now() - _autoplayToastAt < 60000) return;
   _autoplayToastAt = Date.now();
   showToast('The browser stopped the next file from starting on its own. Press play to carry on. To stop this, allow autoplay with sound for Vault in the browser (Firefox: the crossed-out play icon in the address bar).', { type: 'error' });
+}
+
+/**
+ * Start `el` the next time the tab is shown, if it is still the player's
+ * file and still paused (nothing else opened or pressed play meanwhile).
+ */
+function _startWhenShown(el) {
+  if (el._startWhenShown) return;
+  // A play or a pause on the element while we wait means someone took over
+  // (a press in a Picture-in-Picture window, say): the wait is dropped, so a
+  // file paused by hand is not started again when the tab comes back.
+  const drop = () => {
+    document.removeEventListener('visibilitychange', onShow);
+    if (typeof el.removeEventListener === 'function') {
+      el.removeEventListener('play', drop);
+      el.removeEventListener('pause', drop);
+    }
+    delete el._startWhenShown;
+  };
+  const onShow = () => {
+    if (document.hidden) return;
+    drop();
+    const current = typeof currentMediaState !== 'undefined' && currentMediaState ? currentMediaState.element : el;
+    if (!el.isConnected || current !== el || !el.paused) return;
+    _startPlayback(el);
+  };
+  el._startWhenShown = onShow;
+  document.addEventListener('visibilitychange', onShow);
+  if (typeof el.addEventListener === 'function') {
+    el.addEventListener('play', drop);
+    el.addEventListener('pause', drop);
+  }
 }
 
 /**

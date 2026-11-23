@@ -349,6 +349,87 @@ test('a deleted collection\'s view is forgotten', () => {
   assert.match(grab('cardDelete', coll), /searchScopeForget\(id\)/);
 });
 
+/**
+ * The search bar locked for the first-launch index build (syncSearchLock),
+ * on the page above. applyFilters is reduced to what it does with the box:
+ * sync the view, move typed text into the hold, and record the text the
+ * grid would be searched with.
+ */
+function lockedPage() {
+  const ctx = page();
+  ctx.els.searchInput.disabled = false;
+  ctx.els.searchInput.placeholder = 'Search';
+  vm.runInContext(`
+    const Library = { index: { state: 'building', progress: 0.4 } };
+    let _searchLock = null;
+    globalThis.searches = [];
+    function applyFilters() {
+      syncSearchScope();
+      if (_searchLock) _holdLockedSearchText(document.getElementById('searchInput'));
+      searches.push(SearchScopes.key + ':' + els.searchInput.value);
+    }
+    ${grab('_searchLockPlaceholder')}
+    ${grab('_holdLockedSearchText')}
+    ${grab('syncSearchLock')}
+    globalThis.indexState = (st) => { Library.index.state = st; syncSearchLock(); };
+    globalThis.open = (tab, coll) => { currentTab = tab; activeCollectionId = coll; applyFilters(); return els.searchInput.value; };
+  `, ctx);
+  return ctx;
+}
+
+test('index ready while a collection plays: the held Library search stays the Library\'s, the collection is not cut', () => {
+  // The reported stop: first load during the index build with last time's
+  // Library search held, a collection opened and played, then the index is
+  // ready. The held text used to go into the collection's box and search it,
+  // so the list under the player shrank to the matching file and nothing
+  // played next.
+  const ctx = lockedPage();
+  ctx.els.searchInput.value = 'Long 1';                      // restored from last time
+  ctx.indexState('building');
+  assert.strictEqual(ctx.els.searchInput.value, '', 'held while the index builds');
+  assert.strictEqual(ctx.open('collections', 2), '', 'the collection shows all of itself');
+  ctx.searches.length = 0;
+
+  ctx.indexState('ready');
+  assert.strictEqual(ctx.els.searchInput.disabled, false);
+  assert.strictEqual(ctx.els.searchInput.placeholder, 'Search');
+  assert.strictEqual(ctx.els.searchInput.value, '', 'the collection\'s box stays empty');
+  assert.deepStrictEqual([...ctx.searches], [], 'the collection is not searched again');
+  assert.strictEqual(ctx.libraryText(), 'Long 1', 'the Library keeps its search');
+  assert.strictEqual(ctx.persisted({ searchText: '' }).searchText, 'Long 1', 'and remembers it for next launch');
+
+  assert.strictEqual(ctx.open('collections', null), '');
+  assert.strictEqual(ctx.open('library', null), 'Long 1', 'back in the Library, the search runs there');
+  assert.deepStrictEqual([...ctx.searches].pop(), 'library:Long 1');
+});
+
+test('index ready with the Library on screen: the held search goes back in the box and runs, as before', () => {
+  const ctx = lockedPage();
+  ctx.els.searchInput.value = 'beach';
+  ctx.indexState('building');
+  assert.strictEqual(ctx.els.searchInput.disabled, true);
+  ctx.searches.length = 0;
+  ctx.indexState('ready');
+  assert.strictEqual(ctx.els.searchInput.value, 'beach');
+  assert.deepStrictEqual([...ctx.searches], ['library:beach']);
+});
+
+test('a search held inside a collection waits there, never in the Library', () => {
+  const ctx = lockedPage();
+  ctx.indexState('building');
+  ctx.open('collections', 4);
+  ctx.els.searchInput.value = 'intro';                       // a saved search clicked in the collection
+  ctx.open('collections', 4);
+  assert.strictEqual(ctx.els.searchInput.value, '', 'held');
+  ctx.open('library', null);
+  ctx.searches.length = 0;
+  ctx.indexState('ready');
+  assert.strictEqual(ctx.els.searchInput.value, '', 'the Library box stays empty');
+  assert.deepStrictEqual([...ctx.searches], []);
+  assert.strictEqual(ctx.open('collections', 4), 'intro', 'the collection gets its own back');
+  assert.match(grab('persistSearchState'), /_searchLock\.key === 'library'/, 'only a Library hold is remembered as the Library\'s search');
+});
+
 test('the launch restore puts the remembered state in the Library, even when Collections came back first', () => {
   const restore = grab('restoreLastSearchState');
   assert.ok(restore.indexOf('syncSearchScope();') < restore.indexOf('restoreFilterState(state)'));

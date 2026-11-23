@@ -1045,7 +1045,7 @@ function afterResults(keepPage) {
    meanwhile) is held, kept in the saved session, and runs as soon as the
    index is ready. */
 
-let _searchLock = null;   // { text, placeholder } while the bar is locked
+let _searchLock = null;   // { text, key, placeholder } while the bar is locked (key: the view the text belongs to)
 
 function _searchLockPlaceholder() {
   const idx = Library.index;
@@ -1058,6 +1058,7 @@ function _searchLockPlaceholder() {
 function _holdLockedSearchText(input) {
   if (!_searchLock || !input || !input.value) return;
   _searchLock.text = input.value;
+  _searchLock.key = SearchScopes.key;
   input.value = '';
   if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
   if (typeof updateSearchStarButton === 'function') updateSearchStarButton();
@@ -1069,7 +1070,7 @@ function syncSearchLock() {
   const st = Library.index.state;
   if (st === 'building' || st === 'preparing') {
     if (!_searchLock) {
-      _searchLock = { text: '', placeholder: input.placeholder };
+      _searchLock = { text: '', key: SearchScopes.key, placeholder: input.placeholder };
       input.disabled = true;
       const had = !!input.value;
       _holdLockedSearchText(input);
@@ -1078,11 +1079,18 @@ function syncSearchLock() {
     }
     input.placeholder = _searchLockPlaceholder();
   } else if (_searchLock) {
-    const { text, placeholder } = _searchLock;
+    const { text, key, placeholder } = _searchLock;
     _searchLock = null;
     input.disabled = false;
     input.placeholder = placeholder;
-    if (text && !input.value) {
+    if (text && key !== SearchScopes.key) {
+      // The held search belongs to a view that is not on screen (the Library's
+      // remembered search, with a collection open now): it waits in that view
+      // and runs when the user goes back. Searching the open collection with
+      // it would cut the list under the player, and the next file never plays.
+      const there = SearchScopes.views.get(key) || SEARCH_SCOPE_EMPTY;
+      if (!there.text) SearchScopes.views.set(key, { ...there, text });
+    } else if (text && !input.value) {
       input.value = text;
       if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
       if (typeof updateSearchStarButton === 'function') updateSearchStarButton();
@@ -1142,7 +1150,7 @@ function persistSearchState() {
     const state = searchScopePersisted(SearchScopes, captureCurrentFilterState(),
       Object.keys(captureFilterControls()));
     // Closing during the index build must not forget the held search
-    if (_searchLock && _searchLock.text && !state.searchText) state.searchText = _searchLock.text;
+    if (_searchLock && _searchLock.text && _searchLock.key === 'library' && !state.searchText) state.searchText = _searchLock.text;
     localStorage.setItem(LS_SEARCH_STATE, JSON.stringify(state));
   } catch {}
 }
