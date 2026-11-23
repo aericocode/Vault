@@ -958,6 +958,44 @@ test('the cache: same path, size and time come from memory; a changed file is ch
   assert.strictEqual(meta._stateForTest().cache, 0);
 });
 
+test('the cache: a modified time just before a millisecond\'s end is read the way fs.statSync reads it; another millisecond is another file', async (t) => {
+  meta.forget();
+  const p = put(jpegWith([comSeg('first words')]));
+  // 50 ns before ...462 ms. fs.statSync's mtimeMs (a double) rounds it up to
+  // ...462; the nanoseconds cut to whole milliseconds say ...461.
+  const NS = 1700000000461999950n;
+  const AS_STAT = 1700000000462;
+  // Linux: the real file gets that time (touch takes nanoseconds) and Node
+  // itself shows the rounding. Elsewhere (NTFS keeps 100 ns ticks, and Node
+  // sets whole milliseconds there) meta.js is shown that time instead.
+  let real = false;
+  if (process.platform === 'linux') {
+    const r = spawnSync('touch', ['-d', '@1700000000.461999950', p]);
+    real = r.status === 0 && fs.statSync(p, { bigint: true }).mtimeNs === NS;
+  }
+  if (real) {
+    assert.strictEqual(fs.statSync(p).mtimeMs, AS_STAT, 'Node reads it as the next millisecond');
+  } else {
+    const stat = fs.promises.stat;
+    fs.promises.stat = async function (q, o) {
+      const st = await stat.call(this, q, o);
+      if (q === p && o && o.bigint) st.mtimeNs = NS;
+      return st;
+    };
+    t.after(() => { fs.promises.stat = stat; });
+  }
+  t.after(() => meta.forget());
+  const size = fs.statSync(p).size;
+  const a = await meta.checkFile({ path: p });
+  assert.strictEqual(a.status, 'personal');
+  // The file just checked is found, with the time fs.statSync gives for it.
+  assert.strictEqual(meta.cached({ path: p, size, mtimeMs: AS_STAT }), a);
+  // A time read as another millisecond, or another size, is another file.
+  assert.strictEqual(meta.cached({ path: p, size, mtimeMs: AS_STAT - 1 }), null);
+  assert.strictEqual(meta.cached({ path: p, size, mtimeMs: AS_STAT + 1 }), null);
+  assert.strictEqual(meta.cached({ path: p, size: size + 1, mtimeMs: AS_STAT }), null);
+});
+
 test('a step 1 check runs a few at a time and never blocks: hundreds of files', async () => {
   meta.forget();
   const files = [];
