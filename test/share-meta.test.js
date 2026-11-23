@@ -307,7 +307,11 @@ test('hostile JPEGs: loops, offsets out of range, huge counts, truncation, garba
   const whole = jpegWith([exifSeg(tiff({ ifd0: [{ tag: 0x013b, type: 2, value: 'Sam' }] }))]);
   assert.strictEqual((await meta.detect(put(whole.subarray(0, 30)))).status, 'failed');
   assert.strictEqual((await meta.detect(put(Buffer.from([0xff, 0xd8, 0xff])))).status, 'failed');
-  assert.strictEqual((await meta.detect(put(Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), crypto.randomBytes(4000)])))).status, 'failed');
+  // Random bytes: never clean. About 1 time in 3000 they start with a comment
+  // segment that reads as one, and "personal" is a right answer for that too.
+  assert.notStrictEqual((await meta.detect(put(Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), crypto.randomBytes(4000)])))).status, 'clean');
+  // Fixed bytes that are no segment at all: failed.
+  assert.strictEqual((await meta.detect(put(Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(4000, 0x41)])))).status, 'failed');
   // A segment length below 2.
   assert.strictEqual((await meta.detect(put(Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x01, 0, 0, 0, 0])))).status, 'failed');
   // Thousands of tiny segments: stops at the limit, not clean.
