@@ -9,6 +9,11 @@
 /* ── Menu: four small groups, a line icon before each name ─────────────── */
 
 body.layout-modern .settings-nav { flex-basis: 220px; padding: 0.8rem 0.6rem; gap: 0.1rem; }
+/* The column takes the menu's 220px; the menu fills it above Exit Vault. */
+body.layout-modern .settings-side { flex-basis: 220px; }
+body.layout-modern .settings-side > .settings-nav { flex: 1 1 auto; }
+body.layout-modern .settings-side-foot { padding: 0.6rem 0.6rem 0.7rem; }
+body.layout-modern .settings-exit-btn { font-size: 0.84rem; padding: 0.4rem 0.75rem; }
 
 body.layout-modern .settings-nav-group {
   margin: 0.85rem 0.7rem 0.3rem;
@@ -343,6 +348,7 @@ body.layout-modern .settings-card .faces-privacy { margin-top: 0; }
   body.layout-modern .settings-nav-group { display: none; }
   /* The menu is a row here: the 220px basis would become its height. */
   body.layout-modern .settings-nav { flex: none; padding: 0.9rem 0.6rem; }
+  body.layout-modern .settings-side { flex: none; }
 }
 
 /* ── Theme (General > Look): Brightness, Colors, Custom ───────────────────

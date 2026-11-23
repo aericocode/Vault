@@ -861,6 +861,104 @@ app.get('/api/about', (req, res) => {
   res.json({ name: 'Vault', version: pkg.version, platform: process.platform });
 });
 
+/* ── Exit Vault (Settings > General) ────────────────────────────────────────
+   A Vault double-clicked on Linux runs with no terminal window, so there was
+   no visible way to stop it. POST /api/exit runs the same graceful shutdown
+   as Ctrl+C (_gracefulExit): it answers first, then shuts down.
+
+   Guards. Every route already has the Host allowlist (DNS rebinding), Fetch
+   Metadata (another site's request) and the Origin check for writes. Being
+   under /api it also sits behind the lock gate: 423 while the library is
+   locked, like Settings itself, which needs an unlocked library. On top of
+   those, this route alone:
+    - needs an Origin naming this server. The general check lets a write with
+      no Origin through (curl, native tools); browsers send Origin on every
+      POST, so a missing one is never Vault's own page;
+    - needs Sec-Fetch-Site same-origin when the browser sends one (the
+      general gate also lets `none` through, which a page's fetch never is);
+    - needs the JSON body {"exit": true}: a <form> cannot send JSON, and a
+      fetch from another origin with it needs a CORS preflight Vault never
+      grants.
+   A second press while shutting down answers 200 again and does nothing. */
+
+let _exitStarted = false;
+// Shutdown is _gracefulExit, plus a last resort: if it has not ended the
+// process in EXIT_WATCHDOG_MS (something it waits on hangs), the process ends
+// anyway, because a Vault with no terminal would otherwise be left running
+// with nothing on screen to stop it. Tests swap this for a stub.
+const EXIT_WATCHDOG_MS = 15 * 1000;
+const _defaultExit = () => {
+  const t = setTimeout(() => {
+    console.warn('[exit] shutdown did not finish in time; ending now');
+    process.exit(0);
+  }, EXIT_WATCHDOG_MS);
+  if (t.unref) t.unref();
+  return _gracefulExit('exit');
+};
+let _exitNow = _defaultExit;
+
+/** Why this request may not stop Vault, or null when it may. */
+function _exitRefusal(req) {
+  const origin = req.headers.origin;
+  if (typeof origin !== 'string' || !_allowedOrigins().has(origin)) {
+    return { status: 403, error: 'Vault can only be stopped from its own page.', code: 'EXIT_ORIGIN' };
+  }
+  const site = String(req.headers['sec-fetch-site'] || '').trim().toLowerCase();
+  if (site && site !== 'same-origin') {
+    return { status: 403, error: 'Vault can only be stopped from its own page.', code: 'EXIT_SITE' };
+  }
+  if (!req.is('application/json') || !req.body || req.body.exit !== true) {
+    return { status: 400, error: 'Send {"exit": true} as JSON.', code: 'EXIT_BODY' };
+  }
+  return null;
+}
+
+/** What stopping now would cut short, for the line in the page's confirm. */
+function _exitActivity() {
+  let share = null;
+  try {
+    // Only asked when the share service is loaded: nothing to stop otherwise.
+    const svc = require.cache[require.resolve('../lib/share/service')];
+    if (svc && typeof svc.exports.exitActivity === 'function') share = svc.exports.exitActivity();
+  } catch {}
+  let aiScan = false;
+  try {
+    aiScan = !!(importQueue.inFlight() || (!aiScanMode.isOff() && importQueue.isActive()) || _rescanning.size > 0);
+  } catch {}
+  return { share, aiScan };
+}
+
+app.get('/api/exit', (req, res) => res.json(_exitActivity()));
+
+app.post('/api/exit', (req, res) => {
+  const refused = _exitRefusal(req);
+  if (refused) {
+    console.warn(`[exit] refused (${refused.code})`);
+    return res.status(refused.status).json({ error: refused.error, code: refused.code });
+  }
+  if (_exitStarted) return res.json({ ok: true, stopping: true });
+  _exitStarted = true;
+  console.log('');
+  console.log('  Exit Vault was pressed in Settings. Vault is stopping.');
+  console.log('');
+  // The answer goes out before anything stops. Connection: close, so the
+  // browser does not send its next request down this socket as it closes.
+  let started = false;
+  const go = () => {
+    if (started) return;
+    started = true;
+    setImmediate(() => {
+      Promise.resolve().then(() => _exitNow()).catch((err) => {
+        console.warn(`[exit] shutdown failed: ${err && err.message}`);
+      });
+    });
+  };
+  res.on('finish', go);
+  res.on('close', go);
+  res.set('Connection', 'close');
+  res.json({ ok: true });
+});
+
 // Settings › About › Copy diagnostics: a plain-text report (version, OS,
 // distro, desktop session, GPU, tool versions) for bug reports. Read only,
 // and behind the same gates as every /api route (host check, fetch metadata,
@@ -4295,39 +4393,58 @@ function wipeTempDir() {
   return n;
 }
 
+/**
+ * The one graceful shutdown: Ctrl+C (SIGINT), SIGTERM, SIGHUP, and Exit Vault
+ * in Settings (POST /api/exit, signal 'exit'). Ends the process.
+ */
+const _EXIT_CODES = { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 };
+async function _gracefulExit(signal) {
+  // An open Stage window closes the way its own Close does: mpv is asked to
+  // quit and waited for (killed if it has not gone in 2 s). It plays files
+  // from this server, which is about to stop answering.
+  try { await stageRouter.shutdown(); } catch {}
+  // Producers first, and WAITED FOR: each owns an FFmpeg child and a temp dir
+  // under tempDir, and the children have to be gone before the wipe, or one
+  // still writes into the directory being cleared (or outlives the server).
+  try { await require('../lib/stream/session').stopAll(); } catch {}
+  // Share privately: a 7-Zip still packing is stopped and its work folder
+  // (the list of original paths, staged copies, part files) deleted. Only
+  // when the share service was loaded; anything it cannot delete is left
+  // to the clean-up on the next unlocked start.
+  try {
+    const svc = require.cache[require.resolve('../lib/share/service')];
+    if (svc) await svc.exports.shutdown();
+  } catch {}
+  // Linux: any other child still running (an ffmpeg render, a Python helper)
+  // is asked to stop and given a moment. Ctrl+C in a terminal reaches them
+  // anyway; a Vault started with no terminal and stopped by Exit Vault or
+  // SIGTERM would otherwise leave them running. See lib/own-children.js.
+  try { await require('../lib/own-children').stopOwnChildren(); } catch {}
+  try { wipeTempDir(); } catch {}
+  try { secureAssets.close(); } catch {}
+  // The library closes here rather than with the process: nothing can write
+  // after this, since process.exit below runs in the same turn.
+  try { db.close(); } catch {}
+  // A missing-files probe stuck on an unreachable share would hold the exit
+  // for up to ~40 s (Node joins worker threads at exit). Everything above is
+  // already done, so end at once in that case.
+  try {
+    if (require('../lib/exists-check').hasStuckWorkers()) process.kill(process.pid, 'SIGKILL');
+  } catch {}
+  process.exit(_EXIT_CODES[signal] ?? 0);
+}
+
 let _shutdownHooked = false;
 function _installShutdownHooks() {
   if (_shutdownHooked) return;
   _shutdownHooked = true;
-  const onExit = async (signal) => {
-    // Producers first, and WAITED FOR: each owns an FFmpeg child and a temp dir
-    // under tempDir, and the children have to be gone before the wipe, or one
-    // still writes into the directory being cleared (or outlives the server).
-    try { await require('../lib/stream/session').stopAll(); } catch {}
-    // Share privately: a 7-Zip still packing is stopped and its work folder
-    // (the list of original paths, staged copies, part files) deleted. Only
-    // when the share service was loaded; anything it cannot delete is left
-    // to the clean-up on the next unlocked start.
-    try {
-      const svc = require.cache[require.resolve('../lib/share/service')];
-      if (svc) await svc.exports.shutdown();
-    } catch {}
-    try { wipeTempDir(); } catch {}
-    try { secureAssets.close(); } catch {}
-    // A missing-files probe stuck on an unreachable share would hold the exit
-    // for up to ~40 s (Node joins worker threads at exit). Everything above is
-    // already done, so end at once in that case.
-    try {
-      if (require('../lib/exists-check').hasStuckWorkers()) process.kill(process.pid, 'SIGKILL');
-    } catch {}
-    process.exit(signal === 'SIGTERM' ? 143 : signal === 'SIGHUP' ? 129 : 130);
-  };
-  process.on('SIGINT', () => onExit('SIGINT'));
-  process.on('SIGTERM', () => onExit('SIGTERM'));
-  // Closing the terminal Vault runs in sends SIGHUP (Linux, macOS). Without
-  // this the temp wipe, the asset close and the stream stop above never ran.
-  // (Windows only raises it for a closed console window, and is left as it was.)
-  if (process.platform !== 'win32') process.on('SIGHUP', () => onExit('SIGHUP'));
+  process.on('SIGINT', () => _gracefulExit('SIGINT'));
+  process.on('SIGTERM', () => _gracefulExit('SIGTERM'));
+  // Closing the terminal Vault runs in sends SIGHUP (Linux, macOS; on Windows
+  // Node raises it for a closed console window, and Windows ends the process
+  // about 10 s later whatever happens). Without this the Stage close, the temp
+  // wipe, the asset close and the stream stop above never ran.
+  process.on('SIGHUP', () => _gracefulExit('SIGHUP'));
 }
 
 // One-time idempotent boot repair: images/gifs imported through the viewer's
@@ -4692,8 +4809,14 @@ if (require.main === module) {
 // Tests only: swap the Save As window for a fake (null puts the real one back).
 function _setSaveDialogForTest(fn) { _saveDialog = fn || _defaultSaveDialog; }
 
+// Tests only: swap Exit Vault's shutdown for a stub (null puts the real one
+// back) and forget that it was pressed.
+function _setExitForTest(fn) { _exitNow = fn || _defaultExit; _exitStarted = false; }
+
 module.exports = {
-  app, start, run: start, isLockGatedPath, _setSaveDialogForTest, _stageRouter: stageRouter, _vaultScanProbe,
+  app, start, run: start, isLockGatedPath, _setSaveDialogForTest, _setExitForTest, _stageRouter: stageRouter, _vaultScanProbe,
+  // Tests only: the Ctrl+C / SIGTERM / SIGHUP handlers start() installs.
+  _installShutdownHooks,
   // Tests only: fake pickers and drop resolver for Import playlist (null restores).
   _setPlaylistDialogsForTest: playlistImportRoutes._setDialogsForTest,
   _playlistPickerScripts: { playlist: PLAYLIST_PICKER_PS1, folder: FIND_FOLDER_PICKER_PS1 },

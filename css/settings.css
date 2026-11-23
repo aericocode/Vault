@@ -165,6 +165,46 @@
   color: var(--on-accent);
 }
 
+/* The menu column: the menu scrolls, Exit Vault stays at its bottom left
+   whichever page is open (player-lib/settings.js). The column carries the
+   menu's width, border and background; the menu fills what is left. */
+.settings-side {
+  flex: 0 0 200px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+.settings-side > .settings-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  border-right: none;
+}
+.settings-side-foot {
+  flex: none;
+  padding: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+/* Quiet on purpose: a plain outline, never the accent. */
+.settings-exit-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.settings-exit-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+.settings-exit-btn:disabled { opacity: 0.5; cursor: default; }
+
 .settings-body {
   flex: 1;
   min-width: 0;
@@ -791,6 +831,16 @@ body.layout-modern .models-copy.is-copied {
     overflow-x: auto;
   }
   .settings-nav-item { white-space: nowrap; }
+  /* The menu is a row here; Exit Vault sits at its right end. */
+  .settings-side {
+    flex: none;
+    flex-direction: row;
+    align-items: center;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .settings-side > .settings-nav { min-width: 0; border-bottom: none; }
+  .settings-side-foot { border-top: none; border-left: 1px solid var(--border); padding: 0.4rem 0.6rem; }
 }
 
 /* =========================================================================

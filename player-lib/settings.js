@@ -789,6 +789,31 @@
 
   const openDialogEl = () => [...document.querySelectorAll('#settingsBody .settings-dlg-ov:not([hidden])')].pop() || null;
 
+  /* Exit Vault: one quiet button pinned under the Settings menu, in both
+     looks and on every page (a Vault double-clicked on Linux has no terminal
+     window to stop it from). The press asks first and does the rest in
+     player-lib/exit-vault.js (window.vaultExitVault). */
+  const EXIT_HINT = 'Stops Vault on this computer. Start it again from its folder.';
+
+  function wireExitButton(overlay) {
+    const btn = overlay.querySelector('#settingsExitBtn');
+    if (!btn) return;
+    const press = async () => {
+      if (btn.disabled || typeof window.vaultExitVault !== 'function') return;
+      btn.disabled = true;
+      try { await window.vaultExitVault(); } finally { if (btn.isConnected) btn.disabled = false; }
+    };
+    btn.addEventListener('click', press);
+    // The page's shortcut handler takes Space (play / pause), so the
+    // button's own Space and Enter are handled here, as for the theme buttons.
+    btn.addEventListener('keydown', (e) => {
+      if (!(e.key === ' ' || e.key === 'Spacebar' || e.key === 'Enter')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      press();
+    });
+  }
+
   function buildModalShell() {
     if (document.getElementById('settingsOverlay')) return;
     const overlay = document.createElement('div');
@@ -804,14 +829,21 @@
           <button class="settings-close" id="settingsCloseBtn" title="Close" aria-label="Close">&times;</button>
         </div>
         <div class="settings-layout">
-          <nav class="settings-nav" id="settingsNav" aria-label="Settings pages">${navItemsHtml()}
-          </nav>
+          <div class="settings-side">
+            <nav class="settings-nav" id="settingsNav" aria-label="Settings pages">${navItemsHtml()}
+            </nav>
+            <div class="settings-side-foot">
+              <button type="button" class="settings-exit-btn" id="settingsExitBtn" data-exit-vault
+                      title="${EXIT_HINT}">Exit Vault</button>
+            </div>
+          </div>
           <div class="settings-body" id="settingsBody"></div>
         </div>
       </div>`;
     document.body.appendChild(overlay);
 
     overlay.querySelector('#settingsCloseBtn').addEventListener('click', closeModal);
+    wireExitButton(overlay);
     // One listener for the menu, so it keeps working when the menu is
     // rebuilt for the other look.
     overlay.querySelector('#settingsNav').addEventListener('click', (e) => {

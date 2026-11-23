@@ -454,6 +454,25 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
   // Never leave mpv behind (Windows also ends it with Vault's process, mpv-host.js).
   process.on('exit', () => { try { if (host) host.kill(); } catch {} });
 
+  /**
+   * Vault is stopping (server/index.js _gracefulExit: Ctrl+C, SIGTERM, a
+   * closed terminal window, Exit Vault): close the Stage window the way its
+   * own Close does, asking mpv to quit, and wait for it to go. An mpv still
+   * there after waitMs (counted in steps, not by the clock) is killed. The
+   * 'exit' kill above stays as the last word.
+   */
+  async function shutdown({ waitMs = 2000, stepMs = 50 } = {}) {
+    const h = host;
+    if (!h || !h.alive()) return { closed: false };
+    try { runner.close(); } catch {}
+    for (let i = 0; i < Math.ceil(waitMs / stepMs) && h.alive(); i++) {
+      await new Promise(r => setTimeout(r, stepMs));
+    }
+    if (!h.alive()) return { closed: true, killed: false };
+    try { h.kill(); } catch {}
+    return { closed: true, killed: true };
+  }
+
   /* ── Routes ──────────────────────────────────────────────────────── */
 
   router.get('/api/stage/state', async (req, res) => {
@@ -607,6 +626,7 @@ function buildRouter({ lib = {}, pickMpv = null, onSettingsSaved = null, env = p
   router._runner = runner;
   router._engine = () => engine;
   router._host = () => host;
+  router.shutdown = shutdown;
   return router;
 }
 

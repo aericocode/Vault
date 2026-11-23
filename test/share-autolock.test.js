@@ -292,6 +292,7 @@ test('held while packing; once packed (checked, waiting for the user) the next t
   const share = service.start({ mediaIds: [mediaId] });
   await until(() => packing, 'the pack started');
   assert.strictEqual(service.isWorking(), true);
+  assert.strictEqual(service.exitActivity(), 'packing', 'Exit Vault would say a share is being packed');
   idle();
   assert.strictEqual(await vault._autolockTick(), false, 'packing holds the autolock');
   assert.strictEqual(vault.isLocked(), false);
@@ -301,6 +302,7 @@ test('held while packing; once packed (checked, waiting for the user) the next t
   await until(() => statusOf(share.id) === 'checked', 'packed and checked');
   await service._idle();
   assert.strictEqual(service.isWorking(), false, 'checked waits for the user: no hold');
+  assert.strictEqual(service.exitActivity(), null, 'nothing for Exit Vault to stop');
   assert.strictEqual(await vault._autolockTick(), true, 'the lock comes on the next tick');
   assert.strictEqual(vault.isLocked(), true);
 });
@@ -363,6 +365,7 @@ test('held while uploading and while a second upload waits in line; the lock com
   await until(() => c.uploads.length === 1, 'the first part is in flight');
   idle();
   assert.strictEqual(service.isWorking(), true);
+  assert.strictEqual(service.exitActivity(), 'uploading', 'Exit Vault would say a share is uploading');
   assert.strictEqual(await vault._autolockTick(), false, 'an upload holds the autolock');
   assert.strictEqual(vault.isLocked(), false);
   c.uploads[0].go.resolve();
@@ -373,6 +376,7 @@ test('held while uploading and while a second upload waits in line; the lock com
   await until(() => statusOf(b) === 'uploaded', 'the second share uploaded');
   await service._idle();
   assert.strictEqual(service.isWorking(), false, 'uploaded: no hold');
+  assert.strictEqual(service.exitActivity(), null);
   assert.strictEqual(await vault._autolockTick(), true, 'the lock comes on the next tick');
 });
 
@@ -403,6 +407,7 @@ test('not held for paused, not_finished, failed or checked shares', async (t) =>
   await service.pause(s);
   assert.strictEqual(statusOf(s), 'paused');
   assert.strictEqual(service.isWorking(), false, 'paused: no hold');
+  assert.strictEqual(service.exitActivity(), null, 'a paused upload is not stopped by Exit Vault');
   // Rows that wait on the user, with no work behind them.
   const rows = ['not_finished', 'failed', 'checked'].map((status) => { const id = makeChecked(); store.updateShare(id, { status }); return id; });
   assert.strictEqual(service.isWorking(), false);
